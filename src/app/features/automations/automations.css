@@ -15,6 +15,11 @@
   min-height: 0;
 }
 
+/* menus opened from inside the dialog must sit above the modal layer */
+.popover.auto-menu {
+  z-index: calc(var(--z-modal) + 10);
+}
+
 /* ---------- rail ---------- */
 .auto-rail {
   display: flex;
@@ -664,6 +669,16 @@
 
 /* ---------- small screens ---------- */
 @media (max-width: 760px) {
+  .auto-ed__head {
+    flex-wrap: wrap;
+  }
+  .auto-ed__name {
+    flex-basis: 100%;
+  }
+  .auto-ed__arm {
+    margin-right: auto;
+    padding-left: 0;
+  }
   .auto-modal .modal__body {
     overflow-y: auto;
     display: block;

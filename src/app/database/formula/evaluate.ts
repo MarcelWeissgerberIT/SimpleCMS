@@ -35,6 +35,13 @@ const MAX_STR = 100_000
 
 export const isDate = (v: unknown): v is Date => v instanceof Date
 
+/** End of a date-range value. prop() of a range yields its start (like Notion); dateEnd() reads this. */
+const RANGE_END = new WeakMap<Date, Date>()
+export function withRangeEnd(start: Date, end: Date | null): Date {
+  if (end) RANGE_END.set(start, end)
+  return start
+}
+
 function num(v: FValue, pos: number, fn?: string): number {
   if (v === null || v === '') return 0
   if (typeof v === 'number') return v
@@ -318,6 +325,13 @@ export function evaluate(node: Node, env: EvalEnv): FValue {
       case 'dateBetween': {
         if (a[0] === null || a[1] === null) return null
         return DIFF[unit(a[2], p(2))](date(a[0], p(0), name), date(a[1], p(1), name))
+      }
+      case 'dateStart':
+        return a[0] === null ? null : new Date(date(a[0], p(0), name).getTime())
+      case 'dateEnd': {
+        if (a[0] === null) return null
+        const d = date(a[0], p(0), name)
+        return RANGE_END.get(d) ?? d
       }
       case 'formatDate': {
         if (a[0] === null) return ''

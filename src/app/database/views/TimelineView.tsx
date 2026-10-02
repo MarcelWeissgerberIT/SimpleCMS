@@ -12,7 +12,7 @@ import { PageIcon } from '../../ui/PageIcon'
 import { pointAnchor } from '../../ui/Popover'
 import { useModel, useLocalState } from '../hooks'
 import { useViewActions, EmptyState } from './shared'
-import { eventsOf } from './CalendarView'
+import { eventsOf, PickDateProp } from './CalendarView'
 import { dfLocale, isDateValue, isoWithTime, parseLocal, toISODate, weekStartsOn } from '../model/format'
 import { writeValue } from '../model/actions'
 import { Segmented } from '../parts'
@@ -133,7 +133,7 @@ export default function TimelineView() {
     window.addEventListener('pointerup', onUp)
   }
 
-  if (!prop) return <EmptyState />
+  if (!prop) return <PickDateProp m={m} label={t('database.timeline.pickDate')} />
   const width = range.days * dw
   const ws = weekStartsOn(lang)
   const weekend =

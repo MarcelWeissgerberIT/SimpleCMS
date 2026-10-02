@@ -4,9 +4,10 @@
  */
 import { useMemo, useRef, useState } from 'react'
 import { Check, Ellipsis, Plus, Trash } from 'lucide-react'
-import type { ColorName, Database, PropertyDef, SelectOption, StatusGroup } from '../../store/types'
+import type { ColorName, Database, PropertyDef, PropertyValue, SelectOption, StatusGroup } from '../../store/types'
 import { COLOR_NAMES } from '../../store/types'
 import { useWorkspace } from '../../store/store'
+import { useUI } from '../../store/ui'
 import { Popover } from '../../ui/Popover'
 import { useT } from '../../i18n'
 import { caretToEnd } from './TextEditor'
@@ -72,6 +73,8 @@ export function OptionPicker({
   }
 
   const onKeyDown = (e: React.KeyboardEvent) => {
+    // keys on a nested control (option "…" button, edit menu) belong to that control
+    if (!(e.target as HTMLElement).classList.contains('db-picker__input')) return
     if (e.key === 'ArrowDown') {
       e.preventDefault()
       setActive((a) => Math.min(itemCount - 1, a + 1))
@@ -192,13 +195,42 @@ export function OptionEditMenu({ db, prop, option: initial, anchor, onClose }: {
   const remove = () => {
     const s = useWorkspace.getState()
     const fresh = s.databases[db.id]?.properties.find((p) => p.id === prop.id)
-    s.updateProperty(db.id, prop.id, { options: (fresh?.options ?? []).filter((o) => o.id !== option.id) })
+    const all = fresh?.options ?? []
+    const at = all.findIndex((o) => o.id === option.id)
+    const snapshot: SelectOption = { ...(all[at] ?? option) }
+    s.updateProperty(db.id, prop.id, { options: all.filter((o) => o.id !== option.id) })
+    const touched: Array<[string, PropertyValue]> = []
     for (const row of rowsOf(db.id)) {
       const v = row.properties[prop.id]
-      if (v === option.id) s.setRowProperty(row.id, prop.id, null)
-      else if (Array.isArray(v) && v.includes(option.id)) s.setRowProperty(row.id, prop.id, v.filter((x) => x !== option.id))
+      if (v === option.id) {
+        touched.push([row.id, v])
+        s.setRowProperty(row.id, prop.id, null)
+      } else if (Array.isArray(v) && v.includes(option.id)) {
+        touched.push([row.id, [...v]])
+        s.setRowProperty(row.id, prop.id, v.filter((x) => x !== option.id))
+      }
     }
     onClose()
+    useUI.getState().toast({
+      message: t('database.option.deleted', { name: snapshot.name }),
+      action: {
+        label: t('common.undo'),
+        run: () => {
+          const w = useWorkspace.getState()
+          const p = w.databases[db.id]?.properties.find((x) => x.id === prop.id)
+          if (!p || p.options?.some((o) => o.id === snapshot.id)) return
+          const opts = [...(p.options ?? [])]
+          opts.splice(Math.max(0, Math.min(at, opts.length)), 0, snapshot)
+          w.updateProperty(db.id, prop.id, { options: opts })
+          for (const [rowId, v] of touched) {
+            const cur = w.pages[rowId]?.properties[prop.id]
+            // multi-select: put the option back without dropping picks made since
+            if (Array.isArray(v)) w.setRowProperty(rowId, prop.id, Array.isArray(cur) ? [...new Set([...cur, snapshot.id])] : v)
+            else if (cur === null || cur === undefined) w.setRowProperty(rowId, prop.id, v)
+          }
+        },
+      },
+    })
   }
   const commitName = () => {
     const n = name.trim()

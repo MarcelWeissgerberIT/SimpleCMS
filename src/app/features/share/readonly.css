@@ -1,0 +1,30 @@
+/*
+ * Read-only renders (shared page, slides, history) never show a node selection.
+ * ReadOnlyDoc can leave a NodeSelection on the last atom block; the editor styles it with the
+ * signal colour, which reads as "something is selected" in a view where nothing can be.
+ */
+:is(.one-doc.shv__doc, .one-doc.pres__doc, .one-doc.pres__lede, .hist__doc .one-doc, .hdiff .one-doc) .ProseMirror-selectednode {
+  outline: none;
+}
+
+:is(.one-doc.shv__doc, .one-doc.pres__doc, .one-doc.pres__lede, .hist__doc .one-doc, .hdiff .one-doc) :is(.media-empty, .embed-view, .file-view).is-selected,
+:is(.one-doc.shv__doc, .one-doc.pres__doc, .one-doc.pres__lede, .hist__doc .one-doc, .hdiff .one-doc) .bookmark-card.is-selected .bookmark-card__main {
+  border-color: var(--rule-strong);
+  box-shadow: none;
+}
+
+:is(.one-doc.shv__doc, .one-doc.pres__doc, .one-doc.pres__lede, .hist__doc .one-doc, .hdiff .one-doc) .mermaid-view.is-selected {
+  border-color: var(--rule);
+}
+
+:is(.one-doc.shv__doc, .one-doc.pres__doc, .one-doc.pres__lede, .hist__doc .one-doc, .hdiff .one-doc) .image-view.is-selected .image-view__frame img {
+  outline: none;
+}
+
+:is(.one-doc.shv__doc, .one-doc.pres__doc, .one-doc.pres__lede, .hist__doc .one-doc, .hdiff .one-doc) :is(.math-block.is-selected .math-block__inner, .math-inline.is-selected, .mention.is-selected, .toc-view.is-selected) {
+  background: transparent;
+}
+
+:is(.one-doc.shv__doc, .one-doc.pres__doc, .one-doc.pres__lede, .hist__doc .one-doc, .hdiff .one-doc) hr.ProseMirror-selectednode {
+  background: linear-gradient(var(--rule-strong), var(--rule-strong)) center / 100% 1px no-repeat;
+}

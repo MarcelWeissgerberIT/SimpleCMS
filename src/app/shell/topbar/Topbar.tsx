@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { ChevronsRight, Clock3, Lock, Menu as MenuIcon, MoreHorizontal, Presentation, Star, Waypoints, Home, CalendarDays, CircleSlash } from 'lucide-react'
+import { ArrowLeft, ChevronsRight, Clock3, Lock, Menu as MenuIcon, MoreHorizontal, Presentation, Star, Waypoints, Home, CalendarDays, CircleSlash } from 'lucide-react'
 import { useWorkspace } from '../../store/store'
 import { useUI } from '../../store/ui'
 import { useBreadcrumbs, usePage } from '../../store/selectors'
@@ -13,6 +13,7 @@ import { useT } from '../../i18n'
 import type { Page } from '../../store/types'
 import { useIsMobile, useSaveStatus } from '../lib/hooks'
 import { goToPage, toggleSidebar } from '../lib/actions'
+import { revealMain, useStageView } from '../lib/stage'
 import { PageMenu } from './PageMenu'
 import './topbar.css'
 
@@ -20,7 +21,10 @@ export function Topbar({ route }: { route: Route }) {
   const t = useT()
   const mobile = useIsMobile()
   const collapsed = useWorkspace((s) => s.settings.sidebarCollapsed)
-  const pageId = route.name === 'page' ? route.id : null
+  // while panes fold the main page into a spine, the bar follows the pane in view
+  const paneId = useStageView((s) => s.focusPaneId)
+  const paneIndex = useStageView((s) => s.focusPaneIndex)
+  const pageId = paneId ?? (route.name === 'page' ? route.id : null)
   const page = usePage(pageId)
 
   return (
@@ -38,7 +42,20 @@ export function Topbar({ route }: { route: Route }) {
           </Tooltip>
         )
       )}
+      {paneId && (
+        <Tooltip label={t('shell.topbar.backToMain')}>
+          <button type="button" className="tb-back" onClick={revealMain}>
+            <ArrowLeft size={14} />
+            <span className="tb-back__n">01</span>
+          </button>
+        </Tooltip>
+      )}
       <nav className="tb-crumbs" aria-label={t('shell.topbar.breadcrumbs')}>
+        {paneId && (
+          <span className="tb-pane" aria-label={t('shell.topbar.paneN', { n: paneIndex + 2 })}>
+            {String(paneIndex + 2).padStart(2, '0')}
+          </span>
+        )}
         {page ? <Crumbs page={page} compact={mobile} /> : <RouteCrumb route={route} />}
       </nav>
       <div className="tb-right">

@@ -78,7 +78,7 @@ export function ShortcutList() {
 export function ShortcutsModal({ onClose }: { onClose: () => void }) {
   const t = useT()
   return (
-    <Modal open onClose={onClose} width={760} label="§ KEYS" title={t('shell.cmd.shortcuts')}>
+    <Modal open onClose={onClose} width={760} label={`§ ${t('shell.shortcuts.code')}`} title={t('shell.cmd.shortcuts')}>
       <ShortcutList />
     </Modal>
   )

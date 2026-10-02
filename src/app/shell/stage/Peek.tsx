@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
-import { ChevronsRight, Maximize2, PanelRight, SquareSplitHorizontal } from 'lucide-react'
+import { ArrowLeft, ChevronsRight, Maximize2, PanelRight, SquareSplitHorizontal } from 'lucide-react'
 import { useUI } from '../../store/ui'
+import { useWorkspace } from '../../store/store'
 import { Tooltip } from '../../ui/Tooltip'
 import { useT } from '../../i18n'
 import { PageView } from '../page/PageView'
@@ -25,6 +26,28 @@ function PeekPanel({ id }: { id: string }) {
   const [dragFrac, setDragFrac] = useState<number | null>(null)
   const ref = useRef<HTMLDivElement>(null)
   const [instant] = useState(() => Date.now() - lastClosedAt < 350)
+
+  // links followed inside the peek navigate it in place; keep a trail for "back"
+  const [trail, setTrail] = useState<string[]>([])
+  const shown = useRef(id)
+  const goingBack = useRef(false)
+  useEffect(() => {
+    if (shown.current === id) return
+    const prev = shown.current
+    shown.current = id
+    if (goingBack.current) goingBack.current = false
+    else setTrail((tr) => [...tr, prev].slice(-20))
+    ref.current?.querySelector('.peek__scroll')?.scrollTo({ top: 0 })
+  }, [id])
+  const back = () => {
+    const pages = useWorkspace.getState().pages
+    const rest = trail.filter((p) => !!pages[p])
+    const prev = rest.pop()
+    setTrail(rest)
+    if (!prev) return
+    goingBack.current = true
+    useUI.getState().openPeek(prev, mode)
+  }
 
   const close = () => {
     lastClosedAt = Date.now()
@@ -89,6 +112,13 @@ function PeekPanel({ id }: { id: string }) {
             <ChevronsRight size={16} />
           </button>
         </Tooltip>
+        {trail.length > 0 && (
+          <Tooltip label={t('shell.peek.back')}>
+            <button type="button" className="icon-btn" onClick={back}>
+              <ArrowLeft size={15} />
+            </button>
+          </Tooltip>
+        )}
         <Tooltip label={t('shell.peek.openFull')}>
           <button
             type="button"

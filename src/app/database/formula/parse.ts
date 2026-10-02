@@ -119,6 +119,8 @@ export const ARITY: Record<string, [number, number]> = {
   dateAdd: [3, 3],
   dateSubtract: [3, 3],
   dateBetween: [3, 3],
+  dateStart: [1, 1],
+  dateEnd: [1, 1],
   formatDate: [1, 2],
   year: [1, 1],
   month: [1, 1],

@@ -7,21 +7,40 @@ import { useUI } from '../../store/ui'
 import { newId } from '../../lib/ids'
 import { openPage } from '../../lib/router'
 import { t } from '../../i18n'
-import type { ColorName, Database, ID, Page, PropertyDef, PropertyType, PropertyValue, SelectOption, View } from '../../store/types'
+import type { ColorName, Database, FilterGroup, ID, Page, PropertyDef, PropertyType, PropertyValue, SelectOption, View } from '../../store/types'
 import { COLOR_NAMES } from '../../store/types'
 import { isComputed } from './schema'
 import type { Resolver } from './resolve'
-import { isDateValue } from './format'
+import { dateValueText, isDateValue, isoWithTime, parseDateText, parseNumberText } from './format'
 
 const ws = () => useWorkspace.getState()
 
-/** The relation property on the other side of a two-way relation (implicit pairing). */
+/**
+ * Two-way relations are paired explicitly: turning two-way on creates the reverse property on the
+ * target database with the id `<forward id>.2way`. Only such a pair syncs — two relations that
+ * merely point at each other (created separately) stay independent, and switching two-way off can
+ * only ever remove the property that two-way created or its explicit partner.
+ */
+export const TWO_WAY_SUFFIX = '.2way'
+
 export function pairedRelation(dbId: ID, prop: PropertyDef): { db: Database; prop: PropertyDef } | null {
   if (prop.type !== 'relation' || !prop.relationDatabaseId) return null
   const target = ws().databases[prop.relationDatabaseId]
   if (!target) return null
-  const back = target.properties.find((p) => p.type === 'relation' && p.relationDatabaseId === dbId && p.id !== prop.id)
-  return back ? { db: target, prop: back } : null
+  const partner = (p: PropertyDef | undefined): p is PropertyDef => !!p && p.id !== prop.id && p.type === 'relation' && p.relationDatabaseId === dbId
+  const back = target.properties.find((p) => p.id === prop.id + TWO_WAY_SUFFIX)
+  if (partner(back)) return { db: target, prop: back }
+  if (prop.id.endsWith(TWO_WAY_SUFFIX)) {
+    const fwd = target.properties.find((p) => p.id === prop.id.slice(0, -TWO_WAY_SUFFIX.length))
+    if (partner(fwd)) return { db: target, prop: fwd }
+  }
+  return null
+}
+
+/** A property already holds the reverse id on the target (e.g. the old synced property, retyped). */
+export function twoWayBlocker(dbId: ID, prop: PropertyDef): PropertyDef | null {
+  if (prop.type !== 'relation' || !prop.relationDatabaseId || pairedRelation(dbId, prop)) return null
+  return ws().databases[prop.relationDatabaseId]?.properties.find((p) => p.id === prop.id + TWO_WAY_SUFFIX) ?? null
 }
 
 /** Write a property value; keeps two-way relations in sync. */
@@ -61,9 +80,9 @@ export function rowsOf(dbId: ID): Page[] {
 
 /** Create the reverse relation property on the target database and backfill it. */
 export function enableTwoWay(dbId: ID, prop: PropertyDef): void {
-  if (!prop.relationDatabaseId || pairedRelation(dbId, prop)) return
+  if (!prop.relationDatabaseId || !ws().databases[prop.relationDatabaseId] || pairedRelation(dbId, prop) || twoWayBlocker(dbId, prop)) return
   const srcTitle = ws().pages[dbId]?.title || t('common.untitled')
-  const backId = ws().addProperty(prop.relationDatabaseId, { type: 'relation', name: srcTitle, relationDatabaseId: dbId })
+  const backId = ws().addProperty(prop.relationDatabaseId, { id: prop.id + TWO_WAY_SUFFIX, type: 'relation', name: srcTitle, relationDatabaseId: dbId })
   const back = new Map<ID, ID[]>()
   for (const row of rowsOf(dbId)) {
     for (const id of (row.properties[prop.id] as string[] | undefined) ?? []) back.set(id, [...(back.get(id) ?? []), row.id])
@@ -71,9 +90,130 @@ export function enableTwoWay(dbId: ID, prop: PropertyDef): void {
   for (const [id, ids] of back) ws().setRowProperty(id, backId, ids)
 }
 
+/** Remove the partner property of an explicit two-way pair (undo via toast). */
 export function disableTwoWay(dbId: ID, prop: PropertyDef): void {
   const pair = pairedRelation(dbId, prop)
-  if (pair) ws().deleteProperty(pair.db.id, pair.prop.id)
+  if (pair) deletePropertyWithUndo(pair.db, pair.prop)
+}
+
+/* ---------------- delete property: undo + dangling references ---------------- */
+
+/** The filter without rules on a property (groups left empty go too). */
+function stripFilter(g: FilterGroup | null | undefined, propId: ID): FilterGroup | null {
+  if (!g) return null
+  const items = g.items.flatMap((it): FilterGroup['items'] => {
+    if ('items' in it) {
+      const sub = stripFilter(it, propId)
+      return sub ? [sub] : []
+    }
+    return it.propertyId === propId ? [] : [it]
+  })
+  return items.length ? { ...g, items } : null
+}
+
+/** View settings that would point at a deleted property (the store only clears placement, sorts, group, date). */
+function danglingViewPatch(v: View, propId: ID): Partial<View> | null {
+  const patch: Partial<View> = {}
+  const filter = stripFilter(v.filter, propId)
+  if (JSON.stringify(filter) !== JSON.stringify(v.filter ?? null)) patch.filter = filter
+  if (v.calculations && propId in v.calculations) {
+    const rest = { ...v.calculations }
+    delete rest[propId]
+    patch.calculations = rest
+  }
+  if (v.chart && (v.chart.xPropertyId === propId || v.chart.yPropertyId === propId)) {
+    patch.chart = { ...v.chart }
+    if (v.chart.xPropertyId === propId) patch.chart.xPropertyId = null
+    if (v.chart.yPropertyId === propId) Object.assign(patch.chart, { yPropertyId: null, aggregate: 'count' })
+  }
+  if (v.cardPreview === propId) patch.cardPreview = v.type === 'gallery' ? 'cover' : 'none'
+  return Object.keys(patch).length ? patch : null
+}
+
+const same = (a: unknown, b: unknown) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null)
+
+/**
+ * Delete a property; the toast offers undo (definition, values and every reference). Filter rules,
+ * calculations, chart axes, card previews and rollups that used it are cleared, so nothing is left
+ * pointing at a property that no longer exists.
+ */
+export function deletePropertyWithUndo(db: Database, prop: PropertyDef): void {
+  const st = ws()
+  const fresh = st.databases[db.id]
+  if (!fresh) return
+  const index = fresh.properties.findIndex((p) => p.id === prop.id)
+  if (index < 0) return
+  const def: PropertyDef = JSON.parse(JSON.stringify(fresh.properties[index]))
+  // what the store clears on delete: placement, sorts, grouping, date property
+  const refs = fresh.views.map((v) => ({
+    id: v.id,
+    at: v.visibleProperties.indexOf(prop.id),
+    sortAt: v.sorts.findIndex((x) => x.propertyId === prop.id),
+    sort: v.sorts.find((x) => x.propertyId === prop.id) ?? null,
+    groupBy: v.groupBy === prop.id,
+    dateProperty: v.dateProperty === prop.id,
+  }))
+  // what we clear on top: [view id, before, after] per changed field set
+  const viewPatches = fresh.views.flatMap((v) => {
+    const after = danglingViewPatch(v, prop.id)
+    if (!after) return []
+    const before = Object.fromEntries(Object.keys(after).map((k) => [k, JSON.parse(JSON.stringify(v[k as keyof View] ?? null))])) as Partial<View>
+    return [{ id: v.id, before, after }]
+  })
+  // rollups that went through this relation, or rolled up this property from another database
+  const rollups: Array<{ dbId: ID; propId: ID; before: NonNullable<PropertyDef['rollup']>; after: NonNullable<PropertyDef['rollup']> }> = []
+  for (const d of Object.values(st.databases)) {
+    for (const p of d.properties) {
+      if (p.type !== 'rollup' || !p.rollup) continue
+      const rel = d.properties.find((x) => x.id === p.rollup!.relationPropertyId)
+      if (d.id === db.id && p.rollup.relationPropertyId === prop.id) rollups.push({ dbId: d.id, propId: p.id, before: p.rollup, after: { ...p.rollup, relationPropertyId: '', targetPropertyId: '' } })
+      else if (rel?.relationDatabaseId === db.id && p.rollup.targetPropertyId === prop.id) rollups.push({ dbId: d.id, propId: p.id, before: p.rollup, after: { ...p.rollup, targetPropertyId: '' } })
+    }
+  }
+  const values = rowsOf(db.id)
+    .filter((r) => r.properties[prop.id] !== undefined)
+    .map((r) => [r.id, JSON.parse(JSON.stringify(r.properties[prop.id]))] as const)
+
+  st.deleteProperty(db.id, prop.id)
+  for (const vp of viewPatches) st.updateView(db.id, vp.id, vp.after)
+  for (const r of rollups) st.updateProperty(r.dbId, r.propId, { rollup: r.after })
+
+  useUI.getState().toast({
+    message: t('database.prop.deleted', { name: prop.name }),
+    action: {
+      label: t('common.undo'),
+      run: () => {
+        const w = ws()
+        if (w.databases[db.id]?.properties.some((p) => p.id === prop.id)) return
+        w.addProperty(db.id, def, index)
+        const d = ws().databases[db.id]
+        for (const ref of refs) {
+          const v = d?.views.find((x) => x.id === ref.id)
+          if (!v) continue
+          const patch: Partial<View> = {}
+          const list = v.visibleProperties.filter((x) => x !== prop.id)
+          if (ref.at >= 0) list.splice(Math.min(ref.at, list.length), 0, prop.id)
+          patch.visibleProperties = list
+          if (ref.sort) {
+            const sorts = v.sorts.filter((x) => x.propertyId !== prop.id)
+            sorts.splice(Math.min(ref.sortAt, sorts.length), 0, ref.sort)
+            patch.sorts = sorts
+          }
+          // only take a slot back if nobody changed it meanwhile
+          if (ref.groupBy && !v.groupBy) patch.groupBy = prop.id
+          if (ref.dateProperty && !v.dateProperty) patch.dateProperty = prop.id
+          const vp = viewPatches.find((x) => x.id === ref.id)
+          if (vp) for (const k of Object.keys(vp.after) as Array<keyof View>) if (same(v[k], vp.after[k])) Object.assign(patch, { [k]: vp.before[k] ?? undefined })
+          w.updateView(db.id, ref.id, patch)
+        }
+        for (const r of rollups) {
+          const cur = ws().databases[r.dbId]?.properties.find((p) => p.id === r.propId)
+          if (cur && same(cur.rollup, r.after)) w.updateProperty(r.dbId, r.propId, { rollup: r.before })
+        }
+        for (const [rowId, v] of values) w.setRowProperty(rowId, prop.id, v)
+      },
+    },
+  })
 }
 
 const nextColor = (opts: SelectOption[]): ColorName => COLOR_NAMES.filter((c) => c !== 'default')[opts.length % (COLOR_NAMES.length - 1)]
@@ -82,16 +222,40 @@ export function newOption(name: string, existing: SelectOption[], group?: Select
   return { id: newId(), name, color: nextColor(existing), ...(group ? { group } : {}) }
 }
 
-/** Change a property's type, converting stored values where it makes sense. */
+/** Change a property's type, converting stored values where it makes sense; the toast can undo it. */
 export function changePropertyType(r: Resolver, db: Database, prop: PropertyDef, type: PropertyType): void {
   if (prop.type === type || prop.type === 'title') return
+  const cur = ws().databases[db.id]?.properties.find((p) => p.id === prop.id)
+  if (!cur) return
+  const def: PropertyDef = JSON.parse(JSON.stringify(cur))
+  const values = rowsOf(db.id).map((row) => [row.id, JSON.parse(JSON.stringify(row.properties[prop.id] ?? null))] as const)
+  convertPropertyType(r, db, cur, type)
+  useUI.getState().toast({
+    message: t('database.prop.typeChanged', { name: def.name, type: t(`database.type.${type}`) }),
+    action: {
+      label: t('common.undo'),
+      run: () => {
+        const now = ws().databases[db.id]?.properties.find((p) => p.id === prop.id)
+        if (!now) return
+        // put the old definition back exactly: fields the new type added are cleared
+        const patch: Record<string, unknown> = { ...def }
+        for (const k of Object.keys(now)) if (!(k in def)) patch[k] = undefined
+        ws().updateProperty(db.id, prop.id, patch as Partial<PropertyDef>)
+        for (const [rowId, v] of values) if (ws().pages[rowId]) ws().setRowProperty(rowId, prop.id, v)
+      },
+    },
+  })
+}
+
+function convertPropertyType(r: Resolver, db: Database, prop: PropertyDef, type: PropertyType): void {
   const s = ws()
   const rows = rowsOf(db.id)
   const texts = new Map<ID, string>()
   const lists = new Map<ID, string[]>()
   for (const row of rows) {
     const v = r.value(db, prop, row)
-    texts.set(row.id, r.textOf(db, prop, v))
+    // dates become full, year-bearing text so converting back to a date finds them again
+    texts.set(row.id, prop.type === 'date' && isDateValue(v) ? dateValueText(v, r.ctx.lang) : r.textOf(db, prop, v))
     if (prop.type === 'multi_select') lists.set(row.id, ((v as string[]) ?? []).map((id) => prop.options?.find((o) => o.id === id)?.name ?? '').filter(Boolean))
   }
   const patch: Partial<PropertyDef> = { type }
@@ -140,7 +304,7 @@ export function changePropertyType(r: Resolver, db: Database, prop: PropertyDef,
         break
       case 'number':
       case 'rating': {
-        const n = parseFloat(text.replace(/[^\d.,-]/g, '').replace(',', '.'))
+        const n = parseNumberText(text.replace(/[^\d.,+-]/g, ''), false, r.ctx.lang) ?? NaN
         v = Number.isFinite(n) ? (type === 'rating' ? Math.max(0, Math.min(prop.ratingMax ?? 5, Math.round(n))) : n) : null
         break
       }
@@ -156,11 +320,10 @@ export function changePropertyType(r: Resolver, db: Database, prop: PropertyDef,
         break
       case 'date': {
         const old = row.properties[prop.id]
+        const resolved = r.value(db, prop, row)
         if (isDateValue(old)) v = old
-        else {
-          const d = new Date(text)
-          v = text && !Number.isNaN(d.getTime()) ? { start: d.toISOString().slice(0, 10) } : null
-        }
+        else if (resolved instanceof Date) v = { start: isoWithTime(resolved, true), end: null, includeTime: true }
+        else v = parseDateText(text, r.ctx.lang)
         break
       }
       case 'person':
@@ -261,7 +424,8 @@ function csvCell(s: string): string {
 /** Machine-friendly CSV values: ISO dates, raw numbers; everything else as display text. */
 function csvValue(r: Resolver, db: Database, p: PropertyDef, row: Page): string {
   const v = r.value(db, p, row)
-  if (p.type === 'date' && isDateValue(v)) return v.end ? `${v.start} → ${v.end}` : v.start
+  // ranges as an ISO 8601 interval ("start/end") — one cell, still machine-readable
+  if (p.type === 'date' && isDateValue(v)) return v.end ? `${v.start}/${v.end}` : v.start
   if ((p.type === 'created_time' || p.type === 'last_edited_time') && v instanceof Date) return v.toISOString()
   if ((p.type === 'number' || p.type === 'rating') && typeof v === 'number') return String(v)
   if (p.type === 'checkbox') return v === true ? 'true' : 'false'

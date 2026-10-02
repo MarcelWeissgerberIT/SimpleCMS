@@ -5,7 +5,7 @@ import { useWorkspace } from '../../store/store'
 import { useUI } from '../../store/ui'
 import { selectBreadcrumbs } from '../../store/selectors'
 import { isAIConfigured, runAI } from '../../features'
-import { markdownToDoc } from '../../editor'
+import { markdownToDoc, ReadOnlyDoc } from '../../editor'
 import { PageIcon } from '../../ui/PageIcon'
 import { shortcutLabel, ALT } from '../../ui/controls'
 import { useT } from '../../i18n'
@@ -270,7 +270,8 @@ function AskPanel({ question, pageId, onDone }: { question: string; pageId: ID |
         instruction: question,
         context,
         signal: ctrl.signal,
-        onToken: (tok) => setAnswer((prev) => (prev && tok.startsWith(prev) ? tok : prev + tok)),
+        // runAI streams deltas, not the text so far
+        onToken: (delta) => setAnswer((prev) => prev + delta),
       })
       if (ctrl.signal.aborted) return
       setAnswer(final || '')
@@ -344,7 +345,7 @@ function AskPanel({ question, pageId, onDone }: { question: string; pageId: ID |
               </button>
             )}
           </div>
-          {state === 'error' ? <p className="ask__error">{error}</p> : <div className="ask__answer">{answer || '…'}</div>}
+          {state === 'error' ? <p className="ask__error">{error}</p> : <AskAnswer markdown={answer} />}
           {state === 'done' && answer && (
             <div className="ask__actions">
               {page && !page.settings.locked && page.kind === 'page' && (
@@ -371,4 +372,30 @@ function AskPanel({ question, pageId, onDone }: { question: string; pageId: ID |
       )}
     </div>
   )
+}
+
+/** Claude answers in Markdown — render it like a page (throttled while it streams). */
+function AskAnswer({ markdown }: { markdown: string }) {
+  const shown = useThrottled(markdown, 140)
+  const doc = useMemo(() => (shown.trim() ? markdownToDoc(shown) : null), [shown])
+  if (!doc) return <div className="ask__answer ask__answer--wait">…</div>
+  return (
+    <div className="ask__answer">
+      <ReadOnlyDoc content={doc} className="doc--small ask__doc" />
+    </div>
+  )
+}
+
+function useThrottled<T>(value: T, ms: number): T {
+  const [out, setOut] = useState(value)
+  const last = useRef(0)
+  useEffect(() => {
+    const wait = Math.max(0, last.current + ms - Date.now())
+    const id = window.setTimeout(() => {
+      last.current = Date.now()
+      setOut(value)
+    }, wait)
+    return () => window.clearTimeout(id)
+  }, [value, ms])
+  return out
 }

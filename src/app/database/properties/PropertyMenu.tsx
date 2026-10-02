@@ -2,7 +2,7 @@
  * Property menu (table header / property panel): rename, type-specific settings,
  * change type, sort, filter, hide, insert left/right, duplicate, delete, wrap.
  */
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   ArrowDownWideNarrow,
   ArrowLeftToLine,
@@ -18,17 +18,16 @@ import {
 } from 'lucide-react'
 import type { Database, NumberDisplay, NumberFormat, PropertyDef, PropertyType, RollupFn, View } from '../../store/types'
 import { useWorkspace } from '../../store/store'
-import { useUI } from '../../store/ui'
 import { Popover } from '../../ui/Popover'
 import { MenuList, type MenuEntry } from '../../ui/Menu'
 import { Switch } from '../../ui/controls'
-import { useT, t as tStatic } from '../../i18n'
+import { useT } from '../../i18n'
 import { newId } from '../../lib/ids'
 import { PageIcon } from '../../ui/PageIcon'
 import { OptionsConfig } from './OptionsConfig'
 import { FormulaEditor } from './FormulaEditor'
 import { Segmented, Select, TypeIcon, typeEntries } from '../parts'
-import { changePropertyType, disableTwoWay, duplicateProperty, enableTwoWay, insertProperty, pairedRelation, rowsOf } from '../model/actions'
+import { changePropertyType, deletePropertyWithUndo, disableTwoWay, duplicateProperty, enableTwoWay, insertProperty, pairedRelation, rowsOf, twoWayBlocker } from '../model/actions'
 import { ROLLUP_FNS, isOptionType, operatorsFor, valueKind } from '../model/schema'
 import type { Resolver } from '../model/resolve'
 
@@ -164,39 +163,6 @@ export function PropertyMenu({ db, view, prop, anchor, resolver, onClose, tableM
   )
 }
 
-/** Delete a property; the toast offers undo (restores definition, view placement and values). */
-export function deletePropertyWithUndo(db: Database, prop: PropertyDef) {
-  const st = useWorkspace.getState()
-  const fresh = st.databases[db.id]
-  if (!fresh) return
-  const index = fresh.properties.findIndex((p) => p.id === prop.id)
-  const def: PropertyDef = JSON.parse(JSON.stringify(fresh.properties[index] ?? prop))
-  const placement = fresh.views.map((v) => ({ id: v.id, at: v.visibleProperties.indexOf(prop.id) }))
-  const values = rowsOf(db.id)
-    .filter((r) => r.properties[prop.id] !== undefined)
-    .map((r) => [r.id, JSON.parse(JSON.stringify(r.properties[prop.id]))] as const)
-  st.deleteProperty(db.id, prop.id)
-  useUI.getState().toast({
-    message: tStatic('database.prop.deleted', { name: prop.name }),
-    action: {
-      label: tStatic('common.undo'),
-      run: () => {
-        const w = useWorkspace.getState()
-        w.addProperty(db.id, def, index)
-        const d = useWorkspace.getState().databases[db.id]
-        for (const { id, at } of placement) {
-          const v = d?.views.find((x) => x.id === id)
-          if (!v) continue
-          const list = v.visibleProperties.filter((x) => x !== prop.id)
-          if (at >= 0) list.splice(Math.min(at, list.length), 0, prop.id)
-          w.updateView(db.id, id, { visibleProperties: list })
-        }
-        for (const [rowId, v] of values) w.setRowProperty(rowId, prop.id, v)
-      },
-    },
-  })
-}
-
 /** Type-specific settings block. */
 export function PropertyConfig({ db, prop, onEditFormula }: { db: Database; prop: PropertyDef; onEditFormula: () => void }) {
   const t = useT()
@@ -205,6 +171,8 @@ export function PropertyConfig({ db, prop, onEditFormula }: { db: Database; prop
   const pages = useWorkspace((st) => st.pages)
   const live = useWorkspace((st) => st.databases[db.id]?.properties.find((p) => p.id === prop.id)) ?? prop
   const upd = (patch: Partial<PropertyDef>) => s.updateProperty(db.id, prop.id, patch)
+  // two-way off removes a property on the other database: ask first
+  const [confirmOff, setConfirmOff] = useState(false)
 
   if (isOptionType(live.type)) return <OptionsConfig db={db} prop={live} />
 
@@ -230,7 +198,9 @@ export function PropertyConfig({ db, prop, onEditFormula }: { db: Database; prop
       .map((d) => ({ d, p: pages[d.id] }))
       .filter((x) => x.p && !x.p.trashed)
     const pair = pairedRelation(db.id, live)
+    const blocker = twoWayBlocker(db.id, live)
     const target = live.relationDatabaseId ? pages[live.relationDatabaseId] : undefined
+    const targetName = target?.title || t('common.untitled')
     return (
       <div className="db-cfg">
         <div className="db-cfg__row">
@@ -240,15 +210,51 @@ export function PropertyConfig({ db, prop, onEditFormula }: { db: Database; prop
             placeholder={t('database.relation.pickTarget')}
             searchable
             items={targets.map((x) => ({ value: x.d.id, label: x.p.title || t('common.untitled'), icon: <PageIcon icon={x.p.icon} kind="database" size={14} /> }))}
-            onChange={(v) => upd({ relationDatabaseId: v })}
+            onChange={(v) => {
+              setConfirmOff(false)
+              upd({ relationDatabaseId: v })
+            }}
           />
         </div>
         {target && (
           <label className="db-cfg__row db-cfg__row--switch">
-            <span>{t('database.relation.twoWay', { db: target.title || t('common.untitled') })}</span>
-            <Switch checked={!!pair} label={t('database.relation.twoWay', { db: target.title })} onChange={(on) => (on ? enableTwoWay(db.id, live) : disableTwoWay(db.id, live))} />
+            <span>{t('database.relation.twoWay', { db: targetName })}</span>
+            <Switch
+              checked={!!pair && !confirmOff}
+              disabled={!pair && !!blocker}
+              label={t('database.relation.twoWay', { db: targetName })}
+              onChange={(on) => {
+                if (on) {
+                  setConfirmOff(false)
+                  if (!pair) enableTwoWay(db.id, live)
+                } else if (pair) setConfirmOff(true)
+              }}
+            />
           </label>
         )}
+        {pair && confirmOff && (
+          <div className="db-cfg__confirm" role="alert">
+            <span>{t('database.relation.twoWayOffConfirm', { prop: pair.prop.name, db: targetName })}</span>
+            <span className="db-cfg__confirmbtns">
+              <button type="button" className="btn btn--ghost btn--sm" onClick={() => setConfirmOff(false)}>
+                {t('common.cancel')}
+              </button>
+              <button
+                type="button"
+                className="btn btn--sm btn--danger"
+                data-autofocus=""
+                onClick={() => {
+                  setConfirmOff(false)
+                  disableTwoWay(db.id, live)
+                }}
+              >
+                {t('database.relation.twoWayOff', { prop: pair.prop.name })}
+              </button>
+            </span>
+          </div>
+        )}
+        {target && blocker && <div className="db-cfg__note">{t('database.relation.twoWayBlocked', { prop: blocker.name, db: targetName })}</div>}
+        {pair && !confirmOff && <div className="db-cfg__note">{t('database.relation.pairedWith', { prop: pair.prop.name, db: targetName })}</div>}
       </div>
     )
   }
@@ -302,17 +308,7 @@ export function PropertyConfig({ db, prop, onEditFormula }: { db: Database; prop
       <div className="db-cfg">
         <div className="db-cfg__row">
           <span className="label">{t('database.uid.prefix')}</span>
-          <input
-            className="input db-cfg__input"
-            defaultValue={live.idPrefix ?? ''}
-            placeholder="TASK"
-            maxLength={12}
-            onBlur={(e) => upd({ idPrefix: e.target.value.trim().toUpperCase() })}
-            onKeyDown={(e) => {
-              e.stopPropagation()
-              if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
-            }}
-          />
+          <PrefixField value={live.idPrefix ?? ''} onSave={(v) => v !== (live.idPrefix ?? '') && upd({ idPrefix: v })} />
         </div>
       </div>
     )
@@ -328,4 +324,35 @@ export function PropertyConfig({ db, prop, onEditFormula }: { db: Database; prop
     )
 
   return null
+}
+
+/**
+ * Unique-ID prefix input. Saves on Enter, blur, and when the menu closes around it (click away / Esc
+ * unmount the field before it ever blurs).
+ */
+function PrefixField({ value, onSave }: { value: string; onSave: (v: string) => void }) {
+  const draft = useRef<string | null>(null)
+  const save = useRef(onSave)
+  save.current = onSave
+  const flush = () => {
+    if (draft.current === null) return
+    const v = draft.current.trim().toUpperCase()
+    draft.current = null
+    save.current(v)
+  }
+  useEffect(() => flush, [])
+  return (
+    <input
+      className="input db-cfg__input"
+      defaultValue={value}
+      placeholder="TASK"
+      maxLength={12}
+      onChange={(e) => (draft.current = e.target.value)}
+      onBlur={flush}
+      onKeyDown={(e) => {
+        e.stopPropagation()
+        if (e.key === 'Enter') flush()
+      }}
+    />
+  )
 }

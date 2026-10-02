@@ -658,8 +658,9 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 88px;
+  min-width: 88px;
   height: 31px;
+  padding: 0 7px;
   font: 700 10px/1 var(--x97-arial);
   text-align: center;
   white-space: nowrap;

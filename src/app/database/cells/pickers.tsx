@@ -18,6 +18,7 @@ import { useRows } from '../../store/selectors'
 function usePickerKeys(count: number, onEnter: (i: number) => void, extra?: (e: React.KeyboardEvent) => boolean) {
   const [active, setActive] = useState(0)
   const onKeyDown = (e: React.KeyboardEvent) => {
+    if (!(e.target as HTMLElement).classList.contains('db-picker__input')) return
     if (extra?.(e)) return
     if (e.key === 'ArrowDown') {
       e.preventDefault()
@@ -27,7 +28,7 @@ function usePickerKeys(count: number, onEnter: (i: number) => void, extra?: (e: 
       setActive((a) => Math.max(0, a - 1))
     } else if (e.key === 'Enter') {
       e.preventDefault()
-      onEnter(active)
+      if (count > 0) onEnter(Math.min(active, count - 1))
     }
   }
   return { active, setActive, onKeyDown }
@@ -43,14 +44,23 @@ export function PersonPicker({ value, onChange, onClose, initialQuery }: { value
   const list = people.filter((p) => !q || p.name.toLowerCase().includes(q))
   const canCreate = !!q && !people.some((p) => p.name.toLowerCase() === q)
   const toggle = (id: ID) => onChange(value.includes(id) ? value.filter((x) => x !== id) : [...value, id])
+  // picking from the list starts the next search fresh: "type, Enter, type, Enter" adds several
+  const pick = (id: ID) => {
+    toggle(id)
+    setQuery('')
+    keys.setActive(0)
+  }
   const create = () => {
-    const id = useWorkspace.getState().addPerson(query.trim())
+    const name = query.trim()
+    if (!name) return
+    const id = useWorkspace.getState().addPerson(name)
     onChange([...value, id])
     setQuery('')
+    keys.setActive(0)
   }
   const keys = usePickerKeys(
     list.length + (canCreate ? 1 : 0),
-    (i) => (i < list.length ? toggle(list[i].id) : canCreate && create()),
+    (i) => (i < list.length ? pick(list[i].id) : canCreate && create()),
     (e) => {
       if (e.key === 'Backspace' && !query && value.length) {
         onChange(value.slice(0, -1))
@@ -86,7 +96,7 @@ export function PersonPicker({ value, onChange, onClose, initialQuery }: { value
       <div className="db-picker__list" role="listbox" aria-multiselectable>
         {list.length > 0 && <div className="label db-picker__section">{t('database.person.people')}</div>}
         {list.map((p, i) => (
-          <div key={p.id} className="db-opt" role="option" aria-selected={value.includes(p.id)} data-active={keys.active === i} onMouseEnter={() => keys.setActive(i)} onClick={() => toggle(p.id)}>
+          <div key={p.id} className="db-opt" role="option" aria-selected={value.includes(p.id)} data-active={keys.active === i} onMouseEnter={() => keys.setActive(i)} onClick={() => pick(p.id)}>
             <Avatar person={p} size={20} />
             <span className="db-opt__name">{p.name}</span>
             {value.includes(p.id) && <Check size={14} className="db-opt__check" />}
@@ -116,15 +126,22 @@ export function RelationPicker({ prop, value, onChange, onClose, initialQuery }:
   const q = query.trim().toLowerCase()
   const list = useMemo(() => rows.filter((r) => !q || (r.title || '').toLowerCase().includes(q)).slice(0, 200), [rows, q])
   const toggle = (id: ID) => onChange(value.includes(id) ? value.filter((x) => x !== id) : [...value, id])
+  const pick = (id: ID) => {
+    toggle(id)
+    setQuery('')
+    keys.setActive(0)
+  }
   const create = () => {
-    if (!targetId) return
-    const id = useWorkspace.getState().createRow(targetId, { title: query.trim() })
+    const title = query.trim()
+    if (!targetId || !title) return
+    const id = useWorkspace.getState().createRow(targetId, { title })
     onChange([...value, id])
     setQuery('')
+    keys.setActive(0)
   }
   const keys = usePickerKeys(
     list.length + (q ? 1 : 0),
-    (i) => (i < list.length ? toggle(list[i].id) : create()),
+    (i) => (i < list.length ? pick(list[i].id) : create()),
     (e) => {
       if (e.key === 'Tab') {
         e.preventDefault()
@@ -159,7 +176,7 @@ export function RelationPicker({ prop, value, onChange, onClose, initialQuery }:
           <PageIcon icon={targetPage.icon} kind="database" size={12} /> {targetPage.title || t('common.untitled')}
         </div>
         {list.map((r: Page, i) => (
-          <div key={r.id} className="db-opt" role="option" aria-selected={value.includes(r.id)} data-active={keys.active === i} onMouseEnter={() => keys.setActive(i)} onClick={() => toggle(r.id)}>
+          <div key={r.id} className="db-opt" role="option" aria-selected={value.includes(r.id)} data-active={keys.active === i} onMouseEnter={() => keys.setActive(i)} onClick={() => pick(r.id)}>
             <PageIcon icon={r.icon} size={16} />
             <span className={`db-opt__name${r.title ? '' : ' faint'}`}>{r.title || t('common.untitled')}</span>
             {value.includes(r.id) && <Check size={14} className="db-opt__check" />}
@@ -180,12 +197,13 @@ export function RelationPicker({ prop, value, onChange, onClose, initialQuery }:
 /* ---------------- files ---------------- */
 
 function FileRow({ src, onRemove }: { src: string; onRemove: () => void }) {
+  const t = useT()
   const meta = useFileMeta(src)
   return (
     <div className="db-filerow">
       <FileChip src={src} big />
       <span className="db-filerow__name">{meta?.name ?? fileLabel(src)}</span>
-      <button type="button" className="icon-btn icon-btn--sm" aria-label="Remove" onClick={onRemove}>
+      <button type="button" className="icon-btn icon-btn--sm" aria-label={t('common.remove')} onClick={onRemove}>
         <X size={13} />
       </button>
     </div>

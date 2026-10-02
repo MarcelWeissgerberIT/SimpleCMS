@@ -97,12 +97,13 @@ function LinkPanel({ editor, initial, onDone }: { editor: Editor; initial: strin
   const pages = useMemo(() => {
     const q = value.trim()
     if (!q || isUrl(q) || q.startsWith('#') || q.includes('://')) return []
-    const all = Object.values(useWorkspace.getState().pages).filter((p) => !p.trashed)
+    const self = editor.view.dom.getAttribute('data-page-id')
+    const all = Object.values(useWorkspace.getState().pages).filter((p) => !p.trashed && p.id !== self)
     return new Fuse(all, { keys: ['title'], threshold: 0.38, ignoreLocation: true })
       .search(q)
       .slice(0, 5)
       .map((r) => r.item)
-  }, [value])
+  }, [value, editor])
   useEffect(() => setActive(0), [pages])
 
   const apply = (href: string, text?: string) => {

@@ -4,11 +4,11 @@ import { useWorkspace } from '../../store/store'
 import { useUI } from '../../store/ui'
 import { Popover } from '../../ui/Popover'
 import { MenuList, type MenuEntry } from '../../ui/Menu'
-import { shortcutLabel } from '../../ui/controls'
 import { useLang, useT } from '../../i18n'
 import type { Page, PageFont } from '../../store/types'
 import { copyPageLink, duplicateAndOpen, toggleFocusMode, trashWithUndo } from '../lib/actions'
-import { fmtNumber, fmtRelative, wordCount } from '../lib/format'
+import { fmtNumber, fmtRelative, plural, wordCount } from '../lib/format'
+import { useKbdHint } from '../lib/hooks'
 
 const FONTS: Array<{ id: PageFont; key: string }> = [
   { id: 'sans', key: 'shell.font.default' },
@@ -20,6 +20,7 @@ export function PageMenu({ page, anchor, onClose, mobile }: { page: Page; anchor
   const t = useT()
   const lang = useLang()
   const focus = useUI((s) => s.focusMode)
+  const kbd = useKbdHint()
   const ws = useWorkspace.getState()
   const ui = useUI.getState()
   const set = (patch: Partial<Page['settings']>) => ws.updatePageSettings(page.id, patch)
@@ -56,7 +57,7 @@ export function PageMenu({ page, anchor, onClose, mobile }: { page: Page; anchor
           <ToggleRow label={t('shell.pageMenu.smallText')} checked={page.settings.smallText} onChange={(v) => set({ smallText: v })} />
           <ToggleRow label={t('shell.pageMenu.fullWidth')} checked={page.settings.fullWidth} onChange={(v) => set({ fullWidth: v })} />
           <ToggleRow label={t('shell.pageMenu.lock')} checked={page.settings.locked} onChange={(v) => set({ locked: v })} />
-          <ToggleRow label={t('shell.pageMenu.focus')} hint={shortcutLabel('Mod+Shift+F')} checked={focus} onChange={() => toggleFocusMode()} />
+          <ToggleRow label={t('shell.pageMenu.focus')} hint={kbd('Mod+Shift+F')} checked={focus} onChange={() => toggleFocusMode()} />
         </div>
       ),
     },
@@ -83,7 +84,7 @@ export function PageMenu({ page, anchor, onClose, mobile }: { page: Page; anchor
       render: () => (
         <div className="pm-foot">
           {t('shell.pageMenu.edited', { when: fmtRelative(page.updatedAt, lang, t('shell.time.justNow')) })}
-          {!isDb && <> · {t('shell.stats.words', { n: fmtNumber(wordCount(page.plain), lang) })}</>}
+          {!isDb && <> · {t(plural('shell.stats.words', wordCount(page.plain)), { n: fmtNumber(wordCount(page.plain), lang) })}</>}
         </div>
       ),
     },

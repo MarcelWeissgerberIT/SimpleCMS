@@ -185,11 +185,12 @@ async function finishContent(html: string, page: Page, ctx: { files: Map<string,
     a.setAttribute('href', ctx.ids.has(id) ? `#p-${id}` : `${ctx.appUrl}#/p/${id}`)
   })
   // files / images
-  root.querySelectorAll<HTMLElement>('[src^="onefile:"], [href^="onefile:"]').forEach((el) => {
-    const attr = el.hasAttribute('src') ? 'src' : 'href'
+  root.querySelectorAll<HTMLElement>('[src^="onefile:"], [href^="onefile:"], img[data-src^="onefile:"]').forEach((el) => {
+    // the editor keeps local images in data-src (browsers can't fetch "onefile:")
+    const attr = el.getAttribute('src')?.startsWith('onefile:') ? 'src' : el.getAttribute('href')?.startsWith('onefile:') ? 'href' : 'data-src'
     const url = ctx.files.get(el.getAttribute(attr)!)
-    if (url) el.setAttribute(attr, url)
-    else el.removeAttribute(attr)
+    el.removeAttribute(attr)
+    if (url) el.setAttribute(attr === 'data-src' ? 'src' : attr, url)
   })
   root.querySelectorAll<HTMLImageElement>('img[src]').forEach((img) => {
     const src = img.getAttribute('src')!

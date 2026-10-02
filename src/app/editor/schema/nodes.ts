@@ -9,7 +9,7 @@ import Highlight from '@tiptap/extension-highlight'
 import { Details } from '@tiptap/extension-details'
 import { InlineMath } from '@tiptap/extension-mathematics'
 import { useWorkspace } from '../../store/store'
-import { domainOf, embedSrc, detectProvider, PROVIDER_LABEL, type EmbedProvider } from '../lib/embeds'
+import { domainOf, embedSrc, detectProvider, PROVIDER_LABEL, safeHref, type EmbedProvider } from '../lib/embeds'
 
 declare module '@tiptap/core' {
   interface Commands<ReturnType> {
@@ -242,10 +242,11 @@ export const Bookmark = Node.create({
   },
   renderHTML({ node, HTMLAttributes }) {
     const url = str(node.attrs.url)
+    const href = safeHref(url)
     return [
       'div',
       mergeAttributes(HTMLAttributes, { 'data-type': 'bookmark', class: 'bookmark' }),
-      ['a', { href: url, target: '_blank', rel: 'noopener noreferrer' }, str(node.attrs.title) || domainOf(url)],
+      ['a', href ? { href, target: '_blank', rel: 'noopener noreferrer' } : {}, str(node.attrs.title) || domainOf(url)],
       ['span', { class: 'bookmark__url' }, url],
     ]
   },
@@ -254,7 +255,8 @@ export const Bookmark = Node.create({
   },
   renderMarkdown(node) {
     const url = str(node.attrs?.url)
-    return `[${mdEscape(str(node.attrs?.title) || domainOf(url))}](${url})`
+    const href = safeHref(url)
+    return href ? `[${mdEscape(str(node.attrs?.title) || domainOf(url))}](${href})` : mdEscape(str(node.attrs?.title) || url)
   },
 })
 
@@ -283,8 +285,8 @@ export const Embed = Node.create({
       'div',
       mergeAttributes(HTMLAttributes, { 'data-type': 'embed', class: 'embed' }),
       src
-        ? ['iframe', { src, loading: 'lazy', allowfullscreen: 'true', sandbox: 'allow-scripts allow-same-origin allow-popups allow-presentation allow-forms', referrerpolicy: 'strict-origin-when-cross-origin' }]
-        : ['a', { href: url }, url],
+        ? ['iframe', { src, loading: 'lazy', allow: 'fullscreen; picture-in-picture', sandbox: 'allow-scripts allow-same-origin allow-popups allow-presentation allow-forms', referrerpolicy: 'strict-origin-when-cross-origin' }]
+        : ['a', safeHref(url) ? { href: safeHref(url), rel: 'noopener noreferrer' } : {}, url],
     ]
   },
   renderText({ node }) {
@@ -333,7 +335,8 @@ export const FileBlock = Node.create({
     return [{ tag: 'div[data-type="file"]' }]
   },
   renderHTML({ node, HTMLAttributes }) {
-    return ['div', mergeAttributes(HTMLAttributes, { 'data-type': 'file', class: 'file-block' }), ['a', { href: str(node.attrs.src), download: str(node.attrs.name) }, str(node.attrs.name)]]
+    const href = safeHref(str(node.attrs.src), { files: true })
+    return ['div', mergeAttributes(HTMLAttributes, { 'data-type': 'file', class: 'file-block' }), ['a', href ? { href, download: str(node.attrs.name) } : {}, str(node.attrs.name)]]
   },
   renderText({ node }) {
     return str(node.attrs.name)
@@ -420,6 +423,15 @@ export const BlockImage = Image.extend({
       { tag: 'img[data-src]', getAttrs: (el) => ({ src: (el as HTMLElement).getAttribute('data-src'), alt: (el as HTMLElement).getAttribute('alt') }) },
     ]
   },
+  parseMarkdown(token, h) {
+    return h.createNode('image', { src: token.href, alt: token.text, caption: token.title ?? '' })
+  },
+  renderMarkdown(node) {
+    const a = node.attrs ?? {}
+    const alt = str(a.alt).replace(/([[\]\\])/g, '\\$1')
+    const title = str(a.caption) || str(a.title)
+    return title ? `![${alt}](${str(a.src)} "${title.replace(/"/g, '\\"')}")` : `![${alt}](${str(a.src)})`
+  },
   renderHTML({ node }) {
     const { src, alt, caption, width, align } = node.attrs
     const fig: Record<string, string> = { 'data-type': 'image', class: 'image', 'data-align': align || 'center' }
@@ -482,8 +494,6 @@ export const TextColor = Extension.create({
 /* Toggle (details) — markdown as <details><summary>                   */
 /* ------------------------------------------------------------------ */
 
-const escHtml = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-
 function findDetailsEnd(src: string): number {
   // returns index right after the matching </details>, honouring nesting
   const re = /<details\b[^>]*>|<\/details>/gi
@@ -525,7 +535,8 @@ export const MarkdownDetails = Details.extend({
   },
   renderMarkdown(node, h) {
     const [summary, content] = (node.content ?? []) as JSONContent[]
-    const sum = summary?.content ? escHtml(h.renderChildren(summary.content)) : ''
+    // renderChildren already escapes HTML-significant characters in text
+    const sum = summary?.content ? h.renderChildren(summary.content).replace(/\n/g, ' ') : ''
     const body = content?.content ? h.renderChildren(content.content, '\n\n') : ''
     return `<details${node.attrs?.open ? ' open' : ''}>\n<summary>${sum}</summary>\n\n${body}\n\n</details>`
   },

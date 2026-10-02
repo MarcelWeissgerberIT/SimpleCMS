@@ -13,6 +13,7 @@ export type Range = [number, number, number, number]
 
 export const CELL_W = 64
 export const CELL_H = 18
+/** Minimum grid size; the sheet grows it to cover larger viewports. */
 export const COLS = 26
 export const ROWS: Record<Layout, number> = { d: 64, m: 96 }
 
@@ -26,8 +27,11 @@ export function esc(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
 }
 
+/** 1 → A, 26 → Z, 27 → AA … */
 export function colName(c: number): string {
-  return String.fromCharCode(64 + c)
+  let s = ''
+  for (let n = c; n > 0; n = Math.floor((n - 1) / 26)) s = String.fromCharCode(65 + ((n - 1) % 26)) + s
+  return s
 }
 
 export function refOf(c: number, r: number): string {

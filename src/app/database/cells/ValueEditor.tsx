@@ -3,6 +3,7 @@
  *  - ValueEditorBase: value + onChange (templates, bulk edit, filters)
  *  - ValueEditor: bound to one or many rows (writes through writeValue)
  */
+import { useEffect, useRef } from 'react'
 import { useWorkspace } from '../../store/store'
 import type { Database, DateValue, Page, PropertyDef, PropertyValue } from '../../store/types'
 import { Popover } from '../../ui/Popover'
@@ -83,10 +84,28 @@ export function ValueEditorBase({ db, prop, value, onChange, anchor, onClose, in
   }
   if (!body) return null
   return (
-    <Popover open anchor={anchor} onClose={() => onClose(esc.current ? 'escape' : 'outside')} placement="bottom-start" offset={2} className={cls}>
+    <Popover open anchor={anchor} onClose={() => onClose(esc.current ? 'escape' : 'outside')} placement="bottom-start" offset={2} className={cls} autoFocus={false}>
+      <FocusPrimary />
       {body}
     </Popover>
   )
+}
+
+/**
+ * Focus the editor's primary field ([data-autofocus]) once mounted. The generic popover focus
+ * would pick the first focusable in DOM order — a chip's × in front of the search field.
+ */
+function FocusPrimary() {
+  const ref = useRef<HTMLSpanElement>(null)
+  useEffect(() => {
+    const id = requestAnimationFrame(() => {
+      const root = ref.current?.parentElement
+      const el = root?.querySelector<HTMLElement>('[data-autofocus]') ?? root?.querySelector<HTMLElement>('input, textarea, [tabindex="0"]')
+      el?.focus({ preventScroll: true })
+    })
+    return () => cancelAnimationFrame(id)
+  }, [])
+  return <span ref={ref} hidden />
 }
 
 export interface ValueEditorProps {

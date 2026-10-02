@@ -48,6 +48,8 @@ export function MentionMenu({ editor, bridge, pageId }: { editor: Editor; bridge
   const rows = useMemo<Row[]>(() => {
     if (!open) return []
     const { pages, people } = useWorkspace.getState()
+    const pageRows: Row[] = []
+    const dateRows: Row[] = []
     const out: Row[] = []
     // pages
     const candidates = Object.values(pages).filter((p) => !p.trashed && p.id !== pageId)
@@ -65,7 +67,7 @@ export function MentionMenu({ editor, bridge, pageId }: { editor: Editor; bridge
     }
     for (const p of matched.slice(0, query ? 6 : 4)) {
       const parent = p.parentId ? pages[p.parentId] : null
-      out.push({
+      pageRows.push({
         key: `p-${p.id}`,
         section: 'pages',
         icon: <PageIcon icon={p.icon} kind={p.kind} size={16} />,
@@ -85,7 +87,7 @@ export function MentionMenu({ editor, bridge, pageId }: { editor: Editor; bridge
     dates.forEach((d, i) => {
       const attrs = dateMentionAttrs(d, lang)
       const word = !query ? [t('editor.date.today'), t('editor.date.tomorrow'), t('editor.date.nextMonday')][i] : dateMentionLabel(d, lang)
-      out.push({
+      dateRows.push({
         key: `d-${attrs.id}`,
         section: 'dates',
         icon: <CalendarDays size={15} strokeWidth={1.7} />,
@@ -94,6 +96,9 @@ export function MentionMenu({ editor, bridge, pageId }: { editor: Editor; bridge
         run: (range) => insert(range, attrs),
       })
     })
+    // a query that parses as a date ("next fri", "morgen") ranks the date above fuzzy page hits
+    if (parsed) out.push(...dateRows, ...pageRows)
+    else out.push(...pageRows, ...dateRows)
     // people
     const ppl = query ? people.filter((p) => p.name.toLowerCase().includes(query.toLowerCase())) : people.slice(0, 3)
     for (const person of ppl.slice(0, 4))

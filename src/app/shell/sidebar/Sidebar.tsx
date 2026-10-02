@@ -15,8 +15,8 @@ import { BRAND } from '@/shared/brand'
 import { DraggableTree, PageList, PageTree } from './PageTree'
 import { TrashPopover } from './TrashPopover'
 import { useChildIds, treeKey, useTreeState } from '../lib/tree'
-import { closeMobileSidebar, createDatabaseAndOpen, createPageAndOpen, toggleSidebar } from '../lib/actions'
-import { useIsMobile } from '../lib/hooks'
+import { closeMobileSidebar, createDatabaseAndOpen, createPageAndOpen, goHome, toggleSidebar } from '../lib/actions'
+import { useIsMobile, useKbdHint } from '../lib/hooks'
 import './sidebar.css'
 
 const MIN_W = 220
@@ -32,6 +32,7 @@ export function Sidebar() {
   const [dragW, setDragW] = useState<number | null>(null)
   const [hoverReveal, setHoverReveal] = useState(false)
   const route = useRoute()
+  const kbd = useKbdHint()
 
   // keep the active page visible in the tree
   const activeId = route.name === 'page' ? route.id : null
@@ -48,6 +49,15 @@ export function Sidebar() {
   const w = Math.min(MAX_W, Math.max(MIN_W, dragW ?? width))
   const state = mobile ? (mobileOpen ? 'drawer-open' : 'drawer') : focus ? 'hidden' : collapsed ? (hoverReveal ? 'reveal' : 'collapsed') : 'docked'
 
+  // toasts centre on the working area, clear of the sidebar (and its trash popover)
+  const docked = state === 'docked' ? w : 0
+  useEffect(() => {
+    document.documentElement.style.setProperty('--sb-docked', `${docked}px`)
+    return () => {
+      document.documentElement.style.removeProperty('--sb-docked')
+    }
+  }, [docked])
+
   return (
     <>
       {mobile && <div className="sb-scrim" data-open={mobileOpen || undefined} onClick={closeMobileSidebar} aria-hidden />}
@@ -63,8 +73,8 @@ export function Sidebar() {
       >
         <SidebarHeader />
         <nav className="sb-nav">
-          <NavRow icon={<Search size={16} />} label={t('shell.nav.search')} kbd={shortcutLabel('Mod+K')} onClick={() => (closeMobileSidebar(), useUI.getState().openPalette())} />
-          <NavRow icon={<Home size={16} />} label={t('shell.nav.home')} active={route.name === 'home'} onClick={() => navigate({ name: 'home' })} />
+          <NavRow icon={<Search size={16} />} label={t('shell.nav.search')} kbd={kbd('Mod+K')} onClick={() => (closeMobileSidebar(), useUI.getState().openPalette())} />
+          <NavRow icon={<Home size={16} />} label={t('shell.nav.home')} active={route.name === 'home'} onClick={goHome} />
           <NavRow
             icon={<CalendarDays size={16} />}
             label={t('shell.nav.today')}
@@ -74,7 +84,7 @@ export function Sidebar() {
               openTodayJournal()
             }}
           />
-          <NavRow icon={<Waypoints size={16} />} label={t('shell.nav.graph')} active={route.name === 'graph'} onClick={() => navigate({ name: 'graph' })} />
+          <NavRow icon={<Waypoints size={16} />} label={t('shell.nav.graph')} active={route.name === 'graph'} onClick={() => (closeMobileSidebar(), navigate({ name: 'graph' }))} />
           <NavRow icon={<LayoutTemplate size={16} />} label={t('shell.nav.templates')} onClick={() => (closeMobileSidebar(), useUI.getState().openModal({ type: 'templates', parentId: null }))} />
           <NavRow icon={<Upload size={16} />} label={t('shell.nav.import')} onClick={() => (closeMobileSidebar(), useUI.getState().openModal({ type: 'import' }))} />
         </nav>
@@ -130,10 +140,11 @@ function SidebarHeader() {
   const lang = useWorkspace((s) => s.settings.language)
   const menu = useMenu()
   const mobile = useIsMobile()
+  const kbd = useKbdHint()
   const set = useWorkspace.getState().updateSettings
   const entries: MenuEntry[] = [
     { kind: 'section', label: name || 'One' },
-    { label: t('common.settings'), icon: <Settings size={15} />, hint: shortcutLabel('Mod+,'), onSelect: () => useUI.getState().openModal({ type: 'settings' }) },
+    { label: t('common.settings'), icon: <Settings size={15} />, hint: kbd('Mod+,'), onSelect: () => useUI.getState().openModal({ type: 'settings' }) },
     {
       label: t('shell.menu.theme'),
       submenu: [
@@ -149,7 +160,7 @@ function SidebarHeader() {
         { label: 'Deutsch', checked: lang === 'de', onSelect: () => set({ language: 'de' }) },
       ],
     },
-    { label: t('shell.cmd.shortcuts'), hint: shortcutLabel('Mod+/'), onSelect: () => useUI.getState().openModal({ type: 'shortcuts' }) },
+    { label: t('shell.cmd.shortcuts'), hint: kbd('Mod+/'), onSelect: () => useUI.getState().openModal({ type: 'shortcuts' }) },
     { kind: 'separator' },
     { label: t('shell.menu.website'), onSelect: () => window.open(BRAND.homeHref, '_self') },
     { label: 'GitHub', onSelect: () => window.open(BRAND.repoUrl, '_blank', 'noopener') },
@@ -220,6 +231,7 @@ function PagesSection() {
   })
   const hasFavs = useWorkspace((s) => Object.values(s.pages).some((p) => p.favorite && !p.trashed))
   const menu = useMenu()
+  const kbd = useKbdHint()
   return (
     <section className="sb-section" aria-label={t('shell.sidebar.pages')}>
       <SectionHead n={hasFavs ? '02' : '01'} label={t('shell.sidebar.pages')} count={total}>
@@ -231,7 +243,7 @@ function PagesSection() {
         {...menu.props}
         width={220}
         entries={[
-          { label: t('common.newPage'), icon: <FilePlus2 size={15} />, hint: shortcutLabel('Mod+Alt+N'), onSelect: () => createPageAndOpen(null) },
+          { label: t('common.newPage'), icon: <FilePlus2 size={15} />, hint: kbd('Mod+Alt+N'), onSelect: () => createPageAndOpen(null) },
           { label: t('shell.cmd.newDatabase'), icon: <Table2 size={15} />, onSelect: () => createDatabaseAndOpen(null) },
           { label: t('shell.nav.templates'), icon: <LayoutTemplate size={15} />, onSelect: () => useUI.getState().openModal({ type: 'templates', parentId: null }) },
         ]}

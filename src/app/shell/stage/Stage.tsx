@@ -10,6 +10,7 @@ import type { ID } from '../../store/types'
 import { PageView } from '../page/PageView'
 import { goToPage } from '../lib/actions'
 import { useIsMobile } from '../lib/hooks'
+import { useStageView } from '../lib/stage'
 import './stage.css'
 
 /**
@@ -48,6 +49,13 @@ export function Stage({ route, main, mainTitle }: { route: Route; main: ReactNod
     if (lastRoute.current !== routeKey) setFocus(0)
     lastRoute.current = routeKey
   }, [routeKey])
+  // the main page was picked again (sidebar, crumbs …) → unfold it
+  const revealTick = useStageView((s) => s.revealTick)
+  const lastReveal = useRef(revealTick)
+  useEffect(() => {
+    if (revealTick !== lastReveal.current) setFocus(0)
+    lastReveal.current = revealTick
+  }, [revealTick])
 
   const visiblePanes = focusMode ? [] : panes
   const count = 1 + visiblePanes.length
@@ -58,6 +66,22 @@ export function Stage({ route, main, mainTitle }: { route: Route; main: ReactNod
   const f = Math.min(focus, count - 1)
   const start = Math.min(f, count - k)
   const isFull = (i: number) => i >= start && i < start + k
+  const mainFolded = !isFull(0)
+
+  // topbar + status bar follow the focused pane while the main page is folded away
+  const focusPaneId = mainFolded ? (visiblePanes[f - 1] ?? null) : null
+  useEffect(() => {
+    useStageView.getState().publish({ mainFolded, focusPaneId, focusPaneIndex: focusPaneId ? f - 1 : -1 })
+  }, [mainFolded, focusPaneId, f])
+  useEffect(() => () => useStageView.getState().publish({ mainFolded: false, focusPaneId: null, focusPaneIndex: -1 }), [])
+
+  // stable keys: closing a pane must not remount (and reset) the panes to its right
+  const seen = new Map<ID, number>()
+  const paneKeys = visiblePanes.map((id) => {
+    const n = seen.get(id) ?? 0
+    seen.set(id, n + 1)
+    return `${id}:${n}`
+  })
 
   return (
     <div ref={ref} className="stage" data-panes={visiblePanes.length || undefined}>
@@ -70,9 +94,9 @@ export function Stage({ route, main, mainTitle }: { route: Route; main: ReactNod
       )}
       {visiblePanes.map((id, i) =>
         isFull(i + 1) ? (
-          <Pane key={`${i}:${id}`} id={id} index={i} />
+          <Pane key={paneKeys[i]} id={id} index={i} />
         ) : (
-          <PaneSpine key={`${i}:${id}`} id={id} index={i} onClick={() => setFocus(i + 1)} />
+          <PaneSpine key={`spine:${paneKeys[i]}`} id={id} index={i} onClick={() => setFocus(i + 1)} />
         ),
       )}
     </div>
@@ -139,7 +163,7 @@ function Pane({ id, index }: { id: ID; index: number }) {
   const page = usePage(id)
   const close = () => useUI.getState().closePane(index)
   return (
-    <section className="stage-col pane" data-pane-index={index} aria-label={page?.title || t('common.untitled')}>
+    <section className="stage-col pane" data-pane-index={index} tabIndex={-1} aria-label={page?.title || t('common.untitled')}>
       <div className="pane__head">
         <span className="pane__n">{String(index + 2).padStart(2, '0')}</span>
         {page && <PageIcon icon={page.icon} kind={page.kind} size={15} />}

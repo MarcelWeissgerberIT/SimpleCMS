@@ -97,22 +97,105 @@ function postProcess(nodes: JSONContent[] | undefined): JSONContent[] {
   return out
 }
 
-/** Validate against the schema; repair by dropping invalid top-level blocks if necessary. */
+/* ------------------------------------------------------------------ */
+/* Schema repair                                                       */
+/* ------------------------------------------------------------------ */
+
+type Json = JSONContent & { marks?: Array<{ type: string; attrs?: Record<string, unknown> }> }
+
+function cleanMarks(schema: Schema, marks: Json['marks']): Json['marks'] {
+  if (!marks) return marks
+  return marks.filter((m) => {
+    if (!schema.marks[m.type]) return false
+    try {
+      schema.markFromJSON(m)
+      return true
+    } catch {
+      return false
+    }
+  })
+}
+
+/** Repair children: unknown wrappers are unwrapped, unknown leaves dropped, known nodes repaired. */
+function repairChildren(schema: Schema, list: Json[]): Json[] {
+  const out: Json[] = []
+  for (const c of list) {
+    if (!c || typeof c !== 'object') continue
+    if (!c.type || (!schema.nodes[c.type] && c.type !== 'text')) {
+      if (c.content?.length) out.push(...repairChildren(schema, c.content as Json[]))
+      continue
+    }
+    const fixed = repairNode(schema, c)
+    if (fixed) out.push(fixed)
+  }
+  return out
+}
+
+/** Smallest change that makes a node valid: fix children first, then fill / filter its content. */
+function repairNode(schema: Schema, n: Json): Json | null {
+  if (n.type === 'text') return n.text ? { ...n, marks: cleanMarks(schema, n.marks) } : null
+  try {
+    schema.nodeFromJSON(n).check()
+    return n
+  } catch {
+    /* repair below */
+  }
+  const type = schema.nodes[n.type!]
+  const marks = cleanMarks(schema, n.marks)
+  const content = n.content ? repairChildren(schema, n.content as Json[]) : undefined
+  const candidate: Json = { ...n, ...(marks ? { marks } : {}), ...(content ? { content } : {}) }
+  try {
+    schema.nodeFromJSON(candidate).check()
+    return candidate
+  } catch {
+    /* content doesn't match the type's expression yet */
+  }
+  try {
+    const kids = (content ?? []).map((c) => schema.nodeFromJSON(c))
+    const markObjs = (marks ?? []).map((m) => schema.markFromJSON(m))
+    const filled = type.createAndFill(n.attrs ?? null, kids, markObjs)
+    if (filled) {
+      filled.check()
+      return filled.toJSON() as Json
+    }
+    // keep the children that fit, in order; stray inline content gets a paragraph around it
+    let match = type.contentMatch
+    const keep = []
+    const para = schema.nodes.paragraph
+    for (let i = 0; i < kids.length; i++) {
+      const k = kids[i]
+      const next = match.matchType(k.type)
+      if (next) {
+        keep.push(k)
+        match = next
+      } else if (k.isInline && match.matchType(para)) {
+        const run = [k]
+        while (i + 1 < kids.length && kids[i + 1].isInline) run.push(kids[++i])
+        keep.push(para.create(null, run))
+        match = match.matchType(para)!
+      }
+    }
+    const partial = type.createAndFill(n.attrs ?? null, keep, markObjs)
+    if (partial) {
+      partial.check()
+      return partial.toJSON() as Json
+    }
+  } catch {
+    /* unrecoverable */
+  }
+  return null
+}
+
+/** Validate against the schema; repair only the invalid parts (never drop a whole block for one bad child). */
 export function sanitize(doc: JSONContent): JSONContent {
   const schema = docSchema()
   try {
     schema.nodeFromJSON(doc).check()
     return doc
   } catch {
-    const content = (doc.content ?? []).filter((n) => {
-      try {
-        schema.nodeFromJSON(n).check()
-        return true
-      } catch {
-        return false
-      }
-    })
-    return { type: 'doc', content: content.length ? content : [{ type: 'paragraph' }] }
+    const content = repairChildren(schema, (doc.content ?? []) as Json[])
+    const fixed = repairNode(schema, { type: 'doc', content: content.length ? content : [{ type: 'paragraph' }] })
+    return fixed ?? EMPTY_DOC
   }
 }
 

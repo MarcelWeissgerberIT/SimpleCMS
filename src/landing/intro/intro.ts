@@ -3,12 +3,15 @@
  * without ANY input a 3D sledgehammer smashes it and the pieces fall away, revealing the
  * new site underneath.
  *
- *   idle  ~67%  → "(Not Responding)" + white wash + busy cursor, animations freeze
- *         ~73%  → html2canvas snapshot of the frozen window (texture for WebGL) + GPU warm-up
+ *   idle  ~20%  → GPU warm-up starts (Three.js stage built in idle-callback slices)
+ *         ~67%  → "(Not Responding)" + white wash + busy cursor, animations freeze
+ *         ~73%  → html2canvas snapshot of the frozen window (texture for WebGL)
  *         ~87%  → rumble: window jitter + dust specks (+ low rumble if audio is unlocked)
  *         100%  → smash (Three.js, lazy-loaded) — or a reduced-motion fade / DOM fallback
  *
  * Any input (pointermove/down, key, wheel, touch, scroll) resets the timer and reverts teasers.
+ * A resize also counts as input and throws away the size-bound GPU stage + snapshot.
+ * Idle time only counts while the tab is visible: a background tab never uses up the intro.
  * Test hooks: window.__oneIntro = { smashNow, phase }, URL "?intro&fast" → 2 s idle.
  */
 import { makeTranslator, type Lang } from '@/shared/i18n'
@@ -24,6 +27,11 @@ export interface IntroOptions {
   idleMs: number
   /** Fired when the smash sequence begins (persist "seen", prep the site). */
   onSmashStart: () => void
+  /**
+   * Optional: the old page breaks apart (final hit / tiles start falling). The new site can
+   * start its entrance here so it lights up behind the falling shards. Fires before onRevealed.
+   */
+  onShatter?: () => void
   /** Fired after the old page has fully fallen away and the overlay can be removed. */
   onRevealed: () => void
 }
@@ -42,12 +50,47 @@ declare global {
 }
 
 const INPUT_EVENTS = ['pointermove', 'pointerdown', 'keydown', 'wheel', 'touchstart', 'scroll'] as const
-/** If capture + GPU warm-up are not ready by then, use the DOM fallback instead. */
+/** If capture + GPU warm-up are not ready by then (visible time), use the DOM fallback. */
 const PREP_TIMEOUT_MS = 6000
 /** The sequence must make progress at least this often (else: reveal right away). */
 const STALL_MS = 3000
-/** Absolute guard from the moment the smash was triggered (very slow GPUs still finish). */
+/** Absolute guard (visible time) from the smash trigger: very slow GPUs still finish. */
 const HARD_TIMEOUT_MS = 40000
+/** After this long on the page without the smash, the status bar hints at the trick. */
+const HINT_AFTER_MS = 20000
+
+const isMobileViewport = () => Math.min(window.innerWidth, window.innerHeight) < 600 || window.innerWidth < 720
+
+/** A clock that only advances while the document is visible. */
+function visibleClock() {
+  let acc = 0
+  let since = document.hidden ? -1 : performance.now()
+  const onVis = () => {
+    const now = performance.now()
+    if (document.hidden) {
+      if (since >= 0) acc += now - since
+      since = -1
+    } else if (since < 0) since = now
+  }
+  document.addEventListener('visibilitychange', onVis)
+  const now = () => acc + (since >= 0 ? performance.now() - since : 0)
+  return {
+    /** Like setTimeout, but only visible time counts. Returns a cancel function. */
+    timeout(fn: () => void, ms: number): () => void {
+      const due = now() + ms
+      const id = window.setInterval(() => {
+        if (now() >= due) {
+          window.clearInterval(id)
+          fn()
+        }
+      }, 200)
+      return () => window.clearInterval(id)
+    },
+    dispose: () => document.removeEventListener('visibilitychange', onVis),
+  }
+}
+
+const noop = () => {}
 
 export function mountIntro(root: HTMLElement, opts: IntroOptions): IntroHandle {
   const params = new URLSearchParams(window.location.search)
@@ -55,14 +98,16 @@ export function mountIntro(root: HTMLElement, opts: IntroOptions): IntroHandle {
   const manualClock = params.get('smashclock') === 'manual'
   const noWebGL = params.has('nowebgl') // test aid: force the DOM fallback
   const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
-  const mobile = Math.min(window.innerWidth, window.innerHeight) < 600 || window.innerWidth < 720
+  let mobile = isMobileViewport()
   const t = makeTranslator(messages, opts.lang)
   const sfx = new Sfx()
+  const vclock = visibleClock()
 
   let phase: Phase = 'watch'
   let startedNotified = false
-  let hardTimer = 0
-  let prepTimer = 0
+  let shatterNotified = false
+  let cancelHard = noop
+  let cancelPrep = noop
   let playTimer = 0
   let playing = false
   const timers: number[] = []
@@ -74,15 +119,22 @@ export function mountIntro(root: HTMLElement, opts: IntroOptions): IntroHandle {
   const loadSmash = () => (smashModP ??= import('./smash/smash'))
   let stageP: Promise<SmashStage | null> | null = null
   let stage: SmashStage | null = null
+  /** Bumped whenever the stage must be rebuilt (resize): late results of older builds are dropped. */
+  let stageGen = 0
   function ensureStage(): Promise<SmashStage | null> {
     if (reduced || noWebGL) return Promise.resolve(null)
-    stageP ??= loadSmash()
+    if (stageP) return stageP
+    const gen = stageGen
+    const t0 = performance.now()
+    stageP = loadSmash()
       .then((m) => m.createSmashStage(root, { mobile, sfx, manualClock }))
       .then((s) => {
-        if (phase === 'done') {
+        if (phase === 'done' || gen !== stageGen) {
           s.dispose()
           return null
         }
+        const ms = Math.round(performance.now() - t0)
+        console.debug(`[intro] GPU stage ready in ${ms} ms`)
         stage = s
         return s
       })
@@ -91,6 +143,16 @@ export function mountIntro(root: HTMLElement, opts: IntroOptions): IntroHandle {
         return null
       })
     return stageP
+  }
+  /** The window size changed: the stage, the snapshot and the uploaded texture are stale. */
+  function dropStage() {
+    stageGen++
+    stage?.dispose()
+    stage = null
+    stageP = null
+    uploaded = null
+    snap = null
+    mobile = isMobileViewport()
   }
 
   // ------------------------------------------------------------------ capture (texture of the frozen window)
@@ -106,7 +168,7 @@ export function mountIntro(root: HTMLElement, opts: IntroOptions): IntroHandle {
     const version = inputVersion
     const p = captureViewport(root)
       .then((canvas) => {
-        snap = { canvas, version }
+        if (phase !== 'done') snap = { canvas, version }
         return canvas
       })
       .catch((err) => {
@@ -126,7 +188,7 @@ export function mountIntro(root: HTMLElement, opts: IntroOptions): IntroHandle {
   let uploaded: HTMLCanvasElement | null = null
   async function prepare() {
     const [s, canvas] = await Promise.all([ensureStage(), ensureCapture()])
-    if (s && canvas && canvas !== uploaded && phase !== 'done') {
+    if (s && s === stage && canvas && canvas !== uploaded && phase !== 'done') {
       s.setPage(canvas)
       uploaded = canvas
     }
@@ -136,11 +198,21 @@ export function mountIntro(root: HTMLElement, opts: IntroOptions): IntroHandle {
   function clearTimers() {
     while (timers.length) window.clearTimeout(timers.pop())
   }
+  function calm() {
+    sheet.setHung(false)
+    sheet.setRumble(false)
+    sfx.rumble(false)
+  }
   function schedule() {
     clearTimers()
-    timers.push(window.setTimeout(() => sheet.setHung(true), (idleMs * 10) / 15))
-    timers.push(window.setTimeout(() => void prepare(), (idleMs * 11) / 15))
+    if (document.hidden) return // resumes from zero on visibilitychange
     if (!reduced) {
+      // Build the GPU stage early, in idle slices (shader compiles must never delay the smash).
+      timers.push(window.setTimeout(() => void ensureStage(), (idleMs * 3) / 15))
+    }
+    timers.push(window.setTimeout(() => sheet.setHung(true), (idleMs * 10) / 15))
+    if (!reduced) {
+      timers.push(window.setTimeout(() => void prepare(), (idleMs * 11) / 15))
       timers.push(
         window.setTimeout(() => {
           sheet.setRumble(true)
@@ -165,17 +237,48 @@ export function mountIntro(root: HTMLElement, opts: IntroOptions): IntroHandle {
     }
     if (e.type === 'pointerdown' || e.type === 'keydown' || e.type === 'touchstart') sfx.unlock()
     inputVersion++
-    sheet.setHung(false)
-    sheet.setRumble(false)
-    sfx.rumble(false)
+    calm()
     schedule()
   }
   for (const type of INPUT_EVENTS) window.addEventListener(type, onInput, { capture: true, passive: true })
+
+  /** Background tab: nothing counts while hidden; idle starts from zero when visible again. */
+  function onVisibility() {
+    if (phase !== 'watch') return
+    if (document.hidden) {
+      clearTimers()
+      calm()
+    } else schedule()
+  }
+  document.addEventListener('visibilitychange', onVisibility)
+
+  let lastW = window.innerWidth
+  let lastH = window.innerHeight
+  function onResize() {
+    if (phase !== 'watch') return
+    if (window.innerWidth === lastW && window.innerHeight === lastH) return
+    lastW = window.innerWidth
+    lastH = window.innerHeight
+    dropStage()
+    inputVersion++
+    calm()
+    schedule()
+  }
+  window.addEventListener('resize', onResize)
+
   function removeInputListeners() {
     for (const type of INPUT_EVENTS) window.removeEventListener(type, onInput, { capture: true })
+    document.removeEventListener('visibilitychange', onVisibility)
+    window.removeEventListener('resize', onResize)
   }
 
+  // Visitors who keep moving never trigger the smash: surface the trick in the status bar.
+  const cancelHint = vclock.timeout(() => {
+    if (phase === 'watch') sheet.setHint(true)
+  }, HINT_AFTER_MS)
+
   // ------------------------------------------------------------------ smash
+  /** The old page is really going away in front of the visitor: persist "seen". */
   function notifyStart() {
     if (startedNotified) return
     startedNotified = true
@@ -185,17 +288,28 @@ export function mountIntro(root: HTMLElement, opts: IntroOptions): IntroHandle {
       console.error(err)
     }
   }
+  function notifyShatter() {
+    if (shatterNotified) return
+    shatterNotified = true
+    try {
+      opts.onShatter?.()
+    } catch (err) {
+      console.error(err)
+    }
+  }
 
   function smashNow() {
     if (phase !== 'watch') return
     phase = 'smashing'
     clearTimers()
+    cancelHint()
     removeInputListeners()
     sheet.closeDialog()
     sheet.freeze(true)
     if (!manualClock) {
-      hardTimer = window.setTimeout(finish, HARD_TIMEOUT_MS)
-      prepTimer = window.setTimeout(() => {
+      // Visible-time guards: a hidden tab (no rAF) must not burn through them unseen.
+      cancelHard = vclock.timeout(finish, HARD_TIMEOUT_MS)
+      cancelPrep = vclock.timeout(() => {
         if (phase === 'smashing' && !playing) {
           console.warn('[intro] smash not ready in time, using DOM fallback')
           void domFallback()
@@ -215,14 +329,13 @@ export function mountIntro(root: HTMLElement, opts: IntroOptions): IntroHandle {
     const [s, canvas] = await Promise.all([ensureStage(), ensureCapture(), sfx.ready()])
     if (phase !== 'smashing' || fallbackStarted) return
     if (!s || !canvas) {
-      sheet.setRumble(false)
-      sfx.rumble(false)
+      calm()
       void domFallback()
       return
     }
     try {
       playing = true
-      window.clearTimeout(prepTimer)
+      cancelPrep()
       if (!manualClock) {
         // Watchdog: the show may run slowly on weak GPUs, but it must keep moving.
         let lastProgress = -1
@@ -238,15 +351,18 @@ export function mountIntro(root: HTMLElement, opts: IntroOptions): IntroHandle {
       if (canvas !== uploaded) s.setPage(canvas)
       uploaded = canvas
       const wash = sheet.isHung() ? WASH_ALPHA : 0
-      s.play({
-        onSwap: () => {
-          sheet.setRumble(false)
-          sfx.rumble(false)
-          sheet.el.style.visibility = 'hidden'
-          notifyStart()
+      s.play(
+        {
+          onSwap: () => {
+            calm()
+            sheet.el.style.visibility = 'hidden'
+            notifyStart()
+          },
+          onShatter: notifyShatter,
+          onDone: finish,
         },
-        onDone: finish,
-      }, { wash })
+        { wash },
+      )
     } catch (err) {
       console.error('[intro] smash failed', err)
       sheet.el.style.visibility = ''
@@ -259,6 +375,7 @@ export function mountIntro(root: HTMLElement, opts: IntroOptions): IntroHandle {
     if (phase !== 'watch') return
     phase = 'smashing'
     clearTimers()
+    cancelHint()
     removeInputListeners()
     fade()
   }
@@ -266,6 +383,7 @@ export function mountIntro(root: HTMLElement, opts: IntroOptions): IntroHandle {
   /** prefers-reduced-motion: a short fade + drop instead of the hammer. */
   function fade() {
     notifyStart()
+    notifyShatter()
     const anim = sheet.el.animate(
       [
         { opacity: 1, transform: 'none' },
@@ -281,14 +399,14 @@ export function mountIntro(root: HTMLElement, opts: IntroOptions): IntroHandle {
   async function domFallback() {
     if (fallbackStarted) return
     fallbackStarted = true
-    window.clearTimeout(prepTimer)
+    cancelPrep()
     try {
       const { runDomShatter } = await import('./fallback')
       if (phase !== 'smashing') return
       stage?.dispose()
       stage = null
       notifyStart()
-      await runDomShatter(root, sheet.el, { mobile })
+      await runDomShatter(root, sheet.el, { mobile, onBreak: notifyShatter })
       finish()
     } catch (err) {
       console.error('[intro] fallback failed', err)
@@ -296,23 +414,40 @@ export function mountIntro(root: HTMLElement, opts: IntroOptions): IntroHandle {
     }
   }
 
-  function finish() {
-    if (phase === 'done') return
-    phase = 'done'
-    window.clearTimeout(hardTimer)
-    window.clearTimeout(prepTimer)
+  /** Drop every reference to big buffers (snapshot, stage, canvases) so they can be collected. */
+  function release() {
+    cancelHard()
+    cancelPrep()
+    cancelHint()
     window.clearInterval(playTimer)
     clearTimers()
     removeInputListeners()
+    vclock.dispose()
     try {
       stage?.dispose()
     } catch {
       /* ignore */
     }
+    stageGen++
     stage = null
+    stageP = null
+    smashModP = null
+    snap = null
+    inflight = null
+    uploaded = null
+    if (window.__oneIntro === hooks) delete window.__oneIntro
+  }
+
+  /**
+   * Reveal the site. Only a visible sequence (swap / fallback / fade) marks the intro as seen;
+   * the timeout paths (stalled GPU, hard guard) reveal without consuming it.
+   */
+  function finish() {
+    if (phase === 'done') return
+    phase = 'done'
+    release()
     sheet.destroy()
     sfx.dispose()
-    notifyStart()
     try {
       opts.onRevealed()
     } catch (err) {
@@ -322,15 +457,17 @@ export function mountIntro(root: HTMLElement, opts: IntroOptions): IntroHandle {
 
   // Warm the lazy chunks after first paint so the smash is ready when needed.
   const warmTimer = window.setTimeout(() => {
-    if (!reduced) void loadSmash().catch(() => {})
+    if (reduced) return
+    void loadSmash().catch(() => {})
     void import('html2canvas-pro').catch(() => {})
   }, 1200)
 
-  window.__oneIntro = {
+  const hooks: NonNullable<Window['__oneIntro']> = {
     smashNow: () => smashNow(),
     phase: () => phase,
     advance: manualClock ? (ms: number) => stage?.advance?.(ms) : undefined,
   }
+  window.__oneIntro = hooks
 
   schedule()
 
@@ -340,17 +477,10 @@ export function mountIntro(root: HTMLElement, opts: IntroOptions): IntroHandle {
       const wasDone = phase === 'done'
       phase = 'done'
       window.clearTimeout(warmTimer)
-      window.clearTimeout(hardTimer)
-      window.clearTimeout(prepTimer)
-      window.clearInterval(playTimer)
-      clearTimers()
-      removeInputListeners()
-      stage?.dispose()
-      stage = null
+      release()
       if (!wasDone) sheet.destroy()
       sfx.dispose()
       root.innerHTML = ''
-      if (window.__oneIntro) delete window.__oneIntro
     },
   }
 }

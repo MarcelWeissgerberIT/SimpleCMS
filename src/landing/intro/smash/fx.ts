@@ -218,6 +218,11 @@ export class Fx {
     this.shadowMat.uniforms.uSoft.value = soft
   }
 
+  /** Drawing-buffer pixels per world unit at distance 1 (dust point sizes): call after a pixel-ratio change. */
+  setPixelScale(v: number) {
+    this.dustMat.uniforms.uScale.value = v
+  }
+
   get busy(): boolean {
     return this.dust.some((p) => p.alive) || this.chips.some((p) => p.alive)
   }

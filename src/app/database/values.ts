@@ -7,18 +7,21 @@ import { useWorkspace } from '../store/store'
 import { t } from '../i18n'
 import { Resolver } from './model/resolve'
 
-let cached: { key: unknown; r: Resolver } | null = null
+let cached: { pages: unknown; databases: unknown; people: unknown; lang: string; minute: number; r: Resolver } | null = null
 
 function resolver(): Resolver {
   const s = useWorkspace.getState()
-  // Reuse one resolver per workspace snapshot (formula / rollup cache).
-  if (cached && cached.key === s.pages) return cached.r
+  const lang = s.settings.language
+  const now = Date.now()
+  const minute = Math.floor(now / 60_000)
+  // One resolver (formula / rollup cache) per workspace snapshot, language and minute (now()).
+  if (cached && cached.pages === s.pages && cached.databases === s.databases && cached.people === s.people && cached.lang === lang && cached.minute === minute) return cached.r
   const r = new Resolver({
     pages: s.pages,
     databases: s.databases,
     people: s.people,
-    lang: s.settings.language,
-    now: Date.now(),
+    lang,
+    now,
     labels: {
       today: t('database.date.today'),
       tomorrow: t('database.date.tomorrow'),
@@ -28,7 +31,7 @@ function resolver(): Resolver {
       no: t('database.no'),
     },
   })
-  cached = { key: s.pages, r }
+  cached = { pages: s.pages, databases: s.databases, people: s.people, lang, minute, r }
   return r
 }
 

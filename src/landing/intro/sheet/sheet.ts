@@ -30,6 +30,8 @@ export interface SheetHandle {
   setHung(on: boolean): void
   isHung(): boolean
   setRumble(on: boolean): void
+  /** Status-bar hint for visitors who never stop moving ("do nothing for 15 s"). */
+  setHint(on: boolean): void
   /** Stop/resume JS animations (marquee, blink) — e.g. right before a capture. */
   freeze(on: boolean): void
   closeDialog(): void
@@ -87,20 +89,18 @@ export function mountSheet(root: HTMLElement, opts: SheetOptions): SheetHandle {
     .map((m) => `<span class="x97-menu">${accessKey(m)}</span>`)
     .join('')
 
-  const colHeads = Array.from({ length: COLS }, (_, i) => `<span class="x97-ch" data-c="${i + 1}">${colName(i + 1)}</span>`).join('')
-
-  const tabShape = (fill: string) =>
-    svgImg(
-      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 18" preserveAspectRatio="none"><polygon points="0,0.5 100,0.5 92,17.5 8,17.5" fill="${fill}" stroke="#000000" stroke-width="1" vector-effect="non-scaling-stroke"/></svg>`,
-      'x97-tab-shape',
-    )
-  const tabOn = tabShape('#ffffff')
-  const tabOff = tabShape('#c0c0c0')
+  // Tab trapezoids are drawn at the tab's exact pixel size (see sizeTabs): a stretched SVG
+  // (preserveAspectRatio="none") is not reproduced by html2canvas and would vanish at the swap.
+  const tabSvg = (fill: string, w: number, h: number) => {
+    const k = Math.round(w * 0.08)
+    return `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}"><polygon points="0,0.5 ${w},0.5 ${w - k},${h - 0.5} ${k},${h - 0.5}" fill="${fill}" stroke="#000000" stroke-width="1"/></svg>`
+  }
+  const tabFill = (on: boolean) => (on ? '#ffffff' : '#c0c0c0')
   const tabs = t('intro.tabs')
     .split('|')
     .map(
       (name, i) =>
-        `<button type="button" class="x97-tab${i === 0 ? ' on' : ''}" data-tab="${i}">${i === 0 ? tabOn : tabOff}<span>${esc(name)}</span></button>`,
+        `<button type="button" class="x97-tab${i === 0 ? ' on' : ''}" data-tab="${i}">${svgImg(tabSvg(tabFill(i === 0), 80, 18), 'x97-tab-shape')}<span>${esc(name)}</span></button>`,
     )
     .join('')
 
@@ -112,7 +112,7 @@ export function mountSheet(root: HTMLElement, opts: SheetOptions): SheetHandle {
       <span class="x97-title-ico">${icon('sheet')}</span>
       <span class="x97-title-text"><span class="x97-tt-main">${esc(baseTitle)}</span><span class="x97-tt-sfx"></span></span>
       <span class="x97-title-btns">
-        <span class="x97-cap" aria-hidden="true">${icon('min')}</span><span class="x97-cap" aria-hidden="true">${icon('restore')}</span><button type="button" class="x97-cap x97-cap-x" aria-label="${esc(t('intro.skip'))}">${icon('close')}</button>
+        <span class="x97-cap" aria-hidden="true">${icon('min')}</span><span class="x97-cap" aria-hidden="true">${icon('restore')}</span><button type="button" class="x97-cap x97-cap-x" aria-label="${esc(t('intro.close'))}" title="${esc(t('intro.close'))}">${icon('close')}</button>
       </span>
     </div>
     <div class="x97-menubar"><span class="x97-mdi-ico">${icon('sheet')}</span>${menus}<span class="x97-mdi-btns"><span class="x97-cap x97-cap-s">${icon('min')}</span><span class="x97-cap x97-cap-s">${icon('restore')}</span><span class="x97-cap x97-cap-s">${icon('close')}</span></span></div>
@@ -126,7 +126,7 @@ export function mountSheet(root: HTMLElement, opts: SheetOptions): SheetHandle {
     <div class="x97-body">
       <div class="x97-scroll" tabindex="0">
         <div class="x97-sheet">
-          <div class="x97-colhead"><span class="x97-corner"></span>${colHeads}</div>
+          <div class="x97-colhead"></div>
           <div class="x97-main">
             <div class="x97-rowhead"></div>
             <div class="x97-cells">
@@ -183,7 +183,10 @@ export function mountSheet(root: HTMLElement, opts: SheetOptions): SheetHandle {
   const dialog = q('.x97-dialog')
   const dust = q('.x97-dust')
   const statusSum = q('.x97-st-sum')
-  const colHeadEls = Array.from(el.querySelectorAll<HTMLElement>('.x97-ch'))
+  const statusMain = q('.x97-st-main')
+  const colhead = q('.x97-colhead')
+  const tabEls = Array.from(el.querySelectorAll<HTMLElement>('.x97-tab'))
+  let colHeadEls: HTMLElement[] = []
 
   // ------------------------------------------------------------------ layout
   const mq = window.matchMedia('(max-width: 720px)')
@@ -193,14 +196,40 @@ export function mountSheet(root: HTMLElement, opts: SheetOptions): SheetHandle {
   let marqueeW = 0
   let blinkers: [HTMLElement, HTMLElement][] = []
 
-  function render() {
-    el.dataset.layout = layout
-    const rows = ROWS[layout]
-    sheet.style.width = `${ROW_HEAD_W + COLS * CELL_W}px`
-    cells.style.width = `${COLS * CELL_W}px`
+  // A real spreadsheet never ends: the grid always covers the viewport (at least A–Z × 64/96).
+  let cols = 0
+  let rows = 0
+  function gridSize(): [number, number] {
+    const c = Math.max(COLS, Math.ceil((window.innerWidth - ROW_HEAD_W) / CELL_W) + 1)
+    const r = Math.max(ROWS[layout], Math.ceil(window.innerHeight / CELL_H) + 2)
+    return [c, r]
+  }
+  function renderGrid() {
+    ;[cols, rows] = gridSize()
+    sheet.style.width = `${ROW_HEAD_W + cols * CELL_W}px`
+    cells.style.width = `${cols * CELL_W}px`
     cells.style.height = `${rows * CELL_H}px`
+    colhead.innerHTML = `<span class="x97-corner"></span>${Array.from({ length: cols }, (_, i) => `<span class="x97-ch" data-c="${i + 1}">${colName(i + 1)}</span>`).join('')}`
+    colHeadEls = Array.from(colhead.querySelectorAll<HTMLElement>('.x97-ch'))
     rowhead.innerHTML = Array.from({ length: rows }, (_, i) => `<span class="x97-rh" data-r="${i + 1}">${i + 1}</span>`).join('')
     rowHeadEls = Array.from(rowhead.children) as HTMLElement[]
+  }
+
+  function sizeTabs() {
+    for (const tab of tabEls) {
+      const img = tab.querySelector<HTMLImageElement>('.x97-tab-shape')
+      const w = tab.offsetWidth
+      const h = tab.offsetHeight
+      if (!img || !w || !h || (img.width === w && img.height === h)) continue
+      img.width = w
+      img.height = h
+      img.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(tabSvg(tabFill(tab.classList.contains('on')), w, h))}`
+    }
+  }
+
+  function render() {
+    el.dataset.layout = layout
+    renderGrid()
     layer.innerHTML = renderCells(layout, t, lang)
     marqueeTrack = layer.querySelector<HTMLElement>('.x97-marquee-track')
     marqueeW = (marqueeTrack?.firstElementChild as HTMLElement | null)?.offsetWidth ?? 0
@@ -244,8 +273,8 @@ export function mountSheet(root: HTMLElement, opts: SheetOptions): SheetHandle {
   }
 
   function cellAt(x: number, y: number): [number, number] {
-    const c = Math.min(COLS, Math.max(1, Math.floor(x / CELL_W) + 1))
-    const r = Math.min(ROWS[layout], Math.max(1, Math.floor(y / CELL_H) + 1))
+    const c = Math.min(cols, Math.max(1, Math.floor(x / CELL_W) + 1))
+    const r = Math.min(rows, Math.max(1, Math.floor(y / CELL_H) + 1))
     return [c, r]
   }
 
@@ -288,20 +317,26 @@ export function mountSheet(root: HTMLElement, opts: SheetOptions): SheetHandle {
     const rh = target.closest<HTMLElement>('.x97-rh')
     if (ch) {
       const c = Number(ch.dataset.c)
-      select({ kind: 'cell', range: [c, 1, c, ROWS[layout]], name: refOf(c, 1), f: '' })
+      select({ kind: 'cell', range: [c, 1, c, rows], name: refOf(c, 1), f: '' })
     } else if (rh) {
       const r = Number(rh.dataset.r)
-      select({ kind: 'cell', range: [1, r, COLS, r], name: refOf(1, r), f: '' })
+      select({ kind: 'cell', range: [1, r, cols, r], name: refOf(1, r), f: '' })
     } else if (target.closest('.x97-corner')) {
-      select({ kind: 'cell', range: [1, 1, COLS, ROWS[layout]], name: 'A1', f: t('intro.a1.formula') })
+      select({ kind: 'cell', range: [1, 1, cols, rows], name: 'A1', f: t('intro.a1.formula') })
     }
   }
 
   function onKey(e: KeyboardEvent) {
     if (!dialog.hidden) {
-      if (e.key === 'Escape' || e.key === 'Enter') {
+      if (e.key === 'Escape') {
         e.preventDefault()
         closeDialog()
+      } else if (e.key === 'Tab') {
+        // modal: keep focus inside the dialog
+        const f = Array.from(dialog.querySelectorAll<HTMLElement>('button'))
+        const i = f.indexOf(document.activeElement as HTMLElement)
+        e.preventDefault()
+        f[(i + (e.shiftKey ? -1 : 1) + f.length) % f.length]?.focus()
       }
       return
     }
@@ -310,8 +345,8 @@ export function mountSheet(root: HTMLElement, opts: SheetOptions): SheetHandle {
     const mv = moves[e.key]
     if (!mv) return
     e.preventDefault()
-    const c = Math.min(COLS, Math.max(1, current.range[0] + mv[0]))
-    const r = Math.min(ROWS[layout], Math.max(1, current.range[1] + mv[1]))
+    const c = Math.min(cols, Math.max(1, current.range[0] + mv[0]))
+    const r = Math.min(rows, Math.max(1, current.range[1] + mv[1]))
     select({ kind: 'cell', range: [c, r, c, r], name: refOf(c, r), f: '' })
     const x = (c - 1) * CELL_W
     const y = (r - 1) * CELL_H
@@ -331,7 +366,7 @@ export function mountSheet(root: HTMLElement, opts: SheetOptions): SheetHandle {
     const cellTop = (tr[1] - 1) * CELL_H
     const cellRight = cellLeft + CELL_W
     const boxW = 168
-    const toLeft = cellRight + boxW + 24 > COLS * CELL_W || (layout === 'm' && tr[0] >= 4)
+    const toLeft = cellRight + boxW + 24 > cols * CELL_W || (layout === 'm' && tr[0] >= 4)
     const bx = toLeft ? cellLeft - boxW - 18 : cellRight + 18
     const by = Math.max(4, cellTop - 30)
     note.hidden = false
@@ -568,7 +603,14 @@ export function mountSheet(root: HTMLElement, opts: SheetOptions): SheetHandle {
     if (next !== layout) {
       layout = next
       render()
-    } else updateScrollbars()
+    } else {
+      const [c, r] = gridSize()
+      if (c !== cols || r !== rows) {
+        renderGrid()
+        if (current) select(current)
+      }
+      updateScrollbars()
+    }
   }
   cells.addEventListener('pointerdown', onCellsDown)
   sheet.addEventListener('pointerdown', onHeadDown)
@@ -583,16 +625,27 @@ export function mountSheet(root: HTMLElement, opts: SheetOptions): SheetHandle {
   window.addEventListener('resize', onResize)
 
   render()
-  // Fonts may change the marquee width once loaded.
+  sizeTabs()
+  // Fonts may change the marquee + tab widths once loaded.
   document.fonts?.ready.then(() => {
     marqueeW = (marqueeTrack?.firstElementChild as HTMLElement | null)?.offsetWidth ?? marqueeW
+    sizeTabs()
   })
+
+  let hint = false
+  function setHint(on: boolean) {
+    if (hint === on) return
+    hint = on
+    statusMain.textContent = on ? t('intro.hint') : t('intro.ready')
+    statusMain.classList.toggle('x97-st-hint', on)
+  }
 
   return {
     el,
     setHung,
     isHung: () => hung,
     setRumble,
+    setHint,
     freeze,
     closeDialog,
     destroy() {

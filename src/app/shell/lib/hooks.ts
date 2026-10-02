@@ -1,4 +1,5 @@
 import { useEffect, useState, useSyncExternalStore } from 'react'
+import { shortcutLabel } from '../../ui/controls'
 import { getSaveStatus, onSaveStatus } from '../../store/persistence'
 import { safeLocalGet, safeLocalSet } from '@/shared/brand'
 
@@ -62,4 +63,14 @@ export function useResolvedTheme(): 'light' | 'dark' {
     () => (document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light'),
     () => 'light',
   )
+}
+
+/** Touch-first device (no hover, coarse pointer): keyboard hints are noise there. */
+export const TOUCH_QUERY = '(hover: none) and (pointer: coarse)'
+export const useIsTouch = () => useMediaQuery(TOUCH_QUERY)
+
+/** Shortcut label for hints, or undefined on touch devices. */
+export function useKbdHint(): (shortcut: string) => string | undefined {
+  const touch = useIsTouch()
+  return (s: string) => (touch ? undefined : shortcutLabel(s))
 }

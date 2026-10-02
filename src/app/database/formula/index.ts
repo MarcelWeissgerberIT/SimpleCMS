@@ -2,9 +2,9 @@
  * Formula engine entry: compile (cached) + run, plus the function catalog for the editor.
  */
 import { FormulaError, parse, referencedProps, type Node } from './parse'
-import { evaluate, toText, truthy, isDate, numToText, type EvalEnv, type FValue } from './evaluate'
+import { evaluate, toText, truthy, isDate, numToText, withRangeEnd, type EvalEnv, type FValue } from './evaluate'
 
-export { FormulaError, evaluate, toText, truthy, isDate, numToText, referencedProps }
+export { FormulaError, evaluate, toText, truthy, isDate, numToText, referencedProps, withRangeEnd }
 export type { EvalEnv, FValue, Node }
 
 type Compiled = { ast: Node; error?: undefined } | { ast?: undefined; error: FormulaError }
@@ -70,6 +70,8 @@ export const FORMULA_CATALOG: Array<{ group: 'logic' | 'text' | 'math' | 'date' 
   { group: 'date', name: 'dateAdd', sig: 'dateAdd(date, n, "days")', insert: 'dateAdd(, 1, "days")' },
   { group: 'date', name: 'dateSubtract', sig: 'dateSubtract(date, n, "days")', insert: 'dateSubtract(, 1, "days")' },
   { group: 'date', name: 'dateBetween', sig: 'dateBetween(a, b, "days")', insert: 'dateBetween(, now(), "days")' },
+  { group: 'date', name: 'dateStart', sig: 'dateStart(range)', insert: 'dateStart()' },
+  { group: 'date', name: 'dateEnd', sig: 'dateEnd(range)', insert: 'dateEnd()' },
   { group: 'date', name: 'formatDate', sig: 'formatDate(date, "yyyy-MM-dd")', insert: 'formatDate(, "yyyy-MM-dd")' },
   { group: 'date', name: 'year', sig: 'year(date)', insert: 'year()' },
   { group: 'date', name: 'month', sig: 'month(date)', insert: 'month()' },

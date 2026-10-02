@@ -4,6 +4,7 @@
  */
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
+import type { JSONContent } from '@tiptap/core'
 import { ChevronLeft, ChevronRight, LayoutGrid, Maximize, Minimize, Moon, Sun, X } from 'lucide-react'
 import { useLang, useT } from '../../i18n'
 import { usePage } from '../../store/selectors'
@@ -12,8 +13,10 @@ import { ReadOnlyDoc } from '../../editor'
 import { PageIcon } from '../../ui/PageIcon'
 import { Kbd } from '../../ui/controls'
 import { safeLocalGet, safeLocalSet } from '@/shared/brand'
-import { buildDeck, slideText, type Slide } from './slides'
+import { buildDeck, mapBlocks, slideText, type Slide } from './slides'
+import { databaseTable } from '../share/codec'
 import './present.css'
+import '../share/readonly.css'
 
 const DARK_KEY = 'one.present.dark'
 const pad2 = (n: number) => String(n).padStart(2, '0')
@@ -23,7 +26,12 @@ export function Presentation({ pageId, onClose }: { pageId: ID; onClose: () => v
   const lang = useLang()
   const page = usePage(pageId)
   const title = page?.title?.trim() || t('common.untitled')
-  const { slides } = useMemo(() => buildDeck(page?.content, title), [page?.content, title])
+  // Embedded databases are shown as static tables: a click during a talk must never create rows.
+  const { slides } = useMemo(() => {
+    const deck = buildDeck(page?.content, title)
+    const staticDb = (n: JSONContent) => (n.type === 'databaseBlock' ? databaseTable(String(n.attrs?.databaseId ?? '')) : null)
+    return { ...deck, slides: deck.slides.map((sl) => ({ ...sl, blocks: mapBlocks(sl.blocks, staticDb) })) }
+  }, [page?.content, title])
   const [index, setIndex] = useState(0)
   const [dir, setDir] = useState<1 | -1>(1)
   const [dark, setDark] = useState(() => safeLocalGet(DARK_KEY) === '1')
@@ -34,7 +42,9 @@ export function Presentation({ pageId, onClose }: { pageId: ID; onClose: () => v
   const onCloseRef = useRef(onClose)
   onCloseRef.current = onClose
   const enteredFs = useRef(false)
+  const overviewRef = useRef(false)
 
+  overviewRef.current = overview
   const count = slides.length
   const coarse = useMemo(() => typeof window !== 'undefined' && !!window.matchMedia?.('(pointer: coarse)').matches, [])
   const cur = Math.min(index, count - 1)
@@ -64,15 +74,22 @@ export function Presentation({ pageId, onClose }: { pageId: ID; onClose: () => v
     const onFs = () => {
       const on = !!document.fullscreenElement
       setFs(on)
-      // Esc in full screen is consumed by the browser: leaving full screen ends the show.
+      // Ask for Esc to reach the page in full screen (Chromium): it then closes the overview or
+      // ends the show like everywhere else; holding Esc still leaves full screen.
+      if (on) void keyboardLock()?.lock?.(['Escape']).catch(() => undefined)
+      else keyboardLock()?.unlock?.()
+      // Without the lock the browser consumes Esc to leave full screen: in the overview that
+      // just closes the overview, otherwise it ends the show.
       if (!on && enteredFs.current) {
         enteredFs.current = false
-        onCloseRef.current()
+        if (overviewRef.current) setOverview(false)
+        else onCloseRef.current()
       }
     }
     document.addEventListener('fullscreenchange', onFs)
     return () => {
       document.removeEventListener('fullscreenchange', onFs)
+      keyboardLock()?.unlock?.()
       if (document.fullscreenElement) {
         enteredFs.current = false
         document.exitFullscreen().catch(() => undefined)
@@ -160,7 +177,8 @@ export function Presentation({ pageId, onClose }: { pageId: ID; onClose: () => v
     if (!d || (e.target as HTMLElement).closest('a, button, input, summary, [data-no-nav]')) return
     const dx = e.clientX - d.x
     const dy = e.clientY - d.y
-    if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy)) return dx < 0 ? next() : prev()
+    // a swipe inside something that scrolls sideways (wide table, code) scrolls it instead
+    if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy)) return inScroller(e.target as HTMLElement) ? undefined : dx < 0 ? next() : prev()
     if (Math.abs(dx) < 6 && Math.abs(dy) < 6) {
       if (window.getSelection()?.toString()) return
       if (e.clientX < window.innerWidth * 0.3) prev()
@@ -258,9 +276,17 @@ function SlideView({ slide, dir, icon, title, meta, hint }: { slide: Slide; dir:
     const measure = () => {
       content.style.width = '100%'
       content.style.transform = ''
-      const avail = fit.clientHeight
-      const need = content.scrollHeight
-      const s = need > avail && avail > 0 ? Math.max(0.5, avail / need) : 1
+      const availH = fit.clientHeight
+      const availW = content.clientWidth
+      const needH = content.scrollHeight
+      // wide blocks (tables, code) scroll inside their own box: measure how much they overflow
+      let extra = 0
+      content.querySelectorAll<HTMLElement>('.tableWrapper, pre, .columns').forEach((el) => {
+        extra = Math.max(extra, el.scrollWidth - el.clientWidth)
+      })
+      const sH = needH > availH && availH > 0 ? availH / needH : 1
+      const sW = extra > 1 && availW > 0 ? availW / (availW + extra) : 1
+      const s = Math.max(0.5, Math.min(sH, sW))
       if (s < 1) {
         content.style.width = `${100 / s}%`
         content.style.transform = `scale(${s})`
@@ -335,3 +361,15 @@ function Overview({ slides, current, title, onPick }: { slides: Slide[]; current
     </div>
   )
 }
+
+/* ------------------------------------------------------------------ */
+
+function inScroller(el: HTMLElement | null): boolean {
+  for (let n = el; n && !n.classList.contains('pres__fit'); n = n.parentElement) {
+    if (n.scrollWidth > n.clientWidth + 1 && /(auto|scroll)/.test(getComputedStyle(n).overflowX)) return true
+  }
+  return false
+}
+
+type KeyboardLock = { lock?: (keys?: string[]) => Promise<void>; unlock?: () => void }
+const keyboardLock = (): KeyboardLock | undefined => (navigator as Navigator & { keyboard?: KeyboardLock }).keyboard

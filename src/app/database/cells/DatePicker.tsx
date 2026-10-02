@@ -2,7 +2,7 @@
  * Calendar popover: single date or range, optional time, typed input, keyboard grid,
  * locale-aware week start (de: Monday), "Today" + "Clear".
  */
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { ChevronLeft, ChevronRight } from 'lucide-react'
 import {
   addDays,
@@ -219,25 +219,37 @@ function DateField({ label, date, withTime, active, onFocus, onDate }: { label: 
   const locale = dfLocale(lang)
   const shown = date ? format(date, lang === 'de' ? 'd. MMM yyyy' : 'MMM d, yyyy', { locale }) : ''
   const [draft, setDraft] = useState<string | null>(null)
+  // the typed text also lives in a ref: a click away or Esc unmounts the popover before blur fires,
+  // so the unmount cleanup saves whatever is still pending
+  const pending = useRef<string | null>(null)
+  const latest = useRef({ date, withTime, onDate, lang })
+  latest.current = { date, withTime, onDate, lang }
   const commit = () => {
-    if (draft === null) return
-    const d = parseTypedDate(draft, lang)
+    const text = pending.current
+    if (text === null) return
+    pending.current = null
+    const { date: cur, withTime: wt, onDate: emitDate, lang: l } = latest.current
+    const d = parseTypedDate(text, l)
     if (d) {
-      if (date && withTime) d.setHours(date.getHours(), date.getMinutes())
-      onDate(d)
-    } else if (!draft.trim()) onDate(null)
+      if (cur && wt) d.setHours(cur.getHours(), cur.getMinutes())
+      emitDate(d)
+    } else if (!text.trim()) emitDate(null)
     setDraft(null)
   }
+  useEffect(() => commit, []) // eslint-disable-line react-hooks/exhaustive-deps
   return (
     <div className="db-datefield" data-active={active}>
       <span className="label">{label}</span>
-      <div className="db-datefield__row">
+      <div className="db-datefield__row" data-time={withTime}>
         <input
           className="db-datefield__input"
           value={draft ?? shown}
           placeholder={lang === 'de' ? 'TT.MM.JJJJ' : 'MM/DD/YYYY'}
           onFocus={onFocus}
-          onChange={(e) => setDraft(e.target.value)}
+          onChange={(e) => {
+            pending.current = e.target.value
+            setDraft(e.target.value)
+          }}
           onBlur={commit}
           onKeyDown={(e) => {
             if (e.key === 'Enter') {

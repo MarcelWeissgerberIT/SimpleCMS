@@ -101,6 +101,7 @@ export function ImageView({ node, updateAttributes, deleteNode, selected, editor
       className={`image image-view${hasCaption && caption ? ' has-caption' : ''}${selected ? ' is-selected' : ''}`}
       data-type="image"
       data-align={align || 'center'}
+      data-sized={w ? '' : undefined}
       style={{ width: w ? `${w}px` : undefined }}
       contentEditable={false}
     >

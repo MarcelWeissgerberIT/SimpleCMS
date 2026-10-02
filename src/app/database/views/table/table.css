@@ -168,7 +168,7 @@ body.db-resizing .dbt-resize:active::after {
 
 .dbt-bodyscroll[data-scrolled='true'] .dbt-sticky1,
 .dbt[data-scrolled='true'] .dbt-sticky1 {
-  box-shadow: inset -1px 0 0 var(--rule-strong), 6px 0 8px -6px rgba(0, 0, 0, 0.18);
+  box-shadow: inset -1px 0 0 var(--rule-strong), 6px 0 8px -6px var(--rule-strong);
 }
 
 /* ---------- body rows ---------- */
@@ -551,7 +551,7 @@ body.db-resizing .dbt-resize:active::after {
   gap: 6px;
   padding: 0 10px 0 2px;
   margin-right: 4px;
-  border-right: 1px solid rgba(128, 128, 128, 0.35);
+  border-right: 1px solid color-mix(in srgb, var(--ink-inverse) 30%, transparent);
   font-family: var(--font-mono);
   font-size: var(--text-2xs);
   letter-spacing: var(--tracking-label);
@@ -586,12 +586,12 @@ body.db-resizing .dbt-resize:active::after {
 }
 
 .dbt-bulk__btn:hover {
-  background: rgba(128, 128, 128, 0.22);
+  background: color-mix(in srgb, var(--ink-inverse) 16%, transparent);
 }
 
 .dbt-bulk__btn--danger:hover {
   background: var(--c-red-text);
-  color: #fff;
+  color: var(--ink-inverse);
 }
 
 /* ---------- mobile ---------- */

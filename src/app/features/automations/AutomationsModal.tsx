@@ -9,10 +9,11 @@ import { Led } from '../../ui/controls'
 import { useLang, useT } from '../../i18n'
 import { useDatabase, usePage } from '../../store/selectors'
 import { useWorkspace } from '../../store/store'
+import { toast } from '../../store/ui'
 import { resolveAssetUrl } from '../../lib/files'
 import { newId } from '../../lib/ids'
 import type { Automation, ID } from '../../store/types'
-import { samplePayload, useRunLog } from './engine'
+import { isDatabaseApiLoaded, loadDatabaseApi, samplePayload, useRunLog } from './engine'
 import { blankAutomation, makeRecipe, problemOf, recipeAvailable, type RecipeId } from './recipes'
 import { AutomationEditor } from './AutomationEditor'
 import './automations.css'
@@ -65,7 +66,28 @@ export function AutomationsModal({ databaseId, onClose }: { databaseId: ID; onCl
     save([...(useWorkspace.getState().databases[databaseId]?.automations ?? []), a])
     setSelected(a.id)
   }
-  const remove = (id: ID) => save(list.filter((x) => x.id !== id))
+  const remove = (id: ID) => {
+    const all = useWorkspace.getState().databases[databaseId]?.automations ?? []
+    const index = all.findIndex((x) => x.id === id)
+    const removed = all[index]
+    if (!removed) return
+    save(all.filter((x) => x.id !== id))
+    // deleting loses a webhook URL etc. → offer undo instead of a confirm dialog
+    toast({
+      message: t('features.auto.deleted', { name: removed.name.trim() || t('features.auto.untitled') }),
+      action: {
+        label: t('features.auto.undo'),
+        run: () => {
+          const now = useWorkspace.getState().databases[databaseId]?.automations ?? []
+          if (now.some((x) => x.id === removed.id)) return
+          const next = [...now]
+          next.splice(Math.min(index, next.length), 0, removed)
+          useWorkspace.getState().updateDatabase(databaseId, { automations: next })
+          setSelected(removed.id)
+        },
+      },
+    })
+  }
   const duplicate = (a: Automation) => add({ ...JSON.parse(JSON.stringify(a)), id: newId(), name: `${a.name} (2)`, enabled: false, lastRunAt: null, lastStatus: null, lastMessage: null })
 
   const dbTitle = page.title.trim() || t('common.untitled')
@@ -181,6 +203,11 @@ export function AutomationsModal({ databaseId, onClose }: { databaseId: ID; onCl
 function PayloadPanel({ databaseId, automation }: { databaseId: ID; automation: Automation | null }) {
   const t = useT()
   const [copied, setCopied] = useState(false)
+  const [apiReady, setApiReady] = useState(isDatabaseApiLoaded)
+  useEffect(() => {
+    if (!apiReady) void loadDatabaseApi().then(() => setApiReady(true))
+  }, [apiReady])
+  const method = automation?.actions.find((a) => a.type === 'webhook')?.method ?? 'POST'
   // re-read when the db / rows change so the example stays real
   const pages = useWorkspace((s) => s.pages)
   const json = useMemo(() => {
@@ -190,7 +217,7 @@ function PayloadPanel({ databaseId, automation }: { databaseId: ID; automation: 
     } catch {
       return '{}'
     }
-  }, [databaseId, automation, pages, t])
+  }, [databaseId, automation, pages, t, apiReady])
   useEffect(() => {
     if (!copied) return
     const id = window.setTimeout(() => setCopied(false), 1600)
@@ -200,7 +227,7 @@ function PayloadPanel({ databaseId, automation }: { databaseId: ID; automation: 
     <section className="auto-payload">
       <div className="auto-section-label label">
         <b>{t('features.auto.payload')}</b>
-        <span>POST · application/json</span>
+        <span>{method} · application/json</span>
         <button
           type="button"
           className="btn btn--sm btn--ghost auto-payload__copy"

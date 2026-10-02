@@ -1,10 +1,18 @@
 /**
  * Snapshot of the visible spreadsheet window into a canvas (texture for the smash).
  * html2canvas-pro is loaded lazily. The capture covers exactly the viewport at
- * scale = min(devicePixelRatio, 2) so it maps 1:1 onto the WebGL drawing buffer.
+ * captureScale() so it maps 1:1 onto the WebGL drawing buffer.
+ */
+
+/**
+ * Pixel ratio for the capture AND the WebGL drawing buffer: devicePixelRatio capped at 2 —
+ * or at 3 on phone-sized viewports (390×844×9 ≈ 3 M px is still less than 1440×900×4), so
+ * text does not soften at the swap on 3× phones.
  */
 export function captureScale(): number {
-  return Math.min(window.devicePixelRatio || 1, 2)
+  const dpr = window.devicePixelRatio || 1
+  const small = window.innerWidth * window.innerHeight <= 520_000
+  return Math.min(dpr, small ? 3 : 2)
 }
 
 export async function captureViewport(target: HTMLElement): Promise<HTMLCanvasElement> {

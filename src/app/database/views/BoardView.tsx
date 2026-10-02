@@ -19,10 +19,10 @@ import {
 } from '@dnd-kit/core'
 import { SortableContext, arrayMove, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import { ChevronsLeftRight, Ellipsis, Eye, EyeOff, Plus } from 'lucide-react'
+import { ChevronLeft, ChevronRight, ChevronsLeftRight, Ellipsis, Eye, EyeOff, Plus } from 'lucide-react'
+import { scrollByPage, useEdgeOverflow } from './overflow'
 import type { ID, Page, PropertyDef } from '../../store/types'
 import { useWorkspace } from '../../store/store'
-import { Menu } from '../../ui/Menu'
 import { useT } from '../../i18n'
 import { pointAnchor } from '../../ui/Popover'
 import { useModel, type DbModel } from '../hooks'
@@ -31,7 +31,7 @@ import { CardBody, CardPreview } from './cards'
 import { NONE_KEY, valueForGroupMove, type RowGroup } from '../model/query'
 import { orderBetween, writeValue } from '../model/actions'
 import { BOARD_GROUP_TYPES } from '../model/schema'
-import { Select, TypeIcon } from '../parts'
+import { Menu, Select, TypeIcon } from '../parts'
 import './views.css'
 
 const SEP = '::'
@@ -48,6 +48,7 @@ export function BoardView() {
   const actions = useViewActions()
   const { view, db } = m
   const [collapsed, toggleCollapsed] = useCollapsed(view.id)
+  const [setScrollEl, overflow, scrollEl] = useEdgeOverflow<HTMLDivElement>()
   const hiddenKey = (view.hiddenGroups ?? []).join('|')
   const keepEmptyNone = m.groupProp?.type === 'select' || m.groupProp?.type === 'multi_select' || m.groupProp?.type === 'person'
   const { visibleGroups, hiddenGroups } = useMemo(() => {
@@ -84,7 +85,8 @@ export function BoardView() {
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
     useSensor(TouchSensor, { activationConstraint: { delay: 220, tolerance: 6 } }),
-    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+    // Space lifts a card (Enter opens it); Space / Enter drop, Esc cancels
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates, keyboardCodes: { start: ['Space'], cancel: ['Escape'], end: ['Space', 'Enter'] } }),
   )
 
   const containerOf = (id: string): string | undefined => (id in items ? id : Object.keys(items).find((k) => items[k].includes(id)))
@@ -155,78 +157,90 @@ export function BoardView() {
   }
 
   return (
-    <div className="dbb" data-size={size}>
-      <DndContext sensors={sensors} collisionDetection={closestCorners} onDragStart={onDragStart} onDragOver={onDragOver} onDragEnd={onDragEnd} onDragCancel={() => setActiveId(null)}>
-        <div className="dbb-cols">
-          {visibleGroups.map((g, gi) => {
-            if (collapsed.has(g.key))
+    <div className="dbb-wrap" data-overflow={overflow}>
+      <div className="dbb" data-size={size} ref={setScrollEl}>
+        <DndContext sensors={sensors} collisionDetection={closestCorners} onDragStart={onDragStart} onDragOver={onDragOver} onDragEnd={onDragEnd} onDragCancel={() => setActiveId(null)}>
+          <div className="dbb-cols">
+            {visibleGroups.map((g, gi) => {
+              if (collapsed.has(g.key))
+                return (
+                  <button key={g.key} type="button" className="dbb-collapsed" onClick={() => toggleCollapsed(g.key)} aria-label={`${g.label} — ${t('database.group.expand')}`} title={t('database.group.expand')}>
+                    <span className="dbb-count">{g.rows.length}</span>
+                    {g.option?.group ? (
+                      <span className="db-status__led" data-group={g.option.group} />
+                    ) : (
+                      <span className="db-swatch" style={g.color ? { background: `var(--c-${g.color}-text)` } : undefined} />
+                    )}
+                    <span className="dbb-collapsed__label">{g.label}</span>
+                  </button>
+                )
               return (
-                <button key={g.key} type="button" className="dbb-collapsed" onClick={() => toggleCollapsed(g.key)} aria-label={`${g.label} — ${t('database.group.expand')}`} title={t('database.group.expand')}>
-                  <span className="dbb-count">{g.rows.length}</span>
-                  {g.option?.group ? (
-                    <span className="db-status__led" data-group={g.option.group} />
-                  ) : (
-                    <span className="db-swatch" style={g.color ? { background: `var(--c-${g.color}-text)` } : undefined} />
-                  )}
-                  <span className="dbb-collapsed__label">{g.label}</span>
-                </button>
+                <Column
+                  key={g.key}
+                  m={m}
+                  group={g}
+                  index={gi}
+                  ids={items[g.key] ?? []}
+                  rowsById={rowsById}
+                  cardProps={cardProps}
+                  editing={editing}
+                  onEditDone={(id, cancelled) => {
+                    setEditing(null)
+                    if (cancelled && !useWorkspace.getState().pages[id]?.title) useWorkspace.getState().trashPage(id)
+                  }}
+                  onAdd={() => addCard(g)}
+                  onMenu={(el) => setMenu({ group: g, el })}
+                  onOpen={(row) => actions.open(row)}
+                  onContext={(row, e) => {
+                    e.preventDefault()
+                    actions.contextMenu(row, pointAnchor(e.clientX, e.clientY))
+                  }}
+                />
               )
-            return (
-              <Column
-                key={g.key}
-                m={m}
-                group={g}
-                index={gi}
-                ids={items[g.key] ?? []}
-                rowsById={rowsById}
-                cardProps={cardProps}
-                editing={editing}
-                onEditDone={(id, cancelled) => {
-                  setEditing(null)
-                  if (cancelled && !useWorkspace.getState().pages[id]?.title) useWorkspace.getState().trashPage(id)
-                }}
-                onAdd={() => addCard(g)}
-                onMenu={(el) => setMenu({ group: g, el })}
-                onOpen={(row) => actions.open(row)}
-                onContext={(row, e) => {
-                  e.preventDefault()
-                  actions.contextMenu(row, pointAnchor(e.clientX, e.clientY))
-                }}
-              />
-            )
-          })}
-          {hiddenGroups.length > 0 && (
-            <div className="dbb-hidden">
-              <div className="label dbb-hidden__head">{t('database.group.hidden')}</div>
-              {hiddenGroups.map((g) => (
-                <button key={g.key} type="button" className="dbb-hidden__row" onClick={() => setHidden(g.key, false)}>
-                  <GroupLabel group={g} />
-                  <span className="dbb-count">{g.rows.length}</span>
-                  <EyeOff size={13} className="faint" />
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-        <DragOverlay dropAnimation={{ duration: 160, easing: 'cubic-bezier(0.2, 0.8, 0.2, 1)' }}>
-          {activeRow ? (
-            <div className="dbc dbc--overlay">
-              <CardPreview m={m} row={activeRow} preview={view.cardPreview} />
-              <CardBody m={m} row={activeRow} props={cardProps} />
-            </div>
-          ) : null}
-        </DragOverlay>
-      </DndContext>
-      {menu && (
-        <Menu
-          open
-          anchor={menu.el}
-          onClose={() => setMenu(null)}
-          entries={[
-            { label: t('database.group.collapse'), icon: <ChevronsLeftRight size={14} />, onSelect: () => toggleCollapsed(menu.group.key) },
-            { label: t('database.group.hide'), icon: <Eye size={14} />, onSelect: () => setHidden(menu.group.key, true) },
-          ]}
-        />
+            })}
+            {hiddenGroups.length > 0 && (
+              <div className="dbb-hidden">
+                <div className="label dbb-hidden__head">{t('database.group.hidden')}</div>
+                {hiddenGroups.map((g) => (
+                  <button key={g.key} type="button" className="dbb-hidden__row" onClick={() => setHidden(g.key, false)}>
+                    <GroupLabel group={g} />
+                    <span className="dbb-count">{g.rows.length}</span>
+                    <EyeOff size={13} className="faint" />
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+          <DragOverlay dropAnimation={{ duration: 160, easing: 'cubic-bezier(0.2, 0.8, 0.2, 1)' }}>
+            {activeRow ? (
+              <div className="dbc dbc--overlay">
+                <CardPreview m={m} row={activeRow} preview={view.cardPreview} />
+                <CardBody m={m} row={activeRow} props={cardProps} />
+              </div>
+            ) : null}
+          </DragOverlay>
+        </DndContext>
+        {menu && (
+          <Menu
+            open
+            anchor={menu.el}
+            onClose={() => setMenu(null)}
+            entries={[
+              { label: t('database.group.collapse'), icon: <ChevronsLeftRight size={14} />, onSelect: () => toggleCollapsed(menu.group.key) },
+              { label: t('database.group.hide'), icon: <Eye size={14} />, onSelect: () => setHidden(menu.group.key, true) },
+            ]}
+          />
+        )}
+      </div>
+      {(overflow === 'start' || overflow === 'both') && (
+        <button type="button" className="dbb-edge dbb-edge--start" aria-label={t('database.board.scrollLeft')} onClick={() => scrollByPage(scrollEl, -1, '.dbb-col, .dbb-collapsed', 56)}>
+          <ChevronLeft size={16} />
+        </button>
+      )}
+      {(overflow === 'end' || overflow === 'both') && (
+        <button type="button" className="dbb-edge dbb-edge--end" aria-label={t('database.board.scrollRight')} onClick={() => scrollByPage(scrollEl, 1, '.dbb-col, .dbb-collapsed', 56)}>
+          <ChevronRight size={16} />
+        </button>
       )}
     </div>
   )
@@ -311,7 +325,7 @@ function Card({ id, m, row, props, editing, onEditDone, onOpen, onContext }: { i
       onClick={() => !editing && onOpen()}
       onKeyDown={(e) => {
         listeners?.onKeyDown?.(e)
-        if (e.key === 'Enter' && !editing) onOpen()
+        if (e.key === 'Enter' && !editing && !isDragging && e.target === e.currentTarget) onOpen()
       }}
       onContextMenu={onContext}
     >

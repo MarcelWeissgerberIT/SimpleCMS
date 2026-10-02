@@ -24,7 +24,9 @@ import { toggleMenu } from '../lib/menu'
 import { useT } from '../../i18n'
 import type { ID } from '../../store/types'
 import { childIds, treeKey, useChildIds, useTreeState } from '../lib/tree'
-import { canNestUnder, copyPageLink, createPageAndOpen, duplicateAndOpen, goToPage, trashWithUndo } from '../lib/actions'
+import { canNestUnder, closeMobileSidebar, copyPageLink, createPageAndOpen, duplicateAndOpen, goToPage, trashWithUndo } from '../lib/actions'
+import { useIsTouch } from '../lib/hooks'
+import { ALT } from '../../ui/controls'
 
 type DropPos = 'before' | 'after' | 'inside'
 interface DropState {
@@ -223,9 +225,10 @@ function TreeRow({ id, depth, section, draggable, expanded, hasKids }: { id: ID;
   const drag = useDraggable({ id, disabled: !draggable || renaming })
   const dropZone = useDroppable({ id, disabled: !draggable })
   const rowRef = useRef<HTMLDivElement | null>(null)
+  const touch = useIsTouch()
 
   useEffect(() => {
-    if (active) rowRef.current?.scrollIntoView({ block: 'nearest' })
+    if (active && rowRef.current) revealInScroller(rowRef.current)
   }, [active])
 
   if (!page) return null
@@ -244,10 +247,23 @@ function TreeRow({ id, depth, section, draggable, expanded, hasKids }: { id: ID;
     { label: t('common.copyLink'), icon: <Link2 size={15} />, onSelect: () => void copyPageLink(id) },
     { label: t('shell.menu.moveTo'), icon: <FolderInput size={15} />, onSelect: () => useUI.getState().openModal({ type: 'move', pageId: id }) },
     { kind: 'separator' },
-    { label: t('shell.menu.openInPane'), icon: <PanelRight size={15} />, hint: t('shell.menu.altClick'), onSelect: () => useUI.getState().openPane(id) },
+    {
+      label: t('shell.menu.openInPane'),
+      icon: <PanelRight size={15} />,
+      hint: touch ? undefined : t('shell.menu.altClick', { alt: ALT }),
+      onSelect: () => useUI.getState().openPane(id),
+    },
     { label: t('shell.menu.openInPeek'), icon: <PanelRightOpen size={15} />, onSelect: () => useUI.getState().openPeek(id) },
     { kind: 'separator' },
-    { label: t('common.delete'), icon: <Trash2 size={15} />, danger: true, onSelect: () => trashWithUndo(id) },
+    {
+      label: t('common.delete'),
+      icon: <Trash2 size={15} />,
+      danger: true,
+      onSelect: () => {
+        closeMobileSidebar()
+        trashWithUndo(id)
+      },
+    },
   ]
 
   return (
@@ -356,6 +372,20 @@ function TreeRow({ id, depth, section, draggable, expanded, hasKids }: { id: ID;
       <Menu {...menu.props} entries={entries} width={240} />
     </div>
   )
+}
+
+/**
+ * Scroll the tree so the row is visible. Done by hand: scrollIntoView() also moves the
+ * browser's sequential-focus starting point, which would make the next Tab skip the
+ * skip link and land in the sidebar.
+ */
+function revealInScroller(row: HTMLElement) {
+  const box = row.closest('.sb-scroll') as HTMLElement | null
+  if (!box) return
+  const r = row.getBoundingClientRect()
+  const b = box.getBoundingClientRect()
+  if (r.top < b.top) box.scrollTop -= b.top - r.top + 8
+  else if (r.bottom > b.bottom) box.scrollTop += r.bottom - b.bottom + 8
 }
 
 function RenameInput({ initial, onDone }: { initial: string; onDone: (v: string | null) => void }) {

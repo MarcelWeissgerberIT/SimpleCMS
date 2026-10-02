@@ -3,7 +3,7 @@ import { NodeViewWrapper, type ReactNodeViewProps } from '@tiptap/react'
 import { Bookmark as BookmarkIcon, Download, ExternalLink, Link2, MonitorPlay, Paperclip, Pencil, Upload } from 'lucide-react'
 import { saveFile, useFileUrl } from '../../lib/files'
 import { useT } from '../../i18n'
-import { detectProvider, domainOf, embedRatio, embedSrc, isUrl, parseUrl, PROVIDER_LABEL, type EmbedProvider } from '../lib/embeds'
+import { detectProvider, domainOf, embedRatio, embedSrc, parseUrl, PROVIDER_LABEL, safeHref, webUrl, type EmbedProvider } from '../lib/embeds'
 import { pickFiles } from '../lib/upload'
 
 /** Inline URL form used by empty bookmark / embed blocks. */
@@ -53,8 +53,9 @@ export function BookmarkView({ node, updateAttributes, selected, editor }: React
             submit={t('editor.media.add')}
             autoFocus={selected}
             onSubmit={(v) => {
-              if (!isUrl(v) && !parseUrl(v)) return t('editor.embed.invalid')
-              const u = parseUrl(v)!
+              // web pages only — never javascript:, data: …
+              const u = webUrl(v)
+              if (!u) return t('editor.embed.invalid')
               updateAttributes({ url: u.toString(), title: null })
               return null
             }}
@@ -68,10 +69,11 @@ export function BookmarkView({ node, updateAttributes, selected, editor }: React
 
   const domain = domainOf(url)
   const u = parseUrl(url)
+  const href = safeHref(url) ?? undefined
   const path = u ? decodeURIComponent(u.pathname + u.search).replace(/\/$/, '') : ''
   return (
     <NodeViewWrapper className={`bookmark-card${selected ? ' is-selected' : ''}`} data-type="bookmark" contentEditable={false}>
-      <a className="bookmark-card__main" href={url} target="_blank" rel="noopener noreferrer" onClick={(e) => editingTitle && e.preventDefault()} draggable={false}>
+      <a className="bookmark-card__main" href={href} target="_blank" rel="noopener noreferrer" onClick={(e) => (editingTitle || !href) && e.preventDefault()} draggable={false}>
         <span className="bookmark-card__text">
           {editingTitle ? (
             <input
@@ -162,7 +164,7 @@ export function EmbedView({ node, updateAttributes, selected, editor, getPos }: 
             <BookmarkIcon size={12} />
           </button>
         )}
-        <a className="btn btn--ghost btn--sm" href={url} target="_blank" rel="noopener noreferrer" title={t('common.open')}>
+        <a className="btn btn--ghost btn--sm" href={safeHref(url) ?? undefined} target="_blank" rel="noopener noreferrer" title={t('common.open')}>
           <ExternalLink size={12} />
         </a>
       </div>
@@ -172,7 +174,6 @@ export function EmbedView({ node, updateAttributes, selected, editor, getPos }: 
             src={src}
             title={`${PROVIDER_LABEL[provider]} — ${domainOf(url)}`}
             loading="lazy"
-            allowFullScreen
             sandbox="allow-scripts allow-same-origin allow-popups allow-presentation allow-forms"
             allow="autoplay; encrypted-media; picture-in-picture; fullscreen; clipboard-write"
             referrerPolicy="strict-origin-when-cross-origin"

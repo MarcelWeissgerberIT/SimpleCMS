@@ -1,17 +1,20 @@
 /**
  * Standalone HTML export: one file, styled like a printed One page (paper/carbon follows the
- * reader's system theme), images inlined, math pre-rendered with KaTeX, Mermaid rendered on open.
+ * reader's system theme). Everything the page needs travels inside the file: local images,
+ * cover and icon as data URLs, math pre-rendered with KaTeX (its CSS inlined), Mermaid
+ * diagrams pre-rendered to SVG for both themes. Only the web fonts are linked (offline the
+ * file falls back to system fonts).
  */
 import type { JSONContent } from '@tiptap/core'
 import tokensCss from '@/shared/tokens.css?raw'
 import { docToHTML } from '../../editor'
-import { resolveAssetUrl } from '../../lib/files'
+import { readAsDataUrl, resolveAssetUrl } from '../../lib/files'
 import { plainText } from '../../store/store'
 import { t } from '../../i18n'
 import { BRAND } from '@/shared/brand'
 import { preparePage, type SharePayload } from './codec'
 
-const KATEX_CSS = 'https://cdn.jsdelivr.net/npm/katex@0.18.10/dist/katex.min.css'
+const KATEX_FONTS = 'https://cdn.jsdelivr.net/npm/katex@0.18.10/dist/fonts/'
 const FONTS_CSS =
   'https://fonts.googleapis.com/css2?family=Archivo:ital,wdth,wght@0,62..125,100..900;1,62..125,100..900&family=JetBrains+Mono:wght@400..700&display=swap'
 
@@ -26,43 +29,154 @@ function absolute(src: string): string {
   }
 }
 
-function absolutizeImages(nodes: JSONContent[] | undefined): JSONContent[] | undefined {
-  return nodes?.map((n) => {
-    const out: JSONContent = { ...n }
-    if (n.type === 'image' && typeof n.attrs?.src === 'string') out.attrs = { ...n.attrs, src: absolute(n.attrs.src) }
-    if (n.content) out.content = absolutizeImages(n.content)
-    return out
-  })
+/** Bundled assets (covers, icons, images) become data URLs so the file works offline and anywhere. */
+const inlined = new Map<string, Promise<string>>()
+function inlineAsset(src: string): Promise<string> {
+  if (!/^assets\//.test(src)) return Promise.resolve(absolute(src))
+  let p = inlined.get(src)
+  if (!p) {
+    p = fetch(resolveAssetUrl(src))
+      .then((r) => (r.ok ? r.blob() : Promise.reject(new Error(String(r.status)))))
+      .then((b) => readAsDataUrl(b))
+      .catch(() => absolute(src))
+    inlined.set(src, p)
+  }
+  return p
 }
 
-async function renderMath(html: string): Promise<string> {
-  if (!/data-type="(block|inline)-math"/.test(html)) return html
+async function inlineImages(nodes: JSONContent[] | undefined): Promise<JSONContent[] | undefined> {
+  if (!nodes) return nodes
+  return Promise.all(
+    nodes.map(async (n) => {
+      const out: JSONContent = { ...n }
+      if (n.type === 'image' && typeof n.attrs?.src === 'string') out.attrs = { ...n.attrs, src: await inlineAsset(n.attrs.src) }
+      if (n.content) out.content = await inlineImages(n.content)
+      return out
+    }),
+  )
+}
+
+async function renderMath(html: string): Promise<{ html: string; css: string }> {
+  if (!/data-type="(block|inline)-math"/.test(html)) return { html, css: '' }
   try {
-    const katex = (await import('katex')).default
+    const [katex, css] = await Promise.all([import('katex').then((m) => m.default), import('katex/dist/katex.min.css?raw').then((m) => m.default as string)])
     const doc = new DOMParser().parseFromString(`<div id="root">${html}</div>`, 'text/html')
     doc.querySelectorAll<HTMLElement>('[data-type="block-math"], [data-type="inline-math"]').forEach((el) => {
       const latex = el.getAttribute('data-latex') ?? ''
       el.innerHTML = katex.renderToString(latex, { displayMode: el.dataset.type === 'block-math', throwOnError: false, output: 'html' })
     })
+    // layout CSS travels inline; the glyph fonts load from the CDN when online
+    return { html: doc.getElementById('root')!.innerHTML, css: css.replace(/url\(fonts\//g, `url(${KATEX_FONTS}`) }
+  } catch {
+    return { html, css: '' }
+  }
+}
+
+/* ---------------- Mermaid → static SVG ---------------- */
+
+const MERMAID_VARS = [
+  '--surface',
+  '--surface-2',
+  '--ink',
+  '--ink-2',
+  '--ink-3',
+  '--signal',
+  '--signal-wash',
+  '--c-yellow-bg',
+] as const
+
+/** Read the design tokens of one theme without a visible flash (switch, read, restore in one task). */
+function themeTokens(theme: 'light' | 'dark'): Record<string, string> {
+  const html = document.documentElement
+  const before = html.dataset.theme
+  html.dataset.theme = theme
+  const cs = getComputedStyle(html)
+  const out: Record<string, string> = {}
+  for (const v of MERMAID_VARS) out[v] = cs.getPropertyValue(v).trim() || '#000'
+  if (before === undefined) delete html.dataset.theme
+  else html.dataset.theme = before
+  return out
+}
+
+let mermaidSeq = 0
+async function renderMermaid(html: string): Promise<string> {
+  if (!/class="mermaid"/.test(html)) return html
+  try {
+    const mermaid = (await import('mermaid')).default
+    const doc = new DOMParser().parseFromString(`<div id="root">${html}</div>`, 'text/html')
+    const blocks = [...doc.querySelectorAll<HTMLElement>('[data-type="mermaid"]')]
+    for (const theme of ['light', 'dark'] as const) {
+      const c = themeTokens(theme)
+      mermaid.initialize({
+        startOnLoad: false,
+        securityLevel: 'strict',
+        theme: 'base',
+        fontFamily: 'Archivo, system-ui, sans-serif',
+        themeVariables: {
+          fontSize: '14px',
+          background: c['--surface'],
+          primaryColor: c['--surface'],
+          primaryTextColor: c['--ink'],
+          primaryBorderColor: c['--ink'],
+          secondaryColor: c['--surface-2'],
+          tertiaryColor: c['--surface-2'],
+          lineColor: c['--ink-2'],
+          textColor: c['--ink'],
+          mainBkg: c['--surface'],
+          nodeBorder: c['--ink'],
+          clusterBkg: c['--surface-2'],
+          clusterBorder: c['--ink-3'],
+          edgeLabelBackground: c['--surface'],
+          noteBkgColor: c['--c-yellow-bg'],
+          noteTextColor: c['--ink'],
+          noteBorderColor: c['--ink-3'],
+          actorBkg: c['--surface'],
+          actorBorder: c['--ink'],
+          signalColor: c['--ink'],
+          signalTextColor: c['--ink'],
+          labelBoxBkgColor: c['--surface-2'],
+          activationBkgColor: c['--signal-wash'],
+          git0: c['--signal'],
+          pie1: c['--signal'],
+        },
+      })
+      for (const el of blocks) {
+        const code = el.querySelector('pre')?.textContent ?? ''
+        if (!code.trim()) continue
+        try {
+          const { svg } = await mermaid.render(`one-export-${theme}-${++mermaidSeq}`, code)
+          const fig = doc.createElement('figure')
+          fig.className = `diagram diagram--${theme}`
+          fig.innerHTML = svg
+          el.appendChild(fig)
+        } catch {
+          /* keep the source as a code block */
+        }
+      }
+    }
+    // the rendered diagrams replace their source; failed ones keep it
+    for (const el of blocks) if (el.querySelector('figure.diagram')) el.querySelector('pre')?.remove()
+    // mermaid can leave its scratch nodes in the page when a diagram fails
+    document.querySelectorAll('body > [id*="one-export-"]').forEach((n) => n.remove())
     return doc.getElementById('root')!.innerHTML
   } catch {
     return html
   }
 }
 
-function coverHTML(p: SharePayload): string {
+async function coverHTML(p: SharePayload): Promise<string> {
   const c = p.cover
   if (!c) return ''
-  if (c.type === 'image') return `<div class="cover"><img src="${esc(absolute(c.value))}" alt="" style="object-position:center ${c.positionY}%"></div>`
+  if (c.type === 'image') return `<div class="cover"><img src="${esc(await inlineAsset(c.value))}" alt="" style="object-position:center ${c.positionY}%"></div>`
   if (c.type === 'gradient') return `<div class="cover" style="background:${esc(c.value)}"></div>`
   return `<div class="cover" style="background:var(--c-${esc(c.value)}-bg)"></div>`
 }
 
-function iconHTML(p: SharePayload): string {
+async function iconHTML(p: SharePayload): Promise<string> {
   const i = p.icon
   if (!i) return ''
   if (i.type === 'emoji') return `<div class="icon">${esc(i.value)}</div>`
-  if (i.type === 'asset') return `<div class="icon"><img src="${esc(absolute(`assets/icons/${i.value}.webp`))}" alt="" width="64" height="64"></div>`
+  if (i.type === 'asset') return `<div class="icon"><img src="${esc(await inlineAsset(`assets/icons/${i.value}.webp`))}" alt="" width="64" height="64"></div>`
   return ''
 }
 
@@ -130,6 +244,12 @@ ${['gray', 'brown', 'orange', 'yellow', 'green', 'blue', 'purple', 'pink', 'red'
 .doc .file-block,.doc .page-link,.doc .database-block{padding:8px 12px;border:1px solid var(--rule);border-radius:4px;margin:0 0 .75em}
 .doc .toc:empty{display:none}
 .doc pre.mermaid{background:none;border:0;text-align:center}
+.doc [data-type="mermaid"]{margin:0 0 1.2em}
+.doc figure.diagram{margin:0;overflow-x:auto;text-align:center}
+.doc figure.diagram svg{max-width:100%;height:auto}
+.doc .diagram--dark{display:none}
+[data-theme="dark"] .doc .diagram--dark{display:block}
+[data-theme="dark"] .doc .diagram--light{display:none}
 ${['gray', 'brown', 'orange', 'yellow', 'green', 'blue', 'purple', 'pink', 'red'].map((c) => `.doc span[data-color="${c}"]{color:var(--c-${c}-text)}.doc mark[data-color="${c}"]{background:var(--c-${c}-bg);color:inherit}`).join('')}
 footer{max-width:760px;margin:0 auto;padding:0 24px 48px;display:flex;justify-content:space-between;gap:12px;font-family:var(--font-mono);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-3)}
 footer a{color:inherit}
@@ -139,12 +259,13 @@ footer a{color:inherit}
 /** Build a complete standalone HTML document for a page. */
 export async function buildStandaloneHTML(pageId: string, lang: string): Promise<{ html: string; filename: string; title: string }> {
   const { payload } = await preparePage(pageId, Infinity)
-  const content = payload.content ? { ...payload.content, content: absolutizeImages(payload.content.content) } : null
-  const body = await renderMath(docToHTML(content))
+  const content = payload.content ? { ...payload.content, content: await inlineImages(payload.content.content) } : null
+  const math = await renderMath(docToHTML(content))
+  const body = await renderMermaid(math.html)
+  const [cover, icon] = await Promise.all([coverHTML(payload), iconHTML(payload)])
   const title = payload.title.trim() || 'Untitled'
   const date = new Intl.DateTimeFormat(lang === 'de' ? 'de-DE' : 'en-GB', { day: 'numeric', month: 'long', year: 'numeric' }).format(new Date())
   const words = plainText(content, 5_000_000).split(/\s+/).filter(Boolean).length
-  const hasMermaid = /class="mermaid"/.test(body)
   const html = `<!doctype html>
 <html lang="${esc(lang)}">
 <head>
@@ -154,17 +275,17 @@ export async function buildStandaloneHTML(pageId: string, lang: string): Promise
 <title>${esc(title)}</title>
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="${FONTS_CSS}">
-<link rel="stylesheet" href="${KATEX_CSS}">
 <script>try{if(matchMedia('(prefers-color-scheme: dark)').matches)document.documentElement.dataset.theme='dark'}catch(e){}</script>
 <style>${tokensCss}
 :root{--font-sans:'Archivo','Archivo Variable',ui-sans-serif,system-ui,sans-serif;--font-mono:'JetBrains Mono','JetBrains Mono Variable',ui-monospace,monospace}
-${READING_CSS}</style>
+${READING_CSS}
+${math.css}</style>
 </head>
 <body class="${payload.cover ? 'has-cover' : ''}">
 <div class="bar"><span class="led"></span><span>${esc(BRAND.name)}</span><span class="sp"></span><span>${esc(date)}</span></div>
-${coverHTML(payload)}
+${cover}
 <main>
-${iconHTML(payload)}
+${icon}
 <h1 class="title">${esc(title)}</h1>
 <div class="meta">${esc(date)} · ${esc(t('features.share.export.words', { count: words }))}</div>
 <article class="doc">
@@ -172,7 +293,6 @@ ${body}
 </article>
 </main>
 <footer><span>${esc(t('features.share.export.from', { name: BRAND.name }))}</span><a href="${esc(BRAND.repoUrl)}">${esc(BRAND.repoUrl.replace(/^https:\/\//, ''))}</a></footer>
-${hasMermaid ? `<script type="module">import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@12/dist/mermaid.esm.min.mjs';mermaid.initialize({startOnLoad:true,theme:document.documentElement.dataset.theme==='dark'?'dark':'neutral'})</script>` : ''}
 </body>
 </html>`
   const filename = `${title.replace(/[\\/:*?"<>|#%]+/g, '').replace(/\s+/g, ' ').trim().slice(0, 80) || 'page'}.html`

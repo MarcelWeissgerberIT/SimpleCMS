@@ -2,7 +2,7 @@
  * Read-only renderers for property values (cells, cards, property panel, chips).
  */
 import { memo, type MouseEvent, type ReactNode } from 'react'
-import { AlertTriangle, ArrowUpRight, Check, FileText, Minus, Star } from 'lucide-react'
+import { AlertTriangle, ArrowUpRight, Check, FileText, Mail, Minus, Phone, Star } from 'lucide-react'
 import type { Database, DateValue, ID, Page, Person, PropertyDef, SelectOption } from '../../store/types'
 import { tagStyle, colorText } from '../../lib/colors'
 import { useFileUrl } from '../../lib/files'
@@ -17,23 +17,31 @@ import { useUI } from '../../store/ui'
 
 /* ---------------- atoms ---------------- */
 
+/** Chip "×". Not a tab stop: pickers keep focus in their search field (Backspace removes the last chip). */
+function RemoveX({ onRemove }: { onRemove: () => void }) {
+  const t = useT()
+  return (
+    <button
+      type="button"
+      className="db-tag__x"
+      tabIndex={-1}
+      aria-label={t('common.remove')}
+      onMouseDown={(e) => e.preventDefault()}
+      onClick={(e) => {
+        e.stopPropagation()
+        onRemove()
+      }}
+    >
+      ×
+    </button>
+  )
+}
+
 export function OptionTag({ option, onRemove }: { option: SelectOption; onRemove?: () => void }) {
   return (
     <span className="tag db-tag" style={tagStyle(option.color)}>
       <span className="db-tag__text">{option.name}</span>
-      {onRemove && (
-        <button
-          type="button"
-          className="db-tag__x"
-          aria-label="Remove"
-          onClick={(e) => {
-            e.stopPropagation()
-            onRemove()
-          }}
-        >
-          ×
-        </button>
-      )}
+      {onRemove && <RemoveX onRemove={onRemove} />}
     </span>
   )
 }
@@ -68,19 +76,7 @@ export function PersonChip({ person, onRemove }: { person: Person; onRemove?: ()
     <span className="db-person">
       <Avatar person={person} />
       <span className="db-person__name">{person.name}</span>
-      {onRemove && (
-        <button
-          type="button"
-          className="db-tag__x"
-          aria-label="Remove"
-          onClick={(e) => {
-            e.stopPropagation()
-            onRemove()
-          }}
-        >
-          ×
-        </button>
-      )}
+      {onRemove && <RemoveX onRemove={onRemove} />}
     </span>
   )
 }
@@ -102,19 +98,7 @@ export function RelationChip({ page, onRemove, linkable = true }: { page: Page; 
     >
       <PageIcon icon={page.icon} size={14} />
       <span className="db-rel__name">{page.title || t('common.untitled')}</span>
-      {onRemove && (
-        <button
-          type="button"
-          className="db-tag__x"
-          aria-label="Remove"
-          onClick={(e) => {
-            e.stopPropagation()
-            onRemove()
-          }}
-        >
-          ×
-        </button>
-      )}
+      {onRemove && <RemoveX onRemove={onRemove} />}
     </span>
   )
 }
@@ -331,9 +315,12 @@ export function ValueView({ db, prop, row, r, v, variant = 'cell', interactive }
     case 'phone': {
       if (!v) return null
       const s = String(v)
+      const text = prop.type === 'url' ? s.replace(/^https?:\/\/(www\.)?/, '').replace(/\/$/, '') : s
+      // editable surfaces: the text is part of the cell (click = edit), a key-cap button follows the link
+      if (variant !== 'card') return <LinkValue prop={prop} href={linkHref(prop, s)} text={text} />
       return (
         <a className="db-link" href={linkHref(prop, s)} target={prop.type === 'url' ? '_blank' : undefined} rel="noreferrer" onClick={(e: MouseEvent) => e.stopPropagation()}>
-          {prop.type === 'url' ? s.replace(/^https?:\/\/(www\.)?/, '').replace(/\/$/, '') : s}
+          {text}
         </a>
       )
     }
@@ -371,6 +358,29 @@ export function ValueView({ db, prop, row, r, v, variant = 'cell', interactive }
       )
   }
   return null
+}
+
+function LinkValue({ prop, href, text }: { prop: PropertyDef; href: string; text: string }) {
+  const t = useT()
+  const label = t(`database.link.open.${prop.type}`)
+  const Icon = prop.type === 'email' ? Mail : prop.type === 'phone' ? Phone : ArrowUpRight
+  return (
+    <span className="db-linkval">
+      <span className="db-linkval__text">{text}</span>
+      <a
+        className="db-linkval__go"
+        href={href}
+        target={prop.type === 'url' ? '_blank' : undefined}
+        rel="noreferrer"
+        aria-label={label}
+        title={label}
+        tabIndex={-1}
+        onClick={(e: MouseEvent) => e.stopPropagation()}
+      >
+        <Icon size={12} strokeWidth={2} />
+      </a>
+    </span>
+  )
 }
 
 /** Title + icon + OPEN affordance used in table cells, list rows and cards. */

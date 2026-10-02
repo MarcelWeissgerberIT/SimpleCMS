@@ -312,7 +312,7 @@
   border: 1px solid var(--rule);
   border-radius: var(--radius-1);
   background: var(--surface-2);
-  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.06);
+  box-shadow: inset 0 1px 2px var(--rule);
   font-family: var(--font-mono);
   white-space: nowrap;
 }
@@ -352,7 +352,7 @@
   padding: 0;
   border-top-left-radius: 0;
   border-bottom-left-radius: 0;
-  border-left: 1px solid rgba(0, 0, 0, 0.22);
+  border-left: 1px solid color-mix(in srgb, var(--on-signal) 35%, transparent);
 }
 
 /* ---------- filter / sort chips ---------- */
@@ -383,11 +383,23 @@
   border-style: dashed;
 }
 
+.db-fchip[data-orphan='true'] {
+  border-style: dashed;
+  color: var(--ink-3);
+}
+
+.db-fchip[data-orphan='true'] .db-fchip__prop {
+  text-decoration: line-through;
+}
+
 .db-fchip--sort {
-  align-items: center;
+  background: var(--surface-2);
+}
+
+.db-fchip--sort .db-fchip__main {
   gap: 6px;
   padding: 0 8px;
-  background: var(--surface-2);
+  color: var(--ink-2);
 }
 
 .db-fchip__main {
@@ -548,7 +560,7 @@
 
 .db-tag__x:hover {
   opacity: 1;
-  background: rgba(0, 0, 0, 0.08);
+  background: var(--active);
 }
 
 /* status: LED + label */
@@ -856,6 +868,66 @@
 .db-link:hover {
   color: var(--signal-ink);
   text-decoration-color: currentColor;
+}
+
+.db-linkval {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  min-width: 0;
+}
+
+.db-linkval__text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-decoration: underline;
+  text-decoration-color: var(--rule-strong);
+  text-underline-offset: 2px;
+}
+
+/* key-cap "follow" button: quiet until the row/cell is hovered or active */
+.db-linkval__go {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border: 1px solid var(--rule-strong);
+  border-bottom-width: 2px;
+  border-radius: var(--radius-1);
+  background: var(--surface);
+  color: var(--ink-2);
+  opacity: 0;
+  transition:
+    opacity var(--dur-1) var(--ease-out),
+    color var(--dur-1) var(--ease-out),
+    border-color var(--dur-1) var(--ease-out);
+}
+
+.db-linkval__go:hover {
+  color: var(--signal-ink);
+  border-color: var(--signal);
+}
+
+.db-linkval__go:active {
+  transform: translateY(1px);
+}
+
+.dbt-cell:hover .db-linkval__go,
+.dbt-cell[data-active='true'] .db-linkval__go,
+.db-prow__value:hover .db-linkval__go,
+.db-prow__value:focus-visible .db-linkval__go,
+.dbl-row:hover .db-linkval__go {
+  opacity: 1;
+}
+
+@media (hover: none) {
+  .db-linkval__go {
+    opacity: 1;
+  }
 }
 
 .db-err {
@@ -1176,6 +1248,17 @@
   font-size: 12px;
 }
 
+/* with a time, date and clock stack so neither gets clipped (range = two narrow fields) */
+.db-datefield__row[data-time='true'] {
+  flex-direction: column;
+  gap: 1px;
+}
+
+.db-datefield__row[data-time='true'] .db-datefield__time {
+  width: 100%;
+  color: var(--ink-2);
+}
+
 .db-date-pop__head {
   display: flex;
   align-items: center;
@@ -1306,6 +1389,11 @@
   overflow: auto;
 }
 
+/* the overlay itself carries the focus ring */
+.db-textedit__area:focus-visible {
+  box-shadow: none;
+}
+
 .db-textedit__area.is-title {
   font-weight: 600;
 }
@@ -1313,6 +1401,33 @@
 .db-textedit__area.is-number {
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
+}
+
+.db-textedit.is-invalid {
+  box-shadow: 0 0 0 2px var(--c-red-text), var(--shadow-pop);
+  animation: db-nudge var(--dur-3) var(--ease-out);
+}
+
+.db-textedit__err {
+  padding: 4px 9px 5px;
+  border-top: 1px solid var(--rule);
+  color: var(--c-red-text);
+}
+
+/* `translate` composes with the popover's positioning transform */
+@keyframes db-nudge {
+  25% {
+    translate: -3px 0;
+  }
+  60% {
+    translate: 2px 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .db-textedit.is-invalid {
+    animation: none;
+  }
 }
 
 /* ---------- shared form bits ---------- */
@@ -1559,6 +1674,30 @@
 .db-cfg__note {
   font-size: 12px;
   color: var(--ink-3);
+}
+
+/* destructive switch-off: an inline placard instead of a modal */
+.db-cfg__confirm {
+  display: grid;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--c-red-text);
+  border-left-width: 3px;
+  border-radius: var(--radius-1);
+  background: var(--c-red-bg);
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--ink);
+}
+
+.db-cfg__confirmbtns {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.db-cfg__confirm .btn--danger {
+  border-color: var(--c-red-text);
 }
 
 .db-cfg__formula {
@@ -1914,6 +2053,28 @@
   font-size: 12px;
 }
 
+.db-tpl__md[readonly] {
+  color: var(--ink-2);
+  background: var(--surface-2);
+}
+
+.db-tpl__note {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 6px;
+  padding: 6px 6px 6px 10px;
+  border-left: 2px solid var(--signal);
+  background: var(--signal-wash);
+}
+
+.db-tpl__note .label {
+  flex: 1;
+  min-width: 0;
+  color: var(--ink-2);
+  line-height: 1.5;
+}
+
 /* ---------- row properties panel ---------- */
 .db-props {
   display: flex;
@@ -2080,18 +2241,40 @@
   box-shadow: 0 0 0 3px var(--signal-wash);
 }
 
-.db-fx__marker {
+/* mirror of the source behind the textarea: same box, same wrapping, only the error char shows */
+.db-fx__mirror {
   position: absolute;
-  left: 15px;
-  top: 34px;
+  inset: 0;
+  overflow: hidden;
+  padding: 12px 14px;
+  border: 1px solid transparent;
   font-family: var(--font-mono);
   font-size: 13px;
-  white-space: pre;
-  pointer-events: none;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  word-break: normal;
   color: transparent;
+  pointer-events: none;
+  scrollbar-gutter: stable;
 }
 
-.db-fx__marker b {
+.db-fx__area {
+  scrollbar-gutter: stable;
+}
+
+.db-fx__errmark {
+  color: transparent;
+  background: transparent;
+  text-decoration: underline wavy var(--c-red-text);
+  text-decoration-thickness: 1.5px;
+  text-decoration-skip-ink: none;
+  text-underline-offset: 3px;
+}
+
+.db-fx__discard {
+  margin-right: auto;
+  font-size: 12.5px;
   color: var(--c-red-text);
 }
 
@@ -2232,8 +2415,16 @@ body.db-dragging * {
 }
 
 /* tabs that overflow fade out at the edge */
-.db-tabs[data-overflow='true'] {
-  mask-image: linear-gradient(90deg, #000 calc(100% - 28px), transparent);
+.db-tabs[data-overflow='end'] {
+  mask-image: linear-gradient(90deg, var(--ink) calc(100% - 32px), transparent);
+}
+
+.db-tabs[data-overflow='start'] {
+  mask-image: linear-gradient(90deg, transparent, var(--ink) 32px);
+}
+
+.db-tabs[data-overflow='both'] {
+  mask-image: linear-gradient(90deg, transparent, var(--ink) 32px, var(--ink) calc(100% - 32px), transparent);
 }
 
 /* narrow containers: icon-only tools, no counter */
@@ -2306,4 +2497,10 @@ body.db-dragging * {
 
 .db--inline .db-body {
   border-bottom: 1px solid var(--rule);
+}
+
+/* New ▾ dropdown: the entry Enter would trigger is always visible */
+.db-tplmenu .menu-item:focus {
+  background: var(--hover);
+  outline: none;
 }

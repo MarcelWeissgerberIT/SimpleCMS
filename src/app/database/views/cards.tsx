@@ -23,17 +23,30 @@ function firstImage(node: JSONContent | null | undefined): string | null {
   return null
 }
 
+/** Plain text of an inline container (paragraph / heading): text, mentions, hard breaks. */
+function inlineText(n: JSONContent): string {
+  return (n.content ?? [])
+    .map((c) => (c.type === 'text' ? c.text ?? '' : c.type === 'mention' ? String(c.attrs?.label ?? '') : c.type === 'hardBreak' ? ' ' : c.content ? inlineText(c) : ''))
+    .join('')
+    .trim()
+}
+
 function firstLines(node: JSONContent | null | undefined, max = 4): string[] {
   const out: string[] = []
   const walk = (n: JSONContent) => {
     if (out.length >= max) return
-    if (n.type === 'paragraph' || n.type === 'heading' || n.type === 'listItem' || n.type === 'taskItem') {
-      const txt = (n.content ?? [])
-        .map((c) => (c.type === 'text' ? c.text : c.content ? firstLines(c, 1).join(' ') : ''))
-        .join('')
-        .trim()
+    if (n.type === 'paragraph' || n.type === 'heading') {
+      const txt = inlineText(n)
       if (txt) out.push(txt)
-      if (n.type !== 'listItem' && n.type !== 'taskItem') return
+      return
+    }
+    if (n.type === 'listItem' || n.type === 'taskItem') {
+      // the item's own line is its first block; nested lists follow as their own lines
+      const [first, ...rest] = n.content ?? []
+      const txt = first ? inlineText(first) : ''
+      if (txt) out.push(n.type === 'taskItem' ? `${n.attrs?.checked ? '■' : '□'} ${txt}` : txt)
+      rest.forEach(walk)
+      return
     }
     n.content?.forEach(walk)
   }

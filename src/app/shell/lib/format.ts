@@ -47,3 +47,8 @@ export function fmtBytes(n: number, lang: Lang): string {
   }
   return `${n.toLocaleString(lang === 'de' ? 'de-DE' : 'en-US', { maximumFractionDigits: i === 0 ? 0 : 1 })} ${units[i]}`
 }
+
+/** Message key for a count: "<key>.one" when n is 1 (both EN and DE only distinguish one/other). */
+export function plural(key: string, n: number): string {
+  return n === 1 ? `${key}.one` : key
+}

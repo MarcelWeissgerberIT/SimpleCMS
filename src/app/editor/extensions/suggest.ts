@@ -1,6 +1,7 @@
 /** Suggestion plugins ("/", "@", ":") bridged to React menus via the overlay store. */
 import { Extension, type Range } from '@tiptap/core'
-import { PluginKey } from '@tiptap/pm/state'
+import { PluginKey, Selection } from '@tiptap/pm/state'
+import type { EditorView } from '@tiptap/pm/view'
 import Suggestion, { exitSuggestion } from '@tiptap/suggestion'
 import type { Bridge, SuggestKind } from '../lib/bridge'
 
@@ -11,6 +12,23 @@ export const SUGGEST_KEYS: Record<SuggestKind, PluginKey> = {
 }
 
 export type SuggestRun = (range: Range) => void
+
+/** Slash menu opened via the "+" button and dismissed: remove the "/" again (and the line "+" created). */
+export function dismissPlusSlash(view: EditorView, bridge: Bridge, range: Range) {
+  const { plusOpened, plusCreated } = bridge.getState()
+  if (!plusOpened) return
+  const { state } = view
+  if (range.to > state.doc.content.size || state.doc.textBetween(range.from, Math.min(range.from + 1, range.to)) !== '/') return
+  const tr = state.tr.delete(range.from, range.to)
+  const $pos = tr.doc.resolve(tr.mapping.map(range.from))
+  if (plusCreated && $pos.parent.type.name === 'paragraph' && $pos.parent.content.size === 0 && $pos.depth >= 1 && $pos.node(-1).childCount > 1) {
+    const before = $pos.before()
+    tr.delete(before, $pos.after())
+    tr.setSelection(Selection.near(tr.doc.resolve(Math.max(0, before - 1)), -1))
+  }
+  bridge.setState({ plusOpened: false, plusCreated: false })
+  view.dispatch(tr)
+}
 
 export function suggestExtension(kind: SuggestKind, char: string, bridge: Bridge, extra: { allowSpaces?: boolean; minQueryLength?: number; allowedPrefixes?: string[] | null } = {}) {
   const key = SUGGEST_KEYS[kind]
@@ -51,10 +69,11 @@ export function suggestExtension(kind: SuggestKind, char: string, bridge: Bridge
               onStart: push,
               onUpdate: push,
               onExit: () => {
-                if (bridge.getState().suggest?.kind === kind) bridge.setState({ suggest: null, plusOpened: false })
+                if (bridge.getState().suggest?.kind === kind) bridge.setState({ suggest: null, plusOpened: false, plusCreated: false })
               },
-              onKeyDown: ({ event, view }) => {
+              onKeyDown: ({ event, view, range }) => {
                 if (event.key === 'Escape') {
+                  if (kind === 'slash') dismissPlusSlash(view, bridge, range)
                   exitSuggestion(view, key)
                   return true
                 }

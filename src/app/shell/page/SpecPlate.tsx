@@ -1,7 +1,7 @@
 import { useWorkspace } from '../../store/store'
 import { useLang, useT } from '../../i18n'
 import type { Page } from '../../store/types'
-import { fmtNumber, fmtRelative, fmtStamp, readingMinutes, wordCount } from '../lib/format'
+import { fmtNumber, fmtRelative, fmtStamp, plural, readingMinutes, wordCount } from '../lib/format'
 import { useNow } from '../lib/hooks'
 
 /** The instrument "rating plate" at the end of every page. */
@@ -24,7 +24,7 @@ export function SpecPlate({ page }: { page: Page }) {
     ...(isDb
       ? ([
           [t('shell.spec.rows'), fmtNumber(rows, lang)],
-          [t('shell.spec.fields'), `${db?.properties.length ?? 0} · ${t('shell.spec.views', { n: db?.views.length ?? 0 })}`],
+          [t('shell.spec.fields'), `${db?.properties.length ?? 0} · ${t(plural('shell.spec.views', db?.views.length ?? 0), { n: db?.views.length ?? 0 })}`],
         ] as Array<[string, string]>)
       : ([
           [t('shell.spec.words'), fmtNumber(words, lang)],

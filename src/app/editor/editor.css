@@ -499,7 +499,7 @@
   color: var(--ink);
 }
 
-/* syntax: monochrome ink + one signal accent */
+/* syntax: monochrome ink + one signal accent (keywords). Hue only where it carries meaning (diff +/−). */
 .doc-content .hljs-comment,
 .doc-content .hljs-quote {
   color: var(--ink-3);
@@ -517,10 +517,9 @@
 
 .doc-content .hljs-string,
 .doc-content .hljs-regexp,
-.doc-content .hljs-addition,
 .doc-content .hljs-attribute,
 .doc-content .hljs-meta .hljs-string {
-  color: var(--c-green-text);
+  color: var(--ink-2);
 }
 
 .doc-content .hljs-number,
@@ -528,7 +527,7 @@
 .doc-content .hljs-symbol,
 .doc-content .hljs-bullet,
 .doc-content .hljs-variable.constant_ {
-  color: var(--c-blue-text);
+  color: var(--signal-ink);
 }
 
 .doc-content .hljs-title,
@@ -544,7 +543,8 @@
 .doc-content .hljs-title.class_,
 .doc-content .hljs-tag,
 .doc-content .hljs-name {
-  color: var(--c-brown-text);
+  color: var(--ink);
+  font-weight: 600;
 }
 
 .doc-content .hljs-attr,
@@ -557,6 +557,10 @@
 .doc-content .hljs-meta,
 .doc-content .hljs-punctuation {
   color: var(--ink-3);
+}
+
+.doc-content .hljs-addition {
+  color: var(--c-green-text);
 }
 
 .doc-content .hljs-deletion {

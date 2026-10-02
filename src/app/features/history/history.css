@@ -1,8 +1,10 @@
 /* Version history — tape deck scrubber, transport keys, mechanical counter, block diff. */
 
+/* the scrim pads max(6vh, 16px) on top and 16px below: the dialog must fit in between */
 .modal.hist {
   height: min(88vh, 900px);
-  max-height: calc(100vh - 32px);
+  max-height: calc(100vh - max(6vh, 16px) - 16px);
+  max-height: calc(100dvh - max(6vh, 16px) - 16px);
 }
 
 .hist__head {
@@ -690,7 +692,8 @@
 
 @media (max-width: 760px) {
   .modal.hist {
-    height: calc(100vh - 32px);
+    height: calc(100vh - max(6vh, 16px) - 16px);
+    height: calc(100dvh - max(6vh, 16px) - 16px);
   }
   .hist__body {
     grid-template-columns: minmax(0, 1fr);

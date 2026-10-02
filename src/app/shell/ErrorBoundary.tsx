@@ -26,7 +26,7 @@ export class ErrorBoundary extends Component<Props, { error: Error | null }> {
       <div className={this.props.inline ? 'fault fault--inline' : 'fault'} role="alert">
         <div className="fault__plate">
           <div className="fault__bar" aria-hidden />
-          <div className="label fault__code">FAULT · {error.name || 'Error'}</div>
+          <div className="label fault__code">{t('shell.fault.code')} · {error.name || 'Error'}</div>
           <h2 className="fault__title">{t('shell.fault.title')}</h2>
           <p className="fault__msg">{error.message}</p>
           <div className="fault__actions">

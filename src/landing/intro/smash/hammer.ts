@@ -1,8 +1,9 @@
 /**
  * A procedurally modelled premium sledgehammer.
  *  - Head: chamfered octagonal steel block (ExtrudeGeometry with bevelled striking faces),
- *    brushed-steel MeshPhysicalMaterial; the faces are lathe-turned (concentric roughness).
- *    A laser-etched spec plate on the cheek ("ONE · 2 KG · FORGED").
+ *    split by facet into three brushed MeshPhysicalMaterials: dark oiled forged body, bright
+ *    ground chamfers + bevel rings, lathe-turned striking faces. A laser-etched spec plate on
+ *    both cheeks ("ONE · 2 KG · DROP-FORGED").
  *  - Handle: tapered hickory (LatheGeometry) with a procedural wood-grain CanvasTexture,
  *    varnish clearcoat. Steel overstrike collar, steel wedge in the eye.
  *  - Grip: black ribbed rubber with a signal-orange band.
@@ -35,15 +36,20 @@ function canvasTex(w: number, h: number, draw: (c: CanvasRenderingContext2D) => 
   return t
 }
 
+/**
+ * Roughness detail maps. MeshPhysicalMaterial MULTIPLIES `roughness` by the map's G channel,
+ * so these average ≈ 0.95: the material's `roughness` stays the real value and the map only
+ * adds streaks (brushing) or rings (lathe-turned faces).
+ */
 function brushedRoughness(): THREE.CanvasTexture {
   // continuous lines along v (= the head axis on the extruded sides): seamless brushing
   return canvasTex(256, 64, (c) => {
-    c.fillStyle = 'rgb(92,92,92)'
+    c.fillStyle = 'rgb(242,242,242)'
     c.fillRect(0, 0, 256, 64)
     for (let i = 0; i < 520; i++) {
       const x = Math.random() * 256
-      const v = 66 + Math.random() * 60
-      c.fillStyle = `rgba(${v},${v},${v},${0.3 + Math.random() * 0.5})`
+      const v = Math.random() < 0.5 ? 196 + Math.random() * 40 : 250
+      c.fillStyle = `rgba(${v},${v},${v},${0.35 + Math.random() * 0.5})`
       c.fillRect(x, 0, 0.5 + Math.random() * 1.2, 64)
     }
   })
@@ -51,11 +57,11 @@ function brushedRoughness(): THREE.CanvasTexture {
 
 function turnedFace(): THREE.CanvasTexture {
   const t = canvasTex(256, 256, (c) => {
-    c.fillStyle = 'rgb(46,46,46)'
+    c.fillStyle = 'rgb(236,236,236)'
     c.fillRect(0, 0, 256, 256)
     for (let r = 2; r < 182; r += 1.6) {
-      const v = 30 + Math.random() * 50
-      c.strokeStyle = `rgba(${v},${v},${v},0.8)`
+      const v = 190 + Math.random() * 65
+      c.strokeStyle = `rgba(${v},${v},${v},0.85)`
       c.lineWidth = 0.8
       c.beginPath()
       c.arc(128, 128, r, 0, Math.PI * 2)
@@ -109,32 +115,79 @@ function woodGrain(): THREE.CanvasTexture {
 }
 
 function specPlate(): THREE.CanvasTexture {
+  // laser marking on the dark forged cheek: bright annealed lines
   const cv = document.createElement('canvas')
   cv.width = 512
   cv.height = 160
   const c = cv.getContext('2d')!
   c.clearRect(0, 0, 512, 160)
-  c.fillStyle = 'rgba(20,20,22,0.82)'
-  c.font = '600 44px "JetBrains Mono Variable", "JetBrains Mono", ui-monospace, monospace'
+  c.fillStyle = 'rgba(232,234,238,0.92)'
+  c.font = '700 46px "JetBrains Mono Variable", "JetBrains Mono", ui-monospace, monospace'
   c.textBaseline = 'middle'
-  c.fillText('ONE', 92, 58)
-  c.font = '500 26px "JetBrains Mono Variable", "JetBrains Mono", ui-monospace, monospace'
-  c.fillText('2 KG · FORGED · REV 26', 92, 112)
-  // the One mark: orange tag with a hanger hole
+  c.fillText('ONE', 96, 58)
+  c.font = '500 25px "JetBrains Mono Variable", "JetBrains Mono", ui-monospace, monospace'
+  c.fillStyle = 'rgba(232,234,238,0.78)'
+  c.fillText('2 KG · DROP-FORGED · REV 26', 96, 110)
+  // the One mark: signal-orange tag with a hanger hole
   c.fillStyle = '#ff4f00'
-  c.fillRect(14, 36, 62, 62)
-  c.fillStyle = '#121210'
+  c.fillRect(16, 32, 64, 64)
+  c.fillStyle = '#18191b'
   c.beginPath()
-  c.arc(27, 49, 4.5, 0, Math.PI * 2)
+  c.arc(30, 46, 5, 0, Math.PI * 2)
   c.fill()
-  c.fillRect(44, 48, 10, 40)
-  c.strokeStyle = 'rgba(20,20,22,0.6)'
+  c.fillRect(46, 46, 11, 40)
+  c.strokeStyle = 'rgba(232,234,238,0.55)'
   c.lineWidth = 2
-  c.strokeRect(4, 26, 504, 108)
+  c.strokeRect(5, 18, 502, 124)
   const t = new THREE.CanvasTexture(cv)
   t.colorSpace = THREE.SRGBColorSpace
   t.anisotropy = 8
   return t
+}
+
+/**
+ * Re-bucket the (non-indexed, flat-shaded) extruded head by facet orientation so the forged
+ * body, the ground chamfers/bevels and the two striking faces get their own materials.
+ * Groups: 0 = striking faces, 1 = forged body, 2 = ground chamfers + bevel rings.
+ */
+function splitHead(src: THREE.BufferGeometry): THREE.BufferGeometry {
+  const pos = src.getAttribute('position')
+  const uv = src.getAttribute('uv')
+  const buckets: number[][] = [[], [], []]
+  const a = new THREE.Vector3()
+  const b = new THREE.Vector3()
+  const c = new THREE.Vector3()
+  for (let i = 0; i < pos.count; i += 3) {
+    a.fromBufferAttribute(pos, i)
+    b.fromBufferAttribute(pos, i + 1)
+    c.fromBufferAttribute(pos, i + 2)
+    const n = b.sub(a).cross(c.sub(a))
+    if (n.lengthSq() < 1e-14) continue
+    n.normalize()
+    const ax = Math.abs(n.x)
+    const ay = Math.abs(n.y)
+    const az = Math.abs(n.z)
+    const k = az > 0.97 ? 0 : az > 0.04 || Math.min(ax, ay) > 0.25 ? 2 : 1
+    buckets[k].push(i)
+  }
+  const P: number[] = []
+  const U: number[] = []
+  const out = new THREE.BufferGeometry()
+  let start = 0
+  buckets.forEach((tris, g) => {
+    for (const i of tris) {
+      for (let j = 0; j < 3; j++) {
+        P.push(pos.getX(i + j), pos.getY(i + j), pos.getZ(i + j))
+        U.push(uv.getX(i + j), uv.getY(i + j))
+      }
+    }
+    out.addGroup(start, tris.length * 3, g)
+    start += tris.length * 3
+  })
+  out.setAttribute('position', new THREE.Float32BufferAttribute(P, 3))
+  out.setAttribute('uv', new THREE.Float32BufferAttribute(U, 2))
+  out.computeVertexNormals()
+  return out
 }
 
 export function buildHammer(): Hammer {
@@ -163,24 +216,40 @@ export function buildHammer(): Hammer {
   shape.lineTo(-w, -w + ch)
   shape.closePath()
   const bevelT = 0.11
+  const bevelS = 0.075
+  /** Outer half-width of the head: the side walls sit at the shape pushed out by the bevel. */
+  const wo = w + bevelS
   const depth = HEAD_LEN - bevelT * 2
-  const headGeo = keep(
-    new THREE.ExtrudeGeometry(shape, { depth, bevelEnabled: true, bevelThickness: bevelT, bevelSize: 0.075, bevelSegments: 3, curveSegments: 1, steps: 1 }),
-  )
-  headGeo.translate(0, 0, -depth / 2)
-  headGeo.computeVertexNormals()
+  const extruded = new THREE.ExtrudeGeometry(shape, { depth, bevelEnabled: true, bevelThickness: bevelT, bevelSize: bevelS, bevelSegments: 2, curveSegments: 1, steps: 1 })
+  extruded.translate(0, 0, -depth / 2)
+  const headGeo = keep(splitHead(extruded))
+  extruded.dispose()
   const rough = keep(brushedRoughness())
   rough.repeat.set(1.4, 0.6)
-  const steel = keep(
+  // forged body: dark, oiled, brushed — the bright ground edges and faces read against it
+  const forged = keep(
     new THREE.MeshPhysicalMaterial({
-      color: 0xc9ccd1,
+      color: 0x3d4148,
       metalness: 1,
-      roughness: 0.32,
+      roughness: 0.38,
       roughnessMap: rough,
-      anisotropy: 0.45,
+      anisotropy: 0.5,
+      clearcoat: 0.55,
+      clearcoatRoughness: 0.22,
+      envMapIntensity: 1.15,
+    }),
+  )
+  // ground chamfers + bevel rings: bright machined steel
+  const ground = keep(
+    new THREE.MeshPhysicalMaterial({
+      color: 0xdfe2e7,
+      metalness: 1,
+      roughness: 0.3,
+      roughnessMap: rough,
+      anisotropy: 0.6,
       clearcoat: 0.3,
-      clearcoatRoughness: 0.18,
-      envMapIntensity: 1.0,
+      clearcoatRoughness: 0.15,
+      envMapIntensity: 1.1,
     }),
   )
   const face = keep(turnedFace())
@@ -188,38 +257,39 @@ export function buildHammer(): Hammer {
   face.offset.set(0.5, 0.5)
   const polished = keep(
     new THREE.MeshPhysicalMaterial({
-      color: 0xc4c7cc,
+      color: 0xd4d7dc,
       metalness: 1,
-      roughness: 0.22,
+      roughness: 0.3,
       roughnessMap: face,
       clearcoat: 0.6,
-      clearcoatRoughness: 0.08,
-      envMapIntensity: 1.0,
+      clearcoatRoughness: 0.1,
+      envMapIntensity: 1.1,
     }),
   )
-  // ExtrudeGeometry groups: 0 = caps (striking faces), 1 = sides + bevel
-  const head = new THREE.Mesh(headGeo, [polished, steel])
+  const head = new THREE.Mesh(headGeo, [polished, forged, ground])
   model.add(head)
 
-  // laser-etched spec plate on one cheek (+X side)
+  // laser-etched spec plate on both cheeks (±X), just proud of the side walls
   const plateTex = keep(specPlate())
-  const plateMat = keep(new THREE.MeshPhysicalMaterial({ map: plateTex, transparent: true, metalness: 0.6, roughness: 0.5, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2 }))
-  const plateGeo = keep(new THREE.PlaneGeometry(1.25, 0.39))
+  const plateMat = keep(
+    new THREE.MeshPhysicalMaterial({ map: plateTex, transparent: true, metalness: 0.2, roughness: 0.55, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }),
+  )
+  const plateGeo = keep(new THREE.PlaneGeometry(1.3, 0.406))
   const plate = new THREE.Mesh(plateGeo, plateMat)
-  plate.position.set(w + 0.001, 0, 0)
+  plate.position.set(wo + 0.002, 0, 0)
   plate.rotation.set(0, Math.PI / 2, 0)
   model.add(plate)
   const plate2 = plate.clone()
-  plate2.position.set(-w - 0.001, 0, 0)
+  plate2.position.set(-wo - 0.002, 0, 0)
   plate2.rotation.set(0, -Math.PI / 2, 0)
   model.add(plate2)
 
   // ---------------------------------------------------------------- handle (hickory)
   const prof: [number, number][] = [
-    [0.0, -w - 0.002],
-    [0.15, -w - 0.002],
-    [0.155, w],
-    [0.172, w + 0.3],
+    [0.0, -wo - 0.002],
+    [0.15, -wo - 0.002],
+    [0.155, wo],
+    [0.172, wo + 0.3],
     [0.152, 1.3],
     [0.146, 2.2],
     [0.16, 3.4],
@@ -239,31 +309,31 @@ export function buildHammer(): Hammer {
 
   // end grain + steel wedge visible in the eye on the far face
   const endGeo = keep(new THREE.CircleGeometry(0.15, 24))
-  const endMat = keep(new THREE.MeshStandardMaterial({ color: 0x8a5a2b, roughness: 0.85 }))
+  const endMat = keep(new THREE.MeshStandardMaterial({ color: 0x5e3d20, roughness: 0.9 }))
   const end = new THREE.Mesh(endGeo, endMat)
-  end.position.set(0, -w - 0.004, 0)
+  end.position.set(0, -wo - 0.003, 0)
   end.rotation.x = Math.PI / 2
   end.scale.set(1, 1.25, 1)
   model.add(end)
   const darkSteel = keep(new THREE.MeshPhysicalMaterial({ color: 0x5d6168, metalness: 1, roughness: 0.42, clearcoat: 0.2 }))
-  const wedgeGeo = keep(new THREE.BoxGeometry(0.035, 0.03, 0.36))
+  const wedgeGeo = keep(new THREE.BoxGeometry(0.035, 0.01, 0.36))
   const wedge = new THREE.Mesh(wedgeGeo, darkSteel)
-  wedge.position.set(0, -w - 0.01, 0)
+  wedge.position.set(0, -wo - 0.004, 0)
   model.add(wedge)
-  const pinGeo = keep(new THREE.CylinderGeometry(0.035, 0.035, 0.03, 16))
+  const pinGeo = keep(new THREE.CylinderGeometry(0.035, 0.035, 0.012, 16))
   const pin = new THREE.Mesh(pinGeo, darkSteel)
-  pin.position.set(0, -w - 0.012, 0)
+  pin.position.set(0, -wo - 0.006, 0)
   model.add(pin)
 
   // overstrike collar
-  const collarGeo = keep(new THREE.CylinderGeometry(0.215, 0.2, 0.36, 32, 1, false))
+  const collarGeo = keep(new THREE.CylinderGeometry(0.215, 0.2, 0.32, 32, 1, false))
   const collar = new THREE.Mesh(collarGeo, darkSteel)
-  collar.position.y = w + 0.18
+  collar.position.y = wo + 0.16
   model.add(collar)
   const lipGeo = keep(new THREE.TorusGeometry(0.205, 0.022, 10, 32))
-  const lip = new THREE.Mesh(lipGeo, steel)
+  const lip = new THREE.Mesh(lipGeo, ground)
   lip.rotation.x = Math.PI / 2
-  lip.position.y = w + 0.36
+  lip.position.y = wo + 0.32
   model.add(lip)
 
   // ---------------------------------------------------------------- rubber grip

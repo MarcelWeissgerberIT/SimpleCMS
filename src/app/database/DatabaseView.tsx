@@ -22,6 +22,8 @@ import { BoardView } from './views/BoardView'
 import { ListView } from './views/ListView'
 import { GalleryView } from './views/GalleryView'
 import { openRow } from './model/actions'
+import { searchRows, testGroup } from './model/query'
+import { useUI } from '../store/ui'
 import type { PopoverAnchor } from '../ui/Popover'
 import './database.css'
 
@@ -56,6 +58,10 @@ function DatabaseRoot({ db, page, inline, viewId }: { db: Database; page: Page; 
   const [editTitleOf, setEditTitleOf] = useState<ID | null>(null)
   const [ctx, setCtx] = useState<{ row: Page; anchor: PopoverAnchor } | null>(null)
   const [autoChip, setAutoChip] = useState<ID | null>(null)
+  /** Rows created in this session of the view: shown even if filters/search would hide them. */
+  const [keep, setKeep] = useState<ID[]>([])
+  const filterKey = view ? JSON.stringify(view.filter) : ''
+  useEffect(() => setKeep((c) => (c.length ? [] : c)), [view?.id, filterKey, search])
 
   // A database always needs at least one view.
   useEffect(() => {
@@ -78,6 +84,8 @@ function DatabaseRoot({ db, page, inline, viewId }: { db: Database; page: Page; 
       setCtx={setCtx}
       autoChip={autoChip}
       setAutoChip={setAutoChip}
+      keep={keep}
+      setKeep={setKeep}
     />
   )
 }
@@ -96,6 +104,8 @@ function DatabaseBody({
   setCtx,
   autoChip,
   setAutoChip,
+  keep,
+  setKeep,
 }: {
   db: Database
   page: Page
@@ -110,9 +120,21 @@ function DatabaseBody({
   setCtx: (c: { row: Page; anchor: PopoverAnchor } | null) => void
   autoChip: ID | null
   setAutoChip: (id: ID | null) => void
+  keep: ID[]
+  setKeep: (fn: (cur: ID[]) => ID[]) => void
 }) {
   const t = useT()
-  const m = useDbModel(db, page, view, search, inline)
+  const m = useDbModel(db, page, view, search, inline, keep)
+
+  /** A new row that the view's filters / search would hide: keep it on screen and say so. */
+  const keepVisible = (id: ID) => {
+    setKeep((cur) => [...cur, id])
+    const row = useWorkspace.getState().pages[id]
+    if (!row) return
+    const hidden =
+      (!!view.filter?.items.length && !testGroup(m.resolver, db, view.filter, row, m.propMap)) || (!!search.trim() && !searchRows(m.resolver, db, [row], search).length)
+    if (hidden) useUI.getState().toast({ message: t('database.new.outsideFilter') })
+  }
 
   const newRow = useCallback<ViewActions['newRow']>(
     (opts = {}) => {
@@ -125,10 +147,12 @@ function DatabaseBody({
         index = sibs.findIndex((p) => p.id === opts.after!.id) + 1
       }
       const id = s.createRow(db.id, { properties: { ...m.newRowDefaults(), ...(opts.properties ?? {}) }, index })
+      keepVisible(id)
       if (opts.editTitle) setEditTitleOf(id)
       if (opts.open) openRow(id, view)
       return id
     },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [db.id, m, view, setEditTitleOf],
   )
 
@@ -136,6 +160,7 @@ function DatabaseBody({
     const s = useWorkspace.getState()
     const props: Record<ID, PropertyValue> = { ...m.newRowDefaults(), ...(tpl ? JSON.parse(JSON.stringify(tpl.properties)) : {}) }
     const id = s.createRow(db.id, { title: '', properties: props, content: tpl?.content ? JSON.parse(JSON.stringify(tpl.content)) : null, icon: tpl?.icon ?? null })
+    keepVisible(id)
     if (view.type === 'table' || view.type === 'list') {
       if (tpl) openRow(id, view)
       else setEditTitleOf(id)
@@ -149,8 +174,9 @@ function DatabaseBody({
       clearEditTitle: () => setEditTitleOf(null),
       open: (row) => openRow(row.id, view),
       contextMenu: (row, anchor) => setCtx({ row, anchor }),
+      clearSearch: () => setSearch(''),
     }),
-    [newRow, editTitleOf, view, setEditTitleOf, setCtx],
+    [newRow, editTitleOf, view, setEditTitleOf, setCtx, setSearch],
   )
 
   const onFilterProp = (propId: ID) => {

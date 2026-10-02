@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { ImageIcon, Move } from 'lucide-react'
 import { useWorkspace } from '../../store/store'
 import { useFileUrl } from '../../lib/files'
@@ -6,6 +6,7 @@ import { colorBg } from '../../lib/colors'
 import { useT } from '../../i18n'
 import type { Page, PageCover } from '../../store/types'
 import { CoverPicker } from './CoverPicker'
+import { useIsTouch } from '../lib/hooks'
 
 export function Cover({ page, editable }: { page: Page; editable: boolean }) {
   const t = useT()
@@ -15,6 +16,14 @@ export function Cover({ page, editable }: { page: Page; editable: boolean }) {
   const [repos, setRepos] = useState<number | null>(null)
   const boxRef = useRef<HTMLDivElement>(null)
   const imgRef = useRef<HTMLImageElement>(null)
+  // touch: the controls stay out of the picture until the cover is tapped
+  const touch = useIsTouch()
+  const [armed, setArmed] = useState(false)
+  useEffect(() => {
+    if (!armed || pickerAnchor || repos !== null) return
+    const id = window.setTimeout(() => setArmed(false), 5000)
+    return () => window.clearTimeout(id)
+  }, [armed, pickerAnchor, repos])
   if (!cover) return null
 
   const pick = (c: PageCover) => useWorkspace.getState().updatePage(page.id, { cover: c })
@@ -43,11 +52,28 @@ export function Cover({ page, editable }: { page: Page; editable: boolean }) {
   if (cover.type === 'color') bg = { background: colorBg(cover.value) }
 
   return (
-    <div ref={boxRef} className="pv-cover" data-repos={repos !== null || undefined} style={bg} onPointerDown={onPointerDown}>
+    <div
+      ref={boxRef}
+      className="pv-cover"
+      data-repos={repos !== null || undefined}
+      data-armed={(touch && armed) || undefined}
+      style={bg}
+      onPointerDown={onPointerDown}
+      onClick={(e) => {
+        if (!touch || !editable || repos !== null) return
+        if ((e.target as Element).closest('button')) return
+        setArmed((a) => !a)
+      }}
+    >
       {cover.type === 'image' && src && (
         <img ref={imgRef} src={src} alt="" draggable={false} style={{ objectPosition: `center ${posY}%` }} />
       )}
       {repos !== null && <div className="pv-cover__hint label">{t('shell.cover.dragHint')}</div>}
+      {editable && touch && !armed && repos === null && (
+        <button type="button" className="pv-cover__arm" aria-label={t('shell.cover.edit')} onClick={() => setArmed(true)}>
+          <ImageIcon size={14} />
+        </button>
+      )}
       {editable && (
         <div className="pv-cover__ctrls">
           {repos !== null ? (
@@ -58,11 +84,12 @@ export function Cover({ page, editable }: { page: Page; editable: boolean }) {
                 onClick={() => {
                   useWorkspace.getState().updatePage(page.id, { cover: { ...cover, positionY: Math.round(repos) } as PageCover })
                   setRepos(null)
+                  setArmed(false)
                 }}
               >
                 {t('shell.cover.savePosition')}
               </button>
-              <button type="button" className="pv-cover__btn" onClick={() => setRepos(null)}>
+              <button type="button" className="pv-cover__btn" onClick={() => (setRepos(null), setArmed(false))}>
                 {t('common.cancel')}
               </button>
             </>

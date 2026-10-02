@@ -8,20 +8,48 @@ import { useT } from '../../i18n'
 interface Heading {
   level: number
   text: string
-  pos: number
   id: string | null
 }
 
+/** Top-level-ish walk (no descent into textblocks or atoms); cached per doc instance. */
+const cache = new WeakMap<object, Heading[]>()
 function collectHeadings(editor: Editor): Heading[] {
+  const doc = editor.state.doc
+  const hit = cache.get(doc)
+  if (hit) return hit
   const out: Heading[] = []
-  editor.state.doc.descendants((node, pos) => {
+  doc.descendants((node) => {
     if (node.type.name === 'heading') {
-      out.push({ level: node.attrs.level as number, text: node.textContent, pos, id: (node.attrs.id as string | null) ?? null })
+      out.push({ level: node.attrs.level as number, text: node.textContent, id: (node.attrs.id as string | null) ?? null })
       return false
     }
     return node.isBlock && !node.isAtom && !node.isTextblock
   })
+  cache.set(doc, out)
   return out
+}
+
+/** Re-render only when the outline itself changed — not on every keystroke elsewhere. */
+function sameOutline(a: Heading[] | null, b: Heading[] | null): boolean {
+  if (a === b) return true
+  if (!a || !b || a.length !== b.length) return false
+  for (let i = 0; i < a.length; i++) if (a[i].level !== b[i].level || a[i].text !== b[i].text || a[i].id !== b[i].id) return false
+  return true
+}
+
+/** n-th heading in document order (fallback when a heading has no id yet). */
+function nthHeadingPos(editor: Editor, n: number): number | null {
+  let i = 0
+  let found: number | null = null
+  editor.state.doc.descendants((node, pos) => {
+    if (found !== null) return false
+    if (node.type.name === 'heading') {
+      if (i++ === n) found = pos
+      return false
+    }
+    return node.isBlock && !node.isAtom && !node.isTextblock
+  })
+  return found
 }
 
 /** Hierarchical section numbers: 1, 1.1, 1.2, 2 … (relative to the smallest level used). */
@@ -41,12 +69,12 @@ function numbering(items: Heading[]): string[] {
 
 export function TocView({ editor, selected }: ReactNodeViewProps) {
   const t = useT()
-  const headings = useEditorState({ editor, selector: ({ editor: e }) => (e ? collectHeadings(e) : []) }) ?? []
+  const headings = useEditorState({ editor, selector: ({ editor: e }) => (e ? collectHeadings(e) : []), equalityFn: sameOutline }) ?? []
   const nums = numbering(headings)
   const min = headings.length ? Math.min(...headings.map((h) => h.level)) : 1
 
-  const jump = (h: Heading) => {
-    const pos = h.id ? findBlockById(editor, h.id) : h.pos
+  const jump = (h: Heading, i: number) => {
+    const pos = (h.id ? findBlockById(editor, h.id) : null) ?? nthHeadingPos(editor, i)
     if (pos !== null) flashBlock(editor, pos)
   }
 
@@ -61,8 +89,8 @@ export function TocView({ editor, selected }: ReactNodeViewProps) {
       ) : (
         <ol className="toc-view__list">
           {headings.map((h, i) => (
-            <li key={`${h.pos}-${i}`} style={{ paddingLeft: `${(h.level - min) * 18}px` }} data-level={h.level - min}>
-              <button type="button" onClick={() => jump(h)}>
+            <li key={`${h.id ?? 'h'}-${i}`} style={{ paddingLeft: `${(h.level - min) * 18}px` }} data-level={h.level - min}>
+              <button type="button" onClick={() => jump(h, i)}>
                 <span className="toc-view__num">{nums[i]}</span>
                 <span className="toc-view__text">{h.text.trim() || t('common.untitled')}</span>
               </button>

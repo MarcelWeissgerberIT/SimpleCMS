@@ -34,6 +34,9 @@ import {
 
 export const lowlight = createLowlight(common)
 
+/** Code blocks without a (known) language stay plain text — no highlight.js auto-detection guesses. */
+const plainLowlight = { ...lowlight, highlightAuto: (value: string) => lowlight.highlight('plaintext', value) }
+
 /** Block types that carry a stable `id` attribute (block links, ?b=…, TOC anchors). */
 export const BLOCK_ID_TYPES = [
   'paragraph',
@@ -80,7 +83,7 @@ export function baseExtensions({ readOnly = false, wrap = {} }: { readOnly?: boo
       undoRedo: readOnly ? false : { depth: 200 },
       trailingNode: readOnly ? false : undefined,
     }),
-    w('codeBlock', CodeBlockLowlight.configure({ lowlight, defaultLanguage: null, enableTabIndentation: true, tabSize: 2 } as never)),
+    w('codeBlock', CodeBlockLowlight.configure({ lowlight: plainLowlight, defaultLanguage: null, enableTabIndentation: true, tabSize: 2 } as never)),
     TaskList,
     TaskItem.configure({ nested: true }),
     w('details', MarkdownDetails.configure({ persist: true, HTMLAttributes: { class: 'toggle' } })),

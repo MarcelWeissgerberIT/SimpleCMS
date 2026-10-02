@@ -22,6 +22,26 @@ export function parseUrl(raw: string): URL | null {
   }
 }
 
+/**
+ * A link target that is safe to put into an href: http(s) / mailto, in-app "#/…" links and
+ * (optionally) local file refs. Everything else (javascript:, data:, vbscript: …) → null.
+ */
+export function safeHref(raw: string | null | undefined, opts: { files?: boolean } = {}): string | null {
+  const s = (raw ?? '').trim()
+  if (!s) return null
+  if (s.startsWith('#')) return s
+  if (opts.files && /^onefile:[\w-]+$/.test(s)) return s
+  if (/^[a-z][a-z0-9+.-]*:/i.test(s) && !/^(https?|mailto):/i.test(s)) return null
+  const u = parseUrl(s)
+  return u && /^(https?|mailto):$/.test(u.protocol) ? u.toString() : null
+}
+
+/** http(s) only — for bookmarks and embeds. */
+export function webUrl(raw: string): URL | null {
+  const u = parseUrl(raw)
+  return u && /^https?:$/.test(u.protocol) && /\./.test(u.hostname) ? u : null
+}
+
 export function isUrl(raw: string): boolean {
   const s = raw.trim()
   if (!s || /\s/.test(s)) return false

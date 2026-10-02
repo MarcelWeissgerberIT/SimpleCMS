@@ -7,6 +7,7 @@ import { useUI } from '../../store/ui'
 import { navigate, openPage, parseHash } from '../../lib/router'
 import { t } from '../../i18n'
 import type { ID } from '../../store/types'
+import { revealMain } from './stage'
 
 const ws = () => useWorkspace.getState()
 const ui = () => useUI.getState()
@@ -35,7 +36,15 @@ export function closeMobileSidebar() {
 export function goToPage(id: ID, block?: string) {
   closeMobileSidebar()
   if (ui().peekPageId === id) ui().closePeek()
+  // picking the page that is already open unfolds it if panes folded it into a spine
+  if (!block && currentPageId() === id) revealMain()
   openPage(id, block)
+}
+
+export function goHome() {
+  closeMobileSidebar()
+  if (parseHash(window.location.hash).name === 'home') revealMain()
+  navigate({ name: 'home' })
 }
 
 export function createPageAndOpen(parentId: ID | null = null, title = '') {
@@ -79,6 +88,7 @@ export function trashWithUndo(id: ID) {
   if (!page) return
   const affected = [id, ...descendantIds(ws().pages, id)]
   const cur = currentPageId()
+  const wasFavorite = page.favorite
   ws().trashPage(id)
   const s = ui()
   if (s.peekPageId && affected.includes(s.peekPageId)) s.closePeek()
@@ -95,6 +105,8 @@ export function trashWithUndo(id: ID) {
       label: t('common.undo'),
       run: () => {
         ws().restorePage(id)
+        // trashing clears the star; Undo puts it back
+        if (wasFavorite && !ws().pages[id]?.favorite) ws().toggleFavorite(id)
         if (cur && affected.includes(cur)) openPage(cur)
       },
     },

@@ -404,8 +404,8 @@ export class GraphRenderer {
     ctx.lineCap = 'butt'
     // bulk layers as exact 1px hairlines (cheap to rasterize, even without a GPU)
     ctx.lineWidth = 1 / k
-    ctx.strokeStyle = c.ruleStrong
-    ctx.globalAlpha = hi ? 0.35 : 1
+    ctx.strokeStyle = c.ink3
+    ctx.globalAlpha = hi ? 0.2 : 0.55
     strokeEdges('tree', false)
     // links / mentions in signal orange
     ctx.strokeStyle = c.signal

@@ -146,6 +146,7 @@ export function AutomationEditor({ db, automation, onChange, onDelete, onDuplica
             </button>
             <Menu
               {...addMenu.props}
+              className="auto-menu"
               entries={(['webhook', 'set_property', 'notify'] as const).map((type) => {
                 const Icon = ACTION_ICON[type]
                 return { label: t(`features.auto.act.${type}`), icon: <Icon size={14} />, hint: t(`features.auto.actHint.${type}`), onSelect: () => set({ actions: [...automation.actions, blankAction(type, db)] }) }

@@ -2,20 +2,20 @@
  * Filter builder (AND/OR groups, operators per type) and the removable filter chips bar.
  */
 import { useEffect, useState } from 'react'
-import { Plus, Trash, X, CalendarDays, Layers } from 'lucide-react'
+import { ArrowUpDown, Plus, Trash, X, CalendarDays, Layers } from 'lucide-react'
+import { SortPanel } from './Panels'
 import type { Database, DateValue, Filter, FilterGroup, FilterOperator, ID, PropertyDef, PropertyValue, View } from '../../store/types'
 import { useWorkspace } from '../../store/store'
 import { Popover } from '../../ui/Popover'
-import { Menu } from '../../ui/Menu'
 import { useT } from '../../i18n'
 import { newId } from '../../lib/ids'
-import { Select, TypeIcon } from '../parts'
+import { Menu, Select, TypeIcon } from '../parts'
 import { DatePicker } from '../cells/DatePicker'
 import { Avatar } from '../cells/display'
 import { tagStyle } from '../../lib/colors'
 import { VALUELESS_OPS, operatorsFor } from '../model/schema'
 import { countFilters, inferKind, isGroup } from '../model/query'
-import { formatDateValue } from '../model/format'
+import { formatDateValue, todayISO } from '../model/format'
 import type { DbModel } from '../hooks'
 import type { Translate } from '@/shared/i18n'
 import { plural } from '../parts'
@@ -98,7 +98,7 @@ function FilterValue({ m, filter, onChange }: { m: DbModel; filter: Filter; onCh
           placeholder={t('database.filter.pickDate')}
           items={[...REL_DATES.map((r) => ({ value: r as string, label: t(`database.filter.date.${r}`) })), { value: 'exact', label: t('database.filter.date.exact') }]}
           onChange={(x) => {
-            if (x === 'exact') onChange({ start: new Date().toISOString().slice(0, 10) })
+            if (x === 'exact') onChange({ start: todayISO() })
             else onChange({ start: x })
           }}
         />
@@ -268,6 +268,7 @@ export function FilterChips({ m, autoOpen, onAutoOpened }: { m: DbModel; autoOpe
   const view = m.view
   const [open, setOpen] = useState<{ id: ID; el: Element } | null>(null)
   const [addAnchor, setAddAnchor] = useState<HTMLElement | null>(null)
+  const [sortAnchor, setSortAnchor] = useState<HTMLElement | null>(null)
   const g = view.filter
   const items = g?.items ?? []
   const [pending, setPending] = useState<ID | null>(null)
@@ -292,14 +293,21 @@ export function FilterChips({ m, autoOpen, onAutoOpened }: { m: DbModel; autoOpe
     <div className="db-chipsbar" role="toolbar" aria-label={t('database.filter.title')}>
       {sortCount > 0 && (
         <span className="db-fchip db-fchip--sort">
-          <span className="label">{t('database.sort.title')}</span>
-          {view.sorts.map((s, i) => (
-            <span key={i} className="db-fchip__val">
-              {m.propMap.get(s.propertyId)?.name ?? '?'} {s.direction === 'asc' ? '↑' : '↓'}
-            </span>
-          ))}
+          <button type="button" className="db-fchip__main" aria-haspopup="dialog" onClick={(e) => setSortAnchor(sortAnchor ? null : e.currentTarget)}>
+            <ArrowUpDown size={12} />
+            <span className="db-fchip__op">{t('database.sort.title')}</span>
+            {view.sorts.map((s, i) => (
+              <span key={i} className="db-fchip__val">
+                {m.propMap.get(s.propertyId)?.name ?? t('database.filter.deletedProp')} {s.direction === 'asc' ? '↑' : '↓'}
+              </span>
+            ))}
+          </button>
+          <button type="button" className="db-fchip__x" aria-label={t('database.sort.clear')} title={t('database.sort.clear')} onClick={() => useWorkspace.getState().updateView(m.db.id, view.id, { sorts: [] })}>
+            <X size={12} />
+          </button>
         </span>
       )}
+      {sortAnchor && sortCount > 0 && <SortPanel m={m} anchor={sortAnchor} onClose={() => setSortAnchor(null)} />}
       {items.length > 1 && <span className="label db-chipsbar__op">{t(`database.filter.${g!.op}`)}</span>}
       {items.map((it) => {
         if (isGroup(it))
@@ -316,11 +324,24 @@ export function FilterChips({ m, autoOpen, onAutoOpened }: { m: DbModel; autoOpe
           )
         const prop = m.propMap.get(it.propertyId)
         const val = filterValueText(m, it, t)
+        if (!prop)
+          // a rule on a property that no longer exists: inert (it filters nothing) — say so, offer removal
+          return (
+            <span key={it.id} className="db-fchip" data-orphan="true" title={t('database.filter.orphanHint')}>
+              <span className="db-fchip__main">
+                <span className="db-fchip__prop">{t('database.filter.deletedProp')}</span>
+                <span className="db-fchip__op">{t('database.filter.inactive')}</span>
+              </span>
+              <button type="button" className="db-fchip__x" aria-label={t('common.remove')} onClick={() => removeItem(it.id)}>
+                <X size={12} />
+              </button>
+            </span>
+          )
         return (
           <span key={it.id} className="db-fchip" data-incomplete={!VALUELESS_OPS.includes(it.operator) && !val}>
             <button type="button" data-chip-id={it.id} className="db-fchip__main" onClick={(e) => setOpen({ id: it.id, el: e.currentTarget })}>
-              {prop && <TypeIcon type={prop.type} size={12} />}
-              <span className="db-fchip__prop">{prop?.name ?? '?'}</span>
+              <TypeIcon type={prop.type} size={12} />
+              <span className="db-fchip__prop">{prop.name}</span>
               <span className="db-fchip__op">{t(`database.op.${it.operator}`)}</span>
               {val && <span className="db-fchip__val">{val}</span>}
             </button>

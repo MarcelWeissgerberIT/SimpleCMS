@@ -259,6 +259,18 @@
   min-height: 40px;
 }
 
+/* no explicit width: show at natural size (never upscale a small image to the column width) */
+.doc-content .image-view:not([data-sized]) {
+  width: fit-content;
+  min-width: min(160px, 100%);
+}
+
+.doc-content .image-view:not([data-sized]) .image-view__frame img {
+  width: auto;
+  max-width: 100%;
+  margin: 0 auto;
+}
+
 .doc-content .image-view.is-selected .image-view__frame img,
 .doc-content .image-view.is-block-selected .image-view__frame img {
   outline: 2px solid var(--signal);
@@ -550,6 +562,27 @@
   line-height: 1.5;
   white-space: normal;
   overflow-wrap: normal;
+}
+
+/* foreignObject labels: undo the document's block rhythm (padding/min-height on <p>) and use the
+   line box mermaid sized the label for (1.125 × font size), or labels clip */
+.doc-content .mermaid-view__svg :is(p, div, span) {
+  margin: 0;
+  padding: 0;
+  min-height: 0;
+}
+
+.doc-content .mermaid-view__svg foreignObject :is(p, div, span) {
+  line-height: 1.125;
+}
+
+.doc-content .mermaid-view__svg foreignObject {
+  overflow: visible;
+}
+
+/* no drop shadows on diagram shapes — flat plates like the rest of the page */
+.doc-content .mermaid-view__svg svg :is(rect, polygon, path, circle, ellipse, g) {
+  filter: none !important;
 }
 
 .doc-content .mermaid-view__svg svg {

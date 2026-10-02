@@ -15,6 +15,9 @@ import { plainText, useWorkspace } from '../../store/store'
 import { isApplyingRemote } from '../../store/persistence'
 import type { ID, PageIcon } from '../../store/types'
 import { newId } from '../../lib/ids'
+import { getSchema } from '@tiptap/core'
+import type { Schema } from '@tiptap/pm/model'
+import { getExtensions } from '../../editor'
 import { docKey } from './diff'
 
 export type SnapshotReason = 'session' | 'auto' | 'ai' | 'restore' | 'manual'
@@ -67,8 +70,29 @@ function fnv1a(str: string): string {
   return (h >>> 0).toString(36)
 }
 
+let schema: Schema | null = null
+
+/**
+ * Content identity independent of how it was written: the schema fills in default attributes
+ * (e.g. colspan on table cells) that the editor adds on load, block ids are ignored and so is
+ * the empty trailing paragraph the editor appends.
+ */
+export function contentKey(content: JSONContent | null | undefined): string {
+  if (!content) return docKey(content)
+  try {
+    schema ??= getSchema(getExtensions())
+    const json = schema.nodeFromJSON(content).toJSON() as JSONContent
+    // the editor keeps an empty trailing paragraph after a final atom block (trailing node)
+    const blocks = [...(json.content ?? [])]
+    while (blocks.length > 1 && blocks[blocks.length - 1].type === 'paragraph' && !blocks[blocks.length - 1].content?.length) blocks.pop()
+    return docKey({ ...json, content: blocks })
+  } catch {
+    return docKey(content)
+  }
+}
+
 export function hashContent(content: JSONContent | null, title: string): string {
-  const json = docKey(content)
+  const json = contentKey(content)
   return `${fnv1a(json)}.${json.length.toString(36)}.${fnv1a(title)}`
 }
 
@@ -200,11 +224,26 @@ export async function snapshotNow(pageId: ID, reason: SnapshotReason = 'manual')
   return writeSnapshot(pageId, { content: p.content, title: p.title, icon: p.icon }, reason)
 }
 
-/** Restore a snapshot into the page (saves the current state first). */
+/**
+ * Restore a snapshot into the page. The current state is saved first and returned, so the
+ * restore can always be undone — when that state is already the newest version, that version
+ * is returned instead.
+ */
 export async function restoreSnapshot(pageId: ID, snapId: ID): Promise<SnapshotMeta | null> {
   const body = await loadSnapshot(snapId)
   if (!body) throw new Error('Snapshot not found')
-  const before = await snapshotNow(pageId, 'restore')
+  const cur = useWorkspace.getState().pages[pageId]
+  if (!cur) throw new Error('Page not found')
+  const s = session.get(pageId)
+  if (s) {
+    s.last = Date.now()
+    s.dirty = false
+  }
+  // even an empty page is kept here: undo must be able to bring it back
+  const before =
+    (await writeSnapshot(pageId, { content: cur.content, title: cur.title, icon: cur.icon }, 'restore')) ??
+    (await listSnapshots(pageId)).filter((m) => m.hash === hashContent(cur.content, cur.title)).at(-1) ??
+    null
   const st = useWorkspace.getState()
   st.setContent(pageId, body.content, 'history')
   const page = useWorkspace.getState().pages[pageId]
@@ -284,6 +323,9 @@ export function startHistory(): () => void {
       if (p.contentOrigin === 'history' || p.contentOrigin === 'sync' || p.contentOrigin === 'import') continue
       let s = session.get(id)
       if (!s) {
+        // Opening a page can make the editor rewrite it (block ids, normalisation) without any
+        // visible change — that is not an edit and must not start a session.
+        if (before.title === p.title && contentKey(before.content) === contentKey(p.content)) continue
         s = { last: Date.now(), dirty: true }
         session.set(id, s)
         // First edit of this session: keep the state the page had before it.

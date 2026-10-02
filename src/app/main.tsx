@@ -5,19 +5,26 @@ import '@/shared/tokens.css'
 import './ui/ui.css'
 import { App } from './shell/App'
 import { ErrorBoundary } from './shell/ErrorBoundary'
-import { runPendingReset } from './shell/lib/reset'
+import { listenForReset, runPendingReset, withBootLock } from './shell/lib/reset'
 import { useWorkspace, emptyWorkspace } from './store/store'
 import { useUI } from './store/ui'
-import { loadWorkspace, startPersistence } from './store/persistence'
+import { flushSave, loadWorkspace, startPersistence } from './store/persistence'
 import { seedWorkspace } from './store/seed'
 import { applyTheme } from './lib/theme'
+import { ALL_MESSAGES } from './i18n'
 import { startHistory, startAutomations } from './features'
-import { detectLang } from '@/shared/i18n'
+import { detectLang, makeTranslator } from '@/shared/i18n'
 import { STORAGE_KEYS, safeLocalGet } from '@/shared/brand'
 
 // Apply the remembered theme before first paint to avoid a flash.
 const storedTheme = safeLocalGet(STORAGE_KEYS.theme)
 applyTheme(storedTheme === 'dark' || storedTheme === 'light' ? storedTheme : 'system')
+
+// Another tab erasing the workspace makes this one reload (see shell/lib/reset.ts).
+listenForReset()
+
+/** Boot strings: the workspace (and its language setting) is not loaded yet. */
+const bootT = makeTranslator(ALL_MESSAGES, detectLang())
 
 function bootStatus(text: string, fault = false) {
   const el = document.getElementById('boot')
@@ -40,18 +47,28 @@ function startService(name: string, start: () => unknown) {
 }
 
 async function boot() {
-  if (await runPendingReset()) bootStatus('Workspace reset · seeding')
+  bootStatus(bootT('shell.boot.loading'))
 
-  const saved = await loadWorkspace()
-  const store = useWorkspace.getState()
-  if (saved) {
-    store.hydrate(saved)
-  } else {
-    const ws = emptyWorkspace()
-    ws.settings.language = detectLang()
-    store.hydrate(ws)
-    seedWorkspace(ws.settings.language)
-  }
+  // reset → load → seed → first save run under a cross-tab lock: a second tab waits and
+  // then loads the very same workspace instead of seeding its own.
+  await withBootLock(async () => {
+    const reset = await runPendingReset(() => bootStatus(bootT('shell.boot.blocked')))
+    if (reset) bootStatus(bootT('shell.boot.reset'))
+
+    const saved = await loadWorkspace()
+    const store = useWorkspace.getState()
+    if (saved) {
+      store.hydrate(saved)
+    } else {
+      const ws = emptyWorkspace()
+      ws.settings.language = detectLang()
+      store.hydrate(ws)
+      seedWorkspace(ws.settings.language)
+      // persist the seed right away — a reload before the first edit must not seed new ids
+      await flushSave()
+    }
+  })
+
   startPersistence()
   startService('history', startHistory)
   startService('automations', startAutomations)
@@ -77,5 +94,5 @@ async function boot() {
 
 boot().catch((e) => {
   console.error('[one] boot failed', e)
-  bootStatus(`Boot fault · ${e instanceof Error ? e.message : String(e)}`, true)
+  bootStatus(bootT('shell.boot.fault', { msg: e instanceof Error ? e.message : String(e) }), true)
 })

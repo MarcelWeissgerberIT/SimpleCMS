@@ -6,7 +6,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import type { Editor, JSONContent } from '@tiptap/core'
-import type { EditorState } from '@tiptap/pm/state'
+import { TextSelection, type EditorState, type Transaction } from '@tiptap/pm/state'
 import type { VirtualElement } from '@floating-ui/react'
 import {
   AlignLeft,
@@ -190,8 +190,28 @@ export function AIMenu({ editor, pageId, mode, onClose }: AIMenuProps) {
   const model = resolveModel(useWorkspace((s) => s.settings.aiModel))
   const updateSettings = useWorkspace((s) => s.updateSettings)
 
+  // The target range is captured once and then mapped through every later edit, so the
+  // result always lands where the user asked for it — even if they keep typing meanwhile.
   const [target] = useState(() => captureTarget(editor, mode))
+  const [targetRev, setTargetRev] = useState(0)
   const anchor = useMemo(() => makeAnchor(editor, target), [editor, target])
+  useEffect(() => {
+    const onTx = ({ transaction }: { transaction: Transaction }) => {
+      if (!transaction.docChanged) return
+      const m = transaction.mapping
+      const from = m.map(target.from, 1)
+      const to = Math.max(from, m.map(target.to, -1))
+      target.from = from
+      target.to = to
+      target.blockFrom = m.map(target.blockFrom, 1)
+      target.blockTo = Math.max(target.blockFrom, m.map(target.blockTo, -1))
+      setTargetRev((r) => r + 1)
+    }
+    editor.on('transaction', onTx)
+    return () => {
+      editor.off('transaction', onTx)
+    }
+  }, [editor, target])
 
   const [setup, setSetup] = useState(!hasKey)
   const [query, setQuery] = useState('')
@@ -311,25 +331,61 @@ export function AIMenu({ editor, pageId, mode, onClose }: AIMenuProps) {
     return (doc.content ?? []).filter(Boolean)
   }
 
+  /** The cursor block may have been typed into meanwhile: it is only filled while still empty. */
+  const targetBlockEmpty = () => {
+    if (!target.blockEmpty || editor.isDestroyed) return false
+    const { doc } = editor.state
+    const block = target.blockFrom <= doc.content.size ? doc.nodeAt(target.blockFrom) : null
+    return !!block && block.isTextblock && block.content.size === 0 && target.blockTo - target.blockFrom === block.nodeSize
+  }
+
   const apply = async (how: 'replace' | 'below' | 'insert') => {
     if (editor.isDestroyed || !output.trim()) return
     const blocks = resultBlocks()
     if (!blocks.length) return
     await snapshotNow(pageId, 'ai')
-    const chain = editor.chain().focus()
+    if (editor.isDestroyed) return
     const size = editor.state.doc.content.size
     const clamp = (n: number) => Math.max(0, Math.min(n, size))
-    if (how === 'replace' && target.mode === 'selection') {
+    const chain = editor.chain().focus()
+    const blockStillEmpty = targetBlockEmpty()
+    if (how === 'replace' && target.mode === 'selection' && target.to > target.from) {
       const range = { from: clamp(target.from), to: clamp(target.to) }
       const single = blocks.length === 1 && blocks[0].type === 'paragraph'
       chain.insertContentAt(range, single && target.inlineOnly ? (blocks[0].content ?? []) : blocks).run()
-    } else if (how === 'insert' && target.blockEmpty) {
+    } else if (how === 'insert' && target.blockEmpty && blockStillEmpty) {
       chain.insertContentAt({ from: clamp(target.blockFrom), to: clamp(target.blockTo) }, blocks).run()
     } else {
       chain.insertContentAt(clamp(target.blockTo), blocks).run()
     }
     onClose()
   }
+
+  /** Close and hand the caret (or the original selection) back to the editor, so typing continues. */
+  const dismiss = useCallback(() => {
+    if (!editor.isDestroyed) {
+      try {
+        const size = editor.state.doc.content.size
+        const from = Math.max(0, Math.min(target.from, size))
+        const to = Math.max(from, Math.min(target.mode === 'selection' ? target.to : target.from, size))
+        const tr = editor.state.tr.setSelection(TextSelection.create(editor.state.doc, from, to))
+        editor.view.dispatch(tr.setMeta('addToHistory', false))
+      } catch {
+        /* keep whatever selection the editor has */
+      }
+      editor.view.focus()
+    }
+    onClose()
+  }, [editor, target, onClose])
+
+  // Esc closes with focus back in the editor; a click elsewhere closes and leaves focus where it went.
+  const pointerAt = useRef(0)
+  useEffect(() => {
+    const mark = () => (pointerAt.current = performance.now())
+    window.addEventListener('pointerdown', mark, true)
+    return () => window.removeEventListener('pointerdown', mark, true)
+  }, [])
+  const onPopoverClose = () => (performance.now() - pointerAt.current < 120 ? onClose() : dismiss())
 
   const copy = async () => {
     try {
@@ -450,7 +506,7 @@ export function AIMenu({ editor, pageId, mode, onClose }: AIMenuProps) {
         if (target.mode === 'selection' && !ws) out.push({ id: 'replace', label: t('features.ai.res.replace'), icon: Check, run: () => void apply('replace'), hint: <Kbd>↵</Kbd> })
         out.push({
           id: 'insert',
-          label: target.mode === 'selection' || ws || !target.blockEmpty ? t('features.ai.res.below') : t('features.ai.res.insert'),
+          label: target.mode === 'selection' || ws || !targetBlockEmpty() ? t('features.ai.res.below') : t('features.ai.res.insert'),
           icon: ArrowDownToLine,
           run: () => void apply(target.mode === 'selection' || ws ? 'below' : 'insert'),
           hint: target.mode === 'selection' && !ws ? undefined : <Kbd>↵</Kbd>,
@@ -460,7 +516,7 @@ export function AIMenu({ editor, pageId, mode, onClose }: AIMenuProps) {
       out.push({ id: 'retry', label: t('features.ai.res.retry'), icon: RotateCcw, run: retry })
       if (error && (error.code === 'invalid_key' || error.code === 'permission' || error.code === 'no_key'))
         out.push({ id: 'key', label: t('features.ai.res.changeKey'), icon: KeyRound, run: () => setSetup(true) })
-      out.push({ id: 'discard', label: t('features.ai.res.discard'), icon: Trash2, run: onClose, hint: <Kbd>esc</Kbd>, danger: true })
+      out.push({ id: 'discard', label: t('features.ai.res.discard'), icon: Trash2, run: dismiss, hint: <Kbd>esc</Kbd>, danger: true })
       return out
     }
     if (wsMode) {
@@ -512,7 +568,7 @@ export function AIMenu({ editor, pageId, mode, onClose }: AIMenuProps) {
       else list.unshift(custom)
     }
     return list
-  }, [query, setup, phase, wsMode, view, actions, t, start, output, target, run, error, onClose, sources]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [query, setup, phase, wsMode, view, actions, t, start, output, target, targetRev, run, error, dismiss, sources]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     setActive((a) => Math.min(a, Math.max(0, rows.length - 1)))
@@ -561,6 +617,8 @@ export function AIMenu({ editor, pageId, mode, onClose }: AIMenuProps) {
   const cycleModel = () => {
     const i = AI_MODELS.findIndex((m) => m.id === model.id)
     updateSettings({ aiModel: AI_MODELS[(i + 1) % AI_MODELS.length].id })
+    // keep the keyboard flow in the prompt: Enter must run the action, not cycle again
+    requestAnimationFrame(() => inputRef.current?.focus({ preventScroll: true }))
   }
 
   const placeholder =
@@ -585,7 +643,7 @@ export function AIMenu({ editor, pageId, mode, onClose }: AIMenuProps) {
       <Popover
         open
         anchor={anchor}
-        onClose={onClose}
+        onClose={onPopoverClose}
         placement="bottom-start"
         offset={8}
         bare
@@ -604,7 +662,7 @@ export function AIMenu({ editor, pageId, mode, onClose }: AIMenuProps) {
               else setPhase('idle')
               requestAnimationFrame(() => inputRef.current?.focus())
             }}
-            onCancel={hasKey ? () => setSetup(false) : onClose}
+            onCancel={hasKey ? () => setSetup(false) : dismiss}
           />
         ) : (
           <>

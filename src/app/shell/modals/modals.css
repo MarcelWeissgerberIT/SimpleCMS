@@ -171,3 +171,9 @@
   font-family: var(--font-mono);
   font-size: 10px;
 }
+
+@media (hover: none) and (pointer: coarse) {
+  .confirm__kbd {
+    display: none;
+  }
+}

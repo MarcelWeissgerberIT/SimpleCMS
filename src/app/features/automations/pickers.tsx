@@ -4,7 +4,7 @@ import { ChevronDown } from 'lucide-react'
 import { Menu, useMenu, type MenuEntry } from '../../ui/Menu'
 import { useT } from '../../i18n'
 import { useWorkspace } from '../../store/store'
-import { tagStyle } from '../../lib/colors'
+import { colorText, tagStyle } from '../../lib/colors'
 import type { Database, PropertyDef, PropertyValue } from '../../store/types'
 import { SETTABLE } from './recipes'
 
@@ -17,7 +17,7 @@ export function Picker({ label, entries, placeholder, searchable, ariaLabel, wid
         <span className="auto-pick__label">{label ?? <span className="faint">{placeholder}</span>}</span>
         <ChevronDown size={14} className="faint" />
       </button>
-      <Menu {...menu.props} entries={entries} searchable={searchable} searchPlaceholder={t('common.search')} width={width} />
+      <Menu {...menu.props} entries={entries} searchable={searchable} searchPlaceholder={t('common.search')} width={width} className="auto-menu" />
     </>
   )
 }
@@ -112,7 +112,7 @@ export function ValuePicker({ prop, value, onChange, allowAny, ariaLabel }: { pr
         ...any,
         ...(prop.options ?? []).map((o) => ({
           label: o.name,
-          icon: <span className="auto-swatch" style={tagStyle(o.color)} />,
+          icon: <span className="auto-swatch" style={{ background: colorText(o.color === 'default' ? 'gray' : o.color) }} />,
           checked: (Array.isArray(value) ? value[0] : value) === o.id,
           onSelect: () => onChange(prop.type === 'multi_select' && !allowAny ? [o.id] : o.id),
         })),

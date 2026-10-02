@@ -6,7 +6,6 @@ import { createContext, useContext } from 'react'
 import { ArrowUpRight, Copy, FilePlus2, Link, Maximize2, Trash } from 'lucide-react'
 import type { ID, Page, PropertyValue } from '../../store/types'
 import { useUI } from '../../store/ui'
-import { Menu } from '../../ui/Menu'
 import { Kbd } from '../../ui/controls'
 import { useT } from '../../i18n'
 import { openPage, pageHref } from '../../lib/router'
@@ -16,7 +15,7 @@ import { countFilters, type RowGroup } from '../model/query'
 import { OptionTag, StatusTag, Avatar } from '../cells/display'
 import { saveRowAsTemplate } from '../toolbar/Templates'
 import { useModel, useLocalState } from '../hooks'
-import { plural } from '../parts'
+import { Menu, plural } from '../parts'
 import type { PopoverAnchor } from '../../ui/Popover'
 
 export interface ViewActions {
@@ -27,6 +26,8 @@ export interface ViewActions {
   clearEditTitle: () => void
   open: (row: Page) => void
   contextMenu: (row: Page, anchor: PopoverAnchor) => void
+  /** Reset the quick search of this view. */
+  clearSearch: () => void
 }
 
 export const ViewActionsContext = createContext<ViewActions | null>(null)
@@ -39,25 +40,30 @@ export function useViewActions(): ViewActions {
 export function EmptyState({ onAdd }: { onAdd?: () => void }) {
   const t = useT()
   const m = useModel()
+  const actions = useContext(ViewActionsContext)
   const filters = countFilters(m.view.filter)
-  const narrowed = filters > 0 || !!m.search.trim()
-  if (narrowed && m.allRows.length > 0)
+  const q = m.search.trim()
+  if ((filters > 0 || q) && m.allRows.length > 0) {
+    const label = filters === 0 ? t('database.emptySearch', { q }) : plural(t, 'database.emptyFiltered', filters + (q ? 1 : 0))
+    const action = filters === 0 ? t('database.clearSearch') : q ? t('database.clearAll') : t('database.clearFilters')
     return (
       <div className="db-empty">
         <span className="db-empty__line" aria-hidden />
-        <span className="label">{plural(t, 'database.emptyFiltered', filters + (m.search.trim() ? 1 : 0))}</span>
+        <span className="label">{label}</span>
         <button
           type="button"
           className="btn btn--sm"
           onClick={() => {
-            useWorkspace.getState().updateView(m.db.id, m.view.id, { filter: null })
+            if (filters) useWorkspace.getState().updateView(m.db.id, m.view.id, { filter: null })
+            if (q) actions?.clearSearch()
           }}
         >
-          {t('database.clearFilters')}
+          {action}
         </button>
         <span className="db-empty__line" aria-hidden />
       </div>
     )
+  }
   return (
     <div className="db-empty">
       <span className="db-empty__line" aria-hidden />

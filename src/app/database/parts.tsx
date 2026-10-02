@@ -6,10 +6,17 @@ import { useState, type ReactNode } from 'react'
 import { ChevronDown, GripVertical } from 'lucide-react'
 import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import { Menu, type MenuEntry } from '../ui/Menu'
+import { Menu as UiMenu, type MenuEntry, type MenuProps } from '../ui/Menu'
 import type { PropertyDef, PropertyType } from '../store/types'
 import { CREATABLE_TYPES, TYPE_ICON } from './model/schema'
+import { useT } from '../i18n'
 import type { Translate } from '@/shared/i18n'
+
+/** The shared Menu with this area's localized search placeholder + empty label. */
+export function Menu(props: MenuProps) {
+  const t = useT()
+  return <UiMenu searchPlaceholder={t('database.menu.search')} emptyLabel={t('database.menu.empty')} {...props} />
+}
 
 export interface SelectItem<V extends string> {
   value: V
@@ -106,6 +113,7 @@ export function typeEntries(t: Translate, onPick: (type: PropertyType) => void, 
 
 /** A row in a dnd-kit sortable list with a grip handle. */
 export function SortableRow({ id, children, className }: { id: string; children: ReactNode; className?: string }) {
+  const t = useT()
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id })
   return (
     <div
@@ -114,7 +122,7 @@ export function SortableRow({ id, children, className }: { id: string; children:
       data-dragging={isDragging}
       style={{ transform: CSS.Transform.toString(transform ? { ...transform, x: 0 } : null), transition }}
     >
-      <button type="button" className="db-grip" aria-label="Drag" {...attributes} {...listeners}>
+      <button type="button" className="db-grip" aria-label={t('database.dragToReorder')} {...attributes} {...listeners}>
         <GripVertical size={13} />
       </button>
       {children}

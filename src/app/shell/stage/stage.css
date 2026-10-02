@@ -418,7 +418,7 @@
 /* ---------- toasts ---------- */
 .toasts {
   position: fixed;
-  left: 50%;
+  left: calc(50% + var(--sb-docked, 0px) / 2);
   bottom: 40px;
   z-index: var(--z-toast);
   display: flex;
@@ -426,7 +426,7 @@
   align-items: center;
   gap: 8px;
   width: max-content;
-  max-width: calc(100vw - 32px);
+  max-width: calc(100vw - var(--sb-docked, 0px) - 32px);
   transform: translateX(-50%);
   pointer-events: none;
 }
@@ -566,4 +566,39 @@
 .fault__actions {
   display: flex;
   gap: 8px;
+}
+
+/* ---------- skip link (first tab stop) ---------- */
+.skip-link {
+  position: fixed;
+  top: 8px;
+  left: 8px;
+  z-index: var(--z-toast);
+  padding: 8px 12px;
+  border-radius: var(--radius-1);
+  background: var(--ink);
+  color: var(--ink-inverse);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  text-decoration: none;
+  transform: translateY(calc(-100% - 16px));
+}
+.skip-link:focus-visible {
+  transform: none;
+  outline: 2px solid var(--signal);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .status__save[data-status='saving'] .led {
+    animation: none;
+  }
+}
+
+@media (hover: none) and (pointer: coarse) {
+  .focus-exit .kbd {
+    display: none;
+  }
 }

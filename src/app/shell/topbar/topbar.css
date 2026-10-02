@@ -15,9 +15,56 @@
   z-index: 5;
 }
 .tb-crumbs {
+  display: flex;
+  align-items: center;
   flex: 1;
   min-width: 0;
   overflow: hidden;
+}
+.tb-crumbs > .tb-crumbs__list,
+.tb-crumbs > .tb-crumb {
+  min-width: 0;
+}
+
+/* following a pane while the main page is folded: "← 01" + pane number plate */
+.tb-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+  height: 26px;
+  margin-right: 6px;
+  padding: 0 7px 0 5px;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius-1);
+  background: transparent;
+  color: var(--ink-2);
+  cursor: pointer;
+  transition: border-color var(--dur-1) var(--ease-out), color var(--dur-1) var(--ease-out);
+}
+.tb-back:hover {
+  border-color: var(--ink);
+  color: var(--ink);
+}
+.tb-back:active {
+  transform: translateY(1px);
+}
+.tb-back__n,
+.tb-pane {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: var(--tracking-label);
+}
+.tb-pane {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  height: 18px;
+  margin-right: 6px;
+  padding: 0 5px;
+  border-radius: var(--radius-1);
+  background: var(--ink);
+  color: var(--ink-inverse);
 }
 .tb-crumbs__list {
   display: flex;
@@ -228,4 +275,11 @@ button.tb-crumb:hover {
   font-size: 10px;
   letter-spacing: 0.04em;
   text-transform: uppercase;
+}
+
+/* reduced motion: a steady LED instead of a 1 ms flicker (the global rule only shortens durations) */
+@media (prefers-reduced-motion: reduce) {
+  .tb-led[data-status='saving'] .led {
+    animation: none;
+  }
 }

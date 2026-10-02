@@ -59,8 +59,8 @@ const ALIASES: Record<string, string> = {
   golang: 'go',
 }
 
-export function languageLabel(lang: string | null | undefined): string {
-  if (!lang) return 'Plain text'
+export function languageLabel(lang: string | null | undefined, plain = 'Plain text'): string {
+  if (!lang || lang === 'plaintext' || lang === 'text') return plain
   const key = ALIASES[lang.toLowerCase()] ?? lang.toLowerCase()
   return LANGUAGES.find(([v]) => v === key)?.[1] ?? lang
 }
@@ -122,7 +122,7 @@ export function CodeBlockView({ node, updateAttributes, editor, getPos }: ReactN
           aria-haspopup="menu"
           disabled={!editor.isEditable}
         >
-          {languageLabel(lang)}
+          {languageLabel(lang, t('editor.code.plain'))}
           {editor.isEditable && <ChevronDown size={12} />}
         </button>
         <span className="code-block__lines">{t('editor.code.lines', { count: node.textContent.split('\n').length })}</span>

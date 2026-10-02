@@ -211,7 +211,7 @@ export default function CalendarView() {
       </DndContext>
       {more && (
         <Popover open anchor={more.el} onClose={() => setMore(null)} className="dbcal-more">
-          <div className="label dbcal-more__head">{format(more.day, 'EEEE, d. MMM', { locale })}</div>
+          <div className="label dbcal-more__head">{format(more.day, lang === 'de' ? 'EEEE, d. MMM' : 'EEEE, MMM d', { locale })}</div>
           {events
             .filter((ev) => differenceInCalendarDays(more.day, ev.start) >= 0 && differenceInCalendarDays(ev.end, more.day) >= 0)
             .map((ev) => (
@@ -318,14 +318,14 @@ function EventBar({ id, seg, disabled, onGrab, weekStart, onOpen }: { id: string
   )
 }
 
-function PickDateProp({ m }: { m: DbModel }) {
+export function PickDateProp({ m, label }: { m: DbModel; label?: string }) {
   const t = useT()
   const s = useWorkspace.getState()
   const candidates = m.db.properties.filter((p) => isDateType(p.type))
   return (
     <div className="db-empty">
       <span className="db-empty__line" aria-hidden />
-      <span className="label">{t('database.calendar.pickDate')}</span>
+      <span className="label">{label ?? t('database.calendar.pickDate')}</span>
       {candidates.length ? (
         <Select
           value={null}

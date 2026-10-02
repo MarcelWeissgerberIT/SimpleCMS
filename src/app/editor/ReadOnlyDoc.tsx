@@ -21,14 +21,14 @@ export function ReadOnlyDoc({ content, className }: { content: JSONContent | nul
     },
     [],
   )
-  const first = useRef(true)
+  // consumers often pass a fresh object per render: only re-render the doc when it really changed
+  const key = useMemo(() => (content ? JSON.stringify(content) : ''), [content])
+  const shown = useRef(key)
   useEffect(() => {
-    if (first.current) {
-      first.current = false
-      return
-    }
+    if (key === shown.current) return
+    shown.current = key
     if (editor && !editor.isDestroyed) editor.commands.setContent(content ? sanitize(content) : EMPTY, { emitUpdate: false })
-  }, [editor, content])
+  }, [editor, key]) // eslint-disable-line react-hooks/exhaustive-deps
   return (
     <div className={`one-doc ${className ?? ''}`}>
       <EditorContent editor={editor} />

@@ -16,6 +16,7 @@ import { ReadOnlyDoc } from '../../editor'
 import { countWords, listSnapshots, loadSnapshot, onHistoryChange, restoreSnapshot, snapshotNow, type SnapshotBody, type SnapshotMeta } from './snapshots'
 import { diffBlocks, diffStats, segments, type DiffSegment } from './diff'
 import './history.css'
+import '../share/readonly.css'
 
 const MIN_STEP = 56
 const MAX_STEP = 132
@@ -372,9 +373,26 @@ function Tape({
   nowLabel: string
   reasonCode: (r: string) => string
 }) {
+  const tapeRef = useRef<HTMLDivElement>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
   const trackRef = useRef<HTMLDivElement>(null)
   const drag = useRef(false)
+  // The tape is the dialog's main control: it takes focus once the modal has settled (the modal
+  // focuses its first button one frame after mount), so ← → work at once and Enter saves nothing.
+  useEffect(() => {
+    let r2 = 0
+    const r1 = requestAnimationFrame(() => {
+      r2 = requestAnimationFrame(() => {
+        const el = tapeRef.current
+        const active = document.activeElement
+        if (el && (!active || active === document.body || el.closest('.modal')?.contains(active))) el.focus({ preventScroll: true })
+      })
+    })
+    return () => {
+      cancelAnimationFrame(r1)
+      cancelAnimationFrame(r2)
+    }
+  }, [])
   const [dragging, setDragging] = useState(false)
   const [viewW, setViewW] = useState(0)
   useEffect(() => {
@@ -455,6 +473,7 @@ function Tape({
 
   return (
     <div
+      ref={tapeRef}
       className="tape"
       tabIndex={0}
       data-autofocus=""

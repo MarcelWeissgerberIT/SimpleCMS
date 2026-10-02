@@ -11,7 +11,22 @@ export interface Slide {
 const INLINE_PARENTS = new Set(['paragraph', 'heading', 'detailsSummary'])
 function textOf(n: JSONContent): string {
   if (n.text) return n.text
+  // inline atoms carry their text in attributes
+  if (n.type === 'mention') return String(n.attrs?.label ?? '')
+  if (n.type === 'inlineMath') return String(n.attrs?.latex ?? '')
+  if (n.type === 'hardBreak') return ' '
   return (n.content ?? []).map(textOf).join(INLINE_PARENTS.has(n.type ?? '') ? '' : ' ')
+}
+
+/** Replace nodes recursively (used to swap interactive blocks for static ones on slides). */
+export function mapBlocks(nodes: JSONContent[], fn: (n: JSONContent) => JSONContent[] | null): JSONContent[] {
+  const out: JSONContent[] = []
+  for (const n of nodes) {
+    const r = fn(n)
+    if (r) out.push(...r)
+    else out.push(n.content ? { ...n, content: mapBlocks(n.content, fn) } : n)
+  }
+  return out
 }
 
 function isEmpty(n: JSONContent): boolean {

@@ -8,8 +8,10 @@ import { CSS } from '@dnd-kit/utilities'
 import { Copy, LayoutTemplate, PanelRight, Pencil, Plus, Trash, SquareSplitHorizontal, Maximize2 } from 'lucide-react'
 import type { ID, View, ViewType } from '../../store/types'
 import { useWorkspace } from '../../store/store'
+import { useUI } from '../../store/ui'
 import { Popover } from '../../ui/Popover'
-import { Menu, MenuList, type MenuEntry } from '../../ui/Menu'
+import { MenuList, type MenuEntry } from '../../ui/Menu'
+import { Menu } from '../parts'
 import { useT } from '../../i18n'
 import { VIEW_ICON, VIEW_TYPES } from '../model/schema'
 import type { DbModel } from '../hooks'
@@ -20,9 +22,60 @@ export function ViewTypeIcon({ type, size = 14 }: { type: ViewType; size?: numbe
   return <I size={size} strokeWidth={1.7} aria-hidden />
 }
 
-function Tab({ view, index, active, onSelect, onMenu, renaming, onRenamed }: { view: View; index: number; active: boolean; onSelect: () => void; onMenu: (el: HTMLElement) => void; renaming: boolean; onRenamed: (name: string | null) => void }) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: view.id })
-  const [name, setName] = useState(view.name)
+/** Rename field: mounts fresh for every rename, so it always starts from the current name, selected. */
+function TabRename({ initial, label, onDone }: { initial: string; label: string; onDone: (name: string | null) => void }) {
+  const [name, setName] = useState(initial)
+  const done = useRef(false)
+  const finish = (v: string | null) => {
+    if (done.current) return
+    done.current = true
+    onDone(v)
+  }
+  return (
+    <input
+      className="db-tab__input"
+      autoFocus
+      value={name}
+      size={Math.max(4, name.length)}
+      onChange={(e) => setName(e.target.value)}
+      aria-label={label}
+      onFocus={(e) => e.currentTarget.select()}
+      onBlur={() => finish(name)}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') finish(name)
+        if (e.key === 'Escape') {
+          e.preventDefault()
+          e.stopPropagation()
+          finish(null)
+        }
+      }}
+    />
+  )
+}
+
+function Tab({
+  view,
+  index,
+  active,
+  onSelect,
+  onMenu,
+  onRename,
+  renaming,
+  onRenamed,
+}: {
+  view: View
+  index: number
+  active: boolean
+  onSelect: () => void
+  onMenu: (el: HTMLElement) => void
+  onRename: () => void
+  renaming: boolean
+  onRenamed: (name: string | null) => void
+}) {
+  const t = useT()
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: view.id, disabled: renaming })
+  const menuTimer = useRef<number | null>(null)
+  useEffect(() => () => void (menuTimer.current && window.clearTimeout(menuTimer.current)), [])
   return (
     <div
       ref={setNodeRef}
@@ -35,18 +88,7 @@ function Tab({ view, index, active, onSelect, onMenu, renaming, onRenamed }: { v
         <span className="db-tab__btn">
           <span className="db-tab__idx">{String(index + 1).padStart(2, '0')}</span>
           <ViewTypeIcon type={view.type} />
-          <input
-            className="db-tab__input"
-            autoFocus
-            value={name}
-            size={Math.max(4, name.length)}
-            onChange={(e) => setName(e.target.value)}
-            onBlur={() => onRenamed(name)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') onRenamed(name)
-              if (e.key === 'Escape') onRenamed(null)
-            }}
-          />
+          <TabRename initial={view.name} label={t('common.rename')} onDone={onRenamed} />
         </span>
       ) : (
         <button
@@ -56,10 +98,26 @@ function Tab({ view, index, active, onSelect, onMenu, renaming, onRenamed }: { v
           role="tab"
           aria-selected={active}
           className="db-tab__btn"
-          onClick={(e) => (active ? onMenu(e.currentTarget) : onSelect())}
+          onClick={(e) => {
+            if (!active) return onSelect()
+            // a second click on the active tab opens its menu — unless it becomes a double-click (rename)
+            const el = e.currentTarget
+            if (e.detail > 1) return
+            if (e.detail === 0) return onMenu(el) // keyboard
+            menuTimer.current = window.setTimeout(() => onMenu(el), 220)
+          }}
           onDoubleClick={(e) => {
             e.preventDefault()
-            onMenu(e.currentTarget)
+            if (menuTimer.current) window.clearTimeout(menuTimer.current)
+            if (!active) onSelect()
+            onRename()
+          }}
+          onKeyDown={(e) => {
+            listeners?.onKeyDown?.(e)
+            if (e.key === 'F2') {
+              e.preventDefault()
+              onRename()
+            }
           }}
           onContextMenu={(e) => {
             e.preventDefault()
@@ -90,17 +148,33 @@ export function ViewTabs({ m, onSelect }: { m: DbModel; onSelect: (id: ID) => vo
     const el = stripRef.current
     if (!el) return
     const check = () => {
-      el.dataset.overflow = String(el.scrollWidth > el.clientWidth + 1 && el.scrollLeft + el.clientWidth < el.scrollWidth - 2)
+      const over = el.scrollWidth > el.clientWidth + 1
+      // fade the edge(s) that hide tabs, so a clipped strip reads as "more this way"
+      el.dataset.overflow = !over ? 'none' : el.scrollLeft < 2 ? 'end' : el.scrollLeft + el.clientWidth >= el.scrollWidth - 2 ? 'start' : 'both'
     }
     check()
     const ro = new ResizeObserver(check)
     ro.observe(el)
     el.addEventListener('scroll', check)
+    // a vertical wheel scrolls the strip sideways
+    const onWheel = (e: WheelEvent) => {
+      if (el.scrollWidth <= el.clientWidth || Math.abs(e.deltaX) > Math.abs(e.deltaY)) return
+      const next = Math.max(0, Math.min(el.scrollWidth - el.clientWidth, el.scrollLeft + e.deltaY))
+      if (next === el.scrollLeft) return // at the end: let the page scroll
+      e.preventDefault()
+      el.scrollLeft = next
+    }
+    el.addEventListener('wheel', onWheel, { passive: false })
     return () => {
       ro.disconnect()
       el.removeEventListener('scroll', check)
+      el.removeEventListener('wheel', onWheel)
     }
   }, [views.length])
+  // keep the active tab in view (initial load, switching from elsewhere)
+  useEffect(() => {
+    stripRef.current?.querySelector('[data-active="true"]')?.scrollIntoView({ inline: 'nearest', block: 'nearest' })
+  }, [m.view.id])
 
   const onDragEnd = (e: DragEndEvent) => {
     if (!e.over || e.active.id === e.over.id) return
@@ -154,9 +228,25 @@ export function ViewTabs({ m, onSelect }: { m: DbModel; onSelect: (id: ID) => vo
       disabled: views.length <= 1,
       onSelect: () => {
         const idx = views.findIndex((x) => x.id === v.id)
-        s.deleteView(m.db.id, v.id)
+        const snapshot: View = JSON.parse(JSON.stringify(v))
+        const dbId = m.db.id
+        s.deleteView(dbId, v.id)
         const next = views[idx + 1] ?? views[idx - 1]
         if (next) onSelect(next.id)
+        useUI.getState().toast({
+          message: t('database.view.deleted', { name: v.name }),
+          action: {
+            label: t('common.undo'),
+            run: () => {
+              const cur = useWorkspace.getState().databases[dbId]
+              if (!cur || cur.views.some((x) => x.id === snapshot.id)) return
+              const list = [...cur.views]
+              list.splice(Math.min(idx, list.length), 0, snapshot)
+              useWorkspace.getState().updateDatabase(dbId, { views: list })
+              onSelect(snapshot.id)
+            },
+          },
+        })
       },
     },
   ]
@@ -173,6 +263,10 @@ export function ViewTabs({ m, onSelect }: { m: DbModel; onSelect: (id: ID) => vo
               active={v.id === m.view.id}
               onSelect={() => onSelect(v.id)}
               onMenu={(el) => setMenu({ view: v, el })}
+              onRename={() => {
+                setMenu(null)
+                setRenaming(v.id)
+              }}
               renaming={renaming === v.id}
               onRenamed={(name) => {
                 if (name !== null && name.trim()) s.updateView(m.db.id, v.id, { name: name.trim() })

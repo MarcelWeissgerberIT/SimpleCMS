@@ -12,7 +12,7 @@ import { shortcutLabel } from '../../ui/controls'
 import { useT } from '../../i18n'
 import type { Bridge } from '../lib/bridge'
 import { BLOCKS, GROUPS, type BlockItem } from '../lib/catalog'
-import { SUGGEST_KEYS, type SuggestRun } from '../extensions/suggest'
+import { dismissPlusSlash, SUGGEST_KEYS, type SuggestRun } from '../extensions/suggest'
 import { useScrollActive, useSuggestAnchor, useSuggestKeys } from './common'
 import { DatabasePicker } from './DatabasePicker'
 
@@ -115,7 +115,10 @@ export function SlashMenu({ editor, bridge, pageId }: { editor: Editor; bridge: 
       <Popover
         open={!!suggest && !!anchor}
         anchor={anchor}
-        onClose={() => exitSuggestion(editor.view, SUGGEST_KEYS.slash)}
+        onClose={() => {
+          if (suggest) dismissPlusSlash(editor.view, bridge, suggest.range)
+          exitSuggestion(editor.view, SUGGEST_KEYS.slash)
+        }}
         placement="bottom-start"
         offset={6}
         autoFocus={false}

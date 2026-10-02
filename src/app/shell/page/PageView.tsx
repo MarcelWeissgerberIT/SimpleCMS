@@ -14,9 +14,10 @@ import type { ID, Page, PageCover } from '../../store/types'
 import { Cover } from './Cover'
 import { GRADIENTS, coverAssetPath, loadCoverManifest } from './covers'
 import { resolveAssetUrl } from '../../lib/files'
+import { navigate } from '../../lib/router'
 import { Backlinks } from './Backlinks'
 import { SpecPlate } from './SpecPlate'
-import { consumeTitleFocus } from '../lib/actions'
+import { consumeTitleFocus, currentPageId } from '../lib/actions'
 import { NotFound } from '../home/NotFound'
 import './page.css'
 
@@ -60,7 +61,7 @@ function PageViewInner({ page, variant }: { page: Page; variant: PageVariant }) 
       data-has-cover={page.cover ? true : undefined}
       data-locked={readOnly || undefined}
     >
-      {trashed && <TrashBanner page={page} />}
+      {trashed && <TrashBanner page={page} variant={variant} />}
       <Cover page={page} editable={!readOnly} />
       <header className="pv-head">
         <div className="pv-col">
@@ -193,9 +194,22 @@ function PageTitle({ page, readOnly, variant, onEnter }: { page: Page; readOnly:
   useEffect(() => {
     const el = ref.current
     if (!el) return
-    const ro = new ResizeObserver(() => fit())
+    // refit on width changes only, a frame later — fitting changes the height, and doing that
+    // inside the observer callback would re-trigger it ("ResizeObserver loop" error)
+    let lastW = el.clientWidth
+    let raf = 0
+    const ro = new ResizeObserver((entries) => {
+      const w = entries[0]?.contentRect.width ?? el.clientWidth
+      if (w === lastW) return
+      lastW = w
+      cancelAnimationFrame(raf)
+      raf = requestAnimationFrame(fit)
+    })
     ro.observe(el)
-    return () => ro.disconnect()
+    return () => {
+      ro.disconnect()
+      cancelAnimationFrame(raf)
+    }
   }, [])
   useEffect(() => {
     if (variant === 'main' && consumeTitleFocus(page.id)) {
@@ -231,7 +245,7 @@ function PageTitle({ page, readOnly, variant, onEnter }: { page: Page; readOnly:
 
 /* ---------------- trash banner ---------------- */
 
-function TrashBanner({ page }: { page: Page }) {
+function TrashBanner({ page, variant }: { page: Page; variant: PageVariant }) {
   const t = useT()
   const ws = useWorkspace.getState()
   // a child of a trashed page: restore the trashed ancestor
@@ -265,7 +279,9 @@ function TrashBanner({ page }: { page: Page }) {
             confirmLabel: t('shell.trash.deleteForever'),
             onConfirm: () => {
               useWorkspace.getState().deletePagePermanently(rootTrashed.id)
-              window.location.hash = '#/'
+              // panes and the peek close themselves (usePruneGoneViews); only the main column moves
+              const cur = currentPageId()
+              if (variant === 'main' || (cur && !useWorkspace.getState().pages[cur])) navigate({ name: 'home' })
             },
           })
         }

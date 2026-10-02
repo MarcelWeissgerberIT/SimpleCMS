@@ -7,7 +7,7 @@ import { Delaunay } from 'd3-delaunay'
 
 type Pt = [number, number]
 
-export async function runDomShatter(root: HTMLElement, sheetEl: HTMLElement, opts: { mobile: boolean }): Promise<void> {
+export async function runDomShatter(root: HTMLElement, sheetEl: HTMLElement, opts: { mobile: boolean; onBreak?: () => void }): Promise<void> {
   const w = window.innerWidth
   const h = window.innerHeight
   const ix = w * 0.46
@@ -118,6 +118,7 @@ export async function runDomShatter(root: HTMLElement, sheetEl: HTMLElement, opt
   }
   sheetEl.style.visibility = 'hidden'
   flash.remove()
+  opts.onBreak?.()
   await Promise.race([Promise.all(anims), new Promise((r) => setTimeout(r, 2200))]).catch(() => {})
   layer.remove()
 }

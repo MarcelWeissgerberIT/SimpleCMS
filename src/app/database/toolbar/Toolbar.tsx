@@ -5,7 +5,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { ArrowUpDown, Download, Ellipsis, Funnel, Group, LayoutTemplate, Link, Maximize2, Search, SlidersHorizontal, X, Zap } from 'lucide-react'
 import { useUI } from '../../store/ui'
-import { Menu } from '../../ui/Menu'
+import { Menu } from '../parts'
 import { Tooltip } from '../../ui/Tooltip'
 import { useT } from '../../i18n'
 import { openPage, pageHref } from '../../lib/router'
@@ -37,6 +37,30 @@ export function Toolbar({ m, onNew, setSearch, compact }: { m: DbModel; onNew: (
   const [panel, setPanel] = useState<{ kind: PanelKind; el: Element } | null>(null)
   const [searchOpen, setSearchOpen] = useState(!!m.search)
   const searchRef = useRef<HTMLInputElement>(null)
+  // The field updates instantly; the (expensive on big tables) query follows after a short pause.
+  const [q, setQ] = useState(m.search)
+  const pushed = useRef(m.search)
+  useEffect(() => {
+    if (q === pushed.current) return
+    const id = window.setTimeout(() => {
+      pushed.current = q
+      setSearch(q)
+    }, q ? 140 : 0)
+    return () => window.clearTimeout(id)
+  }, [q, setSearch])
+  useEffect(() => {
+    // cleared from elsewhere (empty state, view switch)
+    if (m.search === pushed.current) return
+    pushed.current = m.search
+    setQ(m.search)
+    if (!m.search && document.activeElement !== searchRef.current) setSearchOpen(false)
+  }, [m.search])
+  const clearSearch = () => {
+    pushed.current = ''
+    setQ('')
+    setSearch('')
+    setSearchOpen(false)
+  }
   const view = m.view
   const filterCount = countFilters(view.filter)
   const automations = (m.db.automations ?? []).filter((a) => a.enabled).length
@@ -60,9 +84,10 @@ export function Toolbar({ m, onNew, setSearch, compact }: { m: DbModel; onNew: (
           type="button"
           className="db-tool"
           aria-label={t('database.search')}
-          data-active={!!m.search}
+          data-active={!!q}
           onClick={() => {
-            if (searchOpen && !m.search) setSearchOpen(false)
+            if (searchOpen && !q) setSearchOpen(false)
+            else if (searchOpen) searchRef.current?.focus()
             else setSearchOpen(true)
           }}
         >
@@ -73,20 +98,20 @@ export function Toolbar({ m, onNew, setSearch, compact }: { m: DbModel; onNew: (
             <input
               ref={searchRef}
               className="db-search__input"
-              value={m.search}
+              value={q}
               placeholder={t('database.searchPlaceholder')}
-              onChange={(e) => setSearch(e.target.value)}
+              aria-label={t('database.search')}
+              onChange={(e) => setQ(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key === 'Escape') {
                   e.preventDefault()
-                  setSearch('')
-                  setSearchOpen(false)
+                  clearSearch()
                 }
               }}
-              onBlur={() => !m.search && setSearchOpen(false)}
+              onBlur={() => !q && setSearchOpen(false)}
             />
-            {m.search && (
-              <button type="button" className="icon-btn icon-btn--sm" aria-label={t('common.close')} onClick={() => (setSearch(''), setSearchOpen(false))}>
+            {q && (
+              <button type="button" className="icon-btn icon-btn--sm" aria-label={t('common.close')} onClick={clearSearch}>
                 <X size={12} />
               </button>
             )}

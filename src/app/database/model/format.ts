@@ -1,7 +1,7 @@
 /**
  * Formatting helpers: numbers (formats), dates (locale-aware, relative), ISO helpers.
  */
-import { addDays, differenceInCalendarDays, format, isValid, parse, parseISO } from 'date-fns'
+import { addDays, addYears, differenceInCalendarDays, format, isValid, parse, parseISO, startOfDay } from 'date-fns'
 import { de as deLocale, enUS } from 'date-fns/locale'
 import type { Lang } from '@/shared/i18n'
 import type { DateValue, NumberFormat } from '../../store/types'
@@ -50,6 +50,32 @@ export function formatCount(n: number, lang: Lang, digits = 2): string {
 export function numberRatio(n: number | null | undefined, fmt?: NumberFormat): number {
   if (n === null || n === undefined || !Number.isFinite(n)) return 0
   return Math.max(0, Math.min(1, fmt === 'percent' ? n : n / 100))
+}
+
+/**
+ * Read a typed / pasted number the way the UI language writes numbers:
+ *  de: "1.500" = 1500, "2,5" = 2.5, "1.234,56" = 1234.56
+ *  en: "1,500" = 1500, "2.5" = 2.5, "1,234.56" = 1234.56
+ * With both marks present the last one is the decimal mark (either language). A lone mark that
+ * can't be a thousands separator ("2.5" in de, "2,5" in en) is read as a decimal mark.
+ */
+export function parseNumberText(s: string, percent: boolean, lang: string): number | null {
+  const clean = s.trim().replace(/[\s\u00a0\u202f']/g, '').replace(/[€$£%]/g, '')
+  if (!clean) return null
+  const group = lang === 'de' ? '.' : ','
+  const decimal = lang === 'de' ? ',' : '.'
+  let norm: string
+  if (clean.includes('.') && clean.includes(',')) {
+    const dec = clean.lastIndexOf(',') > clean.lastIndexOf('.') ? ',' : '.'
+    norm = clean.split(dec === ',' ? '.' : ',').join('').replace(dec, '.')
+  } else if (clean.includes(group) && new RegExp(`^[-+]?[1-9]\\d{0,2}(\\${group}\\d{3})+$`).test(clean)) {
+    norm = clean.split(group).join('')
+  } else norm = clean.replace(decimal, '.').replace(group, '.')
+  if (!/^[-+]?(\d+\.?\d*|\.\d+)(e[-+]?\d+)?$/i.test(norm)) return null
+  const n = Number(norm)
+  if (!Number.isFinite(n)) return null
+  // percent fields store fractions (like Notion): what you type is what you see — "75" / "75%" → 0.75
+  return percent ? n / 100 : n
 }
 
 /* ---------------- Dates ---------------- */
@@ -131,6 +157,64 @@ export function parseTypedDate(text: string, lang: Lang): Date | null {
     if (isValid(d)) return d
   }
   return null
+}
+
+const REL_WORDS: Record<string, number> = { today: 0, heute: 0, tomorrow: 1, morgen: 1, yesterday: -1, gestern: -1 }
+
+/** One side of a typed / pasted date: "Sep 22, 2026", "22.09.2026", "today 9:30", "2026-09-22T09:30". */
+function parseDatePart(text: string, lang: Lang): { d: Date; time: boolean } | null {
+  let s = text.trim().replace(/,$/, '')
+  if (!s) return null
+  if (/^\d{4}-\d{2}-\d{2}/.test(s)) {
+    const d = parseISO(s)
+    return isValid(d) ? { d, time: /T\d{2}:\d{2}/.test(s) } : null
+  }
+  let hh: number | null = null
+  let mm = 0
+  const tm = /^(.*?)[,\s]+(\d{1,2}):(\d{2})(?:\s*([ap])\.?\s*m\.?)?(?:\s*uhr)?$/i.exec(s)
+  if (tm) {
+    s = tm[1].trim().replace(/,$/, '')
+    hh = Number(tm[2]) % 24
+    mm = Number(tm[3])
+    const ap = tm[4]?.toLowerCase()
+    if (ap === 'p' && hh < 12) hh += 12
+    if (ap === 'a' && hh === 12) hh = 0
+  }
+  const rel = REL_WORDS[s.toLowerCase()]
+  const d = rel !== undefined ? addDays(startOfDay(new Date()), rel) : (parseTypedDate(s, lang) ?? parseTypedDate(s, lang === 'de' ? 'en' : 'de'))
+  if (!d) return null
+  if (hh !== null) d.setHours(hh, mm, 0, 0)
+  return { d, time: hh !== null }
+}
+
+/**
+ * A date (or range) written as text — typed, pasted, or a converted text column: one date, or two
+ * joined by "→", " – ", " - " or an ISO interval "/". Accepts both UI languages.
+ */
+export function parseDateText(text: string, lang: Lang): DateValue | null {
+  const s = text.trim()
+  if (!s) return null
+  const parts = /^\d{4}-\d{2}-\d{2}\S*\/\d{4}-\d{2}-\d{2}\S*$/.test(s) ? s.split('/') : s.split(/\s*→\s*|\s+[–—-]\s+/)
+  if (parts.length > 2) return null
+  const a = parseDatePart(parts[0], lang)
+  if (!a) return null
+  const b = parts[1] !== undefined ? parseDatePart(parts[1], lang) : null
+  if (parts[1] !== undefined && !b) return null
+  const time = a.time || !!b?.time
+  let end = b?.d ?? null
+  // "Dec 20 → Jan 5": a year-less end before the start belongs to the next year
+  if (end && end < a.d && !/\d{4}/.test(parts[1] ?? '')) end = addYears(end, 1)
+  return { start: isoWithTime(a.d, time), end: end ? isoWithTime(end, time) : null, ...(time ? { includeTime: true } : {}) }
+}
+
+/** A date value as full, unambiguous text (always with the year) that parseDateText reads back. */
+export function dateValueText(v: DateValue, lang: Lang): string {
+  const pattern = (lang === 'de' ? 'd. MMM yyyy' : 'MMM d, yyyy') + (v.includeTime ? (lang === 'de' ? ' HH:mm' : ' h:mm a') : '')
+  const one = (iso: string) => {
+    const d = parseLocal(iso)
+    return d ? format(d, pattern, { locale: dfLocale(lang) }) : ''
+  }
+  return v.end ? `${one(v.start)} → ${one(v.end)}` : one(v.start)
 }
 
 /** Shift a DateValue by n days (keeps time + range length). */

@@ -6,13 +6,16 @@ import { useLang, useT } from '../../i18n'
 import { fmtNumber, readingMinutes, wordCount } from '../lib/format'
 import { useResolvedTheme, useSaveStatus } from '../lib/hooks'
 import { toggleTheme } from '../lib/actions'
+import { useStageView } from '../lib/stage'
+import { plural } from '../lib/format'
 
 /** 24px instrument read-out along the bottom edge. */
 export function StatusBar({ route }: { route: Route }) {
   const t = useT()
   const lang = useLang()
   const status = useSaveStatus()
-  const pageId = route.name === 'page' ? route.id : null
+  const paneId = useStageView((s) => s.focusPaneId)
+  const pageId = paneId ?? (route.name === 'page' ? route.id : null)
   const plain = useWorkspace((s) => (pageId ? s.pages[pageId]?.plain : undefined))
   const kind = useWorkspace((s) => (pageId ? s.pages[pageId]?.kind : undefined))
   const rows = useWorkspace((s) => {
@@ -37,12 +40,12 @@ export function StatusBar({ route }: { route: Route }) {
       </span>
       {pageId && kind === 'page' && (
         <span className="status__cell">
-          {t('shell.stats.words', { n: fmtNumber(words, lang) })} · {t('shell.stats.read', { n: readingMinutes(words) })}
+          {t(plural('shell.stats.words', words), { n: fmtNumber(words, lang) })} · {t('shell.stats.read', { n: readingMinutes(words) })}
         </span>
       )}
       {pageId && kind === 'database' && (
         <span className="status__cell">
-          {t('shell.stats.rows', { n: fmtNumber(rows, lang) })} · {t('shell.stats.views', { n: views })}
+          {t(plural('shell.stats.rows', rows), { n: fmtNumber(rows, lang) })} · {t(plural('shell.stats.views', views), { n: views })}
         </span>
       )}
       {panes > 0 && <span className="status__cell">{t('shell.stats.panes', { n: panes })}</span>}

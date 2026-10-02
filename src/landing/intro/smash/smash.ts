@@ -23,6 +23,8 @@ import { studioEnvironment } from './studio'
 export interface SmashHooks {
   /** First WebGL frame is on screen — hide the DOM page now. */
   onSwap(): void
+  /** HIT 3: the page shatters and starts falling away (the new site may start its entrance). */
+  onShatter?(): void
   /** Sequence finished; the stage disposes itself right after. */
   onDone(): void
 }
@@ -53,6 +55,8 @@ const T_HIT3 = 2.8
 const FREEZE = 0.12
 const SHATTER_LEN = 1.6
 const GRAVITY = 17
+const RIM = 2.8
+const RIM2 = 0.6
 const DEG = Math.PI / 180
 
 type Ease = (k: number) => number
@@ -96,6 +100,18 @@ function lerp(a: number, b: number, k: number) {
   return a + (b - a) * k
 }
 
+/**
+ * Yield to the browser between heavy warm-up steps (PMREM, geometry, each shader program), so
+ * the stage builds in slices during the idle phase instead of one long main-thread block —
+ * important on browsers without KHR_parallel_shader_compile.
+ */
+function slice(): Promise<void> {
+  return new Promise((resolve) => {
+    if (typeof window.requestIdleCallback === 'function') window.requestIdleCallback(() => resolve(), { timeout: 100 })
+    else window.setTimeout(resolve, 16)
+  })
+}
+
 interface Body {
   shard: Shard
   mesh: THREE.Mesh
@@ -115,6 +131,15 @@ export async function createSmashStage(host: HTMLElement, opts: SmashOptions): P
   const pr = captureScale()
   const mobile = opts.mobile
   const rand = rng(20260101)
+  // warm-up profiling: the longest synchronous step between two yields
+  let longest = { ms: 0, what: '' }
+  let lapStart = performance.now()
+  const tick = async (what: string) => {
+    const ms = performance.now() - lapStart
+    if (ms > longest.ms) longest = { ms, what }
+    await slice()
+    lapStart = performance.now()
+  }
 
   // ------------------------------------------------------------------ renderer
   const renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true, powerPreference: 'high-performance', premultipliedAlpha: true })
@@ -144,14 +169,16 @@ export async function createSmashStage(host: HTMLElement, opts: SmashOptions): P
   const camera = new THREE.PerspectiveCamera(FOV, aspect, 0.05, 200)
   camera.position.set(0, 0, camZ)
   const scene = new THREE.Scene()
+  await tick('renderer')
   const env = studioEnvironment(renderer)
+  await tick('environment (PMREM)')
   scene.environment = env.texture
   scene.environmentIntensity = 1
   const key = new THREE.DirectionalLight(0xffeedd, 3.4)
   key.position.set(-6, 8, 12)
-  const rim = new THREE.DirectionalLight(0xff4f00, 4.5)
+  const rim = new THREE.DirectionalLight(0xff4f00, RIM)
   rim.position.set(6, 3, -9)
-  const rim2 = new THREE.DirectionalLight(0xff7a2a, 1.6)
+  const rim2 = new THREE.DirectionalLight(0xff7a2a, RIM2)
   rim2.position.set(-7, -3, -6)
   scene.add(key, rim, rim2, new THREE.HemisphereLight(0xfff4e8, 0x2a2622, 0.45))
 
@@ -165,6 +192,7 @@ export async function createSmashStage(host: HTMLElement, opts: SmashOptions): P
   scene.add(plane)
 
   // fracture + crack textures
+  await tick('page plane')
   const fr = buildFracture(viewW, VIEW_H, [impact.x, impact.y], mobile)
   const bufW = Math.floor(W * pr)
   const bufH = Math.floor(H * pr)
@@ -181,9 +209,12 @@ export async function createSmashStage(host: HTMLElement, opts: SmashOptions): P
   pageMat.uniforms.uGlow.value = glowTex
 
   // shards
+  await tick('fracture + cracks')
   const thick = mobile ? 0.07 : 0.085
-  const sideMat = new THREE.MeshPhysicalMaterial({ color: 0xd6d2c8, roughness: 0.38, metalness: 0, clearcoat: 0.5, clearcoatRoughness: 0.2 })
-  const backMat = new THREE.MeshStandardMaterial({ color: 0x2b2b2d, roughness: 0.55, metalness: 0.25 })
+  const sideMat = new THREE.MeshStandardMaterial({ color: 0xd6d2c8, roughness: 0.32, metalness: 0 })
+  // cool slate back: reads as "the back of the panel". Lambert = no environment specular, so the
+  // studio's orange kicker never tints it brown at grazing angles (and the rims fade, see step())
+  const backMat = new THREE.MeshLambertMaterial({ color: 0x5c6672 })
   const shardGroup = new THREE.Group()
   scene.add(shardGroup)
   const bodies: Body[] = fr.shards.map((s) => {
@@ -208,6 +239,7 @@ export async function createSmashStage(host: HTMLElement, opts: SmashOptions): P
   })
 
   // hammer
+  await tick('shards')
   const hammer = buildHammer()
   const hs = mobile ? 0.6 : 1
   const offX = mobile ? 0.55 : 1
@@ -283,7 +315,8 @@ export async function createSmashStage(host: HTMLElement, opts: SmashOptions): P
   }
 
   // effects
-  const fx = new Fx(rand, mobile, renderer.getDrawingBufferSize(new THREE.Vector2()).y / (2 * Math.tan((FOV / 2) * DEG)))
+  const dustScale = () => renderer.getDrawingBufferSize(new THREE.Vector2()).y / (2 * Math.tan((FOV / 2) * DEG))
+  const fx = new Fx(rand, mobile, dustScale())
   scene.add(fx.group)
 
   // ------------------------------------------------------------------ warm-up (compile shaders, upload buffers)
@@ -296,12 +329,56 @@ export async function createSmashStage(host: HTMLElement, opts: SmashOptions): P
       o.visible = true
     }
   })
-  try {
-    await renderer.compileAsync(scene, camera)
-  } catch {
-    renderer.compile(scene, camera)
+  // One drawable per distinct material, each compiled in its own slice. Multi-material meshes
+  // get a temporary single-material proxy so each program is its own step.
+  const seen = new Set<THREE.Material>()
+  const compileList: THREE.Object3D[] = []
+  const proxies: THREE.Mesh[] = []
+  scene.traverse((o) => {
+    const m = (o as THREE.Mesh).material as THREE.Material | THREE.Material[] | undefined
+    if (!m) return
+    if (!Array.isArray(m)) {
+      if (!seen.has(m)) compileList.push(o)
+      seen.add(m)
+      return
+    }
+    for (const x of m) {
+      if (seen.has(x)) continue
+      seen.add(x)
+      const proxy = new THREE.Mesh((o as THREE.Mesh).geometry, x)
+      proxy.frustumCulled = false
+      proxies.push(proxy)
+      compileList.push(proxy)
+    }
+  })
+  for (const p of proxies) scene.add(p)
+  const parallel = renderer.extensions.has('KHR_parallel_shader_compile')
+  await tick('hammer + fx')
+  // Drivers often finish compiling/linking only at the first draw, so each program is also
+  // drawn once on its own (1×1 scissor: no fill cost) — one program per slice.
+  const drawables: THREE.Object3D[] = []
+  scene.traverse((o) => {
+    if ((o as THREE.Mesh).material) drawables.push(o)
+  })
+  const solo = (only: THREE.Object3D) => {
+    for (const o of drawables) o.visible = o === only
   }
+  renderer.setScissorTest(true)
+  renderer.setScissor(0, 0, 1, 1)
+  for (const o of compileList) {
+    if (parallel) await renderer.compileAsync(o, camera, scene).catch(() => renderer.compile(o, camera, scene))
+    else renderer.compile(o, camera, scene)
+    solo(o)
+    renderer.render(scene, camera)
+    await tick(`program ${((o as THREE.Mesh).material as THREE.Material).type}`)
+  }
+  // everything once more (proxies out): uploads the remaining geometry buffers
+  for (const p of proxies) scene.remove(p)
+  for (const o of drawables) o.visible = true
   renderer.render(scene, camera)
+  renderer.setScissorTest(false)
+  await tick('buffers')
+  console.debug(`[intro] warm-up: longest main-thread slice ${Math.round(longest.ms)} ms (${longest.what})`)
   for (const o of hidden) o.visible = false
   poseHammer(0)
 
@@ -394,6 +471,11 @@ export async function createSmashStage(host: HTMLElement, opts: SmashOptions): P
 
   function shatter() {
     shattered = true
+    try {
+      hooks?.onShatter?.()
+    } catch (err) {
+      console.error(err)
+    }
     trauma = 1
     fx.burst(impact3, 1.5, { chips: mobile ? 30 : 46, sparks: mobile ? 22 : 34, dust: mobile ? 12 : 20 })
     fx.puff(impact3, mobile ? 10 : 18, 2.2, 2.6, 1.5)
@@ -509,6 +591,11 @@ export async function createSmashStage(host: HTMLElement, opts: SmashOptions): P
     }
     camera.position.set(off * shakeNoise(shakeT, 0), off * shakeNoise(shakeT, 11), camZ * (1 - punch))
     camera.rotation.set(0, 0, roll * shakeNoise(shakeT, 29))
+    // the orange rims are for the hammer: once it has left, they fade so the tumbling shard
+    // backs stay a cool slate instead of turning brown
+    const rimK = 1 - 0.8 * Math.min(1, Math.max(0, (seq - T_HIT3 - 0.3) / 0.45))
+    rim.intensity = RIM * rimK
+    rim2.intensity = RIM2 * rimK
     // flashes
     flashA = freezeLeft > 0 ? flashA : Math.max(0, flashA - dt / 0.07)
     whiteA = freezeLeft > 0 ? whiteA : Math.max(0, whiteA - dt / 0.22)
@@ -519,7 +606,7 @@ export async function createSmashStage(host: HTMLElement, opts: SmashOptions): P
   function finished(): boolean {
     if (!shattered) return false
     const since = seq - T_HIT3
-    if (since > SHATTER_LEN + 0.35) return true
+    if (since > SHATTER_LEN + 0.2) return true
     return since > SHATTER_LEN - 0.3 && bodies.every((b) => b.state === 'gone')
   }
 
@@ -540,6 +627,7 @@ export async function createSmashStage(host: HTMLElement, opts: SmashOptions): P
       degraded = true
       renderer.setPixelRatio(1)
       renderer.setSize(W, H, false)
+      fx.setPixelScale(dustScale())
     } else if (frameTimes.length > 40) degraded = true
   }
 
@@ -628,6 +716,9 @@ export async function createSmashStage(host: HTMLElement, opts: SmashOptions): P
       renderer.renderLists.dispose()
       renderer.dispose()
       renderer.forceContextLoss()
+      // the lost context's canvas can outlive us inside the browser: drop its backing store
+      canvas.width = 1
+      canvas.height = 1
       canvas.remove()
       flash.remove()
       white.remove()

@@ -96,7 +96,7 @@ export interface DbModel {
   newRowDefaults: () => Record<ID, PropertyValue>
 }
 
-export function useDbModel(db: Database, dbPage: Page, view: View, search: string, inline: boolean): DbModel {
+export function useDbModel(db: Database, dbPage: Page, view: View, search: string, inline: boolean, keep: ID[] = []): DbModel {
   const resolver = useResolver(db.id)
   const labels = useLabels()
   const propMap = useMemo(() => new Map(db.properties.map((p) => [p.id, p])), [db.properties])
@@ -115,8 +115,15 @@ export function useDbModel(db: Database, dbPage: Page, view: View, search: strin
     let out = allRows
     if (view.filter && view.filter.items.length) out = out.filter((row) => testGroup(resolver, db, view.filter!, row, propMap))
     if (search.trim()) out = searchRows(resolver, db, out, search)
-    return sortRows(resolver, db, out, view.sorts, propMap)
-  }, [allRows, view.filter, view.sorts, search, resolver, db, propMap])
+    out = sortRows(resolver, db, out, view.sorts, propMap)
+    if (keep.length) {
+      // rows just created here stay visible even when they don't match (like Notion) — at the end
+      const shown = new Set(out.map((r) => r.id))
+      const extra = allRows.filter((r) => keep.includes(r.id) && !shown.has(r.id))
+      if (extra.length) out = [...out, ...extra]
+    }
+    return out
+  }, [allRows, view.filter, view.sorts, search, resolver, db, propMap, keep])
   const groupProp = view.groupBy && ['table', 'list', 'board'].includes(view.type) ? propMap.get(view.groupBy) ?? null : null
   const groups = useMemo(() => (groupProp ? groupRows(resolver, db, groupProp, rows, labels) : null), [groupProp, resolver, db, rows, labels])
   const newRowDefaults = useCallback(() => defaultsFromFilter(view, propMap), [view, propMap])

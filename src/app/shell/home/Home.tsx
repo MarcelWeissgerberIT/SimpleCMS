@@ -11,7 +11,7 @@ import { useLang, useT } from '../../i18n'
 import type { Page } from '../../store/types'
 import { createDatabaseAndOpen, createPageAndOpen, goToPage } from '../lib/actions'
 import { fmtDay, fmtNumber, fmtRelative, isoWeek, wordCount } from '../lib/format'
-import { useNow } from '../lib/hooks'
+import { useIsTouch, useKbdHint, useNow } from '../lib/hooks'
 import './home.css'
 
 export function Home() {
@@ -49,6 +49,8 @@ export function Home() {
   const hour = new Date(now).getHours()
   const greet = hour < 5 ? t('shell.home.night') : hour < 12 ? t('shell.home.morning') : hour < 18 ? t('shell.home.afternoon') : t('shell.home.evening')
   const ui = useUI.getState()
+  const kbd = useKbdHint()
+  const touch = useIsTouch()
 
   return (
     <div className="home">
@@ -75,7 +77,7 @@ export function Home() {
         <section className="home__section">
           <SectionLabel n="01" label={t('shell.home.actions')} />
           <div className="keys">
-            <Key icon={<FilePlus2 size={18} />} label={t('common.newPage')} code="A1" kbd={shortcutLabel('Mod+Alt+N')} onClick={() => createPageAndOpen(null)} primary />
+            <Key icon={<FilePlus2 size={18} />} label={t('common.newPage')} code="A1" kbd={kbd('Mod+Alt+N')} onClick={() => createPageAndOpen(null)} primary />
             <Key icon={<Table2 size={18} />} label={t('shell.cmd.newDatabase')} code="A2" onClick={() => createDatabaseAndOpen(null)} />
             <Key icon={<Upload size={18} />} label={t('shell.home.importNotion')} code="A3" onClick={() => ui.openModal({ type: 'import' })} />
             <Key icon={<LayoutTemplate size={18} />} label={t('shell.nav.templates')} code="A4" onClick={() => ui.openModal({ type: 'templates', parentId: null })} />
@@ -102,6 +104,7 @@ export function Home() {
           )}
         </section>
 
+        {!touch && (
         <section className="home__section">
           <SectionLabel n="03" label={t('shell.home.tips')} />
           <ul className="tips">
@@ -113,6 +116,7 @@ export function Home() {
             <Tip keys={['?']} text={t('shell.tips.help')} />
           </ul>
         </section>
+        )}
       </div>
     </div>
   )

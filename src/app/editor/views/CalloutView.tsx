@@ -34,16 +34,17 @@ export function CalloutView({ node, updateAttributes, editor }: ReactNodeViewPro
         <div className="callout-popover__colors" role="radiogroup" aria-label={t('common.color')}>
           <span className="label">{t('common.color')}</span>
           <div className="callout-popover__swatches">
-            {COLOR_NAMES.map((c) => (
+            {/* "default" and "gray" are the same placard — offer it once */}
+            {COLOR_NAMES.filter((c) => c !== 'default').map((c) => (
               <button
                 key={c}
                 type="button"
                 role="radio"
-                aria-checked={c === color || (c === 'default' && color === 'gray')}
+                aria-checked={c === color || (c === 'gray' && color === 'default')}
                 className="swatch"
                 title={t(`color.${c}`)}
-                style={{ background: c === 'default' ? 'var(--surface-2)' : `var(--c-${c}-bg)`, color: `var(--c-${c === 'default' ? 'gray' : c}-text)` }}
-                onClick={() => updateAttributes({ color: c === 'default' ? 'gray' : c })}
+                style={{ background: c === 'gray' ? 'var(--surface-2)' : `var(--c-${c}-bg)`, color: `var(--c-${c}-text)` }}
+                onClick={() => updateAttributes({ color: c })}
               >
                 A
               </button>

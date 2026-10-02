@@ -47,7 +47,7 @@ import { useWorkspace, defaultView } from '../../store/store'
 import { openPage } from '../../lib/router'
 import type { ViewType } from '../../store/types'
 import type { Bridge } from './bridge'
-import { insertBlock, turnInto, type TurnTarget } from './blocks'
+import { insertBlock, moveIntoToggleBody, turnInto, type TurnTarget } from './blocks'
 import { dateMentionAttrs } from './dates'
 
 export type BlockGroup = 'basic' | 'lists' | 'media' | 'database' | 'advanced' | 'ai' | 'inline'
@@ -80,7 +80,28 @@ const del = (ctx: RunCtx) => ctx.range && ctx.editor.chain().focus().deleteRange
 
 const turn = (target: TurnTarget) => (ctx: RunCtx) => {
   del(ctx)
+  // typed in a toggle title: the new block goes into the toggle body
+  moveIntoToggleBody(ctx.editor)
   turnInto(ctx.editor, target)
+}
+
+/** After navigating to a freshly created page, put the caret into its (empty) title. */
+function focusNewPageTitle(id: string, tries = 20) {
+  const editorDom = document.querySelector(`.ProseMirror[data-page-id="${id}"]`)
+  const title = editorDom?.closest('article')?.querySelector<HTMLTextAreaElement | HTMLInputElement>('textarea, input[type="text"]')
+  if (title && !title.value) {
+    title.focus()
+    return
+  }
+  if (tries > 0) window.setTimeout(() => focusNewPageTitle(id, tries - 1), 50)
+}
+
+function tableJson(rows: number, cols: number) {
+  const cell = (type: string) => ({ type, content: [{ type: 'paragraph' }] })
+  return {
+    type: 'table',
+    content: Array.from({ length: rows }, (_, r) => ({ type: 'tableRow', content: Array.from({ length: cols }, () => cell(r === 0 ? 'tableHeader' : 'tableCell')) })),
+  }
 }
 
 function createInlineDatabase(ctx: RunCtx, type: ViewType) {
@@ -117,7 +138,10 @@ export const BLOCKS: BlockItem[] = [
     run: (ctx) => {
       const id = useWorkspace.getState().createPage({ parentId: ctx.pageId })
       insertBlock(ctx.editor, { type: 'pageLink', attrs: { pageId: id } }, ctx.range)
-      window.setTimeout(() => openPage(id), 30)
+      window.setTimeout(() => {
+        openPage(id)
+        focusNewPageTitle(id)
+      }, 30)
     },
   },
   { id: 'callout', group: 'basic', icon: StickyNote, md: '!>', keywords: 'callout note info box hinweis notiz kasten', turnInto: 'callout', run: turn('callout') },
@@ -135,10 +159,7 @@ export const BLOCKS: BlockItem[] = [
     group: 'basic',
     icon: Table,
     keywords: 'table grid simple tabelle raster',
-    run: (ctx) => {
-      del(ctx)
-      ctx.editor.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run()
-    },
+    run: (ctx) => insertBlock(ctx.editor, tableJson(3, 3), ctx.range),
   },
   // ---------------- lists
   { id: 'bullet', group: 'lists', icon: List, md: '-', keys: 'Mod+Shift+8', keywords: 'bullet list unordered ul aufzählung liste punkte', turnInto: 'bulletList', run: turn('bulletList') },
@@ -236,8 +257,8 @@ export const BLOCKS: BlockItem[] = [
     id: 'inlineMath',
     group: 'inline',
     icon: Pi,
-    md: '$x$',
-    keywords: 'inline math equation latex formel',
+    md: '$$x$$',
+    keywords: 'inline math equation latex formel gleichung',
     run: (ctx) => {
       del(ctx)
       const { editor } = ctx

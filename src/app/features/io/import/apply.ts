@@ -157,7 +157,7 @@ export async function applyPlan(
     const blocks: JSONContent[] = []
     if (n.body.trim()) {
       if (n.format === 'text') {
-        for (const para of n.body.split(/\n{2,}/)) {
+        for (const para of n.body.replace(/\s+$/, '').replace(/^\n+/, '').split(/\n{2,}/)) {
           const lines = para.split('\n')
           const content: JSONContent[] = []
           lines.forEach((l, i) => {

@@ -4,16 +4,25 @@
  *   triggers: row_created · row_deleted (trashed or removed) · property_changed (optional property / target value)
  *   actions:  webhook (POST/PUT JSON) · set_property · notify (toast)
  * Only the tab where the change happened fires (changes applied from other tabs are ignored).
- * Rapid edits are coalesced per automation + row so typing doesn't spam webhooks.
+ * Rapid edits are coalesced per automation + row so typing doesn't spam webhooks; a new row
+ * fires once it has a title and has been quiet for a moment (capped, see CREATED_MAX_MS).
  */
 import { useSyncExternalStore } from 'react'
 import { useWorkspace } from '../../store/store'
 import { isApplyingRemote } from '../../store/persistence'
 import { toast } from '../../store/ui'
-import type { Automation, AutomationAction, Database, ID, Page, PropertyDef, PropertyValue } from '../../store/types'
-import { propertyValueToText } from '../../database'
+import type { Automation, AutomationAction, Database, DateValue, ID, Page, PropertyDef, PropertyValue } from '../../store/types'
 import { newId } from '../../lib/ids'
 import { t } from '../../i18n'
+
+/* The database area is loaded lazily so this always-on service doesn't pull it in statically. */
+type DatabaseApi = typeof import('../../database')
+let dbApi: DatabaseApi | null = null
+let dbApiLoading: Promise<DatabaseApi> | null = null
+export function loadDatabaseApi(): Promise<DatabaseApi> {
+  return (dbApiLoading ??= import('../../database').then((m) => (dbApi = m)))
+}
+export const isDatabaseApiLoaded = () => !!dbApi
 
 export type EventType = 'row_created' | 'row_deleted' | 'property_changed'
 
@@ -25,6 +34,8 @@ export interface Change {
 
 export interface WebhookPayload {
   event: EventType | 'test'
+  /** only on "Send test" requests, so receivers can ignore them */
+  test?: true
   automation: { id: ID; name: string }
   database: { id: ID; title: string }
   row: { id: ID; title: string; url: string; properties: Record<string, string> }
@@ -113,12 +124,20 @@ export function sameValue(a: unknown, b: unknown): boolean {
 
 const isEmpty = (v: unknown) => v == null || v === '' || v === false || (Array.isArray(v) && v.length === 0)
 
+function rawText(value: PropertyValue | undefined): string {
+  if (value == null) return ''
+  if (Array.isArray(value)) return value.join(', ')
+  if (typeof value === 'object') return (value as DateValue).end ? `${(value as DateValue).start} → ${(value as DateValue).end}` : (value as DateValue).start
+  return String(value)
+}
+
 function valueText(db: Database, prop: PropertyDef, row: Page, value: PropertyValue | undefined): string {
   if (prop.type === 'title') return typeof value === 'string' ? value : row.title
+  if (!dbApi) return rawText(value)
   try {
-    return propertyValueToText(db, prop, { ...row, properties: { ...row.properties, [prop.id]: value ?? null } })
+    return dbApi.propertyValueToText(db, prop, { ...row, properties: { ...row.properties, [prop.id]: value ?? null } })
   } catch {
-    return value == null ? '' : String(value)
+    return rawText(value)
   }
 }
 
@@ -235,6 +254,7 @@ function fill(template: string, db: Database, row: Page): string {
 }
 
 async function runAutomation(dbId: ID, automationId: ID, rowSnapshot: Page, event: EventType, changes: Change[]) {
+  await loadDatabaseApi().catch(() => null)
   const state = useWorkspace.getState()
   const db = state.databases[dbId]
   const automation = db?.automations?.find((a) => a.id === automationId)
@@ -286,37 +306,73 @@ interface Pending {
   timer: number
   dbId: ID
   automationId: ID
+  rowId: ID
+  /** last known row (used when the row is gone, e.g. row_deleted) */
   row: Page
   event: EventType
   changes: Map<ID, Change>
+  firstAt: number
 }
 const pending = new Map<string, Pending>()
-const COALESCE_MS = { row_created: 1500, row_deleted: 0, property_changed: 900 }
+/** Quiet time before an event fires (edits within it are merged). */
+const COALESCE_MS: Record<EventType, number> = { row_created: 1800, row_deleted: 0, property_changed: 900 }
+/** A new row waits for a title and a quiet moment, but never longer than this. */
+const CREATED_MAX_MS = 15_000
+
+function arm(key: string, entry: Pending, delay: number) {
+  window.clearTimeout(entry.timer)
+  entry.timer = window.setTimeout(() => flush(key), delay)
+}
+
+function flush(key: string) {
+  const entry = pending.get(key)
+  if (!entry) return
+  const state = useWorkspace.getState()
+  const latest = state.pages[entry.rowId]
+  if (entry.event === 'row_created') {
+    // undone / deleted before it settled → nothing to report
+    if (!latest || latest.trashed) return void pending.delete(key)
+    // still untitled (e.g. the title cell is being typed) → keep waiting, up to the cap
+    if (!latest.title.trim() && Date.now() - entry.firstAt < CREATED_MAX_MS) return arm(key, entry, 1000)
+    pending.delete(key)
+    void runAutomation(entry.dbId, entry.automationId, latest, 'row_created', [])
+    return
+  }
+  pending.delete(key)
+  if (entry.event === 'property_changed') {
+    const trig = state.databases[entry.dbId]?.automations?.find((a) => a.id === entry.automationId)?.trigger
+    if (!trig || trig.type !== 'property_changed' || !latest || latest.trashed) return
+    let list = [...entry.changes.values()].filter((c) => !sameValue(c.from, c.to))
+    if (trig.toValue !== undefined && trig.toValue !== null) list = list.filter((c) => reachesValue(c.from, c.to, trig.toValue!))
+    if (list.length) void runAutomation(entry.dbId, entry.automationId, latest, 'property_changed', list)
+    return
+  }
+  void runAutomation(entry.dbId, entry.automationId, latest ?? entry.row, entry.event, [])
+}
 
 function schedule(db: Database, automation: Automation, row: Page, event: EventType, changes: Change[]) {
   const key = `${automation.id}:${row.id}`
-  const prev = pending.get(key)
-  if (prev && prev.event === 'row_created' && event === 'property_changed') return // created event will read the latest state
-  const entry: Pending = prev && prev.event === event ? prev : { timer: 0, dbId: db.id, automationId: automation.id, row, event, changes: new Map() }
-  window.clearTimeout(entry.timer)
+  let entry = pending.get(key)
+  if (!entry || entry.event !== event) {
+    if (entry) window.clearTimeout(entry.timer)
+    entry = { timer: 0, dbId: db.id, automationId: automation.id, rowId: row.id, row, event, changes: new Map(), firstAt: Date.now() }
+    pending.set(key, entry)
+  }
   entry.row = row
   for (const c of changes) {
     const had = entry.changes.get(c.propertyId)
     entry.changes.set(c.propertyId, { propertyId: c.propertyId, from: had ? had.from : c.from, to: c.to })
   }
-  pending.set(key, entry)
-  entry.timer = window.setTimeout(() => {
-    pending.delete(key)
-    const latest = useWorkspace.getState().pages[entry.row.id] ?? entry.row
-    let list = [...entry.changes.values()].filter((c) => !sameValue(c.from, c.to))
-    if (entry.event === 'property_changed') {
-      const trig = automation.trigger
-      if (trig.type !== 'property_changed') return
-      if (trig.toValue !== undefined && trig.toValue !== null) list = list.filter((c) => reachesValue(c.from, c.to, trig.toValue!))
-      if (!list.length || latest.trashed) return
-    }
-    void runAutomation(entry.dbId, entry.automationId, latest, entry.event, list)
-  }, COALESCE_MS[event])
+  arm(key, entry, COALESCE_MS[event])
+}
+
+/** Any edit to a row that is waiting to report "created" restarts its quiet period (within the cap). */
+function touchCreated(rowId: ID) {
+  for (const [key, p] of pending) {
+    if (p.event !== 'row_created' || p.rowId !== rowId) continue
+    const left = CREATED_MAX_MS - (Date.now() - p.firstAt)
+    arm(key, p, Math.max(0, Math.min(COALESCE_MS.row_created, left)))
+  }
 }
 
 function diff(state: ReturnType<typeof useWorkspace.getState>, prev: ReturnType<typeof useWorkspace.getState>) {
@@ -352,6 +408,7 @@ function diff(state: ReturnType<typeof useWorkspace.getState>, prev: ReturnType<
       continue
     }
     if (page.trashed) continue
+    if (pending.size) touchCreated(id)
     const changes: Change[] = []
     for (const prop of db.properties) {
       if (COMPUTED.has(prop.type)) continue
@@ -395,9 +452,10 @@ export function startAutomations(): () => void {
   }
 }
 
-/** Run a single automation's actions once against a row (or a sample) — used by "Send test". */
+/** Send one webhook with a sample payload marked as a test (event "test", test: true). */
 export async function testWebhook(dbId: ID, automation: Automation, action: Extract<AutomationAction, { type: 'webhook' }>): Promise<WebhookResult> {
-  const payload = samplePayload(dbId, automation)
+  await loadDatabaseApi().catch(() => null)
+  const payload = samplePayload(dbId, automation, { test: true })
   const res = await sendWebhook(action.url, action.method, payload, action.headers)
   pushLog({
     databaseId: dbId,
@@ -413,7 +471,7 @@ export async function testWebhook(dbId: ID, automation: Automation, action: Extr
 }
 
 /** Payload as it would be sent for this automation (uses the first row, or a placeholder row). */
-export function samplePayload(dbId: ID, automation: Pick<Automation, 'id' | 'name' | 'trigger'>): WebhookPayload {
+export function samplePayload(dbId: ID, automation: Pick<Automation, 'id' | 'name' | 'trigger'>, opts: { test?: boolean } = {}): WebhookPayload {
   const s = useWorkspace.getState()
   const db = s.databases[dbId]
   const row =
@@ -423,11 +481,12 @@ export function samplePayload(dbId: ID, automation: Pick<Automation, 'id' | 'nam
     ({ id: 'row_id', title: t('features.auto.sampleRow'), properties: {}, databaseId: dbId } as unknown as Page)
   if (!db) throw new Error('database missing')
   const trig = automation.trigger
-  const event: WebhookPayload['event'] = trig.type
+  const event: WebhookPayload['event'] = opts.test ? 'test' : trig.type
   let changes: Change[] = []
   if (trig.type === 'property_changed') {
     const prop = db.properties.find((p) => p.id === trig.propertyId) ?? db.properties.find((p) => p.type !== 'title' && !COMPUTED.has(p.type))
     if (prop) changes = [{ propertyId: prop.id, from: prop.type === 'title' ? '' : null, to: trig.toValue ?? (prop.type === 'title' ? row.title : row.properties[prop.id]) }]
   }
-  return buildPayload(db, automation, row, event, changes)
+  const payload = buildPayload(db, automation, row, event, changes)
+  return opts.test ? { event: payload.event, test: true, ...payload } : payload
 }

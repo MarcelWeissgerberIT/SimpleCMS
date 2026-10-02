@@ -4,7 +4,7 @@
  */
 import type { Lang } from '@/shared/i18n'
 import type { Database, DateValue, ID, Page, Person, PropertyDef, PropertyValue, RollupFn } from '../../store/types'
-import { FormulaError, runFormula, toText, isDate, type FValue } from '../formula'
+import { FormulaError, runFormula, toText, isDate, withRangeEnd, type FValue } from '../formula'
 import { aggregate } from './calc'
 import { formatDateValue, formatNumber, formatTimestamp, isDateValue, parseLocal } from './format'
 import { cachedFileName } from './files'
@@ -108,7 +108,11 @@ export class Resolver {
       case 'files':
         return (v as string[]).map(fileLabel)
       case 'date':
-        return isDateValue(v) ? parseLocal(v.start) : null
+        if (!isDateValue(v)) return null
+        {
+          const start = parseLocal(v.start)
+          return start ? withRangeEnd(start, parseLocal(v.end)) : null
+        }
       default:
         return v as FValue
     }
@@ -185,8 +189,11 @@ export class Resolver {
     const rel = db.properties.find((p) => p.id === prop.rollup!.relationPropertyId)
     const tdb = rel?.relationDatabaseId ? this.ctx.databases[rel.relationDatabaseId] : undefined
     const tprop = tdb?.properties.find((p) => p.id === prop.rollup!.targetPropertyId)
-    if (tprop?.type === 'number' && ['sum', 'average', 'median', 'min', 'max', 'range'].includes(fn)) return formatNumber(v, tprop.numberFormat, this.ctx.lang)
-    return formatNumber(v, undefined, this.ctx.lang)
+    // averages and medians are rarely whole: show them like Notion does (4.67), never as raw floats
+    const round = (n: number) => Math.round(n * 100) / 100
+    const fmt = tprop?.type === 'number' && ['sum', 'average', 'median', 'min', 'max', 'range'].includes(fn) ? tprop.numberFormat : undefined
+    if (fmt && fmt !== 'number' && fmt !== 'comma') return formatNumber(v, fmt, this.ctx.lang)
+    return formatNumber(round(v), fmt, this.ctx.lang)
   }
 }
 

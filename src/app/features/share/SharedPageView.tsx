@@ -14,24 +14,32 @@ import { PageIcon } from '../../ui/PageIcon'
 import { ReadOnlyDoc } from '../../editor'
 import { logoMarkSvg } from '@/shared/logo'
 import { BRAND } from '@/shared/brand'
-import { decodePayload, ShareDecodeError, type SharePayload } from './codec'
+import { decodePayload, ShareDecodeError, sniffRaster, type SharePayload } from './codec'
 import './share.css'
 import './shared-view.css'
+import './readonly.css'
 
-/** Move inlined data-URL images into local file storage (keeps the workspace lean). */
+/**
+ * Move inlined data-URL images into local file storage (keeps the workspace lean).
+ * Only verified raster images are stored, with their sniffed type — never SVG or HTML, which
+ * would run script on this origin when opened as a document.
+ */
 async function storeImages(nodes: JSONContent[] | undefined): Promise<JSONContent[] | undefined> {
   if (!nodes) return nodes
   return Promise.all(
     nodes.map(async (n) => {
       const out: JSONContent = { ...n }
       const src = n.attrs?.src
-      if (n.type === 'image' && typeof src === 'string' && src.startsWith('data:image/')) {
+      if (n.type === 'image' && typeof src === 'string' && src.startsWith('data:')) {
+        let stored = ''
         try {
-          const blob = await (await fetch(src)).blob()
-          out.attrs = { ...n.attrs, src: await saveFile(blob, String(n.attrs?.alt || 'image')) }
+          const raw = await (await fetch(src)).arrayBuffer()
+          const type = sniffRaster(new Uint8Array(raw.slice(0, 16)))
+          if (type) stored = await saveFile(new Blob([raw], { type }), String(n.attrs?.alt || 'image').slice(0, 120))
         } catch {
-          /* keep the data URL */
+          stored = ''
         }
+        out.attrs = { ...n.attrs, src: stored }
       }
       if (n.content) out.content = await storeImages(n.content)
       return out

@@ -113,6 +113,11 @@
   fill: var(--ink);
 }
 
+.dbch-peak--minor {
+  font-weight: 500;
+  fill: var(--ink-2);
+}
+
 .dbch-slice {
   stroke: var(--surface);
   stroke-width: 2;

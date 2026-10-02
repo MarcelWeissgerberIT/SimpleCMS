@@ -18,7 +18,7 @@ import { NotFound, JournalPending } from './home/NotFound'
 import { CommandPalette } from './palette/CommandPalette'
 import { ModalHost } from './modals/ModalHost'
 import { ErrorBoundary } from './ErrorBoundary'
-import { useBootRedirect, useGlobalShortcuts, useLinkInterceptor, useRouteEffects } from './lib/global'
+import { useBootRedirect, useDrawerAutoClose, useGlobalShortcuts, useLinkInterceptor, usePruneGoneViews, useRouteEffects } from './lib/global'
 import { useIsMobile } from './lib/hooks'
 import './stage/stage.css'
 
@@ -40,6 +40,8 @@ function Workspace({ route }: { route: Route }) {
   useGlobalShortcuts()
   useLinkInterceptor()
   useRouteEffects(route)
+  useDrawerAutoClose()
+  usePruneGoneViews()
   const t = useT()
   const mobile = useIsMobile()
   const focus = useUI((s) => s.focusMode)
@@ -47,14 +49,32 @@ function Workspace({ route }: { route: Route }) {
 
   return (
     <div className="app" data-focus={focus || undefined} data-mobile={mobile || undefined}>
-      <a className="visually-hidden" href="#main">
+      {/* hash routing: a real "#main" jump would be read as a route, so move focus by hand */}
+      <a
+        className="skip-link"
+        href="#main"
+        onClick={(e) => {
+          e.preventDefault()
+          const main = document.getElementById('main')
+          if (main) main.focus()
+          else document.querySelector<HTMLElement>('.stage-col')?.focus()
+        }}
+      >
         {t('shell.a11y.skip')}
       </a>
       <Sidebar />
       <div className="app-main">
         <Topbar route={route} />
-        <ErrorBoundary key={route.name === 'page' ? route.id : route.name} inline>
-          <Stage route={route} main={<RouteView route={route} />} mainTitle={<RouteTitle route={route} />} />
+        <ErrorBoundary inline>
+          <Stage
+            route={route}
+            main={
+              <ErrorBoundary key={route.name === 'page' ? route.id : route.name} inline>
+                <RouteView route={route} />
+              </ErrorBoundary>
+            }
+            mainTitle={<RouteTitle route={route} />}
+          />
         </ErrorBoundary>
       </div>
       {!mobile && <StatusBar route={route} />}

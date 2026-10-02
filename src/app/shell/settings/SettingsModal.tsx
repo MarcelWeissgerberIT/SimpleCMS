@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Eye, EyeOff, ExternalLink, X, Download, Upload, AlertTriangle, GitBranch } from 'lucide-react'
 import { useWorkspace } from '../../store/store'
 import { useUI } from '../../store/ui'
@@ -6,11 +6,12 @@ import { Modal } from '../../ui/Modal'
 import { Led, Switch } from '../../ui/controls'
 import { useLang, useT } from '../../i18n'
 import { logoMarkSvg } from '@/shared/logo'
-import { BRAND, safeLocalSet } from '@/shared/brand'
+import { BRAND } from '@/shared/brand'
 import type { ThemePref } from '../../store/types'
 import { ShortcutList } from '../modals/ShortcutsModal'
-import { fmtBytes } from '../lib/format'
-import { RESET_FLAG } from '../lib/reset'
+import { runAI } from '../../features'
+import { fmtBytes, plural } from '../lib/format'
+import { requestReset } from '../lib/reset'
 import './settings.css'
 
 export type SettingsTab = 'general' | 'appearance' | 'ai' | 'data' | 'shortcuts' | 'about'
@@ -198,14 +199,49 @@ function AITab() {
   const set = useWorkspace.getState().updateSettings
   const [show, setShow] = useState(false)
   const configured = key.trim().length > 0
+  // the key is only "connected" once a real request went through
+  const [test, setTest] = useState<{ state: 'idle' | 'running' | 'ok' | 'error'; msg?: string }>({ state: 'idle' })
+  const abort = useRef<AbortController | null>(null)
+  useEffect(() => {
+    abort.current?.abort()
+    setTest({ state: 'idle' })
+  }, [key, model])
+  useEffect(() => () => abort.current?.abort(), [])
+  const runTest = async () => {
+    abort.current?.abort()
+    const ctrl = new AbortController()
+    abort.current = ctrl
+    setTest({ state: 'running' })
+    try {
+      await runAI({ action: 'custom', input: '', instruction: 'Reply with the single word OK.', signal: ctrl.signal })
+      if (!ctrl.signal.aborted) setTest({ state: 'ok' })
+    } catch (e) {
+      if (!ctrl.signal.aborted) setTest({ state: 'error', msg: e instanceof Error ? e.message : String(e) })
+    }
+  }
+  const statusText = !configured
+    ? t('shell.ai.notSet')
+    : test.state === 'running'
+      ? t('shell.ai.testing')
+      : test.state === 'ok'
+        ? t('shell.ai.verified')
+        : test.state === 'error'
+          ? t('shell.ai.failed')
+          : t('shell.ai.ready')
   return (
     <>
       <h3 className="st-h">{t('shell.settings.ai.title')}</h3>
       <p className="st-p">{t('shell.settings.ai.body')}</p>
-      <div className="ai-status">
-        <Led state={configured ? 'ok' : 'off'} />
-        <span className="label">{configured ? t('shell.ai.ready') : t('shell.ai.notSet')}</span>
+      <div className="ai-status" data-state={configured ? test.state : 'none'} role="status">
+        <Led state={!configured ? 'off' : test.state === 'running' ? 'on' : test.state === 'ok' ? 'ok' : test.state === 'error' ? 'off' : 'on'} />
+        <span className="label">{statusText}</span>
+        {configured && (
+          <button type="button" className="btn btn--sm ai-status__test" onClick={() => void runTest()} disabled={test.state === 'running'}>
+            {test.state === 'running' ? t('shell.ai.testing') : t('shell.ai.test')}
+          </button>
+        )}
       </div>
+      {test.state === 'error' && test.msg && <p className="ai-status__err">{test.msg}</p>}
       <Field label={t('shell.settings.ai.key')} hint={t('shell.settings.ai.keyHint')}>
         <div className="keyfield">
           <input
@@ -319,11 +355,7 @@ function DataTab({ onClose }: { onClose: () => void }) {
               body: t('shell.settings.data.resetConfirmBody'),
               danger: true,
               confirmLabel: t('shell.settings.data.resetConfirm'),
-              onConfirm: () => {
-                safeLocalSet(RESET_FLAG, '1')
-                window.location.hash = '#/'
-                window.location.reload()
-              },
+              onConfirm: requestReset,
             })
           }}
         >
@@ -344,7 +376,7 @@ function AboutTab() {
         <div>
           <div className="display about__name">{BRAND.name}</div>
           <div className="label">
-            {t('shell.about.version', { v: BRAND.version })} · {t('shell.about.records', { n: pages })}
+            {t('shell.about.version', { v: BRAND.version })} · {t(plural('shell.about.records', pages), { n: pages })}
           </div>
         </div>
       </div>

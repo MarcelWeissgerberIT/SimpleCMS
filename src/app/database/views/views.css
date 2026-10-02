@@ -177,10 +177,65 @@
 }
 
 /* ---------- BOARD ---------- */
+.dbb-wrap {
+  position: relative;
+  min-width: 0;
+}
+
+/* columns hidden past an edge: fade that edge, offer a step button */
+.dbb-wrap {
+  --dbb-fade: 56px;
+}
+
+.dbb-wrap[data-overflow='end'] .dbb {
+  mask-image: linear-gradient(90deg, var(--ink) calc(100% - var(--dbb-fade)), transparent);
+}
+
+.dbb-wrap[data-overflow='start'] .dbb {
+  mask-image: linear-gradient(90deg, transparent, var(--ink) var(--dbb-fade));
+}
+
+.dbb-wrap[data-overflow='both'] .dbb {
+  mask-image: linear-gradient(90deg, transparent, var(--ink) var(--dbb-fade), var(--ink) calc(100% - var(--dbb-fade)), transparent);
+}
+
+.dbb-edge {
+  position: absolute;
+  top: 16px;
+  z-index: 3;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius-1);
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: var(--shadow-1);
+  transition: background var(--dur-1) var(--ease-out);
+}
+
+.dbb-edge:hover {
+  background: var(--surface-2);
+}
+
+.dbb-edge:active {
+  transform: translateY(1px);
+}
+
+.dbb-edge--start {
+  left: 0;
+}
+
+.dbb-edge--end {
+  right: 0;
+}
+
 .dbb {
   --dbb-w: 272px;
   overflow-x: auto;
   padding: 14px 2px 18px;
+  scroll-padding-inline: 2px;
   overscroll-behavior-x: contain;
 }
 
@@ -263,7 +318,7 @@
   padding: 6px;
   border-radius: var(--radius-2);
   background: var(--surface-2);
-  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.05);
+  box-shadow: inset 0 1px 2px var(--rule);
   transition: background var(--dur-1) var(--ease-out);
 }
 
@@ -425,7 +480,7 @@
   flex: 1 1 auto;
   overflow: hidden;
   font-size: 12px;
-  mask-image: linear-gradient(90deg, transparent, #000 28px);
+  mask-image: linear-gradient(90deg, transparent, var(--ink) 28px);
 }
 
 .dbl-row__prop .db-text {
@@ -536,9 +591,15 @@
 }
 
 @media (max-width: 640px) {
+  .dbb-wrap {
+    --dbb-fade: 18px;
+  }
+
+  /* a snapped column starts just past the fade; the first one sits flush at the start (scrollLeft 0) */
   .dbb {
     --dbb-w: 260px;
     scroll-snap-type: x proximity;
+    scroll-padding-inline: 18px;
   }
 
   .dbb-col {
@@ -574,4 +635,11 @@
 .dbb-more:hover {
   border-style: solid;
   color: var(--ink);
+}
+
+/* touch: swiping is the way across; the fade alone hints at more columns */
+@media (hover: none) {
+  .dbb-edge {
+    display: none;
+  }
 }

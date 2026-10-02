@@ -9,19 +9,31 @@ export interface SearchHit {
   snippet: { text: string; ranges: Range[] } | null
 }
 
-export function buildIndex(pages: Record<ID, Page>): Fuse<Page> {
-  const list = Object.values(pages).filter((p) => !p.trashed)
-  return new Fuse(list, {
-    keys: [
-      { name: 'title', weight: 3 },
-      { name: 'plain', weight: 1 },
-    ],
+interface Entry {
+  page: Page
+  title: string
+  plain: string
+}
+
+export interface SearchIndex {
+  entries: Entry[]
+  /** Fuzzy matching on titles only — catches typos without dragging in random body text. */
+  titles: Fuse<Entry>
+}
+
+export function buildIndex(pages: Record<ID, Page>): SearchIndex {
+  const entries = Object.values(pages)
+    .filter((p) => !p.trashed)
+    .map((page) => ({ page, title: (page.title || '').toLowerCase(), plain: (page.plain || '').toLowerCase() }))
+  const titles = new Fuse(entries, {
+    keys: ['page.title'],
     includeMatches: true,
     includeScore: true,
     ignoreLocation: true,
-    threshold: 0.34,
+    threshold: 0.3,
     minMatchCharLength: 2,
   })
+  return { entries, titles }
 }
 
 /** Case-insensitive substring ranges for every whitespace-separated term. */
@@ -37,7 +49,17 @@ function substringRanges(text: string, query: string): Range[] {
       from = i + term.length
     }
   }
-  return out.sort((a, b) => a[0] - b[0])
+  return merge(out.sort((a, b) => a[0] - b[0]))
+}
+
+function merge(ranges: Range[]): Range[] {
+  const out: Range[] = []
+  for (const r of ranges) {
+    const last = out[out.length - 1]
+    if (last && r[0] <= last[1] + 1) last[1] = Math.max(last[1], r[1])
+    else out.push([r[0], r[1]])
+  }
+  return out
 }
 
 function fuseRanges(m: FuseResultMatch | undefined): Range[] {
@@ -45,19 +67,55 @@ function fuseRanges(m: FuseResultMatch | undefined): Range[] {
   return (m.indices as ReadonlyArray<readonly [number, number]>).filter(([a, b]) => b - a >= 1).map(([a, b]) => [a, b] as Range)
 }
 
-export function search(fuse: Fuse<Page>, query: string, limit = 30): SearchHit[] {
-  const q = query.trim()
+const WORD_SPLIT = /[\s\-_/.,:;()[\]"'“”„’]+/
+
+/**
+ * Ranked search: exact / prefix / word-prefix / substring title hits first, then fuzzy
+ * title hits (typos, 4+ characters), then pages whose body contains every term.
+ * Body text is matched literally — no fuzzy noise from long documents.
+ */
+export function search(index: SearchIndex, query: string, limit = 30): SearchHit[] {
+  const q = query.trim().toLowerCase()
   if (!q) return []
-  return fuse.search(q, { limit }).map((r) => {
-    const page = r.item
+  const terms = q.split(/\s+/).filter(Boolean)
+  const ranked: Array<{ e: Entry; score: number; fuzzy?: Range[] }> = []
+  const seen = new Set<ID>()
+
+  for (const e of index.entries) {
+    const title = e.title
+    let score = -1
+    if (title === q) score = 0
+    else if (title.startsWith(q)) score = 1
+    else if (title.split(WORD_SPLIT).some((w) => w.startsWith(q))) score = 2
+    else if (title.includes(q)) score = 3
+    else if (terms.length > 1 && terms.every((t) => title.includes(t))) score = 3.5
+    else if (terms.every((t) => title.includes(t) || e.plain.includes(t))) score = e.plain.includes(q) ? 6 : 6.5
+    if (score < 0) continue
+    // databases and pages a hair ahead of rows at equal rank
+    if (e.page.databaseId) score += 0.2
+    ranked.push({ e, score })
+    seen.add(e.page.id)
+  }
+
+  if (q.length >= 4) {
+    for (const r of index.titles.search(q, { limit: 20 })) {
+      if (seen.has(r.item.page.id) || (r.score ?? 1) > 0.3) continue
+      ranked.push({ e: r.item, score: 4 + (r.score ?? 0), fuzzy: fuseRanges(r.matches?.[0]) })
+      seen.add(r.item.page.id)
+    }
+  }
+
+  ranked.sort((a, b) => a.score - b.score || b.e.page.updatedAt - a.e.page.updatedAt)
+
+  return ranked.slice(0, limit).map(({ e, fuzzy }) => {
+    const page = e.page
     const title = page.title || ''
     const titleSub = substringRanges(title, q)
-    const titleRanges = titleSub.length ? titleSub : fuseRanges(r.matches?.find((m) => m.key === 'title'))
+    const titleRanges = titleSub.length ? titleSub : (fuzzy ?? [])
     let snippet: SearchHit['snippet'] = null
     const plain = page.plain || ''
-    const plainSub = substringRanges(plain, q)
-    const ranges = plainSub.length ? plainSub : fuseRanges(r.matches?.find((m) => m.key === 'plain'))
-    if (ranges.length && plain) {
+    const ranges = plain ? substringRanges(plain, q) : []
+    if (ranges.length && !titleSub.length) {
       const [a, b] = ranges[0]
       const start = Math.max(0, a - 48)
       const end = Math.min(plain.length, b + 90)

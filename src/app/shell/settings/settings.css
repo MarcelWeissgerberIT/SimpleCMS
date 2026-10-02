@@ -302,9 +302,35 @@ select.input {
   align-items: center;
   gap: 8px;
   margin-bottom: 4px;
-  padding: 5px 10px;
+  padding: 4px 4px 4px 10px;
   border: 1px solid var(--rule);
   border-radius: var(--radius-1);
+}
+.ai-status[data-state='none'],
+.ai-status:not(:has(.ai-status__test)) {
+  padding-right: 10px;
+}
+.ai-status[data-state='running'] .led {
+  animation: led-blink 0.5s steps(2, jump-none) infinite;
+}
+.ai-status[data-state='error'] {
+  border-color: var(--c-red-text);
+}
+.ai-status__test {
+  margin-left: 6px;
+}
+.ai-status__err {
+  margin: 4px 0 0;
+  max-width: 520px;
+  color: var(--c-red-text);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.5;
+}
+@media (prefers-reduced-motion: reduce) {
+  .ai-status[data-state='running'] .led {
+    animation: none;
+  }
 }
 .keyfield {
   display: flex;

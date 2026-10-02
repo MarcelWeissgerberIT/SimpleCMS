@@ -317,9 +317,21 @@
   font: inherit;
 }
 .ask__answer {
-  white-space: pre-wrap;
   font-size: 14px;
   line-height: 1.6;
+}
+.ask__answer--wait {
+  font-family: var(--font-mono);
+  color: var(--ink-3);
+}
+.ask__doc {
+  --doc-size: 14px;
+}
+.ask__doc .doc-content > :first-child {
+  margin-top: 0;
+}
+.ask__doc .doc-content > :last-child {
+  margin-bottom: 0;
 }
 .ask__error {
   margin: 0;
@@ -343,6 +355,21 @@
     display: none;
   }
   .pal-item__path {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ask__blink {
+    animation: none;
+  }
+}
+
+/* touch: no keyboard, no keycap hints (the mode buttons stay — they are buttons) */
+@media (hover: none) and (pointer: coarse) {
+  .pal-item__kbd,
+  .pal-input > .kbd,
+  .pal-foot > span:not(.pal-foot__spacer) {
     display: none;
   }
 }

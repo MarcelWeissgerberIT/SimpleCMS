@@ -30,7 +30,7 @@ export async function uploadFiles(editor: Editor, files: File[], pos?: number | 
   }
 }
 
-/** Open the native file picker. */
+/** Open the native file picker. Resolves with [] when the dialog is cancelled. */
 export function pickFiles(accept: string, multiple = false): Promise<File[]> {
   return new Promise((resolve) => {
     const input = document.createElement('input')
@@ -38,11 +38,20 @@ export function pickFiles(accept: string, multiple = false): Promise<File[]> {
     input.accept = accept
     input.multiple = multiple
     input.style.display = 'none'
-    input.onchange = () => {
-      resolve(Array.from(input.files ?? []))
+    let done = false
+    const finish = (files: File[]) => {
+      if (done) return
+      done = true
+      window.removeEventListener('focus', onFocus)
       input.remove()
+      resolve(files)
     }
+    // 'cancel' fires in current browsers; window focus is the fallback for older ones
+    const onFocus = () => window.setTimeout(() => !input.files?.length && finish([]), 400)
+    input.onchange = () => finish(Array.from(input.files ?? []))
+    input.addEventListener('cancel', () => finish([]))
     document.body.appendChild(input)
+    window.addEventListener('focus', onFocus)
     input.click()
   })
 }

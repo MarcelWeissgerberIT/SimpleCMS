@@ -3,6 +3,7 @@
  */
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { ChevronDown, Copy, FileText, Pencil, Plus, Trash } from 'lucide-react'
+import type { JSONContent } from '@tiptap/core'
 import type { Database, ID, Page, PageIcon as PageIconT, PropertyDef, PropertyValue } from '../../store/types'
 import { useWorkspace, DEFAULT_PAGE_SETTINGS } from '../../store/store'
 import { useUI } from '../../store/ui'
@@ -33,65 +34,86 @@ export function NewButton({ m, onNew }: { m: DbModel; onNew: (tpl?: Template) =>
       <button type="button" className="btn btn--primary btn--sm db-newbtn__more" aria-label={t('database.templates.title')} onClick={(e) => setAnchor(anchor ? null : e.currentTarget)}>
         <ChevronDown size={13} />
       </button>
-      <Popover open={!!anchor} anchor={anchor} onClose={() => setAnchor(null)} placement="bottom-end" className="db-tplmenu">
-        <div className="menu-section label">{t('database.templates.title')}</div>
-        {templates.length === 0 && <div className="db-tplmenu__empty">{t('database.templates.none')}</div>}
-        {templates.map((tpl) => (
-          <div key={tpl.id} className="db-tplmenu__row">
-            <button
-              type="button"
-              className="menu-item"
-              onClick={() => {
-                setAnchor(null)
-                onNew(tpl)
-              }}
-            >
-              <span className="menu-item__icon">{tpl.icon ? <PageIcon icon={tpl.icon} size={16} /> : <FileText size={14} />}</span>
-              <span className="menu-item__label">{tpl.name || t('common.untitled')}</span>
-            </button>
-            <button type="button" className="icon-btn icon-btn--sm" aria-label={t('common.edit')} onClick={() => (setAnchor(null), setEditing(tpl))}>
-              <Pencil size={13} />
-            </button>
-            <button type="button" className="icon-btn icon-btn--sm" aria-label={t('common.duplicate')} onClick={() => save([...templates, { ...JSON.parse(JSON.stringify(tpl)), id: newId(), name: `${tpl.name} (${t('database.copySuffix')})` }])}>
-              <Copy size={13} />
-            </button>
-            <button type="button" className="icon-btn icon-btn--sm" aria-label={t('common.delete')} onClick={() => deleteTemplate(m.db.id, tpl)}>
-              <Trash size={13} />
-            </button>
-          </div>
-        ))}
-        <div className="menu-sep" />
-        <button
-          type="button"
-          className="menu-item"
-          onClick={() => {
-            setAnchor(null)
-            setEditing({ id: newId(), name: '', icon: null, content: null, properties: {} })
-          }}
-        >
-          <span className="menu-item__icon">
-            <Plus size={14} />
-          </span>
-          <span className="menu-item__label">{t('database.templates.new')}</span>
-        </button>
-        <button
-          type="button"
-          className="menu-item"
-          onClick={() => {
-            setAnchor(null)
-            onNew()
-          }}
-        >
-          <span className="menu-item__icon">
-            <FileText size={14} />
-          </span>
-          <span className="menu-item__label">{t('database.templates.empty')}</span>
-          <Kbd>⏎</Kbd>
-        </button>
+      <Popover open={!!anchor} anchor={anchor} onClose={() => setAnchor(null)} placement="bottom-end" className="db-tplmenu" autoFocus={false}>
+        <div onKeyDown={menuArrows} ref={focusFirst}>
+          <button
+            type="button"
+            className="menu-item"
+            data-nav=""
+            onClick={() => {
+              setAnchor(null)
+              onNew()
+            }}
+          >
+            <span className="menu-item__icon">
+              <FileText size={14} />
+            </span>
+            <span className="menu-item__label">{t('database.templates.empty')}</span>
+            <Kbd>⏎</Kbd>
+          </button>
+          <div className="menu-sep" />
+          <div className="menu-section label">{t('database.templates.title')}</div>
+          {templates.length === 0 && <div className="db-tplmenu__empty">{t('database.templates.none')}</div>}
+          {templates.map((tpl) => (
+            <div key={tpl.id} className="db-tplmenu__row">
+              <button
+                type="button"
+                className="menu-item"
+                data-nav=""
+                onClick={() => {
+                  setAnchor(null)
+                  onNew(tpl)
+                }}
+              >
+                <span className="menu-item__icon">{tpl.icon ? <PageIcon icon={tpl.icon} size={16} /> : <FileText size={14} />}</span>
+                <span className="menu-item__label">{tpl.name || t('common.untitled')}</span>
+              </button>
+              <button type="button" className="icon-btn icon-btn--sm" aria-label={t('common.edit')} title={t('common.edit')} onClick={() => (setAnchor(null), setEditing(tpl))}>
+                <Pencil size={13} />
+              </button>
+              <button type="button" className="icon-btn icon-btn--sm" aria-label={t('common.duplicate')} title={t('common.duplicate')} onClick={() => save([...templates, { ...JSON.parse(JSON.stringify(tpl)), id: newId(), name: `${tpl.name} (${t('database.copySuffix')})` }])}>
+                <Copy size={13} />
+              </button>
+              <button type="button" className="icon-btn icon-btn--sm" aria-label={t('common.delete')} title={t('common.delete')} onClick={() => deleteTemplate(m.db.id, tpl)}>
+                <Trash size={13} />
+              </button>
+            </div>
+          ))}
+          <div className="menu-sep" />
+          <button
+            type="button"
+            className="menu-item"
+            data-nav=""
+            onClick={() => {
+              setAnchor(null)
+              setEditing({ id: newId(), name: '', icon: null, content: null, properties: {} })
+            }}
+          >
+            <span className="menu-item__icon">
+              <Plus size={14} />
+            </span>
+            <span className="menu-item__label">{t('database.templates.new')}</span>
+          </button>
+        </div>
       </Popover>
       {editing && <TemplateModal m={m} template={editing} onClose={() => setEditing(null)} />}
     </span>
   )
+}
+
+/** ↑↓ move between the dropdown's main entries (the row tools stay reachable with Tab). */
+function menuArrows(e: React.KeyboardEvent<HTMLDivElement>) {
+  if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return
+  e.preventDefault()
+  const items = Array.from(e.currentTarget.querySelectorAll<HTMLElement>('[data-nav]'))
+  const i = items.indexOf(document.activeElement as HTMLElement)
+  const next = e.key === 'ArrowDown' ? (i + 1) % items.length : (i - 1 + items.length) % items.length
+  items[next]?.focus()
+}
+
+/** Focus "Empty page" when the dropdown opens — the ⏎ hint must be true. */
+function focusFirst(el: HTMLDivElement | null) {
+  if (el) requestAnimationFrame(() => el.querySelector<HTMLElement>('[data-nav]')?.focus({ preventScroll: true }))
 }
 
 function deleteTemplate(dbId: ID, tpl: Template) {
@@ -127,6 +149,31 @@ export function saveRowAsTemplate(db: Database, row: Page): void {
   useUI.getState().toast({ message: tt('database.templates.saved', { name: tpl.name }), kind: 'success' })
 }
 
+/** The editor's Markdown serializer escapes HTML entities — show plain characters in the textarea. */
+function decodeEntities(s: string): string {
+  const map: Record<string, string> = { '&amp;': '&', '&lt;': '<', '&gt;': '>', '&quot;': '"', '&#39;': "'", '&#x27;': "'", '&nbsp;': '\u00a0' }
+  return s.replace(/&(?:amp|lt|gt|quot|nbsp|#39|#x27);/g, (m) => map[m] ?? m)
+}
+
+/** Does Markdown carry this content without loss? (null attrs are defaults and don't count) */
+function roundTrips(conv: typeof import('../../editor'), content: JSONContent, md: string): boolean {
+  const norm = (n: unknown): unknown => {
+    if (Array.isArray(n)) return n.map(norm)
+    if (!n || typeof n !== 'object') return n
+    const out: Record<string, unknown> = {}
+    for (const [k, v] of Object.entries(n)) {
+      if (v === null || v === undefined || (k === 'attrs' && v && typeof v === 'object' && Object.values(v).every((x) => x === null || x === undefined))) continue
+      out[k] = norm(v)
+    }
+    return out
+  }
+  try {
+    return JSON.stringify(norm(conv.markdownToDoc(md))) === JSON.stringify(norm(content))
+  } catch {
+    return false
+  }
+}
+
 function TemplateModal({ m, template, onClose }: { m: DbModel; template: Template; onClose: () => void }) {
   const t = useT()
   const [name, setName] = useState(template.name)
@@ -134,6 +181,11 @@ function TemplateModal({ m, template, onClose }: { m: DbModel; template: Templat
   const [props, setProps] = useState<Record<ID, PropertyValue>>(template.properties ?? {})
   const [md, setMd] = useState('')
   const [conv, setConv] = useState<typeof import('../../editor') | null>(null)
+  /** Markdown as first shown — content is only re-parsed when the text was actually edited. */
+  const initialMd = useRef('')
+  /** The content holds blocks Markdown can't carry (database embeds, columns, colours …). */
+  const [lossy, setLossy] = useState(false)
+  const [unlocked, setUnlocked] = useState(false)
   useEffect(() => {
     let alive = true
     // Load the editor's Markdown converters lazily so the database UI never depends on the editor bundle.
@@ -141,11 +193,15 @@ function TemplateModal({ m, template, onClose }: { m: DbModel; template: Templat
       .then((mod) => {
         if (!alive) return
         setConv(mod)
+        let text = ''
         try {
-          setMd(template.content ? mod.docToMarkdown(template.content) : '')
+          text = template.content ? decodeEntities(mod.docToMarkdown(template.content)) : ''
         } catch {
-          setMd('')
+          text = ''
         }
+        initialMd.current = text
+        setMd(text)
+        setLossy(!!template.content && !roundTrips(mod, template.content, text))
       })
       .catch(() => undefined)
     return () => {
@@ -188,7 +244,7 @@ function TemplateModal({ m, template, onClose }: { m: DbModel; template: Templat
 
   const save = () => {
     let content = template.content
-    if (conv) {
+    if (conv && md !== initialMd.current) {
       try {
         content = md.trim() ? conv.markdownToDoc(md) : null
       } catch {
@@ -237,7 +293,23 @@ function TemplateModal({ m, template, onClose }: { m: DbModel; template: Templat
           noPropMenu
         />
         <div className="label db-tpl__sec">{t('database.templates.content')}</div>
-        <textarea className="input db-tpl__md" rows={8} value={md} disabled={!conv} placeholder={t('database.templates.contentPlaceholder')} onChange={(e) => setMd(e.target.value)} />
+        {lossy && !unlocked && (
+          <div className="db-tpl__note">
+            <span className="label">{t('database.templates.richNote')}</span>
+            <button type="button" className="btn btn--sm" onClick={() => setUnlocked(true)}>
+              {t('database.templates.editAnyway')}
+            </button>
+          </div>
+        )}
+        <textarea
+          className="input db-tpl__md"
+          rows={8}
+          value={md}
+          disabled={!conv}
+          readOnly={lossy && !unlocked}
+          placeholder={t('database.templates.contentPlaceholder')}
+          onChange={(e) => setMd(e.target.value)}
+        />
       </div>
       <Popover open={!!iconAnchor} anchor={iconAnchor} onClose={() => setIconAnchor(null)} bare>
         <IconPicker

@@ -24,6 +24,10 @@ export interface OverlayState {
   linkEdit: boolean
   /** Hint shown in the slash menu footer when the "+" button opened it */
   plusOpened: boolean
+  /** The "+" button created the line the slash menu lives in (Esc removes it again) */
+  plusCreated: boolean
+  /** Block menu requested from the keyboard / touch (position of the block) */
+  blockMenu: { pos: number } | null
 }
 
 export interface Bridge extends StoreApi<OverlayState> {
@@ -38,6 +42,8 @@ export function createBridge(): Bridge {
     urlPaste: null,
     linkEdit: false,
     plusOpened: false,
+    plusCreated: false,
+    blockMenu: null,
   })) as Bridge
   store.keyHandlers = {}
   return store

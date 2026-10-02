@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { NodeViewWrapper, type ReactNodeViewProps } from '@tiptap/react'
+import { Selection, TextSelection } from '@tiptap/pm/state'
 import katex from 'katex'
 import 'katex/dist/katex.min.css'
 import { Popover } from '../../ui/Popover'
@@ -59,7 +60,7 @@ function MathEditor({
         rows={display ? 3 : 1}
         spellCheck={false}
         data-autofocus=""
-        placeholder="\\frac{a}{b}"
+        placeholder={'\\frac{a}{b}'}
         onChange={(e) => setValue(e.target.value)}
         onKeyDown={(e) => {
           if (e.key === 'Enter' && (!display || e.metaKey || e.ctrlKey)) {
@@ -93,13 +94,25 @@ function MathEditor({
   )
 }
 
-function useMathEditing({ node, selected, editor, deleteNode, updateAttributes }: ReactNodeViewProps) {
+function useMathEditing({ node, selected, editor, deleteNode, updateAttributes, getPos }: ReactNodeViewProps) {
   const latex = String(node.attrs.latex ?? '')
   const [editing, setEditing] = useState(false)
   // freshly inserted (selected + empty) → open the editor right away
   useEffect(() => {
     if (selected && !latex && editor.isEditable) setEditing(true)
   }, [selected]) // eslint-disable-line react-hooks/exhaustive-deps
+  /** Put the caret right after the equation (inline) or into the line below (block). */
+  const caretAfter = () => {
+    const pos = getPos()
+    if (typeof pos !== 'number' || editor.isDestroyed) return editor.commands.focus()
+    const { state, view } = editor
+    const end = Math.min(pos + node.nodeSize, state.doc.content.size)
+    const $end = state.doc.resolve(end)
+    const sel = $end.parent.inlineContent ? TextSelection.create(state.doc, end) : Selection.near($end, 1)
+    view.dispatch(state.tr.setSelection(sel).scrollIntoView())
+    view.focus()
+    return true
+  }
   const commit = (v: string) => {
     setEditing(false)
     if (!v) {
@@ -107,12 +120,12 @@ function useMathEditing({ node, selected, editor, deleteNode, updateAttributes }
       return
     }
     if (v !== latex) updateAttributes({ latex: v })
-    editor.commands.focus()
+    caretAfter()
   }
   const cancel = () => {
     setEditing(false)
     if (!latex) deleteNode()
-    else editor.commands.focus()
+    else caretAfter()
   }
   return { latex, editing, setEditing, commit, cancel }
 }

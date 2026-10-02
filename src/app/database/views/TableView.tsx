@@ -7,7 +7,6 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ChevronRight, Copy, GripVertical, PencilLine, Plus, Trash, X } from 'lucide-react'
 import type { ID, Page, PropertyDef, PropertyValue } from '../../store/types'
 import { useWorkspace } from '../../store/store'
-import { Menu } from '../../ui/Menu'
 import { Tooltip } from '../../ui/Tooltip'
 import { useT } from '../../i18n'
 import { useModel, type DbModel } from '../hooks'
@@ -16,13 +15,14 @@ import { Checkbox, OpenButton, RowTitle, ValueView } from '../cells/display'
 import { ValueEditor, canEdit } from '../cells/ValueEditor'
 import { parseNumberInput, type DoneReason } from '../cells/TextEditor'
 import { PropertyMenu } from '../properties/PropertyMenu'
-import { TypeIcon, typeEntries } from '../parts'
+import { Menu, TypeIcon, typeEntries } from '../parts'
 import { deleteRows, duplicateRows, insertProperty, orderBetween, writeValue } from '../model/actions'
 import { valueForGroupMove, NONE_KEY, type RowGroup } from '../model/query'
 import { ADD_COL, FILL_MIN, ROW_H, buildItems, colWidth, minWidth, offsetsOf, scrollParent, type Item } from './table/layout'
 import { useWindow } from './virtual'
 import { CalcCell } from './table/CalcCell'
 import { pointAnchor } from '../../ui/Popover'
+import { parseDateText } from '../model/format'
 import './table/table.css'
 
 function useNarrow(): boolean {
@@ -59,8 +59,10 @@ function valueFromText(p: PropertyDef, text: string): PropertyValue | undefined 
     case 'email':
     case 'phone':
       return p.type === 'title' ? s.replace(/\s*\n\s*/g, ' ') : text
-    case 'number':
-      return parseNumberInput(s, p.numberFormat === 'percent')
+    case 'number': {
+      const n = parseNumberInput(s, p.numberFormat === 'percent')
+      return n === null && s ? undefined : n
+    }
     case 'checkbox':
       return ['true', 'yes', 'ja', '1', 'x', '✓'].includes(s.toLowerCase())
     case 'select':
@@ -73,6 +75,16 @@ function valueFromText(p: PropertyDef, text: string): PropertyValue | undefined 
     case 'rating': {
       const n = parseInt(s, 10)
       return Number.isFinite(n) ? Math.max(0, Math.min(p.ratingMax ?? 5, n)) : undefined
+    }
+    case 'date':
+      return s ? parseDateText(s, useWorkspace.getState().settings.language) ?? undefined : null
+    case 'person': {
+      const people = useWorkspace.getState().people
+      const ids = s
+        .split(/[,;\n]/)
+        .map((x) => people.find((pp) => pp.name.toLowerCase() === x.trim().toLowerCase())?.id)
+        .filter((x): x is string => !!x)
+      return ids.length ? [...new Set(ids)] : undefined
     }
   }
   return undefined
@@ -202,7 +214,11 @@ export function TableView({ onFilterProp }: { onFilterProp: (id: ID) => void }) 
     const id = actions.editTitleOf
     if (!id) return
     const idx = rowItems.findIndex((x) => x.it.row.id === id)
-    if (idx < 0) return
+    if (idx < 0) {
+      // exists but not on screen (collapsed / hidden group): don't pop an editor up later
+      if (m.allRows.some((r) => r.id === id)) actions.clearEditTitle()
+      return
+    }
     actions.clearEditTitle()
     setActive({ idx, col: 0 })
     ensureVisible(idx, 0)
@@ -213,7 +229,7 @@ export function TableView({ onFilterProp }: { onFilterProp: (id: ID) => void }) 
       else if (tries++ < 10) requestAnimationFrame(tick)
     }
     requestAnimationFrame(tick)
-  }, [actions, rowItems, cols, cellEl, ensureVisible])
+  }, [actions, rowItems, cols, cellEl, ensureVisible, m.allRows])
 
   const onKeyDown = (e: React.KeyboardEvent) => {
     if (editing) return
@@ -332,10 +348,12 @@ export function TableView({ onFilterProp }: { onFilterProp: (id: ID) => void }) 
   const toggleSel = (idx: number, add?: boolean, range?: boolean) => {
     const ri = rowItems[idx]
     if (!ri) return
+    // read the anchor now: the updater runs later, after lastSel has moved on to idx
+    const from = lastSel.current
     setSel((cur) => {
       const next = new Set(cur)
-      if (range && lastSel.current !== null) {
-        const [a, b] = [Math.min(lastSel.current, idx), Math.max(lastSel.current, idx)]
+      if (range && from !== null && rowItems[from]) {
+        const [a, b] = [Math.min(from, idx), Math.max(from, idx)]
         for (let i = a; i <= b; i++) next.add(rowItems[i].it.row.id)
       } else if (add) next.add(ri.it.row.id)
       else if (next.has(ri.it.row.id)) next.delete(ri.it.row.id)
@@ -890,6 +908,10 @@ const TableRow = memo(function TableRow({ m, row, idx, cols, gutter, height, sel
           data-readonly={!canEdit(p)}
           className={`dbt-cell${c === 0 ? ' dbt-cell--title dbt-sticky1' : ''}`}
           style={c === 0 ? { left: gutter } : undefined}
+          onMouseDown={(e) => {
+            // shift / ⌘-click selects rows — keep the browser from painting a text selection across cells
+            if (e.shiftKey || e.metaKey || e.ctrlKey) e.preventDefault()
+          }}
           onClick={(e) => handlers.onCell(idx, c, e)}
         >
           {c === 0 ? (

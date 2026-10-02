@@ -53,36 +53,59 @@ export function FormulaEditor({ db, prop, rows, resolver, onClose }: { db: Datab
     onClose()
   }
 
+  // Esc, the scrim and × keep a formula that compiles; one with an error asks before throwing it away
+  const [askDiscard, setAskDiscard] = useState(false)
+  const dirty = src !== (prop.formula ?? '')
+  const dismiss = () => {
+    if (!dirty) return onClose()
+    if (!compiled.error || !src.trim()) return save()
+    setAskDiscard(true)
+  }
+
   const q = query.trim().toLowerCase()
   const propList = db.properties.filter((p) => p.id !== prop.id && (!q || p.name.toLowerCase().includes(q)))
   const fnList = FORMULA_CATALOG.filter((f) => f.name !== 'prop' && (!q || f.name.toLowerCase().includes(q)))
   const groups = ['logic', 'text', 'math', 'date'] as const
 
-  // caret marker under the error position (first line only)
-  const errPos = err?.pos
-  const lineStart = errPos !== undefined ? src.lastIndexOf('\n', errPos - 1) + 1 : 0
+  // the error is marked in place by a mirror of the source that wraps exactly like the textarea
+  const errPos = err?.pos !== undefined ? Math.min(err.pos, src.length) : undefined
+  const mirrorRef = useRef<HTMLDivElement>(null)
 
   return (
     <Modal
       open
-      onClose={onClose}
+      onClose={dismiss}
       label={t('database.formula.label')}
       title={prop.name}
       width={860}
       className="db-fx"
       footer={
-        <>
-          <span className="label db-fx__foothint">
-            <Kbd>{MOD}</Kbd>
-            <Kbd>⏎</Kbd> {t('database.formula.saveHint')}
-          </span>
-          <button type="button" className="btn" onClick={onClose}>
-            {t('common.cancel')}
-          </button>
-          <button type="button" className="btn btn--primary" onClick={save} disabled={!!compiled.error && !!src.trim()}>
-            {t('common.done')}
-          </button>
-        </>
+        askDiscard ? (
+          <>
+            <span className="db-fx__discard" role="alert">
+              {t('database.formula.discardAsk')}
+            </span>
+            <button type="button" className="btn" data-autofocus="" onClick={() => (setAskDiscard(false), areaRef.current?.focus())}>
+              {t('database.formula.keepEditing')}
+            </button>
+            <button type="button" className="btn btn--danger" onClick={onClose}>
+              {t('database.formula.discard')}
+            </button>
+          </>
+        ) : (
+          <>
+            <span className="label db-fx__foothint">
+              <Kbd>{MOD}</Kbd>
+              <Kbd>⏎</Kbd> {t('database.formula.saveHint')}
+            </span>
+            <button type="button" className="btn" onClick={onClose}>
+              {t('common.cancel')}
+            </button>
+            <button type="button" className="btn btn--primary" onClick={save} disabled={!!compiled.error && !!src.trim()}>
+              {t('common.done')}
+            </button>
+          </>
+        )
       }
     >
       <div className="db-fx__grid">
@@ -97,7 +120,13 @@ export function FormulaEditor({ db, prop, rows, resolver, onClose }: { db: Datab
               autoCorrect="off"
               placeholder={'prop("Price") * 1.19'}
               data-autofocus=""
-              onChange={(e) => setSrc(e.target.value)}
+              onChange={(e) => {
+                setSrc(e.target.value)
+                if (askDiscard) setAskDiscard(false)
+              }}
+              onScroll={(e) => {
+                if (mirrorRef.current) mirrorRef.current.scrollTop = e.currentTarget.scrollTop
+              }}
               onKeyDown={(e) => {
                 if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
                   e.preventDefault()
@@ -105,10 +134,12 @@ export function FormulaEditor({ db, prop, rows, resolver, onClose }: { db: Datab
                 }
               }}
             />
-            {err && errPos !== undefined && !src.slice(lineStart, errPos).includes('\n') && (
-              <div className="db-fx__marker" aria-hidden>
-                <span>{src.slice(lineStart, errPos).replace(/[^\t]/g, ' ')}</span>
-                <b>^</b>
+            {err && errPos !== undefined && (
+              <div className="db-fx__mirror" ref={mirrorRef} aria-hidden>
+                {src.slice(0, errPos)}
+                <mark className="db-fx__errmark">{src[errPos] && src[errPos] !== '\n' ? src[errPos] : ' '}</mark>
+                {src[errPos] && src[errPos] !== '\n' ? src.slice(errPos + 1) : src.slice(errPos)}
+                {'\u200b'}
               </div>
             )}
           </div>

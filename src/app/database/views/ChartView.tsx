@@ -27,12 +27,14 @@ const FALLBACK: string[] = ['var(--ink)', 'var(--signal)', 'var(--c-blue-text)',
 const SAME_HUE: Record<string, string> = { 'var(--signal)': 'var(--c-orange-text)', 'var(--c-orange-text)': 'var(--signal)', 'var(--c-red-text)': 'var(--signal)' }
 const MAX_SLICES = 6
 
-function niceMax(v: number): { max: number; step: number } {
-  if (v <= 0) return { max: 1, step: 0.25 }
+/** Axis maximum + tick step; integer data (counts) never gets fractional ticks. */
+function niceMax(v: number, integer = false): { max: number; step: number } {
+  if (v <= 0) return integer ? { max: 1, step: 1 } : { max: 1, step: 0.25 }
   const raw = v / 4
   const mag = Math.pow(10, Math.floor(Math.log10(raw)))
   const norm = raw / mag
-  const step = (norm <= 1 ? 1 : norm <= 2 ? 2 : norm <= 2.5 ? 2.5 : norm <= 5 ? 5 : 10) * mag
+  let step = (norm <= 1 ? 1 : norm <= 2 ? 2 : norm <= 2.5 ? 2.5 : norm <= 5 ? 5 : 10) * mag
+  if (integer) step = step < 1 ? 1 : step === 2.5 ? 2 : Math.round(step)
   return { max: Math.ceil(v / step) * step, step }
 }
 
@@ -72,6 +74,16 @@ export default function ChartView() {
     }
     return groups.map((g) => ({ key: g.key, label: g.label, value: value(g.rows), color: g.color ?? null }))
   }, [xProp, yProp, cfg.aggregate, m, labels])
+
+  /** Over all shown records (not over groups: multi-value groupings count a row more than once). */
+  const overall = useMemo(() => {
+    if (cfg.aggregate === 'count' || !yProp) return m.rows.length
+    const nums = m.rows.map((r) => m.resolver.value(m.db, yProp, r)).filter((v): v is number => typeof v === 'number' && Number.isFinite(v))
+    if (!nums.length) return 0
+    const sum = nums.reduce((acc, x) => acc + x, 0)
+    return cfg.aggregate === 'sum' ? sum : sum / nums.length
+  }, [cfg.aggregate, yProp, m])
+  const share = cfg.aggregate !== 'average'
 
   const fmt = (v: number) => (cfg.aggregate !== 'count' && yProp?.type === 'number' ? formatNumber(Math.round(v * 100) / 100, yProp.numberFormat, lang) : formatCount(v, lang, 2))
   // axis ticks: no cents / decimals for big round steps
@@ -124,7 +136,7 @@ export default function ChartView() {
       <span style={{ flex: 1 }} />
       <span className="dbch-total">
         <span className="label">{cfg.aggregate === 'count' ? t('database.chart.records') : t(`database.chart.agg.${cfg.aggregate}`)}</span>
-        <span className="dbch-total__num">{cfg.aggregate === 'average' ? fmt(data.length ? total / data.filter((d) => d.value).length || 0 : 0) : fmt(total)}</span>
+        <span className="dbch-total__num">{fmt(overall)}</span>
       </span>
     </div>
   )
@@ -172,9 +184,9 @@ export default function ChartView() {
             <span className="db-empty__line" />
           </div>
         ) : cfg.kind === 'donut' ? (
-          <Donut slices={slices} total={total} w={w} h={H} fmt={fmt} hover={hover} setHover={setHover} centerLabel={cfg.aggregate === 'count' ? t('database.chart.records') : t(`database.chart.agg.${cfg.aggregate}`)} />
+          <Donut slices={slices} total={overall} w={w} h={H} fmt={fmt} hover={hover} setHover={setHover} centerLabel={cfg.aggregate === 'count' ? t('database.chart.records') : t(`database.chart.agg.${cfg.aggregate}`)} />
         ) : (
-          <XY kind={cfg.kind} data={data} w={w} h={H} fmt={fmt} tickFmt={tickFmt} hover={hover} setHover={setHover} />
+          <XY kind={cfg.kind} data={data} w={w} h={H} fmt={fmt} tickFmt={tickFmt} hover={hover} setHover={setHover} integer={cfg.aggregate === 'count'} />
         )}
       </div>
       <table className="dbch-table">
@@ -182,7 +194,7 @@ export default function ChartView() {
           <tr>
             <th>{xProp.name}</th>
             <th className="num">{cfg.aggregate === 'count' ? t('database.chart.records') : `${t(`database.chart.agg.${cfg.aggregate}`)} · ${yProp?.name ?? ''}`}</th>
-            <th className="num">%</th>
+            {share && <th className="num">%</th>}
           </tr>
         </thead>
         <tbody>
@@ -195,7 +207,7 @@ export default function ChartView() {
                   {d.label}
                 </td>
                 <td className="num">{fmt(d.value)}</td>
-                <td className="num">{total ? `${formatCount((d.value / total) * 100, lang, 1)}%` : '—'}</td>
+                {share && <td className="num">{total ? `${formatCount((d.value / total) * 100, lang, 1)}%` : '—'}</td>}
               </tr>
             )
           })}
@@ -205,20 +217,23 @@ export default function ChartView() {
   )
 }
 
-function XY({ kind, data, w, h, fmt, tickFmt, hover, setHover }: { kind: 'bar' | 'line'; data: Datum[]; w: number; h: number; fmt: (v: number) => string; tickFmt: (v: number) => string; hover: string | null; setHover: (k: string | null) => void }) {
+function XY({ kind, data, w, h, fmt, tickFmt, hover, setHover, integer }: { kind: 'bar' | 'line'; data: Datum[]; w: number; h: number; fmt: (v: number) => string; tickFmt: (v: number) => string; hover: string | null; setHover: (k: string | null) => void; integer?: boolean }) {
   const ml = 56
   const mr = 16
   const mt = 22
   const mb = 46
   const iw = Math.max(40, w - ml - mr)
   const ih = h - mt - mb
-  const { max, step } = niceMax(Math.max(...data.map((d) => d.value)))
+  const { max, step } = niceMax(Math.max(...data.map((d) => d.value)), integer)
   const band = iw / data.length
   const bw = Math.max(4, Math.min(56, band * 0.62))
   const y = (v: number) => mt + ih - (v / max) * ih
   const ticks: number[] = []
   for (let v = 0; v <= max + step / 2; v += step) ticks.push(v)
   const maxIdx = data.reduce((bi, d, i) => (d.value > data[bi].value ? i : bi), 0)
+  // value labels: on every mark when they fit, else only on a unique peak (a tie has no "the" peak)
+  const labelAll = band >= 34 && data.length <= 24
+  const uniquePeak = data.filter((d) => d.value === data[maxIdx]?.value).length === 1
   const chars = Math.max(3, Math.floor(band / 6.6))
   const short = (s: string) => (s.length > chars ? s.slice(0, chars - 1) + '…' : s)
   const pts = data.map((d, i) => [ml + band * i + band / 2, y(d.value)] as const)
@@ -256,11 +271,12 @@ function XY({ kind, data, w, h, fmt, tickFmt, hover, setHover }: { kind: 'bar' |
             {tip && <line x1={tip.x} x2={tip.x} y1={mt} y2={mt + ih} className="dbch-cross" />}
           </>
         )}
-        {/* selective direct label: the extreme only */}
-        {data[maxIdx] && (
-          <text x={pts[maxIdx][0]} y={pts[maxIdx][1] - 8} textAnchor="middle" className="dbch-peak">
-            {fmt(data[maxIdx].value)}
-          </text>
+        {data.map((d, i) =>
+          (labelAll ? d.value !== 0 : uniquePeak && i === maxIdx) ? (
+            <text key={d.key} x={pts[i][0]} y={pts[i][1] - 8} textAnchor="middle" className={`dbch-peak${i === maxIdx && uniquePeak ? '' : ' dbch-peak--minor'}`}>
+              {fmt(d.value)}
+            </text>
+          ) : null,
         )}
         {/* hit targets bigger than the marks */}
         {data.map((d, i) => (

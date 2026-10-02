@@ -2,14 +2,24 @@
  * Editor behaviour extensions: placeholder, block-selection highlight, shortcuts, input rules.
  */
 import { Extension, InputRule } from '@tiptap/core'
-import type { Node as PMNode, ResolvedPos } from '@tiptap/pm/model'
+import type { Fragment, Node as PMNode, ResolvedPos, Schema } from '@tiptap/pm/model'
 import { NodeSelection, Plugin, PluginKey, TextSelection } from '@tiptap/pm/state'
 import { Decoration, DecorationSet } from '@tiptap/pm/view'
 import { isNodeRangeSelection } from '@tiptap/extension-node-range'
 import { t } from '../../i18n'
 import type { Bridge } from '../lib/bridge'
 import { findEmoji } from '../lib/emoji'
-import { duplicateBlock, moveBlock, selectBlock } from '../lib/blocks'
+import {
+  duplicateBlock,
+  enterFromToggleTitle,
+  exitToggleOnEmptyLine,
+  jumpColumn,
+  moveBlock,
+  outdentBlock,
+  currentBlock,
+  selectAtomBefore,
+  selectBlock,
+} from '../lib/blocks'
 
 /* ------------------------------------------------------------------ */
 /* Placeholder                                                         */
@@ -34,46 +44,79 @@ function placeholderFor(node: PMNode, $pos: ResolvedPos | null): string {
   }
 }
 
+/** Empty headings / toggle titles keep their placeholder even when unfocused. */
+function emptyTitleDecos(doc: PMNode, from: number, to: number, out: Decoration[]) {
+  doc.nodesBetween(from, to, (node, pos) => {
+    if (node.isTextblock) {
+      if (node.content.size === 0 && (node.type.name === 'heading' || node.type.name === 'detailsSummary'))
+        out.push(Decoration.node(pos, pos + node.nodeSize, { class: 'is-empty', 'data-placeholder': placeholderFor(node, null) }))
+      return false
+    }
+    return !node.isAtom
+  })
+}
+
+const placeholderKey = new PluginKey<{ set: DecorationSet; lang: string }>('onePlaceholder')
+
 export const OnePlaceholder = Extension.create({
   name: 'onePlaceholder',
   addProseMirrorPlugins() {
     const editor = this.editor
-    let cacheDoc: PMNode | null = null
-    let cache: Array<{ from: number; to: number; text: string }> = []
+    const lang = () => t('editor.placeholder.default')
+    const full = (doc: PMNode) => {
+      const decos: Decoration[] = []
+      emptyTitleDecos(doc, 0, doc.content.size, decos)
+      return DecorationSet.create(doc, decos)
+    }
     return [
-      new Plugin({
-        key: new PluginKey('onePlaceholder'),
+      new Plugin<{ set: DecorationSet; lang: string }>({
+        key: placeholderKey,
+        state: {
+          init: (_, state) => ({ set: full(state.doc), lang: lang() }),
+          apply(tr, value, _old, state) {
+            const l = lang()
+            if (l !== value.lang) return { set: full(state.doc), lang: l }
+            if (!tr.docChanged) return value
+            // incremental: only rescan the ranges this transaction touched
+            let set = value.set.map(tr.mapping, tr.doc)
+            const size = tr.doc.content.size
+            tr.mapping.maps.forEach((map, i) => {
+              const rest = tr.mapping.slice(i + 1)
+              map.forEach((_s, _e, newStart, newEnd) => {
+                const from = Math.max(0, rest.map(newStart, -1) - 1)
+                const to = Math.min(size, rest.map(newEnd, 1) + 1)
+                set = set.remove(set.find(from, to).filter((d) => d.from < to && d.to > from))
+                const add: Decoration[] = []
+                emptyTitleDecos(tr.doc, from, to, add)
+                if (add.length) set = set.add(tr.doc, add)
+              })
+            })
+            return { set, lang: l }
+          },
+        },
         props: {
           decorations(state) {
             if (!editor.isEditable) return null
             const { doc, selection } = state
-            if (doc !== cacheDoc) {
-              cacheDoc = doc
-              cache = []
-              doc.descendants((node, pos) => {
-                if (node.isTextblock) {
-                  if (node.content.size === 0 && (node.type.name === 'heading' || node.type.name === 'detailsSummary'))
-                    cache.push({ from: pos, to: pos + node.nodeSize, text: placeholderFor(node, null) })
-                  return false
-                }
-                return !node.isAtom
-              })
-            }
+            const base = placeholderKey.getState(state)?.set ?? DecorationSet.empty
             const decos: Decoration[] = []
             const $from = selection.$from
             const parent = $from.parent
-            let curFrom = -1
             const onlyEmpty = doc.childCount === 1 && doc.firstChild?.isTextblock && doc.firstChild.content.size === 0
             const solo = onlyEmpty ? ' is-solo' : ''
+            let set = base
             if (selection.empty && parent.isTextblock && parent.content.size === 0 && $from.depth > 0 && !parent.type.spec.code) {
-              curFrom = $from.before()
+              const from = $from.before()
               const text = placeholderFor(parent, $from)
-              if (text) decos.push(Decoration.node(curFrom, $from.after(), { class: `is-empty is-current${solo}`, 'data-placeholder': text }))
+              if (text) {
+                set = set.remove(set.find(from, from + parent.nodeSize).filter((d) => d.from === from))
+                decos.push(Decoration.node(from, $from.after(), { class: `is-empty is-current${solo}`, 'data-placeholder': text }))
+              }
             } else if (onlyEmpty) {
+              set = set.remove(set.find(0, doc.firstChild!.nodeSize).filter((d) => d.from === 0))
               decos.push(Decoration.node(0, doc.firstChild!.nodeSize, { class: 'is-empty is-solo', 'data-placeholder': placeholderFor(doc.firstChild!, null) }))
             }
-            for (const c of cache) if (c.from !== curFrom) decos.push(Decoration.node(c.from, c.to, { class: 'is-empty', 'data-placeholder': c.text }))
-            return decos.length ? DecorationSet.create(doc, decos) : null
+            return decos.length ? set.add(doc, decos) : set
           },
         },
       }),
@@ -136,6 +179,17 @@ export function shortcutsExtension(bridge: Bridge) {
         'Mod-Shift-ArrowUp': moveUp,
         'Mod-Shift-ArrowDown': moveDown,
         'Mod-Shift-x': () => editor.commands.toggleStrike(),
+        // TipTap's own "double Enter leaves the toggle" never matches once paragraphs carry ids
+        Enter: () => !bridge.getState().suggest && (exitToggleOnEmptyLine(editor) || enterFromToggleTitle(editor)),
+        'Shift-Tab': () => !bridge.getState().suggest && (outdentBlock(editor) || jumpColumn(editor, -1)),
+        Tab: () => !bridge.getState().suggest && jumpColumn(editor, 1),
+        // keyboard path to the block menu (Turn into, Colour, Duplicate, Move to, Delete)
+        'Alt-Enter': () => {
+          const b = currentBlock(editor.state)
+          if (!b || bridge.getState().suggest) return false
+          bridge.setState({ blockMenu: { pos: b.pos } })
+          return true
+        },
         'Mod-k': () => {
           if (editor.state.selection.empty && !editor.isActive('link')) editor.commands.extendMarkRange('link')
           bridge.setState({ linkEdit: true })
@@ -178,6 +232,8 @@ export function shortcutsExtension(bridge: Bridge) {
           if (!empty || $from.parentOffset !== 0) return false
           // Notion: Backspace at the start of a heading turns it into text first
           if ($from.parent.type.name === 'heading') return editor.commands.setParagraph()
+          // …and right after an image / embed / divider it selects that block
+          if (selectAtomBefore(editor)) return true
           // Backspace in an empty toggle title unwraps the toggle (keeps its content)
           if ($from.parent.type.name === 'detailsSummary' && $from.parent.content.size === 0) {
             const d = $from.depth - 1
@@ -213,33 +269,36 @@ export const TabTrap = Extension.create({
 export const ExtraInputRules = Extension.create({
   name: 'extraInputRules',
   addInputRules() {
-    const editor = this.editor
-    const blockRule = (find: RegExp, build: () => object, opts: { selectNode?: boolean } = {}) =>
+    /**
+     * Block rule at the start of a paragraph. `build` receives the text after the marker
+     * (the line's existing content) and must keep it — never silently drop the user's text.
+     */
+    const blockRule = (find: RegExp, build: (rest: Fragment, schema: Schema) => PMNode | null, opts: { selectNode?: boolean } = {}) =>
       new InputRule({
         find,
         handler: ({ state, range }) => {
           const $from = state.doc.resolve(range.from)
           if ($from.parent.type.name !== 'paragraph' || $from.parentOffset !== 0) return null
-          const { tr } = state
-          const from = $from.before()
-          const to = $from.after()
           const rest = $from.parent.content.cut(range.to - $from.start())
-          const json = build() as { type: string }
-          let node
+          let node: PMNode | null
           try {
-            node = state.schema.nodeFromJSON(json)
+            node = build(rest, state.schema)
+            node?.check()
           } catch {
             return null
           }
-          if (node.type.name === 'callout' && rest.size) node = node.type.create(node.attrs, state.schema.nodes.paragraph.create(null, rest))
-          tr.replaceWith(from, to, node)
+          if (!node) return null
+          const { tr } = state
+          const from = $from.before()
+          tr.replaceWith(from, $from.after(), node)
           if (opts.selectNode) tr.setSelection(NodeSelection.create(tr.doc, from))
           else {
+            // caret at the start of the first textblock — where the user was typing
             let caret = -1
             tr.doc.nodesBetween(from, from + node.nodeSize, (n, pos) => {
               if (caret >= 0) return false
               if (n.isTextblock) {
-                caret = pos + 1 + n.content.size
+                caret = pos + 1
                 return false
               }
               return true
@@ -249,7 +308,6 @@ export const ExtraInputRules = Extension.create({
           return undefined
         },
       })
-    void editor
     const emojiRule = new InputRule({
       find: /:([a-z0-9_+-]{2,}):$/,
       handler: ({ state, range, match }) => {
@@ -261,13 +319,13 @@ export const ExtraInputRules = Extension.create({
     })
     return [
       emojiRule,
-      blockRule(/^>>\s$/, () => ({
-        type: 'details',
-        attrs: { open: true },
-        content: [{ type: 'detailsSummary' }, { type: 'detailsContent', content: [{ type: 'paragraph' }] }],
-      })),
-      blockRule(/^!>\s$/, () => ({ type: 'callout', attrs: { icon: '💡', color: 'gray' }, content: [{ type: 'paragraph' }] })),
-      blockRule(/^\$\$\s$/, () => ({ type: 'blockMath', attrs: { latex: '' } }), { selectNode: true }),
+      // ">> " — the line's text becomes the toggle title
+      blockRule(/^>>\s$/, (rest, schema) =>
+        schema.nodes.details.create({ open: true }, [schema.nodes.detailsSummary.create(null, rest), schema.nodes.detailsContent.create(null, schema.nodes.paragraph.create())]),
+      ),
+      blockRule(/^!>\s$/, (rest, schema) => schema.nodes.callout.create({ icon: '💡', color: 'gray' }, schema.nodes.paragraph.create(null, rest))),
+      // "$$ " only on an empty line (the text would otherwise have to become TeX)
+      blockRule(/^\$\$\s$/, (rest, schema) => (rest.size ? null : schema.nodes.blockMath.create({ latex: '' })), { selectNode: true }),
     ]
   },
 })
