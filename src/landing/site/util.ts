@@ -15,11 +15,18 @@ export function asset(path: string): string {
 export const prefersReducedMotion = (): boolean =>
   typeof window !== 'undefined' && !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
 
-/** Wrap every character of an element's text in a span (for type-on effects). Keeps aria via aria-label. */
+/**
+ * Wrap every character of an element's text in a span (for type-on effects). The visible
+ * characters are aria-hidden; a visually hidden copy keeps the text for screen readers
+ * (aria-label on a generic span is ignored).
+ */
 export function splitChars(el: HTMLElement): HTMLElement[] {
   const text = el.textContent ?? ''
-  el.setAttribute('aria-label', text)
   el.textContent = ''
+  const sr = document.createElement('span')
+  sr.className = 'sr'
+  sr.textContent = text
+  el.appendChild(sr)
   const spans: HTMLElement[] = []
   for (const ch of text) {
     const s = document.createElement('span')

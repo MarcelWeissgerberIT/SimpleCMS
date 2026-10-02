@@ -7,17 +7,21 @@ import { esc } from '../util'
 import { dotted } from './hero'
 import { sectionHead } from './head'
 
-/** The webhook body, exactly as the automations engine is expected to POST it. */
+/**
+ * The webhook body, shaped exactly like `buildPayload()` in src/app/features/automations/engine.ts
+ * (WebhookPayload): every property value is display text, `changes` is an array. Keep in sync.
+ */
 const PAYLOAD = {
   event: 'property_changed',
-  database: { id: 'db_leads', title: 'Leads' },
+  automation: { id: 'q7m2xk9v4c1d', name: 'Won deals to n8n' },
+  database: { id: 'b3n8w5t2pj6r', title: 'Leads' },
   row: {
-    id: 'pg_8f3k2q',
+    id: '8f3k2q7hv5ma',
     title: 'ACME GmbH',
-    url: 'https://you.github.io/SimpleCMS/app/#/p/pg_8f3k2q',
-    properties: { Status: 'Won', Value: 12000, Owner: 'Marcel' },
+    url: 'https://you.github.io/SimpleCMS/app/#/p/8f3k2q7hv5ma',
+    properties: { Name: 'ACME GmbH', Status: 'Won', Value: '12,000', Owner: 'Marcel' },
   },
-  changes: { Status: { from: 'Negotiation', to: 'Won' } },
+  changes: [{ property: 'Status', from: 'Negotiation', to: 'Won' }],
   timestamp: '2026-10-02T09:41:07.000Z',
   source: 'simplecms-one',
 }
@@ -68,7 +72,8 @@ function importFigure(ctx: Ctx, d: DeepDive): string {
   const nums = [0, 15, 30, 45]
     .map((n) => {
       const a = (n / 60) * Math.PI * 2
-      return `<text class="sw-num" x="${(160 + Math.sin(a) * 108).toFixed(1)}" y="${(165 - Math.cos(a) * 108).toFixed(1)}">${n === 0 ? 60 : n}</text>`
+      // r=90: well inside the sweep arc (r=118) so neither the arc nor the hand crosses a numeral.
+      return `<text class="sw-num" x="${(160 + Math.sin(a) * 90).toFixed(1)}" y="${(165 - Math.cos(a) * 90).toFixed(1)}">${n === 0 ? 60 : n}</text>`
     })
     .join('')
   const steps = de

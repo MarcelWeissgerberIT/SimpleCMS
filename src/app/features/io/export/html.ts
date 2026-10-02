@@ -33,6 +33,26 @@ function tokenCSS(): string {
   return `:root{${light.join(';')}}\n@media screen and (prefers-color-scheme: dark){:root{${dark.join(';')}}}`
 }
 
+/** @font-face rules of the running app (absolute URLs) — lets the print iframe use the bundled fonts offline. */
+function fontFaceCSS(): string {
+  const out: string[] = []
+  for (const sheet of Array.from(document.styleSheets)) {
+    let rules: CSSRuleList
+    try {
+      rules = sheet.cssRules
+    } catch {
+      continue
+    }
+    const base = sheet.href ?? window.location.href
+    for (const rule of Array.from(rules)) {
+      if (!(rule instanceof CSSFontFaceRule)) continue
+      if (!/Archivo|JetBrains/i.test(rule.style.getPropertyValue('font-family'))) continue
+      out.push(rule.cssText.replace(/url\(\s*(['"]?)([^'")]+)\1\s*\)/g, (_m, _q, u: string) => `url("${new URL(u, base).href}")`))
+    }
+  }
+  return out.join('\n')
+}
+
 const DOC_CSS = `
 *,*::before,*::after{box-sizing:border-box}
 html{-webkit-text-size-adjust:100%}
@@ -42,7 +62,9 @@ a:hover{text-decoration-color:var(--signal)}
 .sheet{max-width:820px;margin:32px auto;padding:48px 64px 64px;background:var(--surface);box-shadow:0 0 0 1px var(--rule-strong)}
 .plate{display:flex;flex-wrap:wrap;gap:6px 18px;justify-content:space-between;padding-bottom:10px;margin-bottom:28px;border-bottom:1.5px solid var(--ink);font:500 10.5px/1.3 var(--font-mono);letter-spacing:.08em;text-transform:uppercase;color:var(--ink-3)}
 .plate b{color:var(--signal-ink);font-weight:500}
-.index{margin:0 0 40px;padding:0;list-style:none;border-top:1px solid var(--rule)}
+.doc-title{font-size:56px;margin:24px 0 40px}
+.index-label{font:500 10.5px/1.4 var(--font-mono);letter-spacing:.08em;text-transform:uppercase;color:var(--signal-ink);padding-bottom:8px}
+.index{margin:0 0 40px;padding:0;list-style:none;border-top:1.5px solid var(--ink)}
 .index li{display:flex;gap:12px;padding:6px 0;border-bottom:1px solid var(--rule);font-size:14px}
 .index li span{font:500 10.5px/2 var(--font-mono);color:var(--ink-3);min-width:28px}
 .index li.d1{padding-left:20px}.index li.d2{padding-left:40px}.index li.d3{padding-left:60px}
@@ -100,17 +122,20 @@ nav.toc a.l2{padding-left:14px}nav.toc a.l3{padding-left:28px}
 .props td{padding:6px 0;border-bottom:1px solid var(--rule)}
 .dbt{width:100%;border-collapse:collapse;font-size:13.5px;margin:6px 0 10px}
 .dbt th{text-align:left;font:500 10.5px/1.3 var(--font-mono);letter-spacing:.08em;text-transform:uppercase;color:var(--ink-3);padding:8px 10px;border-bottom:1.5px solid var(--ink);white-space:nowrap}
-.dbt td{padding:7px 10px;border-bottom:1px solid var(--rule);vertical-align:top}
+.dbt td{padding:7px 10px;border-bottom:1px solid var(--rule);vertical-align:top;white-space:nowrap}
+.dbt td:first-child{white-space:normal;min-width:160px}
 .dbt td:first-child{font-weight:600}
 .dbt-wrap{overflow:auto}
 .count{font:500 10.5px var(--font-mono);letter-spacing:.08em;text-transform:uppercase;color:var(--ink-3)}
 footer.colophon{margin-top:64px;padding-top:12px;border-top:1px solid var(--rule);font:500 10.5px/1.4 var(--font-mono);letter-spacing:.08em;text-transform:uppercase;color:var(--ink-3);display:flex;justify-content:space-between}
-@media (max-width:720px){.sheet{margin:0;padding:28px 20px 40px;box-shadow:none}h1.title{font-size:32px}}
+@media (max-width:720px){.sheet{margin:0;padding:28px 20px 40px;box-shadow:none}h1.title{font-size:32px}.doc-title{font-size:40px}}
 @media print{
   :root{color-scheme:light}
   body{background:#fff}
   .sheet{max-width:none;margin:0;padding:0;box-shadow:none;background:none}
   .index{break-after:page}
+  .doc-title{margin-top:30mm}
+  .dbt td{white-space:normal}
   article+article{break-before:page;margin-top:0;padding-top:0;border-top:0}
   pre,blockquote,.callout,table,figure,img{break-inside:avoid}
   h1,h2,h3{break-after:avoid}
@@ -129,6 +154,8 @@ export interface HtmlOptions {
   /** labels */
   labels: { exported: string; pages: string; contents: string; rows: string; generator: string }
   appUrl: string
+  /** print (PDF): use the app's bundled fonts instead of Google Fonts */
+  forPrint?: boolean
   onProgress?: (done: number, total: number) => void
 }
 
@@ -193,6 +220,8 @@ async function finishContent(html: string, page: Page, ctx: { files: Map<string,
       /* keep the source as a code block */
     }
   }
+  // documents read top to bottom: unfold toggles
+  root.querySelectorAll('details').forEach((d) => d.setAttribute('open', ''))
   // embeds → links (no iframes in a document)
   root.querySelectorAll<HTMLElement>('[data-type="embed"]').forEach((el) => {
     const url = el.getAttribute('data-url') ?? ''
@@ -311,7 +340,7 @@ export async function buildHTML(tree: ExportTree, opts: HtmlOptions): Promise<st
   const date = new Intl.DateTimeFormat(opts.lang === 'de' ? 'de-DE' : 'en-GB', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date())
   const index =
     articles.length > 1
-      ? `<ol class="index">${articles
+      ? `<h1 class="title doc-title">${esc(opts.title)}</h1><div class="index-label">${esc(opts.labels.contents)}</div><ol class="index">${articles
           .filter((p) => !p.databaseId)
           .map((p, i) => `<li class="d${Math.min(3, depth(p))}"><span>${String(i + 1).padStart(2, '0')}</span><a href="#p-${p.id}">${esc(p.title.trim() || opts.untitled)}</a></li>`)
           .join('')}</ol>`
@@ -323,8 +352,8 @@ export async function buildHTML(tree: ExportTree, opts: HtmlOptions): Promise<st
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="generator" content="SimpleCMS One">
 <title>${esc(opts.title)}</title>
-${FONT_LINK}
-<style>${tokenCSS()}\n${DOC_CSS}</style>
+${opts.forPrint ? '' : FONT_LINK}
+<style>${opts.forPrint ? fontFaceCSS() : ''}\n${tokenCSS()}\n${DOC_CSS}</style>
 </head>
 <body>
 <main class="sheet">

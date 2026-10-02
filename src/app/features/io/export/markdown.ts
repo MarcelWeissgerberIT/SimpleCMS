@@ -3,13 +3,33 @@
  *   Page.md + Page/ (subpages) · Database.csv + Database/ (row pages with "Property: value" header) · _files/
  */
 import { zipSync, strToU8 } from 'fflate'
-import type { ID, Page } from '../../../store/types'
+import type { Database, DateValue, ID, Page, PropertyDef } from '../../../store/types'
 import { docToMarkdown } from '../../../editor'
 import { propertyValueToText } from '../../../database'
 import { getFile } from '../../../lib/files'
 import { collectRefs, relativePath, safeName, uniqueName, type ExportTree } from './collect'
 
 const csvCell = (s: string) => (/[",\n\r;]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s)
+
+const pad = (n: number) => String(n).padStart(2, '0')
+const isoStamp = (ms: number) => {
+  const d = new Date(ms)
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
+
+/** Plain value for CSV / "Property: value" lines — dates as ISO so they re-import losslessly. */
+export function exportValue(db: Database, prop: PropertyDef, row: Page): string {
+  if (prop.type === 'title') return row.title
+  if (prop.type === 'date') {
+    const v = row.properties[prop.id] as DateValue | null | undefined
+    if (!v?.start) return ''
+    const f = (s: string) => s.replace('T', ' ')
+    return v.end ? `${f(v.start)} → ${f(v.end)}` : f(v.start)
+  }
+  if (prop.type === 'created_time') return isoStamp(row.createdAt)
+  if (prop.type === 'last_edited_time') return isoStamp(row.updatedAt)
+  return propertyValueToText(db, prop, row)
+}
 
 export async function buildMarkdownZip(tree: ExportTree, opts: { untitled: string; onProgress?: (done: number, total: number) => void }): Promise<Blob> {
   const out: Record<string, Uint8Array> = {}
@@ -74,7 +94,7 @@ export async function buildMarkdownZip(tree: ExportTree, opts: { untitled: strin
     if (p.kind === 'database' && db) {
       const rows = tree.rows(p.id)
       const lines = [db.properties.map((d) => csvCell(d.name)).join(',')]
-      for (const r of rows) lines.push(db.properties.map((d) => csvCell(d.type === 'title' ? r.title : propertyValueToText(db, d, r))).join(','))
+      for (const r of rows) lines.push(db.properties.map((d) => csvCell(exportValue(db, d, r))).join(','))
       out[path] = strToU8('﻿' + lines.join('\r\n') + '\r\n')
     } else {
       const parts = [`# ${p.title.trim() || opts.untitled}`, '']
@@ -83,7 +103,7 @@ export async function buildMarkdownZip(tree: ExportTree, opts: { untitled: strin
         const props: string[] = []
         for (const d of rowDb.properties) {
           if (d.type === 'title') continue
-          const v = propertyValueToText(rowDb, d, p)
+          const v = exportValue(rowDb, d, p)
           if (v.trim()) props.push(`${d.name}: ${v.replace(/\n/g, ' ')}`)
         }
         if (props.length) parts.push(props.join('\n'), '')

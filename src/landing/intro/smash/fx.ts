@@ -78,7 +78,7 @@ export class Fx {
     this.sparkMesh.frustumCulled = false
     this.sparkMesh.renderOrder = 6
     // dust
-    this.dust = pool(mobile ? 120 : 220)
+    this.dust = pool(mobile ? 70 : 120)
     this.dustGeo = new THREE.BufferGeometry()
     const n = this.dust.length
     this.dustGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(n * 3), 3).setUsage(THREE.DynamicDrawUsage))
@@ -194,8 +194,8 @@ export class Fx {
       p.p.set(at.x + Math.cos(a) * d, at.y + Math.sin(a) * d, 0.1 + r() * 0.4)
       const sp = speed * (0.3 + r())
       p.v.set(Math.cos(a) * sp, Math.sin(a) * sp + 0.4, (0.5 + r() * 1.5) * speed)
-      p.size = 0.6 + r() * 1.6
-      p.angle = 0.16 + r() * 0.26
+      p.size = 0.45 + r() * 1.05
+      p.angle = 0.22 + r() * 0.3
     }
   }
 

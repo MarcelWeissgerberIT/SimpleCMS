@@ -60,12 +60,13 @@ export function renderSavings(ctx: Ctx): string {
           <p class="lbl">${esc(t('savings.headline'))}</p>
           <p class="calc-big disp"><span data-total-big></span><span class="calc-per">${esc(t('savings.perYear'))}</span></p>
           <p class="lbl calc-five" data-five></p>
+          <p class="sr" aria-live="polite" aria-atomic="true" data-calc-live></p>
         </div>
       </div>
       <div class="printer" data-reveal>
         <div class="printer-head tone-carbon" aria-hidden="true"><span class="led led-on"></span><span class="lbl">TM-ONE · 58 MM</span><span class="printer-slot"></span></div>
         <div class="receipt-clip">
-          <article class="receipt tone-print" data-receipt aria-live="polite" aria-label="${esc(t('savings.receipt'))}"></article>
+          <article class="receipt tone-print" data-receipt aria-label="${esc(t('savings.receipt'))}"></article>
         </div>
       </div>
     </div>
@@ -79,8 +80,10 @@ function receiptHtml(ctx: Ctx, s: CalcState): string {
   const total = notionYearly(s.plan, s.billing, s.seats)
   const money = (v: number) => formatUsd(v, lang)
   const planName = `${t(`savings.${s.plan}`)}${s.plan === 'business' ? ' + AI' : ''}`
+  // ISO 8601: unambiguous in both languages (and next to USD prices), and it fits the manual.
   const d = new Date()
-  const date = d.toLocaleDateString(lang === 'de' ? 'de-DE' : 'en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' })
+  const pad = (n: number) => String(n).padStart(2, '0')
+  const date = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
   const row = (a: string, b: string, cls = '') => `<div class="r-row ${cls}"><span>${a}</span><span>${b}</span></div>`
   const barcode = Array.from({ length: 46 }, (_, i) => `<i style="width:${1 + ((i * 7 + s.seats) % 3)}px"></i>`).join('')
   return `
@@ -129,6 +132,7 @@ export function bindSavings(root: HTMLElement, ctx: Ctx, hooks: SavingsHooks = {
   const receipt = sec.querySelector<HTMLElement>('[data-receipt]')!
   const big = sec.querySelector<HTMLElement>('[data-total-big]')!
   const five = sec.querySelector<HTMLElement>('[data-five]')!
+  const live = sec.querySelector<HTMLElement>('[data-calc-live]')
   const { t, lang } = ctx
 
   sec.querySelectorAll<HTMLElement>('[data-plan-price]').forEach((el) => {
@@ -137,6 +141,22 @@ export function bindSavings(root: HTMLElement, ctx: Ctx, hooks: SavingsHooks = {
   })
 
   let shownTotal = notionYearly(calcState.plan, calcState.billing, calcState.seats)
+  // Screen readers get one short sentence once the controls settle — not the whole receipt
+  // on every slider step.
+  let announce = 0
+  const announceLater = () => {
+    window.clearTimeout(announce)
+    announce = window.setTimeout(() => {
+      if (!live) return
+      const s = calcState
+      live.textContent = t('savings.live', {
+        seats: s.seats,
+        plan: t(`savings.${s.plan}`),
+        billing: t(s.billing === 'annual' ? 'savings.annual' : 'savings.monthly').toLowerCase(),
+        amount: formatUsd(notionYearly(s.plan, s.billing, s.seats), lang, false),
+      })
+    }, 400)
+  }
   const update = (reprint: boolean) => {
     const s = calcState
     range.value = String(s.seats)
@@ -156,7 +176,10 @@ export function bindSavings(root: HTMLElement, ctx: Ctx, hooks: SavingsHooks = {
       el.textContent = t('savings.perSeat', { price: formatUsd(NOTION_PRICING.perSeatMonth[p][s.billing], lang, false) })
     })
     receipt.innerHTML = receiptHtml(ctx, s)
-    if (reprint) hooks.onReprint?.(receipt)
+    if (reprint) {
+      hooks.onReprint?.(receipt)
+      announceLater()
+    }
   }
 
   const setSeats = (n: number) => {

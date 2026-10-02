@@ -89,7 +89,7 @@ function tall(t: T, motion: boolean): string {
   const loopB = 'M218 268 V204'
   const toAi = 'M60 204 V556'
   const toHook = 'M340 204 V556'
-  return `<svg class="pv-svg pv-tall" viewBox="0 0 400 840" role="img" aria-label="${esc(t('privacy.alt'))}">
+  return `<svg class="pv-svg pv-tall" viewBox="0 0 400 846" role="img" aria-label="${esc(t('privacy.alt'))}">
     ${defs(idp)}
     <rect class="pv-frame" x="10" y="16" width="380" height="440" rx="6"/>
     <line class="pv-rule" x1="10" y1="56" x2="390" y2="56"/>
@@ -104,16 +104,16 @@ function tall(t: T, motion: boolean): string {
     <path class="pv-wire-opt" d="${toAi}" marker-end="url(#${idp}-arr)"/>
     <path class="pv-wire-opt" d="${toHook}" marker-end="url(#${idp}-arr)"/>
     ${packet(toAi, 3, 0.2, motion)}${packet(toHook, 3, 1.6, motion)}
-    <rect class="pv-ext" x="10" y="560" width="178" height="112" rx="4"/>
+    <rect class="pv-ext" x="10" y="560" width="178" height="116" rx="4"/>
     <text class="pv-t pv-strong" x="24" y="592">${esc(t('privacy.anthropic'))}</text>
-    <foreignObject x="24" y="600" width="156" height="66"><p xmlns="http://www.w3.org/1999/xhtml" class="pv-fo">${esc(t('privacy.anthropicNote'))}</p></foreignObject>
-    <rect class="pv-ext" x="212" y="560" width="178" height="112" rx="4"/>
+    <foreignObject x="22" y="604" width="160" height="68"><p xmlns="http://www.w3.org/1999/xhtml" class="pv-fo">${esc(t('privacy.anthropicNote'))}</p></foreignObject>
+    <rect class="pv-ext" x="212" y="560" width="178" height="116" rx="4"/>
     <text class="pv-t pv-strong" x="226" y="592">${esc(t('privacy.hooks'))}</text>
-    <foreignObject x="226" y="600" width="156" height="66"><p xmlns="http://www.w3.org/1999/xhtml" class="pv-fo">${esc(t('privacy.hooksNote'))}</p></foreignObject>
-    <path class="pv-wire-dead" d="M200 456 V610"/>
-    <path class="pv-cut" d="M186 618 L214 630 M186 630 L214 642"/>
-    <path class="pv-wire-dead" d="M200 650 V734"/>
-    ${crossedBox(10, 736, 380, 96, t, idp)}
+    <foreignObject x="224" y="604" width="160" height="68"><p xmlns="http://www.w3.org/1999/xhtml" class="pv-fo">${esc(t('privacy.hooksNote'))}</p></foreignObject>
+    <path class="pv-wire-dead" d="M200 456 V688"/>
+    <path class="pv-cut" d="M188 692 L212 702 M188 704 L212 714"/>
+    <path class="pv-wire-dead" d="M200 718 V738"/>
+    ${crossedBox(10, 742, 380, 96, t, idp)}
   </svg>`
 }
 

@@ -2,6 +2,7 @@ import { BRAND } from '@/shared/brand'
 import type { Ctx } from '../context'
 import { HERO_CALLOUTS, heroSchematic } from '../figures'
 import { frame } from '../frame'
+import { NOTION_PRICING } from '../pricing'
 import { esc } from '../util'
 
 /** "Notion, rebuilt." → "Notion, rebuilt<span class=dot>.</span>" (orange full stop). */
@@ -26,7 +27,8 @@ export function renderHero(ctx: Ctx): string {
   const overlay = `<svg class="leaders" viewBox="0 0 1600 1000" preserveAspectRatio="none" aria-hidden="true">${leaders}</svg>${balloons}`
 
   const readout = [
-    { val: t('readout.cost'), from: lang === 'de' ? 2880 : 2880, unit: t('readout.costUnit'), kind: 'cost' },
+    // Counts down from what one Notion Business seat costs a year at monthly billing ($24 × 12).
+    { val: t('readout.cost'), from: NOTION_PRICING.perSeatMonth.business.monthly * 12, unit: t('readout.costUnit'), kind: 'cost' },
     { val: '0', from: 12, unit: t('readout.servers'), kind: 'n' },
     { val: '0', from: 37, unit: t('readout.trackers'), kind: 'n' },
     { val: '∞', from: 0, unit: t('readout.pages'), kind: 'inf' },
@@ -41,8 +43,8 @@ export function renderHero(ctx: Ctx): string {
       <p class="lbl hero-plate">${esc(t('hero.plate', v))}</p>
     </div>
     <h1 id="hero-h" class="hero-h disp">
-      <span class="line" data-ghost="${esc(t('hero.h1'))}"><span class="line-in">${dotted(t('hero.h1'))}</span></span>
-      <span class="line" data-ghost="${esc(t('hero.h2'))}"><span class="line-in">${dotted(t('hero.h2'))}</span></span>
+      <span class="line"><span class="ghost" aria-hidden="true">${esc(t('hero.h1'))}</span><span class="line-in">${dotted(t('hero.h1'))}</span></span>
+      <span class="line"><span class="ghost" aria-hidden="true">${esc(t('hero.h2'))}</span><span class="line-in">${dotted(t('hero.h2'))}</span></span>
     </h1>
     <div class="hero-body">
       <div class="hero-copy">

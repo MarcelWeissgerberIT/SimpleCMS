@@ -132,7 +132,7 @@
   color: var(--ink-2);
 }
 .key-price {
-  color: var(--ink-3);
+  color: var(--ink-2);
   font-size: 10px;
 }
 .key[aria-pressed='true'] {
@@ -203,7 +203,7 @@
   padding: 0 4px;
   font-family: var(--font-mono);
   font-size: 10px;
-  color: var(--ink-3);
+  color: var(--ink-2);
 }
 .range-scale span {
   position: relative;
@@ -267,6 +267,16 @@
   padding-top: 22px;
   border-top: 1px solid var(--rule-strong);
 }
+/* Side by side, the panel runs as tall as the printer + receipt; its three rows spread evenly
+   instead of leaving one hole under the shorter column. */
+@media (min-width: 1001px) {
+  .calc {
+    align-items: stretch;
+  }
+  .panel {
+    align-content: space-between;
+  }
+}
 .calc-result .lbl {
   margin: 0;
 }
@@ -286,7 +296,7 @@
   font-stretch: 100%;
 }
 .calc-five {
-  color: var(--ink-3);
+  color: var(--ink-2);
 }
 
 /* The printer + receipt */
@@ -482,7 +492,7 @@
   display: flex;
   justify-content: space-between;
   margin: 0;
-  color: var(--ink-3);
+  color: var(--ink-2);
 }
 .plac:hover .plac-idx > span:first-child {
   color: var(--signal-ink);
@@ -584,7 +594,7 @@
 /* ================= § 03 Up close ================= */
 .deep {
   display: grid;
-  gap: clamp(80px, 10vw, 148px);
+  gap: clamp(64px, 7.4vw, 108px);
 }
 .deep-row {
   display: grid;
@@ -774,7 +784,7 @@ td[data-col='One.'] .mk-yes {
 }
 .sheet-src {
   margin-left: auto;
-  color: var(--ink-3);
+  color: var(--ink-2);
 }
 
 /* ================= § 05 Data flow (Carbon) ================= */
@@ -806,7 +816,7 @@ td[data-col='One.'] .mk-yes {
   margin-top: 18px;
   padding-top: 12px;
   border-top: 1px solid var(--rule);
-  color: var(--ink-3);
+  color: var(--ink-2);
 }
 .pv-t {
   font-family: var(--font-sans);
@@ -822,7 +832,7 @@ td[data-col='One.'] .mk-yes {
   fill: var(--ink-2);
 }
 .pv-dim {
-  fill: var(--ink-3);
+  fill: var(--ink-2);
 }
 .pv-strong {
   font-weight: 700;
@@ -920,11 +930,16 @@ td[data-col='One.'] .mk-yes {
 .pv-fo {
   margin: 0;
   font-family: var(--font-mono);
-  font-size: 10.5px;
-  line-height: 1.4;
-  letter-spacing: 0.04em;
+  /* The tall drawing renders at ~0.82×: 13.5 units ≈ 11px on a 390px phone. */
+  font-size: 13.5px;
+  line-height: 1.35;
+  letter-spacing: 0.02em;
   text-transform: uppercase;
-  color: var(--ink-3);
+  color: var(--ink-2);
+}
+.pv-tall .pv-m {
+  font-size: 13px;
+  letter-spacing: 0.06em;
 }
 .pv-points {
   list-style: none;
@@ -950,7 +965,7 @@ td[data-col='One.'] .mk-yes {
 
 /* ================= § 06 Own it (signal orange) ================= */
 .sec-own {
-  --sec-pad: clamp(72px, 9vw, 132px);
+  --sec-pad: clamp(56px, 6.6vw, 96px);
 }
 .own-grid {
   display: grid;
@@ -1145,7 +1160,7 @@ td[data-col='One.'] .mk-yes {
 }
 .foot-brand .foot-made {
   margin-top: 8px;
-  color: var(--ink-3);
+  color: var(--ink-2);
   font-size: 14px;
 }
 .foot-mark svg {
@@ -1154,7 +1169,7 @@ td[data-col='One.'] .mk-yes {
 }
 .foot nav .lbl {
   margin: 0 0 14px;
-  color: var(--ink-3);
+  color: var(--ink-2);
 }
 .foot ul {
   list-style: none;
@@ -1212,7 +1227,7 @@ td[data-col='One.'] .mk-yes {
   color: var(--ink);
 }
 .foot-replay .lbl {
-  color: var(--ink-3);
+  color: var(--ink-2);
 }
 .foot-word {
   margin: 0 0 0 -0.055em;
@@ -1232,7 +1247,7 @@ td[data-col='One.'] .mk-yes {
   margin-top: clamp(24px, 3vw, 40px);
   padding-top: 14px;
   border-top: 1px solid var(--rule-strong);
-  color: var(--ink-3);
+  color: var(--ink-2);
 }
 
 /* ================= Responsive ================= */
@@ -1342,6 +1357,25 @@ td[data-col='One.'] .mk-yes {
     height: 72px;
     margin: -6px 0 0 -8px;
   }
+  /* The EN / DE keycaps shrink to the 64px art column, like the rendered icons. */
+  .plac-keys {
+    gap: 4px;
+    margin-top: 4px;
+  }
+  .plac-keys span {
+    width: 30px;
+    height: 30px;
+    border-radius: 6px;
+    font-size: 10.5px;
+    box-shadow:
+      inset 0 -3px 0 rgba(0, 0, 0, 0.06),
+      inset 0 1px 0 rgba(255, 255, 255, 0.9),
+      0 7px 10px -6px rgba(0, 0, 0, 0.45),
+      0 2px 0 var(--rule-strong);
+  }
+  .plac-keys span + span {
+    transform: translateY(5px);
+  }
   .plac-h {
     margin: 0 0 4px;
     font-size: 17px;
@@ -1383,7 +1417,7 @@ td[data-col='One.'] .mk-yes {
     font-size: 10px;
     letter-spacing: var(--tracking-label);
     text-transform: uppercase;
-    color: var(--ink-3);
+    color: var(--ink-2);
   }
   .spec td .mk {
     margin: 0;

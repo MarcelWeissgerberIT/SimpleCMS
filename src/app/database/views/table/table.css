@@ -643,3 +643,7 @@ body.db-resizing .dbt-resize:active::after {
 .dbt[data-scrolled='true'] .dbt-row--calc .dbt-sticky1 {
   box-shadow: none;
 }
+
+.dbt-cell .db-num--end {
+  margin-left: auto;
+}

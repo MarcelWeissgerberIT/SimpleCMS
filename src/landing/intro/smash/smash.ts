@@ -33,6 +33,8 @@ export interface SmashStage {
   play(hooks: SmashHooks, opts?: { wash?: number }): void
   /** Manual clock (tests): advance the sequence by `ms` and render. */
   advance?(ms: number): void
+  /** Sequence time in seconds (watchdog: detects a stalled render loop). */
+  progress(): number
   dispose(): void
 }
 
@@ -84,10 +86,10 @@ const KEYS: Key[] = [
   { t: 1.9, th: 24, ps: -8, off: [0.35, 0, 1.0], ease: outCubic },
   { t: 2.56, th: 50, ps: 40, off: [0.8, -1.8, 4.0], ease: inOutCubic },
   { t: 2.66, th: 56, ps: 44, off: [0.95, -1.7, 4.3], ease: inOutSine },
+  // (the 120 ms freeze-frame happens here: the clock stops at T_HIT3)
   { t: T_HIT3, th: 6, ps: 0, off: [0, 0, 0], ease: inQuart },
-  { t: T_HIT3 + FREEZE, th: 6, ps: 0, off: [0, 0, 0], ease: linear },
-  { t: T_HIT3 + FREEZE + 0.14, th: -14, ps: -10, off: [-0.2, -0.3, -0.6], ease: outQuad },
-  { t: T_HIT3 + FREEZE + 0.9, th: 170, ps: -140, off: [9, 8, 9], ease: inQuad },
+  { t: T_HIT3 + 0.14, th: -14, ps: -10, off: [-0.2, -0.3, -0.6], ease: outQuad },
+  { t: T_HIT3 + 0.9, th: 170, ps: -140, off: [9, 8, 9], ease: inQuad },
 ]
 
 function lerp(a: number, b: number, k: number) {
@@ -263,7 +265,6 @@ export async function createSmashStage(host: HTMLElement, opts: SmashOptions): P
     return { g, mat, lag, fade: 1 - i * 0.22 }
   })
   const prevHead = new THREE.Vector3()
-  const ghostHead = new THREE.Vector3()
 
   function poseHammer(t: number) {
     poseAt(hammer.pivot, t)
@@ -277,7 +278,6 @@ export async function createSmashStage(host: HTMLElement, opts: SmashOptions): P
       gh.g.visible = amt > 0.02 && t > gh.lag
       if (!gh.g.visible) continue
       poseAt(gh.g, t - gh.lag)
-      ghostHead.copy(gh.g.position)
       gh.mat.opacity = 0.32 * amt * gh.fade
     }
   }
@@ -287,15 +287,22 @@ export async function createSmashStage(host: HTMLElement, opts: SmashOptions): P
   scene.add(fx.group)
 
   // ------------------------------------------------------------------ warm-up (compile shaders, upload buffers)
-  for (const b of bodies) b.mesh.visible = true
+  // Everything visible once so every program is compiled before the show (no first-hit hitch).
   poseHammer(1.0)
+  const hidden: THREE.Object3D[] = []
+  scene.traverse((o) => {
+    if (!o.visible) {
+      hidden.push(o)
+      o.visible = true
+    }
+  })
   try {
     await renderer.compileAsync(scene, camera)
   } catch {
     renderer.compile(scene, camera)
   }
   renderer.render(scene, camera)
-  for (const b of bodies) b.mesh.visible = false
+  for (const o of hidden) o.visible = false
   poseHammer(0)
 
   // ------------------------------------------------------------------ sequence state
@@ -336,8 +343,9 @@ export async function createSmashStage(host: HTMLElement, opts: SmashOptions): P
     { t: T_HIT2, fn: () => hit(2) },
     { t: 2.64, fn: () => sfx?.whoosh(0.17, 0.6, -0.2, 0.75) },
     { t: T_HIT3, fn: () => contact() },
-    { t: T_HIT3 + FREEZE, fn: () => shatter() },
-    { t: T_HIT3 + FREEZE + 0.45, fn: () => (glowTarget = 0) },
+    // fires on the first frame after the freeze (the clock is stopped at T_HIT3 meanwhile)
+    { t: T_HIT3 + 0.0001, fn: () => shatter() },
+    { t: T_HIT3 + 0.45, fn: () => (glowTarget = 0) },
   ]
 
   function growCracks(to: number, dur: number) {
@@ -373,6 +381,7 @@ export async function createSmashStage(host: HTMLElement, opts: SmashOptions): P
   }
 
   function contact() {
+    seq = T_HIT3 // hold the exact contact pose during the freeze-frame
     trauma = Math.min(1, trauma + 0.3)
     punch = Math.max(punch, 0.06)
     whiteA = 0.42
@@ -386,13 +395,13 @@ export async function createSmashStage(host: HTMLElement, opts: SmashOptions): P
   function shatter() {
     shattered = true
     trauma = 1
-    fx.burst(impact3, 1.5, { chips: mobile ? 30 : 46, sparks: mobile ? 22 : 34, dust: mobile ? 22 : 34 })
-    fx.puff(impact3, mobile ? 16 : 26, 2.2, 2.6, 1.5)
+    fx.burst(impact3, 1.5, { chips: mobile ? 30 : 46, sparks: mobile ? 22 : 34, dust: mobile ? 12 : 20 })
+    fx.puff(impact3, mobile ? 10 : 18, 2.2, 2.6, 1.5)
     fx.ring(impact3, 9, 0.55, 0.16)
     for (const b of bodies) {
       if (b.state !== 'rest') continue
       launch(b, 1, Math.min(0.28, b.shard.dist * 0.03))
-      if (rand() < 0.45) fx.puff(new THREE.Vector3(b.shard.cx, b.shard.cy, 0), 2, b.shard.radius * 0.6, 0.8, 1.2)
+      if (rand() < 0.35) fx.puff(new THREE.Vector3(b.shard.cx, b.shard.cy, 0), 1, b.shard.radius * 0.6, 0.8, 1.2)
     }
     glowTarget = 0.6
     sfx?.boom()
@@ -460,6 +469,7 @@ export async function createSmashStage(host: HTMLElement, opts: SmashOptions): P
       if (!ev.done && seq >= ev.t) {
         ev.done = true
         ev.fn()
+        if (freezeLeft > 0) break
       }
     }
     poseHammer(seq)
@@ -508,7 +518,7 @@ export async function createSmashStage(host: HTMLElement, opts: SmashOptions): P
 
   function finished(): boolean {
     if (!shattered) return false
-    const since = seq - (T_HIT3 + FREEZE)
+    const since = seq - T_HIT3
     if (since > SHATTER_LEN + 0.35) return true
     return since > SHATTER_LEN - 0.3 && bodies.every((b) => b.state === 'gone')
   }
@@ -583,6 +593,7 @@ export async function createSmashStage(host: HTMLElement, opts: SmashOptions): P
         if (!opts.manualClock) raf = requestAnimationFrame(loop)
       })
     },
+    progress: () => seq,
     advance(ms: number) {
       if (disposed) return
       let left = ms / 1000

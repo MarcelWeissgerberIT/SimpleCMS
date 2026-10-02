@@ -81,7 +81,7 @@
 }
 .hero-fine {
   margin: -6px 0 0;
-  color: var(--ink-3);
+  color: var(--ink-2);
 }
 
 /* Parts list (bill of materials) for the drawing's balloons. */
@@ -95,7 +95,7 @@
   margin: 0;
   padding: 8px 0;
   border-bottom: 1px solid var(--rule);
-  color: var(--ink-3);
+  color: var(--ink-2);
 }
 .bom ol {
   list-style: none;
@@ -128,7 +128,7 @@
 .bom-q {
   font-family: var(--font-mono);
   font-size: 11px;
-  color: var(--ink-3);
+  color: var(--ink-2);
 }
 
 /* Drawing */
@@ -396,8 +396,9 @@
 .hero .line {
   position: relative;
 }
-.hero .line::before {
-  content: attr(data-ghost);
+/* A real (aria-hidden) element, not ::before content, so screen readers hear the h1 once.
+   The entrance fades each ghost out in step with its own line (motion.ts). */
+.hero .ghost {
   position: absolute;
   left: 0;
   top: 0;
@@ -405,8 +406,8 @@
   color: transparent;
   -webkit-text-stroke: 1px var(--ink-3);
   pointer-events: none;
+  user-select: none;
   opacity: 0;
-  transition: opacity 520ms var(--ease-out) 180ms;
 }
 .frame-hero .frame-box::after {
   content: '';
@@ -417,7 +418,7 @@
   opacity: 0;
   transition: opacity 400ms var(--ease-out) 300ms;
 }
-.site.is-pre .hero .line::before,
+.site.is-pre .hero .ghost,
 .site.is-pre .frame-hero .frame-box::after {
   opacity: 1;
   transition: none;

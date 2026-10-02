@@ -77,6 +77,7 @@ export function heroMotion(root: HTMLElement, lang: Lang): HeroMotion {
   const targets = () => ({
     tb: q('.tb'),
     lines: q('.hero .line-in'),
+    ghosts: q('.hero .ghost'),
     copy: q('.hero-sub, .hero-ctas, .hero-fine, .bom, .hero-plate'),
     media: q('.frame-hero .frame-media'),
     cap: q('.frame-hero .frame-cap'),
@@ -97,6 +98,7 @@ export function heroMotion(root: HTMLElement, lang: Lang): HeroMotion {
     gsap.set(chars, { opacity: 0 })
     gsap.set(t.led, { opacity: 0 })
     gsap.set(t.lines, { yPercent: 108 })
+    gsap.set(t.ghosts, { opacity: 1 })
     gsap.set(t.copy, { opacity: 0, y: 16 })
     gsap.set(t.media, { clipPath: 'inset(0% 0% 100% 0%)' })
     gsap.set(t.cap, { opacity: 0 })
@@ -118,7 +120,7 @@ export function heroMotion(root: HTMLElement, lang: Lang): HeroMotion {
     const t = targets()
     const wasPrepared = prepared
     prepared = false
-    const all = [t.tb, chars, t.led, t.lines, t.copy, t.media, t.cap, t.balloons, t.leaders, t.dims].flat()
+    const all = [t.tb, chars, t.led, t.lines, t.ghosts, t.copy, t.media, t.cap, t.balloons, t.leaders, t.dims].flat()
     root.classList.remove('is-pre')
     if (instant || !wasPrepared || prefersReducedMotion()) {
       root.classList.remove('tone-carbon')
@@ -149,7 +151,6 @@ export function heroMotion(root: HTMLElement, lang: Lang): HeroMotion {
       .call(() => root.classList.remove('tone-carbon'), [], 0.44)
       .to(t.led, { opacity: 1, duration: 0.01 }, 0.02)
       .to(chars, { opacity: 1, duration: 0.01, stagger: 0.016, ease: 'none' }, 0.06)
-      .to(t.lines, { yPercent: 0, duration: 0.7, stagger: 0.085 }, 0.1)
       .to(t.media, { clipPath: 'inset(0% 0% 0% 0%)', duration: 0.62, ease: 'power3.inOut' }, 0.3)
       .fromTo(scan, { top: '0%', opacity: 1 }, { top: '100%', duration: 0.62, ease: 'power3.inOut' }, 0.3)
       .to(scan, { opacity: 0, duration: 0.12 }, 0.9)
@@ -158,6 +159,20 @@ export function heroMotion(root: HTMLElement, lang: Lang): HeroMotion {
       .to(t.leaders, { opacity: 1, duration: 0.2, ease: 'none' }, 0.78)
       .to(t.balloons, { scale: 1, opacity: 1, duration: 0.24, stagger: 0.07, ease: 'power3.out' }, 0.8)
       .to(t.cap, { opacity: 1, duration: 0.2, ease: 'none' }, 0.9)
+    // Headline: each solid line rises into its slot and pushes the blueprint outline out ahead of
+    // it — the outline is clipped exactly at the solid line's top edge, so the two never overlap
+    // (matters on phones, where every line wraps into several rows).
+    t.lines.forEach((line, i) => {
+      const ghost = t.ghosts[i]
+      const clipGhost = () => {
+        if (!ghost) return
+        const p = Math.min(1, Math.max(0, Number(gsap.getProperty(line, 'yPercent')) / 100))
+        ghost.style.clipPath = `inset(0 0 ${((1 - p) * 100).toFixed(2)}% 0)`
+        // …and the last sliver above the settling line fades instead of lingering through the ease tail.
+        ghost.style.opacity = Math.min(1, p / 0.3).toFixed(3)
+      }
+      tl.to(line, { yPercent: 0, duration: 0.7, onUpdate: clipGhost }, 0.1 + i * 0.085)
+    })
     // The dials only make sense when someone sees them: count now if the readout is on screen,
     // otherwise the first time it scrolls into view.
     const readout = root.querySelector<HTMLElement>('.readout')

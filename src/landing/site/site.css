@@ -312,7 +312,7 @@ html {
   font-size: 11px;
   font-weight: 600;
   letter-spacing: 0.06em;
-  color: var(--ink-3);
+  color: var(--ink-2);
   transition: background-color var(--dur-2), color var(--dur-2);
 }
 .lang-switch button:hover {
@@ -361,32 +361,44 @@ html {
   margin: 0 14px;
   background: repeating-linear-gradient(to right, var(--rule-strong) 0 1px, transparent 1px 8px) left bottom / 100% 4px no-repeat;
 }
+/* Each number sits just right of its tick, so the needle, which parks on the tick, never
+   covers the number it points at (the last one hangs into the gutter, which has the room). */
 .dial-mark {
   position: absolute;
   top: 0;
   bottom: 0;
   left: calc(var(--p) * 100%);
   width: 30px;
-  margin-left: -15px;
+  margin-left: -6px;
   display: flex;
-  justify-content: center;
-  padding-top: 3px;
+  justify-content: flex-start;
+  padding: 3px 0 0 12px;
   font-family: var(--font-mono);
   font-size: 9.5px;
   line-height: 1;
   letter-spacing: 0.04em;
   text-decoration: none;
-  color: var(--ink-3);
+  color: var(--ink-2);
   transition: color var(--dur-2);
 }
 .dial-mark::after {
   content: '';
   position: absolute;
-  left: 50%;
+  left: 6px;
   bottom: 0;
   width: 1px;
   height: 9px;
   background: var(--ink-2);
+}
+/* Numbers are printed on the glass: the needle travels behind them, never across them. */
+.dial-mark span {
+  position: relative;
+  z-index: 1;
+  height: 11px;
+  padding: 0 2px;
+  margin: 0 -2px;
+  background: var(--bg);
+  transition: background-color var(--dur-3) var(--ease-out);
 }
 .dial-mark:hover,
 .dial-mark[aria-current] {
@@ -394,6 +406,7 @@ html {
 }
 .dial-needle {
   position: absolute;
+  z-index: 0;
   top: -1px;
   bottom: 0;
   left: calc(var(--p, 0) * 100%);
@@ -446,7 +459,7 @@ html {
 
 /* ---------- Sections ---------- */
 .sec {
-  --sec-pad: clamp(80px, 10vw, 148px);
+  --sec-pad: clamp(60px, 7.2vw, 104px);
   position: relative;
   padding: var(--sec-pad) 0;
   /* Anchor jumps land on the chapter rule, just under the top bar + dial. */
@@ -455,7 +468,7 @@ html {
 .sec-head {
   position: relative;
   padding-top: 18px;
-  margin-bottom: clamp(40px, 5.6vw, 80px);
+  margin-bottom: clamp(36px, 4.6vw, 66px);
 }
 .sec-rule {
   position: absolute;
@@ -474,6 +487,7 @@ html {
   margin: 18px 0 0;
   font-size: clamp(38px, 5.7vw, 86px);
   max-width: 16ch;
+  text-wrap: balance;
 }
 .sec-lead {
   margin: 22px 0 0;
@@ -578,7 +592,8 @@ html {
     width: 30px;
   }
   .dial-scale {
-    margin: 0 10px;
+    /* extra room on the right for the last number, which sits right of its tick */
+    margin: 0 20px 0 10px;
   }
 }
 @media (max-width: 380px) {

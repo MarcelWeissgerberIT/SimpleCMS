@@ -100,6 +100,7 @@ export function ExportModal({ pageId, onClose }: { pageId?: ID | null; onClose: 
           lang,
           untitled: t('common.untitled'),
           appUrl: `${window.location.origin}${window.location.pathname}`,
+          forPrint: format === 'pdf',
           labels: {
             exported: t('features.io.export.plate'),
             pages: t('features.io.unit.pages'),

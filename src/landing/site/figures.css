@@ -43,7 +43,7 @@
   justify-content: space-between;
   gap: 16px;
   padding: 12px 14px 0;
-  color: var(--ink-3);
+  color: var(--ink-2);
 }
 
 /* Crop marks: two short strokes off each corner. */
@@ -300,7 +300,7 @@
   justify-content: space-between;
   gap: 12px;
   padding: 10px 14px;
-  color: var(--ink-3);
+  color: var(--ink-2);
 }
 .code-head {
   border-bottom: 1px solid var(--rule);
@@ -461,6 +461,22 @@
 }
 
 @media (max-width: 720px) {
+  /* Crop marks stay inside the 16px gutter instead of being sliced by the screen edge. */
+  .crop::before {
+    width: 8px;
+  }
+  .crop-tl::before,
+  .crop-bl::before {
+    left: -13px;
+  }
+  .crop-tr::before,
+  .crop-br::before {
+    left: 5px;
+  }
+  /* At this size the numerals would be ~5px tall: the ticks alone read better. */
+  .sw-num {
+    display: none;
+  }
   .import-media {
     grid-template-columns: 38% minmax(0, 1fr);
     padding: 4%;

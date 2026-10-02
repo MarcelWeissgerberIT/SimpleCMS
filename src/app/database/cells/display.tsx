@@ -238,7 +238,7 @@ function linkHref(prop: PropertyDef, v: string): string {
 
 function FValueView({ v, lang }: { v: FValue; lang: 'en' | 'de' }) {
   if (typeof v === 'boolean') return <Checkbox checked={v} readOnly />
-  if (typeof v === 'number') return <span className="db-num">{toText(v, lang)}</span>
+  if (typeof v === 'number') return <span className="db-num db-num--end">{toText(v, lang)}</span>
   if (isDate(v)) return <span>{toText(v, lang)}</span>
   if (Array.isArray(v))
     return (
@@ -355,7 +355,7 @@ export function ValueView({ db, prop, row, r, v, variant = 'cell', interactive }
     case 'rollup':
     case 'formula': {
       if (v === null || v === undefined || v === '') return null
-      if (typeof v === 'number' && prop.type === 'rollup') return <span className="db-num">{r.textOf(db, prop, v)}</span>
+      if (typeof v === 'number' && prop.type === 'rollup') return <span className="db-num db-num--end">{r.textOf(db, prop, v)}</span>
       return <FValueView v={v as FValue} lang={lang} />
     }
     case 'unique_id':

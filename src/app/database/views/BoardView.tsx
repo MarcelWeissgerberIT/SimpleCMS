@@ -161,11 +161,14 @@ export function BoardView() {
           {visibleGroups.map((g, gi) => {
             if (collapsed.has(g.key))
               return (
-                <button key={g.key} type="button" className="dbb-collapsed" onClick={() => toggleCollapsed(g.key)} aria-label={t('database.group.expand')}>
-                  <span className="dbb-collapsed__count">{g.rows.length}</span>
-                  <span className="dbb-collapsed__label">
-                    <GroupLabel group={g} />
-                  </span>
+                <button key={g.key} type="button" className="dbb-collapsed" onClick={() => toggleCollapsed(g.key)} aria-label={`${g.label} — ${t('database.group.expand')}`} title={t('database.group.expand')}>
+                  <span className="dbb-count">{g.rows.length}</span>
+                  {g.option?.group ? (
+                    <span className="db-status__led" data-group={g.option.group} />
+                  ) : (
+                    <span className="db-swatch" style={g.color ? { background: `var(--c-${g.color}-text)` } : undefined} />
+                  )}
+                  <span className="dbb-collapsed__label">{g.label}</span>
                 </button>
               )
             return (

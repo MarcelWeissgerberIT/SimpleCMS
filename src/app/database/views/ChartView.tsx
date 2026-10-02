@@ -22,7 +22,9 @@ interface Datum {
   color: ColorName | null
 }
 
-const FALLBACK: string[] = ['var(--signal)', 'var(--ink)', 'var(--c-blue-text)', 'var(--c-green-text)', 'var(--c-yellow-text)', 'var(--c-purple-text)']
+const FALLBACK: string[] = ['var(--ink)', 'var(--signal)', 'var(--c-blue-text)', 'var(--c-green-text)', 'var(--c-yellow-text)', 'var(--c-purple-text)', 'var(--c-pink-text)', 'var(--c-brown-text)']
+/** Hues that read as the same colour — never place both on one donut. */
+const SAME_HUE: Record<string, string> = { 'var(--signal)': 'var(--c-orange-text)', 'var(--c-orange-text)': 'var(--signal)', 'var(--c-red-text)': 'var(--signal)' }
 const MAX_SLICES = 6
 
 function niceMax(v: number): { max: number; step: number } {
@@ -72,6 +74,11 @@ export default function ChartView() {
   }, [xProp, yProp, cfg.aggregate, m, labels])
 
   const fmt = (v: number) => (cfg.aggregate !== 'count' && yProp?.type === 'number' ? formatNumber(Math.round(v * 100) / 100, yProp.numberFormat, lang) : formatCount(v, lang, 2))
+  // axis ticks: no cents / decimals for big round steps
+  const tickFmt = (v: number) =>
+    cfg.aggregate !== 'count' && yProp?.type === 'number' && yProp.numberFormat && ['euro', 'dollar', 'pound'].includes(yProp.numberFormat) && Math.abs(v) >= 100
+      ? formatNumber(Math.round(v), 'comma', lang)
+      : fmt(v)
   const total = data.reduce((s, d) => s + d.value, 0)
   const narrow = w < 520
   const H = narrow ? 240 : 320
@@ -137,8 +144,16 @@ export default function ChartView() {
   // ---- donut data: fold the tail into "Other"
   const slices: Array<Datum & { fill: string }> = (() => {
     const sorted = [...data].filter((d) => d.value > 0)
-    let fbIdx = 0
-    const colored = sorted.map((d) => ({ ...d, fill: d.color && d.color !== 'default' ? `var(--c-${d.color}-text)` : FALLBACK[fbIdx++ % FALLBACK.length] }))
+    // colour follows the entity (option colour); duplicates and colourless groups take the next free fallback
+    const used = new Set<string>()
+    const taken = (f: string) => used.has(f) || (SAME_HUE[f] !== undefined && used.has(SAME_HUE[f]))
+    const nextFallback = () => FALLBACK.find((f) => !taken(f)) ?? 'var(--ink-3)'
+    const colored = sorted.map((d) => {
+      let fill = d.color && d.color !== 'default' ? `var(--c-${d.color}-text)` : ''
+      if (!fill || taken(fill)) fill = nextFallback()
+      used.add(fill)
+      return { ...d, fill }
+    })
     if (colored.length <= MAX_SLICES) return colored
     const head = [...colored].sort((a, b) => b.value - a.value).slice(0, MAX_SLICES - 1)
     const keys = new Set(head.map((h) => h.key))
@@ -159,7 +174,7 @@ export default function ChartView() {
         ) : cfg.kind === 'donut' ? (
           <Donut slices={slices} total={total} w={w} h={H} fmt={fmt} hover={hover} setHover={setHover} centerLabel={cfg.aggregate === 'count' ? t('database.chart.records') : t(`database.chart.agg.${cfg.aggregate}`)} />
         ) : (
-          <XY kind={cfg.kind} data={data} w={w} h={H} fmt={fmt} hover={hover} setHover={setHover} />
+          <XY kind={cfg.kind} data={data} w={w} h={H} fmt={fmt} tickFmt={tickFmt} hover={hover} setHover={setHover} />
         )}
       </div>
       <table className="dbch-table">
@@ -190,7 +205,7 @@ export default function ChartView() {
   )
 }
 
-function XY({ kind, data, w, h, fmt, hover, setHover }: { kind: 'bar' | 'line'; data: Datum[]; w: number; h: number; fmt: (v: number) => string; hover: string | null; setHover: (k: string | null) => void }) {
+function XY({ kind, data, w, h, fmt, tickFmt, hover, setHover }: { kind: 'bar' | 'line'; data: Datum[]; w: number; h: number; fmt: (v: number) => string; tickFmt: (v: number) => string; hover: string | null; setHover: (k: string | null) => void }) {
   const ml = 56
   const mr = 16
   const mt = 22
@@ -216,7 +231,7 @@ function XY({ kind, data, w, h, fmt, hover, setHover }: { kind: 'bar' | 'line'; 
           <g key={v}>
             <line x1={ml} x2={ml + iw} y1={y(v)} y2={y(v)} className={v === 0 ? 'dbch-base' : 'dbch-gridline'} />
             <text x={ml - 8} y={y(v)} dy="0.32em" textAnchor="end" className="dbch-tick">
-              {fmt(v)}
+              {tickFmt(v)}
             </text>
           </g>
         ))}
@@ -285,7 +300,7 @@ function Donut({ slices, total, w, h, fmt, hover, setHover, centerLabel }: { sli
         a0 = a1
         return <path key={s.key} d={d} fill={s.fill} fillRule="evenodd" className="dbch-slice" data-hover={hover === s.key} data-dim={!!hv && hover !== s.key} onMouseEnter={() => setHover(s.key)} onClick={() => setHover(s.key)} />
       })}
-      <text x={cx} y={cy - 4} textAnchor="middle" className="dbch-center">
+      <text x={cx} y={cy - 4} textAnchor="middle" className="dbch-center" style={{ fontSize: Math.max(12, Math.min(28, (ri * 1.6) / Math.max(1, fmt(hv ? hv.value : total).length * 0.68))) }}>
         {fmt(hv ? hv.value : total)}
       </text>
       <text x={cx} y={cy + 16} textAnchor="middle" className="dbch-centerlabel">

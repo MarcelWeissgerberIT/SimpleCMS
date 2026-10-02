@@ -241,15 +241,34 @@ export function mountSite(root: HTMLElement, opts: { lang: Lang; underIntro: boo
     // before the lazily loaded 1997 page covers the screen.
     root.classList.add('is-veiled')
     hero.prepare()
-    // Failsafe: if the intro never shows up, do not leave the visitor with an empty page.
-    window.setTimeout(() => {
+    // Failsafe: if the intro never shows up (chunk failed to load, script error), do not leave
+    // the visitor with an empty — or unscrollable — page.
+    const introMissing = () => {
       const intro = document.getElementById('intro')
-      if (root.classList.contains('is-veiled') && (!intro || !intro.childElementCount)) {
-        root.classList.remove('is-veiled')
-        hero.play(true)
-        ScrollTrigger.refresh()
-      }
-    }, 5000)
+      return root.classList.contains('is-veiled') && (!intro || !intro.childElementCount)
+    }
+    const rescue = () => {
+      window.clearTimeout(timer)
+      window.removeEventListener('unhandledrejection', onReject)
+      if (!introMissing()) return
+      // landing.css locks html/body (overflow hidden, height 100%) while .intro-active is set.
+      document.documentElement.classList.remove('intro-active')
+      document.getElementById('intro')?.remove()
+      root.classList.remove('is-veiled')
+      hero.play(true)
+      ScrollTrigger.refresh()
+    }
+    // A failed lazy import of the intro surfaces as an unhandled rejection: rescue at once.
+    const onReject = (e: PromiseRejectionEvent) => {
+      const msg = String((e.reason as Error | undefined)?.message ?? e.reason ?? '')
+      if (!/dynamically imported module|module script failed|Importing a module|error loading dynamically/i.test(msg)) return
+      if (!introMissing()) return
+      e.preventDefault() // handled: the site takes over
+      console.warn('[site] intro failed to load, showing the site directly:', msg)
+      rescue()
+    }
+    window.addEventListener('unhandledrejection', onReject)
+    const timer = window.setTimeout(rescue, 5000)
   }
 
   // Layout settles once the variable fonts are in.

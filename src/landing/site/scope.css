@@ -74,6 +74,10 @@
   --hover: rgba(18, 18, 16, 0.08);
   --signal: #121210;
   --signal-ink: #121210;
+  /* "Signal" buttons turn ink-black here, so their label switches to the orange. */
+  --sig-ink: #ff4f00;
+  --signal-hover: #2a2926;
+  --signal-press: #000000;
   --focus-ring: 0 0 0 2px var(--bg), 0 0 0 4px #121210;
   background: var(--bg);
   color: var(--ink);

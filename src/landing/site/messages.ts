@@ -77,6 +77,7 @@ export const messages: Messages = {
     'savings.perYear': 'per year',
     'savings.fiveYears': 'Over five years: {amount}',
     'savings.receipt': 'Receipt',
+    'savings.live': '{seats} seats, Notion {plan}, billed {billing}: you keep {amount} a year.',
     'r.shop': 'SimpleCMS One',
     'r.sub': 'Cost comparison · 12 months',
     'r.date': 'Date',
@@ -100,14 +101,14 @@ export const messages: Messages = {
     'r.paid': 'Nothing to pay',
 
     'features.label': '§ 02 — Features',
-    'features.title': 'Sixteen things it does. Zero add‑ons.',
+    'features.title': 'Sixteen things it does.\nZero add‑ons.',
     'features.lead': 'Everything below ships in the free workspace. There is no other version.',
 
     'deep.label': '§ 03 — Up close',
     'deep.title': 'Five closer looks.',
 
     'compare.label': '§ 04 — Compare',
-    'compare.title': 'Notion vs. One. The spec sheet.',
+    'compare.title': 'Notion vs. One.\nThe spec sheet.',
     'compare.lead':
       'Notion is excellent at real-time teamwork. One is for people who would rather own their notes. We marked our own gaps, too.',
     'compare.param': 'Parameter',
@@ -144,10 +145,10 @@ export const messages: Messages = {
     'own.label': '§ 06 — Own it',
     'own.title': 'Own the whole thing.',
     'own.lead':
-      'Fork the repository, switch on GitHub Pages, done. Your copy, your URL, your rules — in about two minutes.',
-    'own.s1': 'Fork the repository on GitHub.',
-    'own.s2': 'Settings → Pages → Source: GitHub Actions.',
-    'own.s3': 'Push to main. Your copy is live at you.github.io/SimpleCMS.',
+      'Fork the repository, flip two switches, run the deploy. Your copy, your URL, your rules — in about two minutes.',
+    'own.s1': 'Fork the repository on GitHub. Keep the name SimpleCMS — the build expects it.',
+    'own.s2': 'In your fork: Actions tab → enable workflows. Then Settings → Pages → Source: GitHub Actions.',
+    'own.s3': 'Actions → “Deploy to GitHub Pages” → Run workflow. Live at you.github.io/SimpleCMS.',
     'own.fork': 'Fork on GitHub',
     'own.source': 'Read the source',
     'own.timer': 'Est. time',
@@ -239,6 +240,7 @@ export const messages: Messages = {
     'savings.perYear': 'pro Jahr',
     'savings.fiveYears': 'In fünf Jahren: {amount}',
     'savings.receipt': 'Beleg',
+    'savings.live': '{seats} Plätze, Notion {plan}, {billing}: Du behältst {amount} pro Jahr.',
     'r.shop': 'SimpleCMS One',
     'r.sub': 'Kostenvergleich · 12 Monate',
     'r.date': 'Datum',
@@ -257,18 +259,18 @@ export const messages: Messages = {
     'r.five': '5 Jahre',
     'r.foot': '* Abrechnung direkt durch Anthropic über deinen eigenen API-Key, nur bei Nutzung.',
     'r.source': 'Notion-Listenpreise in USD zzgl. Steuern, Stand {asOf}. Quelle: notion.com/pricing',
-    'r.thanks': 'Danke, dass Sie nicht abonnieren',
+    'r.thanks': 'Danke, dass du nicht abonnierst',
     'r.paid': 'Nichts zu zahlen',
 
     'features.label': '§ 02 — Funktionen',
-    'features.title': 'Sechzehn Funktionen. Null Add‑ons.',
+    'features.title': 'Sechzehn Funktionen.\nNull Add‑ons.',
     'features.lead': 'Alles hier steckt im kostenlosen Workspace. Eine andere Version gibt es nicht.',
 
     'deep.label': '§ 03 — Im Detail',
     'deep.title': 'Fünf genauere Blicke.',
 
     'compare.label': '§ 04 — Vergleich',
-    'compare.title': 'Notion vs. One. Das Datenblatt.',
+    'compare.title': 'Notion vs. One.\nDas Datenblatt.',
     'compare.lead':
       'Notion ist stark bei Teamarbeit in Echtzeit. One ist für alle, die ihre Notizen lieber selbst besitzen. Unsere eigenen Lücken haben wir auch markiert.',
     'compare.param': 'Merkmal',
@@ -305,10 +307,10 @@ export const messages: Messages = {
     'own.label': '§ 06 — Selbst hosten',
     'own.title': 'Gehört komplett dir.',
     'own.lead':
-      'Repository forken, GitHub Pages einschalten, fertig. Deine Kopie, deine URL, deine Regeln — in etwa zwei Minuten.',
-    'own.s1': 'Repository auf GitHub forken.',
-    'own.s2': 'Settings → Pages → Source: GitHub Actions.',
-    'own.s3': 'Auf main pushen. Deine Kopie läuft unter du.github.io/SimpleCMS.',
+      'Repository forken, zwei Schalter umlegen, Deploy starten. Deine Kopie, deine URL, deine Regeln — in etwa zwei Minuten.',
+    'own.s1': 'Repository auf GitHub forken. Den Namen SimpleCMS behalten — der Build erwartet ihn.',
+    'own.s2': 'Im Fork: Tab Actions → Workflows aktivieren. Dann Settings → Pages → Source: GitHub Actions.',
+    'own.s3': 'Actions → „Deploy to GitHub Pages“ → Run workflow. Live unter du.github.io/SimpleCMS.',
     'own.fork': 'Auf GitHub forken',
     'own.source': 'Quellcode lesen',
     'own.timer': 'Dauer ca.',
@@ -405,7 +407,7 @@ export const content: Record<Lang, SiteContent> = {
       { key: 'templates', code: 'Tp', title: 'Templates', text: 'Start from ready-made pages and databases instead of a blank sheet.' },
       { key: 'panes', code: 'Pn', title: 'Stacked panes', text: 'Open pages side by side in sliding panes, like papers spread across a desk.' },
       { key: 'focus', code: 'Fo', title: 'Focus mode', text: 'Hide every panel. Only the page and the caret remain.' },
-      { key: 'offline', code: 'Of', title: 'Works offline', text: 'Airplane mode welcome: once open, the whole app runs in the tab. Only AI and webhooks need a network.' },
+      { key: 'offline', code: 'Of', title: 'Survives dead Wi-Fi', text: 'Lose the connection mid-sentence and keep typing: writing, databases and search run in the open tab. Reloading, AI and webhooks need a network.' },
       { key: 'i18n', code: 'En', title: 'English & German', text: 'A fully bilingual interface, switchable at any time. Sie oder du — we went with du.' },
     ],
     deep: [
@@ -449,7 +451,7 @@ export const content: Record<Lang, SiteContent> = {
       { param: 'Free for teams', notion: ['partial', 'Free plan limits blocks for 2+ members'], one: ['yes', 'No seats, no limits'] },
       { param: 'No account required', notion: ['no'], one: ['yes'] },
       { param: 'Data stays on your device', notion: ['no', 'Stored in Notion’s cloud'], one: ['yes', 'IndexedDB in your browser'] },
-      { param: 'Works offline', notion: ['partial', 'Desktop & mobile apps only, not in the browser'], one: ['yes', 'Runs entirely in the tab'] },
+      { param: 'Keeps working offline', notion: ['partial', 'Apps only, not the browser; 50 rows per database'], one: ['partial', 'Open tab keeps every page & row; a reload needs a connection'] },
       { param: 'AI assistant', notion: ['partial', 'Full on Business ($20+); trial on Free & Plus'], one: ['yes', 'Claude, pay per use'] },
       { param: 'Bring your own AI key', notion: ['no'], one: ['yes'] },
       { param: 'Database views', notion: ['yes'], one: ['yes', '7 views'] },
@@ -482,7 +484,7 @@ export const content: Record<Lang, SiteContent> = {
       },
       {
         q: 'Does it work offline?',
-        a: 'Yes. Once the workspace is open, editing, databases and search run locally in the tab. Only AI and webhooks need a connection.',
+        a: 'Once the workspace is open, yes: writing, databases and search keep running in the tab when the connection drops — your data is on the device anyway. Reloading the page, AI and webhooks need a connection.',
       },
       {
         q: 'Can my team collaborate?',
@@ -514,7 +516,7 @@ export const content: Record<Lang, SiteContent> = {
       { key: 'templates', code: 'Tp', title: 'Vorlagen', text: 'Mit fertigen Seiten und Datenbanken starten statt mit einem leeren Blatt.' },
       { key: 'panes', code: 'Pn', title: 'Gestapelte Panels', text: 'Seiten nebeneinander in verschiebbaren Panels öffnen, wie Papiere auf dem Schreibtisch.' },
       { key: 'focus', code: 'Fo', title: 'Fokusmodus', text: 'Alle Panels ausblenden. Nur die Seite und der Cursor bleiben.' },
-      { key: 'offline', code: 'Of', title: 'Funktioniert offline', text: 'Flugmodus willkommen: Einmal geöffnet, läuft die ganze App im Tab. Nur KI und Webhooks brauchen Netz.' },
+      { key: 'offline', code: 'Of', title: 'Übersteht Funklöcher', text: 'Verbindung weg, mitten im Satz? Einfach weitertippen: Texte, Datenbanken und Suche laufen im offenen Tab. Neu laden, KI und Webhooks brauchen Netz.' },
       { key: 'i18n', code: 'De', title: 'Deutsch & Englisch', text: 'Vollständig zweisprachig, jederzeit umschaltbar. Und ja: Wir duzen.' },
     ],
     deep: [
@@ -558,7 +560,7 @@ export const content: Record<Lang, SiteContent> = {
       { param: 'Kostenlos für Teams', notion: ['partial', 'Free-Tarif begrenzt Blöcke ab 2 Mitgliedern'], one: ['yes', 'Keine Plätze, keine Limits'] },
       { param: 'Ohne Konto nutzbar', notion: ['no'], one: ['yes'] },
       { param: 'Daten bleiben auf deinem Gerät', notion: ['no', 'In der Notion-Cloud gespeichert'], one: ['yes', 'IndexedDB in deinem Browser'] },
-      { param: 'Funktioniert offline', notion: ['partial', 'Nur Desktop- & Mobil-Apps, nicht im Browser'], one: ['yes', 'Läuft komplett im Tab'] },
+      { param: 'Arbeitet offline weiter', notion: ['partial', 'Nur Apps, nicht im Browser; 50 Zeilen pro Datenbank'], one: ['partial', 'Offener Tab behält alle Seiten & Zeilen; Neuladen braucht Netz'] },
       { param: 'KI-Assistent', notion: ['partial', 'Voll ab Business (20 $+); Test bei Free & Plus'], one: ['yes', 'Claude, Bezahlung nach Nutzung'] },
       { param: 'Eigener KI-Key', notion: ['no'], one: ['yes'] },
       { param: 'Datenbank-Ansichten', notion: ['yes'], one: ['yes', '7 Ansichten'] },
@@ -591,7 +593,7 @@ export const content: Record<Lang, SiteContent> = {
       },
       {
         q: 'Funktioniert es offline?',
-        a: 'Ja. Ist der Workspace einmal geöffnet, laufen Bearbeiten, Datenbanken und Suche lokal im Tab. Nur KI und Webhooks brauchen eine Verbindung.',
+        a: 'Ist der Workspace einmal offen, ja: Schreiben, Datenbanken und Suche laufen im Tab weiter, wenn die Verbindung abreißt — deine Daten liegen ja schon auf dem Gerät. Neu laden, KI und Webhooks brauchen eine Verbindung.',
       },
       {
         q: 'Kann mein Team zusammenarbeiten?',

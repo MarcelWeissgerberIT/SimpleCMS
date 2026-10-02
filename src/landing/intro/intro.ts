@@ -44,10 +44,10 @@ declare global {
 const INPUT_EVENTS = ['pointermove', 'pointerdown', 'keydown', 'wheel', 'touchstart', 'scroll'] as const
 /** If capture + GPU warm-up are not ready by then, use the DOM fallback instead. */
 const PREP_TIMEOUT_MS = 6000
-/** Guarantees onRevealed even if the WebGL sequence hangs (counted from its first frame). */
-const PLAY_TIMEOUT_MS = 12000
-/** Absolute guard from the moment the smash was triggered. */
-const HARD_TIMEOUT_MS = 24000
+/** The sequence must make progress at least this often (else: reveal right away). */
+const STALL_MS = 3000
+/** Absolute guard from the moment the smash was triggered (very slow GPUs still finish). */
+const HARD_TIMEOUT_MS = 40000
 
 export function mountIntro(root: HTMLElement, opts: IntroOptions): IntroHandle {
   const params = new URLSearchParams(window.location.search)
@@ -139,9 +139,7 @@ export function mountIntro(root: HTMLElement, opts: IntroOptions): IntroHandle {
   function schedule() {
     clearTimers()
     timers.push(window.setTimeout(() => sheet.setHung(true), (idleMs * 10) / 15))
-    timers.push(
-      window.setTimeout(() => void prepare(), (idleMs * 11) / 15),
-    )
+    timers.push(window.setTimeout(() => void prepare(), (idleMs * 11) / 15))
     if (!reduced) {
       timers.push(
         window.setTimeout(() => {
@@ -225,7 +223,18 @@ export function mountIntro(root: HTMLElement, opts: IntroOptions): IntroHandle {
     try {
       playing = true
       window.clearTimeout(prepTimer)
-      if (!manualClock) playTimer = window.setTimeout(finish, PLAY_TIMEOUT_MS)
+      if (!manualClock) {
+        // Watchdog: the show may run slowly on weak GPUs, but it must keep moving.
+        let lastProgress = -1
+        let stalledFor = 0
+        playTimer = window.setInterval(() => {
+          if (document.hidden) return
+          const p = s.progress()
+          stalledFor = p === lastProgress ? stalledFor + 500 : 0
+          lastProgress = p
+          if (stalledFor >= STALL_MS) finish()
+        }, 500)
+      }
       if (canvas !== uploaded) s.setPage(canvas)
       uploaded = canvas
       const wash = sheet.isHung() ? WASH_ALPHA : 0
@@ -292,7 +301,7 @@ export function mountIntro(root: HTMLElement, opts: IntroOptions): IntroHandle {
     phase = 'done'
     window.clearTimeout(hardTimer)
     window.clearTimeout(prepTimer)
-    window.clearTimeout(playTimer)
+    window.clearInterval(playTimer)
     clearTimers()
     removeInputListeners()
     try {
@@ -333,7 +342,7 @@ export function mountIntro(root: HTMLElement, opts: IntroOptions): IntroHandle {
       window.clearTimeout(warmTimer)
       window.clearTimeout(hardTimer)
       window.clearTimeout(prepTimer)
-      window.clearTimeout(playTimer)
+      window.clearInterval(playTimer)
       clearTimers()
       removeInputListeners()
       stage?.dispose()
