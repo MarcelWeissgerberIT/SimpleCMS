@@ -3,6 +3,7 @@ import { useRoute } from '../lib/router'
 import { useWorkspace } from '../store/store'
 import { selectChildren } from '../store/selectors'
 import { PageEditor } from '../editor'
+import { DatabaseView } from '../database'
 import { useThemeAndLanguage } from '../lib/theme'
 
 export function App() {
@@ -20,7 +21,7 @@ export function App() {
           </a>
         ))}
       </nav>
-      <main style={{ flex: 1, padding: 40 }}>{id && <PageEditor pageId={id} />}</main>
+      <main style={{ flex: 1, padding: 40, overflow: 'auto' }}>{id && (pages[id]?.kind === 'database' ? <DatabaseView databaseId={id} /> : <PageEditor pageId={id} />)}</main>
     </div>
   )
 }
