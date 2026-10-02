@@ -1,0 +1,128 @@
+/**
+ * Page-level actions shared by sidebar, topbar, palette and shortcuts.
+ * Everything goes through the workspace store + UI store.
+ */
+import { useWorkspace, descendantIds } from '../../store/store'
+import { useUI } from '../../store/ui'
+import { navigate, openPage, parseHash } from '../../lib/router'
+import { t } from '../../i18n'
+import type { ID } from '../../store/types'
+
+const ws = () => useWorkspace.getState()
+const ui = () => useUI.getState()
+
+/** Page currently shown in the main column (route #/p/<id>), if any. */
+export function currentPageId(): ID | null {
+  const r = parseHash(window.location.hash)
+  return r.name === 'page' ? r.id : null
+}
+
+/** Ask the page view to focus its title once mounted (new pages). */
+let pendingTitleFocus: ID | null = null
+export function requestTitleFocus(id: ID) {
+  pendingTitleFocus = id
+}
+export function consumeTitleFocus(id: ID): boolean {
+  if (pendingTitleFocus !== id) return false
+  pendingTitleFocus = null
+  return true
+}
+
+export function closeMobileSidebar() {
+  if (ui().mobileSidebarOpen) ui().setMobileSidebar(false)
+}
+
+export function goToPage(id: ID, block?: string) {
+  closeMobileSidebar()
+  if (ui().peekPageId === id) ui().closePeek()
+  openPage(id, block)
+}
+
+export function createPageAndOpen(parentId: ID | null = null, title = '') {
+  const id = ws().createPage({ parentId, title })
+  requestTitleFocus(id)
+  goToPage(id)
+  return id
+}
+
+export function createDatabaseAndOpen(parentId: ID | null = null) {
+  const id = ws().createDatabase({ parentId, title: '' })
+  requestTitleFocus(id)
+  goToPage(id)
+  return id
+}
+
+export function pageLink(id: ID): string {
+  return `${window.location.origin}${window.location.pathname}#/p/${id}`
+}
+
+export async function copyPageLink(id: ID) {
+  try {
+    await navigator.clipboard.writeText(pageLink(id))
+    ui().toast({ message: t('common.copied'), kind: 'success' })
+  } catch {
+    ui().toast({ message: pageLink(id) })
+  }
+}
+
+export function duplicateAndOpen(id: ID) {
+  const copy = ws().duplicatePage(id)
+  if (copy) {
+    goToPage(copy)
+    ui().toast({ message: t('shell.toast.duplicated'), kind: 'success' })
+  }
+}
+
+/** Move to trash with an Undo toast. Leaves the page if it was open. */
+export function trashWithUndo(id: ID) {
+  const page = ws().pages[id]
+  if (!page) return
+  const affected = [id, ...descendantIds(ws().pages, id)]
+  const cur = currentPageId()
+  ws().trashPage(id)
+  const s = ui()
+  if (s.peekPageId && affected.includes(s.peekPageId)) s.closePeek()
+  s.panes.forEach((p, i) => affected.includes(p) && s.closePane(i))
+  if (cur && affected.includes(cur)) {
+    const parent = page.parentId ? ws().pages[page.parentId] : null
+    if (parent && !parent.trashed) openPage(parent.id)
+    else navigate({ name: 'home' })
+  }
+  s.toast({
+    message: t('shell.toast.trashed', { title: page.title.trim() || t('common.untitled') }),
+    action: {
+      label: t('common.undo'),
+      run: () => {
+        ws().restorePage(id)
+        if (cur && affected.includes(cur)) openPage(cur)
+      },
+    },
+  })
+}
+
+export function toggleTheme() {
+  const isDark = document.documentElement.dataset.theme === 'dark'
+  ws().updateSettings({ theme: isDark ? 'light' : 'dark' })
+}
+
+export function toggleSidebar() {
+  if (window.matchMedia('(max-width: 767px)').matches) {
+    ui().setMobileSidebar(!ui().mobileSidebarOpen)
+    return
+  }
+  ws().updateSettings({ sidebarCollapsed: !ws().settings.sidebarCollapsed })
+}
+
+export function toggleFocusMode() {
+  ui().setFocusMode(!ui().focusMode)
+}
+
+/** Can `id` be placed under `parentId`? (not itself / descendants / database rows / databases) */
+export function canNestUnder(id: ID, parentId: ID | null): boolean {
+  if (parentId === null) return true
+  if (parentId === id) return false
+  const pages = ws().pages
+  const target = pages[parentId]
+  if (!target || target.trashed || target.databaseId || target.kind === 'database') return false
+  return !descendantIds(pages, id).includes(parentId)
+}
