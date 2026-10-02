@@ -170,6 +170,31 @@
   color: var(--ink);
 }
 
+/* phones: overflow as a row of pips (one per hidden entry, max 3) instead of "+N" in every cell */
+.dbcal-day__more[data-pips='true'] {
+  left: 50%;
+  bottom: 2px;
+  display: flex;
+  gap: 2px;
+  min-width: 24px;
+  height: 10px;
+  padding: 0 4px;
+  align-items: center;
+  justify-content: center;
+  transform: translateX(-50%);
+}
+
+.dbcal-day__more[data-pips='true'] i {
+  width: 4px;
+  height: 4px;
+  border-radius: 1px;
+  background: var(--ink-3);
+}
+
+.dbcal-day__more[data-pips='true']:hover i {
+  background: var(--ink);
+}
+
 .dbcal-events {
   position: absolute;
   inset: 0;
@@ -283,6 +308,10 @@
 .dbcal[data-narrow='true'] {
   --cal-head: 24px;
   --cal-lane: 19px;
+}
+
+.dbcal[data-narrow='true'] .dbcal-week {
+  min-height: calc(var(--cal-head) + max(var(--lanes), 3) * var(--cal-lane) + 12px);
 }
 
 .dbcal[data-narrow='true'] .dbcal-day {

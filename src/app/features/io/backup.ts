@@ -1,11 +1,12 @@
 /**
  * JSON backup: the workspace (or a page subtree) plus every referenced IndexedDB file as base64.
  * Import modes: "merge" (upsert, newer updatedAt wins) or "replace" (swap the whole workspace).
+ * Only files referenced by the restored pages are written; files already on this device are reused.
  */
 import { useWorkspace, getWorkspaceSnapshot, descendantIds } from '../../store/store'
 import { migrate } from '../../store/persistence'
 import type { Database, ID, Page, Workspace } from '../../store/types'
-import { FILE_PREFIX, getFile, listFileRefs, readAsDataUrl, saveFile } from '../../lib/files'
+import { FILE_PREFIX, getFile, readAsDataUrl, saveFile } from '../../lib/files'
 
 export const BACKUP_FORMAT = 'simplecms-one-backup'
 
@@ -55,8 +56,8 @@ export async function buildBackup(rootId: ID | null, onProgress?: (done: number,
     settings: { ...snap.settings, aiApiKey: '' },
     recent: rootId ? [] : snap.recent,
   }
-  const json = JSON.stringify(workspace)
-  const refs = rootId ? [...new Set(json.match(REF_RE) ?? [])] : await listFileRefs()
+  // only files that are referenced (no orphans from deleted pages or earlier merges)
+  const refs = [...new Set(JSON.stringify({ pages: workspace.pages, databases }).match(REF_RE) ?? [])]
   const files: BackupFileEntry[] = []
   let done = 0
   for (const ref of refs) {
@@ -99,55 +100,81 @@ export function backupStats(b: Backup) {
   }
 }
 
-async function restoreFiles(b: Backup, onProgress?: (done: number, total: number) => void): Promise<Map<string, string>> {
+/**
+ * Restore the backup files that `json` references. A file that already exists here under the same
+ * ref (backup made on this device) is reused instead of being stored a second time.
+ */
+async function restoreFiles(b: Backup, json: string, onProgress?: (done: number, total: number) => void): Promise<Map<string, string>> {
+  const used = new Set(json.match(REF_RE) ?? [])
+  const list = b.files.filter((f) => f?.ref?.startsWith(FILE_PREFIX) && typeof f.data === 'string' && used.has(f.ref))
   const map = new Map<string, string>()
   let done = 0
-  for (const f of b.files) {
+  for (const f of list) {
     done++
-    if (!f?.ref?.startsWith(FILE_PREFIX) || typeof f.data !== 'string') continue
     try {
-      const blob = await (await fetch(`data:${f.type || 'application/octet-stream'};base64,${f.data}`)).blob()
-      map.set(f.ref, await saveFile(blob, f.name || 'file'))
+      const existing = await getFile(f.ref)
+      if (existing && existing.size === Math.floor((f.data.replace(/=+$/, '').length * 3) / 4)) map.set(f.ref, f.ref)
+      else {
+        const blob = await (await fetch(`data:${f.type || 'application/octet-stream'};base64,${f.data}`)).blob()
+        map.set(f.ref, await saveFile(blob, f.name || 'file'))
+      }
     } catch (e) {
       console.warn('[import] file restore failed', f.name, e)
     }
-    onProgress?.(done, b.files.length)
+    onProgress?.(done, list.length)
   }
   return map
 }
 
 /** Restore files, remap their refs and apply the workspace. Returns the page to open. */
 export async function applyBackup(b: Backup, mode: 'merge' | 'replace', onProgress?: (done: number, total: number) => void): Promise<ID | null> {
-  const refMap = await restoreFiles(b, onProgress)
-  let json = JSON.stringify(b.workspace)
+  const snap = getWorkspaceSnapshot()
+  const source = migrate(JSON.parse(JSON.stringify(b.workspace)))
+
+  // which pages survive? (merge: new ones + those newer than ours)
+  const keep: Record<ID, Page> = {}
+  for (const p of Object.values(source.pages)) {
+    const cur = snap.pages[p.id]
+    if (mode === 'merge' && cur && cur.updatedAt >= p.updatedAt) continue
+    keep[p.id] = p
+  }
+  const keptDbs: Record<ID, Database> = {}
+  for (const [id, db] of Object.entries(source.databases)) if (keep[id] || mode === 'replace' || !snap.databases[id]) keptDbs[id] = db
+
+  // only files that the surviving pages / databases use
+  let json = JSON.stringify({ pages: keep, databases: keptDbs })
+  const refMap = await restoreFiles(b, json, onProgress)
   if (refMap.size) json = json.replace(REF_RE, (ref) => refMap.get(ref) ?? ref)
-  const incoming = migrate(JSON.parse(json))
+  const incoming = JSON.parse(json) as { pages: Record<ID, Page>; databases: Record<ID, Database> }
+
+  // open editors must apply restored content: new rev, origin that is no editor's own id
+  for (const p of Object.values(incoming.pages)) {
+    const cur = snap.pages[p.id]
+    p.contentOrigin = 'import'
+    if (cur) p.contentRev = Math.max(cur.contentRev, p.contentRev) + 1
+  }
   const store = useWorkspace.getState()
 
   if (mode === 'replace') {
-    const current = getWorkspaceSnapshot()
     store.replaceAll({
-      ...incoming,
-      settings: { ...incoming.settings, aiApiKey: current.settings.aiApiKey || incoming.settings.aiApiKey },
+      ...source,
+      pages: incoming.pages,
+      databases: incoming.databases,
+      settings: { ...source.settings, aiApiKey: snap.settings.aiApiKey || source.settings.aiApiKey },
     })
-    return b.rootId ?? incoming.settings.startPageId ?? firstRoot(incoming.pages)
+    return b.rootId ?? source.settings.startPageId ?? firstRoot(incoming.pages)
   }
 
-  const snap = getWorkspaceSnapshot()
-  const pages = { ...snap.pages }
-  const databases = { ...snap.databases }
-  for (const p of Object.values(incoming.pages)) {
-    const cur = pages[p.id]
-    if (cur && cur.updatedAt >= p.updatedAt) continue
-    // keep editors in sync: content written by the import
-    pages[p.id] = cur ? { ...p, contentRev: Math.max(cur.contentRev, p.contentRev) + 1, contentOrigin: 'import' } : p
-    if (incoming.databases[p.id]) databases[p.id] = incoming.databases[p.id]
-  }
-  for (const [id, db] of Object.entries(incoming.databases)) if (!databases[id]) databases[id] = db
   const people = [...snap.people]
-  for (const person of incoming.people) if (!people.some((x) => x.id === person.id)) people.push(person)
-  store.replaceAll({ ...snap, pages, databases, people })
-  return b.rootId ?? firstRoot(incoming.pages)
+  for (const person of source.people) if (!people.some((x) => x.id === person.id)) people.push(person)
+  store.replaceAll({ ...snap, pages: { ...snap.pages, ...incoming.pages }, databases: { ...snap.databases, ...incoming.databases }, people })
+  return b.rootId ?? firstRoot(source.pages)
+}
+
+/** Files a backup of this scope will contain (only ones the exported pages reference). */
+export function backupFileRefs(rootId: ID | null): string[] {
+  const { pages, databases } = collectScope(rootId)
+  return [...new Set(JSON.stringify({ pages, databases }).match(REF_RE) ?? [])]
 }
 
 function firstRoot(pages: Record<ID, Page>): ID | null {

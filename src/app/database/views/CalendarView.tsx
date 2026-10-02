@@ -86,7 +86,7 @@ export default function CalendarView() {
   const [more, setMore] = useState<{ day: Date; el: HTMLElement } | null>(null)
   const [undatedAnchor, setUndatedAnchor] = useState<HTMLElement | null>(null)
   const narrow = typeof window !== 'undefined' && window.matchMedia('(max-width: 640px)').matches
-  const maxLanes = narrow ? 2 : 4
+  const maxLanes = narrow ? 3 : 4
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }), useSensor(TouchSensor, { activationConstraint: { delay: 220, tolerance: 6 } }))
 
@@ -186,7 +186,7 @@ export default function CalendarView() {
             return (
               <div key={wi} className="dbcal-week" role="row" style={{ ['--lanes' as string]: usedLanes }}>
                 {week.map((d, c) => (
-                  <DayCell key={d.toISOString()} day={d} month={month} hidden={hiddenPerDay[c]} canAdd={editable} onAdd={() => createOn(d)} onMore={(el) => setMore({ day: d, el })} />
+                  <DayCell key={d.toISOString()} day={d} month={month} hidden={hiddenPerDay[c]} pips={narrow} canAdd={editable} onAdd={() => createOn(d)} onMore={(el) => setMore({ day: d, el })} />
                 ))}
                 <div className="dbcal-events">
                   {segs
@@ -236,7 +236,7 @@ export default function CalendarView() {
   )
 }
 
-function DayCell({ day, month, hidden, canAdd, onAdd, onMore }: { day: Date; month: Date; hidden: number; canAdd: boolean; onAdd: () => void; onMore: (el: HTMLElement) => void }) {
+function DayCell({ day, month, hidden, pips, canAdd, onAdd, onMore }: { day: Date; month: Date; hidden: number; pips: boolean; canAdd: boolean; onAdd: () => void; onMore: (el: HTMLElement) => void }) {
   const t = useT()
   const locale = dfLocale(useLang())
   const iso = toISODate(day)
@@ -260,8 +260,8 @@ function DayCell({ day, month, hidden, canAdd, onAdd, onMore }: { day: Date; mon
         </button>
       )}
       {hidden > 0 && (
-        <button type="button" className="dbcal-day__more" onClick={(e) => onMore(e.currentTarget)}>
-          +{hidden}
+        <button type="button" className="dbcal-day__more" data-pips={pips} aria-label={t('database.calendar.more', { count: hidden })} onClick={(e) => onMore(e.currentTarget)}>
+          {pips ? Array.from({ length: Math.min(hidden, 3) }, (_, i) => <i key={i} />) : `+${hidden}`}
         </button>
       )}
     </div>
