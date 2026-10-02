@@ -98,13 +98,13 @@ export function BlockHandle({ editor, bridge, pageId }: { editor: Editor; bridge
     const node = editor.state.doc.nodeAt(ref.pos)
     if (!node) return
     editor.view.dispatch(editor.state.tr.setSelection(NodeSelection.create(editor.state.doc, ref.pos)))
-    editor.commands.lockDragHandle()
+    editor.view.dispatch(editor.state.tr.setMeta('lockDragHandle', true))
     setMenu({ el: e.currentTarget, ref: { node, pos: ref.pos } })
   }
 
   const closeMenu = () => {
     setMenu(null)
-    editor.commands.unlockDragHandle()
+    if (!editor.isDestroyed) editor.view.dispatch(editor.state.tr.setMeta('lockDragHandle', false))
   }
 
   const entries = useMemo<MenuEntry[]>(() => {

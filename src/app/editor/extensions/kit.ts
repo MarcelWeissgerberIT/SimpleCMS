@@ -8,18 +8,19 @@ import type { Bridge } from '../lib/bridge'
 import { uploadFiles } from '../lib/upload'
 import { nodeViewWraps } from '../views'
 import { suggestExtension } from './suggest'
-import { BlockSelection, ExtraInputRules, OnePlaceholder, shortcutsExtension } from './behaviors'
+import { BlockFlash, BlockSelection, ExtraInputRules, OnePlaceholder, shortcutsExtension } from './behaviors'
 import { pasteExtension } from './paste'
 
 export function editorExtensions({ bridge, readOnly = false }: { bridge: Bridge | null; readOnly?: boolean }): AnyExtension[] {
   const exts = baseExtensions({ readOnly, wrap: nodeViewWraps({ readOnly }) })
-  if (readOnly || !bridge) return [...exts, pasteExtension(null)]
+  if (readOnly || !bridge) return [...exts, pasteExtension(null), BlockFlash]
   return [
     ...exts,
     Typography.configure({ oneHalf: false, oneQuarter: false, threeQuarters: false, superscriptTwo: false, superscriptThree: false, laquo: false, raquo: false }),
     OnePlaceholder,
     Selection.configure({ className: 'selection' }),
     BlockSelection,
+    BlockFlash,
     ExtraInputRules,
     shortcutsExtension(bridge),
     pasteExtension(bridge),

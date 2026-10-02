@@ -688,3 +688,9 @@
 .doc-content .selection {
   background: var(--selection);
 }
+
+/* MenuList containers take programmatic focus for keyboard nav — no ring on the whole list */
+.popover > div[tabindex='0']:focus-visible,
+.popover > div[data-autofocus]:focus-visible {
+  box-shadow: none;
+}

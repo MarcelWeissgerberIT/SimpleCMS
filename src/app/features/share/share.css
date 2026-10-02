@@ -35,7 +35,7 @@
   background: var(--surface-2);
 }
 
-.share__link:focus-within {
+.share__link:has(.share__url:focus) {
   border-color: var(--signal);
   box-shadow: 0 0 0 3px var(--signal-wash);
 }

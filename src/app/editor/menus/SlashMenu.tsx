@@ -48,24 +48,30 @@ export function SlashMenu({ editor, bridge, pageId }: { editor: Editor; bridge: 
         keys: [
           { name: 'label', weight: 3 },
           { name: 'keywords', weight: 2 },
-          { name: 'desc', weight: 0.5 },
         ],
-        threshold: 0.34,
+        threshold: 0.3,
         ignoreLocation: true,
-        includeScore: true,
       }),
     [entries],
   )
 
   const results = useMemo(() => {
     if (!query) return entries
-    const res = fuse.search(query).map((r) => r.item)
-    // exact markdown shortcut / prefix matches first
-    return res.sort((a, b) => {
-      const pa = a.label.toLowerCase().startsWith(query) || a.item.md === query ? 0 : 1
-      const pb = b.label.toLowerCase().startsWith(query) || b.item.md === query ? 0 : 1
-      return pa - pb
-    })
+    // tiered ranking: label prefix → word prefix → substring → fuzzy; catalog order within a tier
+    const words = (s: string) => s.toLowerCase().split(/[\s/-]+/)
+    const tier = (e: (typeof entries)[number]) => {
+      const label = e.label.toLowerCase()
+      if (label.startsWith(query) || e.item.md === query) return 0
+      if (words(label).some((w) => w.startsWith(query)) || words(e.keywords).some((w) => w.startsWith(query))) return 1
+      if (label.includes(query) || e.keywords.toLowerCase().includes(query)) return 2
+      return 9
+    }
+    const ranked = entries
+      .map((e, i) => ({ e, i, t: tier(e) }))
+      .filter((x) => x.t < 9)
+      .sort((a, b) => a.t - b.t || a.i - b.i)
+      .map((x) => x.e)
+    return ranked.length ? ranked : fuse.search(query).map((r) => r.item)
   }, [entries, fuse, query])
 
   // grouped only when not searching
@@ -101,7 +107,7 @@ export function SlashMenu({ editor, bridge, pageId }: { editor: Editor; bridge: 
     suggest.command(((range) => row.item.run({ editor, pageId, range, bridge })) as SuggestRun)
   }
 
-  useSuggestKeys(bridge, { count: rows.length, active, setActive, onSelect: run })
+  useSuggestKeys(bridge, 'slash', { count: rows.length, active, setActive, onSelect: run })
 
   const current = rows[active]
   return (

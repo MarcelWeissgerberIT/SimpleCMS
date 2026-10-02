@@ -50,3 +50,16 @@ export function useNow(ms = 30_000): number {
   }, [ms])
   return now
 }
+
+/** The theme actually applied to <html data-theme> ('system' resolved). */
+export function useResolvedTheme(): 'light' | 'dark' {
+  return useSyncExternalStore(
+    (cb) => {
+      const mo = new MutationObserver(cb)
+      mo.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] })
+      return () => mo.disconnect()
+    },
+    () => (document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light'),
+    () => 'light',
+  )
+}

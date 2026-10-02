@@ -15,6 +15,7 @@ import { plainText, useWorkspace } from '../../store/store'
 import { isApplyingRemote } from '../../store/persistence'
 import type { ID, PageIcon } from '../../store/types'
 import { newId } from '../../lib/ids'
+import { docKey } from './diff'
 
 export type SnapshotReason = 'session' | 'auto' | 'ai' | 'restore' | 'manual'
 
@@ -67,7 +68,7 @@ function fnv1a(str: string): string {
 }
 
 export function hashContent(content: JSONContent | null, title: string): string {
-  const json = JSON.stringify(content ?? null)
+  const json = docKey(content)
   return `${fnv1a(json)}.${json.length.toString(36)}.${fnv1a(title)}`
 }
 

@@ -129,6 +129,7 @@ export const messages: Messages = {
     'features.history.code.restore': 'Restore',
     'features.history.code.manual': 'Manual',
     'features.history.code.now': 'Live',
+    'features.history.emptyLines': '{count} empty line(s)',
 
     /* ---------- Share ---------- */
     'features.share.label': 'Share',
@@ -190,6 +191,14 @@ export const messages: Messages = {
     'features.present.exit': 'Exit',
     'features.present.navigate': 'Navigate',
     'features.present.titleSlide': 'Title slide',
+    'features.present.beginTouch': 'Tap to begin',
+
+    /* ---------- Journal ---------- */
+    'features.journal.focus': 'Today’s focus',
+    'features.journal.notes': 'Notes',
+    'features.journal.gratitude': 'Gratitude',
+    'features.journal.created': 'Journal created — one page per day',
+    'features.journal.failed': 'Could not open today’s journal entry',
   },
   de: {
     /* ---------- AI ---------- */
@@ -318,6 +327,7 @@ export const messages: Messages = {
     'features.history.code.restore': 'Wiederh.',
     'features.history.code.manual': 'Manuell',
     'features.history.code.now': 'Live',
+    'features.history.emptyLines': '{count} leere Zeile(n)',
 
     /* ---------- Share ---------- */
     'features.share.label': 'Teilen',
@@ -379,5 +389,13 @@ export const messages: Messages = {
     'features.present.exit': 'Beenden',
     'features.present.navigate': 'Blättern',
     'features.present.titleSlide': 'Titelfolie',
+    'features.present.beginTouch': 'Tippen zum Starten',
+
+    /* ---------- Journal ---------- */
+    'features.journal.focus': 'Fokus heute',
+    'features.journal.notes': 'Notizen',
+    'features.journal.gratitude': 'Dankbar für',
+    'features.journal.created': 'Journal angelegt — eine Seite pro Tag',
+    'features.journal.failed': 'Der heutige Journaleintrag konnte nicht geöffnet werden',
   },
 }

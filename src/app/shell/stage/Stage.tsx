@@ -41,6 +41,14 @@ export function Stage({ route, main, mainTitle }: { route: Route; main: ReactNod
     prevLen.current = panes.length
   }, [panes])
 
+  const routeKey = route.name === 'page' ? `p:${route.id}` : route.name
+  // navigating the main column brings it back into view
+  const lastRoute = useRef(routeKey)
+  useEffect(() => {
+    if (lastRoute.current !== routeKey) setFocus(0)
+    lastRoute.current = routeKey
+  }, [routeKey])
+
   const visiblePanes = focusMode ? [] : panes
   const count = 1 + visiblePanes.length
   const SPINE = mobile ? 34 : 42
@@ -50,8 +58,6 @@ export function Stage({ route, main, mainTitle }: { route: Route; main: ReactNod
   const f = Math.min(focus, count - 1)
   const start = Math.min(f, count - k)
   const isFull = (i: number) => i >= start && i < start + k
-
-  const routeKey = route.name === 'page' ? `p:${route.id}` : route.name
 
   return (
     <div ref={ref} className="stage" data-panes={visiblePanes.length || undefined}>
@@ -91,8 +97,38 @@ function MainColumn({ route, children }: { route: Route; children: ReactNode }) 
     }, 80)
     return () => window.clearInterval(timer)
   }, [block])
+  // reading gauge: a 2px signal line along the top edge that fills as you scroll
+  const gauge = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const el = ref.current
+    if (!el) return
+    let raf = 0
+    const update = () => {
+      raf = 0
+      const max = el.scrollHeight - el.clientHeight
+      const p = max > 24 ? Math.min(1, el.scrollTop / max) : 0
+      if (gauge.current) {
+        gauge.current.style.transform = `scaleX(${p})`
+        gauge.current.dataset.on = p > 0.002 ? '1' : ''
+      }
+    }
+    const onScroll = () => {
+      if (!raf) raf = requestAnimationFrame(update)
+    }
+    el.addEventListener('scroll', onScroll, { passive: true })
+    const ro = new ResizeObserver(onScroll)
+    ro.observe(el)
+    return () => {
+      el.removeEventListener('scroll', onScroll)
+      ro.disconnect()
+      cancelAnimationFrame(raf)
+    }
+  }, [])
   return (
     <main ref={ref} className="stage-col stage-col--main" id="main" tabIndex={-1}>
+      <div className="gauge-line" aria-hidden>
+        <div ref={gauge} className="gauge-line__fill" />
+      </div>
       {children}
     </main>
   )

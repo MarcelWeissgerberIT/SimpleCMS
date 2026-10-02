@@ -20,9 +20,13 @@ export interface SheetOptions {
   onUpgrade: () => void
 }
 
+/** Opacity of the white "Not Responding" wash (mirrored by the smash shader). */
+export const WASH_ALPHA = 0.36
+
 export interface SheetHandle {
   el: HTMLElement
   setHung(on: boolean): void
+  isHung(): boolean
   setRumble(on: boolean): void
   /** Stop/resume JS animations (marquee, blink) — e.g. right before a capture. */
   freeze(on: boolean): void
@@ -140,7 +144,7 @@ export function mountSheet(root: HTMLElement, opts: SheetOptions): SheetHandle {
       </span>
     </div>
     <div class="x97-status"><span class="x97-st x97-st-main">${esc(t('intro.ready'))}</span><span class="x97-st x97-st-sum"></span><span class="x97-st x97-st-num">${esc(t('intro.num'))}</span></div>
-    <div class="x97-wash"></div>
+    <div class="x97-wash" style="background:rgba(255,255,255,${WASH_ALPHA})"></div>
     <div class="x97-dialog" role="alertdialog" aria-modal="true" aria-labelledby="x97-dlg-msg" hidden>
       <div class="x97-dlg-title"><span>${esc(t('intro.app'))}</span><button type="button" class="x97-cap" data-dlg="close" aria-label="${esc(t('intro.dialog.ok'))}">${icon('close')}</button></div>
       <div class="x97-dlg-body">
@@ -587,6 +591,7 @@ export function mountSheet(root: HTMLElement, opts: SheetOptions): SheetHandle {
   return {
     el,
     setHung,
+    isHung: () => hung,
     setRumble,
     freeze,
     closeDialog,

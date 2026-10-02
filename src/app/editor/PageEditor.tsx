@@ -7,13 +7,14 @@
 import { useCallback, useEffect, useMemo, useRef, type MouseEvent as ReactMouseEvent } from 'react'
 import { EditorContent, useEditor } from '@tiptap/react'
 import type { Editor, JSONContent } from '@tiptap/core'
-import { TextSelection } from '@tiptap/pm/state'
+import { Selection, TextSelection } from '@tiptap/pm/state'
 import type { ID } from '../store/types'
 import { useWorkspace } from '../store/store'
 import { useRoute } from '../lib/router'
 import { newId } from '../lib/ids'
 import { createBridge } from './lib/bridge'
 import { editorExtensions } from './extensions/kit'
+import { findBlockById, flashBlock } from './extensions/behaviors'
 import { sanitize } from './convert'
 import { EditorOverlays } from './menus/EditorOverlays'
 import './editor.css'
@@ -120,11 +121,12 @@ function EditorInstance({ pageId, readOnly, autoFocus, onReady, className }: Pag
       if (p.contentOrigin === instanceId || editor.isDestroyed) return
       window.clearTimeout(timer.current)
       dirty.current = false
-      const { from, to } = editor.state.selection
+      const { from, empty } = editor.state.selection
       editor.commands.setContent(p.content ? sanitize(p.content) : { type: 'doc', content: [{ type: 'paragraph' }] }, { emitUpdate: false })
-      const size = editor.state.doc.content.size
+      const doc = editor.state.doc
       try {
-        const sel = TextSelection.create(editor.state.doc, Math.min(from, size), Math.min(to, size))
+        const $pos = doc.resolve(Math.min(from, doc.content.size))
+        const sel = empty && $pos.parent.inlineContent ? TextSelection.create(doc, $pos.pos) : Selection.near($pos)
         editor.view.dispatch(editor.state.tr.setSelection(sel).setMeta('addToHistory', false))
       } catch {
         /* selection not restorable — keep default */
@@ -150,13 +152,8 @@ function EditorInstance({ pageId, readOnly, autoFocus, onReady, className }: Pag
   useEffect(() => {
     if (!editor || !targetBlock) return
     const t = window.setTimeout(() => {
-      const el = editor.view.dom.querySelector<HTMLElement>(`[data-id="${CSS.escape(targetBlock)}"]`)
-      if (!el) return
-      el.scrollIntoView({ block: 'center', behavior: 'smooth' })
-      el.classList.remove('block-flash')
-      void el.offsetWidth
-      el.classList.add('block-flash')
-      window.setTimeout(() => el.classList.remove('block-flash'), 2000)
+      const pos = findBlockById(editor, targetBlock)
+      if (pos !== null) flashBlock(editor, pos)
     }, 160)
     return () => window.clearTimeout(t)
   }, [editor, targetBlock])

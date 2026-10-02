@@ -125,7 +125,7 @@ export function MentionMenu({ editor, bridge, pageId }: { editor: Editor; bridge
     const row = rows[i]
     if (row && suggest) suggest.command(((range) => row.run(range)) as SuggestRun)
   }
-  useSuggestKeys(bridge, { count: rows.length, active, setActive, onSelect: select })
+  useSuggestKeys(bridge, 'mention', { count: rows.length, active, setActive, onSelect: select })
 
   return (
     <Popover

@@ -75,7 +75,7 @@ export function Sidebar() {
           <NavRow icon={<LayoutTemplate size={16} />} label={t('shell.nav.templates')} onClick={() => useUI.getState().openModal({ type: 'templates', parentId: null })} />
           <NavRow icon={<Upload size={16} />} label={t('shell.nav.import')} onClick={() => useUI.getState().openModal({ type: 'import' })} />
         </nav>
-        <div className="sb-scroll">
+        <div className="sb-scroll" onKeyDown={onTreeKeyDown}>
           <FavoritesSection />
           <PagesSection />
         </div>
@@ -93,6 +93,31 @@ export function Sidebar() {
       </aside>
     </>
   )
+}
+
+/** Arrow-key navigation across all visible tree rows (WAI-ARIA tree pattern). */
+function onTreeKeyDown(e: React.KeyboardEvent<HTMLDivElement>) {
+  const link = (e.target as HTMLElement).closest?.('.sb-row__link') as HTMLElement | null
+  if (!link || e.altKey || e.metaKey || e.ctrlKey) return
+  const all = [...e.currentTarget.querySelectorAll<HTMLElement>('.sb-row__link')]
+  const i = all.indexOf(link)
+  const key = link.dataset.treeKey ?? ''
+  const exp = link.getAttribute('aria-expanded')
+  const tree = useTreeState.getState()
+  const parentLink = () => link.closest('.sb-children')?.parentElement?.querySelector<HTMLElement>(':scope > .sb-row .sb-row__link')
+  let handled = true
+  if (e.key === 'ArrowDown') all[i + 1]?.focus()
+  else if (e.key === 'ArrowUp') all[i - 1]?.focus()
+  else if (e.key === 'Home') all[0]?.focus()
+  else if (e.key === 'End') all[all.length - 1]?.focus()
+  else if (e.key === 'ArrowRight') {
+    if (exp === 'false') tree.toggle(key)
+    else if (exp === 'true') all[i + 1]?.focus()
+  } else if (e.key === 'ArrowLeft') {
+    if (exp === 'true') tree.collapse(key)
+    else parentLink()?.focus()
+  } else handled = false
+  if (handled) e.preventDefault()
 }
 
 function SidebarHeader() {
@@ -129,8 +154,11 @@ function SidebarHeader() {
   return (
     <div className="sb-head">
       <button type="button" className="sb-head__ws" onClick={toggleMenu(menu)} aria-haspopup="menu" aria-expanded={menu.open}>
-        <span className="sb-head__mark" dangerouslySetInnerHTML={{ __html: logoMarkSvg(22) }} />
-        <span className="sb-head__name">{name || 'One'}</span>
+        <span className="sb-head__mark" dangerouslySetInnerHTML={{ __html: logoMarkSvg(24) }} />
+        <span className="sb-head__text">
+          <span className="sb-head__name">{name || 'One'}</span>
+          <span className="sb-head__sub">{t('shell.sidebar.sub')}</span>
+        </span>
         <ChevronDown size={14} className="sb-head__chev" />
       </button>
       <Tooltip label={mobile ? t('common.close') : t('shell.sidebar.collapseSidebar')} shortcut={mobile ? undefined : shortcutLabel('Mod+\\')}>

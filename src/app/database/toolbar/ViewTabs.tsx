@@ -1,7 +1,7 @@
 /**
  * View tabs styled as index-card / file-folder tabs; add view, per-view menu, drag to reorder.
  */
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { DndContext, PointerSensor, closestCenter, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core'
 import { SortableContext, arrayMove, horizontalListSortingStrategy, useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
@@ -86,6 +86,21 @@ export function ViewTabs({ m, onSelect }: { m: DbModel; onSelect: (id: ID) => vo
   const [addAnchor, setAddAnchor] = useState<HTMLElement | null>(null)
   const stripRef = useRef<HTMLDivElement>(null)
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }))
+  useEffect(() => {
+    const el = stripRef.current
+    if (!el) return
+    const check = () => {
+      el.dataset.overflow = String(el.scrollWidth > el.clientWidth + 1 && el.scrollLeft + el.clientWidth < el.scrollWidth - 2)
+    }
+    check()
+    const ro = new ResizeObserver(check)
+    ro.observe(el)
+    el.addEventListener('scroll', check)
+    return () => {
+      ro.disconnect()
+      el.removeEventListener('scroll', check)
+    }
+  }, [views.length])
 
   const onDragEnd = (e: DragEndEvent) => {
     if (!e.over || e.active.id === e.over.id) return
@@ -94,7 +109,17 @@ export function ViewTabs({ m, onSelect }: { m: DbModel; onSelect: (id: ID) => vo
   }
 
   const addView = (type: ViewType) => {
-    const id = s.addView(m.db.id, { type, name: t(`database.view.${type}`) })
+    const patch: Partial<View> & Pick<View, 'type'> = { type, name: t(`database.view.${type}`) }
+    if (type !== 'table') {
+      // cards and lines stay readable: show a few meaningful properties, not all of them
+      const rank: Record<string, number> = { status: 1, select: 2, date: 3, person: 4, multi_select: 5, number: 6, checkbox: 7 }
+      patch.visibleProperties = m.db.properties
+        .filter((p) => rank[p.type])
+        .sort((a, b) => rank[a.type] - rank[b.type])
+        .slice(0, 4)
+        .map((p) => p.id)
+    }
+    const id = s.addView(m.db.id, patch)
     onSelect(id)
     requestAnimationFrame(() => stripRef.current?.querySelector('[data-active="true"]')?.scrollIntoView({ inline: 'nearest', block: 'nearest' }))
   }

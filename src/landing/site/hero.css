@@ -278,6 +278,114 @@
   color: var(--ink-2);
 }
 
+
+/* Cross-highlight: parts list <-> balloons */
+.hero-body[data-part] .balloon,
+.hero-body[data-part] .leader,
+.hero-body[data-part] .leader-dot {
+  opacity: 0.25;
+  transition: opacity var(--dur-2) var(--ease-out);
+}
+.hero-body[data-part='A'] .balloon[data-part='A'],
+.hero-body[data-part='B'] .balloon[data-part='B'],
+.hero-body[data-part='C'] .balloon[data-part='C'],
+.hero-body[data-part='D'] .balloon[data-part='D'],
+.hero-body[data-part='A'] .leader[data-part='A'],
+.hero-body[data-part='B'] .leader[data-part='B'],
+.hero-body[data-part='C'] .leader[data-part='C'],
+.hero-body[data-part='D'] .leader[data-part='D'] {
+  opacity: 1;
+}
+.hero-body[data-part='A'] .balloon[data-part='A'],
+.hero-body[data-part='B'] .balloon[data-part='B'],
+.hero-body[data-part='C'] .balloon[data-part='C'],
+.hero-body[data-part='D'] .balloon[data-part='D'] {
+  transform: scale(1.22);
+}
+.balloon {
+  transition: transform var(--dur-2) var(--ease-out), opacity var(--dur-2) var(--ease-out);
+  cursor: default;
+}
+.bom li {
+  transition: background-color var(--dur-2) var(--ease-out);
+}
+.hero-body[data-part='A'] .bom li[data-part='A'],
+.hero-body[data-part='B'] .bom li[data-part='B'],
+.hero-body[data-part='C'] .bom li[data-part='C'],
+.hero-body[data-part='D'] .bom li[data-part='D'] {
+  background: var(--signal-wash);
+}
+.hero-body[data-part='A'] .bom li[data-part='A'] .bom-id,
+.hero-body[data-part='B'] .bom li[data-part='B'] .bom-id,
+.hero-body[data-part='C'] .bom li[data-part='C'] .bom-id,
+.hero-body[data-part='D'] .bom li[data-part='D'] .bom-id {
+  background: var(--signal);
+  color: var(--sig-ink);
+}
+
+/* CAD crosshair over the drawing */
+.xh,
+.xh-tag {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 3;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity var(--dur-2) var(--ease-out);
+}
+.xh-h {
+  width: 100%;
+  height: 1px;
+  background: var(--signal);
+  opacity: 0;
+}
+.xh-v {
+  width: 1px;
+  height: 100%;
+  background: var(--signal);
+}
+.xh-tag {
+  padding: 3px 6px;
+  border-radius: var(--radius-1);
+  background: var(--signal);
+  color: var(--sig-ink);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+.is-measuring .xh {
+  opacity: 0.55;
+}
+.is-measuring .xh-tag {
+  opacity: 1;
+}
+.frame-hero .frame-media {
+  cursor: crosshair;
+}
+
+/* Readout meters: every needle parked at zero — except pages, pegged at max. */
+.meter {
+  position: relative;
+  display: block;
+  height: 12px;
+  margin: 2px 0 2px;
+  background: repeating-linear-gradient(to right, var(--rule-strong) 0 1px, transparent 1px 10%) left bottom / calc(100% + 1px) 6px no-repeat;
+  border-bottom: 1px solid var(--rule-strong);
+  max-width: 220px;
+}
+.meter i {
+  position: absolute;
+  bottom: -1px;
+  left: calc(var(--v, 0) * 100%);
+  width: 2px;
+  height: 14px;
+  margin-left: -1px;
+  background: var(--signal);
+}
+
 /* Pre-entrance (set while the 1997 page is being smashed on top). */
 .site.is-pre .type-caret {
   animation: none;
@@ -304,6 +412,12 @@
   .hero-fig {
     grid-column: 1 / -1;
     margin-top: 40px;
+  }
+}
+@media (max-width: 560px) {
+  .hero-h {
+    font-size: clamp(40px, 14.6vw, 66px);
+    line-height: 0.88;
   }
 }
 @media (max-width: 720px) {

@@ -36,6 +36,7 @@ export function Presentation({ pageId, onClose }: { pageId: ID; onClose: () => v
   const enteredFs = useRef(false)
 
   const count = slides.length
+  const coarse = useMemo(() => typeof window !== 'undefined' && !!window.matchMedia?.('(pointer: coarse)').matches, [])
   const cur = Math.min(index, count - 1)
 
   const indexRef = useRef(0)
@@ -198,7 +199,7 @@ export function Presentation({ pageId, onClose }: { pageId: ID; onClose: () => v
             <div className="pres__corner pres__corner--br" aria-live="polite">
               {pad2(cur + 1)} / {pad2(count)}
             </div>
-            <SlideView key={cur} slide={slide} dir={dir} icon={page?.icon ?? null} title={title} meta={`${t('features.present.slides', { count: count - 1 })} · ${date}`} hint={t('features.present.begin')} />
+            <SlideView key={cur} slide={slide} dir={dir} icon={page?.icon ?? null} title={title} meta={`${t('features.present.slides', { count: count - 1 })} · ${date}`} hint={t(coarse ? 'features.present.beginTouch' : 'features.present.begin')} />
           </div>
         </div>
       )}

@@ -59,6 +59,11 @@ export function useGlobalShortcuts() {
         ui.openModal({ type: 'settings' })
         return
       }
+    }
+    // Escape / '?' run in the bubble phase so editors and menus can claim them first
+    const onKeyBubble = (e: KeyboardEvent) => {
+      const ui = useUI.getState()
+      const mod = e.metaKey || e.ctrlKey
       if (e.key === '?' && !mod && !isEditable(e.target) && !overlayOpen()) {
         e.preventDefault()
         ui.openModal({ type: 'shortcuts' })
@@ -78,7 +83,11 @@ export function useGlobalShortcuts() {
     }
     // capture so ⌘K wins over editor bindings
     window.addEventListener('keydown', onKey, true)
-    return () => window.removeEventListener('keydown', onKey, true)
+    window.addEventListener('keydown', onKeyBubble)
+    return () => {
+      window.removeEventListener('keydown', onKey, true)
+      window.removeEventListener('keydown', onKeyBubble)
+    }
   }, [])
 }
 

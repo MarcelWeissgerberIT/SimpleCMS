@@ -147,6 +147,11 @@ body.db-resizing .dbt-resize:active::after {
 }
 
 /* ---------- sticky columns ---------- */
+.dbt .dbt-sticky0,
+.dbt .dbt-sticky1 {
+  position: sticky;
+}
+
 .dbt-sticky0 {
   position: sticky;
   left: 0;
@@ -629,4 +634,13 @@ body.db-resizing .dbt-resize:active::after {
     opacity: 1;
     pointer-events: auto;
   }
+}
+
+.dbt:focus-visible {
+  box-shadow: none;
+}
+
+.dbt .dbt-row--calc .dbt-sticky1,
+.dbt[data-scrolled='true'] .dbt-row--calc .dbt-sticky1 {
+  box-shadow: none;
 }

@@ -15,6 +15,7 @@ export const messages: Messages = {
 
     // sidebar
     'shell.sidebar.label': 'Workspace sidebar',
+    'shell.sidebar.sub': 'Local workspace',
     'shell.sidebar.favorites': 'Favorites',
     'shell.sidebar.pages': 'Pages',
     'shell.sidebar.trash': 'Trash',
@@ -117,6 +118,8 @@ export const messages: Messages = {
     'shell.status.error': 'Save failed · check storage',
     'shell.status.commands': 'Commands',
     'shell.status.help': 'Help',
+    'shell.status.theme': 'Switch theme',
+    'shell.status.lang': 'Switch language',
 
     // panes & peek
     'shell.pane.openFull': 'Open as full page',
@@ -146,7 +149,7 @@ export const messages: Messages = {
     'shell.trash.hint': 'Restore keeps the original place',
     'shell.trash.emptyAction': 'Empty trash',
     'shell.trash.emptyTitle': 'Empty the trash?',
-    'shell.trash.emptyBody': '{count} items will be deleted forever. This cannot be undone.',
+    'shell.trash.emptyBody': 'Everything in the trash ({count}) will be deleted forever. This cannot be undone.',
     'shell.trash.emptyConfirm': 'Empty trash',
 
     // move
@@ -346,6 +349,7 @@ export const messages: Messages = {
     'shell.nav.import': 'Importieren',
 
     'shell.sidebar.label': 'Seitenleiste',
+    'shell.sidebar.sub': 'Lokaler Workspace',
     'shell.sidebar.favorites': 'Favoriten',
     'shell.sidebar.pages': 'Seiten',
     'shell.sidebar.trash': 'Papierkorb',
@@ -442,6 +446,8 @@ export const messages: Messages = {
     'shell.status.error': 'Speichern fehlgeschlagen',
     'shell.status.commands': 'Befehle',
     'shell.status.help': 'Hilfe',
+    'shell.status.theme': 'Design wechseln',
+    'shell.status.lang': 'Sprache wechseln',
 
     'shell.pane.openFull': 'Als ganze Seite öffnen',
     'shell.pane.close': 'Bereich schließen',
@@ -468,7 +474,7 @@ export const messages: Messages = {
     'shell.trash.hint': 'Wiederherstellen am alten Ort',
     'shell.trash.emptyAction': 'Papierkorb leeren',
     'shell.trash.emptyTitle': 'Papierkorb leeren?',
-    'shell.trash.emptyBody': '{count} Elemente werden endgültig gelöscht. Das kann nicht rückgängig gemacht werden.',
+    'shell.trash.emptyBody': 'Alles im Papierkorb ({count}) wird endgültig gelöscht. Das kann nicht rückgängig gemacht werden.',
     'shell.trash.emptyConfirm': 'Papierkorb leeren',
 
     'shell.move.label': 'VERSCHIEBEN',

@@ -11,7 +11,11 @@ export function renderFeatures(ctx: Ctx): string {
       <li class="plac" data-feature="${f.key}" data-reveal>
         <i class="screw s-tl" aria-hidden="true"></i><i class="screw s-tr" aria-hidden="true"></i><i class="screw s-bl" aria-hidden="true"></i><i class="screw s-br" aria-hidden="true"></i>
         <p class="lbl plac-idx"><span>F-${String(i + 1).padStart(2, '0')}</span><span class="plac-code-sm" aria-hidden="true">${esc(f.code)}</span></p>
-        <div class="plac-art" aria-hidden="true"><span class="plac-code">${esc(f.code)}</span></div>
+        <div class="plac-art ${f.key === 'i18n' ? 'has-icon' : ''}" aria-hidden="true">${
+          f.key === 'i18n'
+            ? '<span class="plac-keys tone-print"><span>EN</span><span>DE</span></span>'
+            : `<span class="plac-code">${esc(f.code)}</span>`
+        }</div>
         <h3 class="plac-h">${esc(f.title)}</h3>
         <p class="plac-p">${esc(f.text)}</p>
       </li>`,
@@ -49,7 +53,27 @@ const KEYWORDS: Record<FeatureKey, string[]> = {
   i18n: ['language', 'languages', 'lang', 'globe', 'i18n', 'translate', 'world', 'bilingual'],
 }
 
+/** Hand-picked art per feature (manifest `name`); keyword matching is only the fallback. */
+const PREFERRED: Partial<Record<FeatureKey, string>> = {
+  editor: 'blocks',
+  databases: 'database',
+  ai: 'ai',
+  automations: 'automation',
+  import: 'import',
+  graph: 'graph',
+  history: 'history', // a cassette: rewind
+  share: 'sync', // two chain links: a link
+  present: 'present',
+  palette: 'command',
+  private: 'lock',
+  templates: 'templates',
+  panes: 'split',
+  focus: 'focus',
+  offline: 'publish', // a paper plane: airplane mode
+}
+
 interface IconRef {
+  name: string
   src: string
   words: Set<string>
 }
@@ -60,7 +84,7 @@ function toRef(raw: unknown, keyHint = ''): IconRef | null {
   if (typeof raw === 'string') src = raw
   else if (raw && typeof raw === 'object') {
     const o = raw as Record<string, unknown>
-    src = String(o.file ?? o.src ?? o.path ?? o.url ?? o.image ?? '')
+    src = String(o.webp ?? o.file ?? o.src ?? o.path ?? o.url ?? o.image ?? o.png ?? '')
     for (const k of ['key', 'id', 'name', 'slug', 'title', 'label', 'feature', 'use', 'usage', 'category']) {
       if (typeof o[k] === 'string') words.push(o[k] as string)
     }
@@ -74,7 +98,8 @@ function toRef(raw: unknown, keyHint = ''): IconRef | null {
   for (const w of words) for (const p of w.toLowerCase().split(/[^a-z0-9]+/)) if (p) set.add(p)
   let url = src
   if (!/^(https?:|data:|\/)/.test(src)) url = src.includes('assets/') ? asset(src.slice(src.indexOf('assets/'))) : asset(`assets/icons/${src}`)
-  return { src: url, words: set }
+  const name = raw && typeof raw === 'object' && typeof (raw as Record<string, unknown>).name === 'string' ? String((raw as Record<string, unknown>).name) : keyHint
+  return { name, src: url, words: set }
 }
 
 function parseManifest(json: unknown): IconRef[] {
@@ -110,9 +135,10 @@ export async function loadFeatureIcons(root: HTMLElement): Promise<void> {
   const used = new Set<IconRef>()
   root.querySelectorAll<HTMLElement>('.plac[data-feature]').forEach((cell) => {
     const key = cell.dataset.feature as FeatureKey
-    let best: IconRef | null = null
-    let bestScore = 0
-    for (const r of refs) {
+    const want = PREFERRED[key]
+    let best: IconRef | null = (want && refs.find((r) => r.name === want && !used.has(r))) || null
+    let bestScore = best ? Infinity : 0
+    for (const r of best ? [] : refs) {
       if (used.has(r)) continue
       let score = r.words.has(key) ? 3 : 0
       for (const k of KEYWORDS[key] ?? []) if (r.words.has(k)) score += 1

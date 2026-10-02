@@ -30,7 +30,7 @@ export function EmojiMenu({ editor, bridge }: { editor: Editor; bridge: Bridge }
     const e = results[i]
     if (e && suggest) suggest.command(((range) => editor.chain().focus().insertContentAt(range, e.emoji).run()) as SuggestRun)
   }
-  useSuggestKeys(bridge, { count: results.length, active, setActive, onSelect: select, columns: COLS })
+  useSuggestKeys(bridge, 'emoji', { count: results.length, active, setActive, onSelect: select, columns: COLS })
   // nothing matches → let the user keep typing normally
   const visible = open && !!anchor && (!list || results.length > 0)
   const cur = results[active]

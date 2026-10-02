@@ -790,7 +790,7 @@ function Elapsed({ start, end }: { start: number; end?: number }) {
 
 function ErrorNote({ error, model }: { error: AIError; model: string }) {
   const t = useT()
-  const detail = error.code === 'bad_request' || error.code === 'unknown' ? error.message : ''
+  const detail = error.code === 'bad_request' || error.code === 'unknown' ? (error.detail ?? '') : ''
   return (
     <div className="ai-error" role="alert">
       <span className="ai-error__code label">ERR · {error.code.toUpperCase()}</span>

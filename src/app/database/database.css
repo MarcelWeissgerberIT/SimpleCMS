@@ -4,6 +4,8 @@
  */
 
 .db {
+  container-type: inline-size;
+  container-name: db;
   --db-paper: var(--surface);
   --db-cell-fs: 13px;
   position: relative;
@@ -2205,6 +2207,24 @@ body.db-dragging,
 body.db-dragging * {
   cursor: grabbing !important;
   user-select: none !important;
+}
+
+/* tabs that overflow fade out at the edge */
+.db-tabs[data-overflow='true'] {
+  mask-image: linear-gradient(90deg, #000 calc(100% - 28px), transparent);
+}
+
+/* narrow containers: icon-only tools, no counter */
+@container db (max-width: 1080px) {
+  .db-tool__label {
+    display: none;
+  }
+}
+
+@container db (max-width: 760px) {
+  .db-counter {
+    display: none;
+  }
 }
 
 /* ---------- mobile ---------- */

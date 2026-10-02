@@ -29,8 +29,8 @@ export interface OverlayState {
 }
 
 export interface Bridge extends StoreApi<OverlayState> {
-  /** Key handler registered by the currently open suggestion menu. */
-  keyHandler: ((e: KeyboardEvent) => boolean) | null
+  /** Key handlers registered by the suggestion menus (one per kind). */
+  keyHandlers: Partial<Record<SuggestKind, (e: KeyboardEvent) => boolean>>
   pageId: string
 }
 
@@ -43,7 +43,7 @@ export function createBridge(pageId: string): Bridge {
     mathEdit: null,
     plusOpened: false,
   })) as Bridge
-  store.keyHandler = null
+  store.keyHandlers = {}
   store.pageId = pageId
   return store
 }

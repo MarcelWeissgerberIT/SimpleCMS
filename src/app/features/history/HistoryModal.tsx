@@ -194,11 +194,11 @@ export function HistoryModal({ pageId, onClose }: { pageId: ID; onClose: () => v
         </div>
         <span className="hist__spacer" />
         {selMeta && (
-          <div className="seg" role="tablist">
-            <button role="tab" aria-selected={mode === 'changes'} className="seg__btn" onClick={() => setMode('changes')}>
+          <div className="hist__seg" role="tablist">
+            <button role="tab" aria-selected={mode === 'changes'} className="hist__seg-btn" onClick={() => setMode('changes')}>
               {t('features.history.changes')}
             </button>
-            <button role="tab" aria-selected={mode === 'version'} className="seg__btn" onClick={() => setMode('version')}>
+            <button role="tab" aria-selected={mode === 'version'} className="hist__seg-btn" onClick={() => setMode('version')}>
               {t('features.history.version')}
             </button>
           </div>
@@ -341,10 +341,11 @@ function DiffView({ segs }: { segs: DiffSegment[] }) {
             </div>
           )
         }
+        const blank = s.blocks.every((b) => b.type === 'paragraph' && !b.content?.length)
         return (
           <div key={i} className={`hdiff__seg hdiff__seg--${s.kind}`}>
             {s.kind !== 'same' && <span className="hdiff__mark mono" aria-label={s.kind === 'added' ? t('features.history.added') : t('features.history.removed')}>{s.kind === 'added' ? '+' : '−'}</span>}
-            <ReadOnlyDoc content={doc(s.blocks)} />
+            {blank && s.kind !== 'same' ? <span className="hdiff__blank label">¶ {t('features.history.emptyLines', { count: s.blocks.length })}</span> : <ReadOnlyDoc content={doc(s.blocks)} />}
           </div>
         )
       })}
@@ -385,7 +386,10 @@ function Tape({
   }, [])
   // spread the marks over the whole tape when there are few of them
   const STEP = items.length > 1 ? Math.max(MIN_STEP, Math.min(MAX_STEP, (viewW - PAD * 2) / (items.length - 1))) : MIN_STEP
-  const width = PAD * 2 + Math.max(0, items.length - 1) * STEP
+  // few versions: anchor the timeline to the right, so "now" always sits at the right edge
+  const lead = Math.max(0, viewW - PAD * 2 - Math.max(0, items.length - 1) * STEP)
+  const xOf = (i: number) => PAD + lead + i * STEP
+  const width = PAD * 2 + lead + Math.max(0, items.length - 1) * STEP
 
   // bar heights ~ size of each change (a waveform of editing activity)
   const mags = useMemo(() => {
@@ -406,13 +410,13 @@ function Tape({
   useEffect(() => {
     const el = scrollRef.current
     if (!el) return
-    const x = PAD + index * STEP
+    const x = xOf(index)
     if (x < el.scrollLeft + 60 || x > el.scrollLeft + el.clientWidth - 60) el.scrollTo({ left: x - el.clientWidth / 2, behavior: drag.current ? 'auto' : 'smooth' })
-  }, [index, items.length, STEP])
+  }, [index, items.length, STEP, lead]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const fromX = (clientX: number) => {
     const r = trackRef.current!.getBoundingClientRect()
-    return Math.max(0, Math.min(items.length - 1, Math.round((clientX - r.left - PAD) / STEP)))
+    return Math.max(0, Math.min(items.length - 1, Math.round((clientX - r.left - PAD - lead) / STEP)))
   }
 
   const onPointerDown = (e: React.PointerEvent) => {
@@ -453,6 +457,7 @@ function Tape({
     <div
       className="tape"
       tabIndex={0}
+      data-autofocus=""
       role="slider"
       aria-valuemin={1}
       aria-valuemax={items.length}
@@ -465,7 +470,7 @@ function Tape({
         <div
           className="tape__track"
           ref={trackRef}
-          style={{ width: `max(100%, ${width}px)`, ['--step' as string]: `${STEP}px`, ['--pad' as string]: `${PAD}px` }}
+          style={{ width: `max(100%, ${width}px)`, ['--step' as string]: `${STEP}px`, ['--pad' as string]: `${PAD + lead}px` }}
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
           onPointerUp={endDrag}
@@ -477,11 +482,11 @@ function Tape({
             const prev = items[i - 1]
             const prevAt = prev ? (prev.kind === 'now' ? Date.now() : prev.meta.at) : null
             const splice = prevAt !== null && dayKey(prevAt) !== dayKey(at)
-            const x = PAD + i * STEP
+            const x = xOf(i)
             return (
               <div key={it.kind === 'now' ? 'now' : it.meta.id}>
                 {(splice || i === 0) && (
-                  <div className="tape__splice" style={{ left: i === 0 ? 8 : x - STEP / 2 }} data-first={i === 0 || undefined}>
+                  <div className="tape__splice" style={{ left: i === 0 ? (lead > 0 ? x : 8) : x - STEP / 2 }} data-first={i === 0 || undefined} data-right={(i === 0 && lead > 0) || undefined}>
                     <span className="tape__day mono">{fmtDay.format(at).toUpperCase()}</span>
                   </div>
                 )}
@@ -493,7 +498,7 @@ function Tape({
               </div>
             )
           })}
-          <div className="tape__head" style={{ left: PAD + index * STEP }} aria-hidden>
+          <div className="tape__head" style={{ left: xOf(index) }} aria-hidden>
             <span className="tape__head-cap" />
           </div>
         </div>

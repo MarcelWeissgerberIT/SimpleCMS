@@ -39,6 +39,12 @@
   padding-bottom: 2px;
 }
 
+.doc-content:focus,
+.doc-content:focus-visible {
+  outline: none;
+  box-shadow: none;
+}
+
 .doc--font-serif .doc-content {
   font-family: var(--font-serif);
   --doc-lh: 1.6;

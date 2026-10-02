@@ -606,11 +606,16 @@
 .x97-tip {
   font-weight: 700;
   color: #000080;
-  background-image: linear-gradient(to bottom left, #ff0000 50%, transparent 50%);
-  background-size: 6px 6px;
-  background-position: right 1px top 0;
-  background-repeat: no-repeat;
   cursor: help;
+}
+.x97-tip::after {
+  content: '';
+  position: absolute;
+  right: 1px;
+  top: 0;
+  width: 6px;
+  height: 6px;
+  background: linear-gradient(to bottom left, #ff0000 50%, transparent 50%);
 }
 
 .x97-footer {
@@ -932,7 +937,6 @@
   inset: 0;
   z-index: 50;
   display: none;
-  background: rgba(255, 255, 255, 0.36);
   pointer-events: none;
 }
 .x97--hung .x97-wash {

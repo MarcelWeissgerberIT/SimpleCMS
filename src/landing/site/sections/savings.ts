@@ -114,7 +114,14 @@ function receiptHtml(ctx: Ctx, s: CalcState): string {
 }
 
 /** Wire the controls. `onChange(first)` lets the motion layer animate re-prints. */
-export function bindSavings(root: HTMLElement, ctx: Ctx, hooks: { onReprint?: (receipt: HTMLElement) => void } = {}): void {
+export interface SavingsHooks {
+  /** Paper feed + flash when the numbers change. */
+  onReprint?: (receipt: HTMLElement) => void
+  /** Roll a number from one value to another (instrument dial). */
+  rollNumber?: (el: HTMLElement, from: number, to: number, format: (n: number) => string) => void
+}
+
+export function bindSavings(root: HTMLElement, ctx: Ctx, hooks: SavingsHooks = {}): void {
   const sec = root.querySelector<HTMLElement>('#savings')
   if (!sec) return
   const range = sec.querySelector<HTMLInputElement>('#seats')!
@@ -129,13 +136,17 @@ export function bindSavings(root: HTMLElement, ctx: Ctx, hooks: { onReprint?: (r
     el.textContent = t('savings.perSeat', { price: formatUsd(NOTION_PRICING.perSeatMonth[p][calcState.billing], lang, false) })
   })
 
+  let shownTotal = notionYearly(calcState.plan, calcState.billing, calcState.seats)
   const update = (reprint: boolean) => {
     const s = calcState
     range.value = String(s.seats)
     range.style.setProperty('--fill', `${((s.seats - MIN) / (MAX - MIN)) * 100}%`)
     lcd.textContent = String(s.seats).padStart(3, '0')
     const total = notionYearly(s.plan, s.billing, s.seats)
-    big.textContent = formatUsd(total, lang, false)
+    const fmt = (n: number) => formatUsd(Math.round(n), lang, false)
+    if (reprint && hooks.rollNumber) hooks.rollNumber(big, shownTotal, total, fmt)
+    else big.textContent = fmt(total)
+    shownTotal = total
     five.textContent = t('savings.fiveYears', { amount: formatUsd(total * 5, lang, false) })
     sec.querySelectorAll<HTMLButtonElement>('[data-plan]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.plan === s.plan)))
     sec.querySelectorAll<HTMLButtonElement>('[data-billing]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.billing === s.billing)))

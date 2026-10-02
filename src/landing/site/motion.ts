@@ -37,6 +37,8 @@ function countReadout(root: HTMLElement, lang: Lang, tl: gsap.core.Timeline, at:
     const from = Number(el.dataset.from ?? 0)
     const o = { v: kind === 'inf' ? 0 : from }
     const to = kind === 'inf' ? 9999 : 0
+    const meter = el.parentElement?.querySelector<HTMLElement>('.meter')
+    const level = () => (kind === 'inf' ? o.v / 9999 : from ? o.v / from : 0)
     tl.to(
       o,
       {
@@ -44,7 +46,10 @@ function countReadout(root: HTMLElement, lang: Lang, tl: gsap.core.Timeline, at:
         duration: 0.62,
         ease: kind === 'inf' ? 'power2.in' : 'power3.out',
         onStart: () => el.classList.add('is-counting'),
-        onUpdate: () => (el.textContent = formatCount(kind, o.v, lang)),
+        onUpdate: () => {
+          el.textContent = formatCount(kind, o.v, lang)
+          meter?.style.setProperty('--v', level().toFixed(3))
+        },
         onComplete: () => {
           el.textContent = final
           el.classList.remove('is-counting')
@@ -101,7 +106,9 @@ export function heroMotion(root: HTMLElement, lang: Lang): HeroMotion {
     gsap.set(t.dims, { opacity: 0.35 })
     gsap.set(t.cells, { opacity: 0.25 })
     root.querySelectorAll<HTMLElement>('[data-count]').forEach((el) => {
-      if (el.dataset.count !== 'inf') el.textContent = formatCount(el.dataset.count ?? 'n', Number(el.dataset.from ?? 0), lang)
+      const inf = el.dataset.count === 'inf'
+      if (!inf) el.textContent = formatCount(el.dataset.count ?? 'n', Number(el.dataset.from ?? 0), lang)
+      el.parentElement?.querySelector<HTMLElement>('.meter')?.style.setProperty('--v', inf ? '0' : '1')
     })
     // While the bar is tucked away, the strip behind it must already be Carbon.
     root.classList.add('is-pre', 'tone-carbon')
@@ -118,7 +125,10 @@ export function heroMotion(root: HTMLElement, lang: Lang): HeroMotion {
       root.classList.remove('tone-carbon')
       gsap.killTweensOf(all)
       gsap.set(all, { clearProps: CLEAR })
-      root.querySelectorAll<HTMLElement>('[data-count]').forEach((el) => (el.textContent = el.dataset.final ?? el.textContent))
+      root.querySelectorAll<HTMLElement>('[data-count]').forEach((el) => {
+        el.textContent = el.dataset.final ?? el.textContent
+        el.parentElement?.querySelector<HTMLElement>('.meter')?.style.setProperty('--v', el.dataset.count === 'inf' ? '1' : '0')
+      })
       root.classList.add('is-live')
       return
     }
@@ -225,6 +235,27 @@ export function reprint(receipt: HTMLElement): void {
   if (prefersReducedMotion()) return
   gsap.fromTo(receipt, { y: -14 }, { y: 0, duration: 0.24, ease: 'steps(4)', overwrite: true, clearProps: 'transform' })
   receipt.querySelector('.r-total')?.classList.add('flash')
+}
+
+/** Instrument-style number roll (used by the savings display). */
+const rolls = new WeakMap<HTMLElement, gsap.core.Tween>()
+export function rollNumber(el: HTMLElement, from: number, to: number, format: (n: number) => string): void {
+  rolls.get(el)?.kill()
+  if (prefersReducedMotion() || from === to) {
+    el.textContent = format(to)
+    return
+  }
+  const o = { v: from }
+  rolls.set(
+    el,
+    gsap.to(o, {
+      v: to,
+      duration: 0.42,
+      ease: 'power3.out',
+      onUpdate: () => (el.textContent = format(o.v)),
+      onComplete: () => (el.textContent = format(to)),
+    }),
+  )
 }
 
 export { ScrollTrigger }

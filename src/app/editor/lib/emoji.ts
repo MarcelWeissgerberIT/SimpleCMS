@@ -13,7 +13,7 @@ export function loadEmojis(): Promise<EmojiEntry[]> {
   if (cache) return Promise.resolve(cache)
   pending ??= import('@tiptap/extension-emoji').then((m) => {
     cache = m.emojis
-      .filter((e) => !!e.emoji && !/^regional_indicator/.test(e.name))
+      .filter((e) => !!e.emoji && !/^regional_indicator/.test(e.name) && (e.version ?? 0) <= 13.1)
       .map((e) => ({ emoji: e.emoji!, name: e.name, shortcodes: e.shortcodes, tags: e.tags }))
     return cache
   })

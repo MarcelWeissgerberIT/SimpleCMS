@@ -39,6 +39,11 @@ export function blockKey(block: JSONContent): string {
   return JSON.stringify(normalize(block))
 }
 
+/** Stable JSON of a whole doc without volatile attributes (for change detection). */
+export function docKey(doc: JSONContent | null | undefined): string {
+  return doc ? JSON.stringify(normalize(doc)) : 'null'
+}
+
 /** Diff old → new. 'removed' = only in old, 'added' = only in new. */
 export function diffBlocks(oldDoc: JSONContent | null | undefined, newDoc: JSONContent | null | undefined): DiffOp[] {
   const a = oldDoc?.content ?? []

@@ -1,7 +1,6 @@
 /** Paste (Markdown, URLs) and link-click handling. */
 import { Extension } from '@tiptap/core'
 import { Plugin, PluginKey } from '@tiptap/pm/state'
-import { Fragment, Slice } from '@tiptap/pm/model'
 import { navigate } from '../../lib/router'
 import { useUI } from '../../store/ui'
 import type { Bridge } from '../lib/bridge'
@@ -40,9 +39,8 @@ export function pasteExtension(bridge: Bridge | null) {
                 const $from = state.selection.$from
                 const wasEmpty = $from.parent.type.name === 'paragraph' && $from.parent.content.size === 0
                 const from = state.selection.from
-                const tr = state.tr.insertText(url, from)
-                tr.addMark(from, from + url.length, state.schema.marks.link.create({ href: url }))
-                tr.removeStoredMark(state.schema.marks.link)
+                const tr = state.tr.replaceSelectionWith(state.schema.text(url, [state.schema.marks.link.create({ href: url })]), false)
+                tr.setStoredMarks([])
                 view.dispatch(tr)
                 if (wasEmpty) bridge.setState({ urlPaste: { url, from, to: from + url.length } })
                 return true
@@ -52,17 +50,9 @@ export function pasteExtension(bridge: Bridge | null) {
               if ((!html || htmlIsPlainish(html)) && looksLikeMarkdown(text)) {
                 const doc = markdownToDoc(text)
                 const content = doc.content ?? []
-                try {
-                  const nodes = content.map((c) => state.schema.nodeFromJSON(c))
-                  const fragment = Fragment.fromArray(nodes)
-                  const single = nodes.length === 1 && nodes[0].type.name === 'paragraph'
-                  const slice = single ? new Slice(fragment, 1, 1) : new Slice(fragment, 0, 0)
-                  view.dispatch(state.tr.replaceSelection(slice).scrollIntoView())
-                  return true
-                } catch (err) {
-                  console.warn('[editor] markdown paste failed', err)
-                  return false
-                }
+                if (!content.length) return false
+                const single = content.length === 1 && content[0].type === 'paragraph'
+                return editor.commands.insertContent(single ? (content[0].content ?? []) : content, { updateSelection: true })
               }
               return false
             },

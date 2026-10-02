@@ -1,6 +1,7 @@
 import { NodeViewWrapper, useEditorState, type ReactNodeViewProps } from '@tiptap/react'
 import type { Editor } from '@tiptap/core'
 import { InlineDatabase } from '../lib/lazyAreas'
+import { findBlockById, flashBlock } from '../extensions/behaviors'
 import { useWorkspace } from '../../store/store'
 import { useT } from '../../i18n'
 
@@ -45,13 +46,8 @@ export function TocView({ editor, selected }: ReactNodeViewProps) {
   const min = headings.length ? Math.min(...headings.map((h) => h.level)) : 1
 
   const jump = (h: Heading) => {
-    const dom = (h.id ? editor.view.dom.querySelector(`[data-id="${CSS.escape(h.id)}"]`) : null) ?? (editor.view.nodeDOM(h.pos) as HTMLElement | null)
-    if (!(dom instanceof HTMLElement)) return
-    dom.scrollIntoView({ behavior: 'smooth', block: 'start' })
-    dom.classList.remove('block-flash')
-    void dom.offsetWidth
-    dom.classList.add('block-flash')
-    window.setTimeout(() => dom.classList.remove('block-flash'), 2000)
+    const pos = h.id ? findBlockById(editor, h.id) : h.pos
+    if (pos !== null) flashBlock(editor, pos)
   }
 
   return (

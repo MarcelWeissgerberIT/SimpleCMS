@@ -29,6 +29,7 @@ uniform float uCrackR;
 uniform float uGlowAmt;
 uniform float uHot;
 uniform float uFlash;
+uniform float uWash;
 uniform vec3 uLight;
 uniform vec3 uGlowColor;
 varying vec2 vUv;
@@ -37,6 +38,11 @@ varying vec3 vWorld;
 
 void main() {
   vec3 col = texture2D(uPage, vUv).rgb;
+  if (uWash > 0.0) {
+    // reproduce the DOM's rgba(255,255,255,a) wash, composited in sRGB like the browser does
+    vec3 sc = sRGBTransferOETF(vec4(col, 1.0)).rgb;
+    col = sRGBTransferEOTF(vec4(mix(sc, vec3(1.0), uWash), 1.0)).rgb;
+  }
   vec2 wp = (vUv - 0.5) * uView;
   vec2 d = wp - uImpact;
   float r = length(d);
@@ -49,7 +55,7 @@ void main() {
   float g = texture2D(uGlow, vUv).a * reveal;
   col += uGlowColor * g * uGlowAmt;
   // white-hot core at the impact right after a hit
-  col += vec3(1.0, 0.82, 0.62) * uHot * exp(-r * r * 9.0);
+  col += vec3(1.0, 0.8, 0.58) * uHot * exp(-r * r * 22.0);
   // shading for pieces that are no longer facing the camera
   vec3 N = normalize(vN);
   float tilt = clamp(1.0 - N.z, 0.0, 1.0);
@@ -74,6 +80,7 @@ export type PageUniforms = {
   uGlowAmt: { value: number }
   uHot: { value: number }
   uFlash: { value: number }
+  uWash: { value: number }
   uLight: { value: THREE.Vector3 }
   uGlowColor: { value: THREE.Color }
 }
@@ -89,6 +96,7 @@ export function createPageMaterial(view: THREE.Vector2, impact: THREE.Vector2): 
     uGlowAmt: { value: 0 },
     uHot: { value: 0 },
     uFlash: { value: 0 },
+    uWash: { value: 0 },
     uLight: { value: new THREE.Vector3(-0.45, 0.55, 0.7).normalize() },
     // linear-space warm signal orange
     uGlowColor: { value: new THREE.Color(1.0, 0.36, 0.06) },

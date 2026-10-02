@@ -115,6 +115,20 @@
 .sb-head__mark svg {
   display: block;
 }
+.sb-head__text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  line-height: 1.15;
+}
+.sb-head__sub {
+  color: var(--ink-3);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  white-space: nowrap;
+}
 .sb-head__name {
   min-width: 0;
   overflow: hidden;
@@ -376,15 +390,26 @@
   .sb-row__actions {
     display: flex;
   }
+  /* touch: chevron and icon side by side (no hover swap) */
+  .sb-row__lead {
+    width: auto;
+    display: flex;
+    align-items: center;
+  }
+  .sb-row__lead:not(:has(.sb-row__toggle)) {
+    padding-left: 20px;
+  }
   .sb-row__toggle {
+    position: static;
+    order: -1;
+    width: 20px;
+    height: 22px;
     opacity: 1;
     background: transparent;
+    color: var(--ink-3);
   }
   .sb-row__icon {
-    opacity: 0;
-  }
-  .sb-row__lead:not(:has(.sb-row__toggle)) .sb-row__icon {
-    opacity: 1;
+    width: 22px;
   }
 }
 .sb-row__btn {

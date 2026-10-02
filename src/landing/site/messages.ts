@@ -161,6 +161,7 @@ export const messages: Messages = {
     'footer.colophon': 'Colophon',
     'footer.armory': 'Built for the Ninja Armory — AI Automations by Jack.',
     'footer.replay': 'Replay the intro',
+    'footer.replayNote': '1997 → now · bring earplugs',
     'footer.made': 'Set in Archivo and JetBrains Mono. Printed with paper, ink and one orange.',
     'footer.version': 'Rev {version}',
     'footer.top': 'Back to top',
@@ -321,6 +322,7 @@ export const messages: Messages = {
     'footer.colophon': 'Kolophon',
     'footer.armory': 'Gebaut für die Ninja Armory — AI Automations by Jack.',
     'footer.replay': 'Intro erneut abspielen',
+    'footer.replayNote': '1997 → heute · Ohrstöpsel empfohlen',
     'footer.made': 'Gesetzt in Archivo und JetBrains Mono. Gedruckt mit Papier, Tinte und einem Orange.',
     'footer.version': 'Rev {version}',
     'footer.top': 'Nach oben',
@@ -403,7 +405,7 @@ export const content: Record<Lang, SiteContent> = {
       { key: 'templates', code: 'Tp', title: 'Templates', text: 'Start from ready-made pages and databases instead of a blank sheet.' },
       { key: 'panes', code: 'Pn', title: 'Stacked panes', text: 'Open pages side by side in sliding panes, like papers spread across a desk.' },
       { key: 'focus', code: 'Fo', title: 'Focus mode', text: 'Hide every panel. Only the page and the caret remain.' },
-      { key: 'offline', code: 'Of', title: 'Works offline', text: 'Once open, the whole app runs in the tab. Only AI and webhooks need a connection.' },
+      { key: 'offline', code: 'Of', title: 'Works offline', text: 'Airplane mode welcome: once open, the whole app runs in the tab. Only AI and webhooks need a network.' },
       { key: 'i18n', code: 'En', title: 'English & German', text: 'A fully bilingual interface, switchable at any time. Sie oder du — we went with du.' },
     ],
     deep: [
@@ -509,7 +511,7 @@ export const content: Record<Lang, SiteContent> = {
       { key: 'templates', code: 'Tp', title: 'Vorlagen', text: 'Mit fertigen Seiten und Datenbanken starten statt mit einem leeren Blatt.' },
       { key: 'panes', code: 'Pn', title: 'Gestapelte Panels', text: 'Seiten nebeneinander in verschiebbaren Panels öffnen, wie Papiere auf dem Schreibtisch.' },
       { key: 'focus', code: 'Fo', title: 'Fokusmodus', text: 'Alle Panels ausblenden. Nur die Seite und der Cursor bleiben.' },
-      { key: 'offline', code: 'Of', title: 'Funktioniert offline', text: 'Einmal geöffnet, läuft die ganze App im Tab. Nur KI und Webhooks brauchen eine Verbindung.' },
+      { key: 'offline', code: 'Of', title: 'Funktioniert offline', text: 'Flugmodus willkommen: Einmal geöffnet, läuft die ganze App im Tab. Nur KI und Webhooks brauchen Netz.' },
       { key: 'i18n', code: 'De', title: 'Deutsch & Englisch', text: 'Vollständig zweisprachig, jederzeit umschaltbar. Und ja: Wir duzen.' },
     ],
     deep: [

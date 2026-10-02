@@ -4,7 +4,8 @@ import type { Route } from '../../lib/router'
 import { Led, shortcutLabel } from '../../ui/controls'
 import { useLang, useT } from '../../i18n'
 import { fmtNumber, readingMinutes, wordCount } from '../lib/format'
-import { useSaveStatus } from '../lib/hooks'
+import { useResolvedTheme, useSaveStatus } from '../lib/hooks'
+import { toggleTheme } from '../lib/actions'
 
 /** 24px instrument read-out along the bottom edge. */
 export function StatusBar({ route }: { route: Route }) {
@@ -23,6 +24,7 @@ export function StatusBar({ route }: { route: Route }) {
   const views = useWorkspace((s) => (pageId ? (s.databases[pageId]?.views.length ?? 0) : 0))
   const panes = useUI((s) => s.panes.length)
   const words = wordCount(plain)
+  const dark = useResolvedTheme() === 'dark'
 
   const saveText =
     status === 'saving' ? t('shell.status.writing') : status === 'error' ? t('shell.status.error') : t('shell.status.saved')
@@ -45,6 +47,19 @@ export function StatusBar({ route }: { route: Route }) {
       )}
       {panes > 0 && <span className="status__cell">{t('shell.stats.panes', { n: panes })}</span>}
       <span className="status__spacer" />
+      <button type="button" className="status__cell status__btn" onClick={toggleTheme} title={t('shell.status.theme')}>
+        <span className="status__half" aria-hidden />
+        {dark ? 'Carbon' : 'Paper'}
+      </button>
+      <button
+        type="button"
+        className="status__cell status__btn"
+        title={t('shell.status.lang')}
+        onClick={() => useWorkspace.getState().updateSettings({ language: lang === 'de' ? 'en' : 'de' })}
+      >
+        <span data-on={lang === 'en' || undefined} className="status__opt">EN</span>
+        <span data-on={lang === 'de' || undefined} className="status__opt">DE</span>
+      </button>
       <button type="button" className="status__cell status__btn" onClick={() => useUI.getState().openPalette()}>
         {shortcutLabel('Mod+K')} {t('shell.status.commands')}
       </button>

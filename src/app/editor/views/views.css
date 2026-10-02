@@ -545,6 +545,11 @@
 
 .doc-content .mermaid-view__svg {
   width: 100%;
+  /* match the metrics mermaid measured labels with (document body) */
+  font-size: var(--text-md);
+  line-height: 1.5;
+  white-space: normal;
+  overflow-wrap: normal;
 }
 
 .doc-content .mermaid-view__svg svg {
@@ -1089,4 +1094,14 @@
 .doc-content .database-block.is-block-selected {
   background: none;
   box-shadow: 0 0 0 2px var(--signal);
+}
+
+/* mermaid uses class="label" internally — neutralise the global .label micro-type */
+.doc-content .mermaid-view__svg .label {
+  font-family: inherit;
+  font-size: inherit;
+  font-weight: inherit;
+  letter-spacing: normal;
+  text-transform: none;
+  color: inherit;
 }

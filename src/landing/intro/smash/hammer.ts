@@ -72,11 +72,11 @@ function turnedFace(): THREE.CanvasTexture {
 function woodGrain(): THREE.CanvasTexture {
   const t = canvasTex(256, 1024, (c) => {
     const g = c.createLinearGradient(0, 0, 256, 0)
-    g.addColorStop(0, '#c3874e')
-    g.addColorStop(0.3, '#d7a46b')
-    g.addColorStop(0.55, '#b9773f')
-    g.addColorStop(0.8, '#d39d61')
-    g.addColorStop(1, '#c3874e')
+    g.addColorStop(0, '#caa47a')
+    g.addColorStop(0.3, '#ddbd93')
+    g.addColorStop(0.55, '#bf956a')
+    g.addColorStop(0.8, '#d8b78c')
+    g.addColorStop(1, '#caa47a')
     c.fillStyle = g
     c.fillRect(0, 0, 256, 1024)
     // long grain lines running along the handle (v axis)
@@ -175,13 +175,14 @@ export function buildHammer(): Hammer {
   rough.repeat.set(1.4, 0.6)
   const steel = keep(
     new THREE.MeshPhysicalMaterial({
-      color: 0xa4a7ad,
+      color: 0xd4d7dc,
       metalness: 1,
-      roughness: 0.36,
+      roughness: 0.3,
       roughnessMap: rough,
-      clearcoat: 0.35,
-      clearcoatRoughness: 0.22,
-      envMapIntensity: 1.25,
+      anisotropy: 0.65,
+      clearcoat: 0.3,
+      clearcoatRoughness: 0.18,
+      envMapIntensity: 1.6,
     }),
   )
   const face = keep(turnedFace())
@@ -189,9 +190,9 @@ export function buildHammer(): Hammer {
   face.offset.set(0.5, 0.5)
   const polished = keep(
     new THREE.MeshPhysicalMaterial({
-      color: 0xc9ccd2,
+      color: 0xe2e4e8,
       metalness: 1,
-      roughness: 0.2,
+      roughness: 0.16,
       roughnessMap: face,
       clearcoat: 0.6,
       clearcoatRoughness: 0.08,

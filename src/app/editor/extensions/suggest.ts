@@ -16,6 +16,8 @@ export function suggestExtension(kind: SuggestKind, char: string, bridge: Bridge
   const key = SUGGEST_KEYS[kind]
   return Extension.create({
     name: `suggest-${kind}`,
+    // must run before the keymaps (Enter / Tab / arrows) of other extensions
+    priority: 1000,
     addProseMirrorPlugins() {
       return [
         Suggestion<unknown, SuggestRun>({
@@ -56,7 +58,7 @@ export function suggestExtension(kind: SuggestKind, char: string, bridge: Bridge
                   exitSuggestion(view, key)
                   return true
                 }
-                return bridge.keyHandler?.(event) ?? false
+                return bridge.keyHandlers[kind]?.(event) ?? false
               },
             }
           },

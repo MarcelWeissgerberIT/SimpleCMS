@@ -90,6 +90,9 @@
 }
 @media (hover: none) {
   .pv-cover__ctrls {
+    top: 10px;
+    bottom: auto;
+    right: 10px;
     opacity: 1;
   }
 }
@@ -255,12 +258,18 @@
 .pv[data-db] .pv-body {
   padding-top: 10px;
 }
+.pv-content .ProseMirror:focus-visible {
+  box-shadow: none;
+}
 .pv-filler {
   flex: 1;
   min-height: 18vh;
   cursor: text;
 }
-.pv[data-locked] .pv-filler {
+.pv[data-locked] .pv-content .ProseMirror:focus-visible {
+  box-shadow: none;
+}
+.pv-filler {
   cursor: default;
 }
 

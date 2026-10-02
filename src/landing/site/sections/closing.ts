@@ -1,7 +1,7 @@
 import { BRAND } from '@/shared/brand'
 import { logoMarkSvg } from '@/shared/logo'
 import type { Ctx } from '../context'
-import { esc } from '../util'
+import { asset, esc } from '../util'
 import { sectionHead } from './head'
 
 export function renderOwn(ctx: Ctx): string {
@@ -65,6 +65,10 @@ export function renderFooter(ctx: Ctx): string {
         <span class="foot-mark">${logoMarkSvg(40)}</span>
         <p>${esc(t('footer.armory'))}</p>
         <p class="foot-made">${esc(t('footer.made'))}</p>
+        <button type="button" class="foot-replay" data-replay>
+          <img src="${asset('assets/icons/hammer.webp')}" alt="" width="56" height="56" loading="lazy" decoding="async" onerror="this.remove()" />
+          <span class="foot-replay-txt"><span class="foot-replay-h">↻ ${esc(t('footer.replay'))}</span><span class="lbl">${esc(t('footer.replayNote'))}</span></span>
+        </button>
       </div>
       <nav aria-label="${esc(t('footer.product'))}">
         <p class="lbl">${esc(t('footer.product'))}</p>
@@ -82,7 +86,7 @@ export function renderFooter(ctx: Ctx): string {
           <li><a href="${BRAND.repoUrl}" rel="noopener">GitHub</a></li>
           <li><a href="${BRAND.repoUrl}/fork" rel="noopener">${esc(t('own.fork'))}</a></li>
           <li><a href="#own-it">${esc(t('sec.own'))}</a></li>
-          <li><button type="button" class="foot-replay" data-replay><span aria-hidden="true">↻</span> ${esc(t('footer.replay'))}</button></li>
+
         </ul>
       </nav>
     </div>

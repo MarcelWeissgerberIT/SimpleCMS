@@ -10,12 +10,12 @@ import { makeTranslator, persistLang, type Lang } from '@/shared/i18n'
 import { SECTIONS, type Ctx } from './context'
 import { bindFrames } from './frame'
 import { content, messages } from './messages'
-import { heroMotion, initPrinter, initReveals, reprint, ScrollTrigger, type HeroMotion } from './motion'
+import { heroMotion, initPrinter, initReveals, reprint, rollNumber, ScrollTrigger, type HeroMotion } from './motion'
 import { renderCompare } from './sections/compare'
 import { renderFaq, renderFooter, renderOwn } from './sections/closing'
 import { renderDeep } from './sections/deep'
 import { loadFeatureIcons, renderFeatures } from './sections/features'
-import { renderHero } from './sections/hero'
+import { bindHero, renderHero } from './sections/hero'
 import { renderPrivacy } from './sections/privacy'
 import { bindSavings, renderSavings } from './sections/savings'
 import { renderTopbar } from './sections/topbar'
@@ -78,9 +78,10 @@ export function mountSite(root: HTMLElement, opts: { lang: Lang; underIntro: boo
       </main>
       ${renderFooter(c)}`
     bindFrames(root)
-    bindSavings(root, c, { onReprint: reprint })
+    bindSavings(root, c, { onReprint: reprint, rollNumber })
     void loadFeatureIcons(root)
     bindChrome()
+    cleanups.push(bindHero(root))
     hero = heroMotion(root, lang)
     // Reveals only on the first render and only once the visitor can actually see the site.
     cleanups.push(initReveals(root, { skip: revealed }))

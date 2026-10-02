@@ -1,0 +1,302 @@
+/* ---------- TIMELINE (gantt) ---------- */
+.dbtl {
+  --tl-weekend: var(--hover);
+  padding: 6px 0 16px;
+}
+
+.dbtl-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 0 10px;
+}
+
+.dbtl-scroll {
+  position: relative;
+  overflow-x: auto;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius-2);
+  background: var(--surface);
+  overscroll-behavior-x: contain;
+}
+
+.dbtl-inner {
+  position: relative;
+}
+
+.dbtl-head {
+  position: sticky;
+  top: 0;
+  z-index: 4;
+  display: flex;
+  height: 54px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--rule-strong);
+}
+
+.dbtl-corner {
+  position: sticky;
+  left: 0;
+  z-index: 5;
+  flex: none;
+  display: flex;
+  align-items: flex-end;
+  width: var(--tl-left);
+  padding: 0 12px 8px;
+  border-right: 1px solid var(--rule-strong);
+  background: var(--surface);
+}
+
+.dbtl-scale {
+  position: relative;
+  flex: none;
+  overflow: hidden;
+}
+
+.dbtl-months {
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 27px;
+  border-bottom: 1px solid var(--rule);
+}
+
+.dbtl-month {
+  position: absolute;
+  top: 0;
+  height: 27px;
+  border-left: 1px solid var(--rule-strong);
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.dbtl-month > span {
+  position: sticky;
+  left: calc(var(--tl-left) + 8px);
+  display: inline-block;
+  padding: 7px 8px;
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  font-weight: 600;
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  color: var(--ink);
+}
+
+.dbtl-days {
+  position: absolute;
+  inset: 27px 0 0 0;
+}
+
+.dbtl-day {
+  position: absolute;
+  top: 0;
+  height: 26px;
+  padding: 6px 4px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--ink-3);
+  white-space: nowrap;
+  border-left: 1px solid var(--rule);
+  font-variant-numeric: tabular-nums;
+}
+
+.dbtl-day[data-today='true'] {
+  color: var(--signal-ink);
+  font-weight: 700;
+}
+
+.dbtl[data-zoom='week'] .dbtl-day {
+  text-align: center;
+  text-transform: uppercase;
+  font-size: 9.5px;
+}
+
+.dbtl-todayflag {
+  position: absolute;
+  bottom: 3px;
+  z-index: 2;
+  transform: translateX(-50%);
+  padding: 2px 5px;
+  border-radius: 2px;
+  background: var(--signal);
+  color: var(--on-signal);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.dbtl-body {
+  position: relative;
+}
+
+.dbtl-grid {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  pointer-events: none;
+}
+
+.dbtl-today {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  z-index: 2;
+  width: 2px;
+  margin-left: -1px;
+  background: var(--signal);
+  pointer-events: none;
+}
+
+.dbtl-row {
+  position: relative;
+  display: flex;
+  border-bottom: 1px solid var(--rule);
+}
+
+.dbtl-row:hover .dbtl-title,
+.dbtl-row:hover .dbtl-lane {
+  background-color: var(--hover);
+}
+
+.dbtl-row:hover .dbtl-title {
+  background-image: linear-gradient(var(--hover), var(--hover));
+  background-color: var(--surface);
+}
+
+.dbtl-title {
+  position: sticky;
+  left: 0;
+  z-index: 3;
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: var(--tl-left);
+  padding: 0 12px;
+  border: 0;
+  border-right: 1px solid var(--rule-strong);
+  background: var(--surface);
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 600;
+  text-align: left;
+  overflow: hidden;
+}
+
+.dbtl-title > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dbtl-lane {
+  position: relative;
+  flex: none;
+}
+
+.dbtl-bar {
+  position: absolute;
+  top: 7px;
+  height: 24px;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  border-radius: 3px;
+  background: var(--ink);
+  color: var(--ink-inverse);
+  box-shadow: inset 4px 0 0 var(--ev-accent);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: grab;
+  user-select: none;
+  touch-action: none;
+  transition: box-shadow var(--dur-1) var(--ease-out);
+}
+
+.dbtl-bar:hover {
+  box-shadow:
+    inset 4px 0 0 var(--ev-accent),
+    0 0 0 1px var(--signal);
+}
+
+.dbtl-bar[data-dragging='true'] {
+  cursor: grabbing;
+  box-shadow:
+    inset 4px 0 0 var(--ev-accent),
+    0 0 0 2px var(--signal),
+    var(--shadow-pop);
+}
+
+.dbtl-bar[data-readonly='true'] {
+  cursor: pointer;
+  background: var(--ink-2);
+}
+
+.dbtl-bar__label {
+  flex: 1;
+  min-width: 0;
+  padding: 0 10px 0 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dbtl-bar__h {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  z-index: 1;
+  width: 9px;
+  cursor: ew-resize;
+}
+
+.dbtl-bar__h--l {
+  left: 0;
+}
+
+.dbtl-bar__h--r {
+  right: 0;
+}
+
+.dbtl-bar__h::after {
+  content: '';
+  position: absolute;
+  top: 6px;
+  bottom: 6px;
+  left: 3px;
+  width: 3px;
+  border-left: 1px solid currentColor;
+  border-right: 1px solid currentColor;
+  opacity: 0;
+  transition: opacity var(--dur-1);
+}
+
+.dbtl-bar:hover .dbtl-bar__h::after {
+  opacity: 0.6;
+}
+
+.dbtl-ghost {
+  position: absolute;
+  top: 7px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  border: 1px dashed var(--signal);
+  border-radius: 3px;
+  background: var(--signal-wash);
+  color: var(--signal-ink);
+  font-weight: 700;
+  pointer-events: none;
+}
+
+.dbtl-lane:has(.dbtl-ghost) {
+  cursor: copy;
+}
+
+.dbtl[data-zoom='quarter'] .dbtl-bar__label {
+  padding-left: 9px;
+}

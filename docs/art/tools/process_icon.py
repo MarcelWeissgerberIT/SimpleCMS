@@ -9,7 +9,10 @@ Pipeline
   5. signal-orange normalisation: hue of the orange accent nudged to #FF4F00 (18.6 deg)
   6. trim, square pad (8% margin around the object), 512x512, PNG + WebP q90
 
-usage: process_icon.py <in.png> <name> [--holes 0.72] [--shadow 1.0] [--outdir DIR] [--compdir DIR]
+  (--keywhite) see-through bores the matte filled in (background white visible through a gear hub or
+  reel hub) are keyed back to transparent
+
+usage: process_icon.py <in.png> <name> [--holes 0.72] [--keywhite] [--shadow 1.0] [--outdir DIR] [--compdir DIR]
 requires: pip install pillow numpy opencv-python-headless rembg onnxruntime (pymatting comes with rembg)
 """
 import argparse
@@ -116,7 +119,23 @@ def fill_holes(m: np.ndarray, alpha: float) -> np.ndarray:
     return np.maximum(m, holes_soft * alpha), holes_soft
 
 
-def process(path: str, name: str, outdir: str, compdir: str | None, shadow_gain: float = 1.0, holes: float = 0.0) -> dict:
+def key_white(rgb: np.ndarray, m: np.ndarray, bg: np.ndarray, tol: float = 7.0, min_area: int = 150):
+    """Regions inside the silhouette that are pure background white (seen through a bore) -> transparent."""
+    near = np.abs(rgb * 255.0 - bg[None, None, :] * 255.0).max(axis=2) <= tol
+    cand = (near & (m > 0.5)).astype(np.uint8)
+    n, lab, st, _ = cv2.connectedComponentsWithStats(cand, 8)
+    holes = np.zeros(m.shape, bool)
+    for k in range(1, n):
+        if st[k, cv2.CC_STAT_AREA] >= min_area:
+            holes |= lab == k
+    if not holes.any():
+        return m, None
+    grown = cv2.dilate(holes.astype(np.uint8), cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3)))
+    soft = cv2.GaussianBlur(grown.astype(np.float32), (0, 0), 0.8)
+    return m * (1 - soft), soft
+
+
+def process(path: str, name: str, outdir: str, compdir: str | None, shadow_gain: float = 1.0, holes: float = 0.0, keywhite: bool = False) -> dict:
     src = Image.open(path).convert("RGB")
     rgb = np.asarray(src).astype(np.float32) / 255.0
     H, W = rgb.shape[:2]
@@ -129,6 +148,9 @@ def process(path: str, name: str, outdir: str, compdir: str | None, shadow_gain:
     # background level from the border
     border = np.concatenate([rgb[:8].reshape(-1, 3), rgb[-8:].reshape(-1, 3), rgb[:, :8].reshape(-1, 3), rgb[:, -8:].reshape(-1, 3)])
     bg = np.median(border, axis=0)
+    bores = None
+    if keywhite:
+        m, bores = key_white(rgb, m, bg)
 
     # background plate via inpainting the (dilated) object
     hole = (cv2.dilate((m > 0.02).astype(np.uint8), np.ones((7, 7), np.uint8)) > 0).astype(np.uint8)
@@ -149,6 +171,8 @@ def process(path: str, name: str, outdir: str, compdir: str | None, shadow_gain:
     sa = sa * np.clip(edge / 40.0, 0, 1)
     if hole_mask is not None:
         sa = sa * (1 - np.clip(hole_mask * 1.5, 0, 1))
+    if bores is not None:
+        sa = sa * (1 - np.clip(bores * 1.5, 0, 1))
 
     # foreground colour without white fringe
     fg = estimate_foreground_ml(rgb.astype(np.float64), m.astype(np.float64)).astype(np.float32)
@@ -220,6 +244,7 @@ if __name__ == "__main__":
     ap.add_argument("--compdir", default=str(REPO / ".art-work/comp"), help="edge-check composites on #0B0B0E / #F2F0EA / #FFF")
     ap.add_argument("--shadow", type=float, default=1.0)
     ap.add_argument("--holes", type=float, default=0.0, help="alpha for enclosed holes (0 = keep transparent)")
+    ap.add_argument("--keywhite", action="store_true", help="key background white seen through bores back to transparent")
     a = ap.parse_args()
-    r = process(a.src, a.name, a.outdir, a.compdir, a.shadow, a.holes)
+    r = process(a.src, a.name, a.outdir, a.compdir, a.shadow, a.holes, a.keywhite)
     print(a.name, r)

@@ -190,7 +190,7 @@ const TreeNode = memo(function TreeNode({ id, depth, section, draggable }: { id:
   const expanded = useTreeState((s) => !!s.expanded[key])
   const kids = useChildIds(id)
   return (
-    <div className="sb-node" role="treeitem" aria-expanded={expanded} aria-level={depth + 1}>
+    <div className="sb-node">
       <TreeRow id={id} depth={depth} section={section} draggable={draggable} expanded={expanded} hasKids={kids.length > 0} />
       {expanded && (
         <div className="sb-children" role="group" style={{ '--depth': depth } as CSSProperties}>
@@ -305,7 +305,17 @@ function TreeRow({ id, depth, section, draggable, expanded, hasKids }: { id: ID;
             else goToPage(id)
           }}
           onDoubleClick={() => setRenaming(true)}
+          onKeyDown={(e) => {
+            if (e.key === 'F2') {
+              e.preventDefault()
+              setRenaming(true)
+            }
+          }}
           aria-current={active ? 'page' : undefined}
+          role="treeitem"
+          aria-level={depth + 1}
+          aria-expanded={canExpand ? expanded : undefined}
+          data-tree-key={treeKey(section, id)}
         >
           <span className="sb-row__title" data-untitled={!page.title.trim() || undefined}>
             {title}

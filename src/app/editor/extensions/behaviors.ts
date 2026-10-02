@@ -263,3 +263,63 @@ export const ExtraInputRules = Extension.create({
     ]
   },
 })
+
+/* ------------------------------------------------------------------ */
+/* Flash a block (used for ?b=<blockId> deep links and TOC jumps)      */
+/* ------------------------------------------------------------------ */
+
+export const flashKey = new PluginKey<DecorationSet>('blockFlash')
+
+export const BlockFlash = Extension.create({
+  name: 'blockFlash',
+  addProseMirrorPlugins() {
+    return [
+      new Plugin<DecorationSet>({
+        key: flashKey,
+        state: {
+          init: () => DecorationSet.empty,
+          apply(tr, set) {
+            const meta = tr.getMeta(flashKey) as { pos: number } | null | undefined
+            if (meta === null) return DecorationSet.empty
+            if (meta) {
+              const node = tr.doc.nodeAt(meta.pos)
+              if (!node) return DecorationSet.empty
+              return DecorationSet.create(tr.doc, [Decoration.node(meta.pos, meta.pos + node.nodeSize, { class: 'block-flash' })])
+            }
+            return set.map(tr.mapping, tr.doc)
+          },
+        },
+        props: {
+          decorations(state) {
+            return flashKey.getState(state)
+          },
+        },
+      }),
+    ]
+  },
+})
+
+/** Scroll a block into view and flash it for ~2s. */
+export function flashBlock(editor: import('@tiptap/core').Editor, pos: number) {
+  if (editor.isDestroyed) return
+  const dom = editor.view.nodeDOM(pos) as HTMLElement | null
+  dom?.scrollIntoView?.({ block: 'center', behavior: 'smooth' })
+  editor.view.dispatch(editor.state.tr.setMeta(flashKey, { pos }).setMeta('addToHistory', false))
+  window.setTimeout(() => {
+    if (!editor.isDestroyed) editor.view.dispatch(editor.state.tr.setMeta(flashKey, null).setMeta('addToHistory', false))
+  }, 2000)
+}
+
+/** Position of the block with the given UniqueID. */
+export function findBlockById(editor: import('@tiptap/core').Editor, id: string): number | null {
+  let found: number | null = null
+  editor.state.doc.descendants((node, pos) => {
+    if (found !== null) return false
+    if (node.attrs?.id === id) {
+      found = pos
+      return false
+    }
+    return true
+  })
+  return found
+}

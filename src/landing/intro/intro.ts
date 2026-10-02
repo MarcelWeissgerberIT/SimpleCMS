@@ -13,7 +13,7 @@
  */
 import { makeTranslator, type Lang } from '@/shared/i18n'
 import { messages } from './messages'
-import { mountSheet } from './sheet/sheet'
+import { mountSheet, WASH_ALPHA } from './sheet/sheet'
 import { Sfx } from './audio'
 import { captureViewport } from './capture'
 import type { SmashStage } from './smash/smash'
@@ -42,8 +42,12 @@ declare global {
 }
 
 const INPUT_EVENTS = ['pointermove', 'pointerdown', 'keydown', 'wheel', 'touchstart', 'scroll'] as const
-/** Guarantees onRevealed even if something hangs (counted from smash start). */
-const HARD_TIMEOUT_MS = 12000
+/** If capture + GPU warm-up are not ready by then, use the DOM fallback instead. */
+const PREP_TIMEOUT_MS = 6000
+/** Guarantees onRevealed even if the WebGL sequence hangs (counted from its first frame). */
+const PLAY_TIMEOUT_MS = 9000
+/** Absolute guard from the moment the smash was triggered. */
+const HARD_TIMEOUT_MS = 20000
 
 export function mountIntro(root: HTMLElement, opts: IntroOptions): IntroHandle {
   const params = new URLSearchParams(window.location.search)
@@ -57,6 +61,9 @@ export function mountIntro(root: HTMLElement, opts: IntroOptions): IntroHandle {
   let phase: Phase = 'watch'
   let startedNotified = false
   let hardTimer = 0
+  let prepTimer = 0
+  let playTimer = 0
+  let playing = false
   const timers: number[] = []
 
   const sheet = mountSheet(root, { t, lang: opts.lang, reducedMotion: reduced, onUpgrade: () => smashNow() })
@@ -174,7 +181,15 @@ export function mountIntro(root: HTMLElement, opts: IntroOptions): IntroHandle {
     removeInputListeners()
     sheet.closeDialog()
     sheet.freeze(true)
-    hardTimer = window.setTimeout(finish, HARD_TIMEOUT_MS)
+    if (!manualClock) {
+      hardTimer = window.setTimeout(finish, HARD_TIMEOUT_MS)
+      prepTimer = window.setTimeout(() => {
+        if (phase === 'smashing' && !playing) {
+          console.warn('[intro] smash not ready in time, using DOM fallback')
+          void domFallback()
+        }
+      }, PREP_TIMEOUT_MS)
+    }
     if (reduced) {
       fade()
       return
@@ -186,7 +201,7 @@ export function mountIntro(root: HTMLElement, opts: IntroOptions): IntroHandle {
 
   async function run() {
     const [s, canvas] = await Promise.all([ensureStage(), ensureCapture(), sfx.ready()])
-    if (phase !== 'smashing') return
+    if (phase !== 'smashing' || fallbackStarted) return
     if (!s || !canvas) {
       sheet.setRumble(false)
       sfx.rumble(false)
@@ -194,7 +209,11 @@ export function mountIntro(root: HTMLElement, opts: IntroOptions): IntroHandle {
       return
     }
     try {
+      playing = true
+      window.clearTimeout(prepTimer)
+      if (!manualClock) playTimer = window.setTimeout(finish, PLAY_TIMEOUT_MS)
       s.setPage(canvas)
+      const wash = sheet.isHung() ? WASH_ALPHA : 0
       s.play({
         onSwap: () => {
           sheet.setRumble(false)
@@ -203,7 +222,7 @@ export function mountIntro(root: HTMLElement, opts: IntroOptions): IntroHandle {
           notifyStart()
         },
         onDone: finish,
-      })
+      }, { wash })
     } catch (err) {
       console.error('[intro] smash failed', err)
       sheet.el.style.visibility = ''
@@ -225,7 +244,11 @@ export function mountIntro(root: HTMLElement, opts: IntroOptions): IntroHandle {
   }
 
   /** No WebGL or capture failed: clip-path tiles that fall with CSS 3D transforms. */
+  let fallbackStarted = false
   async function domFallback() {
+    if (fallbackStarted) return
+    fallbackStarted = true
+    window.clearTimeout(prepTimer)
     try {
       const { runDomShatter } = await import('./fallback')
       if (phase !== 'smashing') return
@@ -244,6 +267,8 @@ export function mountIntro(root: HTMLElement, opts: IntroOptions): IntroHandle {
     if (phase === 'done') return
     phase = 'done'
     window.clearTimeout(hardTimer)
+    window.clearTimeout(prepTimer)
+    window.clearTimeout(playTimer)
     clearTimers()
     removeInputListeners()
     try {
@@ -283,6 +308,8 @@ export function mountIntro(root: HTMLElement, opts: IntroOptions): IntroHandle {
       phase = 'done'
       window.clearTimeout(warmTimer)
       window.clearTimeout(hardTimer)
+      window.clearTimeout(prepTimer)
+      window.clearTimeout(playTimer)
       clearTimers()
       removeInputListeners()
       stage?.dispose()

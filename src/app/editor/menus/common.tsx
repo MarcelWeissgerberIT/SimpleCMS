@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef } from 'react'
 import type { Editor } from '@tiptap/core'
 import type { VirtualElement } from '@floating-ui/react'
 import { posToDOMRect } from '@tiptap/core'
-import type { Bridge, SuggestState } from '../lib/bridge'
+import type { Bridge, SuggestKind, SuggestState } from '../lib/bridge'
 
 /** Virtual anchor following the suggestion decoration ("/query"). */
 export function useSuggestAnchor(editor: Editor, suggest: SuggestState | null): VirtualElement | null {
@@ -50,11 +50,11 @@ export function posAnchor(editor: Editor, from: number, to = from): VirtualEleme
  * Keyboard bridge for suggestion menus: the ProseMirror plugin forwards keydown here.
  * Up/Down move, Enter/Tab select.
  */
-export function useSuggestKeys(bridge: Bridge, opts: { count: number; active: number; setActive: (n: number) => void; onSelect: (i: number) => void; columns?: number }) {
+export function useSuggestKeys(bridge: Bridge, kind: SuggestKind, opts: { count: number; active: number; setActive: (n: number) => void; onSelect: (i: number) => void; columns?: number }) {
   const ref = useRef(opts)
   ref.current = opts
   useEffect(() => {
-    bridge.keyHandler = (e) => {
+    bridge.keyHandlers[kind] = (e) => {
       const { count, active, setActive, onSelect, columns = 1 } = ref.current
       if (e.isComposing) return false
       if (e.key === 'ArrowDown') {
@@ -80,9 +80,9 @@ export function useSuggestKeys(bridge: Bridge, opts: { count: number; active: nu
       return false
     }
     return () => {
-      bridge.keyHandler = null
+      delete bridge.keyHandlers[kind]
     }
-  }, [bridge])
+  }, [bridge, kind])
 }
 
 /** Keep the active row visible. */

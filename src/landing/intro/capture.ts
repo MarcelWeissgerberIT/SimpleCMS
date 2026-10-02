@@ -30,6 +30,8 @@ export async function captureViewport(target: HTMLElement): Promise<HTMLCanvasEl
       // The rumble jitter is a transient offset — capture the window at rest.
       const win = doc.querySelector<HTMLElement>('.x97-win')
       if (win) win.style.transform = ''
+      // The "Not Responding" wash is re-applied (and faded out) in the shader.
+      doc.querySelector('.x97')?.classList.remove('x97--hung')
     },
   })
   return canvas

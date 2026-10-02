@@ -31,7 +31,7 @@ export function paintCracks(fr: Fracture, viewW: number, viewH: number, impact: 
   }
   const width = (d: number) => {
     const k = Math.min(1, d / 6)
-    return (2.6 - 1.5 * k) * s
+    return (2.1 - 1.2 * k) * s
   }
 
   ctx.lineJoin = 'round'
@@ -60,22 +60,22 @@ export function paintCracks(fr: Fracture, viewW: number, viewH: number, impact: 
 
   // 1) soft shadow under each fissure (depth)
   for (const c of all) {
-    ctx.strokeStyle = 'rgba(0,0,0,0.16)'
-    ctx.lineWidth = width(c.d[0]) * (c.hair ? 1.6 : 2.6)
+    ctx.strokeStyle = 'rgba(0,0,0,0.12)'
+    ctx.lineWidth = width(c.d[0]) * (c.hair ? 1.6 : 2.4)
     path(c)
     ctx.stroke()
   }
   // 2) chipped light edge (offset toward the light: up-left)
   for (const c of all) {
-    ctx.strokeStyle = 'rgba(255,255,255,0.85)'
-    ctx.lineWidth = Math.max(0.8 * s, width(c.d[0]) * (c.hair ? 0.45 : 0.7))
-    path(c, -0.9 * s, -0.9 * s)
+    ctx.strokeStyle = 'rgba(255,255,255,0.9)'
+    ctx.lineWidth = Math.max(0.7 * s, width(c.d[0]) * (c.hair ? 0.4 : 0.55))
+    path(c, -0.8 * s, -0.8 * s)
     ctx.stroke()
   }
   // 3) dark fissure core
   for (const c of all) {
-    ctx.strokeStyle = c.hair ? 'rgba(25,24,22,0.7)' : 'rgba(18,17,15,0.92)'
-    ctx.lineWidth = width(c.d[0]) * (c.hair ? 0.5 : 0.85)
+    ctx.strokeStyle = c.hair ? 'rgba(14,14,13,0.75)' : 'rgba(10,10,9,0.96)'
+    ctx.lineWidth = width(c.d[0]) * (c.hair ? 0.45 : 0.7)
     path(c)
     ctx.stroke()
   }
@@ -115,7 +115,7 @@ export function paintCracks(fr: Fracture, viewW: number, viewH: number, impact: 
   ]
   for (const [w, a] of passes) {
     for (const c of fr.cracks) {
-      const near = Math.max(0.25, 1 - c.d[0] / 9)
+      const near = Math.pow(Math.max(0.07, 1 - c.d[0] / 7.5), 1.4)
       gx.strokeStyle = `rgba(255,255,255,${(a * near).toFixed(3)})`
       gx.lineWidth = w * (0.6 + near * 0.8) * (s / 1.5)
       gx.beginPath()

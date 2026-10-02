@@ -5,6 +5,7 @@
  */
 import type AnthropicSDK from '@anthropic-ai/sdk'
 import { useWorkspace } from '../../store/store'
+import { t } from '../../i18n'
 
 export type AIAction = 'continue' | 'improve' | 'shorter' | 'longer' | 'fix' | 'summarize' | 'translate' | 'explain' | 'action_items' | 'custom' | 'autofill'
 
@@ -59,12 +60,21 @@ export type AIErrorCode =
   | 'aborted'
   | 'unknown'
 
+/** An AI failure. `message` is a friendly, localized sentence; `detail` keeps the raw API message. */
 export class AIError extends Error {
   code: AIErrorCode
-  constructor(code: AIErrorCode, message?: string) {
-    super(message ?? code)
+  detail?: string
+  constructor(code: AIErrorCode, detail?: string) {
+    let message: string = code
+    try {
+      message = t(`features.ai.err.${code}`, { model: resolveModel(useWorkspace.getState().settings.aiModel).name, detail: detail ?? '' })
+    } catch {
+      /* i18n unavailable — keep the code */
+    }
+    super(message)
     this.name = 'AIError'
     this.code = code
+    this.detail = detail
   }
 }
 

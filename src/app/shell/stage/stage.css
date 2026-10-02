@@ -183,6 +183,30 @@
   flex: none;
 }
 
+/* reading gauge (sticky, sits on the topbar's bottom hairline) */
+.gauge-line {
+  position: sticky;
+  top: 0;
+  z-index: 6;
+  height: 0;
+  pointer-events: none;
+}
+.gauge-line__fill {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 2px;
+  background: var(--signal);
+  transform: scaleX(0);
+  transform-origin: left center;
+  opacity: 0;
+  transition: opacity var(--dur-2);
+}
+.gauge-line__fill[data-on='1'] {
+  opacity: 1;
+}
+
 /* block target flash (deep links #/p/<id>?b=<block>) */
 .is-target {
   animation: target-flash 2s var(--ease-out);
@@ -371,6 +395,20 @@
   font: inherit;
   letter-spacing: inherit;
   text-transform: inherit;
+}
+.status__half {
+  width: 9px;
+  height: 9px;
+  border: 1px solid currentColor;
+  border-radius: 50%;
+  background: linear-gradient(90deg, currentColor 50%, transparent 50%);
+}
+.status__opt {
+  opacity: 0.5;
+}
+.status__opt[data-on] {
+  opacity: 1;
+  color: var(--signal-ink);
 }
 .status__btn:hover {
   background: var(--hover);

@@ -9,7 +9,7 @@
 @import './scope.css';
 
 html {
-  scroll-padding-top: 88px;
+  scroll-padding-top: 0;
 }
 @media (prefers-reduced-motion: no-preference) {
   html:not(.intro-active) {
@@ -444,9 +444,11 @@ html {
 
 /* ---------- Sections ---------- */
 .sec {
+  --sec-pad: clamp(80px, 10vw, 148px);
   position: relative;
-  padding: clamp(80px, 10vw, 148px) 0;
-  scroll-margin-top: 0;
+  padding: var(--sec-pad) 0;
+  /* Anchor jumps land on the chapter rule, just under the top bar + dial. */
+  scroll-margin-top: calc(var(--tb-h) + var(--dial-h) + 28px - var(--sec-pad));
 }
 .sec-head {
   position: relative;
@@ -580,5 +582,14 @@ html {
 @media (max-width: 380px) {
   .tb-word span {
     display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .site *,
+  .site *::before,
+  .site *::after {
+    animation: none !important;
+    transition-duration: 0.01ms !important;
   }
 }
