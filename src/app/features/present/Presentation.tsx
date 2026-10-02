@@ -15,6 +15,7 @@ import { Kbd } from '../../ui/controls'
 import { safeLocalGet, safeLocalSet } from '@/shared/brand'
 import { buildDeck, mapBlocks, slideText, type Slide } from './slides'
 import { databaseTable } from '../share/codec'
+import { claimKeyboard } from './keys'
 import './present.css'
 import '../share/readonly.css'
 
@@ -62,6 +63,14 @@ export function Presentation({ pageId, onClose }: { pageId: ID; onClose: () => v
   )
   const next = useCallback(() => go(indexRef.current + 1), [go])
   const prev = useCallback(() => go(indexRef.current - 1), [go])
+
+  // hand focus back to whatever started the show (topbar button, menu item …)
+  useEffect(() => {
+    const opener = document.activeElement as HTMLElement | null
+    return () => {
+      if (opener && opener !== document.body && opener.isConnected) requestAnimationFrame(() => opener.focus({ preventScroll: true }))
+    }
+  }, [])
 
   /* ---------- full screen ---------- */
   useEffect(() => {
@@ -134,37 +143,51 @@ export function Presentation({ pageId, onClose }: { pageId: ID; onClose: () => v
     }
   }, [])
 
-  /* ---------- keyboard ---------- */
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.metaKey || e.ctrlKey || e.altKey) return
-      const k = e.key
-      let handled = true
-      if (overview) {
-        if (k === 'Escape' || k === 'g' || k === 'o') setOverview(false)
-        else if (k === 'ArrowRight') go(cur + 1)
-        else if (k === 'ArrowLeft') go(cur - 1)
-        else if (k === 'ArrowDown') go(cur + 4)
-        else if (k === 'ArrowUp') go(cur - 4)
-        else if (k === 'Enter' || k === ' ') setOverview(false)
-        else handled = false
-      } else if (['ArrowRight', 'ArrowDown', 'PageDown', 'Enter', 'l', 'j'].includes(k) || (k === ' ' && !e.shiftKey)) next()
-      else if (['ArrowLeft', 'ArrowUp', 'PageUp', 'Backspace', 'h', 'k'].includes(k) || (k === ' ' && e.shiftKey)) prev()
-      else if (k === 'Home') go(0)
-      else if (k === 'End') go(count - 1)
-      else if (k === 'Escape') onCloseRef.current()
-      else if (k === 'd') setDark((d) => !d)
-      else if (k === 'f') toggleFs()
-      else if (k === 'g' || k === 'o') setOverview(true)
-      else handled = false
-      if (handled) {
-        e.preventDefault()
-        e.stopPropagation()
-      }
+  /* ---------- overlong slides scroll: "next" reads on first, then turns the page ---------- */
+  const scrollerRef = useRef<HTMLDivElement | null>(null)
+  const scrollSlide = (d: 1 | -1): boolean => {
+    const el = scrollerRef.current
+    if (!el || !el.hasAttribute('data-scroll')) return false
+    const room = d > 0 ? el.scrollHeight - el.clientHeight - el.scrollTop : el.scrollTop
+    if (room <= 4) return false
+    const reduce = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+    el.scrollBy({ top: d * Math.max(80, el.clientHeight * 0.8), behavior: reduce ? 'auto' : 'smooth' })
+    return true
+  }
+  const forward = () => scrollSlide(1) || next()
+  const backward = () => scrollSlide(-1) || prev()
+
+  /* ---------- keyboard (owns every key while presenting, see keys.ts) ---------- */
+  const onKeyRef = useRef<(e: KeyboardEvent) => boolean>(() => false)
+  onKeyRef.current = (e) => {
+    if (e.metaKey || e.ctrlKey || e.altKey) return false
+    const k = e.key
+    if (overview) {
+      if (k === 'Escape' || k === 'g' || k === 'o') setOverview(false)
+      else if (k === 'ArrowRight') go(cur + 1)
+      else if (k === 'ArrowLeft') go(cur - 1)
+      else if (k === 'ArrowDown') go(cur + 4)
+      else if (k === 'ArrowUp') go(cur - 4)
+      else if (k === 'Enter' || k === ' ') setOverview(false)
+      else return false
+      return true
     }
-    window.addEventListener('keydown', onKey, true)
-    return () => window.removeEventListener('keydown', onKey, true)
-  })
+    // a focused HUD button keeps Enter for itself
+    if (k === 'Enter' && (e.target as HTMLElement | null)?.closest?.('button')) return false
+    if (['ArrowDown', 'PageDown', 'Enter', 'j'].includes(k) || (k === ' ' && !e.shiftKey)) forward()
+    else if (['ArrowUp', 'PageUp', 'k'].includes(k) || (k === ' ' && e.shiftKey)) backward()
+    else if (['ArrowRight', 'l'].includes(k)) next()
+    else if (['ArrowLeft', 'Backspace', 'h'].includes(k)) prev()
+    else if (k === 'Home') go(0)
+    else if (k === 'End') go(count - 1)
+    else if (k === 'Escape') onCloseRef.current()
+    else if (k === 'd') setDark((d) => !d)
+    else if (k === 'f') toggleFs()
+    else if (k === 'g' || k === 'o') setOverview(true)
+    else return false
+    return true
+  }
+  useEffect(() => claimKeyboard((e) => onKeyRef.current(e)), [])
 
   /* ---------- click / swipe ---------- */
   const down = useRef<{ x: number; y: number } | null>(null)
@@ -181,8 +204,8 @@ export function Presentation({ pageId, onClose }: { pageId: ID; onClose: () => v
     if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy)) return inScroller(e.target as HTMLElement) ? undefined : dx < 0 ? next() : prev()
     if (Math.abs(dx) < 6 && Math.abs(dy) < 6) {
       if (window.getSelection()?.toString()) return
-      if (e.clientX < window.innerWidth * 0.3) prev()
-      else next()
+      if (e.clientX < window.innerWidth * 0.3) backward()
+      else forward()
     }
   }
 
@@ -217,7 +240,17 @@ export function Presentation({ pageId, onClose }: { pageId: ID; onClose: () => v
             <div className="pres__corner pres__corner--br" aria-live="polite">
               {pad2(cur + 1)} / {pad2(count)}
             </div>
-            <SlideView key={cur} slide={slide} dir={dir} icon={page?.icon ?? null} title={title} meta={`${t('features.present.slides', { count: count - 1 })} · ${date}`} hint={t(coarse ? 'features.present.beginTouch' : 'features.present.begin')} />
+            <SlideView
+              key={cur}
+              slide={slide}
+              dir={dir}
+              icon={page?.icon ?? null}
+              title={title}
+              meta={`${t('features.present.slides', { count: count - 1 })} · ${date}`}
+              hint={t(coarse ? 'features.present.beginTouch' : 'features.present.begin')}
+              more={t('features.present.more')}
+              scrollerRef={scrollerRef}
+            />
           </div>
         </div>
       )}
@@ -263,11 +296,30 @@ export function Presentation({ pageId, onClose }: { pageId: ID; onClose: () => v
 
 /* ------------------------------------------------------------------ */
 
-function SlideView({ slide, dir, icon, title, meta, hint }: { slide: Slide; dir: 1 | -1; icon: Parameters<typeof PageIcon>[0]['icon']; title: string; meta: string; hint: string }) {
-  const fitRef = useRef<HTMLDivElement>(null)
-  const contentRef = useRef<HTMLDivElement>(null)
+type SlideViewProps = {
+  slide: Slide
+  dir: 1 | -1
+  icon: Parameters<typeof PageIcon>[0]['icon']
+  title: string
+  meta: string
+  hint: string
+  /** label of the "more below" cue */
+  more: string
+  /** the slide's scroll box, for "next reads on first" */
+  scrollerRef: React.MutableRefObject<HTMLDivElement | null>
+}
 
-  // Shrink-to-fit: long slides are scaled down (never below 50 %) instead of overflowing.
+const MIN_SCALE = 0.5
+
+function SlideView({ slide, dir, icon, title, meta, hint, more, scrollerRef }: SlideViewProps) {
+  const fitRef = useRef<HTMLDivElement | null>(null)
+  const contentRef = useRef<HTMLDivElement>(null)
+  const [overflow, setOverflow] = useState(false)
+  const [atEnd, setAtEnd] = useState(false)
+  const [atStart, setAtStart] = useState(true)
+
+  // Shrink-to-fit: long slides are scaled down (never below 50 %). What still does not fit
+  // scrolls — with a "more below" cue — instead of being cut off.
   useLayoutEffect(() => {
     const fit = fitRef.current
     const content = contentRef.current
@@ -276,6 +328,7 @@ function SlideView({ slide, dir, icon, title, meta, hint }: { slide: Slide; dir:
     const measure = () => {
       content.style.width = '100%'
       content.style.transform = ''
+      content.style.marginBottom = ''
       const availH = fit.clientHeight
       const availW = content.clientWidth
       const needH = content.scrollHeight
@@ -286,11 +339,19 @@ function SlideView({ slide, dir, icon, title, meta, hint }: { slide: Slide; dir:
       })
       const sH = needH > availH && availH > 0 ? availH / needH : 1
       const sW = extra > 1 && availW > 0 ? availW / (availW + extra) : 1
-      const s = Math.max(0.5, Math.min(sH, sW))
+      const s = Math.max(MIN_SCALE, Math.min(sH, sW))
       if (s < 1) {
         content.style.width = `${100 / s}%`
         content.style.transform = `scale(${s})`
+        // a transform does not shrink the layout box: give back the space it no longer uses,
+        // so the scroll range ends with the last line
+        content.style.marginBottom = `${-needH * (1 - s)}px`
       }
+      const over = needH * s > availH + 2
+      setOverflow(over)
+      if (!over) fit.scrollTop = 0
+      setAtEnd(!over || fit.scrollHeight - fit.clientHeight - fit.scrollTop <= 4)
+      setAtStart(fit.scrollTop <= 4)
     }
     const schedule = () => {
       cancelAnimationFrame(raf)
@@ -312,27 +373,48 @@ function SlideView({ slide, dir, icon, title, meta, hint }: { slide: Slide; dir:
   }, [slide])
 
   return (
-    <div className="pres__fit" ref={fitRef}>
-      <div className={`pres__content pres__content--${slide.kind}`} ref={contentRef} style={{ ['--dir' as string]: dir }}>
-        {slide.kind === 'title' ? (
-          <div className="pres__title-slide">
-            {icon && (
-              <div className="pres__icon">
-                <PageIcon icon={icon} size={96} fallback={false} />
+    <>
+      <div
+        className="pres__fit"
+        ref={(el) => {
+          fitRef.current = el
+          scrollerRef.current = el
+        }}
+        data-scroll={overflow || undefined}
+        data-more={(overflow && !atEnd) || undefined}
+        data-scrolled={(overflow && !atStart) || undefined}
+        onScroll={(e) => {
+          const el = e.currentTarget
+          setAtEnd(el.scrollHeight - el.clientHeight - el.scrollTop <= 4)
+          setAtStart(el.scrollTop <= 4)
+        }}
+      >
+        <div className={`pres__content pres__content--${slide.kind}`} ref={contentRef} style={{ ['--dir' as string]: dir }}>
+          {slide.kind === 'title' ? (
+            <div className="pres__title-slide">
+              {icon && (
+                <div className="pres__icon">
+                  <PageIcon icon={icon} size={96} fallback={false} />
+                </div>
+              )}
+              <h1 className="pres__title">{title}</h1>
+              {slide.blocks.length > 0 && <ReadOnlyDoc content={{ type: 'doc', content: slide.blocks }} className="pres__lede" />}
+              <div className="pres__meta">
+                <span>{meta}</span>
+                <span className="pres__begin">{hint}</span>
               </div>
-            )}
-            <h1 className="pres__title">{title}</h1>
-            {slide.blocks.length > 0 && <ReadOnlyDoc content={{ type: 'doc', content: slide.blocks }} className="pres__lede" />}
-            <div className="pres__meta">
-              <span>{meta}</span>
-              <span className="pres__begin">{hint}</span>
             </div>
-          </div>
-        ) : (
-          <ReadOnlyDoc content={{ type: 'doc', content: slide.blocks }} className="pres__doc" />
-        )}
+          ) : (
+            <ReadOnlyDoc content={{ type: 'doc', content: slide.blocks }} className="pres__doc" />
+          )}
+        </div>
       </div>
-    </div>
+      {overflow && !atEnd && (
+        <span className="pres__more mono" aria-hidden>
+          {more} ↓
+        </span>
+      )}
+    </>
   )
 }
 

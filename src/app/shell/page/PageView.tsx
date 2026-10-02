@@ -14,10 +14,9 @@ import type { ID, Page, PageCover } from '../../store/types'
 import { Cover } from './Cover'
 import { GRADIENTS, coverAssetPath, loadCoverManifest } from './covers'
 import { resolveAssetUrl } from '../../lib/files'
-import { navigate } from '../../lib/router'
 import { Backlinks } from './Backlinks'
 import { SpecPlate } from './SpecPlate'
-import { consumeTitleFocus, currentPageId } from '../lib/actions'
+import { consumeTitleFocus } from '../lib/actions'
 import { NotFound } from '../home/NotFound'
 import './page.css'
 
@@ -61,7 +60,7 @@ function PageViewInner({ page, variant }: { page: Page; variant: PageVariant }) 
       data-has-cover={page.cover ? true : undefined}
       data-locked={readOnly || undefined}
     >
-      {trashed && <TrashBanner page={page} variant={variant} />}
+      {trashed && <TrashBanner page={page} />}
       <Cover page={page} editable={!readOnly} />
       <header className="pv-head">
         <div className="pv-col">
@@ -245,7 +244,7 @@ function PageTitle({ page, readOnly, variant, onEnter }: { page: Page; readOnly:
 
 /* ---------------- trash banner ---------------- */
 
-function TrashBanner({ page, variant }: { page: Page; variant: PageVariant }) {
+function TrashBanner({ page }: { page: Page }) {
   const t = useT()
   const ws = useWorkspace.getState()
   // a child of a trashed page: restore the trashed ancestor
@@ -277,12 +276,8 @@ function TrashBanner({ page, variant }: { page: Page; variant: PageVariant }) {
             body: t('shell.trash.deleteForeverBody'),
             danger: true,
             confirmLabel: t('shell.trash.deleteForever'),
-            onConfirm: () => {
-              useWorkspace.getState().deletePagePermanently(rootTrashed.id)
-              // panes and the peek close themselves (usePruneGoneViews); only the main column moves
-              const cur = currentPageId()
-              if (variant === 'main' || (cur && !useWorkspace.getState().pages[cur])) navigate({ name: 'home' })
-            },
+            // the main column, panes and the peek all let go of the page (usePruneGoneViews)
+            onConfirm: () => useWorkspace.getState().deletePagePermanently(rootTrashed.id),
           })
         }
       >

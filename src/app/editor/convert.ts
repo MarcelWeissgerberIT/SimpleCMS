@@ -6,6 +6,7 @@ import { generateHTML, getSchema, type Extensions, type JSONContent } from '@tip
 import type { Schema } from '@tiptap/pm/model'
 import { MarkdownManager } from '@tiptap/markdown'
 import { BLOCK_ID_TYPES, baseExtensions } from './schema/base'
+import { safeHref } from './lib/embeds'
 
 export function getExtensions(opts: { readOnly?: boolean } = {}): Extensions {
   return baseExtensions({ readOnly: opts.readOnly })
@@ -219,10 +220,25 @@ export function markdownToDoc(markdown: string): JSONContent {
 /* doc → Markdown / HTML                                               */
 /* ------------------------------------------------------------------ */
 
+/** Link marks whose href isn't safe (javascript:, data: …) are dropped before export. */
+function withoutUnsafeLinks(doc: JSONContent): JSONContent {
+  const bad = (m: { type: string; attrs?: Record<string, unknown> }) => m.type === 'link' && !safeHref(String(m.attrs?.href ?? ''))
+  const walk = (n: JSONContent): JSONContent => {
+    let out = n
+    if (n.marks?.some(bad)) out = { ...out, marks: n.marks.filter((m) => !bad(m)) }
+    if (n.content) {
+      const kids = n.content.map(walk)
+      if (kids.some((k, i) => k !== n.content![i])) out = { ...out, content: kids }
+    }
+    return out
+  }
+  return walk(doc)
+}
+
 export function docToMarkdown(doc: JSONContent | null): string {
   if (!doc) return ''
   try {
-    const out = md().serialize(doc)
+    const out = md().serialize(withoutUnsafeLinks(doc))
     return out.replace(/\n{3,}/g, '\n\n').trim() + '\n'
   } catch (err) {
     console.warn('[editor] markdown serialize failed', err)
@@ -233,7 +249,7 @@ export function docToMarkdown(doc: JSONContent | null): string {
 export function docToHTML(doc: JSONContent | null): string {
   if (!doc) return ''
   try {
-    return generateHTML(sanitize(doc.type === 'doc' ? doc : { type: 'doc', content: [doc] }), getExtensions({ readOnly: true }))
+    return generateHTML(withoutUnsafeLinks(sanitize(doc.type === 'doc' ? doc : { type: 'doc', content: [doc] })), getExtensions({ readOnly: true }))
   } catch (err) {
     console.warn('[editor] html render failed', err)
     return ''

@@ -317,7 +317,7 @@
 /* ---------- list (actions / languages / result keys) ---------- */
 .ai-list {
   min-height: 0;
-  max-height: 300px;
+  max-height: 320px;
   overflow: auto;
   padding: 4px;
   overscroll-behavior: contain;
@@ -465,6 +465,53 @@
 
 @media (max-width: 520px) {
   .ai-foot > span:nth-child(1) {
+    display: none;
+  }
+
+  .ai-model__brand {
+    display: none;
+  }
+
+  /* the answer gets the room; when the panel is capped, it is the part that scrolls */
+  .ai-out {
+    flex: 0 1 auto;
+  }
+
+  .ai-out__body {
+    flex: 0 1 auto;
+    min-height: 96px;
+    max-height: 52vh;
+  }
+
+  .ai-list {
+    flex: none;
+  }
+
+  /* result keys: a compact two-column bank of function keys instead of a tall list */
+  .ai-list[data-keys] {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 4px;
+    padding: 6px;
+  }
+
+  .ai-list[data-keys] > div:first-child:nth-last-child(odd) {
+    grid-column: 1 / -1;
+  }
+
+  .ai-list[data-keys] .ai-row {
+    min-height: 42px;
+    border: 1px solid var(--rule);
+    background: var(--surface);
+  }
+
+  .ai-list[data-keys] .ai-row[data-active='true'] {
+    border-color: var(--rule-strong);
+    background: var(--hover);
+  }
+
+  .ai-list[data-keys] .ai-row .kbd,
+  .ai-list[data-keys] .ai-row__code {
     display: none;
   }
 }

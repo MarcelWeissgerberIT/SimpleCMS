@@ -210,7 +210,7 @@ export async function sendWebhook(url: string, method: 'POST' | 'PUT', payload: 
     } catch {
       /* ignore */
     }
-    return { ok: res.ok, status: res.status, message: `${res.status} ${res.statusText}`.trim(), body: text, ms: ms() }
+    return { ok: res.ok, status: res.status, message: `${res.status} ${res.statusText || (res.ok ? 'OK' : '')}`.trim(), body: text, ms: ms() }
   } catch (err) {
     if (ctrl.signal.aborted) return { ok: false, status: 0, message: t('features.auto.err.timeout'), ms: ms() }
     // Most likely CORS: retry once as an opaque "simple" request (the body still arrives as JSON text)
@@ -245,7 +245,9 @@ function setStatus(dbId: ID, automationId: ID, status: 'ok' | 'error', message: 
 
 function fill(template: string, db: Database, row: Page): string {
   const pages = useWorkspace.getState().pages
-  return template.replace(/\{(\w[\w ]*)\}/g, (all, key: string) => {
+  // any property name works, umlauts and punctuation included: {Priorität}, {Fällig}, {Due date}
+  return template.replace(/\{([^{}\n]+)\}/g, (all, raw: string) => {
+    const key = raw.trim()
     if (key === 'title') return row.title || t('common.untitled')
     if (key === 'database') return pages[db.id]?.title || t('common.untitled')
     const prop = db.properties.find((p) => p.name.toLowerCase() === key.toLowerCase())
@@ -488,5 +490,7 @@ export function samplePayload(dbId: ID, automation: Pick<Automation, 'id' | 'nam
     if (prop) changes = [{ propertyId: prop.id, from: prop.type === 'title' ? '' : null, to: trig.toValue ?? (prop.type === 'title' ? row.title : row.properties[prop.id]) }]
   }
   const payload = buildPayload(db, automation, row, event, changes)
-  return opts.test ? { event: payload.event, test: true, ...payload } : payload
+  if (!opts.test) return payload
+  const { event: ev, ...rest } = payload
+  return { event: ev, test: true, ...rest }
 }

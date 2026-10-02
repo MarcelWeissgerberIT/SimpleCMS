@@ -206,6 +206,11 @@
   font-size: 9.5px;
   letter-spacing: var(--tracking-label);
   white-space: nowrap;
+  transition: opacity var(--dur-1) var(--ease-out);
+}
+
+.tape__day[data-covered] {
+  opacity: 0;
 }
 
 .tape__head {

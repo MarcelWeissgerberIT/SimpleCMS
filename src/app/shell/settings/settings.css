@@ -176,7 +176,12 @@ select.input {
   opacity: 0.7;
 }
 
-/* theme cards — preview swatches intentionally mirror tokens.css (Paper / Carbon) */
+/*
+ * theme cards — DOCUMENTED EXCEPTION to "no raw hex outside tokens.css": each card must
+ * show its own theme while the other one is active, but the tokens resolve to the active
+ * theme only. These six values mirror tokens.css (Paper: --surface/--surface-2/--ink,
+ * Carbon: the same three under [data-theme='dark']); keep them in sync.
+ */
 .themes {
   --pv-paper-bg: #faf9f5;
   --pv-paper-side: #eae7df;

@@ -335,7 +335,52 @@
   text-transform: uppercase;
 }
 
+/* ---------- dock (narrow screens only): current pick + action, always in reach ---------- */
+.tpl-dock {
+  display: none;
+}
+
 @media (max-width: 760px) {
+  .tpl-dock {
+    position: sticky;
+    bottom: 0;
+    z-index: 1;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 12px calc(10px + env(safe-area-inset-bottom, 0px));
+    border-top: 1.5px solid var(--ink);
+    background: var(--surface);
+    box-shadow: 0 -6px 16px -12px color-mix(in srgb, var(--ink) 40%, transparent);
+  }
+  .tpl-dock img {
+    flex: none;
+    width: 32px;
+    height: 32px;
+    object-fit: contain;
+  }
+  .tpl-dock__text {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-width: 0;
+    line-height: 1.2;
+  }
+  .tpl-dock__code {
+    font-size: var(--text-2xs);
+    letter-spacing: var(--tracking-label);
+    color: var(--signal-ink);
+  }
+  .tpl-dock__title {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-weight: 650;
+    font-size: var(--text-sm);
+  }
+  .tpl-dock .btn {
+    flex: none;
+  }
   .tpl-modal .modal__body {
     overflow-y: auto;
     display: block;
@@ -371,12 +416,12 @@
   .tpl-preview__cat {
     margin-top: 0;
   }
-  .tpl-preview__foot {
-    position: sticky;
-    bottom: -1px;
-    margin: 0 -18px -18px;
-    padding: 10px 18px 14px;
-    border-top: 1px solid var(--rule);
-    background: var(--surface);
+  /* the dock carries the action on narrow screens */
+  .tpl-preview__foot .tpl-use,
+  .tpl-preview__creates {
+    display: none;
+  }
+  .tpl-preview {
+    scroll-margin-top: 8px;
   }
 }

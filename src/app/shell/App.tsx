@@ -55,9 +55,8 @@ function Workspace({ route }: { route: Route }) {
         href="#main"
         onClick={(e) => {
           e.preventDefault()
-          const main = document.getElementById('main')
-          if (main) main.focus()
-          else document.querySelector<HTMLElement>('.stage-col')?.focus()
+          // the main page, or — while panes fold it into a spine — the first column in view
+          document.querySelector<HTMLElement>('#main:not([data-folded]), .stage-col:not([data-folded])')?.focus()
         }}
       >
         {t('shell.a11y.skip')}

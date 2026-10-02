@@ -45,6 +45,27 @@ function liveSet(pages: Record<ID, Page>): Set<ID> {
   return out
 }
 
+/** linkedPageIds per content object — unchanged pages keep their (immutable) content object */
+const linkCache = new WeakMap<object, ID[]>()
+function linksOf(page: Page): ID[] {
+  if (!page.content) return []
+  let ids = linkCache.get(page.content)
+  if (!ids) {
+    ids = linkedPageIds(page.content)
+    linkCache.set(page.content, ids)
+  }
+  return ids
+}
+
+/** Everything the layout depends on; equal signatures → the simulation can keep running untouched. */
+export function graphSignature(g: { nodes: GNode[]; edges: GEdge[] }): string {
+  const parts: string[] = []
+  for (const n of g.nodes) parts.push(`${n.id}\u0001${n.kind}\u0001${n.title}\u0001${n.r}`)
+  parts.push('|')
+  for (const e of g.edges) parts.push(`${e.kind}${e.source as ID}>${e.target as ID}`)
+  return parts.join('\u0002')
+}
+
 export function buildGraph(pages: Record<ID, Page>, databases: Record<ID, Database>, opts: GraphOptions, untitled: string) {
   const alive = liveSet(pages)
   const include = (p: Page) => alive.has(p.id) && (opts.rows || !p.databaseId)
@@ -75,7 +96,7 @@ export function buildGraph(pages: Record<ID, Page>, databases: Record<ID, Databa
   for (const p of Object.values(pages)) {
     if (!nodes.has(p.id)) continue
     if (opts.hierarchy && p.parentId) add(p.parentId, p.id, 'tree')
-    for (const target of linkedPageIds(p.content)) add(p.id, target, 'link')
+    for (const target of linksOf(p)) add(p.id, target, 'link')
     // relations between rows are links too (only visible with rows)
     if (opts.rows && p.databaseId) {
       const db = databases[p.databaseId]

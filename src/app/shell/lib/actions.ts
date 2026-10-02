@@ -7,7 +7,7 @@ import { useUI } from '../../store/ui'
 import { navigate, openPage, parseHash } from '../../lib/router'
 import { t } from '../../i18n'
 import type { ID } from '../../store/types'
-import { revealMain } from './stage'
+import { revealMain, useStageView } from './stage'
 
 const ws = () => useWorkspace.getState()
 const ui = () => useUI.getState()
@@ -16,6 +16,11 @@ const ui = () => useUI.getState()
 export function currentPageId(): ID | null {
   const r = parseHash(window.location.hash)
   return r.name === 'page' ? r.id : null
+}
+
+/** Page the page-level commands act on: the active stacked pane's, else the main column's. */
+export function contextPageId(): ID | null {
+  return useStageView.getState().activePaneId ?? currentPageId()
 }
 
 /** Ask the page view to focus its title once mounted (new pages). */
@@ -82,6 +87,21 @@ export function duplicateAndOpen(id: ID) {
   }
 }
 
+/** Open "moved to trash · Undo" toasts, by page — they go away once the page is deleted for good. */
+const undoToasts = new Map<ID, ID>()
+
+/** Dismiss Undo toasts whose page no longer exists (deleted forever, trash emptied). */
+export function pruneUndoToasts(pages: Record<ID, unknown>) {
+  const live = new Set(ui().toasts.map((x) => x.id))
+  for (const [pageId, toastId] of undoToasts) {
+    if (!live.has(toastId)) undoToasts.delete(pageId)
+    else if (!pages[pageId]) {
+      undoToasts.delete(pageId)
+      ui().dismissToast(toastId)
+    }
+  }
+}
+
 /** Move to trash with an Undo toast. Leaves the page if it was open. */
 export function trashWithUndo(id: ID) {
   const page = ws().pages[id]
@@ -99,11 +119,16 @@ export function trashWithUndo(id: ID) {
     if (parent && !parent.trashed) openPage(parent.id)
     else navigate({ name: 'home' })
   }
-  s.toast({
+  const toastId = s.toast({
     message: t('shell.toast.trashed', { title: page.title.trim() || t('common.untitled') }),
     action: {
       label: t('common.undo'),
       run: () => {
+        undoToasts.delete(id)
+        if (!ws().pages[id]) {
+          ui().toast({ message: t('shell.toast.goneForGood'), kind: 'error' })
+          return
+        }
         ws().restorePage(id)
         // trashing clears the star; Undo puts it back
         if (wasFavorite && !ws().pages[id]?.favorite) ws().toggleFavorite(id)
@@ -111,6 +136,7 @@ export function trashWithUndo(id: ID) {
       },
     },
   })
+  undoToasts.set(id, toastId)
 }
 
 export function toggleTheme() {

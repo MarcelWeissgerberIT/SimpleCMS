@@ -10,12 +10,13 @@ import { useLang, useT } from '../../i18n'
 import { usePage } from '../../store/selectors'
 import { useWorkspace } from '../../store/store'
 import type { ID } from '../../store/types'
-import { listFileRefs } from '../../lib/files'
 import { collectRefs, collectTree, downloadBlob, formatBytes, slugify, todayStamp, treeStats } from './export/collect'
 import { buildMarkdownZip } from './export/markdown'
 import { buildHTML, printHTML } from './export/html'
-import { buildBackup } from './backup'
+import { backupFileRefs, buildBackup } from './backup'
 import { Meter } from './parts'
+import { countOf, unitOf } from './count'
+import { onRovingKey } from './roving'
 import './io.css'
 
 type Format = 'md' | 'html' | 'json' | 'pdf'
@@ -45,24 +46,14 @@ export function ExportModal({ pageId, onClose }: { pageId?: ID | null; onClose: 
   const [progress, setProgress] = useState<number | null>(null)
   const [result, setResult] = useState<{ name: string; size: number | null } | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [wsFiles, setWsFiles] = useState<number | null>(null)
 
   const rootId = scope === 'page' && hasPage ? page!.id : null
   const tree = useMemo(() => collectTree(rootId), [rootId, pages]) // eslint-disable-line react-hooks/exhaustive-deps
   const stats = useMemo(() => treeStats(tree), [tree])
   const pageTree = useMemo(() => (hasPage ? treeStats(collectTree(page!.id)) : null), [hasPage, page, pages]) // eslint-disable-line react-hooks/exhaustive-deps
   const allStats = useMemo(() => treeStats(collectTree(null)), [pages])
-  const fileCount = rootId ? collectRefs(tree).length : (wsFiles ?? collectRefs(tree).length)
-
-  useEffect(() => {
-    let alive = true
-    listFileRefs()
-      .then((r) => alive && setWsFiles(r.length))
-      .catch(() => {})
-    return () => {
-      alive = false
-    }
-  }, [])
+  // exactly the files the chosen format will contain (a backup also keeps files of trashed pages)
+  const fileCount = useMemo(() => (format === 'json' ? backupFileRefs(rootId).length : collectRefs(tree).length), [format, rootId, tree])
 
   useEffect(() => {
     try {
@@ -103,9 +94,9 @@ export function ExportModal({ pageId, onClose }: { pageId?: ID | null; onClose: 
           forPrint: format === 'pdf',
           labels: {
             exported: t('features.io.export.plate'),
-            pages: t('features.io.unit.pages'),
+            pages: (n) => countOf(t, 'page', n),
             contents: t('features.io.export.contents'),
-            rows: t('features.io.unit.rows'),
+            rows: (n) => countOf(t, 'row', n),
             generator: t('features.io.export.generator'),
           },
           onProgress,
@@ -154,8 +145,8 @@ export function ExportModal({ pageId, onClose }: { pageId?: ID | null; onClose: 
           <div className="io-section__label label">
             <b>A</b> {t('features.io.export.scope')}
           </div>
-          <div className="io-scope" role="radiogroup" aria-label={t('features.io.export.scope')}>
-            <button type="button" role="radio" aria-checked={scope === 'page'} className="io-scope__opt" disabled={!hasPage} onClick={() => setScope('page')}>
+          <div className="io-scope" role="radiogroup" aria-label={t('features.io.export.scope')} onKeyDown={(e) => onRovingKey(e)}>
+            <button type="button" role="radio" aria-checked={scope === 'page'} tabIndex={scope === 'page' ? 0 : -1} className="io-scope__opt" disabled={!hasPage} onClick={() => setScope('page')}>
               <Led state={scope === 'page' ? 'on' : 'off'} />
               <span className="io-scope__text">
                 <span className="io-scope__title">
@@ -163,15 +154,17 @@ export function ExportModal({ pageId, onClose }: { pageId?: ID | null; onClose: 
                   {hasPage ? page!.title.trim() || t('common.untitled') : t('features.io.export.noPage')}
                 </span>
                 <span className="io-scope__meta label">
-                  {pageTree ? t('features.io.export.pageMeta', { n: Math.max(0, pageTree.pages + pageTree.dbs - 1), rows: pageTree.rows }) : '—'}
+                  {pageTree ? `+ ${countOf(t, 'subpage', Math.max(0, pageTree.pages + pageTree.dbs - 1))} · ${countOf(t, 'row', pageTree.rows)}` : '—'}
                 </span>
               </span>
             </button>
-            <button type="button" role="radio" aria-checked={scope === 'workspace'} className="io-scope__opt" onClick={() => setScope('workspace')}>
+            <button type="button" role="radio" aria-checked={scope === 'workspace'} tabIndex={scope === 'workspace' ? 0 : -1} className="io-scope__opt" onClick={() => setScope('workspace')}>
               <Led state={scope === 'workspace' ? 'on' : 'off'} />
               <span className="io-scope__text">
                 <span className="io-scope__title">{t('features.io.export.workspace')}</span>
-                <span className="io-scope__meta label">{t('features.io.export.wsMeta', { pages: allStats.pages, dbs: allStats.dbs })}</span>
+                <span className="io-scope__meta label">
+                  {countOf(t, 'page', allStats.pages)} · {countOf(t, 'db', allStats.dbs)}
+                </span>
               </span>
             </button>
           </div>
@@ -181,9 +174,9 @@ export function ExportModal({ pageId, onClose }: { pageId?: ID | null; onClose: 
           <div className="io-section__label label">
             <b>B</b> {t('features.io.export.format')}
           </div>
-          <div className="io-formats" role="radiogroup" aria-label={t('features.io.export.format')}>
+          <div className="io-formats" role="radiogroup" aria-label={t('features.io.export.format')} onKeyDown={(e) => onRovingKey(e)}>
             {FORMATS.map((f) => (
-              <button key={f.id} type="button" role="radio" aria-checked={format === f.id} className="io-fmt" onClick={() => setFormat(f.id)}>
+              <button key={f.id} type="button" role="radio" aria-checked={format === f.id} tabIndex={format === f.id ? 0 : -1} className="io-fmt" onClick={() => setFormat(f.id)}>
                 <span className="io-fmt__top">
                   <span className="io-fmt__code">{f.code}</span>
                   <Led state={format === f.id ? 'on' : 'off'} />
@@ -197,16 +190,16 @@ export function ExportModal({ pageId, onClose }: { pageId?: ID | null; onClose: 
 
         <div className="io-manifest" aria-live="polite">
           <span>
-            <b>{stats.pages}</b> {t('features.io.unit.pages')}
+            <b>{stats.pages}</b> {unitOf(t, 'page', stats.pages)}
           </span>
           <span>
-            <b>{stats.dbs}</b> {t('features.io.unit.dbs')}
+            <b>{stats.dbs}</b> {unitOf(t, 'db', stats.dbs)}
           </span>
           <span>
-            <b>{stats.rows}</b> {t('features.io.unit.rows')}
+            <b>{stats.rows}</b> {unitOf(t, 'row', stats.rows)}
           </span>
           <span>
-            <b>{fileCount}</b> {t('features.io.unit.files')}
+            <b>{fileCount}</b> {unitOf(t, 'file', fileCount)}
           </span>
           <span className="io-manifest__file">→ {fileName}</span>
         </div>

@@ -8,9 +8,14 @@ export function wordCount(text: string | undefined | null): number {
   return m ? m.length : 0
 }
 
-/** Minutes to read at ~220 wpm (min 1 when there is any text). */
-export function readingMinutes(words: number): number {
-  return words === 0 ? 0 : Math.max(1, Math.round(words / 220))
+/**
+ * Reading time at ~220 wpm as a read-out: "—" for an empty page (there is nothing to
+ * read, "0 min" would be a false reading), "<1" under a minute, else whole minutes.
+ */
+export function readingTime(words: number): string {
+  if (words <= 0) return '—'
+  const min = words / 220
+  return min < 1 ? '<1' : String(Math.round(min))
 }
 
 export function fmtNumber(n: number, lang: Lang): string {

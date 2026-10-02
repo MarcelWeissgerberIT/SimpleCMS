@@ -81,8 +81,10 @@ export function rowsOf(dbId: ID): Page[] {
 /** Create the reverse relation property on the target database and backfill it. */
 export function enableTwoWay(dbId: ID, prop: PropertyDef): void {
   if (!prop.relationDatabaseId || !ws().databases[prop.relationDatabaseId] || pairedRelation(dbId, prop) || twoWayBlocker(dbId, prop)) return
-  const srcTitle = ws().pages[dbId]?.title || t('common.untitled')
-  const backId = ws().addProperty(prop.relationDatabaseId, { id: prop.id + TWO_WAY_SUFFIX, type: 'relation', name: srcTitle, relationDatabaseId: dbId })
+  // the reverse side is named after where it points back to; on a self-relation that would just be
+  // this database's own name, so it is named after the forward property instead
+  const name = prop.relationDatabaseId === dbId ? t('database.relation.reverseName', { name: prop.name }) : ws().pages[dbId]?.title || t('common.untitled')
+  const backId = ws().addProperty(prop.relationDatabaseId, { id: prop.id + TWO_WAY_SUFFIX, type: 'relation', name, relationDatabaseId: dbId })
   const back = new Map<ID, ID[]>()
   for (const row of rowsOf(dbId)) {
     for (const id of (row.properties[prop.id] as string[] | undefined) ?? []) back.set(id, [...(back.get(id) ?? []), row.id])

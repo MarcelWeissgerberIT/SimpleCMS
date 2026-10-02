@@ -61,7 +61,28 @@ export function isApplyingRemote(): boolean {
   return applyingRemote
 }
 
+/*
+ * Local changes not yet written to IndexedDB. When another tab broadcasts a change we
+ * merge: everything comes from IndexedDB except what this tab changed and hasn't saved yet,
+ * so a fast typist in two tabs never loses keystrokes to a sync.
+ */
+const dirtyPages = new Set<string>()
+const dirtyDbs = new Set<string>()
+let dirtyMeta = false
+
+function trackDirty<T>(next: Record<string, T>, prev: Record<string, T>, into: Set<string>) {
+  if (next === prev) return
+  for (const id in next) if (next[id] !== prev[id]) into.add(id)
+  for (const id in prev) if (!(id in next)) into.add(id)
+}
+
 async function saveNow() {
+  const pages = [...dirtyPages]
+  const dbs = [...dirtyDbs]
+  const meta = dirtyMeta
+  dirtyPages.clear()
+  dirtyDbs.clear()
+  dirtyMeta = false
   try {
     setStatus('saving')
     await idbSet(KEY, getWorkspaceSnapshot())
@@ -69,6 +90,9 @@ async function saveNow() {
     channel?.postMessage({ type: 'changed', from: TAB_ID })
   } catch (e) {
     console.error('[one] failed to save workspace', e)
+    pages.forEach((id) => dirtyPages.add(id))
+    dbs.forEach((id) => dirtyDbs.add(id))
+    dirtyMeta ||= meta
     setStatus('error')
   }
 }
@@ -91,6 +115,9 @@ export function startPersistence(): () => void {
       state.recent === prev.recent
     )
       return
+    trackDirty(state.pages, prev.pages, dirtyPages)
+    trackDirty(state.databases, prev.databases, dirtyDbs)
+    if (state.settings !== prev.settings || state.people !== prev.people || state.recent !== prev.recent) dirtyMeta = true
     window.clearTimeout(saveTimer)
     saveTimer = window.setTimeout(saveNow, 400)
   })
@@ -99,15 +126,32 @@ export function startPersistence(): () => void {
     if (ev.data?.type !== 'changed' || ev.data.from === TAB_ID) return
     const ws = await loadWorkspace()
     if (!ws) return
-    applyingRemote = true
-    // mark content as coming from sync so open editors refresh
-    const current = useWorkspace.getState().pages
-    for (const p of Object.values(ws.pages)) {
-      const cur = current[p.id]
-      if (cur && cur.contentRev !== p.contentRev) p.contentOrigin = 'sync'
+    const local = useWorkspace.getState()
+    // keep this tab's unsaved changes
+    for (const id of dirtyPages) {
+      if (local.pages[id]) ws.pages[id] = local.pages[id]
+      else delete ws.pages[id]
     }
-    useWorkspace.getState().replaceAll(ws)
-    applyingRemote = false
+    for (const id of dirtyDbs) {
+      if (local.databases[id]) ws.databases[id] = local.databases[id]
+      else delete ws.databases[id]
+    }
+    if (dirtyMeta) {
+      ws.settings = local.settings
+      ws.people = local.people
+      ws.recent = local.recent
+    }
+    // mark content coming from the other tab so open editors refresh
+    for (const p of Object.values(ws.pages)) {
+      const cur = local.pages[p.id]
+      if (cur && cur !== p && cur.contentRev !== p.contentRev) p.contentOrigin = 'sync'
+    }
+    applyingRemote = true
+    try {
+      local.replaceAll(ws)
+    } finally {
+      applyingRemote = false
+    }
   }
   channel?.addEventListener('message', onMessage)
 

@@ -1,10 +1,11 @@
-import { useState, type ReactNode } from 'react'
+import { useRef, useState, type ReactNode } from 'react'
 import { NodeViewWrapper, type ReactNodeViewProps } from '@tiptap/react'
 import { Bookmark as BookmarkIcon, Download, ExternalLink, Link2, MonitorPlay, Paperclip, Pencil, Upload } from 'lucide-react'
 import { saveFile, useFileUrl } from '../../lib/files'
 import { useT } from '../../i18n'
 import { detectProvider, domainOf, embedRatio, embedSrc, parseUrl, PROVIDER_LABEL, safeHref, webUrl, type EmbedProvider } from '../lib/embeds'
 import { pickFiles } from '../lib/upload'
+import { caretAfterNode, leaveNodeView } from '../lib/blocks'
 
 /** Inline URL form used by empty bookmark / embed blocks. */
 function UrlForm({ icon, label, placeholder, autoFocus, onSubmit, hint, submit }: { icon: ReactNode; label: string; placeholder: string; autoFocus: boolean; onSubmit: (url: string) => string | null; hint?: string; submit: string }) {
@@ -35,12 +36,13 @@ function UrlForm({ icon, label, placeholder, autoFocus, onSubmit, hint, submit }
 
 /* ------------------------------------------------------------------ */
 
-export function BookmarkView({ node, updateAttributes, selected, editor }: ReactNodeViewProps) {
+export function BookmarkView({ node, updateAttributes, selected, editor, getPos }: ReactNodeViewProps) {
   const t = useT()
   const url = String(node.attrs.url ?? '')
   const title = (node.attrs.title as string | null) ?? ''
   const description = (node.attrs.description as string | null) ?? ''
   const [editingTitle, setEditingTitle] = useState(false)
+  const cancelTitle = useRef(false)
 
   if (!url) {
     return (
@@ -57,6 +59,7 @@ export function BookmarkView({ node, updateAttributes, selected, editor }: React
               const u = webUrl(v)
               if (!u) return t('editor.embed.invalid')
               updateAttributes({ url: u.toString(), title: null })
+              caretAfterNode(editor, getPos(), { newLine: true })
               return null
             }}
           />
@@ -82,12 +85,17 @@ export function BookmarkView({ node, updateAttributes, selected, editor }: React
               autoFocus
               onClick={(e) => e.preventDefault()}
               onBlur={(e) => {
-                updateAttributes({ title: e.currentTarget.value.trim() || null })
+                if (!cancelTitle.current) updateAttributes({ title: e.currentTarget.value.trim() || null })
+                cancelTitle.current = false
                 setEditingTitle(false)
               }}
               onKeyDown={(e) => {
-                if (e.key === 'Enter') e.currentTarget.blur()
-                if (e.key === 'Escape') setEditingTitle(false)
+                if (e.key !== 'Enter' && e.key !== 'Escape') return
+                e.preventDefault()
+                e.stopPropagation()
+                cancelTitle.current = e.key === 'Escape'
+                // leaving the input blurs it, which commits (or cancels)
+                leaveNodeView(editor, getPos(), e.key === 'Enter' ? 'enter' : 'escape')
               }}
             />
           ) : (
@@ -136,6 +144,7 @@ export function EmbedView({ node, updateAttributes, selected, editor, getPos }: 
               const p = detectProvider(v) ?? 'web'
               if (!embedSrc(v, p)) return t('editor.embed.invalid')
               updateAttributes({ url: parseUrl(v)!.toString(), provider: p })
+              caretAfterNode(editor, getPos(), { newLine: true })
               return null
             }}
           />
@@ -195,7 +204,7 @@ export function formatBytes(n: number): string {
   return `${(n / 1024 ** i).toFixed(i ? 1 : 0)} ${u[i]}`
 }
 
-export function FileBlockView({ node, updateAttributes, selected, editor }: ReactNodeViewProps) {
+export function FileBlockView({ node, updateAttributes, selected, editor, getPos }: ReactNodeViewProps) {
   const t = useT()
   const src = String(node.attrs.src ?? '')
   const name = String(node.attrs.name ?? 'file')
@@ -207,6 +216,7 @@ export function FileBlockView({ node, updateAttributes, selected, editor }: Reac
     if (!file) return
     const ref = await saveFile(file, file.name)
     updateAttributes({ src: ref, name: file.name, size: file.size })
+    leaveNodeView(editor, getPos(), 'escape')
   }
 
   if (!src) {

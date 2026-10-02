@@ -20,6 +20,7 @@ import type { Bridge } from '../lib/bridge'
 import { activeTurnTarget, turnInto } from '../lib/blocks'
 import { TURN_INTO_ITEMS } from '../lib/catalog'
 import { isUrl } from '../lib/embeds'
+import { useEscapeFirst } from '../lib/escape'
 import { BlockGlyph } from './SlashMenu'
 import { posAnchor } from './common'
 
@@ -94,6 +95,11 @@ function LinkPanel({ editor, initial, onDone }: { editor: Editor; initial: strin
   const t = useT()
   const [value, setValue] = useState(initial)
   const [active, setActive] = useState(0)
+  // Escape: back to the text with the caret where it was (focus must not fall to <body>)
+  useEscapeFirst(() => {
+    if (!editor.isDestroyed) editor.commands.focus()
+    onDone()
+  })
   const pages = useMemo(() => {
     const q = value.trim()
     if (!q || isUrl(q) || q.startsWith('#') || q.includes('://')) return []
@@ -143,11 +149,6 @@ function LinkPanel({ editor, initial, onDone }: { editor: Editor; initial: strin
             if (e.key === 'Enter') {
               e.preventDefault()
               submit()
-            } else if (e.key === 'Escape') {
-              e.preventDefault()
-              e.stopPropagation()
-              onDone()
-              editor.commands.focus()
             } else if (e.key === 'ArrowDown' && pages.length) {
               e.preventDefault()
               setActive((active + 1) % pages.length)
@@ -233,12 +234,21 @@ export function BubbleToolbar({ editor, bridge }: { editor: Editor; bridge: Brid
   useEffect(() => {
     if (dismissedAt && dismissedAt !== key) setDismissedAt(null)
   }, [key, dismissedAt])
+  // sub-panels belong to one selection: a new selection starts with them closed
+  useEffect(() => setSub(null), [key])
 
   const anchor = useMemo(() => (st ? posAnchor(editor, st.from, st.to) : null), [editor, st?.from, st?.to]) // eslint-disable-line react-hooks/exhaustive-deps
-  if (!st) return null
   const subOpen = !!sub || turnMenu.open
-  const selectionUi = st.editable && st.text && !st.empty && !st.code && !blocked && !mouseDown && dismissedAt !== key && (st.focused || subOpen)
-  const show = st.editable && (linkEdit || selectionUi)
+  const selectionUi = !!st && st.editable && st.text && !st.empty && !st.code && !blocked && !mouseDown && dismissedAt !== key && (st.focused || subOpen)
+  const show = !!st && st.editable && (linkEdit || selectionUi)
+  // a hidden bubble takes its colour grid / turn-into menu with it
+  const closeTurn = turnMenu.close
+  useEffect(() => {
+    if (show) return
+    setSub(null)
+    closeTurn()
+  }, [show]) // eslint-disable-line react-hooks/exhaustive-deps
+  if (!st) return null
   const closeLink = () => bridge.setState({ linkEdit: false })
   const turnLabel = TURN_INTO_ITEMS.find((b) => b.turnInto === st.turn)
 
@@ -266,7 +276,14 @@ export function BubbleToolbar({ editor, bridge }: { editor: Editor; bridge: Brid
             <span className="bubble__short">{t('editor.bubble.ai')}</span>
           </Btn>
           <span className="bubble__sep" />
-          <Btn label={t('editor.bubble.turnInto')} onClick={(e) => turnMenu.toggle(e)} wide>
+          <Btn
+            label={t('editor.bubble.turnInto')}
+            onClick={(e) => {
+              setSub(null)
+              turnMenu.toggle(e)
+            }}
+            wide
+          >
             {turnLabel && <BlockGlyph item={turnLabel} size={14} />}
             <span className="bubble__turn bubble__long">{turnLabel ? t(`editor.block.${turnLabel.id}`) : t('editor.block.text')}</span>
             <ChevronDown size={12} />
@@ -299,7 +316,10 @@ export function BubbleToolbar({ editor, bridge }: { editor: Editor; bridge: Brid
             title={t('common.color')}
             aria-expanded={sub === 'color'}
             onMouseDown={(e) => e.preventDefault()}
-            onClick={() => setSub(sub === 'color' ? null : 'color')}
+            onClick={() => {
+              if (turnMenu.open) turnMenu.close()
+              setSub(sub === 'color' ? null : 'color')
+            }}
           >
             <span className="bubble__color-a" style={{ color: st.color ? `var(--c-${st.color}-text)` : undefined, background: st.bg ? `var(--c-${st.bg}-bg)` : undefined }}>
               A

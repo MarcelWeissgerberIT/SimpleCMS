@@ -109,14 +109,25 @@ export type TurnTarget =
 
 const LIST_TYPES: Record<string, string> = { bulletList: 'bulletList', orderedList: 'orderedList', taskList: 'taskList' }
 
+/** Containers whose lines are blocks of their own: turning a line into something converts it in place. */
+const TURN_STOPS = new Set(['detailsContent', 'column', 'tableCell', 'tableHeader', 'callout'])
+
+/**
+ * The "Turn into" type of the block at the caret. Lines inside callouts, toggles and columns are
+ * blocks of their own; a quote holding a single block IS that quote block (Notion), a longer quote
+ * is a container like a callout.
+ */
 export function activeTurnTarget(editor: Editor): TurnTarget | null {
   const { $from } = editor.state.selection
   for (let d = $from.depth; d > 0; d--) {
-    const n = $from.node(d).type.name
+    const node = $from.node(d)
+    const n = node.type.name
     if (n === 'bulletList' || n === 'orderedList' || n === 'taskList') return n
-    if (n === 'detailsContent' || n === 'column' || n === 'tableCell' || n === 'tableHeader') break
-    if (n === 'blockquote') return 'blockquote'
-    if (n === 'callout') return 'callout'
+    if (TURN_STOPS.has(n)) break
+    if (n === 'blockquote') {
+      if (node.childCount === 1) return 'blockquote'
+      break
+    }
   }
   const p = $from.parent
   if (p.type.name === 'heading') return `heading${p.attrs.level}` as TurnTarget
@@ -125,14 +136,21 @@ export function activeTurnTarget(editor: Editor): TurnTarget | null {
   return 'paragraph'
 }
 
-function inListOrQuote(editor: Editor): boolean {
-  const { $from } = editor.state.selection
-  for (let d = $from.depth; d > 0; d--) {
-    const n = $from.node(d).type.name
-    if (LIST_ITEMS.has(n) || n === 'blockquote') return true
-    if (CONTAINERS.has(n) && n !== 'doc') return false
+/** Lift the list item at the caret out of its list(s) — it stays inside its container (callout, toggle …). */
+function liftOutOfLists(editor: Editor) {
+  for (let i = 0; i < 8; i++) {
+    const { $from } = editor.state.selection
+    let item: string | null = null
+    for (let d = $from.depth; d > 0; d--) {
+      const n = $from.node(d).type.name
+      if (LIST_ITEMS.has(n)) {
+        item = n
+        break
+      }
+      if (TURN_STOPS.has(n) || n === 'blockquote') break
+    }
+    if (!item || !editor.commands.liftListItem(item)) return
   }
-  return false
 }
 
 /** Wrap the current textblock into a toggle; its text becomes the toggle title. */
@@ -206,43 +224,151 @@ export function liftEmptyListItem(editor: Editor) {
   }
 }
 
-/** Notion-style "Turn into" for the block at the selection. */
+/** Notion-style "Turn into" for the block at the selection (converted in place, inside its container). */
 export function turnInto(editor: Editor, target: TurnTarget): boolean {
   // a toggle turned into something else: its title becomes that block, its body follows
   if (target !== 'toggle' && editor.state.selection.$from.parent.type.name === 'detailsSummary') unwrapToggle(editor)
   const current = activeTurnTarget(editor)
-  if (current === target && target !== 'paragraph') return true
-  let chain = editor.chain().focus()
+  if (current === target) return true
+  const { $from } = editor.state.selection
+  const container = $from.node(Math.max(0, $from.depth - 1)).type.name
+  // a line of a callout / long quote is already "in" one — don't nest another around it
+  if ((target === 'callout' && container === 'callout') || (target === 'blockquote' && container === 'blockquote')) return true
   const toList = target in LIST_TYPES
   const fromList = current === 'bulletList' || current === 'orderedList' || current === 'taskList'
-  if (!(toList && fromList) && inListOrQuote(editor)) chain = chain.clearNodes()
-  // leaving a callout / toggle: unwrap by lifting the current block
-  if (current === 'callout' && target !== 'callout') chain = chain.lift('callout')
+  if (fromList && !toList) liftOutOfLists(editor)
+  // the single block of a quote: unwrap the quote first
+  if (current === 'blockquote') editor.commands.lift('blockquote')
+  const keepList = fromList && toList
+  const chain = editor.chain().focus()
+  // setParagraph() on a paragraph falls back to clearNodes(), which lifts it out of its
+  // container (callout, quote …) — only convert when it isn't one already
+  const isPara = editor.state.selection.$from.parent.type.name === 'paragraph'
+  const para = () => (keepList || isPara ? chain : chain.setParagraph())
   switch (target) {
     case 'paragraph':
-      return chain.setParagraph().run()
+      return para().run()
     case 'heading1':
     case 'heading2':
     case 'heading3':
       return chain.setNode('heading', { level: Number(target.slice(-1)) }).run()
     case 'bulletList':
-      return (fromList ? chain : chain.setParagraph()).toggleBulletList().run()
+      return para().toggleBulletList().run()
     case 'orderedList':
-      return (fromList ? chain : chain.setParagraph()).toggleOrderedList().run()
+      return para().toggleOrderedList().run()
     case 'taskList':
-      return (fromList ? chain : chain.setParagraph()).toggleTaskList().run()
+      return para().toggleTaskList().run()
     case 'blockquote':
-      return chain.setParagraph().wrapIn('blockquote').run()
+      return para().wrapIn('blockquote').run()
     case 'callout':
-      return chain.setParagraph().wrapIn('callout').run()
+      return para().wrapIn('callout').run()
     case 'codeBlock':
       return chain.setCodeBlock().run()
-    case 'toggle': {
-      const ok = chain.setParagraph().run()
-      return ok && wrapInToggle(editor)
-    }
+    case 'toggle':
+      return para().run() && wrapInToggle(editor)
   }
   return false
+}
+
+/**
+ * "Turn into" from the block menu, for the block at `ref` itself. A callout / quote picked as a
+ * whole is unwrapped (or re-wrapped); everything else converts like the caret version.
+ */
+export function turnBlockInto(editor: Editor, ref: BlockRef, target: TurnTarget): boolean {
+  const { state, view, schema } = editor
+  const node = state.doc.nodeAt(ref.pos)
+  if (!node) return false
+  const name = node.type.name
+  if (name === 'callout' || name === 'blockquote') {
+    if (target === name) return true
+    if (target === 'callout' || target === 'blockquote') {
+      const attrs = target === 'callout' ? { id: node.attrs.id, icon: '💡', color: 'gray' } : { id: node.attrs.id }
+      const tr = state.tr.setNodeMarkup(ref.pos, schema.nodes[target], attrs)
+      tr.setSelection(TextSelection.near(tr.doc.resolve(ref.pos + 1)))
+      view.dispatch(tr)
+      view.focus()
+      return true
+    }
+    // unwrap: the children take the container's place, the first one becomes `target`
+    const tr = state.tr.replaceWith(ref.pos, ref.pos + node.nodeSize, node.content)
+    tr.setSelection(TextSelection.near(tr.doc.resolve(Math.min(ref.pos + 1, tr.doc.content.size))))
+    view.dispatch(tr)
+    return turnInto(editor, target)
+  }
+  view.dispatch(state.tr.setSelection(TextSelection.near(state.doc.resolve(Math.min(ref.pos + 1, state.doc.content.size)))))
+  return turnInto(editor, target)
+}
+
+/**
+ * Leave a node view (caption, URL form, TeX / diagram editor …) with a text caret right after the
+ * node: inline → behind it; block → the start of the next line, or (newLine) a fresh empty line.
+ * Creates the line when there is none, so typing never lands on a node selection.
+ */
+export function caretAfterNode(editor: Editor, pos: number | undefined | null, opts: { newLine?: boolean } = {}): boolean {
+  if (editor.isDestroyed) return false
+  const { state, view } = editor
+  const node = typeof pos === 'number' ? state.doc.nodeAt(pos) : null
+  if (typeof pos !== 'number' || !node) {
+    view.focus()
+    return false
+  }
+  const end = pos + node.nodeSize
+  const tr = state.tr
+  if (node.isInline) {
+    tr.setSelection(TextSelection.create(tr.doc, end))
+  } else {
+    const $end = tr.doc.resolve(end)
+    const after = $end.nodeAfter
+    const para = state.schema.nodes.paragraph
+    const reuse = after && (opts.newLine ? after.type === para && after.content.size === 0 : after.isTextblock && !after.type.spec.code)
+    if (reuse) tr.setSelection(TextSelection.create(tr.doc, end + 1))
+    else if ($end.parent.canReplaceWith($end.index(), $end.index(), para)) {
+      tr.insert(end, para.create())
+      tr.setSelection(TextSelection.create(tr.doc, end + 1))
+    } else tr.setSelection(Selection.near($end, 1))
+  }
+  view.dispatch(tr.scrollIntoView())
+  view.focus()
+  return true
+}
+
+/**
+ * Keyboard exit from an input inside a node view (caption, title, TeX, diagram code …).
+ * Enter → continue on an empty line below (Notion). Escape → onto an empty line right below
+ * if there is one, otherwise the block itself is selected (typing can't touch it; Enter or
+ * ↓ continue from there). Inline nodes always leave the caret right behind them.
+ */
+export function leaveNodeView(editor: Editor, pos: number | undefined | null, key: 'enter' | 'escape'): boolean {
+  if (editor.isDestroyed) return false
+  const node = typeof pos === 'number' ? editor.state.doc.nodeAt(pos) : null
+  if (key === 'enter' || !node || node.isInline) return caretAfterNode(editor, pos, { newLine: true })
+  const next = editor.state.doc.resolve(pos! + node.nodeSize).nodeAfter
+  if (next && next.type.name === 'paragraph' && next.content.size === 0) return caretAfterNode(editor, pos, { newLine: true })
+  if (!NodeSelection.isSelectable(node)) return caretAfterNode(editor, pos)
+  editor.view.dispatch(editor.state.tr.setSelection(NodeSelection.create(editor.state.doc, pos!)))
+  editor.view.focus()
+  return true
+}
+
+/** Caret at the end of a block's own text (its first textblock); false for blocks without text. */
+export function caretIntoBlock(editor: Editor, pos: number): boolean {
+  const { state, view } = editor
+  const node = state.doc.nodeAt(pos)
+  if (!node) return false
+  let caret = -1
+  if (node.isTextblock) caret = pos + 1 + node.content.size
+  else
+    node.descendants((n, p) => {
+      if (caret >= 0) return false
+      if (n.isTextblock) {
+        caret = pos + 1 + p + 1 + n.content.size
+        return false
+      }
+      return true
+    })
+  if (caret < 0) return false
+  view.dispatch(state.tr.setSelection(TextSelection.create(state.doc, caret)).scrollIntoView())
+  return true
 }
 
 /* ------------------------------------------------------------------ */
@@ -385,7 +511,11 @@ export function enterFromToggleTitle(editor: Editor): boolean {
   return true
 }
 
-/** Shift+Tab inside a toggle body or callout: move the block out, right after its container. */
+/**
+ * Shift+Tab inside a toggle body or callout: move the block out, right after its container.
+ * The blocks after it move along, so the reading order never changes (Notion nests them under
+ * the outdented block; our text blocks can't hold children, so they follow it instead).
+ */
 export function outdentBlock(editor: Editor): boolean {
   const { state, view } = editor
   const sel = state.selection
@@ -396,22 +526,24 @@ export function outdentBlock(editor: Editor): boolean {
   const d = nest.depth
   if ($from.depth < d + 1) return false
   const container = $from.node(d)
-  const block = $from.node(d + 1)
+  const index = $from.index(d)
   const blockPos = $from.before(d + 1)
   const anchorOff = sel.anchor - blockPos
   const headOff = sel.head - blockPos
+  const moved = container.content.cut(blockPos - $from.start(d))
   const tr = state.tr
   let newPos: number
-  if (nest.name === 'callout' && container.childCount === 1) {
-    // the only block of a callout: unwrap the callout
+  if (nest.name === 'callout' && index === 0) {
+    // everything leaves the callout: unwrap it
     newPos = $from.before(d)
     tr.replaceWith(newPos, $from.after(d), container.content)
   } else {
     const after = $from.after(nest.name === 'detailsContent' ? d - 1 : d)
-    if (container.childCount === 1) tr.replaceWith(blockPos, blockPos + block.nodeSize, state.schema.nodes.paragraph.create())
-    else tr.delete(blockPos, blockPos + block.nodeSize)
+    // a toggle body must keep one line
+    if (index === 0) tr.replaceWith(blockPos, $from.end(d), state.schema.nodes.paragraph.create())
+    else tr.delete(blockPos, $from.end(d))
     newPos = tr.mapping.map(after)
-    tr.insert(newPos, block)
+    tr.insert(newPos, moved)
   }
   try {
     tr.setSelection(TextSelection.create(tr.doc, newPos + anchorOff, newPos + headOff))

@@ -1,6 +1,6 @@
 /** Ready-made automations + validation helpers. */
 import { useWorkspace } from '../../store/store'
-import type { Automation, AutomationAction, Database, ID, PropertyDef, SelectOption } from '../../store/types'
+import type { Automation, AutomationAction, Database, ID, PropertyDef, PropertyValue, SelectOption } from '../../store/types'
 import { newId } from '../../lib/ids'
 import { t } from '../../i18n'
 import { isValidWebhookUrl } from './engine'
@@ -19,6 +19,40 @@ export function doneOption(prop: PropertyDef | undefined): SelectOption | undefi
   return opts.find((o) => o.group === 'done') ?? opts.find((o) => /done|complete|erledigt|fertig|shipped|closed/i.test(o.name)) ?? opts[opts.length - 1]
 }
 
+function valueName(prop: PropertyDef, value: PropertyValue): string {
+  if (prop.type === 'checkbox') return value ? t('features.auto.checked') : t('features.auto.unchecked')
+  const one = Array.isArray(value) ? value[0] : value
+  if (prop.options) return prop.options.find((o) => o.id === one)?.name ?? '—'
+  if (prop.type === 'person') return useWorkspace.getState().people.find((p) => p.id === one)?.name ?? '—'
+  if (one && typeof one === 'object') return (one as { start?: string }).start ?? '—'
+  return one === null || one === '' ? '—' : String(one)
+}
+
+/**
+ * Self-describing name that follows the configuration:
+ * "New row → Webhook", "Status = Done → Notify", "Status = Done → Set Completed".
+ */
+export function autoName(a: Pick<Automation, 'trigger' | 'actions'>, db: Database): string {
+  const trig = a.trigger
+  let when: string
+  if (trig.type === 'property_changed') {
+    const prop = db.properties.find((p) => p.id === trig.propertyId)
+    if (!prop) when = t('features.auto.nm.anyChange')
+    else if (trig.toValue === undefined) when = t('features.auto.nm.changes', { prop: prop.name })
+    else when = `${prop.name} = ${valueName(prop, trig.toValue)}`
+  } else when = t(`features.auto.nm.${trig.type}`)
+  const then = a.actions
+    .map((act) => (act.type === 'set_property' ? t('features.auto.nm.set', { prop: db.properties.find((p) => p.id === act.propertyId)?.name ?? '…' }) : t(`features.auto.nm.${act.type}`)))
+    .join(' + ')
+  return then ? `${when} → ${then}` : when
+}
+
+/** Is this name still the generated one (then it keeps following the configuration)? */
+export function isAutoName(a: Automation, db: Database): boolean {
+  const name = a.name.trim()
+  return !name || name === t('features.auto.untitled') || name === autoName(a, db)
+}
+
 export function recipeAvailable(db: Database, id: RecipeId): boolean {
   if (id === 'webhook_new') return true
   return !!doneOption(statusProp(db))
@@ -30,19 +64,21 @@ export function makeRecipe(dbId: ID, id: RecipeId): Automation | null {
   if (!db) return null
   const base = { id: newId(), lastRunAt: null, lastStatus: null, lastMessage: null }
   if (id === 'webhook_new') {
-    return { ...base, name: t('features.auto.recipe.webhook.name'), enabled: false, trigger: { type: 'row_created' }, actions: [{ type: 'webhook', url: '', method: 'POST' }] }
+    const a: Automation = { ...base, name: '', enabled: false, trigger: { type: 'row_created' }, actions: [{ type: 'webhook', url: '', method: 'POST' }] }
+    return { ...a, name: autoName(a, db) }
   }
   const status = statusProp(db)
   const done = doneOption(status)
   if (!status || !done) return null
   if (id === 'notify_done') {
-    return {
+    const a: Automation = {
       ...base,
-      name: t('features.auto.recipe.notify.name', { status: status.name, done: done.name }),
+      name: '',
       enabled: true,
       trigger: { type: 'property_changed', propertyId: status.id, toValue: done.id },
       actions: [{ type: 'notify', message: t('features.auto.recipe.notify.msg', { done: done.name }) }],
     }
+    return { ...a, name: autoName(a, db) }
   }
   // stamp a date when done
   let dateProp = db.properties.find((p) => p.type === 'date' && /complet|done|finish|erledigt|abgeschlossen/i.test(p.name))
@@ -51,17 +87,20 @@ export function makeRecipe(dbId: ID, id: RecipeId): Automation | null {
     dateProp = useWorkspace.getState().databases[dbId]?.properties.find((p) => p.id === pid)
   }
   if (!dateProp) return null
-  return {
+  const a: Automation = {
     ...base,
-    name: t('features.auto.recipe.stamp.name', { done: done.name }),
+    name: '',
     enabled: true,
     trigger: { type: 'property_changed', propertyId: status.id, toValue: done.id },
     actions: [{ type: 'set_property', propertyId: dateProp.id, value: '@today' }],
   }
+  const fresh = useWorkspace.getState().databases[dbId] ?? db
+  return { ...a, name: autoName(a, fresh) }
 }
 
-export function blankAutomation(): Automation {
-  return { id: newId(), name: t('features.auto.untitled'), enabled: false, trigger: { type: 'row_created' }, actions: [{ type: 'notify', message: '' }], lastRunAt: null, lastStatus: null, lastMessage: null }
+export function blankAutomation(db: Database): Automation {
+  const a: Automation = { id: newId(), name: '', enabled: false, trigger: { type: 'row_created' }, actions: [{ type: 'notify', message: '' }], lastRunAt: null, lastStatus: null, lastMessage: null }
+  return { ...a, name: autoName(a, db) }
 }
 
 export function blankAction(type: AutomationAction['type'], db: Database): AutomationAction {

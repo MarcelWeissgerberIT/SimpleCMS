@@ -693,6 +693,11 @@ const okrs: TemplateDef = {
     const st = [opt(L('Not started', 'Nicht begonnen'), 'gray', 'todo'), opt(L('On track', 'Im Plan'), 'green', 'in_progress'), opt(L('At risk', 'Gefährdet'), 'yellow', 'in_progress'), opt(L('Off track', 'Verfehlt'), 'red', 'in_progress'), opt(L('Achieved', 'Erreicht'), 'blue', 'done')]
     const conf = [opt(L('High', 'Hoch'), 'green'), opt(L('Medium', 'Mittel'), 'yellow'), opt(L('Low', 'Niedrig'), 'red')]
     const krName = L('Key results', 'Schlüsselergebnisse')
+    // formulas reference the localized column names
+    const curName = L('Current', 'Ist')
+    const targetName = L('Target', 'Soll')
+    const ratio = `prop("${curName}") / prop("${targetName}")`
+    const hasTarget = `prop("${targetName}") > 0`
     const krDbId = newId()
     const objId = makeDb({
       parentId: root,
@@ -719,10 +724,10 @@ const okrs: TemplateDef = {
       properties: [
         { id: K.name, name: L('Key result', 'Schlüsselergebnis'), type: 'title' },
         { id: K.obj, name: L('Objective', 'Ziel'), type: 'relation', relationDatabaseId: objId },
-        { id: K.cur, name: L('Current', 'Ist'), type: 'number' },
-        { id: K.target, name: L('Target', 'Soll'), type: 'number' },
-        { id: K.score, name: 'Score', type: 'formula', formula: 'if(prop("Target") > 0, min(1, prop("Current") / prop("Target")), 0)' },
-        { id: K.progress, name: L('Progress', 'Fortschritt'), type: 'formula', formula: barFormula('if(prop("Target") > 0, prop("Current") / prop("Target"), 0)') },
+        { id: K.cur, name: curName, type: 'number' },
+        { id: K.target, name: targetName, type: 'number' },
+        { id: K.score, name: 'Score', type: 'formula', formula: `if(${hasTarget}, min(1, ${ratio}), 0)` },
+        { id: K.progress, name: L('Progress', 'Fortschritt'), type: 'formula', formula: barFormula(`if(${hasTarget}, ${ratio}, 0)`) },
         { id: K.conf, name: L('Confidence', 'Zuversicht'), type: 'select', options: conf },
       ],
       views: (db) => [view('table', db, krName, { groupBy: K.obj, visibleProperties: [K.progress, K.cur, K.target, K.conf, K.obj] })],
@@ -769,7 +774,7 @@ const okrs: TemplateDef = {
         callout('🧭', 'gray', p(b(L('Objectives', 'Ziele')), L(' are qualitative and inspiring. ', ' sind qualitativ und motivierend. '), b(L('Key results', 'Schlüsselergebnisse')), L(' are numbers. Update “Current” weekly — progress bars follow.', ' sind Zahlen. „Ist“ wöchentlich aktualisieren — die Balken folgen.'))),
         dbBlock(objId),
         dbBlock(krId),
-        toggle(L('How progress is calculated', 'Wie der Fortschritt berechnet wird'), p(code('Score = min(1, Current / Target)'), L(' per key result; each objective averages its key results.', ' je Schlüsselergebnis; jedes Ziel mittelt seine Schlüsselergebnisse.'))),
+        toggle(L('How progress is calculated', 'Wie der Fortschritt berechnet wird'), p(code(`Score = min(1, ${curName} / ${targetName})`), L(' per key result; each objective averages its key results.', ' je Schlüsselergebnis; jedes Ziel mittelt seine Schlüsselergebnisse.'))),
       ),
       'template',
     )

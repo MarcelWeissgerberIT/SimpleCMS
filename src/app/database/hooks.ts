@@ -60,9 +60,38 @@ export function useLabels() {
   )
 }
 
-/** A resolver for one database (recomputed when relevant rows / schema change). */
+/**
+ * A tick for time-dependent values: every minute while a formula here reads now() / today(),
+ * otherwise once at midnight (relative dates, "within the past week" filters).
+ */
+function useClock(dbId: ID): number {
+  const perMinute = useWorkspace((s) => {
+    for (const id of relevantDbIds(s.databases, dbId))
+      for (const p of s.databases[id]?.properties ?? []) if (p.type === 'formula' && /\b(now|today)\s*\(/.test(p.formula ?? '')) return true
+    return false
+  })
+  const [tick, setTick] = useState(0)
+  useEffect(() => {
+    let timer = 0
+    const schedule = () => {
+      const now = new Date()
+      const midnight = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1).getTime() - now.getTime()
+      const wait = perMinute ? 60_000 - (now.getSeconds() * 1000 + now.getMilliseconds()) : midnight
+      timer = window.setTimeout(() => {
+        setTick((n) => n + 1)
+        schedule()
+      }, wait + 50)
+    }
+    schedule()
+    return () => window.clearTimeout(timer)
+  }, [perMinute])
+  return tick
+}
+
+/** A resolver for one database (recomputed when relevant rows / schema change, and as time passes). */
 export function useResolver(dbId: ID): Resolver {
   const relevant = useRelevantPages(dbId)
+  const tick = useClock(dbId)
   const databases = useWorkspace((s) => s.databases)
   const people = useWorkspace((s) => s.people)
   const lang = useLang()
@@ -71,7 +100,7 @@ export function useResolver(dbId: ID): Resolver {
     const ctx: Ctx = { pages: useWorkspace.getState().pages, databases, people, lang, now: Date.now(), labels }
     return new Resolver(ctx)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [relevant, databases, people, lang, labels])
+  }, [relevant, databases, people, lang, labels, tick])
 }
 
 export interface DbModel {

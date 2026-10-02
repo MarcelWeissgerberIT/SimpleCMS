@@ -13,7 +13,7 @@ import { useWorkspace } from '../../store/store'
 import { useUI } from '../../store/ui'
 import type { ID } from '../../store/types'
 import { ReadOnlyDoc } from '../../editor'
-import { countWords, listSnapshots, loadSnapshot, onHistoryChange, restoreSnapshot, snapshotNow, type SnapshotBody, type SnapshotMeta } from './snapshots'
+import { countWords, hashContent, listSnapshots, loadSnapshot, onHistoryChange, restoreSnapshot, snapshotNow, type SnapshotBody, type SnapshotMeta } from './snapshots'
 import { diffBlocks, diffStats, segments, type DiffSegment } from './diff'
 import './history.css'
 import '../share/readonly.css'
@@ -21,6 +21,8 @@ import '../share/readonly.css'
 const MIN_STEP = 56
 const MAX_STEP = 132
 const PAD = 44
+/** approximate advance of one character of the 9.5px mono day label (incl. tracking) */
+const DAY_CHAR_W = 6.6
 
 type Item = { kind: 'snap'; meta: SnapshotMeta } | { kind: 'now'; at: number; words: number; blocks: number }
 
@@ -48,7 +50,14 @@ export function HistoryModal({ pageId, onClose }: { pageId: ID; onClose: () => v
 
   useEffect(() => {
     let alive = true
-    refresh().then((list) => alive && setIndex((i) => i ?? Math.max(0, list.length - 1)))
+    // open on the newest version that differs from the page (the newest one is often identical)
+    refresh().then((list) => {
+      if (!alive) return
+      const cur = useWorkspace.getState().pages[pageId]
+      const hash = cur ? hashContent(cur.content ?? null, cur.title) : ''
+      const differs = list.map((m) => m.hash !== hash).lastIndexOf(true)
+      setIndex((i) => i ?? (differs >= 0 ? differs : Math.max(0, list.length - 1)))
+    })
     const off = onHistoryChange((id) => id === pageId && void refresh())
     return () => {
       alive = false
@@ -468,6 +477,7 @@ function Tape({
 
   const sel = items[index]
   const selAt = sel ? (sel.kind === 'now' ? Date.now() : sel.meta.at) : Date.now()
+  const headX = xOf(index)
   const lang = useLang()
   const fmtDay = useMemo(() => new Intl.DateTimeFormat(lang === 'de' ? 'de-DE' : 'en-GB', { day: '2-digit', month: 'short' }), [lang])
 
@@ -502,11 +512,19 @@ function Tape({
             const prevAt = prev ? (prev.kind === 'now' ? Date.now() : prev.meta.at) : null
             const splice = prevAt !== null && dayKey(prevAt) !== dayKey(at)
             const x = xOf(i)
+            const day = fmtDay.format(at).toUpperCase()
+            const spliceX = i === 0 ? (lead > 0 ? x : 8) : x - STEP / 2
+            // the label steps aside (fades) while the playhead cap passes over it
+            const w = day.length * DAY_CHAR_W
+            const [l0, l1] = i === 0 && lead > 0 ? [spliceX - 12 - w, spliceX - 12] : [spliceX + 5, spliceX + 5 + w]
+            const covered = headX + 9 > l0 && headX - 9 < l1
             return (
               <div key={it.kind === 'now' ? 'now' : it.meta.id}>
                 {(splice || i === 0) && (
-                  <div className="tape__splice" style={{ left: i === 0 ? (lead > 0 ? x : 8) : x - STEP / 2 }} data-first={i === 0 || undefined} data-right={(i === 0 && lead > 0) || undefined}>
-                    <span className="tape__day mono">{fmtDay.format(at).toUpperCase()}</span>
+                  <div className="tape__splice" style={{ left: spliceX }} data-first={i === 0 || undefined} data-right={(i === 0 && lead > 0) || undefined}>
+                    <span className="tape__day mono" data-covered={covered || undefined}>
+                      {day}
+                    </span>
                   </div>
                 )}
                 <div className={`tape__mark${it.kind === 'now' ? ' tape__mark--now' : ''}`} data-sel={i === index || undefined} style={{ left: x }}>

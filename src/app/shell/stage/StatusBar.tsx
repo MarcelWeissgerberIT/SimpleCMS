@@ -3,7 +3,7 @@ import { useUI } from '../../store/ui'
 import type { Route } from '../../lib/router'
 import { Led, shortcutLabel } from '../../ui/controls'
 import { useLang, useT } from '../../i18n'
-import { fmtNumber, readingMinutes, wordCount } from '../lib/format'
+import { fmtNumber, readingTime, wordCount } from '../lib/format'
 import { useResolvedTheme, useSaveStatus } from '../lib/hooks'
 import { toggleTheme } from '../lib/actions'
 import { useStageView } from '../lib/stage'
@@ -14,7 +14,7 @@ export function StatusBar({ route }: { route: Route }) {
   const t = useT()
   const lang = useLang()
   const status = useSaveStatus()
-  const paneId = useStageView((s) => s.focusPaneId)
+  const paneId = useStageView((s) => s.activePaneId)
   const pageId = paneId ?? (route.name === 'page' ? route.id : null)
   const plain = useWorkspace((s) => (pageId ? s.pages[pageId]?.plain : undefined))
   const kind = useWorkspace((s) => (pageId ? s.pages[pageId]?.kind : undefined))
@@ -40,7 +40,7 @@ export function StatusBar({ route }: { route: Route }) {
       </span>
       {pageId && kind === 'page' && (
         <span className="status__cell">
-          {t(plural('shell.stats.words', words), { n: fmtNumber(words, lang) })} · {t('shell.stats.read', { n: readingMinutes(words) })}
+          {t(plural('shell.stats.words', words), { n: fmtNumber(words, lang) })} · {t('shell.stats.read', { n: readingTime(words) })}
         </span>
       )}
       {pageId && kind === 'database' && (

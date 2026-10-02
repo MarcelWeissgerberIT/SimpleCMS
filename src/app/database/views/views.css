@@ -199,9 +199,11 @@
   mask-image: linear-gradient(90deg, transparent, var(--ink) var(--dbb-fade), var(--ink) calc(100% - var(--dbb-fade)), transparent);
 }
 
+/* step buttons ride over the faded card area, never over a column's header label */
 .dbb-edge {
   position: absolute;
-  top: 16px;
+  top: clamp(64px, 50%, 220px);
+  margin-top: -14px;
   z-index: 3;
   display: grid;
   place-items: center;

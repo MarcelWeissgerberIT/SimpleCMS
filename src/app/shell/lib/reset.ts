@@ -62,24 +62,52 @@ export async function withBootLock<T>(fn: () => Promise<T>): Promise<T> {
 /**
  * Run a pending reset. `onBlocked` fires when another tab still holds the database open
  * (e.g. an older build without the reset listener) — the delete then waits for that tab to close.
+ *
+ * The flag is only cleared database by database, as each delete settles: if this tab is
+ * closed while a delete is still blocked, the flag (now the list of databases left) makes
+ * the next boot finish the job instead of loading the old data again.
  */
 export async function runPendingReset(onBlocked?: () => void): Promise<boolean> {
-  if (safeLocalGet(RESET_FLAG) !== '1') return false
-  safeLocalSet(RESET_FLAG, null)
-  const names = new Set<string>(['keyval-store', 'one-files'])
+  const raw = safeLocalGet(RESET_FLAG)
+  if (!raw) return false
+  // "1" = a fresh request; a JSON list = databases an interrupted run had not deleted yet
+  let names: string[] | null = null
   try {
-    const dbs = (await indexedDB.databases?.()) ?? []
-    for (const d of dbs) if (d.name) names.add(d.name)
+    const v: unknown = JSON.parse(raw)
+    if (Array.isArray(v)) names = v.filter((x): x is string => typeof x === 'string')
   } catch {
-    /* databases() unsupported */
+    /* "1" or junk: start over */
   }
+  if (!names) {
+    const all = new Set<string>(['keyval-store', 'one-files'])
+    try {
+      const dbs = (await indexedDB.databases?.()) ?? []
+      for (const d of dbs) if (d.name) all.add(d.name)
+    } catch {
+      /* databases() unsupported */
+    }
+    names = [...all]
+  }
+  const left = new Set(names)
+  const save = () => safeLocalSet(RESET_FLAG, left.size ? JSON.stringify([...left]) : null)
+  save()
   let warned = false
   await Promise.all(
-    [...names].map(
+    names.map(
       (name) =>
         new Promise<void>((resolve) => {
           const req = indexedDB.deleteDatabase(name)
-          req.onsuccess = req.onerror = () => resolve()
+          const settle = () => {
+            left.delete(name)
+            save()
+            resolve()
+          }
+          req.onsuccess = settle
+          // a failed delete is not retried on every boot (that would wipe the next workspace too)
+          req.onerror = () => {
+            console.error(`[one] could not delete database "${name}"`, req.error)
+            settle()
+          }
           // a blocked delete stays queued and completes once the other tab lets go
           req.onblocked = () => {
             broadcast({ type: 'reset' })

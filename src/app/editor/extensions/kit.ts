@@ -27,7 +27,8 @@ export function editorExtensions({ bridge, readOnly = false }: { bridge: Bridge 
     pasteExtension(bridge),
     suggestExtension('slash', '/', bridge, { allowSpaces: true }),
     suggestExtension('mention', '@', bridge, { allowSpaces: true }),
-    suggestExtension('emoji', ':', bridge, { minQueryLength: 1 }),
+    // ":" only becomes a menu from two shortcode letters on — ":D", ":p", "1 :2" stay plain text
+    suggestExtension('emoji', ':', bridge, { shouldShow: (q) => /^(?:[a-z][a-z0-9_+-]+|[+-]1|100)$/i.test(q) }),
     FileHandler.configure({
       onPaste: (editor, files) => void uploadFiles(editor, files),
       onDrop: (editor, files, pos) => void uploadFiles(editor, files, pos),

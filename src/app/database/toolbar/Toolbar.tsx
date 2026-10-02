@@ -62,7 +62,7 @@ export function Toolbar({ m, onNew, setSearch, compact }: { m: DbModel; onNew: (
     setSearchOpen(false)
   }
   const view = m.view
-  const filterCount = countFilters(view.filter)
+  const filterCount = countFilters(view.filter, m.propMap)
   const automations = (m.db.automations ?? []).filter((a) => a.enabled).length
   const canGroup = view.type === 'table' || view.type === 'list' || view.type === 'board'
 

@@ -5,7 +5,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { ChevronRight, Plus } from 'lucide-react'
 import type { ID, Page } from '../../store/types'
-import { useWorkspace } from '../../store/store'
 import { useT } from '../../i18n'
 import { pointAnchor } from '../../ui/Popover'
 import { PageIcon } from '../../ui/PageIcon'
@@ -62,10 +61,7 @@ export function ListView() {
         m={m}
         row={row}
         editing={editing === row.id}
-        onEditDone={(cancel) => {
-          setEditing(null)
-          if (cancel && !useWorkspace.getState().pages[row.id]?.title) useWorkspace.getState().trashPage(row.id)
-        }}
+        onEditDone={() => setEditing(null)}
         onOpen={() => actions.open(row)}
         onContext={(e) => {
           e.preventDefault()

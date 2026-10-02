@@ -30,7 +30,12 @@ export function dismissPlusSlash(view: EditorView, bridge: Bridge, range: Range)
   view.dispatch(tr)
 }
 
-export function suggestExtension(kind: SuggestKind, char: string, bridge: Bridge, extra: { allowSpaces?: boolean; minQueryLength?: number; allowedPrefixes?: string[] | null } = {}) {
+export function suggestExtension(
+  kind: SuggestKind,
+  char: string,
+  bridge: Bridge,
+  extra: { allowSpaces?: boolean; allowedPrefixes?: string[] | null; shouldShow?: (query: string) => boolean } = {},
+) {
   const key = SUGGEST_KEYS[kind]
   return Extension.create({
     name: `suggest-${kind}`,
@@ -44,7 +49,7 @@ export function suggestExtension(kind: SuggestKind, char: string, bridge: Bridge
           char,
           allowSpaces: extra.allowSpaces ?? false,
           allowedPrefixes: extra.allowedPrefixes === undefined ? [' ', '(', ' '] : extra.allowedPrefixes,
-          minQueryLength: extra.minQueryLength,
+          shouldShow: extra.shouldShow ? ({ query }) => extra.shouldShow!(query) : undefined,
           decorationClass: `suggest-query suggest-query--${kind}`,
           allow: ({ state, range }) => {
             const $from = state.doc.resolve(range.from)

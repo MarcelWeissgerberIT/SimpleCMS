@@ -124,8 +124,16 @@ export function MentionMenu({ editor, bridge, pageId }: { editor: Editor; bridge
     return out
   }, [open, query, pageId, t, lang]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  useEffect(() => setActive(0), [query, open])
+  // "New page …" is offered, never the default: Enter on a menu without real matches is a new line
+  useEffect(() => setActive(rows.findIndex((r) => r.section !== 'new')), [rows])
   useScrollActive(listRef, active)
+  // Notion: "@ " and a phrase that matches nothing close the menu, so normal prose keeps flowing
+  const raw = suggest?.query ?? ''
+  const noMatch = rows.every((r) => r.section === 'new')
+  useEffect(() => {
+    if (!open) return
+    if (/^\s/.test(raw) || (/\s/.test(raw) && noMatch)) exitSuggestion(editor.view, SUGGEST_KEYS.mention)
+  }, [open, raw, noMatch, editor])
   const select = (i: number) => {
     const row = rows[i]
     if (row && suggest) suggest.command(((range) => row.run(range)) as SuggestRun)

@@ -36,7 +36,7 @@ import {
   Sigma,
   Smile,
   SquareKanban,
-  StickyNote,
+  Lightbulb,
   Table,
   Calendar,
   Rows3,
@@ -144,7 +144,7 @@ export const BLOCKS: BlockItem[] = [
       }, 30)
     },
   },
-  { id: 'callout', group: 'basic', icon: StickyNote, md: '!>', keywords: 'callout note info box hinweis notiz kasten', turnInto: 'callout', run: turn('callout') },
+  { id: 'callout', group: 'basic', icon: Lightbulb, md: '!>', keywords: 'callout note info box hinweis notiz kasten', turnInto: 'callout', run: turn('callout') },
   { id: 'quote', group: 'basic', icon: Quote, md: '>', keywords: 'quote blockquote citation zitat', turnInto: 'blockquote', run: turn('blockquote') },
   {
     id: 'divider',

@@ -7,6 +7,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, typ
 import { createPortal } from 'react-dom'
 import type { Editor, JSONContent } from '@tiptap/core'
 import { TextSelection, type EditorState, type Transaction } from '@tiptap/pm/state'
+import type { ResolvedPos } from '@tiptap/pm/model'
 import type { VirtualElement } from '@floating-ui/react'
 import {
   AlignLeft,
@@ -39,7 +40,8 @@ import { Kbd } from '../../ui/controls'
 import { useT } from '../../i18n'
 import { useWorkspace } from '../../store/store'
 import { useUI } from '../../store/ui'
-import { docToMarkdown, markdownToDoc } from '../../editor'
+import { markdownToDoc } from '../../editor'
+import { toMarkdown } from '../share/markdown'
 import { AI_MODELS, AIError, resolveModel, runAI, stripFence, verifyKey, type AIAction } from './client'
 import { askWorkspace, citationsToLinks, findSource, type WorkspaceSource } from './workspace'
 import { MarkdownLite } from './MarkdownLite'
@@ -66,9 +68,12 @@ interface Target {
   selected: string
   /** selection lies inside one textblock → inline replace */
   inlineOnly: boolean
+  /** the cursor's own textblock (an empty one gets filled with the result) */
   blockFrom: number
   blockTo: number
   blockEmpty: boolean
+  /** "Insert below": right after the target block, inside the callout / column / toggle it sits in */
+  after: number
   /** document text before the cursor (for "continue") */
   before: string
 }
@@ -80,12 +85,25 @@ function sliceToMarkdown(state: EditorState, from: number, to: number): string {
     if (!json?.length) return ''
     const first = slice.content.firstChild
     const doc: JSONContent = first?.isInline ? { type: 'doc', content: [{ type: 'paragraph', content: json }] } : { type: 'doc', content: json }
-    const md = docToMarkdown(doc).trim()
+    const md = toMarkdown(doc).trim()
     if (md) return md
   } catch {
     /* fall through */
   }
   return state.doc.textBetween(from, to, '\n\n', ' ')
+}
+
+/**
+ * Nodes whose children are free-standing blocks — where a result may land as its own block.
+ * Mirrors where the editor offers "Space for AI"; lists, quotes and tables count as one block.
+ */
+const BLOCK_CONTAINERS = new Set(['doc', 'column', 'callout', 'detailsContent'])
+
+/** The position right after the block holding `$pos`, inside the nearest block container. */
+function afterBlock($pos: ResolvedPos): number {
+  if (BLOCK_CONTAINERS.has($pos.parent.type.name)) return $pos.pos
+  for (let d = $pos.depth; d >= 1; d--) if (BLOCK_CONTAINERS.has($pos.node(d - 1).type.name)) return $pos.after(d)
+  return $pos.pos
 }
 
 function captureTarget(editor: Editor, wanted: 'selection' | 'block'): Target {
@@ -94,22 +112,29 @@ function captureTarget(editor: Editor, wanted: 'selection' | 'block'): Target {
   const mode = wanted === 'selection' && !empty ? 'selection' : 'block'
   const $from = state.doc.resolve(from)
   const $to = state.doc.resolve(to)
-  const top = $from.depth >= 1
-  const blockFrom = top ? $from.before(1) : from
-  const blockTo = $to.depth >= 1 ? $to.after(1) : to
-  const blockNode = top ? $from.node(1) : null
-  const blockEmpty = !!blockNode && blockNode.isTextblock && blockNode.content.size === 0
+  // the textblock the cursor is in — possibly deep inside a callout, column or toggle
+  const inText = $from.depth >= 1 && $from.parent.isTextblock
   return {
     mode,
     from,
     to,
     selected: mode === 'selection' ? sliceToMarkdown(state, from, to) : '',
     inlineOnly: $from.sameParent($to) && $from.parent.isTextblock,
-    blockFrom,
-    blockTo,
-    blockEmpty,
+    blockFrom: inText ? $from.before() : from,
+    blockTo: inText ? $from.after() : from,
+    blockEmpty: inText && $from.parent.content.size === 0,
+    after: afterBlock(mode === 'selection' ? $to : $from),
     before: state.doc.textBetween(0, from, '\n\n', ' ').slice(-12000),
   }
+}
+
+/** Scrollable ancestor of an element (or the document scroller). */
+function scrollParent(el: HTMLElement | null): HTMLElement {
+  for (let n = el?.parentElement; n; n = n.parentElement) {
+    const oy = getComputedStyle(n).overflowY
+    if (/(auto|scroll)/.test(oy) && n.scrollHeight > n.clientHeight + 1) return n
+  }
+  return (document.scrollingElement as HTMLElement) ?? document.documentElement
 }
 
 function makeAnchor(editor: Editor, target: Target): VirtualElement {
@@ -205,6 +230,7 @@ export function AIMenu({ editor, pageId, mode, onClose }: AIMenuProps) {
       target.to = to
       target.blockFrom = m.map(target.blockFrom, 1)
       target.blockTo = Math.max(target.blockFrom, m.map(target.blockTo, -1))
+      target.after = m.map(target.after, -1)
       setTargetRev((r) => r + 1)
     }
     editor.on('transaction', onTx)
@@ -213,6 +239,22 @@ export function AIMenu({ editor, pageId, mode, onClose }: AIMenuProps) {
     }
   }, [editor, target])
 
+  // Selection mode: the range is painted by <SelectionShade>, so the editor keeps only a caret.
+  // A blurred editor holding a range would write it back when it is clicked again, and the next
+  // keystroke would overwrite the selected text instead of typing where the user clicked.
+  useEffect(() => {
+    if (target.mode !== 'selection' || editor.isDestroyed) return
+    const { state } = editor
+    if (state.selection.empty) return
+    try {
+      const pos = Math.max(0, Math.min(target.to, state.doc.content.size))
+      editor.view.dispatch(state.tr.setSelection(TextSelection.near(state.doc.resolve(pos), -1)).setMeta('addToHistory', false))
+    } catch {
+      /* keep the selection */
+    }
+  }, [editor, target])
+
+  const narrow = useNarrow()
   const [setup, setSetup] = useState(!hasKey)
   const [query, setQuery] = useState('')
   const [view, setView] = useState<'actions' | 'translate'>('actions')
@@ -240,6 +282,36 @@ export function AIMenu({ editor, pageId, mode, onClose }: AIMenuProps) {
     [],
   )
 
+  /**
+   * Put the keyboard back into the prompt — but only if it is not somewhere else already.
+   * Someone who clicked into the page while Claude was writing keeps typing there.
+   */
+  const refocusPrompt = useCallback(() => {
+    requestAnimationFrame(() => {
+      const input = inputRef.current
+      if (!input) return
+      const active = document.activeElement
+      if (!active || active === document.body || input.closest('.ai-panel')?.contains(active)) input.focus({ preventScroll: true })
+    })
+  }, [])
+
+  /** Phones: lift the target block towards the top, so the panel below it has room to show the answer. */
+  const makeRoom = useCallback(() => {
+    if (editor.isDestroyed || !window.matchMedia?.('(max-width: 640px)').matches) return
+    const r = anchor.getBoundingClientRect()
+    const scroller = scrollParent(editor.view.dom as HTMLElement)
+    const isDoc = scroller === document.scrollingElement || scroller === document.documentElement
+    const top = (isDoc ? 0 : scroller.getBoundingClientRect().top) + 64
+    const delta = r.top - top
+    if (delta > 48) scroller.scrollBy({ top: delta, behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' })
+  }, [editor, anchor])
+
+  // phones: give the panel room from the start (the keyboard will take the lower half anyway)
+  useEffect(() => {
+    const id = requestAnimationFrame(makeRoom)
+    return () => cancelAnimationFrame(id)
+  }, [makeRoom])
+
   const pageContext = useCallback(() => {
     const p = useWorkspace.getState().pages[pageId]
     return p ? `${p.title.trim() ? `# ${p.title.trim()}\n\n` : ''}${p.plain ?? ''}` : ''
@@ -261,6 +333,7 @@ export function AIMenu({ editor, pageId, mode, onClose }: AIMenuProps) {
       setSources([])
       setQuery('')
       setActive(0)
+      makeRoom()
       const onToken = (delta: string) => {
         bufRef.current += delta
         if (!rafRef.current)
@@ -304,9 +377,9 @@ export function AIMenu({ editor, pageId, mode, onClose }: AIMenuProps) {
         setRun((r) => (r ? { ...r, ended: performance.now() } : r))
         if (err.code === 'no_key') setSetup(true)
       }
-      requestAnimationFrame(() => inputRef.current?.focus({ preventScroll: true }))
+      refocusPrompt()
     },
-    [pageId, pageContext, target],
+    [pageId, pageContext, target, makeRoom, refocusPrompt],
   )
 
   const stop = () => {
@@ -317,7 +390,7 @@ export function AIMenu({ editor, pageId, mode, onClose }: AIMenuProps) {
     setOutput(stripFence(partial))
     setPhase(partial.trim() ? 'done' : 'idle')
     setRun((r) => (r ? { ...r, ended: performance.now() } : r))
-    inputRef.current?.focus({ preventScroll: true })
+    refocusPrompt()
   }
 
   const retry = () => run && start(run.req)
@@ -339,7 +412,18 @@ export function AIMenu({ editor, pageId, mode, onClose }: AIMenuProps) {
     return !!block && block.isTextblock && block.content.size === 0 && target.blockTo - target.blockFrom === block.nodeSize
   }
 
-  const apply = async (how: 'replace' | 'below' | 'insert') => {
+  /** Where "Insert below" lands now: after the target block, in the container it sits in. */
+  const insertionPoint = () => {
+    const { doc } = editor.state
+    const $pos = doc.resolve(Math.max(0, Math.min(target.after, doc.content.size)))
+    // the boundary can end up inside text when blocks were joined meanwhile
+    return $pos.parent.isTextblock ? afterBlock($pos) : $pos.pos
+  }
+
+  /**
+   * replace: the selection · fill: the empty cursor line (else below it) · below: after the block.
+   */
+  const apply = async (how: 'replace' | 'fill' | 'below') => {
     if (editor.isDestroyed || !output.trim()) return
     const blocks = resultBlocks()
     if (!blocks.length) return
@@ -348,22 +432,24 @@ export function AIMenu({ editor, pageId, mode, onClose }: AIMenuProps) {
     const size = editor.state.doc.content.size
     const clamp = (n: number) => Math.max(0, Math.min(n, size))
     const chain = editor.chain().focus()
-    const blockStillEmpty = targetBlockEmpty()
     if (how === 'replace' && target.mode === 'selection' && target.to > target.from) {
       const range = { from: clamp(target.from), to: clamp(target.to) }
       const single = blocks.length === 1 && blocks[0].type === 'paragraph'
       chain.insertContentAt(range, single && target.inlineOnly ? (blocks[0].content ?? []) : blocks).run()
-    } else if (how === 'insert' && target.blockEmpty && blockStillEmpty) {
+    } else if (how === 'fill' && targetBlockEmpty()) {
       chain.insertContentAt({ from: clamp(target.blockFrom), to: clamp(target.blockTo) }, blocks).run()
     } else {
-      chain.insertContentAt(clamp(target.blockTo), blocks).run()
+      chain.insertContentAt(insertionPoint(), blocks).run()
     }
     onClose()
   }
 
   /** Close and hand the caret (or the original selection) back to the editor, so typing continues. */
   const dismiss = useCallback(() => {
-    if (!editor.isDestroyed) {
+    // focus already moved on (the user clicked into the page and typed): leave the caret there
+    const active = document.activeElement
+    const fromPanel = !active || active === document.body || !!inputRef.current?.closest('.ai-panel')?.contains(active)
+    if (!editor.isDestroyed && fromPanel) {
       try {
         const size = editor.state.doc.content.size
         const from = Math.max(0, Math.min(target.from, size))
@@ -504,12 +590,13 @@ export function AIMenu({ editor, pageId, mode, onClose }: AIMenuProps) {
       if (phase === 'done') {
         const ws = run?.req.kind === 'workspace'
         if (target.mode === 'selection' && !ws) out.push({ id: 'replace', label: t('features.ai.res.replace'), icon: Check, run: () => void apply('replace'), hint: <Kbd>↵</Kbd> })
+        const sel = target.mode === 'selection'
         out.push({
           id: 'insert',
-          label: target.mode === 'selection' || ws || !targetBlockEmpty() ? t('features.ai.res.below') : t('features.ai.res.insert'),
+          label: sel || !targetBlockEmpty() ? t('features.ai.res.below') : t('features.ai.res.insert'),
           icon: ArrowDownToLine,
-          run: () => void apply(target.mode === 'selection' || ws ? 'below' : 'insert'),
-          hint: target.mode === 'selection' && !ws ? undefined : <Kbd>↵</Kbd>,
+          run: () => void apply(sel ? 'below' : 'fill'),
+          hint: sel && !ws ? undefined : <Kbd>↵</Kbd>,
         })
         out.push({ id: 'copy', label: t('features.ai.res.copy'), icon: Copy, run: () => void copy() })
       }
@@ -621,16 +708,9 @@ export function AIMenu({ editor, pageId, mode, onClose }: AIMenuProps) {
     requestAnimationFrame(() => inputRef.current?.focus({ preventScroll: true }))
   }
 
-  const placeholder =
-    phase === 'done' || phase === 'error'
-      ? t('features.ai.placeholder.refine')
-      : wsMode
-        ? t('features.ai.placeholder.workspace')
-        : view === 'translate'
-          ? t('features.ai.placeholder.language')
-          : target.mode === 'selection'
-            ? t('features.ai.placeholder.selection')
-            : t('features.ai.placeholder.block')
+  const phKey =
+    phase === 'done' || phase === 'error' ? 'refine' : wsMode ? 'workspace' : view === 'translate' ? 'language' : target.mode === 'selection' ? 'selection' : 'block'
+  const placeholder = t(`features.ai.placeholder.${phKey}${narrow ? 'Short' : ''}`)
 
   const busy = phase === 'streaming'
   const showOutput = phase !== 'idle' && !setup
@@ -693,7 +773,8 @@ export function AIMenu({ editor, pageId, mode, onClose }: AIMenuProps) {
                 autoComplete="off"
               />
               <button className="ai-model" onClick={cycleModel} disabled={busy} title={t('features.ai.switchModel')}>
-                CLAUDE · {model.short}
+                <span className="ai-model__brand">CLAUDE · </span>
+                {model.short}
               </button>
             </div>
 
@@ -761,7 +842,7 @@ export function AIMenu({ editor, pageId, mode, onClose }: AIMenuProps) {
             )}
 
             {rows.length > 0 && (
-              <div className="ai-list" ref={listRef} role="listbox">
+              <div className="ai-list" ref={listRef} role="listbox" data-keys={phase === 'done' || phase === 'error' ? '' : undefined}>
                 {rows.map((r, i) => {
                   const header = r.group && r.group !== lastGroup ? r.group : null
                   lastGroup = r.group
@@ -814,6 +895,20 @@ export function AIMenu({ editor, pageId, mode, onClose }: AIMenuProps) {
       </Popover>
     </>
   )
+}
+
+/** Phone-width layout (short placeholders, function-key result row). */
+function useNarrow(): boolean {
+  const query = '(max-width: 520px)'
+  const [narrow, setNarrow] = useState(() => !!window.matchMedia?.(query).matches)
+  useEffect(() => {
+    const mq = window.matchMedia?.(query)
+    if (!mq) return
+    const on = () => setNarrow(mq.matches)
+    mq.addEventListener('change', on)
+    return () => mq.removeEventListener('change', on)
+  }, [])
+  return narrow
 }
 
 function findPageByTitle(title: string): WorkspaceSource | undefined {

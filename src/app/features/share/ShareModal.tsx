@@ -8,7 +8,7 @@ import { useLang, useT } from '../../i18n'
 import { usePage } from '../../store/selectors'
 import { useUI } from '../../store/ui'
 import type { ID } from '../../store/types'
-import { docToMarkdown } from '../../editor'
+import { toMarkdown } from './markdown'
 import { encodePayload, preparePage, shareUrl, SHARE_WARN_BYTES, type PrepareStats } from './codec'
 import { buildStandaloneHTML, downloadText } from './html'
 import './share.css'
@@ -83,7 +83,7 @@ export function ShareModal({ pageId, onClose }: { pageId: ID; onClose: () => voi
     if (!p) return
     // flattened copy: no workspace-internal links, local images replaced by a note
     const { payload } = await preparePage(pageId, 0).catch(() => ({ payload: { content: p.content } }))
-    const md = `# ${p.title.trim() || t('common.untitled')}\n\n${docToMarkdown(payload.content)}`
+    const md = `# ${p.title.trim() || t('common.untitled')}\n\n${toMarkdown(payload.content)}`
     const ok = await copyText(md)
     if (ok) setCopied('md')
     else useUI.getState().toast({ message: t('features.share.copyFailed'), kind: 'error' })

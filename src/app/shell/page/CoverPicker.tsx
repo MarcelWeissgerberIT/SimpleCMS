@@ -73,7 +73,7 @@ export function CoverPicker({ anchor, onClose, onPick, onRemove, hasCover }: { a
             <div className="label cp-label">{t('shell.cover.patterns')}</div>
             <div className="cp-grid">
               {GRADIENTS.map((g) => (
-                <button key={g.id} type="button" className="cp-swatch" title={g.id} aria-label={g.id} style={{ background: g.value }} onClick={() => onPick({ type: 'gradient', value: g.value, positionY: 50 })} />
+                <button key={g.id} type="button" className="cp-swatch" title={t(`shell.cover.g.${g.id}`)} aria-label={t(`shell.cover.g.${g.id}`)} style={{ background: g.value }} onClick={() => onPick({ type: 'gradient', value: g.value, positionY: 50 })} />
               ))}
             </div>
             <div className="label cp-label">{t('shell.cover.colors')}</div>

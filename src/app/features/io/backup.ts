@@ -29,10 +29,14 @@ export interface Backup {
 
 const REF_RE = /onefile:[0-9a-z]+/g
 
-/** Pages of a subtree (incl. database rows), or the whole workspace. */
-export function collectScope(rootId: ID | null): { pages: Record<ID, Page>; databases: Record<ID, Database> } {
+/**
+ * Pages of a subtree (incl. database rows), or the whole workspace. `topId` is the page that becomes
+ * the backup's root: a single row travels with its database (schema, no sibling rows) so it restores
+ * with its properties instead of as an orphan row.
+ */
+export function collectScope(rootId: ID | null): { pages: Record<ID, Page>; databases: Record<ID, Database>; topId: ID | null } {
   const s = useWorkspace.getState()
-  if (!rootId) return { pages: s.pages, databases: s.databases }
+  if (!rootId) return { pages: s.pages, databases: s.databases, topId: null }
   const ids = [rootId, ...descendantIds(s.pages, rootId)]
   const pages: Record<ID, Page> = {}
   const databases: Record<ID, Database> = {}
@@ -42,15 +46,23 @@ export function collectScope(rootId: ID | null): { pages: Record<ID, Page>; data
     pages[id] = p
     if (s.databases[id]) databases[id] = s.databases[id]
   }
-  return { pages, databases }
+  let topId: ID | null = rootId
+  const root = s.pages[rootId]
+  const host = root?.databaseId ? s.pages[root.databaseId] : undefined
+  if (pages[rootId] && host && !host.trashed && s.databases[host.id]) {
+    pages[host.id] = host
+    databases[host.id] = s.databases[host.id]
+    topId = host.id
+  }
+  return { pages, databases, topId }
 }
 
 export async function buildBackup(rootId: ID | null, onProgress?: (done: number, total: number) => void): Promise<Backup> {
   const snap = getWorkspaceSnapshot()
-  const { pages, databases } = collectScope(rootId)
+  const { pages, databases, topId } = collectScope(rootId)
   const workspace: Workspace = {
     ...snap,
-    pages: rootId ? { ...pages, [rootId]: { ...pages[rootId], parentId: null } } : pages,
+    pages: topId && pages[topId] ? { ...pages, [topId]: { ...pages[topId], parentId: null } } : pages,
     databases,
     // never export the API key
     settings: { ...snap.settings, aiApiKey: '' },
@@ -126,20 +138,64 @@ async function restoreFiles(b: Backup, json: string, onProgress?: (done: number,
   return map
 }
 
-/** Restore files, remap their refs and apply the workspace. Returns the page to open. */
-export async function applyBackup(b: Backup, mode: 'merge' | 'replace', onProgress?: (done: number, total: number) => void): Promise<ID | null> {
+export interface RestoreResult {
+  /** page to open */
+  target: ID | null
+  mode: 'merge' | 'replace'
+  /** pages (incl. databases and rows) that did not exist here */
+  added: number
+  /** pages that existed and were older here */
+  updated: number
+  /** pages skipped because the local copy is as new or newer */
+  unchanged: number
+  files: number
+}
+
+const byId = <T extends { id: string }>(a: T[] = [], b: T[] = []): T[] => [...a, ...b.filter((x) => !a.some((y) => y.id === x.id))]
+
+/**
+ * Merge two versions of one database schema. The newer side leads; properties, options, views,
+ * templates and automations that only the other side has are kept — rows of either side may use them.
+ */
+function mergeDatabase(local: Database, incoming: Database, incomingNewer: boolean): Database {
+  const [lead, other] = incomingNewer ? [incoming, local] : [local, incoming]
+  const properties = lead.properties.map((p) => {
+    const o = other.properties.find((x) => x.id === p.id)
+    return o?.options && p.options ? { ...p, options: byId(p.options, o.options) } : p
+  })
+  for (const p of other.properties) if (!properties.some((x) => x.id === p.id)) properties.push(p)
+  return {
+    ...lead,
+    properties,
+    views: byId(lead.views, other.views),
+    nextUniqueId: Math.max(local.nextUniqueId ?? 1, incoming.nextUniqueId ?? 1),
+    ...(lead.templates || other.templates ? { templates: byId(lead.templates, other.templates) } : {}),
+    ...(lead.automations || other.automations ? { automations: byId(lead.automations, other.automations) } : {}),
+  }
+}
+
+/** Restore files, remap their refs and apply the workspace. */
+export async function applyBackup(b: Backup, mode: 'merge' | 'replace', onProgress?: (done: number, total: number) => void): Promise<RestoreResult> {
   const snap = getWorkspaceSnapshot()
   const source = migrate(JSON.parse(JSON.stringify(b.workspace)))
 
   // which pages survive? (merge: new ones + those newer than ours)
   const keep: Record<ID, Page> = {}
+  let unchanged = 0
   for (const p of Object.values(source.pages)) {
     const cur = snap.pages[p.id]
-    if (mode === 'merge' && cur && cur.updatedAt >= p.updatedAt) continue
+    if (mode === 'merge' && cur && cur.updatedAt >= p.updatedAt) {
+      unchanged++
+      continue
+    }
     keep[p.id] = p
   }
   const keptDbs: Record<ID, Database> = {}
-  for (const [id, db] of Object.entries(source.databases)) if (keep[id] || mode === 'replace' || !snap.databases[id]) keptDbs[id] = db
+  for (const [id, db] of Object.entries(source.databases)) {
+    const local = snap.databases[id]
+    if (mode === 'replace' || !local) keptDbs[id] = db
+    else keptDbs[id] = mergeDatabase(local, db, !!keep[id])
+  }
 
   // only files that the surviving pages / databases use
   let json = JSON.stringify({ pages: keep, databases: keptDbs })
@@ -148,27 +204,43 @@ export async function applyBackup(b: Backup, mode: 'merge' | 'replace', onProgre
   const incoming = JSON.parse(json) as { pages: Record<ID, Page>; databases: Record<ID, Database> }
 
   // open editors must apply restored content: new rev, origin that is no editor's own id
+  let added = 0
+  let updated = 0
   for (const p of Object.values(incoming.pages)) {
     const cur = snap.pages[p.id]
     p.contentOrigin = 'import'
     if (cur) p.contentRev = Math.max(cur.contentRev, p.contentRev) + 1
+    if (cur && mode === 'merge') updated++
+    else added++
   }
   const store = useWorkspace.getState()
+  const pages = mode === 'replace' ? incoming.pages : { ...snap.pages, ...incoming.pages }
+  const databases = mode === 'replace' ? incoming.databases : { ...snap.databases, ...incoming.databases }
+  // never leave invisible pages behind: a missing parent → top level; a row without its database → plain page
+  for (const p of Object.values(incoming.pages)) {
+    if (p.databaseId && !(databases[p.databaseId] && pages[p.databaseId])) {
+      p.databaseId = null
+      if (p.parentId && !pages[p.parentId]) p.parentId = null
+    }
+    if (p.parentId && !pages[p.parentId]) p.parentId = null
+  }
+  const files = new Set(refMap.values()).size
 
   if (mode === 'replace') {
     store.replaceAll({
       ...source,
-      pages: incoming.pages,
-      databases: incoming.databases,
+      pages,
+      databases,
       settings: { ...source.settings, aiApiKey: snap.settings.aiApiKey || source.settings.aiApiKey },
     })
-    return b.rootId ?? source.settings.startPageId ?? firstRoot(incoming.pages)
+    return { target: b.rootId ?? source.settings.startPageId ?? firstRoot(pages), mode, added, updated, unchanged, files }
   }
 
   const people = [...snap.people]
   for (const person of source.people) if (!people.some((x) => x.id === person.id)) people.push(person)
-  store.replaceAll({ ...snap, pages: { ...snap.pages, ...incoming.pages }, databases: { ...snap.databases, ...incoming.databases }, people })
-  return b.rootId ?? firstRoot(source.pages)
+  store.replaceAll({ ...snap, pages, databases, people })
+  const target = b.rootId && pages[b.rootId] ? b.rootId : firstRoot(incoming.pages) ?? firstRoot(source.pages)
+  return { target, mode, added, updated, unchanged, files }
 }
 
 /** Files a backup of this scope will contain (only ones the exported pages reference). */

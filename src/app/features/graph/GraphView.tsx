@@ -2,7 +2,7 @@
  * Graph view (route #/graph): every live page as a node — databases as squares, rows optional —
  * hierarchy as hairlines, links & mentions in signal orange. Canvas + d3-force (see renderer.ts).
  */
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Crosshair, Minus, Plus, RefreshCw, Search, X } from 'lucide-react'
 import { useT } from '../../i18n'
 import { useWorkspace } from '../../store/store'
@@ -10,8 +10,9 @@ import { useUI } from '../../store/ui'
 import { openPage } from '../../lib/router'
 import { Switch, Led, Kbd } from '../../ui/controls'
 import { Tooltip } from '../../ui/Tooltip'
-import { buildGraph, type GNode, type GraphOptions } from './model'
+import { buildGraph, graphSignature, type GNode, type GraphOptions } from './model'
 import { GraphRenderer } from './renderer'
+import { countOf } from '../io/count'
 import './graph.css'
 
 const PREFS_KEY = 'one.graph.prefs'
@@ -32,21 +33,31 @@ export function GraphView() {
   const currentId = useWorkspace((s) => s.settings.lastPageId)
   const [opts, setOpts] = useState<GraphOptions>(loadPrefs)
   const untitled = t('common.untitled')
-  const data = useMemo(() => buildGraph(pages, databases, opts, untitled), [pages, databases, opts, untitled])
+  // typing in a page changes `pages` constantly; keep the same graph (and a calm layout) unless
+  // nodes, titles or edges actually changed
+  const last = useRef<{ sig: string; data: ReturnType<typeof buildGraph> } | null>(null)
+  const data = useMemo(() => {
+    const next = buildGraph(pages, databases, opts, untitled)
+    const sig = graphSignature(next)
+    if (last.current?.sig === sig) return last.current.data
+    last.current = { sig, data: next }
+    return next
+  }, [pages, databases, opts, untitled])
 
   const wrapRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const searchRef = useRef<HTMLInputElement>(null)
   const engine = useRef<GraphRenderer | null>(null)
   const [state, setState] = useState({ settled: false, zoom: 1, alpha: 1 })
-  const [hover, setHover] = useState<{ node: GNode; x: number; y: number } | null>(null)
+  const [hover, setHover] = useState<{ node: GNode; x: number; y: number; r: number } | null>(null)
+  const tipRef = useRef<HTMLDivElement>(null)
   const [query, setQuery] = useState('')
   const [active, setActive] = useState(0)
   const [focused, setFocused] = useState<string | null>(null)
 
   useEffect(() => {
     const r = new GraphRenderer(canvasRef.current!, wrapRef.current!, {
-      onHover: (node, x, y) => setHover(node ? { node, x, y } : null),
+      onHover: (node, x, y, r) => setHover(node ? { node, x, y, r } : null),
       onOpen: (node, ev) => {
         if (ev.shiftKey || ev.altKey) useUI.getState().openPane(node.id)
         else openPage(node.id)
@@ -116,6 +127,26 @@ export function GraphView() {
     searchRef.current?.blur()
   }
 
+  // tooltip above the node (its label sits below it), flipped under the label near the top, kept inside the canvas
+  useLayoutEffect(() => {
+    const el = tipRef.current
+    const wrap = wrapRef.current
+    if (!hover || !el || !wrap) return
+    const pad = 8
+    const w = el.offsetWidth
+    const h = el.offsetHeight
+    let top = hover.y - hover.r - 10 - h
+    const below = top < pad
+    if (below) top = hover.y + hover.r + 26
+    top = Math.max(pad, Math.min(wrap.clientHeight - h - pad, top))
+    const left = Math.max(pad, Math.min(wrap.clientWidth - w - pad, hover.x - w / 2))
+    el.style.left = `${left}px`
+    el.style.top = `${top}px`
+    el.style.setProperty('--tip-x', `${Math.max(8, Math.min(w - 8, hover.x - left))}px`)
+    el.dataset.side = below ? 'below' : 'above'
+    el.style.visibility = 'visible'
+  }, [hover])
+
   const linkCount = data.edges.filter((e) => e.kind === 'link').length
   const treeCount = data.edges.length - linkCount
   const toggle = (key: keyof GraphOptions) => setOpts((o) => ({ ...o, [key]: !o[key] }))
@@ -125,118 +156,120 @@ export function GraphView() {
     <div className="graph" ref={wrapRef}>
       <canvas ref={canvasRef} className="graph__canvas" role="img" aria-label={t('features.graph.aria', { nodes: data.nodes.length, edges: data.edges.length })} />
 
-      {/* ---------- top HUD ---------- */}
-      <div className="graph-hud graph-hud--top">
-        <div className="graph-plate">
-          <span className="label graph-plate__n">§ 05</span>
-          <span className="graph-plate__title">{t('features.graph.title')}</span>
+      {/* ---------- top HUD (+ focus chip below it, whatever height the HUD wraps to) ---------- */}
+      <div className="graph-top">
+        <div className="graph-hud graph-hud--top">
+          <div className="graph-plate">
+            <span className="label graph-plate__n">§ 05</span>
+            <span className="graph-plate__title">{t('features.graph.title')}</span>
+          </div>
+
+          <div className="graph-search" role="combobox" aria-expanded={results.length > 0} aria-haspopup="listbox">
+            <Search size={14} className="graph-search__icon" />
+            <input
+              ref={searchRef}
+              className="graph-search__input"
+              value={query}
+              placeholder={t('features.graph.search')}
+              aria-label={t('features.graph.search')}
+              onChange={(e) => setQuery(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'ArrowDown') {
+                  e.preventDefault()
+                  setActive((a) => Math.min(results.length - 1, a + 1))
+                } else if (e.key === 'ArrowUp') {
+                  e.preventDefault()
+                  setActive((a) => Math.max(0, a - 1))
+                } else if (e.key === 'Enter' && results[active]) {
+                  e.preventDefault()
+                  focusNode(results[active])
+                } else if (e.key === 'Escape') {
+                  setQuery('')
+                  ;(e.target as HTMLInputElement).blur()
+                }
+              }}
+            />
+            {!query && <Kbd>/</Kbd>}
+            {results.length > 0 && (
+              <ul className="graph-results" role="listbox">
+                {results.map((n, i) => (
+                  <li key={n.id} role="option" aria-selected={i === active}>
+                    <button type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => focusNode(n)} onMouseEnter={() => setActive(i)}>
+                      <span className={`graph-glyph graph-glyph--${n.kind}`} aria-hidden />
+                      <span className="graph-results__title">{n.title}</span>
+                      <span className="graph-results__deg mono">{String(n.degree).padStart(2, '0')}</span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+            {query && results.length === 0 && <div className="graph-results graph-results--empty mono">{t('features.graph.noMatch')}</div>}
+          </div>
+
+          <div className="graph-panel" role="group" aria-label={t('features.graph.layers')}>
+            <label className="graph-toggle">
+              <Switch checked={opts.hierarchy} onChange={() => toggle('hierarchy')} label={t('features.graph.hierarchy')} />
+              <span>{t('features.graph.hierarchy')}</span>
+            </label>
+            <label className="graph-toggle">
+              <Switch checked={opts.rows} onChange={() => toggle('rows')} label={t('features.graph.rows')} />
+              <span>{t('features.graph.rows')}</span>
+            </label>
+            <label className="graph-toggle">
+              <Switch checked={opts.orphans} onChange={() => toggle('orphans')} label={t('features.graph.orphans')} />
+              <span>{t('features.graph.orphans')}</span>
+            </label>
+            <span className="graph-panel__sep" />
+            <Tooltip label={t('features.graph.zoomOut')} shortcut="−">
+              <button type="button" className="icon-btn icon-btn--sm" onClick={() => engine.current?.zoomBy(1 / 1.3)}>
+                <Minus size={14} />
+              </button>
+            </Tooltip>
+            <Tooltip label={t('features.graph.zoomIn')} shortcut="+">
+              <button type="button" className="icon-btn icon-btn--sm" onClick={() => engine.current?.zoomBy(1.3)}>
+                <Plus size={14} />
+              </button>
+            </Tooltip>
+            <Tooltip label={t('features.graph.fit')} shortcut="F">
+              <button type="button" className="icon-btn icon-btn--sm" onClick={() => engine.current?.fit()}>
+                <Crosshair size={14} />
+              </button>
+            </Tooltip>
+            <Tooltip label={t('features.graph.reheat')}>
+              <button type="button" className="icon-btn icon-btn--sm" onClick={() => engine.current?.reheat()}>
+                <RefreshCw size={14} />
+              </button>
+            </Tooltip>
+          </div>
         </div>
 
-        <div className="graph-search" role="combobox" aria-expanded={results.length > 0} aria-haspopup="listbox">
-          <Search size={14} className="graph-search__icon" />
-          <input
-            ref={searchRef}
-            className="graph-search__input"
-            value={query}
-            placeholder={t('features.graph.search')}
-            aria-label={t('features.graph.search')}
-            onChange={(e) => setQuery(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'ArrowDown') {
-                e.preventDefault()
-                setActive((a) => Math.min(results.length - 1, a + 1))
-              } else if (e.key === 'ArrowUp') {
-                e.preventDefault()
-                setActive((a) => Math.max(0, a - 1))
-              } else if (e.key === 'Enter' && results[active]) {
-                e.preventDefault()
-                focusNode(results[active])
-              } else if (e.key === 'Escape') {
-                setQuery('')
-                ;(e.target as HTMLInputElement).blur()
-              }
-            }}
-          />
-          {!query && <Kbd>/</Kbd>}
-          {results.length > 0 && (
-            <ul className="graph-results" role="listbox">
-              {results.map((n, i) => (
-                <li key={n.id} role="option" aria-selected={i === active}>
-                  <button type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => focusNode(n)} onMouseEnter={() => setActive(i)}>
-                    <span className={`graph-glyph graph-glyph--${n.kind}`} aria-hidden />
-                    <span className="graph-results__title">{n.title}</span>
-                    <span className="graph-results__deg mono">{String(n.degree).padStart(2, '0')}</span>
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-          {query && results.length === 0 && <div className="graph-results graph-results--empty mono">{t('features.graph.noMatch')}</div>}
-        </div>
-
-        <div className="graph-panel" role="group" aria-label={t('features.graph.layers')}>
-          <label className="graph-toggle">
-            <Switch checked={opts.hierarchy} onChange={() => toggle('hierarchy')} label={t('features.graph.hierarchy')} />
-            <span>{t('features.graph.hierarchy')}</span>
-          </label>
-          <label className="graph-toggle">
-            <Switch checked={opts.rows} onChange={() => toggle('rows')} label={t('features.graph.rows')} />
-            <span>{t('features.graph.rows')}</span>
-          </label>
-          <label className="graph-toggle">
-            <Switch checked={opts.orphans} onChange={() => toggle('orphans')} label={t('features.graph.orphans')} />
-            <span>{t('features.graph.orphans')}</span>
-          </label>
-          <span className="graph-panel__sep" />
-          <Tooltip label={t('features.graph.zoomOut')} shortcut="−">
-            <button type="button" className="icon-btn icon-btn--sm" onClick={() => engine.current?.zoomBy(1 / 1.3)}>
-              <Minus size={14} />
+        {focusedNode && (
+          <div className="graph-focus" role="status">
+            <span className="label">{t('features.graph.focus')}</span>
+            <button type="button" className="graph-focus__open" onClick={() => openPage(focusedNode.id)}>
+              {focusedNode.title} ↗
             </button>
-          </Tooltip>
-          <Tooltip label={t('features.graph.zoomIn')} shortcut="+">
-            <button type="button" className="icon-btn icon-btn--sm" onClick={() => engine.current?.zoomBy(1.3)}>
-              <Plus size={14} />
+            <button
+              type="button"
+              className="icon-btn icon-btn--sm"
+              aria-label={t('common.close')}
+              onClick={() => {
+                engine.current?.clearFocus()
+                setFocused(null)
+              }}
+            >
+              <X size={13} />
             </button>
-          </Tooltip>
-          <Tooltip label={t('features.graph.fit')} shortcut="F">
-            <button type="button" className="icon-btn icon-btn--sm" onClick={() => engine.current?.fit()}>
-              <Crosshair size={14} />
-            </button>
-          </Tooltip>
-          <Tooltip label={t('features.graph.reheat')}>
-            <button type="button" className="icon-btn icon-btn--sm" onClick={() => engine.current?.reheat()}>
-              <RefreshCw size={14} />
-            </button>
-          </Tooltip>
-        </div>
+          </div>
+        )}
       </div>
-
-      {focusedNode && (
-        <div className="graph-focus">
-          <span className="label">{t('features.graph.focus')}</span>
-          <button type="button" className="graph-focus__open" onClick={() => openPage(focusedNode.id)}>
-            {focusedNode.title} ↗
-          </button>
-          <button
-            type="button"
-            className="icon-btn icon-btn--sm"
-            aria-label={t('common.close')}
-            onClick={() => {
-              engine.current?.clearFocus()
-              setFocused(null)
-            }}
-          >
-            <X size={13} />
-          </button>
-        </div>
-      )}
 
       {/* ---------- hover tooltip ---------- */}
       {hover && (
-        <div className="graph-tip" style={{ left: hover.x, top: hover.y }} role="tooltip">
+        <div className="graph-tip" ref={tipRef} style={{ visibility: 'hidden' }} role="tooltip">
           <div className="graph-tip__title">{hover.node.title}</div>
           <div className="graph-tip__meta mono">
-            {t(`features.graph.kind.${hover.node.kind}`)} · {t('features.graph.nLinks', { n: hover.node.links })} · {t('features.graph.nChildren', { n: hover.node.children })}
+            {t(`features.graph.kind.${hover.node.kind}`)} · {countOf(t, 'link', hover.node.links)} · {countOf(t, 'child', hover.node.children)}
           </div>
           <div className="graph-tip__hint">{t('features.graph.tipHint')}</div>
         </div>

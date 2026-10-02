@@ -48,7 +48,7 @@ export function posAnchor(editor: Editor, from: number, to = from): VirtualEleme
 
 /**
  * Keyboard bridge for suggestion menus: the ProseMirror plugin forwards keydown here.
- * Up/Down move, Enter/Tab select.
+ * Up/Down move, Enter/Tab select. `active` -1 = nothing chosen yet: Enter stays a new line.
  */
 export function useSuggestKeys(bridge: Bridge, kind: SuggestKind, opts: { count: number; active: number; setActive: (n: number) => void; onSelect: (i: number) => void; columns?: number }) {
   const ref = useRef(opts)
@@ -59,12 +59,12 @@ export function useSuggestKeys(bridge: Bridge, kind: SuggestKind, opts: { count:
       if (e.isComposing) return false
       if (e.key === 'ArrowDown') {
         if (!count) return false
-        setActive((active + columns) % Math.max(count, 1))
+        setActive(active < 0 ? 0 : (active + columns) % Math.max(count, 1))
         return true
       }
       if (e.key === 'ArrowUp') {
         if (!count) return false
-        setActive((active - columns + count * columns) % Math.max(count, 1))
+        setActive(active < 0 ? count - 1 : (active - columns + count * columns) % Math.max(count, 1))
         return true
       }
       if (columns > 1 && (e.key === 'ArrowRight' || e.key === 'ArrowLeft')) {
@@ -73,7 +73,7 @@ export function useSuggestKeys(bridge: Bridge, kind: SuggestKind, opts: { count:
         return true
       }
       if (e.key === 'Enter' || e.key === 'Tab') {
-        if (!count) return false
+        if (!count || active < 0 || active >= count) return false
         onSelect(active)
         return true
       }

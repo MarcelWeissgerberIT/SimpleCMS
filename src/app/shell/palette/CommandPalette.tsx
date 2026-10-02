@@ -11,7 +11,7 @@ import { shortcutLabel, ALT } from '../../ui/controls'
 import { useT } from '../../i18n'
 import type { ID, Page } from '../../store/types'
 import { buildCommands, type Command as Cmd } from '../lib/commands'
-import { createPageAndOpen, currentPageId, goToPage } from '../lib/actions'
+import { contextPageId, createPageAndOpen, goToPage } from '../lib/actions'
 import { buildIndex, search, type Range } from './search'
 import './palette.css'
 
@@ -32,7 +32,7 @@ function Palette() {
   const lang = useWorkspace((s) => s.settings.language)
   const close = useUI((s) => s.closePalette)
   const prevFocus = useRef<HTMLElement | null>(document.activeElement as HTMLElement | null)
-  const pageId = currentPageId()
+  const pageId = contextPageId()
 
   const mode: Mode = q.startsWith('>') ? 'run' : q.startsWith('?') ? 'ask' : 'find'
   const term = mode === 'find' ? q.trim() : q.slice(1).trim()

@@ -2,8 +2,8 @@
  * Template gallery: a parts catalogue (T-01 … T-11) with category filter and a schematic preview.
  * "Use template" builds real pages/databases under parentId and opens the result.
  */
-import { useMemo, useRef, useState } from 'react'
-import { ArrowRight } from 'lucide-react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { ArrowDown, ArrowRight } from 'lucide-react'
 import { Modal } from '../../ui/Modal'
 import { PageIcon } from '../../ui/PageIcon'
 import { useLang, useT } from '../../i18n'
@@ -14,6 +14,7 @@ import { resolveAssetUrl } from '../../lib/files'
 import { openPage } from '../../lib/router'
 import type { ID } from '../../store/types'
 import { pauseAutomations } from '../automations/engine'
+import { countOf } from '../io/count'
 import { TEMPLATES, outlineStats, translator, type OutlineKind, type TemplateCategory, type TemplateDef } from './catalog'
 import './templates.css'
 
@@ -32,6 +33,41 @@ export function TemplatesModal({ parentId, onClose }: { parentId?: ID | null; on
   const sel = list.find((x) => x.id === selId) ?? list[0]
   const [busy, setBusy] = useState(false)
   const gridRef = useRef<HTMLDivElement>(null)
+  const tabsRef = useRef<HTMLDivElement>(null)
+  const previewRef = useRef<HTMLElement>(null)
+
+  const focusSelectedCard = () => gridRef.current?.querySelector<HTMLElement>('[aria-selected="true"]')?.focus({ preventScroll: true })
+
+  // the Modal focuses its first button (a category tab) on open — hand focus to the selected card
+  // one frame later so the arrow keys work right away
+  useEffect(() => {
+    let r2 = 0
+    const r1 = requestAnimationFrame(() => {
+      r2 = requestAnimationFrame(focusSelectedCard)
+    })
+    return () => {
+      cancelAnimationFrame(r1)
+      cancelAnimationFrame(r2)
+    }
+  }, [])
+
+  const onTabKey = (e: React.KeyboardEvent) => {
+    const i = CATS.indexOf(cat)
+    let next = -1
+    if (e.key === 'ArrowRight') next = (i + 1) % CATS.length
+    else if (e.key === 'ArrowLeft') next = (i - 1 + CATS.length) % CATS.length
+    else if (e.key === 'Home') next = 0
+    else if (e.key === 'End') next = CATS.length - 1
+    else if (e.key === 'ArrowDown') {
+      e.preventDefault()
+      focusSelectedCard()
+      return
+    }
+    if (next < 0) return
+    e.preventDefault()
+    setCat(CATS[next])
+    tabsRef.current?.querySelectorAll<HTMLElement>('[role="tab"]')[next]?.focus()
+  }
 
   const use = (tpl: TemplateDef) => {
     if (busy) return
@@ -54,7 +90,9 @@ export function TemplatesModal({ parentId, onClose }: { parentId?: ID | null; on
 
   const onGridKey = (e: React.KeyboardEvent) => {
     const idx = list.findIndex((x) => x.id === sel?.id)
-    const cols = Math.max(1, Math.round((gridRef.current?.clientWidth ?? 600) / 200))
+    // real column count of the auto-fill grid (an estimate from the width drifts diagonally)
+    const tracks = gridRef.current ? getComputedStyle(gridRef.current).gridTemplateColumns.split(' ').filter(Boolean).length : 1
+    const cols = Math.max(1, tracks)
     const move = (d: number) => {
       e.preventDefault()
       const next = list[Math.max(0, Math.min(list.length - 1, idx + d))]
@@ -78,11 +116,11 @@ export function TemplatesModal({ parentId, onClose }: { parentId?: ID | null; on
   return (
     <Modal open onClose={onClose} label="§ TPL" title={t('features.tpl.title')} width={1080} className="tpl-modal">
       <div className="tpl">
-        <div className="tpl-filter" role="tablist" aria-label={t('features.tpl.categories')}>
+        <div className="tpl-filter" role="tablist" aria-label={t('features.tpl.categories')} ref={tabsRef} onKeyDown={onTabKey}>
           {CATS.map((c) => {
             const n = c === 'all' ? TEMPLATES.length : TEMPLATES.filter((x) => x.category === c).length
             return (
-              <button key={c} type="button" role="tab" aria-selected={cat === c} className="tpl-filter__tab" onClick={() => setCat(c)}>
+              <button key={c} type="button" role="tab" aria-selected={cat === c} tabIndex={cat === c ? 0 : -1} className="tpl-filter__tab" onClick={() => setCat(c)}>
                 <span>{t(`features.tpl.cat.${c}`)}</span>
                 <span className="tpl-filter__n">{String(n).padStart(2, '0')}</span>
               </button>
@@ -117,9 +155,9 @@ export function TemplatesModal({ parentId, onClose }: { parentId?: ID | null; on
                   <span className="tpl-card__title">{tpl.title(L)}</span>
                   <span className="tpl-card__spec mono">
                     {[
-                      s.pages ? t(s.pages === 1 ? 'features.tpl.nPage' : 'features.tpl.nPages', { n: s.pages }) : null,
-                      s.dbs ? t(s.dbs === 1 ? 'features.tpl.nDb' : 'features.tpl.nDbs', { n: s.dbs }) : null,
-                      s.views ? t('features.tpl.nViews', { n: s.views }) : null,
+                      s.pages ? countOf(t, 'page', s.pages) : null,
+                      s.dbs ? countOf(t, 'db', s.dbs) : null,
+                      s.views ? countOf(t, 'view', s.views) : null,
                     ]
                       .filter(Boolean)
                       .join(' · ')}
@@ -130,7 +168,7 @@ export function TemplatesModal({ parentId, onClose }: { parentId?: ID | null; on
           </div>
 
           {sel && (
-            <aside className="tpl-preview" aria-live="polite">
+            <aside className="tpl-preview" aria-live="polite" ref={previewRef}>
               <div className="tpl-preview__art">
                 <img src={resolveAssetUrl(`assets/icons/${sel.icon}.webp`)} alt="" width={112} height={112} draggable={false} />
                 <span className="tpl-preview__code mono">{sel.code}</span>
@@ -177,6 +215,23 @@ export function TemplatesModal({ parentId, onClose }: { parentId?: ID | null; on
             </aside>
           )}
         </div>
+
+        {/* narrow screens: the preview sits below all cards — keep the choice + action in reach */}
+        {sel && (
+          <div className="tpl-dock">
+            <img src={resolveAssetUrl(`assets/icons/${sel.icon}.webp`)} alt="" width={32} height={32} draggable={false} />
+            <span className="tpl-dock__text">
+              <span className="tpl-dock__code mono">{sel.code}</span>
+              <span className="tpl-dock__title">{sel.title(L)}</span>
+            </span>
+            <button type="button" className="btn btn--ghost btn--sm" onClick={() => previewRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })}>
+              {t('features.tpl.details')} <ArrowDown size={13} />
+            </button>
+            <button type="button" className="btn btn--primary btn--sm" onClick={() => use(sel)} disabled={busy}>
+              {t('features.tpl.useShort')} <ArrowRight size={14} />
+            </button>
+          </div>
+        )}
       </div>
     </Modal>
   )

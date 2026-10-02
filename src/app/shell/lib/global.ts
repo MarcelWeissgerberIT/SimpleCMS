@@ -5,7 +5,7 @@ import { openTodayJournal } from '../../features'
 import { navigate, type Route } from '../../lib/router'
 import { isMac } from '../../ui/controls'
 import { t } from '../../i18n'
-import { createPageAndOpen, currentPageId, toggleFocusMode, toggleSidebar, toggleTheme } from './actions'
+import { createPageAndOpen, currentPageId, pruneUndoToasts, toggleFocusMode, toggleSidebar, toggleTheme } from './actions'
 
 const isEditable = (el: EventTarget | null) => {
   const e = el as HTMLElement | null
@@ -256,7 +256,11 @@ export function useDrawerAutoClose() {
   )
 }
 
-/** Panes and the peek never point at pages that were deleted for good. */
+/**
+ * Nothing keeps pointing at a page that was deleted for good (trash popover, banner, emptied
+ * trash, another area): the main column goes home, panes and the peek close, and stale
+ * "Undo" toasts disappear.
+ */
 export function usePruneGoneViews() {
   useEffect(
     () =>
@@ -265,6 +269,10 @@ export function usePruneGoneViews() {
         const ui = useUI.getState()
         if (ui.peekPageId && !s.pages[ui.peekPageId]) ui.closePeek()
         for (let i = ui.panes.length - 1; i >= 0; i--) if (!s.pages[ui.panes[i]]) useUI.getState().closePane(i)
+        // only pages that existed a moment ago: a link to an unknown id still shows "not found"
+        const cur = currentPageId()
+        if (cur && prev.pages[cur] && !s.pages[cur]) navigate({ name: 'home' }, { replace: true })
+        pruneUndoToasts(s.pages)
       }),
     [],
   )

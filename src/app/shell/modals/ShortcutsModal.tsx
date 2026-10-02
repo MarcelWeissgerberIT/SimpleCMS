@@ -26,7 +26,7 @@ export function useShortcutGroups(): ShortcutGroup[] {
     {
       label: t('shell.keys.navigate'),
       items: [
-        [t('shell.keys.openPane'), [`${ALT}+Click`]],
+        [t('shell.keys.openPane'), [`${ALT}+${t('shell.tips.click')}`]],
         [t('shell.keys.paletteFind'), ['Mod+P']],
         [t('shell.keys.paletteCommands'), ['>']],
         [t('shell.keys.paletteAsk'), ['?']],
@@ -48,7 +48,10 @@ export function useShortcutGroups(): ShortcutGroup[] {
 }
 
 export function ShortcutList() {
+  const t = useT()
   const groups = useShortcutGroups()
+  // pointer gestures and literal keys are shown as written, chords go through shortcutLabel()
+  const literal = (k: string) => k.includes('↵') || k.endsWith(`+${t('shell.tips.click')}`)
   return (
     <div className="keysheet">
       {groups.map((g) => (
@@ -62,7 +65,7 @@ export function ShortcutList() {
                   {keys.map((k, i) => (
                     <span key={k} className="keysheet__keys">
                       {i > 0 && <span className="faint keysheet__or">/</span>}
-                      <span className="kbd">{k.includes('Click') || k.includes('↵') ? k : shortcutLabel(k)}</span>
+                      <span className="kbd">{literal(k) ? k : shortcutLabel(k)}</span>
                     </span>
                   ))}
                 </dd>

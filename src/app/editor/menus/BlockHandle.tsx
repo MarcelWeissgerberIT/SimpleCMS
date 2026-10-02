@@ -20,7 +20,8 @@ import { toast } from '../../store/ui'
 import { openPage, pageHref } from '../../lib/router'
 import { useT } from '../../i18n'
 import type { Bridge } from '../lib/bridge'
-import { blockTextRange, currentBlock, deleteBlock, duplicateBlock, turnInto, type BlockRef, type TurnTarget } from '../lib/blocks'
+import { blockTextRange, currentBlock, deleteBlock, duplicateBlock, turnBlockInto, type BlockRef, type TurnTarget } from '../lib/blocks'
+import { trackMove } from '../lib/moves'
 import { TURN_INTO_ITEMS } from '../lib/catalog'
 import { BlockGlyph } from './SlashMenu'
 import { ColorGrid } from './BubbleToolbar'
@@ -183,12 +184,16 @@ export function BlockHandle({ editor, bridge, pageId }: { editor: Editor; bridge
     openAt(blockAnchor(editor, requested.pos), requested.pos, true)
   }, [requested, bridge, editor, openAt])
 
+  /** Hand the keyboard back to the editor (the block stays selected — typing can't replace it). */
+  const refocus = () => {
+    if (!editor.isDestroyed && !isTouch) editor.view.focus()
+  }
+
   const closeMenu = () => {
-    const wasKeyboard = menu?.keyboard
     setMenu(null)
     if (editor.isDestroyed) return
     editor.view.dispatch(editor.state.tr.setMeta('lockDragHandle', false))
-    if (wasKeyboard && !isTouch) editor.view.focus()
+    refocus()
   }
 
   const entries = useMemo<MenuEntry[]>(() => {
@@ -196,10 +201,6 @@ export function BlockHandle({ editor, bridge, pageId }: { editor: Editor; bridge
     const { ref } = menu
     const node = ref.node
     const textual = TEXTUAL.has(node.type.name)
-    const caretInto = () => {
-      const $ = editor.state.doc.resolve(Math.min(ref.pos + 1, editor.state.doc.content.size))
-      editor.view.dispatch(editor.state.tr.setSelection(TextSelection.near($)))
-    }
     const range = blockTextRange(ref)
     const currentTurn = turnTargetOf(editor, ref)
     const colors = blockColors(node)
@@ -213,10 +214,7 @@ export function BlockHandle({ editor, bridge, pageId }: { editor: Editor; bridge
           icon: <BlockGlyph item={b} size={15} />,
           hint: b.md,
           checked: b.turnInto === currentTurn,
-          onSelect: () => {
-            caretInto()
-            turnInto(editor, b.turnInto!)
-          },
+          onSelect: () => turnBlockInto(editor, ref, b.turnInto!),
         })),
       })
     if (textual && node.type.name !== 'codeBlock')
@@ -231,12 +229,13 @@ export function BlockHandle({ editor, bridge, pageId }: { editor: Editor; bridge
                 text={colors.text}
                 bg={colors.bg}
                 onText={(c) => {
-                  const ch = editor.chain().focus().setTextSelection(range)
-                  ;(c ? ch.setTextColor(c) : ch.unsetTextColor()).run()
+                  // colour the whole block, keep it block-selected (focus stays in the menu)
+                  const ch = editor.chain().setTextSelection(range)
+                  ;(c ? ch.setTextColor(c) : ch.unsetTextColor()).setNodeSelection(ref.pos).run()
                 }}
                 onBg={(c) => {
-                  const ch = editor.chain().focus().setTextSelection(range)
-                  ;(c ? ch.setHighlight({ color: c }) : ch.unsetHighlight()).run()
+                  const ch = editor.chain().setTextSelection(range)
+                  ;(c ? ch.setHighlight({ color: c }) : ch.unsetHighlight()).setNodeSelection(ref.pos).run()
                 }}
               />
             ),
@@ -245,7 +244,7 @@ export function BlockHandle({ editor, bridge, pageId }: { editor: Editor; bridge
       })
     items.push(
       { kind: 'separator' },
-      { label: t('common.duplicate'), icon: <Copy size={15} />, hint: shortcutLabel('Mod+D'), onSelect: () => duplicateBlock(editor, ref) },
+      { label: t('common.duplicate'), icon: <Copy size={15} />, hint: isTouch ? undefined : shortcutLabel('Mod+D'), onSelect: () => duplicateBlock(editor, ref) },
       {
         label: t('editor.blockMenu.copyLink'),
         icon: <Link size={15} />,
@@ -271,10 +270,15 @@ export function BlockHandle({ editor, bridge, pageId }: { editor: Editor; bridge
         },
       },
       { kind: 'separator' },
-      { label: t('common.delete'), icon: <Trash2 size={15} />, hint: 'Del', danger: true, onSelect: () => deleteBlock(editor, ref) },
+      { label: t('common.delete'), icon: <Trash2 size={15} />, hint: isTouch ? undefined : 'Del', danger: true, onSelect: () => deleteBlock(editor, ref) },
     )
     return items
   }, [menu, editor, t, pageId]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const closeMove = () => {
+    setMoveFor(null)
+    refocus()
+  }
 
   const moveEntries = useMemo<MenuEntry[]>(() => {
     if (!moveFor) return []
@@ -289,13 +293,10 @@ export function BlockHandle({ editor, bridge, pageId }: { editor: Editor; bridge
         onSelect: () => {
           const node = editor.state.doc.nodeAt(moveFor.ref.pos)
           if (!node) return
-          const json = node.toJSON()
+          // the block keeps its id: undo here takes it back out of the target (see trackMove),
+          // and ?b= links to the old page follow it (PageEditor)
+          trackMove(editor, node.toJSON(), p.id)
           deleteBlock(editor, { node, pos: moveFor.ref.pos })
-          const ws = useWorkspace.getState()
-          const target = ws.pages[p.id]
-          const existing = target?.content?.content ?? []
-          const trimmed = existing.length && existing[existing.length - 1].type === 'paragraph' && !existing[existing.length - 1].content?.length ? existing.slice(0, -1) : existing
-          ws.setContent(p.id, { type: 'doc', content: [...trimmed, json] }, 'editor-move')
           toast({ message: t('editor.blockMenu.moved', { title: pageTitle(p, t('common.untitled')) }), kind: 'success', action: { label: t('common.open'), run: () => openPage(p.id) } })
         },
       })),
@@ -316,8 +317,8 @@ export function BlockHandle({ editor, bridge, pageId }: { editor: Editor; bridge
         </div>
       </DragHandle>
       <Menu open={!!menu} anchor={menu?.el ?? null} onClose={closeMenu} entries={entries} placement="left-start" width={240} searchable={!isTouch} searchPlaceholder={t('editor.blockMenu.search')} emptyLabel={t('editor.slash.empty')} />
-      <Popover open={!!moveFor} anchor={moveFor?.el ?? null} onClose={() => setMoveFor(null)} placement="left-start" style={{ width: 280 }}>
-        <MenuList entries={moveEntries} onClose={() => setMoveFor(null)} searchable searchPlaceholder={t('editor.blockMenu.movePlaceholder')} emptyLabel={t('editor.slash.empty')} />
+      <Popover open={!!moveFor} anchor={moveFor?.el ?? null} onClose={closeMove} placement="left-start" style={{ width: 280 }}>
+        <MenuList entries={moveEntries} onClose={closeMove} searchable searchPlaceholder={t('editor.blockMenu.movePlaceholder')} emptyLabel={t('editor.slash.empty')} />
       </Popover>
     </>
   )

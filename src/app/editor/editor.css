@@ -274,6 +274,19 @@
   min-width: 0;
 }
 
+/* touch: a 40px hit area around the 16px keycap (the label toggles the checkbox) */
+@media (pointer: coarse) {
+  .doc-content ul[data-type='taskList'] li > label {
+    position: relative;
+  }
+
+  .doc-content ul[data-type='taskList'] li > label::before {
+    content: '';
+    position: absolute;
+    inset: -8px -8px -8px -14px;
+  }
+}
+
 .doc-content ul[data-type='taskList'] ul[data-type='taskList'] {
   padding-left: 0;
 }

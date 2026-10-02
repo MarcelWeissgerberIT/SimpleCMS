@@ -175,9 +175,10 @@ export function testGroup(r: Resolver, db: Database, g: FilterGroup, row: Page, 
   return g.op === 'or' ? g.items.some(test) : g.items.every(test)
 }
 
-export function countFilters(g: FilterGroup | null | undefined): number {
+/** Number of filter rules; with `props`, rules on properties that no longer exist (inert) don't count. */
+export function countFilters(g: FilterGroup | null | undefined, props?: { has: (id: ID) => boolean }): number {
   if (!g) return 0
-  return g.items.reduce((n, x) => n + (isGroup(x) ? countFilters(x) : 1), 0)
+  return g.items.reduce((n, x) => n + (isGroup(x) ? countFilters(x, props) : !props || props.has(x.propertyId) ? 1 : 0), 0)
 }
 
 /* ---------------- Sorting ---------------- */

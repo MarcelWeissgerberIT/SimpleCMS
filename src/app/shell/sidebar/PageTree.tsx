@@ -308,9 +308,11 @@ function TreeRow({ id, depth, section, draggable, expanded, hasKids }: { id: ID;
       {renaming ? (
         <RenameInput
           initial={page.title}
-          onDone={(v) => {
+          onDone={(v, viaKeyboard) => {
             setRenaming(false)
             if (v !== null) useWorkspace.getState().updatePage(id, { title: v })
+            // Enter / Esc hand focus back to the row, so arrow keys and Tab carry on from here
+            if (viaKeyboard) requestAnimationFrame(() => rowRef.current?.querySelector<HTMLElement>('.sb-row__link')?.focus())
           }}
         />
       ) : (
@@ -388,13 +390,13 @@ function revealInScroller(row: HTMLElement) {
   else if (r.bottom > b.bottom) box.scrollTop += r.bottom - b.bottom + 8
 }
 
-function RenameInput({ initial, onDone }: { initial: string; onDone: (v: string | null) => void }) {
+function RenameInput({ initial, onDone }: { initial: string; onDone: (v: string | null, viaKeyboard: boolean) => void }) {
   const [v, setV] = useState(initial)
   const done = useRef(false)
-  const finish = (val: string | null) => {
+  const finish = (val: string | null, viaKeyboard = false) => {
     if (done.current) return
     done.current = true
-    onDone(val)
+    onDone(val, viaKeyboard)
   }
   return (
     <input
@@ -405,8 +407,8 @@ function RenameInput({ initial, onDone }: { initial: string; onDone: (v: string 
       onChange={(e) => setV(e.target.value)}
       onKeyDown={(e) => {
         e.stopPropagation()
-        if (e.key === 'Enter') finish(v)
-        if (e.key === 'Escape') finish(null)
+        if (e.key === 'Enter') finish(v, true)
+        if (e.key === 'Escape') finish(null, true)
       }}
       onBlur={() => finish(v)}
       onPointerDown={(e) => e.stopPropagation()}

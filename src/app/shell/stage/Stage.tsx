@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
+import { Fragment, useEffect, useLayoutEffect, useRef, useState, type ReactNode, type SyntheticEvent } from 'react'
 import { Maximize2, X } from 'lucide-react'
 import { useUI } from '../../store/ui'
 import { usePage } from '../../store/selectors'
@@ -9,7 +9,7 @@ import { useT } from '../../i18n'
 import type { ID } from '../../store/types'
 import { PageView } from '../page/PageView'
 import { goToPage } from '../lib/actions'
-import { useIsMobile } from '../lib/hooks'
+import { useColumnScroll, useIsMobile } from '../lib/hooks'
 import { useStageView } from '../lib/stage'
 import './stage.css'
 
@@ -23,7 +23,15 @@ export function Stage({ route, main, mainTitle }: { route: Route; main: ReactNod
   const mobile = useIsMobile()
   const ref = useRef<HTMLDivElement>(null)
   const [width, setWidth] = useState(1200)
+  // `focus` decides which columns get the room; `active` is the column being worked in (the
+  // topbar, status bar and palette act on its page). Clicking into a column that is already
+  // shown in full only moves `active`, so the layout never shifts under the pointer.
   const [focus, setFocus] = useState(panes.length)
+  const [active, setActive] = useState(panes.length)
+  const show = (i: number) => {
+    setFocus(i)
+    setActive(i)
+  }
   const prevLen = useRef(panes.length)
 
   useLayoutEffect(() => {
@@ -37,8 +45,11 @@ export function Stage({ route, main, mainTitle }: { route: Route; main: ReactNod
 
   useEffect(() => {
     // a newly opened pane takes focus; closing keeps focus in range
-    if (panes.length >= prevLen.current) setFocus(panes.length)
-    else setFocus((f) => Math.min(f, panes.length))
+    if (panes.length >= prevLen.current) show(panes.length)
+    else {
+      setFocus((f) => Math.min(f, panes.length))
+      setActive((a) => Math.min(a, panes.length))
+    }
     prevLen.current = panes.length
   }, [panes])
 
@@ -46,14 +57,14 @@ export function Stage({ route, main, mainTitle }: { route: Route; main: ReactNod
   // navigating the main column brings it back into view
   const lastRoute = useRef(routeKey)
   useEffect(() => {
-    if (lastRoute.current !== routeKey) setFocus(0)
+    if (lastRoute.current !== routeKey) show(0)
     lastRoute.current = routeKey
   }, [routeKey])
-  // the main page was picked again (sidebar, crumbs …) → unfold it
+  // the main page was picked again (sidebar, crumbs, "← 01") → unfold it
   const revealTick = useStageView((s) => s.revealTick)
   const lastReveal = useRef(revealTick)
   useEffect(() => {
-    if (revealTick !== lastReveal.current) setFocus(0)
+    if (revealTick !== lastReveal.current) show(0)
     lastReveal.current = revealTick
   }, [revealTick])
 
@@ -67,13 +78,23 @@ export function Stage({ route, main, mainTitle }: { route: Route; main: ReactNod
   const start = Math.min(f, count - k)
   const isFull = (i: number) => i >= start && i < start + k
   const mainFolded = !isFull(0)
+  // the active column, as long as it is in full view (else the focused one, which always is)
+  const a = Math.min(active, count - 1)
+  const act = isFull(a) ? a : f
 
-  // topbar + status bar follow the focused pane while the main page is folded away
-  const focusPaneId = mainFolded ? (visiblePanes[f - 1] ?? null) : null
+  const activePaneId = act > 0 ? (visiblePanes[act - 1] ?? null) : null
   useEffect(() => {
-    useStageView.getState().publish({ mainFolded, focusPaneId, focusPaneIndex: focusPaneId ? f - 1 : -1 })
-  }, [mainFolded, focusPaneId, f])
-  useEffect(() => () => useStageView.getState().publish({ mainFolded: false, focusPaneId: null, focusPaneIndex: -1 }), [])
+    useStageView.getState().publish({ mainFolded, columns: count, activePaneId, activePaneIndex: activePaneId ? act - 1 : -1 })
+  }, [mainFolded, count, activePaneId, act])
+  useEffect(() => () => useStageView.getState().publish({ mainFolded: false, columns: 1, activePaneId: null, activePaneIndex: -1 }), [])
+
+  // pointer or keyboard focus entering a column makes it the active one
+  const onEnter = (e: SyntheticEvent) => {
+    const col = (e.target as HTMLElement).closest?.('[data-col]') as HTMLElement | null
+    if (!col || !ref.current?.contains(col)) return // portalled menus keep the column they came from
+    const i = Number(col.dataset.col)
+    if (Number.isInteger(i) && i !== act) setActive(i)
+  }
 
   // stable keys: closing a pane must not remount (and reset) the panes to its right
   const seen = new Map<ID, number>()
@@ -83,29 +104,32 @@ export function Stage({ route, main, mainTitle }: { route: Route; main: ReactNod
     return `${id}:${n}`
   })
 
+  // Folded columns stay mounted (hidden next to their spine): unfolding keeps the reading
+  // position, the selection and the editor's undo history.
   return (
-    <div ref={ref} className="stage" data-panes={visiblePanes.length || undefined}>
-      {isFull(0) ? (
-        <MainColumn key={routeKey} route={route}>
-          {main}
-        </MainColumn>
-      ) : (
-        <Spine n={1} title={mainTitle} onClick={() => setFocus(0)} />
-      )}
-      {visiblePanes.map((id, i) =>
-        isFull(i + 1) ? (
-          <Pane key={paneKeys[i]} id={id} index={i} />
-        ) : (
-          <PaneSpine key={`spine:${paneKeys[i]}`} id={id} index={i} onClick={() => setFocus(i + 1)} />
-        ),
-      )}
+    <div ref={ref} className="stage" data-panes={visiblePanes.length || undefined} onPointerDownCapture={onEnter} onFocusCapture={onEnter}>
+      {mainFolded && <Spine key="spine:main" n={1} title={mainTitle} onClick={() => show(0)} />}
+      <MainColumn key={routeKey} route={route} folded={mainFolded} active={count > 1 && act === 0}>
+        {main}
+      </MainColumn>
+      {visiblePanes.map((id, i) => {
+        const folded = !isFull(i + 1)
+        return (
+          <Fragment key={paneKeys[i]}>
+            {folded && <PaneSpine id={id} index={i} onClick={() => show(i + 1)} />}
+            <Pane id={id} index={i} folded={folded} active={act === i + 1} />
+          </Fragment>
+        )
+      })}
     </div>
   )
 }
 
-function MainColumn({ route, children }: { route: Route; children: ReactNode }) {
+function MainColumn({ route, folded, active, children }: { route: Route; folded: boolean; active: boolean; children: ReactNode }) {
   const ref = useRef<HTMLDivElement>(null)
   const block = route.name === 'page' ? route.block : undefined
+  // a deep link to a block scrolls on purpose; everything else opens at the top
+  useColumnScroll(ref, { folded, hold: !block })
   useEffect(() => {
     if (!block) return
     let tries = 0
@@ -149,7 +173,7 @@ function MainColumn({ route, children }: { route: Route; children: ReactNode }) 
     }
   }, [])
   return (
-    <main ref={ref} className="stage-col stage-col--main" id="main" tabIndex={-1}>
+    <main ref={ref} className="stage-col stage-col--main" id="main" tabIndex={-1} data-col={0} data-folded={folded || undefined} data-active={active || undefined}>
       <div className="gauge-line" aria-hidden>
         <div ref={gauge} className="gauge-line__fill" />
       </div>
@@ -158,12 +182,22 @@ function MainColumn({ route, children }: { route: Route; children: ReactNode }) 
   )
 }
 
-function Pane({ id, index }: { id: ID; index: number }) {
+function Pane({ id, index, folded, active }: { id: ID; index: number; folded: boolean; active: boolean }) {
   const t = useT()
   const page = usePage(id)
   const close = () => useUI.getState().closePane(index)
+  const scroller = useRef<HTMLDivElement>(null)
+  useColumnScroll(scroller, { folded })
   return (
-    <section className="stage-col pane" data-pane-index={index} tabIndex={-1} aria-label={page?.title || t('common.untitled')}>
+    <section
+      className="stage-col pane"
+      data-pane-index={index}
+      data-col={index + 1}
+      data-folded={folded || undefined}
+      data-active={active || undefined}
+      tabIndex={-1}
+      aria-label={page?.title || t('common.untitled')}
+    >
       <div className="pane__head">
         <span className="pane__n">{String(index + 2).padStart(2, '0')}</span>
         {page && <PageIcon icon={page.icon} kind={page.kind} size={15} />}
@@ -186,7 +220,7 @@ function Pane({ id, index }: { id: ID; index: number }) {
           </button>
         </Tooltip>
       </div>
-      <div className="pane__scroll">
+      <div ref={scroller} className="pane__scroll">
         <PageView pageId={id} variant="pane" />
       </div>
     </section>
@@ -215,7 +249,8 @@ function Spine({ n, title, onClick, onClose }: { n: number; title: ReactNode; on
   const t = useT()
   return (
     <div className="spine">
-      <button type="button" className="spine__btn" onClick={onClick} aria-label={t('shell.pane.expand')}>
+      {/* named by its number and title; "show this pane" is the hint */}
+      <button type="button" className="spine__btn" onClick={onClick} title={t('shell.pane.expand')}>
         <span className="spine__n">{String(n).padStart(2, '0')}</span>
         <span className="spine__title">{title}</span>
       </button>

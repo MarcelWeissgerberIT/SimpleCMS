@@ -22,6 +22,11 @@ export function pasteExtension(bridge: Bridge | null) {
         new Plugin({
           key: new PluginKey('onePaste'),
           props: {
+            // the "Paste as" menu keeps focus in the editor; it only claims ↑ ↓ ↵ while open
+            handleKeyDown(_view, event) {
+              if (!bridge?.getState().urlPaste) return false
+              return bridge.keyHandlers.urlPaste?.(event) ?? false
+            },
             handlePaste(view, event) {
               const data = event.clipboardData
               if (!data || !editor.isEditable || !bridge) return false

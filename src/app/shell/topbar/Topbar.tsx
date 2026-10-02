@@ -21,9 +21,11 @@ export function Topbar({ route }: { route: Route }) {
   const t = useT()
   const mobile = useIsMobile()
   const collapsed = useWorkspace((s) => s.settings.sidebarCollapsed)
-  // while panes fold the main page into a spine, the bar follows the pane in view
-  const paneId = useStageView((s) => s.focusPaneId)
-  const paneIndex = useStageView((s) => s.focusPaneIndex)
+  // with stacked panes open, the bar acts on the column you are working in
+  const paneId = useStageView((s) => s.activePaneId)
+  const paneIndex = useStageView((s) => s.activePaneIndex)
+  const mainFolded = useStageView((s) => s.mainFolded)
+  const columns = useStageView((s) => s.columns)
   const pageId = paneId ?? (route.name === 'page' ? route.id : null)
   const page = usePage(pageId)
 
@@ -42,7 +44,7 @@ export function Topbar({ route }: { route: Route }) {
           </Tooltip>
         )
       )}
-      {paneId && (
+      {paneId && mainFolded && (
         <Tooltip label={t('shell.topbar.backToMain')}>
           <button type="button" className="tb-back" onClick={revealMain}>
             <ArrowLeft size={14} />
@@ -51,9 +53,9 @@ export function Topbar({ route }: { route: Route }) {
         </Tooltip>
       )}
       <nav className="tb-crumbs" aria-label={t('shell.topbar.breadcrumbs')}>
-        {paneId && (
-          <span className="tb-pane" aria-label={t('shell.topbar.paneN', { n: paneIndex + 2 })}>
-            {String(paneIndex + 2).padStart(2, '0')}
+        {columns > 1 && (
+          <span className="tb-pane" data-main={!paneId || undefined} aria-label={t('shell.topbar.paneN', { n: paneId ? paneIndex + 2 : 1 })}>
+            {String(paneId ? paneIndex + 2 : 1).padStart(2, '0')}
           </span>
         )}
         {page ? <Crumbs page={page} compact={mobile} /> : <RouteCrumb route={route} />}

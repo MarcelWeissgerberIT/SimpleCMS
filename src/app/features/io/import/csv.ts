@@ -5,8 +5,10 @@
 import type { ColorName, DateValue, NumberFormat, PropertyType, SelectOption, StatusGroup } from '../../../store/types'
 import { newId } from '../../../lib/ids'
 
-/** RFC 4180 parser: quoted fields, escaped quotes, CRLF/LF, BOM. Also sniffs ";" / tab delimiters. */
-export function parseCSV(input: string): string[][] {
+export type Delimiter = ',' | ';' | '\t'
+
+/** Field delimiter from the header line: "," (default), ";" (German / European Excel) or tab. */
+export function sniffDelimiter(input: string): Delimiter {
   const text = input.replace(/^﻿/, '')
   const firstLine = text.slice(0, text.search(/\r?\n|$/))
   const counts = { ',': 0, ';': 0, '\t': 0 } as Record<string, number>
@@ -15,7 +17,21 @@ export function parseCSV(input: string): string[][] {
     if (ch === '"') inQ = !inQ
     else if (!inQ && ch in counts) counts[ch]++
   }
-  const delim = counts[';'] > counts[','] && counts[';'] >= counts['\t'] ? ';' : counts['\t'] > counts[','] ? '\t' : ','
+  return counts[';'] > counts[','] && counts[';'] >= counts['\t'] ? ';' : counts['\t'] > counts[','] ? '\t' : ','
+}
+
+/** Undo the spreadsheet formula guard added on export ("'=SUM(…)" → "=SUM(…)"). */
+export const unguardCell = (cell: string) => (/^'[=+\-@]/.test(cell) ? cell.slice(1) : cell)
+
+/** Prefix cells a spreadsheet would run as a formula (=, +, -, @ …) — plain numbers stay as they are. */
+export function guardCell(cell: string): string {
+  return /^[=+\-@\t\r]/.test(cell) && !/^[-+]?[\d.,\s]*\d[\d.,\s]*%?$/.test(cell) ? `'${cell}` : cell
+}
+
+/** RFC 4180 parser: quoted fields, escaped quotes, CRLF/LF, BOM. Also sniffs ";" / tab delimiters. */
+export function parseCSV(input: string): string[][] {
+  const text = input.replace(/^﻿/, '')
+  const delim = sniffDelimiter(text)
 
   const rows: string[][] = []
   let row: string[] = []
@@ -87,7 +103,7 @@ function parseTime(h?: string, min?: string, ampm?: string): string | null {
   let hh = Number(h)
   const mm = Number(min)
   if (ampm) {
-    const pm = ampm.toLowerCase() === 'pm'
+    const pm = ampm.replace(/\./g, '').toLowerCase() === 'pm'
     if (hh === 12) hh = pm ? 12 : 0
     else if (pm) hh += 12
   }
@@ -95,7 +111,9 @@ function parseTime(h?: string, min?: string, ampm?: string): string | null {
   return `${pad(hh)}:${pad(mm)}`
 }
 
-const TIME = String.raw`(?:[ ,T]+(\d{1,2}):(\d{2})(?::\d{2}(?:\.\d+)?)?\s*([AaPp][Mm])?(?:\s*(?:Uhr|Z|[+-]\d{2}:?\d{2}|\(?[A-Z]{2,5}\)?))?)?`
+/** Zone suffix we accept and ignore: "Uhr", "Z", "+02:00", "(GMT+2)", "UTC-05:30", "(CEST)" */
+const ZONE = String.raw`(?:Uhr|Z|[+-]\d{2}:?\d{2}|\(?(?:GMT|UTC)\s?(?:[+-]\d{1,2}(?::?\d{2})?)?\)?|\(?[A-Z]{2,5}\)?)`
+const TIME = String.raw`(?:[ ,T]+(?:at\s+|um\s+)?(\d{1,2}):(\d{2})(?::\d{2}(?:\.\d+)?)?\s*([AaPp]\.?[Mm]\.?)?(?:\s*${ZONE})?)?`
 const RE_ISO = new RegExp(String.raw`^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})${TIME}$`)
 const RE_MDY_NAME = new RegExp(String.raw`^([A-Za-zÄÖÜäöü]+)\.?\s+(\d{1,2})(?:st|nd|rd|th)?,?\s+(\d{4})${TIME}$`)
 const RE_DMY_NAME = new RegExp(String.raw`^(\d{1,2})\.?\s+([A-Za-zÄÖÜäöü]+)\.?,?\s+(\d{4})${TIME}$`)
@@ -147,7 +165,7 @@ export function parseDateValue(raw: string, dayFirst = false): DateValue | null 
   let includeTime = !!a.time
   if (parts.length === 2) {
     // "October 2, 2026 2:00 PM → 4:00 PM" (same day, time only)
-    const timeOnly = parts[1].trim().match(/^(\d{1,2}):(\d{2})\s*([AaPp][Mm])?$/)
+    const timeOnly = parts[1].trim().match(new RegExp(String.raw`^(\d{1,2}):(\d{2})\s*([AaPp]\.?[Mm]\.?)?(?:\s*${ZONE})?$`))
     const b = timeOnly ? { date: a.date, time: parseTime(timeOnly[1], timeOnly[2], timeOnly[3]) } : parseSingleDate(parts[1], dayFirst)
     if (!b) return null
     includeTime = includeTime || !!b.time
@@ -161,22 +179,48 @@ export function parseDateValue(raw: string, dayFirst = false): DateValue | null 
 /* Numbers                                                             */
 /* ------------------------------------------------------------------ */
 
-const RE_NUM = /^([-+]?)\s*([$€£]?)\s*([-+]?)(\d{1,3}(?:[,  ]\d{3})+|\d+)?(\.\d+)?\s*([$€£%]?)$/
+/** "dot": 1,234.5 (EN) · "comma": 1.234,5 (DE / most of Europe) */
+export type DecimalStyle = 'dot' | 'comma'
 
-export function parseNumber(raw: string): { value: number; format: NumberFormat | null } | null {
-  const s = raw.trim()
+const SP = ' \\u00a0\\u202f'
+const RE_NUM: Record<DecimalStyle, RegExp> = {
+  dot: new RegExp(`^([-+]?)\\s*([$€£]?)\\s*([-+]?)(\\d{1,3}(?:[,${SP}]\\d{3})+|\\d+)?(\\.\\d+)?\\s*([$€£%]?)$`),
+  comma: new RegExp(`^([-+]?)\\s*([$€£]?)\\s*([-+]?)(\\d{1,3}(?:[.${SP}]\\d{3})+|\\d+)?(,\\d+)?\\s*([$€£%]?)$`),
+}
+
+export function parseNumber(raw: string, style: DecimalStyle = 'dot'): { value: number; format: NumberFormat | null } | null {
+  const s = raw.trim().replace(/\s*(EUR|USD|GBP)$/i, (_m, c: string) => ({ eur: '€', usd: '$', gbp: '£' })[c.toLowerCase() as 'eur'] ?? '')
   if (!s) return null
-  const m = s.match(RE_NUM)
+  const m = s.match(RE_NUM[style])
   if (!m || (!m[4] && !m[5])) return null
-  const intPart = (m[4] ?? '0').replace(/[,  ]/g, '')
-  let value = Number(`${intPart}${m[5] ?? ''}`)
+  const intPart = (m[4] ?? '0').replace(/[^\d]/g, '')
+  const frac = m[5] ? `.${m[5].slice(1)}` : ''
+  let value = Number(`${intPart}${frac}`)
   if (!Number.isFinite(value)) return null
   if (m[1] === '-' || m[3] === '-') value = -value
   const sym = m[2] || m[6]
-  const format: NumberFormat | null =
-    sym === '%' ? 'percent' : sym === '$' ? 'dollar' : sym === '€' ? 'euro' : sym === '£' ? 'pound' : /,\d{3}/.test(m[4] ?? '') ? 'comma' : null
+  const grouped = /\d\D\d{3}/.test(m[4] ?? '')
+  const format: NumberFormat | null = sym === '%' ? 'percent' : sym === '$' ? 'dollar' : sym === '€' ? 'euro' : sym === '£' ? 'pound' : grouped ? 'comma' : null
   if (sym === '%') value = value / 100
   return { value, format }
+}
+
+/**
+ * Decide the decimal style of a column once. Unambiguous values vote ("1.234,5", "3,50" → comma;
+ * "1,234.5", "3.50" → dot); "1.200" / "1,200" alone are ambiguous — then a ";" delimiter
+ * (European Excel) means comma decimals.
+ */
+export function decimalStyleOf(values: string[], delimiter: Delimiter = ','): DecimalStyle {
+  let comma = 0
+  let dot = 0
+  for (const raw of values) {
+    const v = raw.replace(/[^\d.,]/g, '')
+    if (!v) continue
+    if (/^\d{1,3}(\.\d{3})+,\d+$/.test(v) || /^\d{1,3}(\.\d{3}){2,}$/.test(v) || /^\d+,(\d{1,2}|\d{4,})$/.test(v) || /^\d+\.\d+,\d+$/.test(v)) comma++
+    else if (/^\d{1,3}(,\d{3})+\.\d+$/.test(v) || /^\d{1,3}(,\d{3}){2,}$/.test(v) || /^\d+\.(\d{1,2}|\d{4,})$/.test(v) || /^\d+,\d+\.\d+$/.test(v)) dot++
+  }
+  if (comma !== dot) return comma > dot ? 'comma' : 'dot'
+  return delimiter === ';' ? 'comma' : 'dot'
 }
 
 /* ------------------------------------------------------------------ */
@@ -190,6 +234,8 @@ export interface ColumnSpec {
   type: ColumnType
   options?: SelectOption[]
   numberFormat?: NumberFormat
+  /** numbers: "1.234,5" (comma) vs "1,234.5" (dot) */
+  decimal?: DecimalStyle
   /** ambiguous slash dates resolved as D/M/Y */
   dayFirst?: boolean
 }
@@ -197,6 +243,8 @@ export interface ColumnSpec {
 export interface InferContext {
   /** Does this (decoded, relative-to-csv) token name an attachment inside the import? */
   isFile?: (token: string) => boolean
+  /** The CSV's field delimiter — ";" hints at European number and date formats. */
+  delimiter?: Delimiter
 }
 
 const YES = new Set(['yes', 'true', 'ja', 'checked', '✓', '✔', 'x', '[x]'])
@@ -252,19 +300,24 @@ export function inferColumn(name: string, values: string[], index: number, ctx: 
   if (vals.every((v) => YES.has(v.toLowerCase()) || NO.has(v.toLowerCase())) && filled.some((v) => YES.has(v.toLowerCase()) || /^(no|false|nein)$/i.test(v)))
     return { name, type: 'checkbox' }
 
-  // number
-  const nums = filled.map(parseNumber)
+  // number (decimal comma vs. dot decided once per column)
+  const decimal = decimalStyleOf(filled, ctx.delimiter)
+  const nums = filled.map((v) => parseNumber(v, decimal))
   if (nums.every(Boolean)) {
+    // codes, not quantities: "01067" (postcode), "0301234567" (phone), "007" (id) or 16+ digits (precision)
+    if (filled.some((v) => /^[-+]?0\d/.test(v) || v.replace(/\D/g, '').length > 15)) return { name, type: 'text' }
     const formats = nums.map((n) => n!.format).filter(Boolean) as NumberFormat[]
     const numberFormat = formats.length ? mostCommon(formats) : 'number'
-    return { name, type: 'number', numberFormat }
+    return { name, type: 'number', numberFormat, decimal }
   }
 
-  // date (decide D/M vs M/D for slash dates once per column)
-  const dayFirst = filled.some((v) => {
-    const m = v.match(/^(\d{1,2})\/(\d{1,2})\/\d{4}/)
-    return !!m && +m[1] > 12
-  })
+  // date (decide D/M vs M/D for slash dates once per column; European CSVs default to D/M)
+  const dayFirst =
+    ctx.delimiter === ';' ||
+    filled.some((v) => {
+      const m = v.match(/^(\d{1,2})\/(\d{1,2})\/\d{4}/)
+      return !!m && +m[1] > 12
+    })
   if (filled.every((v) => parseDateValue(v, dayFirst))) return { name, type: 'date', dayFirst }
 
   if (filled.every((v) => URL_RE.test(v)) && !filled.every((v) => RELATION_TOKEN.test(v))) return { name, type: 'url' }
@@ -285,7 +338,7 @@ export function inferColumn(name: string, values: string[], index: number, ctx: 
     const tokens = filled.flatMap(splitList)
     const distinct = unique(tokens)
     const shortTokens = tokens.every((tok) => tok.length <= 32 && tok.split(/\s+/).length <= 4)
-    if (shortTokens && distinct.length <= 60 && (hint || (distinct.length < tokens.length && distinct.length <= Math.ceil(tokens.length * 0.8)))) {
+    if (shortTokens && distinct.length <= 60 && (hint || (recombines(filled) && distinct.length < tokens.length && distinct.length <= Math.ceil(tokens.length * 0.8)))) {
       return { name, type: 'multi_select', options: makeOptions(distinct, false) }
     }
   }
@@ -298,6 +351,25 @@ export function inferColumn(name: string, values: string[], index: number, ctx: 
     return { name, type: status ? 'status' : 'select', options: makeOptions(distinct, status) }
   }
   return { name, type: 'text' }
+}
+
+/**
+ * Do the comma-separated tokens appear in different combinations? Tags do ("a, b", "a", "b, c");
+ * "Smith, John" style names don't — every token always comes with the same partners.
+ */
+function recombines(values: string[]): boolean {
+  const cellOf = new Map<string, string>()
+  for (const v of values) {
+    const cell = splitList(v)
+      .map((x) => x.toLowerCase())
+      .join('\u0000')
+    for (const tok of cell.split('\u0000')) {
+      const seen = cellOf.get(tok)
+      if (seen === undefined) cellOf.set(tok, cell)
+      else if (seen !== cell) return true
+    }
+  }
+  return false
 }
 
 function unique(arr: string[]): string[] {
@@ -346,7 +418,7 @@ export function cellValue(spec: ColumnSpec, raw: string): string | number | bool
     case 'checkbox':
       return YES.has(v.toLowerCase())
     case 'number': {
-      const n = parseNumber(v)
+      const n = parseNumber(v, spec.decimal)
       return n ? n.value : null
     }
     case 'date':

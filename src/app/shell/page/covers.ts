@@ -1,6 +1,8 @@
 /**
- * Cover presets (persisted as cover values, so they are literal CSS — no tokens).
- * Brand palette only: paper, ink, international orange and a few earth tones.
+ * Cover presets. DOCUMENTED EXCEPTION to "no raw hex outside tokens.css": the value is
+ * stored in page.cover and travels into exports and shared links, where the app's tokens
+ * do not exist — so it has to be literal CSS. Brand palette only: paper, ink,
+ * international orange and a few earth tones. Names: shell.cover.g.<id>.
  */
 export interface GradientPreset {
   id: string

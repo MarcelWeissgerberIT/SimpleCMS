@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
 import { NodeViewWrapper, type ReactNodeViewProps } from '@tiptap/react'
-import { Selection, TextSelection } from '@tiptap/pm/state'
 import katex from 'katex'
 import 'katex/dist/katex.min.css'
 import { Popover } from '../../ui/Popover'
 import { Kbd, MOD } from '../../ui/controls'
 import { useT } from '../../i18n'
+import { leaveNodeView } from '../lib/blocks'
+import { useEscapeFirst } from '../lib/escape'
 
 function renderInto(el: HTMLElement | null, latex: string, displayMode: boolean): boolean {
   if (!el) return true
@@ -41,15 +42,19 @@ function MathEditor({
   anchor: Element
   initial: string
   display: boolean
-  onCommit: (latex: string) => void
+  /** `outside`: the editor was closed by a click elsewhere — that click decides where focus goes */
+  onCommit: (latex: string, outside?: boolean) => void
   onCancel: () => void
 }) {
   const t = useT()
   const [value, setValue] = useState(initial)
   const [valid, setValid] = useState(true)
   const done = () => onCommit(value.trim())
+  const doneOutside = () => onCommit(value.trim(), true)
+  // Escape cancels (the Popover's own Escape → onClose would commit)
+  useEscapeFirst(onCancel)
   return (
-    <Popover open anchor={anchor} onClose={done} placement="bottom" offset={8} className="math-editor">
+    <Popover open anchor={anchor} onClose={doneOutside} placement="bottom" offset={8} className="math-editor">
       <div className="math-editor__head">
         <span className="label">{display ? t('editor.math.block') : t('editor.math.inline')} · TeX</span>
         {!valid && value.trim() && <span className="math-editor__err label">{t('editor.math.invalid')}</span>}
@@ -66,10 +71,6 @@ function MathEditor({
           if (e.key === 'Enter' && (!display || e.metaKey || e.ctrlKey)) {
             e.preventDefault()
             done()
-          } else if (e.key === 'Escape') {
-            e.preventDefault()
-            e.stopPropagation()
-            onCancel()
           }
         }}
       />
@@ -101,31 +102,19 @@ function useMathEditing({ node, selected, editor, deleteNode, updateAttributes, 
   useEffect(() => {
     if (selected && !latex && editor.isEditable) setEditing(true)
   }, [selected]) // eslint-disable-line react-hooks/exhaustive-deps
-  /** Put the caret right after the equation (inline) or into the line below (block). */
-  const caretAfter = () => {
-    const pos = getPos()
-    if (typeof pos !== 'number' || editor.isDestroyed) return editor.commands.focus()
-    const { state, view } = editor
-    const end = Math.min(pos + node.nodeSize, state.doc.content.size)
-    const $end = state.doc.resolve(end)
-    const sel = $end.parent.inlineContent ? TextSelection.create(state.doc, end) : Selection.near($end, 1)
-    view.dispatch(state.tr.setSelection(sel).scrollIntoView())
-    view.focus()
-    return true
-  }
-  const commit = (v: string) => {
+  const commit = (v: string, outside = false) => {
     setEditing(false)
     if (!v) {
       deleteNode()
       return
     }
     if (v !== latex) updateAttributes({ latex: v })
-    caretAfter()
+    if (!outside) leaveNodeView(editor, getPos(), 'enter')
   }
   const cancel = () => {
     setEditing(false)
     if (!latex) deleteNode()
-    else caretAfter()
+    else leaveNodeView(editor, getPos(), 'escape')
   }
   return { latex, editing, setEditing, commit, cancel }
 }

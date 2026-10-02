@@ -122,7 +122,7 @@ export function seedWorkspace(lang: Lang): void {
     { id: P.tags, name: 'Tags', type: 'multi_select', options: tagOpts },
     { id: P.budget, name: 'Budget', type: 'number', numberFormat: 'euro' },
     { id: P.id, name: 'ID', type: 'unique_id', idPrefix: 'PRJ' },
-    { id: P.daysLeft, name: L('Days left', 'Tage übrig'), type: 'formula', formula: `if(empty(prop("${L('Timeline', 'Zeitraum')}")), "", dateBetween(prop("${L('Timeline', 'Zeitraum')}"), now(), "days"))` },
+    { id: P.daysLeft, name: L('Days left', 'Tage übrig'), type: 'formula', formula: `if(empty(prop("${L('Timeline', 'Zeitraum')}")), "", dateBetween(dateEnd(prop("${L('Timeline', 'Zeitraum')}")), now(), "days"))` },
   ]
   s.createDatabase({ id: projects, title: L('Projects', 'Projekte'), icon: { type: 'emoji', value: '🗂️' }, properties: projectProps, views: [] })
   {

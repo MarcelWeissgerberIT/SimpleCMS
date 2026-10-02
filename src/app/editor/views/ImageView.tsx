@@ -5,10 +5,11 @@ import { saveFile, useFileUrl } from '../../lib/files'
 import { useT } from '../../i18n'
 import { pickFiles } from '../lib/upload'
 import { isUrl } from '../lib/embeds'
+import { caretAfterNode, leaveNodeView } from '../lib/blocks'
 
 const MIN_W = 80
 
-export function ImageView({ node, updateAttributes, deleteNode, selected, editor }: ReactNodeViewProps) {
+export function ImageView({ node, updateAttributes, deleteNode, selected, editor, getPos }: ReactNodeViewProps) {
   const t = useT()
   const { src, alt, caption, width, align } = node.attrs as { src: string | null; alt: string | null; caption: string; width: number | null; align: string }
   const url = useFileUrl(src)
@@ -26,7 +27,10 @@ export function ImageView({ node, updateAttributes, deleteNode, selected, editor
     const [file] = await pickFiles('image/*')
     if (!file) return
     const ref = await saveFile(file, file.name)
+    const fresh = !src
     updateAttributes({ src: ref, alt: alt || file.name.replace(/\.[a-z0-9]+$/i, '') })
+    // a fresh upload: back to the document (a free line below, else the image block-selected)
+    if (fresh) leaveNodeView(editor, getPos(), 'escape')
   }
 
   if (!src) {
@@ -46,7 +50,10 @@ export function ImageView({ node, updateAttributes, deleteNode, selected, editor
               className="media-empty__form"
               onSubmit={(e) => {
                 e.preventDefault()
-                if (isUrl(linkValue) || /^data:image\//.test(linkValue)) updateAttributes({ src: linkValue.trim() })
+                if (isUrl(linkValue) || /^data:image\//.test(linkValue)) {
+                  updateAttributes({ src: linkValue.trim() })
+                  caretAfterNode(editor, getPos(), { newLine: true })
+                }
               }}
             >
               <input
@@ -163,9 +170,12 @@ export function ImageView({ node, updateAttributes, deleteNode, selected, editor
               onChange={(e) => updateAttributes({ caption: e.target.value })}
               onBlur={() => !caption && setShowCaption(false)}
               onKeyDown={(e) => {
+                // leave the caption with a text caret below the image — never with the image
+                // selected, where the next keystroke would act on the image
                 if (e.key === 'Enter' || e.key === 'Escape') {
                   e.preventDefault()
-                  editor.commands.focus()
+                  e.stopPropagation()
+                  leaveNodeView(editor, getPos(), e.key === 'Enter' ? 'enter' : 'escape')
                 }
               }}
             />

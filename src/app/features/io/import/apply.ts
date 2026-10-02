@@ -4,7 +4,6 @@
  * with inferred properties and rows, then insert everything with ONE store update.
  */
 import type { JSONContent } from '@tiptap/core'
-import { markdownToDoc } from '../../../editor'
 import { useWorkspace, getWorkspaceSnapshot, plainText, defaultView, DEFAULT_PAGE_SETTINGS } from '../../../store/store'
 import type { Database, ID, Page, PropertyDef, PropertyValue, View } from '../../../store/types'
 import { saveFile } from '../../../lib/files'
@@ -58,13 +57,45 @@ interface SavedFile {
   image: boolean
 }
 
-const tick = () => new Promise<void>((r) => setTimeout(r, 0))
+/** Yield to the browser (MessageChannel: not clamped to 4 ms like nested setTimeouts). */
+function yieldNow(): Promise<void> {
+  if (typeof MessageChannel === 'undefined') return new Promise((r) => setTimeout(r, 0))
+  return new Promise((r) => {
+    const ch = new MessageChannel()
+    ch.port1.onmessage = () => {
+      ch.port1.close()
+      r()
+    }
+    ch.port2.postMessage(null)
+  })
+}
+
+/** Cooperative scheduling on a time budget: work for ~12 ms, then let the UI paint. */
+function budget(ms = 12) {
+  let last = performance.now()
+  return async (force = false) => {
+    if (!force && performance.now() - last < ms) return false
+    await yieldNow()
+    last = performance.now()
+    return true
+  }
+}
 
 export async function applyPlan(
   plan: ImportPlan,
-  opts: { onProgress?: (p: ImportProgress) => void; containerTitle: string; containerNote?: string; untitled: string },
+  opts: {
+    onProgress?: (p: ImportProgress) => void
+    containerTitle: string
+    containerNote?: string
+    untitled: string
+    /** localized names for the generated views */
+    viewNames?: { table: string; board: string; calendar: string }
+  },
 ): Promise<ImportResult> {
   const progress = opts.onProgress ?? (() => {})
+  // the editor's Markdown converter is loaded on demand
+  const { markdownToDoc } = await import('../../../editor')
+  const viewName = opts.viewNames ?? { table: 'Table', board: 'Board', calendar: 'Calendar' }
   const ids = new Map<string, ID>()
   const byHex = new Map<string, PlanNode>()
   const byKey = new Map<string, PlanNode>()
@@ -74,27 +105,28 @@ export async function applyPlan(
     if (n.hex) byHex.set(n.hex, n)
   }
 
+  const pause = budget()
+
   /* ---------- 1. attachments ---------- */
   const saved = new Map<string, SavedFile>()
   const fileIndex: string[] = []
+  const fileNo = new Map<string, number>()
   const total = plan.files.size
   let done = 0
   for (const [path, bytes] of plan.files) {
     const type = mimeOf(path)
     const ref = await saveFile(new Blob([bytes as BlobPart], { type }), basename(path))
     saved.set(path, { ref, name: basename(path), size: bytes.byteLength, image: IMAGE.test(type) })
+    fileNo.set(path, fileIndex.length)
     fileIndex.push(path)
     done++
-    if (done % 8 === 0 || done === total) {
-      progress({ stage: 'files', done, total })
-      await tick()
-    }
+    if ((await pause()) || done === total) progress({ stage: 'files', done, total })
   }
 
   const nodeFor = (dir: string, href: string): PlanNode | undefined => {
     const p = resolveTarget(dir, href)
     if (p) {
-      const key = p.replace(/\.(md|markdown|txt)$/i, '').replace(/(_all)?\.csv$/i, '')
+      const key = plan.pathKeys?.get(p) ?? p.replace(/\.(md|markdown|txt)$/i, '').replace(/(_all)?\.(csv|tsv)$/i, '')
       const hit = byKey.get(key)
       if (hit) return hit
     }
@@ -102,12 +134,21 @@ export async function applyPlan(
     return hex ? byHex.get(hex) : undefined
   }
 
+  // children per parent (folder pages list theirs; databases need their rows)
+  const kids = new Map<string, PlanNode[]>()
+  for (const n of plan.nodes) {
+    const k = n.kind === 'row' ? `row:${n.dbKey}` : `kid:${n.parentKey}`
+    const list = kids.get(k)
+    if (list) list.push(n)
+    else kids.set(k, [n])
+  }
+
   /* ---------- 2. databases ---------- */
   const dbProps = new Map<string, Array<{ spec: ColumnSpec; def: PropertyDef }>>()
   const databases: Record<ID, Database> = {}
   for (const n of plan.nodes) {
     if (n.kind !== 'database') continue
-    const rows = plan.nodes.filter((r) => r.kind === 'row' && r.dbKey === n.key)
+    const rows = kids.get(`row:${n.key}`) ?? []
     const cols = (n.columns ?? []).map((spec) => {
       const def: PropertyDef = { id: newId(), name: spec.name, type: spec.type }
       if (spec.options) def.options = spec.options
@@ -118,7 +159,7 @@ export async function applyPlan(
         for (const r of rows) {
           for (const tok of splitList(r.cells?.[spec.name] ?? '')) {
             const m = tok.match(RELATION_TOKEN)
-            const hit = m ? nodeFor(n.csvDir ?? '', m[2]) : undefined
+            const hit = m ? (nodeFor(n.csvDir ?? '', m[2]) ?? nodeFor(r.dir, m[2])) : undefined
             if (hit?.kind === 'row') target = hit.dbKey
             if (target) break
           }
@@ -133,11 +174,11 @@ export async function applyPlan(
     dbProps.set(n.key, cols)
     const properties = cols.map((c) => c.def)
     const db: Database = { id: ids.get(n.key)!, properties, views: [], nextUniqueId: 1 }
-    const views: View[] = [defaultView('table', db, 'Table')]
+    const views: View[] = [defaultView('table', db, viewName.table)]
     const group = properties.find((p) => p.type === 'status') ?? properties.find((p) => p.type === 'select')
-    if (group) views.push({ ...defaultView('board', db, 'Board'), groupBy: group.id })
+    if (group) views.push({ ...defaultView('board', db, viewName.board), groupBy: group.id })
     const date = properties.find((p) => p.type === 'date')
-    if (date) views.push({ ...defaultView('calendar', db, 'Calendar'), dateProperty: date.id })
+    if (date) views.push({ ...defaultView('calendar', db, viewName.calendar), dateProperty: date.id })
     db.views = views
     databases[db.id] = db
   }
@@ -155,6 +196,7 @@ export async function applyPlan(
 
   const contentFor = (n: PlanNode): JSONContent | null => {
     const blocks: JSONContent[] = []
+    if (n.meta?.length) blocks.push(metaCallout(n.meta))
     if (n.body.trim()) {
       if (n.format === 'text') {
         for (const para of n.body.replace(/\s+$/, '').replace(/^\n+/, '').split(/\n{2,}/)) {
@@ -169,7 +211,7 @@ export async function applyPlan(
       } else {
         const md = rewriteLinks(n.body, (href) => {
           const p = resolveTarget(n.dir, href)
-          if (p && saved.has(p)) return F_URL + fileIndex.indexOf(p)
+          if (p && saved.has(p)) return F_URL + fileNo.get(p)
           const target = nodeFor(n.dir, href)
           if (target) return P_URL + ids.get(target.key)
           return null
@@ -179,7 +221,12 @@ export async function applyPlan(
       }
     }
     if (n.kind === 'folder') {
-      for (const c of plan.nodes) if (c.parentKey === n.key && c.kind !== 'row') blocks.push(linkBlock(ids.get(c.key)!, c.kind === 'database'))
+      for (const c of kids.get(`kid:${n.key}`) ?? []) if (c.kind !== 'row') blocks.push(linkBlock(ids.get(c.key)!, c.kind === 'database'))
+    }
+    // a database that shares the page's name ("X.md" + "X.csv") sits inline at the end, unless linked already
+    for (const k of n.embeds ?? []) {
+      const id = ids.get(k)
+      if (id && !JSON.stringify(blocks).includes(`"databaseId":"${id}"`)) blocks.push(linkBlock(id, true))
     }
     for (const path of n.attachments) {
       const f = saved.get(path)
@@ -272,8 +319,9 @@ export async function applyPlan(
           const rel: ID[] = []
           for (const tok of splitList(raw)) {
             const m = tok.match(RELATION_TOKEN)
-            const hit = m ? nodeFor(db?.csvDir ?? '', m[2]) : undefined
-            if (hit) rel.push(ids.get(hit.key)!)
+            // CSV cells are relative to the CSV; values from a row page's header to that page
+            const hit = m ? (nodeFor(db?.csvDir ?? '', m[2]) ?? nodeFor(n.dir, m[2])) : undefined
+            if (hit && !rel.includes(ids.get(hit.key)!)) rel.push(ids.get(hit.key)!)
           }
           properties[def.id] = rel
         } else if (def.type === 'files') {
@@ -312,10 +360,7 @@ export async function applyPlan(
       plain: content ? plainText(content) : '',
     }
     processed++
-    if (processed % 6 === 0 || processed === plan.nodes.length) {
-      progress({ stage: 'pages', done: processed, total: plan.nodes.length })
-      await tick()
-    }
+    if ((await pause()) || processed === plan.nodes.length) progress({ stage: 'pages', done: processed, total: plan.nodes.length })
   }
 
   if (containerId) {
@@ -366,7 +411,18 @@ export async function applyPlan(
     else nPages++
   }
   const rootId = containerId ?? (plan.roots[0] ? ids.get(plan.roots[0])! : null)
-  return { rootId, pages: nPages + (containerId ? 1 : 0), databases: nDbs, rows: nRows, files: saved.size }
+  // the container page is not counted: the numbers match the note inside it
+  return { rootId, pages: nPages, databases: nDbs, rows: nRows, files: saved.size }
+}
+
+/** YAML front matter → a quiet properties callout ("tags: a, b" per line). */
+function metaCallout(meta: Array<[string, string]>): JSONContent {
+  const content: JSONContent[] = []
+  meta.forEach(([k, v], i) => {
+    if (i) content.push({ type: 'hardBreak' })
+    content.push({ type: 'text', text: `${k}: `, marks: [{ type: 'bold' }] }, { type: 'text', text: v })
+  })
+  return { type: 'callout', attrs: { icon: '🏷️', color: 'gray' }, content: [{ type: 'paragraph', content }] }
 }
 
 /** Containers whose children may become page-link / file blocks */

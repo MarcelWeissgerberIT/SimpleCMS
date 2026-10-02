@@ -4,6 +4,8 @@
   position: absolute;
   inset: 0;
   overflow: hidden;
+  /* the graph can share the screen with side panes → lay out by its own width, not the viewport's */
+  container: graph / inline-size;
   background-color: var(--bg);
   background-image: radial-gradient(circle at 1px 1px, var(--rule-strong) 1px, transparent 1.3px);
   background-size: 24px 24px;
@@ -21,6 +23,19 @@
 }
 
 /* ---------- HUD ---------- */
+.graph-top {
+  position: absolute;
+  top: 14px;
+  left: 14px;
+  right: 14px;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  pointer-events: none;
+}
+
 .graph-hud {
   position: absolute;
   left: 14px;
@@ -32,12 +47,17 @@
   pointer-events: none;
 }
 
-.graph-hud > * {
+.graph-hud > *,
+.graph-top > .graph-focus {
   pointer-events: auto;
 }
 
 .graph-hud--top {
-  top: 14px;
+  position: relative;
+  left: auto;
+  right: auto;
+  z-index: 1; /* search results drop over the focus chip */
+  align-self: stretch;
 }
 
 .graph-hud--bottom {
@@ -101,6 +121,11 @@
   background: transparent;
   font-size: var(--text-sm);
   outline: none;
+}
+
+/* the whole field shows the ring (see :focus-within above) */
+.graph-search__input:focus-visible {
+  box-shadow: none;
 }
 
 .graph-search__input::placeholder {
@@ -193,17 +218,13 @@
   background: var(--rule-strong);
 }
 
-/* focus chip */
+/* focus chip (sits under the top HUD in the .graph-top column) */
 .graph-focus {
-  position: absolute;
-  top: 60px;
-  left: 50%;
-  z-index: 2;
   display: flex;
   align-items: center;
   gap: 10px;
+  max-width: 100%;
   padding: 4px 4px 4px 12px;
-  transform: translateX(-50%);
   border: 1px solid var(--signal);
   border-radius: var(--radius-2);
   background: var(--surface);
@@ -234,14 +255,35 @@
 .graph-tip {
   position: absolute;
   z-index: 3;
+  left: 0;
+  top: 0;
   max-width: 280px;
   padding: 8px 10px;
-  transform: translate(14px, -50%);
   border-radius: var(--radius-1);
   background: var(--ink);
   color: var(--ink-inverse);
   pointer-events: none;
   animation: fade-in var(--dur-1) var(--ease-out);
+}
+
+/* pointer notch towards the node */
+.graph-tip::after {
+  content: '';
+  position: absolute;
+  left: var(--tip-x, 50%);
+  width: 8px;
+  height: 8px;
+  margin-left: -4px;
+  background: inherit;
+  transform: rotate(45deg);
+}
+
+.graph-tip[data-side='above']::after {
+  bottom: -4px;
+}
+
+.graph-tip[data-side='below']::after {
+  top: -4px;
 }
 
 .graph-tip__title {
@@ -359,12 +401,14 @@
   pointer-events: none;
 }
 
-@media (max-width: 760px) {
-  .graph-hud--top {
-    flex-wrap: wrap;
+@container graph (max-width: 760px) {
+  .graph-top {
     top: 10px;
     left: 10px;
     right: 10px;
+  }
+  .graph-hud--top {
+    flex-wrap: wrap;
   }
   .graph-plate {
     display: none;
@@ -390,9 +434,5 @@
   }
   .graph-readout {
     gap: 4px 10px;
-  }
-  .graph-focus {
-    top: auto;
-    bottom: 64px;
   }
 }

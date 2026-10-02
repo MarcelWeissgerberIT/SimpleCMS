@@ -210,6 +210,11 @@ export const messages: Messages = {
     'editor.paste.embed': 'Embed',
     'editor.paste.embedProvider': 'Embed {provider}',
     'editor.paste.dismiss': 'Dismiss',
+    // accessibility labels for built-in controls
+    'editor.a11y.todo': 'To-do: {text}',
+    'editor.a11y.todoEmpty': 'empty to-do',
+    'editor.a11y.expand': 'Expand toggle',
+    'editor.a11y.collapse': 'Collapse toggle',
 
     // table
     'editor.table.label': 'Table',
@@ -427,6 +432,10 @@ export const messages: Messages = {
     'editor.paste.embed': 'Einbettung',
     'editor.paste.embedProvider': '{provider} einbetten',
     'editor.paste.dismiss': 'Verwerfen',
+    'editor.a11y.todo': 'Aufgabe: {text}',
+    'editor.a11y.todoEmpty': 'leere Aufgabe',
+    'editor.a11y.expand': 'Umschalter aufklappen',
+    'editor.a11y.collapse': 'Umschalter zuklappen',
 
     'editor.table.label': 'Tabelle',
     'editor.table.tools': 'Tabellenwerkzeuge',

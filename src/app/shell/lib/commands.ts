@@ -68,7 +68,6 @@ export function buildCommands(t: Translate, pageId: ID | null): Command[] {
   const live = page && !page.trashed
   const list: Command[] = [
     { id: 'new-page', group: 'create', label: t('shell.cmd.newPage'), icon: FilePlus2, shortcut: 'Mod+Alt+N', keywords: 'create add document neu seite', run: () => createPageAndOpen(null) },
-    { id: 'new-subpage', group: 'create', label: t('shell.cmd.newSubpage'), icon: FilePlus2, keywords: 'child nested unterseite', run: () => live && createPageAndOpen(page.id) },
     { id: 'new-database', group: 'create', label: t('shell.cmd.newDatabase'), icon: Table2, keywords: 'table board kanban datenbank tabelle', run: () => createDatabaseAndOpen(null) },
     { id: 'templates', group: 'create', label: t('shell.cmd.templates'), icon: LayoutTemplate, keywords: 'vorlagen gallery', run: () => ui.openModal({ type: 'templates', parentId: null }) },
     { id: 'journal', group: 'navigate', label: t('shell.cmd.journal'), icon: CalendarDays, keywords: 'today daily note tagebuch heute', run: () => { closeMobileSidebar(); openTodayJournal() } },
@@ -92,6 +91,9 @@ export function buildCommands(t: Translate, pageId: ID | null): Command[] {
     { id: 'ask-ai', group: 'page', label: t('shell.cmd.askAI'), icon: MessageSquareText, keywords: 'claude ai assistant question ki frage', run: () => ui.openPalette('?') },
   ]
   if (live) {
+    // only while a page is open (nothing to nest under on Home or Graph); databases hold rows, not pages
+    if (page.kind !== 'database' && !page.databaseId)
+      list.splice(1, 0, { id: 'new-subpage', group: 'create', label: t('shell.cmd.newSubpage'), icon: FilePlus2, keywords: 'child nested unterseite', run: () => createPageAndOpen(page.id) })
     list.push(
       { id: 'present', group: 'page', label: t('shell.cmd.present'), icon: Presentation, keywords: 'slides presentation präsentieren', run: () => ui.present(page.id) },
       { id: 'share', group: 'page', label: t('shell.cmd.share'), icon: Share2, keywords: 'publish link teilen', run: () => ui.openModal({ type: 'share', pageId: page.id }) },

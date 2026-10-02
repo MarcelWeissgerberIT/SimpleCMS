@@ -31,8 +31,8 @@ export interface OverlayState {
 }
 
 export interface Bridge extends StoreApi<OverlayState> {
-  /** Key handlers registered by the suggestion menus (one per kind). */
-  keyHandlers: Partial<Record<SuggestKind, (e: KeyboardEvent) => boolean>>
+  /** Key handlers registered by the suggestion menus (one per kind) and the URL paste menu. */
+  keyHandlers: Partial<Record<SuggestKind | 'urlPaste', (e: KeyboardEvent) => boolean>>
 }
 
 export function createBridge(): Bridge {

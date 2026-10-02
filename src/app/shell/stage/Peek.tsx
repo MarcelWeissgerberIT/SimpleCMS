@@ -6,7 +6,7 @@ import { Tooltip } from '../../ui/Tooltip'
 import { useT } from '../../i18n'
 import { PageView } from '../page/PageView'
 import { goToPage } from '../lib/actions'
-import { useIsMobile, useLocalPref } from '../lib/hooks'
+import { useColumnScroll, useIsMobile, useLocalPref } from '../lib/hooks'
 import { useBreadcrumbs } from '../../store/selectors'
 import { PageIcon } from '../../ui/PageIcon'
 
@@ -37,8 +37,10 @@ function PeekPanel({ id }: { id: string }) {
     shown.current = id
     if (goingBack.current) goingBack.current = false
     else setTrail((tr) => [...tr, prev].slice(-20))
-    ref.current?.querySelector('.peek__scroll')?.scrollTo({ top: 0 })
   }, [id])
+  // each page shown in the peek opens at its top (useColumnScroll resets on a new id)
+  const scroller = useRef<HTMLDivElement>(null)
+  useColumnScroll(scroller, { key: id })
   const back = () => {
     const pages = useWorkspace.getState().pages
     const rest = trail.filter((p) => !!pages[p])
@@ -141,7 +143,7 @@ function PeekPanel({ id }: { id: string }) {
         <PeekPath id={id} />
         <span className="peek__label label">{t('shell.peek.label')}</span>
       </div>
-      <div className="peek__scroll">
+      <div ref={scroller} className="peek__scroll">
         <PageView pageId={id} variant="peek" />
       </div>
     </div>

@@ -2218,6 +2218,15 @@
 
 .db-fx__src {
   position: relative;
+  border-radius: var(--radius-1);
+  background: var(--surface-2);
+}
+
+/* the textarea sits over the error mirror, so the mark's wash shows through behind the text */
+.db-fx__src .db-fx__area {
+  position: relative;
+  z-index: 1;
+  background: transparent;
 }
 
 .db-fx__area {
@@ -2265,7 +2274,8 @@
 
 .db-fx__errmark {
   color: transparent;
-  background: transparent;
+  background: var(--c-red-bg);
+  border-radius: 1px;
   text-decoration: underline wavy var(--c-red-text);
   text-decoration-thickness: 1.5px;
   text-decoration-skip-ink: none;

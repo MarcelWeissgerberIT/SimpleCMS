@@ -32,7 +32,7 @@ function bootStatus(text: string, fault = false) {
   el.innerHTML = ''
   const box = document.createElement('div')
   const led = document.createElement('i')
-  if (fault) led.style.cssText = 'animation:none;background:#b42318'
+  if (fault) led.style.cssText = 'animation:none;background:var(--c-red-text)'
   box.append(led, document.createTextNode(text))
   el.append(box)
 }

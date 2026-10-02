@@ -7,7 +7,8 @@ import { Tooltip } from '../../ui/Tooltip'
 import { useT } from '../../i18n'
 import type { Automation, AutomationAction, AutomationTrigger, Database } from '../../store/types'
 import { testWebhook, type WebhookResult } from './engine'
-import { blankAction, problemOf } from './recipes'
+import { autoName, blankAction, isAutoName, problemOf } from './recipes'
+import { onRovingKey } from '../io/roving'
 import { PropertyPicker, ValuePicker } from './pickers'
 
 const ACTION_ICON = { webhook: Globe, set_property: PenLine, notify: Bell }
@@ -16,7 +17,12 @@ export function AutomationEditor({ db, automation, onChange, onDelete, onDuplica
   const t = useT()
   const addMenu = useMenu()
   const problem = problemOf(automation, db)
-  const set = (patch: Partial<Automation>) => onChange({ ...automation, ...patch })
+  // a generated name keeps describing the automation as trigger / actions change; a typed one stays
+  const set = (patch: Partial<Automation>) => {
+    const next = { ...automation, ...patch }
+    if (!('name' in patch) && (patch.trigger || patch.actions) && isAutoName(automation, db)) next.name = autoName(next, db)
+    onChange(next)
+  }
   const setTrigger = (trigger: AutomationTrigger) => set({ trigger })
   const setAction = (i: number, a: AutomationAction) => set({ actions: automation.actions.map((x, j) => (j === i ? a : x)) })
   const trig = automation.trigger
@@ -55,13 +61,14 @@ export function AutomationEditor({ db, automation, onChange, onDelete, onDuplica
             <span className="label">{t('features.auto.when')}</span>
           </div>
           <div className="auto-node__body">
-            <div className="auto-seg" role="radiogroup" aria-label={t('features.auto.trigger')}>
+            <div className="auto-seg" role="radiogroup" aria-label={t('features.auto.trigger')} onKeyDown={(e) => onRovingKey(e)}>
               {(['row_created', 'property_changed', 'row_deleted'] as const).map((type) => (
                 <button
                   key={type}
                   type="button"
                   role="radio"
                   aria-checked={trig.type === type}
+                  tabIndex={trig.type === type ? 0 : -1}
                   className="auto-seg__btn"
                   onClick={() => setTrigger(type === 'property_changed' ? { type, propertyId: null } : { type })}
                 >
@@ -175,9 +182,9 @@ function WebhookFields({ db, automation, action, onChange }: { db: Database; aut
   return (
     <div className="auto-field">
       <div className="auto-url">
-        <div className="auto-method" role="radiogroup" aria-label={t('features.auto.method')}>
+        <div className="auto-method" role="radiogroup" aria-label={t('features.auto.method')} onKeyDown={(e) => onRovingKey(e)}>
           {(['POST', 'PUT'] as const).map((m) => (
-            <button key={m} type="button" role="radio" aria-checked={action.method === m} onClick={() => onChange({ ...action, method: m })}>
+            <button key={m} type="button" role="radio" aria-checked={action.method === m} tabIndex={action.method === m ? 0 : -1} onClick={() => onChange({ ...action, method: m })}>
               {m}
             </button>
           ))}
@@ -203,7 +210,8 @@ function WebhookFields({ db, automation, action, onChange }: { db: Database; aut
         <div className="auto-response" data-ok={result.ok || undefined} role="status">
           <Led state={result.ok ? 'ok' : 'on'} />
           <span className="mono auto-response__status">{result.opaque ? 'OPAQUE' : result.status || 'ERR'}</span>
-          <span className="auto-response__msg">{result.message}</span>
+          {/* the code is in the badge — the message repeats only the reason ("200 OK" → "OK") */}
+          <span className="auto-response__msg">{result.status && result.message.startsWith(`${result.status}`) ? result.message.slice(String(result.status).length).trim() : result.message}</span>
           <span className="mono faint">{result.ms} ms</span>
           {result.body && <code className="auto-response__body">{result.body}</code>}
         </div>

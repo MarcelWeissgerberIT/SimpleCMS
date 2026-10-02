@@ -3,13 +3,15 @@
  */
 import { Extension, InputRule } from '@tiptap/core'
 import type { Fragment, Node as PMNode, ResolvedPos, Schema } from '@tiptap/pm/model'
-import { NodeSelection, Plugin, PluginKey, TextSelection } from '@tiptap/pm/state'
+import { NodeSelection, Plugin, PluginKey, TextSelection, type Selection } from '@tiptap/pm/state'
 import { Decoration, DecorationSet } from '@tiptap/pm/view'
 import { isNodeRangeSelection } from '@tiptap/extension-node-range'
 import { t } from '../../i18n'
 import type { Bridge } from '../lib/bridge'
 import { findEmoji } from '../lib/emoji'
 import {
+  caretAfterNode,
+  caretIntoBlock,
   duplicateBlock,
   enterFromToggleTitle,
   exitToggleOnEmptyLine,
@@ -19,6 +21,7 @@ import {
   currentBlock,
   selectAtomBefore,
   selectBlock,
+  turnInto,
 } from '../lib/blocks'
 
 /* ------------------------------------------------------------------ */
@@ -128,13 +131,42 @@ export const OnePlaceholder = Extension.create({
 /* Block selection highlight (drag handle / Esc / Shift+click ranges)  */
 /* ------------------------------------------------------------------ */
 
+/** A whole block is selected (Esc, grip click, clicking an image …) — not a text range. */
+function isBlockSelection(sel: Selection): boolean {
+  return (sel instanceof NodeSelection && sel.node.isBlock) || isNodeRangeSelection(sel)
+}
+
 export const BlockSelection = Extension.create({
   name: 'blockSelection',
+  // before the core keymap (Enter would otherwise insert a line next to the block)
+  priority: 1050,
   addProseMirrorPlugins() {
+    const editor = this.editor
     return [
       new Plugin({
         key: new PluginKey('blockSelection'),
         props: {
+          /**
+           * Notion's block-selection mode: character keys never replace the selected block,
+           * Enter goes back to editing its text. Backspace / Delete still remove it.
+           */
+          handleKeyDown(view, event) {
+            const sel = view.state.selection
+            if (!isBlockSelection(sel) || event.isComposing) return false
+            const plain = !event.ctrlKey && !event.metaKey && !event.altKey
+            if (event.key === 'Enter' && plain && !event.shiftKey && sel instanceof NodeSelection) {
+              if (caretIntoBlock(editor, sel.from)) return true
+              return caretAfterNode(editor, sel.from, { newLine: true })
+            }
+            if (plain && event.key.length === 1) {
+              event.preventDefault()
+              return true
+            }
+            return false
+          },
+          handleTextInput(view) {
+            return isBlockSelection(view.state.selection)
+          },
           decorations(state) {
             const sel = state.selection
             const decos: Decoration[] = []
@@ -179,6 +211,8 @@ export function shortcutsExtension(bridge: Bridge) {
         'Mod-Shift-ArrowUp': moveUp,
         'Mod-Shift-ArrowDown': moveDown,
         'Mod-Shift-x': () => editor.commands.toggleStrike(),
+        // TipTap's setParagraph() on a paragraph falls back to clearNodes(), which lifts it out of a callout
+        'Mod-Alt-0': () => turnInto(editor, 'paragraph'),
         // TipTap's own "double Enter leaves the toggle" never matches once paragraphs carry ids
         Enter: () => !bridge.getState().suggest && (exitToggleOnEmptyLine(editor) || enterFromToggleTitle(editor)),
         'Shift-Tab': () => !bridge.getState().suggest && (outdentBlock(editor) || jumpColumn(editor, -1)),

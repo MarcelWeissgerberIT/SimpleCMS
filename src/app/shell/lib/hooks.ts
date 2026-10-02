@@ -1,4 +1,4 @@
-import { useEffect, useState, useSyncExternalStore } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type RefObject } from 'react'
 import { shortcutLabel } from '../../ui/controls'
 import { getSaveStatus, onSaveStatus } from '../../store/persistence'
 import { safeLocalGet, safeLocalSet } from '@/shared/brand'
@@ -73,4 +73,80 @@ export const useIsTouch = () => useMediaQuery(TOUCH_QUERY)
 export function useKbdHint(): (shortcut: string) => string | undefined {
   const touch = useIsTouch()
   return (s: string) => (touch ? undefined : shortcutLabel(s))
+}
+
+/**
+ * Scroll behaviour of a page column (main page, stacked pane, peek):
+ *
+ *  - Hold: until the reader touches the column (wheel, touch, pointer, any key), scrolls
+ *    nobody asked for are undone. Embedded widgets that call scrollIntoView() while they
+ *    mount scroll every ancestor too, and would open the page below its cover and title.
+ *  - Keep: a column folded into a spine stays mounted but hidden; unfolding puts the
+ *    reader back where they were.
+ *  - `key`: a new page in the same column (the peek navigating in place) starts at the top.
+ *
+ * `hold: false` for scrolls the shell itself wants (deep links to a block).
+ */
+export function useColumnScroll(ref: RefObject<HTMLElement | null>, opts: { key?: unknown; folded?: boolean; hold?: boolean } = {}) {
+  const { key, folded = false, hold = true } = opts
+  const st = useRef({ armed: hold, top: 0, left: 0, folded })
+  st.current.folded = folded
+  if (!hold) st.current.armed = false
+
+  useEffect(() => {
+    const el = ref.current
+    if (!el) return
+    const s = st.current
+    const release = () => {
+      s.armed = false
+    }
+    const onScroll = () => {
+      if (s.folded || !el.clientHeight) return // hidden: nothing to read, nothing to remember
+      if (s.armed) {
+        if (el.scrollTop !== s.top) el.scrollTop = s.top
+        if (el.scrollLeft !== s.left) el.scrollLeft = s.left
+        return
+      }
+      s.top = el.scrollTop
+      s.left = el.scrollLeft
+    }
+    const passive = { passive: true, capture: true }
+    el.addEventListener('scroll', onScroll, { passive: true })
+    el.addEventListener('wheel', release, passive)
+    el.addEventListener('touchstart', release, passive)
+    el.addEventListener('pointerdown', release, true)
+    window.addEventListener('keydown', release, true)
+    return () => {
+      el.removeEventListener('scroll', onScroll)
+      el.removeEventListener('wheel', release, passive)
+      el.removeEventListener('touchstart', release, passive)
+      el.removeEventListener('pointerdown', release, true)
+      window.removeEventListener('keydown', release, true)
+    }
+  }, [ref])
+
+  const firstKey = useRef(true)
+  useEffect(() => {
+    if (firstKey.current) {
+      firstKey.current = false
+      return
+    }
+    const el = ref.current
+    const s = st.current
+    s.armed = hold
+    s.top = 0
+    s.left = 0
+    if (el) {
+      el.scrollTop = 0
+      el.scrollLeft = 0
+    }
+  }, [key]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  useLayoutEffect(() => {
+    const el = ref.current
+    if (folded || !el) return
+    const s = st.current
+    if (el.scrollTop !== s.top) el.scrollTop = s.top
+    if (el.scrollLeft !== s.left) el.scrollLeft = s.left
+  }, [folded, ref])
 }

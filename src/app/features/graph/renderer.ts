@@ -8,7 +8,8 @@ import type { ID } from '../../store/types'
 import type { GEdge, GNode } from './model'
 
 export interface RendererCallbacks {
-  onHover: (node: GNode | null, x: number, y: number) => void
+  /** screen position of the hovered node's centre and its on-screen radius */
+  onHover: (node: GNode | null, x: number, y: number, r: number) => void
   onOpen: (node: GNode, ev: PointerEvent) => void
   onState: (s: { settled: boolean; zoom: number; alpha: number }) => void
 }
@@ -33,6 +34,8 @@ let viewCache: { k: number; tx: number; ty: number } | null = null
 const clamp = (v: number, a: number, b: number) => Math.max(a, Math.min(b, v))
 const easeOut = (t: number) => 1 - Math.pow(1 - t, 3)
 const nodeOf = (end: ID | GNode) => end as GNode
+/** forceLink swaps ids for node objects in place — accept both */
+const idOf = (end: ID | GNode): ID => (typeof end === 'object' ? end.id : end)
 
 export class GraphRenderer {
   private ctx: CanvasRenderingContext2D
@@ -136,11 +139,13 @@ export class GraphRenderer {
   /* data                                                              */
   /* ---------------------------------------------------------------- */
 
-  setData(nodes: GNode[], edges: GEdge[]) {
+  setData(nodes: GNode[], input: GEdge[]) {
     const prev = this.byId
     this.savePositions()
     const fresh = prev.size === 0
     this.byId = new Map(nodes.map((n) => [n.id, n]))
+    // own copies: the simulation mutates its links (ids → node objects); callers may pass the same edges twice
+    const edges: GEdge[] = input.map((e) => ({ source: idOf(e.source), target: idOf(e.target), kind: e.kind }))
     // carry positions: previous node object → cache → near a positioned neighbour
     const adj = new Map<ID, ID[]>()
     for (const e of edges) {
@@ -223,9 +228,20 @@ export class GraphRenderer {
 
   private resize() {
     const r = this.wrap.getBoundingClientRect()
+    const prevW = this.w
+    const prevH = this.h
     this.dpr = Math.min(window.devicePixelRatio || 1, 2.5)
     this.w = Math.max(1, r.width)
     this.h = Math.max(1, r.height)
+    // keep what was in the middle in the middle (e.g. a side pane opens and the canvas narrows)
+    if (prevW > 1 && prevH > 1 && (prevW !== this.w || prevH !== this.h)) {
+      this.tx += (this.w - prevW) / 2
+      this.ty += (this.h - prevH) / 2
+      if (this.anim) {
+        this.anim.to.tx += (this.w - prevW) / 2
+        this.anim.to.ty += (this.h - prevH) / 2
+      }
+    }
     this.canvas.width = Math.round(this.w * this.dpr)
     this.canvas.height = Math.round(this.h * this.dpr)
     this.canvas.style.width = `${this.w}px`
@@ -538,8 +554,14 @@ export class GraphRenderer {
     this.autoFit = false
     this.anim = null
     if (this.pointers.size === 2) {
-      // pinch zoom
+      // pinch zoom (a node being dragged is let go first, or it would stay pinned and keep the sim hot)
       const [a, b] = [...this.pointers.values()]
+      if (this.drag) {
+        this.drag.node.fx = null
+        this.drag.node.fy = null
+        this.sim.alphaTarget(0)
+        this.hoverId = null
+      }
       this.drag = null
       this.pan = null
       this.pinch = { d: Math.hypot(a.x - b.x, a.y - b.y), k: this.k, mx: (a.x + b.x) / 2, my: (a.y + b.y) / 2, tx: this.tx, ty: this.ty }
@@ -576,7 +598,7 @@ export class GraphRenderer {
         this.drag.moved = true
         this.sim.alphaTarget(0.25)
         this.canvas.style.cursor = 'grabbing'
-        this.cb.onHover(null, 0, 0)
+        this.cb.onHover(null, 0, 0, 0)
       }
       const w = this.toWorld(p.x, p.y)
       this.drag.node.fx = w.x
@@ -598,7 +620,7 @@ export class GraphRenderer {
       this.hoverId = id
       this.invalidate()
     }
-    this.cb.onHover(n, n ? n.x! * this.k + this.tx : p.x, n ? n.y! * this.k + this.ty : p.y)
+    this.cb.onHover(n, n ? n.x! * this.k + this.tx : p.x, n ? n.y! * this.k + this.ty : p.y, n ? n.r * this.k : 0)
   }
 
   private onUp = (ev: PointerEvent) => {
@@ -630,7 +652,7 @@ export class GraphRenderer {
       this.hoverId = null
       this.invalidate()
     }
-    this.cb.onHover(null, 0, 0)
+    this.cb.onHover(null, 0, 0, 0)
   }
 
   private onWheel = (ev: WheelEvent) => {

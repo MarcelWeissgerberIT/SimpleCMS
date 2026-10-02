@@ -41,7 +41,7 @@ export function EmptyState({ onAdd }: { onAdd?: () => void }) {
   const t = useT()
   const m = useModel()
   const actions = useContext(ViewActionsContext)
-  const filters = countFilters(m.view.filter)
+  const filters = countFilters(m.view.filter, m.propMap)
   const q = m.search.trim()
   if ((filters > 0 || q) && m.allRows.length > 0) {
     const label = filters === 0 ? t('database.emptySearch', { q }) : plural(t, 'database.emptyFiltered', filters + (q ? 1 : 0))

@@ -116,6 +116,29 @@
   font-weight: 500;
   letter-spacing: var(--tracking-label);
 }
+/* the pane the topbar is acting on: its number lights up and a signal rule runs under its head */
+.pane__head {
+  position: relative;
+}
+.pane:not([data-active]) .pane__n {
+  color: var(--ink-3);
+}
+.pane[data-active] .pane__head::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -1px;
+  height: 2px;
+  background: var(--signal);
+  animation: rule-in var(--dur-2) var(--ease-out);
+  transform-origin: left center;
+}
+@keyframes rule-in {
+  from {
+    transform: scaleX(0);
+  }
+}
 .pane__title {
   flex: 1;
   min-width: 0;
@@ -139,9 +162,13 @@
   border-left: 1px solid var(--rule-strong);
   background: var(--surface-2);
 }
+/* the main page's spine: the column after it brings its own left rule */
 .stage > .spine:first-child {
   border-left: 0;
-  border-right: 1px solid var(--rule-strong);
+}
+/* folded columns stay mounted (scroll position, selection, undo) — just out of the way */
+.stage-col[data-folded] {
+  display: none;
 }
 .spine__btn {
   flex: 1;

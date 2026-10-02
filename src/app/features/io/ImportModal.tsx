@@ -11,10 +11,12 @@ import { resolveAssetUrl } from '../../lib/files'
 import { openPage } from '../../lib/router'
 import { flushSave } from '../../store/persistence'
 import { pauseAutomations } from '../automations/engine'
-import { buildPlan, expandZip, extname, isZip, planStats, type ImportEntry } from './import/plan'
+import { basename, buildPlan, expandZip, extname, isZip, planStats, type ImportEntry } from './import/plan'
 import { applyPlan, type ImportResult } from './import/apply'
-import { applyBackup, backupStats, parseBackup, type Backup } from './backup'
+import { applyBackup, backupStats, parseBackup, type Backup, type RestoreResult } from './backup'
 import { Meter, Readout } from './parts'
+import { countList, unitOf } from './count'
+import { onRovingKey } from './roving'
 import './io.css'
 
 interface Picked {
@@ -27,11 +29,14 @@ type Phase =
   | { name: 'idle' }
   | { name: 'running'; stages: Record<StageId, { done: number; total: number }>; current: StageId; source: string }
   | { name: 'backup'; backup: Backup; fileName: string }
-  | { name: 'done'; result: ImportResult; ms: number }
+  | { name: 'done'; result: ImportResult; ms: number; skipped: string[] }
+  | { name: 'restored'; result: RestoreResult; ms: number; fileName: string }
   | { name: 'error'; message: string }
 
 const STAGES: StageId[] = ['read', 'unpack', 'files', 'pages', 'commit']
-const ACCEPT = '.zip,.md,.markdown,.txt,.csv,.json,image/*,.pdf'
+const ACCEPT = '.zip,.md,.markdown,.txt,.csv,.tsv,.json,image/*,.pdf'
+/** Notion splits big exports into "…-Part-1.zip", "…-Part-2.zip" — they share one root */
+const PART_ZIP = /Part-\d+\.zip$/i
 
 const freshStages = () => Object.fromEntries(STAGES.map((s) => [s, { done: 0, total: 0 }])) as Record<StageId, { done: number; total: number }>
 
@@ -72,14 +77,16 @@ export function ImportModal({ onClose }: { onClose: () => void }) {
   const run = useCallback(
     async (picked: Picked[]) => {
       if (!picked.length) return
-      // 1) a single JSON → backup flow
+      // 1) a single JSON → backup flow; backups mixed with other files are skipped (and reported)
       const jsons = picked.filter((p) => extname(p.path) === 'json')
-      if (jsons.length === 1 && picked.length === 1) {
+      if (jsons.length && jsons.length === picked.length) {
+        if (jsons.length > 1) return setPhase({ name: 'error', message: t('features.io.err.backupOne') })
         const text = await jsons[0].file.text()
         const backup = parseBackup(text)
         if (!backup) return setPhase({ name: 'error', message: t('features.io.err.backup') })
         return setPhase({ name: 'backup', backup, fileName: jsons[0].file.name })
       }
+      const skipped = jsons.map((p) => basename(p.path))
       const started = performance.now()
       const stages = freshStages()
       let current: StageId = 'read'
@@ -92,23 +99,32 @@ export function ImportModal({ onClose }: { onClose: () => void }) {
       try {
         // 2) read files
         const entries: ImportEntry[] = []
-        const zips: Uint8Array[] = []
+        const zips: Array<{ name: string; data: Uint8Array }> = []
         let i = 0
         for (const p of picked) {
           const data = new Uint8Array(await p.file.arrayBuffer())
-          if (extname(p.path) === 'zip' && isZip(data)) zips.push(data)
+          if (extname(p.path) === 'zip' && isZip(data)) zips.push({ name: basename(p.path), data })
           else if (extname(p.path) !== 'json') entries.push({ path: p.path, data })
           update('read', ++i, picked.length)
         }
         // 3) unpack (nested Notion part zips included)
         update('unpack', 0, zips.length || 1)
         let z = 0
-        for (const data of zips) {
-          entries.push(...(await expandZip(data, zips.length > 1 ? `zip${z}` : '')))
+        const usedPrefixes = new Set<string>()
+        for (const zip of zips) {
+          // several unrelated zips → one folder each (named after the zip); Notion parts → shared root
+          let prefix = ''
+          if (zips.length > 1 && !PART_ZIP.test(zip.name)) {
+            const base = zip.name.replace(/\.zip$/i, '') || 'zip'
+            prefix = base
+            for (let k = 2; usedPrefixes.has(prefix.toLowerCase()); k++) prefix = `${base} (${k})`
+            usedPrefixes.add(prefix.toLowerCase())
+          }
+          entries.push(...(await expandZip(zip.data, prefix)))
           update('unpack', ++z, zips.length)
         }
         if (!zips.length) update('unpack', 1, 1)
-        const plan = buildPlan(entries)
+        const plan = buildPlan(entries, { looseTitle: t('features.io.looseTitle', { date: dateLabel }) })
         if (!plan.nodes.length) {
           setPhase({ name: 'error', message: plan.warnings.includes('html-export') ? t('features.io.err.html') : t('features.io.err.nothing') })
           return
@@ -119,14 +135,23 @@ export function ImportModal({ onClose }: { onClose: () => void }) {
         if (!stats.files) update('files', 1, 1)
         const result = await applyPlan(plan, {
           containerTitle: plan.isNotion ? t('features.io.containerNotion', { date: dateLabel }) : t('features.io.container', { date: dateLabel }),
-          containerNote: t('features.io.containerNote', { pages: stats.pages, dbs: stats.databases, rows: stats.rows, files: stats.files, source: picked.length === 1 ? picked[0].file.name : t('features.io.nFiles', { n: picked.length }) }),
+          containerNote: t('features.io.containerNote', {
+            list: countList(t, [
+              ['page', stats.pages],
+              ['db', stats.databases],
+              ['row', stats.rows],
+              ['file', stats.files],
+            ]),
+            source: picked.length === 1 ? picked[0].file.name : t('features.io.nFiles', { n: picked.length }),
+          }),
           untitled: t('common.untitled'),
+          viewNames: { table: t('features.io.view.table'), board: t('features.io.view.board'), calendar: t('features.io.view.calendar') },
           onProgress: (p) => update(p.stage, p.done, p.total),
         })
         update('commit', 1, 1)
         await flushSave()
         if (result.rootId) openPage(result.rootId)
-        setPhase({ name: 'done', result, ms: performance.now() - started })
+        setPhase({ name: 'done', result, ms: performance.now() - started, skipped })
       } catch (err) {
         console.error('[import] failed', err)
         setPhase({ name: 'error', message: t('features.io.err.generic', { msg: (err as Error)?.message ?? String(err) }) })
@@ -194,7 +219,7 @@ export function ImportModal({ onClose }: { onClose: () => void }) {
                   <FolderUp size={15} /> {t('features.io.pickFolder')}
                 </button>
               </div>
-              <div className="io-drop__formats label">ZIP · MD · TXT · CSV · JSON</div>
+              <div className="io-drop__formats label">ZIP · MD · TXT · CSV · TSV · JSON</div>
               <input ref={filesRef} type="file" multiple accept={ACCEPT} hidden onChange={(e) => (onPick(e.target.files), (e.target.value = ''))} />
               <input
                 ref={folderRef}
@@ -213,7 +238,7 @@ export function ImportModal({ onClose }: { onClose: () => void }) {
                 [
                   ['01', 'ZIP', t('features.io.spec.notion'), t('features.io.spec.notionOut')],
                   ['02', 'MD · TXT', t('features.io.spec.md'), t('features.io.spec.mdOut')],
-                  ['03', 'CSV', t('features.io.spec.csv'), t('features.io.spec.csvOut')],
+                  ['03', 'CSV · TSV', t('features.io.spec.csv'), t('features.io.spec.csvOut')],
                   ['04', 'JSON', t('features.io.spec.json'), t('features.io.spec.jsonOut')],
                 ] as const
               ).map(([n, code, what, out]) => (
@@ -257,17 +282,30 @@ export function ImportModal({ onClose }: { onClose: () => void }) {
           <div className="io-done">
             <div className="io-done__head">
               <Led state="ok" />
-              <span className="label">{t('features.io.done.label', { s: (phase.ms / 1000).toFixed(1) })}</span>
+              <span className="label">{t('features.io.done.label', { s: new Intl.NumberFormat(lang === 'de' ? 'de-DE' : 'en-US', { minimumFractionDigits: 1, maximumFractionDigits: 1 }).format(phase.ms / 1000) })}</span>
             </div>
             <p className="io-done__summary">
-              {t('features.io.done.summary', { pages: phase.result.pages, dbs: phase.result.databases, files: phase.result.files })}
+              {t('features.io.done.summary', {
+                list: countList(t, [
+                  ['page', phase.result.pages],
+                  ['db', phase.result.databases],
+                  ['row', phase.result.rows],
+                  ['file', phase.result.files],
+                ]),
+              })}
             </p>
             <div className="io-readouts">
-              <Readout value={phase.result.pages} label={t('features.io.unit.pages')} />
-              <Readout value={phase.result.databases} label={t('features.io.unit.dbs')} />
-              <Readout value={phase.result.rows} label={t('features.io.unit.rows')} />
-              <Readout value={phase.result.files} label={t('features.io.unit.files')} />
+              <Readout value={phase.result.pages} label={unitOf(t, 'page', phase.result.pages)} />
+              <Readout value={phase.result.databases} label={unitOf(t, 'db', phase.result.databases)} />
+              <Readout value={phase.result.rows} label={unitOf(t, 'row', phase.result.rows)} />
+              <Readout value={phase.result.files} label={unitOf(t, 'file', phase.result.files)} />
             </div>
+            {phase.skipped.length > 0 && (
+              <div className="io-warn" role="status">
+                <div className="io-error__stripe" />
+                <p>{t('features.io.skippedBackup', { names: phase.skipped.join(', ') })}</p>
+              </div>
+            )}
             <div className="io-actions">
               <button type="button" className="btn" onClick={() => setPhase({ name: 'idle' })}>
                 <RotateCcw size={14} /> {t('features.io.again')}
@@ -279,7 +317,47 @@ export function ImportModal({ onClose }: { onClose: () => void }) {
           </div>
         )}
 
-        {phase.name === 'backup' && <BackupStep backup={phase.backup} fileName={phase.fileName} onCancel={() => setPhase({ name: 'idle' })} onClose={onClose} />}
+        {phase.name === 'backup' && (
+          <BackupStep
+            backup={phase.backup}
+            fileName={phase.fileName}
+            onCancel={() => setPhase({ name: 'idle' })}
+            onDone={(result, ms) => setPhase({ name: 'restored', result, ms, fileName: phase.fileName })}
+          />
+        )}
+
+        {phase.name === 'restored' && (
+          <div className="io-done">
+            <div className="io-done__head">
+              <Led state="ok" />
+              <span className="label">
+                {t(phase.result.mode === 'replace' ? 'features.io.restored.labelReplace' : 'features.io.restored.labelMerge', {
+                  s: new Intl.NumberFormat(lang === 'de' ? 'de-DE' : 'en-US', { minimumFractionDigits: 1, maximumFractionDigits: 1 }).format(phase.ms / 1000),
+                })}
+              </span>
+              <span className="io-run__name mono">{phase.fileName}</span>
+            </div>
+            <p className="io-done__summary">
+              {phase.result.added + phase.result.updated === 0
+                ? t('features.io.restored.nothing', { n: phase.result.unchanged })
+                : t('features.io.restored.summary', { added: phase.result.added, updated: phase.result.updated, unchanged: phase.result.unchanged })}
+            </p>
+            <div className="io-readouts">
+              <Readout value={phase.result.added} label={t('features.io.restored.added')} />
+              <Readout value={phase.result.updated} label={t('features.io.restored.updated')} />
+              <Readout value={phase.result.unchanged} label={t('features.io.restored.unchanged')} />
+              <Readout value={phase.result.files} label={unitOf(t, 'file', phase.result.files)} />
+            </div>
+            <div className="io-actions">
+              <button type="button" className="btn" onClick={() => setPhase({ name: 'idle' })}>
+                <RotateCcw size={14} /> {t('features.io.again')}
+              </button>
+              <button type="button" className="btn btn--primary" onClick={onClose} data-autofocus="">
+                {t('features.io.done.open')}
+              </button>
+            </div>
+          </div>
+        )}
 
         {phase.name === 'error' && (
           <div className="io-error" role="alert">
@@ -303,7 +381,7 @@ export function ImportModal({ onClose }: { onClose: () => void }) {
   )
 }
 
-function BackupStep({ backup, fileName, onCancel, onClose }: { backup: Backup; fileName: string; onCancel: () => void; onClose: () => void }) {
+function BackupStep({ backup, fileName, onCancel, onDone }: { backup: Backup; fileName: string; onCancel: () => void; onDone: (result: RestoreResult, ms: number) => void }) {
   const t = useT()
   const lang = useLang()
   const [mode, setMode] = useState<'merge' | 'replace'>('merge')
@@ -316,12 +394,13 @@ function BackupStep({ backup, fileName, onCancel, onClose }: { backup: Backup; f
   const go = async () => {
     if (mode === 'replace' && !armed) return setArmed(true)
     setBusy({ done: 0, total: backup.files.length })
+    const started = performance.now()
     const resume = pauseAutomations()
     try {
-      const target = await applyBackup(backup, mode, (done, total) => setBusy({ done, total }))
+      const result = await applyBackup(backup, mode, (done, total) => setBusy({ done, total }))
       await flushSave()
-      if (target) openPage(target)
-      onClose()
+      if (result.target) openPage(result.target)
+      onDone(result, performance.now() - started)
     } catch (err) {
       setError((err as Error)?.message ?? String(err))
       setBusy(null)
@@ -338,18 +417,19 @@ function BackupStep({ backup, fileName, onCancel, onClose }: { backup: Backup; f
         <span className="faint mono">{date}</span>
       </div>
       <div className="io-readouts io-readouts--sm">
-        <Readout value={stats.pages} label={t('features.io.unit.pages')} />
-        <Readout value={stats.databases} label={t('features.io.unit.dbs')} />
-        <Readout value={stats.rows} label={t('features.io.unit.rows')} />
-        <Readout value={stats.files} label={t('features.io.unit.files')} />
+        <Readout value={stats.pages} label={unitOf(t, 'page', stats.pages)} />
+        <Readout value={stats.databases} label={unitOf(t, 'db', stats.databases)} />
+        <Readout value={stats.rows} label={unitOf(t, 'row', stats.rows)} />
+        <Readout value={stats.files} label={unitOf(t, 'file', stats.files)} />
       </div>
-      <div className="io-choice" role="radiogroup" aria-label={t('features.io.backup.mode')}>
+      <div className="io-choice" role="radiogroup" aria-label={t('features.io.backup.mode')} onKeyDown={(e) => onRovingKey(e)}>
         {(['merge', 'replace'] as const).map((m, i) => (
           <button
             key={m}
             type="button"
             role="radio"
             aria-checked={mode === m}
+            tabIndex={mode === m ? 0 : -1}
             className="io-choice__opt"
             data-danger={m === 'replace' || undefined}
             onClick={() => {
@@ -371,7 +451,16 @@ function BackupStep({ backup, fileName, onCancel, onClose }: { backup: Backup; f
       {armed && mode === 'replace' && (
         <div className="io-warn" role="alert">
           <div className="io-error__stripe" />
-          <p>{t('features.io.backup.confirm', { n: Object.keys(backup.workspace.pages).length })}</p>
+          <p>
+            {t('features.io.backup.confirm', {
+              list: countList(t, [
+                ['page', stats.pages],
+                ['db', stats.databases],
+                ['row', stats.rows],
+                ['file', stats.files],
+              ]),
+            })}
+          </p>
         </div>
       )}
       {error && <p className="io-inline-error">{error}</p>}

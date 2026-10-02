@@ -4,8 +4,7 @@
  */
 import type { JSONContent } from '@tiptap/core'
 import type { Database, ID, Page } from '../../../store/types'
-import { docToHTML } from '../../../editor'
-import { propertyValueToText } from '../../../database'
+import type { propertyValueToText as PropertyValueToText } from '../../../database'
 import { getFile, readAsDataUrl, resolveAssetUrl } from '../../../lib/files'
 import { collectRefs, type ExportTree } from './collect'
 
@@ -152,11 +151,26 @@ export interface HtmlOptions {
   lang: string
   untitled: string
   /** labels */
-  labels: { exported: string; pages: string; contents: string; rows: string; generator: string }
+  labels: { exported: string; contents: string; generator: string; pages: (n: number) => string; rows: (n: number) => string }
   appUrl: string
   /** print (PDF): use the app's bundled fonts instead of Google Fonts */
   forPrint?: boolean
   onProgress?: (done: number, total: number) => void
+}
+
+/** Bundled assets (icons, covers) as data URLs so the file works offline; falls back to an absolute URL. */
+const assetCache = new Map<string, Promise<string>>()
+function inlineAsset(path: string): Promise<string> {
+  const abs = new URL(resolveAssetUrl(path), window.location.href).href
+  let hit = assetCache.get(abs)
+  if (!hit) {
+    hit = fetch(abs)
+      .then((r) => (r.ok ? r.blob() : Promise.reject(new Error(String(r.status)))))
+      .then((b) => readAsDataUrl(b))
+      .catch(() => abs)
+    assetCache.set(abs, hit)
+  }
+  return hit
 }
 
 async function fileUrlMap(tree: ExportTree): Promise<Map<string, string>> {
@@ -192,11 +206,11 @@ async function finishContent(html: string, page: Page, ctx: { files: Map<string,
     el.removeAttribute(attr)
     if (url) el.setAttribute(attr === 'data-src' ? 'src' : attr, url)
   })
-  root.querySelectorAll<HTMLImageElement>('img[src]').forEach((img) => {
+  for (const img of Array.from(root.querySelectorAll<HTMLImageElement>('img[src]'))) {
     const src = img.getAttribute('src')!
-    if (src.startsWith('assets/')) img.setAttribute('src', new URL(resolveAssetUrl(src), window.location.href).href)
+    if (src.startsWith('assets/')) img.setAttribute('src', await inlineAsset(src))
     img.setAttribute('loading', 'lazy')
-  })
+  }
   // math → MathML
   root.querySelectorAll<HTMLElement>('[data-type="block-math"], [data-type="inline-math"]').forEach((el) => {
     const latex = el.getAttribute('data-latex') ?? ''
@@ -246,6 +260,8 @@ interface MermaidLike {
   render: (id: string, code: string) => Promise<{ svg: string }>
 }
 
+let propertyValueToText: typeof PropertyValueToText = () => ''
+
 function propsTable(db: Database, row: Page): string {
   const cells = db.properties
     .filter((d) => d.type !== 'title')
@@ -255,7 +271,7 @@ function propsTable(db: Database, row: Page): string {
   return `<table class="props"><tbody>${cells.map(([k, v]) => `<tr><th>${esc(k)}</th><td>${esc(v)}</td></tr>`).join('')}</tbody></table>`
 }
 
-function dbTable(db: Database, rows: Page[], ids: Set<ID>, untitled: string, rowsLabel: string): string {
+function dbTable(db: Database, rows: Page[], ids: Set<ID>, untitled: string, rowsLabel: (n: number) => string): string {
   const props = db.properties.filter((p) => p.type !== 'files')
   const head = props.map((p) => `<th>${esc(p.name)}</th>`).join('')
   const body = rows
@@ -270,10 +286,13 @@ function dbTable(db: Database, rows: Page[], ids: Set<ID>, untitled: string, row
       return `<tr>${tds.join('')}</tr>`
     })
     .join('')
-  return `<div class="count">${rows.length} ${esc(rowsLabel)}</div><div class="dbt-wrap"><table class="dbt"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>`
+  return `<div class="count">${esc(rowsLabel(rows.length))}</div><div class="dbt-wrap"><table class="dbt"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>`
 }
 
 export async function buildHTML(tree: ExportTree, opts: HtmlOptions): Promise<string> {
+  // editor + database renderers are loaded on demand
+  const [{ docToHTML }, database] = await Promise.all([import('../../../editor'), import('../../../database')])
+  propertyValueToText = database.propertyValueToText
   const files = await fileUrlMap(tree)
   const usesMath = tree.all.some((p) => p.content && /"(block|inline)Math"/.test(JSON.stringify(p.content)))
   const usesMermaid = tree.all.some((p) => p.content && /"mermaid"/.test(JSON.stringify(p.content)))
@@ -319,12 +338,13 @@ export async function buildHTML(tree: ExportTree, opts: HtmlOptions): Promise<st
       ? p.icon.type === 'emoji'
         ? `<div class="icon">${esc(p.icon.value)}</div>`
         : p.icon.type === 'asset'
-          ? `<div class="icon"><img src="${esc(new URL(resolveAssetUrl(`assets/icons/${p.icon.value}.webp`), window.location.href).href)}" alt=""></div>`
+          ? `<div class="icon"><img src="${esc(await inlineAsset(`assets/icons/${p.icon.value}.webp`))}" alt=""></div>`
           : ''
       : ''
     let cover = ''
     if (p.cover?.type === 'image') {
-      const src = p.cover.value.startsWith('onefile:') ? files.get(p.cover.value) : new URL(resolveAssetUrl(p.cover.value), window.location.href).href
+      const v = p.cover.value
+      const src = v.startsWith('onefile:') ? files.get(v) : /^(https?:|data:)/.test(v) ? v : await inlineAsset(v)
       if (src) cover = `<div class="cover" style="background-image:url('${esc(src)}');background-position:center ${p.cover.positionY}%"></div>`
     } else if (p.cover?.type === 'color') cover = `<div class="cover" style="background:var(--c-${p.cover.value}-bg)"></div>`
     else if (p.cover?.type === 'gradient') cover = `<div class="cover" style="background:${esc(p.cover.value)}"></div>`
@@ -339,6 +359,8 @@ export async function buildHTML(tree: ExportTree, opts: HtmlOptions): Promise<st
   }
 
   const date = new Intl.DateTimeFormat(opts.lang === 'de' ? 'de-DE' : 'en-GB', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date())
+  // the plate counts what the contents list shows (rows with content are articles, not entries)
+  const pageCount = articles.filter((p) => !p.databaseId).length
   const index =
     articles.length > 1
       ? `<h1 class="title doc-title">${esc(opts.title)}</h1><div class="index-label">${esc(opts.labels.contents)}</div><ol class="index">${articles
@@ -358,7 +380,7 @@ ${opts.forPrint ? '' : FONT_LINK}
 </head>
 <body>
 <main class="sheet">
-<div class="plate"><span><b>●</b> SimpleCMS One · ${esc(opts.labels.exported)}</span><span>${esc(date)} · ${articles.length} ${esc(opts.labels.pages)}</span></div>
+<div class="plate"><span><b>●</b> SimpleCMS One · ${esc(opts.labels.exported)}</span><span>${esc(date)} · ${esc(opts.labels.pages(pageCount))}</span></div>
 ${index}
 ${parts.join('\n')}
 <footer class="colophon"><span>${esc(opts.labels.generator)}</span><span>${esc(opts.title)}</span></footer>

@@ -708,6 +708,22 @@
   .auto-node::before {
     top: 14px;
   }
+  /* trigger switch: a stacked selector instead of a wrapping segment row */
+  .auto-seg {
+    display: grid;
+    grid-template-columns: 1fr;
+    align-self: stretch;
+  }
+  .auto-seg__btn {
+    height: 36px;
+    padding: 0 12px;
+    border-right: 0;
+    border-bottom: 1px solid var(--rule-strong);
+    text-align: left;
+  }
+  .auto-seg__btn:last-child {
+    border-bottom: 0;
+  }
   .auto-url {
     flex-wrap: wrap;
   }

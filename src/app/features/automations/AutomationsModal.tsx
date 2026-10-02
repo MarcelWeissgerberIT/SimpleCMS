@@ -15,6 +15,7 @@ import { newId } from '../../lib/ids'
 import type { Automation, ID } from '../../store/types'
 import { isDatabaseApiLoaded, loadDatabaseApi, samplePayload, useRunLog } from './engine'
 import { blankAutomation, makeRecipe, problemOf, recipeAvailable, type RecipeId } from './recipes'
+import { onRovingKey } from '../io/roving'
 import { AutomationEditor } from './AutomationEditor'
 import './automations.css'
 
@@ -100,7 +101,7 @@ export function AutomationsModal({ databaseId, onClose }: { databaseId: ID; onCl
           <div className="auto-rail__head">
             <span className="label">{t('features.auto.channels')}</span>
             <span className="label auto-rail__count">{String(list.length).padStart(2, '0')}</span>
-            <button type="button" className="btn btn--sm" onClick={() => add(blankAutomation())}>
+            <button type="button" className="btn btn--sm" onClick={() => add(blankAutomation(db))}>
               <Plus size={13} /> {t('common.new')}
             </button>
           </div>
@@ -110,13 +111,13 @@ export function AutomationsModal({ databaseId, onClose }: { databaseId: ID; onCl
               <p>{t('features.auto.empty')}</p>
             </div>
           )}
-          <ul className="auto-list" role="listbox" aria-label={t('features.auto.channels')}>
+          <ul className="auto-list" role="listbox" aria-label={t('features.auto.channels')} onKeyDown={(e) => onRovingKey(e)}>
             {list.map((a, i) => {
               const problem = problemOf(a, db)
               const state = !a.enabled ? 'off' : a.lastStatus === 'error' ? 'on' : 'ok'
               return (
                 <li key={a.id}>
-                  <button type="button" role="option" aria-selected={a.id === selected} className="auto-item" onClick={() => setSelected(a.id)}>
+                  <button type="button" role="option" aria-selected={a.id === selected} tabIndex={a.id === selected || (!current && i === 0) ? 0 : -1} className="auto-item" onClick={() => setSelected(a.id)}>
                     <span className="auto-item__n mono">{String(i + 1).padStart(2, '0')}</span>
                     <span className="auto-item__main">
                       <span className="auto-item__name">{a.name.trim() || t('features.auto.untitled')}</span>

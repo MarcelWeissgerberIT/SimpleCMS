@@ -3,7 +3,7 @@
  * Node names / attrs are the shared contract documented in CLAUDE.md.
  * React node views are attached in ../extensions/kit.ts via .extend({ addNodeView }).
  */
-import { Extension, Node, mergeAttributes, type JSONContent } from '@tiptap/core'
+import { Extension, Node, encodeHtmlEntities, mergeAttributes, type JSONContent } from '@tiptap/core'
 import Image from '@tiptap/extension-image'
 import Highlight from '@tiptap/extension-highlight'
 import { Details } from '@tiptap/extension-details'
@@ -25,7 +25,20 @@ const titleOf = (id: string) => {
   const p = id ? useWorkspace.getState().pages[id] : undefined
   return p?.title?.trim() || ''
 }
-const mdEscape = (s: string) => s.replace(/([[\]\\])/g, '\\$1')
+/** Text for Markdown output: link brackets escaped, HTML-significant characters as entities. */
+const mdEscape = (s: string) => encodeHtmlEntities(s).replace(/([[\]\\])/g, '\\$1')
+/** Page / database ids inside "#/p/<id>" links. */
+const safeId = (s: string) => s.replace(/[^\w-]/g, '')
+
+/** Image sources we render: local files, http(s), inline raster/SVG data and relative asset paths. */
+export function safeImageSrc(raw: unknown): string | null {
+  const s = str(raw).trim()
+  if (!s) return null
+  if (/^onefile:[\w-]+$/.test(s)) return s
+  if (/^data:image\/(png|jpe?g|gif|webp|avif|svg\+xml);/i.test(s)) return s
+  if (/^[a-z][a-z0-9+.-]*:/i.test(s)) return /^https?:/i.test(s) ? s : null
+  return s.startsWith('//') ? null : s
+}
 
 /** Callout icon stored as an emoji string or "asset:<name>". */
 export function calloutIconText(icon: unknown): string {
@@ -83,7 +96,7 @@ export const Callout = Node.create({
   },
   renderMarkdown(node, h) {
     const kind = ALERT_FOR_COLOR[node.attrs?.color as string] ?? 'NOTE'
-    const icon = calloutIconText(node.attrs?.icon)
+    const icon = encodeHtmlEntities(calloutIconText(node.attrs?.icon))
     const body = h.renderChildren(node.content ?? [], '\n\n')
     const lines = [`[!${kind}]`, ...(icon ? [`${icon} ${body}`] : [body]).join('\n').split('\n')]
     return lines.map((l) => (l ? `> ${l}` : '>')).join('\n')
@@ -185,7 +198,7 @@ export const PageLink = Node.create({
   },
   renderMarkdown(node) {
     const id = str(node.attrs?.pageId)
-    return `[${mdEscape(titleOf(id) || 'Untitled')}](#/p/${id})`
+    return `[${mdEscape(titleOf(id) || 'Untitled')}](#/p/${safeId(id)})`
   },
 })
 
@@ -220,7 +233,7 @@ export const DatabaseBlock = Node.create({
   },
   renderMarkdown(node) {
     const id = str(node.attrs?.databaseId)
-    return `[${mdEscape(titleOf(id) || 'Database')}](#/p/${id})`
+    return `[${mdEscape(titleOf(id) || 'Database')}](#/p/${safeId(id)})`
   },
 })
 
@@ -295,7 +308,9 @@ export const Embed = Node.create({
   renderMarkdown(node) {
     const url = str(node.attrs?.url)
     const p = (node.attrs?.provider as EmbedProvider) || detectProvider(url) || 'web'
-    return `[${PROVIDER_LABEL[p] ?? 'Embed'}: ${mdEscape(domainOf(url))}](${url})`
+    const label = `${PROVIDER_LABEL[p] ?? 'Embed'}: ${mdEscape(domainOf(url))}`
+    const href = safeHref(url)
+    return href ? `[${label}](${href})` : label
   },
 })
 
@@ -342,7 +357,9 @@ export const FileBlock = Node.create({
     return str(node.attrs.name)
   },
   renderMarkdown(node) {
-    return `[📎 ${mdEscape(str(node.attrs?.name))}](${str(node.attrs?.src)})`
+    const name = `📎 ${mdEscape(str(node.attrs?.name))}`
+    const href = safeHref(str(node.attrs?.src), { files: true })
+    return href ? `[${name}](${href})` : name
   },
 })
 
@@ -378,8 +395,8 @@ export const Mention = Node.create({
   },
   renderMarkdown(node) {
     const a = node.attrs ?? {}
-    if (a.kind === 'page') return `[@${mdEscape(titleOf(str(a.id)) || str(a.label) || 'Untitled')}](#/p/${str(a.id)})`
-    return `@${str(a.label)}`
+    if (a.kind === 'page') return `[@${mdEscape(titleOf(str(a.id)) || str(a.label) || 'Untitled')}](#/p/${safeId(str(a.id))})`
+    return `@${mdEscape(str(a.label))}`
   },
 })
 
@@ -428,9 +445,10 @@ export const BlockImage = Image.extend({
   },
   renderMarkdown(node) {
     const a = node.attrs ?? {}
-    const alt = str(a.alt).replace(/([[\]\\])/g, '\\$1')
+    const alt = mdEscape(str(a.alt))
+    const src = safeImageSrc(a.src) ?? ''
     const title = str(a.caption) || str(a.title)
-    return title ? `![${alt}](${str(a.src)} "${title.replace(/"/g, '\\"')}")` : `![${alt}](${str(a.src)})`
+    return title ? `![${alt}](${src} "${encodeHtmlEntities(title).replace(/"/g, '\\"')}")` : `![${alt}](${src})`
   },
   renderHTML({ node }) {
     const { src, alt, caption, width, align } = node.attrs
@@ -440,8 +458,9 @@ export const BlockImage = Image.extend({
       fig.style = `width:${width}px;max-width:100%`
     }
     // local files ("onefile:<id>") can't be fetched by the browser — keep the ref in data-src
-    const local = typeof src === 'string' && src.startsWith('onefile:')
-    const img = ['img', local ? { 'data-src': src, alt: alt ?? '' } : { src, alt: alt ?? '', loading: 'lazy' }] as const
+    const safe = safeImageSrc(src)
+    const local = !!safe && safe.startsWith('onefile:')
+    const img = ['img', local ? { 'data-src': safe, alt: alt ?? '' } : safe ? { src: safe, alt: alt ?? '', loading: 'lazy' } : { alt: alt ?? '' }] as const
     return caption ? ['figure', fig, img, ['figcaption', {}, caption]] : ['figure', fig, img]
   },
 }).configure({ inline: false, allowBase64: true })

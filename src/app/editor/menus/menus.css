@@ -808,3 +808,20 @@
   margin: 0 3px;
   background: var(--rule);
 }
+
+/* ------------------------------------------------------------------ */
+/* Paste-as menu (URL pasted on an empty line)                         */
+/* ------------------------------------------------------------------ */
+
+.paste-menu__foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 4px 8px 2px;
+  color: var(--ink-3);
+}
+
+.paste-menu__foot .kbd {
+  margin-right: 2px;
+}

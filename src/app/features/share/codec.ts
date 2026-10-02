@@ -5,7 +5,7 @@
  * self-contained content; local images ("onefile:") are inlined as data URLs when small
  * enough (re-encoded if needed), otherwise replaced by a note.
  */
-import { deflateSync, inflateSync, strFromU8, strToU8 } from 'fflate'
+import { Inflate, deflateSync, strFromU8, strToU8 } from 'fflate'
 import { getSchema, type JSONContent } from '@tiptap/core'
 import type { Schema } from '@tiptap/pm/model'
 import { useWorkspace } from '../../store/store'
@@ -37,6 +37,10 @@ export interface PrepareStats {
 export const SHARE_IMAGE_BUDGET = 300 * 1024
 /** Links above this size get a warning (some chat apps cut them). */
 export const SHARE_WARN_BYTES = 50 * 1024
+/** A received link may not expand beyond this (a few KB of zeros can inflate to gigabytes). */
+export const SHARE_MAX_INFLATED = 20 * 1024 * 1024
+/** …nor be longer than this to begin with. */
+const SHARE_MAX_ENCODED = 8 * 1024 * 1024
 
 export class ShareDecodeError extends Error {
   code: 'empty' | 'corrupt' | 'version'
@@ -74,6 +78,32 @@ export function encodePayload(p: SharePayload): string {
   return bytesToBase64Url(deflateSync(strToU8(JSON.stringify(p)), { level: 9 }))
 }
 
+/**
+ * inflateSync with an output cap: the data is fed in small chunks (each can expand at most
+ * ~1000×), and decoding stops as soon as the output passes `max`.
+ */
+export function inflateCapped(data: Uint8Array, max = SHARE_MAX_INFLATED): Uint8Array {
+  const parts: Uint8Array[] = []
+  let total = 0
+  let done = false
+  const inflater = new Inflate((chunk, final) => {
+    total += chunk.length
+    if (total > max) throw new Error('inflated payload too large')
+    parts.push(chunk)
+    if (final) done = true
+  })
+  const CHUNK = 1024
+  for (let i = 0; i < data.length; i += CHUNK) inflater.push(data.subarray(i, i + CHUNK), i + CHUNK >= data.length)
+  if (!done) throw new Error('truncated payload')
+  const out = new Uint8Array(total)
+  let at = 0
+  for (const p of parts) {
+    out.set(p, at)
+    at += p.length
+  }
+  return out
+}
+
 export function decodePayload(raw: string): SharePayload {
   let s = (raw ?? '').trim()
   try {
@@ -83,9 +113,10 @@ export function decodePayload(raw: string): SharePayload {
   }
   s = s.replace(/[\s=]/g, '')
   if (!s) throw new ShareDecodeError('empty')
+  if (s.length > SHARE_MAX_ENCODED) throw new ShareDecodeError('corrupt')
   let data: unknown
   try {
-    data = JSON.parse(strFromU8(inflateSync(base64UrlToBytes(s))))
+    data = JSON.parse(strFromU8(inflateCapped(base64UrlToBytes(s))))
   } catch {
     throw new ShareDecodeError('corrupt')
   }
@@ -510,8 +541,10 @@ export async function preparePage(pageId: ID, budget = SHARE_IMAGE_BUDGET): Prom
   } else if (images.size) {
     const files = await Promise.all([...images].map(async (ref) => ({ ref, file: await getFile(ref).catch(() => undefined) })))
     let blobs = await Promise.all(files.map(async ({ ref, file }) => ({ ref, blob: file?.blob ? await rasterOnly(file.blob).catch(() => null) : null })))
-    const total = () => blobs.reduce((s, b) => s + (b.blob?.size ?? 0), 0)
     const limited = Number.isFinite(budget) && budget > 0
+    // an image that can never fit (a GIF is not re-encoded) must not make the others shrink further
+    const hopeless = (b: Blob) => limited && b.type === 'image/gif' && b.size > budget
+    const total = () => blobs.reduce((s, b) => s + (b.blob && !hopeless(b.blob) ? b.blob.size : 0), 0)
     if (limited) {
       // Links should stay short: always try a screen-sized WebP first, then smaller ones until the
       // images fit the budget (a hard cap). A re-encode is only used when it is actually smaller.
@@ -526,9 +559,18 @@ export async function preparePage(pageId: ID, budget = SHARE_IMAGE_BUDGET): Prom
         if (total() <= budget) break
       }
     }
-    const fits = !limited || total() <= budget
+    // Still over budget (e.g. one big GIF, which is never re-encoded): keep as many images as
+    // fit, smallest first, instead of dropping them all.
+    const keep = new Set<string>()
+    let used = 0
+    for (const b of [...blobs].sort((x, y) => (x.blob?.size ?? Infinity) - (y.blob?.size ?? Infinity))) {
+      if (!b.blob) continue
+      if (limited && used + b.blob.size > budget) continue
+      keep.add(b.ref)
+      used += b.blob.size
+    }
     for (const b of blobs) {
-      if (fits && b.blob) {
+      if (b.blob && keep.has(b.ref)) {
         map.set(b.ref, await readAsDataUrl(b.blob))
         stats.inlined++
         stats.imageBytes += b.blob.size

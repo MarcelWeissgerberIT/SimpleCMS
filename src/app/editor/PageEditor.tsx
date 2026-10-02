@@ -11,7 +11,7 @@ import type { Node as PMNode } from '@tiptap/pm/model'
 import { Selection, TextSelection } from '@tiptap/pm/state'
 import type { ID } from '../store/types'
 import { useWorkspace } from '../store/store'
-import { useRoute } from '../lib/router'
+import { navigate, pageHref, useRoute } from '../lib/router'
 import { newId } from '../lib/ids'
 import { createBridge, type Bridge } from './lib/bridge'
 import { editorExtensions } from './extensions/kit'
@@ -151,6 +151,58 @@ export function applyExternalContent(editor: Editor, json: JSONContent): void {
   editor.view.dispatch(tr)
 }
 
+/** The page whose content holds a block id (a block moved with "Move to" keeps its id). */
+function pageOwningBlock(blockId: string, except: string): string | null {
+  const has = (n: JSONContent): boolean => n.attrs?.id === blockId || !!n.content?.some(has)
+  for (const p of Object.values(useWorkspace.getState().pages)) {
+    if (p.id !== except && !p.trashed && p.content && has(p.content)) return p.id
+  }
+  return null
+}
+
+/** Changed range between two docs: [start, endA) in `a` became [start, endB) in `b`; null when equal. */
+function diffRange(a: PMNode, b: PMNode): { start: number; endA: number; endB: number } | null {
+  const start = a.content.findDiffStart(b.content)
+  if (start == null) return null
+  let { a: endA, b: endB } = a.content.findDiffEnd(b.content)!
+  const overlap = start - Math.min(endA, endB)
+  if (overlap > 0) {
+    endA += overlap
+    endB += overlap
+  }
+  return { start, endA, endB }
+}
+
+/**
+ * An external write arrived while this editor still had unsaved typing. Three-way merge on the
+ * simplest level: when "their" change (base → theirs) and "our" change (base → editor) touch
+ * different ranges, apply theirs onto ours. Returns false when they overlap (caller lets theirs win).
+ */
+function mergeExternal(editor: Editor, baseJson: JSONContent, theirsJson: JSONContent): boolean {
+  const { state } = editor
+  let base: PMNode
+  let theirs: PMNode
+  try {
+    base = state.schema.nodeFromJSON(baseJson)
+    theirs = state.schema.nodeFromJSON(theirsJson)
+  } catch {
+    return false
+  }
+  const t = diffRange(base, theirs)
+  if (!t) return true
+  const o = diffRange(base, state.doc)
+  if (!o) return false
+  if (!(t.endA <= o.start || t.start >= o.endA)) return false
+  const shift = t.start >= o.endA ? o.endB - o.endA : 0
+  try {
+    const tr = state.tr.replace(t.start + shift, t.endA + shift, theirs.slice(t.start, t.endB))
+    editor.view.dispatch(tr.setMeta('addToHistory', false).setMeta('preventUpdate', true))
+    return true
+  } catch {
+    return false
+  }
+}
+
 export function PageEditor(props: PageEditorProps) {
   // A fresh editor per page keeps undo history and plugins page-scoped.
   return <EditorInstance key={props.pageId} {...props} />
@@ -265,11 +317,19 @@ function EditorInstance({ pageId, readOnly, autoFocus, onReady, className }: Pag
       if (p.contentRev === lastRev.current) return
       lastRev.current = p.contentRev
       if (p.contentOrigin === instanceId || editor.isDestroyed) return
+      const theirs = prepareContent(p.content).doc ?? { type: 'doc', content: [{ type: 'paragraph' }] }
+      // unsaved local typing + a write elsewhere in the doc (AI append, another pane …): keep both
+      const base = prev.pages[pageId]?.content
+      if (dirty.current && base && mergeExternal(editor, prepareContent(base).doc!, theirs)) {
+        window.clearTimeout(timer.current)
+        timer.current = window.setTimeout(flush, SAVE_DELAY)
+        return
+      }
       window.clearTimeout(timer.current)
       dirty.current = false
-      applyExternalContent(editor, prepareContent(p.content).doc ?? { type: 'doc', content: [{ type: 'paragraph' }] })
+      applyExternalContent(editor, theirs)
     })
-  }, [editor, pageId, instanceId])
+  }, [editor, pageId, instanceId, flush])
 
   // flush on unload (module-level listener, see flushAllEditors) / tab hide / unmount
   useEffect(() => {
@@ -290,10 +350,13 @@ function EditorInstance({ pageId, readOnly, autoFocus, onReady, className }: Pag
     if (!editor || !targetBlock) return
     const t = window.setTimeout(() => {
       const pos = findBlockById(editor, targetBlock)
-      if (pos !== null) flashBlock(editor, pos)
+      if (pos !== null) return flashBlock(editor, pos)
+      // the block moved to another page since the link was copied: follow it there
+      const owner = pageOwningBlock(targetBlock, pageId)
+      if (owner) navigate(pageHref(owner, targetBlock), { replace: true })
     }, 160)
     return () => window.clearTimeout(t)
-  }, [editor, targetBlock])
+  }, [editor, targetBlock, pageId])
 
   // clicking the empty area under the last block focuses (or creates) a trailing line
   const onTailDown = (e: ReactMouseEvent) => {

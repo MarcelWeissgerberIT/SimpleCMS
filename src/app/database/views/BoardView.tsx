@@ -184,10 +184,8 @@ export function BoardView() {
                   rowsById={rowsById}
                   cardProps={cardProps}
                   editing={editing}
-                  onEditDone={(id, cancelled) => {
-                    setEditing(null)
-                    if (cancelled && !useWorkspace.getState().pages[id]?.title) useWorkspace.getState().trashPage(id)
-                  }}
+                  // like the table (and Notion): Esc on a fresh card keeps it, untitled
+                  onEditDone={() => setEditing(null)}
                   onAdd={() => addCard(g)}
                   onMenu={(el) => setMenu({ group: g, el })}
                   onOpen={(row) => actions.open(row)}

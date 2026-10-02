@@ -117,6 +117,57 @@
   user-select: text;
 }
 
+/* a slide that does not fit even at 50 %: it scrolls, and "next" reads on before turning */
+.pres__fit[data-scroll] {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: var(--rule-strong) transparent;
+}
+
+.pres__fit[data-scroll] {
+  --fade-top: 0px;
+  --fade-bottom: 0px;
+  mask-image: linear-gradient(to bottom, transparent, var(--ink) var(--fade-top), var(--ink) calc(100% - var(--fade-bottom)), transparent);
+}
+
+.pres__fit[data-more] {
+  --fade-bottom: 7cqh;
+}
+
+.pres__fit[data-scrolled] {
+  --fade-top: 4cqh;
+}
+
+.pres__more {
+  position: absolute;
+  left: 50%;
+  bottom: 3.4cqh;
+  transform: translateX(-50%);
+  padding: 2px 8px;
+  border: 1px solid var(--signal);
+  border-radius: var(--radius-1);
+  color: var(--signal-ink);
+  font-size: clamp(9px, 0.82cqw, 13px);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  white-space: nowrap;
+  pointer-events: none;
+  animation: pres-more 1.6s var(--ease-in-out) infinite alternate;
+}
+
+@keyframes pres-more {
+  to {
+    transform: translate(-50%, 3px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pres__more {
+    animation: none;
+  }
+}
+
 .pres__content {
   --dir: 1;
   transform-origin: top left;

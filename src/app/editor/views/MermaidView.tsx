@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { NodeViewWrapper, type ReactNodeViewProps } from '@tiptap/react'
 import { Code, Eye } from 'lucide-react'
 import { useT } from '../../i18n'
+import { leaveNodeView } from '../lib/blocks'
 
 type MermaidApi = typeof import('mermaid').default
 let mermaidPromise: Promise<MermaidApi> | null = null
@@ -105,7 +106,7 @@ export function MermaidDiagram({ code }: { code: string }) {
   )
 }
 
-export function MermaidView({ node, updateAttributes, selected, editor }: ReactNodeViewProps) {
+export function MermaidView({ node, updateAttributes, selected, editor, getPos }: ReactNodeViewProps) {
   const t = useT()
   const code = String(node.attrs.code ?? '')
   const [editing, setEditing] = useState(false)
@@ -141,7 +142,8 @@ export function MermaidView({ node, updateAttributes, selected, editor }: ReactN
                 e.preventDefault()
                 updateAttributes({ code: draft })
                 setEditing(false)
-                editor.commands.focus()
+                // back to the document (focus() alone would restore a stale caret)
+                leaveNodeView(editor, getPos(), e.key === 'Escape' ? 'escape' : 'enter')
               }
               if (e.key === 'Tab') {
                 e.preventDefault()

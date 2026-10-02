@@ -17,7 +17,15 @@ import './menus.css'
 function AI({ editor, bridge, pageId }: { editor: Editor; bridge: Bridge; pageId: string }) {
   const ai = useStore(bridge, (s) => s.ai)
   if (!ai) return null
-  return <AIMenuSlot editor={editor} pageId={pageId} mode={ai.mode} onClose={() => bridge.setState({ ai: null })} />
+  const close = () => {
+    bridge.setState({ ai: null })
+    // keep typing where you were — unless the close came from focusing something else
+    requestAnimationFrame(() => {
+      const el = document.activeElement
+      if (!editor.isDestroyed && (!el || el === document.body)) editor.commands.focus()
+    })
+  }
+  return <AIMenuSlot editor={editor} pageId={pageId} mode={ai.mode} onClose={close} />
 }
 
 export const EditorOverlays = memo(function EditorOverlays({ editor, bridge, pageId }: { editor: Editor; bridge: Bridge; pageId: string }) {
