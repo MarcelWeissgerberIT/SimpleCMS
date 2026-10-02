@@ -56,6 +56,11 @@ export async function loadWorkspace(): Promise<Workspace | null> {
 let saveTimer: number | undefined
 let applyingRemote = false
 
+/** True while a workspace update from another tab is being applied (automations etc. should ignore it). */
+export function isApplyingRemote(): boolean {
+  return applyingRemote
+}
+
 async function saveNow() {
   try {
     setStatus('saving')
