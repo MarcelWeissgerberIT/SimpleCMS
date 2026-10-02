@@ -1,28 +1,399 @@
 /**
- * First-run demo workspace. (A richer bilingual seed is generated later.)
+ * First-run demo workspace (EN/DE). Shows off what One can do on first open:
+ * a guided welcome page, a project database with many views, a reading list gallery,
+ * a content calendar, meeting notes and a small linked wiki (nice graph).
+ * Uses ONLY the node names from the CLAUDE.md contract.
  */
 import type { JSONContent } from '@tiptap/core'
 import type { Lang } from '@/shared/i18n'
-import { useWorkspace } from './store'
+import { useWorkspace, defaultView } from './store'
+import type { ColorName, ID, PropertyDef, SelectOption } from './types'
+import { newId } from '../lib/ids'
 
-const p = (text: string): JSONContent => ({ type: 'paragraph', content: text ? [{ type: 'text', text }] : [] })
-const h = (level: number, text: string): JSONContent => ({ type: 'heading', attrs: { level }, content: [{ type: 'text', text }] })
+/* ---------- tiny doc builders ---------- */
+type Inline = JSONContent
+const txt = (text: string, marks?: JSONContent['marks']): Inline => ({ type: 'text', text, ...(marks ? { marks } : {}) })
+const b = (text: string) => txt(text, [{ type: 'bold' }])
+const i = (text: string) => txt(text, [{ type: 'italic' }])
+const code = (text: string) => txt(text, [{ type: 'code' }])
+const hl = (text: string, color: ColorName = 'orange') => txt(text, [{ type: 'highlight', attrs: { color } }])
+const link = (text: string, href: string) => txt(text, [{ type: 'link', attrs: { href } }])
+// ProseMirror forbids empty text nodes → drop empty strings
+const inl = (...parts: Array<Inline | string>): Inline[] => parts.filter((x) => x !== '').map((x) => (typeof x === 'string' ? txt(x) : x))
+
+const p = (...parts: Array<Inline | string>): JSONContent => {
+  const content = inl(...parts)
+  return content.length ? { type: 'paragraph', content } : { type: 'paragraph' }
+}
+const h1 = (t: string): JSONContent => ({ type: 'heading', attrs: { level: 1 }, content: [txt(t)] })
+const h2 = (t: string): JSONContent => ({ type: 'heading', attrs: { level: 2 }, content: [txt(t)] })
+const h3 = (t: string): JSONContent => ({ type: 'heading', attrs: { level: 3 }, content: [txt(t)] })
+const li = (...parts: Array<Inline | string>): JSONContent => ({ type: 'listItem', content: [p(...parts)] })
+const ul = (...items: JSONContent[]): JSONContent => ({ type: 'bulletList', content: items })
+const ol = (...items: JSONContent[]): JSONContent => ({ type: 'orderedList', content: items })
+const task = (checked: boolean, ...parts: Array<Inline | string>): JSONContent => ({ type: 'taskItem', attrs: { checked }, content: [p(...parts)] })
+const tasks = (...items: JSONContent[]): JSONContent => ({ type: 'taskList', content: items })
+const callout = (icon: string, color: ColorName, ...blocks: JSONContent[]): JSONContent => ({ type: 'callout', attrs: { icon, color }, content: blocks })
+const quote = (...parts: Array<Inline | string>): JSONContent => ({ type: 'blockquote', content: [p(...parts)] })
+const toggle = (summary: string, ...blocks: JSONContent[]): JSONContent => ({
+  type: 'details',
+  content: [
+    { type: 'detailsSummary', content: [txt(summary)] },
+    { type: 'detailsContent', content: blocks },
+  ],
+})
+const hr = (): JSONContent => ({ type: 'horizontalRule' })
+const codeBlock = (language: string, source: string): JSONContent => ({ type: 'codeBlock', attrs: { language }, content: [txt(source)] })
+const math = (latex: string): JSONContent => ({ type: 'blockMath', attrs: { latex } })
+const imath = (latex: string): Inline => ({ type: 'inlineMath', attrs: { latex } })
+const mermaid = (src: string): JSONContent => ({ type: 'mermaid', attrs: { code: src } })
+const pageLink = (pageId: ID): JSONContent => ({ type: 'pageLink', attrs: { pageId } })
+const mention = (id: ID, label: string): Inline => ({ type: 'mention', attrs: { id, label, kind: 'page' } })
+const dateMention = (iso: string, label: string): Inline => ({ type: 'mention', attrs: { id: iso, label, kind: 'date' } })
+const dbBlock = (databaseId: ID, viewId: ID | null = null): JSONContent => ({ type: 'databaseBlock', attrs: { databaseId, viewId } })
+const toc = (): JSONContent => ({ type: 'toc' })
+const columns = (...cols: JSONContent[][]): JSONContent => ({ type: 'columns', content: cols.map((c) => ({ type: 'column', content: c })) })
+const table = (rows: string[][]): JSONContent => ({
+  type: 'table',
+  content: rows.map((r, ri) => ({
+    type: 'tableRow',
+    content: r.map((cell) => ({ type: ri === 0 ? 'tableHeader' : 'tableCell', content: [p(cell)] })),
+  })),
+})
+const doc = (...blocks: JSONContent[]): JSONContent => ({ type: 'doc', content: blocks })
+
+/* ---------- helpers ---------- */
+const opt = (name: string, color: ColorName, group?: SelectOption['group']): SelectOption => ({ id: newId(), name, color, ...(group ? { group } : {}) })
+const iso = (d: Date) => d.toISOString().slice(0, 10)
+const day = (offset: number) => {
+  const d = new Date()
+  d.setHours(12, 0, 0, 0)
+  d.setDate(d.getDate() + offset)
+  return iso(d)
+}
 
 export function seedWorkspace(lang: Lang): void {
-  const s = useWorkspace.getState()
   const de = lang === 'de'
-  const welcome = s.createPage({
-    title: de ? 'Willkommen bei One' : 'Welcome to One',
-    icon: { type: 'emoji', value: '👋' },
-    content: { type: 'doc', content: [h(2, de ? 'Schön, dass du da bist.' : 'Glad you are here.'), p(de ? 'Tippe / für Befehle.' : 'Type / for commands.')] },
-  })
-  const db = s.createDatabase({ title: de ? 'Projekte' : 'Projects', icon: { type: 'emoji', value: '🗂️' } })
-  const d = useWorkspace.getState().databases[db]
-  const status = d.properties.find((x) => x.type === 'status')!
-  const date = d.properties.find((x) => x.type === 'date')!
-  const names = de ? ['Website relaunch', 'Notion-Import testen', 'Newsletter Oktober', 'Onboarding-Video'] : ['Website relaunch', 'Test Notion import', 'October newsletter', 'Onboarding video']
-  names.forEach((title, i) =>
-    s.createRow(db, { title, properties: { [status.id]: status.options![i % 3].id, [date.id]: { start: `2026-10-${String(3 + i * 4).padStart(2, '0')}` } } }),
+  const L = (en: string, deText: string) => (de ? deText : en)
+  const s = useWorkspace.getState()
+
+  /* people */
+  const me = s.addPerson(L('You', 'Du'))
+  const alex = s.addPerson('Alex')
+  const sam = s.addPerson('Sam')
+  const mira = s.addPerson('Mira')
+
+  /* ---------- top-level pages (created first so links work) ---------- */
+  const welcome = s.createPage({ title: L('Welcome to One', 'Willkommen bei One'), icon: { type: 'emoji', value: '👋' }, cover: { type: 'image', value: 'assets/covers/paper-folds.webp', positionY: 50 } })
+  const projects = newId()
+  const reading = newId()
+  const calendar = newId()
+  const wiki = s.createPage({ title: L('Team wiki', 'Team-Wiki'), icon: { type: 'emoji', value: '📖' } })
+  const meeting = s.createPage({ title: L('Weekly sync — notes', 'Weekly Sync — Notizen'), icon: { type: 'emoji', value: '🗓️' } })
+
+  /* ---------- Projects database ---------- */
+  const statusOpts = [
+    opt(L('Backlog', 'Backlog'), 'gray', 'todo'),
+    opt(L('In progress', 'In Arbeit'), 'blue', 'in_progress'),
+    opt(L('Review', 'Review'), 'purple', 'in_progress'),
+    opt(L('Done', 'Erledigt'), 'green', 'done'),
+  ]
+  const prioOpts = [opt(L('High', 'Hoch'), 'red'), opt(L('Medium', 'Mittel'), 'yellow'), opt(L('Low', 'Niedrig'), 'gray')]
+  const tagOpts = [opt('Web', 'blue'), opt('Marketing', 'pink'), opt('Product', 'orange'), opt('Ops', 'brown'), opt('AI', 'purple')]
+  const P = {
+    name: newId(),
+    status: newId(),
+    prio: newId(),
+    owner: newId(),
+    due: newId(),
+    progress: newId(),
+    tags: newId(),
+    budget: newId(),
+    id: newId(),
+    daysLeft: newId(),
+  }
+  const projectProps: PropertyDef[] = [
+    { id: P.name, name: L('Project', 'Projekt'), type: 'title' },
+    { id: P.status, name: 'Status', type: 'status', options: statusOpts },
+    { id: P.prio, name: L('Priority', 'Priorität'), type: 'select', options: prioOpts },
+    { id: P.owner, name: L('Owner', 'Verantwortlich'), type: 'person' },
+    { id: P.due, name: L('Timeline', 'Zeitraum'), type: 'date' },
+    { id: P.progress, name: L('Progress', 'Fortschritt'), type: 'number', numberFormat: 'percent', numberDisplay: 'bar' },
+    { id: P.tags, name: 'Tags', type: 'multi_select', options: tagOpts },
+    { id: P.budget, name: 'Budget', type: 'number', numberFormat: 'euro' },
+    { id: P.id, name: 'ID', type: 'unique_id', idPrefix: 'PRJ' },
+    { id: P.daysLeft, name: L('Days left', 'Tage übrig'), type: 'formula', formula: `if(empty(prop("${L('Timeline', 'Zeitraum')}")), "", dateBetween(prop("${L('Timeline', 'Zeitraum')}"), now(), "days"))` },
+  ]
+  s.createDatabase({ id: projects, title: L('Projects', 'Projekte'), icon: { type: 'emoji', value: '🗂️' }, properties: projectProps, views: [] })
+  {
+    const db = { properties: projectProps }
+    const board = { ...defaultView('board', db, L('Board', 'Board')), groupBy: P.status, visibleProperties: [P.prio, P.owner, P.due, P.progress] }
+    const tableView = { ...defaultView('table', db, L('All projects', 'Alle Projekte')), calculations: { [P.budget]: 'sum' as const, [P.progress]: 'average' as const } }
+    const timeline = { ...defaultView('timeline', db, 'Timeline'), dateProperty: P.due, visibleProperties: [P.owner, P.status] }
+    const cal = { ...defaultView('calendar', db, L('Calendar', 'Kalender')), dateProperty: P.due }
+    const chart = { ...defaultView('chart', db, L('By status', 'Nach Status')), chart: { kind: 'bar' as const, xPropertyId: P.status, aggregate: 'count' as const } }
+    s.updateDatabase(projects, { views: [board, tableView, timeline, cal, chart], nextUniqueId: 1 })
+  }
+  const projectRows: Array<[string, number, number, ID, number, number, number, number, string[], number]> = [
+    // title, status idx, prio idx, owner, start offset, length, progress, budget, tags idx, rating unused
+    [L('Website relaunch', 'Website-Relaunch'), 1, 0, alex, -10, 24, 0.6, 18000, ['0', '1'], 0],
+    [L('Import our Notion workspace', 'Notion-Workspace importieren'), 3, 1, me, -14, 3, 1, 0, ['3'], 0],
+    [L('n8n lead-routing automation', 'n8n Lead-Routing-Automation'), 1, 0, sam, -3, 10, 0.35, 2500, ['4', '3'], 0],
+    [L('Q4 content calendar', 'Content-Kalender Q4'), 2, 1, mira, -1, 30, 0.8, 4000, ['1'], 0],
+    [L('Customer onboarding video', 'Onboarding-Video'), 0, 2, mira, 9, 12, 0, 6000, ['1', '2'], 0],
+    [L('Pricing page experiment', 'Pricing-Page-Experiment'), 0, 1, alex, 14, 8, 0, 1500, ['0', '2'], 0],
+    [L('AI support assistant', 'KI-Support-Assistent'), 2, 0, sam, -6, 18, 0.7, 9000, ['4', '2'], 0],
+    [L('Brand refresh', 'Brand-Refresh'), 3, 2, me, -40, 21, 1, 12000, ['1'], 0],
+  ]
+  const rowIds: ID[] = []
+  for (const [title, st, pr, owner, start, len, progress, budget, tags] of projectRows) {
+    const rowId = s.createRow(projects, {
+      title,
+      properties: {
+        [P.status]: statusOpts[st].id,
+        [P.prio]: prioOpts[pr].id,
+        [P.owner]: [owner],
+        [P.due]: { start: day(start), end: day(start + len) },
+        [P.progress]: progress,
+        [P.tags]: tags.map((t) => tagOpts[Number(t)].id),
+        [P.budget]: budget,
+      },
+      content: doc(
+        callout('🎯', 'orange', p(b(L('Goal: ', 'Ziel: ')), L('ship something people actually use.', 'etwas ausliefern, das Menschen wirklich nutzen.'))),
+        h3(L('Next steps', 'Nächste Schritte')),
+        tasks(task(true, L('Kick-off & scope', 'Kick-off & Scope')), task(progress > 0.5, L('First draft', 'Erster Entwurf')), task(progress >= 1, L('Launch', 'Launch'))),
+      ),
+    })
+    rowIds.push(rowId)
+  }
+
+  /* ---------- Reading list (gallery) ---------- */
+  const R = { title: newId(), author: newId(), type: newId(), rating: newId(), status: newId() }
+  const typeOpts = [opt(L('Book', 'Buch'), 'brown'), opt(L('Article', 'Artikel'), 'blue'), opt('Podcast', 'purple')]
+  const readStatus = [opt(L('To read', 'Zu lesen'), 'gray', 'todo'), opt(L('Reading', 'Am Lesen'), 'yellow', 'in_progress'), opt(L('Finished', 'Gelesen'), 'green', 'done')]
+  const readingProps: PropertyDef[] = [
+    { id: R.title, name: L('Title', 'Titel'), type: 'title' },
+    { id: R.author, name: L('Author', 'Autor:in'), type: 'text' },
+    { id: R.type, name: L('Type', 'Typ'), type: 'select', options: typeOpts },
+    { id: R.rating, name: L('Rating', 'Bewertung'), type: 'rating', ratingMax: 5 },
+    { id: R.status, name: 'Status', type: 'status', options: readStatus },
+  ]
+  s.createDatabase({ id: reading, title: L('Reading list', 'Leseliste'), icon: { type: 'emoji', value: '📚' }, properties: readingProps, views: [] })
+  {
+    const db = { properties: readingProps }
+    s.updateDatabase(reading, {
+      views: [
+        { ...defaultView('gallery', db, L('Shelf', 'Regal')), cardPreview: 'cover', cardSize: 'medium', visibleProperties: [R.author, R.rating] },
+        { ...defaultView('table', db, L('Table', 'Tabelle')) },
+        { ...defaultView('board', db, L('By status', 'Nach Status')), groupBy: R.status },
+      ],
+    })
+  }
+  const books: Array<[string, string, number, number, number, string]> = [
+    ['Less, but better', 'Dieter Rams', 0, 5, 2, 'concrete'],
+    ['The Design of Everyday Things', 'Don Norman', 0, 5, 2, 'paper-folds'],
+    ['Shape Up', 'Ryan Singer', 0, 4, 1, 'aluminum'],
+    [L('Local-first software', 'Local-first Software'), 'Ink & Switch', 1, 5, 2, 'glass'],
+    ['Working in Public', 'Nadia Eghbal', 0, 4, 0, 'dunes'],
+    ['Lex Fridman Podcast #367', 'Sam Altman', 2, 3, 0, 'night'],
+  ]
+  for (const [title, author, type, rating, st, cover] of books) {
+    s.createRow(reading, {
+      title,
+      properties: { [R.author]: author, [R.type]: typeOpts[type].id, [R.rating]: rating, [R.status]: readStatus[st].id },
+    })
+  }
+  // covers for gallery cards
+  {
+    const rows = Object.values(useWorkspace.getState().pages).filter((pg) => pg.databaseId === reading)
+    rows.forEach((row) => {
+      const c = books.find((bk) => bk[0] === row.title)?.[5]
+      if (c) s.updatePage(row.id, { cover: { type: 'image', value: `assets/covers/${c}.webp`, positionY: 50 } })
+    })
+  }
+
+  /* ---------- Content calendar ---------- */
+  const C = { title: newId(), date: newId(), channel: newId(), status: newId() }
+  const channelOpts = [opt('Newsletter', 'orange'), opt('LinkedIn', 'blue'), opt('YouTube', 'red'), opt('Blog', 'green')]
+  const cStatus = [opt(L('Idea', 'Idee'), 'gray', 'todo'), opt(L('Writing', 'Schreiben'), 'yellow', 'in_progress'), opt(L('Published', 'Veröffentlicht'), 'green', 'done')]
+  const calProps: PropertyDef[] = [
+    { id: C.title, name: L('Post', 'Beitrag'), type: 'title' },
+    { id: C.date, name: L('Publish date', 'Veröffentlichung'), type: 'date' },
+    { id: C.channel, name: L('Channel', 'Kanal'), type: 'select', options: channelOpts },
+    { id: C.status, name: 'Status', type: 'status', options: cStatus },
+  ]
+  s.createDatabase({ id: calendar, title: L('Content calendar', 'Content-Kalender'), icon: { type: 'emoji', value: '📣' }, properties: calProps, views: [] })
+  {
+    const db = { properties: calProps }
+    s.updateDatabase(calendar, {
+      views: [
+        { ...defaultView('calendar', db, L('Month', 'Monat')), dateProperty: C.date, visibleProperties: [C.channel] },
+        { ...defaultView('board', db, L('Pipeline', 'Pipeline')), groupBy: C.status },
+        { ...defaultView('table', db, L('Table', 'Tabelle')) },
+      ],
+    })
+  }
+  const posts: Array<[string, number, number, number]> = [
+    [L('Why we left Notion (and saved €2,880)', 'Warum wir Notion verlassen haben (und 2.880 € sparen)'), 2, 3, 2],
+    [L('5 n8n automations for your workspace', '5 n8n-Automationen für deinen Workspace'), 5, 2, 1],
+    [L('Local-first explained in 90 seconds', 'Local-first in 90 Sekunden erklärt'), 8, 1, 1],
+    [L('October product update', 'Produkt-Update Oktober'), 12, 0, 0],
+    [L('Keyboard-first: 12 shortcuts', 'Keyboard-first: 12 Shortcuts'), 16, 1, 0],
+    [L('Case study: agency CRM', 'Case Study: Agentur-CRM'), 21, 3, 0],
+  ]
+  for (const [title, off, ch, st] of posts) {
+    s.createRow(calendar, { title, properties: { [C.date]: { start: day(off) }, [C.channel]: channelOpts[ch].id, [C.status]: cStatus[st].id } })
+  }
+
+  /* ---------- Wiki subpages (linked → nice graph) ---------- */
+  const brand = s.createPage({ parentId: wiki, title: L('Brand voice', 'Markenstimme'), icon: { type: 'emoji', value: '🎙️' } })
+  const onboarding = s.createPage({ parentId: wiki, title: L('Onboarding', 'Onboarding'), icon: { type: 'emoji', value: '🧭' } })
+  const tooling = s.createPage({ parentId: wiki, title: L('Tooling & automations', 'Tools & Automationen'), icon: { type: 'emoji', value: '🛠️' } })
+  const glossary = s.createPage({ parentId: wiki, title: L('Glossary', 'Glossar'), icon: { type: 'emoji', value: '🔤' } })
+
+  s.setContent(
+    wiki,
+    doc(
+      p(L('Everything the team needs, in one place. Start with ', 'Alles, was das Team braucht, an einem Ort. Starte mit '), mention(onboarding, L('Onboarding', 'Onboarding')), '.'),
+      toc(),
+      h2(L('Sections', 'Bereiche')),
+      pageLink(brand),
+      pageLink(onboarding),
+      pageLink(tooling),
+      pageLink(glossary),
+    ),
+    'seed',
   )
-  s.updateSettings({ startPageId: welcome })
+  s.setContent(
+    brand,
+    doc(
+      quote(L('Say less. Mean it. Ship it.', 'Weniger sagen. Ernst meinen. Ausliefern.')),
+      h2(L('Principles', 'Prinzipien')),
+      ol(li(b(L('Concrete over clever. ', 'Konkret statt clever. ')), L('Numbers, names, examples.', 'Zahlen, Namen, Beispiele.')), li(b(L('No hype words. ', 'Keine Hype-Wörter. ')), L('Nobody wants to be "supercharged".', 'Niemand will "supercharged" werden.')), li(b(L('Respect the reader’s time.', 'Respektiere die Zeit der Lesenden.')))),
+      p(L('See also ', 'Siehe auch '), mention(glossary, L('Glossary', 'Glossar')), '.'),
+    ),
+    'seed',
+  )
+  s.setContent(
+    onboarding,
+    doc(
+      callout('🧭', 'blue', p(L('Your first week, step by step.', 'Deine erste Woche, Schritt für Schritt.'))),
+      tasks(
+        task(true, L('Read the ', 'Lies die '), mention(brand, L('Brand voice', 'Markenstimme'))),
+        task(false, L('Set up ', 'Richte '), mention(tooling, L('Tooling & automations', 'Tools & Automationen')), L('', ' ein')),
+        task(false, L('Pick a project in ', 'Such dir ein Projekt in '), mention(projects, L('Projects', 'Projekte')), L('', ' aus')),
+        task(false, L('Add a book to the ', 'Leg ein Buch auf die '), mention(reading, L('Reading list', 'Leseliste'))),
+      ),
+    ),
+    'seed',
+  )
+  s.setContent(
+    tooling,
+    doc(
+      p(L('Every database in One can fire webhooks. We send new projects to n8n:', 'Jede Datenbank in One kann Webhooks auslösen. Neue Projekte schicken wir an n8n:')),
+      codeBlock(
+        'json',
+        `{\n  "event": "row_created",\n  "database": { "id": "…", "title": "${L('Projects', 'Projekte')}" },\n  "row": {\n    "title": "${L('Website relaunch', 'Website-Relaunch')}",\n    "properties": { "Status": "${L('In progress', 'In Arbeit')}", "Owner": "Alex" }\n  },\n  "source": "simplecms-one"\n}`,
+      ),
+      mermaid(`flowchart LR\n  A[One database] -- webhook --> B(n8n)\n  B --> C[Slack]\n  B --> D[CRM]\n  B --> E[Claude summary]`),
+      p(L('Related: ', 'Verwandt: '), mention(projects, L('Projects', 'Projekte'))),
+    ),
+    'seed',
+  )
+  s.setContent(
+    glossary,
+    doc(
+      table([
+        [L('Term', 'Begriff'), L('Meaning', 'Bedeutung')],
+        ['Local-first', L('Your data lives on your device first.', 'Deine Daten liegen zuerst auf deinem Gerät.')],
+        ['BYOK', L('Bring your own key — you pay the AI provider directly.', 'Bring your own key — du zahlst den KI-Anbieter direkt.')],
+        ['Webhook', L('An HTTP call fired when something changes.', 'Ein HTTP-Aufruf, wenn sich etwas ändert.')],
+      ]),
+    ),
+    'seed',
+  )
+
+  /* ---------- Meeting notes ---------- */
+  s.setContent(
+    meeting,
+    doc(
+      p(dateMention(day(0), L('Today', 'Heute')), ' · ', b(L('Attendees: ', 'Teilnehmende: ')), 'Alex, Sam, Mira'),
+      h2(L('Agenda', 'Agenda')),
+      ul(li(mention(rowIds[0], L('Website relaunch', 'Website-Relaunch')), L(' — launch date', ' — Launch-Termin')), li(mention(rowIds[2], L('n8n lead-routing automation', 'n8n Lead-Routing-Automation'))), li(L('Budget check', 'Budget-Check'))),
+      h2(L('Decisions', 'Entscheidungen')),
+      callout('✅', 'green', p(L('Relaunch goes live on ', 'Relaunch geht live am '), dateMention(day(14), day(14)), '.')),
+      h2(L('Action items', 'Aufgaben')),
+      tasks(task(false, b('Alex'), L(' — final QA on staging', ' — finale QA auf Staging')), task(false, b('Sam'), L(' — connect webhook to n8n', ' — Webhook mit n8n verbinden')), task(true, b('Mira'), L(' — draft the newsletter', ' — Newsletter-Entwurf'))),
+    ),
+    'seed',
+  )
+
+  /* ---------- Welcome page ---------- */
+  s.setContent(
+    welcome,
+    doc(
+      p(
+        L('One is a workspace that does what Notion does — pages, blocks, databases — and then some. ', 'One ist ein Workspace, der kann, was Notion kann — Seiten, Blöcke, Datenbanken — und noch mehr. '),
+        b(L('No account, no server, no subscription.', 'Kein Konto, kein Server, kein Abo.')),
+      ),
+      callout(
+        '🔒',
+        'orange',
+        p(b(L('Everything you see lives in this browser. ', 'Alles hier lebt in diesem Browser. ')), L('Nothing is uploaded. Export or share whenever you want.', 'Nichts wird hochgeladen. Exportieren oder teilen, wann immer du willst.')),
+      ),
+      h2(L('Quick tour — tick them off', 'Kurze Tour — zum Abhaken')),
+      tasks(
+        task(false, L('Type ', 'Tippe '), code('/'), L(' on an empty line to insert any block', ' in einer leeren Zeile, um einen Block einzufügen')),
+        task(false, L('Press ', 'Drücke '), code('⌘K'), L(' / ', ' / '), code('Ctrl+K'), L(' to search everything', ', um alles zu durchsuchen')),
+        task(false, L('Drag a block by its ', 'Zieh einen Block an seinem '), code('⋮⋮'), L(' handle', '-Griff')),
+        task(false, L('Open ', 'Öffne '), mention(projects, L('Projects', 'Projekte')), L(' and switch between Board, Timeline and Chart', ' und wechsle zwischen Board, Timeline und Chart')),
+        task(false, L('Alt-click ', 'Alt-Klick auf '), mention(wiki, L('Team wiki', 'Team-Wiki')), L(' to open it in a side-by-side pane', ', um es nebeneinander zu öffnen')),
+        task(false, L('Add your Claude key in Settings → AI, then press Space on an empty line', 'Hinterlege deinen Claude-Key unter Einstellungen → KI und drücke dann Leertaste in einer leeren Zeile')),
+        task(false, L('Import your Notion export (Settings → Data → Import)', 'Importiere deinen Notion-Export (Einstellungen → Daten → Import)')),
+      ),
+      h2(L('What makes One different', 'Was One anders macht')),
+      columns(
+        [
+          h3(L('Yours', 'Deins')),
+          ul(li(L('Local-first, works offline', 'Local-first, funktioniert offline')), li(L('Share links that contain the page itself', 'Teilen-Links, die die Seite selbst enthalten')), li(L('Markdown, HTML and JSON export', 'Export als Markdown, HTML und JSON'))),
+        ],
+        [
+          h3(L('Faster', 'Schneller')),
+          ul(li(L('Keyboard-first, ⌘K for everything', 'Keyboard-first, ⌘K für alles')), li(L('Stacked panes & focus mode', 'Gestapelte Panes & Fokus-Modus')), li(L('Version history with a tape scrubber', 'Versionsverlauf mit Band-Regler'))),
+        ],
+        [
+          h3(L('Smarter', 'Schlauer')),
+          ul(li(L('Claude AI with your own key', 'Claude-KI mit eigenem Key')), li(L('Webhooks to n8n, Make, Zapier', 'Webhooks an n8n, Make, Zapier')), li(L('Graph view of everything', 'Graph-Ansicht über alles'))),
+        ],
+      ),
+      h2(L('Your projects, live', 'Deine Projekte, live')),
+      p(L('Databases can live inside pages. This one is the same data as ', 'Datenbanken können in Seiten leben. Diese hier zeigt dieselben Daten wie '), mention(projects, L('Projects', 'Projekte')), '.'),
+      dbBlock(projects),
+      h2(L('Blocks for nerds', 'Blöcke für Nerds')),
+      p(L('Inline math like ', 'Inline-Mathe wie '), imath('e^{i\\pi} + 1 = 0'), L(', block equations, code with highlighting and diagrams:', ', Formeln, Code mit Highlighting und Diagramme:')),
+      math('\\text{saved}_{year} = \\text{seats} \\times \\text{price} \\times 12'),
+      mermaid(`flowchart LR\n  You((${L('You', 'Du')})) --> One[SimpleCMS One]\n  One --> IDB[(IndexedDB)]\n  One -. ${L('your key', 'dein Key')} .-> Claude[Claude API]\n  One -. webhook .-> n8n`),
+      toggle(L('Keyboard shortcuts', 'Tastenkürzel'), table([
+        [L('Action', 'Aktion'), 'Shortcut'],
+        [L('Search & commands', 'Suche & Befehle'), '⌘K / Ctrl+K'],
+        [L('New page', 'Neue Seite'), '⌘N / Ctrl+N'],
+        [L('Toggle sidebar', 'Seitenleiste'), '⌘\\ / Ctrl+\\'],
+        [L('Focus mode', 'Fokus-Modus'), '⌘⇧F / Ctrl+Shift+F'],
+        [L('Duplicate block', 'Block duplizieren'), '⌘D / Ctrl+D'],
+      ])),
+      toggle(L('Where is my data?', 'Wo sind meine Daten?'), p(L('In your browser’s IndexedDB. Use Export for backups or to move to another device.', 'In der IndexedDB deines Browsers. Nutze den Export für Backups oder den Umzug auf ein anderes Gerät.'))),
+      hr(),
+      p(i(L('Explore: ', 'Entdecken: ')), mention(wiki, L('Team wiki', 'Team-Wiki')), ' · ', mention(meeting, L('Weekly sync — notes', 'Weekly Sync — Notizen')), ' · ', mention(reading, L('Reading list', 'Leseliste')), ' · ', mention(calendar, L('Content calendar', 'Content-Kalender')), ' · ', hl(L('have fun', 'viel Spaß'))),
+      p(L('Built for the ', 'Gebaut für die '), link('Ninja Armory', 'https://www.skool.com'), '.'),
+    ),
+    'seed',
+  )
+
+  // order in sidebar: Welcome, Projects, Reading list, Content calendar, Wiki, Meeting
+  const order: ID[] = [welcome, projects, reading, calendar, wiki, meeting]
+  order.forEach((id, idx) => s.updatePage(id, { order: idx + 1 }))
+  s.toggleFavorite(welcome)
+  s.toggleFavorite(projects)
+  s.updateSettings({ startPageId: welcome, userName: '' })
+  void me
 }
