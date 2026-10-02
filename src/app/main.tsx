@@ -15,6 +15,7 @@ import { ALL_MESSAGES } from './i18n'
 import { startHistory, startAutomations } from './features'
 import { detectLang, makeTranslator } from '@/shared/i18n'
 import { STORAGE_KEYS, safeLocalGet } from '@/shared/brand'
+import { registerServiceWorker } from '@/shared/sw'
 
 // Apply the remembered theme before first paint to avoid a flash.
 const storedTheme = safeLocalGet(STORAGE_KEYS.theme)
@@ -82,6 +83,11 @@ async function boot() {
   )
   document.getElementById('boot')?.remove()
 
+  // Automation hook for end-to-end tests and the screenshot script (dev, or ?e2e).
+  if (import.meta.env.DEV || new URLSearchParams(window.location.search).has('e2e')) {
+    ;(window as unknown as { __one?: unknown }).__one = { workspace: useWorkspace, ui: useUI, flushSave }
+  }
+
   // Deep link from the landing page: /app/?import → open the importer.
   const params = new URLSearchParams(window.location.search)
   if (params.has('import')) {
@@ -91,6 +97,8 @@ async function boot() {
     history.replaceState(null, '', `${window.location.pathname}${qs ? `?${qs}` : ''}${window.location.hash}`)
   }
 }
+
+registerServiceWorker()
 
 boot().catch((e) => {
   console.error('[one] boot failed', e)
