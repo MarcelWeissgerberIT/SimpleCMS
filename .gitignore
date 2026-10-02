@@ -1,0 +1,9 @@
+node_modules
+dist
+.art-work
+test-results
+playwright-report
+.shots
+*.log
+.DS_Store
+.vite

@@ -1,0 +1,148 @@
+/*
+ * SimpleCMS One — design tokens ("INSTRUMENT" design language)
+ *
+ * Inspiration: precision instruments, Braun/Rams product design, Swiss technical
+ * manuals, aviation placards. Warm paper, black ink, ONE signal colour.
+ * Explicitly NOT: purple/blue gradients, glassmorphism, glow orbs, gradient text,
+ * pill-shaped everything, floaty bouncy motion.
+ *
+ * Shared by the landing page (src/landing) and the workspace app (src/app).
+ * Theme switch: <html data-theme="light|dark">.
+ */
+
+:root {
+  /* ---------- Typography ---------- */
+  --font-sans: 'Archivo Variable', 'Archivo', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-serif: 'Newsreader Variable', 'Newsreader', 'Iowan Old Style', Georgia, serif;
+  --font-mono: 'JetBrains Mono Variable', 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+  /* Display = Archivo at expanded width. Use with font-stretch: var(--display-stretch). */
+  --display-stretch: 125%;
+  --condensed-stretch: 75%;
+
+  --text-2xs: 10.5px; /* mono micro-labels */
+  --text-xs: 11.5px;
+  --text-sm: 12.5px;
+  --text-md: 14px;    /* app UI default */
+  --text-lg: 16px;    /* editor body */
+  --text-xl: 20px;
+  --text-2xl: 28px;
+  --text-3xl: 40px;   /* page titles */
+
+  --tracking-label: 0.08em; /* for uppercase mono labels */
+  --tracking-tight: -0.02em;
+
+  /* ---------- Shape ---------- */
+  --radius-1: 2px;  /* controls, inputs, buttons, tags */
+  --radius-2: 4px;  /* menus, cards, popovers */
+  --radius-3: 8px;  /* large panels / modals */
+  --radius-led: 999px; /* ONLY for LED dots and switches */
+  --hairline: 1px;
+
+  /* ---------- Spacing (4px base) ---------- */
+  --sp-1: 4px; --sp-2: 8px; --sp-3: 12px; --sp-4: 16px; --sp-5: 20px;
+  --sp-6: 24px; --sp-8: 32px; --sp-10: 40px; --sp-12: 48px; --sp-16: 64px;
+
+  /* ---------- Motion: fast & mechanical ---------- */
+  --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --dur-1: 90ms;
+  --dur-2: 160ms;
+  --dur-3: 260ms;
+
+  /* ---------- Signal colour (international orange) ---------- */
+  --signal: #ff4f00;
+  --signal-hover: #e84700;
+  --signal-press: #cc3f00;
+  --on-signal: #ffffff;
+
+  /* ---------- Layers ---------- */
+  --z-sticky: 10;
+  --z-sidebar: 20;
+  --z-popover: 100;
+  --z-modal: 200;
+  --z-toast: 300;
+  --z-palette: 250;
+
+  color-scheme: light;
+
+  /* ---------- Light theme: "PAPER" ---------- */
+  --bg: #f2f0ea;            /* app canvas */
+  --surface: #faf9f5;       /* page sheet, cards, menus */
+  --surface-2: #eae7df;     /* sidebar, wells */
+  --surface-3: #dfdbd1;     /* hover/active on surface-2 */
+  --hover: rgba(18, 18, 16, 0.055);
+  --active: rgba(18, 18, 16, 0.09);
+  --ink: #121210;           /* primary text */
+  --ink-2: #55524b;         /* secondary text */
+  --ink-3: #8d897f;         /* tertiary, placeholders, disabled */
+  --ink-inverse: #faf9f5;
+  --rule: rgba(18, 18, 16, 0.1);        /* hairlines */
+  --rule-strong: rgba(18, 18, 16, 0.2);
+  --signal-ink: #c43c00;    /* orange used as TEXT on paper (AA contrast) */
+  --signal-wash: rgba(255, 79, 0, 0.1);
+  --signal-wash-strong: rgba(255, 79, 0, 0.18);
+  --selection: rgba(255, 79, 0, 0.2);
+  --led-on: #ff4f00;
+  --led-ok: #2f9e44;
+  --led-off: #b8b3a8;
+  --shadow-1: 0 1px 0 rgba(18, 18, 16, 0.04), 0 1px 2px rgba(18, 18, 16, 0.06);
+  --shadow-pop: 0 0 0 1px var(--rule-strong), 0 16px 40px -12px rgba(18, 18, 16, 0.28), 0 2px 6px rgba(18, 18, 16, 0.08);
+  --shadow-modal: 0 0 0 1px var(--rule-strong), 0 40px 80px -20px rgba(18, 18, 16, 0.4);
+  --scrim: rgba(18, 18, 16, 0.32);
+  --focus-ring: 0 0 0 2px var(--surface), 0 0 0 4px var(--signal);
+
+  /* Content colours (Notion-style text/background colours, tuned for paper) */
+  --c-default-text: var(--ink);      --c-default-bg: transparent;
+  --c-gray-text: #7b776e;            --c-gray-bg: #e6e3dc;
+  --c-brown-text: #8a5a3c;           --c-brown-bg: #eee0d4;
+  --c-orange-text: #c43c00;          --c-orange-bg: #fbe1d2;
+  --c-yellow-text: #9a6b00;          --c-yellow-bg: #f6ebc7;
+  --c-green-text: #2c7a3f;           --c-green-bg: #dcecd8;
+  --c-blue-text: #23629e;            --c-blue-bg: #d9e6f2;
+  --c-purple-text: #6b4fa0;          --c-purple-bg: #e6def2;
+  --c-pink-text: #a83f73;            --c-pink-bg: #f4dde8;
+  --c-red-text: #b42318;             --c-red-bg: #f7dad6;
+}
+
+/* ---------- Dark theme: "CARBON" ---------- */
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --bg: #111110;
+  --surface: #181816;
+  --surface-2: #151513;
+  --surface-3: #22211e;
+  --hover: rgba(236, 233, 226, 0.06);
+  --active: rgba(236, 233, 226, 0.1);
+  --ink: #ece9e2;
+  --ink-2: #a9a59c;
+  --ink-3: #6f6b63;
+  --ink-inverse: #121210;
+  --rule: rgba(236, 233, 226, 0.09);
+  --rule-strong: rgba(236, 233, 226, 0.18);
+  --signal: #ff5c1a;
+  --signal-hover: #ff7036;
+  --signal-press: #e64d0e;
+  --signal-ink: #ff7a3d;
+  --signal-wash: rgba(255, 92, 26, 0.12);
+  --signal-wash-strong: rgba(255, 92, 26, 0.22);
+  --selection: rgba(255, 92, 26, 0.3);
+  --led-off: #4a4740;
+  --shadow-1: 0 1px 0 rgba(0, 0, 0, 0.3);
+  --shadow-pop: 0 0 0 1px var(--rule-strong), 0 16px 40px -12px rgba(0, 0, 0, 0.7);
+  --shadow-modal: 0 0 0 1px var(--rule-strong), 0 40px 80px -20px rgba(0, 0, 0, 0.8);
+  --scrim: rgba(0, 0, 0, 0.55);
+
+  --c-gray-text: #9b978e;            --c-gray-bg: #2a2925;
+  --c-brown-text: #c79a7a;           --c-brown-bg: #33281f;
+  --c-orange-text: #ff8a52;          --c-orange-bg: #3d2416;
+  --c-yellow-text: #e0b84a;          --c-yellow-bg: #3a3118;
+  --c-green-text: #6fbf7f;           --c-green-bg: #1f3223;
+  --c-blue-text: #6fa8dc;            --c-blue-bg: #1c2b3a;
+  --c-purple-text: #a98ad8;          --c-purple-bg: #2b2338;
+  --c-pink-text: #e07aa8;            --c-pink-bg: #38212d;
+  --c-red-text: #f0766b;             --c-red-bg: #3d1f1c;
+}
+
+::selection {
+  background: var(--selection);
+}

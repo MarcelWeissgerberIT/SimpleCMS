@@ -1,0 +1,28 @@
+/* Landing base. Site/intro specific styles live in their own folders. */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+html {
+  -webkit-text-size-adjust: 100%;
+}
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  caret-color: var(--signal);
+}
+/* While the intro covers the screen the site must not scroll. */
+html.intro-active,
+html.intro-active body {
+  overflow: hidden;
+  height: 100%;
+}
+#intro {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+}

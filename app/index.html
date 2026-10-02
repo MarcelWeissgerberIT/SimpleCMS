@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <title>One — Workspace</title>
+    <meta name="description" content="SimpleCMS One — a local-first workspace: block editor, databases, AI, automations." />
+    <meta name="theme-color" content="#f2f0ea" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#111110" media="(prefers-color-scheme: dark)" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <style>
+      html,body{margin:0;height:100%;background:#f2f0ea}
+      @media (prefers-color-scheme: dark){html,body{background:#111110}}
+      html[data-theme='dark'],html[data-theme='dark'] body{background:#111110}
+      #boot{position:fixed;inset:0;display:grid;place-items:center;font:500 10.5px/1 ui-monospace,monospace;letter-spacing:.08em;color:#8d897f;text-transform:uppercase}
+      #boot i{display:block;width:6px;height:6px;margin:0 auto 10px;border-radius:9px;background:#ff4f00;animation:b 0.8s infinite alternate}
+      @keyframes b{to{opacity:.2}}
+    </style>
+  </head>
+  <body>
+    <div id="boot"><div><i></i>Loading workspace</div></div>
+    <div id="root"></div>
+    <script type="module" src="/src/app/main.tsx"></script>
+  </body>
+</html>
