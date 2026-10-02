@@ -52,6 +52,44 @@ function fontFaceCSS(): string {
   return out.join('\n')
 }
 
+/**
+ * Latin subsets (incl. umlauts) of the bundled Archivo / JetBrains Mono as data URLs, so the
+ * exported file keeps its typography offline (~180 KB). Other scripts fall back to Google Fonts.
+ */
+async function inlineFontCSS(): Promise<string> {
+  const jobs: Array<Promise<string>> = []
+  for (const sheet of Array.from(document.styleSheets)) {
+    let rules: CSSRuleList
+    try {
+      rules = sheet.cssRules
+    } catch {
+      continue
+    }
+    const base = sheet.href ?? window.location.href
+    for (const rule of Array.from(rules)) {
+      if (!(rule instanceof CSSFontFaceRule)) continue
+      if (!/Archivo|JetBrains/i.test(rule.style.getPropertyValue('font-family'))) continue
+      if (/italic|oblique/i.test(rule.style.getPropertyValue('font-style'))) continue
+      const range = rule.style.getPropertyValue('unicode-range')
+      if (range && !/U\+0{0,4}-0{0,2}FF\b/i.test(range)) continue
+      const css = rule.cssText
+      const url = css.match(/url\(\s*(['"]?)([^'")]+)\1\s*\)/)?.[2]
+      if (!url) continue
+      jobs.push(
+        fetch(new URL(url, base).href)
+          .then((r) => (r.ok ? r.blob() : Promise.reject(new Error(String(r.status)))))
+          .then((b) => readAsDataUrl(b))
+          .then((data) => css.replace(/src:[^;]+;/, `src: url("${data}") format("woff2");`))
+          .catch(() => ''),
+      )
+    }
+  }
+  const out = (await Promise.all(jobs)).filter(Boolean)
+  const css = out.join('\n')
+  // never let fonts bloat the file
+  return css.length < 600_000 ? css : ''
+}
+
 const DOC_CSS = `
 *,*::before,*::after{box-sizing:border-box}
 html{-webkit-text-size-adjust:100%}
@@ -376,7 +414,7 @@ export async function buildHTML(tree: ExportTree, opts: HtmlOptions): Promise<st
 <meta name="generator" content="SimpleCMS One">
 <title>${esc(opts.title)}</title>
 ${opts.forPrint ? '' : FONT_LINK}
-<style>${opts.forPrint ? fontFaceCSS() : ''}\n${tokenCSS()}\n${DOC_CSS}</style>
+<style>${opts.forPrint ? fontFaceCSS() : await inlineFontCSS()}\n${tokenCSS()}\n${DOC_CSS}</style>
 </head>
 <body>
 <main class="sheet">

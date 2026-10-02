@@ -13,6 +13,7 @@ import './landing.css'
 import { STORAGE_KEYS, safeLocalGet, safeLocalSet } from '@/shared/brand'
 import { detectLang } from '@/shared/i18n'
 import { mountSite } from './site/site'
+import { registerServiceWorker } from '@/shared/sw'
 
 const params = new URLSearchParams(window.location.search)
 const forceIntro = params.has('intro')
@@ -66,3 +67,5 @@ if (showIntro) {
   removeIntro()
   enter(true)
 }
+
+registerServiceWorker()
