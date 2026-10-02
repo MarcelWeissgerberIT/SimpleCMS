@@ -1,0 +1,178 @@
+import { useEffect, useRef, useState, type PointerEvent as RPointerEvent } from 'react'
+import { NodeViewWrapper, type ReactNodeViewProps } from '@tiptap/react'
+import { AlignCenter, AlignLeft, AlignRight, Captions, ExternalLink, ImagePlus, RefreshCw, Trash2, Upload } from 'lucide-react'
+import { saveFile, useFileUrl } from '../../lib/files'
+import { useT } from '../../i18n'
+import { pickFiles } from '../lib/upload'
+import { isUrl } from '../lib/embeds'
+
+const MIN_W = 80
+
+export function ImageView({ node, updateAttributes, deleteNode, selected, editor }: ReactNodeViewProps) {
+  const t = useT()
+  const { src, alt, caption, width, align } = node.attrs as { src: string | null; alt: string | null; caption: string; width: number | null; align: string }
+  const url = useFileUrl(src)
+  const figRef = useRef<HTMLElement>(null)
+  const [liveWidth, setLiveWidth] = useState<number | null>(null)
+  const [showCaption, setShowCaption] = useState(!!caption)
+  const [linkValue, setLinkValue] = useState('')
+  const [error, setError] = useState(false)
+  const captionRef = useRef<HTMLInputElement>(null)
+  const editable = editor.isEditable
+
+  useEffect(() => setShowCaption(!!caption || showCaption), [caption]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const upload = async () => {
+    const [file] = await pickFiles('image/*')
+    if (!file) return
+    const ref = await saveFile(file, file.name)
+    updateAttributes({ src: ref, alt: alt || file.name.replace(/\.[a-z0-9]+$/i, '') })
+  }
+
+  if (!src) {
+    return (
+      <NodeViewWrapper className={`media-empty${selected ? ' is-selected' : ''}`} data-type="image" contentEditable={false}>
+        <div className="media-empty__head">
+          <ImagePlus size={16} strokeWidth={1.7} />
+          <span className="label">{t('editor.image.empty')}</span>
+        </div>
+        {editable && (
+          <div className="media-empty__body">
+            <button type="button" className="btn btn--sm" onClick={upload}>
+              <Upload size={13} /> {t('editor.image.upload')}
+            </button>
+            <span className="media-empty__or label">{t('editor.or')}</span>
+            <form
+              className="media-empty__form"
+              onSubmit={(e) => {
+                e.preventDefault()
+                if (isUrl(linkValue) || /^data:image\//.test(linkValue)) updateAttributes({ src: linkValue.trim() })
+              }}
+            >
+              <input
+                className="input"
+                placeholder={t('editor.image.linkPlaceholder')}
+                value={linkValue}
+                onChange={(e) => setLinkValue(e.target.value)}
+                autoFocus={selected}
+              />
+              <button type="submit" className="btn btn--sm btn--ink" disabled={!linkValue.trim()}>
+                {t('editor.media.add')}
+              </button>
+            </form>
+          </div>
+        )}
+      </NodeViewWrapper>
+    )
+  }
+
+  const startResize = (side: 'left' | 'right') => (e: RPointerEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    const fig = figRef.current
+    if (!fig) return
+    const container = fig.parentElement?.parentElement ?? fig.parentElement
+    const maxW = container?.clientWidth ?? 9999
+    const startX = e.clientX
+    const startW = fig.getBoundingClientRect().width
+    const factor = align === 'center' || !align ? 2 : 1
+    let w = startW
+    const move = (ev: PointerEvent) => {
+      const dx = (ev.clientX - startX) * (side === 'right' ? 1 : -1) * factor
+      w = Math.round(Math.max(MIN_W, Math.min(maxW, startW + dx)))
+      setLiveWidth(w)
+    }
+    const up = () => {
+      window.removeEventListener('pointermove', move)
+      window.removeEventListener('pointerup', up)
+      setLiveWidth(null)
+      updateAttributes({ width: w >= maxW - 2 ? null : w })
+    }
+    window.addEventListener('pointermove', move)
+    window.addEventListener('pointerup', up)
+  }
+
+  const w = liveWidth ?? width
+  const hasCaption = !!caption || showCaption
+  return (
+    <NodeViewWrapper
+      as="figure"
+      ref={figRef}
+      className={`image image-view${hasCaption && caption ? ' has-caption' : ''}${selected ? ' is-selected' : ''}`}
+      data-type="image"
+      data-align={align || 'center'}
+      style={{ width: w ? `${w}px` : undefined }}
+      contentEditable={false}
+    >
+      <div className="image-view__frame" data-drag-handle="">
+        {error ? (
+          <div className="image-view__error label">{t('editor.image.broken')}</div>
+        ) : (
+          <img src={url || undefined} alt={alt ?? ''} draggable={false} onError={() => setError(true)} onLoad={() => setError(false)} />
+        )}
+        {editable && (
+          <>
+            <span className="image-view__handle image-view__handle--left" onPointerDown={startResize('left')} aria-hidden />
+            <span className="image-view__handle image-view__handle--right" onPointerDown={startResize('right')} aria-hidden />
+            <div className="image-view__tools" role="toolbar" aria-label={t('editor.image.tools')}>
+              {(['left', 'center', 'right'] as const).map((a) => {
+                const Icon = a === 'left' ? AlignLeft : a === 'center' ? AlignCenter : AlignRight
+                return (
+                  <button key={a} type="button" className="icon-btn icon-btn--sm" aria-pressed={(align || 'center') === a} title={t(`editor.align.${a}`)} onClick={() => updateAttributes({ align: a })}>
+                    <Icon size={13} />
+                  </button>
+                )
+              })}
+              <span className="image-view__sep" />
+              <button
+                type="button"
+                className="icon-btn icon-btn--sm"
+                aria-pressed={hasCaption}
+                title={t('editor.image.caption')}
+                onClick={() => {
+                  setShowCaption(true)
+                  requestAnimationFrame(() => captionRef.current?.focus())
+                }}
+              >
+                <Captions size={13} />
+              </button>
+              <button type="button" className="icon-btn icon-btn--sm" title={t('editor.image.replace')} onClick={upload}>
+                <RefreshCw size={13} />
+              </button>
+              {url && (
+                <a className="icon-btn icon-btn--sm" href={url} target="_blank" rel="noreferrer" title={t('editor.image.original')}>
+                  <ExternalLink size={13} />
+                </a>
+              )}
+              <button type="button" className="icon-btn icon-btn--sm" title={t('common.delete')} onClick={() => deleteNode()}>
+                <Trash2 size={13} />
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+      {hasCaption && (editable || caption) && (
+        <figcaption>
+          {editable ? (
+            <input
+              ref={captionRef}
+              className="image-view__caption"
+              value={caption ?? ''}
+              placeholder={t('editor.image.captionPlaceholder')}
+              onChange={(e) => updateAttributes({ caption: e.target.value })}
+              onBlur={() => !caption && setShowCaption(false)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === 'Escape') {
+                  e.preventDefault()
+                  editor.commands.focus()
+                }
+              }}
+            />
+          ) : (
+            caption
+          )}
+        </figcaption>
+      )}
+    </NodeViewWrapper>
+  )
+}

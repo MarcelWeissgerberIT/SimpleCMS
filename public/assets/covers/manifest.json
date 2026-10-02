@@ -1,0 +1,50 @@
+[
+  {
+    "name": "paper-folds",
+    "label": "Paper folds",
+    "label_de": "Papierfalten",
+    "webp": "paper-folds.webp"
+  },
+  {
+    "name": "glass",
+    "label": "Frosted glass",
+    "label_de": "Milchglas",
+    "webp": "glass.webp"
+  },
+  {
+    "name": "aluminum",
+    "label": "Brushed aluminium",
+    "label_de": "Gebürstetes Aluminium",
+    "webp": "aluminum.webp"
+  },
+  {
+    "name": "dunes",
+    "label": "Dunes",
+    "label_de": "Dünen",
+    "webp": "dunes.webp"
+  },
+  {
+    "name": "ink",
+    "label": "Ink in water",
+    "label_de": "Tinte im Wasser",
+    "webp": "ink.webp"
+  },
+  {
+    "name": "grain",
+    "label": "Grain gradient",
+    "label_de": "Körniger Verlauf",
+    "webp": "grain.webp"
+  },
+  {
+    "name": "concrete",
+    "label": "Concrete curves",
+    "label_de": "Betonkurven",
+    "webp": "concrete.webp"
+  },
+  {
+    "name": "night",
+    "label": "Night city",
+    "label_de": "Nachtstadt",
+    "webp": "night.webp"
+  }
+]

@@ -1,0 +1,834 @@
+/*
+ * Editor content typography — "INSTRUMENT".
+ * Warm paper, black ink, one signal colour. Compact, rhythmic block spacing.
+ * Shared by PageEditor and ReadOnlyDoc (.one-editor / .one-doc wrappers).
+ */
+
+.one-editor,
+.one-doc {
+  --doc-size: 16px;
+  --doc-lh: 1.65;
+  --block-pad: 3px;
+  position: relative;
+  font-size: var(--doc-size);
+  color: var(--ink);
+}
+
+.doc--small {
+  --doc-size: 14px;
+}
+
+.one-editor__tail {
+  height: 96px;
+  cursor: text;
+}
+
+/* ---------- Base ---------- */
+.doc-content {
+  outline: none;
+  font-family: var(--font-sans);
+  font-size: var(--doc-size);
+  line-height: var(--doc-lh);
+  font-variation-settings: 'wdth' 100;
+  caret-color: var(--signal);
+  word-wrap: break-word;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  font-feature-settings: 'kern', 'liga', 'calt';
+  counter-reset: fig;
+  padding-bottom: 2px;
+}
+
+.doc--font-serif .doc-content {
+  font-family: var(--font-serif);
+  --doc-lh: 1.6;
+  font-size: calc(var(--doc-size) * 1.08);
+}
+
+.doc--font-mono .doc-content {
+  font-family: var(--font-mono);
+  font-size: calc(var(--doc-size) * 0.9);
+  --doc-lh: 1.7;
+}
+
+.doc-content ::selection {
+  background: var(--selection);
+}
+
+.doc-content > * + *,
+.doc-content [data-type='column'] > * + *,
+.doc-content .callout__body > * + *,
+.doc-content [data-type='detailsContent'] > * + * {
+  margin-top: 2px;
+}
+
+.doc-content p {
+  margin: 0;
+  padding: var(--block-pad) 0;
+  min-height: calc(var(--doc-lh) * 1em + var(--block-pad) * 2);
+}
+
+/* ---------- Headings: Archivo expanded, heavy ---------- */
+.doc-content h1,
+.doc-content h2,
+.doc-content h3 {
+  margin: 0;
+  font-family: var(--font-sans);
+  font-stretch: var(--display-stretch);
+  font-variation-settings: 'wdth' 125;
+  font-weight: 800;
+  letter-spacing: var(--tracking-tight);
+  line-height: 1.22;
+  padding: 3px 0;
+  color: var(--ink);
+}
+
+.doc-content h1 {
+  font-size: 1.72em;
+  margin-top: 1.25em;
+}
+
+.doc-content h2 {
+  font-size: 1.36em;
+  margin-top: 1.05em;
+  font-weight: 760;
+}
+
+.doc-content h3 {
+  font-size: 1.1em;
+  margin-top: 0.8em;
+  font-weight: 720;
+  letter-spacing: -0.01em;
+}
+
+.doc-content > h1:first-child,
+.doc-content > h2:first-child,
+.doc-content > h3:first-child {
+  margin-top: 0.2em;
+}
+
+.doc--font-serif .doc-content h1,
+.doc--font-serif .doc-content h2,
+.doc--font-serif .doc-content h3 {
+  font-family: var(--font-serif);
+  font-stretch: normal;
+  font-variation-settings: normal;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+}
+
+.doc--font-mono .doc-content h1,
+.doc--font-mono .doc-content h2,
+.doc--font-mono .doc-content h3 {
+  font-family: var(--font-mono);
+  font-stretch: normal;
+  font-variation-settings: normal;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+/* ---------- Inline marks ---------- */
+.doc-content strong {
+  font-weight: 700;
+}
+
+.doc-content a {
+  color: inherit;
+  text-decoration: underline;
+  text-decoration-color: var(--signal);
+  text-decoration-thickness: 1.5px;
+  text-underline-offset: 3px;
+  cursor: pointer;
+  transition: color var(--dur-1) var(--ease-out);
+}
+
+.doc-content a:hover {
+  color: var(--signal-ink);
+}
+
+.doc-content a[href^='#/p/'] {
+  text-decoration-color: var(--ink-3);
+  text-decoration-style: solid;
+}
+
+.doc-content a[href^='#/p/']:hover {
+  text-decoration-color: var(--signal);
+  color: inherit;
+}
+
+.doc-content code {
+  font-family: var(--font-mono);
+  font-size: 0.84em;
+  padding: 0.08em 0.32em;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-1);
+  background: var(--surface-2);
+  color: var(--ink);
+  font-variant-ligatures: none;
+  white-space: pre-wrap;
+}
+
+.doc-content mark {
+  border-radius: 1px;
+  padding: 0.05em 0;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+}
+
+.doc-content s {
+  text-decoration-color: var(--ink-3);
+}
+
+/* ---------- Lists ---------- */
+.doc-content ul,
+.doc-content ol {
+  margin: 0;
+  padding: 0 0 0 1.55em;
+}
+
+.doc-content li > p {
+  padding: 2px 0;
+  min-height: 0;
+}
+
+.doc-content li + li {
+  margin-top: 1px;
+}
+
+.doc-content ul:not([data-type='taskList']) > li {
+  list-style: none;
+  position: relative;
+}
+
+.doc-content ul:not([data-type='taskList']) > li::before {
+  content: '';
+  position: absolute;
+  left: -1em;
+  top: calc(var(--doc-lh) * 0.5em + 2px - 2.5px);
+  width: 5px;
+  height: 5px;
+  background: var(--ink);
+}
+
+.doc-content ul:not([data-type='taskList']) ul:not([data-type='taskList']) > li::before {
+  background: transparent;
+  box-shadow: inset 0 0 0 1.25px var(--ink-2);
+}
+
+.doc-content ul:not([data-type='taskList']) ul:not([data-type='taskList']) ul:not([data-type='taskList']) > li::before {
+  width: 7px;
+  height: 1.5px;
+  top: calc(var(--doc-lh) * 0.5em + 2px - 0.75px);
+  box-shadow: none;
+  background: var(--ink-2);
+}
+
+.doc-content ol {
+  list-style: decimal;
+}
+
+.doc-content ol ol {
+  list-style: lower-alpha;
+}
+
+.doc-content ol ol ol {
+  list-style: lower-roman;
+}
+
+.doc-content ol > li::marker {
+  font-family: var(--font-mono);
+  font-size: 0.8em;
+  font-weight: 500;
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- Task list: keycap toggles ---------- */
+.doc-content ul[data-type='taskList'] {
+  list-style: none;
+  padding-left: 0.1em;
+}
+
+.doc-content ul[data-type='taskList'] li {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+}
+
+.doc-content ul[data-type='taskList'] li > label {
+  flex: none;
+  display: flex;
+  align-items: center;
+  height: calc(var(--doc-lh) * 1em + 4px);
+  user-select: none;
+  cursor: pointer;
+}
+
+.doc-content ul[data-type='taskList'] li > div {
+  flex: 1;
+  min-width: 0;
+}
+
+.doc-content ul[data-type='taskList'] ul[data-type='taskList'] {
+  padding-left: 0;
+}
+
+.doc-content input[type='checkbox'] {
+  appearance: none;
+  -webkit-appearance: none;
+  position: relative;
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  border: 1px solid var(--rule-strong);
+  border-bottom-width: 2.5px;
+  border-radius: 3px;
+  background: var(--surface);
+  cursor: pointer;
+  transform: translateY(-1px);
+  transition:
+    background var(--dur-1) var(--ease-out),
+    border-color var(--dur-1) var(--ease-out),
+    transform var(--dur-1) var(--ease-out),
+    border-bottom-width var(--dur-1) var(--ease-out);
+}
+
+.doc-content input[type='checkbox']:hover {
+  border-color: var(--ink-3);
+}
+
+.doc-content input[type='checkbox']:active {
+  transform: translateY(0);
+  border-bottom-width: 1.5px;
+}
+
+.doc-content input[type='checkbox']:checked {
+  background: var(--signal);
+  border-color: var(--signal-press);
+  border-bottom-width: 1px;
+  transform: translateY(0.5px);
+}
+
+.doc-content input[type='checkbox']:checked::after {
+  content: '';
+  position: absolute;
+  left: 4.5px;
+  top: 1px;
+  width: 4px;
+  height: 8px;
+  border: solid var(--on-signal);
+  border-width: 0 1.75px 1.75px 0;
+  transform: rotate(45deg);
+}
+
+.doc-content input[type='checkbox']:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.doc-content li[data-checked='true'] > div > p {
+  color: var(--ink-3);
+  text-decoration: line-through;
+  text-decoration-color: var(--rule-strong);
+  text-decoration-thickness: 1px;
+}
+
+/* ---------- Toggle (details) ---------- */
+.doc-content [data-type='details'] {
+  display: flex;
+  gap: 2px;
+  margin-left: -2px;
+}
+
+.doc-content [data-type='details'] > button {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: calc(var(--doc-lh) * 1em + 6px);
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-1);
+  background: transparent;
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.doc-content [data-type='details'] > button:hover {
+  background: var(--hover);
+}
+
+.doc-content [data-type='details'] > button::before {
+  content: '';
+  width: 0;
+  height: 0;
+  border-style: solid;
+  border-width: 4.5px 0 4.5px 7px;
+  border-color: transparent transparent transparent currentColor;
+  transition: transform var(--dur-2) var(--ease-out);
+}
+
+.doc-content [data-type='details'].is-open > button::before {
+  transform: rotate(90deg);
+}
+
+.doc-content [data-type='details'] > div {
+  flex: 1;
+  min-width: 0;
+}
+
+.doc-content [data-type='detailsSummary'],
+.doc-content summary {
+  padding: var(--block-pad) 0;
+  font-weight: 600;
+  list-style: none;
+}
+
+.doc-content [data-type='detailsContent'] {
+  padding-left: 0;
+}
+
+.doc-content [data-type='details']:not(.is-open) > div > [data-type='detailsSummary'] + [data-type='detailsContent'] {
+  display: none;
+}
+
+/* static <details> (generateHTML) */
+.doc-content details > summary::marker {
+  color: var(--ink-2);
+}
+
+/* ---------- Blockquote: heavy ink rule ---------- */
+.doc-content blockquote {
+  margin: 6px 0;
+  padding: 1px 0 1px 16px;
+  border-left: 3px solid var(--ink);
+  color: var(--ink);
+}
+
+.doc-content blockquote > p {
+  font-size: 1.04em;
+}
+
+/* ---------- Callout: placard ---------- */
+.doc-content .callout {
+  display: flex;
+  gap: 10px;
+  margin: 6px 0;
+  padding: 12px 16px 12px 12px;
+  border-radius: var(--radius-2);
+  background: var(--surface-2);
+  box-shadow: inset 0 0 0 1px var(--rule);
+}
+
+.doc-content .callout__icon {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: calc(var(--doc-lh) * 1em + 6px);
+  font-size: 1.15em;
+  line-height: 1;
+  user-select: none;
+}
+
+.doc-content .callout__body {
+  flex: 1;
+  min-width: 0;
+}
+
+.doc-content .callout--gray,
+.doc-content .callout--default {
+  background: var(--surface-2);
+}
+
+.doc-content .callout--brown { background: var(--c-brown-bg); }
+.doc-content .callout--orange { background: var(--c-orange-bg); }
+.doc-content .callout--yellow { background: var(--c-yellow-bg); }
+.doc-content .callout--green { background: var(--c-green-bg); }
+.doc-content .callout--blue { background: var(--c-blue-bg); }
+.doc-content .callout--purple { background: var(--c-purple-bg); }
+.doc-content .callout--pink { background: var(--c-pink-bg); }
+.doc-content .callout--red { background: var(--c-red-bg); }
+
+/* ---------- Divider: ruler with end ticks ---------- */
+.doc-content hr {
+  height: 9px;
+  margin: 12px 0;
+  border: 0;
+  background:
+    linear-gradient(var(--rule-strong), var(--rule-strong)) left center / 1px 9px no-repeat,
+    linear-gradient(var(--rule-strong), var(--rule-strong)) right center / 1px 9px no-repeat,
+    linear-gradient(var(--rule-strong), var(--rule-strong)) center / 100% 1px no-repeat;
+  cursor: pointer;
+}
+
+.doc-content hr.ProseMirror-selectednode,
+.doc-content hr.is-block-selected {
+  background:
+    linear-gradient(var(--signal), var(--signal)) left center / 1px 9px no-repeat,
+    linear-gradient(var(--signal), var(--signal)) right center / 1px 9px no-repeat,
+    linear-gradient(var(--signal), var(--signal)) center / 100% 1px no-repeat;
+}
+
+/* ---------- Code block ---------- */
+.doc-content pre {
+  margin: 6px 0;
+  padding: 12px 16px 14px;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-2);
+  background: var(--surface-2);
+  font-family: var(--font-mono);
+  font-size: 13.5px;
+  line-height: 1.62;
+  tab-size: 2;
+  overflow-x: auto;
+  white-space: pre;
+}
+
+.doc-content pre code {
+  padding: 0;
+  border: 0;
+  background: none;
+  font-size: inherit;
+  white-space: pre;
+  color: var(--ink);
+}
+
+/* syntax: monochrome ink + one signal accent */
+.doc-content .hljs-comment,
+.doc-content .hljs-quote {
+  color: var(--ink-3);
+  font-style: italic;
+}
+
+.doc-content .hljs-keyword,
+.doc-content .hljs-selector-tag,
+.doc-content .hljs-built_in,
+.doc-content .hljs-meta .hljs-keyword,
+.doc-content .hljs-doctag {
+  color: var(--signal-ink);
+  font-weight: 600;
+}
+
+.doc-content .hljs-string,
+.doc-content .hljs-regexp,
+.doc-content .hljs-addition,
+.doc-content .hljs-attribute,
+.doc-content .hljs-meta .hljs-string {
+  color: var(--c-green-text);
+}
+
+.doc-content .hljs-number,
+.doc-content .hljs-literal,
+.doc-content .hljs-symbol,
+.doc-content .hljs-bullet,
+.doc-content .hljs-variable.constant_ {
+  color: var(--c-blue-text);
+}
+
+.doc-content .hljs-title,
+.doc-content .hljs-title.function_,
+.doc-content .hljs-section,
+.doc-content .hljs-selector-id,
+.doc-content .hljs-selector-class {
+  color: var(--ink);
+  font-weight: 650;
+}
+
+.doc-content .hljs-type,
+.doc-content .hljs-title.class_,
+.doc-content .hljs-tag,
+.doc-content .hljs-name {
+  color: var(--c-brown-text);
+}
+
+.doc-content .hljs-attr,
+.doc-content .hljs-variable,
+.doc-content .hljs-template-variable,
+.doc-content .hljs-params {
+  color: var(--ink-2);
+}
+
+.doc-content .hljs-meta,
+.doc-content .hljs-punctuation {
+  color: var(--ink-3);
+}
+
+.doc-content .hljs-deletion {
+  color: var(--c-red-text);
+}
+
+.doc-content .hljs-emphasis {
+  font-style: italic;
+}
+
+.doc-content .hljs-strong {
+  font-weight: 700;
+}
+
+/* ---------- Tables: hairlines, spec-sheet header ---------- */
+.doc-content .tableWrapper {
+  margin: 8px 0;
+  overflow-x: auto;
+  padding-bottom: 2px;
+}
+
+.doc-content table {
+  border-collapse: collapse;
+  table-layout: fixed;
+  width: 100%;
+  margin: 0;
+  overflow: hidden;
+}
+
+.doc-content th,
+.doc-content td {
+  position: relative;
+  min-width: 72px;
+  padding: 5px 9px;
+  border: 1px solid var(--rule-strong);
+  vertical-align: top;
+  text-align: left;
+  box-sizing: border-box;
+}
+
+.doc-content th {
+  background: var(--surface-2);
+  font-family: var(--font-mono);
+  font-size: 0.74em;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-2);
+  vertical-align: middle;
+}
+
+.doc-content th p,
+.doc-content td p {
+  padding: 0;
+  min-height: 0;
+}
+
+.doc-content td p {
+  font-size: 0.95em;
+}
+
+.doc-content .selectedCell::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: var(--signal-wash);
+  pointer-events: none;
+  z-index: 1;
+}
+
+.doc-content .column-resize-handle {
+  position: absolute;
+  top: -1px;
+  right: -2px;
+  bottom: -1px;
+  width: 3px;
+  background: var(--signal);
+  pointer-events: none;
+  z-index: 2;
+}
+
+.doc-content.resize-cursor {
+  cursor: col-resize;
+}
+
+/* ---------- Columns ---------- */
+.doc-content .columns {
+  display: grid;
+  grid-template-columns: repeat(var(--cols, 2), minmax(0, 1fr));
+  gap: 28px;
+  margin: 4px 0;
+}
+
+.doc-content .column {
+  min-width: 0;
+  position: relative;
+}
+
+.one-editor.is-editable .doc-content .columns:hover > .column + .column::before {
+  content: '';
+  position: absolute;
+  left: -14px;
+  top: 4px;
+  bottom: 4px;
+  width: 1px;
+  background: var(--rule);
+}
+
+@media (max-width: 640px) {
+  .doc-content .columns {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 4px;
+  }
+}
+
+/* ---------- Static renders of atom blocks (generateHTML / fallback) ---------- */
+.doc-content figure.image {
+  margin: 10px auto;
+}
+
+.doc-content figure.image img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  border-radius: var(--radius-1);
+}
+
+.doc-content figure.image[data-align='left'] {
+  margin-left: 0;
+}
+
+.doc-content figure.image[data-align='right'] {
+  margin-right: 0;
+}
+
+.doc-content figure.image.has-caption {
+  counter-increment: fig;
+}
+
+.doc-content figcaption {
+  margin-top: 6px;
+  font-size: 13px;
+  color: var(--ink-2);
+  line-height: 1.45;
+}
+
+.doc-content figure.image.has-caption figcaption::before {
+  content: 'FIG. ' counter(fig, decimal-leading-zero) ' — ';
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: var(--tracking-label);
+  color: var(--ink-3);
+}
+
+/* ---------- Placeholder ---------- */
+.doc-content .is-empty::before {
+  content: attr(data-placeholder);
+  float: left;
+  height: 0;
+  color: var(--ink-3);
+  pointer-events: none;
+  font-weight: inherit;
+}
+
+.doc-content p.is-empty::before,
+.doc-content [data-type='detailsSummary'].is-empty::before {
+  font-weight: 400;
+}
+
+.doc-content p.is-current::before {
+  display: none;
+}
+
+.doc-content.ProseMirror-focused p.is-current::before,
+.doc-content p.is-solo::before {
+  display: block;
+}
+
+/* ---------- Selection, flash, cursors ---------- */
+.doc-content .is-block-selected {
+  position: relative;
+  border-radius: var(--radius-1);
+  background-color: var(--signal-wash);
+  box-shadow: 0 0 0 2px var(--signal-wash);
+}
+
+.doc-content .is-block-selected *::selection,
+.doc-content.ProseMirror-noderangeselection *::selection {
+  background: transparent;
+}
+
+.doc-content .ProseMirror-selectednode:not(.is-block-selected) {
+  outline: 2px solid var(--signal);
+  outline-offset: 1px;
+  border-radius: var(--radius-1);
+}
+
+@keyframes block-flash {
+  0%,
+  25% {
+    background-color: var(--signal-wash-strong);
+    box-shadow: 0 0 0 4px var(--signal-wash-strong);
+  }
+  100% {
+    background-color: transparent;
+    box-shadow: 0 0 0 4px transparent;
+  }
+}
+
+.doc-content .block-flash {
+  border-radius: var(--radius-1);
+  animation: block-flash 1.9s var(--ease-out);
+}
+
+.ProseMirror-gapcursor {
+  display: none;
+  pointer-events: none;
+  position: absolute;
+}
+
+.ProseMirror-gapcursor::after {
+  content: '';
+  display: block;
+  position: absolute;
+  top: -2px;
+  width: 20px;
+  border-top: 2px solid var(--signal);
+  animation: gapcursor-blink 1.1s steps(2, start) infinite;
+}
+
+@keyframes gapcursor-blink {
+  to {
+    visibility: hidden;
+  }
+}
+
+.ProseMirror-focused .ProseMirror-gapcursor {
+  display: block;
+}
+
+.ProseMirror .ProseMirror-hideselection *::selection {
+  background: transparent;
+}
+
+.drop-cursor {
+  border-radius: 1px;
+}
+
+/* the "/query" while a suggestion menu is open */
+.doc-content .suggest-query {
+  color: var(--signal-ink);
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+}
+
+/* ---------- Read-only docs ---------- */
+.one-doc .doc-content input[type='checkbox'] {
+  pointer-events: none;
+}
+
+.one-editor.is-readonly .doc-content input[type='checkbox'] {
+  pointer-events: none;
+}
+
+@media (max-width: 640px) {
+  .one-editor,
+  .one-doc {
+    --doc-size: 16px;
+  }
+  .doc-content h1 {
+    font-size: 1.55em;
+  }
+  .doc-content h2 {
+    font-size: 1.28em;
+  }
+  .doc-content pre {
+    font-size: 12.5px;
+    padding: 10px 12px;
+  }
+}

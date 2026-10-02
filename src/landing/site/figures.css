@@ -1,0 +1,486 @@
+/* Frames (screenshots presented like technical drawings) + schematic line drawings. */
+
+.frame {
+  margin: 0;
+  position: relative;
+}
+.frame-box {
+  position: relative;
+}
+.frame-media {
+  position: relative;
+  aspect-ratio: 16 / 10;
+  overflow: hidden;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius-1);
+  background: var(--surface);
+  --fig-pop: var(--surface);
+}
+.tone-carbon .frame-media {
+  --fig-pop: var(--surface-3);
+}
+.frame-sk,
+.frame-sk > svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+.frame-img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  opacity: 0;
+  transition: opacity var(--dur-3) var(--ease-out);
+}
+.frame.has-shot .frame-img {
+  opacity: 1;
+}
+.frame-cap {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  padding-top: 12px;
+  color: var(--ink-3);
+}
+
+/* Crop marks: two short strokes off each corner. */
+.crop {
+  position: absolute;
+  width: 0;
+  height: 0;
+  color: var(--ink-3);
+  pointer-events: none;
+}
+.crop::before,
+.crop::after {
+  content: '';
+  position: absolute;
+  background: currentColor;
+}
+.crop::before {
+  width: 12px;
+  height: 1px;
+}
+.crop::after {
+  width: 1px;
+  height: 12px;
+}
+.crop-tl {
+  top: 0;
+  left: 0;
+}
+.crop-tl::before {
+  left: -20px;
+  top: 0;
+}
+.crop-tl::after {
+  top: -20px;
+  left: 0;
+}
+.crop-tr {
+  top: 0;
+  right: 0;
+}
+.crop-tr::before {
+  left: 8px;
+  top: 0;
+}
+.crop-tr::after {
+  top: -20px;
+  left: -1px;
+}
+.crop-bl {
+  bottom: 0;
+  left: 0;
+}
+.crop-bl::before {
+  left: -20px;
+  top: -1px;
+}
+.crop-bl::after {
+  top: 8px;
+  left: 0;
+}
+.crop-br {
+  bottom: 0;
+  right: 0;
+}
+.crop-br::before {
+  left: 8px;
+  top: -1px;
+}
+.crop-br::after {
+  top: 8px;
+  left: -1px;
+}
+
+/* ---------- Schematic SVG vocabulary ---------- */
+.sk text {
+  font-family: var(--font-sans);
+}
+.sk-bg {
+  fill: var(--surface);
+}
+.sk-panel {
+  fill: var(--surface-2);
+}
+.sk-line {
+  stroke: var(--rule-strong);
+  stroke-width: 1.5;
+  fill: none;
+}
+.sk-grid {
+  stroke: var(--rule);
+  stroke-width: 1;
+}
+.sk-bar {
+  fill: var(--ink-3);
+  opacity: 0.55;
+}
+.sk-bar-2 {
+  fill: var(--ink-3);
+  opacity: 0.3;
+}
+.sk-ink {
+  fill: var(--ink);
+}
+.sk-sig {
+  fill: var(--signal);
+}
+.sk-ok {
+  fill: var(--led-ok);
+}
+.sk-wash {
+  fill: var(--signal-wash);
+}
+.sk-field {
+  fill: var(--fig-pop);
+  stroke: var(--rule-strong);
+  stroke-width: 1.5;
+}
+.sk-hover {
+  fill: var(--active);
+}
+.sk-pop {
+  fill: var(--fig-pop);
+  stroke: var(--rule-strong);
+  stroke-width: 1.5;
+}
+.sk-lift {
+  stroke: var(--signal);
+  stroke-width: 2;
+}
+.sk-card {
+  fill: var(--fig-pop);
+  stroke: var(--rule-strong);
+  stroke-width: 1.5;
+}
+.sk-shadow {
+  fill: black;
+  opacity: 0.14;
+}
+.tone-carbon .sk-shadow {
+  opacity: 0.45;
+}
+.sk-key {
+  fill: var(--surface-2);
+  stroke: var(--rule-strong);
+  stroke-width: 1.5;
+}
+.sk-btn {
+  fill: var(--signal);
+}
+.sk-chip {
+  fill: var(--active);
+}
+.sk-chip-sig {
+  fill: var(--signal-wash-strong);
+}
+.sk-chip-ok {
+  fill: color-mix(in srgb, var(--led-ok) 22%, transparent);
+}
+.sk-chip-txt {
+  font-family: var(--font-mono) !important;
+  font-size: 13px;
+  letter-spacing: 0.04em;
+  fill: var(--ink-2);
+}
+.sk-txt {
+  font-size: 17px;
+  font-weight: 500;
+  fill: var(--ink-2);
+}
+.sk-strong {
+  fill: var(--ink);
+  font-weight: 650;
+}
+.sk-dim {
+  fill: var(--ink-3);
+}
+.sk-big {
+  font-size: 22px;
+}
+.sk-mono {
+  font-family: var(--font-mono) !important;
+  font-size: 14px;
+  letter-spacing: 0.06em;
+  fill: var(--ink-2);
+}
+.sk-mono.sk-dim {
+  fill: var(--ink-3);
+}
+.sk-mono.sk-strong {
+  fill: var(--ink);
+}
+.sk-title {
+  font-size: 60px;
+  font-weight: 800;
+  font-stretch: 125%;
+  letter-spacing: -0.03em;
+  fill: var(--ink);
+}
+.sk-h2 {
+  font-size: 28px;
+  font-weight: 750;
+  font-stretch: 112%;
+  fill: var(--ink);
+}
+.sk-sig-txt {
+  fill: var(--signal-ink);
+}
+.sk-on-sig {
+  fill: var(--sig-ink);
+}
+.sk-on-sig-fill {
+  fill: var(--sig-ink);
+}
+.sk-switch {
+  fill: var(--signal);
+}
+.sk-node {
+  fill: var(--ink-3);
+}
+.sk-edge {
+  stroke: var(--rule-strong);
+  stroke-width: 1.4;
+}
+.sk-edge-hub {
+  stroke: var(--ink-3);
+  stroke-width: 2.2;
+}
+.sk-ring {
+  fill: none;
+  stroke: var(--signal);
+  stroke-width: 1.6;
+  stroke-dasharray: 5 7;
+}
+.sk-caret {
+  animation: caret 1.05s steps(1) infinite;
+}
+
+/* ---------- Code printout (webhook payload) ---------- */
+.fig-stack {
+  display: grid;
+  gap: 18px;
+}
+.code {
+  margin: 0;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius-2);
+  overflow: hidden;
+  background: var(--bg);
+  font-family: var(--font-mono);
+}
+.code-head,
+.code-foot {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px;
+  color: var(--ink-3);
+}
+.code-head {
+  border-bottom: 1px solid var(--rule);
+}
+.code-head > span:first-child {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--ink);
+}
+.code-foot {
+  border-top: 1px solid var(--rule);
+}
+.code-body {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+}
+.code-nums {
+  display: flex;
+  flex-direction: column;
+  padding: 14px 10px 14px 14px;
+  border-right: 1px solid var(--rule);
+  color: var(--ink-3);
+  font-size: 12px;
+  line-height: 1.7;
+  text-align: right;
+  user-select: none;
+}
+.code pre {
+  margin: 0;
+  padding: 14px 16px;
+  overflow-x: auto;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  line-height: 1.632;
+  color: var(--ink);
+  tab-size: 2;
+}
+.code pre:focus-visible {
+  outline-offset: -2px;
+}
+.j-k {
+  color: var(--ink);
+}
+.j-s {
+  color: var(--signal-ink);
+}
+.j-n {
+  color: var(--ink);
+  font-weight: 700;
+}
+.j-p {
+  color: var(--ink-3);
+}
+
+/* ---------- Import figure: stopwatch + steps ---------- */
+.import-media {
+  display: grid;
+  grid-template-columns: 42% minmax(0, 1fr);
+  align-items: center;
+  gap: 6%;
+  padding: 5% 6%;
+}
+.stopwatch {
+  width: 100%;
+  height: auto;
+}
+.sw-crown {
+  fill: var(--ink);
+}
+.sw-face {
+  fill: var(--surface);
+  stroke: var(--ink);
+  stroke-width: 2;
+}
+.sw-major {
+  stroke: var(--ink);
+  stroke-width: 2.5;
+}
+.sw-minor {
+  stroke: var(--ink-3);
+  stroke-width: 1;
+}
+.sw-num {
+  font-family: var(--font-mono);
+  font-size: 15px;
+  fill: var(--ink-2);
+  text-anchor: middle;
+}
+.sw-sweep {
+  fill: none;
+  stroke: var(--signal);
+  stroke-width: 6;
+  opacity: 0.85;
+}
+.sw-hand {
+  stroke: var(--signal);
+  stroke-width: 3;
+}
+.sw-hub {
+  fill: var(--ink);
+}
+.sw-read {
+  font-family: var(--font-mono);
+  font-size: 30px;
+  font-weight: 600;
+  fill: var(--ink);
+  text-anchor: middle;
+}
+.import-steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  font-size: 14px;
+}
+.import-steps li {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  column-gap: 8px;
+  padding: 10px 0;
+  border-top: 1px solid var(--rule);
+}
+.import-steps li > b {
+  font-weight: 750;
+  font-stretch: 112%;
+}
+.import-steps li > span:last-child {
+  grid-column: 2;
+  color: var(--ink-2);
+}
+.import-steps .lbl {
+  color: var(--ink-3);
+  padding-top: 2px;
+}
+.import-file {
+  border-bottom: 1px solid var(--rule);
+}
+.import-file .lbl:first-child {
+  grid-column: 1 / -1;
+  color: var(--ink);
+}
+.import-file .import-bar {
+  grid-column: 1 / -1 !important;
+  position: relative;
+  height: 6px;
+  margin: 8px 0 6px;
+  background: var(--rule);
+  border-radius: 1px;
+  overflow: hidden;
+}
+.import-bar i {
+  position: absolute;
+  inset: 0;
+  background: var(--signal);
+}
+.import-file .lbl:last-child {
+  grid-column: 1 / -1 !important;
+}
+
+@media (max-width: 720px) {
+  .import-media {
+    grid-template-columns: 38% minmax(0, 1fr);
+    padding: 4%;
+    gap: 4%;
+  }
+  .import-steps {
+    font-size: 11.5px;
+  }
+  .import-steps li {
+    padding: 5px 0;
+    grid-template-columns: 22px minmax(0, 1fr);
+  }
+  .import-steps li > span:last-child {
+    display: none;
+  }
+  .import-file .lbl:last-child {
+    display: block !important;
+  }
+  .frame-cap {
+    flex-direction: column;
+    gap: 2px;
+  }
+}

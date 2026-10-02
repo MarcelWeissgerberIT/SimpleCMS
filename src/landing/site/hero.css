@@ -1,0 +1,349 @@
+/* § 00 — Hero: a technical drawing of the product on a Carbon sheet. */
+
+.hero {
+  position: relative;
+  padding: clamp(28px, 4vw, 56px) 0 clamp(48px, 6vw, 88px);
+  overflow: hidden;
+}
+/* Construction grid: 12 columns, drawn as hairlines. */
+.hero-grid {
+  position: absolute;
+  inset: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  justify-content: space-between;
+  pointer-events: none;
+}
+.hero-grid i {
+  width: 1px;
+  background: var(--rule);
+  transform-origin: top center;
+}
+.hero-in {
+  position: relative;
+}
+.hero-meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+}
+.hero-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0;
+  color: var(--ink);
+}
+.hero-plate {
+  margin: 0;
+  padding: 5px 9px;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius-1);
+  color: var(--ink-2);
+}
+.hero-h {
+  margin: clamp(22px, 3vw, 40px) 0 0;
+  font-size: clamp(40px, 8.1vw, 124px);
+  letter-spacing: -0.045em;
+  line-height: 0.9;
+  color: var(--ink);
+}
+.hero-body {
+  display: grid;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  column-gap: var(--col-gap);
+  margin-top: clamp(28px, 3.6vw, 52px);
+  align-items: start;
+}
+.hero-copy {
+  grid-column: 1 / span 4;
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+  padding-top: 30px;
+}
+.hero-sub {
+  margin: 0;
+  font-size: clamp(16px, 1.32vw, 19px);
+  line-height: 1.5;
+  color: var(--ink-2);
+  max-width: 36ch;
+}
+.hero-ctas {
+  display: grid;
+  gap: 8px;
+  max-width: 380px;
+}
+.hero-ctas .btn {
+  justify-content: space-between;
+}
+.hero-fine {
+  margin: -6px 0 0;
+  color: var(--ink-3);
+}
+
+/* Parts list (bill of materials) for the drawing's balloons. */
+.bom {
+  margin-top: 8px;
+  border-top: 1px solid var(--rule-strong);
+}
+.bom-h {
+  display: flex;
+  justify-content: space-between;
+  margin: 0;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--rule);
+  color: var(--ink-3);
+}
+.bom ol {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.bom li {
+  display: grid;
+  grid-template-columns: 30px 1fr auto;
+  align-items: center;
+  padding: 7px 0;
+  border-bottom: 1px solid var(--rule);
+  font-size: 14px;
+}
+.bom-id {
+  display: inline-grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 1px solid var(--signal);
+  color: var(--signal-ink);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 700;
+}
+.bom-name {
+  color: var(--ink);
+}
+.bom-q {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--ink-3);
+}
+
+/* Drawing */
+.hero-fig {
+  grid-column: 5 / span 8;
+  position: relative;
+  padding: 30px 0 0 30px;
+}
+.frame-hero .frame-media {
+  box-shadow: 0 40px 80px -40px rgba(0, 0, 0, 0.6);
+}
+.dim {
+  position: absolute;
+  color: var(--ink-3);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+}
+.dim::before {
+  content: '';
+  position: absolute;
+  background: currentColor;
+}
+.dim span {
+  position: absolute;
+  padding: 0 8px;
+  background: var(--bg);
+  color: var(--ink-2);
+  line-height: 1;
+}
+.dim-h {
+  bottom: calc(100% + 10px);
+  left: 0;
+  right: 0;
+  height: 13px;
+  border-left: 1px solid currentColor;
+  border-right: 1px solid currentColor;
+}
+.dim-h::before {
+  left: 0;
+  right: 0;
+  top: 6px;
+  height: 1px;
+}
+.dim-h span {
+  left: 50%;
+  top: 1px;
+  transform: translateX(-50%);
+}
+.dim-v {
+  right: calc(100% + 10px);
+  top: 0;
+  bottom: 0;
+  width: 13px;
+  border-top: 1px solid currentColor;
+  border-bottom: 1px solid currentColor;
+}
+.dim-v::before {
+  top: 0;
+  bottom: 0;
+  left: 6px;
+  width: 1px;
+}
+.dim-v span {
+  top: 50%;
+  left: 7px;
+  transform: translate(-50%, -50%) rotate(-90deg);
+}
+
+/* Balloons + leaders */
+.leaders {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  overflow: visible;
+}
+.leader {
+  stroke: var(--signal);
+  stroke-width: 1.25;
+  vector-effect: non-scaling-stroke;
+}
+.leader-dot {
+  fill: var(--signal);
+}
+.balloon {
+  position: absolute;
+  z-index: 2;
+  width: 28px;
+  height: 28px;
+  margin: -14px 0 0 -14px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--signal);
+  color: var(--sig-ink);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 700;
+  box-shadow: 0 0 0 3px var(--bg);
+}
+.scanline {
+  position: absolute;
+  left: -1px;
+  right: -1px;
+  height: 2px;
+  margin-top: -1px;
+  background: var(--signal);
+  z-index: 5;
+  pointer-events: none;
+}
+
+/* Instrument readout (VFD-orange numerals). */
+.readout {
+  list-style: none;
+  margin: clamp(36px, 4.6vw, 64px) 0 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  border-top: 1px solid var(--rule-strong);
+  border-bottom: 1px solid var(--rule-strong);
+}
+.readout-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 18px 22px 20px;
+  border-left: 1px solid var(--rule);
+  min-width: 0;
+}
+.readout-cell:first-child {
+  border-left: 0;
+  padding-left: 0;
+}
+.readout-val {
+  font-family: var(--font-mono);
+  font-size: clamp(34px, 3.9vw, 58px);
+  font-weight: 500;
+  line-height: 1;
+  letter-spacing: -0.04em;
+  color: var(--signal);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.readout-unit {
+  color: var(--ink-2);
+}
+
+/* Pre-entrance (set while the 1997 page is being smashed on top). */
+.site.is-pre .type-caret {
+  animation: none;
+}
+
+@media (max-width: 1080px) {
+  .hero-copy {
+    grid-column: 1 / -1;
+    padding-top: 0;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    column-gap: var(--col-gap);
+  }
+  .hero-sub,
+  .hero-ctas,
+  .hero-fine {
+    grid-column: 1;
+  }
+  .bom {
+    grid-column: 2;
+    grid-row: 1 / span 3;
+    margin-top: 0;
+  }
+  .hero-fig {
+    grid-column: 1 / -1;
+    margin-top: 40px;
+  }
+}
+@media (max-width: 720px) {
+  .hero-plate {
+    display: none;
+  }
+  .hero-copy {
+    display: flex;
+  }
+  .bom {
+    display: none;
+  }
+  .hero-fig {
+    padding: 26px 0 0;
+    margin-top: 36px;
+  }
+  .dim-v {
+    display: none;
+  }
+  .balloon {
+    width: 20px;
+    height: 20px;
+    margin: -10px 0 0 -10px;
+    font-size: 10px;
+    box-shadow: 0 0 0 2px var(--bg);
+  }
+  .readout {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .readout-cell {
+    padding: 14px 0 16px 14px;
+  }
+  .readout-cell:nth-child(odd) {
+    border-left: 0;
+    padding-left: 0;
+  }
+  .readout-cell:nth-child(n + 3) {
+    border-top: 1px solid var(--rule);
+  }
+  .hero-ctas {
+    max-width: none;
+  }
+}

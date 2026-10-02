@@ -1,0 +1,473 @@
+/* Presentation — a 16:9 sheet with crop marks on a quiet stage. */
+
+.pres {
+  --slide-size: clamp(14px, 2.15cqw, 44px);
+  position: fixed;
+  inset: 0;
+  z-index: calc(var(--z-toast) + 10);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--bg);
+  color: var(--ink);
+  animation: fade-in var(--dur-3) var(--ease-out);
+}
+
+.pres:not([data-chrome]) {
+  cursor: none;
+}
+
+.pres__stage {
+  position: relative;
+  display: grid;
+  flex: 1;
+  min-height: 0;
+  place-items: center;
+  padding: clamp(20px, 5vh, 56px) clamp(16px, 4vw, 72px) clamp(52px, 8vh, 72px);
+  user-select: none;
+}
+
+.pres__frame {
+  position: relative;
+  width: min(100%, calc((100vh - clamp(72px, 13vh, 128px)) * 16 / 9));
+  aspect-ratio: 16 / 9;
+  container-type: size;
+  border-radius: 2px;
+  background: var(--surface);
+  box-shadow:
+    0 0 0 1px var(--rule),
+    0 40px 90px -50px var(--scrim);
+}
+
+/* printer's crop marks */
+.pres__crop {
+  position: absolute;
+  width: 18px;
+  height: 18px;
+  border-color: var(--ink-3);
+  border-style: solid;
+  border-width: 0;
+  pointer-events: none;
+}
+
+.pres__crop--tl {
+  top: -12px;
+  left: -12px;
+  border-top-width: 1px;
+  border-left-width: 1px;
+}
+
+.pres__crop--tr {
+  top: -12px;
+  right: -12px;
+  border-top-width: 1px;
+  border-right-width: 1px;
+}
+
+.pres__crop--bl {
+  bottom: -12px;
+  left: -12px;
+  border-bottom-width: 1px;
+  border-left-width: 1px;
+}
+
+.pres__crop--br {
+  right: -12px;
+  bottom: -12px;
+  border-right-width: 1px;
+  border-bottom-width: 1px;
+}
+
+.pres__corner {
+  position: absolute;
+  max-width: 44%;
+  overflow: hidden;
+  color: var(--ink-3);
+  font-family: var(--font-mono);
+  font-size: clamp(9px, 0.82cqw, 13px);
+  letter-spacing: var(--tracking-label);
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.pres__corner--tl {
+  top: 3.4cqh;
+  left: 3cqw;
+}
+
+.pres__corner--tr {
+  top: 3.4cqh;
+  right: 3cqw;
+}
+
+.pres__corner--br {
+  right: 3cqw;
+  bottom: 3.4cqh;
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.pres__fit {
+  position: absolute;
+  /* extra room on the left (padding) so hanging list markers are never clipped */
+  inset: 11cqh 7.5cqw 11cqh 4cqw;
+  padding-left: 3.5cqw;
+  overflow: hidden;
+  user-select: text;
+}
+
+.pres__content {
+  --dir: 1;
+  transform-origin: top left;
+  animation: pres-in var(--dur-3) var(--ease-out);
+}
+
+@keyframes pres-in {
+  from {
+    opacity: 0;
+    translate: calc(var(--dir) * 22px) 0;
+  }
+}
+
+/* ---------- slide typography (on top of the editor's .one-doc styles) ---------- */
+.pres .one-doc {
+  --doc-size: var(--slide-size);
+  --doc-lh: 1.5;
+}
+
+.pres .pres__doc .doc-content > * + * {
+  margin-top: 0.3em;
+}
+
+.pres .pres__doc .doc-content > :is(h1, h2):first-child {
+  margin: 0 0 0.6em;
+  font-size: 2.2em;
+  line-height: 1.04;
+  letter-spacing: -0.025em;
+}
+
+.pres .pres__doc .doc-content > :is(h1, h2):first-child::before {
+  content: '';
+  display: block;
+  width: 1.1em;
+  height: 0.11em;
+  margin-bottom: 0.42em;
+  background: var(--signal);
+}
+
+.pres .pres__doc .doc-content h1 {
+  font-size: 1.9em;
+}
+
+.pres .pres__doc .doc-content h2 {
+  font-size: 1.5em;
+}
+
+.pres .pres__doc .doc-content h3 {
+  font-size: 1.2em;
+}
+
+.pres .pres__doc .doc-content img {
+  max-height: 58cqh;
+  width: auto;
+  max-width: 100%;
+}
+
+/* ---------- title slide ---------- */
+.pres__content--title {
+  height: 100%;
+}
+
+.pres__title-slide {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  height: 100%;
+}
+
+.pres__icon {
+  margin-bottom: 2.4cqh;
+  font-size: 0;
+}
+
+.pres__icon > * {
+  width: clamp(40px, 6.5cqw, 120px) !important;
+  height: clamp(40px, 6.5cqw, 120px) !important;
+  font-size: clamp(38px, 6.2cqw, 114px) !important;
+}
+
+.pres__title {
+  max-width: 92%;
+  margin: 0;
+  font-size: clamp(30px, 7.2cqw, 140px);
+  font-stretch: var(--display-stretch);
+  font-weight: 850;
+  letter-spacing: -0.035em;
+  line-height: 0.94;
+  overflow-wrap: anywhere;
+}
+
+.pres .pres__lede {
+  --doc-size: calc(var(--slide-size) * 1.15);
+  max-width: 70%;
+  margin-top: 3cqh;
+  color: var(--ink-2);
+}
+
+.pres .pres__lede .doc-content p {
+  color: var(--ink-2);
+}
+
+.pres__meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-top: 5cqh;
+  padding-top: 1.6cqh;
+  border-top: 1px solid var(--rule-strong);
+  color: var(--ink-3);
+  font-family: var(--font-mono);
+  font-size: clamp(9px, 0.9cqw, 14px);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+}
+
+.pres__begin {
+  color: var(--signal-ink);
+}
+
+/* ---------- progress + HUD ---------- */
+.pres__progress {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 3px;
+  background: var(--rule);
+}
+
+.pres__progress > span {
+  display: block;
+  height: 100%;
+  background: var(--signal);
+  transform-origin: left center;
+  transition: transform var(--dur-3) var(--ease-out);
+}
+
+.pres__hud {
+  position: absolute;
+  right: 16px;
+  bottom: 14px;
+  left: 16px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--dur-3) var(--ease-out);
+}
+
+.pres[data-chrome] .pres__hud {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.pres__keys {
+  display: inline-flex;
+  align-items: center;
+  overflow: hidden;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius-1);
+  background: var(--surface);
+  box-shadow: var(--shadow-1);
+}
+
+.pres__key {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 30px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+}
+
+.pres__key:hover:not(:disabled) {
+  background: var(--hover);
+}
+
+.pres__key:active:not(:disabled) {
+  background: var(--active);
+  transform: translateY(1px);
+}
+
+.pres__key:disabled {
+  color: var(--ink-3);
+  opacity: 0.5;
+  cursor: default;
+}
+
+.pres__key[aria-pressed='true'] {
+  color: var(--signal-ink);
+}
+
+.pres__keys-sep {
+  width: 1px;
+  height: 18px;
+  background: var(--rule-strong);
+}
+
+.pres__help {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--ink-3);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+}
+
+.pres__help .kbd:nth-of-type(3) {
+  margin-left: 10px;
+}
+
+.pres__spacer {
+  flex: 1;
+}
+
+.pres__count {
+  color: var(--ink-3);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  letter-spacing: 0.08em;
+  font-variant-numeric: tabular-nums;
+}
+
+.pres__count b {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+/* ---------- overview ---------- */
+.pres__overview {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 28px clamp(16px, 4vw, 64px) 80px;
+  animation: fade-in var(--dur-2) var(--ease-out);
+}
+
+.pres__ov-head {
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+  margin-bottom: 18px;
+}
+
+.pres__ov-title {
+  font-size: var(--text-xl);
+  font-stretch: var(--display-stretch);
+  font-weight: 800;
+  letter-spacing: var(--tracking-tight);
+}
+
+.pres__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 14px;
+}
+
+.pres__thumb {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  aspect-ratio: 16 / 9;
+  padding: 12px 14px;
+  overflow: hidden;
+  border: 1px solid var(--rule-strong);
+  border-radius: 2px;
+  background: var(--surface);
+  color: var(--ink);
+  text-align: left;
+  transition:
+    border-color var(--dur-1),
+    transform var(--dur-1);
+}
+
+.pres__thumb:hover {
+  border-color: var(--ink-3);
+}
+
+.pres__thumb:active {
+  transform: translateY(1px);
+}
+
+.pres__thumb[aria-current='true'] {
+  border-color: var(--signal);
+  box-shadow: 0 0 0 1px var(--signal);
+}
+
+.pres__thumb-no {
+  color: var(--ink-3);
+  font-size: 10px;
+  letter-spacing: var(--tracking-label);
+}
+
+.pres__thumb-h {
+  display: -webkit-box;
+  overflow: hidden;
+  font-size: var(--text-md);
+  font-stretch: 112%;
+  font-weight: 750;
+  line-height: 1.2;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.pres__thumb-p {
+  display: -webkit-box;
+  overflow: hidden;
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+  line-height: 1.45;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+
+/* ---------- portrait / phones: the sheet fills the screen ---------- */
+@media (max-aspect-ratio: 1/1) {
+  .pres {
+    --slide-size: clamp(15px, 4.4cqw, 24px);
+  }
+  .pres__stage {
+    padding: 14px 14px 58px;
+  }
+  .pres__frame {
+    width: 100%;
+    height: 100%;
+    aspect-ratio: auto;
+  }
+  .pres__fit {
+    inset: 8cqh 6cqw 8cqh 2cqw;
+    padding-left: 4cqw;
+  }
+  .pres__corner {
+    font-size: 9.5px;
+  }
+  .pres__title {
+    font-size: clamp(34px, 11cqw, 64px);
+  }
+  .pres .pres__lede {
+    max-width: 100%;
+  }
+  .pres__crop {
+    display: none;
+  }
+  .pres__help {
+    display: none;
+  }
+}

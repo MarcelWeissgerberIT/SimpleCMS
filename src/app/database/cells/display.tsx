@@ -1,0 +1,405 @@
+/**
+ * Read-only renderers for property values (cells, cards, property panel, chips).
+ */
+import { memo, type MouseEvent, type ReactNode } from 'react'
+import { AlertTriangle, ArrowUpRight, Check, FileText, Star } from 'lucide-react'
+import type { Database, DateValue, ID, Page, Person, PropertyDef, SelectOption } from '../../store/types'
+import { tagStyle, colorText } from '../../lib/colors'
+import { useFileUrl } from '../../lib/files'
+import { PageIcon } from '../../ui/PageIcon'
+import { useT } from '../../i18n'
+import { FormulaError, isDate, toText, type FValue } from '../formula'
+import { formatDateValue, formatNumber, formatTimestamp, isDateValue, numberRatio } from '../model/format'
+import { fileLabel, type Resolver, type Resolved } from '../model/resolve'
+import { guessIsImage, useFileMeta } from '../model/files'
+import { openRow, writeValue } from '../model/actions'
+import { useUI } from '../../store/ui'
+
+/* ---------------- atoms ---------------- */
+
+export function OptionTag({ option, onRemove }: { option: SelectOption; onRemove?: () => void }) {
+  return (
+    <span className="tag db-tag" style={tagStyle(option.color)}>
+      <span className="db-tag__text">{option.name}</span>
+      {onRemove && (
+        <button
+          type="button"
+          className="db-tag__x"
+          aria-label="Remove"
+          onClick={(e) => {
+            e.stopPropagation()
+            onRemove()
+          }}
+        >
+          ×
+        </button>
+      )}
+    </span>
+  )
+}
+
+/** Status: an LED (state from group) + option name. */
+export function StatusTag({ option }: { option: SelectOption }) {
+  const g = option.group ?? 'todo'
+  return (
+    <span className="tag db-tag db-status" data-group={g} style={tagStyle(option.color)}>
+      <span className="db-status__led" aria-hidden />
+      <span className="db-tag__text">{option.name}</span>
+    </span>
+  )
+}
+
+export function initials(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean)
+  if (!parts.length) return '?'
+  return (parts[0][0] + (parts.length > 1 ? parts[parts.length - 1][0] : parts[0][1] ?? '')).toUpperCase()
+}
+
+export function Avatar({ person, size = 18 }: { person: Person; size?: number }) {
+  return (
+    <span className="db-avatar" style={{ ...tagStyle(person.color), width: size, height: size, fontSize: Math.round(size * 0.48) }} aria-hidden>
+      {initials(person.name)}
+    </span>
+  )
+}
+
+export function PersonChip({ person, onRemove }: { person: Person; onRemove?: () => void }) {
+  return (
+    <span className="db-person">
+      <Avatar person={person} />
+      <span className="db-person__name">{person.name}</span>
+      {onRemove && (
+        <button
+          type="button"
+          className="db-tag__x"
+          aria-label="Remove"
+          onClick={(e) => {
+            e.stopPropagation()
+            onRemove()
+          }}
+        >
+          ×
+        </button>
+      )}
+    </span>
+  )
+}
+
+export function RelationChip({ page, onRemove, linkable = true }: { page: Page; onRemove?: () => void; linkable?: boolean }) {
+  const t = useT()
+  return (
+    <span
+      className="db-rel"
+      onClick={
+        linkable
+          ? (e) => {
+              e.stopPropagation()
+              useUI.getState().openPeek(page.id)
+            }
+          : undefined
+      }
+      role={linkable ? 'link' : undefined}
+    >
+      <PageIcon icon={page.icon} size={14} />
+      <span className="db-rel__name">{page.title || t('common.untitled')}</span>
+      {onRemove && (
+        <button
+          type="button"
+          className="db-tag__x"
+          aria-label="Remove"
+          onClick={(e) => {
+            e.stopPropagation()
+            onRemove()
+          }}
+        >
+          ×
+        </button>
+      )}
+    </span>
+  )
+}
+
+export function FileChip({ src, big }: { src: string; big?: boolean }) {
+  const meta = useFileMeta(src)
+  const url = useFileUrl(src)
+  const isImg = guessIsImage(src, meta)
+  const name = meta?.name ?? fileLabel(src)
+  return (
+    <a
+      className={`db-file${big ? ' db-file--big' : ''}`}
+      href={url || undefined}
+      target="_blank"
+      rel="noreferrer"
+      title={name}
+      onClick={(e) => e.stopPropagation()}
+      download={src.startsWith('onefile:') ? name : undefined}
+    >
+      {isImg && url ? <img src={url} alt="" loading="lazy" draggable={false} /> : <FileText size={big ? 18 : 13} strokeWidth={1.7} />}
+      {!big && <span className="db-file__name">{name}</span>}
+    </a>
+  )
+}
+
+export function Checkbox({ checked, onToggle, readOnly, label }: { checked: boolean; onToggle?: (e: MouseEvent) => void; readOnly?: boolean; label?: string }) {
+  return (
+    <button
+      type="button"
+      role="checkbox"
+      aria-checked={checked}
+      aria-label={label}
+      className="db-check"
+      tabIndex={-1}
+      disabled={readOnly}
+      onClick={(e) => {
+        e.stopPropagation()
+        onToggle?.(e)
+      }}
+    >
+      {checked && <Check size={11} strokeWidth={3} />}
+    </button>
+  )
+}
+
+export function Rating({ value, max = 5, onChange, size = 13 }: { value: number; max?: number; onChange?: (v: number) => void; size?: number }) {
+  return (
+    <span className="db-rating" role={onChange ? 'radiogroup' : undefined} onClick={(e) => onChange && e.stopPropagation()}>
+      {Array.from({ length: max }, (_, i) => (
+        <button
+          key={i}
+          type="button"
+          tabIndex={-1}
+          className="db-rating__star"
+          data-on={i < value}
+          disabled={!onChange}
+          aria-label={`${i + 1}`}
+          onClick={() => onChange?.(value === i + 1 ? 0 : i + 1)}
+        >
+          <Star size={size} strokeWidth={1.8} />
+        </button>
+      ))}
+    </span>
+  )
+}
+
+/** Thin gauge bar (instrument style). */
+export function NumberBar({ ratio, text }: { ratio: number; text: string }) {
+  return (
+    <span className="db-gauge">
+      <span className="db-gauge__track">
+        <span className="db-gauge__fill" style={{ width: `${ratio * 100}%` }} />
+      </span>
+      <span className="db-gauge__text">{text}</span>
+    </span>
+  )
+}
+
+export function NumberRing({ ratio, text }: { ratio: number; text: string }) {
+  const r = 7
+  const c = 2 * Math.PI * r
+  return (
+    <span className="db-ring">
+      <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden>
+        <circle cx="9" cy="9" r={r} className="db-ring__track" />
+        <circle cx="9" cy="9" r={r} className="db-ring__fill" strokeDasharray={`${ratio * c} ${c}`} transform="rotate(-90 9 9)" />
+      </svg>
+      <span>{text}</span>
+    </span>
+  )
+}
+
+export function FormulaErrorBadge({ error }: { error: FormulaError }) {
+  const t = useT()
+  return (
+    <span className="db-err" title={t(`database.formula.err.${error.code}`, error.vars)}>
+      <AlertTriangle size={12} /> {t('database.formula.errorShort')}
+    </span>
+  )
+}
+
+/* ---------------- full value renderer ---------------- */
+
+export type Variant = 'cell' | 'card' | 'panel'
+
+interface ValueProps {
+  db: Database
+  prop: PropertyDef
+  row: Page
+  r: Resolver
+  variant?: Variant
+  /** Allow direct manipulation (checkbox toggle, rating click). */
+  interactive?: boolean
+}
+
+function linkHref(prop: PropertyDef, v: string): string {
+  if (prop.type === 'email') return `mailto:${v}`
+  if (prop.type === 'phone') return `tel:${v.replace(/\s+/g, '')}`
+  return /^[a-z]+:/i.test(v) ? v : `https://${v}`
+}
+
+function FValueView({ v, lang }: { v: FValue; lang: 'en' | 'de' }) {
+  if (typeof v === 'boolean') return <Checkbox checked={v} readOnly />
+  if (typeof v === 'number') return <span className="db-num">{toText(v, lang)}</span>
+  if (isDate(v)) return <span>{toText(v, lang)}</span>
+  if (Array.isArray(v))
+    return (
+      <span className="db-chips">
+        {v.map((x, i) => (
+          <span key={i} className="db-chip-plain">
+            {toText(x, lang)}
+          </span>
+        ))}
+      </span>
+    )
+  return <span className="db-text">{v ?? ''}</span>
+}
+
+function PersonList({ ids, people }: { ids: ID[]; people: Person[] }) {
+  return (
+    <span className="db-chips">
+      {ids.map((id) => {
+        const p = people.find((x) => x.id === id)
+        return p ? <PersonChip key={id} person={p} /> : null
+      })}
+    </span>
+  )
+}
+
+function RelationList({ ids, pages }: { ids: ID[]; pages: Record<ID, Page> }) {
+  return (
+    <span className="db-chips">
+      {ids.map((id) => {
+        const p = pages[id]
+        return p && !p.trashed ? <RelationChip key={id} page={p} /> : null
+      })}
+    </span>
+  )
+}
+
+export const PropertyValueView = memo(function PropertyValueView({ db, prop, row, r, variant = 'cell', interactive }: ValueProps) {
+  const v = r.value(db, prop, row)
+  return <ValueView db={db} prop={prop} row={row} r={r} v={v} variant={variant} interactive={interactive} />
+})
+
+export function ValueView({ db, prop, row, r, v, variant = 'cell', interactive }: ValueProps & { v: Resolved }) {
+  const { lang, labels } = r.ctx
+  if (v instanceof FormulaError) return <FormulaErrorBadge error={v} />
+  switch (prop.type) {
+    case 'title':
+      return <span className="db-text db-text--title">{row.title}</span>
+    case 'text':
+      return v ? <span className="db-text">{String(v)}</span> : null
+    case 'number': {
+      if (typeof v !== 'number') return null
+      const text = formatNumber(v, prop.numberFormat, lang)
+      if (prop.numberDisplay === 'bar') return <NumberBar ratio={numberRatio(v)} text={text} />
+      if (prop.numberDisplay === 'ring') return <NumberRing ratio={numberRatio(v)} text={text} />
+      return <span className="db-num">{text}</span>
+    }
+    case 'select': {
+      const o = prop.options?.find((x) => x.id === v)
+      return o ? <OptionTag option={o} /> : null
+    }
+    case 'status': {
+      const o = prop.options?.find((x) => x.id === v)
+      return o ? <StatusTag option={o} /> : null
+    }
+    case 'multi_select': {
+      const ids = (v as string[] | null) ?? []
+      if (!ids.length) return null
+      return (
+        <span className="db-chips">
+          {ids.map((id) => {
+            const o = prop.options?.find((x) => x.id === id)
+            return o ? <OptionTag key={id} option={o} /> : null
+          })}
+        </span>
+      )
+    }
+    case 'date':
+      return isDateValue(v) ? <span className="db-date">{formatDateValue(v as DateValue, lang, labels)}</span> : null
+    case 'created_time':
+    case 'last_edited_time':
+      return isDate(v) ? <span className="db-date db-date--stamp">{formatTimestamp(v.getTime(), lang)}</span> : null
+    case 'person': {
+      const ids = (v as string[] | null) ?? []
+      return ids.length ? <PersonList ids={ids} people={r.ctx.people} /> : null
+    }
+    case 'checkbox':
+      return <Checkbox checked={v === true} readOnly={!interactive} onToggle={() => writeValue(db.id, prop, row.id, !(v === true))} label={prop.name} />
+    case 'url':
+    case 'email':
+    case 'phone': {
+      if (!v) return null
+      const s = String(v)
+      return (
+        <a className="db-link" href={linkHref(prop, s)} target={prop.type === 'url' ? '_blank' : undefined} rel="noreferrer" onClick={(e: MouseEvent) => e.stopPropagation()}>
+          {prop.type === 'url' ? s.replace(/^https?:\/\/(www\.)?/, '').replace(/\/$/, '') : s}
+        </a>
+      )
+    }
+    case 'files': {
+      const list = (v as string[] | null) ?? []
+      if (!list.length) return null
+      return (
+        <span className="db-chips">
+          {list.map((src, i) => (
+            <FileChip key={src + i} src={src} />
+          ))}
+        </span>
+      )
+    }
+    case 'relation': {
+      const ids = (v as string[] | null) ?? []
+      return ids.length ? <RelationList ids={ids} pages={r.ctx.pages} /> : null
+    }
+    case 'rollup':
+    case 'formula': {
+      if (v === null || v === undefined || v === '') return null
+      if (typeof v === 'number' && prop.type === 'rollup') return <span className="db-num">{r.textOf(db, prop, v)}</span>
+      return <FValueView v={v as FValue} lang={lang} />
+    }
+    case 'unique_id':
+      return typeof v === 'number' ? <span className="db-uid">{prop.idPrefix ? `${prop.idPrefix}-${v}` : v}</span> : null
+    case 'rating':
+      return (
+        <Rating
+          value={typeof v === 'number' ? v : 0}
+          max={prop.ratingMax ?? 5}
+          onChange={interactive ? (n) => writeValue(db.id, prop, row.id, n || null) : undefined}
+          size={variant === 'card' ? 12 : 13}
+        />
+      )
+  }
+  return null
+}
+
+/** Title + icon + OPEN affordance used in table cells, list rows and cards. */
+export function RowTitle({ row, children }: { row: Page; children?: ReactNode }) {
+  const t = useT()
+  return (
+    <span className="db-rowtitle">
+      {row.icon && <PageIcon icon={row.icon} size={16} />}
+      <span className={`db-rowtitle__text${row.title ? '' : ' is-empty'}`}>{row.title || t('common.untitled')}</span>
+      {children}
+    </span>
+  )
+}
+
+export function OpenButton({ row, view, label }: { row: Page; view: { openIn?: 'peek' | 'center' | 'full' } | null; label: string }) {
+  return (
+    <button
+      type="button"
+      className="db-open"
+      tabIndex={-1}
+      onClick={(e) => {
+        e.stopPropagation()
+        openRow(row.id, view as never)
+      }}
+    >
+      <ArrowUpRight size={12} strokeWidth={2} />
+      <span>{label}</span>
+    </button>
+  )
+}
+
+export { colorText }

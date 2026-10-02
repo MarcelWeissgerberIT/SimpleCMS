@@ -1,0 +1,75 @@
+/*
+ * Section-scoped token sets for the marketing site.
+ * tokens.css only switches themes on :root, but this page mixes "Carbon"
+ * sections (hero, data flow, footer) with "Paper" ones — and the thermal receipt
+ * must stay paper even in dark mode. These blocks re-declare the token values
+ * from tokens.css for a subtree. (Proposal: move them into tokens.css as
+ * `.theme-carbon` / `.theme-paper` so the app can use them too.)
+ */
+
+/* Always-dark subtree (values = tokens.css "CARBON"). */
+.tone-carbon {
+  color-scheme: dark;
+  --bg: #111110;
+  --surface: #181816;
+  --surface-2: #151513;
+  --surface-3: #22211e;
+  --hover: rgba(236, 233, 226, 0.06);
+  --active: rgba(236, 233, 226, 0.1);
+  --ink: #ece9e2;
+  --ink-2: #a9a59c;
+  --ink-3: #6f6b63;
+  --ink-inverse: #121210;
+  --rule: rgba(236, 233, 226, 0.09);
+  --rule-strong: rgba(236, 233, 226, 0.18);
+  --signal: #ff5c1a;
+  --signal-hover: #ff7036;
+  --signal-press: #e64d0e;
+  --signal-ink: #ff7a3d;
+  --signal-wash: rgba(255, 92, 26, 0.12);
+  --signal-wash-strong: rgba(255, 92, 26, 0.22);
+  --selection: rgba(255, 92, 26, 0.3);
+  --led-off: #4a4740;
+  --led-ok: #2f9e44;
+  --shadow-pop: 0 0 0 1px var(--rule-strong), 0 16px 40px -12px rgba(0, 0, 0, 0.7);
+  --focus-ring: 0 0 0 2px var(--bg), 0 0 0 4px var(--signal);
+  background: var(--bg);
+  color: var(--ink);
+}
+
+/* Always-paper subtree (values = tokens.css "PAPER"). Used by the thermal receipt. */
+.tone-print {
+  color-scheme: light;
+  --bg: #f2f0ea;
+  --surface: #faf9f5;
+  --surface-2: #eae7df;
+  --ink: #121210;
+  --ink-2: #55524b;
+  --ink-3: #8d897f;
+  --rule: rgba(18, 18, 16, 0.1);
+  --rule-strong: rgba(18, 18, 16, 0.2);
+  --signal-ink: #c43c00;
+  --signal-wash: rgba(255, 79, 0, 0.1);
+  /* thermal paper: a hair cooler and brighter than the page */
+  --paper: #fdfcf8;
+  --paper-shade: #f1efe8;
+  color: var(--ink);
+}
+
+/* The one orange field on the page. Ink on signal orange (AA for all text sizes). */
+.tone-signal {
+  color-scheme: light;
+  --bg: #ff4f00;
+  --surface: #ff6a26;
+  --ink: #121210;
+  --ink-2: rgba(18, 18, 16, 0.74);
+  --ink-3: rgba(18, 18, 16, 0.5);
+  --rule: rgba(18, 18, 16, 0.18);
+  --rule-strong: rgba(18, 18, 16, 0.4);
+  --hover: rgba(18, 18, 16, 0.08);
+  --signal: #121210;
+  --signal-ink: #121210;
+  --focus-ring: 0 0 0 2px var(--bg), 0 0 0 4px #121210;
+  background: var(--bg);
+  color: var(--ink);
+}

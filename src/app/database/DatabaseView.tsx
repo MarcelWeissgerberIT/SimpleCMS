@@ -1,6 +1,33 @@
-// STUB — replaced by the database area.
-import type { ID } from '../store/types'
-import { useRows } from '../store/selectors'
+/**
+ * DatabaseView — view tabs, toolbar, filter chips and the active layout
+ * (table / board / list / gallery / calendar / timeline / chart). inline=true: compact embed.
+ */
+import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react'
+import { Maximize2 } from 'lucide-react'
+import type { Database, ID, Page, PropertyValue } from '../store/types'
+import { useDatabase, usePage } from '../store/selectors'
+import { useWorkspace } from '../store/store'
+import { PageIcon } from '../ui/PageIcon'
+import { Tooltip } from '../ui/Tooltip'
+import { useT } from '../i18n'
+import { openPage } from '../lib/router'
+import { DbModelContext, useDbModel, useLocalState } from './hooks'
+import { ViewTabs } from './toolbar/ViewTabs'
+import { Toolbar } from './toolbar/Toolbar'
+import { FilterChips, newFilterFor, emptyGroup } from './toolbar/Filters'
+import type { Template } from './toolbar/Templates'
+import { RowContextMenu, ViewActionsContext, type ViewActions } from './views/shared'
+import { TableView } from './views/TableView'
+import { BoardView } from './views/BoardView'
+import { ListView } from './views/ListView'
+import { GalleryView } from './views/GalleryView'
+import { openRow } from './model/actions'
+import type { PopoverAnchor } from '../ui/Popover'
+import './database.css'
+
+const CalendarView = lazy(() => import('./views/CalendarView'))
+const TimelineView = lazy(() => import('./views/TimelineView'))
+const ChartView = lazy(() => import('./views/ChartView'))
 
 export interface DatabaseViewProps {
   databaseId: ID
@@ -8,7 +35,206 @@ export interface DatabaseViewProps {
   viewId?: ID
 }
 
-export function DatabaseView({ databaseId }: DatabaseViewProps) {
-  const rows = useRows(databaseId)
-  return <div className="faint">[database stub] {rows.length} rows</div>
+export function DatabaseView({ databaseId, inline, viewId }: DatabaseViewProps) {
+  const t = useT()
+  const db = useDatabase(databaseId)
+  const page = usePage(databaseId)
+  if (!db || !page || page.trashed)
+    return (
+      <div className="db db--missing">
+        <span className="label">{page?.trashed ? t('database.missing.trashed') : t('database.missing.gone')}</span>
+      </div>
+    )
+  return <DatabaseRoot db={db} page={page} inline={!!inline} viewId={viewId} />
+}
+
+function DatabaseRoot({ db, page, inline, viewId }: { db: Database; page: Page; inline: boolean; viewId?: ID }) {
+  const t = useT()
+  const [activeId, setActiveId] = useLocalState<ID | null>(`one.db.view.${db.id}.${viewId ?? (inline ? 'inline' : 'page')}`, viewId ?? null)
+  const view = db.views.find((v) => v.id === activeId) ?? db.views.find((v) => v.id === viewId) ?? db.views[0]
+  const [search, setSearch] = useState('')
+  const [editTitleOf, setEditTitleOf] = useState<ID | null>(null)
+  const [ctx, setCtx] = useState<{ row: Page; anchor: PopoverAnchor } | null>(null)
+  const [autoChip, setAutoChip] = useState<ID | null>(null)
+
+  // A database always needs at least one view.
+  useEffect(() => {
+    if (!db.views.length) useWorkspace.getState().addView(db.id, { type: 'table', name: t('database.view.table') })
+  }, [db.views.length, db.id, t])
+
+  if (!view) return null
+  return (
+    <DatabaseBody
+      db={db}
+      page={page}
+      inline={inline}
+      view={view}
+      search={search}
+      setSearch={setSearch}
+      setActiveId={setActiveId}
+      editTitleOf={editTitleOf}
+      setEditTitleOf={setEditTitleOf}
+      ctx={ctx}
+      setCtx={setCtx}
+      autoChip={autoChip}
+      setAutoChip={setAutoChip}
+    />
+  )
+}
+
+function DatabaseBody({
+  db,
+  page,
+  inline,
+  view,
+  search,
+  setSearch,
+  setActiveId,
+  editTitleOf,
+  setEditTitleOf,
+  ctx,
+  setCtx,
+  autoChip,
+  setAutoChip,
+}: {
+  db: Database
+  page: Page
+  inline: boolean
+  view: Database['views'][number]
+  search: string
+  setSearch: (s: string) => void
+  setActiveId: (id: ID) => void
+  editTitleOf: ID | null
+  setEditTitleOf: (id: ID | null) => void
+  ctx: { row: Page; anchor: PopoverAnchor } | null
+  setCtx: (c: { row: Page; anchor: PopoverAnchor } | null) => void
+  autoChip: ID | null
+  setAutoChip: (id: ID | null) => void
+}) {
+  const t = useT()
+  const m = useDbModel(db, page, view, search, inline)
+
+  const newRow = useCallback<ViewActions['newRow']>(
+    (opts = {}) => {
+      const s = useWorkspace.getState()
+      let index = opts.index
+      if (opts.after) {
+        const sibs = Object.values(s.pages)
+          .filter((p) => p.parentId === db.id && !p.trashed)
+          .sort((a, b) => a.order - b.order)
+        index = sibs.findIndex((p) => p.id === opts.after!.id) + 1
+      }
+      const id = s.createRow(db.id, { properties: { ...m.newRowDefaults(), ...(opts.properties ?? {}) }, index })
+      if (opts.editTitle) setEditTitleOf(id)
+      if (opts.open) openRow(id, view)
+      return id
+    },
+    [db.id, m, view, setEditTitleOf],
+  )
+
+  const onNew = (tpl?: Template) => {
+    const s = useWorkspace.getState()
+    const props: Record<ID, PropertyValue> = { ...m.newRowDefaults(), ...(tpl ? JSON.parse(JSON.stringify(tpl.properties)) : {}) }
+    const id = s.createRow(db.id, { title: '', properties: props, content: tpl?.content ? JSON.parse(JSON.stringify(tpl.content)) : null, icon: tpl?.icon ?? null })
+    if (view.type === 'table' || view.type === 'list') {
+      if (tpl) openRow(id, view)
+      else setEditTitleOf(id)
+    } else openRow(id, view)
+  }
+
+  const actions = useMemo<ViewActions>(
+    () => ({
+      newRow,
+      editTitleOf,
+      clearEditTitle: () => setEditTitleOf(null),
+      open: (row) => openRow(row.id, view),
+      contextMenu: (row, anchor) => setCtx({ row, anchor }),
+    }),
+    [newRow, editTitleOf, view, setEditTitleOf, setCtx],
+  )
+
+  const onFilterProp = (propId: ID) => {
+    const prop = m.propMap.get(propId)
+    if (!prop) return
+    const f = newFilterFor(m, prop)
+    const base = view.filter ?? emptyGroup()
+    useWorkspace.getState().updateView(db.id, view.id, { filter: { ...base, items: [...base.items, f] } })
+    setAutoChip(f.id)
+  }
+
+  let body: React.ReactNode
+  switch (view.type) {
+    case 'board':
+      body = <BoardView />
+      break
+    case 'list':
+      body = <ListView />
+      break
+    case 'gallery':
+      body = <GalleryView />
+      break
+    case 'calendar':
+      body = <CalendarView />
+      break
+    case 'timeline':
+      body = <TimelineView />
+      break
+    case 'chart':
+      body = <ChartView />
+      break
+    default:
+      body = <TableView onFilterProp={onFilterProp} />
+  }
+
+  return (
+    <DbModelContext.Provider value={m}>
+      <ViewActionsContext.Provider value={actions}>
+        <section className={`db${inline ? ' db--inline' : ''}`} data-view={view.type} aria-label={page.title || t('common.untitled')}>
+          {inline && <InlineHeader page={page} />}
+          <div className="db-bar">
+            <ViewTabs m={m} onSelect={setActiveId} />
+            <Toolbar m={m} onNew={onNew} setSearch={setSearch} compact={inline} />
+          </div>
+          <FilterChips m={m} autoOpen={autoChip} onAutoOpened={() => setAutoChip(null)} />
+          <div className="db-body">
+            <Suspense fallback={<div className="db-loading label">{t('common.loading')}</div>}>{body}</Suspense>
+          </div>
+          {ctx && <RowContextMenu row={ctx.row} anchor={ctx.anchor} onClose={() => setCtx(null)} />}
+        </section>
+      </ViewActionsContext.Provider>
+    </DbModelContext.Provider>
+  )
+}
+
+function InlineHeader({ page }: { page: Page }) {
+  const t = useT()
+  const [title, setTitle] = useState(page.title)
+  useEffect(() => setTitle(page.title), [page.title])
+  const commit = () => {
+    if (title !== page.title) useWorkspace.getState().updatePage(page.id, { title })
+  }
+  return (
+    <div className="db-inlinehead">
+      <PageIcon icon={page.icon} kind="database" size={20} />
+      <input
+        className="db-inlinehead__title"
+        value={title}
+        placeholder={t('common.untitled')}
+        aria-label={t('database.title')}
+        onChange={(e) => setTitle(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') {
+            e.preventDefault()
+            ;(e.target as HTMLInputElement).blur()
+          }
+        }}
+      />
+      <Tooltip label={t('database.openFull')}>
+        <button type="button" className="icon-btn" onClick={() => openPage(page.id)}>
+          <Maximize2 size={14} />
+        </button>
+      </Tooltip>
+    </div>
+  )
 }

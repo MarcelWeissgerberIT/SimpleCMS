@@ -1,0 +1,149 @@
+[
+  {
+    "name": "blocks",
+    "label": "Block editor",
+    "label_de": "Block-Editor",
+    "png": "blocks.png",
+    "webp": "blocks.webp"
+  },
+  {
+    "name": "database",
+    "label": "Databases",
+    "label_de": "Datenbanken",
+    "png": "database.png",
+    "webp": "database.webp"
+  },
+  {
+    "name": "kanban",
+    "label": "Board view",
+    "label_de": "Board-Ansicht",
+    "png": "kanban.png",
+    "webp": "kanban.webp"
+  },
+  {
+    "name": "calendar",
+    "label": "Calendar & timeline",
+    "label_de": "Kalender & Timeline",
+    "png": "calendar.png",
+    "webp": "calendar.webp"
+  },
+  {
+    "name": "graph",
+    "label": "Graph view",
+    "label_de": "Graph-Ansicht",
+    "png": "graph.png",
+    "webp": "graph.webp"
+  },
+  {
+    "name": "ai",
+    "label": "AI assistant",
+    "label_de": "KI-Assistent",
+    "png": "ai.png",
+    "webp": "ai.webp"
+  },
+  {
+    "name": "command",
+    "label": "Command palette",
+    "label_de": "Command Palette",
+    "png": "command.png",
+    "webp": "command.webp"
+  },
+  {
+    "name": "lock",
+    "label": "Local & private",
+    "label_de": "Lokal & privat",
+    "png": "lock.png",
+    "webp": "lock.webp"
+  },
+  {
+    "name": "history",
+    "label": "Version history",
+    "label_de": "Versionsverlauf",
+    "png": "history.png",
+    "webp": "history.webp"
+  },
+  {
+    "name": "sync",
+    "label": "Real-time sync",
+    "label_de": "Echtzeit-Sync",
+    "png": "sync.png",
+    "webp": "sync.webp"
+  },
+  {
+    "name": "templates",
+    "label": "Templates",
+    "label_de": "Vorlagen",
+    "png": "templates.png",
+    "webp": "templates.webp"
+  },
+  {
+    "name": "publish",
+    "label": "Publish",
+    "label_de": "Veröffentlichen",
+    "png": "publish.png",
+    "webp": "publish.webp"
+  },
+  {
+    "name": "present",
+    "label": "Presentation mode",
+    "label_de": "Präsentationsmodus",
+    "png": "present.png",
+    "webp": "present.webp"
+  },
+  {
+    "name": "code",
+    "label": "Code & formulas",
+    "label_de": "Code & Formeln",
+    "png": "code.png",
+    "webp": "code.webp"
+  },
+  {
+    "name": "split",
+    "label": "Split view",
+    "label_de": "Split View",
+    "png": "split.png",
+    "webp": "split.webp"
+  },
+  {
+    "name": "focus",
+    "label": "Focus mode",
+    "label_de": "Fokus-Modus",
+    "png": "focus.png",
+    "webp": "focus.webp"
+  },
+  {
+    "name": "search",
+    "label": "Search",
+    "label_de": "Suche",
+    "png": "search.png",
+    "webp": "search.webp"
+  },
+  {
+    "name": "automation",
+    "label": "Automations",
+    "label_de": "Automationen",
+    "png": "automation.png",
+    "webp": "automation.webp"
+  },
+  {
+    "name": "import",
+    "label": "Import",
+    "label_de": "Import",
+    "png": "import.png",
+    "webp": "import.webp"
+  },
+  {
+    "name": "hammer",
+    "label": "Hammer",
+    "label_de": "Hammer",
+    "png": "hammer.png",
+    "webp": "hammer.webp"
+  },
+  {
+    "name": "app-icon",
+    "label": "App icon",
+    "label_de": "App-Icon",
+    "png": "app-icon.png",
+    "webp": "app-icon.webp"
+  }
+]

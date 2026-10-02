@@ -1,0 +1,279 @@
+/* Share dialog — statement, link slot, payload gauge, export cards. */
+
+.share .modal__body {
+  padding: 20px 20px 22px;
+}
+
+.share__hero {
+  margin-bottom: 18px;
+}
+
+.share__claim {
+  margin: 0 0 8px;
+  font-size: 26px;
+  font-stretch: var(--display-stretch);
+  font-weight: 800;
+  letter-spacing: var(--tracking-tight);
+  line-height: 1.04;
+}
+
+.share__sub {
+  max-width: 56ch;
+  margin: 0;
+  color: var(--ink-2);
+  font-size: var(--text-sm);
+  line-height: 1.55;
+}
+
+.share__link {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 4px 4px 10px;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius-1);
+  background: var(--surface-2);
+}
+
+.share__link:focus-within {
+  border-color: var(--signal);
+  box-shadow: 0 0 0 3px var(--signal-wash);
+}
+
+.share__link-icon {
+  flex: none;
+  color: var(--ink-3);
+}
+
+.share__url {
+  flex: 1;
+  min-width: 0;
+  height: 30px;
+  padding: 0;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: var(--ink-2);
+  font-size: var(--text-xs);
+  text-overflow: ellipsis;
+}
+
+.share__link[data-ready] .share__url {
+  color: var(--ink);
+}
+
+.share__url:focus-visible {
+  box-shadow: none;
+}
+
+.share__copy {
+  flex: none;
+  min-width: 108px;
+}
+
+/* ---------- payload gauge ---------- */
+.share__meter {
+  margin-top: 16px;
+}
+
+.share__meter-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.share__spacer {
+  flex: 1;
+}
+
+.share__num {
+  color: var(--ink);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.share__sep {
+  opacity: 0.6;
+}
+
+.share__led--busy {
+  animation: share-pulse 0.9s ease-in-out infinite alternate;
+}
+
+.share__gauge {
+  position: relative;
+  height: 12px;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius-1);
+  background-color: var(--surface-2);
+  background-image: repeating-linear-gradient(to right, var(--rule-strong) 0 1px, transparent 1px var(--tick));
+  background-size: 100% 5px;
+  background-position: 0 100%;
+  background-repeat: repeat-x;
+}
+
+.share__gauge-fill {
+  position: absolute;
+  top: 2px;
+  bottom: 2px;
+  left: 2px;
+  width: calc(var(--fill) - 4px);
+  max-width: calc(100% - 4px);
+  min-width: 2px;
+  border-radius: 1px;
+  background: var(--ink);
+  transition: width var(--dur-3) var(--ease-out);
+}
+
+.share__gauge[data-warn] .share__gauge-fill {
+  background: var(--signal);
+}
+
+.share__gauge-limit {
+  position: absolute;
+  top: -5px;
+  bottom: -5px;
+  left: var(--limit);
+  border-left: 2px solid var(--signal);
+}
+
+.share__gauge-limit .mono {
+  position: absolute;
+  top: calc(100% + 2px);
+  left: 4px;
+  color: var(--signal-ink);
+  font-size: 9.5px;
+  letter-spacing: 0.06em;
+  white-space: nowrap;
+}
+
+.share__note {
+  margin: 20px 0 0;
+  color: var(--ink-2);
+  font-size: var(--text-xs);
+  line-height: 1.5;
+}
+
+/* ---------- other formats ---------- */
+.share__formats {
+  margin-top: 22px;
+  padding-top: 16px;
+  border-top: 1px solid var(--rule);
+}
+
+.share__formats-label {
+  margin-bottom: 10px;
+}
+
+.share__grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.share__card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius-2);
+  background: var(--surface);
+  color: var(--ink);
+  text-align: left;
+  transition:
+    border-color var(--dur-1),
+    background var(--dur-1),
+    transform var(--dur-1);
+}
+
+.share__card:hover {
+  border-color: var(--ink-3);
+  background: var(--hover);
+}
+
+.share__card:active {
+  transform: translateY(1px);
+}
+
+.share__card:disabled {
+  opacity: 0.55;
+  pointer-events: none;
+}
+
+.share__card-icon {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  flex: none;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius-1);
+  background: var(--surface-2);
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.share__card-text {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  gap: 1px;
+}
+
+.share__card-title {
+  font-size: var(--text-sm);
+  font-weight: 650;
+}
+
+.share__card-sub {
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+}
+
+.share__card-go {
+  flex: none;
+  color: var(--ink-3);
+}
+
+.share__card:hover .share__card-go {
+  color: var(--signal-ink);
+}
+
+.share__preview {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 14px;
+  color: var(--ink-2);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  letter-spacing: var(--tracking-label);
+  text-decoration: none;
+  text-transform: uppercase;
+}
+
+.share__preview:hover {
+  color: var(--signal-ink);
+}
+
+@media (max-width: 560px) {
+  .share__grid {
+    grid-template-columns: 1fr;
+  }
+  .share__claim {
+    font-size: 22px;
+  }
+  .share__copy {
+    min-width: 0;
+  }
+}
+
+@keyframes share-pulse {
+  to {
+    opacity: 0.35;
+  }
+}
