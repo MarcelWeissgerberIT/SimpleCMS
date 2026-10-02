@@ -31,8 +31,7 @@
   line-height: var(--doc-lh);
   font-variation-settings: 'wdth' 100;
   caret-color: var(--signal);
-  word-wrap: break-word;
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
   white-space: pre-wrap;
   font-feature-settings: 'kern', 'liga', 'calt';
   counter-reset: fig;

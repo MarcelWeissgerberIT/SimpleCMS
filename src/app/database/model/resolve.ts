@@ -93,7 +93,7 @@ export class Resolver {
   }
 
   /** Convert a resolved property value into a formula value. */
-  toFValue(db: Database, p: PropertyDef, v: Resolved): FValue {
+  toFValue(_db: Database, p: PropertyDef, v: Resolved): FValue {
     if (v === undefined || v === null) return p.type === 'checkbox' ? false : p.type === 'multi_select' || p.type === 'person' || p.type === 'relation' || p.type === 'files' ? [] : null
     switch (p.type) {
       case 'select':

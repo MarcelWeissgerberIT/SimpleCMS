@@ -408,7 +408,7 @@ export const BlockImage = Image.extend({
           const img = (el as HTMLElement).querySelector('img')
           if (!img) return false
           return {
-            src: img.getAttribute('src'),
+            src: img.getAttribute('data-src') ?? img.getAttribute('src'),
             alt: img.getAttribute('alt'),
             caption: (el as HTMLElement).querySelector('figcaption')?.textContent ?? '',
             width: Number((el as HTMLElement).getAttribute('data-width')) || null,
@@ -417,6 +417,7 @@ export const BlockImage = Image.extend({
         },
       },
       { tag: 'img[src]' },
+      { tag: 'img[data-src]', getAttrs: (el) => ({ src: (el as HTMLElement).getAttribute('data-src'), alt: (el as HTMLElement).getAttribute('alt') }) },
     ]
   },
   renderHTML({ node }) {
@@ -426,7 +427,9 @@ export const BlockImage = Image.extend({
       fig['data-width'] = String(width)
       fig.style = `width:${width}px;max-width:100%`
     }
-    const img = ['img', { src, alt: alt ?? '', loading: 'lazy' }] as const
+    // local files ("onefile:<id>") can't be fetched by the browser — keep the ref in data-src
+    const local = typeof src === 'string' && src.startsWith('onefile:')
+    const img = ['img', local ? { 'data-src': src, alt: alt ?? '' } : { src, alt: alt ?? '', loading: 'lazy' }] as const
     return caption ? ['figure', fig, img, ['figcaption', {}, caption]] : ['figure', fig, img]
   },
 }).configure({ inline: false, allowBase64: true })

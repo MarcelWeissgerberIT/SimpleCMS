@@ -1,4 +1,5 @@
 /** Everything that floats around an editable editor. */
+import { memo } from 'react'
 import type { Editor } from '@tiptap/core'
 import { useStore } from 'zustand'
 import type { Bridge } from '../lib/bridge'
@@ -10,6 +11,7 @@ import { EmojiMenu } from './EmojiMenu'
 import { BubbleToolbar } from './BubbleToolbar'
 import { UrlPasteMenu } from './UrlPasteMenu'
 import { TableToolbar } from './TableToolbar'
+import { LinkHover } from './LinkHover'
 import './menus.css'
 
 function AI({ editor, bridge, pageId }: { editor: Editor; bridge: Bridge; pageId: string }) {
@@ -18,7 +20,7 @@ function AI({ editor, bridge, pageId }: { editor: Editor; bridge: Bridge; pageId
   return <AIMenuSlot editor={editor} pageId={pageId} mode={ai.mode} onClose={() => bridge.setState({ ai: null })} />
 }
 
-export function EditorOverlays({ editor, bridge, pageId }: { editor: Editor; bridge: Bridge; pageId: string }) {
+export const EditorOverlays = memo(function EditorOverlays({ editor, bridge, pageId }: { editor: Editor; bridge: Bridge; pageId: string }) {
   return (
     <>
       <BlockHandle editor={editor} bridge={bridge} pageId={pageId} />
@@ -28,7 +30,8 @@ export function EditorOverlays({ editor, bridge, pageId }: { editor: Editor; bri
       <BubbleToolbar editor={editor} bridge={bridge} />
       <UrlPasteMenu editor={editor} bridge={bridge} />
       <TableToolbar editor={editor} />
+      <LinkHover editor={editor} bridge={bridge} />
       <AI editor={editor} bridge={bridge} pageId={pageId} />
     </>
   )
-}
+})

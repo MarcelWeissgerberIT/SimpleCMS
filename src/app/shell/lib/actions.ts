@@ -82,7 +82,8 @@ export function trashWithUndo(id: ID) {
   ws().trashPage(id)
   const s = ui()
   if (s.peekPageId && affected.includes(s.peekPageId)) s.closePeek()
-  s.panes.forEach((p, i) => affected.includes(p) && s.closePane(i))
+  // close from the right so indices stay valid
+  for (let i = s.panes.length - 1; i >= 0; i--) if (affected.includes(s.panes[i])) useUI.getState().closePane(i)
   if (cur && affected.includes(cur)) {
     const parent = page.parentId ? ws().pages[page.parentId] : null
     if (parent && !parent.trashed) openPage(parent.id)

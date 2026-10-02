@@ -3,8 +3,7 @@ import type { Editor } from '@tiptap/core'
 import { ImagePlus, SmilePlus, RotateCcw, Trash2 } from 'lucide-react'
 import { useWorkspace } from '../../store/store'
 import { useUI } from '../../store/ui'
-import { usePage } from '../../store/selectors'
-import { isEffectivelyTrashed } from '../../store/selectors'
+import { isEffectivelyTrashed, usePage } from '../../store/selectors'
 import { PageEditor } from '../../editor'
 import { DatabaseView, RowProperties } from '../../database'
 import { PageIcon } from '../../ui/PageIcon'
@@ -30,7 +29,6 @@ export function PageView({ pageId, variant }: { pageId: ID; variant: PageVariant
 }
 
 function PageViewInner({ page, variant }: { page: Page; variant: PageVariant }) {
-  const t = useT()
   const trashed = useWorkspace((s) => isEffectivelyTrashed(s.pages, page.id))
   const editorRef = useRef<Editor | null>(null)
   const isDb = page.kind === 'database'
@@ -105,8 +103,6 @@ function PageViewInner({ page, variant }: { page: Page; variant: PageVariant }) 
         <div className="pv-col">
           <Backlinks pageId={page.id} />
           <SpecPlate page={page} />
-          {!isDb && <span className="pv-foot__spacer" />}
-          <span className="visually-hidden">{t('shell.page.end')}</span>
         </div>
       </footer>
     </article>

@@ -60,10 +60,10 @@ void main() {
   vec3 N = normalize(vN);
   float tilt = clamp(1.0 - N.z, 0.0, 1.0);
   float lam = dot(N, uLight) - uLight.z;
-  col *= 1.0 + 1.1 * lam;
+  col *= clamp(1.0 + 0.75 * lam, 0.45, 1.18);
   vec3 V = normalize(cameraPosition - vWorld);
   vec3 H = normalize(uLight + V);
-  col += vec3(1.0, 0.96, 0.9) * pow(max(dot(N, H), 0.0), 70.0) * min(tilt * 40.0, 1.0) * 0.9;
+  col += vec3(1.0, 0.96, 0.9) * pow(max(dot(N, H), 0.0), 70.0) * min(tilt * 40.0, 1.0) * 0.55;
   col = mix(col, vec3(1.0), uFlash);
   gl_FragColor = vec4(col, 1.0);
   #include <colorspace_fragment>

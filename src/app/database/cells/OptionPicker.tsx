@@ -9,6 +9,7 @@ import { COLOR_NAMES } from '../../store/types'
 import { useWorkspace } from '../../store/store'
 import { Popover } from '../../ui/Popover'
 import { useT } from '../../i18n'
+import { caretToEnd } from './TextEditor'
 import { tagStyle } from '../../lib/colors'
 import { OptionTag, StatusTag } from './display'
 import { newOption, rowsOf } from '../model/actions'
@@ -21,19 +22,21 @@ export function OptionPicker({
   value,
   onChange,
   onClose,
+  initialQuery,
 }: {
   db: Database
   prop: PropertyDef
   value: string | string[] | null
   onChange: (v: string | string[] | null) => void
   onClose: () => void
+  initialQuery?: string
 }) {
   const t = useT()
   const multi = prop.type === 'multi_select'
   const isStatus = prop.type === 'status'
   const options = prop.options ?? []
   const selected = multi ? ((value as string[] | null) ?? []) : value ? [value as string] : []
-  const [query, setQuery] = useState('')
+  const [query, setQuery] = useState(initialQuery ?? '')
   const [active, setActive] = useState(0)
   const [edit, setEdit] = useState<{ option: SelectOption; el: HTMLElement } | null>(null)
   const listRef = useRef<HTMLDivElement>(null)
@@ -133,6 +136,7 @@ export function OptionPicker({
         <input
           className="db-picker__input"
           data-autofocus=""
+          onFocus={caretToEnd}
           value={query}
           placeholder={selected.length ? '' : t('database.option.searchOrCreate')}
           onChange={(e) => {

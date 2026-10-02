@@ -19,7 +19,8 @@ export interface TextEditorProps {
   minWidth?: number
 }
 
-export function parseNumberInput(s: string): number | null {
+export function parseNumberInput(s: string, percent = false): number | null {
+  const pct = percent && /%\s*$/.test(s.trim())
   const clean = s.trim().replace(/\s/g, '').replace(/[€$£%]/g, '')
   if (!clean) return null
   // accept "1.234,5" (de) and "1,234.5" (en)
@@ -28,7 +29,9 @@ export function parseNumberInput(s: string): number | null {
   else if (/^-?\d{1,3}(,\d{3})+(\.\d+)?$/.test(clean)) norm = clean.replace(/,/g, '')
   else norm = clean.replace(',', '.')
   const n = Number(norm)
-  return Number.isFinite(n) ? n : null
+  if (!Number.isFinite(n)) return null
+  // "50%" in a percent field means 0.5 (stored as a fraction, like Notion)
+  return pct ? n / 100 : n
 }
 
 export function TextEditor({ anchor, prop, value, initialText, onCommit, minWidth = 240 }: TextEditorProps) {
@@ -47,7 +50,7 @@ export function TextEditor({ anchor, prop, value, initialText, onCommit, minWidt
     if (done.current) return
     done.current = true
     const raw = textRef.current
-    onCommit(isNumber ? parseNumberInput(raw) : prop.type === 'title' ? raw.replace(/\n/g, ' ') : raw, reason)
+    onCommit(isNumber ? parseNumberInput(raw, prop.numberFormat === 'percent') : prop.type === 'title' ? raw.replace(/\n/g, ' ') : raw, reason)
   }
 
   useLayoutEffect(() => {
@@ -57,15 +60,7 @@ export function TextEditor({ anchor, prop, value, initialText, onCommit, minWidt
     el.style.height = `${Math.min(320, Math.max(rect.height - 2, el.scrollHeight))}px`
   }, [text, rect.height])
 
-  // Popover closes on Escape before the textarea sees it; remember that it was Escape.
-  const escRef = useRef(false)
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') escRef.current = true
-    }
-    window.addEventListener('keydown', onKey, true)
-    return () => window.removeEventListener('keydown', onKey, true)
-  }, [])
+  const escRef = useEscapeFlag()
 
   useEffect(() => {
     const el = areaRef.current
@@ -112,4 +107,23 @@ export function TextEditor({ anchor, prop, value, initialText, onCommit, minWidt
       />
     </Popover>
   )
+}
+
+/** Put the caret after any pre-filled text (type-to-edit). */
+export function caretToEnd(e: React.FocusEvent<HTMLInputElement | HTMLTextAreaElement>) {
+  const l = e.target.value.length
+  e.target.setSelectionRange(l, l)
+}
+
+/** Popovers close on Escape before their content sees the key — remember that it was Escape. */
+export function useEscapeFlag() {
+  const escRef = useRef(false)
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') escRef.current = true
+    }
+    window.addEventListener('keydown', onKey, true)
+    return () => window.removeEventListener('keydown', onKey, true)
+  }, [])
+  return escRef
 }

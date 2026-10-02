@@ -30,7 +30,7 @@ export function CalloutView({ node, updateAttributes, editor }: ReactNodeViewPro
         <CalloutIcon icon={node.attrs.icon} />
       </button>
       <NodeViewContent className="callout__body" />
-      <Popover open={!!anchor} anchor={anchor} onClose={() => setAnchor(null)} bare className="callout-popover">
+      <Popover open={!!anchor} anchor={anchor} onClose={() => setAnchor(null)} bare autoFocus={false} className="callout-popover">
         <div className="callout-popover__colors" role="radiogroup" aria-label={t('common.color')}>
           <span className="label">{t('common.color')}</span>
           <div className="callout-popover__swatches">

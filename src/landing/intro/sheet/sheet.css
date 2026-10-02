@@ -43,8 +43,14 @@
 .x97 *::after {
   box-sizing: border-box;
 }
-.x97 svg {
+.x97 svg,
+.x97 img {
   display: block;
+}
+.x97-svg {
+  max-width: none;
+  pointer-events: none;
+  -webkit-user-drag: none;
 }
 .x97 button {
   font: inherit;
@@ -80,9 +86,17 @@
 .x97-title-text {
   flex: 1;
   min-width: 0;
+  display: flex;
+  line-height: 18px;
+}
+.x97-tt-main {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
-  line-height: 18px;
+}
+.x97-tt-sfx {
+  flex: none;
+  white-space: pre;
 }
 .x97-title-btns {
   flex: none;
@@ -361,7 +375,7 @@
   position: relative;
   flex: none;
   background-color: #ffffff;
-  background-image: linear-gradient(90deg, transparent 63px, var(--x97-grid) 63px), linear-gradient(180deg, transparent 17px, var(--x97-grid) 17px);
+  background-image: linear-gradient(90deg, rgba(192, 192, 192, 0) 0 63px, var(--x97-grid) 63px 64px), linear-gradient(180deg, rgba(192, 192, 192, 0) 0 17px, var(--x97-grid) 17px 18px);
   background-size: 64px 18px;
 }
 .x97-layer {
@@ -396,12 +410,16 @@
   box-shadow: inset 0 1px #000000, inset 0 3px #ffffff, inset 0 4px #000000;
 }
 
-.x97-banner svg,
-.x97-star svg {
+.x97-banner .x97-svg {
   overflow: visible;
 }
 .x97-star {
   z-index: 2;
+}
+.x97-blink .x97-blink-b {
+  position: absolute;
+  left: 0;
+  top: 0;
 }
 
 .x97-rainbow {
@@ -727,7 +745,9 @@
 }
 .x97-note-line {
   position: absolute;
-  overflow: visible;
+  height: 1px;
+  background: #000000;
+  transform-origin: 0 0;
 }
 .x97-note-box {
   position: relative;

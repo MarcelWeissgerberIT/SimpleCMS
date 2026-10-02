@@ -261,12 +261,13 @@ export function BubbleToolbar({ editor, bridge }: { editor: Editor; bridge: Brid
         <div className="bubble__strip">
           <Btn label={t('editor.bubble.askAI')} onClick={() => bridge.setState({ ai: { mode: 'selection' } })} wide>
             <span className="led led--on" />
-            <span>{t('editor.bubble.askAI')}</span>
+            <span className="bubble__long">{t('editor.bubble.askAI')}</span>
+            <span className="bubble__short">{t('editor.bubble.ai')}</span>
           </Btn>
           <span className="bubble__sep" />
           <Btn label={t('editor.bubble.turnInto')} onClick={(e) => turnMenu.toggle(e)} wide>
             {turnLabel && <BlockGlyph item={turnLabel} size={14} />}
-            <span className="bubble__turn">{turnLabel ? t(`editor.block.${turnLabel.id}`) : t('editor.block.text')}</span>
+            <span className="bubble__turn bubble__long">{turnLabel ? t(`editor.block.${turnLabel.id}`) : t('editor.block.text')}</span>
             <ChevronDown size={12} />
           </Btn>
           <span className="bubble__sep" />

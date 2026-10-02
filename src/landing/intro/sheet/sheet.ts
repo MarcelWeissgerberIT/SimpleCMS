@@ -8,16 +8,18 @@
  * animations), so an html2canvas capture equals what is on screen.
  */
 import type { Translate } from '@/shared/i18n'
-import { icon, STANDARD_TOOLBAR } from './icons'
-import { CELL_H, CELL_W, COLS, ROWS, colName, esc, refOf, renderCells, STAR_COLORS, tipRange, type Layout, type Range } from './content'
+import { icon, STANDARD_TOOLBAR, svgImg } from './icons'
+import { CELL_H, CELL_W, COLS, ROWS, colName, esc, refOf, renderCells, tipRange, type Layout, type Range } from './content'
 import './sheet.css'
 
 export interface SheetOptions {
   t: Translate
   lang: string
   reducedMotion: boolean
-  /** "Get new version…" in the error dialog, or the window's close button. */
+  /** "Get new version…" in the error dialog, or the window's close button → the smash. */
   onUpgrade: () => void
+  /** Keyboard "Skip intro" link → straight to the new site. */
+  onSkip: () => void
 }
 
 /** Opacity of the white "Not Responding" wash (mirrored by the smash shader). */
@@ -87,11 +89,18 @@ export function mountSheet(root: HTMLElement, opts: SheetOptions): SheetHandle {
 
   const colHeads = Array.from({ length: COLS }, (_, i) => `<span class="x97-ch" data-c="${i + 1}">${colName(i + 1)}</span>`).join('')
 
+  const tabShape = (fill: string) =>
+    svgImg(
+      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 18" preserveAspectRatio="none"><polygon points="0,0.5 100,0.5 92,17.5 8,17.5" fill="${fill}" stroke="#000000" stroke-width="1" vector-effect="non-scaling-stroke"/></svg>`,
+      'x97-tab-shape',
+    )
+  const tabOn = tabShape('#ffffff')
+  const tabOff = tabShape('#c0c0c0')
   const tabs = t('intro.tabs')
     .split('|')
     .map(
       (name, i) =>
-        `<button type="button" class="x97-tab${i === 0 ? ' on' : ''}" data-tab="${i}"><svg class="x97-tab-shape" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 18" preserveAspectRatio="none" aria-hidden="true"><polygon points="0,0 100,0 92,17 8,17" fill="${i === 0 ? '#ffffff' : '#c0c0c0'}" stroke="#000000" stroke-width="1" vector-effect="non-scaling-stroke"/></svg><span>${esc(name)}</span></button>`,
+        `<button type="button" class="x97-tab${i === 0 ? ' on' : ''}" data-tab="${i}">${i === 0 ? tabOn : tabOff}<span>${esc(name)}</span></button>`,
     )
     .join('')
 
@@ -101,7 +110,7 @@ export function mountSheet(root: HTMLElement, opts: SheetOptions): SheetHandle {
   <div class="x97-win">
     <div class="x97-title">
       <span class="x97-title-ico">${icon('sheet')}</span>
-      <span class="x97-title-text">${esc(baseTitle)}</span>
+      <span class="x97-title-text"><span class="x97-tt-main">${esc(baseTitle)}</span><span class="x97-tt-sfx"></span></span>
       <span class="x97-title-btns">
         <span class="x97-cap" aria-hidden="true">${icon('min')}</span><span class="x97-cap" aria-hidden="true">${icon('restore')}</span><button type="button" class="x97-cap x97-cap-x" aria-label="${esc(t('intro.skip'))}">${icon('close')}</button>
       </span>
@@ -123,7 +132,7 @@ export function mountSheet(root: HTMLElement, opts: SheetOptions): SheetHandle {
             <div class="x97-cells">
               <div class="x97-layer"></div>
               <div class="x97-sel"><i class="x97-fill"></i><b></b><b></b><b></b><b></b><b></b><b></b><b></b><b></b></div>
-              <div class="x97-note" hidden><svg class="x97-note-line" xmlns="http://www.w3.org/2000/svg" width="1" height="1"><line x1="0" y1="0" x2="0" y2="0" stroke="#000000" stroke-width="1"/></svg><div class="x97-note-box"><b>${esc(t('intro.comment.author'))}</b><br>${esc(t('intro.comment.text'))}</div></div>
+              <div class="x97-note" hidden><i class="x97-note-line"></i><div class="x97-note-box"><b>${esc(t('intro.comment.author'))}</b><br>${esc(t('intro.comment.text'))}</div></div>
             </div>
           </div>
         </div>
@@ -148,7 +157,7 @@ export function mountSheet(root: HTMLElement, opts: SheetOptions): SheetHandle {
     <div class="x97-dialog" role="alertdialog" aria-modal="true" aria-labelledby="x97-dlg-msg" hidden>
       <div class="x97-dlg-title"><span>${esc(t('intro.app'))}</span><button type="button" class="x97-cap" data-dlg="close" aria-label="${esc(t('intro.dialog.ok'))}">${icon('close')}</button></div>
       <div class="x97-dlg-body">
-        <svg class="x97-dlg-ico" xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32" aria-hidden="true"><circle cx="17" cy="17" r="14" fill="#808080"/><circle cx="15" cy="15" r="14" fill="#ff0000" stroke="#800000" stroke-width="1"/><path d="M9 9 L21 21 M21 9 L9 21" stroke="#ffffff" stroke-width="3.2" stroke-linecap="square"/></svg>
+        ${svgImg('<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32"><circle cx="17" cy="17" r="14" fill="#808080"/><circle cx="15" cy="15" r="14" fill="#ff0000" stroke="#800000" stroke-width="1"/><path d="M9 9 L21 21 M21 9 L9 21" stroke="#ffffff" stroke-width="3.2" stroke-linecap="square"/></svg>', 'x97-dlg-ico')}
         <p id="x97-dlg-msg">${esc(t('intro.dialog.msg'))}</p>
       </div>
       <div class="x97-dlg-btns"><button type="button" class="x97-btn x97-dlg-ok" data-dlg="ok">${esc(t('intro.dialog.ok'))}</button><button type="button" class="x97-btn" data-dlg="upgrade">${esc(t('intro.dialog.upgrade'))}</button></div>
@@ -160,7 +169,7 @@ export function mountSheet(root: HTMLElement, opts: SheetOptions): SheetHandle {
   const el = root.querySelector<HTMLElement>('.x97')!
   const q = <T extends Element = HTMLElement>(sel: string) => el.querySelector<T>(sel)!
   const win = q('.x97-win')
-  const titleText = q('.x97-title-text')
+  const titleSuffix = q('.x97-tt-sfx')
   const scroll = q('.x97-scroll')
   const sheet = q('.x97-sheet')
   const rowhead = q('.x97-rowhead')
@@ -170,7 +179,7 @@ export function mountSheet(root: HTMLElement, opts: SheetOptions): SheetHandle {
   const nameBox = q('.x97-name')
   const formula = q('.x97-formula')
   const note = q('.x97-note')
-  const noteLine = q<SVGSVGElement>('.x97-note-line')
+  const noteLine = q('.x97-note-line')
   const dialog = q('.x97-dialog')
   const dust = q('.x97-dust')
   const statusSum = q('.x97-st-sum')
@@ -182,10 +191,7 @@ export function mountSheet(root: HTMLElement, opts: SheetOptions): SheetHandle {
   let rowHeadEls: HTMLElement[] = []
   let marqueeTrack: HTMLElement | null = null
   let marqueeW = 0
-  let starBg: SVGElement | null = null
-  let starFg: SVGElement | null = null
-  let beacon: SVGElement | null = null
-  let beaconRays: SVGElement | null = null
+  let blinkers: [HTMLElement, HTMLElement][] = []
 
   function render() {
     el.dataset.layout = layout
@@ -198,10 +204,10 @@ export function mountSheet(root: HTMLElement, opts: SheetOptions): SheetHandle {
     layer.innerHTML = renderCells(layout, t, lang)
     marqueeTrack = layer.querySelector<HTMLElement>('.x97-marquee-track')
     marqueeW = (marqueeTrack?.firstElementChild as HTMLElement | null)?.offsetWidth ?? 0
-    starBg = layer.querySelector<SVGElement>('.x97-star-bg')
-    starFg = layer.querySelector<SVGElement>('.x97-star-fg')
-    beacon = layer.querySelector<SVGElement>('.x97-beacon')
-    beaconRays = layer.querySelector<SVGElement>('.x97-beacon-rays')
+    blinkers = Array.from(layer.querySelectorAll<HTMLElement>('.x97-blink')).map((b) => [
+      b.querySelector<HTMLElement>('.x97-blink-a')!,
+      b.querySelector<HTMLElement>('.x97-blink-b')!,
+    ])
     select({ kind: 'cell', range: [1, 1, 1, 1], name: 'A1', f: t('intro.a1.formula') })
     hideNote()
     updateScrollbars()
@@ -300,7 +306,7 @@ export function mountSheet(root: HTMLElement, opts: SheetOptions): SheetHandle {
       return
     }
     if (document.activeElement !== scroll || !current) return
-    const moves: Record<string, [number, number]> = { ArrowUp: [0, -1], ArrowDown: [0, 1], ArrowLeft: [-1, 0], ArrowRight: [1, 0], Enter: [0, 1], Tab: [1, 0] }
+    const moves: Record<string, [number, number]> = { ArrowUp: [0, -1], ArrowDown: [0, 1], ArrowLeft: [-1, 0], ArrowRight: [1, 0], Enter: [0, 1] }
     const mv = moves[e.key]
     if (!mv) return
     e.preventDefault()
@@ -333,22 +339,16 @@ export function mountSheet(root: HTMLElement, opts: SheetOptions): SheetHandle {
     note.style.top = `${by}px`
     const box = note.querySelector<HTMLElement>('.x97-note-box')!
     box.style.width = `${boxW}px`
-    // connector line from the red triangle to the note
+    // connector line from the red triangle to the note (a rotated 1px bar)
     const ax = toLeft ? cellLeft + CELL_W - 2 : cellRight - 2
     const ay = cellTop + 2
     const nx = toLeft ? bx + boxW : bx
     const ny = by + 14
-    const minX = Math.min(ax, nx)
-    const minY = Math.min(ay, ny)
-    noteLine.setAttribute('width', String(Math.abs(ax - nx) + 2))
-    noteLine.setAttribute('height', String(Math.abs(ay - ny) + 2))
-    noteLine.style.left = `${minX - bx}px`
-    noteLine.style.top = `${minY - by}px`
-    const line = noteLine.querySelector('line')!
-    line.setAttribute('x1', String(ax - minX + 0.5))
-    line.setAttribute('y1', String(ay - minY + 0.5))
-    line.setAttribute('x2', String(nx - minX + 0.5))
-    line.setAttribute('y2', String(ny - minY + 0.5))
+    const len = Math.hypot(nx - ax, ny - ay)
+    noteLine.style.left = `${ax - bx}px`
+    noteLine.style.top = `${ay - by}px`
+    noteLine.style.width = `${len}px`
+    noteLine.style.transform = `rotate(${Math.atan2(ny - ay, nx - ax)}rad)`
   }
   function hideNote() {
     note.hidden = true
@@ -410,9 +410,8 @@ export function mountSheet(root: HTMLElement, opts: SheetOptions): SheetHandle {
       openDialog()
       return
     }
-    if (target.closest('.x97-cap-x, .x97-skip')) {
-      opts.onUpgrade()
-    }
+    if (target.closest('.x97-skip')) opts.onSkip()
+    else if (target.closest('.x97-cap-x')) opts.onUpgrade()
   }
 
   // ------------------------------------------------------------------ scrollbars (98 style, functional)
@@ -491,11 +490,10 @@ export function mountSheet(root: HTMLElement, opts: SheetOptions): SheetHandle {
     if (blinkT >= 0.5) {
       blinkT = 0
       blinkOn = !blinkOn
-      const c = blinkOn ? STAR_COLORS.b : STAR_COLORS.a
-      starBg?.setAttribute('fill', c[0])
-      starFg?.setAttribute('fill', c[1])
-      beacon?.setAttribute('fill', blinkOn ? '#ffd000' : '#ff3b00')
-      beaconRays?.setAttribute('stroke-opacity', blinkOn ? '1' : '0')
+      for (const [a, b] of blinkers) {
+        a.style.visibility = blinkOn ? 'hidden' : ''
+        b.style.visibility = blinkOn ? '' : 'hidden'
+      }
     }
   }
   raf = requestAnimationFrame(frame)
@@ -506,7 +504,7 @@ export function mountSheet(root: HTMLElement, opts: SheetOptions): SheetHandle {
     if (hung === on) return
     hung = on
     el.classList.toggle('x97--hung', on)
-    titleText.textContent = on ? `${baseTitle}${t('intro.notResponding')}` : baseTitle
+    titleSuffix.textContent = on ? t('intro.notResponding') : ''
     frozen = on || frozenExternally
   }
   let frozenExternally = false
@@ -535,27 +533,29 @@ export function mountSheet(root: HTMLElement, opts: SheetOptions): SheetHandle {
       const y = Math.round((Math.random() * 2 - 1) * amp)
       win.style.transform = `translate(${x}px, ${y}px)`
     }, 45)
-    dustTimer = window.setInterval(spawnDust, 70)
+    dustTimer = window.setInterval(spawnDust, 55)
   }
 
   function spawnDust() {
-    const n = 1 + Math.floor(Math.random() * 3)
+    const n = 2 + Math.floor(Math.random() * 3)
     const vw = window.innerWidth
     const vh = window.innerHeight
     for (let i = 0; i < n; i++) {
       const s = document.createElement('i')
-      const size = 1.5 + Math.random() * 3.5
-      const x = vw * (0.15 + Math.random() * 0.7)
-      s.style.cssText = `left:${x}px;width:${size}px;height:${size}px;opacity:${0.5 + Math.random() * 0.5};${Math.random() < 0.4 ? 'background:#8a8173;' : ''}`
+      const chunk = Math.random() < 0.12
+      const size = chunk ? 5 + Math.random() * 4 : 1.5 + Math.random() * 3.5
+      const x = vw * (0.08 + Math.random() * 0.84)
+      const col = Math.random() < 0.55 ? '#9b9284' : Math.random() < 0.5 ? '#5f584e' : '#d8cfbd'
+      s.style.cssText = `left:${x}px;width:${size}px;height:${size * (0.6 + Math.random() * 0.5)}px;background:${col};opacity:${0.7 + Math.random() * 0.3}`
       dust.appendChild(s)
-      const fall = vh * (0.25 + Math.random() * 0.55)
-      const drift = (Math.random() * 2 - 1) * 30
+      const fall = vh * (0.35 + Math.random() * 0.6)
+      const drift = (Math.random() * 2 - 1) * 40
       const anim = s.animate(
         [
-          { transform: 'translate(0, -8px) rotate(0deg)', opacity: 1 },
-          { transform: `translate(${drift}px, ${fall}px) rotate(${Math.random() * 360}deg)`, opacity: 0 },
+          { transform: 'translate(0, -10px) rotate(0deg)', opacity: 1 },
+          { transform: `translate(${drift}px, ${fall}px) rotate(${Math.random() * 540}deg)`, opacity: 0 },
         ],
-        { duration: 700 + Math.random() * 900, easing: 'cubic-bezier(.4,0,1,1)' },
+        { duration: 650 + Math.random() * 900, easing: 'cubic-bezier(.5,0,1,1)' },
       )
       anim.onfinish = () => s.remove()
     }

@@ -98,7 +98,7 @@ function tall(t: T, motion: boolean): string {
     <path class="pv-wire-sig" d="${loopA}" marker-end="url(#${idp}-arr-sig)"/>
     <path class="pv-wire-sig" d="${loopB}" marker-end="url(#${idp}-arr-sig)"/>
     ${packet(loopA, 1.4, 0, motion)}${packet(loopB, 1.4, 0.7, motion)}
-    ${cylinder(200, 290, 90, 120)}
+    ${cylinder(200, 290, 122, 120)}
     <text class="pv-t pv-strong" x="200" y="366" text-anchor="middle">${esc(t('privacy.idb'))}</text>
     <text class="pv-m pv-dim" x="200" y="390" text-anchor="middle">${esc(t('privacy.idbNote').toUpperCase())}</text>
     <path class="pv-wire-opt" d="${toAi}" marker-end="url(#${idp}-arr)"/>

@@ -10,7 +10,7 @@ import type { ColorName, DateValue, ID, Page, PropertyDef } from '../../store/ty
 import { useWorkspace } from '../../store/store'
 import { Popover } from '../../ui/Popover'
 import { PageIcon } from '../../ui/PageIcon'
-import { useT } from '../../i18n'
+import { useLang, useT } from '../../i18n'
 import { useModel, useLocalState, type DbModel } from '../hooks'
 import { useViewActions } from './shared'
 import { dfLocale, formatTime, isDateValue, parseLocal, shiftDateValue, toISODate, weekStartsOn } from '../model/format'
@@ -238,6 +238,7 @@ export default function CalendarView() {
 
 function DayCell({ day, month, hidden, canAdd, onAdd, onMore }: { day: Date; month: Date; hidden: number; canAdd: boolean; onAdd: () => void; onMore: (el: HTMLElement) => void }) {
   const t = useT()
+  const locale = dfLocale(useLang())
   const iso = toISODate(day)
   const { setNodeRef, isOver } = useDroppable({ id: iso })
   return (
@@ -252,7 +253,7 @@ function DayCell({ day, month, hidden, canAdd, onAdd, onMore }: { day: Date; mon
       data-over={isOver}
       onDoubleClick={() => canAdd && onAdd()}
     >
-      <span className="dbcal-day__num">{day.getDate() === 1 ? format(day, 'd MMM') : day.getDate()}</span>
+      <span className="dbcal-day__num">{day.getDate() === 1 ? format(day, 'd MMM', { locale }) : day.getDate()}</span>
       {canAdd && (
         <button type="button" className="dbcal-day__add" aria-label={t('database.calendar.addOn', { date: iso })} onClick={onAdd}>
           <Plus size={13} />

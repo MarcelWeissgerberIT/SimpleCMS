@@ -2,7 +2,7 @@
  * List view: compact lines (icon + title + visible values right-aligned), optional groups,
  * inline title for new rows, keyboard ↑↓ / Enter.
  */
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { ChevronRight, Plus } from 'lucide-react'
 import type { ID, Page } from '../../store/types'
 import { useWorkspace } from '../../store/store'
@@ -15,7 +15,10 @@ import { ValueView } from '../cells/display'
 import { TitleInput } from './cards'
 import { isEmptyValue } from '../model/resolve'
 import { NONE_KEY, valueForGroupMove, type RowGroup } from '../model/query'
+import { uniformOffsets, useWindow } from './virtual'
 import './views.css'
+
+const LIST_ROW_H = 41
 
 export function ListView() {
   const t = useT()
@@ -25,6 +28,9 @@ export function ListView() {
   const [editing, setEditing] = useState<ID | null>(null)
   const rootRef = useRef<HTMLDivElement>(null)
   const hidden = new Set(m.view.hiddenGroups ?? [])
+  const flatRef = useRef<HTMLDivElement>(null)
+  const offsets = useMemo(() => uniformOffsets(m.rows.length, LIST_ROW_H), [m.rows.length])
+  const [start, end] = useWindow(flatRef, offsets, !m.groups && m.rows.length > 80)
 
   useEffect(() => {
     if (actions.editTitleOf && m.rows.some((r) => r.id === actions.editTitleOf)) {
@@ -100,7 +106,11 @@ export function ListView() {
             ))
         : (
           <>
-            {renderRows(m.rows)}
+            <div ref={flatRef}>
+              {offsets[start] > 0 && <div style={{ height: offsets[start] }} aria-hidden />}
+              {renderRows(m.rows.slice(start, end))}
+              {offsets[m.rows.length] - offsets[end] > 0 && <div style={{ height: offsets[m.rows.length] - offsets[end] }} aria-hidden />}
+            </div>
             {addRow(null)}
           </>
         )}

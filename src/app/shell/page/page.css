@@ -277,9 +277,6 @@
 .pv-foot {
   padding: 24px 0 72px;
 }
-.pv-foot__spacer {
-  display: block;
-}
 .pv-rulelabel {
   display: flex;
   align-items: center;

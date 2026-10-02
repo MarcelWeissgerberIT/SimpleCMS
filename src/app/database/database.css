@@ -63,7 +63,7 @@
 .db-tabs {
   display: flex;
   align-items: flex-end;
-  gap: 2px;
+  gap: 3px;
   flex: 1 1 auto;
   min-width: 0;
   padding-top: 6px;
@@ -109,9 +109,22 @@
     color var(--dur-1) var(--ease-out);
 }
 
+.db-tab:not([data-active='true']) .db-tab__btn {
+  height: 28px;
+  margin-top: 5px;
+  border-color: var(--rule);
+  background: linear-gradient(var(--surface-2), var(--surface-2)) padding-box;
+  background-color: transparent;
+}
+
 .db-tab__btn:hover {
   color: var(--ink);
-  background: var(--hover);
+}
+
+.db-tab:not([data-active='true']) .db-tab__btn:hover {
+  background: var(--surface-3);
+  height: 30px;
+  margin-top: 3px;
 }
 
 .db-tab[data-active='true'] .db-tab__btn {
@@ -715,7 +728,8 @@
   border-color: var(--ink);
 }
 
-.db-check[aria-checked='true'] {
+.db-check[aria-checked='true'],
+.db-check[aria-checked='mixed'] {
   border-color: var(--signal);
   background: var(--signal);
 }
@@ -960,6 +974,14 @@
   background: transparent;
   font-size: 13px;
   color: var(--ink);
+}
+
+.db-picker__input:focus-visible {
+  box-shadow: none;
+}
+
+.db-picker__field:focus-within {
+  box-shadow: inset 0 -2px 0 var(--signal);
 }
 
 .db-picker__input::placeholder {
@@ -2280,4 +2302,8 @@ body.db-dragging * {
     grid-template-columns: minmax(96px, 128px) minmax(0, 1fr);
     gap: 4px;
   }
+}
+
+.db--inline .db-body {
+  border-bottom: 1px solid var(--rule);
 }

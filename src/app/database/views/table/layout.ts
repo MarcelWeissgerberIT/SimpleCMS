@@ -51,7 +51,7 @@ export type Item =
   | { kind: 'calc'; key: string; group: RowGroup | null; rows: Page[]; h: number }
   | { kind: 'empty'; key: string; h: number }
 
-export function buildItems(rows: Page[], groups: RowGroup[] | null, hidden: Set<string>, collapsed: Set<string>, rowH: number): Item[] {
+export function buildItems(rows: Page[], groups: RowGroup[] | null, hidden: Set<string>, collapsed: Set<string>, rowH: number, groupCalcs = true): Item[] {
   const items: Item[] = []
   let index = 0
   if (!groups) {
@@ -68,9 +68,10 @@ export function buildItems(rows: Page[], groups: RowGroup[] | null, hidden: Set<
     if (collapsed.has(g.key)) continue
     for (const row of g.rows) items.push({ kind: 'row', key: `${g.key}:${row.id}`, row, index: index++, groupKey: g.key, h: rowH })
     items.push({ kind: 'add', key: `a:${g.key}`, group: g, h: ADD_H })
-    items.push({ kind: 'calc', key: `c:${g.key}`, group: g, rows: g.rows, h: CALC_H })
+    if (groupCalcs) items.push({ kind: 'calc', key: `c:${g.key}`, group: g, rows: g.rows, h: CALC_H })
   }
   if (!items.length) items.push({ kind: 'empty', key: 'empty', h: 120 })
+  else if (!groupCalcs) items.push({ kind: 'calc', key: 'calc', group: null, rows, h: CALC_H })
   return items
 }
 
@@ -79,18 +80,6 @@ export function offsetsOf(items: Item[]): number[] {
   out[0] = 0
   for (let i = 0; i < items.length; i++) out[i + 1] = out[i] + items[i].h
   return out
-}
-
-/** First index whose bottom edge is below y (binary search). */
-export function indexAt(offsets: number[], y: number): number {
-  let lo = 0
-  let hi = offsets.length - 2
-  while (lo < hi) {
-    const mid = (lo + hi) >> 1
-    if (offsets[mid + 1] <= y) lo = mid + 1
-    else hi = mid
-  }
-  return Math.max(0, lo)
 }
 
 /** Nearest scrollable ancestor (vertical). */

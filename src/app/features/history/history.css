@@ -160,6 +160,7 @@
 
 .tape__glyph {
   position: absolute;
+  z-index: 2;
   top: 20px;
   left: 0;
   transform: translateX(-50%);

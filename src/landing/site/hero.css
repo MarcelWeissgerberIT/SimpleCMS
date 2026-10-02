@@ -274,6 +274,10 @@
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
+.readout-val[data-count='inf'] {
+  font-size: clamp(44px, 5.1vw, 76px);
+  line-height: 0.765;
+}
 .readout-unit {
   color: var(--ink-2);
 }
@@ -384,6 +388,39 @@
   height: 14px;
   margin-left: -1px;
   background: var(--signal);
+}
+
+
+/* Blueprint state: while the 1997 page shatters on top, the gaps show the new hero as a
+   drawing — outlined headline, dashed frame — which is then "built" by the entrance. */
+.hero .line {
+  position: relative;
+}
+.hero .line::before {
+  content: attr(data-ghost);
+  position: absolute;
+  left: 0;
+  top: 0;
+  right: 0;
+  color: transparent;
+  -webkit-text-stroke: 1px var(--ink-3);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 520ms var(--ease-out) 180ms;
+}
+.frame-hero .frame-box::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border: 1px dashed var(--ink-3);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 400ms var(--ease-out) 300ms;
+}
+.site.is-pre .hero .line::before,
+.site.is-pre .frame-hero .frame-box::after {
+  opacity: 1;
+  transition: none;
 }
 
 /* Pre-entrance (set while the 1997 page is being smashed on top). */

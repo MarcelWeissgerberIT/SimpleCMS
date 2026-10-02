@@ -1105,3 +1105,24 @@
   text-transform: none;
   color: inherit;
 }
+
+/* React node views live inside .react-renderer.node-<name>; block-selection decorations land there */
+.doc-content [data-node-view-content-react] > * + * {
+  margin-top: 2px;
+}
+
+.doc-content .react-renderer.is-block-selected:is(.node-bookmark, .node-embed, .node-fileBlock, .node-databaseBlock, .node-mermaid, .node-toc, .node-pageLink, .node-blockMath) {
+  background: none;
+  box-shadow: 0 0 0 2px var(--signal);
+  border-radius: var(--radius-2);
+}
+
+.doc-content .react-renderer.node-image.is-block-selected {
+  background: none;
+  box-shadow: none;
+}
+
+.doc-content .react-renderer.node-image.is-block-selected .image-view__frame img {
+  outline: 2px solid var(--signal);
+  outline-offset: 2px;
+}

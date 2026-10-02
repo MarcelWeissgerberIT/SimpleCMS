@@ -189,10 +189,12 @@ const TreeNode = memo(function TreeNode({ id, depth, section, draggable }: { id:
   const key = treeKey(section, id)
   const expanded = useTreeState((s) => !!s.expanded[key])
   const kids = useChildIds(id)
+  const isDb = useWorkspace((s) => s.pages[id]?.kind === 'database')
+  const open = expanded && (!isDb || kids.length > 0)
   return (
     <div className="sb-node">
-      <TreeRow id={id} depth={depth} section={section} draggable={draggable} expanded={expanded} hasKids={kids.length > 0} />
-      {expanded && (
+      <TreeRow id={id} depth={depth} section={section} draggable={draggable} expanded={open} hasKids={kids.length > 0} />
+      {open && (
         <div className="sb-children" role="group" style={{ '--depth': depth } as CSSProperties}>
           {kids.length > 0 ? (
             <PageTree parentId={id} depth={depth + 1} section={section} draggable={draggable} />
@@ -212,6 +214,8 @@ function TreeRow({ id, depth, section, draggable, expanded, hasKids }: { id: ID;
   const page = usePage(id)
   const route = useRoute()
   const active = route.name === 'page' && route.id === id
+  // a database row is open → mark its database
+  const activeWithin = useWorkspace((s) => route.name === 'page' && s.pages[route.id]?.databaseId === id)
   const { activeId, drop } = useContext(DropContext)
   const toggle = useTreeState((s) => s.toggle)
   const [renaming, setRenaming] = useState(false)
@@ -255,6 +259,7 @@ function TreeRow({ id, depth, section, draggable, expanded, hasKids }: { id: ID;
       }}
       className="sb-row"
       data-active={active || undefined}
+      data-active-within={activeWithin || undefined}
       data-drop={dropPos}
       data-dragging={isDragging || undefined}
       data-menu-open={menu.open || undefined}
@@ -320,6 +325,11 @@ function TreeRow({ id, depth, section, draggable, expanded, hasKids }: { id: ID;
           <span className="sb-row__title" data-untitled={!page.title.trim() || undefined}>
             {title}
           </span>
+          {isDb && (
+            <span className="sb-row__db" title={t('shell.sidebar.database')}>
+              DB
+            </span>
+          )}
         </a>
       )}
       {!renaming && (

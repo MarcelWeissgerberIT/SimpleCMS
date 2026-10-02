@@ -16,6 +16,7 @@ export const messages: Messages = {
     // sidebar
     'shell.sidebar.label': 'Workspace sidebar',
     'shell.sidebar.sub': 'Local workspace',
+    'shell.sidebar.database': 'Database',
     'shell.sidebar.favorites': 'Favorites',
     'shell.sidebar.pages': 'Pages',
     'shell.sidebar.trash': 'Trash',
@@ -75,7 +76,6 @@ export const messages: Messages = {
     'shell.page.changeIcon': 'Change icon',
     'shell.page.linkedFrom': 'Linked from',
     'shell.page.inTrash': 'This page is in the trash',
-    'shell.page.end': 'End of page',
     'shell.cover.change': 'Change cover',
     'shell.cover.reposition': 'Reposition',
     'shell.cover.savePosition': 'Save position',
@@ -350,6 +350,7 @@ export const messages: Messages = {
 
     'shell.sidebar.label': 'Seitenleiste',
     'shell.sidebar.sub': 'Lokaler Workspace',
+    'shell.sidebar.database': 'Datenbank',
     'shell.sidebar.favorites': 'Favoriten',
     'shell.sidebar.pages': 'Seiten',
     'shell.sidebar.trash': 'Papierkorb',
@@ -405,7 +406,6 @@ export const messages: Messages = {
     'shell.page.changeIcon': 'Icon ändern',
     'shell.page.linkedFrom': 'Verlinkt von',
     'shell.page.inTrash': 'Diese Seite liegt im Papierkorb',
-    'shell.page.end': 'Seitenende',
     'shell.cover.change': 'Titelbild ändern',
     'shell.cover.reposition': 'Ausrichten',
     'shell.cover.savePosition': 'Position speichern',

@@ -11,12 +11,14 @@ import { useT } from '../../i18n'
 import { newId } from '../../lib/ids'
 import { Select, TypeIcon } from '../parts'
 import { DatePicker } from '../cells/DatePicker'
-import { OptionTag, StatusTag, Avatar } from '../cells/display'
+import { Avatar } from '../cells/display'
+import { tagStyle } from '../../lib/colors'
 import { VALUELESS_OPS, operatorsFor } from '../model/schema'
 import { countFilters, inferKind, isGroup } from '../model/query'
 import { formatDateValue } from '../model/format'
 import type { DbModel } from '../hooks'
 import type { Translate } from '@/shared/i18n'
+import { plural } from '../parts'
 
 const REL_DATES = ['today', 'tomorrow', 'yesterday', 'one_week_ago', 'one_week_from_now', 'one_month_ago', 'one_month_from_now'] as const
 
@@ -61,13 +63,16 @@ function FilterValue({ m, filter, onChange }: { m: DbModel; filter: Filter; onCh
   const kind = kindOf(prop)
   const v = filter.value
   if (prop.type === 'select' || prop.type === 'status' || prop.type === 'multi_select') {
-    const Tag = prop.type === 'status' ? StatusTag : OptionTag
     return (
       <Select
         value={(v as string) ?? null}
         placeholder={t('database.filter.pickOption')}
         className="db-frule__value"
-        items={(prop.options ?? []).map((o) => ({ value: o.id, label: o.name, icon: <Tag option={o} /> }))}
+        items={(prop.options ?? []).map((o) => ({
+          value: o.id,
+          label: o.name,
+          icon: prop.type === 'status' ? <span className="db-status__led" data-group={o.group ?? 'todo'} /> : <span className="db-swatch" style={tagStyle(o.color)} />,
+        }))}
         onChange={onChange}
       />
     )
@@ -302,7 +307,7 @@ export function FilterChips({ m, autoOpen, onAutoOpened }: { m: DbModel; autoOpe
             <span key={it.id} className="db-fchip">
               <button type="button" className="db-fchip__main" onClick={(e) => setBuilder(e.currentTarget)}>
                 <Layers size={12} />
-                <span>{t('database.filter.groupChip', { count: countFilters(it) })}</span>
+                <span>{plural(t, 'database.filter.groupChip', countFilters(it))}</span>
               </button>
               <button type="button" className="db-fchip__x" aria-label={t('common.remove')} onClick={() => removeItem(it.id)}>
                 <X size={12} />

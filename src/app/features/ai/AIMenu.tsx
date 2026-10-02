@@ -512,7 +512,7 @@ export function AIMenu({ editor, pageId, mode, onClose }: AIMenuProps) {
       else list.unshift(custom)
     }
     return list
-  }, [query, setup, phase, wsMode, view, actions, t, start, output, target, run, error, onClose]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [query, setup, phase, wsMode, view, actions, t, start, output, target, run, error, onClose, sources]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     setActive((a) => Math.min(a, Math.max(0, rows.length - 1)))

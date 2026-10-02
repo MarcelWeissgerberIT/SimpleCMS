@@ -24,7 +24,14 @@ import { BlockGlyph } from './SlashMenu'
 import { ColorGrid } from './BubbleToolbar'
 
 const TEXTUAL = new Set(['paragraph', 'heading', 'bulletList', 'orderedList', 'taskList', 'listItem', 'taskItem', 'blockquote', 'callout', 'details', 'codeBlock'])
-const NESTED = { edgeDetection: 'left' as const, rules: [{ id: 'noColumn', evaluate: ({ node }: { node: PMNode }) => (node.type.name === 'column' || node.type.name === 'detailsSummary' || node.type.name === 'detailsContent' ? 1000 : 0) }] }
+const EXCLUDED = new Set(['column', 'detailsSummary', 'detailsContent'])
+const NESTED = {
+  edgeDetection: 'left' as const,
+  rules: [
+    { id: 'noWrappers', evaluate: ({ node }: { node: PMNode }) => (EXCLUDED.has(node.type.name) ? 1000 : 0) },
+    { id: 'noCellContent', evaluate: ({ parent }: { parent: PMNode | null }) => (parent && (parent.type.name === 'tableCell' || parent.type.name === 'tableHeader') ? 1000 : 0) },
+  ],
+}
 
 const TYPE_LABEL: Record<string, string> = {
   paragraph: 'text',

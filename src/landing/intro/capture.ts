@@ -9,6 +9,7 @@ export function captureScale(): number {
 
 export async function captureViewport(target: HTMLElement): Promise<HTMLCanvasElement> {
   const { default: html2canvas } = await import('html2canvas-pro')
+  performance.mark('intro:capture:start')
   const w = window.innerWidth
   const h = window.innerHeight
   const canvas = await html2canvas(target, {
@@ -16,6 +17,7 @@ export async function captureViewport(target: HTMLElement): Promise<HTMLCanvasEl
     backgroundColor: '#c0c0c0',
     logging: false,
     useCORS: true,
+    imageSmoothing: false,
     x: 0,
     y: 0,
     width: w,
@@ -34,5 +36,6 @@ export async function captureViewport(target: HTMLElement): Promise<HTMLCanvasEl
       doc.querySelector('.x97')?.classList.remove('x97--hung')
     },
   })
+  performance.measure('intro:capture', 'intro:capture:start')
   return canvas
 }

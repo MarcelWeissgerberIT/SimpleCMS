@@ -80,8 +80,8 @@ export function buildFracture(viewW: number, viewH: number, impact: Vec2, mobile
   const [ix, iy] = impact
   const pts: Vec2[] = []
   const rings: number[] = []
-  const R = mobile ? [0, 0.42, 0.95, 1.7, 2.75, 4.1, 5.9, 8.2] : [0, 0.4, 0.95, 1.7, 2.75, 4.1, 5.8, 8.2, 11]
-  const N = mobile ? [1, 5, 6, 7, 8, 8, 8, 8] : [1, 6, 8, 10, 11, 12, 13, 13, 12]
+  const R = mobile ? [0, 0.42, 0.95, 1.7, 2.7, 3.9, 5.2, 6.8, 8.6] : [0, 0.4, 0.95, 1.7, 2.7, 3.9, 5.2, 6.7, 8.4, 10.6]
+  const N = mobile ? [1, 5, 7, 8, 9, 10, 10, 9, 8] : [1, 6, 8, 10, 12, 14, 15, 16, 15, 12]
   for (let ri = 0; ri < R.length; ri++) {
     const n = N[ri]
     const phase = rand() * Math.PI * 2

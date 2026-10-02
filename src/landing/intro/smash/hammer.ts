@@ -18,6 +18,8 @@ export const HANDLE_LEN = 6.4
 export interface Hammer {
   /** Pivot at the grip end; rotate/position this. The model hangs off it toward -Y. */
   pivot: THREE.Group
+  /** Head geometry (centred at the head's origin) — reused for the motion-smear ghosts. */
+  headGeometry: THREE.BufferGeometry
   dispose(): void
 }
 
@@ -34,19 +36,15 @@ function canvasTex(w: number, h: number, draw: (c: CanvasRenderingContext2D) => 
 }
 
 function brushedRoughness(): THREE.CanvasTexture {
-  return canvasTex(256, 256, (c) => {
+  // continuous lines along v (= the head axis on the extruded sides): seamless brushing
+  return canvasTex(256, 64, (c) => {
     c.fillStyle = 'rgb(92,92,92)'
-    c.fillRect(0, 0, 256, 256)
-    for (let i = 0; i < 900; i++) {
+    c.fillRect(0, 0, 256, 64)
+    for (let i = 0; i < 520; i++) {
       const x = Math.random() * 256
-      const v = 70 + Math.random() * 60
-      c.strokeStyle = `rgba(${v},${v},${v},${0.25 + Math.random() * 0.4})`
-      c.lineWidth = 0.5 + Math.random() * 1.2
-      c.beginPath()
-      const y0 = Math.random() * 256
-      c.moveTo(x, y0)
-      c.lineTo(x + (Math.random() - 0.5) * 2, y0 + 40 + Math.random() * 200)
-      c.stroke()
+      const v = 66 + Math.random() * 60
+      c.fillStyle = `rgba(${v},${v},${v},${0.3 + Math.random() * 0.5})`
+      c.fillRect(x, 0, 0.5 + Math.random() * 1.2, 64)
     }
   })
 }
@@ -72,11 +70,11 @@ function turnedFace(): THREE.CanvasTexture {
 function woodGrain(): THREE.CanvasTexture {
   const t = canvasTex(256, 1024, (c) => {
     const g = c.createLinearGradient(0, 0, 256, 0)
-    g.addColorStop(0, '#caa47a')
-    g.addColorStop(0.3, '#ddbd93')
-    g.addColorStop(0.55, '#bf956a')
-    g.addColorStop(0.8, '#d8b78c')
-    g.addColorStop(1, '#caa47a')
+    g.addColorStop(0, '#b98b5c')
+    g.addColorStop(0.3, '#cfa677')
+    g.addColorStop(0.55, '#ad7c4e')
+    g.addColorStop(0.8, '#c99d6c')
+    g.addColorStop(1, '#b98b5c')
     c.fillStyle = g
     c.fillRect(0, 0, 256, 1024)
     // long grain lines running along the handle (v axis)
@@ -175,14 +173,14 @@ export function buildHammer(): Hammer {
   rough.repeat.set(1.4, 0.6)
   const steel = keep(
     new THREE.MeshPhysicalMaterial({
-      color: 0xd4d7dc,
+      color: 0xc9ccd1,
       metalness: 1,
-      roughness: 0.3,
+      roughness: 0.32,
       roughnessMap: rough,
-      anisotropy: 0.65,
+      anisotropy: 0.45,
       clearcoat: 0.3,
       clearcoatRoughness: 0.18,
-      envMapIntensity: 1.6,
+      envMapIntensity: 1.0,
     }),
   )
   const face = keep(turnedFace())
@@ -190,13 +188,13 @@ export function buildHammer(): Hammer {
   face.offset.set(0.5, 0.5)
   const polished = keep(
     new THREE.MeshPhysicalMaterial({
-      color: 0xe2e4e8,
+      color: 0xc4c7cc,
       metalness: 1,
-      roughness: 0.16,
+      roughness: 0.22,
       roughnessMap: face,
       clearcoat: 0.6,
       clearcoatRoughness: 0.08,
-      envMapIntensity: 1.4,
+      envMapIntensity: 1.0,
     }),
   )
   // ExtrudeGeometry groups: 0 = caps (striking faces), 1 = sides + bevel
@@ -291,6 +289,7 @@ export function buildHammer(): Hammer {
 
   return {
     pivot,
+    headGeometry: headGeo,
     dispose() {
       for (const d of disposables) d.dispose()
     },

@@ -28,7 +28,8 @@ export function formatNumber(n: number | null | undefined, fmt: NumberFormat | u
     case 'comma':
       return nf(lang, { maximumFractionDigits: 6 }).format(n)
     case 'percent':
-      return nf(lang, { style: 'percent', maximumFractionDigits: 2 }).format(n / 100)
+      // Notion semantics: 0.5 → 50 %
+      return nf(lang, { style: 'percent', maximumFractionDigits: 2 }).format(n)
     case 'euro':
       return nf(lang, { style: 'currency', currency: 'EUR' }).format(n)
     case 'dollar':
@@ -45,10 +46,10 @@ export function formatCount(n: number, lang: Lang, digits = 2): string {
   return nf(lang, { maximumFractionDigits: digits }).format(n)
 }
 
-/** Ratio 0..1 for bar / ring display (percent values are 0–100, others divided by 100). */
-export function numberRatio(n: number | null | undefined): number {
+/** Ratio 0..1 for bar / ring display: percent values are fractions (0.5 = 50 %), others are divided by 100. */
+export function numberRatio(n: number | null | undefined, fmt?: NumberFormat): number {
   if (n === null || n === undefined || !Number.isFinite(n)) return 0
-  return Math.max(0, Math.min(1, n / 100))
+  return Math.max(0, Math.min(1, fmt === 'percent' ? n : n / 100))
 }
 
 /* ---------------- Dates ---------------- */

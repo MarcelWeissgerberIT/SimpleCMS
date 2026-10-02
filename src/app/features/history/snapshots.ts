@@ -268,6 +268,14 @@ export function startHistory(): () => void {
 
   const unsub = useWorkspace.subscribe((state, prev) => {
     if (!state.ready || state.pages === prev.pages || isApplyingRemote()) return
+    // pages deleted for good take their history with them
+    if (Object.keys(prev.pages).length > Object.keys(state.pages).length) {
+      for (const id in prev.pages)
+        if (!(id in state.pages)) {
+          session.delete(id)
+          void clearHistory(id).catch(() => undefined)
+        }
+    }
     for (const id in state.pages) {
       const p = state.pages[id]
       const before = prev.pages[id]

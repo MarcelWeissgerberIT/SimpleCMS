@@ -35,6 +35,7 @@ import { Select, TypeIcon } from '../parts'
 import './views.css'
 
 const SEP = '::'
+const PAGE = 40
 const itemId = (g: string, r: ID) => `${g}${SEP}${r}`
 const parseItem = (id: string) => {
   const i = id.lastIndexOf(SEP)
@@ -47,10 +48,17 @@ export function BoardView() {
   const actions = useViewActions()
   const { view, db } = m
   const [collapsed, toggleCollapsed] = useCollapsed(view.id)
-  const hidden = new Set(view.hiddenGroups ?? [])
-  const groups = m.groups ?? []
-  const visibleGroups = groups.filter((g) => !hidden.has(g.key) && !(g.key === NONE_KEY && g.rows.length === 0))
-  const hiddenGroups = groups.filter((g) => hidden.has(g.key))
+  const hiddenKey = (view.hiddenGroups ?? []).join('|')
+  const keepEmptyNone = m.groupProp?.type === 'select' || m.groupProp?.type === 'multi_select' || m.groupProp?.type === 'person'
+  const { visibleGroups, hiddenGroups } = useMemo(() => {
+    const hidden = new Set(hiddenKey ? hiddenKey.split('|') : [])
+    const groups = m.groups ?? []
+    return {
+      // an empty "No value" column stays as a drop target for select / multi-select / person
+      visibleGroups: groups.filter((g) => !hidden.has(g.key) && !(g.key === NONE_KEY && g.rows.length === 0 && !keepEmptyNone)),
+      hiddenGroups: groups.filter((g) => hidden.has(g.key)),
+    }
+  }, [m.groups, hiddenKey, keepEmptyNone])
   const rowsById = useMemo(() => new Map(m.rows.map((r) => [r.id, r])), [m.rows])
   const size = view.cardSize ?? 'medium'
   // the column already shows the group value — don't repeat it on every card
@@ -250,6 +258,8 @@ function Column({
 }) {
   const t = useT()
   const { setNodeRef, isOver } = useDroppable({ id: group.key })
+  const [limit, setLimit] = useState(PAGE)
+  const shown = ids.length > limit ? ids.slice(0, limit) : ids
   return (
     <section className="dbb-col" data-over={isOver} aria-label={group.label}>
       <header className="dbb-col__head">
@@ -265,13 +275,18 @@ function Column({
         </button>
       </header>
       <div ref={setNodeRef} className="dbb-col__body">
-        <SortableContext id={group.key} items={ids} strategy={verticalListSortingStrategy}>
-          {ids.map((id) => {
+        <SortableContext id={group.key} items={shown} strategy={verticalListSortingStrategy}>
+          {shown.map((id) => {
             const row = rowsById.get(id.slice(id.lastIndexOf(SEP) + SEP.length))
             if (!row) return null
             return <Card key={id} id={id} m={m} row={row} props={cardProps} editing={editing === row.id} onEditDone={(c) => onEditDone(row.id, c)} onOpen={() => onOpen(row)} onContext={(e) => onContext(row, e)} />
           })}
         </SortableContext>
+        {ids.length > shown.length && (
+          <button type="button" className="dbb-more" onClick={() => setLimit((l) => l + PAGE * 2)}>
+            {t('database.board.more', { count: ids.length - shown.length })}
+          </button>
+        )}
         <button type="button" className="dbb-add" onClick={onAdd}>
           <Plus size={13} /> {t('common.new')}
         </button>

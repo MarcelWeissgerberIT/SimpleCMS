@@ -5,7 +5,7 @@
 import { generateHTML, getSchema, type Extensions, type JSONContent } from '@tiptap/core'
 import type { Schema } from '@tiptap/pm/model'
 import { MarkdownManager } from '@tiptap/markdown'
-import { baseExtensions } from './schema/base'
+import { BLOCK_ID_TYPES, baseExtensions } from './schema/base'
 
 export function getExtensions(opts: { readOnly?: boolean } = {}): Extensions {
   return baseExtensions({ readOnly: opts.readOnly })
@@ -175,4 +175,39 @@ export function looksLikeMarkdown(text: string): boolean {
   }
   if (/\*\*[^*\n]+\*\*|__[^_\n]+__|`[^`\n]+`|\[[^\]\n]+\]\([^)\s]+\)|~~[^~\n]+~~/.test(s)) score += 2
   return score >= 3 || (lines.length === 1 && score >= 2)
+}
+
+const ID_TYPES = new Set(BLOCK_ID_TYPES)
+
+function newBlockId(): string {
+  return typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
+}
+
+/**
+ * Give every block a unique `id` (UniqueID contract) directly on the JSON — far cheaper than
+ * letting the UniqueID plugin patch hundreds of nodes with transactions on mount.
+ * Returns the (possibly new) doc and whether anything changed.
+ */
+export function withBlockIds(doc: JSONContent): { doc: JSONContent; changed: boolean } {
+  const seen = new Set<string>()
+  let changed = false
+  const walk = (n: JSONContent): JSONContent => {
+    let out = n
+    if (n.type && ID_TYPES.has(n.type)) {
+      const id = n.attrs?.id as string | undefined
+      if (!id || seen.has(id)) {
+        const fresh = newBlockId()
+        out = { ...n, attrs: { ...n.attrs, id: fresh } }
+        seen.add(fresh)
+        changed = true
+      } else seen.add(id)
+    }
+    if (out.content) {
+      const kids = out.content.map(walk)
+      if (kids.some((k, i) => k !== out.content![i])) out = { ...out, content: kids }
+    }
+    return out
+  }
+  const next = walk(doc)
+  return { doc: next, changed }
 }

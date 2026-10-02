@@ -617,18 +617,29 @@ const MAPS: Record<string, string[]> = {
   cancel: ['kk...kk', '.kk.kk.', '..kkk..', '.kk.kk.', 'kk...kk'],
 }
 
+/**
+ * SVG art is shipped as <img src="data:image/svg+xml,…"> rather than inline <svg>:
+ * html2canvas captures images ~10× faster than it serializes inline SVG (0.2 s vs 2.5 s).
+ */
+export function svgImg(svg: string, cls = '', extra = ''): string {
+  const w = /width="([\d.]+)"/.exec(svg)?.[1]
+  const h = /height="([\d.]+)"/.exec(svg)?.[1]
+  const src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`
+  return `<img class="x97-svg ${cls}" src="${src}"${w ? ` width="${w}"` : ''}${h ? ` height="${h}"` : ''} alt="" draggable="false" ${extra}>`
+}
+
 const cache = new Map<string, string>()
 
-/** Inline SVG markup for a named pixel icon. */
+/** <img> markup for a named pixel icon. */
 export function icon(name: keyof typeof MAPS | string, scale = 1): string {
   const key = `${name}@${scale}`
-  let svg = cache.get(key)
-  if (!svg) {
+  let html = cache.get(key)
+  if (html === undefined) {
     const map = MAPS[name]
-    svg = map ? pixelSvg(map, scale) : ''
-    cache.set(key, svg)
+    html = map ? svgImg(pixelSvg(map, scale), 'x97-px') : ''
+    cache.set(key, html)
   }
-  return svg
+  return html
 }
 
 /** Toolbar 1 ("Standard"): icon names in order; '|' = separator, 'zoom' = zoom combo. */

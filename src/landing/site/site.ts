@@ -236,16 +236,32 @@ export function mountSite(root: HTMLElement, opts: { lang: Lang; underIntro: boo
   /* ---------- go ---------- */
 
   render()
-  if (opts.underIntro) hero.prepare()
+  if (opts.underIntro) {
+    // Stay invisible (and out of the tab order) until the smash starts, so nothing flashes
+    // before the lazily loaded 1997 page covers the screen.
+    root.classList.add('is-veiled')
+    hero.prepare()
+    // Failsafe: if the intro never shows up, do not leave the visitor with an empty page.
+    window.setTimeout(() => {
+      const intro = document.getElementById('intro')
+      if (root.classList.contains('is-veiled') && (!intro || !intro.childElementCount)) {
+        root.classList.remove('is-veiled')
+        hero.play(true)
+        ScrollTrigger.refresh()
+      }
+    }, 5000)
+  }
 
   // Layout settles once the variable fonts are in.
   document.fonts?.ready.then(() => ScrollTrigger.refresh()).catch(() => {})
 
   const handle: SiteHandle = {
     prepareReveal() {
+      root.classList.remove('is-veiled')
       hero.prepare()
     },
     playEntrance({ instant }) {
+      root.classList.remove('is-veiled')
       hero.play(instant || prefersReducedMotion())
       ScrollTrigger.refresh()
     },

@@ -15,7 +15,7 @@ import { newId } from '../lib/ids'
 import { createBridge } from './lib/bridge'
 import { editorExtensions } from './extensions/kit'
 import { findBlockById, flashBlock } from './extensions/behaviors'
-import { sanitize } from './convert'
+import { sanitize, withBlockIds } from './convert'
 import { EditorOverlays } from './menus/EditorOverlays'
 import './editor.css'
 
@@ -35,14 +35,16 @@ export function PageEditor(props: PageEditorProps) {
   return <EditorInstance key={props.pageId} {...props} />
 }
 
-function initialContent(pageId: ID): JSONContent | undefined {
-  const c = useWorkspace.getState().pages[pageId]?.content
-  return c ? sanitize(c) : undefined
+/** Sanitised content with block ids filled in (ids missing → persist once after mount). */
+function prepareContent(c: JSONContent | null | undefined): { doc: JSONContent | undefined; idsAdded: boolean } {
+  if (!c) return { doc: undefined, idsAdded: false }
+  const { doc, changed } = withBlockIds(sanitize(c))
+  return { doc, idsAdded: changed }
 }
 
 function EditorInstance({ pageId, readOnly, autoFocus, onReady, className }: PageEditorProps) {
   const instanceId = useMemo(() => `editor:${newId()}`, [])
-  const bridge = useMemo(() => createBridge(pageId), [pageId])
+  const bridge = useMemo(() => createBridge(), [])
   const locked = useWorkspace((s) => !!s.pages[pageId]?.settings.locked)
   const font = useWorkspace((s) => s.pages[pageId]?.settings.font ?? 'sans')
   const small = useWorkspace((s) => !!s.pages[pageId]?.settings.smallText)
@@ -74,11 +76,12 @@ function EditorInstance({ pageId, readOnly, autoFocus, onReady, className }: Pag
   }, [pageId, instanceId])
 
   const extensions = useMemo(() => editorExtensions({ bridge }), [bridge])
+  const initial = useMemo(() => prepareContent(useWorkspace.getState().pages[pageId]?.content), [pageId])
 
   const editor = useEditor(
     {
       extensions,
-      content: initialContent(pageId),
+      content: initial.doc,
       editable,
       immediatelyRender: true,
       shouldRerenderOnTransaction: false,
@@ -89,6 +92,11 @@ function EditorInstance({ pageId, readOnly, autoFocus, onReady, className }: Pag
       onCreate: ({ editor: ed }) => {
         editorRef.current = ed
         onReadyRef.current?.(ed)
+        // persist freshly generated block ids once, so block links stay valid
+        if (initial.idsAdded && ed.isEditable) {
+          dirty.current = true
+          timer.current = window.setTimeout(flush, 1500)
+        }
       },
       onUpdate: ({ editor: ed }) => {
         if (!ed.isEditable) return
@@ -122,7 +130,7 @@ function EditorInstance({ pageId, readOnly, autoFocus, onReady, className }: Pag
       window.clearTimeout(timer.current)
       dirty.current = false
       const { from, empty } = editor.state.selection
-      editor.commands.setContent(p.content ? sanitize(p.content) : { type: 'doc', content: [{ type: 'paragraph' }] }, { emitUpdate: false })
+      editor.commands.setContent(prepareContent(p.content).doc ?? { type: 'doc', content: [{ type: 'paragraph' }] }, { emitUpdate: false })
       const doc = editor.state.doc
       try {
         const $pos = doc.resolve(Math.min(from, doc.content.size))

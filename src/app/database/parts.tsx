@@ -121,3 +121,8 @@ export function SortableRow({ id, children, className }: { id: string; children:
     </div>
   )
 }
+
+/** "{count} thing" / "{count} things" via <key>.one / <key>.other. */
+export function plural(t: Translate, key: string, count: number): string {
+  return t(`${key}.${count === 1 ? 'one' : 'other'}`, { count })
+}

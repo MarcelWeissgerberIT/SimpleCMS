@@ -11,7 +11,6 @@
  * ~4.5   onDone → everything disposed
  */
 import * as THREE from 'three'
-import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js'
 import type { Sfx } from '../audio'
 import { captureScale } from '../capture'
 import { buildFracture, rng, type Shard } from './fracture'
@@ -19,6 +18,7 @@ import { paintCracks } from './cracks'
 import { buildHammer, HANDLE_LEN, HEAD_LEN } from './hammer'
 import { createPageMaterial } from './shaders'
 import { Fx } from './fx'
+import { studioEnvironment } from './studio'
 
 export interface SmashHooks {
   /** First WebGL frame is on screen — hide the DOM page now. */
@@ -50,7 +50,7 @@ const T_HIT2 = 1.7
 const T_HIT3 = 2.8
 const FREEZE = 0.12
 const SHATTER_LEN = 1.6
-const GRAVITY = 20
+const GRAVITY = 17
 const DEG = Math.PI / 180
 
 type Ease = (k: number) => number
@@ -74,16 +74,16 @@ interface Key {
 /** Hammer choreography: swing angle θ (deg, + = cocked back toward camera), twist ψ, pivot offset. */
 const KEYS: Key[] = [
   { t: 0.0, th: 60, ps: 30, off: [6, 4, 5.5], ease: linear },
-  { t: 0.44, th: 35, ps: 10, off: [1.6, -0.6, 2.5], ease: outCubic },
-  { t: 0.58, th: 41, ps: 12, off: [1.75, -0.5, 2.8], ease: inOutSine },
+  { t: 0.44, th: 35, ps: 34, off: [1.6, -0.6, 2.5], ease: outCubic },
+  { t: 0.58, th: 41, ps: 38, off: [1.75, -0.5, 2.8], ease: inOutSine },
   { t: T_HIT1, th: 6, ps: 0, off: [0, 0, 0], ease: inCubic },
   { t: 0.88, th: 22, ps: -5, off: [0.3, 0, 0.9], ease: outCubic },
-  { t: 1.4, th: 38, ps: 12, off: [1.7, -0.8, 2.7], ease: inOutCubic },
-  { t: 1.55, th: 44, ps: 14, off: [1.85, -0.7, 3.0], ease: inOutSine },
+  { t: 1.4, th: 38, ps: -30, off: [1.7, -0.8, 2.7], ease: inOutCubic },
+  { t: 1.55, th: 44, ps: -34, off: [1.85, -0.7, 3.0], ease: inOutSine },
   { t: T_HIT2, th: 6, ps: 0, off: [0, 0, 0], ease: inCubic },
   { t: 1.9, th: 24, ps: -8, off: [0.35, 0, 1.0], ease: outCubic },
-  { t: 2.56, th: 50, ps: 18, off: [0.8, -1.8, 4.0], ease: inOutCubic },
-  { t: 2.66, th: 56, ps: 20, off: [0.95, -1.7, 4.3], ease: inOutSine },
+  { t: 2.56, th: 50, ps: 40, off: [0.8, -1.8, 4.0], ease: inOutCubic },
+  { t: 2.66, th: 56, ps: 44, off: [0.95, -1.7, 4.3], ease: inOutSine },
   { t: T_HIT3, th: 6, ps: 0, off: [0, 0, 0], ease: inQuart },
   { t: T_HIT3 + FREEZE, th: 6, ps: 0, off: [0, 0, 0], ease: linear },
   { t: T_HIT3 + FREEZE + 0.14, th: -14, ps: -10, off: [-0.2, -0.3, -0.6], ease: outQuad },
@@ -129,7 +129,7 @@ export async function createSmashStage(host: HTMLElement, opts: SmashOptions): P
 
   const flash = document.createElement('div')
   flash.setAttribute('aria-hidden', 'true')
-  flash.style.cssText = `position:absolute;inset:0;z-index:201;pointer-events:none;opacity:0;background:radial-gradient(circle at ${IMPACT_UV[0] * 100}% ${IMPACT_UV[1] * 100}%, #fff 0, rgba(255,250,242,.85) 12%, rgba(255,236,214,.35) 34%, rgba(255,255,255,0) 62%)`
+  flash.style.cssText = `position:absolute;inset:0;z-index:201;pointer-events:none;opacity:0;background:radial-gradient(circle at ${IMPACT_UV[0] * 100}% ${IMPACT_UV[1] * 100}%, #fff 0, rgba(255,252,246,.92) 5%, rgba(255,232,204,.45) 16%, rgba(255,255,255,0) 40%)`
   host.appendChild(flash)
   const white = document.createElement('div')
   white.setAttribute('aria-hidden', 'true')
@@ -142,12 +142,9 @@ export async function createSmashStage(host: HTMLElement, opts: SmashOptions): P
   const camera = new THREE.PerspectiveCamera(FOV, aspect, 0.05, 200)
   camera.position.set(0, 0, camZ)
   const scene = new THREE.Scene()
-  const pmrem = new THREE.PMREMGenerator(renderer)
-  const room = new RoomEnvironment()
-  const envRT = pmrem.fromScene(room, 0.04)
-  room.dispose()
-  scene.environment = envRT.texture
-  scene.environmentIntensity = 1.15
+  const env = studioEnvironment(renderer)
+  scene.environment = env.texture
+  scene.environmentIntensity = 1
   const key = new THREE.DirectionalLight(0xffeedd, 3.4)
   key.position.set(-6, 8, 12)
   const rim = new THREE.DirectionalLight(0xff4f00, 4.5)
@@ -184,7 +181,7 @@ export async function createSmashStage(host: HTMLElement, opts: SmashOptions): P
   // shards
   const thick = mobile ? 0.07 : 0.085
   const sideMat = new THREE.MeshPhysicalMaterial({ color: 0xd6d2c8, roughness: 0.38, metalness: 0, clearcoat: 0.5, clearcoatRoughness: 0.2 })
-  const backMat = new THREE.MeshStandardMaterial({ color: 0x23211e, roughness: 0.7, metalness: 0.1 })
+  const backMat = new THREE.MeshStandardMaterial({ color: 0x2b2b2d, roughness: 0.55, metalness: 0.25 })
   const shardGroup = new THREE.Group()
   scene.add(shardGroup)
   const bodies: Body[] = fr.shards.map((s) => {
@@ -233,7 +230,8 @@ export async function createSmashStage(host: HTMLElement, opts: SmashOptions): P
   const pivotC = headC.clone().add(new THREE.Vector3(0, HANDLE_LEN * hs, 0).applyQuaternion(qc))
   const headPos = new THREE.Vector3()
 
-  function poseHammer(t: number) {
+  /** Pose any pivot-like object (the hammer, or a smear ghost) at sequence time t. */
+  function poseAt(target: THREE.Object3D, t: number) {
     let i = 1
     while (i < KEYS.length - 1 && KEYS[i].t < t) i++
     const a = KEYS[i - 1]
@@ -241,13 +239,47 @@ export async function createSmashStage(host: HTMLElement, opts: SmashOptions): P
     const k = b.ease(Math.min(1, Math.max(0, (t - a.t) / (b.t - a.t || 1))))
     const th = lerp(a.th, b.th, k)
     const ps = lerp(a.ps, b.ps, k)
-    orient(hammer.pivot.quaternion, th, ps)
-    hammer.pivot.position.set(
+    orient(target.quaternion, th, ps)
+    target.position.set(
       pivotC.x + lerp(a.off[0], b.off[0], k) * hs * offX,
       pivotC.y + lerp(a.off[1], b.off[1], k) * hs,
       pivotC.z + lerp(a.off[2], b.off[2], k) * hs,
     )
+  }
+
+  // Motion smear: translucent ghosts of the head at slightly earlier times during fast swings.
+  const ghostMats: THREE.MeshBasicMaterial[] = []
+  const ghosts = [0.012, 0.024, 0.036, 0.05].map((lag, i) => {
+    const mat = new THREE.MeshBasicMaterial({ color: 0xb4b8bf, transparent: true, opacity: 0, depthWrite: false })
+    ghostMats.push(mat)
+    const g = new THREE.Group()
+    g.scale.setScalar(hs)
+    const m = new THREE.Mesh(hammer.headGeometry, mat)
+    m.position.y = -HANDLE_LEN
+    m.renderOrder = 3
+    g.add(m)
+    g.visible = false
+    scene.add(g)
+    return { g, mat, lag, fade: 1 - i * 0.22 }
+  })
+  const prevHead = new THREE.Vector3()
+  const ghostHead = new THREE.Vector3()
+
+  function poseHammer(t: number) {
+    poseAt(hammer.pivot, t)
     headPos.set(0, -HANDLE_LEN, 0).multiplyScalar(hs).applyQuaternion(hammer.pivot.quaternion).add(hammer.pivot.position)
+    // head speed (units/s) from a pose 16 ms earlier
+    poseAt(ghosts[0].g, Math.max(0, t - 0.016))
+    prevHead.set(0, -HANDLE_LEN, 0).multiplyScalar(hs).applyQuaternion(ghosts[0].g.quaternion).add(ghosts[0].g.position)
+    const speed = headPos.distanceTo(prevHead) / 0.016
+    const amt = Math.min(1, Math.max(0, (speed - 14) / 40))
+    for (const gh of ghosts) {
+      gh.g.visible = amt > 0.02 && t > gh.lag
+      if (!gh.g.visible) continue
+      poseAt(gh.g, t - gh.lag)
+      ghostHead.copy(gh.g.position)
+      gh.mat.opacity = 0.32 * amt * gh.fade
+    }
   }
 
   // effects
@@ -305,6 +337,7 @@ export async function createSmashStage(host: HTMLElement, opts: SmashOptions): P
     { t: 2.64, fn: () => sfx?.whoosh(0.17, 0.6, -0.2, 0.75) },
     { t: T_HIT3, fn: () => contact() },
     { t: T_HIT3 + FREEZE, fn: () => shatter() },
+    { t: T_HIT3 + FREEZE + 0.45, fn: () => (glowTarget = 0) },
   ]
 
   function growCracks(to: number, dur: number) {
@@ -325,7 +358,7 @@ export async function createSmashStage(host: HTMLElement, opts: SmashOptions): P
     sfx?.crack(n === 1 ? 0.7 : 1, n === 1 ? 8 : 16, n === 1 ? 0.14 : 0.35)
     if (n === 1) {
       growCracks(R1, 0.14)
-      glowTarget = 0.18
+      glowTarget = 0
     } else {
       growCracks(maxCrackR, 0.42)
       glowTarget = 1
@@ -342,10 +375,10 @@ export async function createSmashStage(host: HTMLElement, opts: SmashOptions): P
   function contact() {
     trauma = Math.min(1, trauma + 0.3)
     punch = Math.max(punch, 0.06)
-    whiteA = 0.62
+    whiteA = 0.42
     flashA = 1
     hot = 1.6
-    glowTarget = 2.4
+    glowTarget = 2
     freezeLeft = FREEZE
     sfx?.clang(1.1)
   }
@@ -353,13 +386,15 @@ export async function createSmashStage(host: HTMLElement, opts: SmashOptions): P
   function shatter() {
     shattered = true
     trauma = 1
-    fx.burst(impact3, 1.5, { chips: mobile ? 30 : 46, sparks: mobile ? 22 : 34, dust: mobile ? 30 : 50 })
+    fx.burst(impact3, 1.5, { chips: mobile ? 30 : 46, sparks: mobile ? 22 : 34, dust: mobile ? 22 : 34 })
+    fx.puff(impact3, mobile ? 16 : 26, 2.2, 2.6, 1.5)
     fx.ring(impact3, 9, 0.55, 0.16)
     for (const b of bodies) {
       if (b.state !== 'rest') continue
       launch(b, 1, Math.min(0.28, b.shard.dist * 0.03))
       if (rand() < 0.45) fx.puff(new THREE.Vector3(b.shard.cx, b.shard.cy, 0), 2, b.shard.radius * 0.6, 0.8, 1.2)
     }
+    glowTarget = 0.6
     sfx?.boom()
     sfx?.shatter()
     sfx?.crack(1, 24, 0.5)
@@ -375,8 +410,8 @@ export async function createSmashStage(host: HTMLElement, opts: SmashOptions): P
     b.vel.set((dx / len) * vr, (dy / len) * vr + (0.3 + rand() * 1.6) * power, (0.6 + 6 * near) * (0.2 + rand()) * power)
     // tumble outward like opening petals: spin mostly around the tangential axis
     b.axis.set(-dy / len + (rand() - 0.5) * 0.9, dx / len + (rand() - 0.5) * 0.9, (rand() - 0.5) * 0.5).normalize()
-    b.spin = (0.8 + rand() * 3.5 + 0.8 / (s.area + 0.2)) * (rand() < 0.8 ? 1 : -1)
-    b.spin = Math.min(9, b.spin)
+    b.spin = (0.6 + rand() * 2.2 + 0.5 / (s.area + 0.2)) * (rand() < 0.8 ? 1 : -1)
+    b.spin = Math.max(-7, Math.min(7, b.spin))
     b.delay = delay
     b.state = 'fly'
   }
@@ -446,9 +481,9 @@ export async function createSmashStage(host: HTMLElement, opts: SmashOptions): P
       const z = Math.max(0, headPos.z)
       const sx = headPos.x + z * 0.32
       const sy = headPos.y - z * 0.42
-      const size = (1.25 + z * 0.22) * hs
-      const alpha = 0.5 * Math.exp(-z * 0.16) * Math.min(1, seq * 4)
-      fx.setShadow(sx, sy, size, alpha, Math.min(0.95, 0.4 + z * 0.07))
+      const size = (0.95 + z * 0.16) * hs
+      const alpha = 0.42 * Math.exp(-z * 0.36) * Math.min(1, seq * 4)
+      fx.setShadow(sx, sy, size, alpha, Math.min(0.9, 0.45 + z * 0.06))
     } else fx.setShadow(0, 0, 1, 0, 1)
     // camera: punch-in + trauma shake (kept inside the page edges until the shatter)
     trauma = Math.max(0, trauma - dt * 1.5)
@@ -465,7 +500,7 @@ export async function createSmashStage(host: HTMLElement, opts: SmashOptions): P
     camera.position.set(off * shakeNoise(shakeT, 0), off * shakeNoise(shakeT, 11), camZ * (1 - punch))
     camera.rotation.set(0, 0, roll * shakeNoise(shakeT, 29))
     // flashes
-    flashA = Math.max(0, flashA - dt / 0.06)
+    flashA = freezeLeft > 0 ? flashA : Math.max(0, flashA - dt / 0.07)
     whiteA = freezeLeft > 0 ? whiteA : Math.max(0, whiteA - dt / 0.22)
     flash.style.opacity = flashA.toFixed(3)
     white.style.opacity = whiteA.toFixed(3)
@@ -482,10 +517,29 @@ export async function createSmashStage(host: HTMLElement, opts: SmashOptions): P
     renderer.render(scene, camera)
   }
 
+  // Adaptive quality: if the GPU can't keep up at full pixel ratio, drop to 1× (the swap
+  // has already happened, so pixel-exactness no longer matters).
+  const frameTimes: number[] = []
+  let degraded = false
+  function adapt(dtMs: number) {
+    if (degraded || pr <= 1) return
+    frameTimes.push(dtMs)
+    if (frameTimes.length < 12) return
+    const sorted = frameTimes.slice(2).sort((a, b) => a - b)
+    if (sorted[Math.floor(sorted.length / 2)] > 34) {
+      degraded = true
+      renderer.setPixelRatio(1)
+      renderer.setSize(W, H, false)
+    } else if (frameTimes.length > 40) degraded = true
+  }
+
   function loop(now: number) {
     if (disposed) return
     raf = requestAnimationFrame(loop)
-    const dt = Math.min(0.05, Math.max(0, (now - last) / 1000))
+    const raw = Math.max(0, now - last)
+    adapt(raw)
+    // real time down to 10 fps; below that the sequence slows rather than skipping beats
+    const dt = Math.min(0.1, raw / 1000)
     last = now
     step(dt)
     render()
@@ -551,6 +605,7 @@ export async function createSmashStage(host: HTMLElement, opts: SmashOptions): P
       })
       planeGeo.dispose()
       pageMat.dispose()
+      for (const m of ghostMats) m.dispose()
       sideMat.dispose()
       backMat.dispose()
       pageTex?.dispose()
@@ -558,8 +613,7 @@ export async function createSmashStage(host: HTMLElement, opts: SmashOptions): P
       glowTex.dispose()
       hammer.dispose()
       fx.dispose()
-      envRT.dispose()
-      pmrem.dispose()
+      env.dispose()
       renderer.renderLists.dispose()
       renderer.dispose()
       renderer.forceContextLoss()

@@ -7,6 +7,7 @@ import tokensCss from '@/shared/tokens.css?raw'
 import { docToHTML } from '../../editor'
 import { resolveAssetUrl } from '../../lib/files'
 import { plainText } from '../../store/store'
+import { t } from '../../i18n'
 import { BRAND } from '@/shared/brand'
 import { preparePage, type SharePayload } from './codec'
 
@@ -165,12 +166,12 @@ ${coverHTML(payload)}
 <main>
 ${iconHTML(payload)}
 <h1 class="title">${esc(title)}</h1>
-<div class="meta">${esc(date)} · ${words} ${lang === 'de' ? 'Wörter' : 'words'}</div>
+<div class="meta">${esc(date)} · ${esc(t('features.share.export.words', { count: words }))}</div>
 <article class="doc">
 ${body}
 </article>
 </main>
-<footer><span>${lang === 'de' ? 'Exportiert aus' : 'Exported from'} ${esc(BRAND.name)}</span><a href="${esc(BRAND.repoUrl)}">${esc(BRAND.repoUrl.replace(/^https:\/\//, ''))}</a></footer>
+<footer><span>${esc(t('features.share.export.from', { name: BRAND.name }))}</span><a href="${esc(BRAND.repoUrl)}">${esc(BRAND.repoUrl.replace(/^https:\/\//, ''))}</a></footer>
 ${hasMermaid ? `<script type="module">import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@12/dist/mermaid.esm.min.mjs';mermaid.initialize({startOnLoad:true,theme:document.documentElement.dataset.theme==='dark'?'dark':'neutral'})</script>` : ''}
 </body>
 </html>`

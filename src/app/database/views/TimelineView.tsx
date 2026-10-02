@@ -3,7 +3,7 @@
  * zoom week / month / quarter, today line, click empty lane to schedule undated rows.
  */
 import { useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { addDays, differenceInCalendarDays, eachDayOfInterval, format, getISOWeek, isToday, startOfDay, startOfMonth, startOfWeek } from 'date-fns'
+import { addDays, differenceInCalendarDays, eachDayOfInterval, format, getISOWeek, startOfDay, startOfMonth, startOfWeek } from 'date-fns'
 import { Crosshair } from 'lucide-react'
 import type { DateValue, ID, Page } from '../../store/types'
 import { useWorkspace } from '../../store/store'
@@ -16,6 +16,7 @@ import { eventsOf } from './CalendarView'
 import { dfLocale, isDateValue, isoWithTime, parseLocal, toISODate, weekStartsOn } from '../model/format'
 import { writeValue } from '../model/actions'
 import { Segmented } from '../parts'
+import { uniformOffsets, useWindow } from './virtual'
 import './timeline.css'
 
 type Zoom = 'week' | 'month' | 'quarter'
@@ -46,6 +47,11 @@ export default function TimelineView() {
   const leftW = narrow ? 132 : 240
 
   const { events } = useMemo(() => (prop ? eventsOf(m, prop) : { events: [], undated: [] }), [m, prop])
+  const bodyRef = useRef<HTMLDivElement>(null)
+  const offsets = useMemo(() => uniformOffsets(m.rows.length, ROW_H), [m.rows.length])
+  const [start, end] = useWindow(bodyRef, offsets, m.rows.length > 80)
+  const topPad = offsets[start]
+  const bottomPad = offsets[m.rows.length] - offsets[end]
   const byRow = useMemo(() => new Map(events.map((e) => [e.row.id, e])), [events])
 
   const range = useMemo(() => {
@@ -165,17 +171,20 @@ export default function TimelineView() {
               </div>
               <div className="dbtl-days">
                 {days.map((d, i) => {
+                  // the TODAY flag sits on the scale — keep labels from colliding with it
+                  const nearToday = Math.abs(i - todayIdx) * dw < 34
                   if (zoom === 'quarter') {
-                    if (d.getDay() !== ws) return null
+                    if (d.getDay() !== ws || (todayIdx >= i && todayIdx < i + 7 && (todayIdx - i) * dw < 40)) return null
                     return (
                       <span key={i} className="dbtl-day dbtl-day--week" style={{ left: i * dw, width: 7 * dw }}>
                         W{getISOWeek(d)}
                       </span>
                     )
                   }
-                  if (zoom === 'month' && d.getDay() !== ws && d.getDate() !== 1 && !isToday(d)) return null
+                  if (nearToday) return null
+                  if (zoom === 'month' && d.getDay() !== ws && d.getDate() !== 1) return null
                   return (
-                    <span key={i} className="dbtl-day" data-today={isToday(d)} style={{ left: i * dw, width: zoom === 'month' ? undefined : dw }}>
+                    <span key={i} className="dbtl-day" style={{ left: i * dw, width: zoom === 'month' ? undefined : dw }}>
                       {zoom === 'week' ? format(d, 'EEEEEE d', { locale }) : d.getDate()}
                     </span>
                   )
@@ -188,10 +197,11 @@ export default function TimelineView() {
               )}
             </div>
           </div>
-          <div className="dbtl-body">
+          <div className="dbtl-body" ref={bodyRef}>
             <div className="dbtl-grid" style={{ left: leftW, width, ...gridStyle }} aria-hidden />
             {todayIdx >= 0 && todayIdx < range.days && <div className="dbtl-today" style={{ left: leftW + todayIdx * dw + dw / 2 }} aria-hidden />}
-            {m.rows.map((row) => {
+            {topPad > 0 && <div style={{ height: topPad }} aria-hidden />}
+            {m.rows.slice(start, end).map((row) => {
               const ev = byRow.get(row.id)
               let s = ev ? differenceInCalendarDays(ev.start, range.start) : 0
               let e = ev ? differenceInCalendarDays(ev.end, range.start) : 0
@@ -202,6 +212,8 @@ export default function TimelineView() {
                 } else if (drag.mode === 'start') s = Math.min(e, s + drag.dx)
                 else e = Math.max(s, e + drag.dx)
               }
+              const barW = Math.max(dw, (e - s + 1) * dw) - 2
+              const outside = barW < 96
               return (
                 <div key={row.id} className="dbtl-row" style={{ height: ROW_H }}>
                   <button
@@ -213,7 +225,7 @@ export default function TimelineView() {
                       actions.contextMenu(row, pointAnchor(e2.clientX, e2.clientY))
                     }}
                   >
-                    <PageIcon icon={row.icon} size={14} />
+                    {row.icon && <PageIcon icon={row.icon} size={14} />}
                     <span className={row.title ? '' : 'faint'}>{row.title || t('common.untitled')}</span>
                   </button>
                   <div
@@ -240,7 +252,7 @@ export default function TimelineView() {
                         data-readonly={!editable}
                         style={{
                           left: s * dw + 1,
-                          width: Math.max(dw, (e - s + 1) * dw) - 2,
+                          width: barW,
                           ['--ev-accent' as string]: ev.color ? `var(--c-${ev.color}-text)` : 'var(--signal)',
                         }}
                         onPointerDown={(e2) => (editable ? startDrag(e2, row, 'move') : undefined)}
@@ -251,7 +263,7 @@ export default function TimelineView() {
                         title={row.title}
                       >
                         {editable && <span className="dbtl-bar__h dbtl-bar__h--l" onPointerDown={(e2) => startDrag(e2, row, 'start')} />}
-                        <span className="dbtl-bar__label">{row.title || t('common.untitled')}</span>
+                        <span className={`dbtl-bar__label${outside ? ' is-outside' : ''}`}>{row.title || t('common.untitled')}</span>
                         {editable && <span className="dbtl-bar__h dbtl-bar__h--r" onPointerDown={(e2) => startDrag(e2, row, 'end')} />}
                       </div>
                     ) : (
@@ -265,6 +277,7 @@ export default function TimelineView() {
                 </div>
               )
             })}
+            {bottomPad > 0 && <div style={{ height: bottomPad }} aria-hidden />}
             {!m.rows.length && (
               <div className="dbtl-empty" style={{ width: `calc(100cqw)` }}>
                 <EmptyState onAdd={() => actions.newRow({ open: true })} />

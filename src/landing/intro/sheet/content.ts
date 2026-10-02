@@ -5,6 +5,7 @@
  * SVG art uses presentation attributes only (no CSS), so html2canvas captures it exactly.
  */
 import type { Translate } from '@/shared/i18n'
+import { svgImg } from './icons'
 
 export type Layout = 'd' | 'm'
 /** [firstCol, firstRow, lastCol, lastRow], 1-based, inclusive. */
@@ -84,7 +85,7 @@ function bannerSvg(layout: Layout, t: Translate): string {
 
 export const STAR_COLORS = { a: ['#ff0000', '#ffff00'], b: ['#ffff00', '#ff0000'] } as const
 
-function starSvg(w: number, h: number, label: string): string {
+function starSvg(w: number, h: number, label: string, colors: readonly [string, string]): string {
   const cx = w / 2
   const cy = h / 2
   const spikes = 16
@@ -97,7 +98,7 @@ function starSvg(w: number, h: number, label: string): string {
     pts.push(`${(cx + Math.cos(a) * r * (w / h > 1.3 ? 1.25 : 1)).toFixed(1)},${(cy + Math.sin(a) * r).toFixed(1)}`)
   }
   const fs = Math.round(ro * 0.62)
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" overflow="visible"><polygon points="${pts.join(' ')}" fill="#000000" transform="translate(3 3)" opacity="0.55"/><polygon class="x97-star-bg" points="${pts.join(' ')}" fill="${STAR_COLORS.a[0]}" stroke="#000000" stroke-width="1.5"/><text class="x97-star-fg" x="${cx}" y="${cy + fs * 0.36}" text-anchor="middle" font-family="${F_BLACK}" font-weight="900" font-size="${fs}" fill="${STAR_COLORS.a[1]}" stroke="#000000" stroke-width="1" paint-order="stroke" transform="rotate(-14 ${cx} ${cy})">${esc(label)}</text></svg>`
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" overflow="visible"><polygon points="${pts.join(' ')}" fill="#000000" transform="translate(3 3)" opacity="0.55"/><polygon points="${pts.join(' ')}" fill="${colors[0]}" stroke="#000000" stroke-width="1.5"/><text x="${cx}" y="${cy + fs * 0.36}" text-anchor="middle" font-family="${F_BLACK}" font-weight="900" font-size="${fs}" fill="${colors[1]}" stroke="#000000" stroke-width="1" paint-order="stroke" transform="rotate(-14 ${cx} ${cy})">${esc(label)}</text></svg>`
 }
 
 /* ------------------------------------------------------------------ LCD visitor counter */
@@ -136,7 +137,7 @@ function lcdSvg(value: string, w: number, h: number): string {
 
 /* ------------------------------------------------------------------ Under construction */
 
-function constructionSvg(w: number, h: number, sub: string): string {
+function constructionSvg(w: number, h: number, sub: string, beaconOn: boolean): string {
   const band = 14
   const stripes = (y: number) => {
     let s = `<rect x="0" y="${y}" width="${w}" height="${band}" fill="#ffd400"/>`
@@ -152,7 +153,7 @@ function constructionSvg(w: number, h: number, sub: string): string {
   const big = w > 340 ? 25 : 19
   // Diamond road sign with the classic "men at work" pictogram.
   const sign = `<g transform="translate(${dx} ${dy})"><polygon points="0,${-d / 2} ${d / 2},0 0,${d / 2} ${-d / 2},0" fill="#ffb000" stroke="#000000" stroke-width="3"/><g transform="scale(${(d / 92).toFixed(3)})" fill="#000000"><circle cx="-4" cy="-24" r="6"/><polygon points="-10,-15 4,-15 10,2 4,4 0,-6 -2,10 6,26 0,28 -8,12 -14,26 -20,24 -12,6 -12,-4 -20,6 -24,2"/><polygon points="8,-14 26,10 23,12 5,-12"/><polygon points="18,10 30,4 34,12 22,16"/><polygon points="12,26 34,26 28,16 20,16"/></g></g>`
-  const beacon = `<g transform="translate(${w - 24} ${band + 18})"><rect x="-9" y="6" width="18" height="6" fill="#404040"/><path class="x97-beacon" d="M -8 6 A 8 9 0 0 1 8 6 Z" fill="#ff6a00" stroke="#000000"/><g class="x97-beacon-rays" stroke="#ff6a00" stroke-width="2"><line x1="-16" y1="-2" x2="-11" y2="1"/><line x1="16" y1="-2" x2="11" y2="1"/><line x1="0" y1="-12" x2="0" y2="-6"/></g></g>`
+  const beacon = `<g transform="translate(${w - 24} ${band + 18})"><rect x="-9" y="6" width="18" height="6" fill="#404040"/><path d="M -8 6 A 8 9 0 0 1 8 6 Z" fill="${beaconOn ? '#ffd000' : '#ff3b00'}" stroke="#000000"/><g stroke="#ff6a00" stroke-width="2" stroke-opacity="${beaconOn ? 1 : 0}"><line x1="-16" y1="-2" x2="-11" y2="1"/><line x1="16" y1="-2" x2="11" y2="1"/><line x1="0" y1="-12" x2="0" y2="-6"/></g></g>`
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}"><rect x="0" y="0" width="${w}" height="${h}" fill="#ffd400"/>${stripes(0)}${stripes(h - band)}<rect x="1" y="1" width="${w - 2}" height="${h - 2}" fill="none" stroke="#000000" stroke-width="2"/>${sign}<text x="${tx}" y="${dy - 8}" font-family="${F_BLACK}" font-weight="900" font-size="${big}" fill="#000000">UNDER</text><text x="${tx}" y="${dy + big - 8}" font-family="${F_BLACK}" font-weight="900" font-size="${big * 0.86}" fill="#000000" textLength="${Math.min(w - tx - 30, big * 8.6)}" lengthAdjust="spacingAndGlyphs">CONSTRUCTION</text><text x="${tx}" y="${h - band - 7}" font-family="${F_COMIC}" font-size="${w > 340 ? 11 : 9.5}" fill="#000000" textLength="${Math.min(w - tx - 8, w > 340 ? 250 : 190)}" lengthAdjust="spacingAndGlyphs">${esc(sub)}</text>${beacon}</svg>`
 }
 
@@ -216,7 +217,7 @@ function rainbowLine(range: Range): string {
   return block(
     range,
     'x97-rainbow',
-    `<svg xmlns="http://www.w3.org/2000/svg" width="${b.width}" height="6" viewBox="0 0 ${b.width} 6"><defs><linearGradient id="x97rl${range[1]}" x1="0" x2="1" y1="0" y2="0">${stops}</linearGradient></defs><rect x="0" y="0" width="${b.width}" height="6" fill="url(#x97rl${range[1]})"/><rect x="0" y="0" width="${b.width}" height="2" fill="#ffffff" opacity="0.45"/></svg>`,
+    svgImg(`<svg xmlns="http://www.w3.org/2000/svg" width="${b.width}" height="6" viewBox="0 0 ${b.width} 6"><defs><linearGradient id="x97rl${range[1]}" x1="0" x2="1" y1="0" y2="0">${stops}</linearGradient></defs><rect x="0" y="0" width="${b.width}" height="6" fill="url(#x97rl${range[1]})"/><rect x="0" y="0" width="${b.width}" height="2" fill="#ffffff" opacity="0.45"/></svg>`),
   )
 }
 
@@ -310,11 +311,18 @@ export function renderCells(layout: Layout, t: Translate, lang: string): string 
   out.push(cell(S.a1, '#NAME?', 'x97-err', t('intro.a1.formula')))
 
   // TextArt banner (floating object)
-  out.push(block(S.banner, 'x97-obj x97-banner', bannerSvg(layout, t), `data-obj="${esc(t('intro.obj.wordart'))}"`))
+  out.push(block(S.banner, 'x97-obj x97-banner', svgImg(bannerSvg(layout, t)), `data-obj="${esc(t('intro.obj.wordart'))}"`))
 
   // NEU! starburst (blinks)
   const sb = boxOf(S.star)
-  out.push(block(S.star, 'x97-obj x97-star', starSvg(sb.width, sb.height, t('intro.new')), `data-obj="${esc(t('intro.obj.star'))}"`))
+  out.push(
+    block(
+      S.star,
+      'x97-obj x97-star x97-blink',
+      svgImg(starSvg(sb.width, sb.height, t('intro.new'), STAR_COLORS.a), 'x97-blink-a') + svgImg(starSvg(sb.width, sb.height, t('intro.new'), STAR_COLORS.b), 'x97-blink-b', 'style="visibility:hidden"'),
+      `data-obj="${esc(t('intro.obj.star'))}"`,
+    ),
+  )
 
   out.push(rainbowLine(S.rain1))
 
@@ -328,18 +336,26 @@ export function renderCells(layout: Layout, t: Translate, lang: string): string 
     block(
       S.counter,
       'x97-obj x97-counter',
-      `<div class="x97-counter-label">${esc(t('intro.counter.label'))}</div>${lcdSvg('0004711', Math.min(cb.width - 16, 250), 40)}<div class="x97-counter-since">${esc(t('intro.counter.since'))}</div>`,
+      `<div class="x97-counter-label">${esc(t('intro.counter.label'))}</div>${svgImg(lcdSvg('0004711', Math.min(cb.width - 16, 250), 40))}<div class="x97-counter-since">${esc(t('intro.counter.since'))}</div>`,
       `data-obj="${esc(t('intro.obj.counter'))}" data-f="${esc(t('intro.counter.formula'))}"`,
     ),
   )
 
   // Under construction sign
   const ub = boxOf(S.sign)
-  out.push(block(S.sign, 'x97-obj x97-sign', constructionSvg(ub.width, ub.height, t('intro.construction.sub')), `data-obj="${esc(t('intro.obj.sign'))}"`))
+  const sub = t('intro.construction.sub')
+  out.push(
+    block(
+      S.sign,
+      'x97-obj x97-sign x97-blink',
+      svgImg(constructionSvg(ub.width, ub.height, sub, false), 'x97-blink-a') + svgImg(constructionSvg(ub.width, ub.height, sub, true), 'x97-blink-b', 'style="visibility:hidden"'),
+      `data-obj="${esc(t('intro.obj.sign'))}"`,
+    ),
+  )
 
   // Chart
   const chb = boxOf(S.chart)
-  out.push(block(S.chart, 'x97-obj x97-chart', chartSvg(chb.width, chb.height, t, lang), `data-obj="${esc(t('intro.obj.chart'))}"`))
+  out.push(block(S.chart, 'x97-obj x97-chart', svgImg(chartSvg(chb.width, chb.height, t, lang)), `data-obj="${esc(t('intro.obj.chart'))}"`))
 
   // Feature table
   const cols = split(t('intro.feat.cols'))
@@ -368,7 +384,7 @@ export function renderCells(layout: Layout, t: Translate, lang: string): string 
     <div class="x97-cf-field" data-cell style="grid-column:2/-1;grid-row:5"></div>
     <div class="x97-cf-label" data-cell style="grid-column:1;grid-row:7">${esc(t('intro.contact.msg'))}</div>
     <div class="x97-cf-field" data-cell style="grid-column:2/-1;grid-row:7/11"></div>
-    <div class="x97-cf-check" data-cell style="grid-column:2/-1;grid-row:12"><span class="x97-cbox">${'<svg xmlns="http://www.w3.org/2000/svg" width="7" height="7" viewBox="0 0 7 7" shape-rendering="crispEdges"><path d="M6 0h1v2h-1v1h-1v1h-1v1h-1v1h-1v-1h-1v-1h-1v-2h1v1h1v1h1v-1h1v-1h1z" fill="#000000"/></svg>'}</span>${esc(t('intro.contact.fax'))}</div>
+    <div class="x97-cf-check" data-cell style="grid-column:2/-1;grid-row:12"><span class="x97-cbox">${svgImg('<svg xmlns="http://www.w3.org/2000/svg" width="7" height="7" viewBox="0 0 7 7" shape-rendering="crispEdges"><path d="M6 0h1v2h-1v1h-1v1h-1v1h-1v1h-1v-1h-1v-1h-1v-2h1v1h1v1h1v-1h1v-1h1z" fill="#000000"/></svg>')}</span>${esc(t('intro.contact.fax'))}</div>
     <button type="button" class="x97-btn x97-cf-send" data-dialog style="grid-column:2/4;grid-row:14">${esc(t('intro.contact.send'))}</button>`
   out.push(block(S.contact, 'x97-contact', contact, `data-cols="${cw}"`))
 

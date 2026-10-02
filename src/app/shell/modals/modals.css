@@ -41,9 +41,14 @@
 }
 .confirm__actions {
   display: flex;
-  justify-content: flex-end;
+  flex-direction: row-reverse;
+  justify-content: flex-start;
   gap: 8px;
   margin-top: 22px;
+}
+.confirm__actions[data-danger] {
+  flex-direction: row;
+  justify-content: flex-end;
 }
 .confirm__kbd {
   margin-left: 2px;

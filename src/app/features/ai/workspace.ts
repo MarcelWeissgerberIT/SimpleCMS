@@ -1,15 +1,24 @@
 /**
- * "Ask your workspace": local retrieval (fuse.js over title + page.plain), then Claude
- * answers from the retrieved pages with [[Page title]] citations.
+ * "Ask your workspace": local retrieval (fuse.js over title + page text, including database
+ * properties), then Claude answers from the retrieved pages with [[Page title]] citations.
+ * Only the retrieved excerpts leave the device.
  */
 import Fuse from 'fuse.js'
 import { useWorkspace } from '../../store/store'
-import type { ID, Page } from '../../store/types'
+import { isEffectivelyTrashed } from '../../store/selectors'
+import type { Database, ID, Page } from '../../store/types'
+import { propertyValueToText } from '../../database'
 import { WORKSPACE_SYSTEM, streamCompletion } from './client'
 
 export interface WorkspaceSource {
   id: ID
   title: string
+}
+
+interface Doc {
+  id: ID
+  title: string
+  text: string
 }
 
 const STOP = new Set(
@@ -22,14 +31,54 @@ function keywords(q: string): string[] {
   return [...new Set(q.toLowerCase().split(/[^\p{L}\p{N}]+/u).filter((w) => w.length > 2 && !STOP.has(w)))].slice(0, 8)
 }
 
-/** Rank pages by relevance to a question. Pure; exported for testing. */
-export function retrievePages(question: string, pages: Page[], limit = 6): Page[] {
-  const docs = pages.filter((p) => !p.trashed && (p.title.trim() || p.plain?.trim()))
+function rowFacts(db: Database, row: Page): string {
+  const parts: string[] = []
+  for (const prop of db.properties) {
+    if (prop.type === 'title') continue
+    let v = ''
+    try {
+      v = propertyValueToText(db, prop, row)
+    } catch {
+      v = ''
+    }
+    if (v) parts.push(`${prop.name}: ${v}`)
+  }
+  return parts.join('; ')
+}
+
+/** Searchable documents for every live page; database pages include a compact table of their rows. */
+export function workspaceDocs(): Doc[] {
+  const { pages, databases } = useWorkspace.getState()
+  const docs: Doc[] = []
+  for (const p of Object.values(pages)) {
+    if (p.trashed || isEffectivelyTrashed(pages, p.id)) continue
+    const title = p.title.trim() || 'Untitled'
+    let text = p.plain ?? ''
+    if (p.databaseId && databases[p.databaseId]) {
+      const facts = rowFacts(databases[p.databaseId], p)
+      const dbTitle = pages[p.databaseId]?.title?.trim()
+      text = `${dbTitle ? `Entry in database "${dbTitle}". ` : ''}${facts}${text ? `\n${text}` : ''}`
+    } else if (p.kind === 'database' && databases[p.id]) {
+      const db = databases[p.id]
+      const rows = Object.values(pages)
+        .filter((r) => r.databaseId === p.id && !r.trashed)
+        .sort((a, b) => a.order - b.order)
+        .slice(0, 60)
+      text = `Database with ${rows.length} entries:\n${rows.map((r) => `- ${r.title.trim() || 'Untitled'} — ${rowFacts(db, r)}`).join('\n')}${text ? `\n${text}` : ''}`
+    }
+    if (!title && !text.trim()) continue
+    docs.push({ id: p.id, title, text })
+  }
+  return docs
+}
+
+/** Rank documents by relevance to a question. Exported for testing. */
+export function retrieve(question: string, docs: Doc[], limit = 6): Doc[] {
   if (!docs.length) return []
   const fuse = new Fuse(docs, {
     keys: [
       { name: 'title', weight: 2 },
-      { name: 'plain', weight: 1 },
+      { name: 'text', weight: 1 },
     ],
     includeScore: true,
     ignoreLocation: true,
@@ -42,10 +91,11 @@ export function retrievePages(question: string, pages: Page[], limit = 6): Page[
   }
   add(question, 2)
   for (const w of keywords(question)) add(w, 1)
+  const byId = new Map(docs.map((d) => [d.id, d]))
   return [...score.entries()]
     .sort((a, b) => b[1] - a[1])
     .slice(0, limit)
-    .map(([id]) => docs.find((d) => d.id === id)!)
+    .map(([id]) => byId.get(id)!)
 }
 
 export async function askWorkspace(opts: {
@@ -55,24 +105,19 @@ export async function askWorkspace(opts: {
   /** called as soon as retrieval is done, before streaming starts */
   onSources?: (sources: WorkspaceSource[]) => void
 }): Promise<{ text: string; sources: WorkspaceSource[] }> {
-  const pages = Object.values(useWorkspace.getState().pages)
-  const hits = retrievePages(opts.question, pages)
-  const sources = hits.map((p) => ({ id: p.id, title: p.title.trim() || 'Untitled' }))
+  const hits = retrieve(opts.question, workspaceDocs())
+  const sources = hits.map((d) => ({ id: d.id, title: d.title }))
   opts.onSources?.(sources)
-  const excerpts = hits
-    .map((p) => {
-      const body = (p.plain ?? '').slice(0, 4000)
-      return `<page title="${(p.title.trim() || 'Untitled').replace(/"/g, "'")}">\n${body}\n</page>`
-    })
-    .join('\n\n')
-  const prompt = `${excerpts || '<no matching pages />'}\n\nQuestion: ${opts.question.trim()}`
+  const excerpts = hits.map((d) => `<page title="${d.title.replace(/"/g, "'")}">\n${d.text.slice(0, 5000)}\n</page>`).join('\n\n')
+  const today = new Date().toISOString().slice(0, 10)
+  const prompt = `${excerpts || '<no matching pages />'}\n\nToday is ${today}.\nQuestion: ${opts.question.trim()}`
   const text = await streamCompletion({ system: WORKSPACE_SYSTEM, prompt, onToken: opts.onToken, signal: opts.signal })
   return { text: text.trim(), sources }
 }
 
 /** Replace [[Title]] citations with Markdown links to the cited pages (for inserting into a page). */
 export function citationsToLinks(md: string, sources: WorkspaceSource[]): string {
-  return md.replace(/\[\[([^\]\n]{1,200})\]\]/g, (m, title: string) => {
+  return md.replace(/\[\[([^\]\n]{1,200})\]\]/g, (_m, title: string) => {
     const hit = findSource(title, sources)
     return hit ? `[${hit.title}](#/p/${hit.id})` : title
   })
@@ -80,5 +125,6 @@ export function citationsToLinks(md: string, sources: WorkspaceSource[]): string
 
 export function findSource(title: string, sources: WorkspaceSource[]): WorkspaceSource | undefined {
   const t = title.trim().toLowerCase()
+  if (!t) return undefined
   return sources.find((s) => s.title.toLowerCase() === t) ?? sources.find((s) => s.title.toLowerCase().includes(t) || t.includes(s.title.toLowerCase()))
 }

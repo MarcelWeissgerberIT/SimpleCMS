@@ -2,7 +2,7 @@
  * Read-only renderers for property values (cells, cards, property panel, chips).
  */
 import { memo, type MouseEvent, type ReactNode } from 'react'
-import { AlertTriangle, ArrowUpRight, Check, FileText, Star } from 'lucide-react'
+import { AlertTriangle, ArrowUpRight, Check, FileText, Minus, Star } from 'lucide-react'
 import type { Database, DateValue, ID, Page, Person, PropertyDef, SelectOption } from '../../store/types'
 import { tagStyle, colorText } from '../../lib/colors'
 import { useFileUrl } from '../../lib/files'
@@ -140,12 +140,12 @@ export function FileChip({ src, big }: { src: string; big?: boolean }) {
   )
 }
 
-export function Checkbox({ checked, onToggle, readOnly, label }: { checked: boolean; onToggle?: (e: MouseEvent) => void; readOnly?: boolean; label?: string }) {
+export function Checkbox({ checked, onToggle, readOnly, label, indeterminate }: { checked: boolean; onToggle?: (e: MouseEvent) => void; readOnly?: boolean; label?: string; indeterminate?: boolean }) {
   return (
     <button
       type="button"
       role="checkbox"
-      aria-checked={checked}
+      aria-checked={indeterminate ? 'mixed' : checked}
       aria-label={label}
       className="db-check"
       tabIndex={-1}
@@ -155,7 +155,7 @@ export function Checkbox({ checked, onToggle, readOnly, label }: { checked: bool
         onToggle?.(e)
       }}
     >
-      {checked && <Check size={11} strokeWidth={3} />}
+      {indeterminate ? <Minus size={11} strokeWidth={3} /> : checked && <Check size={11} strokeWidth={3} />}
     </button>
   )
 }
@@ -264,12 +264,12 @@ function PersonList({ ids, people }: { ids: ID[]; people: Person[] }) {
   )
 }
 
-function RelationList({ ids, pages }: { ids: ID[]; pages: Record<ID, Page> }) {
+function RelationList({ ids, pages, linkable }: { ids: ID[]; pages: Record<ID, Page>; linkable: boolean }) {
   return (
     <span className="db-chips">
       {ids.map((id) => {
         const p = pages[id]
-        return p && !p.trashed ? <RelationChip key={id} page={p} /> : null
+        return p && !p.trashed ? <RelationChip key={id} page={p} linkable={linkable} /> : null
       })}
     </span>
   )
@@ -291,8 +291,8 @@ export function ValueView({ db, prop, row, r, v, variant = 'cell', interactive }
     case 'number': {
       if (typeof v !== 'number') return null
       const text = formatNumber(v, prop.numberFormat, lang)
-      if (prop.numberDisplay === 'bar') return <NumberBar ratio={numberRatio(v)} text={text} />
-      if (prop.numberDisplay === 'ring') return <NumberRing ratio={numberRatio(v)} text={text} />
+      if (prop.numberDisplay === 'bar') return <NumberBar ratio={numberRatio(v, prop.numberFormat)} text={text} />
+      if (prop.numberDisplay === 'ring') return <NumberRing ratio={numberRatio(v, prop.numberFormat)} text={text} />
       return <span className="db-num">{text}</span>
     }
     case 'select': {
@@ -350,7 +350,7 @@ export function ValueView({ db, prop, row, r, v, variant = 'cell', interactive }
     }
     case 'relation': {
       const ids = (v as string[] | null) ?? []
-      return ids.length ? <RelationList ids={ids} pages={r.ctx.pages} /> : null
+      return ids.length ? <RelationList ids={ids} pages={r.ctx.pages} linkable={variant !== 'cell'} /> : null
     }
     case 'rollup':
     case 'formula': {

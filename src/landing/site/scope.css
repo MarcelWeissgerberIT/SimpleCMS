@@ -7,6 +7,11 @@
  * `.theme-carbon` / `.theme-paper` so the app can use them too.)
  */
 
+/* Text on signal orange is always ink-dark (AA at every size), in both themes. */
+.site {
+  --sig-ink: #121210;
+}
+
 /* Always-dark subtree (values = tokens.css "CARBON"). */
 .tone-carbon {
   color-scheme: dark;

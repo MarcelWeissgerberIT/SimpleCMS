@@ -8,7 +8,6 @@ import { pickFiles } from '../lib/upload'
 
 /** Inline URL form used by empty bookmark / embed blocks. */
 function UrlForm({ icon, label, placeholder, autoFocus, onSubmit, hint, submit }: { icon: ReactNode; label: string; placeholder: string; autoFocus: boolean; onSubmit: (url: string) => string | null; hint?: string; submit: string }) {
-  const t = useT()
   const [value, setValue] = useState('')
   const [error, setError] = useState<string | null>(null)
   return (

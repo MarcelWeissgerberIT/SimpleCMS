@@ -123,7 +123,8 @@ const AI_PARENTS = new Set(['doc', 'column', 'callout', 'detailsContent'])
 export function shortcutsExtension(bridge: Bridge) {
   return Extension.create({
     name: 'oneShortcuts',
-    priority: 50,
+    // before HardBreak (Mod-Enter) and the core Backspace handling
+    priority: 1000,
     addKeyboardShortcuts() {
       const editor = this.editor
       const moveUp = () => moveBlock(editor, -1)
@@ -162,8 +163,6 @@ export function shortcutsExtension(bridge: Bridge) {
           }
           return selectBlock(editor)
         },
-        Tab: () => true,
-        'Shift-Tab': () => true,
         Space: () => {
           const { selection } = editor.state
           const { $from, empty } = selection
@@ -197,6 +196,15 @@ export function shortcutsExtension(bridge: Bridge) {
     },
   })
 }
+
+/** Last-resort Tab handling: lists / tables / code handle Tab first; elsewhere keep focus in the editor. */
+export const TabTrap = Extension.create({
+  name: 'tabTrap',
+  priority: 10,
+  addKeyboardShortcuts() {
+    return { Tab: () => true, 'Shift-Tab': () => true }
+  },
+})
 
 /* ------------------------------------------------------------------ */
 /* Extra markdown input rules                                          */

@@ -4,6 +4,7 @@
  *   editor.block.<id>  and  editor.block.<id>.desc
  */
 import type { Editor, Range } from '@tiptap/core'
+import { NodeSelection } from '@tiptap/pm/state'
 import {
   AtSign,
   Bookmark,
@@ -239,9 +240,15 @@ export const BLOCKS: BlockItem[] = [
     keywords: 'inline math equation latex formel',
     run: (ctx) => {
       del(ctx)
-      const pos = ctx.editor.state.selection.from
-      ctx.editor.chain().focus().insertContent({ type: 'inlineMath', attrs: { latex: 'x' } }).run()
-      ctx.bridge.setState({ mathEdit: { pos, kind: 'inline' } })
+      const { editor } = ctx
+      const pos = editor.state.selection.from
+      editor.chain().focus().insertContent({ type: 'inlineMath', attrs: { latex: '' } }).run()
+      // select the new atom so its view opens the TeX editor
+      try {
+        editor.view.dispatch(editor.state.tr.setSelection(NodeSelection.create(editor.state.doc, pos)))
+      } catch {
+        /* position shifted — leave the caret */
+      }
     },
   },
   // ---------------- AI

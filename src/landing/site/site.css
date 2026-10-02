@@ -23,7 +23,6 @@ html {
   --maxw: 1440px;
   --tb-h: 58px;
   --dial-h: 22px;
-  --sig-ink: #121210; /* text on signal orange — always ink-dark */
   font-family: var(--font-sans);
   font-size: 16px;
   line-height: 1.5;
@@ -35,6 +34,9 @@ html {
 .site *::before,
 .site *::after {
   box-sizing: border-box;
+}
+.site.is-veiled {
+  visibility: hidden;
 }
 .site img,
 .site svg {

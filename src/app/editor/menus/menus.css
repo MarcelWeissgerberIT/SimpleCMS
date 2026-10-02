@@ -154,7 +154,7 @@
 }
 
 .slash__list {
-  max-height: min(372px, 52vh);
+  max-height: min(312px, 40vh);
   overflow-y: auto;
   padding: 4px;
   overscroll-behavior: contain;
@@ -693,4 +693,91 @@
 .popover > div[tabindex='0']:focus-visible,
 .popover > div[data-autofocus]:focus-visible {
   box-shadow: none;
+}
+
+.bubble__link-input:focus,
+.bubble__link-input:focus-visible {
+  box-shadow: none;
+  outline: none;
+}
+
+.bubble__short {
+  display: none;
+}
+
+@media (max-width: 520px) {
+  .bubble__long {
+    display: none;
+  }
+  .bubble__short {
+    display: inline;
+  }
+  .bubble__btn--wide {
+    padding: 0 6px;
+  }
+  .bubble__sep {
+    margin: 0 1px;
+  }
+  .bubble__btn {
+    min-width: 30px;
+    height: 32px;
+  }
+}
+
+/* ---------- link hover card ---------- */
+.link-hover {
+  z-index: var(--z-popover);
+  animation: pop-in var(--dur-1) var(--ease-out);
+}
+
+.link-hover__card {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  max-width: min(420px, calc(100vw - 16px));
+  padding: 3px 3px 3px 8px;
+  border-radius: var(--radius-2);
+  background: var(--surface);
+  box-shadow: var(--shadow-pop);
+}
+
+.link-hover__target {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding-right: 6px;
+  color: var(--ink);
+  font-size: var(--text-sm);
+  font-weight: 550;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.link-hover__target svg {
+  flex: none;
+  color: var(--signal-ink);
+}
+
+.link-hover__target:hover span:first-of-type {
+  text-decoration: underline;
+  text-decoration-color: var(--signal);
+}
+
+.link-hover__path {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--ink-3);
+}
+
+.link-hover__sep {
+  flex: none;
+  width: 1px;
+  height: 16px;
+  margin: 0 3px;
+  background: var(--rule);
 }

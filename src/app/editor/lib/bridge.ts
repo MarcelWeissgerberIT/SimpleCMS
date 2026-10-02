@@ -22,8 +22,6 @@ export interface OverlayState {
   urlPaste: { url: string; from: number; to: number } | null
   /** Mod+K / link button: bubble toolbar in link-input mode */
   linkEdit: boolean
-  /** Inline math / block math editor open at pos */
-  mathEdit: { pos: number; kind: 'inline' | 'block' } | null
   /** Hint shown in the slash menu footer when the "+" button opened it */
   plusOpened: boolean
 }
@@ -31,19 +29,16 @@ export interface OverlayState {
 export interface Bridge extends StoreApi<OverlayState> {
   /** Key handlers registered by the suggestion menus (one per kind). */
   keyHandlers: Partial<Record<SuggestKind, (e: KeyboardEvent) => boolean>>
-  pageId: string
 }
 
-export function createBridge(pageId: string): Bridge {
+export function createBridge(): Bridge {
   const store = createStore<OverlayState>(() => ({
     suggest: null,
     ai: null,
     urlPaste: null,
     linkEdit: false,
-    mathEdit: null,
     plusOpened: false,
   })) as Bridge
   store.keyHandlers = {}
-  store.pageId = pageId
   return store
 }

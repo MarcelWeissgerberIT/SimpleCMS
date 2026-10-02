@@ -214,7 +214,7 @@ export function deleteRows(ids: ID[]): void {
   const s = ws()
   for (const id of ids) s.trashPage(id)
   useUI.getState().toast({
-    message: t('database.toast.deleted', { count: ids.length }),
+    message: t(`database.toast.deleted.${ids.length === 1 ? 'one' : 'other'}`, { count: ids.length }),
     action: { label: t('common.undo'), run: () => ids.forEach((id) => ws().restorePage(id)) },
   })
 }
@@ -258,9 +258,19 @@ function csvCell(s: string): string {
   return /[",\n\r;]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
 }
 
+/** Machine-friendly CSV values: ISO dates, raw numbers; everything else as display text. */
+function csvValue(r: Resolver, db: Database, p: PropertyDef, row: Page): string {
+  const v = r.value(db, p, row)
+  if (p.type === 'date' && isDateValue(v)) return v.end ? `${v.start} → ${v.end}` : v.start
+  if ((p.type === 'created_time' || p.type === 'last_edited_time') && v instanceof Date) return v.toISOString()
+  if ((p.type === 'number' || p.type === 'rating') && typeof v === 'number') return String(v)
+  if (p.type === 'checkbox') return v === true ? 'true' : 'false'
+  return r.text(db, p, row)
+}
+
 export function exportCsv(r: Resolver, db: Database, props: PropertyDef[], rows: Page[], filename: string): void {
   const header = props.map((p) => csvCell(p.name)).join(',')
-  const lines = rows.map((row) => props.map((p) => csvCell(r.text(db, p, row))).join(','))
+  const lines = rows.map((row) => props.map((p) => csvCell(csvValue(r, db, p, row))).join(','))
   const blob = new Blob(['﻿' + [header, ...lines].join('\r\n')], { type: 'text/csv;charset=utf-8' })
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')

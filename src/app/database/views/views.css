@@ -360,7 +360,7 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  min-height: 40px;
+  height: 41px;
   padding: 4px 8px;
   border-bottom: 1px solid var(--rule);
   border-radius: 0;
@@ -544,4 +544,21 @@
     --dbg-min: 150px;
     gap: 10px;
   }
+}
+
+.dbb-more {
+  height: 28px;
+  border: 1px dashed var(--rule-strong);
+  border-radius: var(--radius-1);
+  background: transparent;
+  color: var(--ink-2);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+}
+
+.dbb-more:hover {
+  border-style: solid;
+  color: var(--ink);
 }

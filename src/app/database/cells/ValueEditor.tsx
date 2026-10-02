@@ -8,7 +8,7 @@ import type { Database, DateValue, Page, PropertyDef, PropertyValue } from '../.
 import { Popover } from '../../ui/Popover'
 import { writeValue } from '../model/actions'
 import { isReadOnly } from '../model/schema'
-import { TextEditor, type DoneReason } from './TextEditor'
+import { TextEditor, useEscapeFlag, type DoneReason } from './TextEditor'
 import { OptionPicker } from './OptionPicker'
 import { DatePicker } from './DatePicker'
 import { FilesEditor, PersonPicker, RelationPicker } from './pickers'
@@ -32,6 +32,7 @@ export interface ValueEditorBaseProps {
 }
 
 export function ValueEditorBase({ db, prop, value, onChange, anchor, onClose, initialText, minWidth }: ValueEditorBaseProps) {
+  const esc = useEscapeFlag()
   if (!canEdit(prop)) return null
   if (TEXT_EDIT_TYPES.includes(prop.type)) {
     return (
@@ -55,17 +56,17 @@ export function ValueEditorBase({ db, prop, value, onChange, anchor, onClose, in
     case 'select':
     case 'status':
     case 'multi_select':
-      body = <OptionPicker db={db} prop={prop} value={value as string | string[] | null} onChange={onChange} onClose={() => onClose('enter')} />
+      body = <OptionPicker db={db} prop={prop} value={value as string | string[] | null} onChange={onChange} onClose={() => onClose('enter')} initialQuery={initialText} />
       break
     case 'date':
       body = <DatePicker value={(value as DateValue | null) ?? null} onChange={onChange} />
       cls = 'db-pop db-pop--date'
       break
     case 'person':
-      body = <PersonPicker value={(value as string[] | null) ?? []} onChange={onChange} onClose={() => onClose('tab')} />
+      body = <PersonPicker value={(value as string[] | null) ?? []} onChange={onChange} onClose={() => onClose('tab')} initialQuery={initialText} />
       break
     case 'relation':
-      body = <RelationPicker prop={prop} value={(value as string[] | null) ?? []} onChange={onChange} onClose={() => onClose('tab')} />
+      body = <RelationPicker prop={prop} value={(value as string[] | null) ?? []} onChange={onChange} onClose={() => onClose('tab')} initialQuery={initialText} />
       break
     case 'files':
       body = <FilesEditor value={(value as string[] | null) ?? []} onChange={onChange} />
@@ -82,7 +83,7 @@ export function ValueEditorBase({ db, prop, value, onChange, anchor, onClose, in
   }
   if (!body) return null
   return (
-    <Popover open anchor={anchor} onClose={() => onClose('outside')} placement="bottom-start" offset={2} className={cls}>
+    <Popover open anchor={anchor} onClose={() => onClose(esc.current ? 'escape' : 'outside')} placement="bottom-start" offset={2} className={cls}>
       {body}
     </Popover>
   )

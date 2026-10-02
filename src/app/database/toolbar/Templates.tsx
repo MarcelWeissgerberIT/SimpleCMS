@@ -1,7 +1,7 @@
 /**
  * Row templates: the "New" split button dropdown + template editor modal.
  */
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { ChevronDown, Copy, FileText, Pencil, Plus, Trash } from 'lucide-react'
 import type { Database, ID, Page, PageIcon as PageIconT, PropertyDef, PropertyValue } from '../../store/types'
 import { useWorkspace, DEFAULT_PAGE_SETTINGS } from '../../store/store'
@@ -153,6 +153,12 @@ function TemplateModal({ m, template, onClose }: { m: DbModel; template: Templat
     }
   }, [template.content])
   const [iconAnchor, setIconAnchor] = useState<HTMLElement | null>(null)
+  const nameRef = useRef<HTMLInputElement>(null)
+  useEffect(() => {
+    // the modal focuses its first control (the icon button) — the name is what people type first
+    const id = window.setTimeout(() => nameRef.current?.focus(), 30)
+    return () => window.clearTimeout(id)
+  }, [])
   const exists = (m.db.templates ?? []).some((x) => x.id === template.id)
 
   const fakeRow: Page = useMemo(
@@ -218,7 +224,7 @@ function TemplateModal({ m, template, onClose }: { m: DbModel; template: Templat
           <button type="button" className="db-tpl__icon" aria-label={t('database.templates.icon')} onClick={(e) => setIconAnchor(e.currentTarget)}>
             {icon ? <PageIcon icon={icon} size={22} /> : <FileText size={18} />}
           </button>
-          <input className="db-tpl__name display" data-autofocus="" value={name} placeholder={t('database.templates.namePlaceholder')} onChange={(e) => setName(e.target.value)} />
+          <input ref={nameRef} className="db-tpl__name display" data-autofocus="" value={name} placeholder={t('database.templates.namePlaceholder')} onChange={(e) => setName(e.target.value)} />
         </div>
         <div className="label db-tpl__sec">{t('database.templates.properties')}</div>
         <PropertyRows

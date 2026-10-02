@@ -7,6 +7,7 @@ import * as THREE from 'three'
 import { dustFragment, dustVertex, ringFragment, ringVertex, shadowFragment } from './shaders'
 
 const GRAVITY = 24
+const X_AXIS = new THREE.Vector3(1, 0, 0)
 
 interface Particle {
   alive: boolean
@@ -87,7 +88,7 @@ export class Fx {
     for (let i = 0; i < n; i++) seeds[i] = rand()
     this.dustGeo.setAttribute('aSeed', new THREE.BufferAttribute(seeds, 1))
     this.dustMat = new THREE.ShaderMaterial({
-      uniforms: { uScale: { value: pixelScale }, uColor: { value: new THREE.Color(0.86, 0.83, 0.78) } },
+      uniforms: { uScale: { value: pixelScale }, uColor: { value: new THREE.Color(0.72, 0.69, 0.64) } },
       vertexShader: dustVertex,
       fragmentShader: dustFragment,
       transparent: true,
@@ -194,7 +195,7 @@ export class Fx {
       const sp = speed * (0.3 + r())
       p.v.set(Math.cos(a) * sp, Math.sin(a) * sp + 0.4, (0.5 + r() * 1.5) * speed)
       p.size = 0.6 + r() * 1.6
-      p.angle = 0.25 + r() * 0.35
+      p.angle = 0.16 + r() * 0.26
     }
   }
 
@@ -259,7 +260,7 @@ export class Fx {
       p.p.addScaledVector(p.v, dt)
       const speed = p.v.length()
       this.tmpV.copy(p.v).normalize()
-      this.tmpQ.setFromUnitVectors(new THREE.Vector3(1, 0, 0), this.tmpV)
+      this.tmpQ.setFromUnitVectors(X_AXIS, this.tmpV)
       const k = 1 - p.life / p.max
       this.tmpS.set(Math.min(0.9, speed * 0.035) * k, p.size * k, p.size * k)
       this.tmpM.compose(p.p, this.tmpQ, this.tmpS)

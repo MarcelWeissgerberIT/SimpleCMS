@@ -123,6 +123,7 @@ export const messages: Messages = {
     // bubble toolbar
     'editor.bubble.label': 'Formatting',
     'editor.bubble.askAI': 'Ask AI',
+    'editor.bubble.ai': 'AI',
     'editor.bubble.turnInto': 'Turn into',
     'editor.mark.bold': 'Bold',
     'editor.mark.italic': 'Italic',
@@ -342,6 +343,7 @@ export const messages: Messages = {
 
     'editor.bubble.label': 'Formatierung',
     'editor.bubble.askAI': 'KI fragen',
+    'editor.bubble.ai': 'KI',
     'editor.bubble.turnInto': 'Umwandeln in',
     'editor.mark.bold': 'Fett',
     'editor.mark.italic': 'Kursiv',

@@ -45,14 +45,15 @@ const INPUT_EVENTS = ['pointermove', 'pointerdown', 'keydown', 'wheel', 'touchst
 /** If capture + GPU warm-up are not ready by then, use the DOM fallback instead. */
 const PREP_TIMEOUT_MS = 6000
 /** Guarantees onRevealed even if the WebGL sequence hangs (counted from its first frame). */
-const PLAY_TIMEOUT_MS = 9000
+const PLAY_TIMEOUT_MS = 12000
 /** Absolute guard from the moment the smash was triggered. */
-const HARD_TIMEOUT_MS = 20000
+const HARD_TIMEOUT_MS = 24000
 
 export function mountIntro(root: HTMLElement, opts: IntroOptions): IntroHandle {
   const params = new URLSearchParams(window.location.search)
   const idleMs = params.has('fast') ? 2000 : opts.idleMs
   const manualClock = params.get('smashclock') === 'manual'
+  const noWebGL = params.has('nowebgl') // test aid: force the DOM fallback
   const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
   const mobile = Math.min(window.innerWidth, window.innerHeight) < 600 || window.innerWidth < 720
   const t = makeTranslator(messages, opts.lang)
@@ -66,7 +67,7 @@ export function mountIntro(root: HTMLElement, opts: IntroOptions): IntroHandle {
   let playing = false
   const timers: number[] = []
 
-  const sheet = mountSheet(root, { t, lang: opts.lang, reducedMotion: reduced, onUpgrade: () => smashNow() })
+  const sheet = mountSheet(root, { t, lang: opts.lang, reducedMotion: reduced, onUpgrade: () => smashNow(), onSkip: () => skip() })
 
   // ------------------------------------------------------------------ lazy modules / GPU stage
   let smashModP: Promise<typeof import('./smash/smash')> | null = null
@@ -74,7 +75,7 @@ export function mountIntro(root: HTMLElement, opts: IntroOptions): IntroHandle {
   let stageP: Promise<SmashStage | null> | null = null
   let stage: SmashStage | null = null
   function ensureStage(): Promise<SmashStage | null> {
-    if (reduced) return Promise.resolve(null)
+    if (reduced || noWebGL) return Promise.resolve(null)
     stageP ??= loadSmash()
       .then((m) => m.createSmashStage(root, { mobile, sfx, manualClock }))
       .then((s) => {
@@ -95,14 +96,17 @@ export function mountIntro(root: HTMLElement, opts: IntroOptions): IntroHandle {
   // ------------------------------------------------------------------ capture (texture of the frozen window)
   let inputVersion = 0
   let snap: { canvas: HTMLCanvasElement; version: number } | null = null
-  let snapP: Promise<HTMLCanvasElement | null> | null = null
+  let inflight: { p: Promise<HTMLCanvasElement | null>; version: number } | null = null
   function ensureCapture(): Promise<HTMLCanvasElement | null> {
     if (snap && snap.version === inputVersion) return Promise.resolve(snap.canvas)
-    if (snapP) return snapP
+    if (inflight) {
+      // A capture of an older state is still running: wait for it, then (re)check.
+      return inflight.version === inputVersion ? inflight.p : inflight.p.then(() => ensureCapture())
+    }
     const version = inputVersion
-    snapP = captureViewport(root)
+    const p = captureViewport(root)
       .then((canvas) => {
-        if (version === inputVersion || phase !== 'watch') snap = { canvas, version: inputVersion }
+        snap = { canvas, version }
         return canvas
       })
       .catch((err) => {
@@ -110,9 +114,22 @@ export function mountIntro(root: HTMLElement, opts: IntroOptions): IntroHandle {
         return null
       })
       .finally(() => {
-        snapP = null
+        inflight = null
       })
-    return snapP
+    inflight = { p, version }
+    // Stale result (input happened meanwhile): while watching, skip — the next idle period
+    // captures again; once smashing (input is ignored) capture the final state.
+    return p.then((c) => (!c || version === inputVersion ? c : phase === 'smashing' ? ensureCapture() : null))
+  }
+
+  /** Capture + GPU warm-up during the idle phase, and upload the texture early. */
+  let uploaded: HTMLCanvasElement | null = null
+  async function prepare() {
+    const [s, canvas] = await Promise.all([ensureStage(), ensureCapture()])
+    if (s && canvas && canvas !== uploaded && phase !== 'done') {
+      s.setPage(canvas)
+      uploaded = canvas
+    }
   }
 
   // ------------------------------------------------------------------ idle detection + teasers
@@ -123,10 +140,7 @@ export function mountIntro(root: HTMLElement, opts: IntroOptions): IntroHandle {
     clearTimers()
     timers.push(window.setTimeout(() => sheet.setHung(true), (idleMs * 10) / 15))
     timers.push(
-      window.setTimeout(() => {
-        void ensureStage()
-        void ensureCapture()
-      }, (idleMs * 11) / 15),
+      window.setTimeout(() => void prepare(), (idleMs * 11) / 15),
     )
     if (!reduced) {
       timers.push(
@@ -212,7 +226,8 @@ export function mountIntro(root: HTMLElement, opts: IntroOptions): IntroHandle {
       playing = true
       window.clearTimeout(prepTimer)
       if (!manualClock) playTimer = window.setTimeout(finish, PLAY_TIMEOUT_MS)
-      s.setPage(canvas)
+      if (canvas !== uploaded) s.setPage(canvas)
+      uploaded = canvas
       const wash = sheet.isHung() ? WASH_ALPHA : 0
       s.play({
         onSwap: () => {
@@ -228,6 +243,15 @@ export function mountIntro(root: HTMLElement, opts: IntroOptions): IntroHandle {
       sheet.el.style.visibility = ''
       void domFallback()
     }
+  }
+
+  /** Keyboard skip link: no theatrics, just reveal. */
+  function skip() {
+    if (phase !== 'watch') return
+    phase = 'smashing'
+    clearTimers()
+    removeInputListeners()
+    fade()
   }
 
   /** prefers-reduced-motion: a short fade + drop instead of the hammer. */

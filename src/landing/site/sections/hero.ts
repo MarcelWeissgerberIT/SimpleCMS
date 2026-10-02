@@ -41,8 +41,8 @@ export function renderHero(ctx: Ctx): string {
       <p class="lbl hero-plate">${esc(t('hero.plate', v))}</p>
     </div>
     <h1 id="hero-h" class="hero-h disp">
-      <span class="line"><span class="line-in">${dotted(t('hero.h1'))}</span></span>
-      <span class="line"><span class="line-in">${dotted(t('hero.h2'))}</span></span>
+      <span class="line" data-ghost="${esc(t('hero.h1'))}"><span class="line-in">${dotted(t('hero.h1'))}</span></span>
+      <span class="line" data-ghost="${esc(t('hero.h2'))}"><span class="line-in">${dotted(t('hero.h2'))}</span></span>
     </h1>
     <div class="hero-body">
       <div class="hero-copy">

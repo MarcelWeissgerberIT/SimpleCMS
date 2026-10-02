@@ -45,7 +45,7 @@ export function DatabaseView({ databaseId, inline, viewId }: DatabaseViewProps) 
         <span className="label">{page?.trashed ? t('database.missing.trashed') : t('database.missing.gone')}</span>
       </div>
     )
-  return <DatabaseRoot db={db} page={page} inline={!!inline} viewId={viewId} />
+  return <DatabaseRoot key={db.id} db={db} page={page} inline={!!inline} viewId={viewId} />
 }
 
 function DatabaseRoot({ db, page, inline, viewId }: { db: Database; page: Page; inline: boolean; viewId?: ID }) {
@@ -197,7 +197,11 @@ function DatabaseBody({
           </div>
           <FilterChips m={m} autoOpen={autoChip} onAutoOpened={() => setAutoChip(null)} />
           <div className="db-body">
-            <Suspense fallback={<div className="db-loading label">{t('common.loading')}</div>}>{body}</Suspense>
+            <Suspense fallback={<div className="db-loading label">{t('common.loading')}</div>}>
+              <div key={view.id} className="db-viewbody">
+                {body}
+              </div>
+            </Suspense>
           </div>
           {ctx && <RowContextMenu row={ctx.row} anchor={ctx.anchor} onClose={() => setCtx(null)} />}
         </section>

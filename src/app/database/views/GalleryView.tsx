@@ -2,6 +2,7 @@
  * Gallery view: card grid with cover (page cover / first image in content / files property),
  * small/medium/large; "+ New" card.
  */
+import { useState } from 'react'
 import { Plus } from 'lucide-react'
 import { useT } from '../../i18n'
 import { pointAnchor } from '../../ui/Popover'
@@ -16,10 +17,11 @@ export function GalleryView() {
   const actions = useViewActions()
   const size = m.view.cardSize ?? 'medium'
   const preview = m.view.cardPreview ?? 'cover'
+  const [limit, setLimit] = useState(120)
   if (!m.rows.length) return <EmptyState onAdd={() => actions.newRow({ open: true })} />
   return (
     <div className="dbg" data-size={size}>
-      {m.rows.map((row) => (
+      {m.rows.slice(0, limit).map((row) => (
         <article
           key={row.id}
           className="dbc dbc--gallery"
@@ -36,6 +38,11 @@ export function GalleryView() {
           <CardBody m={m} row={row} props={m.visibleProps} />
         </article>
       ))}
+      {m.rows.length > limit && (
+        <button type="button" className="dbg-add" onClick={() => setLimit((l) => l + 240)}>
+          <span className="label">{t('database.board.more', { count: m.rows.length - limit })}</span>
+        </button>
+      )}
       <button type="button" className="dbg-add" onClick={() => actions.newRow({ open: true })}>
         <Plus size={16} />
         <span className="label">{t('common.new')}</span>

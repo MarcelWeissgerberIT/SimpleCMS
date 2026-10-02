@@ -1,4 +1,433 @@
-// STUB — replaced by the features area.
+/**
+ * Automations engine. Watches the workspace store, diffs database rows and runs the
+ * matching automations of a database:
+ *   triggers: row_created · row_deleted (trashed or removed) · property_changed (optional property / target value)
+ *   actions:  webhook (POST/PUT JSON) · set_property · notify (toast)
+ * Only the tab where the change happened fires (changes applied from other tabs are ignored).
+ * Rapid edits are coalesced per automation + row so typing doesn't spam webhooks.
+ */
+import { useSyncExternalStore } from 'react'
+import { useWorkspace } from '../../store/store'
+import { isApplyingRemote } from '../../store/persistence'
+import { toast } from '../../store/ui'
+import type { Automation, AutomationAction, Database, ID, Page, PropertyDef, PropertyValue } from '../../store/types'
+import { propertyValueToText } from '../../database'
+import { newId } from '../../lib/ids'
+import { t } from '../../i18n'
+
+export type EventType = 'row_created' | 'row_deleted' | 'property_changed'
+
+export interface Change {
+  propertyId: ID
+  from: PropertyValue | undefined
+  to: PropertyValue | undefined
+}
+
+export interface WebhookPayload {
+  event: EventType | 'test'
+  automation: { id: ID; name: string }
+  database: { id: ID; title: string }
+  row: { id: ID; title: string; url: string; properties: Record<string, string> }
+  changes: Array<{ property: string; from: string; to: string }>
+  timestamp: string
+  source: 'simplecms-one'
+}
+
+export interface RunLogEntry {
+  id: ID
+  at: number
+  databaseId: ID
+  automationId: ID
+  automationName: string
+  event: EventType | 'test'
+  rowTitle: string
+  action: AutomationAction['type']
+  status: 'ok' | 'error'
+  message: string
+}
+
+export interface WebhookResult {
+  ok: boolean
+  status: number
+  message: string
+  opaque?: boolean
+  body?: string
+  ms: number
+}
+
+/* ------------------------------------------------------------------ */
+/* Run log (in memory, last 30)                                        */
+/* ------------------------------------------------------------------ */
+
+let runLog: RunLogEntry[] = []
+const logListeners = new Set<() => void>()
+
+function pushLog(e: Omit<RunLogEntry, 'id' | 'at'>) {
+  runLog = [{ ...e, id: newId(), at: Date.now() }, ...runLog].slice(0, 30)
+  logListeners.forEach((l) => l())
+}
+
+export function getRunLog(): RunLogEntry[] {
+  return runLog
+}
+
+export function useRunLog(): RunLogEntry[] {
+  return useSyncExternalStore(
+    (cb) => {
+      logListeners.add(cb)
+      return () => logListeners.delete(cb)
+    },
+    getRunLog,
+    getRunLog,
+  )
+}
+
+/* ------------------------------------------------------------------ */
+/* Pausing (bulk imports, template creation)                          */
+/* ------------------------------------------------------------------ */
+
+let paused = 0
+/** Suspend automations (e.g. during an import). Returns a resume function. */
+export function pauseAutomations(): () => void {
+  paused++
+  let done = false
+  return () => {
+    if (done) return
+    done = true
+    paused = Math.max(0, paused - 1)
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* Helpers                                                             */
+/* ------------------------------------------------------------------ */
+
+const COMPUTED = new Set<PropertyDef['type']>(['formula', 'rollup', 'created_time', 'last_edited_time', 'unique_id'])
+
+export function sameValue(a: unknown, b: unknown): boolean {
+  if (a === b) return true
+  if (a == null || b == null) return (a ?? null) === (b ?? null) || (isEmpty(a) && isEmpty(b))
+  if (typeof a !== 'object' || typeof b !== 'object') return false
+  return JSON.stringify(a) === JSON.stringify(b)
+}
+
+const isEmpty = (v: unknown) => v == null || v === '' || v === false || (Array.isArray(v) && v.length === 0)
+
+function valueText(db: Database, prop: PropertyDef, row: Page, value: PropertyValue | undefined): string {
+  if (prop.type === 'title') return typeof value === 'string' ? value : row.title
+  try {
+    return propertyValueToText(db, prop, { ...row, properties: { ...row.properties, [prop.id]: value ?? null } })
+  } catch {
+    return value == null ? '' : String(value)
+  }
+}
+
+export function rowUrl(id: ID): string {
+  return `${window.location.origin}${window.location.pathname}#/p/${id}`
+}
+
+export function buildPayload(db: Database, automation: Pick<Automation, 'id' | 'name'>, row: Page, event: WebhookPayload['event'], changes: Change[]): WebhookPayload {
+  const pages = useWorkspace.getState().pages
+  const properties: Record<string, string> = {}
+  for (const p of db.properties) properties[p.name] = p.type === 'title' ? row.title : valueText(db, p, row, row.properties[p.id])
+  return {
+    event,
+    automation: { id: automation.id, name: automation.name },
+    database: { id: db.id, title: pages[db.id]?.title ?? '' },
+    row: { id: row.id, title: row.title, url: rowUrl(row.id), properties },
+    changes: changes.flatMap((c) => {
+      const prop = db.properties.find((p) => p.id === c.propertyId)
+      if (!prop) return []
+      return [{ property: prop.name, from: valueText(db, prop, row, c.from), to: valueText(db, prop, row, c.to) }]
+    }),
+    timestamp: new Date().toISOString(),
+    source: 'simplecms-one',
+  }
+}
+
+/** Does a changed value satisfy the trigger's "to value" condition? */
+function reachesValue(from: PropertyValue | undefined, to: PropertyValue | undefined, want: PropertyValue): boolean {
+  if (Array.isArray(to) && !Array.isArray(want)) return to.includes(String(want)) && !(Array.isArray(from) && from.includes(String(want)))
+  return sameValue(to, want) && !sameValue(from, want)
+}
+
+/** Resolve special set_property values: "@now" / "@today" for dates. */
+export function resolveSetValue(prop: PropertyDef | undefined, value: PropertyValue): PropertyValue {
+  if (prop?.type === 'date' && typeof value === 'string') {
+    const d = new Date()
+    const pad = (n: number) => String(n).padStart(2, '0')
+    const day = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+    if (value === '@now') return { start: `${day}T${pad(d.getHours())}:${pad(d.getMinutes())}`, includeTime: true }
+    if (value === '@today') return { start: day }
+  }
+  return value
+}
+
+/* ------------------------------------------------------------------ */
+/* Webhook                                                             */
+/* ------------------------------------------------------------------ */
+
+export function isValidWebhookUrl(url: string): boolean {
+  try {
+    const u = new URL(url)
+    return u.protocol === 'https:' || u.protocol === 'http:'
+  } catch {
+    return false
+  }
+}
+
+export async function sendWebhook(url: string, method: 'POST' | 'PUT', payload: unknown, headers: Record<string, string> = {}): Promise<WebhookResult> {
+  const started = performance.now()
+  const ms = () => Math.round(performance.now() - started)
+  if (!isValidWebhookUrl(url)) return { ok: false, status: 0, message: t('features.auto.err.url'), ms: 0 }
+  const body = JSON.stringify(payload)
+  const ctrl = new AbortController()
+  const timer = window.setTimeout(() => ctrl.abort(), 10_000)
+  try {
+    const res = await fetch(url, { method, headers: { 'Content-Type': 'application/json', ...headers }, body, signal: ctrl.signal })
+    let text = ''
+    try {
+      text = (await res.text()).slice(0, 400)
+    } catch {
+      /* ignore */
+    }
+    return { ok: res.ok, status: res.status, message: `${res.status} ${res.statusText}`.trim(), body: text, ms: ms() }
+  } catch (err) {
+    if (ctrl.signal.aborted) return { ok: false, status: 0, message: t('features.auto.err.timeout'), ms: ms() }
+    // Most likely CORS: retry once as an opaque "simple" request (the body still arrives as JSON text)
+    if (method === 'POST') {
+      try {
+        await fetch(url, { method, mode: 'no-cors', headers: { 'Content-Type': 'text/plain;charset=UTF-8' }, body, signal: ctrl.signal })
+        return { ok: true, status: 0, opaque: true, message: t('features.auto.res.opaque'), ms: ms() }
+      } catch {
+        /* fall through */
+      }
+    }
+    return { ok: false, status: 0, message: ctrl.signal.aborted ? t('features.auto.err.timeout') : t('features.auto.err.network', { msg: (err as Error)?.message ?? '' }), ms: ms() }
+  } finally {
+    window.clearTimeout(timer)
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* Running                                                             */
+/* ------------------------------------------------------------------ */
+
+let applyingAction = false
+
+function setStatus(dbId: ID, automationId: ID, status: 'ok' | 'error', message: string) {
+  const s = useWorkspace.getState()
+  const db = s.databases[dbId]
+  if (!db?.automations) return
+  s.updateDatabase(dbId, {
+    automations: db.automations.map((a) => (a.id === automationId ? { ...a, lastRunAt: Date.now(), lastStatus: status, lastMessage: message.slice(0, 200) } : a)),
+  })
+}
+
+function fill(template: string, db: Database, row: Page): string {
+  const pages = useWorkspace.getState().pages
+  return template.replace(/\{(\w[\w ]*)\}/g, (all, key: string) => {
+    if (key === 'title') return row.title || t('common.untitled')
+    if (key === 'database') return pages[db.id]?.title || t('common.untitled')
+    const prop = db.properties.find((p) => p.name.toLowerCase() === key.toLowerCase())
+    return prop ? valueText(db, prop, row, prop.type === 'title' ? row.title : row.properties[prop.id]) : all
+  })
+}
+
+async function runAutomation(dbId: ID, automationId: ID, rowSnapshot: Page, event: EventType, changes: Change[]) {
+  const state = useWorkspace.getState()
+  const db = state.databases[dbId]
+  const automation = db?.automations?.find((a) => a.id === automationId)
+  if (!db || !automation?.enabled) return
+  const row = state.pages[rowSnapshot.id] ?? rowSnapshot
+  let status: 'ok' | 'error' = 'ok'
+  const messages: string[] = []
+  for (const action of automation.actions) {
+    let ok = true
+    let message = ''
+    try {
+      if (action.type === 'webhook') {
+        const res = await sendWebhook(action.url, action.method, buildPayload(db, automation, row, event, changes), action.headers)
+        ok = res.ok
+        message = `${action.method} → ${res.message}`
+      } else if (action.type === 'set_property') {
+        const prop = db.properties.find((p) => p.id === action.propertyId)
+        if (!prop) throw new Error(t('features.auto.err.prop'))
+        if (event === 'row_deleted') throw new Error(t('features.auto.err.deleted'))
+        applyingAction = true
+        try {
+          if (prop.type === 'title') useWorkspace.getState().updatePage(row.id, { title: String(action.value ?? '') })
+          else useWorkspace.getState().setRowProperty(row.id, prop.id, resolveSetValue(prop, action.value))
+        } finally {
+          applyingAction = false
+        }
+        message = t('features.auto.res.set', { prop: prop.name })
+      } else if (action.type === 'notify') {
+        const text = fill(action.message || automation.name, db, row)
+        toast({ message: text, kind: 'info', action: event !== 'row_deleted' ? { label: t('common.open'), run: () => (window.location.hash = `#/p/${row.id}`) } : undefined })
+        message = t('features.auto.res.notified')
+      }
+    } catch (err) {
+      ok = false
+      message = (err as Error)?.message || String(err)
+    }
+    if (!ok) status = 'error'
+    messages.push(message)
+    pushLog({ databaseId: dbId, automationId, automationName: automation.name, event, rowTitle: row.title, action: action.type, status: ok ? 'ok' : 'error', message })
+  }
+  setStatus(dbId, automationId, status, messages.join(' · ') || t('features.auto.res.noActions'))
+}
+
+/* ------------------------------------------------------------------ */
+/* Change detection                                                    */
+/* ------------------------------------------------------------------ */
+
+interface Pending {
+  timer: number
+  dbId: ID
+  automationId: ID
+  row: Page
+  event: EventType
+  changes: Map<ID, Change>
+}
+const pending = new Map<string, Pending>()
+const COALESCE_MS = { row_created: 1500, row_deleted: 0, property_changed: 900 }
+
+function schedule(db: Database, automation: Automation, row: Page, event: EventType, changes: Change[]) {
+  const key = `${automation.id}:${row.id}`
+  const prev = pending.get(key)
+  if (prev && prev.event === 'row_created' && event === 'property_changed') return // created event will read the latest state
+  const entry: Pending = prev && prev.event === event ? prev : { timer: 0, dbId: db.id, automationId: automation.id, row, event, changes: new Map() }
+  window.clearTimeout(entry.timer)
+  entry.row = row
+  for (const c of changes) {
+    const had = entry.changes.get(c.propertyId)
+    entry.changes.set(c.propertyId, { propertyId: c.propertyId, from: had ? had.from : c.from, to: c.to })
+  }
+  pending.set(key, entry)
+  entry.timer = window.setTimeout(() => {
+    pending.delete(key)
+    const latest = useWorkspace.getState().pages[entry.row.id] ?? entry.row
+    let list = [...entry.changes.values()].filter((c) => !sameValue(c.from, c.to))
+    if (entry.event === 'property_changed') {
+      const trig = automation.trigger
+      if (trig.type !== 'property_changed') return
+      if (trig.toValue !== undefined && trig.toValue !== null) list = list.filter((c) => reachesValue(c.from, c.to, trig.toValue!))
+      if (!list.length || latest.trashed) return
+    }
+    void runAutomation(entry.dbId, entry.automationId, latest, entry.event, list)
+  }, COALESCE_MS[event])
+}
+
+function diff(state: ReturnType<typeof useWorkspace.getState>, prev: ReturnType<typeof useWorkspace.getState>) {
+  const active = new Map<ID, Database>()
+  for (const db of Object.values(state.databases)) if (db.automations?.some((a) => a.enabled)) active.set(db.id, db)
+  if (!active.size) return
+
+  const fire = (db: Database, row: Page, event: EventType, changes: Change[]) => {
+    for (const a of db.automations ?? []) {
+      if (!a.enabled || a.trigger.type !== event) continue
+      if (a.trigger.type === 'property_changed') {
+        const pid = a.trigger.propertyId
+        const relevant = pid ? changes.filter((c) => c.propertyId === pid) : changes
+        if (!relevant.length) continue
+        schedule(db, a, row, event, relevant)
+      } else schedule(db, a, row, event, [])
+    }
+  }
+
+  for (const id in state.pages) {
+    const page = state.pages[id]
+    const db = page.databaseId ? active.get(page.databaseId) : undefined
+    if (!db) continue
+    const before = prev.pages[id]
+    if (before === page) continue
+    if (!before) {
+      // a database created in the same update (import / template) doesn't count
+      if (prev.pages[db.id] && !page.trashed) fire(db, page, 'row_created', [])
+      continue
+    }
+    if (page.trashed !== before.trashed) {
+      if (page.trashed) fire(db, page, 'row_deleted', [])
+      continue
+    }
+    if (page.trashed) continue
+    const changes: Change[] = []
+    for (const prop of db.properties) {
+      if (COMPUTED.has(prop.type)) continue
+      if (prop.type === 'title') {
+        if (before.title !== page.title) changes.push({ propertyId: prop.id, from: before.title, to: page.title })
+      } else if (!sameValue(before.properties[prop.id], page.properties[prop.id])) {
+        changes.push({ propertyId: prop.id, from: before.properties[prop.id], to: page.properties[prop.id] })
+      }
+    }
+    if (changes.length) fire(db, page, 'property_changed', changes)
+  }
+  // rows removed without passing through the trash (permanent delete of a live row)
+  for (const id in prev.pages) {
+    const before = prev.pages[id]
+    if (state.pages[id] || before.trashed || !before.databaseId) continue
+    const db = active.get(before.databaseId)
+    if (db && state.pages[db.id]) fire(db, before, 'row_deleted', [])
+  }
+}
+
+let started = false
+
+/** Start the engine once (main.tsx). Returns a stop function. */
 export function startAutomations(): () => void {
-  return () => {}
+  if (started) return () => {}
+  started = true
+  const unsub = useWorkspace.subscribe((state, prev) => {
+    if (state.pages === prev.pages || !state.ready || !prev.ready) return
+    if (paused || applyingAction || isApplyingRemote()) return
+    try {
+      diff(state, prev)
+    } catch (err) {
+      console.error('[automations] diff failed', err)
+    }
+  })
+  return () => {
+    unsub()
+    started = false
+    pending.forEach((p) => window.clearTimeout(p.timer))
+    pending.clear()
+  }
+}
+
+/** Run a single automation's actions once against a row (or a sample) — used by "Send test". */
+export async function testWebhook(dbId: ID, automation: Automation, action: Extract<AutomationAction, { type: 'webhook' }>): Promise<WebhookResult> {
+  const payload = samplePayload(dbId, automation)
+  const res = await sendWebhook(action.url, action.method, payload, action.headers)
+  pushLog({
+    databaseId: dbId,
+    automationId: automation.id,
+    automationName: automation.name,
+    event: 'test',
+    rowTitle: payload.row.title,
+    action: 'webhook',
+    status: res.ok ? 'ok' : 'error',
+    message: `${action.method} → ${res.message}`,
+  })
+  return res
+}
+
+/** Payload as it would be sent for this automation (uses the first row, or a placeholder row). */
+export function samplePayload(dbId: ID, automation: Pick<Automation, 'id' | 'name' | 'trigger'>): WebhookPayload {
+  const s = useWorkspace.getState()
+  const db = s.databases[dbId]
+  const row =
+    Object.values(s.pages)
+      .filter((p) => p.databaseId === dbId && !p.trashed)
+      .sort((a, b) => a.order - b.order)[0] ??
+    ({ id: 'row_id', title: t('features.auto.sampleRow'), properties: {}, databaseId: dbId } as unknown as Page)
+  if (!db) throw new Error('database missing')
+  const trig = automation.trigger
+  const event: WebhookPayload['event'] = trig.type
+  let changes: Change[] = []
+  if (trig.type === 'property_changed') {
+    const prop = db.properties.find((p) => p.id === trig.propertyId) ?? db.properties.find((p) => p.type !== 'title' && !COMPUTED.has(p.type))
+    if (prop) changes = [{ propertyId: prop.id, from: prop.type === 'title' ? '' : null, to: trig.toValue ?? (prop.type === 'title' ? row.title : row.properties[prop.id]) }]
+  }
+  return buildPayload(db, automation, row, event, changes)
 }

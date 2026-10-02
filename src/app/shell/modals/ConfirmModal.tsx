@@ -24,14 +24,29 @@ export function ConfirmModal({ title, body, danger, confirmLabel, onConfirm, onC
         </div>
         <h2 className="confirm__title">{title}</h2>
         {body && <p className="confirm__text">{body}</p>}
-        <div className="confirm__actions">
-          <button type="button" className="btn btn--ghost" onClick={onClose}>
-            {t('common.cancel')}
-          </button>
-          <button type="submit" className={`btn ${danger ? 'btn--danger-solid' : 'btn--ink'}`} data-autofocus="">
-            {confirmLabel ?? t('common.confirm')}
-            <span className="kbd confirm__kbd">↵</span>
-          </button>
+        {/* DOM order decides initial focus: safe choice first for destructive actions */}
+        <div className="confirm__actions" data-danger={danger || undefined}>
+          {danger ? (
+            <>
+              <button type="button" className="btn btn--ghost" onClick={onClose}>
+                {t('common.cancel')}
+                <span className="kbd confirm__kbd">Esc</span>
+              </button>
+              <button type="submit" className="btn btn--danger-solid">
+                {confirmLabel ?? t('common.confirm')}
+              </button>
+            </>
+          ) : (
+            <>
+              <button type="submit" className="btn btn--ink">
+                {confirmLabel ?? t('common.confirm')}
+                <span className="kbd confirm__kbd">↵</span>
+              </button>
+              <button type="button" className="btn btn--ghost" onClick={onClose}>
+                {t('common.cancel')}
+              </button>
+            </>
+          )}
         </div>
       </form>
     </Modal>

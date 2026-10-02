@@ -235,7 +235,12 @@ export function evaluate(node: Node, env: EvalEnv): FValue {
     switch (name) {
       case 'prop': {
         if (typeof a[0] !== 'string') throw new FormulaError('propNeedsName', undefined, pos)
-        return env.prop(a[0])
+        try {
+          return env.prop(a[0])
+        } catch (e) {
+          if (e instanceof FormulaError && e.pos === undefined) e.pos = pos
+          throw e
+        }
       }
       case 'not':
         return !truthy(a[0])

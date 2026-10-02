@@ -16,6 +16,7 @@ import { countFilters, type RowGroup } from '../model/query'
 import { OptionTag, StatusTag, Avatar } from '../cells/display'
 import { saveRowAsTemplate } from '../toolbar/Templates'
 import { useModel, useLocalState } from '../hooks'
+import { plural } from '../parts'
 import type { PopoverAnchor } from '../../ui/Popover'
 
 export interface ViewActions {
@@ -44,7 +45,7 @@ export function EmptyState({ onAdd }: { onAdd?: () => void }) {
     return (
       <div className="db-empty">
         <span className="db-empty__line" aria-hidden />
-        <span className="label">{t('database.emptyFiltered', { count: filters + (m.search.trim() ? 1 : 0) })}</span>
+        <span className="label">{plural(t, 'database.emptyFiltered', filters + (m.search.trim() ? 1 : 0))}</span>
         <button
           type="button"
           className="btn btn--sm"

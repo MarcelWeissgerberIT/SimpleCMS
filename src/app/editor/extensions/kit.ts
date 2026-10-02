@@ -8,7 +8,7 @@ import type { Bridge } from '../lib/bridge'
 import { uploadFiles } from '../lib/upload'
 import { nodeViewWraps } from '../views'
 import { suggestExtension } from './suggest'
-import { BlockFlash, BlockSelection, ExtraInputRules, OnePlaceholder, shortcutsExtension } from './behaviors'
+import { BlockFlash, BlockSelection, ExtraInputRules, OnePlaceholder, shortcutsExtension, TabTrap } from './behaviors'
 import { pasteExtension } from './paste'
 
 export function editorExtensions({ bridge, readOnly = false }: { bridge: Bridge | null; readOnly?: boolean }): AnyExtension[] {
@@ -23,6 +23,7 @@ export function editorExtensions({ bridge, readOnly = false }: { bridge: Bridge 
     BlockFlash,
     ExtraInputRules,
     shortcutsExtension(bridge),
+    TabTrap,
     pasteExtension(bridge),
     suggestExtension('slash', '/', bridge, { allowSpaces: true }),
     suggestExtension('mention', '@', bridge, { allowSpaces: true }),

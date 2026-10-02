@@ -83,7 +83,6 @@ export function heroMotion(root: HTMLElement, lang: Lang): HeroMotion {
     balloons: q('.frame-hero .balloon'),
     leaders: q('.frame-hero .leaders'),
     dims: q('.hero-fig .dim'),
-    crops: q('.frame-hero .crop'),
     cells: q('.readout-cell'),
     led: q('.hero-label .led'),
   })
@@ -119,12 +118,12 @@ export function heroMotion(root: HTMLElement, lang: Lang): HeroMotion {
     const t = targets()
     const wasPrepared = prepared
     prepared = false
-    const all = [t.tb, chars, t.led, t.lines, t.copy, t.media, t.cap, t.balloons, t.leaders, t.dims, t.cells].flat()
+    const all = [t.tb, chars, t.led, t.lines, t.copy, t.media, t.cap, t.balloons, t.leaders, t.dims].flat()
     root.classList.remove('is-pre')
     if (instant || !wasPrepared || prefersReducedMotion()) {
       root.classList.remove('tone-carbon')
-      gsap.killTweensOf(all)
-      gsap.set(all, { clearProps: CLEAR })
+      gsap.killTweensOf([...all, ...t.cells])
+      gsap.set([...all, ...t.cells], { clearProps: CLEAR })
       root.querySelectorAll<HTMLElement>('[data-count]').forEach((el) => {
         el.textContent = el.dataset.final ?? el.textContent
         el.parentElement?.querySelector<HTMLElement>('.meter')?.style.setProperty('--v', el.dataset.count === 'inf' ? '1' : '0')
@@ -159,8 +158,20 @@ export function heroMotion(root: HTMLElement, lang: Lang): HeroMotion {
       .to(t.leaders, { opacity: 1, duration: 0.2, ease: 'none' }, 0.78)
       .to(t.balloons, { scale: 1, opacity: 1, duration: 0.24, stagger: 0.07, ease: 'power3.out' }, 0.8)
       .to(t.cap, { opacity: 1, duration: 0.2, ease: 'none' }, 0.9)
-      .to(t.cells, { opacity: 1, duration: 0.2, stagger: 0.04, ease: 'none' }, 0.45)
-    countReadout(root, lang, tl, 0.5)
+    // The dials only make sense when someone sees them: count now if the readout is on screen,
+    // otherwise the first time it scrolls into view.
+    const readout = root.querySelector<HTMLElement>('.readout')
+    if (readout && readout.getBoundingClientRect().top < window.innerHeight - 40) {
+      tl.to(t.cells, { opacity: 1, duration: 0.2, stagger: 0.04, ease: 'none' }, 0.45)
+      countReadout(root, lang, tl, 0.5)
+    } else if (readout) {
+      const later = gsap.timeline({ paused: true })
+      later.to(t.cells, { opacity: 1, duration: 0.2, stagger: 0.04, ease: 'none', clearProps: 'opacity' }, 0)
+      countReadout(root, lang, later, 0.05)
+      tl.call(() => {
+        ScrollTrigger.create({ trigger: readout, start: 'top 92%', once: true, onEnter: () => later.play() })
+      })
+    }
   }
 
   return { prepare, play }

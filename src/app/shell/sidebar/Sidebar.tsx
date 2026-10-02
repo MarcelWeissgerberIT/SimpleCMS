@@ -38,7 +38,10 @@ export function Sidebar() {
   useEffect(() => {
     if (!activeId) return
     const pages = useWorkspace.getState().pages
-    const chain = selectBreadcrumbs(pages, activeId).slice(0, -1)
+    // databases only expand for real sub-pages (rows never show in the tree)
+    const chain = selectBreadcrumbs(pages, activeId)
+      .slice(0, -1)
+      .filter((p) => p.kind !== 'database' || !pages[activeId]?.databaseId || p.id !== pages[activeId].databaseId)
     if (chain.length) useTreeState.getState().expand(chain.map((p) => treeKey('pages', p.id)))
   }, [activeId])
 
@@ -60,7 +63,7 @@ export function Sidebar() {
       >
         <SidebarHeader />
         <nav className="sb-nav">
-          <NavRow icon={<Search size={16} />} label={t('shell.nav.search')} kbd={shortcutLabel('Mod+K')} onClick={() => useUI.getState().openPalette()} />
+          <NavRow icon={<Search size={16} />} label={t('shell.nav.search')} kbd={shortcutLabel('Mod+K')} onClick={() => (closeMobileSidebar(), useUI.getState().openPalette())} />
           <NavRow icon={<Home size={16} />} label={t('shell.nav.home')} active={route.name === 'home'} onClick={() => navigate({ name: 'home' })} />
           <NavRow
             icon={<CalendarDays size={16} />}
@@ -72,8 +75,8 @@ export function Sidebar() {
             }}
           />
           <NavRow icon={<Waypoints size={16} />} label={t('shell.nav.graph')} active={route.name === 'graph'} onClick={() => navigate({ name: 'graph' })} />
-          <NavRow icon={<LayoutTemplate size={16} />} label={t('shell.nav.templates')} onClick={() => useUI.getState().openModal({ type: 'templates', parentId: null })} />
-          <NavRow icon={<Upload size={16} />} label={t('shell.nav.import')} onClick={() => useUI.getState().openModal({ type: 'import' })} />
+          <NavRow icon={<LayoutTemplate size={16} />} label={t('shell.nav.templates')} onClick={() => (closeMobileSidebar(), useUI.getState().openModal({ type: 'templates', parentId: null }))} />
+          <NavRow icon={<Upload size={16} />} label={t('shell.nav.import')} onClick={() => (closeMobileSidebar(), useUI.getState().openModal({ type: 'import' }))} />
         </nav>
         <div className="sb-scroll" onKeyDown={onTreeKeyDown}>
           <FavoritesSection />

@@ -3,9 +3,10 @@
  */
 import { useMemo, useRef, useState } from 'react'
 import { Check, Link2, Plus, Upload, X } from 'lucide-react'
-import type { Database, ID, Page, PropertyDef } from '../../store/types'
+import type { ID, Page, PropertyDef } from '../../store/types'
 import { useWorkspace } from '../../store/store'
 import { useT } from '../../i18n'
+import { caretToEnd } from './TextEditor'
 import { PageIcon } from '../../ui/PageIcon'
 import { Avatar, FileChip, PersonChip, RelationChip } from './display'
 import { uploadFiles, useFileMeta } from '../model/files'
@@ -13,12 +14,6 @@ import { fileLabel } from '../model/resolve'
 import { useRows } from '../../store/selectors'
 
 /* ---------------- generic searchable list ---------------- */
-
-interface ListItem {
-  id: ID
-  label: string
-  render: () => React.ReactNode
-}
 
 function usePickerKeys(count: number, onEnter: (i: number) => void, extra?: (e: React.KeyboardEvent) => boolean) {
   const [active, setActive] = useState(0)
@@ -40,10 +35,10 @@ function usePickerKeys(count: number, onEnter: (i: number) => void, extra?: (e: 
 
 /* ---------------- person ---------------- */
 
-export function PersonPicker({ value, onChange, onClose }: { value: string[]; onChange: (v: string[]) => void; onClose: () => void }) {
+export function PersonPicker({ value, onChange, onClose, initialQuery }: { value: string[]; onChange: (v: string[]) => void; onClose: () => void; initialQuery?: string }) {
   const t = useT()
   const people = useWorkspace((s) => s.people)
-  const [query, setQuery] = useState('')
+  const [query, setQuery] = useState(initialQuery ?? '')
   const q = query.trim().toLowerCase()
   const list = people.filter((p) => !q || p.name.toLowerCase().includes(q))
   const canCreate = !!q && !people.some((p) => p.name.toLowerCase() === q)
@@ -79,6 +74,7 @@ export function PersonPicker({ value, onChange, onClose }: { value: string[]; on
         <input
           className="db-picker__input"
           data-autofocus=""
+          onFocus={caretToEnd}
           value={query}
           placeholder={value.length ? '' : t('database.person.search')}
           onChange={(e) => {
@@ -110,13 +106,13 @@ export function PersonPicker({ value, onChange, onClose }: { value: string[]; on
 
 /* ---------------- relation ---------------- */
 
-export function RelationPicker({ prop, value, onChange, onClose }: { prop: PropertyDef; value: string[]; onChange: (v: string[]) => void; onClose: () => void }) {
+export function RelationPicker({ prop, value, onChange, onClose, initialQuery }: { prop: PropertyDef; value: string[]; onChange: (v: string[]) => void; onClose: () => void; initialQuery?: string }) {
   const t = useT()
   const targetId = prop.relationDatabaseId
   const targetPage = useWorkspace((s) => (targetId ? s.pages[targetId] : undefined))
   const rows = useRows(targetId)
   const pages = useWorkspace((s) => s.pages)
-  const [query, setQuery] = useState('')
+  const [query, setQuery] = useState(initialQuery ?? '')
   const q = query.trim().toLowerCase()
   const list = useMemo(() => rows.filter((r) => !q || (r.title || '').toLowerCase().includes(q)).slice(0, 200), [rows, q])
   const toggle = (id: ID) => onChange(value.includes(id) ? value.filter((x) => x !== id) : [...value, id])
@@ -149,6 +145,7 @@ export function RelationPicker({ prop, value, onChange, onClose }: { prop: Prope
         <input
           className="db-picker__input"
           data-autofocus=""
+          onFocus={caretToEnd}
           value={query}
           placeholder={t('database.relation.search', { db: targetPage.title || t('common.untitled') })}
           onChange={(e) => {
@@ -265,4 +262,3 @@ export function FilesEditor({ value, onChange }: { value: string[]; onChange: (v
   )
 }
 
-export type { Database }

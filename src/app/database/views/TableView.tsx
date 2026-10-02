@@ -3,9 +3,9 @@
  * keyboard cell navigation + editors for every type, row selection + bulk actions, drag rows,
  * collapsible groups, footer calculations, row virtualization.
  */
-import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ChevronRight, Copy, GripVertical, PencilLine, Plus, Trash, X } from 'lucide-react'
-import type { ID, Page, PropertyDef } from '../../store/types'
+import type { ID, Page, PropertyDef, PropertyValue } from '../../store/types'
 import { useWorkspace } from '../../store/store'
 import { Menu } from '../../ui/Menu'
 import { Tooltip } from '../../ui/Tooltip'
@@ -14,12 +14,13 @@ import { useModel, type DbModel } from '../hooks'
 import { useViewActions, useCollapsed, GroupLabel, EmptyState } from './shared'
 import { Checkbox, OpenButton, RowTitle, ValueView } from '../cells/display'
 import { ValueEditor, canEdit } from '../cells/ValueEditor'
-import type { DoneReason } from '../cells/TextEditor'
+import { parseNumberInput, type DoneReason } from '../cells/TextEditor'
 import { PropertyMenu } from '../properties/PropertyMenu'
 import { TypeIcon, typeEntries } from '../parts'
 import { deleteRows, duplicateRows, insertProperty, orderBetween, writeValue } from '../model/actions'
 import { valueForGroupMove, NONE_KEY, type RowGroup } from '../model/query'
-import { ADD_COL, FILL_MIN, ROW_H, buildItems, colWidth, indexAt, minWidth, offsetsOf, scrollParent, type Item } from './table/layout'
+import { ADD_COL, FILL_MIN, ROW_H, buildItems, colWidth, minWidth, offsetsOf, scrollParent, type Item } from './table/layout'
+import { useWindow } from './virtual'
 import { CalcCell } from './table/CalcCell'
 import { pointAnchor } from '../../ui/Popover'
 import './table/table.css'
@@ -48,6 +49,35 @@ interface Boundary {
   group: string | null
 }
 
+/** Interpret pasted text for a property (undefined = can't). */
+function valueFromText(p: PropertyDef, text: string): PropertyValue | undefined {
+  const s = text.trim()
+  switch (p.type) {
+    case 'title':
+    case 'text':
+    case 'url':
+    case 'email':
+    case 'phone':
+      return p.type === 'title' ? s.replace(/\s*\n\s*/g, ' ') : text
+    case 'number':
+      return parseNumberInput(s, p.numberFormat === 'percent')
+    case 'checkbox':
+      return ['true', 'yes', 'ja', '1', 'x', '✓'].includes(s.toLowerCase())
+    case 'select':
+    case 'status':
+      return p.options?.find((o) => o.name.toLowerCase() === s.toLowerCase())?.id ?? undefined
+    case 'multi_select': {
+      const ids = s.split(',').map((x) => p.options?.find((o) => o.name.toLowerCase() === x.trim().toLowerCase())?.id).filter((x): x is string => !!x)
+      return ids.length ? ids : undefined
+    }
+    case 'rating': {
+      const n = parseInt(s, 10)
+      return Number.isFinite(n) ? Math.max(0, Math.min(p.ratingMax ?? 5, n)) : undefined
+    }
+  }
+  return undefined
+}
+
 const clearValueFor = (p: PropertyDef) =>
   p.type === 'multi_select' || p.type === 'person' || p.type === 'relation' || p.type === 'files' ? [] : p.type === 'checkbox' ? false : ['title', 'text', 'url', 'email', 'phone'].includes(p.type) ? '' : null
 
@@ -67,9 +97,9 @@ export function TableView({ onFilterProp }: { onFilterProp: (id: ID) => void }) 
   const hiddenKey = (view.hiddenGroups ?? []).join('|')
   const collapsedKey = [...collapsed].join('|')
   const items = useMemo(
-    () => buildItems(m.rows, m.groups, new Set(view.hiddenGroups ?? []), collapsed, ROW_H),
+    () => buildItems(m.rows, m.groups, new Set(view.hiddenGroups ?? []), collapsed, ROW_H, Object.values(view.calculations ?? {}).some((f) => f !== 'none')),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [m.rows, m.groups, hiddenKey, collapsedKey],
+    [m.rows, m.groups, hiddenKey, collapsedKey, view.calculations],
   )
   const offsets = useMemo(() => offsetsOf(items), [items])
   const rowItems = useMemo(() => items.map((it, i) => ({ it, i })).filter((x) => x.it.kind === 'row') as Array<{ it: Extract<Item, { kind: 'row' }>; i: number }>, [items])
@@ -81,32 +111,7 @@ export function TableView({ onFilterProp }: { onFilterProp: (id: ID) => void }) 
   const bodyScrollRef = useRef<HTMLDivElement>(null)
 
   /* ---------- virtualization ---------- */
-  const [range, setRange] = useState<[number, number]>([0, 80])
-  useLayoutEffect(() => {
-    if (!virtual) return
-    let raf = 0
-    const update = () => {
-      raf = 0
-      const el = bodyRef.current
-      if (!el) return
-      const rect = el.getBoundingClientRect()
-      const a = indexAt(offsets, Math.max(0, -rect.top - 500))
-      const b = Math.min(items.length, indexAt(offsets, Math.max(0, window.innerHeight - rect.top + 500)) + 1)
-      setRange((p) => (p[0] === a && p[1] === b ? p : [a, b]))
-    }
-    const on = () => {
-      if (!raf) raf = requestAnimationFrame(update)
-    }
-    update()
-    document.addEventListener('scroll', on, true)
-    window.addEventListener('resize', on)
-    return () => {
-      document.removeEventListener('scroll', on, true)
-      window.removeEventListener('resize', on)
-      cancelAnimationFrame(raf)
-    }
-  }, [virtual, offsets, items.length])
-  const [start, end] = virtual ? range : [0, items.length]
+  const [start, end] = useWindow(bodyRef, offsets, virtual, 520)
 
   /* ---------- selection / active / editing ---------- */
   const [sel, setSel] = useState<Set<ID>>(() => new Set())
@@ -226,7 +231,7 @@ export function TableView({ onFilterProp }: { onFilterProp: (id: ID) => void }) 
       else setActive(null)
       return
     }
-    if ((e.key === 'Backspace' || e.key === 'Delete') && sel.size && !active) {
+    if ((e.key === 'Backspace' || e.key === 'Delete') && sel.size) {
       e.preventDefault()
       deleteRows([...sel])
       setSel(new Set())
@@ -242,7 +247,9 @@ export function TableView({ onFilterProp }: { onFilterProp: (id: ID) => void }) 
       }
       return
     }
-    const { idx, col } = active
+    const idx = Math.min(active.idx, rowItems.length - 1)
+    const col = Math.min(active.col, cols.length - 1)
+    if (idx < 0 || col < 0) return
     switch (e.key) {
       case 'ArrowDown':
         e.preventDefault()
@@ -293,9 +300,29 @@ export function TableView({ onFilterProp }: { onFilterProp: (id: ID) => void }) 
         return
       }
     }
+    if (mod && (e.key.toLowerCase() === 'c' || e.key.toLowerCase() === 'x')) {
+      const ri = rowItems[idx]
+      if (!ri) return
+      e.preventDefault()
+      const text = m.resolver.text(db, cols[col], ri.it.row)
+      void navigator.clipboard?.writeText(text)
+      if (e.key.toLowerCase() === 'x' && canEdit(cols[col])) writeValue(db.id, cols[col], ri.it.row.id, clearValueFor(cols[col]))
+      return
+    }
+    if (mod && e.key.toLowerCase() === 'v') {
+      const ri = rowItems[idx]
+      const p = cols[col]
+      if (!ri || !canEdit(p) || !navigator.clipboard?.readText) return
+      e.preventDefault()
+      void navigator.clipboard.readText().then((text) => {
+        const v = valueFromText(p, text)
+        if (v !== undefined) writeValue(db.id, p, ri.it.row.id, v)
+      })
+      return
+    }
     if (e.key.length === 1 && !mod && !e.altKey) {
       const p = cols[col]
-      if (['title', 'text', 'number', 'url', 'email', 'phone'].includes(p.type)) {
+      if (['title', 'text', 'number', 'url', 'email', 'phone', 'select', 'multi_select', 'status', 'person', 'relation'].includes(p.type)) {
         e.preventDefault()
         startEdit(idx, col, e.key)
       }
@@ -343,7 +370,7 @@ export function TableView({ onFilterProp }: { onFilterProp: (id: ID) => void }) 
   }
 
   /* ---------- column drag ---------- */
-  const [colDrag, setColDrag] = useState<{ from: number; dx: number; to: number; x: number } | null>(null)
+  const [colDrag, setColDrag] = useState<{ from: number; dx: number; to: number; x: number; top: number } | null>(null)
   const onHeadPointerDown = (e: React.PointerEvent<HTMLElement>, col: number) => {
     if (e.button !== 0) return
     const el = e.currentTarget
@@ -368,7 +395,7 @@ export function TableView({ onFilterProp }: { onFilterProp: (id: ID) => void }) 
         }
       })
       to = best.to
-      setColDrag({ from: col, dx, to, x: best.x })
+      setColDrag({ from: col, dx, to, x: best.x, top: headScrollRef.current?.offsetTop ?? 0 })
     }
     const onUp = () => {
       window.removeEventListener('pointermove', onMove)
@@ -494,7 +521,7 @@ export function TableView({ onFilterProp }: { onFilterProp: (id: ID) => void }) 
   const allSelected = m.rows.length > 0 && sel.size === m.rows.length
   const editableProps = db.properties.filter((p) => canEdit(p) && p.type !== 'title')
 
-  const renderItem = (it: Item, i: number) => {
+  const renderItem = (it: Item) => {
     switch (it.kind) {
       case 'empty':
         return (
@@ -559,28 +586,43 @@ export function TableView({ onFilterProp }: { onFilterProp: (id: ID) => void }) 
             editingCol={editing?.idx === ri ? editing.col ?? -1 : -1}
             dragging={rowDrag?.row.id === it.row.id}
             openLabel={t('database.open')}
-            onCell={(c, e) => {
-              setActive({ idx: ri, col: c })
-              if (e.shiftKey || e.metaKey || e.ctrlKey) {
-                toggleSel(ri, false, e.shiftKey)
-                focusGrid()
-                return
-              }
-              focusGrid()
-              startEdit(ri, c)
-            }}
-            onToggleSel={(e) => toggleSel(ri, false, e.shiftKey)}
-            onGripDown={(e) => onGripDown(e, it.row, it.groupKey)}
-            onContext={(e) => {
-              e.preventDefault()
-              actions.contextMenu(it.row, pointAnchor(e.clientX, e.clientY))
-            }}
-            dataIndex={i}
+            groupKey={it.groupKey}
+            handlers={rowHandlers}
           />
         )
       }
     }
   }
+
+  // Stable row callbacks (so memoized rows skip re-rendering while scrolling).
+  const handlerRef = useRef<RowHandlers | null>(null)
+  handlerRef.current = {
+    onCell: (ri, c, e) => {
+      setActive({ idx: ri, col: c })
+      if (e.shiftKey || e.metaKey || e.ctrlKey) {
+        toggleSel(ri, false, e.shiftKey)
+        focusGrid()
+        return
+      }
+      focusGrid()
+      startEdit(ri, c)
+    },
+    onToggleSel: (ri, e) => toggleSel(ri, false, e.shiftKey),
+    onGripDown: (e, row, g) => onGripDown(e, row, g),
+    onContext: (e, row) => {
+      e.preventDefault()
+      actions.contextMenu(row, pointAnchor(e.clientX, e.clientY))
+    },
+  }
+  const rowHandlers = useMemo<RowHandlers>(
+    () => ({
+      onCell: (...a) => handlerRef.current!.onCell(...a),
+      onToggleSel: (...a) => handlerRef.current!.onToggleSel(...a),
+      onGripDown: (...a) => handlerRef.current!.onGripDown(...a),
+      onContext: (...a) => handlerRef.current!.onContext(...a),
+    }),
+    [],
+  )
 
   const topPad = offsets[start]
   const bottomPad = offsets[items.length] - offsets[end]
@@ -633,11 +675,22 @@ export function TableView({ onFilterProp }: { onFilterProp: (id: ID) => void }) 
             </button>
           </div>
         )}
-        <div className="dbt-headscroll" ref={headScrollRef} onWheel={(e) => bodyScrollRef.current && e.deltaX && (bodyScrollRef.current.scrollLeft += e.deltaX)}>
+        <div
+          className="dbt-headscroll"
+          ref={headScrollRef}
+          onWheel={(e) => bodyScrollRef.current && e.deltaX && (bodyScrollRef.current.scrollLeft += e.deltaX)}
+          onScroll={() => {
+            // focus / scrollIntoView can move the header on its own — keep the body in step
+            const h = headScrollRef.current
+            const b = bodyScrollRef.current
+            if (h && b && b.scrollLeft !== h.scrollLeft) b.scrollLeft = h.scrollLeft
+          }}
+        >
           <div className="dbt-row dbt-row--head" role="row">
             <div className="dbt-gutter dbt-gutter--head dbt-sticky0">
               <Checkbox
                 checked={allSelected}
+                indeterminate={sel.size > 0 && !allSelected}
                 label={t('database.bulk.selectAll')}
                 onToggle={() => setSel(allSelected ? new Set() : new Set(m.rows.map((r) => r.id)))}
               />
@@ -688,12 +741,12 @@ export function TableView({ onFilterProp }: { onFilterProp: (id: ID) => void }) 
       <div className="dbt-bodyscroll" ref={bodyScrollRef} onScroll={onBodyScroll}>
         <div className="dbt-body" ref={bodyRef} role="rowgroup">
           {topPad > 0 && <div style={{ height: topPad }} aria-hidden />}
-          {items.slice(start, end).map((it, k) => renderItem(it, start + k))}
+          {items.slice(start, end).map((it) => renderItem(it))}
           {bottomPad > 0 && <div style={{ height: bottomPad }} aria-hidden />}
           {rowDrag?.b && <div className="dbt-dropline" style={{ top: rowDrag.b.y - 1 }} aria-hidden />}
         </div>
       </div>
-      {colDrag && <div className="dbt-colline" style={{ left: colDrag.x - (bodyScrollRef.current?.scrollLeft ?? 0) * 0 }} aria-hidden />}
+      {colDrag && <div className="dbt-colline" style={{ left: colDrag.x, top: colDrag.top }} aria-hidden />}
 
       {editing && <ValueEditor db={db} prop={editing.prop} rows={editing.rows} anchor={editing.el} initialText={editing.text} onClose={onEditorClose} />}
       {headMenu && (
@@ -761,6 +814,13 @@ export function TableView({ onFilterProp }: { onFilterProp: (id: ID) => void }) 
   )
 }
 
+interface RowHandlers {
+  onCell: (idx: number, col: number, e: React.MouseEvent) => void
+  onToggleSel: (idx: number, e: React.MouseEvent) => void
+  onGripDown: (e: React.PointerEvent, row: Page, group: string | null) => void
+  onContext: (e: React.MouseEvent, row: Page) => void
+}
+
 interface RowProps {
   m: DbModel
   row: Page
@@ -775,26 +835,48 @@ interface RowProps {
   editingCol: number
   dragging: boolean
   openLabel: string
-  onCell: (col: number, e: React.MouseEvent) => void
-  onToggleSel: (e: React.MouseEvent) => void
-  onGripDown: (e: React.PointerEvent) => void
-  onContext: (e: React.MouseEvent) => void
-  dataIndex: number
+  groupKey: string | null
+  handlers: RowHandlers
 }
 
-const TableRow = memo(function TableRow({ m, row, idx, cols, gutter, height, selected, anySelected, activeCol, editingCol, dragging, openLabel, onCell, onToggleSel, onGripDown, onContext }: RowProps) {
+/** Rows re-render when their own data changes; a new resolver only matters for cross-row values. */
+function rowPropsEqual(a: RowProps, b: RowProps): boolean {
+  for (const k of Object.keys(a) as Array<keyof RowProps>) if (k !== 'm' && a[k] !== b[k]) return false
+  if (a.m === b.m) return true
+  if (a.m.db !== b.m.db || a.m.view !== b.m.view) return false
+  const ca = a.m.resolver.ctx
+  const cb = b.m.resolver.ctx
+  if (ca.people !== cb.people || ca.lang !== cb.lang || ca.databases !== cb.databases) return false
+  return !a.m.db.properties.some((p) => p.type === 'relation' || p.type === 'rollup' || p.type === 'formula')
+}
+
+const TableRow = memo(function TableRow({ m, row, idx, cols, gutter, height, selected, anySelected, activeCol, editingCol, dragging, openLabel, groupKey, handlers }: RowProps) {
   const t = useT()
   return (
-    <div className="dbt-row" role="row" aria-rowindex={idx + 1} aria-selected={selected} data-selected={selected} data-dragging={dragging} style={height ? { height } : undefined} onContextMenu={onContext}>
+    <div
+      className="dbt-row"
+      role="row"
+      aria-rowindex={idx + 1}
+      aria-selected={selected}
+      data-selected={selected}
+      data-dragging={dragging}
+      style={height ? { height } : undefined}
+      onContextMenu={(e) => handlers.onContext(e, row)}
+    >
       <div className="dbt-gutter dbt-sticky0" data-any={anySelected}>
         <span className="dbt-gutter__num">{String(idx + 1).padStart(2, '0')}</span>
         <span className="dbt-gutter__tools">
-          <Tooltip label={m.view.sorts.length ? t('database.row.dragSorted') : t('database.row.drag')}>
-            <button type="button" className="dbt-grip" tabIndex={-1} onPointerDown={onGripDown} aria-label={t('database.row.drag')}>
-              <GripVertical size={13} />
-            </button>
-          </Tooltip>
-          <Checkbox checked={selected} label={t('database.bulk.select')} onToggle={onToggleSel} />
+          <button
+            type="button"
+            className="dbt-grip"
+            tabIndex={-1}
+            onPointerDown={(e) => handlers.onGripDown(e, row, groupKey)}
+            aria-label={t('database.row.drag')}
+            title={m.view.sorts.length ? t('database.row.dragSorted') : t('database.row.drag')}
+          >
+            <GripVertical size={13} />
+          </button>
+          <Checkbox checked={selected} label={t('database.bulk.select')} onToggle={(e) => handlers.onToggleSel(idx, e)} />
         </span>
       </div>
       {cols.map((p, c) => (
@@ -808,7 +890,7 @@ const TableRow = memo(function TableRow({ m, row, idx, cols, gutter, height, sel
           data-readonly={!canEdit(p)}
           className={`dbt-cell${c === 0 ? ' dbt-cell--title dbt-sticky1' : ''}`}
           style={c === 0 ? { left: gutter } : undefined}
-          onClick={(e) => onCell(c, e)}
+          onClick={(e) => handlers.onCell(idx, c, e)}
         >
           {c === 0 ? (
             <RowTitle row={row}>
@@ -823,4 +905,4 @@ const TableRow = memo(function TableRow({ m, row, idx, cols, gutter, height, sel
       <div className="dbt-cell dbt-cell--fill" />
     </div>
   )
-})
+}, rowPropsEqual)
