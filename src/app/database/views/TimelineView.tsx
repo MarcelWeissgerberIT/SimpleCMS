@@ -56,7 +56,8 @@ export default function TimelineView() {
   const [zoom, setZoom] = useLocalState<Zoom>(`one.db.tl.${m.view.id}`, 'month')
   const dw = DAY_W[zoom]
   const prop = m.view.dateProperty ? m.propMap.get(m.view.dateProperty) : undefined
-  const editable = prop?.type === 'date'
+  // view only: bars open rows; no moving, resizing, scheduling or linking
+  const editable = prop?.type === 'date' && !m.readOnly
   const scrollRef = useRef<HTMLDivElement>(null)
   const [drag, setDrag] = useState<Drag | null>(null)
   const [ghost, setGhost] = useState<{ row: ID; day: number } | null>(null)
@@ -133,7 +134,7 @@ export default function TimelineView() {
 
   const removeDep = useCallback(
     (edge: DepEdge) => {
-      if (!deps) return
+      if (!deps || m.readOnly) return
       const cur = (useWorkspace.getState().pages[edge.to]?.properties[deps.blockedBy.id] as ID[] | undefined) ?? []
       writeValue(m.db.id, deps.blockedBy, edge.to, cur.filter((x) => x !== edge.from))
       setSelectedDep(null)
@@ -148,12 +149,12 @@ export default function TimelineView() {
         },
       })
     },
-    [deps, m.db.id, t],
+    [deps, m.db.id, m.readOnly, t],
   )
 
   /** Drag from a bar's end dot onto another row: that row becomes blocked by this one. */
   const startLink = (e: React.PointerEvent, row: Page) => {
-    if (e.button !== 0 || !deps) return
+    if (e.button !== 0 || !deps || m.readOnly) return
     e.stopPropagation()
     e.preventDefault()
     const body = bodyRef.current
@@ -386,7 +387,7 @@ export default function TimelineView() {
                         {editable && <span className="dbtl-bar__h dbtl-bar__h--l" onPointerDown={(e2) => startDrag(e2, row, 'start')} />}
                         <span className={`dbtl-bar__label${outside ? ' is-outside' : ''}`}>{row.title || t('common.untitled')}</span>
                         {editable && <span className="dbtl-bar__h dbtl-bar__h--r" onPointerDown={(e2) => startDrag(e2, row, 'end')} />}
-                        {deps && (
+                        {deps && !m.readOnly && (
                           <span
                             className="dbtl-bar__dep"
                             role="presentation"
@@ -410,7 +411,7 @@ export default function TimelineView() {
             {bottomPad > 0 && <div style={{ height: bottomPad }} aria-hidden />}
             {!m.rows.length && (
               <div className="dbtl-empty" style={{ width: `calc(100cqw)` }}>
-                <EmptyState onAdd={() => actions.newRow({ open: true })} />
+                <EmptyState onAdd={m.readOnly ? undefined : () => actions.newRow({ open: true })} />
               </div>
             )}
           </div>

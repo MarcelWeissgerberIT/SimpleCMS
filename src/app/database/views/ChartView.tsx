@@ -44,7 +44,9 @@ export default function ChartView() {
   const labels = useLabels()
   const lang = m.resolver.ctx.lang
   const cfg: ChartConfig = m.view.chart ?? { kind: 'bar', xPropertyId: null, aggregate: 'count' }
-  const upd = (patch: Partial<ChartConfig>) => useWorkspace.getState().updateView(m.db.id, m.view.id, { chart: { ...cfg, ...patch } })
+  const upd = (patch: Partial<ChartConfig>) => {
+    if (!m.readOnly) useWorkspace.getState().updateView(m.db.id, m.view.id, { chart: { ...cfg, ...patch } })
+  }
   const xProp = cfg.xPropertyId ? m.propMap.get(cfg.xPropertyId) : undefined
   const yProp = cfg.yPropertyId ? m.propMap.get(cfg.yPropertyId) : undefined
   const numericProps = m.db.properties.filter((p) => isNumberType(p.type) || p.type === 'formula' || p.type === 'rollup')
@@ -103,6 +105,7 @@ export default function ChartView() {
           { value: 'donut', label: t('database.chart.donut'), icon: <ChartPie size={13} /> },
         ]}
         onChange={(kind) => upd({ kind })}
+        disabled={m.readOnly}
       />
       <span className="dbch-field">
         <span className="label">{t('database.chart.x')}</span>
@@ -112,6 +115,7 @@ export default function ChartView() {
           searchable
           items={groupable.map((p) => ({ value: p.id, label: p.name, icon: <TypeIcon type={p.type} /> }))}
           onChange={(v) => upd({ xPropertyId: v })}
+          disabled={m.readOnly}
         />
       </span>
       <span className="dbch-field">
@@ -120,6 +124,7 @@ export default function ChartView() {
           value={cfg.aggregate}
           items={(['count', 'sum', 'average'] as const).map((a) => ({ value: a, label: t(`database.chart.agg.${a}`) }))}
           onChange={(aggregate) => upd({ aggregate, yPropertyId: aggregate !== 'count' ? cfg.yPropertyId ?? numericProps[0]?.id ?? null : cfg.yPropertyId })}
+          disabled={m.readOnly}
         />
         {cfg.aggregate !== 'count' && (
           <Select
@@ -127,6 +132,7 @@ export default function ChartView() {
             placeholder={t('database.rollup.pick')}
             items={numericProps.map((p: PropertyDef) => ({ value: p.id, label: p.name, icon: <TypeIcon type={p.type} /> }))}
             onChange={(v) => upd({ yPropertyId: v })}
+            disabled={m.readOnly}
           />
         )}
       </span>

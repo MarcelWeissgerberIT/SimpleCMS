@@ -104,6 +104,8 @@ export function TableView({ onFilterProp }: { onFilterProp: (id: ID) => void }) 
   const actions = useViewActions()
   const { db, view } = m
   const narrow = useNarrow()
+  // view only: read, select text, open rows, copy — nothing that writes
+  const ro = m.readOnly
   const [widthOverride, setWidthOverride] = useState<Record<ID, number> | null>(null)
   const cols = useMemo(() => [m.titleProp, ...m.visibleProps], [m.titleProp, m.visibleProps])
   const widths = cols.map((p) => colWidth(view, p, widthOverride ?? undefined, narrow))
@@ -186,7 +188,7 @@ export function TableView({ onFilterProp }: { onFilterProp: (id: ID) => void }) 
     (idx: number, col: number, text?: string) => {
       const ri = rowItems[idx]
       const prop = cols[col]
-      if (!ri || !prop || !canEdit(prop)) return
+      if (!ri || !prop || !canEdit(prop) || ro) return
       if (prop.type === 'checkbox') {
         writeValue(db.id, prop, ri.it.row.id, !(ri.it.row.properties[prop.id] === true))
         return
@@ -195,7 +197,7 @@ export function TableView({ onFilterProp }: { onFilterProp: (id: ID) => void }) 
       if (!el) return
       setEditing({ rows: [ri.it.row], prop, el, text, idx, col })
     },
-    [rowItems, cols, db.id, cellEl],
+    [rowItems, cols, db.id, cellEl, ro],
   )
 
   const move = (idx: number, col: number) => {
@@ -254,7 +256,7 @@ export function TableView({ onFilterProp }: { onFilterProp: (id: ID) => void }) 
       else setActive(null)
       return
     }
-    if ((e.key === 'Backspace' || e.key === 'Delete') && sel.size) {
+    if ((e.key === 'Backspace' || e.key === 'Delete') && sel.size && !ro) {
       e.preventDefault()
       deleteRows([...sel])
       setSel(new Set())
@@ -264,7 +266,7 @@ export function TableView({ onFilterProp }: { onFilterProp: (id: ID) => void }) 
       if (e.key.startsWith('Arrow') && rowItems.length) {
         e.preventDefault()
         move(0, 0)
-      } else if (e.key === 'Enter' && !rowItems.length) {
+      } else if (e.key === 'Enter' && !rowItems.length && !ro) {
         e.preventDefault()
         actions.newRow({ editTitle: true })
       }
@@ -309,10 +311,10 @@ export function TableView({ onFilterProp }: { onFilterProp: (id: ID) => void }) 
         if (e.altKey && !mod) {
           // Alt+Enter: fill the active cell with AI (autofilled properties)
           const ri = rowItems[idx]
-          if (ri && autofillOf(cols[col])) void startFill(db.id, cols[col].id, 'cell', [ri.it.row.id])
+          if (ri && autofillOf(cols[col]) && !ro) void startFill(db.id, cols[col].id, 'cell', [ri.it.row.id])
           return
         }
-        if (mod) {
+        if (mod || ro) {
           const ri = rowItems[idx]
           if (ri) actions.open(ri.it.row)
           return
@@ -323,7 +325,7 @@ export function TableView({ onFilterProp }: { onFilterProp: (id: ID) => void }) 
         e.preventDefault()
         const ri = rowItems[idx]
         if (!ri) return
-        if (cols[col].type === 'checkbox') startEdit(idx, col)
+        if (cols[col].type === 'checkbox' && !ro) startEdit(idx, col)
         else actions.open(ri.it.row)
         return
       }
@@ -332,7 +334,7 @@ export function TableView({ onFilterProp }: { onFilterProp: (id: ID) => void }) 
         e.preventDefault()
         const ri = rowItems[idx]
         const p = cols[col]
-        if (ri && canEdit(p)) writeValue(db.id, p, ri.it.row.id, clearValueFor(p))
+        if (ri && canEdit(p) && !ro) writeValue(db.id, p, ri.it.row.id, clearValueFor(p))
         return
       }
     }
@@ -342,13 +344,13 @@ export function TableView({ onFilterProp }: { onFilterProp: (id: ID) => void }) 
       e.preventDefault()
       const text = m.resolver.text(db, cols[col], ri.it.row)
       void navigator.clipboard?.writeText(text)
-      if (e.key.toLowerCase() === 'x' && canEdit(cols[col])) writeValue(db.id, cols[col], ri.it.row.id, clearValueFor(cols[col]))
+      if (e.key.toLowerCase() === 'x' && canEdit(cols[col]) && !ro) writeValue(db.id, cols[col], ri.it.row.id, clearValueFor(cols[col]))
       return
     }
     if (mod && e.key.toLowerCase() === 'v') {
       const ri = rowItems[idx]
       const p = cols[col]
-      if (!ri || !canEdit(p) || !navigator.clipboard?.readText) return
+      if (!ri || !canEdit(p) || ro || !navigator.clipboard?.readText) return
       e.preventDefault()
       void navigator.clipboard.readText().then((text) => {
         const v = valueFromText(p, text)
@@ -356,7 +358,7 @@ export function TableView({ onFilterProp }: { onFilterProp: (id: ID) => void }) 
       })
       return
     }
-    if (e.key.length === 1 && !mod && !e.altKey) {
+    if (e.key.length === 1 && !mod && !e.altKey && !ro) {
       const p = cols[col]
       if (['title', 'text', 'number', 'url', 'email', 'phone', 'select', 'multi_select', 'status', 'person', 'relation'].includes(p.type)) {
         e.preventDefault()
@@ -410,7 +412,7 @@ export function TableView({ onFilterProp }: { onFilterProp: (id: ID) => void }) 
   /* ---------- column drag ---------- */
   const [colDrag, setColDrag] = useState<{ from: number; dx: number; to: number; x: number; top: number } | null>(null)
   const onHeadPointerDown = (e: React.PointerEvent<HTMLElement>, col: number) => {
-    if (e.button !== 0) return
+    if (e.button !== 0 || ro) return
     const el = e.currentTarget
     const startX = e.clientX
     let dragging = false
@@ -470,7 +472,7 @@ export function TableView({ onFilterProp }: { onFilterProp: (id: ID) => void }) 
   }, [items, offsets])
   const sorted = view.sorts.length > 0
   const onGripDown = (e: React.PointerEvent, row: Page, from: string | null) => {
-    if (e.button !== 0) return
+    if (e.button !== 0 || ro) return
     e.preventDefault()
     const startY = e.clientY
     let dragging = false
@@ -564,7 +566,7 @@ export function TableView({ onFilterProp }: { onFilterProp: (id: ID) => void }) 
       case 'empty':
         return (
           <div key={it.key} className="dbt-emptyrow" style={{ height: it.h }}>
-            <EmptyState onAdd={() => actions.newRow({ editTitle: true })} />
+            <EmptyState onAdd={ro ? undefined : () => actions.newRow({ editTitle: true })} />
           </div>
         )
       case 'group': {
@@ -578,9 +580,11 @@ export function TableView({ onFilterProp }: { onFilterProp: (id: ID) => void }) 
               </button>
               <GroupLabel group={g} />
               <span className="dbt-grouphead__count">{g.rows.length}</span>
-              <button type="button" className="icon-btn icon-btn--sm dbt-grouphead__add" aria-label={t('database.new.inGroup')} onClick={() => actions.newRow({ editTitle: true, properties: groupPresets(g) })}>
-                <Plus size={14} />
-              </button>
+              {!ro && (
+                <button type="button" className="icon-btn icon-btn--sm dbt-grouphead__add" aria-label={t('database.new.inGroup')} onClick={() => actions.newRow({ editTitle: true, properties: groupPresets(g) })}>
+                  <Plus size={14} />
+                </button>
+              )}
             </div>
           </div>
         )
@@ -588,9 +592,11 @@ export function TableView({ onFilterProp }: { onFilterProp: (id: ID) => void }) 
       case 'add':
         return (
           <div key={it.key} className="dbt-addrowwrap" style={{ height: it.h }}>
-            <button type="button" className="dbt-addrow" onClick={() => actions.newRow({ editTitle: true, properties: groupPresets(it.group) })}>
-              <Plus size={14} /> <span>{t('common.new')}</span>
-            </button>
+            {!ro && (
+              <button type="button" className="dbt-addrow" onClick={() => actions.newRow({ editTitle: true, properties: groupPresets(it.group) })}>
+                <Plus size={14} /> <span>{t('common.new')}</span>
+              </button>
+            )}
           </div>
         )
       case 'calc':
@@ -662,7 +668,7 @@ export function TableView({ onFilterProp }: { onFilterProp: (id: ID) => void }) 
     onToggle: (id) => tree.toggle(id),
     onAddSub: (parent) => {
       const pair = tree.pair
-      if (!pair) return
+      if (!pair || ro) return
       tree.expand(parent.id)
       const id = actions.newRow({ editTitle: true })
       writeValue(db.id, pair.parent, id, [parent.id])
@@ -697,7 +703,7 @@ export function TableView({ onFilterProp }: { onFilterProp: (id: ID) => void }) 
       onKeyDown={onKeyDown}
     >
       <div className="dbt-headwrap">
-        {sel.size > 0 && (
+        {sel.size > 0 && !ro && (
           <div className="dbt-bulk" role="toolbar" aria-label={t('database.bulk.label')}>
             <span className="dbt-bulk__count">
               <span className="dbt-bulk__num">{sel.size}</span> {t('database.bulk.selected')}
@@ -744,12 +750,14 @@ export function TableView({ onFilterProp }: { onFilterProp: (id: ID) => void }) 
         >
           <div className="dbt-row dbt-row--head" role="row">
             <div className="dbt-gutter dbt-gutter--head dbt-sticky0">
-              <Checkbox
-                checked={allSelected}
-                indeterminate={sel.size > 0 && !allSelected}
-                label={t('database.bulk.selectAll')}
-                onToggle={() => setSel(allSelected ? new Set() : new Set(m.rows.map((r) => r.id)))}
-              />
+              {!ro && (
+                <Checkbox
+                  checked={allSelected}
+                  indeterminate={sel.size > 0 && !allSelected}
+                  label={t('database.bulk.selectAll')}
+                  onToggle={() => setSel(allSelected ? new Set() : new Set(m.rows.map((r) => r.id)))}
+                />
+              )}
             </div>
             {cols.map((p, c) => {
               const sort = view.sorts.find((s) => s.propertyId === p.id)
@@ -768,8 +776,9 @@ export function TableView({ onFilterProp }: { onFilterProp: (id: ID) => void }) 
                     className="dbt-hcell__btn"
                     title={p.description || p.name}
                     onPointerDown={(e) => onHeadPointerDown(e, c)}
+                    aria-disabled={ro || undefined}
                     onKeyDown={(e) => {
-                      if (e.key === 'Enter' || e.key === ' ') {
+                      if ((e.key === 'Enter' || e.key === ' ') && !ro) {
                         e.preventDefault()
                         setHeadMenu({ prop: p, el: e.currentTarget })
                       }
@@ -780,16 +789,18 @@ export function TableView({ onFilterProp }: { onFilterProp: (id: ID) => void }) 
                     {autofillOf(p) && <AutofillTag dbId={db.id} prop={p} />}
                     {sort && <span className="dbt-hcell__sort">{sort.direction === 'asc' ? '↑' : '↓'}</span>}
                   </button>
-                  <span className="dbt-resize" onPointerDown={(e) => startResize(e, c)} role="separator" aria-orientation="vertical" aria-label={t('database.resize')} />
+                  {!ro && <span className="dbt-resize" onPointerDown={(e) => startResize(e, c)} role="separator" aria-orientation="vertical" aria-label={t('database.resize')} />}
                 </div>
               )
             })}
             <div className="dbt-hcell dbt-hcell--add">
-              <Tooltip label={t('database.props.new')}>
-                <button type="button" className="icon-btn icon-btn--sm" onClick={(e) => setAddColAnchor(e.currentTarget)}>
-                  <Plus size={14} />
-                </button>
-              </Tooltip>
+              {!ro && (
+                <Tooltip label={t('database.props.new')}>
+                  <button type="button" className="icon-btn icon-btn--sm" onClick={(e) => setAddColAnchor(e.currentTarget)}>
+                    <Plus size={14} />
+                  </button>
+                </Tooltip>
+              )}
             </div>
             <div className="dbt-hcell dbt-hcell--fill" />
           </div>
@@ -805,8 +816,8 @@ export function TableView({ onFilterProp }: { onFilterProp: (id: ID) => void }) 
       </div>
       {colDrag && <div className="dbt-colline" style={{ left: colDrag.x, top: colDrag.top }} aria-hidden />}
 
-      {editing && <ValueEditor db={db} prop={editing.prop} rows={editing.rows} anchor={editing.el} initialText={editing.text} onClose={onEditorClose} />}
-      {headMenu && (
+      {editing && !ro && <ValueEditor db={db} prop={editing.prop} rows={editing.rows} anchor={editing.el} initialText={editing.text} onClose={onEditorClose} />}
+      {headMenu && !ro && (
         <PropertyMenu
           db={db}
           view={view}
@@ -912,7 +923,7 @@ interface RowProps {
 function rowPropsEqual(a: RowProps, b: RowProps): boolean {
   for (const k of Object.keys(a) as Array<keyof RowProps>) if (k !== 'm' && a[k] !== b[k]) return false
   if (a.m === b.m) return true
-  if (a.m.db !== b.m.db || a.m.view !== b.m.view) return false
+  if (a.m.db !== b.m.db || a.m.view !== b.m.view || a.m.readOnly !== b.m.readOnly) return false
   const ca = a.m.resolver.ctx
   const cb = b.m.resolver.ctx
   if (ca.people !== cb.people || ca.lang !== cb.lang || ca.databases !== cb.databases) return false
@@ -940,6 +951,7 @@ const TableRow = memo(function TableRow({ m, row, idx, cols, gutter, height, sel
     >
       <div className="dbt-gutter dbt-sticky0" data-any={anySelected}>
         <span className="dbt-gutter__num">{String(idx + 1).padStart(2, '0')}</span>
+        {!m.readOnly && (
         <span className="dbt-gutter__tools">
           <button
             type="button"
@@ -953,6 +965,7 @@ const TableRow = memo(function TableRow({ m, row, idx, cols, gutter, height, sel
           </button>
           <Checkbox checked={selected} label={t('database.bulk.select')} onToggle={(e) => handlers.onToggleSel(idx, e)} />
         </span>
+        )}
       </div>
       {cols.map((p, c) => (
         <div
@@ -962,7 +975,7 @@ const TableRow = memo(function TableRow({ m, row, idx, cols, gutter, height, sel
           data-type={p.type}
           data-active={activeCol === c}
           data-editing={editingCol === c}
-          data-readonly={!canEdit(p)}
+          data-readonly={!canEdit(p) || m.readOnly}
           className={`dbt-cell${c === 0 ? ' dbt-cell--title dbt-sticky1' : ''}`}
           style={c === 0 ? { left: gutter } : undefined}
           onMouseDown={(e) => {
@@ -976,14 +989,14 @@ const TableRow = memo(function TableRow({ m, row, idx, cols, gutter, height, sel
               {nested && <TreeLead depth={depth} kids={kids} open={open} last={last} rails={rails} title={row.title || t('common.untitled')} onToggle={() => handlers.onToggle(row.id)} />}
               <RowTitle row={row}>
                 {nested && <TreeCount kids={kids} open={open} />}
-                {nested && <AddSubButton onAdd={() => handlers.onAddSub(row)} />}
+                {nested && !m.readOnly && <AddSubButton onAdd={() => handlers.onAddSub(row)} />}
                 <OpenButton row={row} view={m.view} label={openLabel} />
               </RowTitle>
             </>
           ) : (
-            <ValueView db={m.db} prop={p} row={row} r={m.resolver} v={m.resolver.value(m.db, p, row)} interactive />
+            <ValueView db={m.db} prop={p} row={row} r={m.resolver} v={m.resolver.value(m.db, p, row)} interactive={!m.readOnly} />
           )}
-          {c > 0 && autofillOf(p) && <AutofillCellMark dbId={m.db.id} prop={p} rowId={row.id} />}
+          {c > 0 && autofillOf(p) && !m.readOnly && <AutofillCellMark dbId={m.db.id} prop={p} rowId={row.id} />}
         </div>
       ))}
       <div className="dbt-cell dbt-cell--pad" />

@@ -7,7 +7,7 @@ import { ArrowUpRight, ClipboardPen, PencilRuler, Share2 } from 'lucide-react'
 import { useWorkspace } from '../../store/store'
 import { useLang, useT } from '../../i18n'
 import { useLocalState, useModel, type DbModel } from '../hooks'
-import { Segmented } from '../parts'
+import { Segmented, ViewOnlyTag } from '../parts'
 import { openRow, writeValue } from '../model/actions'
 import { uploadFiles } from '../model/files'
 import { answersToRow, fieldsOf, formConfig, isValidWebhookUrl, type Answers, type Field } from './fields'
@@ -22,7 +22,9 @@ type Mode = 'build' | 'fill'
 export default function FormView() {
   const t = useT()
   const m = useModel()
-  const [mode, setMode] = useLocalState<Mode>(`one.db.form.${m.view.id}`, 'build')
+  const [chosen, setMode] = useLocalState<Mode>(`one.db.form.${m.view.id}`, 'build')
+  // view only: the form can be looked at (fill mode) but not built, shared or answered
+  const mode: Mode = m.readOnly ? 'fill' : chosen
   const [sharing, setSharing] = useState(false)
   const fields = useMemo(() => fieldsOf(m.db, m.view), [m.db, m.view])
   const hook = (formConfig(m.view).webhookUrl ?? '').trim()
@@ -40,6 +42,7 @@ export default function FormView() {
             { value: 'fill', label: t('database.form.fill'), icon: <ClipboardPen size={13} aria-hidden /> },
           ]}
           onChange={(v) => setMode(v)}
+          disabled={m.readOnly ? ['build'] : undefined}
         />
         <span className="label dbf-bar__spec">
           {t(fields.length === 1 ? 'database.form.spec.one' : 'database.form.spec.other', { count: fields.length })} · {t('database.form.specReq', { count: required })}
@@ -48,12 +51,16 @@ export default function FormView() {
         <span className="label dbf-bar__hook" title={connected ? hook : undefined}>
           <span className={`led${connected ? ' led--ok' : ''}`} aria-hidden /> {connected ? hostOf(hook) : t('database.form.hook.noneShort')}
         </span>
-        <button type="button" className="btn btn--sm dbf-bar__share" onClick={() => setSharing(true)}>
-          <Share2 size={13} /> <span className="dbf-bar__shareText">{t('database.form.share.button')}</span>
-        </button>
+        {m.readOnly ? (
+          <ViewOnlyTag />
+        ) : (
+          <button type="button" className="btn btn--sm dbf-bar__share" onClick={() => setSharing(true)}>
+            <Share2 size={13} /> <span className="dbf-bar__shareText">{t('database.form.share.button')}</span>
+          </button>
+        )}
       </div>
       {mode === 'build' ? <FormBuilder m={m} fields={fields} onShare={() => setSharing(true)} /> : <LocalFill m={m} fields={fields} />}
-      {sharing && <ShareFormModal m={m} onClose={() => setSharing(false)} />}
+      {sharing && !m.readOnly && <ShareFormModal m={m} onClose={() => setSharing(false)} />}
     </div>
   )
 }
@@ -69,6 +76,7 @@ function LocalFill({ m, fields }: { m: DbModel; fields: Field[] }) {
   const view = m.view
 
   const onSubmit = async (answers: Answers): Promise<SubmitOutcome> => {
+    if (m.readOnly) return { ok: false, message: t('database.form.viewOnly', { db: dbName }) }
     const draft = answersToRow(fields, answers, lang)
     const properties = { ...draft.properties }
     for (const { propId, files } of draft.files) properties[propId] = await uploadFiles(files)
@@ -89,6 +97,7 @@ function LocalFill({ m, fields }: { m: DbModel; fields: Field[] }) {
         onSubmit={onSubmit}
         idBase={`fm${uid}`}
         kicker={`§ ${t('database.form.kicker')}`}
+        blocked={m.readOnly ? t('database.form.viewOnly', { db: dbName }) : undefined}
         footnote={
           <>
             <span className="led led--ok" aria-hidden /> {t('database.form.localNote', { db: dbName })}

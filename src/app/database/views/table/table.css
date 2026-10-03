@@ -448,6 +448,13 @@ body.db-resizing .dbt-resize:active::after {
   background: var(--hover);
 }
 
+.dbt-calc:disabled {
+  cursor: default;
+}
+.dbt-calc:disabled:hover {
+  background: transparent;
+}
+
 .dbt-calc__hint {
   display: inline-flex;
   align-items: center;

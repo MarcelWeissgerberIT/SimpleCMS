@@ -156,13 +156,13 @@ export const CardBody = memo(function CardBody({ m, row, props, editing, onEditD
     <div className="dbc-body">
       <div className="dbc-title">
         {row.icon && <PageIcon icon={row.icon} size={16} />}
-        {editing && onEditDone ? <TitleInput row={row} onDone={onEditDone} /> : <span className={row.title ? '' : 'is-empty'}>{row.title || t('common.untitled')}</span>}
+        {editing && onEditDone && !m.readOnly ? <TitleInput row={row} onDone={onEditDone} /> : <span className={row.title ? '' : 'is-empty'}>{row.title || t('common.untitled')}</span>}
       </div>
       {values.length > 0 && (
         <div className="dbc-props">
           {values.map(({ p, v }) => (
             <div key={p.id} className="dbc-prop" data-type={p.type} title={p.name}>
-              <ValueView db={m.db} prop={p} row={row} r={m.resolver} v={v} variant="card" interactive={p.type === 'checkbox' || p.type === 'rating'} />
+              <ValueView db={m.db} prop={p} row={row} r={m.resolver} v={v} variant="card" interactive={!m.readOnly && (p.type === 'checkbox' || p.type === 'rating')} />
               {p.type === 'checkbox' && <span className="dbc-prop__label">{p.name}</span>}
             </div>
           ))}

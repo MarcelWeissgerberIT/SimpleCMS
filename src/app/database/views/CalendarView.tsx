@@ -86,7 +86,8 @@ export default function CalendarView() {
   const month = startOfMonth(parseLocal(monthIso) ?? new Date())
   const setMonth = (d: Date) => setMonthIso(toISODate(startOfMonth(d)))
   const prop = m.view.dateProperty ? m.propMap.get(m.view.dateProperty) : undefined
-  const editable = prop?.type === 'date'
+  // view only: events open, they don't move and days don't take new ones
+  const editable = prop?.type === 'date' && !m.readOnly
   const [dragging, setDragging] = useState<Ev | null>(null)
   const grab = useRef<{ row: ID; day: Date } | null>(null)
   const [more, setMore] = useState<{ day: Date; el: HTMLElement } | null>(null)
@@ -335,6 +336,14 @@ export function PickDateProp({ m, label }: { m: DbModel; label?: string }) {
   const t = useT()
   const s = useWorkspace.getState()
   const candidates = m.db.properties.filter((p) => isDateType(p.type))
+  if (m.readOnly)
+    return (
+      <div className="db-empty">
+        <span className="db-empty__line" aria-hidden />
+        <span className="label">{t('database.calendar.noDateProp')}</span>
+        <span className="db-empty__line" aria-hidden />
+      </div>
+    )
   return (
     <div className="db-empty">
       <span className="db-empty__line" aria-hidden />

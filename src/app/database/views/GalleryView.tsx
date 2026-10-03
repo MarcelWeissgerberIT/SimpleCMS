@@ -21,7 +21,7 @@ export function GalleryView() {
   const preview = m.view.cardPreview ?? 'cover'
   const [limit, setLimit] = useState(120)
   const colorOf = useRowColor(m)
-  if (!m.rows.length) return <EmptyState onAdd={() => actions.newRow({ open: true })} />
+  if (!m.rows.length) return <EmptyState onAdd={m.readOnly ? undefined : () => actions.newRow({ open: true })} />
   return (
     <div className="dbg" data-size={size}>
       {m.rows.slice(0, limit).map((row) => {
@@ -52,10 +52,12 @@ export function GalleryView() {
           <span className="label">{t('database.board.more', { count: m.rows.length - limit })}</span>
         </button>
       )}
-      <button type="button" className="dbg-add" onClick={() => actions.newRow({ open: true })}>
-        <Plus size={16} />
-        <span className="label">{t('common.new')}</span>
-      </button>
+      {!m.readOnly && (
+        <button type="button" className="dbg-add" onClick={() => actions.newRow({ open: true })}>
+          <Plus size={16} />
+          <span className="label">{t('common.new')}</span>
+        </button>
+      )}
     </div>
   )
 }

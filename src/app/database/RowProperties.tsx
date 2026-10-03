@@ -15,6 +15,7 @@ import { PropertyMenu } from './properties/PropertyMenu'
 import { writeValue, insertProperty } from './model/actions'
 import { isEmptyValue, type Resolver } from './model/resolve'
 import { AutofillHost, AutofillRowControl, AutofillTag, autofillOf } from './autofill'
+import { useDbReadOnly } from './readonly'
 import './database.css'
 
 export function RowProperties({ pageId }: { pageId: ID }) {
@@ -27,6 +28,7 @@ export function RowProperties({ pageId }: { pageId: ID }) {
 function RowPropertiesInner({ row, db }: { row: Page; db: Database }) {
   const resolver = useResolver(db.id)
   const [hideEmpty, setHideEmpty] = useLocalState<boolean>(`one.db.hideEmpty.${db.id}`, false)
+  const readOnly = useDbReadOnly()
   return (
     <>
       <PropertyRows
@@ -38,8 +40,9 @@ function RowPropertiesInner({ row, db }: { row: Page; db: Database }) {
         onChange={(p, v) => writeValue(db.id, p, row.id, v)}
         hideEmpty={hideEmpty}
         setHideEmpty={setHideEmpty}
-        allowAdd
+        allowAdd={!readOnly}
         autofill
+        readOnly={readOnly}
       />
       <AutofillHost />
     </>
@@ -61,9 +64,13 @@ export interface PropertyRowsProps {
   noPropMenu?: boolean
   /** A real row: show AI autofill state + "fill" buttons for autofilled properties. */
   autofill?: boolean
+  /** View only (a viewer in a team workspace): values read, nothing opens an editor or a menu. */
+  readOnly?: boolean
 }
 
-export function PropertyRows({ db, row, resolver, props, getValue, onChange, hideEmpty, setHideEmpty, allowAdd, noPropMenu, autofill }: PropertyRowsProps) {
+export function PropertyRows({ db, row, resolver, props, getValue, onChange, hideEmpty, setHideEmpty, allowAdd, noPropMenu: noMenu, autofill, readOnly }: PropertyRowsProps) {
+  const noPropMenu = noMenu || readOnly
+  const editable = (p: PropertyDef) => canEdit(p) && !readOnly
   const t = useT()
   const [editing, setEditing] = useState<{ prop: PropertyDef; el: HTMLElement; text?: string } | null>(null)
   const [menu, setMenu] = useState<{ prop: PropertyDef; el: HTMLElement } | null>(null)
@@ -75,7 +82,7 @@ export function PropertyRows({ db, row, resolver, props, getValue, onChange, hid
   const shown = hideEmpty ? props.filter((p) => !emptyIds.includes(p.id)) : props
 
   const open = (p: PropertyDef, el: HTMLElement, text?: string) => {
-    if (!canEdit(p)) return
+    if (!editable(p)) return
     if (p.type === 'checkbox') return onChange(p, !(getValue(p) === true))
     setEditing({ prop: p, el, text })
   }
@@ -87,7 +94,7 @@ export function PropertyRows({ db, row, resolver, props, getValue, onChange, hid
       {shown.map((p, i) => {
         const v = values.get(p.id)
         const empty = isEmptyValue(p, v) && p.type !== 'checkbox'
-        const ai = !!autofill && !!autofillOf(p)
+        const ai = !!autofill && !!autofillOf(p) && !readOnly
         return (
           <div key={p.id} className="db-prow" data-type={p.type} data-ai={ai || undefined}>
             <button
@@ -106,7 +113,7 @@ export function PropertyRows({ db, row, resolver, props, getValue, onChange, hid
               className="db-prow__value"
               tabIndex={0}
               role="button"
-              data-readonly={!canEdit(p)}
+              data-readonly={!editable(p)}
               data-editing={editing?.prop.id === p.id}
               onClick={(e) => open(p, e.currentTarget)}
               onKeyDown={(e) => {
@@ -120,7 +127,7 @@ export function PropertyRows({ db, row, resolver, props, getValue, onChange, hid
                 } else if (e.key === 'ArrowUp') {
                   e.preventDefault()
                   focusRow(i - 1)
-                } else if ((e.key === 'Backspace' || e.key === 'Delete') && canEdit(p) && !empty) {
+                } else if ((e.key === 'Backspace' || e.key === 'Delete') && editable(p) && !empty) {
                   e.preventDefault()
                   onChange(p, p.type === 'multi_select' || p.type === 'person' || p.type === 'relation' || p.type === 'files' ? [] : p.type === 'checkbox' ? false : p.type === 'text' || p.type === 'url' || p.type === 'email' || p.type === 'phone' ? '' : null)
                 } else if (e.key.length === 1 && !e.metaKey && !e.ctrlKey && !e.altKey && ['text', 'number', 'url', 'email', 'phone'].includes(p.type)) {
@@ -130,9 +137,9 @@ export function PropertyRows({ db, row, resolver, props, getValue, onChange, hid
               }}
             >
               {empty ? (
-                <span className="db-prow__empty">{canEdit(p) ? t('database.empty') : '—'}</span>
+                <span className="db-prow__empty">{editable(p) ? t('database.empty') : '—'}</span>
               ) : (
-                <ValueView db={db} prop={p} row={row} r={resolver} v={v} variant="panel" interactive={p.type === 'rating'} />
+                <ValueView db={db} prop={p} row={row} r={resolver} v={v} variant="panel" interactive={p.type === 'rating' && !readOnly} />
               )}
             </div>
             {ai && <AutofillRowControl dbId={db.id} prop={p} rowId={row.id} />}
@@ -152,7 +159,7 @@ export function PropertyRows({ db, row, resolver, props, getValue, onChange, hid
           </button>
         )}
       </div>
-      {editing && (
+      {editing && !readOnly && (
         <ValueEditorBase
           db={db}
           prop={editing.prop}

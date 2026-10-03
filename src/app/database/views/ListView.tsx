@@ -51,7 +51,9 @@ export function ListView() {
     const v = valueForGroupMove(m.groupProp, undefined, null, g.key)
     return v === undefined ? {} : { [m.groupProp.id]: v }
   }
-  const add = (g: RowGroup | null) => setEditing(actions.newRow({ properties: presets(g) }))
+  const add = (g: RowGroup | null) => {
+    if (!m.readOnly) setEditing(actions.newRow({ properties: presets(g) }))
+  }
 
   const onKeyDown = (e: React.KeyboardEvent) => {
     const rows = Array.from(rootRef.current?.querySelectorAll<HTMLElement>('.dbl-row') ?? [])
@@ -63,7 +65,7 @@ export function ListView() {
   }
 
   const addSub = (parent: Page) => {
-    if (!tree.pair) return
+    if (!tree.pair || m.readOnly) return
     tree.expand(parent.id)
     const id = actions.newRow()
     writeValue(m.db.id, tree.pair.parent, id, [parent.id])
@@ -90,13 +92,14 @@ export function ListView() {
       />
     ))
 
-  const addRow = (g: RowGroup | null) => (
-    <button type="button" className="dbl-add" onClick={() => add(g)}>
-      <Plus size={14} /> {t('common.new')}
-    </button>
-  )
+  const addRow = (g: RowGroup | null) =>
+    m.readOnly ? null : (
+      <button type="button" className="dbl-add" onClick={() => add(g)}>
+        <Plus size={14} /> {t('common.new')}
+      </button>
+    )
 
-  if (!m.rows.length && !m.groups) return <EmptyState onAdd={() => add(null)} />
+  if (!m.rows.length && !m.groups) return <EmptyState onAdd={m.readOnly ? undefined : () => add(null)} />
 
   return (
     <div className="dbl" ref={rootRef} onKeyDown={onKeyDown}>
@@ -187,10 +190,10 @@ function ListRow({
         <PageIcon icon={row.icon} size={16} />
       </span>
       <span className="dbl-row__title">
-        {editing ? <TitleInput row={row} onDone={onEditDone} /> : <span className={row.title ? '' : 'is-empty'}>{row.title || t('common.untitled')}</span>}
+        {editing && !m.readOnly ? <TitleInput row={row} onDone={onEditDone} /> : <span className={row.title ? '' : 'is-empty'}>{row.title || t('common.untitled')}</span>}
       </span>
       {node && <TreeCount kids={node.childCount} open={node.expanded} />}
-      {node && !editing && <AddSubButton onAdd={onAddSub} />}
+      {node && !editing && !m.readOnly && <AddSubButton onAdd={onAddSub} />}
       <span className="dbl-row__props">
         {values.map(({ p, v }) => (
           <span key={p.id} className="dbl-row__prop" data-type={p.type} title={p.name}>

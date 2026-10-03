@@ -95,7 +95,9 @@ export function BoardView() {
 
   const containerOf = (id: string): string | undefined => (id in items ? id : Object.keys(items).find((k) => items[k].includes(id)))
 
-  const onDragStart = (e: DragStartEvent) => setActiveId(String(e.active.id))
+  const onDragStart = (e: DragStartEvent) => {
+    if (!m.readOnly) setActiveId(String(e.active.id))
+  }
   const onDragOver = (e: DragOverEvent) => {
     const over = e.over?.id
     if (!over) return
@@ -115,7 +117,7 @@ export function BoardView() {
     const a = String(e.active.id)
     const over = e.over ? String(e.over.id) : null
     setActiveId(null)
-    if (!over) return setItems(fromGroups)
+    if (!over || m.readOnly) return setItems(fromGroups)
     const to = containerOf(over)
     const from = parseItem(a).group
     if (!to) return
@@ -144,6 +146,7 @@ export function BoardView() {
   }
 
   const addCard = (g: RowGroup) => {
+    if (m.readOnly) return
     const gp = m.groupProp
     const v = gp ? valueForGroupMove(gp, undefined, null, g.key) : undefined
     const id = actions.newRow({ properties: gp && v !== undefined && g.key !== NONE_KEY ? { [gp.id]: v } : {} })
@@ -154,6 +157,7 @@ export function BoardView() {
 
   const activeRow = activeId ? rowsById.get(parseItem(activeId).row) : undefined
   const setHidden = (key: string, on: boolean) => {
+    if (m.readOnly) return
     const next = new Set(view.hiddenGroups ?? [])
     if (on) next.add(key)
     else next.delete(key)
@@ -205,7 +209,7 @@ export function BoardView() {
               <div className="dbb-hidden">
                 <div className="label dbb-hidden__head">{t('database.group.hidden')}</div>
                 {hiddenGroups.map((g) => (
-                  <button key={g.key} type="button" className="dbb-hidden__row" onClick={() => setHidden(g.key, false)}>
+                  <button key={g.key} type="button" className="dbb-hidden__row" disabled={m.readOnly} onClick={() => setHidden(g.key, false)}>
                     <GroupLabel group={g} />
                     <span className="dbb-count">{g.rows.length}</span>
                     <EyeOff size={13} className="faint" />
@@ -230,7 +234,7 @@ export function BoardView() {
             onClose={() => setMenu(null)}
             entries={[
               { label: t('database.group.collapse'), icon: <ChevronsLeftRight size={14} />, onSelect: () => toggleCollapsed(menu.group.key) },
-              { label: t('database.group.hide'), icon: <Eye size={14} />, onSelect: () => setHidden(menu.group.key, true) },
+              ...(m.readOnly ? [] : [{ label: t('database.group.hide'), icon: <Eye size={14} />, onSelect: () => setHidden(menu.group.key, true) }]),
             ]}
           />
         )}
@@ -292,9 +296,11 @@ function Column({
         <button type="button" className="icon-btn icon-btn--sm" aria-label={t('common.more')} onClick={(e) => onMenu(e.currentTarget)}>
           <Ellipsis size={14} />
         </button>
-        <button type="button" className="icon-btn icon-btn--sm" aria-label={t('database.new.inGroup')} onClick={onAdd}>
-          <Plus size={14} />
-        </button>
+        {!m.readOnly && (
+          <button type="button" className="icon-btn icon-btn--sm" aria-label={t('database.new.inGroup')} onClick={onAdd}>
+            <Plus size={14} />
+          </button>
+        )}
       </header>
       <div ref={setNodeRef} className="dbb-col__body">
         <SortableContext id={group.key} items={shown} strategy={verticalListSortingStrategy}>
@@ -309,16 +315,19 @@ function Column({
             {t('database.board.more', { count: ids.length - shown.length })}
           </button>
         )}
-        <button type="button" className="dbb-add" onClick={onAdd}>
-          <Plus size={13} /> {t('common.new')}
-        </button>
+        {!m.readOnly && (
+          <button type="button" className="dbb-add" onClick={onAdd}>
+            <Plus size={13} /> {t('common.new')}
+          </button>
+        )}
       </div>
     </section>
   )
 }
 
 function Card({ id, m, row, rc, props, editing, onEditDone, onOpen, onContext }: { id: string; m: DbModel; row: Page; rc: ColorRule | null; props: PropertyDef[]; editing: boolean; onEditDone: (cancelled: boolean) => void; onOpen: () => void; onContext: (e: React.MouseEvent) => void }) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id, disabled: editing })
+  // view only: cards open, they don't move
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id, disabled: editing || m.readOnly })
   return (
     <article
       ref={setNodeRef}
@@ -345,6 +354,14 @@ function Card({ id, m, row, rc, props, editing, onEditDone, onOpen, onContext }:
 function ChooseGroup({ m }: { m: DbModel }) {
   const t = useT()
   const candidates = m.db.properties.filter((p) => BOARD_GROUP_TYPES.includes(p.type))
+  if (m.readOnly)
+    return (
+      <div className="db-empty">
+        <span className="db-empty__line" aria-hidden />
+        <span className="label">{t('database.board.noGroup')}</span>
+        <span className="db-empty__line" aria-hidden />
+      </div>
+    )
   return (
     <div className="db-empty">
       <span className="db-empty__line" aria-hidden />
