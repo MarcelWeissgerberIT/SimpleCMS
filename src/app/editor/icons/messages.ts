@@ -54,6 +54,10 @@ export const iconMessages: Messages = {
     'editor.icon.obj.clock': 'Clock',
     'editor.icon.obj.rolodex': 'Rolodex',
     'editor.icon.obj.counter': 'Tally counter',
+    'editor.icon.obj.sheet': 'Spreadsheet',
+    'editor.icon.obj.fx': 'Function tree',
+    'editor.icon.obj.chart': 'Bar chart',
+    'editor.icon.obj.adder': 'Adding machine',
   },
   de: {
     'editor.emojiPicker.title': 'Emoji',
@@ -106,5 +110,9 @@ export const iconMessages: Messages = {
     'editor.icon.obj.clock': 'Uhr',
     'editor.icon.obj.rolodex': 'Rollkartei',
     'editor.icon.obj.counter': 'Handzähler',
+    'editor.icon.obj.sheet': 'Tabelle',
+    'editor.icon.obj.fx': 'Funktionsbaum',
+    'editor.icon.obj.chart': 'Balkendiagramm',
+    'editor.icon.obj.adder': 'Rechenmaschine',
   },
 }

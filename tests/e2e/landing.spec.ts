@@ -84,13 +84,14 @@ test.describe('landing page', () => {
 })
 
 test.describe('landing sections', () => {
-  test('features: sixteen placards in four groups, the rest as one line of tags', async ({ page }) => {
+  test('features: twenty placards in five groups, the rest as one line of tags', async ({ page }) => {
     await page.goto('./?skip')
     const features = page.locator('#features')
-    await expect(features.locator('.plac')).toHaveCount(16)
+    await expect(features.locator('.plac')).toHaveCount(20)
     for (const [group, items] of [
       ['Write', ['Block editor', 'Version history']],
       ['Organise', ['Databases, 8 views', 'Sub-items & dependencies', 'Agenda & inbox']],
+      ['Calculate', ['Spreadsheets in pages', 'Your own functions', 'Charts in three clicks', 'Formulas & rollups']],
       ['Automate', ['Webhook automations', 'Forms', 'Buttons', 'AI autofill']],
       ['Publish & move', ['Publish as a website', 'Links with a password', 'Import from anywhere', 'Web clipper']],
     ] as const) {

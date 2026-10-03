@@ -38,6 +38,10 @@ export const OBJECT_WORDS: Record<string, string> = {
   clock: 'time watch hour meeting zeit stunde termin',
   rolodex: 'contacts addresses crm kontakte adressen',
   counter: 'tally clicker count habit zählen klicker gewohnheit',
+  sheet: 'spreadsheet grid cells table excel tabelle raster zellen',
+  fx: 'function formula tree keys funktion formel baum',
+  chart: 'bars graph statistics plot diagramm balken statistik',
+  adder: 'sum calculate rollup adding machine summe rechnen rechenmaschine',
 }
 
 const humanize = (name: string) => name.replace(/[-_]+/g, ' ').replace(/^./, (c) => c.toUpperCase())
