@@ -312,8 +312,8 @@ async function openDbView(page, title, tab) {
   return id
 }
 
-/** A resting UI: no focus ring, nothing hovered (the pointer on an empty stretch of the top bar). */
-async function rest(page, x = Math.round(W * 0.62), y = 26) {
+/** A resting UI: no focus ring, nothing hovered (the pointer outside the viewport). */
+async function rest(page, x = W + 40, y = H + 40) {
   await page.evaluate(() => (document.activeElement instanceof HTMLElement ? document.activeElement.blur() : undefined))
   await page.mouse.move(x, y)
   await page.waitForTimeout(600)
@@ -408,7 +408,7 @@ const shots = {
     await page.waitForTimeout(2500)
     // where the landing's callouts point (src/landing/site/figures.ts → HERO_CALLOUTS: tx, ty)
     const marks = {
-      A: await anchorOf(page, '#main .ProseMirror h2', 'Agenda', 'left'),
+      A: await anchorOf(page, '#main .ProseMirror :is(h2, h3, h4)', 'Agenda', 'left'),
       B: await anchorOf(page, '.sb-row:has(.sb-row__db) >> nth=1 >> .sb-row__db'),
       C: await anchorOf(page, '.sb-nav .kbd'),
       D: await anchorOf(page, '.ai-model', null, 'right'),
@@ -633,7 +633,7 @@ const shots = {
     await page.mouse.move(box.x + box.width / 2, H / 2)
     await page.mouse.wheel(0, -4000)
     await page.waitForTimeout(600)
-    await rest(page, W / 2 - 200, 26)
+    await rest(page)
     await save(page, 'agent')
     await ctx.close()
   },
@@ -651,7 +651,7 @@ const shots = {
     await dlg.getByRole('button', { name: /Fill all rows/ }).click()
     await dlg.getByRole('table', { name: 'Proposed values' }).waitFor({ timeout: 20_000 })
     await page.waitForTimeout(600)
-    await rest(page, 4, H - 4)
+    await rest(page)
     await save(page, 'autofill')
     await ctx.close()
   },
@@ -693,7 +693,7 @@ const shots = {
     await page.waitForTimeout(700)
     // both lit, as if pointed at: the frame and the tag ("Synced · 2 pages" / "Synced from Brand voice")
     for (const block of [original, reference]) await block.evaluate((el) => el.classList.add('is-open'))
-    await page.mouse.move(W / 2 + 120, 26)
+    await page.mouse.move(W + 40, H + 40)
     await page.waitForTimeout(600)
     await save(page, 'synced')
     await ctx.close()
@@ -730,9 +730,7 @@ const shots = {
       await zoomIn.click()
       await page.waitForTimeout(400)
     }
-    // nothing hovered (an empty stretch of the top bar)
-    await page.mouse.move(W / 2, 22)
-    await page.waitForTimeout(800)
+    await rest(page)
     await save(page, 'graph')
     await ctx.close()
   },

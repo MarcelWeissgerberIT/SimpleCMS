@@ -1,0 +1,38 @@
+/* ================================================================
+   Page icons (PageIcon.tsx)
+   ================================================================ */
+
+/* generated ceramic icons: the object fills the box at small sizes (the files carry ~8% air),
+   and a hairline edge keeps the white ceramic legible on paper */
+.picon {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  overflow: hidden;
+}
+.picon img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  user-select: none;
+}
+.picon[data-small] img {
+  transform: scale(1.16);
+  filter: drop-shadow(0 0 0.5px color-mix(in srgb, var(--ink) 55%, transparent));
+}
+:root[data-theme='dark'] .picon[data-small] img {
+  filter: none;
+}
+
+/* lucide glyphs at title size: an ink glyph on a paper placard */
+.picon-tile {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius-2);
+  background: var(--surface-2);
+  color: var(--ink);
+  box-shadow: inset 0 -2px 0 var(--rule);
+}

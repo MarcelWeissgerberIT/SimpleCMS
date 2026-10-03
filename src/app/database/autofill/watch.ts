@@ -10,7 +10,7 @@
  * Results are written directly; failures show on the cell.
  */
 import type { Database, ID, PropertyDef } from '../../store/types'
-import { useWorkspace } from '../../store/store'
+import { pageChanges, useWorkspace } from '../../store/store'
 import { isApplyingRemote } from '../../store/persistence'
 import { autofillOf, configIssue } from './config'
 import { rowHash } from './context'
@@ -44,9 +44,9 @@ export function startAutofillWatch(): void {
     const dbs = autoDatabases(s.databases)
     if (!dbs.size) return
     const changed: Array<{ dbId: ID; rowId: ID }> = []
-    for (const id in s.pages) {
+    for (const id of pageChanges(s.pages, prev.pages).changed) {
       const p = s.pages[id]
-      if (!p.databaseId || p.trashed || p === prev.pages[id] || !dbs.has(p.databaseId)) continue
+      if (!p.databaseId || p.trashed || !dbs.has(p.databaseId)) continue
       changed.push({ dbId: p.databaseId, rowId: id })
       if (changed.length > BULK) return
     }

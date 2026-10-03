@@ -78,8 +78,8 @@ const EMPTY: OutlineItem[] = []
 
 /**
  * The outline of an editor plus the index of the section being read. The outline follows
- * document changes (debounced); the active section comes from an IntersectionObserver whose
- * band is the top quarter of the scroll column — a heading counts as passed once it reaches it.
+ * document changes (debounced); the active section comes from an IntersectionObserver: a heading
+ * counts as passed once it reached the top quarter of the scroll column.
  */
 export function useOutline(editor: Editor | null, enabled: boolean): { items: OutlineItem[]; active: number; pin: (i: number) => void } {
   const [items, setItems] = useState<OutlineItem[]>(EMPTY)
@@ -130,13 +130,14 @@ export function useOutline(editor: Editor | null, enabled: boolean): { items: Ou
           if (i === undefined) continue
           const r = e.boundingClientRect
           // folded away (closed toggle, hidden tab): never the section being read
-          if (!r.width && !r.height) passed[i] = false
-          else passed[i] = e.isIntersecting || r.top < (e.rootBounds?.top ?? 0)
+          passed[i] = e.isIntersecting && (r.width > 0 || r.height > 0)
         }
         if (Date.now() < pinned.current) return
         setActive(passed.lastIndexOf(true))
       },
-      { root: host, rootMargin: '0px 0px -75% 0px', threshold: 0 },
+      // the band reaches from far above the column down to its top quarter: crossing that line
+      // flips the state in either direction, even when a jump skips a whole screen
+      { root: host, rootMargin: '1000000px 0px -75% 0px', threshold: 0 },
     )
     els.forEach((el) => io.observe(el))
     return () => io.disconnect()

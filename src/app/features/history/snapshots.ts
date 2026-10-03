@@ -11,7 +11,7 @@
  */
 import type { JSONContent } from '@tiptap/core'
 import { createStore, delMany, get, setMany, type UseStore } from 'idb-keyval'
-import { plainText, useWorkspace } from '../../store/store'
+import { pageChanges, plainText, useWorkspace } from '../../store/store'
 import { isApplyingRemote } from '../../store/persistence'
 import type { ID, PageIcon } from '../../store/types'
 import { newId } from '../../lib/ids'
@@ -398,15 +398,13 @@ export function startHistory(): () => void {
 
   const unsub = useWorkspace.subscribe((state, prev) => {
     if (!state.ready || state.pages === prev.pages || isApplyingRemote()) return
+    const { changed, removed } = pageChanges(state.pages, prev.pages)
     // pages deleted for good take their history with them
-    if (Object.keys(prev.pages).length > Object.keys(state.pages).length) {
-      for (const id in prev.pages)
-        if (!(id in state.pages)) {
-          session.delete(id)
-          void clearHistory(id).catch(() => undefined)
-        }
+    for (const id of removed) {
+      session.delete(id)
+      void clearHistory(id).catch(() => undefined)
     }
-    for (const id in state.pages) {
+    for (const id of changed) {
       const p = state.pages[id]
       const before = prev.pages[id]
       if (!before || p === before || p.contentRev === before.contentRev) continue

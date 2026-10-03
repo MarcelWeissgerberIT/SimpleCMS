@@ -808,6 +808,53 @@ export const useWorkspace = create<WorkspaceState>()(
   })),
 )
 
+/* ------------------------------------------------------------------ */
+/* What a store change touched (shared by every subscriber)            */
+/* ------------------------------------------------------------------ */
+
+export interface PageChanges {
+  /** pages that are new or a different object than before (added ones included) */
+  changed: ID[]
+  /** pages that are new */
+  added: ID[]
+  /** pages that are gone */
+  removed: ID[]
+}
+
+const NO_CHANGES: PageChanges = { changed: [], added: [], removed: [] }
+const keyCounts = new WeakMap<Record<ID, Page>, number>()
+const recentDiffs: Array<{ next: Record<ID, Page>; prev: Record<ID, Page>; out: PageChanges }> = []
+
+/**
+ * Which pages differ between two page maps. Every store subscriber asks this for the same
+ * (state, prev) pair, so it is computed once per change and shared — one Object.keys() pass
+ * (for…in over a map of thousands of pages costs several times more). Removed pages are looked
+ * for only when the key counts say there are some.
+ */
+export function pageChanges(next: Record<ID, Page>, prev: Record<ID, Page>): PageChanges {
+  if (next === prev) return NO_CHANGES
+  for (const d of recentDiffs) if (d.next === next && d.prev === prev) return d.out
+  const out: PageChanges = { changed: [], added: [], removed: [] }
+  const keys = Object.keys(next)
+  for (let i = 0; i < keys.length; i++) {
+    const id = keys[i]
+    const o = prev[id]
+    if (next[id] === o) continue
+    out.changed.push(id)
+    if (o === undefined) out.added.push(id)
+  }
+  keyCounts.set(next, keys.length)
+  let before = keyCounts.get(prev)
+  if (before === undefined) {
+    before = Object.keys(prev).length
+    keyCounts.set(prev, before)
+  }
+  if (before + out.added.length > keys.length) for (const id of Object.keys(prev)) if (!(id in next)) out.removed.push(id)
+  recentDiffs.unshift({ next, prev, out })
+  recentDiffs.length = Math.min(recentDiffs.length, 3)
+  return out
+}
+
 /** Snapshot of persistent data (without actions / flags). */
 export function getWorkspaceSnapshot(): Workspace {
   const s = useWorkspace.getState()

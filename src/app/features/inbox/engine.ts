@@ -230,12 +230,11 @@ function groupNews(me: ID, pages: Record<ID, Page>, page: Page, groups: Array<st
     for (const pid in snap!) if (pid !== page.id) known = Math.max(known, countOf(snap![pid].g, syncId))
     if (count <= known) continue
     const here = groupMention(page, me, syncId)
+    // at the original (its block once its content is here: the same line)
     const source = here?.source ? pages[here.source] : undefined
-    const there = source ? groupMention(source, me, syncId) : null
-    const pageId = there ? source!.id : page.id
-    const spot = there ?? here
-    for (let n = known + 1; n <= count; n++)
-      items.push({ id: `m:${pageId}:${spot?.blockId ?? '-'}:${n}`, kind: 'mention', pageId, at: now, blockId: spot?.blockId ?? null, excerpt: spot?.line ?? '' })
+    const pageId = source?.id ?? page.id
+    const blockId = source ? (groupMention(source, me, syncId)?.blockId ?? null) : (here?.blockId ?? null)
+    for (let n = known + 1; n <= count; n++) items.push({ id: `m:${pageId}:${blockId ?? '-'}:${n}`, kind: 'mention', pageId, at: now, blockId, excerpt: here?.line ?? '' })
   }
   return items
 }

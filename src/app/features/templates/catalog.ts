@@ -65,7 +65,6 @@ export const translator = (lang: Lang): Tr => (en, de) => (lang === 'de' ? de : 
 /* ------------------------------------------------------------------ */
 
 const S = () => useWorkspace.getState()
-const emoji = (value: string): PageIcon => ({ type: 'emoji', value })
 const asset = (value: string): PageIcon => ({ type: 'asset', value })
 const cover = (name: string): PageCover => ({ type: 'image', value: `assets/covers/${name}.webp`, positionY: 50 })
 
@@ -109,7 +108,7 @@ const meetingNotes: TemplateDef = {
   id: 'meetings',
   code: 'T-01',
   category: 'work',
-  icon: 'history',
+  icon: 'notepad',
   title: (L) => L('Meeting notes', 'Meeting-Notizen'),
   description: (L) =>
     L(
@@ -134,7 +133,7 @@ const meetingNotes: TemplateDef = {
     const dbId = makeDb({
       parentId,
       title: L('Meeting notes', 'Meeting-Notizen'),
-      icon: asset('history'),
+      icon: asset('notepad'),
       properties,
       views: (db) => [view('table', db, L('All meetings', 'Alle Meetings'), { sorts: [{ propertyId: P.date, direction: 'desc' }] }), view('calendar', db, L('Calendar', 'Kalender'), { dateProperty: P.date })],
     })
@@ -158,8 +157,8 @@ const meetingNotes: TemplateDef = {
           : tasks(L('Action item', 'Aufgabe')),
       )
     const ppl = people()
-    S().updateDatabase(dbId, { templates: [{ id: newId(), name: L('Meeting', 'Meeting'), icon: emoji('🗓️'), content: agenda(false), properties: { [P.date]: on(0) } }] })
-    row(dbId, L('Weekly sync', 'Weekly Sync'), { [P.date]: on(0), [P.type]: types[0].id, [P.who]: ppl.slice(0, 3) }, agenda(true), emoji('🗓️'))
+    S().updateDatabase(dbId, { templates: [{ id: newId(), name: L('Meeting', 'Meeting'), icon: asset('notepad'), content: agenda(false), properties: { [P.date]: on(0) } }] })
+    row(dbId, L('Weekly sync', 'Weekly Sync'), { [P.date]: on(0), [P.type]: types[0].id, [P.who]: ppl.slice(0, 3) }, agenda(true))
     row(
       dbId,
       L('Retro — last sprint', 'Retro — letzter Sprint'),
@@ -172,9 +171,8 @@ const meetingNotes: TemplateDef = {
         h2(L('Experiments for next sprint', 'Experimente für den nächsten Sprint')),
         tasks(L('Review within 24 h — tracked on the board', 'Review innerhalb von 24 h — auf dem Board verfolgt')),
       ),
-      emoji('🔁'),
     )
-    row(dbId, L('Kickoff with client', 'Kickoff mit Kunde'), { [P.date]: on(3), [P.type]: types[4].id, [P.who]: ppl.slice(0, 2) }, agenda(false), emoji('🤝'))
+    row(dbId, L('Kickoff with client', 'Kickoff mit Kunde'), { [P.date]: on(3), [P.type]: types[4].id, [P.who]: ppl.slice(0, 2) }, agenda(false))
     return dbId
   },
 }
@@ -239,23 +237,22 @@ const projectTracker: TemplateDef = {
         h2(L('Risks', 'Risiken')),
         ul(L('Name it, rate it, own it.', 'Benennen, bewerten, verantworten.')),
       )
-    S().updateDatabase(dbId, { templates: [{ id: newId(), name: L('Project brief', 'Projektsteckbrief'), icon: emoji('📐'), content: brief(L('One sentence that defines done.', 'Ein Satz, der „fertig“ definiert.')), properties: { [P.status]: st[0].id } }] })
+    S().updateDatabase(dbId, { templates: [{ id: newId(), name: L('Project brief', 'Projektsteckbrief'), icon: asset('templates'), content: brief(L('One sentence that defines done.', 'Ein Satz, der „fertig“ definiert.')), properties: { [P.status]: st[0].id } }] })
     const ppl = people()
-    const rows: Array<[string, number, number, number, number, number, number[], string]> = [
-      [L('Website relaunch', 'Website-Relaunch'), 2, 0, -12, 18, 0.55, [0, 1], '🌐'],
-      [L('Customer portal', 'Kundenportal'), 1, 1, 6, 40, 0.1, [0, 2], '🔐'],
-      [L('Q4 campaign', 'Q4-Kampagne'), 3, 1, -20, 4, 0.85, [1], '📣'],
-      [L('Onboarding revamp', 'Onboarding-Überarbeitung'), 2, 0, -4, 22, 0.35, [2], '🧭'],
-      [L('Office move', 'Büroumzug'), 0, 2, 30, 45, 0, [3], '📦'],
-      [L('Analytics cleanup', 'Analytics-Aufräumen'), 4, 2, -40, -10, 1, [3, 2], '📊'],
+    const rows: Array<[string, number, number, number, number, number, number[]]> = [
+      [L('Website relaunch', 'Website-Relaunch'), 2, 0, -12, 18, 0.55, [0, 1]],
+      [L('Customer portal', 'Kundenportal'), 1, 1, 6, 40, 0.1, [0, 2]],
+      [L('Q4 campaign', 'Q4-Kampagne'), 3, 1, -20, 4, 0.85, [1]],
+      [L('Onboarding revamp', 'Onboarding-Überarbeitung'), 2, 0, -4, 22, 0.35, [2]],
+      [L('Office move', 'Büroumzug'), 0, 2, 30, 45, 0, [3]],
+      [L('Analytics cleanup', 'Analytics-Aufräumen'), 4, 2, -40, -10, 1, [3, 2]],
     ]
-    rows.forEach(([title, s, pri, a, z, prog, tags, ic], idx) =>
+    rows.forEach(([title, s, pri, a, z, prog, tags], idx) =>
       row(
         dbId,
         title,
         { [P.status]: st[s].id, [P.prio]: pr[pri].id, [P.owner]: [ppl[idx % ppl.length]], [P.dates]: range(a, z), [P.progress]: prog, [P.tags]: tags.map((t) => tg[t].id) },
         idx === 0 ? brief(L('Launch the new site with a 30% faster first load.', 'Neue Website mit 30 % schnellerem Erstaufruf launchen.')) : null,
-        emoji(ic),
       ),
     )
     return dbId
@@ -270,7 +267,7 @@ const roadmap: TemplateDef = {
   id: 'roadmap',
   code: 'T-03',
   category: 'product',
-  icon: 'publish',
+  icon: 'calendar',
   title: (L) => L('Product roadmap', 'Produkt-Roadmap'),
   description: (L) =>
     L(
@@ -301,7 +298,7 @@ const roadmap: TemplateDef = {
     const dbId = makeDb({
       parentId,
       title: L('Product roadmap', 'Produkt-Roadmap'),
-      icon: asset('publish'),
+      icon: asset('calendar'),
       properties,
       views: (db) => [
         view('timeline', db, 'Timeline', { dateProperty: P.dates, visibleProperties: [P.stage, P.team] }),
@@ -338,7 +335,7 @@ const contentCalendar: TemplateDef = {
   id: 'content',
   code: 'T-04',
   category: 'work',
-  icon: 'calendar',
+  icon: 'megaphone',
   title: (L) => L('Content calendar', 'Content-Kalender'),
   description: (L) =>
     L(
@@ -366,7 +363,7 @@ const contentCalendar: TemplateDef = {
     const dbId = makeDb({
       parentId,
       title: L('Content calendar', 'Content-Kalender'),
-      icon: asset('calendar'),
+      icon: asset('megaphone'),
       properties,
       views: (db) => [
         view('calendar', db, L('Calendar', 'Kalender'), { dateProperty: P.date, visibleProperties: [P.ch, P.status] }),
@@ -382,7 +379,7 @@ const contentCalendar: TemplateDef = {
       h2(L('Distribution', 'Verteilung')),
       tasks('Newsletter', 'LinkedIn', L('Cross-post to the blog', 'Im Blog crossposten')),
     )
-    S().updateDatabase(dbId, { templates: [{ id: newId(), name: L('Post brief', 'Briefing'), icon: emoji('✍️'), content: brief, properties: { [P.status]: st[0].id } }] })
+    S().updateDatabase(dbId, { templates: [{ id: newId(), name: L('Post brief', 'Briefing'), icon: asset('notepad'), content: brief, properties: { [P.status]: st[0].id } }] })
     const ppl = people()
     const posts: Array<[string, number, number, number]> = [
       [L('Why local-first beats the cloud', 'Warum local-first die Cloud schlägt'), -9, 0, 4],
@@ -409,7 +406,7 @@ const readingList: TemplateDef = {
   id: 'reading',
   code: 'T-05',
   category: 'personal',
-  icon: 'templates',
+  icon: 'book',
   title: (L) => L('Reading list', 'Leseliste'),
   description: (L) =>
     L(
@@ -440,7 +437,7 @@ const readingList: TemplateDef = {
     const dbId = makeDb({
       parentId,
       title: L('Reading list', 'Leseliste'),
-      icon: asset('templates'),
+      icon: asset('book'),
       properties,
       views: (db) => [
         view('gallery', db, L('Shelf', 'Regal'), { cardPreview: 'cover', cardSize: 'medium', visibleProperties: [P.author, P.status, P.rating] }),
@@ -479,7 +476,7 @@ const crm: TemplateDef = {
   id: 'crm',
   code: 'T-06',
   category: 'personal',
-  icon: 'sync',
+  icon: 'rolodex',
   title: (L) => L('Personal CRM', 'Persönliches CRM'),
   description: (L) =>
     L(
@@ -495,7 +492,7 @@ const crm: TemplateDef = {
     { depth: 2, kind: 'rows', label: L('5 contacts · 7 interactions', '5 Kontakte · 7 Interaktionen') },
   ],
   build(parentId, L) {
-    const root = S().createPage({ parentId, title: L('Personal CRM', 'Persönliches CRM'), icon: asset('sync') })
+    const root = S().createPage({ parentId, title: L('Personal CRM', 'Persönliches CRM'), icon: asset('rolodex') })
     const C = { name: newId(), company: newId(), email: newId(), phone: newId(), stage: newId(), tags: newId(), inter: newId(), last: newId(), next: newId() }
     const I = { name: newId(), date: newId(), type: newId(), contact: newId() }
     const interId = newId()
@@ -505,7 +502,7 @@ const crm: TemplateDef = {
     const contactsId = makeDb({
       parentId: root,
       title: L('Contacts', 'Kontakte'),
-      icon: emoji('👥'),
+      icon: asset('rolodex'),
       inline: true,
       properties: [
         { id: C.name, name: 'Name', type: 'title' },
@@ -524,7 +521,7 @@ const crm: TemplateDef = {
       id: interId,
       parentId: root,
       title: L('Interactions', 'Interaktionen'),
-      icon: emoji('💬'),
+      icon: asset('history'),
       inline: true,
       properties: [
         { id: I.name, name: L('Summary', 'Zusammenfassung'), type: 'title' },
@@ -580,7 +577,7 @@ const bugTracker: TemplateDef = {
   id: 'bugs',
   code: 'T-07',
   category: 'product',
-  icon: 'hammer',
+  icon: 'search',
   title: (L) => L('Bug tracker', 'Bug-Tracker'),
   description: (L) =>
     L(
@@ -620,7 +617,7 @@ const bugTracker: TemplateDef = {
     const dbId = makeDb({
       parentId,
       title: L('Bug tracker', 'Bug-Tracker'),
-      icon: asset('hammer'),
+      icon: asset('search'),
       properties,
       views: (db) => [
         view('board', db, 'Board', { groupBy: P.status, visibleProperties: [P.uid, P.prio, P.who, P.comp] }),
@@ -640,7 +637,7 @@ const bugTracker: TemplateDef = {
         {
           id: newId(),
           name: L('Bug report', 'Bug-Report'),
-          icon: emoji('🐞'),
+          icon: asset('search'),
           content: report([L('Open …', 'Öffne …'), L('Click …', 'Klicke …')], L('What should happen', 'Was passieren sollte'), L('What happens instead', 'Was stattdessen passiert')),
           properties: { [P.status]: st[0].id, [P.prio]: pr[2].id },
         },
@@ -702,7 +699,7 @@ const okrs: TemplateDef = {
     const objId = makeDb({
       parentId: root,
       title: L('Objectives', 'Ziele'),
-      icon: emoji('🎯'),
+      icon: asset('focus'),
       inline: true,
       properties: [
         { id: O.name, name: L('Objective', 'Ziel'), type: 'title' },
@@ -719,7 +716,7 @@ const okrs: TemplateDef = {
       id: krDbId,
       parentId: root,
       title: krName,
-      icon: emoji('📏'),
+      icon: asset('counter'),
       inline: true,
       properties: [
         { id: K.name, name: L('Key result', 'Schlüsselergebnis'), type: 'title' },
@@ -790,7 +787,7 @@ const weeklyPlanner: TemplateDef = {
   id: 'week',
   code: 'T-09',
   category: 'personal',
-  icon: 'split',
+  icon: 'calendar',
   title: (L) => L('Weekly planner', 'Wochenplaner'),
   description: (L) =>
     L(
@@ -807,7 +804,7 @@ const weeklyPlanner: TemplateDef = {
   build(parentId, L) {
     const monday = weekday(0)
     const label = new Intl.DateTimeFormat(L('en-GB', 'de-DE'), { day: 'numeric', month: 'long' }).format(new Date(`${monday}T12:00`))
-    const root = S().createPage({ parentId, title: L(`Week of ${label}`, `Woche vom ${label}`), icon: asset('split') })
+    const root = S().createPage({ parentId, title: L(`Week of ${label}`, `Woche vom ${label}`), icon: asset('calendar') })
     const P = { name: newId(), day: newId(), done: newId(), prio: newId(), est: newId() }
     const names = L('Mon,Tue,Wed,Thu,Fri,Sat,Sun', 'Mo,Di,Mi,Do,Fr,Sa,So').split(',')
     const days = [...names.map((n, k) => opt(n, k < 5 ? 'blue' : 'green')), opt(L('Someday', 'Irgendwann'), 'gray')]
@@ -815,7 +812,7 @@ const weeklyPlanner: TemplateDef = {
     const dbId = makeDb({
       parentId: root,
       title: L('This week', 'Diese Woche'),
-      icon: emoji('🗂️'),
+      icon: asset('kanban'),
       inline: true,
       properties: [
         { id: P.name, name: L('Task', 'Aufgabe'), type: 'title' },
@@ -865,7 +862,7 @@ const teamWiki: TemplateDef = {
   id: 'wiki',
   code: 'T-10',
   category: 'knowledge',
-  icon: 'blocks',
+  icon: 'binder',
   title: (L) => L('Team wiki', 'Team-Wiki'),
   description: (L) =>
     L(
@@ -882,19 +879,19 @@ const teamWiki: TemplateDef = {
     { depth: 1, kind: 'page', label: L('Glossary', 'Glossar') },
   ],
   build(parentId, L) {
-    const root = S().createPage({ parentId, title: L('Team wiki', 'Team-Wiki'), icon: asset('blocks') })
-    const sub = (parent: ID, title: string, icon: string) => S().createPage({ parentId: parent, title, icon: emoji(icon) })
-    const start = sub(root, L('Getting started', 'Erste Schritte'), '🚀')
-    const how = sub(root, L('How we work', 'Wie wir arbeiten'), '🧭')
-    const meetings = sub(how, L('Meetings', 'Meetings'), '🗓️')
-    const review = sub(how, L('Code review', 'Code-Review'), '🔍')
-    const tools = sub(root, L('Tools & access', 'Tools & Zugänge'), '🛠️')
-    const glossary = sub(root, L('Glossary', 'Glossar'), '📚')
+    const root = S().createPage({ parentId, title: L('Team wiki', 'Team-Wiki'), icon: asset('binder') })
+    const sub = (parent: ID, title: string, icon: string) => S().createPage({ parentId: parent, title, icon: asset(icon) })
+    const start = sub(root, L('Getting started', 'Erste Schritte'), 'compass')
+    const how = sub(root, L('How we work', 'Wie wir arbeiten'), 'blocks')
+    const meetings = sub(how, L('Meetings', 'Meetings'), 'clock')
+    const review = sub(how, L('Code review', 'Code-Review'), 'search')
+    const tools = sub(root, L('Tools & access', 'Tools & Zugänge'), 'automation')
+    const glossary = sub(root, L('Glossary', 'Glossar'), 'cardbox')
     const set = (id: ID, ...blocks: JSONContent[]) => S().setContent(id, doc(...blocks), 'template')
 
     set(
       root,
-      callout('👋', 'gray', p(L('Welcome! This wiki is the single source of truth for how we work. If something is wrong or missing, ', 'Willkommen! Dieses Wiki ist die eine Quelle der Wahrheit dafür, wie wir arbeiten. Falls etwas fehlt oder falsch ist, '), b(L('fix it right here', 'direkt hier korrigieren')), '.')),
+      callout('📌', 'gray', p(L('Welcome! This wiki is the single source of truth for how we work. If something is wrong or missing, ', 'Willkommen! Dieses Wiki ist die eine Quelle der Wahrheit dafür, wie wir arbeiten. Falls etwas fehlt oder falsch ist, '), b(L('fix it right here', 'direkt hier korrigieren')), '.')),
       toc(),
       h2(L('Start here', 'Hier starten')),
       pageLink(start),
@@ -988,7 +985,7 @@ const habits: TemplateDef = {
   id: 'habits',
   code: 'T-11',
   category: 'personal',
-  icon: 'automation',
+  icon: 'counter',
   title: (L) => L('Habit tracker', 'Gewohnheiten-Tracker'),
   description: (L) =>
     L(
@@ -1015,7 +1012,7 @@ const habits: TemplateDef = {
     const dbId = makeDb({
       parentId,
       title: L('Habit tracker', 'Gewohnheiten-Tracker'),
-      icon: asset('automation'),
+      icon: asset('counter'),
       properties,
       views: (db) => [
         view('table', db, 'Log', { sorts: [{ propertyId: P.date, direction: 'desc' }], visibleProperties: [P.score, ...P.habits, P.note], calculations: Object.fromEntries(P.habits.map((h) => [h, 'percent_checked' as const])) }),

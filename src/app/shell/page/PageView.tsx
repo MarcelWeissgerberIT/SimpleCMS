@@ -209,6 +209,7 @@ function PageHeaderControls({ page, readOnly }: { page: Page; readOnly: boolean 
       )}
       <Popover open={!!iconAnchor} anchor={iconAnchor} onClose={() => setIconAnchor(null)} bare placement="bottom-start">
         <IconPicker
+          symbols
           onSelect={(icon) => {
             update({ icon })
             setIconAnchor(null)

@@ -132,7 +132,7 @@ test.describe('sync to a folder', () => {
     // page: front matter + H1 + body with relative links
     const wiki = tree['Team wiki.md'].text
     const wikiId = await pageIdByTitle(page, 'Team wiki')
-    expect(wiki).toMatch(new RegExp(`^---\\nid: ${wikiId}\\ntitle: Team wiki\\nicon: 📖\\ncreated: \\d{4}-\\d\\d-\\d\\dT[\\d:]+Z\\nupdated: `))
+    expect(wiki).toMatch(new RegExp(`^---\\nid: ${wikiId}\\ntitle: Team wiki\\nicon: asset:binder\\ncreated: \\d{4}-\\d\\d-\\d\\dT[\\d:]+Z\\nupdated: `))
     expect(wiki).toContain('\n# Team wiki\n')
     expect(wiki).toContain('[Brand voice](Team%20wiki/Brand%20voice.md)')
 

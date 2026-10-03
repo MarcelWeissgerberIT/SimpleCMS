@@ -65,13 +65,47 @@
 .emoji-picker__emoji[data-active] {
   background: var(--hover);
 }
+/* "One icons" and symbols: a search field over a scrolling grid, as tall as the emoji pane */
+.icon-picker__pane {
+  display: flex;
+  flex-direction: column;
+  height: 320px;
+}
 .icon-picker__grid {
   display: grid;
+  flex: 1;
+  min-height: 0;
   grid-template-columns: repeat(6, 1fr);
+  align-content: start;
   gap: 4px;
-  padding: 8px;
-  max-height: 320px;
+  padding: 0 8px 8px;
   overflow: auto;
+}
+.icon-picker__grid--symbols {
+  grid-template-columns: repeat(8, 1fr);
+  gap: 2px;
+}
+.icon-picker__grid .emoji-picker__msg {
+  grid-column: 1 / -1;
+}
+.icon-picker__symbol {
+  display: grid;
+  place-items: center;
+  height: 36px;
+  border: 0;
+  border-radius: var(--radius-1);
+  background: transparent;
+  color: var(--ink-2);
+}
+.icon-picker__symbol:hover {
+  background: var(--hover);
+}
+.icon-picker__symbol:hover svg {
+  color: var(--ink);
+}
+.icon-picker__symbol:active,
+.icon-picker__asset:active {
+  transform: translateY(1px);
 }
 .icon-picker__asset {
   display: grid;

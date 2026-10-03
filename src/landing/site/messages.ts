@@ -510,8 +510,10 @@ export const content: Record<Lang, SiteContent> = {
         specs: ['Key stays on this device', 'Autofill: summaries · key info · translations', 'Pay Anthropic per use — no AI seat'],
         fig: 'Fig. 3.2 — Claude',
         shots: [
-          { shot: 'ai', tab: 'Write', fig: 'Fig. 3.2a — AI menu on a selection' },
-          { shot: 'autofill', tab: 'Autofill', fig: 'Fig. 3.2b — AI autofill, review before writing' },
+          { shot: 'meeting', tab: 'Meetings', fig: 'Fig. 3.2a — Meeting notes from a live transcript' },
+          { shot: 'agent', tab: 'Agent', fig: 'Fig. 3.2b — Agent: every change staged for review' },
+          { shot: 'autofill', tab: 'Autofill', fig: 'Fig. 3.2c — AI autofill, review before writing' },
+          { shot: 'ai', tab: 'Write', fig: 'Fig. 3.2d — AI menu on a selection' },
         ],
       },
       {
@@ -523,6 +525,7 @@ export const content: Record<Lang, SiteContent> = {
         shots: [
           { shot: 'automations', tab: 'Automation', fig: 'Fig. 3.3a — Automation with a webhook action' },
           { shot: 'form', tab: 'Form', fig: 'Fig. 3.3b — Form view, answers go to n8n' },
+          { shot: 'forms', tab: 'Logic', fig: 'Fig. 3.3c — Form builder: conditional questions, pages' },
         ],
       },
       {
@@ -641,8 +644,10 @@ export const content: Record<Lang, SiteContent> = {
         specs: ['Key bleibt auf diesem Gerät', 'Autofill: Zusammenfassungen · Kerninfos · Übersetzungen', 'Bezahlung nach Nutzung bei Anthropic — kein KI-Abo'],
         fig: 'Abb. 3.2 — Claude',
         shots: [
-          { shot: 'ai', tab: 'Schreiben', fig: 'Abb. 3.2a — KI-Menü auf einer Auswahl' },
-          { shot: 'autofill', tab: 'Autofill', fig: 'Abb. 3.2b — KI-Autofill, Prüfung vor dem Schreiben' },
+          { shot: 'meeting', tab: 'Meetings', fig: 'Abb. 3.2a — Besprechungsnotizen aus dem Live-Transkript' },
+          { shot: 'agent', tab: 'Agent', fig: 'Abb. 3.2b — Agent: jede Änderung erst zur Prüfung' },
+          { shot: 'autofill', tab: 'Autofill', fig: 'Abb. 3.2c — KI-Autofill, Prüfung vor dem Schreiben' },
+          { shot: 'ai', tab: 'Schreiben', fig: 'Abb. 3.2d — KI-Menü auf einer Auswahl' },
         ],
       },
       {
@@ -654,6 +659,7 @@ export const content: Record<Lang, SiteContent> = {
         shots: [
           { shot: 'automations', tab: 'Automation', fig: 'Abb. 3.3a — Automation mit Webhook-Aktion' },
           { shot: 'form', tab: 'Formular', fig: 'Abb. 3.3b — Formular-Ansicht, Antworten gehen an n8n' },
+          { shot: 'forms', tab: 'Logik', fig: 'Abb. 3.3c — Formular-Editor: bedingte Fragen, Seiten' },
         ],
       },
       {

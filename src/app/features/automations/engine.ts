@@ -8,7 +8,7 @@
  * fires once it has a title and has been quiet for a moment (capped, see CREATED_MAX_MS).
  */
 import { useSyncExternalStore } from 'react'
-import { useWorkspace } from '../../store/store'
+import { pageChanges, useWorkspace } from '../../store/store'
 import { isApplyingRemote } from '../../store/persistence'
 import { toast } from '../../store/ui'
 import type { Automation, AutomationAction, Database, DateValue, ID, Page, PropertyDef, PropertyValue } from '../../store/types'
@@ -385,12 +385,12 @@ function diff(state: ReturnType<typeof useWorkspace.getState>, prev: ReturnType<
     }
   }
 
-  for (const id in state.pages) {
+  const { changed, removed } = pageChanges(state.pages, prev.pages)
+  for (const id of changed) {
     const page = state.pages[id]
     const db = page.databaseId ? active.get(page.databaseId) : undefined
     if (!db) continue
     const before = prev.pages[id]
-    if (before === page) continue
     if (!before) {
       // a database created in the same update (import / template) doesn't count
       if (prev.pages[db.id] && !page.trashed) fire(db, page, 'row_created', [])
@@ -414,9 +414,9 @@ function diff(state: ReturnType<typeof useWorkspace.getState>, prev: ReturnType<
     if (changes.length) fire(db, page, 'property_changed', changes)
   }
   // rows removed without passing through the trash (permanent delete of a live row)
-  for (const id in prev.pages) {
+  for (const id of removed) {
     const before = prev.pages[id]
-    if (state.pages[id] || before.trashed || !before.databaseId) continue
+    if (before.trashed || !before.databaseId) continue
     const db = active.get(before.databaseId)
     if (db && state.pages[db.id]) fire(db, before, 'row_deleted', [])
   }

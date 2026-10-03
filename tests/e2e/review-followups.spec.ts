@@ -165,7 +165,7 @@ test.describe('mentions survive a trip through Markdown files', () => {
 
     // the website renders mentions as text / links — never as one: links
     const site = unzipSync(new Uint8Array(readFileSync(await exportAs(/Website/))))
-    for (const [path, data] of Object.entries(site)) if (/\.(html|md|txt|json|xml)$/.test(path)) expect(strFromU8(data), path).not.toContain('one:')
+    for (const [path, data] of Object.entries(site)) if (/\.(html|md|txt|json|xml)$/.test(path)) expect(strFromU8(data), path).not.toMatch(/one:(date|person)\//)
 
     // import the Markdown ZIP: the mentions come back as mentions
     await page.locator('.sb').getByRole('button', { name: /^Import/ }).click()

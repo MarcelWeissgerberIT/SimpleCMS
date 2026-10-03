@@ -24,7 +24,7 @@
  *   IndexedDB write. The next boot (or another open tab) puts them back.
  */
 import { createStore, type UseStore } from 'idb-keyval'
-import { useWorkspace, getWorkspaceSnapshot, emptyWorkspace, WORKSPACE_VERSION, defaultSettings, defaultView, DEFAULT_PAGE_SETTINGS } from './store'
+import { useWorkspace, getWorkspaceSnapshot, emptyWorkspace, pageChanges, WORKSPACE_VERSION, defaultSettings, defaultView, DEFAULT_PAGE_SETTINGS } from './store'
 import type { Database, ID, Page, PropertyDef, Settings, Workspace } from './types'
 import { newId } from '../lib/ids'
 import { mergePage, samePage } from './merge'
@@ -841,14 +841,13 @@ export function startPersistence(): () => void {
     )
       return
     if (state.pages !== prev.pages) {
-      for (const id in state.pages) {
-        if (state.pages[id] === prev.pages[id]) continue
+      const { changed, removed } = pageChanges(state.pages, prev.pages)
+      for (const id of changed) {
         dirtyPages.add(id)
         // first change since the page was in sync: remember the copy it started from
         if (!syncBase.has(id) && prev.pages[id]) syncBase.set(id, prev.pages[id])
       }
-      for (const id in prev.pages) {
-        if (id in state.pages) continue
+      for (const id of removed) {
         dirtyPages.add(id)
         syncBase.delete(id)
       }

@@ -66,7 +66,15 @@ AI on every workspace with your own Claude key, and an honest export.
 </tr>
 <tr>
 <td><img src="public/assets/shots/graph.webp" alt="Graph view of all pages and their links" /></td>
-<td><img src="public/assets/shots/automations.webp" alt="Automation sending new database rows to an n8n webhook" /></td>
+<td><img src="public/assets/shots/automations.webp" alt="Automation: when a project is done, notify and send a webhook to n8n" /></td>
+</tr>
+<tr>
+<td><img src="public/assets/shots/meeting.webp" alt="AI meeting notes: the transcript of a meeting and the summary, decisions and action items Claude wrote from it" /></td>
+<td><img src="public/assets/shots/agent.webp" alt="Workspace agent: a task, its step log and two new database rows staged for review" /></td>
+</tr>
+<tr>
+<td><img src="public/assets/shots/synced.webp" alt="Synced block: the same principles on two pages side by side, edited in either place" /></td>
+<td><img src="public/assets/shots/inbox.webp" alt="Inbox: reminders from date mentions and date properties, and the ones still scheduled" /></td>
 </tr>
 </table>
 

@@ -23,7 +23,7 @@
  */
 import type { JSONContent } from '@tiptap/core'
 import type { ID, Page } from '../../store/types'
-import { useWorkspace } from '../../store/store'
+import { pageChanges, useWorkspace } from '../../store/store'
 import { isApplyingCloudChange, useCloud } from '../../cloud'
 import { docSchema } from '../convert'
 import { liveIds } from '../lib/livePages'
@@ -292,15 +292,14 @@ function onChange(s: { pages: Record<ID, Page> }, prev: { pages: Record<ID, Page
   if (!started || s.pages === prev.pages) return
   const changed: ID[] = []
   let liveDirty = false
-  for (const id in s.pages) {
+  const diff = pageChanges(s.pages, prev.pages)
+  for (const id of diff.changed) {
     const p = s.pages[id]
     const o = prev.pages[id]
-    if (p === o) continue
     if (!o || p.trashed !== o.trashed || p.parentId !== o.parentId) liveDirty = true
     if (!o || p.content !== o.content) changed.push(id)
   }
-  const removed: ID[] = []
-  for (const id in prev.pages) if (!(id in s.pages)) removed.push(id)
+  const removed = diff.removed
   if (removed.length) liveDirty = true
   if (!changed.length && !liveDirty) return
 
