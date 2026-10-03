@@ -257,6 +257,8 @@ const dirtyDbs = new Set<ID>()
 const dirtySettings = new Set<keyof Settings>()
 let dirtyPeople = false
 let dirtyRecent = false
+/** Pages were added or removed: the meta record's page order is rewritten with the next save. */
+let dirtyOrder = false
 /** Being written right now (a sync must not replace them with the older stored copy). */
 const inflightPages = new Set<ID>()
 const inflightDbs = new Set<ID>()
@@ -436,8 +438,10 @@ function readAll(): Promise<StoredRaw | null> {
         legacy.onsuccess = () => (out.value = legacy.result === undefined ? null : { raw: legacy.result, legacy: true, noMeta: false })
         return
       }
-      const m: Obj = isObj(meta.result) ? meta.result : {}
-      out.value = { raw: { ...m, pages: zip(PAGE_PREFIX, pk.result, pv.result), databases: zip(DB_PREFIX, dk.result, dv.result) }, legacy: false, noMeta: !isObj(meta.result) }
+      const { order, ...m }: Obj = isObj(meta.result) ? meta.result : {}
+      const pages = inOrder(zip(PAGE_PREFIX, pk.result, pv.result), order)
+      const databases = inOrder(zip(DB_PREFIX, dk.result, dv.result), Object.keys(pages))
+      out.value = { raw: { ...m, pages, databases }, legacy: false, noMeta: !isObj(meta.result) }
     }
   })
 }
@@ -462,7 +466,23 @@ function readSome(pageIds: ID[], dbIds: ID[], meta: boolean): Promise<{ pages: M
   })
 }
 
-const metaOf = (ws: Workspace) => ({ version: ws.version, epoch: ws.epoch, settings: ws.settings, people: ws.people, recent: ws.recent })
+/**
+ * The meta record. `order`: the page ids in the store's order — a map loaded from records would
+ * otherwise come back sorted by id, and code that walks the page map (first match by title, ties
+ * in sorted lists, graph layout) sees the order it always saw.
+ */
+const metaOf = (ws: Workspace) => ({ version: ws.version, epoch: ws.epoch, settings: ws.settings, people: ws.people, recent: ws.recent, order: Object.keys(ws.pages) })
+
+/** Records (id → value) in the stored page order; ids the order does not know follow by creation time. */
+function inOrder(records: Obj, order: unknown): Obj {
+  const out: Obj = {}
+  if (Array.isArray(order)) for (const id of order) if (typeof id === 'string' && id in records && !(id in out)) out[id] = records[id]
+  const created = (id: string) => (isObj(records[id]) && isNum(records[id].createdAt) ? records[id].createdAt : 0)
+  const rest = Object.keys(records).filter((id) => !(id in out))
+  rest.sort((a, b) => created(a) - created(b) || (a < b ? -1 : a > b ? 1 : 0))
+  for (const id of rest) out[id] = records[id]
+  return out
+}
 
 /**
  * The stored local workspace as raw data (v2 records assembled, or the legacy record) for readers
@@ -595,6 +615,8 @@ interface WriteSet {
   settingKeys: Array<keyof Settings>
   people: boolean
   recent: boolean
+  /** pages were added or removed (the meta record keeps their order) */
+  order: boolean
   /** every record (first run, a repair, the conversion from the legacy layout) */
   full: boolean
 }
@@ -655,8 +677,9 @@ function writeRecords(set: WriteSet, bases: Map<ID, Page>, merged: Map<ID, [Page
         if (db) os.put(db, DB_PREFIX + id)
         else os.delete(DB_PREFIX + id)
       }
-      if (set.settingKeys.length || set.people || set.recent) {
+      if (set.settingKeys.length || set.people || set.recent || set.order) {
         const next: Obj = { ...(meta.result as Obj), version: snap.version }
+        if (set.order) next.order = Object.keys(snap.pages)
         if (set.settingKeys.length) {
           const settings: Obj = { ...(isObj(next.settings) ? next.settings : snap.settings) }
           for (const k of set.settingKeys) settings[k] = snap.settings[k]
@@ -695,12 +718,13 @@ async function writeChanges(): Promise<void> {
   const settingKeys = [...dirtySettings]
   const people = dirtyPeople
   const recent = dirtyRecent
+  const order = dirtyOrder
   const full = fullWriteNext
   const stash = pendingStash
   dirtyPages.clear()
   dirtyDbs.clear()
   dirtySettings.clear()
-  dirtyPeople = dirtyRecent = fullWriteNext = false
+  dirtyPeople = dirtyRecent = dirtyOrder = fullWriteNext = false
   pages.forEach((id) => inflightPages.add(id))
   dbs.forEach((id) => inflightDbs.add(id))
   settingKeys.forEach((k) => inflightSettings.add(k))
@@ -716,7 +740,7 @@ async function writeChanges(): Promise<void> {
   try {
     setStatus('saving')
     // nothing stored yet (first run, seed), a repair or the legacy layout: every record (full)
-    const res = await writeRecords({ pages, dbs, settingKeys, people, recent, full }, bases, merged)
+    const res = await writeRecords({ pages, dbs, settingKeys, people, recent, order, full }, bases, merged)
     const written = res.pages
     // what is stored now is what this tab's pages descend from
     for (const id of pages) {
@@ -742,6 +766,7 @@ async function writeChanges(): Promise<void> {
     settingKeys.forEach((k) => dirtySettings.add(k))
     dirtyPeople ||= people
     dirtyRecent ||= recent
+    dirtyOrder ||= order
     fullWriteNext ||= full
     setStatus('error')
     // try again on our own (1 s, 2 s, 4 s … 30 s) instead of waiting for the next edit
@@ -841,7 +866,8 @@ export function startPersistence(): () => void {
     )
       return
     if (state.pages !== prev.pages) {
-      const { changed, removed } = pageChanges(state.pages, prev.pages)
+      const { changed, added, removed } = pageChanges(state.pages, prev.pages)
+      if (added.length || removed.length) dirtyOrder = true
       for (const id of changed) {
         dirtyPages.add(id)
         // first change since the page was in sync: remember the copy it started from

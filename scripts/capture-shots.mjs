@@ -273,6 +273,7 @@ async function freshPage(browser, { theme = 'light', lang = 'en', agent } = {}) 
   await mockClaude(ctx, { agent })
   await ctx.addInitScript(fakeSpeech)
   const page = await ctx.newPage()
+  page.setDefaultNavigationTimeout(60_000)
   page.on('pageerror', (e) => errors.push(`pageerror: ${String(e).slice(0, 200)}`))
   page.on('console', (m) => m.type() === 'error' && errors.push(`console.error: ${m.text().slice(0, 200)}`))
   page.on('response', (r) => r.status() >= 400 && errors.push(`HTTP ${r.status()}: ${r.url()}`))
@@ -752,16 +753,20 @@ const browser = await chromium.launch()
 let failed = 0
 for (const [name, run] of Object.entries(shots)) {
   if (ONLY.length ? !ONLY.includes(name) : name === 'og') continue
-  errors = []
-  try {
-    await run(browser)
-  } catch (e) {
-    failed++
-    console.log(`FAILED ${name}:`, String(e).slice(0, 400))
-  }
-  if (errors.length) {
-    failed++
-    console.log(`ERRORS in ${name}:\n  ${errors.join('\n  ')}`)
+  // a busy machine can time out a load: each shot gets a second try
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    errors = []
+    let problem = ''
+    try {
+      await run(browser)
+    } catch (e) {
+      problem = `FAILED ${name}: ${String(e).slice(0, 400)}`
+    }
+    if (!problem && errors.length) problem = `ERRORS in ${name}:\n  ${errors.join('\n  ')}`
+    if (!problem) break
+    console.log(problem)
+    if (attempt === 2) failed++
+    else console.log(`  retrying ${name}`)
   }
 }
 await browser.close()

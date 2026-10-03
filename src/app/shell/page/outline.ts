@@ -87,6 +87,8 @@ export function useOutline(editor: Editor | null, enabled: boolean): { items: Ou
   const [els, setEls] = useState<HTMLElement[]>([])
   // a jump pins the clicked entry until the smooth scroll settled
   const pinned = useRef(0)
+  // re-read soon (document changed, or the editor re-rendered a heading the spy was watching)
+  const reread = useRef<() => void>(() => {})
 
   useEffect(() => {
     if (!enabled || !editor || editor.isDestroyed) {
@@ -104,14 +106,17 @@ export function useOutline(editor: Editor | null, enabled: boolean): { items: Ou
       setEls((old) => (old.length === nextEls.length && old.every((el, i) => el === nextEls[i]) ? old : nextEls))
     }
     read()
+    reread.current = () => {
+      if (!timer) timer = window.setTimeout(read, 160)
+    }
     const onTr = ({ transaction }: { transaction: { docChanged: boolean } }) => {
-      if (!transaction.docChanged || timer) return
-      timer = window.setTimeout(read, 160)
+      if (transaction.docChanged) reread.current()
     }
     editor.on('transaction', onTr)
     return () => {
       editor.off('transaction', onTr)
       window.clearTimeout(timer)
+      reread.current = () => {}
     }
   }, [editor, enabled])
 
@@ -128,6 +133,7 @@ export function useOutline(editor: Editor | null, enabled: boolean): { items: Ou
         for (const e of entries) {
           const i = index.get(e.target as HTMLElement)
           if (i === undefined) continue
+          if (!e.target.isConnected) reread.current()
           const r = e.boundingClientRect
           // folded away (closed toggle, hidden tab): never the section being read
           passed[i] = e.isIntersecting && (r.width > 0 || r.height > 0)
@@ -144,7 +150,7 @@ export function useOutline(editor: Editor | null, enabled: boolean): { items: Ou
   }, [els])
 
   const pin = (i: number) => {
-    pinned.current = Date.now() + 700
+    pinned.current = Date.now() + 900
     setActive(i)
   }
   return { items, active, pin }
@@ -171,7 +177,25 @@ function reveal(el: HTMLElement, root: HTMLElement): boolean {
   return changed
 }
 
-/** Scroll the page column to the n-th outline heading and flash it. */
+/**
+ * A short signal tick in the gutter left of a heading — drawn in the scroll column, never in
+ * the editor's DOM (ProseMirror re-renders a node whose attributes someone else touched).
+ */
+function markHeading(el: HTMLElement, host: HTMLElement) {
+  host.querySelector(':scope > .mrail-mark')?.remove()
+  const r = el.getBoundingClientRect()
+  const h = host.getBoundingClientRect()
+  const mark = document.createElement('div')
+  mark.className = 'mrail-mark'
+  mark.setAttribute('aria-hidden', 'true')
+  mark.style.top = `${r.top - h.top + host.scrollTop}px`
+  mark.style.left = `${r.left - h.left + host.scrollLeft - 16}px`
+  mark.style.height = `${r.height}px`
+  host.append(mark)
+  window.setTimeout(() => mark.remove(), 1800)
+}
+
+/** Scroll the page column to the n-th outline heading and mark it. */
 export function jumpToHeading(editor: Editor | null, n: number): boolean {
   if (!editor || editor.isDestroyed) return false
   const el = headingEls(editor)[n]
@@ -179,14 +203,10 @@ export function jumpToHeading(editor: Editor | null, n: number): boolean {
   const host = scrollHostOf(el)
   const go = () => {
     if (!el.isConnected) return
-    if (host) {
-      const top = el.getBoundingClientRect().top - host.getBoundingClientRect().top + host.scrollTop - 28
-      host.scrollTo({ top: Math.max(0, top), behavior: reducedMotion() ? 'auto' : 'smooth' })
-    } else el.scrollIntoView({ block: 'start' })
-    el.classList.remove('is-target')
-    void el.offsetWidth // restart the flash when the same heading is picked twice
-    el.classList.add('is-target')
-    window.setTimeout(() => el.classList.remove('is-target'), 2200)
+    if (!host) return el.scrollIntoView({ block: 'start' })
+    const top = el.getBoundingClientRect().top - host.getBoundingClientRect().top + host.scrollTop - 28
+    host.scrollTo({ top: Math.max(0, top), behavior: reducedMotion() ? 'auto' : 'smooth' })
+    markHeading(el, host)
   }
   // revealed content lays out on the next frames (the tabs view re-renders through React)
   if (reveal(el, editor.view.dom as HTMLElement)) requestAnimationFrame(() => requestAnimationFrame(go))

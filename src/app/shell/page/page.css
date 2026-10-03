@@ -567,6 +567,25 @@
   white-space: nowrap;
 }
 
+/* the heading an outline jump landed on: a signal tick in the gutter (outline.ts) */
+.mrail-mark {
+  position: absolute;
+  z-index: 2;
+  width: 3px;
+  background: var(--signal);
+  pointer-events: none;
+  animation: mrail-mark 1.8s var(--ease-out) forwards;
+}
+@keyframes mrail-mark {
+  0%,
+  45% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .pv[data-rail] .pv-col {
     transition: none;
@@ -574,9 +593,13 @@
   .mrail__body {
     animation: none;
   }
+  .mrail-mark {
+    animation: none;
+  }
 }
 @media print {
-  .mrail {
+  .mrail,
+  .mrail-mark {
     display: none;
   }
   .pv[data-rail='open']:not(:has(.one-editor[data-rail='margin'])) .pv-col {

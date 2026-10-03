@@ -17,6 +17,17 @@ import { NextDays, NextDaysActions } from '../agenda/NextDays'
 import { useReadOnly } from '../cloud/state'
 import './home.css'
 
+/** Words per page object (immutable: a changed page is a new object) — the stats re-count only what changed. */
+const wordsCache = new WeakMap<Page, number>()
+function wordsOf(p: Page): number {
+  let n = wordsCache.get(p)
+  if (n === undefined) {
+    n = wordCount(p.plain)
+    wordsCache.set(p, n)
+  }
+  return n
+}
+
 export function Home() {
   const t = useT()
   const lang = useLang()
@@ -41,12 +52,13 @@ export function Home() {
     let dbs = 0
     let rows = 0
     let words = 0
-    for (const p of Object.values(pages)) {
+    for (const id of Object.keys(pages)) {
+      const p = pages[id]
       if (isEffectivelyTrashed(pages, p.id)) continue
       if (p.kind === 'database') dbs++
       else if (p.databaseId) rows++
       else docs++
-      words += wordCount(p.plain)
+      words += wordsOf(p)
     }
     return { docs, dbs, rows, words }
   }, [pages])

@@ -149,7 +149,7 @@ function useRail(ref: React.RefObject<HTMLElement | null>, eligible: boolean): b
     if (!rail) return
     const onKey = (e: KeyboardEvent) => {
       if (e.defaultPrevented || e.isComposing || e.altKey || !(e.metaKey || e.ctrlKey) || e.key !== '.') return
-      if (document.querySelector('[data-popover], .modal-scrim, .pal-scrim')) return
+      if (document.querySelector('.modal-scrim, .pal-scrim')) return
       e.preventDefault()
       toggleMarginRail()
     }

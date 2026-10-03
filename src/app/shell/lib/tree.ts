@@ -1,6 +1,7 @@
 /**
- * Sidebar tree helpers: a memoised parent → children index over the page map
- * (rebuilt once per store change, O(1) per node) and the per-viewer expanded state.
+ * Sidebar tree helpers: a memoised parent → children index over the page map (rebuilt only
+ * when a store change moves, adds, removes or hides pages; O(1) per node) and the per-viewer
+ * expanded state.
  */
 import { create } from 'zustand'
 import { useShallow } from 'zustand/react/shallow'

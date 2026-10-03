@@ -3,7 +3,7 @@
  * outline (scroll-spy), its spec readings and the pages linking here. PageView decides when it
  * shows (main column only, wide enough, no focus mode, no comment rail — see page.css).
  */
-import { useId, type ReactNode } from 'react'
+import { useEffect, useId, useRef, type ReactNode } from 'react'
 import type { Editor } from '@tiptap/core'
 import { PanelRightClose, PanelRightOpen } from 'lucide-react'
 import { useWorkspace } from '../../store/store'
@@ -13,6 +13,7 @@ import { Tooltip } from '../../ui/Tooltip'
 import { useT } from '../../i18n'
 import type { Page } from '../../store/types'
 import { goToPage } from '../lib/actions'
+import { useKbdHint } from '../lib/hooks'
 import { Stamp, shortId, usePageReadings } from './SpecPlate'
 import { jumpToHeading, useOutline, type OutlineItem } from './outline'
 import { RAIL_SHORTCUT, toggleMarginRail, useMarginRailOpen } from './railPref'
@@ -20,6 +21,7 @@ import { RAIL_SHORTCUT, toggleMarginRail, useMarginRailOpen } from './railPref'
 export function MarginRail({ page, editor }: { page: Page; editor: Editor | null }) {
   const t = useT()
   const open = useMarginRailOpen()
+  const kbd = useKbdHint()
   const bodyId = useId()
   const outline = useOutline(editor, open)
   const links = useBacklinks(page.id)
@@ -30,7 +32,7 @@ export function MarginRail({ page, editor }: { page: Page; editor: Editor | null
   return (
     <aside className="mrail" data-open={open || undefined} aria-label={t('shell.rail.label')}>
       <div className="mrail__inner">
-        <Tooltip label={t(open ? 'shell.rail.hide' : 'shell.rail.show')} shortcut={RAIL_SHORTCUT} placement="left">
+        <Tooltip label={t(open ? 'shell.rail.hide' : 'shell.rail.show')} shortcut={kbd(RAIL_SHORTCUT)} placement="left">
           <button type="button" className="mrail__key" aria-expanded={open} aria-controls={open ? bodyId : undefined} onClick={toggleMarginRail}>
             {open ? <PanelRightClose size={15} strokeWidth={1.7} /> : <PanelRightOpen size={15} strokeWidth={1.7} />}
           </button>
@@ -102,9 +104,20 @@ function RailSection({ n, label, count, children }: { n: string; label: string; 
 function Outline({ items, active, onJump }: { items: OutlineItem[]; active: number; onJump: (i: number) => void }) {
   const t = useT()
   const min = Math.min(...items.map((h) => h.level))
+  const list = useRef<HTMLOListElement>(null)
+  // a long outline scrolls inside the rail: keep the section being read in view
+  useEffect(() => {
+    const el = list.current?.children[active] as HTMLElement | undefined
+    const box = list.current?.closest<HTMLElement>('.mrail__body')
+    if (!el || !box || box.scrollHeight <= box.clientHeight) return
+    const b = box.getBoundingClientRect()
+    const r = el.getBoundingClientRect()
+    if (r.top < b.top) box.scrollTop -= b.top - r.top + 8
+    else if (r.bottom > b.bottom) box.scrollTop += r.bottom - b.bottom + 8
+  }, [active])
   return (
     <nav aria-label={t('shell.rail.outline')}>
-      <ol className="mrail-toc">
+      <ol ref={list} className="mrail-toc">
         {items.map((h, i) => (
           <li key={`${h.id ?? 'h'}-${i}`} data-depth={Math.min(2, h.level - min)}>
             <button type="button" className="mrail-toc__a" aria-current={i === active ? 'location' : undefined} onClick={() => onJump(i)} title={h.text}>

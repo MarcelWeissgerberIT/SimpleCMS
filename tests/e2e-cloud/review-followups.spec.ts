@@ -113,6 +113,20 @@ test('a synced copy that is unsynced: the @mention in it is not news again', asy
   await expect.poll(() => wsEval(b, (s, id) => JSON.stringify(s.pages[id].content).includes('syncedBlock'), ids[2]), { timeout: 15_000 }).toBe(false)
   await b.waitForTimeout(2000)
   expect(await mentionItems(b)).toHaveLength(1)
+
+  // … and wrapped into a new synced block again (Copy and sync keeps the block): still old news
+  await wsEval(
+    a,
+    (s, id) => {
+      const c = JSON.parse(JSON.stringify(s.pages[id].content))
+      c.content = c.content.map((n: { attrs?: { id?: string } }) => (n.attrs?.id === 'p-c2' ? { type: 'syncedBlock', attrs: { id: 'sb-wrap', syncId: 'followup-wrap', sourcePageId: null }, content: [n] } : n))
+      s.setContent(id, c, 'e2e')
+    },
+    ids[2],
+  )
+  await expect.poll(() => wsEval(b, (s, id) => JSON.stringify(s.pages[id].content).includes('followup-wrap'), ids[2]), { timeout: 15_000 }).toBe(true)
+  await b.waitForTimeout(2000)
+  expect(await mentionItems(b)).toHaveLength(1)
   await b.context().close()
 })
 

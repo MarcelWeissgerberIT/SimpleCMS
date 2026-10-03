@@ -214,27 +214,29 @@ function added(cur: Array<string | null>, old: Array<string | null>): Array<{ bl
 const countOf = (list: Array<string | null> | undefined, syncId: string) => (list ?? []).reduce((n, g) => (g === syncId ? n + 1 : n), 0)
 
 /**
- * My @mentions inside synced blocks (`groups`: the sync group per mention of `page`, see TeamFacts):
+ * My @mentions inside synced blocks (`groups`: the sync group per mention of `page`, see TeamFacts;
+ * `fresh`: per group, how many of them sit in blocks that didn't have them on this page before):
  * news once per group, for the whole workspace — when a page shows more of them than any page's
  * snapshot knew. Content that was there already is no news when it turns up elsewhere (a copy whose
- * original left this workspace, a copy unsynced, a new copy). The item sits at the original when
- * this member has it. Call after `snap[page.id]` took the page's new facts (`old`: its previous ones).
+ * original left this workspace, a new copy) or gets wrapped (Copy and sync). The item sits at the
+ * original when this member has it. Call after `snap[page.id]` took the page's new facts (`old`).
  */
-function groupNews(me: ID, pages: Record<ID, Page>, page: Page, groups: Array<string | null>, old: TeamFacts, now: number): InboxItem[] {
+function groupNews(me: ID, pages: Record<ID, Page>, page: Page, groups: Array<string | null>, fresh: Map<string, number>, old: TeamFacts, now: number): InboxItem[] {
   const items: InboxItem[] = []
   const counts = new Map<string, number>()
   for (const g of groups) if (g) counts.set(g, (counts.get(g) ?? 0) + 1)
   for (const [syncId, count] of counts) {
     let known = countOf(old.g, syncId)
-    if (count <= known) continue
+    if (count <= known || !fresh.get(syncId)) continue
     for (const pid in snap!) if (pid !== page.id) known = Math.max(known, countOf(snap![pid].g, syncId))
-    if (count <= known) continue
+    const news = Math.min(fresh.get(syncId)!, count - known)
+    if (news <= 0) continue
     const here = groupMention(page, me, syncId)
     // at the original (its block once its content is here: the same line)
     const source = here?.source ? pages[here.source] : undefined
     const pageId = source?.id ?? page.id
     const blockId = source ? (groupMention(source, me, syncId)?.blockId ?? null) : (here?.blockId ?? null)
-    for (let n = known + 1; n <= count; n++) items.push({ id: `m:${pageId}:${blockId ?? '-'}:${n}`, kind: 'mention', pageId, at: now, blockId, excerpt: here?.line ?? '' })
+    for (let n = known + 1; n <= known + news; n++) items.push({ id: `m:${pageId}:${blockId ?? '-'}:${n}`, kind: 'mention', pageId, at: now, blockId, excerpt: here?.line ?? '' })
   }
   return items
 }
@@ -267,12 +269,17 @@ function diffPage(me: { id: ID; name: string }, id: ID, own: boolean, baselineAt
     // @mentions (content loaded; an old page's first content is the baseline)
     if (cur.m && (old.m || page.createdAt > baselineAt)) {
       const groups = cur.g ?? []
-      // outside synced blocks, per block: a block that had me already (in a synced block since unsynced too) is no news
-      const plain = cur.m.filter((_, i) => !groups[i])
-      for (const { block, n } of added(plain, old.m ?? []))
-        items.push({ id: `m:${id}:${block ?? '-'}:${n}`, kind: 'mention', pageId: id, at: now, blockId: block, excerpt: mentionLine(page, me.id, block) })
-      // inside synced blocks, per group (a snapshot from before groups were tracked is their baseline)
-      if (!old.m || old.g) items.push(...groupNews(me.id, s.pages, page, groups, old, now))
+      const groupOf = new Map<string | null, string | null>()
+      cur.m.forEach((block, i) => groupOf.has(block) || groupOf.set(block, groups[i] ?? null))
+      // new by block: a block that had me already (also inside a synced block since unsynced) is no news
+      const fresh = new Map<string, number>()
+      for (const { block, n } of added(cur.m, old.m ?? [])) {
+        const syncId = groupOf.get(block)
+        if (syncId) fresh.set(syncId, (fresh.get(syncId) ?? 0) + 1)
+        else items.push({ id: `m:${id}:${block ?? '-'}:${n}`, kind: 'mention', pageId: id, at: now, blockId: block, excerpt: mentionLine(page, me.id, block) })
+      }
+      // inside synced blocks also per group (a snapshot from before groups were tracked is their baseline)
+      if (!old.m || old.g) items.push(...groupNews(me.id, s.pages, page, groups, fresh, old, now))
     }
     // person properties
     for (const propId of cur.a)

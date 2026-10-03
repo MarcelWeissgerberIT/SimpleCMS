@@ -1,7 +1,7 @@
 /** Read hooks and pure selectors over the workspace store. */
 import { useMemo } from 'react'
 import { useShallow } from 'zustand/react/shallow'
-import { useWorkspace, linkedPageIds } from './store'
+import { useWorkspace, linkedPageIds, pageChanges } from './store'
 import type { Database, ID, Page } from './types'
 
 export function usePage(id: ID | null | undefined): Page | undefined {
@@ -113,10 +113,44 @@ function linksOf(p: Page): ReadonlySet<ID> {
   return hit
 }
 
+/**
+ * Can a store change (prev → pages) have changed a per-page answer about `id` — a list of the pages
+ * for which `relevant` holds (they link to it, mention it …), live ones only? Only through a page
+ * that is or was relevant, a page that moved or went to / came back from the trash (the ancestry
+ * that decides "live"), or a removed page. The page `id` itself never counts. Shared diff: cheap.
+ */
+export function mayChangeAnswer(pages: Record<ID, Page>, prev: Record<ID, Page>, id: ID, relevant: (p: Page) => boolean): boolean {
+  const { changed, removed } = pageChanges(pages, prev)
+  if (removed.length) return true
+  for (const k of changed) {
+    const p = pages[k]
+    const o = prev[k]
+    if (o && (o.trashed !== p.trashed || o.parentId !== p.parentId)) return true
+    if (k !== id && (relevant(p) || (!!o && relevant(o)))) return true
+  }
+  return false
+}
+
+/** The last few answers (target → pages map it was computed for, answer): typing elsewhere reuses them. */
+const backlinksMemo = new Map<ID, { pages: Record<ID, Page>; out: Page[] }>()
+
 /** Pages linking to `id` (via page links, mentions, links); pages in the trash (or under a trashed parent) don't count. */
 export function selectBacklinks(pages: Record<ID, Page>, id: ID): Page[] {
+  const hit = backlinksMemo.get(id)
+  if (hit && (hit.pages === pages || !mayChangeAnswer(pages, hit.pages, id, (p) => !!p.content && linksOf(p).has(id)))) {
+    hit.pages = pages
+    return hit.out
+  }
   const trashed = trashedLookup(pages)
-  return Object.values(pages).filter((p) => p.id !== id && !p.trashed && linksOf(p).has(id) && !trashed(p.id))
+  const out: Page[] = []
+  for (const k of Object.keys(pages)) {
+    const p = pages[k]
+    if (p.id !== id && !p.trashed && p.content && linksOf(p).has(id) && !trashed(p.id)) out.push(p)
+  }
+  backlinksMemo.delete(id)
+  backlinksMemo.set(id, { pages, out })
+  if (backlinksMemo.size > 4) backlinksMemo.delete(backlinksMemo.keys().next().value!)
+  return out
 }
 
 export function useBacklinks(id: ID | null | undefined): Page[] {
@@ -154,7 +188,8 @@ export function pageStats(pages: Record<ID, Page>): PageStats {
   const tree = { all: 0, priv: 0, shared: 0 }
   let favs: Page[] = []
   let trash: Page[] = []
-  for (const id in pages) {
+  // Object.keys: for…in over a map of thousands of pages costs several times more
+  for (const id of Object.keys(pages)) {
     const p = pages[id]
     if (p.trashed) {
       trash.push(p)

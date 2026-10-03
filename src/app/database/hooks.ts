@@ -3,7 +3,7 @@
  */
 import { createContext, useContext, useMemo, useState, useEffect, useCallback } from 'react'
 import { useShallow } from 'zustand/react/shallow'
-import { useWorkspace } from '../store/store'
+import { pageChanges, useWorkspace } from '../store/store'
 import { useLang, useT } from '../i18n'
 import type { Database, ID, Page, PropertyDef, PropertyValue, View } from '../store/types'
 import { Resolver, type Ctx } from './model/resolve'
@@ -34,16 +34,34 @@ function relevantDbIds(databases: Record<ID, Database>, dbId: ID): Set<ID> {
   return out
 }
 
+/**
+ * Rows of the databases in `ids`, per set of databases: the list is kept while no store change
+ * touches one of them (the store's shared diff says which pages changed), so the selector below
+ * costs nothing on keystrokes elsewhere instead of a scan of every page on every store change.
+ */
+const relevantCache = new Map<string, { pages: Record<ID, Page>; rows: Page[] }>()
+const inDbs = (p: Page | undefined, ids: Set<ID>) => !!p?.databaseId && ids.has(p.databaseId)
+
+function relevantRows(pages: Record<ID, Page>, ids: Set<ID>): Page[] {
+  const key = [...ids].sort().join(' ')
+  const hit = relevantCache.get(key)
+  if (hit) {
+    if (hit.pages === pages) return hit.rows
+    const { changed, removed } = pageChanges(pages, hit.pages)
+    if (!changed.some((id) => inDbs(pages[id], ids) || inDbs(hit.pages[id], ids)) && !removed.some((id) => inDbs(hit.pages[id], ids))) {
+      hit.pages = pages
+      return hit.rows
+    }
+  }
+  const rows: Page[] = []
+  for (const id of Object.keys(pages)) if (inDbs(pages[id], ids)) rows.push(pages[id])
+  relevantCache.set(key, { pages, rows })
+  return rows
+}
+
 /** Rows of relevant databases; re-renders only when one of them changes. */
 export function useRelevantPages(dbId: ID): Page[] {
-  return useWorkspace(
-    useShallow((s) => {
-      const ids = relevantDbIds(s.databases, dbId)
-      const out: Page[] = []
-      for (const p of Object.values(s.pages)) if (p.databaseId && ids.has(p.databaseId)) out.push(p)
-      return out
-    }),
-  )
+  return useWorkspace(useShallow((s) => relevantRows(s.pages, relevantDbIds(s.databases, dbId))))
 }
 
 export function useLabels() {
