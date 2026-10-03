@@ -10,7 +10,7 @@ import { t } from '../../../i18n'
 import { databaseChartData } from '../../../database'
 import type { ChartData, ChartSource, ChartSpec } from '../types'
 import { tableToChartData } from '../table'
-import { findSpreadsheet, onSheetsLoaded, sheetsApi, sheetsAvailable, usedRange } from './sheet'
+import { findSpreadsheet, readSheet, usedRange } from './sheet'
 import { metricDef, systemData, systemDataSync } from './system'
 
 export type TableSpec = Partial<Pick<ChartSpec, 'labels' | 'seriesIn' | 'unit'>>
@@ -36,16 +36,13 @@ function manualData(source: Extract<ChartSource, { kind: 'manual' }>, spec: Tabl
 }
 
 function sheetData(source: Extract<ChartSource, { kind: 'sheet' }>, spec: TableSpec): ChartData {
-  if (!sheetsAvailable()) return fail('charts.err.sheetsMissing')
   const pages = useWorkspace.getState().pages
   const page = pages[source.pageId]
   if (!page || page.trashed) return fail('charts.err.sourceMissing')
   const attrs = findSpreadsheet(source.pageId, source.sheetBlockId, pages)
   if (!attrs) return fail(page.content ? 'charts.err.sheetMissing' : 'charts.err.notAvailable')
-  const api = sheetsApi()
-  if (!api) return fail('charts.err.loading')
   try {
-    const out = api.readSheetData(attrs, source.ref.trim() || usedRange(attrs))
+    const out = readSheet(attrs, source.ref.trim() || usedRange(attrs))
     if (out.error) return fail('charts.err.sheet', { error: out.error })
     return tableToChartData(out.values, spec, tableOpts())
   } catch (err) {
@@ -97,10 +94,6 @@ export async function resolveChartData(source: ChartSource, spec: TableSpec = {}
     if (!data.error) lastFull.set(sourceKey(source), data)
     return data
   }
-  if (source.kind === 'sheet' && sheetsAvailable() && !sheetsApi()) {
-    const { loadSheets } = await import('./sheet')
-    await loadSheets()
-  }
   return resolveChartDataSync(source, spec)
 }
 
@@ -151,8 +144,7 @@ export function useChartData(source: ChartSource | null, spec: TableSpec = {}): 
   const initial = useMemo<ChartDataState>(() => {
     if (!src) return { data: { labels: [], series: [] }, loading: false }
     const data = resolveChartDataSync(src, tspec)
-    const async = (src.kind === 'system' && !!metricDef(src.metric)?.async) || (src.kind === 'sheet' && !!data.error && !sheetsApi() && sheetsAvailable())
-    return { data, loading: async }
+    return { data, loading: src.kind === 'system' && !!metricDef(src.metric)?.async }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [src, tspec, lang])
   const [state, setState] = useState<ChartDataState>(initial)
@@ -173,12 +165,10 @@ export function useChartData(source: ChartSource | null, spec: TableSpec = {}): 
       window.clearTimeout(timer)
       timer = window.setTimeout(() => void run(), delay)
     })
-    const unSheets = src.kind === 'sheet' ? onSheetsLoaded(() => void run()) : () => {}
     return () => {
       alive = false
       window.clearTimeout(timer)
       unsub()
-      unSheets()
     }
   }, [src, tspec, lang])
 

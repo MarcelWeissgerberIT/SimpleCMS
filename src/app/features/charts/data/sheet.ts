@@ -2,58 +2,19 @@
  * Spreadsheet source: a `spreadsheet` block on any page (found by its `id` attr in the page's
  * stored content — in team workspaces the last known content), read through the spreadsheets
  * area's readSheetData(attrs, ref): computed values of a range, a cross-sheet ref, DS(…) or a
- * named dataset. The spreadsheets module is loaded on first use.
+ * named dataset (error cells → null, dates → 'YYYY-MM-DD').
  */
 import type { JSONContent } from '@tiptap/core'
 import type { ID, Page } from '../../../store/types'
 import { useWorkspace } from '../../../store/store'
 import { inTemplate, isEffectivelyTrashed } from '../../../store/selectors'
+import { readSheetData } from '../../sheets'
 import type { CellValue } from '../types'
 
-export interface SheetsApi {
-  readSheetData: (attrs: Record<string, unknown>, ref: string) => { values: CellValue[][]; error?: string }
-}
-
-// resolved at build time: an empty map until the spreadsheets area exists
-const modules = import.meta.glob<SheetsApi>('../../sheets/index.ts')
-let api: SheetsApi | null = null
-let loading: Promise<SheetsApi | null> | null = null
-const waiting = new Set<() => void>()
-
-/** The spreadsheets API once loaded (null before / when unavailable). */
-export function sheetsApi(): SheetsApi | null {
-  if (!api) void loadSheets()
-  return api
-}
-
-export function sheetsAvailable(): boolean {
-  return Object.keys(modules).length > 0
-}
-
-export function loadSheets(): Promise<SheetsApi | null> {
-  if (api) return Promise.resolve(api)
-  const load = Object.values(modules)[0]
-  if (!load) return Promise.resolve(null)
-  loading ??= load()
-    .then((m) => {
-      api = typeof m?.readSheetData === 'function' ? m : null
-      waiting.forEach((fn) => fn())
-      waiting.clear()
-      return api
-    })
-    .catch((err) => {
-      console.warn('[charts] spreadsheets unavailable', err)
-      loading = null
-      return null
-    })
-  return loading
-}
-
-/** Re-render when the spreadsheets module arrives. */
-export function onSheetsLoaded(fn: () => void): () => void {
-  if (api) return () => {}
-  waiting.add(fn)
-  return () => waiting.delete(fn)
+/** Computed cells of `ref` in a spreadsheet block's attrs. */
+export function readSheet(attrs: Record<string, unknown>, ref: string): { values: CellValue[][]; error?: string } {
+  const lang = useWorkspace.getState().settings.language === 'de' ? 'de' : 'en'
+  return readSheetData(attrs, ref, { lang })
 }
 
 /* ------------------------------------------------------------------ */
