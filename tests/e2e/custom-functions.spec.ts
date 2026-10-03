@@ -15,6 +15,24 @@ const picker = (page: Page): Locator => page.locator('.fx-pick')
 const preview = (page: Page): Locator => fx(page).getByTestId('fx-preview')
 const result = (page: Page): Locator => fx(page).getByTestId('fx-result')
 
+/** The app without the seeded demo function (MARGIN) and the seeded sheet that uses it: each test builds its own. */
+async function openClean(page: Page) {
+  await openApp(page)
+  await page.evaluate(() => {
+    type S = {
+      functions?: Record<string, unknown>
+      pages: Record<string, { id: string; content?: { content?: Array<{ type: string }> } | null }>
+      deleteFunction: (id: string) => void
+      setContent: (id: string, doc: unknown, origin: string) => void
+    }
+    const s = (window as unknown as { __one: { workspace: { getState: () => S } } }).__one.workspace.getState()
+    for (const id of Object.keys(s.functions ?? {})) s.deleteFunction(id)
+    for (const p of Object.values(s.pages)) {
+      if (p.content?.content?.some((n) => n.type === 'spreadsheet')) s.setContent(p.id, { type: 'doc', content: [{ type: 'paragraph' }] }, 'e2e')
+    }
+  })
+}
+
 async function openBuilder(page: Page, label = 'Custom functions') {
   await page.keyboard.press(`${MOD}+k`)
   const pal = page.getByRole('dialog', { name: 'Command palette' })
@@ -127,7 +145,7 @@ async function productsDb(page: Page, formula: string): Promise<string> {
 
 test.describe('custom functions', () => {
   test('build MARGIN by clicking → test bench → database formula → edit → reload', async ({ page }) => {
-    await openApp(page)
+    await openClean(page)
     // a formula that calls MARGIN before it exists: unknown function, until the function is saved
     const db = await productsDb(page, 'MARGIN(prop("Price"), prop("Cost"))')
     await gotoPage(page, db)
@@ -205,7 +223,7 @@ test.describe('custom functions', () => {
   })
 
   test('the formula editor lists custom functions and opens the builder', async ({ page }) => {
-    await openApp(page)
+    await openClean(page)
     await wsEval(page, (s) =>
       s.upsertFunction({
         id: 'fn-double',
@@ -247,7 +265,7 @@ test.describe('custom functions', () => {
   })
 
   test('keyboard only: build DOUBLE(x) = x × 2 in the tree', async ({ page }) => {
-    await openApp(page)
+    await openClean(page)
     await openBuilder(page)
     await newFunction(page, 'TWICE')
     await addParam(page, 'x')
@@ -307,7 +325,7 @@ test.describe('custom functions', () => {
   })
 
   test('datasets: SPREAD(values: Dataset) = MAX(values) − MIN(values)', async ({ page }) => {
-    await openApp(page)
+    await openClean(page)
     await openBuilder(page)
     await newFunction(page, 'SPREAD')
     await addParam(page, 'values', 'range')
@@ -336,7 +354,7 @@ test.describe('custom functions', () => {
   })
 
   test('recursion is capped, invalid names are refused, delete warns about usage', async ({ page }) => {
-    await openApp(page)
+    await openClean(page)
     await openBuilder(page)
     await newFunction(page, 'LOOP')
     const name = fx(page).getByRole('textbox', { name: 'Function name' })
@@ -379,7 +397,7 @@ test.describe('custom functions', () => {
   })
 
   test('unsaved changes ask before closing; renames follow into formulas', async ({ page }) => {
-    await openApp(page)
+    await openClean(page)
     await wsEval(page, (s) =>
       s.upsertFunction({
         id: 'fn-inc',
@@ -417,7 +435,7 @@ test.describe('custom functions', () => {
   })
 
   test('spreadsheet cells: =MARGIN(B1; B2), =SPREAD(DS(A1:A3; C1:C2)), type checks, edits and renames follow', async ({ page }) => {
-    await openApp(page)
+    await openClean(page)
     await wsEval(page, (s) => {
       const now = 1
       s.upsertFunction({
@@ -537,7 +555,7 @@ test.describe('custom functions', () => {
   })
 
   test('backup round-trip keeps functions; bad entries in a backup are dropped', async ({ page }, testInfo) => {
-    await openApp(page)
+    await openClean(page)
     await wsEval(page, (s) =>
       s.upsertFunction({
         id: 'fn-half',
@@ -596,7 +614,7 @@ test.describe('custom functions', () => {
 
   test('German UI and phone layout', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 })
-    await openApp(page)
+    await openClean(page)
     await wsEval(page, (s) => s.updateSettings({ language: 'de' }))
     await wsEval(page, (s) =>
       s.upsertFunction({
