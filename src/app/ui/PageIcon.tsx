@@ -11,7 +11,17 @@ export function PageIcon({ icon, kind = 'page', size = 18, fallback = true }: { 
       </span>
     )
   if (icon?.type === 'asset')
-    return <img src={resolveAssetUrl(`assets/icons/${icon.value}.webp`)} alt="" width={size} height={size} style={{ flex: 'none', objectFit: 'contain' }} draggable={false} />
+    return (
+      <img
+        src={resolveAssetUrl(`assets/icons/${icon.value}.webp`)}
+        alt=""
+        width={size}
+        height={size}
+        // the renders keep an 8% margin + a soft shadow: at sidebar sizes the object is enlarged to stay legible
+        style={{ flex: 'none', objectFit: 'contain', transform: size <= 24 ? 'scale(1.28)' : undefined }}
+        draggable={false}
+      />
+    )
   if (!fallback) return null
   const Glyph = kind === 'database' ? DbIcon : FileText
   return <Glyph size={size * 0.85} strokeWidth={1.6} style={{ flex: 'none', color: 'var(--ink-3)' }} aria-hidden />

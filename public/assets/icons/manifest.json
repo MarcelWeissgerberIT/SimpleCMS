@@ -145,5 +145,75 @@
     "label_de": "App-Icon",
     "png": "app-icon.png",
     "webp": "app-icon.webp"
+  },
+  {
+    "name": "binder",
+    "label": "Wiki",
+    "label_de": "Wiki",
+    "png": "binder.png",
+    "webp": "binder.webp"
+  },
+  {
+    "name": "notepad",
+    "label": "Notes",
+    "label_de": "Notizen",
+    "png": "notepad.png",
+    "webp": "notepad.webp"
+  },
+  {
+    "name": "book",
+    "label": "Reading list",
+    "label_de": "Leseliste",
+    "png": "book.png",
+    "webp": "book.webp"
+  },
+  {
+    "name": "megaphone",
+    "label": "Content & campaigns",
+    "label_de": "Content & Kampagnen",
+    "png": "megaphone.png",
+    "webp": "megaphone.webp"
+  },
+  {
+    "name": "microphone",
+    "label": "Brand voice",
+    "label_de": "Markenstimme",
+    "png": "microphone.png",
+    "webp": "microphone.webp"
+  },
+  {
+    "name": "compass",
+    "label": "Onboarding",
+    "label_de": "Onboarding",
+    "png": "compass.png",
+    "webp": "compass.webp"
+  },
+  {
+    "name": "cardbox",
+    "label": "Glossary",
+    "label_de": "Glossar",
+    "png": "cardbox.png",
+    "webp": "cardbox.webp"
+  },
+  {
+    "name": "clock",
+    "label": "Meetings",
+    "label_de": "Meetings",
+    "png": "clock.png",
+    "webp": "clock.webp"
+  },
+  {
+    "name": "rolodex",
+    "label": "Contacts & CRM",
+    "label_de": "Kontakte & CRM",
+    "png": "rolodex.png",
+    "webp": "rolodex.webp"
+  },
+  {
+    "name": "counter",
+    "label": "Habits",
+    "label_de": "Gewohnheiten",
+    "png": "counter.png",
+    "webp": "counter.webp"
   }
 ]

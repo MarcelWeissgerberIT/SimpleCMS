@@ -87,12 +87,12 @@ export function seedWorkspace(lang: Lang): void {
   const mira = s.addPerson('Mira')
 
   /* ---------- top-level pages (created first so links work) ---------- */
-  const welcome = s.createPage({ title: L('Welcome to One', 'Willkommen bei One'), icon: { type: 'emoji', value: '👋' }, cover: { type: 'image', value: 'assets/covers/paper-folds.webp', positionY: 50 } })
+  const welcome = s.createPage({ title: L('Welcome to One', 'Willkommen bei One'), icon: { type: 'asset', value: 'app-icon' }, cover: { type: 'image', value: 'assets/covers/paper-folds.webp', positionY: 50 } })
   const projects = newId()
   const reading = newId()
   const calendar = newId()
-  const wiki = s.createPage({ title: L('Team wiki', 'Team-Wiki'), icon: { type: 'emoji', value: '📖' } })
-  const meeting = s.createPage({ title: L('Weekly sync — notes', 'Weekly Sync — Notizen'), icon: { type: 'emoji', value: '🗓️' } })
+  const wiki = s.createPage({ title: L('Team wiki', 'Team-Wiki'), icon: { type: 'asset', value: 'binder' } })
+  const meeting = s.createPage({ title: L('Weekly sync — notes', 'Weekly Sync — Notizen'), icon: { type: 'asset', value: 'notepad' } })
 
   /* ---------- Projects database ---------- */
   const statusOpts = [
@@ -127,7 +127,7 @@ export function seedWorkspace(lang: Lang): void {
     { id: P.id, name: 'ID', type: 'unique_id', idPrefix: 'PRJ' },
     { id: P.daysLeft, name: L('Days left', 'Tage übrig'), type: 'formula', formula: `if(empty(prop("${L('Timeline', 'Zeitraum')}")), "", dateBetween(dateEnd(prop("${L('Timeline', 'Zeitraum')}")), now(), "days"))` },
   ]
-  s.createDatabase({ id: projects, title: L('Projects', 'Projekte'), icon: { type: 'emoji', value: '🗂️' }, properties: projectProps, views: [] })
+  s.createDatabase({ id: projects, title: L('Projects', 'Projekte'), icon: { type: 'asset', value: 'kanban' }, properties: projectProps, views: [] })
   {
     const db = { properties: projectProps }
     const board = { ...defaultView('board', db, L('Board', 'Board')), groupBy: P.status, visibleProperties: [P.prio, P.owner, P.due, P.progress] }
@@ -249,7 +249,7 @@ export function seedWorkspace(lang: Lang): void {
     { id: R.rating, name: L('Rating', 'Bewertung'), type: 'rating', ratingMax: 5 },
     { id: R.status, name: 'Status', type: 'status', options: readStatus },
   ]
-  s.createDatabase({ id: reading, title: L('Reading list', 'Leseliste'), icon: { type: 'emoji', value: '📚' }, properties: readingProps, views: [] })
+  s.createDatabase({ id: reading, title: L('Reading list', 'Leseliste'), icon: { type: 'asset', value: 'book' }, properties: readingProps, views: [] })
   {
     const db = { properties: readingProps }
     s.updateDatabase(reading, {
@@ -293,7 +293,7 @@ export function seedWorkspace(lang: Lang): void {
     { id: C.channel, name: L('Channel', 'Kanal'), type: 'select', options: channelOpts },
     { id: C.status, name: 'Status', type: 'status', options: cStatus },
   ]
-  s.createDatabase({ id: calendar, title: L('Content calendar', 'Content-Kalender'), icon: { type: 'emoji', value: '📣' }, properties: calProps, views: [] })
+  s.createDatabase({ id: calendar, title: L('Content calendar', 'Content-Kalender'), icon: { type: 'asset', value: 'megaphone' }, properties: calProps, views: [] })
   {
     const db = { properties: calProps }
     s.updateDatabase(calendar, {
@@ -317,10 +317,10 @@ export function seedWorkspace(lang: Lang): void {
   }
 
   /* ---------- Wiki subpages (linked → nice graph) ---------- */
-  const brand = s.createPage({ parentId: wiki, title: L('Brand voice', 'Markenstimme'), icon: { type: 'emoji', value: '🎙️' } })
-  const onboarding = s.createPage({ parentId: wiki, title: L('Onboarding', 'Onboarding'), icon: { type: 'emoji', value: '🧭' } })
-  const tooling = s.createPage({ parentId: wiki, title: L('Tooling & automations', 'Tools & Automationen'), icon: { type: 'emoji', value: '🛠️' } })
-  const glossary = s.createPage({ parentId: wiki, title: L('Glossary', 'Glossar'), icon: { type: 'emoji', value: '🔤' } })
+  const brand = s.createPage({ parentId: wiki, title: L('Brand voice', 'Markenstimme'), icon: { type: 'asset', value: 'microphone' } })
+  const onboarding = s.createPage({ parentId: wiki, title: L('Onboarding', 'Onboarding'), icon: { type: 'asset', value: 'compass' } })
+  const tooling = s.createPage({ parentId: wiki, title: L('Tooling & automations', 'Tools & Automationen'), icon: { type: 'asset', value: 'automation' } })
+  const glossary = s.createPage({ parentId: wiki, title: L('Glossary', 'Glossar'), icon: { type: 'asset', value: 'cardbox' } })
 
   s.setContent(
     wiki,
@@ -399,7 +399,7 @@ export function seedWorkspace(lang: Lang): void {
       { id: M.type, name: L('Type', 'Typ'), type: 'select', options: typeOpts },
       { id: M.people, name: L('Attendees', 'Teilnehmende'), type: 'person' },
     ]
-    s.createDatabase({ id: meetings, title: L('Meetings', 'Meetings'), icon: { type: 'emoji', value: '🗒️' }, properties: props, views: [] })
+    s.createDatabase({ id: meetings, title: L('Meetings', 'Meetings'), icon: { type: 'asset', value: 'clock' }, properties: props, views: [] })
     const db = { properties: props }
     const notes = (decision: string) =>
       doc(
@@ -422,7 +422,7 @@ export function seedWorkspace(lang: Lang): void {
         {
           id: newId(),
           name: 'Weekly sync',
-          icon: { type: 'emoji', value: '🗓️' },
+          icon: { type: 'asset', value: 'clock' },
           content: notes(L('…', '…')),
           properties: { [M.type]: typeOpts[0].id, [M.people]: [alex, sam, mira] },
           // every Monday at 09:00, counted from now on (no backfill on first open)

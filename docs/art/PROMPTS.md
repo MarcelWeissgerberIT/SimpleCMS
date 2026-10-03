@@ -220,3 +220,26 @@ Credits: 4 icon renders × 32 + 4 cover renders × 40 = **288** (balance 20,471 
 * **glass** (`cov_glass_nb3`, inset 40 px, anchor 0.5): Full-bleed abstract close-up photograph: several large sheets of acid-etched frosted glass overlap and fill the entire frame edge to edge, standing upright at slightly different angles and depths, seen from very close so that only glass is visible. Behind them a soft, blurred rectangular field of warm signal-orange (#FF4F00) light glows through the frosted glass and is diffused into calm, smooth gradients; where sheets overlap the orange deepens. The polished glass edges show as a few thin, crisp, bright vertical lines. No floor, no horizon, no room, no studio backdrop or cyclorama curve, no walls, no lamp or light source visible. Calm, minimal, quiet, large areas of soft negative space. Editorial still-life for a premium design magazine, medium-format camera, natural colour, subtle film grain, restrained palette of warm off-white, pale grey and one orange glow. Very wide panoramic composition whose interest sits in the central horizontal band. No border, no frame, no vignette, no people, no text, no logos, no fantasy elements, no neon, no HDR, no oversaturation, no lens flare.
 * **dunes** (`cov_dunes_nb2`, anchor 0.5): Aerial photograph taken from directly above of pristine sand dunes at golden hour: a few long, clean, sweeping crescent ridgelines with razor-sharp crests dividing sunlit warm sand from deep soft shadow; large calm areas of smooth, untouched, fine-grained sand with delicate wind ripples. Abstract, graphic and minimal. The sand is perfectly clean: no footprints, no tracks, no marks, no scribbles, no debris, no stones, no dark stains or smudges, no vegetation. Warm tones from cream to burnt orange, deep umber shadows. Editorial landscape photograph for a premium design magazine, medium-format camera, natural colour, subtle film grain. Very wide panoramic composition whose interest sits in the central horizontal band. No people, no vehicles, no buildings, no text, no logos, no fantasy elements, no HDR, no oversaturation, no lens flare.
 * **ink** keeps the original render `cov_ink_nb` → `grade_signal.py` → `cov_ink_nb_graded.png` → anchor 0.45.
+
+## 7. Page icons (round 3, October 2026)
+
+Ten more objects for the demo workspace's pages and the built-in templates, made with the unchanged template from
+section 2 (`text2image`, two renders each, the better one kept; 600 credits). Picks and slots:
+
+| name | label / label_de | {OBJECT} (short) | {ACCENT} | processing |
+|---|---|---|---|---|
+| binder | Wiki / Wiki | lever-arch ring binder standing on its edge, finger hole + blank label slot on the spine | a band around the spine | `--keywhite` |
+| notepad | Notes / Notizen | notepad block lying flat, three raised bars on the top sheet | the binding strip | `--warmmask` |
+| book | Reading list / Leseliste | closed hardcover book lying flat, ribbon bookmark | the ribbon | — |
+| megaphone | Content & campaigns / Content & Kampagnen | compact megaphone on its side, pistol grip | the grip | `--keywhite` |
+| microphone | Brand voice / Markenstimme | studio desk microphone, ribbed grille, round base | a band around the head | `--keywhite` |
+| compass | Onboarding / Onboarding | flat orienteering compass, tick-mark bezel, blank face | one half of the needle | `--holes 1.0` |
+| cardbox | Glossary / Glossar | open index card box with one divider card | the divider's tab | — |
+| clock | Meetings / Meetings | square desk alarm clock after the Braun AB 1, tick marks only | the second hand | — |
+| rolodex | Contacts & CRM / Kontakte & CRM | rotary card file on a low base | the side knob | `--warmmask` |
+| counter | Habits / Gewohnheiten | hand-held tally counter with finger ring, blank wheels | the push button | `--keywhite` |
+
+`--warmmask` (new in `process_icon.py`): the matting net read the large flat faces of `notepad` and `rolodex` as
+background where they meet the white backdrop (they turned into holes on dark UI). The option also takes the object
+by colour — warm-white ceramic has `R − B ≥ 5`, the backdrop is pure white and the contact shadow neutral grey — and
+fills the interior from that mask, keeping the net's soft matte on the outermost pixels.
