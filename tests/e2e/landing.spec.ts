@@ -77,7 +77,84 @@ test.describe('landing page', () => {
       await page.goto('./?skip')
       await expect(page.locator('html')).toHaveAttribute('lang', 'de')
       await expect(page.locator('#site').getByRole('link', { name: /Workspace öffnen/ }).first()).toBeVisible()
+      await expect(page.getByRole('tablist', { name: /Datenbanken/ }).getByRole('tab', { name: /Zeitleiste/ })).toBeAttached()
+      await expect(page.locator('#own-it .plate-cloud')).toContainText('In Entwicklung')
     })
+  })
+})
+
+test.describe('landing sections', () => {
+  test('features: sixteen placards in four groups, the rest as one line of tags', async ({ page }) => {
+    await page.goto('./?skip')
+    const features = page.locator('#features')
+    await expect(features.locator('.plac')).toHaveCount(16)
+    for (const [group, items] of [
+      ['Write', ['Block editor', 'Version history']],
+      ['Organise', ['Databases, 8 views', 'Sub-items & dependencies', 'Agenda']],
+      ['Automate', ['Webhook automations', 'Forms', 'Buttons', 'AI autofill']],
+      ['Publish & move', ['Publish as a website', 'Links with a password', 'Import from anywhere', 'Web clipper']],
+    ] as const) {
+      const g = features.getByRole('group', { name: group })
+      await expect(g.locator('.plac')).toHaveCount(4)
+      for (const item of items) await expect(g.getByRole('heading', { name: item, exact: true })).toBeVisible()
+    }
+    await expect(features.locator('.extras-list li')).toContainText(['Presentation mode', 'Stacked panes'])
+  })
+
+  test('up close: mode keys switch the screenshot (click and arrows), the lightbox shows it full size', async ({ page }) => {
+    await page.goto('./?skip')
+    const tabs = page.getByRole('tablist', { name: /Databases/ })
+    await tabs.scrollIntoViewIfNeeded()
+    const fig = page.locator('[data-frame-tabs]', { has: tabs })
+    const shown = fig.locator('img.frame-img.is-on')
+    await expect(tabs.getByRole('tab', { name: /Board/ })).toHaveAttribute('aria-selected', 'true')
+    await expect(shown).toHaveAttribute('src', /shots\/database\.webp$/)
+
+    await tabs.getByRole('tab', { name: /Timeline/ }).click()
+    await expect(tabs.getByRole('tab', { name: /Timeline/ })).toHaveAttribute('aria-selected', 'true')
+    await expect(tabs.getByRole('tab', { name: /Board/ })).toHaveAttribute('aria-selected', 'false')
+    await expect(shown).toHaveAttribute('src', /shots\/timeline\.webp$/)
+    await expect(fig.locator('figcaption')).toContainText('Timeline with dependency arrows')
+    await expect(fig.getByRole('tabpanel')).toHaveAttribute('aria-labelledby', /-t1$/)
+
+    await page.keyboard.press('ArrowRight')
+    const agenda = tabs.getByRole('tab', { name: /Agenda/ })
+    await expect(agenda).toBeFocused()
+    await expect(agenda).toHaveAttribute('aria-selected', 'true')
+    await expect(shown).toHaveAttribute('src', /shots\/agenda\.webp$/)
+    await expect.poll(() => shown.evaluate((img: HTMLImageElement) => img.naturalWidth)).toBe(1600)
+
+    const enlarge = fig.getByRole('button', { name: 'Enlarge figure' })
+    await enlarge.click()
+    const box = page.locator('dialog[data-lightbox]')
+    await expect(box).toBeVisible()
+    await expect(box.locator('img')).toHaveAttribute('src', /shots\/agenda\.webp$/)
+    await expect(box).toContainText('Agenda, month view')
+    await page.keyboard.press('Escape')
+    await expect(box).toBeHidden()
+    await expect(enlarge).toBeFocused()
+  })
+
+  test('cloud: local is available, the team cloud is in development with a self-hosting guide and no prices', async ({ page }) => {
+    await page.goto('./?skip')
+    await expect(page.locator('.tb-nav').getByRole('link', { name: 'Cloud' })).toHaveAttribute('href', '#own-it')
+    const own = page.locator('#own-it')
+    await expect(own.getByRole('heading', { name: 'One Local' })).toBeVisible()
+    await expect(own.getByRole('heading', { name: 'One Team Cloud' })).toBeVisible()
+    await expect(own.locator('.plate-cloud')).toContainText('In development')
+    await expect(own.getByRole('link', { name: /Self-hosting guide/ })).toHaveAttribute('href', /^https:\/\/github\.com\/[^/]+\/[^/]+\/blob\/main\/docs\/SELF_HOSTING\.md$/)
+    // pricing for a hosted cloud is not decided: the section names no amounts
+    expect(await own.innerText()).not.toMatch(/[$€]\s?\d|\d\s?(€|\$|EUR|USD)/)
+  })
+
+  test('compare: eighteen rows, and our gaps stay marked', async ({ page }) => {
+    await page.goto('./?skip')
+    const rows = page.locator('#compare tbody tr')
+    await expect(rows).toHaveCount(18)
+    const multiplayer = rows.filter({ hasText: 'Real-time multiplayer' })
+    await expect(multiplayer.locator('td').nth(1)).toContainText('Coming with the team cloud')
+    await expect(multiplayer.locator('td').nth(1).getByRole('img')).toHaveAttribute('aria-label', 'No')
+    await expect(rows.filter({ hasText: 'Publish as a website' }).locator('td').nth(1)).toContainText('llms.txt')
   })
 })
 
