@@ -9,7 +9,7 @@ import { navigate } from '../../lib/router'
 import { logoMarkSvg } from '@/shared/logo'
 import { BRAND } from '@/shared/brand'
 import { answersToJson, type Answers } from './fields'
-import { FormDecodeError, decodeForm, payloadFields, type FormPayload } from './codec'
+import { FormDecodeError, decodeForm, payloadClosing, payloadFields, type FormPayload } from './codec'
 import { formBody, hostOf, postWebhook } from './webhook'
 import { FormFill, type SubmitOutcome } from './FormFill'
 import { hookMessage } from './ShareForm'
@@ -28,6 +28,7 @@ export default function SharedFormView({ payload }: { payload: string }) {
   }, [payload])
   const form = 'form' in decoded ? decoded.form : null
   const fields = useMemo(() => (form ? payloadFields(form) : []), [form])
+  const closing = useMemo(() => (form ? payloadClosing(form) : undefined), [form])
   const title = form?.title.trim() || t('common.untitled')
 
   useEffect(() => {
@@ -38,9 +39,10 @@ export default function SharedFormView({ payload }: { payload: string }) {
     }
   }, [form, title, t])
 
-  const onSubmit = async (answers: Answers): Promise<SubmitOutcome> => {
+  const onSubmit = async (answers: Answers, visible: Set<string>): Promise<SubmitOutcome> => {
     if (!form?.hook) return { ok: false, message: t('database.form.public.noHook') }
-    const res = await postWebhook(form.hook, formBody(title, await answersToJson(fields, answers, lang)))
+    // questions hidden by the form's logic are left out of the JSON
+    const res = await postWebhook(form.hook, formBody(title, await answersToJson(fields, answers, lang, visible)))
     // no-cors fallback: the answers left the browser, but delivery can't be confirmed — say "Sent", not "recorded"
     return res.ok ? { ok: true, unconfirmed: res.outcome === 'unconfirmed' } : { ok: false, message: hookMessage(t, res) }
   }
@@ -74,6 +76,8 @@ export default function SharedFormView({ payload }: { payload: string }) {
               headingLevel={1}
               kicker={`§ ${t('database.form.kicker')}`}
               blocked={form.hook ? undefined : t('database.form.public.noHook')}
+              closing={closing}
+              redirect
               footnote={form.hook ? t('database.form.public.note', { host: hostOf(form.hook) }) : undefined}
             />
           </div>

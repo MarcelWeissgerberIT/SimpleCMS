@@ -5,7 +5,7 @@
  * Questions = the title property + view.visibleProperties (in that order), minus computed
  * properties. Per-question settings live in view.form.questions[propertyId].
  */
-import type { ColorName, Database, FormConfig, FormQuestion, ID, PropertyDef, PropertyType, PropertyValue, View } from '../../store/types'
+import type { ColorName, Database, FormConfig, FormLogic, FormQuestion, ID, PropertyDef, PropertyType, PropertyValue, View } from '../../store/types'
 import { parseNumberText } from '../model/format'
 
 export type FieldKind = 'short' | 'long' | 'number' | 'select' | 'multi' | 'date' | 'checkbox' | 'url' | 'email' | 'phone' | 'rating' | 'files' | 'person' | 'relation'
@@ -29,9 +29,20 @@ export interface Field {
   max?: number
   /** number: shown / typed as percent, stored as a fraction */
   percent?: boolean
+  /** Presentation: select 'chips' | 'list' | 'dropdown' · multi 'chips' | 'list' · rating / number 'scale'. */
+  display?: FieldDisplay
+  /** number questions shown as a scale: keys 1…scale */
+  scale?: number
+  placeholder?: string
+  /** Show only if … — conditions name EARLIER fields by their key (see logic.ts). */
+  showIf?: FormLogic
+  /** A new page starts at this field (never on the first one). */
+  page?: { title: string; description: string }
   /** Workspace form only. */
   prop?: PropertyDef
 }
+
+export type FieldDisplay = 'chips' | 'list' | 'dropdown' | 'scale'
 
 export interface DateAnswer {
   date: string
@@ -103,32 +114,91 @@ export function titlePropOf(db: Database): PropertyDef {
   return db.properties.find((p) => p.type === 'title') ?? { id: '__title__', name: 'Name', type: 'title' }
 }
 
+/** Select properties that mark form-made rows (any form view of the database): filled, never asked. */
+export function markerProps(db: Database): Set<ID> {
+  const out = new Set<ID>()
+  for (const v of db.views) {
+    const id = formConfig(v).marker?.propertyId
+    if (typeof id === 'string' && db.properties.some((p) => p.id === id && p.type === 'select')) out.add(id)
+  }
+  return out
+}
+
 /** Shown questions (title first, then view order) and the formable properties left out. */
-export function formProps(db: Database, view: View): { shown: PropertyDef[]; hidden: PropertyDef[]; computed: PropertyDef[]; title: PropertyDef } {
+export function formProps(db: Database, view: View): { shown: PropertyDef[]; hidden: PropertyDef[]; computed: PropertyDef[]; markers: PropertyDef[]; title: PropertyDef } {
   const cfg = formConfig(view)
   const title = titlePropOf(db)
   const byId = new Map(db.properties.map((p) => [p.id, p]))
-  const listed = view.visibleProperties.map((id) => byId.get(id)).filter((p): p is PropertyDef => !!p && p.type !== 'title' && isFormable(p))
+  const marked = markerProps(db)
+  const listed = view.visibleProperties.map((id) => byId.get(id)).filter((p): p is PropertyDef => !!p && p.type !== 'title' && isFormable(p) && !marked.has(p.id))
   const shown = [...(questionOf(cfg, title.id).hidden ? [] : [title]), ...listed]
-  const hidden = db.properties.filter((p) => isFormable(p) && !shown.includes(p))
+  const hidden = db.properties.filter((p) => isFormable(p) && !shown.includes(p) && !marked.has(p.id))
   const computed = db.properties.filter((p) => !isFormable(p))
-  return { shown, hidden, computed, title }
+  const markers = db.properties.filter((p) => marked.has(p.id))
+  return { shown, hidden, computed, markers, title }
 }
 
-/** One field per shown question of a workspace form view. */
+/** The view's page breaks (defensive: damaged entries are dropped). */
+export function pageBreaksOf(cfg: FormConfig): NonNullable<FormConfig['pages']> {
+  return Array.isArray(cfg.pages) ? cfg.pages.filter((b) => isObj(b) && typeof b.id === 'string' && typeof b.before === 'string') : []
+}
+
+/** One field per shown question of a workspace form view (page breaks on the questions they start). */
 export function fieldsOf(db: Database, view: View): Field[] {
   const cfg = formConfig(view)
-  return formProps(db, view).shown.map((p) => fieldFor(p, questionOf(cfg, p.id)))
+  const fields = formProps(db, view).shown.map((p) => fieldFor(p, questionOf(cfg, p.id)))
+  for (const b of pageBreaksOf(cfg)) {
+    const f = fields.find((x) => x.key === b.before)
+    if (f && f !== fields[0] && !f.page) f.page = { title: typeof b.title === 'string' ? b.title : '', description: typeof b.description === 'string' ? b.description : '' }
+  }
+  return fields
 }
 
+/** The presentations a question of a property type can choose from (first = default). */
+export function displaysFor(p: PropertyDef): Array<NonNullable<FormQuestion['display']>> {
+  switch (p.type) {
+    case 'select':
+    case 'status':
+      return ['chips', 'list', 'dropdown']
+    case 'multi_select':
+      return ['chips', 'list']
+    case 'text':
+      return ['long', 'short']
+    default:
+      return []
+  }
+}
+
+/** Number / rating questions can be a scale (a percent number cannot). */
+export const canScale = (p: PropertyDef): boolean => p.type === 'rating' || (p.type === 'number' && p.numberFormat !== 'percent')
+
+const isLogic = (v: unknown): v is FormLogic => isObj(v) && (v.op === 'and' || v.op === 'or') && Array.isArray(v.conditions)
+
 export function fieldFor(p: PropertyDef, q: FormQuestion): Field {
-  const kind = kindOf(p.type) ?? 'short'
+  const base = kindOf(p.type) ?? 'short'
+  // a text property can be asked in one line
+  const kind: FieldKind = base === 'long' && q.display === 'short' ? 'short' : base
   const f: Field = { key: p.id, name: p.name, kind, required: !!q.required, help: typeof q.help === 'string' ? q.help : '', prop: p }
   if (kind === 'select' || kind === 'multi') f.options = (p.options ?? []).map((o) => ({ id: o.id, name: o.name, color: o.color }))
   if (kind === 'date') f.includeTime = !!q.includeTime
   if (kind === 'rating') f.max = Math.max(1, Math.min(10, p.ratingMax ?? 5))
   if (kind === 'number') f.percent = p.numberFormat === 'percent'
+  if ((kind === 'select' && (q.display === 'list' || q.display === 'dropdown')) || (kind === 'multi' && q.display === 'list')) f.display = q.display
+  if (q.display === 'scale' && canScale(p)) {
+    f.display = 'scale'
+    if (kind === 'number') f.scale = q.scale === 10 ? 10 : 5
+  }
+  const ph = typeof q.placeholder === 'string' ? q.placeholder.trim() : ''
+  if (ph && hasPlaceholder(f)) f.placeholder = ph
+  if (isLogic(q.showIf) && q.showIf.conditions.length) f.showIf = q.showIf
   return f
+}
+
+/** Questions that show a placeholder: typed answers and dropdowns. */
+export function hasPlaceholder(f: Pick<Field, 'kind' | 'display'>): boolean {
+  if (f.kind === 'select') return f.display === 'dropdown'
+  if (f.kind === 'number') return f.display !== 'scale'
+  return ['short', 'long', 'url', 'email', 'phone'].includes(f.kind)
 }
 
 /* ---------------- answers ---------------- */
@@ -364,10 +434,12 @@ function putAnswer(out: Record<string, unknown>, key: string, value: unknown): v
   Object.defineProperty(out, key, { value, enumerable: true, writable: true, configurable: true })
 }
 
-export async function answersToJson(fields: Field[], answers: Answers, lang: string): Promise<Record<string, unknown>> {
+/** `visible`: the questions the respondent saw — hidden ones (logic) are left out of the JSON. */
+export async function answersToJson(fields: Field[], answers: Answers, lang: string, visible?: Set<string>): Promise<Record<string, unknown>> {
   const keys = answerKeys(fields)
   const out = answerRecord()
   for (const f of fields) {
+    if (visible && !visible.has(f.key)) continue
     const a = answers[f.key]
     const key = keys.get(f.key)!
     const empty = isEmptyAnswer(f, a)

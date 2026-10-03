@@ -1,19 +1,21 @@
 /**
  * Fill mode: the real form. Used by the Form view (rows go into the database) and by the
- * public form page (answers go to the owner's webhook). Native inputs throughout, so keyboard,
- * screen readers, autofill and mobile keyboards behave as expected.
+ * public form page (answers go to the owner's webhook).
+ *
+ * Forms 2.0: questions may show only if earlier answers match (logic.ts) — hidden questions are
+ * skipped, never validated and never submitted — and page breaks split the form into pages:
+ * one page at a time, Next checks the page, Back keeps every answer, pages whose questions are
+ * all hidden are skipped. The closing screen can carry its own heading, message and redirect.
  */
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { AlertTriangle, Check, Paperclip, Plus, RotateCcw, Star, Upload, X } from 'lucide-react'
+import { AlertTriangle, ArrowLeft, ArrowRight, ArrowUpRight, Check, RotateCcw } from 'lucide-react'
 import type { ID } from '../../store/types'
-import { useWorkspace } from '../../store/store'
 import { useLang, useT } from '../../i18n'
-import { Popover } from '../../ui/Popover'
-import { colorText } from '../../lib/colors'
-import { Avatar, RelationChip } from '../cells/display'
-import { RelationPicker } from '../cells/pickers'
-import { formatBytes } from '../model/files'
-import { emptyAnswer, emptyAnswers, SHARED_FILE_MAX, SHARED_FILES_TOTAL, validate, validateAll, type Answer, type Answers, type DateAnswer, type Field, type FieldError } from './fields'
+import { emptyAnswer, emptyAnswers, validateAll, type Answer, type Answers, type Field, type FieldError } from './fields'
+import { pagesOf, visibleKeys } from './logic'
+import type { ShareClosing } from './codec'
+import { hostOf } from './webhook'
+import { Question } from './Question'
 
 /** unconfirmed: sent, but the receiver gives the browser no way to confirm delivery (no-cors) */
 export type SubmitOutcome = { ok: true; rowId?: ID; unconfirmed?: boolean } | { ok: false; message: string }
@@ -23,7 +25,8 @@ export interface FormFillProps {
   title: string
   description: string
   submitLabel: string
-  onSubmit: (answers: Answers) => Promise<SubmitOutcome>
+  /** `visible`: keys of the questions the respondent saw (hidden ones must not be submitted). */
+  onSubmit: (answers: Answers, visible: Set<string>) => Promise<SubmitOutcome>
   /** Public form: no workspace pickers, file size limit. */
   shared?: boolean
   /** Unique prefix for element ids. */
@@ -38,22 +41,31 @@ export interface FormFillProps {
   doneActions?: (outcome: SubmitOutcome) => ReactNode
   /** Submitting is impossible (e.g. a shared form without a webhook). */
   blocked?: string
+  /** Closing screen: heading, message, redirect, "submit another response". */
+  closing?: ShareClosing
+  /** Follow closing.redirectUrl after a response (public page); otherwise it is shown as a link. */
+  redirect?: boolean
 }
 
 const pad = (n: number) => String(n).padStart(2, '0')
-const GROUP_KINDS = new Set(['select', 'multi', 'rating', 'person', 'checkbox', 'files', 'relation'])
+const REDIRECT_MS = 1600
 
-export function FormFill({ fields, title, description, submitLabel, onSubmit, shared, idBase, headingLevel = 2, kicker, footnote, doneActions, blocked }: FormFillProps) {
+export function FormFill({ fields, title, description, submitLabel, onSubmit, shared, idBase, headingLevel = 2, kicker, footnote, doneActions, blocked, closing, redirect }: FormFillProps) {
   const t = useT()
   const lang = useLang()
   const [answers, setAnswers] = useState<Answers>(() => emptyAnswers(fields))
-  const [showAll, setShowAll] = useState(false)
+  /** pages where Next / Submit was tried: every problem shows there */
+  const [checked, setChecked] = useState<ReadonlySet<number>>(() => new Set())
   const [touched, setTouched] = useState<Record<string, boolean>>({})
+  const [page, setPage] = useState(0)
   const [status, setStatus] = useState<'idle' | 'sending' | 'done' | 'failed'>('idle')
   const [outcome, setOutcome] = useState<SubmitOutcome | null>(null)
   const [doneAt, setDoneAt] = useState<Date | null>(null)
   const rootRef = useRef<HTMLFormElement>(null)
   const doneRef = useRef<HTMLDivElement>(null)
+  const pageMoved = useRef(false)
+  /** the answer to focus once the page it is on shows (Submit found a problem there) */
+  const focusAfter = useRef<string | null>(null)
 
   // questions can change while the form is open (builder edits): keep what was typed
   useEffect(() => {
@@ -71,37 +83,82 @@ export function FormFill({ fields, title, description, submitLabel, onSubmit, sh
     })
   }, [fields])
 
-  const errors = useMemo(() => validateAll(fields, answers, lang, { shared }), [fields, answers, lang, shared])
+  const visible = useMemo(() => visibleKeys(fields, answers, lang), [fields, answers, lang])
+  const pages = useMemo(() => pagesOf(fields), [fields])
+  /** pages with at least one question shown (the others are skipped) */
+  const live = useMemo(() => pages.map((_, i) => i).filter((i) => pages[i].some((f) => visible.has(f.key))), [pages, visible])
+  // the builder may remove the page being looked at: fall back to the nearest one before it
+  const cur = live.includes(page) ? page : ([...live].reverse().find((i) => i < page) ?? live[0] ?? 0)
+  const pageOf = useMemo(() => new Map(pages.flatMap((p, i) => p.map((f) => [f.key, i] as const))), [pages])
+  const shown = useMemo(() => fields.filter((f) => visible.has(f.key)), [fields, visible])
+  const numOf = useMemo(() => new Map(shown.map((f, i) => [f.key, i + 1])), [shown])
+  const onPage = (pages[cur] ?? []).filter((f) => visible.has(f.key))
+  const nextPage = live.find((i) => i > cur)
+  const prevPage = [...live].reverse().find((i) => i < cur)
+  const isLast = nextPage === undefined
+  const multi = live.length > 1
+
+  const errors = useMemo(() => validateAll(shown, answers, lang, { shared }), [shown, answers, lang, shared])
   const visibleError = (key: string): FieldError | null => {
     const e = errors[key]
     if (!e) return null
-    if (showAll) return e
-    // before the first submit only format problems of fields the user has left show up
+    if (checked.has(pageOf.get(key) ?? -1)) return e
+    // before Next / Submit only format problems of fields the user has left show up
     return touched[key] && e !== 'required' ? e : null
   }
-  const errorCount = showAll ? Object.keys(errors).length : 0
+  const errorCount = checked.has(cur) ? onPage.filter((f) => errors[f.key]).length : 0
 
-  const set = (key: string, v: Answer) => setAnswers((cur) => ({ ...cur, [key]: v }))
-  const touch = (key: string) => setTouched((cur) => (cur[key] ? cur : { ...cur, [key]: true }))
+  const set = (key: string, v: Answer) => setAnswers((c) => ({ ...c, [key]: v }))
+  const touch = (key: string) => setTouched((c) => (c[key] ? c : { ...c, [key]: true }))
 
   useEffect(() => {
     if (status === 'done') doneRef.current?.focus()
   }, [status])
 
-  const submit = async (e: React.FormEvent) => {
-    e.preventDefault()
+  const focusFirst = (key: string) => {
+    const el = rootRef.current?.querySelector<HTMLElement>(`[data-q="${CSS.escape(key)}"] :is(input:not([type=file]), textarea, select, button)`)
+    el?.focus()
+  }
+
+  // a new page: its first answer (or the one Submit found a problem with) gets focus
+  useEffect(() => {
+    if (!pageMoved.current) return
+    pageMoved.current = false
+    const root = rootRef.current
+    root?.querySelector('.fm-progress, .fm-head')?.scrollIntoView({ block: 'nearest' })
+    const key = focusAfter.current
+    focusAfter.current = null
+    if (key) return focusFirst(key)
+    root?.querySelector<HTMLElement>('.fm-qs :is(input:not([type=file]), textarea, select, button)')?.focus({ preventScroll: true })
+  }, [cur])
+
+  const goTo = (i: number) => {
+    pageMoved.current = true
+    setPage(i)
+  }
+
+  const next = () => {
+    setChecked((c) => new Set(c).add(cur))
+    const first = onPage.find((f) => errors[f.key])
+    if (first) return focusFirst(first.key)
+    if (nextPage !== undefined) goTo(nextPage)
+  }
+
+  const submit = async () => {
     if (status === 'sending' || blocked) return
-    setShowAll(true)
-    const first = fields.find((f) => errors[f.key])
+    setChecked(new Set(live))
+    const first = shown.find((f) => errors[f.key])
     if (first) {
-      const el = rootRef.current?.querySelector<HTMLElement>(`[data-q="${CSS.escape(first.key)}"] :is(input:not([type=file]), textarea, button)`)
-      el?.focus()
+      const p = pageOf.get(first.key) ?? cur
+      if (p === cur) return focusFirst(first.key)
+      focusAfter.current = first.key
+      goTo(p)
       return
     }
     setStatus('sending')
     let out: SubmitOutcome
     try {
-      out = await onSubmit(answers)
+      out = await onSubmit(answers, visible)
     } catch (err) {
       out = { ok: false, message: err instanceof Error ? err.message : String(err) }
     }
@@ -114,45 +171,39 @@ export function FormFill({ fields, title, description, submitLabel, onSubmit, sh
 
   const reset = () => {
     setAnswers(emptyAnswers(fields))
-    setShowAll(false)
+    setChecked(new Set())
     setTouched({})
     setOutcome(null)
     setStatus('idle')
-    requestAnimationFrame(() => rootRef.current?.querySelector<HTMLElement>('input:not([type=file]), textarea')?.focus())
+    setPage(0)
+    requestAnimationFrame(() => rootRef.current?.querySelector<HTMLElement>('input:not([type=file]), textarea, select')?.focus())
   }
 
   const H = headingLevel === 1 ? 'h1' : 'h2'
-  const sentOnly = !!outcome?.ok && !!outcome.unconfirmed
+  const H2 = headingLevel === 1 ? 'h2' : 'h3'
 
-  if (status === 'done')
-    return (
-      <div className="fm fm--done" ref={doneRef} tabIndex={-1} role="status" aria-live="polite">
-        <div className="fm-done__mark" aria-hidden>
-          <Check size={26} strokeWidth={2.4} />
-        </div>
-        <div className="label fm-done__stamp">
-          {sentOnly ? t('database.form.done.sentStamp') : t('database.form.done.stamp')} · {doneAt ? new Intl.DateTimeFormat(lang === 'de' ? 'de-DE' : 'en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' }).format(doneAt) : ''}
-        </div>
-        <H className="fm-done__title">{sentOnly ? t('database.form.done.sentTitle') : t('database.form.done.title')}</H>
-        <p className="fm-done__sub">{sentOnly ? t('database.form.done.sentSub') : shared ? t('database.form.done.subShared') : t('database.form.done.sub')}</p>
-        <div className="fm-done__actions">
-          <button type="button" className="btn btn--ink" onClick={reset}>
-            <RotateCcw size={14} /> {t('database.form.done.again')}
-          </button>
-          {outcome && doneActions?.(outcome)}
-        </div>
-      </div>
-    )
+  if (status === 'done') return <Done H={H} outcome={outcome} doneAt={doneAt} shared={shared} closing={closing} redirect={redirect} onAgain={reset} doneActions={doneActions} doneRef={doneRef} />
 
+  const section = cur > 0 ? pages[cur]?.[0]?.page : undefined
   return (
-    <form className="fm" ref={rootRef} noValidate onSubmit={(e) => void submit(e)} aria-labelledby={`${idBase}-title`}>
+    <form
+      className="fm"
+      ref={rootRef}
+      noValidate
+      onSubmit={(e) => {
+        e.preventDefault()
+        if (isLast) void submit()
+        else next()
+      }}
+      aria-labelledby={`${idBase}-title`}
+    >
       <header className="fm-head">
         {kicker && <div className="label fm-head__kicker">{kicker}</div>}
         <H className="fm-title" id={`${idBase}-title`}>
           {title.trim() || t('common.untitled')}
         </H>
-        {description.trim() && <p className="fm-desc">{description}</p>}
-        {fields.some((f) => f.required) && (
+        {cur === (live[0] ?? 0) && description.trim() && <p className="fm-desc">{description}</p>}
+        {onPage.some((f) => f.required) && (
           <p className="label fm-legend">
             <span className="fm-req" aria-hidden>
               *
@@ -162,13 +213,22 @@ export function FormFill({ fields, title, description, submitLabel, onSubmit, sh
         )}
       </header>
 
+      {multi && <Progress pos={live.indexOf(cur)} total={live.length} />}
+
+      {section && (section.title.trim() || section.description.trim()) && (
+        <div className="fm-section" key={`s${cur}`}>
+          {section.title.trim() && <H2 className="fm-section__title">{section.title}</H2>}
+          {section.description.trim() && <p className="fm-section__desc">{section.description}</p>}
+        </div>
+      )}
+
       {fields.length === 0 ? (
         <p className="fm-empty label">{t('database.form.noQuestions')}</p>
       ) : (
-        <ol className="fm-qs">
-          {fields.map((f, i) => (
+        <ol className="fm-qs" key={`p${cur}`} data-page={cur + 1}>
+          {onPage.map((f) => (
             <li key={f.key} className="fm-qs__item">
-              <Question f={f} index={i} idBase={idBase} value={answers[f.key]} error={visibleError(f.key)} shared={shared} onChange={(v) => set(f.key, v)} onBlur={() => touch(f.key)} />
+              <Question f={f} num={numOf.get(f.key) ?? 0} idBase={idBase} value={answers[f.key]} error={visibleError(f.key)} shared={shared} onChange={(v) => set(f.key, v)} onBlur={() => touch(f.key)} />
             </li>
           ))}
         </ol>
@@ -193,9 +253,20 @@ export function FormFill({ fields, title, description, submitLabel, onSubmit, sh
           </div>
         )}
         <div className="fm-foot__row">
-          <button type="submit" className="btn btn--primary btn--lg fm-submit" disabled={status === 'sending' || !!blocked || fields.length === 0}>
-            {status === 'sending' ? t('database.form.sending') : status === 'failed' ? t('database.form.retry') : submitLabel.trim() || t('database.form.submitDefault')}
-          </button>
+          {prevPage !== undefined && (
+            <button type="button" className="btn btn--lg fm-back" onClick={() => goTo(prevPage)}>
+              <ArrowLeft size={15} /> {t('database.form.back')}
+            </button>
+          )}
+          {isLast ? (
+            <button type="submit" className="btn btn--primary btn--lg fm-submit" disabled={status === 'sending' || !!blocked || fields.length === 0}>
+              {status === 'sending' ? t('database.form.sending') : status === 'failed' ? t('database.form.retry') : submitLabel.trim() || t('database.form.submitDefault')}
+            </button>
+          ) : (
+            <button type="submit" className="btn btn--ink btn--lg fm-next">
+              {t('database.form.next')} <ArrowRight size={15} />
+            </button>
+          )}
           <span className="fm-foot__status label" aria-live="polite">
             {errorCount > 0 && (
               <>
@@ -204,339 +275,92 @@ export function FormFill({ fields, title, description, submitLabel, onSubmit, sh
             )}
           </span>
         </div>
-        {footnote && <div className="fm-foot__note">{footnote}</div>}
+        {footnote && isLast && <div className="fm-foot__note">{footnote}</div>}
       </div>
     </form>
   )
 }
 
-/* ------------------------------------------------------------------ */
-/* One question                                                        */
-/* ------------------------------------------------------------------ */
-
-interface QuestionProps {
-  f: Field
-  index: number
-  idBase: string
-  value: Answer | undefined
-  error: FieldError | null
-  shared?: boolean
-  onChange: (v: Answer) => void
-  onBlur: () => void
+/** "PAGE 2 / 3" and a segmented hairline gauge. */
+function Progress({ pos, total }: { pos: number; total: number }) {
+  const t = useT()
+  return (
+    <div className="fm-progress">
+      <span className="label fm-progress__label" aria-live="polite">
+        {t('database.form.page', { n: pad(pos + 1), total: pad(total) })}
+      </span>
+      <span className="fm-progress__gauge" aria-hidden>
+        {Array.from({ length: total }, (_, i) => (
+          <span key={i} className="fm-progress__seg" data-state={i < pos ? 'done' : i === pos ? 'now' : 'todo'} />
+        ))}
+      </span>
+    </div>
+  )
 }
 
-function Question({ f, index, idBase, value, error, shared, onChange, onBlur }: QuestionProps) {
+function Done({
+  H,
+  outcome,
+  doneAt,
+  shared,
+  closing,
+  redirect,
+  onAgain,
+  doneActions,
+  doneRef,
+}: {
+  H: 'h1' | 'h2'
+  outcome: SubmitOutcome | null
+  doneAt: Date | null
+  shared?: boolean
+  closing?: ShareClosing
+  redirect?: boolean
+  onAgain: () => void
+  doneActions?: (outcome: SubmitOutcome) => ReactNode
+  doneRef: React.RefObject<HTMLDivElement | null>
+}) {
   const t = useT()
-  const id = `${idBase}-${f.key}`
-  const helpId = f.help.trim() ? `${id}-help` : undefined
-  const errId = error ? `${id}-err` : undefined
-  const describedBy = [helpId, errId].filter(Boolean).join(' ') || undefined
-  const group = GROUP_KINDS.has(f.kind)
-  const head = (
-    <>
-      <span className="fm-q__num" aria-hidden>
-        {pad(index + 1)}
-      </span>
-      <span className="fm-q__name">{f.name.trim() || t('common.untitled')}</span>
-      {f.required && (
-        <>
-          <span className="fm-req" aria-hidden>
-            *
-          </span>
-          <span className="visually-hidden">({t('database.form.required')})</span>
-        </>
-      )}
-    </>
-  )
-  const help = helpId && (
-    <p className="fm-q__help" id={helpId}>
-      {f.help}
-    </p>
-  )
-  const control = <Control f={f} id={id} value={value} invalid={!!error} describedBy={describedBy} shared={shared} onChange={onChange} onBlur={onBlur} />
+  const lang = useLang()
+  const sentOnly = !!outcome?.ok && !!outcome.unconfirmed
+  const url = closing?.redirectUrl?.trim() ?? ''
+  const go = !!redirect && !!url
+
+  useEffect(() => {
+    if (!go) return
+    const id = window.setTimeout(() => window.location.assign(url), REDIRECT_MS)
+    return () => window.clearTimeout(id)
+  }, [go, url])
+
+  const title = closing?.doneTitle?.trim() || (sentOnly ? t('database.form.done.sentTitle') : t('database.form.done.title'))
+  const sub = closing?.doneMessage?.trim() || (sentOnly ? t('database.form.done.sentSub') : shared ? t('database.form.done.subShared') : t('database.form.done.sub'))
   return (
-    <div className="fm-q" data-q={f.key} data-kind={f.kind} data-invalid={!!error || undefined}>
-      {group ? (
-        <fieldset className="fm-q__set" aria-describedby={describedBy}>
-          <legend className="fm-q__label">{head}</legend>
-          {help}
-          {control}
-        </fieldset>
-      ) : (
-        <>
-          <label className="fm-q__label" htmlFor={id}>
-            {head}
-          </label>
-          {help}
-          {control}
-        </>
-      )}
-      {error && (
-        <p className="fm-q__err" id={errId}>
-          <AlertTriangle size={13} aria-hidden /> {t(`database.form.err.${error}`, { max: formatBytes(SHARED_FILE_MAX), total: formatBytes(SHARED_FILES_TOTAL) })}
+    <div className="fm fm--done" ref={doneRef} tabIndex={-1} role="status" aria-live="polite">
+      <div className="fm-done__mark" aria-hidden>
+        <Check size={26} strokeWidth={2.4} />
+      </div>
+      <div className="label fm-done__stamp">
+        {sentOnly ? t('database.form.done.sentStamp') : t('database.form.done.stamp')} · {doneAt ? new Intl.DateTimeFormat(lang === 'de' ? 'de-DE' : 'en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' }).format(doneAt) : ''}
+      </div>
+      <H className="fm-done__title">{title}</H>
+      <p className="fm-done__sub">{sub}</p>
+      {url && (
+        <p className="label fm-done__next">
+          <span className="led led--ok" aria-hidden /> {go ? t('database.form.done.redirecting', { host: hostOf(url) }) : t('database.form.done.redirectNote', { host: hostOf(url) })}
         </p>
       )}
-    </div>
-  )
-}
-
-interface ControlProps {
-  f: Field
-  id: string
-  value: Answer | undefined
-  invalid: boolean
-  describedBy?: string
-  shared?: boolean
-  onChange: (v: Answer) => void
-  onBlur: () => void
-}
-
-function Control({ f, id, value, invalid, describedBy, shared, onChange, onBlur }: ControlProps) {
-  const t = useT()
-  const a11y = { 'aria-invalid': invalid || undefined, 'aria-describedby': describedBy, 'aria-required': f.required || undefined }
-  const text = typeof value === 'string' ? value : ''
-  switch (f.kind) {
-    case 'long':
-      return (
-        <textarea
-          id={id}
-          className="input fm-input fm-input--long"
-          rows={3}
-          value={text}
-          maxLength={20_000}
-          onChange={(e) => onChange(e.target.value)}
-          onBlur={onBlur}
-          onKeyDown={(e) => {
-            // Ctrl/⌘+Enter sends from a multi-line answer
-            if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
-              e.preventDefault()
-              e.currentTarget.form?.requestSubmit()
-            }
-          }}
-          {...a11y}
-        />
-      )
-    case 'short':
-    case 'url':
-    case 'email':
-    case 'phone': {
-      const type = f.kind === 'url' ? 'url' : f.kind === 'email' ? 'email' : f.kind === 'phone' ? 'tel' : 'text'
-      const auto = f.kind === 'email' ? 'email' : f.kind === 'phone' ? 'tel' : f.kind === 'url' ? 'url' : 'off'
-      const ph = f.kind === 'url' ? 'https://' : f.kind === 'email' ? t('database.form.ph.email') : f.kind === 'phone' ? '+49 …' : ''
-      return <input id={id} className="input fm-input" type={type} autoComplete={auto} inputMode={f.kind === 'url' ? 'url' : undefined} placeholder={ph} value={text} maxLength={2000} onChange={(e) => onChange(e.target.value)} onBlur={onBlur} {...a11y} />
-    }
-    case 'number':
-      return (
-        <span className="fm-num">
-          <input id={id} className="input fm-input" type="text" inputMode="decimal" autoComplete="off" value={text} onChange={(e) => onChange(e.target.value)} onBlur={onBlur} {...a11y} />
-          {f.percent && (
-            <span className="fm-num__unit" aria-hidden>
-              %
-            </span>
-          )}
-        </span>
-      )
-    case 'date': {
-      const d = (value as DateAnswer | undefined) ?? { date: '', time: '' }
-      return (
-        <span className="fm-date">
-          <input id={id} className="input fm-input fm-input--date" type="date" value={d.date} onChange={(e) => onChange({ ...d, date: e.target.value })} onBlur={onBlur} {...a11y} />
-          {f.includeTime && (
-            <input className="input fm-input fm-input--time" type="time" aria-label={t('database.form.time')} value={d.time} onChange={(e) => onChange({ ...d, time: e.target.value })} onBlur={onBlur} aria-invalid={invalid || undefined} />
-          )}
-        </span>
-      )
-    }
-    case 'checkbox':
-      return (
-        <label className="fm-chip fm-chip--check" data-on={value === true}>
-          <input id={id} type="checkbox" className="fm-chip__input" checked={value === true} onChange={(e) => onChange(e.target.checked)} onBlur={onBlur} {...a11y} />
-          <span className="fm-chip__mark fm-chip__mark--box" aria-hidden>
-            {value === true && <Check size={11} strokeWidth={3} />}
-          </span>
-          <span className="fm-chip__name">{t('database.yes')}</span>
-        </label>
-      )
-    case 'select':
-    case 'multi': {
-      const multi = f.kind === 'multi'
-      const sel = multi ? ((value as string[] | undefined) ?? []) : (value as string | null | undefined) ?? null
-      const opts = f.options ?? []
-      if (!opts.length) return <p className="label fm-q__none">{t('database.form.noOptions')}</p>
-      return (
-        <div className="fm-chips">
-          {opts.map((o) => {
-            const on = multi ? (sel as string[]).includes(o.id) : sel === o.id
-            return (
-              <label key={o.id} className="fm-chip" data-on={on}>
-                <input
-                  type={multi ? 'checkbox' : 'radio'}
-                  name={id}
-                  id={`${id}-${o.id}`}
-                  className="fm-chip__input"
-                  checked={on}
-                  onChange={() => onChange(multi ? (on ? (sel as string[]).filter((x) => x !== o.id) : [...(sel as string[]), o.id]) : o.id)}
-                  onBlur={onBlur}
-                  aria-invalid={invalid || undefined}
-                />
-                <span className={`fm-chip__mark${multi ? ' fm-chip__mark--box' : ''}`} aria-hidden>
-                  {multi && on && <Check size={11} strokeWidth={3} />}
-                </span>
-                <span className="fm-chip__swatch" style={{ background: colorText(o.color === 'default' ? 'gray' : o.color) }} aria-hidden />
-                <span className="fm-chip__name">{o.name}</span>
-              </label>
-            )
-          })}
-          {!multi && !f.required && sel && (
-            <button type="button" className="fm-clear" onClick={() => onChange(null)}>
-              <X size={12} /> {t('database.form.clear')}
-            </button>
-          )}
-        </div>
-      )
-    }
-    case 'rating':
-      return <RatingInput f={f} id={id} value={typeof value === 'number' ? value : 0} invalid={invalid} onChange={onChange} onBlur={onBlur} />
-    case 'files':
-      return <FilesInput id={id} value={(value as File[] | undefined) ?? []} shared={shared} onChange={onChange} />
-    case 'person':
-      return <PersonInput id={id} value={(value as string[] | undefined) ?? []} invalid={invalid} onChange={onChange} onBlur={onBlur} />
-    case 'relation':
-      return <RelationInput f={f} value={(value as string[] | undefined) ?? []} onChange={onChange} />
-  }
-}
-
-function RatingInput({ f, id, value, invalid, onChange, onBlur }: { f: Field; id: string; value: number; invalid: boolean; onChange: (v: Answer) => void; onBlur: () => void }) {
-  const t = useT()
-  const max = f.max ?? 5
-  const [hover, setHover] = useState(0)
-  const lit = hover || value
-  return (
-    <div className="fm-stars" onMouseLeave={() => setHover(0)}>
-      {Array.from({ length: max }, (_, i) => (
-        <label key={i} className="fm-star" data-on={i < lit} onMouseEnter={() => setHover(i + 1)}>
-          <input type="radio" name={id} className="fm-chip__input" checked={value === i + 1} onChange={() => onChange(i + 1)} onBlur={onBlur} aria-invalid={invalid || undefined} />
-          <Star size={22} strokeWidth={1.6} aria-hidden />
-          <span className="visually-hidden">{t('database.form.stars', { n: i + 1, max })}</span>
-        </label>
-      ))}
-      <span className="label fm-stars__readout" aria-hidden>
-        {value ? `${value}/${max}` : '—'}
-      </span>
-      {!f.required && value > 0 && (
-        <button type="button" className="fm-clear" onClick={() => onChange(0)}>
-          <X size={12} /> {t('database.form.clear')}
-        </button>
-      )}
-    </div>
-  )
-}
-
-function FilesInput({ id, value, shared, onChange }: { id: string; value: File[]; shared?: boolean; onChange: (v: Answer) => void }) {
-  const t = useT()
-  const inputRef = useRef<HTMLInputElement>(null)
-  const [drag, setDrag] = useState(false)
-  const add = (list: FileList | null) => {
-    if (!list?.length) return
-    onChange([...value, ...Array.from(list)])
-  }
-  return (
-    <div
-      className="fm-files"
-      data-drag={drag || undefined}
-      onDragOver={(e) => {
-        e.preventDefault()
-        setDrag(true)
-      }}
-      onDragLeave={() => setDrag(false)}
-      onDrop={(e) => {
-        e.preventDefault()
-        setDrag(false)
-        add(e.dataTransfer.files)
-      }}
-    >
-      {value.length > 0 && (
-        <ul className="fm-files__list">
-          {value.map((file, i) => (
-            <li key={`${file.name}-${i}`} className="fm-file" data-big={(shared && file.size > SHARED_FILE_MAX) || undefined}>
-              <Paperclip size={13} aria-hidden />
-              <span className="fm-file__name">{file.name}</span>
-              <span className="label fm-file__size">{formatBytes(file.size)}</span>
-              <button type="button" className="icon-btn icon-btn--sm" aria-label={t('database.form.removeFile', { name: file.name })} onClick={() => onChange(value.filter((_, j) => j !== i))}>
-                <X size={13} />
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
-      <div className="fm-files__row">
-        <button type="button" className="btn btn--sm" id={id} onClick={() => inputRef.current?.click()}>
-          <Upload size={13} /> {t('database.form.chooseFiles')}
-        </button>
-        <span className="label fm-files__hint">{shared ? t('database.form.dropShared', { max: formatBytes(SHARED_FILE_MAX) }) : t('database.form.drop')}</span>
+      <div className="fm-done__actions">
+        {url && (
+          <a className={`btn${go ? ' btn--primary' : ''}`} href={url} {...(go ? {} : { target: '_blank', rel: 'noreferrer' })}>
+            <ArrowUpRight size={14} /> {t('database.form.done.continue', { host: hostOf(url) })}
+          </a>
+        )}
+        {closing?.allowAnother !== false && (
+          <button type="button" className="btn btn--ink" onClick={onAgain}>
+            <RotateCcw size={14} /> {t('database.form.done.again')}
+          </button>
+        )}
+        {outcome && doneActions?.(outcome)}
       </div>
-      <input
-        ref={inputRef}
-        type="file"
-        multiple
-        hidden
-        tabIndex={-1}
-        onChange={(e) => {
-          add(e.target.files)
-          e.target.value = ''
-        }}
-      />
-    </div>
-  )
-}
-
-function PersonInput({ id, value, invalid, onChange, onBlur }: { id: string; value: string[]; invalid: boolean; onChange: (v: Answer) => void; onBlur: () => void }) {
-  const t = useT()
-  const people = useWorkspace((s) => s.people)
-  if (!people.length) return <p className="label fm-q__none">{t('database.form.noPeople')}</p>
-  return (
-    <div className="fm-chips">
-      {people.map((p) => {
-        const on = value.includes(p.id)
-        return (
-          <label key={p.id} className="fm-chip" data-on={on}>
-            <input type="checkbox" name={id} className="fm-chip__input" checked={on} onChange={() => onChange(on ? value.filter((x) => x !== p.id) : [...value, p.id])} onBlur={onBlur} aria-invalid={invalid || undefined} />
-            <span className="fm-chip__mark fm-chip__mark--box" aria-hidden>
-              {on && <Check size={11} strokeWidth={3} />}
-            </span>
-            <Avatar person={p} size={18} />
-            <span className="fm-chip__name">{p.name}</span>
-          </label>
-        )
-      })}
-    </div>
-  )
-}
-
-function RelationInput({ f, value, onChange }: { f: Field; value: string[]; onChange: (v: Answer) => void }) {
-  const t = useT()
-  const pages = useWorkspace((s) => s.pages)
-  const target = useWorkspace((s) => (f.prop?.relationDatabaseId ? s.pages[f.prop.relationDatabaseId] : undefined))
-  const [anchor, setAnchor] = useState<HTMLElement | null>(null)
-  if (!f.prop) return null
-  return (
-    <div className="fm-rel">
-      {value.length > 0 && (
-        <div className="fm-rel__chips">
-          {value.map((id) => {
-            const p = pages[id]
-            return p && !p.trashed ? <RelationChip key={id} page={p} linkable={false} onRemove={() => onChange(value.filter((x) => x !== id))} /> : null
-          })}
-        </div>
-      )}
-      <button type="button" className="btn btn--sm" aria-haspopup="listbox" aria-expanded={!!anchor} onClick={(e) => setAnchor(anchor ? null : e.currentTarget)}>
-        <Plus size={13} /> {t('database.form.link', { db: target?.title || t('common.untitled') })}
-      </button>
-      {anchor && (
-        <Popover open anchor={anchor} onClose={() => setAnchor(null)} className="db-pop">
-          <RelationPicker prop={f.prop} value={value} onChange={(v) => onChange(v)} onClose={() => setAnchor(null)} />
-        </Popover>
-      )}
     </div>
   )
 }
