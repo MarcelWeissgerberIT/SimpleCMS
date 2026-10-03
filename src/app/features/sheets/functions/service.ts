@@ -47,13 +47,40 @@ const custom = (name: string) => {
   return s?.custom ? s : null
 }
 
+/**
+ * Work limits for database formulas: every call gets a small step budget (a cell is one value, not
+ * a workbook), and when calls keep running long — a pathological function in a big database — they
+ * answer #NUM! for the rest of that second instead of freezing the page.
+ */
+const DB_STEPS = 100_000
+const WINDOW_MS = 1000
+const WINDOW_BUDGET_MS = 400
+let windowStart = 0
+let windowSpent = 0
+
+function guarded(run: () => Value): Value | null {
+  const t0 = performance.now()
+  if (t0 - windowStart > WINDOW_MS) {
+    windowStart = t0
+    windowSpent = 0
+  }
+  if (windowSpent > WINDOW_BUDGET_MS) return null
+  const v = run()
+  windowSpent += performance.now() - t0
+  return v
+}
+
 export const DB_FUNCTIONS: FormulaFunctions = {
   resolve: (name) => custom(name)?.name ?? null,
   arity: (name) => {
     const s = custom(name)
     return s ? [s.minArgs, s.maxArgs ?? -1] : [0, -1]
   },
-  call: (name, args, { now, lang }) => fromEngine(callFunction(name, args.map(toEngine), { now: new Date(now), lang })),
+  call: (name, args, { now, lang }) => {
+    const v = guarded(() => callFunction(name, args.map(toEngine), { now: new Date(now), lang, maxSteps: DB_STEPS }))
+    return v === null ? { ok: false, code: '#NUM!', msg: 'calculation limit reached' } : fromEngine(v)
+  },
+
   list: () =>
     listFunctions()
       .filter((s) => !!s.custom)

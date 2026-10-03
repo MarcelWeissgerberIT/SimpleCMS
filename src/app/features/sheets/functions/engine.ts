@@ -4,7 +4,19 @@
  */
 import { useSyncExternalStore } from 'react'
 import type { CustomFunction, FnParam } from '../../../store/types'
-import { cellsOf, datasetOf, getFunction, isBuiltin as engineIsBuiltin, isDataset, isErr, isRange, listFunctions, parseNumeric, registryVersion, subscribeRegistry } from '../engine'
+import {
+  cellsOf,
+  datasetOf,
+  getFunction,
+  isBuiltin as engineIsBuiltin,
+  isDataset,
+  isErr,
+  isRange,
+  listFunctions,
+  parseNumeric,
+  registryVersion,
+  subscribeRegistry,
+} from '../engine'
 import type { CellValue, ErrorCode, FnSpec, Value } from '../engine'
 // the bench runs a draft the way a cell runs a saved function: parameters type-checked (callCustom)
 import { callCustom, newEnv, LimitError } from '../engine/evaluate'

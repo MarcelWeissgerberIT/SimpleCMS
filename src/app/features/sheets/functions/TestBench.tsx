@@ -22,7 +22,14 @@ export function TestBench({ fn, params, functions, samples, onSample, holes }: T
   const lang = useLang()
   // `functions`: calls of other functions run their saved versions — when those change, run again
   const result: RunResult | null = useMemo(
-    () => (fn ? runFunction(fn, params.map((p) => samples[p.name] ?? ''), lang) : null),
+    () =>
+      fn
+        ? runFunction(
+            fn,
+            params.map((p) => samples[p.name] ?? ''),
+            lang,
+          )
+        : null,
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [fn, params, samples, functions, lang],
   )

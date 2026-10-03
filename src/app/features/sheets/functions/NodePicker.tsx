@@ -187,7 +187,10 @@ export function NodePicker({ anchor, mode, params, catalog, self, initialQuery =
     // grouped as shown (sections in the order they first come), so ↑ ↓ follow the screen
     const first = new Map<Option['section'], number>()
     out.forEach((o, i) => first.has(o.section) || first.set(o.section, i))
-    return out.map((o, i) => [o, i] as const).sort((a, b) => first.get(a[0].section)! - first.get(b[0].section)! || a[1] - b[1]).map(([o]) => o)
+    return out
+      .map((o, i) => [o, i] as const)
+      .sort((a, b) => first.get(a[0].section)! - first.get(b[0].section)! || a[1] - b[1])
+      .map(([o]) => o)
   }, [query, mode, params, catalog, customs, cat, lang, t])
 
   useEffect(() => setActive(0), [query, cat])

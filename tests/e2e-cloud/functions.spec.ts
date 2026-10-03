@@ -25,7 +25,14 @@ const TRIPLE = {
   name: 'TRIPLE',
   description: 'x × 3',
   params: [{ name: 'x', type: 'number' }],
-  body: { k: 'call', fn: '*', args: [{ k: 'param', name: 'x' }, { k: 'num', v: 3 }] },
+  body: {
+    k: 'call',
+    fn: '*',
+    args: [
+      { k: 'param', name: 'x' },
+      { k: 'num', v: 3 },
+    ],
+  },
   createdAt: 1,
   updatedAt: 1,
 }

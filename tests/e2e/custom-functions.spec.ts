@@ -49,7 +49,10 @@ async function addParam(page: Page, name: string, type?: string) {
   await fx(page).getByRole('button', { name: 'Add parameter' }).click()
   const field = fx(page).getByRole('textbox', { name: `Name of parameter ${n + 1}` })
   await field.fill(name)
-  if (type) await fx(page).getByRole('combobox', { name: `Type of ${name}` }).selectOption(type)
+  if (type)
+    await fx(page)
+      .getByRole('combobox', { name: `Type of ${name}` })
+      .selectOption(type)
 }
 
 async function save(page: Page) {
@@ -99,7 +102,15 @@ async function productsDb(page: Page, formula: string): Promise<string> {
           { id: 'pPrice', name: 'Price', type: 'number' },
           { id: 'pCost', name: 'Cost', type: 'number' },
           { id: 'pMargin', name: 'Margin', type: 'formula', formula },
-          { id: 'pTags', name: 'Tags', type: 'multi_select', options: [{ id: 'tA', name: 'red', color: 'red' }, { id: 'tB', name: 'blue', color: 'blue' }] },
+          {
+            id: 'pTags',
+            name: 'Tags',
+            type: 'multi_select',
+            options: [
+              { id: 'tA', name: 'red', color: 'red' },
+              { id: 'tB', name: 'blue', color: 'blue' },
+            ],
+          },
         ],
       })
       s.createRow(db, { title: 'Widget', properties: { pPrice: 100, pCost: 75, pTags: ['tA', 'tB'] } })
@@ -146,7 +157,21 @@ test.describe('custom functions', () => {
           k: 'call',
           fn: 'ROUND',
           args: [
-            { k: 'call', fn: '/', args: [{ k: 'call', fn: '-', args: [{ k: 'param', name: 'price' }, { k: 'param', name: 'cost' }] }, { k: 'param', name: 'price' }] },
+            {
+              k: 'call',
+              fn: '/',
+              args: [
+                {
+                  k: 'call',
+                  fn: '-',
+                  args: [
+                    { k: 'param', name: 'price' },
+                    { k: 'param', name: 'cost' },
+                  ],
+                },
+                { k: 'param', name: 'price' },
+              ],
+            },
             { k: 'num', v: 2 },
           ],
         },
@@ -186,7 +211,14 @@ test.describe('custom functions', () => {
         id: 'fn-double',
         name: 'DOUBLE',
         params: [{ name: 'x', type: 'number' }],
-        body: { k: 'call', fn: '*', args: [{ k: 'param', name: 'x' }, { k: 'num', v: 2 }] },
+        body: {
+          k: 'call',
+          fn: '*',
+          args: [
+            { k: 'param', name: 'x' },
+            { k: 'num', v: 2 },
+          ],
+        },
         createdAt: 1,
         updatedAt: 1,
       }),
@@ -349,7 +381,21 @@ test.describe('custom functions', () => {
   test('unsaved changes ask before closing; renames follow into formulas', async ({ page }) => {
     await openApp(page)
     await wsEval(page, (s) =>
-      s.upsertFunction({ id: 'fn-inc', name: 'INC', params: [{ name: 'x', type: 'number' }], body: { k: 'call', fn: '+', args: [{ k: 'param', name: 'x' }, { k: 'num', v: 1 }] }, createdAt: 1, updatedAt: 1 }),
+      s.upsertFunction({
+        id: 'fn-inc',
+        name: 'INC',
+        params: [{ name: 'x', type: 'number' }],
+        body: {
+          k: 'call',
+          fn: '+',
+          args: [
+            { k: 'param', name: 'x' },
+            { k: 'num', v: 1 },
+          ],
+        },
+        createdAt: 1,
+        updatedAt: 1,
+      }),
     )
     const db = await productsDb(page, 'INC(prop("Price"))')
     await gotoPage(page, db)
@@ -377,8 +423,32 @@ test.describe('custom functions', () => {
       s.upsertFunction({
         id: 'fn-margin',
         name: 'MARGIN',
-        params: [{ name: 'price', type: 'number' }, { name: 'cost', type: 'number' }],
-        body: { k: 'call', fn: 'ROUND', args: [{ k: 'call', fn: '/', args: [{ k: 'call', fn: '-', args: [{ k: 'param', name: 'price' }, { k: 'param', name: 'cost' }] }, { k: 'param', name: 'price' }] }, { k: 'num', v: 2 }] },
+        params: [
+          { name: 'price', type: 'number' },
+          { name: 'cost', type: 'number' },
+        ],
+        body: {
+          k: 'call',
+          fn: 'ROUND',
+          args: [
+            {
+              k: 'call',
+              fn: '/',
+              args: [
+                {
+                  k: 'call',
+                  fn: '-',
+                  args: [
+                    { k: 'param', name: 'price' },
+                    { k: 'param', name: 'cost' },
+                  ],
+                },
+                { k: 'param', name: 'price' },
+              ],
+            },
+            { k: 'num', v: 2 },
+          ],
+        },
         createdAt: now,
         updatedAt: now,
       })
@@ -386,7 +456,14 @@ test.describe('custom functions', () => {
         id: 'fn-spread',
         name: 'SPREAD',
         params: [{ name: 'values', type: 'range' }],
-        body: { k: 'call', fn: '-', args: [{ k: 'call', fn: 'MAX', args: [{ k: 'param', name: 'values' }] }, { k: 'call', fn: 'MIN', args: [{ k: 'param', name: 'values' }] }] },
+        body: {
+          k: 'call',
+          fn: '-',
+          args: [
+            { k: 'call', fn: 'MAX', args: [{ k: 'param', name: 'values' }] },
+            { k: 'call', fn: 'MIN', args: [{ k: 'param', name: 'values' }] },
+          ],
+        },
         createdAt: now,
         updatedAt: now,
       })
@@ -409,7 +486,14 @@ test.describe('custom functions', () => {
       (s, cells) => {
         const id = s.createPage({ title: 'Price sheet' })
         const sheet = { id: 'sh1', name: 'Sheet1', rows: 20, cols: 8, cells, colWidths: {} }
-        s.setContent(id, { type: 'doc', content: [{ type: 'spreadsheet', attrs: { id: 'blk1', title: 'Prices', sheets: [sheet], active: 'sh1', datasets: [], charts: [] } }, { type: 'paragraph' }] }, 'e2e')
+        s.setContent(
+          id,
+          {
+            type: 'doc',
+            content: [{ type: 'spreadsheet', attrs: { id: 'blk1', title: 'Prices', sheets: [sheet], active: 'sh1', datasets: [], charts: [] } }, { type: 'paragraph' }],
+          },
+          'e2e',
+        )
         return id as string
       },
       cells,
@@ -440,10 +524,14 @@ test.describe('custom functions', () => {
     await expect(fx(page).locator('#fx-name-note')).toContainText('MARGIN → GAIN in 2 place(s)')
     await save(page)
     await page.keyboard.press('Escape')
-    const formulas = await wsEval(page, (s, id) => {
-      const node = s.pages[id].content.content.find((n: any) => n.type === 'spreadsheet')
-      return [node.attrs.sheets[0].cells.D1.v, node.attrs.sheets[0].cells.D3.v]
-    }, sheetPage)
+    const formulas = await wsEval(
+      page,
+      (s, id) => {
+        const node = s.pages[id].content.content.find((n: any) => n.type === 'spreadsheet')
+        return [node.attrs.sheets[0].cells.D1.v, node.attrs.sheets[0].cells.D3.v]
+      },
+      sheetPage,
+    )
     expect(formulas).toEqual(['=GAIN(B1; B2)', '=GAIN(DS(A1:A2); 1)'])
     await expect(cell(0, 3)).toHaveText('0.3')
   })
@@ -451,7 +539,22 @@ test.describe('custom functions', () => {
   test('backup round-trip keeps functions; bad entries in a backup are dropped', async ({ page }, testInfo) => {
     await openApp(page)
     await wsEval(page, (s) =>
-      s.upsertFunction({ id: 'fn-half', name: 'HALF', description: 'x / 2', params: [{ name: 'x', type: 'number' }], body: { k: 'call', fn: '/', args: [{ k: 'param', name: 'x' }, { k: 'num', v: 2 }] }, createdAt: 1, updatedAt: 1 }),
+      s.upsertFunction({
+        id: 'fn-half',
+        name: 'HALF',
+        description: 'x / 2',
+        params: [{ name: 'x', type: 'number' }],
+        body: {
+          k: 'call',
+          fn: '/',
+          args: [
+            { k: 'param', name: 'x' },
+            { k: 'num', v: 2 },
+          ],
+        },
+        createdAt: 1,
+        updatedAt: 1,
+      }),
     )
     // export a full backup
     await page.keyboard.press(`${MOD}+,`)
@@ -475,7 +578,10 @@ test.describe('custom functions', () => {
     backup.workspace.functions.__proto__x = { id: '__proto__x', name: 'lower', params: [], body: { k: 'num', v: 1 }, createdAt: 1, updatedAt: 1 }
     const tampered = testInfo.outputPath('tampered.json')
     writeFileSync(tampered, JSON.stringify(backup))
-    await page.locator('.sb').getByRole('button', { name: /^Import/ }).click()
+    await page
+      .locator('.sb')
+      .getByRole('button', { name: /^Import/ })
+      .click()
     dialog = page.getByRole('dialog')
     const chooser = page.waitForEvent('filechooser')
     await dialog.getByRole('button', { name: 'Choose files' }).click()
@@ -493,7 +599,14 @@ test.describe('custom functions', () => {
     await openApp(page)
     await wsEval(page, (s) => s.updateSettings({ language: 'de' }))
     await wsEval(page, (s) =>
-      s.upsertFunction({ id: 'fn-half', name: 'HALF', params: [{ name: 'x', type: 'range' }], body: { k: 'call', fn: 'SUM', args: [{ k: 'param', name: 'x' }] }, createdAt: 1, updatedAt: 1 }),
+      s.upsertFunction({
+        id: 'fn-half',
+        name: 'HALF',
+        params: [{ name: 'x', type: 'range' }],
+        body: { k: 'call', fn: 'SUM', args: [{ k: 'param', name: 'x' }] },
+        createdAt: 1,
+        updatedAt: 1,
+      }),
     )
     await page.evaluate(() => (window as any).__one.ui.getState().openModal({ type: 'functions' }))
     await expect(fx(page)).toBeVisible()
