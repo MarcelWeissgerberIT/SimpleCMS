@@ -50,7 +50,8 @@ the public APIs stable — other areas are built against them in parallel.
 
 - All persistent data goes through `useWorkspace` actions in `src/app/store/store.ts`. Never mutate state directly.
 - Page content is TipTap JSON. Write it ONLY with `setContent(pageId, json, origin)`; `origin` is the writer
-  (editor instance id, 'history', 'ai', 'sync', 'import' …). Editors must apply external updates when
+  (editor instance id, 'history', 'ai', 'sync', 'import', 'synced' = synced-block service, 'file' = folder / GitHub
+  pick-up …). Editors must apply external updates when
   `page.contentOrigin !== <own id>` and `contentRev` changed.
 - Database rows are pages with `databaseId` set (parentId = database page id). Title lives in `page.title`.
 - Binary files (images, attachments) go to IndexedDB via `saveFile()` → `"onefile:<id>"`; display with `useFileUrl()`.

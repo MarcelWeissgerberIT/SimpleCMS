@@ -79,6 +79,8 @@ export interface GitHubConfig {
   token: string
   auto: boolean
   everyMin: number
+  /** team workspaces: also push my private pages (a repository may have collaborators) — off by default */
+  includePrivate?: boolean
 }
 
-export const defaultGitHubConfig = (): GitHubConfig => ({ repo: '', branch: 'main', prefix: '', token: '', auto: false, everyMin: 10 })
+export const defaultGitHubConfig = (): GitHubConfig => ({ repo: '', branch: 'main', prefix: '', token: '', auto: false, everyMin: 10, includePrivate: false })

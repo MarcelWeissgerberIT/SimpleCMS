@@ -293,14 +293,17 @@ async function pushOnce(cfg: GitHubConfig, manifest: Manifest, plan: SyncPlan): 
   return { commit, pages: pageCount(plan.writes), files: plan.total, removed, conflicts, skipped }
 }
 
+/** Private pages of a team workspace stay out of the repository unless the person opts in. */
+const planOpts = (cfg: GitHubConfig) => ({ excludePrivate: !cfg.includePrivate })
+
 export async function pushToGitHub(cfg: GitHubConfig, manifest: Manifest): Promise<PushResult> {
-  const plan = await planSync(manifest)
+  const plan = await planSync(manifest, planOpts(cfg))
   try {
     return await pushOnce(cfg, manifest, plan)
   } catch (e) {
     // the branch moved under us: fetch it again and retry once
     if (e instanceof GitHubError && (e.status === 409 || e.status === 422)) {
-      return pushOnce(cfg, manifest, await planSync(manifest))
+      return pushOnce(cfg, manifest, await planSync(manifest, planOpts(cfg)))
     }
     throw e
   }
@@ -330,7 +333,7 @@ export async function pullFromGitHub(cfg: GitHubConfig, manifest: Manifest): Pro
     } else if (isPickable(path)) added.push({ path, sha, data: await readBlob(cfg, sha) })
   }
   if (!changed.length && !added.length && [...Object.keys(manifest.entries)].every((p) => remote.has(p) || p.startsWith('.trash/'))) return { ...empty, head: base.commit }
-  const plan = await planSync(manifest)
+  const plan = await planSync(manifest, planOpts(cfg))
   const res = await applyPickup({
     plan,
     manifest,

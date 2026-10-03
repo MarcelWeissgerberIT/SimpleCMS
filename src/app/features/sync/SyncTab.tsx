@@ -179,6 +179,7 @@ function GitHubPanel() {
   // the saved config arrives after the first render (IndexedDB)
   useEffect(() => setDraft(g.config), [loaded, g.config])
   const commit = (patch: Partial<GitHubConfig>) => void updateGitHubConfig(patch)
+  const inCloud = useCloud((c) => c.active.kind === 'cloud')
   const field = (k: 'repo' | 'branch' | 'prefix' | 'token') => ({
     id: `${uid}-${k}`,
     'aria-describedby': `${uid}-${k}-hint`,
@@ -283,6 +284,15 @@ function GitHubPanel() {
               ))}
             </select>
           </div>
+          {inCloud && (
+            <div className="sy-auto">
+              <Switch checked={!!g.config.includePrivate} onChange={(v) => commit({ includePrivate: v })} label={t('features.sync.gh.private')} />
+              <span className="sy-auto__text">
+                <span className="sy-auto__label">{t('features.sync.gh.private')}</span>
+                <span className="sy-field__hint">{t('features.sync.gh.privateHint')}</span>
+              </span>
+            </div>
+          )}
         </>
       )}
     </Panel>

@@ -516,6 +516,28 @@ test.describe('sync to GitHub', () => {
     expect(remoteText(repo, 'one/Team wiki.md')).toContain('# Team wiki')
   })
 
+  test('private pages of a team workspace stay out of the repository unless opted in', async ({ page }) => {
+    const repo = newRepo()
+    await mockGitHub(page, repo)
+    await openApp(page)
+    const { gh } = await setUpGitHub(page)
+    await expect(gh.getByText('Connected · me/notes')).toBeVisible()
+    await gh.getByRole('button', { name: 'Push now' }).click()
+    await expect.poll(() => remoteText(repo, 'one/Team wiki/Brand voice.md')).toContain('Brand voice')
+
+    // the cloud binding marks pages of the member's private documents (Page.private) — stand in for it here
+    const voice = await pageIdByTitle(page, 'Brand voice')
+    await page.evaluate((id) => window.__one.workspace.setState((st: { pages: Record<string, { private?: true }> }) => void (st.pages[id].private = true)), voice)
+    await gh.getByRole('button', { name: 'Push now' }).click()
+    await expect.poll(() => remoteText(repo, 'one/Team wiki/Brand voice.md')).toBeNull()
+    expect(remoteText(repo, 'one/Team wiki.md')).toContain('# Team wiki')
+
+    // opting in brings it back
+    await page.evaluate(() => (window as unknown as { __oneSync: { github: (p: { includePrivate: boolean }) => Promise<void> } }).__oneSync.github({ includePrivate: true }))
+    await gh.getByRole('button', { name: 'Push now' }).click()
+    await expect.poll(() => remoteText(repo, 'one/Team wiki/Brand voice.md')).toContain('Brand voice')
+  })
+
   test('a rejected token shows the error state', async ({ page, errors }) => {
     errors.allow(/status of 401/)
     const repo = newRepo()

@@ -26,12 +26,22 @@ export interface SyncPlan {
   total: number
 }
 
-export async function buildCtx(manifest: Manifest): Promise<RenderCtx> {
+export interface PlanOptions {
+  /** leave team-workspace private pages out (with their subpages, databases and rows — all private too) */
+  excludePrivate?: boolean
+}
+
+export async function buildCtx(manifest: Manifest, opts: PlanOptions = {}): Promise<RenderCtx> {
   const [editor, database] = await Promise.all([import('../../editor'), import('../../database')])
   const s = useWorkspace.getState()
   const untitled = t('common.untitled')
-  const layout = await computeLayout(s.pages, s.databases, manifest, untitled)
-  return { pages: s.pages, databases: s.databases, people: s.people, layout, untitled, sig: layoutSig(s.pages, layout), editor, database }
+  let { pages, databases } = s
+  if (opts.excludePrivate && Object.values(pages).some((p) => p.private)) {
+    pages = Object.fromEntries(Object.entries(pages).filter(([, p]) => !p.private))
+    databases = Object.fromEntries(Object.entries(databases).filter(([id]) => !s.pages[id]?.private))
+  }
+  const layout = await computeLayout(pages, databases, manifest, untitled)
+  return { pages, databases, people: s.people, layout, untitled, sig: layoutSig(pages, layout), editor, database }
 }
 
 /** Yield to the browser every ~12 ms of work. */
@@ -44,8 +54,8 @@ function budget(ms = 12) {
   }
 }
 
-export async function planSync(manifest: Manifest): Promise<SyncPlan> {
-  const ctx = await buildCtx(manifest)
+export async function planSync(manifest: Manifest, opts: PlanOptions = {}): Promise<SyncPlan> {
+  const ctx = await buildCtx(manifest, opts)
   const { layout } = ctx
   const writes: PlannedWrite[] = []
   const renders = new Map<string, Rendered>()
