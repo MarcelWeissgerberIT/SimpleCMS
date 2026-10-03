@@ -430,6 +430,18 @@
   padding-top: 8px;
 }
 
+/* a long outline scrolls under the actions: they stay in reach (wide layout only) */
+@media (min-width: 761px) {
+  .tpl-preview__foot {
+    position: sticky;
+    bottom: -18px;
+    margin-bottom: -18px;
+    padding: 12px 0 18px;
+    border-top: 1px solid var(--rule);
+    background: var(--surface);
+  }
+}
+
 .tpl-target {
   display: flex;
   align-items: center;
@@ -529,14 +541,17 @@
     row-gap: 0;
     padding-bottom: 8px;
   }
+  .tpl-src {
+    flex: 1 1 100%;
+  }
   .tpl-search {
     order: 3;
-    flex: 1 1 100%;
+    flex: 1 1 160px;
     width: auto;
     margin-left: 0;
   }
   .tpl-new {
-    margin-left: auto;
+    order: 4;
   }
   .tpl-dock {
     position: sticky;
