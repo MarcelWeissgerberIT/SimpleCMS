@@ -121,7 +121,7 @@ export function pauseAutomations(): () => void {
 /* Helpers                                                             */
 /* ------------------------------------------------------------------ */
 
-const COMPUTED = new Set<PropertyDef['type']>(['formula', 'rollup', 'created_time', 'last_edited_time', 'unique_id'])
+const COMPUTED = new Set<PropertyDef['type']>(['formula', 'rollup', 'created_time', 'last_edited_time', 'created_by', 'last_edited_by', 'unique_id'])
 
 export function sameValue(a: unknown, b: unknown): boolean {
   if (a === b) return true

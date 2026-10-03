@@ -10,6 +10,14 @@ import { readFileSync } from 'node:fs'
 import type { Page, Route } from '@playwright/test'
 import { test, expect, openApp, wsEval, pageIdByTitle, MOD } from './fixtures'
 
+declare global {
+  interface Window {
+    // the sync service's test hook (features/sync/service.ts, dev or ?e2e)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    __oneSync: any
+  }
+}
+
 // headless Chromium stores OPFS names through the process locale: without UTF-8 "€" or "—" fail
 test.use({ launchOptions: { env: { ...process.env, LANG: 'C.UTF-8', LC_ALL: 'C.UTF-8' } } })
 

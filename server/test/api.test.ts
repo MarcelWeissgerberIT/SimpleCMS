@@ -50,6 +50,7 @@ const TASKS: Def[] = [
   { id: 'p-f', name: 'Score', type: 'formula', formula: '1+1' },
   { id: 'p-proj', name: 'Project', type: 'relation', relationDatabaseId: 'db-proj' },
   { id: 'p-created', name: 'Created', type: 'created_time' },
+  { id: 'p-by', name: 'Created by', type: 'created_by' },
 ]
 const PROJECTS: Def[] = [
   { id: 'q-title', name: 'Name', type: 'title' },
@@ -321,7 +322,10 @@ describe('public API v1', () => {
 
     // reading it back: friendly values
     const row = await reader.get(`/api/v1/rows/${id}`)
-    assert.deepEqual(row.body.properties, {
+    const { 'Created by': by, ...values } = row.body.properties
+    assert.equal(by.kind, 'api') // written by the token: { kind: 'api', id: <token id> }
+    assert.equal(typeof by.id, 'string')
+    assert.deepEqual(values, {
       Status: 'In progress',
       Tags: ['Alpha', 'Beta'],
       Due: { start: '2026-10-05T14:30', end: null },
@@ -367,6 +371,7 @@ describe('public API v1', () => {
     await bad({ Score: 3 })
     await bad({ Key: 7 })
     await bad({ Created: '2026-01-01' })
+    await bad({ 'Created by': 'member@api.test' })
     const unknown = await bad({ Nope: 1, Status: 'Blocked' })
     assert.equal(unknown.details.errors.length, 2, 'every problem is listed')
     assert.equal((await writer.post('/api/v1/databases/db-tasks/rows', { title: 5 })).status, 400)

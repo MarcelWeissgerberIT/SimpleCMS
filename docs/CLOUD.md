@@ -456,8 +456,11 @@ is; a top-level page where it was created (sidebar "PRIVATE → New page" = `cre
   into the target meta document and deleted from the source one, the store is updated, the content
   documents switch over (open editors keep their document and carets — the awareness moves with them)
   and the old content documents are purged (`purge.ts`, `?scope=private` for the private side, once
-  both meta documents are confirmed). Ids stay. The shell asks before a page goes public ("Everyone in
-  <workspace> will see it"). Another device of the same member follows (`rescoped` pages retarget).
+  both meta documents are confirmed). Ids stay. The shell asks first either way ("Everyone in
+  <workspace> will see it" / "Everyone else loses access"). Another device of the same member follows
+  (`rescoped` pages retarget). Entry points: sidebar drag & drop between PAGES and PRIVATE (onto a page
+  or a section head), the row menu ("Move to Private" / "Move to <workspace>") and "Move to" (a
+  *Private* target, private pages marked).
 - **Nothing leaks by construction**: search, graph, agenda, inbox, agent, exports, backlinks and the
   version history only see the store, which never holds another member's private pages. Things that do
   leave a private page and need care:
@@ -476,6 +479,9 @@ is; a top-level page where it was created (sidebar "PRIVATE → New page" = `cre
   between scopes needs a connection (`CloudError('offline')`, nothing changes).
 - This browser's copies (`device.ts`) include the private documents.
 - The local workspace has no Private section (everything is local anyway).
+- Limits: the server operator can read private documents like any other (privacy between members, not
+  end-to-end encryption); a member keeps the version history snapshots this device made of a page while
+  it was shared; edits someone makes in the second before a page leaves the workspace can be lost.
 
 ## Security notes
 

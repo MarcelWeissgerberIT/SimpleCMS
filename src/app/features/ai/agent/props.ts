@@ -11,7 +11,7 @@ import { t } from '../../../i18n'
 import type { PropChange, PropIntent } from './types'
 
 /** Computed or file properties Claude cannot set. */
-const READ_ONLY = new Set<PropertyType>(['formula', 'rollup', 'created_time', 'last_edited_time', 'unique_id', 'files'])
+const READ_ONLY = new Set<PropertyType>(['formula', 'rollup', 'created_time', 'last_edited_time', 'created_by', 'last_edited_by', 'unique_id', 'files'])
 
 export const isSettable = (p: PropertyDef) => p.type !== 'title' && !READ_ONLY.has(p.type)
 

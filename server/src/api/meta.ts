@@ -36,6 +36,9 @@ export interface PageInfo {
   trashed: boolean
   createdAt: number
   updatedAt: number
+  /** Account id, `api:<tokenId>` or `hook:<hookId>` of who created / last changed the page. */
+  createdBy: string | null
+  updatedBy: string | null
   properties: Record<string, unknown>
 }
 
@@ -83,6 +86,8 @@ export function readPage(id: string, yp: YMap): PageInfo {
     trashed: g('trashed') === true,
     createdAt,
     updatedAt: num(g('updatedAt'), createdAt),
+    createdBy: typeof g('createdBy') === 'string' ? (g('createdBy') as string) : null,
+    updatedBy: typeof g('updatedBy') === 'string' ? (g('updatedBy') as string) : null,
     properties,
   }
 }

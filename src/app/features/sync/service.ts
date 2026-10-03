@@ -2,8 +2,8 @@
  * Sync service: state for the UI (useSync), the run queue, scheduling and leadership.
  *
  *  - One tab per workspace leads (Web Locks, held for the tab's lifetime): only it writes the folder
- *    on changes (debounced), picks up folder edits (focus, visibility, a poll while visible) and
- *    pushes to GitHub on the automatic interval.
+ *    on changes (debounced) and pushes to GitHub on the automatic interval. Folder edits are picked
+ *    up by whichever tab is visible (focus, visibility, a poll every 15 s).
  *  - Every run — automatic or a button in any tab — holds a second lock for its duration, so two
  *    tabs never write the same folder / branch at once. Results are saved (status, log) and other
  *    tabs are told to reload them (BroadcastChannel).
@@ -404,8 +404,9 @@ function onWorkspaceChange() {
   }, WRITE_DEBOUNCE_MS)
 }
 
+/** Folder edits are picked up by the tab the person looks at (leader or not — runs are exclusive anyway). */
 function pickupSoon() {
-  if (!leader || !handle || document.visibilityState !== 'visible') return
+  if (!handle || document.visibilityState !== 'visible') return
   if (useSync.getState().folder.state !== 'ready') return
   void syncFolder({ pickup: true })
 }
@@ -463,7 +464,6 @@ function lead(gen: number) {
     if (handle && useSync.getState().folder.state === 'ready') void syncFolder({ pickup: true })
     if (useSync.getState().github.state !== 'off') void refreshPending()
   }, 1500)
-  pollTimer = window.setInterval(pickupSoon, POLL_MS)
   rescheduleAuto()
 }
 
@@ -477,6 +477,7 @@ export function startSync(): () => void {
   channel?.addEventListener('message', onMessage)
   window.addEventListener('focus', onFocus)
   document.addEventListener('visibilitychange', onVisible)
+  pollTimer = window.setInterval(pickupSoon, POLL_MS)
   let prev = useWorkspace.getState()
   unsubscribe = useWorkspace.subscribe((s) => {
     if (s.pages === prev.pages && s.databases === prev.databases && s.people === prev.people) return

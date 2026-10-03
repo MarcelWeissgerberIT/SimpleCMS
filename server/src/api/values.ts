@@ -8,7 +8,7 @@ import { iso } from '../tokens.ts'
 import { type PropertyDef, type Roots, inTrash, pageMap } from './meta.ts'
 
 /** Computed by the app (or set by it): never written over the API. */
-export const READ_ONLY_TYPES = new Set(['formula', 'rollup', 'created_time', 'last_edited_time', 'unique_id', 'button'])
+export const READ_ONLY_TYPES = new Set(['formula', 'rollup', 'created_time', 'last_edited_time', 'created_by', 'last_edited_by', 'unique_id', 'button'])
 
 /** Values formula / rollup show are computed in the app: they are not in the API's row output. */
 const COMPUTED_OUT = new Set(['formula', 'rollup', 'button'])
@@ -167,7 +167,7 @@ export function coerce(prop: PropertyDef, raw: unknown, ctx: ValueContext): unkn
 /* ------------------------------------------------------------------ out */
 
 /** Stored value → what the API returns; `undefined` = left out (computed in the app). */
-export function friendly(prop: PropertyDef, row: { id: string; createdAt: number; updatedAt: number; properties: Record<string, unknown> }, ctx: ValueContext): unknown {
+export function friendly(prop: PropertyDef, row: { id: string; createdAt: number; updatedAt: number; createdBy?: string | null; updatedBy?: string | null; properties: Record<string, unknown> }, ctx: ValueContext): unknown {
   const v = row.properties[prop.id]
   const names = (ids: unknown) => list(ids).flatMap((id) => {
     const o = (prop.options ?? []).find((x) => x.id === id)
@@ -214,9 +214,23 @@ export function friendly(prop: PropertyDef, row: { id: string; createdAt: number
       return iso(row.createdAt)
     case 'last_edited_time':
       return iso(row.updatedAt)
+    case 'created_by':
+      return actorOut(row.createdBy ?? null, ctx)
+    case 'last_edited_by':
+      return actorOut(row.updatedBy ?? null, ctx)
     default:
       return COMPUTED_OUT.has(prop.type) ? undefined : (v ?? null)
   }
+}
+
+/** Who wrote a page: a member like a person value, or the API token / incoming webhook that did. */
+function actorOut(actor: string | null, ctx: ValueContext) {
+  if (!actor) return null
+  if (actor.startsWith('api:')) return { kind: 'api', id: actor.slice(4) }
+  if (actor.startsWith('hook:')) return { kind: 'webhook', id: actor.slice(5) }
+  const m = ctx.members.find((x) => x.id === actor)
+  const p = ctx.people.get(actor)
+  return { kind: 'person', id: actor, name: p?.name ?? m?.name ?? m?.email ?? '', email: m?.email ?? null }
 }
 
 /** A database's schema as the API shows it. */

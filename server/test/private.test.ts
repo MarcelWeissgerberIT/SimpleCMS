@@ -69,7 +69,8 @@ before(async () => {
   await joinAs(ada, 'member')
   await joinAs(bob, 'member')
   await joinAs(vera, 'viewer')
-    ;[adaId, bobId, veraId] = await Promise.all([ada, bob, vera].map(async (c) => (await c.get('/api/me')).body.user.id as string))
+    const ids = await Promise.all([ada, bob, vera].map(async (c) => (await c.get('/api/me')).body.user.id as string))
+  ;[adaId, bobId, veraId] = ids as [string, string, string]
 })
 
 after(async () => {
