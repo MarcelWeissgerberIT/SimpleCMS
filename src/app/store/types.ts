@@ -99,6 +99,12 @@ export interface Page {
   plain?: string
   /** Comment threads (margin notes), anchored by `comment` marks (attrs: id) in `content`. */
   comments?: PageComment[]
+  /**
+   * Team workspaces: account ids (= person ids of members) of who created / last changed the page,
+   * from the meta document (`api:<id>` / `hook:<id>` for the public API). Absent in the local workspace.
+   */
+  createdBy?: string | null
+  updatedBy?: string | null
 }
 
 /* ------------------------------------------------------------------ */
