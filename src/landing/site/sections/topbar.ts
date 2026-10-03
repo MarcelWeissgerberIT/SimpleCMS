@@ -5,12 +5,13 @@ import { esc } from '../util'
 
 /** Top bar: brand, anchors, language switch, CTA — plus the radio-dial section scale. */
 export function renderTopbar({ t, lang }: Ctx): string {
-  // Plain words here: four of eight section numbers would read like missing items.
+  // Plain words here: five of eight section numbers would read like missing items.
   // The § numbers live on the dial and in the section labels.
   const anchors = [
     ['savings', 'nav.savings'],
     ['features', 'nav.features'],
     ['compare', 'nav.compare'],
+    ['own-it', 'nav.cloud'],
     ['faq', 'nav.faq'],
   ]
   const n = SECTIONS.length - 1

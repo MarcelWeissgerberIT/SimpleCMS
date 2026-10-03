@@ -1,31 +1,52 @@
 import type { Ctx } from '../context'
-import type { FeatureKey } from '../messages'
+import type { FeatureGroup, FeatureKey } from '../messages'
 import { asset, esc } from '../util'
 import { sectionHead } from './head'
 
+const GROUPS: Array<{ key: FeatureGroup; code: string }> = [
+  { key: 'write', code: 'A' },
+  { key: 'organise', code: 'B' },
+  { key: 'automate', code: 'C' },
+  { key: 'publish', code: 'D' },
+]
+
+const num = (n: number) => `F-${String(n).padStart(2, '0')}`
+
 export function renderFeatures(ctx: Ctx): string {
   const { t, c } = ctx
-  const cells = c.features
-    .map(
-      (f, i) => `
-      <li class="plac" data-feature="${f.key}" data-reveal>
-        <i class="screw s-tl" aria-hidden="true"></i><i class="screw s-tr" aria-hidden="true"></i><i class="screw s-bl" aria-hidden="true"></i><i class="screw s-br" aria-hidden="true"></i>
-        <p class="lbl plac-idx"><span>F-${String(i + 1).padStart(2, '0')}</span><span class="plac-code-sm" aria-hidden="true">${esc(f.code)}</span></p>
-        <div class="plac-art ${f.key === 'i18n' ? 'has-icon' : ''}" aria-hidden="true">${
-          f.key === 'i18n'
-            ? '<span class="plac-keys tone-print"><span>EN</span><span>DE</span></span>'
-            : `<span class="plac-code">${esc(f.code)}</span>`
-        }</div>
-        <h3 class="plac-h">${esc(f.title)}</h3>
-        <p class="plac-p">${esc(f.text)}</p>
-      </li>`,
-    )
-    .join('')
+  let n = 0
+  const groups = GROUPS.map((g) => {
+    const items = c.features.filter((f) => f.group === g.key)
+    const first = n + 1
+    const cells = items
+      .map((f) => {
+        n++
+        return `
+        <li class="plac" data-feature="${f.key}" data-reveal>
+          <i class="screw s-tl" aria-hidden="true"></i><i class="screw s-tr" aria-hidden="true"></i><i class="screw s-bl" aria-hidden="true"></i><i class="screw s-br" aria-hidden="true"></i>
+          <p class="lbl plac-idx"><span>${num(n)}</span><span class="plac-code-sm" aria-hidden="true">${esc(f.code)}</span></p>
+          <div class="plac-art" aria-hidden="true"><span class="plac-code">${esc(f.code)}</span></div>
+          <h4 class="plac-h">${esc(f.title)}</h4>
+          <p class="plac-p">${esc(f.text)}</p>
+        </li>`
+      })
+      .join('')
+    return `
+    <div class="pgroup" role="group" aria-labelledby="pg-${g.key}">
+      <h3 id="pg-${g.key}" class="lbl pgroup-h"><span class="pgroup-code" aria-hidden="true">${g.code}</span><span class="pgroup-name">${esc(t(`features.g.${g.key}`))}</span><span class="pgroup-range" aria-hidden="true">${num(first)} — ${num(n)}</span></h3>
+      <ul class="placards">${cells}</ul>
+    </div>`
+  }).join('')
+  const extras = c.extras.map((x) => `<li>${esc(x)}</li>`).join('')
   return `
 <section id="features" class="sec sec-features" data-tone="paper" aria-labelledby="features-h">
   <div class="wrap">
     ${sectionHead('features', t('features.label'), t('features.title'), t('features.lead'))}
-    <ul class="placards">${cells}</ul>
+    <div class="pgroups">${groups}</div>
+    <div class="extras" data-reveal>
+      <h3 class="lbl extras-h"><span class="led" aria-hidden="true"></span>${esc(t('features.extras'))}</h3>
+      <ul class="extras-list">${extras}</ul>
+    </div>
   </div>
 </section>`
 }
@@ -35,41 +56,42 @@ export function renderFeatures(ctx: Ctx): string {
 /* ------------------------------------------------------------------ */
 
 const KEYWORDS: Record<FeatureKey, string[]> = {
-  editor: ['editor', 'block', 'write', 'text', 'pen', 'pencil', 'doc', 'page'],
-  databases: ['database', 'databases', 'db', 'table', 'data', 'grid'],
-  ai: ['ai', 'claude', 'assistant', 'brain', 'robot', 'llm'],
-  automations: ['automation', 'automations', 'webhook', 'gear', 'gears', 'bolt', 'zap', 'flow', 'workflow'],
-  import: ['import', 'notion', 'migrate', 'migration', 'box', 'inbox', 'upload'],
-  graph: ['graph', 'network', 'map', 'node', 'nodes', 'constellation'],
-  history: ['history', 'version', 'versions', 'clock', 'time', 'rewind', 'hourglass'],
-  share: ['share', 'link', 'links', 'send', 'chain'],
-  present: ['present', 'presentation', 'slide', 'slides', 'projector', 'screen'],
-  palette: ['command', 'palette', 'keyboard', 'search', 'key', 'cmd', 'keycap'],
-  private: ['local', 'private', 'privacy', 'lock', 'padlock', 'shield', 'secure', 'safe', 'vault'],
-  templates: ['template', 'templates', 'stencil', 'blueprint', 'layout'],
-  panes: ['pane', 'panes', 'stack', 'stacked', 'layers', 'window', 'windows'],
-  focus: ['focus', 'target', 'zen', 'lens', 'eye'],
-  offline: ['offline', 'plug', 'unplugged', 'airplane', 'wifi', 'signal', 'battery'],
-  i18n: ['language', 'languages', 'lang', 'globe', 'i18n', 'translate', 'world', 'bilingual'],
+  editor: ['editor', 'block', 'blocks', 'write', 'text', 'pen', 'doc', 'page'],
+  ai: ['ai', 'claude', 'assistant', 'brain', 'llm'],
+  history: ['history', 'version', 'versions', 'clock', 'time', 'rewind'],
+  graph: ['graph', 'network', 'map', 'node', 'nodes'],
+  databases: ['database', 'databases', 'db', 'table', 'data'],
+  structure: ['kanban', 'board', 'grid', 'tree', 'nest'],
+  agenda: ['calendar', 'agenda', 'date', 'schedule'],
+  palette: ['search', 'command', 'palette', 'find', 'magnifier'],
+  automations: ['automation', 'automations', 'webhook', 'gear', 'gears', 'workflow'],
+  forms: ['form', 'forms', 'template', 'templates', 'sheet'],
+  buttons: ['button', 'buttons', 'key', 'keycap', 'command'],
+  autofill: ['code', 'formula', 'formulas', 'calculator', 'fill'],
+  website: ['publish', 'website', 'site', 'web', 'send'],
+  share: ['lock', 'password', 'private', 'secure', 'padlock'],
+  import: ['import', 'migrate', 'inbox', 'upload', 'box'],
+  clipper: ['sync', 'link', 'links', 'chain', 'clip'],
 }
 
 /** Hand-picked art per feature (manifest `name`); keyword matching is only the fallback. */
 const PREFERRED: Partial<Record<FeatureKey, string>> = {
   editor: 'blocks',
-  databases: 'database',
   ai: 'ai',
-  automations: 'automation',
-  import: 'import',
-  graph: 'graph',
   history: 'history', // a cassette: rewind
-  share: 'sync', // two chain links: a link
-  present: 'present',
-  palette: 'command',
-  private: 'lock',
-  templates: 'templates',
-  panes: 'split',
-  focus: 'focus',
-  offline: 'publish', // a paper plane: airplane mode
+  graph: 'graph',
+  databases: 'database',
+  structure: 'kanban', // cards on a grid: nested rows
+  agenda: 'calendar',
+  palette: 'search',
+  automations: 'automation',
+  forms: 'templates', // a sheet with an orange field: a form
+  buttons: 'command', // a keycap: one press
+  autofill: 'code', // a calculator: it fills in the numbers
+  website: 'publish', // a paper plane: send it out
+  share: 'lock',
+  import: 'import',
+  clipper: 'sync', // two chain links: save a link
 }
 
 interface IconRef {

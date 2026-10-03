@@ -61,8 +61,13 @@ const SUMMARIES = {
 async function routeToLocal(ctx) {
   await ctx.route(`${PUBLIC}/**`, async (route) => {
     const url = route.request().url().replace(PUBLIC, LOCAL)
-    const response = await route.fetch({ url })
-    await route.fulfill({ response })
+    try {
+      const response = await route.fetch({ url })
+      await route.fulfill({ response })
+    } catch {
+      // the page or context went away mid-request (a shot finished): nothing to deliver
+      await route.abort().catch(() => {})
+    }
   })
 }
 
@@ -289,16 +294,30 @@ const shots = {
 
   async form(browser) {
     const { ctx, page } = await freshPage(browser)
+    const id = await pageIdByTitle(page, 'Projects')
+    // shared answers go to an n8n webhook (the bar shows its host)
+    await page.evaluate((id) => {
+      const s = window.__one.workspace.getState()
+      const view = s.databases[id].views.find((v) => v.type === 'form')
+      s.updateView(id, view.id, { form: { ...view.form, webhookUrl: 'https://n8n.acme.studio/webhook/project-intake' } })
+    }, id)
     await openDbView(page, 'Projects', 'Intake form')
     const db = page.locator('#main section.db').first()
     const fill = db.getByRole('radio', { name: 'Fill' })
     if (await fill.count()) {
       await fill.click()
       await page.waitForTimeout(500)
-      const name = db.getByRole('textbox').first()
-      await name.fill('Partner portal')
-      await page.waitForTimeout(200)
+      await db.getByRole('textbox').first().fill('Partner portal')
+      for (const answer of ['In progress', 'High', 'Alex']) {
+        await db.locator('label', { hasText: answer }).first().click({ timeout: 3000 }).catch(() => console.log(`  (no "${answer}" option)`))
+      }
     } else console.log('  (no fill mode switch)')
+    // the form, not the page header, fills the frame
+    await db.evaluate((el) => {
+      let p = el.parentElement
+      while (p && !(p.scrollHeight > p.clientHeight + 4 && /(auto|scroll)/.test(getComputedStyle(p).overflowY))) p = p.parentElement
+      if (p) p.scrollTop = el.getBoundingClientRect().top - p.getBoundingClientRect().top + p.scrollTop - 8
+    })
     await rest(page)
     await save(page, 'form')
     await ctx.close()
@@ -332,6 +351,8 @@ const shots = {
     const dialog = page.getByRole('dialog')
     await dialog.getByRole('radio', { name: /Website/ }).click()
     await page.waitForTimeout(300)
+    const title = dialog.getByLabel(/Site title/)
+    if (await title.count()) await title.fill('Acme handbook')
     const base = dialog.getByLabel(/Base URL/)
     if (await base.count()) {
       await base.fill('handbook.acme.studio')

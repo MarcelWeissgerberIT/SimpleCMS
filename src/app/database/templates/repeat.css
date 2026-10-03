@@ -1,0 +1,257 @@
+/* Recurring templates: the "Repeat" section of the template editor + the next-run readout. */
+
+/* ---------- next-run readout (template list + editor) ---------- */
+.rpt-next {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 7px;
+  min-width: 0;
+  color: var(--ink-2);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  font-weight: 500;
+  letter-spacing: var(--tracking-label);
+  line-height: 1.4;
+  text-transform: uppercase;
+}
+
+.rpt-next[data-state='ended'] {
+  color: var(--ink-3);
+}
+
+.rpt-next__then {
+  flex-basis: 100%;
+  padding-left: 13px; /* under the text, past the LED */
+  color: var(--ink-3);
+}
+
+/* template list (New ▾): name over the readout */
+.db-tplmenu__text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  padding: 2px 0;
+}
+
+.db-tplmenu__text .rpt-next {
+  flex-wrap: nowrap;
+  white-space: nowrap;
+}
+
+/* touch: the row tools (edit · duplicate · delete) can't wait for a hover */
+@media (hover: none) {
+  .db-tplmenu__row .icon-btn {
+    opacity: 1;
+  }
+}
+
+/* ---------- editor section ---------- */
+.rpt__head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 16px 0 0;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--rule);
+}
+
+.rpt__head-state {
+  margin-left: auto;
+}
+
+.rpt__body {
+  padding-top: 12px;
+}
+
+.rpt__grid {
+  display: grid;
+  grid-template-columns: 96px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px 12px;
+}
+
+.rpt__k[data-top] {
+  align-self: start;
+  padding-top: 9px;
+}
+
+.rpt__v {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+  min-width: 0;
+}
+
+.rpt__freq {
+  min-width: 180px;
+}
+
+.rpt__num {
+  width: 72px;
+  font-family: var(--font-mono);
+}
+
+.rpt__time {
+  width: 112px;
+  font-family: var(--font-mono);
+}
+
+.rpt__date {
+  width: 156px;
+  font-family: var(--font-mono);
+}
+
+.rpt__unit {
+  color: var(--ink-2);
+  font-size: var(--text-sm);
+}
+
+/* weekday keys: keycaps, pressed = the signal key */
+.rpt__days {
+  display: flex;
+  gap: 4px;
+}
+
+.rpt__day {
+  min-width: 36px;
+  height: 30px;
+  padding: 0 6px;
+  border: 1px solid var(--rule-strong);
+  border-bottom-width: 2px;
+  border-radius: var(--radius-1);
+  background: var(--surface);
+  color: var(--ink-2);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  transition:
+    background var(--dur-1) var(--ease-out),
+    color var(--dur-1) var(--ease-out),
+    transform var(--dur-1) var(--ease-out);
+}
+
+.rpt__day:hover {
+  color: var(--ink);
+  background: var(--surface-2);
+}
+
+.rpt__day:active {
+  transform: translateY(1px);
+}
+
+.rpt__day[aria-pressed='true'] {
+  border-color: var(--signal-press);
+  background: var(--signal);
+  color: var(--on-signal);
+}
+
+/* row title + variables */
+.rpt__title {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.rpt__vars {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.rpt__var {
+  height: 22px;
+  padding: 0 6px;
+  border: 1px dashed var(--rule-strong);
+  border-radius: var(--radius-1);
+  background: transparent;
+  color: var(--ink-2);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+}
+
+.rpt__var:hover {
+  border-style: solid;
+  color: var(--ink);
+}
+
+.rpt__var:active {
+  transform: translateY(1px);
+}
+
+.rpt__preview {
+  overflow: hidden;
+  color: var(--ink-2);
+  font-size: var(--text-sm);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* readout strip */
+.rpt__foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 16px;
+  margin-top: 14px;
+  padding: 8px 10px;
+  border: 1px solid var(--rule);
+  border-left: 2px solid var(--signal);
+  border-radius: var(--radius-1);
+  background: var(--surface-2);
+}
+
+.rpt__foot .rpt-next {
+  flex: 1 1 280px;
+}
+
+.rpt__note {
+  margin-left: auto;
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+}
+
+@media (max-width: 560px) {
+  .rpt__grid {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 4px;
+  }
+
+  .rpt__k {
+    padding-top: 8px;
+  }
+
+  .rpt__k[data-top] {
+    padding-top: 8px;
+  }
+
+  .rpt__days {
+    width: 100%;
+  }
+
+  .rpt__day {
+    flex: 1;
+    min-width: 0;
+    height: 36px;
+  }
+
+  .rpt__note {
+    margin-left: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rpt__day,
+  .rpt__day:active,
+  .rpt__var:active {
+    transition: none;
+    transform: none;
+  }
+}

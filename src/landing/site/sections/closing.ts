@@ -4,27 +4,49 @@ import type { Ctx } from '../context'
 import { asset, esc } from '../util'
 import { sectionHead } from './head'
 
+/** Repository docs, linked on GitHub (the site itself only serves the app). */
+const SELF_HOSTING = `${BRAND.repoUrl}/blob/main/docs/SELF_HOSTING.md`
+
 export function renderOwn(ctx: Ctx): string {
   const { t } = ctx
   const steps = ['own.s1', 'own.s2', 'own.s3']
-    .map((k, i) => `<li data-reveal><span class="own-n disp">${String(i + 1).padStart(2, '0')}</span><p>${esc(t(k))}</p></li>`)
+    .map((k, i) => `<li><span class="own-n disp">${String(i + 1).padStart(2, '0')}</span><p>${esc(t(k))}</p></li>`)
     .join('')
+  const points = (keys: string[]) => `<ul class="plate-pts">${keys.map((k) => `<li>${esc(t(k))}</li>`).join('')}</ul>`
+  const head = (id: string, model: string, name: string, status: string, where: string, live: boolean) => `
+        <header class="plate-head">
+          <p class="lbl plate-model">${esc(t(model))}</p>
+          <p class="lbl plate-status"><span class="plate-led${live ? ' is-on' : ''}" aria-hidden="true"></span>${esc(t(status))}</p>
+          <h3 id="${id}" class="plate-name disp">${esc(t(name))}</h3>
+          <p class="lbl plate-where">${esc(t(where))}</p>
+        </header>`
+  const timer = (time: string, label: string) =>
+    `<p class="plate-timer" aria-hidden="true"><span class="lbl">${esc(t(label))}</span><span class="plate-time disp">${time}</span></p>`
   return `
 <section id="own-it" class="sec sec-own tone-signal" data-tone="signal" aria-labelledby="own-it-h">
-  <div class="wrap own-grid">
-    <div class="own-copy">
-      ${sectionHead('own-it', t('own.label'), t('own.title'), t('own.lead'))}
-      <div class="own-ctas" data-reveal>
-        <a class="btn btn-ink btn-lg" href="${BRAND.repoUrl}/fork" rel="noopener">${esc(t('own.fork'))}<span class="arr" aria-hidden="true">→</span></a>
-        <a class="btn btn-line btn-lg" href="${BRAND.repoUrl}" rel="noopener">${esc(t('own.source'))}</a>
-      </div>
-    </div>
-    <div class="own-side">
-      <div class="own-timer" data-reveal aria-hidden="true">
-        <span class="lbl">${esc(t('own.timer'))}</span>
-        <span class="own-time disp">02:00</span>
-      </div>
-      <ol class="own-steps">${steps}</ol>
+  <div class="wrap">
+    ${sectionHead('own-it', t('own.label'), t('own.title'), t('own.lead'))}
+    <div class="plates">
+      <article class="plate plate-local" data-reveal aria-labelledby="own-local-h">
+        <i class="screw s-tl" aria-hidden="true"></i><i class="screw s-tr" aria-hidden="true"></i><i class="screw s-bl" aria-hidden="true"></i><i class="screw s-br" aria-hidden="true"></i>
+        ${head('own-local-h', 'own.local.model', 'own.local.name', 'own.local.status', 'own.local.where', true)}
+        ${points(['own.local.p1', 'own.local.p2', 'own.local.p3'])}
+        ${timer('02:00', 'own.local.time')}
+        <ol class="own-steps">${steps}</ol>
+        <div class="plate-ctas">
+          <a class="btn btn-ink" href="${BRAND.repoUrl}/fork" rel="noopener">${esc(t('own.fork'))}<span class="arr" aria-hidden="true">→</span></a>
+          <a class="btn btn-line" href="${BRAND.repoUrl}" rel="noopener">${esc(t('own.source'))}</a>
+        </div>
+      </article>
+      <article class="plate plate-cloud" data-reveal aria-labelledby="own-cloud-h">
+        <i class="screw s-tl" aria-hidden="true"></i><i class="screw s-tr" aria-hidden="true"></i><i class="screw s-bl" aria-hidden="true"></i><i class="screw s-br" aria-hidden="true"></i>
+        ${head('own-cloud-h', 'own.cloud.model', 'own.cloud.name', 'own.cloud.status', 'own.cloud.where', false)}
+        ${points(['own.cloud.p1', 'own.cloud.p2', 'own.cloud.p3', 'own.cloud.p4', 'own.cloud.p5', 'own.cloud.p6'])}
+        ${timer('30:00', 'own.cloud.time')}
+        <div class="plate-ctas">
+          <a class="btn btn-ink" href="${SELF_HOSTING}" rel="noopener" data-selfhost>${esc(t('own.guide'))}<span class="arr" aria-hidden="true">→</span></a>
+        </div>
+      </article>
     </div>
   </div>
 </section>`
@@ -86,7 +108,7 @@ export function renderFooter(ctx: Ctx): string {
           <li><a href="${BRAND.repoUrl}" rel="noopener">GitHub</a></li>
           <li><a href="${BRAND.repoUrl}/fork" rel="noopener">${esc(t('own.fork'))}</a></li>
           <li><a href="#own-it">${esc(t('sec.own'))}</a></li>
-
+          <li><a href="${SELF_HOSTING}" rel="noopener">${esc(t('footer.selfhost'))}</a></li>
         </ul>
       </nav>
     </div>

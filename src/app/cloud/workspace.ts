@@ -93,17 +93,15 @@ export async function openCloudWorkspace(ws: CloudWorkspace, user: CloudUser, on
 
   const overlay: Overlay = (await overlayP) ?? { settings: null, favorites: [], recent: [], pending: [] }
   const cache = await cacheP
+  const baseSettings = overlay.settings ? { ...defaultSettings(), ...overlay.settings } : await emptySettings()
+  // no await from here to the binding: every remote change after this read reaches the store
   const favorites = new Set(overlay.favorites)
   const data = readAll(doc, (id) => favorites.has(id))
   for (const [id, c] of cache) {
     const p = data.pages[id]
     if (p && c.json) p.content = c.json
   }
-  const settings: Settings = {
-    ...(overlay.settings ? { ...defaultSettings(), ...overlay.settings } : await emptySettings()),
-    workspaceName: data.name ?? ws.name,
-    userName: displayName(user),
-  }
+  const settings: Settings = { ...baseSettings, workspaceName: data.name ?? ws.name, userName: displayName(user) }
   useWorkspace.getState().hydrate({
     version: WORKSPACE_VERSION,
     epoch: `cloud:${ws.id}`,
@@ -133,7 +131,7 @@ export async function openCloudWorkspace(ws: CloudWorkspace, user: CloudUser, on
       window.clearTimeout(overlayTimer)
       overlayTimer = window.setTimeout(saveOverlayNow, 400)
     }
-    const unsubOverlay = useWorkspace.subscribe((s, prev) => {
+    useWorkspace.subscribe((s, prev) => {
       if (s.settings !== prev.settings || s.recent !== prev.recent || s.pages !== prev.pages) scheduleOverlay()
     })
     window.addEventListener('pagehide', () => overlayTimer !== undefined && saveOverlayNow())

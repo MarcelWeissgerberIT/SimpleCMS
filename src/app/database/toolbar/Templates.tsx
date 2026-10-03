@@ -4,7 +4,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { ChevronDown, Copy, FileText, Pencil, Plus, Trash } from 'lucide-react'
 import type { JSONContent } from '@tiptap/core'
-import type { Database, ID, Page, PageIcon as PageIconT, PropertyDef, PropertyValue } from '../../store/types'
+import type { Database, ID, Page, PageIcon as PageIconT, PropertyDef, PropertyValue, TemplateRepeat } from '../../store/types'
 import { useWorkspace, DEFAULT_PAGE_SETTINGS } from '../../store/store'
 import { useUI } from '../../store/ui'
 import { Popover } from '../../ui/Popover'
@@ -17,6 +17,9 @@ import { newId } from '../../lib/ids'
 import { PropertyRows } from '../RowProperties'
 import { isComputed } from '../model/schema'
 import type { DbModel } from '../hooks'
+import { scheduleChanged } from '../../features'
+import { RepeatSettings } from '../templates/RepeatSettings'
+import { NextRun } from '../templates/NextRun'
 
 export type Template = NonNullable<Database['templates']>[number]
 
@@ -66,12 +69,19 @@ export function NewButton({ m, onNew }: { m: DbModel; onNew: (tpl?: Template) =>
                 }}
               >
                 <span className="menu-item__icon">{tpl.icon ? <PageIcon icon={tpl.icon} size={16} /> : <FileText size={14} />}</span>
-                <span className="menu-item__label">{tpl.name || t('common.untitled')}</span>
+                {tpl.repeat ? (
+                  <span className="db-tplmenu__text">
+                    <span className="menu-item__label">{tpl.name || t('common.untitled')}</span>
+                    <NextRun repeat={tpl.repeat} />
+                  </span>
+                ) : (
+                  <span className="menu-item__label">{tpl.name || t('common.untitled')}</span>
+                )}
               </button>
               <button type="button" className="icon-btn icon-btn--sm" aria-label={t('common.edit')} title={t('common.edit')} onClick={() => (setAnchor(null), setEditing(tpl))}>
                 <Pencil size={13} />
               </button>
-              <button type="button" className="icon-btn icon-btn--sm" aria-label={t('common.duplicate')} title={t('common.duplicate')} onClick={() => save([...templates, { ...JSON.parse(JSON.stringify(tpl)), id: newId(), name: `${tpl.name} (${t('database.copySuffix')})` }])}>
+              <button type="button" className="icon-btn icon-btn--sm" aria-label={t('common.duplicate')} title={t('common.duplicate')} onClick={() => save([...templates, copyOf(tpl, `${tpl.name} (${t('database.copySuffix')})`)])}>
                 <Copy size={13} />
               </button>
               <button type="button" className="icon-btn icon-btn--sm" aria-label={t('common.delete')} title={t('common.delete')} onClick={() => deleteTemplate(m.db.id, tpl)}>
@@ -114,6 +124,13 @@ function menuArrows(e: React.KeyboardEvent<HTMLDivElement>) {
 /** Focus "Empty page" when the dropdown opens — the ⏎ hint must be true. */
 function focusFirst(el: HTMLDivElement | null) {
   if (el) requestAnimationFrame(() => el.querySelector<HTMLElement>('[data-nav]')?.focus({ preventScroll: true }))
+}
+
+/** A copy never repeats on its own: it would create a second row for every occurrence. */
+function copyOf(tpl: Template, name: string): Template {
+  const copy: Template = { ...JSON.parse(JSON.stringify(tpl)), id: newId(), name }
+  delete copy.repeat
+  return copy
 }
 
 function deleteTemplate(dbId: ID, tpl: Template) {
@@ -179,6 +196,7 @@ function TemplateModal({ m, template, onClose }: { m: DbModel; template: Templat
   const [name, setName] = useState(template.name)
   const [icon, setIcon] = useState<PageIconT | null>(template.icon ?? null)
   const [props, setProps] = useState<Record<ID, PropertyValue>>(template.properties ?? {})
+  const [repeat, setRepeat] = useState<TemplateRepeat | null>(template.repeat ?? null)
   const [md, setMd] = useState('')
   const [conv, setConv] = useState<typeof import('../../editor') | null>(null)
   /** Markdown as first shown — content is only re-parsed when the text was actually edited. */
@@ -251,9 +269,18 @@ function TemplateModal({ m, template, onClose }: { m: DbModel; template: Templat
         /* keep previous content */
       }
     }
-    const tpl: Template = { ...template, name: name.trim() || t('common.untitled'), icon, properties: props, content }
-    const list = m.db.templates ?? []
-    useWorkspace.getState().updateDatabase(m.db.id, { templates: exists ? list.map((x) => (x.id === tpl.id ? tpl : x)) : [...list, tpl] })
+    // the scheduler may have advanced lastRunAt while the editor was open: build on the stored copy
+    const list = useWorkspace.getState().databases[m.db.id]?.templates ?? m.db.templates ?? []
+    const base = list.find((x) => x.id === template.id) ?? template
+    const prev = base.repeat ?? null
+    // a new or changed schedule counts from now (no backfill); otherwise keep how far runs were handled
+    const nextRepeat: TemplateRepeat | null = repeat
+      ? { ...repeat, lastRunAt: !prev || scheduleChanged(prev, repeat) || typeof prev.lastRunAt !== 'number' ? Date.now() : prev.lastRunAt }
+      : null
+    const tpl: Template = { ...base, name: name.trim() || t('common.untitled'), icon, properties: props, content }
+    if (nextRepeat) tpl.repeat = nextRepeat
+    else delete tpl.repeat
+    useWorkspace.getState().updateDatabase(m.db.id, { templates: list.some((x) => x.id === tpl.id) ? list.map((x) => (x.id === tpl.id ? tpl : x)) : [...list, tpl] })
     onClose()
   }
 
@@ -282,6 +309,7 @@ function TemplateModal({ m, template, onClose }: { m: DbModel; template: Templat
           </button>
           <input ref={nameRef} className="db-tpl__name display" data-autofocus="" value={name} placeholder={t('database.templates.namePlaceholder')} onChange={(e) => setName(e.target.value)} />
         </div>
+        <RepeatSettings db={m.db} name={name} value={repeat} onChange={setRepeat} />
         <div className="label db-tpl__sec">{t('database.templates.properties')}</div>
         <PropertyRows
           db={m.db}

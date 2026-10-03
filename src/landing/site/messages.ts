@@ -14,6 +14,7 @@ export const messages: Messages = {
     'nav.savings': 'Savings',
     'nav.features': 'Features',
     'nav.compare': 'Compare',
+    'nav.cloud': 'Cloud',
     'nav.faq': 'FAQ',
     'nav.open': 'Open the workspace',
     'nav.openShort': 'Open',
@@ -29,7 +30,7 @@ export const messages: Messages = {
     'sec.deep': 'Up close',
     'sec.compare': 'Compare',
     'sec.privacy': 'Data flow',
-    'sec.own': 'Own it',
+    'sec.own': 'Own it · Cloud',
     'sec.faq': 'FAQ',
 
     'hero.label': '§ 00 — Notion, rebuilt',
@@ -37,7 +38,7 @@ export const messages: Messages = {
     'hero.h1': 'Notion, rebuilt.',
     'hero.h2': 'Minus the bill.',
     'hero.sub':
-      'Block editor, databases with seven views, Claude AI on your own key and automations straight into n8n. Free, local-first, no account — it all runs in this browser tab.',
+      'Block editor, databases with eight views, forms, Claude AI on your own key, automations into n8n — and one export to a website. Free, local-first, no account: it all runs in this browser tab.',
     'hero.cta': 'Open the workspace',
     'hero.import': 'Import from Notion',
     'hero.fine': 'No sign-up · No card · No catch',
@@ -103,7 +104,12 @@ export const messages: Messages = {
 
     'features.label': '§ 02 — Features',
     'features.title': 'Sixteen things it does.\nZero add‑ons.',
-    'features.lead': 'Everything below ships in the free workspace. There is no other version.',
+    'features.lead': 'Everything below ships in the free workspace — no plan, no add-on, no upsell.',
+    'features.g.write': 'Write',
+    'features.g.organise': 'Organise',
+    'features.g.automate': 'Automate',
+    'features.g.publish': 'Publish & move',
+    'features.extras': 'Also in the box',
 
     'deep.label': '§ 03 — Up close',
     'deep.title': 'Five closer looks.',
@@ -111,7 +117,7 @@ export const messages: Messages = {
     'compare.label': '§ 04 — Compare',
     'compare.title': 'Notion vs. One.\nThe spec sheet.',
     'compare.lead':
-      'Notion is excellent at real-time teamwork. One is for people who would rather own their notes. We marked our own gaps, too.',
+      'Notion is excellent at real-time teamwork — ours is still in development. One is for people who would rather own their work. We marked our own gaps, too.',
     'compare.param': 'Parameter',
     'compare.notion': 'Notion',
     'compare.one': 'One',
@@ -141,18 +147,38 @@ export const messages: Messages = {
       'Diagram: the One app in your browser tab reads and writes IndexedDB. Optionally it calls the Anthropic API with your key and your own webhooks. There are no SimpleCMS servers.',
     'privacy.p1': 'Every page, row and file is stored in IndexedDB, on this device.',
     'privacy.p2': 'AI requests go from your browser straight to Anthropic. No proxy, no markup.',
-    'privacy.p3': 'Webhooks fire only to endpoints you enter yourself.',
+    'privacy.p3': 'Automations, forms and buttons post only to endpoints you enter yourself.',
     'privacy.p4': 'No analytics, no cookies banner — because there are no cookies.',
 
-    'own.label': '§ 06 — Own it',
+    'own.label': '§ 06 — Own it · Cloud',
     'own.title': 'Own the whole thing.',
     'own.lead':
-      'Fork the repository, flip two switches, run the deploy. Your copy, your URL, your rules — in about two minutes.',
-    'own.s1': 'Fork the repository on GitHub. Keep the name SimpleCMS — the build expects it.',
-    'own.s2': 'In your fork: Actions tab → enable workflows. Then Settings → Pages → Source: GitHub Actions.',
-    'own.s3': 'Actions → “Deploy to GitHub Pages” → Run workflow. Live at you.github.io/SimpleCMS.',
+      'Local stays free, forever. The team cloud is in development — and its server already runs on hardware you control.',
+    'own.local.model': 'Model L',
+    'own.local.name': 'One Local',
+    'own.local.status': 'Available',
+    'own.local.where': 'Your browser · free forever',
+    'own.local.p1': 'Every page and row in IndexedDB, on this device',
+    'own.local.p2': 'No account, no server, works offline',
+    'own.local.p3': 'Your own copy on GitHub Pages or your domain',
+    'own.s1': 'Fork the repository on GitHub.',
+    'own.s2': 'Settings → Pages → Source: GitHub Actions.',
+    'own.s3': 'Push to main. Live at you.github.io/<repo>/ — or on your own domain.',
+    'own.cloud.model': 'Model T',
+    'own.cloud.name': 'One Team Cloud',
+    'own.cloud.status': 'In development',
+    'own.cloud.where': 'Your server · self-host today',
+    'own.cloud.p1': 'Live editing with presence and cursors',
+    'own.cloud.p2': 'Email sign-in, invitations and roles',
+    'own.cloud.p3': 'Offline edits sync once you are back online',
+    'own.cloud.p4': 'One Docker image + Caddy, SQLite in one volume',
+    'own.cloud.p5': 'Data in Germany if you like: a small VPS in Falkenstein or Nuremberg is enough',
+    'own.cloud.p6': 'Server AGPL-3.0, app MIT · Claude keys stay per person',
+    'own.cloud.time': 'Est. setup, mostly DNS',
+    'own.local.time': 'Est. time to your copy',
     'own.fork': 'Fork on GitHub',
     'own.source': 'Read the source',
+    'own.guide': 'Self-hosting guide',
     'own.timer': 'Est. time',
 
     'faq.label': '§ 07 — FAQ',
@@ -168,8 +194,12 @@ export const messages: Messages = {
     'footer.made': 'Set in Archivo and JetBrains Mono. Printed with paper, ink and one orange.',
     'footer.version': 'Rev {version}',
     'footer.top': 'Back to top',
+    'footer.selfhost': 'Self-hosting guide',
 
     'fig.pending': 'Figure',
+    'fig.views': 'views',
+    'fig.enlarge': 'Enlarge figure',
+    'fig.close': 'Close',
   },
   de: {
     'meta.title': 'SimpleCMS One — Notion, neu gebaut. Ohne Abo.',
@@ -179,6 +209,7 @@ export const messages: Messages = {
     'nav.savings': 'Ersparnis',
     'nav.features': 'Funktionen',
     'nav.compare': 'Vergleich',
+    'nav.cloud': 'Cloud',
     'nav.faq': 'FAQ',
     'nav.open': 'Workspace öffnen',
     'nav.openShort': 'Öffnen',
@@ -194,7 +225,7 @@ export const messages: Messages = {
     'sec.deep': 'Im Detail',
     'sec.compare': 'Vergleich',
     'sec.privacy': 'Datenfluss',
-    'sec.own': 'Selbst hosten',
+    'sec.own': 'Selbst hosten · Cloud',
     'sec.faq': 'FAQ',
 
     'hero.label': '§ 00 — Notion, neu gebaut',
@@ -202,7 +233,7 @@ export const messages: Messages = {
     'hero.h1': 'Notion, neu gebaut.',
     'hero.h2': 'Ohne Abo.',
     'hero.sub':
-      'Block-Editor, Datenbanken mit sieben Ansichten, Claude-KI mit eigenem Schlüssel und Automationen direkt nach n8n. Kostenlos, local-first, ohne Konto — alles läuft in diesem Browser-Tab.',
+      'Block-Editor, Datenbanken mit acht Ansichten, Formulare, Claude-KI mit eigenem Schlüssel, Automationen nach n8n — und ein Export zur fertigen Website. Kostenlos, local-first, ohne Konto: Alles läuft in diesem Browser-Tab.',
     'hero.cta': 'Workspace öffnen',
     'hero.import': 'Aus Notion importieren',
     'hero.fine': 'Keine Anmeldung · Keine Karte · Kein Haken',
@@ -267,7 +298,12 @@ export const messages: Messages = {
 
     'features.label': '§ 02 — Funktionen',
     'features.title': 'Sechzehn Funktionen.\nNull Add‑ons.',
-    'features.lead': 'Alles hier steckt im kostenlosen Workspace. Eine andere Version gibt es nicht.',
+    'features.lead': 'Alles hier steckt im kostenlosen Workspace — kein Tarif, kein Add-on, kein Upsell.',
+    'features.g.write': 'Schreiben',
+    'features.g.organise': 'Ordnen',
+    'features.g.automate': 'Automatisieren',
+    'features.g.publish': 'Veröffentlichen & umziehen',
+    'features.extras': 'Außerdem dabei',
 
     'deep.label': '§ 03 — Im Detail',
     'deep.title': 'Fünf genauere Blicke.',
@@ -275,7 +311,7 @@ export const messages: Messages = {
     'compare.label': '§ 04 — Vergleich',
     'compare.title': 'Notion vs. One.\nDas Datenblatt.',
     'compare.lead':
-      'Notion ist stark bei Teamarbeit in Echtzeit. One ist für alle, die ihre Notizen lieber selbst besitzen. Unsere eigenen Lücken haben wir auch markiert.',
+      'Notion ist stark bei Teamarbeit in Echtzeit — unsere ist noch in Entwicklung. One ist für alle, die ihre Arbeit lieber selbst besitzen. Unsere eigenen Lücken haben wir auch markiert.',
     'compare.param': 'Merkmal',
     'compare.notion': 'Notion',
     'compare.one': 'One',
@@ -305,18 +341,38 @@ export const messages: Messages = {
       'Diagramm: Die One-App in deinem Browser-Tab liest und schreibt IndexedDB. Optional ruft sie die Anthropic-API mit deinem Key und deine eigenen Webhooks auf. SimpleCMS-Server gibt es nicht.',
     'privacy.p1': 'Jede Seite, Zeile und Datei liegt in IndexedDB, auf diesem Gerät.',
     'privacy.p2': 'KI-Anfragen gehen aus deinem Browser direkt zu Anthropic. Kein Proxy, kein Aufschlag.',
-    'privacy.p3': 'Webhooks feuern nur an Endpunkte, die du selbst einträgst.',
+    'privacy.p3': 'Automationen, Formulare und Buttons senden nur an Endpunkte, die du selbst einträgst.',
     'privacy.p4': 'Keine Analytics, kein Cookie-Banner — weil es keine Cookies gibt.',
 
-    'own.label': '§ 06 — Selbst hosten',
+    'own.label': '§ 06 — Selbst hosten · Cloud',
     'own.title': 'Gehört komplett dir.',
     'own.lead':
-      'Repository forken, zwei Schalter umlegen, Deploy starten. Deine Kopie, deine URL, deine Regeln — in etwa zwei Minuten.',
-    'own.s1': 'Repository auf GitHub forken. Den Namen SimpleCMS behalten — der Build erwartet ihn.',
-    'own.s2': 'Im Fork: Tab Actions → Workflows aktivieren. Dann Settings → Pages → Source: GitHub Actions.',
-    'own.s3': 'Actions → „Deploy to GitHub Pages“ → Run workflow. Live unter du.github.io/SimpleCMS.',
+      'Lokal bleibt kostenlos, für immer. Die Team-Cloud ist in Entwicklung — und ihr Server läuft schon heute auf Hardware, die du kontrollierst.',
+    'own.local.model': 'Modell L',
+    'own.local.name': 'One Lokal',
+    'own.local.status': 'Verfügbar',
+    'own.local.where': 'Dein Browser · für immer kostenlos',
+    'own.local.p1': 'Jede Seite und Zeile in der IndexedDB, auf diesem Gerät',
+    'own.local.p2': 'Kein Konto, kein Server, funktioniert offline',
+    'own.local.p3': 'Deine eigene Kopie auf GitHub Pages oder deiner Domain',
+    'own.s1': 'Repository auf GitHub forken.',
+    'own.s2': 'Settings → Pages → Source: GitHub Actions.',
+    'own.s3': 'Nach main pushen. Live unter du.github.io/<repo>/ — oder auf deiner eigenen Domain.',
+    'own.cloud.model': 'Modell T',
+    'own.cloud.name': 'One Team-Cloud',
+    'own.cloud.status': 'In Entwicklung',
+    'own.cloud.where': 'Dein Server · heute selbst hosten',
+    'own.cloud.p1': 'Gemeinsam live bearbeiten, mit Präsenz und Cursorn',
+    'own.cloud.p2': 'Anmeldung per E-Mail, Einladungen und Rollen',
+    'own.cloud.p3': 'Offline-Änderungen synchronisieren, sobald du wieder online bist',
+    'own.cloud.p4': 'Ein Docker-Image + Caddy, SQLite in einem Volume',
+    'own.cloud.p5': 'Daten in Deutschland, wenn du willst: Ein kleiner VPS in Falkenstein oder Nürnberg reicht',
+    'own.cloud.p6': 'Server AGPL-3.0, App MIT · Claude-Keys bleiben pro Person',
+    'own.cloud.time': 'Einrichtung ca., meist DNS',
+    'own.local.time': 'Bis zur eigenen Kopie ca.',
     'own.fork': 'Auf GitHub forken',
     'own.source': 'Quellcode lesen',
+    'own.guide': 'Anleitung zum Selbst-Hosten',
     'own.timer': 'Dauer ca.',
 
     'faq.label': '§ 07 — FAQ',
@@ -332,8 +388,12 @@ export const messages: Messages = {
     'footer.made': 'Gesetzt in Archivo und JetBrains Mono. Gedruckt mit Papier, Tinte und einem Orange.',
     'footer.version': 'Rev {version}',
     'footer.top': 'Nach oben',
+    'footer.selfhost': 'Anleitung zum Selbst-Hosten',
 
     'fig.pending': 'Abbildung',
+    'fig.views': 'Ansichten',
+    'fig.enlarge': 'Abbildung vergrößern',
+    'fig.close': 'Schließen',
   },
 }
 
@@ -343,36 +403,51 @@ export const messages: Messages = {
 
 export type FeatureKey =
   | 'editor'
-  | 'databases'
   | 'ai'
-  | 'automations'
-  | 'import'
-  | 'graph'
   | 'history'
-  | 'share'
-  | 'present'
+  | 'graph'
+  | 'databases'
+  | 'structure'
+  | 'agenda'
   | 'palette'
-  | 'private'
-  | 'templates'
-  | 'panes'
-  | 'focus'
-  | 'offline'
-  | 'i18n'
+  | 'automations'
+  | 'forms'
+  | 'buttons'
+  | 'autofill'
+  | 'website'
+  | 'share'
+  | 'import'
+  | 'clipper'
+
+export type FeatureGroup = 'write' | 'organise' | 'automate' | 'publish'
 
 export interface Feature {
   key: FeatureKey
+  group: FeatureGroup
   /** Two-letter "element" code, used when no illustration is available. */
   code: string
   title: string
   text: string
 }
 
+/** One screenshot of a deep-dive figure (several → a tabbed figure). */
+export interface DeepShot {
+  /** File in public/assets/shots (without extension). */
+  shot: string
+  /** Tab label. */
+  tab: string
+  /** Figure caption, doubles as the image's alt text. */
+  fig: string
+}
+
 export interface DeepDive {
-  key: 'database' | 'ai' | 'automations' | 'graph' | 'import'
+  key: 'database' | 'ai' | 'automations' | 'website' | 'import'
   title: string
   text: string
   specs: string[]
+  /** Caption for figures without screenshots (import). */
   fig: string
+  shots: DeepShot[]
 }
 
 export type Mark = 'yes' | 'no' | 'partial'
@@ -389,6 +464,8 @@ export interface Faq {
 
 export interface SiteContent {
   features: Feature[]
+  /** Smaller things, listed as one line of tags under the placards. */
+  extras: string[]
   deep: DeepDive[]
   compare: CompareRow[]
   faq: Faq[]
@@ -397,77 +474,95 @@ export interface SiteContent {
 export const content: Record<Lang, SiteContent> = {
   en: {
     features: [
-      { key: 'editor', code: 'Ed', title: 'Block editor', text: 'Slash menu, drag handles, toggles, callouts, tables, columns, math and Mermaid diagrams.' },
-      { key: 'databases', code: 'Db', title: 'Databases, 7 views', text: 'Table, board, list, gallery, calendar, timeline and chart — seven views over the same rows.' },
-      { key: 'ai', code: 'Ai', title: 'Claude AI, your key', text: 'Write, rewrite, summarise and ask your pages, billed per use to your own Anthropic key.' },
-      { key: 'automations', code: 'Au', title: 'Automations', text: 'When a row is created, changed or deleted, fire a webhook to n8n, Make or Zapier.' },
-      { key: 'import', code: 'Im', title: 'Notion import', text: 'Drop in a Notion export and your pages, nesting and databases come along.' },
-      { key: 'graph', code: 'Gr', title: 'Graph view', text: 'A live map of how every page links to every other page in your workspace.' },
-      { key: 'history', code: 'Hi', title: 'Version history', text: 'Automatic snapshots of every page, no day limit. Scroll back, restore, carry on.' },
-      { key: 'share', code: 'Sh', title: 'Serverless share links', text: 'Share a read-only page as a link. The content travels inside the URL — no server involved.' },
-      { key: 'present', code: 'Pr', title: 'Presentation mode', text: 'Present any page full-screen, slide by slide, straight from the editor.' },
-      { key: 'palette', code: '⌘K', title: 'Command palette', text: 'One shortcut finds every page, command and setting. Hands stay on the keys.' },
-      { key: 'private', code: 'Lo', title: 'Local-first & private', text: 'Everything lives in your browser’s IndexedDB. No account, no server, no telemetry.' },
-      { key: 'templates', code: 'Tp', title: 'Templates', text: 'Start from ready-made pages and databases instead of a blank sheet.' },
-      { key: 'panes', code: 'Pn', title: 'Stacked panes', text: 'Open pages side by side in sliding panes, like papers spread across a desk.' },
-      { key: 'focus', code: 'Fo', title: 'Focus mode', text: 'Hide every panel. Only the page and the caret remain.' },
-      { key: 'offline', code: 'Of', title: 'Survives dead Wi-Fi', text: 'Lose the connection and keep working, reload included. Only AI and webhooks need a network.' },
-      { key: 'i18n', code: 'En', title: 'English & German', text: 'A fully bilingual interface, switchable at any time. Sie oder du — we went with du.' },
+      { key: 'editor', group: 'write', code: 'Ed', title: 'Block editor', text: 'Slash menu, drag handles, tabs, toggles, callouts, columns, math, Mermaid — and margin comments.' },
+      { key: 'ai', group: 'write', code: 'Ai', title: 'Claude AI, your key', text: 'Write, rewrite, summarise and ask your whole workspace, billed per use to your own Anthropic key.' },
+      { key: 'history', group: 'write', code: 'Hi', title: 'Version history', text: 'Snapshots of every page with a block-level diff and no day limit. Scroll back, restore, carry on.' },
+      { key: 'graph', group: 'write', code: 'Gr', title: 'Graph & backlinks', text: 'A live map of every link between pages, plus backlinks and unlinked mentions on each one.' },
+      { key: 'databases', group: 'organise', code: 'Db', title: 'Databases, 8 views', text: 'Table, board, list, gallery, calendar, timeline, chart and form over the same rows. 20 property types.' },
+      { key: 'structure', group: 'organise', code: 'Sb', title: 'Sub-items & dependencies', text: 'Nest tasks, chain them on the timeline and let the dates shift together. Colour rules flag what matters.' },
+      { key: 'agenda', group: 'organise', code: 'Ag', title: 'Agenda', text: 'Every date from every database in one month, week or list view. Drag to reschedule, export as .ics.' },
+      { key: 'palette', group: 'organise', code: '⌘K', title: 'Search & ⌘K', text: 'One shortcut finds every page and row and runs every command. Hands stay on the keys.' },
+      { key: 'automations', group: 'automate', code: 'Au', title: 'Webhook automations', text: 'When a row is created, changed or deleted: fire a webhook, set a property, notify. Free on every database.' },
+      { key: 'forms', group: 'automate', code: 'Fm', title: 'Forms', text: 'Turn a database into a form. Shared forms send every answer to your n8n, Make or Zapier webhook.' },
+      { key: 'buttons', group: 'automate', code: 'Bt', title: 'Buttons', text: 'One click inserts blocks, adds rows, edits properties, opens links or fires a webhook.' },
+      { key: 'autofill', group: 'automate', code: 'Af', title: 'AI autofill', text: 'Claude fills a column — summaries, key facts, translations, categories. You review before anything is written.' },
+      { key: 'website', group: 'publish', code: 'Ws', title: 'Publish as a website', text: 'Any page becomes a static site with sitemap, RSS and llms.txt. Host it anywhere, own every file.' },
+      { key: 'share', group: 'publish', code: 'Sh', title: 'Links with a password', text: 'The page travels inside the link — no server. Add a password and it is encrypted in your browser.' },
+      { key: 'import', group: 'publish', code: 'Im', title: 'Import from anywhere', text: 'Notion, Obsidian, Evernote, Trello and HTML, plus Markdown and CSV. Export it all back out, lossless.' },
+      { key: 'clipper', group: 'publish', code: 'Cl', title: 'Web clipper', text: 'Save any web page to your Inbox with a bookmarklet or Android’s share sheet.' },
     ],
+    extras: ['Presentation mode', 'Stacked panes', 'Focus mode', '11 templates', 'Daily journal', '@-mentions', 'Block links', 'Markdown paste', 'Offline after the first visit', 'Light & dark', 'English & German'],
     deep: [
       {
         key: 'database',
         title: 'Databases that keep up.',
-        text: 'Rows are real pages. Filter, sort and group, flip between seven views, and every edit lands in IndexedDB the moment you make it.',
-        specs: ['7 views over one dataset', '20 property types', 'Relations, rollups & formulas'],
-        fig: 'Fig. 3.1 — Database, board view',
+        text: 'Rows are real pages. Flip between eight views, nest sub-items and chain tasks on the timeline — move one and everything that waits for it moves too. The Agenda gathers every date in the workspace.',
+        specs: ['8 views · 20 property types', 'Sub-items · dependencies · colour rules', 'Agenda across all databases · .ics'],
+        fig: 'Fig. 3.1 — Databases',
+        shots: [
+          { shot: 'database', tab: 'Board', fig: 'Fig. 3.1a — Board view, a row in the side peek' },
+          { shot: 'timeline', tab: 'Timeline', fig: 'Fig. 3.1b — Timeline with dependency arrows' },
+          { shot: 'agenda', tab: 'Agenda', fig: 'Fig. 3.1c — Agenda, month view' },
+        ],
       },
       {
         key: 'ai',
         title: 'Claude, on your key.',
-        text: 'Bring your own Claude key. Requests travel from your browser straight to Anthropic — no middleman, no markup, no monthly AI seat.',
-        specs: ['Key stored on this device only', 'Pay per use at Anthropic’s rates', 'Write · rewrite · summarise · ask'],
-        fig: 'Fig. 3.2 — AI menu on a selection',
+        text: 'Rewrite a selection, ask the whole workspace with cited pages, or let Claude fill a database column. Autofill shows every proposal first — nothing is written until you accept it.',
+        specs: ['Key stays on this device', 'Autofill: summaries · key info · translations', 'Pay Anthropic per use — no AI seat'],
+        fig: 'Fig. 3.2 — Claude',
+        shots: [
+          { shot: 'ai', tab: 'Write', fig: 'Fig. 3.2a — AI menu on a selection' },
+          { shot: 'autofill', tab: 'Autofill', fig: 'Fig. 3.2b — AI autofill, review before writing' },
+        ],
       },
       {
         key: 'automations',
         title: 'Built for automators.',
-        text: 'Every database can fire a webhook when rows are created, changed or deleted. Point it at n8n, Make, Zapier or your own endpoint. This is what arrives:',
-        specs: ['Triggers: created · changed · deleted', 'POST or PUT, custom headers', 'Plus: set property, notify'],
-        fig: 'Fig. 3.3 — Webhook payload, as sent',
+        text: 'Databases fire webhooks when rows are created, changed or deleted; shared forms and buttons post to the same place. Point them at n8n, Make, Zapier or your own endpoint. This is what arrives:',
+        specs: ['Triggers: created · changed · deleted', 'Forms and buttons post too', 'deliveryId on every request'],
+        fig: 'Fig. 3.3 — Automations',
+        shots: [
+          { shot: 'automations', tab: 'Automation', fig: 'Fig. 3.3a — Automation with a webhook action' },
+          { shot: 'form', tab: 'Form', fig: 'Fig. 3.3b — Form view, answers go to n8n' },
+        ],
       },
       {
-        key: 'graph',
-        title: 'Your notes, as a map.',
-        text: 'Every link between pages becomes an edge. Spot the hubs, find the orphans, and jump anywhere with one click.',
-        specs: ['Live force layout', 'Backlinks on every page', 'Click a node to open it'],
-        fig: 'Fig. 3.4 — Graph view',
+        key: 'website',
+        title: 'From page to website.',
+        text: 'Export a page with its sub-pages — or the whole workspace — as a static site: navigation, sitemap, RSS, llms.txt and a Markdown twin of every page. Upload the folder to GitHub Pages or Netlify. For private pages, share a link with a password.',
+        specs: ['Static HTML · no server, no lock-in', 'sitemap.xml · rss.xml · llms.txt', 'Password links: AES-256 in your browser'],
+        fig: 'Fig. 3.4 — Website export',
+        shots: [{ shot: 'website', tab: 'Export', fig: 'Fig. 3.4 — Export as a website' }],
       },
       {
         key: 'import',
-        title: 'Switch in 60 seconds.',
-        text: 'Export your workspace from Notion, drop the file into One, keep working. No account to create, nothing to configure.',
-        specs: ['Notion → Settings → Export', 'Drop the .zip into One', 'Pages, nesting & databases'],
+        title: 'Move in. Move out.',
+        text: 'Bring your notes from Notion, Obsidian, Evernote or Trello — or plain HTML, Markdown and CSV. Leaving is just as easy: Markdown, HTML, PDF or a lossless backup.',
+        specs: ['Notion → Settings → Export → drop the .zip', 'Obsidian · Evernote · Trello · HTML', 'Out: Markdown · HTML · PDF · JSON'],
         fig: 'Fig. 3.5 — Migration, timed',
+        shots: [],
       },
     ],
     compare: [
-      { param: 'Free for teams', notion: ['partial', 'Free plan limits blocks for 2+ members'], one: ['yes', 'No seats, no limits'] },
-      { param: 'No account required', notion: ['no'], one: ['yes'] },
+      { param: 'Price', notion: ['partial', 'Free (limited) · Plus $10–12 · Business $20–24 per seat/month'], one: ['yes', 'Free. No seats, no limits'] },
+      { param: 'Use without an account', notion: ['no'], one: ['yes'] },
       { param: 'Data stays on your device', notion: ['no', 'Stored in Notion’s cloud'], one: ['yes', 'IndexedDB in your browser'] },
-      { param: 'Keeps working offline', notion: ['partial', 'Apps only, not the browser; 50 rows per database'], one: ['yes', 'Every page & row, reload included, after the first visit'] },
-      { param: 'AI assistant', notion: ['partial', 'Full on Business ($20+); trial on Free & Plus'], one: ['yes', 'Claude, pay per use'] },
-      { param: 'Bring your own AI key', notion: ['no'], one: ['yes'] },
-      { param: 'Database views', notion: ['yes'], one: ['yes', '7 views'] },
-      { param: 'Webhooks & automations', notion: ['yes', 'Paid plans'], one: ['yes', 'Free · n8n, Make, Zapier'] },
-      { param: 'Version history', notion: ['partial', '7 / 30 / 90 days by plan'], one: ['yes', 'Local snapshots, no day limit'] },
-      { param: 'Graph view', notion: ['no'], one: ['yes', 'Live map of all links'] },
-      { param: 'Pages side by side', notion: ['no'], one: ['yes', 'Stacked panes'] },
-      { param: 'Presentation mode', notion: ['partial', 'Beta, paid plans'], one: ['yes'] },
-      { param: 'Self-host the whole app', notion: ['no'], one: ['yes', 'GitHub Pages, ~2 min'] },
-      { param: 'Real-time multiplayer', notion: ['yes'], one: ['no', 'Single user; tabs stay in sync'] },
-      { param: 'Sync across devices', notion: ['yes'], one: ['partial', 'Export / import & share links'] },
-      { param: 'Native mobile apps', notion: ['yes'], one: ['partial', 'Responsive web app'] },
+      { param: 'Works fully offline in the browser', notion: ['partial', 'Apps only; pages one by one, 50 rows per database'], one: ['yes', 'Every page and row, after the first visit'] },
+      { param: 'Full AI on every plan', notion: ['partial', 'Business only; a trial on Free & Plus'], one: ['yes', 'Bring your own Claude key'] },
+      { param: 'AI autofill for database columns', notion: ['partial', 'Business only'], one: ['yes', 'Reviewed before anything is written'] },
+      { param: 'Webhook automations', notion: ['yes', 'Paid plans'], one: ['yes', 'Free on every database'] },
+      { param: 'Forms', notion: ['yes'], one: ['yes', 'Answers go to your n8n / Make / Zapier webhook'] },
+      { param: 'Publish as a website', notion: ['yes', 'Notion Sites; custom domain extra'], one: ['yes', 'A static site you own: sitemap, RSS, llms.txt'] },
+      { param: 'Calendar across all databases', notion: ['partial', 'Separate app (Notion Calendar)'], one: ['yes', 'Agenda built in, plus .ics export'] },
+      { param: 'Move in, move out', notion: ['partial', 'Many importers; export flattens views and formulas'], one: ['yes', 'Notion, Obsidian, Evernote, Trello, HTML · lossless backup'] },
+      { param: 'Version history', notion: ['partial', '7 / 30 / 90 days by plan'], one: ['yes', 'No day limit, block-level diff'] },
+      { param: 'Share without a server', notion: ['no'], one: ['yes', 'The page travels inside the link; optional password'] },
+      { param: 'Graph view of linked pages', notion: ['no'], one: ['yes'] },
+      { param: 'Self-host the whole app', notion: ['no'], one: ['yes', 'GitHub Pages in ~2 min; team server via Docker'] },
+      { param: 'Real-time multiplayer', notion: ['yes'], one: ['no', 'Coming with the team cloud; tabs sync live today'] },
+      { param: 'Sync across devices', notion: ['yes'], one: ['partial', 'Export / import today; team cloud in development'] },
+      { param: 'Native mobile apps', notion: ['yes'], one: ['partial', 'Installable web app'] },
     ],
     faq: [
       {
@@ -476,7 +571,7 @@ export const content: Record<Lang, SiteContent> = {
       },
       {
         q: 'Can I use it on several devices?',
-        a: 'Not automatically: there is no cloud sync (yet). Move a workspace with export and import, or send single pages as share links.',
+        a: 'Not automatically yet. Today you move a workspace with export and import, or send single pages as links. Sync across devices comes with the team cloud, which is in development — its server can already be self-hosted.',
       },
       {
         q: 'What does the AI cost?',
@@ -484,7 +579,11 @@ export const content: Record<Lang, SiteContent> = {
       },
       {
         q: 'How do I move from Notion?',
-        a: 'In Notion: Settings → Export, Markdown & CSV. In One: Import, then drop the .zip. Pages, nesting and databases come along.',
+        a: 'In Notion: Settings → Export, Markdown & CSV. In One: Import, then drop the .zip — pages, nesting and databases come along. Obsidian vaults, Evernote .enex files, Trello boards and HTML work the same way.',
+      },
+      {
+        q: 'Can I publish a website with it?',
+        a: 'Yes. Export a page with its sub-pages, or the whole workspace, as a static site with navigation, sitemap, RSS, llms.txt and a Markdown twin of every page. Put the folder on GitHub Pages, Netlify or any web server.',
       },
       {
         q: 'Does it work offline?',
@@ -492,11 +591,11 @@ export const content: Record<Lang, SiteContent> = {
       },
       {
         q: 'Can my team collaborate?',
-        a: 'Honestly: not in real time. One is single-user by design. Open it in several tabs and they stay in sync live; share read-only pages via link.',
+        a: 'Not in real time yet. The local version is single-user: open it in several tabs and they stay in sync; share read-only pages via link. Real-time multiplayer is coming with the team cloud — in development, and you can already run its server yourself.',
       },
       {
-        q: 'Why is it free?',
-        a: 'It is a static site with no servers behind it. There is nothing to run, so there is nothing to bill you for.',
+        q: 'Will the team cloud cost money?',
+        a: 'The local version stays free, forever. Running the team server yourself is free as well (AGPL-3.0). Prices for a hosted version have not been set yet.',
       },
       {
         q: 'What if I clear my browser data?',
@@ -506,77 +605,95 @@ export const content: Record<Lang, SiteContent> = {
   },
   de: {
     features: [
-      { key: 'editor', code: 'Ed', title: 'Block-Editor', text: 'Slash-Menü, Ziehgriffe, Toggles, Callouts, Tabellen, Spalten, Formeln und Mermaid-Diagramme.' },
-      { key: 'databases', code: 'Db', title: 'Datenbanken, 7 Ansichten', text: 'Tabelle, Board, Liste, Galerie, Kalender, Zeitleiste und Diagramm — sieben Ansichten auf dieselben Zeilen.' },
-      { key: 'ai', code: 'Ai', title: 'Claude-KI, dein Key', text: 'Schreiben, umschreiben, zusammenfassen, Fragen an deine Seiten — abgerechnet über deinen eigenen Anthropic-Key.' },
-      { key: 'automations', code: 'Au', title: 'Automationen', text: 'Wird eine Zeile angelegt, geändert oder gelöscht, feuert ein Webhook an n8n, Make oder Zapier.' },
-      { key: 'import', code: 'Im', title: 'Notion-Import', text: 'Notion-Export hineinziehen — Seiten, Verschachtelung und Datenbanken kommen mit.' },
-      { key: 'graph', code: 'Gr', title: 'Graph-Ansicht', text: 'Eine lebendige Karte, wie jede Seite mit jeder anderen in deinem Workspace verlinkt ist.' },
-      { key: 'history', code: 'Hi', title: 'Versionsverlauf', text: 'Automatische Schnappschüsse jeder Seite, ohne Tageslimit. Zurückblättern, wiederherstellen, weitermachen.' },
-      { key: 'share', code: 'Sh', title: 'Teilen ohne Server', text: 'Eine Seite schreibgeschützt als Link teilen. Der Inhalt steckt in der URL — kein Server beteiligt.' },
-      { key: 'present', code: 'Pr', title: 'Präsentationsmodus', text: 'Jede Seite im Vollbild präsentieren, Folie für Folie, direkt aus dem Editor.' },
-      { key: 'palette', code: '⌘K', title: 'Befehlspalette', text: 'Ein Kürzel findet jede Seite, jeden Befehl, jede Einstellung. Die Hände bleiben auf der Tastatur.' },
-      { key: 'private', code: 'Lo', title: 'Local-first & privat', text: 'Alles liegt in der IndexedDB deines Browsers. Kein Konto, kein Server, keine Telemetrie.' },
-      { key: 'templates', code: 'Tp', title: 'Vorlagen', text: 'Mit fertigen Seiten und Datenbanken starten statt mit einem leeren Blatt.' },
-      { key: 'panes', code: 'Pn', title: 'Gestapelte Panels', text: 'Seiten nebeneinander in verschiebbaren Panels öffnen, wie Papiere auf dem Schreibtisch.' },
-      { key: 'focus', code: 'Fo', title: 'Fokusmodus', text: 'Alle Panels ausblenden. Nur die Seite und der Cursor bleiben.' },
-      { key: 'offline', code: 'Of', title: 'Übersteht Funklöcher', text: 'Verbindung weg? Einfach weiterarbeiten, auch nach dem Neuladen. Nur KI und Webhooks brauchen Netz.' },
-      { key: 'i18n', code: 'De', title: 'Deutsch & Englisch', text: 'Vollständig zweisprachig, jederzeit umschaltbar. Und ja: Wir duzen.' },
+      { key: 'editor', group: 'write', code: 'Ed', title: 'Block-Editor', text: 'Slash-Menü, Ziehgriffe, Tabs, Toggles, Callouts, Spalten, Formeln, Mermaid — und Randkommentare.' },
+      { key: 'ai', group: 'write', code: 'Ai', title: 'Claude-KI, dein Key', text: 'Schreiben, umschreiben, zusammenfassen, Fragen an den ganzen Workspace — abgerechnet über deinen eigenen Anthropic-Key.' },
+      { key: 'history', group: 'write', code: 'Hi', title: 'Versionsverlauf', text: 'Schnappschüsse jeder Seite mit Vergleich auf Block-Ebene, ohne Tageslimit. Zurückblättern, wiederherstellen, weitermachen.' },
+      { key: 'graph', group: 'write', code: 'Gr', title: 'Graph & Backlinks', text: 'Eine lebendige Karte aller Links zwischen Seiten, dazu Backlinks und unverlinkte Erwähnungen auf jeder Seite.' },
+      { key: 'databases', group: 'organise', code: 'Db', title: 'Datenbanken, 8 Ansichten', text: 'Tabelle, Board, Liste, Galerie, Kalender, Zeitleiste, Diagramm und Formular auf dieselben Zeilen. 20 Eigenschaftstypen.' },
+      { key: 'structure', group: 'organise', code: 'Ue', title: 'Unterelemente & Abhängigkeiten', text: 'Aufgaben verschachteln, auf der Zeitleiste verketten, Termine gemeinsam verschieben. Farbregeln zeigen, was zählt.' },
+      { key: 'agenda', group: 'organise', code: 'Ag', title: 'Agenda', text: 'Jeder Termin aus jeder Datenbank in Monat, Woche oder Liste. Per Ziehen verschieben, als .ics exportieren.' },
+      { key: 'palette', group: 'organise', code: '⌘K', title: 'Suche & ⌘K', text: 'Ein Kürzel findet jede Seite und Zeile und führt jeden Befehl aus. Die Hände bleiben auf der Tastatur.' },
+      { key: 'automations', group: 'automate', code: 'Au', title: 'Webhook-Automationen', text: 'Zeile angelegt, geändert oder gelöscht: Webhook feuern, Eigenschaft setzen, Hinweis zeigen. Kostenlos in jeder Datenbank.' },
+      { key: 'forms', group: 'automate', code: 'Fo', title: 'Formulare', text: 'Aus einer Datenbank wird ein Formular. Geteilte Formulare senden jede Antwort an deinen n8n-, Make- oder Zapier-Webhook.' },
+      { key: 'buttons', group: 'automate', code: 'Bt', title: 'Buttons', text: 'Ein Klick fügt Blöcke ein, legt Zeilen an, ändert Eigenschaften, öffnet Links oder feuert einen Webhook.' },
+      { key: 'autofill', group: 'automate', code: 'Af', title: 'KI-Autofill', text: 'Claude füllt eine Spalte — Zusammenfassungen, Kerninfos, Übersetzungen, Kategorien. Du prüfst, bevor etwas geschrieben wird.' },
+      { key: 'website', group: 'publish', code: 'Ws', title: 'Als Website veröffentlichen', text: 'Jede Seite wird zur statischen Website mit Sitemap, RSS und llms.txt. Hosten, wo du willst — jede Datei gehört dir.' },
+      { key: 'share', group: 'publish', code: 'Sh', title: 'Links mit Passwort', text: 'Die Seite steckt im Link — kein Server. Mit Passwort wird sie in deinem Browser verschlüsselt.' },
+      { key: 'import', group: 'publish', code: 'Im', title: 'Import von überall', text: 'Notion, Obsidian, Evernote, Trello und HTML, dazu Markdown und CSV. Und alles verlustfrei wieder exportieren.' },
+      { key: 'clipper', group: 'publish', code: 'Cl', title: 'Web-Clipper', text: 'Jede Webseite per Bookmarklet oder Android-Teilen-Menü in deine Inbox legen.' },
     ],
+    extras: ['Präsentationsmodus', 'Gestapelte Panels', 'Fokusmodus', '11 Vorlagen', 'Tagesjournal', '@-Erwähnungen', 'Block-Links', 'Markdown einfügen', 'Offline ab dem ersten Besuch', 'Hell & dunkel', 'Deutsch & Englisch'],
     deep: [
       {
         key: 'database',
         title: 'Datenbanken, die mithalten.',
-        text: 'Zeilen sind echte Seiten. Filtern, sortieren, gruppieren, zwischen sieben Ansichten wechseln — jede Änderung landet sofort in der IndexedDB.',
-        specs: ['7 Ansichten auf einen Datensatz', '20 Eigenschaftstypen', 'Relationen, Rollups & Formeln'],
-        fig: 'Abb. 3.1 — Datenbank, Board-Ansicht',
+        text: 'Zeilen sind echte Seiten. Zwischen acht Ansichten wechseln, Unterelemente verschachteln, Aufgaben auf der Zeitleiste verketten — verschiebst du eine, rückt alles nach, was auf sie wartet. Die Agenda sammelt jeden Termin im Workspace.',
+        specs: ['8 Ansichten · 20 Eigenschaftstypen', 'Unterelemente · Abhängigkeiten · Farbregeln', 'Agenda über alle Datenbanken · .ics'],
+        fig: 'Abb. 3.1 — Datenbanken',
+        shots: [
+          { shot: 'database', tab: 'Board', fig: 'Abb. 3.1a — Board-Ansicht, eine Zeile in der Seitenvorschau' },
+          { shot: 'timeline', tab: 'Zeitleiste', fig: 'Abb. 3.1b — Zeitleiste mit Abhängigkeitspfeilen' },
+          { shot: 'agenda', tab: 'Agenda', fig: 'Abb. 3.1c — Agenda, Monatsansicht' },
+        ],
       },
       {
         key: 'ai',
         title: 'Claude, mit deinem Key.',
-        text: 'Bring deinen eigenen Claude-Key mit. Anfragen gehen aus deinem Browser direkt zu Anthropic — kein Zwischenhändler, kein Aufschlag, kein KI-Abo.',
-        specs: ['Key bleibt auf diesem Gerät', 'Bezahlung nach Nutzung zu Anthropic-Preisen', 'Schreiben · umschreiben · zusammenfassen · fragen'],
-        fig: 'Abb. 3.2 — KI-Menü auf einer Auswahl',
+        text: 'Eine Auswahl umschreiben, den ganzen Workspace mit Quellenangaben befragen oder Claude eine Datenbank-Spalte füllen lassen. Autofill zeigt jeden Vorschlag zuerst — geschrieben wird erst, wenn du zustimmst.',
+        specs: ['Key bleibt auf diesem Gerät', 'Autofill: Zusammenfassungen · Kerninfos · Übersetzungen', 'Bezahlung nach Nutzung bei Anthropic — kein KI-Abo'],
+        fig: 'Abb. 3.2 — Claude',
+        shots: [
+          { shot: 'ai', tab: 'Schreiben', fig: 'Abb. 3.2a — KI-Menü auf einer Auswahl' },
+          { shot: 'autofill', tab: 'Autofill', fig: 'Abb. 3.2b — KI-Autofill, Prüfung vor dem Schreiben' },
+        ],
       },
       {
         key: 'automations',
         title: 'Gebaut für Automatisierer.',
-        text: 'Jede Datenbank kann einen Webhook feuern, wenn Zeilen angelegt, geändert oder gelöscht werden. Ziel: n8n, Make, Zapier oder dein eigener Endpunkt. So kommt es an:',
-        specs: ['Auslöser: angelegt · geändert · gelöscht', 'POST oder PUT, eigene Header', 'Dazu: Eigenschaft setzen, Hinweis'],
-        fig: 'Abb. 3.3 — Webhook-Payload, wie gesendet',
+        text: 'Datenbanken feuern Webhooks, wenn Zeilen angelegt, geändert oder gelöscht werden; geteilte Formulare und Buttons senden an dieselbe Stelle. Ziel: n8n, Make, Zapier oder dein eigener Endpunkt. So kommt es an:',
+        specs: ['Auslöser: angelegt · geändert · gelöscht', 'Formulare und Buttons senden auch', 'deliveryId in jeder Anfrage'],
+        fig: 'Abb. 3.3 — Automationen',
+        shots: [
+          { shot: 'automations', tab: 'Automation', fig: 'Abb. 3.3a — Automation mit Webhook-Aktion' },
+          { shot: 'form', tab: 'Formular', fig: 'Abb. 3.3b — Formular-Ansicht, Antworten gehen an n8n' },
+        ],
       },
       {
-        key: 'graph',
-        title: 'Deine Notizen als Landkarte.',
-        text: 'Jeder Link zwischen Seiten wird zur Kante. Finde die Knotenpunkte und die Waisen — und spring mit einem Klick überallhin.',
-        specs: ['Live-Kräftelayout', 'Backlinks auf jeder Seite', 'Knoten anklicken, Seite öffnen'],
-        fig: 'Abb. 3.4 — Graph-Ansicht',
+        key: 'website',
+        title: 'Von der Seite zur Website.',
+        text: 'Eine Seite mit Unterseiten — oder den ganzen Workspace — als statische Website exportieren: Navigation, Sitemap, RSS, llms.txt und ein Markdown-Zwilling jeder Seite. Den Ordner auf GitHub Pages oder Netlify hochladen. Für private Seiten: ein Link mit Passwort.',
+        specs: ['Statisches HTML · kein Server, kein Lock-in', 'sitemap.xml · rss.xml · llms.txt', 'Passwort-Links: AES-256 im Browser'],
+        fig: 'Abb. 3.4 — Website-Export',
+        shots: [{ shot: 'website', tab: 'Export', fig: 'Abb. 3.4 — Export als Website' }],
       },
       {
         key: 'import',
-        title: 'In 60 Sekunden umgezogen.',
-        text: 'Workspace in Notion exportieren, Datei in One ziehen, weiterarbeiten. Kein Konto anlegen, nichts konfigurieren.',
-        specs: ['Notion → Einstellungen → Export', '.zip in One ziehen', 'Seiten, Verschachtelung & Datenbanken'],
+        title: 'Einziehen. Ausziehen.',
+        text: 'Bring deine Notizen aus Notion, Obsidian, Evernote oder Trello mit — oder einfaches HTML, Markdown und CSV. Gehen ist genauso leicht: Markdown, HTML, PDF oder ein verlustfreies Backup.',
+        specs: ['Notion → Einstellungen → Export → .zip hineinziehen', 'Obsidian · Evernote · Trello · HTML', 'Raus: Markdown · HTML · PDF · JSON'],
         fig: 'Abb. 3.5 — Umzug, gestoppt',
+        shots: [],
       },
     ],
     compare: [
-      { param: 'Kostenlos für Teams', notion: ['partial', 'Free-Tarif begrenzt Blöcke ab 2 Mitgliedern'], one: ['yes', 'Keine Plätze, keine Limits'] },
+      { param: 'Preis', notion: ['partial', 'Free (begrenzt) · Plus 10–12 $ · Business 20–24 $ pro Platz/Monat'], one: ['yes', 'Kostenlos. Keine Plätze, keine Limits'] },
       { param: 'Ohne Konto nutzbar', notion: ['no'], one: ['yes'] },
       { param: 'Daten bleiben auf deinem Gerät', notion: ['no', 'In der Notion-Cloud gespeichert'], one: ['yes', 'IndexedDB in deinem Browser'] },
-      { param: 'Arbeitet offline weiter', notion: ['partial', 'Nur Apps, nicht im Browser; 50 Zeilen pro Datenbank'], one: ['yes', 'Jede Seite & Zeile, auch nach dem Neuladen — ab dem ersten Besuch'] },
-      { param: 'KI-Assistent', notion: ['partial', 'Voll ab Business (20 $+); Test bei Free & Plus'], one: ['yes', 'Claude, Bezahlung nach Nutzung'] },
-      { param: 'Eigener KI-Key', notion: ['no'], one: ['yes'] },
-      { param: 'Datenbank-Ansichten', notion: ['yes'], one: ['yes', '7 Ansichten'] },
-      { param: 'Webhooks & Automationen', notion: ['yes', 'Bezahltarife'], one: ['yes', 'Kostenlos · n8n, Make, Zapier'] },
-      { param: 'Versionsverlauf', notion: ['partial', '7 / 30 / 90 Tage je Tarif'], one: ['yes', 'Lokale Schnappschüsse, ohne Tageslimit'] },
-      { param: 'Graph-Ansicht', notion: ['no'], one: ['yes', 'Live-Karte aller Links'] },
-      { param: 'Seiten nebeneinander', notion: ['no'], one: ['yes', 'Gestapelte Panels'] },
-      { param: 'Präsentationsmodus', notion: ['partial', 'Beta, Bezahltarife'], one: ['yes'] },
-      { param: 'Komplette App selbst hosten', notion: ['no'], one: ['yes', 'GitHub Pages, ca. 2 Min.'] },
-      { param: 'Echtzeit-Zusammenarbeit', notion: ['yes'], one: ['no', 'Ein Nutzer; Tabs bleiben synchron'] },
-      { param: 'Sync zwischen Geräten', notion: ['yes'], one: ['partial', 'Export / Import & Share-Links'] },
-      { param: 'Native Mobil-Apps', notion: ['yes'], one: ['partial', 'Responsive Web-App'] },
+      { param: 'Komplett offline im Browser', notion: ['partial', 'Nur Apps; Seiten einzeln, 50 Zeilen pro Datenbank'], one: ['yes', 'Jede Seite und Zeile, ab dem ersten Besuch'] },
+      { param: 'Volle KI in jedem Tarif', notion: ['partial', 'Nur Business; Test bei Free & Plus'], one: ['yes', 'Mit deinem eigenen Claude-Key'] },
+      { param: 'KI-Autofill für Datenbank-Spalten', notion: ['partial', 'Nur Business'], one: ['yes', 'Geprüft, bevor etwas geschrieben wird'] },
+      { param: 'Webhook-Automationen', notion: ['yes', 'Bezahltarife'], one: ['yes', 'Kostenlos in jeder Datenbank'] },
+      { param: 'Formulare', notion: ['yes'], one: ['yes', 'Antworten gehen an deinen n8n-/Make-/Zapier-Webhook'] },
+      { param: 'Als Website veröffentlichen', notion: ['yes', 'Notion Sites; eigene Domain kostet extra'], one: ['yes', 'Statische Website, die dir gehört: Sitemap, RSS, llms.txt'] },
+      { param: 'Kalender über alle Datenbanken', notion: ['partial', 'Eigene App (Notion Calendar)'], one: ['yes', 'Agenda eingebaut, dazu .ics-Export'] },
+      { param: 'Einziehen, ausziehen', notion: ['partial', 'Viele Importe; Export verflacht Ansichten und Formeln'], one: ['yes', 'Notion, Obsidian, Evernote, Trello, HTML · verlustfreies Backup'] },
+      { param: 'Versionsverlauf', notion: ['partial', '7 / 30 / 90 Tage je Tarif'], one: ['yes', 'Ohne Tageslimit, Vergleich auf Block-Ebene'] },
+      { param: 'Teilen ohne Server', notion: ['no'], one: ['yes', 'Die Seite steckt im Link; optional mit Passwort'] },
+      { param: 'Graph verlinkter Seiten', notion: ['no'], one: ['yes'] },
+      { param: 'Komplette App selbst hosten', notion: ['no'], one: ['yes', 'GitHub Pages in ca. 2 Min.; Team-Server per Docker'] },
+      { param: 'Echtzeit-Zusammenarbeit', notion: ['yes'], one: ['no', 'Kommt mit der Team-Cloud; Tabs synchronisieren schon heute live'] },
+      { param: 'Sync zwischen Geräten', notion: ['yes'], one: ['partial', 'Heute Export / Import; Team-Cloud in Entwicklung'] },
+      { param: 'Native Mobil-Apps', notion: ['yes'], one: ['partial', 'Installierbare Web-App'] },
     ],
     faq: [
       {
@@ -585,7 +702,7 @@ export const content: Record<Lang, SiteContent> = {
       },
       {
         q: 'Kann ich One auf mehreren Geräten nutzen?',
-        a: 'Nicht automatisch: Einen Cloud-Sync gibt es (noch) nicht. Workspaces ziehst du per Export und Import um, einzelne Seiten teilst du per Link.',
+        a: 'Automatisch noch nicht. Heute ziehst du Workspaces per Export und Import um oder teilst einzelne Seiten per Link. Sync zwischen Geräten kommt mit der Team-Cloud, die in Entwicklung ist — ihren Server kannst du schon selbst hosten.',
       },
       {
         q: 'Was kostet die KI?',
@@ -593,7 +710,11 @@ export const content: Record<Lang, SiteContent> = {
       },
       {
         q: 'Wie ziehe ich von Notion um?',
-        a: 'In Notion: Einstellungen → Export, Markdown & CSV. In One: Importieren, dann die .zip hineinziehen. Seiten, Verschachtelung und Datenbanken kommen mit.',
+        a: 'In Notion: Einstellungen → Export, Markdown & CSV. In One: Importieren, dann die .zip hineinziehen — Seiten, Verschachtelung und Datenbanken kommen mit. Obsidian-Vaults, Evernote-.enex-Dateien, Trello-Boards und HTML funktionieren genauso.',
+      },
+      {
+        q: 'Kann ich damit eine Website veröffentlichen?',
+        a: 'Ja. Exportiere eine Seite mit Unterseiten oder den ganzen Workspace als statische Website mit Navigation, Sitemap, RSS, llms.txt und einem Markdown-Zwilling jeder Seite. Den Ordner legst du auf GitHub Pages, Netlify oder jeden Webserver.',
       },
       {
         q: 'Funktioniert es offline?',
@@ -601,11 +722,11 @@ export const content: Record<Lang, SiteContent> = {
       },
       {
         q: 'Kann mein Team zusammenarbeiten?',
-        a: 'Ehrlich gesagt: nicht in Echtzeit. One ist bewusst für eine Person gebaut. Mehrere Tabs bleiben live synchron; schreibgeschützte Seiten teilst du per Link.',
+        a: 'In Echtzeit noch nicht. Die lokale Version ist für eine Person: Mehrere Tabs bleiben live synchron, schreibgeschützte Seiten teilst du per Link. Echtzeit-Zusammenarbeit kommt mit der Team-Cloud — sie ist in Entwicklung, ihren Server kannst du schon selbst betreiben.',
       },
       {
-        q: 'Warum ist das kostenlos?',
-        a: 'Es ist eine statische Website ohne Server dahinter. Es gibt nichts zu betreiben — also auch nichts, was wir dir berechnen müssten.',
+        q: 'Wird die Team-Cloud etwas kosten?',
+        a: 'Die lokale Version bleibt kostenlos, für immer. Den Team-Server selbst zu betreiben ist ebenfalls kostenlos (AGPL-3.0). Preise für eine gehostete Version stehen noch nicht fest.',
       },
       {
         q: 'Was, wenn ich meine Browserdaten lösche?',

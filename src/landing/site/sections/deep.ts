@@ -1,7 +1,7 @@
 import { BRAND } from '@/shared/brand'
 import type { Ctx } from '../context'
-import { aiSchematic, automationSchematic, databaseSchematic, graphSchematic } from '../figures'
-import { CROPS, frame } from '../frame'
+import { aiSchematic, automationSchematic, databaseSchematic, websiteSchematic } from '../figures'
+import { CROPS, frame, tabbedFrame } from '../frame'
 import type { DeepDive } from '../messages'
 import { esc } from '../util'
 import { dotted } from './hero'
@@ -9,7 +9,8 @@ import { sectionHead } from './head'
 
 /**
  * The webhook body, shaped exactly like `buildPayload()` in src/app/features/automations/engine.ts
- * (WebhookPayload): every property value is display text, `changes` is an array. Keep in sync.
+ * (WebhookPayload) + the `deliveryId` lib/webhook.ts adds when sending: every property value is display
+ * text, `changes` is an array. Keep in sync.
  */
 const PAYLOAD = {
   event: 'property_changed',
@@ -18,12 +19,13 @@ const PAYLOAD = {
   row: {
     id: '8f3k2q7hv5ma',
     title: 'ACME GmbH',
-    url: 'https://you.github.io/SimpleCMS/app/#/p/8f3k2q7hv5ma',
+    url: 'https://getonecms.com/app/#/p/8f3k2q7hv5ma',
     properties: { Name: 'ACME GmbH', Status: 'Won', Value: '12,000', Owner: 'Marcel' },
   },
   changes: [{ property: 'Status', from: 'Negotiation', to: 'Won' }],
-  timestamp: '2026-10-02T09:41:07.000Z',
+  timestamp: '2026-10-03T09:41:07.000Z',
   source: 'simplecms-one',
+  deliveryId: 'V1StGXR8_Z5jdHi6B-myT',
 }
 
 /** Minimal JSON syntax colouring → spans. */
@@ -57,6 +59,48 @@ function codeBlock(ctx: Ctx): string {
 </figure>`
 }
 
+
+/** What a website export of the "Team wiki" page writes (see features/io/export/site/build.ts). */
+const SITE_TREE: Array<[string, string?]> = [
+  ['index.html'],
+  ['index.md'],
+  ['brand-voice/index.html', '.md'],
+  ['onboarding/index.html', '.md'],
+  ['tooling-automations/index.html', '.md'],
+  ['glossary/index.html', '.md'],
+  ['sitemap.xml', 'search engines'],
+  ['rss.xml', 'feed readers'],
+  ['llms.txt', 'AI assistants'],
+  ['llms-full.txt'],
+  ['robots.txt'],
+  ['404.html'],
+  ['assets/site.css'],
+]
+
+function siteTree(ctx: Ctx): string {
+  const de = ctx.lang === 'de'
+  const notes: Record<string, string> = de ? { 'search engines': 'Suchmaschinen', 'feed readers': 'Feed-Reader', 'AI assistants': 'KI-Assistenten' } : {}
+  const rows = SITE_TREE.map(([file, note], i) => {
+    const glyph = i === SITE_TREE.length - 1 ? '└─' : '├─'
+    const twin = note === '.md' ? `<span class="j-p"> + .md</span>` : ''
+    const comment = note && note !== '.md' ? `<span class="j-p">  # ${esc(notes[note] ?? note)}</span>` : ''
+    const cls = /\.(xml|txt)$/.test(file) ? 'j-s' : 'j-k'
+    return `<span class="j-p">${glyph}</span> <span class="${cls}">${esc(file)}</span>${twin}${comment}`
+  }).join('\n')
+  const count = 23
+  return `
+<figure class="code code-tree tone-carbon">
+  <figcaption class="code-head lbl">
+    <span><span class="led led-on" aria-hidden="true"></span> acme-handbook-site.zip</span>
+    <span>${de ? `${count} Dateien` : `${count} files`}</span>
+  </figcaption>
+  <div class="code-body code-body-flat">
+    <pre tabindex="0" aria-label="${de ? 'Dateien der exportierten Website' : 'Files of the exported website'}"><code><span class="j-k">handbook.acme.studio/</span>\n${rows}</code></pre>
+  </div>
+  <div class="code-foot lbl"><span>→ GitHub Pages · Netlify · ${de ? 'jeder Webserver' : 'any web server'}</span><span>${de ? 'Server: 0' : 'Servers: 0'}</span></div>
+</figure>`
+}
+
 function importFigure(ctx: Ctx, d: DeepDive): string {
   const de = ctx.lang === 'de'
   const ticks = Array.from({ length: 60 }, (_, i) => {
@@ -78,15 +122,16 @@ function importFigure(ctx: Ctx, d: DeepDive): string {
     .join('')
   const steps = de
     ? [
-        ['01', 'Notion', 'Einstellungen → Export → Markdown & CSV'],
-        ['02', 'One', 'Importieren → .zip hineinziehen'],
+        ['01', 'Exportieren', 'Aus Notion, Obsidian, Evernote oder Trello'],
+        ['02', 'Importieren', '.zip, Vault, .enex oder Board in One ziehen'],
         ['03', 'Fertig', 'Seiten, Verschachtelung, Datenbanken'],
       ]
     : [
-        ['01', 'Notion', 'Settings → Export → Markdown & CSV'],
-        ['02', 'One', 'Import → drop the .zip'],
+        ['01', 'Export', 'From Notion, Obsidian, Evernote or Trello'],
+        ['02', 'Import', 'Drop the .zip, vault, .enex or board into One'],
         ['03', 'Done', 'Pages, nesting, databases'],
       ]
+  const sources = ['Notion', 'Obsidian', 'Evernote', 'Trello', 'HTML', 'MD', 'CSV']
   return `
 <figure class="frame frame-import">
   <div class="frame-box">
@@ -106,6 +151,7 @@ function importFigure(ctx: Ctx, d: DeepDive): string {
     <ol class="import-steps">
       ${steps.map(([n, h, p]) => `<li><span class="lbl">${n}</span><b>${esc(h)}</b><span>${esc(p)}</span></li>`).join('')}
       <li class="import-file"><span class="lbl">notion-export.zip</span><span class="import-bar"><i></i></span><span class="lbl">${de ? '128 Seiten · 6 Datenbanken' : '128 pages · 6 databases'}</span></li>
+      <li class="import-src" aria-label="${de ? 'Quellen' : 'Sources'}">${sources.map((x, i) => `<span class="lbl${i === 0 ? ' is-on' : ''}">${x}</span>`).join('')}</li>
     </ol>
   </div>
   </div>
@@ -113,27 +159,26 @@ function importFigure(ctx: Ctx, d: DeepDive): string {
 </figure>`
 }
 
+const SCHEMATIC: Record<Exclude<DeepDive['key'], 'import'>, (lang: Ctx['lang'], label: string) => string> = {
+  database: databaseSchematic,
+  ai: aiSchematic,
+  automations: automationSchematic,
+  website: websiteSchematic,
+}
+
 function figureFor(ctx: Ctx, d: DeepDive): string {
-  const { lang } = ctx
-  switch (d.key) {
-    case 'database':
-      return frame({ shot: 'assets/shots/database.webp', alt: d.fig, schematic: databaseSchematic(lang, d.fig), caption: d.fig, meta: '1600 × 1000' })
-    case 'ai':
-      return frame({ shot: 'assets/shots/ai.webp', alt: d.fig, schematic: aiSchematic(lang, d.fig), caption: d.fig, meta: '1600 × 1000' })
-    case 'graph':
-      return frame({ shot: 'assets/shots/graph.webp', alt: d.fig, schematic: graphSchematic(lang, d.fig), caption: d.fig, meta: '1600 × 1000' })
-    case 'automations':
-      return `<div class="fig-stack">${frame({
-        shot: 'assets/shots/automations.webp',
-        alt: d.fig,
-        schematic: automationSchematic(lang, d.fig),
-        caption: d.fig,
-        meta: '1600 × 1000',
-        extraClass: 'frame-under',
-      })}${codeBlock(ctx)}</div>`
-    case 'import':
-      return importFigure(ctx, d)
-  }
+  if (d.key === 'import') return importFigure(ctx, d)
+  const { lang, t } = ctx
+  const schematic = SCHEMATIC[d.key](lang, d.fig)
+  const zoom = t('fig.enlarge')
+  const shots = d.shots.map((s) => ({ shot: s.shot, tab: s.tab, caption: s.fig }))
+  const fig =
+    shots.length > 1
+      ? tabbedFrame({ id: `fig-${d.key}`, shots, schematic, label: `${d.fig} — ${t('fig.views')}`, meta: '1600 × 1000', zoom, extraClass: 'frame-under' })
+      : frame({ shot: `assets/shots/${shots[0].shot}.webp`, alt: shots[0].caption, schematic, caption: shots[0].caption, meta: '1600 × 1000', zoom, extraClass: 'frame-under' })
+  if (d.key === 'automations') return `<div class="fig-stack">${fig}${codeBlock(ctx)}</div>`
+  if (d.key === 'website') return `<div class="fig-stack">${fig}${siteTree(ctx)}</div>`
+  return fig
 }
 
 export function renderDeep(ctx: Ctx): string {
@@ -141,7 +186,7 @@ export function renderDeep(ctx: Ctx): string {
   const rows = c.deep
     .map(
       (d, i) => `
-    <article class="deep-row ${i % 2 ? 'is-flip' : ''} ${d.key === 'automations' ? 'is-tall' : ''}" aria-labelledby="deep-${d.key}">
+    <article class="deep-row ${i % 2 ? 'is-flip' : ''} ${d.key === 'automations' || d.key === 'website' ? 'is-tall' : ''}" aria-labelledby="deep-${d.key}">
       <div class="deep-text" data-reveal>
         <p class="lbl deep-idx">§ 03.${i + 1}</p>
         <h3 id="deep-${d.key}" class="deep-h disp">${dotted(d.title)}</h3>

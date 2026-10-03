@@ -1,0 +1,636 @@
+/**
+ * Workspace agent — the tools Claude can call. Read-only tools answer from the store; writing
+ * tools never touch it: each call stages (or extends) one StagedChange through the StageApi.
+ * Tool results are model-facing text (English); `summary` is the localized step-log readout.
+ */
+import type { JSONContent } from '@tiptap/core'
+import { useWorkspace } from '../../../store/store'
+import { useUI } from '../../../store/ui'
+import { isEffectivelyTrashed, selectBreadcrumbs } from '../../../store/selectors'
+import type { Database, ID, Page } from '../../../store/types'
+import { propertyValueToText } from '../../../database'
+import { docToMarkdown } from '../../../editor'
+import { parseHash } from '../../../lib/router'
+import { newId } from '../../../lib/ids'
+import { t } from '../../../i18n'
+import { retrieve, workspaceDocs } from '../workspace'
+import { coerceProperties, isSettable, mergeProps } from './props'
+import type { ChangeKind, PropChange, StagedChange, ToolName } from './types'
+
+/* ------------------------------------------------------------------ */
+/* Contracts                                                           */
+/* ------------------------------------------------------------------ */
+
+export interface ToolOutcome {
+  /** what Claude gets back */
+  content: string
+  /** localized readout for the step log */
+  summary: string
+  state: 'ok' | 'staged'
+  changeId?: string
+}
+
+export type NewChange = Omit<StagedChange, 'id' | 'n' | 'status'>
+
+/** Staging area of the current session (implemented by session.ts). */
+export interface StageApi {
+  list(): StagedChange[]
+  add(change: NewChange): StagedChange
+  update(id: string, patch: Partial<StagedChange>): StagedChange
+  /** id of a row created from a staged create_row (rows get their id on apply), else the id itself */
+  resolve(id: ID): ID
+}
+
+export interface AgentTool {
+  name: ToolName
+  description: string
+  input_schema: { type: 'object'; properties: Record<string, unknown>; required?: string[]; additionalProperties?: boolean }
+  /** stages changes (shown with a different verb in the log) */
+  write: boolean
+  run(input: Record<string, unknown>, stage: StageApi): ToolOutcome
+}
+
+/** A call Claude has to fix: the message goes back to Claude as an error result. */
+export class ToolInputError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'ToolInputError'
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* Limits                                                              */
+/* ------------------------------------------------------------------ */
+
+/** Tool calls per task (one run of the loop). */
+export const MAX_TOOL_CALLS = 25
+/** Characters of one page part (read_page) and of any other tool result. */
+export const PAGE_PART_CHARS = 12_000
+export const RESULT_CHARS = 16_000
+
+/** Cut a tool result and tell Claude so (and how to get the rest). */
+export function clipResult(text: string, max = RESULT_CHARS, hint = 'Narrow the request (filters, a smaller limit) to see the rest.'): string {
+  if (text.length <= max) return text
+  const cut = text.lastIndexOf('\n', max)
+  const end = cut > max * 0.7 ? cut : max
+  return `${text.slice(0, end)}\n[Truncated: showing ${end.toLocaleString('en')} of ${text.length.toLocaleString('en')} characters. ${hint}]`
+}
+
+/* ------------------------------------------------------------------ */
+/* Input helpers                                                       */
+/* ------------------------------------------------------------------ */
+
+function str(input: Record<string, unknown>, key: string, opts: { required?: boolean; max?: number } = {}): string {
+  const v = input[key]
+  if (v === undefined || v === null || v === '') {
+    if (opts.required) throw new ToolInputError(`Missing required parameter "${key}".`)
+    return ''
+  }
+  if (typeof v !== 'string') throw new ToolInputError(`"${key}" must be a string.`)
+  if (opts.max && v.length > opts.max) throw new ToolInputError(`"${key}" is too long (${v.length} characters, at most ${opts.max}).`)
+  return v
+}
+
+function int(input: Record<string, unknown>, key: string, def: number, min: number, max: number): number {
+  const v = input[key]
+  if (v === undefined || v === null) return def
+  const n = typeof v === 'number' ? v : typeof v === 'string' ? Number(v) : NaN
+  if (!Number.isFinite(n)) throw new ToolInputError(`"${key}" must be a number.`)
+  return Math.max(min, Math.min(max, Math.floor(n)))
+}
+
+/* ------------------------------------------------------------------ */
+/* Workspace helpers                                                   */
+/* ------------------------------------------------------------------ */
+
+const ws = () => useWorkspace.getState()
+const untitled = () => t('common.untitled')
+const day = (ms: number) => new Date(ms).toISOString().slice(0, 10)
+const titleOf = (p: Page | undefined) => p?.title.trim() || 'Untitled'
+const q = (s: string) => JSON.stringify(s)
+
+function live(id: ID): Page | null {
+  const { pages } = ws()
+  const p = pages[id]
+  return p && !p.trashed && !isEffectivelyTrashed(pages, id) ? p : null
+}
+
+/** "Team wiki / Onboarding" — where a page lives (its ancestors). */
+function pathOf(id: ID): string {
+  const crumbs = selectBreadcrumbs(ws().pages, id).slice(0, -1)
+  return crumbs.map((p) => titleOf(p)).join(' / ')
+}
+
+function kindOf(p: Page): 'page' | 'database' | 'row' {
+  return p.kind === 'database' ? 'database' : p.databaseId ? 'row' : 'page'
+}
+
+function rowsOf(dbId: ID): Page[] {
+  return Object.values(ws().pages)
+    .filter((p) => p.databaseId === dbId && !p.trashed)
+    .sort((a, b) => a.order - b.order)
+}
+
+function databaseOf(id: ID): Database {
+  const db = ws().databases[id]
+  if (!db || !live(id)) throw new ToolInputError(`No database with id ${q(id)}. Use list_databases to get database ids.`)
+  return db
+}
+
+function schemaLine(db: Database): string {
+  return db.properties
+    .map((p) => {
+      const opts = p.options?.length ? `: ${p.options.map((o) => o.name).join(' | ')}` : ''
+      const ro = isSettable(p) || p.type === 'title' ? '' : ', read-only'
+      return `${p.name} (${p.type}${ro}${opts})`
+    })
+    .join('; ')
+}
+
+function rowFacts(db: Database, row: Page): Record<string, string> {
+  const out: Record<string, string> = { id: row.id, title: row.title.trim() }
+  for (const prop of db.properties) {
+    if (prop.type === 'title') continue
+    let v = ''
+    try {
+      v = propertyValueToText(db, prop, row)
+    } catch {
+      v = ''
+    }
+    if (v) out[prop.name] = v.length > 300 ? `${v.slice(0, 297)}…` : v
+  }
+  return out
+}
+
+function snippet(text: string, query: string): string {
+  const flat = text.replace(/\s+/g, ' ').trim()
+  if (!flat) return ''
+  const words = [query, ...query.split(/\s+/)].map((w) => w.toLowerCase()).filter((w) => w.length > 2)
+  const lower = flat.toLowerCase()
+  let at = -1
+  for (const w of words) {
+    at = lower.indexOf(w)
+    if (at >= 0) break
+  }
+  const start = Math.max(0, at < 0 ? 0 : at - 80)
+  const s = flat.slice(start, start + 220)
+  return `${start > 0 ? '…' : ''}${s}${start + 220 < flat.length ? '…' : ''}`
+}
+
+/** The pending staged change that creates a page or row with this id, if any. */
+function stagedCreate(stage: StageApi, id: ID): StagedChange | undefined {
+  return stage.list().find((c) => (c.kind === 'create_page' || c.kind === 'create_row') && c.pageId === id && c.status !== 'applied')
+}
+
+/** An existing page, or throws a message Claude can act on. Staged pages are handled by the callers. */
+function pageOrThrow(stage: StageApi, rawId: ID): Page {
+  const staged = stagedCreate(stage, rawId)
+  if (staged?.status === 'discarded') throw new ToolInputError(`The user discarded staged change #${staged.n} (${q(staged.title ?? '')}); that page will not exist.`)
+  const id = stage.resolve(rawId)
+  const p = live(id)
+  if (!p) throw new ToolInputError(`No page with id ${q(rawId)}. Use search_pages to find page ids.`)
+  return p
+}
+
+/** One pending change of a kind for a page (to extend it instead of adding a second one). */
+function pendingFor(stage: StageApi, kind: ChangeKind, pageId: ID): StagedChange | undefined {
+  return stage.list().find((c) => c.kind === kind && c.pageId === pageId && c.status === 'pending')
+}
+
+function markdownOf(doc: JSONContent | null): string {
+  return docToMarkdown(doc).trim()
+}
+
+const stagedNote = (c: StagedChange) => `Staged as change #${c.n}. Nothing is written until the user applies it.`
+
+/* ------------------------------------------------------------------ */
+/* Tools                                                               */
+/* ------------------------------------------------------------------ */
+
+const searchPages: AgentTool = {
+  name: 'search_pages',
+  write: false,
+  description:
+    'Search the workspace for pages, databases and database rows by keywords (fuzzy match on titles and text). Call this first to find the pages a task refers to. Returns for each hit: id, title, kind (page, database or row), where it lives, the last-edit date and a text snippet.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      query: { type: 'string', description: 'Keywords, e.g. "weekly sync notes" or a page title.' },
+      limit: { type: 'integer', description: 'Maximum number of results (1–20, default 8).' },
+    },
+    required: ['query'],
+    additionalProperties: false,
+  },
+  run(input) {
+    const query = str(input, 'query', { required: true, max: 300 }).trim()
+    const limit = int(input, 'limit', 8, 1, 20)
+    const hits = retrieve(query, workspaceDocs(), limit)
+    if (!hits.length) return { content: `No pages match ${q(query)}. Try other keywords, or list_databases for databases.`, summary: t('features.agent.res.results', { count: 0 }), state: 'ok' }
+    const { pages } = ws()
+    const lines = hits.map((h) => {
+      const p = pages[h.id]
+      const kind = p ? kindOf(p) : 'page'
+      const where = p?.databaseId ? `row of database ${q(titleOf(pages[p.databaseId]))}` : pathOf(h.id) ? `in ${q(pathOf(h.id))}` : 'top level'
+      const edited = p ? day(p.updatedAt) : ''
+      const text = snippet(h.text, query)
+      return `- id: ${h.id} · ${kind} · ${q(h.title)} · ${where} · edited ${edited}${text ? `\n  ${text}` : ''}`
+    })
+    return { content: clipResult(`${hits.length} results for ${q(query)}:\n${lines.join('\n')}`), summary: t('features.agent.res.results', { count: hits.length }), state: 'ok' }
+  },
+}
+
+const readPage: AgentTool = {
+  name: 'read_page',
+  write: false,
+  description:
+    'Read one page as Markdown, with its title, location, last-edit date, sub-pages and — for database rows — its property values. Call this before you summarise, quote or change a page. Long pages come in parts: pass the offset given at the end of a part to continue. For a database this returns its schema; use query_database for its rows.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      id: { type: 'string', description: 'Page id (from search_pages, query_database or another tool).' },
+      offset: { type: 'integer', description: 'Character offset into the page Markdown (default 0).' },
+    },
+    required: ['id'],
+    additionalProperties: false,
+  },
+  run(input, stage) {
+    const rawId = str(input, 'id', { required: true, max: 80 }).trim()
+    const offset = int(input, 'offset', 0, 0, 10_000_000)
+    const staged = stagedCreate(stage, rawId)
+    if (staged?.status === 'pending' || staged?.status === 'failed')
+      return {
+        content: `Staged page #${staged.n} (not applied yet) · id: ${rawId}\n# ${staged.title ?? ''}\n\n${clipResult(staged.markdown ?? '', PAGE_PART_CHARS, '')}`,
+        summary: t('features.agent.res.stagedPage', { n: staged.n }),
+        state: 'ok',
+      }
+    const p = pageOrThrow(stage, rawId)
+    const { pages, databases } = ws()
+    const head: string[] = [`# ${titleOf(p)}`, `id: ${p.id} · ${kindOf(p)} · edited ${day(p.updatedAt)} · created ${day(p.createdAt)}`]
+    const where = p.databaseId ? `row of database ${q(titleOf(pages[p.databaseId]))} (id: ${p.databaseId})` : pathOf(p.id) ? `in ${q(pathOf(p.id))}` : 'top level'
+    head.push(`location: ${where}`)
+    if (p.kind === 'database' && databases[p.id]) {
+      const db = databases[p.id]
+      head.push(`database with ${rowsOf(p.id).length} rows · properties: ${schemaLine(db)}`, 'Use query_database to list its rows.')
+    }
+    if (p.databaseId && databases[p.databaseId]) {
+      const facts = rowFacts(databases[p.databaseId], p)
+      const props = Object.entries(facts).filter(([k]) => k !== 'id' && k !== 'title')
+      if (props.length) head.push(`properties: ${props.map(([k, v]) => `${k}: ${v}`).join('; ')}`)
+    }
+    const children = Object.values(pages)
+      .filter((c) => c.parentId === p.id && !c.databaseId && !c.trashed)
+      .sort((a, b) => a.order - b.order)
+    if (children.length) head.push(`sub-pages: ${children.slice(0, 40).map((c) => `${q(titleOf(c))} (id: ${c.id})`).join(', ')}${children.length > 40 ? ` and ${children.length - 40} more` : ''}`)
+    const md = markdownOf(p.content)
+    const part = md.slice(offset, offset + PAGE_PART_CHARS)
+    const more = offset + PAGE_PART_CHARS < md.length
+    let body = md ? part : '(empty page)'
+    if (offset && !part) body = `(offset ${offset} is past the end: the page has ${md.length} characters)`
+    if (more) body += `\n[Part ${offset}–${offset + part.length} of ${md.length} characters. Call read_page with offset ${offset + part.length} for the rest.]`
+    return { content: `${head.join('\n')}\n\n${body}`, summary: t('features.agent.res.chars', { count: md.length.toLocaleString() }), state: 'ok' }
+  },
+}
+
+const listDatabases: AgentTool = {
+  name: 'list_databases',
+  write: false,
+  description:
+    'List every database with its id, number of rows, location and property schema (property names, types and allowed options). Call this before query_database, create_row or update_row so you use exact property and option names.',
+  input_schema: { type: 'object', properties: {}, additionalProperties: false },
+  run() {
+    const { databases } = ws()
+    const dbs = Object.values(databases).filter((d) => live(d.id))
+    if (!dbs.length) return { content: 'This workspace has no databases.', summary: t('features.agent.res.dbs', { count: 0 }), state: 'ok' }
+    const lines = dbs.map((d) => {
+      const page = ws().pages[d.id]
+      const where = pathOf(d.id)
+      return `- ${q(titleOf(page))} (id: ${d.id}) · ${rowsOf(d.id).length} rows${where ? ` · in ${q(where)}` : ''}\n  properties: ${schemaLine(d)}`
+    })
+    return { content: clipResult(`${dbs.length} databases:\n${lines.join('\n')}`), summary: t('features.agent.res.dbs', { count: dbs.length }), state: 'ok' }
+  },
+}
+
+type Operator = 'equals' | 'not_equals' | 'contains' | 'is_empty' | 'is_not_empty'
+const OPERATORS: Operator[] = ['equals', 'not_equals', 'contains', 'is_empty', 'is_not_empty']
+
+const queryDatabase: AgentTool = {
+  name: 'query_database',
+  write: false,
+  description:
+    'List the rows of a database with their property values as display text (and their ids). Optional filters compare a property\'s display text, case-insensitive (equals, not_equals, contains, is_empty, is_not_empty); all filters must match. Use this instead of reading rows one by one. Page through large databases with limit and offset.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      database_id: { type: 'string', description: 'Database id from list_databases.' },
+      filters: {
+        type: 'array',
+        description: 'Optional filters, all must match.',
+        items: {
+          type: 'object',
+          properties: {
+            property: { type: 'string', description: 'Exact property name ("title" for the title).' },
+            operator: { type: 'string', enum: OPERATORS },
+            value: { type: 'string', description: 'Text to compare with (not needed for is_empty / is_not_empty).' },
+          },
+          required: ['property', 'operator'],
+          additionalProperties: false,
+        },
+      },
+      limit: { type: 'integer', description: 'Rows to return (1–100, default 50).' },
+      offset: { type: 'integer', description: 'Rows to skip (default 0).' },
+    },
+    required: ['database_id'],
+    additionalProperties: false,
+  },
+  run(input) {
+    const id = str(input, 'database_id', { required: true, max: 80 }).trim()
+    const db = databaseOf(id)
+    const limit = int(input, 'limit', 50, 1, 100)
+    const offset = int(input, 'offset', 0, 0, 1_000_000)
+    const raw = input.filters
+    if (raw !== undefined && raw !== null && !Array.isArray(raw)) throw new ToolInputError('"filters" must be a list.')
+    const titleProp = db.properties.find((p) => p.type === 'title')
+    const filters = ((raw as unknown[] | undefined) ?? []).map((f) => {
+      const o = (f && typeof f === 'object' ? f : {}) as Record<string, unknown>
+      const name = typeof o.property === 'string' ? o.property.trim() : ''
+      const op = o.operator as Operator
+      if (!OPERATORS.includes(op)) throw new ToolInputError(`Unknown operator ${q(String(o.operator))}. Use one of: ${OPERATORS.join(', ')}.`)
+      const isTitle = name.toLowerCase() === 'title' || name.toLowerCase() === titleProp?.name.toLowerCase()
+      const prop = isTitle ? titleProp : db.properties.find((p) => p.name.toLowerCase() === name.toLowerCase())
+      if (!prop) throw new ToolInputError(`Unknown property ${q(name)}. Properties: ${db.properties.map((p) => q(p.name)).join(', ')}.`)
+      return { prop, op, value: String(o.value ?? '').trim().toLowerCase() }
+    })
+    const all = rowsOf(id)
+    const matches = all.filter((row) =>
+      filters.every(({ prop, op, value }) => {
+        let text = ''
+        try {
+          text = (prop.type === 'title' ? row.title : propertyValueToText(db, prop, row)).trim().toLowerCase()
+        } catch {
+          text = ''
+        }
+        switch (op) {
+          case 'equals':
+            return text === value || text.split(', ').includes(value)
+          case 'not_equals':
+            return text !== value && !text.split(', ').includes(value)
+          case 'contains':
+            return text.includes(value)
+          case 'is_empty':
+            return !text
+          case 'is_not_empty':
+            return !!text
+        }
+        return true
+      }),
+    )
+    const page = matches.slice(offset, offset + limit)
+    const name = titleOf(ws().pages[id])
+    const head = `Database ${q(name)} (id: ${id}): ${matches.length} of ${all.length} rows match${filters.length ? ' the filters' : ''}. Showing ${page.length ? `${offset + 1}–${offset + page.length}` : 'none'}.`
+    const more = offset + page.length < matches.length ? `\n[More rows: call again with offset ${offset + page.length}.]` : ''
+    const lines = page.map((r) => JSON.stringify(rowFacts(db, r)))
+    return { content: clipResult(`${head}\n${lines.join('\n')}${more}`), summary: t('features.agent.res.rows', { count: matches.length }), state: 'ok' }
+  },
+}
+
+const currentPage: AgentTool = {
+  name: 'get_current_page',
+  write: false,
+  description:
+    'Return the page the user has open in the app (and the page open in the side peek, if any): id, title and kind. Call this when the task refers to "this page", "here" or the open document.',
+  input_schema: { type: 'object', properties: {}, additionalProperties: false },
+  run() {
+    const route = parseHash(window.location.hash)
+    const main = route.name === 'page' ? live(route.id) : null
+    const peekId = useUI.getState().peekPageId
+    const peek = peekId ? live(peekId) : null
+    if (!main && !peek) return { content: `No page is open (the user is on the ${route.name} screen).`, summary: t('features.agent.res.noPage'), state: 'ok' }
+    const line = (p: Page) => `id: ${p.id} · ${kindOf(p)} · ${q(titleOf(p))}${pathOf(p.id) ? ` · in ${q(pathOf(p.id))}` : ''}`
+    const parts = [main ? `Open page: ${line(main)}` : '', peek ? `In the side peek: ${line(peek)}` : ''].filter(Boolean)
+    return { content: `${parts.join('\n')}\nUse read_page to read it.`, summary: titleOf(main ?? peek ?? undefined).slice(0, 40), state: 'ok' }
+  },
+}
+
+/* ---------- writing (staged) ---------- */
+
+const createPage: AgentTool = {
+  name: 'create_page',
+  write: true,
+  description:
+    'Stage a new page with a title and Markdown content, at the top level or under a parent page. Use this for new documents such as summaries, reports or notes — not for database rows (use create_row). The page is created only when the user applies the change, but the returned id works right away for later calls (append_to_page, or as parent_id).',
+  input_schema: {
+    type: 'object',
+    properties: {
+      title: { type: 'string', description: 'Page title.' },
+      markdown: { type: 'string', description: 'Page content as Markdown.' },
+      parent_id: { type: 'string', description: 'Id of the parent page. Omit for a top-level page.' },
+    },
+    required: ['title', 'markdown'],
+    additionalProperties: false,
+  },
+  run(input, stage) {
+    const title = str(input, 'title', { required: true, max: 300 }).trim()
+    const markdown = str(input, 'markdown', { max: 200_000 })
+    const parentRaw = str(input, 'parent_id', { max: 80 }).trim()
+    let parentId: ID | null = null
+    let dependsOn: string | undefined
+    let parentTitle = ''
+    if (parentRaw) {
+      const stagedParent = stagedCreate(stage, parentRaw)
+      if (stagedParent && stagedParent.kind === 'create_page' && stagedParent.status !== 'discarded') {
+        parentId = stagedParent.pageId
+        dependsOn = stagedParent.id
+        parentTitle = stagedParent.title ?? ''
+      } else {
+        const parent = pageOrThrow(stage, parentRaw)
+        if (parent.kind === 'database') throw new ToolInputError(`${q(titleOf(parent))} is a database. Use create_row to add rows to it.`)
+        parentId = parent.id
+        parentTitle = titleOf(parent)
+      }
+    }
+    const change = stage.add({ kind: 'create_page', pageId: newId(), parentId, title, markdown, ...(dependsOn ? { dependsOn } : {}) })
+    return {
+      content: `${stagedNote(change)} New page id: ${change.pageId}${parentId ? ` (under ${q(parentTitle)})` : ' (top level)'}.`,
+      summary: t('features.agent.res.staged', { n: change.n }),
+      state: 'staged',
+      changeId: change.id,
+    }
+  },
+}
+
+const appendToPage: AgentTool = {
+  name: 'append_to_page',
+  write: true,
+  description:
+    'Stage Markdown to add at the end of an existing page (or of a page staged earlier). Use this to add a section, a list or action items to a page without changing what is already there.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      id: { type: 'string', description: 'Page id.' },
+      markdown: { type: 'string', description: 'Markdown to add at the end of the page.' },
+    },
+    required: ['id', 'markdown'],
+    additionalProperties: false,
+  },
+  run(input, stage) {
+    const rawId = str(input, 'id', { required: true, max: 80 }).trim()
+    const markdown = str(input, 'markdown', { required: true, max: 200_000 }).trim()
+    const staged = stagedCreate(stage, rawId)
+    if (staged && staged.status === 'pending') {
+      const c = stage.update(staged.id, { markdown: [staged.markdown?.trim(), markdown].filter(Boolean).join('\n\n') })
+      return { content: `Added to staged change #${c.n} (the new page ${q(c.title ?? '')}).`, summary: t('features.agent.res.staged', { n: c.n }), state: 'staged', changeId: c.id }
+    }
+    const p = pageOrThrow(stage, rawId)
+    if (p.kind === 'database') throw new ToolInputError(`${q(titleOf(p))} is a database. Use create_row to add rows.`)
+    const pending = pendingFor(stage, 'append', p.id)
+    const c = pending
+      ? stage.update(pending.id, { markdown: `${pending.markdown}\n\n${markdown}` })
+      : stage.add({ kind: 'append', pageId: p.id, title: titleOf(p), markdown })
+    return { content: `${stagedNote(c)} It adds ${markdown.length} characters at the end of ${q(titleOf(p))}.`, summary: t('features.agent.res.staged', { n: c.n }), state: 'staged', changeId: c.id }
+  },
+}
+
+const createRow: AgentTool = {
+  name: 'create_row',
+  write: true,
+  description:
+    'Stage a new row in a database: its title, property values by exact property name (see list_databases) and optional Markdown content for the row\'s page. Values are plain JSON — text, numbers, true/false, option names (a list for multi-select), dates as "YYYY-MM-DD", people by name, relations by row title or id. If a value does not fit, nothing is staged and the error says why.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      database_id: { type: 'string', description: 'Database id from list_databases.' },
+      title: { type: 'string', description: 'Row title.' },
+      properties: { type: 'object', description: 'Property name → value.', additionalProperties: true },
+      markdown: { type: 'string', description: 'Optional content of the row\'s page, as Markdown.' },
+    },
+    required: ['database_id', 'title'],
+    additionalProperties: false,
+  },
+  run(input, stage) {
+    const dbId = str(input, 'database_id', { required: true, max: 80 }).trim()
+    const db = databaseOf(dbId)
+    const title = str(input, 'title', { required: true, max: 300 }).trim()
+    const markdown = str(input, 'markdown', { max: 200_000 })
+    const res = coerceProperties(db, input.properties, null)
+    if (!res.ok) throw new ToolInputError(res.error)
+    const change = stage.add({ kind: 'create_row', pageId: newId(), databaseId: dbId, title, props: res.changes, ...(markdown.trim() ? { markdown } : {}) })
+    return {
+      content: `${stagedNote(change)} New row id: ${change.pageId} in ${q(titleOf(ws().pages[dbId]))}${res.changes.length ? ` with ${res.changes.map((c) => `${c.name} = ${q(c.after)}`).join(', ')}` : ''}.${newOptionsNote(res.changes)}`,
+      summary: t('features.agent.res.staged', { n: change.n }),
+      state: 'staged',
+      changeId: change.id,
+    }
+  },
+}
+
+function newOptionsNote(changes: PropChange[]): string {
+  const fresh = changes.filter((c) => c.newOptions?.length)
+  return fresh.length ? ` New options will be created: ${fresh.map((c) => `${c.name}: ${c.newOptions!.map(q).join(', ')}`).join('; ')}.` : ''
+}
+
+const updateRow: AgentTool = {
+  name: 'update_row',
+  write: true,
+  description:
+    'Stage new property values for an existing database row (or a row staged earlier). Pass only the properties to change, by exact property name, as plain JSON values (see create_row). To rename a row use set_page_title.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      id: { type: 'string', description: 'Row id (from query_database).' },
+      properties: { type: 'object', description: 'Property name → new value.', additionalProperties: true },
+    },
+    required: ['id', 'properties'],
+    additionalProperties: false,
+  },
+  run(input, stage) {
+    const rawId = str(input, 'id', { required: true, max: 80 }).trim()
+    if (!input.properties || typeof input.properties !== 'object' || !Object.keys(input.properties).length) throw new ToolInputError('"properties" must name at least one property to change.')
+    const staged = stagedCreate(stage, rawId)
+    if (staged && staged.kind === 'create_row' && staged.status === 'pending') {
+      const db = databaseOf(staged.databaseId!)
+      const res = coerceProperties(db, input.properties, null)
+      if (!res.ok) throw new ToolInputError(res.error)
+      const c = stage.update(staged.id, { props: mergeProps(staged.props, res.changes) })
+      return { content: `Updated staged row #${c.n} (${q(c.title ?? '')}).${newOptionsNote(res.changes)}`, summary: t('features.agent.res.staged', { n: c.n }), state: 'staged', changeId: c.id }
+    }
+    const row = pageOrThrow(stage, rawId)
+    if (!row.databaseId) throw new ToolInputError(`${q(titleOf(row))} is not a database row. Only rows have properties; use set_page_title or append_to_page for pages.`)
+    const db = databaseOf(row.databaseId)
+    const res = coerceProperties(db, input.properties, row)
+    if (!res.ok) throw new ToolInputError(res.error)
+    const changed = res.changes.filter((c) => c.before !== c.after || c.newOptions?.length)
+    if (!changed.length) return { content: `No change: ${q(titleOf(row))} already has these values.`, summary: t('features.agent.res.same'), state: 'ok' }
+    const pending = pendingFor(stage, 'update_row', row.id)
+    const c = pending ? stage.update(pending.id, { props: mergeProps(pending.props, changed) }) : stage.add({ kind: 'update_row', pageId: row.id, databaseId: db.id, title: titleOf(row), props: changed })
+    return {
+      content: `${stagedNote(c)} ${q(titleOf(row))}: ${changed.map((x) => `${x.name} ${q(x.before)} → ${q(x.after)}`).join(', ')}.${newOptionsNote(changed)}`,
+      summary: t('features.agent.res.staged', { n: c.n }),
+      state: 'staged',
+      changeId: c.id,
+    }
+  },
+}
+
+const setPageTitle: AgentTool = {
+  name: 'set_page_title',
+  write: true,
+  description: 'Stage a new title for a page or database row (or for a page or row staged earlier).',
+  input_schema: {
+    type: 'object',
+    properties: {
+      id: { type: 'string', description: 'Page or row id.' },
+      title: { type: 'string', description: 'The new title.' },
+    },
+    required: ['id', 'title'],
+    additionalProperties: false,
+  },
+  run(input, stage) {
+    const rawId = str(input, 'id', { required: true, max: 80 }).trim()
+    const title = str(input, 'title', { required: true, max: 300 }).replace(/\s+/g, ' ').trim()
+    if (!title) throw new ToolInputError('"title" must not be empty.')
+    const staged = stagedCreate(stage, rawId)
+    if (staged && staged.status === 'pending') {
+      const c = stage.update(staged.id, { title })
+      return { content: `Renamed staged change #${c.n} to ${q(title)}.`, summary: t('features.agent.res.staged', { n: c.n }), state: 'staged', changeId: c.id }
+    }
+    const p = pageOrThrow(stage, rawId)
+    if (p.title.trim() === title) return { content: `No change: the title already is ${q(title)}.`, summary: t('features.agent.res.same'), state: 'ok' }
+    const pending = pendingFor(stage, 'rename', p.id)
+    const c = pending ? stage.update(pending.id, { title }) : stage.add({ kind: 'rename', pageId: p.id, beforeTitle: p.title.trim() || untitled(), title })
+    return { content: `${stagedNote(c)} ${q(titleOf(p))} → ${q(title)}.`, summary: t('features.agent.res.staged', { n: c.n }), state: 'staged', changeId: c.id }
+  },
+}
+
+/** Stable order: the tool list is part of the cached prompt prefix. */
+export const AGENT_TOOLS: AgentTool[] = [searchPages, readPage, listDatabases, queryDatabase, currentPage, createPage, appendToPage, createRow, updateRow, setPageTitle]
+
+/** Short argument readout for the step log (titles instead of ids). */
+export function argLabel(name: ToolName, input: Record<string, unknown>, stage: StageApi): string {
+  const s = (k: string) => (typeof input[k] === 'string' ? (input[k] as string).trim() : '')
+  const title = (id: string) => {
+    if (!id) return ''
+    const staged = stagedCreate(stage, id)
+    if (staged) return staged.title ?? ''
+    const p = ws().pages[stage.resolve(id)]
+    return p ? titleOf(p) : id
+  }
+  switch (name) {
+    case 'search_pages':
+      return `“${s('query')}”`
+    case 'read_page':
+    case 'append_to_page':
+    case 'update_row':
+      return title(s('id'))
+    case 'query_database': {
+      const n = Array.isArray(input.filters) ? input.filters.length : 0
+      return `${title(s('database_id'))}${n ? ` · ${t('features.agent.filters', { count: n })}` : ''}`
+    }
+    case 'create_page':
+    case 'create_row':
+      return s('title')
+    case 'set_page_title':
+      return `${title(s('id'))} → ${s('title')}`
+    default:
+      return ''
+  }
+}

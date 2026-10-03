@@ -33,11 +33,12 @@ import {
   Inbox,
   Users,
   CloudUpload,
+  Workflow,
 } from 'lucide-react'
 import { useWorkspace } from '../../store/store'
 import { useUI } from '../../store/ui'
 import { navigate } from '../../lib/router'
-import { openTodayJournal } from '../../features'
+import { openTodayJournal, openAgent, AGENT_SHORTCUT } from '../../features'
 import type { ID } from '../../store/types'
 import type { Translate } from '@/shared/i18n'
 import { quickNoteToInbox } from '../capture/inbox'
@@ -98,6 +99,7 @@ export function buildCommands(t: Translate, pageId: ID | null): Command[] {
     { id: 'settings', group: 'workspace', label: t('shell.cmd.settings'), icon: Settings, shortcut: 'Mod+,', keywords: 'preferences einstellungen api key', run: () => ui.openModal({ type: 'settings' }) },
     { id: 'shortcuts', group: 'workspace', label: t('shell.cmd.shortcuts'), icon: Keyboard, shortcut: 'Mod+/', keywords: 'keyboard keys help hilfe tastatur', run: () => ui.openModal({ type: 'shortcuts' }) },
     { id: 'ask-ai', group: 'page', label: t('shell.cmd.askAI'), icon: MessageSquareText, keywords: 'claude ai assistant question ki frage', run: () => ui.openPalette('?') },
+    { id: 'agent', group: 'workspace', label: t('features.agent.cmd'), icon: Workflow, shortcut: AGENT_SHORTCUT, keywords: 'agent claude ai automate bulk tasks rows pages ki automatisieren aufgaben', run: () => { closeMobileSidebar(); openAgent() } },
   ]
   if (live) {
     // only while a page is open (nothing to nest under on Home or Graph); databases hold rows, not pages

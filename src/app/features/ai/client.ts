@@ -27,11 +27,14 @@ export interface RunAIOptions {
 /* Models                                                              */
 /* ------------------------------------------------------------------ */
 
-/** price: USD per million tokens (Anthropic list prices; used for cost estimates only). */
+/**
+ * price: USD per million tokens (Anthropic list prices; used for cost estimates only).
+ * cacheRead: prompt-cache hits; cache writes (5-minute TTL) cost 1.25 × input.
+ */
 export const AI_MODELS = [
-  { id: 'claude-opus-5-5', short: 'OPUS 5.5', name: 'Claude Opus 5.5', price: { input: 4, output: 20 } },
-  { id: 'claude-sonnet-5-5', short: 'SONNET 5.5', name: 'Claude Sonnet 5.5', price: { input: 2, output: 10 } },
-  { id: 'claude-haiku-4-5', short: 'HAIKU 4.5', name: 'Claude Haiku 4.5', price: { input: 1, output: 5 } },
+  { id: 'claude-opus-5-5', short: 'OPUS 5.5', name: 'Claude Opus 5.5', price: { input: 4, output: 20, cacheRead: 0.2 } },
+  { id: 'claude-sonnet-5-5', short: 'SONNET 5.5', name: 'Claude Sonnet 5.5', price: { input: 2, output: 10, cacheRead: 0.2 } },
+  { id: 'claude-haiku-4-5', short: 'HAIKU 4.5', name: 'Claude Haiku 4.5', price: { input: 1, output: 5, cacheRead: 0.1 } },
 ] as const
 
 export type AIModelId = (typeof AI_MODELS)[number]['id']
@@ -142,8 +145,22 @@ async function getClient(apiKey: string): Promise<{ client: AnthropicSDK; sdk: S
   return { client: cached.client, sdk }
 }
 
+/**
+ * The SDK client for the configured key (workspace agent, agent/run.ts). The key goes to
+ * api.anthropic.com only. Throws AIError('no_key') without a key.
+ */
+export async function claudeClient(): Promise<{ client: AnthropicSDK; sdk: SDKModule; model: AIModelId }> {
+  const settings = useWorkspace.getState().settings
+  const apiKey = settings.aiApiKey.trim()
+  if (!apiKey) throw new AIError('no_key')
+  const { client, sdk } = await getClient(apiKey)
+  return { client, sdk, model: resolveModel(settings.aiModel).id }
+}
+
+export type { SDKModule }
+
 /** Map anything thrown by the SDK to an AIError (most specific class first). */
-function toAIError(e: unknown, sdk: SDKModule | null): AIError {
+export function toAIError(e: unknown, sdk: SDKModule | null): AIError {
   if (e instanceof AIError) return e
   if (e instanceof DOMException && e.name === 'AbortError') return new AIError('aborted')
   if (sdk) {

@@ -1,17 +1,21 @@
 import { useUI, type ModalState } from '../../store/ui'
-import { HistoryModal, ShareModal, ImportModal, ExportModal, AutomationsModal, TemplatesModal } from '../../features'
+import { HistoryModal, ShareModal, ImportModal, ExportModal, AutomationsModal, TemplatesModal, AgentPanel } from '../../features'
 import { SettingsModal } from '../settings/SettingsModal'
 import { ConfirmModal } from './ConfirmModal'
 import { MoveModal } from './MoveModal'
 import { ShortcutsModal } from './ShortcutsModal'
 import './modals.css'
 
-/** Renders the single active modal from useUI.modal. */
+/** Renders the single active modal from useUI.modal (and the workspace agent's side sheet). */
 export function ModalHost() {
   const modal = useUI((s) => s.modal)
   const close = useUI((s) => s.closeModal)
-  if (!modal) return null
-  return <ModalSwitch modal={modal} onClose={close} />
+  return (
+    <>
+      <AgentPanel />
+      {modal && <ModalSwitch modal={modal} onClose={close} />}
+    </>
+  )
 }
 
 function ModalSwitch({ modal, onClose }: { modal: ModalState; onClose: () => void }) {

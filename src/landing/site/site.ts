@@ -8,7 +8,7 @@ import './site.css'
 import { STORAGE_KEYS, safeLocalGet, safeLocalSet } from '@/shared/brand'
 import { makeTranslator, persistLang, type Lang } from '@/shared/i18n'
 import { SECTIONS, type Ctx } from './context'
-import { bindFrames } from './frame'
+import { bindFrameTabs, bindFrames, bindLightbox, lightboxHtml } from './frame'
 import { content, messages } from './messages'
 import { heroMotion, initPrinter, initReveals, reprint, rollNumber, ScrollTrigger, type HeroMotion } from './motion'
 import { renderCompare } from './sections/compare'
@@ -76,8 +76,11 @@ export function mountSite(root: HTMLElement, opts: { lang: Lang; underIntro: boo
         ${renderOwn(c)}
         ${renderFaq(c)}
       </main>
-      ${renderFooter(c)}`
+      ${renderFooter(c)}
+      ${lightboxHtml(c.t('fig.close'))}`
     bindFrames(root)
+    bindFrameTabs(root)
+    cleanups.push(bindLightbox(root))
     bindSavings(root, c, { onReprint: reprint, rollNumber })
     void loadFeatureIcons(root)
     bindChrome()
@@ -200,7 +203,7 @@ export function mountSite(root: HTMLElement, opts: { lang: Lang; underIntro: boo
   function switchLang(next: Lang): void {
     // Anchor: the innermost block crossing the line under the top bar, and our offset into it.
     // Same DOM order in both languages → the index finds the twin after the re-render.
-    const ANCHORS = 'main > section, .deep-row, .plac, .spec tr, .faq-item, .calc, .schematic, footer'
+    const ANCHORS = 'main > section, .deep-row, .pgroup, .plac, .spec tr, .faq-item, .calc, .schematic, .plate, footer'
     const probe = 90
     const before = Array.from(root.querySelectorAll<HTMLElement>(ANCHORS))
     let idx = -1

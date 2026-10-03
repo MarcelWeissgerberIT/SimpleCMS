@@ -409,6 +409,32 @@ export interface DependenciesConfig {
   onConflict?: 'shift' | 'warn'
 }
 
+/**
+ * Recurring row template (absent / null = off). Times are local wall-clock time, so every device
+ * means "08:00 where I am". Rows get deterministic ids per occurrence (features/templates/recurring).
+ */
+export interface TemplateRepeat {
+  freq: 'daily' | 'weekdays' | 'weekly' | 'monthly' | 'interval'
+  /** weekly: days of the week, 0 = Sunday … 6 = Saturday */
+  days?: number[]
+  /** monthly: day of the month 1–31 (short months use their last day) */
+  dayOfMonth?: number
+  /** interval: every N days, counted from `start` */
+  every?: number
+  /** "HH:MM" (default "08:00") */
+  time: string
+  /** first day, "YYYY-MM-DD" */
+  start: string
+  /** last day (inclusive), "YYYY-MM-DD" */
+  end?: string | null
+  /** Title of new rows; variables {{name}} {{date}} {{weekday}} {{week}} {{time}} … */
+  title?: string
+  /** Date property preset to the occurrence's day (null = none). */
+  dateProperty?: ID | null
+  /** Occurrences up to this moment (ms) are handled: created, skipped, or before the repeat was set. */
+  lastRunAt?: number
+}
+
 export interface Database {
   /** Same id as the database's Page. */
   id: ID
@@ -418,8 +444,8 @@ export interface Database {
   nextUniqueId: number
   /** Show as inline block (true) vs. full page database. */
   inline?: boolean
-  /** Row templates: page content + preset properties. */
-  templates?: Array<{ id: ID; name: string; icon?: PageIcon | null; content: JSONContent | null; properties: Record<ID, PropertyValue> }>
+  /** Row templates: page content + preset properties (+ an optional repeat schedule). */
+  templates?: Array<{ id: ID; name: string; icon?: PageIcon | null; content: JSONContent | null; properties: Record<ID, PropertyValue>; repeat?: TemplateRepeat | null }>
   /** Automations (webhooks etc.), managed by features/automations. */
   automations?: Automation[]
   /** Sub-items (absent = never enabled). Managed by database/model/hierarchy. */

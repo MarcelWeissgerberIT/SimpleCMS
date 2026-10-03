@@ -179,13 +179,13 @@ export function heroSchematic(lang: Lang, label: string): string {
 /** Callout balloons for the hero drawing, in drawing units (1600×1000). Adjust once the real screenshot exists. */
 export const HERO_CALLOUTS: Array<{ id: 'A' | 'B' | 'C' | 'D'; tx: number; ty: number; bx: number; by: number }> = [
   // A — block editor: the "Agenda" heading and its list
-  { id: 'A', tx: 556, ty: 402, bx: 420, by: 330 },
-  // B — databases: the "Projects" database in the page tree
-  { id: 'B', tx: 112, ty: 402, bx: 160, by: 700 },
+  { id: 'A', tx: 400, ty: 399, bx: 330, by: 318 },
+  // B — databases: the "Projects" database (DB tag) in the page tree
+  { id: 'B', tx: 111, ty: 432, bx: 150, by: 740 },
   // C — command bar: Search / Ctrl+K
-  { id: 'C', tx: 214, ty: 65, bx: 360, by: 140 },
-  // D — AI with your key: the Claude panel
-  { id: 'D', tx: 1104, ty: 534, bx: 1300, by: 440 },
+  { id: 'C', tx: 226, ty: 65, bx: 340, by: 150 },
+  // D — AI with your key: the Claude · Opus chip of the AI panel
+  { id: 'D', tx: 948, ty: 532, bx: 1100, by: 452 },
 ]
 
 /* ------------------------------------------------------------------ */
@@ -332,5 +332,24 @@ export function automationSchematic(lang: Lang, label: string): string {
     if (i < 2) s += `<line class="sk-line" x1="640" y1="${y + 88}" x2="640" y2="${y + 120}"/>`
   })
   s += `<circle class="sk-ok" cx="590" cy="766" r="6"/>` + txt(606, 772, t.last, 'sk-mono sk-dim')
+  return svg(s, label)
+}
+
+export function websiteSchematic(lang: Lang, label: string): string {
+  const de = lang === 'de'
+  let s = chrome(lang, 4)
+  s += `<rect class="sk-shadow" x="410" y="74" width="800" height="710" rx="8"/>`
+  s += `<rect class="sk-pop" x="400" y="60" width="800" height="710" rx="8"/>`
+  s += txt(432, 104, de ? 'EXPORT' : 'EXPORT', 'sk-mono sk-dim')
+  s += `<line class="sk-line" x1="400" y1="126" x2="1200" y2="126"/>`
+  const fmts = ['SITE', 'MD.ZIP', 'HTML', 'JSON', 'PDF']
+  fmts.forEach((f, i) => {
+    const x = 418 + i * 155
+    s += `<rect class="sk-card" x="${x}" y="260" width="145" height="148" rx="4"/>` + txt(x + 14, 292, f, i === 0 ? 'sk-mono sk-sig-txt' : 'sk-mono')
+    s += bar(x + 14, 330, 100, 'sk-bar-2') + bar(x + 14, 352, 80, 'sk-bar-2')
+  })
+  const files = ['index.html', 'sitemap.xml', 'rss.xml', 'llms.txt']
+  files.forEach((f, i) => (s += txt(432, 476 + i * 34, f, 'sk-mono')))
+  s += txt(432, 726, de ? 'Website exportieren' : 'Export site', 'sk-txt sk-strong')
   return svg(s, label)
 }

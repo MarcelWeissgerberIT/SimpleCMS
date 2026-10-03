@@ -38,6 +38,182 @@
 .frame.has-shot .frame-img {
   opacity: 1;
 }
+/* Tabbed frames: only the selected screenshot shows. */
+.frame-tabs .frame-img:not(.is-on) {
+  opacity: 0 !important;
+  pointer-events: none;
+}
+
+/* Mode keys above a tabbed frame — the same tabs as the database views in the app. */
+.ftabs {
+  display: flex;
+  flex-wrap: wrap;
+  margin: 0 0 24px;
+  border-bottom: 1px solid var(--rule-strong);
+}
+.ftabs [role='tab'] {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 36px;
+  margin: 0 -1px -1px 0;
+  padding: 0 14px;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius-1) var(--radius-1) 0 0;
+  background: var(--surface-2);
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--ink-2);
+  transition:
+    background-color var(--dur-2) var(--ease-out),
+    color var(--dur-2) var(--ease-out);
+}
+.ftabs [role='tab']:hover {
+  color: var(--ink);
+}
+.ftabs [role='tab'][aria-selected='true'] {
+  z-index: 1;
+  background: var(--bg);
+  border-bottom-color: var(--bg);
+  color: var(--ink);
+  box-shadow: inset 0 2px 0 var(--signal);
+}
+.ftabs [role='tab']:active {
+  transform: translateY(1px);
+}
+.ftab-n {
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  font-weight: 500;
+  color: var(--ink-3);
+}
+.ftabs [aria-selected='true'] .ftab-n {
+  color: var(--signal-ink);
+}
+
+/* Enlarge: a small key in the corner; the screenshot itself is clickable too. */
+.frame-zoom {
+  position: absolute;
+  right: 10px;
+  bottom: 10px;
+  z-index: 4;
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius-1);
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: inset 0 -2px 0 var(--rule);
+  opacity: 0;
+  cursor: zoom-in;
+  transition:
+    opacity var(--dur-2) var(--ease-out),
+    border-color var(--dur-2) var(--ease-out);
+}
+.frame.has-shot .frame-media:hover .frame-zoom,
+.frame-zoom:focus-visible {
+  opacity: 1;
+}
+.frame-zoom:hover {
+  border-color: var(--signal);
+}
+.frame-zoom:active {
+  transform: translateY(1px);
+}
+.frame:not(.has-shot) .frame-zoom {
+  display: none;
+}
+.frame.has-shot:has(.frame-zoom) .frame-img {
+  cursor: zoom-in;
+}
+@media (hover: none) {
+  .frame.has-shot .frame-zoom {
+    opacity: 1;
+  }
+}
+
+/* Lightbox: the screenshot at full size on a carbon field. */
+html.lb-open {
+  overflow: hidden;
+}
+.lightbox {
+  width: 100vw;
+  height: 100dvh;
+  max-width: none;
+  max-height: none;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: color-mix(in srgb, var(--bg) 94%, transparent);
+}
+.lightbox[open] {
+  display: grid;
+  place-items: center;
+}
+.lightbox::backdrop {
+  background: transparent;
+}
+.lb-fig {
+  display: grid;
+  gap: 12px;
+  width: min(calc(100vw - 32px), calc((100dvh - 96px) * 1.6), 1600px);
+  margin: 0;
+}
+.lightbox[open] .lb-fig {
+  animation: lb-in var(--dur-3) var(--ease-out);
+}
+@keyframes lb-in {
+  from {
+    opacity: 0;
+    transform: scale(0.985);
+  }
+}
+.lb-img {
+  width: 100%;
+  height: auto;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius-2);
+  background: var(--surface);
+  cursor: zoom-out;
+}
+.lb-cap {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin: 0;
+  color: var(--ink-2);
+}
+.lb-close {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 10px;
+  height: 36px;
+  padding: 0 8px 0 14px;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius-1);
+  background: var(--surface);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  color: var(--ink);
+}
+.lb-close:hover {
+  border-color: var(--signal);
+}
+.lb-esc {
+  padding: 2px 6px;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius-1);
+  box-shadow: inset 0 -1px 0 var(--rule-strong);
+  color: var(--ink-2);
+}
 .frame-cap {
   display: flex;
   justify-content: space-between;
@@ -342,6 +518,12 @@
 .code pre:focus-visible {
   outline-offset: -2px;
 }
+.code-body-flat {
+  grid-template-columns: minmax(0, 1fr);
+}
+.code-tree pre {
+  line-height: 1.75;
+}
 .j-k {
   color: var(--ink);
 }
@@ -459,6 +641,25 @@
 .import-file .lbl:last-child {
   grid-column: 1 / -1 !important;
 }
+/* Every source One reads, as a row of tags: the one being imported is lit. */
+.import-steps .import-src {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 14px 0 0;
+  border-top: 0;
+}
+.import-src .lbl {
+  padding: 3px 6px;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius-1);
+  color: var(--ink-2);
+}
+.import-src .lbl.is-on {
+  border-color: var(--ink);
+  color: var(--ink);
+  box-shadow: inset 0 -2px 0 var(--signal);
+}
 
 @media (max-width: 720px) {
   /* Crop marks stay inside the 16px gutter instead of being sliced by the screen edge. */
@@ -494,6 +695,14 @@
   }
   .import-file .lbl:last-child {
     display: block !important;
+  }
+  .import-steps .import-src {
+    display: none;
+  }
+  .ftabs [role='tab'] {
+    height: 34px;
+    padding: 0 11px;
+    font-size: 13px;
   }
   .frame-cap {
     flex-direction: column;

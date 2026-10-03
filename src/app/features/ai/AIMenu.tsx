@@ -34,6 +34,7 @@ import {
   SpellCheck,
   Square,
   Trash2,
+  Workflow,
   type LucideIcon,
 } from 'lucide-react'
 import { Popover } from '../../ui/Popover'
@@ -47,6 +48,7 @@ import { AI_MODELS, AIError, isAIDemo, onAIDemo, resolveModel, runAI, setAIDemo,
 import { askWorkspace, citationsToLinks, findSource, type WorkspaceSource } from './workspace'
 import { MarkdownLite } from './MarkdownLite'
 import { snapshotNow } from '../history/snapshots'
+import { openAgent } from './agent/state'
 import './ai.css'
 
 export interface AIMenuProps {
@@ -519,6 +521,15 @@ export function AIMenu({ editor, pageId, mode, onClose }: AIMenuProps) {
     }
   }
 
+  /** Close the menu and open the workspace agent (with the typed request as its task, run right away). */
+  const handToAgent = useCallback(
+    (task: string) => {
+      onClose()
+      openAgent(task.trim() ? { task, run: true } : {})
+    },
+    [onClose],
+  )
+
   /* ---------------- lists ---------------- */
 
   const actions: ActionDef[] = useMemo(() => {
@@ -560,6 +571,15 @@ export function AIMenu({ editor, pageId, mode, onClose }: AIMenuProps) {
     const gWrite = t('features.ai.group.write')
     const gPage = t('features.ai.group.page')
     const gWs = t('features.ai.group.workspace')
+    const agent: ActionDef = {
+      id: 'agent',
+      label: t('features.agent.menu'),
+      code: 'AGT',
+      icon: Workflow,
+      group: gWs,
+      keywords: 'agent automate bulk rows pages database automatisieren datenbank zeilen',
+      run: () => handToAgent(''),
+    }
     if (target.mode === 'selection')
       return [
         A('improve', t('features.ai.act.improve'), 'IMP', PenLine, gEdit, 'better rewrite verbessern'),
@@ -570,6 +590,7 @@ export function AIMenu({ editor, pageId, mode, onClose }: AIMenuProps) {
         A('explain', t('features.ai.act.explain'), 'EXP', MessageCircleQuestion, gRead, 'explain erklären'),
         A('summarize', t('features.ai.act.summarize'), 'SUM', AlignLeft, gRead, 'summary zusammenfassen tldr'),
         A('action_items', t('features.ai.act.actionItems'), 'ACT', ListChecks, gRead, 'todo tasks aufgaben'),
+        agent,
       ]
     return [
       A('continue', t('features.ai.act.continue'), 'CNT', ArrowRightToLine, gWrite, 'continue weiter'),
@@ -590,8 +611,9 @@ export function AIMenu({ editor, pageId, mode, onClose }: AIMenuProps) {
           requestAnimationFrame(() => inputRef.current?.focus())
         },
       },
+      agent,
     ]
-  }, [t, target.mode, start])
+  }, [t, target.mode, start, handToAgent])
 
   type Row = { id: string; label: ReactNode; code?: string; icon?: LucideIcon; group?: string; run: () => void; hint?: ReactNode; danger?: boolean }
 
@@ -690,9 +712,20 @@ export function AIMenu({ editor, pageId, mode, onClose }: AIMenuProps) {
     if (custom) {
       if (matched.length) list.push(custom)
       else list.unshift(custom)
+      list.push({
+        id: 'agent-task',
+        label: (
+          <>
+            {t('features.agent.menuTask')} <span className="ai-quote">“{query.trim()}”</span>
+          </>
+        ),
+        code: 'AGT',
+        icon: Workflow,
+        run: () => handToAgent(query.trim()),
+      })
     }
     return list
-  }, [query, setup, phase, wsMode, view, actions, t, start, output, target, targetRev, run, error, dismiss, sources]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [query, setup, phase, wsMode, view, actions, t, start, output, target, targetRev, run, error, dismiss, sources, handToAgent]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     setActive((a) => Math.min(a, Math.max(0, rows.length - 1)))

@@ -121,8 +121,9 @@ function ensure(pageId: ID): Entry {
   entries.set(pageId, entry)
 
   doc.on('update', (_u: Uint8Array, origin: unknown) => {
-    if (origin !== idb && origin !== provider) {
+    if (origin !== idb && origin !== provider && c.writable()) {
       // typed here, undone here, or a bridge write: the server has to confirm it
+      // (a viewer's local changes never reach the server — nothing to wait for)
       if (!c.pending.has(pageId)) {
         c.pending.add(pageId)
         c.savePending()

@@ -69,6 +69,7 @@ export function renderHero(ctx: Ctx): string {
           overlay,
           outside: '<div class="dim dim-h" aria-hidden="true"><span>1600</span></div><div class="dim dim-v" aria-hidden="true"><span>1000</span></div>',
           eager: true,
+          zoom: t('fig.enlarge'),
           extraClass: 'frame-hero',
         })}
       </div>

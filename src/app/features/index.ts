@@ -21,6 +21,13 @@ export { AutomationsModal } from './automations/AutomationsModal'
 export { isAIConfigured, runAI, type AIAction, type RunAIOptions } from './ai/client'
 export { AIMenu, type AIMenuProps } from './ai/AIMenu'
 /*
+ * Workspace agent (Claude runs tools over the workspace, every write is staged for review):
+ *  - AgentPanel: right-hand sheet, mount once (renders nothing while closed; owns ⌘J / Ctrl+J)
+ *  - openAgent({ task?, run? }) / closeAgent() / toggleAgent(); AGENT_SHORTCUT = 'Mod+J'
+ */
+export { AgentPanel, AGENT_SHORTCUT } from './ai/agent/AgentPanel'
+export { openAgent, closeAgent, toggleAgent } from './ai/agent/state'
+/*
  * AI autofill for database properties (the database area loads this lazily and owns the UI):
  *  - requestAutofill(req, signal): one row → Claude (structured output) → raw `value`
  *  - estimateAutofill(): rough token/cost estimate for a run · buildAutofillPrompt(): prompt + schema
@@ -46,3 +53,30 @@ export { ExportModal } from './io/ExportModal'
 export { Presentation } from './present/Presentation'
 export { TemplatesModal } from './templates/TemplatesModal'
 export { openTodayJournal, journalEntryFor } from './journal/journal'
+/*
+ * Recurring database templates (template.repeat):
+ *  - startRecurringTemplates(): background service — creates due rows while the app is open
+ *    (start once from main.tsx after hydrate, like startHistory); runRecurringTemplates(): one pass
+ *  - schedule helpers for the database area's repeat UI (pure): nextRun, upcoming, formatRun …
+ */
+export { startRecurringTemplates, stopRecurringTemplates, runRecurringTemplates, type RecurringNotice } from './templates/recurring'
+export {
+  nextRun,
+  upcoming,
+  scheduleChanged,
+  defaultRepeat,
+  formatRun,
+  formatDay,
+  weekdayKeys,
+  weeklyDays,
+  clampEvery,
+  clampDayOfMonth,
+  occurrenceRowId,
+  fillRepeatVars,
+  REPEAT_FREQS,
+  REPEAT_VARIABLES,
+  DEFAULT_REPEAT_TITLE,
+  MAX_CATCH_UP,
+  type Occurrence,
+  type RepeatFreq,
+} from './templates/schedule'
