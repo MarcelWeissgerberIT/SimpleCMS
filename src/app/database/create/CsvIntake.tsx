@@ -9,9 +9,9 @@ import { useEffect, useId } from 'react'
 import { create } from 'zustand'
 import type { ID, PropertyDef, PropertyValue, SelectOption } from '../../store/types'
 import { useWorkspace } from '../../store/store'
-import { useUI } from '../../store/ui'
+import { toast } from '../../store/ui'
 import { pageTitle } from '../../store/selectors'
-import { t, useT } from '../../i18n'
+import { t as translate, useT } from '../../i18n'
 import { csvIntakeRows, planCsvIntake, CSV_INTAKE_MAX_ROWS, type CsvIntakePlan } from '../../features'
 import { isDbReadOnly } from '../readonly'
 import { isDbLocked } from '../model/lock'
@@ -28,7 +28,6 @@ interface Pending {
 
 const usePending = create<{ cur: Pending | null; hosts: string[] }>(() => ({ cur: null, hosts: [] }))
 const ws = () => useWorkspace.getState()
-const toast = (...args: Parameters<ReturnType<typeof useUI.getState>['toast']>) => useUI.getState().toast(...args)
 
 /** Open the file picker; the chosen file goes into database `dbId`. */
 export function importCsvInto(dbId: ID): void {
@@ -53,8 +52,8 @@ export function startCsvIntake(dbId: ID, file: string, text: string): void {
   const db = ws().databases[dbId]
   if (!db || isDbReadOnly()) return
   const plan = planCsvIntake(text, db)
-  if (!plan) return void toast({ message: t('database.csv.unreadable'), kind: 'error' })
-  if (!plan.rows.length) return void toast({ message: t('database.csv.empty'), kind: 'error' })
+  if (!plan) return void toast({ message: translate('database.csv.unreadable'), kind: 'error' })
+  if (!plan.rows.length) return void toast({ message: translate('database.csv.empty'), kind: 'error' })
   if (plan.columns.every((c) => c.match)) return applyIntake(dbId, plan, [])
   usePending.setState({ cur: { dbId, file, plan } })
 }
@@ -94,12 +93,12 @@ function applyIntake(dbId: ID, plan: CsvIntakePlan, results: SuggestionResult[])
     ids.push(id)
   }
 
-  const name = pageTitle(s.pages[dbId], t('common.untitled'))
+  const name = pageTitle(s.pages[dbId], translate('common.untitled'))
   toast({
-    message: `${t(`database.csv.done.${ids.length === 1 ? 'one' : 'other'}`, { count: ids.length, db: name })}${plan.dropped ? ` · ${t('database.csv.tooMany', { count: CSV_INTAKE_MAX_ROWS })}` : ''}`,
+    message: `${translate(`database.csv.done.${ids.length === 1 ? 'one' : 'other'}`, { count: ids.length, db: name })}${plan.dropped ? ` · ${translate('database.csv.tooMany', { count: CSV_INTAKE_MAX_ROWS })}` : ''}`,
     kind: 'success',
     action: {
-      label: t('common.undo'),
+      label: translate('common.undo'),
       run: () => {
         for (const id of ids) if (ws().pages[id]) ws().deletePagePermanently(id)
         for (const [propId, list] of before) if (propOf(propId)) ws().updateProperty(dbId, propId, { options: list })
@@ -147,7 +146,12 @@ function CsvIntakeDialog({ pending }: { pending: Pending }) {
               const p = db?.properties.find((x) => x.id === c.match)
               return (
                 <span key={c.index} className="dbc__matchedcol">
-                  {c.name} → {p ? <TypeIcon type={p.type} size={12} /> : null} {p?.name}
+                  <span>{c.name}</span>
+                  <span className="dbc__arrow" aria-hidden>
+                    →
+                  </span>
+                  {p && <TypeIcon type={p.type} size={12} />}
+                  <span>{p?.name}</span>
                 </span>
               )
             })}

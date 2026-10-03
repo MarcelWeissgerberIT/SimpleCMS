@@ -14,7 +14,7 @@
  */
 import type { JSONContent } from '@tiptap/core'
 import type { Database, DateValue, ID, Page, PageComment } from '../../store/types'
-import { isEffectivelyTrashed } from '../../store/selectors'
+import { inTemplate, isEffectivelyTrashed } from '../../store/selectors'
 import { normalizeReminder, reminderDueAt } from './reminders'
 
 export interface ReminderEntry {
@@ -162,6 +162,8 @@ export function collectReminders(pages: Record<ID, Page>, dbs: Record<ID, Databa
     const page = pages[id]
     const list = remindersOf(page, page.databaseId ? dbs[page.databaseId] : undefined)
     if (!list.length) continue
+    // template pages (features/templates): their dates are placeholders — no reminders, ever
+    if (inTemplate(pages, id)) continue
     if (isEffectivelyTrashed(pages, id)) {
       trashed?.push(...list)
       continue

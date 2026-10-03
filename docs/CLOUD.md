@@ -273,7 +273,7 @@ Y.Map 'workspace'  name, icon (JSON), createdAt
 Y.Map 'pages'      pageId → Y.Map {
                      kind, title, icon (JSON|null), cover (JSON|null), parentId, databaseId,
                      order (number), trashed, trashedAt, createdAt, updatedAt, createdBy, updatedBy,
-                     settings (JSON), hidden?,
+                     settings (JSON), hidden?, template? (JSON: a template's root — Page.template)
                      properties: Y.Map propId → JSON value     (per-cell last-writer-wins)
                      comments:   Y.Map commentId → JSON thread (without `replies`)
                                        `<commentId>/r/<replyId>` → JSON reply

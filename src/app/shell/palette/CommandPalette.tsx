@@ -1,10 +1,10 @@
 import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Command } from 'cmdk'
-import { ArrowRight, Copy, CornerDownLeft, FilePlus2, KeyRound, ListPlus, Square } from 'lucide-react'
+import { ArrowRight, Copy, CornerDownLeft, FilePlus2, KeyRound, LayoutTemplate, ListPlus, Square } from 'lucide-react'
 import { useWorkspace } from '../../store/store'
 import { useUI } from '../../store/ui'
-import { isEffectivelyTrashed, selectBreadcrumbs } from '../../store/selectors'
-import { isAIConfigured, runAI } from '../../features'
+import { inTemplate, isEffectivelyTrashed, selectBreadcrumbs } from '../../store/selectors'
+import { isAIConfigured, runAI, templateName, templateRoots } from '../../features'
 import { markdownToDoc, ReadOnlyDoc } from '../../editor'
 import { PageIcon } from '../../ui/PageIcon'
 import { shortcutLabel, ALT } from '../../ui/controls'
@@ -60,9 +60,17 @@ function Palette() {
    */
   const commandsFirst = cmdHits.length > 0 && (titleHits.length === 0 || (term.length >= 3 && cmdHits.some((c) => labelStarts(c.label, term))))
   const recent = useMemo(
-    () => recentIds.map((id) => pages[id]).filter((p): p is Page => !!p && !isEffectivelyTrashed(pages, p.id) && p.id !== pageId).slice(0, 6),
+    () => recentIds.map((id) => pages[id]).filter((p): p is Page => !!p && !isEffectivelyTrashed(pages, p.id) && !inTemplate(pages, p.id) && p.id !== pageId).slice(0, 6),
     [recentIds, pages, pageId],
   )
+  // own templates (and customised built-ins) whose name matches: open the gallery on them
+  const templateHits = useMemo(() => {
+    const n = term.toLowerCase()
+    if (mode !== 'find' || n.length < 2) return []
+    return templateRoots(pages)
+      .filter((p) => templateName(p).toLowerCase().includes(n))
+      .slice(0, 4)
+  }, [pages, mode, term])
 
   const finish = (restoreFocus = false) => {
     close()
@@ -182,6 +190,29 @@ function Palette() {
                     </Command.Group>
                   )}
                   {!commandsFirst && commandGroup}
+                  {templateHits.length > 0 && (
+                    <Command.Group heading={<GroupHead label={t('features.tpl.title')} n={templateHits.length} />}>
+                      {templateHits.map((p) => (
+                        <Command.Item
+                          key={p.id}
+                          value={`tpl:${p.id}`}
+                          className="pal-item"
+                          onSelect={() => (finish(), useUI.getState().openModal({ type: 'templates', parentId: null, select: p.id }))}
+                        >
+                          <span className="pal-item__icon">
+                            <LayoutTemplate size={16} strokeWidth={1.7} />
+                          </span>
+                          <span className="pal-item__main">
+                            <span className="pal-item__line">
+                              <span className="pal-item__title">{templateName(p)}</span>
+                              <span className="pal-item__path">{t('features.tpl.title')}</span>
+                            </span>
+                          </span>
+                          <CornerDownLeft size={13} className="pal-item__enter" />
+                        </Command.Item>
+                      ))}
+                    </Command.Group>
+                  )}
                   {contentHits.length > 0 && (
                     <Command.Group heading={<GroupHead label={t('shell.palette.inContent')} n={contentHits.length} />}>
                       {contentHits.map(pageHit)}

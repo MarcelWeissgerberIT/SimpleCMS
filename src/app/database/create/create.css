@@ -227,8 +227,19 @@
   margin-right: 2px;
 }
 
-/* ---------- the "Create property “X”" menu entry ---------- */
-.menu-item .dbc-plus {
+.dbc__matchedcol {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.dbc__matchedcol > svg,
+.dbc__arrow {
+  color: var(--ink-3);
+}
+
+/* ---------- the "Create property “X”" entry ---------- */
+.dbc-plus {
   color: var(--signal-ink);
 }
 
@@ -304,24 +315,14 @@
     display: none;
   }
 
-  .dbc__list[data-mode='map'] .dbc__item,
-  .dbc__item {
+  /* map: the column on top, what it becomes below */
+  .dbc__list[data-mode='map'] .dbc__item {
     grid-template-columns: 22px minmax(0, 1fr);
   }
 
   .dbc__list[data-mode='map'] .dbc__controls,
-  .dbc__item > .dbc__detail,
-  .dbc__err {
+  .dbc__list[data-mode='map'] .dbc__err {
     grid-column: 2;
-  }
-
-  .dbc__item[data-action] .dbc__controls {
-    grid-column: 2;
-  }
-
-  .dbc__list[data-mode='check'] .dbc__controls {
-    grid-column: 1 / -1;
-    padding-left: 32px;
   }
 
   .dbc__type {
@@ -331,6 +332,13 @@
 
   .dbc-offer__text {
     white-space: normal;
+  }
+}
+
+/* touch: no keyboard shortcut to show */
+@media (pointer: coarse) {
+  .dbc-offer__go .kbd {
+    display: none;
   }
 }
 

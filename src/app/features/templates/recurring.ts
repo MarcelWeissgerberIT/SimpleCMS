@@ -18,7 +18,7 @@
 import type { JSONContent } from '@tiptap/core'
 import { useWorkspace } from '../../store/store'
 import { useUI } from '../../store/ui'
-import { isEffectivelyTrashed } from '../../store/selectors'
+import { inTemplate, isEffectivelyTrashed } from '../../store/selectors'
 import type { Database, ID, PropertyValue } from '../../store/types'
 import { activeWorkspace, useCloud } from '../../cloud'
 import { t } from '../../i18n'
@@ -99,8 +99,9 @@ export function runRecurringTemplates(now = Date.now()): RecurringNotice[] {
   for (const db of Object.values(s.databases)) {
     const list = db.templates
     if (!list?.some((x) => x.repeat)) continue
-    // a database in the trash pauses; restoring it catches up (capped like any catch-up)
-    if (!s.pages[db.id] || isEffectivelyTrashed(s.pages, db.id)) continue
+    // a database in the trash pauses; restoring it catches up (capped like any catch-up).
+    // A database inside a template (Page.template) never runs: its copies do, from their creation on.
+    if (!s.pages[db.id] || isEffectivelyTrashed(s.pages, db.id) || inTemplate(s.pages, db.id)) continue
     let changed = false
     const next = list.map((tpl): Template => {
       const r = tpl.repeat

@@ -10,11 +10,14 @@
  *   _files/diagram.png           attachments (onefile: refs become relative paths)
  *   .trash/…                     pages in the trash (emptying the trash removes them)
  *
+ * Templates (Page.template subtrees, features/templates) are not written: they are scaffolding for
+ * new pages, not workspace content (the JSON backup and team sync carry them).
+ *
  * Names are file-system safe and collision-safe per folder ("X", "X (2)"). A page keeps the name
  * it was written under while its title still fits it, so a new sibling never renames an old one.
  */
 import type { Database, ID, Page } from '../../store/types'
-import { sortPages } from '../../store/selectors'
+import { inTemplate, sortPages } from '../../store/selectors'
 import { getFile } from '../../lib/files'
 import { safeName, uniqueName } from '../io/export/collect'
 import type { Desired, Manifest } from './types'
@@ -77,6 +80,7 @@ export async function computeLayout(pages: Record<ID, Page>, databases: Record<I
   const kids = new Map<ID | null, Page[]>()
   const rowsOf = new Map<ID, Page[]>()
   for (const p of Object.values(pages)) {
+    if (inTemplate(pages, p.id)) continue
     if (p.databaseId) {
       const list = rowsOf.get(p.databaseId)
       if (list) list.push(p)
@@ -160,7 +164,7 @@ export async function computeLayout(pages: Record<ID, Page>, databases: Record<I
     const cp = c ? pages[c] : undefined
     return cp ? trashedUp(cp) : false
   }
-  const trashRoots = sortPages(Object.values(pages).filter((p) => p.trashed && !visited.has(p.id) && !containerTrashed(p)))
+  const trashRoots = sortPages(Object.values(pages).filter((p) => p.trashed && !visited.has(p.id) && !containerTrashed(p) && !inTemplate(pages, p.id)))
   place(`${TRASH_DIR}/`, trashRoots, new Set(), true)
 
   /* ---------- attachments ---------- */

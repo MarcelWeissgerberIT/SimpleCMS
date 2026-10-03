@@ -7,7 +7,7 @@ import type { JSONContent } from '@tiptap/core'
 import { format } from 'date-fns'
 import { de as deLocale, enGB } from 'date-fns/locale'
 import { defaultView, useWorkspace } from '../../store/store'
-import { isEffectivelyTrashed, selectRows } from '../../store/selectors'
+import { inTemplate, isEffectivelyTrashed, selectRows } from '../../store/selectors'
 import type { DateValue, ID, PropertyDef, View } from '../../store/types'
 import { newId } from '../../lib/ids'
 import { navigate, parseHash } from '../../lib/router'
@@ -19,7 +19,7 @@ export const JOURNAL_ID_PREFIX = 'jrnl'
 /** The journal database id, or null if there is none (yet). */
 export function findJournalDatabase(): ID | null {
   const st = useWorkspace.getState()
-  const alive = Object.values(st.pages).filter((p) => p.kind === 'database' && st.databases[p.id] && !isEffectivelyTrashed(st.pages, p.id))
+  const alive = Object.values(st.pages).filter((p) => p.kind === 'database' && st.databases[p.id] && !isEffectivelyTrashed(st.pages, p.id) && !inTemplate(st.pages, p.id))
   const marked = alive.filter((p) => p.id.startsWith(JOURNAL_ID_PREFIX)).sort((a, b) => a.createdAt - b.createdAt)
   if (marked[0]) return marked[0].id
   // Fallback (e.g. an imported workspace): a database called Journal with a date and a mood property.

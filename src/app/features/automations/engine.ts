@@ -11,6 +11,7 @@ import { useSyncExternalStore } from 'react'
 import { pageChanges, useWorkspace } from '../../store/store'
 import { isApplyingRemote } from '../../store/persistence'
 import { toast } from '../../store/ui'
+import { inTemplate } from '../../store/selectors'
 import type { Automation, AutomationAction, Database, DateValue, ID, Page, PropertyDef, PropertyValue } from '../../store/types'
 import { newId } from '../../lib/ids'
 import { postWebhook, type WebhookOutcome } from '../../lib/webhook'
@@ -370,7 +371,8 @@ function touchCreated(rowId: ID) {
 
 function diff(state: ReturnType<typeof useWorkspace.getState>, prev: ReturnType<typeof useWorkspace.getState>) {
   const active = new Map<ID, Database>()
-  for (const db of Object.values(state.databases)) if (db.automations?.some((a) => a.enabled)) active.set(db.id, db)
+  // databases inside a template (features/templates) are blueprints: their copies run the automations
+  for (const db of Object.values(state.databases)) if (db.automations?.some((a) => a.enabled) && !inTemplate(state.pages, db.id)) active.set(db.id, db)
   if (!active.size) return
 
   const fire = (db: Database, row: Page, event: EventType, changes: Change[]) => {

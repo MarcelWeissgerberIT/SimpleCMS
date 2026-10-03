@@ -28,7 +28,7 @@ export const roots = (doc: Y.Doc) => ({
 })
 
 /** Synced page fields stored as plain values (everything else is per device or nested). */
-const PAGE_FIELDS = ['kind', 'title', 'icon', 'cover', 'parentId', 'databaseId', 'order', 'trashed', 'trashedAt', 'createdAt', 'updatedAt', 'settings', 'hidden', 'plain'] as const
+const PAGE_FIELDS = ['kind', 'title', 'icon', 'cover', 'parentId', 'databaseId', 'order', 'trashed', 'trashedAt', 'createdAt', 'updatedAt', 'settings', 'hidden', 'plain', 'template'] as const
 type PageField = (typeof PAGE_FIELDS)[number]
 
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v)
@@ -213,6 +213,9 @@ export function readPage(id: ID, yp: YMap, cur: Page | undefined, favorite: bool
   }
   const hidden = g('hidden')
   if (hidden !== undefined) next.hidden = hidden === true
+  // a template's root (features/templates): gallery metadata, shared by the whole team
+  const template = g('template')
+  if (isObj(template) && typeof template.name === 'string') next.template = clone(template) as unknown as Page['template']
   // who made / last changed it (created_by / last_edited_by): read only, the writing client sets them
   const createdBy = g('createdBy')
   if (typeof createdBy === 'string' && createdBy) next.createdBy = createdBy

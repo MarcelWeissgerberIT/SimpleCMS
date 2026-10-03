@@ -8,7 +8,7 @@ import { CalendarDays, FilePlus2, UserRound } from 'lucide-react'
 import { Popover } from '../../ui/Popover'
 import { PageIcon } from '../../ui/PageIcon'
 import { useWorkspace } from '../../store/store'
-import { pageTitle } from '../../store/selectors'
+import { pageTitle, templateRootOf } from '../../store/selectors'
 import { useLang, useT } from '../../i18n'
 import type { Bridge } from '../lib/bridge'
 import { addDays, nextMonday } from 'date-fns'
@@ -57,8 +57,9 @@ export function MentionMenu({ editor, bridge, pageId }: { editor: Editor; bridge
     const pageRows: Row[] = []
     const dateRows: Row[] = []
     const out: Row[] = []
-    // pages
-    const candidates = Object.values(pages).filter((p) => !!live?.has(p.id) && p.id !== pageId)
+    // pages — template pages (features/templates) only from a page of the same template
+    const ownTpl = templateRootOf(pages, pageId)
+    const candidates = Object.values(pages).filter((p) => !!live?.has(p.id) && p.id !== pageId && templateRootOf(pages, p.id) === ownTpl)
     let matched = candidates
     if (query) {
       const fuse = new Fuse(candidates, { keys: ['title'], threshold: 0.38, ignoreLocation: true })

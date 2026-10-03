@@ -1,7 +1,7 @@
 import { useMemo, type ReactNode } from 'react'
 import { CalendarDays, FilePlus2, LayoutTemplate, Table2, Upload, ArrowRight } from 'lucide-react'
 import { useWorkspace } from '../../store/store'
-import { isEffectivelyTrashed } from '../../store/selectors'
+import { inTemplate, isEffectivelyTrashed } from '../../store/selectors'
 import { useUI } from '../../store/ui'
 import { openTodayJournal } from '../../features'
 import { PageIcon } from '../../ui/PageIcon'
@@ -39,10 +39,10 @@ export function Home() {
   const recentIds = useWorkspace((s) => s.recent)
 
   const recent = useMemo(() => {
-    const fromRecent = recentIds.map((id) => pages[id]).filter((p): p is Page => !!p && !isEffectivelyTrashed(pages, p.id))
+    const fromRecent = recentIds.map((id) => pages[id]).filter((p): p is Page => !!p && !isEffectivelyTrashed(pages, p.id) && !inTemplate(pages, p.id))
     if (fromRecent.length >= 6) return fromRecent.slice(0, 8)
     const rest = Object.values(pages)
-      .filter((p) => !p.trashed && !p.databaseId && !fromRecent.includes(p) && !isEffectivelyTrashed(pages, p.id))
+      .filter((p) => !p.trashed && !p.databaseId && !fromRecent.includes(p) && !isEffectivelyTrashed(pages, p.id) && !inTemplate(pages, p.id))
       .sort((a, b) => b.updatedAt - a.updatedAt)
     return [...fromRecent, ...rest].slice(0, 8)
   }, [recentIds, pages])
@@ -54,7 +54,7 @@ export function Home() {
     let words = 0
     for (const id of Object.keys(pages)) {
       const p = pages[id]
-      if (isEffectivelyTrashed(pages, p.id)) continue
+      if (isEffectivelyTrashed(pages, p.id) || inTemplate(pages, p.id)) continue
       if (p.kind === 'database') dbs++
       else if (p.databaseId) rows++
       else docs++

@@ -6,6 +6,7 @@ import { useUI } from '../../store/ui'
 import { isEffectivelyTrashed, usePage } from '../../store/selectors'
 import { PageEditor } from '../../editor'
 import { DatabaseView, RowProperties } from '../../database'
+import { TemplateBanner } from '../../features'
 import { PageIcon } from '../../ui/PageIcon'
 import { IconPicker } from '../../ui/IconPicker'
 import { Popover } from '../../ui/Popover'
@@ -71,6 +72,7 @@ function PageViewInner({ page, variant }: { page: Page; variant: PageVariant }) 
       data-rail={rail ? (railOpen ? 'open' : 'closed') : undefined}
     >
       {trashed && <TrashBanner page={page} canEdit={!viewer} />}
+      {!trashed && <TemplateBanner pageId={page.id} />}
       <Cover page={page} editable={!readOnly} />
       <header className="pv-head">
         <div className="pv-col">

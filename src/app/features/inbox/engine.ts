@@ -25,7 +25,7 @@
 import { useWorkspace } from '../../store/store'
 import { useUI } from '../../store/ui'
 import { isApplyingRemote } from '../../store/persistence'
-import { isEffectivelyTrashed } from '../../store/selectors'
+import { inTemplate, isEffectivelyTrashed } from '../../store/selectors'
 import type { ID, Page } from '../../store/types'
 import { activeWorkspace, useCloud } from '../../cloud'
 import { navigate, openPage } from '../../lib/router'
@@ -259,7 +259,8 @@ function diffPage(me: { id: ID; name: string }, id: ID, own: boolean, baselineAt
   let old = snap[id]
   // content not loaded (yet): keep what was known of it
   snap[id] = cur.m === undefined && old?.m !== undefined ? { ...cur, m: old.m, g: old.g } : cur
-  if (isEffectivelyTrashed(s.pages, id)) return items
+  // a template (features/templates) mentions or assigns no one: its copies do
+  if (isEffectivelyTrashed(s.pages, id) || inTemplate(s.pages, id)) return items
   if (!old) {
     // first sight: what existed at the baseline is no news; a page made since then is
     if (page.createdAt <= baselineAt) return items

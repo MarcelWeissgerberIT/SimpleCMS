@@ -1,6 +1,6 @@
 import Fuse, { type FuseResultMatch } from 'fuse.js'
 import type { ID, Page } from '../../store/types'
-import { isEffectivelyTrashed } from '../../store/selectors'
+import { inTemplate, isEffectivelyTrashed } from '../../store/selectors'
 
 export type Range = [number, number]
 
@@ -24,10 +24,10 @@ export interface SearchIndex {
   titles: Fuse<Entry>
 }
 
-/** Every live page — a page under a trashed parent is in the trash too. */
+/** Every live page — a page under a trashed parent is in the trash too; template pages stay out. */
 export function buildIndex(pages: Record<ID, Page>): SearchIndex {
   const entries = Object.values(pages)
-    .filter((p) => !p.trashed && !isEffectivelyTrashed(pages, p.id))
+    .filter((p) => !p.trashed && !isEffectivelyTrashed(pages, p.id) && !inTemplate(pages, p.id))
     .map((page) => ({ page, title: (page.title || '').toLowerCase(), plain: (page.plain || '').toLowerCase() }))
   const titles = new Fuse(entries, {
     keys: ['page.title'],

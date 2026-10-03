@@ -9,7 +9,7 @@
  */
 import type { JSONContent } from '@tiptap/core'
 import { useWorkspace } from '../../store/store'
-import { isEffectivelyTrashed, mayChangeAnswer } from '../../store/selectors'
+import { inTemplate, isEffectivelyTrashed, mayChangeAnswer } from '../../store/selectors'
 import type { ID, Page } from '../../store/types'
 
 export const UNLINKED_CAP = 50
@@ -227,7 +227,7 @@ export function selectUnlinked(pages: Record<ID, Page>, targetId: ID, linked: Re
     const p = pages[id]
     if (p.id === targetId || p.trashed || !p.plain || linked.has(p.id)) continue
     const occ = occurrenceIn(p, m)
-    if (occ && !isEffectivelyTrashed(pages, p.id)) hits.push({ page: p, occ })
+    if (occ && !isEffectivelyTrashed(pages, p.id) && !inTemplate(pages, p.id)) hits.push({ page: p, occ })
   }
   hits.sort((a, b) => b.page.updatedAt - a.page.updatedAt)
   memo.delete(targetId)

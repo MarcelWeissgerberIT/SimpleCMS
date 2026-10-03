@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import { CornerDownLeft, Lock, Search } from 'lucide-react'
 import { useWorkspace, descendantIds } from '../../store/store'
 import { useUI } from '../../store/ui'
-import { isEffectivelyTrashed, selectBreadcrumbs } from '../../store/selectors'
+import { isEffectivelyTrashed, selectBreadcrumbs, templateRootOf } from '../../store/selectors'
 import { Modal } from '../../ui/Modal'
 import { PageIcon } from '../../ui/PageIcon'
 import { logoMarkSvg } from '@/shared/logo'
@@ -26,9 +26,11 @@ export function MoveModal({ pageId, onClose }: { pageId: ID; onClose: () => void
   const targets = useMemo(() => {
     if (!page) return []
     const banned = new Set([pageId, ...descendantIds(pages, pageId)])
+    // template pages (features/templates) are targets only within the same template
+    const ownTpl = templateRootOf(pages, pageId)
     const list = Object.values(pages)
       // live pages only: a page moved under a trashed subtree would vanish with "Empty trash"
-      .filter((p) => !p.trashed && !p.databaseId && p.kind === 'page' && !p.hidden && !banned.has(p.id) && !isEffectivelyTrashed(pages, p.id))
+      .filter((p) => !p.trashed && !p.databaseId && p.kind === 'page' && !p.hidden && !banned.has(p.id) && !isEffectivelyTrashed(pages, p.id) && templateRootOf(pages, p.id) === ownTpl)
       .map((p) => ({ page: p, path: selectBreadcrumbs(pages, p.id).slice(0, -1).map((x) => x.title.trim() || t('common.untitled')).join(' / ') }))
     const needle = q.trim().toLowerCase()
     const filtered = needle ? list.filter((x) => (x.page.title || '').toLowerCase().includes(needle) || x.path.toLowerCase().includes(needle)) : list

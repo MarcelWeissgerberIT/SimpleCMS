@@ -243,6 +243,24 @@ test.describe('create properties on the fly', () => {
     const rel = await propByName(page, reading, 'Initiative')
     expect(rel).toMatchObject({ type: 'relation', relationDatabaseId: projects })
     expect((await tableView()).filter.items.map((f: AnyState) => f.propertyId)).toEqual([rel!.id])
+
+    // the "+" column header: a typed name becomes the column's name
+    await db(page).locator('.dbt-hcell--add button').click()
+    await page.getByRole('menu').getByRole('textbox').fill('ISBN')
+    await pickType(page, page.getByRole('menuitem', { name: 'Create property “ISBN”' }), 'Text')
+    const isbn = await propByName(page, reading, 'ISBN')
+    expect(isbn?.type).toBe('text')
+    await expect(db(page).locator(`[data-hcol="${isbn!.id}"]`)).toContainText('ISBN')
+
+    // chart axes: a number for y
+    await gotoPage(page, projects)
+    await db(page).getByRole('tab').filter({ hasText: 'Chart' }).click()
+    await db(page).locator('.dbch-field').nth(1).locator('.db-select').click()
+    await page.getByRole('menu').getByRole('textbox').fill('Hours')
+    await pickType(page, page.getByRole('menuitem', { name: 'Create property “Hours”' }), 'Number')
+    const hours = await propByName(page, projects, 'Hours')
+    const chart = await wsEval(page, (s, id) => JSON.parse(JSON.stringify(s.databases[id].views.find((v: AnyState) => v.type === 'chart').chart)), projects)
+    expect(chart.yPropertyId).toBe(hours!.id)
   })
 
   test('formula editor: prop("…") of a missing name → create it from the error and from the reference search', async ({ page }) => {
