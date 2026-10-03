@@ -3,10 +3,11 @@
  *
  *  - The Inbox is a root page recognised by its id prefix — survives renames and moves,
  *    no setting needed. It is created on demand.
- *  - A clip arrives as #/clip?url=…&title=…&text=…&desc=… (bookmarklet) or as
+ *  - A clip arrives as #/clip?k=…&url=…&title=…&text=…&desc=… (bookmarklet) or as
  *    /app/?title=…&text=…&url=… (manifest share_target, rewritten to #/clip at boot).
- *    It becomes a page in the Inbox, and the route is REPLACED by the new page, so a reload
- *    or "back" never clips twice.
+ *    With this device's clip token (k) it becomes a page in the Inbox right away; without it
+ *    One shows what it would save and asks first (ClipConfirm). Either way the route is
+ *    REPLACED, so a reload or "back" never clips (or asks) twice. Never inside a frame.
  */
 import type { JSONContent } from '@tiptap/core'
 import { format } from 'date-fns'
@@ -19,6 +20,7 @@ import { newId } from '../../lib/ids'
 import { navigate, parseHash, routeHref, type Route } from '../../lib/router'
 import { t } from '../../i18n'
 import type { ID, PageIcon } from '../../store/types'
+import { safeLocalGet, safeLocalSet } from '@/shared/brand'
 import { goToPage } from '../lib/actions'
 
 export const INBOX_ID_PREFIX = 'inbx'
@@ -110,7 +112,7 @@ export interface ClipInput {
   desc?: string
 }
 
-interface Clip {
+export interface Clip {
   url: string
   /** title as sent (may be empty) */
   rawTitle: string
@@ -191,19 +193,81 @@ export function clipToInbox(input: ClipInput): ID {
   return id
 }
 
+/* ------------------------------------------------------------------ */
+/* Clip token: only your own bookmarklet saves without asking          */
+/* ------------------------------------------------------------------ */
+
+/*
+ * Any web page can open <app>#/clip?… (and any app can share into the PWA). A random token per
+ * device (localStorage) is baked into the bookmarklet: a #/clip link carrying it saves silently;
+ * without it (older bookmarklets, the share target, links from anywhere else) One shows what it
+ * would save and asks first. Inside a frame nothing is saved at all.
+ */
+const CLIP_TOKEN_KEY = 'one.clipToken'
+const TOKEN_RE = /^[A-Za-z0-9_-]{20,64}$/
+let tokenInMemory: string | null = null
+
+/** This device's clip token (created on first use; kept in memory when storage is blocked). */
+export function clipToken(): string {
+  const stored = safeLocalGet(CLIP_TOKEN_KEY)
+  if (stored && TOKEN_RE.test(stored)) return (tokenInMemory = stored)
+  if (tokenInMemory) return tokenInMemory
+  const bytes = new Uint8Array(24)
+  crypto.getRandomValues(bytes)
+  tokenInMemory = btoa(String.fromCharCode(...bytes)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+  safeLocalSet(CLIP_TOKEN_KEY, tokenInMemory)
+  return tokenInMemory
+}
+
+/** The token ("k") of a #/clip hash matches this device's. */
+function hasClipToken(hash: string): boolean {
+  const q = hash.indexOf('?')
+  const k = q >= 0 ? new URLSearchParams(hash.slice(q + 1)).get('k') : null
+  const own = safeLocalGet(CLIP_TOKEN_KEY) ?? tokenInMemory
+  return !!k && !!own && TOKEN_RE.test(k) && k === own
+}
+
+const isFramed = (): boolean => {
+  try {
+    return window.top !== window.self
+  } catch {
+    return true
+  }
+}
+
 /**
- * Handle the #/clip route: create the page, REPLACE the route with it, confirm with a toast.
- * Runs at most once per visit of the route (React StrictMode re-runs effects).
+ * Handle the #/clip route. With this device's token: create the page, REPLACE the route with
+ * it, confirm with a toast. Without it: replace the route with home and ask first (Save /
+ * Discard). Runs at most once per visit of the route (React StrictMode re-runs effects).
  */
 export function runClipRoute(route: Extract<Route, { name: 'clip' }>): void {
   // the route was already handled (and replaced) — a re-run must not clip again
   if (parseHash(window.location.hash).name !== 'clip') return
+  const trusted = hasClipToken(window.location.hash)
+  if (isFramed()) {
+    navigate({ name: 'home' }, { replace: true })
+    toast({ message: t('shell.capture.framed'), kind: 'error' })
+    return
+  }
   const c = normalizeClip(route)
   if (!c.url && !c.rawTitle && !c.text) {
     navigate({ name: 'home' }, { replace: true })
     toast({ message: t('shell.capture.nothing'), kind: 'error' })
     return
   }
+  if (!trusted) {
+    // a reload or "back" must not ask (or clip) twice: the route goes before the question
+    navigate({ name: 'home' }, { replace: true })
+    void import('./ClipConfirm')
+      .then((m) => m.openClipConfirm(c, () => saveClip(route)))
+      .catch((e) => console.error('[one] clip confirmation failed', e))
+    return
+  }
+  saveClip(route)
+}
+
+/** Save the clip, show its page in place of the current route, confirm with a toast. */
+function saveClip(route: ClipInput): void {
   try {
     const id = clipToInbox(route)
     navigate({ name: 'page', id }, { replace: true })
@@ -250,14 +314,17 @@ export function appUrl(): string {
 }
 
 /**
- * javascript: bookmarklet that opens <app>#/clip with the current page's URL, title,
- * selected text and meta description in a new tab.
+ * javascript: bookmarklet that opens <app>#/clip with this device's clip token and the current
+ * page's URL, title, selected text and meta description in a new tab.
+ * Texts are cut by code points (Array.from), never inside a surrogate pair, and made well-formed
+ * before encoding — encodeURIComponent throws on a lone surrogate.
  */
-export function bookmarkletHref(app = appUrl()): string {
+export function bookmarkletHref(app = appUrl(), token = clipToken()): string {
   const code =
-    "(function(){var e=encodeURIComponent,d=document,s=String(window.getSelection?getSelection():'').trim().slice(0,4000)," +
-    "m=d.querySelector('meta[property=\"og:description\"],meta[name=\"description\"]'),c=m&&m.content?m.content.slice(0,300):''," +
-    `u=${JSON.stringify(app)}+'#/clip?url='+e(location.href)+'&title='+e(d.title)+(s?'&text='+e(s):'')+(c?'&desc='+e(c):'');` +
+    '(function(){var e=function(x){x=String(x||"");if(x.toWellFormed)x=x.toWellFormed();try{return encodeURIComponent(x)}catch(_){return encodeURIComponent(x.replace(/[\\uD800-\\uDFFF]/g,"\\uFFFD"))}},' +
+    "k=function(x,n){return Array.from(String(x||'')).slice(0,n).join('')},d=document,s=k(String(window.getSelection?getSelection():'').trim(),4000)," +
+    "m=d.querySelector('meta[property=\"og:description\"],meta[name=\"description\"]'),c=m&&m.content?k(m.content,300):''," +
+    `u=${JSON.stringify(app)}+'#/clip?k='+${JSON.stringify(token)}+'&url='+e(location.href)+'&title='+e(d.title)+(s?'&text='+e(s):'')+(c?'&desc='+e(c):'');` +
     "window.open(u,'_blank','noopener')})()"
   return `javascript:${encodeURI(code)}`
 }

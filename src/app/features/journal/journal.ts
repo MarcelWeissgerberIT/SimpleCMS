@@ -87,33 +87,42 @@ export function journalTitle(date: Date, lang: string): string {
   return lang === 'de' ? format(date, 'EEEE, d. MMMM yyyy', { locale: deLocale }) : format(date, 'EEEE, d MMMM yyyy', { locale: enGB })
 }
 
+/**
+ * Find or create the journal entry for `date` (creating the Journal database on first use).
+ * Does not navigate. Returns the entry's page id and whether the database was just created.
+ */
+export function journalEntryFor(date: Date): { id: ID; createdDatabase: boolean } | null {
+  let dbId = findJournalDatabase()
+  const createdDatabase = !dbId
+  if (!dbId) dbId = createJournalDatabase()
+  const st = useWorkspace.getState()
+  const db = st.databases[dbId]
+  if (!db) return null
+  const dateProp = db.properties.find((p) => p.type === 'date' && /^(date|datum)$/i.test(p.name.trim())) ?? db.properties.find((p) => p.type === 'date')
+  const iso = format(date, 'yyyy-MM-dd')
+  const rows = selectRows(st.pages, dbId)
+  let entry = dateProp ? rows.find((r) => ((r.properties[dateProp.id] as DateValue | null)?.start ?? '').slice(0, 10) === iso) : undefined
+  entry ??= rows.find((r) => r.title.trim() === journalTitle(date, st.settings.language))
+  const id =
+    entry?.id ??
+    st.createRow(dbId, {
+      title: journalTitle(date, st.settings.language),
+      properties: dateProp ? { [dateProp.id]: { start: iso } satisfies DateValue } : {},
+      content: template(),
+    })
+  return { id, createdDatabase }
+}
+
 /** Find or create today's journal entry and open it. Returns the entry's page id. */
 export function openTodayJournal(): ID | null {
   try {
-    let dbId = findJournalDatabase()
-    const created = !dbId
-    if (!dbId) dbId = createJournalDatabase()
-    const st = useWorkspace.getState()
-    const db = st.databases[dbId]
-    if (!db) return null
-    const dateProp = db.properties.find((p) => p.type === 'date' && /^(date|datum)$/i.test(p.name.trim())) ?? db.properties.find((p) => p.type === 'date')
-    const now = new Date()
-    const iso = format(now, 'yyyy-MM-dd')
-    const rows = selectRows(st.pages, dbId)
-    let entry = dateProp ? rows.find((r) => ((r.properties[dateProp.id] as DateValue | null)?.start ?? '').slice(0, 10) === iso) : undefined
-    entry ??= rows.find((r) => r.title.trim() === journalTitle(now, st.settings.language))
-    const id =
-      entry?.id ??
-      st.createRow(dbId, {
-        title: journalTitle(now, st.settings.language),
-        properties: dateProp ? { [dateProp.id]: { start: iso } satisfies DateValue } : {},
-        content: template(),
-      })
-    if (created) toast({ message: t('features.journal.created'), kind: 'success' })
+    const entry = journalEntryFor(new Date())
+    if (!entry) return null
+    if (entry.createdDatabase) toast({ message: t('features.journal.created'), kind: 'success' })
     // replace the #/journal route so "back" does not bounce into it again
     const replace = parseHash(window.location.hash).name === 'journal'
-    navigate({ name: 'page', id }, { replace })
-    return id
+    navigate({ name: 'page', id: entry.id }, { replace })
+    return entry.id
   } catch (e) {
     console.error('[one] journal failed', e)
     toast({ message: t('features.journal.failed'), kind: 'error' })

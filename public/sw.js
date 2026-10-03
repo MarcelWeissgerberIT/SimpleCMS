@@ -3,7 +3,7 @@
  *  - Install: precaches every file the workspace can load, lazy views included (the build
  *    stamps BUILD_ID and PRECACHE below, see vite.config.ts; in dev both stay empty).
  *  - Activate: drops the caches of older builds.
- *  - Navigations (HTML): network first, cached copy when offline.
+ *  - Navigations (HTML): network first, cached copy when offline (stored per path, without the query).
  *  - Hashed build assets (/assets/*-<hash>.*): cache first (immutable).
  *  - Other same-origin GETs (icons, covers, emoji data): stale-while-revalidate.
  *  - Cross-origin requests (Anthropic API, your webhooks) are never touched.
@@ -74,7 +74,9 @@ self.addEventListener('fetch', (event) => {
         const cache = await caches.open(CACHE)
         try {
           const res = await fetch(req)
-          if (res.ok) cache.put(req, res.clone())
+          // one entry per page, keyed without the query: share-target URLs (?title=…&text=…&url=…)
+          // must neither pile up in the cache nor keep what was shared on the device
+          if (res.ok) cache.put(url.origin + url.pathname, res.clone())
           return res
         } catch {
           return (

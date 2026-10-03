@@ -2,7 +2,7 @@
  * Read-only view of a page received as a share link (#/s/<payload>).
  * Nothing is stored until the reader chooses "Save to my workspace".
  */
-import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
+import { useEffect, useId, useMemo, useRef, useState, type FormEvent } from 'react'
 import type { JSONContent } from '@tiptap/core'
 import { ArrowRight, Check, Download, Lock, Unlock } from 'lucide-react'
 import { useLang, useT } from '../../i18n'
@@ -166,6 +166,8 @@ function LockPrompt({ payload, onUnlock }: { payload: string; onUnlock: (page: S
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<'password' | 'corrupt' | 'unsupported' | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
+  // unique per prompt: password managers key saved entries by field name and site
+  const fieldName = `share-key-${useId().replace(/[^\w-]/g, '')}`
 
   const submit = async (e: FormEvent) => {
     e.preventDefault()
@@ -184,7 +186,7 @@ function LockPrompt({ payload, onUnlock }: { payload: string; onUnlock: (page: S
 
   const message = error === 'password' ? t('features.share.lock.wrong') : error === 'unsupported' ? t('features.share.lock.unsupported') : error ? t('features.share.view.error.corrupt') : ''
   return (
-    <form className="shv__lock" onSubmit={(e) => void submit(e)} aria-labelledby="shv-lock-title" data-share-lock="">
+    <form className="shv__lock" onSubmit={(e) => void submit(e)} aria-labelledby="shv-lock-title" autoComplete="off" data-share-lock="">
       <div className="shv__lock-plate" aria-hidden>
         <Lock size={24} strokeWidth={1.6} />
       </div>
@@ -199,14 +201,22 @@ function LockPrompt({ payload, onUnlock }: { payload: string; onUnlock: (page: S
         {t('features.share.lock.label')}
       </label>
       <div className="shv__lock-row">
+        {/* a one-off link password, not an account: no autofill, no "save password?" prompt */}
         <input
           id="shv-lock-input"
           ref={inputRef}
           className="input shv__lock-input"
           type="password"
+          name={fieldName}
           value={password}
           autoFocus
-          autoComplete="current-password"
+          autoComplete="off"
+          autoCapitalize="off"
+          autoCorrect="off"
+          data-1p-ignore=""
+          data-lpignore="true"
+          data-bwignore=""
+          data-form-type="other"
           spellCheck={false}
           aria-invalid={error === 'password' || undefined}
           aria-describedby={error ? 'shv-lock-error' : undefined}

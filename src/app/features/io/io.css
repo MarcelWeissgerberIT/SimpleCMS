@@ -830,6 +830,10 @@
   padding-top: 24px;
 }
 
+.io .io-drop__sub {
+  max-width: 500px;
+}
+
 .io-sources {
   border-top: 1.5px solid var(--ink);
 }
@@ -1044,6 +1048,17 @@
 }
 
 @media (max-width: 640px) {
+  /* touch screens rarely drag files: a compact drop zone, the tiles carry the formats */
+  .io .io-drop {
+    padding: 18px 14px 16px;
+  }
+  .io .io-drop__art {
+    width: 52px;
+    height: 52px;
+  }
+  .io .io-drop__formats {
+    display: none;
+  }
   .io-sources__grid {
     grid-template-columns: minmax(0, 1fr);
   }

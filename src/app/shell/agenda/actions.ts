@@ -1,16 +1,12 @@
 /**
  * Agenda writes — all through the workspace store.
  */
-import type { JSONContent } from '@tiptap/core'
-import { format } from 'date-fns'
-import { de as deLocale, enGB } from 'date-fns/locale'
-import { defaultView, useWorkspace } from '../../store/store'
-import { selectRows } from '../../store/selectors'
+import { useWorkspace } from '../../store/store'
 import { useUI } from '../../store/ui'
-import type { DateValue, ID, PropertyDef, View } from '../../store/types'
-import { newId } from '../../lib/ids'
+import type { DateValue, ID, PropertyDef } from '../../store/types'
 import { t } from '../../i18n'
-import { dayToDate, dayToIso, findJournalDb, isoToDay, type AgendaItem } from './model'
+import { journalEntryFor } from '../../features'
+import { dayToDate, dayToIso, isoToDay, type AgendaItem } from './model'
 import { fmtDayStamp } from './format'
 
 const ws = () => useWorkspace.getState()
@@ -61,83 +57,11 @@ export function createRowOn(dbId: ID, prop: PropertyDef, day: number, hour?: num
   return id
 }
 
-/* ------------------------------------------------------------------ */
-/* Journal entry for any day                                           */
-/* (mirrors features/journal, which only exposes today's entry)        */
-/* ------------------------------------------------------------------ */
-
-function journalTitle(date: Date, lang: string): string {
-  return lang === 'de' ? format(date, 'EEEE, d. MMMM yyyy', { locale: deLocale }) : format(date, 'EEEE, d MMMM yyyy', { locale: enGB })
-}
-
-function journalTemplate(): JSONContent {
-  const h = (text: string): JSONContent => ({ type: 'heading', attrs: { level: 3 }, content: [{ type: 'text', text }] })
-  return {
-    type: 'doc',
-    content: [
-      h(t('features.journal.focus')),
-      { type: 'taskList', content: [{ type: 'taskItem', attrs: { checked: false }, content: [{ type: 'paragraph' }] }] },
-      h(t('features.journal.notes')),
-      { type: 'paragraph' },
-      h(t('features.journal.gratitude')),
-      { type: 'bulletList', content: [{ type: 'listItem', content: [{ type: 'paragraph' }] }] },
-    ],
-  }
-}
-
-function createJournalDb(): ID {
-  const de = ws().settings.language === 'de'
-  const dateId = newId()
-  const properties: PropertyDef[] = [
-    { id: newId(), name: 'Name', type: 'title' },
-    { id: dateId, name: de ? 'Datum' : 'Date', type: 'date' },
-    {
-      id: newId(),
-      name: de ? 'Stimmung' : 'Mood',
-      type: 'select',
-      options: [
-        { id: newId(), name: de ? 'Großartig' : 'Great', color: 'green' },
-        { id: newId(), name: de ? 'Gut' : 'Good', color: 'blue' },
-        { id: newId(), name: 'Okay', color: 'yellow' },
-        { id: newId(), name: de ? 'Mau' : 'Low', color: 'orange' },
-        { id: newId(), name: de ? 'Schwer' : 'Rough', color: 'red' },
-      ],
-    },
-    { id: newId(), name: 'Tags', type: 'multi_select', options: [] },
-  ]
-  const calendar: View = { ...defaultView('calendar', { properties }, de ? 'Kalender' : 'Calendar'), dateProperty: dateId, openIn: 'full' }
-  const table: View = { ...defaultView('table', { properties }, de ? 'Alle Einträge' : 'All entries'), sorts: [{ propertyId: dateId, direction: 'desc' }], openIn: 'full' }
-  return ws().createDatabase({
-    id: `jrnl${newId().slice(4)}`,
-    parentId: null,
-    title: 'Journal',
-    icon: { type: 'emoji', value: '📓' },
-    properties,
-    views: [calendar, table],
-  })
-}
-
 /** Find or create the journal entry for `day` and open it in the peek. */
 export function openJournalFor(day: number): ID | null {
-  const s = ws()
-  let dbId = findJournalDb(s.pages, s.databases)
-  if (!dbId) dbId = createJournalDb()
-  const db = ws().databases[dbId]
-  if (!db) return null
-  const dateProp = db.properties.find((p) => p.type === 'date' && /^(date|datum)$/i.test(p.name.trim())) ?? db.properties.find((p) => p.type === 'date')
-  const iso = dayToIso(day)
-  const date = dayToDate(day)
-  const lang = ws().settings.language
-  const rows = selectRows(ws().pages, dbId)
-  let entry = dateProp ? rows.find((r) => ((r.properties[dateProp.id] as DateValue | null)?.start ?? '').slice(0, 10) === iso) : undefined
-  entry ??= rows.find((r) => r.title.trim() === journalTitle(date, lang))
-  const id =
-    entry?.id ??
-    ws().createRow(dbId, {
-      title: journalTitle(date, lang),
-      properties: dateProp ? { [dateProp.id]: { start: iso } satisfies DateValue } : {},
-      content: journalTemplate(),
-    })
-  openItem({ pageId: id })
-  return id
+  const entry = journalEntryFor(dayToDate(day))
+  if (!entry) return null
+  if (entry.createdDatabase) useUI.getState().toast({ message: t('features.journal.created'), kind: 'success' })
+  openItem({ pageId: entry.id })
+  return entry.id
 }

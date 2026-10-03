@@ -22,6 +22,8 @@ async function shareLink(page: Page): Promise<string> {
 }
 
 const shown = (block: Locator) => block.locator('.tab-panel.is-active')
+/** Tab titles in strip order (the keys also show a mono index "01"). */
+const titles = (block: Locator) => block.locator('[role="tab"] .tabs__title')
 
 test.describe('tabs block', () => {
   test('slash → tabs: add a tab, rename, type in each, switch by click and keyboard; reload keeps it all', async ({ page }) => {
@@ -119,7 +121,7 @@ test.describe('tabs block', () => {
     await reloadApp(page)
     await gotoPage(page, id)
     const again = editorOf(page, id).locator('.tabs-block')
-    await expect(again.getByRole('tab')).toHaveText(['Alpha', 'Beta'])
+    await expect(titles(again)).toHaveText(['Alpha', 'Beta'])
     await expect(shown(again)).toHaveText('Alpha content!')
     await again.getByRole('tab', { name: 'Beta' }).click()
     await expect(shown(again)).toHaveText('Beta content')
@@ -137,19 +139,19 @@ test.describe('tabs block', () => {
     const menu = () => block.getByRole('button', { name: /^Tab options/ }).click()
     await menu()
     await page.getByRole('menuitem', { name: 'Duplicate' }).click()
-    await expect(block.getByRole('tab')).toHaveText(['One', 'Two', 'Two (copy)'])
+    await expect(titles(block)).toHaveText(['One', 'Two', 'Two (copy)'])
     await expect(block.getByRole('tab', { name: 'Two (copy)' })).toHaveAttribute('aria-selected', 'true')
 
     await menu()
     await page.getByRole('menuitem', { name: 'Move left' }).click()
-    await expect(block.getByRole('tab')).toHaveText(['One', 'Two (copy)', 'Two'])
+    await expect(titles(block)).toHaveText(['One', 'Two (copy)', 'Two'])
 
     await menu()
     await page.getByRole('menuitem', { name: 'Delete tab' }).click()
     const confirm = page.getByRole('dialog')
     await expect(confirm).toContainText('Two (copy)')
     await confirm.getByRole('button', { name: 'Delete' }).click()
-    await expect(block.getByRole('tab')).toHaveText(['One', 'Two'])
+    await expect(titles(block)).toHaveText(['One', 'Two'])
     await flush(page)
     const tabs = await storedTabs(page, id)
     expect(tabs[0].content!.map((t) => t.attrs?.title)).toEqual(['One', 'Two'])
@@ -188,7 +190,7 @@ test.describe('tabs block', () => {
       dt.setData('text/plain', text)
       document.querySelector('#main .ProseMirror')!.dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }))
     }, md.slice(md.indexOf('<!-- tabs -->')))
-    await expect(ed.locator('.tabs-block').getByRole('tab')).toHaveText(['Install', 'Configure'])
+    await expect(titles(ed.locator('.tabs-block'))).toHaveText(['Install', 'Configure'])
 
     // someone else opens the link: read-only, the tabs still switch
     const other = await browser.newContext({ serviceWorkers: 'block', locale: 'en-US' })
@@ -196,7 +198,7 @@ test.describe('tabs block', () => {
     errors.watch(p2)
     await p2.goto(link)
     const shared = p2.locator('.shv__doc .tabs-block')
-    await expect(shared.getByRole('tab')).toHaveText(['Install', 'Configure'])
+    await expect(titles(shared)).toHaveText(['Install', 'Configure'])
     await expect(shown(shared)).toHaveText('npm install one')
     await expect(p2.getByText('Set the API key')).toBeHidden()
     await shared.getByRole('tab', { name: 'Configure' }).click()

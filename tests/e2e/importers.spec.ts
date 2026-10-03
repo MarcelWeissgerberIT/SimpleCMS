@@ -245,7 +245,7 @@ test.describe('import from other apps', () => {
     // renders: the mention shows Alpha's title and leads there
     await gotoPage(page, home!.id)
     const ed = editorOf(page, home!.id)
-    await expect(ed.locator('.callout')).toContainText('Mind the gap')
+    await expect(ed.locator('.callout--orange')).toContainText('Mind the gap')
     await expect(ed.locator('mark').first()).toHaveText('important')
     await ed.locator('.mention', { hasText: 'Alpha' }).first().click()
     await expect(page.locator('#main .pv-title')).toHaveValue('Alpha')
@@ -313,7 +313,8 @@ test.describe('import from other apps', () => {
     expect(rec.filter((n) => n.type === 'listItem').map(text)).toEqual(['Flour', 'Eggs'])
 
     await gotoPage(page, groceries!.id)
-    await expect(editorOf(page, groceries!.id).locator('li[data-type="taskItem"]')).toHaveCount(2)
+    await expect(editorOf(page, groceries!.id).locator('li[data-checked]')).toHaveCount(2)
+    await expect(editorOf(page, groceries!.id).locator('li[data-checked="true"]')).toContainText('Milk')
   })
 
   test('Trello board JSON → database with a Board view, statuses in list order, labels, members, due, checklist', async ({ page }) => {

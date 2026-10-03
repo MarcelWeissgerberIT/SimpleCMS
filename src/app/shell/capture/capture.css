@@ -156,3 +156,130 @@
   }
 }
 
+/* ---------- "Save to Inbox?" — a clip without this device's token ---------- */
+.clipq__body {
+  position: relative;
+  padding: 0 24px 18px;
+  border-top: 3px solid var(--signal);
+}
+.clipq__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0 -24px;
+  padding: 10px 24px 9px;
+  border-bottom: 1px solid var(--rule);
+}
+.clipq__code,
+.clipq__dest {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+.clipq__code {
+  color: var(--ink);
+}
+.clipq__title {
+  margin: 18px 0 6px;
+  font-size: 22px;
+  font-stretch: var(--display-stretch);
+  font-weight: 800;
+  letter-spacing: var(--tracking-tight);
+  line-height: 1.15;
+}
+.clipq__why {
+  max-width: 54ch;
+  margin: 0;
+  color: var(--ink-2);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+}
+.clipq__spec {
+  margin: 18px 0 0;
+  border-top: 1px solid var(--rule-strong);
+}
+.clipq__row {
+  display: grid;
+  grid-template-columns: 92px minmax(0, 1fr);
+  gap: 12px;
+  align-items: baseline;
+  padding: 9px 0;
+  border-bottom: 1px solid var(--rule);
+}
+.clipq__row dt {
+  padding-top: 1px;
+}
+.clipq__row dd {
+  min-width: 0;
+  margin: 0;
+}
+.clipq__page {
+  font-weight: 650;
+  overflow-wrap: anywhere;
+}
+.clipq__host {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  color: var(--ink-2);
+  font-size: var(--text-sm);
+}
+.clipq__host span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.clipq__host svg {
+  flex: none;
+  color: var(--ink-3);
+}
+.clipq__quote {
+  display: -webkit-box;
+  margin: 0;
+  padding-left: 10px;
+  overflow: hidden;
+  border-left: 2px solid var(--signal);
+  color: var(--ink-2);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
+  line-clamp: 4;
+}
+.clipq__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 20px;
+}
+.clipq__kbd {
+  margin-left: 2px;
+  border-color: color-mix(in srgb, currentColor 40%, transparent);
+  background: transparent;
+  color: inherit;
+}
+@media (max-width: 560px) {
+  .clipq__body {
+    padding: 0 16px 16px;
+  }
+  .clipq__head {
+    margin: 0 -16px;
+    padding: 10px 16px 9px;
+  }
+  .clipq__row {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 4px;
+  }
+  .clipq__actions .btn {
+    flex: 1;
+    justify-content: center;
+  }
+  .clipq__kbd {
+    display: none;
+  }
+}
+

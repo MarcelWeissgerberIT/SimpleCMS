@@ -126,7 +126,20 @@ export function findOccurrence(doc: JSONContent | null | undefined, m: TitleMatc
   return found
 }
 
-/** A copy of `doc` with the occurrence replaced by `node` (other content untouched). */
+type Mark = NonNullable<JSONContent['marks']>[number]
+const markKey = (m: Mark) => JSON.stringify([m.type, m.attrs ?? null])
+
+/** Marks every covered text node has (bold, italic, colour …) — never link or code. */
+function sharedMarks(nodes: JSONContent[]): Mark[] {
+  const [first, ...rest] = nodes
+  const keep = (first?.marks ?? []).filter((m) => !BLOCKING_MARKS.has(m.type))
+  return keep.filter((m) => rest.every((n) => (n.marks ?? []).some((x) => markKey(x) === markKey(m))))
+}
+
+/**
+ * A copy of `doc` with the occurrence replaced by `node` (other content untouched). The node
+ * takes the marks the replaced text had in common (bold stays bold), minus link and code.
+ */
 export function replaceOccurrence(doc: JSONContent, occ: Occurrence, node: JSONContent): JSONContent | null {
   const next = structuredClone(doc)
   let at: JSONContent | undefined = next
@@ -139,6 +152,8 @@ export function replaceOccurrence(doc: JSONContent, occ: Occurrence, node: JSONC
   const first = covered[0]
   const last = covered[covered.length - 1]
   if (!first || covered.some((g) => kids[g.index].type !== 'text')) return null
+  const marks = sharedMarks(covered.map((g) => kids[g.index]))
+  const placed: JSONContent = marks.length ? { ...node, marks } : node
   const out: JSONContent[] = []
   kids.forEach((n, i) => {
     if (i < first.index || i > last.index) {
@@ -148,7 +163,7 @@ export function replaceOccurrence(doc: JSONContent, occ: Occurrence, node: JSONC
     if (i === first.index) {
       const head = (n.text ?? '').slice(0, occ.start - first.start)
       if (head) out.push({ ...n, text: head })
-      out.push(node)
+      out.push(placed)
     }
     if (i === last.index) {
       const tail = (n.text ?? '').slice(occ.end - last.start)
@@ -215,6 +230,8 @@ export interface LinkResult {
   /** content before the write and the revision the write produced (for Undo) */
   prev: JSONContent | null
   rev: number
+  /** the text the mention replaced, exactly as it was written ("zephyr protocol") — Undo writes it back */
+  text?: string
 }
 
 /**
@@ -234,7 +251,7 @@ export function linkMentions(targetId: ID, sourceIds: ID[]): LinkResult[] {
     const next = occ && replaceOccurrence(p.content, occ, pageMention(target))
     if (!next) continue
     ws.setContent(id, next, LINK_ORIGIN)
-    done.push({ id, prev: p.content, rev: useWorkspace.getState().pages[id]?.contentRev ?? 0 })
+    done.push({ id, prev: p.content, rev: useWorkspace.getState().pages[id]?.contentRev ?? 0, text: occ.match })
   }
   return done
 }
@@ -252,21 +269,23 @@ export function unlinkMentions(targetId: ID, results: LinkResult[]): void {
       ws.setContent(r.id, r.prev, LINK_ORIGIN)
       continue
     }
-    const next = p.content && mentionToText(p.content, targetId)
+    const next = p.content && mentionToText(p.content, targetId, r.text)
     if (next) ws.setContent(r.id, next, LINK_ORIGIN)
   }
 }
 
-/** First page mention of `targetId` → plain text of its label. */
-function mentionToText(doc: JSONContent, targetId: ID): JSONContent | null {
+/** First page mention of `targetId` → the original text (else its label), with the mention's marks. */
+function mentionToText(doc: JSONContent, targetId: ID, original?: string): JSONContent | null {
   const next = structuredClone(doc)
   let done = false
   const walk = (n: JSONContent) => {
     if (done || !n.content) return
     const i = n.content.findIndex((c) => c.type === 'mention' && c.attrs?.kind === 'page' && c.attrs?.id === targetId)
     if (i >= 0) {
-      const label = String(n.content[i].attrs?.label ?? '')
-      n.content.splice(i, 1, ...(label ? [{ type: 'text', text: label }] : []))
+      const mention = n.content[i]
+      const text = original || String(mention.attrs?.label ?? '')
+      const node: JSONContent = mention.marks?.length ? { type: 'text', text, marks: mention.marks } : { type: 'text', text }
+      n.content.splice(i, 1, ...(text ? [node] : []))
       n.content = mergeText(n.content)
       done = true
       return
