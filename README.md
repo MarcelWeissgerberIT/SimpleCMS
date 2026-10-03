@@ -82,7 +82,7 @@ automatic shifting), row templates, inline databases inside pages, side/centre p
 
 **Workspace** — page tree with drag & drop, favourites, trash, breadcrumbs, `⌘K` palette for search *and* commands,
 home dashboard, today's journal, an **Agenda** with everything dated in the workspace (month, week, list), backlinks
-and unlinked mentions, a web clipper (bookmarklet and Android share target) that saves to an Inbox, stacked panes
+and unlinked mentions, a web clipper (bookmarklet and Android share target) that saves to a Clippings page, stacked panes
 (`Alt`-click any link), focus mode, presentation mode (any page becomes slides), 11 templates (meeting notes, project tracker, roadmap, content calendar, reading list, CRM, bug tracker,
 OKRs, weekly planner, wiki, habits), light "Paper" and dark "Carbon" themes, English and German.
 

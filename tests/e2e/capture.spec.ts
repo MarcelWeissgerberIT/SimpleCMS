@@ -25,8 +25,8 @@ const enc = encodeURIComponent
 const TOKEN = 'e2eClipToken_0123456789abcdef'
 const setClipToken = (page: Page) => page.evaluate((token) => localStorage.setItem('one.clipToken', token), TOKEN)
 
-/** The "Save to Inbox?" card shown for clips without this device's token. */
-const askCard = (page: Page) => page.getByRole('dialog', { name: 'Save to Inbox?' })
+/** The "Save to Clippings?" card shown for clips without this device's token. */
+const askCard = (page: Page) => page.getByRole('dialog', { name: 'Save to Clippings?' })
 
 /* ------------------------------------------------------------------ */
 /* Unlinked mentions                                                   */
@@ -158,7 +158,7 @@ test.describe('unlinked mentions', () => {
 /* ------------------------------------------------------------------ */
 
 test.describe('web clipper', () => {
-  test('#/clip with this device\'s token creates exactly one page in the Inbox (bookmark + quote + date), reload does not duplicate', async ({ page }) => {
+  test('#/clip with this device\'s token creates exactly one page in Clippings (bookmark + quote + date), reload does not duplicate', async ({ page }) => {
     await openApp(page)
     await setClipToken(page)
     expect(await inboxIds(page)).toEqual([])
@@ -170,7 +170,7 @@ test.describe('web clipper', () => {
     await waitForApp(page)
     await expect(page.locator('#main .pv-title')).toHaveValue('An example article')
     await expect(page).toHaveURL(/#\/p\/[\w-]+$/)
-    await expect(page.getByText('Saved to your Inbox')).toBeVisible()
+    await expect(page.getByText('Saved to Clippings')).toBeVisible()
 
     const inbox = await inboxIds(page)
     expect(inbox).toHaveLength(1)
@@ -260,11 +260,11 @@ test.describe('web clipper', () => {
     // a wrong token asks as well — ↵ saves (the Save key has focus)
     await page.evaluate((h) => (window.location.hash = h), `#/clip?k=${'x'.repeat(32)}&url=${enc('https://example.net/a')}&title=${enc('Chosen page')}`)
     await expect(ask).toBeVisible()
-    await expect(ask.getByRole('button', { name: /Save to Inbox/ })).toBeFocused()
+    await expect(ask.getByRole('button', { name: /Save to Clippings/ })).toBeFocused()
     await page.keyboard.press('Enter')
     await expect(ask).toHaveCount(0)
     await expect(page.locator('#main .pv-title')).toHaveValue('Chosen page')
-    await expect(page.getByText('Saved to your Inbox')).toBeVisible()
+    await expect(page.getByText('Saved to Clippings')).toBeVisible()
     const inbox = await inboxIds(page)
     expect(inbox).toHaveLength(1)
     expect((await childrenOf(page, inbox[0])).map(([, title]) => title)).toEqual(['Chosen page'])
@@ -282,13 +282,13 @@ test.describe('web clipper', () => {
     }, `?e2e#/clip?k=${TOKEN}&url=${enc('https://example.com/framed')}&title=${enc('Framed clip')}`)
     const frame = page.frameLocator('#clipframe')
     await expect(frame.getByText('Web clips are only saved in One’s own tab, never from inside another page')).toBeVisible({ timeout: 30_000 })
-    await expect(frame.getByRole('dialog', { name: 'Save to Inbox?' })).toHaveCount(0)
+    await expect(frame.getByRole('dialog', { name: 'Save to Clippings?' })).toHaveCount(0)
     const inner = page.frames().find((f) => f !== page.mainFrame())!
     expect(await inner.evaluate(() => (Object.values((window as any).__one.workspace.getState().pages) as Array<{ title: string }>).some((p) => p.title === 'Framed clip'))).toBe(false) // eslint-disable-line @typescript-eslint/no-explicit-any
     expect(await inboxIds(page)).toEqual([])
   })
 
-  test('PWA share target: the manifest points at the app; a shared URL is shown first and saved on "Save to Inbox"', async ({ page }) => {
+  test('PWA share target: the manifest points at the app; a shared URL is shown first and saved on "Save to Clippings"', async ({ page }) => {
     await openApp(page)
     const res = await page.request.get('manifest.webmanifest')
     expect(res.ok()).toBe(true)
@@ -312,7 +312,7 @@ test.describe('web clipper', () => {
     // the share query is gone (a reload must not share again), the test flag stays
     expect(await page.evaluate(() => window.location.search)).toBe('?e2e')
     expect(await inboxIds(page)).toEqual([])
-    await ask.getByRole('button', { name: /Save to Inbox/ }).click()
+    await ask.getByRole('button', { name: /Save to Clippings/ }).click()
     await expect(page.locator('#main .pv-title')).toHaveValue('Shared from phone')
     const id = (await routeId(page))!
     const p = await pageById(page, id)
@@ -399,13 +399,13 @@ test.describe('web clipper', () => {
     expect(p.plain).toContain('Selected words here')
   })
 
-  test('palette: "Quick note to Inbox" opens a timestamped page with the caret in its body', async ({ page }) => {
+  test('palette: "Quick note to Clippings" opens a timestamped page with the caret in its body', async ({ page }) => {
     await openApp(page)
     await page.keyboard.press(`${MOD}+k`)
     const pal = page.getByRole('dialog', { name: 'Command palette' })
     await expect(pal).toBeVisible()
     await page.keyboard.type('quick note')
-    await expect(pal.locator('[role="option"][aria-selected="true"]')).toContainText('Quick note to Inbox')
+    await expect(pal.locator('[role="option"][aria-selected="true"]')).toContainText('Quick note to Clippings')
     await page.keyboard.press('Enter')
     await expect(pal).toBeHidden()
     await expect(page.locator('#main .pv-title')).toHaveValue(/^Note · /)
@@ -416,7 +416,7 @@ test.describe('web clipper', () => {
     const inbox = await inboxIds(page)
     expect(inbox).toHaveLength(1)
     expect((await pageById(page, id)).parentId).toBe(inbox[0])
-    // the Inbox shows up in the sidebar
-    await expect(page.locator('.sb section[aria-label="Pages"] .sb-row__title', { hasText: /^Inbox$/ })).toBeVisible()
+    // the Clippings page shows up in the sidebar
+    await expect(page.locator('.sb section[aria-label="Pages"] .sb-row__title', { hasText: /^Clippings$/ })).toBeVisible()
   })
 })

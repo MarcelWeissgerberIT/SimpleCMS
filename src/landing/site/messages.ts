@@ -487,7 +487,7 @@ export const content: Record<Lang, SiteContent> = {
       { key: 'website', group: 'publish', code: 'Ws', title: 'Publish as a website', text: 'Any page becomes a static site with sitemap, RSS and llms.txt. Host it anywhere, own every file.' },
       { key: 'share', group: 'publish', code: 'Sh', title: 'Links with a password', text: 'The page travels inside the link — no server. Add a password and it is encrypted in your browser.' },
       { key: 'import', group: 'publish', code: 'Im', title: 'Import from anywhere', text: 'Notion, Obsidian, Evernote, Trello and HTML, plus Markdown and CSV. Export it all back out, lossless.' },
-      { key: 'clipper', group: 'publish', code: 'Cl', title: 'Web clipper', text: 'Save any web page to your Inbox with a bookmarklet or Android’s share sheet.' },
+      { key: 'clipper', group: 'publish', code: 'Cl', title: 'Web clipper', text: 'Save any web page to your Clippings with a bookmarklet or Android’s share sheet.' },
     ],
     extras: ['Presentation mode', 'Stacked panes', 'Focus mode', '11 templates', 'Daily journal', '@-mentions', 'Block links', 'Markdown paste', 'Offline after the first visit', 'Light & dark', 'English & German'],
     deep: [
@@ -618,7 +618,7 @@ export const content: Record<Lang, SiteContent> = {
       { key: 'website', group: 'publish', code: 'Ws', title: 'Als Website veröffentlichen', text: 'Jede Seite wird zur statischen Website mit Sitemap, RSS und llms.txt. Hosten, wo du willst — jede Datei gehört dir.' },
       { key: 'share', group: 'publish', code: 'Sh', title: 'Links mit Passwort', text: 'Die Seite steckt im Link — kein Server. Mit Passwort wird sie in deinem Browser verschlüsselt.' },
       { key: 'import', group: 'publish', code: 'Im', title: 'Import von überall', text: 'Notion, Obsidian, Evernote, Trello und HTML, dazu Markdown und CSV. Und alles verlustfrei wieder exportieren.' },
-      { key: 'clipper', group: 'publish', code: 'Cl', title: 'Web-Clipper', text: 'Jede Webseite per Bookmarklet oder Android-Teilen-Menü in deine Inbox legen.' },
+      { key: 'clipper', group: 'publish', code: 'Cl', title: 'Web-Clipper', text: 'Jede Webseite per Bookmarklet oder Android-Teilen-Menü in deine Ablage legen.' },
     ],
     extras: ['Präsentationsmodus', 'Gestapelte Panels', 'Fokusmodus', '11 Vorlagen', 'Tagesjournal', '@-Erwähnungen', 'Block-Links', 'Markdown einfügen', 'Offline ab dem ersten Besuch', 'Hell & dunkel', 'Deutsch & Englisch'],
     deep: [

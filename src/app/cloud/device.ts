@@ -228,6 +228,11 @@ async function forget(flag: string[]): Promise<void> {
   /* ---------------- remove */
   await dropDeviceKeys(kvDrop).catch(() => {})
   if (historyDrop.length) await delMany(historyDrop, history).catch(() => {})
+  // inbox of this device (features/inbox/state.ts): items, read marks, the last scan
+  if (!dbNames || dbNames.includes('one-inbox')) {
+    const inboxKeys = [...targets].flatMap((ws) => [`data:cloud:${ws}`, `snap:cloud:${ws}`])
+    await delMany(inboxKeys, createStore('one-inbox', 'kv')).catch(() => {})
+  }
   for (const id of refs) if (!keep.has(id)) await deleteFile(FILE_PREFIX + id).catch(() => {})
   await Promise.all([...docDbs].map(deleteDb))
   done()

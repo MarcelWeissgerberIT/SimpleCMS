@@ -294,7 +294,9 @@ of another automation; a JSON array found there is read and becomes keyed on the
 
 Not synced (per person, per device): `favorite`, `recent`, all `Settings` (theme, language,
 **AI key**, sidebar), `contentRev`, `contentOrigin`. The client keeps them in a small local
-overlay per workspace.
+overlay per workspace. The inbox (reminders that fired, mentions, assignments, replies, read and
+archived marks — `src/app/features/inbox`) is also per device: it is derived from the synced data and
+kept in IndexedDB (`one-inbox`); removing a workspace's copy from a device removes it too.
 
 ### Client rules
 

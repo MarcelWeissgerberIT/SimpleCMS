@@ -91,6 +91,9 @@ MAX_UPLOAD_MB=25
   - `domains:yourcompany.com,yourcompany.de` — anyone with an address at those domains (subdomains
     don't count) plus invited people,
   - `open` — anyone with an email address.
+- **`API_RATE_LIMIT`** (optional, default `120`) — requests per minute for each API token and each
+  incoming webhook. Admins create tokens and webhook URLs under Settings → Team → API & webhooks;
+  the endpoints are described in [`API.md`](API.md).
 
 ### Email (SMTP)
 
