@@ -3,7 +3,7 @@
  * live editor collaboration (Yjs over Hocuspocus), presence, Y undo, automations firing once,
  * offline edits, viewers, reloads and uploading the local workspace.
  */
-import type { Page } from '@playwright/test'
+import type { Cookie, Page } from '@playwright/test'
 import { test, expect, api, email, signIn, newPerson, openApp, waitForApp, wsEval, cloudEval, cloudStatus, waitOnline, gotoPage, editorOf, createWorkspace, join } from './fixtures'
 
 const mod = process.platform === 'darwin' ? 'Meta' : 'Control'
@@ -31,17 +31,36 @@ test.afterEach(() => {
   expect.soft(errors.filter((e) => !EXPECTED.some((re) => re.test(e))), 'browser errors').toEqual([])
 })
 
-/** A signed-in person with the team workspace open. */
-async function person(page: Page, name: string, wsId?: string): Promise<string> {
+/**
+ * A signed-in person (with the team workspace open when `wsId` is given). One account per name for
+ * the whole file — the server allows 20 sign-ins per 15 minutes from one address — but every test
+ * gets a fresh browser (own IndexedDB) that only carries the session cookie.
+ */
+const accounts = new Map<string, Cookie[]>()
+async function person(page: Page, name: string, wsId?: string): Promise<void> {
   watch(page, name)
-  const address = email(name)
-  await signIn(page, address)
-  await api(page, 'PATCH', '/api/me', { name: name[0].toUpperCase() + name.slice(1) })
+  const known = accounts.get(name)
+  if (known) {
+    await page.context().addCookies(known)
+    await page.goto('/app/')
+  } else {
+    await signIn(page, email(name))
+    await api(page, 'PATCH', '/api/me', { name: name[0].toUpperCase() + name.slice(1) })
+    accounts.set(name, (await page.context().cookies()).filter((c) => c.name === 'one_session'))
+  }
   if (wsId) {
     await openApp(page, wsId)
     await waitOnline(page)
   }
-  return address
+}
+
+/** The editor's text without other people's caret tags. */
+function docText(p: Page, pageId: string): Promise<string> {
+  return editorOf(p, pageId).evaluate((el) => {
+    const copy = el.cloneNode(true) as HTMLElement
+    copy.querySelectorAll('.collab-caret').forEach((c) => c.remove())
+    return copy.textContent ?? ''
+  })
 }
 
 async function newPageWithText(page: Page, title: string): Promise<string> {
@@ -402,17 +421,12 @@ test.describe('team cloud — live collaboration', () => {
       s.setContent(id, { ...cur, content: [...cur.content, { type: 'paragraph', content: [{ type: 'text', text: 'Suggested by the assistant.' }] }] }, 'ai')
     }, pageId)
     await typing
-    for (const p of [a, b]) {
-      await expect(editorOf(p, pageId)).toContainText('Suggested by the assistant.')
-      await expect(editorOf(p, pageId)).toContainText('First line. Bob adds more.')
-    }
-    await expect.poll(() => wsEval(a, (s, id) => s.pages[id].plain, pageId)).toBe('First line. Bob adds more.\n\nSuggested by the assistant.')
+    for (const p of [a, b]) await expect.poll(() => docText(p, pageId)).toBe('First line. Bob adds more.Suggested by the assistant.')
+    for (const p of [a, b]) await expect.poll(() => wsEval(p, (s, id) => s.pages[id].plain, pageId)).toBe('First line. Bob adds more.\nSuggested by the assistant.')
 
     // a history restore (origin 'history') replaces the content for everyone
     await wsEval(a, (s, id) => s.setContent(id, { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Restored version.' }] }] }, 'history'), pageId)
-    for (const p of [a, b]) {
-      await expect(editorOf(p, pageId)).toHaveText('Restored version.')
-    }
+    for (const p of [a, b]) await expect.poll(() => docText(p, pageId)).toBe('Restored version.')
 
     // a comment thread; both reply at the same moment — both replies stay
     const threadId = await wsEval(a, (s, id) => s.addComment(id, { quote: 'Restored', body: 'Is this final?' }), pageId)

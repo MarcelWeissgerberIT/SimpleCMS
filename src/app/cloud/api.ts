@@ -21,6 +21,12 @@ export function setServerKnown(v: boolean): void {
   serverKnown = v
 }
 
+/** Before the first answer of GET api/config, REST calls ask it first (boot.ts registers this). */
+let probe: (() => Promise<boolean>) | null = null
+export function setServerProbe(fn: () => Promise<boolean>): void {
+  probe = fn
+}
+
 /** Listeners for 401 answers (the session ended while the app was open). */
 const unauthListeners = new Set<() => void>()
 export function onUnauthenticated(fn: () => void): () => void {
@@ -53,6 +59,9 @@ async function readError(res: Response): Promise<CloudError> {
 /** Low-level request. `path` is relative to the app base, e.g. 'api/me'. */
 export async function request<T>(method: string, path: string, body?: unknown, opts: { raw?: BodyInit; headers?: Record<string, string>; signal?: AbortSignal } = {}): Promise<T> {
   if (!SERVER_CAPABLE || serverKnown === false) throw unavailable()
+  // e.g. an invite link opened before the boot's detection answered: a missing server is
+  // 'unavailable', never a confusing 404 from a static host
+  if (serverKnown === null && probe && !(await probe())) throw unavailable()
   const headers: Record<string, string> = { ...opts.headers }
   // every mutating request carries the JSON content type (CSRF guard), even without a body
   if (method !== 'GET' && method !== 'HEAD' && opts.raw === undefined) headers['content-type'] = 'application/json'

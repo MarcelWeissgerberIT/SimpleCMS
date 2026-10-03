@@ -34,15 +34,19 @@ export async function api<T = unknown>(page: Page, method: string, path: string,
   )
 }
 
-/** The last sign-in / invite mail sent to `to` (dev mailbox). */
-export async function lastMail(page: Page, to: string): Promise<{ subject: string; text: string; link: string }> {
+/**
+ * The newest sign-in / invite mail sent to `to` (dev mailbox, which lists newest first), once at
+ * least `count` mails to that address arrived.
+ */
+export async function lastMail(page: Page, to: string, count = 1): Promise<{ subject: string; text: string; link: string }> {
   let mail: { subject: string; text: string; link: string } | undefined
   await expect
     .poll(
       async () => {
         const res = await page.request.get(`/api/dev/mailbox?to=${encodeURIComponent(to)}`)
-        const list = (await res.json()) as Array<{ subject: string; text: string; link: string }>
-        mail = list.at(-1)
+        const list = (await res.json()) as Array<{ subject: string; text: string; link: string; created_at?: string }>
+        if (list.length < count) return false
+        mail = [...list].sort((a, b) => (b.created_at ?? '').localeCompare(a.created_at ?? ''))[0]
         return !!mail
       },
       { timeout: 10_000 },
@@ -54,9 +58,10 @@ export async function lastMail(page: Page, to: string): Promise<{ subject: strin
 /** Sign `page` in as `address` through the real magic-link flow (request → mailbox → link). */
 export async function signIn(page: Page, address: string): Promise<void> {
   if (!page.url().startsWith('http')) await page.goto('/app/')
+  const before = ((await (await page.request.get(`/api/dev/mailbox?to=${encodeURIComponent(address)}`)).json()) as unknown[]).length
   const r = await api(page, 'POST', '/api/auth/request', { email: address, redirect: '/app/' })
   expect(r.status).toBeLessThan(300)
-  const mail = await lastMail(page, address)
+  const mail = await lastMail(page, address, before + 1)
   await page.goto(mail.link)
   const me = await api<{ user: { email: string } }>(page, 'GET', '/api/me')
   expect(me.status).toBe(200)

@@ -3,25 +3,7 @@
  * the member list, roles and presence — what people click, not the API underneath.
  */
 import type { Page } from '@playwright/test'
-import { test, expect, api, email, signIn, newPerson } from './fixtures'
-
-/** The newest mail to `to` once at least `count` arrived (the dev mailbox lists newest first). */
-async function newestMail(page: Page, to: string, count = 1): Promise<{ link: string }> {
-  let mail: { link: string } | undefined
-  await expect
-    .poll(
-      async () => {
-        const res = await page.request.get(`/api/dev/mailbox?to=${encodeURIComponent(to)}`)
-        const list = (await res.json()) as Array<{ link: string; created_at: string }>
-        if (list.length < count) return false
-        mail = [...list].sort((a, b) => b.created_at.localeCompare(a.created_at))[0]
-        return true
-      },
-      { timeout: 10_000 },
-    )
-    .toBe(true)
-  return mail!
-}
+import { test, expect, api, email, lastMail, signIn, newPerson } from './fixtures'
 
 /** Sign in from the local workspace through the switcher's sign-in dialog and the magic link. */
 async function uiSignIn(page: Page, address: string, mailsBefore = 0): Promise<void> {
@@ -33,7 +15,7 @@ async function uiSignIn(page: Page, address: string, mailsBefore = 0): Promise<v
   await dialog.getByLabel('Email').fill(address)
   await dialog.getByRole('button', { name: /Send sign-in link/ }).click()
   await expect(dialog.getByRole('heading', { name: 'Check your inbox.' })).toBeVisible()
-  await page.goto((await newestMail(page, address, mailsBefore + 1)).link)
+  await page.goto((await lastMail(page, address, mailsBefore + 1)).link)
   await expect(page.locator('.app')).toBeVisible()
 }
 
@@ -92,7 +74,7 @@ test.describe('team cloud UI', () => {
     await expect(page.getByRole('heading', { name: 'Check your inbox.' })).toBeVisible()
     await expect(page.locator('.cl-addr')).toHaveText(address)
 
-    await page.goto((await newestMail(page, address, 2)).link)
+    await page.goto((await lastMail(page, address, 2)).link)
     await expect(head).toContainText('Acme Sign-in')
     await expect(head).toContainText(/Team · Owner/i)
     await expect(page.locator('.status__save')).toContainText(/Synced · Team/i, { timeout: 20_000 })
@@ -154,7 +136,7 @@ test.describe('team cloud UI', () => {
     await linus.getByLabel('Email').fill(linusMail)
     await linus.getByRole('button', { name: /Send sign-in link/ }).click()
     await expect(linus.getByRole('heading', { name: 'Check your inbox.' })).toBeVisible()
-    await linus.goto((await newestMail(linus, linusMail)).link)
+    await linus.goto((await lastMail(linus, linusMail)).link)
     await linus.getByRole('button', { name: 'Join Acme Team' }).click()
     await expect(linus.locator('aside.sb .sb-head__ws')).toContainText('Acme Team')
     await expect(linus.locator('aside.sb .sb-head__ws')).toContainText(/Team · Member/i)

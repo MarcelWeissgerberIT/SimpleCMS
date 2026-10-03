@@ -25,8 +25,8 @@ const lang = () => useWorkspace.getState().settings.language
 /** Where the magic link brings the person back: this very view (an invite link keeps its hash). */
 function returnPath(): string {
   try {
+    // (keeps ?w=<id>: back into the workspace that asked for the sign-in)
     const url = new URL(window.location.href)
-    url.searchParams.delete('w')
     url.searchParams.set(SIGNED_IN_PARAM, '1')
     return `${url.pathname}${url.search}${url.hash}`
   } catch {

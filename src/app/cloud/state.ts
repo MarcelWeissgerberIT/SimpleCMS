@@ -61,6 +61,12 @@ export interface CloudState {
    * 'membership-revoked' · 'workspace-deleted' · 'session-ended' · 'workspace_not_found' · 'forbidden' …
    */
   error: string | null
+  /**
+   * Who may create an account on this server (GET api/config): 'open' · 'invite' (only invited
+   * addresses) · 'domains' (those in `signupDomains`, plus invited people). null until known.
+   */
+  signup?: 'open' | 'invite' | 'domains' | null
+  signupDomains?: string[]
 }
 
 export class CloudError extends Error {
@@ -85,6 +91,8 @@ export const useCloud = create<CloudState>(() => ({
   readOnly: false,
   peers: [],
   error: null,
+  signup: null,
+  signupDomains: [],
 }))
 
 /**

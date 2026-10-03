@@ -8,7 +8,7 @@ import type { ID } from './types'
 import { newId } from '../lib/ids'
 
 export type ModalState =
-  | { type: 'settings'; tab?: 'general' | 'appearance' | 'ai' | 'data' | 'shortcuts' | 'about' }
+  | { type: 'settings'; tab?: 'general' | 'appearance' | 'ai' | 'data' | 'shortcuts' | 'about' | 'team' }
   | { type: 'templates'; parentId?: ID | null }
   | { type: 'import' }
   | { type: 'export'; pageId?: ID | null }

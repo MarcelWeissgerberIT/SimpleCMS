@@ -881,13 +881,6 @@
   transition: opacity var(--dur-2) var(--ease-out);
 }
 
-/* a caret at the very top of the page: the tag goes below the line instead */
-.doc-content > :first-child .collab-caret__label {
-  bottom: auto;
-  top: calc(100% - 0.1em);
-  border-radius: 0 var(--radius-1) var(--radius-1) var(--radius-1);
-}
-
 .doc-content .collab-sel {
   background: var(--caret-wash, var(--signal-wash));
 }

@@ -10,12 +10,31 @@
  *    local copy opens offline (when this browser has been signed in before).
  */
 import { useWorkspace, emptyWorkspace } from '../store/store'
-import { fetchConfig, getMe, setServerKnown } from './api'
+import { fetchConfig, getMe, setServerKnown, setServerProbe, type ServerConfig } from './api'
 import { readChoice, readSession, SERVER_CAPABLE, writeChoice, writeSession } from './env'
 import { useCloud, useCloudSync, type CloudUser, type CloudWorkspace, type WorkspaceRef } from './state'
 import { emptySettings, openCloudWorkspace } from './workspace'
 
 const LOCAL: WorkspaceRef = { kind: 'local', id: 'local' }
+
+/** One GET api/config at a time; REST calls made before it answered wait for it (see api.ts). */
+let detection: Promise<ServerConfig | 'absent' | 'network'> | null = null
+function probeServer(timeoutMs: number): Promise<ServerConfig | 'absent' | 'network'> {
+  detection ??= fetchConfig(timeoutMs).then((cfg) => {
+    if (cfg === 'absent') setServerKnown(false)
+    else if (cfg !== 'network') applyConfig(cfg)
+    return cfg
+  })
+  return detection
+}
+
+/** Is there a server here? (Waits for the boot's detection, or asks.) A network failure counts as yes: the call itself reports it. */
+export async function ensureServer(): Promise<boolean> {
+  const cfg = await probeServer(6000)
+  if (cfg === 'network') detection = null
+  return cfg !== 'absent'
+}
+setServerProbe(ensureServer)
 
 /** URL marker a magic link brings back (see requestSignIn): ask /api/me even in local mode. */
 export const SIGNED_IN_PARAM = 'signed-in'
@@ -30,6 +49,18 @@ function consumeSignedInMarker(): boolean {
   } catch {
     return false
   }
+}
+
+/** What the server says about itself, into useCloud / useCloudSync. */
+export function applyConfig(cfg: ServerConfig): void {
+  setServerKnown(true)
+  useCloudSync.setState({ maxUploadMb: cfg.max_upload_mb })
+  const mode = cfg.signup?.mode
+  useCloud.setState({
+    available: true,
+    signup: mode === 'open' || mode === 'invite' || mode === 'domains' ? mode : null,
+    signupDomains: Array.isArray(cfg.signup?.domains) ? cfg.signup.domains : [],
+  })
 }
 
 function overrideActive(): boolean {
@@ -75,7 +106,7 @@ export async function bootCloud(): Promise<'local' | 'cloud' | 'signed-out'> {
   }
 
   useCloud.setState({ status: 'checking', active: choice })
-  const cfg = await fetchConfig(4000)
+  const cfg = await probeServer(4000)
   if (cfg === 'absent') {
     setServerKnown(false)
     fallBackToLocal(null, false)
@@ -87,9 +118,7 @@ export async function bootCloud(): Promise<'local' | 'cloud' | 'signed-out'> {
     fallBackToLocal('network', false)
     return 'local'
   }
-  setServerKnown(true)
-  useCloudSync.setState({ maxUploadMb: cfg.max_upload_mb })
-  useCloud.setState({ available: true })
+  applyConfig(cfg)
 
   let me: { user: CloudUser; workspaces: CloudWorkspace[] }
   try {
@@ -119,21 +148,20 @@ export async function bootCloud(): Promise<'local' | 'cloud' | 'signed-out'> {
 
 /** Local mode: find the server and the session for the switcher, without delaying the boot. */
 async function detect(signedInMarker: boolean): Promise<void> {
-  const cfg = await fetchConfig(8000)
+  const cfg = await probeServer(8000)
   if (cfg === 'absent') {
     setServerKnown(false)
     return
   }
   if (cfg === 'network') {
+    detection = null // ask again next time
     // offline: what we knew last time
     const cached = readSession()
     if (cached) useCloud.setState({ user: cached.user, workspaces: cached.workspaces })
     window.addEventListener('online', () => void detect(false), { once: true })
     return
   }
-  setServerKnown(true)
-  useCloudSync.setState({ maxUploadMb: cfg.max_upload_mb })
-  useCloud.setState({ available: true })
+  applyConfig(cfg)
   if (!signedInMarker && !readSession()) return
   await refreshMe()
 }

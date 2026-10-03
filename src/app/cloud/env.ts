@@ -9,8 +9,11 @@ import type { CloudUser, CloudWorkspace, WorkspaceRef } from './state'
 /** The app base ('/' on a cloud server). API paths are resolved against it. */
 export const BASE = import.meta.env.BASE_URL
 
-/** Only a build served from the site root talks to a server — the GitHub Pages build (/SimpleCMS/) never does. */
-export const SERVER_CAPABLE = BASE === '/'
+/**
+ * Only a build served from the site root talks to a server — the GitHub Pages build (/SimpleCMS/)
+ * never does, and `npm run dev` only when a server is proxied (ONE_SERVER, vite.config.ts).
+ */
+export const SERVER_CAPABLE = BASE === '/' && (!import.meta.env.DEV || !!import.meta.env.VITE_ONE_SERVER)
 
 export const WS_ID = /^[A-Za-z0-9_-]{8,64}$/
 export const PAGE_ID = /^[A-Za-z0-9_-]{1,64}$/

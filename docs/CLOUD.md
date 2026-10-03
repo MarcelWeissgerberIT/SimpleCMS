@@ -199,23 +199,65 @@ Y.Map 'pages'      pageId → Y.Map {
                      order (number), trashed, trashedAt, createdAt, updatedAt, createdBy, updatedBy,
                      settings (JSON), hidden?,
                      properties: Y.Map propId → JSON value     (per-cell last-writer-wins)
-                     comments:   Y.Map commentId → JSON thread
+                     comments:   Y.Map commentId → JSON thread (without `replies`)
+                                       `<commentId>/r/<replyId>` → JSON reply
                      plain: string (search excerpt, ≤ 20k chars, written by the last editor)
                    }
 Y.Map 'databases'  dbId → Y.Map {
-                     properties: Y.Map propId → JSON PropertyDef (incl. `order` number)
-                     views:      Y.Map viewId → JSON View (incl. `order` number)
-                     templates:  JSON array,  automations: JSON array,
-                     nextUniqueId: number, inline?: boolean
+                     properties:  Y.Map propId → JSON PropertyDef (incl. `order` number)
+                     views:       Y.Map viewId → JSON View (incl. `order` number)
+                     automations: Y.Map automationId → JSON Automation (incl. `order` number)
+                     templates:   Y.Map templateId → JSON template (incl. `order` number)
+                     nextUniqueId: number, inline?: boolean,
+                     any other Database key (subItems, dependencies …): JSON
                    }
 Y.Map 'people'     personId → JSON Person   (workspace people; members are mirrored as people)
 ```
+
+*(client C1 refinements, backwards compatible on read)*: comment **replies** are entries of their
+own (`<commentId>/r/<replyId>`), so two people replying to one thread at the same time both keep
+their reply; a thread written whole with `replies` inside is still read (merged by reply id).
+`automations` and `templates` are keyed by id like properties and views — the automation engine
+writes each run's status into its automation, which must not overwrite someone's concurrent edit
+of another automation; a JSON array found there is read and becomes keyed on the next write.
+`createdBy` / `updatedBy` are the account ids of the writing client. The `workspace` map is filled
+(name, icon, createdAt) by the first member who writes after its first sync, if it is empty.
 
 Not synced (per person, per device): `favorite`, `recent`, all `Settings` (theme, language,
 **AI key**, sidebar), `contentRev`, `contentOrigin`. The client keeps them in a small local
 overlay per workspace.
 
 ### Client rules
+
+*(as implemented, client C1 — see `src/app/cloud/index.ts` for the module map)*
+
+- **Boot** (`bootCloud()`): only a build served at `/` talks to a server (the GitHub Pages build never
+  sends a request). The tab's workspace is `?w=<id|local>`, else the browser's choice
+  (localStorage `one.cloud.active`). Cloud → `GET api/config` + `GET /api/me`, the store is hydrated
+  from the y-indexeddb copy (`one:ws:<id>`; a device that never saw the workspace waits ≤ 8 s for the
+  server), then syncs. No connection → the local copy opens offline when this browser was signed in
+  before (last `/api/me` in localStorage `one.cloud.session`). No session → status `signed-out`
+  with an empty, unsaved store. Local mode asks `/api/me` only when this browser was signed in
+  before or a magic link just came back (`?signed-in=1` is added to the sign-in `redirect`), so
+  anonymous visitors see no 401 in the console.
+- **This device's data** per cloud workspace (settings incl. the AI key, favourites, recent, pages
+  with unconfirmed edits, the last known content of every page for instant boots and search,
+  queued uploads) lives in IndexedDB `one-cloud` / `kv`, never in a Y document. A new cloud
+  workspace starts with the local workspace's settings.
+- **Content refresh** (Y → `page.content`, debounced): typing in this tab goes through
+  `setContent(…, 'cloud')` (history snapshots, `updatedAt`, `plain` for the others); changes from
+  others arrive as remote patches (`contentOrigin: 'sync'`, `isApplyingCloudChange()`).
+- **Bridge**: a `setContent` that did not come from Y is three-way merged with what Y has meanwhile
+  (base = the store's previous content) and applied to the fragment as a minimal diff
+  (`prosemirrorJSONToYXmlFragment` on the existing fragment, one transaction).
+- **Close reasons**: `role-changed` → `/api/me`, then every closed document re-authenticates on the
+  same socket (`sendToken()` + `startSync()`; *not* `detach()`+`attach()` — the CLOSE frame that
+  detaching sends is queued by the server until the new authentication and then closes it again);
+  `membership-revoked` / `workspace-deleted` → status `error` (+ `error`), read-only, nothing syncs;
+  `session-ended` → status `signed-out`. The browser's `offline` event closes the socket on purpose
+  (`online` reconnects at once).
+- **Presence**: the meta document's awareness carries `{ user: { id, name, color, tone }, pageId }`;
+  `pageId` follows the route. `Peer.color` is a CSS colour token (`var(--c-<tone>-text)`).
 
 - The Zustand store stays the UI's source of truth. A **binding** (`src/app/cloud/binding.ts`)
   mirrors store actions into the meta document (one Y transaction per action, origin `'local'`)
