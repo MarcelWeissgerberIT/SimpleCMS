@@ -50,7 +50,8 @@ async function seedKit(page: Page): Promise<Kit> {
     const b = s.createRow(db, { title: 'Kit launch', properties: { p_due: { start: '2026-10-21' } } })
     s.setRowProperty(a, rel, [b])
     s.setRowProperty(b, `${rel}.2way`, [a])
-    const view = s.databases[db].views[0].id
+    // `s` is the state when the call started: read the new database from the live store
+    const view = (window as unknown as { __one: { workspace: { getState: () => Record<string, any> } } }).__one.workspace.getState().databases[db].views[0].id
     const syncId = 'synce2etpl0001'
     const rules = { type: 'paragraph', content: [{ type: 'text', text: 'Shared launch rules' }] }
     s.setContent(
