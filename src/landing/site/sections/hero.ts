@@ -48,6 +48,7 @@ export function renderHero(ctx: Ctx): string {
     </h1>
     <div class="hero-body">
       <div class="hero-copy">
+        <a class="hero-mcp" href="#mcp"><span class="led" aria-hidden="true"></span><span class="lbl hero-mcp-tag">${esc(t('hero.mcp'))}</span><span class="hero-mcp-txt">${esc(t('hero.mcpText'))}</span><span class="arr" aria-hidden="true">↓</span></a>
         <p class="hero-sub">${esc(t('hero.sub'))}</p>
         <div class="hero-ctas">
           <a class="btn btn-sig btn-lg" href="${BRAND.appHref}">${esc(t('hero.cta'))}<span class="arr" aria-hidden="true">→</span></a>

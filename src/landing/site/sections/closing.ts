@@ -79,7 +79,7 @@ export function renderFooter(ctx: Ctx): string {
 <footer class="foot tone-carbon" data-tone="carbon">
   <div class="wrap">
     <div class="foot-top">
-      <p class="lbl foot-end"><span class="led led-on" aria-hidden="true"></span>§ 08 — ${esc(t('footer.end'))}</p>
+      <p class="lbl foot-end"><span class="led led-on" aria-hidden="true"></span>§ 09 — ${esc(t('footer.end'))}</p>
       <a class="lbl foot-up" href="#top">↑ ${esc(t('footer.top'))}</a>
     </div>
     <div class="foot-cols">
@@ -98,6 +98,7 @@ export function renderFooter(ctx: Ctx): string {
           <li><a href="${BRAND.appHref}">${esc(t('nav.open'))}</a></li>
           <li><a href="${BRAND.appHref}?import">${esc(t('hero.import'))}</a></li>
           <li><a href="#features">${esc(t('nav.features'))}</a></li>
+          <li><a href="#mcp">${esc(t('sec.mcp'))}</a></li>
           <li><a href="#compare">${esc(t('nav.compare'))}</a></li>
           <li><a href="#faq">${esc(t('nav.faq'))}</a></li>
         </ul>

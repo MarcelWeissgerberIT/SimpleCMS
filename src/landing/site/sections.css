@@ -1,4 +1,4 @@
-/* § 01 – § 08 */
+/* § 01 – § 09 (§ 03 Agents · MCP: mcp.css) */
 
 /* ================= § 01 Savings: control panel + thermal printer ================= */
 .calc {
@@ -640,7 +640,7 @@
   line-height: 1.2;
 }
 
-/* ================= § 03 Up close ================= */
+/* ================= § 04 Up close ================= */
 .deep {
   display: grid;
   gap: clamp(64px, 7.4vw, 108px);
@@ -721,7 +721,7 @@
   margin-top: 26px;
 }
 
-/* ================= § 04 Compare: the spec sheet ================= */
+/* ================= § 05 Compare: the spec sheet ================= */
 .sheet {
   border: 1px solid var(--ink);
   border-radius: var(--radius-1);
@@ -839,7 +839,7 @@ td[data-col='One.'] .mk-yes {
   color: var(--ink-2);
 }
 
-/* ================= § 05 Data flow (Carbon) ================= */
+/* ================= § 06 Data flow (Carbon) ================= */
 .sec-privacy .sec-rule {
   background: var(--ink);
 }
@@ -1024,7 +1024,7 @@ td[data-col='One.'] .mk-yes {
   color: var(--ink-2);
 }
 
-/* ================= § 06 Own it · Cloud (signal orange): two model plates ================= */
+/* ================= § 07 Own it · Cloud (signal orange): two model plates ================= */
 .sec-own {
   --sec-pad: clamp(56px, 6.6vw, 96px);
 }
@@ -1170,7 +1170,7 @@ td[data-col='One.'] .mk-yes {
   color: var(--surface);
 }
 
-/* ================= § 07 FAQ ================= */
+/* ================= § 08 FAQ ================= */
 .faq-grid {
   display: grid;
   grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);

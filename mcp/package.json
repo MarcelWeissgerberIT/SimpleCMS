@@ -1,0 +1,30 @@
+{
+  "name": "one-mcp",
+  "private": true,
+  "version": "1.0.0",
+  "description": "SimpleCMS One — local MCP bridge: lets Claude Desktop, Claude Code or any MCP client work in the One tab open in your browser.",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "bin": {
+    "one-mcp": "../public/mcp/one-mcp.mjs"
+  },
+  "scripts": {
+    "build": "node build.mjs",
+    "start": "node ../public/mcp/one-mcp.mjs",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "node build.mjs && node --test --test-reporter=spec --test-concurrency=1 \"test/*.test.ts\""
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.0",
+    "ws": "^8.18.3"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.5",
+    "@types/ws": "^8.18.1",
+    "esbuild": "^0.28.2",
+    "typescript": "~5.9"
+  }
+}

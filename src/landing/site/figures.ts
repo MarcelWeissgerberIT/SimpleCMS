@@ -176,16 +176,16 @@ export function heroSchematic(lang: Lang, label: string): string {
   return svg(s, label)
 }
 
-/** Callout balloons for the hero drawing, in drawing units (1600×1000). Adjust once the real screenshot exists. */
+/** Callout balloons for the hero drawing, in drawing units (1600×1000). Targets (tx, ty): printed by `scripts/capture-shots.mjs … hero`. */
 export const HERO_CALLOUTS: Array<{ id: 'A' | 'B' | 'C' | 'D'; tx: number; ty: number; bx: number; by: number }> = [
   // A — block editor: the "Agenda" heading and its list
-  { id: 'A', tx: 400, ty: 399, bx: 330, by: 318 },
+  { id: 'A', tx: 368, ty: 400, bx: 300, by: 318 },
   // B — databases: the "Projects" database (DB tag) in the page tree
-  { id: 'B', tx: 111, ty: 432, bx: 150, by: 740 },
+  { id: 'B', tx: 111, ty: 461, bx: 150, by: 740 },
   // C — command bar: Search / Ctrl+K
-  { id: 'C', tx: 226, ty: 65, bx: 340, by: 150 },
+  { id: 'C', tx: 226, ty: 66, bx: 340, by: 150 },
   // D — AI with your key: the Claude · Opus chip of the AI panel
-  { id: 'D', tx: 948, ty: 532, bx: 1100, by: 452 },
+  { id: 'D', tx: 920, ty: 532, bx: 1070, by: 452 },
 ]
 
 /* ------------------------------------------------------------------ */

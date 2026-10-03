@@ -90,7 +90,7 @@ export function heroMotion(root: HTMLElement, lang: Lang): HeroMotion {
     tb: q('.tb'),
     lines: q('.hero .line-in'),
     ghosts: q('.hero .ghost'),
-    copy: q('.hero-sub, .hero-ctas, .hero-fine, .bom, .hero-plate'),
+    copy: q('.hero-mcp, .hero-sub, .hero-ctas, .hero-fine, .bom, .hero-plate'),
     media: q('.frame-hero .frame-media'),
     cap: q('.frame-hero .frame-cap'),
     balloons: q('.frame-hero .balloon'),

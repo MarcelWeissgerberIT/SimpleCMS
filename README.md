@@ -54,6 +54,7 @@ AI on every workspace with your own Claude key, and an honest export.
 | Real-time multiplayer | **yes** | **yes** in a team workspace on your own server (open source) — the local workspace stays single-user, synced across tabs |
 | Inbox & reminders | yes | **yes** — reminders on any date; mentions, assignments and replies in team workspaces |
 | Public API | yes | **yes** on a team server, plus an incoming webhook URL per database for n8n / Make / Zapier |
+| MCP for AI agents | hosted connector | **yes** — local bridge to your open tab (approve each change), or the team server's `/mcp` endpoint |
 
 <sub>Full research with sources: [docs/RESEARCH.md](docs/RESEARCH.md).</sub>
 
@@ -66,7 +67,15 @@ AI on every workspace with your own Claude key, and an honest export.
 </tr>
 <tr>
 <td><img src="public/assets/shots/graph.webp" alt="Graph view of all pages and their links" /></td>
-<td><img src="public/assets/shots/automations.webp" alt="Automation sending new database rows to an n8n webhook" /></td>
+<td><img src="public/assets/shots/automations.webp" alt="Automation: when a project is done, notify and send a webhook to n8n" /></td>
+</tr>
+<tr>
+<td><img src="public/assets/shots/meeting.webp" alt="AI meeting notes: the transcript of a meeting and the summary, decisions and action items Claude wrote from it" /></td>
+<td><img src="public/assets/shots/agent.webp" alt="Workspace agent: a task, its step log and two new database rows staged for review" /></td>
+</tr>
+<tr>
+<td><img src="public/assets/shots/synced.webp" alt="Synced block: the same principles on two pages side by side, edited in either place" /></td>
+<td><img src="public/assets/shots/inbox.webp" alt="Inbox: reminders from date mentions and date properties, and the ones still scheduled" /></td>
 </tr>
 </table>
 
@@ -74,7 +83,9 @@ AI on every workspace with your own Claude key, and an honest export.
 toggles and toggle headings, callouts, columns, tables, tabs, to-dos, code with highlighting, KaTeX math, Mermaid
 diagrams, images, video & audio, files, embeds, bookmarks, table of contents, @-mentions of pages / dates (with
 reminders) / people, emoji shortcodes, Markdown paste, block links, margin comments (they never leave the device),
-**synced blocks** (the same content on several pages — edit it anywhere, it changes everywhere), and **buttons** that
+**synced blocks** (the same content on several pages — edit it anywhere, it changes everywhere), **AI meeting notes**
+(a live transcript from the browser's speech recognition, then summary, decisions and action items by Claude — action
+items go straight into a database), and **buttons** that
 insert blocks, add rows, edit properties, open links or fire a webhook in one click.
 
 **Databases** — table, board, list, gallery, calendar, timeline, chart and form views over the same rows; 22 property
@@ -82,7 +93,8 @@ types including relations, rollups, formulas (safe parser, no `eval`), status, u
 last edited by; filters with AND/OR groups and a "Me" filter, multi-sort, grouping, footer calculations, colour rules,
 sub-items, timeline dependencies (with automatic shifting), row templates — also repeating ones (a fresh meeting entry
 every Monday at 09:00) — locked databases, inline databases inside pages, side/centre peek, `.ics` calendar export, and
-**AI autofill** — summaries, key info, translations or categories per row, reviewed before they are written.
+**AI autofill** — summaries, key info, translations or categories per row, reviewed before they are written. Forms
+have conditional questions, several pages, scales and checkbox lists, a closing screen and a response summary.
 
 **Workspace** — page tree with drag & drop, favourites, trash, breadcrumbs, `⌘K` palette for search *and* commands,
 home dashboard, today's journal, an **Inbox** with reminders (and, in team workspaces, mentions, assignments and
@@ -137,6 +149,12 @@ by the server, not just hidden), offline copies that sync when you are back, and
 **public REST API** with API tokens and an incoming webhook URL per database, so n8n, Make or Zapier can write rows
 into One ([docs/API.md](docs/API.md)). Setup in [docs/SELF_HOSTING.md](docs/SELF_HOSTING.md), architecture in
 [docs/CLOUD.md](docs/CLOUD.md). The local workspace keeps working without any of it.
+
+**Agents & MCP** — One speaks the Model Context Protocol, so Claude Desktop, Claude Code or any MCP client can search,
+read and write your workspace: pages, databases, rows and properties, with 13 tools. Locally, a small bridge
+(`one-mcp.mjs`, one file) drives the One tab you have open — nothing leaves your computer, and changes wait for your
+one-click approval unless you switch that off. A team server has a remote MCP endpoint (`/mcp`) that works with the
+API tokens; a read token gets only the read tools. Setup and tool reference in [docs/MCP.md](docs/MCP.md).
 
 **Private by construction** — no analytics, no cookies, no backend (unless you run the team server). A service worker keeps the app working offline
 after the first visit. Several tabs stay in sync — when two of them edit the same page at the same moment, the
@@ -208,8 +226,13 @@ Built for the **Ninja Armory** challenge of the AI Automations community.
 - Veröffentlichen als statische Website, Teilen-Links ohne Server (optional mit Passwort)
 - Agenda über alle Datenbanken, Web-Clipper, Graph-Ansicht und Versionsverlauf ohne Zeitlimit
 - Posteingang mit Erinnerungen, synchronisierte Blöcke, Aufklapp-Überschriften, Video und Audio
+- KI-Besprechungsnotizen: Live-Transkript, danach Zusammenfassung, Entscheidungen und Aufgaben per Claude
+- Formulare mit bedingten Fragen, mehreren Seiten und Antwort-Übersicht
 - Sync als Markdown in einen Ordner auf deinem Rechner oder dein eigenes GitHub-Repository – in beide Richtungen
 - einen Workspace-Agenten (`⌘J`), der Aufgaben über Seiten und Datenbanken plant und erst nach deiner Prüfung ausführt
+- MCP für KI-Agenten: Claude Desktop, Claude Code & Co. suchen, lesen und schreiben im Workspace – lokal über eine
+  Brücke zu deinem offenen Tab (Änderungen nach deiner Freigabe), im Team über den `/mcp`-Endpunkt des Servers
+  ([docs/MCP.md](docs/MCP.md))
 - wiederkehrende Datenbank-Vorlagen, z. B. jeden Montag um 09:00 ein neuer Meeting-Eintrag
 - Präsentationsmodus und Offline-Betrieb
 - optional Team-Workspaces auf dem eigenen Server (Live-Zusammenarbeit, Rollen, Einladungen, private Seiten, öffentliche API und

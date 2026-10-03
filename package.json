@@ -10,7 +10,9 @@
     "build:pages": "BASE_PATH=${BASE_PATH:-/} vite build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit -p tsconfig.app.json",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "build:mcp": "npm --prefix mcp run build",
+    "test:mcp": "npm --prefix mcp test"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.131.0",
