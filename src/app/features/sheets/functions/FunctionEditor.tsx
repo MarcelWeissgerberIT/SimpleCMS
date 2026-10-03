@@ -90,13 +90,6 @@ export function FunctionEditor(props: FunctionEditorProps) {
   const treeWrap = useRef<HTMLDivElement>(null)
   const [nameText, setNameText] = useState<string | null>(null)
 
-  // another function: start at its root
-  useEffect(() => {
-    setFocus([])
-    setPop(null)
-    setNameText(null)
-  }, [draft.id])
-
   const lookup: SpecLookup = useMemo(() => {
     const self = draft.name ? selfSpec(draft) : null
     return (n) => (self && n === self.name ? self : catalog.lookup(n))

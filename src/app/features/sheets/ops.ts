@@ -374,7 +374,10 @@ function dsNames(body: string): Array<{ s: number; e: number; name: string; quot
   const stack: boolean[] = []
   const out: Array<{ s: number; e: number; name: string; quoted: boolean }> = []
   toks.forEach((t, i) => {
-    if (t.t === 'lp') stack.push(toks[i - 1]?.t === 'fn' && toks[i - 1].v === 'DS')
+    if (t.t === 'lp') {
+      const prev = toks[i - 1]
+      stack.push(prev?.t === 'fn' && prev.v === 'DS')
+    }
     else if (t.t === 'rp') stack.pop()
     else if ((t.t === 'name' || t.t === 'str') && stack[stack.length - 1]) out.push({ s: t.s, e: t.e, name: t.v, quoted: t.t === 'str' })
   })

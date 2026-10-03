@@ -154,8 +154,8 @@ function finish(ctx: Ctx, body: Body): Scene {
 
 function messageScene(spec: ChartSpec, width: number, opts: SceneOptions, message: string): Scene {
   const height = Math.max(96, Math.min(opts.height, 160))
-  const text = clip(message.toLocaleUpperCase(opts.lang === 'de' ? 'de-DE' : 'en-US'), Math.max(8, Math.floor((width - 80) / 6.4)))
-  const tw = monoWidth(text, 10.5)
+  const text = clip(message.toLocaleUpperCase(opts.lang === 'de' ? 'de-DE' : 'en-US'), Math.max(8, Math.floor((width - 80) / 7.2)))
+  const tw = monoWidth(text, 10.5, 0.84)
   const cx = width / 2
   const cy = height / 2
   const nodes: VNode[] = []
@@ -528,7 +528,7 @@ function scatter(ctx: Ctx): Body {
   const ys = pairMode ? data.series.slice(1) : data.series
   const colors = ys.map((s, i) => pickColor(ctx, i, s.color))
   const legendH = legend(ctx, ys.map((s, i) => ({ name: s.name, color: colors[i] })), 'bar', ctx.frame.top)
-  const top = ctx.frame.top + legendH + 10
+  const top = ctx.frame.top + legendH + (ys.length === 1 && legendH === 0 ? 24 : 10)
   const plotH = Math.max(40, ctx.height - 22 - 16)
   const vx = xs.filter(finite)
   const vy = ys.flatMap((s) => s.values.filter(finite))
@@ -554,7 +554,9 @@ function scatter(ctx: Ctx): Body {
     nodes.push(h('line', { x1: xx, x2: xx, y1: top, y2: bottom, stroke: 'var(--rule)', 'stroke-width': 1, class: 'ch-grid' }))
     nodes.push(h('text', { ...XLABEL, x: xx, y: bottom + 16, 'text-anchor': 'middle', class: 'ch-xlabel' }, tfx(v)))
   })
-  if (pairMode) nodes.push(h('text', { ...TICK, x: ml + pw, y: bottom - 6, 'text-anchor': 'end', class: 'ch-axis-title' }, clip(data.series[0].name.toLocaleUpperCase(), 30)))
+  // axis titles: x under its ticks (x, y columns), y above its axis when there is one y series
+  if (pairMode) nodes.push(h('text', { ...TICK, x: ml + pw, y: bottom + 32, 'text-anchor': 'end', class: 'ch-axis-title' }, `${clip(data.series[0].name.toLocaleUpperCase(), 30)} →`))
+  if (ys.length === 1 && legendH === 0) nodes.push(h('text', { ...TICK, x: 0, y: top - 12, class: 'ch-axis-title' }, `↑ ${clip(ys[0].name.toLocaleUpperCase(), 30)}`))
   const targets: SceneTarget[] = []
   const order = xs.map((x, i) => ({ x, i })).filter((p) => finite(p.x)).sort((a, b) => (a.x as number) - (b.x as number))
   for (const { x, i } of order) {
@@ -569,7 +571,7 @@ function scatter(ctx: Ctx): Body {
     const cy = Y(Math.max(...yv))
     targets.push({ i, label: pairMode || !numLabels ? data.labels[i] : formatValue(x, { lang: fmt.lang }), x: X(x as number), y: cy, rows, hit: { kind: 'circle', cx: X(x as number), cy, r: 10 } })
   }
-  return { nodes, height: bottom + 24, targets, marker: false }
+  return { nodes, height: bottom + (pairMode ? 38 : 24), targets, marker: false }
 }
 
 /* ------------------------------------------------------------------ */

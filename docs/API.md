@@ -58,6 +58,8 @@ curl https://cloud.example.com/api/v1/workspace \
   `https://cloud.example.com/app/?w=<workspaceId>#/p/<pageId>` (`?w=` picks the workspace even when
   the browser last used another one).
 - Pages and rows in the trash (or below a page in the trash) don't exist for the API.
+- Neither do templates (the gallery's page subtrees, root marked `template` — Settings ▸ Templates in the app):
+  they are blueprints, not workspace content.
 - Errors: `{ "error": { "code": "…", "message": "…", "details"?: … } }` — see [Errors](#errors).
 
 ## Endpoints

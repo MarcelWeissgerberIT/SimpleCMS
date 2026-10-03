@@ -51,13 +51,14 @@ class Guard extends Component<{ children: ReactNode; onFail: () => void }, { fai
 function Host() {
   const req = useBuilder((s) => s.req)
   if (!req) return null
+  const { key, ...opts } = req
   const close = () => {
-    if (useBuilder.getState().req?.key === req.key) useBuilder.setState({ req: null })
+    if (useBuilder.getState().req?.key === key) useBuilder.setState({ req: null })
   }
   return (
-    <Guard key={req.key} onFail={close}>
+    <Guard key={key} onFail={close}>
       <Suspense fallback={null}>
-        <LazyBuilder {...req} onClose={close} />
+        <LazyBuilder {...opts} onClose={close} />
       </Suspense>
     </Guard>
   )

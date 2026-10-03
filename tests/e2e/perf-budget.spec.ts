@@ -204,6 +204,9 @@ test.describe('performance budget (big workspace)', () => {
 
     await test.step('typing on the big page: no whole-workspace saves, no long freezes', async () => {
       const ed = page.locator(`#main .ProseMirror[data-page-id="${big.bigPageId}"]`)
+      // a reader scrolls first: until the column is touched it undoes scrolls nobody asked for (useColumnScroll)
+      await page.locator('#main').hover()
+      await page.mouse.wheel(0, 300)
       await ed.locator(':scope > p').nth(8).click()
       await page.keyboard.press('End')
       await page.waitForTimeout(800)

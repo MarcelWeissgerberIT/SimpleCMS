@@ -109,7 +109,7 @@ export function tickFormatter(step: number, o: FormatOptions): (v: number) => st
 }
 
 /** Rough text widths for layout (no DOM needed: exports and tests use the same numbers). */
-export const monoWidth = (s: string, size = 10) => s.length * size * 0.62
+export const monoWidth = (s: string, size = 10, spacing = 0) => s.length * (size * 0.6 + spacing)
 export const sansWidth = (s: string, size = 12) => {
   let w = 0
   for (const ch of s) w += /[MWmw@%]/.test(ch) ? 0.82 : /[il.,:;'|!]/.test(ch) ? 0.3 : /[A-Z0-9€$]/.test(ch) ? 0.64 : 0.54

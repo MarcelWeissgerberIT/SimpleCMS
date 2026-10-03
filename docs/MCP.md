@@ -253,7 +253,7 @@ curl -s https://team.example.com/mcp \
 ### What it sees and does
 
 - **One workspace per token** — the token's. Every id is looked up in that workspace's meta document; anything else
-  (another workspace, a page in the trash) is "not found".
+  (another workspace, a page in the trash, a template's page) is "not found".
 - **Private pages never**: another member's — and your own — *Private* pages live in documents the server never
   reads for the API or MCP. A link or @-mention of a page the endpoint can't see shows as "(No access)" in the
   Markdown, never with its stored title.

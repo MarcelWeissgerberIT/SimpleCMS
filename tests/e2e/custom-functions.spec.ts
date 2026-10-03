@@ -295,7 +295,10 @@ test.describe('custom functions', () => {
     // the bench takes a list for a dataset parameter
     await fx(page).locator('[data-sample="values"]').fill('4; 9; 1')
     await expect(result(page)).toHaveText('8')
-    await fx(page).locator('[data-sample="values"]').fill('2,5, 7')
+    // a comma list, or a semicolon list with decimal commas
+    await fx(page).locator('[data-sample="values"]').fill('2, 5, 7')
+    await expect(result(page)).toHaveText('5')
+    await fx(page).locator('[data-sample="values"]').fill('2,5; 7')
     await expect(result(page)).toHaveText('4.5')
     await save(page)
   })

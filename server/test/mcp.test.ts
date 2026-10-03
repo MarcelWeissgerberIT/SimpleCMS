@@ -144,8 +144,14 @@ describe('remote MCP', () => {
       pages.set('doc-1', pageEntry({ title: 'Handbook', order: 1, icon: { type: 'emoji', value: '📘' }, plain: 'How we work\nOnboarding checklist for new people' }))
       pages.set('doc-2', pageEntry({ title: 'Onboarding', parentId: 'doc-1', order: 1, plain: 'Read the Handbook' }))
       pages.set('old-1', pageEntry({ title: 'Old notes', order: 5, trashed: true, trashedAt: Date.now(), plain: 'stale handbook draft' }))
+      // a template (the app's gallery blueprint): a hidden root with `template` metadata and a sub-page
+      pages.set('tpl-1', pageEntry({ title: 'Sprint kit', order: 6, hidden: true, template: { name: 'Sprint kit' }, plain: 'handbook template text' }))
+      pages.set('tpl-2', pageEntry({ title: 'Sprint notes', parentId: 'tpl-1', order: 1, plain: 'handbook template child' }))
       meta.doc.getMap('people').set(ownerId, { id: ownerId, name: 'Olivia Owner', color: 'blue' })
     })
+    // … and a database inside that template
+    addDatabase(meta.doc, 'db-tpl', 'Sprint board', [{ id: 'tb-title', name: 'Name', type: 'title' }])
+    ;(meta.doc.getMap('pages').get('db-tpl') as Y.Map<unknown>).set('parentId', 'tpl-1')
     await flushed(meta)
 
     // the Handbook's content, with a link to Onboarding, a mention of a private page and a database block
@@ -259,6 +265,19 @@ describe('remote MCP', () => {
     // a row's property values count too
     assert.ok((await call(reader, 'one_search', { query: 'beta' })).results.some((x: { id: string }) => x.id === 'row-2'))
     await fails(reader, 'one_search', { query: '' }, /query/i)
+  })
+
+  test('templates: blueprints stay out of every tool, read or write', async () => {
+    const o = await call(reader, 'one_overview')
+    assert.ok(!JSON.stringify(o).includes('Sprint'), 'no template page or database in the overview')
+    const s = await call(reader, 'one_search', { query: 'handbook' })
+    assert.ok(!s.results.some((x: { id: string }) => x.id.startsWith('tpl-')))
+    assert.ok(!(await call(reader, 'one_list_databases')).databases.some((d: { id: string }) => d.id === 'db-tpl'))
+    for (const id of ['tpl-1', 'tpl-2', 'db-tpl']) await fails(reader, 'one_get_page', { id }, /No page with id/)
+    await fails(reader, 'one_query_database', { databaseId: 'db-tpl' }, /no such database|no database/i)
+    await fails(writer, 'one_create_row', { databaseId: 'db-tpl', title: 'Sneaky' }, /no such database|no database/i)
+    await fails(writer, 'one_create_page', { title: 'Sneaky', parentId: 'tpl-1' }, /no such parent page|no parent page/i)
+    await fails(writer, 'one_trash_page', { id: 'tpl-2' }, /no page|no such page/i)
   })
 
   test('one_get_page: Markdown content, path, children, backlinks; by title; 404s', async () => {
