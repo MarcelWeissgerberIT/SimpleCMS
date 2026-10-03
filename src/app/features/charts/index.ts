@@ -21,6 +21,9 @@
  *  - chartMarkdown(spec, data): title + data table · downloadChartPng / downloadChartSvg · copyChartTsv.
  *  - demoCharts(): sample chart specs (manual data) for seed content.
  */
+// window.__oneCharts (dev / ?e2e only): pure helpers for unit-level checks
+import './testHook'
+
 export * from './types'
 export { ChartRenderer, DataTable, type ChartRendererProps } from './render/ChartRenderer'
 export { chartToSvg, chartDomSpec, type StaticOptions } from './render/static'

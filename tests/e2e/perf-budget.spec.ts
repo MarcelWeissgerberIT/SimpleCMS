@@ -5,9 +5,13 @@
  * Budgets are generous on purpose (a loaded CI box must pass), and the sharp ones COUNT work
  * instead of timing it, so they hold on any machine:
  *  - a typing pause writes that page's record to IndexedDB — never the whole workspace;
- *  - a store write walks the page map (Object.keys / values / entries of every page) only a
- *    handful of times, whatever is mounted (sidebar, backlinks, unlinked mentions, status bar …);
- *  - an idle app changes nothing, writes nothing and keeps the main thread (almost) free.
+ *  - a store write walks the page map (Object.keys / values / entries of every page) once or
+ *    twice, whatever is mounted (sidebar, backlinks, unlinked mentions, status bar …) — for the
+ *    editor's text, a title typed key by key and a table cell alike;
+ *  - the boot walks it a bounded number of times and never builds the home screen on its way to
+ *    the start page; a ⌘K query does not walk it per key;
+ *  - an idle app changes nothing, writes nothing and runs no script (V8 tidying a big heap after
+ *    a burst of work is not the app: the busy share is read in the quieter of two windows).
  * Timings guard against order-of-magnitude regressions: the whole-workspace saves this suite was
  * written against blocked the main thread for ~1.5 s after every typing pause.
  *
@@ -18,9 +22,14 @@ import type { CDPSession, Page } from '@playwright/test'
 import { test, expect, openApp, reloadApp, wsEval, flush } from './fixtures'
 import { loadBigWorkspace, type BigInfo } from './helpers/bigWorkspace'
 
-/** Page-map scans (Object.keys / values / entries of ≥ 2,000 entries) allowed until the app is up, and per store write. */
+/**
+ * Page-map scans (Object.keys / values / entries of ≥ 2,000 entries) allowed until the app is up,
+ * and per store write. Today: ~20 at boot; 1 per write (its copy of the map — the diff every reader
+ * asks for comes with it) + 1 for a title (unlinked mentions look for the new title). Through an Immer
+ * draft a write took 2 more, before the shared diff 12+.
+ */
 const BOOT_SCANS = 40
-const WRITE_SCANS = 5
+const WRITE_SCANS = { content: 2, title: 3, cell: 2 }
 
 /** Counters installed before the app runs (survive reloads of the page). */
 function installCounters() {
@@ -197,8 +206,7 @@ test.describe('performance budget (big workspace)', () => {
         { id: big.bigPageId, rowId: big.bigTableRowId, propId: big.bigTableNumberProp },
       )
       note('write scans', res)
-      // today: 1 copy of the map per write (the diff every reader asks for comes with it); before the fix: 12+ (each reader scanned for itself)
-      for (const [kind, list] of Object.entries(res)) for (const n of list) expect(n, `page-map scans per store write: ${kind} (${list.join(', ')})`).toBeLessThanOrEqual(WRITE_SCANS)
+      for (const kind of ['content', 'title', 'cell'] as const) for (const n of res[kind]) expect(n, `page-map scans per store write: ${kind} (${res[kind].join(', ')})`).toBeLessThanOrEqual(WRITE_SCANS[kind])
       await page.waitForTimeout(1500)
     })
 
@@ -249,7 +257,7 @@ test.describe('performance budget (big workspace)', () => {
         await new Promise((r) => setTimeout(r, 120))
         return w.__perf.scans - before
       }, big.bigPageId)
-      expect(walked, 'page-map scans for a write outside the open table').toBeLessThanOrEqual(WRITE_SCANS)
+      expect(walked, 'page-map scans for a write outside the open table').toBeLessThanOrEqual(WRITE_SCANS.title)
     })
 
     await test.step('⌘K search', async () => {

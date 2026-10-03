@@ -436,27 +436,18 @@ const sortedIds = (fns: Record<ID, CustomFunction>): ID[] =>
  */
 function renameEverywhere(from: string, to: string, selfId: ID): number {
   const ws = useWorkspace.getState()
-  let n = 0
+  const n = findUsage(from, ws.pages, ws.databases, ws.functions, selfId).total
   for (const p of Object.values(ws.pages)) {
     if (p.trashed || !p.content) continue
     const next = renameInDoc(p.content, from, to)
-    if (next !== p.content) {
-      ws.setContent(p.id, next, 'functions')
-      n++
-    }
+    if (next !== p.content) ws.setContent(p.id, next, 'functions')
   }
   for (const db of Object.values(ws.databases)) {
     for (const prop of db.properties) {
       if (prop.type !== 'formula' || !prop.formula || !formulaCalls(prop.formula, from)) continue
-      ws.updateProperty(db.id, prop.id, {
-        formula: renameInFormula(prop.formula, from, to),
-      })
-      n++
+      ws.updateProperty(db.id, prop.id, { formula: renameInFormula(prop.formula, from, to) })
     }
   }
-  for (const f of renameInFunctions(ws.functions, from, to, selfId)) {
-    ws.upsertFunction(f)
-    n++
-  }
+  for (const f of renameInFunctions(ws.functions, from, to, selfId)) ws.upsertFunction(f)
   return n
 }

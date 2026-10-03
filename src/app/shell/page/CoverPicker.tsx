@@ -5,12 +5,14 @@ import { COLOR_NAMES, type PageCover } from '../../store/types'
 import { resolveAssetUrl, saveFile } from '../../lib/files'
 import { colorBg } from '../../lib/colors'
 import { useT } from '../../i18n'
+import { useInCloud } from '../cloud/state'
 import { GRADIENTS, coverAssetPath, loadCoverManifest, type CoverManifestEntry } from './covers'
 
 type Tab = 'gallery' | 'upload' | 'link'
 
 export function CoverPicker({ anchor, onClose, onPick, onRemove, hasCover }: { anchor: Element | null; onClose: () => void; onPick: (c: PageCover) => void; onRemove: () => void; hasCover: boolean }) {
   const t = useT()
+  const inCloud = useInCloud()
   const [tab, setTab] = useState<Tab>('gallery')
   const [covers, setCovers] = useState<CoverManifestEntry[] | null>(null)
   const [url, setUrl] = useState('')
@@ -103,7 +105,7 @@ export function CoverPicker({ anchor, onClose, onPick, onRemove, hasCover }: { a
             <button type="button" className="btn btn--ink" disabled={busy} onClick={() => fileRef.current?.click()} data-autofocus="">
               {busy ? t('common.loading') : t('shell.cover.chooseFile')}
             </button>
-            <span className="label">{t('shell.cover.uploadHint')}</span>
+            <span className="label">{t(inCloud ? 'shell.cover.uploadHintCloud' : 'shell.cover.uploadHint')}</span>
             <input ref={fileRef} type="file" accept="image/*" hidden onChange={(e) => void upload(e.target.files?.[0])} />
           </div>
         )}

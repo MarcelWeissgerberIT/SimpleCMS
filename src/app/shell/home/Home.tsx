@@ -14,7 +14,7 @@ import { createDatabaseAndOpen, createPageAndOpen, goToPage } from '../lib/actio
 import { fmtDay, fmtNumber, fmtRelative, isoWeek, wordCount } from '../lib/format'
 import { useIsTouch, useKbdHint, useNow } from '../lib/hooks'
 import { NextDays, NextDaysActions } from '../agenda/NextDays'
-import { useReadOnly } from '../cloud/state'
+import { useInCloud, useReadOnly } from '../cloud/state'
 import './home.css'
 
 /** Words per page object (immutable: a changed page is a new object) — the stats re-count only what changed. */
@@ -35,6 +35,7 @@ export function Home() {
   const userName = useWorkspace((s) => s.settings.userName)
   // viewers: the keys that would create something are shown disabled
   const readOnly = useReadOnly()
+  const inCloud = useInCloud()
   const pages = useWorkspace((s) => s.pages)
   const recentIds = useWorkspace((s) => s.recent)
 
@@ -113,7 +114,7 @@ export function Home() {
           <SectionLabel n="03" label={t('shell.home.recent')} />
           {recent.length === 0 ? (
             <div className="home__empty">
-              <p>{t('shell.home.noRecent')}</p>
+              <p>{t(inCloud ? 'shell.home.noRecentCloud' : 'shell.home.noRecent')}</p>
               {!readOnly && (
                 <button type="button" className="btn btn--primary" onClick={() => createPageAndOpen(null)}>
                   <FilePlus2 size={15} />
