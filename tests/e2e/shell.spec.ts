@@ -29,7 +29,8 @@ test.describe('command palette', () => {
     await openApp(page)
     const pal = await openPalette(page)
     await page.keyboard.type('Respect the reader')
-    const hit = pal.getByRole('option').filter({ hasText: 'Brand voice' })
+    // the meeting notes carry the same principles as a synced block — pick the Brand voice page itself
+    const hit = pal.getByRole('option').filter({ has: page.locator('.pal-item__title', { hasText: /^Brand voice$/ }) })
     await expect(hit).toBeVisible()
     await expect(hit.locator('.pal-item__snippet mark').first()).toBeVisible()
     await hit.click()

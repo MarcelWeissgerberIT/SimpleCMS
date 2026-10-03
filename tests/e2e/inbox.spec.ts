@@ -30,7 +30,14 @@ type W = { __oneInbox: Hook }
 
 const inbox = (page: Page) => page.evaluate(() => JSON.parse(JSON.stringify((window as unknown as W).__oneInbox.data())) as ReturnType<Hook['data']>)
 const stopInbox = (page: Page) => page.evaluate(() => (window as unknown as W).__oneInbox.stop())
-const seenKeys = async (page: Page) => Object.keys((await inbox(page)).rem)
+/** Pages that existed when the app opened: the demo workspace seeds a reminder of its own. */
+const seeded = new WeakMap<Page, Set<string>>()
+async function open(page: Page, path?: string) {
+  await openApp(page, path)
+  seeded.set(page, new Set(await wsEval(page, (s) => Object.keys(s.pages))))
+}
+/** Reminder keys ("m:<pageId>:…" / "p:<rowId>:…") of the pages this test made. */
+const seenKeys = async (page: Page) => Object.keys((await inbox(page)).rem).filter((k) => !seeded.get(page)?.has(k.split(':')[1]))
 
 const dateMention = (id: string, reminder: string | null = null): JSONContent => ({ type: 'mention', attrs: { id, label: id, kind: 'date', reminder } })
 const line = (...content: JSONContent[]): JSONContent => ({ type: 'paragraph', content })
@@ -51,7 +58,7 @@ test.describe('inbox & reminders', () => {
   })
 
   test('date mention: set a reminder in the popover → toast, inbox item, unread badge', async ({ page }) => {
-    await openApp(page)
+    await open(page)
     const id = await datePage(page, 'Standup', '2026-10-05')
     await gotoPage(page, id)
 
@@ -92,7 +99,7 @@ test.describe('inbox & reminders', () => {
     await page.getByRole('button', { name: 'Inbox, 1 unread' }).click()
     await expect(page).toHaveURL(/#\/inbox$/)
     await expect(page.locator('#main .ibx-title')).toHaveText('Inbox')
-    await expect(page.locator('#main .ibx-group__head').first()).toContainText('Today')
+    await expect(page.locator('#main .ibx-group .ibx-group__head').first()).toContainText('Today')
     await expect(rows(page)).toHaveCount(1)
     const row = rows(page).first()
     await expect(row).toHaveAttribute('data-unread', 'true')
@@ -114,7 +121,7 @@ test.describe('inbox & reminders', () => {
   })
 
   test('date property: "Remind" in the date editor rides along date changes and fires', async ({ page }) => {
-    await openApp(page)
+    await open(page)
     const { dbId, rowId } = await wsEval(page, (s) => {
       const dbId = s.createDatabase({
         title: 'Launch tasks',
@@ -145,7 +152,8 @@ test.describe('inbox & reminders', () => {
     await expect(pop).toBeHidden()
     await expect.poll(() => seenKeys(page)).toContain(`p:${rowId}:pDue:2026-10-08:-1d`)
     // the old one (7 Oct) was cancelled by the change
-    expect((await wsEval(page, () => (window as unknown as W).__oneInbox.reminders().map((r) => r.key)))).toEqual([`p:${rowId}:pDue:2026-10-08:-1d`])
+    const scheduled = await wsEval(page, () => (window as unknown as W).__oneInbox.reminders().map((r) => r.key))
+    expect(scheduled.filter((k) => !seeded.get(page)?.has(k.split(':')[1]))).toEqual([`p:${rowId}:pDue:2026-10-08:-1d`])
 
     // Wed 7 Oct 09:00 → fires; "Open" shows the row in the peek
     await page.clock.fastForward(2 * DAY + 30_000)
@@ -159,7 +167,7 @@ test.describe('inbox & reminders', () => {
   })
 
   test('mark read / unread, archive, mark all read — kept across reloads', async ({ page }) => {
-    await openApp(page)
+    await open(page)
     const a = await datePage(page, 'Budget review', '2026-10-05T09:30', 'at')
     const b = await datePage(page, 'Dentist', '2026-10-05T09:40', 'at')
     const c = await datePage(page, 'Gym', '2026-10-05T09:50', 'at')
@@ -218,7 +226,7 @@ test.describe('inbox & reminders', () => {
   })
 
   test('trashing the page or removing / changing the reminder cancels it', async ({ page }) => {
-    await openApp(page)
+    await open(page)
     const trashed = await datePage(page, 'Trashed plan', '2026-10-05T10:00', 'at')
     const removed = await datePage(page, 'Removed reminder', '2026-10-05T10:00', '-15m')
     const changed = await datePage(page, 'Moved meeting', '2026-10-05T10:00', 'at')
@@ -248,7 +256,7 @@ test.describe('inbox & reminders', () => {
   })
 
   test('missed while the app was closed: in the inbox once, with one summary toast', async ({ page }) => {
-    await openApp(page)
+    await open(page)
     for (const [title, time] of [['Call the bank', '10:00'], ['Send invoice', '11:00'], ['Water plants', '12:00']])
       await datePage(page, title, `2026-10-05T${time}`, 'at')
     await expect.poll(async () => (await seenKeys(page)).length).toBe(3)
@@ -273,7 +281,7 @@ test.describe('inbox & reminders', () => {
   })
 
   test('a reminder set on a past moment is noted, not fired', async ({ page }) => {
-    await openApp(page)
+    await open(page)
     const id = await datePage(page, 'Yesterday standup', '2026-10-04T10:00', 'at')
     await expect.poll(() => seenKeys(page)).toContain(`m:${id}:2026-10-04T10:00:at`)
     await page.clock.fastForward('00:02:00')
@@ -283,7 +291,7 @@ test.describe('inbox & reminders', () => {
   })
 
   test('reminder codes: parser, due times (DST), options, labels EN + DE', async ({ page }) => {
-    await openApp(page)
+    await open(page)
     const r = await page.evaluate(() => {
       const c = (window as unknown as W).__oneInbox.codes
       return {
@@ -381,7 +389,7 @@ test.describe('inbox & reminders', () => {
       ;(window as unknown as { __notifyLog: unknown[] }).__notifyLog = log
     })
     const notifyLog = () => page.evaluate(() => (window as unknown as { __notifyLog: unknown[] }).__notifyLog)
-    await openApp(page, '/inbox')
+    await open(page, '/inbox')
     await page.getByRole('button', { name: 'Inbox settings' }).click()
     const dialog = page.getByRole('dialog', { name: 'Inbox settings' })
     await expect(dialog.locator('.ibx-set__state')).toHaveText('Not asked yet')
