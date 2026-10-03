@@ -12,7 +12,7 @@ import { useWorkspace } from '../../store/store'
 import type { ColorName, ID, Page, PageCover, PageIcon } from '../../store/types'
 import { FILE_PREFIX, getFile, readAsDataUrl } from '../../lib/files'
 import { propertyValueToText } from '../../database'
-import { getExtensions } from '../../editor'
+import { getExtensions, stripButtonActions } from '../../editor'
 import { t } from '../../i18n'
 
 export interface SharePayload {
@@ -141,7 +141,8 @@ function decodeDeflated(bytes: Uint8Array): SharePayload {
   if (!data || typeof data !== 'object') throw new ShareDecodeError('corrupt')
   const d = data as Partial<SharePayload>
   if (d.v !== 1) throw new ShareDecodeError('version')
-  const content = d.content && typeof d.content === 'object' && d.content.type === 'doc' ? validateDoc(sanitizeShared(d.content)) : null
+  // a received button never brings actions along (webhooks, inserts into the reader's workspace)
+  const content = d.content && typeof d.content === 'object' && d.content.type === 'doc' ? validateDoc(stripButtonActions(sanitizeShared(d.content))) : null
   return {
     v: 1,
     title: typeof d.title === 'string' ? d.title.slice(0, 500) : '',
@@ -629,7 +630,8 @@ export async function preparePage(pageId: ID, budget = SHARE_IMAGE_BUDGET): Prom
   const images = new Set<string>()
   // Databases have no content of their own: share their table. Rows carry their property values.
   const lead: JSONContent[] = page.kind === 'database' ? databaseTable(page.id, st.pages, { caption: false }) : page.databaseId ? rowProperties(page) : []
-  const body = flatten(page.content?.content, st.pages, images)
+  // button actions (webhook URLs, database ids) stay in the workspace
+  const body = flatten(page.content ? stripButtonActions(page.content).content : undefined, st.pages, images)
   const blocks = [...lead, ...body]
   const content: JSONContent | null = blocks.length ? { ...(page.content ?? {}), type: 'doc', content: blocks } : null
   const stats: PrepareStats = { images: images.size, inlined: 0, dropped: 0, imageBytes: 0 }

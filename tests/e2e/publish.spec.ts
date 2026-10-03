@@ -157,16 +157,44 @@ test.describe('publish as website', () => {
 
   test('scope "this page and its sub-pages" exports only that subtree', async ({ page }) => {
     await openApp(page)
-    await gotoPage(page, await pageIdByTitle(page, 'Team wiki'))
+    const wiki = await pageIdByTitle(page, 'Team wiki')
+    // a sub page with an image and a file from IndexedDB, and a title full of markup
+    await page.evaluate(async () => {
+      const png = Uint8Array.from(atob('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=='), (c) => c.charCodeAt(0))
+      const files: Array<[string, Blob, string]> = [
+        ['e2eimg000001', new Blob([png], { type: 'image/png' }), 'Diagram Final.png'],
+        ['e2epdf000001', new Blob(['%PDF-1.4 e2e'], { type: 'application/pdf' }), 'Spec sheet.pdf'],
+      ]
+      await new Promise<void>((resolve, reject) => {
+        const req = indexedDB.open('one-files')
+        req.onupgradeneeded = () => req.result.createObjectStore('files')
+        req.onerror = () => reject(req.error)
+        req.onsuccess = () => {
+          const tx = req.result.transaction('files', 'readwrite')
+          for (const [id, blob, name] of files) tx.objectStore('files').put({ blob, name, type: blob.type, size: blob.size, createdAt: 1 }, id)
+          tx.oncomplete = () => {
+            req.result.close()
+            resolve()
+          }
+          tx.onerror = () => reject(tx.error)
+        }
+      })
+    })
+    await createPage(page, {
+      title: 'Media <b>&</b> "Files"',
+      parentId: wiki,
+      content: doc(para('Figures below.'), { type: 'image', attrs: { src: 'onefile:e2eimg000001', alt: 'Diagram' } }, { type: 'fileBlock', attrs: { src: 'onefile:e2epdf000001', name: 'Spec sheet.pdf', size: 12 } }),
+    })
+    await gotoPage(page, wiki)
     const dialog = await openExport(page)
     await dialog.getByRole('radio', { name: /Team wiki/ }).click()
     await dialog.getByRole('radio', { name: /Website/ }).click()
     await expect(dialog.getByText(/No base URL/)).toBeVisible()
-    await expect(dialog.locator('[data-site-pages]')).toContainText('5')
+    await expect(dialog.locator('[data-site-pages]')).toContainText('6')
     const { files } = await exportSite(page, dialog)
 
     const pages = Object.keys(files).filter((f) => f.endsWith('.html') && f !== '404.html').sort()
-    expect(pages).toEqual(['brand-voice/index.html', 'glossary/index.html', 'index.html', 'onboarding/index.html', 'tooling-automations/index.html'])
+    expect(pages).toEqual(['brand-voice/index.html', 'glossary/index.html', 'index.html', 'media-b-b-files/index.html', 'onboarding/index.html', 'tooling-automations/index.html'])
     // the scope root is the home page
     expect(text(files, 'index.html')).toMatch(/<h1 class="title">Team wiki<\/h1>/)
     // no sitemap without a base URL
@@ -182,7 +210,17 @@ test.describe('publish as website', () => {
     }
     expect(brokenLinks(files)).toEqual([])
     const content = JSON.parse(text(files, 'content.json'))
-    expect(content.pages.map((p: { title: string }) => p.title).sort()).toEqual(['Brand voice', 'Glossary', 'Onboarding', 'Team wiki', 'Tooling & automations'])
+    expect(content.pages.map((p: { title: string }) => p.title).sort()).toEqual(['Brand voice', 'Glossary', 'Media <b>&</b> "Files"', 'Onboarding', 'Team wiki', 'Tooling & automations'])
+
+    // files from IndexedDB are copied into media/ and referenced relatively; titles are escaped
+    expect(files['media/diagram-final.png']).toBeDefined()
+    expect(strFromU8(files['media/spec-sheet.pdf'])).toBe('%PDF-1.4 e2e')
+    const media = text(files, 'media-b-b-files/index.html')
+    expect(media).toContain('<h1 class="title">Media &lt;b&gt;&amp;&lt;/b&gt; &quot;Files&quot;</h1>')
+    expect(media).not.toContain('<b>&amp;</b>')
+    expect(media).toContain('src="../media/diagram-final.png"')
+    expect(media).toContain('href="../media/spec-sheet.pdf"')
+    expect(text(files, 'media-b-b-files/index.md')).toContain('](../media/diagram-final.png)')
   })
 })
 

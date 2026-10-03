@@ -30,6 +30,8 @@ export interface RenderCtx {
   toText: ToText
   docToHTML: (doc: JSONContent | null) => string
   docToMarkdown: (doc: JSONContent | null) => string
+  /** removes button actions (webhook URLs, database ids) — nothing of them leaves the workspace */
+  stripButtonActions: (doc: JSONContent) => JSONContent
   purify: typeof DOMPurifyType
   katex: KatexLike | null
   mermaid: ((html: string, idPrefix: string) => Promise<string>) | null
@@ -290,7 +292,7 @@ export async function contentHTML(ctx: RenderCtx, node: SiteNode, idPrefix: stri
   const p = node.page
   if (!p.content) return ''
   const from = node.file
-  const html = ctx.docToHTML(p.content)
+  const html = ctx.docToHTML(ctx.stripButtonActions(p.content))
   if (!html) return ''
   const dom = new DOMParser().parseFromString(`<div id="root">${html}</div>`, 'text/html')
   const root = dom.getElementById('root')!
@@ -413,6 +415,17 @@ export async function contentHTML(ctx: RenderCtx, node: SiteNode, idPrefix: stri
     }
   })
 
+  // buttons: a static key with the label (a published page runs no actions)
+  root.querySelectorAll('[data-type="button"]').forEach((el) => {
+    for (const a of ['data-label', 'data-variant', 'data-actions']) el.removeAttribute(a)
+    const key = el.querySelector('button')
+    if (!key) return
+    const span = dom.createElement('span')
+    span.className = 'one-button__key'
+    span.textContent = key.textContent
+    key.replaceWith(span)
+  })
+
   // task lists are a record, not a form
   root.querySelectorAll('input[type="checkbox"]').forEach((i) => i.setAttribute('disabled', ''))
   root.querySelectorAll('[contenteditable]').forEach((el) => el.removeAttribute('contenteditable'))
@@ -460,7 +473,7 @@ export function rewriteMarkdown(ctx: RenderCtx, md: string, fromMd: string): str
     if (href.startsWith('#/p/')) {
       const id = href.slice(4).split('?')[0]
       const n = ctx.plan.nodes.get(id)
-      return n ? `${bang}[${label}](${rel(fromMd, n.md)})` : bang ? label : label
+      return n ? `${bang}[${label}](${rel(fromMd, n.md)})` : label
     }
     if (href.startsWith('#/')) return label
     if (href.startsWith('onefile:') || href.startsWith('assets/')) {
@@ -494,7 +507,7 @@ export function pageMarkdown(ctx: RenderCtx, node: SiteNode): string {
     }
     if (lines.length) parts.push(lines.join('  \n'))
   }
-  const body = p.content ? ctx.docToMarkdown(p.content).trim() : ''
+  const body = p.content ? ctx.docToMarkdown(ctx.stripButtonActions(p.content)).trim() : ''
   if (body) parts.push(rewriteMarkdown(ctx, body, from))
   const db = ctx.tree.databases[p.id]
   if (p.kind === 'database' && db) {

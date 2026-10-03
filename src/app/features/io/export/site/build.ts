@@ -94,7 +94,7 @@ export async function buildSite(tree: ExportTree, rootId: ID | null, opts: SiteO
   const usesMath = plan.order.some((n) => n.page.content && /"(block|inline)Math"/.test(JSON.stringify(n.page.content)))
   const usesMermaid = plan.order.some((n) => n.page.content && /"mermaid"/.test(JSON.stringify(n.page.content)))
   // renderers are loaded on demand
-  const [{ docToHTML, docToMarkdown }, { propertyValueToText }, purify, katex, share] = await Promise.all([
+  const [{ docToHTML, docToMarkdown, stripButtonActions }, { propertyValueToText }, purify, katex, share] = await Promise.all([
     import('../../../../editor'),
     import('../../../../database'),
     import('dompurify').then((m) => m.default),
@@ -146,6 +146,7 @@ export async function buildSite(tree: ExportTree, rootId: ID | null, opts: SiteO
     toText: propertyValueToText,
     docToHTML,
     docToMarkdown,
+    stripButtonActions,
     purify,
     katex,
     mermaid: share ? (html, prefix) => share.renderMermaid(html, prefix) : null,

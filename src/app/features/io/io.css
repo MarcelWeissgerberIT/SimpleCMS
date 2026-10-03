@@ -695,16 +695,6 @@
   .io-formats > :first-child {
     grid-column: 1 / -1;
   }
-  .io-site {
-    grid-template-columns: minmax(0, 1fr);
-  }
-  .io-online__steps {
-    grid-template-columns: minmax(0, 1fr);
-  }
-  .io-online__steps li + li {
-    border-left: 0;
-    border-top: 1px solid var(--rule);
-  }
   .io-scope {
     grid-template-columns: 1fr;
   }
@@ -820,4 +810,17 @@
 .io-online__text b {
   color: var(--ink);
   font-weight: 650;
+}
+
+@media (max-width: 640px) {
+  .io-site {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .io-online__steps {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .io-online__steps li + li {
+    border-left: 0;
+    border-top: 1px solid var(--rule);
+  }
 }

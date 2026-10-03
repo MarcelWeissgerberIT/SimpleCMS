@@ -1,8 +1,10 @@
 import type { Messages } from '@/shared/i18n'
+import { agendaMessages } from './agenda/messages'
 
 /** Strings for the shell area. Keys MUST be prefixed with "shell." — always add both en and de. */
 export const messages: Messages = {
   en: {
+    ...agendaMessages.en,
     'shell.a11y.skip': 'Skip to content',
 
     // navigation
@@ -408,6 +410,7 @@ export const messages: Messages = {
     'shell.clipper.android': 'Android: install One from the browser menu, then share any page to One.',
   },
   de: {
+    ...agendaMessages.de,
     'shell.a11y.skip': 'Zum Inhalt springen',
 
     'shell.nav.search': 'Suchen',

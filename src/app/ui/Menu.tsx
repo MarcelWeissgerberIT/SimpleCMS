@@ -293,7 +293,11 @@ export function useMenu() {
     open: !!anchor,
     anchor,
     openAt: (el: Element) => setAnchor(el),
-    toggle: (e: React.MouseEvent) => setAnchor((a) => (a ? null : e.currentTarget)),
+    // read currentTarget now: React resets it after the handler, before the updater runs
+    toggle: (e: React.MouseEvent) => {
+      const el = e.currentTarget
+      setAnchor((a) => (a ? null : el))
+    },
     close: () => setAnchor(null),
     props: { open: !!anchor, anchor, onClose: () => setAnchor(null) },
   }

@@ -174,7 +174,7 @@ export function pageDocument(ctx: RenderCtx, meta: SiteMeta, node: SiteNode, bod
   const description = excerptOf(p, 160) || `${title} — ${meta.title}`
   const docTitle = node.kind === 'home' ? (title === meta.title ? meta.title : `${title} — ${meta.title}`) : `${title} — ${meta.title}`
   return `${head(ctx, meta, { title: docTitle, description, path: from, image: c.image, md: node.md, type: node.kind === 'home' ? 'website' : 'article' })}
-<body class="${c.html ? 'has-cover' : ''}">
+<body${c.html ? ' class="has-cover"' : ''}>
 ${bar(ctx, meta, from, node.kind === 'home' ? '' : `${spec} — ${title}`, node.md)}
 <div class="layout">
 ${navTree(ctx, meta, from, p.id)}

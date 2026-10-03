@@ -5,6 +5,7 @@
  *   #/p/<id>?b=<blockId> → page, scroll to block
  *   #/graph         → graph view
  *   #/journal       → today's journal entry (created on demand)
+ *   #/agenda        → workspace agenda (every dated row, journal entry and date mention)
  *   #/s/<payload>   → read-only shared page (payload = compressed page, see features/share)
  *   #/clip?url=…&title=…&text=… → clip a web page into the Inbox, then replaced by #/p/<new page>
  */
@@ -15,6 +16,8 @@ export type Route =
   | { name: 'page'; id: string; block?: string }
   | { name: 'graph' }
   | { name: 'journal' }
+  /** #/agenda → one calendar for everything dated in the workspace (see shell/agenda) */
+  | { name: 'agenda' }
   | { name: 'share'; payload: string }
   /** #/f/<payload> → public form (payload = compressed form schema, see database/form/codec) */
   | { name: 'form'; payload: string }
@@ -31,6 +34,7 @@ export function parseHash(hash: string): Route {
   if (parts[0] === 'p' && parts[1]) return { name: 'page', id: parts[1], block: params.get('b') ?? undefined }
   if (parts[0] === 'graph') return { name: 'graph' }
   if (parts[0] === 'journal') return { name: 'journal' }
+  if (parts[0] === 'agenda') return { name: 'agenda' }
   if (parts[0] === 's' && parts[1]) return { name: 'share', payload: parts.slice(1).join('/') }
   if (parts[0] === 'f' && parts[1]) return { name: 'form', payload: parts.slice(1).join('/') }
   if (parts[0] === 'clip') {
@@ -51,6 +55,8 @@ export function routeHref(r: Route): string {
       return '#/graph'
     case 'journal':
       return '#/journal'
+    case 'agenda':
+      return '#/agenda'
     case 'share':
       return `#/s/${r.payload}`
     case 'form':

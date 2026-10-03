@@ -176,6 +176,10 @@ ${COLORS.map((c) => `.doc .callout--${c}{background:var(--c-${c}-bg)}`).join('')
 .doc .page-link__off{color:var(--ink-2)}
 .doc .file-block a::before,.doc .file-block span::before{content:'⎙';color:var(--signal-ink)}
 .doc .mention a{font-weight:550}
+.doc .one-button{margin:0 0 1em}
+.doc .one-button__key{display:inline-flex;align-items:center;height:34px;padding:0 15px;border:1px solid var(--signal-press);border-bottom-width:3px;border-radius:2px;background:var(--signal);color:var(--on-signal);font-weight:650;font-size:14.5px}
+.doc .one-button--ink .one-button__key{background:var(--ink);border-color:var(--ink);color:var(--ink-inverse)}
+.doc .one-button--ghost .one-button__key{background:var(--surface);border-color:var(--ink-faint);color:var(--ink)}
 .doc .toc{margin:0 0 1.4em;padding:10px 14px;border-left:2px solid var(--signal);background:var(--bg)}
 .doc .toc:empty{display:none}
 .doc .toc a{display:block;padding:2px 0;font-size:14px;text-decoration:none}
