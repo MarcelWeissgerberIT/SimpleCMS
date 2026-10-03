@@ -9,4 +9,6 @@
 export { DatabaseView, type DatabaseViewProps } from './DatabaseView'
 export { RowProperties } from './RowProperties'
 export { propertyValueToText } from './values'
+/** rowsOfView: rows of a view as it shows them (its filters + sorts) — for exports outside React. */
+export { rowsOfView } from './model/ics'
 export { SharedFormView } from './form/public'

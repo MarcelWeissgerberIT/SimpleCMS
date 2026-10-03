@@ -5,7 +5,7 @@
  */
 import type { JSONContent } from '@tiptap/core'
 import type DOMPurifyType from 'dompurify'
-import type { Database, DateValue, ID, Page, PropertyDef, SelectOption } from '../../../../store/types'
+import type { Database, DateValue, ID, Page, PropertyDef, SelectOption, View } from '../../../../store/types'
 import type { ExportTree } from '../collect'
 import { exportValue } from '../markdown'
 import { asciiSlug, rel, type SiteNode, type SitePlan } from './plan'
@@ -35,7 +35,10 @@ export interface RenderCtx {
   purify: typeof DOMPurifyType
   katex: KatexLike | null
   mermaid: ((html: string, idPrefix: string) => Promise<string>) | null
-  labels: { rows: (n: number) => string; yes: string; no: string }
+  /** rows of a database view as it shows them (filters + sorts); view null when the database has none */
+  viewRows: (dbId: ID, viewId: ID | null, rows: Page[]) => { view: View | null; rows: Page[] }
+  /** labels.private: neutral text for a page-link block whose target is not part of the site */
+  labels: { rows: (n: number) => string; yes: string; no: string; private: string }
 }
 
 /* ------------------------------------------------------------------ */
@@ -48,6 +51,40 @@ export const titleOf = (ctx: RenderCtx, p: Page | undefined) => (p?.title ?? '')
 export function pageHref(ctx: RenderCtx, from: string, id: ID): string | null {
   const n = ctx.plan.nodes.get(id)
   return n ? rel(from, n.file) : null
+}
+
+/*
+ * Scope rule: nothing of a page or database outside the export scope reaches the site — no
+ * title, no row, no value. Relations list only targets inside the site; rollups and formulas
+ * that read through a relation into a database outside the site stay empty.
+ */
+
+const PROP_REF = /prop\(\s*"((?:[^"\\]|\\.)*)"\s*\)/g
+
+/** Does a computed property read values from a database that is not part of the site? */
+function readsOutside(ctx: RenderCtx, db: Database, prop: PropertyDef, depth = 0): boolean {
+  if (depth > 6) return true
+  const outside = (dbId: ID | undefined | null) => !dbId || !ctx.plan.nodes.has(dbId)
+  if (prop.type === 'relation') return outside(prop.relationDatabaseId)
+  if (prop.type === 'rollup') {
+    const relProp = db.properties.find((p) => p.id === prop.rollup?.relationPropertyId)
+    return !relProp || outside(relProp.relationDatabaseId)
+  }
+  if (prop.type === 'formula') {
+    for (const m of (prop.formula ?? '').matchAll(PROP_REF)) {
+      const name = m[1].replace(/\\(.)/g, '$1')
+      const ref = db.properties.find((p) => p.name === name) ?? db.properties.find((p) => p.name.toLowerCase() === name.toLowerCase())
+      if (ref && ref.id !== prop.id && (ref.type === 'relation' || ref.type === 'rollup' || ref.type === 'formula') && readsOutside(ctx, db, ref, depth + 1)) return true
+    }
+  }
+  return false
+}
+
+/** Titles of the relation targets that are part of the site (as links when `from` is given). */
+function relationTargets(ctx: RenderCtx, row: Page, prop: PropertyDef): SiteNode[] {
+  const v = row.properties[prop.id]
+  if (!Array.isArray(v)) return []
+  return v.map((id) => ctx.plan.nodes.get(String(id))).filter((n): n is SiteNode => !!n && !n.page.trashed)
 }
 
 const RASTER_DATA = /^data:image\/(png|jpe?g|gif|webp|avif);base64,[A-Za-z0-9+/=]+$/i
@@ -163,18 +200,11 @@ export function valueHTML(ctx: RenderCtx, from: string, db: Database, prop: Prop
       const s = typeof v === 'string' ? v.trim() : ''
       return s ? (/^[+\d][\d\s()./-]{2,}$/.test(s) ? `<a href="tel:${esc(s.replace(/[^\d+]/g, ''))}">${esc(s)}</a>` : esc(s)) : ''
     }
-    case 'relation': {
-      if (!Array.isArray(v)) return ''
-      return v
-        .map((id) => {
-          const p = ctx.tree.pages[id]
-          if (!p || p.trashed) return ''
-          const href = pageHref(ctx, from, id)
-          return href ? `<a href="${esc(href)}">${esc(titleOf(ctx, p))}</a>` : esc(titleOf(ctx, p))
-        })
-        .filter(Boolean)
+    case 'relation':
+      // only pages of the site: a target outside it shows nothing, not even its title
+      return relationTargets(ctx, row, prop)
+        .map((n) => `<a href="${esc(rel(from, n.file))}">${esc(titleOf(ctx, n.page))}</a>`)
         .join(', ')
-    }
     case 'files': {
       if (!Array.isArray(v)) return ''
       return v
@@ -203,6 +233,7 @@ export function valueHTML(ctx: RenderCtx, from: string, db: Database, prop: Prop
       return n ? `<span class="stars" title="${n}/${max}">${'★'.repeat(n)}${'☆'.repeat(max - n)}</span>` : ''
     }
     default: {
+      if ((prop.type === 'rollup' || prop.type === 'formula') && readsOutside(ctx, db, prop)) return ''
       let s = ''
       try {
         s = ctx.toText(db, prop, row)
@@ -216,11 +247,12 @@ export function valueHTML(ctx: RenderCtx, from: string, db: Database, prop: Prop
 
 /** Plain value for Markdown / JSON (dates as ISO, relations as "Title (path)"). */
 export function valueText(ctx: RenderCtx, from: string | null, db: Database, prop: PropertyDef, row: Page): string {
+  // only pages of the site (exportValue would fall back to every title when none is left)
+  if (prop.type === 'relation') return relationTargets(ctx, row, prop).map((n) => (from !== null ? `${titleOf(ctx, n.page)} (${rel(from, n.md)})` : titleOf(ctx, n.page))).join(', ')
+  if ((prop.type === 'rollup' || prop.type === 'formula') && readsOutside(ctx, db, prop)) return ''
   const relation = (id: ID) => {
-    const p = ctx.tree.pages[id]
-    if (!p || p.trashed) return null
     const n = ctx.plan.nodes.get(id)
-    return n && from !== null ? `${titleOf(ctx, p)} (${rel(from, n.md)})` : titleOf(ctx, p)
+    return n ? titleOf(ctx, n.page) : null
   }
   const file = (ref: string) => {
     if (!ref.startsWith('onefile:')) return SAFE_WEB.test(ref) ? ref : null
@@ -234,13 +266,28 @@ export function valueText(ctx: RenderCtx, from: string | null, db: Database, pro
   }
 }
 
-/** Read-only table of a database: every row, every property, the title linking to the row page. */
-export function dbTableHTML(ctx: RenderCtx, from: string, dbId: ID, opts: { heading?: boolean } = {}): string {
+/**
+ * Read-only table of a database, the title linking to the row page. Only databases that are part
+ * of the site render ('' otherwise). The database page shows every row and property; an embedded
+ * database block (`view` given) shows what its view shows: filters, sorts, visible properties.
+ */
+export function dbTableHTML(ctx: RenderCtx, from: string, dbId: ID, opts: { heading?: boolean; view?: { id: ID | null } } = {}): string {
   const db = ctx.tree.databases[dbId]
   const dbPage = ctx.tree.pages[dbId]
-  if (!db || !dbPage) return ''
-  const rows = ctx.tree.rows(dbId)
-  const props = [...db.properties.filter((p) => p.type === 'title'), ...db.properties.filter((p) => p.type !== 'title')]
+  if (!db || !dbPage || !ctx.plan.nodes.has(dbId)) return ''
+  let rows = ctx.tree.rows(dbId)
+  let props = [...db.properties.filter((p) => p.type === 'title'), ...db.properties.filter((p) => p.type !== 'title')]
+  if (opts.view) {
+    const shown = ctx.viewRows(dbId, opts.view.id, rows)
+    rows = shown.rows
+    if (shown.view) {
+      const byId = new Map(db.properties.map((p) => [p.id, p]))
+      const visible = (Array.isArray(shown.view.visibleProperties) ? shown.view.visibleProperties : []).map((id) => byId.get(id)).filter((p): p is PropertyDef => !!p && p.type !== 'title')
+      props = [...db.properties.filter((p) => p.type === 'title'), ...visible]
+    }
+  }
+  // rows of a database in the site are pages of the site; anything else never shows
+  rows = rows.filter((r) => ctx.plan.nodes.has(r.id))
   const head = props.map((p) => `<th scope="col">${esc(p.name)}</th>`).join('')
   const body = rows
     .map((r) => `<tr>${props.map((p) => `<td${p.type === 'number' || p.type === 'unique_id' || p.type === 'formula' ? ' class="num"' : ''}>${valueHTML(ctx, from, db, p, r)}</td>`).join('')}</tr>`)
@@ -304,22 +351,24 @@ export async function contentHTML(ctx: RenderCtx, node: SiteNode, idPrefix: stri
     if (el.getAttribute('data-type') !== 'mention' && ctx.blockTargets.has(id) && /^[\w-]{1,64}$/.test(id)) el.setAttribute('id', `b-${id}`)
   })
 
-  // page link blocks: icon + title of the target, or plain text when it is not part of the site
+  // page link blocks: icon + title of the target; a target outside the site stays anonymous
   root.querySelectorAll('div.page-link').forEach((div) => {
     const id = div.getAttribute('data-page-id') ?? ''
     div.removeAttribute('data-page-id')
-    const target = ctx.tree.pages[id]
-    const title = target && !target.trashed ? titleOf(ctx, target) : (div.textContent ?? '').trim() || ctx.untitled
-    const href = pageHref(ctx, from, id)
-    const icon = target ? iconHTML(ctx, from, target, 16) : ''
-    const inner = `${icon ? `<span class="nav__icon">${icon}</span>` : ''}<span>${esc(title)}</span>`
-    div.innerHTML = href ? `<a href="${esc(href)}">${inner}</a>` : `<span class="page-link__off">${inner}</span>`
+    const target = ctx.plan.nodes.get(id)?.page
+    if (!target) {
+      div.innerHTML = `<span class="page-link__off"><span>${esc(ctx.labels.private)}</span></span>`
+      return
+    }
+    const icon = iconHTML(ctx, from, target, 16)
+    const inner = `${icon ? `<span class="nav__icon">${icon}</span>` : ''}<span>${esc(titleOf(ctx, target))}</span>`
+    div.innerHTML = `<a href="${esc(pageHref(ctx, from, id) ?? '')}">${inner}</a>`
   })
 
-  // inline databases: the table itself
+  // inline databases: the table as the block's view shows it (nothing for a database outside the site)
   root.querySelectorAll('div.database-block').forEach((div) => {
     const id = div.getAttribute('data-database-id') ?? ''
-    const table = dbTableHTML(ctx, from, id, { heading: true })
+    const table = dbTableHTML(ctx, from, id, { heading: true, view: { id: div.getAttribute('data-view-id') || null } })
     if (!table) return div.remove()
     const holder = dom.createElement('div')
     holder.innerHTML = table
@@ -336,8 +385,15 @@ export async function contentHTML(ctx: RenderCtx, node: SiteNode, idPrefix: stri
   root.querySelectorAll('a[href]').forEach((a) => {
     const href = a.getAttribute('href') ?? ''
     if (href.startsWith('#/p/')) {
-      const [id, query = ''] = href.slice(4).split('?')
-      const to = pageHref(ctx, from, decodeURIComponent(id))
+      const [raw, query = ''] = href.slice(4).split('?')
+      // page ids are [\w-]; anything else (a broken or hand-made link) just becomes text
+      let id = ''
+      try {
+        id = decodeURIComponent(raw)
+      } catch {
+        id = ''
+      }
+      const to = /^[\w-]{1,128}$/.test(id) ? pageHref(ctx, from, id) : null
       const block = new URLSearchParams(query).get('b')
       if (to) a.setAttribute('href', `${to}${block && ctx.blockTargets.has(block) ? `#b-${block}` : ''}`)
       else unwrap(a, 'off')
@@ -417,7 +473,7 @@ export async function contentHTML(ctx: RenderCtx, node: SiteNode, idPrefix: stri
 
   // buttons: a static key with the label (a published page runs no actions)
   root.querySelectorAll('[data-type="button"]').forEach((el) => {
-    for (const a of ['data-label', 'data-variant', 'data-actions']) el.removeAttribute(a)
+    for (const a of ['data-label', 'data-variant', 'data-actions', 'data-actions-key']) el.removeAttribute(a)
     const key = el.querySelector('button')
     if (!key) return
     const span = dom.createElement('span')
@@ -484,6 +540,26 @@ export function rewriteMarkdown(ctx: RenderCtx, md: string, fromMd: string): str
   })
 }
 
+/**
+ * The doc without what would name a page outside the site in Markdown (the serializer writes the
+ * live title of page-link and database blocks): such page links become a neutral line, such
+ * database blocks are left out.
+ */
+export function scopeDoc(ctx: RenderCtx, doc: JSONContent): JSONContent {
+  const inSite = (id: unknown) => typeof id === 'string' && ctx.plan.nodes.has(id)
+  const walk = (n: JSONContent): JSONContent | null => {
+    if (n.type === 'databaseBlock' && !inSite(n.attrs?.databaseId)) return null
+    if (n.type === 'pageLink' && !inSite(n.attrs?.pageId)) return { type: 'paragraph', content: [{ type: 'text', text: ctx.labels.private }] }
+    if (!n.content) return n
+    const kids = n.content.map(walk)
+    if (kids.every((k, i) => k === n.content![i])) return n
+    const content = kids.filter((k): k is JSONContent => !!k)
+    // a container that held only the removed block keeps a valid (empty) paragraph
+    return { ...n, content: content.length || n.type === 'doc' ? content : [{ type: 'paragraph' }] }
+  }
+  return walk(doc) ?? { type: 'doc', content: [] }
+}
+
 const mdCell = (s: string) => s.replace(/\r?\n/g, ' ').replace(/\|/g, '\\|').trim()
 
 /** "# Title" written by the editor's serializer (so "Q&A <draft>" stays text). */
@@ -507,7 +583,7 @@ export function pageMarkdown(ctx: RenderCtx, node: SiteNode): string {
     }
     if (lines.length) parts.push(lines.join('  \n'))
   }
-  const body = p.content ? ctx.docToMarkdown(ctx.stripButtonActions(p.content)).trim() : ''
+  const body = p.content ? ctx.docToMarkdown(scopeDoc(ctx, ctx.stripButtonActions(p.content))).trim() : ''
   if (body) parts.push(rewriteMarkdown(ctx, body, from))
   const db = ctx.tree.databases[p.id]
   if (p.kind === 'database' && db) {

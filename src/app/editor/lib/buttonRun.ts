@@ -1,8 +1,9 @@
 /**
  * Button runtime: runs a button's actions in order and reports what happened in one toast.
  *   insert_blocks · add_page · edit_properties · webhook · open · message
- * Webhooks use the payload shape and CORS fallback of the database automations
- * (JSON + CORS first; when the browser blocks the response, POST again as no-cors text/plain).
+ * Webhooks go through lib/webhook.ts like the database automations (JSON + CORS first; on a
+ * network/CORS failure one no-cors text/plain retry, reported as "unconfirmed", never as success).
+ * Every body carries a `deliveryId`, the same in both attempts.
  */
 import type { Editor, JSONContent } from '@tiptap/core'
 import { Fragment, type Node as PMNode } from '@tiptap/pm/model'
@@ -14,7 +15,9 @@ import { navigate, openPage } from '../../lib/router'
 import { t } from '../../i18n'
 import { docToMarkdown, sanitize } from '../convert'
 import { flashKey } from '../extensions/behaviors'
+import { BLOCK_ID_TYPES } from '../schema/base'
 import type { ButtonAction, PropertyPreset } from '../schema/button'
+import { isWebhookUrl, postWebhook } from '../../lib/webhook'
 import { safeHref } from './embeds'
 
 /* ------------------------------------------------------------------ */
@@ -62,12 +65,15 @@ export function cleanTemplate(content: JSONContent[]): JSONContent[] {
   return out
 }
 
+/** Nodes whose `id` attribute is a block id (UniqueID) — mentions keep theirs: it is their target. */
+const BLOCK_IDS = new Set<string>(BLOCK_ID_TYPES)
+
 /** Template → blocks to insert: variables filled, block ids dropped (fresh ones are assigned). */
 function instantiate(content: JSONContent[], now: Date): JSONContent[] {
   const walk = (n: JSONContent): JSONContent | null => {
     if (n.type === 'button') return null
     const out: JSONContent = { ...n }
-    if (out.attrs && 'id' in out.attrs) out.attrs = { ...out.attrs, id: null }
+    if (n.type && BLOCK_IDS.has(n.type) && out.attrs && 'id' in out.attrs) out.attrs = { ...out.attrs, id: null }
     if (typeof out.text === 'string') {
       out.text = fillVars(out.text, now)
       if (!out.text) return null
@@ -121,15 +127,8 @@ export interface ButtonWebhookPayload {
   page: { id: ID; title: string; url: string; properties: Record<string, string>; markdown: string }
   timestamp: string
   source: 'simplecms-one'
-}
-
-export function isWebhookUrl(url: string): boolean {
-  try {
-    const u = new URL(url.trim())
-    return u.protocol === 'https:' || u.protocol === 'http:'
-  } catch {
-    return false
-  }
+  /** added when sent (lib/webhook.ts): the same for a request and its no-cors retry */
+  deliveryId?: string
 }
 
 function rawText(value: PropertyValue | undefined): string {
@@ -174,28 +173,23 @@ async function buildPayload(ctx: RunContext): Promise<ButtonWebhookPayload> {
   }
 }
 
-async function sendWebhook(url: string, method: 'POST' | 'PUT', payload: unknown): Promise<{ ok: boolean; message: string }> {
+/**
+ * Through the shared helper (lib/webhook.ts; the payload gets a `deliveryId`). A no-cors send is
+ * "unconfirmed": not an error, but never reported as a success either.
+ */
+async function sendWebhook(url: string, method: 'POST' | 'PUT', payload: object): Promise<{ ok: boolean; unconfirmed?: boolean; message: string }> {
   if (!isWebhookUrl(url)) return { ok: false, message: t('editor.button.err.url') }
-  const body = JSON.stringify(payload)
-  const ctrl = new AbortController()
-  const timer = window.setTimeout(() => ctrl.abort(), 10_000)
-  try {
-    const res = await fetch(url.trim(), { method, headers: { 'Content-Type': 'application/json' }, body, signal: ctrl.signal })
-    return { ok: res.ok, message: `${res.status} ${res.statusText || (res.ok ? 'OK' : '')}`.trim() }
-  } catch (err) {
-    if (ctrl.signal.aborted) return { ok: false, message: t('editor.button.err.timeout') }
-    // most likely CORS: send once more as an opaque "simple" request (the body still arrives as JSON text)
-    if (method === 'POST') {
-      try {
-        await fetch(url.trim(), { method, mode: 'no-cors', headers: { 'Content-Type': 'text/plain;charset=UTF-8' }, body, signal: ctrl.signal })
-        return { ok: true, message: t('editor.button.res.opaque') }
-      } catch {
-        /* fall through */
-      }
-    }
-    return { ok: false, message: ctrl.signal.aborted ? t('editor.button.err.timeout') : t('editor.button.err.network', { msg: (err as Error)?.message ?? '' }) }
-  } finally {
-    window.clearTimeout(timer)
+  const res = await postWebhook(url, method, payload, { timeoutMs: 10_000 })
+  switch (res.outcome) {
+    case 'unconfirmed':
+      return { ok: true, unconfirmed: true, message: t('editor.button.res.opaque') }
+    case 'delivered':
+      return { ok: true, message: `${res.status} ${res.statusText || 'OK'}`.trim() }
+    default:
+      if (res.error === 'timeout') return { ok: false, message: t('editor.button.err.timeout') }
+      if (res.error === 'url') return { ok: false, message: t('editor.button.err.url') }
+      if (res.error === 'network') return { ok: false, message: t('editor.button.err.network', { msg: res.detail ?? '' }) }
+      return { ok: false, message: `${res.status} ${res.statusText}`.trim() }
   }
 }
 
@@ -215,6 +209,8 @@ export interface RunContext {
 
 interface Step {
   ok: boolean
+  /** sent, but delivery can't be confirmed (webhook without CORS) — no success toast */
+  unconfirmed?: boolean
   text: string
   /** said elsewhere already (the message toast itself) */
   quiet?: boolean
@@ -302,7 +298,7 @@ async function runAction(ctx: RunContext, a: ButtonAction, now: Date): Promise<S
       return editProperties(ctx, a, now)
     case 'webhook': {
       const res = await sendWebhook(a.url, a.method, await buildPayload(ctx))
-      return { ok: res.ok, text: t('editor.button.res.webhook', { method: a.method, status: res.message }) }
+      return { ok: res.ok, unconfirmed: res.unconfirmed, text: t('editor.button.res.webhook', { method: a.method, status: res.message }) }
     }
     case 'open':
       return openTarget(a)
@@ -329,7 +325,7 @@ export async function runButton(ctx: RunContext): Promise<boolean> {
   const rowId = steps.find((s) => s.rowId)?.rowId
   toast({
     message: `${ctx.label} · ${said.map((s) => (s.ok ? s.text : `✕ ${s.text}`)).join(' · ')}`,
-    kind: ok ? 'success' : 'error',
+    kind: !ok ? 'error' : steps.some((s) => s.unconfirmed) ? 'info' : 'success',
     action: rowId ? { label: t('common.open'), run: () => useUI.getState().openPeek(rowId) } : undefined,
     timeout: ok ? undefined : 7000,
   })

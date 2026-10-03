@@ -111,7 +111,7 @@ async function run(k: string, { dbId, propId, rowId }: { dbId: ID; propId: ID; r
       setCells({ [k]: { state: 'error', message: p.error ?? '' } })
       return
     }
-    if (p.status === 'same' || (p.status === 'pending' && writeProposal(dbId, propId, p))) recordFills(dbId, propId, { [rowId]: { at: Date.now(), hash: p.hash } })
+    if (p.status === 'same' || (p.status === 'pending' && writeProposal(dbId, propId, p) !== undefined)) recordFills(dbId, propId, { [rowId]: { at: Date.now(), hash: p.hash } })
     setCells({ [k]: null })
   } catch {
     setCells({ [k]: null })

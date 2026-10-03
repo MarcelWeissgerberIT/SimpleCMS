@@ -50,7 +50,9 @@ interface TabsMeta {
 export const tabsKey = new PluginKey<TabsState>('tabs')
 let editorSeq = 0
 
-const isTabs = (n: PMNode | null | undefined): n is PMNode => !!n && n.type.name === 'tabs'
+const isTabs = (n: PMNode | null | undefined): boolean => !!n && n.type.name === 'tabs'
+/** Narrowing variant for nodeAt() results. */
+const tabsNode = (n: PMNode | null | undefined): n is PMNode => !!n && n.type.name === 'tabs'
 
 /** Key of a tabs block: its id; blocks without one are keyed by their order in the doc. */
 function keyAt(doc: PMNode, pos: number, node: PMNode): string {
@@ -119,7 +121,7 @@ export function tabsAround($pos: ResolvedPos): { tabsPos: number; node: PMNode; 
 export function tabsInfoAt(state: EditorState, tabsPos: number): TabsInfo | null {
   const node = state.doc.nodeAt(tabsPos)
   const st = tabsKey.getState(state)
-  if (!isTabs(node) || !st) return null
+  if (!tabsNode(node) || !st) return null
   const key = keyAt(state.doc, tabsPos, node)
   return { index: activeIndex(st, key, node), key, idBase: `${st.base}-${domSafe(key)}` }
 }
@@ -134,7 +136,7 @@ export function tabPos(tabs: PMNode, tabsPos: number, index: number): number {
 /** A caret (or block selection) at the start of a tab's content. */
 function selectionInTab(doc: PMNode, tabsPos: number, index: number): Selection | null {
   const tabs = doc.nodeAt(tabsPos)
-  if (!isTabs(tabs) || index < 0 || index >= tabs.childCount) return null
+  if (!tabsNode(tabs) || index < 0 || index >= tabs.childCount) return null
   const start = tabPos(tabs, tabsPos, index)
   const end = start + tabs.child(index).nodeSize
   const text = Selection.findFrom(doc.resolve(start + 1), 1, true)
@@ -152,7 +154,7 @@ export function activateTab(view: EditorView, tabsPos: number, index: number, tr
   const own = !tr
   const t0 = tr ?? view.state.tr
   const node = t0.doc.nodeAt(tabsPos)
-  if (!isTabs(node) || index < 0 || index >= node.childCount) return null
+  if (!tabsNode(node) || index < 0 || index >= node.childCount) return null
   t0.setMeta(tabsKey, { key: keyAt(t0.doc, tabsPos, node), index, id: (node.child(index).attrs.id as string | null) ?? null } satisfies TabsMeta)
   const { from, to } = t0.selection
   if (from > tabsPos && to < tabsPos + node.nodeSize) {
@@ -314,14 +316,22 @@ export const Tabs = Node.create({
       if (!close) return undefined
       const inner = src.slice(open[0].length, open[0].length + close.index)
       const raw = src.slice(0, open[0].length + close.index + close[0].length)
-      const tabs = inner
-        .split(/^<!--\s*tab\s*-->[ \t]*$/im)
-        .slice(1)
-        .map((part) => {
-          const body = part.replace(/^\s*\n/, '')
-          const head = /^\*\*(.*?)\*\*[ \t]*(?:\n|$)/.exec(body)
-          return { title: head ? unescapeTitle(head[1]) : '', tokens: lexer.blockTokens((head ? body.slice(head[0].length) : body).trim()) }
-        })
+      // split on the marker TOKENS (a "<!-- tab -->" inside a code block is code, not a marker)
+      type Tok = { type: string; raw?: string }
+      const tabs: Array<{ title: string; tokens: Tok[]; head: boolean }> = []
+      for (const tok of lexer.blockTokens(inner) as Tok[]) {
+        if (tok.type === 'html' && /^<!--\s*tab\s*-->\s*$/i.test(tok.raw ?? '')) {
+          tabs.push({ title: '', tokens: [], head: true })
+          continue
+        }
+        if (!tabs.length) tabs.push({ title: '', tokens: [], head: false })
+        const cur = tabs[tabs.length - 1]
+        if (tok.type === 'space') continue
+        const title = cur.head && tok.type === 'paragraph' ? /^\*\*(.*?)\*\*$/.exec((tok.raw ?? '').trim()) : null
+        cur.head = false
+        if (title) cur.title = unescapeTitle(title[1])
+        else cur.tokens.push(tok)
+      }
       if (!tabs.length) return undefined
       return { type: 'tabs', raw, tabs } as never
     },

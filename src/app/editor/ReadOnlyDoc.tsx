@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef } from 'react'
 import { EditorContent, useEditor } from '@tiptap/react'
 import type { JSONContent } from '@tiptap/core'
 import { editorExtensions } from './extensions/kit'
+import { quietSelection } from './extensions/behaviors'
 import { sanitize } from './convert'
 import './editor.css'
 
@@ -31,7 +32,11 @@ export function ReadOnlyDoc({ content, className, headingOffset = 0 }: { content
   useEffect(() => {
     if (key === shown.current) return
     shown.current = key
-    if (editor && !editor.isDestroyed) editor.commands.setContent(content ? sanitize(content) : EMPTY, { emitUpdate: false })
+    if (editor && !editor.isDestroyed) {
+      editor.commands.setContent(content ? sanitize(content) : EMPTY, { emitUpdate: false })
+      // the new doc may start with an atom: nothing looks selected in a static render
+      quietSelection(editor.view)
+    }
   }, [editor, key]) // eslint-disable-line react-hooks/exhaustive-deps
   return (
     <div className={`one-doc ${className ?? ''}`}>

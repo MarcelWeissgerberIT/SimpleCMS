@@ -1,0 +1,474 @@
+/* ================================================================
+   Comments (margin notes) — highlights, margin rail, sheet, cards.
+   Highlight = the yellow content colour: a wash + an underline rule,
+   full strength while its thread is in focus.
+   ================================================================ */
+
+/* ---------- highlight (decorations; the mark itself stays unstyled) ---------- */
+.doc-content .cmark-hl {
+  background: color-mix(in srgb, var(--c-yellow-bg) 72%, transparent);
+  box-shadow: inset 0 -2px 0 color-mix(in srgb, var(--c-yellow-text) 38%, transparent);
+  transition:
+    background var(--dur-1) var(--ease-out),
+    box-shadow var(--dur-1) var(--ease-out);
+}
+
+.doc-content .cmark-hl.is-active {
+  background: var(--c-yellow-bg);
+  box-shadow: inset 0 -2px 0 var(--c-yellow-text);
+}
+
+.doc-content .cmark-hl.is-resolved:not(.is-active) {
+  background: transparent;
+  box-shadow: inset 0 -1px 0 var(--ink-faint);
+}
+
+/* overlapping threads: one wash, not two */
+.doc-content .cmark-hl .cmark-hl:not(.is-active) {
+  background: transparent;
+}
+
+/* ---------- layout: the page column makes room for the rail ---------- */
+/* the component's wrapper: no box of its own, the rail positions against .one-editor */
+.ccomments {
+  display: contents;
+}
+
+.pv,
+.one-editor {
+  --crail-w: 272px;
+  --crail-gap: 36px;
+}
+
+/* shell page view (.pv-col = header, content, footer columns): shift left as one */
+.pv:not([data-wide]):has(.one-editor[data-rail='margin']) .pv-col {
+  position: relative;
+  left: calc((var(--crail-w) + var(--crail-gap)) / -2);
+  animation: crail-shift var(--dur-3) var(--ease-out);
+}
+
+.pv[data-wide]:has(.one-editor[data-rail='margin']) .pv-col {
+  padding-right: calc(var(--pv-pad, 24px) + var(--crail-w) + var(--crail-gap));
+}
+
+@keyframes crail-shift {
+  from {
+    left: 0;
+  }
+}
+
+/* ---------- margin rail ---------- */
+.crail {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: calc(100% + var(--crail-gap));
+  width: var(--crail-w);
+  font-family: var(--font-sans);
+  font-size: var(--text-md);
+  animation: crail-in var(--dur-3) var(--ease-out);
+}
+
+@keyframes crail-in {
+  from {
+    opacity: 0;
+    transform: translateX(10px);
+  }
+}
+
+.crail__head,
+.csheet__head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.crail__head {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 26px;
+  border-bottom: 1px solid var(--rule);
+}
+
+.crail__title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.crail__toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+/* ---------- card ---------- */
+.ccard {
+  position: absolute;
+  left: 0;
+  right: 0;
+  padding: 9px 10px 10px 12px;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius-2);
+  background: var(--surface);
+  box-shadow: var(--shadow-1);
+  color: var(--ink);
+  outline: none;
+  transition:
+    top var(--dur-2) var(--ease-out),
+    border-color var(--dur-1) var(--ease-out),
+    box-shadow var(--dur-1) var(--ease-out);
+}
+
+.ccard:not(.is-active) {
+  cursor: pointer;
+}
+
+.ccard:not(.is-active):hover {
+  border-color: var(--ink-faint);
+}
+
+.ccard.is-active {
+  z-index: 1;
+  border-color: var(--ink);
+  box-shadow: var(--shadow-pop);
+}
+
+/* the focused thread: a signal edge, like a lit key */
+.ccard.is-active::before {
+  content: '';
+  position: absolute;
+  top: -1px;
+  bottom: -1px;
+  left: -1px;
+  width: 3px;
+  border-radius: var(--radius-2) 0 0 var(--radius-2);
+  background: var(--signal);
+}
+
+.ccard.is-resolved:not(.is-active) {
+  background: var(--surface-2);
+}
+
+.ccard.is-resolved .centry__body {
+  color: var(--ink-2);
+}
+
+.ccard:focus-visible {
+  box-shadow: var(--focus-ring);
+}
+
+.ccard__flag {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 6px;
+}
+
+.ccard__quote {
+  display: -webkit-box;
+  margin: 0 0 8px;
+  padding: 1px 0 1px 8px;
+  overflow: hidden;
+  border-left: 2px solid var(--c-yellow-text);
+  color: var(--ink-2);
+  font-size: var(--text-sm);
+  line-height: 1.45;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  -webkit-box-orient: vertical;
+}
+
+.ccard.is-detached .ccard__quote {
+  border-left-style: dashed;
+  border-left-color: var(--ink-faint);
+  text-decoration: line-through;
+  text-decoration-color: var(--ink-faint);
+}
+
+/* ---------- one entry (thread start / reply) ---------- */
+.centry__head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 24px;
+}
+
+.centry__avatar {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border-radius: var(--radius-1);
+  background: var(--ink);
+  color: var(--ink-inverse);
+  font: 600 10px / 1 var(--font-mono);
+}
+
+.centry__author {
+  min-width: 0;
+  overflow: hidden;
+  font-size: var(--text-sm);
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.centry__time {
+  flex: none;
+  white-space: nowrap;
+}
+
+.centry__tools {
+  display: inline-flex;
+  gap: 1px;
+  margin-left: auto;
+}
+
+.centry__body {
+  margin: 3px 0 0;
+  font-size: var(--text-md);
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.ccard__replies {
+  display: grid;
+  gap: 10px;
+  margin: 10px 0 0;
+  padding: 0 0 0 10px;
+  border-left: 1px solid var(--rule-strong);
+  list-style: none;
+}
+
+.ctool {
+  display: inline-grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-1);
+  background: transparent;
+  color: var(--ink-3);
+  cursor: pointer;
+  transition:
+    background var(--dur-1) var(--ease-out),
+    color var(--dur-1) var(--ease-out);
+}
+
+.ctool:hover,
+.ctool[aria-expanded='true'] {
+  background: var(--hover);
+  color: var(--ink);
+}
+
+.ctool:active {
+  transform: translateY(1px);
+}
+
+.ctool:focus-visible {
+  box-shadow: inset 0 0 0 2px var(--signal);
+}
+
+/* ---------- composer ---------- */
+.ccomposer {
+  margin-top: 10px;
+}
+
+.ccard--draft .ccomposer {
+  margin-top: 0;
+}
+
+.ccomposer__field {
+  display: block;
+  width: 100%;
+  min-height: 32px;
+  padding: 6px 8px;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius-1);
+  background: var(--surface);
+  color: var(--ink);
+  font: 400 var(--text-md) / 1.45 var(--font-sans);
+  caret-color: var(--signal);
+  resize: none;
+  transition:
+    border-color var(--dur-1) var(--ease-out),
+    box-shadow var(--dur-1) var(--ease-out);
+}
+
+.ccomposer__field::placeholder {
+  color: var(--ink-faint);
+}
+
+.ccomposer__field:focus {
+  outline: none;
+  border-color: var(--signal);
+  box-shadow: 0 0 0 3px var(--signal-wash);
+}
+
+.ccomposer__row {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.ccomposer__hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-right: auto;
+  white-space: nowrap;
+}
+
+.ccomposer__send {
+  gap: 5px;
+}
+
+/* ---------- summary line (narrow layouts, or only resolved threads) ---------- */
+.csummary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 12px;
+  padding: 0 0 7px;
+  border-bottom: 1px solid var(--rule);
+  color: var(--ink-3);
+}
+
+.csummary__btn {
+  margin-left: auto;
+  padding: 3px 7px;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius-1);
+  background: var(--surface);
+  color: var(--ink);
+  font: 500 var(--text-2xs) / 1.4 var(--font-mono);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.csummary__btn:hover {
+  background: var(--surface-2);
+}
+
+.csummary__btn:active {
+  transform: translateY(1px);
+}
+
+.csummary__btn[aria-expanded='true'] {
+  border-color: var(--signal);
+  color: var(--signal-ink);
+}
+
+/* ---------- sheet (narrow layouts) ---------- */
+.csheet {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: var(--z-popover);
+  display: flex;
+  flex-direction: column;
+  width: min(380px, 100vw);
+  border-left: 1px solid var(--rule-strong);
+  background: var(--bg);
+  box-shadow: var(--shadow-modal);
+  font-family: var(--font-sans);
+  font-size: var(--text-md);
+  color: var(--ink);
+  animation: csheet-in var(--dur-3) var(--ease-out);
+}
+
+@keyframes csheet-in {
+  from {
+    transform: translateX(24px);
+    opacity: 0;
+  }
+}
+
+.csheet__head {
+  flex: none;
+  height: 44px;
+  padding: 0 8px 0 16px;
+  border-bottom: 1px solid var(--rule-strong);
+  background: var(--surface-2);
+}
+
+.csheet__list {
+  display: grid;
+  flex: 1;
+  align-content: start;
+  gap: 10px;
+  padding: 12px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.csheet .ccard {
+  position: relative;
+}
+
+.csheet__empty {
+  margin: 16px 4px;
+}
+
+@media (max-width: 640px) {
+  .csheet {
+    top: auto;
+    left: 0;
+    width: auto;
+    max-height: 72dvh;
+    border-top: 1px solid var(--rule-strong);
+    border-left: 0;
+    border-radius: var(--radius-3) var(--radius-3) 0 0;
+    animation-name: csheet-up;
+  }
+  .csheet__head {
+    border-radius: var(--radius-3) var(--radius-3) 0 0;
+  }
+  .csheet__list {
+    padding-bottom: max(12px, env(safe-area-inset-bottom));
+  }
+}
+
+@keyframes csheet-up {
+  from {
+    transform: translateY(32px);
+    opacity: 0;
+  }
+}
+
+@media (pointer: coarse) {
+  .ctool {
+    width: 34px;
+    height: 34px;
+  }
+  .ccomposer__hint {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .crail,
+  .csheet,
+  .pv:has(.one-editor[data-rail='margin']) .pv-col {
+    animation: none;
+  }
+  .ccard,
+  .ctool,
+  .doc-content .cmark-hl {
+    transition: none;
+  }
+}

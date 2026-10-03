@@ -1,15 +1,19 @@
 /**
- * Commit an ImportPlan to the workspace: save attachments to IndexedDB, convert Markdown to
- * TipTap JSON (rewriting internal links → #/p/<id>, images → onefile refs), build databases
- * with inferred properties and rows, then insert everything with ONE store update.
+ * Commit an ImportPlan to the workspace: save attachments to IndexedDB, convert Markdown / HTML to
+ * TipTap JSON (rewriting internal links → page links / mentions, images → onefile refs), build
+ * databases (inferred from CSV, or a known schema like Trello's) and rows, then insert everything
+ * with ONE store update — so the whole import lands under one root page (trash it to undo).
  */
 import type { JSONContent } from '@tiptap/core'
 import { useWorkspace, getWorkspaceSnapshot, plainText, defaultView, DEFAULT_PAGE_SETTINGS } from '../../../store/store'
-import type { Database, ID, Page, PropertyDef, PropertyValue, View } from '../../../store/types'
+import type { Database, ID, Page, Person, PropertyDef, PropertyValue, View } from '../../../store/types'
 import { saveFile } from '../../../lib/files'
 import { newId } from '../../../lib/ids'
 import { cellValue, RELATION_TOKEN, splitList, type ColumnSpec } from './csv'
 import { basename, extname, hexOf, resolveTarget, rewriteLinks, type ImportPlan, type PlanNode } from './plan'
+import { FRAG, calloutBlocks, hasCalloutMarker } from './obsidian'
+import { warningsToReport, type ReportItem } from './report'
+import type { HtmlToDoc } from './htmldoc'
 
 export interface ImportProgress {
   stage: 'files' | 'pages' | 'commit'
@@ -23,6 +27,8 @@ export interface ImportResult {
   databases: number
   rows: number
   files: number
+  /** what could not be carried over 1:1 (unresolved links, skipped files …) */
+  report: ReportItem[]
 }
 
 const MIME: Record<string, string> = {
@@ -40,6 +46,7 @@ const MIME: Record<string, string> = {
   mov: 'video/quicktime',
   mp3: 'audio/mpeg',
   wav: 'audio/wav',
+  m4a: 'audio/mp4',
   json: 'application/json',
   zip: 'application/zip',
   html: 'text/html',
@@ -49,6 +56,20 @@ const IMAGE = /^image\//
 
 const P_URL = 'https://one.import/p/'
 const F_URL = 'https://one.import/f/'
+
+/** Placeholder href → id / file number + the planner's fragment ("one-m", "one-h=…"). */
+function splitPlaceholder(href: string, prefix: string): { ref: string; frag: string } {
+  const rest = href.slice(prefix.length)
+  const i = rest.indexOf('#')
+  return i < 0 ? { ref: rest, frag: '' } : { ref: rest.slice(0, i), frag: rest.slice(i + 1) }
+}
+/** Only the planners' own fragments survive the link rewrite (Notion block ids etc. are dropped). */
+const keepFrag = (href: string) => {
+  const i = href.indexOf('#')
+  const frag = i < 0 ? '' : href.slice(i + 1)
+  return frag.startsWith('one-') ? `#${frag}` : ''
+}
+const ANCHOR = '#one-anchor='
 
 interface SavedFile {
   ref: string
@@ -81,6 +102,9 @@ function budget(ms = 12) {
   }
 }
 
+const headingKey = (s: string) => s.replace(/[*_`~=[\]]/g, '').replace(/\s+/g, ' ').trim().toLowerCase()
+const blockId = () => (typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`)
+
 export async function applyPlan(
   plan: ImportPlan,
   opts: {
@@ -93,8 +117,9 @@ export async function applyPlan(
   },
 ): Promise<ImportResult> {
   const progress = opts.onProgress ?? (() => {})
-  // the editor's Markdown converter is loaded on demand
+  // the editor's converters (and the HTML sanitizer) are loaded on demand
   const { markdownToDoc } = await import('../../../editor')
+  const htmlToDoc: HtmlToDoc | null = plan.nodes.some((n) => n.format === 'html' && n.body.trim()) ? await (await import('./htmldoc')).htmlConverter() : null
   const viewName = opts.viewNames ?? { table: 'Table', board: 'Board', calendar: 'Calendar' }
   const ids = new Map<string, ID>()
   const byHex = new Map<string, PlanNode>()
@@ -122,16 +147,26 @@ export async function applyPlan(
     done++
     if ((await pause()) || done === total) progress({ stage: 'files', done, total })
   }
+  const fileOf = (ref: string) => saved.get(fileIndex[Number(ref)])
 
   const nodeFor = (dir: string, href: string): PlanNode | undefined => {
     const p = resolveTarget(dir, href)
     if (p) {
-      const key = plan.pathKeys?.get(p) ?? p.replace(/\.(md|markdown|txt)$/i, '').replace(/(_all)?\.(csv|tsv)$/i, '')
+      const key = plan.pathKeys?.get(p) ?? p.replace(/\.(md|markdown|txt|html?)$/i, '').replace(/(_all)?\.(csv|tsv)$/i, '')
       const hit = byKey.get(key)
       if (hit) return hit
     }
     const hex = hexOf(href)
     return hex ? byHex.get(hex) : undefined
+  }
+
+  /** Link / image target inside node `n` → placeholder URL (file, page) or null (leave as is). */
+  const placeholder = (n: PlanNode, href: string): string | null => {
+    const p = resolveTarget(n.dir, href)
+    if (p && saved.has(p)) return F_URL + fileNo.get(p) + keepFrag(href)
+    const target = nodeFor(n.dir, href)
+    if (target) return P_URL + ids.get(target.key) + keepFrag(href)
+    return null
   }
 
   // children per parent (folder pages list theirs; databases need their rows)
@@ -149,38 +184,61 @@ export async function applyPlan(
   for (const n of plan.nodes) {
     if (n.kind !== 'database') continue
     const rows = kids.get(`row:${n.key}`) ?? []
-    const cols = (n.columns ?? []).map((spec) => {
-      const def: PropertyDef = { id: newId(), name: spec.name, type: spec.type }
-      if (spec.options) def.options = spec.options
-      if (spec.type === 'number' && spec.numberFormat && spec.numberFormat !== 'number') def.numberFormat = spec.numberFormat
-      if (spec.type === 'relation') {
-        // target = database of the first resolvable referenced row
-        let target: string | undefined
-        for (const r of rows) {
-          for (const tok of splitList(r.cells?.[spec.name] ?? '')) {
-            const m = tok.match(RELATION_TOKEN)
-            const hit = m ? (nodeFor(n.csvDir ?? '', m[2]) ?? nodeFor(r.dir, m[2])) : undefined
-            if (hit?.kind === 'row') target = hit.dbKey
+    let properties: PropertyDef[]
+    if (n.properties?.length) {
+      // a known schema (Trello): taken as is
+      properties = n.properties.map((p) => ({ ...p, ...(p.options ? { options: p.options.map((o) => ({ ...o })) } : {}) }))
+      dbProps.set(n.key, [])
+    } else {
+      const cols = (n.columns ?? []).map((spec) => {
+        const def: PropertyDef = { id: newId(), name: spec.name, type: spec.type }
+        if (spec.options) def.options = spec.options
+        if (spec.type === 'number' && spec.numberFormat && spec.numberFormat !== 'number') def.numberFormat = spec.numberFormat
+        if (spec.type === 'relation') {
+          // target = database of the first resolvable referenced row
+          let target: string | undefined
+          for (const r of rows) {
+            for (const tok of splitList(r.cells?.[spec.name] ?? '')) {
+              const m = tok.match(RELATION_TOKEN)
+              const hit = m ? (nodeFor(n.csvDir ?? '', m[2]) ?? nodeFor(r.dir, m[2])) : undefined
+              if (hit?.kind === 'row') target = hit.dbKey
+              if (target) break
+            }
             if (target) break
           }
-          if (target) break
+          if (target) def.relationDatabaseId = ids.get(target)
+          else def.type = 'text'
         }
-        if (target) def.relationDatabaseId = ids.get(target)
-        else def.type = 'text'
-      }
-      return { spec: { ...spec, type: def.type as ColumnSpec['type'] }, def }
-    })
-    if (!cols.length || cols[0].def.type !== 'title') cols.unshift({ spec: { name: 'Name', type: 'title' }, def: { id: newId(), name: 'Name', type: 'title' } })
-    dbProps.set(n.key, cols)
-    const properties = cols.map((c) => c.def)
+        return { spec: { ...spec, type: def.type as ColumnSpec['type'] }, def }
+      })
+      if (!cols.length || cols[0].def.type !== 'title') cols.unshift({ spec: { name: 'Name', type: 'title' }, def: { id: newId(), name: 'Name', type: 'title' } })
+      dbProps.set(n.key, cols)
+      properties = cols.map((c) => c.def)
+    }
     const db: Database = { id: ids.get(n.key)!, properties, views: [], nextUniqueId: 1 }
     const views: View[] = [defaultView('table', db, viewName.table)]
     const group = properties.find((p) => p.type === 'status') ?? properties.find((p) => p.type === 'select')
-    if (group) views.push({ ...defaultView('board', db, viewName.board), groupBy: group.id })
+    if (group) {
+      const board: View = { ...defaultView('board', db, viewName.board), groupBy: group.id }
+      if (n.primaryView === 'board') views.unshift(board)
+      else views.push(board)
+    }
     const date = properties.find((p) => p.type === 'date')
     if (date) views.push({ ...defaultView('calendar', db, viewName.calendar), dateProperty: date.id })
     db.views = views
     databases[db.id] = db
+  }
+
+  /* ---------- people (person properties): reuse workspace people by name ---------- */
+  const people: Person[] = [...getWorkspaceSnapshot().people]
+  const personId = new Map<string, string>()
+  for (const p of plan.people ?? []) {
+    const hit = people.find((x) => x.name.trim().toLowerCase() === p.name.trim().toLowerCase())
+    if (hit) personId.set(p.id, hit.id)
+    else {
+      people.push({ ...p })
+      personId.set(p.id, p.id)
+    }
   }
 
   /* ---------- 3. pages ---------- */
@@ -193,8 +251,10 @@ export async function applyPlan(
 
   const multiRoot = plan.roots.length > 1
   const containerId = multiRoot ? newId() : null
+  /** pages whose content links to headings of other pages (resolved once every page exists) */
+  const anchored: ID[] = []
 
-  const contentFor = (n: PlanNode): JSONContent | null => {
+  const contentFor = (n: PlanNode, id: ID): JSONContent | null => {
     const blocks: JSONContent[] = []
     if (n.meta?.length) blocks.push(metaCallout(n.meta))
     if (n.body.trim()) {
@@ -208,16 +268,14 @@ export async function applyPlan(
           })
           blocks.push(content.length ? { type: 'paragraph', content } : { type: 'paragraph' })
         }
-      } else {
-        const md = rewriteLinks(n.body, (href) => {
-          const p = resolveTarget(n.dir, href)
-          if (p && saved.has(p)) return F_URL + fileNo.get(p)
-          const target = nodeFor(n.dir, href)
-          if (target) return P_URL + ids.get(target.key)
-          return null
-        })
-        const doc = markdownToDoc(md)
+      } else if (n.format === 'html') {
+        const doc = htmlToDoc!(n.body, { title: n.title, rewrite: (href) => placeholder(n, href) })
         blocks.push(...fixBlocks(doc.content ?? []))
+      } else {
+        const md = rewriteLinks(n.body, (href) => placeholder(n, href))
+        let content = markdownToDoc(md).content ?? []
+        if (hasCalloutMarker(md)) content = calloutBlocks(content)
+        blocks.push(...fixBlocks(content))
       }
     }
     if (n.kind === 'folder') {
@@ -225,23 +283,31 @@ export async function applyPlan(
     }
     // a database that shares the page's name ("X.md" + "X.csv") sits inline at the end, unless linked already
     for (const k of n.embeds ?? []) {
-      const id = ids.get(k)
-      if (id && !JSON.stringify(blocks).includes(`"databaseId":"${id}"`)) blocks.push(linkBlock(id, true))
+      const dbId = ids.get(k)
+      if (dbId && !JSON.stringify(blocks).includes(`"databaseId":"${dbId}"`)) blocks.push(linkBlock(dbId, true))
     }
     for (const path of n.attachments) {
       const f = saved.get(path)
       if (f) blocks.push(fileNode(f))
     }
     const meaningful = blocks.filter((b) => !(b.type === 'paragraph' && !b.content?.length))
-    return meaningful.length ? { type: 'doc', content: blocks } : null
+    if (!meaningful.length) return null
+    const doc: JSONContent = { type: 'doc', content: blocks }
+    if (JSON.stringify(doc).includes(ANCHOR)) anchored.push(id)
+    return doc
   }
 
   const fileNode = (f: SavedFile): JSONContent =>
     f.image ? { type: 'image', attrs: { src: f.ref, alt: f.name } } : { type: 'fileBlock', attrs: { src: f.ref, name: f.name, size: f.size } }
   const linkBlock = (id: ID, isDb: boolean): JSONContent => (isDb ? { type: 'databaseBlock', attrs: { databaseId: id, viewId: null } } : { type: 'pageLink', attrs: { pageId: id } })
   const isDbId = (id: ID) => !!databases[id]
+  /** image from a file placeholder ("…/f/3#one-w=300" → width 300) */
+  const imageAttrs = (attrs: Record<string, unknown>, f: SavedFile, frag: string) => {
+    const w = frag.startsWith(FRAG.width) ? Number(frag.slice(FRAG.width.length)) : 0
+    return { ...attrs, src: f.ref, ...(w > 0 ? { width: w } : {}) }
+  }
 
-  /** Rewrite placeholder URLs: standalone links → page link / database / file blocks; inline links → #/p/<id>. */
+  /** Rewrite placeholder URLs: standalone links → page link / database / file blocks; inline links → #/p/<id> or mentions. */
   function fixBlocks(nodes: JSONContent[], promote = true): JSONContent[] {
     const out: JSONContent[] = []
     for (const n of nodes) {
@@ -250,12 +316,15 @@ export async function applyPlan(
         const only = parts.length === 1 ? parts[0] : null
         const href: string | undefined = only?.type === 'text' ? only.marks?.find((m) => m.type === 'link')?.attrs?.href : undefined
         if (href?.startsWith(P_URL)) {
-          const id = href.slice(P_URL.length)
-          out.push(linkBlock(id, isDbId(id)))
-          continue
+          const { ref, frag } = splitPlaceholder(href, P_URL)
+          // wiki links ([[Note]], [[Note|alias]], [[Note#H]]) stay inline; ![[Note]] and plain links become blocks
+          if (!frag || frag === FRAG.embed) {
+            out.push(linkBlock(ref, isDbId(ref)))
+            continue
+          }
         }
         if (href?.startsWith(F_URL)) {
-          const f = saved.get(fileIndex[Number(href.slice(F_URL.length))])
+          const f = fileOf(splitPlaceholder(href, F_URL).ref)
           if (f) {
             out.push(fileNode(f))
             continue
@@ -263,9 +332,10 @@ export async function applyPlan(
         }
       }
       if (n.type === 'image' && typeof n.attrs?.src === 'string' && n.attrs.src.startsWith(F_URL)) {
-        const f = saved.get(fileIndex[Number(n.attrs.src.slice(F_URL.length))])
+        const { ref, frag } = splitPlaceholder(n.attrs.src, F_URL)
+        const f = fileOf(ref)
         if (f) {
-          out.push(f.image ? { ...n, attrs: { ...n.attrs, src: f.ref } } : fileNode(f))
+          out.push(f.image ? { ...n, attrs: imageAttrs(n.attrs, f, frag) } : fileNode(f))
           continue
         }
       }
@@ -275,20 +345,31 @@ export async function applyPlan(
   }
 
   function fixInline(n: JSONContent): JSONContent {
-    const next: JSONContent = { ...n }
+    let next: JSONContent = { ...n }
     if (n.marks) {
+      let mention: { id: string } | null = null
       next.marks = n.marks.flatMap((m) => {
         const href: unknown = m.type === 'link' ? m.attrs?.href : undefined
         if (typeof href !== 'string') return [m]
-        if (href.startsWith(P_URL)) return [{ ...m, attrs: { ...m.attrs, href: `#/p/${href.slice(P_URL.length)}`, target: null } }]
+        if (href.startsWith(P_URL)) {
+          const { ref, frag } = splitPlaceholder(href, P_URL)
+          if (frag === FRAG.mention && n.type === 'text') {
+            mention = { id: ref }
+            return []
+          }
+          const anchor = frag.startsWith(FRAG.heading) ? `${ANCHOR}${frag.slice(FRAG.heading.length)}` : ''
+          return [{ ...m, attrs: { ...m.attrs, href: `#/p/${ref}${anchor}`, target: null } }]
+        }
         if (href.startsWith(F_URL)) return []
         return [m]
       })
       if (!next.marks.length) delete next.marks
+      if (mention) next = { type: 'mention', attrs: { id: (mention as { id: string }).id, label: n.text ?? '', kind: 'page' }, ...(next.marks ? { marks: next.marks } : {}) }
     }
     if (n.type === 'image' && typeof n.attrs?.src === 'string' && n.attrs.src.startsWith(F_URL)) {
-      const f = saved.get(fileIndex[Number(n.attrs.src.slice(F_URL.length))])
-      next.attrs = { ...n.attrs, src: f?.image ? f.ref : '' }
+      const { ref, frag } = splitPlaceholder(n.attrs.src, F_URL)
+      const f = fileOf(ref)
+      next.attrs = f?.image ? imageAttrs(n.attrs, f, frag) : { ...n.attrs, src: '' }
     }
     if (n.content) next.content = PROMOTE.has(n.type ?? '') ? fixBlocks(n.content) : CONTAINERS.has(n.type ?? '') ? fixBlocks(n.content, false) : n.content.map(fixInline)
     return next
@@ -302,10 +383,19 @@ export async function applyPlan(
     const idx = (siblingIndex.get(sibKey) ?? 0) + 1
     siblingIndex.set(sibKey, idx)
     const order = parentId ? idx : rootOrder + idx
-    const content = n.kind === 'database' ? null : contentFor(n)
+    const content = n.kind === 'database' ? null : contentFor(n, id)
     const properties: Record<ID, PropertyValue> = {}
     let title = n.title
     if (n.kind === 'row') {
+      if (n.values) {
+        // typed values (Trello): person ids follow the people merge
+        const defs = databases[ids.get(n.dbKey!)!]?.properties ?? []
+        for (const [pid, v] of Object.entries(n.values)) {
+          const def = defs.find((d) => d.id === pid)
+          if (!def || v === null || v === undefined) continue
+          properties[pid] = def.type === 'person' && Array.isArray(v) ? v.map((x) => personId.get(x) ?? x) : v
+        }
+      }
       const cols = dbProps.get(n.dbKey!) ?? []
       const db = byKey.get(n.dbKey!)
       for (const { spec, def } of cols) {
@@ -338,6 +428,7 @@ export async function applyPlan(
       }
       parentId = ids.get(n.dbKey!)!
     }
+    const createdAt = n.createdAt ?? t0
     pages[id] = {
       id,
       kind: n.kind === 'database' ? 'database' : 'page',
@@ -353,14 +444,40 @@ export async function applyPlan(
       favorite: false,
       trashed: false,
       trashedAt: null,
-      createdAt: t0,
-      updatedAt: t0,
+      createdAt,
+      updatedAt: Math.max(n.updatedAt ?? createdAt, createdAt),
       order,
       settings: { ...DEFAULT_PAGE_SETTINGS },
       plain: content ? plainText(content) : '',
     }
     processed++
     if ((await pause()) || processed === plan.nodes.length) progress({ stage: 'pages', done: processed, total: plan.nodes.length })
+  }
+
+  /* ---------- 3b. [[Note#Heading]] → link to that heading's block ---------- */
+  for (const id of anchored) {
+    const walk = (n: JSONContent) => {
+      for (const m of n.marks ?? []) {
+        const href = m.type === 'link' ? m.attrs?.href : undefined
+        if (typeof href !== 'string' || !href.includes(ANCHOR)) continue
+        const [base, raw] = href.split(ANCHOR)
+        const target = pages[base.slice('#/p/'.length)]
+        let heading: JSONContent | undefined
+        const want = headingKey(decodeURIComponent(raw))
+        const find = (x: JSONContent) => {
+          if (heading) return
+          if (x.type === 'heading' && headingKey(plainText(x)) === want) heading = x
+          else x.content?.forEach(find)
+        }
+        if (target?.content) find(target.content)
+        if (heading) {
+          heading.attrs = { ...heading.attrs, id: (heading.attrs?.id as string | undefined) || blockId() }
+          m.attrs = { ...m.attrs, href: `${base}?b=${heading.attrs.id}` }
+        } else m.attrs = { ...m.attrs, href: base }
+      }
+      n.content?.forEach(walk)
+    }
+    if (pages[id].content) walk(pages[id].content!)
   }
 
   if (containerId) {
@@ -400,6 +517,7 @@ export async function applyPlan(
     ...snap,
     pages: { ...snap.pages, ...pages },
     databases: { ...snap.databases, ...databases },
+    people: [...snap.people, ...people.filter((p) => !snap.people.some((x) => x.id === p.id))],
   })
 
   let nPages = 0
@@ -412,7 +530,7 @@ export async function applyPlan(
   }
   const rootId = containerId ?? (plan.roots[0] ? ids.get(plan.roots[0])! : null)
   // the container page is not counted: the numbers match the note inside it
-  return { rootId, pages: nPages, databases: nDbs, rows: nRows, files: saved.size }
+  return { rootId, pages: nPages, databases: nDbs, rows: nRows, files: saved.size, report: [...(plan.report ?? []), ...warningsToReport(plan.warnings)] }
 }
 
 /** YAML front matter → a quiet properties callout ("tags: a, b" per line). */

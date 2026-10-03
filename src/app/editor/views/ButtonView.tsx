@@ -1,6 +1,6 @@
 /**
- * Button block — a keycap in the page. Click (or ↵ / Space when it is focused or selected) runs
- * its actions in order; "Edit" (or ⇧↵) opens the configuration. Read-only renders
+ * Button block — a keycap in the page. Click (↵ / Space when the key has focus, ⌘↵ / Ctrl+↵ when
+ * the block is selected) runs its actions in order; "Edit" (or ⇧↵) opens the configuration. Read-only renders
  * (share view, history, presentation) get StaticButtonView: a disabled key that never runs.
  */
 import { useEffect, useMemo, useRef, useState } from 'react'
@@ -10,6 +10,7 @@ import { useWorkspace } from '../../store/store'
 import { isEffectivelyTrashed } from '../../store/selectors'
 import { toast } from '../../store/ui'
 import { useT } from '../../i18n'
+import { isMac } from '../../ui/controls'
 import { asVariant, normalizeActions, type ButtonAction, type ButtonVariant } from '../schema/button'
 import { consumeFreshButton, runButton } from '../lib/buttonRun'
 import { ButtonConfig, type ButtonDraft } from './ButtonConfig'
@@ -88,7 +89,7 @@ export function ButtonView({ node, editor, getPos, selected, updateAttributes }:
           <span className={`ob__count label${count ? '' : ' is-empty'}`}>{count ? t(count === 1 ? 'editor.button.count.one' : 'editor.button.count', { count }) : t('editor.button.none')}</span>
           {selected && (
             <span className="ob__keys label" aria-hidden>
-              <kbd className="kbd">↵</kbd> {t('editor.button.hint.run')} <kbd className="kbd">⇧↵</kbd> {t('editor.button.hint.edit')}
+              <kbd className="kbd">{isMac ? '⌘↵' : 'Ctrl ↵'}</kbd> {t('editor.button.hint.run')} <kbd className="kbd">⇧↵</kbd> {t('editor.button.hint.edit')}
             </span>
           )}
         </span>

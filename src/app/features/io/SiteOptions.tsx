@@ -82,7 +82,8 @@ export function SiteOptions({ title, onTitle, baseUrlRaw, onBaseUrl, baseUrl, fe
         </label>
         <label className="io-field">
           <span className="io-field__label label">{t('features.site.feed')}</span>
-          <select className="input" value={feed} onChange={(e) => onFeed(e.target.value)} data-site-feed="">
+          {/* RSS needs absolute links: without a base URL the site has no feed */}
+          <select className="input" value={feed} onChange={(e) => onFeed(e.target.value)} disabled={!baseUrl} aria-describedby={`${id}-note`} data-site-feed="">
             <option value="recent">{t('features.site.feedRecent')}</option>
             {feedDbs.map((p) => (
               <option key={p.id} value={p.id}>

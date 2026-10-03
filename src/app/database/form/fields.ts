@@ -183,13 +183,32 @@ export function isValidHttpUrl(s: string): boolean {
   }
 }
 
+/** Hosts a shared form may post to over plain http (local testing only). */
+const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]'])
+
+/**
+ * Webhook of a shared form: https only — the answers travel from strangers' browsers, so they
+ * must not cross the network in clear text. http://localhost / 127.0.0.1 stay allowed for testing.
+ */
+export function isValidWebhookUrl(s: string): boolean {
+  if (!isValidHttpUrl(s)) return false
+  try {
+    const u = new URL(s)
+    return u.protocol === 'https:' || LOCAL_HOSTS.has(u.hostname)
+  } catch {
+    return false
+  }
+}
+
 const EMAIL = /^[^\s@]+@[^\s@.]+(\.[^\s@.]+)+$/
 const PHONE = /^\+?[\d\s()./-]+$/
 
 /** Per-file size limit of shared forms (files travel inside the webhook JSON). */
 export const SHARED_FILE_MAX = 1.5 * 1024 * 1024
+/** All files of one shared-form response together (base64 adds a third on top). */
+export const SHARED_FILES_TOTAL = 5 * 1024 * 1024
 
-export type FieldError = 'required' | 'url' | 'email' | 'phone' | 'number' | 'time' | 'fileSize'
+export type FieldError = 'required' | 'url' | 'email' | 'phone' | 'number' | 'time' | 'fileSize' | 'filesTotal'
 
 export function validate(f: Field, a: Answer | undefined, lang: string, opts: { shared?: boolean } = {}): FieldError | null {
   if (isEmptyAnswer(f, a)) return f.required ? 'required' : null
@@ -221,6 +240,12 @@ export function validateAll(fields: Field[], answers: Answers, lang: string, opt
   for (const f of fields) {
     const e = validate(f, answers[f.key], lang, opts)
     if (e) out[f.key] = e
+  }
+  // shared forms: every file travels inside one JSON request — cap them together, too
+  if (opts.shared) {
+    const withFiles = fields.filter((f) => f.kind === 'files' && Array.isArray(answers[f.key]) && (answers[f.key] as File[]).length > 0)
+    const total = withFiles.reduce((sum, f) => sum + (answers[f.key] as File[]).reduce((s, file) => s + file.size, 0), 0)
+    if (total > SHARED_FILES_TOTAL) for (const f of withFiles) out[f.key] ??= 'filesTotal'
   }
   return out
 }
@@ -327,43 +352,56 @@ function readDataUrl(file: File): Promise<string> {
 }
 
 /** Webhook answers keyed by question name. Selects send option NAMES, never ids. */
+/**
+ * A record keyed by question names, which come from the form's author (a shared link is
+ * untrusted): no prototype, and every key — "__proto__" included — is an own data property.
+ */
+function answerRecord(): Record<string, unknown> {
+  return Object.create(null) as Record<string, unknown>
+}
+
+function putAnswer(out: Record<string, unknown>, key: string, value: unknown): void {
+  Object.defineProperty(out, key, { value, enumerable: true, writable: true, configurable: true })
+}
+
 export async function answersToJson(fields: Field[], answers: Answers, lang: string): Promise<Record<string, unknown>> {
   const keys = answerKeys(fields)
-  const out: Record<string, unknown> = {}
+  const out = answerRecord()
   for (const f of fields) {
     const a = answers[f.key]
     const key = keys.get(f.key)!
     const empty = isEmptyAnswer(f, a)
     const optName = (id: string) => f.options?.find((o) => o.id === id)?.name ?? id
+    const set = (v: unknown) => putAnswer(out, key, v)
     switch (f.kind) {
       case 'select':
-        out[key] = empty ? null : optName(a as string)
+        set(empty ? null : optName(a as string))
         break
       case 'multi':
       case 'person':
       case 'relation':
-        out[key] = empty ? [] : (a as string[]).map(optName)
+        set(empty ? [] : (a as string[]).map(optName))
         break
       case 'checkbox':
-        out[key] = a === true
+        set(a === true)
         break
       case 'rating':
-        out[key] = empty ? null : (a as number)
+        set(empty ? null : (a as number))
         break
       case 'number':
-        out[key] = empty ? null : parseNumberText(String(a), !!f.percent, lang)
+        set(empty ? null : parseNumberText(String(a), !!f.percent, lang))
         break
       case 'date':
-        out[key] = empty ? null : dateString(a as DateAnswer, !!f.includeTime)
+        set(empty ? null : dateString(a as DateAnswer, !!f.includeTime))
         break
       case 'url':
-        out[key] = empty ? '' : normalizeUrl(String(a))
+        set(empty ? '' : normalizeUrl(String(a)))
         break
       case 'files':
-        out[key] = empty ? [] : await Promise.all((a as File[]).map(async (file): Promise<FileAnswer> => ({ name: file.name, type: file.type, size: file.size, data: await readDataUrl(file) })))
+        set(empty ? [] : await Promise.all((a as File[]).map(async (file): Promise<FileAnswer> => ({ name: file.name, type: file.type, size: file.size, data: await readDataUrl(file) }))))
         break
       default:
-        out[key] = empty ? '' : String(a).trim()
+        set(empty ? '' : String(a).trim())
     }
   }
   return out
@@ -372,7 +410,8 @@ export async function answersToJson(fields: Field[], answers: Answers, lang: str
 /** A plausible example answer per question, shaped like a shared-form response (webhook "Send test", payload preview). */
 export function sampleJson(fields: Field[]): Record<string, unknown> {
   const keys = answerKeys(fields)
-  const out: Record<string, unknown> = {}
+  // no prototype: assigning a "__proto__" question name creates an own key, like any other name
+  const out = answerRecord()
   for (const f of fields) {
     const key = keys.get(f.key)!
     switch (f.kind) {

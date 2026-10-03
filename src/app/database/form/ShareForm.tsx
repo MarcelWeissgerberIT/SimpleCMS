@@ -8,14 +8,15 @@ import { useUI } from '../../store/ui'
 import { useLang, useT } from '../../i18n'
 import type { Translate } from '@/shared/i18n'
 import type { DbModel } from '../hooks'
-import { fieldsOf, formConfig, isValidHttpUrl, sampleJson, type Field } from './fields'
-import { buildPayload, encodeForm, formUrl } from './codec'
+import { fieldsOf, formConfig, isValidHttpUrl, isValidWebhookUrl, sampleJson, type Field } from './fields'
+import { encodeShareForm, formUrl, type FormLimitIssue } from './codec'
 import { formBody, hostOf, postWebhook, type HookResult } from './webhook'
 import { patchForm, useDraft } from './config'
 
 /** Human text for a webhook result. */
 export function hookMessage(t: Translate, res: HookResult): string {
-  if (res.ok) return res.opaque ? t('database.form.hook.opaque') : t('database.form.hook.ok', { status: res.status, ms: res.ms })
+  if (res.outcome === 'unconfirmed') return t('database.form.hook.opaque')
+  if (res.ok) return t('database.form.hook.ok', { status: res.status, ms: res.ms })
   switch (res.error) {
     case 'url':
       return t('database.form.hook.err.url')
@@ -26,6 +27,14 @@ export function hookMessage(t: Translate, res: HookResult): string {
     default:
       return t('database.form.hook.err.network')
   }
+}
+
+/** Why a form cannot be shared as it is: names the question and the limit. */
+export function limitMessage(t: Translate, issue: FormLimitIssue, lang: string): string {
+  const n = (v: number) => new Intl.NumberFormat(lang === 'de' ? 'de-DE' : 'en-US').format(v)
+  const vars = { limit: n(issue.limit), count: n(issue.count), name: issue.question?.trim() || '—' }
+  if (issue.kind === 'encoded') return t('database.form.share.limit.encoded', { kb: n(Math.round(issue.limit / 1024)) })
+  return t(`database.form.share.limit.${issue.kind}`, vars)
 }
 
 export function formTitle(m: DbModel, untitled: string): string {
@@ -39,7 +48,9 @@ export function WebhookField({ m, fields, autoFocus }: { m: DbModel; fields: Fie
   const draft = useDraft(cfg.webhookUrl ?? '', (v) => patchForm(m.db.id, m.view.id, (c) => ({ ...c, webhookUrl: v.trim() })), 300)
   const [test, setTest] = useState<{ state: 'idle' | 'busy' | 'done'; res?: HookResult }>({ state: 'idle' })
   const url = draft.value.trim()
-  const valid = !url || isValidHttpUrl(url)
+  const valid = !url || isValidWebhookUrl(url)
+  // a plain-http address (not localhost): answers would cross the network unencrypted
+  const insecure = !!url && !valid && isValidHttpUrl(url)
   useEffect(() => setTest({ state: 'idle' }), [url])
 
   const sendTest = async () => {
@@ -53,10 +64,11 @@ export function WebhookField({ m, fields, autoFocus }: { m: DbModel; fields: Fie
   let status = url ? t('database.form.hook.ready') : t('database.form.hook.none')
   if (url && !valid) {
     led = 'led--on'
-    status = t('database.form.hook.err.url')
+    status = insecure ? t('database.form.hook.err.https') : t('database.form.hook.err.url')
   } else if (test.state === 'busy') status = t('database.form.hook.sending')
   else if (test.state === 'done' && test.res) {
-    led = test.res.ok ? 'led--ok' : 'led--on'
+    // unconfirmed (no-cors): sent, but neither success nor failure — the LED stays neutral
+    led = test.res.outcome === 'delivered' ? 'led--ok' : test.res.outcome === 'failed' ? 'led--on' : ''
     status = hookMessage(t, test.res)
   } else if (url) led = 'led--ok'
 
@@ -112,12 +124,16 @@ export function ShareFormModal({ m, onClose }: { m: DbModel; onClose: () => void
   const cfg = formConfig(m.view)
   const fields = useMemo(() => fieldsOf(m.db, m.view), [m.db, m.view])
   const hook = (cfg.webhookUrl ?? '').trim()
-  const ready = isValidHttpUrl(hook)
+  const hookOk = isValidWebhookUrl(hook)
   const title = formTitle(m, t('common.untitled'))
-  const url = useMemo(
-    () => (ready ? formUrl(encodeForm(buildPayload({ title, description: cfg.description ?? '', submitLabel: cfg.submitLabel ?? '', webhookUrl: hook, fields }))) : ''),
-    [ready, title, cfg.description, cfg.submitLabel, hook, fields],
+  // over a link limit: no link at all (the receiving side would cut questions or options)
+  const share = useMemo(
+    () => (hookOk ? encodeShareForm({ title, description: cfg.description ?? '', submitLabel: cfg.submitLabel ?? '', webhookUrl: hook, fields }) : null),
+    [hookOk, title, cfg.description, cfg.submitLabel, hook, fields],
   )
+  const issue = share?.issue ?? null
+  const ready = hookOk && !issue
+  const url = share?.encoded ? formUrl(share.encoded) : ''
   const [copied, setCopied] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
   useEffect(() => {
@@ -143,8 +159,8 @@ export function ShareFormModal({ m, onClose }: { m: DbModel; onClose: () => void
         <h3 className="label fshare__h" id={`${uid}-a`}>
           01 — {t('database.form.share.where')}
         </h3>
-        <WebhookField m={m} fields={fields} autoFocus={!ready} />
-        {!ready && (
+        <WebhookField m={m} fields={fields} autoFocus={!hookOk} />
+        {!hookOk && (
           <div className="fshare__need" role="note">
             <span className="led" aria-hidden />
             <p>{t('database.form.share.needHook')}</p>
@@ -161,7 +177,7 @@ export function ShareFormModal({ m, onClose }: { m: DbModel; onClose: () => void
             ref={inputRef}
             className="fshare__url mono"
             readOnly
-            value={url || t('database.form.share.linkLocked')}
+            value={url || (issue ? t('database.form.share.linkTooBig') : t('database.form.share.linkLocked'))}
             aria-label={t('database.form.share.link')}
             onFocus={(e) => e.currentTarget.select()}
             disabled={!ready}
@@ -171,6 +187,12 @@ export function ShareFormModal({ m, onClose }: { m: DbModel; onClose: () => void
             {copied ? t('database.form.share.copied') : t('common.copyLink')}
           </button>
         </div>
+        {issue && (
+          <div className="fshare__need" role="alert" data-form-limit={issue.kind}>
+            <span className="led led--on" aria-hidden />
+            <p>{limitMessage(t, issue, lang)}</p>
+          </div>
+        )}
         {ready && (
           <div className="fshare__meta label">
             <span>

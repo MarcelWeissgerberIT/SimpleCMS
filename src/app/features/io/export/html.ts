@@ -134,6 +134,22 @@ async function inlineFontCSS(): Promise<string> {
   return css.length < 600_000 ? css : ''
 }
 
+/** Tabs block (radio inputs + labels, see editor/schema/tabs.ts): panels switch with CSS, no script. */
+const tabsCss = (s: string) =>
+  `${s} .tabs{margin:.8em 0;border-bottom:1px solid var(--rule)}` +
+  `${s} .tabs__bar{display:flex;flex-wrap:wrap;gap:2px;border-bottom:1px solid var(--rule-strong)}` +
+  `${s} .tabs__tab{position:relative;display:inline-flex;align-items:center;gap:7px;padding:7px 12px 7px 9px;cursor:pointer;font-weight:600;font-size:.9em;color:var(--ink-2)}` +
+  `${s} .tabs__radio{position:absolute;opacity:0;width:1px;height:1px;margin:0}` +
+  `${s} .tabs__n{font:500 10.5px var(--font-mono);letter-spacing:.08em;color:var(--ink-3)}` +
+  `${s} .tabs__tab:has(:checked){color:var(--ink)}${s} .tabs__tab:has(:checked) .tabs__n{color:var(--signal-ink)}` +
+  `${s} .tabs__tab:has(:checked)::after{content:'';position:absolute;left:7px;right:7px;bottom:-1px;height:2px;background:var(--signal)}` +
+  `${s} .tabs__tab:has(:focus-visible){outline:2px solid var(--signal);outline-offset:-2px}` +
+  `${s} .tabs__panels{padding:.6em 0 .2em}` +
+  `${s} .tabs:has(>.tabs__bar :checked)>.tabs__panels>.tab-panel{display:none}` +
+  Array.from({ length: 24 }, (_, i) => `${s} .tabs:has(>.tabs__bar>.tabs__tab:nth-child(${i + 1}) :checked)>.tabs__panels>.tab-panel:nth-child(${i + 1})`).join(',') +
+  '{display:block}' +
+  `@media print{${s} .tabs__bar{display:none}${s} .tabs .tabs__panels>.tab-panel{display:block!important}${s} .tab-panel::before{content:attr(data-title);display:block;font-weight:700;margin:.8em 0 .3em}}`
+
 const DOC_CSS = `
 *,*::before,*::after{box-sizing:border-box}
 html{-webkit-text-size-adjust:100%}
@@ -197,6 +213,7 @@ summary{cursor:pointer;font-weight:600}
 .one-button--ink .one-button__key{background:var(--ink);border-color:var(--ink);color:var(--ink-inverse)}
 .one-button--ghost .one-button__key{background:var(--surface);border-color:var(--ink-faint);color:var(--ink)}
 .math-block{margin:.8em 0;text-align:center;overflow:auto}
+${tabsCss('.content')}
 .mermaid-svg{margin:1em 0;text-align:center}.mermaid-svg svg{max-width:100%;height:auto}
 nav.toc{margin:.6em 0;padding:10px 14px;border-left:2px solid var(--signal)}
 nav.toc a{display:block;padding:2px 0;font-size:14px;text-decoration:none}

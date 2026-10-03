@@ -4,17 +4,30 @@
  * are left out). All-day events use VALUE=DATE with an exclusive DTEND; timed events are
  * written in UTC. Content lines end in CRLF and are folded at 75 octets.
  */
-import type { Database, Page, PropertyDef, View } from '../../store/types'
-import type { Resolver } from './resolve'
+import type { Database, ID, Page, PropertyDef, View } from '../../store/types'
+import { useWorkspace } from '../../store/store'
+import { t } from '../../i18n'
+import { Resolver } from './resolve'
 import { isDateValue, parseLocal } from './format'
-import { isDate } from '../formula'
-import { testGroup } from './query'
+import { isDate, runFormula } from '../formula'
+import { sortRows, testGroup } from './query'
 
 const CRLF = '\r\n'
 
-/** TEXT value escaping: backslash, semicolon, comma, newlines. */
+/**
+ * TEXT value escaping: backslash, semicolon, comma, newlines. Other control characters
+ * (U+0000–U+001F except tab, and U+007F) are not allowed in a content line and are dropped.
+ */
 export function escapeText(s: string): string {
-  return s.replace(/\\/g, '\\\\').replace(/;/g, '\\;').replace(/,/g, '\\,').replace(/\r\n|\r|\n/g, '\\n')
+  return (
+    s
+      .replace(/\\/g, '\\\\')
+      .replace(/;/g, '\\;')
+      .replace(/,/g, '\\,')
+      .replace(/\r\n|\r|\n/g, '\\n')
+      // eslint-disable-next-line no-control-regex
+      .replace(/[\u0000-\u0008\u000a-\u001f\u007f]/g, '')
+  )
 }
 
 const utf8Len = (cp: number) => (cp < 0x80 ? 1 : cp < 0x800 ? 2 : cp < 0x10000 ? 3 : 4)
@@ -52,6 +65,14 @@ interface Span {
   allDay: boolean
 }
 
+const isMidnight = (d: Date) => d.getHours() === 0 && d.getMinutes() === 0 && d.getSeconds() === 0 && d.getMilliseconds() === 0
+
+/** End of a date range a formula passed through (prop("Timeline") → its start, dateEnd() → its end). */
+function rangeEndOf(d: Date): Date | null {
+  const end = runFormula('dateEnd(prop("d"))', { prop: () => d, now: Date.now(), lang: 'en' })
+  return isDate(end) && end !== d && end.getTime() !== d.getTime() ? end : null
+}
+
 function spanOf(r: Resolver, db: Database, prop: PropertyDef, row: Page): Span | null {
   const v = r.value(db, prop, row)
   if (isDateValue(v)) {
@@ -60,8 +81,51 @@ function spanOf(r: Resolver, db: Database, prop: PropertyDef, row: Page): Span |
     const end = parseLocal(v.end ?? null)
     return { start, end: end && end >= start ? end : null, allDay: !v.includeTime && !v.start.includes('T') }
   }
-  if (isDate(v)) return { start: v, end: null, allDay: false }
+  if (isDate(v)) {
+    if (Number.isNaN(v.getTime())) return null
+    const end = prop.type === 'formula' || prop.type === 'rollup' ? rangeEndOf(v) : null
+    // a computed date at local midnight (dateAdd(prop("Due"), 1, "days"), earliest_date …) is a day, not 00:00
+    const allDay = (prop.type === 'formula' || prop.type === 'rollup') && isMidnight(v) && (!end || isMidnight(end))
+    return { start: v, end: end && end >= v ? end : null, allDay }
+  }
   return null
+}
+
+/** Rows of a view as it shows them: its filters, then its sorts (search is a momentary lens and is ignored). */
+export function viewRows(r: Resolver, db: Database, view: View, rows: Page[]): Page[] {
+  const props = new Map(db.properties.map((p) => [p.id, p]))
+  return sortRows(r, db, filteredRows(r, db, view, rows, props), Array.isArray(view.sorts) ? view.sorts : [], props)
+}
+
+/**
+ * The same outside React (website export): resolves against the current workspace.
+ * `viewId` null / unknown → the database's first view.
+ */
+export function rowsOfView(dbId: ID, viewId: ID | null, rows: Page[]): { view: View | null; rows: Page[] } {
+  const s = useWorkspace.getState()
+  const db = s.databases[dbId]
+  const view = db ? (db.views.find((v) => v.id === viewId) ?? db.views[0] ?? null) : null
+  if (!db || !view) return { view, rows }
+  const r = new Resolver({
+    pages: s.pages,
+    databases: s.databases,
+    people: s.people,
+    lang: s.settings.language,
+    now: Date.now(),
+    labels: {
+      today: t('database.date.today'),
+      tomorrow: t('database.date.tomorrow'),
+      yesterday: t('database.date.yesterday'),
+      untitled: t('common.untitled'),
+      yes: t('database.yes'),
+      no: t('database.no'),
+    },
+  })
+  try {
+    return { view, rows: viewRows(r, db, view, rows) }
+  } catch {
+    return { view, rows }
+  }
 }
 
 export interface IcsOptions {

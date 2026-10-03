@@ -5,7 +5,7 @@
  *   <slug>/index.html     one page per page / database / row, + index.md (Markdown twin)
  *   assets/site.css       INSTRUMENT stylesheet (paper / carbon), assets/fonts/*.woff2, favicon
  *   media/                images and files from IndexedDB, covers and icons from the app
- *   sitemap.xml           (with a base URL) · robots.txt · rss.xml · llms.txt · llms-full.txt
+ *   sitemap.xml, rss.xml  (with a base URL) · robots.txt · llms.txt · llms-full.txt
  *   content.json · 404.html
  *
  * No scripts in the output; every page works from a web server and straight from the folder.
@@ -59,12 +59,31 @@ const EXT_BY_TYPE: Record<string, string> = {
   'text/csv': 'csv',
 }
 
-/** "Quarterly Report (final).PDF" → "quarterly-report-final.pdf" */
+/**
+ * Files a web server would run or render as a page of the site (HTML, scripts, XML with
+ * stylesheets, server scripts …). Attachments of these types are published as inert text files
+ * ("page.html" → "page-html.txt"), so an uploaded file can never act as part of the site.
+ * SVG is kept as an image, but only after DOMPurify removed scripts, handlers and foreign content.
+ */
+const ACTIVE_EXT = /^(html?|xhtml|xht|shtml|svgz|xml|xsl|xslt|js|mjs|cjs|jsx|php\d?|phtml|asp|aspx|jsp|cgi|pl|py|rb|sh|swf|wasm|htaccess|appcache|webmanifest)$/i
+const ACTIVE_TYPE = /^(text\/html|application\/xhtml\+xml|(text|application)\/(xml|javascript|ecmascript|x-javascript)|application\/wasm)\b/i
+const isSvg = (ext: string, type: string) => ext === 'svg' || /^image\/svg\+xml\b/i.test(type)
+
+/** "Quarterly Report (final).PDF" → "quarterly-report-final.pdf" · "report.html" → "report-html.txt" */
 function mediaName(name: string, type: string): string {
   const m = /\.([a-z0-9]{1,8})$/i.exec(name)
   const ext = (m?.[1] ?? EXT_BY_TYPE[type] ?? 'bin').toLowerCase()
   const base = asciiSlug(m ? name.slice(0, -m[0].length) : name, 48) || 'file'
+  if (isSvg(ext, type)) return `${base}.svg`
+  if (ACTIVE_EXT.test(ext) || ACTIVE_TYPE.test(type)) return `${base}-${ext}.txt`
   return `${base}.${ext}`
+}
+
+/** An SVG without scripts, event handlers or embedded HTML — or null when nothing safe is left. */
+function safeSvg(purify: typeof import('dompurify').default, text: string): string | null {
+  const clean = String(purify.sanitize(text, { USE_PROFILES: { svg: true, svgFilters: true }, FORBID_TAGS: ['foreignObject', 'script', 'iframe', 'embed', 'object'] })).trim()
+  if (!/^<svg[\s>]/i.test(clean)) return null
+  return /^<svg[^>]*\sxmlns=/i.test(clean) ? clean : clean.replace(/^<svg/i, '<svg xmlns="http://www.w3.org/2000/svg"')
 }
 
 async function fetchBytes(url: string): Promise<Uint8Array | null> {
@@ -94,7 +113,7 @@ export async function buildSite(tree: ExportTree, rootId: ID | null, opts: SiteO
   const usesMath = plan.order.some((n) => n.page.content && /"(block|inline)Math"/.test(JSON.stringify(n.page.content)))
   const usesMermaid = plan.order.some((n) => n.page.content && /"mermaid"/.test(JSON.stringify(n.page.content)))
   // renderers are loaded on demand
-  const [{ docToHTML, docToMarkdown, stripButtonActions }, { propertyValueToText }, purify, katex, share] = await Promise.all([
+  const [{ docToHTML, docToMarkdown, stripButtonActions }, { propertyValueToText, rowsOfView }, purify, katex, share] = await Promise.all([
     import('../../../../editor'),
     import('../../../../database'),
     import('dompurify').then((m) => m.default),
@@ -122,8 +141,16 @@ export async function buildSite(tree: ExportTree, rootId: ID | null, opts: SiteO
         for (let n = 2; usedNames.has(name); n++) name = name.replace(/(-\d+)?(\.[a-z0-9]+)$/, `-${n}$2`)
         usedNames.add(name)
         const path = `media/${name}`
-        put(path, new Uint8Array(await f.blob.arrayBuffer()))
-        media.set(src, path)
+        if (name.endsWith('.svg')) {
+          const svg = safeSvg(purify, await f.blob.text())
+          if (svg) {
+            put(path, svg)
+            media.set(src, path)
+          }
+        } else {
+          put(path, new Uint8Array(await f.blob.arrayBuffer()))
+          media.set(src, path)
+        }
       }
     } else if (isAssetPath(src)) {
       const bytes = await fetchBytes(resolveAssetUrl(src))
@@ -150,7 +177,8 @@ export async function buildSite(tree: ExportTree, rootId: ID | null, opts: SiteO
     purify,
     katex,
     mermaid: share ? (html, prefix) => share.renderMermaid(html, prefix) : null,
-    labels: { rows: (n) => countOf(t, 'row', n), yes: t('features.site.gen.yes'), no: t('features.site.gen.no') },
+    viewRows: rowsOfView,
+    labels: { rows: (n) => countOf(t, 'row', n), yes: t('features.site.gen.yes'), no: t('features.site.gen.no'), private: t('features.site.gen.private') },
   }
 
   /* ---------- pages ---------- */
@@ -189,8 +217,11 @@ export async function buildSite(tree: ExportTree, rootId: ID | null, opts: SiteO
   step()
   if (meta.baseUrl) put('sitemap.xml', sitemapXml(plan, meta))
   put('robots.txt', robotsTxt(meta))
-  const feed = opts.feed.kind === 'database' && plan.rows.has(opts.feed.databaseId) ? opts.feed : ({ kind: 'recent' } as const)
-  put('rss.xml', rssXml(plan, ctx, meta, feedItems(plan, ctx, feed), summary, feed))
+  // RSS needs absolute links: without a base URL there is no feed (and no link to one)
+  if (meta.baseUrl) {
+    const feed = opts.feed.kind === 'database' && plan.rows.has(opts.feed.databaseId) ? opts.feed : ({ kind: 'recent' } as const)
+    put('rss.xml', rssXml(plan, ctx, meta, feedItems(plan, ctx, feed), summary, feed))
+  }
   put('llms.txt', llmsTxt(plan, ctx, meta, summary))
   put('llms-full.txt', llmsFullTxt(meta, summary, mds))
   put('content.json', contentJson(plan, ctx, meta))

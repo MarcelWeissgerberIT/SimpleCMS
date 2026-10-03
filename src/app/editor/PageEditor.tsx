@@ -18,6 +18,7 @@ import { editorExtensions } from './extensions/kit'
 import { findBlockById, flashBlock } from './extensions/behaviors'
 import { sanitize, withBlockIds } from './convert'
 import { EditorOverlays } from './menus/EditorOverlays'
+import { Comments } from './comments/CommentsRail'
 import './editor.css'
 
 export interface PageEditorProps {
@@ -375,6 +376,7 @@ function EditorInstance({ pageId, readOnly, autoFocus, onReady, className }: Pag
   const classes = ['one-editor', `doc--font-${font}`, small ? 'doc--small' : '', editable ? 'is-editable' : 'is-readonly', className ?? '']
   return (
     <div className={classes.filter(Boolean).join(' ')} data-instance={instanceId}>
+      {editor && <Comments editor={editor} bridge={bridge} pageId={pageId} />}
       <EditorContent editor={editor} className="one-editor__content" />
       {editable && <div className="one-editor__tail" onMouseDown={onTailDown} aria-hidden />}
       {editor && editable && <EditorOverlays editor={editor} bridge={bridge} pageId={pageId} />}

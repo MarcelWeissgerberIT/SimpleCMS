@@ -1,9 +1,12 @@
 /**
- * Import: Notion export ZIP (Markdown & CSV, nested part zips), Markdown/text files, CSV, One JSON backup.
- * Drag & drop (files or folders) or file picker → staged progress meter → summary → opens the imported root.
+ * Import: Notion export ZIP (Markdown & CSV, nested part zips), Obsidian vaults, Evernote .enex,
+ * Trello board JSON, HTML pages, Markdown/text files, CSV, One JSON backup.
+ * Drag & drop (files or folders), the file pickers or a source tile → staged progress meter →
+ * summary + import report → opens the imported root. The source is detected (sources.ts); a tile
+ * only preselects it (e.g. the Obsidian tile forces vault handling and opens a folder picker).
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { AlertTriangle, FileUp, FolderUp, RotateCcw } from 'lucide-react'
+import { AlertTriangle, ChevronRight, FileUp, FolderUp, RotateCcw } from 'lucide-react'
 import { Modal } from '../../ui/Modal'
 import { Led } from '../../ui/controls'
 import { useLang, useT } from '../../i18n'
@@ -11,8 +14,12 @@ import { resolveAssetUrl } from '../../lib/files'
 import { openPage } from '../../lib/router'
 import { flushSave } from '../../store/persistence'
 import { pauseAutomations } from '../automations/engine'
-import { ArchiveTooLargeError, ZIP_MAX_BYTES, ZIP_MAX_ENTRIES, basename, buildPlan, expandZip, extname, isZip, planStats, zipBudget, type ImportEntry } from './import/plan'
+import { ArchiveTooLargeError, ZIP_MAX_BYTES, ZIP_MAX_ENTRIES, basename, expandZip, extname, isZip, planStats, zipBudget, type ImportEntry, type ImportPlan } from './import/plan'
 import { applyPlan, type ImportResult } from './import/apply'
+import { groupReport, type ReportItem } from './import/report'
+import type { SourceMode } from './import/sources'
+import type { TrelloBoard } from './import/trello'
+import type { ColorName } from '../../store/types'
 import { applyBackup, backupStats, parseBackup, type Backup, type RestoreResult } from './backup'
 import { Meter, Readout } from './parts'
 import { countList, unitOf } from './count'
@@ -29,12 +36,29 @@ type Phase =
   | { name: 'idle' }
   | { name: 'running'; stages: Record<StageId, { done: number; total: number }>; current: StageId; source: string }
   | { name: 'backup'; backup: Backup; fileName: string }
-  | { name: 'done'; result: ImportResult; ms: number; skipped: string[] }
+  | { name: 'done'; result: ImportResult; ms: number; skipped: string[]; source: string }
   | { name: 'restored'; result: RestoreResult; ms: number; fileName: string }
   | { name: 'error'; message: string }
 
 const STAGES: StageId[] = ['read', 'unpack', 'files', 'pages', 'commit']
-const ACCEPT = '.zip,.md,.markdown,.txt,.csv,.tsv,.json,image/*,.pdf'
+const ACCEPT = '.zip,.md,.markdown,.txt,.csv,.tsv,.json,.enex,.html,.htm,image/*,.pdf'
+
+type SourceId = Exclude<SourceMode, 'auto'>
+/** The source tiles: code plate, picker (accept / folder) — names and how-tos are in messages-import.ts */
+const SOURCES: Array<{ id: SourceId; code: string; accept: string; folder?: boolean }> = [
+  { id: 'notion', code: 'ZIP', accept: '.zip' },
+  { id: 'obsidian', code: 'VAULT', accept: '.zip,.md,.markdown', folder: true },
+  { id: 'evernote', code: 'ENEX', accept: '.enex' },
+  { id: 'trello', code: 'JSON', accept: '.json' },
+  { id: 'html', code: 'HTML', accept: '.html,.htm,.zip' },
+  { id: 'markdown', code: 'MD · TXT', accept: '.md,.markdown,.txt,.zip' },
+  { id: 'csv', code: 'CSV · TSV', accept: '.csv,.tsv' },
+  { id: 'backup', code: 'JSON', accept: '.json' },
+]
+/** Folder pickers exist on desktop browsers; touch devices get the ZIP picker instead. */
+const canPickFolder = () =>
+  typeof document !== 'undefined' && 'webkitdirectory' in document.createElement('input') && !(typeof matchMedia !== 'undefined' && matchMedia('(pointer: coarse)').matches)
+const plural = (n: number) => (n === 1 ? 'one' : 'other')
 /** Notion splits big exports into "…-Part-1.zip", "…-Part-2.zip" — they share one root */
 const PART_ZIP = /Part-\d+\.zip$/i
 
@@ -70,23 +94,39 @@ export function ImportModal({ onClose }: { onClose: () => void }) {
   const [over, setOver] = useState(false)
   const filesRef = useRef<HTMLInputElement>(null)
   const folderRef = useRef<HTMLInputElement>(null)
+  const sourceRef = useRef<HTMLInputElement>(null)
+  const sourceMode = useRef<{ mode: SourceMode; folder: boolean }>({ mode: 'auto', folder: false })
   const busy = phase.name === 'running'
 
   const dateLabel = new Intl.DateTimeFormat(lang === 'de' ? 'de-DE' : 'en-GB', { day: 'numeric', month: 'short', year: 'numeric' }).format(new Date())
 
   const run = useCallback(
-    async (picked: Picked[]) => {
+    async (picked: Picked[], mode: SourceMode = 'auto') => {
       if (!picked.length) return
-      // 1) a single JSON → backup flow; backups mixed with other files are skipped (and reported)
+      const sources = await import('./import/sources')
+      // 1) JSON: a One backup (merge / replace flow) or a Trello board export; backups mixed with
+      //    other files are skipped (and reported)
       const jsons = picked.filter((p) => extname(p.path) === 'json')
-      if (jsons.length && jsons.length === picked.length) {
-        if (jsons.length > 1) return setPhase({ name: 'error', message: t('features.io.err.backupOne') })
-        const text = await jsons[0].file.text()
+      const boards: TrelloBoard[] = []
+      const backups: Array<{ p: Picked; backup: Backup }> = []
+      const strays: ReportItem[] = []
+      for (const p of jsons) {
+        const text = await p.file.text()
+        const board = sources.parseTrello(text)
+        if (board) {
+          boards.push(board)
+          continue
+        }
         const backup = parseBackup(text)
-        if (!backup) return setPhase({ name: 'error', message: t('features.io.err.backup') })
-        return setPhase({ name: 'backup', backup, fileName: jsons[0].file.name })
+        if (backup) backups.push({ p, backup })
+        else strays.push({ code: 'skipped', detail: basename(p.path) })
       }
-      const skipped = jsons.map((p) => basename(p.path))
+      if (jsons.length && jsons.length === picked.length && !boards.length) {
+        if (!backups.length) return setPhase({ name: 'error', message: t(mode === 'backup' ? 'features.io.err.backup' : 'features.imp.err.json') })
+        if (backups.length > 1 || strays.length) return setPhase({ name: 'error', message: t('features.io.err.backupOne') })
+        return setPhase({ name: 'backup', backup: backups[0].backup, fileName: backups[0].p.file.name })
+      }
+      const skipped = backups.map(({ p }) => basename(p.path))
       const started = performance.now()
       const stages = freshStages()
       let current: StageId = 'read'
@@ -125,17 +165,51 @@ export function ImportModal({ onClose }: { onClose: () => void }) {
           update('unpack', ++z, zips.length)
         }
         if (!zips.length) update('unpack', 1, 1)
-        const plan = buildPlan(entries, { looseTitle: t('features.io.looseTitle', { date: dateLabel }) })
+        // 4) plan: detect the source (Evernote, Trello, Obsidian, Notion / Markdown / CSV / HTML)
+        const first = picked[0].path
+        const name = first.includes('/') ? first.split('/')[0] : picked.length === 1 ? first.replace(/\.[^.]+$/, '') : undefined
+        const plan: ImportPlan = await sources.planImport(entries, {
+          mode,
+          name,
+          boards,
+          looseTitle: t('features.io.looseTitle', { date: dateLabel }),
+          enex: { tags: t('features.imp.enex.tags'), source: t('features.imp.enex.source'), author: t('features.imp.enex.author'), encrypted: t('features.imp.enex.encrypted') },
+          trello: {
+            name: t('features.imp.trello.name'),
+            status: t('features.imp.trello.status'),
+            labels: t('features.imp.trello.labels'),
+            members: t('features.imp.trello.members'),
+            due: t('features.imp.trello.due'),
+            done: t('features.imp.trello.done'),
+            start: t('features.imp.trello.start'),
+            link: t('features.imp.trello.link'),
+            attachments: t('features.imp.trello.attachments'),
+            comments: t('features.imp.trello.comments'),
+            colorName: (c: ColorName) => t(`color.${c}`),
+            archived: (cards, lists) =>
+              [cards ? t(`features.imp.trello.cards.${plural(cards)}`, { n: cards }) : '', lists ? t(`features.imp.trello.lists.${plural(lists)}`, { n: lists }) : ''].filter(Boolean).join(', '),
+          },
+          onProgress: (done, total) => update('unpack', done, total),
+        })
+        plan.report = [...(plan.report ?? []), ...strays]
         if (!plan.nodes.length) {
-          setPhase({ name: 'error', message: plan.warnings.includes('html-export') ? t('features.io.err.html') : t('features.io.err.nothing') })
+          setPhase({ name: 'error', message: t('features.imp.err.nothing') })
           return
         }
         const stats = planStats(plan)
+        const containerTitle =
+          plan.source === 'obsidian'
+            ? t('features.imp.container.obsidian', { name: plan.name || dateLabel })
+            : plan.source === 'evernote' || plan.source === 'trello' || plan.source === 'html'
+              ? t(`features.imp.container.${plan.source}`, { date: dateLabel })
+              : plan.isNotion
+                ? t('features.io.containerNotion', { date: dateLabel })
+                : t('features.io.container', { date: dateLabel })
         update('files', 0, stats.files)
         update('pages', 0, plan.nodes.length)
         if (!stats.files) update('files', 1, 1)
         const result = await applyPlan(plan, {
-          containerTitle: plan.isNotion ? t('features.io.containerNotion', { date: dateLabel }) : t('features.io.container', { date: dateLabel }),
+          containerTitle,
           containerNote: t('features.io.containerNote', {
             list: countList(t, [
               ['page', stats.pages],
@@ -152,7 +226,7 @@ export function ImportModal({ onClose }: { onClose: () => void }) {
         update('commit', 1, 1)
         await flushSave()
         if (result.rootId) openPage(result.rootId)
-        setPhase({ name: 'done', result, ms: performance.now() - started, skipped })
+        setPhase({ name: 'done', result, ms: performance.now() - started, skipped, source: plan.source ?? (plan.isNotion ? 'notion' : 'markdown') })
       } catch (err) {
         if (err instanceof ArchiveTooLargeError) {
           const nf = new Intl.NumberFormat(lang === 'de' ? 'de-DE' : 'en-GB')
@@ -168,10 +242,22 @@ export function ImportModal({ onClose }: { onClose: () => void }) {
     [t, dateLabel, lang],
   )
 
-  const onPick = (list: FileList | null, folder = false) => {
+  const onPick = (list: FileList | null, folder = false, mode: SourceMode = 'auto') => {
     if (!list?.length) return
     const picked = [...list].map((file) => ({ path: (folder && (file as File & { webkitRelativePath?: string }).webkitRelativePath) || file.name, file }))
-    void run(picked)
+    void run(picked, mode)
+  }
+
+  // a source tile: the matching picker (a folder picker for a vault), and the source preselected
+  const pickSource = (id: SourceId) => {
+    const input = sourceRef.current
+    const src = SOURCES.find((x) => x.id === id)
+    if (!input || !src) return
+    const folder = !!src.folder && canPickFolder()
+    sourceMode.current = { mode: id, folder }
+    input.accept = folder ? '' : src.accept
+    input.toggleAttribute('webkitdirectory', folder)
+    input.click()
   }
 
   // drag & drop anywhere on the dialog
@@ -214,9 +300,9 @@ export function ImportModal({ onClose }: { onClose: () => void }) {
               <span className="io-crop io-crop--tr" />
               <span className="io-crop io-crop--bl" />
               <span className="io-crop io-crop--br" />
-              <img className="io-drop__art" src={resolveAssetUrl('assets/icons/import.webp')} alt="" width={84} height={84} draggable={false} />
+              <img className="io-drop__art" src={resolveAssetUrl('assets/icons/import.webp')} alt="" width={72} height={72} draggable={false} />
               <div className="io-drop__title display">{over ? t('features.io.drop.release') : t('features.io.drop.title')}</div>
-              <div className="io-drop__sub muted">{t('features.io.drop.sub')}</div>
+              <div className="io-drop__sub muted">{t('features.imp.drop.sub')}</div>
               <div className="io-drop__actions">
                 <button type="button" className="btn btn--ink" onClick={() => filesRef.current?.click()} data-autofocus="">
                   <FileUp size={15} /> {t('features.io.pickFiles')}
@@ -225,7 +311,7 @@ export function ImportModal({ onClose }: { onClose: () => void }) {
                   <FolderUp size={15} /> {t('features.io.pickFolder')}
                 </button>
               </div>
-              <div className="io-drop__formats label">ZIP · MD · TXT · CSV · TSV · JSON</div>
+              <div className="io-drop__formats label">ZIP · VAULT · ENEX · JSON · HTML · MD · CSV</div>
               <input ref={filesRef} type="file" multiple accept={ACCEPT} hidden onChange={(e) => (onPick(e.target.files), (e.target.value = ''))} />
               <input
                 ref={folderRef}
@@ -234,29 +320,35 @@ export function ImportModal({ onClose }: { onClose: () => void }) {
                 {...({ webkitdirectory: '', directory: '' } as Record<string, string>)}
                 onChange={(e) => (onPick(e.target.files, true), (e.target.value = ''))}
               />
+              <input
+                ref={sourceRef}
+                type="file"
+                multiple
+                hidden
+                data-source-input=""
+                onChange={(e) => (onPick(e.target.files, sourceMode.current.folder, sourceMode.current.mode), (e.target.value = ''))}
+              />
             </div>
-            <div className="io-spec">
-              <div className="io-spec__head label">
-                <span>{t('features.io.spec.input')}</span>
-                <span>{t('features.io.spec.result')}</span>
+            <div className="io-sources">
+              <div className="io-sources__head label">
+                <span>{t('features.imp.sources')}</span>
+                <span>{t('features.imp.sources.pick')}</span>
               </div>
-              {(
-                [
-                  ['01', 'ZIP', t('features.io.spec.notion'), t('features.io.spec.notionOut')],
-                  ['02', 'MD · TXT', t('features.io.spec.md'), t('features.io.spec.mdOut')],
-                  ['03', 'CSV · TSV', t('features.io.spec.csv'), t('features.io.spec.csvOut')],
-                  ['04', 'JSON', t('features.io.spec.json'), t('features.io.spec.jsonOut')],
-                ] as const
-              ).map(([n, code, what, out]) => (
-                <div key={n} className="io-spec__row">
-                  <span className="io-spec__n mono">{n}</span>
-                  <span className="io-spec__code mono">{code}</span>
-                  <span className="io-spec__what">{what}</span>
-                  <span className="io-spec__out muted">→ {out}</span>
-                </div>
-              ))}
+              <div className="io-sources__grid" role="group" aria-label={t('features.imp.sources')}>
+                {SOURCES.map((s, i) => (
+                  <button key={s.id} type="button" className="io-src" data-source={s.id} aria-label={t(`features.imp.src.${s.id}`)} aria-describedby={`io-src-${s.id}`} onClick={() => pickSource(s.id)}>
+                    <span className="io-src__n mono">{String(i + 1).padStart(2, '0')}</span>
+                    <span className="io-src__name">{t(`features.imp.src.${s.id}`)}</span>
+                    <span className="io-src__code mono">{s.code}</span>
+                    <span className="io-src__how" id={`io-src-${s.id}`}>
+                      {t(`features.imp.src.${s.id}.how`)}
+                    </span>
+                    <ChevronRight className="io-src__go" size={14} aria-hidden />
+                  </button>
+                ))}
+              </div>
             </div>
-            <p className="io-hint faint">{t('features.io.hint')}</p>
+            <p className="io-hint faint">{t('features.imp.hint')}</p>
           </>
         )}
 
@@ -289,6 +381,7 @@ export function ImportModal({ onClose }: { onClose: () => void }) {
             <div className="io-done__head">
               <Led state="ok" />
               <span className="label">{t('features.io.done.label', { s: new Intl.NumberFormat(lang === 'de' ? 'de-DE' : 'en-US', { minimumFractionDigits: 1, maximumFractionDigits: 1 }).format(phase.ms / 1000) })}</span>
+              <span className="io-done__src mono">{t(`features.imp.src.${phase.source}`)}</span>
             </div>
             <p className="io-done__summary">
               {t('features.io.done.summary', {
@@ -312,6 +405,7 @@ export function ImportModal({ onClose }: { onClose: () => void }) {
                 <p>{t('features.io.skippedBackup', { names: phase.skipped.join(', ') })}</p>
               </div>
             )}
+            {phase.result.report.length > 0 && <ImportReport items={phase.result.report} />}
             <div className="io-actions">
               <button type="button" className="btn" onClick={() => setPhase({ name: 'idle' })}>
                 <RotateCcw size={14} /> {t('features.io.again')}
@@ -384,6 +478,37 @@ export function ImportModal({ onClose }: { onClose: () => void }) {
         )}
       </div>
     </Modal>
+  )
+}
+
+/** What could not be carried over 1:1 — grouped, the first few items listed. */
+function ImportReport({ items }: { items: ReportItem[] }) {
+  const t = useT()
+  const SHOW = 6
+  return (
+    <details className="io-report" open data-report="">
+      <summary className="io-report__head">
+        <ChevronRight className="io-report__caret" size={14} aria-hidden />
+        <span className="label">{t('features.imp.report.title')}</span>
+        <span className="io-report__count mono">{String(items.length).padStart(2, '0')}</span>
+      </summary>
+      <div className="io-report__body">
+        {groupReport(items).map((g) => (
+          <div key={g.code} className="io-report__group" data-code={g.code}>
+            <p className="io-report__msg">{t(`features.imp.report.${g.code}.${plural(g.items.length)}`, { n: g.items.length })}</p>
+            <ul className="io-report__list">
+              {g.items.filter((it) => it.detail).slice(0, SHOW).map((it, i) => (
+                <li key={i}>
+                  <span className="mono">{it.detail}</span>
+                  {it.where && it.where !== it.detail && <span className="faint"> · {it.where}</span>}
+                </li>
+              ))}
+              {g.items.length > SHOW && <li className="faint">{t('features.imp.report.more', { n: g.items.length - SHOW })}</li>}
+            </ul>
+          </div>
+        ))}
+      </div>
+    </details>
   )
 }
 

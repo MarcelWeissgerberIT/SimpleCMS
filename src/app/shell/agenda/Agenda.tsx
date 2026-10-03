@@ -150,7 +150,7 @@ export function Agenda() {
             <span className="ag-head__sec">§ — {t('shell.nav.agenda')}</span>
             <span className="ag-head__rule" />
             <span>
-              {t('shell.agenda.week', { n: isoWeekOf(view === 'list' ? cursor : range.from + (view === 'month' ? 7 : 0)) })} · {t(plural('shell.agenda.items', count), { n: count })}
+              {t('shell.agenda.week', { n: isoWeekOf(view === 'week' ? range.from + 1 : cursor) })} · {t(plural('shell.agenda.items', count), { n: count })}
             </span>
           </div>
           <div className="ag-head__row">

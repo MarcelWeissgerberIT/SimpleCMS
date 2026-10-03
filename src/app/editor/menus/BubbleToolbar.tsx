@@ -7,7 +7,7 @@ import { useEditorState } from '@tiptap/react'
 import { TextSelection } from '@tiptap/pm/state'
 import { useStore } from 'zustand'
 import Fuse from 'fuse.js'
-import { Bold, ChevronDown, Code, CornerDownLeft, Italic, Link2, Pi, Strikethrough, Underline, Unlink } from 'lucide-react'
+import { Bold, ChevronDown, Code, CornerDownLeft, Italic, Link2, MessageSquarePlus, Pi, Strikethrough, Underline, Unlink } from 'lucide-react'
 import { Popover } from '../../ui/Popover'
 import { Menu, useMenu } from '../../ui/Menu'
 import { PageIcon } from '../../ui/PageIcon'
@@ -24,6 +24,7 @@ import { livePages } from '../lib/livePages'
 import { useEscapeFirst } from '../lib/escape'
 import { BlockGlyph } from './SlashMenu'
 import { posAnchor } from './common'
+import { startComment } from '../comments/plugin'
 
 const isTouch = typeof window !== 'undefined' && window.matchMedia?.('(hover: none)').matches
 
@@ -278,6 +279,11 @@ export function BubbleToolbar({ editor, bridge }: { editor: Editor; bridge: Brid
             <span className="led led--on" />
             <span className="bubble__long">{t('editor.bubble.askAI')}</span>
             <span className="bubble__short">{t('editor.bubble.ai')}</span>
+          </Btn>
+          <span className="bubble__sep" />
+          <Btn label={t('editor.comments.comment')} keys="Mod+Alt+M" onClick={() => startComment(editor, bridge)} wide>
+            <MessageSquarePlus size={15} strokeWidth={1.75} />
+            <span className="bubble__long">{t('editor.comments.comment')}</span>
           </Btn>
           <span className="bubble__sep" />
           <Btn

@@ -114,6 +114,8 @@ export const autofillMessages: Messages = {
     'database.autofill.done.cancelled': 'Cancelled — {done} of {total} rows were processed.',
     'database.autofill.done.applied': 'Written',
     'database.autofill.done.rejected': 'Rejected',
+    'database.autofill.done.undo': 'Undo',
+    'database.autofill.done.undone': 'The written values were put back.',
 
     'database.autofill.toast.noKey': 'Add your Anthropic API key to use AI autofill',
     'database.autofill.toast.settings': 'Settings',
@@ -254,6 +256,8 @@ export const autofillMessages: Messages = {
     'database.autofill.done.cancelled': 'Abgebrochen — {done} von {total} Zeilen wurden bearbeitet.',
     'database.autofill.done.applied': 'Geschrieben',
     'database.autofill.done.rejected': 'Verworfen',
+    'database.autofill.done.undo': 'Rückgängig',
+    'database.autofill.done.undone': 'Die geschriebenen Werte wurden zurückgesetzt.',
 
     'database.autofill.toast.noKey': 'Hinterlege deinen Anthropic-API-Schlüssel, um KI-Autofill zu nutzen',
     'database.autofill.toast.settings': 'Einstellungen',

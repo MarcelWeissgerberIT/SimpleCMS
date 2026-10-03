@@ -233,7 +233,7 @@ function TimeColumn({ day, items, nowMin, setGrab }: { day: number; items: Agend
   }
   const stamp = fmtDayStamp(day, lang)
   return (
-    <div ref={setNodeRef} className="ag-wk__col" data-day={day} data-today={day === ctx.today || undefined} data-weekend={isWeekend(day) || undefined} data-over={isOver || undefined} onClick={onClick} aria-label={stamp}>
+    <div ref={setNodeRef} className="ag-wk__col" data-day={day} data-today={day === ctx.today || undefined} data-weekend={isWeekend(day) || undefined} data-over={isOver || undefined} onClick={onClick} role="group" aria-label={stamp}>
       {placed.map((p) => {
         const src = ctx.sources.get(p.it.source)
         const height = Math.max(22, ((p.e - p.s) / 60) * HOUR - 2)

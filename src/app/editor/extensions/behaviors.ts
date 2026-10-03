@@ -446,16 +446,12 @@ export function quietSelection(view: EditorView): void {
 
 export const QuietStart = Extension.create({
   name: 'quietStart',
-  addProseMirrorPlugins() {
-    return [
-      new Plugin({
-        key: new PluginKey('quietStart'),
-        // runs while the view is being constructed: dispatch once it exists (still before paint)
-        view: (view) => {
-          queueMicrotask(() => quietSelection(view))
-          return {}
-        },
-      }),
-    ]
+  onBeforeCreate() {
+    const editor = this.editor
+    // 'mount' fires right after the view exists — before any React node view has rendered
+    // (an empty bookmark would otherwise autofocus its URL field on a node selection)
+    editor.on('mount', () => {
+      if (!editor.isDestroyed) quietSelection(editor.view)
+    })
   },
 })

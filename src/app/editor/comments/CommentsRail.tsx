@@ -68,7 +68,8 @@ function setUI(bridge: Bridge, patch: Partial<CommentsUI>) {
 /** Layout mode from the width of the page column. */
 function useMode(host: HTMLElement | null): 'margin' | 'sheet' {
   const [mode, setMode] = useState<'margin' | 'sheet'>('sheet')
-  useEffect(() => {
+  // before paint: no flash of the narrow layout when a wide page opens
+  useLayoutEffect(() => {
     const el = scrollHost(host)
     if (!el) return
     const measure = () => setMode(el.clientWidth >= MARGIN_MIN ? 'margin' : 'sheet')
@@ -87,7 +88,10 @@ export function Comments({ editor, bridge, pageId }: { editor: Editor; bridge: B
   const threads = useMemo(() => validThreads(raw), [raw])
   const locked = useWorkspace((s) => !!s.pages[pageId]?.settings.locked)
   const canEdit = !locked && editor.isEditable
-  const host = editor.view.dom.closest('.one-editor') as HTMLElement | null
+  // the editor root (.one-editor): parent of this component's display:contents wrapper
+  const rootRef = useRef<HTMLDivElement>(null)
+  const [host, setHost] = useState<HTMLElement | null>(null)
+  useLayoutEffect(() => setHost(rootRef.current?.parentElement ?? null), [])
   const mode = useMode(host)
 
   // anchors follow the document
@@ -118,7 +122,7 @@ export function Comments({ editor, bridge, pageId }: { editor: Editor; bridge: B
 
   // thread states → highlight decorations
   const resolvedMap = useMemo(() => Object.fromEntries(threads.map((c) => [c.id, !!c.resolved])), [threads])
-  useEffect(() => {
+  useLayoutEffect(() => {
     syncComments(editor.view, { threads: resolvedMap, active: ui.active, showResolved: ui.showResolved })
   }, [editor, resolvedMap, ui.active, ui.showResolved])
 
@@ -221,7 +225,7 @@ export function Comments({ editor, bridge, pageId }: { editor: Editor; bridge: B
   const [hiddenAnchors, setHiddenAnchors] = useState<Record<string, boolean>>({})
   const railOn = mode === 'margin' && (visible.length > 0 || !!draftState)
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!host) return
     if (railOn) host.dataset.rail = 'margin'
     else delete host.dataset.rail
@@ -372,7 +376,7 @@ export function Comments({ editor, bridge, pageId }: { editor: Editor; bridge: B
   const sheetOn = mode === 'sheet' && ui.panel && (threads.length > 0 || !!draftState)
 
   return (
-    <>
+    <div ref={rootRef} className="ccomments">
       {summary}
       {railOn && (
         <div ref={railRef} className="crail" role="complementary" aria-label={t('editor.comments.title')} onKeyDown={onKeyDown}>
@@ -393,6 +397,6 @@ export function Comments({ editor, bridge, pageId }: { editor: Editor; bridge: B
           </div>,
           document.body,
         )}
-    </>
+    </div>
   )
 }

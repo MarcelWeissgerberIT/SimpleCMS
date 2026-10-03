@@ -41,7 +41,8 @@ export default function SharedFormView({ payload }: { payload: string }) {
   const onSubmit = async (answers: Answers): Promise<SubmitOutcome> => {
     if (!form?.hook) return { ok: false, message: t('database.form.public.noHook') }
     const res = await postWebhook(form.hook, formBody(title, await answersToJson(fields, answers, lang)))
-    return res.ok ? { ok: true } : { ok: false, message: hookMessage(t, res) }
+    // no-cors fallback: the answers left the browser, but delivery can't be confirmed — say "Sent", not "recorded"
+    return res.ok ? { ok: true, unconfirmed: res.outcome === 'unconfirmed' } : { ok: false, message: hookMessage(t, res) }
   }
 
   return (

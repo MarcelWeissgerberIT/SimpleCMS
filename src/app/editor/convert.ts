@@ -7,6 +7,7 @@ import type { Schema } from '@tiptap/pm/model'
 import { MarkdownManager } from '@tiptap/markdown'
 import { BLOCK_ID_TYPES, baseExtensions } from './schema/base'
 import { stripButtonActions } from './schema/button'
+import { stripComments } from './schema/comment'
 import { safeHref } from './lib/embeds'
 import { escapeMarkdownText } from './lib/mdText'
 
@@ -255,10 +256,19 @@ function withoutUnsafeLinks(doc: JSONContent): JSONContent {
   return walk(doc)
 }
 
+/**
+ * The doc without anything that must stay in this workspace / on this device: button actions
+ * (webhook URLs, database ids) and comment anchors. For share links, exports, AI input.
+ */
+export function stripPrivate(doc: JSONContent): JSONContent {
+  return stripComments(stripButtonActions(doc))
+}
+
 export function docToMarkdown(doc: JSONContent | null): string {
   if (!doc) return ''
   try {
-    const out = md().serialize(withoutUnsafeLinks(doc))
+    // comments never leave the device (Markdown goes to the clipboard, files and Claude)
+    const out = md().serialize(stripComments(withoutUnsafeLinks(doc)))
     return out.replace(/\n{3,}/g, '\n\n').trim() + '\n'
   } catch (err) {
     console.warn('[editor] markdown serialize failed', err)
@@ -269,8 +279,8 @@ export function docToMarkdown(doc: JSONContent | null): string {
 export function docToHTML(doc: JSONContent | null): string {
   if (!doc) return ''
   try {
-    // button actions (webhook URLs, database ids) never leave the workspace in exported HTML
-    return generateHTML(stripButtonActions(withoutUnsafeLinks(sanitize(doc.type === 'doc' ? doc : { type: 'doc', content: [doc] }))), getExtensions({ readOnly: true }))
+    // button actions (webhook URLs, database ids) and comments never leave the workspace in exported HTML
+    return generateHTML(stripPrivate(withoutUnsafeLinks(sanitize(doc.type === 'doc' ? doc : { type: 'doc', content: [doc] }))), getExtensions({ readOnly: true }))
   } catch (err) {
     console.warn('[editor] html render failed', err)
     return ''
@@ -292,6 +302,7 @@ export function looksLikeMarkdown(text: string): boolean {
     else if (/^\|.*\|\s*$/.test(l)) score += 1
     else if (/^(-{3,}|\*{3,}|_{3,})\s*$/.test(l)) score += 1
     else if (/^\$\$/.test(l)) score += 2
+    else if (/^<!--\s*\/?tabs?\s*-->\s*$/i.test(l)) score += 3
   }
   if (/\*\*[^*\n]+\*\*|__[^_\n]+__|`[^`\n]+`|\[[^\]\n]+\]\([^)\s]+\)|~~[^~\n]+~~/.test(s)) score += 2
   return score >= 3 || (lines.length === 1 && score >= 2)

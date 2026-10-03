@@ -2,6 +2,7 @@
  * Website export — the HTML documents: page shell (head, top bar, navigation tree,
  * breadcrumbs, footer), the generated index page and 404.html. No scripts anywhere.
  */
+import type { JSONContent } from '@tiptap/core'
 import type { ID, Page, PropertyDef } from '../../../../store/types'
 import { COLOR_NAMES } from '../../../../store/types'
 import { t } from '../../../../i18n'
@@ -50,8 +51,7 @@ ${url ? `<link rel="canonical" href="${esc(url)}">\n` : ''}<meta property="og:ty
 <meta property="og:description" content="${esc(o.description)}">
 ${url ? `<meta property="og:url" content="${esc(url)}">\n` : ''}${image ? `<meta property="og:image" content="${esc(image)}">\n` : ''}<link rel="icon" href="${up('assets/favicon.svg')}" type="image/svg+xml">
 <link rel="stylesheet" href="${up('assets/site.css')}">
-<link rel="alternate" type="application/rss+xml" title="${esc(meta.title)}" href="${up('rss.xml')}">
-${o.md ? `<link rel="alternate" type="text/markdown" href="${up(o.md)}">\n` : ''}</head>`
+${meta.baseUrl ? `<link rel="alternate" type="application/rss+xml" title="${esc(meta.title)}" href="${up('rss.xml')}">\n` : ''}${o.md ?`<link rel="alternate" type="text/markdown" href="${up(o.md)}">\n` : ''}</head>`
 }
 
 function bar(ctx: RenderCtx, meta: SiteMeta, from: string, spec: string, md: string | null, menu = true): string {
@@ -61,7 +61,7 @@ function bar(ctx: RenderCtx, meta: SiteMeta, from: string, spec: string, md: str
 <a class="bar__brand" href="${up('index.html')}"><span class="bar__mark" aria-hidden="true"></span><span class="bar__title">${esc(meta.title)}</span></a>
 ${spec ? `<span class="bar__spec label">${esc(spec)}</span>` : ''}
 <span class="bar__sp"></span>
-<nav class="bar__links" aria-label="${esc(t('features.site.gen.formats'))}">${md ? `<a href="${up(md)}">${esc(t('features.site.gen.markdown'))}</a>` : ''}<a href="${up('rss.xml')}">RSS</a><a href="${up('llms.txt')}">llms.txt</a></nav>
+<nav class="bar__links" aria-label="${esc(t('features.site.gen.formats'))}">${md ? `<a href="${up(md)}">${esc(t('features.site.gen.markdown'))}</a>` : ''}${meta.baseUrl ? `<a href="${up('rss.xml')}">RSS</a>` : ''}<a href="${up('llms.txt')}">llms.txt</a></nav>
 ${menu ? `<a class="bar__menu" href="#nav">${esc(t('features.site.gen.contents'))} ↓</a>` : ''}
 </header>`
 }
@@ -126,7 +126,7 @@ function footer(ctx: RenderCtx, meta: SiteMeta, from: string, updatedAt: number,
   const up = (to: string) => rel(from, to)
   return `<footer class="foot label">
 <span>${esc(meta.title)} · ${esc(t('features.site.gen.updated', { date: fmtDate(updatedAt, meta.lang) }))}</span>
-<nav aria-label="${esc(t('features.site.gen.formats'))}">${md ? `<a href="${up(md)}">${esc(t('features.site.gen.markdown'))}</a>` : ''}<a href="${up('rss.xml')}">RSS</a><a href="${up('llms.txt')}">llms.txt</a></nav>
+<nav aria-label="${esc(t('features.site.gen.formats'))}">${md ? `<a href="${up(md)}">${esc(t('features.site.gen.markdown'))}</a>` : ''}${meta.baseUrl ? `<a href="${up('rss.xml')}">RSS</a>` : ''}<a href="${up('llms.txt')}">llms.txt</a></nav>
 <span>${esc(t('features.site.gen.publishedWith'))}</span>
 </footer>`
 }
@@ -138,10 +138,31 @@ function specOf(node: SiteNode): string {
   return `§ ${node.num}`
 }
 
-/** Sub pages that the content does not already link as a page block. */
+/**
+ * Page ids the content itself links in the published page: page-link blocks, page mentions and
+ * #/p/<id> links. Button actions ("open page") are not links of a static page and don't count.
+ */
+function linkedIds(doc: JSONContent | null): Set<ID> {
+  const out = new Set<ID>()
+  const walk = (n: JSONContent) => {
+    if (n.type === 'button') return
+    const a = n.attrs
+    if (n.type === 'pageLink' && typeof a?.pageId === 'string') out.add(a.pageId)
+    if (n.type === 'mention' && a?.kind === 'page' && typeof a.id === 'string') out.add(a.id)
+    for (const m of n.marks ?? []) {
+      const id = m.type === 'link' ? /^#\/p\/([\w-]+)/.exec(String(m.attrs?.href ?? ''))?.[1] : undefined
+      if (id) out.add(id)
+    }
+    n.content?.forEach(walk)
+  }
+  if (doc) walk(doc)
+  return out
+}
+
+/** Sub pages that the content does not already link (page block, mention or link). */
 function subpages(ctx: RenderCtx, node: SiteNode, body: string): string {
   const kids = (ctx.plan.kids.get(node.page.id) ?? []).map((id) => ctx.plan.nodes.get(id)!).filter(Boolean)
-  const linked = new Set((node.page.content ? JSON.stringify(node.page.content).match(/"pageId":"[\w-]+"/g) ?? [] : []).map((m) => m.slice(10, -1)))
+  const linked = linkedIds(node.page.content)
   const list = kids.filter((k) => !linked.has(k.page.id) && !body.includes(`"${rel(node.file, k.file)}"`))
   if (!list.length) return ''
   const from = node.file

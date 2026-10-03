@@ -168,19 +168,27 @@ test.describe('AI autofill (mocked Claude API)', () => {
     expect(reqs).toHaveLength(8)
     expect(reqs[0].prompt).toContain('Summarize the row')
     expect(reqs[0].body.output_config.format.schema.properties.value.anyOf[0]).toEqual({ type: 'string' })
-    await dlg.getByRole('button', { name: 'Done' }).click()
 
-    const values = await wsEval(
-      page,
-      (s, dbId) => {
-        const prop = s.databases[dbId].properties.find((p: AnyState) => p.name === 'Summary')
-        return (Object.values(s.pages) as AnyState[]).filter((r) => r.databaseId === dbId).map((r) => [r.title, r.properties[prop.id]])
-      },
-      dbId,
-    )
+    const summaries = () =>
+      wsEval(
+        page,
+        (s, dbId) => {
+          const prop = s.databases[dbId].properties.find((p: AnyState) => p.name === 'Summary')
+          return (Object.values(s.pages) as AnyState[]).filter((r) => r.databaseId === dbId).map((r) => [r.title, r.properties[prop.id] ?? null])
+        },
+        dbId,
+      )
+    const values = await summaries()
     expect(values).toHaveLength(8)
     for (const [title, v] of values) expect(v).toBe(`${title} — summary.`)
     await expect(page.locator('#main .dbt-row', { hasText: 'Website relaunch' })).toContainText('Website relaunch — summary.')
+
+    // the summary offers to put the previous values back
+    await dlg.getByRole('button', { name: /Undo/ }).click()
+    await expect(dlg).toContainText('The written values were put back.')
+    for (const [, v] of await summaries()) expect(v ?? '').toBe('')
+    await dlg.getByRole('button', { name: 'Done' }).click()
+    await expect(dlg).toBeHidden()
   })
 
   test('an invalid model answer becomes a row error and writes nothing', async ({ page, context }) => {
@@ -260,6 +268,35 @@ test.describe('AI autofill (mocked Claude API)', () => {
     await wsEval(page, (s, { rowId, propId }) => s.setRowProperty(rowId, propId, 'edited by hand'), { rowId, propId })
     await page.waitForTimeout(6000)
     expect(reqs).toHaveLength(1)
+  })
+
+  test('"Fill this cell" from the keyboard (Alt+Enter) writes one cell and can be undone', async ({ page, context }) => {
+    const reqs = await mockAutofill(context, () => ({ value: 'Low' }))
+    await openApp(page)
+    await setKey(page)
+    const dbId = await openProjects(page)
+    await wsEval(
+      page,
+      (s, dbId) => {
+        const p = s.databases[dbId].properties.find((x: AnyState) => x.name === 'Priority')
+        s.updateProperty(dbId, p.id, { autofill: { preset: 'categorize', skipReview: true } })
+      },
+      dbId,
+    )
+    const grid = page.locator('#main .dbt')
+    await grid.focus()
+    await page.keyboard.press('ArrowDown') // first row, title column
+    await page.keyboard.press('ArrowRight') // Status
+    await page.keyboard.press('ArrowRight') // Priority
+    await expect(grid.locator('[data-cell="0:2"]')).toHaveAttribute('data-active', 'true')
+    await page.keyboard.press('Alt+Enter')
+    const toast = page.locator('.toast', { hasText: 'Priority filled for “Website relaunch”' })
+    await expect(toast).toBeVisible()
+    expect(reqs).toHaveLength(1)
+    expect(titleOf(reqs[0].prompt)).toBe('Website relaunch')
+    await expect.poll(async () => (await selectValues(page, dbId, 'Priority'))['Website relaunch']).toBe('Low')
+    await toast.getByRole('button', { name: 'Undo' }).click()
+    await expect.poll(async () => (await selectValues(page, dbId, 'Priority'))['Website relaunch']).toBe('High')
   })
 
   test('cancel stops further requests', async ({ page, context }) => {

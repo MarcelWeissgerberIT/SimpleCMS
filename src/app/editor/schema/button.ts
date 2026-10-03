@@ -53,13 +53,19 @@ function presets(raw: unknown): PropertyPreset[] {
 let seq = 0
 export const actionId = () => `a${Date.now().toString(36)}${(seq++).toString(36)}`
 
-/** Validate a stored / pasted actions array: unknown entries are dropped, missing fields filled. */
-export function normalizeActions(raw: unknown): ButtonAction[] {
+/**
+ * Validate a stored / pasted actions array: unknown entries are dropped, missing fields filled,
+ * duplicate ids replaced. `freshIds` gives every action a new id (a pasted copy is a new button).
+ */
+export function normalizeActions(raw: unknown, opts: { freshIds?: boolean } = {}): ButtonAction[] {
   if (!Array.isArray(raw)) return []
   const out: ButtonAction[] = []
+  const seen = new Set<string>()
   for (const a of raw) {
     if (!a || typeof a !== 'object') continue
-    const id = str(a.id) || actionId()
+    let id = opts.freshIds ? '' : str(a.id).slice(0, 64)
+    if (!id || seen.has(id)) id = actionId()
+    seen.add(id)
     switch (a.type) {
       case 'insert_blocks':
         out.push({ id, type: 'insert_blocks', content: Array.isArray(a.content) ? a.content.filter((n: unknown) => !!n && typeof n === 'object') : [] })
@@ -103,10 +109,54 @@ export function newAction(type: ButtonActionType): ButtonAction {
   }
 }
 
-function parseActionsAttr(raw: string | null): ButtonAction[] {
-  if (!raw) return []
+/* ------------------------------------------------------------------ */
+/* Copy marker: actions survive only an in-app copy / paste            */
+/* ------------------------------------------------------------------ */
+
+/*
+ * Button actions run webhooks and write to databases, so pasted HTML must not bring its own:
+ * any web page can put a `data-actions` attribute on the clipboard. When this editor serializes
+ * a button (copy, cut, drag), it adds `data-actions-key`: a checksum of the actions JSON keyed
+ * with a random secret of this session. parseHTML keeps the actions only when that key matches;
+ * external HTML (or a copy from another tab or session) pastes a button without actions.
+ */
+const SESSION_SECRET = (() => {
+  const bytes = new Uint8Array(16)
   try {
-    return normalizeActions(JSON.parse(raw))
+    crypto.getRandomValues(bytes)
+  } catch {
+    for (let i = 0; i < bytes.length; i++) bytes[i] = Math.floor(Math.random() * 256)
+  }
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('')
+})()
+
+/** cyrb53 — a fast 53-bit string hash (not a MAC on its own; the secret prefix makes it one here). */
+function cyrb53(s: string, seed: number): string {
+  let h1 = 0xdeadbeef ^ seed
+  let h2 = 0x41c6ce57 ^ seed
+  for (let i = 0; i < s.length; i++) {
+    const ch = s.charCodeAt(i)
+    h1 = Math.imul(h1 ^ ch, 2654435761)
+    h2 = Math.imul(h2 ^ ch, 1597334677)
+  }
+  h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909)
+  h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909)
+  return (4294967296 * (2097151 & h2) + (h1 >>> 0)).toString(36)
+}
+
+/** The copy marker of an actions JSON string in this session. */
+function actionsKey(json: string): string {
+  const msg = `${SESSION_SECRET}\n${json}`
+  return `${cyrb53(msg, 0x5eed)}.${cyrb53(msg, 0x0b7e)}`
+}
+
+function parseActionsAttr(el: HTMLElement): ButtonAction[] {
+  const raw = el.getAttribute('data-actions')
+  if (!raw) return []
+  // not copied from this editor in this session: keep the button, drop what it would do
+  if (el.getAttribute('data-actions-key') !== actionsKey(raw)) return []
+  try {
+    return normalizeActions(JSON.parse(raw), { freshIds: true })
   } catch {
     return []
   }
@@ -129,7 +179,7 @@ export function stripButtonActions(doc: JSONContent): JSONContent {
   return walk(doc)
 }
 
-/** Click the control of the node-selected button (keyboard path: ↵ runs, ⇧↵ configures). */
+/** Click the control of the node-selected button (keyboard path: ⌘↵ runs, ⇧↵ configures). */
 function clickSelected(view: import('@tiptap/pm/view').EditorView, selector: string): boolean {
   const sel = view.state.selection
   if (!(sel instanceof NodeSelection) || sel.node.type.name !== 'button') return false
@@ -159,8 +209,12 @@ export const ButtonNode = Node.create({
       },
       actions: {
         default: [],
-        parseHTML: (el) => parseActionsAttr(el.getAttribute('data-actions')),
-        renderHTML: (a) => (Array.isArray(a.actions) && a.actions.length ? { 'data-actions': JSON.stringify(a.actions) } : {}),
+        parseHTML: (el) => parseActionsAttr(el),
+        renderHTML: (a) => {
+          if (!Array.isArray(a.actions) || !a.actions.length) return {}
+          const json = JSON.stringify(a.actions)
+          return { 'data-actions': json, 'data-actions-key': actionsKey(json) }
+        },
       },
     }
   },
@@ -184,9 +238,12 @@ export const ButtonNode = Node.create({
 })
 
 /**
- * Keyboard path for a node-selected button (live editor only): ↵ / Space run it, ⇧↵ opens its
- * configuration. A separate extension so it can run before the core Enter handling without
- * moving the node itself up in the schema order (the first block type is the default fill).
+ * Keyboard path for a node-selected button (live editor only): ⌘↵ / Ctrl+↵ runs it, ⇧↵ opens
+ * its configuration. Plain ↵ / Space do not run a merely selected button — arrowing through a
+ * page and pressing ↵ must never fire a webhook by accident; they still run the key itself when
+ * it has focus (native <button>). A separate extension so it can run before the core Enter
+ * handling without moving the node itself up in the schema order (the first block type is the
+ * default fill).
  */
 export const ButtonKeys = Extension.create({
   name: 'buttonKeys',
@@ -195,8 +252,7 @@ export const ButtonKeys = Extension.create({
   addKeyboardShortcuts() {
     const view = () => this.editor.view
     return {
-      Enter: () => clickSelected(view(), '.ob-key'),
-      Space: () => clickSelected(view(), '.ob-key'),
+      'Mod-Enter': () => clickSelected(view(), '.ob-key'),
       'Shift-Enter': () => clickSelected(view(), '.ob-edit'),
     }
   },

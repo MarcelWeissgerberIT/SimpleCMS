@@ -20,6 +20,16 @@ const iso = (ms: number) => new Date(ms || 0).toISOString()
 /** URL of a site path for feeds and lists: absolute with a base URL, else relative to the site root. */
 const linkOf = (meta: SiteMeta, path: string) => absUrl(meta, path) || path
 
+/**
+ * A date property value ("2026-10-03" or "2026-10-03T14:30", stored without a zone) as the
+ * moment it means where it was written: local time. NaN when it is not a date.
+ */
+function localMs(s: string | undefined): number {
+  const m = /^(\d{4})-(\d{2})-(\d{2})(?:T(\d{2}):(\d{2})(?::(\d{2}))?)?/.exec(s ?? '')
+  if (!m) return NaN
+  return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), Number(m[4] ?? 0), Number(m[5] ?? 0), Number(m[6] ?? 0)).getTime()
+}
+
 export function sitemapXml(plan: SitePlan, meta: SiteMeta): string {
   const urls: string[] = []
   if (!plan.home) urls.push(`<url><loc>${xml(meta.baseUrl)}</loc><lastmod>${isoDay(plan.updatedAt)}</lastmod></url>`)
@@ -38,7 +48,7 @@ export function feedItems(plan: SitePlan, ctx: RenderCtx, feed: SiteFeed, limit 
     const dateProp = db?.properties.find((p) => p.type === 'date')
     const when = (n: SiteNode) => {
       const v = dateProp ? (n.page.properties[dateProp.id] as DateValue | null | undefined) : null
-      const ms = v?.start ? Date.parse(v.start.length === 10 ? `${v.start}T00:00:00` : v.start) : NaN
+      const ms = localMs(v?.start)
       return Number.isFinite(ms) ? ms : n.page.createdAt
     }
     return (plan.rows.get(feed.databaseId) ?? [])
@@ -59,7 +69,8 @@ export function rssXml(plan: SitePlan, ctx: RenderCtx, meta: SiteMeta, items: Si
   const dateProp = db?.properties.find((p) => p.type === 'date')
   const pubDate = (n: SiteNode) => {
     const v = dateProp ? (n.page.properties[dateProp.id] as DateValue | null | undefined) : null
-    const ms = v?.start ? Date.parse(v.start.length === 10 ? `${v.start}T00:00:00Z` : `${v.start}:00Z`) : NaN
+    // the same local reading as the feed order (feedItems), written as RFC 822 in GMT
+    const ms = localMs(v?.start)
     return new Date(Number.isFinite(ms) ? ms : feed.kind === 'database' ? n.page.createdAt : n.page.updatedAt).toUTCString()
   }
   const self = meta.baseUrl ? `\n<atom:link href="${xml(`${meta.baseUrl}rss.xml`)}" rel="self" type="application/rss+xml"/>` : ''
@@ -94,19 +105,30 @@ export function llmsTxt(plan: SitePlan, ctx: RenderCtx, meta: SiteMeta, summary:
   out.push(t('features.site.gen.llmsIntro', { full: linkOf(meta, 'llms-full.txt') }), '')
   const branch = new Map<ID, SiteNode[]>()
   const loose: SiteNode[] = []
+  const tops = new Set(plan.top)
   for (const n of plan.order) {
     if (n.kind === 'home') continue
-    const top = n.parent === null && plan.top.includes(n.page.id) ? n : ancestorsOf(plan, n.page.id)[0]
-    if (top) branch.set(top.page.id, [...(branch.get(top.page.id) ?? []), n])
-    else loose.push(n)
+    const top = n.parent === null && tops.has(n.page.id) ? n : ancestorsOf(plan, n.page.id)[0]
+    if (!top) {
+      loose.push(n)
+      continue
+    }
+    const list = branch.get(top.page.id)
+    if (list) list.push(n)
+    else branch.set(top.page.id, [n])
   }
-  if (plan.home) {
-    out.push(`## ${titleOf(ctx, plan.home.page)}`, '', entry(plan.home), ...loose.map(entry), '')
-  } else if (loose.length) out.push(`## ${t('features.site.gen.index')}`, '', ...loose.map(entry), '')
+  // one push per line (no spreading: a branch can hold thousands of rows)
+  const section = (heading: string, nodes: SiteNode[], first?: SiteNode) => {
+    out.push(`## ${heading}`, '')
+    if (first) out.push(entry(first))
+    for (const n of nodes) out.push(entry(n))
+    out.push('')
+  }
+  if (plan.home) section(titleOf(ctx, plan.home.page), loose, plan.home)
+  else if (loose.length) section(t('features.site.gen.index'), loose)
   for (const id of plan.top) {
     const list = branch.get(id)
-    if (!list?.length) continue
-    out.push(`## ${titleOf(ctx, list[0].page)}`, '', ...list.map(entry), '')
+    if (list?.length) section(titleOf(ctx, list[0].page), list)
   }
   return out.join('\n').trimEnd() + '\n'
 }

@@ -13,6 +13,7 @@ import { isApplyingRemote } from '../../store/persistence'
 import { toast } from '../../store/ui'
 import type { Automation, AutomationAction, Database, DateValue, ID, Page, PropertyDef, PropertyValue } from '../../store/types'
 import { newId } from '../../lib/ids'
+import { postWebhook, type WebhookOutcome } from '../../lib/webhook'
 import { t } from '../../i18n'
 
 /* The database area is loaded lazily so this always-on service doesn't pull it in statically. */
@@ -42,6 +43,8 @@ export interface WebhookPayload {
   changes: Array<{ property: string; from: string; to: string }>
   timestamp: string
   source: 'simplecms-one'
+  /** added when sent (lib/webhook.ts): the same for a request and its no-cors retry — receivers dedupe on it */
+  deliveryId?: string
 }
 
 export interface RunLogEntry {
@@ -58,11 +61,16 @@ export interface RunLogEntry {
 }
 
 export interface WebhookResult {
+  /** delivered, or sent without a readable answer (opaque) — false only for real failures */
   ok: boolean
+  /** delivered (2xx) · failed · unconfirmed (no-cors: sent, delivery can't be confirmed) */
+  outcome: WebhookOutcome
   status: number
   message: string
   opaque?: boolean
   body?: string
+  /** sent in the payload, the same for the CORS attempt and its no-cors retry */
+  deliveryId?: string
   ms: number
 }
 
@@ -195,37 +203,20 @@ export function isValidWebhookUrl(url: string): boolean {
   }
 }
 
-export async function sendWebhook(url: string, method: 'POST' | 'PUT', payload: unknown, headers: Record<string, string> = {}): Promise<WebhookResult> {
-  const started = performance.now()
-  const ms = () => Math.round(performance.now() - started)
-  if (!isValidWebhookUrl(url)) return { ok: false, status: 0, message: t('features.auto.err.url'), ms: 0 }
-  const body = JSON.stringify(payload)
-  const ctrl = new AbortController()
-  const timer = window.setTimeout(() => ctrl.abort(), 10_000)
-  try {
-    const res = await fetch(url, { method, headers: { 'Content-Type': 'application/json', ...headers }, body, signal: ctrl.signal })
-    let text = ''
-    try {
-      text = (await res.text()).slice(0, 400)
-    } catch {
-      /* ignore */
-    }
-    return { ok: res.ok, status: res.status, message: `${res.status} ${res.statusText || (res.ok ? 'OK' : '')}`.trim(), body: text, ms: ms() }
-  } catch (err) {
-    if (ctrl.signal.aborted) return { ok: false, status: 0, message: t('features.auto.err.timeout'), ms: ms() }
-    // Most likely CORS: retry once as an opaque "simple" request (the body still arrives as JSON text)
-    if (method === 'POST') {
-      try {
-        await fetch(url, { method, mode: 'no-cors', headers: { 'Content-Type': 'text/plain;charset=UTF-8' }, body, signal: ctrl.signal })
-        return { ok: true, status: 0, opaque: true, message: t('features.auto.res.opaque'), ms: ms() }
-      } catch {
-        /* fall through */
-      }
-    }
-    return { ok: false, status: 0, message: ctrl.signal.aborted ? t('features.auto.err.timeout') : t('features.auto.err.network', { msg: (err as Error)?.message ?? '' }), ms: ms() }
-  } finally {
-    window.clearTimeout(timer)
-  }
+/**
+ * Send the payload (+ a `deliveryId`) through the shared helper (lib/webhook.ts): JSON + CORS
+ * first, one no-cors retry on a network/CORS failure. A no-cors send is "unconfirmed": it is not
+ * an error (ok stays true, the run is not marked failed), but it is never reported as delivered.
+ */
+export async function sendWebhook(url: string, method: 'POST' | 'PUT', payload: object, headers: Record<string, string> = {}): Promise<WebhookResult> {
+  if (!isValidWebhookUrl(url)) return { ok: false, outcome: 'failed', status: 0, message: t('features.auto.err.url'), ms: 0 }
+  const res = await postWebhook(url, method, payload, { headers, timeoutMs: 10_000, readBody: 400 })
+  const base = { outcome: res.outcome, status: res.status, deliveryId: res.deliveryId, ms: res.ms, ...(res.body !== undefined ? { body: res.body } : {}) }
+  if (res.outcome === 'unconfirmed') return { ...base, ok: true, opaque: true, message: t('features.auto.res.opaque') }
+  if (res.error === 'timeout') return { ...base, ok: false, message: t('features.auto.err.timeout') }
+  if (res.error === 'url') return { ...base, ok: false, message: t('features.auto.err.url') }
+  if (res.error === 'network') return { ...base, ok: false, message: t('features.auto.err.network', { msg: res.detail ?? '' }) }
+  return { ...base, ok: res.outcome === 'delivered', message: `${res.status} ${res.statusText || (res.outcome === 'delivered' ? 'OK' : '')}`.trim() }
 }
 
 /* ------------------------------------------------------------------ */

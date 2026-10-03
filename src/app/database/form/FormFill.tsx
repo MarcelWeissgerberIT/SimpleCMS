@@ -13,9 +13,10 @@ import { colorText } from '../../lib/colors'
 import { Avatar, RelationChip } from '../cells/display'
 import { RelationPicker } from '../cells/pickers'
 import { formatBytes } from '../model/files'
-import { emptyAnswer, emptyAnswers, SHARED_FILE_MAX, validate, validateAll, type Answer, type Answers, type DateAnswer, type Field, type FieldError } from './fields'
+import { emptyAnswer, emptyAnswers, SHARED_FILE_MAX, SHARED_FILES_TOTAL, validate, validateAll, type Answer, type Answers, type DateAnswer, type Field, type FieldError } from './fields'
 
-export type SubmitOutcome = { ok: true; rowId?: ID } | { ok: false; message: string }
+/** unconfirmed: sent, but the receiver gives the browser no way to confirm delivery (no-cors) */
+export type SubmitOutcome = { ok: true; rowId?: ID; unconfirmed?: boolean } | { ok: false; message: string }
 
 export interface FormFillProps {
   fields: Field[]
@@ -121,6 +122,7 @@ export function FormFill({ fields, title, description, submitLabel, onSubmit, sh
   }
 
   const H = headingLevel === 1 ? 'h1' : 'h2'
+  const sentOnly = !!outcome?.ok && !!outcome.unconfirmed
 
   if (status === 'done')
     return (
@@ -129,10 +131,10 @@ export function FormFill({ fields, title, description, submitLabel, onSubmit, sh
           <Check size={26} strokeWidth={2.4} />
         </div>
         <div className="label fm-done__stamp">
-          {t('database.form.done.stamp')} · {doneAt ? new Intl.DateTimeFormat(lang === 'de' ? 'de-DE' : 'en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' }).format(doneAt) : ''}
+          {sentOnly ? t('database.form.done.sentStamp') : t('database.form.done.stamp')} · {doneAt ? new Intl.DateTimeFormat(lang === 'de' ? 'de-DE' : 'en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' }).format(doneAt) : ''}
         </div>
-        <H className="fm-done__title">{t('database.form.done.title')}</H>
-        <p className="fm-done__sub">{shared ? t('database.form.done.subShared') : t('database.form.done.sub')}</p>
+        <H className="fm-done__title">{sentOnly ? t('database.form.done.sentTitle') : t('database.form.done.title')}</H>
+        <p className="fm-done__sub">{sentOnly ? t('database.form.done.sentSub') : shared ? t('database.form.done.subShared') : t('database.form.done.sub')}</p>
         <div className="fm-done__actions">
           <button type="button" className="btn btn--ink" onClick={reset}>
             <RotateCcw size={14} /> {t('database.form.done.again')}
@@ -271,7 +273,7 @@ function Question({ f, index, idBase, value, error, shared, onChange, onBlur }: 
       )}
       {error && (
         <p className="fm-q__err" id={errId}>
-          <AlertTriangle size={13} aria-hidden /> {t(`database.form.err.${error}`, { max: formatBytes(SHARED_FILE_MAX) })}
+          <AlertTriangle size={13} aria-hidden /> {t(`database.form.err.${error}`, { max: formatBytes(SHARED_FILE_MAX), total: formatBytes(SHARED_FILES_TOTAL) })}
         </p>
       )}
     </div>

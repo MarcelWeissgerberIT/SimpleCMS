@@ -4,10 +4,14 @@
  *  - ReadOnlyDoc: static, non-editable render of a doc (share view, history preview, presentation).
  *  - getExtensions(): schema extensions (for generateHTML / export).
  *  - markdownToDoc / docToMarkdown: conversion helpers (import/export/AI).
- *  - stripButtonActions(doc): the doc without button actions (webhook URLs, database ids) — for
- *      anything that leaves the workspace (share links). docToHTML already applies it.
+ *  - stripButtonActions(doc): the doc without anything workspace-private — button actions
+ *      (webhook URLs, database ids) AND comment anchors (`comment` marks). Name kept for the
+ *      existing callers (share links, site export); stripPrivate is the same function.
+ *      docToHTML and docToMarkdown already apply it (comments: both; actions: HTML).
+ *  - stripComments(doc): only the comment anchors. commentIdsIn(doc): thread ids anchored in a doc.
+ *  - Tabs block: nodes `tabs` / `tab` (attrs: title). Which tab is shown is editor view state.
  */
 export { PageEditor, type PageEditorProps } from './PageEditor'
 export { ReadOnlyDoc } from './ReadOnlyDoc'
-export { getExtensions, markdownToDoc, docToMarkdown, docToHTML } from './convert'
-export { stripButtonActions } from './schema/button'
+export { getExtensions, markdownToDoc, docToMarkdown, docToHTML, stripPrivate, stripPrivate as stripButtonActions } from './convert'
+export { stripComments, commentIdsIn } from './schema/comment'

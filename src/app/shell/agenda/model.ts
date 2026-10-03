@@ -259,8 +259,12 @@ const pageCache = new WeakMap<Page, { db: Database | undefined; journal: boolean
 
 const DB_COLORS: ColorName[] = ['blue', 'green', 'purple', 'pink', 'red', 'brown', 'gray']
 
+const collator = new Intl.Collator(undefined, { sensitivity: 'base', numeric: true })
+const cmpStr = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0)
+
+/** Day, then time (all-day first), longer ranges first, then title. Cheap checks first: this sorts thousands of items. */
 export function compareItems(a: AgendaItem, b: AgendaItem): number {
-  return a.start - b.start || (a.time ?? '').localeCompare(b.time ?? '') || b.end - a.end || a.title.localeCompare(b.title) || a.key.localeCompare(b.key)
+  return a.start - b.start || cmpStr(a.time ?? '', b.time ?? '') || b.end - a.end || collator.compare(a.title, b.title) || cmpStr(a.key, b.key)
 }
 
 export function buildIndex(pages: Record<ID, Page>, dbs: Record<ID, Database>): AgendaIndex {

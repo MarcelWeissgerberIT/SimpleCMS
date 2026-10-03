@@ -8,7 +8,7 @@
  */
 import { Inflate, deflateSync, strFromU8, strToU8 } from 'fflate'
 import { COLOR_NAMES, type ColorName } from '../../store/types'
-import { isValidHttpUrl, type Field, type FieldKind } from './fields'
+import { isValidWebhookUrl, type Field, type FieldKind } from './fields'
 
 export type SharedKind = Exclude<FieldKind, 'person' | 'relation'>
 const SHARED_KINDS: SharedKind[] = ['short', 'long', 'number', 'select', 'multi', 'date', 'checkbox', 'url', 'email', 'phone', 'rating', 'files']
@@ -43,10 +43,63 @@ export class FormDecodeError extends Error {
   }
 }
 
-const MAX_QUESTIONS = 80
-const MAX_OPTIONS = 120
+/**
+ * What a shared link may carry. decodeForm() clamps received payloads to these limits, so the
+ * share dialog refuses (formLimitIssue) any form that would lose questions, options or text.
+ */
+export const FORM_LIMITS = {
+  questions: 80,
+  options: 120,
+  /** characters */
+  name: 200,
+  help: 1000,
+  option: 200,
+  title: 300,
+  desc: 4000,
+  submit: 80,
+  hook: 2000,
+  /** characters of the encoded payload in the link */
+  encoded: 256 * 1024,
+} as const
+
+const MAX_QUESTIONS = FORM_LIMITS.questions
+const MAX_OPTIONS = FORM_LIMITS.options
 const MAX_INFLATED = 512 * 1024
-const MAX_ENCODED = 256 * 1024
+const MAX_ENCODED = FORM_LIMITS.encoded
+
+export type FormLimitKind = 'questions' | 'options' | 'name' | 'help' | 'option' | 'title' | 'desc' | 'submit' | 'hook' | 'encoded'
+
+/** A form that cannot travel in a link as it is: which limit, and the question it concerns. */
+export interface FormLimitIssue {
+  kind: FormLimitKind
+  limit: number
+  /** the question (name) concerned, if any */
+  question?: string
+  /** current size (questions, options, characters) */
+  count: number
+}
+
+export class FormLimitError extends Error {
+  constructor(public issue: FormLimitIssue) {
+    super(`form over the ${issue.kind} limit`)
+  }
+}
+
+/** The first limit a payload breaks (decodeForm would cut it), or null when it fits. */
+export function formLimitIssue(p: FormPayload, encoded?: string): FormLimitIssue | null {
+  const over = (kind: FormLimitKind, count: number, question?: string): FormLimitIssue | null => (count > FORM_LIMITS[kind] ? { kind, limit: FORM_LIMITS[kind], count, ...(question !== undefined ? { question } : {}) } : null)
+  const top = over('title', p.title.length) ?? over('desc', p.desc.length) ?? over('submit', p.submit.length) ?? over('hook', p.hook.trim().length) ?? over('questions', p.q.length)
+  if (top) return top
+  for (const q of p.q) {
+    const issue =
+      over('name', q.name.length, q.name.slice(0, 60)) ??
+      over('help', q.help?.length ?? 0, q.name) ??
+      over('options', q.opts?.length ?? 0, q.name) ??
+      over('option', Math.max(0, ...(q.opts ?? []).map(([name]) => name.length)), q.name)
+    if (issue) return issue
+  }
+  return encoded !== undefined ? over('encoded', encoded.length) : null
+}
 
 /* ---------------- base64url ---------------- */
 
@@ -89,8 +142,34 @@ function inflateCapped(data: Uint8Array): Uint8Array {
 
 /* ---------------- build / encode ---------------- */
 
-/** The share payload of a form (workspace fields → respondent-facing schema). */
+/**
+ * The share payload of a form (workspace fields → respondent-facing schema).
+ * Throws FormLimitError when the form is over a link limit (nothing is cut silently).
+ */
 export function buildPayload(input: { title: string; description: string; submitLabel: string; webhookUrl: string; fields: Field[] }): FormPayload {
+  const p = payloadOf(input)
+  const issue = formLimitIssue(p)
+  if (issue) throw new FormLimitError(issue)
+  return p
+}
+
+/** Payload + its encoded form, or the limit it breaks (the share dialog's single entry point). */
+export function encodeShareForm(input: Parameters<typeof buildPayload>[0]): { encoded: string; issue: null } | { encoded: null; issue: FormLimitIssue } {
+  try {
+    const p = buildPayload(input)
+    const json = strToU8(JSON.stringify(p))
+    // the receiving side inflates at most MAX_INFLATED bytes
+    if (json.length > MAX_INFLATED) return { encoded: null, issue: { kind: 'encoded', limit: FORM_LIMITS.encoded, count: json.length } }
+    const encoded = toBase64Url(deflateSync(json, { level: 9 }))
+    const issue = formLimitIssue(p, encoded)
+    return issue ? { encoded: null, issue } : { encoded, issue: null }
+  } catch (e) {
+    if (e instanceof FormLimitError) return { encoded: null, issue: e.issue }
+    throw e
+  }
+}
+
+function payloadOf(input: { title: string; description: string; submitLabel: string; webhookUrl: string; fields: Field[] }): FormPayload {
   return {
     v: 1,
     title: input.title,
@@ -171,7 +250,7 @@ export function decodeForm(raw: string): FormPayload {
     title: str(d.title, 300),
     desc: str(d.desc, 4000),
     submit: str(d.submit, 80),
-    hook: isValidHttpUrl(hook) ? hook : '',
+    hook: isValidWebhookUrl(hook) ? hook : '',
     q: (Array.isArray(d.q) ? d.q : []).slice(0, MAX_QUESTIONS).map(sanitizeQuestion).filter((q): q is SharedQuestion => !!q),
   }
 }

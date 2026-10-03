@@ -66,6 +66,8 @@ export interface Proposal {
   error?: string
   /** fingerprint of the context that was sent */
   hash: string
+  /** applied: the value it replaced (for undo) */
+  prev?: PropertyValue
 }
 
 export interface Job {
@@ -84,6 +86,8 @@ export interface Job {
   recent: ID[]
   /** a failure that stopped the whole run (no / invalid key …) */
   fatal?: string
+  /** the written values were rolled back */
+  undone?: boolean
 }
 
 export type CellState = { state: 'queued' | 'running' } | { state: 'error'; message: string }
@@ -195,13 +199,17 @@ export async function fillRow(dbId: ID, propId: ID, rowId: ID, signal: AbortSign
   }
 }
 
-/** Write a proposal into its row (creating new options first). False when the row or property is gone. */
-export function writeProposal(dbId: ID, propId: ID, p: Proposal): boolean {
+/**
+ * Write a proposal into its row (creating new options first). Returns the value it replaced, or
+ * undefined when nothing was written (row or property gone).
+ */
+export function writeProposal(dbId: ID, propId: ID, p: Proposal): PropertyValue | undefined {
   const s = useWorkspace.getState()
   const db = s.databases[dbId]
   const prop = db?.properties.find((x) => x.id === propId)
   const row = s.pages[p.rowId]
-  if (!db || !prop || !row || row.trashed) return false
+  if (!db || !prop || !row || row.trashed) return undefined
+  const prev: PropertyValue = row.properties[propId] ?? null
   let value: PropertyValue = p.value ?? null
   if (prop.type === 'select' || prop.type === 'multi_select') {
     let opts = [...(prop.options ?? [])]
@@ -219,7 +227,7 @@ export function writeProposal(dbId: ID, propId: ID, p: Proposal): boolean {
     value = prop.type === 'select' ? (ids[0] ?? null) : ids
   }
   writeValue(dbId, prop, p.rowId, value)
-  return true
+  return prev
 }
 
 /** Remember when rows were filled and from what (pruned to rows that still exist). */
@@ -298,7 +306,10 @@ export async function startFill(dbId: ID, propId: ID, mode: RunMode, only?: ID[]
         ac.abort()
         patchJob(key, () => ({ fatal: proposal.error }))
       }
-      if (!review && proposal.status === 'pending' && writeProposal(dbId, propId, proposal)) proposal.status = 'applied'
+      if (!review && proposal.status === 'pending') {
+        const prev = writeProposal(dbId, propId, proposal)
+        if (prev !== undefined) Object.assign(proposal, { status: 'applied', prev })
+      }
       if (!review && (proposal.status === 'applied' || proposal.status === 'same')) fills[proposal.rowId] = { at: Date.now(), hash: proposal.hash }
       setCells({ [ck]: proposal.status === 'error' && !fatal ? { state: 'error', message: proposal.error ?? '' } : null })
       patchJob(key, (j) => ({ done: j.done + 1, results: { ...j.results, [proposal.rowId]: proposal }, recent: [proposal.rowId, ...j.recent].slice(0, 6) }))
@@ -335,9 +346,12 @@ function finishRun(key: string) {
   patchJob(key, () => ({ phase: 'finished' }))
   if (panelOpen) return
   if (!j.fatal) {
-    if (j.mode === 'cell' && applied === 1) {
-      const p = results.find((x) => x.status === 'applied')!
-      const before = p.current
+    const single = j.mode === 'cell' && results.length === 1 ? results[0] : null
+    if (single?.status === 'error') toast({ message: t('database.autofill.cell.error', { msg: single.error ?? '' }), kind: 'error' })
+    else if (single?.status === 'same') toast(t('database.autofill.toast.filledOne', { name, row: single.title || t('common.untitled') }))
+    else if (single?.status === 'applied') {
+      const p = single
+      const before = p.prev ?? p.current
       toast({
         message: t('database.autofill.toast.filledOne', { name, row: p.title || t('common.untitled') }),
         kind: 'success',
@@ -384,9 +398,9 @@ export function acceptProposal(key: string, rowId: ID) {
   const j = st().jobs[key]
   const p = j?.results[rowId]
   if (!j || !p || p.status !== 'pending') return
-  const ok = writeProposal(j.dbId, j.propId, p)
-  if (ok) recordFills(j.dbId, j.propId, { [rowId]: { at: Date.now(), hash: p.hash } })
-  patchResult(key, rowId, { status: ok ? 'applied' : 'rejected' })
+  const prev = writeProposal(j.dbId, j.propId, p)
+  if (prev !== undefined) recordFills(j.dbId, j.propId, { [rowId]: { at: Date.now(), hash: p.hash } })
+  patchResult(key, rowId, prev !== undefined ? { status: 'applied', prev } : { status: 'rejected' })
   settleIfDone(key)
 }
 
@@ -404,9 +418,9 @@ export function acceptAll(key: string) {
   const results = { ...j.results }
   for (const p of Object.values(j.results)) {
     if (p.status === 'pending') {
-      const ok = writeProposal(j.dbId, j.propId, p)
-      results[p.rowId] = { ...p, status: ok ? 'applied' : 'rejected' }
-      if (ok) fills[p.rowId] = { at: Date.now(), hash: p.hash }
+      const prev = writeProposal(j.dbId, j.propId, p)
+      results[p.rowId] = prev !== undefined ? { ...p, status: 'applied', prev } : { ...p, status: 'rejected' }
+      if (prev !== undefined) fills[p.rowId] = { at: Date.now(), hash: p.hash }
     } else if (p.status === 'same') fills[p.rowId] = { at: Date.now(), hash: p.hash }
   }
   recordFills(j.dbId, j.propId, fills)
@@ -418,6 +432,29 @@ export function discardAll(key: string) {
   if (!j) return
   const results = Object.fromEntries(Object.entries(j.results).map(([id, p]) => [id, p.status === 'pending' ? { ...p, status: 'rejected' as const } : p]))
   patchJob(key, () => ({ results, phase: 'finished' }))
+}
+
+/** Put back the values a run wrote (and forget those fills, so auto update may run again). */
+export function undoApplied(key: string) {
+  const j = st().jobs[key]
+  if (!j) return
+  const s = useWorkspace.getState()
+  const prop = s.databases[j.dbId]?.properties.find((p) => p.id === j.propId)
+  if (!prop) return
+  const results = { ...j.results }
+  const undone = new Set<ID>()
+  for (const p of Object.values(j.results)) {
+    if (p.status !== 'applied' || p.prev === undefined || !useWorkspace.getState().pages[p.rowId]) continue
+    writeValue(j.dbId, prop, p.rowId, p.prev)
+    results[p.rowId] = { ...p, status: 'rejected' }
+    undone.add(p.rowId)
+  }
+  const cfg = useWorkspace.getState().databases[j.dbId]?.properties.find((p) => p.id === j.propId)?.autofill
+  if (cfg?.fills && undone.size) {
+    const fills = Object.fromEntries(Object.entries(cfg.fills).filter(([id]) => !undone.has(id)))
+    s.updateProperty(j.dbId, j.propId, { autofill: { ...cfg, fills } })
+  }
+  patchJob(key, () => ({ results, undone: true }))
 }
 
 export function retryFailed(key: string) {

@@ -384,10 +384,9 @@ export async function buildObsidianPlan(input: ImportEntry[], opts: ObsidianOpti
 
     const inline = (seg: string): string => {
       let s = seg.replace(/%%[\s\S]*?%%/g, '')
-      s = s.replace(WIKI, wiki)
-      // standard Markdown links: "shortest path" / vault-absolute targets, heading fragments
+      // standard Markdown links first: "shortest path" / vault-absolute targets, heading fragments
       s = rewriteLinks(s, (href) => {
-        if (/^[a-z][a-z0-9+.-]*:/i.test(href) || href.startsWith('#')) return null
+        if (/^[a-z][a-z0-9+.-]*:/i.test(href) || href.startsWith('#') || href.includes('#one-')) return null
         const hashAt = href.indexOf('#')
         const pathPart = hashAt >= 0 ? href.slice(0, hashAt) : href
         const frag = hashAt >= 0 ? safeDecode(href.slice(hashAt + 1)) : ''
@@ -400,6 +399,7 @@ export async function buildObsidianPlan(input: ImportEntry[], opts: ObsidianOpti
         const tail = frag && isNote(p) && !frag.startsWith('^') ? `#${FRAG.heading}${encodeURIComponent(frag)}` : ''
         return `<${rel}${tail}>`
       })
+      s = s.replace(WIKI, wiki)
       // block ids ("text ^a1b2c3") are Obsidian-internal
       return s.replace(/[ \t]\^[\w-]+$/gm, '')
     }

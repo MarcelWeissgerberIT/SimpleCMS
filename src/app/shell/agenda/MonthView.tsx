@@ -2,7 +2,7 @@ import { useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type Mo
 import { DndContext, DragOverlay } from '@dnd-kit/core'
 import { PenLine, Plus } from 'lucide-react'
 import { dayToDate, dayToIso, type AgendaItem } from './model'
-import { fmtDayStamp, fmtShortDay, fmtWeekday } from './format'
+import { fmtDayStamp, fmtMonth, fmtShortDay, fmtWeekday } from './format'
 import { DraggableItem, ItemChip, accentOf, useAgenda, useAgendaDnd, useDroppableDay } from './parts'
 import { DayGroup } from './ListView'
 import { plural } from '../lib/format'
@@ -93,13 +93,13 @@ export function MonthView({ cursor, items, weekStartsOn, narrow, onPick }: { cur
         ))}
       </div>
       <DndContext {...dnd.dndProps}>
-        <div ref={gridRef} className="ag-weeks" role="grid" aria-label={fmtDayStamp(cursor, lang)} style={{ gridTemplateRows: rowMin.map((m) => `minmax(max(var(--ag-row-min), ${m}px), 1fr)`).join(' ') }}>
+        <div ref={gridRef} className="ag-weeks" role="group" aria-label={`${fmtMonth(cursor, lang)} ${dayToDate(cursor).getFullYear()}`} style={{ gridTemplateRows: rowMin.map((m) => `minmax(max(var(--ag-row-min), ${m}px), 1fr)`).join(' ') }}>
           {weeks.map((week, wi) => {
             const segs = layout[wi]
             const maxLanes = lanesFor(wi)
             const hidden = week.map((_, c) => segs.filter((s) => s.lane >= maxLanes && c >= s.col && c < s.col + s.span).length)
             return (
-              <div key={week[0]} className="ag-week" role="row">
+              <div key={week[0]} className="ag-week">
                 {week.map((d, c) => (
                   <MonthDay key={d} day={d} out={dayToDate(d).getMonth() !== month} hidden={hidden[c]} />
                 ))}
@@ -163,7 +163,6 @@ function MonthDay({ day, out, hidden }: { day: number; out: boolean; hidden: num
     <div
       ref={setNodeRef}
       className="ag-day"
-      role="gridcell"
       data-day={day}
       data-iso={dayToIso(day)}
       data-out={out || undefined}
@@ -220,21 +219,20 @@ function CompactMonth({ weeks, month, items, cursor, onPick }: { weeks: number[]
           </span>
         ))}
       </div>
-      <div className="ag-cgrid" role="grid">
+      <div className="ag-cgrid" role="group" aria-label={`${fmtMonth(cursor, lang)} ${dayToDate(cursor).getFullYear()}`}>
         {weeks.map((week) => (
-          <div key={week[0]} className="ag-cweek" role="row">
+          <div key={week[0]} className="ag-cweek">
             {week.map((d) => {
               const list = perDay.get(d) ?? []
               return (
                 <button
                   key={d}
                   type="button"
-                  role="gridcell"
                   className="ag-cday"
                   data-day={d}
                   data-out={dayToDate(d).getMonth() !== month || undefined}
                   data-today={d === ctx.today || undefined}
-                  aria-selected={d === cursor}
+                  aria-pressed={d === cursor}
                   aria-label={`${fmtDayStamp(d, lang)}, ${t(plural('shell.agenda.items', list.length), { n: list.length })}`}
                   onClick={() => onPick(d)}
                 >

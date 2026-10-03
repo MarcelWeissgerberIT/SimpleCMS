@@ -222,6 +222,30 @@ test.describe('agenda', () => {
       .toBe('2026-10-15T09:00')
   })
 
+  test('week view: timed rows sit at their hour; dragging one to another day keeps the time', async ({ page }) => {
+    await openApp(page)
+    const fx = await seedLaunchPlan(page, [{ title: 'Standup', due: { start: '2026-10-15T14:00', end: '2026-10-15T15:00', includeTime: true } }])
+    await openAgenda(page)
+    await page.keyboard.press('w')
+    const ev = page.locator('.ag-ev', { hasText: 'Standup' })
+    await expect(ev).toContainText('2:00pm–3:00pm')
+    const col15 = page.locator('.ag-wk__col[data-day]').nth(4)
+    const box = (await ev.boundingBox())!
+    const c15 = (await col15.boundingBox())!
+    // Thursday column, 14:00 → 14 hours down the 44px hour grid
+    expect(box.x).toBeGreaterThanOrEqual(c15.x)
+    expect(Math.round(box.y - c15.y)).toBe(14 * 44 + 1)
+    const target = (await page.locator('.ag-wk__col[data-day]').nth(6).boundingBox())!
+    await page.mouse.move(box.x + box.width / 2, box.y + 10)
+    await page.mouse.down()
+    await page.mouse.move(box.x + box.width / 2 + 30, box.y + 14, { steps: 4 })
+    await page.mouse.move(target.x + target.width / 2, box.y + 10, { steps: 10 })
+    await page.mouse.up()
+    await expect
+      .poll(() => wsEval(page, (s, a) => s.pages[a.row].properties[a.prop], { row: fx.rows['Standup'], prop: fx.due }))
+      .toEqual({ start: '2026-10-17T14:00', end: '2026-10-17T15:00', includeTime: true })
+  })
+
   test('Alt+arrow moves a focused row a day', async ({ page }) => {
     await openApp(page)
     const fx = await seedLaunchPlan(page, [{ title: 'Nudge me', due: { start: '2026-10-21' } }])

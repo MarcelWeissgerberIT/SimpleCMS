@@ -284,8 +284,7 @@ function TabsFrame({ node, editor, getPos, decorations, readOnly }: ReactNodeVie
                   aria-selected={i === active}
                   tabIndex={i === active ? 0 : -1}
                   className={`tabs__key${i === active ? ' is-active' : ''}`}
-                  onMouseDown={(e) => e.button === 0 && e.preventDefault()}
-                  onClick={() => select(i, true)}
+                  onClick={() => select(i)}
                   onDoubleClick={() => editable && setEditing(i)}
                   onKeyDown={(e) => onKey(e, i)}
                   onContextMenu={(e) => {
@@ -349,8 +348,16 @@ export function StaticTabsView(props: ReactNodeViewProps) {
   return <TabsFrame {...props} readOnly />
 }
 
-/** Events on the strip (keys, title field, menu) belong to React, not ProseMirror. */
-export const tabsEvents = {
+/**
+ * Node view options: events on the strip (keys, title field, menu) belong to React, not
+ * ProseMirror; and the strip re-renders when only the decorations change (= another tab shown),
+ * which TipTap skips by default.
+ */
+export const tabsViewOptions = {
   stopEvent: ({ event }: { event: Event }) => !event.type.startsWith('drag') && event.type !== 'drop' && !!(event.target as Element | null)?.closest?.('.tabs__strip'),
+  update: ({ updateProps }: { updateProps: () => void }) => {
+    updateProps()
+    return true
+  },
 }
 
