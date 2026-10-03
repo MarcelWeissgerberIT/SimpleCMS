@@ -82,8 +82,13 @@ test('team workspace: a reference edit reaches the original once, for everyone; 
   const reference = editorOf(a, ref).locator('[data-type="synced-block"]')
   await expect(reference).toHaveAttribute('data-role', 'reference')
   await reference.locator('p', { hasText: 'Office hours' }).click()
+  await expect(editorOf(a, ref)).toBeFocused()
+  // a human-scale pause before typing on (ProseMirror re-syncs its selection shortly after focus)
+  await a.waitForTimeout(150)
   await a.keyboard.press('End')
   await a.keyboard.type(', Fridays until 3')
+  // the text landed in the reference (an input race would fail here, not as a sync problem below)
+  await expect(reference).toContainText('Office hours 9 to 5, Fridays until 3')
 
   // the original changes — in Ada's store, and live in Bob's editor — exactly once
   await expect.poll(() => wsEval(a, (s, id) => s.pages[id].plain, src), { timeout: 15_000 }).toContain('Office hours 9 to 5, Fridays until 3')
