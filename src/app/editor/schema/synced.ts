@@ -58,18 +58,43 @@ function unwrapAll(f: Fragment): Fragment {
   return Fragment.from(out)
 }
 
-/** Open depth of a slice side once its synced blocks are unwrapped (one level less if one sat on that edge). */
-function openAfterUnwrap(f: Fragment, open: number, start: boolean): number {
+/** Depth of the synced block on a slice edge (within its open depth), -1 when there is none. */
+function edgeDepth(f: Fragment, open: number, start: boolean): number {
   let node = start ? f.firstChild : f.lastChild
   for (let d = 0; d < open && node; d++) {
-    if (isSynced(node)) return open - 1
+    if (isSynced(node)) return d
     node = start ? node.firstChild : node.lastChild
   }
-  return open
+  return -1
 }
 
-function unwrapSlice(slice: Slice): Slice {
-  return new Slice(unwrapAll(slice.content), openAfterUnwrap(slice.content, slice.openStart, true), openAfterUnwrap(slice.content, slice.openEnd, false))
+/** The fragment with the node at `depth` on its first / last edge replaced by that node's content. */
+function unwrapOnEdge(f: Fragment, depth: number, start: boolean): Fragment {
+  const at = start ? 0 : f.childCount - 1
+  const node = f.child(at)
+  const inner = depth === 0 ? node.content : Fragment.from(node.copy(unwrapOnEdge(node.content, depth - 1, start)))
+  const kids: PMNode[] = []
+  f.forEach((c, _o, i) => (i === at ? inner.forEach((k) => kids.push(k)) : kids.push(c)))
+  return Fragment.from(kids)
+}
+
+/** A synced block cut open by the selection was copied in part: paste that part, not the block. */
+function unwrapCutEdges(slice: Slice): Slice {
+  let { content, openStart, openEnd } = slice
+  const s = edgeDepth(content, openStart, true)
+  const e = edgeDepth(content, openEnd, false)
+  if (s < 0 && e < 0) return slice
+  if (s >= 0) {
+    content = unwrapOnEdge(content, s, true)
+    openStart--
+  }
+  if (e >= 0) {
+    const e2 = edgeDepth(content, openEnd, false)
+    // the same block on both edges is unwrapped already
+    if (e2 >= 0) content = unwrapOnEdge(content, e2, false)
+    openEnd--
+  }
+  return new Slice(content, openStart, openEnd)
 }
 
 /** Does this doc hold an original of the group? */
@@ -213,11 +238,14 @@ export const SyncedBlock = Node.create({
           return !touchesOrphan(tr, state.doc)
         },
         props: {
-          transformPasted(slice, view) {
+          transformPasted(pasted, view) {
+            if (!hasSynced(pasted.content)) return pasted
+            const slice = unwrapCutEdges(pasted)
             if (!hasSynced(slice.content)) return slice
             if (syncedAround(view.state.selection.$from)) {
               toast({ message: t('editor.synced.noNestingPaste'), kind: 'info' })
-              return unwrapSlice(slice)
+              // (no synced block sits on an open edge any more: the depths stay as they are)
+              return new Slice(unwrapAll(slice.content), slice.openStart, slice.openEnd)
             }
             // a block moved by dragging keeps its role
             if ((view as unknown as { dragging?: { move?: boolean } | null }).dragging?.move) return slice

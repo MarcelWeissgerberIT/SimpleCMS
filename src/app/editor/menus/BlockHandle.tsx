@@ -26,6 +26,7 @@ import { livePages } from '../lib/livePages'
 import { TURN_INTO_ITEMS } from '../lib/catalog'
 import { BlockGlyph } from './SlashMenu'
 import { toggleHeadingLevel } from '../schema/toggle'
+import { mediaMenuEntries } from './mediaMenu'
 import { ColorGrid } from './BubbleToolbar'
 import { blockMenuSyncedEntries } from '../synced/menu'
 
@@ -255,6 +256,8 @@ export function BlockHandle({ editor, bridge, pageId }: { editor: Editor; bridge
           },
         ],
       })
+    // video / audio: replace, download, copy a web link
+    items.push(...mediaMenuEntries(editor, ref, t))
     items.push(
       { kind: 'separator' },
       { label: t('common.duplicate'), icon: <Copy size={15} />, hint: isTouch ? undefined : shortcutLabel('Mod+D'), onSelect: () => duplicateBlock(editor, ref) },

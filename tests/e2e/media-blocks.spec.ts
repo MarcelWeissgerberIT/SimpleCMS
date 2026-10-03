@@ -20,6 +20,13 @@ async function blocksOf(page: Page, id: string): Promise<JSONContent[]> {
   return wsEval(page, (s, id) => JSON.parse(JSON.stringify(s.pages[id]?.content?.content ?? [])), id)
 }
 
+/** Wait until the editor wrote a video block with a stored file into the page. */
+async function storedVideo(page: Page, id: string) {
+  await expect
+    .poll(async () => (await blocksOf(page, id)).some((b) => b.type === 'video' && String(b.attrs?.src ?? '').startsWith('onefile:')), { message: 'stored video block' })
+    .toBe(true)
+}
+
 const textOf = (n: JSONContent | undefined): string => (n?.text ?? '') + (n?.content ?? []).map(textOf).join('')
 
 /** Pick an entry of the block menu's "Turn into" submenu for the block holding `line`. */
@@ -162,7 +169,7 @@ test.describe('toggle headings', () => {
     await editorOf(page, id).locator('p').last().click()
     await dispatchFiles(page, 'paste', [{ name: 'clip.webm', type: 'video/webm', b64: CLIP.toString('base64') }])
     await expect(editorOf(page, id).locator('.media-view--video video')).toHaveAttribute('src', /^blob:/)
-    await flush(page)
+    await storedVideo(page, id)
     const ref = await wsEval(
       page,
       (s, id) => {
@@ -292,7 +299,12 @@ test.describe('video and audio blocks', () => {
     await view.getByRole('button', { name: 'Pause', exact: true }).click()
     await expect(view.getByRole('button', { name: 'Play', exact: true })).toBeVisible()
     // links can be copied, local files cannot
-    await expect(view.getByRole('button', { name: 'Copy link' })).toBeAttached()
+    await expect(view.getByRole('button', { name: 'Copy media link' })).toBeAttached()
+    // the block menu offers the same file actions
+    await view.locator('.media-view__bar').hover()
+    await page.locator('.block-handle__grip').click()
+    for (const name of ['Replace', 'Download', 'Copy media link']) await expect(page.getByRole('menuitem', { name, exact: true })).toBeVisible()
+    await page.keyboard.press('Escape')
 
     await flush(page)
     const stored = (await blocksOf(page, id)).find((b) => b.type === 'audio')!
@@ -340,7 +352,7 @@ test.describe('video and audio blocks', () => {
     await ed.locator('p').last().click()
     await dispatchFiles(page, 'paste', [{ name: 'clip.webm', type: 'video/webm', b64: CLIP.toString('base64') }])
     await expect(ed.locator('.media-view--video video')).toHaveAttribute('src', /^blob:/)
-    await flush(page)
+    await storedVideo(page, id)
     await wsEval(
       page,
       (s, { id, url }) => {

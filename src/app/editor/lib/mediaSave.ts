@@ -6,10 +6,11 @@
  */
 import { useSyncExternalStore } from 'react'
 import type { Editor, JSONContent } from '@tiptap/core'
-import { saveFile } from '../../lib/files'
+import { FILE_PREFIX, resolveFileUrl, saveFile } from '../../lib/files'
 import { toast } from '../../store/ui'
 import { t } from '../../i18n'
-import { MEDIA_MAX_BYTES, mediaKindOf, type MediaKind } from '../schema/media'
+import { MEDIA_MAX_BYTES, mediaKindOf, mediaNameFromUrl, type MediaKind } from '../schema/media'
+import { pickFiles } from './upload'
 
 export interface PendingSave {
   name: string
@@ -106,4 +107,74 @@ export async function insertMediaFile(editor: Editor, file: File, insert: (node:
     emit()
   }
   return true
+}
+
+/**
+ * Pick a file for the video / audio block at `pos` (empty or filled) and store it; the block
+ * shows its saving plate meanwhile. Resolves with the block's position once it has the file,
+ * null when cancelled, refused or failed.
+ */
+export async function pickMediaFile(editor: Editor, pos: number): Promise<number | null> {
+  const node = editor.state.doc.nodeAt(pos)
+  const kind = node?.type.name as MediaKind | undefined
+  if (!node || (kind !== 'video' && kind !== 'audio')) return null
+  const [file] = await pickFiles(kind === 'video' ? 'video/*' : 'audio/*')
+  if (!file || !mediaFits(file) || editor.isDestroyed) return null
+  const id = typeof node.attrs.id === 'string' ? node.attrs.id : null
+  if (id) {
+    pending.set(id, { name: file.name, size: file.size })
+    emit()
+  }
+  try {
+    const ref = await saveFile(file, file.name)
+    if (editor.isDestroyed) return null
+    // the block may have moved while the file was stored: find it again
+    const at = id ? findBlock(editor, id, kind) : editor.state.doc.nodeAt(pos)?.type.name === kind ? pos : null
+    const current = at === null ? null : editor.state.doc.nodeAt(at)
+    if (at === null || !current) return null
+    editor.view.dispatch(editor.state.tr.setNodeMarkup(at, undefined, { ...current.attrs, src: ref, name: file.name }))
+    return at
+  } catch (err) {
+    console.warn('[editor] media save failed', err)
+    toast({ message: t('editor.upload.failed'), kind: 'error' })
+    return null
+  } finally {
+    if (id) {
+      pending.delete(id)
+      emit()
+    }
+  }
+}
+
+/** Save a block's media file (local) or open its link (web) — never navigates the app away. */
+export async function downloadMedia(src: string, name: string): Promise<void> {
+  if (!src.startsWith(FILE_PREFIX)) {
+    window.open(src, '_blank', 'noopener,noreferrer')
+    return
+  }
+  const url = await resolveFileUrl(src)
+  if (!url) return
+  const a = document.createElement('a')
+  a.href = url
+  a.download = name || 'media'
+  document.body.append(a)
+  a.click()
+  a.remove()
+}
+
+/** Copy a web media link (local files have none to share). */
+export async function copyMediaLink(src: string): Promise<void> {
+  try {
+    await navigator.clipboard.writeText(src)
+    toast({ message: t('editor.media.linkCopied'), kind: 'success' })
+  } catch {
+    toast({ message: src })
+  }
+}
+
+/** File name of a block's media for downloads and labels. */
+export function mediaFileName(attrs: Record<string, unknown>, kind: MediaKind): string {
+  const name = typeof attrs.name === 'string' ? attrs.name : ''
+  const src = typeof attrs.src === 'string' ? attrs.src : ''
+  return name || (src && !src.startsWith(FILE_PREFIX) ? mediaNameFromUrl(src) : '') || kind
 }

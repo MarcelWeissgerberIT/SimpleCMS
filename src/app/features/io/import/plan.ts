@@ -276,7 +276,8 @@ export function rewriteLinks(md: string, fn: (href: string, isImage: boolean, te
     })
     .replace(MEDIA_SRC_RE, (all, open: string, href: string, close: string) => {
       const next = fn(href.replace(/&amp;/g, '&'), true, '')
-      return next === null ? all : `${open}${next.replace(/&/g, '&amp;').replace(/"/g, '&quot;')}${close}`
+      // an attribute takes the bare target ("<a b.mp4>" is Markdown's form for link targets)
+      return next === null ? all : `${open}${next.replace(/^<|>$/g, '').replace(/&/g, '&amp;').replace(/"/g, '&quot;')}${close}`
     })
 }
 

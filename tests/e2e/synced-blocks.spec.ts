@@ -98,10 +98,8 @@ test.describe('synced blocks', () => {
     await uiEval(page, (s, id) => s.openPane(id), a)
     const paneA = editorOf(page, a)
     await expect(paneA.locator('[data-type="synced-block"] .synced__tag')).toHaveText(/Synced · 2 pages/)
-    await paneA.locator('p', { hasText: 'Shared alpha' }).click()
-    await page.keyboard.press('Home')
-    for (let i = 0; i < 3; i++) await page.keyboard.press('ArrowRight')
     const caretA = await posOf(paneA, 'Shared alpha', 3)
+    await paneA.evaluate((el, pos) => (el as HTMLElement & { editor: { commands: { focus: (p: number) => void } } }).editor.commands.focus(pos), caretA)
     await expect.poll(() => caretOf(paneA)).toBe(caretA)
 
     // typing in the reference (B) reaches the original (store + open editor), A's caret stays
@@ -187,7 +185,8 @@ test.describe('synced blocks', () => {
     expect(await plainOf(page, c)).toContain('Rule two')
   })
 
-  test('menu: pages using it, Go to original; a duplicated page holds a reference; no synced block inside another', async ({ page }) => {
+  test('menu: pages using it, Go to original; a duplicated page holds a reference; no synced block inside another', async ({ page, context }) => {
+    await context.grantPermissions(['clipboard-read', 'clipboard-write'])
     await openApp(page)
     const a = await createPage(page, { title: 'Pricing', content: doc(para('Top'), synced('grp-price', null, para('Pro is 12 EUR')), para('Bottom')) })
     const b = await createPage(page, { title: 'Sales deck', content: doc(synced('grp-price', a, para('Pro is 12 EUR'))) })
@@ -237,6 +236,22 @@ test.describe('synced blocks', () => {
     expect(all).toHaveLength(2)
     expect(textOf(all[1])).toContain('Pasted inside')
     expect(all.every((n) => !(n.content ?? []).some((k) => k.type === 'syncedBlock'))).toBe(true)
+
+    // a piece of a synced block's text, copied and pasted elsewhere, is just that text
+    const from = await posOf(edA, 'Pro is 12 EUR', 0)
+    await edA.evaluate((el, r) => {
+      const ed = (el as HTMLElement & { editor: { commands: { setTextSelection: (r: { from: number; to: number }) => void }; view: { focus: () => void } } }).editor
+      ed.commands.setTextSelection(r)
+      ed.view.focus()
+    }, { from, to: from + 6 })
+    await expect.poll(() => page.evaluate(() => window.getSelection()?.toString())).toBe('Pro is')
+    await page.keyboard.press(`${MOD}+c`)
+    const end = await posOf(edA, 'Bottom', 6)
+    await edA.evaluate((el, pos) => (el as HTMLElement & { editor: { commands: { focus: (p: number) => void } } }).editor.commands.focus(pos), end)
+    await page.keyboard.press(`${MOD}+v`)
+    await expect(edA.locator('p', { hasText: 'BottomPro is' })).toHaveCount(1)
+    await flush(page)
+    expect(await storedSynced(page, a)).toHaveLength(2)
   })
 
   test('duplicate block → a reference; a reference restored from history follows the original; a moved original takes its references along', async ({ page }) => {

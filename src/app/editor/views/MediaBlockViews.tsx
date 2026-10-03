@@ -8,20 +8,17 @@ import { NodeViewWrapper, type ReactNodeViewProps } from '@tiptap/react'
 import type { Editor } from '@tiptap/core'
 import { NodeSelection } from '@tiptap/pm/state'
 import { AlignCenter, AlignLeft, AlignRight, AudioLines, Captions, Download, Film, Link2, Pause, Play, RefreshCw, Trash2, Upload, type LucideIcon } from 'lucide-react'
-import { FILE_PREFIX, getFile, saveFile, useFileUrl } from '../../lib/files'
-import { toast } from '../../store/ui'
+import { FILE_PREFIX, getFile, useFileUrl } from '../../lib/files'
 import { useT } from '../../i18n'
-import { pickFiles } from '../lib/upload'
 import { detectProvider, domainOf, parseUrl } from '../lib/embeds'
 import { caretAfterNode, leaveNodeView } from '../lib/blocks'
-import { mediaFits, usePendingSave, type PendingSave } from '../lib/mediaSave'
+import { copyMediaLink, pickMediaFile, usePendingSave, type PendingSave } from '../lib/mediaSave'
 import { mediaNameFromUrl, safeMediaSrc, type MediaKind } from '../schema/media'
 import { formatBytes } from './MediaViews'
 import './media.css'
 
 const MIN_W = 200
 const ICON: Record<MediaKind, LucideIcon> = { video: Film, audio: AudioLines }
-const ACCEPT: Record<MediaKind, string> = { video: 'video/*', audio: 'audio/*' }
 /** Links that play in an embed, not in a media element. */
 const EMBED_PROVIDERS = new Set(['youtube', 'vimeo', 'loom'])
 const RATES = [1, 1.5, 2, 0.75]
@@ -203,15 +200,6 @@ function MediaBar({
   // local files: their size; links: where they come from (left out on a phone-width bar)
   const origin = local ? (size !== null ? formatBytes(size) : null) : domainOf(src)
 
-  const copyLink = async () => {
-    try {
-      await navigator.clipboard.writeText(src)
-      toast({ message: t('editor.media.linkCopied'), kind: 'success' })
-    } catch {
-      toast({ message: src })
-    }
-  }
-
   const onKeyDown = (e: RKeyboardEvent) => {
     if (e.key !== 'Escape') return
     e.preventDefault()
@@ -271,7 +259,7 @@ function MediaBar({
             </a>
           )}
           {!local && (
-            <button type="button" className="icon-btn icon-btn--sm" title={t('editor.media.copyLink')} aria-label={t('editor.media.copyLink')} onClick={copyLink}>
+            <button type="button" className="icon-btn icon-btn--sm" title={t('editor.media.copyLink')} aria-label={t('editor.media.copyLink')} onClick={() => void copyMediaLink(src)}>
               <Link2 size={13} />
             </button>
           )}
@@ -342,8 +330,7 @@ function MediaBlock({ kind, props }: { kind: MediaKind; props: ReactNodeViewProp
   const src = safeMediaSrc(node.attrs.src)
   const url = useFileUrl(src)
   const local = useLocalFile(src)
-  const pendingSave = usePendingSave(node.attrs.id as string | null)
-  const [saving, setSaving] = useState<PendingSave | null>(null)
+  const busy = usePendingSave(node.attrs.id as string | null)
   const [el, setEl] = useState<HTMLMediaElement | null>(null)
   const state = useMediaState(el, url)
   const figRef = useRef<HTMLElement>(null)
@@ -356,25 +343,14 @@ function MediaBlock({ kind, props }: { kind: MediaKind; props: ReactNodeViewProp
   useEffect(() => setShowCaption(!!caption || showCaption), [caption]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const upload = async () => {
-    const [file] = await pickFiles(ACCEPT[kind])
-    if (!file || !mediaFits(file)) return
+    const pos = getPos()
+    if (typeof pos !== 'number') return
     const fresh = !src
-    setSaving({ name: file.name, size: file.size })
-    try {
-      const ref = await saveFile(file, file.name)
-      if (editor.isDestroyed || typeof getPos() !== 'number') return
-      updateAttributes({ src: ref, name: file.name })
-      // a fresh upload: back to the document (a free line below, else the block selected)
-      if (fresh) leaveNodeView(editor, getPos(), 'escape')
-    } catch (err) {
-      console.warn('[editor] media save failed', err)
-      toast({ message: t('editor.upload.failed'), kind: 'error' })
-    } finally {
-      setSaving(null)
-    }
+    const at = await pickMediaFile(editor, pos)
+    // a fresh upload: back to the document (a free line below, else the block selected)
+    if (fresh && at !== null) leaveNodeView(editor, at, 'escape')
   }
 
-  const busy = pendingSave ?? saving
   if (!src || busy) return <EmptyMedia kind={kind} props={props} busy={busy} upload={upload} />
 
   const startResize = (side: 'left' | 'right') => (e: RPointerEvent) => {

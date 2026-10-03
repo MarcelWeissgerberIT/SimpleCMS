@@ -134,7 +134,7 @@ export const ToggleDetails = MarkdownDetails.extend<ToggleDetailsOptions>({
 
       this.options.renderToggleButton({ element: toggle, isOpen: Boolean(node.attrs.open), node })
       // the content view is created right after this one: open once it exists
-      if (node.attrs.open) setTimeout(() => setOpen(true))
+      if (node.attrs.open) setTimeout(() => setOpen(Boolean(current.attrs.open)))
 
       toggle.addEventListener('click', () => {
         const open = !dom.classList.contains(openClassName)

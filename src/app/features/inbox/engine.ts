@@ -274,7 +274,7 @@ async function pass(now = Date.now()): Promise<void> {
     dirty.clear()
     teamItems.push(...pending)
     pending = []
-    if (!teamItems.length) scheduleSnapshotSave()
+    if (ids.length) scheduleSnapshotSave()
   }
 
   let fired: InboxItem[] = []
@@ -289,7 +289,7 @@ async function pass(now = Date.now()): Promise<void> {
       return f
     })
     fired = res ?? []
-    if (teamItems.length && snap) await saveSnapshot(ws!, snap)
+    if (teamItems.length) await flushSnapshot()
   }
   if (fired.length) {
     announce(fired, now, useInbox.getState().data.notify)
@@ -316,12 +316,20 @@ function scheduleDue(index: ReminderEntry[], now: number): void {
   dueTimer = window.setTimeout(() => runPass(), wait)
 }
 
+/** The snapshot changed: save it soon (items are saved together with it, see pass). */
 let snapTimer = 0
+let snapDirty = false
 function scheduleSnapshotSave(): void {
+  snapDirty = true
   window.clearTimeout(snapTimer)
-  snapTimer = window.setTimeout(() => {
-    if (snap && ws) void saveSnapshot(ws, snap)
-  }, 1000)
+  snapTimer = window.setTimeout(() => void flushSnapshot(), 1000)
+}
+
+async function flushSnapshot(): Promise<void> {
+  window.clearTimeout(snapTimer)
+  if (!snapDirty || !snap || !ws) return
+  snapDirty = false
+  await saveSnapshot(ws, snap)
 }
 
 /** Serialised passes: a request while one runs schedules exactly one more. */
@@ -373,7 +381,7 @@ function onStore(state: ReturnType<typeof useWorkspace.getState>, prev: ReturnTy
 
 function onVisible(): void {
   if (document.visibilityState === 'visible') void runPass()
-  else if (snap && ws && leader) void saveSnapshot(ws, snap)
+  else if (leader) void flushSnapshot()
 }
 
 function lead(gen: number): void {
@@ -426,7 +434,9 @@ export function stopInbox(): void {
   started = false
   leader = false
   generation++
-  if (snap && ws) void saveSnapshot(ws, snap)
+  window.clearTimeout(snapTimer)
+  if (snapDirty && snap && ws) void saveSnapshot(ws, snap)
+  snapDirty = false
   snap = null
   pending = []
   dirty.clear()

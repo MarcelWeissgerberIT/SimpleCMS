@@ -22,7 +22,7 @@ export function InboxSettings({ anchor, onClose }: { anchor: PopoverAnchor; onCl
       <div className="label ibx-set__head">§ — {t('shell.inbox.settings')}</div>
       <div className="ibx-set__row">
         <span className="ibx-set__name">{t('shell.inbox.notify')}</span>
-        <Switch checked={shown} label={t('shell.inbox.notify')} disabled={perm === 'unsupported'} onChange={(v) => void toggle(v)} />
+        <Switch checked={shown} label={t('shell.inbox.notify')} disabled={perm === 'unsupported' || perm === 'denied'} onChange={(v) => void toggle(v)} />
       </div>
       <p className="ibx-set__hint">{t('shell.inbox.notify.hint')}</p>
       <div className="ibx-set__perm" data-perm={perm}>

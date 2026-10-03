@@ -360,7 +360,8 @@ async function finishContent(
     const name = fig.getAttribute('data-name') || fig.querySelector('figcaption')?.textContent || ''
     const note = doc.createElement('p')
     note.className = 'media-note'
-    note.textContent = `▶ ${ctx.mediaOmitted ? ctx.mediaOmitted(name) : name}`
+    // on paper the name is enough; in the file it says why the player is missing
+    note.textContent = `▶ ${!ctx.print && ctx.mediaOmitted ? ctx.mediaOmitted(name) : name}`
     fig.replaceWith(note)
   })
   // embeds → links (no iframes in a document)

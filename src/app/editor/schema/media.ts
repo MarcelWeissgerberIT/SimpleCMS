@@ -194,7 +194,8 @@ export const Video = Node.create({
     }
   },
   parseHTML() {
-    return [{ tag: 'figure[data-type="video"]' }, { tag: 'video' }]
+    // a bare <video> (pasted from a web page) only when it has a source we can play
+    return [{ tag: 'figure[data-type="video"]' }, { tag: 'video', getAttrs: (el: HTMLElement) => (srcFromDom(el) ? null : false) }]
   },
   renderHTML({ node, HTMLAttributes }) {
     const { name, caption, width, align } = node.attrs as { name: string; caption: string; width: number | null; align: string }
@@ -230,7 +231,7 @@ export const Audio = Node.create({
     return baseAttributes()
   },
   parseHTML() {
-    return [{ tag: 'figure[data-type="audio"]' }, { tag: 'audio' }]
+    return [{ tag: 'figure[data-type="audio"]' }, { tag: 'audio', getAttrs: (el: HTMLElement) => (srcFromDom(el) ? null : false) }]
   },
   renderHTML({ node, HTMLAttributes }) {
     const { name, caption } = node.attrs as { name: string; caption: string }
