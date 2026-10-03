@@ -395,19 +395,21 @@ let pollTimer = 0
 let autoTimer = 0
 let unsubscribe: (() => void) | null = null
 
+/** Connected and allowed to write (after an error the next change tries again). */
+const folderLive = () => ['ready', 'error'].includes(useSync.getState().folder.state)
+
 function onWorkspaceChange() {
   window.clearTimeout(writeTimer)
   writeTimer = window.setTimeout(() => {
     if (!leader) return
-    if (handle && useSync.getState().folder.state === 'ready') void syncFolder()
+    if (handle && folderLive()) void syncFolder()
     if (useSync.getState().github.state !== 'off') void refreshPending()
   }, WRITE_DEBOUNCE_MS)
 }
 
 /** Folder edits are picked up by the tab the person looks at (leader or not — runs are exclusive anyway). */
 function pickupSoon() {
-  if (!handle || document.visibilityState !== 'visible') return
-  if (useSync.getState().folder.state !== 'ready') return
+  if (!handle || document.visibilityState !== 'visible' || !folderLive()) return
   void syncFolder({ pickup: true })
 }
 
@@ -461,7 +463,7 @@ function lead(gen: number) {
   // catch up: write what changed while no tab was leading, pick up what changed in the folder
   window.setTimeout(() => {
     if (!leader) return
-    if (handle && useSync.getState().folder.state === 'ready') void syncFolder({ pickup: true })
+    if (handle && folderLive()) void syncFolder({ pickup: true })
     if (useSync.getState().github.state !== 'off') void refreshPending()
   }, 1500)
   rescheduleAuto()
