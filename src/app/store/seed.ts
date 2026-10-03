@@ -43,6 +43,7 @@ const toggle = (summary: string, ...blocks: JSONContent[]): JSONContent => ({
     { type: 'detailsContent', content: blocks },
   ],
 })
+const toggleHeading = (level: 1 | 2 | 3, summary: string, ...blocks: JSONContent[]): JSONContent => ({ ...toggle(summary, ...blocks), attrs: { heading: level } })
 const hr = (): JSONContent => ({ type: 'horizontalRule' })
 const codeBlock = (language: string, source: string): JSONContent => ({ type: 'codeBlock', attrs: { language }, content: [txt(source)] })
 const math = (latex: string): JSONContent => ({ type: 'blockMath', attrs: { latex } })
@@ -546,7 +547,8 @@ export function seedWorkspace(lang: Lang): void {
         [L('Focus mode', 'Fokus-Modus'), '⌘⇧F / Ctrl+Shift+F'],
         [L('Duplicate block', 'Block duplizieren'), '⌘D / Ctrl+D'],
       ])),
-      toggle(L('Where is my data?', 'Wo sind meine Daten?'), p(L('In your browser’s IndexedDB. Use Export for backups or to move to another device.', 'In der IndexedDB deines Browsers. Nutze den Export für Backups oder den Umzug auf ein anderes Gerät.'))),
+      // a toggle heading (details.heading 1–3)
+      toggleHeading(3, L('Where is my data?', 'Wo sind meine Daten?'), p(L('In your browser’s IndexedDB. Use Export for backups or to move to another device.', 'In der IndexedDB deines Browsers. Nutze den Export für Backups oder den Umzug auf ein anderes Gerät.'))),
       hr(),
       p(i(L('Explore: ', 'Entdecken: ')), mention(wiki, L('Team wiki', 'Team-Wiki')), ' · ', mention(meeting, L('Weekly sync — notes', 'Weekly Sync — Notizen')), ' · ', mention(reading, L('Reading list', 'Leseliste')), ' · ', mention(calendar, L('Content calendar', 'Content-Kalender')), ' · ', hl(L('have fun', 'viel Spaß'))),
       p(L('Built for the ', 'Gebaut für die '), link('Ninja Armory', 'https://www.skool.com'), '.'),

@@ -90,7 +90,7 @@ test.describe('landing sections', () => {
     await expect(features.locator('.plac')).toHaveCount(16)
     for (const [group, items] of [
       ['Write', ['Block editor', 'Version history']],
-      ['Organise', ['Databases, 8 views', 'Sub-items & dependencies', 'Agenda']],
+      ['Organise', ['Databases, 8 views', 'Sub-items & dependencies', 'Agenda & inbox']],
       ['Automate', ['Webhook automations', 'Forms', 'Buttons', 'AI autofill']],
       ['Publish & move', ['Publish as a website', 'Links with a password', 'Import from anywhere', 'Web clipper']],
     ] as const) {

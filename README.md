@@ -51,7 +51,9 @@ AI on every workspace with your own Claude key, and an honest export.
 | Version history | 7 / 30 / 90 days by plan | **no limit**, block-level diff |
 | Share without a server | no | **yes** — the page travels inside the link |
 | Pages side by side | peek / second window | **stacked panes** |
-| Real-time multiplayer | **yes** | no — single user, live sync across tabs |
+| Real-time multiplayer | **yes** | **yes** in a team workspace on your own server (open source) — the local workspace stays single-user, synced across tabs |
+| Inbox & reminders | yes | **yes** — reminders on any date; mentions, assignments and replies in team workspaces |
+| Public API | yes | **yes** on a team server, plus an incoming webhook URL per database for n8n / Make / Zapier |
 
 <sub>Full research with sources: [docs/RESEARCH.md](docs/RESEARCH.md).</sub>
 
@@ -69,26 +71,30 @@ AI on every workspace with your own Claude key, and an honest export.
 </table>
 
 **Block editor** — slash menu (with the Markdown shortcut shown next to every command), drag handles, turn-into,
-toggles, callouts, columns, tables, tabs, to-dos, code with highlighting, KaTeX math, Mermaid diagrams, images &
-files, embeds, bookmarks, table of contents, @-mentions of pages / dates / people, emoji shortcodes, Markdown paste,
-block links, margin comments (they never leave the device), and **buttons** that insert blocks, add rows, edit
-properties, open links or fire a webhook in one click.
+toggles and toggle headings, callouts, columns, tables, tabs, to-dos, code with highlighting, KaTeX math, Mermaid
+diagrams, images, video & audio, files, embeds, bookmarks, table of contents, @-mentions of pages / dates (with
+reminders) / people, emoji shortcodes, Markdown paste, block links, margin comments (they never leave the device),
+**synced blocks** (the same content on several pages — edit it anywhere, it changes everywhere), and **buttons** that
+insert blocks, add rows, edit properties, open links or fire a webhook in one click.
 
 **Databases** — table, board, list, gallery, calendar, timeline, chart and form views over the same rows; 20 property
 types including relations, rollups, formulas (safe parser, no `eval`), status, unique IDs and ratings; filters with
 AND/OR groups, multi-sort, grouping, footer calculations, colour rules, sub-items, timeline dependencies (with
-automatic shifting), row templates, inline databases inside pages, side/centre peek, `.ics` calendar export, and
+automatic shifting), row templates — also repeating ones (a fresh meeting entry every Monday at 09:00) — inline databases inside pages, side/centre peek, `.ics` calendar export, and
 **AI autofill** — summaries, key info, translations or categories per row, reviewed before they are written.
 
 **Workspace** — page tree with drag & drop, favourites, trash, breadcrumbs, `⌘K` palette for search *and* commands,
-home dashboard, today's journal, an **Agenda** with everything dated in the workspace (month, week, list), backlinks
+home dashboard, today's journal, an **Inbox** with reminders (and, in team workspaces, mentions, assignments and
+replies), an **Agenda** with everything dated in the workspace (month, week, list), backlinks
 and unlinked mentions, a web clipper (bookmarklet and Android share target) that saves to a Clippings page, stacked panes
 (`Alt`-click any link), focus mode, presentation mode (any page becomes slides), 11 templates (meeting notes, project tracker, roadmap, content calendar, reading list, CRM, bug tracker,
 OKRs, weekly planner, wiki, habits), light "Paper" and dark "Carbon" themes, English and German.
 
 **AI, your key** — select text and ask Claude to improve, shorten, extend, fix, translate, explain, summarise or pull
 out action items; press `Space` on an empty line to write, or ask questions about your whole workspace with cited
-pages. Requests go straight from your browser to `api.anthropic.com` with your key (default model Claude Opus 5.5;
+pages. The **workspace agent** (`⌘J` / `Ctrl+J`) takes a task in plain words — "tag every open task in the meeting
+notes", "make a project row for each item on this page" — plans the steps across pages and databases and applies
+them only after you have reviewed the changes. Requests go straight from your browser to `api.anthropic.com` with your key (default model Claude Opus 5.5;
 Sonnet 5.5 and Haiku 4.5 selectable). The key never leaves this browser in any other way.
 
 **Automations for automators** — every database can fire webhooks when rows are created, changed or deleted, set
@@ -121,7 +127,14 @@ or **publish it as a website**: a static site with navigation, sitemap, RSS, `ll
 page, ready for GitHub Pages or Netlify. Share read-only pages as links that *contain* the page (compressed into the
 URL, optionally encrypted with a password) — no server involved.
 
-**Private by construction** — no analytics, no cookies, no backend. A service worker keeps the app working offline
+**Teams, on your own server** — the same app also runs as a team workspace on a small server you host
+(`server/`: Node, SQLite, Yjs, Docker + Caddy; licensed AGPL-3.0): sign-in by email link, roles (owner, admin, member,
+viewer), invitations, live co-editing with cursors and presence, offline copies that sync when you are back, and a
+**public REST API** with API tokens and an incoming webhook URL per database, so n8n, Make or Zapier can write rows
+into One ([docs/API.md](docs/API.md)). Setup in [docs/SELF_HOSTING.md](docs/SELF_HOSTING.md), architecture in
+[docs/CLOUD.md](docs/CLOUD.md). The local workspace keeps working without any of it.
+
+**Private by construction** — no analytics, no cookies, no backend (unless you run the team server). A service worker keeps the app working offline
 after the first visit. Several tabs stay in sync — when two of them edit the same page at the same moment, the
 changes are merged (three-way, block by block and character by character), so nobody's words get lost.
 
@@ -174,7 +187,8 @@ Built for the **Ninja Armory** challenge of the AI Automations community.
 
 ## License
 
-[MIT](LICENSE) © 2026 Marcel Weissgerber — use it, fork it, ship it.
+[MIT](LICENSE) © 2026 Marcel Weissgerber — use it, fork it, ship it. The team server in `server/` is licensed
+[AGPL-3.0](server/LICENSE).
 
 ---
 
@@ -189,9 +203,14 @@ Built for the **Ninja Armory** challenge of the AI Automations community.
 - Import aus Notion, Obsidian, Evernote, Trello und HTML
 - Veröffentlichen als statische Website, Teilen-Links ohne Server (optional mit Passwort)
 - Agenda über alle Datenbanken, Web-Clipper, Graph-Ansicht und Versionsverlauf ohne Zeitlimit
+- Posteingang mit Erinnerungen, synchronisierte Blöcke, Aufklapp-Überschriften, Video und Audio
+- einen Workspace-Agenten (`⌘J`), der Aufgaben über Seiten und Datenbanken plant und erst nach deiner Prüfung ausführt
+- wiederkehrende Datenbank-Vorlagen, z. B. jeden Montag um 09:00 ein neuer Meeting-Eintrag
 - Präsentationsmodus und Offline-Betrieb
+- optional Team-Workspaces auf dem eigenen Server (Live-Zusammenarbeit, Rollen, Einladungen, öffentliche API und
+  eingehende Webhooks) – Anleitung in [docs/SELF_HOSTING.md](docs/SELF_HOSTING.md)
 
-Alles läuft im Browser, deine Daten verlassen dein Gerät nicht. Die Oberfläche gibt es auf Deutsch und Englisch und
+Alles läuft im Browser, deine Daten verlassen dein Gerät nicht (außer du betreibst den Team-Server). Die Oberfläche gibt es auf Deutsch und Englisch und
 erkennt die Sprache automatisch.
 
 Beim ersten Besuch erscheint die Startseite von 1997 als hässliche Tabellenkalkulation. Wer 15 Sekunden nichts tut,
@@ -201,4 +220,4 @@ mit `?intro` lässt es sich wiederholen.
 **Loslegen:** [Workspace öffnen](https://getonecms.com/app/). Zum Selbst-Hosten: Repository
 forken, *Settings → Pages → Source: GitHub Actions* einstellen und nach `main` pushen.
 
-Lizenz: [MIT](LICENSE) — frei nutzen, forken, weitergeben.
+Lizenz: [MIT](LICENSE) — frei nutzen, forken, weitergeben. Der Team-Server in `server/` steht unter [AGPL-3.0](server/LICENSE).
