@@ -4,14 +4,28 @@
  * and the progress / result toasts. Used by the sidebar (drag & drop, row menu) and "Move to".
  */
 import { CloudError, createPrivateDatabase, createPrivatePage, movePagePrivacy } from '../../cloud'
+import { syncedCopiesOutside } from '../../editor'
 import { t } from '../../i18n'
-import { useWorkspace } from '../../store/store'
+import { descendantIds, useWorkspace } from '../../store/store'
 import { useUI } from '../../store/ui'
 import type { ID } from '../../store/types'
 import { goToPage, requestTitleFocus } from '../lib/actions'
 
 const titleOf = (id: ID) => useWorkspace.getState().pages[id]?.title.trim() || t('common.untitled')
 const workspaceName = () => useWorkspace.getState().settings.workspaceName.trim() || 'One'
+
+/**
+ * Going private: synced blocks whose original moves along keep feeding their copies on workspace
+ * pages (deliberate sharing, docs/CLOUD.md) — the confirmation says how many. Empty when there are none.
+ */
+function syncedCopiesLine(pageId: ID): string {
+  const pages = useWorkspace.getState().pages
+  const moving = new Set([pageId, ...descendantIds(pages, pageId)])
+  const { copies, blocks } = syncedCopiesOutside(moving, (id) => !!pages[id] && !pages[id].private)
+  if (!copies) return ''
+  if (blocks > 1) return t('shell.private.syncedCopies.blocks', { blocks, n: copies })
+  return copies === 1 ? t('shell.private.syncedCopies.one') : t('shell.private.syncedCopies', { n: copies })
+}
 
 /**
  * Move `pageId` into Private (`toPrivate`) or into the workspace — at `target` (a page of that scope,
@@ -42,7 +56,7 @@ export function requestPrivacyMove(pageId: ID, toPrivate: boolean, target?: { pa
     ui.openModal({
       type: 'confirm',
       title: toPrivate ? t('shell.private.confirmPrivateTitle', { title }) : t('shell.private.confirmTitle', { title, workspace }),
-      body: toPrivate ? t('shell.private.confirmPrivateBody', { workspace }) : t('shell.private.confirmBody', { workspace }),
+      body: toPrivate ? [t('shell.private.confirmPrivateBody', { workspace }), syncedCopiesLine(pageId)].filter(Boolean).join(' ') : t('shell.private.confirmBody', { workspace }),
       confirmLabel: toPrivate ? t('shell.private.confirmPrivateLabel') : t('shell.private.confirmLabel'),
       onConfirm: () => void run().then(resolve),
     })

@@ -1,3 +1,5 @@
+import { docContext, fileNameContext, idempotencyContext, isSealedText, open, openText, seal, sealText, type WorkspaceKey } from './crypto/aead.ts'
+import type { Keyring } from './crypto/keyring.ts'
 import type { Db } from './db/index.ts'
 import { DAY, hashToken, iso, newId, randomToken } from './tokens.ts'
 
@@ -14,6 +16,8 @@ export interface UserRow {
   name: string | null
   created_at: number
   last_seen_at: number | null
+  /** When this person's own workspace was created (null: not yet — at their next sign-in). */
+  personal_space_at?: number | null
 }
 
 export interface WorkspaceRow {
@@ -23,6 +27,8 @@ export interface WorkspaceRow {
   created_at: number
   created_by: string | null
   plan: string
+  /** The user whose personal workspace this is (created at their first sign-in), else null. */
+  personal_of: string | null
 }
 
 export interface InviteRow {
@@ -41,14 +47,18 @@ export interface InviteRow {
 export interface FileRow {
   id: string
   workspace_id: string
+  /** Plaintext here; sealed with the workspace's key in the database (enc = 1). */
   name: string
   mime: string
   size: number
+  /** Content fingerprint for the ETag: HMAC-SHA256 with the workspace's key (enc = 1), plain SHA-256 before. */
   sha256: string
   created_by: string | null
   created_at: number
   /** Uploaded from a private page: served to this user only (until published, docs/CLOUD.md § Private pages). */
   private_to: string | null
+  /** 1: name sealed, bytes in `<id>.enc` · 0: from before encryption (plain name, bytes in `<id>` until migrated). */
+  enc: number
 }
 
 export type ApiScope = 'read' | 'write'
@@ -83,13 +93,15 @@ export const isApiTokenShape = (s: unknown): s is string => typeof s === 'string
 
 export const publicUser = (u: Pick<UserRow, 'id' | 'email' | 'name'>) => ({ id: u.id, email: u.email, name: u.name })
 
-export const publicWorkspace = (w: WorkspaceRow, role: Role) => ({
+/** `viewer`: the user asking — `personal` is true on their own personal workspace (while they own it). */
+export const publicWorkspace = (w: WorkspaceRow, role: Role, viewer?: string) => ({
   id: w.id,
   name: w.name,
   icon: parseJson(w.icon),
   role,
   plan: w.plan,
   created_at: iso(w.created_at),
+  personal: !!viewer && w.personal_of === viewer && role === 'owner',
 })
 
 function parseJson(s: string | null): unknown {
@@ -103,14 +115,33 @@ function parseJson(s: string | null): unknown {
 
 export const normalizeEmail = (email: string) => email.trim().toLowerCase()
 
-/** All SQL lives here, so routes, collab and the CLI share one vocabulary. */
+/**
+ * All SQL lives here, so routes, collab and the CLI share one vocabulary. Workspace content is
+ * encrypted and decrypted here (documents, file names, idempotency answers — docs/CLOUD.md § Tenancy
+ * & encryption at rest), so every caller reads and writes plaintext.
+ */
 export class Repo {
   readonly db: Db
   private readonly secret: Buffer
+  private readonly keyring: Keyring | null
 
-  constructor(db: Db, secret: Buffer) {
+  constructor(db: Db, secret: Buffer, keyring: Keyring | null = null) {
     this.db = db
     this.secret = secret
+    this.keyring = keyring
+  }
+
+  /** The keyring (DATA_KEY loaded). The admin CLI's plain commands run without one. */
+  get keys(): Keyring {
+    if (!this.keyring) throw new Error('no DATA_KEY loaded')
+    return this.keyring
+  }
+
+  /** The workspace's key; throws when the workspace is gone (callers checked access first). */
+  private keyOf(workspaceId: string): WorkspaceKey {
+    const key = this.keys.forWorkspace(workspaceId)
+    if (!key) throw new Error(`workspace ${workspaceId} has no key (deleted?)`)
+    return key
   }
 
   hash(token: string): string {
@@ -150,19 +181,22 @@ export class Repo {
     return this.db.get<WorkspaceRow>('SELECT * FROM workspaces WHERE id = ?', id)
   }
 
+  /** The person's own workspace first, then the others by age. */
   workspacesForUser(userId: string) {
     return this.db.all<WorkspaceRow & { role: Role }>(
       `SELECT w.*, m.role FROM members m JOIN workspaces w ON w.id = m.workspace_id
-       WHERE m.user_id = ? ORDER BY w.created_at`,
+       WHERE m.user_id = ? ORDER BY (w.personal_of IS NOT NULL AND w.personal_of = m.user_id AND m.role = 'owner') DESC, w.created_at`,
       userId,
     )
   }
 
+  /** Workspaces this user created (the personal one, created for them, does not count). */
   countWorkspacesCreatedSince(userId: string, since: number): number {
-    return this.db.get<{ n: number }>('SELECT COUNT(*) AS n FROM workspaces WHERE created_by = ? AND created_at > ?', userId, since)?.n ?? 0
+    return this.db.get<{ n: number }>('SELECT COUNT(*) AS n FROM workspaces WHERE created_by = ? AND created_at > ? AND personal_of IS NULL', userId, since)?.n ?? 0
   }
 
-  createWorkspace(userId: string, name: string, icon: unknown): WorkspaceRow {
+  /** A new workspace with its data key (one transaction) and the caller as owner. */
+  createWorkspace(userId: string, name: string, icon: unknown, opts: { personal?: boolean } = {}): WorkspaceRow {
     const ws: WorkspaceRow = {
       id: newId(),
       name,
@@ -170,15 +204,28 @@ export class Repo {
       created_at: Date.now(),
       created_by: userId,
       plan: 'free',
+      personal_of: opts.personal ? userId : null,
     }
     this.db.tx(() => {
       this.db.run(
-        'INSERT INTO workspaces (id, name, icon, created_at, created_by, plan) VALUES (?, ?, ?, ?, ?, ?)',
-        ws.id, ws.name, ws.icon, ws.created_at, ws.created_by, ws.plan,
+        'INSERT INTO workspaces (id, name, icon, created_at, created_by, plan, personal_of) VALUES (?, ?, ?, ?, ?, ?, ?)',
+        ws.id, ws.name, ws.icon, ws.created_at, ws.created_by, ws.plan, ws.personal_of,
       )
+      this.keys.create(ws.id)
       this.addMember(ws.id, userId, 'owner')
     })
     return ws
+  }
+
+  /**
+   * The person's own workspace — created once, at their first sign-in (docs/CLOUD.md § Tenancy).
+   * null when it was created before (also when they deleted it since: it does not come back).
+   */
+  ensurePersonalWorkspace(userId: string, name: string): WorkspaceRow | null {
+    return this.db.tx(() => {
+      if (!this.db.run('UPDATE users SET personal_space_at = ? WHERE id = ? AND personal_space_at IS NULL', Date.now(), userId)) return null
+      return this.createWorkspace(userId, name, null, { personal: true })
+    })
   }
 
   updateWorkspace(id: string, patch: { name?: string; icon?: unknown }) {
@@ -186,9 +233,17 @@ export class Repo {
     if (patch.icon !== undefined) this.db.run('UPDATE workspaces SET icon = ? WHERE id = ?', patch.icon == null ? null : JSON.stringify(patch.icon), id)
   }
 
-  /** Members, invites, documents and file rows go with it (ON DELETE CASCADE). */
+  /**
+   * Crypto-shredding first: the wrapped data key goes, then the workspace — members, invites,
+   * documents, file rows, tokens and hooks with it (ON DELETE CASCADE). Then the WAL is checkpointed
+   * and truncated, so no older page image of the key stays in it (secure_delete zeroes the rest).
+   */
   deleteWorkspace(id: string) {
-    this.db.run('DELETE FROM workspaces WHERE id = ?', id)
+    this.db.tx(() => {
+      this.keys.shred(id)
+      this.db.run('DELETE FROM workspaces WHERE id = ?', id)
+    })
+    this.db.checkpoint()
   }
 
   memberRole(workspaceId: string, userId: string): Role | undefined {
@@ -211,9 +266,13 @@ export class Repo {
     this.db.run('UPDATE members SET role = ? WHERE workspace_id = ? AND user_id = ?', role, workspaceId, userId)
   }
 
-  /** The current owner becomes admin; the target (added if needed) becomes the one owner. */
+  /**
+   * The current owner becomes admin; the target (added if needed) becomes the one owner. A personal
+   * workspace handed to someone else is nobody's personal workspace any more.
+   */
   transferOwnership(workspaceId: string, toUserId: string) {
     this.db.tx(() => {
+      this.db.run('UPDATE workspaces SET personal_of = NULL WHERE id = ? AND personal_of IS NOT NULL AND personal_of != ?', workspaceId, toUserId)
       this.db.run("UPDATE members SET role = 'admin' WHERE workspace_id = ? AND role = 'owner'", workspaceId)
       if (this.memberRole(workspaceId, toUserId)) this.db.run("UPDATE members SET role = 'owner' WHERE workspace_id = ? AND user_id = ?", workspaceId, toUserId)
       else this.addMember(workspaceId, toUserId, 'owner')
@@ -296,22 +355,34 @@ export class Repo {
 
   // ── Yjs documents ────────────────────────────────────────────────────
 
+  /**
+   * The stored Yjs state, decrypted (AAD = the document name: a ciphertext copied from another row
+   * fails here). Throws DecryptError rather than ever handing out an empty document for damaged data.
+   */
   loadDocument(name: string): Uint8Array | undefined {
-    return this.db.get<{ data: Uint8Array }>('SELECT data FROM documents WHERE name = ?', name)?.data
+    const row = this.db.get<{ data: Uint8Array; enc: number; workspace_id: string }>('SELECT data, enc, workspace_id FROM documents WHERE name = ?', name)
+    if (!row) return undefined
+    if (!row.enc) return row.data // from before encryption, until the startup migration sealed it
+    const key = this.keys.forWorkspace(row.workspace_id)
+    if (!key) return undefined
+    return open(key.aead, row.data, docContext(name))
   }
 
   /**
-   * Upsert; silently skipped when the workspace is gone (a late debounced store after deletion) or the
-   * document was deleted for good (a client that still had it open, or an offline copy syncing late).
+   * Upsert, sealed with the workspace's key (a fresh nonce every time); silently skipped when the
+   * workspace is gone (a late debounced store after deletion — its key went first) or the document
+   * was deleted for good (a client that still had it open, or an offline copy syncing late).
    */
   saveDocument(name: string, workspaceId: string, data: Uint8Array): boolean {
+    const key = this.keys.forWorkspace(workspaceId)
+    if (!key) return false
     return (
       this.db.run(
-        `INSERT INTO documents (name, workspace_id, data, updated_at)
-         SELECT ?, ?, ?, ? WHERE EXISTS (SELECT 1 FROM workspaces WHERE id = ?)
-                            AND NOT EXISTS (SELECT 1 FROM document_tombstones WHERE name = ?)
-         ON CONFLICT(name) DO UPDATE SET data = excluded.data, updated_at = excluded.updated_at`,
-        name, workspaceId, data, Date.now(), workspaceId, name,
+        `INSERT INTO documents (name, workspace_id, data, enc, updated_at)
+         SELECT ?, ?, ?, 1, ? WHERE EXISTS (SELECT 1 FROM workspaces WHERE id = ?)
+                               AND NOT EXISTS (SELECT 1 FROM document_tombstones WHERE name = ?)
+         ON CONFLICT(name) DO UPDATE SET data = excluded.data, enc = 1, updated_at = excluded.updated_at`,
+        name, workspaceId, seal(key.aead, data, docContext(name)), Date.now(), workspaceId, name,
       ) > 0
     )
   }
@@ -352,17 +423,24 @@ export class Repo {
 
   // ── files ────────────────────────────────────────────────────────────
 
-  file(workspaceId: string, id: string) {
-    return this.db.get<FileRow>('SELECT * FROM files WHERE workspace_id = ? AND id = ?', workspaceId, id)
+  /** A file's row with its name decrypted. */
+  file(workspaceId: string, id: string): FileRow | undefined {
+    const row = this.db.get<FileRow>('SELECT * FROM files WHERE workspace_id = ? AND id = ?', workspaceId, id)
+    if (!row?.enc) return row
+    return { ...row, name: openText(this.keyOf(workspaceId).aead, row.name, fileNameContext(workspaceId, id)) }
   }
 
-  insertFile(row: FileRow): boolean {
+  /** A new file row (bytes already in `<id>.enc`): the name is sealed, `sha256` is the keyed fingerprint. */
+  insertFile(row: Omit<FileRow, 'enc'>): boolean {
+    const key = this.keys.forWorkspace(row.workspace_id)
+    if (!key) return false
     return (
       this.db.run(
-        `INSERT INTO files (id, workspace_id, name, mime, size, sha256, created_by, created_at, private_to)
-         SELECT ?, ?, ?, ?, ?, ?, ?, ?, ? WHERE EXISTS (SELECT 1 FROM workspaces WHERE id = ?)
+        `INSERT INTO files (id, workspace_id, name, mime, size, sha256, created_by, created_at, private_to, enc)
+         SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, 1 WHERE EXISTS (SELECT 1 FROM workspaces WHERE id = ?)
          ON CONFLICT DO NOTHING`,
-        row.id, row.workspace_id, row.name, row.mime, row.size, row.sha256, row.created_by, row.created_at, row.private_to, row.workspace_id,
+        row.id, row.workspace_id, sealText(key.aead, row.name, fileNameContext(row.workspace_id, row.id)), row.mime, row.size, row.sha256,
+        row.created_by, row.created_at, row.private_to, row.workspace_id,
       ) > 0
     )
   }
@@ -502,15 +580,22 @@ export class Repo {
 
   // ── idempotency (create requests, 24 h) ──────────────────────────────
 
-  idempotent(scope: string, key: string, since: number) {
-    return this.db.get<{ status: number; body: string }>('SELECT status, body FROM idempotency WHERE scope = ? AND key = ? AND created_at > ?', scope, key, since)
+  /** A kept answer (decrypted). The answer of a create request is workspace content: sealed at rest. */
+  idempotent(scope: string, key: string, since: number): { status: number; body: string } | undefined {
+    const row = this.db.get<{ status: number; body: string; workspace_id: string }>(
+      'SELECT status, body, workspace_id FROM idempotency WHERE scope = ? AND key = ? AND created_at > ?',
+      scope, key, since,
+    )
+    if (!row || !isSealedText(row.body)) return row // JSON from before encryption (kept 24 h at most)
+    // a damaged answer fails the request (500) — running the create again could duplicate it
+    return { status: row.status, body: openText(this.keyOf(row.workspace_id).aead, row.body, idempotencyContext(scope, key)) }
   }
 
   rememberIdempotent(scope: string, key: string, workspaceId: string, status: number, body: string) {
     this.db.run(
       `INSERT INTO idempotency (scope, key, workspace_id, status, body, created_at) VALUES (?, ?, ?, ?, ?, ?)
        ON CONFLICT(scope, key) DO UPDATE SET status = excluded.status, body = excluded.body, created_at = excluded.created_at`,
-      scope, key, workspaceId, status, body, Date.now(),
+      scope, key, workspaceId, status, sealText(this.keyOf(workspaceId).aead, body, idempotencyContext(scope, key)), Date.now(),
     )
   }
 

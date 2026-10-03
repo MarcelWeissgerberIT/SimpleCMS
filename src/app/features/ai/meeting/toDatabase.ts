@@ -18,6 +18,20 @@ export function pendingActionItems(editor: Editor, blockId: string): ActionRef[]
   return hit ? actionItemsIn(hit.node).filter((a) => a.text && !a.linked) : []
 }
 
+/**
+ * What the open items carry that database `dbId` has no property for: how many name an owner
+ * (a workspace person; the database has no person property) / have a due date (no date property).
+ */
+export function missingFields(editor: Editor, blockId: string, dbId: ID): { owner: number; due: number } {
+  const db = useWorkspace.getState().databases[dbId]
+  if (!db) return { owner: 0, due: 0 }
+  const items = pendingActionItems(editor, blockId)
+  return {
+    owner: db.properties.some((p) => p.type === 'person') ? 0 : items.filter((a) => !!ownerId(a)).length,
+    due: db.properties.some((p) => p.type === 'date') ? 0 : items.filter((a) => !!a.due).length,
+  }
+}
+
 function ownerId(item: ActionRef): ID | null {
   const people = useWorkspace.getState().people
   if (item.ownerId && people.some((p) => p.id === item.ownerId)) return item.ownerId

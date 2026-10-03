@@ -40,7 +40,7 @@ export const messages: Messages = {
     'hero.h1': 'Notion, rebuilt.',
     'hero.h2': 'Minus the bill.',
     'hero.sub':
-      'Block editor, databases with eight views, forms, Claude AI on your own key, automations into n8n — and one export to a website. Free, local-first, no account: it all runs in this browser tab.',
+      'Block editor, databases with eight views, spreadsheets and charts, forms, Claude AI on your own key, automations into n8n — and one export to a website. Free, local-first, no account: it all runs in this browser tab.',
     'hero.cta': 'Open the workspace',
     'hero.import': 'Import from Notion',
     'hero.fine': 'No sign-up · No card · No catch',
@@ -107,10 +107,11 @@ export const messages: Messages = {
     'r.paid': 'Nothing to pay',
 
     'features.label': '§ 02 — Features',
-    'features.title': 'Sixteen things it does.\nZero add‑ons.',
+    'features.title': 'Twenty things it does.\nZero add‑ons.',
     'features.lead': 'Everything below ships in the free workspace — no plan, no add-on, no upsell.',
     'features.g.write': 'Write',
     'features.g.organise': 'Organise',
+    'features.g.calculate': 'Calculate',
     'features.g.automate': 'Automate',
     'features.g.publish': 'Publish & move',
     'features.extras': 'Also in the box',
@@ -164,7 +165,13 @@ export const messages: Messages = {
     'mcp.read': 'Read',
     'mcp.write': 'Write',
     'mcp.setup': 'Patch it in',
-    'mcp.steps': '3 steps · 2 minutes',
+    'mcp.steps': '2 steps · 1 minute',
+    'mcp.oneClick': 'Add One to Claude Desktop — one click, no terminal, no Node.js.',
+    'mcp.install': 'Add to Claude Desktop',
+    'mcp.installSpec': 'one.mcpb · macOS · Windows',
+    'mcp.installHint': 'Open the downloaded file — Claude Desktop asks to install it.',
+    'mcp.manual': 'Other clients · manual setup',
+    'mcp.manualNote': 'Claude Code, Cursor, VS Code … or Claude Desktop by hand',
     'mcp.s1': 'Download the bridge — one file, needs Node.js 20 or newer.',
     'mcp.download': 'Download one-mcp.mjs',
     'mcp.s2': 'Add it to your MCP client.',
@@ -304,7 +311,7 @@ export const messages: Messages = {
     'hero.h1': 'Notion, neu gebaut.',
     'hero.h2': 'Ohne Abo.',
     'hero.sub':
-      'Block-Editor, Datenbanken mit acht Ansichten, Formulare, Claude-KI mit eigenem Schlüssel, Automationen nach n8n — und ein Export zur fertigen Website. Kostenlos, local-first, ohne Konto: Alles läuft in diesem Browser-Tab.',
+      'Block-Editor, Datenbanken mit acht Ansichten, Tabellenkalkulation und Diagramme, Formulare, Claude-KI mit eigenem Schlüssel, Automationen nach n8n — und ein Export zur fertigen Website. Kostenlos, local-first, ohne Konto: Alles läuft in diesem Browser-Tab.',
     'hero.cta': 'Workspace öffnen',
     'hero.import': 'Aus Notion importieren',
     'hero.fine': 'Keine Anmeldung · Keine Karte · Kein Haken',
@@ -370,10 +377,11 @@ export const messages: Messages = {
     'r.paid': 'Nichts zu zahlen',
 
     'features.label': '§ 02 — Funktionen',
-    'features.title': 'Sechzehn Funktionen.\nNull Add‑ons.',
+    'features.title': 'Zwanzig Funktionen.\nNull Add‑ons.',
     'features.lead': 'Alles hier steckt im kostenlosen Workspace — kein Tarif, kein Add-on, kein Upsell.',
     'features.g.write': 'Schreiben',
     'features.g.organise': 'Ordnen',
+    'features.g.calculate': 'Rechnen',
     'features.g.automate': 'Automatisieren',
     'features.g.publish': 'Veröffentlichen & umziehen',
     'features.extras': 'Außerdem dabei',
@@ -427,7 +435,13 @@ export const messages: Messages = {
     'mcp.read': 'Lesen',
     'mcp.write': 'Schreiben',
     'mcp.setup': 'Einstecken',
-    'mcp.steps': '3 Schritte · 2 Minuten',
+    'mcp.steps': '2 Schritte · 1 Minute',
+    'mcp.oneClick': 'One zu Claude Desktop hinzufügen — ein Klick, kein Terminal, kein Node.js.',
+    'mcp.install': 'Zu Claude Desktop hinzufügen',
+    'mcp.installSpec': 'one.mcpb · macOS · Windows',
+    'mcp.installHint': 'Die geladene Datei öffnen — Claude Desktop fragt, ob es sie installieren soll.',
+    'mcp.manual': 'Andere Clients · manuelle Einrichtung',
+    'mcp.manualNote': 'Claude Code, Cursor, VS Code … oder Claude Desktop von Hand',
     'mcp.s1': 'Lade die Brücke — eine Datei, braucht Node.js 20 oder neuer.',
     'mcp.download': 'one-mcp.mjs herunterladen',
     'mcp.s2': 'Trage sie in deinen MCP-Client ein.',
@@ -556,8 +570,12 @@ export type FeatureKey =
   | 'share'
   | 'import'
   | 'clipper'
+  | 'sheets'
+  | 'functions'
+  | 'charts'
+  | 'formulas'
 
-export type FeatureGroup = 'write' | 'organise' | 'automate' | 'publish'
+export type FeatureGroup = 'write' | 'organise' | 'calculate' | 'automate' | 'publish'
 
 export interface Feature {
   key: FeatureKey
@@ -629,6 +647,10 @@ export const content: Record<Lang, SiteContent> = {
       { key: 'structure', group: 'organise', code: 'Sb', title: 'Sub-items & dependencies', text: 'Nest tasks, chain them on the timeline and let the dates shift together. Colour rules flag what matters.' },
       { key: 'agenda', group: 'organise', code: 'Ag', title: 'Agenda & inbox', text: 'Every date from every database in one month, week or list view — and reminders that land in your inbox.' },
       { key: 'palette', group: 'organise', code: '⌘K', title: 'Search & ⌘K', text: 'One shortcut finds every page and row and runs every command. Hands stay on the keys.' },
+      { key: 'sheets', group: 'calculate', code: 'Sp', title: 'Spreadsheets in pages', text: 'Several sheets, 75+ functions, cross-sheet references and coloured datasets like DS(A1:A10; C2:C7). Paste from Excel, take it out as CSV.' },
+      { key: 'functions', group: 'calculate', code: 'Fx', title: 'Your own functions', text: 'Build MARGIN or SPREAD by clicking a formula tree and test it on sample values. No code — nothing to exploit.' },
+      { key: 'charts', group: 'calculate', code: 'Ch', title: 'Charts in three clicks', text: 'Bar, line, area, donut, KPI and more — live from a sheet, a database or the workspace’s own numbers.' },
+      { key: 'formulas', group: 'calculate', code: 'Σ', title: 'Formulas & rollups', text: 'Database formulas that can call your functions, rollups across relations — and properties created as you type.' },
       { key: 'automations', group: 'automate', code: 'Au', title: 'Webhook automations', text: 'When a row is created, changed or deleted: fire a webhook, set a property, notify. Free on every database.' },
       { key: 'forms', group: 'automate', code: 'Fm', title: 'Forms', text: 'A database becomes a form — with conditional questions and pages. Shared forms post every answer to your webhook.' },
       { key: 'buttons', group: 'automate', code: 'Bt', title: 'Buttons', text: 'One click inserts blocks, adds rows, edits properties, opens links or fires a webhook.' },
@@ -745,7 +767,7 @@ export const content: Record<Lang, SiteContent> = {
       },
       {
         q: 'Can Claude work in my workspace?',
-        a: 'Yes, over MCP. Download one-mcp.mjs, add it to Claude Desktop or Claude Code and switch on Settings → Agents · MCP in One. Claude then searches, reads and writes through your open tab — each change waits for your approval unless you choose otherwise. A team server offers the same tools at /mcp, with API tokens.',
+        a: 'Yes, over MCP. Add One to Claude Desktop with one click (or point Claude Code or any MCP client at one-mcp.mjs) and switch on Settings → Agents · MCP in One. Claude then searches, reads and writes through your open tab — each change waits for your approval unless you choose otherwise. A team server offers the same tools at /mcp, with API tokens.',
       },
       {
         q: 'How do I move from Notion?',
@@ -783,6 +805,10 @@ export const content: Record<Lang, SiteContent> = {
       { key: 'structure', group: 'organise', code: 'Ue', title: 'Unterelemente & Abhängigkeiten', text: 'Aufgaben verschachteln, auf der Zeitleiste verketten, Termine gemeinsam verschieben. Farbregeln zeigen, was zählt.' },
       { key: 'agenda', group: 'organise', code: 'Ag', title: 'Agenda & Posteingang', text: 'Jeder Termin aus jeder Datenbank in Monat, Woche oder Liste — und Erinnerungen, die im Posteingang landen.' },
       { key: 'palette', group: 'organise', code: '⌘K', title: 'Suche & ⌘K', text: 'Ein Kürzel findet jede Seite und Zeile und führt jeden Befehl aus. Die Hände bleiben auf der Tastatur.' },
+      { key: 'sheets', group: 'calculate', code: 'Tk', title: 'Tabellenkalkulation', text: 'Mehrere Blätter, 75+ Funktionen, Bezüge zwischen Blättern und farbige Datenbereiche wie DS(A1:A10; C2:C7). Aus Excel einfügen, als CSV wieder hinaus.' },
+      { key: 'functions', group: 'calculate', code: 'Fx', title: 'Eigene Funktionen', text: 'MARGE oder SPANNE per Klick aus einem Formelbaum bauen und mit Beispielwerten testen. Kein Code — nichts zum Ausnutzen.' },
+      { key: 'charts', group: 'calculate', code: 'Dg', title: 'Diagramme in drei Klicks', text: 'Balken, Linie, Fläche, Torte, KPI und mehr — live aus einer Tabelle, einer Datenbank oder den Zahlen deines Workspaces.' },
+      { key: 'formulas', group: 'calculate', code: 'Σ', title: 'Formeln & Rollups', text: 'Datenbank-Formeln, die deine Funktionen aufrufen, Rollups über Relationen — und Eigenschaften, die beim Tippen entstehen.' },
       { key: 'automations', group: 'automate', code: 'Au', title: 'Webhook-Automationen', text: 'Zeile angelegt, geändert oder gelöscht: Webhook feuern, Eigenschaft setzen, Hinweis zeigen. Kostenlos in jeder Datenbank.' },
       { key: 'forms', group: 'automate', code: 'Fo', title: 'Formulare', text: 'Aus einer Datenbank wird ein Formular — mit bedingten Fragen und Seiten. Geteilte Formulare senden jede Antwort an deinen Webhook.' },
       { key: 'buttons', group: 'automate', code: 'Bt', title: 'Buttons', text: 'Ein Klick fügt Blöcke ein, legt Zeilen an, ändert Eigenschaften, öffnet Links oder feuert einen Webhook.' },
@@ -899,7 +925,7 @@ export const content: Record<Lang, SiteContent> = {
       },
       {
         q: 'Kann Claude in meinem Workspace arbeiten?',
-        a: 'Ja, über MCP. Lade one-mcp.mjs, trage die Datei in Claude Desktop oder Claude Code ein und schalte in One Einstellungen → Agenten · MCP ein. Claude sucht, liest und schreibt dann über deinen offenen Tab — jede Änderung wartet auf deine Freigabe, wenn du es nicht anders einstellst. Ein Team-Server bietet dieselben Werkzeuge unter /mcp, mit API-Tokens.',
+        a: 'Ja, über MCP. Füge One mit einem Klick zu Claude Desktop hinzu (oder trage one-mcp.mjs in Claude Code oder einen anderen MCP-Client ein) und schalte in One Einstellungen → Agenten · MCP ein. Claude sucht, liest und schreibt dann über deinen offenen Tab — jede Änderung wartet auf deine Freigabe, wenn du es nicht anders einstellst. Ein Team-Server bietet dieselben Werkzeuge unter /mcp, mit API-Tokens.',
       },
       {
         q: 'Wie ziehe ich von Notion um?',

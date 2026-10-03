@@ -7,12 +7,15 @@
  * reminder this device first sees when it is already past (set on a past date, or while this device
  * was away from a team workspace) is noted, not fired. Reminders that came due while the app was
  * closed fire at the next start, with ONE summary toast. Changing a reminder's date or code makes
- * it a new reminder; trashing the page or removing the reminder cancels it.
+ * it a new reminder; trashing the page or removing the reminder cancels it — one that comes due
+ * while its page is in the trash is noted (restoring the page brings no "missed" news), later ones
+ * fire as usual once the page is back.
  *
  * Team workspaces: "me" is the signed-in account (members are mirrored as people with the account
- * id). Per page a snapshot of what concerns me (my @mentions per block, the person properties I am
- * in, every comment reply id) is kept on this device; the first scan of a workspace is the
- * baseline, later differences become items: someone @mentioned me, I was added to a person
+ * id). Per page a snapshot of what concerns me (my @mentions per block — those in synced blocks
+ * also per sync group, so a group's mentions are news once, wherever they show up — the person
+ * properties I am in, every comment reply id) is kept on this device; the first scan of a workspace
+ * is the baseline, later differences become items: someone @mentioned me, I was added to a person
  * property, a new reply in a thread I started or replied to. Comment authors are display names, so
  * "my" threads are matched by my display name. Changes made here are never news: they are told
  * apart by the store (isApplyingRemote) and, for this browser's other tabs, by a hint they send.
@@ -22,12 +25,12 @@
 import { useWorkspace } from '../../store/store'
 import { useUI } from '../../store/ui'
 import { isApplyingRemote } from '../../store/persistence'
-import { isEffectivelyTrashed } from '../../store/selectors'
-import type { ID } from '../../store/types'
+import { inTemplate, isEffectivelyTrashed } from '../../store/selectors'
+import type { ID, Page } from '../../store/types'
 import { activeWorkspace, useCloud } from '../../cloud'
 import { navigate, openPage } from '../../lib/router'
 import { t } from '../../i18n'
-import { collectReminders, commentBlock, mentionLine, takesPart, teamFacts, type ReminderEntry, type TeamFacts } from './scan'
+import { collectReminders, commentBlock, groupMention, mentionLine, takesPart, teamFacts, type ReminderEntry, type TeamFacts } from './scan'
 import { formatDue, hasTime, parseIsoLocal, parseReminder, reminderDueAt, reminderLabel, reminderOptions } from './reminders'
 import { loadInbox, loadSnapshot, markRead, mutateInbox, onInboxMessage, postInbox, saveSnapshot, useInbox, wsKey, type InboxData, type InboxItem, type Snapshot } from './state'
 import { showNotification } from './notify'
@@ -132,25 +135,41 @@ function announce(items: InboxItem[], now: number, notify: boolean): void {
 
 /* ------------------------------------------------------------------ reminders */
 
-/** Decide in memory first: only touch IndexedDB when something changes. */
-function reminderWork(index: ReminderEntry[], data: InboxData, now: number): { fresh: ReminderEntry[]; due: ReminderEntry[] } {
+/**
+ * Decide in memory first: only touch IndexedDB when something changes. `quiet`: reminders this
+ * device knows that came due while their page was in the trash — noted, never fired (restoring the
+ * page brings no "missed" news; a synced block still live on another page is not in the trash).
+ */
+function reminderWork(index: ReminderEntry[], trashed: ReminderEntry[], data: InboxData, now: number): { fresh: ReminderEntry[]; due: ReminderEntry[]; quiet: ReminderEntry[] } {
   const fresh: ReminderEntry[] = []
   const due: ReminderEntry[] = []
+  const quiet: ReminderEntry[] = []
   for (const r of index) {
     const st = data.rem[r.key]
     if (!st) fresh.push(r)
     else if (!st.fired && r.dueAt <= now) due.push(r)
   }
-  return { fresh, due }
+  if (trashed.length) {
+    const live = new Set(index.map((r) => r.key))
+    for (const r of trashed) {
+      const st = data.rem[r.key]
+      if (st && !st.fired && r.dueAt <= now && !live.has(r.key)) quiet.push(r)
+    }
+  }
+  return { fresh, due, quiet }
 }
 
 function reminderItem(r: ReminderEntry): InboxItem {
   return { id: `r:${r.key}`, kind: 'reminder', pageId: r.pageId, at: r.dueAt, blockId: r.blockId, excerpt: r.excerpt, iso: r.iso, code: r.code, propId: r.propId }
 }
 
-/** Apply to a data draft: note new reminders, fire due ones. Returns what fired. */
-function applyReminders(d: InboxData, index: ReminderEntry[], now: number, gc: boolean): InboxItem[] {
+/** Apply to a data draft: note new reminders and `quiet` ones (see reminderWork), fire due ones. Returns what fired. */
+function applyReminders(d: InboxData, index: ReminderEntry[], quiet: ReminderEntry[], now: number, gc: boolean): InboxItem[] {
   const fired: InboxItem[] = []
+  for (const r of quiet) {
+    const st = d.rem[r.key]
+    if (st && !st.fired) st.fired = now
+  }
   for (const r of index) {
     let st = d.rem[r.key]
     if (!st) {
@@ -175,7 +194,7 @@ function applyReminders(d: InboxData, index: ReminderEntry[], now: number, gc: b
 /* ------------------------------------------------------------------ team */
 
 function empty(): TeamFacts {
-  return { m: [], a: [], r: [] }
+  return { m: [], g: [], a: [], r: [] }
 }
 
 /** Multiset difference: occurrences in `cur` beyond those in `old`, with their running count. */
@@ -192,6 +211,36 @@ function added(cur: Array<string | null>, old: Array<string | null>): Array<{ bl
   return out
 }
 
+const countOf = (list: Array<string | null> | undefined, syncId: string) => (list ?? []).reduce((n, g) => (g === syncId ? n + 1 : n), 0)
+
+/**
+ * My @mentions inside synced blocks (`groups`: the sync group per mention of `page`, see TeamFacts;
+ * `fresh`: per group, how many of them sit in blocks that didn't have them on this page before):
+ * news once per group, for the whole workspace — when a page shows more of them than any page's
+ * snapshot knew. Content that was there already is no news when it turns up elsewhere (a copy whose
+ * original left this workspace, a new copy) or gets wrapped (Copy and sync). The item sits at the
+ * original when this member has it. Call after `snap[page.id]` took the page's new facts (`old`).
+ */
+function groupNews(me: ID, pages: Record<ID, Page>, page: Page, groups: Array<string | null>, fresh: Map<string, number>, old: TeamFacts, now: number): InboxItem[] {
+  const items: InboxItem[] = []
+  const counts = new Map<string, number>()
+  for (const g of groups) if (g) counts.set(g, (counts.get(g) ?? 0) + 1)
+  for (const [syncId, count] of counts) {
+    let known = countOf(old.g, syncId)
+    if (count <= known || !fresh.get(syncId)) continue
+    for (const pid in snap!) if (pid !== page.id) known = Math.max(known, countOf(snap![pid].g, syncId))
+    const news = Math.min(fresh.get(syncId)!, count - known)
+    if (news <= 0) continue
+    const here = groupMention(page, me, syncId)
+    // at the original (its block once its content is here: the same line)
+    const source = here?.source ? pages[here.source] : undefined
+    const pageId = source?.id ?? page.id
+    const blockId = source ? (groupMention(source, me, syncId)?.blockId ?? null) : (here?.blockId ?? null)
+    for (let n = known + 1; n <= known + news; n++) items.push({ id: `m:${pageId}:${blockId ?? '-'}:${n}`, kind: 'mention', pageId, at: now, blockId, excerpt: here?.line ?? '' })
+  }
+  return items
+}
+
 /**
  * Diff one page against the snapshot and update it. `own`: the change was made here — absorbed,
  * no items (a reply by someone else is still news: replies carry their author).
@@ -206,11 +255,12 @@ function diffPage(me: { id: ID; name: string }, id: ID, own: boolean, baselineAt
     return items
   }
   const db = page.databaseId ? s.databases[page.databaseId] : undefined
-  const cur = teamFacts(page, db, me.id, (pid) => !!s.pages[pid])
+  const cur = teamFacts(page, db, me.id)
   let old = snap[id]
   // content not loaded (yet): keep what was known of it
-  snap[id] = cur.m === undefined && old?.m !== undefined ? { ...cur, m: old.m } : cur
-  if (isEffectivelyTrashed(s.pages, id)) return items
+  snap[id] = cur.m === undefined && old?.m !== undefined ? { ...cur, m: old.m, g: old.g } : cur
+  // a template (features/templates) mentions or assigns no one: its copies do
+  if (isEffectivelyTrashed(s.pages, id) || inTemplate(s.pages, id)) return items
   if (!old) {
     // first sight: what existed at the baseline is no news; a page made since then is
     if (page.createdAt <= baselineAt) return items
@@ -218,9 +268,20 @@ function diffPage(me: { id: ID; name: string }, id: ID, own: boolean, baselineAt
   }
   if (!own) {
     // @mentions (content loaded; an old page's first content is the baseline)
-    if (cur.m && (old.m || page.createdAt > baselineAt))
-      for (const { block, n } of added(cur.m, old.m ?? []))
-        items.push({ id: `m:${id}:${block ?? '-'}:${n}`, kind: 'mention', pageId: id, at: now, blockId: block, excerpt: mentionLine(page, me.id, block) })
+    if (cur.m && (old.m || page.createdAt > baselineAt)) {
+      const groups = cur.g ?? []
+      const groupOf = new Map<string | null, string | null>()
+      cur.m.forEach((block, i) => groupOf.has(block) || groupOf.set(block, groups[i] ?? null))
+      // new by block: a block that had me already (also inside a synced block since unsynced) is no news
+      const fresh = new Map<string, number>()
+      for (const { block, n } of added(cur.m, old.m ?? [])) {
+        const syncId = groupOf.get(block)
+        if (syncId) fresh.set(syncId, (fresh.get(syncId) ?? 0) + 1)
+        else items.push({ id: `m:${id}:${block ?? '-'}:${n}`, kind: 'mention', pageId: id, at: now, blockId: block, excerpt: mentionLine(page, me.id, block) })
+      }
+      // inside synced blocks also per group (a snapshot from before groups were tracked is their baseline)
+      if (!old.m || old.g) items.push(...groupNews(me.id, s.pages, page, groups, fresh, old, now))
+    }
     // person properties
     for (const propId of cur.a)
       if (!old.a.includes(propId)) items.push({ id: `a:${id}:${propId}`, kind: 'assigned', pageId: id, at: now, propId, excerpt: db?.properties.find((p) => p.id === propId)?.name ?? '' })
@@ -255,8 +316,9 @@ async function pass(now = Date.now()): Promise<void> {
   booted = true
 
   // reminders
-  const index = collectReminders(s.pages, s.databases)
-  const work = reminderWork(index, st.data, now)
+  const trashed: ReminderEntry[] = []
+  const index = collectReminders(s.pages, s.databases, trashed)
+  const work = reminderWork(index, trashed, st.data, now)
 
   // team items
   let teamItems: InboxItem[] = []
@@ -278,9 +340,9 @@ async function pass(now = Date.now()): Promise<void> {
   }
 
   let fired: InboxItem[] = []
-  if (work.fresh.length || work.due.length || teamItems.length || boot) {
+  if (work.fresh.length || work.due.length || work.quiet.length || teamItems.length || boot) {
     const res = await mutateInbox((d) => {
-      const f = applyReminders(d, index, now, boot)
+      const f = applyReminders(d, index, work.quiet, now, boot)
       for (const it of teamItems) {
         // the same mention / assignment again (removed and re-added): back to unread, on top
         d.items = d.items.filter((i) => i.id !== it.id)
@@ -296,7 +358,7 @@ async function pass(now = Date.now()): Promise<void> {
     postInbox({ type: 'fired', ws: ws!, items: fired, now })
   }
   if (teamItems.length) notifyTeam(teamItems)
-  scheduleDue(index, now)
+  scheduleDue(index, trashed, now)
 }
 
 function notifyTeam(items: InboxItem[]): void {
@@ -306,13 +368,14 @@ function notifyTeam(items: InboxItem[]): void {
   showNotification(t(`inbox.kind.${first.kind}`), body, items.length === 1 ? first.id : 'one-inbox-team', () => (items.length === 1 ? openInboxItem(first) : openInbox()))
 }
 
-/** Next wake-up: the next due reminder, at most a minute away. */
-function scheduleDue(index: ReminderEntry[], now: number): void {
+/** Next wake-up: the next due reminder (one in the trash too: it is noted then), at most a minute away. */
+function scheduleDue(index: ReminderEntry[], trashed: ReminderEntry[], now: number): void {
   window.clearTimeout(dueTimer)
   if (!leader) return
   const rem = useInbox.getState().data.rem
-  const next = index.find((r) => r.dueAt > now && !rem[r.key]?.fired)
-  const wait = next ? Math.min(TICK_MS, Math.max(250, next.dueAt - now + 50)) : TICK_MS
+  const ahead = (r: ReminderEntry) => r.dueAt > now && !rem[r.key]?.fired
+  const next = trashed.reduce((m, r) => (ahead(r) && r.dueAt < m ? r.dueAt : m), index.find(ahead)?.dueAt ?? Infinity)
+  const wait = Number.isFinite(next) ? Math.min(TICK_MS, Math.max(250, next - now + 50)) : TICK_MS
   dueTimer = window.setTimeout(() => runPass(), wait)
 }
 

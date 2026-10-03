@@ -11,7 +11,7 @@
  *
  *  Views / modals (rendered by the shell):
  *   - GraphView (route #/graph), SharedPageView (route #/s/…), Presentation (overlay)
- *   - HistoryModal, ShareModal, ImportModal, ExportModal, AutomationsModal, TemplatesModal
+ *   - HistoryModal, ShareModal, ImportModal, ExportModal, AutomationsModal, TemplatesModal, SaveTemplateModal
  *   - openTodayJournal()
  */
 export { startHistory, seedDemoHistory } from './history/snapshots'
@@ -56,9 +56,20 @@ export { GraphView } from './graph/GraphView'
 export { ShareModal } from './share/ShareModal'
 export { SharedPageView } from './share/SharedPageView'
 export { ImportModal } from './io/ImportModal'
+/* CSV into an existing database (pure; the database area owns the dialog): plan + converted rows */
+export { planCsvIntake, csvIntakeRows, CSV_INTAKE_MAX_ROWS, type CsvIntakePlan, type CsvIntakeColumn } from './io/import/intake'
 export { ExportModal } from './io/ExportModal'
 export { Presentation } from './present/Presentation'
 export { TemplatesModal } from './templates/TemplatesModal'
+/*
+ * Own templates (Page.template — a template is a hidden page subtree, see templates/own.ts):
+ *  - SaveTemplateModal (modal 'saveTemplate': "Save as template…" in the page menu)
+ *  - TemplateBanner: the "TEMPLATE · <name>" plate on every page of a template (PageView renders it;
+ *    nothing on other pages) · templateRoots(pages) / templateName(page): for lists (palette)
+ */
+export { SaveTemplateModal } from './templates/SaveTemplateModal'
+export { TemplateBanner } from './templates/TemplateBanner'
+export { templateRoots, templateName } from './templates/own'
 export { openTodayJournal, journalEntryFor } from './journal/journal'
 /*
  * Recurring database templates (template.repeat):
@@ -128,3 +139,79 @@ export { startSync, stopSync, openSyncSettings, consumeSyncSettingsRequest, useS
  *  - openMcpSettings(): open Settings on that tab · consumeMcpSettingsRequest(): SettingsModal asks on open
  */
 export { startMcp, McpTab, McpStatusCell, openMcpSettings, consumeMcpSettingsRequest } from './mcp'
+/*
+ * Custom functions, built by clicking — no code (Workspace.functions; usable in spreadsheet cells and database formulas):
+ *  - startCustomFunctions(): background service (start once from main.tsx after hydrate) — pushes the workspace's
+ *    functions into the spreadsheet engine and offers them to database formulas, on every change
+ *  - openFunctionBuilder(id?): open the "Functions" dialog (modal 'functions') · FunctionsModal (lazy)
+ *  - demoFunctions(lang): MARGIN(price; cost) for the seed
+ */
+export { startCustomFunctions, openFunctionBuilder, FunctionsModal, demoFunctions } from './sheets/functions'
+/*
+ * Spreadsheets (`spreadsheet` block: several sheets, Excel-style formulas, built-in library, datasets DS(…)):
+ *  - engine: formulas, function registry (registerFunctions / getFunction / listFunctions / setCustomFunctions),
+ *    Workbook, formatValue, reference adjustment · readAttrs(attrs): typed + sanitized node attrs
+ *  - readSheetData(attrs, ref): computed values of a range / DS(…) / dataset name (charts)
+ *  - spreadsheet exports (Markdown / HTML with computed values) and the lazy grid UI (loadSheetBlock)
+ */
+export {
+  registerFunctions,
+  getFunction,
+  listFunctions,
+  setCustomFunctions,
+  callFunction,
+  evaluateExpr,
+  readSheetData,
+  readAttrs as readSpreadsheetAttrs,
+  newSpreadsheetAttrs,
+  spreadsheetMarkdown,
+  spreadsheetHTML,
+  loadSheetBlock,
+  type FnSpec,
+  type Value as SheetValue,
+  type CellValue as SheetCellValue,
+  type SpreadsheetAttrs,
+} from './sheets'
+/*
+ * Charts (pure SVG, Instrument look — the `chart` block, spreadsheet charts, database chart view; see charts/index.ts):
+ *  - ChartRenderer { spec, data, height?, interactive? } · useChartData(source, spec?) → { data, loading } (live)
+ *  - tableToChartData(values, spec?) · openChartBuilder({ initial?, source?, allowedSources?, onSave, inline? … })
+ *  - chartToSvg(spec, data, { width, theme }) · chartDomSpec · chartMarkdown · freezeCharts(doc) (exports, shares)
+ *  - normalizeSpec(raw) (untrusted JSON → ChartSpec | null) · downloads (PNG / SVG) · copyChartTsv · demoCharts()
+ */
+export {
+  ChartRenderer,
+  DataTable as ChartDataTable,
+  useChartData,
+  resolveChartData,
+  resolveChartDataSync,
+  tableToChartData,
+  chartDataToRows,
+  chartDataToTsv,
+  openChartBuilder,
+  closeChartBuilder,
+  chartToSvg,
+  chartDomSpec,
+  chartMarkdown,
+  freezeCharts,
+  frozenSpec,
+  normalizeSpec as normalizeChartSpec,
+  suggestKind as suggestChartKind,
+  chartHeight,
+  formatValue as formatChartValue,
+  downloadChartPng,
+  downloadChartSvg,
+  copyChartTsv,
+  demoCharts,
+  CHART_KINDS,
+  CHART_NODE,
+  type ChartKind,
+  type ChartData,
+  type ChartSeries,
+  type ChartSource,
+  type ChartSourceKind,
+  type ChartSpec,
+  type CellValue as ChartCellValue,
+  type ChartBuilderOptions,
+  type ChartRendererProps,
+} from './charts'

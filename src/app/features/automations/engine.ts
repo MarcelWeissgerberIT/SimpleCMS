@@ -8,9 +8,10 @@
  * fires once it has a title and has been quiet for a moment (capped, see CREATED_MAX_MS).
  */
 import { useSyncExternalStore } from 'react'
-import { useWorkspace } from '../../store/store'
+import { pageChanges, useWorkspace } from '../../store/store'
 import { isApplyingRemote } from '../../store/persistence'
 import { toast } from '../../store/ui'
+import { inTemplate } from '../../store/selectors'
 import type { Automation, AutomationAction, Database, DateValue, ID, Page, PropertyDef, PropertyValue } from '../../store/types'
 import { newId } from '../../lib/ids'
 import { postWebhook, type WebhookOutcome } from '../../lib/webhook'
@@ -370,7 +371,8 @@ function touchCreated(rowId: ID) {
 
 function diff(state: ReturnType<typeof useWorkspace.getState>, prev: ReturnType<typeof useWorkspace.getState>) {
   const active = new Map<ID, Database>()
-  for (const db of Object.values(state.databases)) if (db.automations?.some((a) => a.enabled)) active.set(db.id, db)
+  // databases inside a template (features/templates) are blueprints: their copies run the automations
+  for (const db of Object.values(state.databases)) if (db.automations?.some((a) => a.enabled) && !inTemplate(state.pages, db.id)) active.set(db.id, db)
   if (!active.size) return
 
   const fire = (db: Database, row: Page, event: EventType, changes: Change[]) => {
@@ -385,12 +387,12 @@ function diff(state: ReturnType<typeof useWorkspace.getState>, prev: ReturnType<
     }
   }
 
-  for (const id in state.pages) {
+  const { changed, removed } = pageChanges(state.pages, prev.pages)
+  for (const id of changed) {
     const page = state.pages[id]
     const db = page.databaseId ? active.get(page.databaseId) : undefined
     if (!db) continue
     const before = prev.pages[id]
-    if (before === page) continue
     if (!before) {
       // a database created in the same update (import / template) doesn't count
       if (prev.pages[db.id] && !page.trashed) fire(db, page, 'row_created', [])
@@ -414,9 +416,9 @@ function diff(state: ReturnType<typeof useWorkspace.getState>, prev: ReturnType<
     if (changes.length) fire(db, page, 'property_changed', changes)
   }
   // rows removed without passing through the trash (permanent delete of a live row)
-  for (const id in prev.pages) {
+  for (const id of removed) {
     const before = prev.pages[id]
-    if (state.pages[id] || before.trashed || !before.databaseId) continue
+    if (before.trashed || !before.databaseId) continue
     const db = active.get(before.databaseId)
     if (db && state.pages[db.id]) fire(db, before, 'row_deleted', [])
   }

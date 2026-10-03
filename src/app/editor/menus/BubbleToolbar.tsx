@@ -105,7 +105,7 @@ function LinkPanel({ editor, initial, onDone }: { editor: Editor; initial: strin
   // link targets: live pages only (not trashed, not inside a trashed parent) — once per opening
   const candidates = useMemo(() => {
     const self = editor.view.dom.getAttribute('data-page-id')
-    return livePages(useWorkspace.getState().pages).filter((p) => p.id !== self)
+    return livePages(useWorkspace.getState().pages, self).filter((p) => p.id !== self)
   }, [editor])
   const pages = useMemo(() => {
     const q = value.trim()
@@ -134,6 +134,10 @@ function LinkPanel({ editor, initial, onDone }: { editor: Editor; initial: strin
       editor.chain().focus().extendMarkRange('link').setLink({ href }).run()
     }
     onDone()
+    // database rows answer a link to a page with "link as relation?" (database PAGE_MENTIONED)
+    const to = /^#\/p\/([^/?#]+)$/.exec(href)?.[1]
+    const self = editor.view.dom.getAttribute('data-page-id')
+    if (to && self) window.dispatchEvent(new CustomEvent('one:page-mentioned', { detail: { from: self, to } }))
   }
   const submit = () => {
     const p = pages[active]
@@ -187,6 +191,30 @@ function LinkPanel({ editor, initial, onDone }: { editor: Editor; initial: strin
   )
 }
 
+/**
+ * The state of a caret (nothing selected, no link being edited): the toolbar is hidden. One constant
+ * answer while typing, so the toolbar does not re-render (and re-anchor) on every keystroke — each
+ * React commit with the editor focused walks the editor's whole DOM to save the selection.
+ */
+const CARET = {
+  from: -1,
+  to: -1,
+  empty: true,
+  text: false,
+  code: false,
+  focused: false,
+  editable: false,
+  bold: false,
+  italic: false,
+  underline: false,
+  strike: false,
+  inlineCode: false,
+  link: null as string | null,
+  color: null as string | null,
+  bg: null as string | null,
+  turn: null as ReturnType<typeof activeTurnTarget>,
+}
+
 export function BubbleToolbar({ editor, bridge }: { editor: Editor; bridge: Bridge }) {
   const t = useT()
   const linkEdit = useStore(bridge, (s) => s.linkEdit)
@@ -202,6 +230,7 @@ export function BubbleToolbar({ editor, bridge }: { editor: Editor; bridge: Brid
     selector: ({ editor: e }) => {
       if (!e) return null
       const { selection } = e.state
+      if (selection.empty && !bridge.getState().linkEdit) return CARET
       return {
         from: selection.from,
         to: selection.to,
@@ -242,7 +271,7 @@ export function BubbleToolbar({ editor, bridge }: { editor: Editor; bridge: Brid
   // sub-panels belong to one selection: a new selection starts with them closed
   useEffect(() => setSub(null), [key])
 
-  const anchor = useMemo(() => (st ? posAnchor(editor, st.from, st.to) : null), [editor, st?.from, st?.to]) // eslint-disable-line react-hooks/exhaustive-deps
+  const anchor = useMemo(() => (st && st !== CARET ? posAnchor(editor, st.from, st.to) : null), [editor, st?.from, st?.to]) // eslint-disable-line react-hooks/exhaustive-deps
   const subOpen = !!sub || turnMenu.open
   const selectionUi = !!st && st.editable && st.text && !st.empty && !st.code && !blocked && !mouseDown && dismissedAt !== key && (st.focused || subOpen)
   const show = !!st && st.editable && (linkEdit || selectionUi)

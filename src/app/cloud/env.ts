@@ -57,6 +57,11 @@ export function readChoice(): WorkspaceRef {
   return parseRef(override) ?? parseRef(lsGet(CHOICE_KEY)) ?? LOCAL
 }
 
+/** Has this browser ever chosen a workspace (the local one included)? `?w=` does not count. */
+export function hasStoredChoice(): boolean {
+  return parseRef(lsGet(CHOICE_KEY)) !== null
+}
+
 export function writeChoice(ref: WorkspaceRef): void {
   lsSet(CHOICE_KEY, ref.kind === 'local' ? 'local' : ref.id)
 }

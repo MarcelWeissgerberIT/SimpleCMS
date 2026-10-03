@@ -1,7 +1,8 @@
 import type { ReactNode } from 'react'
-import { Copy, Download, FolderInput, LayoutTemplate, Link2, Trash2, Upload, Share2, Clock3, Presentation, Zap } from 'lucide-react'
+import { BookmarkPlus, Copy, Download, FolderInput, LayoutTemplate, Link2, Trash2, Upload, Share2, Clock3, Presentation, Zap } from 'lucide-react'
 import { useWorkspace } from '../../store/store'
 import { useUI } from '../../store/ui'
+import { inTemplate } from '../../store/selectors'
 import { Popover } from '../../ui/Popover'
 import { MenuList, type MenuEntry } from '../../ui/Menu'
 import { useLang, useT } from '../../i18n'
@@ -89,6 +90,10 @@ export function PageMenu({ page, anchor, onClose, mobile }: { page: Page; anchor
     ...only(edit, [
       { label: t('shell.cmd.import'), icon: <Upload size={15} />, onSelect: () => ui.openModal({ type: 'import' }) },
       { label: t('shell.cmd.templates'), icon: <LayoutTemplate size={15} />, onSelect: () => ui.openModal({ type: 'templates', parentId: page.id }) },
+      // a page (with everything below it) becomes a template; rows have row templates, templates are templates already
+      ...only(!page.databaseId && !inTemplate(ws.pages, page.id), [
+        { label: t('features.tpl.save.menu'), icon: <BookmarkPlus size={15} />, onSelect: () => ui.openModal({ type: 'saveTemplate', pageId: page.id }) },
+      ]),
       { kind: 'separator' },
       { label: t('common.delete'), icon: <Trash2 size={15} />, danger: true, onSelect: () => trashWithUndo(page.id) },
     ]),

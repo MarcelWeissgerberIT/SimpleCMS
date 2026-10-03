@@ -20,8 +20,11 @@ import { Tab, Tabs } from './tabs'
 import { CommentMark } from './comment'
 import { SyncedBlock } from './synced'
 import { MeetingNotes } from './meetingNotes'
+import { Spreadsheet } from './spreadsheet'
+import { ChartNode } from './chart'
 import { ToggleDetails, ToggleHeadingInput, ToggleSummary } from './toggle'
 import { Audio, Video } from './media'
+import { InlineIcon } from './icon'
 import {
   BlockImage,
   Bookmark,
@@ -99,6 +102,8 @@ export const BLOCK_ID_TYPES = [
   'tab',
   'syncedBlock',
   'meetingNotes',
+  'spreadsheet',
+  'chart',
 ]
 
 export type ExtensionWrap = Partial<Record<string, (ext: AnyExtension) => AnyExtension>>
@@ -164,6 +169,7 @@ export function baseExtensions({ readOnly = false, wrap = {}, headingOffset = 0,
     w('mermaid', Mermaid),
     w('pageLink', PageLink),
     w('mention', Mention),
+    w('icon', InlineIcon),
     w('databaseBlock', DatabaseBlock),
     w('bookmark', Bookmark),
     w('embed', Embed),
@@ -176,6 +182,8 @@ export function baseExtensions({ readOnly = false, wrap = {}, headingOffset = 0,
     Tab,
     w('syncedBlock', SyncedBlock),
     w('meetingNotes', MeetingNotes),
+    w('spreadsheet', Spreadsheet),
+    w('chart', ChartNode),
     CommentMark,
     UniqueID.configure({ types: BLOCK_ID_TYPES, attributeName: 'id' }),
   ]

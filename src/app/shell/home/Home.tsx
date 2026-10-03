@@ -1,7 +1,7 @@
 import { useMemo, type ReactNode } from 'react'
 import { CalendarDays, FilePlus2, LayoutTemplate, Table2, Upload, ArrowRight } from 'lucide-react'
 import { useWorkspace } from '../../store/store'
-import { isEffectivelyTrashed } from '../../store/selectors'
+import { inTemplate, isEffectivelyTrashed } from '../../store/selectors'
 import { useUI } from '../../store/ui'
 import { openTodayJournal } from '../../features'
 import { PageIcon } from '../../ui/PageIcon'
@@ -14,8 +14,19 @@ import { createDatabaseAndOpen, createPageAndOpen, goToPage } from '../lib/actio
 import { fmtDay, fmtNumber, fmtRelative, isoWeek, wordCount } from '../lib/format'
 import { useIsTouch, useKbdHint, useNow } from '../lib/hooks'
 import { NextDays, NextDaysActions } from '../agenda/NextDays'
-import { useReadOnly } from '../cloud/state'
+import { useInCloud, useReadOnly } from '../cloud/state'
 import './home.css'
+
+/** Words per page object (immutable: a changed page is a new object) — the stats re-count only what changed. */
+const wordsCache = new WeakMap<Page, number>()
+function wordsOf(p: Page): number {
+  let n = wordsCache.get(p)
+  if (n === undefined) {
+    n = wordCount(p.plain)
+    wordsCache.set(p, n)
+  }
+  return n
+}
 
 export function Home() {
   const t = useT()
@@ -24,14 +35,15 @@ export function Home() {
   const userName = useWorkspace((s) => s.settings.userName)
   // viewers: the keys that would create something are shown disabled
   const readOnly = useReadOnly()
+  const inCloud = useInCloud()
   const pages = useWorkspace((s) => s.pages)
   const recentIds = useWorkspace((s) => s.recent)
 
   const recent = useMemo(() => {
-    const fromRecent = recentIds.map((id) => pages[id]).filter((p): p is Page => !!p && !isEffectivelyTrashed(pages, p.id))
+    const fromRecent = recentIds.map((id) => pages[id]).filter((p): p is Page => !!p && !isEffectivelyTrashed(pages, p.id) && !inTemplate(pages, p.id))
     if (fromRecent.length >= 6) return fromRecent.slice(0, 8)
     const rest = Object.values(pages)
-      .filter((p) => !p.trashed && !p.databaseId && !fromRecent.includes(p) && !isEffectivelyTrashed(pages, p.id))
+      .filter((p) => !p.trashed && !p.databaseId && !fromRecent.includes(p) && !isEffectivelyTrashed(pages, p.id) && !inTemplate(pages, p.id))
       .sort((a, b) => b.updatedAt - a.updatedAt)
     return [...fromRecent, ...rest].slice(0, 8)
   }, [recentIds, pages])
@@ -41,12 +53,13 @@ export function Home() {
     let dbs = 0
     let rows = 0
     let words = 0
-    for (const p of Object.values(pages)) {
-      if (isEffectivelyTrashed(pages, p.id)) continue
+    for (const id of Object.keys(pages)) {
+      const p = pages[id]
+      if (isEffectivelyTrashed(pages, p.id) || inTemplate(pages, p.id)) continue
       if (p.kind === 'database') dbs++
       else if (p.databaseId) rows++
       else docs++
-      words += wordCount(p.plain)
+      words += wordsOf(p)
     }
     return { docs, dbs, rows, words }
   }, [pages])
@@ -101,7 +114,7 @@ export function Home() {
           <SectionLabel n="03" label={t('shell.home.recent')} />
           {recent.length === 0 ? (
             <div className="home__empty">
-              <p>{t('shell.home.noRecent')}</p>
+              <p>{t(inCloud ? 'shell.home.noRecentCloud' : 'shell.home.noRecent')}</p>
               {!readOnly && (
                 <button type="button" className="btn btn--primary" onClick={() => createPageAndOpen(null)}>
                   <FilePlus2 size={15} />

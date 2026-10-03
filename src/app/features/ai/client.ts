@@ -1,10 +1,12 @@
 /**
  * Claude, bring-your-own-key. The official SDK is loaded lazily on first use and runs
- * in the browser: the key lives in settings.aiApiKey (IndexedDB, this device only) and
- * is sent to api.anthropic.com and nowhere else.
+ * in the browser. The key is sealed in this browser's vault (lib/vault.ts): settings.aiApiKey
+ * only holds its marker ("is a key set?"), getAIKey() decrypts it for each request (memory only,
+ * this tab, this session) and it is sent to api.anthropic.com and nowhere else.
  */
 import type AnthropicSDK from '@anthropic-ai/sdk'
 import { useWorkspace } from '../../store/store'
+import { getAIKey } from '../../store/secrets'
 import { t } from '../../i18n'
 import { demoAnswer, streamDemo } from './demo'
 
@@ -44,6 +46,7 @@ export function resolveModel(id: string | undefined | null): (typeof AI_MODELS)[
   return AI_MODELS.find((m) => m.id === id) ?? AI_MODELS[0]
 }
 
+/** A key is set (its marker is in settings — synchronous, nothing is decrypted). */
 export function isAIConfigured(): boolean {
   return !!useWorkspace.getState().settings.aiApiKey
 }
@@ -150,9 +153,9 @@ async function getClient(apiKey: string): Promise<{ client: AnthropicSDK; sdk: S
  * api.anthropic.com only. Throws AIError('no_key') without a key.
  */
 export async function claudeClient(): Promise<{ client: AnthropicSDK; sdk: SDKModule; model: AIModelId }> {
-  const settings = useWorkspace.getState().settings
-  const apiKey = settings.aiApiKey.trim()
+  const apiKey = await getAIKey()
   if (!apiKey) throw new AIError('no_key')
+  const settings = useWorkspace.getState().settings
   const { client, sdk } = await getClient(apiKey)
   return { client, sdk, model: resolveModel(settings.aiModel).id }
 }
@@ -210,9 +213,9 @@ export interface StreamOptions {
 
 /** Stream one completion with the configured model. Resolves with the full text. */
 export async function streamCompletion({ system, prompt, onToken, signal }: StreamOptions): Promise<string> {
-  const settings = useWorkspace.getState().settings
-  const apiKey = settings.aiApiKey.trim()
+  const apiKey = await getAIKey()
   if (!apiKey) throw new AIError('no_key')
+  const settings = useWorkspace.getState().settings
   if (signal?.aborted) throw new AIError('aborted')
   const model = resolveModel(settings.aiModel).id
   let sdk: SDKModule | null = null
@@ -291,9 +294,9 @@ export interface StructuredOptions {
  * caller's job, so a malformed answer can become a per-item error instead of an exception here.
  */
 export async function completeStructured({ system, prompt, schema, maxTokens = 4096, signal, maxRetries = 4 }: StructuredOptions): Promise<string> {
-  const settings = useWorkspace.getState().settings
-  const apiKey = settings.aiApiKey.trim()
+  const apiKey = await getAIKey()
   if (!apiKey) throw new AIError('no_key')
+  const settings = useWorkspace.getState().settings
   if (signal?.aborted) throw new AIError('aborted')
   const model = resolveModel(settings.aiModel).id
   let sdk: SDKModule | null = null

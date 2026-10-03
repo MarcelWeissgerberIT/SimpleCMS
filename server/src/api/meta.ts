@@ -112,6 +112,27 @@ export function inTrash(r: Roots, id: string): boolean {
   return false
 }
 
+/**
+ * Part of a template (the app's features/templates: a page subtree whose root carries `template`
+ * metadata). Templates are blueprints for the gallery, not workspace content — the app keeps them out
+ * of every list, and so does the API. Cycle-safe.
+ */
+export function inTemplate(r: Roots, id: string): boolean {
+  const seen = new Set<string>()
+  let cur: string | null = id
+  while (cur && !seen.has(cur)) {
+    seen.add(cur)
+    const yp = pageMap(r, cur)
+    if (!yp) return false
+    if (isObj(yp.get('template'))) return true
+    cur = idOrNull(yp.get('parentId'))
+  }
+  return false
+}
+
+/** Not for the API: in the trash or part of a template. */
+export const outOfReach = (r: Roots, id: string): boolean => inTrash(r, id) || inTemplate(r, id)
+
 /** Keyed lists (Y.Map id → item + order), or the older JSON-array form — like readOrdered in the app. */
 export function readOrdered<T>(v: unknown): T[] {
   if (Array.isArray(v)) return clone(v.filter((x) => isObj(x) && typeof x.id === 'string')) as T[]
@@ -131,18 +152,18 @@ export function readProperties(ydb: YMap): PropertyDef[] {
   return readOrdered<PropertyDef>(ydb.get('properties')).filter((p) => typeof p.name === 'string' && typeof p.type === 'string')
 }
 
-/** A database the API may use: its page exists, is a database and is not in the trash. */
+/** A database the API may use: its page exists, is a database, not in the trash and not part of a template. */
 export function liveDatabase(r: Roots, id: string): { page: PageInfo; ydb: YMap; properties: PropertyDef[] } | null {
   const yp = pageMap(r, id)
   const ydb = databaseMap(r, id)
-  if (!yp || !ydb || yp.get('kind') !== 'database' || inTrash(r, id)) return null
+  if (!yp || !ydb || yp.get('kind') !== 'database' || outOfReach(r, id)) return null
   return { page: readPage(id, yp), ydb, properties: readProperties(ydb) }
 }
 
-/** A page (or row) the API may use: listed and not in the trash. */
+/** A page (or row) the API may use: listed, not in the trash and not part of a template. */
 export function livePage(r: Roots, id: string): PageInfo | null {
   const yp = pageMap(r, id)
-  if (!yp || inTrash(r, id)) return null
+  if (!yp || outOfReach(r, id)) return null
   return readPage(id, yp)
 }
 

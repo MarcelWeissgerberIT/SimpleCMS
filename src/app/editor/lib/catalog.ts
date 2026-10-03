@@ -11,9 +11,11 @@ import {
   Bookmark,
   CalendarDays,
   ChartColumn,
+  ChartColumnIncreasing,
   ChartGantt,
   ChevronRight,
   Code,
+  FileSpreadsheet,
   Columns2,
   Columns3,
   FileText,
@@ -38,6 +40,7 @@ import {
   Quote,
   RefreshCw,
   Sheet,
+  Shapes,
   Sigma,
   Smile,
   SquareKanban,
@@ -59,6 +62,8 @@ import { markFreshButton } from './buttonRun'
 import { caretIntoTabs, newTabsJson, tabsAround } from '../schema/tabs'
 import { insertSynced } from '../synced/actions'
 import { insertMeetingNotes } from '../schema/meetingNotes'
+import { insertSpreadsheet } from '../schema/spreadsheet'
+import { insertChart } from '../schema/chart'
 import { ToggleHeading1, ToggleHeading2, ToggleHeading3 } from './blockGlyphs'
 import { toast } from '../../store/ui'
 import { t } from '../../i18n'
@@ -90,6 +95,12 @@ export interface BlockItem {
 }
 
 const del = (ctx: RunCtx) => ctx.range && ctx.editor.chain().focus().deleteRange(ctx.range).run()
+
+/** Emoji / icon picker at the caret (icons/InlinePickers.tsx); the caret stays where the command was. */
+function openInlinePicker(ctx: RunCtx, kind: 'emoji' | 'icon') {
+  del(ctx)
+  ctx.bridge.setState({ inlinePicker: { kind, pos: ctx.editor.state.selection.from } })
+}
 
 const turn = (target: TurnTarget) => (ctx: RunCtx) => {
   del(ctx)
@@ -173,6 +184,20 @@ export const BLOCKS: BlockItem[] = [
     icon: Table,
     keywords: 'table grid simple tabelle raster',
     run: (ctx) => insertBlock(ctx.editor, tableJson(3, 3), ctx.range),
+  },
+  {
+    id: 'spreadsheet',
+    group: 'basic',
+    icon: FileSpreadsheet,
+    keywords: 'spreadsheet sheet sheets excel calc calculation formula formulas sum vlookup tabellenkalkulation tabellenblatt rechnen formel formeln summe sverweis kalkulation',
+    run: (ctx) => insertSpreadsheet(ctx.editor, ctx.range),
+  },
+  {
+    id: 'chart',
+    group: 'basic',
+    icon: ChartColumnIncreasing,
+    keywords: 'chart graph diagram diagramm grafik kpi bar balken line linie pie torte donut plot statistics statistik visualize visualisierung',
+    run: (ctx) => insertChart(ctx.editor, ctx.range),
   },
   // ---------------- lists
   { id: 'bullet', group: 'lists', icon: List, md: '-', keys: 'Mod+Shift+8', keywords: 'bullet list unordered ul aufzählung liste punkte', turnInto: 'bulletList', run: turn('bulletList') },
@@ -315,11 +340,15 @@ export const BLOCKS: BlockItem[] = [
     group: 'inline',
     icon: Smile,
     md: ':',
-    keywords: 'emoji smiley icon',
-    run: (ctx) => {
-      del(ctx)
-      ctx.editor.chain().focus().insertContent(' :').run()
-    },
+    keywords: 'emoji smiley emoticon face smiley gesicht',
+    run: (ctx) => openInlinePicker(ctx, 'emoji'),
+  },
+  {
+    id: 'icon',
+    group: 'inline',
+    icon: Shapes,
+    keywords: 'icon symbol glyph object objekt zeichen piktogramm',
+    run: (ctx) => openInlinePicker(ctx, 'icon'),
   },
   {
     id: 'inlineMath',

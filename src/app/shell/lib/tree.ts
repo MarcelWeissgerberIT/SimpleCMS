@@ -1,10 +1,11 @@
 /**
- * Sidebar tree helpers: a memoised parent → children index over the page map
- * (rebuilt once per store change, O(1) per node) and the per-viewer expanded state.
+ * Sidebar tree helpers: a memoised parent → children index over the page map (rebuilt only
+ * when a store change moves, adds, removes or hides pages; O(1) per node) and the per-viewer
+ * expanded state.
  */
 import { create } from 'zustand'
 import { useShallow } from 'zustand/react/shallow'
-import { useWorkspace } from '../../store/store'
+import { pageChanges, useWorkspace } from '../../store/store'
 import type { ID, Page } from '../../store/types'
 import { safeLocalGet, safeLocalSet } from '@/shared/brand'
 
@@ -14,9 +15,28 @@ const EMPTY: ID[] = []
 let lastPages: Record<ID, Page> | null = null
 let lastMap = new Map<string, ID[]>()
 
+/** What the tree is built from: an edit that changes none of it (typing, a row property) keeps the tree. */
+const treeFieldsDiffer = (a: Page, b: Page) =>
+  a.parentId !== b.parentId || a.order !== b.order || a.createdAt !== b.createdAt || a.trashed !== b.trashed || a.databaseId !== b.databaseId || a.hidden !== b.hidden
+
+/** None of the pages moved, appeared, disappeared or changed visibility? (the store's shared diff) */
+function sameTree(pages: Record<ID, Page>, prev: Record<ID, Page>): boolean {
+  const { changed, removed } = pageChanges(pages, prev)
+  if (removed.length) return false
+  for (const id of changed) {
+    const o = prev[id]
+    if (!o || treeFieldsDiffer(pages[id], o)) return false
+  }
+  return true
+}
+
 /** Visible tree children (not trashed, not database rows, not hidden), sorted. */
 export function childMap(pages: Record<ID, Page>): Map<string, ID[]> {
   if (pages === lastPages) return lastMap
+  if (lastPages && sameTree(pages, lastPages)) {
+    lastPages = pages
+    return lastMap
+  }
   const groups = new Map<string, Page[]>()
   for (const p of Object.values(pages)) {
     if (p.trashed || p.databaseId || p.hidden) continue

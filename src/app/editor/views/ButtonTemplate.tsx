@@ -13,6 +13,7 @@ import { sanitize } from '../convert'
 import { SlashMenu } from '../menus/SlashMenu'
 import { BubbleToolbar } from '../menus/BubbleToolbar'
 import { EmojiMenu } from '../menus/EmojiMenu'
+import { InlinePickers } from '../icons/InlinePickers'
 import '../editor.css'
 import '../menus/menus.css'
 
@@ -60,6 +61,7 @@ export function TemplateEditor({
           <SlashMenu editor={editor} bridge={bridge} pageId={pageId ?? ''} filter={templateBlock} />
           <BubbleToolbar editor={editor} bridge={bridge} />
           <EmojiMenu editor={editor} bridge={bridge} />
+          <InlinePickers editor={editor} bridge={bridge} />
         </>
       )}
     </div>

@@ -243,3 +243,15 @@ section 2 (`text2image`, two renders each, the better one kept; 600 credits). Pi
 background where they meet the white backdrop (they turned into holes on dark UI). The option also takes the object
 by colour — warm-white ceramic has `R − B ≥ 5`, the backdrop is pure white and the contact shadow neutral grey — and
 fills the interior from that mask, keeping the net's soft matte on the outermost pixels.
+
+## 8. Calculate icons (round 4, October 2026)
+
+Four objects for the landing's "Calculate" group and the object picker, same template as section 2 (`text2image`,
+two renders each, the better one kept). Picks and slots:
+
+| name | label / label_de | {OBJECT} (short) | {ACCENT} | processing |
+|---|---|---|---|---|
+| sheet | Spreadsheet / Tabellenkalkulation | thick square slab lying flat, 5 × 5 grid of recessed cells, raised header row and column | one cell near the centre | `--warmmask` |
+| fx | Functions / Funktionen | tree of three blank keycaps: one on top, two rods down to two keycaps on the ground | the top keycap | — |
+| chart | Charts / Diagramme | four square-section bars of different heights on a thin base plate | the tallest bar | `--warmmask` |
+| adder | Formulas & rollups / Formeln & Rollups | low wedge-shaped adding machine, four blank dials on the sloped face, crank on the side | the crank's knob | `--warmmask` |

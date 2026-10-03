@@ -3,18 +3,24 @@
  * clickable reference of properties and functions.
  */
 import { useMemo, useRef, useState } from 'react'
-import { ChevronLeft, ChevronRight } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Plus, SquareFunction } from 'lucide-react'
 import type { Database, Page, PropertyDef } from '../../store/types'
 import { useWorkspace } from '../../store/store'
 import { Modal } from '../../ui/Modal'
 import { useT } from '../../i18n'
 import { Kbd, MOD } from '../../ui/controls'
-import { compile, FORMULA_CATALOG, FormulaError, fvalueKind, toText, type FValue } from '../formula'
+import { compile, customFormulaFunctions, FORMULA_CATALOG, FormulaError, fvalueKind, toText, type FValue } from '../formula'
+import { useUI } from '../../store/ui'
 import { Resolver } from '../model/resolve'
-import { TypeIcon } from '../parts'
+import { Menu, TypeIcon } from '../parts'
+import { useCreateProperty } from '../create/entry'
 
-export function FormulaEditor({ db, prop, rows, resolver, onClose }: { db: Database; prop: PropertyDef; rows: Page[]; resolver: Resolver; onClose: () => void }) {
+export function FormulaEditor({ db: initialDb, prop, rows, resolver, onClose }: { db: Database; prop: PropertyDef; rows: Page[]; resolver: Resolver; onClose: () => void }) {
   const t = useT()
+  // live: a property created from here (prop("…") of a name that isn't there yet) counts right away
+  const db = useWorkspace((s) => s.databases[initialDb.id]) ?? initialDb
+  const creator = useCreateProperty(db)
+  const [typeMenu, setTypeMenu] = useState<{ el: HTMLElement; name: string; insert: boolean } | null>(null)
   const [src, setSrc] = useState(prop.formula ?? '')
   const [rowIdx, setRowIdx] = useState(0)
   const [query, setQuery] = useState('')
@@ -65,7 +71,13 @@ export function FormulaEditor({ db, prop, rows, resolver, onClose }: { db: Datab
   const q = query.trim().toLowerCase()
   const propList = db.properties.filter((p) => p.id !== prop.id && (!q || p.name.toLowerCase().includes(q)))
   const fnList = FORMULA_CATALOG.filter((f) => f.name !== 'prop' && (!q || f.name.toLowerCase().includes(q)))
+  // "Create property “X”": a searched name that is neither a property nor a function
+  const canCreate = !creator.blocked && creator.isNew(query) && ![...FORMULA_CATALOG, ...customFormulaFunctions()].some((f) => f.name.toLowerCase() === q)
+  const missing = err?.code === 'unknownProperty' && typeof err.vars?.name === 'string' && !creator.blocked && creator.isNew(err.vars.name) ? err.vars.name : null
   const groups = ['logic', 'text', 'math', 'date'] as const
+  // the workspace's custom functions (built by clicking — features/sheets/functions); re-read when they change
+  const customFns = useWorkspace((st) => st.functions)
+  const customList = useMemo(() => customFormulaFunctions().filter((f) => !q || f.name.toLowerCase().includes(q)), [customFns, q])
 
   // the error is marked in place by a mirror of the source that wraps exactly like the textarea
   const errPos = err?.pos !== undefined ? Math.min(err.pos, src.length) : undefined
@@ -165,6 +177,11 @@ export function FormulaEditor({ db, prop, rows, resolver, onClose }: { db: Datab
                 <span className="db-fx__error">
                   {t(`database.formula.err.${err.code}`, err.vars)}
                   {err.pos !== undefined && <span className="label"> · {t('database.formula.atPos', { pos: err.pos + 1 })}</span>}
+                  {missing && (
+                    <button type="button" className="btn btn--sm db-fx__create" aria-haspopup="menu" onClick={(e) => setTypeMenu({ el: e.currentTarget, name: missing, insert: false })}>
+                      <Plus size={12} className="dbc-plus" /> {t('database.create.entry', { name: missing })}
+                    </button>
+                  )}
                 </span>
               ) : result === undefined ? (
                 <span className="faint">{rows.length ? t('database.formula.typeToPreview') : t('database.formula.noRows')}</span>
@@ -178,6 +195,17 @@ export function FormulaEditor({ db, prop, rows, resolver, onClose }: { db: Datab
         <aside className="db-fx__ref">
           <input className="input" value={query} placeholder={t('database.formula.searchRef')} onChange={(e) => setQuery(e.target.value)} />
           <div className="db-fx__reflist">
+            {canCreate && (
+              <button
+                type="button"
+                className="db-fx__refitem db-fx__refitem--create"
+                aria-haspopup="menu"
+                onClick={(e) => setTypeMenu({ el: e.currentTarget, name: query.trim(), insert: true })}
+              >
+                <Plus size={13} className="dbc-plus" />
+                <span>{t('database.create.entry', { name: query.trim() })}</span>
+              </button>
+            )}
             {propList.length > 0 && <div className="label db-fx__refhead">{t('database.formula.properties')}</div>}
             {propList.map((p) => (
               <button
@@ -215,9 +243,44 @@ export function FormulaEditor({ db, prop, rows, resolver, onClose }: { db: Datab
                 </div>
               )
             })}
+            <div>
+              <div className="label db-fx__refhead">{t('database.formula.group.custom')}</div>
+              {customList.map((f) => (
+                <button
+                  key={f.name}
+                  type="button"
+                  className="db-fx__refitem db-fx__refitem--fn"
+                  onMouseEnter={() => setHint(`${f.sig}${f.description ? ` — ${f.description}` : ''}`)}
+                  onFocus={() => setHint(`${f.sig}${f.description ? ` — ${f.description}` : ''}`)}
+                  onClick={() => insert(`${f.name}()`, 1)}
+                >
+                  <span className="mono">{f.name}</span>
+                </button>
+              ))}
+              <button type="button" className="db-fx__refitem" data-edit-functions="" onClick={() => useUI.getState().openModal({ type: 'functions' })}>
+                <SquareFunction size={13} />
+                <span>{t('database.formula.editFunctions')}</span>
+              </button>
+            </div>
           </div>
         </aside>
       </div>
+      <Menu
+        open={!!typeMenu}
+        anchor={typeMenu?.el ?? null}
+        onClose={() => setTypeMenu(null)}
+        placement="bottom-start"
+        entries={
+          typeMenu
+            ? creator.typeMenu(typeMenu.name, (p) => {
+                if (typeMenu.insert) {
+                  insert(`prop("${p.name}")`)
+                  setQuery('')
+                }
+              })
+            : []
+        }
+      />
     </Modal>
   )
 }

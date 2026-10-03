@@ -112,6 +112,14 @@ function inlineNode(n: MdNode, ctx: MarkdownContext): string {
     }
     case 'inlineMath':
       return `$${str(n.attrs.latex)}$`
+    case 'icon': {
+      // inline icon (the app's editor/schema/icon.ts): an object as [Clock], a glyph as :rocket: — like its plain text
+      const name = str(n.attrs.name)
+      if (!/^[\w-]{1,64}$/.test(name)) return ''
+      if (n.attrs.kind !== 'asset') return `:${name}:`
+      const label = name.replace(/[-_]+/g, ' ')
+      return `[${label.charAt(0).toUpperCase()}${label.slice(1)}]`
+    }
     case 'pageLink':
       return pageRef(str(n.attrs.pageId), ctx)
     default:
@@ -168,6 +176,83 @@ function table(n: MdNode, ctx: MarkdownContext): string {
   const width = Math.max(...rows.map((r) => r.length), 1)
   const line = (r: string[]) => `| ${Array.from({ length: width }, (_, i) => r[i] ?? '').join(' | ')} |`
   return [line(rows[0]!), `| ${Array.from({ length: width }, () => '---').join(' | ')} |`, ...rows.slice(1).map(line)].join('\n')
+}
+
+/** A Markdown table from plain rows (first row = header). */
+function grid(rows: string[][]): string {
+  if (!rows.length) return ''
+  const width = Math.max(...rows.map((r) => r.length), 1)
+  const cell = (v: string) => v.replace(/\n/g, ' ').replace(/\|/g, '\\|')
+  const line = (r: string[]) => `| ${Array.from({ length: width }, (_, i) => cell(r[i] ?? '')).join(' | ')} |`
+  return [line(rows[0]!), `| ${Array.from({ length: width }, () => '---').join(' | ')} |`, ...rows.slice(1).map(line)].join('\n')
+}
+
+/** Attrs that hold JSON (arrays / objects), stored as values or as strings. */
+function jsonAttr(v: unknown): unknown {
+  if (typeof v !== 'string') return v
+  try {
+    return JSON.parse(v)
+  } catch {
+    return null
+  }
+}
+
+const colName = (i: number): string => (i < 26 ? String.fromCharCode(65 + i) : colName(Math.floor(i / 26) - 1) + String.fromCharCode(65 + (i % 26)))
+const colIndex = (letters: string): number => [...letters].reduce((n, ch) => n * 26 + ch.charCodeAt(0) - 64, 0) - 1
+const SHEET_ROWS = 50
+const SHEET_COLS = 20
+
+/**
+ * A spreadsheet block (the app's features/sheets): every sheet as a table of what was typed — formulas
+ * as written (the app computes the values), the used range up to 50 × 20 cells.
+ */
+function spreadsheet(n: MdNode): string {
+  const sheets = jsonAttr(n.attrs.sheets)
+  if (!Array.isArray(sheets)) return ''
+  const out: string[] = []
+  const title = str(n.attrs.title)
+  if (title) out.push(`**${title}**`)
+  sheets.forEach((sheet, i) => {
+    if (!sheet || typeof sheet !== 'object') return
+    const { name, cells } = sheet as { name?: unknown; cells?: unknown }
+    const grid2 = new Map<string, string>()
+    let maxR = -1
+    let maxC = -1
+    if (cells && typeof cells === 'object') {
+      for (const [ref, cell] of Object.entries(cells as Record<string, unknown>)) {
+        const m = /^([A-Z]{1,3})(\d{1,5})$/.exec(ref)
+        const v = cell && typeof cell === 'object' ? (cell as { v?: unknown }).v : undefined
+        if (!m || typeof v !== 'string' || v === '') continue
+        const r = Number(m[2]) - 1
+        const c = colIndex(m[1]!)
+        if (r >= SHEET_ROWS || c >= SHEET_COLS) continue
+        grid2.set(`${r}:${c}`, v)
+        maxR = Math.max(maxR, r)
+        maxC = Math.max(maxC, c)
+      }
+    }
+    out.push(`*Sheet ${String(i + 1).padStart(2, '0')} · ${str(name) || 'Sheet'}*`)
+    if (maxR < 0) return
+    const rows: string[][] = [['', ...Array.from({ length: maxC + 1 }, (_, c) => colName(c))]]
+    for (let r = 0; r <= maxR; r++) rows.push([String(r + 1), ...Array.from({ length: maxC + 1 }, (_, c) => grid2.get(`${r}:${c}`) ?? '')])
+    out.push(grid(rows))
+  })
+  if (out.length) out.push('_Formulas as typed; One computes their values in the app._')
+  return out.join('\n\n')
+}
+
+/** A chart block (the app's features/charts): its title, and the numbers when they are stored in the block. */
+function chart(n: MdNode): string {
+  const spec = jsonAttr(n.attrs.spec) as { title?: unknown; kind?: unknown; source?: { kind?: unknown; rows?: unknown } } | null
+  if (!spec || typeof spec !== 'object') return ''
+  const head = `**Chart${spec.title ? `: ${str(spec.title)}` : ''}** (${str(spec.kind) || 'bar'})`
+  const source = spec.source
+  if (source?.kind === 'manual' && Array.isArray(source.rows)) {
+    const rows = source.rows.slice(0, 101).map((r) => (Array.isArray(r) ? r.slice(0, 24).map((v) => (v === null || v === undefined ? '' : String(v))) : []))
+    return `${head}\n\n${grid(rows)}`
+  }
+  const from = source?.kind === 'database' ? 'a database' : source?.kind === 'sheet' ? 'a spreadsheet' : source?.kind === 'system' ? 'workspace statistics' : 'live data'
+  return `${head} — drawn from ${from} in the app`
 }
 
 function blocks(list: MdNode[], ctx: MarkdownContext): string {
@@ -252,6 +337,10 @@ function block(n: MdNode, ctx: MarkdownContext): string {
       return ''
     case 'tabs':
       return kids.map((tab) => `**${str(tab.attrs.title) || 'Tab'}**\n\n${blocks(blockChildren(tab), ctx)}`).join('\n\n')
+    case 'spreadsheet':
+      return spreadsheet(n)
+    case 'chart':
+      return chart(n)
     case 'meetingNotes': {
       const lines = transcriptLines(n.attrs.transcript)
       const head = `**${str(n.attrs.title) || 'Meeting notes'}**`

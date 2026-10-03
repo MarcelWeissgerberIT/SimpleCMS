@@ -28,6 +28,7 @@ import { AutofillCellMark, AutofillTag, autofillOf, startFill } from '../autofil
 import { useRowColor, useTree } from './tree'
 import { AddSubButton, TreeCount, TreeLead } from './treeParts'
 import { ruleStyle } from '../model/colors'
+import { usePropertyCreate } from '../create/entry'
 import './table/table.css'
 
 function useNarrow(): boolean {
@@ -142,6 +143,7 @@ export function TableView({ onFilterProp }: { onFilterProp: (id: ID) => void }) 
   const [headMenu, setHeadMenu] = useState<{ prop: PropertyDef; el: HTMLElement } | null>(null)
   const [addColAnchor, setAddColAnchor] = useState<HTMLElement | null>(null)
   const [bulkAnchor, setBulkAnchor] = useState<HTMLElement | null>(null)
+  const createEntry = usePropertyCreate(db)
 
   useEffect(() => {
     if (!sel.size) return
@@ -847,6 +849,12 @@ export function TableView({ onFilterProp }: { onFilterProp: (id: ID) => void }) 
         onClose={() => setAddColAnchor(null)}
         searchable
         searchPlaceholder={t('database.props.typeSearch')}
+        create={(q) =>
+          createEntry(q, (p) =>
+            // a named column: just bring it into view
+            requestAnimationFrame(() => revealInStrip(headScrollRef.current, rootRef.current?.querySelector(`[data-hcol="${p.id}"]`) ?? null)),
+          )
+        }
         entries={typeEntries(t, (type) => {
           const last = cols[cols.length - 1]
           const id = insertProperty(db, view, { type, name: t(`database.type.${type}`) }, { anchorId: last.id, side: 'right' })

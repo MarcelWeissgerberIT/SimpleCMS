@@ -18,8 +18,13 @@ export function readingTime(words: number): string {
   return min < 1 ? '<1' : String(Math.round(min))
 }
 
+/** One formatter per language: toLocaleString() builds a new one per call (the status bar formats on every save). */
+const numberFormats = new Map<Lang, Intl.NumberFormat>()
+
 export function fmtNumber(n: number, lang: Lang): string {
-  return n.toLocaleString(lang === 'de' ? 'de-DE' : 'en-US')
+  let f = numberFormats.get(lang)
+  if (!f) numberFormats.set(lang, (f = new Intl.NumberFormat(lang === 'de' ? 'de-DE' : 'en-US')))
+  return f.format(n)
 }
 
 const locale = (lang: Lang) => (lang === 'de' ? de : enUS)

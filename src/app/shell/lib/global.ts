@@ -3,7 +3,7 @@ import { useUI } from '../../store/ui'
 import { useWorkspace } from '../../store/store'
 import { isEffectivelyTrashed } from '../../store/selectors'
 import { openTodayJournal } from '../../features'
-import { navigate, type Route } from '../../lib/router'
+import { navigate, parseHash, type Route } from '../../lib/router'
 import { isMac } from '../../ui/controls'
 import { t } from '../../i18n'
 import { createPageAndOpen, currentPageId, pruneUndoToasts, toggleFocusMode, toggleSidebar, toggleTheme } from './actions'
@@ -287,17 +287,27 @@ export function usePruneGoneViews() {
 }
 
 let bootRedirected = false
-/** On first load at "#/": jump to the start page (or the last visited page). */
+/** Routes App shows without the workspace: the workspace's first arrival comes later (and redirects then). */
+const STANDALONE: ReadonlySet<Route['name']> = new Set(['share', 'form', 'invite'])
+
+/**
+ * On the workspace's first arrival at "#/": jump to the start page (or the last visited page). Once
+ * per load. main.tsx runs it before the first render — otherwise the home screen (workspace stats,
+ * the agenda panel: a pass over every page) is built only to be replaced at once; the hook below
+ * covers a workspace that renders later (after a share / form / invite view, after signing in).
+ */
+export function bootRedirect(route: Route = parseHash(window.location.hash)) {
+  if (bootRedirected || STANDALONE.has(route.name)) return
+  bootRedirected = true
+  if (route.name !== 'home') return
+  const { settings, pages } = useWorkspace.getState()
+  const ok = (id: string | null) => !!id && !!pages[id] && !isEffectivelyTrashed(pages, id)
+  const target = ok(settings.startPageId) ? settings.startPageId : ok(settings.lastPageId) ? settings.lastPageId : null
+  if (target) navigate({ name: 'page', id: target }, { replace: true })
+}
+
 export function useBootRedirect(route: Route) {
-  useEffect(() => {
-    if (bootRedirected) return
-    bootRedirected = true
-    if (route.name !== 'home') return
-    const { settings, pages } = useWorkspace.getState()
-    const ok = (id: string | null) => !!id && !!pages[id] && !isEffectivelyTrashed(pages, id)
-    const target = ok(settings.startPageId) ? settings.startPageId : ok(settings.lastPageId) ? settings.lastPageId : null
-    if (target) navigate({ name: 'page', id: target }, { replace: true })
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => bootRedirect(route), []) // eslint-disable-line react-hooks/exhaustive-deps
 }
 
 export { currentPageId }

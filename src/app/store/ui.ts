@@ -9,11 +9,16 @@ import { newId } from '../lib/ids'
 
 export type ModalState =
   | { type: 'settings'; tab?: 'general' | 'appearance' | 'ai' | 'data' | 'shortcuts' | 'about' | 'team' }
-  | { type: 'templates'; parentId?: ID | null }
+  /** tab / select: open on built-ins or own templates, with a template root (own / customised) selected */
+  | { type: 'templates'; parentId?: ID | null; tab?: 'builtin' | 'mine'; select?: ID }
+  /** "Save as template…" for a page (features/templates) */
+  | { type: 'saveTemplate'; pageId: ID }
   | { type: 'import' }
   | { type: 'export'; pageId?: ID | null }
   | { type: 'history'; pageId: ID }
   | { type: 'automations'; databaseId: ID }
+  /** custom functions built by clicking (features/sheets/functions), optionally on one function */
+  | { type: 'functions'; id?: ID }
   | { type: 'share'; pageId: ID }
   | { type: 'shortcuts' }
   | { type: 'move'; pageId: ID }

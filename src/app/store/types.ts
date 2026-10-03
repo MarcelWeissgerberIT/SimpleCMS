@@ -113,6 +113,30 @@ export interface Page {
    * `movePagePrivacy()` (docs/CLOUD.md § Private pages), never by setting this.
    */
   private?: true
+  /**
+   * Templates (features/templates): this page is the ROOT of a template, kept in the hidden
+   * Templates area (root pages with `hidden: true`). Its subpages, databases and rows are ordinary
+   * pages below it — editing a template is editing those pages. The whole subtree stays out of
+   * normal use (sidebar, search, graph, agenda, reminders, backlinks, recent, folder sync, agent,
+   * exports; pickers offer it only on its own pages): ask `inTemplate()` / `templateRootOf()` /
+   * `templateScope()` in store/selectors.ts. "Use" deep-copies the
+   * subtree with fresh ids. Absent on every other page. Synced in team workspaces like any field.
+   */
+  template?: PageTemplate
+}
+
+export type TemplateCategory = 'work' | 'product' | 'personal' | 'knowledge'
+
+/** Gallery metadata of a template root page (Page.template). */
+export interface PageTemplate {
+  /** Name in the gallery (the root page's title is what copies are called). */
+  name: string
+  description?: string
+  category?: TemplateCategory | null
+  /** Gallery art (absent = the root page's icon). */
+  icon?: PageIcon | null
+  /** A customised built-in: the id of the catalog template it was made from (features/templates/catalog.ts). */
+  from?: string
 }
 
 /* ------------------------------------------------------------------ */
@@ -341,12 +365,17 @@ export type CalcFn =
   | 'latest_date'
 
 export interface ChartConfig {
-  kind: 'bar' | 'line' | 'donut'
+  /** bar / line / donut · stacked / area / kpi (drawn by features/charts, additive) */
+  kind: 'bar' | 'line' | 'donut' | 'stacked' | 'area' | 'kpi'
   /** property to group by on the x axis / slices */
   xPropertyId: ID | null
   aggregate: 'count' | 'sum' | 'average'
   /** numeric property for sum/average */
   yPropertyId?: ID | null
+  /** split into series by this property (stacked / grouped bars, several lines); absent = one series */
+  seriesPropertyId?: ID | null
+  /** date x axis: bucket size (absent = month) */
+  dateBucket?: 'day' | 'week' | 'month' | 'quarter' | 'year'
 }
 
 /** Form view: one question per property. Which and in what order = title + view.visibleProperties. */
@@ -577,7 +606,12 @@ export interface Settings {
   lastPageId: ID | null
   /** Spell check in editor */
   spellcheck: boolean
-  /** BYOK Claude API key (stored locally only). */
+  /**
+   * BYOK Claude API key — as a vault MARKER ("vault:<seal id>:<last 4>", '' = no key), never the key
+   * itself: updateSettings({ aiApiKey: <key> }) seals the key into this browser's vault (lib/vault.ts)
+   * and stores the marker; '' removes it. `!!aiApiKey` = "a key is set"; only the AI client reads the
+   * key (store/secrets.ts getAIKey()). Never exported, synced or shared.
+   */
   aiApiKey: string
   aiModel: string
   /** Snapshot interval for version history in minutes */
@@ -597,4 +631,46 @@ export interface Workspace {
   settings: Settings
   /** Recently visited page ids, newest first (max 20). */
   recent: ID[]
+  /**
+   * Custom functions (features/sheets/functions), built by clicking — no code. Usable in
+   * spreadsheet cells (`=MARGIN(B2; C2)`) and database formulas (`MARGIN(prop("Price"), prop("Cost"))`).
+   * Write only with upsertFunction / deleteFunction. Synced in team workspaces (meta map `functions`).
+   */
+  functions?: Record<ID, CustomFunction>
+}
+
+/* ------------------------------------------------------------------ */
+/* Custom functions (shared contract with features/sheets/engine)      */
+/* ------------------------------------------------------------------ */
+
+/**
+ * A custom function's body: an expression tree, never source code. `call.fn` is a built-in
+ * (SUM, IF, ROUND …), an operator ('+', '-', '*', '/', '^', '&', '=', '<>', '<', '<=', '>', '>=')
+ * or another custom function's name.
+ */
+export type FnExpr =
+  | { k: 'num'; v: number }
+  | { k: 'str'; v: string }
+  | { k: 'bool'; v: boolean }
+  | { k: 'param'; name: string }
+  | { k: 'call'; fn: string; args: FnExpr[] }
+
+export type FnParamType = 'number' | 'text' | 'date' | 'bool' | 'range' | 'any'
+
+export interface FnParam {
+  /** lower_snake, unique within the function */
+  name: string
+  type: FnParamType
+  description?: string
+}
+
+export interface CustomFunction {
+  id: ID
+  /** UPPER_SNAKE, 2–32 chars, never a built-in's name, unique in the workspace */
+  name: string
+  description?: string
+  params: FnParam[]
+  body: FnExpr
+  createdAt: number
+  updatedAt: number
 }

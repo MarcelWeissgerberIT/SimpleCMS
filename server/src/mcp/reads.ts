@@ -7,7 +7,7 @@ import * as Y from 'yjs'
 import type { Services } from '../context.ts'
 import { ApiError, badRequest, notFound } from '../errors.ts'
 import { fragmentLinks, fragmentMarkdown } from '../api/markdown.ts'
-import { type PageInfo, type PropertyDef, type Roots, allPages, inTrash, liveDatabase, livePage, pageMap, readOrdered, rowsOf } from '../api/meta.ts'
+import { type PageInfo, type PropertyDef, type Roots, allPages, liveDatabase, outOfReach, livePage, pageMap, readOrdered, rowsOf } from '../api/meta.ts'
 import { MAX_PAGE_SIZE, contentDoc, findProperty, type WorkspaceModel } from '../api/model.ts'
 import { schemaOut } from '../api/values.ts'
 import { iso } from '../tokens.ts'
@@ -81,7 +81,7 @@ export class McpReads {
   overview(wsId: string, scope: string) {
     const w = this.s.repo.workspaceById(wsId)
     return this.model.read(wsId, (r) => {
-      const live = allPages(r).filter((p) => !inTrash(r, p.id))
+      const live = allPages(r).filter((p) => !outOfReach(r, p.id))
       const rowCount = new Map<string, number>()
       const children = new Map<string | null, PageInfo[]>()
       const ids = new Set(live.map((p) => p.id))
@@ -158,7 +158,7 @@ export class McpReads {
         return Object.values(this.model.rowOut(wsId, props, p, ctx).properties).flatMap(valueText).join(' · ')
       }
       for (const p of allPages(r)) {
-        if (inTrash(r, p.id)) continue
+        if (outOfReach(r, p.id)) continue
         const title = p.title.toLowerCase()
         const values = valuesOf(p)
         const plain = [plainOf(r, p.id), values].filter(Boolean).join('\n')
@@ -200,7 +200,7 @@ export class McpReads {
     }
     const want = (input.title ?? '').trim().toLowerCase()
     if (!want) throw badRequest('invalid_request', 'Give the page id or its title')
-    const live = allPages(r).filter((p) => !inTrash(r, p.id))
+    const live = allPages(r).filter((p) => !outOfReach(r, p.id))
     const exact = live.filter((p) => p.title.trim().toLowerCase() === want).sort((a, b) => b.updatedAt - a.updatedAt)
     if (exact[0]) return { page: exact[0], others: exact.slice(1) }
     const near = live.filter((p) => p.title.toLowerCase().includes(want)).sort((a, b) => b.updatedAt - a.updatedAt).slice(0, 5)
@@ -215,7 +215,7 @@ export class McpReads {
       const titles = new Map<string, string>()
       for (const [id, yp] of r.pages.entries()) if (yp instanceof Y.Map) titles.set(id, typeof yp.get('title') === 'string' ? (yp.get('title') as string) : '')
       const kids = allPages(r)
-        .filter((p) => p.parentId === page.id && !p.databaseId && !p.trashed)
+        .filter((p) => p.parentId === page.id && !p.databaseId && !outOfReach(r, p.id))
         .sort(byOrder)
       const rows = page.kind === 'database' ? rowsOf(r, page.id).length : null
       return {
@@ -244,7 +244,7 @@ export class McpReads {
           ...(others.length ? { alsoTitled: others.slice(0, 10).map((p) => ({ id: p.id, path: pathOf(r, p.id) })) } : {}),
         },
         candidates: allPages(r)
-          .filter((p) => p.id !== page.id && !inTrash(r, p.id) && p.kind !== 'database')
+          .filter((p) => p.id !== page.id && !outOfReach(r, p.id) && p.kind !== 'database')
           .slice(0, BACKLINK_SCAN)
           .map((p) => ({ id: p.id, title: p.title || 'Untitled', path: pathOf(r, p.id) })),
       }

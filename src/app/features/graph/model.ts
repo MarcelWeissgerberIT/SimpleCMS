@@ -2,6 +2,7 @@
 import type { SimulationLinkDatum, SimulationNodeDatum } from 'd3-force'
 import { linkedPageIds } from '../../store/store'
 import type { Database, ID, Page } from '../../store/types'
+import { inTemplate } from '../../store/selectors'
 
 export type NodeKind = 'page' | 'database' | 'row'
 export type EdgeKind = 'tree' | 'link'
@@ -68,7 +69,8 @@ export function graphSignature(g: { nodes: GNode[]; edges: GEdge[] }): string {
 
 export function buildGraph(pages: Record<ID, Page>, databases: Record<ID, Database>, opts: GraphOptions, untitled: string) {
   const alive = liveSet(pages)
-  const include = (p: Page) => alive.has(p.id) && (opts.rows || !p.databaseId)
+  // template pages (features/templates) are not part of the workspace's network
+  const include = (p: Page) => alive.has(p.id) && (opts.rows || !p.databaseId) && !inTemplate(pages, p.id)
   const nodes = new Map<ID, GNode>()
   for (const p of Object.values(pages)) {
     if (!include(p)) continue

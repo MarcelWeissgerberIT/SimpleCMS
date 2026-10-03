@@ -132,7 +132,7 @@
   min-width: 0;
 }
 .st-field__control > .input,
-.st-field__control > .keyfield,
+.st-field__control > .secret,
 .st-field__control > .seg {
   width: 100%;
 }
@@ -337,15 +337,6 @@ select.input {
   .ai-status[data-state='running'] .led {
     animation: none;
   }
-}
-.keyfield {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-.keyfield__input {
-  font-family: var(--font-mono);
-  font-size: 12px;
 }
 .st-note {
   display: flex;

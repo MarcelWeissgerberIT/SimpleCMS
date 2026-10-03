@@ -18,6 +18,8 @@ export interface Config {
   publicUrlFromEnv: boolean
   dataDir: string
   secret: Buffer
+  /** Master key (KEK, DATA_KEY): wraps every workspace's data key. Never the same as SECRET. */
+  dataKey: Buffer
   smtpUrl: string | null
   mailFrom: string
   signup: SignupPolicy
@@ -64,6 +66,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   const smtpUrl = env.SMTP_URL?.trim() || null
   const host = new URL(publicUrl).hostname
   const mailFrom = env.MAIL_FROM?.trim() || `SimpleCMS One <no-reply@${host.includes('.') ? host : 'localhost.localdomain'}>`
+  const secret = loadSecret(env.SECRET, production, dataDir)
 
   return {
     production,
@@ -73,7 +76,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     publicUrl,
     publicUrlFromEnv: !!env.PUBLIC_URL,
     dataDir,
-    secret: loadSecret(env.SECRET, production, dataDir),
+    secret,
+    dataKey: loadDataKey(env, production, dataDir, secret),
     smtpUrl,
     mailFrom,
     signup: parseSignup(env.SIGNUP),
@@ -156,4 +160,43 @@ function loadSecret(raw: string | undefined, production: boolean, dataDir: strin
   const secret = randomBytes(32)
   writeFileSync(file, secret.toString('hex'), { mode: 0o600 })
   return secret
+}
+
+/** How to make a DATA_KEY — part of every message about it. */
+export const DATA_KEY_HINT = 'generate one with: openssl rand -base64 32'
+
+/** A 32-byte key, hex (64 chars) or base64 / base64url (43–44 chars). */
+export function parseKey(raw: string, name: string): Buffer {
+  const s = raw.trim()
+  let bytes: Buffer | null = null
+  if (/^[0-9a-fA-F]{64}$/.test(s)) bytes = Buffer.from(s, 'hex')
+  else if (/^[A-Za-z0-9+/]{43}=?$/.test(s)) bytes = Buffer.from(s, 'base64')
+  else if (/^[A-Za-z0-9_-]{43}$/.test(s)) bytes = Buffer.from(s, 'base64url')
+  if (!bytes || bytes.length !== 32) throw new ConfigError(`${name} must be exactly 32 random bytes, base64 or hex encoded (${DATA_KEY_HINT})`)
+  return bytes
+}
+
+/**
+ * DATA_KEY wraps every workspace's data key (encryption at rest, docs/CLOUD.md § Tenancy & encryption
+ * at rest). Production refuses to start without one; in development a key is generated once into
+ * DATA_DIR/dev-data-key. It must not be SECRET: rotating SECRET (sign everyone out) must never touch data.
+ */
+export function loadDataKey(env: NodeJS.ProcessEnv, production: boolean, dataDir: string, secret?: Buffer): Buffer {
+  let key: Buffer
+  if (env.DATA_KEY?.trim()) key = parseKey(env.DATA_KEY, 'DATA_KEY')
+  else if (production) {
+    throw new ConfigError(
+      `DATA_KEY is required in production: it encrypts every workspace's documents and files at rest. ${DATA_KEY_HINT[0]!.toUpperCase()}${DATA_KEY_HINT.slice(1)}, ` +
+        'put it into .env as DATA_KEY=… and keep a copy apart from your backups (password manager) — backups cannot be read without it',
+    )
+  } else {
+    const file = join(dataDir, 'dev-data-key')
+    if (existsSync(file)) key = parseKey(readFileSync(file, 'utf8'), `DATA_KEY (from ${file})`)
+    else {
+      key = randomBytes(32)
+      writeFileSync(file, key.toString('base64'), { mode: 0o600 })
+    }
+  }
+  if (secret && secret.equals(key)) throw new ConfigError('DATA_KEY must not be the same as SECRET (rotating SECRET must never touch the data) — ' + DATA_KEY_HINT)
+  return key
 }

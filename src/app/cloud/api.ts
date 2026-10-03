@@ -123,10 +123,11 @@ interface RawWorkspace {
   name: string
   icon: unknown
   role: Role
+  personal?: boolean
 }
 
 const toUser = (u: RawUser): CloudUser => ({ id: u.id, email: u.email, name: u.name ?? '' })
-const toWorkspace = (w: RawWorkspace): CloudWorkspace => ({ id: w.id, name: w.name, icon: (w.icon ?? null) as string | null, role: w.role })
+const toWorkspace = (w: RawWorkspace): CloudWorkspace => ({ id: w.id, name: w.name, icon: (w.icon ?? null) as string | null, role: w.role, ...(w.personal ? { personal: true } : {}) })
 const toMs = (v: unknown): number => (typeof v === 'number' ? v : typeof v === 'string' ? Date.parse(v) || 0 : 0)
 
 /* ------------------------------------------------------------------ endpoints */

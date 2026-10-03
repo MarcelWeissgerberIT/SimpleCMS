@@ -1,10 +1,12 @@
 import type { Messages } from '@/shared/i18n'
 import { syncedMessages } from './synced/messages'
+import { iconMessages } from './icons/messages'
 
 /** Strings for the editor area. Keys MUST be prefixed with "editor." — always add both en and de. */
 export const messages: Messages = {
   en: {
     ...syncedMessages.en,
+    ...iconMessages.en,
     // blocks: name + description (slash menu, turn into, block menu)
     'editor.block.text': 'Text',
     'editor.block.text.desc': 'Plain paragraph. The default line.',
@@ -83,13 +85,22 @@ export const messages: Messages = {
     'editor.block.date': 'Date',
     'editor.block.date.desc': 'Insert today’s date as a live mention.',
     'editor.block.emoji': 'Emoji',
-    'editor.block.emoji.desc': 'Search emoji by shortcode.',
+    'editor.block.emoji.desc': 'Pick an emoji: search, categories, skin tone, recent ones first.',
+    'editor.block.icon': 'Icon',
+    'editor.block.icon.desc': 'A ceramic object or a line glyph inside the text — sized to the line.',
     'editor.block.inlineMath': 'Inline equation',
     'editor.block.inlineMath.desc': 'A TeX formula inside the text.',
     'editor.block.ai': 'Ask AI',
     'editor.block.ai.desc': 'Write, summarise or brainstorm with Claude.',
     'editor.block.meetingNotes': 'Meeting notes',
     'editor.block.meetingNotes.desc': 'Record a meeting — live transcript, then Claude writes summary, decisions and action items.',
+    'editor.block.spreadsheet': 'Spreadsheet',
+    'editor.block.spreadsheet.desc': 'Cells with formulas, several sheets, SUM, VLOOKUP, datasets DS(…).',
+    'editor.block.chart': 'Chart',
+    'editor.block.chart.desc': 'Bar, line, donut, KPI … from a spreadsheet, a database or workspace data.',
+    'editor.spreadsheet.sheet1': 'Sheet 1',
+    'editor.spreadsheet.loading': 'Loading spreadsheet…',
+    'editor.spreadsheet.failed': 'The spreadsheet could not be loaded.',
     'editor.meeting.label': 'Meeting notes',
     'editor.meeting.transcript': 'Transcript · {words} words',
 
@@ -430,6 +441,7 @@ export const messages: Messages = {
   },
   de: {
     ...syncedMessages.de,
+    ...iconMessages.de,
     'editor.block.text': 'Text',
     'editor.block.text.desc': 'Einfacher Absatz. Die Standardzeile.',
     'editor.block.heading1': 'Überschrift 1',
@@ -494,7 +506,7 @@ export const messages: Messages = {
     'editor.block.code.desc': 'Code mit Syntaxhervorhebung.',
     'editor.block.math': 'Formelblock',
     'editor.block.math.desc': 'TeX-Formel, gesetzt mit KaTeX.',
-    'editor.block.mermaid': 'Diagramm',
+    'editor.block.mermaid': 'Mermaid-Diagramm',
     'editor.block.mermaid.desc': 'Flussdiagramme und Abläufe mit Mermaid.',
     'editor.block.toc': 'Inhaltsverzeichnis',
     'editor.block.toc.desc': 'Live-Gliederung der Überschriften dieser Seite.',
@@ -507,13 +519,22 @@ export const messages: Messages = {
     'editor.block.date': 'Datum',
     'editor.block.date.desc': 'Das heutige Datum als Live-Erwähnung.',
     'editor.block.emoji': 'Emoji',
-    'editor.block.emoji.desc': 'Emoji per Kurzcode suchen.',
+    'editor.block.emoji.desc': 'Emoji wählen: Suche, Kategorien, Hautton, zuletzt verwendete zuerst.',
+    'editor.block.icon': 'Icon',
+    'editor.block.icon.desc': 'Ein Keramik-Objekt oder ein Liniensymbol im Text — so groß wie die Zeile.',
     'editor.block.inlineMath': 'Formel im Text',
     'editor.block.inlineMath.desc': 'Eine TeX-Formel im Fließtext.',
     'editor.block.ai': 'KI fragen',
     'editor.block.ai.desc': 'Mit Claude schreiben, zusammenfassen, brainstormen.',
     'editor.block.meetingNotes': 'Besprechungsnotizen',
     'editor.block.meetingNotes.desc': 'Besprechung aufnehmen — Live-Transkript, dann schreibt Claude Zusammenfassung, Entscheidungen und Aufgaben.',
+    'editor.block.spreadsheet': 'Tabellenkalkulation',
+    'editor.block.spreadsheet.desc': 'Zellen mit Formeln, mehrere Tabellenblätter, SUMME, SVERWEIS, Datenbereiche DS(…).',
+    'editor.block.chart': 'Diagramm',
+    'editor.block.chart.desc': 'Säulen, Linie, Ring, Kennzahl … aus einer Tabellenkalkulation, Datenbank oder Workspace-Daten.',
+    'editor.spreadsheet.sheet1': 'Tabelle 1',
+    'editor.spreadsheet.loading': 'Tabellenkalkulation wird geladen…',
+    'editor.spreadsheet.failed': 'Die Tabellenkalkulation konnte nicht geladen werden.',
     'editor.meeting.label': 'Besprechungsnotizen',
     'editor.meeting.transcript': 'Transkript · {words} Wörter',
 

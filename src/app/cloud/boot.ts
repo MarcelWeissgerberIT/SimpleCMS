@@ -12,7 +12,7 @@
 import { useWorkspace, emptyWorkspace } from '../store/store'
 import { fetchConfig, getSession, notifyUnauthenticated, setServerKnown, setServerProbe, type ServerConfig } from './api'
 import { listenForForget, runPendingForget } from './device'
-import { readChoice, readSession, SERVER_CAPABLE, writeChoice, writeSession } from './env'
+import { hasStoredChoice, readChoice, readSession, SERVER_CAPABLE, writeChoice, writeSession } from './env'
 import { useCloud, useCloudSync, type CloudUser, type CloudWorkspace, type WorkspaceRef } from './state'
 import { emptySettings, openCloudWorkspace } from './workspace'
 
@@ -87,6 +87,36 @@ async function openOffline(choice: { id: string }): Promise<'cloud' | null> {
   return 'cloud'
 }
 
+type Me = { user: CloudUser; workspaces: CloudWorkspace[] }
+
+/**
+ * Back from the magic link in a browser that never chose a workspace (and with no invitation to
+ * answer): the person's own workspace — every account has one from the first sign-in (docs/CLOUD.md
+ * § Tenancy) — opens instead of the local one, remembered as this browser's choice. Null: stay local.
+ */
+async function ownSpaceAfterSignIn(): Promise<{ ref: WorkspaceRef; me: Me } | null> {
+  if (hasStoredChoice() || overrideActive() || window.location.hash.startsWith('#/invite/')) return null
+  const cfg = await probeServer(4000)
+  if (cfg === 'absent' || cfg === 'network') return null
+  let me: Me | null
+  try {
+    me = await getSession()
+  } catch {
+    return null
+  }
+  const own = me?.workspaces.find((w) => w.personal)
+  if (!me || !own) return null
+  const ref: WorkspaceRef = { kind: 'cloud', id: own.id }
+  writeChoice(ref)
+  try {
+    // a page of the local workspace (where the sign-in started) is not in this one
+    history.replaceState(history.state, '', `${window.location.pathname}${window.location.search}`)
+  } catch {
+    /* no history */
+  }
+  return { ref, me }
+}
+
 function fallBackToLocal(error: string | null, forget: boolean) {
   if (forget && !overrideActive()) writeChoice(LOCAL)
   useCloud.setState({ status: 'local', active: LOCAL, role: null, readOnly: false, error })
@@ -105,8 +135,16 @@ export async function bootCloud(): Promise<'local' | 'cloud' | 'signed-out'> {
     () => (useCloud.getState().active.kind === 'cloud' ? useCloud.getState().active.id : null),
     () => switchWorkspaceImpl(LOCAL),
   )
-  const choice = readChoice()
+  let choice = readChoice()
   const signedInMarker = consumeSignedInMarker()
+  let session: Me | null | undefined
+  if (choice.kind === 'local' && signedInMarker) {
+    const own = await ownSpaceAfterSignIn()
+    if (own) {
+      choice = own.ref
+      session = own.me
+    }
+  }
   if (choice.kind === 'local') {
     useCloud.setState({ status: 'local', active: LOCAL })
     void detect(signedInMarker)
@@ -129,9 +167,9 @@ export async function bootCloud(): Promise<'local' | 'cloud' | 'signed-out'> {
   applyConfig(cfg)
 
   // GET api/session (not /api/me): signed out is a 200 with `user: null`, no 401 in the console
-  let me: { user: CloudUser; workspaces: CloudWorkspace[] } | null
+  let me: Me | null
   try {
-    me = await getSession()
+    me = session !== undefined ? session : await getSession()
   } catch {
     if (await openOffline(choice)) return 'cloud'
     fallBackToLocal('network', false)

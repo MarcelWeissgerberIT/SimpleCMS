@@ -21,6 +21,7 @@ import {
 } from 'date-fns'
 import { de as deLocale, enUS } from 'date-fns/locale'
 import { FormulaError, type Node } from './parse'
+import { formulaFunctions } from '../../lib/formulaFunctions'
 
 export type FValue = number | string | boolean | Date | null | FValue[]
 
@@ -365,6 +366,13 @@ export function evaluate(node: Node, env: EvalEnv): FValue {
       }
       case 'format':
         return toText(a[0], env.lang)
+    }
+    // a custom function of the workspace (lib/formulaFunctions)
+    const ext = formulaFunctions()
+    if (ext && ext.resolve(name) === name) {
+      const r = ext.call(name, a, { now: env.now, lang: env.lang })
+      if (r.ok) return r.value
+      throw new FormulaError('customFn', { name, code: r.code }, pos)
     }
     throw new FormulaError('unknownFunction', { name }, pos)
   }

@@ -215,5 +215,33 @@
     "label_de": "Gewohnheiten",
     "png": "counter.png",
     "webp": "counter.webp"
+  },
+  {
+    "name": "sheet",
+    "label": "Spreadsheet",
+    "label_de": "Tabellenkalkulation",
+    "png": "sheet.png",
+    "webp": "sheet.webp"
+  },
+  {
+    "name": "fx",
+    "label": "Functions",
+    "label_de": "Funktionen",
+    "png": "fx.png",
+    "webp": "fx.webp"
+  },
+  {
+    "name": "chart",
+    "label": "Charts",
+    "label_de": "Diagramme",
+    "png": "chart.png",
+    "webp": "chart.webp"
+  },
+  {
+    "name": "adder",
+    "label": "Formulas & rollups",
+    "label_de": "Formeln & Rollups",
+    "png": "adder.png",
+    "webp": "adder.webp"
   }
 ]

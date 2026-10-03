@@ -19,6 +19,7 @@ import {
 } from 'lucide-react'
 import type { Database, NumberDisplay, NumberFormat, PropertyDef, PropertyType, RollupFn, View } from '../../store/types'
 import { useWorkspace } from '../../store/store'
+import { templateScope } from '../../store/selectors'
 import { Popover } from '../../ui/Popover'
 import { MenuList, type MenuEntry } from '../../ui/Menu'
 import { Switch } from '../../ui/controls'
@@ -221,9 +222,11 @@ export function PropertyConfig({ db, prop, onEditFormula }: { db: Database; prop
   }
 
   if (live.type === 'relation') {
+    // template databases (features/templates) only from a database of the same template
+    const scope = templateScope(pages, db.id)
     const targets = Object.values(databases)
       .map((d) => ({ d, p: pages[d.id] }))
-      .filter((x) => x.p && !x.p.trashed)
+      .filter((x) => x.p && !x.p.trashed && scope(x.d.id))
     const pair = pairedRelation(db.id, live)
     const blocker = twoWayBlocker(db.id, live)
     const target = live.relationDatabaseId ? pages[live.relationDatabaseId] : undefined

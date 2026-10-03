@@ -6,6 +6,7 @@ import { useUI } from '../../store/ui'
 import { isEffectivelyTrashed, usePage } from '../../store/selectors'
 import { PageEditor } from '../../editor'
 import { DatabaseView, RowProperties } from '../../database'
+import { TemplateBanner } from '../../features'
 import { PageIcon } from '../../ui/PageIcon'
 import { IconPicker } from '../../ui/IconPicker'
 import { Popover } from '../../ui/Popover'
@@ -19,6 +20,9 @@ import { SpecPlate } from './SpecPlate'
 import { consumeTitleFocus } from '../lib/actions'
 import { NotFound } from '../home/NotFound'
 import { useReadOnly } from '../cloud/state'
+import { MarginRail } from './MarginRail'
+import { scrollHostOf } from './outline'
+import { toggleMarginRail, useMarginRailOpen } from './railPref'
 import './page.css'
 
 export type PageVariant = 'main' | 'pane' | 'peek'
@@ -41,6 +45,9 @@ function PageViewInner({ page, variant }: { page: Page; variant: PageVariant }) 
   const wide = page.settings.fullWidth || isDb
 
   const articleRef = useRef<HTMLElement>(null)
+  const [editor, setEditor] = useState<Editor | null>(null)
+  const rail = useRail(articleRef, variant === 'main' && !wide)
+  const railOpen = useMarginRailOpen()
   const focusEditor = (where: 'start' | 'end') => {
     let ed = editorRef.current
     if (!ed || ed.isDestroyed) {
@@ -62,8 +69,10 @@ function PageViewInner({ page, variant }: { page: Page; variant: PageVariant }) 
       data-small={page.settings.smallText || undefined}
       data-has-cover={page.cover ? true : undefined}
       data-locked={readOnly || undefined}
+      data-rail={rail ? (railOpen ? 'open' : 'closed') : undefined}
     >
       {trashed && <TrashBanner page={page} canEdit={!viewer} />}
+      {!trashed && <TemplateBanner pageId={page.id} />}
       <Cover page={page} editable={!readOnly} />
       <header className="pv-head">
         <div className="pv-col">
@@ -86,10 +95,12 @@ function PageViewInner({ page, variant }: { page: Page; variant: PageVariant }) 
               readOnly={readOnly}
               onReady={(ed) => {
                 editorRef.current = ed
+                setEditor(ed)
               }}
             />
           )}
         </div>
+        {rail && <MarginRail page={page} editor={editor} />}
         {!isDb && (
           <div
             className="pv-filler"
@@ -110,6 +121,44 @@ function PageViewInner({ page, variant }: { page: Page; variant: PageVariant }) 
       </footer>
     </article>
   )
+}
+
+/* ---------------- margin rail ---------------- */
+
+/** Width of the page column from which the margin rail shows (page.css sizes it). */
+const RAIL_MIN = 1240
+
+/**
+ * Does this view get the margin rail? Only the main column of a document page, wide enough,
+ * outside focus mode. Mod+. toggles it (per device) while it is available.
+ */
+function useRail(ref: React.RefObject<HTMLElement | null>, eligible: boolean): boolean {
+  const focusMode = useUI((s) => s.focusMode)
+  const [wideHost, setWideHost] = useState(false)
+  const on = eligible && !focusMode
+  // before paint: a wide page never flashes the narrow layout
+  useLayoutEffect(() => {
+    const host = on ? scrollHostOf(ref.current) : null
+    if (!host) return setWideHost(false)
+    const measure = () => setWideHost(host.clientWidth >= RAIL_MIN)
+    measure()
+    const ro = new ResizeObserver(measure)
+    ro.observe(host)
+    return () => ro.disconnect()
+  }, [ref, on])
+  const rail = on && wideHost
+  useEffect(() => {
+    if (!rail) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.defaultPrevented || e.isComposing || e.altKey || !(e.metaKey || e.ctrlKey) || e.key !== '.') return
+      if (document.querySelector('.modal-scrim, .pal-scrim')) return
+      e.preventDefault()
+      toggleMarginRail()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [rail])
+  return rail
 }
 
 /* ---------------- icon + "add icon / add cover" row ---------------- */
@@ -162,6 +211,7 @@ function PageHeaderControls({ page, readOnly }: { page: Page; readOnly: boolean 
       )}
       <Popover open={!!iconAnchor} anchor={iconAnchor} onClose={() => setIconAnchor(null)} bare placement="bottom-start">
         <IconPicker
+          symbols
           onSelect={(icon) => {
             update({ icon })
             setIconAnchor(null)

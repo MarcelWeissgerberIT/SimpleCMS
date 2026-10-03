@@ -133,6 +133,11 @@ a {
   border-color: var(--signal-hover);
 }
 
+/* the inset press shadow above would otherwise replace the global focus ring */
+.btn--primary:focus-visible {
+  box-shadow: var(--focus-ring), inset 0 -2px 0 rgba(0, 0, 0, 0.18);
+}
+
 .btn--ink {
   background: var(--ink);
   border-color: var(--ink);

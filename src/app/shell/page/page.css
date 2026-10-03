@@ -2,8 +2,12 @@
    Page view (main column, stacked panes, peek)
    ================================================================ */
 .pv {
-  --pv-max: 760px;
+  /* the text column: 760px, growing a little on wide columns (≤ ~105 characters a line) */
+  --pv-max: clamp(760px, 64cqi, 820px);
   --pv-pad: clamp(20px, 8cqi, 96px);
+  /* margin rail (wide main column, see MarginRail.tsx): width and gap to the text */
+  --mr-w: clamp(204px, 15cqi, 248px);
+  --mr-gap: clamp(36px, 3.4cqi, 56px);
   --page-font: var(--font-sans);
   --page-text: var(--text-lg);
   position: relative;
@@ -284,6 +288,7 @@
 
 /* ---------- body ---------- */
 .pv-body {
+  position: relative;
   flex: 1;
   display: flex;
   flex-direction: column;
@@ -309,6 +314,370 @@
 }
 .pv-filler {
   cursor: default;
+}
+
+/* ---------- margin rail ---------- */
+/* text + rail are centred as one; the comment rail (comments.css) takes precedence over it */
+.pv[data-rail] .pv-col {
+  position: relative;
+  transition: left var(--dur-3) var(--ease-out);
+}
+.pv[data-rail='open']:not(:has(.one-editor[data-rail='margin'])) .pv-col {
+  left: calc((var(--mr-w) + var(--mr-gap)) / -2);
+}
+.pv:has(.one-editor[data-rail='margin']) .mrail {
+  display: none;
+}
+/* what the rail shows is not repeated at the end of the page */
+.pv[data-rail='open']:not(:has(.one-editor[data-rail='margin'])) .pv-foot :is(.spec, .pv-links:not(.pv-um)) {
+  display: none;
+}
+.mrail {
+  position: absolute;
+  top: 14px;
+  bottom: 0;
+  left: calc(50% + var(--pv-max) / 2 + (var(--mr-gap) - var(--mr-w)) / 2);
+  width: var(--mr-w);
+  font-family: var(--font-sans);
+}
+.mrail__inner {
+  position: sticky;
+  top: 22px;
+}
+.mrail__key {
+  position: absolute;
+  top: 0;
+  right: -5px;
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--radius-1);
+  background: transparent;
+  color: var(--ink-3);
+  transition:
+    color var(--dur-1) var(--ease-out),
+    background var(--dur-1) var(--ease-out);
+}
+.mrail__key:hover {
+  background: var(--hover);
+  color: var(--ink);
+}
+.mrail__key:active {
+  transform: translateY(1px);
+}
+.mrail:not([data-open]) .mrail__key {
+  border-color: var(--rule-strong);
+  background: var(--surface);
+}
+.mrail__body {
+  max-height: calc(100dvh - 132px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  /* room for focus rings at the edges of the scroller */
+  margin: 0 -4px;
+  padding: 0 4px 8px;
+  animation: mrail-in var(--dur-3) var(--ease-out);
+}
+@keyframes mrail-in {
+  from {
+    opacity: 0;
+    transform: translateX(8px);
+  }
+}
+.mrail__sec + .mrail__sec {
+  margin-top: 26px;
+}
+.mrail__head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  height: 26px;
+  color: var(--ink-3);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  font-weight: 500;
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+/* the first head shares its line with the rail key */
+.mrail__sec:first-child .mrail__head {
+  padding-right: 30px;
+}
+.mrail__n {
+  color: var(--signal-ink);
+}
+.mrail__label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.mrail__leader {
+  flex: 1;
+  min-width: 10px;
+  height: 1px;
+  margin-top: 3px;
+  background-image: linear-gradient(to right, var(--rule-strong) 1px, transparent 1px);
+  background-size: 4px 1px;
+}
+.mrail__count {
+  font-variant-numeric: tabular-nums;
+}
+
+/* outline: a scale along a hairline; the section being read carries the signal mark */
+.mrail-toc {
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+  border-left: 1px solid var(--rule-strong);
+}
+.mrail-toc li {
+  position: relative;
+}
+.mrail-toc li::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 13px;
+  width: 4px;
+  height: 1px;
+  background: var(--rule-strong);
+}
+.mrail-toc__a {
+  position: relative;
+  display: -webkit-box;
+  width: 100%;
+  padding: 5px 6px 5px 13px;
+  overflow: hidden;
+  border: 0;
+  border-radius: 0 var(--radius-1) var(--radius-1) 0;
+  background: transparent;
+  color: var(--ink-2);
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  font-weight: 560;
+  line-height: 1.35;
+  text-align: left;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow-wrap: anywhere;
+  transition:
+    color var(--dur-1) var(--ease-out),
+    background var(--dur-1) var(--ease-out);
+}
+.mrail-toc li[data-depth='1'] .mrail-toc__a {
+  padding-left: 25px;
+  font-weight: 450;
+}
+.mrail-toc li[data-depth='2'] .mrail-toc__a {
+  padding-left: 37px;
+  font-weight: 450;
+  color: var(--ink-3);
+}
+.mrail-toc__a:hover {
+  background: var(--hover);
+  color: var(--ink);
+}
+.mrail-toc__a[aria-current] {
+  color: var(--ink);
+  font-weight: 650;
+}
+/* the needle: a signal bar laid over the scale's hairline (the button clips its own overflow) */
+.mrail-toc li:has(> [aria-current])::after {
+  content: '';
+  position: absolute;
+  left: -2px;
+  top: 4px;
+  bottom: 4px;
+  width: 3px;
+  background: var(--signal);
+}
+
+/* page readings: a compact rating plate */
+.mrail-spec {
+  margin: 4px 0 0;
+  font-family: var(--font-mono);
+}
+.mrail-spec__row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 5px 0 4px;
+  border-bottom: 1px solid var(--rule);
+}
+.mrail-spec__row:last-child {
+  border-bottom: 0;
+}
+.mrail-spec dt {
+  flex: none;
+  color: var(--ink-3);
+  font-size: 9.5px;
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+}
+.mrail-spec dd {
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ink);
+  font-size: 11px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  text-transform: uppercase;
+}
+.mrail-spec .spec__time {
+  display: none;
+}
+
+.mrail-links {
+  margin: 4px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.mrail-links__a {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 30px;
+  margin: 0 -6px;
+  padding: 3px 6px;
+  border-radius: var(--radius-1);
+  color: var(--ink-2);
+  font-size: 13px;
+  font-weight: 520;
+  text-decoration: none;
+}
+.mrail-links__a:hover {
+  background: var(--hover);
+  color: var(--ink);
+}
+.mrail-links__title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* upcoming reminders: when it rings (mono, signal bell), how soon, and the line it belongs to */
+.mrail-due {
+  margin: 4px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.mrail-due li + li {
+  border-top: 1px solid var(--rule);
+}
+.mrail-due__a {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: baseline;
+  gap: 3px 8px;
+  width: calc(100% + 12px);
+  margin: 0 -6px;
+  padding: 7px 6px 8px;
+  border: 0;
+  border-radius: var(--radius-1);
+  background: transparent;
+  color: var(--ink-2);
+  text-align: left;
+  transition:
+    color var(--dur-1) var(--ease-out),
+    background var(--dur-1) var(--ease-out);
+}
+.mrail-due__a:hover {
+  background: var(--hover);
+  color: var(--ink);
+}
+.mrail-due__a:active {
+  transform: translateY(1px);
+}
+.mrail-due__when {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.mrail-due__when svg {
+  flex: none;
+  color: var(--signal-ink);
+}
+.mrail-due__in {
+  color: var(--ink-3);
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  letter-spacing: var(--tracking-label);
+  white-space: nowrap;
+}
+.mrail-due__what {
+  display: -webkit-box;
+  grid-column: 1 / -1;
+  padding-left: 18px;
+  overflow: hidden;
+  font-size: var(--text-sm);
+  line-height: 1.35;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow-wrap: anywhere;
+}
+
+/* the heading an outline jump landed on: a signal tick in the gutter (outline.ts) */
+.mrail-mark {
+  position: absolute;
+  z-index: 2;
+  width: 3px;
+  background: var(--signal);
+  pointer-events: none;
+  animation: mrail-mark 1.8s var(--ease-out) forwards;
+}
+@keyframes mrail-mark {
+  0%,
+  45% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pv[data-rail] .pv-col {
+    transition: none;
+  }
+  .mrail__body {
+    animation: none;
+  }
+  .mrail-mark {
+    animation: none;
+  }
+}
+@media print {
+  .mrail,
+  .mrail-mark {
+    display: none;
+  }
+  .pv[data-rail='open']:not(:has(.one-editor[data-rail='margin'])) .pv-col {
+    left: 0;
+  }
+  .pv[data-rail='open']:not(:has(.one-editor[data-rail='margin'])) .pv-foot :is(.spec, .pv-links:not(.pv-um)) {
+    display: block;
+  }
 }
 
 /* ---------- footer: backlinks + spec plate ---------- */

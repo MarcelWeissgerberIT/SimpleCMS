@@ -2,7 +2,8 @@
  * GitHub target: the same file layout, committed to the person's own repository through the REST
  * API (git data API: blobs → tree → commit → ref update; one commit per push). The token is a
  * fine-grained personal access token with Contents read/write for that repository, typed into
- * Settings → Sync and kept in this browser only (storage.ts).
+ * Settings → Sync and kept in this browser only, encrypted (storage.ts: the config holds a vault
+ * marker, the token is opened per request).
  *
  *  - Push writes only files whose rendering changed since the last push (the manifest keeps the
  *    blob ids) and removes files that left the layout. A file changed on GitHub meanwhile is kept
@@ -17,6 +18,7 @@ import { getFile } from '../../lib/files'
 import { gitBlobSha, fromBase64, toBase64 } from './hash'
 import { conflictPath, pageCount, planSync, type SyncPlan } from './engine'
 import { applyPickup, isPickable, type ExternalFile, type PickupResult } from './pickup'
+import { openGitHubToken } from './storage'
 import type { GitHubConfig, Manifest } from './types'
 
 const API = 'https://api.github.com'
@@ -66,14 +68,15 @@ export function isConfigured(c: GitHubConfig): boolean {
 
 async function call<T>(cfg: GitHubConfig, method: string, path: string, body?: unknown): Promise<T> {
   const repo = parseRepo(cfg.repo)
-  if (!repo || !cfg.token.trim()) throw new GitHubError('config', 'repository and token are required')
+  const token = await openGitHubToken(cfg.token)
+  if (!repo || !token) throw new GitHubError('config', 'repository and token are required')
   let res: Response
   try {
     res = await fetch(`${API}/repos/${repo.owner}/${repo.name}${path}`, {
       method,
       headers: {
         Accept: 'application/vnd.github+json',
-        Authorization: `Bearer ${cfg.token.trim()}`,
+        Authorization: `Bearer ${token}`,
         ...(body === undefined ? {} : { 'Content-Type': 'application/json' }),
       },
       body: body === undefined ? undefined : JSON.stringify(body),

@@ -8,6 +8,7 @@
  */
 import type { Database, ID, Page, PageIcon, Person, PropertyDef, PropertyType } from '../../store/types'
 import { csvCell, exportValue, rewriteExportLinks } from '../io/export/markdown'
+import { toFileMarkdown } from '../io/import/mentions'
 import { relativePath } from '../io/export/collect'
 import { DB_FILE, ROWS_FILE, type Layout } from './layout'
 import { writeFrontMatter, type YamlValue } from './yaml'
@@ -129,9 +130,9 @@ function frontMatter(ctx: RenderCtx, p: Page, path: string): string {
 /* Files                                                               */
 /* ------------------------------------------------------------------ */
 
-/** The page body as Markdown with links relative to `path` (the exporter's conversion). */
+/** The page body as Markdown with links relative to `path` (the exporter's conversion: date / person mentions as one: links). */
 export function pageBody(ctx: Pick<RenderCtx, 'editor' | 'layout'>, p: Page, path: string): string {
-  const body = p.content ? ctx.editor.docToMarkdown(p.content) : ''
+  const body = p.content ? toFileMarkdown(ctx.editor.docToMarkdown, p.content) : ''
   return rewriteExportLinks(
     body,
     path,

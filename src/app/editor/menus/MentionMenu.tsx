@@ -8,7 +8,7 @@ import { CalendarDays, FilePlus2, UserRound } from 'lucide-react'
 import { Popover } from '../../ui/Popover'
 import { PageIcon } from '../../ui/PageIcon'
 import { useWorkspace } from '../../store/store'
-import { pageTitle } from '../../store/selectors'
+import { pageTitle, templateScope } from '../../store/selectors'
 import { useLang, useT } from '../../i18n'
 import type { Bridge } from '../lib/bridge'
 import { addDays, nextMonday } from 'date-fns'
@@ -38,7 +38,7 @@ export function MentionMenu({ editor, bridge, pageId }: { editor: Editor; bridge
   // pages inside a trashed parent are gone with it on "Empty trash" — computed once per opening
   const live = useMemo(() => (open ? liveIds(useWorkspace.getState().pages) : null), [open])
 
-  const insert = (range: Range, attrs: { id: string; label: string; kind: 'page' | 'date' | 'person' }) =>
+  const insert = (range: Range, attrs: { id: string; label: string; kind: 'page' | 'date' | 'person' }) => {
     editor
       .chain()
       .focus()
@@ -47,6 +47,9 @@ export function MentionMenu({ editor, bridge, pageId }: { editor: Editor; bridge
         { type: 'text', text: ' ' },
       ])
       .run()
+    // database rows answer with "link as relation?" (database PAGE_MENTIONED)
+    if (attrs.kind === 'page') window.dispatchEvent(new CustomEvent('one:page-mentioned', { detail: { from: pageId, to: attrs.id } }))
+  }
 
   const rows = useMemo<Row[]>(() => {
     if (!open) return []
@@ -54,8 +57,9 @@ export function MentionMenu({ editor, bridge, pageId }: { editor: Editor; bridge
     const pageRows: Row[] = []
     const dateRows: Row[] = []
     const out: Row[] = []
-    // pages
-    const candidates = Object.values(pages).filter((p) => !!live?.has(p.id) && p.id !== pageId)
+    // pages — template pages (features/templates) only from a page of the same template
+    const scope = templateScope(pages, pageId)
+    const candidates = Object.values(pages).filter((p) => !!live?.has(p.id) && p.id !== pageId && scope(p.id))
     let matched = candidates
     if (query) {
       const fuse = new Fuse(candidates, { keys: ['title'], threshold: 0.38, ignoreLocation: true })

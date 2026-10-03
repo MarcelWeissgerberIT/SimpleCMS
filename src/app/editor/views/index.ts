@@ -17,6 +17,9 @@ import { StaticTabsView, TabsView, tabsViewOptions } from './TabsView'
 import { SyncedBlockView, syncedViewOptions } from './SyncedBlockView'
 import { AudioView, VideoView } from './MediaBlockViews'
 import { MeetingNotesView, meetingViewOptions } from './MeetingNotesView'
+import { SpreadsheetView, spreadsheetViewOptions } from './SpreadsheetView'
+import { ChartBlockView, chartViewOptions } from './ChartBlockView'
+import { withInlineIconView } from './InlineIconView'
 import './views.css'
 import './toggle.css'
 
@@ -51,6 +54,8 @@ export function nodeViewWraps({ readOnly }: { readOnly: boolean }): ExtensionWra
     mermaid: withView(guardView(MermaidView)),
     pageLink: withView(guardView(PageLinkView)),
     mention: withView(guardView(MentionView, { inline: true }), { as: 'span' }),
+    // plain DOM view: no React root per icon
+    icon: withInlineIconView,
     databaseBlock: withView(guardView(DatabaseBlockView), stopAll),
     bookmark: withView(guardView(BookmarkView)),
     embed: withView(guardView(EmbedView)),
@@ -66,5 +71,9 @@ export function nodeViewWraps({ readOnly }: { readOnly: boolean }): ExtensionWra
     ...(readOnly ? {} : { syncedBlock: withView(SyncedBlockView, syncedViewOptions) }),
     // meeting notes: controls from the features area around the notes (content hole: no guard)
     meetingNotes: withView(MeetingNotesView, meetingViewOptions),
+    // spreadsheet: the grid (lazy) while editing; read-only renders show the schema's static tables
+    ...(readOnly ? {} : { spreadsheet: withView(guardView(SpreadsheetView), spreadsheetViewOptions) }),
+    // chart: the live chart (features/charts); read-only renders keep the readouts, without the tools
+    chart: withView(guardView(ChartBlockView), chartViewOptions),
   }
 }

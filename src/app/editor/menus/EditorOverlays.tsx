@@ -12,6 +12,7 @@ import { BubbleToolbar } from './BubbleToolbar'
 import { UrlPasteMenu } from './UrlPasteMenu'
 import { TableToolbar } from './TableToolbar'
 import { LinkHover } from './LinkHover'
+import { InlinePickers } from '../icons/InlinePickers'
 import './menus.css'
 
 function AI({ editor, bridge, pageId }: { editor: Editor; bridge: Bridge; pageId: string }) {
@@ -35,6 +36,7 @@ export const EditorOverlays = memo(function EditorOverlays({ editor, bridge, pag
       <SlashMenu editor={editor} bridge={bridge} pageId={pageId} />
       <MentionMenu editor={editor} bridge={bridge} pageId={pageId} />
       <EmojiMenu editor={editor} bridge={bridge} />
+      <InlinePickers editor={editor} bridge={bridge} />
       <BubbleToolbar editor={editor} bridge={bridge} />
       <UrlPasteMenu editor={editor} bridge={bridge} />
       <TableToolbar editor={editor} />

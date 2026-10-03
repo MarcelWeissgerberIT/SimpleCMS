@@ -1,10 +1,11 @@
 import { cloneElement, isValidElement, useEffect, useId, useRef, useState, type ReactNode } from 'react'
-import { Eye, EyeOff, ExternalLink, X, Download, Upload, AlertTriangle, GitBranch, HardDrive } from 'lucide-react'
+import { ExternalLink, X, Download, Upload, AlertTriangle, GitBranch, HardDrive } from 'lucide-react'
 import { useWorkspace } from '../../store/store'
 import { isEffectivelyTrashed } from '../../store/selectors'
 import { useUI } from '../../store/ui'
 import { Modal } from '../../ui/Modal'
 import { Led, Switch } from '../../ui/controls'
+import { SecretField } from '../../ui/SecretField'
 import { useLang, useT } from '../../i18n'
 import { logoMarkSvg } from '@/shared/logo'
 import { BRAND } from '@/shared/brand'
@@ -296,10 +297,11 @@ function AppearanceTab() {
 
 function AITab() {
   const t = useT()
+  // a vault marker ('' = no key): the key itself is never in the store (store/secrets.ts)
   const key = useWorkspace((x) => x.settings.aiApiKey)
   const model = useWorkspace((x) => x.settings.aiModel)
   const set = useWorkspace.getState().updateSettings
-  const [show, setShow] = useState(false)
+  const [draft, setDraft] = useState('')
   const keyId = useId()
   const configured = key.trim().length > 0
   // the key is only "connected" once a real request went through
@@ -346,22 +348,22 @@ function AITab() {
       </div>
       {test.state === 'error' && test.msg && <p className="ai-status__err">{test.msg}</p>}
       <Field label={t('shell.settings.ai.key')} hint={t('shell.settings.ai.keyHint')} htmlFor={keyId}>
-        <div className="keyfield">
-          <input
-            id={keyId}
-            aria-describedby={`${keyId}-hint`}
-            className="input keyfield__input"
-            type={show ? 'text' : 'password'}
-            value={key}
-            placeholder="sk-ant-…"
-            autoComplete="off"
-            spellCheck={false}
-            onChange={(e) => set({ aiApiKey: e.target.value.trim() })}
-          />
-          <button type="button" className="icon-btn" onClick={() => setShow(!show)} aria-label={show ? t('shell.settings.ai.hide') : t('shell.settings.ai.show')} aria-pressed={show}>
-            {show ? <EyeOff size={15} /> : <Eye size={15} />}
-          </button>
-        </div>
+        <SecretField
+          id={keyId}
+          label={t('shell.settings.ai.key')}
+          marker={key}
+          value={draft}
+          onChange={setDraft}
+          onSubmit={(k) => {
+            set({ aiApiKey: k })
+            setDraft('')
+          }}
+          onRemove={() => set({ aiApiKey: '' })}
+          placeholder="sk-ant-…"
+          describedBy={`${keyId}-hint`}
+          showLabel={t('shell.settings.ai.show')}
+          hideLabel={t('shell.settings.ai.hide')}
+        />
       </Field>
       <Field label={t('shell.settings.ai.model')} hint={t('shell.settings.ai.modelHint')}>
         <select className="input" value={model} onChange={(e) => set({ aiModel: e.target.value })}>

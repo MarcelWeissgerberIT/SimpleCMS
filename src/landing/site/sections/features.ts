@@ -6,8 +6,9 @@ import { sectionHead } from './head'
 const GROUPS: Array<{ key: FeatureGroup; code: string }> = [
   { key: 'write', code: 'A' },
   { key: 'organise', code: 'B' },
-  { key: 'automate', code: 'C' },
-  { key: 'publish', code: 'D' },
+  { key: 'calculate', code: 'C' },
+  { key: 'automate', code: 'D' },
+  { key: 'publish', code: 'E' },
 ]
 
 const num = (n: number) => `F-${String(n).padStart(2, '0')}`
@@ -72,6 +73,10 @@ const KEYWORDS: Record<FeatureKey, string[]> = {
   share: ['lock', 'password', 'private', 'secure', 'padlock'],
   import: ['import', 'migrate', 'inbox', 'upload', 'box'],
   clipper: ['sync', 'link', 'links', 'chain', 'clip'],
+  sheets: ['sheet', 'spreadsheet', 'grid', 'cells'],
+  functions: ['fx', 'function', 'tree', 'keys'],
+  charts: ['chart', 'bars', 'graph', 'plot'],
+  formulas: ['adder', 'sum', 'rollup', 'calculator'],
 }
 
 /** Hand-picked art per feature (manifest `name`); keyword matching is only the fallback. */
@@ -92,6 +97,10 @@ const PREFERRED: Partial<Record<FeatureKey, string>> = {
   share: 'lock',
   import: 'import',
   clipper: 'sync', // two chain links: save a link
+  sheets: 'sheet', // a slab of cells with one orange cell
+  functions: 'fx', // a tree of keys: a formula built by clicking
+  charts: 'chart',
+  formulas: 'adder', // a mechanical adding machine
 }
 
 interface IconRef {

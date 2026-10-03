@@ -46,6 +46,7 @@ The GitHub Pages build stays local-only.
 | `PUBLIC_URL` | e.g. `https://cloud.example.com` (links in emails, cookie `Secure` when https) |
 | `DATA_DIR` | default `/data` |
 | `SECRET` | 32+ random bytes (hex/base64), signs tokens; required in production |
+| `DATA_KEY` | exactly 32 random bytes (base64 or hex, `openssl rand -base64 32`): the master key that wraps every workspace's data key (*Tenancy & encryption at rest*); required in production, never equal to `SECRET` *(server addition)* |
 | `SMTP_URL` / `MAIL_FROM` | nodemailer transport URL and sender; without SMTP the server runs in dev-mail mode |
 | `SIGNUP` | `open` (default) · `invite` (only invited emails) · `domains:acme.com,acme.de` |
 | `DEV_MODE` | `1` = magic links are logged and returned by `/api/dev/mailbox` (never in production) |
@@ -60,8 +61,9 @@ The GitHub Pages build stays local-only.
 | `API_RATE_LIMIT` | public API requests per minute per token and per incoming webhook (default 120, see [`API.md`](API.md#limits)) *(server addition)* |
 
 In development (`NODE_ENV` ≠ `production`) `DATA_DIR` defaults to `server/.data`, `PUBLIC_URL` to
-`http://localhost:$PORT`, and a `SECRET` is generated once into `DATA_DIR/dev-secret`. Production refuses to
-start without `SECRET` and `PUBLIC_URL`, or with `DEV_MODE=1` (exit code 78, message names the variable).
+`http://localhost:$PORT`, and a `SECRET` and a `DATA_KEY` are generated once into `DATA_DIR/dev-secret` and
+`DATA_DIR/dev-data-key` (mode 0600). Production refuses to start without `SECRET`, `DATA_KEY` and
+`PUBLIC_URL`, or with `DEV_MODE=1` (exit code 78, message names the variable and how to make it).
 
 ## Data on the server (SQLite)
 
@@ -78,7 +80,16 @@ document_tombstones(name PRIMARY KEY, workspace_id, deleted_at, deleted_by) -- m
 api_tokens(id, workspace_id, name, scope 'read'|'write', token_hash UNIQUE, created_by, created_at, last_used_at, revoked_at)  -- v3
 webhooks(id, workspace_id, database_id, secret_hash UNIQUE, created_by, created_at, rotated_at, last_delivery_at, deliveries) -- v3
 idempotency(scope, key, workspace_id, status, body, created_at, PRIMARY KEY(scope, key))  -- v3, first answers kept 24 h
+users.personal_space_at, workspaces.personal_of                             -- v5, the own workspace (see Tenancy)
+workspace_keys(workspace_id PRIMARY KEY, wrapped BLOB, kek_id, created_at, rotated_at)  -- v6, wrapped data keys
+documents.enc, files.enc (0 = plaintext from before v6, 1 = sealed)          -- v6
+server_state(key PRIMARY KEY, value, updated_at)                            -- v6, the running server's heartbeat
 ```
+
+Migrations v5/v6 (*Tenancy & encryption at rest* below): the own workspace of every account, one data
+key per workspace (stored wrapped), and the `enc` markers — `documents.data`, file bytes
+(`DATA_DIR/files/<ws>/<id>.enc`), `files.name` and `idempotency.body` are ciphertext; `files.sha256` holds a
+keyed fingerprint (HMAC with the workspace's key), no plain content hash.
 
 Migration v4 (private pages, see *Private pages* below): `files.private_to` — a file uploaded from a
 private page is served to that user only until it is published.
@@ -108,7 +119,7 @@ All mutating requests require `Content-Type: application/json` (CSRF guard toget
 | `POST /api/auth/request` | – | `{ email, redirect? }` → `204` (always, no account enumeration; rate-limited per email and IP) |
 | `GET /api/auth/verify?token=` | – | sets cookie, `302` to `redirect` (default `/app/`), or an error page |
 | `POST /api/auth/logout` | session | → `204` |
-| `GET /api/me` | session | → `{ user: { id, email, name }, workspaces: [{ id, name, icon, role }] }` |
+| `GET /api/me` | session | → `{ user: { id, email, name }, workspaces: [{ id, name, icon, role, personal }] }` — the caller's own workspace first |
 | `GET /api/session` | – | *(server addition)* → `200 { user: {…} \| null, workspaces: [...] }` — like `/api/me`, but signed out is `user: null`, not a 401 |
 | `PATCH /api/me` | session | `{ name }` → user |
 | `POST /api/workspaces` | session | `{ name }` → workspace (caller = owner) |
@@ -157,8 +168,10 @@ Errors: `{ error: { code, message } }` with 400/401/403/404/409/413/429.
   `PUBLIC_URL` is https. The expiry slides on API use (re-sent at most once a day) — call `GET /api/session`
   (or `/api/me`) on boot. An invalid cookie is cleared.
 - **Workspace object** (`POST` → `201`, `PATCH` → `200`, `/api/me`):
-  `{ id, name, icon, role, plan, created_at }`; `icon` is opaque JSON (`null`, a string ≤ 64 chars or an
-  object ≤ 2 KB); `name` 1–100 chars, trimmed. At most 20 new workspaces per user per day.
+  `{ id, name, icon, role, plan, created_at, personal }`; `icon` is opaque JSON (`null`, a string ≤ 64 chars or an
+  object ≤ 2 KB); `name` 1–100 chars, trimmed. At most 20 new workspaces per user per day (the own
+  workspace, made by the server, does not count). `personal: true` marks the caller's own workspace
+  (created at their first sign-in, *Tenancy* below) while they own it.
 - **Members**: `created_at` is the membership date. `PATCH … { role: 'owner' }` transfers ownership (owner
   only; the old owner becomes `admin`). The owner's own role can only change through a transfer
   (`409 owner_must_transfer`); the owner cannot leave or be removed (same code). Non-members get `404
@@ -273,7 +286,7 @@ Y.Map 'workspace'  name, icon (JSON), createdAt
 Y.Map 'pages'      pageId → Y.Map {
                      kind, title, icon (JSON|null), cover (JSON|null), parentId, databaseId,
                      order (number), trashed, trashedAt, createdAt, updatedAt, createdBy, updatedBy,
-                     settings (JSON), hidden?,
+                     settings (JSON), hidden?, template? (JSON: a template's root — Page.template)
                      properties: Y.Map propId → JSON value     (per-cell last-writer-wins)
                      comments:   Y.Map commentId → JSON thread (without `replies`)
                                        `<commentId>/r/<replyId>` → JSON reply
@@ -288,6 +301,9 @@ Y.Map 'databases'  dbId → Y.Map {
                      any other Database key (subItems, dependencies, locked …): JSON
                    }
 Y.Map 'people'     personId → JSON Person   (workspace people; members are mirrored as people)
+Y.Map 'functions'  functionId → JSON CustomFunction   (custom functions built by clicking —
+                     { id, name, description?, params, body: expression tree, createdAt, updatedAt };
+                     last writer wins per function; every reader sanitizes it, see src/app/store/functions.ts)
 ```
 
 *(client C1 refinements, backwards compatible on read)*: comment **replies** are entries of their
@@ -480,8 +496,120 @@ is; a top-level page where it was created (sidebar "PRIVATE → New page" = `cre
 - This browser's copies (`device.ts`) include the private documents.
 - The local workspace has no Private section (everything is local anyway).
 - Limits: the server operator can read private documents like any other (privacy between members, not
-  end-to-end encryption); a member keeps the version history snapshots this device made of a page while
+  end-to-end encryption — they are encrypted at rest like everything else, see below); a member keeps the version history snapshots this device made of a page while
   it was shared; edits someone makes in the second before a page leaves the workspace can be lost.
+
+## Tenancy & encryption at rest
+
+Everyone who uses the cloud is in a space of their own from the first sign-in, nothing of one workspace
+is reachable from another, and what a workspace contains is encrypted on disk with a key of its own.
+
+### A workspace of one's own
+
+- At a person's **first successful sign-in** (`GET`/`POST /api/auth/verify`, also when the account is
+  created there) the server creates their own workspace: **`<name>’s space`** / **`Bereich von <name>`**
+  (the sign-in's `lang`; the name, else the part of the address before the @), the person as owner,
+  nobody else in it. `users.personal_space_at` records it was made — **once**: deleting it does not
+  bring it back. `workspaces.personal_of` says whose it is; handing it over (ownership transfer) makes it
+  an ordinary workspace. Accounts that already owned a workspace before migration v5 count as having one.
+- Sharing only by explicit invitation, as before. Accepting an invitation adds the team workspace next to
+  the own one. `SIGNUP` is unchanged (no account → no workspace).
+- `/api/me` lists the own workspace first, with `personal: true`. It does not count towards the
+  20-per-day limit.
+- **Client**: back from the magic link (`?signed-in`) in a browser that never chose a workspace
+  (`localStorage['one.cloud.active']` unset, no `?w=`, no `#/invite/…` to answer), `bootCloud` opens the
+  own workspace at once and remembers it (no empty "create a workspace" step); otherwise the choice stands
+  and the own workspace waits at the top of the switcher.
+
+### Isolation guarantees
+
+Each is enforced in one place; `server/test/tenancy.test.ts` sweeps them with a member of workspace A
+against workspace B (and with B's ids inside A). The sweep reads the app's own route table and the MCP
+tool list: **a new route or tool without an entry in its table fails the suite**, so nothing can silently
+skip the check.
+
+| Surface | Gate | Outsider gets |
+|---|---|---|
+| REST `/api/workspaces/:id/**` | `access()` (`routes/access.ts`): membership + role; sub-resources (members, invites, tokens, hooks, files, documents) are looked up `WHERE workspace_id = :id` | `404 workspace_not_found` (existence not revealed); B's ids in A: `404 …_not_found`, nothing of B touched |
+| Public API `/api/v1`, remote MCP `/mcp` | the bearer token belongs to exactly one workspace; every id is looked up in that workspace's meta document; private documents never | `404` / tool error; listings and search show only the token's workspace |
+| Incoming webhooks | the URL secret names one hook = one database of one workspace | `404 hook_not_found` |
+| WebSocket `/collab` | `onAuthenticate`: the document name's workspace needs a membership; `ws:<id>:u:<userId>…` only for that user | `forbidden` (no document is loaded) |
+| Files | rows keyed `(workspace_id, id)`, bytes under `files/<workspace>/`; private files for their uploader only | `404 file_not_found` |
+| Invite links, magic links | the token is the credential, stored as HMAC only | `404` / error page |
+
+### Encryption at rest — one key per workspace
+
+**Keys.** `DATA_KEY` (master key, KEK) comes from the environment and is never stored by the server.
+Every workspace has a random 256-bit **data key** (DEK), created in the transaction that creates the
+workspace (older workspaces get theirs at the next start) and stored only **wrapped**: AES-256-GCM under
+`DATA_KEY` with AAD `dek\n<workspace id>`, in `workspace_keys` (a wrapped key copied to another
+workspace's row does not open). `kek_id` (16 hex of HMAC-SHA256(DATA_KEY, fixed label)) names the master
+key without revealing it — the startup log prints it as `data_key=`. Two subkeys are derived per workspace
+with HKDF-SHA256: one for AES-256-GCM, one for HMAC fingerprints. `DATA_KEY` is separate from `SECRET`:
+rotating `SECRET` signs everyone out and never touches data. At start every wrapped key must be under this
+`DATA_KEY` and one must open — otherwise the server refuses to start (exit 78) and says which key ids it
+found and what to do.
+
+**What is encrypted** — AES-256-GCM with the workspace's key, a fresh random 96-bit nonce for every write,
+and AAD naming the place, so a ciphertext copied to another row, document, file or workspace fails to
+authenticate instead of decrypting there:
+
+| Data | At rest | AAD |
+|---|---|---|
+| Yjs state of every document (meta, page, private) | `documents.data` (`enc = 1`) | `doc\n<document name>` |
+| File bytes | `DATA_DIR/files/<ws>/<id>.enc`, sealed while the upload streams in | `file\n<ws>\n<id>` |
+| File names | `files.name` = `v1.<base64url>` | `file-name\n<ws>\n<id>` |
+| File fingerprint (`ETag`) | `files.sha256` = HMAC-SHA256 of the bytes with the workspace's MAC key — no plain hash | – |
+| Kept answers of create requests (24 h) | `idempotency.body` = `v1.…` | `idempotency\n<scope>\n<key>` |
+| Sign-in redirect (can carry an invite token) | `login_tokens.redirect` = `v1.…`, key derived (HKDF) from the link's own token — the database alone cannot read it | `login-redirect` |
+
+Format v1: `0x01 ‖ nonce (12) ‖ ciphertext ‖ tag (16)`; the version byte is authenticated too and lets a
+later algorithm or key scheme coexist. Files use the same layout as a stream; a download is
+authenticated completely (one pass over the file) before its first byte is sent, then decrypted on the way
+out. A document that does not decrypt is never replaced by an empty one: it does not load (logged as
+`document cannot be decrypted`), a file answers `500`.
+
+**Not encrypted** — metadata the server needs to route, list, mail and limit: account emails and names,
+workspace names and icons, memberships and roles, invitation addresses, document names (they contain page
+ids), file ids, types, sizes and timestamps, API token names, hook database ids. **Secrets are not stored
+at all**: sessions, magic links, the sign-in browser marker, invitations, API tokens and hook URLs are kept
+only as HMAC-SHA256 keyed with `SECRET` (`server/test/encryption.test.ts` checks that none of them appears
+in the database file or the log; with SMTP configured no sign-in link is logged — dev-mail mode logs them
+on purpose).
+
+**From plaintext (upgrade).** Data stored before migration v6 is marked `enc = 0` and still reads. At
+every start the server creates missing keys and seals plaintext rows **before listening**; files are sealed
+in the background (`<id>` → temp file → fsync → rename to `<id>.enc` → remove `<id>` → mark the row; reads
+prefer `<id>.enc`, so every intermediate state serves the right bytes; shutdown stops between two files).
+Idempotent and crash-safe; `node dist/cli.js encrypt-all` does the same on demand (also while the server
+runs) and reports what is left. Afterwards the WAL is checkpointed and truncated and `PRAGMA secure_delete`
+zeroes freed pages, so old plaintext pages do not linger in the database file.
+
+**Crypto-shredding.** Deleting a workspace deletes its wrapped key **first** (same transaction), then its
+rows (cascade); the WAL is checkpointed and `secure_delete` overwrites the key's bytes. Whatever is left
+of the workspace — files not yet removed, copies of `files/`, old disk blocks, later backups — can no
+longer be decrypted. Honest limit: a database backup made **before** the deletion still contains the wrapped
+key and opens with `DATA_KEY` until it ages out of your backup rotation. To make such backups unreadable
+too (e.g. a GDPR erasure that must reach backups), rotate `DATA_KEY` after the deletion and destroy the old
+key once no backup you still need depends on it. Removing a member's private documents works as before
+(they are deleted; *Private pages*).
+
+**Rotating `DATA_KEY`** (`DATA_KEY=<old> NEW_DATA_KEY=<new> node dist/cli.js rotate-data-key`, server
+stopped — a heartbeat in `server_state` makes the CLI refuse while it runs): every workspace key is
+re-wrapped in one transaction; content is not re-encrypted, so it takes a moment whatever the size.
+Idempotent (rows already under the new key are skipped) and all-or-nothing (a row under neither key stops
+it before anything changes). Backups made before need the old key. Steps: docs/SELF_HOSTING.md.
+
+**Threat model.** This protects data **at rest**: a lost or stolen disk or volume snapshot, a leaked
+database file or backup without `DATA_KEY`, a copy of `files/`, the hoster's storage layer, and what is
+left of deleted workspaces; and it stops ciphertexts from being moved between documents or workspaces. It
+does **not** protect against someone who controls the running server or its memory, or who has `DATA_KEY`
+together with the data (e.g. root on the host, where the key is in the environment): the server must read
+content to merge Yjs updates, answer the API and MCP and fill webhook rows — that is why this is
+encryption at rest and not end-to-end encryption. Members' devices keep plaintext copies (IndexedDB); the
+browser-side secrets (AI key, GitHub token) are protected in the app separately. Integrity: GCM
+authenticates every blob, but someone with write access to the database could still delete a row or put
+back an older ciphertext of the same document (the AAD binds the place, not the time).
 
 ## Security notes
 
@@ -490,7 +618,10 @@ is; a top-level page where it was created (sidebar "PRIVATE → New page" = `cre
   `DEV_MODE=1` only); invite creation 50/day per workspace.
 - Uploads: size limit, stored outside any served path, served with `Content-Disposition: attachment`
   for non-image types and `X-Content-Type-Options: nosniff`.
-- Every query is scoped by workspace membership; viewers can never write (REST or Yjs).
+- Every query is scoped by workspace membership; viewers can never write (REST or Yjs). The isolation
+  sweep (`server/test/tenancy.test.ts`) fails for a new route or MCP tool that does not say how it is scoped.
+- Workspace content is encrypted at rest with a key per workspace, wrapped by `DATA_KEY`; deleting a
+  workspace shreds its key (*Tenancy & encryption at rest*).
 - Private documents (`ws:<id>:u:<userId>…`) open for their owner only; the public API, webhooks and the
   server's own writes never touch them; private files are served to their uploader only.
 - Public API: bearer tokens only on `/api/v1` (the cookie is never read there, so no CSRF surface); a

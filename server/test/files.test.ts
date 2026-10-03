@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
-import { existsSync, readdirSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { after, before, test } from 'node:test'
 import { Client, signIn, startServer, type TestServer } from './helpers.ts'
@@ -34,7 +34,13 @@ test('upload and download round-trip with safe headers', async () => {
   const up = await put(owner, 'img_0001', bytes, 'image/png', 'Grüße "1".png')
   assert.equal(up.status, 201)
   assert.deepEqual(await up.json(), { id: 'img_0001' })
-  assert.ok(existsSync(join(server.dataDir, 'files', wsId, 'img_0001')), 'stored under DATA_DIR/files/<ws>/<id>')
+  // sealed with the workspace's key (docs/CLOUD.md § Tenancy & encryption at rest): never the plain bytes
+  const stored = join(server.dataDir, 'files', wsId, 'img_0001.enc')
+  assert.ok(existsSync(stored), 'stored under DATA_DIR/files/<ws>/<id>.enc')
+  assert.equal(existsSync(join(server.dataDir, 'files', wsId, 'img_0001')), false, 'no plaintext copy')
+  const disk = readFileSync(stored)
+  assert.equal(disk.length, bytes.length + 1 + 12 + 16, 'version byte + nonce + ciphertext + tag')
+  assert.equal(disk.indexOf(Buffer.from(bytes.subarray(0, 64))), -1, 'the content is not on disk in the clear')
 
   const down = await viewer.fetch(`/api/workspaces/${wsId}/files/img_0001`)
   assert.equal(down.status, 200)
@@ -43,7 +49,9 @@ test('upload and download round-trip with safe headers', async () => {
   assert.equal(down.headers.get('content-type'), 'image/png')
   assert.equal(down.headers.get('cache-control'), 'private, max-age=31536000, immutable')
   assert.equal(down.headers.get('x-content-type-options'), 'nosniff')
-  assert.equal(down.headers.get('etag'), `"${createHash('sha256').update(bytes).digest('hex')}"`)
+  // a keyed fingerprint (HMAC with the workspace's key) — no plain content hash is stored either
+  assert.match(down.headers.get('etag') ?? '', /^"[0-9a-f]{64}"$/)
+  assert.notEqual(down.headers.get('etag'), `"${createHash('sha256').update(bytes).digest('hex')}"`)
   assert.equal(down.headers.get('content-disposition'), `inline; filename="Gr__e _1_.png"; filename*=UTF-8''${encodeURIComponent('Grüße "1".png')}`)
 
   const cached = await viewer.fetch(`/api/workspaces/${wsId}/files/img_0001`, { headers: { 'if-none-match': down.headers.get('etag')! } })
@@ -131,7 +139,7 @@ test('access control', async () => {
 test('deleting the workspace removes its files', async () => {
   const ws2 = (await owner.post('/api/workspaces', { name: 'Temp' })).body.id
   await owner.fetch(`/api/workspaces/${ws2}/files/f1`, { method: 'PUT', body: 'bye', headers: { 'content-type': 'text/plain' } })
-  assert.ok(existsSync(join(server.dataDir, 'files', ws2, 'f1')))
+  assert.ok(existsSync(join(server.dataDir, 'files', ws2, 'f1.enc')))
   assert.equal((await owner.del(`/api/workspaces/${ws2}`)).status, 204)
   assert.equal(existsSync(join(server.dataDir, 'files', ws2)), false)
 })

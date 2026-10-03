@@ -6,6 +6,7 @@ import { zip, strToU8, type AsyncZippable } from 'fflate'
 import type { Database, DateValue, ID, Page, PropertyDef } from '../../../store/types'
 import { getFile } from '../../../lib/files'
 import { guardCell } from '../import/csv'
+import { toFileMarkdown } from '../import/mentions'
 import { collectRefs, relativePath, safeName, uniqueName, type ExportTree } from './collect'
 
 /** Quote when needed; cells a spreadsheet would execute (=, +, -, @) get a leading apostrophe. */
@@ -164,7 +165,8 @@ export async function buildMarkdownZip(tree: ExportTree, opts: { untitled: strin
         }
         if (props.length) parts.push(props.join('\n'), '')
       }
-      const body = p.content ? docToMarkdown(p.content) : ''
+      // date / person mentions as one: links (they come back as mentions on import)
+      const body = p.content ? toFileMarkdown(docToMarkdown, p.content) : ''
       if (body.trim()) parts.push(rewrite(body, path))
       out[path] = strToU8(parts.join('\n').trimEnd() + '\n')
     }

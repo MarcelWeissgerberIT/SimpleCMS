@@ -176,4 +176,48 @@ export const migrations: Migration[] = [
       CREATE INDEX files_private ON files(workspace_id, private_to) WHERE private_to IS NOT NULL;
     `,
   },
+  {
+    version: 5,
+    name: 'personal workspaces',
+    sql: `
+      -- every person gets a workspace of their own at their first sign-in (docs/CLOUD.md § Tenancy):
+      -- personal_space_at marks that it was created (once — deleting it does not bring it back)
+      ALTER TABLE users ADD COLUMN personal_space_at INTEGER;
+      ALTER TABLE workspaces ADD COLUMN personal_of TEXT REFERENCES users(id) ON DELETE SET NULL;
+      CREATE UNIQUE INDEX workspaces_personal ON workspaces(personal_of) WHERE personal_of IS NOT NULL;
+      -- people who already own a workspace already have a space of their own
+      UPDATE users SET personal_space_at = created_at
+        WHERE EXISTS (SELECT 1 FROM members m WHERE m.user_id = users.id AND m.role = 'owner');
+    `,
+  },
+  {
+    version: 6,
+    name: 'encryption at rest',
+    sql: `
+      -- one data key per workspace, stored only wrapped by the master key (DATA_KEY); kek_id names
+      -- that master key. Deleting the row (first, when a workspace is deleted) shreds its data.
+      CREATE TABLE workspace_keys (
+        workspace_id  TEXT PRIMARY KEY REFERENCES workspaces(id) ON DELETE CASCADE,
+        wrapped       BLOB NOT NULL,
+        kek_id        TEXT NOT NULL,
+        created_at    INTEGER NOT NULL,
+        rotated_at    INTEGER
+      );
+
+      -- enc: 0 = plaintext from before encryption (read as is, encrypted at startup / encrypt-all),
+      -- 1 = sealed with the workspace's key (documents.data; files.name + keyed fingerprint in sha256,
+      -- the bytes in DATA_DIR/files/<ws>/<id>.enc)
+      ALTER TABLE documents ADD COLUMN enc INTEGER NOT NULL DEFAULT 0;
+      ALTER TABLE files ADD COLUMN enc INTEGER NOT NULL DEFAULT 0;
+      CREATE INDEX documents_plain ON documents(name) WHERE enc = 0;
+      CREATE INDEX files_plain ON files(workspace_id, id) WHERE enc = 0;
+
+      -- a running server's heartbeat (the CLI refuses a key rotation while the server runs)
+      CREATE TABLE server_state (
+        key           TEXT PRIMARY KEY,
+        value         TEXT NOT NULL,
+        updated_at    INTEGER NOT NULL
+      );
+    `,
+  },
 ]

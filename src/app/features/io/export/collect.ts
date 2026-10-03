@@ -1,6 +1,6 @@
 /** Collect the exported tree (a page subtree or the whole workspace) + shared helpers. */
 import { useWorkspace } from '../../../store/store'
-import { selectRows, sortPages } from '../../../store/selectors'
+import { inTemplate, selectRows, sortPages } from '../../../store/selectors'
 import type { Database, ID, Page } from '../../../store/types'
 
 export interface ExportTree {
@@ -17,9 +17,11 @@ export interface ExportTree {
 
 export function collectTree(rootId: ID | null): ExportTree {
   const { pages, databases } = useWorkspace.getState()
+  // templates (features/templates) only travel when a template page itself is exported
+  const skipTemplates = !rootId || !inTemplate(pages, rootId)
   const byParent = new Map<ID | null, Page[]>()
   for (const p of Object.values(pages)) {
-    if (p.trashed || p.databaseId) continue
+    if (p.trashed || p.databaseId || (skipTemplates && inTemplate(pages, p.id))) continue
     const k = p.parentId ?? null
     byParent.set(k, [...(byParent.get(k) ?? []), p])
   }

@@ -5,7 +5,7 @@
  *  out — stored value → friendly output (option names, ISO dates, names + emails, row titles).
  */
 import { iso } from '../tokens.ts'
-import { type PropertyDef, type Roots, inTrash, pageMap } from './meta.ts'
+import { type PropertyDef, type Roots, outOfReach, pageMap } from './meta.ts'
 
 /** Computed by the app (or set by it): never written over the API. */
 export const READ_ONLY_TYPES = new Set(['formula', 'rollup', 'created_time', 'last_edited_time', 'created_by', 'last_edited_by', 'unique_id', 'button'])
@@ -72,7 +72,7 @@ function personOf(prop: PropertyDef, raw: unknown, ctx: ValueContext): string {
 function relationOf(prop: PropertyDef, raw: unknown, ctx: ValueContext): string {
   const id = typeof raw === 'string' ? raw.trim() : isObj(raw) && typeof raw.id === 'string' ? raw.id : ''
   const yp = id ? pageMap(ctx.r, id) : null
-  if (!yp || !prop.relationDatabaseId || yp.get('databaseId') !== prop.relationDatabaseId || inTrash(ctx.r, id)) {
+  if (!yp || !prop.relationDatabaseId || yp.get('databaseId') !== prop.relationDatabaseId || outOfReach(ctx.r, id)) {
     throw new ValueError(prop.name, `${prop.name}: "${id}" is not a row of the related database`)
   }
   return id

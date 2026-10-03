@@ -23,10 +23,10 @@ import * as Y from 'yjs'
 import type { JSONContent } from '@tiptap/core'
 import { useWorkspace, type CloudPatch } from '../store/store'
 import { runAsRemote } from '../store/persistence'
-import type { Database, ID, Page, Settings } from '../store/types'
+import type { CustomFunction, Database, ID, Page, Settings } from '../store/types'
 import { defaultView } from '../store/store'
 import { sharedPlain } from './privacy'
-import { LOCAL, newDatabaseMap, newPageMap, readDatabase, readPage, readPeople, roots, writeDatabase, writePage, writePeople, type YMap } from './schema'
+import { LOCAL, newDatabaseMap, newPageMap, readDatabase, readFunctions, readPage, readPeople, roots, writeDatabase, writeFunctions, writePage, writePeople, type YMap } from './schema'
 
 let applying = 0
 
@@ -141,6 +141,7 @@ export function startBinding(o: BindingOptions): Binding {
   const dirtyDbs = new Set<ID>()
   let dirtyPeople = false
   let dirtyWorkspace = false
+  let dirtyFunctions = false
 
   /* ---------------------------------------------------------------- Y → store */
 
@@ -164,8 +165,12 @@ export function startBinding(o: BindingOptions): Binding {
   const onWorkspace = (_e: unknown, tr: Y.Transaction) => {
     if (tr.origin !== LOCAL) dirtyWorkspace = true
   }
+  const onFunctions = (_e: unknown, tr: Y.Transaction) => {
+    if (tr.origin !== LOCAL) dirtyFunctions = true
+  }
   rs.people.observe(onPeople)
   rs.workspace.observe(onWorkspace)
+  rs.functions.observe(onFunctions)
 
   function applyRemote(all = false) {
     const s = useWorkspace.getState()
@@ -176,7 +181,7 @@ export function startBinding(o: BindingOptions): Binding {
       }
       for (const id of Object.keys(s.pages)) dirtyPages.add(id)
       for (const id of Object.keys(s.databases)) dirtyDbs.add(id)
-      dirtyPeople = dirtyWorkspace = true
+      dirtyPeople = dirtyWorkspace = dirtyFunctions = true
     }
     const patch: CloudPatch = {}
     const created: ID[] = []
@@ -238,14 +243,24 @@ export function startBinding(o: BindingOptions): Binding {
       if (typeof name === 'string' && name && name !== s.settings.workspaceName) patch.settings = { workspaceName: name }
       dirtyWorkspace = false
     }
-    if (!patch.pages && !patch.databases && !patch.people && !patch.settings) return
+    if (dirtyFunctions) {
+      const fns = readFunctions(rs.functions, s.functions)
+      if (fns !== s.functions) {
+        const next: Record<ID, CustomFunction | null> = {}
+        for (const [id, fn] of Object.entries(fns)) if (s.functions?.[id] !== fn) next[id] = fn
+        for (const id of Object.keys(s.functions ?? {})) if (!(id in fns)) next[id] = null
+        if (Object.keys(next).length) patch.functions = next
+      }
+      dirtyFunctions = false
+    }
+    if (!patch.pages && !patch.databases && !patch.people && !patch.settings && !patch.functions) return
     applyFromCloud(() => s.cloudPatch(patch))
     if (created.length || touched.length || removed.length || rescoped.length) o.onRemotePages({ created, touched, removed, rescoped })
   }
 
   const afterTx = (tr: Y.Transaction) => {
     if (tr.origin === LOCAL) return
-    if (dirtyPages.size || dirtyDbs.size || dirtyPeople || dirtyWorkspace) {
+    if (dirtyPages.size || dirtyDbs.size || dirtyPeople || dirtyWorkspace || dirtyFunctions) {
       try {
         applyRemote()
       } catch (e) {
@@ -285,8 +300,9 @@ export function startBinding(o: BindingOptions): Binding {
     const pagesChanged = state.pages !== prev.pages
     const dbsChanged = state.databases !== prev.databases
     const peopleChanged = state.people !== prev.people
+    const functionsChanged = state.functions !== prev.functions
     if (state.settings !== prev.settings) o.onSettings(state.settings, prev.settings)
-    if (!pagesChanged && !dbsChanged && !peopleChanged) return
+    if (!pagesChanged && !dbsChanged && !peopleChanged && !functionsChanged) return
 
     if (!o.writable()) {
       if (pagesChanged) {
@@ -402,6 +418,7 @@ export function startBinding(o: BindingOptions): Binding {
         }
       }
       if (peopleChanged) writePeople(rs.people, state.people, prev.people)
+      if (functionsChanged) writeFunctions(rs.functions, state.functions, prev.functions)
     })
     // Follow-up store patches (the local `private` marker; created_by / last_edited_by mirror the
     // createdBy / updatedBy this client just wrote) go out after every store listener saw this change:
@@ -440,6 +457,7 @@ export function startBinding(o: BindingOptions): Binding {
       for (const [type, fn] of observed) type.unobserveDeep(fn)
       rs.people.unobserve(onPeople)
       rs.workspace.unobserve(onWorkspace)
+      rs.functions.unobserve(onFunctions)
       o.doc.off('afterTransaction', afterTx)
       o.privateDoc?.off('afterTransaction', afterTx)
     },
@@ -454,7 +472,7 @@ export function readAll(
   doc: Y.Doc,
   privateDoc: Y.Doc | null,
   isFavorite: (id: ID) => boolean,
-): Pick<CloudPatch, 'people'> & { pages: Record<ID, Page>; databases: Record<ID, Database>; name: string | null } {
+): Pick<CloudPatch, 'people'> & { pages: Record<ID, Page>; databases: Record<ID, Database>; functions: Record<ID, CustomFunction>; name: string | null } {
   const r = roots(doc)
   const q = privateDoc ? roots(privateDoc) : null
   const pages: Record<ID, Page> = {}
@@ -466,7 +484,7 @@ export function readAll(
   }
   for (const p of Object.values(pages)) if (p.kind === 'database' && !databases[p.id]) databases[p.id] = fallbackDatabase(p.id)
   const name = r.workspace.get('name')
-  return { pages, databases, people: readPeople(r.people, []), name: typeof name === 'string' && name ? name : null }
+  return { pages, databases, people: readPeople(r.people, []), functions: readFunctions(r.functions, undefined), name: typeof name === 'string' && name ? name : null }
 }
 
 /**

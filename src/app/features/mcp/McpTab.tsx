@@ -1,9 +1,10 @@
 /**
  * Settings → Agents · MCP: the bridge panel (switch, connection LED, read-out), what agents may
- * change, the setup (download, Claude Desktop JSON, Claude Code command) and the activity log.
+ * change, the setup (first: the Claude Desktop extension one.mcpb; then, folded: the bridge file,
+ * Claude Code command, Claude Desktop JSON) and the activity log.
  */
 import { useId, useState, type ReactNode } from 'react'
-import { Copy, Download, RotateCcw, Undo2 } from 'lucide-react'
+import { ChevronRight, Copy, Download, RotateCcw, Undo2 } from 'lucide-react'
 import { useUI } from '../../store/ui'
 import { useWorkspace } from '../../store/store'
 import { Led, Switch } from '../../ui/controls'
@@ -19,6 +20,11 @@ type T = ReturnType<typeof useT>
 /** Where the site serves the bridge (respects the app's base: getonecms.com/mcp/one-mcp.mjs). */
 export function bridgeUrl(): string {
   return new URL(`${import.meta.env.BASE_URL}mcp/one-mcp.mjs`, window.location.origin).href
+}
+
+/** The Claude Desktop extension (MCP Bundle) built around the bridge: getonecms.com/mcp/one.mcpb. */
+export function extensionUrl(): string {
+  return `${import.meta.env.BASE_URL}mcp/one.mcpb`
 }
 
 function platform(): 'mac' | 'win' | 'linux' {
@@ -217,6 +223,7 @@ function ModePanel() {
 function SetupPanel() {
   const t = useT()
   const port = useMcp((s) => s.port)
+  const hintId = useId()
   return (
     <Panel code="§ C" title={t('features.mcp.panel.setup')}>
       <ol className="mcp-steps">
@@ -225,14 +232,17 @@ function SetupPanel() {
             01
           </span>
           <div>
-            <div className="mcp-steps__title">{t('features.mcp.setup.download')}</div>
-            <div className="mcp-steps__row">
-              <a className="btn btn--sm" href={bridgeUrl()} download="one-mcp.mjs">
-                <Download size={13} strokeWidth={1.75} /> one-mcp.mjs
+            <div className="mcp-steps__title">{t('features.mcp.setup.desktopTitle')}</div>
+            <div className="mcp-install">
+              <a className="btn btn--primary mcp-install__key" href={extensionUrl()} download="one.mcpb" aria-describedby={hintId} data-testid="mcp-add-desktop">
+                <Download size={15} strokeWidth={1.75} /> {t('features.mcp.setup.add')}
               </a>
-              <span className="mcp-hint">{t('features.mcp.setup.node')}</span>
+              <span className="label mcp-install__spec">{t('features.mcp.setup.addSpec')}</span>
             </div>
-            <CodeBlock code={curlCommand()} label={t('features.mcp.setup.terminal')} />
+            <p className="mcp-hint" id={hintId}>
+              {t('features.mcp.setup.addHint')}
+            </p>
+            {port !== MCP_DEFAULT_PORT && <p className="mcp-hint mcp-hint--port">{t('features.mcp.setup.addPort', { port })}</p>}
           </div>
         </li>
         <li>
@@ -240,24 +250,34 @@ function SetupPanel() {
             02
           </span>
           <div>
-            <div className="mcp-steps__title">Claude Desktop</div>
-            <p className="mcp-hint">{t('features.mcp.setup.desktop')}</p>
-            <CodeBlock code={desktopConfig(port)} label="claude_desktop_config.json" />
-            <div className="mcp-steps__title">Claude Code</div>
-            <CodeBlock code={codeCommand(port)} label={t('features.mcp.setup.command')} />
-            <p className="mcp-hint">{t('features.mcp.setup.other')}</p>
-          </div>
-        </li>
-        <li>
-          <span className="mcp-steps__n" aria-hidden>
-            03
-          </span>
-          <div>
             <div className="mcp-steps__title">{t('features.mcp.setup.try')}</div>
             <p className="mcp-hint">{t('features.mcp.setup.tryHint')}</p>
           </div>
         </li>
       </ol>
+      <details className="mcp-manual">
+        <summary className="mcp-manual__head">
+          <ChevronRight className="mcp-manual__chev" size={14} strokeWidth={1.75} aria-hidden />
+          <span className="mcp-manual__title">{t('features.mcp.setup.manual')}</span>
+          <span className="mcp-manual__sub">{t('features.mcp.setup.manualHint')}</span>
+        </summary>
+        <div className="mcp-manual__body">
+          <div className="mcp-steps__title">{t('features.mcp.setup.download')}</div>
+          <div className="mcp-steps__row">
+            <a className="btn btn--sm" href={bridgeUrl()} download="one-mcp.mjs">
+              <Download size={13} strokeWidth={1.75} /> one-mcp.mjs
+            </a>
+            <span className="mcp-hint">{t('features.mcp.setup.node')}</span>
+          </div>
+          <CodeBlock code={curlCommand()} label={t('features.mcp.setup.terminal')} />
+          <div className="mcp-steps__title">Claude Code</div>
+          <CodeBlock code={codeCommand(port)} label={t('features.mcp.setup.command')} />
+          <div className="mcp-steps__title">{t('features.mcp.setup.desktopManual')}</div>
+          <p className="mcp-hint">{t('features.mcp.setup.desktop')}</p>
+          <CodeBlock code={desktopConfig(port)} label="claude_desktop_config.json" />
+          <p className="mcp-hint">{t('features.mcp.setup.other')}</p>
+        </div>
+      </details>
     </Panel>
   )
 }

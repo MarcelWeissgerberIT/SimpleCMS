@@ -1,5 +1,4 @@
 import { rm } from 'node:fs/promises'
-import { join } from 'node:path'
 import { Hono } from 'hono'
 import { z } from 'zod'
 import type { AppEnv, Services } from '../context.ts'
@@ -8,6 +7,7 @@ import { body, idSchema, requireAuth } from '../http/util.ts'
 import { pickLang } from '../i18n.ts'
 import { inviteMail } from '../mail/templates.ts'
 import { INVITE_TTL, publicUser, publicWorkspace, type Role } from '../repo.ts'
+import { filesDir, legacyPath, sealedPath } from '../storage.ts'
 import { DAY, iso } from '../tokens.ts'
 import { access, iconSchema, nameSchema } from './access.ts'
 
@@ -33,17 +33,18 @@ export function workspaceRoutes(s: Services) {
   })
 
   app.patch('/:id', async (c) => {
-    const { workspace, role } = access(s, c, 'admin')
+    const { workspace, role, auth } = access(s, c, 'admin')
     const input = await body(c, z.object({ name: nameSchema.optional(), icon: iconSchema.optional() }))
     s.repo.updateWorkspace(workspace.id, input)
-    return c.json(publicWorkspace(s.repo.workspaceById(workspace.id) ?? workspace, role))
+    return c.json(publicWorkspace(s.repo.workspaceById(workspace.id) ?? workspace, role, auth.user.id))
   })
 
   app.delete('/:id', async (c) => {
     const { workspace, auth } = access(s, c, 'owner')
+    // the workspace's key goes first (crypto-shredding): whatever bytes are left anywhere are unreadable
     s.repo.deleteWorkspace(workspace.id)
     s.collab.closeWorkspace(workspace.id, 'workspace-deleted')
-    await rm(join(s.config.dataDir, 'files', workspace.id), { recursive: true, force: true })
+    await rm(filesDir(s.config.dataDir, workspace.id), { recursive: true, force: true })
     s.log.info('workspace deleted', { workspace: workspace.id, user: auth.user.id })
     return c.body(null, 204)
   })
@@ -100,7 +101,9 @@ export function workspaceRoutes(s: Services) {
     // still closing are refused for non-members, so nothing comes back
     const documents = s.repo.deletePrivateDocuments(workspace.id, userId)
     const files = s.repo.deletePrivateFiles(workspace.id, userId)
-    await Promise.all(files.map((id) => rm(join(s.config.dataDir, 'files', workspace.id, id), { force: true })))
+    await Promise.all(
+      files.flatMap((id) => [sealedPath(s.config.dataDir, workspace.id, id), legacyPath(s.config.dataDir, workspace.id, id)]).map((p) => rm(p, { force: true })),
+    )
     s.log.info(self ? 'member left' : 'member removed', { workspace: workspace.id, user: userId, by: auth.user.id, privateDocuments: documents, privateFiles: files.length })
     return c.body(null, 204)
   })

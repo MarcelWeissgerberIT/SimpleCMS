@@ -144,8 +144,14 @@ describe('remote MCP', () => {
       pages.set('doc-1', pageEntry({ title: 'Handbook', order: 1, icon: { type: 'emoji', value: '📘' }, plain: 'How we work\nOnboarding checklist for new people' }))
       pages.set('doc-2', pageEntry({ title: 'Onboarding', parentId: 'doc-1', order: 1, plain: 'Read the Handbook' }))
       pages.set('old-1', pageEntry({ title: 'Old notes', order: 5, trashed: true, trashedAt: Date.now(), plain: 'stale handbook draft' }))
+      // a template (the app's gallery blueprint): a hidden root with `template` metadata and a sub-page
+      pages.set('tpl-1', pageEntry({ title: 'Sprint kit', order: 6, hidden: true, template: { name: 'Sprint kit' }, plain: 'handbook template text' }))
+      pages.set('tpl-2', pageEntry({ title: 'Sprint notes', parentId: 'tpl-1', order: 1, plain: 'handbook template child' }))
       meta.doc.getMap('people').set(ownerId, { id: ownerId, name: 'Olivia Owner', color: 'blue' })
     })
+    // … and a database inside that template
+    addDatabase(meta.doc, 'db-tpl', 'Sprint board', [{ id: 'tb-title', name: 'Name', type: 'title' }])
+    ;(meta.doc.getMap('pages').get('db-tpl') as Y.Map<unknown>).set('parentId', 'tpl-1')
     await flushed(meta)
 
     // the Handbook's content, with a link to Onboarding, a mention of a private page and a database block
@@ -157,8 +163,11 @@ describe('remote MCP', () => {
       { type: 'taskList', content: [{ type: 'taskItem', attrs: { checked: true }, content: ['Done thing'] }, { type: 'taskItem', attrs: { checked: false }, content: ['Open thing'] }] },
       { type: 'pageLink', attrs: { pageId: 'doc-2' } },
       { type: 'paragraph', content: [{ type: 'mention', attrs: { id: 'secret-1', label: 'Secret plans', kind: 'page' } }] },
+      { type: 'paragraph', content: [{ type: 'icon', attrs: { kind: 'asset', name: 'app-icon' } }, { type: 'icon', attrs: { kind: 'lucide', name: 'rocket', color: 'red' } }] },
       { type: 'databaseBlock', attrs: { databaseId: 'db-tasks', viewId: null } },
       { type: 'codeBlock', attrs: { language: 'ts' }, text: [['const x = 1']] },
+      { type: 'spreadsheet', attrs: { id: 'sh-1', title: 'Budget', active: 's1', sheets: [{ id: 's1', name: 'Q1', rows: 10, cols: 5, cells: { A1: { v: 'Item' }, B1: { v: 'Cost' }, A2: { v: 'Ads' }, B2: { v: '120' }, B3: { v: '=SUM(B2:B2)' } } }] } },
+      { type: 'chart', attrs: { id: 'ch-1', spec: { kind: 'bar', title: 'Spend', source: { kind: 'manual', rows: [['Month', 'Spend'], ['Jan', 3]] } } } },
     ])
     await flushed(content)
 
@@ -261,6 +270,19 @@ describe('remote MCP', () => {
     await fails(reader, 'one_search', { query: '' }, /query/i)
   })
 
+  test('templates: blueprints stay out of every tool, read or write', async () => {
+    const o = await call(reader, 'one_overview')
+    assert.ok(!JSON.stringify(o).includes('Sprint'), 'no template page or database in the overview')
+    const s = await call(reader, 'one_search', { query: 'handbook' })
+    assert.ok(!s.results.some((x: { id: string }) => x.id.startsWith('tpl-')))
+    assert.ok(!(await call(reader, 'one_list_databases')).databases.some((d: { id: string }) => d.id === 'db-tpl'))
+    for (const id of ['tpl-1', 'tpl-2', 'db-tpl']) await fails(reader, 'one_get_page', { id }, /No page with id/)
+    await fails(reader, 'one_query_database', { databaseId: 'db-tpl' }, /no such database|no database/i)
+    await fails(writer, 'one_create_row', { databaseId: 'db-tpl', title: 'Sneaky' }, /no such database|no database/i)
+    await fails(writer, 'one_create_page', { title: 'Sneaky', parentId: 'tpl-1' }, /no such parent page|no parent page/i)
+    await fails(writer, 'one_trash_page', { id: 'tpl-2' }, /no page|no such page/i)
+  })
+
   test('one_get_page: Markdown content, path, children, backlinks; by title; 404s', async () => {
     const p = await call(reader, 'one_get_page', { id: 'doc-1' })
     assert.equal(p.kind, 'page')
@@ -274,6 +296,11 @@ describe('remote MCP', () => {
     assert.match(md, /\[Onboarding\]\(#\/p\/doc-2\)/)
     assert.match(md, /\[Database: Tasks\]\(#\/p\/db-tasks\)/)
     assert.match(md, /```ts\nconst x = 1\n```/)
+    assert.match(md, /^\[App icon\]:rocket:$/m, 'inline icons: an object by name, a glyph as :name:')
+    // a spreadsheet as typed (formulas included), a chart with its stored numbers
+    assert.match(md, /\*\*Budget\*\*\n\n\*Sheet 01 · Q1\*\n\n\|  \| A \| B \|\n\| --- \| --- \| --- \|\n\| 1 \| Item \| Cost \|/)
+    assert.match(md, /\| 3 \|  \| =SUM\(B2:B2\) \|/)
+    assert.match(md, /\*\*Chart: Spend\*\* \(bar\)\n\n\| Month \| Spend \|\n\| --- \| --- \|\n\| Jan \| 3 \|/)
     assert.ok(!md.includes('Secret plans'), 'a private page’s stored mention label never leaves')
     assert.match(md, /@\(No access\)/)
 

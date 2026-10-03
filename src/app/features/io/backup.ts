@@ -358,9 +358,24 @@ export async function applyBackup(b: Backup, mode: 'merge' | 'replace', onProgre
 
   const people = [...snap.people]
   for (const person of source.people) if (!people.some((x) => x.id === person.id)) people.push(person)
-  store.replaceAll({ ...snap, pages, databases, people })
+  store.replaceAll({ ...snap, pages, databases, people, functions: mergeFunctions(snap.functions, source.functions) })
   const target = rootId && pages[rootId] ? rootId : firstRoot(incoming.pages) ?? firstRoot(source.pages)
   return { target, mode, added, updated, unchanged, files }
+}
+
+/**
+ * Custom functions of a merge (already checked by migrate): new ones are added, a newer copy of one
+ * we have replaces it; one whose name another function here already has is left out.
+ */
+function mergeFunctions(local: Workspace['functions'], incoming: Workspace['functions']): NonNullable<Workspace['functions']> {
+  const out = { ...(local ?? {}) }
+  for (const fn of Object.values(incoming ?? {})) {
+    const cur = out[fn.id]
+    if (cur && cur.updatedAt >= fn.updatedAt) continue
+    if (Object.values(out).some((f) => f.id !== fn.id && f.name === fn.name)) continue
+    out[fn.id] = fn
+  }
+  return out
 }
 
 /** Files a backup of this scope will contain (only ones the exported pages reference). */

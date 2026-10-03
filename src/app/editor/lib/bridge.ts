@@ -42,6 +42,14 @@ export interface OverlayState {
   /** Block menu requested from the keyboard / touch (position of the block) */
   blockMenu: { pos: number } | null
   comments: CommentsUI
+  /** Emoji / icon picker at the caret (`pos`), or the change popover of the inline icon at `pos` (`edit`) */
+  inlinePicker: InlinePicker | null
+}
+
+export interface InlinePicker {
+  kind: 'emoji' | 'icon'
+  pos: number
+  edit?: boolean
 }
 
 export interface Bridge extends StoreApi<OverlayState> {
@@ -59,6 +67,7 @@ export function createBridge(): Bridge {
     plusCreated: false,
     blockMenu: null,
     comments: { active: null, via: null, draft: null, panel: false, showResolved: false },
+    inlinePicker: null,
   })) as Bridge
   store.keyHandlers = {}
   return store

@@ -6,7 +6,7 @@
 import type { JSONContent } from '@tiptap/core'
 import { useWorkspace } from '../../../store/store'
 import { useUI } from '../../../store/ui'
-import { isEffectivelyTrashed, selectBreadcrumbs } from '../../../store/selectors'
+import { inTemplate, isEffectivelyTrashed, selectBreadcrumbs } from '../../../store/selectors'
 import type { Database, ID, Page } from '../../../store/types'
 import { propertyValueToText } from '../../../database'
 import { docToMarkdown } from '../../../editor'
@@ -298,8 +298,9 @@ const listDatabases: AgentTool = {
     'List every database with its id, number of rows, location and property schema (property names, types and allowed options). Call this before query_database, create_row or update_row so you use exact property and option names.',
   input_schema: { type: 'object', properties: {}, additionalProperties: false },
   run() {
-    const { databases } = ws()
-    const dbs = Object.values(databases).filter((d) => live(d.id))
+    const { databases, pages } = ws()
+    // template databases (features/templates) are not the workspace's data
+    const dbs = Object.values(databases).filter((d) => live(d.id) && !inTemplate(pages, d.id))
     if (!dbs.length) return { content: 'This workspace has no databases.', summary: t('features.agent.res.dbs', { count: 0 }), state: 'ok' }
     const lines = dbs.map((d) => {
       const page = ws().pages[d.id]

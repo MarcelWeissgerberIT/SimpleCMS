@@ -1,0 +1,1136 @@
+/* Spreadsheet block — INSTRUMENT: hairline grid, mono coordinates, one signal orange (the active cell). */
+
+.sheet {
+  --sh-font: 13px;
+  position: relative;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius-2);
+  background: var(--surface);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-size: var(--sh-font);
+  line-height: 1.3;
+  /* clip, not hidden: the block must never become a scroll container itself */
+  overflow: clip;
+}
+
+/* ---------- toolbar ---------- */
+
+.sh-tb {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 6px 5px 10px;
+  border-bottom: 1px solid var(--rule);
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+
+.sh-tb__title {
+  flex: 1 1 140px;
+  min-width: 120px;
+  height: 28px;
+  padding: 0 4px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-1);
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-weight: 700;
+  font-size: var(--text-md);
+  letter-spacing: var(--tracking-tight);
+  outline: none;
+}
+
+.sh-tb__title:hover:not(:read-only) {
+  border-color: var(--rule);
+}
+
+.sh-tb__title:focus-visible {
+  border-color: var(--signal);
+  box-shadow: 0 0 0 1px var(--signal);
+}
+
+.sh-tb__title::placeholder {
+  color: var(--ink-faint);
+  font-weight: 600;
+}
+
+.sh-tb__group {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding-left: 6px;
+  border-left: 1px solid var(--rule);
+  flex: none;
+}
+
+.sh-tb__btn,
+.sh-tb__fmt {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-width: 28px;
+  height: 28px;
+  padding: 0 6px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-1);
+  background: transparent;
+  color: var(--ink-2);
+  font: inherit;
+  cursor: pointer;
+  transition: background var(--dur-1) var(--ease-out), color var(--dur-1) var(--ease-out);
+}
+
+.sh-tb__btn:hover:not(:disabled),
+.sh-tb__fmt:hover:not(:disabled) {
+  background: var(--hover);
+  color: var(--ink);
+}
+
+.sh-tb__btn:active:not(:disabled),
+.sh-tb__fmt:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.sh-tb__btn.is-on {
+  background: var(--active);
+  color: var(--ink);
+  border-color: var(--rule-strong);
+}
+
+.sh-tb__btn:disabled,
+.sh-tb__fmt:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.sh-tb__btn:focus-visible,
+.sh-tb__fmt:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.sh-tb__fmt {
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  border-color: var(--rule);
+  min-width: 96px;
+  justify-content: space-between;
+}
+
+.sh-tb__dec {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: -0.02em;
+}
+
+.sh-tb__key {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+  border-color: var(--rule-strong);
+  box-shadow: 0 1px 0 var(--rule-strong);
+}
+
+.sh-tb__fx {
+  font-style: italic;
+  text-transform: none;
+}
+
+.sh-tb__chart span {
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+}
+
+/* ---------- formula bar ---------- */
+
+.sh-bar {
+  display: flex;
+  align-items: stretch;
+  height: 30px;
+  border-bottom: 1px solid var(--rule-strong);
+  background: var(--surface);
+}
+
+.sh-bar__ref {
+  flex: none;
+  width: 92px;
+  padding: 0 10px;
+  border-right: 1px solid var(--rule);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  line-height: 30px;
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sh-bar__fx {
+  flex: none;
+  padding: 0 8px;
+  border-right: 1px solid var(--rule);
+  font-family: var(--font-serif);
+  font-style: italic;
+  font-size: 14px;
+  line-height: 30px;
+  color: var(--ink-3);
+}
+
+/* ---------- formula input (mirror + field) ---------- */
+
+.fx-input {
+  position: relative;
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+}
+
+.fx-input--bar {
+  flex: 1;
+}
+
+.fx-input__mirror,
+.fx-input__field {
+  box-sizing: border-box;
+  height: 100%;
+  margin: 0;
+  padding: 0 10px;
+  font: inherit;
+  letter-spacing: 0;
+  line-height: 28px;
+  white-space: pre;
+}
+
+.fx-input__mirror {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  color: var(--ink);
+}
+
+.fx-input__field {
+  position: relative;
+  display: block;
+  width: 100%;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: var(--ink);
+  caret-color: var(--signal);
+}
+
+.fx-input.is-formula .fx-input__field {
+  color: transparent;
+}
+
+.fx-input__field::selection {
+  background: var(--selection);
+}
+
+.fx-input__field:read-only {
+  color: var(--ink-2);
+}
+
+.fx-m--fn {
+  font-weight: 700;
+}
+
+.fx-m--op {
+  color: var(--ink-3);
+}
+
+.fx-m--str {
+  color: var(--ink-2);
+}
+
+.fx-m--err {
+  color: var(--c-red-text);
+}
+
+.fx-m--group.fx-m--ref {
+  font-weight: 600;
+}
+
+.fx-input--cell {
+  height: 100%;
+  font-family: var(--font-sans);
+  font-size: var(--sh-font);
+  background: var(--surface);
+  box-shadow: 0 0 0 2px var(--signal), var(--shadow-pop);
+}
+
+.fx-input--cell.is-formula {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+}
+
+.fx-input--cell .fx-input__mirror,
+.fx-input--cell .fx-input__field {
+  padding: 0 7px;
+  line-height: 28px;
+}
+
+/* popups: suggestions + signature */
+.fx-pop {
+  z-index: var(--z-popover);
+  max-width: min(440px, calc(100vw - 16px));
+  padding: 4px;
+  border-radius: var(--radius-2);
+  background: var(--surface);
+  box-shadow: var(--shadow-pop);
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  color: var(--ink);
+}
+
+.fx-pop__label {
+  padding: 4px 8px 2px;
+}
+
+.fx-suggest__item {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: baseline;
+  gap: 10px;
+  padding: 5px 8px;
+  border-radius: var(--radius-1);
+  cursor: pointer;
+}
+
+.fx-suggest__item.is-active {
+  background: var(--signal-wash);
+}
+
+.fx-suggest__name {
+  font-family: var(--font-mono);
+  font-weight: 700;
+  font-size: 12px;
+}
+
+.fx-suggest__name.is-ds {
+  color: var(--c-blue-text);
+}
+
+.fx-suggest__hint {
+  overflow: hidden;
+  color: var(--ink-3);
+  font-size: 12px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.fx-sig {
+  padding: 6px 9px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--ink-2);
+}
+
+.fx-sig__name {
+  color: var(--ink);
+  font-weight: 700;
+}
+
+.fx-sig__arg.is-current {
+  color: var(--signal-ink);
+  font-weight: 700;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.fx-sig__desc {
+  display: block;
+  margin-top: 4px;
+  font-family: var(--font-sans);
+  font-size: 12px;
+  color: var(--ink-3);
+  white-space: normal;
+}
+
+/* ---------- grid ---------- */
+
+.sg {
+  position: relative;
+  overflow: auto;
+  outline: none;
+  user-select: none;
+  -webkit-user-select: none;
+  /* beyond the last row of this sheet (another sheet of the block is taller): hatched, no cells */
+  background: repeating-linear-gradient(-45deg, transparent 0 6px, var(--rule) 6px 7px) var(--surface-2);
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+}
+
+.sg__inner {
+  position: relative;
+  min-width: 100%;
+  background: var(--surface);
+}
+
+.sg-head {
+  position: sticky;
+  top: 0;
+  z-index: 4;
+  display: grid;
+  height: 26px;
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--rule-strong);
+}
+
+.sg-corner {
+  position: sticky;
+  left: 0;
+  z-index: 5;
+  background: var(--surface-2);
+  border-right: 1px solid var(--rule-strong);
+  cursor: cell;
+}
+
+.sg-colhead {
+  position: relative;
+  border-right: 1px solid var(--rule);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  line-height: 26px;
+  text-align: center;
+  color: var(--ink-3);
+  cursor: s-resize;
+}
+
+.sg-colhead.is-sel,
+.sg-rowhead.is-sel {
+  /* opaque: the sticky headers cover the cells scrolling under them */
+  background: linear-gradient(var(--signal-wash), var(--signal-wash)), var(--surface-2);
+  color: var(--signal-ink);
+  font-weight: 700;
+}
+
+.sg-resize {
+  position: absolute;
+  top: 0;
+  right: -4px;
+  z-index: 1;
+  width: 7px;
+  height: 100%;
+  cursor: col-resize;
+}
+
+.sg-resize:hover {
+  background: linear-gradient(90deg, transparent 3px, var(--signal) 3px 4px, transparent 4px);
+}
+
+.sg-frozen {
+  position: sticky;
+  z-index: 3;
+  background: var(--surface);
+  box-shadow: 0 2px 0 var(--rule-strong);
+}
+
+.sg-body {
+  position: relative;
+}
+
+.sg-row {
+  display: grid;
+  left: 0;
+  width: 100%;
+  height: 28px;
+}
+
+.sg-rowhead {
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  padding-right: 8px;
+  border-right: 1px solid var(--rule-strong);
+  border-bottom: 1px solid var(--rule);
+  background: var(--surface-2);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  line-height: 27px;
+  text-align: right;
+  color: var(--ink-3);
+  cursor: e-resize;
+}
+
+.sg-cell {
+  height: 28px;
+  padding: 0 8px;
+  overflow: hidden;
+  border-right: 1px solid var(--rule);
+  border-bottom: 1px solid var(--rule);
+  line-height: 27px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-variant-numeric: tabular-nums;
+  cursor: cell;
+}
+
+.sg-cell.is-right {
+  text-align: right;
+}
+
+.sg-cell.is-center {
+  text-align: center;
+}
+
+.sg-cell.is-error {
+  color: var(--c-red-text);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+}
+
+/* overlays: selection, active cell, formula references, datasets */
+.sg-ov {
+  position: absolute;
+  z-index: 1;
+  box-sizing: border-box;
+  pointer-events: none;
+}
+
+.sg-ov::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: var(--ov-bg, transparent);
+  opacity: var(--ov-a, 0.6);
+}
+
+.sg-ov--sel {
+  --ov-bg: var(--signal-wash-strong);
+  --ov-a: 0.55;
+  border: 1px solid var(--signal);
+}
+
+.sg-ov--active {
+  z-index: 2;
+  border: 2px solid var(--ink-3);
+  transition: border-color var(--dur-1) var(--ease-out);
+}
+
+.sg:focus .sg-ov--active,
+.sheet:focus-within .sg-ov--active {
+  border-color: var(--signal);
+}
+
+.sg-ov--edit {
+  border: 1px solid var(--ov-text);
+  --ov-a: 0.55;
+}
+
+.sg-ov--faint {
+  border: 1px dashed var(--ov-text);
+  --ov-a: 0.3;
+}
+
+.sg-ov--named {
+  border: 1px solid var(--ov-text);
+  --ov-a: 0.4;
+  opacity: 0.85;
+}
+
+.sg-ov__h {
+  position: absolute;
+  z-index: 1;
+  width: 5px;
+  height: 5px;
+  background: var(--ov-text);
+}
+
+.sg-ov__h.is-tl {
+  top: -3px;
+  left: -3px;
+}
+
+.sg-ov__h.is-br {
+  right: -3px;
+  bottom: -3px;
+}
+
+.sg-ov__tag {
+  position: absolute;
+  top: -12px;
+  left: 4px;
+  z-index: 1;
+  padding: 0 3px;
+  border: 1px solid var(--ov-text);
+  border-radius: var(--radius-1);
+  background: var(--surface);
+  color: var(--ov-text);
+  font-family: var(--font-mono);
+  font-size: 8.5px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  line-height: 11px;
+  white-space: nowrap;
+}
+
+.sg-ov__tag.is-inside {
+  top: 2px;
+  left: 2px;
+}
+
+.sg-ov__tag.is-below {
+  top: calc(100% + 1px);
+}
+
+.sg-editor {
+  position: absolute;
+  z-index: 6;
+  display: flex;
+}
+
+/* ---------- foot: tabs + status ---------- */
+
+.sh-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px 12px;
+  padding: 4px 6px;
+  background: var(--surface-2);
+}
+
+.sheet-tabs {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.sheet-tabs__strip {
+  display: flex;
+  gap: 2px;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.sheet-tab {
+  flex: none;
+  height: 26px;
+  padding: 0 10px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-1);
+  background: transparent;
+  color: var(--ink-2);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  white-space: nowrap;
+  cursor: pointer;
+  touch-action: pan-x;
+}
+
+.sheet-tab:hover {
+  background: var(--hover);
+  color: var(--ink);
+}
+
+.sheet-tab.is-active {
+  border-color: var(--rule-strong);
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: inset 0 -2px 0 var(--signal);
+}
+
+.sheet-tab.is-dragging {
+  opacity: 0.5;
+}
+
+.sheet-tab.is-drop {
+  box-shadow: inset 2px 0 0 var(--signal);
+}
+
+.sheet-tab:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.sheet-tab.is-renaming {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border-color: var(--signal);
+  background: var(--surface);
+}
+
+.sheet-tab__no {
+  color: var(--ink-3);
+}
+
+.sheet-tab__input {
+  width: auto;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  caret-color: var(--signal);
+}
+
+.sheet-tab__input[aria-invalid='true'] {
+  color: var(--c-red-text);
+}
+
+.sheet-tabs__btn,
+.sh-status__btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  height: 26px;
+  min-width: 26px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-1);
+  background: transparent;
+  color: var(--ink-2);
+  cursor: pointer;
+}
+
+.sheet-tabs__btn:hover,
+.sh-status__btn:hover {
+  background: var(--hover);
+  color: var(--ink);
+}
+
+.sheet-tabs__btn:focus-visible,
+.sh-status__btn:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.sheet-tabs__problem {
+  color: var(--c-red-text);
+  font-size: var(--text-xs);
+}
+
+.sh-status {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  color: var(--ink-3);
+  white-space: nowrap;
+}
+
+.sh-status b {
+  color: var(--ink);
+  font-weight: 600;
+  letter-spacing: 0;
+}
+
+.sh-status__calc {
+  display: inline-flex;
+  gap: 12px;
+}
+
+.sh-status__add {
+  display: inline-flex;
+  gap: 4px;
+}
+
+.sh-status__btn {
+  height: 22px;
+  padding: 0 6px;
+  border: 1px dashed var(--rule-strong);
+  font: inherit;
+  text-transform: uppercase;
+}
+
+/* ---------- function browser ---------- */
+
+.fxb {
+  display: flex;
+  flex-direction: column;
+  width: min(460px, calc(100vw - 16px));
+  padding: 0;
+  overflow: hidden;
+}
+
+.fxb__head {
+  padding: 8px;
+  border-bottom: 1px solid var(--rule);
+}
+
+.fxb__search {
+  width: 100%;
+}
+
+.fxb__cats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 8px;
+}
+
+.fxb__cat {
+  height: 22px;
+  padding: 0 7px;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius-1);
+  background: transparent;
+  color: var(--ink-2);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.fxb__cat.is-active {
+  border-color: var(--ink);
+  background: var(--ink);
+  color: var(--ink-inverse);
+}
+
+.fxb__cat:focus-visible,
+.fxb__item:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.fxb__list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 4px;
+}
+
+.fxb__item {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 2px 8px;
+  width: 100%;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: var(--radius-1);
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.fxb__item.is-active {
+  background: var(--signal-wash);
+}
+
+.fxb__sig {
+  overflow: hidden;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--ink-3);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.fxb__name {
+  color: var(--ink);
+  font-weight: 700;
+  font-size: 12.5px;
+}
+
+.fxb__cat-tag {
+  align-self: center;
+}
+
+.fxb__desc {
+  grid-column: 1 / -1;
+  color: var(--ink-2);
+  font-size: var(--text-sm);
+}
+
+.fxb__ex {
+  grid-column: 1 / -1;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--signal-ink);
+}
+
+.fxb__empty {
+  padding: 16px 8px;
+  color: var(--ink-3);
+}
+
+.fxb__foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 8px;
+  border-top: 1px solid var(--rule);
+}
+
+/* ---------- datasets panel ---------- */
+
+.dsp {
+  width: min(400px, calc(100vw - 16px));
+  padding: 10px 12px 12px;
+  overflow-y: auto;
+}
+
+.dsp__head {
+  display: flex;
+  justify-content: space-between;
+}
+
+.dsp__intro,
+.dsp__empty {
+  margin: 6px 0 0;
+  color: var(--ink-2);
+  font-size: var(--text-sm);
+}
+
+.dsp__list {
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.dsp__item {
+  display: grid;
+  grid-template-columns: 18px 1fr auto;
+  align-items: start;
+  gap: 10px;
+  padding: 9px 0;
+  border-top: 1px solid var(--rule);
+}
+
+.dsp__swatch,
+.dsp__chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 1px solid;
+  border-radius: var(--radius-1);
+  cursor: pointer;
+}
+
+.dsp__main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.dsp__name {
+  align-self: flex-start;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  font-weight: 700;
+  cursor: text;
+}
+
+.dsp__rename {
+  height: 24px;
+  font-family: var(--font-mono);
+}
+
+.dsp__ranges,
+.dsp__sel {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--ink-2);
+  overflow-wrap: anywhere;
+}
+
+.dsp__palette {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+.dsp__actions {
+  display: flex;
+  gap: 2px;
+}
+
+.dsp__act {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-1);
+  background: transparent;
+  color: var(--ink-2);
+  cursor: pointer;
+}
+
+.dsp__act:hover:not(:disabled) {
+  background: var(--hover);
+  color: var(--ink);
+}
+
+.dsp__act.is-danger:hover:not(:disabled) {
+  color: var(--c-red-text);
+}
+
+.dsp__act:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.dsp__act:focus-visible,
+.dsp__swatch:focus-visible,
+.dsp__chip:focus-visible,
+.dsp__name:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.dsp__new {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-top: 10px;
+  border-top: 1px solid var(--rule-strong);
+}
+
+.dsp__row {
+  display: flex;
+  gap: 6px;
+}
+
+.dsp__row .input {
+  flex: 1;
+  font-family: var(--font-mono);
+}
+
+.dsp__problem {
+  color: var(--c-red-text);
+  font-size: var(--text-xs);
+}
+
+/* ---------- small screens ---------- */
+
+@media (max-width: 640px) {
+  .sh-tb {
+    flex-wrap: wrap;
+    row-gap: 4px;
+  }
+  .sh-tb__title {
+    flex-basis: 100%;
+  }
+  .sh-tb__group {
+    border-left: 0;
+    padding-left: 0;
+  }
+  .sh-bar__ref {
+    width: 64px;
+    padding: 0 6px;
+  }
+  .sh-status {
+    margin-left: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sheet * {
+    transition: none !important;
+  }
+}
+
+/* ---------- charts of the sheet ---------- */
+
+.sh-charts {
+  container-type: inline-size;
+  padding: 10px 10px 12px;
+  border-bottom: 1px solid var(--rule);
+  background: var(--surface);
+}
+
+.sh-charts__label {
+  margin-bottom: 8px;
+}
+
+.sh-charts__grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 10px;
+}
+
+@container (min-width: 900px) {
+  .sh-charts__grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.sh-chart {
+  margin: 0;
+  min-width: 0;
+  padding: 8px 10px 10px;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius-2);
+  background: var(--surface);
+}
+
+.sh-chart__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.sh-chart__title {
+  min-width: 0;
+  overflow: hidden;
+  font-weight: 700;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.sh-chart__ref {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-transform: none;
+}
+
+.sh-chart__menu {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 26px;
+  height: 26px;
+  margin-left: auto;
+  border: 1px solid transparent;
+  border-radius: var(--radius-1);
+  background: transparent;
+  color: var(--ink-2);
+  cursor: pointer;
+}
+
+.sh-chart__menu:hover {
+  background: var(--hover);
+  color: var(--ink);
+}
+
+.sh-chart__menu:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}

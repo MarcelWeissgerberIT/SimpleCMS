@@ -8,13 +8,14 @@
  *    cancels the old one; trashed pages (or pages under a trashed parent) have none. A date mention
  *    inside a synced block is one reminder however many pages show the block (keyed by the sync
  *    group, at the page of the original when it is live).
- *  - team facts (cloud workspaces): my person mentions per block (a synced copy's at its original),
- *    the person properties I am in, and every comment reply id of a page — the engine diffs them
- *    against a snapshot.
+ *  - team facts (cloud workspaces): my person mentions per block (and the sync group of those in
+ *    synced blocks), the person properties I am in, and every comment reply id of a page — the
+ *    engine diffs them against a snapshot.
  */
 import type { JSONContent } from '@tiptap/core'
 import type { Database, DateValue, ID, Page, PageComment } from '../../store/types'
-import { isEffectivelyTrashed } from '../../store/selectors'
+import { inTemplate, isEffectivelyTrashed } from '../../store/selectors'
+import { pageChanges } from '../../store/store'
 import { normalizeReminder, reminderDueAt } from './reminders'
 
 export interface ReminderEntry {
@@ -149,15 +150,61 @@ function remindersOf(page: Page, db: Database | undefined): ReminderEntry[] {
   return list
 }
 
-/** Every reminder of the workspace (pages in the trash have none), soonest first. */
-export function collectReminders(pages: Record<ID, Page>, dbs: Record<ID, Database>): ReminderEntry[] {
+const sameEntry = (a: ReminderEntry, b: ReminderEntry) =>
+  a.key === b.key && a.dueAt === b.dueAt && a.blockId === b.blockId && a.excerpt === b.excerpt && a.propId === b.propId && fromOriginal.has(a) === fromOriginal.has(b)
+
+/**
+ * Did a store change (prev → pages) leave every reminder as it was? Only changed pages are looked
+ * at (the store's shared diff); one that moved, went to / came back from the trash or a template,
+ * or a page that went away, may change others' reminders: then no.
+ */
+function sameReminders(pages: Record<ID, Page>, prev: Record<ID, Page>, dbs: Record<ID, Database>): boolean {
+  const { changed, removed } = pageChanges(pages, prev)
+  if (removed.length) return false
+  const of = (p: Page) => remindersOf(p, p.databaseId ? dbs[p.databaseId] : undefined)
+  for (const id of changed) {
+    const p = pages[id]
+    const o = prev[id]
+    if (!o) {
+      if (of(p).length) return false
+      continue
+    }
+    if (p.parentId !== o.parentId || p.trashed !== o.trashed || !!p.template !== !!o.template) return false
+    const a = of(p)
+    const b = of(o)
+    if (a !== b && (a.length !== b.length || a.some((r, i) => !sameEntry(r, b[i])))) return false
+  }
+  return true
+}
+
+/** The last answer: a store change that touches no reminder (typing, most edits) reuses it instead of a pass over every page. */
+let last: { pages: Record<ID, Page>; dbs: Record<ID, Database>; out: ReminderEntry[]; trashed: ReminderEntry[] } | null = null
+
+/**
+ * Every reminder of the workspace (pages in the trash have none), soonest first. `trashed` collects
+ * the reminders of pages in the trash (the engine notes those that come due there, see engine.ts).
+ */
+export function collectReminders(pages: Record<ID, Page>, dbs: Record<ID, Database>, trashed?: ReminderEntry[]): ReminderEntry[] {
+  if (last && last.dbs === dbs && (last.pages === pages || sameReminders(pages, last.pages, dbs))) {
+    last.pages = pages
+    trashed?.push(...last.trashed)
+    return last.out
+  }
+  const inTrash: ReminderEntry[] = []
   const out: ReminderEntry[] = []
   /** synced blocks: one entry per key, the original's when it is live */
   const shared = new Map<string, ReminderEntry>()
-  for (const id in pages) {
+  // Object.keys: for…in over a map of thousands of pages costs several times more (a pass per change)
+  for (const id of Object.keys(pages)) {
     const page = pages[id]
     const list = remindersOf(page, page.databaseId ? dbs[page.databaseId] : undefined)
-    if (!list.length || isEffectivelyTrashed(pages, id)) continue
+    if (!list.length) continue
+    // template pages (features/templates): their dates are placeholders — no reminders, ever
+    if (inTemplate(pages, id)) continue
+    if (isEffectivelyTrashed(pages, id)) {
+      inTrash.push(...list)
+      continue
+    }
     for (const r of list) {
       if (!r.key.startsWith('s:')) out.push(r)
       else {
@@ -167,28 +214,36 @@ export function collectReminders(pages: Record<ID, Page>, dbs: Record<ID, Databa
     }
   }
   out.push(...shared.values())
-  return out.sort((a, b) => a.dueAt - b.dueAt)
+  out.sort((a, b) => a.dueAt - b.dueAt)
+  last = { pages, dbs, out, trashed: inTrash }
+  trashed?.push(...inTrash)
+  return out
 }
 
 /* ------------------------------------------------------------------ team facts */
 
 /** What concerns "me" in one page — diffed against the engine's snapshot. */
 export interface TeamFacts {
-  /** block ids (repeated per mention) where I am @mentioned; absent: the content is not loaded yet */
+  /** block ids (repeated per mention, synced blocks included) where I am @mentioned; absent: the content is not loaded yet */
   m?: Array<string | null>
+  /**
+   * per entry of `m`: the sync group it sits in (null: not in a synced block) — a group's mentions are
+   * tracked across pages (engine.ts). Absent in snapshots written before groups were tracked.
+   */
+  g?: Array<string | null>
   /** person properties (ids) I am in */
   a: ID[]
   /** every comment reply id on the page */
   r: ID[]
 }
 
-/**
- * `hasPage`: is a page in this member's workspace? A mention inside a synced copy whose original is
- * there counts at the original only — one mention, however many pages show the block.
- */
-export function teamFacts(page: Page, db: Database | undefined, me: ID, hasPage: (id: ID) => boolean = () => false): TeamFacts {
+export function teamFacts(page: Page, db: Database | undefined, me: ID): TeamFacts {
   const out: TeamFacts = { a: [], r: [] }
-  if (page.content) out.m = (scanContent(page.content).persons.get(me) ?? []).filter((s) => !s.synced?.source || !hasPage(s.synced.source)).map((s) => s.blockId)
+  if (page.content) {
+    const spots = scanContent(page.content).persons.get(me) ?? []
+    out.m = spots.map((s) => s.blockId)
+    out.g = spots.map((s) => s.synced?.syncId ?? null)
+  }
   if (db)
     for (const prop of db.properties) {
       const v = page.properties[prop.id]
@@ -203,6 +258,13 @@ export function mentionLine(page: Page, me: ID, blockId: string | null): string 
   if (!page.content) return ''
   const spots = scanContent(page.content).persons.get(me) ?? []
   return (spots.find((s) => s.blockId === blockId) ?? spots[0])?.line ?? ''
+}
+
+/** My first mention in a sync group on a page: its block, its line and the page of the group's original (null: this page). */
+export function groupMention(page: Page, me: ID, syncId: string): { blockId: string | null; line: string; source: ID | null } | null {
+  if (!page.content) return null
+  const spot = (scanContent(page.content).persons.get(me) ?? []).find((s) => s.synced?.syncId === syncId)
+  return spot ? { blockId: spot.blockId, line: spot.line, source: spot.synced!.source } : null
 }
 
 /** The block a comment thread's mark sits in (for a deep link), if any. */

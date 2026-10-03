@@ -5,7 +5,7 @@
  */
 import Fuse from 'fuse.js'
 import { useWorkspace } from '../../store/store'
-import { isEffectivelyTrashed } from '../../store/selectors'
+import { inTemplate, isEffectivelyTrashed } from '../../store/selectors'
 import type { Database, ID, Page } from '../../store/types'
 import { propertyValueToText } from '../../database'
 import { WORKSPACE_SYSTEM, streamCompletion, streamDemoText, usesDemo } from './client'
@@ -47,12 +47,15 @@ function rowFacts(db: Database, row: Page): string {
   return parts.join('; ')
 }
 
-/** Searchable documents for every live page; database pages include a compact table of their rows. */
+/**
+ * Searchable documents for every live page; database pages include a compact table of their rows.
+ * Templates (features/templates) are not workspace content: their pages stay out.
+ */
 export function workspaceDocs(): Doc[] {
   const { pages, databases } = useWorkspace.getState()
   const docs: Doc[] = []
   for (const p of Object.values(pages)) {
-    if (p.trashed || isEffectivelyTrashed(pages, p.id)) continue
+    if (p.trashed || isEffectivelyTrashed(pages, p.id) || inTemplate(pages, p.id)) continue
     const title = p.title.trim() || 'Untitled'
     let text = p.plain ?? ''
     if (p.databaseId && databases[p.databaseId]) {

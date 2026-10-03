@@ -9,7 +9,7 @@
  */
 import type { JSONContent } from '@tiptap/core'
 import { useWorkspace } from '../../store/store'
-import { isEffectivelyTrashed } from '../../store/selectors'
+import { inTemplate, isEffectivelyTrashed, mayChangeAnswer } from '../../store/selectors'
 import type { ID, Page } from '../../store/types'
 
 export const UNLINKED_CAP = 50
@@ -204,6 +204,9 @@ export interface UnlinkedHit {
   occ: Occurrence
 }
 
+/** The last few answers per target page (with the page map, title matcher and linked set they hold for). */
+const memo = new Map<ID, { pages: Record<ID, Page>; key: string; linked: ReadonlySet<ID>; hits: UnlinkedHit[] }>()
+
 /**
  * Pages (database rows included) that mention `targetId`'s title in their text without linking it:
  * never the page itself, trashed pages or pages that already link to it. Most recently edited first.
@@ -212,13 +215,25 @@ export function selectUnlinked(pages: Record<ID, Page>, targetId: ID, linked: Re
   const target = pages[targetId]
   const m = target && titleMatcher(target.title)
   if (!m) return []
+  // the last answer stands while no change can touch it (typing in the page itself, edits elsewhere)
+  const hit = memo.get(targetId)
+  if (hit && hit.key === m.key && hit.linked === linked && (hit.pages === pages || !mayChangeAnswer(pages, hit.pages, targetId, (p) => !!p.plain && !!occurrenceIn(p, m)))) {
+    hit.pages = pages
+    return hit.hits
+  }
   const hits: UnlinkedHit[] = []
-  for (const p of Object.values(pages)) {
+  // Object.keys: for…of Object.values() over thousands of pages costs several times more
+  for (const id of Object.keys(pages)) {
+    const p = pages[id]
     if (p.id === targetId || p.trashed || !p.plain || linked.has(p.id)) continue
     const occ = occurrenceIn(p, m)
-    if (occ && !isEffectivelyTrashed(pages, p.id)) hits.push({ page: p, occ })
+    if (occ && !isEffectivelyTrashed(pages, p.id) && !inTemplate(pages, p.id)) hits.push({ page: p, occ })
   }
-  return hits.sort((a, b) => b.page.updatedAt - a.page.updatedAt)
+  hits.sort((a, b) => b.page.updatedAt - a.page.updatedAt)
+  memo.delete(targetId)
+  memo.set(targetId, { pages, key: m.key, linked, hits })
+  if (memo.size > 4) memo.delete(memo.keys().next().value!)
+  return hits
 }
 
 /* ------------------------------------------------------------------ */

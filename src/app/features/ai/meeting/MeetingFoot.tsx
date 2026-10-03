@@ -17,15 +17,30 @@ import { MenuList, type MenuEntry } from '../../../ui/Menu'
 import { PageIcon } from '../../../ui/PageIcon'
 import { speechSupported, speechVendor } from './recognition'
 import { actionItemsIn } from './notes'
-import { sendActionItems } from './toDatabase'
+import { missingFields, sendActionItems } from './toDatabase'
 import { editorPageId } from './write'
+import { CreatePropertiesDialog, canCreateProperties, type PropertySuggestion } from '../../../database'
 
 export function MeetingFoot({ editor, node, editable }: { editor: Editor; node: PMNode; editable: boolean }) {
   const t = useT()
   const attrs = useMemo(() => meetingAttrs(node), [node])
   const pending = useMemo(() => actionItemsIn(node).filter((a) => a.text && !a.linked).length, [node])
   const [anchor, setAnchor] = useState<HTMLElement | null>(null)
+  // the picked database lacks a person / date property for what the items carry: offer to create it
+  const [ask, setAsk] = useState<{ dbId: string; suggestions: PropertySuggestion[] } | null>(null)
   if (!editable) return null
+  const dbName = (dbId: string) => pageTitle(useWorkspace.getState().pages[dbId], t('common.untitled'))
+  const send = (dbId: string) => {
+    if (!attrs.id) return
+    const n = sendActionItems(editor, attrs.id, editorPageId(editor), dbId)
+    if (!n) return
+    const db = dbName(dbId)
+    toast({
+      message: n === 1 ? t('features.meeting.db.sentOne', { db }) : t('features.meeting.db.sent', { n, db }),
+      kind: 'success',
+      action: { label: t('features.meeting.db.open'), run: () => openPage(dbId) },
+    })
+  }
   const vendor = speechSupported() ? speechVendor() : null
   const showSend = !!attrs.id && pending > 0 && (attrs.status === 'done' || attrs.status === 'idle')
   return (
@@ -57,14 +72,33 @@ export function MeetingFoot({ editor, node, editable }: { editor: Editor; node: 
           onClose={() => setAnchor(null)}
           onPick={(dbId) => {
             setAnchor(null)
-            const n = sendActionItems(editor, attrs.id!, editorPageId(editor), dbId)
-            if (!n) return
-            const db = pageTitle(useWorkspace.getState().pages[dbId], t('common.untitled'))
-            toast({
-              message: n === 1 ? t('features.meeting.db.sentOne', { db }) : t('features.meeting.db.sent', { n, db }),
-              kind: 'success',
-              action: { label: t('features.meeting.db.open'), run: () => openPage(dbId) },
-            })
+            const miss = missingFields(editor, attrs.id!, dbId)
+            const suggestions: PropertySuggestion[] = []
+            const count = (key: string, n: number) => t(`${key}.${n === 1 ? 'one' : 'other'}`, { n })
+            if (miss.owner) suggestions.push({ key: 'owner', name: t('features.meeting.db.owner'), type: 'person', fixedType: true, detail: count('features.meeting.db.ownerDetail', miss.owner) })
+            if (miss.due) suggestions.push({ key: 'due', name: t('features.meeting.db.due'), type: 'date', fixedType: true, detail: count('features.meeting.db.dueDetail', miss.due) })
+            if (suggestions.length && canCreateProperties(dbId)) setAsk({ dbId, suggestions })
+            else send(dbId)
+          }}
+        />
+      )}
+      {ask && (
+        <CreatePropertiesDialog
+          dbId={ask.dbId}
+          suggestions={ask.suggestions}
+          label={t('features.meeting.db.missingLabel')}
+          title={t('features.meeting.db.missingTitle', { db: dbName(ask.dbId) })}
+          intro={t('features.meeting.db.missingIntro', { db: dbName(ask.dbId) })}
+          confirmLabel={t('features.meeting.db.createSend')}
+          skipLabel={t('features.meeting.db.sendWithout')}
+          onClose={() => setAsk(null)}
+          onSkip={() => {
+            setAsk(null)
+            send(ask.dbId)
+          }}
+          onConfirm={() => {
+            setAsk(null)
+            send(ask.dbId)
           }}
         />
       )}

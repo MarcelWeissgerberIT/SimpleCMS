@@ -21,3 +21,9 @@ export function pickLang(explicit: string | null | undefined, acceptLanguage: st
 
 export const escapeHtml = (s: string) =>
   s.replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[ch] as string)
+
+/** The name of a person's own workspace, created at their first sign-in: "Ada’s space" / "Bereich von Ada". */
+export function personalSpaceName(lang: Lang, who: string): string {
+  const name = who.replace(/[\u0000-\u001f\u007f]+/g, ' ').trim().slice(0, 80)
+  return lang === 'de' ? `Bereich von ${name}` : `${name}’s space`
+}

@@ -12,7 +12,10 @@ import { immer } from 'zustand/middleware/immer'
 import type { JSONContent } from '@tiptap/core'
 import { newId } from '../lib/ids'
 import { detectLang } from '@/shared/i18n'
+import { aiKeyValue, attachSecrets, checkAIKey, withSealedKey } from './secrets'
+import { isSafeFunctionId } from './functions'
 import type {
+  CustomFunction,
   Database,
   ID,
   Page,
@@ -81,6 +84,19 @@ export function plainText(node: JSONContent | null | undefined, max = 20000): st
     if (n.type === 'meetingNotes' && Array.isArray(n.attrs?.transcript)) {
       for (const seg of n.attrs.transcript) if (seg?.text) out += `${seg.text}\n`
     }
+    // spreadsheets: title, sheet names and what was typed into cells (not formulas — values are computed)
+    if (n.type === 'spreadsheet') {
+      if (typeof n.attrs?.title === 'string' && n.attrs.title) out += `${n.attrs.title}\n`
+      for (const sheet of Array.isArray(n.attrs?.sheets) ? n.attrs.sheets : []) {
+        if (out.length > max) break
+        if (typeof sheet?.name === 'string') out += `${sheet.name}\n`
+        const cells = sheet?.cells && typeof sheet.cells === 'object' ? Object.values(sheet.cells as Record<string, { v?: unknown }>) : []
+        const typed = cells.map((c) => c?.v).filter((v): v is string => typeof v === 'string' && v !== '' && !v.startsWith('='))
+        if (typed.length) out += `${typed.join(' ')}\n`
+      }
+    }
+    // charts: their title (editor/schema/chart.ts)
+    if (n.type === 'chart' && typeof n.attrs?.spec?.title === 'string' && n.attrs.spec.title) out += `${n.attrs.spec.title}\n`
   }
   walk(node)
   return out.replace(/\n{3,}/g, '\n\n').trim().slice(0, max)
@@ -175,6 +191,10 @@ export interface WorkspaceState extends Workspace {
   addPerson: (name: string) => ID
   updateSettings: (patch: Partial<Settings>) => void
 
+  // custom functions (features/sheets/functions): insert or replace by id (updatedAt is set here) · remove
+  upsertFunction: (fn: CustomFunction) => void
+  deleteFunction: (id: ID) => void
+
   // comments (margin notes): threads live on the page, their anchors are `comment` marks in its content
   addComment: (pageId: ID, input: { id?: ID; quote: string; body: string }) => ID
   updateComment: (pageId: ID, commentId: ID, patch: Partial<Pick<PageComment, 'body' | 'resolved' | 'quote'>>) => void
@@ -195,6 +215,8 @@ export interface CloudPatch {
   databases?: Record<ID, Database | null>
   people?: Person[]
   settings?: Partial<Settings>
+  /** custom functions by id (`null` removes one) */
+  functions?: Record<ID, CustomFunction | null>
 }
 
 const now = () => Date.now()
@@ -355,25 +377,75 @@ export function defaultView(type: View['type'], db: Pick<Database, 'properties'>
   return view
 }
 
+/**
+ * Bulk loads (boot, another tab's save, an import or backup): freeze the page map and every page
+ * shallowly before they enter the store. Immer deep-freezes whatever new data a write brings in
+ * and stops at frozen objects — without this, loading a workspace froze every node of every page's
+ * content (seconds for a big one) and the first write after it did the same. A page that changes
+ * later is deep-frozen with that write, as before.
+ */
+function freezePages(pages: Record<ID, Page>): Record<ID, Page> {
+  if (Object.isFrozen(pages)) return pages
+  const ids = Object.keys(pages)
+  for (let i = 0; i < ids.length; i++) Object.freeze(pages[ids[i]])
+  return Object.freeze(pages)
+}
+
+/**
+ * Deep-freeze data entering the store, down to the parts already frozen — what Immer's auto-freeze
+ * does with a write (plain objects and arrays only, like Immer).
+ */
+function deepFreeze<T>(v: T): T {
+  if (!v || typeof v !== 'object' || Object.isFrozen(v)) return v
+  const proto = Object.getPrototypeOf(v)
+  if (!Array.isArray(v) && proto !== Object.prototype && proto !== null) return v
+  Object.freeze(v)
+  for (const k of Object.keys(v)) deepFreeze((v as Record<string, unknown>)[k])
+  return v
+}
+
+/**
+ * The page map with one page replaced — for the writes that run while someone types (the editor
+ * hands its text over on every pause, a title on every key, a cell on every commit). An Immer draft
+ * of the map copies it and then walks all N pages again to finalise and re-freeze it; this copies
+ * it once (in order), and records the diff that every subscriber asks pageChanges() for, so nobody
+ * walks the map to find the one page that changed.
+ */
+function withPage(prev: Record<ID, Page>, page: Page): Record<ID, Page> {
+  const next: Record<ID, Page> = {}
+  const ids = Object.keys(prev)
+  for (let i = 0; i < ids.length; i++) next[ids[i]] = prev[ids[i]]
+  next[page.id] = deepFreeze(page)
+  Object.freeze(next)
+  rememberChanges(next, prev, { changed: [page.id], added: [], removed: [] }, ids.length, ids.length)
+  return next
+}
+
 export const useWorkspace = create<WorkspaceState>()(
   immer((set, get) => ({
     ...emptyWorkspace(),
     ready: false,
 
-    hydrate: (ws) =>
+    hydrate: (ws) => {
+      // the Claude API key: a vault marker, never the key (secrets.ts)
+      const settings = withSealedKey(ws.settings, get().settings.aiApiKey, ws.epoch)
       set((s) => {
-        Object.assign(s, ws)
+        Object.assign(s, ws, { pages: freezePages(ws.pages), settings, functions: ws.functions ?? {} })
         s.ready = true
-      }),
+      })
+      void checkAIKey()
+    },
 
     replaceAll: (ws) =>
       set((s) => {
+        freezePages(ws.pages)
         s.version = ws.version
         s.pages = ws.pages
         s.databases = ws.databases
         s.people = ws.people
-        s.settings = ws.settings
+        s.settings = withSealedKey(ws.settings, s.settings.aiApiKey, s.epoch)
         s.recent = ws.recent
+        s.functions = ws.functions ?? {}
       }),
 
     createPage: (input = {}) => {
@@ -384,13 +456,12 @@ export const useWorkspace = create<WorkspaceState>()(
       return page.id
     },
 
-    updatePage: (id, patch) =>
-      set((s) => {
-        const p = s.pages[id]
-        if (!p) return
-        Object.assign(p, patch)
-        p.updatedAt = now()
-      }),
+    // updatePage, setContent, setRowProperty: one page, written without an Immer draft (withPage)
+    updatePage: (id, patch) => {
+      const pages = get().pages
+      const p = pages[id]
+      if (p) set({ pages: withPage(pages, { ...p, ...patch, updatedAt: now() }) })
+    },
 
     updatePageSettings: (id, patch) =>
       set((s) => {
@@ -400,16 +471,11 @@ export const useWorkspace = create<WorkspaceState>()(
         p.updatedAt = now()
       }),
 
-    setContent: (id, content, origin) =>
-      set((s) => {
-        const p = s.pages[id]
-        if (!p) return
-        p.content = content
-        p.contentRev += 1
-        p.contentOrigin = origin
-        p.updatedAt = now()
-        p.plain = plainText(content)
-      }),
+    setContent: (id, content, origin) => {
+      const pages = get().pages
+      const p = pages[id]
+      if (p) set({ pages: withPage(pages, { ...p, content, contentRev: p.contentRev + 1, contentOrigin: origin, updatedAt: now(), plain: plainText(content) }) })
+    },
 
     movePage: (id, parentId, index) =>
       set((s) => {
@@ -477,6 +543,12 @@ export const useWorkspace = create<WorkspaceState>()(
           if (isRoot) {
             copy.title = o.title ? `${o.title} ${suffix}` : ''
             copy.order = o.order + 0.5
+            // a template's root (Page.template): another own template, never a second customised built-in
+            if (copy.template) {
+              const { from: _from, ...meta } = copy.template
+              copy.template = { ...meta, name: `${meta.name} ${suffix}` }
+              copy.title = o.title
+            }
           }
           s.pages[copy.id] = copy
           const db = s.databases[oldId]
@@ -699,13 +771,11 @@ export const useWorkspace = create<WorkspaceState>()(
       return page.id
     },
 
-    setRowProperty: (rowId, propId, value) =>
-      set((s) => {
-        const p = s.pages[rowId]
-        if (!p) return
-        p.properties[propId] = value
-        p.updatedAt = now()
-      }),
+    setRowProperty: (rowId, propId, value) => {
+      const pages = get().pages
+      const p = pages[rowId]
+      if (p) set({ pages: withPage(pages, { ...p, properties: { ...p.properties, [propId]: value }, updatedAt: now() }) })
+    },
 
     addPerson: (name) => {
       const person: Person = { id: newId(), name, color: (['orange', 'blue', 'green', 'purple', 'pink', 'brown', 'yellow', 'red'] as const)[get().people.length % 8] }
@@ -715,9 +785,26 @@ export const useWorkspace = create<WorkspaceState>()(
       return person.id
     },
 
-    updateSettings: (patch) =>
+    updateSettings: (patch) => {
+      // a key goes into the vault; the store keeps its marker ('' removes it, secrets.ts)
+      const p = 'aiApiKey' in patch ? { ...patch, aiApiKey: aiKeyValue(patch.aiApiKey, get().settings.aiApiKey, get().epoch, true) } : patch
       set((s) => {
-        Object.assign(s.settings, patch)
+        Object.assign(s.settings, p)
+      })
+    },
+
+    upsertFunction: (fn) =>
+      set((s) => {
+        // ids become object keys (and Yjs map keys): plain tokens only
+        if (!isSafeFunctionId(fn.id)) return
+        s.functions ??= {}
+        const cur = s.functions[fn.id]
+        s.functions[fn.id] = { ...JSON.parse(JSON.stringify(fn)), createdAt: cur?.createdAt ?? fn.createdAt ?? now(), updatedAt: now() }
+      }),
+
+    deleteFunction: (id) =>
+      set((s) => {
+        if (s.functions?.[id]) delete s.functions[id]
       }),
 
     // comments bump the page's updatedAt: cross-tab sync compares pages by it (merge.ts samePage)
@@ -802,11 +889,67 @@ export const useWorkspace = create<WorkspaceState>()(
           else delete s.databases[id]
         }
         if (patch.people) s.people = patch.people
-        if (patch.settings) Object.assign(s.settings, patch.settings)
+        for (const [id, fn] of Object.entries(patch.functions ?? {})) {
+          s.functions ??= {}
+          if (fn) s.functions[id] = fn
+          else delete s.functions[id]
+        }
+        if (patch.settings) Object.assign(s.settings, withSealedKey({ ...s.settings, ...patch.settings }, s.settings.aiApiKey, s.epoch))
         if (removed && s.recent.some((r) => !s.pages[r])) s.recent = s.recent.filter((r) => !!s.pages[r])
       }),
   })),
 )
+
+attachSecrets({ getState: useWorkspace.getState, setState: (recipe) => useWorkspace.setState(recipe) })
+
+/* ------------------------------------------------------------------ */
+/* What a store change touched (shared by every subscriber)            */
+/* ------------------------------------------------------------------ */
+
+export interface PageChanges {
+  /** pages that are new or a different object than before (added ones included) */
+  changed: ID[]
+  /** pages that are new */
+  added: ID[]
+  /** pages that are gone */
+  removed: ID[]
+}
+
+const NO_CHANGES: PageChanges = { changed: [], added: [], removed: [] }
+const keyCounts = new WeakMap<Record<ID, Page>, number>()
+const recentDiffs: Array<{ next: Record<ID, Page>; prev: Record<ID, Page>; out: PageChanges }> = []
+
+/**
+ * Which pages differ between two page maps. Every store subscriber asks this for the same
+ * (state, prev) pair, so it is computed once per change and shared — one Object.keys() pass
+ * (for…in over a map of thousands of pages costs several times more). Removed pages are looked
+ * for only when the key counts say there are some.
+ */
+export function pageChanges(next: Record<ID, Page>, prev: Record<ID, Page>): PageChanges {
+  if (next === prev) return NO_CHANGES
+  for (const d of recentDiffs) if (d.next === next && d.prev === prev) return d.out
+  const out: PageChanges = { changed: [], added: [], removed: [] }
+  const keys = Object.keys(next)
+  for (let i = 0; i < keys.length; i++) {
+    const id = keys[i]
+    const o = prev[id]
+    if (next[id] === o) continue
+    out.changed.push(id)
+    if (o === undefined) out.added.push(id)
+  }
+  const before = keyCounts.get(prev) ?? Object.keys(prev).length
+  if (before + out.added.length > keys.length) for (const id of Object.keys(prev)) if (!(id in next)) out.removed.push(id)
+  rememberChanges(next, prev, out, keys.length, before)
+  return out
+}
+
+/** Keep a diff for pageChanges() (computed there, or handed in by a write that knows it). */
+function rememberChanges(next: Record<ID, Page>, prev: Record<ID, Page>, out: PageChanges, nextCount: number, prevCount: number) {
+  keyCounts.set(next, nextCount)
+  keyCounts.set(prev, prevCount)
+  recentDiffs.unshift({ next, prev, out })
+  recentDiffs.length = Math.min(recentDiffs.length, 3)
+}
 
 /** Snapshot of persistent data (without actions / flags). */
 export function getWorkspaceSnapshot(): Workspace {
@@ -819,5 +962,6 @@ export function getWorkspaceSnapshot(): Workspace {
     people: s.people,
     settings: s.settings,
     recent: s.recent,
+    functions: s.functions ?? {},
   }
 }

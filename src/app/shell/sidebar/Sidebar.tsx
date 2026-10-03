@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 
 import { Bell, CalendarDays, CalendarRange, ChevronsLeft, ChevronDown, Home, LayoutTemplate, Lock, Plus, Search, Trash2, Upload, Waypoints, Settings, Table2, FilePlus2, Users } from 'lucide-react'
 import { useWorkspace } from '../../store/store'
 import { useUI } from '../../store/ui'
-import { useFavorites, useTrash, selectBreadcrumbs } from '../../store/selectors'
+import { useFavorites, useTrash, useTreeCount, useHasFavorites, selectBreadcrumbs } from '../../store/selectors'
 import { navigate, useRoute } from '../../lib/router'
 import { openTodayJournal } from '../../features'
 import { Menu, useMenu, type MenuEntry } from '../../ui/Menu'
@@ -275,16 +275,7 @@ function FavoritesSection() {
   )
 }
 
-/** Pages of the tree (not trashed, rows or hidden) — of one section in a team workspace. */
-function useTreeCount(priv: boolean | null): number {
-  return useWorkspace((s) => {
-    let n = 0
-    for (const p of Object.values(s.pages)) if (!p.trashed && !p.databaseId && !p.hidden && (priv === null || !!p.private === priv)) n++
-    return n
-  })
-}
-
-const useHasFavs = () => useWorkspace((s) => Object.values(s.pages).some((p) => p.favorite && !p.trashed))
+const useHasFavs = useHasFavorites
 const sectionNo = (n: number) => String(n).padStart(2, '0')
 
 function PagesSection() {
@@ -379,7 +370,7 @@ function SidebarFooter() {
   const t = useT()
   const trash = useTrash()
   const hasFavs = useHasFavs()
-  const privateShown = useWorkspace((s) => Object.values(s.pages).some((p) => p.private && !p.trashed && !p.databaseId && !p.hidden))
+  const privateShown = useTreeCount(true) > 0
   const mode = usePrivateMode()
   // FAVORITES? · PAGES · PRIVATE? · TRASH
   const n = 2 + (hasFavs ? 1 : 0) + (mode === 'write' || (mode === 'read' && privateShown) ? 1 : 0)

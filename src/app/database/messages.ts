@@ -3,6 +3,7 @@ import { formMessages } from './form/messages'
 import { autofillMessages } from './autofill/messages'
 import { structureMessages } from './structure-messages'
 import { peopleMessages } from './people-messages'
+import { createMessages } from './create/messages'
 
 /** Strings for the database area. Keys MUST be prefixed with "database." — always add both en and de. */
 export const messages: Messages = {
@@ -11,6 +12,7 @@ export const messages: Messages = {
     ...autofillMessages.en,
     ...structureMessages.en,
     ...peopleMessages.en,
+    ...createMessages.en,
     'database.title': 'Database title',
     'database.toolbar': 'Database toolbar',
     'database.search': 'Search',
@@ -391,6 +393,9 @@ export const messages: Messages = {
     'database.formula.err.unknownProperty': 'There is no property called “{name}”.',
     'database.formula.err.circular': 'Circular reference — the formula depends on itself.',
     'database.formula.err.unknown': 'The formula could not be evaluated.',
+    'database.formula.err.customFn': '{name}() returned {code}.',
+    'database.formula.group.custom': 'Custom functions',
+    'database.formula.editFunctions': 'Build your own…',
     'database.formula.fn.prop': 'Value of another property of this row.',
     'database.formula.fn.if': 'Returns “then” when the condition is true, otherwise “else”.',
     'database.formula.fn.and': 'True when all values are true.',
@@ -512,6 +517,7 @@ export const messages: Messages = {
     ...autofillMessages.de,
     ...structureMessages.de,
     ...peopleMessages.de,
+    ...createMessages.de,
     'database.title': 'Titel der Datenbank',
     'database.toolbar': 'Datenbank-Werkzeugleiste',
     'database.search': 'Suchen',
@@ -892,6 +898,9 @@ export const messages: Messages = {
     'database.formula.err.unknownProperty': 'Es gibt keine Eigenschaft namens „{name}“.',
     'database.formula.err.circular': 'Zirkelbezug — die Formel hängt von sich selbst ab.',
     'database.formula.err.unknown': 'Die Formel konnte nicht ausgewertet werden.',
+    'database.formula.err.customFn': '{name}() ergab {code}.',
+    'database.formula.group.custom': 'Eigene Funktionen',
+    'database.formula.editFunctions': 'Eigene bauen…',
     'database.formula.fn.prop': 'Wert einer anderen Eigenschaft dieses Eintrags.',
     'database.formula.fn.if': 'Liefert „dann“, wenn die Bedingung wahr ist, sonst „sonst“.',
     'database.formula.fn.and': 'Wahr, wenn alle Werte wahr sind.',

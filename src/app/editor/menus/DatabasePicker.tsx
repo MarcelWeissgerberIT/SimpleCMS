@@ -17,7 +17,7 @@ export function DatabasePicker({ editor, pos, onClose }: { editor: Editor; pos: 
   const anchor = useMemo(() => posAnchor(editor, pos), [editor, pos])
   const entries = useMemo<MenuEntry[]>(() => {
     const { pages, databases } = useWorkspace.getState()
-    const dbs = sortPages(livePages(pages).filter((p) => p.kind === 'database' && databases[p.id]))
+    const dbs = sortPages(livePages(pages, editor.view.dom.getAttribute('data-page-id')).filter((p) => p.kind === 'database' && databases[p.id]))
     if (!dbs.length) return [{ label: t('editor.linked.none'), disabled: true }]
     return [
       { kind: 'section', label: t('editor.linked.title') },

@@ -12,3 +12,33 @@ export { propertyValueToText } from './values'
 /** rowsOfView: rows of a view as it shows them (its filters + sorts) — for exports outside React. */
 export { rowsOfView } from './model/ics'
 export { SharedFormView } from './form/public'
+/**
+ * Properties created on the fly (also for the workspace agent / MCP tools):
+ *  - createPropertyQuick(dbId, { name, type, relation?: { databaseId, twoWay?, reverseName? }, options?, numberFormat? },
+ *      { toast? }) → the new PropertyDef (null: locked, view only, bad target). Default: an undo toast.
+ *  - createPropertiesQuick(dbId, inputs) (no toast) · dropCreated(dbId, props) (their undo) ·
+ *    canCreateProperties(dbId) · propertyByName(db, name) · freePropertyName(db, name)
+ *  - CreatePropertyDialog: the short dialog (name · type · relation target + two-way) — render it yourself.
+ *  - CreatePropertiesDialog: several fields at once ("check": create or not · "map": create / existing / skip).
+ *  - PAGE_MENTIONED: window event the editor fires after inserting a page mention or a link to a page ({ from, to } page ids);
+ *      row pages answer with the "link as relation?" offer.
+ */
+export { createPropertyQuick, createPropertiesQuick, dropCreated, canCreateProperties, propertyByName, freePropertyName, type QuickProperty } from './create/quick'
+export { CreatePropertyDialog, type CreatePropertyDialogProps } from './create/CreatePropertyDialog'
+export { CreatePropertiesDialog, DATA_TYPES, type CreatePropertiesDialogProps, type PropertySuggestion, type SuggestionResult } from './create/CreatePropertiesDialog'
+export { PAGE_MENTIONED } from './create/RelationOffer'
+/**
+ * Chart series of a database (features/charts `chart` blocks with a database source): rows after a view's
+ * filters, grouped by x (options in order + colour, date buckets day … year with gaps filled), count / sum /
+ * avg / min / max of a number, optionally split into series. chartGroupable / chartMeasurable: pickable properties.
+ */
+export {
+  databaseChartData,
+  chartGroupable,
+  chartMeasurable,
+  bucketLabel,
+  type DatabaseChartInput,
+  type DatabaseChartResult,
+  type DatabaseChartAggregate,
+  type DatabaseChartBucket,
+} from './model/chartData'

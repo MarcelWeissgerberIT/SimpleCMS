@@ -2,21 +2,51 @@
  * Small UI building blocks for the database area (dropdown select, segmented control,
  * property-type picker entries, sortable list rows).
  */
-import { useState, type ReactNode } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { ChevronDown, Eye, GripVertical } from 'lucide-react'
 import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import { Menu as UiMenu, type MenuEntry, type MenuProps } from '../ui/Menu'
+import { Menu as UiMenu, MenuList, type MenuEntry, type MenuProps } from '../ui/Menu'
+import { Popover } from '../ui/Popover'
 import type { PropertyDef, PropertyType } from '../store/types'
 import { CREATABLE_TYPES, TYPE_ICON } from './model/schema'
 import { useT } from '../i18n'
 import { Tooltip } from '../ui/Tooltip'
 import type { Translate } from '@/shared/i18n'
 
+/** An extra entry for what was typed into a searchable menu (e.g. "Create property “X”"), or null. */
+export type QueryEntry = (query: string) => MenuEntry | null
+
+export interface DbMenuProps extends MenuProps {
+  /** Appended while the search field holds text (makes the menu searchable). */
+  create?: QueryEntry
+}
+
 /** The shared Menu with this area's localized search placeholder + empty label. */
-export function Menu(props: MenuProps) {
+export function Menu({ create, ...props }: DbMenuProps) {
   const t = useT()
-  return <UiMenu searchPlaceholder={t('database.menu.search')} emptyLabel={t('database.menu.empty')} {...props} />
+  const labels = { searchPlaceholder: t('database.menu.search'), emptyLabel: t('database.menu.empty') }
+  if (create) return <QueryMenu {...labels} {...props} create={create} />
+  return <UiMenu {...labels} {...props} />
+}
+
+/**
+ * The shared menu plus one entry built from the typed query. The search field belongs to the
+ * shared MenuList, so the query is read from its input events as they bubble up.
+ */
+function QueryMenu({ create, entries, open, anchor, placement = 'bottom-start', className, width, ...list }: MenuProps & { create: QueryEntry }) {
+  const [query, setQuery] = useState('')
+  useEffect(() => {
+    if (!open) setQuery('')
+  }, [open])
+  const extra = query.trim() ? create(query) : null
+  return (
+    <Popover open={open} anchor={anchor} onClose={list.onClose} placement={placement} className={className} style={width ? { width } : undefined} role="menu">
+      <div onInput={(e) => e.target instanceof HTMLInputElement && setQuery(e.target.value)}>
+        <MenuList {...list} searchable entries={extra ? [...entries, extra] : entries} />
+      </div>
+    </Popover>
+  )
 }
 
 export interface SelectItem<V extends string> {
@@ -36,6 +66,7 @@ export function Select<V extends string>({
   width,
   ariaLabel,
   disabled,
+  create,
 }: {
   value: V | null | undefined
   items: SelectItem<V>[]
@@ -46,6 +77,8 @@ export function Select<V extends string>({
   width?: number
   ariaLabel?: string
   disabled?: boolean
+  /** An entry for the typed query, e.g. "Create property “X”" (the menu becomes searchable). */
+  create?: QueryEntry
 }) {
   const [anchor, setAnchor] = useState<HTMLElement | null>(null)
   const cur = items.find((i) => i.value === value)
@@ -69,6 +102,7 @@ export function Select<V extends string>({
         onClose={() => setAnchor(null)}
         searchable={searchable ?? items.length > 8}
         width={width}
+        create={create}
         entries={items.map((i) => ({ label: i.label, icon: i.icon, checked: i.value === value, onSelect: () => onChange(i.value) }))}
       />
     </>
@@ -120,10 +154,11 @@ export function PropIcon({ prop, size = 14 }: { prop: Pick<PropertyDef, 'type'>;
   return <TypeIcon type={prop.type} size={size} />
 }
 
-/** Menu entries for choosing a property type. */
-export function typeEntries(t: Translate, onPick: (type: PropertyType) => void, current?: PropertyType): MenuEntry[] {
+/** Menu entries for choosing a property type (`only`: just these types, in the usual groups). */
+export function typeEntries(t: Translate, onPick: (type: PropertyType) => void, current?: PropertyType, only?: PropertyType[]): MenuEntry[] {
   const out: MenuEntry[] = []
-  CREATABLE_TYPES.forEach((group, gi) => {
+  const groups = CREATABLE_TYPES.map((g) => (only ? g.filter((type) => only.includes(type)) : g)).filter((g) => g.length)
+  groups.forEach((group, gi) => {
     if (gi > 0) out.push({ kind: 'separator' })
     for (const type of group)
       out.push({

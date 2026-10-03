@@ -3,15 +3,27 @@ import { deleteCookie, getCookie, setCookie } from 'hono/cookie'
 import { z } from 'zod'
 import { mayCreateAccount } from '../auth/signup.ts'
 import type { AppEnv, Services } from '../context.ts'
+import { isSealedText, keyFromSecret, openText, sealText } from '../crypto/aead.ts'
 import { rateLimited } from '../errors.ts'
 import { confirmSignInPage, linkInvalidPage } from '../http/pages.ts'
 import { body, clientIp, safeRedirect } from '../http/util.ts'
-import { pickLang } from '../i18n.ts'
+import { pickLang, personalSpaceName } from '../i18n.ts'
 import { magicLinkMail } from '../mail/templates.ts'
-import { normalizeEmail } from '../repo.ts'
+import { normalizeEmail, type UserRow } from '../repo.ts'
 import { MINUTE, isTokenShape, randomToken, safeEqual } from '../tokens.ts'
 
 const LINK_TTL = 15 * MINUTE
+/** The redirect is sealed with a key only the link's token gives (it may carry an invite token). */
+const REDIRECT_KEY = 'one/login-redirect/v1'
+const sealRedirect = (token: string, redirect: string) => sealText(keyFromSecret(token, REDIRECT_KEY), redirect, 'login-redirect')
+function openRedirect(token: string, stored: string | null): string | null {
+  if (!stored || !isSealedText(stored)) return stored // a row from before (plain path)
+  try {
+    return openText(keyFromSecret(token, REDIRECT_KEY), stored, 'login-redirect')
+  } catch {
+    return null
+  }
+}
 /** Marks the browser that asked for a link: opening the link there signs in with one click. */
 const LOGIN_COOKIE = 'one_login'
 
@@ -68,7 +80,7 @@ export function authRoutes(s: Services) {
     s.db.run(
       `INSERT INTO login_tokens (token_hash, email, created_at, expires_at, redirect, browser_hash, invite_hash, lang)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      s.repo.hash(token), email, now, now + LINK_TTL, safeRedirect(input.redirect), s.repo.hash(browser), inviteHash, lang,
+      s.repo.hash(token), email, now, now + LINK_TTL, sealRedirect(token, safeRedirect(input.redirect)), s.repo.hash(browser), inviteHash, lang,
     )
     const link = `${s.config.publicUrl}/api/auth/verify?token=${token}`
     // not awaited: SMTP latency must not reveal whether an account exists
@@ -126,6 +138,7 @@ export function authRoutes(s: Services) {
       user = s.repo.findOrCreateUser(row.email).user
       s.log.info('account created', { user: user.id })
     }
+    ensurePersonalSpace(user, lang)
 
     const previous = s.sessions.resolve(s.sessions.readCookie(c))
     if (previous) {
@@ -136,7 +149,20 @@ export function authRoutes(s: Services) {
     s.sessions.setCookie(c, session.token)
     deleteCookie(c, LOGIN_COOKIE, { path: '/api/auth', httpOnly: true, sameSite: 'Lax', secure })
     c.header('Cache-Control', 'no-store')
-    return c.redirect(safeRedirect(row.redirect), c.req.method === 'POST' ? 303 : 302)
+    return c.redirect(safeRedirect(openRedirect(token, row.redirect)), c.req.method === 'POST' ? 303 : 302)
+  }
+
+  /**
+   * Everyone who signs in has a workspace of their own (docs/CLOUD.md § Tenancy): created at the first
+   * sign-in, named in the sign-in's language, nobody else in it. Never blocks the sign-in.
+   */
+  function ensurePersonalSpace(user: UserRow, lang: 'en' | 'de') {
+    try {
+      const ws = s.repo.ensurePersonalWorkspace(user.id, personalSpaceName(lang, user.name || user.email.split('@')[0] || user.email))
+      if (ws) s.log.info('personal workspace created', { workspace: ws.id, user: user.id })
+    } catch (err) {
+      s.log.error('creating the personal workspace failed', { user: user.id, error: err as Error })
+    }
   }
 
   return app

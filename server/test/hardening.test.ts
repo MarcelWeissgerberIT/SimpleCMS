@@ -32,9 +32,10 @@ describe('GET /api/session', () => {
     assert.equal(session.status, 200)
     assert.deepEqual(session.body, me.body)
     assert.equal(session.body.user.email, 'session@example.com')
+    // the personal workspace (created at the first sign-in) comes first
     assert.deepEqual(
-      session.body.workspaces.map((w: { id: string; role: string }) => [w.id, w.role]),
-      [[ws.body.id, 'owner']],
+      session.body.workspaces.map((w: { id: string; role: string; personal: boolean }) => [w.personal ? 'personal' : w.id, w.role]),
+      [['personal', 'owner'], [ws.body.id, 'owner']],
     )
   })
 

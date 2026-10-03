@@ -3,6 +3,7 @@
  */
 import { FormulaError, parse, referencedProps, type Node } from './parse'
 import { evaluate, toText, truthy, isDate, numToText, withRangeEnd, type EvalEnv, type FValue } from './evaluate'
+import { formulaFunctions, formulaFunctionsVersion } from '../../lib/formulaFunctions'
 
 export { FormulaError, evaluate, toText, truthy, isDate, numToText, referencedProps, withRangeEnd }
 export type { EvalEnv, FValue, Node }
@@ -10,7 +11,16 @@ export type { EvalEnv, FValue, Node }
 type Compiled = { ast: Node; error?: undefined } | { ast?: undefined; error: FormulaError }
 const cache = new Map<string, Compiled>()
 
+/** Custom functions of the workspace (lib/formulaFunctions) for the editor's reference list. */
+export const customFormulaFunctions = (): Array<{ name: string; sig: string; description: string }> => formulaFunctions()?.list() ?? []
+/** The custom functions the cache was built with (another set: names and arities may differ). */
+let cacheFor = -1
+
 export function compile(src: string): Compiled {
+  if (cacheFor !== formulaFunctionsVersion()) {
+    cache.clear()
+    cacheFor = formulaFunctionsVersion()
+  }
   let c = cache.get(src)
   if (!c) {
     try {

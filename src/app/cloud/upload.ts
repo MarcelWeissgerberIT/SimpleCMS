@@ -1,16 +1,15 @@
 /**
  * uploadLocalWorkspace: copy this browser's local workspace into an empty team workspace — files
  * first, then every page's content document, the meta document (pages, databases, rows, comments,
- * people) last. Until the meta document is written the team workspace still looks empty, so an
+ * people, custom functions) last. Until the meta document is written the team workspace still looks empty, so an
  * interrupted upload can simply be started again (content documents are diffed, not duplicated).
  */
 import * as Y from 'yjs'
 import { HocuspocusProvider, HocuspocusProviderWebsocket } from '@hocuspocus/provider'
-import { get as idbGet } from 'idb-keyval'
 import { prosemirrorJSONToYXmlFragment } from '@tiptap/y-tiptap'
 import type { JSONContent } from '@tiptap/core'
 import { getWorkspaceSnapshot } from '../store/store'
-import { flushSave, migrate } from '../store/persistence'
+import { flushSave, migrate, readStoredWorkspace } from '../store/persistence'
 import type { ID, Workspace } from '../store/types'
 import { FILE_PREFIX, getLocalFile } from '../lib/files'
 import { newId } from '../lib/ids'
@@ -101,7 +100,7 @@ export async function uploadLocalWorkspaceImpl(wsId: string, onProgress?: (p: nu
     await flushSave()
     local = JSON.parse(JSON.stringify(getWorkspaceSnapshot())) as Workspace
   } else {
-    const raw = await idbGet('one.workspace.v1')
+    const raw = await readStoredWorkspace()
     if (!raw) throw new CloudError('nothing_to_upload', 'This browser has no local workspace.')
     local = migrate(raw)
   }
@@ -171,6 +170,8 @@ export async function uploadLocalWorkspaceImpl(wsId: string, onProgress?: (p: nu
       for (const p of pages) r.pages.set(p.id, newPageMap({ ...p, content: prepared.get(p.id) ?? p.content }, userId))
       for (const db of Object.values(local.databases)) r.databases.set(db.id, newDatabaseMap(db))
       for (const person of local.people) if (person?.id) r.people.set(person.id, { id: person.id, name: person.name, color: person.color })
+      // custom functions: one JSON entry each, as the binding writes them (every reader sanitizes them)
+      for (const fn of Object.values(local.functions ?? {})) r.functions.set(fn.id, JSON.parse(JSON.stringify(fn)))
       if (r.workspace.get('name') === undefined) {
         r.workspace.set('name', target?.name ?? local.settings.workspaceName)
         r.workspace.set('icon', target?.icon ?? null)

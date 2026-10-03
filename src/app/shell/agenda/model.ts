@@ -12,7 +12,7 @@
 import { useMemo } from 'react'
 import type { JSONContent } from '@tiptap/core'
 import { useWorkspace } from '../../store/store'
-import { isEffectivelyTrashed } from '../../store/selectors'
+import { inTemplate, isEffectivelyTrashed } from '../../store/selectors'
 import type { ColorName, Database, DateValue, ID, Page, PageIcon, PropertyDef } from '../../store/types'
 
 /* ------------------------------------------------------------------ */
@@ -116,7 +116,7 @@ export function findJournalDb(pages: Record<ID, Page>, dbs: Record<ID, Database>
   let best: Page | null = null
   let sig: Page | null = null
   for (const p of Object.values(pages)) {
-    if (p.kind !== 'database' || !dbs[p.id] || isEffectivelyTrashed(pages, p.id)) continue
+    if (p.kind !== 'database' || !dbs[p.id] || isEffectivelyTrashed(pages, p.id) || inTemplate(pages, p.id)) continue
     if (p.id.startsWith('jrnl')) {
       if (!best || p.createdAt < best.createdAt) best = p
     } else if (!sig && /^(journal|tagebuch)$/i.test(p.title.trim())) {
@@ -273,7 +273,8 @@ export function buildIndex(pages: Record<ID, Page>, dbs: Record<ID, Database>): 
   const activity = new Map<number, number>()
   const bump = (d: number) => activity.set(d, (activity.get(d) ?? 0) + 1)
   for (const page of Object.values(pages)) {
-    if (page.trashed || isEffectivelyTrashed(pages, page.id)) continue
+    // template pages (features/templates) have no dates on the agenda
+    if (page.trashed || isEffectivelyTrashed(pages, page.id) || inTemplate(pages, page.id)) continue
     const db = page.databaseId ? dbs[page.databaseId] : undefined
     const journal = !!db && db.id === journalId
     let hit = pageCache.get(page)
@@ -297,7 +298,7 @@ export function buildIndex(pages: Record<ID, Page>, dbs: Record<ID, Database>): 
   const counts = new Map<string, number>()
   for (const it of items) counts.set(it.source, (counts.get(it.source) ?? 0) + 1)
   const dbPages = Object.values(pages)
-    .filter((p) => p.kind === 'database' && dbs[p.id] && p.id !== journalId && !isEffectivelyTrashed(pages, p.id) && dbs[p.id].properties.some((x) => x.type === 'date'))
+    .filter((p) => p.kind === 'database' && dbs[p.id] && p.id !== journalId && !isEffectivelyTrashed(pages, p.id) && !inTemplate(pages, p.id) && dbs[p.id].properties.some((x) => x.type === 'date'))
     .sort((a, b) => a.createdAt - b.createdAt || a.id.localeCompare(b.id))
   const sources: AgendaSource[] = dbPages.map((p, i) => ({
     id: p.id,

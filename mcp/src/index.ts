@@ -24,6 +24,15 @@ const log = (msg: string) => {
   if (!quiet) process.stderr.write(`[one-mcp] ${msg}\n`)
 }
 
+/**
+ * An environment variable, or undefined when it is empty or still a placeholder: a host that
+ * leaves "${user_config.port}" of the extension manifest unsubstituted means "not set".
+ */
+const env = (name: string): string | undefined => {
+  const v = process.env[name]?.trim()
+  return !v || /^\$\{[^}]*\}$/.test(v) || v === 'undefined' ? undefined : v
+}
+
 const num = (raw: string | undefined, def: number, min: number, max: number) => {
   const n = Number(raw)
   return Number.isFinite(n) && n >= min && n <= max ? Math.floor(n) : def
@@ -38,8 +47,9 @@ if (argv.includes('--help') || argv.includes('-h')) {
   process.stdout.write(`One MCP bridge ${VERSION}
 Lets an MCP client (Claude Desktop, Claude Code …) work in the One tab open in your browser.
 
+  Claude Desktop: open one.mcpb (https://getonecms.com/mcp/one.mcpb) — one click, or by hand:
+                  { "mcpServers": { "one": { "command": "node", "args": ["/path/to/one-mcp.mjs"] } } }
   Claude Code:    claude mcp add one -- node /path/to/one-mcp.mjs
-  Claude Desktop: { "mcpServers": { "one": { "command": "node", "args": ["/path/to/one-mcp.mjs"] } } }
 
 Then open One and switch on Settings → Agents · MCP. Docs: https://getonecms.com/ (docs/MCP.md)
 
@@ -50,12 +60,12 @@ Environment: ONE_MCP_PORT (default ${MCP_DEFAULT_PORT}), ONE_ORIGINS, ONE_MCP_TI
 
 if (process.stdin.isTTY) log('this is an MCP server: an MCP client starts it and talks to it over stdin/stdout (run with --help for setup)')
 
-const port = num(process.env.ONE_MCP_PORT, MCP_DEFAULT_PORT, 1, 65535)
+const port = num(env('ONE_MCP_PORT'), MCP_DEFAULT_PORT, 1, 65535)
 const bridge = new Bridge({
   port,
-  origins: allowedOrigins(process.env.ONE_ORIGINS, log),
-  timeoutMs: num(process.env.ONE_MCP_TIMEOUT_MS, 30_000, 100, 600_000),
-  waitMs: num(process.env.ONE_MCP_WAIT_MS, 10_000, 0, 120_000),
+  origins: allowedOrigins(env('ONE_ORIGINS'), log),
+  timeoutMs: num(env('ONE_MCP_TIMEOUT_MS'), 30_000, 100, 600_000),
+  waitMs: num(env('ONE_MCP_WAIT_MS'), 10_000, 0, 120_000),
   version: VERSION,
   log,
 })
