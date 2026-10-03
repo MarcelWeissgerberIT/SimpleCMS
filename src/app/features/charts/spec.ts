@@ -168,7 +168,7 @@ export function suggestKind(data: ChartData | null): ChartKind {
   const n = data.labels.length
   const values = valueCount(data)
   if (values <= 1 || (n === 1 && data.series.length === 1)) return 'kpi'
-  if (looksLikeTime(data)) return data.series.length > 3 ? 'line' : n > 12 ? 'line' : data.series.length > 1 ? 'line' : 'bar'
+  if (looksLikeTime(data)) return 'line'
   if (n > 24) return 'line'
   const avgLabel = data.labels.reduce((s, l) => s + l.length, 0) / Math.max(1, n)
   if (data.series.length === 1 && avgLabel > 14) return 'barH'
