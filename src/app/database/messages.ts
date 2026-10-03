@@ -1,8 +1,10 @@
 import type { Messages } from '@/shared/i18n'
+import { formMessages } from './form/messages'
 
 /** Strings for the database area. Keys MUST be prefixed with "database." — always add both en and de. */
 export const messages: Messages = {
   en: {
+    ...formMessages.en,
     'database.title': 'Database title',
     'database.toolbar': 'Database toolbar',
     'database.search': 'Search',
@@ -462,6 +464,7 @@ export const messages: Messages = {
     'database.formula.fn.dateEnd': 'End of a date range (a single date returns itself).',
   },
   de: {
+    ...formMessages.de,
     'database.title': 'Titel der Datenbank',
     'database.toolbar': 'Datenbank-Werkzeugleiste',
     'database.search': 'Suchen',

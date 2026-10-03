@@ -197,3 +197,101 @@
     padding: 20px 16px 56px;
   }
 }
+
+/* ---------- protected link: password prompt ---------- */
+.shv__lock {
+  max-width: 480px;
+  margin: 12vh auto 0;
+  padding: 0 24px 72px;
+}
+
+.shv__lock-plate {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 56px;
+  height: 56px;
+  margin-bottom: 22px;
+  border: 1px solid var(--rule-strong);
+  border-bottom-width: 3px;
+  border-radius: var(--radius-2);
+  background: var(--surface);
+  color: var(--ink);
+}
+
+.shv__lock-plate::after {
+  content: '';
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 5px;
+  height: 5px;
+  border-radius: var(--radius-led);
+  background: var(--signal);
+}
+
+.shv__lock-code {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.shv__lock-text {
+  margin: 0 0 26px;
+  color: var(--ink-2);
+  line-height: 1.6;
+}
+
+.shv__lock-label {
+  display: block;
+  margin-bottom: 6px;
+}
+
+.shv__lock-row {
+  display: flex;
+  gap: 8px;
+}
+
+.shv__lock-input {
+  flex: 1;
+  min-width: 0;
+  height: 38px;
+  font-family: var(--font-mono);
+  font-size: var(--text-md);
+  letter-spacing: 0.06em;
+}
+
+.shv__lock-input[aria-invalid='true'] {
+  border-color: var(--c-red-text);
+}
+
+.shv__lock-go {
+  height: 38px;
+  padding: 0 16px;
+}
+
+.shv__lock-error {
+  margin: 10px 0 0;
+  color: var(--c-red-text);
+  font-size: var(--text-sm);
+}
+
+.shv__lock-busy {
+  animation: share-pulse 0.9s ease-in-out infinite alternate;
+}
+
+@media (max-width: 560px) {
+  .shv__lock {
+    margin-top: 8vh;
+    padding: 0 16px 56px;
+  }
+  .shv__lock-row {
+    flex-direction: column;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .shv__lock-busy {
+    animation: none;
+  }
+}

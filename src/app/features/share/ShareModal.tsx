@@ -1,15 +1,17 @@
 /**
- * Share as link (the page is encoded into the URL), download as standalone HTML, copy Markdown.
+ * Share as link (the page is encoded into the URL — optionally encrypted with a password),
+ * download as standalone HTML, copy Markdown.
  */
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Check, ClipboardCopy, Download, ExternalLink, FileCode2, Link2 } from 'lucide-react'
+import { Check, ClipboardCopy, Download, ExternalLink, Eye, EyeOff, FileCode2, KeyRound, Link2, Lock } from 'lucide-react'
 import { Modal } from '../../ui/Modal'
+import { Switch } from '../../ui/controls'
 import { useLang, useT } from '../../i18n'
 import { usePage } from '../../store/selectors'
 import { useUI } from '../../store/ui'
 import type { ID } from '../../store/types'
 import { pageToMarkdown } from './markdown'
-import { encodePayload, preparePage, shareUrl, SHARE_WARN_BYTES, type PrepareStats } from './codec'
+import { canEncrypt, encodePayload, encryptPayload, preparePage, shareUrl, SHARE_WARN_BYTES, type PrepareStats, type SharePayload } from './codec'
 import { buildStandaloneHTML, downloadText } from './html'
 import './share.css'
 
@@ -39,8 +41,15 @@ export function ShareModal({ pageId, onClose }: { pageId: ID; onClose: () => voi
   const t = useT()
   const lang = useLang()
   const page = usePage(pageId)
-  const [built, setBuilt] = useState<Built | null>(null)
+  const [prepared, setPrepared] = useState<{ payload: SharePayload; plainUrl: string; raw: number; stats: PrepareStats } | null>(null)
   const [failed, setFailed] = useState(false)
+  // password protection: the link is encrypted in the browser (see codec.ts)
+  const [protect, setProtect] = useState(false)
+  const [password, setPassword] = useState('')
+  const [reveal, setReveal] = useState(false)
+  const [locked, setLocked] = useState<{ url: string; password: string } | null>(null)
+  const [lockFailed, setLockFailed] = useState(false)
+  const cryptoOk = useMemo(() => canEncrypt(), [])
   const [copied, setCopied] = useState<'link' | 'md' | null>(null)
   const [busyHtml, setBusyHtml] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
@@ -48,15 +57,13 @@ export function ShareModal({ pageId, onClose }: { pageId: ID; onClose: () => voi
 
   useEffect(() => {
     let alive = true
-    setBuilt(null)
+    setPrepared(null)
     setFailed(false)
     preparePage(pageId)
       .then(({ payload, stats }) => {
         if (!alive) return
-        const encoded = encodePayload(payload)
         const raw = new TextEncoder().encode(JSON.stringify(payload)).length
-        const url = shareUrl(encoded)
-        setBuilt({ url, bytes: url.length, raw, stats })
+        setPrepared({ payload, plainUrl: shareUrl(encodePayload(payload)), raw, stats })
       })
       .catch(() => alive && setFailed(true))
     return () => {
@@ -64,6 +71,37 @@ export function ShareModal({ pageId, onClose }: { pageId: ID; onClose: () => voi
     }
     // rebuild only when the dialog opens for a page
   }, [pageId]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // encrypt once typing pauses (PBKDF2 is deliberately slow); a fresh salt + IV every time
+  useEffect(() => {
+    setLocked(null)
+    setLockFailed(false)
+    if (!protect || !password || !prepared || !cryptoOk) return
+    let alive = true
+    const id = window.setTimeout(() => {
+      encryptPayload(prepared.payload, password)
+        .then((enc) => alive && setLocked({ url: shareUrl(enc), password }))
+        .catch(() => alive && setLockFailed(true))
+    }, 350)
+    return () => {
+      alive = false
+      window.clearTimeout(id)
+    }
+  }, [protect, password, prepared, cryptoOk])
+
+  const url = !prepared ? null : protect ? (locked && locked.password === password ? locked.url : null) : prepared.plainUrl
+  const built: Built | null = url && prepared ? { url, bytes: url.length, raw: prepared.raw, stats: prepared.stats } : null
+  const linkText = built
+    ? built.url
+    : failed
+      ? t('features.share.failed')
+      : !prepared
+        ? t('features.share.encoding')
+        : lockFailed
+          ? t('features.share.pw.failed')
+          : protect && !password
+            ? t('features.share.pw.enter')
+            : t('features.share.pw.encrypting')
 
   useEffect(() => {
     if (!copied) return
@@ -102,6 +140,7 @@ export function ShareModal({ pageId, onClose }: { pageId: ID; onClose: () => voi
     }
   }
 
+  const waiting = protect && !password && !!prepared
   const kb = built ? built.bytes / 1024 : 0
   const warn = !!built && built.bytes > SHARE_WARN_BYTES
   const scale = Math.max(64, Math.ceil((kb * 1.15) / 16) * 16)
@@ -120,7 +159,7 @@ export function ShareModal({ pageId, onClose }: { pageId: ID; onClose: () => voi
           ref={inputRef}
           className="share__url mono"
           readOnly
-          value={built?.url ?? (failed ? t('features.share.failed') : t('features.share.encoding'))}
+          value={linkText}
           onFocus={(e) => e.currentTarget.select()}
           aria-label={t('features.share.linkLabel')}
         />
@@ -130,9 +169,49 @@ export function ShareModal({ pageId, onClose }: { pageId: ID; onClose: () => voi
         </button>
       </div>
 
+      <div className="share__lock" data-on={protect || undefined}>
+        <div className="share__lock-head">
+          <Lock size={14} strokeWidth={1.8} className="share__lock-icon" aria-hidden />
+          <span className="share__lock-title" onClick={() => cryptoOk && setProtect(!protect)}>
+            {t('features.share.pw.toggle')}
+          </span>
+          <span className="share__spacer" />
+          {protect && <span className="label share__lock-cipher">{t('features.share.pw.cipher')}</span>}
+          <Switch checked={protect} onChange={setProtect} label={t('features.share.pw.toggle')} disabled={!cryptoOk} />
+        </div>
+        {protect && (
+          <div className="share__lock-body">
+            <div className="share__pw">
+              <KeyRound size={14} strokeWidth={1.7} className="share__pw-icon" aria-hidden />
+              <input
+                className="share__pw-input"
+                type={reveal ? 'text' : 'password'}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder={t('features.share.pw.placeholder')}
+                aria-label={t('features.share.pw.label')}
+                autoComplete="new-password"
+                spellCheck={false}
+                autoFocus
+                maxLength={256}
+                data-share-password=""
+              />
+              <button type="button" className="icon-btn" onClick={() => setReveal(!reveal)} aria-label={reveal ? t('features.share.pw.hide') : t('features.share.pw.show')} aria-pressed={reveal}>
+                {reveal ? <EyeOff size={14} strokeWidth={1.7} /> : <Eye size={14} strokeWidth={1.7} />}
+              </button>
+            </div>
+            <p className="share__lock-note">
+              {t('features.share.pw.note')}
+              {password && password.length < 8 && <span className="share__lock-warn"> {t('features.share.pw.short')}</span>}
+            </p>
+          </div>
+        )}
+        {!cryptoOk && <p className="share__lock-note">{t('features.share.pw.unsupported')}</p>}
+      </div>
+
       <div className="share__meter" aria-live="polite">
         <div className="share__meter-head label">
-          <span className={`led ${!built ? 'led--on share__led--busy' : warn ? 'led--on' : 'led--ok'}`} aria-hidden />
+          <span className={`led ${waiting ? '' : !built ? 'led--on share__led--busy' : warn ? 'led--on' : 'led--ok'}`} aria-hidden />
           <span>{t('features.share.payload')}</span>
           <span className="share__spacer" />
           {built && (
@@ -152,11 +231,13 @@ export function ShareModal({ pageId, onClose }: { pageId: ID; onClose: () => voi
           </span>
         </div>
         <p className="share__note">
-          {!built
-            ? t('features.share.encodingNote')
-            : warn
-              ? t('features.share.warnLong')
-              : t('features.share.fits')}
+          {waiting
+            ? t('features.share.pw.enter')
+            : !built
+              ? t('features.share.encodingNote')
+              : warn
+                ? t('features.share.warnLong')
+                : t('features.share.fits')}
           {built && built.stats.inlined > 0 && ` ${t('features.share.imagesInlined', { count: built.stats.inlined })}`}
           {built && built.stats.dropped > 0 && ` ${t('features.share.imagesDropped', { count: built.stats.dropped })}`}
         </p>

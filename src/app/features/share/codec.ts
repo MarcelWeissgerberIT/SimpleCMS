@@ -43,8 +43,9 @@ export const SHARE_MAX_INFLATED = 20 * 1024 * 1024
 const SHARE_MAX_ENCODED = 8 * 1024 * 1024
 
 export class ShareDecodeError extends Error {
-  code: 'empty' | 'corrupt' | 'version'
-  constructor(code: 'empty' | 'corrupt' | 'version') {
+  /** password: the password does not open this (encrypted) link */
+  code: 'empty' | 'corrupt' | 'version' | 'password'
+  constructor(code: 'empty' | 'corrupt' | 'version' | 'password') {
     super(code)
     this.code = code
   }
@@ -104,19 +105,36 @@ export function inflateCapped(data: Uint8Array, max = SHARE_MAX_INFLATED): Uint8
   return out
 }
 
-export function decodePayload(raw: string): SharePayload {
+/** The link text after "#/s/", URL-decoded and without whitespace / padding. */
+function cleanRaw(raw: string): string {
   let s = (raw ?? '').trim()
   try {
     s = decodeURIComponent(s)
   } catch {
     /* already decoded */
   }
-  s = s.replace(/[\s=]/g, '')
+  return s.replace(/[\s=]/g, '')
+}
+
+export function decodePayload(raw: string): SharePayload {
+  const s = cleanRaw(raw)
   if (!s) throw new ShareDecodeError('empty')
   if (s.length > SHARE_MAX_ENCODED) throw new ShareDecodeError('corrupt')
+  if (isEncryptedPayload(s)) throw new ShareDecodeError('password')
+  let bytes: Uint8Array
+  try {
+    bytes = base64UrlToBytes(s)
+  } catch {
+    throw new ShareDecodeError('corrupt')
+  }
+  return decodeDeflated(bytes)
+}
+
+/** deflate(JSON) bytes → a validated, sanitised payload. */
+function decodeDeflated(bytes: Uint8Array): SharePayload {
   let data: unknown
   try {
-    data = JSON.parse(strFromU8(inflateCapped(base64UrlToBytes(s))))
+    data = JSON.parse(strFromU8(inflateCapped(bytes)))
   } catch {
     throw new ShareDecodeError('corrupt')
   }
@@ -132,6 +150,88 @@ export function decodePayload(raw: string): SharePayload {
     content,
     at: typeof d.at === 'number' ? d.at : undefined,
   }
+}
+
+/* ------------------------------------------------------------------ */
+/* password-protected links                                            */
+/* ------------------------------------------------------------------ */
+
+/*
+ * #/s/e1.<base64url( iterations:u32be | salt:16 | iv:12 | AES-GCM(deflate(JSON)) )>
+ *
+ * The key is derived from the password with PBKDF2-SHA-256 (random salt, ≥ 310,000 iterations)
+ * and the page is encrypted with AES-256-GCM, all in the browser (WebCrypto). The password is
+ * never part of the link and never leaves the device. Plain links (no "e1." prefix: '.' is not
+ * a base64url character) keep working as before.
+ */
+export const ENCRYPTED_PREFIX = 'e1.'
+/** OWASP's current recommendation for PBKDF2-HMAC-SHA-256. */
+export const PBKDF2_ITERATIONS = 600_000
+/** Accepted when opening a link: never weaker than this… */
+const MIN_ITERATIONS = 310_000
+/** …and never so many that a crafted link freezes the reader's browser. */
+const MAX_ITERATIONS = 5_000_000
+const SALT_BYTES = 16
+const IV_BYTES = 12
+
+export function isEncryptedPayload(raw: string): boolean {
+  return cleanRaw(raw).startsWith(ENCRYPTED_PREFIX)
+}
+
+/** WebCrypto is only available in secure contexts (https, localhost). */
+export function canEncrypt(): boolean {
+  return typeof crypto !== 'undefined' && !!crypto.subtle && typeof crypto.getRandomValues === 'function'
+}
+
+async function deriveKey(password: string, salt: Uint8Array, iterations: number, usage: KeyUsage): Promise<CryptoKey> {
+  const material = await crypto.subtle.importKey('raw', new TextEncoder().encode(password.normalize('NFC')), 'PBKDF2', false, ['deriveKey'])
+  return crypto.subtle.deriveKey({ name: 'PBKDF2', hash: 'SHA-256', salt: salt as BufferSource, iterations }, material, { name: 'AES-GCM', length: 256 }, false, [usage])
+}
+
+/** Encrypt a payload with a password → the text after "#/s/" ("e1.…"). */
+export async function encryptPayload(p: SharePayload, password: string, iterations = PBKDF2_ITERATIONS): Promise<string> {
+  if (!password) throw new Error('password required')
+  const salt = crypto.getRandomValues(new Uint8Array(SALT_BYTES))
+  const iv = crypto.getRandomValues(new Uint8Array(IV_BYTES))
+  const key = await deriveKey(password, salt, iterations, 'encrypt')
+  const plain = deflateSync(strToU8(JSON.stringify(p)), { level: 9 })
+  const cipher = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv: iv as BufferSource }, key, plain as BufferSource))
+  const out = new Uint8Array(4 + SALT_BYTES + IV_BYTES + cipher.length)
+  new DataView(out.buffer).setUint32(0, iterations)
+  out.set(salt, 4)
+  out.set(iv, 4 + SALT_BYTES)
+  out.set(cipher, 4 + SALT_BYTES + IV_BYTES)
+  return ENCRYPTED_PREFIX + bytesToBase64Url(out)
+}
+
+/**
+ * Decrypt a protected link. A wrong password (or a tampered link — AES-GCM cannot tell them
+ * apart) throws ShareDecodeError('password'); a malformed link throws 'corrupt'.
+ */
+export async function decryptPayload(raw: string, password: string): Promise<SharePayload> {
+  const s = cleanRaw(raw)
+  if (!s.startsWith(ENCRYPTED_PREFIX)) return decodePayload(s)
+  if (s.length > SHARE_MAX_ENCODED) throw new ShareDecodeError('corrupt')
+  let bytes: Uint8Array
+  try {
+    bytes = base64UrlToBytes(s.slice(ENCRYPTED_PREFIX.length))
+  } catch {
+    throw new ShareDecodeError('corrupt')
+  }
+  if (bytes.length < 4 + SALT_BYTES + IV_BYTES + 16) throw new ShareDecodeError('corrupt')
+  const iterations = new DataView(bytes.buffer, bytes.byteOffset, 4).getUint32(0)
+  if (iterations < MIN_ITERATIONS || iterations > MAX_ITERATIONS) throw new ShareDecodeError('corrupt')
+  const salt = bytes.slice(4, 4 + SALT_BYTES)
+  const iv = bytes.slice(4 + SALT_BYTES, 4 + SALT_BYTES + IV_BYTES)
+  const cipher = bytes.slice(4 + SALT_BYTES + IV_BYTES)
+  let plain: Uint8Array
+  try {
+    const key = await deriveKey(password, salt, iterations, 'decrypt')
+    plain = new Uint8Array(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: iv as BufferSource }, key, cipher as BufferSource))
+  } catch {
+    throw new ShareDecodeError('password')
+  }
+  return decodeDeflated(plain)
 }
 
 /** Only real emoji (pictographs, flags, keycaps with their joiners/modifiers) — never arbitrary text. */

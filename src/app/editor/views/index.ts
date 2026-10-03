@@ -12,6 +12,7 @@ import { MentionView, PageLinkView } from './LinkViews'
 import { BookmarkView, EmbedView, FileBlockView } from './MediaViews'
 import { DatabaseBlockView, TocView } from './TocView'
 import { guardView } from './BrokenBlock'
+import { ButtonView, StaticButtonView } from './ButtonView'
 import './views.css'
 
 type View = ComponentType<ReactNodeViewProps>
@@ -28,7 +29,12 @@ function withView(view: View, opts: Partial<ReactNodeViewRendererOptions> = {}) 
 /** Events inside these views belong to React (inputs, embedded database UI …). */
 const stopAll = { stopEvent: () => true, ignoreMutation: () => true }
 
-export function nodeViewWraps(_opts: { readOnly: boolean }): ExtensionWrap {
+/** Presses on the button's controls (also on their label / icon) never select the block. */
+const buttonEvents = {
+  stopEvent: ({ event }: { event: Event }) => !event.type.startsWith('drag') && event.type !== 'drop' && !!(event.target as Element | null)?.closest?.('button'),
+}
+
+export function nodeViewWraps({ readOnly }: { readOnly: boolean }): ExtensionWrap {
   return {
     // views with editable content (NodeViewContent) stay unwrapped: a fallback would drop the content hole
     callout: withView(CalloutView),
@@ -45,5 +51,7 @@ export function nodeViewWraps(_opts: { readOnly: boolean }): ExtensionWrap {
     embed: withView(guardView(EmbedView)),
     toc: withView(guardView(TocView)),
     fileBlock: withView(guardView(FileBlockView)),
+    // read-only renders (share, history, slides) get a disabled key that never runs
+    button: withView(guardView(readOnly ? StaticButtonView : ButtonView), buttonEvents),
   }
 }

@@ -192,6 +192,10 @@ summary{cursor:pointer;font-weight:600}
 .file-block a::before{content:'⎙ ';color:var(--signal-ink)}
 .bookmark{display:flex;flex-direction:column;padding:10px 14px;border:1px solid var(--rule-strong);border-radius:4px}
 .bookmark__url{font:12px var(--font-mono);color:var(--ink-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.one-button{margin:.6em 0}
+.one-button__key{font:650 14px var(--font-sans);padding:7px 15px;border:1px solid var(--signal-press);border-radius:2px;background:var(--signal);color:var(--on-signal);opacity:1}
+.one-button--ink .one-button__key{background:var(--ink);border-color:var(--ink);color:var(--ink-inverse)}
+.one-button--ghost .one-button__key{background:var(--surface);border-color:var(--ink-faint);color:var(--ink)}
 .math-block{margin:.8em 0;text-align:center;overflow:auto}
 .mermaid-svg{margin:1em 0;text-align:center}.mermaid-svg svg{max-width:100%;height:auto}
 nav.toc{margin:.6em 0;padding:10px 14px;border-left:2px solid var(--signal)}

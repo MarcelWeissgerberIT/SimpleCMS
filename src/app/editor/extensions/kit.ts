@@ -10,6 +10,13 @@ import { nodeViewWraps } from '../views'
 import { suggestExtension } from './suggest'
 import { BlockFlash, BlockSelection, ExtraInputRules, OnePlaceholder, shortcutsExtension, TabTrap } from './behaviors'
 import { pasteExtension } from './paste'
+import { ButtonKeys } from '../schema/button'
+
+const typography = () =>
+  Typography.configure({ oneHalf: false, oneQuarter: false, threeQuarters: false, superscriptTwo: false, superscriptThree: false, laquo: false, raquo: false })
+
+/** ":" only becomes a menu from two shortcode letters on — ":D", ":p", "1 :2" stay plain text */
+const emojiQuery = (q: string) => /^(?:[a-z][a-z0-9_+-]+|[+-]1|100)$/i.test(q)
 
 export function editorExtensions({
   bridge,
@@ -25,7 +32,7 @@ export function editorExtensions({
   if (readOnly || !bridge) return [...exts, pasteExtension(null), BlockFlash]
   return [
     ...exts,
-    Typography.configure({ oneHalf: false, oneQuarter: false, threeQuarters: false, superscriptTwo: false, superscriptThree: false, laquo: false, raquo: false }),
+    typography(),
     OnePlaceholder,
     Selection.configure({ className: 'selection' }),
     BlockSelection,
@@ -36,8 +43,32 @@ export function editorExtensions({
     pasteExtension(bridge),
     suggestExtension('slash', '/', bridge, { allowSpaces: true }),
     suggestExtension('mention', '@', bridge, { allowSpaces: true }),
-    // ":" only becomes a menu from two shortcode letters on — ":D", ":p", "1 :2" stay plain text
-    suggestExtension('emoji', ':', bridge, { shouldShow: (q) => /^(?:[a-z][a-z0-9_+-]+|[+-]1|100)$/i.test(q) }),
+    suggestExtension('emoji', ':', bridge, { shouldShow: emojiQuery }),
+    ButtonKeys,
+    FileHandler.configure({
+      onPaste: (editor, files) => void uploadFiles(editor, files),
+      onDrop: (editor, files, pos) => void uploadFiles(editor, files, pos),
+    }),
+  ]
+}
+
+/**
+ * The nested editor of a button's "Insert blocks" action: same schema and node views, markdown
+ * shortcuts, slash + emoji menus. No buttons inside buttons, no page-bound shortcuts (Space → AI,
+ * block menu), and Tab leaves the field like in any other form control.
+ */
+export function templateExtensions(bridge: Bridge): AnyExtension[] {
+  const exts = baseExtensions({ wrap: nodeViewWraps({ readOnly: false }) }).filter((e) => e.name !== 'button')
+  return [
+    ...exts,
+    typography(),
+    OnePlaceholder,
+    Selection.configure({ className: 'selection' }),
+    BlockFlash,
+    ExtraInputRules,
+    pasteExtension(bridge),
+    suggestExtension('slash', '/', bridge, { allowSpaces: true }),
+    suggestExtension('emoji', ':', bridge, { shouldShow: emojiQuery }),
     FileHandler.configure({
       onPaste: (editor, files) => void uploadFiles(editor, files),
       onDrop: (editor, files, pos) => void uploadFiles(editor, files, pos),

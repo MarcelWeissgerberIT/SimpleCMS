@@ -37,3 +37,15 @@ export function JournalPending() {
     </div>
   )
 }
+
+/** #/clip: shown for the moment it takes to file the clip (the route is then replaced). */
+export function ClipPending() {
+  const t = useT()
+  return (
+    <div className="nf">
+      <div className="label nf__code nf__pulse" role="status">
+        <span className="led led--on" /> {t('shell.capture.clipping')}
+      </div>
+    </div>
+  )
+}

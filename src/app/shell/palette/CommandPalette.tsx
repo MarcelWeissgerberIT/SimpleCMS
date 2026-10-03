@@ -251,7 +251,7 @@ function rankCommands(commands: Cmd[], term: string): Cmd[] {
 const wordStarts = (text: string, n: string) => text.split(/[\s()&,/…-]+/).some((w) => w.startsWith(n))
 const labelStarts = (label: string, term: string) => label.toLowerCase().startsWith(term.toLowerCase())
 
-const CORE = ['new-page', 'new-database', 'journal', 'templates', 'import', 'ask-ai', 'graph', 'theme', 'focus', 'present', 'settings']
+const CORE = ['new-page', 'new-database', 'quick-note', 'journal', 'templates', 'import', 'ask-ai', 'graph', 'theme', 'focus', 'present', 'settings']
 
 function GroupHead({ label, n }: { label: string; n: number }) {
   return (

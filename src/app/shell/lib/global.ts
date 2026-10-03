@@ -7,6 +7,7 @@ import { navigate, type Route } from '../../lib/router'
 import { isMac } from '../../ui/controls'
 import { t } from '../../i18n'
 import { createPageAndOpen, currentPageId, pruneUndoToasts, toggleFocusMode, toggleSidebar, toggleTheme } from './actions'
+import { runClipRoute } from '../capture/inbox'
 
 const isEditable = (el: EventTarget | null) => {
   const e = el as HTMLElement | null
@@ -215,6 +216,7 @@ export function useRouteEffects(route: Route) {
     if (route.name === 'page') name = exists || title !== undefined ? title?.trim() || t('common.untitled') : t('shell.notFound.title')
     else if (route.name === 'graph') name = t('shell.nav.graph')
     else if (route.name === 'journal') name = t('shell.nav.today')
+    else if (route.name === 'clip') name = t('shell.capture.crumb')
     else if (route.name === 'notfound') name = t('shell.notFound.title')
     else name = t('shell.nav.home')
     document.title = `${name} — One`
@@ -226,6 +228,8 @@ export function useRouteEffects(route: Route) {
 
   useEffect(() => {
     if (route.name === 'journal') openTodayJournal()
+    // web clip (bookmarklet / share target): file it in the Inbox, then replace the route
+    if (route.name === 'clip') runClipRoute(route)
   }, [route])
 
   // navigating the main column closes the drawer and the peek (the peek belongs to the page you left)

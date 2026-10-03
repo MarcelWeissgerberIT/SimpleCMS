@@ -63,7 +63,8 @@ StarterKit: `paragraph`, `heading` (levels 1–3), `bulletList`, `orderedList`, 
 `tableHeader`/`tableCell`, `columns`/`column`, `blockMath`/`inlineMath` (attrs: latex), `mermaid` (attrs: code),
 `pageLink` (attrs: pageId), `mention` (attrs: id, label, kind: 'page'|'date'|'person'), `databaseBlock`
 (attrs: databaseId, viewId), `bookmark` (attrs: url, title, description, image), `embed` (attrs: url, provider),
-`toc`, `fileBlock` (attrs: src, name, size); marks `highlight` (attrs: color = ColorName), `textStyle` + color
+`toc`, `fileBlock` (attrs: src, name, size), `button` (attrs: label, variant 'signal'|'ink'|'ghost', actions = JSON
+array, see editor/schema/button.ts — strip with `stripButtonActions()` before a doc leaves the workspace); marks `highlight` (attrs: color = ColorName), `textStyle` + color
 (attrs: color = ColorName). Colours are ColorName strings, rendered via CSS vars `--c-<name>-text|bg`.
 
 ## Language

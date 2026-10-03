@@ -4,6 +4,7 @@ import { useUI } from '../store/ui'
 import { usePage } from '../store/selectors'
 import { useThemeAndLanguage } from '../lib/theme'
 import { GraphView, SharedPageView, Presentation } from '../features'
+import { SharedFormView } from '../database'
 import { PageIcon } from '../ui/PageIcon'
 import { useT } from '../i18n'
 import { Sidebar } from './sidebar/Sidebar'
@@ -14,7 +15,7 @@ import { StatusBar } from './stage/StatusBar'
 import { Toasts } from './stage/Toasts'
 import { PageView } from './page/PageView'
 import { Home } from './home/Home'
-import { NotFound, JournalPending } from './home/NotFound'
+import { NotFound, JournalPending, ClipPending } from './home/NotFound'
 import { CommandPalette } from './palette/CommandPalette'
 import { ModalHost } from './modals/ModalHost'
 import { ErrorBoundary } from './ErrorBoundary'
@@ -29,6 +30,13 @@ export function App() {
     return (
       <ErrorBoundary>
         <SharedPageView payload={route.payload} />
+        <Toasts />
+      </ErrorBoundary>
+    )
+  if (route.name === 'form')
+    return (
+      <ErrorBoundary>
+        <SharedFormView payload={route.payload} />
         <Toasts />
       </ErrorBoundary>
     )
@@ -106,6 +114,8 @@ function RouteView({ route }: { route: Route }) {
       return <GraphView />
     case 'journal':
       return <JournalPending />
+    case 'clip':
+      return <ClipPending />
     default:
       return <NotFound />
   }

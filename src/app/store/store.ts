@@ -249,6 +249,7 @@ const VIEW_NAMES: Record<View['type'], [string, string]> = {
   calendar: ['Calendar', 'Kalender'],
   timeline: ['Timeline', 'Zeitleiste'],
   chart: ['Chart', 'Diagramm'],
+  form: ['Form', 'Formular'],
 }
 
 /** "(copy)" suffix in the workspace language. */

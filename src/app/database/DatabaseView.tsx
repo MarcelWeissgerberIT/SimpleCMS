@@ -1,6 +1,6 @@
 /**
  * DatabaseView — view tabs, toolbar, filter chips and the active layout
- * (table / board / list / gallery / calendar / timeline / chart). inline=true: compact embed.
+ * (table / board / list / gallery / calendar / timeline / chart / form). inline=true: compact embed.
  */
 import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react'
 import { Maximize2 } from 'lucide-react'
@@ -30,6 +30,7 @@ import './database.css'
 const CalendarView = lazy(() => import('./views/CalendarView'))
 const TimelineView = lazy(() => import('./views/TimelineView'))
 const ChartView = lazy(() => import('./views/ChartView'))
+const FormView = lazy(() => import('./form/FormView'))
 
 export interface DatabaseViewProps {
   databaseId: ID
@@ -208,6 +209,9 @@ function DatabaseBody({
     case 'chart':
       body = <ChartView />
       break
+    case 'form':
+      body = <FormView />
+      break
     default:
       body = <TableView onFilterProp={onFilterProp} />
   }
@@ -221,7 +225,7 @@ function DatabaseBody({
             <ViewTabs m={m} onSelect={setActiveId} />
             <Toolbar m={m} onNew={onNew} setSearch={setSearch} compact={inline} />
           </div>
-          <FilterChips m={m} autoOpen={autoChip} onAutoOpened={() => setAutoChip(null)} />
+          {view.type !== 'form' && <FilterChips m={m} autoOpen={autoChip} onAutoOpened={() => setAutoChip(null)} />}
           <div className="db-body">
             <Suspense fallback={<div className="db-loading label">{t('common.loading')}</div>}>
               <div key={view.id} className="db-viewbody">

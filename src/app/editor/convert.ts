@@ -6,6 +6,7 @@ import { generateHTML, getSchema, type Extensions, type JSONContent } from '@tip
 import type { Schema } from '@tiptap/pm/model'
 import { MarkdownManager } from '@tiptap/markdown'
 import { BLOCK_ID_TYPES, baseExtensions } from './schema/base'
+import { stripButtonActions } from './schema/button'
 import { safeHref } from './lib/embeds'
 import { escapeMarkdownText } from './lib/mdText'
 
@@ -268,7 +269,8 @@ export function docToMarkdown(doc: JSONContent | null): string {
 export function docToHTML(doc: JSONContent | null): string {
   if (!doc) return ''
   try {
-    return generateHTML(withoutUnsafeLinks(sanitize(doc.type === 'doc' ? doc : { type: 'doc', content: [doc] })), getExtensions({ readOnly: true }))
+    // button actions (webhook URLs, database ids) never leave the workspace in exported HTML
+    return generateHTML(stripButtonActions(withoutUnsafeLinks(sanitize(doc.type === 'doc' ? doc : { type: 'doc', content: [doc] }))), getExtensions({ readOnly: true }))
   } catch (err) {
     console.warn('[editor] html render failed', err)
     return ''

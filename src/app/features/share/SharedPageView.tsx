@@ -2,9 +2,9 @@
  * Read-only view of a page received as a share link (#/s/<payload>).
  * Nothing is stored until the reader chooses "Save to my workspace".
  */
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import type { JSONContent } from '@tiptap/core'
-import { ArrowRight, Check, Download } from 'lucide-react'
+import { ArrowRight, Check, Download, Lock, Unlock } from 'lucide-react'
 import { useLang, useT } from '../../i18n'
 import { plainText, useWorkspace } from '../../store/store'
 import { useUI } from '../../store/ui'
@@ -14,7 +14,7 @@ import { PageIcon } from '../../ui/PageIcon'
 import { ReadOnlyDoc } from '../../editor'
 import { logoMarkSvg } from '@/shared/logo'
 import { BRAND } from '@/shared/brand'
-import { decodePayload, ShareDecodeError, sniffRaster, type SharePayload } from './codec'
+import { canEncrypt, decodePayload, decryptPayload, isEncryptedPayload, ShareDecodeError, sniffRaster, type SharePayload } from './codec'
 import './share.css'
 import './shared-view.css'
 import './readonly.css'
@@ -50,25 +50,32 @@ async function storeImages(nodes: JSONContent[] | undefined): Promise<JSONConten
 export function SharedPageView({ payload }: { payload: string }) {
   const t = useT()
   const lang = useLang()
-  const decoded = useMemo<{ page: SharePayload } | { error: ShareDecodeError['code'] }>(() => {
+  const encrypted = useMemo(() => isEncryptedPayload(payload), [payload])
+  const decoded = useMemo<{ page: SharePayload } | { error: ShareDecodeError['code'] } | { locked: true }>(() => {
+    if (encrypted) return { locked: true }
     try {
       return { page: decodePayload(payload) }
     } catch (e) {
       return { error: e instanceof ShareDecodeError ? e.code : 'corrupt' }
     }
-  }, [payload])
+  }, [payload, encrypted])
+  // a protected link, opened with the right password (kept in memory only)
+  const [unlocked, setUnlocked] = useState<{ payload: string; page: SharePayload } | null>(null)
   const [saving, setSaving] = useState(false)
   const [savedId, setSavedId] = useState<string | null>(null)
 
-  const page = 'page' in decoded ? decoded.page : null
+  const page = unlocked?.payload === payload ? unlocked.page : 'page' in decoded ? decoded.page : null
+  const locked = !page && 'locked' in decoded
 
   useEffect(() => {
     const prev = document.title
-    document.title = page ? `${page.title.trim() || t('common.untitled')} — ${BRAND.short}` : `${t('features.share.view.errorTitle')} — ${BRAND.short}`
+    document.title = page
+      ? `${page.title.trim() || t('common.untitled')} — ${BRAND.short}`
+      : `${locked ? t('features.share.lock.docTitle') : t('features.share.view.errorTitle')} — ${BRAND.short}`
     return () => {
       document.title = prev
     }
-  }, [page, t])
+  }, [page, locked, t])
 
   const save = async () => {
     if (!page || saving) return
@@ -136,6 +143,8 @@ export function SharedPageView({ payload }: { payload: string }) {
             </a>
           </footer>
         </article>
+      ) : locked ? (
+        <LockPrompt payload={payload} onUnlock={(p) => setUnlocked({ payload, page: p })} />
       ) : (
         <div className="shv__error" role="alert">
           <span className="label shv__err-code">ERR · {t(`features.share.view.code.${'error' in decoded ? decoded.error : 'corrupt'}`)}</span>
@@ -147,6 +156,75 @@ export function SharedPageView({ payload }: { payload: string }) {
         </div>
       )}
     </div>
+  )
+}
+
+/** Password prompt of a protected link: decrypts on this device, a wrong password can be retried. */
+function LockPrompt({ payload, onUnlock }: { payload: string; onUnlock: (page: SharePayload) => void }) {
+  const t = useT()
+  const [password, setPassword] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<'password' | 'corrupt' | 'unsupported' | null>(null)
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  const submit = async (e: FormEvent) => {
+    e.preventDefault()
+    if (!password || busy) return
+    if (!canEncrypt()) return setError('unsupported')
+    setBusy(true)
+    setError(null)
+    try {
+      onUnlock(await decryptPayload(payload, password))
+    } catch (err) {
+      setError(err instanceof ShareDecodeError && err.code !== 'password' ? 'corrupt' : 'password')
+      setBusy(false)
+      window.requestAnimationFrame(() => inputRef.current?.select())
+    }
+  }
+
+  const message = error === 'password' ? t('features.share.lock.wrong') : error === 'unsupported' ? t('features.share.lock.unsupported') : error ? t('features.share.view.error.corrupt') : ''
+  return (
+    <form className="shv__lock" onSubmit={(e) => void submit(e)} aria-labelledby="shv-lock-title" data-share-lock="">
+      <div className="shv__lock-plate" aria-hidden>
+        <Lock size={24} strokeWidth={1.6} />
+      </div>
+      <span className="label shv__lock-code">
+        <span className={`led${error ? ' led--on' : busy ? ' led--on shv__lock-busy' : ''}`} aria-hidden /> {t('features.share.lock.code')}
+      </span>
+      <h1 id="shv-lock-title" className="shv__err-title">
+        {t('features.share.lock.title')}
+      </h1>
+      <p className="shv__lock-text">{t('features.share.lock.text')}</p>
+      <label className="label shv__lock-label" htmlFor="shv-lock-input">
+        {t('features.share.lock.label')}
+      </label>
+      <div className="shv__lock-row">
+        <input
+          id="shv-lock-input"
+          ref={inputRef}
+          className="input shv__lock-input"
+          type="password"
+          value={password}
+          autoFocus
+          autoComplete="current-password"
+          spellCheck={false}
+          aria-invalid={error === 'password' || undefined}
+          aria-describedby={error ? 'shv-lock-error' : undefined}
+          onChange={(e) => {
+            setPassword(e.target.value)
+            if (error === 'password') setError(null)
+          }}
+        />
+        <button type="submit" className="btn btn--primary shv__lock-go" disabled={!password || busy}>
+          <Unlock size={14} strokeWidth={1.8} /> {busy ? t('features.share.lock.unlocking') : t('features.share.lock.unlock')}
+        </button>
+      </div>
+      {error && (
+        <p id="shv-lock-error" className="shv__lock-error" role="alert">
+          {message}
+        </p>
+      )}
+    </form>
   )
 }
 

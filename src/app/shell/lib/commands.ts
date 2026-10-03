@@ -29,6 +29,7 @@ import {
   History,
   Star,
   Home,
+  Inbox,
 } from 'lucide-react'
 import { useWorkspace } from '../../store/store'
 import { useUI } from '../../store/ui'
@@ -36,6 +37,7 @@ import { navigate } from '../../lib/router'
 import { openTodayJournal } from '../../features'
 import type { ID } from '../../store/types'
 import type { Translate } from '@/shared/i18n'
+import { quickNoteToInbox } from '../capture/inbox'
 import {
   copyPageLink,
   createDatabaseAndOpen,
@@ -69,6 +71,7 @@ export function buildCommands(t: Translate, pageId: ID | null): Command[] {
   const list: Command[] = [
     { id: 'new-page', group: 'create', label: t('shell.cmd.newPage'), icon: FilePlus2, shortcut: 'Mod+Alt+N', keywords: 'create add document neu seite', run: () => createPageAndOpen(null) },
     { id: 'new-database', group: 'create', label: t('shell.cmd.newDatabase'), icon: Table2, keywords: 'table board kanban datenbank tabelle', run: () => createDatabaseAndOpen(null) },
+    { id: 'quick-note', group: 'create', label: t('shell.cmd.quickNote'), icon: Inbox, keywords: 'inbox capture jot memo eingang notiz schnell', run: () => { closeMobileSidebar(); quickNoteToInbox() } },
     { id: 'templates', group: 'create', label: t('shell.cmd.templates'), icon: LayoutTemplate, keywords: 'vorlagen gallery', run: () => ui.openModal({ type: 'templates', parentId: null }) },
     { id: 'journal', group: 'navigate', label: t('shell.cmd.journal'), icon: CalendarDays, keywords: 'today daily note tagebuch heute', run: () => { closeMobileSidebar(); openTodayJournal() } },
     { id: 'home', group: 'navigate', label: t('shell.cmd.home'), icon: Home, keywords: 'dashboard start', run: () => navigate({ name: 'home' }) },

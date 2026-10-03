@@ -17,6 +17,7 @@ import { VIEW_ICON, VIEW_TYPES } from '../model/schema'
 import type { DbModel } from '../hooks'
 import { LayoutPanel } from './LayoutPanel'
 import { revealInStrip } from '../views/overflow'
+import { isFormable } from '../form/fields'
 
 export function ViewTypeIcon({ type, size = 14 }: { type: ViewType; size?: number }) {
   const I = VIEW_ICON[type]
@@ -185,7 +186,11 @@ export function ViewTabs({ m, onSelect }: { m: DbModel; onSelect: (id: ID) => vo
 
   const addView = (type: ViewType) => {
     const patch: Partial<View> & Pick<View, 'type'> = { type, name: t(`database.view.${type}`) }
-    if (type !== 'table') {
+    if (type === 'form') {
+      // a form asks for every property a person can fill in (computed ones fill themselves)
+      patch.visibleProperties = m.db.properties.filter((p) => p.type !== 'title' && isFormable(p)).map((p) => p.id)
+      patch.form = {}
+    } else if (type !== 'table') {
       // cards and lines stay readable: show a few meaningful properties, not all of them
       const rank: Record<string, number> = { status: 1, select: 2, date: 3, person: 4, multi_select: 5, number: 6, checkbox: 7 }
       patch.visibleProperties = m.db.properties

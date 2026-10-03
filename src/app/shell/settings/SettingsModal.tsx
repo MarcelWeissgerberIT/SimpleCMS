@@ -13,6 +13,7 @@ import { ShortcutList } from '../modals/ShortcutsModal'
 import { runAI } from '../../features'
 import { fmtBytes, plural } from '../lib/format'
 import { requestReset } from '../lib/reset'
+import { WebClipper } from '../capture/WebClipper'
 import './settings.css'
 
 export type SettingsTab = 'general' | 'appearance' | 'ai' | 'data' | 'shortcuts' | 'about'
@@ -395,6 +396,7 @@ function DataTab({ onClose }: { onClose: () => void }) {
           {t('shell.settings.data.import')}
         </button>
       </div>
+      <WebClipper />
       <div className="gauge">
         <div className="gauge__head">
           <span className="label">{t('shell.settings.data.storage')}</span>

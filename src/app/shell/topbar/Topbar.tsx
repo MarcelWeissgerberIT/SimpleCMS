@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { ArrowLeft, ChevronsRight, Clock3, Lock, Menu as MenuIcon, MoreHorizontal, Presentation, Star, Waypoints, Home, CalendarDays, CircleSlash } from 'lucide-react'
+import { ArrowLeft, ChevronsRight, Clock3, Lock, Menu as MenuIcon, MoreHorizontal, Presentation, Star, Waypoints, Home, CalendarDays, CircleSlash, Inbox, type LucideIcon } from 'lucide-react'
 import { useWorkspace } from '../../store/store'
 import { useUI } from '../../store/ui'
 import { useBreadcrumbs, usePage } from '../../store/selectors'
@@ -70,15 +70,17 @@ export function Topbar({ route }: { route: Route }) {
 
 function RouteCrumb({ route }: { route: Route }) {
   const t = useT()
-  const map = {
+  // routes rendered outside the workspace (share, forms …) never reach this crumb
+  const map: Partial<Record<Route['name'], readonly [LucideIcon, string]>> = {
     home: [Home, t('shell.nav.home')],
     graph: [Waypoints, t('shell.nav.graph')],
     journal: [CalendarDays, t('shell.nav.today')],
+    clip: [Inbox, t('shell.capture.crumb')],
     notfound: [CircleSlash, t('shell.notFound.title')],
     page: [CircleSlash, t('shell.notFound.title')],
     share: [CircleSlash, ''],
-  } as const
-  const [Icon, label] = map[route.name]
+  }
+  const [Icon, label] = map[route.name] ?? [CircleSlash, '']
   return (
     <span className="tb-crumb tb-crumb--static">
       <Icon size={15} strokeWidth={1.7} className="faint" />

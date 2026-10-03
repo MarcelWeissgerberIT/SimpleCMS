@@ -549,7 +549,7 @@
 
 .io-formats {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(5, 1fr);
   gap: 8px;
 }
 
@@ -692,6 +692,19 @@
   .io-formats {
     grid-template-columns: repeat(2, 1fr);
   }
+  .io-formats > :first-child {
+    grid-column: 1 / -1;
+  }
+  .io-site {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .io-online__steps {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .io-online__steps li + li {
+    border-left: 0;
+    border-top: 1px solid var(--rule);
+  }
   .io-scope {
     grid-template-columns: 1fr;
   }
@@ -719,4 +732,92 @@
 
 .io-saved svg {
   color: var(--led-ok);
+}
+
+/* ---------- export → website ---------- */
+.io-site {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.35fr) minmax(0, 1fr);
+  gap: 10px 12px;
+}
+
+.io-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+}
+
+.io-field__opt {
+  color: var(--ink-faint);
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.io-field__url {
+  font-size: var(--text-xs);
+}
+
+.io-field .input[aria-invalid='true'] {
+  border-color: var(--c-red-text);
+}
+
+.io-site__note {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  color: var(--ink-2);
+  font-size: var(--text-xs);
+  overflow-wrap: anywhere;
+}
+
+.io-site__note[data-state='error'] {
+  color: var(--c-red-text);
+}
+
+.io-online {
+  margin-top: 4px;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-2);
+  background: var(--surface-2);
+}
+
+.io-online__head {
+  padding: 7px 12px 6px;
+  border-bottom: 1px solid var(--rule);
+}
+
+.io-online__steps {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.io-online__steps li {
+  display: flex;
+  gap: 10px;
+  padding: 9px 12px 10px;
+  font-size: var(--text-xs);
+  line-height: 1.45;
+  color: var(--ink-2);
+}
+
+.io-online__steps li + li {
+  border-left: 1px solid var(--rule);
+}
+
+.io-online__code {
+  flex: none;
+  color: var(--signal-ink);
+  font-size: var(--text-2xs);
+  line-height: 1.75;
+}
+
+.io-online__text b {
+  color: var(--ink);
+  font-weight: 650;
 }

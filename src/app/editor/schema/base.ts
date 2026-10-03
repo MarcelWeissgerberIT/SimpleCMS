@@ -15,6 +15,7 @@ import UniqueID from '@tiptap/extension-unique-id'
 import { createLowlight, common } from 'lowlight'
 import { t } from '../../i18n'
 import { OutlineHeading } from './heading'
+import { ButtonNode } from './button'
 import {
   BlockImage,
   Bookmark,
@@ -86,6 +87,7 @@ export const BLOCK_ID_TYPES = [
   'embed',
   'toc',
   'fileBlock',
+  'button',
 ]
 
 export type ExtensionWrap = Partial<Record<string, (ext: AnyExtension) => AnyExtension>>
@@ -152,6 +154,7 @@ export function baseExtensions({ readOnly = false, wrap = {}, headingOffset = 0 
     w('embed', Embed),
     w('toc', Toc),
     w('fileBlock', FileBlock),
+    w('button', ButtonNode),
     UniqueID.configure({ types: BLOCK_ID_TYPES, attributeName: 'id' }),
   ]
 }

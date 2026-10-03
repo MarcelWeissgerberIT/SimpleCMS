@@ -99,12 +99,17 @@ function themeTokens(theme: 'light' | 'dark'): Record<string, string> {
 }
 
 let mermaidSeq = 0
-async function renderMermaid(html: string): Promise<string> {
+/**
+ * Mermaid sources → static SVG for both themes (figure.diagram--light / --dark).
+ * idPrefix: deterministic SVG ids (website export) instead of a running counter.
+ */
+export async function renderMermaid(html: string, idPrefix?: string): Promise<string> {
   if (!/class="mermaid"/.test(html)) return html
   try {
     const mermaid = (await import('mermaid')).default
     const doc = new DOMParser().parseFromString(`<div id="root">${html}</div>`, 'text/html')
     const blocks = [...doc.querySelectorAll<HTMLElement>('[data-type="mermaid"]')]
+    let local = 0
     for (const theme of ['light', 'dark'] as const) {
       const c = themeTokens(theme)
       mermaid.initialize({
@@ -146,7 +151,8 @@ async function renderMermaid(html: string): Promise<string> {
         const code = el.querySelector('pre')?.textContent ?? ''
         if (!code.trim()) continue
         try {
-          const { svg } = await mermaid.render(`one-export-${theme}-${++mermaidSeq}`, code)
+          const id = idPrefix ? `one-export-${idPrefix}-${theme}-${++local}` : `one-export-${theme}-${++mermaidSeq}`
+          const { svg } = await mermaid.render(id, code)
           const fig = doc.createElement('figure')
           fig.className = `diagram diagram--${theme}`
           fig.innerHTML = svg
@@ -246,6 +252,10 @@ ${['gray', 'brown', 'orange', 'yellow', 'green', 'blue', 'purple', 'pink', 'red'
 .doc .embed iframe{width:100%;aspect-ratio:16/9;border:0;border-radius:4px}
 .doc .file-block,.doc .page-link,.doc .database-block{padding:8px 12px;border:1px solid var(--rule);border-radius:4px;margin:0 0 .75em}
 .doc .toc:empty{display:none}
+.doc .one-button{margin:0 0 1em}
+.doc .one-button__key{font:650 15px var(--font-sans);padding:7px 15px;border:1px solid var(--signal-press);border-radius:2px;background:var(--signal);color:var(--on-signal);opacity:1}
+.doc .one-button--ink .one-button__key{background:var(--ink);border-color:var(--ink);color:var(--ink-inverse)}
+.doc .one-button--ghost .one-button__key{background:var(--surface);border-color:var(--ink-faint);color:var(--ink)}
 .doc pre.mermaid{background:none;border:0;text-align:center}
 .doc [data-type="mermaid"]{margin:0 0 1.2em}
 .doc figure.diagram{margin:0;overflow-x:auto;text-align:center}

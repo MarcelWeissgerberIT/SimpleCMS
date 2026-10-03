@@ -29,6 +29,7 @@ import {
   CalendarDays,
   ChartGantt,
   ChartColumn,
+  ClipboardList,
   type LucideIcon,
 } from 'lucide-react'
 import type { CalcFn, FilterOperator, PropertyDef, PropertyType, RollupFn, ViewType } from '../../store/types'
@@ -64,9 +65,10 @@ export const VIEW_ICON: Record<ViewType, LucideIcon> = {
   calendar: CalendarDays,
   timeline: ChartGantt,
   chart: ChartColumn,
+  form: ClipboardList,
 }
 
-export const VIEW_TYPES: ViewType[] = ['table', 'board', 'list', 'gallery', 'calendar', 'timeline', 'chart']
+export const VIEW_TYPES: ViewType[] = ['table', 'board', 'list', 'gallery', 'calendar', 'timeline', 'chart', 'form']
 
 /** Types offered in "add property" / "change type" pickers, grouped. */
 export const CREATABLE_TYPES: PropertyType[][] = [

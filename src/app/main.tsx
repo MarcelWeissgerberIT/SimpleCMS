@@ -6,6 +6,7 @@ import './ui/ui.css'
 import { App } from './shell/App'
 import { ErrorBoundary } from './shell/ErrorBoundary'
 import { listenForReset, runPendingReset, withBootLock } from './shell/lib/reset'
+import { consumeShareTarget } from './shell/capture/inbox'
 import { useWorkspace, emptyWorkspace } from './store/store'
 import { useUI } from './store/ui'
 import { flushSave, loadWorkspace, startPersistence } from './store/persistence'
@@ -76,6 +77,9 @@ async function boot() {
   startPersistence()
   startService('history', startHistory)
   startService('automations', startAutomations)
+
+  // PWA share target (/app/?title=…&text=…&url=…) → the #/clip route, before the first render
+  startService('share target', consumeShareTarget)
 
   createRoot(document.getElementById('root')!).render(
     <StrictMode>

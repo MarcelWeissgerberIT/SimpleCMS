@@ -4,7 +4,10 @@
  *  - ReadOnlyDoc: static, non-editable render of a doc (share view, history preview, presentation).
  *  - getExtensions(): schema extensions (for generateHTML / export).
  *  - markdownToDoc / docToMarkdown: conversion helpers (import/export/AI).
+ *  - stripButtonActions(doc): the doc without button actions (webhook URLs, database ids) — for
+ *      anything that leaves the workspace (share links). docToHTML already applies it.
  */
 export { PageEditor, type PageEditorProps } from './PageEditor'
 export { ReadOnlyDoc } from './ReadOnlyDoc'
 export { getExtensions, markdownToDoc, docToMarkdown, docToHTML } from './convert'
+export { stripButtonActions } from './schema/button'

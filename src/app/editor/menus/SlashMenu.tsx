@@ -22,7 +22,7 @@ export function BlockGlyph({ item, size = 16 }: { item: BlockItem; size?: number
   return <Icon size={size} strokeWidth={1.7} />
 }
 
-export function SlashMenu({ editor, bridge, pageId }: { editor: Editor; bridge: Bridge; pageId: string }) {
+export function SlashMenu({ editor, bridge, pageId, filter }: { editor: Editor; bridge: Bridge; pageId: string; filter?: (item: BlockItem) => boolean }) {
   const t = useT()
   const suggest = useStore(bridge, (s) => (s.suggest?.kind === 'slash' ? s.suggest : null))
   const plusOpened = useStore(bridge, (s) => s.plusOpened)
@@ -34,13 +34,13 @@ export function SlashMenu({ editor, bridge, pageId }: { editor: Editor; bridge: 
 
   const entries = useMemo(
     () =>
-      BLOCKS.map((item) => ({
+      BLOCKS.filter((item) => !filter || filter(item)).map((item) => ({
         item,
         label: t(`editor.block.${item.id}`),
         desc: t(`editor.block.${item.id}.desc`),
         keywords: `${item.id} ${item.keywords} ${item.md ?? ''}`,
       })),
-    [t],
+    [t, filter],
   )
   const fuse = useMemo(
     () =>

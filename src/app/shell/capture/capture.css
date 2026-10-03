@@ -1,0 +1,158 @@
+/* ---------- Settings → Data: web clipper ---------- */
+.clipper {
+  margin: 0 0 22px;
+  padding: 14px 16px 12px;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-2);
+}
+.clipper__head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.clipper__title {
+  margin: 0;
+  font-size: 13.5px;
+  font-weight: 700;
+}
+.clipper__rule {
+  flex: 1;
+  min-width: 12px;
+  height: 1px;
+  background: var(--rule);
+}
+.clipper__head .label {
+  flex: none;
+}
+.clipper__body {
+  max-width: 62ch;
+  margin: 6px 0 14px;
+  color: var(--ink-2);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+}
+.clipper__rig {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+/* the bookmarklet: a physical orange key with a grip */
+.clipper__key {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 7px;
+  height: 34px;
+  padding: 0 14px 0 8px;
+  border: 1px solid var(--signal);
+  border-radius: var(--radius-1);
+  background: var(--signal);
+  box-shadow: inset 0 -2px 0 rgba(0, 0, 0, 0.18);
+  color: var(--on-signal);
+  font-size: var(--text-md);
+  font-weight: 650;
+  text-decoration: none;
+  white-space: nowrap;
+  cursor: grab;
+  user-select: none;
+  transition:
+    background var(--dur-1) var(--ease-out),
+    transform var(--dur-1) var(--ease-out);
+}
+.clipper__key:hover {
+  border-color: var(--signal-hover);
+  background: var(--signal-hover);
+}
+.clipper__key:active {
+  transform: translateY(1px);
+  cursor: grabbing;
+}
+.clipper__grip {
+  opacity: 0.55;
+}
+.clipper__arrow {
+  flex: none;
+  color: var(--ink-3);
+}
+/* schematic bookmarks bar with an empty slot */
+.clipper__bar {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  height: 34px;
+  padding: 0 8px;
+  border-radius: var(--radius-1);
+  background: var(--active);
+}
+.clipper__dot {
+  width: 22px;
+  height: 8px;
+  flex: none;
+  border-radius: var(--radius-1);
+  background: var(--rule-strong);
+}
+.clipper__slot {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  min-width: 0;
+  height: 22px;
+  padding: 0 8px;
+  overflow: hidden;
+  border: 1px dashed var(--ink-faint);
+  border-radius: var(--radius-1);
+  color: var(--ink-3);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  letter-spacing: var(--tracking-label);
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.clipper__foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 14px;
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--rule);
+}
+.clipper__hint {
+  display: inline-flex;
+  flex: 1;
+  align-items: flex-start;
+  gap: 6px;
+  min-width: 200px;
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+  line-height: 1.45;
+}
+.clipper__hint svg {
+  flex: none;
+  margin-top: 1px;
+}
+@media (max-width: 560px) {
+  .clipper__head .label {
+    display: none;
+  }
+  .clipper__arrow {
+    transform: rotate(90deg);
+  }
+  .clipper__rig {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 6px;
+  }
+  .clipper__key {
+    justify-content: center;
+  }
+  .clipper__arrow {
+    align-self: center;
+  }
+}
+

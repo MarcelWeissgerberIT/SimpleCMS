@@ -241,7 +241,7 @@ export interface Sort {
   direction: 'asc' | 'desc'
 }
 
-export type ViewType = 'table' | 'board' | 'list' | 'gallery' | 'calendar' | 'timeline' | 'chart'
+export type ViewType = 'table' | 'board' | 'list' | 'gallery' | 'calendar' | 'timeline' | 'chart' | 'form'
 
 export type CalcFn =
   | 'none'
@@ -271,6 +271,28 @@ export interface ChartConfig {
   yPropertyId?: ID | null
 }
 
+/** Form view: one question per property. Which and in what order = title + view.visibleProperties. */
+export interface FormQuestion {
+  required?: boolean
+  /** Help text shown under the question. */
+  help?: string
+  /** date questions: also ask for a time */
+  includeTime?: boolean
+  /** title question only (it is not part of visibleProperties): leave it out of the form */
+  hidden?: boolean
+}
+
+export interface FormConfig {
+  /** Heading (default: the database name). */
+  title?: string
+  description?: string
+  submitLabel?: string
+  /** Per-question settings keyed by PropertyDef.id. */
+  questions?: Record<ID, FormQuestion>
+  /** Responses from a shared form link are POSTed here (n8n / Make / Zapier …). */
+  webhookUrl?: string
+}
+
 export interface View {
   id: ID
   name: string
@@ -292,6 +314,8 @@ export interface View {
   calculations?: Record<ID, CalcFn>
   wrapCells?: boolean
   chart?: ChartConfig
+  /** form view settings (optional; older workspaces have none) */
+  form?: FormConfig
   openIn?: 'peek' | 'center' | 'full'
 }
 

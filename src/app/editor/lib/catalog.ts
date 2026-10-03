@@ -36,6 +36,7 @@ import {
   Sigma,
   Smile,
   SquareKanban,
+  SquareMousePointer,
   Lightbulb,
   Table,
   Calendar,
@@ -49,6 +50,8 @@ import type { ViewType } from '../../store/types'
 import type { Bridge } from './bridge'
 import { insertBlock, moveIntoToggleBody, turnInto, type TurnTarget } from './blocks'
 import { dateMentionAttrs } from './dates'
+import { markFreshButton } from './buttonRun'
+import { t } from '../../i18n'
 
 export type BlockGroup = 'basic' | 'lists' | 'media' | 'database' | 'advanced' | 'ai' | 'inline'
 export const GROUPS: BlockGroup[] = ['basic', 'lists', 'media', 'database', 'advanced', 'inline', 'ai']
@@ -202,6 +205,17 @@ export const BLOCKS: BlockItem[] = [
     icon: Network,
     keywords: 'mermaid diagram flowchart chart sequence diagramm ablauf',
     run: (ctx) => insertBlock(ctx.editor, { type: 'mermaid', attrs: { code: 'flowchart LR\n  Idea --> Draft --> Review --> Ship' } }, ctx.range),
+  },
+  {
+    id: 'button',
+    group: 'advanced',
+    icon: SquareMousePointer,
+    keywords: 'button action webhook n8n automation trigger click run schaltfläche knopf aktion automatisierung auslösen',
+    run: (ctx) => {
+      // a fresh button opens its configuration right away (see ButtonView)
+      markFreshButton(ctx.editor)
+      insertBlock(ctx.editor, { type: 'button', attrs: { label: t('editor.button.default'), variant: 'signal', actions: [] } }, ctx.range)
+    },
   },
   { id: 'toc', group: 'advanced', icon: ListTree, keywords: 'toc table of contents outline inhaltsverzeichnis gliederung', run: (ctx) => insertBlock(ctx.editor, { type: 'toc' }, ctx.range) },
   {

@@ -1,0 +1,677 @@
+/* Button block — a keycap in the page, and its configuration sheet. INSTRUMENT. */
+
+/* ---------- the block ---------- */
+.doc-content .ob {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  margin: 6px 0;
+  padding: 2px 0 5px; /* room for the key's travel */
+  user-select: none;
+}
+
+/* ---------- the key ---------- */
+.ob-key {
+  --key-bg: var(--signal);
+  --key-bg-hover: var(--signal-hover);
+  --key-ink: var(--on-signal);
+  --key-border: var(--signal-press);
+  --key-edge: var(--signal-press);
+  --key-bevel: transparent;
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  min-height: 34px;
+  max-width: 100%;
+  margin: 0;
+  padding: 6px 15px 6px 11px;
+  border: 1px solid var(--key-border);
+  border-radius: var(--radius-1);
+  background: var(--key-bg);
+  color: var(--key-ink);
+  font-family: var(--font-sans);
+  font-size: var(--text-md);
+  font-weight: 650;
+  letter-spacing: -0.005em;
+  line-height: 1.25;
+  text-align: left;
+  box-shadow:
+    inset 0 1px 0 var(--key-bevel),
+    0 2px 0 var(--key-edge);
+  cursor: pointer;
+  transition:
+    transform var(--dur-1) var(--ease-out),
+    box-shadow var(--dur-1) var(--ease-out),
+    background var(--dur-1) var(--ease-out);
+}
+
+.ob-key:hover:not(:disabled) {
+  background: var(--key-bg-hover);
+}
+
+/* physical press: the cap travels down onto its edge */
+.ob-key:active:not(:disabled),
+.ob-key[data-state='busy'] {
+  transform: translateY(1px);
+  box-shadow:
+    inset 0 1px 0 var(--key-bevel),
+    0 1px 0 var(--key-edge);
+}
+
+.ob-key:focus-visible {
+  outline: none;
+  box-shadow:
+    inset 0 1px 0 var(--key-bevel),
+    0 2px 0 var(--key-edge),
+    0 0 0 2px var(--surface),
+    0 0 0 4px var(--signal);
+}
+
+.ob-key--ink {
+  --key-bg: var(--ink);
+  --key-bg-hover: var(--ink);
+  --key-ink: var(--ink-inverse);
+  --key-border: var(--ink);
+  --key-edge: var(--ink);
+  --key-bevel: var(--ink-2);
+}
+
+.ob-key--ink:hover:not(:disabled) {
+  --key-bevel: var(--ink-3);
+}
+
+:root[data-theme='dark'] .ob-key--ink {
+  --key-edge: var(--ink-3);
+  --key-bevel: transparent;
+}
+
+.ob-key--ghost {
+  --key-bg: var(--surface);
+  --key-bg-hover: var(--surface-2);
+  --key-ink: var(--ink);
+  --key-border: var(--ink-faint);
+  --key-edge: var(--ink-faint);
+}
+
+.ob-key__label {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* status LED inside the cap: idle (dim) · busy (blinking) · ok · error */
+.ob-key__led {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: var(--radius-led);
+  background: currentColor;
+  opacity: 0.32;
+  transition: opacity var(--dur-2) var(--ease-out), background var(--dur-2) var(--ease-out);
+}
+
+.ob-key--ghost .ob-key__led {
+  background: var(--signal);
+  opacity: 0.55;
+}
+
+.ob-key[data-state='busy'] .ob-key__led {
+  opacity: 1;
+  animation: ob-blink 0.5s steps(2, jump-none) infinite;
+}
+
+.ob-key[data-state='ok'] .ob-key__led {
+  opacity: 1;
+  background: var(--led-ok);
+}
+
+.ob-key[data-state='error'] .ob-key__led {
+  opacity: 1;
+  background: var(--c-red-text);
+}
+
+@keyframes ob-blink {
+  to {
+    opacity: 0.25;
+  }
+}
+
+.ob-key:disabled {
+  cursor: default;
+}
+
+/* read-only (share, history, slides): a flat label — no travel, nothing to press */
+.ob.is-static .ob-key {
+  box-shadow: inset 0 1px 0 var(--key-bevel);
+  transform: none;
+}
+
+/* selected block (arrow keys, grip, Esc) */
+.doc-content .ob.is-selected .ob-key,
+.doc-content .ob.is-block-selected .ob-key {
+  outline: 2px solid var(--signal);
+  outline-offset: 3px;
+}
+
+/* ---------- hover tools: Edit · action count · keys ---------- */
+.ob__tools {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  opacity: 0;
+  transition: opacity var(--dur-2) var(--ease-out);
+}
+
+.ob:hover .ob__tools,
+.ob:focus-within .ob__tools,
+.ob.is-selected .ob__tools,
+.ob.is-configuring .ob__tools {
+  opacity: 1;
+}
+
+@media (hover: none) {
+  .ob__tools {
+    opacity: 1;
+  }
+}
+
+.ob-edit {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 26px;
+  padding: 0 9px 0 7px;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius-1);
+  background: var(--surface);
+  color: var(--ink-2);
+  font-size: var(--text-xs);
+  font-weight: 550;
+  transition:
+    background var(--dur-1) var(--ease-out),
+    color var(--dur-1) var(--ease-out),
+    transform var(--dur-1) var(--ease-out);
+}
+
+.ob-edit:hover {
+  background: var(--surface-2);
+  color: var(--ink);
+}
+
+.ob-edit:active {
+  transform: translateY(1px);
+}
+
+.ob__count.is-empty {
+  color: var(--signal-ink);
+}
+
+.ob__keys {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+}
+
+.ob__keys .kbd + .kbd,
+.ob__keys .kbd:not(:first-child) {
+  margin-left: 6px;
+}
+
+/* ---------- configuration sheet ---------- */
+.modal.bcfg .modal__body {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.bcfg__top {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 14px;
+}
+
+.bcfg__field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.bcfg__label-input.input {
+  height: 34px;
+  font-size: var(--text-md);
+  font-weight: 600;
+}
+
+.bcfg__variants {
+  display: flex;
+  gap: 4px;
+}
+
+.bcfg__variant {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 34px;
+  padding: 0 10px 0 8px;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius-1);
+  background: var(--surface);
+  color: var(--ink-2);
+  font-size: var(--text-sm);
+  font-weight: 550;
+  transition:
+    border-color var(--dur-1) var(--ease-out),
+    transform var(--dur-1) var(--ease-out);
+}
+
+.bcfg__variant:hover {
+  color: var(--ink);
+}
+
+.bcfg__variant:active {
+  transform: translateY(1px);
+}
+
+.bcfg__variant[aria-checked='true'] {
+  border-color: var(--ink);
+  color: var(--ink);
+  box-shadow: inset 0 0 0 1px var(--ink);
+}
+
+.ob-key--mini {
+  min-height: 0;
+  width: 22px;
+  height: 14px;
+  padding: 0;
+  justify-content: center;
+  box-shadow:
+    inset 0 1px 0 var(--key-bevel),
+    0 1.5px 0 var(--key-edge);
+  pointer-events: none;
+}
+
+.ob-key--mini .ob-key__led {
+  width: 4px;
+  height: 4px;
+}
+
+.bcfg__head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 2px;
+}
+
+.bcfg__rule {
+  flex: 1;
+  height: 1px;
+  background: var(--rule);
+}
+
+.bcfg__empty {
+  margin: 0;
+  padding: 14px;
+  border: 1px dashed var(--rule-strong);
+  border-radius: var(--radius-2);
+  color: var(--ink-3);
+  font-size: var(--text-sm);
+  text-align: center;
+}
+
+.bcfg__list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.bcfg-card {
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius-2);
+  background: var(--surface);
+}
+
+.bcfg-card__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 5px 5px 10px;
+  border-bottom: 1px solid var(--rule);
+  border-radius: var(--radius-2) var(--radius-2) 0 0;
+  background: var(--surface-2);
+  color: var(--ink-2);
+}
+
+.bcfg-card__num {
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  font-weight: 600;
+  letter-spacing: var(--tracking-label);
+  color: var(--signal-ink);
+}
+
+.bcfg-card__name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ink);
+  font-size: var(--text-sm);
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bcfg-card__tools {
+  display: inline-flex;
+  gap: 2px;
+}
+
+.bcfg-card__tools .icon-btn:disabled {
+  opacity: 0.35;
+  pointer-events: none;
+}
+
+.bcfg-card__body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px;
+}
+
+.bcfg__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.bcfg__row > .input {
+  flex: 1 1 180px;
+  min-width: 0;
+}
+
+.bcfg__mono.input {
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.bcfg__note {
+  margin: 0;
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+}
+
+.bcfg__note.is-error {
+  color: var(--c-red-text);
+}
+
+.bcfg__add {
+  align-self: flex-start;
+}
+
+.bcfg__add-value {
+  align-self: flex-start;
+  margin-left: -8px;
+}
+
+.bcfg__switch {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: var(--text-sm);
+  cursor: pointer;
+}
+
+.bcfg__foot-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-right: auto;
+}
+
+/* nested template editor */
+.bcfg-template {
+  min-height: 72px;
+  padding: 6px 12px;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius-1);
+  background: var(--bg);
+  cursor: text;
+  transition:
+    border-color var(--dur-1) var(--ease-out),
+    box-shadow var(--dur-1) var(--ease-out);
+}
+
+.bcfg-template:focus-within {
+  border-color: var(--signal);
+  box-shadow: 0 0 0 3px var(--signal-wash);
+}
+
+.bcfg-template .ProseMirror {
+  min-height: 58px;
+}
+
+/* variable chips: small keycaps */
+.bcfg-vars {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.bcfg-vars__chip {
+  height: 20px;
+  padding: 0 6px;
+  border: 1px solid var(--rule-strong);
+  border-bottom-width: 2px;
+  border-radius: 3px;
+  background: var(--surface);
+  color: var(--ink-2);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  transition: transform var(--dur-1) var(--ease-out);
+}
+
+.bcfg-vars__chip:hover {
+  color: var(--signal-ink);
+}
+
+.bcfg-vars__chip:active {
+  transform: translateY(1px);
+}
+
+/* segmented control */
+.bcfg-seg {
+  display: inline-flex;
+  flex: none;
+  max-width: 100%;
+  overflow: hidden;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius-1);
+}
+
+.bcfg-seg button {
+  height: 28px;
+  padding: 0 9px;
+  border: 0;
+  border-left: 1px solid var(--rule);
+  background: var(--surface);
+  color: var(--ink-2);
+  font-size: var(--text-xs);
+  font-weight: 550;
+  white-space: nowrap;
+}
+
+.bcfg-seg button:first-child {
+  border-left: 0;
+}
+
+.bcfg-seg button:hover {
+  background: var(--surface-2);
+}
+
+.bcfg-seg button[aria-checked='true'] {
+  background: var(--ink);
+  color: var(--ink-inverse);
+}
+
+/* field-like picker */
+.bcfg-pick {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-width: 0;
+  height: 30px;
+  padding: 0 8px;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius-1);
+  background: var(--surface);
+  color: var(--ink);
+  font-size: var(--text-sm);
+  text-align: left;
+}
+
+.bcfg__row > .bcfg-pick {
+  width: auto;
+  flex: none;
+}
+
+.bcfg-pick:hover {
+  background: var(--surface-2);
+}
+
+.bcfg-pick__label {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bcfg-chip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 30px;
+  padding: 0 3px 0 8px;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius-1);
+  font-size: var(--text-sm);
+}
+
+.bcfg-chip__title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* property presets */
+.bcfg-presets {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.bcfg-preset {
+  display: grid;
+  grid-template-columns: minmax(90px, 150px) minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+}
+
+.bcfg-preset__prop {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  font-size: var(--text-sm);
+  font-weight: 550;
+}
+
+.bcfg-preset__name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bcfg-preset__value {
+  min-width: 0;
+}
+
+.bcfg-glyph {
+  width: 14px;
+  flex: none;
+  color: var(--ink-3);
+  font-family: var(--font-mono);
+  text-align: center;
+}
+
+.bcfg-swatch {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: var(--radius-1);
+}
+
+.bcfg__date.input {
+  width: auto;
+  flex: 0 1 150px;
+}
+
+/* payload readout */
+.bcfg-payload summary {
+  cursor: pointer;
+  width: max-content;
+}
+
+.bcfg-payload pre {
+  margin: 6px 0 0;
+  padding: 10px 12px;
+  overflow: auto;
+  border-radius: var(--radius-1);
+  background: var(--surface-2);
+  color: var(--ink-2);
+  font: 11.5px/1.5 var(--font-mono);
+}
+
+/* menus and editor overlays opened from the sheet sit above it */
+.popover.bcfg-menu,
+.modal-scrim:has(.bcfg) ~ [data-popover] {
+  z-index: calc(var(--z-modal) + 10);
+}
+
+@media (max-width: 560px) {
+  .bcfg__top {
+    grid-template-columns: 1fr;
+  }
+
+  .bcfg-preset {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .bcfg-preset__value {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+
+  .bcfg__foot-hint {
+    display: none;
+  }
+}

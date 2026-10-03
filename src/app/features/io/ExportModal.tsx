@@ -1,5 +1,5 @@
 /**
- * Export: scope (this page + subpages / whole workspace) × format (Markdown ZIP · HTML · JSON backup · PDF).
+ * Export: scope (this page + subpages / whole workspace) × format (Website ZIP · Markdown ZIP · HTML · JSON backup · PDF).
  */
 import { useEffect, useMemo, useState } from 'react'
 import { Download, FileDown, Printer } from 'lucide-react'
@@ -14,13 +14,16 @@ import { collectRefs, collectTree, downloadBlob, formatBytes, slugify, todayStam
 import { buildMarkdownZip } from './export/markdown'
 import { buildHTML, printHTML } from './export/html'
 import { backupFileRefs, buildBackup } from './backup'
+import { normalizeBaseUrl, planSite, siteCounts } from './export/site/plan'
 import { Meter } from './parts'
 import { countOf, unitOf } from './count'
 import { onRovingKey } from './roving'
+import { SiteOptions, loadSitePrefs, saveSitePrefs } from './SiteOptions'
 import './io.css'
 
-type Format = 'md' | 'html' | 'json' | 'pdf'
+type Format = 'site' | 'md' | 'html' | 'json' | 'pdf'
 const FORMATS: Array<{ id: Format; code: string; ext: string }> = [
+  { id: 'site', code: 'SITE', ext: 'zip' },
   { id: 'md', code: 'MD.ZIP', ext: 'zip' },
   { id: 'html', code: 'HTML', ext: 'html' },
   { id: 'json', code: 'JSON', ext: 'json' },
@@ -44,7 +47,11 @@ export function ExportModal({ pageId, onClose }: { pageId?: ID | null; onClose: 
     }
   })
   const [progress, setProgress] = useState<number | null>(null)
-  const [result, setResult] = useState<{ name: string; size: number | null } | null>(null)
+  const [result, setResult] = useState<{ name: string; size: number | null; files?: number } | null>(null)
+  // website options (base URL + feed are remembered on this device)
+  const [siteTitle, setSiteTitle] = useState(() => workspaceName || 'One')
+  const [baseUrlRaw, setBaseUrlRaw] = useState(() => loadSitePrefs().baseUrl)
+  const [feed, setFeed] = useState(() => loadSitePrefs().feed)
   const [error, setError] = useState<string | null>(null)
 
   const rootId = scope === 'page' && hasPage ? page!.id : null
@@ -52,8 +59,17 @@ export function ExportModal({ pageId, onClose }: { pageId?: ID | null; onClose: 
   const stats = useMemo(() => treeStats(tree), [tree])
   const pageTree = useMemo(() => (hasPage ? treeStats(collectTree(page!.id)) : null), [hasPage, page, pages]) // eslint-disable-line react-hooks/exhaustive-deps
   const allStats = useMemo(() => treeStats(collectTree(null)), [pages])
+  const baseUrl = useMemo(() => normalizeBaseUrl(baseUrlRaw), [baseUrlRaw])
+  const plan = useMemo(() => (format === 'site' ? planSite(tree, rootId) : null), [format, tree, rootId])
+  const feedDbs = useMemo(() => (plan ? [...plan.rows.keys()].map((id) => tree.pages[id]).filter(Boolean) : []), [plan, tree])
+  const feedValue = feedDbs.some((p) => p.id === feed) ? feed : 'recent'
+  const site = plan ? siteCounts(plan, !!baseUrl) : null
   // exactly the files the chosen format will contain (a backup also keeps files of trashed pages)
   const fileCount = useMemo(() => (format === 'json' ? backupFileRefs(rootId).length : collectRefs(tree).length), [format, rootId, tree])
+
+  useEffect(() => {
+    saveSitePrefs({ baseUrl: baseUrlRaw, feed })
+  }, [baseUrlRaw, feed])
 
   useEffect(() => {
     try {
@@ -67,7 +83,7 @@ export function ExportModal({ pageId, onClose }: { pageId?: ID | null; onClose: 
 
   const baseName = `${slugify(rootId ? page!.title || t('common.untitled') : workspaceName || 'one')}-${todayStamp()}`
   const fmt = FORMATS.find((f) => f.id === format)!
-  const fileName = format === 'pdf' ? t('features.io.export.printDialog') : `${baseName}.${fmt.ext}`
+  const fileName = format === 'pdf' ? t('features.io.export.printDialog') : format === 'site' ? `${slugify(siteTitle || workspaceName || 'one')}-site.zip` : `${baseName}.${fmt.ext}`
   const title = rootId ? page!.title.trim() || t('common.untitled') : workspaceName || 'One'
 
   const run = async () => {
@@ -76,7 +92,18 @@ export function ExportModal({ pageId, onClose }: { pageId?: ID | null; onClose: 
     setResult(null)
     const onProgress = (done: number, total: number) => setProgress(total ? done / total : 1)
     try {
-      if (format === 'md') {
+      if (format === 'site') {
+        const { buildSite } = await import('./export/site/build')
+        const built = await buildSite(tree, rootId, {
+          title: siteTitle.trim() || workspaceName || 'One',
+          baseUrl: baseUrl ?? '',
+          feed: feedValue === 'recent' ? { kind: 'recent' } : { kind: 'database', databaseId: feedValue },
+          lang,
+          onProgress,
+        })
+        downloadBlob(built.blob, fileName)
+        setResult({ name: fileName, size: built.blob.size, files: built.files })
+      } else if (format === 'md') {
         const blob = await buildMarkdownZip(tree, { untitled: t('common.untitled'), onProgress })
         downloadBlob(blob, fileName)
         setResult({ name: fileName, size: blob.size })
@@ -119,6 +146,7 @@ export function ExportModal({ pageId, onClose }: { pageId?: ID | null; onClose: 
   }
 
   const busy = progress !== null && progress < 1 && !result && !error
+  const blocked = format === 'site' && baseUrl === null
 
   return (
     <Modal
@@ -126,14 +154,14 @@ export function ExportModal({ pageId, onClose }: { pageId?: ID | null; onClose: 
       onClose={onClose}
       label="§ IO-02"
       title={t('features.io.export.title')}
-      width={720}
+      width={800}
       className="io-modal"
       footer={
         <>
           <button type="button" className="btn btn--ghost" onClick={onClose}>
             {result ? t('common.done') : t('common.cancel')}
           </button>
-          <button type="button" className="btn btn--primary" onClick={run} disabled={busy || tree.all.length === 0} data-export-run="">
+          <button type="button" className="btn btn--primary" onClick={run} disabled={busy || blocked || tree.all.length === 0} data-export-run="">
             {format === 'pdf' ? <Printer size={15} /> : <Download size={15} />}
             {format === 'pdf' ? t('features.io.export.print') : t('features.io.export.go', { fmt: fmt.code })}
           </button>
@@ -188,10 +216,29 @@ export function ExportModal({ pageId, onClose }: { pageId?: ID | null; onClose: 
           </div>
         </section>
 
+        {format === 'site' && (
+          <SiteOptions
+            title={siteTitle}
+            onTitle={setSiteTitle}
+            baseUrlRaw={baseUrlRaw}
+            onBaseUrl={setBaseUrlRaw}
+            baseUrl={baseUrl}
+            feed={feedValue}
+            onFeed={setFeed}
+            feedDbs={feedDbs}
+          />
+        )}
+
         <div className="io-manifest" aria-live="polite">
-          <span>
-            <b>{stats.pages}</b> {unitOf(t, 'page', stats.pages)}
-          </span>
+          {site ? (
+            <span data-site-pages="">
+              <b>{site.pages}</b> {t(site.pages === 1 ? 'features.site.webPage.one' : 'features.site.webPage.other')}
+            </span>
+          ) : (
+            <span>
+              <b>{stats.pages}</b> {unitOf(t, 'page', stats.pages)}
+            </span>
+          )}
           <span>
             <b>{stats.dbs}</b> {unitOf(t, 'db', stats.dbs)}
           </span>
@@ -199,7 +246,7 @@ export function ExportModal({ pageId, onClose }: { pageId?: ID | null; onClose: 
             <b>{stats.rows}</b> {unitOf(t, 'row', stats.rows)}
           </span>
           <span>
-            <b>{fileCount}</b> {unitOf(t, 'file', fileCount)}
+            <b>{site ? site.files : fileCount}</b> {unitOf(t, 'file', site ? site.files : fileCount)}
           </span>
           <span className="io-manifest__file">→ {fileName}</span>
         </div>
@@ -215,7 +262,12 @@ export function ExportModal({ pageId, onClose }: { pageId?: ID | null; onClose: 
         )}
         {result && (
           <p className="io-saved" role="status">
-            <FileDown size={15} /> {result.size !== null ? t('features.io.export.saved', { name: result.name, size: formatBytes(result.size, lang) }) : result.name}
+            <FileDown size={15} />{' '}
+            {result.size === null
+              ? result.name
+              : result.files !== undefined
+                ? t('features.site.saved', { name: result.name, size: formatBytes(result.size, lang), files: countOf(t, 'file', result.files) })
+                : t('features.io.export.saved', { name: result.name, size: formatBytes(result.size, lang) })}
           </p>
         )}
         {error && <p className="io-inline-error">{t('features.io.err.generic', { msg: error })}</p>}

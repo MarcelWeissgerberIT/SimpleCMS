@@ -385,6 +385,130 @@
   opacity: 1;
 }
 
+/* unlinked mentions: collapsible, each row = page + snippet + "Link" key */
+.pv-um .pv-rulelabel {
+  flex-wrap: wrap;
+  row-gap: 4px;
+}
+.pv-um__toggle {
+  display: inline-flex;
+  flex: 0 1 auto;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  min-height: 28px;
+  margin-left: -4px;
+  padding: 0 4px;
+  border: 0;
+  border-radius: var(--radius-1);
+  background: none;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+}
+.pv-um__toggle:hover {
+  color: var(--ink);
+}
+.pv-um__name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pv-um__toggle .pv-rulelabel__n {
+  flex: none;
+  white-space: nowrap;
+}
+.pv-um__chev {
+  flex: none;
+  transition: transform var(--dur-2) var(--ease-out);
+}
+.pv-um[data-open] .pv-um__chev {
+  transform: rotate(90deg);
+}
+.pv-um__all {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  margin-left: auto;
+  white-space: nowrap;
+  gap: 5px;
+  height: 24px;
+  padding: 0 8px;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius-1);
+  background: var(--surface);
+  color: var(--ink-2);
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  transition:
+    background var(--dur-1) var(--ease-out),
+    transform var(--dur-1) var(--ease-out);
+}
+.pv-um__all:hover {
+  background: var(--surface-2);
+  color: var(--ink);
+}
+.pv-um__all:active,
+.pv-um__toggle:active {
+  transform: translateY(1px);
+}
+.pv-um__item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  border-bottom: 1px solid var(--rule);
+}
+.pv-um__item:last-child {
+  border-bottom: 0;
+}
+.pv-um__main {
+  flex: 1;
+  min-width: 0;
+  margin-right: 0;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 2px;
+  padding-top: 7px;
+  padding-bottom: 8px;
+}
+.pv-um__line {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.pv-um__snip {
+  display: -webkit-box;
+  padding-left: 26px;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  color: var(--ink-2);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.pv-um__snip mark {
+  background: transparent;
+  color: var(--signal-ink);
+  font-weight: 650;
+  box-shadow: inset 0 -2px 0 var(--signal-wash-strong);
+}
+.pv-um__btn {
+  flex: none;
+  margin-top: 6px;
+}
+@media (max-width: 560px) {
+  .pv-um__main .pv-link__path {
+    display: none;
+  }
+  .pv-um__snip {
+    padding-left: 0;
+  }
+}
+
 /* the rating plate */
 .spec {
   position: relative;
