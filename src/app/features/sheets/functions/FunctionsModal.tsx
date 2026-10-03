@@ -319,7 +319,7 @@ export default function FunctionsModal({ initialId, onClose }: { initialId?: ID;
     ) : null
 
   return (
-    <Modal open onClose={dismiss} label="§ FX" title={t('features.fn.title')} width={1120} className="fx-modal" footer={footer}>
+    <Modal open onClose={dismiss} label="§ FX" title={t('features.fn.title')} width={1120} className={`fx-modal${pane === 'list' && !ask ? ' fx-modal--list' : ''}`} footer={footer}>
       <div className="fx-layout" data-pane={pane}>
         <aside className="fx-list" aria-label={t('features.fn.list')}>
           <div className="fx-list__head">

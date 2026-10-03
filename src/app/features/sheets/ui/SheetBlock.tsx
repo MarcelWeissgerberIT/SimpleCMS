@@ -609,7 +609,7 @@ export function SheetBlock({ attrs: raw, update, editable, editor }: SheetBlockP
         }
     return { sum, count, avg: count ? sum / count : null }
   }, [version, sheet, areas.length, rect.top, rect.bottom, rect.left, rect.right]) // eslint-disable-line react-hooks/exhaustive-deps
-  const statusNum = (n: number) => formatValue(Number(n.toPrecision(12)), undefined, null, lang)
+  const statusNum = (n: number) => formatValue(Math.abs(n) >= 1 ? Number(n.toFixed(2)) : Number(n.toPrecision(4)), undefined, null, lang)
 
   /* ---------------- menus ---------------- */
 

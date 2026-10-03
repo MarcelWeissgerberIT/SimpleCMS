@@ -244,7 +244,7 @@ export function Grid(props: GridProps) {
                 <i className="sg-ov__h is-br" />
               </>
             )}
-            {o.tag && o.rect.top === Math.max(o.rect.top, where === 'body' ? frozen : 0) && <span className="sg-ov__tag">{o.tag}</span>}
+            {o.tag && (where === 'frozen' || o.rect.top >= frozen) && <span className={`sg-ov__tag${o.rect.top === (where === 'body' ? frozen : 0) ? ' is-inside' : ''}`}>{o.tag}</span>}
           </div>,
         )
       }

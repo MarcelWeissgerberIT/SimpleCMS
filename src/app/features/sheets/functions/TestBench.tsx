@@ -10,6 +10,7 @@ import { runFunction, type RunResult } from './engine'
 export interface TestBenchProps {
   fn: CustomFunction | null
   params: FnParam[]
+  /** the workspace's saved functions (a change re-runs the bench) */
   functions: Record<ID, CustomFunction> | undefined
   samples: Record<string, string>
   onSample: (name: string, value: string) => void
@@ -19,16 +20,10 @@ export interface TestBenchProps {
 export function TestBench({ fn, params, functions, samples, onSample, holes }: TestBenchProps) {
   const t = useT()
   const lang = useLang()
+  // `functions`: calls of other functions run their saved versions — when those change, run again
   const result: RunResult | null = useMemo(
-    () =>
-      fn
-        ? runFunction(
-            fn,
-            params.map((p) => samples[p.name] ?? ''),
-            functions,
-            lang,
-          )
-        : null,
+    () => (fn ? runFunction(fn, params.map((p) => samples[p.name] ?? ''), lang) : null),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [fn, params, samples, functions, lang],
   )
 

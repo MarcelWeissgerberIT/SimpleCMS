@@ -24,6 +24,8 @@ interface Entry {
 
 export interface SearchIndex {
   entries: Entry[]
+  /** Fuse over every title (queries of more than 32 characters), built on first use */
+  all?: Fuse<Entry>
 }
 
 const WORD_SPLIT = /[\s\-_/.,:;()[\]"'“”„’]+/
@@ -83,7 +85,9 @@ const FUZZY = { keys: ['page.title'], includeMatches: true, includeScore: true, 
  * index order (Fuse breaks ties by it), so the hits are exactly those of a search over every
  * title — for a fraction of the work on a big workspace.
  */
-function fuzzyTitles(entries: Entry[], q: string, limit: number) {
+function fuzzyTitles(index: SearchIndex, q: string, limit: number) {
+  // Fuse splits a query of more than 32 characters into parts that match on their own: no shortcut
+  if (q.length > 32) return (index.all ??= new Fuse(index.entries, FUZZY)).search(q, { limit })
   let edits = 0
   while ((edits + 1) / q.length <= FUZZY.threshold) edits++
   const need = countsOf(q)
@@ -98,8 +102,7 @@ function fuzzyTitles(entries: Entry[], q: string, limit: number) {
     }
     return true
   }
-  // Fuse splits a query of more than 32 characters into parts that match on their own: no shortcut
-  const candidates = q.length > 32 ? entries : entries.filter(possible)
+  const candidates = index.entries.filter(possible)
   return candidates.length ? new Fuse(candidates, FUZZY).search(q, { limit }) : []
 }
 
@@ -201,7 +204,7 @@ export function search(index: SearchIndex, query: string, limit = 30): SearchHit
 
   // fuzzy title hits rank below every other title hit: with `limit` of those, none would show
   if (q.length >= 4 && titleHits < limit) {
-    for (const r of fuzzyTitles(index.entries, q, 20)) {
+    for (const r of fuzzyTitles(index, q, 20)) {
       if (scoreOf(r.item) >= 0 || (r.score ?? 1) > 0.3) continue
       offer(ranked, limit, { e: r.item, score: FUZZY_RANK + (r.score ?? 0), fuzzy: fuseRanges(r.matches?.[0]) })
     }

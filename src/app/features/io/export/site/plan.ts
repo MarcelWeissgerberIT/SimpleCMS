@@ -8,6 +8,7 @@
  */
 import type { ID, Page } from '../../../../store/types'
 import type { ExportTree } from '../collect'
+import { iconAssetPaths } from '../../../../editor'
 
 export type SiteKind = 'home' | 'page' | 'database' | 'row'
 
@@ -91,6 +92,8 @@ function mediaOf(p: Page): string[] {
     for (const m of json.match(FILE_REF) ?? []) out.push(m)
     for (const m of json.matchAll(ASSET_SRC)) out.push(m[1])
     for (const m of json.matchAll(CALLOUT_ASSET)) out.push(`assets/icons/${m[1]}.webp`)
+    // inline icons (node `icon`): objects are bundled files too
+    out.push(...iconAssetPaths(p.content))
   }
   const props = JSON.stringify(p.properties ?? {})
   for (const m of props.match(FILE_REF) ?? []) out.push(m)

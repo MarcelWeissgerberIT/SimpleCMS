@@ -365,12 +365,17 @@ export type CalcFn =
   | 'latest_date'
 
 export interface ChartConfig {
-  kind: 'bar' | 'line' | 'donut'
+  /** bar / line / donut · stacked / area / kpi (drawn by features/charts, additive) */
+  kind: 'bar' | 'line' | 'donut' | 'stacked' | 'area' | 'kpi'
   /** property to group by on the x axis / slices */
   xPropertyId: ID | null
   aggregate: 'count' | 'sum' | 'average'
   /** numeric property for sum/average */
   yPropertyId?: ID | null
+  /** split into series by this property (stacked / grouped bars, several lines); absent = one series */
+  seriesPropertyId?: ID | null
+  /** date x axis: bucket size (absent = month) */
+  dateBucket?: 'day' | 'week' | 'month' | 'quarter' | 'year'
 }
 
 /** Form view: one question per property. Which and in what order = title + view.visibleProperties. */

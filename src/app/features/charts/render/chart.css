@@ -78,6 +78,10 @@
   white-space: nowrap;
 }
 
+.ch-tip.is-below {
+  transform: translate(-50%, 14px);
+}
+
 .ch-tip__label {
   overflow: hidden;
   font-family: var(--font-mono);

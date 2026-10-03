@@ -370,6 +370,84 @@ test.describe('custom functions', () => {
     await expect.poll(() => cellText(page, 'Widget', 'Margin')).toBe('101')
   })
 
+  test('spreadsheet cells: =MARGIN(B1; B2), =SPREAD(DS(A1:A3; C1:C2)), type checks, edits and renames follow', async ({ page }) => {
+    await openApp(page)
+    await wsEval(page, (s) => {
+      const now = 1
+      s.upsertFunction({
+        id: 'fn-margin',
+        name: 'MARGIN',
+        params: [{ name: 'price', type: 'number' }, { name: 'cost', type: 'number' }],
+        body: { k: 'call', fn: 'ROUND', args: [{ k: 'call', fn: '/', args: [{ k: 'call', fn: '-', args: [{ k: 'param', name: 'price' }, { k: 'param', name: 'cost' }] }, { k: 'param', name: 'price' }] }, { k: 'num', v: 2 }] },
+        createdAt: now,
+        updatedAt: now,
+      })
+      s.upsertFunction({
+        id: 'fn-spread',
+        name: 'SPREAD',
+        params: [{ name: 'values', type: 'range' }],
+        body: { k: 'call', fn: '-', args: [{ k: 'call', fn: 'MAX', args: [{ k: 'param', name: 'values' }] }, { k: 'call', fn: 'MIN', args: [{ k: 'param', name: 'values' }] }] },
+        createdAt: now,
+        updatedAt: now,
+      })
+    })
+    const cells: Record<string, { v: string }> = {}
+    const put = (addr: string, v: string) => (cells[addr] = { v })
+    put('A1', '4')
+    put('A2', '9')
+    put('A3', '1')
+    put('B1', '100')
+    put('B2', '75')
+    put('C1', '12')
+    put('C2', '-3')
+    put('D1', '=MARGIN(B1; B2)')
+    put('D2', '=SPREAD(DS(A1:A3; C1:C2))')
+    put('D3', '=MARGIN(DS(A1:A2); 1)')
+    put('D4', '=SPREAD(A1:A3)')
+    const sheetPage = await wsEval(
+      page,
+      (s, cells) => {
+        const id = s.createPage({ title: 'Price sheet' })
+        const sheet = { id: 'sh1', name: 'Sheet1', rows: 20, cols: 8, cells, colWidths: {} }
+        s.setContent(id, { type: 'doc', content: [{ type: 'spreadsheet', attrs: { id: 'blk1', title: 'Prices', sheets: [sheet], active: 'sh1', datasets: [], charts: [] } }, { type: 'paragraph' }] }, 'e2e')
+        return id as string
+      },
+      cells,
+    )
+    await gotoPage(page, sheetPage)
+    const cell = (r: number, c: number) => page.locator(`#main [data-cell="${r}:${c}"]`).first()
+    await expect(cell(0, 3)).toHaveText('0.25')
+    await expect(cell(1, 3)).toHaveText('15')
+    // a number parameter given a dataset → #VALUE!
+    await expect(cell(2, 3)).toHaveText('#VALUE!')
+    // a plain range into a dataset parameter works too
+    await expect(cell(3, 3)).toHaveText('8')
+
+    // edit the function → the cell follows
+    await openBuilder(page)
+    await fx(page).locator('.fx-item[data-fn="MARGIN"]').click()
+    await chip(page, '1').click()
+    await page.locator('.fx-menu').getByRole('textbox', { name: 'Value' }).fill('1')
+    await page.keyboard.press('Enter')
+    await save(page)
+    await page.keyboard.press('Escape')
+    await expect(cell(0, 3)).toHaveText('0.3')
+
+    // rename → the cell formulas are rewritten
+    await openBuilder(page)
+    await fx(page).locator('.fx-item[data-fn="MARGIN"]').click()
+    await fx(page).getByRole('textbox', { name: 'Function name' }).fill('GAIN')
+    await expect(fx(page).locator('#fx-name-note')).toContainText('MARGIN → GAIN in 2 place(s)')
+    await save(page)
+    await page.keyboard.press('Escape')
+    const formulas = await wsEval(page, (s, id) => {
+      const node = s.pages[id].content.content.find((n: any) => n.type === 'spreadsheet')
+      return [node.attrs.sheets[0].cells.D1.v, node.attrs.sheets[0].cells.D3.v]
+    }, sheetPage)
+    expect(formulas).toEqual(['=GAIN(B1; B2)', '=GAIN(DS(A1:A2); 1)'])
+    await expect(cell(0, 3)).toHaveText('0.3')
+  })
+
   test('backup round-trip keeps functions; bad entries in a backup are dropped', async ({ page }, testInfo) => {
     await openApp(page)
     await wsEval(page, (s) =>

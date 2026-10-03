@@ -20,6 +20,11 @@ export interface ChartRendererProps {
   /** hover / keyboard readouts and the data-table toggle (default true) */
   interactive?: boolean
   className?: string
+  /** show the "Data table" toggle under the chart (default: when interactive) */
+  tableToggle?: boolean
+  /** controlled readout: the active point index (null = none) and its changes (e.g. a table beside it) */
+  active?: number | null
+  onActiveChange?: (i: number | null) => void
 }
 
 /** Localised strings the scene draws. */
@@ -48,21 +53,27 @@ function order(scene: Scene): SceneTarget[] {
   return scene.targets.filter((t) => (seen.has(t.i) ? false : (seen.add(t.i), true)))
 }
 
-export function ChartRenderer({ spec, data, height, interactive = true, className }: ChartRendererProps) {
+export function ChartRenderer({ spec, data, height, interactive = true, className, tableToggle, active: activeProp, onActiveChange }: ChartRendererProps) {
   const t = useT()
   const lang = useLang()
   const text = useSceneText()
   const box = useRef<HTMLDivElement>(null)
   const width = useWidth(box)
-  const [active, setActive] = useState<number | null>(null)
+  const [own, setOwn] = useState<number | null>(null)
+  const controlled = activeProp !== undefined
+  const active = controlled ? activeProp : own
+  const setActive = (i: number | null) => {
+    if (!controlled) setOwn(i)
+    onActiveChange?.(i)
+  }
   const [table, setTable] = useState(false)
   const tableId = useId()
   const plotH = height ?? chartHeight(spec)
   const scene = useMemo(() => (width > 0 ? buildScene(spec, data, { width, height: plotH, lang, text }) : null), [spec, data, width, plotH, lang, text])
   const targets = useMemo(() => (scene ? order(scene) : []), [scene])
   useEffect(() => {
-    if (active !== null && !targets.some((x) => x.i === active)) setActive(null)
-  }, [targets, active])
+    if (!controlled && own !== null && !targets.some((x) => x.i === own)) setOwn(null)
+  }, [targets, own, controlled])
   const tip = active !== null ? (scene?.targets.find((x) => x.i === active) ?? null) : null
   const empty = !scene || !scene.targets.length
 
@@ -131,7 +142,7 @@ export function ChartRenderer({ spec, data, height, interactive = true, classNam
       >
         {svg}
         {interactive && tip && (
-          <div className="ch-tip" style={{ left: tipLeft, top: tip.y }} aria-hidden>
+          <div className={`ch-tip${tip.y < 56 ? ' is-below' : ''}`} style={{ left: tipLeft, top: tip.y }} aria-hidden>
             <span className="ch-tip__label">{tip.label}</span>
             {tip.rows.map((r, k) => (
               <span className="ch-tip__row" key={k}>
@@ -148,7 +159,7 @@ export function ChartRenderer({ spec, data, height, interactive = true, classNam
           </span>
         )}
       </div>
-      {interactive && !empty && (
+      {(tableToggle ?? interactive) && !empty && (
         <div className="ch__foot">
           <button type="button" className="ch-tabletoggle" aria-expanded={table} aria-controls={tableId} onClick={() => setTable((v) => !v)}>
             {t(table ? 'charts.table.hide' : 'charts.table.show')}

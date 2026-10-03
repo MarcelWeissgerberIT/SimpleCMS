@@ -56,6 +56,15 @@ async function inlineImages(nodes: JSONContent[] | undefined): Promise<JSONConte
   )
 }
 
+/** Bundled images the renderer wrote by path (inline icons) → data URLs as well. */
+const ASSET_SRC = / src="(assets\/[\w./-]+)"/g
+async function inlineAssetSrcs(html: string): Promise<string> {
+  const paths = [...new Set(Array.from(html.matchAll(ASSET_SRC), (m) => m[1]))]
+  if (!paths.length) return html
+  const urls = new Map(await Promise.all(paths.map(async (p) => [p, await inlineAsset(p)] as const)))
+  return html.replace(ASSET_SRC, (_all, p: string) => ` src="${esc(urls.get(p) ?? p)}"`)
+}
+
 async function renderMath(html: string): Promise<{ html: string; css: string }> {
   if (!/data-type="(block|inline)-math"/.test(html)) return { html, css: '' }
   try {
@@ -301,7 +310,7 @@ footer a{color:inherit}
 export async function buildStandaloneHTML(pageId: string, lang: string): Promise<{ html: string; filename: string; title: string }> {
   const { payload } = await preparePage(pageId, Infinity)
   const content = payload.content ? { ...payload.content, content: await inlineImages(payload.content.content) } : null
-  const math = await renderMath(docToHTML(content))
+  const math = await renderMath(await inlineAssetSrcs(docToHTML(content)))
   const body = await renderMermaid(math.html)
   const [cover, icon] = await Promise.all([coverHTML(payload), iconHTML(payload)])
   const title = payload.title.trim() || 'Untitled'

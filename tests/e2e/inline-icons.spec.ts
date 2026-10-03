@@ -1,9 +1,10 @@
 /**
  * /emoji opens a real emoji picker; /icon inserts inline icons (ceramic objects, lucide glyphs with a
  * colour): search EN + DE, keyboard only, change / remove, undo, copy & paste, Markdown + HTML export,
- * share link, reload, 390 px.
+ * share dialog HTML download, website export, share link, reload, 390 px.
  */
 import { readFileSync } from 'node:fs'
+import { strFromU8, unzipSync } from 'fflate'
 import type { Locator, Page } from '@playwright/test'
 import type { JSONContent } from '@tiptap/core'
 import { test, expect, openApp, reloadApp, gotoPage, editorOf, createPage, doc, para, flush, pageById, MOD } from './fixtures'
@@ -79,6 +80,8 @@ test.describe('inline emoji & icons', () => {
     // the ":" shortcode menu still works as before
     await page.keyboard.type(' :tada')
     await expect(page.locator('.emoji-menu')).toBeVisible()
+    // the emoji data loads lazily: ↵ only picks once the results are there
+    await expect(page.locator('.emoji-menu__cell[aria-selected="true"]')).toHaveText('🎉')
     await page.keyboard.press('Enter')
     expect((await firstLine(page, id)).join('')).toContain('🎉')
   })
@@ -246,6 +249,12 @@ test.describe('inline emoji & icons', () => {
     const md = await page.evaluate(() => navigator.clipboard.readText())
     expect(md).toContain('Book ![Book](assets/icons/book.webp) and ship :icon-rocket@red: today')
     const link = await dialog.getByRole('textbox', { name: 'Share link' }).inputValue()
+    // share dialog → Download as HTML: the object travels inside the file too
+    const shareDownload = page.waitForEvent('download')
+    await dialog.getByRole('button', { name: /Download as HTML/ }).click()
+    const shareFile = testInfo.outputPath('icons-share.html')
+    await (await shareDownload).saveAs(shareFile)
+    expect(readFileSync(shareFile, 'utf8')).toMatch(/<span[^>]*data-name="book"[^>]*><img src="data:image\/webp;base64,/)
     await page.keyboard.press('Escape')
 
     // standalone HTML (Export → Web page): the object inlined as an image, the glyph as SVG
@@ -261,6 +270,22 @@ test.describe('inline emoji & icons', () => {
     const html = readFileSync(file, 'utf8')
     expect(html).toMatch(/<span[^>]*data-name="book"[^>]*data-type="icon"[^>]*><img src="data:image\/webp;base64,/)
     expect(html).toMatch(/<span[^>]*data-name="rocket"[^>]*data-color="red"[^>]*><svg[^>]*viewBox="0 0 24 24"[^>]*>(<path|<circle)/)
+    await page.keyboard.press('Escape')
+
+    // website export: the object's file is part of the site and the page points at it
+    await page.keyboard.press(`${MOD}+k`)
+    await page.keyboard.type('>export')
+    await page.keyboard.press('Enter')
+    const siteDialog = page.getByRole('dialog')
+    await siteDialog.getByRole('radio', { name: /Website/ }).click()
+    const siteDownload = page.waitForEvent('download')
+    await siteDialog.locator('[data-export-run]').click()
+    const files = unzipSync(new Uint8Array(readFileSync((await (await siteDownload).path())!)))
+    const icons = Object.keys(files).filter((f) => f.endsWith('icons/book.webp'))
+    expect(icons, 'the icon file is in the site').toHaveLength(1)
+    const pageFile = Object.keys(files).find((f) => f.endsWith('.html') && strFromU8(files[f]).includes('data-name="book"'))
+    expect(pageFile, 'a page shows the icon').toBeDefined()
+    expect(strFromU8(files[pageFile!])).toMatch(/data-name="book"[^>]*><img src="[^"]*icons\/book\.webp"/)
     await page.keyboard.press('Escape')
 
     // share link: another browser renders both

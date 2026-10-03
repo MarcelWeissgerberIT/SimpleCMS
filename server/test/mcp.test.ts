@@ -163,6 +163,7 @@ describe('remote MCP', () => {
       { type: 'taskList', content: [{ type: 'taskItem', attrs: { checked: true }, content: ['Done thing'] }, { type: 'taskItem', attrs: { checked: false }, content: ['Open thing'] }] },
       { type: 'pageLink', attrs: { pageId: 'doc-2' } },
       { type: 'paragraph', content: [{ type: 'mention', attrs: { id: 'secret-1', label: 'Secret plans', kind: 'page' } }] },
+      { type: 'paragraph', content: [{ type: 'icon', attrs: { kind: 'asset', name: 'app-icon' } }, { type: 'icon', attrs: { kind: 'lucide', name: 'rocket', color: 'red' } }] },
       { type: 'databaseBlock', attrs: { databaseId: 'db-tasks', viewId: null } },
       { type: 'codeBlock', attrs: { language: 'ts' }, text: [['const x = 1']] },
     ])
@@ -293,6 +294,7 @@ describe('remote MCP', () => {
     assert.match(md, /\[Onboarding\]\(#\/p\/doc-2\)/)
     assert.match(md, /\[Database: Tasks\]\(#\/p\/db-tasks\)/)
     assert.match(md, /```ts\nconst x = 1\n```/)
+    assert.match(md, /^\[App icon\]:rocket:$/m, 'inline icons: an object by name, a glyph as :name:')
     assert.ok(!md.includes('Secret plans'), 'a private page’s stored mention label never leaves')
     assert.match(md, /@\(No access\)/)
 

@@ -52,9 +52,11 @@
   border-color: var(--signal);
   box-shadow: 0 0 0 3px var(--signal-wash);
 }
-.fx-list__search .input {
+.fx-list__search .input,
+.fx-list__search .input:focus {
   height: 28px;
   padding: 0;
+  border-color: transparent;
   box-shadow: none;
 }
 .fx-list__new {
@@ -186,6 +188,14 @@
   font-size: 24px;
   font-weight: 700;
   letter-spacing: 0.02em;
+}
+@supports (field-sizing: content) {
+  .fx-ed__name {
+    width: auto;
+    min-width: 8ch;
+    max-width: 100%;
+    field-sizing: content;
+  }
 }
 .fx-ed__name:focus {
   outline: none;
@@ -988,6 +998,10 @@
     width: calc(50% - 6px);
   }
   .fx-foot__txt {
+    display: none;
+  }
+  /* the list on its own: nothing to save or delete down here */
+  .fx-modal--list .modal__footer {
     display: none;
   }
 }

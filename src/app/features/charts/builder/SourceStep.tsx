@@ -41,11 +41,10 @@ const DATE_TYPES = new Set(['date', 'created_time', 'last_edited_time'])
 /* ------------------------------------------------------------------ */
 
 function sampleGrid(t: Translate): string[][] {
-  const lang = useWorkspace.getState().settings.language === 'de' ? 'de-DE' : 'en-GB'
-  const month = (i: number) => new Intl.DateTimeFormat(lang, { month: 'short' }).format(new Date(2026, i, 1)).replace(/\.$/, '')
-  const a = [12, 18, 15, 24, 21, 29]
-  const b = [9, 11, 12, 14, 13, 15]
-  return [[t('charts.manual.sample.label'), t('charts.manual.sample.series'), t('charts.manual.sample.series2')], ...a.map((v, i) => [month(i), String(v), String(b[i])])]
+  const rows = t('charts.manual.sample.rows').split(',')
+  const a = [12, 18, 15, 24, 21]
+  const b = [9, 16, 17, 20, 23]
+  return [[t('charts.manual.sample.label'), t('charts.manual.sample.series'), t('charts.manual.sample.series2')], ...rows.slice(0, 5).map((r, i) => [r.trim(), String(a[i]), String(b[i])])]
 }
 
 /** Live databases, those on `pageId` first, then the most recently edited. */

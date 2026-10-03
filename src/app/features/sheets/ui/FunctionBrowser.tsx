@@ -98,7 +98,7 @@ export function FunctionBrowser({ anchor, onClose, onInsert, onEditFunctions, la
         ))}
       </div>
       <div className="fxb__foot">
-        <span className="label">{t('features.sheets.fn.count', { n: list.length })}</span>
+        <span className="label">{list.length === 1 ? t('features.sheets.fn.count1') : t('features.sheets.fn.count', { n: list.length })}</span>
         {onEditFunctions && (
           <button
             type="button"

@@ -112,6 +112,14 @@ function inlineNode(n: MdNode, ctx: MarkdownContext): string {
     }
     case 'inlineMath':
       return `$${str(n.attrs.latex)}$`
+    case 'icon': {
+      // inline icon (the app's editor/schema/icon.ts): an object as [Clock], a glyph as :rocket: — like its plain text
+      const name = str(n.attrs.name)
+      if (!/^[\w-]{1,64}$/.test(name)) return ''
+      if (n.attrs.kind !== 'asset') return `:${name}:`
+      const label = name.replace(/[-_]+/g, ' ')
+      return `[${label.charAt(0).toUpperCase()}${label.slice(1)}]`
+    }
     case 'pageLink':
       return pageRef(str(n.attrs.pageId), ctx)
     default:

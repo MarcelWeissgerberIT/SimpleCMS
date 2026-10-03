@@ -3,7 +3,7 @@
  * test-bench runs of a draft, and plain values in / out for database formulas.
  */
 import { useSyncExternalStore } from 'react'
-import type { CustomFunction, FnParam, ID } from '../../../store/types'
+import type { CustomFunction, FnParam } from '../../../store/types'
 import { cellsOf, datasetOf, getFunction, isBuiltin as engineIsBuiltin, isDataset, isErr, isRange, listFunctions, parseNumeric, registryVersion, subscribeRegistry } from '../engine'
 import type { CellValue, ErrorCode, FnSpec, Value } from '../engine'
 // the bench runs a draft the way a cell runs a saved function: parameters type-checked (callCustom)
@@ -117,7 +117,7 @@ export function display(v: Value): RunResult {
  * Run a (draft) function with sample inputs. Calls of other functions use the saved versions —
  * so does a recursive call of the function itself.
  */
-export function runFunction(fn: CustomFunction, samples: string[], _functions: Record<ID, CustomFunction> | undefined, lang: 'en' | 'de'): RunResult {
+export function runFunction(fn: CustomFunction, samples: string[], lang: 'en' | 'de'): RunResult {
   const args = fn.params.map((p, i) => sampleValue(p, samples[i] ?? ''))
   try {
     return display(callCustom(fn, args, newEnv({ lang, budget: { left: BENCH_STEPS } })))
