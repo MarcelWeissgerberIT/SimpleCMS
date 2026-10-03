@@ -226,6 +226,80 @@
   margin-bottom: 6px;
 }
 
+/* the Claude Desktop extension: the primary key of the panel */
+.mcp-install {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 14px;
+  margin: 2px 0 8px;
+}
+.mcp-install__key {
+  height: 36px;
+  padding: 0 16px 0 13px;
+  font-size: var(--text-md);
+  font-weight: 650;
+  text-decoration: none;
+}
+.mcp-install__key:hover {
+  text-decoration: none;
+}
+.mcp-install__spec {
+  white-space: nowrap;
+}
+.mcp-steps .mcp-hint--port {
+  color: var(--signal-ink);
+}
+
+/* other clients / manual setup: folded below the one-click way */
+.mcp-manual {
+  margin: 16px 0 0;
+  border-top: 1px solid var(--rule);
+}
+.mcp-manual__head {
+  display: grid;
+  grid-template-columns: 14px auto minmax(0, 1fr);
+  align-items: center;
+  gap: 4px 8px;
+  min-height: 40px;
+  padding: 10px 0 0;
+  list-style: none;
+  cursor: pointer;
+  user-select: none;
+}
+.mcp-manual__head::-webkit-details-marker {
+  display: none;
+}
+.mcp-manual__chev {
+  color: var(--ink-3);
+  transition: transform var(--dur-2) var(--ease-out);
+}
+.mcp-manual[open] .mcp-manual__chev {
+  transform: rotate(90deg);
+  color: var(--signal-ink);
+}
+.mcp-manual__title {
+  color: var(--ink);
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+.mcp-manual__sub {
+  overflow: hidden;
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mcp-manual__head:hover .mcp-manual__title {
+  color: var(--signal-ink);
+}
+.mcp-manual__body {
+  padding: 10px 0 0 22px;
+}
+.mcp-manual__body > .mcp-hint {
+  margin-bottom: 6px;
+}
+
 .mcp-code {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;

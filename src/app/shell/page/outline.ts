@@ -236,6 +236,11 @@ export function jumpToDate(editor: Editor | null, iso: string, code: string): bo
 
 function jumpTo(editor: Editor, el: HTMLElement | null | undefined): boolean {
   if (!el || el === editor.view.dom) return false
+  return scrollToBlock(el, editor.view.dom as HTMLElement)
+}
+
+/** Scroll the page column to an element and mark it, opening what hides it inside `root` first. */
+export function scrollToBlock(el: HTMLElement, root?: HTMLElement): boolean {
   const host = scrollHostOf(el)
   const go = () => {
     if (!el.isConnected) return
@@ -248,7 +253,7 @@ function jumpTo(editor: Editor, el: HTMLElement | null | undefined): boolean {
     markBlock(el, host)
   }
   // revealed content lays out on the next frames (the tabs view re-renders through React)
-  if (reveal(el, editor.view.dom as HTMLElement)) requestAnimationFrame(() => requestAnimationFrame(go))
+  if (root && reveal(el, root)) requestAnimationFrame(() => requestAnimationFrame(go))
   else go()
   return true
 }

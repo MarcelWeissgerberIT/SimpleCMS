@@ -15,6 +15,7 @@
 import type { JSONContent } from '@tiptap/core'
 import type { Database, DateValue, ID, Page, PageComment } from '../../store/types'
 import { inTemplate, isEffectivelyTrashed } from '../../store/selectors'
+import { pageChanges } from '../../store/store'
 import { normalizeReminder, reminderDueAt } from './reminders'
 
 export interface ReminderEntry {
@@ -149,11 +150,47 @@ function remindersOf(page: Page, db: Database | undefined): ReminderEntry[] {
   return list
 }
 
+const sameEntry = (a: ReminderEntry, b: ReminderEntry) =>
+  a.key === b.key && a.dueAt === b.dueAt && a.blockId === b.blockId && a.excerpt === b.excerpt && a.propId === b.propId && fromOriginal.has(a) === fromOriginal.has(b)
+
+/**
+ * Did a store change (prev → pages) leave every reminder as it was? Only changed pages are looked
+ * at (the store's shared diff); one that moved, went to / came back from the trash or a template,
+ * or a page that went away, may change others' reminders: then no.
+ */
+function sameReminders(pages: Record<ID, Page>, prev: Record<ID, Page>, dbs: Record<ID, Database>): boolean {
+  const { changed, removed } = pageChanges(pages, prev)
+  if (removed.length) return false
+  const of = (p: Page) => remindersOf(p, p.databaseId ? dbs[p.databaseId] : undefined)
+  for (const id of changed) {
+    const p = pages[id]
+    const o = prev[id]
+    if (!o) {
+      if (of(p).length) return false
+      continue
+    }
+    if (p.parentId !== o.parentId || p.trashed !== o.trashed || !!p.template !== !!o.template) return false
+    const a = of(p)
+    const b = of(o)
+    if (a !== b && (a.length !== b.length || a.some((r, i) => !sameEntry(r, b[i])))) return false
+  }
+  return true
+}
+
+/** The last answer: a store change that touches no reminder (typing, most edits) reuses it instead of a pass over every page. */
+let last: { pages: Record<ID, Page>; dbs: Record<ID, Database>; out: ReminderEntry[]; trashed: ReminderEntry[] } | null = null
+
 /**
  * Every reminder of the workspace (pages in the trash have none), soonest first. `trashed` collects
  * the reminders of pages in the trash (the engine notes those that come due there, see engine.ts).
  */
 export function collectReminders(pages: Record<ID, Page>, dbs: Record<ID, Database>, trashed?: ReminderEntry[]): ReminderEntry[] {
+  if (last && last.dbs === dbs && (last.pages === pages || sameReminders(pages, last.pages, dbs))) {
+    last.pages = pages
+    trashed?.push(...last.trashed)
+    return last.out
+  }
+  const inTrash: ReminderEntry[] = []
   const out: ReminderEntry[] = []
   /** synced blocks: one entry per key, the original's when it is live */
   const shared = new Map<string, ReminderEntry>()
@@ -165,7 +202,7 @@ export function collectReminders(pages: Record<ID, Page>, dbs: Record<ID, Databa
     // template pages (features/templates): their dates are placeholders — no reminders, ever
     if (inTemplate(pages, id)) continue
     if (isEffectivelyTrashed(pages, id)) {
-      trashed?.push(...list)
+      inTrash.push(...list)
       continue
     }
     for (const r of list) {
@@ -177,7 +214,10 @@ export function collectReminders(pages: Record<ID, Page>, dbs: Record<ID, Databa
     }
   }
   out.push(...shared.values())
-  return out.sort((a, b) => a.dueAt - b.dueAt)
+  out.sort((a, b) => a.dueAt - b.dueAt)
+  last = { pages, dbs, out, trashed: inTrash }
+  trashed?.push(...inTrash)
+  return out
 }
 
 /* ------------------------------------------------------------------ team facts */

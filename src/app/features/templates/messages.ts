@@ -59,10 +59,8 @@ export const messages: Messages = {
     'features.tpl.banner.details': 'Details',
     'features.tpl.banner.done': 'Done',
     'features.tpl.banner.icon': 'Gallery icon',
-    'features.tpl.banner.pageIcon': 'Use the page’s icon',
     'features.tpl.banner.variables': 'Variables',
     'features.tpl.banner.varsHint': 'filled in each time the template is used',
-    'features.tpl.banner.readOnly': 'Read only',
   },
   de: {
     'features.tpl.sources': 'Vorlagenquelle',
@@ -118,9 +116,7 @@ export const messages: Messages = {
     'features.tpl.banner.details': 'Details',
     'features.tpl.banner.done': 'Fertig',
     'features.tpl.banner.icon': 'Galerie-Icon',
-    'features.tpl.banner.pageIcon': 'Icon der Seite verwenden',
     'features.tpl.banner.variables': 'Variablen',
     'features.tpl.banner.varsHint': 'werden bei jeder Verwendung ausgefüllt',
-    'features.tpl.banner.readOnly': 'Nur lesen',
   },
 }

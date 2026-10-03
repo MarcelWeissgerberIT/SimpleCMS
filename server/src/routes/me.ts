@@ -13,7 +13,7 @@ export function sessionRoutes(s: Services) {
   app.get('/', (c) => {
     const auth = c.get('auth')
     if (!auth) return c.json({ user: null, workspaces: [] })
-    return c.json({ user: publicUser(auth.user), workspaces: s.repo.workspacesForUser(auth.user.id).map((w) => publicWorkspace(w, w.role)) })
+    return c.json({ user: publicUser(auth.user), workspaces: s.repo.workspacesForUser(auth.user.id).map((w) => publicWorkspace(w, w.role, auth.user.id)) })
   })
   return app
 }
@@ -23,7 +23,7 @@ export function meRoutes(s: Services) {
 
   app.get('/', (c) => {
     const { user } = requireAuth(c)
-    return c.json({ user: publicUser(user), workspaces: s.repo.workspacesForUser(user.id).map((w) => publicWorkspace(w, w.role)) })
+    return c.json({ user: publicUser(user), workspaces: s.repo.workspacesForUser(user.id).map((w) => publicWorkspace(w, w.role, user.id)) })
   })
 
   app.patch('/', async (c) => {

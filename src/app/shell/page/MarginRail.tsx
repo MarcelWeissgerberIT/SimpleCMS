@@ -4,9 +4,9 @@
  * PageView decides when it shows (main column only, wide enough, no focus mode, no comment rail —
  * see page.css).
  */
-import { useEffect, useId, useLayoutEffect, useMemo, useRef, type ReactNode } from 'react'
+import { useEffect, useId, useLayoutEffect, useMemo, useRef, type ReactNode, type RefObject } from 'react'
 import type { Editor } from '@tiptap/core'
-import { format } from 'date-fns'
+import { format, formatDistanceToNowStrict } from 'date-fns'
 import { de, enUS } from 'date-fns/locale'
 import { BellRing, PanelRightClose, PanelRightOpen } from 'lucide-react'
 import { useWorkspace } from '../../store/store'
@@ -17,7 +17,6 @@ import { Tooltip } from '../../ui/Tooltip'
 import { useLang, useT } from '../../i18n'
 import type { Page } from '../../store/types'
 import { goToPage } from '../lib/actions'
-import { fmtRelative } from '../lib/format'
 import { useKbdHint, useNow } from '../lib/hooks'
 import { Stamp, shortId, usePageReadings } from './SpecPlate'
 import { jumpToDate, jumpToHeading, scrollToBlock, useOutline, type OutlineItem } from './outline'
@@ -172,7 +171,8 @@ function Reminders({ list, editor }: { list: ReminderEntry[]; editor: Editor | n
   return (
     <ul className="mrail-due">
       {list.map((r) => {
-        const when = format(r.dueAt, lang === 'de' ? 'EEE dd. MMM · HH:mm' : 'EEE dd MMM · HH:mm', { locale: lang === 'de' ? de : enUS }).toUpperCase()
+        const locale = lang === 'de' ? de : enUS
+        const when = format(r.dueAt, lang === 'de' ? 'EEE dd. MMM · HH:mm' : 'EEE dd MMM · HH:mm', { locale }).toUpperCase()
         return (
           <li key={r.key}>
             <button type="button" className="mrail-due__a" aria-label={t('shell.rail.reminderAt', { when, what: r.excerpt })} onClick={(e) => jump(r, e.currentTarget)}>
@@ -180,7 +180,7 @@ function Reminders({ list, editor }: { list: ReminderEntry[]; editor: Editor | n
                 <BellRing size={12} strokeWidth={1.75} aria-hidden />
                 {when}
               </span>
-              <span className="mrail-due__in">{fmtRelative(r.dueAt, lang, t('shell.time.justNow')).toUpperCase()}</span>
+              <span className="mrail-due__in">{formatDistanceToNowStrict(r.dueAt, { addSuffix: true, locale }).toUpperCase()}</span>
               <span className="mrail-due__what">{r.excerpt || '—'}</span>
             </button>
           </li>
@@ -196,7 +196,7 @@ function Reminders({ list, editor }: { list: ReminderEntry[]; editor: Editor | n
  * A database entry: the rail starts beside its property list (the entry's spec sheet), not below
  * it — a long property list would push the rail out of sight. The offset follows the header's size.
  */
-function useBesideProperties(ref: React.RefObject<HTMLElement | null>, isRow: boolean) {
+function useBesideProperties(ref: RefObject<HTMLElement | null>, isRow: boolean) {
   useLayoutEffect(() => {
     const rail = ref.current
     const body = rail?.parentElement

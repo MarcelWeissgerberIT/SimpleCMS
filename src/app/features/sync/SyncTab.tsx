@@ -2,10 +2,11 @@
  * Settings → Sync: two instrument panels (FOLDER · GITHUB), a run log, and the layout spec.
  */
 import { useEffect, useId, useState, type ReactNode } from 'react'
-import { Eye, EyeOff, ExternalLink, FolderOpen, FolderSync, Download, RefreshCw, ArrowUpFromLine, ArrowDownToLine, Unplug, KeyRound } from 'lucide-react'
+import { ExternalLink, FolderOpen, FolderSync, Download, RefreshCw, ArrowUpFromLine, ArrowDownToLine, Unplug, KeyRound } from 'lucide-react'
 import { useUI } from '../../store/ui'
 import { useCloud } from '../../cloud'
 import { Led, Switch } from '../../ui/controls'
+import { SecretField } from '../../ui/SecretField'
 import { useLang, useT } from '../../i18n'
 import { countOf } from '../io/count'
 import {
@@ -23,6 +24,7 @@ import {
   type FolderState,
   type GitHubState,
 } from './service'
+import { sealGitHubToken } from './storage'
 import type { GitHubConfig, LogEntry } from './types'
 import './sync.css'
 
@@ -174,18 +176,19 @@ function GitHubPanel() {
   const loaded = useSync((s) => s.loaded)
   const uid = useId()
   const [draft, setDraft] = useState<GitHubConfig>(g.config)
-  const [show, setShow] = useState(false)
+  // a newly typed token; the config only ever holds its vault marker (storage.ts)
+  const [token, setToken] = useState('')
   const [testing, setTesting] = useState(false)
   // the saved config arrives after the first render (IndexedDB)
   useEffect(() => setDraft(g.config), [loaded, g.config])
   const commit = (patch: Partial<GitHubConfig>) => void updateGitHubConfig(patch)
   const inCloud = useCloud((c) => c.active.kind === 'cloud')
-  const field = (k: 'repo' | 'branch' | 'prefix' | 'token') => ({
+  const field = (k: 'repo' | 'branch' | 'prefix') => ({
     id: `${uid}-${k}`,
     'aria-describedby': `${uid}-${k}-hint`,
     value: draft[k],
     onChange: (e: { target: { value: string } }) => setDraft({ ...draft, [k]: e.target.value }),
-    onBlur: () => draft[k] !== g.config[k] && commit({ [k]: k === 'token' ? draft[k].trim() : draft[k] }),
+    onBlur: () => draft[k] !== g.config[k] && commit({ [k]: draft[k] }),
     onKeyDown: (e: { key: string; currentTarget: HTMLInputElement }) => e.key === 'Enter' && e.currentTarget.blur(),
     spellCheck: false,
     autoComplete: 'off',
@@ -193,10 +196,18 @@ function GitHubPanel() {
   const configured = g.state !== 'off'
   const stateText =
     g.state === 'ready' && g.pending > 0 ? t('features.sync.state.pendingN', { n: g.pending }) : g.state === 'ready' && !g.lastAt ? t('features.sync.state.gh.connected') : t(`features.sync.state.gh.${g.state}`)
+  /** Seal a typed token; the config keeps its marker. */
+  const saveToken = async (value: string) => {
+    const marker = await sealGitHubToken(value)
+    setToken('')
+    await updateGitHubConfig({ token: marker })
+  }
   const runTest = async () => {
     setTesting(true)
-    // fields that are still being edited count
-    await updateGitHubConfig({ ...draft, token: draft.token.trim() })
+    // fields that are still being edited count (a typed token is sealed first)
+    if (token.trim()) await saveToken(token)
+    const { repo, branch, prefix } = draft
+    await updateGitHubConfig({ repo, branch, prefix })
     await testGitHub()
     setTesting(false)
   }
@@ -224,16 +235,23 @@ function GitHubPanel() {
             </>
           }
         >
-          <div className="keyfield">
-            <input className="input keyfield__input" type={show ? 'text' : 'password'} placeholder="github_pat_…" {...field('token')} />
-            <button type="button" className="icon-btn" onClick={() => setShow(!show)} aria-label={show ? t('features.sync.gh.hide') : t('features.sync.gh.show')} aria-pressed={show}>
-              {show ? <EyeOff size={15} /> : <Eye size={15} />}
-            </button>
-          </div>
+          <SecretField
+            id={`${uid}-token`}
+            label={t('features.sync.gh.token')}
+            marker={g.config.token}
+            value={token}
+            onChange={setToken}
+            onSubmit={(v) => void saveToken(v)}
+            onRemove={() => commit({ token: '' })}
+            placeholder="github_pat_…"
+            describedBy={`${uid}-token-hint`}
+            showLabel={t('features.sync.gh.show')}
+            hideLabel={t('features.sync.gh.hide')}
+          />
         </GhField>
       </div>
       <div className="sy-test">
-        <button type="button" className="btn btn--sm" disabled={testing || !draft.repo.trim() || !draft.token.trim()} onClick={() => void runTest()}>
+        <button type="button" className="btn btn--sm" disabled={testing || !draft.repo.trim() || !(token.trim() || g.config.token)} onClick={() => void runTest()}>
           {testing ? t('features.sync.gh.testing') : t('features.sync.gh.test')}
         </button>
         {g.connection && !testing && (

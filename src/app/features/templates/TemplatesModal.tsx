@@ -332,14 +332,17 @@ export function TemplatesModal({ parentId, tab, select, onClose }: { parentId?: 
           )}
         </div>
 
-        <div className="tpl-filter" role="radiogroup" aria-label={t('features.tpl.categories')} ref={catRef} onKeyDown={rove(CATS, cat, setCat, catRef, '[role="radio"]')}>
-          {CATS.map((c) => (
-            <button key={c} type="button" role="radio" aria-checked={cat === c} tabIndex={cat === c ? 0 : -1} className="tpl-filter__tab" onClick={() => setCat(c)}>
-              <span>{t(`features.tpl.cat.${c}`)}</span>
-              <span className="tpl-filter__n">{pad2(catCount(c))}</span>
-            </button>
-          ))}
-        </div>
+        {/* no own templates yet: nothing to filter */}
+        {(source === 'builtin' || ownCount > 0) && (
+          <div className="tpl-filter" role="radiogroup" aria-label={t('features.tpl.categories')} ref={catRef} onKeyDown={rove(CATS, cat, setCat, catRef, '[role="radio"]')}>
+            {CATS.map((c) => (
+              <button key={c} type="button" role="radio" aria-checked={cat === c} tabIndex={cat === c ? 0 : -1} className="tpl-filter__tab" onClick={() => setCat(c)}>
+                <span>{t(`features.tpl.cat.${c}`)}</span>
+                <span className="tpl-filter__n">{pad2(catCount(c))}</span>
+              </button>
+            ))}
+          </div>
+        )}
 
         {source === 'mine' && !ownCount ? (
           <EmptyMine readOnly={readOnly} onNew={newTemplate} onBuiltins={() => switchSource('builtin')} />

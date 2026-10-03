@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto'
 import { once } from 'node:events'
 import { createReadStream, createWriteStream } from 'node:fs'
 import { link, mkdir, rename, rm } from 'node:fs/promises'
@@ -8,8 +7,10 @@ import { finished } from 'node:stream/promises'
 import { Hono } from 'hono'
 import { z } from 'zod'
 import type { AppEnv, Services } from '../context.ts'
+import { type FileSealer, fileSealer, openFile } from '../crypto/aead.ts'
 import { ApiError, badRequest, notFound } from '../errors.ts'
 import { body } from '../http/util.ts'
+import { filesDir, legacyPath, sealedPath } from '../storage.ts'
 import { newId } from '../tokens.ts'
 import { access } from './access.ts'
 
@@ -23,7 +24,10 @@ const INLINE_TYPES = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/web
 const DRAIN_CAP = 16 * 1024 * 1024
 
 /**
- * PUT/GET /api/workspaces/:id/files/:fileId — bytes live in DATA_DIR/files/<ws>/<id>, never in a served path.
+ * PUT/GET /api/workspaces/:id/files/:fileId — bytes live in DATA_DIR/files/<ws>/<id>.enc, sealed with the
+ * workspace's key while they stream in (AES-256-GCM, AAD = workspace + file id), never in a served path.
+ * A download is authenticated completely before the first byte goes out. Files from before encryption
+ * (`<id>`, plaintext) are served as they are until the startup migration / `encrypt-all` sealed them.
  * Private files (docs/CLOUD.md § Private pages): a PUT with `x-file-scope: private` (an upload from a
  * private page) is served to its uploader only — everyone else gets the same 404 as for a missing file —
  * until POST …/files/publish makes it a workspace file (its page moved to the workspace).
@@ -31,7 +35,6 @@ const DRAIN_CAP = 16 * 1024 * 1024
 export function fileRoutes(s: Services) {
   const app = new Hono<AppEnv>()
   const max = s.config.maxUploadBytes
-  const dirOf = (ws: string) => join(s.config.dataDir, 'files', ws)
 
   app.put('/:id/files/:fileId', async (c) => {
     const { workspace, auth } = access(s, c, 'member')
@@ -43,12 +46,14 @@ export function fileRoutes(s: Services) {
     // Node drains an unread body after the response; for huge declared bodies close the connection instead
     if (declared > max) throw tooLarge(max, declared > max + DRAIN_CAP)
 
-    const dir = dirOf(workspace.id)
+    const key = s.repo.keys.forWorkspace(workspace.id)
+    if (!key) throw notFound('workspace_not_found', 'Workspace not found')
+    const dir = filesDir(s.config.dataDir, workspace.id)
     await mkdir(dir, { recursive: true })
     const tmp = join(dir, `.upload-${newId()}`)
     let received: Received
     try {
-      received = await receive(c.req.raw.body, tmp, max)
+      received = await receive(c.req.raw.body, tmp, max, fileSealer(key, workspace.id, fileId))
     } catch (err) {
       await rm(tmp, { force: true })
       throw err
@@ -60,7 +65,7 @@ export function fileRoutes(s: Services) {
     const { size, sha256 } = received
     const privateTo = c.req.header('x-file-scope') === 'private' ? auth.user.id : null
 
-    const final = join(dir, fileId)
+    const final = sealedPath(s.config.dataDir, workspace.id, fileId)
     try {
       await link(tmp, final) // exclusive: two racing uploads of one id cannot overwrite each other
     } catch (err) {
@@ -91,7 +96,7 @@ export function fileRoutes(s: Services) {
     return c.json({ id: fileId }, 201)
   })
 
-  app.get('/:id/files/:fileId', (c) => {
+  app.get('/:id/files/:fileId', async (c) => {
     const { workspace, auth } = access(s, c, 'viewer')
     const fileId = c.req.param('fileId')
     const row = FILE_ID.test(fileId) ? s.repo.file(workspace.id, fileId) : undefined
@@ -110,8 +115,15 @@ export function fileRoutes(s: Services) {
     headers['Content-Length'] = String(row.size)
     headers['Content-Disposition'] = `${INLINE_TYPES.has(row.mime) ? 'inline' : 'attachment'}; filename="${asciiName(row.name)}"; filename*=UTF-8''${encodeURIComponent(row.name)}`
     if (c.req.method === 'HEAD') return c.body(null, 200, headers) // no file handle for a body nobody reads
-    const stream = Readable.toWeb(createReadStream(join(dirOf(workspace.id), row.id))) as unknown as ReadableStream
-    return c.body(stream, 200, headers)
+    if (!row.enc) {
+      // from before encryption: sealed by the migration soon, plaintext until then
+      const sealed = await openSealed(s, workspace.id, row.id)
+      const stream = sealed ? sealed.stream() : createReadStream(legacyPath(s.config.dataDir, workspace.id, row.id))
+      return c.body(Readable.toWeb(stream) as unknown as ReadableStream, 200, headers)
+    }
+    const sealed = await openSealed(s, workspace.id, row.id)
+    if (!sealed) throw new Error(`file ${workspace.id}/${row.id} has no bytes`)
+    return c.body(Readable.toWeb(sealed.stream()) as unknown as ReadableStream, 200, headers)
   })
 
   // the caller's private files among `ids` become workspace files (others' and unknown ids are ignored)
@@ -125,15 +137,31 @@ export function fileRoutes(s: Services) {
   return app
 }
 
+/** The sealed bytes, authenticated (null: there is no `<id>.enc`). A damaged or swapped file throws (500, logged). */
+async function openSealed(s: Services, workspaceId: string, fileId: string) {
+  const key = s.repo.keys.forWorkspace(workspaceId)
+  if (!key) return null
+  try {
+    return await openFile(sealedPath(s.config.dataDir, workspaceId, fileId), key, workspaceId, fileId)
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return null
+    s.log.error('file cannot be decrypted', { workspace: workspaceId, file: fileId, error: (err as Error).message })
+    throw err
+  }
+}
+
 const tooLarge = (max: number, close: boolean) =>
   new ApiError(413, 'file_too_large', `Files can be at most ${Math.round((max / 1024 / 1024) * 10) / 10} MB`, close ? { headers: { Connection: 'close' } } : undefined)
 
 type Received = { tooLarge: true } | { tooLarge: false; size: number; sha256: string }
 
-/** Streams the request body into `file`, hashing on the way; never holds more than one chunk in memory. */
-async function receive(body: ReadableStream<Uint8Array> | null, file: string, max: number): Promise<Received> {
+/**
+ * Streams the request body into `file`, encrypting and fingerprinting on the way (only ciphertext
+ * ever touches the disk); never holds more than one chunk in memory.
+ */
+async function receive(body: ReadableStream<Uint8Array> | null, file: string, max: number, sealer: FileSealer): Promise<Received> {
   const out = createWriteStream(file, { flags: 'wx', mode: 0o640 })
-  const hash = createHash('sha256')
+  out.write(sealer.header)
   const reader = body?.getReader()
   let size = 0
   let over = false
@@ -150,14 +178,14 @@ async function receive(body: ReadableStream<Uint8Array> | null, file: string, ma
         }
         continue
       }
-      hash.update(value)
-      if (!out.write(value)) await once(out, 'drain')
+      if (!out.write(sealer.update(value))) await once(out, 'drain')
     }
+    if (!over) out.write(sealer.final())
   } finally {
     out.end()
     await finished(out)
   }
-  return over ? { tooLarge: true } : { tooLarge: false, size, sha256: hash.digest('hex') }
+  return over ? { tooLarge: true } : { tooLarge: false, size, sha256: sealer.fingerprint() }
 }
 
 /** x-file-name is URI-encoded by the client (headers are Latin-1); strip paths and control chars. */

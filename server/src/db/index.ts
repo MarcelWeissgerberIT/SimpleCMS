@@ -3,6 +3,17 @@ import { migrations } from './migrations.ts'
 
 export type Param = SQLInputValue
 
+/** How often a running server writes its heartbeat into `server_state` (the CLI treats 3× this as "stopped"). */
+export const HEARTBEAT_EVERY = 30_000
+
+/** Milliseconds since a running server's last heartbeat, or null (no server running on this database). */
+export function heartbeatAge(db: Db, now = Date.now()): number | null {
+  const row = db.get<{ updated_at: number }>("SELECT updated_at FROM server_state WHERE key = 'heartbeat'")
+  if (!row) return null
+  const age = now - row.updated_at
+  return age < 3 * HEARTBEAT_EVERY ? age : null
+}
+
 /** Thin wrapper: cached prepared statements, typed rows, transactions. */
 export class Db {
   readonly raw: DatabaseSync
@@ -15,6 +26,7 @@ export class Db {
       PRAGMA synchronous = NORMAL;
       PRAGMA foreign_keys = ON;
       PRAGMA busy_timeout = 5000;
+      PRAGMA secure_delete = ON;
     `)
   }
 
@@ -50,6 +62,18 @@ export class Db {
     } catch (err) {
       this.raw.exec('ROLLBACK')
       throw err
+    }
+  }
+
+  /**
+   * Copy the WAL into the database and truncate it, so no older page image (plaintext from before
+   * encryption, a shredded workspace key) lingers there. Best effort: busy readers postpone it.
+   */
+  checkpoint(): void {
+    try {
+      this.raw.exec('PRAGMA wal_checkpoint(TRUNCATE)')
+    } catch {
+      /* busy: the next automatic checkpoint overwrites the frames */
     }
   }
 

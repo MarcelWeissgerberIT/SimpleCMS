@@ -27,7 +27,9 @@ import { createStore, type UseStore } from 'idb-keyval'
 import { useWorkspace, getWorkspaceSnapshot, emptyWorkspace, pageChanges, WORKSPACE_VERSION, defaultSettings, defaultView, DEFAULT_PAGE_SETTINGS } from './store'
 import type { Database, ID, Page, PropertyDef, Settings, Workspace } from './types'
 import { newId } from '../lib/ids'
+import { isSecretMarker } from '../lib/vault'
 import { mergePage, samePage } from './merge'
+import { LOCAL_SCOPE, sealStoredAIKey, setStoredKeyMigration } from './secrets'
 
 /** The single-record layout before v2 (read once, then converted). */
 const LEGACY_KEY = 'one.workspace.v1'
@@ -493,6 +495,59 @@ export async function readStoredWorkspace(): Promise<unknown> {
 }
 
 /* ------------------------------------------------------------------ */
+/* The Claude API key at rest (store/secrets.ts)                        */
+/* ------------------------------------------------------------------ */
+
+/** The Claude API key a raw stored record holds in plaintext (an older version), or null. */
+function plainKeyIn(rec: unknown): string | null {
+  const k = isObj(rec) && isObj(rec.settings) ? rec.settings.aiApiKey : null
+  return typeof k === 'string' && k.trim() && !isSecretMarker(k.trim()) ? k : null
+}
+
+const withKey = (rec: Obj, aiApiKey: string): Obj => ({ ...rec, settings: { ...(rec.settings as Obj), aiApiKey } })
+
+/**
+ * The local workspace's Claude API key, stored in plaintext by an older version: sealed into the
+ * vault and replaced by its marker where it is stored. Copies (an unconverted older record next to
+ * the v2 records, the repair copy) just lose it. Compare-and-swap: a record another tab changed in
+ * between is left for the next start. Resolves the marker, or null (nothing to do, or it could not
+ * be encrypted — then the plaintext stays as it was). Runs at every start (secrets.ts checkAIKey).
+ */
+export async function sealStoredKey(): Promise<string | null> {
+  const read = (key: string) =>
+    inTx<unknown>('readonly', (os, out) => {
+      const r = os.get(key)
+      r.onsuccess = () => (out.value = r.result)
+    })
+  const swap = (key: string, from: string, to: string) =>
+    inTx<void>('readwrite', (os) => {
+      const r = os.get(key)
+      r.onsuccess = () => {
+        if (plainKeyIn(r.result) === from) os.put(withKey(r.result as Obj, to), key)
+      }
+    })
+  const [meta, legacy, backup] = await Promise.all([read(META_KEY), read(LEGACY_KEY), read(BACKUP_KEY)])
+  // the workspace's own record: the v2 meta record, else the single record of older versions
+  const main = isObj(meta) ? META_KEY : LEGACY_KEY
+  const key = plainKeyIn(main === META_KEY ? meta : legacy)
+  let marker: string | null = null
+  if (key) {
+    marker = await sealStoredAIKey(key.trim(), LOCAL_SCOPE)
+    if (marker) await swap(main, key, marker)
+  }
+  for (const [k, rec] of [
+    [LEGACY_KEY, legacy],
+    [BACKUP_KEY, backup],
+  ] as const) {
+    const old = k === main ? null : plainKeyIn(rec)
+    if (old) await swap(k, old, '')
+  }
+  return marker
+}
+
+setStoredKeyMigration(sealStoredKey)
+
+/* ------------------------------------------------------------------ */
 /* Load                                                                */
 /* ------------------------------------------------------------------ */
 
@@ -512,14 +567,22 @@ export async function loadWorkspace(): Promise<Workspace | null> {
   }
   const { ws, repaired } = migrateWithReport(raw)
   if (repaired) {
-    // keep the original before anything is written (a failure here fails the boot: nothing is lost)
-    await inTx<void>('readwrite', (os) => void os.put(raw, BACKUP_KEY))
+    // keep the original before anything is written (a failure here fails the boot: nothing is lost) — but never the API key
+    await inTx<void>('readwrite', (os) => void os.put(plainKeyIn(raw) !== null ? withKey(raw as Obj, '') : raw, BACKUP_KEY))
     console.warn(`[one] the stored workspace had damaged entries — repaired; the original is kept in IndexedDB under "${BACKUP_KEY}"`)
     fullWriteNext = true
   }
   // the older single-record layout (or records without their meta): the first save writes every record
   if (stored?.legacy || stored?.noMeta) fullWriteNext = true
   if (!isObj(raw)) return null // nothing recoverable (backed up above): start fresh
+  // a Claude API key an older version stored in plaintext: into the vault, its marker in its place
+  if (plainKeyIn(raw) !== null) {
+    const marker = await sealStoredKey().catch((e) => {
+      console.warn('[one] could not migrate the stored Claude API key', e)
+      return null
+    })
+    if (marker) ws.settings.aiApiKey = marker
+  }
 
   // edits from the last moments before this tab (or another) went away
   const stashRaw = localGet(UNSAVED_KEY)

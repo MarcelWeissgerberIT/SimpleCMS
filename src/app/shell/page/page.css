@@ -567,6 +567,75 @@
   white-space: nowrap;
 }
 
+/* upcoming reminders: when it rings (mono, signal bell), how soon, and the line it belongs to */
+.mrail-due {
+  margin: 4px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.mrail-due li + li {
+  border-top: 1px solid var(--rule);
+}
+.mrail-due__a {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: baseline;
+  gap: 3px 8px;
+  width: calc(100% + 12px);
+  margin: 0 -6px;
+  padding: 7px 6px 8px;
+  border: 0;
+  border-radius: var(--radius-1);
+  background: transparent;
+  color: var(--ink-2);
+  text-align: left;
+  transition:
+    color var(--dur-1) var(--ease-out),
+    background var(--dur-1) var(--ease-out);
+}
+.mrail-due__a:hover {
+  background: var(--hover);
+  color: var(--ink);
+}
+.mrail-due__a:active {
+  transform: translateY(1px);
+}
+.mrail-due__when {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.mrail-due__when svg {
+  flex: none;
+  color: var(--signal-ink);
+}
+.mrail-due__in {
+  color: var(--ink-3);
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  letter-spacing: var(--tracking-label);
+  white-space: nowrap;
+}
+.mrail-due__what {
+  display: -webkit-box;
+  grid-column: 1 / -1;
+  padding-left: 18px;
+  overflow: hidden;
+  font-size: var(--text-sm);
+  line-height: 1.35;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow-wrap: anywhere;
+}
+
 /* the heading an outline jump landed on: a signal tick in the gutter (outline.ts) */
 .mrail-mark {
   position: absolute;

@@ -7,7 +7,8 @@ import { sectionHead } from './head'
  * § 03 — Agents · MCP: One as an instrument with an agent port. A schematic of both ways in
  * (local bridge → your tab; remote → your team server), the mode selector of the local bridge
  * (it re-labels the approval gate in the drawing and darkens the write tools), the tool table and
- * the setup snippets with copy keys.
+ * the setup: first the one-click Claude Desktop extension (mcp/one.mcpb), then — folded — the
+ * bridge file and the snippets for other clients, with copy keys.
  */
 
 type T = Ctx['t']
@@ -311,24 +312,34 @@ export function renderMcp(ctx: Ctx): string {
           <li>
             <span class="mcp-n disp" aria-hidden="true">01</span>
             <div class="mcp-step">
-              <p>${esc(t('mcp.s1'))}</p>
-              <a class="btn btn-sig" href="${asset('mcp/one-mcp.mjs')}" download="one-mcp.mjs" data-mcp-download>${esc(t('mcp.download'))}<span class="arr" aria-hidden="true">↓</span></a>
+              <p>${esc(t('mcp.oneClick'))}</p>
+              <div class="mcp-install">
+                <a class="btn btn-sig mcp-install-key" href="${asset('mcp/one.mcpb')}" download="one.mcpb" aria-describedby="mcp-install-hint" data-mcp-install>${esc(t('mcp.install'))}<span class="arr" aria-hidden="true">↓</span></a>
+                <span class="lbl mcp-install-spec">${esc(t('mcp.installSpec'))}</span>
+              </div>
+              <p class="mcp-hint" id="mcp-install-hint">${esc(t('mcp.installHint'))}</p>
             </div>
           </li>
           <li>
             <span class="mcp-n disp" aria-hidden="true">02</span>
-            <div class="mcp-step">
-              <p>${esc(t('mcp.s2'))}</p>
-              ${codeBlock('mcp-desktop', t('mcp.desktop'), DESKTOP_JSON('/ABSOLUTE/PATH/one-mcp.mjs'), t, 'json')}
-              <p class="mcp-hint">${esc(t('mcp.desktopNote'))}</p>
-              ${codeBlock('mcp-code', t('mcp.code'), `curl -fsSL ${url} -o ~/one-mcp.mjs\nclaude mcp add one -- node ~/one-mcp.mjs`, t, 'sh')}
-            </div>
-          </li>
-          <li>
-            <span class="mcp-n disp" aria-hidden="true">03</span>
             <div class="mcp-step"><p>${esc(t('mcp.s3'))}</p></div>
           </li>
         </ol>
+        <details class="mcp-manual">
+          <summary>
+            <span class="mcp-manual-t">${esc(t('mcp.manual'))}</span>
+            <span class="mcp-manual-pm" aria-hidden="true"></span>
+            <span class="mcp-manual-note">${esc(t('mcp.manualNote'))}</span>
+          </summary>
+          <div class="mcp-manual-body">
+            <p>${esc(t('mcp.s1'))}</p>
+            <a class="btn btn-ghost" href="${asset('mcp/one-mcp.mjs')}" download="one-mcp.mjs" data-mcp-download>${esc(t('mcp.download'))}<span class="arr" aria-hidden="true">↓</span></a>
+            <p>${esc(t('mcp.s2'))}</p>
+            ${codeBlock('mcp-code', t('mcp.code'), `curl -fsSL ${url} -o ~/one-mcp.mjs\nclaude mcp add one -- node ~/one-mcp.mjs`, t, 'sh')}
+            ${codeBlock('mcp-desktop', t('mcp.desktop'), DESKTOP_JSON('/ABSOLUTE/PATH/one-mcp.mjs'), t, 'json')}
+            <p class="mcp-hint">${esc(t('mcp.desktopNote'))}</p>
+          </div>
+        </details>
         <div class="mcp-team">
           ${codeBlock('mcp-team', t('mcp.team'), 'claude mcp add --transport http one https://team.example.com/mcp --header "Authorization: Bearer one_…"', t, 'sh')}
           <p class="mcp-hint">${esc(t('mcp.teamNote'))}</p>

@@ -1,6 +1,6 @@
 /**
- * "Link as relation?" — a row's text @-mentions a row of another database (the editor announces
- * page mentions with the window event PAGE_MENTIONED). A small chip next to the mention offers to
+ * "Link as relation?" — a row's text @-mentions (or links to) a row of another database (the editor
+ * announces both with the window event PAGE_MENTIONED). A small chip next to the mention offers to
  * put that row into a relation: the existing relation to that database, or a new one through the
  * short relation dialog (two-way by default). Alt+Enter (⌥↵) moves focus into the chip, Esc goes
  * back to writing; the chip leaves by itself after a while. × stops asking for this pair of
@@ -22,7 +22,7 @@ import { writeValue } from '../model/actions'
 import { canCreateProperties } from './quick'
 import { openCreateProperty } from './state'
 
-/** Window event the editor dispatches after inserting a page mention: detail { from: page id, to: page id }. */
+/** Window event the editor dispatches after inserting a page mention or a link to a page: detail { from: page id, to: page id }. */
 export const PAGE_MENTIONED = 'one:page-mentioned'
 
 const OFF_KEY = 'one.db.relationOffer.off'
@@ -74,10 +74,10 @@ export function relationOfferFor(rowId: ID, targetId: ID, opts: { ignoreOff?: bo
   return canCreateProperties(dbId) ? { targetId, targetDbId, relId: null } : null
 }
 
-/** The mention's element in this row's editor (the newest one). */
+/** The mention's (or link's) element in this row's editor (the last one). */
 function mentionEl(rowId: ID, targetId: ID): HTMLElement | null {
   const editor = document.querySelector(`.ProseMirror[data-page-id="${CSS.escape(rowId)}"]`)
-  const all = editor?.querySelectorAll<HTMLElement>(`.mention--page a[href="#/p/${CSS.escape(targetId)}"]`)
+  const all = editor?.querySelectorAll<HTMLElement>(`a[href="#/p/${CSS.escape(targetId)}"]`)
   return all?.length ? all[all.length - 1] : null
 }
 
@@ -133,7 +133,8 @@ export function RelationOffer({ rowId }: { rowId: ID }) {
   useEffect(() => {
     if (!offer) return
     const page = ws().pages[rowId]
-    const gone = offer.rev !== rev && !JSON.stringify(page?.content ?? null).includes(`"${offer.targetId}"`)
+    // (a mention carries the id, a link "#/p/<id>")
+    const gone = offer.rev !== rev && !JSON.stringify(page?.content ?? null).includes(offer.targetId)
     if (gone || !relationOfferFor(rowId, offer.targetId, { ignoreOff: true })) setOffer(null)
   }, [rev, props]) // eslint-disable-line react-hooks/exhaustive-deps
 

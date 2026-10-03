@@ -516,6 +516,104 @@
   line-height: 1.45;
   color: var(--ink-3);
 }
+/* Step 01: the one-click way — the Claude Desktop extension, the largest key of the section. */
+.mcp-install {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 18px;
+}
+.mcp-step .mcp-install-key {
+  height: 52px;
+  padding: 0 22px;
+  font-size: 16px;
+}
+.mcp-install-spec {
+  color: var(--ink-3);
+}
+
+/* Other clients / manual setup: folded under the steps. */
+.mcp-manual {
+  border-bottom: 1px solid var(--rule-strong);
+}
+.mcp-manual summary {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 14px;
+  align-items: center;
+  column-gap: 16px;
+  row-gap: 4px;
+  padding: 18px 0;
+  list-style: none;
+  cursor: pointer;
+}
+.mcp-manual summary::-webkit-details-marker {
+  display: none;
+}
+.mcp-manual-t {
+  font-size: 16px;
+  font-weight: 650;
+  font-stretch: 112%;
+  line-height: 1.3;
+  transition: color var(--dur-2) var(--ease-out);
+}
+.mcp-manual summary:hover .mcp-manual-t {
+  color: var(--signal-ink);
+}
+.mcp-manual-note {
+  grid-column: 1;
+  font-size: 13.5px;
+  line-height: 1.4;
+  color: var(--ink-3);
+}
+.mcp-manual-pm {
+  position: relative;
+  grid-column: 2;
+  grid-row: 1;
+  width: 14px;
+  height: 14px;
+}
+.mcp-manual-pm::before,
+.mcp-manual-pm::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 6.5px;
+  height: 1.5px;
+  background: var(--ink);
+  transition: transform var(--dur-3) var(--ease-out);
+}
+.mcp-manual-pm::after {
+  transform: rotate(90deg);
+}
+.mcp-manual[open] .mcp-manual-pm::after {
+  transform: rotate(0deg);
+}
+.mcp-manual[open] .mcp-manual-pm::before,
+.mcp-manual[open] .mcp-manual-pm::after {
+  background: var(--signal);
+}
+.mcp-manual-body {
+  padding: 0 0 24px;
+}
+.mcp-manual-body > p {
+  margin: 0 0 12px;
+  font-size: 15px;
+  font-weight: 550;
+  line-height: 1.45;
+}
+.mcp-manual-body > .btn + p {
+  margin-top: 22px;
+}
+.mcp-manual-body > p.mcp-hint {
+  margin: 10px 0 0;
+  font-size: 13.5px;
+  font-weight: 400;
+}
+.mcp-manual-body .mcp-code + .mcp-code {
+  margin-top: 12px;
+}
+
 .mcp-team {
   margin-top: 24px;
 }

@@ -123,6 +123,58 @@ test.describe('margin rail', () => {
     await expect(page.locator('#main .ProseMirror [data-level]', { hasText: 'Hidden heading' })).toBeInViewport()
   })
 
+  test('reminders: the upcoming ones of this page, soonest first; a click lands on their line', async ({ page }) => {
+    await page.setViewportSize(WIDE)
+    await openApp(page)
+    const day = (n: number) => {
+      const d = new Date(Date.now() + n * 864e5)
+      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+    }
+    const remind = (iso: string, code: string, text: string): JSONContent => ({
+      type: 'paragraph',
+      content: [{ type: 'text', text }, { type: 'mention', attrs: { id: iso, label: iso, kind: 'date', reminder: code } }],
+    })
+    const id = await createPage(page, {
+      title: 'Launch plan',
+      content: longDoc(6, [remind(day(-10), 'at', 'Kick-off was on '), remind(day(20), '-1w', 'Press day on '), remind(day(9), '-1d', 'Go-live on ')]),
+    })
+    await gotoPage(page, id)
+    const due = rail(page).getByRole('region', { name: 'Reminders' })
+    const items = due.getByRole('button')
+    // the past one is gone; the next one to ring comes first (−1 day of +9 days before −1 week of +20 days)
+    await expect(items).toHaveCount(2)
+    await expect(items.first()).toContainText('Go-live on')
+    await expect(items.first()).toContainText(/IN \d+ DAYS/)
+    await expect(items.nth(1)).toContainText('Press day on')
+    // the rail orders its sections: outline, reminders, page, linked from
+    await expect(rail(page).locator('.mrail__label')).toHaveText(['Outline', 'Reminders', 'Page'])
+
+    await items.first().click()
+    const line = page.locator('#main .ProseMirror p', { hasText: 'Go-live on' })
+    await expect(line).toBeInViewport()
+    await expect(page.locator('#main > .mrail-mark')).toHaveCount(1)
+
+    // no reminders, no section
+    await gotoPage(page, await pageIdByTitle(page, 'Team wiki'))
+    await expect(rail(page).getByRole('region', { name: 'Reminders' })).toHaveCount(0)
+  })
+
+  test('a database entry: the rail starts beside its property list', async ({ page }) => {
+    await page.setViewportSize(WIDE)
+    await openApp(page)
+    const id = await pageIdByTitle(page, 'Website relaunch')
+    await gotoPage(page, id)
+    await expect(rail(page)).toBeVisible()
+    await expect(rail(page).locator('.mrail__label').first()).toHaveText('Entry')
+    const gap = async () => Math.abs((await rail(page).locator('.mrail__inner').boundingBox())!.y - (await page.locator('#main .pv-props').boundingBox())!.y)
+    expect(await gap()).toBeLessThan(12)
+    // … and moves with the list when the header above it grows (an icon, a longer title)
+    const before = (await page.locator('#main .pv-props').boundingBox())!.y
+    await wsEval(page, (s, id) => s.updatePage(id, { icon: { type: 'asset', value: 'compass' } }), id)
+    await expect.poll(async () => (await page.locator('#main .pv-props').boundingBox())!.y).toBeGreaterThan(before + 40)
+    await expect.poll(gap).toBeLessThan(12)
+  })
+
   test('the toggle (key and Mod+.) is remembered on this device', async ({ page }) => {
     await page.setViewportSize(WIDE)
     await openApp(page)

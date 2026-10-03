@@ -2,8 +2,9 @@
    Page icons (PageIcon.tsx)
    ================================================================ */
 
-/* generated ceramic icons: the object fills the box at small sizes (the files carry ~8% air),
-   and a hairline edge keeps the white ceramic legible on paper */
+/* generated ceramic icons: the object fills the box at small sizes (the files carry ~8% air);
+   on paper a hairline edge plus a half-pixel contact shadow keep the white ceramic a solid
+   silhouette at 14–18px (on carbon it stands out on its own) */
 .picon {
   display: inline-grid;
   flex: none;
@@ -19,7 +20,7 @@
 }
 .picon[data-small] img {
   transform: scale(1.16);
-  filter: drop-shadow(0 0 0.5px color-mix(in srgb, var(--ink) 55%, transparent));
+  filter: drop-shadow(0 0 0.4px color-mix(in srgb, var(--ink) 60%, transparent)) drop-shadow(0 0.5px 0.3px color-mix(in srgb, var(--ink) 35%, transparent));
 }
 :root[data-theme='dark'] .picon[data-small] img {
   filter: none;

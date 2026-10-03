@@ -6,7 +6,7 @@
 import { format } from 'date-fns'
 import { useUI } from '../../store/ui'
 import { useCloud } from '../../cloud'
-import { selectBacklinks } from '../../store/selectors'
+import { inTemplate, selectBacklinks } from '../../store/selectors'
 import type { Database, ID, Page, PropertyDef } from '../../store/types'
 import { docToMarkdown } from '../../editor'
 import { parseHash } from '../../lib/router'
@@ -69,9 +69,10 @@ function overview(mode: McpAgentMode) {
   const peek = peekId ? live(peekId) : null
   const now = new Date()
   const info = workspaceInfo()
+  // template databases (features/templates) are not the workspace's data
   const dbs = Object.values(databases)
     .map((d) => live(d.id))
-    .filter((p): p is Page => !!p)
+    .filter((p): p is Page => !!p && !inTemplate(pages, p.id))
     .map((p) => ({ id: p.id, title: titleOf(p), path: pathOf(p.id), rows: rowsOf(p.id).length }))
     .sort((a, b) => a.path.localeCompare(b.path) || a.title.localeCompare(b.title))
   return {
@@ -153,7 +154,9 @@ export function findPage(args: Record<string, unknown>): { page: Page; others: P
     if (p) return { page: p, others: [] }
     if (!title) throw new McpToolError(`No page with id ${q(id)}. Use one_search to find page ids.`)
   }
-  const all = Object.values(ws().pages).filter((p) => live(p.id))
+  // by title: template pages (features/templates) never answer; by id they still do
+  const pages = ws().pages
+  const all = Object.values(pages).filter((p) => live(p.id) && !inTemplate(pages, p.id))
   const hits = all.filter((p) => p.title.trim().toLowerCase() === title.toLowerCase()).sort((a, b) => b.updatedAt - a.updatedAt)
   if (!hits.length) {
     const near = all
@@ -206,11 +209,11 @@ function getPage(args: Record<string, unknown>) {
 /* ------------------------------------------------------------------ */
 
 function listDatabases() {
-  const { databases } = ws()
+  const { databases, pages } = ws()
   return {
     databases: Object.values(databases)
       .map((d) => ({ d, page: live(d.id) }))
-      .filter((x): x is { d: Database; page: Page } => !!x.page)
+      .filter((x): x is { d: Database; page: Page } => !!x.page && !inTemplate(pages, x.d.id))
       .map(({ d, page }) => ({
         id: d.id,
         title: titleOf(page),

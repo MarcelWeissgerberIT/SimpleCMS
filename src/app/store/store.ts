@@ -12,6 +12,7 @@ import { immer } from 'zustand/middleware/immer'
 import type { JSONContent } from '@tiptap/core'
 import { newId } from '../lib/ids'
 import { detectLang } from '@/shared/i18n'
+import { aiKeyValue, attachSecrets, checkAIKey, withSealedKey } from './secrets'
 import type {
   Database,
   ID,
@@ -374,11 +375,15 @@ export const useWorkspace = create<WorkspaceState>()(
     ...emptyWorkspace(),
     ready: false,
 
-    hydrate: (ws) =>
+    hydrate: (ws) => {
+      // the Claude API key: a vault marker, never the key (secrets.ts)
+      const settings = withSealedKey(ws.settings, get().settings.aiApiKey, ws.epoch)
       set((s) => {
-        Object.assign(s, ws, { pages: freezePages(ws.pages) })
+        Object.assign(s, ws, { pages: freezePages(ws.pages), settings })
         s.ready = true
-      }),
+      })
+      void checkAIKey()
+    },
 
     replaceAll: (ws) =>
       set((s) => {
@@ -387,7 +392,7 @@ export const useWorkspace = create<WorkspaceState>()(
         s.pages = ws.pages
         s.databases = ws.databases
         s.people = ws.people
-        s.settings = ws.settings
+        s.settings = withSealedKey(ws.settings, s.settings.aiApiKey, s.epoch)
         s.recent = ws.recent
       }),
 
@@ -730,10 +735,13 @@ export const useWorkspace = create<WorkspaceState>()(
       return person.id
     },
 
-    updateSettings: (patch) =>
+    updateSettings: (patch) => {
+      // a key goes into the vault; the store keeps its marker ('' removes it, secrets.ts)
+      const p = 'aiApiKey' in patch ? { ...patch, aiApiKey: aiKeyValue(patch.aiApiKey, get().settings.aiApiKey, get().epoch, true) } : patch
       set((s) => {
-        Object.assign(s.settings, patch)
-      }),
+        Object.assign(s.settings, p)
+      })
+    },
 
     // comments bump the page's updatedAt: cross-tab sync compares pages by it (merge.ts samePage)
     addComment: (pageId, input) => {
@@ -817,11 +825,13 @@ export const useWorkspace = create<WorkspaceState>()(
           else delete s.databases[id]
         }
         if (patch.people) s.people = patch.people
-        if (patch.settings) Object.assign(s.settings, patch.settings)
+        if (patch.settings) Object.assign(s.settings, withSealedKey({ ...s.settings, ...patch.settings }, s.settings.aiApiKey, s.epoch))
         if (removed && s.recent.some((r) => !s.pages[r])) s.recent = s.recent.filter((r) => !!s.pages[r])
       }),
   })),
 )
+
+attachSecrets({ getState: useWorkspace.getState, setState: (recipe) => useWorkspace.setState(recipe) })
 
 /* ------------------------------------------------------------------ */
 /* What a store change touched (shared by every subscriber)            */

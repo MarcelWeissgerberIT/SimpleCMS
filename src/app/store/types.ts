@@ -600,7 +600,12 @@ export interface Settings {
   lastPageId: ID | null
   /** Spell check in editor */
   spellcheck: boolean
-  /** BYOK Claude API key (stored locally only). */
+  /**
+   * BYOK Claude API key — as a vault MARKER ("vault:<seal id>:<last 4>", '' = no key), never the key
+   * itself: updateSettings({ aiApiKey: <key> }) seals the key into this browser's vault (lib/vault.ts)
+   * and stores the marker; '' removes it. `!!aiApiKey` = "a key is set"; only the AI client reads the
+   * key (store/secrets.ts getAIKey()). Never exported, synced or shared.
+   */
   aiApiKey: string
   aiModel: string
   /** Snapshot interval for version history in minutes */

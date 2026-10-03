@@ -3,10 +3,11 @@
  * (shared computers, "remove this workspace's copy"). A copy is:
  *   one:ws:<id>, one:ws:<id>:p:<page>   y-indexeddb databases (meta document + page documents;
  *   one:ws:<id>:u:<user>[:p:<page>]     the private ones too, docs/CLOUD.md § Private pages)
- *   one-cloud / kv                      overlay:<id> (settings incl. the AI key, favourites, recent),
+ *   one-cloud / kv                      overlay:<id> (settings incl. the AI key's marker, favourites, recent),
  *                                       content:<id>:<page>, uploads:<id>, purge:<id>, privfiles:<id>
  *   one-files / files                   cached files — only those nothing else in this browser uses
  *   one-history / snapshots             version history of the workspace's pages (idx:<page>, snap:<id>)
+ *   one-vault / kv                      sealed secrets of scope cloud:<id> (the AI key, the GitHub token)
  * The team workspace on the server is never touched, nor is the local workspace or anything it uses
  * (a local workspace copied into a team keeps its page and file ids, so those are checked).
  *
@@ -22,6 +23,7 @@ import { deleteFile, FILE_PREFIX } from '../lib/files'
 import { lsGet, lsSet, readChoice, readSession, sleep, writeChoice, WS_ID } from './env'
 import { allDeviceEntries, dropDeviceKeys } from './local'
 import { readStoredWorkspace } from '../store/persistence'
+import { clearSecrets } from '../lib/vault'
 
 const FLAG = 'one.cloud.forget'
 const CHANNEL = 'one-cloud-forget'
@@ -238,13 +240,15 @@ async function forget(flag: string[]): Promise<void> {
     const inboxKeys = [...targets].flatMap((ws) => [`data:cloud:${ws}`, `snap:cloud:${ws}`])
     await delMany(inboxKeys, createStore('one-inbox', 'kv')).catch(() => {})
   }
-  // folder + GitHub sync of this device (features/sync/storage.ts) — incl. the GitHub token
+  // folder + GitHub sync of this device (features/sync/storage.ts)
   if (!dbNames || dbNames.includes('one-sync')) {
     const syncKeys = [...targets].flatMap((ws) =>
       ['folder', 'manifest:folder', 'manifest:github', 'github', 'status:folder', 'status:github', 'log'].map((k) => `${k}:cloud:${ws}`),
     )
     await delMany(syncKeys, createStore('one-sync', 'kv')).catch(() => {})
   }
+  // this device's sealed secrets for them (lib/vault.ts): the AI key, the GitHub token
+  await clearSecrets((scope) => scope.startsWith('cloud:') && (all || targets.has(scope.slice(6)))).catch(() => {})
   for (const id of refs) if (!keep.has(id)) await deleteFile(FILE_PREFIX + id).catch(() => {})
   await Promise.all([...docDbs].map(deleteDb))
   done()

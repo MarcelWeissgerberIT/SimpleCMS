@@ -20,7 +20,7 @@ export { SharedFormView } from './form/public'
  *    canCreateProperties(dbId) · propertyByName(db, name) · freePropertyName(db, name)
  *  - CreatePropertyDialog: the short dialog (name · type · relation target + two-way) — render it yourself.
  *  - CreatePropertiesDialog: several fields at once ("check": create or not · "map": create / existing / skip).
- *  - PAGE_MENTIONED: window event the editor fires after inserting a page mention ({ from, to } page ids);
+ *  - PAGE_MENTIONED: window event the editor fires after inserting a page mention or a link to a page ({ from, to } page ids);
  *      row pages answer with the "link as relation?" offer.
  */
 export { createPropertyQuick, createPropertiesQuick, dropCreated, canCreateProperties, propertyByName, freePropertyName, type QuickProperty } from './create/quick'

@@ -6566,20 +6566,20 @@ var require_compile = __commonJS({
     var util_1 = require_util();
     var validate_1 = require_validate();
     var SchemaEnv = class {
-      constructor(env) {
+      constructor(env2) {
         var _a3;
         this.refs = {};
         this.dynamicAnchors = {};
         let schema;
-        if (typeof env.schema == "object")
-          schema = env.schema;
-        this.schema = env.schema;
-        this.schemaId = env.schemaId;
-        this.root = env.root || this;
-        this.baseId = (_a3 = env.baseId) !== null && _a3 !== void 0 ? _a3 : (0, resolve_1.normalizeId)(schema === null || schema === void 0 ? void 0 : schema[env.schemaId || "$id"]);
-        this.schemaPath = env.schemaPath;
-        this.localRefs = env.localRefs;
-        this.meta = env.meta;
+        if (typeof env2.schema == "object")
+          schema = env2.schema;
+        this.schema = env2.schema;
+        this.schemaId = env2.schemaId;
+        this.root = env2.root || this;
+        this.baseId = (_a3 = env2.baseId) !== null && _a3 !== void 0 ? _a3 : (0, resolve_1.normalizeId)(schema === null || schema === void 0 ? void 0 : schema[env2.schemaId || "$id"]);
+        this.schemaPath = env2.schemaPath;
+        this.localRefs = env2.localRefs;
+        this.meta = env2.meta;
         this.$async = schema === null || schema === void 0 ? void 0 : schema.$async;
         this.refs = {};
       }
@@ -6763,15 +6763,15 @@ var require_compile = __commonJS({
           baseId = (0, resolve_1.resolveUrl)(this.opts.uriResolver, baseId, schId);
         }
       }
-      let env;
+      let env2;
       if (typeof schema != "boolean" && schema.$ref && !(0, util_1.schemaHasRulesButRef)(schema, this.RULES)) {
         const $ref = (0, resolve_1.resolveUrl)(this.opts.uriResolver, baseId, schema.$ref);
-        env = resolveSchema.call(this, root, $ref);
+        env2 = resolveSchema.call(this, root, $ref);
       }
       const { schemaId } = this.opts;
-      env = env || new SchemaEnv({ schema, schemaId, root, baseId });
-      if (env.schema !== env.root.schema)
-        return env;
+      env2 = env2 || new SchemaEnv({ schema, schemaId, root, baseId });
+      if (env2.schema !== env2.root.schema)
+        return env2;
       return void 0;
     }
   }
@@ -8569,8 +8569,8 @@ var require_ref = __commonJS({
       schemaType: "string",
       code(cxt) {
         const { gen, schema: $ref, it } = cxt;
-        const { baseId, schemaEnv: env, validateName, opts, self } = it;
-        const { root } = env;
+        const { baseId, schemaEnv: env2, validateName, opts, self } = it;
+        const { root } = env2;
         if (($ref === "#" || $ref === "#/") && baseId === root.baseId)
           return callRootRef();
         const schOrEnv = compile_1.resolveRef.call(self, root, baseId, $ref);
@@ -8580,8 +8580,8 @@ var require_ref = __commonJS({
           return callValidate(schOrEnv);
         return inlineRefSchema(schOrEnv);
         function callRootRef() {
-          if (env === root)
-            return callRef(cxt, validateName, env, env.$async);
+          if (env2 === root)
+            return callRef(cxt, validateName, env2, env2.$async);
           const rootName = gen.scopeValue("root", { ref: root });
           return callRef(cxt, (0, codegen_1._)`${rootName}.validate`, root, root.$async);
         }
@@ -8611,14 +8611,14 @@ var require_ref = __commonJS({
     exports.getValidate = getValidate;
     function callRef(cxt, v, sch, $async) {
       const { gen, it } = cxt;
-      const { allErrors, schemaEnv: env, opts } = it;
+      const { allErrors, schemaEnv: env2, opts } = it;
       const passCxt = opts.passContext ? names_1.default.this : codegen_1.nil;
       if ($async)
         callAsyncRef();
       else
         callSyncRef();
       function callAsyncRef() {
-        if (!env.$async)
+        if (!env2.$async)
           throw new Error("async schema referenced by sync schema");
         const valid = gen.let("valid");
         gen.try(() => {
@@ -27830,6 +27830,10 @@ var log = (msg) => {
   if (!quiet) process.stderr.write(`[one-mcp] ${msg}
 `);
 };
+var env = (name) => {
+  const v = process.env[name]?.trim();
+  return !v || /^\$\{[^}]*\}$/.test(v) || v === "undefined" ? void 0 : v;
+};
 var num = (raw, def, min, max) => {
   const n = Number(raw);
   return Number.isFinite(n) && n >= min && n <= max ? Math.floor(n) : def;
@@ -27844,8 +27848,9 @@ if (argv.includes("--help") || argv.includes("-h")) {
   process.stdout.write(`One MCP bridge ${VERSION}
 Lets an MCP client (Claude Desktop, Claude Code \u2026) work in the One tab open in your browser.
 
+  Claude Desktop: open one.mcpb (https://getonecms.com/mcp/one.mcpb) \u2014 one click, or by hand:
+                  { "mcpServers": { "one": { "command": "node", "args": ["/path/to/one-mcp.mjs"] } } }
   Claude Code:    claude mcp add one -- node /path/to/one-mcp.mjs
-  Claude Desktop: { "mcpServers": { "one": { "command": "node", "args": ["/path/to/one-mcp.mjs"] } } }
 
 Then open One and switch on Settings \u2192 Agents \xB7 MCP. Docs: https://getonecms.com/ (docs/MCP.md)
 
@@ -27854,12 +27859,12 @@ Environment: ONE_MCP_PORT (default ${MCP_DEFAULT_PORT}), ONE_ORIGINS, ONE_MCP_TI
   process.exit(0);
 }
 if (process.stdin.isTTY) log("this is an MCP server: an MCP client starts it and talks to it over stdin/stdout (run with --help for setup)");
-var port = num(process.env.ONE_MCP_PORT, MCP_DEFAULT_PORT, 1, 65535);
+var port = num(env("ONE_MCP_PORT"), MCP_DEFAULT_PORT, 1, 65535);
 var bridge = new Bridge({
   port,
-  origins: allowedOrigins(process.env.ONE_ORIGINS, log),
-  timeoutMs: num(process.env.ONE_MCP_TIMEOUT_MS, 3e4, 100, 6e5),
-  waitMs: num(process.env.ONE_MCP_WAIT_MS, 1e4, 0, 12e4),
+  origins: allowedOrigins(env("ONE_ORIGINS"), log),
+  timeoutMs: num(env("ONE_MCP_TIMEOUT_MS"), 3e4, 100, 6e5),
+  waitMs: num(env("ONE_MCP_WAIT_MS"), 1e4, 0, 12e4),
   version: VERSION,
   log
 });

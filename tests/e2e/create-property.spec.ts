@@ -6,7 +6,7 @@
  * Claude is mocked (never reaches api.anthropic.com).
  */
 import type { Locator, Page } from '@playwright/test'
-import { test, expect, openApp, gotoPage, wsEval, flush, reloadApp, pageIdByTitle, editorOf, createPage, doc, mockClaude, escapeRe } from './fixtures'
+import { test, expect, openApp, gotoPage, wsEval, flush, reloadApp, pageIdByTitle, editorOf, createPage, doc, mockClaude, escapeRe, MOD } from './fixtures'
 
 type AnyState = Record<string, any> // eslint-disable-line @typescript-eslint/no-explicit-any
 
@@ -131,6 +131,39 @@ test.describe('create properties on the fly', () => {
     // …while Projects still is
     await mention(page, other, 'Website relaunch')
     await expect(offer(page)).toContainText('Add to “Project”?')
+  })
+
+  test('a text link to a row of another database (Ctrl/⌘K) gets the offer too', async ({ page }) => {
+    await openApp(page)
+    const reading = await pageIdByTitle(page, 'Reading list')
+    const book = await pageIdByTitle(page, 'Shape Up')
+    const site = await pageIdByTitle(page, 'Website relaunch')
+    await gotoPage(page, book)
+    const ed = editorOf(page, book)
+    await ed.focus()
+    await page.keyboard.press(`${MOD}+End`)
+    await page.keyboard.type('Read for the site')
+    await expect(ed).toContainText('Read for the site')
+    for (let i = 0; i < 4; i++) await page.keyboard.press('Shift+ArrowLeft')
+    // (the editor takes the selection over from the DOM a moment later; Ctrl/⌘K links it)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await expect.poll(() => ed.evaluate((el: any) => { const { from, to } = el.editor.state.selection; return el.editor.state.doc.textBetween(from, to) })).toBe('site')
+    await page.keyboard.press(`${MOD}+k`)
+    const input = page.locator('.bubble__link-input')
+    await expect(input).toBeFocused()
+    await input.fill('Website relaunch')
+    await expect(page.locator('.bubble__link-result').first()).toContainText('Website relaunch')
+    await page.keyboard.press('Enter')
+    await expect(ed.locator(`a[href="#/p/${site}"]`)).toHaveText('site')
+    await expect(offer(page)).toContainText('Link as relation to Projects?')
+    // the link is saved meanwhile: the offer stays
+    await flush(page)
+    await page.waitForTimeout(300)
+    await expect(offer(page)).toBeVisible()
+    await offer(page).getByRole('button', { name: /^Link/ }).click()
+    await dialog(page).getByRole('button', { name: 'Create' }).click()
+    const fwd = await propByName(page, reading, 'Projects')
+    expect(await valueOf(page, book, fwd!.id)).toEqual([site])
   })
 
   test('keyboard only: Alt+Enter into the offer, Enter, one-way relation with the switch off, Enter creates', async ({ page }) => {

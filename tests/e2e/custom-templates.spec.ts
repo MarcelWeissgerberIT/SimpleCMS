@@ -464,7 +464,7 @@ test.describe('own templates', () => {
     await expect(page.locator('#main .pv-title')).toHaveValue('Meeting notes')
   })
 
-  test('duplicate, delete with undo, new template, reload persists, German', async ({ page }) => {
+  test('duplicate, delete with undo, new template, reload persists', async ({ page }) => {
     await openApp(page)
     const kit = await seedKit(page)
     const tplId = await saveAsTemplate(page, kit.root, { category: 'Product' })
@@ -517,24 +517,36 @@ test.describe('own templates', () => {
     await dialog.getByRole('tab', { name: /^Mine/ }).click()
     await expect(dialog.getByRole('option')).toHaveCount(2)
     await page.keyboard.press('Escape')
+  })
 
-    // German
+  test('German: save dialog, gallery and banner', async ({ page }) => {
+    await openApp(page)
+    const kit = await seedKit(page)
     await wsEval(page, (s) => s.updateSettings({ language: 'de' }))
     await gotoPage(page, kit.root)
     await page.locator('.tb').getByRole('button', { name: 'Seitenoptionen' }).click()
-    await expect(page.getByRole('menuitem', { name: 'Als Vorlage speichern…' })).toBeVisible()
-    await page.keyboard.press('Escape')
+    await page.getByRole('menuitem', { name: 'Als Vorlage speichern…' }).click()
+    const save = page.getByRole('dialog', { name: 'Als Vorlage speichern' })
+    await expect(save.locator('.tpl-form__count')).toHaveText('2 Seiten, 1 Datenbank, 2 Zeilen')
+    await save.getByRole('radio', { name: 'Wissen' }).click()
+    await save.getByRole('button', { name: 'Vorlage speichern' }).click()
+    await expect(page.getByText('Als Vorlage „Launch kit“ gespeichert')).toBeVisible()
+
     await page.locator('.sb').getByRole('button', { name: /^Vorlagen/ }).click()
-    dialog = page.getByRole('dialog', { name: 'Vorlagen' })
+    const dialog = page.getByRole('dialog', { name: 'Vorlagen' })
     await expect(dialog.getByRole('tab', { name: /^Mitgeliefert/ })).toBeVisible()
     await dialog.getByRole('tab', { name: /^Eigene/ }).click()
     await expect(dialog.getByRole('button', { name: 'Neue Vorlage' })).toBeVisible()
-    await expect(dialog.locator('.tpl-preview').getByRole('button', { name: 'Bearbeiten' })).toBeVisible()
+    await expect(dialog.getByRole('radio', { name: /Wissen/ })).toContainText('01')
     await expect(dialog.locator('.tpl-preview').getByRole('button', { name: 'Duplizieren' })).toBeVisible()
+    await expect(dialog.locator('.tpl-preview').getByRole('button', { name: 'Löschen' })).toBeVisible()
     await dialog.locator('.tpl-preview').getByRole('button', { name: 'Bearbeiten' }).click()
-    await expect(page.locator('#main .tplb')).toContainText('Vorlage')
-    await expect(page.locator('#main .tplb').getByRole('button', { name: 'Fertig' })).toBeVisible()
-    await expect(page.locator('#main .tplb').getByRole('button', { name: /Vorlage verwenden/ })).toBeVisible()
+    const banner = page.locator('#main .tplb')
+    await expect(banner).toContainText('Vorlage')
+    await expect(banner.getByRole('button', { name: 'Fertig' })).toBeVisible()
+    await expect(banner.getByRole('button', { name: /Vorlage verwenden/ })).toBeVisible()
+    await banner.getByRole('button', { name: 'Details' }).click()
+    await expect(banner.getByText('werden bei jeder Verwendung ausgefüllt')).toBeVisible()
   })
 
   test('keyboard: tabs, cards, Enter uses, E edits', async ({ page }) => {

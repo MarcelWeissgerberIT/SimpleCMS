@@ -89,7 +89,7 @@ export async function runPendingReset(onBlocked?: () => void): Promise<boolean> 
     /* "1" or junk: start over */
   }
   if (!names) {
-    const all = new Set<string>(['keyval-store', 'one-files'])
+    const all = new Set<string>(['keyval-store', 'one-files', 'one-vault'])
     try {
       const dbs = (await indexedDB.databases?.()) ?? []
       for (const d of dbs) if (d.name) all.add(d.name)

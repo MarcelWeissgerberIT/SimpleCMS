@@ -7,7 +7,9 @@ import { RateLimiter } from './auth/ratelimit.ts'
 import { Sessions } from './auth/sessions.ts'
 import { createCollab } from './collab/index.ts'
 import { type Config, isSecureUrl } from './config.ts'
-import { openDb } from './db/index.ts'
+import { Keyring } from './crypto/keyring.ts'
+import { plaintextLeft, sealFiles, sealRows } from './crypto/migrate.ts'
+import { HEARTBEAT_EVERY, openDb } from './db/index.ts'
 import type { Logger } from './log.ts'
 import { createMailer } from './mail/index.ts'
 import { Repo } from './repo.ts'
@@ -22,7 +24,18 @@ export interface RunningServer {
 /** Wires everything together on one HTTP server: REST + static via Hono, Yjs via /collab upgrades. */
 export async function startServer(config: Config, log: Logger): Promise<RunningServer> {
   const db = openDb(join(config.dataDir, 'one.sqlite'))
-  const repo = new Repo(db, config.secret)
+  // encryption at rest: DATA_KEY must open this database's workspace keys, else refuse to start (exit 78)
+  const keyring = new Keyring(db, config.dataKey)
+  try {
+    keyring.verify()
+  } catch (err) {
+    db.close()
+    throw err
+  }
+  const repo = new Repo(db, config.secret, keyring)
+  // what was stored before encryption is sealed now (rows before listening; files below, in the background)
+  const sealed = sealRows(db, keyring)
+  if (sealed.keys || sealed.documents || sealed.idempotency) log.info('encryption at rest: sealed stored data', { ...sealed })
   const sessions = new Sessions(repo, isSecureUrl(config.publicUrl))
   const mailer = createMailer(config, log)
   const limiter = new RateLimiter()
@@ -53,6 +66,34 @@ export async function startServer(config: Config, log: Logger): Promise<RunningS
   repo.purgeExpired()
   void mailer.verify()
 
+  // the CLI refuses a key rotation while this heartbeat is fresh (docs/SELF_HOSTING.md § Rotating DATA_KEY)
+  const started = Date.now()
+  const beat = () => {
+    try {
+      db.run(
+        `INSERT INTO server_state (key, value, updated_at) VALUES ('heartbeat', ?, ?)
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
+        JSON.stringify({ pid: process.pid, started_at: started }), Date.now(),
+      )
+    } catch (err) {
+      log.warn('heartbeat failed', { error: (err as Error).message })
+    }
+  }
+  beat()
+  const heartbeat = setInterval(beat, HEARTBEAT_EVERY)
+  heartbeat.unref()
+
+  const filesSealed = (async () => {
+    try {
+      const r = await sealFiles(db, keyring, config.dataDir)
+      if (r.files || r.missing) log.info('encryption at rest: sealed stored files', { ...r })
+      const left = plaintextLeft(db)
+      if (Object.values(left).some((n) => n > 0)) log.warn('encryption at rest: plaintext left (run: node dist/cli.js encrypt-all)', left)
+    } catch (err) {
+      log.error('encryption at rest: sealing stored files failed (run: node dist/cli.js encrypt-all)', { error: err as Error })
+    }
+  })()
+
   log.info('listening', {
     port,
     url: config.publicUrl,
@@ -71,11 +112,18 @@ export async function startServer(config: Config, log: Logger): Promise<RunningS
     close: () =>
       (closing ??= (async () => {
         clearInterval(housekeeping)
+        clearInterval(heartbeat)
         server.close()
         await collab.destroy()
         server.closeAllConnections()
         limiter.stop()
         mailer.close()
+        await filesSealed
+        try {
+          db.run("DELETE FROM server_state WHERE key = 'heartbeat'")
+        } catch {
+          /* closing anyway */
+        }
         db.close()
       })()),
   }

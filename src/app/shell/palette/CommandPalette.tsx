@@ -64,13 +64,12 @@ function Palette() {
     [recentIds, pages, pageId],
   )
   // own templates (and customised built-ins) whose name matches: open the gallery on them
+  const roots = useMemo(() => templateRoots(pages), [pages])
   const templateHits = useMemo(() => {
     const n = term.toLowerCase()
     if (mode !== 'find' || n.length < 2) return []
-    return templateRoots(pages)
-      .filter((p) => templateName(p).toLowerCase().includes(n))
-      .slice(0, 4)
-  }, [pages, mode, term])
+    return roots.filter((p) => templateName(p).toLowerCase().includes(n)).slice(0, 4)
+  }, [roots, mode, term])
 
   const finish = (restoreFocus = false) => {
     close()
