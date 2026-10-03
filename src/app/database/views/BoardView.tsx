@@ -338,6 +338,8 @@ function Card({ id, m, row, rc, props, editing, onEditDone, onOpen, onContext }:
       style={{ transform: CSS.Translate.toString(transform), transition, ...(rc ? ruleStyle(rc.color) : null) }}
       {...attributes}
       {...listeners}
+      // view only: the card still opens (Enter / click) — not "disabled", not "sortable"
+      {...(m.readOnly ? { 'aria-disabled': undefined, 'aria-roledescription': undefined, 'aria-describedby': undefined } : null)}
       onClick={() => !editing && onOpen()}
       onKeyDown={(e) => {
         listeners?.onKeyDown?.(e)

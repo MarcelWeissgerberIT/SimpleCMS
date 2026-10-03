@@ -40,6 +40,10 @@ async function createMeetings(page: Page, repeat?: RepeatInput): Promise<string>
   const id = await wsEval(
     page,
     (s, repeat) => {
+      // the demo workspace repeats a template of its own — switch it off so only this one runs
+      for (const d of Object.values(s.databases) as Array<{ id: string; templates?: Array<Record<string, unknown>> }>) {
+        if (d.templates?.some((t) => t.repeat)) s.updateDatabase(d.id, { templates: d.templates.map(({ repeat: _r, ...t }) => t) })
+      }
       const dbId = s.createDatabase({
         title: 'Meetings',
         properties: [
@@ -221,6 +225,8 @@ test.describe('recurring templates', () => {
     const dbId = await createMeetings(page, { freq: 'daily', time: '08:00', start: '2026-10-05', title: 'Standup {{date}}', dateProperty: 'mDate', lastRunAt: T0.getTime() })
 
     // the app is closed for a week: Mon 5 … Mon 12 Oct 08:00 = 8 missed occurrences
+    // (main.tsx runs the scheduler at boot — stop it, or this tab catches up before the reload)
+    await stopScheduler(page)
     await page.clock.setSystemTime(at('2026-10-12T09:00:00+02:00'))
     await reloadApp(page)
     await startScheduler(page)

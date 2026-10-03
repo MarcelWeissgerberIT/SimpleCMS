@@ -9,6 +9,7 @@ import { defineConfig, devices } from '@playwright/test'
  *   CLOUD_E2E_SKIP_BUILD=1 …   reuse the last app + server build while iterating on tests
  *
  * Sign-in links come from the dev mailbox (GET /api/dev/mailbox), see tests/e2e-cloud/fixtures.ts.
+ * The server's data lives in DATA (node_modules/.cache/cloud-data-<port>); tests may read its SQLite file.
  */
 const PORT = Number(process.env.CLOUD_E2E_PORT) || 4500
 const OUT = `node_modules/.cache/cloud-dist-${PORT}`
@@ -39,7 +40,8 @@ export default defineConfig({
   webServer: {
     command:
       `${build}rm -rf ${DATA} && ` +
-      `PORT=${PORT} HOST=127.0.0.1 DATA_DIR=${DATA} APP_DIR=${OUT} PUBLIC_URL=${ORIGIN} DEV_MODE=1 SIGNUP=open LOG_LEVEL=warn ` +
+      // AUTH_IP_LIMIT (DEV_MODE only): every test signs people in from 127.0.0.1 — deployments keep 20 per 15 min
+      `PORT=${PORT} HOST=127.0.0.1 DATA_DIR=${DATA} APP_DIR=${OUT} PUBLIC_URL=${ORIGIN} DEV_MODE=1 AUTH_IP_LIMIT=1000 SIGNUP=open LOG_LEVEL=warn ` +
       `node --disable-warning=ExperimentalWarning server/dist/index.js`,
     url: `${ORIGIN}/api/health`,
     reuseExistingServer: false,

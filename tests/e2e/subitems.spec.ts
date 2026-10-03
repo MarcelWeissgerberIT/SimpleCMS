@@ -101,7 +101,9 @@ test.describe('sub-items', () => {
     await (await prop(page, 'Brand refresh', 'Parent item')).click()
     const option = page.locator('.db-picker .db-opt', { hasText: 'Wireframes' })
     await expect(option).toHaveAttribute('aria-disabled', 'true')
-    await option.click({ force: true }) // disabled: picking it does nothing
+    // disabled: picking it does nothing (dispatched on the option itself — a forced click at
+    // coordinates can land on a neighbour while the popover still settles)
+    await option.dispatchEvent('click')
     await page.keyboard.press('Escape')
     expect((await propOf(page, webId, parentProp)) ?? []).toEqual([])
     // … and from the other side too

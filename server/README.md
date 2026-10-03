@@ -80,6 +80,7 @@ Working on the app with Vite instead of the built copy? Proxy the API and the so
 | `TRUST_PROXY` | off | `1` behind a reverse proxy: client IP for rate limits = right-most `X-Forwarded-For` |
 | `SOURCE_URL` | this repository | AGPL §13 source offer, returned by `/api/config` — point it at your fork if you change the server |
 | `LOG_LEVEL` | `info` | `debug` · `info` · `warn` · `error` |
+| `AUTH_IP_LIMIT` | `20` | Sign-in link requests per client IP per 15 minutes. **Test servers only** (`DEV_MODE=1`); without `DEV_MODE` the server refuses to start with it |
 | `NODE_ENV` | – | `production` enforces `SECRET` and `PUBLIC_URL` and forbids `DEV_MODE` |
 
 ## API in one screen
@@ -92,6 +93,7 @@ GET    /api/auth/verify?token=            → 302 (same browser) or confirmation
 POST   /api/auth/verify                   confirmation form → 303
 POST   /api/auth/logout                   → 204
 GET    /api/me   PATCH /api/me            { user, workspaces } / { name }
+GET    /api/session                       { user | null, workspaces } — 200 even when signed out
 POST   /api/workspaces                    { name, icon? } → 201 workspace
 PATCH  /api/workspaces/:id                admin
 DELETE /api/workspaces/:id                owner
@@ -105,6 +107,7 @@ GET    /api/invites/:token                preview, no auth
 POST   /api/invites/:token/accept         → { workspaceId, role }
 PUT    /api/workspaces/:id/files/:fid     member, raw body (x-file-name, content-type) → { id }
 GET    /api/workspaces/:id/files/:fid     any member
+DELETE /api/workspaces/:id/documents/:pid member: content of a page deleted for good (409 while it exists)
 GET    /api/health · GET /api/config · GET /api/dev/mailbox (DEV_MODE)
 WS     /collab                            Hocuspocus; documents ws:<id> and ws:<id>:p:<pageId>
 ```
@@ -144,7 +147,7 @@ src/
   db/                 node:sqlite wrapper and versioned migrations
   repo.ts             all SQL (users, workspaces, members, invites, documents, files)
   auth/               sessions + cookies, rate limiter, signup policy
-  routes/             auth, me, workspaces (+ members, invites), invites (public), files
+  routes/             auth, me + session, workspaces (+ members, invites), invites (public), files, documents
   collab/             Hocuspocus on /collab: upgrade gate, auth per document, persistence, disconnects
   mail/               nodemailer / dev mailbox, EN + DE templates
   http/               security headers + CSP, static app serving, server-rendered pages

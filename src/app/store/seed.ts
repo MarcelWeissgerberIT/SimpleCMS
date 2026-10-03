@@ -377,6 +377,58 @@ export function seedWorkspace(lang: Lang): void {
     'seed',
   )
 
+  /* ---------- Meetings database: a template that repeats every Monday ---------- */
+  const meetings = newId()
+  {
+    const M = { name: newId(), date: newId(), type: newId(), people: newId() }
+    const typeOpts = [opt('Sync', 'blue'), opt('Retro', 'purple')]
+    const props: PropertyDef[] = [
+      { id: M.name, name: L('Meeting', 'Meeting'), type: 'title' },
+      { id: M.date, name: L('Date', 'Datum'), type: 'date' },
+      { id: M.type, name: L('Type', 'Typ'), type: 'select', options: typeOpts },
+      { id: M.people, name: L('Attendees', 'Teilnehmende'), type: 'person' },
+    ]
+    s.createDatabase({ id: meetings, title: L('Meetings', 'Meetings'), icon: { type: 'emoji', value: '🗒️' }, properties: props, views: [] })
+    const db = { properties: props }
+    const notes = (decision: string) =>
+      doc(
+        h2(L('Agenda', 'Agenda')),
+        ul(li(L('Wins of the week', 'Erfolge der Woche')), li(L('Blockers', 'Blocker')), li(L('Next steps', 'Nächste Schritte'))),
+        h2(L('Decisions', 'Entscheidungen')),
+        callout('✅', 'green', p(decision)),
+        h2(L('Action items', 'Aufgaben')),
+        tasks(task(false, '')),
+      )
+    // the most recent Mondays (today counts if it is one)
+    const dow = new Date().getDay()
+    const lastMonday = -((dow + 6) % 7)
+    s.updateDatabase(meetings, {
+      views: [
+        { ...defaultView('table', db, L('All meetings', 'Alle Meetings')), sorts: [{ propertyId: M.date, direction: 'desc' as const }] },
+        { ...defaultView('calendar', db, L('Calendar', 'Kalender')), dateProperty: M.date },
+      ],
+      templates: [
+        {
+          id: newId(),
+          name: 'Weekly sync',
+          icon: { type: 'emoji', value: '🗓️' },
+          content: notes(L('…', '…')),
+          properties: { [M.type]: typeOpts[0].id, [M.people]: [alex, sam, mira] },
+          // every Monday at 09:00, counted from now on (no backfill on first open)
+          repeat: { freq: 'weekly', days: [1], time: '09:00', start: day(0), title: '{{name}} — {{date}}', dateProperty: M.date, lastRunAt: Date.now() },
+        },
+      ],
+    })
+    const past: Array<[number, string]> = [
+      [lastMonday - 7, L('Ship the relaunch in two steps.', 'Relaunch in zwei Schritten ausliefern.')],
+      [lastMonday, L('Webhook to n8n goes live this week.', 'Webhook an n8n geht diese Woche live.')],
+    ]
+    for (const [off, decision] of past) {
+      const when = new Date(`${day(off)}T12:00`).toLocaleDateString(de ? 'de-DE' : 'en-GB', { weekday: 'short', day: 'numeric', month: 'short' })
+      s.createRow(meetings, { title: `Weekly sync — ${when}`, properties: { [M.date]: { start: day(off) }, [M.type]: typeOpts[0].id, [M.people]: [alex, sam, mira] }, content: notes(decision) })
+    }
+  }
+
   /* ---------- Meeting notes ---------- */
   s.setContent(
     meeting,
@@ -389,6 +441,7 @@ export function seedWorkspace(lang: Lang): void {
       h2(L('Action items', 'Aufgaben')),
       tasks(task(false, b('Alex'), L(' — final QA on staging', ' — finale QA auf Staging')), task(false, b('Sam'), L(' — connect webhook to n8n', ' — Webhook mit n8n verbinden')), task(true, b('Mira'), L(' — draft the newsletter', ' — Newsletter-Entwurf'))),
       p(L('Before it goes out, check the newsletter against our brand voice.', 'Vor dem Versand den Newsletter mit unserer Markenstimme abgleichen.')),
+      p(L('Every Monday at 09:00 a fresh entry appears in ', 'Jeden Montag um 09:00 erscheint ein neuer Eintrag in '), mention(meetings, L('Meetings', 'Meetings')), L(' — a repeating template.', ' — eine wiederkehrende Vorlage.')),
       h2(L('Next sync', 'Nächstes Sync')),
       {
         type: 'button',
@@ -502,7 +555,7 @@ export function seedWorkspace(lang: Lang): void {
   })
 
   // order in sidebar: Welcome, Projects, Reading list, Content calendar, Wiki, Meeting
-  const order: ID[] = [welcome, projects, reading, calendar, wiki, meeting]
+  const order: ID[] = [welcome, projects, reading, calendar, wiki, meeting, meetings]
   order.forEach((id, idx) => s.updatePage(id, { order: idx + 1 }))
   s.toggleFavorite(welcome)
   s.toggleFavorite(projects)

@@ -7,7 +7,7 @@ import { ArrowUpRight, ClipboardPen, PencilRuler, Share2 } from 'lucide-react'
 import { useWorkspace } from '../../store/store'
 import { useLang, useT } from '../../i18n'
 import { useLocalState, useModel, type DbModel } from '../hooks'
-import { Segmented, ViewOnlyTag } from '../parts'
+import { Segmented } from '../parts'
 import { openRow, writeValue } from '../model/actions'
 import { uploadFiles } from '../model/files'
 import { answersToRow, fieldsOf, formConfig, isValidWebhookUrl, type Answers, type Field } from './fields'
@@ -51,9 +51,7 @@ export default function FormView() {
         <span className="label dbf-bar__hook" title={connected ? hook : undefined}>
           <span className={`led${connected ? ' led--ok' : ''}`} aria-hidden /> {connected ? hostOf(hook) : t('database.form.hook.noneShort')}
         </span>
-        {m.readOnly ? (
-          <ViewOnlyTag />
-        ) : (
+        {!m.readOnly && (
           <button type="button" className="btn btn--sm dbf-bar__share" onClick={() => setSharing(true)}>
             <Share2 size={13} /> <span className="dbf-bar__shareText">{t('database.form.share.button')}</span>
           </button>

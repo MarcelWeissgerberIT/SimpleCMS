@@ -103,6 +103,8 @@ function Tab({
           type="button"
           {...attributes}
           {...listeners}
+          // view only: a tab still switches views — not "disabled", not "sortable"
+          {...(readOnly ? { 'aria-disabled': undefined, 'aria-roledescription': undefined, 'aria-describedby': undefined } : null)}
           role="tab"
           aria-selected={active}
           className="db-tab__btn"

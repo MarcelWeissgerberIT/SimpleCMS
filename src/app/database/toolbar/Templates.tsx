@@ -20,6 +20,7 @@ import type { DbModel } from '../hooks'
 import { scheduleChanged } from '../../features'
 import { RepeatSettings } from '../templates/RepeatSettings'
 import { NextRun } from '../templates/NextRun'
+import { isDbReadOnly, useDbReadOnly } from '../readonly'
 
 export type Template = NonNullable<Database['templates']>[number]
 
@@ -29,6 +30,8 @@ export function NewButton({ m, onNew }: { m: DbModel; onNew: (tpl?: Template) =>
   const [editing, setEditing] = useState<Template | null>(null)
   const templates = m.db.templates ?? []
   const save = (list: Template[]) => useWorkspace.getState().updateDatabase(m.db.id, { templates: list })
+  // viewers never see the button (the toolbar shows VIEW ONLY); this guards any other entry point
+  if (useDbReadOnly()) return null
   return (
     <span className="db-newbtn">
       <button type="button" className="btn btn--primary btn--sm db-newbtn__main" onClick={() => onNew()} title={t('database.new.tooltip')}>
@@ -154,6 +157,7 @@ function deleteTemplate(dbId: ID, tpl: Template) {
 
 /** Capture a row as a template (title becomes the template name). */
 export function saveRowAsTemplate(db: Database, row: Page): void {
+  if (isDbReadOnly()) return
   const props: Record<ID, PropertyValue> = {}
   for (const p of db.properties) {
     if (p.type === 'title' || isComputed(p)) continue

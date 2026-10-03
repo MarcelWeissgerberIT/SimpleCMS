@@ -55,6 +55,7 @@ The GitHub Pages build stays local-only.
 | `TRUST_PROXY` | `1` behind a reverse proxy: client IP for rate limits = right-most `X-Forwarded-For` (compose sets it) *(server addition)* |
 | `SOURCE_URL` | AGPL §13 source offer, returned by `GET /api/config` *(server addition)* |
 | `LOG_LEVEL` | `debug` · `info` (default) · `warn` · `error` *(server addition)* |
+| `AUTH_IP_LIMIT` | sign-in link requests per client IP per 15 min (default 20). **Only with `DEV_MODE=1`** (test servers sign many people in from one address); without it the server refuses to start (exit 78) *(server addition)* |
 
 In development (`NODE_ENV` ≠ `production`) `DATA_DIR` defaults to `server/.data`, `PUBLIC_URL` to
 `http://localhost:$PORT`, and a `SECRET` is generated once into `DATA_DIR/dev-secret`. Production refuses to
@@ -71,6 +72,7 @@ members(workspace_id, user_id, role, created_at, PRIMARY KEY(workspace_id, user_
 invites(id, token_hash UNIQUE, workspace_id, role, email NULL, created_by, created_at, expires_at, accepted_by NULL)
 documents(name PRIMARY KEY, workspace_id, data BLOB, updated_at)      -- Yjs state per document
 files(id, workspace_id, name, mime, size, sha256, created_by, created_at)  -- bytes in DATA_DIR/files/<ws>/<id>
+document_tombstones(name PRIMARY KEY, workspace_id, deleted_at, deleted_by) -- migration v2, see DELETE …/documents
 ```
 
 Roles: `owner` > `admin` > `member` (edit) > `viewer` (read-only connection). Exactly one owner per
@@ -93,6 +95,7 @@ All mutating requests require `Content-Type: application/json` (CSRF guard toget
 | `GET /api/auth/verify?token=` | – | sets cookie, `302` to `redirect` (default `/app/`), or an error page |
 | `POST /api/auth/logout` | session | → `204` |
 | `GET /api/me` | session | → `{ user: { id, email, name }, workspaces: [{ id, name, icon, role }] }` |
+| `GET /api/session` | – | *(server addition)* → `200 { user: {…} \| null, workspaces: [...] }` — like `/api/me`, but signed out is `user: null`, not a 401 |
 | `PATCH /api/me` | session | `{ name }` → user |
 | `POST /api/workspaces` | session | `{ name }` → workspace (caller = owner) |
 | `PATCH /api/workspaces/:id` | admin | `{ name?, icon? }` |
@@ -107,6 +110,7 @@ All mutating requests require `Content-Type: application/json` (CSRF guard toget
 | `POST /api/invites/:token/accept` | session | → `{ workspaceId }` |
 | `PUT /api/workspaces/:id/files/:fileId` | member | raw body (≤ MAX_UPLOAD_MB), headers `x-file-name`, `content-type` → `{ id }` |
 | `GET /api/workspaces/:id/files/:fileId` | viewer | bytes, `Cache-Control: private, max-age=31536000, immutable` |
+| `DELETE /api/workspaces/:id/documents/:pageId` | member | *(server addition)* drop the content document of a page deleted for good → `204` (`409 page_exists` while the meta document still lists the page) |
 | `GET /api/health` | – | `{ ok: true, version }` |
 | `GET /api/dev/mailbox` | DEV_MODE only | last 50 mails `{ to, subject, text, link }` |
 | `POST /api/auth/verify` | – | *(server addition)* form `token=` (the confirmation page) or JSON `{ token }` → sets cookie, `303` to `redirect` |
@@ -127,8 +131,8 @@ Errors: `{ error: { code, message } }` with 400/401/403/404/409/413/429.
   links render an HTML error page (`400`); a new account refused by `SIGNUP` renders `403`. `redirect` must
   be a same-origin path (`/…`, not `//…`), else `/app/`; fragments are kept (`/app/#/invite/<token>`).
 - **Session cookie** `one_session`: HttpOnly, SameSite=Lax, Path=/, Max-Age 30 days, `Secure` when
-  `PUBLIC_URL` is https. The expiry slides on API use (re-sent at most once a day) — call `GET /api/me` on
-  boot. An invalid cookie is cleared.
+  `PUBLIC_URL` is https. The expiry slides on API use (re-sent at most once a day) — call `GET /api/session`
+  (or `/api/me`) on boot. An invalid cookie is cleared.
 - **Workspace object** (`POST` → `201`, `PATCH` → `200`, `/api/me`):
   `{ id, name, icon, role, plan, created_at }`; `icon` is opaque JSON (`null`, a string ≤ 64 chars or an
   object ≤ 2 KB); `name` 1–100 chars, trimmed. At most 20 new workspaces per user per day.
@@ -158,11 +162,21 @@ Errors: `{ error: { code, message } }` with 400/401/403/404/409/413/429.
   request whose `Origin` (or `Sec-Fetch-Site`) is not this site is refused with `403 bad_origin`. Don't
   send API requests with `referrerPolicy: 'no-referrer'` — browsers then send `Origin: null`.
 - **Dev mailbox**: newest first, optional `?to=<email>`, entries also carry `created_at`.
+- **Session** (`GET /api/session`): `{ user: null, workspaces: [] }` when there is no (valid) session —
+  an invalid cookie is cleared as everywhere — else exactly the `/api/me` body. Slides the session like
+  any API call. The client boots with it, so a signed-out boot leaves no 401 in the console.
+- **Page documents deleted for good** (`DELETE /api/workspaces/:id/documents/:pageId`, member+): only
+  for a page the workspace's meta document no longer lists (the live copy if loaded, else the stored
+  one) — a trashed page is still listed and keeps its content (`409 page_exists`). Removes the stored
+  document and writes a tombstone: the name is never stored again, even when a device that still had
+  the document open, or an old offline copy, syncs it later. When a page with that id comes back into
+  the meta document (an undo, a restored backup keeps page ids), its next store lifts the tombstone.
+  Idempotent `204`; every call is logged (`page document deleted`, workspace, page, user).
 - **Error codes** — 400: `invalid_request` (zod; `details` attached), `invalid_json`, `json_required`,
-  `invalid_file_id` · 401: `unauthenticated` · 403: `forbidden`, `owner_only`, `bad_origin`,
+  `invalid_file_id`, `invalid_page_id` · 401: `unauthenticated` · 403: `forbidden`, `owner_only`, `bad_origin`,
   `invite_email_mismatch` · 404: `not_found`, `workspace_not_found`, `member_not_found`,
   `invite_not_found`, `invite_used`, `invite_expired`, `file_not_found` · 409: `owner_must_transfer`,
-  `already_member` · 413: `file_too_large`, `payload_too_large` (JSON > 256 KB) · 429: `rate_limited` ·
+  `already_member`, `page_exists` · 413: `file_too_large`, `payload_too_large` (JSON > 256 KB) · 429: `rate_limited` ·
   500: `internal`.
 
 ## Realtime documents (Yjs over Hocuspocus, `wss://…/collab`)
@@ -180,7 +194,9 @@ is `'unauthenticated' | 'forbidden' | 'invalid-document'`. The server closes a d
 (provider `close` event, `event.reason`) with `'membership-revoked'` (removed or left), `'role-changed'`
 (viewer ↔ writer: re-attach to get the new scope), `'workspace-deleted'` or `'session-ended'` (logout,
 revoked or expired session). Name ids: workspace `[A-Za-z0-9_-]{8,64}`, page `[A-Za-z0-9_-]{1,64}`.
-State is stored debounced (2 s, at most 10 s) and on the last disconnect and shutdown. The server never
+State is stored debounced (2 s, at most 10 s) and on the last disconnect and shutdown — except for a
+tombstoned page document (deleted for good, see the REST notes), which is never stored again unless its
+page is back in the meta document. The server never
 writes into documents itself: renaming a workspace means `PATCH /api/workspaces/:id` (what `/api/me` and
 invites show) **and** the meta document's `workspace` map; mirroring members into `people` is the client's job.
 
@@ -232,17 +248,20 @@ overlay per workspace.
 *(as implemented, client C1 — see `src/app/cloud/index.ts` for the module map)*
 
 - **Boot** (`bootCloud()`): only a build served at `/` talks to a server (the GitHub Pages build never
-  sends a request). The tab's workspace is `?w=<id|local>`, else the browser's choice
-  (localStorage `one.cloud.active`). Cloud → `GET api/config` + `GET /api/me`, the store is hydrated
-  from the y-indexeddb copy (`one:ws:<id>`; a device that never saw the workspace waits ≤ 8 s for the
-  server), then syncs. No connection → the local copy opens offline when this browser was signed in
-  before (last `/api/me` in localStorage `one.cloud.session`). No session → status `signed-out`
-  with an empty, unsaved store. Local mode asks `/api/me` only when this browser was signed in
-  before or a magic link just came back (`?signed-in=1` is added to the sign-in `redirect`), so
-  anonymous visitors see no 401 in the console.
+  sends a request). Copies marked for removal (see *This browser's copies* below) go first. The tab's
+  workspace is `?w=<id|local>`, else the browser's choice (localStorage `one.cloud.active`). Cloud →
+  `GET api/config` + `GET api/session` (signed out = `user: null`, so no 401 in the console), the
+  store is hydrated from the y-indexeddb copy (`one:ws:<id>`; a device that never saw the workspace
+  waits ≤ 8 s for the server), then syncs. No connection → the local copy opens offline when this
+  browser was signed in before (last session answer in localStorage `one.cloud.session`). No session
+  → status `signed-out` with an empty, unsaved store. Local mode asks `api/session` only when this
+  browser was signed in before or a magic link just came back (`?signed-in=1` is added to the
+  sign-in `redirect`). An open workspace's own checks (socket refused, role changed) use
+  `api/session` too; `user: null` there means `session-ended`.
 - **This device's data** per cloud workspace (settings incl. the AI key, favourites, recent, pages
   with unconfirmed edits, the last known content of every page for instant boots and search,
-  queued uploads) lives in IndexedDB `one-cloud` / `kv`, never in a Y document. A new cloud
+  queued uploads, page documents waiting to be dropped on the server) lives in IndexedDB
+  `one-cloud` / `kv`, never in a Y document. A new cloud
   workspace starts with the local workspace's settings.
 - **Content refresh** (Y → `page.content`, debounced): typing in this tab goes through
   `setContent(…, 'cloud')` (history snapshots, `updatedAt`, `plain` for the others); changes from
@@ -258,6 +277,49 @@ overlay per workspace.
   (`online` reconnects at once).
 - **Presence**: the meta document's awareness carries `{ user: { id, name, color, tone }, pageId }`;
   `pageId` follows the route. `Peer.color` is a CSS colour token (`var(--c-<tone>-text)`).
+- **Pages deleted for good** (`deletePagePermanently`, empty trash, an undone create …): the client
+  that deleted them asks the server to drop their content documents (`DELETE …/documents/:pageId`,
+  `purge.ts`), once the meta document's change is confirmed (`hasUnsyncedChanges` false, connected).
+  The queue is this device's (`one-cloud` / `purge:<ws>`), survives reloads and offline spells; a page
+  that is back in the store by then is skipped, `409 page_exists` is retried 3× (2, 4, 8 s) and then
+  dropped, network / 5xx / 429 retry after 15 s, other refusals drop the entry. Viewers never queue.
+- **unique_id numbers** are handed out from `nextUniqueId` on the device that creates the row, so two
+  people creating rows at the same moment (or a device that was offline) can hand out the same number.
+  After every remote change and every local numbering (debounced 1.5 s, writable clients after the first
+  sync — the same pass as the structural repairs) the client runs `uniqueIdRepairs`: per unique_id
+  property, rows sorted by (value, `createdAt`, id); the first row with a number keeps it, later
+  duplicates get the next numbers above the highest in use, and `nextUniqueId` is raised past the
+  highest (it is never lowered). Deterministic, so every device that sees the same rows writes the same
+  values. Limitation: until the devices have synced, both show the same number for a moment — the
+  later-created row's number then changes once (e.g. `BUG-2` → `BUG-3`).
+- **This browser's copies** (`device.ts`): `removeDeviceCopy(wsId)` and `signOut({ forgetDevice })`
+  remove team workspace copies from this browser — the y-indexeddb databases (`one:ws:<id>`,
+  `one:ws:<id>:p:*`), the `one-cloud` keys (`overlay` incl. the AI key, `content`, `uploads`, `purge`),
+  the version history of their pages (`one-history`: `idx:<page>` + `snap:*`, except pages the local
+  workspace has with the same id) and cached files that nothing else in this browser uses (the local
+  workspace, history of other pages, other workspaces' cached content and pending uploads keep theirs).
+  The server is not touched. Because an open workspace holds its databases, a removal is a flag
+  (localStorage `one.cloud.forget`: workspace ids or `*`) that the next boot carries out before any
+  cloud database opens (≤ 5 s wait; a database another tab holds is deleted when it lets go, the flag
+  stays until then); the tab reloads into the local workspace, other tabs showing that workspace switch
+  too (BroadcastChannel `one-cloud-forget`), and nothing writes the overlay back meanwhile.
+  Unconfirmed changes in a removed copy are lost — the UI warns when `useCloudSync()` reports any.
+- **Writes a team workspace refuses in the UI**: "Erase workspace" (`requestReset`) is for the local
+  workspace only — in a cloud workspace Settings → Data offers *Remove this workspace's copy from this
+  browser* instead, and only the owner deletes the team workspace (Settings → Team). A JSON backup
+  merges into a team workspace but never replaces it (the option is shown disabled, with the reason;
+  `applyBackup(…, 'replace')` throws there). Viewers can't import at all (the import dialog says so;
+  `applyBackup` / `applyPlan` throw). Signing out asks first: *Also remove the team workspace copies
+  from this browser* (on by default, for shared computers).
+- **Viewers and databases**: with `useCloud().readOnly` the database area (`database/readonly.ts`) shows
+  a VIEW ONLY plate instead of "New" and hides or disables every write: cell editors, row / property /
+  view creation, header menus, column resize and reorder, row and card dragging, bulk actions, the
+  filter / sort / group / properties / automations tools (filter and sort chips stay as read-outs),
+  layout and structure panels, footer calculations they haven't set, calendar / timeline moves, form
+  building, sharing and answers (fill mode shows the form, submitting is blocked), templates, autofill
+  and the row page's property editors. Search, opening rows, exports and copying links stay. The
+  model actions (`writeValue`, `deleteRows`, `duplicateRows`, autofill runs) refuse as well, and the
+  binding reverts any viewer change regardless.
 
 - The Zustand store stays the UI's source of truth. A **binding** (`src/app/cloud/binding.ts`)
   mirrors store actions into the meta document (one Y transaction per action, origin `'local'`)
@@ -282,7 +344,8 @@ overlay per workspace.
 ## Security notes
 
 - Magic-link tokens: 15 min, single use, bound to the email; sessions 30 days sliding, revocable.
-- Rate limits: auth requests 5/15 min per email and 20/15 min per IP; invite creation 50/day per workspace.
+- Rate limits: auth requests 5/15 min per email and 20/15 min per IP (`AUTH_IP_LIMIT`, test servers with
+  `DEV_MODE=1` only); invite creation 50/day per workspace.
 - Uploads: size limit, stored outside any served path, served with `Content-Disposition: attachment`
   for non-image types and `X-Content-Type-Options: nosniff`.
 - Every query is scoped by workspace membership; viewers can never write (REST or Yjs).

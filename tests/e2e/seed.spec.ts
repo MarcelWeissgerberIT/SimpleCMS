@@ -21,7 +21,7 @@ test.describe('first run seeds the demo workspace', () => {
         people: s.people.length,
       }
     })
-    expect(stats).toEqual({ language: 'en', dbs: 3, projectRows: 8, people: 4 })
+    expect(stats).toEqual({ language: 'en', dbs: 4, projectRows: 8, people: 4 })
     // the welcome page content is rendered by the editor
     await expect(page.locator('#main .ProseMirror')).toContainText('No account, no server, no subscription.')
     await expect(page.locator('html')).toHaveAttribute('lang', 'en')
