@@ -144,6 +144,7 @@ describe('remote MCP', () => {
       pages.set('doc-1', pageEntry({ title: 'Handbook', order: 1, icon: { type: 'emoji', value: '📘' }, plain: 'How we work\nOnboarding checklist for new people' }))
       pages.set('doc-2', pageEntry({ title: 'Onboarding', parentId: 'doc-1', order: 1, plain: 'Read the Handbook' }))
       pages.set('old-1', pageEntry({ title: 'Old notes', order: 5, trashed: true, trashedAt: Date.now(), plain: 'stale handbook draft' }))
+      meta.doc.getMap('people').set(ownerId, { id: ownerId, name: 'Olivia Owner', color: 'blue' })
     })
     await flushed(meta)
 
@@ -231,6 +232,7 @@ describe('remote MCP', () => {
     const tasks = o.databases.find((d: { id: string }) => d.id === 'db-tasks')
     assert.equal(tasks.rows, 3)
     assert.equal((await call(writer, 'one_overview')).access, 'read-write')
+    assert.deepEqual(o.people, [{ name: 'Olivia Owner', email: 'owner@mcp.test' }])
   })
 
   test('one_search: titles and content, snippets; trash and private pages stay out', async () => {
@@ -244,6 +246,8 @@ describe('remote MCP', () => {
     const rows = await call(reader, 'one_search', { query: 'review', limit: 1 })
     assert.deepEqual(rows.results.map((x: { id: string; kind: string }) => [x.id, x.kind]), [['row-2', 'row']])
     assert.equal((await call(reader, 'one_search', { query: 'classified' })).results.length, 0)
+    // a row's property values count too
+    assert.ok((await call(reader, 'one_search', { query: 'beta' })).results.some((x: { id: string }) => x.id === 'row-2'))
     await fails(reader, 'one_search', { query: '' }, /query/i)
   })
 
@@ -305,7 +309,8 @@ describe('remote MCP', () => {
     assert.deepEqual(all.rows[0].properties.Due, { start: '2026-10-05', end: null })
 
     const q = (args: Record<string, unknown>) => call(reader, 'one_query_database', { databaseId: 'db-tasks', ...args })
-    assert.deepEqual(ids(await q({ filter: [{ property: 'status', op: 'eq', value: 'in progress' }] })), ['row-1'])
+    assert.deepEqual(ids(await q({ filter: [{ property: 'status', op: 'equals', value: 'in progress' }] })), ['row-1'])
+    assert.deepEqual(ids(await q({ filter: [{ property: 'status', op: 'not_equals', value: 'in progress' }] })), ['row-2', 'row-3'])
     assert.deepEqual(ids(await q({ filter: [{ property: 'Status', op: 'neq', value: 'Done' }, { property: 'Tags', op: 'contains', value: 'beta' }] })), ['row-2'])
     assert.deepEqual(ids(await q({ filter: [{ property: 'Due', op: 'after', value: '2026-10-31' }] })), ['row-2'])
     assert.deepEqual(ids(await q({ filter: [{ property: 'Estimate', op: 'gte', value: 3 }] })), ['row-1', 'row-2'])
@@ -315,6 +320,9 @@ describe('remote MCP', () => {
     assert.deepEqual(ids(await q({ filter: [{ property: 'Project', op: 'eq', value: 'Apollo' }] })), ['row-1'])
     assert.deepEqual(ids(await q({ sort: { property: 'Estimate', direction: 'desc' } })), ['row-2', 'row-1', 'row-3'])
     assert.deepEqual(ids(await q({ sort: [{ property: 'createdAt', direction: 'desc' }] })), ['row-3', 'row-2', 'row-1'])
+    assert.deepEqual(ids(await q({ sort: '-Estimate' })), ['row-2', 'row-1', 'row-3'], 'the local bridge’s string form')
+    assert.deepEqual(ids(await q({ sort: 'Due' })), ['row-1', 'row-2', 'row-3'], 'empty values last')
+    assert.deepEqual(ids(await q({ sort: 'order' })), ['row-1', 'row-2', 'row-3'])
 
     const first = await q({ sort: { property: 'Name' }, limit: 2 })
     assert.deepEqual(ids(first), ['row-2', 'row-3'])
@@ -347,6 +355,19 @@ describe('remote MCP', () => {
     await waitFor(() => ((watcher.doc.getMap('pages').get('proj-1') as Y.Map<unknown>).get('properties') as Y.Map<unknown>).toJSON()['p-proj.2way'].length === 2, 5000, 'partner')
     const back = await call(reader, 'one_get_page', { id: created.id })
     assert.match(back.markdown, /## Steps\n\n- \[ \] draft\n- \[ \] review/)
+
+    // agent-friendly input: "title", new multi_select options, related rows by title
+    const smart = await call(writer, 'one_create_row', { databaseId: 'db-tasks', title: 'placeholder', properties: { title: 'Smart row', Tags: 'Gamma, alpha', Project: 'apollo' } })
+    const got = await call(reader, 'one_get_page', { id: smart.id })
+    assert.equal(got.title, 'Smart row')
+    assert.deepEqual(got.properties.Tags, ['Gamma', 'Alpha'])
+    assert.deepEqual(got.properties.Project, [{ id: 'proj-1', title: 'Apollo' }])
+    const tags = (await call(reader, 'one_get_database', { id: 'db-tasks' })).properties.find((p: { name: string }) => p.name === 'Tags')
+    assert.deepEqual(tags.options.map((o: { name: string }) => o.name), ['Alpha', 'Beta', 'Gamma'])
+    // nothing is added for a row that can't be written
+    await fails(writer, 'one_create_row', { databaseId: 'db-tasks', title: 'x', properties: { Tags: ['Delta'], Estimate: 'lots' } }, /Estimate: expected a number/)
+    const after = (await call(reader, 'one_get_database', { id: 'db-tasks' })).properties.find((p: { name: string }) => p.name === 'Tags')
+    assert.ok(!after.options.some((o: { name: string }) => o.name === 'Delta'))
 
     const msg = await fails(writer, 'one_create_row', { databaseId: 'db-tasks', title: 'x', properties: { Status: 'Blocked' } }, /Status: unknown option "Blocked"/)
     assert.match(msg, /allowed — Status: Not started, In progress, Done/)
@@ -439,10 +460,12 @@ describe('remote MCP', () => {
     const db = await call(reader, 'one_get_database', { id: made.id })
     assert.equal(db.path, 'Handbook / Leads')
     assert.deepEqual(db.views.map((v: { type: string }) => v.type), ['table'])
-    const row = await call(writer, 'one_create_row', { databaseId: made.id, title: 'Analytical Engines', properties: { Stage: 'Talking', Owner: 'owner@mcp.test' } })
+    const row = await call(writer, 'one_create_row', { databaseId: made.id, title: 'Analytical Engines', properties: { Stage: 'Talking', Owner: 'olivia owner' } })
     const got = await call(reader, 'one_get_page', { id: row.id })
     assert.equal(got.properties.Stage, 'Talking')
-    assert.equal(got.properties.Owner[0].email, 'owner@mcp.test')
+    assert.deepEqual(got.properties.Owner, [{ id: ownerId, name: 'Olivia Owner', email: 'owner@mcp.test' }])
+    const dbPage = await call(reader, 'one_get_page', { id: made.id })
+    assert.deepEqual(dbPage.schema.map((p: { name: string }) => p.name), ['Company', 'Stage', 'Owner', 'Projects'])
     const entry = meta.doc.getMap('pages').get(made.id) as Y.Map<unknown> | undefined
     await waitFor(() => !!meta.doc.getMap('pages').get(made.id), 5000, 'database live')
     assert.equal((entry ?? (meta.doc.getMap('pages').get(made.id) as Y.Map<unknown>)).get('kind'), 'database')

@@ -56,6 +56,8 @@ export { GraphView } from './graph/GraphView'
 export { ShareModal } from './share/ShareModal'
 export { SharedPageView } from './share/SharedPageView'
 export { ImportModal } from './io/ImportModal'
+/* CSV into an existing database (pure; the database area owns the dialog): plan + converted rows */
+export { planCsvIntake, csvIntakeRows, CSV_INTAKE_MAX_ROWS, type CsvIntakePlan, type CsvIntakeColumn } from './io/import/intake'
 export { ExportModal } from './io/ExportModal'
 export { Presentation } from './present/Presentation'
 export { TemplatesModal } from './templates/TemplatesModal'
