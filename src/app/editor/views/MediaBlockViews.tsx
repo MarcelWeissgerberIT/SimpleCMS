@@ -122,7 +122,7 @@ function EmptyMedia({ kind, props, busy, upload }: { kind: MediaKind; props: Rea
     <NodeViewWrapper className={`media-empty${selected ? ' is-selected' : ''}`} data-type={kind} contentEditable={false}>
       <div className="media-empty__head">
         <Icon size={16} strokeWidth={1.7} />
-        <span className="label">{t(`editor.${kind}.empty`)}</span>
+        <span className="label">{busy ? t(`editor.block.${kind}`) : t(`editor.${kind}.empty`)}</span>
       </div>
       {busy ? (
         <SavingPlate save={busy} />

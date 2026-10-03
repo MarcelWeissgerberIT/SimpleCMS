@@ -50,7 +50,8 @@ const imath = (latex: string): Inline => ({ type: 'inlineMath', attrs: { latex }
 const mermaid = (src: string): JSONContent => ({ type: 'mermaid', attrs: { code: src } })
 const pageLink = (pageId: ID): JSONContent => ({ type: 'pageLink', attrs: { pageId } })
 const mention = (id: ID, label: string): Inline => ({ type: 'mention', attrs: { id, label, kind: 'page' } })
-const dateMention = (iso: string, label: string): Inline => ({ type: 'mention', attrs: { id: iso, label, kind: 'date' } })
+const dateMention = (iso: string, label: string, reminder?: string): Inline => ({ type: 'mention', attrs: { id: iso, label, kind: 'date', ...(reminder ? { reminder } : {}) } })
+const synced = (syncId: string, sourcePageId: ID | null, ...blocks: JSONContent[]): JSONContent => ({ type: 'syncedBlock', attrs: { syncId, sourcePageId }, content: blocks })
 const dbBlock = (databaseId: ID, viewId: ID | null = null): JSONContent => ({ type: 'databaseBlock', attrs: { databaseId, viewId } })
 const toc = (): JSONContent => ({ type: 'toc' })
 const columns = (...cols: JSONContent[][]): JSONContent => ({ type: 'columns', content: cols.map((c) => ({ type: 'column', content: c })) })
@@ -328,12 +329,16 @@ export function seedWorkspace(lang: Lang): void {
     ),
     'seed',
   )
+  const principlesSync = newId()
+  const principles = () =>
+    ol(li(b(L('Concrete over clever. ', 'Konkret statt clever. ')), L('Numbers, names, examples.', 'Zahlen, Namen, Beispiele.')), li(b(L('No hype words. ', 'Keine Hype-Wörter. ')), L('Nobody wants to be "supercharged".', 'Niemand will "supercharged" werden.')), li(b(L('Respect the reader’s time.', 'Respektiere die Zeit der Lesenden.'))))
   s.setContent(
     brand,
     doc(
       quote(L('Say less. Mean it. Ship it.', 'Weniger sagen. Ernst meinen. Ausliefern.')),
       h2(L('Principles', 'Prinzipien')),
-      ol(li(b(L('Concrete over clever. ', 'Konkret statt clever. ')), L('Numbers, names, examples.', 'Zahlen, Namen, Beispiele.')), li(b(L('No hype words. ', 'Keine Hype-Wörter. ')), L('Nobody wants to be "supercharged".', 'Niemand will "supercharged" werden.')), li(b(L('Respect the reader’s time.', 'Respektiere die Zeit der Lesenden.')))),
+      // the same principles live in the meeting notes as a synced block
+      synced(principlesSync, null, principles()),
       p(L('See also ', 'Siehe auch '), mention(glossary, L('Glossary', 'Glossar')), '.'),
     ),
     'seed',
@@ -437,10 +442,11 @@ export function seedWorkspace(lang: Lang): void {
       h2(L('Agenda', 'Agenda')),
       ul(li(mention(rowIds[0], L('Website relaunch', 'Website-Relaunch')), L(' — launch date', ' — Launch-Termin')), li(mention(rowIds[2], L('n8n lead-routing automation', 'n8n Lead-Routing-Automation'))), li(L('Budget check', 'Budget-Check'))),
       h2(L('Decisions', 'Entscheidungen')),
-      callout('✅', 'green', p(txt(L('Relaunch goes live on ', 'Relaunch geht live am '), [{ type: 'comment', attrs: { id: 'seed-c1' } }]), dateMention(day(14), day(14)), '.')),
+      callout('✅', 'green', p(txt(L('Relaunch goes live on ', 'Relaunch geht live am '), [{ type: 'comment', attrs: { id: 'seed-c1' } }]), dateMention(day(14), day(14), '-1d'), '.')),
       h2(L('Action items', 'Aufgaben')),
       tasks(task(false, b('Alex'), L(' — final QA on staging', ' — finale QA auf Staging')), task(false, b('Sam'), L(' — connect webhook to n8n', ' — Webhook mit n8n verbinden')), task(true, b('Mira'), L(' — draft the newsletter', ' — Newsletter-Entwurf'))),
       p(L('Before it goes out, check the newsletter against our brand voice.', 'Vor dem Versand den Newsletter mit unserer Markenstimme abgleichen.')),
+      synced(principlesSync, brand, principles()),
       p(L('Every Monday at 09:00 a fresh entry appears in ', 'Jeden Montag um 09:00 erscheint ein neuer Eintrag in '), mention(meetings, L('Meetings', 'Meetings')), L(' — a repeating template.', ' — eine wiederkehrende Vorlage.')),
       h2(L('Next sync', 'Nächstes Sync')),
       {
