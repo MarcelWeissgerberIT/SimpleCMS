@@ -31,6 +31,15 @@ async function turnInto(page: Page, line: Locator, target: string) {
   await page.getByRole('menuitem', { name: new RegExp(`^${escapeRe(target)}(\\s|$)`) }).click()
 }
 
+/** The export dialog from the command palette (the editor's own ⌘K edits links, so leave it first). */
+async function openExport(page: Page) {
+  await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur())
+  await page.keyboard.press(`${MOD}+k`)
+  await page.keyboard.type('>export')
+  await page.keyboard.press('Enter')
+  return page.getByRole('dialog')
+}
+
 /** Ready state of the first media element inside `scope` (≥ 1: metadata loaded). */
 const mediaState = (el: Locator) => el.evaluate((m: HTMLMediaElement) => ({ ready: m.readyState, duration: Number.isFinite(m.duration) ? m.duration : 0 }))
 
@@ -166,10 +175,7 @@ test.describe('toggle headings', () => {
     )
     expect(ref).toMatch(/^onefile:/)
     await flush(page)
-    await page.keyboard.press(`${MOD}+k`)
-    await page.keyboard.type('>export')
-    await page.keyboard.press('Enter')
-    const dialog = page.getByRole('dialog')
+    const dialog = await openExport(page)
     await dialog.getByRole('radio', { name: /Markdown folder/ }).click()
     const download = page.waitForEvent('download')
     await dialog.locator('[data-export-run]').click()
@@ -280,11 +286,11 @@ test.describe('video and audio blocks', () => {
     await expect(view.locator('.media-view__meta')).toContainText('media.example.test')
 
     // play / pause from the keycap
-    await view.getByRole('button', { name: 'Play' }).click()
-    await expect(view.getByRole('button', { name: 'Pause' })).toBeVisible()
+    await view.getByRole('button', { name: 'Play', exact: true }).click()
+    await expect(view.getByRole('button', { name: 'Pause', exact: true })).toBeVisible()
     await expect(view.locator('.led')).toHaveClass(/led--on/)
-    await view.getByRole('button', { name: 'Pause' }).click()
-    await expect(view.getByRole('button', { name: 'Play' })).toBeVisible()
+    await view.getByRole('button', { name: 'Pause', exact: true }).click()
+    await expect(view.getByRole('button', { name: 'Play', exact: true })).toBeVisible()
     // links can be copied, local files cannot
     await expect(view.getByRole('button', { name: 'Copy link' })).toBeAttached()
 
@@ -334,6 +340,7 @@ test.describe('video and audio blocks', () => {
     await ed.locator('p').last().click()
     await dispatchFiles(page, 'paste', [{ name: 'clip.webm', type: 'video/webm', b64: CLIP.toString('base64') }])
     await expect(ed.locator('.media-view--video video')).toHaveAttribute('src', /^blob:/)
+    await flush(page)
     await wsEval(
       page,
       (s, { id, url }) => {
@@ -344,10 +351,7 @@ test.describe('video and audio blocks', () => {
     )
     await flush(page)
 
-    await page.keyboard.press(`${MOD}+k`)
-    await page.keyboard.type('>export')
-    await page.keyboard.press('Enter')
-    const dialog = page.getByRole('dialog')
+    const dialog = await openExport(page)
     await dialog.getByRole('radio', { name: /Web page/ }).click()
     const download = page.waitForEvent('download')
     await dialog.locator('[data-export-run]').click()

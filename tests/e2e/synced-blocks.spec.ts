@@ -27,6 +27,22 @@ const textOf = (n: JSONContent): string => (n.text ?? '') + (n.content ?? []).ma
 /** ProseMirror selection head of an editor (TipTap puts the editor on its DOM node). */
 const caretOf = (ed: Locator) => ed.evaluate((el) => (el as HTMLElement & { editor?: { state: { selection: { from: number } } } }).editor?.state.selection.from ?? -1)
 
+/** Document position right after the first `offset` characters of the text node holding `text`. */
+const posOf = (ed: Locator, text: string, offset: number) =>
+  ed.evaluate(
+    (el, { text, offset }) => {
+      type N = { isText: boolean; text?: string }
+      const ed = (el as HTMLElement & { editor: { state: { doc: { descendants: (f: (n: N, p: number) => boolean) => void } } } }).editor
+      let at = -1
+      ed.state.doc.descendants((n, p) => {
+        if (at < 0 && n.isText && (n.text ?? '').includes(text)) at = p + (n.text ?? '').indexOf(text) + offset
+        return at < 0
+      })
+      return at
+    },
+    { text, offset },
+  )
+
 /** Run the service's pending writes now (it batches them for a few ms). */
 const settle = (page: Page) => page.evaluate(() => (window as unknown as { __oneSynced: { flush: () => void } }).__oneSynced.flush())
 
@@ -85,7 +101,8 @@ test.describe('synced blocks', () => {
     await paneA.locator('p', { hasText: 'Shared alpha' }).click()
     await page.keyboard.press('Home')
     for (let i = 0; i < 3; i++) await page.keyboard.press('ArrowRight')
-    const caretA = await caretOf(paneA)
+    const caretA = await posOf(paneA, 'Shared alpha', 3)
+    await expect.poll(() => caretOf(paneA)).toBe(caretA)
 
     // typing in the reference (B) reaches the original (store + open editor), A's caret stays
     await reference.locator('p', { hasText: 'Shared beta' }).click()
@@ -96,7 +113,8 @@ test.describe('synced blocks', () => {
     expect(await caretOf(paneA)).toBe(caretA)
 
     // B's caret is in its reference; typing in A (other paragraph) updates B and keeps B's caret
-    const caretB = await caretOf(edB)
+    const caretB = await posOf(edB, 'Shared beta plus B', 'Shared beta plus B'.length)
+    await expect.poll(() => caretOf(edB)).toBe(caretB)
     await paneA.locator('p', { hasText: 'Shared alpha' }).click()
     await page.keyboard.press('End')
     await page.keyboard.type(' plus A')
@@ -221,6 +239,59 @@ test.describe('synced blocks', () => {
     expect(all.every((n) => !(n.content ?? []).some((k) => k.type === 'syncedBlock'))).toBe(true)
   })
 
+  test('duplicate block → a reference; a reference restored from history follows the original; a moved original takes its references along', async ({ page }) => {
+    await openApp(page)
+    const a = await createPage(page, { title: 'Origin', content: doc(para('Top'), synced('grp-dup', null, para('Shared fact')), para('End')) })
+    const b = await createPage(page, { title: 'Mirror', content: doc(para('Mirror top'), synced('grp-dup', a, para('Shared fact'))) })
+    const c = await createPage(page, { title: 'New home', content: doc(para('Home')) })
+    await gotoPage(page, a)
+    const edA = editorOf(page, a)
+    await expect(edA.locator('[data-type="synced-block"]')).toHaveCount(1)
+
+    // the synced block selected as a whole, Mod+D: the copy is a reference to this page
+    await edA.evaluate((el) => {
+      const ed = (el as HTMLElement & { editor: { state: { doc: { descendants: (f: (n: { type: { name: string } }, p: number) => boolean) => void } }; commands: { setNodeSelection: (p: number) => void }; view: { focus: () => void } } }).editor
+      let pos = -1
+      ed.state.doc.descendants((n, p) => {
+        if (pos < 0 && n.type.name === 'syncedBlock') pos = p
+        return pos < 0
+      })
+      ed.commands.setNodeSelection(pos)
+      ed.view.focus()
+    })
+    await page.keyboard.press(`${MOD}+d`)
+    await expect(edA.locator('[data-type="synced-block"]')).toHaveCount(2)
+    await expect(edA.locator('[data-type="synced-block"]').nth(1)).toHaveAttribute('data-role', 'reference')
+    await flush(page)
+    expect((await storedSynced(page, a)).map((n) => n.attrs?.sourcePageId)).toEqual([null, a])
+
+    // B restored to an old version with a stale copy: it follows the original again, the original keeps its text
+    await wsEval(page, (s, arg) => s.setContent(arg.b, { type: 'doc', content: [{ type: 'syncedBlock', attrs: { syncId: 'grp-dup', sourcePageId: arg.a }, content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Stale fact' }] }] }] }, 'history'), { a, b })
+    await settle(page)
+    await expect.poll(async () => textOf((await storedSynced(page, b))[0])).toContain('Shared fact')
+    expect(await plainOf(page, a)).not.toContain('Stale fact')
+
+    // "Move to" another page: the original lives there now, references point at it
+    await edA.evaluate((el) => {
+      const ed = (el as HTMLElement & { editor: { state: { doc: { descendants: (f: (n: { type: { name: string }; attrs: Record<string, unknown> }, p: number) => boolean) => void } }; commands: { setNodeSelection: (p: number) => void }; view: { focus: () => void } } }).editor
+      let pos = -1
+      ed.state.doc.descendants((n, p) => {
+        if (pos < 0 && n.type.name === 'syncedBlock' && !n.attrs.sourcePageId) pos = p
+        return pos < 0
+      })
+      ed.commands.setNodeSelection(pos)
+      ed.view.focus()
+    })
+    await page.keyboard.press('Alt+Enter')
+    await page.getByRole('menuitem', { name: 'Move to' }).click()
+    await page.keyboard.type('New home')
+    await page.keyboard.press('Enter')
+    await expect.poll(async () => (await storedSynced(page, b))[0]?.attrs?.sourcePageId, { timeout: 5000 }).toBe(c)
+    expect((await storedSynced(page, c))[0].attrs?.sourcePageId).toBeNull()
+    expect((await storedSynced(page, a)).map((n) => n.attrs?.sourcePageId)).toEqual([c])
+    await expect(edA.locator('[data-type="synced-block"] .synced__tag')).toHaveText(/Synced from New home/)
+  })
+
   test('share link and Markdown carry the content as plain blocks; German labels', async ({ page, browser, context, errors }) => {
     await context.grantPermissions(['clipboard-read', 'clipboard-write'])
     await openApp(page)
@@ -256,8 +327,8 @@ test.describe('synced blocks', () => {
     // German
     await wsEval(page, (s) => s.updateSettings({ language: 'de' }))
     const ref = editorOf(page, b).locator('[data-type="synced-block"]')
-    await expect(ref.locator('.synced__tag')).toHaveText(/Synchron aus Glossary/)
+    await expect(ref.locator('.synced__tag')).toHaveText(/Synchronisiert aus Glossary/)
     await gotoPage(page, a)
-    await expect(editorOf(page, a).locator('[data-type="synced-block"] .synced__tag')).toHaveText(/Synchron · 2 Seiten/)
+    await expect(editorOf(page, a).locator('[data-type="synced-block"] .synced__tag')).toHaveText(/Synchronisiert · 2 Seiten/)
   })
 })

@@ -75,7 +75,7 @@
 }
 
 .synced__tag {
-  max-width: 100%;
+  max-width: min(100%, 420px);
   background: var(--signal);
   color: var(--on-signal);
   opacity: 0;
@@ -157,10 +157,18 @@
   color: var(--on-signal);
 }
 
-/* touch screens have no hover: the tag stays readable */
+/* touch screens have no hover: a quiet tag stays in sight, solid once the block is active */
 @media (hover: none) {
   .synced__tag {
     opacity: 1;
+    background: var(--signal-wash);
+    color: var(--signal-ink);
+  }
+
+  .doc-content .synced:focus-within .synced__tag,
+  .doc-content .synced.is-open .synced__tag {
+    background: var(--signal);
+    color: var(--on-signal);
   }
 }
 

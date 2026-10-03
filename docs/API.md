@@ -272,7 +272,9 @@ Failed requests (4xx/5xx) are not remembered, so a retry after a fix goes throug
 **Settings → Team → Incoming webhooks**: pick a database, *Create webhook*, copy the URL. The URL
 holds the secret (`https://cloud.example.com/api/v1/hooks/<43 characters>`), so a tool can post to
 it without any headers. Like a token it is shown **once**; *New URL* makes a new one (the old one
-stops at once), *Delete* removes it. The list shows the database, when the hook was made, how many
+stops at once), *Delete* removes it. Treat the URL like a password: whoever has it can add rows to that
+database (and nothing else); the server never logs it, but a reverse proxy that logs request paths
+would. The list shows the database, when the hook was made, how many
 rows it delivered and when it last did.
 
 ```bash

@@ -3,7 +3,7 @@
  * replies to his comment â€” Bob's inbox shows each once; Bob's own changes never become items.
  */
 import type { Page } from '@playwright/test'
-import { test, expect, api, email, signIn, newPerson, openApp, wsEval, cloudEval, waitOnline, gotoPage, editorOf, createWorkspace, join } from './fixtures'
+import { test, expect, api, email, signIn, newPerson, openApp, waitForApp, wsEval, cloudEval, waitOnline, gotoPage, editorOf, createWorkspace, join } from './fixtures'
 
 const errors: string[] = []
 function watch(p: Page, who: string) {
@@ -108,6 +108,7 @@ test('team inbox: mention, assignment and reply reach the person they concern â€
 
   // a reload keeps it: no new items from the snapshot, read state stays
   await b.reload()
+  await waitForApp(b)
   await expect.poll(() => cloudEval(b, (c) => c.status as string), { timeout: 20_000 }).toBe('online')
   await b.waitForTimeout(2000)
   expect((await items(b)).map((i) => [i.kind, !!i.read]).sort()).toEqual([['assigned', false], ['comment', false], ['mention', true]])

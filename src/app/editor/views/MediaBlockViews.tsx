@@ -199,7 +199,9 @@ function MediaBar({
   const name = String(node.attrs.name || '') || (src.startsWith(FILE_PREFIX) ? t(`editor.block.${kind}`) : mediaNameFromUrl(src))
   const local = src.startsWith(FILE_PREFIX)
   const align = String(node.attrs.align || 'center')
-  const meta = [Number.isFinite(state.duration) ? formatTime(state.duration, true) : null, local ? (size !== null ? formatBytes(size) : null) : domainOf(src)].filter(Boolean).join(' · ')
+  const length = Number.isFinite(state.duration) ? formatTime(state.duration, true) : null
+  // local files: their size; links: where they come from (left out on a phone-width bar)
+  const origin = local ? (size !== null ? formatBytes(size) : null) : domainOf(src)
 
   const copyLink = async () => {
     try {
@@ -224,7 +226,17 @@ function MediaBar({
       <span className="media-view__name" title={name}>
         {name}
       </span>
-      {meta && <span className="media-view__meta">{meta}</span>}
+      {(length || origin) && (
+        <span className="media-view__meta">
+          {length}
+          {origin && (
+            <span className={local ? undefined : 'media-view__origin'}>
+              {length ? ' · ' : ''}
+              {origin}
+            </span>
+          )}
+        </span>
+      )}
       {editor.isEditable && (
         <div className="media-view__tools" role="toolbar" aria-label={t('editor.media.tools')} data-media-tools="" onKeyDown={onKeyDown}>
           {kind === 'video' && (

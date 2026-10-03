@@ -460,6 +460,8 @@ if (typeof window !== 'undefined' && (import.meta.env.DEV || new URLSearchParams
       }
     },
     data: () => useInbox.getState().data,
+    /** add items as if they had arrived (screenshots, UI tests) */
+    inject: (items: InboxItem[]) => mutateInbox((d) => void d.items.push(...items)),
     reminders: () => collectReminders(useWorkspace.getState().pages, useWorkspace.getState().databases),
     codes: {
       parse: parseReminder,

@@ -403,6 +403,9 @@
 }
 
 @media (max-width: 640px) {
+  .doc-content .media-view__origin {
+    display: none;
+  }
   /* alignment means nothing on a phone-width column */
   .doc-content .media-view__group {
     display: none;
