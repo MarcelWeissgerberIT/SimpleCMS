@@ -95,6 +95,17 @@ sub-items, timeline dependencies (with automatic shifting), row templates — al
 every Monday at 09:00) — locked databases, inline databases inside pages, side/centre peek, `.ics` calendar export, and
 **AI autofill** — summaries, key info, translations or categories per row, reviewed before they are written. Forms
 have conditional questions, several pages, scales and checkbox lists, a closing screen and a response summary.
+Missing properties are created on the fly — when you link a row of another database, type an unknown name into a
+filter, sort or formula, or take in a CSV. Own templates sit next to the built-in ones (which you can customise too).
+
+**Spreadsheets, functions, charts** — a spreadsheet block with several sheets, 75+ functions (SUM, VLOOKUP/XLOOKUP,
+SUMIFS, dates, text, finance …), cross-sheet references, copy & paste with Excel / Sheets / Numbers, and **datasets**:
+`DS(A1:A10; C2:C7)` bundles areas, each `DS(…)` gets its own colour in the grid while you edit, and named datasets stay
+tinted. **Your own functions** are built by clicking a formula tree — parameters, a readable preview, a test bench —
+and work in sheets and database formulas; there is no code anywhere, and the engine (no `eval`, step and depth limits)
+can't be talked into running any. **Charts** take three clicks: data from a sheet, a database, the workspace's own
+numbers (pages written, to-dos done, storage, reminders …) or typed in; bar, line, area, donut, scatter, KPI and
+sparkline, live as the data changes, as PNG/SVG, and frozen into numbers when a page is shared.
 
 **Workspace** — page tree with drag & drop, favourites, trash, breadcrumbs, `⌘K` palette for search *and* commands,
 home dashboard, today's journal, an **Inbox** with reminders (and, in team workspaces, mentions, assignments and
@@ -146,15 +157,16 @@ URL, optionally encrypted with a password) — no server involved.
 **Teams, on your own server** — the same app also runs as a team workspace on a small server you host
 (`server/`: Node, SQLite, Yjs, Docker + Caddy; licensed AGPL-3.0): sign-in by email link, roles (owner, admin, member,
 viewer), invitations, live co-editing with cursors and presence, **private pages** (only you can open them — enforced
-by the server, not just hidden), offline copies that sync when you are back, and a
+by the server, not just hidden), a personal space for every account from the first sign-in, content **encrypted at
+rest** with a key per workspace, offline copies that sync when you are back, and a
 **public REST API** with API tokens and an incoming webhook URL per database, so n8n, Make or Zapier can write rows
 into One ([docs/API.md](docs/API.md)). Setup in [docs/SELF_HOSTING.md](docs/SELF_HOSTING.md), architecture in
 [docs/CLOUD.md](docs/CLOUD.md). The local workspace keeps working without any of it.
 
 **Agents & MCP** — One speaks the Model Context Protocol, so Claude Desktop, Claude Code or any MCP client can search,
 read and write your workspace: pages, databases, rows and properties, with 13 tools. Locally, a small bridge
-(`one-mcp.mjs`, one file) drives the One tab you have open — nothing leaves your computer, and changes wait for your
-one-click approval unless you switch that off. A team server has a remote MCP endpoint (`/mcp`) that works with the
+(`one-mcp.mjs`, one file — or **one click** as a Claude Desktop extension, `one.mcpb`) drives the One tab you have
+open — nothing leaves your computer, and changes wait for your one-click approval unless you switch that off. A team server has a remote MCP endpoint (`/mcp`) that works with the
 API tokens; a read token gets only the read tools. Setup and tool reference in [docs/MCP.md](docs/MCP.md).
 
 **Private by construction** — no analytics, no cookies, no backend (unless you run the team server). A service worker keeps the app working offline
@@ -220,7 +232,12 @@ Built for the **Ninja Armory** challenge of the AI Automations community.
 **SimpleCMS One** ist ein Workspace wie Notion, nur lokal, kostenlos und ohne Konto. Er bietet:
 
 - einen Block-Editor mit Slash-Menü, Tabs, Randkommentaren und Buttons mit Aktionen
-- Datenbanken mit acht Ansichten inklusive Formularen, Unterelementen, Abhängigkeiten und Farbregeln
+- Datenbanken mit acht Ansichten inklusive Formularen, Unterelementen, Abhängigkeiten und Farbregeln; fehlende
+  Eigenschaften entstehen beim Verlinken, Filtern oder CSV-Import gleich mit
+- Tabellenkalkulation in der Seite: mehrere Blätter, 75+ Funktionen, farbige Datenbereiche `DS(A1:A10; C2:C7)`
+- eigene Funktionen per Klick aus einem Formelbaum (kein Code), nutzbar in Tabellen und Datenbank-Formeln
+- Diagramme in drei Klicks aus Tabellen, Datenbanken oder den Zahlen des Workspaces – live, als PNG/SVG
+- eigene Vorlagen und anpassbare eingebaute Vorlagen
 - Claude-KI mit deinem eigenen API-Key (verschlüsselt im Browser gespeichert), auch als KI-Autofill für Datenbank-Spalten
 - Webhook-Automationen für n8n, Make und Zapier – auch aus Buttons und geteilten Formularen
 - Import aus Notion, Obsidian, Evernote, Trello und HTML
@@ -232,11 +249,13 @@ Built for the **Ninja Armory** challenge of the AI Automations community.
 - Sync als Markdown in einen Ordner auf deinem Rechner oder dein eigenes GitHub-Repository – in beide Richtungen
 - einen Workspace-Agenten (`⌘J`), der Aufgaben über Seiten und Datenbanken plant und erst nach deiner Prüfung ausführt
 - MCP für KI-Agenten: Claude Desktop, Claude Code & Co. suchen, lesen und schreiben im Workspace – lokal über eine
-  Brücke zu deinem offenen Tab (Änderungen nach deiner Freigabe), im Team über den `/mcp`-Endpunkt des Servers
+  Brücke zu deinem offenen Tab (Änderungen nach deiner Freigabe; für Claude Desktop mit einem Klick als Erweiterung
+  `one.mcpb`), im Team über den `/mcp`-Endpunkt des Servers
   ([docs/MCP.md](docs/MCP.md))
 - wiederkehrende Datenbank-Vorlagen, z. B. jeden Montag um 09:00 ein neuer Meeting-Eintrag
 - Präsentationsmodus und Offline-Betrieb
-- optional Team-Workspaces auf dem eigenen Server (Live-Zusammenarbeit, Rollen, Einladungen, private Seiten, öffentliche API und
+- optional Team-Workspaces auf dem eigenen Server (Live-Zusammenarbeit, Rollen, Einladungen, private Seiten, eigener
+  Bereich pro Konto, Inhalte verschlüsselt gespeichert mit einem Schlüssel pro Workspace, öffentliche API und
   eingehende Webhooks) – Anleitung in [docs/SELF_HOSTING.md](docs/SELF_HOSTING.md)
 
 Alles läuft im Browser, deine Daten verlassen dein Gerät nicht (außer du betreibst den Team-Server). Die Oberfläche gibt es auf Deutsch und Englisch und
