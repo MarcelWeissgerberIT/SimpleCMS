@@ -7,6 +7,8 @@
  *   x > 3 ? "big" : "small"
  */
 
+import { formulaFunctions } from '../../lib/formulaFunctions'
+
 export interface Span {
   s: number
   e: number
@@ -200,7 +202,8 @@ export function parse(src: string): Node {
         if (lower === 'pi') return { k: 'num', v: Math.PI, s: tk.s, e: tk.e }
         throw new FormulaError('unknownName', { name: tk.v }, tk.s)
       }
-      const name = FN_LOOKUP.get(lower)
+      // the language's own functions first, then the workspace's custom functions (lib/formulaFunctions)
+      const name = FN_LOOKUP.get(lower) ?? formulaFunctions()?.resolve(tk.v) ?? undefined
       if (!name) throw new FormulaError('unknownFunction', { name: tk.v }, tk.s)
       next() // (
       const args: Node[] = []
@@ -215,7 +218,7 @@ export function parse(src: string): Node {
         }
       }
       const close = expect(')')
-      const [min, max] = ARITY[name]
+      const [min, max] = Object.prototype.hasOwnProperty.call(ARITY, name) ? ARITY[name] : (formulaFunctions()?.arity(name) ?? [0, -1])
       if (args.length < min || (max >= 0 && args.length > max))
         throw new FormulaError('arity', { name, count: max === min ? String(min) : max < 0 ? `${min}+` : `${min}–${max}` }, tk.s)
       return { k: 'call', name, args, s: tk.s, e: close.e }

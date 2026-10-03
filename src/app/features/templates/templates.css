@@ -319,6 +319,11 @@
     var(--surface-2);
 }
 
+/* own templates have no catalogue art: a lower plate leaves room for their structure */
+.tpl-preview__art:not([data-asset]) {
+  height: 96px;
+}
+
 .tpl-preview__flag {
   position: absolute;
   top: 8px;

@@ -122,11 +122,13 @@ export function useResolver(dbId: ID): Resolver {
   const lang = useLang()
   const labels = useLabels()
   const me = useMe()
+  // custom functions (formulas may call them): a new set → formulas compute again
+  const functions = useWorkspace((s) => s.functions)
   return useMemo(() => {
     const ctx: Ctx = { pages: useWorkspace.getState().pages, databases, people, lang, now: Date.now(), labels, me }
     return new Resolver(ctx)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [relevant, databases, people, lang, labels, tick, me])
+  }, [relevant, databases, people, lang, labels, tick, me, functions])
 }
 
 export interface DbModel {

@@ -6,7 +6,7 @@
  * The clock is pinned to Wed 14 Oct 2026 so filled variables and the agenda month are deterministic.
  */
 import type { Locator, Page } from '@playwright/test'
-import { test, expect, openApp, reloadApp, gotoPage, wsEval, flush, editorOf, sidebarRow, waitForPlain, MOD } from './fixtures'
+import { test, expect, openApp, reloadApp, gotoPage, wsEval, flush, editorOf, sidebarRow, waitForPlain, createPage, doc, para, MOD } from './fixtures'
 
 const NOW = new Date('2026-10-14T10:00:00')
 const ISO = '2026-10-14'
@@ -595,5 +595,62 @@ test.describe('own templates', () => {
     await expect(page.getByText('“Launch kit” added')).toBeVisible()
     await expect(page.locator('#main .pv-title')).toHaveValue('Launch kit')
     expect(await copiesTitled(page, 'Launch kit', [kit.root])).toHaveLength(1)
+  })
+  test('pickers offer template pages only inside their template; "Duplicate" on a template makes another template', async ({ page }) => {
+    await openApp(page)
+    const kit = await seedKit(page)
+    const tplId = await saveAsTemplate(page, kit.root)
+
+    /** "@<query>" on an empty line of `pageId`: the page options of the mention menu called `label`. */
+    const mentionHits = async (pageId: string, query: string, label: string) => {
+      await gotoPage(page, pageId)
+      await editorOf(page, pageId).locator('p').last().click()
+      await page.keyboard.press('End')
+      await page.keyboard.press('Enter')
+      await page.keyboard.type(`@${query}`)
+      const menu = page.locator('.suggest-menu[role="listbox"]')
+      await expect(menu).toBeVisible()
+      const n = await menu.getByRole('option').filter({ has: page.locator('.menu-item__label', { hasText: new RegExp(`^${label.replace(/[{}]/g, '\\$&')}$`) }) }).count()
+      await page.keyboard.press('Escape')
+      return n
+    }
+    /** "/Linked database" on an empty line: the databases the picker offers called `name`. */
+    const linkedHits = async (pageId: string, name: string) => {
+      await gotoPage(page, pageId)
+      await editorOf(page, pageId).locator('p').last().click()
+      await page.keyboard.press('End')
+      await page.keyboard.press('Enter')
+      await page.keyboard.type('/Linked database')
+      await page.keyboard.press('Enter')
+      const picker = page.getByRole('menu').filter({ hasText: 'Link an existing database' })
+      await expect(picker).toBeVisible()
+      const n = await picker.getByRole('menuitem', { name, exact: true }).count()
+      await page.keyboard.press('Escape')
+      return n
+    }
+
+    // a page of the workspace: the template's own subpage and database are not offered
+    const notes = await createPage(page, { title: 'Picker notes', content: doc(para('')) })
+    expect(await mentionHits(notes, 'Checklist', 'Checklist {{date}}')).toBe(1)
+    expect(await linkedHits(notes, 'Milestones')).toBe(1)
+    // a page inside the template: its own pages and the workspace's
+    const scratch = await wsEval(page, (s, parentId) => s.createPage({ title: 'Scratch', parentId, content: { type: 'doc', content: [{ type: 'paragraph' }] } }), tplId)
+    await flush(page)
+    expect(await mentionHits(scratch, 'Checklist', 'Checklist {{date}}')).toBe(2)
+    expect(await mentionHits(scratch, 'Projects', 'Projects')).toBeGreaterThan(0)
+    expect(await linkedHits(scratch, 'Milestones')).toBe(2)
+
+    // "Duplicate" in a template's page menu: another own template (never a second customised built-in)
+    await gotoPage(page, tplId)
+    await pageOptions(page)
+    await page.getByRole('menuitem', { name: 'Duplicate' }).click()
+    await expect(page.locator('#main .tplb .tplb__name')).toHaveText('Launch kit (copy)')
+    await flush(page)
+    const all = await templates(page)
+    expect(all.map((x) => [x.name, x.title, x.hidden, x.from])).toEqual([
+      ['Launch kit', 'Launch kit', true, null],
+      ['Launch kit (copy)', 'Launch kit', true, null],
+    ])
+    await expect(sidebarRow(page, 'Launch kit')).toHaveCount(1)
   })
 })

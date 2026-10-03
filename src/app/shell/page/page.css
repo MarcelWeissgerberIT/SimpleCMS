@@ -488,13 +488,14 @@
   color: var(--ink);
   font-weight: 650;
 }
-.mrail-toc__a[aria-current]::before {
+/* the needle: a signal bar laid over the scale's hairline (the button clips its own overflow) */
+.mrail-toc li:has(> [aria-current])::after {
   content: '';
   position: absolute;
-  left: -1px;
-  top: 3px;
-  bottom: 3px;
-  width: 2px;
+  left: -2px;
+  top: 4px;
+  bottom: 4px;
+  width: 3px;
   background: var(--signal);
 }
 

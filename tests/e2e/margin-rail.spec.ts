@@ -95,11 +95,11 @@ test.describe('margin rail', () => {
 
     // click → the heading lands near the top of the column and its entry lights up
     await items.filter({ hasText: 'Section 5' }).click()
+    // a signal tick marks the heading for a moment (outside the editor's DOM)
+    await expect(page.locator('#main > .mrail-mark')).toHaveCount(1)
     await expect(items.filter({ hasText: 'Section 5' })).toHaveAttribute('aria-current', 'location')
     await expect.poll(() => headingOffset(page, 'Section 5')).toBeLessThan(80)
     expect(await headingOffset(page, 'Section 5')).toBeGreaterThanOrEqual(0)
-    // a signal tick marks the heading (outside the editor's DOM)
-    await expect(page.locator('#main > .mrail-mark')).toHaveCount(1)
 
     // reading on (the wheel releases the picked entry): the next section takes over once it
     // passes the top quarter of the column, a long scroll included
@@ -150,9 +150,9 @@ test.describe('margin rail', () => {
     await expect(rail(page).locator('.mrail__label')).toHaveText(['Outline', 'Reminders', 'Page'])
 
     await items.first().click()
+    await expect(page.locator('#main > .mrail-mark')).toHaveCount(1)
     const line = page.locator('#main .ProseMirror p', { hasText: 'Go-live on' })
     await expect(line).toBeInViewport()
-    await expect(page.locator('#main > .mrail-mark')).toHaveCount(1)
 
     // no reminders, no section
     await gotoPage(page, await pageIdByTitle(page, 'Team wiki'))

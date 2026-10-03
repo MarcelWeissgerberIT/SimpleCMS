@@ -19,6 +19,8 @@ export interface CloudWorkspace {
   name: string
   icon: string | null
   role: Role
+  /** The signed-in person's own workspace, created at their first sign-in (docs/CLOUD.md § Tenancy). */
+  personal?: boolean
 }
 
 /** Which workspace this browser tab shows. 'local' = the browser-only workspace. */

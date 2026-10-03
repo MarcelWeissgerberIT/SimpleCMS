@@ -116,9 +116,9 @@ test.describe('app: Settings → Agents · MCP → Setup', () => {
     await summary.focus()
     await page.keyboard.press('Enter')
     await expect(manual).toHaveAttribute('open', '')
-    await expect(panel.getByRole('link', { name: 'one-mcp.mjs' })).toHaveAttribute('href', '/SimpleCMS/mcp/one-mcp.mjs')
-    await expect(panel.getByLabel('claude_desktop_config.json')).toContainText('"command": "node"')
-    await expect(panel.getByLabel('Command for Claude Code')).toHaveText('claude mcp add one -- node ~/one-mcp.mjs')
+    await expect(panel.getByRole('link', { name: 'one-mcp.mjs' })).toHaveAttribute('href', /^http:\/\/127\.0\.0\.1:\d+\/SimpleCMS\/mcp\/one-mcp\.mjs$/)
+    await expect(panel.getByLabel('claude_desktop_config.json', { exact: true })).toContainText('"command": "node"')
+    await expect(panel.getByLabel('Command for Claude Code', { exact: true })).toHaveText('claude mcp add one -- node ~/one-mcp.mjs')
 
     // a click downloads the extension
     const download = page.waitForEvent('download')

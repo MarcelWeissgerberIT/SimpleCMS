@@ -3,13 +3,14 @@
  * clickable reference of properties and functions.
  */
 import { useMemo, useRef, useState } from 'react'
-import { ChevronLeft, ChevronRight, Plus } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Plus, SquareFunction } from 'lucide-react'
 import type { Database, Page, PropertyDef } from '../../store/types'
 import { useWorkspace } from '../../store/store'
 import { Modal } from '../../ui/Modal'
 import { useT } from '../../i18n'
 import { Kbd, MOD } from '../../ui/controls'
-import { compile, FORMULA_CATALOG, FormulaError, fvalueKind, toText, type FValue } from '../formula'
+import { compile, customFormulaFunctions, FORMULA_CATALOG, FormulaError, fvalueKind, toText, type FValue } from '../formula'
+import { useUI } from '../../store/ui'
 import { Resolver } from '../model/resolve'
 import { Menu, TypeIcon } from '../parts'
 import { useCreateProperty } from '../create/entry'
@@ -74,6 +75,9 @@ export function FormulaEditor({ db: initialDb, prop, rows, resolver, onClose }: 
   const canCreate = !creator.blocked && creator.isNew(query) && !FORMULA_CATALOG.some((f) => f.name.toLowerCase() === q)
   const missing = err?.code === 'unknownProperty' && typeof err.vars?.name === 'string' && !creator.blocked && creator.isNew(err.vars.name) ? err.vars.name : null
   const groups = ['logic', 'text', 'math', 'date'] as const
+  // the workspace's custom functions (built by clicking — features/sheets/functions); re-read when they change
+  const customFns = useWorkspace((st) => st.functions)
+  const customList = useMemo(() => customFormulaFunctions().filter((f) => !q || f.name.toLowerCase().includes(q)), [customFns, q])
 
   // the error is marked in place by a mirror of the source that wraps exactly like the textarea
   const errPos = err?.pos !== undefined ? Math.min(err.pos, src.length) : undefined
@@ -239,6 +243,25 @@ export function FormulaEditor({ db: initialDb, prop, rows, resolver, onClose }: 
                 </div>
               )
             })}
+            <div>
+              <div className="label db-fx__refhead">{t('database.formula.group.custom')}</div>
+              {customList.map((f) => (
+                <button
+                  key={f.name}
+                  type="button"
+                  className="db-fx__refitem db-fx__refitem--fn"
+                  onMouseEnter={() => setHint(`${f.sig}${f.description ? ` — ${f.description}` : ''}`)}
+                  onFocus={() => setHint(`${f.sig}${f.description ? ` — ${f.description}` : ''}`)}
+                  onClick={() => insert(`${f.name}()`, 1)}
+                >
+                  <span className="mono">{f.name}</span>
+                </button>
+              ))}
+              <button type="button" className="db-fx__refitem" data-edit-functions="" onClick={() => useUI.getState().openModal({ type: 'functions' })}>
+                <SquareFunction size={13} />
+                <span>{t('database.formula.editFunctions')}</span>
+              </button>
+            </div>
           </div>
         </aside>
       </div>

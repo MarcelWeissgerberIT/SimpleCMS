@@ -18,15 +18,30 @@ interface Entry {
   plain: string
   /** the title's words (word-prefix matches) */
   words: string[]
+  /** how often each character occurs in the title (see bucket); counted on the first fuzzy search */
+  counts?: Uint8Array
 }
 
 export interface SearchIndex {
   entries: Entry[]
-  /** Fuzzy matching on titles only — catches typos without dragging in random body text. Built on first use. */
-  readonly titles: Fuse<Entry>
 }
 
 const WORD_SPLIT = /[\s\-_/.,:;()[\]"'“”„’]+/
+
+/**
+ * Character buckets: a–z one each, digits and everything else share a few. A shared bucket only
+ * makes a title look as if it had more of a character than it has — never fewer.
+ */
+const bucket = (c: number) => (c >= 97 && c <= 122 ? c - 97 : (c >= 48 && c <= 57 ? 26 : 29) + (c % 3))
+
+function countsOf(text: string): Uint8Array {
+  const n = new Uint8Array(32)
+  for (let i = 0; i < text.length; i++) {
+    const b = bucket(text.charCodeAt(i))
+    if (n[b] < 255) n[b]++
+  }
+  return n
+}
 
 /** Per page object (immutable: an edited page is a new object): lower-casing happens once per version, not per opening. */
 const entryCache = new WeakMap<Page, Entry>()
@@ -53,22 +68,39 @@ export function buildIndex(pages: Record<ID, Page>): SearchIndex {
     const p = pages[id]
     if (!p.trashed && !isEffectivelyTrashed(pages, id) && !inTemplate(pages, id)) entries.push(entryOf(p))
   }
-  let fuse: Fuse<Entry> | null = null
-  const index: SearchIndex = {
-    entries,
-    get titles() {
-      return (fuse ??= new Fuse(entries, {
-        keys: ['page.title'],
-        includeMatches: true,
-        includeScore: true,
-        ignoreLocation: true,
-        threshold: 0.3,
-        minMatchCharLength: 2,
-      }))
-    },
-  }
+  const index: SearchIndex = { entries }
   indexCache.set(pages, index)
   return index
+}
+
+/** Fuzzy matching on titles only — catches typos without dragging in random body text. */
+const FUZZY = { keys: ['page.title'], includeMatches: true, includeScore: true, ignoreLocation: true, threshold: 0.3, minMatchCharLength: 2 }
+
+/**
+ * Fuzzy title hits (Fuse) for `q`. Fuse's bitap allows at most ⌊threshold × length⌋ edits, and each
+ * query character a title has fewer of costs one: titles short of more cannot match and are left
+ * out before Fuse runs. Scores do not depend on the other titles, and the candidates keep the
+ * index order (Fuse breaks ties by it), so the hits are exactly those of a search over every
+ * title — for a fraction of the work on a big workspace.
+ */
+function fuzzyTitles(entries: Entry[], q: string, limit: number) {
+  let edits = 0
+  while ((edits + 1) / q.length <= FUZZY.threshold) edits++
+  const need = countsOf(q)
+  const used: number[] = []
+  for (let b = 0; b < need.length; b++) if (need[b]) used.push(b)
+  const possible = (e: Entry) => {
+    const counts = (e.counts ??= countsOf(e.title))
+    let missing = 0
+    for (const b of used) {
+      const short = need[b] - counts[b]
+      if (short > 0 && (missing += short) > edits) return false
+    }
+    return true
+  }
+  // Fuse splits a query of more than 32 characters into parts that match on their own: no shortcut
+  const candidates = q.length > 32 ? entries : entries.filter(possible)
+  return candidates.length ? new Fuse(candidates, FUZZY).search(q, { limit }) : []
 }
 
 /** Case-insensitive substring ranges for every whitespace-separated term. */
@@ -169,7 +201,7 @@ export function search(index: SearchIndex, query: string, limit = 30): SearchHit
 
   // fuzzy title hits rank below every other title hit: with `limit` of those, none would show
   if (q.length >= 4 && titleHits < limit) {
-    for (const r of index.titles.search(q, { limit: 20 })) {
+    for (const r of fuzzyTitles(index.entries, q, 20)) {
       if (scoreOf(r.item) >= 0 || (r.score ?? 1) > 0.3) continue
       offer(ranked, limit, { e: r.item, score: FUZZY_RANK + (r.score ?? 0), fuzzy: fuseRanges(r.matches?.[0]) })
     }

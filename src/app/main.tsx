@@ -7,6 +7,7 @@ import { App } from './shell/App'
 import { ErrorBoundary } from './shell/ErrorBoundary'
 import { listenForReset, runPendingReset, withBootLock } from './shell/lib/reset'
 import { consumeShareTarget } from './shell/capture/inbox'
+import { bootRedirect } from './shell/lib/global'
 import { useWorkspace, emptyWorkspace } from './store/store'
 import { useUI } from './store/ui'
 import { flushSave, loadWorkspace, startPersistence } from './store/persistence'
@@ -81,6 +82,8 @@ async function boot() {
 
   // PWA share target (/app/?title=…&text=…&url=…) → the #/clip route, before the first render
   if (mode !== 'signed-out') startService('share target', consumeShareTarget)
+  // "#/" → the start page before the first render (the home screen is not built for nothing)
+  if (mode !== 'signed-out') startService('start page', bootRedirect)
 
   createRoot(document.getElementById('root')!).render(
     <StrictMode>
