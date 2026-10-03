@@ -129,6 +129,7 @@ export async function openCloudWorkspace(ws: CloudWorkspace, user: CloudUser, on
     pages: data.pages,
     databases: data.databases,
     people: data.people ?? [],
+    functions: data.functions,
     settings,
     recent: overlay.recent.filter((id) => !!data.pages[id]),
   })

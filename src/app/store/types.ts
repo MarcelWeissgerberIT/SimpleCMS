@@ -625,4 +625,46 @@ export interface Workspace {
   settings: Settings
   /** Recently visited page ids, newest first (max 20). */
   recent: ID[]
+  /**
+   * Custom functions (features/sheets/functions), built by clicking — no code. Usable in
+   * spreadsheet cells (`=MARGIN(B2; C2)`) and database formulas (`MARGIN(prop("Price"), prop("Cost"))`).
+   * Write only with upsertFunction / deleteFunction. Synced in team workspaces (meta map `functions`).
+   */
+  functions?: Record<ID, CustomFunction>
+}
+
+/* ------------------------------------------------------------------ */
+/* Custom functions (shared contract with features/sheets/engine)      */
+/* ------------------------------------------------------------------ */
+
+/**
+ * A custom function's body: an expression tree, never source code. `call.fn` is a built-in
+ * (SUM, IF, ROUND …), an operator ('+', '-', '*', '/', '^', '&', '=', '<>', '<', '<=', '>', '>=')
+ * or another custom function's name.
+ */
+export type FnExpr =
+  | { k: 'num'; v: number }
+  | { k: 'str'; v: string }
+  | { k: 'bool'; v: boolean }
+  | { k: 'param'; name: string }
+  | { k: 'call'; fn: string; args: FnExpr[] }
+
+export type FnParamType = 'number' | 'text' | 'date' | 'bool' | 'range' | 'any'
+
+export interface FnParam {
+  /** lower_snake, unique within the function */
+  name: string
+  type: FnParamType
+  description?: string
+}
+
+export interface CustomFunction {
+  id: ID
+  /** UPPER_SNAKE, 2–32 chars, never a built-in's name, unique in the workspace */
+  name: string
+  description?: string
+  params: FnParam[]
+  body: FnExpr
+  createdAt: number
+  updatedAt: number
 }

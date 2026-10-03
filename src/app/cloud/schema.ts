@@ -5,15 +5,17 @@
  *   'pages'      pageId → Y.Map { scalar fields …, properties: Y.Map, comments: Y.Map, plain }
  *   'databases'  dbId → Y.Map { properties: Y.Map (id → def + order), views: Y.Map (id → view + order), other keys as JSON }
  *   'people'     personId → Person
+ *   'functions'  functionId → CustomFunction (features/sheets/functions; JSON, last writer wins per function)
  *
  * Writers only touch what changed (field / cell / thread / property / view level), so concurrent
  * edits of different fields of one page all survive. Readers build store objects and reuse the
  * previous object (and sub-objects) when nothing changed, so React sees no churn.
  */
 import * as Y from 'yjs'
-import type { Database, ID, Page, PageComment, Person, PropertyDef, View } from '../store/types'
+import type { CustomFunction, Database, ID, Page, PageComment, Person, PropertyDef, View } from '../store/types'
 import { DEFAULT_PAGE_SETTINGS } from '../store/store'
 import { deepEqual } from '../store/merge'
+import { sanitizeFunction } from '../store/functions'
 
 /** Origin of every store → meta transaction (docs/CLOUD.md: origin 'local'). */
 export const LOCAL = 'local'
@@ -25,6 +27,7 @@ export const roots = (doc: Y.Doc) => ({
   pages: doc.getMap<YMap>('pages'),
   databases: doc.getMap<YMap>('databases'),
   people: doc.getMap<unknown>('people'),
+  functions: doc.getMap<unknown>('functions'),
 })
 
 /** Synced page fields stored as plain values (everything else is per device or nested). */
@@ -341,4 +344,38 @@ export function readPeople(source: Y.Map<unknown>, cur: Person[]): Person[] {
   }
   out.push(...[...remote.values()].sort((a, b) => (a.id < b.id ? -1 : 1)))
   return out.length === cur.length && out.every((p, i) => p === cur[i]) ? cur : out
+}
+
+/* ------------------------------------------------------------------ functions */
+
+/** Custom functions: one JSON entry per function (only the ones that changed are written). */
+export function writeFunctions(target: Y.Map<unknown>, next: Record<ID, CustomFunction> | undefined, before: Record<ID, CustomFunction> | undefined): void {
+  const prev = before ?? {}
+  const cur = next ?? {}
+  for (const [id, fn] of Object.entries(cur)) {
+    if (prev[id] === fn || deepEqual(prev[id], fn)) continue
+    target.set(id, clone(fn))
+  }
+  for (const id of Object.keys(prev)) if (!(id in cur)) target.delete(id)
+}
+
+/**
+ * The store's functions from the meta document. Entries are checked like any untrusted copy
+ * (store/functions.ts); unchanged ones keep their object, and `cur` itself is returned when nothing changed.
+ */
+export function readFunctions(source: Y.Map<unknown>, cur: Record<ID, CustomFunction> | undefined): Record<ID, CustomFunction> {
+  const prev = cur ?? {}
+  const out: Record<ID, CustomFunction> = {}
+  let same = true
+  for (const [id, v] of source.entries()) {
+    const fn = sanitizeFunction(id, v)
+    if (!fn) continue
+    if (prev[id] && deepEqual(prev[id], fn)) out[id] = prev[id]
+    else {
+      out[id] = fn
+      same = false
+    }
+  }
+  if (Object.keys(prev).some((id) => !(id in out))) same = false
+  return same && cur ? cur : out
 }

@@ -14,6 +14,7 @@ import { newId } from '../lib/ids'
 import { detectLang } from '@/shared/i18n'
 import { aiKeyValue, attachSecrets, checkAIKey, withSealedKey } from './secrets'
 import type {
+  CustomFunction,
   Database,
   ID,
   Page,
@@ -176,6 +177,10 @@ export interface WorkspaceState extends Workspace {
   addPerson: (name: string) => ID
   updateSettings: (patch: Partial<Settings>) => void
 
+  // custom functions (features/sheets/functions): insert or replace by id (updatedAt is set here) · remove
+  upsertFunction: (fn: CustomFunction) => void
+  deleteFunction: (id: ID) => void
+
   // comments (margin notes): threads live on the page, their anchors are `comment` marks in its content
   addComment: (pageId: ID, input: { id?: ID; quote: string; body: string }) => ID
   updateComment: (pageId: ID, commentId: ID, patch: Partial<Pick<PageComment, 'body' | 'resolved' | 'quote'>>) => void
@@ -196,6 +201,8 @@ export interface CloudPatch {
   databases?: Record<ID, Database | null>
   people?: Person[]
   settings?: Partial<Settings>
+  /** custom functions by id (`null` removes one) */
+  functions?: Record<ID, CustomFunction | null>
 }
 
 const now = () => Date.now()
@@ -379,7 +386,7 @@ export const useWorkspace = create<WorkspaceState>()(
       // the Claude API key: a vault marker, never the key (secrets.ts)
       const settings = withSealedKey(ws.settings, get().settings.aiApiKey, ws.epoch)
       set((s) => {
-        Object.assign(s, ws, { pages: freezePages(ws.pages), settings })
+        Object.assign(s, ws, { pages: freezePages(ws.pages), settings, functions: ws.functions ?? {} })
         s.ready = true
       })
       void checkAIKey()
@@ -394,6 +401,7 @@ export const useWorkspace = create<WorkspaceState>()(
         s.people = ws.people
         s.settings = withSealedKey(ws.settings, s.settings.aiApiKey, s.epoch)
         s.recent = ws.recent
+        s.functions = ws.functions ?? {}
       }),
 
     createPage: (input = {}) => {
@@ -743,6 +751,18 @@ export const useWorkspace = create<WorkspaceState>()(
       })
     },
 
+    upsertFunction: (fn) =>
+      set((s) => {
+        s.functions ??= {}
+        const cur = s.functions[fn.id]
+        s.functions[fn.id] = { ...JSON.parse(JSON.stringify(fn)), createdAt: cur?.createdAt ?? fn.createdAt ?? now(), updatedAt: now() }
+      }),
+
+    deleteFunction: (id) =>
+      set((s) => {
+        if (s.functions?.[id]) delete s.functions[id]
+      }),
+
     // comments bump the page's updatedAt: cross-tab sync compares pages by it (merge.ts samePage)
     addComment: (pageId, input) => {
       const id = input.id ?? newId()
@@ -825,6 +845,11 @@ export const useWorkspace = create<WorkspaceState>()(
           else delete s.databases[id]
         }
         if (patch.people) s.people = patch.people
+        for (const [id, fn] of Object.entries(patch.functions ?? {})) {
+          s.functions ??= {}
+          if (fn) s.functions[id] = fn
+          else delete s.functions[id]
+        }
         if (patch.settings) Object.assign(s.settings, withSealedKey({ ...s.settings, ...patch.settings }, s.settings.aiApiKey, s.epoch))
         if (removed && s.recent.some((r) => !s.pages[r])) s.recent = s.recent.filter((r) => !!s.pages[r])
       }),
@@ -891,5 +916,6 @@ export function getWorkspaceSnapshot(): Workspace {
     people: s.people,
     settings: s.settings,
     recent: s.recent,
+    functions: s.functions ?? {},
   }
 }
