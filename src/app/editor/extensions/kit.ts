@@ -11,8 +11,17 @@ import { suggestExtension } from './suggest'
 import { BlockFlash, BlockSelection, ExtraInputRules, OnePlaceholder, shortcutsExtension, TabTrap } from './behaviors'
 import { pasteExtension } from './paste'
 
-export function editorExtensions({ bridge, readOnly = false }: { bridge: Bridge | null; readOnly?: boolean }): AnyExtension[] {
-  const exts = baseExtensions({ readOnly, wrap: nodeViewWraps({ readOnly }) })
+export function editorExtensions({
+  bridge,
+  readOnly = false,
+  headingOffset = 0,
+}: {
+  bridge: Bridge | null
+  readOnly?: boolean
+  /** 1 under a page title (<h1>): heading blocks render as <h2>–<h4>. */
+  headingOffset?: number
+}): AnyExtension[] {
+  const exts = baseExtensions({ readOnly, wrap: nodeViewWraps({ readOnly }), headingOffset })
   if (readOnly || !bridge) return [...exts, pasteExtension(null), BlockFlash]
   return [
     ...exts,

@@ -126,7 +126,7 @@ export function SharedPageView({ payload }: { payload: string }) {
               {date && <span>{date}</span>}
               <span>{t('features.share.view.words', { count: fmtNum.format(words) })}</span>
             </div>
-            <ReadOnlyDoc content={page.content} className="shv__doc" />
+            <ReadOnlyDoc content={page.content} className="shv__doc" headingOffset={1} />
           </div>
           <footer className="shv__foot">
             <span className="shv__foot-rule" />

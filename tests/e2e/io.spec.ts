@@ -60,7 +60,7 @@ test.describe('import / export', () => {
     expect(await wsEval(page, (s, id) => s.pages[id]?.title ?? null, canary)).toBe('Backup canary')
     await gotoPage(page, canary)
     await expect(editorOf(page, canary)).toContainText('canary content 4711')
-    await expect(editorOf(page, canary).locator('h2')).toHaveText('Canary heading')
+    await expect(editorOf(page, canary).locator('h3')).toHaveText('Canary heading')
     // and it was persisted, not only held in memory
     await page.reload()
     await waitForApp(page)

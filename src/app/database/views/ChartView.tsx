@@ -11,7 +11,7 @@ import { useT } from '../../i18n'
 import { useModel, useLabels } from '../hooks'
 import { Segmented, Select, TypeIcon } from '../parts'
 import { NONE_KEY, groupRows } from '../model/query'
-import { formatCount, formatNumber } from '../model/format'
+import { axisFormatter, formatCount, formatNumber } from '../model/format'
 import { isNumberType } from '../model/schema'
 import './chart.css'
 
@@ -86,11 +86,8 @@ export default function ChartView() {
   const share = cfg.aggregate !== 'average'
 
   const fmt = (v: number) => (cfg.aggregate !== 'count' && yProp?.type === 'number' ? formatNumber(Math.round(v * 100) / 100, yProp.numberFormat, lang) : formatCount(v, lang, 2))
-  // axis ticks: no cents / decimals for big round steps
-  const tickFmt = (v: number) =>
-    cfg.aggregate !== 'count' && yProp?.type === 'number' && yProp.numberFormat && ['euro', 'dollar', 'pound'].includes(yProp.numberFormat) && Math.abs(v) >= 100
-      ? formatNumber(Math.round(v), 'comma', lang)
-      : fmt(v)
+  // axis ticks: one format per axis (unit + digits from the step), never per tick
+  const tickFmt = (step: number) => axisFormatter(step, cfg.aggregate !== 'count' && yProp?.type === 'number' ? yProp.numberFormat : 'comma', lang)
   const total = data.reduce((s, d) => s + d.value, 0)
   const narrow = w < 520
   const H = narrow ? 240 : 320
@@ -217,36 +214,52 @@ export default function ChartView() {
   )
 }
 
-function XY({ kind, data, w, h, fmt, tickFmt, hover, setHover, integer }: { kind: 'bar' | 'line'; data: Datum[]; w: number; h: number; fmt: (v: number) => string; tickFmt: (v: number) => string; hover: string | null; setHover: (k: string | null) => void; integer?: boolean }) {
-  const ml = 56
+function XY({ kind, data, w, h, fmt, tickFmt, hover, setHover, integer }: { kind: 'bar' | 'line'; data: Datum[]; w: number; h: number; fmt: (v: number) => string; tickFmt: (step: number) => (v: number) => string; hover: string | null; setHover: (k: string | null) => void; integer?: boolean }) {
+  const { max, step } = niceMax(Math.max(...data.map((d) => d.value)), integer)
+  const ticks: number[] = []
+  for (let v = 0; v <= max + step / 2; v += step) ticks.push(v)
+  const tick = tickFmt(step)
+  const tickText = ticks.map(tick)
+  // left margin fits the widest tick label (mono 10px ≈ 6.4px per glyph) + the 8px gap to the plot
+  const ml = Math.max(40, Math.ceil(Math.max(...tickText.map((s) => s.length)) * 6.4) + 14)
   const mr = 16
   const mt = 22
   const mb = 46
   const iw = Math.max(40, w - ml - mr)
   const ih = h - mt - mb
-  const { max, step } = niceMax(Math.max(...data.map((d) => d.value)), integer)
   const band = iw / data.length
   const bw = Math.max(4, Math.min(56, band * 0.62))
   const y = (v: number) => mt + ih - (v / max) * ih
-  const ticks: number[] = []
-  for (let v = 0; v <= max + step / 2; v += step) ticks.push(v)
   const maxIdx = data.reduce((bi, d, i) => (d.value > data[bi].value ? i : bi), 0)
   // value labels: on every mark when they fit, else only on a unique peak (a tie has no "the" peak)
-  const labelAll = band >= 34 && data.length <= 24
+  // (mono 11px ≈ 6.8px per glyph — neighbouring labels must not collide, e.g. "13.000,00 €" on a 390px screen)
+  const labelW = Math.max(...data.map((d) => fmt(d.value).length)) * 6.8
+  const labelAll = band >= Math.max(34, labelW + 8) && data.length <= 24
   const uniquePeak = data.filter((d) => d.value === data[maxIdx]?.value).length === 1
   const chars = Math.max(3, Math.floor(band / 6.6))
   const short = (s: string) => (s.length > chars ? s.slice(0, chars - 1) + '…' : s)
   const pts = data.map((d, i) => [ml + band * i + band / 2, y(d.value)] as const)
   const hi = hover === null ? -1 : data.findIndex((d) => d.key === hover)
   const tip = hi >= 0 ? { x: pts[hi][0], y: pts[hi][1], d: data[hi] } : null
+  // line charts: a readout goes under its point when the line climbs through the space above it
+  // (e.g. a low first value next to a high second one) and the space below is free
+  const below = (i: number) => {
+    if (kind !== 'line') return false
+    const py = pts[i][1]
+    const hw = Math.min(fmt(data[i].value).length * 6.8, band - 8) / 2
+    const edge = (j: number) => (j < 0 || j >= pts.length ? py : py + ((pts[j][1] - py) * hw) / band)
+    const rise = Math.max(py - edge(i - 1), py - edge(i + 1))
+    const fall = Math.max(edge(i - 1) - py, edge(i + 1) - py)
+    return rise > 6 && fall <= 6 && py + 19 <= mt + ih - 2
+  }
   return (
     <>
       <svg width={w} height={h} className="dbch-svg" role="img">
-        {ticks.map((v) => (
+        {ticks.map((v, i) => (
           <g key={v}>
             <line x1={ml} x2={ml + iw} y1={y(v)} y2={y(v)} className={v === 0 ? 'dbch-base' : 'dbch-gridline'} />
             <text x={ml - 8} y={y(v)} dy="0.32em" textAnchor="end" className="dbch-tick">
-              {tickFmt(v)}
+              {tickText[i]}
             </text>
           </g>
         ))}
@@ -273,7 +286,7 @@ function XY({ kind, data, w, h, fmt, tickFmt, hover, setHover, integer }: { kind
         )}
         {data.map((d, i) =>
           (labelAll ? d.value !== 0 : uniquePeak && i === maxIdx) ? (
-            <text key={d.key} x={pts[i][0]} y={pts[i][1] - 8} textAnchor="middle" className={`dbch-peak${i === maxIdx && uniquePeak ? '' : ' dbch-peak--minor'}`}>
+            <text key={d.key} x={pts[i][0]} y={below(i) ? pts[i][1] + 19 : pts[i][1] - 8} textAnchor="middle" className={`dbch-peak${i === maxIdx && uniquePeak ? '' : ' dbch-peak--minor'}`}>
               {fmt(d.value)}
             </text>
           ) : null,

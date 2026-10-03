@@ -14,6 +14,7 @@ import { TextStyle } from '@tiptap/extension-text-style'
 import UniqueID from '@tiptap/extension-unique-id'
 import { createLowlight, common } from 'lowlight'
 import { t } from '../../i18n'
+import { OutlineHeading } from './heading'
 import {
   BlockImage,
   Bookmark,
@@ -89,12 +90,19 @@ export const BLOCK_ID_TYPES = [
 
 export type ExtensionWrap = Partial<Record<string, (ext: AnyExtension) => AnyExtension>>
 
-export function baseExtensions({ readOnly = false, wrap = {} }: { readOnly?: boolean; wrap?: ExtensionWrap } = {}): AnyExtension[] {
+export interface BaseExtensionOptions {
+  readOnly?: boolean
+  wrap?: ExtensionWrap
+  /** DOM tag offset for heading blocks: 1 renders H1–H3 as <h2>–<h4> under a page title (JSON level unchanged). */
+  headingOffset?: number
+}
+
+export function baseExtensions({ readOnly = false, wrap = {}, headingOffset = 0 }: BaseExtensionOptions = {}): AnyExtension[] {
   const w = (name: string, ext: AnyExtension) => (wrap[name] ? wrap[name]!(ext) : ext)
   return [
     StarterKit.configure({
       codeBlock: false,
-      heading: { levels: [1, 2, 3] },
+      heading: false,
       link: {
         openOnClick: false,
         autolink: true,
@@ -106,6 +114,7 @@ export function baseExtensions({ readOnly = false, wrap = {} }: { readOnly?: boo
       undoRedo: readOnly ? false : { depth: 200 },
       trailingNode: readOnly ? false : undefined,
     }),
+    OutlineHeading.configure({ levels: [1, 2, 3], outlineOffset: headingOffset }),
     w('codeBlock', FencedCodeBlock.configure({ lowlight: plainLowlight, defaultLanguage: null, enableTabIndentation: true, tabSize: 2 } as never)),
     TaskList,
     TaskItem.configure({

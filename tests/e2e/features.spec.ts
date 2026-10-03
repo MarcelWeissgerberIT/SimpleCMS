@@ -19,7 +19,7 @@ test.describe('share link', () => {
     await p2.goto(link)
     await expect(p2.locator('.shv__title')).toHaveText('Share me')
     await expect(p2.locator('.shv__doc')).toContainText('shared content xyz')
-    await expect(p2.locator('.shv__doc h2')).toHaveText('Shared heading')
+    await expect(p2.locator('.shv__doc h3')).toHaveText('Shared heading')
     await expect(p2.getByText('Read-only')).toBeVisible()
     // read-only: no editable surface
     await expect(p2.locator('[contenteditable="true"]')).toHaveCount(0)

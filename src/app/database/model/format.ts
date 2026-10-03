@@ -46,6 +46,43 @@ export function formatCount(n: number, lang: Lang, digits = 2): string {
   return nf(lang, { maximumFractionDigits: digits }).format(n)
 }
 
+/** Fraction digits needed to write a tick step exactly (5000 → 0, 2.5 → 1, 0.25 → 2), capped at 4. */
+export function stepDecimals(step: number): number {
+  for (let d = 0; d < 4; d++) if (Number.isInteger(Number((step * 10 ** d).toPrecision(10)))) return d
+  return 4
+}
+
+/**
+ * One formatter for every tick of a chart axis — same unit, same fraction digits — so the zero
+ * tick can never read "0,00 €" next to "10.000". Digits follow the step, not the value: currency
+ * axes drop the cents on whole-number steps ("0 € · 10.000 €"), percent axes show whole percents
+ * on 10 % steps, plain numbers keep the cell style (no grouping, dot decimal).
+ */
+export function axisFormatter(step: number, fmt: NumberFormat | undefined, lang: Lang): (v: number) => string {
+  const d = stepDecimals(step)
+  const fixed = (digits: number): Intl.NumberFormatOptions => ({ minimumFractionDigits: digits, maximumFractionDigits: digits })
+  const clean = (v: number) => (Math.abs(v) < step * 1e-6 ? 0 : v) // float drift: 3 × 0.1 must still read "0.3", -0 must read "0"
+  switch (fmt) {
+    case 'percent': {
+      const f = nf(lang, { style: 'percent', ...fixed(Math.max(0, d - 2)) })
+      return (v) => f.format(clean(v))
+    }
+    case 'euro':
+    case 'dollar':
+    case 'pound': {
+      const currency = fmt === 'euro' ? 'EUR' : fmt === 'dollar' ? 'USD' : 'GBP'
+      const f = nf(lang, { style: 'currency', currency, ...fixed(d === 0 ? 0 : Math.max(2, d)) })
+      return (v) => f.format(clean(v))
+    }
+    case 'comma': {
+      const f = nf(lang, fixed(d))
+      return (v) => f.format(clean(v))
+    }
+    default:
+      return (v) => clean(v).toFixed(d)
+  }
+}
+
 /** Ratio 0..1 for bar / ring display: percent values are fractions (0.5 = 50 %), others are divided by 100. */
 export function numberRatio(n: number | null | undefined, fmt?: NumberFormat): number {
   if (n === null || n === undefined || !Number.isFinite(n)) return 0

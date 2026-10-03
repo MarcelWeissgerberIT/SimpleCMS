@@ -73,10 +73,11 @@
   min-height: calc(var(--doc-lh) * 1em + var(--block-pad) * 2);
 }
 
-/* ---------- Headings: Archivo expanded, heavy ---------- */
-.doc-content h1,
-.doc-content h2,
-.doc-content h3 {
+/* ---------- Headings: Archivo expanded, heavy ----------
+   Styled by block level (data-level), not by tag: under a page title the H1–H3 blocks render
+   as <h2>–<h4> so the title stays the only <h1>. :where() keeps the specificity of a plain
+   ".doc-content h1" so slide / preview overrides keep working. */
+.doc-content :is(h1, h2, h3, h4) {
   margin: 0;
   font-family: var(--font-sans);
   font-stretch: var(--display-stretch);
@@ -88,33 +89,29 @@
   color: var(--ink);
 }
 
-.doc-content h1 {
+.doc-content :is(h1, h2, h3, h4):where([data-level='1']) {
   font-size: 1.72em;
   margin-top: 1.25em;
 }
 
-.doc-content h2 {
+.doc-content :is(h1, h2, h3, h4):where([data-level='2']) {
   font-size: 1.36em;
   margin-top: 1.05em;
   font-weight: 760;
 }
 
-.doc-content h3 {
+.doc-content :is(h1, h2, h3, h4):where([data-level='3']) {
   font-size: 1.1em;
   margin-top: 0.8em;
   font-weight: 720;
   letter-spacing: -0.01em;
 }
 
-.doc-content > h1:first-child,
-.doc-content > h2:first-child,
-.doc-content > h3:first-child {
+.doc-content > :is(h1, h2, h3, h4):first-child {
   margin-top: 0.2em;
 }
 
-.doc--font-serif .doc-content h1,
-.doc--font-serif .doc-content h2,
-.doc--font-serif .doc-content h3 {
+.doc--font-serif .doc-content :is(h1, h2, h3, h4) {
   font-family: var(--font-serif);
   font-stretch: normal;
   font-variation-settings: normal;
@@ -122,9 +119,7 @@
   letter-spacing: -0.015em;
 }
 
-.doc--font-mono .doc-content h1,
-.doc--font-mono .doc-content h2,
-.doc--font-mono .doc-content h3 {
+.doc--font-mono .doc-content :is(h1, h2, h3, h4) {
   font-family: var(--font-mono);
   font-stretch: normal;
   font-variation-settings: normal;
@@ -843,10 +838,10 @@
   .one-doc {
     --doc-size: 16px;
   }
-  .doc-content h1 {
+  .doc-content :is(h1, h2, h3, h4):where([data-level='1']) {
     font-size: 1.55em;
   }
-  .doc-content h2 {
+  .doc-content :is(h1, h2, h3, h4):where([data-level='2']) {
     font-size: 1.28em;
   }
   .doc-content pre {

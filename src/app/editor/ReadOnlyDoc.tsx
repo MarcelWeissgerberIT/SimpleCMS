@@ -8,8 +8,12 @@ import './editor.css'
 
 const EMPTY: JSONContent = { type: 'doc', content: [{ type: 'paragraph' }] }
 
-export function ReadOnlyDoc({ content, className }: { content: JSONContent | null; className?: string }) {
-  const extensions = useMemo(() => editorExtensions({ bridge: null, readOnly: true }), [])
+/**
+ * `headingOffset`: pass 1 when the doc sits under its own page-title <h1> (share view) so heading
+ * blocks render as <h2>–<h4>; the default 0 keeps <h1>–<h3> (slides, previews, AI answers).
+ */
+export function ReadOnlyDoc({ content, className, headingOffset = 0 }: { content: JSONContent | null; className?: string; headingOffset?: number }) {
+  const extensions = useMemo(() => editorExtensions({ bridge: null, readOnly: true, headingOffset }), [headingOffset])
   const editor = useEditor(
     {
       extensions,
@@ -19,7 +23,7 @@ export function ReadOnlyDoc({ content, className }: { content: JSONContent | nul
       shouldRerenderOnTransaction: false,
       editorProps: { attributes: { class: 'doc-content' } },
     },
-    [],
+    [extensions],
   )
   // consumers often pass a fresh object per render: only re-render the doc when it really changed
   const key = useMemo(() => (content ? JSON.stringify(content) : ''), [content])

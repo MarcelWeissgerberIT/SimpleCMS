@@ -249,7 +249,8 @@ function EditorInstance({ pageId, readOnly, autoFocus, onReady, className }: Pag
     lastRev.current = useWorkspace.getState().pages[pageId]?.contentRev ?? lastRev.current
   }, [pageId, instanceId])
 
-  const extensions = useMemo(() => editorExtensions({ bridge }), [bridge])
+  // the page title is the one <h1>: heading blocks render as <h2>–<h4> beneath it
+  const extensions = useMemo(() => editorExtensions({ bridge, headingOffset: 1 }), [bridge])
   const initial = useMemo(() => prepareContent(useWorkspace.getState().pages[pageId]?.content), [pageId])
 
   const editor = useEditor(
