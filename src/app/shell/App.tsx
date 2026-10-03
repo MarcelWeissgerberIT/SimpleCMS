@@ -16,6 +16,7 @@ import { Toasts } from './stage/Toasts'
 import { PageView } from './page/PageView'
 import { Home } from './home/Home'
 import { Agenda } from './agenda/Agenda'
+import { Inbox } from './inbox/Inbox'
 import { NotFound, JournalPending, ClipPending } from './home/NotFound'
 import { CommandPalette } from './palette/CommandPalette'
 import { ModalHost } from './modals/ModalHost'
@@ -141,6 +142,8 @@ function RouteView({ route }: { route: Route }) {
       return <GraphView />
     case 'agenda':
       return <Agenda />
+    case 'inbox':
+      return <Inbox />
     case 'journal':
       return <JournalPending />
     case 'clip':
@@ -160,5 +163,5 @@ function RouteTitle({ route }: { route: Route }) {
         <span>{page.title.trim() || t('common.untitled')}</span>
       </>
     )
-  return <span>{route.name === 'graph' ? t('shell.nav.graph') : route.name === 'agenda' ? t('shell.nav.agenda') : t('shell.nav.home')}</span>
+  return <span>{route.name === 'graph' ? t('shell.nav.graph') : route.name === 'agenda' ? t('shell.nav.agenda') : route.name === 'inbox' ? t('shell.nav.inbox') : t('shell.nav.home')}</span>
 }

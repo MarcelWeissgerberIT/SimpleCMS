@@ -353,6 +353,10 @@ function sanitizeShared(node: JSONContent): JSONContent {
     const a = { ...n.attrs }
     if ('src' in a && a.src) a.src = safeSrc(a.src)
     if (n.type === 'image' && !a.src) return para(text(`▢ ${t('features.share.imageNotIncluded')}`, [{ type: 'italic' }]))
+    // video / audio play from https links only (local files never travel inside a link)
+    if (n.type === 'video' || n.type === 'audio') {
+      if (!/^https:\/\//i.test(String(a.src ?? ''))) return para(text(`▶ ${t('features.share.mediaNotIncluded')}`, [{ type: 'italic' }]))
+    }
     if (n.type === 'bookmark' && a.image) a.image = safeSrc(a.image) || null
     if (n.type === 'bookmark' || n.type === 'embed') {
       const url = String(a.url ?? '').trim()
@@ -536,6 +540,17 @@ function flatten(nodes: JSONContent[] | undefined, pages: Record<ID, Page>, imag
       case 'image': {
         const src = String(n.attrs?.src ?? '')
         if (src.startsWith(FILE_PREFIX)) images.add(src)
+        break
+      }
+      case 'video':
+      case 'audio': {
+        // a video in a link would blow up its size: local media become a note, web links stay
+        const src = String(n.attrs?.src ?? '')
+        if (!/^https?:\/\//i.test(src)) {
+          const name = String(n.attrs?.caption || n.attrs?.name || '').trim()
+          out.push(para(text(`▶ ${name ? `${name} — ` : ''}${t('features.share.mediaNotIncluded')}`, [{ type: 'italic' }])))
+          continue
+        }
         break
       }
     }

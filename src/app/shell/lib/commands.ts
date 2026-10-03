@@ -4,6 +4,7 @@
  */
 import type { LucideIcon } from 'lucide-react'
 import {
+  Bell,
   CalendarDays,
   CalendarRange,
   Copy,
@@ -81,6 +82,7 @@ export function buildCommands(t: Translate, pageId: ID | null): Command[] {
     { id: 'templates', group: 'create', label: t('shell.cmd.templates'), icon: LayoutTemplate, keywords: 'vorlagen gallery', run: () => ui.openModal({ type: 'templates', parentId: null }) },
     { id: 'journal', group: 'navigate', label: t('shell.cmd.journal'), icon: CalendarDays, keywords: 'today daily note tagebuch heute', run: () => { closeMobileSidebar(); openTodayJournal() } },
     { id: 'agenda', group: 'navigate', label: t('shell.cmd.agenda'), icon: CalendarRange, keywords: 'calendar kalender schedule termine week month woche monat upcoming due overdue fällig', run: () => { closeMobileSidebar(); navigate({ name: 'agenda' }) } },
+    { id: 'inbox', group: 'navigate', label: t('shell.cmd.inbox'), icon: Bell, shortcut: 'G I', keywords: 'notifications reminders mentions benachrichtigungen erinnerungen erwähnungen posteingang', run: () => { closeMobileSidebar(); navigate({ name: 'inbox' }) } },
     { id: 'home', group: 'navigate', label: t('shell.cmd.home'), icon: Home, keywords: 'dashboard start', run: () => navigate({ name: 'home' }) },
     { id: 'graph', group: 'navigate', label: t('shell.cmd.graph'), icon: Waypoints, keywords: 'map network links karte', run: () => navigate({ name: 'graph' }) },
     { id: 'import', group: 'workspace', label: t('shell.cmd.import'), icon: Upload, keywords: 'notion markdown csv zip importieren', run: () => ui.openModal({ type: 'import' }) },

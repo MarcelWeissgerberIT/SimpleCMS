@@ -125,6 +125,7 @@ export function ExportModal({ pageId, onClose }: { pageId?: ID | null; onClose: 
             contents: t('features.io.export.contents'),
             rows: (n) => countOf(t, 'row', n),
             generator: t('features.io.export.generator'),
+            mediaOmitted: (name) => t('features.io.export.mediaOmitted', { name }),
           },
           onProgress,
         })

@@ -49,6 +49,36 @@ export interface FileRow {
   created_at: number
 }
 
+export type ApiScope = 'read' | 'write'
+
+export interface ApiTokenRow {
+  id: string
+  workspace_id: string
+  name: string
+  scope: ApiScope
+  token_hash: string
+  created_by: string | null
+  created_at: number
+  last_used_at: number | null
+  revoked_at: number | null
+}
+
+export interface WebhookRow {
+  id: string
+  workspace_id: string
+  database_id: string
+  secret_hash: string
+  created_by: string | null
+  created_at: number
+  rotated_at: number | null
+  last_delivery_at: number | null
+  deliveries: number
+}
+
+/** API token secrets: "one_" + 43 URL-safe chars (32 random bytes). */
+export const API_TOKEN_PREFIX = 'one_'
+export const isApiTokenShape = (s: unknown): s is string => typeof s === 'string' && /^one_[A-Za-z0-9_-]{43}$/.test(s)
+
 export const publicUser = (u: Pick<UserRow, 'id' | 'email' | 'name'>) => ({ id: u.id, email: u.email, name: u.name })
 
 export const publicWorkspace = (w: WorkspaceRow, role: Role) => ({
@@ -321,6 +351,135 @@ export class Repo {
     )
   }
 
+  // ── API tokens (docs/API.md) ─────────────────────────────────────────
+
+  /** The secret is returned once and stored only as HMAC. */
+  createApiToken(input: { workspaceId: string; name: string; scope: ApiScope; createdBy: string }): { token: string; row: ApiTokenRow } {
+    const token = API_TOKEN_PREFIX + randomToken()
+    const row: ApiTokenRow = {
+      id: newId(),
+      workspace_id: input.workspaceId,
+      name: input.name,
+      scope: input.scope,
+      token_hash: this.hash(token),
+      created_by: input.createdBy,
+      created_at: Date.now(),
+      last_used_at: null,
+      revoked_at: null,
+    }
+    this.db.run(
+      'INSERT INTO api_tokens (id, workspace_id, name, scope, token_hash, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      row.id, row.workspace_id, row.name, row.scope, row.token_hash, row.created_by, row.created_at,
+    )
+    return { token, row }
+  }
+
+  /** Active (not revoked) tokens, newest first, with their creator. */
+  apiTokens(workspaceId: string) {
+    return this.db.all<ApiTokenRow & { creator_name: string | null; creator_email: string | null }>(
+      `SELECT t.*, u.name AS creator_name, u.email AS creator_email FROM api_tokens t LEFT JOIN users u ON u.id = t.created_by
+       WHERE t.workspace_id = ? AND t.revoked_at IS NULL ORDER BY t.created_at DESC`,
+      workspaceId,
+    )
+  }
+
+  countApiTokens(workspaceId: string): number {
+    return this.db.get<{ n: number }>('SELECT COUNT(*) AS n FROM api_tokens WHERE workspace_id = ? AND revoked_at IS NULL', workspaceId)?.n ?? 0
+  }
+
+  /** An active token of an existing workspace (HMAC lookup; the plain secret is never stored). */
+  apiTokenBySecret(token: string): ApiTokenRow | undefined {
+    return this.db.get<ApiTokenRow>(
+      `SELECT t.* FROM api_tokens t JOIN workspaces w ON w.id = t.workspace_id
+       WHERE t.token_hash = ? AND t.revoked_at IS NULL`,
+      this.hash(token),
+    )
+  }
+
+  revokeApiToken(workspaceId: string, tokenId: string): boolean {
+    return this.db.run('UPDATE api_tokens SET revoked_at = ? WHERE id = ? AND workspace_id = ? AND revoked_at IS NULL', Date.now(), tokenId, workspaceId) > 0
+  }
+
+  touchApiToken(tokenId: string, at = Date.now()) {
+    this.db.run('UPDATE api_tokens SET last_used_at = ? WHERE id = ?', at, tokenId)
+  }
+
+  // ── incoming webhooks ────────────────────────────────────────────────
+
+  createWebhook(input: { workspaceId: string; databaseId: string; createdBy: string }): { secret: string; row: WebhookRow } {
+    const secret = randomToken()
+    const row: WebhookRow = {
+      id: newId(),
+      workspace_id: input.workspaceId,
+      database_id: input.databaseId,
+      secret_hash: this.hash(secret),
+      created_by: input.createdBy,
+      created_at: Date.now(),
+      rotated_at: null,
+      last_delivery_at: null,
+      deliveries: 0,
+    }
+    this.db.run(
+      'INSERT INTO webhooks (id, workspace_id, database_id, secret_hash, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?)',
+      row.id, row.workspace_id, row.database_id, row.secret_hash, row.created_by, row.created_at,
+    )
+    return { secret, row }
+  }
+
+  webhooks(workspaceId: string) {
+    return this.db.all<WebhookRow & { creator_name: string | null; creator_email: string | null }>(
+      `SELECT h.*, u.name AS creator_name, u.email AS creator_email FROM webhooks h LEFT JOIN users u ON u.id = h.created_by
+       WHERE h.workspace_id = ? ORDER BY h.created_at DESC`,
+      workspaceId,
+    )
+  }
+
+  webhook(workspaceId: string, hookId: string) {
+    return this.db.get<WebhookRow & { creator_name: string | null; creator_email: string | null }>(
+      `SELECT h.*, u.name AS creator_name, u.email AS creator_email FROM webhooks h LEFT JOIN users u ON u.id = h.created_by
+       WHERE h.workspace_id = ? AND h.id = ?`,
+      workspaceId,
+      hookId,
+    )
+  }
+
+  countWebhooks(workspaceId: string): number {
+    return this.db.get<{ n: number }>('SELECT COUNT(*) AS n FROM webhooks WHERE workspace_id = ?', workspaceId)?.n ?? 0
+  }
+
+  webhookBySecret(secret: string): WebhookRow | undefined {
+    return this.db.get<WebhookRow>('SELECT h.* FROM webhooks h JOIN workspaces w ON w.id = h.workspace_id WHERE h.secret_hash = ?', this.hash(secret))
+  }
+
+  /** A new secret; the old URL stops working at once. */
+  rotateWebhook(workspaceId: string, hookId: string): string | null {
+    const secret = randomToken()
+    const ok = this.db.run('UPDATE webhooks SET secret_hash = ?, rotated_at = ? WHERE id = ? AND workspace_id = ?', this.hash(secret), Date.now(), hookId, workspaceId) > 0
+    return ok ? secret : null
+  }
+
+  deleteWebhook(workspaceId: string, hookId: string): boolean {
+    return this.db.run('DELETE FROM webhooks WHERE id = ? AND workspace_id = ?', hookId, workspaceId) > 0
+  }
+
+  recordDelivery(hookId: string, at = Date.now()) {
+    this.db.run('UPDATE webhooks SET deliveries = deliveries + 1, last_delivery_at = ? WHERE id = ?', at, hookId)
+  }
+
+  // ── idempotency (create requests, 24 h) ──────────────────────────────
+
+  idempotent(scope: string, key: string, since: number) {
+    return this.db.get<{ status: number; body: string }>('SELECT status, body FROM idempotency WHERE scope = ? AND key = ? AND created_at > ?', scope, key, since)
+  }
+
+  rememberIdempotent(scope: string, key: string, workspaceId: string, status: number, body: string) {
+    this.db.run(
+      `INSERT INTO idempotency (scope, key, workspace_id, status, body, created_at) VALUES (?, ?, ?, ?, ?, ?)
+       ON CONFLICT(scope, key) DO UPDATE SET status = excluded.status, body = excluded.body, created_at = excluded.created_at`,
+      scope, key, workspaceId, status, body, Date.now(),
+    )
+  }
+
   // ── housekeeping ─────────────────────────────────────────────────────
 
   purgeExpired(now = Date.now()) {
@@ -328,6 +487,9 @@ export class Repo {
       loginTokens: this.db.run('DELETE FROM login_tokens WHERE expires_at < ?', now - DAY),
       sessions: this.db.run('DELETE FROM sessions WHERE expires_at < ?', now),
       invites: this.db.run('DELETE FROM invites WHERE accepted_by IS NULL AND expires_at < ?', now - 30 * DAY),
+      idempotency: this.db.run('DELETE FROM idempotency WHERE created_at < ?', now - DAY),
+      // revoked tokens are kept a while for the audit trail (rows written by `api:<tokenId>`)
+      apiTokens: this.db.run('DELETE FROM api_tokens WHERE revoked_at IS NOT NULL AND revoked_at < ?', now - 90 * DAY),
     }
   }
 }

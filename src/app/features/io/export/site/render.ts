@@ -418,6 +418,16 @@ export async function contentHTML(ctx: RenderCtx, node: SiteNode, idPrefix: stri
     img.setAttribute('decoding', 'async')
   })
 
+  // video / audio: copied media or web files; a source that is not part of the site drops the block
+  root.querySelectorAll('figure[data-type="video"], figure[data-type="audio"]').forEach((fig) => {
+    const media = fig.querySelector('video, audio')
+    const url = media ? mediaHref(ctx, from, media.getAttribute('data-src') || media.getAttribute('src') || '') : null
+    if (!media || !url) return fig.remove()
+    media.removeAttribute('data-src')
+    media.setAttribute('src', url)
+    fig.removeAttribute('data-name')
+  })
+
   // file blocks: name + size, downloadable from media/
   root.querySelectorAll('div.file-block').forEach((div) => {
     const size = Number(div.getAttribute('data-size')) || 0
@@ -486,6 +496,14 @@ export async function contentHTML(ctx: RenderCtx, node: SiteNode, idPrefix: stri
   root.querySelectorAll('input[type="checkbox"]').forEach((i) => i.setAttribute('disabled', ''))
   root.querySelectorAll('[contenteditable]').forEach((el) => el.removeAttribute('contenteditable'))
 
+  // toggle headings: the title is a real heading (renamed, anchored and listed below)
+  root.querySelectorAll('details[data-heading] > summary').forEach((summary) => {
+    const level = Math.min(3, Math.max(1, Number(summary.parentElement?.getAttribute('data-heading')) || 1))
+    const h = dom.createElement(`h${level}`)
+    h.append(...Array.from(summary.childNodes))
+    summary.append(h)
+  })
+
   // headings: one level below the page title, with readable anchors
   const used = new Set<string>()
   const heads: Array<{ level: number; id: string; text: string }> = []
@@ -522,10 +540,16 @@ export async function contentHTML(ctx: RenderCtx, node: SiteNode, idPrefix: stri
 /* ------------------------------------------------------------------ */
 
 const MD_LINK = /(!?)\[((?:\\.|[^\]\\])*)\]\(([^)\s]+)(\s+"(?:\\.|[^"\\])*")?\)/g
+/** Video / audio blocks in Markdown: an HTML tag on its own line (editor/schema/media.ts). */
+const MD_MEDIA = /<(video|audio)\b[^>]*\ssrc="(onefile:[\w-]+)"[^>]*>\s*<\/\1>/g
 
 /** Rewrite workspace links and media references of a Markdown text written to `fromMd`. */
 export function rewriteMarkdown(ctx: RenderCtx, md: string, fromMd: string): string {
-  return md.replace(MD_LINK, (all, bang: string, label: string, href: string, title: string | undefined) => {
+  const withMedia = md.replace(MD_MEDIA, (all, _kind: string, ref: string) => {
+    const path = ctx.media.get(ref)
+    return path ? all.replace(ref, rel(fromMd, path)) : ''
+  })
+  return withMedia.replace(MD_LINK, (all, bang: string, label: string, href: string, title: string | undefined) => {
     if (href.startsWith('#/p/')) {
       const id = href.slice(4).split('?')[0]
       const n = ctx.plan.nodes.get(id)

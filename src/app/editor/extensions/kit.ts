@@ -12,6 +12,7 @@ import { BlockFlash, BlockSelection, ExtraInputRules, OnePlaceholder, QuietStart
 import { commentsExtension } from '../comments/plugin'
 import { pasteExtension } from './paste'
 import { ButtonKeys } from '../schema/button'
+import { MediaKeys } from '../schema/media'
 import type { ContentDocHandle } from '../../cloud'
 import { collabExtensions } from '../collab'
 
@@ -52,6 +53,7 @@ export function editorExtensions({
     suggestExtension('mention', '@', bridge, { allowSpaces: true }),
     suggestExtension('emoji', ':', bridge, { shouldShow: emojiQuery }),
     ButtonKeys,
+    MediaKeys,
     commentsExtension(bridge),
     QuietStart,
     FileHandler.configure({

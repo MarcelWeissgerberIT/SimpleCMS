@@ -1,0 +1,178 @@
+/* ================================================================
+   Synced block — viewfinder corners at rest; on hover / focus a hairline
+   signal frame and a placard tag on its top edge ("SYNCED · 3 PAGES").
+   ================================================================ */
+
+.doc-content .synced {
+  --synced-x: 10px;
+  position: relative;
+  margin: 12px 0 8px;
+  padding: 8px 0 4px;
+}
+
+/* the frame: corners at rest, a full hairline when active */
+.doc-content .synced::before {
+  content: '';
+  position: absolute;
+  inset: 0 calc(var(--synced-x) * -1);
+  border: 1px solid transparent;
+  border-radius: var(--radius-1);
+  pointer-events: none;
+  background:
+    linear-gradient(var(--rule-strong), var(--rule-strong)) top left / 9px 1px no-repeat,
+    linear-gradient(var(--rule-strong), var(--rule-strong)) top left / 1px 9px no-repeat,
+    linear-gradient(var(--rule-strong), var(--rule-strong)) bottom right / 9px 1px no-repeat,
+    linear-gradient(var(--rule-strong), var(--rule-strong)) bottom right / 1px 9px no-repeat;
+  transition: border-color var(--dur-1) var(--ease-out);
+}
+
+.doc-content .synced:hover::before,
+.doc-content .synced:focus-within::before,
+.doc-content .synced.is-open::before {
+  border-color: var(--signal);
+  background: none;
+}
+
+.doc-content .synced__body > * + * {
+  margin-top: 2px;
+}
+
+/* ---------- placard tag on the frame's top edge ---------- */
+.synced__bar {
+  position: absolute;
+  top: -9px;
+  left: calc(var(--synced-x) * -1 + 8px);
+  right: calc(var(--synced-x) * -1 + 8px);
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 18px;
+  pointer-events: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.synced__tag,
+.synced__key {
+  pointer-events: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  height: 18px;
+  padding: 0 6px 0 5px;
+  border: 0;
+  border-radius: var(--radius-1);
+  font: 500 var(--text-2xs) / 1 var(--font-mono);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    opacity var(--dur-1) var(--ease-out),
+    background var(--dur-1) var(--ease-out);
+}
+
+.synced__tag {
+  max-width: 100%;
+  background: var(--signal);
+  color: var(--on-signal);
+  opacity: 0;
+}
+
+.synced__tag:hover {
+  background: var(--signal-hover);
+}
+
+.synced__tag:active,
+.synced__key:active {
+  transform: translateY(1px);
+}
+
+.synced__tag:focus-visible,
+.synced__key:focus-visible {
+  outline: 2px solid var(--signal);
+  outline-offset: 2px;
+  opacity: 1;
+}
+
+.synced__label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* a tiny square "sync" mark: two offset hairline boxes */
+.synced__mark {
+  position: relative;
+  flex: none;
+  width: 9px;
+  height: 9px;
+  border: 1px solid currentColor;
+  border-radius: 1px;
+}
+
+.synced__mark::after {
+  content: '';
+  position: absolute;
+  inset: 1px -3px -3px 1px;
+  border: 1px solid currentColor;
+  border-top: 0;
+  border-left: 0;
+  border-radius: 0 0 1px 0;
+}
+
+.doc-content .synced:hover .synced__tag,
+.doc-content .synced:focus-within .synced__tag,
+.doc-content .synced.is-open .synced__tag {
+  opacity: 1;
+}
+
+/* ---------- original gone: dashed frame, read-only, always labelled ---------- */
+.doc-content .synced.is-orphan::before {
+  border: 1px dashed var(--rule-strong);
+  background: none;
+}
+
+.doc-content .synced.is-orphan .synced__tag {
+  opacity: 1;
+  background: var(--surface-3);
+  color: var(--ink-2);
+}
+
+.doc-content .synced.is-orphan .synced__body {
+  color: var(--ink-2);
+  cursor: default;
+}
+
+.synced__key {
+  flex: none;
+  background: var(--ink);
+  color: var(--ink-inverse);
+}
+
+.synced__key:hover {
+  background: var(--signal);
+  color: var(--on-signal);
+}
+
+/* touch screens have no hover: the tag stays readable */
+@media (hover: none) {
+  .synced__tag {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .doc-content .synced::before,
+  .synced__tag,
+  .synced__key {
+    transition: none;
+  }
+}
+
+/* read-only renders (share view, history, slides): the content only, no chrome */
+.doc-content div.synced-block {
+  margin: 6px 0;
+}

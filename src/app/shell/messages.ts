@@ -1,11 +1,13 @@
 import type { Messages } from '@/shared/i18n'
 import { agendaMessages } from './agenda/messages'
 import { cloudMessages } from './cloud/messages'
+import { inboxMessages } from './inbox/messages'
 
 /** Strings for the shell area. Keys MUST be prefixed with "shell." — always add both en and de. */
 export const messages: Messages = {
   en: {
     ...agendaMessages.en,
+    ...inboxMessages.en,
     ...cloudMessages.en,
     'shell.a11y.skip': 'Skip to content',
 
@@ -426,6 +428,7 @@ export const messages: Messages = {
   },
   de: {
     ...agendaMessages.de,
+    ...inboxMessages.de,
     ...cloudMessages.de,
     'shell.a11y.skip': 'Zum Inhalt springen',
 

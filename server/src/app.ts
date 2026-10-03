@@ -1,6 +1,9 @@
 import { Hono, type MiddlewareHandler } from 'hono'
 import { bodyLimit } from 'hono/body-limit'
 import { HTTPException } from 'hono/http-exception'
+import { hookRoutes } from './api/hooks.ts'
+import { WorkspaceModel } from './api/model.ts'
+import { apiRoutes } from './api/v1.ts'
 import type { AppEnv, Services } from './context.ts'
 import { ApiError, notFound } from './errors.ts'
 import { csrfGuard, securityHeaders } from './http/security.ts'
@@ -8,14 +11,19 @@ import { mountStatic } from './http/static.ts'
 import { authRoutes } from './routes/auth.ts'
 import { documentRoutes } from './routes/documents.ts'
 import { fileRoutes } from './routes/files.ts'
+import { integrationRoutes } from './routes/integrations.ts'
 import { inviteRoutes } from './routes/invites.ts'
 import { meRoutes, sessionRoutes } from './routes/me.ts'
 import { workspaceRoutes } from './routes/workspaces.ts'
 
 const JSON_LIMIT = 256 * 1024
 
+/** The public API: bearer tokens / webhook secrets only — never the session cookie (docs/API.md). */
+export const PUBLIC_API = '/api/v1/'
+
 export function buildApp(s: Services): Hono<AppEnv> {
   const app = new Hono<AppEnv>()
+  const model = new WorkspaceModel(s)
 
   app.use('*', securityHeaders(s.config))
   app.use('/api/*', async (c, next) => {
@@ -52,7 +60,10 @@ export function buildApp(s: Services): Hono<AppEnv> {
   app.route('/api/workspaces', workspaceRoutes(s))
   app.route('/api/workspaces', fileRoutes(s))
   app.route('/api/workspaces', documentRoutes(s))
+  app.route('/api/workspaces', integrationRoutes(s, model))
   app.route('/api/invites', inviteRoutes(s))
+  app.route('/api/v1/hooks', hookRoutes(s, model))
+  app.route('/api/v1', apiRoutes(s, model))
 
   if (s.config.devMode) {
     app.get('/api/dev/mailbox', (c) => {
@@ -82,9 +93,13 @@ export function buildApp(s: Services): Hono<AppEnv> {
   return app
 }
 
-/** Resolves the session cookie on every API request and slides its expiry. */
+/** Resolves the session cookie on every API request and slides its expiry (not on the public API). */
 function sessionMiddleware(s: Services): MiddlewareHandler<AppEnv> {
   return async (c, next) => {
+    if (c.req.path.startsWith(PUBLIC_API)) {
+      c.set('auth', null)
+      return next()
+    }
     const token = s.sessions.readCookie(c)
     const auth = token ? s.sessions.resolve(token) : null
     c.set('auth', auth)

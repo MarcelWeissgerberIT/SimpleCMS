@@ -26,6 +26,8 @@ export interface Config {
   trustProxy: boolean
   /** Sign-in link requests per client IP per 15 minutes (20; only DEV_MODE may change it, via AUTH_IP_LIMIT). */
   authIpLimit: number
+  /** Public API (/api/v1): requests per minute per token and per incoming webhook (API_RATE_LIMIT, default 120). */
+  apiRateLimit: number
   /** AGPL §13: where users of this server can get its source (set it when you run a modified version). */
   sourceUrl: string
   version: string
@@ -35,6 +37,9 @@ export class ConfigError extends Error {}
 
 /** Default sign-in link requests per client IP per 15 minutes (docs/CLOUD.md § Security notes). */
 export const AUTH_IP_LIMIT = 20
+
+/** Default public API requests per minute per token / per incoming webhook (docs/API.md § Limits). */
+export const API_RATE_LIMIT = 120
 
 /** server/ — the bundle lives in server/dist, sources in server/src. */
 const serverRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
@@ -76,6 +81,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     appDir: resolve(env.APP_DIR || join(serverRoot, '..', 'dist')),
     trustProxy: flag(env.TRUST_PROXY),
     authIpLimit,
+    apiRateLimit: int(env.API_RATE_LIMIT, API_RATE_LIMIT, 1, 100_000, 'API_RATE_LIMIT'),
     sourceUrl: env.SOURCE_URL?.trim() || 'https://github.com/MarcelWeissgerberIT/SimpleCMS',
     version: VERSION,
   }

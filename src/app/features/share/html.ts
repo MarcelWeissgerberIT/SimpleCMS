@@ -262,6 +262,15 @@ ${['gray', 'brown', 'orange', 'yellow', 'green', 'blue', 'purple', 'pink', 'red'
 @media (max-width:640px){.doc .columns{grid-template-columns:1fr}}
 .doc details{margin:0 0 .75em}
 .doc details>summary{cursor:pointer;font-weight:600}
+.doc details[data-heading]>summary{font-stretch:115%;font-weight:800;line-height:1.2;letter-spacing:-.01em;margin-top:1.4em}
+.doc details[data-heading="1"]>summary{font-size:1.9em}
+.doc details[data-heading="2"]>summary{font-size:1.45em}
+.doc details[data-heading="3"]>summary{font-size:1.18em}
+.doc .media-block{margin:1.2em 0;max-width:100%}
+.doc .media-block[data-align="center"]{margin-left:auto;margin-right:auto}
+.doc .media-block[data-align="right"]{margin-left:auto}
+.doc .media-block video{display:block;width:100%;height:auto;border:1px solid var(--rule-strong);border-radius:4px;background:var(--surface-2)}
+.doc .media-block audio{display:block;width:100%}
 .doc [data-type="block-math"]{margin:1em 0;overflow-x:auto;text-align:center}
 .doc .bookmark{display:flex;flex-direction:column;gap:2px;padding:12px 14px;border:1px solid var(--rule-strong);border-radius:4px;margin:0 0 1em}
 .doc .bookmark a{font-weight:600;text-decoration:none}

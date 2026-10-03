@@ -256,20 +256,28 @@ export async function expandZip(data: Uint8Array, prefix = '', depth = 0, budget
 /* ------------------------------------------------------------------ */
 
 const LINK_RE = /(!?)\[((?:[^\]\\]|\\.)*)\]\(\s*(<[^>]*>|[^)\s]+(?:\([^)\s]*\)[^)\s]*)*)(\s+"[^"]*")?\s*\)/g
+/** src="…" of video / audio blocks (One's Markdown writes them as HTML tags, see editor/schema/media.ts). */
+const MEDIA_SRC_RE = /(<(?:video|audio|source)\b[^>]*?\ssrc=")([^"]+)(")/gi
 
-/** All link/image targets in a Markdown string, in order. */
+/** All link/image targets in a Markdown string, in order (media tag sources after them). */
 export function linkTargets(md: string): string[] {
   const out: string[] = []
   for (const m of md.matchAll(LINK_RE)) out.push(m[3])
+  for (const m of md.matchAll(MEDIA_SRC_RE)) out.push(m[2].replace(/&amp;/g, '&'))
   return out
 }
 
-/** Rewrite every link/image target with `fn` (return null to keep). */
+/** Rewrite every link/image target (and video / audio source) with `fn` (return null to keep). */
 export function rewriteLinks(md: string, fn: (href: string, isImage: boolean, text: string) => string | null): string {
-  return md.replace(LINK_RE, (all, bang: string, text: string, href: string, title: string | undefined) => {
-    const next = fn(href.replace(/^<|>$/g, ''), bang === '!', text)
-    return next === null ? all : `${bang}[${text}](${next}${title ?? ''})`
-  })
+  return md
+    .replace(LINK_RE, (all, bang: string, text: string, href: string, title: string | undefined) => {
+      const next = fn(href.replace(/^<|>$/g, ''), bang === '!', text)
+      return next === null ? all : `${bang}[${text}](${next}${title ?? ''})`
+    })
+    .replace(MEDIA_SRC_RE, (all, open: string, href: string, close: string) => {
+      const next = fn(href.replace(/&amp;/g, '&'), true, '')
+      return next === null ? all : `${open}${next.replace(/&/g, '&amp;').replace(/"/g, '&quot;')}${close}`
+    })
 }
 
 /** Split leading "# Title" off a Markdown document. */

@@ -19,6 +19,8 @@ interface ConnContext {
   sessionId: string
   workspaceId: string
   role: Role
+  /** Direct connections of the server itself (public API, incoming webhooks): `api:<tokenId>` · `hook:<hookId>`. */
+  actor?: string
 }
 
 interface Entry extends ConnContext {
@@ -91,21 +93,42 @@ export function createCollab(deps: { config: Config; log: Logger; repo: Repo; se
     },
   })
 
-  /** Does the workspace's meta document list this page? The live copy has the latest changes (stores are debounced). */
-  async function pageInMeta(workspaceId: string, pageId: string): Promise<boolean> {
-    const name = `ws:${workspaceId}`
+  /** The live copy has the latest changes (stores are debounced); else a throwaway copy of the stored state. */
+  async function read<T>(name: string, fn: (doc: Y.Doc) => T): Promise<T> {
     const live = hocuspocus.hocuspocus.documents.get(name) ?? (await hocuspocus.hocuspocus.loadingDocuments.get(name)?.catch(() => undefined))
-    if (live) return live.getMap('pages').has(pageId)
-    const stored = repo.loadDocument(name)
-    if (!stored) return false
+    if (live) return fn(live)
     const doc = new Y.Doc()
     try {
-      Y.applyUpdate(doc, stored)
-      return doc.getMap('pages').has(pageId)
+      const stored = repo.loadDocument(name)
+      if (stored) Y.applyUpdate(doc, stored)
+      return fn(doc)
     } finally {
       doc.destroy()
     }
   }
+
+  /**
+   * The server's own writes (docs/CLOUD.md § Server writes): a direct connection loads the document
+   * like a client would (or joins the live one), the change is broadcast to everyone connected, and
+   * disconnecting stores it at once (the usual onStoreDocument path, tombstones included).
+   */
+  async function write<T>(name: string, fn: (doc: Y.Doc) => T, actor: string): Promise<T> {
+    const doc = parseDocName(name)
+    if (!doc) throw new Error(`invalid document name ${name}`)
+    const conn = await hocuspocus.hocuspocus.openDirectConnection(name, { userId: actor, sessionId: '', workspaceId: doc.workspaceId, role: 'member', actor })
+    let result!: T
+    try {
+      await conn.transact((d) => {
+        result = fn(d)
+      })
+    } finally {
+      await conn.disconnect()
+    }
+    return result
+  }
+
+  /** Does the workspace's meta document list this page? */
+  const pageInMeta = (workspaceId: string, pageId: string): Promise<boolean> => read(`ws:${workspaceId}`, (d) => d.getMap('pages').has(pageId))
 
   const close = (match: (e: Entry) => boolean, reason: CloseReason) => {
     let n = 0
@@ -143,6 +166,8 @@ export function createCollab(deps: { config: Config; log: Logger; repo: Repo; se
     closeWorkspace: (workspaceId, reason) => close((e) => e.workspaceId === workspaceId, reason),
     closeSession: (sessionId, reason) => close((e) => e.sessionId === sessionId, reason),
     pageInMeta,
+    read,
+    write,
     async destroy() {
       clearInterval(sweep)
       await hocuspocus.destroy() // closes connections and flushes pending document stores

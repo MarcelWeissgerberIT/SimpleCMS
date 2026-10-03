@@ -80,3 +80,30 @@ export {
   type Occurrence,
   type RepeatFreq,
 } from './templates/schedule'
+/*
+ * Inbox (this device's notifications: reminders + team mentions / assignments / comment replies):
+ *  - startInbox(): background service (start once from main.tsx after hydrate) · stopInbox()
+ *  - useInbox (zustand: this workspace's items + settings), markRead / archiveItems / setNotify,
+ *    openInboxItem, openInbox, eventLabel; notification permission helpers
+ *  - reminder codes ('at', '-15m', '-1d' …): parse / label / due time / options (the one definition)
+ *  - ReminderSelect, DateReminderEditor: reminder UI for database dates and editor date mentions
+ *  - collectReminders(pages, dbs): every scheduled reminder (for lists / agenda)
+ */
+export { startInbox, stopInbox, openInboxItem, openInbox, eventLabel } from './inbox/engine'
+export { useInbox, markRead, archiveItems, setNotify, INBOX_KINDS, type InboxItem, type InboxKind, type InboxData } from './inbox/state'
+export { notifyPermission, requestNotifyPermission, type NotifyPermission } from './inbox/notify'
+export { collectReminders, type ReminderEntry } from './inbox/scan'
+export {
+  parseReminder,
+  isReminderCode,
+  normalizeReminder,
+  reminderDueAt,
+  reminderLabel,
+  reminderOptions,
+  formatDue,
+  hasTime,
+  TIMED_REMINDERS,
+  DAY_REMINDERS,
+  DAY_REMINDER_HOUR,
+} from './inbox/reminders'
+export { ReminderSelect, DateReminderEditor, type DateReminderValue } from './inbox/ReminderControls'

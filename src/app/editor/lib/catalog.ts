@@ -7,6 +7,7 @@ import type { Editor, Range } from '@tiptap/core'
 import { NodeSelection } from '@tiptap/pm/state'
 import {
   AtSign,
+  AudioLines,
   Bookmark,
   CalendarDays,
   ChartColumn,
@@ -16,6 +17,7 @@ import {
   Columns2,
   Columns3,
   FileText,
+  Film,
   Heading1,
   Heading2,
   Heading3,
@@ -33,6 +35,7 @@ import {
   Paperclip,
   Pi,
   Quote,
+  RefreshCw,
   Sheet,
   Sigma,
   Smile,
@@ -53,6 +56,8 @@ import { insertBlock, moveIntoToggleBody, turnInto, type TurnTarget } from './bl
 import { dateMentionAttrs } from './dates'
 import { markFreshButton } from './buttonRun'
 import { caretIntoTabs, newTabsJson, tabsAround } from '../schema/tabs'
+import { insertSynced } from '../synced/actions'
+import { ToggleHeading1, ToggleHeading2, ToggleHeading3 } from './blockGlyphs'
 import { toast } from '../../store/ui'
 import { t } from '../../i18n'
 
@@ -172,8 +177,25 @@ export const BLOCKS: BlockItem[] = [
   { id: 'numbered', group: 'lists', icon: ListOrdered, md: '1.', keys: 'Mod+Shift+7', keywords: 'numbered ordered list ol nummeriert liste', turnInto: 'orderedList', run: turn('orderedList') },
   { id: 'todo', group: 'lists', icon: ListTodo, md: '[]', keys: 'Mod+Shift+9', keywords: 'todo task checkbox check aufgabe checkliste', turnInto: 'taskList', run: turn('taskList') },
   { id: 'toggle', group: 'lists', icon: ChevronRight, md: '>>', keywords: 'toggle collapse details fold aufklappen umschalter', turnInto: 'toggle', run: turn('toggle') },
+  { id: 'toggleHeading1', group: 'lists', icon: ToggleHeading1, md: '>#', keywords: 'toggle heading h1 collapsible section fold aufklapp überschrift einklappbar abschnitt', turnInto: 'toggleHeading1', run: turn('toggleHeading1') },
+  { id: 'toggleHeading2', group: 'lists', icon: ToggleHeading2, md: '>##', keywords: 'toggle heading h2 collapsible section fold aufklapp überschrift einklappbar abschnitt', turnInto: 'toggleHeading2', run: turn('toggleHeading2') },
+  { id: 'toggleHeading3', group: 'lists', icon: ToggleHeading3, md: '>###', keywords: 'toggle heading h3 collapsible section fold aufklapp überschrift einklappbar abschnitt', turnInto: 'toggleHeading3', run: turn('toggleHeading3') },
   // ---------------- media
   { id: 'image', group: 'media', icon: Image, keywords: 'image picture photo upload bild foto grafik', run: (ctx) => insertBlock(ctx.editor, { type: 'image', attrs: { src: null } }, ctx.range) },
+  {
+    id: 'video',
+    group: 'media',
+    icon: Film,
+    keywords: 'video movie clip film mp4 webm mov screencast recording upload aufnahme filmclip',
+    run: (ctx) => insertBlock(ctx.editor, { type: 'video', attrs: { src: null } }, ctx.range),
+  },
+  {
+    id: 'audio',
+    group: 'media',
+    icon: AudioLines,
+    keywords: 'audio sound music podcast voice memo mp3 recording upload ton musik sprachmemo aufnahme',
+    run: (ctx) => insertBlock(ctx.editor, { type: 'audio', attrs: { src: null } }, ctx.range),
+  },
   { id: 'bookmark', group: 'media', icon: Bookmark, keywords: 'bookmark link card web lesezeichen karte', run: (ctx) => insertBlock(ctx.editor, { type: 'bookmark', attrs: { url: '' } }, ctx.range) },
   {
     id: 'embed',
@@ -239,6 +261,13 @@ export const BLOCKS: BlockItem[] = [
       editor.view.focus()
       toast({ message: t('editor.tabs.noNesting'), kind: 'info' })
     },
+  },
+  {
+    id: 'synced',
+    group: 'advanced',
+    icon: RefreshCw,
+    keywords: 'synced block sync copy mirror reuse same content several pages synchronisiert synchron spiegeln wiederverwenden mehrere seiten',
+    run: (ctx) => insertSynced(ctx.editor, ctx.range),
   },
   { id: 'toc', group: 'advanced', icon: ListTree, keywords: 'toc table of contents outline inhaltsverzeichnis gliederung', run: (ctx) => insertBlock(ctx.editor, { type: 'toc' }, ctx.range) },
   {

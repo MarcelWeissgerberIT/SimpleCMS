@@ -8,6 +8,7 @@ import { MarkdownManager } from '@tiptap/markdown'
 import { BLOCK_ID_TYPES, baseExtensions } from './schema/base'
 import { stripButtonActions } from './schema/button'
 import { stripComments } from './schema/comment'
+import { stripSynced } from './schema/synced'
 import { safeHref } from './lib/embeds'
 import { escapeMarkdownText } from './lib/mdText'
 
@@ -60,7 +61,7 @@ const ALERTS: Record<string, { color: string; icon: string }> = {
   CAUTION: { color: 'red', icon: '🛑' },
 }
 
-const BLOCK_ATOMS = new Set(['image', 'blockMath', 'mermaid', 'pageLink', 'databaseBlock', 'bookmark', 'embed', 'toc', 'fileBlock', 'horizontalRule'])
+const BLOCK_ATOMS = new Set(['image', 'blockMath', 'mermaid', 'pageLink', 'databaseBlock', 'bookmark', 'embed', 'toc', 'fileBlock', 'video', 'audio', 'horizontalRule'])
 const EMOJI_START = /^(\p{Extended_Pictographic}(?:️|‍\p{Extended_Pictographic})*)\s*/u
 
 /** Normalise parser output: GitHub alerts → callouts, ```mermaid → mermaid, hoist block atoms out of paragraphs. */
@@ -258,10 +259,11 @@ function withoutUnsafeLinks(doc: JSONContent): JSONContent {
 
 /**
  * The doc without anything that must stay in this workspace / on this device: button actions
- * (webhook URLs, database ids) and comment anchors. For share links, exports, AI input.
+ * (webhook URLs, database ids), comment anchors and synced-block links (their content stays,
+ * as plain blocks). For share links, exports, AI input.
  */
 export function stripPrivate(doc: JSONContent): JSONContent {
-  return stripComments(stripButtonActions(doc))
+  return stripSynced(stripComments(stripButtonActions(doc)))
 }
 
 export function docToMarkdown(doc: JSONContent | null): string {

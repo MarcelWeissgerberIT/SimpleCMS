@@ -1,6 +1,6 @@
 /**
  * Calendar popover: single date or range, optional time, typed input, keyboard grid,
- * locale-aware week start (de: Monday), "Today" + "Clear".
+ * locale-aware week start (de: Monday), a reminder (features/inbox), "Today" + "Clear".
  */
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { ChevronLeft, ChevronRight } from 'lucide-react'
@@ -22,9 +22,21 @@ import {
 import type { DateValue } from '../../store/types'
 import { useLang, useT } from '../../i18n'
 import { Switch } from '../../ui/controls'
+import { ReminderSelect, normalizeReminder } from '../../features'
 import { dfLocale, isoWithTime, parseLocal, parseTypedDate, weekStartsOn } from '../model/format'
 
-export function DatePicker({ value, onChange, allowRange = true }: { value: DateValue | null; onChange: (v: DateValue | null) => void; allowRange?: boolean }) {
+/** `reminders`: offer the "Remind" select (default: like `allowRange` — on for cells, off for filter values). */
+export function DatePicker({
+  value,
+  onChange,
+  allowRange = true,
+  reminders = allowRange,
+}: {
+  value: DateValue | null
+  onChange: (v: DateValue | null) => void
+  allowRange?: boolean
+  reminders?: boolean
+}) {
   const t = useT()
   const lang = useLang()
   const locale = dfLocale(lang)
@@ -33,6 +45,8 @@ export function DatePicker({ value, onChange, allowRange = true }: { value: Date
   const end = parseLocal(value?.end ?? null)
   const hasEnd = !!value?.end
   const withTime = !!value?.includeTime
+  // the reminder (features/inbox) rides along every change of the date; "Clear" drops it
+  const reminder = reminders ? normalizeReminder(value?.reminder) : null
   const [month, setMonth] = useState(() => startOfMonth(start ?? new Date()))
   const [focus, setFocus] = useState<Date>(() => start ?? new Date())
   const [editing, setEditing] = useState<'start' | 'end'>('start')
@@ -54,7 +68,7 @@ export function DatePicker({ value, onChange, allowRange = true }: { value: Date
     let a = s
     let b = e
     if (b && isBefore(b, a)) [a, b] = [b, a]
-    onChange({ start: isoWithTime(a, time), end: range && b ? isoWithTime(b, time) : null, includeTime: time || undefined })
+    onChange({ start: isoWithTime(a, time), end: range && b ? isoWithTime(b, time) : null, includeTime: time || undefined, ...(reminder ? { reminder } : {}) })
   }
 
   const pickDay = (d: Date) => {
@@ -201,6 +215,11 @@ export function DatePicker({ value, onChange, allowRange = true }: { value: Date
           />
         </label>
       </div>
+      {reminders && (
+        <div className="db-date-pop__opts db-date-pop__remind">
+          <ReminderSelect iso={value?.start ?? null} value={reminder} onChange={(code) => value && onChange({ ...value, reminder: code })} />
+        </div>
+      )}
       <div className="db-date-pop__foot">
         <button type="button" className="btn btn--ghost btn--sm" onClick={() => emit(withClock(new Date(), start), hasEnd ? withClock(new Date(), end) : null)}>
           {t('database.date.setToday')}

@@ -48,6 +48,15 @@ export function useShortcutGroups(): ShortcutGroup[] {
       ],
     },
     {
+      label: t('shell.nav.inbox'),
+      items: [
+        [t('shell.keys.inbox'), ['G I']],
+        [t('shell.keys.inboxMove'), ['↑', '↓']],
+        [t('shell.keys.inboxRead'), ['U']],
+        [t('shell.keys.inboxArchive'), ['E']],
+      ],
+    },
+    {
       label: t('shell.nav.agenda'),
       items: [
         [t('shell.keys.agendaMove'), ['←', '→']],

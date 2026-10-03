@@ -1,0 +1,103 @@
+/* ================================================================
+   Reminder controls (date mentions, database dates)
+   ================================================================ */
+.rmd {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.rmd__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.rmd__label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+  cursor: pointer;
+}
+.rmd__label svg {
+  color: var(--signal-ink);
+}
+.rmd__select {
+  width: auto;
+  min-width: 0;
+  max-width: 190px;
+  flex: 1 1 auto;
+  height: 28px;
+  padding: 0 6px;
+  font-size: var(--text-xs);
+  cursor: pointer;
+}
+.rmd__select:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.rmd__due {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 18px;
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  color: var(--ink-2);
+}
+.rmd__due[data-past] {
+  color: var(--ink-3);
+}
+
+/* ---------- date mention: date + time + reminder ---------- */
+.dme-pop {
+  width: 284px;
+  padding: 0;
+}
+.dme {
+  display: flex;
+  flex-direction: column;
+}
+.dme__sect {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+}
+.dme__sect + .dme__sect {
+  border-top: var(--hairline) solid var(--rule);
+}
+.dme__fields {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 6px;
+}
+.dme__fields[data-time] {
+  grid-template-columns: minmax(0, 1fr) 116px;
+}
+.dme__date,
+.dme__time {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
+}
+.dme__opt {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 24px;
+  font-size: var(--text-sm);
+  color: var(--ink-2);
+}
+.dme__foot {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 6px 8px 8px;
+  border-top: var(--hairline) solid var(--rule);
+}
+.dme__spacer {
+  flex: 1;
+}

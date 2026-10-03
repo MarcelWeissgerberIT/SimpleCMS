@@ -379,6 +379,8 @@ export const Mention = Node.create({
       id: { default: null, parseHTML: (el) => el.getAttribute('data-id'), renderHTML: (a) => ({ 'data-id': a.id }) },
       label: { default: null, parseHTML: (el) => el.getAttribute('data-label'), renderHTML: (a) => ({ 'data-label': a.label }) },
       kind: { default: 'page', parseHTML: (el) => el.getAttribute('data-kind') ?? 'page', renderHTML: (a) => ({ 'data-kind': a.kind }) },
+      // date mentions: reminder code ('at', '-15m', '-1d' … see features/inbox/reminders.ts); null = none
+      reminder: { default: null, parseHTML: (el) => el.getAttribute('data-reminder') || null, renderHTML: (a) => (a.reminder ? { 'data-reminder': a.reminder } : {}) },
     }
   },
   parseHTML() {

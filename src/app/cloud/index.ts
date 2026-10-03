@@ -30,6 +30,7 @@ import {
   signOutImpl,
   updateProfile as updateProfileImpl,
 } from './account'
+import { request } from './api'
 import { bootCloud as bootCloudImpl, refreshMe, switchWorkspaceImpl } from './boot'
 import { isApplyingCloud } from './binding'
 import { acquire, release } from './content'
@@ -188,4 +189,15 @@ export function setPresencePage(pageId: string | null): void {
 /** True while the store is being updated from the cloud (remote changes must not trigger automations). */
 export function isApplyingCloudChange(): boolean {
   return isApplyingCloud()
+}
+
+/* ------------------------------------------------------------------ REST (team settings extras) */
+
+/**
+ * A JSON request to the team server for the active session (`path` relative to the app base, e.g.
+ * 'api/workspaces/<id>/tokens'): same origin, session cookie, the CSRF content type. Failures are
+ * CloudError with the server's code (docs/CLOUD.md), like every call above.
+ */
+export function cloudRequest<T>(method: 'GET' | 'POST' | 'PATCH' | 'DELETE', path: string, body?: unknown): Promise<T> {
+  return request<T>(method, path, body)
 }

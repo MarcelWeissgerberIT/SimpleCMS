@@ -49,6 +49,12 @@ const MIME: Record<string, string> = {
   mp3: 'audio/mpeg',
   wav: 'audio/wav',
   m4a: 'audio/mp4',
+  m4v: 'video/mp4',
+  ogg: 'audio/ogg',
+  oga: 'audio/ogg',
+  opus: 'audio/ogg',
+  aac: 'audio/aac',
+  flac: 'audio/flac',
   json: 'application/json',
   zip: 'application/zip',
   html: 'text/html',
@@ -78,6 +84,8 @@ interface SavedFile {
   name: string
   size: number
   image: boolean
+  /** video / audio files become players */
+  media: 'video' | 'audio' | null
 }
 
 /** Yield to the browser (MessageChannel: not clamped to 4 ms like nested setTimeouts). */
@@ -144,7 +152,7 @@ export async function applyPlan(
   for (const [path, bytes] of plan.files) {
     const type = mimeOf(path)
     const ref = await saveFile(new Blob([bytes as BlobPart], { type }), basename(path))
-    saved.set(path, { ref, name: basename(path), size: bytes.byteLength, image: IMAGE.test(type) })
+    saved.set(path, { ref, name: basename(path), size: bytes.byteLength, image: IMAGE.test(type), media: /^video\//.test(type) ? 'video' : /^audio\//.test(type) ? 'audio' : null })
     fileNo.set(path, fileIndex.length)
     fileIndex.push(path)
     done++
@@ -313,7 +321,11 @@ export async function applyPlan(
   }
 
   const fileNode = (f: SavedFile): JSONContent =>
-    f.image ? { type: 'image', attrs: { src: f.ref, alt: f.name } } : { type: 'fileBlock', attrs: { src: f.ref, name: f.name, size: f.size } }
+    f.image
+      ? { type: 'image', attrs: { src: f.ref, alt: f.name } }
+      : f.media
+        ? { type: f.media, attrs: { src: f.ref, name: f.name } }
+        : { type: 'fileBlock', attrs: { src: f.ref, name: f.name, size: f.size } }
   const linkBlock = (id: ID, isDb: boolean): JSONContent => (isDb ? { type: 'databaseBlock', attrs: { databaseId: id, viewId: null } } : { type: 'pageLink', attrs: { pageId: id } })
   const isDbId = (id: ID) => !!databases[id]
   /** image from a file placeholder ("…/f/3#one-w=300" → width 300) */
@@ -385,6 +397,10 @@ export async function applyPlan(
       const { ref, frag } = splitPlaceholder(n.attrs.src, F_URL)
       const f = fileOf(ref)
       next.attrs = f?.image ? imageAttrs(n.attrs, f, frag) : { ...n.attrs, src: '' }
+    }
+    if ((n.type === 'video' || n.type === 'audio') && typeof n.attrs?.src === 'string' && n.attrs.src.startsWith(F_URL)) {
+      const f = fileOf(splitPlaceholder(n.attrs.src, F_URL).ref)
+      next.attrs = { ...n.attrs, src: f ? f.ref : null, name: n.attrs.name || f?.name || '' }
     }
     if (n.content) next.content = PROMOTE.has(n.type ?? '') ? fixBlocks(n.content) : CONTAINERS.has(n.type ?? '') ? fixBlocks(n.content, false) : n.content.map(fixInline)
     return next

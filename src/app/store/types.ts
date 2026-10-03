@@ -240,6 +240,11 @@ export interface DateValue {
   start: string
   end?: string | null
   includeTime?: boolean
+  /**
+   * Reminder relative to `start` (absent / null = none): 'at' · '-5m' … '-2h' · '-1d' · '-2d' · '-1w'
+   * (all-day dates count from 09:00). Codes: features/inbox/reminders.ts. Fires per device (inbox).
+   */
+  reminder?: string | null
 }
 
 /**

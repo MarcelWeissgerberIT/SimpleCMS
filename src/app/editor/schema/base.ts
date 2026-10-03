@@ -7,7 +7,7 @@ import { InputRule, type AnyExtension } from '@tiptap/core'
 import StarterKit from '@tiptap/starter-kit'
 import CodeBlockLowlight from '@tiptap/extension-code-block-lowlight'
 import { TaskItem, TaskList } from '@tiptap/extension-list'
-import { DetailsContent, DetailsSummary } from '@tiptap/extension-details'
+import { DetailsContent } from '@tiptap/extension-details'
 import { TableKit } from '@tiptap/extension-table'
 import { BlockMath } from '@tiptap/extension-mathematics'
 import { TextStyle } from '@tiptap/extension-text-style'
@@ -18,6 +18,9 @@ import { OutlineHeading } from './heading'
 import { ButtonNode } from './button'
 import { Tab, Tabs } from './tabs'
 import { CommentMark } from './comment'
+import { SyncedBlock } from './synced'
+import { ToggleDetails, ToggleHeadingInput, ToggleSummary } from './toggle'
+import { Audio, Video } from './media'
 import {
   BlockImage,
   Bookmark,
@@ -28,7 +31,6 @@ import {
   DatabaseBlock,
   Embed,
   FileBlock,
-  MarkdownDetails,
   Mention,
   Mermaid,
   PageLink,
@@ -89,9 +91,12 @@ export const BLOCK_ID_TYPES = [
   'embed',
   'toc',
   'fileBlock',
+  'video',
+  'audio',
   'button',
   'tabs',
   'tab',
+  'syncedBlock',
 ]
 
 export type ExtensionWrap = Partial<Record<string, (ext: AnyExtension) => AnyExtension>>
@@ -131,8 +136,9 @@ export function baseExtensions({ readOnly = false, wrap = {}, headingOffset = 0,
     }),
     w(
       'details',
-      MarkdownDetails.configure({
+      ToggleDetails.configure({
         persist: true,
+        outlineOffset: headingOffset,
         HTMLAttributes: { class: 'toggle' },
         renderToggleButton: ({ element, isOpen }: { element: HTMLElement; isOpen: boolean }) => {
           element.setAttribute('aria-label', t(isOpen ? 'editor.a11y.collapse' : 'editor.a11y.expand'))
@@ -140,8 +146,9 @@ export function baseExtensions({ readOnly = false, wrap = {}, headingOffset = 0,
         },
       }),
     ),
-    DetailsSummary,
+    ToggleSummary,
     DetailsContent,
+    ToggleHeadingInput,
     TableKit.configure({ table: { resizable: !readOnly, HTMLAttributes: { class: 'doc-table' } } }),
     w('blockMath', BlockMath),
     w('inlineMath', StrictInlineMath),
@@ -160,9 +167,12 @@ export function baseExtensions({ readOnly = false, wrap = {}, headingOffset = 0,
     w('embed', Embed),
     w('toc', Toc),
     w('fileBlock', FileBlock),
+    w('video', Video),
+    w('audio', Audio),
     w('button', ButtonNode),
     w('tabs', Tabs),
     Tab,
+    w('syncedBlock', SyncedBlock),
     CommentMark,
     UniqueID.configure({ types: BLOCK_ID_TYPES, attributeName: 'id' }),
   ]

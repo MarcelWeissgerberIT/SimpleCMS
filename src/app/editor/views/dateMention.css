@@ -1,0 +1,24 @@
+/* Date mention chip as a button (editable docs): opens the date + reminder popover. */
+.doc-content button.mention__date {
+  margin: 0;
+  cursor: pointer;
+  text-align: inherit;
+  transition:
+    border-color var(--dur-1) var(--ease-out),
+    background var(--dur-1) var(--ease-out);
+}
+.doc-content button.mention__date:hover,
+.doc-content button.mention__date[data-open] {
+  border-color: var(--signal);
+  background: var(--signal-wash);
+}
+.doc-content button.mention__date:active {
+  transform: translateY(1px);
+}
+.doc-content .mention__date[data-reminder] {
+  border-color: var(--ink-3);
+}
+.doc-content .mention__date .mention__bell {
+  margin-left: 1px;
+  color: var(--signal-ink);
+}

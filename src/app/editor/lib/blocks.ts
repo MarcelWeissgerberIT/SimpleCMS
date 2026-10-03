@@ -4,9 +4,10 @@
 import type { Editor, JSONContent, Range } from '@tiptap/core'
 import { Fragment, type Node as PMNode, type ResolvedPos } from '@tiptap/pm/model'
 import { NodeSelection, Selection, TextSelection, type Transaction } from '@tiptap/pm/state'
+import { toggleHeadingLevel, type ToggleHeadingLevel } from '../schema/toggle'
 
 /** Parents whose children are "blocks" in the Notion sense. */
-const CONTAINERS = new Set(['doc', 'column', 'callout', 'detailsContent', 'blockquote', 'tab'])
+const CONTAINERS = new Set(['doc', 'column', 'callout', 'detailsContent', 'blockquote', 'tab', 'syncedBlock'])
 const LIST_ITEMS = new Set(['listItem', 'taskItem'])
 
 export interface BlockRef {
@@ -103,6 +104,9 @@ export type TurnTarget =
   | 'orderedList'
   | 'taskList'
   | 'toggle'
+  | 'toggleHeading1'
+  | 'toggleHeading2'
+  | 'toggleHeading3'
   | 'blockquote'
   | 'callout'
   | 'codeBlock'
@@ -110,7 +114,7 @@ export type TurnTarget =
 const LIST_TYPES: Record<string, string> = { bulletList: 'bulletList', orderedList: 'orderedList', taskList: 'taskList' }
 
 /** Containers whose lines are blocks of their own: turning a line into something converts it in place. */
-const TURN_STOPS = new Set(['detailsContent', 'column', 'tableCell', 'tableHeader', 'callout', 'tab'])
+const TURN_STOPS = new Set(['detailsContent', 'column', 'tableCell', 'tableHeader', 'callout', 'tab', 'syncedBlock'])
 
 /**
  * The "Turn into" type of the block at the caret. Lines inside callouts, toggles and columns are
@@ -132,7 +136,10 @@ export function activeTurnTarget(editor: Editor): TurnTarget | null {
   const p = $from.parent
   if (p.type.name === 'heading') return `heading${p.attrs.level}` as TurnTarget
   if (p.type.name === 'codeBlock') return 'codeBlock'
-  if (p.type.name === 'detailsSummary') return 'toggle'
+  if (p.type.name === 'detailsSummary') {
+    const level = toggleHeadingLevel($from.node(-1))
+    return level ? (`toggleHeading${level}` as TurnTarget) : 'toggle'
+  }
   return 'paragraph'
 }
 
@@ -153,8 +160,15 @@ function liftOutOfLists(editor: Editor) {
   }
 }
 
-/** Wrap the current textblock into a toggle; its text becomes the toggle title. */
-function wrapInToggle(editor: Editor): boolean {
+/** Toggle (0) or toggle heading level (1–3) of a "Turn into" target; null for other targets. */
+function toggleTargetLevel(target: TurnTarget): ToggleHeadingLevel | null {
+  if (target === 'toggle') return 0
+  const m = /^toggleHeading([123])$/.exec(target)
+  return m ? (Number(m[1]) as ToggleHeadingLevel) : null
+}
+
+/** Wrap the current textblock into a toggle (or toggle heading); its text becomes the title. */
+function wrapInToggle(editor: Editor, heading: ToggleHeadingLevel = 0): boolean {
   const { state, view } = editor
   const { $from } = state.selection
   const block = $from.parent
@@ -162,7 +176,7 @@ function wrapInToggle(editor: Editor): boolean {
   const from = $from.before()
   const to = $from.after()
   const schema = state.schema
-  const details = schema.nodes.details.create({ open: true }, [
+  const details = schema.nodes.details.create({ open: true, heading }, [
     schema.nodes.detailsSummary.create(null, block.content),
     schema.nodes.detailsContent.create(null, schema.nodes.paragraph.create()),
   ])
@@ -226,8 +240,16 @@ export function liftEmptyListItem(editor: Editor) {
 
 /** Notion-style "Turn into" for the block at the selection (converted in place, inside its container). */
 export function turnInto(editor: Editor, target: TurnTarget): boolean {
+  // toggle ↔ toggle heading: only the title's level changes, the body stays inside
+  const toggleLevel = toggleTargetLevel(target)
+  const { $from: $sel } = editor.state.selection
+  if (toggleLevel !== null && $sel.parent.type.name === 'detailsSummary') {
+    const details = $sel.node(-1)
+    if (toggleHeadingLevel(details) !== toggleLevel) editor.view.dispatch(editor.state.tr.setNodeMarkup($sel.before(-1), undefined, { ...details.attrs, heading: toggleLevel }))
+    return true
+  }
   // a toggle turned into something else: its title becomes that block, its body follows
-  if (target !== 'toggle' && editor.state.selection.$from.parent.type.name === 'detailsSummary') unwrapToggle(editor)
+  if (toggleLevel === null && $sel.parent.type.name === 'detailsSummary') unwrapToggle(editor)
   const current = activeTurnTarget(editor)
   if (current === target) return true
   const { $from } = editor.state.selection
@@ -265,7 +287,10 @@ export function turnInto(editor: Editor, target: TurnTarget): boolean {
     case 'codeBlock':
       return chain.setCodeBlock().run()
     case 'toggle':
-      return para().run() && wrapInToggle(editor)
+    case 'toggleHeading1':
+    case 'toggleHeading2':
+    case 'toggleHeading3':
+      return para().run() && wrapInToggle(editor, toggleLevel ?? 0)
   }
   return false
 }
@@ -375,7 +400,7 @@ export function caretIntoBlock(editor: Editor, pos: number): boolean {
 /* Insert                                                              */
 /* ------------------------------------------------------------------ */
 
-const NEEDS_INPUT = new Set(['image', 'bookmark', 'embed', 'fileBlock', 'blockMath'])
+const NEEDS_INPUT = new Set(['image', 'bookmark', 'embed', 'fileBlock', 'blockMath', 'video', 'audio'])
 /** Blocks too big for a table cell: they go after the table instead. */
 const HEAVY = new Set(['databaseBlock', 'columns', 'table', 'toc', 'embed', 'mermaid', 'tabs'])
 const CELLS = new Set(['tableCell', 'tableHeader'])

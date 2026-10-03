@@ -1,0 +1,79 @@
+/* Toggle headings (details[data-heading]): the title takes the heading typography of
+   editor.css (same sizes, weights and outline spacing as H1–H3), the chevron keeps its place. */
+
+.doc-content [data-type='details'][data-heading] > div > summary {
+  font-family: var(--font-sans);
+  font-stretch: var(--display-stretch);
+  font-variation-settings: 'wdth' 125;
+  font-weight: 800;
+  letter-spacing: var(--tracking-tight);
+  line-height: 1.22;
+  padding: 3px 0;
+  color: var(--ink);
+}
+
+.doc-content [data-type='details'][data-heading='1'] {
+  margin-top: 1.25em;
+  --th-size: 1.72em;
+}
+
+.doc-content [data-type='details'][data-heading='2'] {
+  margin-top: 1.05em;
+  --th-size: 1.36em;
+}
+
+.doc-content [data-type='details'][data-heading='3'] {
+  margin-top: 0.8em;
+  --th-size: 1.1em;
+}
+
+.doc-content > [data-type='details'][data-heading]:first-child {
+  margin-top: 0.2em;
+}
+
+.doc-content [data-type='details'][data-heading] > div > summary {
+  font-size: var(--th-size);
+}
+
+.doc-content [data-type='details'][data-heading='2'] > div > summary {
+  font-weight: 760;
+}
+
+.doc-content [data-type='details'][data-heading='3'] > div > summary {
+  font-weight: 720;
+  letter-spacing: -0.01em;
+}
+
+/* the chevron centres on the (taller) title line */
+.doc-content [data-type='details'][data-heading] > button {
+  height: calc(var(--th-size) * 1.22 + 6px);
+}
+
+.doc-content [data-type='details'][data-heading='1'] > button::before {
+  border-width: 5.5px 0 5.5px 8.5px;
+}
+
+.doc--font-serif .doc-content [data-type='details'][data-heading] > div > summary {
+  font-family: var(--font-serif);
+  font-stretch: normal;
+  font-variation-settings: normal;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+}
+
+.doc--font-mono .doc-content [data-type='details'][data-heading] > div > summary {
+  font-family: var(--font-mono);
+  font-stretch: normal;
+  font-variation-settings: normal;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+@media (max-width: 640px) {
+  .doc-content [data-type='details'][data-heading='1'] {
+    --th-size: 1.55em;
+  }
+  .doc-content [data-type='details'][data-heading='2'] {
+    --th-size: 1.28em;
+  }
+}

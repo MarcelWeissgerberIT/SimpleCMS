@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
-import { CalendarDays, CalendarRange, ChevronsLeft, ChevronDown, Home, LayoutTemplate, Plus, Search, Trash2, Upload, Waypoints, Settings, Table2, FilePlus2, Users } from 'lucide-react'
+import { Bell, CalendarDays, CalendarRange, ChevronsLeft, ChevronDown, Home, LayoutTemplate, Plus, Search, Trash2, Upload, Waypoints, Settings, Table2, FilePlus2, Users } from 'lucide-react'
 import { useWorkspace } from '../../store/store'
 import { useUI } from '../../store/ui'
 import { useFavorites, useTrash, selectBreadcrumbs } from '../../store/selectors'
@@ -19,6 +19,8 @@ import { closeMobileSidebar, createDatabaseAndOpen, createPageAndOpen, goHome, t
 import { useIsMobile, useKbdHint } from '../lib/hooks'
 import { HeaderSub, useWorkspaceEntries } from '../cloud/Switcher'
 import { openSettingsTab, useInCloud, useReadOnly, useWorkspaceTitle } from '../cloud/state'
+import { useInboxUnread } from '../inbox/model'
+import { INBOX_KEYS, useInboxShortcut } from '../inbox/keys'
 import './sidebar.css'
 
 const MIN_W = 220
@@ -79,6 +81,7 @@ export function Sidebar() {
         <nav className="sb-nav">
           <NavRow icon={<Search size={16} />} label={t('shell.nav.search')} kbd={kbd('Mod+K')} onClick={() => (closeMobileSidebar(), useUI.getState().openPalette())} />
           <NavRow icon={<Home size={16} />} label={t('shell.nav.home')} active={route.name === 'home'} onClick={goHome} />
+          <InboxNavRow active={route.name === 'inbox'} />
           {!readOnly && (
             <NavRow
               icon={<CalendarDays size={16} />}
@@ -202,13 +205,40 @@ function SidebarHeader() {
   )
 }
 
-function NavRow({ icon, label, kbd, active, onClick }: { icon: ReactNode; label: string; kbd?: string; active?: boolean; onClick: () => void }) {
+function NavRow({ icon, label, kbd, active, badge, ariaLabel, onClick }: { icon: ReactNode; label: string; kbd?: string; active?: boolean; badge?: ReactNode; ariaLabel?: string; onClick: () => void }) {
   return (
-    <button type="button" className="sb-navrow" data-active={active || undefined} onClick={onClick}>
+    <button type="button" className="sb-navrow" data-active={active || undefined} aria-label={ariaLabel} onClick={onClick}>
       <span className="sb-navrow__icon">{icon}</span>
       <span className="sb-navrow__label">{label}</span>
+      {badge}
       {kbd && <span className="kbd sb-navrow__kbd">{kbd}</span>}
     </button>
+  )
+}
+
+/** Inbox: unread count as an LED + mono read-out; "G I" jumps here. */
+function InboxNavRow({ active }: { active: boolean }) {
+  const t = useT()
+  const unread = useInboxUnread()
+  useInboxShortcut()
+  const kbd = useKbdHint()
+  return (
+    <NavRow
+      icon={<Bell size={16} />}
+      label={t('shell.nav.inbox')}
+      ariaLabel={unread ? t('shell.nav.inboxUnread', { n: unread }) : undefined}
+      active={active}
+      kbd={unread ? undefined : kbd(INBOX_KEYS)}
+      badge={
+        unread > 0 && (
+          <span className="sb-navrow__badge" data-testid="inbox-unread">
+            <span className="led led--on" aria-hidden />
+            {unread > 99 ? '99+' : String(unread).padStart(2, '0')}
+          </span>
+        )
+      }
+      onClick={() => (closeMobileSidebar(), navigate({ name: 'inbox' }))}
+    />
   )
 }
 

@@ -218,6 +218,7 @@ export function useRouteEffects(route: Route) {
     else if (route.name === 'graph') name = t('shell.nav.graph')
     else if (route.name === 'journal') name = t('shell.nav.today')
     else if (route.name === 'agenda') name = t('shell.nav.agenda')
+    else if (route.name === 'inbox') name = t('shell.nav.inbox')
     else if (route.name === 'clip') name = t('shell.capture.crumb')
     else if (route.name === 'notfound') name = t('shell.notFound.title')
     else name = t('shell.nav.home')

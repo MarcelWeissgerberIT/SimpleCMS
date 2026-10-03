@@ -29,6 +29,16 @@ export function mapBlocks(nodes: JSONContent[], fn: (n: JSONContent) => JSONCont
   return out
 }
 
+/** Heading level of a block for slide breaks: headings and toggle headings (0 = none). */
+function headingLevel(b: JSONContent): number {
+  if (b.type === 'heading') return Number(b.attrs?.level ?? 1)
+  const h = Number(b.attrs?.heading)
+  return b.type === 'details' && h >= 1 && h <= 3 ? h : 0
+}
+
+/** Text of a slide's heading block (a toggle heading's title, not its body). */
+const headingText = (b: JSONContent) => textOf(b.type === 'details' ? (b.content?.[0] ?? {}) : b)
+
 function isEmpty(n: JSONContent): boolean {
   return n.type === 'paragraph' && !textOf(n).trim() && !(n.content ?? []).some((c) => c.type !== 'text' && c.type !== 'hardBreak')
 }
@@ -41,15 +51,16 @@ export function splitSlides(doc: JSONContent | null | undefined): Slide[] {
       groups.push([])
       continue
     }
-    if (b.type === 'heading' && Number(b.attrs?.level ?? 1) <= 2 && groups[groups.length - 1].some((x) => !isEmpty(x))) groups.push([])
+    const level = headingLevel(b)
+    if (level && level <= 2 && groups[groups.length - 1].some((x) => !isEmpty(x))) groups.push([])
     groups[groups.length - 1].push(b)
   }
   const slides: Slide[] = []
   for (const g of groups) {
     const trimmed = g.filter((b, i) => !(isEmpty(b) && (i === 0 || i === g.length - 1)))
     if (!trimmed.some((b) => !isEmpty(b))) continue
-    const h = trimmed.find((b) => b.type === 'heading')
-    slides.push({ kind: 'content', blocks: trimmed, heading: h ? textOf(h) : textOf(trimmed[0]).slice(0, 60) })
+    const h = trimmed.find((b) => headingLevel(b) > 0)
+    slides.push({ kind: 'content', blocks: trimmed, heading: h ? headingText(h) : textOf(trimmed[0]).slice(0, 60) })
   }
   return slides
 }

@@ -6,15 +6,16 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import type { Editor } from '@tiptap/core'
 import { useStore } from 'zustand'
-import { Bookmark, Link2, MonitorPlay } from 'lucide-react'
+import { AudioLines, Bookmark, Film, Link2, MonitorPlay } from 'lucide-react'
 import { Popover } from '../../ui/Popover'
 import { useT } from '../../i18n'
 import type { Bridge } from '../lib/bridge'
 import { detectProvider, embedSrc, PROVIDER_LABEL } from '../lib/embeds'
 import { posAnchor } from './common'
+import { mediaKindOfUrl, mediaNameFromUrl, safeMediaSrc } from '../schema/media'
 
 interface Option {
-  id: 'link' | 'bookmark' | 'embed'
+  id: 'link' | 'bookmark' | 'embed' | 'video' | 'audio'
   label: string
   icon: ReactNode
   run: () => void
@@ -55,10 +56,18 @@ export function UrlPasteMenu({ editor, bridge }: { editor: Editor; bridge: Bridg
       editor.chain().focus().insertContentAt(range, node).run()
     }
     const provider = detectProvider(url)
-    const out: Option[] = [
-      { id: 'link', label: t('editor.paste.link'), icon: <Link2 size={15} />, run: close },
-      { id: 'bookmark', label: t('editor.paste.bookmark'), icon: <Bookmark size={15} />, run: () => replace({ type: 'bookmark', attrs: { url } }) },
-    ]
+    const out: Option[] = [{ id: 'link', label: t('editor.paste.link'), icon: <Link2 size={15} />, run: close }]
+    // a direct link to a media file plays in a video / audio block
+    const media = mediaKindOfUrl(url)
+    const src = safeMediaSrc(url)
+    if (media && src)
+      out.push({
+        id: media,
+        label: t(`editor.paste.${media}`),
+        icon: media === 'video' ? <Film size={15} /> : <AudioLines size={15} />,
+        run: () => replace({ type: media, attrs: { src, name: mediaNameFromUrl(src) } }),
+      })
+    out.push({ id: 'bookmark', label: t('editor.paste.bookmark'), icon: <Bookmark size={15} />, run: () => replace({ type: 'bookmark', attrs: { url } }) })
     if (embedSrc(url, provider ?? 'web'))
       out.push({
         id: 'embed',

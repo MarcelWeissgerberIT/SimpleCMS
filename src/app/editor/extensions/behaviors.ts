@@ -10,6 +10,7 @@ import { t } from '../../i18n'
 import type { Bridge } from '../lib/bridge'
 import { findEmoji } from '../lib/emoji'
 import { revealPos } from '../schema/tabs'
+import { toggleHeadingLevel } from '../schema/toggle'
 import {
   caretAfterNode,
   caretIntoBlock,
@@ -29,12 +30,15 @@ import {
 /* Placeholder                                                         */
 /* ------------------------------------------------------------------ */
 
-function placeholderFor(node: PMNode, $pos: ResolvedPos | null): string {
+function placeholderFor(node: PMNode, $pos: ResolvedPos | null, parent?: PMNode | null): string {
   switch (node.type.name) {
     case 'heading':
       return t(`editor.placeholder.h${node.attrs.level}`)
-    case 'detailsSummary':
-      return t('editor.placeholder.toggle')
+    case 'detailsSummary': {
+      // a toggle heading's title reads like the heading it is
+      const level = toggleHeadingLevel(parent ?? ($pos && $pos.depth > 0 ? $pos.node(-1) : null))
+      return t(level ? `editor.placeholder.h${level}` : 'editor.placeholder.toggle')
+    }
     case 'paragraph': {
       if (!$pos) return t('editor.placeholder.default')
       const grand = $pos.node(Math.max(0, $pos.depth - 1)).type.name
@@ -50,10 +54,10 @@ function placeholderFor(node: PMNode, $pos: ResolvedPos | null): string {
 
 /** Empty headings / toggle titles keep their placeholder even when unfocused. */
 function emptyTitleDecos(doc: PMNode, from: number, to: number, out: Decoration[]) {
-  doc.nodesBetween(from, to, (node, pos) => {
+  doc.nodesBetween(from, to, (node, pos, parent) => {
     if (node.isTextblock) {
       if (node.content.size === 0 && (node.type.name === 'heading' || node.type.name === 'detailsSummary'))
-        out.push(Decoration.node(pos, pos + node.nodeSize, { class: 'is-empty', 'data-placeholder': placeholderFor(node, null) }))
+        out.push(Decoration.node(pos, pos + node.nodeSize, { class: 'is-empty', 'data-placeholder': placeholderFor(node, null, parent) }))
       return false
     }
     return !node.isAtom
@@ -194,7 +198,7 @@ export const BlockSelection = Extension.create({
 /* Keyboard shortcuts                                                  */
 /* ------------------------------------------------------------------ */
 
-const AI_PARENTS = new Set(['doc', 'column', 'callout', 'detailsContent', 'tab'])
+const AI_PARENTS = new Set(['doc', 'column', 'callout', 'detailsContent', 'tab', 'syncedBlock'])
 
 export function shortcutsExtension(bridge: Bridge) {
   return Extension.create({

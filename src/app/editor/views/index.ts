@@ -14,7 +14,10 @@ import { DatabaseBlockView, TocView } from './TocView'
 import { guardView } from './BrokenBlock'
 import { ButtonView, StaticButtonView } from './ButtonView'
 import { StaticTabsView, TabsView, tabsViewOptions } from './TabsView'
+import { SyncedBlockView, syncedViewOptions } from './SyncedBlockView'
+import { AudioView, VideoView } from './MediaBlockViews'
 import './views.css'
+import './toggle.css'
 
 type View = ComponentType<ReactNodeViewProps>
 
@@ -52,9 +55,13 @@ export function nodeViewWraps({ readOnly }: { readOnly: boolean }): ExtensionWra
     embed: withView(guardView(EmbedView)),
     toc: withView(guardView(TocView)),
     fileBlock: withView(guardView(FileBlockView)),
+    video: withView(guardView(VideoView)),
+    audio: withView(guardView(AudioView)),
     // read-only renders (share, history, slides) get a disabled key that never runs
     button: withView(guardView(readOnly ? StaticButtonView : ButtonView), buttonEvents),
     // the strip is React's; the tab panels are ProseMirror content (no guard: it would drop the content hole)
     tabs: withView(readOnly ? StaticTabsView : TabsView, tabsViewOptions),
+    // read-only renders show the plain content (schema HTML, no frame)
+    ...(readOnly ? {} : { syncedBlock: withView(SyncedBlockView, syncedViewOptions) }),
   }
 }

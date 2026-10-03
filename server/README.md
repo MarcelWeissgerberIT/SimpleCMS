@@ -1,11 +1,12 @@
 # SimpleCMS One — team cloud server
 
 The server behind **SimpleCMS One Cloud**: email sign-in (magic links), workspaces with members and
-invitations, live collaboration (Yjs over [Hocuspocus](https://hocuspocus.dev)), file storage — and it
-serves the app itself. One process, one origin, one SQLite file. The same Docker image runs our hosted
+invitations, live collaboration (Yjs over [Hocuspocus](https://hocuspocus.dev)), file storage, a public
+REST API with incoming webhooks for automation tools — and it serves the app itself. One process, one origin, one SQLite file. The same Docker image runs our hosted
 cloud (in Germany) and your self-hosted instance.
 
 - **Contract** (REST API, document names, schema, security): [`docs/CLOUD.md`](../docs/CLOUD.md)
+- **Public API & incoming webhooks** (n8n, Make, Zapier, scripts): [`docs/API.md`](../docs/API.md)
 - **Self-hosting guide** (VPS, DNS, SMTP, backups, updates): [`docs/SELF_HOSTING.md`](../docs/SELF_HOSTING.md)
 - **Licence:** AGPL-3.0 ([`LICENSE`](LICENSE)). The app in `src/` stays MIT.
 
@@ -13,6 +14,7 @@ cloud (in Germany) and your self-hosted instance.
 https://cloud.example.com/          landing page   ┐
 https://cloud.example.com/app/      the app        ┘ static, from the app build (APP_DIR)
 https://cloud.example.com/api/*     REST (JSON, HttpOnly session cookie)
+https://cloud.example.com/api/v1/*  public API (bearer tokens) + incoming webhooks — docs/API.md
 wss://cloud.example.com/collab      Yjs sync (Hocuspocus 4), same cookie
 DATA_DIR                            one.sqlite (+ WAL) and files/<workspace>/<file>
 ```
@@ -81,6 +83,7 @@ Working on the app with Vite instead of the built copy? Proxy the API and the so
 | `SOURCE_URL` | this repository | AGPL §13 source offer, returned by `/api/config` — point it at your fork if you change the server |
 | `LOG_LEVEL` | `info` | `debug` · `info` · `warn` · `error` |
 | `AUTH_IP_LIMIT` | `20` | Sign-in link requests per client IP per 15 minutes. **Test servers only** (`DEV_MODE=1`); without `DEV_MODE` the server refuses to start with it |
+| `API_RATE_LIMIT` | `120` | Public API requests per minute, per token and per incoming webhook ([`docs/API.md`](../docs/API.md#limits)) |
 | `NODE_ENV` | – | `production` enforces `SECRET` and `PUBLIC_URL` and forbids `DEV_MODE` |
 
 ## API in one screen
@@ -108,8 +111,25 @@ POST   /api/invites/:token/accept         → { workspaceId, role }
 PUT    /api/workspaces/:id/files/:fid     member, raw body (x-file-name, content-type) → { id }
 GET    /api/workspaces/:id/files/:fid     any member
 DELETE /api/workspaces/:id/documents/:pid member: content of a page deleted for good (409 while it exists)
+GET    /api/workspaces/:id/tokens         admin: API tokens          POST { name, scope } → secret once
+DELETE /api/workspaces/:id/tokens/:tid    admin: revoke
+GET    /api/workspaces/:id/hooks          admin: incoming webhooks   POST { databaseId } → URL once
+POST   /api/workspaces/:id/hooks/:hid/regenerate · DELETE /api/workspaces/:id/hooks/:hid
 GET    /api/health · GET /api/config · GET /api/dev/mailbox (DEV_MODE)
 WS     /collab                            Hocuspocus; documents ws:<id> and ws:<id>:p:<pageId>
+
+/api/v1 — Authorization: Bearer one_… (never the cookie), docs/API.md
+GET    /api/v1/workspace · /databases · /databases/:id · /databases/:id/rows?limit&cursor&sort
+POST   /api/v1/databases/:id/rows         write: { title?, properties?, content? } → 201 { id, url }
+GET    /api/v1/rows/:id    PATCH /api/v1/rows/:id (write: { title?, properties? })
+GET    /api/v1/pages/:id   POST  /api/v1/pages (write: { parentId?, title, content? })
+POST   /api/v1/hooks/<secret>             incoming webhook: JSON / form / text → a row (no headers needed)
+```
+
+Try it (after creating a token in Settings → Team → API tokens):
+
+```bash
+curl -s localhost:8080/api/v1/databases -H "Authorization: Bearer one_…"
 ```
 
 ## Admin CLI
@@ -147,8 +167,12 @@ src/
   db/                 node:sqlite wrapper and versioned migrations
   repo.ts             all SQL (users, workspaces, members, invites, documents, files)
   auth/               sessions + cookies, rate limiter, signup policy
-  routes/             auth, me + session, workspaces (+ members, invites), invites (public), files, documents
-  collab/             Hocuspocus on /collab: upgrade gate, auth per document, persistence, disconnects
+  routes/             auth, me + session, workspaces (+ members, invites), invites (public), files, documents,
+                      integrations (API tokens + incoming webhooks of a workspace)
+  api/                public API v1: bearer auth + idempotency, routes, incoming webhooks, the model that
+                      reads / writes meta + content documents, value coercion, markdown-lite → Y.XmlElement
+  collab/             Hocuspocus on /collab: upgrade gate, auth per document, persistence, disconnects,
+                      read / write for the server's own changes (direct connections)
   mail/               nodemailer / dev mailbox, EN + DE templates
   http/               security headers + CSP, static app serving, server-rendered pages
   cli.ts              admin CLI

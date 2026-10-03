@@ -177,6 +177,13 @@ ${COLORS.map((c) => `.doc .callout--${c}{background:var(--c-${c}-bg)}`).join('')
 .doc details>summary{cursor:pointer;font-weight:650}
 .doc details>summary::marker{color:var(--signal-ink)}
 .doc details[open]>summary{margin-bottom:.5em}
+.doc details[data-heading]{margin-top:1.4em}
+.doc details[data-heading]>summary>:is(h2,h3,h4){display:inline;margin:0}
+.doc .media-block{max-width:100%}
+.doc .media-block[data-align="center"]{margin-left:auto;margin-right:auto}
+.doc .media-block[data-align="right"]{margin-left:auto}
+.doc .media-block video{display:block;width:100%;height:auto;border:1px solid var(--rule-strong);border-radius:4px;background:var(--surface-2)}
+.doc .media-block audio{display:block;width:100%}
 ${tabsCss('.doc')}
 .doc .katex{font-size:1.05em}
 .doc [data-type="block-math"]{display:block;margin:1.2em 0;overflow-x:auto;text-align:center}

@@ -2,7 +2,6 @@
  * Standalone, styled HTML export (one file, images inlined as data URLs, math as MathML,
  * Mermaid as SVG) and PDF via the browser print dialog (same document in a hidden iframe).
  */
-import type { JSONContent } from '@tiptap/core'
 import { COLOR_NAMES, type Database, type ID, type Page } from '../../../store/types'
 import type { propertyValueToText as PropertyValueToText } from '../../../database'
 import { getFile, readAsDataUrl, resolveAssetUrl } from '../../../lib/files'
@@ -201,6 +200,14 @@ ${['gray', 'brown', 'orange', 'yellow', 'green', 'blue', 'purple', 'pink', 'red'
 .callout--default{background:var(--surface-2)}
 details{margin:.4em 0;padding:.2em 0 .2em .9em;border-left:1px solid var(--rule-strong)}
 summary{cursor:pointer;font-weight:600}
+details[data-heading]{margin-top:1.2em}
+details[data-heading]>summary>:is(h1,h2,h3){display:inline;margin:0}
+.media-block{margin:1em 0;max-width:100%}
+.media-block[data-align=center]{margin-left:auto;margin-right:auto}
+.media-block[data-align=right]{margin-left:auto}
+.media-block video{display:block;width:100%;height:auto;border:1px solid var(--rule-strong);border-radius:4px;background:var(--surface-2)}
+.media-block audio{display:block;width:100%}
+.media-note{font:500 10.5px/1.6 var(--font-mono);letter-spacing:.08em;text-transform:uppercase;color:var(--ink-3);padding:8px 12px;border:1px dashed var(--rule-strong);border-radius:4px}
 .page-link,.database-block,.file-block,.bookmark,.embed{margin:.4em 0}
 .page-link a,.database-block a{display:inline-flex;gap:8px;align-items:center;font-weight:600}
 .page-link a::before{content:'↗';font:600 12px var(--font-mono);color:var(--signal-ink)}
@@ -254,7 +261,7 @@ export interface HtmlOptions {
   lang: string
   untitled: string
   /** labels */
-  labels: { exported: string; contents: string; generator: string; pages: (n: number) => string; rows: (n: number) => string }
+  labels: { exported: string; contents: string; generator: string; pages: (n: number) => string; rows: (n: number) => string; mediaOmitted?: (name: string) => string }
   appUrl: string
   /** print (PDF): use the app's bundled fonts instead of Google Fonts */
   forPrint?: boolean
@@ -276,24 +283,24 @@ function inlineAsset(path: string): Promise<string> {
   return hit
 }
 
+/** Video / audio files above this size stay out of the single-file export (a note takes their place). */
+const MEDIA_INLINE_MAX = 50 * 1024 * 1024
+
 async function fileUrlMap(tree: ExportTree): Promise<Map<string, string>> {
   const map = new Map<string, string>()
   for (const ref of collectRefs(tree)) {
     const f = await getFile(ref)
-    if (f) map.set(ref, await readAsDataUrl(f.blob))
+    if (f && !(/^(video|audio)\//.test(f.blob.type || f.type) && f.size > MEDIA_INLINE_MAX)) map.set(ref, await readAsDataUrl(f.blob))
   }
   return map
 }
 
-function headingsOf(doc: JSONContent | null): Array<{ level: number; text: string }> {
-  const out: Array<{ level: number; text: string }> = []
-  const text = (n: JSONContent): string => (n.text ?? '') + (n.content ?? []).map(text).join('')
-  for (const n of doc?.content ?? []) if (n.type === 'heading') out.push({ level: Number(n.attrs?.level ?? 1), text: text(n) })
-  return out
-}
-
 /** Post-process TipTap HTML in a detached document. */
-async function finishContent(html: string, page: Page, ctx: { files: Map<string, string>; ids: Set<ID>; appUrl: string; katex: KatexLike | null; mermaid: MermaidLike | null }): Promise<string> {
+async function finishContent(
+  html: string,
+  page: Page,
+  ctx: { files: Map<string, string>; ids: Set<ID>; appUrl: string; katex: KatexLike | null; mermaid: MermaidLike | null; print: boolean; mediaOmitted?: (name: string) => string },
+): Promise<string> {
   const doc = new DOMParser().parseFromString(`<div id="root">${html}</div>`, 'text/html')
   const root = doc.getElementById('root')!
   // internal links
@@ -302,7 +309,7 @@ async function finishContent(html: string, page: Page, ctx: { files: Map<string,
     a.setAttribute('href', ctx.ids.has(id) ? `#${anchorOf(id)}` : `${ctx.appUrl}#/p/${encodeURIComponent(id)}`)
   })
   // files / images
-  root.querySelectorAll<HTMLElement>('[src^="onefile:"], [href^="onefile:"], img[data-src^="onefile:"]').forEach((el) => {
+  root.querySelectorAll<HTMLElement>('[src^="onefile:"], [href^="onefile:"], :is(img, video, audio)[data-src^="onefile:"]').forEach((el) => {
     // the editor keeps local images in data-src (browsers can't fetch "onefile:")
     const attr = el.getAttribute('src')?.startsWith('onefile:') ? 'src' : el.getAttribute('href')?.startsWith('onefile:') ? 'href' : 'data-src'
     const url = ctx.files.get(el.getAttribute(attr)!)
@@ -337,16 +344,33 @@ async function finishContent(html: string, page: Page, ctx: { files: Map<string,
       /* keep the source as a code block */
     }
   }
-  // documents read top to bottom: unfold toggles
+  // documents read top to bottom: unfold toggles; a toggle heading's title is a real heading
   root.querySelectorAll('details').forEach((d) => d.setAttribute('open', ''))
+  root.querySelectorAll('details[data-heading] > summary').forEach((s) => {
+    const level = Math.min(3, Math.max(1, Number(s.parentElement?.getAttribute('data-heading')) || 1))
+    const h = doc.createElement(`h${level}`)
+    h.setAttribute('data-level', String(level))
+    h.append(...Array.from(s.childNodes))
+    s.append(h)
+  })
+  // video / audio: a note where the file is not in the export (too large, missing) or on paper
+  root.querySelectorAll<HTMLElement>('figure[data-type="video"], figure[data-type="audio"]').forEach((fig) => {
+    const media = fig.querySelector('video, audio')
+    if (media?.getAttribute('src') && !ctx.print) return
+    const name = fig.getAttribute('data-name') || fig.querySelector('figcaption')?.textContent || ''
+    const note = doc.createElement('p')
+    note.className = 'media-note'
+    note.textContent = `▶ ${ctx.mediaOmitted ? ctx.mediaOmitted(name) : name}`
+    fig.replaceWith(note)
+  })
   // embeds → links (no iframes in a document)
   root.querySelectorAll<HTMLElement>('[data-type="embed"]').forEach((el) => {
     const url = el.getAttribute('data-url') ?? ''
     el.innerHTML = `<a href="${esc(url)}">${esc(url)}</a>`
   })
-  // table of contents
-  const heads = headingsOf(page.content)
+  // table of contents: every heading in document order (toggle headings and nested ones included)
   const hEls = Array.from(root.querySelectorAll('h1, h2, h3'))
+  const heads = hEls.map((h) => ({ level: Number(h.getAttribute('data-level')) || Number(h.tagName.slice(1)), text: h.textContent ?? '' }))
   hEls.forEach((h, i) => h.setAttribute('id', `${anchorOf(page.id)}-h${i}`))
   root.querySelectorAll('nav[data-type="toc"]').forEach((nav) => {
     nav.innerHTML = heads.map((h, i) => `<a class="l${Math.min(3, Math.max(1, h.level))}" href="#${esc(anchorOf(page.id))}-h${i}">${esc(h.text)}</a>`).join('')
@@ -460,7 +484,7 @@ export async function buildHTML(tree: ExportTree, opts: HtmlOptions): Promise<st
       if (gradient) cover = `<div class="cover" style="${esc(`background:${gradient}`)}"></div>`
     }
     const trail = crumbs(p)
-    const content = p.content ? await finishContent(docToHTML(p.content), p, { files, ids, appUrl: opts.appUrl, katex, mermaid }) : ''
+    const content = p.content ? await finishContent(docToHTML(p.content), p, { files, ids, appUrl: opts.appUrl, katex, mermaid, print: !!opts.forPrint, mediaOmitted: opts.labels.mediaOmitted }) : ''
     parts.push(
       `<article id="${esc(anchorOf(p.id))}">${cover}${trail.length ? `<div class="crumbs">${trail.map(esc).join(' / ')}</div>` : ''}${icon}<h1 class="title">${esc(p.title.trim() || opts.untitled)}</h1>${rowDb ? propsTable(rowDb, p) : ''}${content ? `<div class="content">${content}</div>` : ''}${db ? dbTable(db, tree.rows(p.id), ids, opts.untitled, opts.labels.rows) : ''}</article>`,
     )

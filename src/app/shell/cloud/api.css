@@ -1,0 +1,258 @@
+/* Settings → Team → API & webhooks (ApiSection.tsx). Builds on the team tab's tm-* rules (cloud.css). */
+
+.api-sect__icon {
+  display: inline-grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius-1);
+  color: var(--ink-2);
+}
+.api-sect__label {
+  margin: 0;
+}
+
+.api-lede {
+  margin: 0 0 4px;
+  max-width: 62ch;
+  color: var(--ink-2);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+}
+.api-note {
+  line-height: 1.5;
+}
+
+.api-docs {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  color: var(--signal-ink);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  font-weight: 600;
+  letter-spacing: var(--tracking-label);
+  text-decoration: none;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.api-docs:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.api-docs:focus-visible {
+  border-radius: var(--radius-1);
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+/* create forms */
+.api-form {
+  display: grid;
+  align-items: end;
+  gap: 8px;
+  padding: 10px 0 4px;
+}
+.api-form--token {
+  grid-template-columns: minmax(0, 1fr) 160px auto;
+}
+.api-form--hook {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+.api-form__field {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+}
+
+/* list rows */
+.api-list {
+  margin-top: 10px;
+}
+.api-row {
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  min-height: 52px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--rule);
+}
+.api-row__glyph {
+  display: inline-grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius-1);
+  background: var(--surface-2);
+  color: var(--ink-2);
+}
+.api-row__what {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  line-height: 1.3;
+}
+.api-row__name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  font-size: 13.5px;
+  font-weight: 620;
+}
+.api-row__name > span:first-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.api-row__name[data-gone] {
+  color: var(--ink-3);
+  font-style: italic;
+}
+.api-row__meta {
+  overflow: hidden;
+  color: var(--ink-3);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.api-row__ctl {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* scope plate: read = hairline, write = signal */
+.api-scope {
+  flex: none;
+  height: 17px;
+  padding: 0 5px;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius-1);
+  color: var(--ink-2);
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: var(--tracking-label);
+  line-height: 15px;
+  text-transform: uppercase;
+}
+.api-scope[data-scope='write'] {
+  border-color: var(--signal);
+  color: var(--signal-ink);
+}
+
+/* a secret shown once */
+.api-secret {
+  margin: 12px 0 6px;
+  padding: 12px 14px 10px;
+  border: 1px solid var(--signal);
+  border-radius: var(--radius-2);
+  background: var(--signal-wash);
+  animation: api-in var(--dur-2) var(--ease-out);
+}
+.api-secret__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.api-secret__label {
+  color: var(--signal-ink);
+}
+.api-secret__row {
+  display: flex;
+  gap: 6px;
+  margin: 8px 0 6px;
+}
+.api-secret__value {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+.api-secret__hint {
+  margin: 0;
+  color: var(--ink-2);
+  font-size: var(--text-sm);
+  line-height: 1.45;
+}
+.api-secret__foot {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 8px;
+}
+
+.api-example {
+  margin-top: 10px;
+  overflow: hidden;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius-1);
+  background: var(--surface);
+}
+.api-example__bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 30px;
+  padding: 0 4px 0 10px;
+  border-bottom: 1px solid var(--rule);
+}
+.api-example__code {
+  margin: 0;
+  padding: 10px 12px;
+  overflow-x: auto;
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  line-height: 1.6;
+  white-space: pre;
+}
+.api-example__code:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 2px var(--signal);
+}
+
+@keyframes api-in {
+  from {
+    opacity: 0;
+    transform: translateY(-2px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .api-secret {
+    animation: none;
+  }
+}
+
+@media (max-width: 767px) {
+  .api-form--token,
+  .api-form--hook {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .api-row {
+    grid-template-columns: 30px minmax(0, 1fr);
+  }
+  .api-row__ctl {
+    grid-column: 2;
+    flex-wrap: wrap;
+    /* ghost buttons: their label lines up with the name above */
+    margin-left: -8px;
+  }
+  .api-row__meta {
+    white-space: normal;
+  }
+  .api-secret__row {
+    flex-direction: column;
+  }
+  /* column direction: flex-basis 0 would collapse the field's height */
+  .api-secret__value {
+    flex: none;
+    width: 100%;
+  }
+}

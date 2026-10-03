@@ -5,6 +5,7 @@
  */
 import {
   CloudError,
+  cloudRequest,
   acceptInvite,
   createInvite,
   createWorkspace,
@@ -25,6 +26,50 @@ import {
   useCloud,
 } from '../../cloud'
 
+/* ------------------------------------------------------------------ API tokens & incoming webhooks (docs/API.md) */
+
+export type ApiScope = 'read' | 'write'
+type Creator = { id: string; name: string | null; email: string | null } | null
+
+export interface ApiToken {
+  id: string
+  name: string
+  scope: ApiScope
+  created_at: number
+  last_used_at: number | null
+  created_by: Creator
+  /** Only in the answer that created it: the secret, shown once. */
+  token?: string
+}
+
+export interface IncomingHook {
+  id: string
+  /** title null: the database is gone (deleted or in the trash) */
+  database: { id: string; title: string | null }
+  created_at: number
+  last_delivery_at: number | null
+  deliveries: number
+  created_by: Creator
+  /** Only when created or regenerated: the URL with its secret, shown once. */
+  url?: string
+}
+
+const ms = (v: unknown): number | null => (typeof v === 'string' ? Date.parse(v) || null : typeof v === 'number' ? v : null)
+const wsPath = (wsId: string, rest: string) => `api/workspaces/${encodeURIComponent(wsId)}/${rest}`
+
+type Raw<T> = Omit<T, 'created_at' | 'last_used_at' | 'last_delivery_at'> & { created_at: string; last_used_at?: string | null; last_delivery_at?: string | null }
+
+const toToken = (t: Raw<ApiToken>): ApiToken => ({ ...t, created_at: ms(t.created_at) ?? Date.now(), last_used_at: ms(t.last_used_at) })
+const toHook = (h: Raw<IncomingHook>): IncomingHook => ({ ...h, created_at: ms(h.created_at) ?? Date.now(), last_delivery_at: ms(h.last_delivery_at) })
+
+export const listApiTokens = async (wsId: string) => (await cloudRequest<Raw<ApiToken>[]>('GET', wsPath(wsId, 'tokens'))).map(toToken)
+export const createApiToken = async (wsId: string, name: string, scope: ApiScope) => toToken(await cloudRequest<Raw<ApiToken>>('POST', wsPath(wsId, 'tokens'), { name, scope }))
+export const revokeApiToken = (wsId: string, tokenId: string) => cloudRequest<void>('DELETE', wsPath(wsId, `tokens/${encodeURIComponent(tokenId)}`))
+export const listHooks = async (wsId: string) => (await cloudRequest<Raw<IncomingHook>[]>('GET', wsPath(wsId, 'hooks'))).map(toHook)
+export const createHook = async (wsId: string, databaseId: string) => toHook(await cloudRequest<Raw<IncomingHook>>('POST', wsPath(wsId, 'hooks'), { databaseId }))
+export const regenerateHook = async (wsId: string, hookId: string) => toHook(await cloudRequest<Raw<IncomingHook>>('POST', wsPath(wsId, `hooks/${encodeURIComponent(hookId)}/regenerate`)))
+export const deleteHook = (wsId: string, hookId: string) => cloudRequest<void>('DELETE', wsPath(wsId, `hooks/${encodeURIComponent(hookId)}`))
+
 export const cloudApi = {
   requestSignIn,
   signOut,
@@ -43,6 +88,13 @@ export const cloudApi = {
   uploadLocalWorkspace,
   switchWorkspace,
   removeDeviceCopy,
+  listApiTokens,
+  createApiToken,
+  revokeApiToken,
+  listHooks,
+  createHook,
+  regenerateHook,
+  deleteHook,
 }
 
 export type CloudApi = typeof cloudApi

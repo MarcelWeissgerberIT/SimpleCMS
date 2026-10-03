@@ -44,7 +44,7 @@ export async function startServer(config: Config, log: Logger): Promise<RunningS
   const housekeeping = setInterval(() => {
     try {
       const purged = repo.purgeExpired()
-      if (purged.loginTokens + purged.sessions + purged.invites) log.info('housekeeping', purged)
+      if (Object.values(purged).some((n) => n > 0)) log.info('housekeeping', purged)
     } catch (err) {
       log.error('housekeeping failed', { error: err as Error })
     }

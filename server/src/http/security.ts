@@ -70,13 +70,16 @@ const MUTATING = new Set(['POST', 'PUT', 'PATCH', 'DELETE'])
 
 /**
  * CSRF guard (with SameSite=Lax cookies): mutating API requests must come from our origin and carry
- * Content-Type: application/json — a cross-site <form> cannot send that. Exceptions:
+ * Content-Type: application/json — a cross-site <form> cannot send that. Not for /api/v1 (no cookie
+ * there, see app.ts PUBLIC_API). Exceptions:
  * - PUT …/files/:id carries the file's own content type; PUT always needs a CORS preflight, which we never grant.
  * - POST /api/auth/verify is the confirmation form of a magic link (Origin-checked, holds a single-use token).
  */
 export function csrfGuard(config: Config): MiddlewareHandler<AppEnv> {
   return async (c, next) => {
-    if (!MUTATING.has(c.req.method)) return next()
+    // the public API (/api/v1) never reads the cookie: bearer tokens / webhook secrets from servers
+    // (n8n, Zapier, scripts) — and One's own automations, whose no-cors retry is text/plain
+    if (!MUTATING.has(c.req.method) || c.req.path.startsWith('/api/v1/')) return next()
     const site = c.req.header('sec-fetch-site')
     if ((site && site !== 'same-origin' && site !== 'none') || !isSameOrigin(c.req.header('origin'), c.req.header('host'), config.publicUrl)) {
       throw new ApiError(403, 'bad_origin', 'Cross-origin request rejected')

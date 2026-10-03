@@ -121,4 +121,49 @@ export const migrations: Migration[] = [
       CREATE INDEX document_tombstones_workspace ON document_tombstones(workspace_id);
     `,
   },
+  {
+    version: 3,
+    name: 'public api: tokens, incoming webhooks, idempotency',
+    sql: `
+      -- bearer tokens for /api/v1 (docs/API.md); the secret "one_<random>" is shown once, stored as HMAC
+      CREATE TABLE api_tokens (
+        id            TEXT PRIMARY KEY,
+        workspace_id  TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+        name          TEXT NOT NULL,
+        scope         TEXT NOT NULL CHECK (scope IN ('read', 'write')),
+        token_hash    TEXT NOT NULL UNIQUE,
+        created_by    TEXT REFERENCES users(id) ON DELETE SET NULL,
+        created_at    INTEGER NOT NULL,
+        last_used_at  INTEGER,
+        revoked_at    INTEGER
+      );
+      CREATE INDEX api_tokens_workspace ON api_tokens(workspace_id, created_at);
+
+      -- incoming webhooks: POST /api/v1/hooks/<secret> creates a row in database_id
+      CREATE TABLE webhooks (
+        id                TEXT PRIMARY KEY,
+        workspace_id      TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+        database_id       TEXT NOT NULL,
+        secret_hash       TEXT NOT NULL UNIQUE,
+        created_by        TEXT REFERENCES users(id) ON DELETE SET NULL,
+        created_at        INTEGER NOT NULL,
+        rotated_at        INTEGER,
+        last_delivery_at  INTEGER,
+        deliveries        INTEGER NOT NULL DEFAULT 0
+      );
+      CREATE INDEX webhooks_workspace ON webhooks(workspace_id, created_at);
+
+      -- first answers of create requests by Idempotency-Key / deliveryId, replayed for 24 h
+      CREATE TABLE idempotency (
+        scope         TEXT NOT NULL,
+        key           TEXT NOT NULL,
+        workspace_id  TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+        status        INTEGER NOT NULL,
+        body          TEXT NOT NULL,
+        created_at    INTEGER NOT NULL,
+        PRIMARY KEY (scope, key)
+      );
+      CREATE INDEX idempotency_created ON idempotency(created_at);
+    `,
+  },
 ]

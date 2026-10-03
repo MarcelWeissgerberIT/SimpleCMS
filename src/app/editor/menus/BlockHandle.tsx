@@ -25,7 +25,9 @@ import { trackMove } from '../lib/moves'
 import { livePages } from '../lib/livePages'
 import { TURN_INTO_ITEMS } from '../lib/catalog'
 import { BlockGlyph } from './SlashMenu'
+import { toggleHeadingLevel } from '../schema/toggle'
 import { ColorGrid } from './BubbleToolbar'
+import { blockMenuSyncedEntries } from '../synced/menu'
 
 const TEXTUAL = new Set(['paragraph', 'heading', 'bulletList', 'orderedList', 'taskList', 'listItem', 'taskItem', 'blockquote', 'callout', 'details', 'codeBlock'])
 const EXCLUDED = new Set(['column', 'detailsSummary', 'detailsContent', 'tab'])
@@ -61,7 +63,10 @@ const TYPE_LABEL: Record<string, string> = {
   embed: 'embed',
   toc: 'toc',
   fileBlock: 'file',
+  video: 'video',
+  audio: 'audio',
   tabs: 'tabs',
+  syncedBlock: 'synced',
   button: 'button',
 }
 
@@ -85,8 +90,10 @@ function turnTargetOf(editor: Editor, ref: BlockRef): TurnTarget | null {
       const parent = editor.state.doc.resolve(ref.pos).parent.type.name
       return parent === 'orderedList' ? 'orderedList' : 'bulletList'
     }
-    case 'details':
-      return 'toggle'
+    case 'details': {
+      const level = toggleHeadingLevel(n)
+      return level ? (`toggleHeading${level}` as TurnTarget) : 'toggle'
+    }
     case 'blockquote':
     case 'callout':
     case 'codeBlock':
@@ -124,6 +131,7 @@ function blockAnchor(editor: Editor, pos: number): PopoverAnchor {
 
 function blockLabelKey(node: PMNode): string {
   if (node.type.name === 'heading') return `editor.block.heading${node.attrs.level}`
+  if (node.type.name === 'details' && toggleHeadingLevel(node)) return `editor.block.toggleHeading${toggleHeadingLevel(node)}`
   return `editor.block.${TYPE_LABEL[node.type.name] ?? 'text'}`
 }
 
@@ -137,7 +145,9 @@ export function BlockHandle({ editor, bridge, pageId }: { editor: Editor; bridge
 
   const onNodeChange = useCallback(({ node, pos }: { node: PMNode | null; pos: number }) => {
     current.current = node && pos >= 0 ? { node, pos } : null
-    if (node) setKind(node.type.name === 'heading' ? `h${node.attrs.level}` : node.type.name)
+    // toggle headings align the handle with their title line like headings do
+    const level = node?.type.name === 'heading' ? node.attrs.level : node?.type.name === 'details' ? toggleHeadingLevel(node) : 0
+    if (node) setKind(level ? `h${level}` : node.type.name)
   }, [])
 
   const plus = (e: React.MouseEvent) => {
@@ -262,6 +272,8 @@ export function BlockHandle({ editor, bridge, pageId }: { editor: Editor; bridge
           }
         },
       },
+      // Copy and sync (+ the synced block's own menu when the block is / sits in one)
+      ...blockMenuSyncedEntries(editor, ref.pos, t),
       {
         label: t('editor.blockMenu.moveTo'),
         icon: <ArrowRightLeft size={15} />,

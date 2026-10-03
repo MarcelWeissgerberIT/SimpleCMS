@@ -26,6 +26,7 @@ One process, one origin, one Docker image (`server/Dockerfile`):
 https://cloud.example.com/            landing (static, from the app build)
 https://cloud.example.com/app/        the app (static, from the app build, base "/")
 https://cloud.example.com/api/*       REST (JSON, cookie session)
+https://cloud.example.com/api/v1/*    public API: bearer tokens + incoming webhooks, never the cookie (docs/API.md)
 wss://cloud.example.com/collab        Yjs sync (Hocuspocus), cookie session
 /data                                 volume: one.sqlite + files/
 ```
@@ -56,6 +57,7 @@ The GitHub Pages build stays local-only.
 | `SOURCE_URL` | AGPL §13 source offer, returned by `GET /api/config` *(server addition)* |
 | `LOG_LEVEL` | `debug` · `info` (default) · `warn` · `error` *(server addition)* |
 | `AUTH_IP_LIMIT` | sign-in link requests per client IP per 15 min (default 20). **Only with `DEV_MODE=1`** (test servers sign many people in from one address); without it the server refuses to start (exit 78) *(server addition)* |
+| `API_RATE_LIMIT` | public API requests per minute per token and per incoming webhook (default 120, see [`API.md`](API.md#limits)) *(server addition)* |
 
 In development (`NODE_ENV` ≠ `production`) `DATA_DIR` defaults to `server/.data`, `PUBLIC_URL` to
 `http://localhost:$PORT`, and a `SECRET` is generated once into `DATA_DIR/dev-secret`. Production refuses to
@@ -73,7 +75,16 @@ invites(id, token_hash UNIQUE, workspace_id, role, email NULL, created_by, creat
 documents(name PRIMARY KEY, workspace_id, data BLOB, updated_at)      -- Yjs state per document
 files(id, workspace_id, name, mime, size, sha256, created_by, created_at)  -- bytes in DATA_DIR/files/<ws>/<id>
 document_tombstones(name PRIMARY KEY, workspace_id, deleted_at, deleted_by) -- migration v2, see DELETE …/documents
+api_tokens(id, workspace_id, name, scope 'read'|'write', token_hash UNIQUE, created_by, created_at, last_used_at, revoked_at)  -- v3
+webhooks(id, workspace_id, database_id, secret_hash UNIQUE, created_by, created_at, rotated_at, last_delivery_at, deliveries) -- v3
+idempotency(scope, key, workspace_id, status, body, created_at, PRIMARY KEY(scope, key))  -- v3, first answers kept 24 h
 ```
+
+Migration v3 (public API, [`API.md`](API.md)): API token secrets (`one_<43 chars>`) and incoming-webhook
+secrets (the last path segment of the hook URL) are stored only as HMAC like every other token and shown
+once. All three tables `ON DELETE CASCADE` from `workspaces`, so deleting a workspace ends its tokens and
+hooks. A revoked token stays (`revoked_at`) for 90 days for the audit trail, then housekeeping removes
+it; idempotency rows go after 24 h.
 
 Roles: `owner` > `admin` > `member` (edit) > `viewer` (read-only connection). Exactly one owner per
 workspace (transferable). Tokens (login, invite, session) are random 32 bytes, stored only as SHA-256.
@@ -115,6 +126,14 @@ All mutating requests require `Content-Type: application/json` (CSRF guard toget
 | `GET /api/dev/mailbox` | DEV_MODE only | last 50 mails `{ to, subject, text, link }` |
 | `POST /api/auth/verify` | – | *(server addition)* form `token=` (the confirmation page) or JSON `{ token }` → sets cookie, `303` to `redirect` |
 | `GET /api/config` | – | *(server addition)* `{ version, signup: { mode, domains? }, max_upload_mb, dev_mode, source_url }` |
+| `GET /api/workspaces/:id/tokens` | admin | *(public API)* active API tokens `[{ id, name, scope, created_at, last_used_at, revoked, created_by: { id, name, email } \| null }]`, newest first |
+| `POST /api/workspaces/:id/tokens` | admin | `{ name (1–80), scope: 'read'\|'write' }` → `201` token **+ `token`** (the secret, only here); `409 too_many_tokens` past 25 |
+| `DELETE /api/workspaces/:id/tokens/:tokenId` | admin | revoke → `204` (`404 token_not_found`) |
+| `GET /api/workspaces/:id/hooks` | admin | incoming webhooks `[{ id, database: { id, title \| null }, created_at, rotated_at, last_delivery_at, deliveries, created_by }]` (`title: null` = the database is gone) |
+| `POST /api/workspaces/:id/hooks` | admin | `{ databaseId }` → `201` hook **+ `url`** (`${PUBLIC_URL}/api/v1/hooks/<secret>`, only here); `404 database_not_found`, `409 too_many_hooks` past 25 |
+| `POST /api/workspaces/:id/hooks/:hookId/regenerate` | admin | new secret, the old URL stops at once → hook + `url` |
+| `DELETE /api/workspaces/:id/hooks/:hookId` | admin | → `204` (`404 hook_not_found`) |
+| `/api/v1/*` | bearer token | the public API — [`API.md`](API.md). Never reads or sets the session cookie; exempt from the CSRF guard (Origin / Sec-Fetch-Site / JSON content type); no CORS |
 
 Errors: `{ error: { code, message } }` with 400/401/403/404/409/413/429.
 
@@ -175,9 +194,11 @@ Errors: `{ error: { code, message } }` with 400/401/403/404/409/413/429.
 - **Error codes** — 400: `invalid_request` (zod; `details` attached), `invalid_json`, `json_required`,
   `invalid_file_id`, `invalid_page_id` · 401: `unauthenticated` · 403: `forbidden`, `owner_only`, `bad_origin`,
   `invite_email_mismatch` · 404: `not_found`, `workspace_not_found`, `member_not_found`,
-  `invite_not_found`, `invite_used`, `invite_expired`, `file_not_found` · 409: `owner_must_transfer`,
-  `already_member`, `page_exists` · 413: `file_too_large`, `payload_too_large` (JSON > 256 KB) · 429: `rate_limited` ·
-  500: `internal`.
+  `invite_not_found`, `invite_used`, `invite_expired`, `file_not_found`, `token_not_found`, `hook_not_found`,
+  `database_not_found` · 409: `owner_must_transfer`, `already_member`, `page_exists`, `too_many_tokens`,
+  `too_many_hooks` · 413: `file_too_large`, `payload_too_large` (JSON > 256 KB) · 429: `rate_limited` ·
+  500: `internal`. The public API adds its own (`invalid_token`, `insufficient_scope`, `invalid_value` …,
+  see [`API.md`](API.md#errors)).
 
 ## Realtime documents (Yjs over Hocuspocus, `wss://…/collab`)
 
@@ -196,15 +217,47 @@ is `'unauthenticated' | 'forbidden' | 'invalid-document'`. The server closes a d
 revoked or expired session). Name ids: workspace `[A-Za-z0-9_-]{8,64}`, page `[A-Za-z0-9_-]{1,64}`.
 State is stored debounced (2 s, at most 10 s) and on the last disconnect and shutdown — except for a
 tombstoned page document (deleted for good, see the REST notes), which is never stored again unless its
-page is back in the meta document. The server never
-writes into documents itself: renaming a workspace means `PATCH /api/workspaces/:id` (what `/api/me` and
-invites show) **and** the meta document's `workspace` map; mirroring members into `people` is the client's job.
+page is back in the meta document. The server writes into documents **only for the public API and
+incoming webhooks** (see *Server writes* below) — everything else is the clients' job: renaming a
+workspace means `PATCH /api/workspaces/:id` (what `/api/me` and invites show) **and** the meta document's
+`workspace` map; mirroring members into `people` is the client's job.
 
 Document names:
 
 - `ws:<workspaceId>` — the workspace **meta document** (structure, properties, databases).
 - `ws:<workspaceId>:p:<pageId>` — the **content** of one page (TipTap via y-prosemirror,
   `XmlFragment` named `default`).
+
+### Server writes (public API, incoming webhooks)
+
+*(public API, [`API.md`](API.md))* Rows and pages created over `/api/v1` (and rows from incoming
+webhooks), and rows changed with `PATCH /api/v1/rows/:id`, are written by the server itself:
+
+- **How**: a Hocuspocus direct connection (`openDirectConnection(name, context)`) — it loads the
+  document like a client would (or joins the loaded one), the change is **one** Y transaction that
+  every connected client receives live, and disconnecting stores it at once through the normal
+  `onStoreDocument` path (tombstones included). Reads use the live copy when the document is loaded,
+  else the stored state. Validation happens before the transaction changes anything.
+- **Order**: a new page's content document (`ws:<id>:p:<pageId>`) is written first, then its meta
+  entry — so clients that see the row can load its content at once.
+- **Meta entries exactly like the app's `newPageMap`**: `kind: 'page'`, `title`, `icon: null`,
+  `cover: null`, `parentId` (rows: the database id), `databaseId`, `order` = the largest `order` among
+  pages with the same `parentId` + 1, `trashed: false`, `trashedAt: null`, `createdAt` = `updatedAt` =
+  now, `settings` = the default page settings, `plain` (the app's `plainText()` rules), `createdBy` /
+  `updatedBy` = **`api:<tokenId>`** (incoming webhooks: **`hook:<hookId>`** — not account ids),
+  `properties` and `comments` as Y.Maps. Property values are stored as the app stores them (option ids,
+  `DateValue`, person / page id arrays …). unique_id properties take the database's `nextUniqueId`,
+  which is raised by one in the same transaction (the clients' `uniqueIdRepairs` still apply).
+  Two-way relations (`<id>.2way` pairs) are updated on the other rows too, with `updatedAt` /
+  `updatedBy`; a sub-items parent holds one row. `PATCH` sets the changed cells, `updatedAt`,
+  `updatedBy`.
+- **Content documents** hold what y-prosemirror would store for the editor schema, built without
+  ProseMirror on the server: `Y.XmlElement`s named after the TipTap nodes (paragraph, heading{level},
+  bulletList / orderedList{start} > listItem > paragraph, taskList > taskItem{checked} > paragraph,
+  blockquote, codeBlock{language}, horizontalRule, hardBreak) with marks as `Y.XmlText` formatting
+  attributes (`bold`, `italic`, `strike`, `code`: `{}`; `link`: `{ href }`). Every block element carries
+  a fresh `id` (UUID) — the block-id contract of the editor's UniqueID (`BLOCK_ID_TYPES`); attributes
+  left out take the schema defaults.
 
 ### Meta document schema
 
@@ -349,6 +402,11 @@ overlay per workspace.
 - Uploads: size limit, stored outside any served path, served with `Content-Disposition: attachment`
   for non-image types and `X-Content-Type-Options: nosniff`.
 - Every query is scoped by workspace membership; viewers can never write (REST or Yjs).
+- Public API: bearer tokens only on `/api/v1` (the cookie is never read there, so no CSRF surface); a
+  token or hook sees only its own workspace — every page / row / database id is looked up in that
+  workspace's meta document (`404` otherwise); write needs a `write` token; secrets are HMAC-stored,
+  compared in constant time and never logged; per-token and per-hook rate limits (`API_RATE_LIMIT`,
+  120/min) and 30 failed authentications per client IP per minute; the usual 256 KB body limit.
 - Security headers on all responses (CSP for the app, frame-ancestors 'none', referrer policy).
 - As implemented: the app CSP allows scripts/styles/fonts from the origin only (`'unsafe-inline'` for
   styles), `connect-src 'self' wss://<host> https:` — `https:` because the browser calls

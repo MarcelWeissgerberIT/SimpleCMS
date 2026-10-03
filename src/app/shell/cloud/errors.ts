@@ -25,6 +25,11 @@ const KEYS: Record<string, string> = {
   workspace_not_empty: 'shell.cloud.err.notEmpty',
   file_too_large: 'shell.cloud.err.tooLarge',
   payload_too_large: 'shell.cloud.err.tooLarge',
+  too_many_tokens: 'shell.cloud.err.tooManyTokens',
+  too_many_hooks: 'shell.cloud.err.tooManyHooks',
+  database_not_found: 'shell.cloud.err.databaseGone',
+  token_not_found: 'shell.cloud.err.invalid',
+  hook_not_found: 'shell.cloud.err.invalid',
 }
 
 export function errorCode(e: unknown): string {

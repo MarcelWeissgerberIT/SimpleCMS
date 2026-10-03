@@ -1,14 +1,36 @@
-import type { Editor } from '@tiptap/core'
+import type { Editor, JSONContent } from '@tiptap/core'
+import { Fragment, Slice } from '@tiptap/pm/model'
+import { dropPoint } from '@tiptap/pm/transform'
 import { saveFile } from '../../lib/files'
 import { toast } from '../../store/ui'
 import { t } from '../../i18n'
 import { insertBlock } from './blocks'
+import { insertMediaFile } from './mediaSave'
 
 const MAX_BYTES = 25 * 1024 * 1024
 
-/** Store files locally (IndexedDB) and insert image / file blocks. */
+/** A dropped block lands between blocks (never splitting the paragraph under the pointer). */
+function blockDropPos(editor: Editor, pos: number, json: JSONContent): number {
+  try {
+    const slice = new Slice(Fragment.from(editor.schema.nodeFromJSON(json)), 0, 0)
+    return dropPoint(editor.state.doc, pos, slice) ?? pos
+  } catch {
+    return pos
+  }
+}
+
+/** Store files locally (IndexedDB) and insert image / video / audio / file blocks. */
 export async function uploadFiles(editor: Editor, files: File[], pos?: number | null): Promise<void> {
   for (const file of files) {
+    // video + audio: own size limit, the block shows up right away while the file is stored
+    const media = await insertMediaFile(editor, file, (node) => {
+      if (pos !== undefined && pos !== null) {
+        editor.chain().focus().insertContentAt(blockDropPos(editor, pos, node), node).run()
+        pos = undefined
+      } else insertBlock(editor, node)
+    })
+    if (editor.isDestroyed) return
+    if (media) continue
     if (file.size > MAX_BYTES) {
       toast({ message: t('editor.upload.tooLarge', { name: file.name }), kind: 'error' })
       continue

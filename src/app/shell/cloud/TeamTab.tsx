@@ -10,6 +10,7 @@ import { Led } from '../../ui/controls'
 import { cloudApi } from './api'
 import { errorText } from './errors'
 import { Avatar } from './Avatar'
+import { ApiSection } from './ApiSection'
 import { canAdmin, roleLabel, useWorkspaceTitle } from './state'
 import './cloud.css'
 
@@ -76,6 +77,7 @@ export function TeamTab({ onClose }: { onClose: () => void }) {
       )}
       <Sect n="04" label={t('shell.cloud.team.invites')} count={admin ? invites.length : undefined} />
       {admin ? <Invites wsId={wsId} invites={invites} setInvites={setInvites} reload={reload} /> : <p className="tm-empty">{t('shell.cloud.team.adminOnly')}</p>}
+      <ApiSection wsId={wsId} admin={admin} />
       <Danger wsId={wsId} owner={role === 'owner'} myId={user?.id ?? null} onDone={onClose} />
     </>
   )

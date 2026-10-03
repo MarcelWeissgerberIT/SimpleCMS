@@ -217,6 +217,19 @@
 .sb-navrow__kbd {
   opacity: 0.85;
 }
+/* unread read-out (inbox): LED + two-digit mono count */
+.sb-navrow__badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  font-weight: 600;
+  letter-spacing: var(--tracking-label);
+  font-variant-numeric: tabular-nums;
+  color: var(--signal-ink);
+}
 
 /* ---------- scroll area & sections ---------- */
 .sb-scroll {

@@ -12,8 +12,12 @@
  *  - Tabs block: nodes `tabs` / `tab` (attrs: title). Which tab is shown is editor view state.
  *  - Team cloud: docSchema() (the document schema) and prepareCollabContent(json, ids) (schema-valid
  *      content with unique block ids) for writing TipTap JSON into a page's Y document.
+ *  - Synced blocks: node `syncedBlock` (attrs: syncId, sourcePageId — null = the original, a page id =
+ *      a reference holding a cached copy). startSyncedBlocks() (main.tsx, after the workspace loaded)
+ *      keeps every copy in step via setContent(…, 'synced'); stripPrivate() unwraps them to plain blocks.
  */
 export { PageEditor, type PageEditorProps } from './PageEditor'
 export { ReadOnlyDoc } from './ReadOnlyDoc'
 export { getExtensions, markdownToDoc, docToMarkdown, docToHTML, stripPrivate, stripPrivate as stripButtonActions, docSchema, prepareCollabContent } from './convert'
 export { stripComments, commentIdsIn } from './schema/comment'
+export { startSyncedBlocks, stopSyncedBlocks } from './synced/service'
