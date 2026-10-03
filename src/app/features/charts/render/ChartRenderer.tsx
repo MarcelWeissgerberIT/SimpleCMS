@@ -22,6 +22,8 @@ export interface ChartRendererProps {
   className?: string
   /** show the "Data table" toggle under the chart (default: when interactive) */
   tableToggle?: boolean
+  /** extra class on bar marks (host views' hooks) */
+  markClass?: string
   /** controlled readout: the active point index (null = none) and its changes (e.g. a table beside it) */
   active?: number | null
   onActiveChange?: (i: number | null) => void
@@ -53,7 +55,7 @@ function order(scene: Scene): SceneTarget[] {
   return scene.targets.filter((t) => (seen.has(t.i) ? false : (seen.add(t.i), true)))
 }
 
-export function ChartRenderer({ spec, data, height, interactive = true, className, tableToggle, active: activeProp, onActiveChange }: ChartRendererProps) {
+export function ChartRenderer({ spec, data, height, interactive = true, className, tableToggle, markClass, active: activeProp, onActiveChange }: ChartRendererProps) {
   const t = useT()
   const lang = useLang()
   const text = useSceneText()
@@ -120,7 +122,7 @@ export function ChartRenderer({ spec, data, height, interactive = true, classNam
           ),
         )
       })
-    svg = createElement('svg', { ...reactProps(root.attrs), 'aria-hidden': true, focusable: 'false' }, ...root.children.map((c, i) => (typeof c === 'string' ? c : toReact(c, { active: interactive ? active : null }, i))), ...overlay)
+    svg = createElement('svg', { ...reactProps(root.attrs), 'aria-hidden': true, focusable: 'false' }, ...root.children.map((c, i) => (typeof c === 'string' ? c : toReact(c, { active: interactive ? active : null, markClass }, i))), ...overlay)
   }
 
   return (

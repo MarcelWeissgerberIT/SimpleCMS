@@ -198,6 +198,7 @@ export {
   normalizeSpec as normalizeChartSpec,
   suggestKind as suggestChartKind,
   chartHeight,
+  formatValue as formatChartValue,
   downloadChartPng,
   downloadChartSvg,
   copyChartTsv,

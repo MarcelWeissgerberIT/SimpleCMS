@@ -63,6 +63,8 @@ const camel = (k: string) => k.replace(/-([a-z])/g, (_m, c: string) => c.toUpper
 export interface ReactOptions {
   /** index of the active (hovered / focused) data point: marks of other indexes get data-dim */
   active?: number | null
+  /** extra class for bar marks (a host view's own hooks, e.g. the database chart view) */
+  markClass?: string
 }
 
 /** SVG attributes as React props (class → className, stroke-width → strokeWidth …). */
@@ -81,6 +83,7 @@ export function reactProps(attrs: Attrs): Record<string, string> {
 /** React elements; marks carrying data-i dim when another index is active. */
 export function toReact(node: VNode, opts: ReactOptions = {}, key?: string | number): ReactElement {
   const props: Record<string, unknown> = { ...reactProps(node.attrs), key }
+  if (opts.markClass && typeof props.className === 'string' && props.className.split(' ').includes('ch-bar')) props.className += ` ${opts.markClass}`
   if (opts.active !== undefined && opts.active !== null && node.attrs['data-i'] !== undefined) props['data-dim'] = String(node.attrs['data-i']) !== String(opts.active)
   const kids: ReactNode[] = node.children.map((c, i) => (typeof c === 'string' ? c : toReact(c, opts, i)))
   return createElement(node.tag, props, ...kids)
