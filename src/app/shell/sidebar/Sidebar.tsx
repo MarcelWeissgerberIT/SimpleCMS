@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
-import { CalendarDays, ChevronsLeft, ChevronDown, Home, LayoutTemplate, Plus, Search, Trash2, Upload, Waypoints, Settings, Table2, FilePlus2 } from 'lucide-react'
+import { CalendarDays, CalendarRange, ChevronsLeft, ChevronDown, Home, LayoutTemplate, Plus, Search, Trash2, Upload, Waypoints, Settings, Table2, FilePlus2 } from 'lucide-react'
 import { useWorkspace } from '../../store/store'
 import { useUI } from '../../store/ui'
 import { useFavorites, useTrash, selectBreadcrumbs } from '../../store/selectors'
@@ -84,6 +84,7 @@ export function Sidebar() {
               openTodayJournal()
             }}
           />
+          <NavRow icon={<CalendarRange size={16} />} label={t('shell.nav.agenda')} active={route.name === 'agenda'} onClick={() => (closeMobileSidebar(), navigate({ name: 'agenda' }))} />
           <NavRow icon={<Waypoints size={16} />} label={t('shell.nav.graph')} active={route.name === 'graph'} onClick={() => (closeMobileSidebar(), navigate({ name: 'graph' }))} />
           <NavRow icon={<LayoutTemplate size={16} />} label={t('shell.nav.templates')} onClick={() => (closeMobileSidebar(), useUI.getState().openModal({ type: 'templates', parentId: null }))} />
           <NavRow icon={<Upload size={16} />} label={t('shell.nav.import')} onClick={() => (closeMobileSidebar(), useUI.getState().openModal({ type: 'import' }))} />

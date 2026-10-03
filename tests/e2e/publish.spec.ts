@@ -2,12 +2,33 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join, posix } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import type { Locator, Page } from '@playwright/test'
-import { strFromU8, unzipSync } from 'fflate'
+import { inflateSync, strFromU8, unzipSync } from 'fflate'
 import { test, expect, openApp, gotoPage, createPage, doc, para, heading, pageIdByTitle, MOD } from './fixtures'
 
 type Files = Record<string, Uint8Array>
 
 const BASE = 'https://example.github.io/handbook/'
+
+/** A button whose webhook must never leave the workspace (share links, published sites). */
+const HOOK = 'https://hooks.example.com/secret-hook-4711'
+const button = (label: string) => ({ type: 'button', attrs: { label, variant: 'signal', actions: [{ id: 'a1', type: 'webhook', url: HOOK, method: 'POST' }] } })
+
+const fromB64Url = (s: string) => new Uint8Array(Buffer.from(s.replace(/-/g, '+').replace(/_/g, '/'), 'base64'))
+
+/** The JSON inside a plain share link (#/s/<base64url(deflate(JSON))>). */
+const plainPayload = (link: string) => strFromU8(inflateSync(fromB64Url(link.split('#/s/')[1])))
+
+/** The JSON inside a protected link (#/s/e1.<iter|salt|iv|AES-GCM>), decrypted here with Node's WebCrypto. */
+async function protectedPayload(link: string, password: string): Promise<string> {
+  const bytes = fromB64Url(link.split('#/s/e1.')[1])
+  const iterations = new DataView(bytes.buffer, bytes.byteOffset, 4).getUint32(0)
+  expect(iterations).toBeGreaterThanOrEqual(310_000)
+  const subtle = globalThis.crypto.subtle
+  const material = await subtle.importKey('raw', new TextEncoder().encode(password), 'PBKDF2', false, ['deriveKey'])
+  const key = await subtle.deriveKey({ name: 'PBKDF2', hash: 'SHA-256', salt: bytes.slice(4, 20), iterations }, material, { name: 'AES-GCM', length: 256 }, false, ['decrypt'])
+  const plain = await subtle.decrypt({ name: 'AES-GCM', iv: bytes.slice(20, 32) }, key, bytes.slice(32))
+  return strFromU8(inflateSync(new Uint8Array(plain)))
+}
 
 /** Open the export dialog for the current page (command palette, like a user). */
 async function openExport(page: Page): Promise<Locator> {
@@ -183,7 +204,7 @@ test.describe('publish as website', () => {
     await createPage(page, {
       title: 'Media <b>&</b> "Files"',
       parentId: wiki,
-      content: doc(para('Figures below.'), { type: 'image', attrs: { src: 'onefile:e2eimg000001', alt: 'Diagram' } }, { type: 'fileBlock', attrs: { src: 'onefile:e2epdf000001', name: 'Spec sheet.pdf', size: 12 } }),
+      content: doc(para('Figures below.'), { type: 'image', attrs: { src: 'onefile:e2eimg000001', alt: 'Diagram' } }, { type: 'fileBlock', attrs: { src: 'onefile:e2epdf000001', name: 'Spec sheet.pdf', size: 12 } }, button('Notify team')),
     })
     await gotoPage(page, wiki)
     const dialog = await openExport(page)
@@ -221,19 +242,26 @@ test.describe('publish as website', () => {
     expect(media).toContain('src="../media/diagram-final.png"')
     expect(media).toContain('href="../media/spec-sheet.pdf"')
     expect(text(files, 'media-b-b-files/index.md')).toContain('](../media/diagram-final.png)')
+    // buttons are published as a static key; their actions (webhook URLs) never leave the workspace
+    expect(media).toContain('<span class="one-button__key">Notify team</span>')
+    for (const [p, data] of Object.entries(files)) expect(strFromU8(data), p).not.toContain('secret-hook')
   })
 })
 
 test.describe('password-protected share link', () => {
   test('encrypted link: a wrong password shows an error, the right one opens the page', async ({ page, browser, errors }) => {
     await openApp(page)
-    const id = await createPage(page, { title: 'Secret plan', content: doc(heading(2, 'Phase one'), para('the vault code is 4711')) })
+    const id = await createPage(page, { title: 'Secret plan', content: doc(heading(2, 'Phase one'), para('the vault code is 4711'), button('Ping the vault')) })
     await gotoPage(page, id)
     await page.locator('.tb').getByRole('button', { name: 'Share', exact: true }).click()
     const dialog = page.getByRole('dialog')
     const url = dialog.getByRole('textbox', { name: 'Share link' })
     await expect(url).toHaveValue(/#\/s\/(?!e1\.)[\w-]+$/)
     const plain = await url.inputValue()
+    // the button travels, its webhook does not
+    const plainJson = plainPayload(plain)
+    expect(plainJson).toContain('Ping the vault')
+    expect(plainJson).not.toContain('secret-hook')
 
     await dialog.getByRole('switch', { name: 'Protect with password' }).click()
     await expect(dialog.getByRole('button', { name: 'Copy link' })).toBeDisabled()
@@ -244,6 +272,11 @@ test.describe('password-protected share link', () => {
     // the page itself is not readable from the link
     expect(link).not.toBe(plain)
     expect(Buffer.from(link.split('e1.')[1].replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('latin1')).not.toContain('vault code')
+    // standard AES-256-GCM + PBKDF2-SHA-256: decryptable with the password alone, and button actions are stripped
+    const secretJson = await protectedPayload(link, 'correct horse battery')
+    expect(secretJson).toContain('the vault code is 4711')
+    expect(secretJson).toContain('Ping the vault')
+    expect(secretJson).not.toContain('secret-hook')
 
     const other = await browser.newContext({ serviceWorkers: 'block', locale: 'en-US' })
     const p2 = await other.newPage()

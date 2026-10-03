@@ -40,11 +40,8 @@ export const agendaMessages: Messages = {
     'shell.agenda.activity': '{n} pages created or edited',
     'shell.agenda.activity.one': '1 page created or edited',
     'shell.agenda.done': 'Done',
-    'shell.agenda.dragHint': 'Drag to another day, or {alt}+← / → on a focused row',
+    'shell.agenda.dragHint': 'Drag a row to another day · {alt}+← / → moves a focused row · click an empty day to add',
 
-    'shell.agenda.key.move': 'Back / forward',
-    'shell.agenda.key.today': 'Today',
-    'shell.agenda.key.views': 'Month · Week · List',
 
     'shell.agenda.next7': 'Next 7 days',
     'shell.agenda.open': 'Open agenda',
@@ -88,11 +85,8 @@ export const agendaMessages: Messages = {
     'shell.agenda.activity': '{n} Seiten erstellt oder bearbeitet',
     'shell.agenda.activity.one': '1 Seite erstellt oder bearbeitet',
     'shell.agenda.done': 'Erledigt',
-    'shell.agenda.dragHint': 'Auf einen anderen Tag ziehen, oder {alt}+← / → auf einer fokussierten Zeile',
+    'shell.agenda.dragHint': 'Zeile auf einen anderen Tag ziehen · {alt}+← / → verschiebt die fokussierte Zeile · Klick auf einen leeren Tag legt etwas an',
 
-    'shell.agenda.key.move': 'Zurück / weiter',
-    'shell.agenda.key.today': 'Heute',
-    'shell.agenda.key.views': 'Monat · Woche · Liste',
 
     'shell.agenda.next7': 'Nächste 7 Tage',
     'shell.agenda.open': 'Agenda öffnen',

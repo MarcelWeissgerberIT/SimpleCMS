@@ -177,6 +177,29 @@ export interface PropertyDef {
   ratingMax?: number
   /** Optional description shown as tooltip. */
   description?: string
+  /** AI autofill (text, number, select, multi_select, checkbox, url). Absent = off. Managed by database/autofill. */
+  autofill?: AutofillConfig
+}
+
+/** What Claude fills a property with. */
+export type AutofillPreset = 'summary' | 'extract' | 'translate' | 'categorize' | 'custom'
+
+export interface AutofillConfig {
+  preset: AutofillPreset
+  /** extract: what to pull out · custom: the instruction */
+  prompt?: string
+  /** translate: target language (English name, e.g. "German") */
+  language?: string
+  /** translate: what to translate — a property id (title included) or 'content'. Default: the title. */
+  source?: ID | 'content'
+  /** categorize: Claude may propose option names that don't exist yet */
+  allowNewOptions?: boolean
+  /** Re-fill a row (debounced, only while the app is open) when its title, content or other properties change. */
+  auto?: boolean
+  /** Write results directly instead of collecting them for review. */
+  skipReview?: boolean
+  /** Per row: when it was last filled and a fingerprint of the context that was sent (auto update skips unchanged rows). */
+  fills?: Record<ID, { at: number; hash: string }>
 }
 
 export interface DateValue {

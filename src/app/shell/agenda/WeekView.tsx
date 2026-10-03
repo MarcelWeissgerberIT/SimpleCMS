@@ -10,7 +10,7 @@ import { useNow } from '../lib/hooks'
 import { plural } from '../lib/format'
 
 const HOUR = 44
-const LANE = 23
+const LANE = 21
 
 /** The 7 days of the week containing `cursor`. */
 export function weekDays(cursor: number, weekStartsOn: 0 | 1): number[] {
@@ -161,7 +161,12 @@ function WeekGrid({ days, items }: { days: number[]; items: AgendaItem[] }) {
                   it={b.it}
                   className="ag-bar"
                   data={{ 'data-contl': b.contL || undefined, 'data-contr': b.contR || undefined }}
-                  style={{ left: `calc(${(b.col / 7) * 100}% + 3px)`, width: `calc(${(b.span / 7) * 100}% - 6px)`, top: `${4 + b.lane * LANE}px` }}
+                  style={{
+                    ['--ag-accent' as string]: accentOf(b.it, ctx.sources.get(b.it.source)),
+                    left: `calc(${(b.col / 7) * 100}% + 3px)`,
+                    width: `calc(${(b.span / 7) * 100}% - 6px)`,
+                    top: `${4 + b.lane * LANE}px`,
+                  }}
                   onGrab={(e) => {
                     const r = e.currentTarget.getBoundingClientRect()
                     const off = Math.max(0, Math.min(b.span - 1, Math.floor(((e.clientX - r.left) / r.width) * b.span)))
@@ -192,7 +197,7 @@ function WeekGrid({ days, items }: { days: number[]; items: AgendaItem[] }) {
         </div>
       </div>
       <DragOverlay dropAnimation={null}>{dnd.dragging ? <ItemChip it={dnd.dragging} overlay /> : null}</DragOverlay>
-      <p className="ag-hint label">{t('shell.agenda.dragHint', { alt: altLabel() })}</p>
+      <p className="ag-hint">{t('shell.agenda.dragHint', { alt: altLabel() })}</p>
     </DndContext>
   )
 }

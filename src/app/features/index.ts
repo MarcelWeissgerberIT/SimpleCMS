@@ -20,6 +20,24 @@ export { startAutomations } from './automations/engine'
 export { AutomationsModal } from './automations/AutomationsModal'
 export { isAIConfigured, runAI, type AIAction, type RunAIOptions } from './ai/client'
 export { AIMenu, type AIMenuProps } from './ai/AIMenu'
+/*
+ * AI autofill for database properties (the database area loads this lazily and owns the UI):
+ *  - requestAutofill(req, signal): one row → Claude (structured output) → raw `value`
+ *  - estimateAutofill(): rough token/cost estimate for a run · buildAutofillPrompt(): prompt + schema
+ */
+export {
+  requestAutofill,
+  estimateAutofill,
+  buildAutofillPrompt,
+  AUTOFILL_CONTENT_MAX,
+  type AutofillRequest,
+  type AutofillField,
+  type AutofillFieldType,
+  type AutofillTask,
+  type AutofillRow,
+  type AutofillAnswer,
+  type AutofillEstimate,
+} from './ai/autofill'
 export { GraphView } from './graph/GraphView'
 export { ShareModal } from './share/ShareModal'
 export { SharedPageView } from './share/SharedPageView'

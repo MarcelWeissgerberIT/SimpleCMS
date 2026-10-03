@@ -180,6 +180,7 @@ function rowItems(row: Page, db: Database, journal: boolean): AgendaItem[] {
       end,
       time: withTime ? timeOf(v.start) : null,
       endTime: withTime ? timeOf(v.end) : null,
+      excerpt: null,
       ...st,
     })
   }

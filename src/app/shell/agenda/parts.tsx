@@ -3,6 +3,7 @@ import { PointerSensor, pointerWithin, useDraggable, useDroppable, useSensor, us
 import { AtSign, CornerDownRight } from 'lucide-react'
 import type { Lang, Translate } from '@/shared/i18n'
 import { PageIcon } from '../../ui/PageIcon'
+import type { PopoverAnchor } from '../../ui/Popover'
 import { canMove, type AgendaItem, type AgendaSource } from './model'
 import { moveItem, openItem } from './actions'
 import { fmtShortDay, fmtTime } from './format'
@@ -18,7 +19,7 @@ export interface AgendaCtx {
   sources: Map<string, AgendaSource>
   /** day → pages created/edited, or null while the Activity source is hidden */
   activity: Map<number, number> | null
-  openAdd: (day: number, anchor: Element, hour?: number) => void
+  openAdd: (day: number, anchor: PopoverAnchor, hour?: number) => void
   openMore: (day: number, anchor: Element) => void
 }
 

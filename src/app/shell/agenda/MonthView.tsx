@@ -3,7 +3,7 @@ import { DndContext, DragOverlay } from '@dnd-kit/core'
 import { PenLine, Plus } from 'lucide-react'
 import { dayToDate, dayToIso, type AgendaItem } from './model'
 import { fmtDayStamp, fmtShortDay, fmtWeekday } from './format'
-import { DraggableItem, ItemChip, ListRow, useAgenda, useAgendaDnd, useDroppableDay } from './parts'
+import { DraggableItem, ItemChip, ListRow, accentOf, useAgenda, useAgendaDnd, useDroppableDay } from './parts'
 import { plural } from '../lib/format'
 
 interface Seg {
@@ -15,9 +15,9 @@ interface Seg {
   contR: boolean
 }
 
-const HEAD = 30
-const LANE = 23
-const MORE = 20
+const HEAD = 28
+const LANE = 21
+const MORE = 17
 
 /** Weeks (arrays of 7 day numbers) covering the month of `cursor`. */
 export function monthWeeks(cursor: number, weekStartsOn: 0 | 1): number[][] {
@@ -104,6 +104,7 @@ export function MonthView({ cursor, items, weekStartsOn, narrow, onPick }: { cur
                         className="ag-bar"
                         data={{ 'data-contl': s.contL || undefined, 'data-contr': s.contR || undefined }}
                         style={{
+                          ['--ag-accent' as string]: accentOf(s.it, ctx.sources.get(s.it.source)),
                           left: `calc(${(s.col / 7) * 100}% + 3px)`,
                           width: `calc(${(s.span / 7) * 100}% - 6px)`,
                           top: `${HEAD + s.lane * LANE}px`,
@@ -124,7 +125,7 @@ export function MonthView({ cursor, items, weekStartsOn, narrow, onPick }: { cur
         </div>
         <DragOverlay dropAnimation={null}>{dnd.dragging ? <ItemChip it={dnd.dragging} overlay /> : null}</DragOverlay>
       </DndContext>
-      <p className="ag-hint label">{t('shell.agenda.dragHint', { alt: altLabel() })}</p>
+      <p className="ag-hint">{t('shell.agenda.dragHint', { alt: altLabel() })}</p>
     </div>
   )
 }

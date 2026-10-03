@@ -27,10 +27,11 @@ export interface RunAIOptions {
 /* Models                                                              */
 /* ------------------------------------------------------------------ */
 
+/** price: USD per million tokens (Anthropic list prices; used for cost estimates only). */
 export const AI_MODELS = [
-  { id: 'claude-opus-5-5', short: 'OPUS 5.5', name: 'Claude Opus 5.5' },
-  { id: 'claude-sonnet-5-5', short: 'SONNET 5.5', name: 'Claude Sonnet 5.5' },
-  { id: 'claude-haiku-4-5', short: 'HAIKU 4.5', name: 'Claude Haiku 4.5' },
+  { id: 'claude-opus-5-5', short: 'OPUS 5.5', name: 'Claude Opus 5.5', price: { input: 4, output: 20 } },
+  { id: 'claude-sonnet-5-5', short: 'SONNET 5.5', name: 'Claude Sonnet 5.5', price: { input: 2, output: 10 } },
+  { id: 'claude-haiku-4-5', short: 'HAIKU 4.5', name: 'Claude Haiku 4.5', price: { input: 1, output: 5 } },
 ] as const
 
 export type AIModelId = (typeof AI_MODELS)[number]['id']
@@ -244,6 +245,69 @@ export async function streamCompletion({ system, prompt, onToken, signal }: Stre
     }
 
     if (stopReason === 'refusal') throw new AIError('refusal')
+    if (!text.trim()) throw new AIError('empty')
+    return text
+  } catch (e) {
+    if (signal?.aborted) throw new AIError('aborted')
+    throw toAIError(e, sdk)
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* Structured output (one JSON answer)                                 */
+/* ------------------------------------------------------------------ */
+
+export interface StructuredOptions {
+  system: string
+  prompt: string
+  /** JSON schema of the answer (structured outputs: objects need additionalProperties: false). */
+  schema: Record<string, unknown>
+  maxTokens?: number
+  signal?: AbortSignal
+  /** SDK retries for 408/409/429/5xx and connection errors, with backoff (honours retry-after). */
+  maxRetries?: number
+}
+
+/**
+ * One non-streaming request whose answer is constrained to a JSON schema (structured outputs,
+ * `output_config.format`). Resolves with the raw answer text; parsing and validation are the
+ * caller's job, so a malformed answer can become a per-item error instead of an exception here.
+ */
+export async function completeStructured({ system, prompt, schema, maxTokens = 4096, signal, maxRetries = 4 }: StructuredOptions): Promise<string> {
+  const settings = useWorkspace.getState().settings
+  const apiKey = settings.aiApiKey.trim()
+  if (!apiKey) throw new AIError('no_key')
+  if (signal?.aborted) throw new AIError('aborted')
+  const model = resolveModel(settings.aiModel).id
+  let sdk: SDKModule | null = null
+  try {
+    const got = await getClient(apiKey)
+    sdk = got.sdk
+    const { client } = got
+    if (signal?.aborted) throw new AIError('aborted')
+    const messages: AnthropicSDK.MessageParam[] = [{ role: 'user', content: prompt }]
+    const format = { type: 'json_schema' as const, schema }
+    let stopReason: string | null
+    let blocks: Array<{ type: string; text?: string }>
+    if (model === 'claude-haiku-4-5') {
+      const msg = await client.messages.create({ model, max_tokens: maxTokens, system, messages, output_config: { format } }, { signal, maxRetries })
+      stopReason = msg.stop_reason
+      blocks = msg.content
+    } else {
+      // Opus / Sonnet 5.5: thinking is always on (adaptive) — never send `thinking`; low effort keeps
+      // a field fill cheap. Refusal fallbacks route a declined request to Anthropic's recommended model.
+      const msg = await client.beta.messages.create(
+        { model, max_tokens: maxTokens, betas: ['server-side-fallback-2026-07-01'], fallbacks: 'default', output_config: { effort: 'low', format }, system, messages },
+        { signal, maxRetries },
+      )
+      stopReason = msg.stop_reason
+      blocks = msg.content
+    }
+    if (stopReason === 'refusal') throw new AIError('refusal')
+    const text = blocks
+      .filter((b) => b.type === 'text')
+      .map((b) => b.text ?? '')
+      .join('')
     if (!text.trim()) throw new AIError('empty')
     return text
   } catch (e) {

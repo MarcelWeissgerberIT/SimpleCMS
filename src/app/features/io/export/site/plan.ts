@@ -77,13 +77,17 @@ const FILE_REF = /onefile:[0-9a-z]+/g
 const ASSET_SRC = /"src":"(assets\/[\w./-]+)"/g
 const CALLOUT_ASSET = /"icon":"asset:([\w-]{1,64})"/g
 
+/** JSON.stringify replacer that leaves out button actions. */
+export const withoutActions = (key: string, value: unknown) => (key === 'actions' ? undefined : value)
+
 /** Every media source a page uses: content images/files, cover, icon, files properties. */
 function mediaOf(p: Page): string[] {
   const out: string[] = []
   if (p.cover?.type === 'image') out.push(p.cover.value)
   if (p.icon?.type === 'asset' && /^[\w-]{1,64}$/.test(p.icon.value)) out.push(`assets/icons/${p.icon.value}.webp`)
   if (p.content) {
-    const json = JSON.stringify(p.content)
+    // button actions never leave the workspace, nor do files only they reference
+    const json = JSON.stringify(p.content, withoutActions)
     for (const m of json.match(FILE_REF) ?? []) out.push(m)
     for (const m of json.matchAll(ASSET_SRC)) out.push(m[1])
     for (const m of json.matchAll(CALLOUT_ASSET)) out.push(`assets/icons/${m[1]}.webp`)

@@ -19,7 +19,7 @@ import { logoMarkSvg } from '@/shared/logo'
 import { t } from '../../../../i18n'
 import { countOf } from '../../count'
 import type { ExportTree } from '../collect'
-import { asciiSlug, isAssetPath, planSite, type SitePlan } from './plan'
+import { asciiSlug, isAssetPath, planSite, withoutActions, type SitePlan } from './plan'
 
 export { normalizeBaseUrl } from './plan'
 import { SITE_FONTS, siteCss } from './css'
@@ -81,7 +81,7 @@ function blockTargets(plan: SitePlan): Set<string> {
   const out = new Set<string>()
   for (const n of plan.order) {
     if (!n.page.content) continue
-    for (const m of JSON.stringify(n.page.content).matchAll(/#\/p\/[\w-]+\?b=([\w-]{1,64})/g)) out.add(m[1])
+    for (const m of JSON.stringify(n.page.content, withoutActions).matchAll(/#\/p\/[\w-]+\?b=([\w-]{1,64})/g)) out.add(m[1])
   }
   return out
 }
