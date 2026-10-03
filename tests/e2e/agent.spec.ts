@@ -318,8 +318,23 @@ test.describe('Workspace agent (mocked Claude API)', () => {
     await page.evaluate((id) => (window.location.hash = `#/p/${id}`), id)
     const editor = page.locator('#main .pv-content .ProseMirror').first()
     await expect(editor).toBeVisible()
+    // let boot-time writers settle first (block ids, the synced-block service): an external content
+    // update between the clicks below would move the caret off the new empty line
+    const rev = () => wsEval(page, (s, id) => s.pages[id].contentRev, id)
+    let last = await rev()
+    await expect
+      .poll(async () => {
+        const now = await rev()
+        const stable = now === last
+        last = now
+        return stable
+      }, { intervals: [600] })
+      .toBe(true)
     // an empty line → space opens the AI menu
     await editor.getByText('Before it goes out').click()
+    await expect(editor).toBeFocused()
+    // a human-scale pause before typing on (ProseMirror re-syncs its selection shortly after focus)
+    await page.waitForTimeout(150)
     await page.keyboard.press('End')
     await page.keyboard.press('Enter')
     await page.keyboard.press('Space')
