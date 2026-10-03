@@ -119,6 +119,8 @@ export async function renderMermaid(html: string, idPrefix?: string): Promise<st
         layout: 'dagre',
         theme: 'base',
         fontFamily: 'Archivo, system-ui, sans-serif',
+        // a fixed seed draws identical shapes on every export (deterministic website builds)
+        ...(idPrefix ? { handDrawnSeed: 1 } : {}),
         themeVariables: {
           fontSize: '14px',
           background: c['--surface'],

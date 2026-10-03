@@ -213,7 +213,7 @@ test.describe('password-protected share link', () => {
     await p2.goto(link)
     await expect(p2.getByRole('heading', { name: 'This page is password-protected' })).toBeVisible()
     await expect(p2.locator('.shv__doc')).toHaveCount(0)
-    const input = p2.getByLabel('Password')
+    const input = p2.getByRole('textbox', { name: 'Password' })
     await expect(input).toBeFocused()
 
     // wrong password: clear error, no crash, can retry
