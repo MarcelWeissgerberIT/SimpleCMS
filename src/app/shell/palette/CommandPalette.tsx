@@ -14,6 +14,7 @@ import { buildCommands, type Command as Cmd } from '../lib/commands'
 import { contextPageId, createPageAndOpen, goToPage } from '../lib/actions'
 import { useMediaQuery } from '../lib/hooks'
 import { buildIndex, search, type Range, type SearchHit } from './search'
+import { useReadOnly } from '../cloud/state'
 import './palette.css'
 
 export function CommandPalette() {
@@ -25,6 +26,7 @@ type Mode = 'find' | 'run' | 'ask'
 
 function Palette() {
   const t = useT()
+  const readOnly = useReadOnly()
   const initial = useUI.getState().paletteQuery
   const [q, setQ] = useState(initial)
   const [value, setValue] = useState('')
@@ -42,7 +44,7 @@ function Palette() {
   const fuse = useMemo(() => buildIndex(pages), [pages])
   const hits = useMemo(() => (mode === 'find' && term ? search(fuse, term) : []), [fuse, mode, term])
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  const commands = useMemo(() => buildCommands(t, pageId), [t, pageId, pages, lang])
+  const commands = useMemo(() => buildCommands(t, pageId), [t, pageId, pages, lang, readOnly])
   const cmdHits = useMemo(() => {
     if (mode === 'ask') return []
     if (!term) return mode === 'run' ? commands : commands.filter((c) => CORE.includes(c.id))
@@ -185,16 +187,18 @@ function Palette() {
                       {contentHits.map(pageHit)}
                     </Command.Group>
                   )}
-                  <Command.Group className="pal-create">
-                    <Command.Item value={`create:${term}`} className="pal-item" onSelect={() => (finish(), createPageAndOpen(null, term))}>
-                      <span className="pal-item__icon">
-                        <FilePlus2 size={16} />
-                      </span>
-                      <span className="pal-item__main">
-                        <span className="pal-item__title">{t('shell.palette.createPage', { q: term })}</span>
-                      </span>
-                    </Command.Item>
-                  </Command.Group>
+                  {!readOnly && (
+                    <Command.Group className="pal-create">
+                      <Command.Item value={`create:${term}`} className="pal-item" onSelect={() => (finish(), createPageAndOpen(null, term))}>
+                        <span className="pal-item__icon">
+                          <FilePlus2 size={16} />
+                        </span>
+                        <span className="pal-item__main">
+                          <span className="pal-item__title">{t('shell.palette.createPage', { q: term })}</span>
+                        </span>
+                      </Command.Item>
+                    </Command.Group>
+                  )}
                 </>
               ) : (
                 commandGroup
@@ -305,6 +309,7 @@ function highlight(text: string, ranges: Range[]): ReactNode {
 
 function AskPanel({ question, pageId, onDone }: { question: string; pageId: ID | null; onDone: () => void }) {
   const t = useT()
+  const readOnly = useReadOnly()
   const model = useWorkspace((s) => s.settings.aiModel)
   const page = useWorkspace((s) => (pageId ? s.pages[pageId] : undefined))
   const configured = useWorkspace((s) => !!s.settings.aiApiKey) && isAIConfigured()
@@ -409,14 +414,16 @@ function AskPanel({ question, pageId, onDone }: { question: string; pageId: ID |
           {state === 'error' ? <p className="ask__error">{error}</p> : <AskAnswer markdown={answer} />}
           {state === 'done' && answer && (
             <div className="ask__actions">
-              {page && !page.settings.locked && page.kind === 'page' && (
+              {page && !page.settings.locked && page.kind === 'page' && !readOnly && (
                 <button type="button" className="btn btn--sm btn--ink" onClick={append}>
                   <ListPlus size={13} /> {t('shell.ask.append')}
                 </button>
               )}
-              <button type="button" className="btn btn--sm" onClick={toNewPage}>
-                <FilePlus2 size={13} /> {t('shell.ask.newPage')}
-              </button>
+              {!readOnly && (
+                <button type="button" className="btn btn--sm" onClick={toNewPage}>
+                  <FilePlus2 size={13} /> {t('shell.ask.newPage')}
+                </button>
+              )}
               <button
                 type="button"
                 className="btn btn--sm btn--ghost"

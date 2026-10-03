@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
-import { CalendarDays, CalendarRange, ChevronsLeft, ChevronDown, Home, LayoutTemplate, Plus, Search, Trash2, Upload, Waypoints, Settings, Table2, FilePlus2 } from 'lucide-react'
+import { CalendarDays, CalendarRange, ChevronsLeft, ChevronDown, Home, LayoutTemplate, Plus, Search, Trash2, Upload, Waypoints, Settings, Table2, FilePlus2, Users } from 'lucide-react'
 import { useWorkspace } from '../../store/store'
 import { useUI } from '../../store/ui'
 import { useFavorites, useTrash, selectBreadcrumbs } from '../../store/selectors'
@@ -17,6 +17,8 @@ import { TrashPopover } from './TrashPopover'
 import { useChildIds, treeKey, useTreeState } from '../lib/tree'
 import { closeMobileSidebar, createDatabaseAndOpen, createPageAndOpen, goHome, toggleSidebar } from '../lib/actions'
 import { useIsMobile, useKbdHint } from '../lib/hooks'
+import { HeaderSub, useWorkspaceEntries } from '../cloud/Switcher'
+import { openSettingsTab, useInCloud, useReadOnly, useWorkspaceTitle } from '../cloud/state'
 import './sidebar.css'
 
 const MIN_W = 220
@@ -33,6 +35,8 @@ export function Sidebar() {
   const [hoverReveal, setHoverReveal] = useState(false)
   const route = useRoute()
   const kbd = useKbdHint()
+  // viewers read: no creating, importing or journal entries (they would be new pages)
+  const readOnly = useReadOnly()
 
   // keep the active page visible in the tree
   const activeId = route.name === 'page' ? route.id : null
@@ -75,19 +79,25 @@ export function Sidebar() {
         <nav className="sb-nav">
           <NavRow icon={<Search size={16} />} label={t('shell.nav.search')} kbd={kbd('Mod+K')} onClick={() => (closeMobileSidebar(), useUI.getState().openPalette())} />
           <NavRow icon={<Home size={16} />} label={t('shell.nav.home')} active={route.name === 'home'} onClick={goHome} />
-          <NavRow
-            icon={<CalendarDays size={16} />}
-            label={t('shell.nav.today')}
-            active={route.name === 'journal'}
-            onClick={() => {
-              closeMobileSidebar()
-              openTodayJournal()
-            }}
-          />
+          {!readOnly && (
+            <NavRow
+              icon={<CalendarDays size={16} />}
+              label={t('shell.nav.today')}
+              active={route.name === 'journal'}
+              onClick={() => {
+                closeMobileSidebar()
+                openTodayJournal()
+              }}
+            />
+          )}
           <NavRow icon={<CalendarRange size={16} />} label={t('shell.nav.agenda')} active={route.name === 'agenda'} onClick={() => (closeMobileSidebar(), navigate({ name: 'agenda' }))} />
           <NavRow icon={<Waypoints size={16} />} label={t('shell.nav.graph')} active={route.name === 'graph'} onClick={() => (closeMobileSidebar(), navigate({ name: 'graph' }))} />
-          <NavRow icon={<LayoutTemplate size={16} />} label={t('shell.nav.templates')} onClick={() => (closeMobileSidebar(), useUI.getState().openModal({ type: 'templates', parentId: null }))} />
-          <NavRow icon={<Upload size={16} />} label={t('shell.nav.import')} onClick={() => (closeMobileSidebar(), useUI.getState().openModal({ type: 'import' }))} />
+          {!readOnly && (
+            <>
+              <NavRow icon={<LayoutTemplate size={16} />} label={t('shell.nav.templates')} onClick={() => (closeMobileSidebar(), useUI.getState().openModal({ type: 'templates', parentId: null }))} />
+              <NavRow icon={<Upload size={16} />} label={t('shell.nav.import')} onClick={() => (closeMobileSidebar(), useUI.getState().openModal({ type: 'import' }))} />
+            </>
+          )}
         </nav>
         <div className="sb-scroll" onKeyDown={onTreeKeyDown}>
           <FavoritesSection />
@@ -136,7 +146,9 @@ function onTreeKeyDown(e: React.KeyboardEvent<HTMLDivElement>) {
 
 function SidebarHeader() {
   const t = useT()
-  const name = useWorkspace((s) => s.settings.workspaceName)
+  const name = useWorkspaceTitle()
+  const inCloud = useInCloud()
+  const workspaces = useWorkspaceEntries()
   const theme = useWorkspace((s) => s.settings.theme)
   const lang = useWorkspace((s) => s.settings.language)
   const menu = useMenu()
@@ -144,8 +156,10 @@ function SidebarHeader() {
   const kbd = useKbdHint()
   const set = useWorkspace.getState().updateSettings
   const entries: MenuEntry[] = [
-    { kind: 'section', label: name || 'One' },
+    ...workspaces,
+    { kind: 'separator' },
     { label: t('common.settings'), icon: <Settings size={15} />, hint: kbd('Mod+,'), onSelect: () => useUI.getState().openModal({ type: 'settings' }) },
+    ...(inCloud ? ([{ label: t('shell.cloud.cmd.team'), icon: <Users size={15} />, onSelect: () => openSettingsTab('team') }] as MenuEntry[]) : []),
     {
       label: t('shell.menu.theme'),
       submenu: [
@@ -168,11 +182,13 @@ function SidebarHeader() {
   ]
   return (
     <div className="sb-head">
-      <button type="button" className="sb-head__ws" onClick={toggleMenu(menu)} aria-haspopup="menu" aria-expanded={menu.open}>
+      <button type="button" className="sb-head__ws" onClick={toggleMenu(menu)} aria-haspopup="menu" aria-expanded={menu.open} title={t('shell.cloud.switcher.label')}>
         <span className="sb-head__mark" dangerouslySetInnerHTML={{ __html: logoMarkSvg(24) }} />
         <span className="sb-head__text">
-          <span className="sb-head__name">{name || 'One'}</span>
-          <span className="sb-head__sub">{t('shell.sidebar.sub')}</span>
+          <span className="sb-head__name">{name}</span>
+          <span className="sb-head__sub">
+            <HeaderSub />
+          </span>
         </span>
         <ChevronDown size={14} className="sb-head__chev" />
       </button>
@@ -181,7 +197,7 @@ function SidebarHeader() {
           <ChevronsLeft size={16} />
         </button>
       </Tooltip>
-      <Menu {...menu.props} entries={entries} width={248} />
+      <Menu {...menu.props} entries={entries} width={288} />
     </div>
   )
 }
@@ -233,12 +249,15 @@ function PagesSection() {
   const hasFavs = useWorkspace((s) => Object.values(s.pages).some((p) => p.favorite && !p.trashed))
   const menu = useMenu()
   const kbd = useKbdHint()
+  const readOnly = useReadOnly()
   return (
     <section className="sb-section" aria-label={t('shell.sidebar.pages')}>
       <SectionHead n={hasFavs ? '02' : '01'} label={t('shell.sidebar.pages')} count={total}>
-        <button type="button" className="sb-sect__add" aria-label={t('common.newPage')} onClick={toggleMenu(menu)}>
-          <Plus size={14} />
-        </button>
+        {!readOnly && (
+          <button type="button" className="sb-sect__add" aria-label={t('common.newPage')} onClick={toggleMenu(menu)}>
+            <Plus size={14} />
+          </button>
+        )}
       </SectionHead>
       <Menu
         {...menu.props}
@@ -251,14 +270,16 @@ function PagesSection() {
       />
       <div role="tree">
         <DraggableTree>
-          <PageTree parentId={null} depth={0} section="pages" draggable />
+          <PageTree parentId={null} depth={0} section="pages" draggable={!readOnly} />
         </DraggableTree>
       </div>
-      {roots.length === 0 && <p className="sb-hint">{t('shell.sidebar.empty')}</p>}
-      <button type="button" className="sb-newpage" onClick={() => createPageAndOpen(null)}>
-        <Plus size={15} />
-        <span>{t('common.newPage')}</span>
-      </button>
+      {roots.length === 0 && !readOnly && <p className="sb-hint">{t('shell.sidebar.empty')}</p>}
+      {!readOnly && (
+        <button type="button" className="sb-newpage" onClick={() => createPageAndOpen(null)}>
+          <Plus size={15} />
+          <span>{t('common.newPage')}</span>
+        </button>
+      )}
     </section>
   )
 }

@@ -15,6 +15,9 @@ import { useIsMobile, useSaveStatus } from '../lib/hooks'
 import { goToPage, toggleSidebar } from '../lib/actions'
 import { revealMain, useStageView } from '../lib/stage'
 import { PageMenu } from './PageMenu'
+import { PresenceStack } from '../cloud/Presence'
+import { useCloudReadout, ViewOnlyTag } from '../cloud/Sync'
+import { useReadOnly } from '../cloud/state'
 import './topbar.css'
 
 export function Topbar({ route }: { route: Route }) {
@@ -61,6 +64,8 @@ export function Topbar({ route }: { route: Route }) {
         {page ? <Crumbs page={page} compact={mobile} /> : <RouteCrumb route={route} />}
       </nav>
       <div className="tb-right">
+        <PresenceStack pageId={route.name === 'page' ? route.id : null} />
+        <ViewOnlyTag />
         <SaveLed />
         {page && !page.trashed && <PageActions page={page} mobile={mobile} />}
       </div>
@@ -94,6 +99,7 @@ function Crumbs({ page, compact }: { page: Page; compact: boolean }) {
   const t = useT()
   const chain = useBreadcrumbs(page.id)
   const menu = useMenu()
+  const readOnly = useReadOnly()
   const items = compact ? chain.slice(-1) : chain
   let shown: Array<Page | 'more'> = items
   let hidden: Page[] = []
@@ -140,7 +146,7 @@ function Crumbs({ page, compact }: { page: Page; compact: boolean }) {
       ))}
       {page.settings.locked && (
         <li className="tb-crumbs__item">
-          <button type="button" className="tb-tag" onClick={() => useWorkspace.getState().updatePageSettings(page.id, { locked: false })} title={t('shell.topbar.unlock')}>
+          <button type="button" className="tb-tag" disabled={readOnly} onClick={() => useWorkspace.getState().updatePageSettings(page.id, { locked: false })} title={readOnly ? undefined : t('shell.topbar.unlock')}>
             <Lock size={11} strokeWidth={2} />
             {t('shell.topbar.locked')}
           </button>
@@ -153,6 +159,15 @@ function Crumbs({ page, compact }: { page: Page; compact: boolean }) {
 export function SaveLed() {
   const t = useT()
   const status = useSaveStatus()
+  const cloud = useCloudReadout()
+  if (cloud)
+    return (
+      <Tooltip label={cloud.tip}>
+        <span className="tb-led" data-cloud={cloud.state} tabIndex={0} role="status" aria-label={cloud.tip}>
+          <Led state={cloud.led} />
+        </span>
+      </Tooltip>
+    )
   const label = status === 'saving' ? t('shell.save.saving') : status === 'error' ? t('shell.save.error') : status === 'saved' ? t('shell.save.saved') : t('shell.save.idle')
   return (
     <Tooltip label={label}>

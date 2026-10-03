@@ -14,10 +14,14 @@ import { runAI } from '../../features'
 import { fmtBytes, plural } from '../lib/format'
 import { requestReset } from '../lib/reset'
 import { WebClipper } from '../capture/WebClipper'
+import { TeamTab } from '../cloud/TeamTab'
+import { consumeSettingsTab, useInCloud, useReadOnly } from '../cloud/state'
 import './settings.css'
 
-export type SettingsTab = 'general' | 'appearance' | 'ai' | 'data' | 'shortcuts' | 'about'
-const TABS: SettingsTab[] = ['general', 'appearance', 'ai', 'data', 'shortcuts', 'about']
+export type SettingsTab = 'general' | 'team' | 'appearance' | 'ai' | 'data' | 'shortcuts' | 'about'
+const LOCAL_TABS: SettingsTab[] = ['general', 'appearance', 'ai', 'data', 'shortcuts', 'about']
+/** In a team workspace, "Team" follows "General". */
+const CLOUD_TABS: SettingsTab[] = ['general', 'team', 'appearance', 'ai', 'data', 'shortcuts', 'about']
 
 export const AI_MODELS = [
   { id: 'claude-opus-5-5', key: 'shell.ai.opus' },
@@ -27,7 +31,11 @@ export const AI_MODELS = [
 
 export function SettingsModal({ initialTab, onClose }: { initialTab?: SettingsTab; onClose: () => void }) {
   const t = useT()
-  const [tab, setTab] = useState<SettingsTab>(initialTab ?? 'general')
+  const TABS = useInCloud() ? CLOUD_TABS : LOCAL_TABS
+  const [tab, setTab] = useState<SettingsTab>(() => {
+    const asked = initialTab ?? (consumeSettingsTab() as SettingsTab | null)
+    return asked && TABS.includes(asked) ? asked : 'general'
+  })
   const idx = TABS.indexOf(tab)
   const uid = useId()
   const stripRef = useRef<HTMLDivElement>(null)
@@ -113,6 +121,7 @@ export function SettingsModal({ initialTab, onClose }: { initialTab?: SettingsTa
           </header>
           <div className="st__body">
             {tab === 'general' && <GeneralTab />}
+            {tab === 'team' && <TeamTab onClose={onClose} />}
             {tab === 'appearance' && <AppearanceTab />}
             {tab === 'ai' && <AITab />}
             {tab === 'data' && <DataTab onClose={onClose} />}
@@ -177,6 +186,8 @@ function Field({ label, hint, children, inline, htmlFor }: { label: string; hint
 
 function GeneralTab() {
   const t = useT()
+  // a team workspace's name lives on the server (Settings → Team)
+  const inCloud = useInCloud()
   const s = useWorkspace((x) => x.settings)
   const pages = useWorkspace((x) => x.pages)
   const set = useWorkspace.getState().updateSettings
@@ -186,9 +197,11 @@ function GeneralTab() {
   return (
     <>
       <h3 className="st-h">{t('shell.settings.general.title')}</h3>
-      <Field label={t('shell.settings.workspaceName')} hint={t('shell.settings.workspaceNameHint')}>
-        <input className="input" value={s.workspaceName} maxLength={40} onChange={(e) => set({ workspaceName: e.target.value })} />
-      </Field>
+      {!inCloud && (
+        <Field label={t('shell.settings.workspaceName')} hint={t('shell.settings.workspaceNameHint')}>
+          <input className="input" value={s.workspaceName} maxLength={40} onChange={(e) => set({ workspaceName: e.target.value })} />
+        </Field>
+      )}
       <Field label={t('shell.settings.userName')} hint={t('shell.settings.userNameHint')}>
         <input className="input" value={s.userName} maxLength={40} placeholder={t('shell.settings.userNamePh')} onChange={(e) => set({ userName: e.target.value })} />
       </Field>
@@ -382,6 +395,7 @@ function DataTab({ onClose }: { onClose: () => void }) {
   }, [])
   const pct = est && est.quota ? Math.min(100, (est.usage / est.quota) * 100) : 0
   const ui = useUI.getState()
+  const readOnly = useReadOnly()
   return (
     <>
       <h3 className="st-h">{t('shell.settings.data.title')}</h3>
@@ -391,10 +405,12 @@ function DataTab({ onClose }: { onClose: () => void }) {
           <Download size={14} />
           {t('shell.settings.data.export')}
         </button>
-        <button type="button" className="btn" onClick={() => ui.openModal({ type: 'import' })}>
-          <Upload size={14} />
-          {t('shell.settings.data.import')}
-        </button>
+        {!readOnly && (
+          <button type="button" className="btn" onClick={() => ui.openModal({ type: 'import' })}>
+            <Upload size={14} />
+            {t('shell.settings.data.import')}
+          </button>
+        )}
       </div>
       <WebClipper />
       <div className="gauge">

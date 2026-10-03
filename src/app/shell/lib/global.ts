@@ -8,6 +8,7 @@ import { isMac } from '../../ui/controls'
 import { t } from '../../i18n'
 import { createPageAndOpen, currentPageId, pruneUndoToasts, toggleFocusMode, toggleSidebar, toggleTheme } from './actions'
 import { runClipRoute } from '../capture/inbox'
+import { isReadOnly } from '../cloud/state'
 
 const isEditable = (el: EventTarget | null) => {
   const e = el as HTMLElement | null
@@ -65,7 +66,7 @@ export function useGlobalShortcuts() {
         const pcCombo = !isMac && e.ctrlKey && !e.metaKey && !e.getModifierState?.('AltGraph') && e.key.toLowerCase() === 'n'
         if (macCombo || pcCombo) {
           e.preventDefault()
-          createPageAndOpen(null)
+          if (!isReadOnly()) createPageAndOpen(null)
           return
         }
       }

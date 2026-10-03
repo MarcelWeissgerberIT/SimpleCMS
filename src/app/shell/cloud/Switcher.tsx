@@ -1,0 +1,115 @@
+import { BookOpen, LogIn, LogOut, Plus } from 'lucide-react'
+import { useShallow } from 'zustand/react/shallow'
+import { useCloud } from '../../cloud'
+import { useUI } from '../../store/ui'
+import type { MenuEntry } from '../../ui/Menu'
+import { Led } from '../../ui/controls'
+import { useT } from '../../i18n'
+import { BRAND } from '@/shared/brand'
+import { cloudApi } from './api'
+import { errorText } from './errors'
+import { Avatar } from './Avatar'
+import { openCloudDialog, roleLabel } from './state'
+
+export const SELF_HOSTING_URL = `${BRAND.repoUrl}/blob/main/docs/SELF_HOSTING.md`
+
+/**
+ * The workspace part of the sidebar-header menu: this browser's local workspace, every cloud
+ * workspace (LED = the one on screen), "New team workspace…", and the account. Without a server
+ * (GitHub Pages) an honest teaser points to the self-hosting guide instead.
+ */
+export function useWorkspaceEntries(): MenuEntry[] {
+  const t = useT()
+  const { available, user, workspaces, active, status } = useCloud(
+    useShallow((s) => ({ available: s.available, user: s.user, workspaces: s.workspaces, active: s.active, status: s.status })),
+  )
+  const isLocal = active.kind === 'local'
+  const entries: MenuEntry[] = [
+    { kind: 'section', label: t('shell.cloud.switcher.workspaces') },
+    {
+      id: 'ws-local',
+      label: t('shell.cloud.switcher.local'),
+      icon: <Led state={isLocal ? 'ok' : 'off'} />,
+      hint: t('shell.cloud.switcher.localTag').toUpperCase(),
+      checked: isLocal,
+      onSelect: () => !isLocal && cloudApi.switchWorkspace({ kind: 'local', id: 'local' }),
+    },
+    ...workspaces.map(
+      (w): MenuEntry => ({
+        id: `ws-${w.id}`,
+        label: w.name,
+        icon: <Led state={active.id === w.id ? (status === 'online' ? 'ok' : 'on') : 'off'} />,
+        hint: roleLabel(t, w.role).toUpperCase(),
+        checked: active.id === w.id,
+        keywords: 'team cloud',
+        onSelect: () => active.id !== w.id && cloudApi.switchWorkspace({ kind: 'cloud', id: w.id }),
+      }),
+    ),
+  ]
+
+  if (!available) {
+    entries.push(
+      { kind: 'separator' },
+      { kind: 'section', label: t('shell.cloud.switcher.teaser') },
+      {
+        id: 'cloud-selfhost',
+        label: t('shell.cloud.switcher.selfHost'),
+        icon: <BookOpen size={15} />,
+        hint: `${t('shell.cloud.switcher.guide').toUpperCase()} ↗`,
+        onSelect: () => window.open(SELF_HOSTING_URL, '_blank', 'noopener'),
+      },
+    )
+    return entries
+  }
+
+  entries.push({
+    id: 'cloud-new',
+    label: t('shell.cloud.switcher.new'),
+    icon: <Plus size={15} />,
+    onSelect: () => openCloudDialog(user ? 'new-workspace' : 'sign-in'),
+  })
+  entries.push({ kind: 'separator' })
+  if (user) {
+    entries.push(
+      {
+        kind: 'custom',
+        render: () => (
+          <div className="cl-sw-acct">
+            <Avatar name={user.name} email={user.email} id={user.id} size={24} />
+            <span className="cl-sw-acct__text">
+              <span className="cl-sw-acct__name">{user.name || user.email.split('@')[0]}</span>
+              <span className="cl-sw-acct__mail">{user.email}</span>
+            </span>
+          </div>
+        ),
+      },
+      {
+        id: 'cloud-signout',
+        label: t('shell.cloud.switcher.signOut'),
+        icon: <LogOut size={15} />,
+        onSelect: () => {
+          cloudApi
+            .signOut()
+            .then(() => useUI.getState().toast({ message: t('shell.cloud.signedOut') }))
+            .catch((e) => useUI.getState().toast({ message: errorText(e, t), kind: 'error' }))
+        },
+      },
+    )
+  } else {
+    entries.push({ id: 'cloud-signin', label: t('shell.cloud.switcher.signIn'), icon: <LogIn size={15} />, onSelect: () => openCloudDialog('sign-in') })
+  }
+  return entries
+}
+
+/** Second line under the workspace name: "LOCAL WORKSPACE" or "● TEAM · ADMIN". */
+export function HeaderSub() {
+  const t = useT()
+  const { kind, role, status } = useCloud(useShallow((s) => ({ kind: s.active.kind, role: s.role, status: s.status })))
+  if (kind === 'local') return <>{t('shell.cloud.sub.local')}</>
+  return (
+    <>
+      <Led state={status === 'online' ? 'ok' : status === 'error' ? 'off' : 'on'} />
+      {t('shell.cloud.sub.team', { role: roleLabel(t, role) || '—' })}
+    </>
+  )
+}

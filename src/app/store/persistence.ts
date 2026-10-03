@@ -223,6 +223,20 @@ export function isApplyingRemote(): boolean {
   return applyingRemote
 }
 
+/**
+ * Run `fn` as a change that did not originate here: automations, webhooks, AI autofill and version
+ * history ignore it (they read isApplyingRemote()). The cloud binding applies server changes with it.
+ */
+export function runAsRemote<T>(fn: () => T): T {
+  const was = applyingRemote
+  applyingRemote = true
+  try {
+    return fn()
+  } finally {
+    applyingRemote = was
+  }
+}
+
 /*
  * Local changes not yet written to IndexedDB. When another tab broadcasts a change we
  * merge: everything comes from IndexedDB except what this tab changed and hasn't saved yet,

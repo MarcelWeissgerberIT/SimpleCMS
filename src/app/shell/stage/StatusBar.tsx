@@ -8,6 +8,7 @@ import { useResolvedTheme, useSaveStatus } from '../lib/hooks'
 import { toggleTheme } from '../lib/actions'
 import { useStageView } from '../lib/stage'
 import { plural } from '../lib/format'
+import { CloudStatusCells, useCloudReadout } from '../cloud/Sync'
 
 /** 24px instrument read-out along the bottom edge. */
 export function StatusBar({ route }: { route: Route }) {
@@ -28,16 +29,22 @@ export function StatusBar({ route }: { route: Route }) {
   const panes = useUI((s) => s.panes.length)
   const words = wordCount(plain)
   const dark = useResolvedTheme() === 'dark'
+  // a team workspace reports sync with the server instead of the local save
+  const cloud = useCloudReadout()
 
   const saveText =
     status === 'saving' ? t('shell.status.writing') : status === 'error' ? t('shell.status.error') : t('shell.status.saved')
 
   return (
     <footer className="status" aria-label={t('shell.status.label')}>
-      <span className="status__cell status__save" data-status={status} role="status">
-        <Led state={status === 'saving' ? 'on' : status === 'error' ? 'off' : 'ok'} />
-        {saveText}
-      </span>
+      {cloud ? (
+        <CloudStatusCells readout={cloud} />
+      ) : (
+        <span className="status__cell status__save" data-status={status} role="status">
+          <Led state={status === 'saving' ? 'on' : status === 'error' ? 'off' : 'ok'} />
+          {saveText}
+        </span>
+      )}
       {pageId && kind === 'page' && (
         <span className="status__cell">
           {t(plural('shell.stats.words', words), { n: fmtNumber(words, lang) })} · {t('shell.stats.read', { n: readingTime(words) })}

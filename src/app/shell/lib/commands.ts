@@ -31,6 +31,8 @@ import {
   Star,
   Home,
   Inbox,
+  Users,
+  CloudUpload,
 } from 'lucide-react'
 import { useWorkspace } from '../../store/store'
 import { useUI } from '../../store/ui'
@@ -39,6 +41,8 @@ import { openTodayJournal } from '../../features'
 import type { ID } from '../../store/types'
 import type { Translate } from '@/shared/i18n'
 import { quickNoteToInbox } from '../capture/inbox'
+import { useCloud } from '../../cloud'
+import { openCloudDialog, openSettingsTab } from '../cloud/state'
 import {
   copyPageLink,
   createDatabaseAndOpen,
@@ -114,5 +118,15 @@ export function buildCommands(t: Translate, pageId: ID | null): Command[] {
     if (!page.databaseId)
       list.splice(list.findIndex((c) => c.id === 'duplicate') + 1, 0, { id: 'move', group: 'page', label: t('shell.cmd.move'), icon: FolderInput, keywords: 'parent verschieben', run: () => ui.openModal({ type: 'move', pageId: page.id }) })
   }
+  const cloud = useCloud.getState()
+  if (cloud.available)
+    list.push({ id: 'cloud-new', group: 'workspace', label: t('shell.cloud.cmd.newWorkspace'), icon: CloudUpload, keywords: 'team cloud workspace sync share invite neu', run: () => openCloudDialog(cloud.user ? 'new-workspace' : 'sign-in') })
+  if (cloud.active.kind === 'cloud')
+    list.push({ id: 'team', group: 'workspace', label: t('shell.cloud.cmd.team'), icon: Users, keywords: 'members invite people roles mitglieder einladen rollen', run: () => openSettingsTab('team') })
+  // viewers read: nothing that creates, moves or deletes pages
+  if (cloud.readOnly) return list.filter((c) => !EDITING.has(c.id))
   return list
 }
+
+/** Commands that write to the workspace (hidden for viewers). */
+const EDITING = new Set(['new-page', 'new-subpage', 'new-database', 'quick-note', 'templates', 'journal', 'import', 'duplicate', 'move', 'delete', 'lock', 'full-width'])

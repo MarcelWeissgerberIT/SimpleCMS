@@ -118,6 +118,7 @@ export const cloudMessages: Messages = {
     'shell.cloud.new.signInBody': 'Team workspaces live on the server. Sign in once with your email, then create one.',
 
     // team settings
+    'shell.settings.tab.team': 'Team',
     'shell.cloud.team.tab': 'Team',
     'shell.cloud.team.title': 'Team',
     'shell.cloud.team.body': 'Who can open this workspace, and what they can do.',
@@ -342,6 +343,7 @@ export const cloudMessages: Messages = {
     'shell.cloud.new.signInTitle': 'Erst anmelden.',
     'shell.cloud.new.signInBody': 'Team-Workspaces liegen auf dem Server. Melde dich einmal mit deiner E-Mail an, dann leg einen an.',
 
+    'shell.settings.tab.team': 'Team',
     'shell.cloud.team.tab': 'Team',
     'shell.cloud.team.title': 'Team',
     'shell.cloud.team.body': 'Wer diesen Workspace öffnen darf und was er darin tun kann.',

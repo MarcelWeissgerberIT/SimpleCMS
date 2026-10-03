@@ -14,6 +14,7 @@ import { createDatabaseAndOpen, createPageAndOpen, goToPage } from '../lib/actio
 import { fmtDay, fmtNumber, fmtRelative, isoWeek, wordCount } from '../lib/format'
 import { useIsTouch, useKbdHint, useNow } from '../lib/hooks'
 import { NextDays, NextDaysActions } from '../agenda/NextDays'
+import { useReadOnly } from '../cloud/state'
 import './home.css'
 
 export function Home() {
@@ -21,6 +22,8 @@ export function Home() {
   const lang = useLang()
   const now = useNow(60_000)
   const userName = useWorkspace((s) => s.settings.userName)
+  // viewers: the keys that would create something are shown disabled
+  const readOnly = useReadOnly()
   const pages = useWorkspace((s) => s.pages)
   const recentIds = useWorkspace((s) => s.recent)
 
@@ -79,11 +82,11 @@ export function Home() {
         <section className="home__section">
           <SectionLabel n="01" label={t('shell.home.actions')} />
           <div className="keys">
-            <Key icon={<FilePlus2 size={18} />} label={t('common.newPage')} code="A1" kbd={kbd('Mod+Alt+N')} onClick={() => createPageAndOpen(null)} primary />
-            <Key icon={<Table2 size={18} />} label={t('shell.cmd.newDatabase')} code="A2" onClick={() => createDatabaseAndOpen(null)} />
-            <Key icon={<Upload size={18} />} label={t('shell.home.importNotion')} code="A3" onClick={() => ui.openModal({ type: 'import' })} />
-            <Key icon={<LayoutTemplate size={18} />} label={t('shell.nav.templates')} code="A4" onClick={() => ui.openModal({ type: 'templates', parentId: null })} />
-            <Key icon={<CalendarDays size={18} />} label={t('shell.nav.today')} code="A5" onClick={() => openTodayJournal()} />
+            <Key icon={<FilePlus2 size={18} />} label={t('common.newPage')} code="A1" kbd={kbd('Mod+Alt+N')} onClick={() => createPageAndOpen(null)} primary disabled={readOnly} />
+            <Key icon={<Table2 size={18} />} label={t('shell.cmd.newDatabase')} code="A2" onClick={() => createDatabaseAndOpen(null)} disabled={readOnly} />
+            <Key icon={<Upload size={18} />} label={t('shell.home.importNotion')} code="A3" onClick={() => ui.openModal({ type: 'import' })} disabled={readOnly} />
+            <Key icon={<LayoutTemplate size={18} />} label={t('shell.nav.templates')} code="A4" onClick={() => ui.openModal({ type: 'templates', parentId: null })} disabled={readOnly} />
+            <Key icon={<CalendarDays size={18} />} label={t('shell.nav.today')} code="A5" onClick={() => openTodayJournal()} disabled={readOnly} />
           </div>
         </section>
 
@@ -99,10 +102,12 @@ export function Home() {
           {recent.length === 0 ? (
             <div className="home__empty">
               <p>{t('shell.home.noRecent')}</p>
-              <button type="button" className="btn btn--primary" onClick={() => createPageAndOpen(null)}>
-                <FilePlus2 size={15} />
-                {t('common.newPage')}
-              </button>
+              {!readOnly && (
+                <button type="button" className="btn btn--primary" onClick={() => createPageAndOpen(null)}>
+                  <FilePlus2 size={15} />
+                  {t('common.newPage')}
+                </button>
+              )}
             </div>
           ) : (
             <div className="cards">
@@ -152,9 +157,9 @@ function Readout({ n, label }: { n: number; label: string }) {
   )
 }
 
-function Key({ icon, label, code, kbd, onClick, primary }: { icon: ReactNode; label: string; code: string; kbd?: string; onClick: () => void; primary?: boolean }) {
+function Key({ icon, label, code, kbd, onClick, primary, disabled }: { icon: ReactNode; label: string; code: string; kbd?: string; onClick: () => void; primary?: boolean; disabled?: boolean }) {
   return (
-    <button type="button" className="key" data-primary={primary || undefined} onClick={onClick}>
+    <button type="button" className="key" data-primary={primary || undefined} onClick={onClick} disabled={disabled}>
       <span className="key__top">
         <span className="key__icon">{icon}</span>
         {kbd ? <span className="kbd key__kbd">{kbd}</span> : <span className="key__code">{code}</span>}

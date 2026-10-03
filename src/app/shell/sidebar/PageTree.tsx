@@ -27,6 +27,8 @@ import { childIds, treeKey, useChildIds, useTreeState } from '../lib/tree'
 import { canNestUnder, closeMobileSidebar, copyPageLink, createPageAndOpen, duplicateAndOpen, goToPage, trashWithUndo } from '../lib/actions'
 import { useIsTouch } from '../lib/hooks'
 import { ALT } from '../../ui/controls'
+import { useReadOnly } from '../cloud/state'
+import { peerNamesOn, usePeerOnPage } from '../cloud/Presence'
 
 type DropPos = 'before' | 'after' | 'inside'
 interface DropState {
@@ -226,6 +228,9 @@ function TreeRow({ id, depth, section, draggable, expanded, hasKids }: { id: ID;
   const dropZone = useDroppable({ id, disabled: !draggable })
   const rowRef = useRef<HTMLDivElement | null>(null)
   const touch = useIsTouch()
+  // viewers: no renaming, duplicating, moving or deleting; others on this page show as a dot
+  const readOnly = useReadOnly()
+  const peer = usePeerOnPage(id)
 
   useEffect(() => {
     if (active && rowRef.current) revealInScroller(rowRef.current)
@@ -238,15 +243,20 @@ function TreeRow({ id, depth, section, draggable, expanded, hasKids }: { id: ID;
   const dropPos = drop?.overId === id ? drop.pos : undefined
   const isDragging = activeId === id
 
+  const edit = !readOnly
   const entries: MenuEntry[] = [
-    { label: t('common.rename'), icon: <PencilLine size={15} />, onSelect: () => setRenaming(true) },
-    { label: t('common.duplicate'), icon: <Copy size={15} />, onSelect: () => duplicateAndOpen(id) },
+    ...(edit
+      ? ([
+          { label: t('common.rename'), icon: <PencilLine size={15} />, onSelect: () => setRenaming(true) },
+          { label: t('common.duplicate'), icon: <Copy size={15} />, onSelect: () => duplicateAndOpen(id) },
+        ] as MenuEntry[])
+      : []),
     page.favorite
       ? { label: t('shell.menu.unfavorite'), icon: <StarOff size={15} />, onSelect: () => useWorkspace.getState().toggleFavorite(id) }
       : { label: t('shell.menu.favorite'), icon: <Star size={15} />, onSelect: () => useWorkspace.getState().toggleFavorite(id) },
     { label: t('common.copyLink'), icon: <Link2 size={15} />, onSelect: () => void copyPageLink(id) },
     // database rows belong to their database: no "Move to"
-    ...(page.databaseId ? [] : ([{ label: t('shell.menu.moveTo'), icon: <FolderInput size={15} />, onSelect: () => useUI.getState().openModal({ type: 'move', pageId: id }) }] as MenuEntry[])),
+    ...(page.databaseId || !edit ? [] : ([{ label: t('shell.menu.moveTo'), icon: <FolderInput size={15} />, onSelect: () => useUI.getState().openModal({ type: 'move', pageId: id }) }] as MenuEntry[])),
     { kind: 'separator' },
     {
       label: t('shell.menu.openInPane'),
@@ -255,16 +265,20 @@ function TreeRow({ id, depth, section, draggable, expanded, hasKids }: { id: ID;
       onSelect: () => useUI.getState().openPane(id),
     },
     { label: t('shell.menu.openInPeek'), icon: <PanelRightOpen size={15} />, onSelect: () => useUI.getState().openPeek(id) },
-    { kind: 'separator' },
-    {
-      label: t('common.delete'),
-      icon: <Trash2 size={15} />,
-      danger: true,
-      onSelect: () => {
-        closeMobileSidebar()
-        trashWithUndo(id)
-      },
-    },
+    ...(edit
+      ? ([
+          { kind: 'separator' },
+          {
+            label: t('common.delete'),
+            icon: <Trash2 size={15} />,
+            danger: true,
+            onSelect: () => {
+              closeMobileSidebar()
+              trashWithUndo(id)
+            },
+          },
+        ] as MenuEntry[])
+      : []),
   ]
 
   return (
@@ -328,9 +342,9 @@ function TreeRow({ id, depth, section, draggable, expanded, hasKids }: { id: ID;
             if (e.altKey) useUI.getState().openPane(id)
             else goToPage(id)
           }}
-          onDoubleClick={() => setRenaming(true)}
+          onDoubleClick={() => edit && setRenaming(true)}
           onKeyDown={(e) => {
-            if (e.key === 'F2') {
+            if (e.key === 'F2' && edit) {
               e.preventDefault()
               setRenaming(true)
             }
@@ -349,6 +363,7 @@ function TreeRow({ id, depth, section, draggable, expanded, hasKids }: { id: ID;
               DB
             </span>
           )}
+          {peer && <span className="sb-row__peer" style={{ '--peer': peer } as CSSProperties} title={t('shell.cloud.presence.viewing', { names: peerNamesOn(id) })} data-testid="tree-peer" />}
         </a>
       )}
       {!renaming && (
@@ -356,7 +371,7 @@ function TreeRow({ id, depth, section, draggable, expanded, hasKids }: { id: ID;
           <button type="button" className="sb-row__btn" aria-label={t('common.more')} onClick={toggleMenu(menu)}>
             <MoreHorizontal size={15} />
           </button>
-          {!isDb && (
+          {!isDb && edit && (
             <button
               type="button"
               className="sb-row__btn"

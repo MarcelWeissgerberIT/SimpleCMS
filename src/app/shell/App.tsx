@@ -22,11 +22,21 @@ import { ModalHost } from './modals/ModalHost'
 import { ErrorBoundary } from './ErrorBoundary'
 import { useBootRedirect, useDrawerAutoClose, useGlobalShortcuts, useLinkInterceptor, usePruneGoneViews, useRouteEffects } from './lib/global'
 import { useIsMobile } from './lib/hooks'
+import { useCloud } from '../cloud'
+import { installCloudDevHook } from './cloud/api'
+import { SignInScreen } from './cloud/SignIn'
+import { InviteScreen } from './cloud/InviteScreen'
+import { CloudDialogs } from './cloud/Dialogs'
+import { CloudBanner } from './cloud/Sync'
+import { usePresenceSync } from './cloud/Presence'
 import './stage/stage.css'
+
+installCloudDevHook()
 
 export function App() {
   useThemeAndLanguage()
   const route = useRoute()
+  const signedOut = useCloud((s) => s.status === 'signed-out')
   if (route.name === 'share')
     return (
       <ErrorBoundary>
@@ -41,6 +51,21 @@ export function App() {
         <Toasts />
       </ErrorBoundary>
     )
+  // team cloud: an invitation works signed in or out; a cloud workspace without a session asks to sign in
+  if (route.name === 'invite')
+    return (
+      <ErrorBoundary>
+        <InviteScreen token={route.token} />
+        <Toasts />
+      </ErrorBoundary>
+    )
+  if (signedOut)
+    return (
+      <ErrorBoundary>
+        <SignInScreen />
+        <Toasts />
+      </ErrorBoundary>
+    )
   return <Workspace route={route} />
 }
 
@@ -51,6 +76,7 @@ function Workspace({ route }: { route: Route }) {
   useRouteEffects(route)
   useDrawerAutoClose()
   usePruneGoneViews()
+  usePresenceSync(route)
   const t = useT()
   const mobile = useIsMobile()
   const focus = useUI((s) => s.focusMode)
@@ -72,6 +98,7 @@ function Workspace({ route }: { route: Route }) {
       </a>
       <Sidebar />
       <div className="app-main">
+        <CloudBanner />
         <Topbar route={route} />
         <ErrorBoundary inline>
           <Stage
@@ -97,6 +124,7 @@ function Workspace({ route }: { route: Route }) {
       <CommandPalette />
       <ErrorBoundary inline>
         <ModalHost />
+        <CloudDialogs />
       </ErrorBoundary>
       <Toasts />
       {presentId && <Presentation pageId={presentId} onClose={() => useUI.getState().present(null)} />}

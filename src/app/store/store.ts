@@ -178,6 +178,19 @@ export interface WorkspaceState extends Workspace {
   addCommentReply: (pageId: ID, commentId: ID, body: string) => ID
   updateCommentReply: (pageId: ID, commentId: ID, replyId: ID, body: string) => void
   deleteCommentReply: (pageId: ID, commentId: ID, replyId: ID) => void
+
+  /**
+   * Cloud binding only (src/app/cloud): apply a batch of changes that came from the server.
+   * `null` removes a page / database. Other areas never call this.
+   */
+  cloudPatch: (patch: CloudPatch) => void
+}
+
+export interface CloudPatch {
+  pages?: Record<ID, Page | null>
+  databases?: Record<ID, Database | null>
+  people?: Person[]
+  settings?: Partial<Settings>
 }
 
 const now = () => Date.now()
@@ -768,6 +781,25 @@ export const useWorkspace = create<WorkspaceState>()(
         if (!p || !c || !Array.isArray(c.replies)) return
         c.replies = c.replies.filter((r) => r.id !== replyId)
         p.updatedAt = now()
+      }),
+
+    cloudPatch: (patch) =>
+      set((s) => {
+        let removed = false
+        for (const [id, page] of Object.entries(patch.pages ?? {})) {
+          if (page) s.pages[id] = page
+          else if (s.pages[id]) {
+            delete s.pages[id]
+            removed = true
+          }
+        }
+        for (const [id, db] of Object.entries(patch.databases ?? {})) {
+          if (db) s.databases[id] = db
+          else delete s.databases[id]
+        }
+        if (patch.people) s.people = patch.people
+        if (patch.settings) Object.assign(s.settings, patch.settings)
+        if (removed && s.recent.some((r) => !s.pages[r])) s.recent = s.recent.filter((r) => !!s.pages[r])
       }),
   })),
 )

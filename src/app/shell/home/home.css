@@ -111,6 +111,16 @@
   transform: translateY(2px);
   box-shadow: inset 0 -1px 0 var(--rule);
 }
+/* viewers in a team workspace: the keys stay in place, unlit */
+.key:disabled,
+.key[data-primary]:disabled {
+  border-color: var(--rule-strong);
+  background: var(--surface-2);
+  box-shadow: none;
+  color: var(--ink-3);
+  cursor: not-allowed;
+  transform: none;
+}
 .key__top {
   display: flex;
   align-items: center;
