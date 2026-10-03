@@ -66,7 +66,7 @@ const T = {
     title: 'Q4-Launch',
     meta: 'REV 14 · 1.204 WÖRTER · LOKAL GESPEICHERT',
     tasks: 'Aufgaben',
-    cols: ['Name', 'Status', 'Owner', 'Fällig'],
+    cols: ['Name', 'Status', 'Zuständig', 'Fällig'],
     status: ['Fertig', 'Läuft', 'Offen', 'Läuft', 'Offen'],
     due: ['03. OKT', '09. OKT', '14. OKT', '21. OKT', '02. NOV'],
     cmd: 'Zu einer Seite springen oder Befehl ausführen…',

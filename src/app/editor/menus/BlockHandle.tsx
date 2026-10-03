@@ -22,6 +22,7 @@ import { useT } from '../../i18n'
 import type { Bridge } from '../lib/bridge'
 import { blockTextRange, currentBlock, deleteBlock, duplicateBlock, turnBlockInto, type BlockRef, type TurnTarget } from '../lib/blocks'
 import { trackMove } from '../lib/moves'
+import { livePages } from '../lib/livePages'
 import { TURN_INTO_ITEMS } from '../lib/catalog'
 import { BlockGlyph } from './SlashMenu'
 import { ColorGrid } from './BubbleToolbar'
@@ -283,7 +284,8 @@ export function BlockHandle({ editor, bridge, pageId }: { editor: Editor; bridge
   const moveEntries = useMemo<MenuEntry[]>(() => {
     if (!moveFor) return []
     const { pages } = useWorkspace.getState()
-    const targets = sortPages(Object.values(pages).filter((p) => p.kind === 'page' && !p.trashed && p.id !== pageId))
+    // never a page inside a trashed parent: "Empty trash" would delete the moved block with it
+    const targets = sortPages(livePages(pages).filter((p) => p.kind === 'page' && p.id !== pageId))
     return [
       { kind: 'section', label: t('editor.blockMenu.moveTo') },
       ...targets.map((p) => ({

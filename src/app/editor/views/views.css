@@ -1159,3 +1159,76 @@
   outline: 2px solid var(--signal);
   outline-offset: 2px;
 }
+
+/* ---------- broken block (render fault isolated to one node view) ---------- */
+.doc-content .broken-block {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 6px 0;
+  padding: 6px 8px 6px 12px;
+  min-height: 36px;
+  border: 1px dashed var(--rule-strong);
+  border-radius: var(--radius-2);
+  background-color: var(--surface);
+  background-image: repeating-linear-gradient(-45deg, transparent 0 5px, var(--rule) 5px 6px);
+  color: var(--c-red-text);
+  user-select: none;
+}
+
+.doc-content .broken-block .label {
+  padding: 1px 5px;
+  background: var(--surface);
+  color: var(--ink-2);
+}
+
+.doc-content .broken-block .btn {
+  margin-left: auto;
+  background: var(--surface);
+}
+
+.doc-content .broken-block--inline {
+  display: inline-flex;
+  gap: 4px;
+  margin: 0 1px;
+  padding: 0 2px 0 5px;
+  min-height: 0;
+  vertical-align: baseline;
+}
+
+.doc-content .broken-block--inline .btn {
+  margin-left: 0;
+  height: 18px;
+  padding: 0 3px;
+}
+
+.doc-content .broken-block.is-selected,
+.doc-content .broken-block.is-block-selected {
+  border-color: var(--signal);
+  box-shadow: 0 0 0 3px var(--signal-wash);
+}
+
+/* ---------- mermaid: module could not be fetched (offline) ---------- */
+.doc-content .mermaid-view__offline {
+  display: grid;
+  justify-items: center;
+  gap: 4px;
+  padding: 14px 16px;
+  text-align: center;
+}
+
+.doc-content .mermaid-view__offline .label {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--ink-2);
+}
+
+.doc-content .mermaid-view__offline-hint {
+  font-size: 12.5px;
+  color: var(--ink-3);
+}
+
+.doc-content .mermaid-view__offline .btn {
+  margin-top: 6px;
+}

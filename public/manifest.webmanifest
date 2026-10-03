@@ -1,0 +1,16 @@
+{
+  "name": "SimpleCMS One",
+  "short_name": "One",
+  "description": "A local-first workspace: pages, databases, Claude AI with your own key, automations. Works offline.",
+  "id": "./app/",
+  "start_url": "./app/",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f2f0ea",
+  "theme_color": "#f2f0ea",
+  "lang": "en",
+  "icons": [
+    { "src": "assets/icons/app-icon.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "assets/icons/app-icon.webp", "sizes": "512x512", "type": "image/webp", "purpose": "any" }
+  ]
+}

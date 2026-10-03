@@ -55,14 +55,54 @@ export function useBreadcrumbs(id: ID | null | undefined): Page[] {
   return useMemo(() => (id ? selectBreadcrumbs(pages, id) : []), [pages, id])
 }
 
-/** Is the page or any ancestor trashed? */
-export function isEffectivelyTrashed(pages: Record<ID, Page>, id: ID): boolean {
-  return selectBreadcrumbs(pages, id).some((p) => p.trashed)
+/*
+ * "Effectively trashed" (the page or any ancestor is in the trash), memoised per pages map:
+ * the map is immutable, so one answer per page id holds until the next store change.
+ */
+const trashedCache = new WeakMap<Record<ID, Page>, Map<ID, boolean>>()
+
+function trashedLookup(pages: Record<ID, Page>): (id: ID) => boolean {
+  let known = trashedCache.get(pages)
+  if (!known) {
+    known = new Map()
+    trashedCache.set(pages, known)
+  }
+  const memo = known
+  return (id) => {
+    const hit = memo.get(id)
+    if (hit !== undefined) return hit
+    const chain: ID[] = []
+    const seen = new Set<ID>()
+    let result = false
+    let cur: Page | undefined = pages[id]
+    while (cur && !seen.has(cur.id)) {
+      const k = memo.get(cur.id)
+      if (k !== undefined) {
+        result = k
+        break
+      }
+      seen.add(cur.id)
+      chain.push(cur.id)
+      if (cur.trashed) {
+        result = true
+        break
+      }
+      cur = cur.parentId ? pages[cur.parentId] : undefined
+    }
+    for (const c of chain) memo.set(c, result)
+    return result
+  }
 }
 
-/** Pages linking to `id` (via page links, mentions, links). */
+/** Is the page or any ancestor trashed? */
+export function isEffectivelyTrashed(pages: Record<ID, Page>, id: ID): boolean {
+  return trashedLookup(pages)(id)
+}
+
+/** Pages linking to `id` (via page links, mentions, links); pages in the trash (or under a trashed parent) don't count. */
 export function selectBacklinks(pages: Record<ID, Page>, id: ID): Page[] {
-  return Object.values(pages).filter((p) => !p.trashed && p.id !== id && linkedPageIds(p.content).includes(id))
+  const trashed = trashedLookup(pages)
+  return Object.values(pages).filter((p) => p.id !== id && !p.trashed && linkedPageIds(p.content).includes(id) && !trashed(p.id))
 }
 
 export function useBacklinks(id: ID | null | undefined): Page[] {
@@ -72,7 +112,10 @@ export function useBacklinks(id: ID | null | undefined): Page[] {
 
 export function useFavorites(): Page[] {
   const pages = useWorkspace((s) => s.pages)
-  return useMemo(() => sortPages(Object.values(pages).filter((p) => p.favorite && !p.trashed)), [pages])
+  return useMemo(() => {
+    const trashed = trashedLookup(pages)
+    return sortPages(Object.values(pages).filter((p) => p.favorite && !trashed(p.id)))
+  }, [pages])
 }
 
 export function useTrash(): Page[] {

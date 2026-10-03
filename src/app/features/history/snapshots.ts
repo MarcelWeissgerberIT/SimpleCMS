@@ -19,6 +19,7 @@ import { getSchema } from '@tiptap/core'
 import type { Schema } from '@tiptap/pm/model'
 import { getExtensions } from '../../editor'
 import { docKey } from './diff'
+import { t } from '../../i18n'
 
 export type SnapshotReason = 'session' | 'auto' | 'ai' | 'restore' | 'manual'
 
@@ -260,6 +261,96 @@ export async function clearHistory(pageId: ID): Promise<void> {
     await delMany([idxKey(pageId), ...idx.map((m) => bodyKey(m.id))], s)
   })
   emit(pageId)
+}
+
+/* ---------------- demo history (fresh workspace) ---------------- */
+
+const blockText = (n: JSONContent): string => (n.text ?? '') + (n.content ?? []).map(blockText).join('')
+
+/** The page as it read a few hours ago: the first paragraph without its last sentence-run (or null). */
+function earlierWording(blocks: JSONContent[]): JSONContent[] | null {
+  for (let i = 0; i < blocks.length; i++) {
+    const b = blocks[i]
+    if (b.type !== 'paragraph' || !b.content?.length) continue
+    const texts = b.content.filter((c) => c.type === 'text' && c.text?.trim())
+    if (texts.length >= 2) {
+      // drop the last text run (e.g. a bold closing sentence) and the space before it
+      const cut = b.content.lastIndexOf(texts[texts.length - 1])
+      const content = b.content.slice(0, cut).map((c) => ({ ...c }))
+      const last = content[content.length - 1]
+      if (last?.type === 'text' && last.text) last.text = last.text.replace(/\s+$/, '')
+      return [...blocks.slice(0, i), { ...b, content }, ...blocks.slice(i + 1)]
+    }
+    const words = blockText(b).trim().split(/\s+/)
+    if (words.length >= 8 && b.content.length === 1 && b.content[0].type === 'text') {
+      const text = words.slice(0, Math.ceil(words.length * 0.6)).join(' ')
+      return [...blocks.slice(0, i), { ...b, content: [{ ...b.content[0], text }] }, ...blocks.slice(i + 1)]
+    }
+  }
+  return null
+}
+
+/**
+ * A fresh workspace ships with a short, back-dated history for one page (the Welcome page), so
+ * the version tape has something to scrub on day one: 3 days, 2 days and 1 day ago the page ended
+ * 3 / 2 / 1 blocks earlier (the oldest under a draft title); until 3 hours ago its first paragraph
+ * read slightly differently. Only when the page has no versions yet; same storage format as
+ * every snapshot.
+ */
+export async function seedDemoHistory(pageId: ID): Promise<void> {
+  const s = db()
+  const p = useWorkspace.getState().pages[pageId]
+  if (!s || !p || isEmptyDoc(p.content)) return
+  // the editor fills in default attributes (toggle state, link rel …) when it opens the page:
+  // derive the versions from that form, so the diffs show only the intended edits
+  let base: JSONContent = p.content!
+  try {
+    schema ??= getSchema(getExtensions())
+    base = schema.nodeFromJSON(p.content).toJSON() as JSONContent
+  } catch {
+    /* keep the stored form */
+  }
+  const all = [...(base.content ?? [])]
+  while (all.length > 1 && all[all.length - 1].type === 'paragraph' && !all[all.length - 1].content?.length) all.pop()
+  if (all.length < 5) return
+  const doc = (blocks: JSONContent[]): JSONContent => ({ ...base, content: structuredClone(blocks) })
+  const H = 3_600_000
+  const now = Date.now()
+  const currentHash = hashContent(p.content, p.title)
+  // a story that only moves forward: blocks get added day by day, the wording is polished last
+  const early = earlierWording(all) ?? all
+  const versions: Array<{ at: number; body: SnapshotBody }> = [
+    { at: now - 72 * H, body: { content: doc(early.slice(0, -3)), title: t('features.history.demoDraft', { title: p.title }), icon: p.icon } },
+    { at: now - 48 * H, body: { content: doc(early.slice(0, -2)), title: p.title, icon: p.icon } },
+    { at: now - 24 * H, body: { content: doc(early.slice(0, -1)), title: p.title, icon: p.icon } },
+    { at: now - 3 * H, body: { content: doc(early), title: p.title, icon: p.icon } },
+  ]
+  await enqueue(pageId, async () => {
+    const idx = (await get<SnapshotMeta[]>(idxKey(pageId), s)) ?? []
+    if (idx.length) return // the page already has a history of its own
+    const metas: SnapshotMeta[] = []
+    const entries: Array<[string, SnapshotBody | SnapshotMeta[]]> = []
+    for (const v of versions) {
+      const hash = hashContent(v.body.content, v.body.title)
+      if (hash === currentHash || metas.some((m) => m.hash === hash)) continue
+      const meta: SnapshotMeta = {
+        id: newId(),
+        pageId,
+        at: v.at,
+        reason: 'auto',
+        title: v.body.title,
+        words: countWords(v.body.content),
+        blocks: v.body.content?.content?.length ?? 0,
+        hash,
+      }
+      metas.push(meta)
+      entries.push([bodyKey(meta.id), v.body])
+    }
+    if (!metas.length) return
+    const { keep, drop } = thinSnapshots(metas)
+    await setMany([...entries.filter(([k]) => !drop.some((d) => bodyKey(d.id) === k)), [idxKey(pageId), keep]], s)
+    emit(pageId)
+  }).catch((e) => console.warn('[one] demo history failed', e))
 }
 
 /* ---------------- background service ---------------- */

@@ -106,7 +106,8 @@ lossless JSON backup. Share read-only pages as links that *contain* the page (co
 involved.
 
 **Private by construction** — no analytics, no cookies, no backend. A service worker keeps the app working offline
-after the first visit. Several tabs stay in sync.
+after the first visit. Several tabs stay in sync — when two of them edit the same page at the same moment, the
+changes are merged (three-way, block by block and character by character), so nobody's words get lost.
 
 ## The intro
 
@@ -133,6 +134,7 @@ npm run dev          # landing at http://localhost:5173/ , app at /app/
 npm run typecheck
 npm run build:pages  # production build with base /SimpleCMS/
 npm run test:e2e     # Playwright end-to-end suite (builds + previews automatically)
+E2E_PORT=4190 npm run test:e2e   # a second suite in parallel: own port, own build folder
 ```
 
 `node scripts/capture-shots.mjs` regenerates the landing-page screenshots from the real app.

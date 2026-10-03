@@ -131,24 +131,99 @@ export function hexOf(href: string): string | null {
 /* ZIP                                                                 */
 /* ------------------------------------------------------------------ */
 
-function unzipAsync(data: Uint8Array): Promise<Record<string, Uint8Array>> {
+/**
+ * Unpacking limits. A crafted or simply huge archive must end in a friendly message, not in a
+ * crashed tab: every entry is inflated in memory (nested Notion part zips included).
+ */
+export const ZIP_MAX_BYTES = 500 * 1024 * 1024
+export const ZIP_MAX_ENTRIES = 50_000
+
+export class ArchiveTooLargeError extends Error {
+  constructor(
+    readonly bytes: number,
+    readonly entries: number,
+  ) {
+    super(`archive too large (${Math.round(bytes / 1048576)} MB, ${entries} entries)`)
+    this.name = 'ArchiveTooLargeError'
+  }
+}
+
+/** Running totals across every archive of one import (top level and nested). */
+export interface ZipBudget {
+  bytes: number
+  entries: number
+}
+export const zipBudget = (): ZipBudget => ({ bytes: 0, entries: 0 })
+
+const keepEntry = (name: string) => !name.endsWith('/') && !JUNK.test(name)
+
+/** Nested part zips are counted by what they contain, not by their own size. */
+const expands = (name: string, depth: number) => extname(name) === 'zip' && depth < 3
+
+function check(budget: ZipBudget) {
+  if (budget.entries > ZIP_MAX_ENTRIES || budget.bytes > ZIP_MAX_BYTES) throw new ArchiveTooLargeError(budget.bytes, budget.entries)
+}
+
+/** Entries an archive declares (central directory only — nothing is inflated). */
+function scanZip(data: Uint8Array): Promise<Array<{ name: string; originalSize: number }>> {
+  const list: Array<{ name: string; originalSize: number }> = []
   return new Promise((resolve, reject) =>
-    unzip(data, { filter: (f) => !f.name.endsWith('/') && !JUNK.test(f.name) }, (err, out) => (err ? reject(err) : resolve(out))),
+    unzip(
+      data,
+      {
+        filter: (f) => {
+          if (keepEntry(f.name)) list.push({ name: f.name, originalSize: f.originalSize })
+          return false
+        },
+      },
+      (err) => (err ? reject(err) : resolve(list)),
+    ),
   )
+}
+
+async function unzipAsync(data: Uint8Array, budget: ZipBudget, depth: number): Promise<Record<string, Uint8Array>> {
+  // 1) what the archive claims, before anything is inflated
+  let claimed = 0
+  for (const f of await scanZip(data)) {
+    budget.entries++
+    if (!expands(f.name, depth)) claimed += f.originalSize
+  }
+  budget.bytes += claimed
+  check(budget)
+  // 2) inflate; declared sizes can lie, so the totals continue with what actually came out
+  const out = await new Promise<Record<string, Uint8Array>>((resolve, reject) =>
+    unzip(data, { filter: (f) => keepEntry(f.name) }, (err, files) => (err ? reject(err) : resolve(files))),
+  )
+  let actual = 0
+  for (const [name, bytes] of Object.entries(out)) if (!expands(name, depth)) actual += bytes.length
+  budget.bytes += actual - claimed
+  check(budget)
+  return out
 }
 
 export const isZip = (data: Uint8Array) => data.length > 4 && data[0] === 0x50 && data[1] === 0x4b && (data[2] === 3 || data[2] === 5)
 
-/** Unzip (recursively: Notion splits big exports into nested "…Part-1.zip" files). */
-export async function expandZip(data: Uint8Array, prefix = '', depth = 0): Promise<ImportEntry[]> {
-  const files = await unzipAsync(data)
+/**
+ * Unzip (recursively: Notion splits big exports into nested "…Part-1.zip" files). Throws
+ * ArchiveTooLargeError past ZIP_MAX_BYTES / ZIP_MAX_ENTRIES — pass one budget for all archives
+ * of an import.
+ */
+export async function expandZip(data: Uint8Array, prefix = '', depth = 0, budget: ZipBudget = zipBudget()): Promise<ImportEntry[]> {
+  const files = await unzipAsync(data, budget, depth)
   const out: ImportEntry[] = []
   for (const [name, bytes] of Object.entries(files)) {
     const path = normPath(`${prefix}/${name}`)
-    if (extname(path) === 'zip' && depth < 3 && isZip(bytes)) {
+    if (expands(path, depth) && isZip(bytes)) {
       // nested part: its content lives at the same level as the part itself
-      out.push(...(await expandZip(bytes, dirname(path), depth + 1)))
-    } else out.push({ path, data: bytes })
+      out.push(...(await expandZip(bytes, dirname(path), depth + 1, budget)))
+    } else {
+      // a ".zip" that is no zip after all stays a file: count it
+      if (expands(path, depth)) {
+        budget.bytes += bytes.length
+        check(budget)
+      }
+      out.push({ path, data: bytes })
+    }
   }
   return out
 }

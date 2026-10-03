@@ -11,7 +11,7 @@ import { resolveAssetUrl } from '../../lib/files'
 import { openPage } from '../../lib/router'
 import { flushSave } from '../../store/persistence'
 import { pauseAutomations } from '../automations/engine'
-import { basename, buildPlan, expandZip, extname, isZip, planStats, type ImportEntry } from './import/plan'
+import { ArchiveTooLargeError, ZIP_MAX_BYTES, ZIP_MAX_ENTRIES, basename, buildPlan, expandZip, extname, isZip, planStats, zipBudget, type ImportEntry } from './import/plan'
 import { applyPlan, type ImportResult } from './import/apply'
 import { applyBackup, backupStats, parseBackup, type Backup, type RestoreResult } from './backup'
 import { Meter, Readout } from './parts'
@@ -111,6 +111,7 @@ export function ImportModal({ onClose }: { onClose: () => void }) {
         update('unpack', 0, zips.length || 1)
         let z = 0
         const usedPrefixes = new Set<string>()
+        const budget = zipBudget()
         for (const zip of zips) {
           // several unrelated zips → one folder each (named after the zip); Notion parts → shared root
           let prefix = ''
@@ -120,7 +121,7 @@ export function ImportModal({ onClose }: { onClose: () => void }) {
             for (let k = 2; usedPrefixes.has(prefix.toLowerCase()); k++) prefix = `${base} (${k})`
             usedPrefixes.add(prefix.toLowerCase())
           }
-          entries.push(...(await expandZip(zip.data, prefix)))
+          entries.push(...(await expandZip(zip.data, prefix, 0, budget)))
           update('unpack', ++z, zips.length)
         }
         if (!zips.length) update('unpack', 1, 1)
@@ -153,13 +154,18 @@ export function ImportModal({ onClose }: { onClose: () => void }) {
         if (result.rootId) openPage(result.rootId)
         setPhase({ name: 'done', result, ms: performance.now() - started, skipped })
       } catch (err) {
+        if (err instanceof ArchiveTooLargeError) {
+          const nf = new Intl.NumberFormat(lang === 'de' ? 'de-DE' : 'en-GB')
+          setPhase({ name: 'error', message: t('features.io.err.tooLarge', { mb: nf.format(ZIP_MAX_BYTES / 1048576), files: nf.format(ZIP_MAX_ENTRIES) }) })
+          return
+        }
         console.error('[import] failed', err)
         setPhase({ name: 'error', message: t('features.io.err.generic', { msg: (err as Error)?.message ?? String(err) }) })
       } finally {
         resume()
       }
     },
-    [t, dateLabel],
+    [t, dateLabel, lang],
   )
 
   const onPick = (list: FileList | null, folder = false) => {

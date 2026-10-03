@@ -331,6 +331,7 @@ export function PropertyConfig({ db, prop, onEditFormula }: { db: Database; prop
  * unmount the field before it ever blurs).
  */
 function PrefixField({ value, onSave }: { value: string; onSave: (v: string) => void }) {
+  const t = useT()
   const draft = useRef<string | null>(null)
   const save = useRef(onSave)
   save.current = onSave
@@ -344,6 +345,7 @@ function PrefixField({ value, onSave }: { value: string; onSave: (v: string) => 
   return (
     <input
       className="input db-cfg__input"
+      aria-label={t('database.uid.prefix')}
       defaultValue={value}
       placeholder="TASK"
       maxLength={12}

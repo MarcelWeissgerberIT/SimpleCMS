@@ -42,13 +42,14 @@ test.describe('seeded Projects database', () => {
     expect(flat.some((c) => /(55[.,]6\d?|56)\s?%/.test(c)), `average progress in ${JSON.stringify(flat)}`).toBe(true)
   })
 
-  test('chart "By status" counts the rows per status', async ({ page }) => {
-    await db(page).getByRole('tab').filter({ hasText: 'By status' }).click()
+  test('chart sums the budget per status', async ({ page }) => {
+    await db(page).getByRole('tab').filter({ hasText: 'Chart' }).click()
     await expect(db(page)).toHaveAttribute('data-view', 'chart')
     await expect(db(page).locator('.dbch-bar')).toHaveCount(4)
     const table = db(page).locator('.dbch-table')
-    for (const s of ['Backlog', 'In progress', 'Review', 'Done']) await expect(table.locator('tr', { hasText: s })).toContainText('2')
-    await expect(db(page).locator('.dbch-total__num')).toHaveText('8')
+    const sums: Record<string, string> = { Backlog: '7,500', 'In progress': '20,500', Review: '13,000', Done: '12,000' }
+    for (const [s, sum] of Object.entries(sums)) await expect(table.locator('tr', { hasText: s })).toContainText(sum)
+    await expect(db(page).locator('.dbch-total__num')).toContainText('53,000')
   })
 
   test('timeline shows a bar per project and board columns per status', async ({ page }) => {

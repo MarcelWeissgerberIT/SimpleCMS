@@ -3,12 +3,56 @@
  * Mermaid as SVG) and PDF via the browser print dialog (same document in a hidden iframe).
  */
 import type { JSONContent } from '@tiptap/core'
-import type { Database, ID, Page } from '../../../store/types'
+import { COLOR_NAMES, type Database, type ID, type Page } from '../../../store/types'
 import type { propertyValueToText as PropertyValueToText } from '../../../database'
 import { getFile, readAsDataUrl, resolveAssetUrl } from '../../../lib/files'
 import { collectRefs, type ExportTree } from './collect'
 
-const esc = (s: string) => s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!)
+const esc = (s: unknown) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!)
+
+/*
+ * Everything that lands in the exported markup is escaped or whitelisted: page ids, covers and the
+ * language come from the workspace — which may be an imported backup — and the PDF path renders the
+ * document on the app's own origin.
+ */
+
+/** A string as a CSS <string> token (for url("…")): no quote, backslash or newline can end it early. */
+const cssString = (s: string) => `"${s.replace(/["\\\n\r\f]/g, (c) => `\\${c.charCodeAt(0).toString(16)} `)}"`
+
+/** Cover position as a plain percentage 0–100. */
+const percent = (v: unknown) => {
+  const n = Number(v)
+  return Number.isFinite(n) ? Math.min(100, Math.max(0, n)) : 50
+}
+
+/** A CSS gradient value, or '' (nothing that could load a URL or end the declaration). */
+const safeGradient = (v: unknown) => {
+  const s = String(v ?? '')
+  return /^[\w\s#%(),./+-]+$/.test(s) && /gradient\(/i.test(s) && !/url\s*\(|expression/i.test(s) ? s : ''
+}
+
+const safeLang = (v: unknown): 'en' | 'de' => (v === 'de' ? 'de' : 'en')
+
+/** Element ids / fragment links for a page (ids are escaped wherever they are interpolated). */
+const anchorOf = (id: ID) => `p-${id}`
+
+/** javascript:/vbscript: URLs (browsers ignore control characters and spaces inside the scheme). */
+const isScriptUrl = (v: string) => /^(javascript|vbscript):/i.test(v.replace(/[\u0000-\u0020]/g, ''))
+
+/**
+ * Last line of defence for the rendered page content: no scripts, frames, event handlers or
+ * script URLs, whatever the stored document contains.
+ */
+function sanitize(root: HTMLElement) {
+  root.querySelectorAll('script, iframe, frame, object, embed, base, meta, link, form').forEach((el) => el.remove())
+  root.querySelectorAll('*').forEach((el) => {
+    for (const attr of Array.from(el.attributes)) {
+      const name = attr.name.toLowerCase()
+      if (name.startsWith('on') || name === 'srcdoc' || name === 'formaction') el.removeAttribute(attr.name)
+      else if ((name === 'href' || name === 'src' || name === 'xlink:href' || name === 'action') && isScriptUrl(attr.value)) el.removeAttribute(attr.name)
+    }
+  })
+}
 
 /** Copy the app's design tokens (light + dark) so the export looks like One without duplicating values. */
 function tokenCSS(): string {
@@ -234,7 +278,7 @@ async function finishContent(html: string, page: Page, ctx: { files: Map<string,
   // internal links
   root.querySelectorAll<HTMLAnchorElement>('a[href^="#/p/"]').forEach((a) => {
     const id = a.getAttribute('href')!.slice(4).split('?')[0]
-    a.setAttribute('href', ctx.ids.has(id) ? `#p-${id}` : `${ctx.appUrl}#/p/${id}`)
+    a.setAttribute('href', ctx.ids.has(id) ? `#${anchorOf(id)}` : `${ctx.appUrl}#/p/${encodeURIComponent(id)}`)
   })
   // files / images
   root.querySelectorAll<HTMLElement>('[src^="onefile:"], [href^="onefile:"], img[data-src^="onefile:"]').forEach((el) => {
@@ -261,12 +305,11 @@ async function finishContent(html: string, page: Page, ctx: { files: Map<string,
     if (block) el.classList.add('math-block')
   })
   // mermaid → SVG
-  let n = 0
   for (const el of Array.from(root.querySelectorAll<HTMLElement>('[data-type="mermaid"]'))) {
     const code = el.getAttribute('data-code') ?? el.textContent ?? ''
     if (!ctx.mermaid || !code.trim()) continue
     try {
-      const { svg } = await ctx.mermaid.render(`one-export-mm-${page.id}-${n++}`, code)
+      const { svg } = await ctx.mermaid.render(`one-export-mm-${++mermaidSeq}`, code)
       el.innerHTML = svg
       el.className = 'mermaid-svg'
     } catch {
@@ -283,12 +326,15 @@ async function finishContent(html: string, page: Page, ctx: { files: Map<string,
   // table of contents
   const heads = headingsOf(page.content)
   const hEls = Array.from(root.querySelectorAll('h1, h2, h3'))
-  hEls.forEach((h, i) => h.setAttribute('id', `p-${page.id}-h${i}`))
+  hEls.forEach((h, i) => h.setAttribute('id', `${anchorOf(page.id)}-h${i}`))
   root.querySelectorAll('nav[data-type="toc"]').forEach((nav) => {
-    nav.innerHTML = heads.map((h, i) => `<a class="l${h.level}" href="#p-${page.id}-h${i}">${esc(h.text)}</a>`).join('')
+    nav.innerHTML = heads.map((h, i) => `<a class="l${Math.min(3, Math.max(1, h.level))}" href="#${esc(anchorOf(page.id))}-h${i}">${esc(h.text)}</a>`).join('')
   })
+  sanitize(root)
   return root.innerHTML
 }
+
+let mermaidSeq = 0
 
 interface KatexLike {
   renderToString: (tex: string, options?: Record<string, unknown>) => string
@@ -317,7 +363,7 @@ function dbTable(db: Database, rows: Page[], ids: Set<ID>, untitled: string, row
       const tds = props.map((p) => {
         if (p.type === 'title') {
           const title = esc(r.title.trim() || untitled)
-          return `<td>${ids.has(r.id) && r.content ? `<a href="#p-${r.id}">${title}</a>` : title}</td>`
+          return `<td>${ids.has(r.id) && r.content ? `<a href="#${esc(anchorOf(r.id))}">${title}</a>` : title}</td>`
         }
         return `<td>${esc(propertyValueToText(db, p, r))}</td>`
       })
@@ -339,7 +385,8 @@ export async function buildHTML(tree: ExportTree, opts: HtmlOptions): Promise<st
   if (usesMermaid) {
     try {
       const m = (await import('mermaid')).default
-      m.initialize({ startOnLoad: false, theme: 'neutral', securityLevel: 'strict', fontFamily: 'Archivo, sans-serif' })
+      // dagre: mermaid 12 defaults to ELK, a large extra chunk the export does not need
+      m.initialize({ startOnLoad: false, theme: 'neutral', securityLevel: 'strict', layout: 'dagre', fontFamily: 'Archivo, sans-serif' })
       mermaid = m
     } catch {
       mermaid = null
@@ -383,31 +430,37 @@ export async function buildHTML(tree: ExportTree, opts: HtmlOptions): Promise<st
     if (p.cover?.type === 'image') {
       const v = p.cover.value
       const src = v.startsWith('onefile:') ? files.get(v) : /^(https?:|data:)/.test(v) ? v : await inlineAsset(v)
-      if (src) cover = `<div class="cover" style="background-image:url('${esc(src)}');background-position:center ${p.cover.positionY}%"></div>`
-    } else if (p.cover?.type === 'color') cover = `<div class="cover" style="background:var(--c-${p.cover.value}-bg)"></div>`
-    else if (p.cover?.type === 'gradient') cover = `<div class="cover" style="background:${esc(p.cover.value)}"></div>`
+      if (src && !isScriptUrl(src)) cover = `<div class="cover" style="${esc(`background-image:url(${cssString(src)});background-position:center ${percent(p.cover.positionY)}%`)}"></div>`
+    } else if (p.cover?.type === 'color') {
+      const color = COLOR_NAMES.includes(p.cover.value) ? p.cover.value : 'gray'
+      cover = `<div class="cover" style="background:var(--c-${color}-bg)"></div>`
+    } else if (p.cover?.type === 'gradient') {
+      const gradient = safeGradient(p.cover.value)
+      if (gradient) cover = `<div class="cover" style="${esc(`background:${gradient}`)}"></div>`
+    }
     const trail = crumbs(p)
     const content = p.content ? await finishContent(docToHTML(p.content), p, { files, ids, appUrl: opts.appUrl, katex, mermaid }) : ''
     parts.push(
-      `<article id="p-${p.id}">${cover}${trail.length ? `<div class="crumbs">${trail.map(esc).join(' / ')}</div>` : ''}${icon}<h1 class="title">${esc(p.title.trim() || opts.untitled)}</h1>${rowDb ? propsTable(rowDb, p) : ''}${content ? `<div class="content">${content}</div>` : ''}${db ? dbTable(db, tree.rows(p.id), ids, opts.untitled, opts.labels.rows) : ''}</article>`,
+      `<article id="${esc(anchorOf(p.id))}">${cover}${trail.length ? `<div class="crumbs">${trail.map(esc).join(' / ')}</div>` : ''}${icon}<h1 class="title">${esc(p.title.trim() || opts.untitled)}</h1>${rowDb ? propsTable(rowDb, p) : ''}${content ? `<div class="content">${content}</div>` : ''}${db ? dbTable(db, tree.rows(p.id), ids, opts.untitled, opts.labels.rows) : ''}</article>`,
     )
     done++
     opts.onProgress?.(done, articles.length)
     if (done % 8 === 0) await new Promise((r) => setTimeout(r, 0))
   }
 
-  const date = new Intl.DateTimeFormat(opts.lang === 'de' ? 'de-DE' : 'en-GB', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date())
+  const lang = safeLang(opts.lang)
+  const date = new Intl.DateTimeFormat(lang === 'de' ? 'de-DE' : 'en-GB', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date())
   // the plate counts what the contents list shows (rows with content are articles, not entries)
   const pageCount = articles.filter((p) => !p.databaseId).length
   const index =
     articles.length > 1
       ? `<h1 class="title doc-title">${esc(opts.title)}</h1><div class="index-label">${esc(opts.labels.contents)}</div><ol class="index">${articles
           .filter((p) => !p.databaseId)
-          .map((p, i) => `<li class="d${Math.min(3, depth(p))}"><span>${String(i + 1).padStart(2, '0')}</span><a href="#p-${p.id}">${esc(p.title.trim() || opts.untitled)}</a></li>`)
+          .map((p, i) => `<li class="d${Math.min(3, depth(p))}"><span>${String(i + 1).padStart(2, '0')}</span><a href="#${esc(anchorOf(p.id))}">${esc(p.title.trim() || opts.untitled)}</a></li>`)
           .join('')}</ol>`
       : ''
   return `<!doctype html>
-<html lang="${opts.lang}">
+<html lang="${lang}">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -431,6 +484,9 @@ ${parts.join('\n')}
 export function printHTML(html: string): Promise<void> {
   return new Promise((resolve) => {
     const frame = document.createElement('iframe')
+    // Never run script in the printed document: math and diagrams are pre-rendered, so printing
+    // needs none. Same origin keeps fonts + print() reachable from here; modals allow the dialog.
+    frame.setAttribute('sandbox', 'allow-same-origin allow-modals')
     frame.setAttribute('aria-hidden', 'true')
     frame.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0;opacity:0;pointer-events:none'
     let finished = false

@@ -204,13 +204,14 @@ test.describe('panes and peek', () => {
 })
 
 test.describe('automations', () => {
-  test('recipe "Notify when Status → Done" shows a toast when a row is finished', async ({ page }) => {
+  test('the seeded "Notify when Status → Done" automation shows a toast when a row is finished', async ({ page }) => {
     await openApp(page)
     const projects = await pageIdByTitle(page, 'Projects')
     await gotoPage(page, projects)
     await page.locator('#main').getByRole('toolbar', { name: 'Database toolbar' }).getByRole('button', { name: 'Automations' }).click()
     const dialog = page.getByRole('dialog')
-    await dialog.getByRole('button', { name: /Notify when Status → Done/ }).click()
+    // the demo workspace ships one armed automation
+    await dialog.getByRole('option', { name: /Notify when Status → Done/ }).click()
     await expect(dialog.getByRole('switch', { name: 'Enabled' })).toHaveAttribute('aria-checked', 'true')
     await page.keyboard.press('Escape')
     // finish a row on the board (drag would work too — set it through the row's peek property)
@@ -219,6 +220,24 @@ test.describe('automations', () => {
     await row.locator('[role="gridcell"][data-type="status"]').click()
     await page.locator('.db-picker .db-opt', { hasText: 'Done' }).click()
     await expect(page.getByText(/Pricing page experiment → Done/)).toBeVisible({ timeout: 10_000 })
+  })
+
+  test('recipe "Notify when Status → Done" arms a toast on a new database', async ({ page }) => {
+    await openApp(page)
+    const dbId = await wsEval(page, (s) => s.createDatabase({ title: 'Chores', parentId: null }))
+    await gotoPage(page, dbId)
+    await page.locator('#main').getByRole('toolbar', { name: 'Database toolbar' }).getByRole('button', { name: 'Automations' }).click()
+    const dialog = page.getByRole('dialog')
+    await dialog.getByRole('button', { name: /Notify when Status → Done/ }).click()
+    await expect(dialog.getByRole('switch', { name: 'Enabled' })).toHaveAttribute('aria-checked', 'true')
+    await page.keyboard.press('Escape')
+    await wsEval(page, (s, id) => {
+      const status = s.databases[id].properties.find((p: { type: string }) => p.type === 'status')
+      const done = status.options.find((o: { group: string }) => o.group === 'done')
+      const row = s.createRow(id, { title: 'Water the plants' })
+      s.setRowProperty(row, status.id, done.id)
+    }, dbId)
+    await expect(page.getByText(/Water the plants → Done/)).toBeVisible({ timeout: 10_000 })
   })
 })
 
@@ -359,6 +378,58 @@ test.describe('duplicate keeps references inside the copy', () => {
     expect(r.children).toHaveLength(4)
     expect(r.links).toHaveLength(4)
     expect(r.links.filter((id) => r.children.includes(id)), 'page links in the copy point at the copied sub-pages').toHaveLength(4)
+  })
+})
+
+test.describe('duplicate remaps references (store level)', () => {
+  test('mentions, #/p links, inline databases and relations point at the copies; trashed subtrees stay behind', async ({ page }) => {
+    await openApp(page)
+    const r = await wsEval(page, (s) => {
+      const root = s.createPage({ title: 'Dup root' })
+      const child = s.createPage({ title: 'Dup child', parentId: root })
+      const gone = s.createPage({ title: 'Dup trashed', parentId: root })
+      s.createPage({ title: 'Dup under trashed', parentId: gone })
+      s.trashPage(gone)
+      const outside = s.createPage({ title: 'Dup outside' })
+      const db = s.createDatabase({ parentId: root, inline: true, title: 'Dup tasks' })
+      const rel = s.addProperty(db, { type: 'relation', name: 'Blocks', relationDatabaseId: db })
+      const r1 = s.createRow(db, { title: 'Task one' })
+      const r2 = s.createRow(db, { title: 'Task two' })
+      s.setRowProperty(r2, rel, [r1])
+      // `s` is the state at call time: read what the actions created from a fresh snapshot
+      const view = window.__one.workspace.getState().databases[db].views[0].id
+      s.setContent(root, {
+        type: 'doc',
+        content: [
+          { type: 'paragraph', content: [{ type: 'mention', attrs: { id: child, label: 'Dup child', kind: 'page' } }, { type: 'text', text: ' see ', marks: [{ type: 'link', attrs: { href: `#/p/${child}?b=blk1` } }] }, { type: 'mention', attrs: { id: outside, label: 'Dup outside', kind: 'page' } }] },
+          { type: 'pageLink', attrs: { pageId: child } },
+          { type: 'databaseBlock', attrs: { databaseId: db, viewId: view } },
+        ],
+      }, 'test')
+      const copy = s.duplicatePage(root)!
+      const st = window.__one.workspace.getState()
+      const pages = Object.values(st.pages) as Array<Record<string, any>>
+      const kids = pages.filter((p) => p.parentId === copy)
+      const copyChild = kids.find((p) => p.title === 'Dup child')!.id
+      const copyDb = kids.find((p) => p.kind === 'database')!.id
+      const c = st.pages[copy].content.content
+      const rows = pages.filter((p) => p.databaseId === copyDb)
+      const copyR1 = rows.find((p) => p.title === 'Task one')!.id
+      const copyR2 = rows.find((p) => p.title === 'Task two')!
+      return {
+        mention: c[0].content[0].attrs.id === copyChild,
+        href: c[0].content[1].marks[0].attrs.href === `#/p/${copyChild}?b=blk1`,
+        outside: c[0].content[2].attrs.id === outside,
+        pageLink: c[1].attrs.pageId === copyChild,
+        dbBlock: c[2].attrs.databaseId === copyDb,
+        viewId: st.databases[copyDb].views.some((v: { id: string }) => v.id === c[2].attrs.viewId) && c[2].attrs.viewId !== view,
+        relationDb: st.databases[copyDb].properties.find((p: { id: string }) => p.id === rel).relationDatabaseId === copyDb,
+        relation: JSON.stringify(copyR2.properties[rel]) === JSON.stringify([copyR1]),
+        noTrashed: pages.filter((p) => p.title === 'Dup trashed').length === 1 && pages.filter((p) => p.title === 'Dup under trashed').length === 1,
+        originalUntouched: st.pages[root].content.content[1].attrs.pageId === child,
+      }
+    })
+    expect(r).toEqual({ mention: true, href: true, outside: true, pageLink: true, dbBlock: true, viewId: true, relationDb: true, relation: true, noTrashed: true, originalUntouched: true })
   })
 })
 

@@ -27,11 +27,20 @@ export function notionYearly(plan: NotionPlan, billing: Billing, seats: number):
   return NOTION_PRICING.perSeatMonth[plan][billing] * seats * 12
 }
 
+/** One formatter per (language, cents): building an Intl.NumberFormat is expensive (tens of ms cold). */
+const usdFormats = new Map<string, Intl.NumberFormat>()
+
 export function formatUsd(value: number, lang: Lang, cents = true): string {
-  return new Intl.NumberFormat(lang === 'de' ? 'de-DE' : 'en-US', {
-    style: 'currency',
-    currency: 'USD',
-    minimumFractionDigits: cents ? 2 : 0,
-    maximumFractionDigits: cents ? 2 : 0,
-  }).format(value)
+  const key = `${lang}:${cents ? 1 : 0}`
+  let f = usdFormats.get(key)
+  if (!f) {
+    f = new Intl.NumberFormat(lang === 'de' ? 'de-DE' : 'en-US', {
+      style: 'currency',
+      currency: 'USD',
+      minimumFractionDigits: cents ? 2 : 0,
+      maximumFractionDigits: cents ? 2 : 0,
+    })
+    usdFormats.set(key, f)
+  }
+  return f.format(value)
 }

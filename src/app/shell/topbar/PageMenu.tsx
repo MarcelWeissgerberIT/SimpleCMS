@@ -64,7 +64,8 @@ export function PageMenu({ page, anchor, onClose, mobile }: { page: Page; anchor
     { kind: 'separator' },
     { label: t('common.copyLink'), icon: <Link2 size={15} />, onSelect: () => void copyPageLink(page.id) },
     { label: t('common.duplicate'), icon: <Copy size={15} />, onSelect: () => duplicateAndOpen(page.id) },
-    { label: t('shell.menu.moveTo'), icon: <FolderInput size={15} />, onSelect: () => ui.openModal({ type: 'move', pageId: page.id }) },
+    // database rows belong to their database: no "Move to"
+    ...(page.databaseId ? [] : ([{ label: t('shell.menu.moveTo'), icon: <FolderInput size={15} />, onSelect: () => ui.openModal({ type: 'move', pageId: page.id }) }] as MenuEntry[])),
     ...(mobile
       ? ([
           { label: t('shell.topbar.share'), icon: <Share2 size={15} />, onSelect: () => ui.openModal({ type: 'share', pageId: page.id }) },

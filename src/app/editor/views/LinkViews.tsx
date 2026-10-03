@@ -3,6 +3,7 @@ import { NodeViewWrapper, type ReactNodeViewProps } from '@tiptap/react'
 import { useShallow } from 'zustand/react/shallow'
 import { ArrowUpRight, CalendarDays } from 'lucide-react'
 import { useWorkspace } from '../../store/store'
+import { isEffectivelyTrashed } from '../../store/selectors'
 import { useUI } from '../../store/ui'
 import { openPage } from '../../lib/router'
 import { PageIcon } from '../../ui/PageIcon'
@@ -13,7 +14,8 @@ function usePageInfo(id: string | null) {
   return useWorkspace(
     useShallow((s) => {
       const p = id ? s.pages[id] : undefined
-      return { exists: !!p, title: p?.title ?? '', icon: p?.icon ?? null, kind: p?.kind ?? 'page', trashed: !!p?.trashed }
+      // "in trash" also when an ancestor is trashed — the page goes with it on "Empty trash"
+      return { exists: !!p, title: p?.title ?? '', icon: p?.icon ?? null, kind: p?.kind ?? 'page', trashed: !!(id && p && isEffectivelyTrashed(s.pages, id)) }
     }),
   )
 }

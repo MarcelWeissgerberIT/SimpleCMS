@@ -121,6 +121,13 @@
 .pv-cover__arm:active {
   transform: translateY(1px);
 }
+/* touch + focus mode: the fixed "Exit focus" key owns the top-right corner */
+@media (hover: none) {
+  .app[data-focus] .pv-cover__arm,
+  .app[data-focus] .pv-cover__ctrls {
+    top: 48px;
+  }
+}
 .pv-cover__btn {
   display: inline-flex;
   align-items: center;
@@ -219,6 +226,12 @@
 .pv-add:hover {
   background: var(--hover);
   color: var(--ink-2);
+}
+/* <h1> around the title field: a heading for screen readers, no box or type of its own */
+.pv-titlewrap {
+  margin: 0;
+  font: inherit;
+  letter-spacing: inherit;
 }
 .pv-title {
   display: block;
@@ -466,6 +479,22 @@
   }
   .spec__cell:nth-child(n + 3) {
     border-top: 1px solid var(--rule);
+  }
+}
+/* phone-width plates: the ID drops to its own line, the created cell keeps the date only */
+@container (max-width: 420px) {
+  .spec__head {
+    flex-wrap: wrap;
+    row-gap: 3px;
+  }
+  .spec__head > span:first-child {
+    white-space: nowrap;
+  }
+  .spec__id {
+    margin-left: auto;
+  }
+  .spec__time {
+    display: none;
   }
 }
 

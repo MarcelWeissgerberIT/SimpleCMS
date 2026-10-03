@@ -14,6 +14,7 @@ import type { Bridge } from '../lib/bridge'
 import { addDays, nextMonday } from 'date-fns'
 import { dateMentionAttrs, dateMentionLabel, parseDateQuery } from '../lib/dates'
 import { SUGGEST_KEYS, type SuggestRun } from '../extensions/suggest'
+import { liveIds } from '../lib/livePages'
 import { useScrollActive, useSuggestAnchor, useSuggestKeys } from './common'
 
 interface Row {
@@ -34,6 +35,8 @@ export function MentionMenu({ editor, bridge, pageId }: { editor: Editor; bridge
   const listRef = useRef<HTMLDivElement>(null)
   const query = suggest?.query.trim() ?? ''
   const open = !!suggest
+  // pages inside a trashed parent are gone with it on "Empty trash" — computed once per opening
+  const live = useMemo(() => (open ? liveIds(useWorkspace.getState().pages) : null), [open])
 
   const insert = (range: Range, attrs: { id: string; label: string; kind: 'page' | 'date' | 'person' }) =>
     editor
@@ -52,7 +55,7 @@ export function MentionMenu({ editor, bridge, pageId }: { editor: Editor; bridge
     const dateRows: Row[] = []
     const out: Row[] = []
     // pages
-    const candidates = Object.values(pages).filter((p) => !p.trashed && p.id !== pageId)
+    const candidates = Object.values(pages).filter((p) => !!live?.has(p.id) && p.id !== pageId)
     let matched = candidates
     if (query) {
       const fuse = new Fuse(candidates, { keys: ['title'], threshold: 0.38, ignoreLocation: true })
@@ -122,7 +125,7 @@ export function MentionMenu({ editor, bridge, pageId }: { editor: Editor; bridge
         },
       })
     return out
-  }, [open, query, pageId, t, lang]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [open, live, query, pageId, t, lang]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // "New page …" is offered, never the default: Enter on a menu without real matches is a new line
   useEffect(() => setActive(rows.findIndex((r) => r.section !== 'new')), [rows])

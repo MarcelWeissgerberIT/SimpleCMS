@@ -73,6 +73,8 @@
   color: var(--ink);
   font-size: 17px;
   font-weight: 500;
+  /* a long placeholder or query ends in "…", never mid-word */
+  text-overflow: ellipsis;
 }
 .pal-input__field::placeholder {
   color: var(--ink-3);
@@ -93,6 +95,12 @@
 }
 .pal [cmdk-group-heading] {
   padding: 10px 8px 6px;
+}
+/* "Create page …" — always last, under its own hairline */
+.pal-create:not(:first-child) {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid var(--rule);
 }
 .pal-group {
   display: flex;

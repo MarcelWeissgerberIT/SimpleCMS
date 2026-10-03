@@ -216,29 +216,33 @@ function PageTitle({ page, readOnly, variant, onEnter }: { page: Page; readOnly:
     }
   }, [page.id, variant])
 
+  // the title is the view's heading: h1 in the main column, level 2 in panes and the peek
+  const Heading = variant === 'main' ? 'h1' : 'div'
   return (
-    <textarea
-      ref={ref}
-      className="pv-title"
-      rows={1}
-      value={page.title}
-      readOnly={readOnly}
-      placeholder={t('common.untitled')}
-      aria-label={t('shell.page.title')}
-      spellCheck={false}
-      onChange={(e) => useWorkspace.getState().updatePage(page.id, { title: e.target.value.replace(/\n/g, ' ') })}
-      onKeyDown={(e) => {
-        if (e.nativeEvent.isComposing) return
-        const el = e.currentTarget
-        if (e.key === 'Enter') {
-          e.preventDefault()
-          onEnter()
-        } else if (e.key === 'ArrowDown' && el.selectionStart === el.value.length) {
-          e.preventDefault()
-          onEnter()
-        }
-      }}
-    />
+    <Heading className="pv-titlewrap" {...(variant === 'main' ? {} : { role: 'heading', 'aria-level': 2 })}>
+      <textarea
+        ref={ref}
+        className="pv-title"
+        rows={1}
+        value={page.title}
+        readOnly={readOnly}
+        placeholder={t('common.untitled')}
+        aria-label={t('shell.page.title')}
+        spellCheck={false}
+        onChange={(e) => useWorkspace.getState().updatePage(page.id, { title: e.target.value.replace(/\n/g, ' ') })}
+        onKeyDown={(e) => {
+          if (e.nativeEvent.isComposing) return
+          const el = e.currentTarget
+          if (e.key === 'Enter') {
+            e.preventDefault()
+            onEnter()
+          } else if (e.key === 'ArrowDown' && el.selectionStart === el.value.length) {
+            e.preventDefault()
+            onEnter()
+          }
+        }}
+      />
+    </Heading>
   )
 }
 

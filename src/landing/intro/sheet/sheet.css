@@ -885,6 +885,42 @@
   flex: 0 0 44px;
   text-align: center;
 }
+/* The hint for visitors who keep moving: bold, and it blinks twice like a 1997 status line.
+   (The only CSS animation in the intro: it is over in 1.2 s, long before any capture, and
+   freeze() drops it right before a manual smash.) */
+.x97-st-hint {
+  font-weight: 700;
+  text-overflow: ellipsis;
+}
+.x97-st-blink {
+  animation: x97-st-blink 1.2s linear 1 both;
+}
+@keyframes x97-st-blink {
+  0%,
+  24.9%,
+  50%,
+  74.9% {
+    background: var(--x97-navy);
+    color: #ffffff;
+  }
+  25%,
+  49.9%,
+  75%,
+  100% {
+    background: transparent;
+    color: #000000;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .x97-st-blink {
+    animation: none;
+  }
+}
+/* NUM slot doubling as the idle meter ("IDLE 07/15") once the hint shows. */
+.x97-st-num.x97-st-idle {
+  flex-basis: 78px;
+  font-variant-numeric: tabular-nums;
+}
 
 /* ------------------------------------------------------------------ dialog */
 .x97-dialog {

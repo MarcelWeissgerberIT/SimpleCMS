@@ -12,7 +12,7 @@ import { flushSave, loadWorkspace, startPersistence } from './store/persistence'
 import { seedWorkspace } from './store/seed'
 import { applyTheme } from './lib/theme'
 import { ALL_MESSAGES } from './i18n'
-import { startHistory, startAutomations } from './features'
+import { startHistory, startAutomations, seedDemoHistory } from './features'
 import { detectLang, makeTranslator } from '@/shared/i18n'
 import { STORAGE_KEYS, safeLocalGet } from '@/shared/brand'
 import { registerServiceWorker } from '@/shared/sw'
@@ -67,6 +67,9 @@ async function boot() {
       seedWorkspace(ws.settings.language)
       // persist the seed right away — a reload before the first edit must not seed new ids
       await flushSave()
+      // give the start page a short back-dated version history, so the tape has something to scrub
+      const start = useWorkspace.getState().settings.startPageId
+      if (start) seedDemoHistory(start).catch((e) => console.warn('[one] demo history failed', e))
     }
   })
 

@@ -394,7 +394,7 @@
 }
 .r-rule {
   margin: 10px 0;
-  border-top: 1px dashed var(--ink-3);
+  border-top: 1px dashed var(--ink-faint);
 }
 .r-double {
   border-top: 3px double var(--ink);
@@ -630,7 +630,9 @@
 }
 .deep-h {
   margin: 14px 0 18px;
-  font-size: clamp(30px, 3.3vw, 50px);
+  /* capped where the column stops growing (--maxw 1440px): beyond it, a bigger size only
+     pushes long German words ("Automatisierer.") out of the column */
+  font-size: clamp(30px, 3.3vw, 47.5px);
   letter-spacing: -0.035em;
   line-height: 0.95;
 }
@@ -872,7 +874,7 @@ td[data-col='One.'] .mk-yes {
 }
 .pv-db-ring {
   fill: none;
-  stroke: var(--ink-3);
+  stroke: var(--ink-faint);
   stroke-width: 1.2;
 }
 .pv-wire-sig {
@@ -888,7 +890,7 @@ td[data-col='One.'] .mk-yes {
 }
 .pv-wire-dead {
   fill: none;
-  stroke: var(--ink-3);
+  stroke: var(--ink-faint);
   stroke-width: 1.5;
   stroke-dasharray: 2 5;
 }
@@ -917,11 +919,11 @@ td[data-col='One.'] .mk-yes {
   stroke-width: 1.5;
 }
 .pv-hatch-box {
-  stroke: var(--ink-3);
+  stroke: var(--ink-faint);
   stroke-width: 1.5;
 }
 .pv-x {
-  stroke: var(--ink-3);
+  stroke: var(--ink-faint);
   stroke-width: 1.2;
 }
 .pv-label-bg {
@@ -940,6 +942,15 @@ td[data-col='One.'] .mk-yes {
 .pv-tall .pv-m {
   font-size: 13px;
   letter-spacing: 0.06em;
+}
+/* The note inside the IndexedDB cylinder: a touch smaller and tighter, so the longer German
+   line ("SEITEN · ZEILEN · DATEIEN") keeps clear of the cylinder walls. */
+.pv-m.pv-db-note {
+  font-size: 10.5px;
+  letter-spacing: 0.04em;
+}
+.pv-tall .pv-m.pv-db-note {
+  font-size: 12px;
 }
 .pv-points {
   list-style: none;

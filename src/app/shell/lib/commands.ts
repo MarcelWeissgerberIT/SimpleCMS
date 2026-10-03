@@ -101,11 +101,13 @@ export function buildCommands(t: Translate, pageId: ID | null): Command[] {
       { id: 'favorite', group: 'page', label: page.favorite ? t('shell.cmd.unfavorite') : t('shell.cmd.favorite'), icon: Star, keywords: 'star pin favorit', run: () => ws.toggleFavorite(page.id) },
       { id: 'copy-link', group: 'page', label: t('common.copyLink'), icon: Link2, keywords: 'url', run: () => void copyPageLink(page.id) },
       { id: 'duplicate', group: 'page', label: t('common.duplicate'), icon: Copy, keywords: 'copy kopie', run: () => duplicateAndOpen(page.id) },
-      { id: 'move', group: 'page', label: t('shell.cmd.move'), icon: FolderInput, keywords: 'parent verschieben', run: () => ui.openModal({ type: 'move', pageId: page.id }) },
       { id: 'full-width', group: 'page', label: t('shell.cmd.fullWidth'), icon: MoveHorizontal, keywords: 'wide breit', run: () => ws.updatePageSettings(page.id, { fullWidth: !page.settings.fullWidth }) },
       { id: 'lock', group: 'page', label: page.settings.locked ? t('shell.cmd.unlock') : t('shell.cmd.lock'), icon: Lock, keywords: 'readonly sperren', run: () => ws.updatePageSettings(page.id, { locked: !page.settings.locked }) },
       { id: 'delete', group: 'page', label: t('shell.cmd.delete'), icon: Trash2, keywords: 'trash remove löschen papierkorb', run: () => trashWithUndo(page.id) },
     )
+    // database rows belong to their database: no "Move to"
+    if (!page.databaseId)
+      list.splice(list.findIndex((c) => c.id === 'duplicate') + 1, 0, { id: 'move', group: 'page', label: t('shell.cmd.move'), icon: FolderInput, keywords: 'parent verschieben', run: () => ui.openModal({ type: 'move', pageId: page.id }) })
   }
   return list
 }

@@ -86,6 +86,7 @@ export function PersonPicker({ value, onChange, onClose, initialQuery }: { value
           data-autofocus=""
           onFocus={caretToEnd}
           value={query}
+          aria-label={t('database.person.search')}
           placeholder={value.length ? '' : t('database.person.search')}
           onChange={(e) => {
             setQuery(e.target.value)
@@ -164,6 +165,7 @@ export function RelationPicker({ prop, value, onChange, onClose, initialQuery }:
           data-autofocus=""
           onFocus={caretToEnd}
           value={query}
+          aria-label={t('database.relation.search', { db: targetPage.title || t('common.untitled') })}
           placeholder={t('database.relation.search', { db: targetPage.title || t('common.untitled') })}
           onChange={(e) => {
             setQuery(e.target.value)
@@ -266,6 +268,7 @@ export function FilesEditor({ value, onChange }: { value: string[]; onChange: (v
         <input
           className="db-picker__input"
           value={link}
+          aria-label={t('database.files.linkLabel')}
           placeholder={t('database.files.link')}
           onChange={(e) => setLink(e.target.value)}
           onKeyDown={(e) => {

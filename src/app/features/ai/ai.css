@@ -122,6 +122,71 @@
   cursor: default;
 }
 
+.ai-model--demo {
+  display: inline-block;
+  line-height: 20px;
+  border-color: var(--signal);
+  color: var(--signal-ink);
+}
+
+/* ---------- demo strip (no key: canned answers, clearly marked) ---------- */
+.ai-demo {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 3px 8px;
+  min-height: 24px;
+  padding: 2px 6px 2px 14px;
+  border-bottom: 1px solid var(--rule);
+  background: repeating-linear-gradient(-45deg, var(--signal-wash) 0 6px, transparent 6px 12px);
+  flex: none;
+  white-space: nowrap;
+}
+
+.ai-demo .label {
+  font-size: 10px;
+}
+
+.ai-demo__tag {
+  padding: 1px 5px;
+  border-radius: var(--radius-1);
+  background: var(--signal);
+  color: var(--ink-inverse);
+}
+
+.ai-demo__text {
+  flex: 1 0 auto;
+  color: var(--signal-ink);
+}
+
+.ai-demo__key {
+  display: inline-flex;
+  flex: none;
+  margin-left: auto;
+  align-items: center;
+  gap: 5px;
+  height: 18px;
+  padding: 0 6px;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius-1);
+  background: var(--surface);
+  color: var(--ink-2);
+  cursor: pointer;
+  transition:
+    color var(--dur-1),
+    border-color var(--dur-1),
+    transform var(--dur-1);
+}
+
+.ai-demo__key:hover {
+  border-color: var(--ink-3);
+  color: var(--ink);
+}
+
+.ai-demo__key:active {
+  transform: translateY(1px);
+}
+
 .ai-chip {
   flex: none;
   display: inline-flex;
@@ -397,6 +462,11 @@
   text-align: center;
 }
 
+.ai-list[data-keys] .ai-row {
+  /* result keys: a touch denser, the answer above gets the room */
+  min-height: 30px;
+}
+
 .ai-row[data-active='true'] .ai-row__code {
   border-color: var(--ink-3);
   color: var(--ink-2);
@@ -590,6 +660,24 @@
 
 .ai-setup__link:hover {
   color: var(--ink);
+}
+
+.ai-setup__demo {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px dashed var(--rule-strong);
+}
+
+.ai-setup__demo .btn svg {
+  color: var(--signal);
+}
+
+.ai-setup__demo .label {
+  color: var(--ink-3);
 }
 
 .ai-setup__note {

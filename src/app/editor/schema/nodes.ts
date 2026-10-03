@@ -3,13 +3,14 @@
  * Node names / attrs are the shared contract documented in CLAUDE.md.
  * React node views are attached in ../extensions/kit.ts via .extend({ addNodeView }).
  */
-import { Extension, Node, encodeHtmlEntities, mergeAttributes, type JSONContent } from '@tiptap/core'
+import { Extension, Node, mergeAttributes, type JSONContent } from '@tiptap/core'
 import Image from '@tiptap/extension-image'
 import Highlight from '@tiptap/extension-highlight'
 import { Details } from '@tiptap/extension-details'
 import { InlineMath } from '@tiptap/extension-mathematics'
 import { useWorkspace } from '../../store/store'
 import { domainOf, embedSrc, detectProvider, PROVIDER_LABEL, safeHref, type EmbedProvider } from '../lib/embeds'
+import { escapeMarkdownText, escapeMarkdownTitle } from '../lib/mdText'
 
 declare module '@tiptap/core' {
   interface Commands<ReturnType> {
@@ -25,8 +26,8 @@ const titleOf = (id: string) => {
   const p = id ? useWorkspace.getState().pages[id] : undefined
   return p?.title?.trim() || ''
 }
-/** Text for Markdown output: link brackets escaped, HTML-significant characters as entities. */
-const mdEscape = (s: string) => encodeHtmlEntities(s).replace(/([[\]\\])/g, '\\$1')
+/** Text for Markdown output (link labels, alt text …): readable, backslash-escaped — no HTML entities. */
+const mdEscape = escapeMarkdownText
 /** Page / database ids inside "#/p/<id>" links. */
 const safeId = (s: string) => s.replace(/[^\w-]/g, '')
 
@@ -96,7 +97,7 @@ export const Callout = Node.create({
   },
   renderMarkdown(node, h) {
     const kind = ALERT_FOR_COLOR[node.attrs?.color as string] ?? 'NOTE'
-    const icon = encodeHtmlEntities(calloutIconText(node.attrs?.icon))
+    const icon = escapeMarkdownText(calloutIconText(node.attrs?.icon))
     const body = h.renderChildren(node.content ?? [], '\n\n')
     const lines = [`[!${kind}]`, ...(icon ? [`${icon} ${body}`] : [body]).join('\n').split('\n')]
     return lines.map((l) => (l ? `> ${l}` : '>')).join('\n')
@@ -448,7 +449,7 @@ export const BlockImage = Image.extend({
     const alt = mdEscape(str(a.alt))
     const src = safeImageSrc(a.src) ?? ''
     const title = str(a.caption) || str(a.title)
-    return title ? `![${alt}](${src} "${encodeHtmlEntities(title).replace(/"/g, '\\"')}")` : `![${alt}](${src})`
+    return title ? `![${alt}](${src} "${escapeMarkdownTitle(title)}")` : `![${alt}](${src})`
   },
   renderHTML({ node }) {
     const { src, alt, caption, width, align } = node.attrs

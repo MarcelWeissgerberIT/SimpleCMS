@@ -20,6 +20,7 @@ import type { Bridge } from '../lib/bridge'
 import { activeTurnTarget, turnInto } from '../lib/blocks'
 import { TURN_INTO_ITEMS } from '../lib/catalog'
 import { isUrl } from '../lib/embeds'
+import { livePages } from '../lib/livePages'
 import { useEscapeFirst } from '../lib/escape'
 import { BlockGlyph } from './SlashMenu'
 import { posAnchor } from './common'
@@ -100,16 +101,19 @@ function LinkPanel({ editor, initial, onDone }: { editor: Editor; initial: strin
     if (!editor.isDestroyed) editor.commands.focus()
     onDone()
   })
+  // link targets: live pages only (not trashed, not inside a trashed parent) — once per opening
+  const candidates = useMemo(() => {
+    const self = editor.view.dom.getAttribute('data-page-id')
+    return livePages(useWorkspace.getState().pages).filter((p) => p.id !== self)
+  }, [editor])
   const pages = useMemo(() => {
     const q = value.trim()
     if (!q || isUrl(q) || q.startsWith('#') || q.includes('://')) return []
-    const self = editor.view.dom.getAttribute('data-page-id')
-    const all = Object.values(useWorkspace.getState().pages).filter((p) => !p.trashed && p.id !== self)
-    return new Fuse(all, { keys: ['title'], threshold: 0.38, ignoreLocation: true })
+    return new Fuse(candidates, { keys: ['title'], threshold: 0.38, ignoreLocation: true })
       .search(q)
       .slice(0, 5)
       .map((r) => r.item)
-  }, [value, editor])
+  }, [value, candidates])
   useEffect(() => setActive(0), [pages])
 
   const apply = (href: string, text?: string) => {

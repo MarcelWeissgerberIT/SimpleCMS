@@ -365,6 +365,11 @@ export interface Settings {
 
 export interface Workspace {
   version: number
+  /**
+   * Identity of this workspace's lifetime: a fresh id when a workspace is created (first run,
+   * after an erase). Unsaved edits stashed on unload are only restored into the same epoch.
+   */
+  epoch?: string
   pages: Record<ID, Page>
   databases: Record<ID, Database>
   people: Person[]

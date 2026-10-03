@@ -38,7 +38,7 @@ test.describe('landing page', () => {
     // every workspace link on the page points at the deployed app path
     const hrefs = await page.locator('#site a[href*="app/"]').evaluateAll((as) => as.map((a) => (a as HTMLAnchorElement).href))
     expect(hrefs.length).toBeGreaterThan(1)
-    for (const h of hrefs) expect(h).toMatch(/^http:\/\/127\.0\.0\.1:4180\/SimpleCMS\/app\/(\?import)?$/)
+    for (const h of hrefs) expect(h).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/SimpleCMS\/app\/(\?import)?$/)
     // no broken images on the site
     const broken = await page.locator('#site img').evaluateAll((imgs) =>
       (imgs as HTMLImageElement[]).filter((i) => i.complete && i.naturalWidth === 0 && i.loading !== 'lazy').map((i) => i.currentSrc || i.src),

@@ -20,8 +20,8 @@ export function sniffDelimiter(input: string): Delimiter {
   return counts[';'] > counts[','] && counts[';'] >= counts['\t'] ? ';' : counts['\t'] > counts[','] ? '\t' : ','
 }
 
-/** Undo the spreadsheet formula guard added on export ("'=SUM(…)" → "=SUM(…)"). */
-export const unguardCell = (cell: string) => (/^'[=+\-@]/.test(cell) ? cell.slice(1) : cell)
+/** Undo the spreadsheet formula guard added on export ("'=SUM(…)" → "=SUM(…)", "'\t…" → "\t…"). */
+export const unguardCell = (cell: string) => (/^'[=+\-@\t\r]/.test(cell) ? cell.slice(1) : cell)
 
 /** Prefix cells a spreadsheet would run as a formula (=, +, -, @ …) — plain numbers stay as they are. */
 export function guardCell(cell: string): string {

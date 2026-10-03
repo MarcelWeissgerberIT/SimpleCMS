@@ -12,6 +12,15 @@ export const PROVIDER_LABEL: Record<EmbedProvider, string> = {
   web: 'Web',
 }
 
+/** decodeURIComponent that never throws: URLs keep invalid escapes ("50%off"), shown as-is then. */
+export function safeDecode(s: string): string {
+  try {
+    return decodeURIComponent(s)
+  } catch {
+    return s
+  }
+}
+
 export function parseUrl(raw: string): URL | null {
   const s = raw.trim()
   if (!s) return null
@@ -99,7 +108,7 @@ export function embedSrc(raw: string, provider?: string | null): string | null {
       const q = u.searchParams.get('q')
       const place = u.pathname.match(/\/maps\/place\/([^/]+)/)?.[1]
       const at = u.pathname.match(/@(-?[\d.]+),(-?[\d.]+)/)
-      const query = q ?? (place ? decodeURIComponent(place.replace(/\+/g, ' ')) : at ? `${at[1]},${at[2]}` : '')
+      const query = q ?? (place ? safeDecode(place.replace(/\+/g, ' ')) : at ? `${at[1]},${at[2]}` : '')
       return query ? `https://maps.google.com/maps?q=${encodeURIComponent(query)}&output=embed` : null
     }
     case 'codepen': {

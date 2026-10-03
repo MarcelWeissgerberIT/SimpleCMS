@@ -245,7 +245,8 @@ function TreeRow({ id, depth, section, draggable, expanded, hasKids }: { id: ID;
       ? { label: t('shell.menu.unfavorite'), icon: <StarOff size={15} />, onSelect: () => useWorkspace.getState().toggleFavorite(id) }
       : { label: t('shell.menu.favorite'), icon: <Star size={15} />, onSelect: () => useWorkspace.getState().toggleFavorite(id) },
     { label: t('common.copyLink'), icon: <Link2 size={15} />, onSelect: () => void copyPageLink(id) },
-    { label: t('shell.menu.moveTo'), icon: <FolderInput size={15} />, onSelect: () => useUI.getState().openModal({ type: 'move', pageId: id }) },
+    // database rows belong to their database: no "Move to"
+    ...(page.databaseId ? [] : ([{ label: t('shell.menu.moveTo'), icon: <FolderInput size={15} />, onSelect: () => useUI.getState().openModal({ type: 'move', pageId: id }) }] as MenuEntry[])),
     { kind: 'separator' },
     {
       label: t('shell.menu.openInPane'),
@@ -393,13 +394,25 @@ function revealInScroller(row: HTMLElement) {
 function RenameInput({ initial, onDone }: { initial: string; onDone: (v: string | null, viaKeyboard: boolean) => void }) {
   const [v, setV] = useState(initial)
   const done = useRef(false)
+  const ref = useRef<HTMLInputElement>(null)
+  const latest = useRef(v)
+  latest.current = v
   const finish = (val: string | null, viaKeyboard = false) => {
     if (done.current) return
     done.current = true
     onDone(val, viaKeyboard)
   }
+  // Blur ends a rename — but an input that never got focus (or lost it without a blur) would
+  // stay open forever. Navigating elsewhere ends it too, unless the user is typing in it.
+  const route = useRoute()
+  const routeKey = route.name === 'page' ? `page:${route.id}` : route.name
+  const startRoute = useRef(routeKey)
+  useEffect(() => {
+    if (routeKey !== startRoute.current && document.activeElement !== ref.current) finish(latest.current)
+  }, [routeKey]) // eslint-disable-line react-hooks/exhaustive-deps
   return (
     <input
+      ref={ref}
       className="sb-row__rename"
       autoFocus
       value={v}

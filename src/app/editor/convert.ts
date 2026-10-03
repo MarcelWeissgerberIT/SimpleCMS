@@ -7,6 +7,7 @@ import type { Schema } from '@tiptap/pm/model'
 import { MarkdownManager } from '@tiptap/markdown'
 import { BLOCK_ID_TYPES, baseExtensions } from './schema/base'
 import { safeHref } from './lib/embeds'
+import { escapeMarkdownText } from './lib/mdText'
 
 export function getExtensions(opts: { readOnly?: boolean } = {}): Extensions {
   return baseExtensions({ readOnly: opts.readOnly })
@@ -15,8 +16,26 @@ export function getExtensions(opts: { readOnly?: boolean } = {}): Extensions {
 let manager: MarkdownManager | null = null
 let schemaCache: Schema | null = null
 
+type TextEncoder = (text: string, node: JSONContent, parent?: JSONContent) => string
+
+/**
+ * @tiptap/markdown writes text as HTML entities ("A &amp; B &lt;tag&gt;"). Keep its code-context
+ * handling (code marks / code blocks come back verbatim) but escape plain text the Markdown way.
+ */
+function readableText(m: MarkdownManager): MarkdownManager {
+  const target = m as unknown as { encodeTextForMarkdown?: TextEncoder }
+  const original = target.encodeTextForMarkdown
+  if (typeof original !== 'function') return m
+  target.encodeTextForMarkdown = function (this: MarkdownManager, text, node, parent) {
+    const out = original.call(this, text, node, parent)
+    // unchanged → verbatim code context (or nothing to escape): keep it as is
+    return out === text ? out : escapeMarkdownText(text)
+  }
+  return m
+}
+
 function md(): MarkdownManager {
-  manager ??= new MarkdownManager({ extensions: getExtensions(), indentation: { style: 'space', size: 2 } })
+  manager ??= readableText(new MarkdownManager({ extensions: getExtensions(), indentation: { style: 'space', size: 2 } }))
   return manager
 }
 

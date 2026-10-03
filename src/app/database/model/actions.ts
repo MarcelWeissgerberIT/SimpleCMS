@@ -423,6 +423,15 @@ function csvCell(s: string): string {
   return /[",\n\r;]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
 }
 
+/**
+ * Text a spreadsheet would run as a formula (=, +, -, @, tab, CR) gets a leading "'" — row text can
+ * come from imports or opened share links. Plain numbers and percentages ("-5", "12%") stay numeric.
+ * Same rule as the importer's guard, which strips the "'" again on the way back in.
+ */
+function guardCell(s: string): string {
+  return /^[=+\-@\t\r]/.test(s) && !/^[-+]?[\d.,\s]*\d[\d.,\s]*%?$/.test(s) ? `'${s}` : s
+}
+
 /** Machine-friendly CSV values: ISO dates, raw numbers; everything else as display text. */
 function csvValue(r: Resolver, db: Database, p: PropertyDef, row: Page): string {
   const v = r.value(db, p, row)
@@ -431,11 +440,11 @@ function csvValue(r: Resolver, db: Database, p: PropertyDef, row: Page): string 
   if ((p.type === 'created_time' || p.type === 'last_edited_time') && v instanceof Date) return v.toISOString()
   if ((p.type === 'number' || p.type === 'rating') && typeof v === 'number') return String(v)
   if (p.type === 'checkbox') return v === true ? 'true' : 'false'
-  return r.text(db, p, row)
+  return guardCell(r.text(db, p, row))
 }
 
 export function exportCsv(r: Resolver, db: Database, props: PropertyDef[], rows: Page[], filename: string): void {
-  const header = props.map((p) => csvCell(p.name)).join(',')
+  const header = props.map((p) => csvCell(guardCell(p.name))).join(',')
   const lines = rows.map((row) => props.map((p) => csvCell(csvValue(r, db, p, row))).join(','))
   const blob = new Blob(['﻿' + [header, ...lines].join('\r\n')], { type: 'text/csv;charset=utf-8' })
   const url = URL.createObjectURL(blob)

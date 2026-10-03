@@ -50,3 +50,21 @@ export function scrollByPage(el: HTMLElement | null, dir: 1 | -1, items?: string
   left = Math.max(0, Math.min(max, left))
   el.scrollTo({ left: left < 8 ? 0 : left, behavior: reduce ? 'auto' : 'smooth' })
 }
+
+/**
+ * Bring `target` into view inside the horizontal scroller `strip` — and nothing else.
+ * scrollIntoView() would scroll every ancestor too (the page column included), so a database
+ * embedded in a page could yank the reader past the cover and title. Only `strip.scrollLeft`
+ * moves; `margin` px stay clear on each side. A target wider than the strip aligns its start.
+ */
+export function revealInStrip(strip: HTMLElement | null, target: Element | null | undefined, margin = 8) {
+  if (!strip || !target) return
+  const box = strip.getBoundingClientRect()
+  const r = target.getBoundingClientRect()
+  const left = box.left + strip.clientLeft + margin
+  const right = box.left + strip.clientLeft + strip.clientWidth - margin
+  let dx = 0
+  if (r.left < left) dx = r.left - left
+  else if (r.right > right) dx = Math.min(r.right - right, r.left - left)
+  if (dx) strip.scrollLeft += dx
+}

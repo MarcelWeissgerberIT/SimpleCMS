@@ -254,7 +254,7 @@ test.describe('workflows', () => {
     await tabB.close()
   })
 
-  test('two tabs: near-simultaneous edits never leave a tab showing unsaved text', async ({ page, context, errors }) => {
+  test('two tabs: near-simultaneous edits of one page keep both tabs\' words', async ({ page, context, errors }) => {
     await openApp(page)
     const id = await createPage(page, { title: 'Race page', content: doc(para('base')) })
     await gotoPage(page, id)
@@ -266,25 +266,80 @@ test.describe('workflows', () => {
     const edB = tabB.locator(`.ProseMirror[data-page-id="${id}"]`)
     await expect(edB).toContainText('base')
     await page.waitForTimeout(1500)
+    const plainB = () => tabB.evaluate((id) => (window as unknown as { __one: { workspace: { getState: () => { pages: Record<string, { plain: string }> } } } }).__one.workspace.getState().pages[id].plain, id)
 
-    // both people type into the same page at about the same time
-    await edA.locator('p').first().click()
-    await edB.locator('p').first().click()
-    await page.keyboard.press('End')
-    await tabB.keyboard.press('End')
-    await page.keyboard.type(' +A')
-    await tabB.keyboard.type(' +B')
-    await page.waitForTimeout(3000)
+    // both people type into the same page, from "at once" to a quarter second apart
+    for (const gap of [0, 120, 250]) {
+      await edA.locator('p').first().click()
+      await page.keyboard.press('End')
+      await page.keyboard.type(` A${gap}`)
+      await page.waitForTimeout(gap)
+      await edB.locator('p').first().click()
+      await tabB.keyboard.press('End')
+      await tabB.keyboard.type(` B${gap}`)
+      await page.waitForTimeout(3000)
 
-    // whatever the merge policy, each tab must show what is actually stored …
-    const shownA = await edA.innerText()
-    const shownB = await edB.innerText()
-    const storedA = await wsEval(page, (s, id) => s.pages[id].plain, id)
-    const storedB = await tabB.evaluate((id) => (window as unknown as { __one: { workspace: { getState: () => { pages: Record<string, { plain: string }> } } } }).__one.workspace.getState().pages[id].plain, id)
-    expect(shownA.trim(), 'tab A editor vs tab A store').toBe(storedA)
-    expect(shownB.trim(), 'tab B editor vs tab B store').toBe(storedB)
-    // … and both tabs converge on the same content
-    expect(storedA).toBe(storedB)
+      const shownA = (await edA.innerText()).trim()
+      const shownB = (await edB.innerText()).trim()
+      const storedA = await wsEval(page, (s, id) => s.pages[id].plain, id)
+      const storedB = await plainB()
+      // each tab shows what it stores, both converge, and nobody's words are gone
+      expect(shownA, `gap ${gap}: tab A editor vs tab A store`).toBe(storedA)
+      expect(shownB, `gap ${gap}: tab B editor vs tab B store`).toBe(storedB)
+      expect(storedA, `gap ${gap}: tabs converge`).toBe(storedB)
+      expect(storedA, `gap ${gap}: tab A's words kept`).toContain(`A${gap}`)
+      expect(storedA, `gap ${gap}: tab B's words kept`).toContain(`B${gap}`)
+    }
+    // … and that is also what IndexedDB holds
+    const idb = await page.evaluate(
+      (id) =>
+        new Promise<string>((resolve, reject) => {
+          const r = indexedDB.open('keyval-store')
+          r.onerror = () => reject(r.error)
+          r.onsuccess = () => {
+            const q = r.result.transaction('keyval', 'readonly').objectStore('keyval').get('one.workspace.v1')
+            q.onsuccess = () => resolve(JSON.stringify(q.result.pages[id].content))
+            q.onerror = () => reject(q.error)
+          }
+        }),
+      id,
+    )
+    for (const w of ['A0', 'B0', 'A120', 'B120', 'A250', 'B250']) expect(idb, `stored content keeps ${w}`).toContain(w)
+    await tabB.close()
+  })
+
+  test('two tabs: different fields of one database row set at once are both kept', async ({ page, context, errors }) => {
+    await openApp(page)
+    const tabB = await context.newPage()
+    errors.watch(tabB)
+    await tabB.goto('app/?e2e')
+    await tabB.waitForFunction(() => !!(window as unknown as { __one?: unknown }).__one && !document.getElementById('boot'))
+    // a seeded database row with two plain-valued fields (number / text) to set
+    const target = await wsEval(page, (s) => {
+      const simple = (t: string) => t === 'number' || t === 'text' || t === 'url'
+      const db = Object.values(s.databases as Record<string, { id: string; properties: Array<{ id: string; type: string }> }>).find((d) => d.properties.filter((p) => simple(p.type)).length >= 2)
+      if (!db) return null
+      const row = Object.values(s.pages as Record<string, { id: string; databaseId: string | null; trashed: boolean }>).find((p) => p.databaseId === db.id && !p.trashed)
+      const [f1, f2] = db.properties.filter((p) => simple(p.type))
+      const value = (t: string, n: number) => (t === 'number' ? 4240 + n : t === 'url' ? `https://example.com/${n}` : `set in tab ${n}`)
+      return row ? { row: row.id, f1: f1.id, f2: f2.id, v1: value(f1.type, 1), v2: value(f2.type, 2) } : null
+    })
+    test.skip(!target, 'no database with two plain fields in the seed')
+    const { row, f1, f2, v1, v2 } = target!
+    await page.waitForTimeout(1500)
+    type Hook = { __one: { workspace: { getState: () => { setRowProperty: (r: string, p: string, v: unknown) => void } } } }
+    await Promise.all([
+      page.evaluate(([row, f, v]) => (window as unknown as Hook).__one.workspace.getState().setRowProperty(row, f, v), [row, f1, v1] as const),
+      tabB.evaluate(([row, f, v]) => (window as unknown as Hook).__one.workspace.getState().setRowProperty(row, f, v), [row, f2, v2] as const),
+    ])
+    await page.waitForTimeout(2500)
+    const read = (p: Page) =>
+      p.evaluate(([row, f1, f2]) => {
+        const s = (window as unknown as { __one: { workspace: { getState: () => { pages: Record<string, { properties: Record<string, unknown> }> } } } }).__one.workspace.getState()
+        return [s.pages[row].properties[f1], s.pages[row].properties[f2]]
+      }, [row, f1, f2] as const)
+    expect(await read(page)).toEqual([v1, v2])
+    expect(await read(tabB)).toEqual([v1, v2])
     await tabB.close()
   })
 })

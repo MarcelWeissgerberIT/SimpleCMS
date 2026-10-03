@@ -34,6 +34,24 @@
   flex: 1;
 }
 
+.hist__save,
+.hist__close {
+  flex: none;
+}
+
+/* touch: 36px targets in the header */
+@media (pointer: coarse) {
+  .hist__save {
+    height: 36px;
+    padding: 0 12px;
+  }
+  .hist__close {
+    width: 36px;
+    height: 36px;
+    margin: -4px -4px -4px 0;
+  }
+}
+
 /* ---------- tape ---------- */
 .tape {
   position: relative;
@@ -299,6 +317,13 @@
   color: var(--ink-3);
   cursor: default;
   opacity: 0.5;
+}
+
+@media (pointer: coarse) {
+  .hist__key {
+    width: 40px;
+    height: 36px;
+  }
 }
 
 .hist__counter {
@@ -699,6 +724,16 @@
   .modal.hist {
     height: calc(100vh - max(6vh, 16px) - 16px);
     height: calc(100dvh - max(6vh, 16px) - 16px);
+  }
+  /* narrow: section label + actions on the first line, the page title gets a full line below */
+  .hist__head {
+    flex-wrap: wrap;
+    row-gap: 6px;
+    padding: 10px 12px 12px 16px;
+  }
+  .hist__title {
+    order: 1;
+    flex-basis: 100%;
   }
   .hist__body {
     grid-template-columns: minmax(0, 1fr);

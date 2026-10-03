@@ -1,5 +1,8 @@
 /*
  * SimpleCMS One service worker — makes the app work offline after the first visit.
+ *  - Install: precaches every file the workspace can load, lazy views included (the build
+ *    stamps BUILD_ID and PRECACHE below, see vite.config.ts; in dev both stay empty).
+ *  - Activate: drops the caches of older builds.
  *  - Navigations (HTML): network first, cached copy when offline.
  *  - Hashed build assets (/assets/*-<hash>.*): cache first (immutable).
  *  - Other same-origin GETs (icons, covers, emoji data): stale-while-revalidate.
@@ -7,14 +10,34 @@
  * The page posts the list of resources it already loaded so the very first visit
  * (which the worker did not control yet) ends up in the cache too.
  */
-const CACHE = 'one-runtime-v1'
+const BUILD_ID = 'dev'
+/** Scope-relative URLs (filled in by the build). */
+const PRECACHE = []
+const CACHE = 'one-' + BUILD_ID
+const MATCH = { ignoreVary: true }
 
-self.addEventListener('install', () => self.skipWaiting())
+self.addEventListener('install', (event) => {
+  self.skipWaiting()
+  // one by one: a single failing file must not throw the rest away
+  event.waitUntil(
+    caches
+      .open(CACHE)
+      .then((cache) =>
+        Promise.allSettled(
+          PRECACHE.map((path) => {
+            const url = new URL(path, self.registration.scope).href
+            return cache.match(url, MATCH).then((hit) => hit || cache.add(url))
+          }),
+        ),
+      )
+      .catch(() => {}),
+  )
+})
 
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     (async () => {
-      for (const key of await caches.keys()) if (key !== CACHE) await caches.delete(key)
+      for (const key of await caches.keys()) if (key.startsWith('one-') && key !== CACHE) await caches.delete(key)
       await self.clients.claim()
     })(),
   )
@@ -22,12 +45,14 @@ self.addEventListener('activate', (event) => {
 
 self.addEventListener('message', (event) => {
   if (event.data?.type !== 'cache-urls' || !Array.isArray(event.data.urls)) return
+  // offline: nothing to fetch (and every attempt would only log an error)
+  if (!self.navigator.onLine) return
   event.waitUntil(
     caches.open(CACHE).then((cache) =>
       Promise.all(
         event.data.urls
           .filter((u) => typeof u === 'string' && new URL(u).origin === self.location.origin)
-          .map((u) => cache.match(u).then((hit) => hit || cache.add(u)).catch(() => {})),
+          .map((u) => cache.match(u, MATCH).then((hit) => hit || cache.add(u)).catch(() => {})),
       ),
     ),
   )
@@ -50,7 +75,11 @@ self.addEventListener('fetch', (event) => {
           if (res.ok) cache.put(req, res.clone())
           return res
         } catch {
-          return (await cache.match(req, { ignoreSearch: true })) || (await cache.match(new URL('./', req.url).href)) || Response.error()
+          return (
+            (await cache.match(req, { ignoreSearch: true, ignoreVary: true })) ||
+            (await cache.match(new URL('./', req.url).href, MATCH)) ||
+            Response.error()
+          )
         }
       })(),
     )
@@ -61,7 +90,7 @@ self.addEventListener('fetch', (event) => {
     event.respondWith(
       (async () => {
         const cache = await caches.open(CACHE)
-        const hit = await cache.match(req)
+        const hit = await cache.match(req, MATCH)
         if (hit) return hit
         const res = await fetch(req)
         if (res.ok) cache.put(req, res.clone())
@@ -74,7 +103,7 @@ self.addEventListener('fetch', (event) => {
   event.respondWith(
     (async () => {
       const cache = await caches.open(CACHE)
-      const hit = await cache.match(req)
+      const hit = await cache.match(req, MATCH)
       const network = fetch(req)
         .then((res) => {
           if (res.ok) cache.put(req, res.clone())

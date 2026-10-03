@@ -141,6 +141,7 @@ export function OptionPicker({
           data-autofocus=""
           onFocus={caretToEnd}
           value={query}
+          aria-label={t('database.option.searchOrCreate')}
           placeholder={selected.length ? '' : t('database.option.searchOrCreate')}
           onChange={(e) => {
             setQuery(e.target.value)
@@ -242,6 +243,7 @@ export function OptionEditMenu({ db, prop, option: initial, anchor, onClose }: {
         <input
           className="input"
           data-autofocus=""
+          aria-label={t('database.option.newPlaceholder')}
           value={name}
           onChange={(e) => setName(e.target.value)}
           onKeyDown={(e) => {

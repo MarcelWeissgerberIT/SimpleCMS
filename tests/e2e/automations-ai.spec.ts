@@ -50,7 +50,7 @@ test.describe('automations', () => {
       row: { title: 'ACME GmbH', properties: { Name: 'ACME GmbH' } },
       source: 'simplecms-one',
     })
-    expect(payload.row.url).toMatch(/^http:\/\/127\.0\.0\.1:4180\/SimpleCMS\/app\/.*#\/p\//)
+    expect(payload.row.url).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/SimpleCMS\/app\/.*#\/p\//)
     expect(Object.keys(payload.row.properties)).toEqual(expect.arrayContaining(['Name', 'Status', 'Tags', 'Date']))
     expect(new Date(payload.timestamp).getTime()).toBeGreaterThan(Date.now() - 60_000)
     // the run is reflected in the automation's status

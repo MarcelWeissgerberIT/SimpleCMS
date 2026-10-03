@@ -46,6 +46,11 @@ html {
 :where(.site) a {
   color: inherit;
 }
+/* <i> is only ever a decorative box here (grid lines, meters, screws): never let it pull in
+   the ~100 KB Archivo italic font file. */
+.site i {
+  font-style: normal;
+}
 :where(.site) button {
   font: inherit;
   color: inherit;
@@ -284,11 +289,6 @@ html {
   color: var(--ink);
   background: var(--hover);
 }
-.tb-num {
-  font-family: var(--font-mono);
-  font-size: 10px;
-  color: var(--ink-3);
-}
 .tb-tools {
   display: flex;
   align-items: center;
@@ -517,6 +517,26 @@ html {
   }
 }
 
+/* One-time scroll reveals: the "before" state (motion.ts initReveals adds .has-reveals and
+   marks each block .is-in as GSAP takes over). */
+.site.has-reveals [data-reveal]:not(.is-in) {
+  opacity: 0;
+  transform: translateY(18px);
+}
+.site.has-reveals .sec-head:not(.is-in) .sec-rule {
+  transform: scaleX(0);
+}
+.site.has-reveals .sec-head:not(.is-in) [data-type],
+.site.has-reveals .sec-head:not(.is-in) .sec-lead {
+  opacity: 0;
+}
+.site.has-reveals .sec-head:not(.is-in) .line-in {
+  transform: translateY(108%);
+}
+.site.has-reveals .sec-head:not(.is-in) .sec-lead {
+  transform: translateY(12px);
+}
+
 /* Screws for panels / placards */
 .screw {
   position: absolute;
@@ -533,7 +553,7 @@ html {
   right: 1.5px;
   top: 4px;
   height: 1px;
-  background: var(--ink-3);
+  background: var(--ink-faint);
   transform: rotate(var(--rot, 35deg));
 }
 .s-tl {
@@ -599,6 +619,38 @@ html {
 @media (max-width: 380px) {
   .tb-word span {
     display: none;
+  }
+}
+/* Fingers: bigger hit areas for the small controls, without changing how they look. */
+@media (pointer: coarse) {
+  /* (.dial-mark is absolutely positioned already) */
+  .lang-switch button,
+  .foot ul a,
+  .foot-up {
+    position: relative;
+  }
+  .lang-switch button::before,
+  .dial-mark::before,
+  .foot ul a::before,
+  .foot-up::before {
+    content: '';
+    position: absolute;
+  }
+  /* 30×28 → 32×42 (the 2px gap is split between the two buttons; the bottom stops where
+     the dial's hit areas begin) */
+  .lang-switch button::before {
+    inset: -8px -1px -6px;
+  }
+  /* 30×21 → 40×28: up into the bar's empty strip, never down over the page */
+  .dial-mark::before {
+    inset: -7px -5px 0;
+  }
+  /* 15–16px tall text links → ~26px rows that meet in the 10px gaps */
+  .foot ul a::before {
+    inset: -5px -6px;
+  }
+  .foot-up::before {
+    inset: -12px -8px;
   }
 }
 

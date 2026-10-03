@@ -157,10 +157,10 @@ export function HistoryModal({ pageId, onClose }: { pageId: ID; onClose: () => v
         <span className="label hist__sect">§ {t('features.history.label')}</span>
         <h2 className="hist__title">{page?.title?.trim() || t('common.untitled')}</h2>
         <span className="hist__spacer" />
-        <button className="btn btn--sm" onClick={() => void saveNow()}>
+        <button className="btn btn--sm hist__save" onClick={() => void saveNow()}>
           <Plus size={13} strokeWidth={1.8} /> {t('features.history.saveNow')}
         </button>
-        <button className="icon-btn" onClick={onClose} aria-label={t('common.close')}>
+        <button className="icon-btn hist__close" onClick={onClose} aria-label={t('common.close')}>
           <X size={16} />
         </button>
       </header>

@@ -39,7 +39,7 @@ function appBox(x: number, y: number, w: number, h: number, t: T): string {
     <rect class="pv-app-box" x="${x}" y="${y}" width="${w}" height="${h}" rx="4"/>
     <rect class="pv-app-tag" x="${x + 18}" y="${y + 18}" width="22" height="22" rx="2"/><circle class="pv-app-hole" cx="${x + 23.5}" cy="${y + 23.5}" r="2"/>
     <text class="pv-t pv-inv pv-strong" x="${x + 52}" y="${y + 35}">${esc(t('privacy.app'))}</text>
-    <text class="pv-m pv-inv-dim" x="${x + 18}" y="${y + h - 22}">EDITOR · DB · SEARCH · AI UI</text>
+    <text class="pv-m pv-inv-dim" x="${x + 18}" y="${y + h - 22}">${esc(t('privacy.appParts').toUpperCase())}</text>
   </g>`
 }
 
@@ -61,7 +61,7 @@ function wide(t: T, motion: boolean): string {
     ${packet(loopA, 1.6, 0, motion)}${packet(loopB, 1.6, 0.8, motion)}
     ${cylinder(520, 186, 96, 128)}
     <text class="pv-t pv-strong" x="520" y="266" text-anchor="middle">${esc(t('privacy.idb'))}</text>
-    <text class="pv-m pv-dim" x="520" y="290" text-anchor="middle">${esc(t('privacy.idbNote').toUpperCase())}</text>
+    <text class="pv-m pv-dim pv-db-note" x="520" y="290" text-anchor="middle">${esc(t('privacy.idbNote').toUpperCase())}</text>
     <path class="pv-wire-opt" d="${toAi}" marker-end="url(#${idp}-arr)"/>
     <path class="pv-wire-opt" d="${toHook}" marker-end="url(#${idp}-arr)"/>
     ${packet(toAi, 3.2, 0.3, motion)}${packet(toHook, 3.2, 1.9, motion)}
@@ -100,7 +100,7 @@ function tall(t: T, motion: boolean): string {
     ${packet(loopA, 1.4, 0, motion)}${packet(loopB, 1.4, 0.7, motion)}
     ${cylinder(200, 290, 122, 120)}
     <text class="pv-t pv-strong" x="200" y="366" text-anchor="middle">${esc(t('privacy.idb'))}</text>
-    <text class="pv-m pv-dim" x="200" y="390" text-anchor="middle">${esc(t('privacy.idbNote').toUpperCase())}</text>
+    <text class="pv-m pv-dim pv-db-note" x="200" y="390" text-anchor="middle">${esc(t('privacy.idbNote').toUpperCase())}</text>
     <path class="pv-wire-opt" d="${toAi}" marker-end="url(#${idp}-arr)"/>
     <path class="pv-wire-opt" d="${toHook}" marker-end="url(#${idp}-arr)"/>
     ${packet(toAi, 3, 0.2, motion)}${packet(toHook, 3, 1.6, motion)}

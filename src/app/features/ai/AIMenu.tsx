@@ -3,7 +3,7 @@
  * block (space on an empty line / slash command). One input line on top (prompt or filter),
  * a keyboard-driven list below (actions → live output → result actions).
  */
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import type { Editor, JSONContent } from '@tiptap/core'
 import { TextSelection, type EditorState, type Transaction } from '@tiptap/pm/state'
@@ -27,6 +27,7 @@ import {
   MessageCircleQuestion,
   Minimize2,
   PenLine,
+  Play,
   RotateCcw,
   Settings2,
   ShieldCheck,
@@ -42,7 +43,7 @@ import { useWorkspace } from '../../store/store'
 import { useUI } from '../../store/ui'
 import { markdownToDoc } from '../../editor'
 import { toMarkdown } from '../share/markdown'
-import { AI_MODELS, AIError, resolveModel, runAI, stripFence, verifyKey, type AIAction } from './client'
+import { AI_MODELS, AIError, isAIDemo, onAIDemo, resolveModel, runAI, setAIDemo, stripFence, verifyKey, type AIAction } from './client'
 import { askWorkspace, citationsToLinks, findSource, type WorkspaceSource } from './workspace'
 import { MarkdownLite } from './MarkdownLite'
 import { snapshotNow } from '../history/snapshots'
@@ -214,6 +215,8 @@ export function AIMenu({ editor, pageId, mode, onClose }: AIMenuProps) {
   const hasKey = useWorkspace((s) => !!s.settings.aiApiKey.trim())
   const model = resolveModel(useWorkspace((s) => s.settings.aiModel))
   const updateSettings = useWorkspace((s) => s.updateSettings)
+  // no key, demo switched on: canned answers, clearly labelled
+  const demo = useSyncExternalStore(onAIDemo, isAIDemo) && !hasKey
 
   // The target range is captured once and then mapped through every later edit, so the
   // result always lands where the user asked for it — even if they keep typing meanwhile.
@@ -255,7 +258,7 @@ export function AIMenu({ editor, pageId, mode, onClose }: AIMenuProps) {
   }, [editor, target])
 
   const narrow = useNarrow()
-  const [setup, setSetup] = useState(!hasKey)
+  const [setup, setSetup] = useState(!hasKey && !isAIDemo())
   const [query, setQuery] = useState('')
   const [view, setView] = useState<'actions' | 'translate'>('actions')
   const [wsMode, setWsMode] = useState(false)
@@ -295,20 +298,54 @@ export function AIMenu({ editor, pageId, mode, onClose }: AIMenuProps) {
     })
   }, [])
 
-  /** Phones: lift the target block towards the top, so the panel below it has room to show the answer. */
-  const makeRoom = useCallback(() => {
-    if (editor.isDestroyed || !window.matchMedia?.('(max-width: 640px)').matches) return
-    const r = anchor.getBoundingClientRect()
-    const scroller = scrollParent(editor.view.dom as HTMLElement)
-    const isDoc = scroller === document.scrollingElement || scroller === document.documentElement
-    const top = (isDoc ? 0 : scroller.getBoundingClientRect().top) + 64
-    const delta = r.top - top
-    if (delta > 48) scroller.scrollBy({ top: delta, behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' })
-  }, [editor, anchor])
+  /** Temporary spacer under the editor (see makeRoom), removed when the panel closes. */
+  const roomRef = useRef<HTMLDivElement | null>(null)
+  useEffect(() => () => roomRef.current?.remove(), [])
 
-  // phones: give the panel room from the start (the keyboard will take the lower half anyway)
+  /**
+   * Room for the answer. Phones: lift the target block towards the top as soon as the panel opens
+   * (the keyboard takes the lower half anyway). Larger screens: when a run starts with little space
+   * below the target, scroll it up to ~120px from the top, so the panel opens downwards at full height
+   * instead of being squeezed (or flipped over the text it is writing about).
+   */
+  const makeRoom = useCallback(
+    (running = false) => {
+      if (editor.isDestroyed) return
+      const phone = !!window.matchMedia?.('(max-width: 640px)').matches
+      if (!phone && !running) return
+      const r = anchor.getBoundingClientRect()
+      const scroller = scrollParent(editor.view.dom as HTMLElement)
+      const isDoc = scroller === document.scrollingElement || scroller === document.documentElement
+      const box = isDoc ? { top: 0, bottom: window.innerHeight } : scroller.getBoundingClientRect()
+      const behavior: ScrollBehavior = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth'
+      if (phone) {
+        const delta = r.top - (box.top + 64)
+        if (delta > 48) scroller.scrollBy({ top: delta, behavior })
+        return
+      }
+      const below = Math.min(window.innerHeight, box.bottom) - r.bottom
+      if (below >= 360) return
+      const delta = r.top - (box.top + 120)
+      if (delta <= 24) return
+      // the last lines of a page cannot scroll that far: a temporary spacer below the editor makes room
+      const max = scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop
+      const host = (editor.view.dom as HTMLElement).parentElement
+      if (delta > max && host) {
+        const spacer = roomRef.current ?? document.createElement('div')
+        spacer.className = 'ai-room'
+        spacer.setAttribute('aria-hidden', 'true')
+        spacer.style.height = `${Math.ceil(delta - max) + (roomRef.current?.offsetHeight ?? 0)}px`
+        if (!spacer.isConnected) host.append(spacer)
+        roomRef.current = spacer
+      }
+      scroller.scrollBy({ top: delta, behavior })
+    },
+    [editor, anchor],
+  )
+
+  // phones: give the panel room from the start
   useEffect(() => {
-    const id = requestAnimationFrame(makeRoom)
+    const id = requestAnimationFrame(() => makeRoom())
     return () => cancelAnimationFrame(id)
   }, [makeRoom])
 
@@ -333,7 +370,7 @@ export function AIMenu({ editor, pageId, mode, onClose }: AIMenuProps) {
       setSources([])
       setQuery('')
       setActive(0)
-      makeRoom()
+      makeRoom(true)
       const onToken = (delta: string) => {
         bufRef.current += delta
         if (!rafRef.current)
@@ -712,6 +749,15 @@ export function AIMenu({ editor, pageId, mode, onClose }: AIMenuProps) {
     phase === 'done' || phase === 'error' ? 'refine' : wsMode ? 'workspace' : view === 'translate' ? 'language' : target.mode === 'selection' ? 'selection' : 'block'
   const placeholder = t(`features.ai.placeholder.${phKey}${narrow ? 'Short' : ''}`)
 
+  /** Back from the key card to the panel (re-running a request that failed for lack of a key). */
+  function leaveSetup() {
+    setSetup(false)
+    setError(null)
+    if (phase === 'error' && run) void start(run.req)
+    else setPhase('idle')
+    requestAnimationFrame(() => inputRef.current?.focus())
+  }
+
   const busy = phase === 'streaming'
   const showOutput = phase !== 'idle' && !setup
   const words = output.trim() ? output.trim().split(/\s+/).length : 0
@@ -735,14 +781,16 @@ export function AIMenu({ editor, pageId, mode, onClose }: AIMenuProps) {
         {setup ? (
           <KeySetup
             reason={error?.code === 'invalid_key' ? 'invalid' : hasKey ? 'change' : 'missing'}
-            onDone={() => {
-              setSetup(false)
-              setError(null)
-              if (phase === 'error' && run) void start(run.req)
-              else setPhase('idle')
-              requestAnimationFrame(() => inputRef.current?.focus())
-            }}
-            onCancel={hasKey ? () => setSetup(false) : dismiss}
+            onDone={leaveSetup}
+            onDemo={
+              demo
+                ? undefined
+                : () => {
+                    setAIDemo(true)
+                    leaveSetup()
+                  }
+            }
+            onCancel={hasKey || demo ? () => setSetup(false) : dismiss}
           />
         ) : (
           <>
@@ -772,11 +820,28 @@ export function AIMenu({ editor, pageId, mode, onClose }: AIMenuProps) {
                 spellCheck={false}
                 autoComplete="off"
               />
-              <button className="ai-model" onClick={cycleModel} disabled={busy} title={t('features.ai.switchModel')}>
-                <span className="ai-model__brand">CLAUDE · </span>
-                {model.short}
-              </button>
+              {demo ? (
+                <span className="ai-model ai-model--demo" title={t('features.ai.demo.title')}>
+                  <span className="ai-model__brand">CLAUDE · </span>
+                  {t('features.ai.demo.tag').toUpperCase()}
+                </span>
+              ) : (
+                <button className="ai-model" onClick={cycleModel} disabled={busy} title={t('features.ai.switchModel')}>
+                  <span className="ai-model__brand">CLAUDE · </span>
+                  {model.short}
+                </button>
+              )}
             </div>
+
+            {demo && (
+              <div className="ai-demo" role="note" data-ai-demo="">
+                <span className="ai-demo__tag label">{t('features.ai.demo.tag')}</span>
+                <span className="ai-demo__text label">{t('features.ai.demo.label')}</span>
+                <button type="button" className="ai-demo__key label" onClick={() => setSetup(true)}>
+                  <KeyRound size={11} strokeWidth={1.8} aria-hidden /> {t('features.ai.demo.addKey')}
+                </button>
+              </div>
+            )}
 
             {showOutput && (
               <div className="ai-out" data-phase={phase}>
@@ -997,7 +1062,7 @@ function SelectionShade({ editor, from, to }: { editor: Editor; from: number; to
 }
 
 /** First-run card: paste an Anthropic key (verified without spending tokens). */
-function KeySetup({ reason, onDone, onCancel }: { reason: 'missing' | 'invalid' | 'change'; onDone: () => void; onCancel: () => void }) {
+function KeySetup({ reason, onDone, onDemo, onCancel }: { reason: 'missing' | 'invalid' | 'change'; onDone: () => void; onDemo?: () => void; onCancel: () => void }) {
   const t = useT()
   const updateSettings = useWorkspace((s) => s.updateSettings)
   const [key, setKey] = useState('')
@@ -1027,6 +1092,7 @@ function KeySetup({ reason, onDone, onCancel }: { reason: 'missing' | 'invalid' 
       return
     }
     updateSettings({ aiApiKey: k })
+    setAIDemo(false)
     if (res !== 'ok') useUI.getState().toast({ message: t('features.ai.setup.unverified'), kind: 'info' })
     else useUI.getState().toast({ message: t('features.ai.setup.connected'), kind: 'success' })
     onDone()
@@ -1077,6 +1143,14 @@ function KeySetup({ reason, onDone, onCancel }: { reason: 'missing' | 'invalid' 
         <a className="ai-setup__link" href="https://console.anthropic.com/settings/keys" target="_blank" rel="noreferrer">
           {t('features.ai.setup.getKey')} <span className="mono">console.anthropic.com ↗</span>
         </a>
+        {onDemo && reason === 'missing' && (
+          <div className="ai-setup__demo">
+            <button type="button" className="btn btn--sm" onClick={onDemo} data-ai-try-demo="">
+              <Play size={12} strokeWidth={1.8} aria-hidden /> {t('features.ai.demo.try')}
+            </button>
+            <span className="label">{t('features.ai.demo.tryNote')}</span>
+          </div>
+        )}
       </div>
       <div className="ai-setup__note">
         <ShieldCheck size={14} strokeWidth={1.7} />

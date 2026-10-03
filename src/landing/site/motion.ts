@@ -21,13 +21,25 @@ const CLEAR = 'transform,opacity,clipPath'
 /* Counters                                                             */
 /* ------------------------------------------------------------------ */
 
+const intFormats: Partial<Record<Lang, Intl.NumberFormat>> = {}
+
 function formatCount(kind: string, n: number, lang: Lang): string {
   const v = Math.round(n)
   if (kind === 'cost') {
-    const num = new Intl.NumberFormat(lang === 'de' ? 'de-DE' : 'en-US').format(v)
+    // runs every frame while the dial counts: one formatter per language, not one per frame
+    const num = (intFormats[lang] ??= new Intl.NumberFormat(lang === 'de' ? 'de-DE' : 'en-US')).format(v)
     return lang === 'de' ? `${num} €` : `$${num}`
   }
   return String(v)
+}
+
+/**
+ * Parse (and cache) the transforms of all targets in one pass of reads before any write.
+ * gsap.set on a fresh element reads its computed transform first; interleaved with the writes
+ * of the previous set, that is one forced layout of the whole page per element.
+ */
+function primeTransforms(els: Element[]): void {
+  for (const el of els) gsap.getProperty(el, 'x')
 }
 
 function countReadout(root: HTMLElement, lang: Lang, tl: gsap.core.Timeline, at: number): void {
@@ -94,6 +106,7 @@ export function heroMotion(root: HTMLElement, lang: Lang): HeroMotion {
     const t = targets()
     const label = root.querySelector<HTMLElement>('.hero-label [data-type]')
     if (label && !chars.length) chars = splitChars(label)
+    primeTransforms([t.tb, t.lines, t.copy, t.balloons].flat())
     gsap.set(t.tb, { yPercent: -100 })
     gsap.set(chars, { opacity: 0 })
     gsap.set(t.led, { opacity: 0 })
@@ -196,44 +209,59 @@ export function heroMotion(root: HTMLElement, lang: Lang): HeroMotion {
 /* Scroll reveals (once)                                                */
 /* ------------------------------------------------------------------ */
 
+/**
+ * The hidden "before" state is plain CSS (`.has-reveals …:not(.is-in)` in site.css), not
+ * gsap.set: setting ~60 transforms up front read and wrote them element by element, a forced
+ * layout each on a cold mount. On enter, fromTo() pins the start values inline (immediate
+ * render) and `.is-in` retires the CSS state underneath — no flash.
+ */
 export function initReveals(root: HTMLElement, opts: { skip: boolean }): () => void {
   const triggers: ScrollTrigger[] = []
-  if (opts.skip || prefersReducedMotion()) return () => {}
+  const active = !opts.skip && !prefersReducedMotion()
+  root.classList.toggle('has-reveals', active)
+  if (!active) return () => {}
 
   root.querySelectorAll<HTMLElement>('.sec .sec-head').forEach((head) => {
-    const rule = head.querySelector('.sec-rule')
-    const label = head.querySelector<HTMLElement>('[data-type]')
-    const line = head.querySelector('.line-in')
-    const lead = head.querySelector('.sec-lead')
-    const chars = label ? splitChars(label) : []
-    if (rule) gsap.set(rule, { scaleX: 0 })
-    if (chars.length) gsap.set(chars, { opacity: 0 })
-    if (line) gsap.set(line, { yPercent: 108 })
-    if (lead) gsap.set(lead, { opacity: 0, y: 12 })
     triggers.push(
       ScrollTrigger.create({
         trigger: head,
         start: 'top 88%',
         once: true,
         onEnter: () => {
+          const rule = head.querySelector('.sec-rule')
+          const label = head.querySelector<HTMLElement>('[data-type]')
+          const line = head.querySelector('.line-in')
+          const lead = head.querySelector('.sec-lead')
+          const chars = label ? splitChars(label) : []
           const tl = gsap.timeline({ defaults: { ease: EASE } })
-          if (rule) tl.to(rule, { scaleX: 1, duration: 0.7, ease: 'power3.inOut', clearProps: 'transform' }, 0)
-          if (chars.length) tl.to(chars, { opacity: 1, duration: 0.01, stagger: 0.014, ease: 'none' }, 0.05)
-          if (line) tl.to(line, { yPercent: 0, duration: 0.7, clearProps: 'transform' }, 0.08)
-          if (lead) tl.to(lead, { opacity: 1, y: 0, duration: 0.5, ease: 'power3.out', clearProps: 'transform,opacity' }, 0.22)
+          if (rule) tl.fromTo(rule, { scaleX: 0 }, { scaleX: 1, duration: 0.7, ease: 'power3.inOut', clearProps: 'transform' }, 0)
+          if (chars.length) tl.fromTo(chars, { opacity: 0 }, { opacity: 1, duration: 0.01, stagger: 0.014, ease: 'none' }, 0.05)
+          // (y: 0 — GSAP parses the CSS translateY(108%) as px; only yPercent may move the line)
+          if (line) tl.fromTo(line, { y: 0, yPercent: 108 }, { y: 0, yPercent: 0, duration: 0.7, clearProps: 'transform' }, 0.08)
+          if (lead) tl.fromTo(lead, { opacity: 0, y: 12 }, { opacity: 1, y: 0, duration: 0.5, ease: 'power3.out', clearProps: 'transform,opacity' }, 0.22)
+          head.classList.add('is-in')
         },
       }),
     )
   })
 
   const items = Array.from(root.querySelectorAll<HTMLElement>('[data-reveal]'))
-  gsap.set(items, { opacity: 0, y: 18 })
   triggers.push(
     ...ScrollTrigger.batch(items, {
       start: 'top 92%',
       once: true,
-      onEnter: (batch) =>
-        gsap.to(batch, { opacity: 1, y: 0, duration: 0.55, stagger: 0.05, ease: 'power3.out', overwrite: true, clearProps: 'transform,opacity' }),
+      onEnter: (batch) => {
+        // A jump (nav link, dial, fast scroll) enters everything above the viewport at once:
+        // those blocks just switch on — staggering them first kept the visible ones blank ~1.5 s.
+        const shown = batch.filter((el) => el.getBoundingClientRect().bottom > 0)
+        if (shown.length)
+          gsap.fromTo(
+            shown,
+            { opacity: 0, y: 18 },
+            { opacity: 1, y: 0, duration: 0.55, stagger: 0.05, ease: 'power3.out', overwrite: true, clearProps: 'transform,opacity' },
+          )
+        for (const el of batch) el.classList.add('is-in')
+      },
     }),
   )
   return () => triggers.forEach((t) => t.kill())

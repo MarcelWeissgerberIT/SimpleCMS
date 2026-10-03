@@ -930,6 +930,59 @@
   }
 }
 
+/*
+ * touch: ≥ 32 px hit areas around the small controls. The extra reach is an invisible
+ * ::before, so nothing moves or changes size.
+ */
+@media (pointer: coarse) {
+  .db-check,
+  .db-tag__x {
+    position: relative;
+  }
+
+  .db-check:not(:disabled)::before,
+  .db-tag__x::before {
+    content: '';
+    position: absolute;
+  }
+
+  /* 15 px box, 12 px inside its border → 32 × 32 */
+  .db-check:not(:disabled)::before {
+    inset: -10px;
+  }
+
+  /* 14 px "×" → 32 × 32, reaching back over its own chip rather than into the next one */
+  .db-tag__x::before {
+    inset: -9px -4px -9px -14px;
+  }
+
+  /* wrapped chips: keep the taller "×" areas of two rows apart; the chip must not clip them
+     (its label still ellipsizes on its own) */
+  .db-picker__field {
+    row-gap: 12px;
+  }
+
+  .db-picker__field .db-tag {
+    overflow: visible;
+  }
+
+  /* inline stars are too small to aim at with a finger: the tap lands on the cell or property row,
+     which opens the rating editor, whose stars are full-size targets */
+  .db-rating {
+    pointer-events: none;
+  }
+
+  .db-pop__rating .db-rating {
+    gap: 0;
+    pointer-events: auto;
+  }
+
+  .db-pop__rating .db-rating__star {
+    width: 32px;
+    height: 32px;
+  }
+}
+
 .db-err {
   display: inline-flex;
   align-items: center;

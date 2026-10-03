@@ -22,6 +22,11 @@ export interface PopoverProps {
   autoFocus?: boolean
   /** Match the anchor's width. */
   matchWidth?: boolean
+  /**
+   * Also shift along the cross axis to stay on screen (for side placements like 'right-start'
+   * this means sideways, overlapping the anchor rather than running off the viewport).
+   */
+  shiftCrossAxis?: boolean
   role?: string
   'aria-label'?: string
 }
@@ -40,6 +45,7 @@ export function Popover({
   closeOnOutside = true,
   autoFocus = true,
   matchWidth,
+  shiftCrossAxis,
   role,
   ...rest
 }: PopoverProps) {
@@ -51,7 +57,7 @@ export function Popover({
     middleware: [
       offsetMw(offset),
       flip({ padding: 8 }),
-      shift({ padding: 8 }),
+      shift({ padding: 8, crossAxis: !!shiftCrossAxis }),
       size({
         padding: 8,
         apply({ rects, elements, availableHeight }) {
@@ -97,7 +103,9 @@ export function Popover({
   useEffect(() => {
     if (!open || !autoFocus) return
     const id = requestAnimationFrame(() => {
-      const el = floatingRef.current?.querySelector<HTMLElement>('[data-autofocus], input, textarea, [tabindex="0"], button')
+      const root = floatingRef.current
+      // an explicit [data-autofocus] wins over any earlier field or button
+      const el = root?.querySelector<HTMLElement>('[data-autofocus]') ?? root?.querySelector<HTMLElement>('input, textarea, [tabindex="0"], button')
       el?.focus({ preventScroll: true })
     })
     return () => cancelAnimationFrame(id)

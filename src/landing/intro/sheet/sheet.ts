@@ -30,8 +30,13 @@ export interface SheetHandle {
   setHung(on: boolean): void
   isHung(): boolean
   setRumble(on: boolean): void
-  /** Status-bar hint for visitors who never stop moving ("do nothing for 15 s"). */
+  /**
+   * Hint for visitors who never stop moving: the status bar spells out the trick (blinks
+   * twice) and the webmaster's "do nothing" note on Tip! opens and stays pinned.
+   */
   setHint(on: boolean): void
+  /** Idle meter in the status bar's NUM slot (0…15 while the hint shows; null = "NUM"). */
+  setIdle(step: number | null): void
   /** Stop/resume JS animations (marquee, blink) — e.g. right before a capture. */
   freeze(on: boolean): void
   closeDialog(): void
@@ -152,7 +157,7 @@ export function mountSheet(root: HTMLElement, opts: SheetOptions): SheetHandle {
         <span class="x97-sb-btn" data-sb="right">${icon('arrowRight')}</span>
       </span>
     </div>
-    <div class="x97-status"><span class="x97-st x97-st-main">${esc(t('intro.ready'))}</span><span class="x97-st x97-st-sum"></span><span class="x97-st x97-st-num">${esc(t('intro.num'))}</span></div>
+    <div class="x97-status"><span class="x97-st x97-st-main" role="status">${esc(t('intro.ready'))}</span><span class="x97-st x97-st-sum"></span><span class="x97-st x97-st-num">${esc(t('intro.num'))}</span></div>
     <div class="x97-wash" style="background:rgba(255,255,255,${WASH_ALPHA})"></div>
     <div class="x97-dialog" role="alertdialog" aria-modal="true" aria-labelledby="x97-dlg-msg" hidden>
       <div class="x97-dlg-title"><span>${esc(t('intro.app'))}</span><button type="button" class="x97-cap" data-dlg="close" aria-label="${esc(t('intro.dialog.ok'))}">${icon('close')}</button></div>
@@ -184,6 +189,7 @@ export function mountSheet(root: HTMLElement, opts: SheetOptions): SheetHandle {
   const dust = q('.x97-dust')
   const statusSum = q('.x97-st-sum')
   const statusMain = q('.x97-st-main')
+  const statusNum = q('.x97-st-num')
   const colhead = q('.x97-colhead')
   const tabEls = Array.from(el.querySelectorAll<HTMLElement>('.x97-tab'))
   let colHeadEls: HTMLElement[] = []
@@ -240,6 +246,7 @@ export function mountSheet(root: HTMLElement, opts: SheetOptions): SheetHandle {
     select({ kind: 'cell', range: [1, 1, 1, 1], name: 'A1', f: t('intro.a1.formula') })
     hideNote()
     updateScrollbars()
+    if (notePinned) showNote()
   }
 
   // ------------------------------------------------------------------ selection
@@ -360,25 +367,33 @@ export function mountSheet(root: HTMLElement, opts: SheetOptions): SheetHandle {
 
   // ------------------------------------------------------------------ comment note
   let noteHover = false
+  /** Pinned by the hint: stays open until the smash, whatever the pointer does. */
+  let notePinned = false
   function showNote() {
     const tr = tipRange(layout)
     const cellLeft = (tr[0] - 1) * CELL_W
     const cellTop = (tr[1] - 1) * CELL_H
     const cellRight = cellLeft + CELL_W
     const boxW = 168
-    const toLeft = cellRight + boxW + 24 > cols * CELL_W || (layout === 'm' && tr[0] >= 4)
-    const bx = toLeft ? cellLeft - boxW - 18 : cellRight + 18
-    const by = Math.max(4, cellTop - 30)
+    // Where the note hangs: never over "Click here!!!" (the impatient way out).
+    //  - phone: Tip! is the last column with the button to its left → below the button row,
+    //    right-aligned with the cell
+    //  - desktop: right of the cell, or left of it when the sheet/window has no room there
+    const visibleRight = scroll.scrollLeft + scroll.clientWidth - ROW_HEAD_W
+    const below = layout === 'm'
+    const toLeft = !below && cellRight + boxW + 24 > Math.min(cols * CELL_W, visibleRight)
+    const bx = below ? cellRight - boxW : toLeft ? cellLeft - boxW - 18 : cellRight + 18
+    const by = below ? cellTop + 3 * CELL_H + 6 : Math.max(4, cellTop - 8)
     note.hidden = false
     note.style.left = `${bx}px`
     note.style.top = `${by}px`
     const box = note.querySelector<HTMLElement>('.x97-note-box')!
     box.style.width = `${boxW}px`
     // connector line from the red triangle to the note (a rotated 1px bar)
-    const ax = toLeft ? cellLeft + CELL_W - 2 : cellRight - 2
+    const ax = cellRight - 2
     const ay = cellTop + 2
-    const nx = toLeft ? bx + boxW : bx
-    const ny = by + 14
+    const nx = below ? bx + boxW - 24 : toLeft ? bx + boxW : bx
+    const ny = below ? by : by + 14
     const len = Math.hypot(nx - ax, ny - ay)
     noteLine.style.left = `${ax - bx}px`
     noteLine.style.top = `${ay - by}px`
@@ -386,7 +401,7 @@ export function mountSheet(root: HTMLElement, opts: SheetOptions): SheetHandle {
     noteLine.style.transform = `rotate(${Math.atan2(ny - ay, nx - ax)}rad)`
   }
   function hideNote() {
-    note.hidden = true
+    if (!notePinned) note.hidden = true
   }
   function onOver(e: PointerEvent) {
     const tip = (e.target as HTMLElement).closest?.('[data-tip]')
@@ -546,6 +561,7 @@ export function mountSheet(root: HTMLElement, opts: SheetOptions): SheetHandle {
   function freeze(on: boolean) {
     frozenExternally = on
     frozen = on || hung
+    if (on) statusMain.classList.remove('x97-st-blink')
   }
 
   let rumbleTimer = 0
@@ -610,6 +626,7 @@ export function mountSheet(root: HTMLElement, opts: SheetOptions): SheetHandle {
         if (current) select(current)
       }
       updateScrollbars()
+      if (!note.hidden) showNote()
     }
   }
   cells.addEventListener('pointerdown', onCellsDown)
@@ -638,6 +655,21 @@ export function mountSheet(root: HTMLElement, opts: SheetOptions): SheetHandle {
     hint = on
     statusMain.textContent = on ? t('intro.hint') : t('intro.ready')
     statusMain.classList.toggle('x97-st-hint', on)
+    // Two blinks to catch the eye (a CSS animation that is over long before any capture).
+    statusMain.classList.toggle('x97-st-blink', on && !opts.reducedMotion)
+    notePinned = on
+    if (on) showNote()
+    else hideNote()
+    if (!on) setIdle(null)
+  }
+
+  let idleStep: number | null = null
+  function setIdle(step: number | null) {
+    // A hung window does not repaint its status bar (and the capture must match the screen).
+    if (step === idleStep || (hung && step !== null)) return
+    idleStep = step
+    statusNum.classList.toggle('x97-st-idle', step !== null)
+    statusNum.textContent = step === null ? t('intro.num') : t('intro.idle', { n: String(step).padStart(2, '0') })
   }
 
   return {
@@ -646,6 +678,7 @@ export function mountSheet(root: HTMLElement, opts: SheetOptions): SheetHandle {
     isHung: () => hung,
     setRumble,
     setHint,
+    setIdle,
     freeze,
     closeDialog,
     destroy() {

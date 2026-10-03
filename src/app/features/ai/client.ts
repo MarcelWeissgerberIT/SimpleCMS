@@ -6,6 +6,7 @@
 import type AnthropicSDK from '@anthropic-ai/sdk'
 import { useWorkspace } from '../../store/store'
 import { t } from '../../i18n'
+import { demoAnswer, streamDemo } from './demo'
 
 export type AIAction = 'continue' | 'improve' | 'shorter' | 'longer' | 'fix' | 'summarize' | 'translate' | 'explain' | 'action_items' | 'custom' | 'autofill'
 
@@ -41,6 +42,43 @@ export function resolveModel(id: string | undefined | null): (typeof AI_MODELS)[
 
 export function isAIConfigured(): boolean {
   return !!useWorkspace.getState().settings.aiApiKey
+}
+
+/* ------------------------------------------------------------------ */
+/* Demo mode (no key)                                                  */
+/* ------------------------------------------------------------------ */
+
+/*
+ * Without a key, people can try the panel with canned answers (see demo.ts). This session only,
+ * never persisted, never sent anywhere — and only while no key is set: a key always wins.
+ * isAIConfigured() stays false in demo mode.
+ */
+let demo = false
+const demoListeners = new Set<() => void>()
+
+export function setAIDemo(on: boolean) {
+  if (demo === on) return
+  demo = on
+  demoListeners.forEach((l) => l())
+}
+
+export function isAIDemo(): boolean {
+  return demo
+}
+
+export function onAIDemo(listener: () => void): () => void {
+  demoListeners.add(listener)
+  return () => demoListeners.delete(listener)
+}
+
+/** True when a request would get a demo answer: demo on and no key. */
+export function usesDemo(): boolean {
+  return demo && !useWorkspace.getState().settings.aiApiKey.trim()
+}
+
+/** Stream a canned answer like a real completion (honours the abort signal). */
+export function streamDemoText(text: string, onToken?: (delta: string) => void, signal?: AbortSignal): Promise<string> {
+  return streamDemo(text, { onToken, signal, onAbort: () => new AIError('aborted') })
 }
 
 /* ------------------------------------------------------------------ */
@@ -283,6 +321,10 @@ export function buildPrompt({ action, input, instruction, context }: Pick<RunAIO
 
 /** Run an AI action (streams). Resolves with the complete Markdown result. */
 export async function runAI(opts: RunAIOptions): Promise<string> {
+  if (opts.action !== 'autofill' && usesDemo()) {
+    const lang = useWorkspace.getState().settings.language === 'de' ? 'de' : 'en'
+    return stripFence(await streamDemoText(demoAnswer(opts, lang), opts.onToken, opts.signal))
+  }
   const text = await streamCompletion({
     system: SYSTEM,
     prompt: buildPrompt(opts),

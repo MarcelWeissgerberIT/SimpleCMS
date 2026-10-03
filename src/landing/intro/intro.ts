@@ -10,6 +10,8 @@
  *         100%  → smash (Three.js, lazy-loaded) — or a reduced-motion fade / DOM fallback
  *
  * Any input (pointermove/down, key, wheel, touch, scroll) resets the timer and reverts teasers.
+ * Visitors who keep moving get a hint after ~6 s: the status bar blinks "do nothing for 15 s",
+ * the webmaster's Tip! note opens (pinned) and the NUM slot turns into an idle meter.
  * A resize also counts as input and throws away the size-bound GPU stage + snapshot.
  * Idle time only counts while the tab is visible: a background tab never uses up the intro.
  * Test hooks: window.__oneIntro = { smashNow, phase }, URL "?intro&fast" → 2 s idle.
@@ -32,8 +34,12 @@ export interface IntroOptions {
    * start its entrance here so it lights up behind the falling shards. Fires before onRevealed.
    */
   onShatter?: () => void
-  /** Fired after the old page has fully fallen away and the overlay can be removed. */
-  onRevealed: () => void
+  /**
+   * Fired after the old page has fully fallen away and the overlay can be removed.
+   * `focus`: keyboard focus was inside the old page (e.g. "Skip intro") and is about to be
+   * lost with it — the site should take it.
+   */
+  onRevealed: (info: { focus: boolean }) => void
 }
 
 export interface IntroHandle {
@@ -56,8 +62,10 @@ const PREP_TIMEOUT_MS = 6000
 const STALL_MS = 3000
 /** Absolute guard (visible time) from the smash trigger: very slow GPUs still finish. */
 const HARD_TIMEOUT_MS = 40000
-/** After this long on the page without the smash, the status bar hints at the trick. */
-const HINT_AFTER_MS = 20000
+/** After this long on the page (visible time) without the smash, hint at the trick. */
+const HINT_AFTER_MS = 6000
+/** Steps of the idle meter in the status bar (the copy says "15 seconds"). */
+const IDLE_STEPS = 15
 
 const isMobileViewport = () => Math.min(window.innerWidth, window.innerHeight) < 600 || window.innerWidth < 720
 
@@ -110,6 +118,12 @@ export function mountIntro(root: HTMLElement, opts: IntroOptions): IntroHandle {
   let cancelPrep = noop
   let playTimer = 0
   let playing = false
+  /** Keyboard focus sat inside the old page when it started to go away. */
+  let hadFocus = false
+  /** The hint is showing (after HINT_AFTER_MS): the idle meter runs from `idleSince`. */
+  let hinted = false
+  let idleSince = performance.now()
+  let meterTimer = 0
   const timers: number[] = []
 
   const sheet = mountSheet(root, { t, lang: opts.lang, reducedMotion: reduced, onUpgrade: () => smashNow(), onSkip: () => skip() })
@@ -205,12 +219,19 @@ export function mountIntro(root: HTMLElement, opts: IntroOptions): IntroHandle {
   }
   function schedule() {
     clearTimers()
+    idleSince = performance.now()
+    sheet.setIdle(hinted ? 0 : null)
     if (document.hidden) return // resumes from zero on visibilitychange
     if (!reduced) {
       // Build the GPU stage early, in idle slices (shader compiles must never delay the smash).
       timers.push(window.setTimeout(() => void ensureStage(), (idleMs * 3) / 15))
     }
-    timers.push(window.setTimeout(() => sheet.setHung(true), (idleMs * 10) / 15))
+    timers.push(
+      window.setTimeout(() => {
+        if (hinted) sheet.setIdle(10) // the meter freezes with the window
+        sheet.setHung(true)
+      }, (idleMs * 10) / 15),
+    )
     if (!reduced) {
       timers.push(window.setTimeout(() => void prepare(), (idleMs * 11) / 15))
       timers.push(
@@ -272,10 +293,24 @@ export function mountIntro(root: HTMLElement, opts: IntroOptions): IntroHandle {
     window.removeEventListener('resize', onResize)
   }
 
-  // Visitors who keep moving never trigger the smash: surface the trick in the status bar.
+  // Visitors who keep moving never trigger the smash: surface the trick (status bar blink,
+  // pinned Tip! note) and turn the NUM slot into an idle meter fed by the idle timer.
   const cancelHint = vclock.timeout(() => {
-    if (phase === 'watch') sheet.setHint(true)
+    if (phase !== 'watch') return
+    hinted = true
+    sheet.setHint(true)
+    const step = idleMs / IDLE_STEPS
+    const tick = () => {
+      if (phase !== 'watch' || document.hidden) return
+      sheet.setIdle(Math.min(IDLE_STEPS, Math.floor((performance.now() - idleSince) / step)))
+    }
+    tick()
+    meterTimer = window.setInterval(tick, Math.max(50, step / 4))
   }, HINT_AFTER_MS)
+  function stopMeter() {
+    window.clearInterval(meterTimer)
+    meterTimer = 0
+  }
 
   // ------------------------------------------------------------------ smash
   /** The old page is really going away in front of the visitor: persist "seen". */
@@ -298,11 +333,19 @@ export function mountIntro(root: HTMLElement, opts: IntroOptions): IntroHandle {
     }
   }
 
+  /** Remember whether the keyboard was inside the old page (it is about to disappear). */
+  function noteFocus() {
+    const a = document.activeElement
+    hadFocus = !!a && a !== document.body && root.contains(a)
+  }
+
   function smashNow() {
     if (phase !== 'watch') return
+    noteFocus()
     phase = 'smashing'
     clearTimers()
     cancelHint()
+    stopMeter()
     removeInputListeners()
     sheet.closeDialog()
     sheet.freeze(true)
@@ -373,9 +416,11 @@ export function mountIntro(root: HTMLElement, opts: IntroOptions): IntroHandle {
   /** Keyboard skip link: no theatrics, just reveal. */
   function skip() {
     if (phase !== 'watch') return
+    noteFocus()
     phase = 'smashing'
     clearTimers()
     cancelHint()
+    stopMeter()
     removeInputListeners()
     fade()
   }
@@ -419,6 +464,7 @@ export function mountIntro(root: HTMLElement, opts: IntroOptions): IntroHandle {
     cancelHard()
     cancelPrep()
     cancelHint()
+    stopMeter()
     window.clearInterval(playTimer)
     clearTimers()
     removeInputListeners()
@@ -449,7 +495,7 @@ export function mountIntro(root: HTMLElement, opts: IntroOptions): IntroHandle {
     sheet.destroy()
     sfx.dispose()
     try {
-      opts.onRevealed()
+      opts.onRevealed({ focus: hadFocus })
     } catch (err) {
       console.error(err)
     }

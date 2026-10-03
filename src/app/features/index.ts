@@ -4,6 +4,7 @@
  *  Background services (started once from main.tsx after hydrate):
  *   - startHistory(): periodic page snapshots for version history
  *   - startAutomations(): runs database automations (webhooks …) on store changes
+ *   - seedDemoHistory(pageId): back-dated versions for a freshly seeded page (version tape demo)
  *
  *  AI (Claude, bring-your-own-key):
  *   - isAIConfigured(), runAI(), AIMenu (component the editor shows for selection / "Ask AI")
@@ -13,7 +14,7 @@
  *   - HistoryModal, ShareModal, ImportModal, ExportModal, AutomationsModal, TemplatesModal
  *   - openTodayJournal()
  */
-export { startHistory } from './history/snapshots'
+export { startHistory, seedDemoHistory } from './history/snapshots'
 export { HistoryModal } from './history/HistoryModal'
 export { startAutomations } from './automations/engine'
 export { AutomationsModal } from './automations/AutomationsModal'

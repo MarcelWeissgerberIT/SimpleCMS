@@ -215,6 +215,7 @@ export function DatePicker({ value, onChange, allowRange = true }: { value: Date
 }
 
 function DateField({ label, date, withTime, active, onFocus, onDate }: { label: string; date: Date | null; withTime: boolean; active: boolean; onFocus: () => void; onDate: (d: Date | null) => void }) {
+  const t = useT()
   const lang = useLang()
   const locale = dfLocale(lang)
   const shown = date ? format(date, lang === 'de' ? 'd. MMM yyyy' : 'MMM d, yyyy', { locale }) : ''
@@ -243,6 +244,7 @@ function DateField({ label, date, withTime, active, onFocus, onDate }: { label: 
       <div className="db-datefield__row" data-time={withTime}>
         <input
           className="db-datefield__input"
+          aria-label={label}
           value={draft ?? shown}
           placeholder={lang === 'de' ? 'TT.MM.JJJJ' : 'MM/DD/YYYY'}
           onFocus={onFocus}
@@ -262,6 +264,7 @@ function DateField({ label, date, withTime, active, onFocus, onDate }: { label: 
           <input
             className="db-datefield__time"
             type="time"
+            aria-label={`${label} · ${t('database.date.time')}`}
             value={date ? format(date, 'HH:mm') : ''}
             onFocus={onFocus}
             onChange={(e) => {

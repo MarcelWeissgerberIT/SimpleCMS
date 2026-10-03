@@ -404,7 +404,7 @@
   top: 0;
   right: 0;
   color: transparent;
-  -webkit-text-stroke: 1px var(--ink-3);
+  -webkit-text-stroke: 1px var(--ink-faint);
   pointer-events: none;
   user-select: none;
   opacity: 0;
@@ -413,7 +413,7 @@
   content: '';
   position: absolute;
   inset: 0;
-  border: 1px dashed var(--ink-3);
+  border: 1px dashed var(--ink-faint);
   pointer-events: none;
   opacity: 0;
   transition: opacity 400ms var(--ease-out) 300ms;

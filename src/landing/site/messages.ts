@@ -42,6 +42,7 @@ export const messages: Messages = {
     'hero.import': 'Import from Notion',
     'hero.fine': 'No sign-up · No card · No catch',
     'hero.bom': 'Parts list',
+    'hero.qty': 'Qty',
     'hero.partA': 'Block editor',
     'hero.partB': 'Databases',
     'hero.partC': 'Command bar',
@@ -124,6 +125,7 @@ export const messages: Messages = {
     'privacy.lead': 'Short answer: nowhere. Long answer: see the schematic.',
     'privacy.browser': 'Your browser',
     'privacy.app': 'One — this tab',
+    'privacy.appParts': 'Editor · DB · Search · AI UI',
     'privacy.idb': 'IndexedDB',
     'privacy.idbNote': 'Pages · rows · files',
     'privacy.anthropic': 'Anthropic API',
@@ -154,7 +156,7 @@ export const messages: Messages = {
     'own.timer': 'Est. time',
 
     'faq.label': '§ 07 — FAQ',
-    'faq.title': 'Questions, answered.',
+    'faq.title': 'The fine print, in large type.',
 
     'footer.end': 'End of document',
     'footer.product': 'Product',
@@ -205,6 +207,7 @@ export const messages: Messages = {
     'hero.import': 'Aus Notion importieren',
     'hero.fine': 'Keine Anmeldung · Keine Karte · Kein Haken',
     'hero.bom': 'Stückliste',
+    'hero.qty': 'Anz.',
     'hero.partA': 'Block-Editor',
     'hero.partB': 'Datenbanken',
     'hero.partC': 'Befehlsleiste',
@@ -286,6 +289,7 @@ export const messages: Messages = {
     'privacy.lead': 'Kurze Antwort: nirgendwohin. Lange Antwort: siehe Schaltplan.',
     'privacy.browser': 'Dein Browser',
     'privacy.app': 'One — dieser Tab',
+    'privacy.appParts': 'Editor · DB · Suche · KI-UI',
     'privacy.idb': 'IndexedDB',
     'privacy.idbNote': 'Seiten · Zeilen · Dateien',
     'privacy.anthropic': 'Anthropic-API',
@@ -316,7 +320,7 @@ export const messages: Messages = {
     'own.timer': 'Dauer ca.',
 
     'faq.label': '§ 07 — FAQ',
-    'faq.title': 'Fragen, beantwortet.',
+    'faq.title': 'Das Klein\u00adgedruckte, ganz groß.',
 
     'footer.end': 'Ende des Dokuments',
     'footer.product': 'Produkt',
@@ -407,7 +411,7 @@ export const content: Record<Lang, SiteContent> = {
       { key: 'templates', code: 'Tp', title: 'Templates', text: 'Start from ready-made pages and databases instead of a blank sheet.' },
       { key: 'panes', code: 'Pn', title: 'Stacked panes', text: 'Open pages side by side in sliding panes, like papers spread across a desk.' },
       { key: 'focus', code: 'Fo', title: 'Focus mode', text: 'Hide every panel. Only the page and the caret remain.' },
-      { key: 'offline', code: 'Of', title: 'Survives dead Wi-Fi', text: 'Lose the connection mid-sentence and keep typing: writing, databases and search run in the open tab. Reloading, AI and webhooks need a network.' },
+      { key: 'offline', code: 'Of', title: 'Survives dead Wi-Fi', text: 'Lose the connection and keep working, reload included. Only AI and webhooks need a network.' },
       { key: 'i18n', code: 'En', title: 'English & German', text: 'A fully bilingual interface, switchable at any time. Sie oder du — we went with du.' },
     ],
     deep: [
@@ -420,7 +424,7 @@ export const content: Record<Lang, SiteContent> = {
       },
       {
         key: 'ai',
-        title: 'AI on your terms.',
+        title: 'Claude, on your key.',
         text: 'Bring your own Claude key. Requests travel from your browser straight to Anthropic — no middleman, no markup, no monthly AI seat.',
         specs: ['Key stored on this device only', 'Pay per use at Anthropic’s rates', 'Write · rewrite · summarise · ask'],
         fig: 'Fig. 3.2 — AI menu on a selection',
@@ -451,7 +455,7 @@ export const content: Record<Lang, SiteContent> = {
       { param: 'Free for teams', notion: ['partial', 'Free plan limits blocks for 2+ members'], one: ['yes', 'No seats, no limits'] },
       { param: 'No account required', notion: ['no'], one: ['yes'] },
       { param: 'Data stays on your device', notion: ['no', 'Stored in Notion’s cloud'], one: ['yes', 'IndexedDB in your browser'] },
-      { param: 'Keeps working offline', notion: ['partial', 'Apps only, not the browser; 50 rows per database'], one: ['partial', 'Open tab keeps every page & row; a reload needs a connection'] },
+      { param: 'Keeps working offline', notion: ['partial', 'Apps only, not the browser; 50 rows per database'], one: ['yes', 'Every page & row, reload included, after the first visit'] },
       { param: 'AI assistant', notion: ['partial', 'Full on Business ($20+); trial on Free & Plus'], one: ['yes', 'Claude, pay per use'] },
       { param: 'Bring your own AI key', notion: ['no'], one: ['yes'] },
       { param: 'Database views', notion: ['yes'], one: ['yes', '7 views'] },
@@ -484,7 +488,7 @@ export const content: Record<Lang, SiteContent> = {
       },
       {
         q: 'Does it work offline?',
-        a: 'Once the workspace is open, yes: writing, databases and search keep running in the tab when the connection drops — your data is on the device anyway. Reloading the page, AI and webhooks need a connection.',
+        a: 'Yes. After your first visit the whole app is cached on the device, so writing, databases and search keep working without a connection — reload included. Only AI and webhooks need a network.',
       },
       {
         q: 'Can my team collaborate?',
@@ -516,7 +520,7 @@ export const content: Record<Lang, SiteContent> = {
       { key: 'templates', code: 'Tp', title: 'Vorlagen', text: 'Mit fertigen Seiten und Datenbanken starten statt mit einem leeren Blatt.' },
       { key: 'panes', code: 'Pn', title: 'Gestapelte Panels', text: 'Seiten nebeneinander in verschiebbaren Panels öffnen, wie Papiere auf dem Schreibtisch.' },
       { key: 'focus', code: 'Fo', title: 'Fokusmodus', text: 'Alle Panels ausblenden. Nur die Seite und der Cursor bleiben.' },
-      { key: 'offline', code: 'Of', title: 'Übersteht Funklöcher', text: 'Verbindung weg, mitten im Satz? Einfach weitertippen: Texte, Datenbanken und Suche laufen im offenen Tab. Neu laden, KI und Webhooks brauchen Netz.' },
+      { key: 'offline', code: 'Of', title: 'Übersteht Funklöcher', text: 'Verbindung weg? Einfach weiterarbeiten, auch nach dem Neuladen. Nur KI und Webhooks brauchen Netz.' },
       { key: 'i18n', code: 'De', title: 'Deutsch & Englisch', text: 'Vollständig zweisprachig, jederzeit umschaltbar. Und ja: Wir duzen.' },
     ],
     deep: [
@@ -529,7 +533,7 @@ export const content: Record<Lang, SiteContent> = {
       },
       {
         key: 'ai',
-        title: 'KI zu deinen Bedingungen.',
+        title: 'Claude, mit deinem Key.',
         text: 'Bring deinen eigenen Claude-Key mit. Anfragen gehen aus deinem Browser direkt zu Anthropic — kein Zwischenhändler, kein Aufschlag, kein KI-Abo.',
         specs: ['Key bleibt auf diesem Gerät', 'Bezahlung nach Nutzung zu Anthropic-Preisen', 'Schreiben · umschreiben · zusammenfassen · fragen'],
         fig: 'Abb. 3.2 — KI-Menü auf einer Auswahl',
@@ -560,7 +564,7 @@ export const content: Record<Lang, SiteContent> = {
       { param: 'Kostenlos für Teams', notion: ['partial', 'Free-Tarif begrenzt Blöcke ab 2 Mitgliedern'], one: ['yes', 'Keine Plätze, keine Limits'] },
       { param: 'Ohne Konto nutzbar', notion: ['no'], one: ['yes'] },
       { param: 'Daten bleiben auf deinem Gerät', notion: ['no', 'In der Notion-Cloud gespeichert'], one: ['yes', 'IndexedDB in deinem Browser'] },
-      { param: 'Arbeitet offline weiter', notion: ['partial', 'Nur Apps, nicht im Browser; 50 Zeilen pro Datenbank'], one: ['partial', 'Offener Tab behält alle Seiten & Zeilen; Neuladen braucht Netz'] },
+      { param: 'Arbeitet offline weiter', notion: ['partial', 'Nur Apps, nicht im Browser; 50 Zeilen pro Datenbank'], one: ['yes', 'Jede Seite & Zeile, auch nach dem Neuladen — ab dem ersten Besuch'] },
       { param: 'KI-Assistent', notion: ['partial', 'Voll ab Business (20 $+); Test bei Free & Plus'], one: ['yes', 'Claude, Bezahlung nach Nutzung'] },
       { param: 'Eigener KI-Key', notion: ['no'], one: ['yes'] },
       { param: 'Datenbank-Ansichten', notion: ['yes'], one: ['yes', '7 Ansichten'] },
@@ -593,7 +597,7 @@ export const content: Record<Lang, SiteContent> = {
       },
       {
         q: 'Funktioniert es offline?',
-        a: 'Ist der Workspace einmal offen, ja: Schreiben, Datenbanken und Suche laufen im Tab weiter, wenn die Verbindung abreißt — deine Daten liegen ja schon auf dem Gerät. Neu laden, KI und Webhooks brauchen eine Verbindung.',
+        a: 'Ja. Ab dem ersten Besuch liegt die ganze App auf deinem Gerät: Schreiben, Datenbanken und Suche funktionieren ohne Verbindung — auch nach dem Neuladen. Nur KI und Webhooks brauchen Netz.',
       },
       {
         q: 'Kann mein Team zusammenarbeiten?',

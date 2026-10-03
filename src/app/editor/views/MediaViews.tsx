@@ -3,7 +3,7 @@ import { NodeViewWrapper, type ReactNodeViewProps } from '@tiptap/react'
 import { Bookmark as BookmarkIcon, Download, ExternalLink, Link2, MonitorPlay, Paperclip, Pencil, Upload } from 'lucide-react'
 import { saveFile, useFileUrl } from '../../lib/files'
 import { useT } from '../../i18n'
-import { detectProvider, domainOf, embedRatio, embedSrc, parseUrl, PROVIDER_LABEL, safeHref, webUrl, type EmbedProvider } from '../lib/embeds'
+import { detectProvider, domainOf, embedRatio, embedSrc, parseUrl, PROVIDER_LABEL, safeDecode, safeHref, webUrl, type EmbedProvider } from '../lib/embeds'
 import { pickFiles } from '../lib/upload'
 import { caretAfterNode, leaveNodeView } from '../lib/blocks'
 
@@ -73,7 +73,7 @@ export function BookmarkView({ node, updateAttributes, selected, editor, getPos 
   const domain = domainOf(url)
   const u = parseUrl(url)
   const href = safeHref(url) ?? undefined
-  const path = u ? decodeURIComponent(u.pathname + u.search).replace(/\/$/, '') : ''
+  const path = u ? safeDecode(u.pathname + u.search).replace(/\/$/, '') : ''
   return (
     <NodeViewWrapper className={`bookmark-card${selected ? ' is-selected' : ''}`} data-type="bookmark" contentEditable={false}>
       <a className="bookmark-card__main" href={href} target="_blank" rel="noopener noreferrer" onClick={(e) => (editingTitle || !href) && e.preventDefault()} draggable={false}>

@@ -1,4 +1,4 @@
-import { test, expect, openApp, waitForApp, createPage, doc, para, heading, wsEval, gotoPage, editorOf, plainOf, waitForPlain, flush, selectText } from './fixtures'
+import { test, expect, openApp, waitForApp, createPage, doc, para, heading, wsEval, gotoPage, editorOf, plainOf, waitForPlain, flush, selectLine } from './fixtures'
 
 test.describe('share link', () => {
   test('generate a link → open it in a fresh browser → read-only page → save to my workspace', async ({ page, browser, errors }) => {
@@ -10,7 +10,7 @@ test.describe('share link', () => {
     const url = dialog.getByRole('textbox', { name: 'Share link' })
     await expect(url).toHaveValue(/#\/s\//)
     const link = await url.inputValue()
-    expect(link).toMatch(/^http:\/\/127\.0\.0\.1:4180\/SimpleCMS\/app\/.*#\/s\/.+/)
+    expect(link).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/SimpleCMS\/app\/.*#\/s\/.+/)
 
     // a different person: fresh context, nothing stored
     const other = await browser.newContext({ serviceWorkers: 'block', locale: 'en-US' })
@@ -56,8 +56,7 @@ test.describe('version history', () => {
     await expect(dialog).toBeHidden()
 
     // edit: replace the sentence
-    await ed.locator('p', { hasText: 'Version one text' }).click()
-    await selectText(page, ed, 'Version one text')
+    await selectLine(page, ed.locator('p', { hasText: 'Version one text' }))
     await page.keyboard.type('Version two text')
     await waitForPlain(page, id, /^Version two text$/)
     await flush(page)

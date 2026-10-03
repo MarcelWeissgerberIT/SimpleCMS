@@ -11,6 +11,7 @@ import { MermaidView } from './MermaidView'
 import { MentionView, PageLinkView } from './LinkViews'
 import { BookmarkView, EmbedView, FileBlockView } from './MediaViews'
 import { DatabaseBlockView, TocView } from './TocView'
+import { guardView } from './BrokenBlock'
 import './views.css'
 
 type View = ComponentType<ReactNodeViewProps>
@@ -29,18 +30,20 @@ const stopAll = { stopEvent: () => true, ignoreMutation: () => true }
 
 export function nodeViewWraps(_opts: { readOnly: boolean }): ExtensionWrap {
   return {
+    // views with editable content (NodeViewContent) stay unwrapped: a fallback would drop the content hole
     callout: withView(CalloutView),
     codeBlock: withView(CodeBlockView),
-    image: withView(ImageView),
-    blockMath: withView(BlockMathView),
-    inlineMath: withView(InlineMathView, { as: 'span' }),
-    mermaid: withView(MermaidView),
-    pageLink: withView(PageLinkView),
-    mention: withView(MentionView, { as: 'span' }),
-    databaseBlock: withView(DatabaseBlockView, stopAll),
-    bookmark: withView(BookmarkView),
-    embed: withView(EmbedView),
-    toc: withView(TocView),
-    fileBlock: withView(FileBlockView),
+    // atoms: one bad block renders a "broken block · remove" plate instead of failing the page
+    image: withView(guardView(ImageView)),
+    blockMath: withView(guardView(BlockMathView)),
+    inlineMath: withView(guardView(InlineMathView, { inline: true }), { as: 'span' }),
+    mermaid: withView(guardView(MermaidView)),
+    pageLink: withView(guardView(PageLinkView)),
+    mention: withView(guardView(MentionView, { inline: true }), { as: 'span' }),
+    databaseBlock: withView(guardView(DatabaseBlockView), stopAll),
+    bookmark: withView(guardView(BookmarkView)),
+    embed: withView(guardView(EmbedView)),
+    toc: withView(guardView(TocView)),
+    fileBlock: withView(guardView(FileBlockView)),
   }
 }

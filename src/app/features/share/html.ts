@@ -110,6 +110,8 @@ async function renderMermaid(html: string): Promise<string> {
       mermaid.initialize({
         startOnLoad: false,
         securityLevel: 'strict',
+        // dagre: mermaid 12 defaults to ELK, a large extra chunk the export does not need
+        layout: 'dagre',
         theme: 'base',
         fontFamily: 'Archivo, system-ui, sans-serif',
         themeVariables: {
@@ -167,7 +169,8 @@ async function renderMermaid(html: string): Promise<string> {
 async function coverHTML(p: SharePayload): Promise<string> {
   const c = p.cover
   if (!c) return ''
-  if (c.type === 'image') return `<div class="cover"><img src="${esc(await inlineAsset(c.value))}" alt="" style="object-position:center ${c.positionY}%"></div>`
+  const y = Number.isFinite(Number(c.positionY)) ? Math.min(100, Math.max(0, Number(c.positionY))) : 50
+  if (c.type === 'image') return `<div class="cover"><img src="${esc(await inlineAsset(c.value))}" alt="" style="object-position:center ${y}%"></div>`
   if (c.type === 'gradient') return `<div class="cover" style="background:${esc(c.value)}"></div>`
   return `<div class="cover" style="background:var(--c-${esc(c.value)}-bg)"></div>`
 }
@@ -267,7 +270,7 @@ export async function buildStandaloneHTML(pageId: string, lang: string): Promise
   const date = new Intl.DateTimeFormat(lang === 'de' ? 'de-DE' : 'en-GB', { day: 'numeric', month: 'long', year: 'numeric' }).format(new Date())
   const words = plainText(content, 5_000_000).split(/\s+/).filter(Boolean).length
   const html = `<!doctype html>
-<html lang="${esc(lang)}">
+<html lang="${lang === 'de' ? 'de' : 'en'}">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">

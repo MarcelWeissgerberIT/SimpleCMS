@@ -1,10 +1,13 @@
 import Fuse, { type FuseResultMatch } from 'fuse.js'
 import type { ID, Page } from '../../store/types'
+import { isEffectivelyTrashed } from '../../store/selectors'
 
 export type Range = [number, number]
 
 export interface SearchHit {
   page: Page
+  /** What matched: the title (exact, prefix, substring or fuzzy) or only the body text. */
+  field: 'title' | 'content'
   titleRanges: Range[]
   snippet: { text: string; ranges: Range[] } | null
 }
@@ -21,9 +24,10 @@ export interface SearchIndex {
   titles: Fuse<Entry>
 }
 
+/** Every live page — a page under a trashed parent is in the trash too. */
 export function buildIndex(pages: Record<ID, Page>): SearchIndex {
   const entries = Object.values(pages)
-    .filter((p) => !p.trashed)
+    .filter((p) => !p.trashed && !isEffectivelyTrashed(pages, p.id))
     .map((page) => ({ page, title: (page.title || '').toLowerCase(), plain: (page.plain || '').toLowerCase() }))
   const titles = new Fuse(entries, {
     keys: ['page.title'],
@@ -67,6 +71,9 @@ function fuseRanges(m: FuseResultMatch | undefined): Range[] {
   return (m.indices as ReadonlyArray<readonly [number, number]>).filter(([a, b]) => b - a >= 1).map(([a, b]) => [a, b] as Range)
 }
 
+/** Ranks from here on are body-text matches. */
+const CONTENT_RANK = 6
+
 const WORD_SPLIT = /[\s\-_/.,:;()[\]"'“”„’]+/
 
 /**
@@ -89,7 +96,7 @@ export function search(index: SearchIndex, query: string, limit = 30): SearchHit
     else if (title.split(WORD_SPLIT).some((w) => w.startsWith(q))) score = 2
     else if (title.includes(q)) score = 3
     else if (terms.length > 1 && terms.every((t) => title.includes(t))) score = 3.5
-    else if (terms.every((t) => title.includes(t) || e.plain.includes(t))) score = e.plain.includes(q) ? 6 : 6.5
+    else if (terms.every((t) => title.includes(t) || e.plain.includes(t))) score = e.plain.includes(q) ? CONTENT_RANK : CONTENT_RANK + 0.5
     if (score < 0) continue
     // databases and pages a hair ahead of rows at equal rank
     if (e.page.databaseId) score += 0.2
@@ -107,7 +114,7 @@ export function search(index: SearchIndex, query: string, limit = 30): SearchHit
 
   ranked.sort((a, b) => a.score - b.score || b.e.page.updatedAt - a.e.page.updatedAt)
 
-  return ranked.slice(0, limit).map(({ e, fuzzy }) => {
+  return ranked.slice(0, limit).map(({ e, score, fuzzy }) => {
     const page = e.page
     const title = page.title || ''
     const titleSub = substringRanges(title, q)
@@ -128,6 +135,6 @@ export function search(index: SearchIndex, query: string, limit = 30): SearchHit
         ranges: ranges.filter(([x, y]) => x >= start && y < end).map(([x, y]) => [x + shift, y + shift] as Range),
       }
     }
-    return { page, titleRanges, snippet }
+    return { page, field: score < CONTENT_RANK ? 'title' : 'content', titleRanges, snippet }
   })
 }

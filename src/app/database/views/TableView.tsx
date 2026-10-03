@@ -20,6 +20,7 @@ import { deleteRows, duplicateRows, insertProperty, orderBetween, writeValue } f
 import { valueForGroupMove, NONE_KEY, type RowGroup } from '../model/query'
 import { ADD_COL, FILL_MIN, ROW_H, buildItems, colWidth, minWidth, offsetsOf, scrollParent, type Item } from './table/layout'
 import { useWindow } from './virtual'
+import { revealInStrip } from './overflow'
 import { CalcCell } from './table/CalcCell'
 import { pointAnchor } from '../../ui/Popover'
 import { parseDateText } from '../model/format'
@@ -802,7 +803,7 @@ export function TableView({ onFilterProp }: { onFilterProp: (id: ID) => void }) 
             const el = rootRef.current?.querySelector<HTMLElement>(`[data-hcol="${id}"] .dbt-hcell__btn`)
             const prop = useWorkspace.getState().databases[db.id]?.properties.find((p) => p.id === id)
             if (el && prop) {
-              el.scrollIntoView({ inline: 'nearest', block: 'nearest' })
+              revealInStrip(headScrollRef.current, el.closest('[data-hcol]')) // the body follows the header
               setHeadMenu({ prop, el })
             }
           })

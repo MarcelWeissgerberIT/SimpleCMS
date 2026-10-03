@@ -227,6 +227,7 @@ export const messages: Messages = {
     'database.date.end': 'End',
     'database.date.endDate': 'End date',
     'database.date.includeTime': 'Include time',
+    'database.date.time': 'Time',
     'database.date.today': 'Today',
     'database.date.tomorrow': 'Tomorrow',
     'database.date.yesterday': 'Yesterday',
@@ -260,6 +261,7 @@ export const messages: Messages = {
     'database.files.upload': 'Upload files',
     'database.files.drop': 'or drop files here',
     'database.files.link': 'Paste a link and press ⏎',
+    'database.files.linkLabel': 'Add a file by link',
 
     'database.calc.calculate': 'Calculate',
     'database.calc.daysUnit': 'd',
@@ -684,6 +686,7 @@ export const messages: Messages = {
     'database.date.end': 'Ende',
     'database.date.endDate': 'Enddatum',
     'database.date.includeTime': 'Uhrzeit',
+    'database.date.time': 'Uhrzeit',
     'database.date.today': 'Heute',
     'database.date.tomorrow': 'Morgen',
     'database.date.yesterday': 'Gestern',
@@ -717,6 +720,7 @@ export const messages: Messages = {
     'database.files.upload': 'Dateien hochladen',
     'database.files.drop': 'oder Dateien hier ablegen',
     'database.files.link': 'Link einfügen und ⏎ drücken',
+    'database.files.linkLabel': 'Datei per Link hinzufügen',
 
     'database.calc.calculate': 'Berechnen',
     'database.calc.daysUnit': 'T',

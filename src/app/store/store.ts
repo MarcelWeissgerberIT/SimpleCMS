@@ -20,6 +20,7 @@ import type {
   Person,
   PropertyDef,
   PropertyValue,
+  SelectOption,
   Settings,
   View,
   Workspace,
@@ -54,6 +55,7 @@ export function defaultSettings(): Settings {
 export function emptyWorkspace(): Workspace {
   return {
     version: WORKSPACE_VERSION,
+    epoch: newId(),
     pages: {},
     databases: {},
     people: [],
@@ -187,8 +189,8 @@ function orderAt(pages: Record<ID, Page>, parentId: ID | null, index: number, ex
   return (sibs[index - 1].order + sibs[index].order) / 2
 }
 
-/** All descendant ids (children, grandchildren, rows of databases …). */
-export function descendantIds(pages: Record<ID, Page>, id: ID): ID[] {
+/** Children ids by parent id. */
+function childrenByParent(pages: Record<ID, Page>): Map<ID, ID[]> {
   const byParent = new Map<ID, ID[]>()
   for (const p of Object.values(pages)) {
     if (!p.parentId) continue
@@ -196,14 +198,85 @@ export function descendantIds(pages: Record<ID, Page>, id: ID): ID[] {
     arr.push(p.id)
     byParent.set(p.parentId, arr)
   }
+  return byParent
+}
+
+/** All descendant ids (children, grandchildren, rows of databases …). Safe against parent cycles. */
+export function descendantIds(pages: Record<ID, Page>, id: ID): ID[] {
+  const byParent = childrenByParent(pages)
   const out: ID[] = []
+  const seen = new Set<ID>([id])
   const stack = [...(byParent.get(id) ?? [])]
   while (stack.length) {
     const cur = stack.pop()!
+    if (seen.has(cur)) continue
+    seen.add(cur)
     out.push(cur)
     stack.push(...(byParent.get(cur) ?? []))
   }
   return out
+}
+
+/** Is the page or any ancestor trashed? (cycle-safe; selectors.ts has the memoised variant for views) */
+function trashedOrUnderTrash(pages: Record<ID, Page>, id: ID): boolean {
+  const seen = new Set<ID>()
+  let cur: Page | undefined = pages[id]
+  while (cur && !seen.has(cur.id)) {
+    if (cur.trashed) return true
+    seen.add(cur.id)
+    cur = cur.parentId ? pages[cur.parentId] : undefined
+  }
+  return false
+}
+
+/** UI language of the workspace, for default names the store creates (it cannot use t()). */
+const isDe = () => useWorkspace.getState().settings.language === 'de'
+const L = (en: string, de: string) => (isDe() ? de : en)
+
+function defaultStatusOptions(): SelectOption[] {
+  return [
+    { id: newId(), name: L('Not started', 'Nicht begonnen'), color: 'gray', group: 'todo' },
+    { id: newId(), name: L('In progress', 'In Arbeit'), color: 'blue', group: 'in_progress' },
+    { id: newId(), name: L('Done', 'Erledigt'), color: 'green', group: 'done' },
+  ]
+}
+
+const VIEW_NAMES: Record<View['type'], [string, string]> = {
+  table: ['Table', 'Tabelle'],
+  board: ['Board', 'Board'],
+  list: ['List', 'Liste'],
+  gallery: ['Gallery', 'Galerie'],
+  calendar: ['Calendar', 'Kalender'],
+  timeline: ['Timeline', 'Zeitleiste'],
+  chart: ['Chart', 'Diagramm'],
+}
+
+/** "(copy)" suffix in the workspace language. */
+const copySuffix = () => L('(copy)', '(Kopie)')
+
+/**
+ * Point references inside copied content at the copies: page links, page mentions, inline
+ * databases (+ their view ids) and internal link hrefs (#/p/<id>, any ?b=… suffix is kept).
+ */
+function remapContent(node: JSONContent, idMap: Map<ID, ID>, viewMap: Map<ID, ID>): JSONContent {
+  const a = node.attrs
+  if (a) {
+    if (node.type === 'pageLink' && idMap.has(a.pageId)) node.attrs = { ...a, pageId: idMap.get(a.pageId) }
+    else if (node.type === 'mention' && a.kind === 'page' && idMap.has(a.id)) node.attrs = { ...a, id: idMap.get(a.id) }
+    else if (node.type === 'databaseBlock' && idMap.has(a.databaseId)) {
+      node.attrs = { ...a, databaseId: idMap.get(a.databaseId), ...(a.viewId && viewMap.has(a.viewId) ? { viewId: viewMap.get(a.viewId) } : {}) }
+    }
+  }
+  if (node.marks) {
+    for (const m of node.marks) {
+      const href = m.type === 'link' ? m.attrs?.href : undefined
+      if (typeof href === 'string' && href.includes('#/p/')) {
+        m.attrs = { ...m.attrs, href: href.replace(/#\/p\/([\w-]+)/, (all, id: string) => (idMap.has(id) ? `#/p/${idMap.get(id)}` : all)) }
+      }
+    }
+  }
+  node.content?.forEach((c) => remapContent(c, idMap, viewMap))
+  return node
 }
 
 function makePage(input: NewPageInput, pages: Record<ID, Page>): Page {
@@ -315,8 +388,14 @@ export const useWorkspace = create<WorkspaceState>()(
       set((s) => {
         const p = s.pages[id]
         if (!p || id === parentId) return
-        // prevent moving into own descendant
-        if (parentId && descendantIds(s.pages, id).includes(parentId)) return
+        // a database row lives in its database (reorder only)
+        if (p.databaseId && parentId !== p.databaseId) return
+        if (parentId) {
+          const target = s.pages[parentId]
+          // never into a page that is gone or in the trash, nor into own descendant
+          if (!target || trashedOrUnderTrash(s.pages, parentId)) return
+          if (descendantIds(s.pages, id).includes(parentId)) return
+        }
         p.parentId = parentId
         p.order = index === undefined ? nextOrder(s.pages, parentId) : orderAt(s.pages, parentId, index, id)
         p.updatedAt = now()
@@ -326,23 +405,50 @@ export const useWorkspace = create<WorkspaceState>()(
       const state = get()
       const src = state.pages[id]
       if (!src) return null
+      // the copy set: the page and everything below it, minus trashed subtrees
+      const byParent = childrenByParent(state.pages)
+      const all: ID[] = []
+      const seen = new Set<ID>()
+      const stack: ID[] = [id]
+      while (stack.length) {
+        const cur = stack.pop()!
+        const page = state.pages[cur]
+        if (seen.has(cur) || !page || (cur !== id && page.trashed)) continue
+        seen.add(cur)
+        all.push(cur)
+        stack.push(...(byParent.get(cur) ?? []))
+      }
       const idMap = new Map<ID, ID>()
-      const all = [id, ...descendantIds(state.pages, id)]
       for (const oldId of all) idMap.set(oldId, newId())
+      const viewMap = new Map<ID, ID>()
+      for (const oldId of all) for (const v of state.databases[oldId]?.views ?? []) viewMap.set(v.id, newId())
+      const remapIds = (v: PropertyValue): PropertyValue => (Array.isArray(v) ? v.map((x) => idMap.get(x) ?? x) : v)
+      const suffix = copySuffix()
       set((s) => {
         for (const oldId of all) {
           const o = s.pages[oldId]
-          if (!o || o.trashed) continue
+          if (!o) continue
           const copy: Page = JSON.parse(JSON.stringify(o))
           copy.id = idMap.get(oldId)!
-          copy.parentId = o.parentId && idMap.has(o.parentId) ? idMap.get(o.parentId)! : o.parentId
-          copy.databaseId = o.databaseId && idMap.has(o.databaseId) ? idMap.get(o.databaseId)! : o.databaseId
+          // the copy sits next to the original; everything below it hangs off the copies
+          const isRoot = oldId === id
+          copy.parentId = !isRoot && o.parentId && idMap.has(o.parentId) ? idMap.get(o.parentId)! : o.parentId
+          copy.databaseId = !isRoot && o.databaseId && idMap.has(o.databaseId) ? idMap.get(o.databaseId)! : o.databaseId
           copy.favorite = false
           copy.createdAt = copy.updatedAt = now()
           copy.contentRev = 0
           copy.contentOrigin = null
-          if (oldId === id) {
-            copy.title = o.title ? `${o.title} (copy)` : ''
+          if (copy.content) {
+            copy.content = remapContent(copy.content, idMap, viewMap)
+            copy.plain = plainText(copy.content)
+          }
+          // relations between copied rows point at the copies
+          const rowDb = o.databaseId ? s.databases[o.databaseId] : undefined
+          for (const prop of rowDb?.properties ?? []) {
+            if (prop.type === 'relation' && copy.properties[prop.id] !== undefined) copy.properties[prop.id] = remapIds(copy.properties[prop.id])
+          }
+          if (isRoot) {
+            copy.title = o.title ? `${o.title} ${suffix}` : ''
             copy.order = o.order + 0.5
           }
           s.pages[copy.id] = copy
@@ -350,6 +456,20 @@ export const useWorkspace = create<WorkspaceState>()(
           if (db) {
             const dbCopy: Database = JSON.parse(JSON.stringify(db))
             dbCopy.id = copy.id
+            for (const v of dbCopy.views) v.id = viewMap.get(v.id) ?? newId()
+            for (const prop of dbCopy.properties) {
+              if (prop.type === 'relation' && prop.relationDatabaseId && idMap.has(prop.relationDatabaseId)) prop.relationDatabaseId = idMap.get(prop.relationDatabaseId)
+            }
+            for (const a of dbCopy.automations ?? []) {
+              a.id = newId()
+              a.lastRunAt = null
+              a.lastStatus = null
+              a.lastMessage = null
+            }
+            for (const tpl of dbCopy.templates ?? []) {
+              tpl.id = newId()
+              if (tpl.content) tpl.content = remapContent(tpl.content, idMap, viewMap)
+            }
             s.databases[copy.id] = dbCopy
           }
         }
@@ -412,18 +532,9 @@ export const useWorkspace = create<WorkspaceState>()(
       const id = input.id ?? newId()
       const properties: PropertyDef[] = input.properties ?? [
         { id: newId(), name: 'Name', type: 'title' },
-        {
-          id: newId(),
-          name: 'Status',
-          type: 'status',
-          options: [
-            { id: newId(), name: 'Not started', color: 'gray', group: 'todo' },
-            { id: newId(), name: 'In progress', color: 'blue', group: 'in_progress' },
-            { id: newId(), name: 'Done', color: 'green', group: 'done' },
-          ],
-        },
+        { id: newId(), name: 'Status', type: 'status', options: defaultStatusOptions() },
         { id: newId(), name: 'Tags', type: 'multi_select', options: [] },
-        { id: newId(), name: 'Date', type: 'date' },
+        { id: newId(), name: L('Date', 'Datum'), type: 'date' },
       ]
       if (!properties.some((p) => p.type === 'title')) properties.unshift({ id: newId(), name: 'Name', type: 'title' })
       const db: Database = {
@@ -433,7 +544,7 @@ export const useWorkspace = create<WorkspaceState>()(
         nextUniqueId: 1,
         inline: input.inline ?? false,
       }
-      db.views = input.views ?? [defaultView('table', db, 'Table')]
+      db.views = input.views ?? [defaultView('table', db, L(...VIEW_NAMES.table))]
       const page = makePage(
         { id, parentId: input.parentId ?? null, title: input.title ?? '', icon: input.icon, cover: input.cover, kind: 'database', index: input.index },
         pages,
@@ -456,14 +567,9 @@ export const useWorkspace = create<WorkspaceState>()(
       set((s) => {
         const db = s.databases[dbId]
         if (!db) return
-        const prop: PropertyDef = { name: def.name ?? 'Property', ...def, id } as PropertyDef
+        const prop: PropertyDef = { name: def.name ?? L('Property', 'Eigenschaft'), ...def, id } as PropertyDef
         if ((prop.type === 'select' || prop.type === 'multi_select') && !prop.options) prop.options = []
-        if (prop.type === 'status' && !prop.options)
-          prop.options = [
-            { id: newId(), name: 'Not started', color: 'gray', group: 'todo' },
-            { id: newId(), name: 'In progress', color: 'blue', group: 'in_progress' },
-            { id: newId(), name: 'Done', color: 'green', group: 'done' },
-          ]
+        if (prop.type === 'status' && !prop.options) prop.options = defaultStatusOptions()
         if (index === undefined) db.properties.push(prop)
         else db.properties.splice(index, 0, prop)
         for (const v of db.views) if (!v.visibleProperties.includes(id)) v.visibleProperties.push(id)
@@ -513,7 +619,7 @@ export const useWorkspace = create<WorkspaceState>()(
     addView: (dbId, view) => {
       const db = get().databases[dbId]
       if (!db) return ''
-      const v: View = { ...defaultView(view.type, db), ...view }
+      const v: View = { ...defaultView(view.type, db, L(...VIEW_NAMES[view.type])), ...view }
       set((s) => {
         s.databases[dbId]?.views.push(v)
       })
@@ -537,7 +643,7 @@ export const useWorkspace = create<WorkspaceState>()(
       const db = get().databases[dbId]
       const v = db?.views.find((x) => x.id === viewId)
       if (!db || !v) return null
-      const copy: View = { ...JSON.parse(JSON.stringify(v)), id: newId(), name: `${v.name} (copy)` }
+      const copy: View = { ...JSON.parse(JSON.stringify(v)), id: newId(), name: `${v.name} ${copySuffix()}` }
       set((s) => {
         const d = s.databases[dbId]
         if (!d) return
@@ -594,6 +700,7 @@ export function getWorkspaceSnapshot(): Workspace {
   const s = useWorkspace.getState()
   return {
     version: s.version,
+    epoch: s.epoch,
     pages: s.pages,
     databases: s.databases,
     people: s.people,

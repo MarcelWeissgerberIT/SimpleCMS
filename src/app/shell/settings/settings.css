@@ -65,7 +65,8 @@
   font-size: var(--text-2xs);
 }
 .st__tab[aria-selected='true'] .st__tab-n {
-  color: var(--signal-ink);
+  /* the orange bar marks the tab; orange text on --active would miss AA */
+  color: var(--ink);
 }
 .st__main {
   display: flex;
@@ -115,6 +116,7 @@
   grid-template-columns: minmax(0, 1fr) auto;
 }
 .st-field__label {
+  display: block;
   font-size: 13.5px;
   font-weight: 620;
 }
@@ -173,7 +175,6 @@ select.input {
   font-family: var(--font-mono);
   font-size: 9.5px;
   letter-spacing: var(--tracking-label);
-  opacity: 0.7;
 }
 
 /*
@@ -569,12 +570,19 @@ select.input {
   .theme-card__code {
     display: none;
   }
+  /* text full width, button below it; the hazard stripes run the whole height (EN and DE alike) */
   .danger {
-    flex-wrap: wrap;
-    padding-bottom: 14px;
+    display: grid;
+    grid-template-columns: 14px minmax(0, 1fr);
+    column-gap: 16px;
+  }
+  .danger__stripes {
+    grid-row: 1 / span 2;
+    width: auto;
   }
   .danger .btn {
-    margin-left: 30px;
+    justify-self: start;
+    margin-bottom: 14px;
   }
   .about__spec {
     grid-template-columns: minmax(0, 1fr);

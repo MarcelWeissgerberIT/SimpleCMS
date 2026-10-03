@@ -645,3 +645,11 @@
     display: none;
   }
 }
+
+/* touch: the column's "…" and "+" grow to 32 px targets (the head is 34 px tall) */
+@media (pointer: coarse) {
+  .dbb-col__head .icon-btn {
+    width: 32px;
+    height: 32px;
+  }
+}

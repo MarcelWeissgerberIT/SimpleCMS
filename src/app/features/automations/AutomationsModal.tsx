@@ -3,7 +3,7 @@
  * ready-made recipes, JSON payload reference and the live run log.
  */
 import { useEffect, useMemo, useState } from 'react'
-import { Check, ClipboardCopy, Plus, Zap } from 'lucide-react'
+import { Check, ClipboardCopy, Plus, Workflow, Zap } from 'lucide-react'
 import { Modal } from '../../ui/Modal'
 import { Led } from '../../ui/controls'
 import { useLang, useT } from '../../i18n'
@@ -17,6 +17,7 @@ import { isDatabaseApiLoaded, loadDatabaseApi, samplePayload, useRunLog } from '
 import { blankAutomation, makeRecipe, problemOf, recipeAvailable, type RecipeId } from './recipes'
 import { onRovingKey } from '../io/roving'
 import { AutomationEditor } from './AutomationEditor'
+import { n8nWorkflow } from './n8n'
 import './automations.css'
 
 const RECIPES: RecipeId[] = ['webhook_new', 'notify_done', 'stamp_done']
@@ -229,15 +230,32 @@ function PayloadPanel({ databaseId, automation }: { databaseId: ID; automation: 
       <div className="auto-section-label label">
         <b>{t('features.auto.payload')}</b>
         <span>{method} · application/json</span>
-        <button
-          type="button"
-          className="btn btn--sm btn--ghost auto-payload__copy"
-          onClick={() => {
-            void navigator.clipboard?.writeText(json).then(() => setCopied(true))
-          }}
-        >
-          {copied ? <Check size={13} /> : <ClipboardCopy size={13} />} {copied ? t('common.copied') : t('features.auto.copyJson')}
-        </button>
+        <span className="auto-payload__keys">
+          <button
+            type="button"
+            className="btn btn--sm btn--ghost"
+            data-copy-n8n=""
+            title={t('features.auto.copyN8nHint')}
+            onClick={() => {
+              const text = JSON.stringify(n8nWorkflow(databaseId), null, 2)
+              void (navigator.clipboard?.writeText(text) ?? Promise.reject(new Error('no clipboard'))).then(
+                () => toast({ message: t('features.auto.n8nCopied'), kind: 'success', timeout: 7000 }),
+                () => toast({ message: t('features.auto.copyFailed'), kind: 'error' }),
+              )
+            }}
+          >
+            <Workflow size={13} /> {t('features.auto.copyN8n')}
+          </button>
+          <button
+            type="button"
+            className="btn btn--sm btn--ghost"
+            onClick={() => {
+              void navigator.clipboard?.writeText(json).then(() => setCopied(true))
+            }}
+          >
+            {copied ? <Check size={13} /> : <ClipboardCopy size={13} />} {copied ? t('common.copied') : t('features.auto.copyJson')}
+          </button>
+        </span>
       </div>
       <pre className="auto-code" tabIndex={0} aria-label={t('features.auto.payload')}>
         <code>{highlight(json)}</code>

@@ -1,18 +1,44 @@
 import { useEffect, useRef, useState, type PointerEvent as RPointerEvent } from 'react'
 import { NodeViewWrapper, type ReactNodeViewProps } from '@tiptap/react'
-import { AlignCenter, AlignLeft, AlignRight, Captions, ExternalLink, ImagePlus, RefreshCw, Trash2, Upload } from 'lucide-react'
-import { saveFile, useFileUrl } from '../../lib/files'
+import { AlignCenter, AlignLeft, AlignRight, Captions, Download, ExternalLink, ImagePlus, RefreshCw, Trash2, Upload } from 'lucide-react'
+import { FILE_PREFIX, getFile, saveFile, useFileUrl } from '../../lib/files'
 import { useT } from '../../i18n'
 import { pickFiles } from '../lib/upload'
 import { isUrl } from '../lib/embeds'
 import { caretAfterNode, leaveNodeView } from '../lib/blocks'
 
 const MIN_W = 80
+/** Stored types that are safe to open in a tab: a blob: URL is same-origin, so an opened SVG/HTML could run script. */
+const VIEWABLE = /^image\/(png|jpeg|gif|webp|avif)$/i
+
+/**
+ * How "original" may be shown: local files open in a tab only when they are raster images,
+ * everything else (SVG, unknown or missing type, inline data:) is downloaded, never navigated to.
+ */
+function useOriginal(src: string | null): { open: boolean; name: string } {
+  const local = !!src && (src.startsWith(FILE_PREFIX) || /^data:/i.test(src))
+  const [stored, setStored] = useState<{ src: string; open: boolean; name: string } | null>(null)
+  useEffect(() => {
+    if (!src?.startsWith(FILE_PREFIX)) return
+    let alive = true
+    getFile(src)
+      .then((f) => alive && setStored({ src, open: !!f && VIEWABLE.test(f.blob.type), name: f?.name || 'image' }))
+      .catch(() => alive && setStored({ src, open: false, name: 'image' }))
+    return () => {
+      alive = false
+    }
+  }, [src])
+  if (!local) return { open: true, name: '' }
+  if (stored && stored.src === src) return { open: stored.open, name: stored.name }
+  const ext = src.match(/^data:image\/([a-z]+)/i)?.[1]?.toLowerCase()
+  return { open: false, name: ext ? `image.${ext}` : 'image' }
+}
 
 export function ImageView({ node, updateAttributes, deleteNode, selected, editor, getPos }: ReactNodeViewProps) {
   const t = useT()
   const { src, alt, caption, width, align } = node.attrs as { src: string | null; alt: string | null; caption: string; width: number | null; align: string }
   const url = useFileUrl(src)
+  const original = useOriginal(src)
   const figRef = useRef<HTMLElement>(null)
   const [liveWidth, setLiveWidth] = useState<number | null>(null)
   const [showCaption, setShowCaption] = useState(!!caption)
@@ -147,11 +173,16 @@ export function ImageView({ node, updateAttributes, deleteNode, selected, editor
               <button type="button" className="icon-btn icon-btn--sm" title={t('editor.image.replace')} onClick={upload}>
                 <RefreshCw size={13} />
               </button>
-              {url && (
-                <a className="icon-btn icon-btn--sm" href={url} target="_blank" rel="noreferrer" title={t('editor.image.original')}>
-                  <ExternalLink size={13} />
-                </a>
-              )}
+              {url &&
+                (original.open ? (
+                  <a className="icon-btn icon-btn--sm" href={url} target="_blank" rel="noreferrer" title={t('editor.image.original')}>
+                    <ExternalLink size={13} />
+                  </a>
+                ) : (
+                  <a className="icon-btn icon-btn--sm" href={url} download={original.name} title={t('editor.image.download')}>
+                    <Download size={13} />
+                  </a>
+                ))}
               <button type="button" className="icon-btn icon-btn--sm" title={t('common.delete')} onClick={() => deleteNode()}>
                 <Trash2 size={13} />
               </button>

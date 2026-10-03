@@ -1,6 +1,7 @@
 import { useEffect } from 'react'
 import { useUI } from '../../store/ui'
 import { useWorkspace } from '../../store/store'
+import { isEffectivelyTrashed } from '../../store/selectors'
 import { openTodayJournal } from '../../features'
 import { navigate, type Route } from '../../lib/router'
 import { isMac } from '../../ui/controls'
@@ -286,7 +287,7 @@ export function useBootRedirect(route: Route) {
     bootRedirected = true
     if (route.name !== 'home') return
     const { settings, pages } = useWorkspace.getState()
-    const ok = (id: string | null) => !!id && !!pages[id] && !pages[id].trashed
+    const ok = (id: string | null) => !!id && !!pages[id] && !isEffectivelyTrashed(pages, id)
     const target = ok(settings.startPageId) ? settings.startPageId : ok(settings.lastPageId) ? settings.lastPageId : null
     if (target) navigate({ name: 'page', id: target }, { replace: true })
   }, []) // eslint-disable-line react-hooks/exhaustive-deps

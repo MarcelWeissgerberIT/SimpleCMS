@@ -247,28 +247,47 @@ export async function waitForPlain(page: Page, id: string, re: RegExp, timeout =
   await expect.poll(() => plainOf(page, id), { timeout }).toMatch(re)
 }
 
-/** Select a text range inside the editor (first occurrence of `text`). */
+/**
+ * Select a text range inside the editor (first occurrence of `text`). ProseMirror can re-sync
+ * its own selection to the DOM right after a focus change, so the range is set again until the
+ * selection holds (prefer selectLine() for whole lines: keyboard selection never races).
+ */
 export async function selectText(page: Page, editor: Locator, text: string): Promise<void> {
-  await editor.evaluate((root, text) => {
-    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT)
-    let node: Node | null
-    while ((node = walker.nextNode())) {
-      const data = (node as Text).data
-      const i = data.indexOf(text)
-      if (i >= 0) {
-        const r = document.createRange()
-        r.setStart(node, i)
-        r.setEnd(node, i + text.length)
-        const sel = window.getSelection()!
-        sel.removeAllRanges()
-        sel.addRange(r)
-        return
+  const select = () =>
+    editor.evaluate((root, text) => {
+      const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT)
+      let node: Node | null
+      while ((node = walker.nextNode())) {
+        const data = (node as Text).data
+        const i = data.indexOf(text)
+        if (i >= 0) {
+          const r = document.createRange()
+          r.setStart(node, i)
+          r.setEnd(node, i + text.length)
+          const sel = window.getSelection()!
+          sel.removeAllRanges()
+          sel.addRange(r)
+          return
+        }
       }
-    }
-    throw new Error(`text not found in editor: ${text}`)
-  }, text)
-  // ProseMirror picks up DOM selection changes on selectionchange; give it a frame
-  await page.waitForTimeout(150)
+      throw new Error(`text not found in editor: ${text}`)
+    }, text)
+  for (let attempt = 0; attempt < 5; attempt++) {
+    await select()
+    // ProseMirror picks up DOM selection changes on selectionchange; give it a frame
+    await page.waitForTimeout(150)
+    if ((await page.evaluate(() => window.getSelection()?.toString() ?? '')) === text) return
+  }
+  expect(await page.evaluate(() => window.getSelection()?.toString() ?? ''), 'editor selection').toBe(text)
+}
+
+/** Select a whole line with the keyboard (click it, End, Shift+Home) and check the selection. */
+export async function selectLine(page: Page, line: Locator): Promise<void> {
+  const expected = (await line.innerText()).trim()
+  await line.click()
+  await page.keyboard.press('End')
+  await page.keyboard.press('Shift+Home')
+  await expect.poll(() => page.evaluate(() => window.getSelection()?.toString().trim() ?? ''), { message: 'keyboard selection' }).toBe(expected)
 }
 
 /** Sidebar tree row (pages section) by title. */

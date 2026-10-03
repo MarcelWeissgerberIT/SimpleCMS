@@ -8,7 +8,8 @@ import { useWorkspace } from '../../store/store'
 import { isEffectivelyTrashed } from '../../store/selectors'
 import type { Database, ID, Page } from '../../store/types'
 import { propertyValueToText } from '../../database'
-import { WORKSPACE_SYSTEM, streamCompletion } from './client'
+import { WORKSPACE_SYSTEM, streamCompletion, streamDemoText, usesDemo } from './client'
+import { demoWorkspaceAnswer } from './demo'
 
 export interface WorkspaceSource {
   id: ID
@@ -108,6 +109,12 @@ export async function askWorkspace(opts: {
   const hits = retrieve(opts.question, workspaceDocs())
   const sources = hits.map((d) => ({ id: d.id, title: d.title }))
   opts.onSources?.(sources)
+  if (usesDemo()) {
+    // demo (no key): answer from the retrieved pages themselves, with real citations
+    const lang = useWorkspace.getState().settings.language === 'de' ? 'de' : 'en'
+    const text = await streamDemoText(demoWorkspaceAnswer(opts.question, hits, keywords(opts.question), lang), opts.onToken, opts.signal)
+    return { text: text.trim(), sources }
+  }
   const excerpts = hits.map((d) => `<page title="${d.title.replace(/"/g, "'")}">\n${d.text.slice(0, 5000)}\n</page>`).join('\n\n')
   const today = new Date().toISOString().slice(0, 10)
   const prompt = `${excerpts || '<no matching pages />'}\n\nToday is ${today}.\nQuestion: ${opts.question.trim()}`

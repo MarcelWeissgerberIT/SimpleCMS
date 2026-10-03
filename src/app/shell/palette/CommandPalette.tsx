@@ -3,7 +3,7 @@ import { Command } from 'cmdk'
 import { ArrowRight, Copy, CornerDownLeft, FilePlus2, KeyRound, ListPlus, Square } from 'lucide-react'
 import { useWorkspace } from '../../store/store'
 import { useUI } from '../../store/ui'
-import { selectBreadcrumbs } from '../../store/selectors'
+import { isEffectivelyTrashed, selectBreadcrumbs } from '../../store/selectors'
 import { isAIConfigured, runAI } from '../../features'
 import { markdownToDoc, ReadOnlyDoc } from '../../editor'
 import { PageIcon } from '../../ui/PageIcon'
@@ -12,7 +12,8 @@ import { useT } from '../../i18n'
 import type { ID, Page } from '../../store/types'
 import { buildCommands, type Command as Cmd } from '../lib/commands'
 import { contextPageId, createPageAndOpen, goToPage } from '../lib/actions'
-import { buildIndex, search, type Range } from './search'
+import { useMediaQuery } from '../lib/hooks'
+import { buildIndex, search, type Range, type SearchHit } from './search'
 import './palette.css'
 
 export function CommandPalette() {
@@ -33,6 +34,7 @@ function Palette() {
   const close = useUI((s) => s.closePalette)
   const prevFocus = useRef<HTMLElement | null>(document.activeElement as HTMLElement | null)
   const pageId = contextPageId()
+  const narrow = useMediaQuery('(max-width: 560px)')
 
   const mode: Mode = q.startsWith('>') ? 'run' : q.startsWith('?') ? 'ask' : 'find'
   const term = mode === 'find' ? q.trim() : q.slice(1).trim()
@@ -44,11 +46,19 @@ function Palette() {
   const cmdHits = useMemo(() => {
     if (mode === 'ask') return []
     if (!term) return mode === 'run' ? commands : commands.filter((c) => CORE.includes(c.id))
-    const n = term.toLowerCase()
-    return commands.filter((c) => c.label.toLowerCase().includes(n) || c.keywords?.toLowerCase().includes(n) || c.id.includes(n))
+    return rankCommands(commands, term)
   }, [commands, mode, term])
+  const titleHits = useMemo(() => hits.filter((h) => h.field === 'title'), [hits])
+  const contentHits = useMemo(() => hits.filter((h) => h.field === 'content'), [hits])
+  /*
+   * Enter runs the first row, so the order is the answer to "what did they mean?":
+   * a command named like the query (3+ letters) beats a page that merely shares a word;
+   * pages whose title matches beat commands found only via keywords; body-text hits and
+   * "Create page" never shadow a command.
+   */
+  const commandsFirst = cmdHits.length > 0 && (titleHits.length === 0 || (term.length >= 3 && cmdHits.some((c) => labelStarts(c.label, term))))
   const recent = useMemo(
-    () => recentIds.map((id) => pages[id]).filter((p): p is Page => !!p && !p.trashed && p.id !== pageId).slice(0, 6),
+    () => recentIds.map((id) => pages[id]).filter((p): p is Page => !!p && !isEffectivelyTrashed(pages, p.id) && p.id !== pageId).slice(0, 6),
     [recentIds, pages, pageId],
   )
 
@@ -70,11 +80,48 @@ function Palette() {
     c.run()
   }
 
+  // Escape belongs to the topmost layer: listen on window (capture), ahead of any menu or
+  // popover left open underneath (they listen on document) — the palette closes first
+  const onEscape = useRef(() => {})
+  onEscape.current = () => {
+    if (mode !== 'find' && q.length > 1) setQ('')
+    else finish(true)
+  }
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape' || e.isComposing) return
+      e.preventDefault()
+      e.stopPropagation()
+      onEscape.current()
+    }
+    window.addEventListener('keydown', onKey, true)
+    return () => window.removeEventListener('keydown', onKey, true)
+  }, [])
+
   const path = (p: Page) =>
     selectBreadcrumbs(pages, p.id)
       .slice(0, -1)
       .map((x) => x.title.trim() || t('common.untitled'))
       .join(' / ')
+
+  const commandGroup = cmdHits.length > 0 && (
+    <Command.Group heading={<GroupHead label={t('shell.palette.commands')} n={cmdHits.length} />}>
+      {cmdHits.map((c) => (
+        <Command.Item key={c.id} value={`cmd:${c.id}`} className="pal-item" onSelect={() => runCmd(c)}>
+          <span className="pal-item__icon">
+            <c.icon size={16} strokeWidth={1.7} />
+          </span>
+          <span className="pal-item__main">
+            <span className="pal-item__title">{c.label}</span>
+          </span>
+          {c.shortcut && <span className="kbd pal-item__kbd">{shortcutLabel(c.shortcut)}</span>}
+        </Command.Item>
+      ))}
+    </Command.Group>
+  )
+  const pageHit = (h: SearchHit) => (
+    <PageItem key={h.page.id} page={h.page} path={path(h.page)} titleRanges={h.titleRanges} snippet={h.snippet} onSelect={() => openPageItem(h.page.id)} />
+  )
 
   return (
     <div className="pal-scrim" onMouseDown={(e) => e.target === e.currentTarget && finish(true)}>
@@ -84,13 +131,6 @@ function Palette() {
         aria-modal="true"
         aria-label={t('shell.palette.label')}
         onKeyDownCapture={(e) => {
-          if (e.key === 'Escape') {
-            e.preventDefault()
-            e.stopPropagation()
-            if (mode !== 'find' && q.length > 1) setQ('')
-            else finish(true)
-            return
-          }
           if (e.key === 'Enter' && e.altKey && value.startsWith('page:')) {
             e.preventDefault()
             e.stopPropagation()
@@ -111,7 +151,7 @@ function Palette() {
               autoFocus
               value={mode === 'find' ? q : q.slice(1).replace(/^ /, '')}
               onValueChange={(v) => setQ(mode === 'find' ? v : (mode === 'run' ? '>' : '?') + v)}
-              placeholder={mode === 'find' ? t('shell.palette.placeholder') : mode === 'run' ? t('shell.palette.placeholderRun') : t('shell.palette.placeholderAsk')}
+              placeholder={mode === 'find' ? t(narrow ? 'shell.palette.placeholderShort' : 'shell.palette.placeholder') : mode === 'run' ? t('shell.palette.placeholderRun') : t('shell.palette.placeholderAsk')}
               className="pal-input__field"
             />
             <span className="kbd">Esc</span>
@@ -131,35 +171,33 @@ function Palette() {
                   ))}
                 </Command.Group>
               )}
-              {mode === 'find' && term && (
-                <Command.Group heading={<GroupHead label={t('shell.palette.pages')} n={hits.length} />}>
-                  {hits.map((h) => (
-                    <PageItem key={h.page.id} page={h.page} path={path(h.page)} titleRanges={h.titleRanges} snippet={h.snippet} onSelect={() => openPageItem(h.page.id)} />
-                  ))}
-                  <Command.Item value={`create:${term}`} className="pal-item" onSelect={() => (finish(), createPageAndOpen(null, term))}>
-                    <span className="pal-item__icon">
-                      <FilePlus2 size={16} />
-                    </span>
-                    <span className="pal-item__main">
-                      <span className="pal-item__title">{t('shell.palette.createPage', { q: term })}</span>
-                    </span>
-                  </Command.Item>
-                </Command.Group>
-              )}
-              {cmdHits.length > 0 && (
-                <Command.Group heading={<GroupHead label={t('shell.palette.commands')} n={cmdHits.length} />}>
-                  {cmdHits.map((c) => (
-                    <Command.Item key={c.id} value={`cmd:${c.id}`} className="pal-item" onSelect={() => runCmd(c)}>
+              {mode === 'find' && term ? (
+                <>
+                  {commandsFirst && commandGroup}
+                  {titleHits.length > 0 && (
+                    <Command.Group heading={<GroupHead label={t('shell.palette.pages')} n={titleHits.length} />}>
+                      {titleHits.map(pageHit)}
+                    </Command.Group>
+                  )}
+                  {!commandsFirst && commandGroup}
+                  {contentHits.length > 0 && (
+                    <Command.Group heading={<GroupHead label={t('shell.palette.inContent')} n={contentHits.length} />}>
+                      {contentHits.map(pageHit)}
+                    </Command.Group>
+                  )}
+                  <Command.Group className="pal-create">
+                    <Command.Item value={`create:${term}`} className="pal-item" onSelect={() => (finish(), createPageAndOpen(null, term))}>
                       <span className="pal-item__icon">
-                        <c.icon size={16} strokeWidth={1.7} />
+                        <FilePlus2 size={16} />
                       </span>
                       <span className="pal-item__main">
-                        <span className="pal-item__title">{c.label}</span>
+                        <span className="pal-item__title">{t('shell.palette.createPage', { q: term })}</span>
                       </span>
-                      {c.shortcut && <span className="kbd pal-item__kbd">{shortcutLabel(c.shortcut)}</span>}
                     </Command.Item>
-                  ))}
-                </Command.Group>
+                  </Command.Group>
+                </>
+              ) : (
+                commandGroup
               )}
             </Command.List>
           )}
@@ -189,6 +227,29 @@ function Palette() {
     </div>
   )
 }
+
+/** Command matches, best first: label prefix › label word › keyword word › anywhere. */
+function rankCommands(commands: Cmd[], term: string): Cmd[] {
+  const n = term.toLowerCase()
+  const rank = (c: Cmd) => {
+    const label = c.label.toLowerCase()
+    const keywords = c.keywords?.toLowerCase() ?? ''
+    if (label.startsWith(n)) return 0
+    if (wordStarts(label, n)) return 1
+    if (wordStarts(keywords, n)) return 2
+    if (label.includes(n)) return 3
+    if (keywords.includes(n) || c.id.includes(n)) return 4
+    return -1
+  }
+  return commands
+    .map((c, i) => ({ c, i, r: rank(c) }))
+    .filter((x) => x.r >= 0)
+    .sort((a, b) => a.r - b.r || a.i - b.i)
+    .map((x) => x.c)
+}
+
+const wordStarts = (text: string, n: string) => text.split(/[\s()&,/…-]+/).some((w) => w.startsWith(n))
+const labelStarts = (label: string, term: string) => label.toLowerCase().startsWith(term.toLowerCase())
 
 const CORE = ['new-page', 'new-database', 'journal', 'templates', 'import', 'ask-ai', 'graph', 'theme', 'focus', 'present', 'settings']
 

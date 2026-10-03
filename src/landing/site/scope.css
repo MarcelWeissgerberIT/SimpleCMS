@@ -23,7 +23,8 @@
   --active: rgba(236, 233, 226, 0.1);
   --ink: #ece9e2;
   --ink-2: #a9a59c;
-  --ink-3: #6f6b63;
+  --ink-3: #8f8b83; /* tertiary text: AA on bg/surface */
+  --ink-faint: #6f6b63; /* decoration only */
   --ink-inverse: #121210;
   --rule: rgba(236, 233, 226, 0.09);
   --rule-strong: rgba(236, 233, 226, 0.18);
@@ -50,10 +51,11 @@
   --surface-2: #eae7df;
   --ink: #121210;
   --ink-2: #55524b;
-  --ink-3: #8d897f;
+  --ink-3: #67635b; /* tertiary text: AA on paper */
+  --ink-faint: #8d897f; /* decoration only */
   --rule: rgba(18, 18, 16, 0.1);
   --rule-strong: rgba(18, 18, 16, 0.2);
-  --signal-ink: #c43c00;
+  --signal-ink: #b83800;
   --signal-wash: rgba(255, 79, 0, 0.1);
   /* thermal paper: a hair cooler and brighter than the page */
   --paper: #fdfcf8;
@@ -61,14 +63,17 @@
   color: var(--ink);
 }
 
-/* The one orange field on the page. Ink on signal orange (AA for all text sizes). */
+/* The one orange field on the page. Ink on signal orange (AA for all text sizes).
+   Solid ink is only 5.7:1 on #ff4f00, so secondary/tertiary text stays ≥ .85 alpha
+   (≥ 4.8:1); anything fainter is decoration only. */
 .tone-signal {
   color-scheme: light;
   --bg: #ff4f00;
   --surface: #ff6a26;
   --ink: #121210;
-  --ink-2: rgba(18, 18, 16, 0.74);
-  --ink-3: rgba(18, 18, 16, 0.5);
+  --ink-2: rgba(18, 18, 16, 0.88);
+  --ink-3: rgba(18, 18, 16, 0.85);
+  --ink-faint: rgba(18, 18, 16, 0.5);
   --rule: rgba(18, 18, 16, 0.18);
   --rule-strong: rgba(18, 18, 16, 0.4);
   --hover: rgba(18, 18, 16, 0.08);

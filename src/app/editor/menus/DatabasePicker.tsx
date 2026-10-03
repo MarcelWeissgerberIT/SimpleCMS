@@ -8,6 +8,7 @@ import { pageTitle, sortPages } from '../../store/selectors'
 import type { ID } from '../../store/types'
 import { useT } from '../../i18n'
 import { insertBlock } from '../lib/blocks'
+import { livePages } from '../lib/livePages'
 import { posAnchor } from './common'
 
 /** Pick an existing database for a "linked database" block. */
@@ -16,7 +17,7 @@ export function DatabasePicker({ editor, pos, onClose }: { editor: Editor; pos: 
   const anchor = useMemo(() => posAnchor(editor, pos), [editor, pos])
   const entries = useMemo<MenuEntry[]>(() => {
     const { pages, databases } = useWorkspace.getState()
-    const dbs = sortPages(Object.values(pages).filter((p) => p.kind === 'database' && !p.trashed && databases[p.id]))
+    const dbs = sortPages(livePages(pages).filter((p) => p.kind === 'database' && databases[p.id]))
     if (!dbs.length) return [{ label: t('editor.linked.none'), disabled: true }]
     return [
       { kind: 'section', label: t('editor.linked.title') },

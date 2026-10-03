@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { cloneElement, isValidElement, useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import { Eye, EyeOff, ExternalLink, X, Download, Upload, AlertTriangle, GitBranch } from 'lucide-react'
 import { useWorkspace } from '../../store/store'
+import { isEffectivelyTrashed } from '../../store/selectors'
 import { useUI } from '../../store/ui'
 import { Modal } from '../../ui/Modal'
 import { Led, Switch } from '../../ui/controls'
@@ -27,26 +28,70 @@ export function SettingsModal({ initialTab, onClose }: { initialTab?: SettingsTa
   const t = useT()
   const [tab, setTab] = useState<SettingsTab>(initialTab ?? 'general')
   const idx = TABS.indexOf(tab)
+  const uid = useId()
+  const stripRef = useRef<HTMLDivElement>(null)
+  const tabEl = (id: SettingsTab) => stripRef.current?.querySelector<HTMLElement>(`[data-tab="${id}"]`) ?? null
+
+  // phones: the rail is a horizontal strip — keep the active tab in view (scroll the strip only)
+  useEffect(() => {
+    const strip = stripRef.current
+    const el = tabEl(tab)
+    if (!strip || !el || strip.scrollWidth <= strip.clientWidth) return
+    const left = el.getBoundingClientRect().left - strip.getBoundingClientRect().left + strip.scrollLeft
+    const pad = 12
+    if (left - pad < strip.scrollLeft) strip.scrollLeft = Math.max(0, left - pad)
+    else if (left + el.offsetWidth + pad > strip.scrollLeft + strip.clientWidth) strip.scrollLeft = left + el.offsetWidth + pad - strip.clientWidth
+  }, [tab])
+
+  const select = (next: SettingsTab) => {
+    setTab(next)
+    tabEl(next)?.focus()
+  }
+
   return (
-    <Modal open onClose={onClose} width={860} bare className="st">
+    <Modal open onClose={onClose} width={860} bare className="st" ariaLabel={t('common.settings')}>
       <div className="st__layout">
         <nav className="st__rail" aria-label={t('common.settings')}>
           <div className="st__rail-head label">{t('common.settings')}</div>
-          <div role="tablist" aria-orientation="vertical" className="st__tabs">
+          <div ref={stripRef} role="tablist" aria-orientation="vertical" className="st__tabs">
             {TABS.map((id, i) => (
               <button
                 key={id}
                 type="button"
                 role="tab"
+                id={`${uid}-tab-${id}`}
+                data-tab={id}
                 aria-selected={tab === id}
+                aria-controls={`${uid}-panel`}
+                tabIndex={tab === id ? 0 : -1}
+                data-autofocus={tab === id ? '' : undefined}
                 className="st__tab"
-                onClick={() => setTab(id)}
+                onClick={() => select(id)}
+                onFocus={(e) => {
+                  // roving tab stop: the dialog focuses its first button on open and its focus trap
+                  // wraps onto the first tab — either way the ring belongs on the tab that is showing
+                  if (tab !== id && !stripRef.current?.contains(e.relatedTarget as Node | null)) tabEl(tab)?.focus({ preventScroll: true })
+                }}
                 onKeyDown={(e) => {
-                  if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+                  if (e.key === 'Tab' && e.shiftKey) {
+                    // the inactive tabs are out of the tab order, so wrap to the dialog's last stop here
+                    const dialog = e.currentTarget.closest<HTMLElement>('[role="dialog"]')
+                    const stops = dialog ? Array.from(dialog.querySelectorAll<HTMLElement>(TABBABLE)).filter((el) => el.tabIndex >= 0 && el.getClientRects().length > 0) : []
+                    const last = stops[stops.length - 1]
+                    if (stops[0] === e.currentTarget && last && last !== e.currentTarget) {
+                      e.preventDefault()
+                      last.focus()
+                    }
+                    return
+                  }
+                  // vertical rail on desktop, horizontal strip on phones: both arrow pairs move
+                  const step = e.key === 'ArrowDown' || e.key === 'ArrowRight' ? 1 : e.key === 'ArrowUp' || e.key === 'ArrowLeft' ? -1 : 0
+                  if (step) {
                     e.preventDefault()
-                    const next = TABS[(i + (e.key === 'ArrowDown' ? 1 : -1) + TABS.length) % TABS.length]
-                    setTab(next)
-                    ;(e.currentTarget.parentElement?.children[TABS.indexOf(next)] as HTMLElement | undefined)?.focus()
+                    select(TABS[(i + step + TABS.length) % TABS.length])
+                  } else if (e.key === 'Home' || e.key === 'End') {
+                    e.preventDefault()
+                    select(TABS[e.key === 'Home' ? 0 : TABS.length - 1])
                   }
                 }}
               >
@@ -56,7 +101,7 @@ export function SettingsModal({ initialTab, onClose }: { initialTab?: SettingsTa
             ))}
           </div>
         </nav>
-        <section className="st__main" role="tabpanel">
+        <section className="st__main" role="tabpanel" id={`${uid}-panel`} aria-labelledby={`${uid}-tab-${tab}`}>
           <header className="st__head">
             <span className="label">
               § {String(idx + 1).padStart(2, '0')} — {t(`shell.settings.tab.${tab}`)}
@@ -79,14 +124,52 @@ export function SettingsModal({ initialTab, onClose }: { initialTab?: SettingsTa
   )
 }
 
-function Field({ label, hint, children, inline }: { label: string; hint?: ReactNode; children: ReactNode; inline?: boolean }) {
+const TABBABLE = 'a[href], button:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), [tabindex]'
+
+type ControlProps = { id?: string; 'aria-describedby'?: string; 'aria-labelledby'?: string; role?: string }
+
+/**
+ * Label + hint + control. A single input/select/textarea child gets an id (so the label
+ * names it) and the hint as its description; a control nested deeper passes `htmlFor`
+ * and sets that id (and aria-describedby `${htmlFor}-hint`) itself; a radiogroup child is
+ * named via aria-labelledby.
+ */
+function Field({ label, hint, children, inline, htmlFor }: { label: string; hint?: ReactNode; children: ReactNode; inline?: boolean; htmlFor?: string }) {
+  const uid = useId()
+  const id = htmlFor ?? `${uid}-control`
+  // a nested control (htmlFor) references its hint as `${htmlFor}-hint`
+  const hintId = hint ? `${id}-hint` : undefined
+  const labelId = `${uid}-label`
+  let control = children
+  let labelable = !!htmlFor
+  if (isValidElement<ControlProps>(children)) {
+    const tag = children.type
+    if (tag === 'input' || tag === 'select' || tag === 'textarea') {
+      labelable = true
+      control = cloneElement(children, { id: children.props.id ?? id, 'aria-describedby': children.props['aria-describedby'] ?? hintId })
+    } else if (children.props.role === 'radiogroup' || children.props.role === 'group') {
+      control = cloneElement(children, { 'aria-labelledby': labelId, 'aria-describedby': hintId })
+    }
+  }
   return (
     <div className="st-field" data-inline={inline || undefined}>
       <div className="st-field__text">
-        <div className="st-field__label">{label}</div>
-        {hint && <div className="st-field__hint">{hint}</div>}
+        {labelable ? (
+          <label className="st-field__label" id={labelId} htmlFor={id}>
+            {label}
+          </label>
+        ) : (
+          <div className="st-field__label" id={labelId}>
+            {label}
+          </div>
+        )}
+        {hint && (
+          <div className="st-field__hint" id={hintId}>
+            {hint}
+          </div>
+        )}
       </div>
-      <div className="st-field__control">{children}</div>
+      <div className="st-field__control">{control}</div>
     </div>
   )
 }
@@ -97,7 +180,7 @@ function GeneralTab() {
   const pages = useWorkspace((x) => x.pages)
   const set = useWorkspace.getState().updateSettings
   const candidates = Object.values(pages)
-    .filter((p) => !p.trashed && !p.databaseId)
+    .filter((p) => !p.trashed && !p.databaseId && !isEffectivelyTrashed(pages, p.id))
     .sort((a, b) => (a.title || '').localeCompare(b.title || ''))
   return (
     <>
@@ -198,6 +281,7 @@ function AITab() {
   const model = useWorkspace((x) => x.settings.aiModel)
   const set = useWorkspace.getState().updateSettings
   const [show, setShow] = useState(false)
+  const keyId = useId()
   const configured = key.trim().length > 0
   // the key is only "connected" once a real request went through
   const [test, setTest] = useState<{ state: 'idle' | 'running' | 'ok' | 'error'; msg?: string }>({ state: 'idle' })
@@ -242,9 +326,11 @@ function AITab() {
         )}
       </div>
       {test.state === 'error' && test.msg && <p className="ai-status__err">{test.msg}</p>}
-      <Field label={t('shell.settings.ai.key')} hint={t('shell.settings.ai.keyHint')}>
+      <Field label={t('shell.settings.ai.key')} hint={t('shell.settings.ai.keyHint')} htmlFor={keyId}>
         <div className="keyfield">
           <input
+            id={keyId}
+            aria-describedby={`${keyId}-hint`}
             className="input keyfield__input"
             type={show ? 'text' : 'password'}
             value={key}

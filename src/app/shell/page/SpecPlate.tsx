@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react'
 import { useWorkspace } from '../../store/store'
 import { useLang, useT } from '../../i18n'
 import type { Page } from '../../store/types'
@@ -18,18 +19,26 @@ export function SpecPlate({ page }: { page: Page }) {
     return n
   })
   const words = isDb ? 0 : wordCount(page.plain)
-  const cells: Array<[string, string]> = [
-    [t('shell.spec.created'), fmtStamp(page.createdAt, lang)],
+  // "03 OCT 2026 · 14:05": narrow plates drop the time (CSS), never cut the date
+  const [day, time] = fmtStamp(page.createdAt, lang).split(' · ')
+  const created = (
+    <>
+      {day}
+      {time && <span className="spec__time"> · {time}</span>}
+    </>
+  )
+  const cells: Array<[string, ReactNode]> = [
+    [t('shell.spec.created'), created],
     [t('shell.spec.edited'), fmtRelative(page.updatedAt, lang, t('shell.time.justNow')).toUpperCase()],
     ...(isDb
       ? ([
           [t('shell.spec.rows'), fmtNumber(rows, lang)],
           [t('shell.spec.fields'), `${db?.properties.length ?? 0} · ${t(plural('shell.spec.views', db?.views.length ?? 0), { n: db?.views.length ?? 0 })}`],
-        ] as Array<[string, string]>)
+        ] as Array<[string, ReactNode]>)
       : ([
           [t('shell.spec.words'), fmtNumber(words, lang)],
           [t('shell.spec.read'), words ? t('shell.stats.minutes', { n: readingTime(words) }) : '—'],
-        ] as Array<[string, string]>)),
+        ] as Array<[string, ReactNode]>)),
   ]
   return (
     <div className="spec" aria-label={t('shell.spec.label')}>

@@ -51,7 +51,7 @@
   position: absolute;
   width: 0;
   height: 0;
-  color: var(--ink-3);
+  color: var(--ink-faint);
   pointer-events: none;
 }
 .crop::before,
@@ -137,11 +137,11 @@
   stroke-width: 1;
 }
 .sk-bar {
-  fill: var(--ink-3);
+  fill: var(--ink-faint);
   opacity: 0.55;
 }
 .sk-bar-2 {
-  fill: var(--ink-3);
+  fill: var(--ink-faint);
   opacity: 0.3;
 }
 .sk-ink {
@@ -381,7 +381,7 @@
   stroke-width: 2.5;
 }
 .sw-minor {
-  stroke: var(--ink-3);
+  stroke: var(--ink-faint);
   stroke-width: 1;
 }
 .sw-num {

@@ -55,7 +55,7 @@ export function renderHero(ctx: Ctx): string {
         </div>
         <p class="lbl hero-fine">${esc(t('hero.fine'))}</p>
         <div class="bom">
-          <p class="lbl bom-h"><span>${esc(t('hero.bom'))}</span><span>Qty</span></p>
+          <p class="lbl bom-h"><span>${esc(t('hero.bom'))}</span><span>${esc(t('hero.qty'))}</span></p>
           <ol>${parts.map(([id, name]) => `<li data-part="${id}"><span class="bom-id">${id}</span><span class="bom-name">${esc(name)}</span><span class="bom-q">1</span></li>`).join('')}</ol>
         </div>
       </div>

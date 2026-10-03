@@ -8,12 +8,17 @@ import { defineConfig, devices } from '@playwright/test'
  * never collides with `dist/` or other local servers). Set E2E_SKIP_BUILD=1 to reuse the
  * last e2e build while iterating on test code.
  *
+ * Several suites can run side by side (e.g. parallel agents or terminals): set E2E_PORT to a
+ * free port. The build folder is keyed by the port, so parallel runs never overwrite each
+ * other's dist (default port 4180 → node_modules/.cache/e2e-dist-4180).
+ *
  *   npm run test:e2e
  *   E2E_SKIP_BUILD=1 npx playwright test tests/e2e/editor.spec.ts
+ *   E2E_PORT=4306 npx playwright test tests/e2e/shell.spec.ts
  */
-const PORT = 4180
+const PORT = Number(process.env.E2E_PORT) || 4180
 const BASE_PATH = '/SimpleCMS/'
-const OUT_DIR = 'node_modules/.cache/e2e-dist'
+const OUT_DIR = `node_modules/.cache/e2e-dist-${PORT}`
 
 const build = process.env.E2E_SKIP_BUILD ? '' : `npx vite build --outDir ${OUT_DIR} --emptyOutDir --logLevel error && `
 

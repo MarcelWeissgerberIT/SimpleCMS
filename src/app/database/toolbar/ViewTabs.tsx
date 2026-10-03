@@ -16,6 +16,7 @@ import { useT } from '../../i18n'
 import { VIEW_ICON, VIEW_TYPES } from '../model/schema'
 import type { DbModel } from '../hooks'
 import { LayoutPanel } from './LayoutPanel'
+import { revealInStrip } from '../views/overflow'
 
 export function ViewTypeIcon({ type, size = 14 }: { type: ViewType; size?: number }) {
   const I = VIEW_ICON[type]
@@ -171,10 +172,10 @@ export function ViewTabs({ m, onSelect }: { m: DbModel; onSelect: (id: ID) => vo
       el.removeEventListener('wheel', onWheel)
     }
   }, [views.length])
-  // keep the active tab in view (initial load, switching from elsewhere)
-  useEffect(() => {
-    stripRef.current?.querySelector('[data-active="true"]')?.scrollIntoView({ inline: 'nearest', block: 'nearest' })
-  }, [m.view.id])
+  // keep the active tab in view (initial load, switching from elsewhere). Only the strip scrolls
+  // sideways: scrollIntoView would also scroll the page around an inline database.
+  const revealActive = () => revealInStrip(stripRef.current, stripRef.current?.querySelector('[data-active="true"]'))
+  useEffect(() => revealActive(), [m.view.id])
 
   const onDragEnd = (e: DragEndEvent) => {
     if (!e.over || e.active.id === e.over.id) return
@@ -195,7 +196,7 @@ export function ViewTabs({ m, onSelect }: { m: DbModel; onSelect: (id: ID) => vo
     }
     const id = s.addView(m.db.id, patch)
     onSelect(id)
-    requestAnimationFrame(() => stripRef.current?.querySelector('[data-active="true"]')?.scrollIntoView({ inline: 'nearest', block: 'nearest' }))
+    requestAnimationFrame(revealActive)
   }
 
   const viewMenu = (v: View): MenuEntry[] => [

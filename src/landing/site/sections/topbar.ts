@@ -5,11 +5,13 @@ import { esc } from '../util'
 
 /** Top bar: brand, anchors, language switch, CTA — plus the radio-dial section scale. */
 export function renderTopbar({ t, lang }: Ctx): string {
+  // Plain words here: four of eight section numbers would read like missing items.
+  // The § numbers live on the dial and in the section labels.
   const anchors = [
-    ['savings', '01', 'nav.savings'],
-    ['features', '02', 'nav.features'],
-    ['compare', '04', 'nav.compare'],
-    ['faq', '07', 'nav.faq'],
+    ['savings', 'nav.savings'],
+    ['features', 'nav.features'],
+    ['compare', 'nav.compare'],
+    ['faq', 'nav.faq'],
   ]
   const n = SECTIONS.length - 1
   const marks = SECTIONS.map(
@@ -27,7 +29,7 @@ export function renderTopbar({ t, lang }: Ctx): string {
       <span class="tb-word"><span class="tb-word-long">SimpleCMS</span><b>One</b></span>
     </a>
     <nav class="tb-nav" aria-label="${esc(t('nav.label'))}">
-      ${anchors.map(([id, num, key]) => `<a href="#${id}"><span class="tb-num">${num}</span>${esc(t(key))}</a>`).join('')}
+      ${anchors.map(([id, key]) => `<a href="#${id}">${esc(t(key))}</a>`).join('')}
     </nav>
     <div class="tb-tools">
       <div class="lang-switch" role="group" aria-label="${esc(t('nav.lang'))}">

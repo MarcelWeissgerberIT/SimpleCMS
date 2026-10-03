@@ -169,7 +169,7 @@ function sanitizeCover(cover: unknown): PageCover | null {
     return value ? { type: 'image', value, positionY } : null
   }
   // gradients: allow only gradient functions / colours (no url(), no expressions)
-  if (c.type === 'gradient' && /^[\w\s#%(),.-]+$/.test(c.value) && !/url\s*\(/i.test(c.value)) return { type: 'gradient', value: c.value, positionY }
+  if (c.type === 'gradient' && /^[\w\s#%(),./-]+$/.test(c.value) && !/url\s*\(/i.test(c.value)) return { type: 'gradient', value: c.value, positionY }
   if (c.type === 'color' && /^[a-z]{1,16}$/.test(c.value)) return { type: 'color', value: c.value as ColorName, positionY }
   return null
 }

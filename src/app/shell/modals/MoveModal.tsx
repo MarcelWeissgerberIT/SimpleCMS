@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import { CornerDownLeft, Search } from 'lucide-react'
 import { useWorkspace, descendantIds } from '../../store/store'
 import { useUI } from '../../store/ui'
-import { selectBreadcrumbs } from '../../store/selectors'
+import { isEffectivelyTrashed, selectBreadcrumbs } from '../../store/selectors'
 import { Modal } from '../../ui/Modal'
 import { PageIcon } from '../../ui/PageIcon'
 import { logoMarkSvg } from '@/shared/logo'
@@ -21,7 +21,8 @@ export function MoveModal({ pageId, onClose }: { pageId: ID; onClose: () => void
     if (!page) return []
     const banned = new Set([pageId, ...descendantIds(pages, pageId)])
     const list = Object.values(pages)
-      .filter((p) => !p.trashed && !p.databaseId && p.kind === 'page' && !p.hidden && !banned.has(p.id))
+      // live pages only: a page moved under a trashed subtree would vanish with "Empty trash"
+      .filter((p) => !p.trashed && !p.databaseId && p.kind === 'page' && !p.hidden && !banned.has(p.id) && !isEffectivelyTrashed(pages, p.id))
       .map((p) => ({ page: p, path: selectBreadcrumbs(pages, p.id).slice(0, -1).map((x) => x.title.trim() || t('common.untitled')).join(' / ') }))
     const needle = q.trim().toLowerCase()
     const filtered = needle ? list.filter((x) => (x.page.title || '').toLowerCase().includes(needle) || x.path.toLowerCase().includes(needle)) : list

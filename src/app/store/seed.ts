@@ -99,7 +99,7 @@ export function seedWorkspace(lang: Lang): void {
     opt(L('Done', 'Erledigt'), 'green', 'done'),
   ]
   const prioOpts = [opt(L('High', 'Hoch'), 'red'), opt(L('Medium', 'Mittel'), 'yellow'), opt(L('Low', 'Niedrig'), 'gray')]
-  const tagOpts = [opt('Web', 'blue'), opt('Marketing', 'pink'), opt('Product', 'orange'), opt('Ops', 'brown'), opt('AI', 'purple')]
+  const tagOpts = [opt('Web', 'blue'), opt('Marketing', 'pink'), opt(L('Product', 'Produkt'), 'orange'), opt('Ops', 'brown'), opt(L('AI', 'KI'), 'purple')]
   const P = {
     name: newId(),
     status: newId(),
@@ -129,10 +129,27 @@ export function seedWorkspace(lang: Lang): void {
     const db = { properties: projectProps }
     const board = { ...defaultView('board', db, L('Board', 'Board')), groupBy: P.status, visibleProperties: [P.prio, P.owner, P.due, P.progress] }
     const tableView = { ...defaultView('table', db, L('All projects', 'Alle Projekte')), calculations: { [P.budget]: 'sum' as const, [P.progress]: 'average' as const } }
-    const timeline = { ...defaultView('timeline', db, 'Timeline'), dateProperty: P.due, visibleProperties: [P.owner, P.status] }
+    const timeline = { ...defaultView('timeline', db, L('Timeline', 'Zeitleiste')), dateProperty: P.due, visibleProperties: [P.owner, P.status] }
     const cal = { ...defaultView('calendar', db, L('Calendar', 'Kalender')), dateProperty: P.due }
-    const chart = { ...defaultView('chart', db, L('By status', 'Nach Status')), chart: { kind: 'bar' as const, xPropertyId: P.status, aggregate: 'count' as const } }
-    s.updateDatabase(projects, { views: [board, tableView, timeline, cal, chart], nextUniqueId: 1 })
+    // budget per status: varied bars (7,500 / 20,500 / 13,000 / 12,000) instead of four equal counts
+    const chart = { ...defaultView('chart', db, L('Chart', 'Diagramm')), chart: { kind: 'bar' as const, xPropertyId: P.status, aggregate: 'sum' as const, yPropertyId: P.budget } }
+    s.updateDatabase(projects, {
+      views: [board, tableView, timeline, cal, chart],
+      nextUniqueId: 1,
+      // one armed automation, so the feature is visible from the start (same shape as the notify_done recipe)
+      automations: [
+        {
+          id: newId(),
+          name: L('Notify when Status → Done', 'Benachrichtigen bei Status → Erledigt'),
+          enabled: true,
+          trigger: { type: 'property_changed', propertyId: P.status, toValue: statusOpts[3].id },
+          actions: [{ type: 'notify', message: L('{title} → Done', '{title} → Erledigt') }],
+          lastRunAt: null,
+          lastStatus: null,
+          lastMessage: null,
+        },
+      ],
+    })
   }
   const projectRows: Array<[string, number, number, ID, number, number, number, number, string[], number]> = [
     // title, status idx, prio idx, owner, start offset, length, progress, budget, tags idx, rating unused
@@ -346,23 +363,24 @@ export function seedWorkspace(lang: Lang): void {
         task(false, L('Type ', 'Tippe '), code('/'), L(' on an empty line to insert any block', ' in einer leeren Zeile, um einen Block einzufügen')),
         task(false, L('Press ', 'Drücke '), code('⌘K'), L(' / ', ' / '), code('Ctrl+K'), L(' to search everything', ', um alles zu durchsuchen')),
         task(false, L('Drag a block by its ', 'Zieh einen Block an seinem '), code('⋮⋮'), L(' handle', '-Griff')),
-        task(false, L('Open ', 'Öffne '), mention(projects, L('Projects', 'Projekte')), L(' and switch between Board, Timeline and Chart', ' und wechsle zwischen Board, Timeline und Chart')),
+        task(false, L('Open ', 'Öffne '), mention(projects, L('Projects', 'Projekte')), L(' and switch between Board, Timeline and Chart', ' und wechsle zwischen Board, Zeitleiste und Diagramm')),
+        task(false, L('Drag a card on the ', 'Zieh auf dem '), mention(projects, L('Projects', 'Projekte')), L(' board to Done', '-Board eine Karte nach Erledigt')),
         task(false, L('Alt-click ', 'Alt-Klick auf '), mention(wiki, L('Team wiki', 'Team-Wiki')), L(' to open it in a side-by-side pane', ', um es nebeneinander zu öffnen')),
-        task(false, L('Add your Claude key in Settings → AI, then press Space on an empty line', 'Hinterlege deinen Claude-Key unter Einstellungen → KI und drücke dann Leertaste in einer leeren Zeile')),
-        task(false, L('Import your Notion export (Settings → Data → Import)', 'Importiere deinen Notion-Export (Einstellungen → Daten → Import)')),
+        task(false, L('Add your Claude key in Settings → Claude AI, then press Space on an empty line', 'Hinterlege deinen Claude-Key unter Einstellungen → Claude KI und drücke dann Leertaste in einer leeren Zeile')),
+        task(false, L('Import your Notion export with ', 'Importiere deinen Notion-Export über '), b(L('Import', 'Importieren')), L(' in the sidebar', ' in der Seitenleiste')),
       ),
-      h2(L('What makes One different', 'Was One anders macht')),
+      h2(L('Why One', 'Warum One')),
       columns(
         [
-          h3(L('Yours', 'Deins')),
+          h3(L('Owned', 'Deins')),
           ul(li(L('Local-first, works offline', 'Local-first, funktioniert offline')), li(L('Share links that contain the page itself', 'Teilen-Links, die die Seite selbst enthalten')), li(L('Markdown, HTML and JSON export', 'Export als Markdown, HTML und JSON'))),
         ],
         [
-          h3(L('Faster', 'Schneller')),
+          h3(L('Fast', 'Schnell')),
           ul(li(L('Keyboard-first, ⌘K for everything', 'Keyboard-first, ⌘K für alles')), li(L('Stacked panes & focus mode', 'Gestapelte Panes & Fokus-Modus')), li(L('Version history with a tape scrubber', 'Versionsverlauf mit Band-Regler'))),
         ],
         [
-          h3(L('Smarter', 'Schlauer')),
+          h3(L('Wired', 'Vernetzt')),
           ul(li(L('Claude AI with your own key', 'Claude-KI mit eigenem Key')), li(L('Webhooks to n8n, Make, Zapier', 'Webhooks an n8n, Make, Zapier')), li(L('Graph view of everything', 'Graph-Ansicht über alles'))),
         ],
       ),
@@ -372,11 +390,11 @@ export function seedWorkspace(lang: Lang): void {
       h2(L('Blocks for nerds', 'Blöcke für Nerds')),
       p(L('Inline math like ', 'Inline-Mathe wie '), imath('e^{i\\pi} + 1 = 0'), L(', block equations, code with highlighting and diagrams:', ', Formeln, Code mit Highlighting und Diagramme:')),
       math('\\text{saved}_{year} = \\text{seats} \\times \\text{price} \\times 12'),
-      mermaid(`flowchart LR\n  You((${L('You', 'Du')})) --> One[SimpleCMS One]\n  One --> IDB[(IndexedDB)]\n  One -. ${L('your key', 'dein Key')} .-> Claude[Claude API]\n  One -. webhook .-> n8n`),
+      mermaid(`flowchart LR\n  You([${L('You', 'Du')}]) --> One[SimpleCMS One]\n  One --> IDB[(IndexedDB)]\n  One -. ${L('your key', 'dein Key')} .-> Claude[Claude API]\n  One -. webhook .-> n8n`),
       toggle(L('Keyboard shortcuts', 'Tastenkürzel'), table([
-        [L('Action', 'Aktion'), 'Shortcut'],
+        [L('Action', 'Aktion'), L('Shortcut', 'Kürzel')],
         [L('Search & commands', 'Suche & Befehle'), '⌘K / Ctrl+K'],
-        [L('New page', 'Neue Seite'), '⌘N / Ctrl+N'],
+        [L('New page', 'Neue Seite'), '⌘⌥N / Ctrl+Alt+N'],
         [L('Toggle sidebar', 'Seitenleiste'), '⌘\\ / Ctrl+\\'],
         [L('Focus mode', 'Fokus-Modus'), '⌘⇧F / Ctrl+Shift+F'],
         [L('Duplicate block', 'Block duplizieren'), '⌘D / Ctrl+D'],

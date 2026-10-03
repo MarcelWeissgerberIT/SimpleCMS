@@ -189,6 +189,8 @@ const shots = {
       await zoomIn.click()
       await page.waitForTimeout(400)
     }
+    // nothing hovered (an empty stretch of the top bar)
+    await page.mouse.move(W / 2, 22)
     await page.waitForTimeout(800)
     await save(page, 'graph')
     await ctx.close()
@@ -199,16 +201,21 @@ const shots = {
     const id = await pageIdByTitle(page, 'Projects')
     await page.goto(`${BASE}/app/?e2e#/p/${id}`)
     await page.waitForTimeout(1200)
+    // the seeded "Notify when Status → Done" automation, plus a webhook action into n8n
     await page.evaluate((databaseId) => window.__one.ui.getState().openModal({ type: 'automations', databaseId }), id)
     await page.waitForTimeout(1000)
-    await page.getByText(/Send new rows to n8n/).first().click()
-    await page.waitForTimeout(800)
-    const url = page.locator('input[type="url"], input[placeholder*="http"]').first()
+    await page.locator('.modal').getByRole('button', { name: 'Add action' }).click()
+    await page.waitForTimeout(300)
+    await page.getByRole('menuitem', { name: /Send webhook/ }).or(page.getByRole('button', { name: /Send webhook/ })).first().click()
+    await page.waitForTimeout(500)
+    const url = page.locator('.modal input[type="url"], .modal input[placeholder*="http"]').last()
     if (await url.count()) {
-      await url.fill('https://n8n.acme.studio/webhook/new-project')
+      await url.fill('https://n8n.acme.studio/webhook/project-done')
       await url.press('Tab')
-    }
-    await page.locator('.modal').getByRole('switch').first().click().catch(() => console.log('  (no enable switch)'))
+    } else console.log('  (no webhook URL field)')
+    // a resting UI: no focus ring, nothing hovered
+    await page.evaluate(() => (document.activeElement instanceof HTMLElement ? document.activeElement.blur() : undefined))
+    await page.mouse.move(W - 4, H - 4)
     await page.waitForTimeout(800)
     await save(page, 'automations')
     await ctx.close()

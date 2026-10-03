@@ -53,7 +53,8 @@
   --signal: #ff4f00;
   --signal-hover: #e84700;
   --signal-press: #cc3f00;
-  --on-signal: #ffffff;
+  /* ink on the orange: 5.7:1 (white on #ff4f00 is only 3.3:1) — a Braun/TE style black-on-orange key */
+  --on-signal: #121210;
 
   /* ---------- Layers ---------- */
   --z-sticky: 10;
@@ -74,11 +75,12 @@
   --active: rgba(18, 18, 16, 0.09);
   --ink: #121210;           /* primary text */
   --ink-2: #55524b;         /* secondary text */
-  --ink-3: #8d897f;         /* tertiary, placeholders, disabled */
+  --ink-3: #67635b;         /* tertiary text that still carries meaning: AA on surface/bg/surface-2 */
+  --ink-faint: #8d897f;     /* placeholders, disabled, decoration only (no information) */
   --ink-inverse: #faf9f5;
   --rule: rgba(18, 18, 16, 0.1);        /* hairlines */
   --rule-strong: rgba(18, 18, 16, 0.2);
-  --signal-ink: #c43c00;    /* orange used as TEXT on paper (AA contrast) */
+  --signal-ink: #b83800;    /* orange used as TEXT on paper (AA contrast, sidebar included) */
   --signal-wash: rgba(255, 79, 0, 0.1);
   --signal-wash-strong: rgba(255, 79, 0, 0.18);
   --selection: rgba(255, 79, 0, 0.2);
@@ -91,13 +93,18 @@
   --scrim: rgba(18, 18, 16, 0.32);
   --focus-ring: 0 0 0 2px var(--surface), 0 0 0 4px var(--signal);
 
+  /* Switch (OFF state must stay visible: ≥ 3:1 for the outline / knob) */
+  --switch-off-track: var(--surface-2);
+  --switch-off-border: var(--ink-faint);
+  --switch-knob: var(--surface);
+
   /* Content colours (Notion-style text/background colours, tuned for paper) */
   --c-default-text: var(--ink);      --c-default-bg: transparent;
-  --c-gray-text: #7b776e;            --c-gray-bg: #e6e3dc;
+  --c-gray-text: #67635b;            --c-gray-bg: #e6e3dc;
   --c-brown-text: #8a5a3c;           --c-brown-bg: #eee0d4;
-  --c-orange-text: #c43c00;          --c-orange-bg: #fbe1d2;
-  --c-yellow-text: #9a6b00;          --c-yellow-bg: #f6ebc7;
-  --c-green-text: #2c7a3f;           --c-green-bg: #dcecd8;
+  --c-orange-text: #b23600;          --c-orange-bg: #fbe1d2;
+  --c-yellow-text: #7f5800;          --c-yellow-bg: #f6ebc7;
+  --c-green-text: #256b37;           --c-green-bg: #dcecd8;
   --c-blue-text: #23629e;            --c-blue-bg: #d9e6f2;
   --c-purple-text: #6b4fa0;          --c-purple-bg: #e6def2;
   --c-pink-text: #a83f73;            --c-pink-bg: #f4dde8;
@@ -115,7 +122,8 @@
   --active: rgba(236, 233, 226, 0.1);
   --ink: #ece9e2;
   --ink-2: #a9a59c;
-  --ink-3: #6f6b63;
+  --ink-3: #8f8b83;
+  --ink-faint: #6f6b63;
   --ink-inverse: #121210;
   --rule: rgba(236, 233, 226, 0.09);
   --rule-strong: rgba(236, 233, 226, 0.18);
@@ -131,6 +139,10 @@
   --shadow-pop: 0 0 0 1px var(--rule-strong), 0 16px 40px -12px rgba(0, 0, 0, 0.7);
   --shadow-modal: 0 0 0 1px var(--rule-strong), 0 40px 80px -20px rgba(0, 0, 0, 0.8);
   --scrim: rgba(0, 0, 0, 0.55);
+
+  --switch-off-track: var(--surface-3);
+  --switch-off-border: var(--ink-3);
+  --switch-knob: var(--ink-2);
 
   --c-gray-text: #9b978e;            --c-gray-bg: #2a2925;
   --c-brown-text: #c79a7a;           --c-brown-bg: #33281f;

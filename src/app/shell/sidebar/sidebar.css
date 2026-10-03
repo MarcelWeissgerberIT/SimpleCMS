@@ -398,6 +398,10 @@
   letter-spacing: 0.06em;
   line-height: 12px;
 }
+/* --ink-3 drops below 4.5:1 on the darker --active fill of the selected row */
+.sb-row[data-active] .sb-row__db {
+  color: var(--ink-2);
+}
 .sb-row:hover .sb-row__db,
 .sb-row:focus-within .sb-row__db {
   display: none;
@@ -738,4 +742,41 @@ body[data-resizing] .sb {
 body[data-dragging] .sb-row__actions,
 body[data-dragging] .sb-row__toggle {
   display: none;
+}
+
+/* ---------- touch: every control is a ≥ 32 × 32 target ---------- */
+@media (pointer: coarse) {
+  .sb-row {
+    height: 32px;
+  }
+  .sb-row__actions {
+    gap: 0;
+  }
+  .sb-row__btn {
+    width: 32px;
+    height: 32px;
+  }
+  /* chevron and section "+": the box stays, an invisible margin takes the taps */
+  .sb-row__toggle,
+  .sb-sect__add {
+    position: relative;
+  }
+  .sb-row__toggle::before,
+  .sb-sect__add::before {
+    content: '';
+    position: absolute;
+    inset: -6px;
+  }
+  /* chevron: reach into the row padding on the left and over the (inert) icon on the right */
+  .sb-row__toggle::before {
+    inset: -5px -4px -5px -8px;
+  }
+  /* section "+": the first row starts 4px below it, so grow upwards */
+  .sb-sect__add::before {
+    inset: -8px -6px -4px;
+  }
+  .trash-item .icon-btn--sm {
+    width: 32px;
+    height: 32px;
+  }
 }

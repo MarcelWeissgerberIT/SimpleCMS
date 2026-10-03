@@ -635,6 +635,21 @@ body.db-resizing .dbt-resize:active::after {
   }
 }
 
+/* touch: the row checkbox's 32 px hit area stays inside the gutter — clear of the grip on the
+   left (wide) and of the title cell on the right */
+@media (pointer: coarse) {
+  .dbt-gutter .db-check:not(:disabled)::before {
+    inset: -10px -9px -10px -11px;
+  }
+}
+
+/* narrow: 34 px gutter, no grip — reach left instead */
+@media (pointer: coarse) and (max-width: 640px) {
+  .dbt-gutter .db-check:not(:disabled)::before {
+    inset: -10px -4px -10px -16px;
+  }
+}
+
 .dbt:focus-visible {
   box-shadow: none;
 }
