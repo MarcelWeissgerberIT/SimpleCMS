@@ -8,6 +8,7 @@
  *   #/agenda        → workspace agenda (every dated row, journal entry and date mention)
  *   #/s/<payload>   → read-only shared page (payload = compressed page, see features/share)
  *   #/clip?url=…&title=…&text=… → clip a web page into the Inbox, then replaced by #/p/<new page>
+ *   #/invite/<token> → join a team workspace (preview, sign in if needed, accept; see shell/cloud)
  */
 import { useSyncExternalStore } from 'react'
 
@@ -23,6 +24,8 @@ export type Route =
   | { name: 'form'; payload: string }
   /** #/clip?url=…&title=…&text=…&desc=… → save a web page to the Inbox (bookmarklet, share target; see shell/capture) */
   | { name: 'clip'; url: string; title: string; text: string; desc: string }
+  /** #/invite/<token> → team-cloud invitation (link from POST /api/workspaces/:id/invites) */
+  | { name: 'invite'; token: string }
   | { name: 'notfound'; path: string }
 
 export function parseHash(hash: string): Route {
@@ -37,6 +40,7 @@ export function parseHash(hash: string): Route {
   if (parts[0] === 'agenda') return { name: 'agenda' }
   if (parts[0] === 's' && parts[1]) return { name: 'share', payload: parts.slice(1).join('/') }
   if (parts[0] === 'f' && parts[1]) return { name: 'form', payload: parts.slice(1).join('/') }
+  if (parts[0] === 'invite' && parts[1]) return { name: 'invite', token: parts[1] }
   if (parts[0] === 'clip') {
     // the whole query (a stray unencoded "?" in a shared URL must not cut it short)
     const q = new URLSearchParams(raw.includes('?') ? raw.slice(raw.indexOf('?') + 1) : '')
@@ -61,6 +65,8 @@ export function routeHref(r: Route): string {
       return `#/s/${r.payload}`
     case 'form':
       return `#/f/${r.payload}`
+    case 'invite':
+      return `#/invite/${r.token}`
     case 'clip': {
       const q = new URLSearchParams()
       for (const k of ['url', 'title', 'text', 'desc'] as const) if (r[k]) q.set(k, r[k])
