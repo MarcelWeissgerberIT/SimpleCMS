@@ -84,7 +84,7 @@ const endHtml = (state) => `<!doctype html><html><head><style>${cardCss}
   </div>
   <div class="brand" style="opacity:${state >= 4 ? 1 : 0}">
     ${LOGO}
-    <div><div class="name">SimpleCMS One</div><div class="url">marcelweissgerberit.github.io/SimpleCMS</div></div>
+    <div><div class="name">SimpleCMS One</div><div class="url">getonecms.com</div></div>
   </div>
   <div class="tags mono" style="opacity:${state >= 4 ? 1 : 0}">Free · Local-first · Open source (MIT) · Built for the Ninja Armory</div>
   <div class="hint" style="opacity:${state >= 4 ? 1 : 0}">Open it — and don't touch anything for 15 seconds.</div>

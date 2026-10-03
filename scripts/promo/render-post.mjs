@@ -43,7 +43,7 @@ const LOGO = (s = 40) => `<svg width="${s}" height="${s}" viewBox="0 0 32 32"><r
 const frame = (fig, rev) => `
 <div class="mark tl"></div><div class="mark tr"></div><div class="mark bl"></div><div class="mark br"></div>
 <div class="top mono"><span>SimpleCMS One · ${fig}</span><span>${rev}</span></div>
-<div class="foot">${LOGO()}<span class="name">SimpleCMS One</span><span class="url">marcelweissgerberit.github.io/SimpleCMS</span>
+<div class="foot">${LOGO()}<span class="name">SimpleCMS One</span><span class="url">getonecms.com</span>
 <span class="tags mono">Free · Local-first · Open source (MIT) · Bring your own Claude key</span></div>`
 
 /* ------------------------------------------------------------------ 02 — the bill */

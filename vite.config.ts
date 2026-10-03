@@ -78,7 +78,7 @@ function serviceWorkerPrecache(): Plugin {
   }
 }
 
-// BASE_PATH=/SimpleCMS/ for GitHub Pages (see npm run build:pages)
+// BASE_PATH: "/" for getonecms.com (npm run build:pages); "/SimpleCMS/" when a fork serves it as a project page
 export default defineConfig({
   base: process.env.BASE_PATH ?? '/',
   plugins: [react(), serviceWorkerPrecache()],

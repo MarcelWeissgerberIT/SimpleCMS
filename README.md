@@ -10,15 +10,15 @@ A local-first workspace that does what Notion does — block editor, databases w
 Claude AI with your own key, webhook automations, import from Notion, Obsidian, Evernote and Trello,
 publishing as a website — for **$0**, with **no account** and **no server**. Everything lives in your browser.
 
-**[Live demo → marcelweissgerberit.github.io/SimpleCMS](https://marcelweissgerberit.github.io/SimpleCMS/)** ·
-[Open the workspace](https://marcelweissgerberit.github.io/SimpleCMS/app/) ·
+**[Live demo → getonecms.com](https://getonecms.com/)** ·
+[Open the workspace](https://getonecms.com/app/) ·
 [Deutsch ↓](#auf-deutsch)
 
 <img src="docs/media/intro.gif" width="860" alt="First visit: a 1997 spreadsheet homepage gets smashed by a 3D sledgehammer and the new site appears underneath" />
 
 <sub>First visit only: sit still for 15 seconds on the 1997 spreadsheet homepage. Replay any time with <code>?intro</code>.</sub>
 
-**[▶ 60-second tour (video)](https://marcelweissgerberit.github.io/SimpleCMS/media/simplecms-one.mp4)**
+**[▶ 60-second tour (video)](https://getonecms.com/media/simplecms-one.mp4)**
 
 </div>
 
@@ -104,7 +104,7 @@ without CORS. Payload:
   "row": {
     "id": "…",
     "title": "Website relaunch",
-    "url": "https://marcelweissgerberit.github.io/SimpleCMS/app/#/p/…",
+    "url": "https://getonecms.com/app/#/p/…",
     "properties": { "Status": "In progress", "Owner": "Alex" }
   },
   "changes": [{ "property": "Status", "from": "Backlog", "to": "In progress" }],
@@ -136,11 +136,11 @@ away while the new site assembles behind it. It plays once (`localStorage` key `
 
 ## Run it
 
-**Use it:** open the [live workspace](https://marcelweissgerberit.github.io/SimpleCMS/app/). That's it.
+**Use it:** open the [live workspace](https://getonecms.com/app/). That's it.
 
 **Self-host in two minutes:** fork this repository → *Settings → Pages → Source: GitHub Actions* → push to `main`.
-The workflow in `.github/workflows/pages.yml` type-checks, builds and deploys. (Keep the repository name `SimpleCMS`,
-or change `build:pages` in `package.json` to your repository name.)
+The workflow in `.github/workflows/pages.yml` type-checks, builds and deploys; it reads the base path from your Pages
+settings, so it works both as a project page (`you.github.io/<repo>/`) and on a custom domain.
 
 **Develop:**
 
@@ -148,7 +148,7 @@ or change `build:pages` in `package.json` to your repository name.)
 npm install
 npm run dev          # landing at http://localhost:5173/ , app at /app/
 npm run typecheck
-npm run build:pages  # production build with base /SimpleCMS/
+npm run build:pages  # production build (BASE_PATH=/<repo>/ for a project page)
 npm run test:e2e     # Playwright end-to-end suite (builds + previews automatically)
 E2E_PORT=4190 npm run test:e2e   # a second suite in parallel: own port, own build folder
 ```
@@ -198,7 +198,7 @@ Beim ersten Besuch erscheint die Startseite von 1997 als hässliche Tabellenkalk
 erlebt, wie ein 3D-Vorschlaghammer sie zertrümmert und die neue Seite darunter freilegt. Das passiert nur einmal;
 mit `?intro` lässt es sich wiederholen.
 
-**Loslegen:** [Workspace öffnen](https://marcelweissgerberit.github.io/SimpleCMS/app/). Zum Selbst-Hosten: Repository
+**Loslegen:** [Workspace öffnen](https://getonecms.com/app/). Zum Selbst-Hosten: Repository
 forken, *Settings → Pages → Source: GitHub Actions* einstellen und nach `main` pushen.
 
 Lizenz: [MIT](LICENSE) — frei nutzen, forken, weitergeben.

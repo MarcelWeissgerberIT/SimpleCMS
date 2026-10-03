@@ -16,7 +16,7 @@ import { mkdirSync, rmSync } from 'node:fs'
 // Local server to read from (a `npm run build:pages` + `vite preview` serves under /SimpleCMS/).
 const LOCAL = (process.argv[2] || 'http://127.0.0.1:4173/SimpleCMS').replace(/\/$/, '')
 // Pages are loaded under the public URL so links/payloads in the shots show it; requests are routed to LOCAL.
-const PUBLIC = 'https://marcelweissgerberit.github.io/SimpleCMS'
+const PUBLIC = 'https://getonecms.com'
 const BASE = PUBLIC
 const OUT = 'public/assets/shots'
 const TMP = '.shots/capture'

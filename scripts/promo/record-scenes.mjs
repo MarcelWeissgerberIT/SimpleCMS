@@ -17,7 +17,7 @@ import { execFileSync } from 'node:child_process'
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { zipSync, strToU8 } from 'fflate'
 
-const PUBLIC = 'https://marcelweissgerberit.github.io/SimpleCMS'
+const PUBLIC = 'https://getonecms.com'
 const LOCAL = process.env.PROMO_LOCAL?.replace(/\/$/, '')
 const BASE = LOCAL ? PUBLIC : (process.argv[2] || 'http://127.0.0.1:5300').replace(/\/$/, '')
 const ONLY = process.argv.slice(3)

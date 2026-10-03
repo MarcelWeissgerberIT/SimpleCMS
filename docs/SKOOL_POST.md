@@ -1,7 +1,7 @@
 # Skool post — Ninja Armory submission
 
 **Attach:** `public/media/simplecms-one.mp4` (60 s video, also online at
-https://marcelweissgerberit.github.io/SimpleCMS/media/simplecms-one.mp4) and the three images in `docs/media/post/`
+https://getonecms.com/media/simplecms-one.mp4) and the three images in `docs/media/post/`
 (`01-ugly-1997.png`, `02-the-bill.png`, `03-spec-sheet.png`). Don't post a screenshot of the new landing
 site: people should see it for themselves after 15 seconds.
 
@@ -13,7 +13,7 @@ Hey everyone 👋
 
 Here's my Ninja Armory submission: **SimpleCMS One**, a rebuild of Notion that runs entirely in your browser. It's free, open source, and needs no account and no server.
 
-👉 **Try it:** https://marcelweissgerberit.github.io/SimpleCMS/
+👉 **Try it:** https://getonecms.com/
 
 One request: when the page opens, **don't click, don't scroll, don't touch anything for 15 seconds.** Trust me. (It only happens on your first visit. If you've already been there, add `?intro` to the link.)
 

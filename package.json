@@ -7,7 +7,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "build:pages": "BASE_PATH=/SimpleCMS/ vite build",
+    "build:pages": "BASE_PATH=${BASE_PATH:-/} vite build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit -p tsconfig.app.json",
     "test:e2e": "playwright test"

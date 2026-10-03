@@ -25,9 +25,13 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run typecheck
+      # base path from the Pages settings: "" with a custom domain (getonecms.com), "/<repo>" for a project page
+      - id: pages
+        uses: actions/configure-pages@v5
       - run: npm run build:pages
+        env:
+          BASE_PATH: ${{ steps.pages.outputs.base_path }}/
       - run: cp dist/index.html dist/404.html
-      - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
           path: dist
