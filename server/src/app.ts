@@ -8,6 +8,7 @@ import type { AppEnv, Services } from './context.ts'
 import { ApiError, notFound } from './errors.ts'
 import { csrfGuard, securityHeaders } from './http/security.ts'
 import { mountStatic } from './http/static.ts'
+import { MCP_PATH, mcpRoutes } from './mcp/index.ts'
 import { authRoutes } from './routes/auth.ts'
 import { documentRoutes } from './routes/documents.ts'
 import { fileRoutes } from './routes/files.ts'
@@ -75,6 +76,9 @@ export function buildApp(s: Services): Hono<AppEnv> {
   app.all('/api/*', () => {
     throw notFound('not_found', 'Unknown API endpoint')
   })
+
+  // remote MCP (docs/MCP.md): bearer tokens like /api/v1, never the cookie
+  app.route(MCP_PATH, mcpRoutes(s, model))
 
   mountStatic(app, s)
 

@@ -1,0 +1,341 @@
+/* ---------- create property dialog(s) ---------- */
+.dbc .modal__body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.dbc__keys {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-right: auto;
+}
+
+.dbc__form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.dbc__row {
+  display: grid;
+  grid-template-columns: 116px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  min-height: 30px;
+}
+
+.dbc__row > .label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dbc__row .db-select {
+  justify-self: start;
+  min-width: 180px;
+}
+
+.dbc__plate {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  justify-self: start;
+  height: 28px;
+  padding: 0 9px;
+  border: 1px dashed var(--rule-strong);
+  border-radius: var(--radius-1);
+  font-size: var(--text-sm);
+  font-weight: 550;
+}
+
+.dbc__twoway {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-2);
+  background: var(--surface-2);
+}
+
+.dbc__twoway[data-on] {
+  border-color: var(--rule-strong);
+}
+
+.dbc__switchrow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 28px;
+  font-size: var(--text-sm);
+  cursor: pointer;
+}
+
+.dbc__switchrow > svg {
+  flex: none;
+  color: var(--ink-3);
+}
+
+.dbc__switchtext {
+  flex: 1;
+  min-width: 0;
+}
+
+.dbc__note {
+  margin: 0;
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+  line-height: 1.45;
+}
+
+.dbc__note--lock {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 9px;
+  border: 1px dashed var(--ink-3);
+  border-radius: var(--radius-1);
+  color: var(--ink-2);
+}
+
+.dbc__note--error {
+  color: var(--c-red-text);
+}
+
+.dbc__form > .dbc__note--error {
+  padding-left: 126px;
+}
+
+.dbc__intro {
+  margin: 0;
+  color: var(--ink-2);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+}
+
+/* ---------- the list (meeting fields, CSV columns) ---------- */
+.dbc__list {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border-top: 1px solid var(--rule);
+}
+
+.dbc__item {
+  display: grid;
+  grid-template-columns: 22px auto minmax(0, 1fr);
+  align-items: center;
+  column-gap: 10px;
+  row-gap: 4px;
+  padding: 9px 0;
+  border-bottom: 1px solid var(--rule);
+}
+
+.dbc__list[data-mode='map'] .dbc__item {
+  grid-template-columns: 22px minmax(0, 150px) minmax(0, 1fr);
+}
+
+.dbc__num {
+  color: var(--ink-faint);
+}
+
+.dbc__item[data-action='create'] .dbc__num {
+  color: var(--signal-ink);
+}
+
+.dbc__check {
+  width: 15px;
+  height: 15px;
+  margin: 0;
+  accent-color: var(--signal);
+}
+
+.dbc__field {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  gap: 2px;
+}
+
+.dbc__fieldname {
+  overflow: hidden;
+  font-size: var(--text-sm);
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dbc__detail {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-transform: none;
+  letter-spacing: 0.02em;
+}
+
+.dbc__item > .dbc__detail,
+.dbc__err {
+  grid-column: 3;
+}
+
+.dbc__controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.dbc__name {
+  flex: 1 1 140px;
+  min-width: 0;
+}
+
+.dbc__type {
+  flex: none;
+  width: 150px;
+}
+
+.dbc__action {
+  flex: 1 1 100%;
+}
+
+.dbc__item[data-action='skip'] .dbc__fieldname {
+  color: var(--ink-3);
+  text-decoration: line-through;
+  text-decoration-color: var(--rule-strong);
+}
+
+.dbc__item[data-action='skip'] .dbc__name {
+  opacity: 0.55;
+}
+
+.dbc__matched {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+  color: var(--ink-2);
+  font-size: var(--text-xs);
+}
+
+.dbc__matched > .label {
+  margin-right: 2px;
+}
+
+/* ---------- the "Create property “X”" menu entry ---------- */
+.menu-item .dbc-plus {
+  color: var(--signal-ink);
+}
+
+/* ---------- relation offer chip (next to a mention) ---------- */
+.dbc-offer__anchor {
+  display: block;
+  height: 0;
+}
+
+.dbc-offer {
+  z-index: var(--z-popover);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: min(440px, calc(100vw - 16px));
+  padding: 5px 5px 5px 8px;
+  border-radius: var(--radius-2);
+  background: var(--surface);
+  box-shadow: var(--shadow-pop);
+  font-size: var(--text-sm);
+  animation: dbc-offer-in var(--dur-2) var(--ease-out);
+}
+
+@keyframes dbc-offer-in {
+  from {
+    opacity: 0;
+    transform: translateY(-3px);
+  }
+}
+
+.dbc-offer__tag {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 3px;
+  color: var(--signal-ink);
+}
+
+.dbc-offer__text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dbc-offer__go {
+  flex: none;
+  gap: 6px;
+}
+
+.dbc-offer__go .kbd {
+  height: 16px;
+  border-color: color-mix(in srgb, currentColor 35%, transparent);
+  background: transparent;
+  color: inherit;
+}
+
+.dbc-offer__x {
+  flex: none;
+}
+
+@media (max-width: 640px) {
+  .dbc__row {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 4px;
+  }
+
+  .dbc__form > .dbc__note--error {
+    padding-left: 0;
+  }
+
+  .dbc__keys {
+    display: none;
+  }
+
+  .dbc__list[data-mode='map'] .dbc__item,
+  .dbc__item {
+    grid-template-columns: 22px minmax(0, 1fr);
+  }
+
+  .dbc__list[data-mode='map'] .dbc__controls,
+  .dbc__item > .dbc__detail,
+  .dbc__err {
+    grid-column: 2;
+  }
+
+  .dbc__item[data-action] .dbc__controls {
+    grid-column: 2;
+  }
+
+  .dbc__list[data-mode='check'] .dbc__controls {
+    grid-column: 1 / -1;
+    padding-left: 32px;
+  }
+
+  .dbc__type {
+    flex: 1 1 120px;
+    width: auto;
+  }
+
+  .dbc-offer__text {
+    white-space: normal;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dbc-offer {
+    animation: none;
+  }
+}

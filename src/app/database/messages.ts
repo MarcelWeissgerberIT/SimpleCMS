@@ -3,6 +3,7 @@ import { formMessages } from './form/messages'
 import { autofillMessages } from './autofill/messages'
 import { structureMessages } from './structure-messages'
 import { peopleMessages } from './people-messages'
+import { createMessages } from './create/messages'
 
 /** Strings for the database area. Keys MUST be prefixed with "database." — always add both en and de. */
 export const messages: Messages = {
@@ -11,6 +12,7 @@ export const messages: Messages = {
     ...autofillMessages.en,
     ...structureMessages.en,
     ...peopleMessages.en,
+    ...createMessages.en,
     'database.title': 'Database title',
     'database.toolbar': 'Database toolbar',
     'database.search': 'Search',
@@ -512,6 +514,7 @@ export const messages: Messages = {
     ...autofillMessages.de,
     ...structureMessages.de,
     ...peopleMessages.de,
+    ...createMessages.de,
     'database.title': 'Titel der Datenbank',
     'database.toolbar': 'Datenbank-Werkzeugleiste',
     'database.search': 'Suchen',

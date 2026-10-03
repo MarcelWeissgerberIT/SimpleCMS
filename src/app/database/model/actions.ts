@@ -174,6 +174,15 @@ export function deletePropertiesWithUndo(db: Database, props: PropertyDef[], opt
   })
 }
 
+/**
+ * Remove properties without a toast of their own — the undo of an on-the-fly creation
+ * (database/create): definition, values and every reference go, like a normal delete.
+ */
+export function dropProperties(dbId: ID, propIds: ID[]): void {
+  if (isDbReadOnly()) return
+  for (const id of propIds) removeProperty(dbId, id)
+}
+
 /** Delete one property and clear what pointed at it; returns how to put everything back. */
 function removeProperty(dbId: ID, propId: ID): (() => void) | null {
   const st = ws()
