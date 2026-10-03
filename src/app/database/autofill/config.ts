@@ -3,6 +3,7 @@
  * The config itself lives on the property (PropertyDef.autofill, see store/types.ts).
  */
 import type { AutofillConfig, AutofillPreset, PropertyDef, PropertyType } from '../../store/types'
+import { useWorkspace } from '../../store/store'
 
 export const AUTOFILL_TYPES: readonly PropertyType[] = ['text', 'number', 'select', 'multi_select', 'checkbox', 'url']
 
@@ -64,3 +65,8 @@ export const LANGUAGES: ReadonlyArray<{ name: string; native: string }> = [
   { name: 'Korean', native: '한국어' },
   { name: 'Chinese (Simplified)', native: '简体中文' },
 ]
+
+/** Translation target: the configured one, else the "other" app language. */
+export function translateTarget(cfg: AutofillConfig): string {
+  return cfg.language || (useWorkspace.getState().settings.language === 'de' ? 'English' : 'German')
+}

@@ -3,7 +3,8 @@ import { DndContext, DragOverlay } from '@dnd-kit/core'
 import { PenLine, Plus } from 'lucide-react'
 import { dayToDate, dayToIso, type AgendaItem } from './model'
 import { fmtDayStamp, fmtShortDay, fmtWeekday } from './format'
-import { DraggableItem, ItemChip, ListRow, accentOf, useAgenda, useAgendaDnd, useDroppableDay } from './parts'
+import { DraggableItem, ItemChip, accentOf, useAgenda, useAgendaDnd, useDroppableDay } from './parts'
+import { DayGroup } from './ListView'
 import { plural } from '../lib/format'
 
 interface Seg {
@@ -18,6 +19,8 @@ interface Seg {
 const HEAD = 28
 const LANE = 21
 const MORE = 17
+/** lanes a week row grows to before it says "+N more" */
+const CAP = 4
 
 /** Weeks (arrays of 7 day numbers) covering the month of `cursor`. */
 export function monthWeeks(cursor: number, weekStartsOn: 0 | 1): number[][] {
@@ -55,22 +58,28 @@ export function MonthView({ cursor, items, weekStartsOn, narrow, onPick }: { cur
   const layout = useMemo(() => weeks.map((w) => layoutWeek(w, items)), [weeks, items])
   const dnd = useAgendaDnd(items)
 
-  // lanes that fit a week row (rows stretch with the window)
+  // rows grow to show up to CAP lanes, stretch with the window, and say "+N more" beyond what fits
+  const used = layout.map((segs) => segs.reduce((m, s) => Math.max(m, s.lane + 1), 0))
+  const rowMin = used.map((u) => HEAD + Math.min(u, CAP) * LANE + (u > CAP ? MORE : 6))
   const gridRef = useRef<HTMLDivElement>(null)
-  const [rowH, setRowH] = useState(118)
+  const [rowHs, setRowHs] = useState<number[]>([])
   useLayoutEffect(() => {
     const el = gridRef.current
     if (!el) return
     const measure = () => {
-      const row = el.firstElementChild as HTMLElement | null
-      if (row) setRowH(row.getBoundingClientRect().height)
+      const hs = [...el.children].map((c) => (c as HTMLElement).getBoundingClientRect().height)
+      setRowHs((prev) => (prev.length === hs.length && prev.every((h, i) => Math.abs(h - hs[i]) < 0.5) ? prev : hs))
     }
     measure()
     const ro = new ResizeObserver(measure)
     ro.observe(el)
     return () => ro.disconnect()
   }, [weeks.length, narrow])
-  const maxLanes = Math.max(1, Math.floor((rowH - HEAD - MORE) / LANE))
+  const lanesFor = (wi: number) => {
+    const h = rowHs[wi] ?? rowMin[wi]
+    if (used[wi] <= Math.floor((h - HEAD - 4) / LANE)) return used[wi]
+    return Math.max(1, Math.floor((h - HEAD - MORE) / LANE))
+  }
 
   if (narrow) return <CompactMonth weeks={weeks} month={month} items={items} cursor={cursor} onPick={onPick} />
 
@@ -84,9 +93,10 @@ export function MonthView({ cursor, items, weekStartsOn, narrow, onPick }: { cur
         ))}
       </div>
       <DndContext {...dnd.dndProps}>
-        <div ref={gridRef} className="ag-weeks" role="grid" aria-label={fmtDayStamp(cursor, lang)} style={{ gridTemplateRows: `repeat(${weeks.length}, minmax(var(--ag-row-min), 1fr))` }}>
+        <div ref={gridRef} className="ag-weeks" role="grid" aria-label={fmtDayStamp(cursor, lang)} style={{ gridTemplateRows: rowMin.map((m) => `minmax(max(var(--ag-row-min), ${m}px), 1fr)`).join(' ') }}>
           {weeks.map((week, wi) => {
             const segs = layout[wi]
+            const maxLanes = lanesFor(wi)
             const hidden = week.map((_, c) => segs.filter((s) => s.lane >= maxLanes && c >= s.col && c < s.col + s.span).length)
             return (
               <div key={week[0]} className="ag-week" role="row">
@@ -201,7 +211,6 @@ function CompactMonth({ weeks, month, items, cursor, onPick }: { weeks: number[]
     return m
   }, [weeks, items])
   const picked = perDay.get(cursor) ?? []
-  const stamp = fmtDayStamp(cursor, lang)
   return (
     <div className="ag-cmonth">
       <div className="ag-wd" aria-hidden>
@@ -241,17 +250,7 @@ function CompactMonth({ weeks, month, items, cursor, onPick }: { weeks: number[]
           </div>
         ))}
       </div>
-      <section className="ag-group" aria-label={stamp}>
-        <h3 className="ag-group__head">
-          <span className="ag-group__stamp">{stamp}</span>
-          {cursor === ctx.today && <span className="ag-group__rel">{t('shell.agenda.today')}</span>}
-          <span className="ag-group__rule" />
-          <button type="button" className="icon-btn icon-btn--sm" aria-label={t('shell.agenda.add', { date: stamp })} onClick={(e) => ctx.openAdd(cursor, e.currentTarget)}>
-            <Plus size={14} />
-          </button>
-        </h3>
-        {picked.length ? picked.map((it) => <ListRow key={it.key} it={it} day={cursor} />) : <p className="ag-group__empty">{t('shell.agenda.emptyDay')}</p>}
-      </section>
+      <DayGroup day={cursor} items={picked} alwaysShow />
     </div>
   )
 }

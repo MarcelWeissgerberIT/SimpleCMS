@@ -1,14 +1,18 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { Plus } from 'lucide-react'
 import type { AgendaItem } from './model'
 import { fmtDayStamp } from './format'
 import { ListRow, useAgenda } from './parts'
 import { plural } from '../lib/format'
 
+/** Overdue rows shown before "Show all" (the most recent ones). */
+const OVERDUE_SHOWN = 12
+
 /** Upcoming items, one group per day (sticky mono day heads), overdue rows first. */
 export function ListView({ from, to, items, overdue }: { from: number; to: number; items: AgendaItem[]; overdue: AgendaItem[] }) {
   const ctx = useAgenda()
   const { t, lang } = ctx
+  const [allOverdue, setAllOverdue] = useState(false)
   const days = useMemo(() => {
     const m = new Map<number, AgendaItem[]>()
     for (const it of items) {
@@ -34,9 +38,14 @@ export function ListView({ from, to, items, overdue }: { from: number; to: numbe
             <span className="ag-group__rule" />
             <span className="ag-group__n">{String(overdue.length).padStart(2, '0')}</span>
           </h3>
-          {overdue.map((it) => (
+          {(allOverdue ? overdue : overdue.slice(-OVERDUE_SHOWN)).map((it) => (
             <ListRow key={it.key} it={it} day={it.start} overdue />
           ))}
+          {!allOverdue && overdue.length > OVERDUE_SHOWN && (
+            <button type="button" className="ag-showall" onClick={() => setAllOverdue(true)}>
+              {t('shell.agenda.showAll', { n: overdue.length })}
+            </button>
+          )}
         </section>
       )}
       {days.map(([d, list]) => (

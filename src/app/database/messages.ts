@@ -1,10 +1,12 @@
 import type { Messages } from '@/shared/i18n'
 import { formMessages } from './form/messages'
+import { autofillMessages } from './autofill/messages'
 
 /** Strings for the database area. Keys MUST be prefixed with "database." — always add both en and de. */
 export const messages: Messages = {
   en: {
     ...formMessages.en,
+    ...autofillMessages.en,
     'database.title': 'Database title',
     'database.toolbar': 'Database toolbar',
     'database.search': 'Search',
@@ -465,6 +467,7 @@ export const messages: Messages = {
   },
   de: {
     ...formMessages.de,
+    ...autofillMessages.de,
     'database.title': 'Titel der Datenbank',
     'database.toolbar': 'Datenbank-Werkzeugleiste',
     'database.search': 'Suchen',

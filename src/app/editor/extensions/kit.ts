@@ -8,7 +8,8 @@ import type { Bridge } from '../lib/bridge'
 import { uploadFiles } from '../lib/upload'
 import { nodeViewWraps } from '../views'
 import { suggestExtension } from './suggest'
-import { BlockFlash, BlockSelection, ExtraInputRules, OnePlaceholder, shortcutsExtension, TabTrap } from './behaviors'
+import { BlockFlash, BlockSelection, ExtraInputRules, OnePlaceholder, QuietStart, shortcutsExtension, TabTrap } from './behaviors'
+import { commentsExtension } from '../comments/plugin'
 import { pasteExtension } from './paste'
 import { ButtonKeys } from '../schema/button'
 
@@ -29,7 +30,7 @@ export function editorExtensions({
   headingOffset?: number
 }): AnyExtension[] {
   const exts = baseExtensions({ readOnly, wrap: nodeViewWraps({ readOnly }), headingOffset })
-  if (readOnly || !bridge) return [...exts, pasteExtension(null), BlockFlash]
+  if (readOnly || !bridge) return [...exts, pasteExtension(null), BlockFlash, QuietStart]
   return [
     ...exts,
     typography(),
@@ -45,6 +46,8 @@ export function editorExtensions({
     suggestExtension('mention', '@', bridge, { allowSpaces: true }),
     suggestExtension('emoji', ':', bridge, { shouldShow: emojiQuery }),
     ButtonKeys,
+    commentsExtension(bridge),
+    QuietStart,
     FileHandler.configure({
       onPaste: (editor, files) => void uploadFiles(editor, files),
       onDrop: (editor, files, pos) => void uploadFiles(editor, files, pos),

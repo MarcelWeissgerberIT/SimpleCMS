@@ -16,6 +16,8 @@ import { createLowlight, common } from 'lowlight'
 import { t } from '../../i18n'
 import { OutlineHeading } from './heading'
 import { ButtonNode } from './button'
+import { Tab, Tabs } from './tabs'
+import { CommentMark } from './comment'
 import {
   BlockImage,
   Bookmark,
@@ -88,6 +90,8 @@ export const BLOCK_ID_TYPES = [
   'toc',
   'fileBlock',
   'button',
+  'tabs',
+  'tab',
 ]
 
 export type ExtensionWrap = Partial<Record<string, (ext: AnyExtension) => AnyExtension>>
@@ -155,6 +159,9 @@ export function baseExtensions({ readOnly = false, wrap = {}, headingOffset = 0 
     w('toc', Toc),
     w('fileBlock', FileBlock),
     w('button', ButtonNode),
+    w('tabs', Tabs),
+    Tab,
+    CommentMark,
     UniqueID.configure({ types: BLOCK_ID_TYPES, attributeName: 'id' }),
   ]
 }

@@ -29,6 +29,7 @@ import {
   Minus,
   MonitorPlay,
   Network,
+  PanelTop,
   Paperclip,
   Pi,
   Quote,
@@ -51,6 +52,8 @@ import type { Bridge } from './bridge'
 import { insertBlock, moveIntoToggleBody, turnInto, type TurnTarget } from './blocks'
 import { dateMentionAttrs } from './dates'
 import { markFreshButton } from './buttonRun'
+import { caretIntoTabs, newTabsJson, tabsAround } from '../schema/tabs'
+import { toast } from '../../store/ui'
 import { t } from '../../i18n'
 
 export type BlockGroup = 'basic' | 'lists' | 'media' | 'database' | 'advanced' | 'ai' | 'inline'
@@ -215,6 +218,26 @@ export const BLOCKS: BlockItem[] = [
       // a fresh button opens its configuration right away (see ButtonView)
       markFreshButton(ctx.editor)
       insertBlock(ctx.editor, { type: 'button', attrs: { label: t('editor.button.default'), variant: 'signal', actions: [] } }, ctx.range)
+    },
+  },
+  {
+    id: 'tabs',
+    group: 'advanced',
+    icon: PanelTop,
+    keywords: 'tabs tab register reiter registerkarten panels views ansichten',
+    run: (ctx) => {
+      const outer = tabsAround(ctx.editor.state.selection.$from)
+      if (!outer) return void insertBlock(ctx.editor, newTabsJson(), ctx.range)
+      // no tabs inside tabs: the new block goes right below the tabs block the caret is in
+      const { editor } = ctx
+      const tr = editor.state.tr
+      if (ctx.range) tr.delete(ctx.range.from, ctx.range.to)
+      const at = tr.mapping.map(outer.tabsPos + outer.node.nodeSize)
+      tr.insert(at, editor.schema.nodeFromJSON(newTabsJson()))
+      caretIntoTabs(tr, at)
+      editor.view.dispatch(tr.scrollIntoView())
+      editor.view.focus()
+      toast({ message: t('editor.tabs.noNesting'), kind: 'info' })
     },
   },
   { id: 'toc', group: 'advanced', icon: ListTree, keywords: 'toc table of contents outline inhaltsverzeichnis gliederung', run: (ctx) => insertBlock(ctx.editor, { type: 'toc' }, ctx.range) },

@@ -44,6 +44,15 @@ export function useShortcutGroups(): ShortcutGroup[] {
         [t('shell.keys.undo'), ['Mod+Z']],
       ],
     },
+    {
+      label: t('shell.nav.agenda'),
+      items: [
+        [t('shell.keys.agendaMove'), ['←', '→']],
+        [t('shell.keys.agendaToday'), ['T']],
+        [t('shell.keys.agendaViews'), ['M', 'W', 'L']],
+        [t('shell.keys.agendaShift'), ['Alt+←', 'Alt+→']],
+      ],
+    },
   ]
 }
 

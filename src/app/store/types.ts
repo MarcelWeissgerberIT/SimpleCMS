@@ -97,6 +97,39 @@ export interface Page {
   hidden?: boolean
   /** Optional plain-text excerpt cache (search/graph); maintained by setContent(). */
   plain?: string
+  /** Comment threads (margin notes), anchored by `comment` marks (attrs: id) in `content`. */
+  comments?: PageComment[]
+}
+
+/* ------------------------------------------------------------------ */
+/* Comments (margin notes)                                             */
+/* ------------------------------------------------------------------ */
+
+export interface PageCommentReply {
+  id: ID
+  /** settings.userName at the time of writing ('' = the local user without a name). */
+  author: string
+  body: string
+  createdAt: number
+  updatedAt: number
+}
+
+/**
+ * A comment thread on a page. Its anchor is a `comment` mark with the same id in the page
+ * content; when that text is deleted the thread stays as "detached" and shows its `quote`.
+ * Comments never leave the device: share links, exports and AI context strip the mark and the
+ * data (only the JSON backup keeps them).
+ */
+export interface PageComment {
+  id: ID
+  /** The anchored text when the thread was started. */
+  quote: string
+  body: string
+  author: string
+  createdAt: number
+  updatedAt: number
+  resolved: boolean
+  replies: PageCommentReply[]
 }
 
 /* ------------------------------------------------------------------ */

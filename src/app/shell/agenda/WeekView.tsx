@@ -70,8 +70,9 @@ export function WeekView({ cursor, items, weekStartsOn, narrow }: { cursor: numb
   if (narrow)
     return (
       <div className="ag-list ag-list--week">
+        {/* a range shows once: on its first day in this week */}
         {days.map((d) => (
-          <DayGroup key={d} day={d} items={items.filter((it) => it.start <= d && it.end >= d)} alwaysShow />
+          <DayGroup key={d} day={d} items={items.filter((it) => Math.max(it.start, days[0]) === d)} alwaysShow />
         ))}
       </div>
     )
@@ -235,16 +236,18 @@ function TimeColumn({ day, items, nowMin, setGrab }: { day: number; items: Agend
     <div ref={setNodeRef} className="ag-wk__col" data-day={day} data-today={day === ctx.today || undefined} data-weekend={isWeekend(day) || undefined} data-over={isOver || undefined} onClick={onClick} aria-label={stamp}>
       {placed.map((p) => {
         const src = ctx.sources.get(p.it.source)
+        const height = Math.max(22, ((p.e - p.s) / 60) * HOUR - 2)
+        const short = height < 40
         return (
           <DraggableItem
             key={p.it.key}
             id={`${p.it.key}|tm`}
             it={p.it}
             className="ag-ev"
-            data={{ 'data-done': p.it.done || undefined }}
+            data={{ 'data-done': p.it.done || undefined, 'data-short': short || undefined, 'data-tight': (short && p.cols > 1) || undefined }}
             style={{
               top: `${(p.s / 60) * HOUR + 1}px`,
-              height: `${Math.max(22, ((p.e - p.s) / 60) * HOUR - 2)}px`,
+              height: `${height}px`,
               left: `calc(${(p.col / p.cols) * 100}% + 2px)`,
               width: `calc(${100 / p.cols}% - 4px)`,
               ['--ag-accent' as string]: accentOf(p.it, src),
@@ -253,7 +256,7 @@ function TimeColumn({ day, items, nowMin, setGrab }: { day: number; items: Agend
           >
             <span className="ag-ev__time">
               {fmtTime(p.it.time!, lang)}
-              {p.it.endTime && `–${fmtTime(p.it.endTime, lang)}`}
+              {!short && p.it.endTime && `–${fmtTime(p.it.endTime, lang)}`}
             </span>
             <span className="ag-ev__title">{p.it.title.trim() || t('common.untitled')}</span>
           </DraggableItem>

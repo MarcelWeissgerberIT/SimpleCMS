@@ -13,6 +13,7 @@ import type { Page } from '../../store/types'
 import { createDatabaseAndOpen, createPageAndOpen, goToPage } from '../lib/actions'
 import { fmtDay, fmtNumber, fmtRelative, isoWeek, wordCount } from '../lib/format'
 import { useIsTouch, useKbdHint, useNow } from '../lib/hooks'
+import { NextDays, NextDaysActions } from '../agenda/NextDays'
 import './home.css'
 
 export function Home() {
@@ -86,8 +87,15 @@ export function Home() {
           </div>
         </section>
 
+        <section className="home__section" aria-label={t('shell.agenda.next7')}>
+          <SectionLabel n="02" label={t('shell.agenda.next7')}>
+            <NextDaysActions />
+          </SectionLabel>
+          <NextDays />
+        </section>
+
         <section className="home__section">
-          <SectionLabel n="02" label={t('shell.home.recent')} />
+          <SectionLabel n="03" label={t('shell.home.recent')} />
           {recent.length === 0 ? (
             <div className="home__empty">
               <p>{t('shell.home.noRecent')}</p>
@@ -107,7 +115,7 @@ export function Home() {
 
         {!touch && (
         <section className="home__section">
-          <SectionLabel n="03" label={t('shell.home.tips')} />
+          <SectionLabel n="04" label={t('shell.home.tips')} />
           <ul className="tips">
             <Tip keys={['Mod+K']} text={t('shell.tips.palette')} />
             <Tip keys={['/']} text={t('shell.tips.slash')} />
@@ -123,12 +131,13 @@ export function Home() {
   )
 }
 
-function SectionLabel({ n, label }: { n: string; label: string }) {
+function SectionLabel({ n, label, children }: { n: string; label: string; children?: ReactNode }) {
   return (
     <div className="home__label label">
       <span className="home__label-n">{n}</span>
       <span>{label}</span>
       <span className="home__meta-rule" />
+      {children}
     </div>
   )
 }

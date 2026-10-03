@@ -4,7 +4,7 @@ import { AtSign, CornerDownRight } from 'lucide-react'
 import type { Lang, Translate } from '@/shared/i18n'
 import { PageIcon } from '../../ui/PageIcon'
 import type { PopoverAnchor } from '../../ui/Popover'
-import { canMove, type AgendaItem, type AgendaSource } from './model'
+import { canMove, dayToIso, type AgendaItem, type AgendaSource } from './model'
 import { moveItem, openItem } from './actions'
 import { fmtShortDay, fmtTime } from './format'
 
@@ -94,27 +94,45 @@ export function ItemChip({ it, overlay }: { it: AgendaItem; overlay?: boolean })
   )
 }
 
-/** Clickable, focusable, draggable (rows) chip. `onGrab` reports the day under the pointer. */
-export function DraggableItem({
-  id,
-  it,
-  className,
-  style,
-  onGrab,
-  children,
-  data,
-}: {
-  id: string
+interface ItemBoxProps {
   it: AgendaItem
   className: string
   style?: CSSProperties
-  onGrab?: (e: React.PointerEvent<HTMLDivElement>) => void
   children: ReactNode
   data?: Record<string, string | boolean | undefined>
-}) {
+}
+
+/** Clickable, focusable item (Enter opens, Alt+arrows move rows). */
+export function ItemBox({ it, className, style, children, data }: ItemBoxProps) {
+  const ctx = useAgenda()
+  const label = itemLabel(it, ctx)
+  return (
+    <div
+      className={className}
+      style={style}
+      data-movable={canMove(it) || undefined}
+      data-item-key={it.key}
+      data-start={dayToIso(it.start)}
+      data-end={dayToIso(it.end)}
+      {...data}
+      role="button"
+      tabIndex={0}
+      aria-label={label}
+      title={label}
+      onClick={() => openItem(it)}
+      onKeyDown={itemKeyDown(it)}
+    >
+      {children}
+    </div>
+  )
+}
+
+/** Same, draggable to another day (database rows). `onGrab` reports the day under the pointer. */
+export function DraggableItem({ id, it, className, style, onGrab, children, data }: ItemBoxProps & { id: string; onGrab?: (e: React.PointerEvent<HTMLDivElement>) => void }) {
   const ctx = useAgenda()
   const movable = canMove(it)
   const { listeners, setNodeRef, isDragging } = useDraggable({ id, disabled: !movable })
+  const label = itemLabel(it, ctx)
   return (
     <div
       ref={setNodeRef}
@@ -123,12 +141,15 @@ export function DraggableItem({
       data-dragging={isDragging || undefined}
       data-movable={movable || undefined}
       data-item-key={it.key}
+      data-start={dayToIso(it.start)}
+      data-end={dayToIso(it.end)}
       {...data}
       {...(movable ? listeners : {})}
       onPointerDownCapture={onGrab}
       role="button"
       tabIndex={0}
-      aria-label={itemLabel(it, ctx)}
+      aria-label={label}
+      title={label}
       onClick={() => openItem(it)}
       onKeyDown={itemKeyDown(it)}
     >
@@ -187,8 +208,7 @@ export function ListRow({ it, day, overdue }: { it: AgendaItem; day: number; ove
   const time = overdue ? t('shell.agenda.due', { date: fmtShortDay(it.end, lang) }) : continued ? null : it.time ? fmtTime(it.time, lang) : t('shell.agenda.allDay')
   const endTime = !overdue && !continued && it.time && it.endTime && it.end === it.start ? fmtTime(it.endTime, lang) : null
   return (
-    <DraggableItem
-      id={`${it.key}|l${day}`}
+    <ItemBox
       it={it}
       className="ag-row"
       style={{ '--ag-accent': accentOf(it, src) } as CSSProperties}
@@ -198,7 +218,8 @@ export function ListRow({ it, day, overdue }: { it: AgendaItem; day: number; ove
         {continued ? (
           <span className="ag-row__cont">
             <CornerDownRight size={12} />
-            {t('shell.agenda.since', { date: fmtShortDay(it.start, lang) })}
+            <span className="ag-row__since">{t('shell.agenda.since')}</span>
+            {fmtShortDay(it.start, lang)}
           </span>
         ) : (
           <>
@@ -225,7 +246,7 @@ export function ListRow({ it, day, overdue }: { it: AgendaItem; day: number; ove
         )}
         <SourceTag src={src} propName={it.propName} />
       </span>
-    </DraggableItem>
+    </ItemBox>
   )
 }
 

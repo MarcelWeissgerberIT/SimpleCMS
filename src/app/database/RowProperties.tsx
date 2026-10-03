@@ -14,6 +14,7 @@ import { Menu, TypeIcon, typeEntries } from './parts'
 import { PropertyMenu } from './properties/PropertyMenu'
 import { writeValue, insertProperty } from './model/actions'
 import { isEmptyValue, type Resolver } from './model/resolve'
+import { AutofillHost, AutofillRowControl, AutofillTag, autofillOf } from './autofill'
 import './database.css'
 
 export function RowProperties({ pageId }: { pageId: ID }) {
@@ -27,17 +28,21 @@ function RowPropertiesInner({ row, db }: { row: Page; db: Database }) {
   const resolver = useResolver(db.id)
   const [hideEmpty, setHideEmpty] = useLocalState<boolean>(`one.db.hideEmpty.${db.id}`, false)
   return (
-    <PropertyRows
-      db={db}
-      row={row}
-      resolver={resolver}
-      props={db.properties.filter((p) => p.type !== 'title')}
-      getValue={(p) => row.properties[p.id] ?? null}
-      onChange={(p, v) => writeValue(db.id, p, row.id, v)}
-      hideEmpty={hideEmpty}
-      setHideEmpty={setHideEmpty}
-      allowAdd
-    />
+    <>
+      <PropertyRows
+        db={db}
+        row={row}
+        resolver={resolver}
+        props={db.properties.filter((p) => p.type !== 'title')}
+        getValue={(p) => row.properties[p.id] ?? null}
+        onChange={(p, v) => writeValue(db.id, p, row.id, v)}
+        hideEmpty={hideEmpty}
+        setHideEmpty={setHideEmpty}
+        allowAdd
+        autofill
+      />
+      <AutofillHost />
+    </>
   )
 }
 
@@ -54,9 +59,11 @@ export interface PropertyRowsProps {
   allowAdd?: boolean
   /** Disable the property menu (templates). */
   noPropMenu?: boolean
+  /** A real row: show AI autofill state + "fill" buttons for autofilled properties. */
+  autofill?: boolean
 }
 
-export function PropertyRows({ db, row, resolver, props, getValue, onChange, hideEmpty, setHideEmpty, allowAdd, noPropMenu }: PropertyRowsProps) {
+export function PropertyRows({ db, row, resolver, props, getValue, onChange, hideEmpty, setHideEmpty, allowAdd, noPropMenu, autofill }: PropertyRowsProps) {
   const t = useT()
   const [editing, setEditing] = useState<{ prop: PropertyDef; el: HTMLElement; text?: string } | null>(null)
   const [menu, setMenu] = useState<{ prop: PropertyDef; el: HTMLElement } | null>(null)
@@ -80,8 +87,9 @@ export function PropertyRows({ db, row, resolver, props, getValue, onChange, hid
       {shown.map((p, i) => {
         const v = values.get(p.id)
         const empty = isEmptyValue(p, v) && p.type !== 'checkbox'
+        const ai = !!autofill && !!autofillOf(p)
         return (
-          <div key={p.id} className="db-prow" data-type={p.type}>
+          <div key={p.id} className="db-prow" data-type={p.type} data-ai={ai || undefined}>
             <button
               type="button"
               className="db-prow__name"
@@ -92,6 +100,7 @@ export function PropertyRows({ db, row, resolver, props, getValue, onChange, hid
             >
               <TypeIcon type={p.type} size={14} />
               <span>{p.name}</span>
+              {ai && <AutofillTag dbId={db.id} prop={p} />}
             </button>
             <div
               className="db-prow__value"
@@ -126,6 +135,7 @@ export function PropertyRows({ db, row, resolver, props, getValue, onChange, hid
                 <ValueView db={db} prop={p} row={row} r={resolver} v={v} variant="panel" interactive={p.type === 'rating'} />
               )}
             </div>
+            {ai && <AutofillRowControl dbId={db.id} prop={p} rowId={row.id} />}
           </div>
         )
       })}

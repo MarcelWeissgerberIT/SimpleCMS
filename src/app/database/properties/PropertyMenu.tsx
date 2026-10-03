@@ -30,6 +30,7 @@ import { Segmented, Select, TypeIcon, typeEntries } from '../parts'
 import { changePropertyType, deletePropertyWithUndo, disableTwoWay, duplicateProperty, enableTwoWay, insertProperty, pairedRelation, rowsOf, twoWayBlocker } from '../model/actions'
 import { ROLLUP_FNS, isOptionType, operatorsFor, valueKind } from '../model/schema'
 import type { Resolver } from '../model/resolve'
+import { AiGlyph, autofillOf, canAutofill, openAutofillPanel } from '../autofill'
 
 export interface PropertyMenuProps {
   db: Database
@@ -76,6 +77,19 @@ export function PropertyMenu({ db, view, prop, anchor, resolver, onClose, tableM
   }
   if (prop.type === 'formula')
     entries.push({ label: t('database.formula.edit'), icon: <SquareFunction size={14} />, onSelect: () => setFormulaOpen(true), keepOpen: true })
+  if (canAutofill(prop)) {
+    const ai = autofillOf(prop)
+    entries.push({
+      label: t('database.autofill.menu'),
+      icon: <AiGlyph />,
+      hint: ai ? (ai.auto ? t('database.autofill.menuAuto') : t('database.autofill.menuOn')) : undefined,
+      keywords: 'ai autofill claude ki',
+      onSelect: () => {
+        commitName()
+        openAutofillPanel(db.id, prop.id)
+      },
+    })
+  }
   if (view) {
     entries.push({ kind: 'separator' })
     entries.push({ label: t('database.sort.asc'), icon: <ArrowUpNarrowWide size={14} />, onSelect: () => setSort('asc') })

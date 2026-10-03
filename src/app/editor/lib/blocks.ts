@@ -6,7 +6,7 @@ import { Fragment, type Node as PMNode, type ResolvedPos } from '@tiptap/pm/mode
 import { NodeSelection, Selection, TextSelection, type Transaction } from '@tiptap/pm/state'
 
 /** Parents whose children are "blocks" in the Notion sense. */
-const CONTAINERS = new Set(['doc', 'column', 'callout', 'detailsContent', 'blockquote'])
+const CONTAINERS = new Set(['doc', 'column', 'callout', 'detailsContent', 'blockquote', 'tab'])
 const LIST_ITEMS = new Set(['listItem', 'taskItem'])
 
 export interface BlockRef {
@@ -110,7 +110,7 @@ export type TurnTarget =
 const LIST_TYPES: Record<string, string> = { bulletList: 'bulletList', orderedList: 'orderedList', taskList: 'taskList' }
 
 /** Containers whose lines are blocks of their own: turning a line into something converts it in place. */
-const TURN_STOPS = new Set(['detailsContent', 'column', 'tableCell', 'tableHeader', 'callout'])
+const TURN_STOPS = new Set(['detailsContent', 'column', 'tableCell', 'tableHeader', 'callout', 'tab'])
 
 /**
  * The "Turn into" type of the block at the caret. Lines inside callouts, toggles and columns are

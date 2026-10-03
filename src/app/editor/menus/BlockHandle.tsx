@@ -28,7 +28,7 @@ import { BlockGlyph } from './SlashMenu'
 import { ColorGrid } from './BubbleToolbar'
 
 const TEXTUAL = new Set(['paragraph', 'heading', 'bulletList', 'orderedList', 'taskList', 'listItem', 'taskItem', 'blockquote', 'callout', 'details', 'codeBlock'])
-const EXCLUDED = new Set(['column', 'detailsSummary', 'detailsContent'])
+const EXCLUDED = new Set(['column', 'detailsSummary', 'detailsContent', 'tab'])
 const NESTED = {
   edgeDetection: 'left' as const,
   rules: [
@@ -61,6 +61,8 @@ const TYPE_LABEL: Record<string, string> = {
   embed: 'embed',
   toc: 'toc',
   fileBlock: 'file',
+  tabs: 'tabs',
+  button: 'button',
 }
 
 const isTouch = typeof window !== 'undefined' && !!window.matchMedia?.('(hover: none)').matches

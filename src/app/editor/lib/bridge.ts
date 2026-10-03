@@ -15,6 +15,19 @@ export interface SuggestState {
   command: (item: unknown) => void
 }
 
+/** Comments UI of one editor (threads themselves live on the page in the store). */
+export interface CommentsUI {
+  /** Thread in focus: its card and its highlighted text are emphasised together. */
+  active: string | null
+  /** Where the focus came from ('text' = a click on highlighted text). */
+  via: 'text' | 'rail' | null
+  /** A new thread being written (its range lives in the comments plugin). */
+  draft: { id: string; quote: string } | null
+  /** The comments sheet on narrow layouts. */
+  panel: boolean
+  showResolved: boolean
+}
+
 export interface OverlayState {
   suggest: SuggestState | null
   ai: { mode: 'selection' | 'block' } | null
@@ -28,6 +41,7 @@ export interface OverlayState {
   plusCreated: boolean
   /** Block menu requested from the keyboard / touch (position of the block) */
   blockMenu: { pos: number } | null
+  comments: CommentsUI
 }
 
 export interface Bridge extends StoreApi<OverlayState> {
@@ -44,6 +58,7 @@ export function createBridge(): Bridge {
     plusOpened: false,
     plusCreated: false,
     blockMenu: null,
+    comments: { active: null, via: null, draft: null, panel: false, showResolved: false },
   })) as Bridge
   store.keyHandlers = {}
   return store

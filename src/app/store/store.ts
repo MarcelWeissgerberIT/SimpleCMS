@@ -16,6 +16,7 @@ import type {
   Database,
   ID,
   Page,
+  PageComment,
   PageSettings,
   Person,
   PropertyDef,
@@ -169,6 +170,14 @@ export interface WorkspaceState extends Workspace {
   // people & settings
   addPerson: (name: string) => ID
   updateSettings: (patch: Partial<Settings>) => void
+
+  // comments (margin notes): threads live on the page, their anchors are `comment` marks in its content
+  addComment: (pageId: ID, input: { id?: ID; quote: string; body: string }) => ID
+  updateComment: (pageId: ID, commentId: ID, patch: Partial<Pick<PageComment, 'body' | 'resolved' | 'quote'>>) => void
+  deleteComment: (pageId: ID, commentId: ID) => void
+  addCommentReply: (pageId: ID, commentId: ID, body: string) => ID
+  updateCommentReply: (pageId: ID, commentId: ID, replyId: ID, body: string) => void
+  deleteCommentReply: (pageId: ID, commentId: ID, replyId: ID) => void
 }
 
 const now = () => Date.now()
@@ -692,6 +701,73 @@ export const useWorkspace = create<WorkspaceState>()(
     updateSettings: (patch) =>
       set((s) => {
         Object.assign(s.settings, patch)
+      }),
+
+    // comments bump the page's updatedAt: cross-tab sync compares pages by it (merge.ts samePage)
+    addComment: (pageId, input) => {
+      const id = input.id ?? newId()
+      set((s) => {
+        const p = s.pages[pageId]
+        if (!p) return
+        const t = now()
+        const list = Array.isArray(p.comments) ? p.comments : (p.comments = [])
+        if (list.some((c) => c.id === id)) return
+        list.push({ id, quote: input.quote, body: input.body, author: s.settings.userName.trim(), createdAt: t, updatedAt: t, resolved: false, replies: [] })
+        p.updatedAt = t
+      })
+      return id
+    },
+
+    updateComment: (pageId, commentId, patch) =>
+      set((s) => {
+        const p = s.pages[pageId]
+        const c = Array.isArray(p?.comments) ? p.comments.find((x) => x.id === commentId) : undefined
+        if (!p || !c) return
+        Object.assign(c, patch)
+        if (patch.body !== undefined) c.updatedAt = now()
+        p.updatedAt = now()
+      }),
+
+    deleteComment: (pageId, commentId) =>
+      set((s) => {
+        const p = s.pages[pageId]
+        if (!p || !Array.isArray(p.comments) || !p.comments.some((c) => c.id === commentId)) return
+        p.comments = p.comments.filter((c) => c.id !== commentId)
+        p.updatedAt = now()
+      }),
+
+    addCommentReply: (pageId, commentId, body) => {
+      const id = newId()
+      set((s) => {
+        const p = s.pages[pageId]
+        const c = Array.isArray(p?.comments) ? p.comments.find((x) => x.id === commentId) : undefined
+        if (!p || !c) return
+        const t = now()
+        if (!Array.isArray(c.replies)) c.replies = []
+        c.replies.push({ id, author: s.settings.userName.trim(), body, createdAt: t, updatedAt: t })
+        p.updatedAt = t
+      })
+      return id
+    },
+
+    updateCommentReply: (pageId, commentId, replyId, body) =>
+      set((s) => {
+        const p = s.pages[pageId]
+        const c = Array.isArray(p?.comments) ? p.comments.find((x) => x.id === commentId) : undefined
+        const r = Array.isArray(c?.replies) ? c.replies.find((x) => x.id === replyId) : undefined
+        if (!p || !r) return
+        r.body = body
+        r.updatedAt = now()
+        p.updatedAt = r.updatedAt
+      }),
+
+    deleteCommentReply: (pageId, commentId, replyId) =>
+      set((s) => {
+        const p = s.pages[pageId]
+        const c = Array.isArray(p?.comments) ? p.comments.find((x) => x.id === commentId) : undefined
+        if (!p || !c || !Array.isArray(c.replies)) return
+        c.replies = c.replies.filter((r) => r.id !== replyId)
+        p.updatedAt = now()
       }),
   })),
 )

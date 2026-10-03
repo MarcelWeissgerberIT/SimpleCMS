@@ -310,6 +310,47 @@ export function mergeContent(base: JSONContent | null, theirs: JSONContent | nul
 }
 
 /* ------------------------------------------------------------------ */
+/* Records with ids (comment threads and their replies)                */
+/* ------------------------------------------------------------------ */
+
+type Keyed = Rec & { id: string }
+const keyedList = (v: Json): Keyed[] => (Array.isArray(v) ? v.filter((x): x is Keyed => isRec(x) && typeof x.id === 'string') : [])
+
+/**
+ * Lists of records with an `id` (comment threads, their replies): added on either side → kept;
+ * deleted on one side and untouched on the other → gone; changed on both → merged field by field
+ * (`nested` names a child list merged the same way). Ordered by createdAt.
+ */
+function mergeById(base: Json, theirs: Json, ours: Json, nested?: string): Keyed[] {
+  const b = new Map(keyedList(base).map((x) => [x.id, x]))
+  const t = new Map(keyedList(theirs).map((x) => [x.id, x]))
+  const out: Keyed[] = []
+  const seen = new Set<string>()
+  const strip = (r: Keyed | undefined): Rec => {
+    if (!r || !nested) return r ?? {}
+    const { [nested]: _skip, ...rest } = r
+    return rest
+  }
+  for (const o of keyedList(ours)) {
+    seen.add(o.id)
+    const th = t.get(o.id)
+    const bs = b.get(o.id)
+    if (th) {
+      const rec = mergeRecord(strip(bs), strip(th), strip(o)) as Keyed
+      if (nested) rec[nested] = mergeById(bs?.[nested], th[nested], o[nested])
+      out.push(rec)
+    } else if (!bs || !deepEqual(o, bs)) out.push(o) // they deleted it: keep ours only when we changed (or added) it
+  }
+  for (const [id, th] of t) {
+    if (seen.has(id)) continue
+    const bs = b.get(id)
+    if (!bs || !deepEqual(th, bs)) out.push(th) // new on their side (or changed there while we deleted it)
+  }
+  const at = (r: Keyed) => (typeof r.createdAt === 'number' ? r.createdAt : 0)
+  return out.map((r, i) => ({ r, i })).sort((x, y) => at(x.r) - at(y.r) || x.i - y.i).map((x) => x.r)
+}
+
+/* ------------------------------------------------------------------ */
 /* Pages                                                               */
 /* ------------------------------------------------------------------ */
 
@@ -342,6 +383,7 @@ export function mergePage(base: Page, theirs: Page, ours: Page): Page {
     if (META.has(k) || k === 'content' || deepEqual(rt[k], rb[k]) || deepEqual(rt[k], ro[k])) continue
     if (deepEqual(ro[k], rb[k])) out[k] = rt[k]
     else if ((k === 'properties' || k === 'settings') && isRec(rb[k]) && isRec(rt[k]) && isRec(ro[k])) out[k] = mergeRecord(rb[k], rt[k], ro[k])
+    else if (k === 'comments') out[k] = mergeById(rb[k], rt[k], ro[k], 'replies')
     else continue
     changed = true
   }

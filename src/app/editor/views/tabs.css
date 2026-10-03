@@ -1,0 +1,210 @@
+/* ================================================================
+   Tabs block — a strip of keys above the active tab's content.
+   Index numbers in mono, the active key carries the signal underline.
+   ================================================================ */
+
+.doc-content .tabs-block {
+  margin: 10px 0 8px;
+  border-bottom: 1px solid var(--rule);
+}
+
+.doc-content > .react-renderer.node-tabs:first-child .tabs-block {
+  margin-top: 2px;
+}
+
+.tabs__strip {
+  display: flex;
+  align-items: stretch;
+  gap: 4px;
+  border-bottom: 1px solid var(--rule-strong);
+  font-family: var(--font-sans);
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.tabs__list {
+  display: flex;
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.tabs__list::-webkit-scrollbar {
+  display: none;
+}
+
+.tabs__slot {
+  display: flex;
+  flex: none;
+}
+
+.tabs__key {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 34px;
+  padding: 0 12px 0 9px;
+  border: 0;
+  border-radius: var(--radius-1) var(--radius-1) 0 0;
+  background: transparent;
+  color: var(--ink-2);
+  font: 600 var(--text-md) / 1 var(--font-sans);
+  letter-spacing: -0.005em;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    color var(--dur-1) var(--ease-out),
+    background var(--dur-1) var(--ease-out);
+}
+
+.tabs__key:hover {
+  background: var(--hover);
+  color: var(--ink);
+}
+
+button.tabs__key:active {
+  transform: translateY(1px);
+}
+
+.tabs__key.is-active {
+  color: var(--ink);
+}
+
+.tabs__key.is-active::after {
+  content: '';
+  position: absolute;
+  left: 7px;
+  right: 7px;
+  bottom: -1px;
+  height: 2px;
+  background: var(--signal);
+}
+
+.tabs__key:focus-visible {
+  outline: 2px solid var(--signal);
+  outline-offset: -2px;
+}
+
+.tabs__n {
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  font-weight: 500;
+  letter-spacing: var(--tracking-label);
+  color: var(--ink-3);
+}
+
+.tabs__key.is-active .tabs__n {
+  color: var(--signal-ink);
+}
+
+.tabs__title {
+  max-width: 24ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tabs__key.is-editing {
+  cursor: text;
+  background: var(--surface);
+  box-shadow: inset 0 0 0 1px var(--rule-strong);
+}
+
+.tabs__input {
+  min-width: 4ch;
+  max-width: 28ch;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  caret-color: var(--signal);
+  outline: none;
+}
+
+.tabs__input::placeholder {
+  color: var(--ink-faint);
+}
+
+.tabs__tools {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0 2px;
+}
+
+.tabs__tool {
+  display: inline-grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-1);
+  background: transparent;
+  color: var(--ink-3);
+  cursor: pointer;
+  transition:
+    color var(--dur-1) var(--ease-out),
+    background var(--dur-1) var(--ease-out);
+}
+
+.tabs__tool:hover,
+.tabs__tool[aria-expanded='true'] {
+  background: var(--hover);
+  color: var(--ink);
+}
+
+.tabs__tool:active {
+  transform: translateY(1px);
+}
+
+.tabs__tool:focus-visible {
+  outline: 2px solid var(--signal);
+  outline-offset: -2px;
+}
+
+.tabs__spec {
+  align-self: center;
+  margin-left: auto;
+  padding: 0 2px 0 10px;
+  color: var(--ink-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+.tabs__panels {
+  padding: 8px 0 10px;
+}
+
+.doc-content .tab-panel.is-inactive {
+  display: none;
+}
+
+.doc-content .tab-panel > * + * {
+  margin-top: 2px;
+}
+
+/* a touch device has no hover: give the keys and tools a finger-sized hit area */
+@media (pointer: coarse) {
+  .tabs__key {
+    height: 40px;
+  }
+  .tabs__tool {
+    width: 36px;
+    height: 36px;
+  }
+}
+
+@media (max-width: 520px) {
+  .tabs__spec {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tabs__key,
+  .tabs__tool {
+    transition: none;
+  }
+}

@@ -12,7 +12,7 @@ import type { AutofillField, AutofillRequest, AutofillTask } from '../../feature
 import { plainText } from '../../store/store'
 import { propertyValueToText } from '../values'
 import { isComputed } from '../model/schema'
-import { autofillOf } from './config'
+import { autofillOf, translateTarget } from './config'
 
 /** Same as features' AUTOFILL_CONTENT_MAX (kept here so the estimate needs no import). */
 export const CONTENT_MAX = 8000
@@ -82,7 +82,7 @@ function fieldOf(prop: PropertyDef, cfg: AutofillConfig): AutofillField {
 
 /** The request for one row plus the fingerprint of what it was built from. */
 export function buildRequest(db: Database, prop: PropertyDef, row: Page, cfg: AutofillConfig): { request: AutofillRequest; hash: string } {
-  const task: AutofillTask = { preset: cfg.preset, instruction: cfg.prompt, language: cfg.language }
+  const task: AutofillTask = { preset: cfg.preset, instruction: cfg.prompt, language: cfg.preset === 'translate' ? translateTarget(cfg) : undefined }
   if (cfg.preset === 'translate') {
     const src = sourceOf(db, prop, cfg)
     task.source =

@@ -25,6 +25,7 @@ import { openRow } from './model/actions'
 import { searchRows, testGroup } from './model/query'
 import { useUI } from '../store/ui'
 import type { PopoverAnchor } from '../ui/Popover'
+import { AutofillHost } from './autofill'
 import './database.css'
 
 const CalendarView = lazy(() => import('./views/CalendarView'))
@@ -234,6 +235,7 @@ function DatabaseBody({
             </Suspense>
           </div>
           {ctx && <RowContextMenu row={ctx.row} anchor={ctx.anchor} onClose={() => setCtx(null)} />}
+          <AutofillHost />
         </section>
       </ViewActionsContext.Provider>
     </DbModelContext.Provider>

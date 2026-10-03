@@ -24,6 +24,7 @@ import { revealInStrip } from './overflow'
 import { CalcCell } from './table/CalcCell'
 import { pointAnchor } from '../../ui/Popover'
 import { parseDateText } from '../model/format'
+import { AutofillCellMark, AutofillTag, autofillOf, startFill } from '../autofill'
 import './table/table.css'
 
 function useNarrow(): boolean {
@@ -293,6 +294,12 @@ export function TableView({ onFilterProp }: { onFilterProp: (id: ID) => void }) 
         return
       case 'Enter':
         e.preventDefault()
+        if (e.altKey && !mod) {
+          // Alt+Enter: fill the active cell with AI (autofilled properties)
+          const ri = rowItems[idx]
+          if (ri && autofillOf(cols[col])) void startFill(db.id, cols[col].id, 'cell', [ri.it.row.id])
+          return
+        }
         if (mod) {
           const ri = rowItems[idx]
           if (ri) actions.open(ri.it.row)
@@ -740,6 +747,7 @@ export function TableView({ onFilterProp }: { onFilterProp: (id: ID) => void }) 
                   >
                     <TypeIcon type={p.type} size={13} />
                     <span className="dbt-hcell__name">{p.name}</span>
+                    {autofillOf(p) && <AutofillTag dbId={db.id} prop={p} />}
                     {sort && <span className="dbt-hcell__sort">{sort.direction === 'asc' ? '↑' : '↓'}</span>}
                   </button>
                   <span className="dbt-resize" onPointerDown={(e) => startResize(e, c)} role="separator" aria-orientation="vertical" aria-label={t('database.resize')} />
@@ -922,6 +930,7 @@ const TableRow = memo(function TableRow({ m, row, idx, cols, gutter, height, sel
           ) : (
             <ValueView db={m.db} prop={p} row={row} r={m.resolver} v={m.resolver.value(m.db, p, row)} interactive />
           )}
+          {c > 0 && autofillOf(p) && <AutofillCellMark dbId={m.db.id} prop={p} rowId={row.id} />}
         </div>
       ))}
       <div className="dbt-cell dbt-cell--pad" />

@@ -255,7 +255,7 @@ function mentionItems(page: Page): AgendaItem[] {
 }
 
 /** Per page: its items, valid while the page object and its database stay the same. */
-const pageCache = new WeakMap<Page, { db: Database | undefined; journal: boolean; items: AgendaItem[] }>()
+const pageCache = new WeakMap<Page, { db: Database | undefined; journal: boolean; items: AgendaItem[]; created: number; edited: number }>()
 
 const DB_COLORS: ColorName[] = ['blue', 'green', 'purple', 'pink', 'red', 'brown', 'gray']
 
@@ -267,24 +267,25 @@ export function buildIndex(pages: Record<ID, Page>, dbs: Record<ID, Database>): 
   const journalId = findJournalDb(pages, dbs)
   const items: AgendaItem[] = []
   const activity = new Map<number, number>()
-  const bump = (ts: number) => {
-    const d = dateToDay(new Date(ts))
-    activity.set(d, (activity.get(d) ?? 0) + 1)
-  }
+  const bump = (d: number) => activity.set(d, (activity.get(d) ?? 0) + 1)
   for (const page of Object.values(pages)) {
     if (page.trashed || isEffectivelyTrashed(pages, page.id)) continue
-    bump(page.createdAt)
-    if (dateToDay(new Date(page.updatedAt)) !== dateToDay(new Date(page.createdAt))) bump(page.updatedAt)
     const db = page.databaseId ? dbs[page.databaseId] : undefined
     const journal = !!db && db.id === journalId
-    const hit = pageCache.get(page)
-    let list: AgendaItem[]
-    if (hit && hit.db === db && hit.journal === journal) list = hit.items
-    else {
-      list = [...(db ? rowItems(page, db, journal) : []), ...mentionItems(page)]
-      pageCache.set(page, { db, journal, items: list })
+    let hit = pageCache.get(page)
+    if (!hit || hit.db !== db || hit.journal !== journal) {
+      hit = {
+        db,
+        journal,
+        items: [...(db ? rowItems(page, db, journal) : []), ...mentionItems(page)],
+        created: dateToDay(new Date(page.createdAt)),
+        edited: dateToDay(new Date(page.updatedAt)),
+      }
+      pageCache.set(page, hit)
     }
-    for (const it of list) items.push(it)
+    bump(hit.created)
+    if (hit.edited !== hit.created) bump(hit.edited)
+    for (const it of hit.items) items.push(it)
   }
   items.sort(compareItems)
 

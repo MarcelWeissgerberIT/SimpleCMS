@@ -3,12 +3,13 @@
  */
 import { Extension, InputRule } from '@tiptap/core'
 import type { Fragment, Node as PMNode, ResolvedPos, Schema } from '@tiptap/pm/model'
-import { NodeSelection, Plugin, PluginKey, TextSelection, type Selection } from '@tiptap/pm/state'
-import { Decoration, DecorationSet } from '@tiptap/pm/view'
+import { NodeSelection, Plugin, PluginKey, Selection, TextSelection } from '@tiptap/pm/state'
+import { Decoration, DecorationSet, type EditorView } from '@tiptap/pm/view'
 import { isNodeRangeSelection } from '@tiptap/extension-node-range'
 import { t } from '../../i18n'
 import type { Bridge } from '../lib/bridge'
 import { findEmoji } from '../lib/emoji'
+import { revealPos } from '../schema/tabs'
 import {
   caretAfterNode,
   caretIntoBlock,
@@ -193,7 +194,7 @@ export const BlockSelection = Extension.create({
 /* Keyboard shortcuts                                                  */
 /* ------------------------------------------------------------------ */
 
-const AI_PARENTS = new Set(['doc', 'column', 'callout', 'detailsContent'])
+const AI_PARENTS = new Set(['doc', 'column', 'callout', 'detailsContent', 'tab'])
 
 export function shortcutsExtension(bridge: Bridge) {
   return Extension.create({
@@ -399,9 +400,10 @@ export const BlockFlash = Extension.create({
   },
 })
 
-/** Scroll a block into view and flash it for ~2s. */
+/** Scroll a block into view and flash it for ~2s (a block in a hidden tab shows that tab first). */
 export function flashBlock(editor: import('@tiptap/core').Editor, pos: number) {
   if (editor.isDestroyed) return
+  revealPos(editor.view, pos + 1)
   const dom = editor.view.nodeDOM(pos) as HTMLElement | null
   dom?.scrollIntoView?.({ block: 'center', behavior: 'smooth' })
   editor.view.dispatch(editor.state.tr.setMeta(flashKey, { pos }).setMeta('addToHistory', false))
@@ -423,3 +425,37 @@ export function findBlockById(editor: import('@tiptap/core').Editor, id: string)
   })
   return found
 }
+
+/* ------------------------------------------------------------------ */
+/* Nothing selected until the user does something                      */
+/* ------------------------------------------------------------------ */
+
+/**
+ * ProseMirror starts every editor with Selection.atStart(doc). When the doc begins with an atom
+ * block (bookmark, image, embed …) that is a NodeSelection: the block renders as selected (and an
+ * empty media block even focuses its URL field) although nobody touched the page. An unfocused
+ * view with a node selection gets a plain caret at the first text position instead.
+ */
+export function quietSelection(view: EditorView): void {
+  if (view.isDestroyed || view.hasFocus()) return
+  const { selection, doc } = view.state
+  if (!(selection instanceof NodeSelection)) return
+  const caret = Selection.findFrom(doc.resolve(0), 1, true)
+  if (caret) view.dispatch(view.state.tr.setSelection(caret).setMeta('addToHistory', false))
+}
+
+export const QuietStart = Extension.create({
+  name: 'quietStart',
+  addProseMirrorPlugins() {
+    return [
+      new Plugin({
+        key: new PluginKey('quietStart'),
+        // runs while the view is being constructed: dispatch once it exists (still before paint)
+        view: (view) => {
+          queueMicrotask(() => quietSelection(view))
+          return {}
+        },
+      }),
+    ]
+  },
+})

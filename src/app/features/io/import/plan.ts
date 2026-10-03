@@ -4,14 +4,19 @@
  * Turns a flat list of files (from a Notion "Markdown & CSV" export ZIP, a dropped folder,
  * or loose .md/.txt/.csv files) into an ordered tree of nodes:
  *   - .md            → page (title from first H1, Notion's trailing " <32-hex>" id stripped)
+ *   - .html / .htm   → page (title from <title> / first H1; body converted from HTML by apply.ts)
  *   - folder of a md → its child pages
  *   - .csv           → database (columns inferred), rows = CSV rows enriched with the
  *                      matching .md files in the sibling folder ("Property: value" header lines)
  *   - other files    → attachments (saved to IndexedDB by apply.ts, references rewritten)
  * Folders without an own page become plain container pages.
+ * Other sources (Obsidian, Evernote, Trello) produce the same ImportPlan — see sources.ts.
  */
 import { unzip } from 'fflate'
+import type { Person, PropertyDef, PropertyValue } from '../../../store/types'
 import { inferColumns, parseCSV, sniffDelimiter, splitList, unguardCell, type ColumnSpec } from './csv'
+import { extractDataImages, htmlTargets, htmlTitle } from './htmltext'
+import type { ReportItem } from './report'
 
 export interface ImportEntry {
   path: string
@@ -29,9 +34,9 @@ export interface PlanNode {
   parentKey: string | null
   /** Directory against which relative links in this node are resolved */
   dir: string
-  /** Body (Markdown, or plain text when format = 'text') */
+  /** Body (Markdown, plain text when format = 'text', an HTML document when format = 'html') */
   body: string
-  format: 'markdown' | 'text'
+  format: 'markdown' | 'text' | 'html'
   /** database rows: raw cells by column name */
   cells?: Record<string, string>
   /** databases: inferred columns (index 0 = title) */
@@ -45,7 +50,18 @@ export interface PlanNode {
   meta?: Array<[string, string]>
   /** databases embedded inline at the end of this page (a "X.md" next to a "X.csv") */
   embeds?: string[]
+  /** original timestamps (Evernote, Trello, Obsidian front matter); default: the import time */
+  createdAt?: number
+  updatedAt?: number
+  /** databases with a known schema (Trello): used as they are instead of inferred `columns` */
+  properties?: PropertyDef[]
+  /** databases: open this view first ('board' = grouped by the first status property) */
+  primaryView?: 'board'
+  /** rows of a database with `properties`: stored values by PropertyDef.id */
+  values?: Record<string, PropertyValue>
 }
+
+export type ImportSource = 'notion' | 'markdown' | 'html' | 'obsidian' | 'evernote' | 'trello' | 'mixed'
 
 export interface ImportPlan {
   nodes: PlanNode[]
@@ -55,6 +71,13 @@ export interface ImportPlan {
   roots: string[]
   isNotion: boolean
   warnings: string[]
+  /** where the plan came from (container title) and its name (vault, board, file) if any */
+  source?: ImportSource
+  name?: string
+  /** people referenced by person properties — merged into the workspace by name */
+  people?: Person[]
+  /** what could not be carried over 1:1 (shown in the import report) */
+  report?: ReportItem[]
 }
 
 const JUNK = /(^|\/)(__MACOSX|\.DS_Store|Thumbs\.db|desktop\.ini|\._[^/]*)(\/|$)/
@@ -382,7 +405,15 @@ const decode = decodeText
 export interface PlanOptions {
   /** Title of the page that collects loose attachments (images / PDFs picked without any page). */
   looseTitle?: string
+  /** Obsidian: a note's title is its file name (a front matter title still wins); a leading H1 repeating it is dropped */
+  titleFromFile?: boolean
+  /** [[wiki links]] were already rewritten by the caller (Obsidian planner) */
+  skipWikiLinks?: boolean
 }
+
+const HTML_EXT = new Set(['html', 'htm'])
+/** Links / images of a node's body, in order */
+const targetsOf = (n: PlanNode) => (n.format === 'html' ? htmlTargets(n.body) : linkTargets(n.body))
 
 /** Header props of a row page vs. its CSV row: +1 per equal value, −1 per conflicting one. */
 function propScore(cells: Record<string, string> | undefined, props: Record<string, string>): number {
@@ -421,18 +452,15 @@ export function buildPlan(input: ImportEntry[], opts: PlanOptions = {}): ImportP
     return e.path.includes('/') && TRANSPARENT.test(first) ? { ...e, path: e.path.slice(first.length + 1) } : e
   })
 
-  const pageFiles = entries.filter((e) => TEXT_EXT.has(extname(e.path)))
+  const isPage = (p: string) => TEXT_EXT.has(extname(p)) || HTML_EXT.has(extname(p))
+  const pageFiles = entries.filter((e) => isPage(e.path))
   const csvAll = entries.filter((e) => isTable(e.path))
   const files = new Map<string, Uint8Array>()
-  for (const e of entries) if (!TEXT_EXT.has(extname(e.path)) && !isTable(e.path)) files.set(e.path, e.data)
+  for (const e of entries) if (!isPage(e.path) && !isTable(e.path)) files.set(e.path, e.data)
   const isNotion = [...pageFiles, ...csvAll].some((e) => NAME_ID.test(stripExt(basename(e.path))))
   const pathKeys = new Map<string, string>()
 
   if (!pageFiles.length && !csvAll.length) {
-    if (entries.some((e) => extname(e.path) === 'html')) {
-      warnings.push('html-export')
-      return { nodes: [], files, pathKeys, roots: [], isNotion, warnings }
-    }
     if (!files.size) return { nodes: [], files, pathKeys, roots: [], isNotion, warnings }
     // only images / PDFs / other attachments → one page that holds them all
     const key = '__loose__'
@@ -531,7 +559,7 @@ export function buildPlan(input: ImportEntry[], opts: PlanOptions = {}): ImportP
     const n = normPath(name).toLowerCase()
     return wikiIndex.get(n) ?? wikiIndex.get(basename(n)) ?? null
   }
-  if (pageFiles.some((e) => e.data.includes(0x5b) && decode(e.data).includes('[['))) {
+  if (!opts.skipWikiLinks && pageFiles.some((e) => e.data.includes(0x5b) && decode(e.data).includes('[['))) {
     const all = [...pageFiles.map((e) => e.path), ...csvAll.map((e) => e.path), ...files.keys()].sort((a, b) => a.split('/').length - b.split('/').length)
     const add = (k: string, p: string) => {
       const key = k.toLowerCase()
@@ -568,6 +596,19 @@ export function buildPlan(input: ImportEntry[], opts: PlanOptions = {}): ImportP
     const ext = extname(e.path)
     const raw = decode(e.data)
     const dir = dirname(e.path)
+    if (HTML_EXT.has(ext)) {
+      // inline base64 images become files next to the page ("Page_files/image-1.png")
+      const html = extractDataImages(
+        raw,
+        (x, i) => `${basename(key)}_files/image-${i}.${x}`,
+        (rel, bytes) => files.set(normPath(`${dir}/${rel}`), bytes),
+      )
+      const { title: fileTitle, hex } = splitNotionName(basename(key))
+      const pageKey = uniqueKey(key)
+      newNode(pageKey, 'page', { title: htmlTitle(html) ?? fileTitle, hex, dir, body: html, format: 'html' })
+      pathKeys.set(e.path, pageKey)
+      continue
+    }
     const db = dbByFolder.get(dir)
     const fm = ext === 'txt' ? { meta: [] as Array<[string, string]>, rest: raw } : takeFrontMatter(raw)
     const parsed = ext === 'txt' ? { title: null, rest: fm.rest.replace(/\r\n?/g, '\n') } : takeTitle(fm.rest)
@@ -575,10 +616,10 @@ export function buildPlan(input: ImportEntry[], opts: PlanOptions = {}): ImportP
     const fmTitle = fm.meta.find(([k]) => k.toLowerCase() === 'title')?.[1].trim() || null
     // a front matter title wins; a different H1 below it is a real heading and stays in the body
     const h1 = parsed.title
-    const keepH1 = !!fmTitle && !!h1 && norm(h1) !== norm(fmTitle)
-    const title = fmTitle ?? h1 ?? fileTitle
+    const keepH1 = opts.titleFromFile ? !!h1 && norm(h1) !== norm(fmTitle ?? fileTitle) : !!fmTitle && !!h1 && norm(h1) !== norm(fmTitle)
+    const title = opts.titleFromFile ? (fmTitle ?? fileTitle) : (fmTitle ?? h1 ?? fileTitle)
     let rest = keepH1 ? fm.rest : parsed.rest
-    if (ext !== 'txt') rest = rewriteWikiLinks(rest, dir, wikiFind)
+    if (ext !== 'txt' && !opts.skipWikiLinks) rest = rewriteWikiLinks(rest, dir, wikiFind)
     let meta = fm.meta.filter(([k, v]) => k.toLowerCase() !== 'title' && v.trim())
 
     if (db?.kind === 'database') {
@@ -672,7 +713,7 @@ export function buildPlan(input: ImportEntry[], opts: PlanOptions = {}): ImportP
   // orphan attachments → the node owning their folder
   const referenced = new Set<string>()
   for (const n of nodes.values()) {
-    for (const href of linkTargets(n.body)) {
+    for (const href of targetsOf(n)) {
       const p = resolveTarget(n.dir, href)
       if (p) referenced.add(p)
     }
@@ -700,7 +741,7 @@ export function buildPlan(input: ImportEntry[], opts: PlanOptions = {}): ImportP
   const keyOfPath = (p: string) => pathKeys.get(p) ?? stripExt(p).replace(/_all$/, '')
   const linkOrder = new Map<string, number>()
   for (const n of nodes.values()) {
-    linkTargets(n.body).forEach((href, i) => {
+    targetsOf(n).forEach((href, i) => {
       const p = resolveTarget(n.dir, href)
       if (!p) return
       const k = keyOfPath(p)
