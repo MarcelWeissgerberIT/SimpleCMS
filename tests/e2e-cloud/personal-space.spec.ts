@@ -29,7 +29,7 @@ const ownSpace = async (page: Page) => {
 /** The workspace entries of the switcher, top to bottom. */
 async function switcherEntries(page: Page): Promise<string[]> {
   await page.locator('aside.sb .sb-head__ws').click()
-  const menu = page.getByRole('menu')
+  const menu = page.locator('[data-popover][role="menu"]')
   await expect(menu).toBeVisible()
   const labels = await menu.getByRole('menuitem').allTextContents()
   await page.keyboard.press('Escape')

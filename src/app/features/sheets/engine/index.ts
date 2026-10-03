@@ -1,11 +1,8 @@
 /**
  * Spreadsheet engine (pure TypeScript: no DOM, no store, no eval / Function / dynamic import of
- * user input). Built-ins are registered when this module loads.
+ * user input). Built-ins are registered when the registry loads.
  */
-import { registerFunctions } from './registry'
-import { BUILTINS } from './functions'
-
-registerFunctions(BUILTINS)
+import './evaluate'
 
 export type { ErrorCode, ErrorValue, Scalar, CellValue, Area, RangeValue, DatasetValue, Value, FnCategory, ArgType, FnArg, FnCtx, FnSpec, ValueHint } from './types'
 export { err, isErr, isRange, isDataset, isMulti, rangeValue, datasetOf, areasOf, singleArea, cellsOf, toScalar, toNumber, toText, toBool, parseNumeric, ERROR_CODES, MAX_STRING } from './values'

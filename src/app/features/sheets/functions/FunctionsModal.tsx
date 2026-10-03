@@ -241,12 +241,12 @@ export default function FunctionsModal({ initialId, onClose }: { initialId?: ID;
   ) : draft ? (
     <>
       {!readOnly && (
-        <button type="button" className="btn btn--ghost fx-foot__del" onClick={() => setAsk({ kind: 'delete', id: draft.id })}>
+        <button type="button" className="btn btn--ghost fx-foot__del" aria-label={t('features.fn.delete')} onClick={() => setAsk({ kind: 'delete', id: draft.id })}>
           <Trash2 size={13} /> <span className="fx-foot__txt">{t('features.fn.delete')}</span>
         </button>
       )}
       {!readOnly && stored && (
-        <button type="button" className="btn btn--ghost" onClick={duplicate} disabled={!fromDraft(draft)}>
+        <button type="button" className="btn btn--ghost" aria-label={t('features.fn.duplicate')} onClick={duplicate} disabled={!fromDraft(draft)}>
           <Copy size={13} /> <span className="fx-foot__txt">{t('features.fn.duplicate')}</span>
         </button>
       )}

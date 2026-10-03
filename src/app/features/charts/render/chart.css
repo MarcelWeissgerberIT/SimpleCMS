@@ -1,0 +1,235 @@
+/* ---------- Charts: the live renderer (marks carry their colours as SVG attributes) ---------- */
+.ch {
+  position: relative;
+  min-width: 0;
+}
+
+.ch__plot {
+  position: relative;
+  min-width: 0;
+  border-radius: var(--radius-1);
+}
+
+.ch__plot:focus-visible {
+  outline: 2px solid var(--signal);
+  outline-offset: 4px;
+}
+
+.ch-svg {
+  display: block;
+  overflow: visible;
+  max-width: 100%;
+  height: auto;
+}
+
+.ch-hit {
+  fill: transparent;
+  stroke: none;
+}
+
+.ch-bar,
+.ch-slice,
+.ch-point,
+.ch-key {
+  transition: opacity var(--dur-1) var(--ease-out);
+}
+
+.ch-bar[data-dim='true'],
+.ch-slice[data-dim='true'],
+.ch-point[data-dim='true'],
+.ch-key[data-dim='true'] {
+  opacity: 0.42;
+}
+
+.ch-xlabel[data-dim='false'],
+.ch-ylabel[data-dim='false'],
+.ch-legend-label[data-dim='false'] {
+  fill: var(--ink);
+  font-weight: 700;
+}
+
+.ch-cross {
+  stroke: var(--ink-3);
+  stroke-width: 1;
+  pointer-events: none;
+}
+
+.ch-mark {
+  fill: var(--ink);
+  stroke: var(--surface);
+  stroke-width: 2;
+  pointer-events: none;
+}
+
+.ch-tip {
+  position: absolute;
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  max-width: 240px;
+  padding: 6px 9px 7px;
+  border-radius: var(--radius-1);
+  background: var(--ink);
+  color: var(--ink-inverse);
+  pointer-events: none;
+  transform: translate(-50%, calc(-100% - 12px));
+  white-space: nowrap;
+}
+
+.ch-tip__label {
+  overflow: hidden;
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  letter-spacing: var(--tracking-label);
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  opacity: 0.72;
+}
+
+.ch-tip__row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+}
+
+.ch-tip__key {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 1px;
+  box-shadow: 0 0 0 1px var(--ink-inverse);
+}
+
+.ch-tip__name {
+  overflow: hidden;
+  flex: 1;
+  text-overflow: ellipsis;
+  opacity: 0.85;
+}
+
+.ch-tip__val {
+  margin-left: auto;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.ch__foot {
+  margin-top: 6px;
+}
+
+.ch-tabletoggle {
+  padding: 3px 0;
+  border: 0;
+  background: none;
+  color: var(--ink-3);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.ch-tabletoggle::before {
+  content: '▸ ';
+}
+
+.ch-tabletoggle[aria-expanded='true']::before {
+  content: '▾ ';
+}
+
+.ch-tabletoggle:hover {
+  color: var(--ink);
+}
+
+.ch-tabletoggle:focus-visible {
+  outline: 2px solid var(--signal);
+  outline-offset: 2px;
+  border-radius: var(--radius-1);
+}
+
+.ch-tablewrap {
+  overflow: auto;
+  max-height: 320px;
+  margin-top: 4px;
+}
+
+.ch-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-sm);
+}
+
+.ch-table th,
+.ch-table td {
+  padding: 5px 8px;
+  border-bottom: 1px solid var(--rule);
+  text-align: left;
+}
+
+.ch-table thead th {
+  position: sticky;
+  top: 0;
+  border-bottom: 1px solid var(--rule-strong);
+  background: var(--surface);
+  color: var(--ink-3);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  font-weight: 500;
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+}
+
+.ch-table tbody th {
+  font-weight: 500;
+}
+
+.ch-table .num {
+  text-align: right;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+/* short mechanical draw-in (first appearance only: React keeps the elements afterwards) */
+@media (prefers-reduced-motion: no-preference) {
+  .ch-svg--bar .ch-bar,
+  .ch-svg--stacked .ch-bar {
+    transform-box: fill-box;
+    transform-origin: 50% 100%;
+    animation: ch-rise var(--dur-3) var(--ease-out);
+  }
+
+  .ch-svg--barH .ch-bar {
+    transform-box: fill-box;
+    transform-origin: 0 50%;
+    animation: ch-reach var(--dur-3) var(--ease-out);
+  }
+
+  .ch-line,
+  .ch-area,
+  .ch-slice,
+  .ch-dot,
+  .ch-point {
+    animation: ch-fade var(--dur-3) var(--ease-out);
+  }
+}
+
+@keyframes ch-rise {
+  from {
+    transform: scaleY(0);
+  }
+}
+
+@keyframes ch-reach {
+  from {
+    transform: scaleX(0);
+  }
+}
+
+@keyframes ch-fade {
+  from {
+    opacity: 0;
+  }
+}

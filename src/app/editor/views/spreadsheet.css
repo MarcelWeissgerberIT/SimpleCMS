@@ -1,0 +1,102 @@
+/* Spreadsheet block: the frame (live editor) and the static render (read-only, share, history, slides). */
+
+.doc-content .sheet-block {
+  margin: 12px 0;
+  white-space: normal;
+  cursor: auto;
+}
+
+.doc-content .sheet-block.is-block-selected {
+  background: none;
+  box-shadow: 0 0 0 2px var(--signal);
+}
+
+.doc-content .sheet-block__plate {
+  padding: 14px;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius-2);
+  background-image: repeating-linear-gradient(-45deg, transparent 0 5px, var(--rule) 5px 6px);
+}
+
+/* ---------- static render ---------- */
+
+.doc-content .sheet-static {
+  margin: 12px 0;
+  white-space: normal;
+}
+
+.doc-content .sheet-static__title {
+  margin: 0 0 6px;
+  font-weight: 700;
+  font-size: var(--text-md);
+}
+
+.doc-content .sheet-static__sheet {
+  margin: 0 0 14px;
+  overflow-x: auto;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius-2);
+}
+
+.doc-content .sheet-static__sheet figcaption {
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--rule-strong);
+  background: var(--surface-2);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  color: var(--ink-2);
+}
+
+.doc-content .sheet-static__table {
+  width: auto;
+  min-width: 100%;
+  table-layout: auto;
+  font-size: var(--text-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+.doc-content .sheet-static__table th,
+.doc-content .sheet-static__table td {
+  min-width: 0;
+  padding: 4px 9px;
+  border-color: var(--rule);
+  white-space: nowrap;
+}
+
+.doc-content .sheet-static__table thead th,
+.doc-content .sheet-static__table tbody th {
+  width: 1%;
+  padding: 3px 7px;
+  font-size: 10px;
+  color: var(--ink-3);
+  text-align: center;
+}
+
+.doc-content .sheet-static__table td.is-right {
+  text-align: right;
+}
+
+.doc-content .sheet-static__table td.is-center {
+  text-align: center;
+}
+
+.doc-content .sheet-static__table td.is-bold {
+  font-weight: 700;
+}
+
+.doc-content .sheet-static__table td.is-italic {
+  font-style: italic;
+}
+
+.doc-content .sheet-static__table td.is-error {
+  color: var(--c-red-text);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+}
+
+.doc-content .sheet-static__empty {
+  padding: 10px;
+  color: var(--ink-faint);
+}

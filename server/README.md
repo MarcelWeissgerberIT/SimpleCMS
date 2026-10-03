@@ -18,8 +18,14 @@ https://cloud.example.com/api/*     REST (JSON, HttpOnly session cookie)
 https://cloud.example.com/api/v1/*  public API (bearer tokens) + incoming webhooks — docs/API.md
 https://cloud.example.com/mcp       remote MCP, Streamable HTTP (same bearer tokens) — docs/MCP.md
 wss://cloud.example.com/collab      Yjs sync (Hocuspocus 4), same cookie
-DATA_DIR                            one.sqlite (+ WAL) and files/<workspace>/<file>
+DATA_DIR                            one.sqlite (+ WAL) and files/<workspace>/<file>.enc
 ```
+
+**Tenancy & encryption at rest** ([`docs/CLOUD.md`](../docs/CLOUD.md#tenancy--encryption-at-rest)): everyone
+gets a workspace of their own at the first sign-in; every route, API call, MCP tool and document is gated by
+membership (swept by `test/tenancy.test.ts`). Each workspace has its own random data key, stored only
+wrapped by `DATA_KEY`; documents, files, file names and kept API answers are AES-256-GCM ciphertext on
+disk. Deleting a workspace shreds its key first.
 
 Stack: Node 22 · TypeScript bundled with esbuild · Hono on `@hono/node-server` · Hocuspocus 4 ·
 `node:sqlite` (no native modules) · nodemailer · zod · the MCP TypeScript SDK (remote MCP).
@@ -73,6 +79,7 @@ Working on the app with Vite instead of the built copy? Proxy the API and the so
 |---|---|---|
 | `PUBLIC_URL` | `http://localhost:$PORT` (dev) · **required** in production | Origin for mail links; `https://` turns on `Secure` cookies and HSTS |
 | `SECRET` | generated into `DATA_DIR/dev-secret` (dev) · **required** in production | 32+ random bytes, hex or base64 (`openssl rand -hex 32`). Keys the HMAC that stores tokens — changing it signs everyone out |
+| `DATA_KEY` | generated into `DATA_DIR/dev-data-key` (dev) · **required** in production | Exactly 32 random bytes, base64 or hex (`openssl rand -base64 32`). Master key that wraps every workspace's data key — keep a copy apart from backups; change it only with `rotate-data-key`. Must differ from `SECRET` |
 | `DATA_DIR` | `/data` (production) · `server/.data` (dev) | SQLite database and uploaded files |
 | `SMTP_URL` | – | nodemailer URL, e.g. `smtps://user:pass@smtp.example.com:465`. Unset → dev-mail mode (links only in the log) |
 | `MAIL_FROM` | `SimpleCMS One <no-reply@<host>>` | Sender address |
@@ -86,7 +93,7 @@ Working on the app with Vite instead of the built copy? Proxy the API and the so
 | `LOG_LEVEL` | `info` | `debug` · `info` · `warn` · `error` |
 | `AUTH_IP_LIMIT` | `20` | Sign-in link requests per client IP per 15 minutes. **Test servers only** (`DEV_MODE=1`); without `DEV_MODE` the server refuses to start with it |
 | `API_RATE_LIMIT` | `120` | Public API requests per minute, per token and per incoming webhook ([`docs/API.md`](../docs/API.md#limits)) |
-| `NODE_ENV` | – | `production` enforces `SECRET` and `PUBLIC_URL` and forbids `DEV_MODE` |
+| `NODE_ENV` | – | `production` enforces `SECRET`, `DATA_KEY` and `PUBLIC_URL` and forbids `DEV_MODE` |
 
 ## API in one screen
 
@@ -97,7 +104,7 @@ POST   /api/auth/request                  { email, redirect?, lang?, invite? } �
 GET    /api/auth/verify?token=            → 302 (same browser) or confirmation page
 POST   /api/auth/verify                   confirmation form → 303
 POST   /api/auth/logout                   → 204
-GET    /api/me   PATCH /api/me            { user, workspaces } / { name }
+GET    /api/me   PATCH /api/me            { user, workspaces (own workspace first, personal: true) } / { name }
 GET    /api/session                       { user | null, workspaces } — 200 even when signed out
 POST   /api/workspaces                    { name, icon? } → 201 workspace
 PATCH  /api/workspaces/:id                admin
@@ -147,14 +154,16 @@ node dist/cli.js list-users
 node dist/cli.js list-workspaces
 node dist/cli.js make-owner <workspaceId> admin@acme.com
 node dist/cli.js revoke-sessions someone@acme.com
-node dist/cli.js backup [file]                       # VACUUM INTO, default DATA_DIR/backups/
+node dist/cli.js backup [file]                       # VACUUM INTO, default DATA_DIR/backups/ (ciphertext)
+node dist/cli.js encrypt-all                         # seal what is still stored in plaintext, report the rest
+DATA_KEY=<old> NEW_DATA_KEY=<new> node dist/cli.js rotate-data-key   # server stopped; re-wraps the keys only
 ```
 
 ## Docker
 
 ```bash
 cd server
-cp .env.example .env         # DOMAIN, SECRET, SMTP_URL, SIGNUP …
+cp .env.example .env         # DOMAIN, SECRET, DATA_KEY, SMTP_URL, SIGNUP …
 docker compose up -d --build # server + Caddy (automatic HTTPS for DOMAIN)
 ```
 
@@ -171,7 +180,10 @@ src/
   app.ts              middleware (security headers, CSRF, sessions, body limit), routes, errors
   config.ts           env parsing + validation
   db/                 node:sqlite wrapper and versioned migrations
-  repo.ts             all SQL (users, workspaces, members, invites, documents, files)
+  repo.ts             all SQL (users, workspaces, members, invites, documents, files); seals / opens content
+  crypto/             AES-256-GCM envelopes + streamed files (aead), workspace keys wrapped by DATA_KEY
+                      (keyring, rotation), sealing data from before encryption (migrate)
+  storage.ts          where file bytes live (files/<ws>/<id>.enc)
   auth/               sessions + cookies, rate limiter, signup policy
   routes/             auth, me + session, workspaces (+ members, invites), invites (public), files, documents,
                       integrations (API tokens + incoming webhooks of a workspace)

@@ -27,3 +27,18 @@ export { createPropertyQuick, createPropertiesQuick, dropCreated, canCreatePrope
 export { CreatePropertyDialog, type CreatePropertyDialogProps } from './create/CreatePropertyDialog'
 export { CreatePropertiesDialog, DATA_TYPES, type CreatePropertiesDialogProps, type PropertySuggestion, type SuggestionResult } from './create/CreatePropertiesDialog'
 export { PAGE_MENTIONED } from './create/RelationOffer'
+/**
+ * Chart series of a database (features/charts `chart` blocks with a database source): rows after a view's
+ * filters, grouped by x (options in order + colour, date buckets day … year with gaps filled), count / sum /
+ * avg / min / max of a number, optionally split into series. chartGroupable / chartMeasurable: pickable properties.
+ */
+export {
+  databaseChartData,
+  chartGroupable,
+  chartMeasurable,
+  bucketLabel,
+  type DatabaseChartInput,
+  type DatabaseChartResult,
+  type DatabaseChartAggregate,
+  type DatabaseChartBucket,
+} from './model/chartData'

@@ -235,7 +235,8 @@ export function readAttrs(raw: Record<string, unknown> | SpreadsheetAttrs | null
       sheets.push(sheet)
     }
   }
-  if (!sheets.length) sheets.push(newSheet('Sheet 1'))
+  // a stable id: the fallback sheet must be the same on every read of the same (empty) attrs
+  if (!sheets.length) sheets.push({ ...newSheet('Sheet 1'), id: 'sheet-1' })
   const active = own(src, 'active')
   const dsRaw = own(src, 'datasets')
   const chRaw = own(src, 'charts')

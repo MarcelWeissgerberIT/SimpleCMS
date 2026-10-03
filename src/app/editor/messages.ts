@@ -94,6 +94,11 @@ export const messages: Messages = {
     'editor.block.ai.desc': 'Write, summarise or brainstorm with Claude.',
     'editor.block.meetingNotes': 'Meeting notes',
     'editor.block.meetingNotes.desc': 'Record a meeting — live transcript, then Claude writes summary, decisions and action items.',
+    'editor.block.spreadsheet': 'Spreadsheet',
+    'editor.block.spreadsheet.desc': 'Cells with formulas, several sheets, SUM, VLOOKUP, datasets DS(…).',
+    'editor.spreadsheet.sheet1': 'Sheet 1',
+    'editor.spreadsheet.loading': 'Loading spreadsheet…',
+    'editor.spreadsheet.failed': 'The spreadsheet could not be loaded.',
     'editor.meeting.label': 'Meeting notes',
     'editor.meeting.transcript': 'Transcript · {words} words',
 
@@ -521,6 +526,11 @@ export const messages: Messages = {
     'editor.block.ai.desc': 'Mit Claude schreiben, zusammenfassen, brainstormen.',
     'editor.block.meetingNotes': 'Besprechungsnotizen',
     'editor.block.meetingNotes.desc': 'Besprechung aufnehmen — Live-Transkript, dann schreibt Claude Zusammenfassung, Entscheidungen und Aufgaben.',
+    'editor.block.spreadsheet': 'Tabellenkalkulation',
+    'editor.block.spreadsheet.desc': 'Zellen mit Formeln, mehrere Tabellenblätter, SUMME, SVERWEIS, Datenbereiche DS(…).',
+    'editor.spreadsheet.sheet1': 'Tabelle 1',
+    'editor.spreadsheet.loading': 'Tabellenkalkulation wird geladen…',
+    'editor.spreadsheet.failed': 'Die Tabellenkalkulation konnte nicht geladen werden.',
     'editor.meeting.label': 'Besprechungsnotizen',
     'editor.meeting.transcript': 'Transkript · {words} Wörter',
 

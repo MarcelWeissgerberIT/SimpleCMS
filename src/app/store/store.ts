@@ -377,12 +377,16 @@ function freezePages(pages: Record<ID, Page>): Record<ID, Page> {
   return Object.freeze(pages)
 }
 
-/** Deep-freeze data entering the store, down to the parts already frozen (what Immer's auto-freeze does with a write). */
+/**
+ * Deep-freeze data entering the store, down to the parts already frozen — what Immer's auto-freeze
+ * does with a write (plain objects and arrays only, like Immer).
+ */
 function deepFreeze<T>(v: T): T {
-  if (v && typeof v === 'object' && !Object.isFrozen(v)) {
-    Object.freeze(v)
-    for (const k of Object.keys(v)) deepFreeze((v as Record<string, unknown>)[k])
-  }
+  if (!v || typeof v !== 'object' || Object.isFrozen(v)) return v
+  const proto = Object.getPrototypeOf(v)
+  if (!Array.isArray(v) && proto !== Object.prototype && proto !== null) return v
+  Object.freeze(v)
+  for (const k of Object.keys(v)) deepFreeze((v as Record<string, unknown>)[k])
   return v
 }
 
@@ -438,13 +442,12 @@ export const useWorkspace = create<WorkspaceState>()(
       return page.id
     },
 
-    updatePage: (id, patch) =>
-      set((s) => {
-        const p = s.pages[id]
-        if (!p) return
-        Object.assign(p, patch)
-        p.updatedAt = now()
-      }),
+    // updatePage, setContent, setRowProperty: one page, written without an Immer draft (withPage)
+    updatePage: (id, patch) => {
+      const pages = get().pages
+      const p = pages[id]
+      if (p) set({ pages: withPage(pages, { ...p, ...patch, updatedAt: now() }) })
+    },
 
     updatePageSettings: (id, patch) =>
       set((s) => {
@@ -454,16 +457,11 @@ export const useWorkspace = create<WorkspaceState>()(
         p.updatedAt = now()
       }),
 
-    setContent: (id, content, origin) =>
-      set((s) => {
-        const p = s.pages[id]
-        if (!p) return
-        p.content = content
-        p.contentRev += 1
-        p.contentOrigin = origin
-        p.updatedAt = now()
-        p.plain = plainText(content)
-      }),
+    setContent: (id, content, origin) => {
+      const pages = get().pages
+      const p = pages[id]
+      if (p) set({ pages: withPage(pages, { ...p, content, contentRev: p.contentRev + 1, contentOrigin: origin, updatedAt: now(), plain: plainText(content) }) })
+    },
 
     movePage: (id, parentId, index) =>
       set((s) => {
@@ -759,13 +757,11 @@ export const useWorkspace = create<WorkspaceState>()(
       return page.id
     },
 
-    setRowProperty: (rowId, propId, value) =>
-      set((s) => {
-        const p = s.pages[rowId]
-        if (!p) return
-        p.properties[propId] = value
-        p.updatedAt = now()
-      }),
+    setRowProperty: (rowId, propId, value) => {
+      const pages = get().pages
+      const p = pages[rowId]
+      if (p) set({ pages: withPage(pages, { ...p, properties: { ...p.properties, [propId]: value }, updatedAt: now() }) })
+    },
 
     addPerson: (name) => {
       const person: Person = { id: newId(), name, color: (['orange', 'blue', 'green', 'purple', 'pink', 'brown', 'yellow', 'red'] as const)[get().people.length % 8] }
@@ -925,12 +921,7 @@ export function pageChanges(next: Record<ID, Page>, prev: Record<ID, Page>): Pag
     out.changed.push(id)
     if (o === undefined) out.added.push(id)
   }
-  keyCounts.set(next, keys.length)
-  let before = keyCounts.get(prev)
-  if (before === undefined) {
-    before = Object.keys(prev).length
-    keyCounts.set(prev, before)
-  }
+  const before = keyCounts.get(prev) ?? Object.keys(prev).length
   if (before + out.added.length > keys.length) for (const id of Object.keys(prev)) if (!(id in next)) out.removed.push(id)
   rememberChanges(next, prev, out, keys.length, before)
   return out

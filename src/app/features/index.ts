@@ -147,3 +147,28 @@ export { startMcp, McpTab, McpStatusCell, openMcpSettings, consumeMcpSettingsReq
  *  - demoFunctions(lang): MARGIN(price; cost) for the seed
  */
 export { startCustomFunctions, openFunctionBuilder, FunctionsModal, demoFunctions } from './sheets/functions'
+/*
+ * Spreadsheets (`spreadsheet` block: several sheets, Excel-style formulas, built-in library, datasets DS(…)):
+ *  - engine: formulas, function registry (registerFunctions / getFunction / listFunctions / setCustomFunctions),
+ *    Workbook, formatValue, reference adjustment · readAttrs(attrs): typed + sanitized node attrs
+ *  - readSheetData(attrs, ref): computed values of a range / DS(…) / dataset name (charts)
+ *  - spreadsheet exports (Markdown / HTML with computed values) and the lazy grid UI (loadSheetBlock)
+ */
+export {
+  registerFunctions,
+  getFunction,
+  listFunctions,
+  setCustomFunctions,
+  callFunction,
+  evaluateExpr,
+  readSheetData,
+  readAttrs as readSpreadsheetAttrs,
+  newSpreadsheetAttrs,
+  spreadsheetMarkdown,
+  spreadsheetHTML,
+  loadSheetBlock,
+  type FnSpec,
+  type Value as SheetValue,
+  type CellValue as SheetCellValue,
+  type SpreadsheetAttrs,
+} from './sheets'

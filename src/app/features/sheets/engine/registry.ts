@@ -6,6 +6,7 @@
 import type { CustomFunction } from '../../../store/types'
 import type { FnCtx, FnSpec, Value } from './types'
 import { err } from './values'
+import { BUILTINS } from './functions'
 
 const builtins = new Map<string, FnSpec>()
 let customs = new Map<string, FnSpec>()
@@ -89,3 +90,6 @@ export function subscribeRegistry(fn: () => void): () => void {
   listeners.add(fn)
   return () => listeners.delete(fn)
 }
+
+// the built-in library is always there, whichever engine module is imported first
+registerFunctions(BUILTINS)

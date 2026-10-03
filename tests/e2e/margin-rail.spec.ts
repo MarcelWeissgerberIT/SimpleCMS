@@ -260,4 +260,28 @@ test.describe('margin rail', () => {
     await expect(page.locator('#main .pv-icon svg')).toBeVisible()
     await expect(page.locator('#main .pv-icon img')).toHaveCount(0)
   })
+
+  test('symbols: a searchable set of line glyphs (English and German words) as page icons', async ({ page }) => {
+    await openApp(page)
+    const id = await createPage(page, { title: 'Quarterly plan' })
+    await gotoPage(page, id)
+    await page.locator('#main').getByRole('button', { name: 'Add icon' }).click()
+    const picker = page.locator('[data-popover] .icon-picker')
+    await picker.getByRole('button', { name: 'Symbols' }).click()
+    const search = picker.getByRole('textbox', { name: 'Search' })
+    await search.fill('flagge')
+    await expect(picker.locator('.icon-picker__symbol')).toHaveCount(1)
+    await search.fill('calendar')
+    await expect(picker.getByRole('button', { name: 'calendar days' })).toBeVisible()
+    await picker.getByRole('button', { name: 'calendar days' }).click()
+    await expect(picker).toHaveCount(0)
+    expect(await wsEval(page, (s, id) => s.pages[id].icon, id)).toEqual({ type: 'lucide', value: 'CalendarDays' })
+    // title size: an ink glyph on a paper placard; sidebar size: the bare glyph
+    await expect(page.locator('#main .pv-icon .picon-tile svg')).toBeVisible()
+    const row = page.locator('.sb section[aria-label="Pages"] .sb-row', { hasText: 'Quarterly plan' }).first()
+    await expect(row.locator('svg.lucide-calendar-days')).toBeVisible()
+    // the tab is remembered on this device
+    await page.locator('#main .pv-icon').click()
+    await expect(picker.getByRole('button', { name: 'Symbols' })).toHaveAttribute('aria-pressed', 'true')
+  })
 })

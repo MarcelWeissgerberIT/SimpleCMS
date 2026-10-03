@@ -14,6 +14,7 @@ import {
   ChartGantt,
   ChevronRight,
   Code,
+  FileSpreadsheet,
   Columns2,
   Columns3,
   FileText,
@@ -60,6 +61,7 @@ import { markFreshButton } from './buttonRun'
 import { caretIntoTabs, newTabsJson, tabsAround } from '../schema/tabs'
 import { insertSynced } from '../synced/actions'
 import { insertMeetingNotes } from '../schema/meetingNotes'
+import { insertSpreadsheet } from '../schema/spreadsheet'
 import { ToggleHeading1, ToggleHeading2, ToggleHeading3 } from './blockGlyphs'
 import { toast } from '../../store/ui'
 import { t } from '../../i18n'
@@ -180,6 +182,13 @@ export const BLOCKS: BlockItem[] = [
     icon: Table,
     keywords: 'table grid simple tabelle raster',
     run: (ctx) => insertBlock(ctx.editor, tableJson(3, 3), ctx.range),
+  },
+  {
+    id: 'spreadsheet',
+    group: 'basic',
+    icon: FileSpreadsheet,
+    keywords: 'spreadsheet sheet sheets excel calc calculation formula formulas sum vlookup tabellenkalkulation tabellenblatt rechnen formel formeln summe sverweis kalkulation',
+    run: (ctx) => insertSpreadsheet(ctx.editor, ctx.range),
   },
   // ---------------- lists
   { id: 'bullet', group: 'lists', icon: List, md: '-', keys: 'Mod+Shift+8', keywords: 'bullet list unordered ul aufzählung liste punkte', turnInto: 'bulletList', run: turn('bulletList') },

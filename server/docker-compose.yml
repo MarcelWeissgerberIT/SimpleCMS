@@ -1,6 +1,6 @@
 # SimpleCMS One — team cloud with automatic HTTPS.
 #
-#   cp .env.example .env    # set DOMAIN, SECRET, SMTP_URL …
+#   cp .env.example .env    # set DOMAIN, SECRET, DATA_KEY, SMTP_URL …
 #   docker compose up -d --build
 #
 # Needs a DNS record for DOMAIN pointing at this machine and ports 80 + 443 open.
