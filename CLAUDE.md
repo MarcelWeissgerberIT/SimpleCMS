@@ -33,8 +33,12 @@ src/app/i18n/**                      t()/useT(); per-area strings in src/app/<ar
 src/app/shell/**                     layout, sidebar, topbar, page view, command palette, settings, modals host …
 src/app/editor/**                    TipTap block editor (public API: editor/index.ts)
 src/app/database/**                  databases & views (public API: database/index.ts)
-src/app/features/**                  AI, history, graph, share, import/export, present, automations, templates, journal
-                                     (public API: features/index.ts)
+src/app/features/**                  AI (+ workspace agent), history, graph, share, import/export, present, automations,
+                                     templates (+ repeating), journal, inbox + reminders, sync (folder / GitHub Markdown,
+                                     per-device IndexedDB `one-sync`) (public API: features/index.ts)
+src/app/cloud/**                     team-cloud client: store ⇄ Yjs binding, page documents, private pages, files
+                                     (public API: cloud/index.ts; protocol + meta-document schema: docs/CLOUD.md)
+server/**                            team-cloud server (Node, Hono, Hocuspocus, SQLite; AGPL) + public API (docs/API.md)
 public/assets/icons|covers           generated art (OpenArt) + manifest.json
 ```
 
@@ -53,17 +57,29 @@ the public APIs stable — other areas are built against them in parallel.
 - Public assets are referenced WITHOUT leading slash (`assets/covers/dunes.webp`) and resolved with `resolveAssetUrl()`
   so they work under the `/SimpleCMS/` base.
 - Internal links: `#/p/<pageId>` (see lib/router.ts). Hash routing only (GitHub Pages).
+- Computed, never stored: property types `created_time`, `last_edited_time`, `created_by`, `last_edited_by`
+  (from `page.createdBy` / `updatedBy` — account ids in team workspaces, `api:<id>` / `hook:<id>` for the public
+  API; absent locally), `formula`, `rollup` (`unique_id` is assigned once and stored). Filter value token `'@me'` = the
+  signed-in member (team) / the local user. `Database.locked` blocks schema and view edits, rows stay editable.
+- `DateValue.reminder` and the date `mention`'s `reminder` attr hold a reminder code (`'at'` | `'-<n><m|h|d|w>'`,
+  see features/inbox/reminders.ts); inbox state is per device (IndexedDB `one-inbox`), never synced.
+- Team workspaces: `Page.private` is a local marker set by the cloud binding (the page lives in the member's
+  private documents); move pages between Private and the workspace ONLY with `movePagePrivacy()` (cloud/index.ts).
 
 ## TipTap node names (shared contract — seed, export, share, history all rely on these)
 
 StarterKit: `paragraph`, `heading` (levels 1–3), `bulletList`, `orderedList`, `listItem`, `blockquote`,
 `codeBlock` (attrs: language), `horizontalRule`, `hardBreak`; marks `bold`, `italic`, `strike`, `code`,
 `underline`, `link`. Plus: `taskList`/`taskItem` (attrs: checked), `details`/`detailsSummary`/`detailsContent`
-(toggle), `callout` (attrs: icon, color), `image` (attrs: src, alt, caption, width, align), `table`/`tableRow`/
+(toggle; attrs: heading 0|1|2|3 — 1–3 = toggle heading H1–H3), `callout` (attrs: icon, color), `image` (attrs: src, alt, caption, width, align), `table`/`tableRow`/
 `tableHeader`/`tableCell`, `columns`/`column`, `blockMath`/`inlineMath` (attrs: latex), `mermaid` (attrs: code),
-`pageLink` (attrs: pageId), `mention` (attrs: id, label, kind: 'page'|'date'|'person'), `databaseBlock`
+`pageLink` (attrs: pageId), `mention` (attrs: id, label, kind: 'page'|'date'|'person', reminder — date mentions only;
+a date id is `yyyy-MM-dd` or `yyyy-MM-ddTHH:mm` local time; mentions of private pages carry no label), `databaseBlock`
 (attrs: databaseId, viewId), `bookmark` (attrs: url, title, description, image), `embed` (attrs: url, provider),
-`toc`, `fileBlock` (attrs: src, name, size), `button` (attrs: label, variant 'signal'|'ink'|'ghost', actions = JSON
+`toc`, `fileBlock` (attrs: src, name, size), `video` (attrs: src, name, caption, width, align) and `audio` (attrs: src,
+name, caption) — src = `onefile:<id>` or an http(s) URL, `syncedBlock` (attrs: syncId, sourcePageId — null = the
+original, else a reference holding a cached copy; content: blocks; never nested; the sync service writes with origin
+'synced'; `stripButtonActions()` unwraps it to plain blocks), `button` (attrs: label, variant 'signal'|'ink'|'ghost', actions = JSON
 array, see editor/schema/button.ts — strip with `stripButtonActions()` before a doc leaves the workspace),
 `tabs` (container of `tab`, no tabs inside tabs; the shown tab is editor view state) / `tab` (attrs: title; content:
 blocks); marks `highlight` (attrs: color = ColorName), `textStyle` + color
