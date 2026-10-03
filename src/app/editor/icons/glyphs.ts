@@ -11,18 +11,25 @@ type GlyphModule = typeof import('./glyphSet')
 
 let mod: GlyphModule | null = null
 let loading: Promise<GlyphModule> | null = null
+let failed = false
 const waiters = new Set<() => void>()
+const notify = () => {
+  for (const w of [...waiters]) w()
+}
 
 export function loadGlyphs(): Promise<GlyphModule> {
   loading ??= import('./glyphSet').then(
     (m) => {
       mod = m
-      for (const w of [...waiters]) w()
+      failed = false
+      notify()
       return m
     },
     (err: unknown) => {
-      // offline before the chunk was ever cached: try again next time
+      // offline before the chunk was ever cached: say so, and try again next time
       loading = null
+      failed = true
+      notify()
       throw err
     },
   )
@@ -31,6 +38,8 @@ export function loadGlyphs(): Promise<GlyphModule> {
 
 /** The registry once it is loaded (null until then). */
 export const loadedGlyphs = (): GlyphModule | null => mod
+/** The last attempt to load the registry failed. */
+export const glyphsFailed = (): boolean => failed
 
 /** Called once the registry is loaded. Returns an unsubscribe. */
 export function subscribeGlyphs(cb: () => void): () => void {

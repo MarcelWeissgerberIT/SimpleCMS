@@ -44,22 +44,150 @@ agent can act on.
 
 ## Local bridge
 
-*Drives the One tab you have open — the static app at [getonecms.com](https://getonecms.com/app/) or your own build.*
-<!-- This section belongs to the local bridge (mcp/, src/app/features/mcp/). -->
+*Drives the One tab you have open — the static app at [getonecms.com](https://getonecms.com/app/), your own build,
+or a team workspace open in that tab. No server, no account, no token.*
 
-```bash
-curl -fsSL https://getonecms.com/mcp/one-mcp.mjs -o ~/one-mcp.mjs
-claude mcp add one -- node ~/one-mcp.mjs          # Claude Code
+```
+Claude Desktop / Claude Code ──stdio──▶ one-mcp.mjs ──ws://127.0.0.1:47321──▶ your One tab ──▶ IndexedDB
+        (MCP client)                    (the bridge, on your computer)        (runs the tools)
 ```
 
-Claude Desktop (`claude_desktop_config.json`):
+The bridge is one file, [`one-mcp.mjs`](https://getonecms.com/mcp/one-mcp.mjs) (Node.js 20 or newer, no install).
+The MCP client starts it; it lists the tools, and forwards every call to the tab, which runs it against the
+workspace in the browser — the same code paths as the in-app agent — and answers.
 
-```json
-{ "mcpServers": { "one": { "command": "node", "args": ["/ABSOLUTE/PATH/one-mcp.mjs"] } } }
-```
+### Set up
 
-Then open One and switch on **Settings → Agents · MCP**. Without a connected tab every tool answers: "Open One
-(https://getonecms.com/app/) and switch on Settings → Agents · MCP."
+1. **Get the bridge** — *Settings → Agents · MCP → Setup* has a download button and these snippets ready to copy:
+
+   ```bash
+   curl -fsSL https://getonecms.com/mcp/one-mcp.mjs -o ~/one-mcp.mjs
+   ```
+
+2. **Add it to your client.**
+
+   *Claude Code*
+
+   ```bash
+   claude mcp add one -- node ~/one-mcp.mjs
+   ```
+
+   *Claude Desktop* — *Settings → Developer → Edit Config* (`claude_desktop_config.json`), with the **full** path
+   (Claude Desktop does not expand `~`), then restart Claude Desktop:
+
+   ```json
+   {
+     "mcpServers": {
+       "one": { "command": "node", "args": ["/Users/you/one-mcp.mjs"] }
+     }
+   }
+   ```
+
+   *Any other MCP client* (Cursor, VS Code, Windsurf, Zed, your own agent with the MCP SDK): a **stdio** server,
+   command `node`, argument the path of `one-mcp.mjs`.
+
+3. **Switch it on in One**: *Settings → Agents · MCP → Allow AI agents on this computer*. The panel's LED turns
+   green — *Connected · Claude Desktop · 0 calls* — and a small **AGENT** LED appears in the status bar. Ask
+   *“What is in my One workspace?”*
+
+Without a connected tab every tool answers: "Open One (https://getonecms.com/app/) and switch on Settings → Agents ·
+MCP." (a call waits up to 10 s for the tab first). The switch is **per browser**: it lives in this browser's
+`localStorage`, never in the workspace, a backup or a team.
+
+### Agent changes: Ask first · Apply directly · Read only
+
+| Mode | Reads | Writes |
+|---|---|---|
+| **Ask first** (default) | answered at once | each one waits for a card in the tab (bottom right): the tool, the target and a diff-like summary — *Create row “Q4 launch” in Projects · Status: In progress*, property values *before → after*, new options, the Markdown that will be written. **Approve** (↵) or **Reject** (Esc). No answer within **2 minutes** = rejected. The agent sees the wait as progress (`notifications/progress`, *Waiting for approval in One…*) |
+| **Apply directly** | answered at once | written right away |
+| **Read only** | answered at once | refused: *One is set to "Agents can only read"* |
+
+- Every call — read or write, and how it ended (OK, error, refused, expired, cancelled) — is listed in the
+  **Agent activity** log of the settings tab. Applied writes have an **Undo** there (approved ones also get an Undo
+  toast). Undo is careful: a page or row someone edited in the meantime goes to the trash instead of being deleted,
+  values changed since are kept.
+- A rejection tells the agent *The person rejected this change in One … Do not retry it*. A call that would change
+  nothing (the same title, the same values) is answered without a card.
+- Writes go through the workspace store like any edit: content with origin `ai`, version history snapshots before
+  a replacement, undo, automations. In a **team workspace** tab they sync to everyone like your own edits; if you
+  are a **viewer** there, every write is refused.
+
+### Details
+
+- **One tab at a time, the newest wins.** Opening a second One tab (with the switch on) moves the agent there; the
+  older tab says *Another tab is connected* and offers **Use this tab**. It does not reconnect on its own, so two
+  tabs never take turns.
+- **Reconnects by itself**: while no bridge answers (*Waiting for an agent · start Claude Desktop*) the tab retries —
+  every few seconds, every 30 s after two minutes, at once when the tab comes back into view. Chrome logs each
+  refused attempt in the developer console (*WebSocket connection … failed*); that is expected while no MCP client
+  runs.
+- **Port**: 47321. Another port: `ONE_MCP_PORT` for the bridge and the same number in *Settings → Agents · MCP →
+  Port* (the copied snippets then include it: `"env": { "ONE_MCP_PORT": "47400" }`, `claude mcp add one -e
+  ONE_MCP_PORT=47400 -- node ~/one-mcp.mjs`).
+- **Two MCP clients** (say Claude Desktop *and* Claude Code) each start a bridge; only the first gets the port. The
+  second answers every call with *Another One MCP bridge is already using port 47321 …* and takes the port over when
+  the first one quits. Use one client at a time, or give the second one another port (and switch the tab to it).
+- **Logs** go to stderr (Claude Desktop: *Settings → Developer → Open Logs Folder*, `mcp-server-one.log`); stdout is
+  the MCP channel. `ONE_MCP_QUIET=1` silences them. `node one-mcp.mjs --help` prints the setup, `--version` the
+  version.
+- **Environment**: `ONE_MCP_PORT` (47321) · `ONE_ORIGINS` (extra allowed page origins, comma-separated;
+  `http://host:*` = any port) · `ONE_MCP_TIMEOUT_MS` (30000: how long the tab may take for a read) ·
+  `ONE_MCP_WAIT_MS` (10000: how long a call waits for a tab) · `ONE_MCP_QUIET=1`.
+- **Local extras** over the team server: computed values (formulas, rollups) come as the app shows them; icons can
+  also be `asset:<name>` / `lucide:<IconName>`; `one_overview` names the page open in the tab.
+
+### Security model
+
+The bridge is a door into your workspace, so it only opens for One:
+
+- **Loopback only.** The WebSocket listens on `127.0.0.1` — nothing on your network can reach it.
+- **Origin allowlist.** Browsers send the page's `Origin` with every WebSocket handshake and pages cannot forge it.
+  The bridge accepts `https://getonecms.com`, `http://localhost:<any port>` and `http://127.0.0.1:<any port>`
+  (development and self-hosted builds) plus `ONE_ORIGINS`; everything else — other websites, sandboxed frames and
+  `file://` (`Origin: null`), clients without an Origin — gets `403` before any data flows.
+- **Host check against DNS rebinding.** A site that points its own domain at 127.0.0.1 still sends its own `Host`;
+  only `127.0.0.1`, `localhost` and `[::1]` with the bridge's port are accepted.
+- **Versioned handshake.** The tab must speak the subprotocol `one-mcp.v1` and introduce itself within 5 s; a
+  connection that never does cannot push the real tab out. Plain HTTP gets `426` and nothing else (no CORS headers,
+  no information). Messages are capped at 16 MB; dead connections are dropped after a missed ping.
+- **The tab decides.** The bridge never sees your workspace except the answers to the calls the agent makes. Writes
+  need your approval by default, *Read only* refuses them, viewers of a team workspace can't write, and the switch
+  is off until you turn it on — per browser.
+- **Nothing leaves your computer** through One: client ⇄ bridge is stdio, bridge ⇄ tab is loopback, the workspace
+  stays in IndexedDB. What the agent reads goes to the agent — and so to the AI provider behind your MCP client.
+  Text inside pages is treated as content, not instructions (the server instructions say so), but an agent that
+  reads untrusted pages can still be misled: keep *Ask first* on for anything you didn't write yourself.
+- **Limits of the model.** Any program running as you on this computer could also listen on the port or speak to
+  the tab — but such a program can already read your browser's files. Allowed `localhost` origins include other
+  local development servers you run; set the port to something unusual if that worries you.
+
+### Browsers
+
+The app is an `https` page talking to `ws://127.0.0.1`. What browsers make of that (checked October 2026):
+
+| Browser | |
+|---|---|
+| **Chrome, Edge** (Chromium) | Works. Loopback addresses count as *potentially trustworthy*, so `ws://127.0.0.1` from an `https` page is not mixed content. Since Chrome 142, **Local Network Access** asks once whether the site may reach *apps and services on this device* — choose **Allow** (the tab says so while the answer is pending). If it was blocked, the tab shows *Blocked by the browser* with the way back: the icon left of the address → *Site settings* → allow local network access, then *Retry now*. No server opt-in header exists for this (the older *Private Network Access* preflight headers don't apply to WebSockets), so the bridge needs none. |
+| **Firefox** | Works: Firefox treats `127.0.0.1` / `localhost` as potentially trustworthy too (no mixed-content block for loopback). |
+| **Safari** | May refuse `ws://` from an `https` page as mixed content even for loopback. The tab then shows *This browser does not let a secure (https) page talk to the bridge*. Use Chrome, Edge or Firefox for agents, or open a local build (`npm run dev` / `vite preview`, http://localhost). |
+
+Self-hosted builds served from `http://localhost` / `http://127.0.0.1` have none of these restrictions.
+
+### The tab protocol
+
+For other implementations: JSON text frames, subprotocol `one-mcp.v1`, defined in
+[`src/app/features/mcp/contract.ts`](../src/app/features/mcp/contract.ts) (shared by the bridge and the app).
+
+| Direction | Message |
+|---|---|
+| tab → bridge | `{ type: "hello", app: "one", version, workspace: { name, kind, readOnly }, mode }` — first message; then `status` with the same fields when they change |
+| bridge → tab | `{ type: "welcome", bridge, client: { name, version } \| null }` — the MCP client from its `initialize` (later changes: `client`) |
+| bridge → tab | `{ type: "call", id, tool, args }` |
+| tab → bridge | `{ type: "result", id, result }` · `{ type: "error", id, error }` · `{ type: "pending", id, timeoutMs }` (waiting for approval: the bridge extends the deadline) |
+| bridge → tab | `{ type: "cancel", id }` (the client cancelled, or the bridge gave up) · `{ type: "replaced" }` + close `4001` (a newer tab took over) |
+
+The bridge's own code is in [`mcp/`](../mcp) (`npm --prefix mcp install`, `npm run build:mcp` rebuilds
+`public/mcp/one-mcp.mjs`, which is committed — the Pages build just copies it; `npm run test:mcp` runs its tests).
 
 ## Team server
 

@@ -13,24 +13,24 @@ import { loadIconManifest, type IconManifestEntry } from '../../ui/IconPicker'
 import { safeLocalGet, safeLocalSet } from '@/shared/brand'
 import { useLang, useT } from '../../i18n'
 import { iconAssetPath, type IconAttrs, type IconKind } from '../schema/icon'
-import { loadGlyphs, loadedGlyphs, subscribeGlyphs, svgAttrs } from './glyphs'
+import { glyphsFailed, loadGlyphs, loadedGlyphs, subscribeGlyphs, svgAttrs } from './glyphs'
 import { objectLabel, objectSearchText } from './objects'
 
 const TAB_KEY = 'one.inlineIconTab'
 const COLS: Record<IconKind, number> = { asset: 6, lucide: 8 }
 const norm = (s: string) => s.toLowerCase().normalize('NFD').replace(/\p{M}/gu, '')
 
-/** The glyph registry, loaded on first use. */
+const subscribe = (cb: () => void) => {
+  const off = subscribeGlyphs(cb)
+  if (!loadedGlyphs()) void loadGlyphs().catch(() => {})
+  return off
+}
+
+/** The glyph registry, loaded on first use (and whether loading it failed). */
 function useGlyphs() {
-  return useSyncExternalStore(
-    (cb) => {
-      const off = subscribeGlyphs(cb)
-      if (!loadedGlyphs()) void loadGlyphs().catch(() => {})
-      return off
-    },
-    loadedGlyphs,
-    loadedGlyphs,
-  )
+  const glyphs = useSyncExternalStore(subscribe, loadedGlyphs, loadedGlyphs)
+  const failed = useSyncExternalStore(subscribe, glyphsFailed, glyphsFailed)
+  return { glyphs, failed }
 }
 
 function useManifest(): IconManifestEntry[] | null {
@@ -98,7 +98,7 @@ export function IconPanel({ current, onPick, onColor, onRemove }: IconPanelProps
   const searchRef = useRef<HTMLInputElement>(null)
   const gridRef = useRef<HTMLDivElement>(null)
   const manifest = useManifest()
-  const glyphs = useGlyphs()
+  const { glyphs, failed } = useGlyphs()
 
   const setTab = (next: IconKind) => {
     setTabState(next)
@@ -134,7 +134,7 @@ export function IconPanel({ current, onPick, onColor, onRemove }: IconPanelProps
   )
   const all = tab === 'asset' ? objects : glyphItems
   const shown = useMemo(() => search(all, query), [all, query])
-  const loading = tab === 'asset' ? !manifest : !glyphs
+  const loading = tab === 'asset' ? !manifest : !glyphs && !failed
   const cols = COLS[tab]
 
   // start on the current icon (edit mode) once the list is there; else on the first match
@@ -296,7 +296,7 @@ export function IconPanel({ current, onPick, onColor, onRemove }: IconPanelProps
           </div>
         ))}
         {loading && <div className="ipk__msg">{t('common.loading')}</div>}
-        {!loading && shown.length === 0 && <div className="ipk__msg">{t('editor.iconPicker.empty')}</div>}
+        {!loading && shown.length === 0 && <div className="ipk__msg">{tab === 'lucide' && failed ? t('editor.iconPicker.failed') : t('editor.iconPicker.empty')}</div>}
       </div>
       <div className="ipk__foot" aria-live="polite">
         {cur ? (
