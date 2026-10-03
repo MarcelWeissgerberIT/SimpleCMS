@@ -154,6 +154,10 @@ E2E_PORT=4190 npm run test:e2e   # a second suite in parallel: own port, own bui
 
 Built for the **Ninja Armory** challenge of the AI Automations community.
 
+## License
+
+[MIT](LICENSE) © 2026 Marcel Weissgerber — use it, fork it, ship it.
+
 ---
 
 ## Auf Deutsch
@@ -176,3 +180,5 @@ mit `?intro` lässt es sich wiederholen.
 
 **Loslegen:** [Workspace öffnen](https://marcelweissgerberit.github.io/SimpleCMS/app/). Zum Selbst-Hosten: Repository
 forken, *Settings → Pages → Source: GitHub Actions* einstellen und nach `main` pushen.
+
+Lizenz: [MIT](LICENSE) — frei nutzen, forken, weitergeben.
