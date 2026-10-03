@@ -178,10 +178,14 @@ export function heroSchematic(lang: Lang, label: string): string {
 
 /** Callout balloons for the hero drawing, in drawing units (1600×1000). Adjust once the real screenshot exists. */
 export const HERO_CALLOUTS: Array<{ id: 'A' | 'B' | 'C' | 'D'; tx: number; ty: number; bx: number; by: number }> = [
-  { id: 'A', tx: 384, ty: 290, bx: 340, by: 240 },
-  { id: 'B', tx: 384, ty: 560, bx: 340, by: 620 },
-  { id: 'C', tx: 824, ty: 140, bx: 770, by: 108 },
-  { id: 'D', tx: 1144, ty: 700, bx: 1090, by: 840 },
+  // A — block editor: the "Agenda" heading and its list
+  { id: 'A', tx: 556, ty: 402, bx: 420, by: 330 },
+  // B — databases: the "Projects" database in the page tree
+  { id: 'B', tx: 112, ty: 402, bx: 160, by: 700 },
+  // C — command bar: Search / Ctrl+K
+  { id: 'C', tx: 214, ty: 65, bx: 360, by: 140 },
+  // D — AI with your key: the Claude panel
+  { id: 'D', tx: 1104, ty: 534, bx: 1300, by: 440 },
 ]
 
 /* ------------------------------------------------------------------ */
