@@ -263,12 +263,21 @@ test.describe('AI meeting notes', () => {
     await expect(dialog.getByRole('tab', { name: 'Claude AI' })).toHaveAttribute('aria-selected', 'true')
     await page.keyboard.press('Escape')
 
+    // a title typed by hand is kept (Claude's suggestion only fills an empty title)
+    const title = deck(page).getByRole('textbox', { name: 'Meeting title' })
+    await title.fill('Keyless retro')
+    await title.press('Enter')
+    await flush(page)
+    expect((await meetingNode(page, id))?.attrs.title).toBe('Keyless retro')
+
     // with a key, "Write notes" finishes the job
     await setKey(page)
     await key(page, 'summarize').click()
     await expect(deck(page).locator('.mtg__notes').getByRole('heading', { name: 'Summary' })).toBeVisible()
     await expect(deck(page).locator('.mtg__notice')).toHaveCount(0)
+    await expect(title).toHaveValue('Keyless retro')
     expect(reqs).toHaveLength(1)
+    expect(reqs[0].prompt).toContain('Title so far: Keyless retro')
   })
 
   test('microphone blocked: a helpful notice, nothing written', async ({ page, context }) => {
@@ -391,7 +400,7 @@ test.describe('AI meeting notes', () => {
     for (const r of rows) expect(linked).toContain(`"id":"${r.id}"`)
   })
 
-  test('export: Markdown carries the notes and the transcript in <details>; a locked page shows no controls', async ({ page }, testInfo) => {
+  test('export + share: Markdown / HTML carry notes and transcript; share link and locked page render without controls', async ({ page, browser, errors }, testInfo) => {
     await openApp(page)
     const id = await createPage(page, {
       title: 'Exported meeting',
@@ -440,6 +449,20 @@ test.describe('AI meeting notes', () => {
     expect(html).toContain('Budget approved.')
     expect(html).toMatch(/<details class="meeting-notes__transcript"[^>]*><summary>Transcript · 6 words<\/summary><ol><li data-t="12000"><time>00:12<\/time> <span class="meeting-notes__text">We approve the budget\.<\/span><\/li>/)
     await page.keyboard.press('Escape')
+
+    // share link: a static render — notes + foldable transcript, no transport, no recording
+    await page.locator('.tb').getByRole('button', { name: 'Share', exact: true }).click()
+    const link = await page.getByRole('dialog').getByRole('textbox', { name: 'Share link' }).inputValue()
+    await page.keyboard.press('Escape')
+    const other = await browser.newContext({ serviceWorkers: 'block', locale: 'en-US' })
+    const p2 = await other.newPage()
+    errors.watch(p2)
+    await p2.goto(link)
+    const shared = p2.locator('.shv__doc')
+    await expect(shared).toContainText('Budget approved.')
+    await expect(shared.locator('.mtg__title, .meeting-notes__title').first()).toHaveText('Board review')
+    await expect(shared.locator('[data-meeting-key], .mtg__more, .mtg__foot')).toHaveCount(0)
+    await other.close()
 
     // locked page: read-only render — title, meta and transcript, no transport, no menu
     await wsEval(page, (s, id) => s.updatePageSettings(id, { locked: true }), id)

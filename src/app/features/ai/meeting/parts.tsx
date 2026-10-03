@@ -157,7 +157,7 @@ export function TranscriptPanel({
             </li>
           ))}
           {(interim || (live && !segments.length)) && (
-            <li className="mtg__line is-interim" aria-hidden={!interim}>
+            <li className="mtg__line is-interim" aria-hidden>
               <time className="mtg__time">{formatOffset(liveAt)}</time>
               <span className="mtg__text">
                 {interim || t('features.meeting.transcriptEmpty')}

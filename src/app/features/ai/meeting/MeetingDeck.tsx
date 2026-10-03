@@ -272,9 +272,12 @@ function Bar({ mode, elapsed, attrs, editable, onMenu, menuOpen }: { mode: DeckM
       </span>
       <span className="label mtg__name">{t('features.meeting.label')}</span>
       <span className="mtg__rule" aria-hidden />
-      <span className="mtg__readout" role="status" data-state={state[mode]}>
+      <span className="mtg__readout" data-state={state[mode]}>
         <span className={`mtg__led is-${led}`} aria-hidden />
-        <span className="label">{t(`features.meeting.state.${state[mode]}`)}</span>
+        {/* only the state word is announced — the ticking clock would never stop talking */}
+        <span className="label" role="status">
+          {t(`features.meeting.state.${state[mode]}`)}
+        </span>
         {showClock && <span className="mtg__clock mono">{clock(elapsed)}</span>}
       </span>
       {attrs.language && <span className="label mtg__lang">{attrs.language}</span>}

@@ -146,8 +146,13 @@ export function seedWorkspace(lang: Lang): void {
         questions: {
           [P.name]: { required: true, help: L('A short, specific name.', 'Ein kurzer, konkreter Name.') },
           [P.status]: { required: true },
+          [P.prio]: { display: 'list' as const },
           [P.due]: { help: L('When should it start?', 'Wann soll es losgehen?') },
+          // conditional logic: the budget question only appears for high-priority pitches
+          [P.budget]: { help: L('Only asked for high-priority pitches.', 'Nur bei hoher Priorität gefragt.'), showIf: { op: 'and' as const, conditions: [{ q: P.prio, op: 'is' as const, value: prioOpts[0].id }] } },
         },
+        // a second page for the planning questions
+        pages: [{ id: newId(), before: P.due, title: L('Timing & budget', 'Zeitplan & Budget') }],
       },
     }
     s.updateDatabase(projects, {
