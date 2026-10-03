@@ -205,42 +205,86 @@ test.describe('workflows', () => {
 
   test('the welcome page documents the same shortcuts the app binds', async ({ page }) => {
     await openApp(page)
-    // the real binding (shortcuts sheet / palette): New page = Ctrl+Alt+N (Ctrl+N belongs to the browser)
+    // the real binding, as shown by the shortcuts sheet: New page = Ctrl+Alt+N (Ctrl+N belongs to the browser)
     await page.keyboard.press(`${MOD}+/`)
     const sheet = page.getByRole('dialog')
-    const row = sheet.locator('*', { hasText: /^New page$/ }).last().locator('xpath=ancestor::*[self::li or self::tr or self::div][1]')
-    await expect(row).toContainText(/Alt/)
+    await expect(sheet).toContainText('New page')
+    const sheetText = (await sheet.innerText()).replace(/\s+/g, ' ')
+    expect(sheetText).toMatch(/New page (Ctrl ?\+? ?Alt ?\+? ?N|⌘ ?⌥ ?N)/i)
     await page.keyboard.press('Escape')
-    const welcome = page.locator('#main .ProseMirror')
-    const table = welcome.locator('table').filter({ hasText: 'New page' })
-    await welcome.getByText('Keyboard shortcuts').first().click()
-    const newPageRow = table.locator('tr', { hasText: 'New page' })
+
+    // the welcome page's "Keyboard shortcuts" toggle
+    const toggle = page.locator('#main .ProseMirror [data-type="details"]', { hasText: 'Keyboard shortcuts' })
+    await toggle.getByRole('button', { name: 'Expand toggle' }).click()
+    const newPageRow = toggle.locator('tr', { hasText: 'New page' })
     await expect(newPageRow).toBeVisible()
     await expect(newPageRow, 'welcome page teaches the New page shortcut').toContainText(/Ctrl\+Alt\+N|⌘⌥N/)
   })
 
-  test('two tabs stay in sync (local-first, BroadcastChannel)', async ({ page, context, errors }) => {
+  test('two tabs: edits sync both ways without a reload', async ({ page, context, errors }) => {
     await openApp(page)
-    const id = await createPage(page, { title: 'Synced page', content: doc(para('tab A wrote this')) })
+    const id = await createPage(page, { title: 'Synced page', content: doc(para('base')) })
+    await gotoPage(page, id)
     const tabB = await context.newPage()
     errors.watch(tabB)
     await tabB.goto(`app/?e2e#/p/${id}`)
     await tabB.waitForFunction(() => !!(window as unknown as { __one?: unknown }).__one)
-    await expect(tabB.locator(`.ProseMirror[data-page-id="${id}"]`)).toContainText('tab A wrote this')
-
-    // edit in A → shows up in B without reload
-    await gotoPage(page, id)
     const edA = page.locator(`.ProseMirror[data-page-id="${id}"]`)
+    const edB = tabB.locator(`.ProseMirror[data-page-id="${id}"]`)
+    await expect(edB).toContainText('base')
+    // both tabs settled (mount writes saved and broadcast)
+    await page.waitForTimeout(1500)
+
+    // A types → B follows
     await edA.locator('p').first().click()
     await page.keyboard.press('End')
-    await page.keyboard.type(' + more from A')
-    await expect(tabB.locator(`.ProseMirror[data-page-id="${id}"]`)).toContainText('tab A wrote this + more from A', { timeout: 10_000 })
+    await page.keyboard.type(' +A')
+    await expect(edB).toHaveText('base +A', { timeout: 10_000 })
+    await page.waitForTimeout(1000)
 
-    // rename in B → sidebar of A follows
+    // B types → A follows
+    await edB.locator('p').first().click()
+    await tabB.keyboard.press('End')
+    await tabB.keyboard.type(' +B')
+    await expect(edA).toHaveText('base +A +B', { timeout: 10_000 })
+
+    // rename in B → the sidebar in A follows
     await tabB.locator('#main .pv-title').fill('Synced page (renamed in B)')
     await expect(page.locator('.sb .sb-row__title', { hasText: 'Synced page (renamed in B)' }).first()).toBeVisible({ timeout: 10_000 })
-    // and A's text survived B's write
-    await expect(edA).toContainText('+ more from A')
+    await tabB.close()
+  })
+
+  test('two tabs: near-simultaneous edits never leave a tab showing unsaved text', async ({ page, context, errors }) => {
+    await openApp(page)
+    const id = await createPage(page, { title: 'Race page', content: doc(para('base')) })
+    await gotoPage(page, id)
+    const tabB = await context.newPage()
+    errors.watch(tabB)
+    await tabB.goto(`app/?e2e#/p/${id}`)
+    await tabB.waitForFunction(() => !!(window as unknown as { __one?: unknown }).__one)
+    const edA = page.locator(`.ProseMirror[data-page-id="${id}"]`)
+    const edB = tabB.locator(`.ProseMirror[data-page-id="${id}"]`)
+    await expect(edB).toContainText('base')
+    await page.waitForTimeout(1500)
+
+    // both people type into the same page at about the same time
+    await edA.locator('p').first().click()
+    await edB.locator('p').first().click()
+    await page.keyboard.press('End')
+    await tabB.keyboard.press('End')
+    await page.keyboard.type(' +A')
+    await tabB.keyboard.type(' +B')
+    await page.waitForTimeout(3000)
+
+    // whatever the merge policy, each tab must show what is actually stored …
+    const shownA = await edA.innerText()
+    const shownB = await edB.innerText()
+    const storedA = await wsEval(page, (s, id) => s.pages[id].plain, id)
+    const storedB = await tabB.evaluate((id) => (window as unknown as { __one: { workspace: { getState: () => { pages: Record<string, { plain: string }> } } } }).__one.workspace.getState().pages[id].plain, id)
+    expect(shownA.trim(), 'tab A editor vs tab A store').toBe(storedA)
+    expect(shownB.trim(), 'tab B editor vs tab B store').toBe(storedB)
+    // … and both tabs converge on the same content
+    expect(storedA).toBe(storedB)
     await tabB.close()
   })
 })
