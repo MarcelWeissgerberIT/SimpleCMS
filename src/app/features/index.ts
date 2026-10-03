@@ -11,7 +11,7 @@
  *
  *  Views / modals (rendered by the shell):
  *   - GraphView (route #/graph), SharedPageView (route #/s/…), Presentation (overlay)
- *   - HistoryModal, ShareModal, ImportModal, ExportModal, AutomationsModal, TemplatesModal
+ *   - HistoryModal, ShareModal, ImportModal, ExportModal, AutomationsModal, TemplatesModal, SaveTemplateModal
  *   - openTodayJournal()
  */
 export { startHistory, seedDemoHistory } from './history/snapshots'
@@ -61,6 +61,15 @@ export { planCsvIntake, csvIntakeRows, CSV_INTAKE_MAX_ROWS, type CsvIntakePlan, 
 export { ExportModal } from './io/ExportModal'
 export { Presentation } from './present/Presentation'
 export { TemplatesModal } from './templates/TemplatesModal'
+/*
+ * Own templates (Page.template — a template is a hidden page subtree, see templates/own.ts):
+ *  - SaveTemplateModal (modal 'saveTemplate': "Save as template…" in the page menu)
+ *  - TemplateBanner: the "TEMPLATE · <name>" plate on every page of a template (PageView renders it;
+ *    nothing on other pages) · templateRoots(pages) / templateName(page): for lists (palette)
+ */
+export { SaveTemplateModal } from './templates/SaveTemplateModal'
+export { TemplateBanner } from './templates/TemplateBanner'
+export { templateRoots, templateName } from './templates/own'
 export { openTodayJournal, journalEntryFor } from './journal/journal'
 /*
  * Recurring database templates (template.repeat):

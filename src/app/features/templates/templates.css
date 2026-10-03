@@ -623,3 +623,245 @@
     scroll-margin-top: 8px;
   }
 }
+
+/* ---------- save as template (dialog) ---------- */
+.tpl-form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.tpl-form__field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.tpl-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.tpl-form__spec {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px dashed var(--rule-strong);
+  border-radius: var(--radius-1);
+}
+
+.tpl-form__count {
+  font-size: var(--text-2xs);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink);
+}
+
+.tpl-form__private {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.tpl-form__privtext {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: var(--text-sm);
+  font-weight: 550;
+}
+
+.tpl-form__privtext .faint {
+  font-size: var(--text-xs);
+  font-weight: 400;
+}
+
+.tpl-form__note {
+  margin: 0;
+  font-size: var(--text-xs);
+  line-height: 1.5;
+}
+
+.tpl-form__foot {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding-top: 12px;
+  border-top: 1px solid var(--rule);
+}
+
+/* ---------- template banner (on every page of a template) ---------- */
+.tplb {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  background: var(--surface);
+  border-bottom: 1.5px solid var(--ink);
+}
+
+.tplb__bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 42px;
+  padding: 6px 12px 6px 0;
+}
+
+.tplb__tag {
+  display: grid;
+  place-items: center;
+  align-self: stretch;
+  flex: none;
+  width: 40px;
+  margin: -6px 4px -6px 0;
+  background: var(--signal);
+  color: var(--on-signal);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+}
+
+.tplb__text {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.tplb__kind {
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  font-weight: 600;
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  color: var(--signal-ink);
+}
+
+.tplb__sep {
+  color: var(--ink-3);
+}
+
+.tplb__name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: var(--text-sm);
+  font-weight: 650;
+}
+
+.tplb__sub {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: var(--text-sm);
+  color: var(--ink-2);
+}
+
+.tplb__lock {
+  flex: none;
+  align-self: center;
+  color: var(--ink-3);
+}
+
+.tplb__chev {
+  transition: transform var(--dur-1) var(--ease-out);
+}
+
+.tplb__toggle[aria-expanded='true'] .tplb__chev {
+  transform: rotate(180deg);
+}
+
+.tplb__short {
+  display: none;
+}
+
+.tplb__details {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 12px 16px;
+  padding: 12px 16px 14px 44px;
+  border-top: 1px solid var(--rule);
+  background: var(--surface-2);
+}
+
+.tplb__field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+}
+
+.tplb__field--wide {
+  grid-column: 1 / -1;
+}
+
+.tplb__icon {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius-1);
+  background: var(--surface);
+}
+
+.tplb__icon:hover {
+  border-color: var(--ink-3);
+}
+
+.tplb__vars {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  grid-column: 1 / -1;
+  gap: 6px;
+  margin: 0;
+  font-size: var(--text-xs);
+}
+
+.tplb__var {
+  padding: 1px 5px;
+  border: 1px solid var(--rule-strong);
+  border-radius: 2px;
+  background: var(--surface);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--ink-2);
+}
+
+@media (max-width: 560px) {
+  .tplb__bar {
+    padding-right: 8px;
+    gap: 6px;
+  }
+  .tplb__kind,
+  .tplb__sep,
+  .tplb__sub {
+    display: none;
+  }
+  .tplb__long {
+    display: none;
+  }
+  .tplb__short {
+    display: inline;
+  }
+  .tplb__details {
+    padding-left: 12px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tplb__chev,
+  .tpl-card__art img {
+    transition: none;
+  }
+}
