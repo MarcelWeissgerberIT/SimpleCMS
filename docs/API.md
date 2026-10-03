@@ -9,6 +9,8 @@ the other half of One's *outgoing* webhooks (database automations, button blocks
 - Everything the API writes reaches everybody who has the workspace open **live** — the server writes
   into the workspace's Yjs documents exactly like the app does (see *How writes work* below).
 - Base URL: `https://<your server>/api/v1` — e.g. `https://cloud.example.com/api/v1`.
+- AI agents: the same tokens open the server's **remote MCP endpoint** (`https://<your server>/mcp`) for Claude
+  Code, Claude Desktop and other MCP clients — see [`MCP.md`](MCP.md#team-server).
 
 Contents: [Tokens](#tokens) · [Conventions](#conventions) · [Endpoints](#endpoints) ·
 [Values](#property-values) · [Content](#content-markdown-lite) · [Idempotency](#idempotency) ·

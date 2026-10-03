@@ -26,6 +26,8 @@ import { searchRows, testGroup } from './model/query'
 import { useUI } from '../store/ui'
 import type { PopoverAnchor } from '../ui/Popover'
 import { AutofillHost } from './autofill'
+import { CreatePropertyHost } from './create/CreatePropertyDialog'
+import { CsvIntakeHost } from './create/CsvIntake'
 import { TurnOffHost } from './toolbar/StructurePanels'
 import { useDbReadOnly } from './readonly'
 import { resetSessionQuery, setViewQuery, useSessionOverlay, withOverlay } from './model/lock'
@@ -258,6 +260,8 @@ function DatabaseBody({
           {ctx && <RowContextMenu row={ctx.row} anchor={ctx.anchor} onClose={() => setCtx(null)} />}
           <AutofillHost />
           <TurnOffHost />
+          <CreatePropertyHost />
+          <CsvIntakeHost />
         </section>
       </ViewActionsContext.Provider>
     </DbModelContext.Provider>

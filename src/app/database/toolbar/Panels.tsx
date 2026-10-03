@@ -5,16 +5,18 @@ import { useState } from 'react'
 import { DndContext, KeyboardSensor, PointerSensor, closestCenter, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core'
 import { SortableContext, arrayMove, sortableKeyboardCoordinates, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { Eye, EyeOff, Plus, Trash, X } from 'lucide-react'
-import type { ID, PropertyType, Sort } from '../../store/types'
+import type { ID, PropertyDef, PropertyType, Sort } from '../../store/types'
 import { useWorkspace } from '../../store/store'
 import { Popover } from '../../ui/Popover'
 import { useT } from '../../i18n'
 import { Menu, Segmented, Select, SortableRow, TypeIcon, typeEntries } from '../parts'
 import { BOARD_GROUP_TYPES, TABLE_GROUP_TYPES } from '../model/schema'
+import { currentQuery } from '../model/lock'
 import { insertProperty } from '../model/actions'
 import type { DbModel } from '../hooks'
 import { setViewQuery } from '../model/lock'
 import { SessionNote } from './Lock'
+import { usePropertyCreate } from '../create/entry'
 
 function useSortSensors() {
   return useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 3 } }), useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }))
@@ -26,8 +28,14 @@ export function SortPanel({ m, anchor, onClose }: { m: DbModel; anchor: Element;
   const t = useT()
   const sensors = useSortSensors()
   const [addAnchor, setAddAnchor] = useState<HTMLElement | null>(null)
+  const createEntry = usePropertyCreate(m.db, { beforeDialog: onClose })
   const sorts = m.view.sorts
   const save = (next: Sort[]) => setViewQuery(m.db.id, m.view.id, { sorts: next })
+  // a property created from the picker: sorted by it (onto the sorts as they are by then)
+  const sortBy = (p: PropertyDef, replace?: ID) => {
+    const cur = currentQuery(m.db.id, m.view.id).sorts
+    save(replace ? cur.map((x) => (x.propertyId === replace ? { ...x, propertyId: p.id } : x)) : [...cur, { propertyId: p.id, direction: 'asc' }])
+  }
   const ids = sorts.map((s) => s.propertyId)
   const onDragEnd = (e: DragEndEvent) => {
     if (!e.over || e.active.id === e.over.id) return
@@ -50,6 +58,7 @@ export function SortPanel({ m, anchor, onClose }: { m: DbModel; anchor: Element;
                 searchable
                 items={m.db.properties.filter((p) => p.id === s.propertyId || !ids.includes(p.id)).map((p) => ({ value: p.id, label: p.name, icon: <TypeIcon type={p.type} /> }))}
                 onChange={(id) => save(sorts.map((x, j) => (j === i ? { ...x, propertyId: id } : x)))}
+                create={(q) => createEntry(q, (p) => sortBy(p, s.propertyId))}
               />
               <Segmented
                 value={s.direction}
@@ -67,7 +76,7 @@ export function SortPanel({ m, anchor, onClose }: { m: DbModel; anchor: Element;
         </SortableContext>
       </DndContext>
       <div className="db-panel__actions">
-        <button type="button" className="btn btn--ghost btn--sm" disabled={!available.length} onClick={(e) => setAddAnchor(e.currentTarget)}>
+        <button type="button" className="btn btn--ghost btn--sm" disabled={!available.length && m.fixed} onClick={(e) => setAddAnchor(e.currentTarget)}>
           <Plus size={13} /> {t('database.sort.add')}
         </button>
         {sorts.length > 0 && (
@@ -82,6 +91,7 @@ export function SortPanel({ m, anchor, onClose }: { m: DbModel; anchor: Element;
         onClose={() => setAddAnchor(null)}
         searchable
         entries={available.map((p) => ({ label: p.name, icon: <TypeIcon type={p.type} />, onSelect: () => save([...sorts, { propertyId: p.id, direction: 'asc' }]) }))}
+        create={(q) => createEntry(q, (p) => sortBy(p))}
       />
     </Popover>
   )
@@ -94,6 +104,7 @@ export function GroupPanel({ m, anchor, onClose }: { m: DbModel; anchor: Element
   const view = m.view
   const types: PropertyType[] = view.type === 'board' ? BOARD_GROUP_TYPES : TABLE_GROUP_TYPES
   const candidates = m.db.properties.filter((p) => types.includes(p.type))
+  const createEntry = usePropertyCreate(m.db, { types, beforeDialog: onClose })
   const upd = (patch: Parameters<ReturnType<typeof useWorkspace.getState>['updateView']>[2]) => useWorkspace.getState().updateView(m.db.id, view.id, patch)
   const hidden = new Set(view.hiddenGroups ?? [])
   const toggle = (key: string) => {
@@ -116,6 +127,7 @@ export function GroupPanel({ m, anchor, onClose }: { m: DbModel; anchor: Element
             ...candidates.map((p) => ({ value: p.id, label: p.name, icon: <TypeIcon type={p.type} /> })),
           ]}
           onChange={(v) => upd({ groupBy: v === '__none' ? null : v, hiddenGroups: [] })}
+          create={(q) => createEntry(q, (p) => upd({ groupBy: p.id, hiddenGroups: [] }))}
         />
       </div>
       {m.groups && (
@@ -143,6 +155,7 @@ export function PropertiesPanel({ m, anchor, onClose, onCreated }: { m: DbModel;
   const sensors = useSortSensors()
   const [q, setQ] = useState('')
   const [typeAnchor, setTypeAnchor] = useState<HTMLElement | null>(null)
+  const createEntry = usePropertyCreate(m.db, { beforeDialog: onClose })
   const view = m.view
   const visible = view.visibleProperties.filter((id) => m.propMap.get(id) && m.propMap.get(id)!.type !== 'title')
   const hiddenProps = m.db.properties.filter((p) => p.type !== 'title' && !visible.includes(p.id))
@@ -227,6 +240,7 @@ export function PropertiesPanel({ m, anchor, onClose, onCreated }: { m: DbModel;
         anchor={typeAnchor}
         onClose={() => setTypeAnchor(null)}
         searchable
+        create={(q) => createEntry(q, (p) => onCreated?.(p.id))}
         entries={typeEntries(t, (type) => {
           const id = insertProperty(m.db, m.view, { type, name: t(`database.type.${type}`) })
           onCreated?.(id)

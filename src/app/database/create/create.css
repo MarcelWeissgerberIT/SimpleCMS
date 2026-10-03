@@ -339,3 +339,32 @@
     animation: none;
   }
 }
+
+/* ---------- formula editor: create the property a prop("…") names ---------- */
+.db-fx__create {
+  margin-left: 8px;
+  vertical-align: middle;
+}
+
+.db-fx__refitem--create {
+  margin-bottom: 4px;
+  font-weight: 550;
+}
+
+.dbc__typeplate {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  width: 150px;
+  height: 28px;
+  padding: 0 8px;
+  border: 1px dashed var(--rule-strong);
+  border-radius: var(--radius-1);
+  color: var(--ink-2);
+  font-size: 12.5px;
+}
+
+.dbc__typeplate[data-off] {
+  opacity: 0.55;
+}

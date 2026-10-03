@@ -1,0 +1,587 @@
+/* ================= § 03 Agents · MCP (Carbon): the agent port ================= */
+/* Drawing primitives (.pv-*) and the gridded .schematic sheet come from § 06 (sections.css). */
+
+/* ---------- hero badge: MCP-ready ---------- */
+.hero-mcp {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  max-width: 100%;
+  padding: 8px 12px;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius-1);
+  color: var(--ink);
+  font-size: 13.5px;
+  font-weight: 600;
+  line-height: 1.3;
+  text-decoration: none;
+  transition:
+    border-color var(--dur-2) var(--ease-out),
+    background-color var(--dur-2) var(--ease-out);
+}
+.hero-mcp:hover {
+  border-color: var(--signal);
+  background: var(--signal-wash);
+}
+.hero-mcp:active {
+  transform: translateY(1px);
+}
+.hero-mcp-tag {
+  color: var(--signal-ink);
+}
+.hero-mcp .arr {
+  color: var(--ink-2);
+  transition: transform var(--dur-2) var(--ease-out);
+}
+.hero-mcp:hover .arr {
+  transform: translateY(2px);
+}
+
+/* ---------- section ---------- */
+.sec-mcp .sec-rule {
+  background: var(--ink);
+}
+
+/* Spec strip under the head: four read-outs on hairlines. */
+.mcp-spec {
+  display: grid;
+  grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.7fr) minmax(0, 0.7fr) minmax(0, 1fr);
+  margin: 0 0 clamp(24px, 3vw, 40px);
+  border-top: 1px solid var(--rule-strong);
+  border-bottom: 1px solid var(--rule-strong);
+}
+.mcp-spec > div {
+  min-width: 0;
+  padding: 12px 16px 14px;
+  border-left: 1px solid var(--rule);
+}
+.mcp-spec > div:first-child {
+  padding-left: 0;
+  border-left: 0;
+}
+.mcp-spec dt {
+  margin: 0;
+}
+.mcp-spec dd {
+  margin: 6px 0 0;
+  font-size: clamp(17px, 1.7vw, 24px);
+  font-weight: 750;
+  font-stretch: 118%;
+  letter-spacing: -0.01em;
+  line-height: 1.15;
+  color: var(--ink);
+}
+.mcp-spec > div:last-child dd {
+  color: var(--signal-ink);
+}
+
+/* ---------- schematic: parts of its own ---------- */
+.mcp-box {
+  fill: var(--surface-3);
+  stroke: var(--ink-2);
+  stroke-width: 1.5;
+}
+.mcp-module {
+  fill: var(--surface);
+  stroke: var(--signal);
+  stroke-width: 1.5;
+}
+.mcp-jack {
+  fill: var(--bg);
+  stroke: var(--signal);
+  stroke-width: 1.5;
+}
+.mcp-cap {
+  fill: var(--bg);
+  stroke: var(--ink-2);
+  stroke-width: 1.2;
+}
+.mcp-cap-t {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 700;
+  fill: var(--signal-ink);
+}
+.pv-t.mcp-mono {
+  font-family: var(--font-mono);
+  font-size: 18px;
+}
+.pv-t.mcp-what {
+  font-size: 17px;
+}
+.pv-m.mcp-small {
+  font-size: 10.5px;
+  letter-spacing: 0.04em;
+}
+.mcp-card-box {
+  fill: none;
+  stroke: var(--ink-inverse);
+  stroke-opacity: 0.32;
+  stroke-width: 1.2;
+}
+.mcp-key-off {
+  fill: none;
+  stroke: var(--ink-inverse);
+  stroke-width: 1.2;
+}
+.mcp-key-on {
+  fill: var(--signal);
+}
+.pv-m.mcp-key-t,
+.pv-m.mcp-key-on-t {
+  font-weight: 700;
+}
+.mcp-key-on-t {
+  fill: var(--sig-ink);
+}
+.mcp-led-ok {
+  fill: var(--led-ok);
+}
+.pv-m.mcp-gate-t {
+  font-weight: 700;
+}
+.mcp-gate-plate {
+  fill: var(--ink);
+  stroke: var(--ink-inverse);
+  stroke-width: 1.2;
+}
+.mcp-hatch {
+  stroke: var(--ink-inverse);
+  stroke-opacity: 0.2;
+  stroke-width: 1.5;
+}
+.mcp-sheet {
+  fill: var(--surface-3);
+  stroke: var(--ink-2);
+  stroke-width: 1.2;
+}
+.mcp-sheet-front {
+  fill: var(--surface);
+}
+.pv-tall .pv-t {
+  font-size: 18px;
+}
+.pv-tall .pv-t.mcp-what {
+  font-size: 16.5px;
+}
+
+/* The approval gate shows the selected mode. */
+.mcp-gate {
+  display: none;
+}
+.sec-mcp[data-mode='ask'] .mcp-gate-ask,
+.sec-mcp[data-mode='apply'] .mcp-gate-apply,
+.sec-mcp[data-mode='read'] .mcp-gate-read {
+  display: inline;
+}
+
+/* ---------- deck: modes + tool table | setup ---------- */
+.mcp-deck {
+  display: grid;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  column-gap: var(--col-gap);
+  row-gap: 36px;
+  margin-top: clamp(32px, 4vw, 56px);
+  align-items: start;
+}
+.mcp-left {
+  grid-column: 1 / span 5;
+  display: grid;
+  gap: clamp(24px, 2.6vw, 36px);
+  min-width: 0;
+}
+.mcp-setup {
+  grid-column: 7 / span 6;
+  min-width: 0;
+}
+
+/* Mode selector: three physical keys, one lit. */
+.mcp-modes {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+}
+.mcp-modes legend {
+  padding: 0;
+  margin-bottom: 12px;
+}
+.mcp-mode-row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 3px;
+  padding: 3px;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius-1);
+  background: var(--surface-2);
+}
+.mcp-mode {
+  position: relative;
+  display: block;
+  min-width: 0;
+}
+.mcp-mode input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+.mcp-mode-key {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 42px;
+  padding: 6px 10px;
+  border-radius: var(--radius-1);
+  font-size: 13.5px;
+  font-weight: 650;
+  font-stretch: 112%;
+  line-height: 1.2;
+  text-align: center;
+  color: var(--ink-2);
+  pointer-events: none;
+  transition:
+    background-color var(--dur-2) var(--ease-out),
+    color var(--dur-2) var(--ease-out),
+    transform var(--dur-1) var(--ease-out);
+}
+.mcp-mode input:hover + .mcp-mode-key {
+  color: var(--ink);
+  background: var(--hover);
+}
+.mcp-mode input:active + .mcp-mode-key {
+  transform: translateY(1px);
+}
+.mcp-mode input:checked + .mcp-mode-key {
+  background: var(--ink);
+  color: var(--bg);
+  box-shadow: inset 0 -2px 0 rgba(0, 0, 0, 0.3);
+}
+.mcp-mode input:focus-visible + .mcp-mode-key {
+  outline: 2px solid var(--signal);
+  outline-offset: 2px;
+}
+.mcp-mode-led {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: var(--radius-led);
+  background: var(--led-off);
+}
+.mcp-mode input:checked + .mcp-mode-key .mcp-mode-led {
+  background: var(--signal);
+  box-shadow: 0 0 0 2px var(--signal-wash);
+}
+.mcp-mode-note {
+  margin: 12px 0 0;
+  min-height: 3em;
+  font-size: 15px;
+  line-height: 1.5;
+  color: var(--ink-2);
+}
+
+/* Tool table: a riveted spec plate. */
+.mcp-tools {
+  padding: 18px 20px 6px;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius-2);
+  background: var(--surface);
+}
+.mcp-tools-head,
+.mcp-setup-head {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 6px 16px;
+  padding-bottom: 12px;
+  border-bottom: 2px solid var(--ink);
+}
+.mcp-tools-head h3,
+.mcp-setup-head h3 {
+  margin: 0;
+  color: var(--ink);
+}
+.mcp-setup-head p,
+.mcp-legend {
+  margin: 0;
+}
+.mcp-legend {
+  display: flex;
+  gap: 14px;
+}
+.mcp-legend > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+.mcp-tool-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.mcp-tool {
+  display: grid;
+  grid-template-columns: 9px 156px minmax(0, 1fr);
+  align-items: baseline;
+  column-gap: 12px;
+  padding: 9px 0;
+  border-bottom: 1px solid var(--rule);
+  transition: opacity var(--dur-3) var(--ease-out);
+}
+.mcp-tool:last-child {
+  border-bottom: 0;
+}
+.mcp-tool code {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+.mcp-tool-t {
+  font-size: 13.5px;
+  line-height: 1.4;
+  color: var(--ink-2);
+}
+.mcp-led {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  flex: none;
+  border: 1.5px solid var(--ink-3);
+  border-radius: var(--radius-led);
+  transition:
+    background-color var(--dur-3) var(--ease-out),
+    border-color var(--dur-3) var(--ease-out),
+    box-shadow var(--dur-3) var(--ease-out);
+}
+.mcp-tool .mcp-led {
+  align-self: center;
+}
+.is-w > .mcp-led {
+  border-color: var(--signal);
+  background: var(--signal);
+  box-shadow: 0 0 0 2px var(--signal-wash);
+}
+.sec-mcp[data-mode='read'] .mcp-tool.is-w {
+  opacity: 0.42;
+}
+.sec-mcp[data-mode='read'] .mcp-tool.is-w .mcp-led {
+  border-color: var(--led-off);
+  background: var(--led-off);
+  box-shadow: none;
+}
+
+/* Setup: numbered steps with copyable snippets. */
+.mcp-steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.mcp-steps > li {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr);
+  padding: 20px 0;
+  border-bottom: 1px solid var(--rule-strong);
+}
+.mcp-n {
+  font-size: 26px;
+  line-height: 1;
+  color: var(--signal-ink);
+}
+.mcp-step {
+  min-width: 0;
+}
+.mcp-step > p {
+  margin: 0 0 14px;
+  font-size: 16px;
+  font-weight: 550;
+  line-height: 1.45;
+}
+.mcp-step > p:last-child {
+  margin-bottom: 0;
+}
+.mcp-code {
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius-2);
+  background: var(--surface-2);
+  overflow: hidden;
+}
+.mcp-hint + .mcp-code {
+  margin-top: 16px;
+}
+.mcp-code-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 5px 5px 5px 14px;
+  border-bottom: 1px solid var(--rule);
+}
+.mcp-code-head .lbl {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mcp-copy {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 76px;
+  height: 30px;
+  padding: 0 10px;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius-1);
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  font-weight: 600;
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  cursor: pointer;
+  transition:
+    background-color var(--dur-2) var(--ease-out),
+    border-color var(--dur-2) var(--ease-out),
+    color var(--dur-2) var(--ease-out),
+    transform var(--dur-1) var(--ease-out);
+}
+.mcp-copy:hover {
+  border-color: var(--ink-3);
+}
+.mcp-copy:active {
+  transform: translateY(1px);
+}
+.mcp-copy[data-state='copied'] {
+  border-color: var(--signal);
+  background: var(--signal);
+  color: var(--sig-ink);
+}
+.mcp-code pre {
+  margin: 0;
+  padding: 14px;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  line-height: 1.65;
+  color: var(--ink);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  tab-size: 2;
+}
+.mcp-code pre:focus-visible {
+  outline: 2px solid var(--signal);
+  outline-offset: -2px;
+}
+.mcp-code code {
+  font: inherit;
+}
+.mcp-code.is-sh .sh-line {
+  display: block;
+  padding-left: 2ch;
+  text-indent: -2ch;
+}
+.mcp-code.is-sh .sh-line::before {
+  content: '$ ';
+  color: var(--ink-faint);
+}
+.tk-k {
+  color: var(--ink);
+}
+.tk-s,
+.tk-c {
+  color: var(--signal-ink);
+}
+.tk-c {
+  font-weight: 600;
+}
+.tk-p {
+  color: var(--ink-3);
+}
+.tk-f {
+  color: var(--ink-2);
+}
+.mcp-hint {
+  margin: 10px 0 0;
+  font-size: 13.5px;
+  line-height: 1.45;
+  color: var(--ink-3);
+}
+.mcp-team {
+  margin-top: 24px;
+}
+.mcp-guide {
+  display: inline-flex;
+  gap: 8px;
+  margin-top: 22px;
+  padding: 6px 0;
+  color: var(--signal-ink);
+  text-decoration: none;
+}
+.mcp-guide:hover {
+  text-decoration: underline;
+  text-underline-offset: 4px;
+}
+
+/* ---------- responsive ---------- */
+@media (max-width: 1180px) {
+  .mcp-left {
+    grid-column: 1 / span 6;
+  }
+  .mcp-setup {
+    grid-column: 7 / span 6;
+  }
+}
+@media (max-width: 1000px) {
+  .mcp-left,
+  .mcp-setup {
+    grid-column: 1 / -1;
+  }
+  .mcp-spec {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .mcp-spec > div:nth-child(3) {
+    padding-left: 0;
+    border-left: 0;
+  }
+  .mcp-spec > div:nth-child(n + 3) {
+    border-top: 1px solid var(--rule);
+  }
+}
+@media (max-width: 600px) {
+  .mcp-mode-key {
+    flex-direction: column;
+    gap: 6px;
+    min-height: 54px;
+    padding: 8px 6px;
+    font-size: 12.5px;
+  }
+  .mcp-tools {
+    padding: 16px 14px 4px;
+  }
+  .mcp-tool {
+    grid-template-columns: 9px minmax(0, 1fr);
+    row-gap: 2px;
+  }
+  .mcp-tool-t {
+    grid-column: 2;
+  }
+  .mcp-steps > li {
+    grid-template-columns: 44px minmax(0, 1fr);
+  }
+  .mcp-n {
+    font-size: 22px;
+  }
+  .mcp-code pre {
+    padding: 12px;
+    font-size: 12px;
+  }
+}

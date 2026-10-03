@@ -123,3 +123,10 @@ export { ReminderSelect, DateReminderEditor, type DateReminderValue } from './in
  *  - openSyncSettings(): open Settings on the Sync tab · consumeSyncSettingsRequest(): SettingsModal asks on open
  */
 export { startSync, stopSync, openSyncSettings, consumeSyncSettingsRequest, useSync, SyncTab, SyncStatusCell } from './sync'
+/*
+ * One MCP, local bridge (Claude Desktop / Claude Code drive this tab through mcp/one-mcp.mjs):
+ *  - startMcp(): background service (start once from main.tsx after hydrate; idle until switched on)
+ *  - McpTab: Settings → Agents · MCP · McpStatusCell: status bar "AGENT" LED (renders nothing while unused)
+ *  - openMcpSettings(): open Settings on that tab · consumeMcpSettingsRequest(): SettingsModal asks on open
+ */
+export { startMcp, McpTab, McpStatusCell, openMcpSettings, consumeMcpSettingsRequest } from './mcp'

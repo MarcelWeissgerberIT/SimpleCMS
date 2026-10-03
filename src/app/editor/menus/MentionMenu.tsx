@@ -38,7 +38,7 @@ export function MentionMenu({ editor, bridge, pageId }: { editor: Editor; bridge
   // pages inside a trashed parent are gone with it on "Empty trash" — computed once per opening
   const live = useMemo(() => (open ? liveIds(useWorkspace.getState().pages) : null), [open])
 
-  const insert = (range: Range, attrs: { id: string; label: string; kind: 'page' | 'date' | 'person' }) =>
+  const insert = (range: Range, attrs: { id: string; label: string; kind: 'page' | 'date' | 'person' }) => {
     editor
       .chain()
       .focus()
@@ -47,6 +47,9 @@ export function MentionMenu({ editor, bridge, pageId }: { editor: Editor; bridge
         { type: 'text', text: ' ' },
       ])
       .run()
+    // database rows answer with "link as relation?" (database PAGE_MENTIONED)
+    if (attrs.kind === 'page') window.dispatchEvent(new CustomEvent('one:page-mentioned', { detail: { from: pageId, to: attrs.id } }))
+  }
 
   const rows = useMemo<Row[]>(() => {
     if (!open) return []

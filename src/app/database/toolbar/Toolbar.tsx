@@ -3,7 +3,7 @@
  * counter and the "New" split button.
  */
 import { useEffect, useRef, useState } from 'react'
-import { ArrowUpDown, CalendarArrowDown, Download, Ellipsis, Funnel, Group, LayoutTemplate, Link, ListTree, Lock, LockOpen, Maximize2, Paintbrush, Search, SlidersHorizontal, Waypoints, X, Zap } from 'lucide-react'
+import { ArrowUpDown, CalendarArrowDown, Download, Ellipsis, FileUp, Funnel, Group, LayoutTemplate, Link, ListTree, Lock, LockOpen, Maximize2, Paintbrush, Search, SlidersHorizontal, Waypoints, X, Zap } from 'lucide-react'
 import { useUI } from '../../store/ui'
 import { Menu, ViewOnlyTag } from '../parts'
 import type { MenuEntry } from '../../ui/Menu'
@@ -24,6 +24,7 @@ import { ColorRulesPanel } from './ColorRules'
 import { structureEntries } from './structureEntries'
 import { LockPlate } from './Lock'
 import { setDbLocked } from '../model/lock'
+import { importCsvInto } from '../create/CsvIntake'
 
 type PanelKind = 'filter' | 'sort' | 'group' | 'props' | 'layout' | 'more' | 'sub' | 'dep' | 'rc'
 
@@ -210,6 +211,7 @@ export function Toolbar({ m, onNew, setSearch, compact }: { m: DbModel; onNew: (
                 },
                 { kind: 'separator' },
               ] satisfies MenuEntry[])),
+          ...(ro ? [] : [{ label: t('database.csv.menu'), icon: <FileUp size={14} />, keywords: 'csv tsv import importieren', onSelect: () => importCsvInto(m.db.id) }]),
           { label: t('database.exportCsv'), icon: <Download size={14} />, onSelect: () => exportCsv(m.resolver, m.db, [m.titleProp, ...m.visibleProps], m.rows, m.dbPage.title || t('common.untitled')) },
           ...(canIcs ? [{ label: t('database.ics.export'), icon: <CalendarArrowDown size={14} />, hint: '.ICS', onSelect: () => exportIcs(m, t) }] : []),
           {

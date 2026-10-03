@@ -1,0 +1,277 @@
+/* ================================================================
+   Inline icons (schema/icon.ts, views/InlineIconView.ts) and the
+   emoji / icon pickers (icons/*.tsx)
+   ================================================================ */
+
+/* ---------- the inline atom: line-sized, on the baseline like a capital ---------- */
+.one-icon {
+  display: inline-block;
+  width: 1.15em;
+  height: 1.15em;
+  vertical-align: -0.22em;
+  line-height: 1;
+  border-radius: var(--radius-1);
+}
+.one-icon > svg,
+.one-icon > img {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+/* ceramic objects fill the box (the files carry ~8% air); a hairline keeps white ceramic legible */
+.one-icon--asset {
+  overflow: hidden;
+}
+.one-icon--asset > img {
+  object-fit: contain;
+  transform: scale(1.16);
+  filter: drop-shadow(0 0 0.5px color-mix(in srgb, var(--ink) 55%, transparent));
+  user-select: none;
+}
+:root[data-theme='dark'] .one-icon--asset > img {
+  filter: none;
+}
+.one-icon.is-unknown {
+  box-shadow: inset 0 0 0 1px var(--rule-strong);
+}
+.one-editor.is-editable .doc-content .one-icon {
+  cursor: pointer;
+}
+.one-editor.is-editable .doc-content .one-icon:hover {
+  background: var(--signal-wash);
+}
+
+/* ---------- picker popover ---------- */
+.ipk-pop.popover {
+  display: flex;
+  flex-direction: column;
+  width: 340px;
+  padding: 0;
+  overflow: hidden;
+}
+.ipk {
+  display: flex;
+  flex: 0 1 auto;
+  flex-direction: column;
+  min-height: 0;
+}
+.ipk__head {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  height: 36px;
+  padding: 0 6px 0 8px;
+  border-bottom: 1px solid var(--rule);
+  background: var(--surface-2);
+}
+.ipk__title {
+  padding-left: 2px;
+}
+.ipk__tabs {
+  display: flex;
+  align-self: stretch;
+  gap: 2px;
+}
+.ipk__tab {
+  margin-bottom: -1px;
+  padding: 0 8px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: none;
+  color: var(--ink-2);
+  font-size: var(--text-sm);
+  font-weight: 550;
+  transition: color var(--dur-1) var(--ease-out);
+}
+.ipk__tab:hover {
+  color: var(--ink);
+}
+.ipk__tab[aria-selected='true'] {
+  border-bottom-color: var(--signal);
+  color: var(--ink);
+}
+.ipk__count {
+  margin-left: auto;
+}
+.ipk__tone {
+  font-size: 15px;
+  line-height: 1;
+}
+.ipk__search {
+  flex: none;
+  padding: 8px 8px 6px;
+}
+.ipk__search .input[type='search']::-webkit-search-cancel-button {
+  display: none;
+}
+
+/* colour row (glyphs): square chips, the pressed one ringed in signal */
+.ipk__colors {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 3px;
+  padding: 0 8px 6px;
+}
+.ipk__colors .label {
+  margin-right: auto;
+}
+.ipk__swatch {
+  position: relative;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius-1);
+  background: var(--surface);
+}
+.ipk__swatch::after {
+  content: '';
+  position: absolute;
+  inset: 5px;
+  border-radius: 1px;
+  background: currentColor;
+}
+.ipk__swatch:hover {
+  border-color: var(--ink-3);
+}
+.ipk__swatch[aria-checked='true'] {
+  border-color: var(--signal);
+  box-shadow: inset 0 0 0 1px var(--signal);
+}
+.ipk__swatch:active {
+  transform: translateY(1px);
+}
+
+/* grid */
+.ipk__grid {
+  display: grid;
+  flex: 1 1 auto;
+  align-content: start;
+  gap: 2px;
+  height: 248px;
+  min-height: 0;
+  padding: 2px 8px 8px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  color: var(--ink);
+}
+.ipk__grid--asset {
+  grid-template-columns: repeat(6, 1fr);
+}
+.ipk__grid--lucide {
+  grid-template-columns: repeat(8, 1fr);
+}
+.ipk__cell {
+  display: grid;
+  place-items: center;
+  height: 36px;
+  border-radius: var(--radius-1);
+  cursor: pointer;
+}
+.ipk__grid--asset .ipk__cell {
+  height: 48px;
+}
+.ipk__cell img {
+  width: 34px;
+  height: 34px;
+  object-fit: contain;
+  user-select: none;
+}
+.ipk__cell[aria-selected='true'] {
+  background: var(--hover);
+  box-shadow: inset 0 0 0 1.5px var(--signal);
+}
+.ipk__cell:active {
+  transform: translateY(1px);
+}
+.ipk__msg {
+  grid-column: 1 / -1;
+  padding: 16px 2px;
+  color: var(--ink-3);
+  font-size: var(--text-sm);
+}
+
+/* spec strip: the active item, its file / shortcode, the key that inserts it */
+.ipk__foot {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+  height: 38px;
+  padding: 0 10px;
+  border-top: 1px solid var(--rule);
+  background: var(--surface-2);
+}
+.ipk__preview {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+}
+.ipk__preview img {
+  object-fit: contain;
+}
+.ipk__preview--emoji {
+  font-size: 19px;
+  line-height: 1;
+}
+.ipk__name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  font-weight: 550;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.ipk__code {
+  flex: none;
+  color: var(--ink-3);
+  font-size: var(--text-2xs);
+  letter-spacing: 0.04em;
+}
+
+/* ---------- emoji (frimousse) ---------- */
+.ipk--emoji {
+  height: 380px;
+  isolation: isolate;
+}
+.ipk-emoji__viewport {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  outline: none;
+}
+.ipk-emoji__list {
+  padding: 0 8px 8px;
+  user-select: none;
+}
+.ipk-emoji__category {
+  padding: 8px 2px 4px;
+  background: var(--surface);
+}
+.ipk-emoji__emoji {
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 36px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-1);
+  background: transparent;
+  font-size: 22px;
+  line-height: 1;
+}
+.ipk-emoji__emoji[data-active] {
+  background: var(--hover);
+  box-shadow: inset 0 0 0 1.5px var(--signal);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ipk__swatch:active,
+  .ipk__cell:active {
+    transform: none;
+  }
+}

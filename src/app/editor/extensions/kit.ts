@@ -13,6 +13,7 @@ import { commentsExtension } from '../comments/plugin'
 import { pasteExtension } from './paste'
 import { ButtonKeys } from '../schema/button'
 import { MediaKeys } from '../schema/media'
+import { IconKeys } from '../views/InlineIconView'
 import type { ContentDocHandle } from '../../cloud'
 import { collabExtensions } from '../collab'
 
@@ -54,6 +55,7 @@ export function editorExtensions({
     suggestExtension('emoji', ':', bridge, { shouldShow: emojiQuery }),
     ButtonKeys,
     MediaKeys,
+    IconKeys,
     commentsExtension(bridge),
     QuietStart,
     FileHandler.configure({
@@ -80,6 +82,7 @@ export function templateExtensions(bridge: Bridge): AnyExtension[] {
     pasteExtension(bridge),
     suggestExtension('slash', '/', bridge, { allowSpaces: true }),
     suggestExtension('emoji', ':', bridge, { shouldShow: emojiQuery }),
+    IconKeys,
     FileHandler.configure({
       onPaste: (editor, files) => void uploadFiles(editor, files),
       onDrop: (editor, files, pos) => void uploadFiles(editor, files, pos),

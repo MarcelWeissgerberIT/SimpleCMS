@@ -22,6 +22,7 @@ import { SyncedBlock } from './synced'
 import { MeetingNotes } from './meetingNotes'
 import { ToggleDetails, ToggleHeadingInput, ToggleSummary } from './toggle'
 import { Audio, Video } from './media'
+import { InlineIcon } from './icon'
 import {
   BlockImage,
   Bookmark,
@@ -164,6 +165,7 @@ export function baseExtensions({ readOnly = false, wrap = {}, headingOffset = 0,
     w('mermaid', Mermaid),
     w('pageLink', PageLink),
     w('mention', Mention),
+    w('icon', InlineIcon),
     w('databaseBlock', DatabaseBlock),
     w('bookmark', Bookmark),
     w('embed', Embed),

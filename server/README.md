@@ -7,6 +7,7 @@ cloud (in Germany) and your self-hosted instance.
 
 - **Contract** (REST API, document names, schema, security): [`docs/CLOUD.md`](../docs/CLOUD.md)
 - **Public API & incoming webhooks** (n8n, Make, Zapier, scripts): [`docs/API.md`](../docs/API.md)
+- **Remote MCP** for Claude Code, Claude Desktop and other MCP clients (same API tokens): [`docs/MCP.md`](../docs/MCP.md#team-server)
 - **Self-hosting guide** (VPS, DNS, SMTP, backups, updates): [`docs/SELF_HOSTING.md`](../docs/SELF_HOSTING.md)
 - **Licence:** AGPL-3.0 ([`LICENSE`](LICENSE)). The app in `src/` stays MIT.
 
@@ -15,12 +16,13 @@ https://cloud.example.com/          landing page   ┐
 https://cloud.example.com/app/      the app        ┘ static, from the app build (APP_DIR)
 https://cloud.example.com/api/*     REST (JSON, HttpOnly session cookie)
 https://cloud.example.com/api/v1/*  public API (bearer tokens) + incoming webhooks — docs/API.md
+https://cloud.example.com/mcp       remote MCP, Streamable HTTP (same bearer tokens) — docs/MCP.md
 wss://cloud.example.com/collab      Yjs sync (Hocuspocus 4), same cookie
 DATA_DIR                            one.sqlite (+ WAL) and files/<workspace>/<file>
 ```
 
 Stack: Node 22 · TypeScript bundled with esbuild · Hono on `@hono/node-server` · Hocuspocus 4 ·
-`node:sqlite` (no native modules) · nodemailer · zod.
+`node:sqlite` (no native modules) · nodemailer · zod · the MCP TypeScript SDK (remote MCP).
 
 ## Run it locally
 
@@ -124,12 +126,16 @@ POST   /api/v1/databases/:id/rows         write: { title?, properties?, content?
 GET    /api/v1/rows/:id    PATCH /api/v1/rows/:id (write: { title?, properties? })
 GET    /api/v1/pages/:id   POST  /api/v1/pages (write: { parentId?, title, content? })
 POST   /api/v1/hooks/<secret>             incoming webhook: JSON / form / text → a row (no headers needed)
+
+/mcp — Authorization: Bearer one_… (the same tokens), docs/MCP.md
+POST   /mcp                               MCP Streamable HTTP, stateless, JSON answers; read tokens get the read tools
 ```
 
 Try it (after creating a token in Settings → Team → API tokens):
 
 ```bash
 curl -s localhost:8080/api/v1/databases -H "Authorization: Bearer one_…"
+claude mcp add --transport http one http://localhost:8080/mcp --header "Authorization: Bearer one_…"
 ```
 
 ## Admin CLI

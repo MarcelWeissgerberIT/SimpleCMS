@@ -12,10 +12,11 @@ import type { FormPageBreak, PropertyDef } from '../../store/types'
 import { useWorkspace } from '../../store/store'
 import { useT } from '../../i18n'
 import { Switch } from '../../ui/controls'
-import { TypeIcon } from '../parts'
+import { Menu, TypeIcon } from '../parts'
+import { usePropertyCreate } from '../create/entry'
 import type { DbModel } from '../hooks'
 import { isDbLocked } from '../model/lock'
-import { formConfig, formProps, isValidHttpUrl, pageBreaksOf, questionOf, type Field } from './fields'
+import { FORM_TYPES, formConfig, formProps, isValidHttpUrl, pageBreaksOf, questionOf, type Field } from './fields'
 import { conditionIssue } from './logic'
 import { addBreak, patchForm, patchQuestion, setBreaks, useDraft } from './config'
 import { WebhookField } from './ShareForm'
@@ -148,6 +149,7 @@ export function FormBuilder({ m, fields, onShare, onResponses }: { m: DbModel; f
           </ol>
         </div>
         {shown.length === 0 && <p className="fb-empty label">{t('database.form.b.noneShown')}</p>}
+        {!m.fixed && <AddQuestion m={m} hidden={hidden} onShow={show} />}
 
         {hidden.length > 0 && (
           <div className="fb-hidden">
@@ -291,5 +293,33 @@ function Tracking({ m, onResponses }: { m: DbModel; onResponses: () => void }) {
         </button>
       )}
     </div>
+  )
+}
+
+/** "Add a question": a property that isn't asked yet, or a new one ("Create property “X”"). */
+function AddQuestion({ m, hidden, onShow }: { m: DbModel; hidden: PropertyDef[]; onShow: (p: PropertyDef) => void }) {
+  const t = useT()
+  const [anchor, setAnchor] = useState<HTMLElement | null>(null)
+  const createEntry = usePropertyCreate(m.db, { types: FORM_TYPES })
+  return (
+    <>
+      <button type="button" className="fb-hidden__add fb-addq" aria-haspopup="menu" aria-expanded={!!anchor} onClick={(e) => setAnchor(anchor ? null : e.currentTarget)}>
+        <Plus size={13} aria-hidden />
+        <span>{t('database.form.b.addQuestion')}</span>
+      </button>
+      <Menu
+        open={!!anchor}
+        anchor={anchor}
+        onClose={() => setAnchor(null)}
+        width={300}
+        searchable
+        searchPlaceholder={t('database.form.b.findQuestion')}
+        entries={[
+          ...(hidden.length ? [{ kind: 'section' as const, label: t('database.form.b.notAsked') }] : [{ kind: 'section' as const, label: t('database.form.b.typeToCreate') }]),
+          ...hidden.map((p) => ({ label: p.name || t('common.untitled'), icon: <TypeIcon type={p.type} />, onSelect: () => onShow(p) })),
+        ]}
+        create={(q) => createEntry(q, () => {})}
+      />
+    </>
   )
 }

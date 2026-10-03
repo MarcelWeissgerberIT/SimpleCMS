@@ -33,6 +33,8 @@ export interface PropertySuggestion {
   off?: boolean
   /** "map": start on this existing property. */
   mapTo?: ID
+  /** The type can't change (shown, not picked). */
+  fixedType?: boolean
 }
 
 /** What a field became: a property (created or existing) or nothing (skipped). */
@@ -81,7 +83,7 @@ export function CreatePropertiesDialog({ dbId, suggestions, mode = 'check', titl
     Object.fromEntries(
       suggestions.map((s) => [
         s.key,
-        { action: s.mapTo ? (`map:${s.mapTo}` as Action) : s.off || !canCreate ? 'skip' : 'create', name: s.name, type: allowed.includes(s.type) ? s.type : 'text' },
+        { action: s.mapTo ? (`map:${s.mapTo}` as Action) : s.off || !canCreate ? 'skip' : 'create', name: s.name, type: s.fixedType || allowed.includes(s.type) ? s.type : 'text' },
       ]),
     ),
   )
@@ -215,15 +217,22 @@ export function CreatePropertiesDialog({ dbId, suggestions, mode = 'check', titl
                         }
                       }}
                     />
-                    <Select
-                      value={r.type}
-                      className="dbc__type"
-                      disabled={!on}
-                      searchable
-                      ariaLabel={t('database.create.typeFor', { name: s.name })}
-                      items={allowed.map((x) => ({ value: x, label: t(`database.type.${x}`), icon: <TypeIcon type={x} /> }))}
-                      onChange={(v) => set(s.key, { type: v })}
-                    />
+                    {s.fixedType ? (
+                      <span className="dbc__typeplate" data-off={!on || undefined}>
+                        <TypeIcon type={r.type} size={13} />
+                        {t(`database.type.${r.type}`)}
+                      </span>
+                    ) : (
+                      <Select
+                        value={r.type}
+                        className="dbc__type"
+                        disabled={!on}
+                        searchable
+                        ariaLabel={t('database.create.typeFor', { name: s.name })}
+                        items={allowed.map((x) => ({ value: x, label: t(`database.type.${x}`), icon: <TypeIcon type={x} /> }))}
+                        onChange={(v) => set(s.key, { type: v })}
+                      />
+                    )}
                   </>
                 )}
               </span>

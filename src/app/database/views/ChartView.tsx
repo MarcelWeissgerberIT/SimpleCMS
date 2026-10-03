@@ -5,7 +5,7 @@
  */
 import { useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { ChartColumn, ChartLine, ChartPie } from 'lucide-react'
-import type { ChartConfig, ColorName, PropertyDef } from '../../store/types'
+import type { ChartConfig, ColorName, PropertyDef, PropertyType } from '../../store/types'
 import { useWorkspace } from '../../store/store'
 import { useT } from '../../i18n'
 import { useModel, useLabels } from '../hooks'
@@ -13,6 +13,7 @@ import { Segmented, Select, TypeIcon } from '../parts'
 import { NONE_KEY, groupRows } from '../model/query'
 import { axisFormatter, formatCount, formatNumber } from '../model/format'
 import { isNumberType } from '../model/schema'
+import { usePropertyCreate } from '../create/entry'
 import './chart.css'
 
 interface Datum {
@@ -26,6 +27,9 @@ const FALLBACK: string[] = ['var(--ink)', 'var(--signal)', 'var(--c-blue-text)',
 /** Hues that read as the same colour — never place both on one donut. */
 const SAME_HUE: Record<string, string> = { 'var(--signal)': 'var(--c-orange-text)', 'var(--c-orange-text)': 'var(--signal)', 'var(--c-red-text)': 'var(--signal)' }
 const MAX_SLICES = 6
+/** Types a new property for an axis may have: anything to group by (x) · numbers (y). */
+const CHART_X_TYPES: PropertyType[] = ['text', 'number', 'select', 'multi_select', 'status', 'date', 'person', 'checkbox', 'rating', 'url', 'email', 'phone', 'relation', 'formula', 'created_time', 'created_by', 'last_edited_time', 'last_edited_by', 'unique_id']
+const CHART_Y_TYPES: PropertyType[] = ['number', 'rating', 'formula']
 
 /** Axis maximum + tick step; integer data (counts) never gets fractional ticks. */
 function niceMax(v: number, integer = false): { max: number; step: number } {
@@ -51,6 +55,9 @@ export default function ChartView() {
   const yProp = cfg.yPropertyId ? m.propMap.get(cfg.yPropertyId) : undefined
   const numericProps = m.db.properties.filter((p) => isNumberType(p.type) || p.type === 'formula' || p.type === 'rollup')
   const groupable = m.db.properties.filter((p) => p.type !== 'title' && p.type !== 'files' && p.type !== 'rollup')
+  // axes can ask for a property that isn't there yet
+  const createX = usePropertyCreate(m.db, { types: CHART_X_TYPES })
+  const createY = usePropertyCreate(m.db, { types: CHART_Y_TYPES })
 
   const boxRef = useRef<HTMLDivElement>(null)
   const [w, setW] = useState(720)
@@ -115,6 +122,7 @@ export default function ChartView() {
           searchable
           items={groupable.map((p) => ({ value: p.id, label: p.name, icon: <TypeIcon type={p.type} /> }))}
           onChange={(v) => upd({ xPropertyId: v })}
+          create={m.fixed ? undefined : (q) => createX(q, (p) => upd({ xPropertyId: p.id }))}
           disabled={m.fixed}
         />
       </span>
@@ -132,6 +140,7 @@ export default function ChartView() {
             placeholder={t('database.rollup.pick')}
             items={numericProps.map((p: PropertyDef) => ({ value: p.id, label: p.name, icon: <TypeIcon type={p.type} /> }))}
             onChange={(v) => upd({ yPropertyId: v })}
+            create={m.fixed ? undefined : (q) => createY(q, (p) => upd({ yPropertyId: p.id }))}
             disabled={m.fixed}
           />
         )}

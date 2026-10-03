@@ -10,6 +10,7 @@ export function renderTopbar({ t, lang }: Ctx): string {
   const anchors = [
     ['savings', 'nav.savings'],
     ['features', 'nav.features'],
+    ['mcp', 'nav.mcp'],
     ['compare', 'nav.compare'],
     ['own-it', 'nav.cloud'],
     ['faq', 'nav.faq'],

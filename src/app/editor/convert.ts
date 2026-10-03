@@ -9,6 +9,7 @@ import { BLOCK_ID_TYPES, baseExtensions } from './schema/base'
 import { stripButtonActions } from './schema/button'
 import { stripComments } from './schema/comment'
 import { stripSynced } from './schema/synced'
+import { iconFromImage } from './schema/icon'
 import { safeHref } from './lib/embeds'
 import { escapeMarkdownText } from './lib/mdText'
 
@@ -64,13 +65,22 @@ const ALERTS: Record<string, { color: string; icon: string }> = {
 const BLOCK_ATOMS = new Set(['image', 'blockMath', 'mermaid', 'pageLink', 'databaseBlock', 'bookmark', 'embed', 'toc', 'fileBlock', 'video', 'audio', 'horizontalRule'])
 const EMOJI_START = /^(\p{Extended_Pictographic}(?:️|‍\p{Extended_Pictographic})*)\s*/u
 
-/** Normalise parser output: GitHub alerts → callouts, ```mermaid → mermaid, hoist block atoms out of paragraphs. */
+/**
+ * Normalise parser output: GitHub alerts → callouts, ```mermaid → mermaid, object icons
+ * (![Clock](assets/icons/clock.webp)) → inline icons, hoist block atoms out of paragraphs.
+ */
 function postProcess(nodes: JSONContent[] | undefined): JSONContent[] {
   if (!nodes) return []
   const out: JSONContent[] = []
   for (const raw of nodes) {
     const n: JSONContent = { ...raw }
     if (n.content) n.content = postProcess(n.content)
+
+    const icon = n.type === 'image' ? iconFromImage(n) : null
+    if (icon) {
+      out.push(icon)
+      continue
+    }
 
     if (n.type === 'codeBlock' && String(n.attrs?.language ?? '').toLowerCase() === 'mermaid') {
       out.push({ type: 'mermaid', attrs: { code: (n.content ?? []).map((c) => c.text ?? '').join('') } })

@@ -17,6 +17,7 @@ import { StaticTabsView, TabsView, tabsViewOptions } from './TabsView'
 import { SyncedBlockView, syncedViewOptions } from './SyncedBlockView'
 import { AudioView, VideoView } from './MediaBlockViews'
 import { MeetingNotesView, meetingViewOptions } from './MeetingNotesView'
+import { withInlineIconView } from './InlineIconView'
 import './views.css'
 import './toggle.css'
 
@@ -51,6 +52,8 @@ export function nodeViewWraps({ readOnly }: { readOnly: boolean }): ExtensionWra
     mermaid: withView(guardView(MermaidView)),
     pageLink: withView(guardView(PageLinkView)),
     mention: withView(guardView(MentionView, { inline: true }), { as: 'span' }),
+    // plain DOM view: no React root per icon
+    icon: withInlineIconView,
     databaseBlock: withView(guardView(DatabaseBlockView), stopAll),
     bookmark: withView(guardView(BookmarkView)),
     embed: withView(guardView(EmbedView)),

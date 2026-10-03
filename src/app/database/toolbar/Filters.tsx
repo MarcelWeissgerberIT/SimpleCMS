@@ -21,6 +21,7 @@ import { currentQuery, resetSessionQuery, setViewQuery, useSessionOverlay } from
 import { SessionNote } from './Lock'
 import type { Translate } from '@/shared/i18n'
 import { plural } from '../parts'
+import { usePropertyCreate } from '../create/entry'
 
 const REL_DATES = ['today', 'tomorrow', 'yesterday', 'one_week_ago', 'one_week_from_now', 'one_month_ago', 'one_month_from_now'] as const
 
@@ -152,9 +153,10 @@ function actorChoices(m: DbModel, prop: PropertyDef): string[] {
 
 /* ---------------- rule + group editors ---------------- */
 
-function FilterRule({ m, filter, onChange, onRemove }: { m: DbModel; filter: Filter; onChange: (f: Filter) => void; onRemove: () => void }) {
+function FilterRule({ m, filter, onChange, onRemove, onDialog }: { m: DbModel; filter: Filter; onChange: (f: Filter) => void; onRemove: () => void; onDialog?: () => void }) {
   const t = useT()
   const kindOf = useKindOf(m)
+  const createEntry = usePropertyCreate(m.db, { beforeDialog: onDialog })
   const prop = m.propMap.get(filter.propertyId)
   const ops: FilterOperator[] = prop ? operatorsFor(kindOf(prop)) : []
   return (
@@ -168,6 +170,7 @@ function FilterRule({ m, filter, onChange, onRemove }: { m: DbModel; filter: Fil
           const p = m.propMap.get(id)
           if (p) onChange({ ...newFilterFor(m, p), id: filter.id })
         }}
+        create={(q) => createEntry(q, (p) => onChange({ ...newFilterFor(m, p), id: filter.id }))}
       />
       <Select
         value={filter.operator}
@@ -189,10 +192,30 @@ export interface GroupEditorLabels {
   addRule?: string
 }
 
-/** AND/OR group editor (rules + one level of nested groups). Also used by colour rules. */
-export function GroupEditor({ m, group, depth, onChange, onRemove, labels }: { m: DbModel; group: FilterGroup; depth: number; onChange: (g: FilterGroup) => void; onRemove?: () => void; labels?: GroupEditorLabels }) {
+/**
+ * AND/OR group editor (rules + one level of nested groups). Also used by colour rules.
+ * `onDialog`: close the surrounding panel before the relation dialog opens (property pickers).
+ */
+export function GroupEditor({
+  m,
+  group,
+  depth,
+  onChange,
+  onRemove,
+  labels,
+  onDialog,
+}: {
+  m: DbModel
+  group: FilterGroup
+  depth: number
+  onChange: (g: FilterGroup) => void
+  onRemove?: () => void
+  labels?: GroupEditorLabels
+  onDialog?: () => void
+}) {
   const t = useT()
   const [addAnchor, setAddAnchor] = useState<HTMLElement | null>(null)
+  const createEntry = usePropertyCreate(m.db, { beforeDialog: onDialog })
   const setItem = (i: number, it: Filter | FilterGroup) => onChange({ ...group, items: group.items.map((x, j) => (j === i ? it : x)) })
   const removeItem = (i: number) => onChange({ ...group, items: group.items.filter((_, j) => j !== i) })
   return (
@@ -218,9 +241,9 @@ export function GroupEditor({ m, group, depth, onChange, onRemove, labels }: { m
             )}
           </span>
           {isGroup(it) ? (
-            <GroupEditor m={m} group={it} depth={depth + 1} onChange={(g) => setItem(i, g)} onRemove={() => removeItem(i)} labels={labels} />
+            <GroupEditor m={m} group={it} depth={depth + 1} onChange={(g) => setItem(i, g)} onRemove={() => removeItem(i)} labels={labels} onDialog={onDialog} />
           ) : (
-            <FilterRule m={m} filter={it} onChange={(f) => setItem(i, f)} onRemove={() => removeItem(i)} />
+            <FilterRule m={m} filter={it} onChange={(f) => setItem(i, f)} onRemove={() => removeItem(i)} onDialog={onDialog} />
           )}
         </div>
       ))}
@@ -246,6 +269,7 @@ export function GroupEditor({ m, group, depth, onChange, onRemove, labels }: { m
         searchable
         searchPlaceholder={t('database.filter.searchProps')}
         entries={m.db.properties.map((p) => ({ label: p.name, icon: <TypeIcon type={p.type} />, onSelect: () => onChange({ ...group, items: [...group.items, newFilterFor(m, p)] }) }))}
+        create={(q) => createEntry(q, (p) => onChange({ ...group, items: [...group.items, newFilterFor(m, p)] }))}
       />
     </div>
   )
@@ -269,7 +293,7 @@ export function FilterPopover({ m, anchor, onClose }: { m: DbModel; anchor: Elem
         )}
       </div>
       {m.locked && <SessionNote m={m} />}
-      <GroupEditor m={m} group={group} depth={0} onChange={save} />
+      <GroupEditor m={m} group={group} depth={0} onChange={save} onDialog={onClose} />
     </Popover>
   )
 }
@@ -288,7 +312,7 @@ function RulePopover({ m, view, filter, anchor, onClose }: { m: DbModel; view: V
   }
   return (
     <Popover open anchor={anchor} onClose={onClose} className="db-filterpop db-filterpop--single">
-      <FilterRule m={m} filter={live} onChange={save} onRemove={() => save(null)} />
+      <FilterRule m={m} filter={live} onChange={save} onRemove={() => save(null)} onDialog={onClose} />
     </Popover>
   )
 }
@@ -300,6 +324,7 @@ export function FilterChips({ m, autoOpen, onAutoOpened }: { m: DbModel; autoOpe
   const [open, setOpen] = useState<{ id: ID; el: Element } | null>(null)
   const [addAnchor, setAddAnchor] = useState<HTMLElement | null>(null)
   const [sortAnchor, setSortAnchor] = useState<HTMLElement | null>(null)
+  const createEntry = usePropertyCreate(m.db)
   const g = view.filter
   const items = g?.items ?? []
   const [pending, setPending] = useState<ID | null>(null)
@@ -314,6 +339,12 @@ export function FilterChips({ m, autoOpen, onAutoOpened }: { m: DbModel; autoOpe
     })
     return () => cancelAnimationFrame(id)
   }, [target]) // eslint-disable-line react-hooks/exhaustive-deps
+  const addFilter = (p: PropertyDef) => {
+    const f = newFilterFor(m, p)
+    const base = currentQuery(m.db.id, view.id).filter ?? emptyGroup()
+    setViewQuery(m.db.id, view.id, { filter: { ...base, items: [...base.items, f] } })
+    setPending(f.id)
+  }
   const removeItem = (id: ID) => {
     const rest = items.filter((x) => x.id !== id)
     setViewQuery(m.db.id, view.id, { filter: rest.length ? { ...g!, items: rest } : null })
@@ -414,16 +445,8 @@ export function FilterChips({ m, autoOpen, onAutoOpened }: { m: DbModel; autoOpe
         onClose={() => setAddAnchor(null)}
         searchable
         searchPlaceholder={t('database.filter.searchProps')}
-        entries={m.db.properties.map((p) => ({
-          label: p.name,
-          icon: <TypeIcon type={p.type} />,
-          onSelect: () => {
-            const f = newFilterFor(m, p)
-            const base = g ?? emptyGroup()
-            setViewQuery(m.db.id, view.id, { filter: { ...base, items: [...base.items, f] } })
-            setPending(f.id)
-          },
-        }))}
+        entries={m.db.properties.map((p) => ({ label: p.name, icon: <TypeIcon type={p.type} />, onSelect: () => addFilter(p) }))}
+        create={(q) => createEntry(q, addFilter)}
       />
       {builder && <FilterPopover m={m} anchor={builder} onClose={() => setBuilder(null)} />}
       {open &&

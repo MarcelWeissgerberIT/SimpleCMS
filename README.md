@@ -54,6 +54,7 @@ AI on every workspace with your own Claude key, and an honest export.
 | Real-time multiplayer | **yes** | **yes** in a team workspace on your own server (open source) — the local workspace stays single-user, synced across tabs |
 | Inbox & reminders | yes | **yes** — reminders on any date; mentions, assignments and replies in team workspaces |
 | Public API | yes | **yes** on a team server, plus an incoming webhook URL per database for n8n / Make / Zapier |
+| MCP for AI agents | hosted connector | **yes** — local bridge to your open tab (approve each change), or the team server's `/mcp` endpoint |
 
 <sub>Full research with sources: [docs/RESEARCH.md](docs/RESEARCH.md).</sub>
 
@@ -149,6 +150,12 @@ by the server, not just hidden), offline copies that sync when you are back, and
 into One ([docs/API.md](docs/API.md)). Setup in [docs/SELF_HOSTING.md](docs/SELF_HOSTING.md), architecture in
 [docs/CLOUD.md](docs/CLOUD.md). The local workspace keeps working without any of it.
 
+**Agents & MCP** — One speaks the Model Context Protocol, so Claude Desktop, Claude Code or any MCP client can search,
+read and write your workspace: pages, databases, rows and properties, with 13 tools. Locally, a small bridge
+(`one-mcp.mjs`, one file) drives the One tab you have open — nothing leaves your computer, and changes wait for your
+one-click approval unless you switch that off. A team server has a remote MCP endpoint (`/mcp`) that works with the
+API tokens; a read token gets only the read tools. Setup and tool reference in [docs/MCP.md](docs/MCP.md).
+
 **Private by construction** — no analytics, no cookies, no backend (unless you run the team server). A service worker keeps the app working offline
 after the first visit. Several tabs stay in sync — when two of them edit the same page at the same moment, the
 changes are merged (three-way, block by block and character by character), so nobody's words get lost.
@@ -223,6 +230,9 @@ Built for the **Ninja Armory** challenge of the AI Automations community.
 - Formulare mit bedingten Fragen, mehreren Seiten und Antwort-Übersicht
 - Sync als Markdown in einen Ordner auf deinem Rechner oder dein eigenes GitHub-Repository – in beide Richtungen
 - einen Workspace-Agenten (`⌘J`), der Aufgaben über Seiten und Datenbanken plant und erst nach deiner Prüfung ausführt
+- MCP für KI-Agenten: Claude Desktop, Claude Code & Co. suchen, lesen und schreiben im Workspace – lokal über eine
+  Brücke zu deinem offenen Tab (Änderungen nach deiner Freigabe), im Team über den `/mcp`-Endpunkt des Servers
+  ([docs/MCP.md](docs/MCP.md))
 - wiederkehrende Datenbank-Vorlagen, z. B. jeden Montag um 09:00 ein neuer Meeting-Eintrag
 - Präsentationsmodus und Offline-Betrieb
 - optional Team-Workspaces auf dem eigenen Server (Live-Zusammenarbeit, Rollen, Einladungen, private Seiten, öffentliche API und

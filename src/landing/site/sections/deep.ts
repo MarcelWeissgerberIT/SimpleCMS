@@ -190,7 +190,7 @@ export function renderDeep(ctx: Ctx): string {
       (d, i) => `
     <article class="deep-row ${i % 2 ? 'is-flip' : ''} ${d.key === 'automations' || d.key === 'website' ? 'is-tall' : ''}" aria-labelledby="deep-${d.key}">
       <div class="deep-text" data-reveal>
-        <p class="lbl deep-idx">§ 03.${i + 1}</p>
+        <p class="lbl deep-idx">§ 04.${i + 1}</p>
         <h3 id="deep-${d.key}" class="deep-h disp">${titleLines(d.title)}</h3>
         <p class="deep-p">${esc(d.text)}</p>
         <ul class="deep-specs">${d.specs.map((s) => `<li>${esc(s)}</li>`).join('')}</ul>

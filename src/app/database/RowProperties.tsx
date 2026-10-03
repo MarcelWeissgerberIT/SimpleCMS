@@ -16,6 +16,9 @@ import { writeValue, insertProperty } from './model/actions'
 import { isEmptyValue, type Resolver } from './model/resolve'
 import { AutofillHost, AutofillRowControl, AutofillTag, autofillOf } from './autofill'
 import { useDbReadOnly } from './readonly'
+import { usePropertyCreate } from './create/entry'
+import { CreatePropertyHost } from './create/CreatePropertyDialog'
+import { RelationOffer } from './create/RelationOffer'
 import './database.css'
 
 export function RowProperties({ pageId }: { pageId: ID }) {
@@ -48,6 +51,8 @@ function RowPropertiesInner({ row, db }: { row: Page; db: Database }) {
         readOnly={readOnly}
       />
       <AutofillHost />
+      <CreatePropertyHost />
+      {!readOnly && <RelationOffer rowId={row.id} />}
     </>
   )
 }
@@ -79,6 +84,7 @@ export function PropertyRows({ db, row, resolver, props, getValue, onChange, hid
   const [menu, setMenu] = useState<{ prop: PropertyDef; el: HTMLElement } | null>(null)
   const [addAnchor, setAddAnchor] = useState<HTMLElement | null>(null)
   const listRef = useRef<HTMLDivElement>(null)
+  const createEntry = usePropertyCreate(db)
 
   const values = useMemo(() => new Map(props.map((p) => [p.id, resolver.value(db, p, row)])), [props, resolver, db, row])
   const emptyIds = props.filter((p) => isEmptyValue(p, values.get(p.id)) && p.type !== 'checkbox').map((p) => p.id)
@@ -185,6 +191,7 @@ export function PropertyRows({ db, row, resolver, props, getValue, onChange, hid
         anchor={addAnchor}
         onClose={() => setAddAnchor(null)}
         searchable
+        create={allowAdd ? (q) => createEntry(q, () => {}) : undefined}
         entries={typeEntries(t, (type) => {
           const id = insertProperty(db, null, { type, name: t(`database.type.${type}`) })
           requestAnimationFrame(() => {

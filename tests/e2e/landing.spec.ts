@@ -147,14 +147,91 @@ test.describe('landing sections', () => {
     expect(await own.innerText()).not.toMatch(/[$€]\s?\d|\d\s?(€|\$|EUR|USD)/)
   })
 
-  test('compare: eighteen rows, and our gaps stay marked', async ({ page }) => {
+  test('compare: nineteen rows, and our gaps stay marked', async ({ page }) => {
     await page.goto('./?skip')
     const rows = page.locator('#compare tbody tr')
-    await expect(rows).toHaveCount(18)
+    await expect(rows).toHaveCount(19)
+    await expect(rows.filter({ hasText: 'AI agents over MCP' }).locator('td').nth(1)).toContainText('/mcp on a team server')
     const multiplayer = rows.filter({ hasText: 'Real-time multiplayer' })
     await expect(multiplayer.locator('td').nth(1)).toContainText('Coming with the team cloud')
     await expect(multiplayer.locator('td').nth(1).getByRole('img')).toHaveAttribute('aria-label', 'No')
     await expect(rows.filter({ hasText: 'Publish as a website' }).locator('td').nth(1)).toContainText('llms.txt')
+  })
+})
+
+test.describe('landing: agents · MCP', () => {
+  test('the MCP section: nav link and hero badge lead there, tool table, modes, download and copy keys', async ({ page, context }) => {
+    await context.grantPermissions(['clipboard-read', 'clipboard-write'])
+    await page.goto('./?skip')
+    const sec = page.locator('#mcp')
+    const heading = sec.getByRole('heading', { name: 'One speaks MCP.' })
+
+    // the top bar's MCP link scrolls to the section
+    const nav = page.locator('.tb-nav').getByRole('link', { name: 'MCP', exact: true })
+    await expect(nav).toHaveAttribute('href', '#mcp')
+    await expect(heading).not.toBeInViewport()
+    await nav.click()
+    await expect(page).toHaveURL(/#mcp$/)
+    await expect(heading).toBeInViewport()
+    await expect(page.locator('.hero-mcp')).toHaveAttribute('href', '#mcp')
+    await expect(page.locator('.hero-mcp')).toContainText('Let Claude run your workspace')
+
+    // the drawing names both ways in; the tool table lists every tool, write tools marked
+    await expect(sec.getByRole('img', { name: /one-mcp bridge over stdio/ }).first()).toBeAttached()
+    const tools = sec.locator('.mcp-tool')
+    await expect(tools).toHaveCount(13)
+    await expect(sec.locator('.mcp-tool.is-w')).toHaveCount(7)
+    await expect(tools.first()).toContainText('one_overview')
+    await expect(sec.locator('.mcp-tool.is-w').last()).toContainText('one_trash_page')
+
+    // Agent changes: keyboard-operable keys; read only re-labels the gate and darkens the write tools
+    const ask = sec.getByRole('radio', { name: 'Ask first' })
+    await expect(ask).toBeChecked()
+    await expect(sec).toHaveAttribute('data-mode', 'ask')
+    await ask.focus()
+    await page.keyboard.press('ArrowRight')
+    await expect(sec.getByRole('radio', { name: 'Apply directly' })).toBeChecked()
+    await expect(sec.locator('[data-mcp-note]')).toContainText('Changes land at once')
+    await sec.getByRole('radio', { name: 'Read only' }).check()
+    await expect(sec).toHaveAttribute('data-mode', 'read')
+    await expect(sec.locator('[data-mcp-note]')).toContainText('Every write is refused')
+    await expect(sec.locator('.pv-wide .mcp-gate-read')).toBeVisible()
+    await expect(sec.locator('.pv-wide .mcp-gate-ask')).toBeHidden()
+    expect(Number(await sec.locator('.mcp-tool.is-w').first().evaluate((el) => getComputedStyle(el).opacity))).toBeLessThan(0.6)
+
+    // the bridge is a file of this site, under its base path
+    await expect(sec.getByRole('link', { name: /Download one-mcp\.mjs/ })).toHaveAttribute('href', '/SimpleCMS/mcp/one-mcp.mjs')
+
+    // copy keys: keyboard, real clipboard, a confirmation that screen readers hear too
+    const copy = sec.getByRole('button', { name: /Copy: Claude Desktop/ })
+    await copy.focus()
+    await page.keyboard.press('Enter')
+    await expect(copy).toHaveText('Copied')
+    await expect(sec.locator('[data-mcp-live]')).toHaveText(/Claude Desktop .* copied/)
+    const json = await page.evaluate(() => navigator.clipboard.readText())
+    expect(JSON.parse(json)).toEqual({ mcpServers: { one: { command: 'node', args: ['/ABSOLUTE/PATH/one-mcp.mjs'] } } })
+    await expect(copy).toHaveText('Copy', { timeout: 5000 })
+
+    await sec.getByRole('button', { name: /Copy: Claude Code/ }).click()
+    const shell = await page.evaluate(() => navigator.clipboard.readText())
+    expect(shell.split('\n')).toEqual([
+      expect.stringMatching(/^curl -fsSL http:\/\/127\.0\.0\.1:\d+\/SimpleCMS\/mcp\/one-mcp\.mjs -o ~\/one-mcp\.mjs$/),
+      'claude mcp add one -- node ~/one-mcp.mjs',
+    ])
+    await sec.getByRole('button', { name: /Copy: Team server/ }).click()
+    expect(await page.evaluate(() => navigator.clipboard.readText())).toBe('claude mcp add --transport http one https://team.example.com/mcp --header "Authorization: Bearer one_…"')
+  })
+
+  test.describe('German visitor', () => {
+    test.use({ locale: 'de-DE' })
+    test('the MCP section is in German', async ({ page }) => {
+      await page.goto('./?skip#mcp')
+      const sec = page.locator('#mcp')
+      await expect(sec.getByRole('heading', { name: 'One spricht MCP.' })).toBeVisible()
+      await expect(sec.getByRole('radio', { name: 'Erst fragen' })).toBeChecked()
+      await expect(sec.getByRole('link', { name: /one-mcp\.mjs herunterladen/ })).toBeVisible()
+      await expect(page.locator('.hero-mcp')).toContainText('Lass Claude deinen Workspace bedienen')
+    })
   })
 })
 

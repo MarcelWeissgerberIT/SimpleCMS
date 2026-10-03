@@ -12,7 +12,7 @@ import type { JSONContent } from '@tiptap/core'
 import { markdownToDoc } from '../../editor'
 import { newId } from '../../lib/ids'
 import { t } from '../../i18n'
-import type { Database, ID, Page, PageIcon, PropertyDef, PropertyType, SelectOption, StatusGroup } from '../../store/types'
+import type { ColorName, Database, ID, Page, PageIcon, PropertyDef, PropertyType, SelectOption, StatusGroup } from '../../store/types'
 import { COLOR_NAMES } from '../../store/types'
 import { snapshotNow } from '../history/snapshots'
 import { AGENT_TOOLS, ToolInputError, type StageApi } from '../ai/agent/tools'
@@ -140,14 +140,18 @@ const pageOrThrow = (id: unknown, key = 'id'): Page => {
   return p
 }
 
-/** An emoji → icon; '' / null → remove; undefined → leave as is. */
+/** An emoji, "asset:<name>" or "lucide:<Name>" → icon; '' / null → remove; undefined → leave as is. */
 function parseIcon(raw: unknown): PageIcon | null | undefined {
   if (raw === undefined) return undefined
   if (raw === null || raw === '') return null
-  if (typeof raw !== 'string') throw new McpToolError('"icon" must be an emoji, e.g. "🚀" ("" removes the icon).')
+  const hint = 'an emoji (e.g. "🚀"), "asset:<name>" or "lucide:<IconName>" ("" removes the icon)'
+  if (typeof raw !== 'string') throw new McpToolError(`"icon" must be ${hint}.`)
   const s = raw.trim()
-  const emoji = s.length <= 16 && !/[A-Za-z]/.test(s) && /\p{Extended_Pictographic}|\p{Regional_Indicator}|⃣/u.test(s)
-  if (!emoji) throw new McpToolError(`"icon" must be a single emoji, e.g. "🚀" — got ${q(s.slice(0, 40))}.`)
+  if (!s) return null
+  const named = /^(asset|lucide):([A-Za-z0-9_-]{1,64})$/.exec(s)
+  if (named) return named[1] === 'asset' ? { type: 'asset', value: named[2] } : { type: 'lucide', value: named[2] }
+  const emoji = s.length <= 16 && !/[A-Za-z\s<>]/.test(s) && /\p{Extended_Pictographic}|\p{Regional_Indicator}|\u{20E3}/u.test(s)
+  if (!emoji) throw new McpToolError(`"icon" must be ${hint} — got ${q(s.slice(0, 40))}.`)
   return { type: 'emoji', value: s }
 }
 
@@ -253,7 +257,7 @@ function planUpdatePage(args: Record<string, unknown>): WritePlan {
     changed.push('content')
   }
   const name = titleOf(page)
-  const result = () => ({ id: page.id, title: ws().pages[page.id]?.title ?? page.title, url: pageUrl(page.id), changed })
+  const result = () => ({ id: page.id, title: ws().pages[page.id]?.title ?? page.title, url: pageUrl(page.id), changed, ...(markdown !== null ? { content: mode } : {}) })
   return {
     tool: 'one_update_page',
     verb: t('features.mcp.verb.updatePage'),
@@ -381,16 +385,22 @@ const palette = COLOR_NAMES.filter((c) => c !== 'default')
 function optionsOf(type: PropertyType, raw: unknown, key: string): SelectOption[] | undefined {
   if (raw === undefined || raw === null) return undefined
   if (type !== 'select' && type !== 'multi_select' && type !== 'status') throw new McpToolError(`${key}: options only apply to select, multi_select and status.`)
-  if (!Array.isArray(raw) || !raw.every((x) => typeof x === 'string')) throw new McpToolError(`${key}: "options" must be a list of option names.`)
-  const names: string[] = []
-  for (const n of raw as string[]) {
-    const name = n.replace(/\s+/g, ' ').trim().slice(0, 60)
-    if (name && !names.some((x) => x.toLowerCase() === name.toLowerCase())) names.push(name)
+  if (!Array.isArray(raw)) throw new McpToolError(`${key}: "options" must be a list of option names (or {name, color, group}).`)
+  const opts: Array<{ name: string; color?: ColorName; group?: StatusGroup }> = []
+  for (const item of raw as unknown[]) {
+    const o = typeof item === 'string' ? { name: item } : item && typeof item === 'object' && !Array.isArray(item) ? (item as Record<string, unknown>) : null
+    if (!o || typeof o.name !== 'string') throw new McpToolError(`${key}: every option is a name or {name, color, group}.`)
+    const name = o.name.replace(/\s+/g, ' ').trim().slice(0, 60)
+    if (!name || opts.some((x) => x.name.toLowerCase() === name.toLowerCase())) continue
+    const color = typeof o.color === 'string' && (palette as string[]).includes(o.color.toLowerCase()) ? (o.color.toLowerCase() as ColorName) : undefined
+    const group = o.group === 'todo' || o.group === 'in_progress' || o.group === 'done' ? o.group : undefined
+    opts.push({ name, ...(color ? { color } : {}), ...(group ? { group } : {}) })
   }
-  if (names.length > 100) throw new McpToolError(`${key}: at most 100 options.`)
-  if (type === 'status' && !names.length) return undefined
-  const group = (i: number): StatusGroup => (i === 0 ? 'todo' : i === names.length - 1 ? 'done' : 'in_progress')
-  return names.map((name, i) => ({ id: newId(), name, color: palette[i % palette.length], ...(type === 'status' ? { group: names.length === 1 ? 'todo' : group(i) } : {}) }))
+  if (opts.length > 100) throw new McpToolError(`${key}: at most 100 options.`)
+  if (type === 'status' && !opts.length) return undefined
+  // status without groups: first = to do, last = done, the rest in progress
+  const groupAt = (i: number): StatusGroup => (opts.length === 1 || i === 0 ? 'todo' : i === opts.length - 1 ? 'done' : 'in_progress')
+  return opts.map((o, i) => ({ id: newId(), name: o.name, color: o.color ?? palette[i % palette.length], ...(type === 'status' ? { group: o.group ?? groupAt(i) } : {}) }))
 }
 
 /** Validate one property spec (create_property, create_database) for a database (existing or new). */
@@ -418,7 +428,7 @@ function propertySpec(raw: unknown, ctx: { dbId: ID; dbTitle: string; taken: str
     lines.push({ k: 'fact', label: t('features.mcp.plan.relation'), value: targetTitle })
     if (rel.twoWay === true) {
       if (target?.db.locked) throw new McpToolError(`${key}: ${q(targetTitle)} is locked, so no reverse property can be added there. Create a one-way relation instead.`)
-      const reverseName = str(rel.reverseName, `${key}.relation.reverseName`, { max: 100 }).trim() || (self ? `${name} ↩` : ctx.dbTitle)
+      const reverseName = str(rel.reverseName, `${key}.relation.reverseName`, { max: 100 }).trim() || (self ? t('database.relation.reverseName', { name }) : ctx.dbTitle)
       if (!self && target!.db.properties.some((p) => p.name.toLowerCase() === reverseName.toLowerCase()))
         throw new McpToolError(`${key}: ${q(targetTitle)} already has a property named ${q(reverseName)}. Pass another "reverseName".`)
       reverse = { dbId: targetId, def: { id: def.id + TWO_WAY_SUFFIX, name: reverseName, type: 'relation', relationDatabaseId: ctx.dbId } }
@@ -463,7 +473,9 @@ function planCreateProperty(args: Record<string, unknown>): WritePlan {
       const undo = addProperties(db.id, [spec])
       const d = ws().databases[db.id]
       const prop = d.properties.find((p) => p.id === spec.def.id)!
-      return { result: { databaseId: db.id, property: propertyJson(d, prop) }, undo }
+      const back = spec.reverse && ws().databases[spec.reverse.dbId]
+      const backProp = back ? back.properties.find((p) => p.id === spec.reverse!.def.id) : undefined
+      return { result: { databaseId: db.id, property: propertyJson(d, prop), ...(back && backProp ? { reverse: { databaseId: back.id, property: propertyJson(back, backProp) } } : {}) }, undo }
     },
   }
 }
@@ -477,17 +489,23 @@ function planCreateDatabase(args: Record<string, unknown>): WritePlan {
   const raw = args.properties
   if (raw !== undefined && raw !== null && !Array.isArray(raw)) throw new McpToolError('"properties" must be a list of {name, type, options?, relation?}.')
   if (Array.isArray(raw) && raw.length > 40) throw new McpToolError('At most 40 properties.')
-  const taken = ['Name']
+  // a { type: "title" } entry names the title property (default "Name")
+  const titleSpecs = Array.isArray(raw) ? raw.filter((r) => r && typeof r === 'object' && (r as { type?: unknown }).type === 'title') : []
+  if (titleSpecs.length > 1) throw new McpToolError('Only one property can be of type "title".')
+  const titleName = titleSpecs.length ? str((titleSpecs[0] as { name?: unknown }).name, 'properties[title].name', { required: true, max: 100 }).replace(/\s+/g, ' ').trim() : 'Name'
+  const taken = [titleName]
   const specs = Array.isArray(raw)
-    ? raw.map((r, i) => {
-        const s = propertySpec(r, { dbId: id, dbTitle: title, taken }, `properties[${i}]`)
-        taken.push(s.def.name)
-        return s
-      })
+    ? raw
+        .filter((r) => !titleSpecs.includes(r))
+        .map((r, i) => {
+          const s = propertySpec(r, { dbId: id, dbTitle: title, taken }, `properties[${i}]`)
+          taken.push(s.def.name)
+          return s
+        })
     : null
   const where = parent ? titleOf(parent) : t('features.mcp.plan.topLevel')
   const lines: PlanLine[] = [{ k: 'fact', label: t('features.mcp.plan.in'), value: parent ? [pathOf(parent.id), titleOf(parent)].filter(Boolean).join(' / ') : where }]
-  lines.push({ k: 'fact', label: t('features.mcp.plan.properties'), value: specs ? ['Name', ...specs.map((s) => `${s.def.name} (${s.def.type})`)].join(', ') : t('features.mcp.plan.defaultProps') })
+  lines.push({ k: 'fact', label: t('features.mcp.plan.properties'), value: specs ? [titleName, ...specs.map((s) => `${s.def.name} (${s.def.type})`)].join(', ') : t('features.mcp.plan.defaultProps') })
   return {
     tool: 'one_create_database',
     verb: t('features.mcp.verb.createDatabase'),
@@ -496,21 +514,27 @@ function planCreateDatabase(args: Record<string, unknown>): WritePlan {
     lines,
     async apply() {
       if (parent && !live(parent.id)) throw new McpToolError(`${q(titleOf(parent))} is gone. Nothing was changed.`)
-      const titleProp: PropertyDef = { id: newId(), name: 'Name', type: 'title' }
-      ws().createDatabase({ id, title, parentId: parent?.id ?? null, ...(specs ? { properties: [titleProp, ...specs.map((s) => ({ ...s.def, ...(s.def.relationDatabaseId === id ? {} : {}) }))] } : {}) })
-      // reverse sides of two-way relations to other databases (a self-relation's reverse is on this one)
-      const undoReverse = specs ? addProperties(id, []) : () => true
-      for (const s of specs ?? []) if (s.reverse && ws().databases[s.reverse.dbId]) ws().addProperty(s.reverse.dbId, s.reverse.def)
-      const created = ws().pages[id]
-      const rev = created?.contentRev
+      const titleProp: PropertyDef = { id: newId(), name: titleName, type: 'title' }
+      ws().createDatabase({ id, title, parentId: parent?.id ?? null, ...(specs ? { properties: [titleProp, ...specs.map((s) => s.def)] } : {}) })
+      // the reverse sides of two-way relations live on the related databases
+      const reverses = (specs ?? []).flatMap((s) => (s.reverse && ws().databases[s.reverse.dbId] ? [s.reverse] : []))
+      for (const r of reverses) ws().addProperty(r.dbId, r.def)
+      const rev = ws().pages[id]?.contentRev
       const d = ws().databases[id]
       return {
-        result: { id, title, url: pageUrl(id), parentId: parent?.id ?? null, properties: d.properties.map((p) => propertyJson(d, p)) },
+        result: {
+          id,
+          title,
+          url: pageUrl(id),
+          parentId: parent?.id ?? null,
+          properties: d.properties.map((p) => propertyJson(d, p)),
+          ...(reverses.length ? { reverse: reverses.map((r) => ({ databaseId: r.dbId, property: r.def.name })) } : {}),
+        },
         undo: () => {
-          undoReverse()
-          for (const s of specs ?? []) if (s.reverse && ws().databases[s.reverse.dbId]?.properties.some((p) => p.id === s.reverse!.def.id)) ws().deleteProperty(s.reverse.dbId, s.reverse.def.id)
+          for (const r of reverses) if (ws().databases[r.dbId]?.properties.some((p) => p.id === r.def.id)) ws().deleteProperty(r.dbId, r.def.id)
           const now = ws().pages[id]
           if (!now) return true
+          // rows or sub-pages added since: keep them recoverable
           const touched = now.contentRev !== rev || Object.values(ws().pages).some((p) => p.parentId === id)
           if (touched) ws().trashPage(id)
           else ws().deletePagePermanently(id)
@@ -541,7 +565,7 @@ function planTrash(args: Record<string, unknown>): WritePlan {
   const name = titleOf(page)
   const lines: PlanLine[] = [{ k: 'fact', label: t('features.mcp.plan.kind'), value: t(`features.mcp.kind.${kindOf(page)}`) }]
   if (pathOf(page.id)) lines.push({ k: 'fact', label: t('features.mcp.plan.in'), value: pathOf(page.id) })
-  if (below.size) lines.push({ k: 'fact', label: t('features.mcp.plan.below'), value: chars(below.size) })
+  if (below.size) lines.push({ k: 'fact', label: t('features.mcp.plan.below'), value: t('features.mcp.plan.belowN', { n: chars(below.size) }) })
   lines.push({ k: 'note', value: t('features.mcp.plan.trashNote') })
   return {
     tool: 'one_trash_page',
@@ -553,7 +577,7 @@ function planTrash(args: Record<string, unknown>): WritePlan {
       if (!live(page.id)) throw new McpToolError(`${q(name)} is already gone. Nothing was changed.`)
       ws().trashPage(page.id)
       return {
-        result: { id: page.id, title: page.title, trashed: true, alsoTrashed: below.size, note: 'It can be restored from the trash in One.' },
+        result: { id: page.id, title: page.title, kind: kindOf(page), trashed: true, alsoTrashed: below.size, note: 'Moved to the trash: it can be restored from the trash in One.' },
         undo: () => {
           if (!ws().pages[page.id]?.trashed) return false
           ws().restorePage(page.id)

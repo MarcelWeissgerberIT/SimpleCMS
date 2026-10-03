@@ -142,13 +142,14 @@ export function rowJson(db: Database, row: Page) {
   return { id: row.id, title: row.title, url: pageUrl(row.id), createdAt: iso(row.createdAt), updatedAt: iso(row.updatedAt), properties: rowProperties(db, row) }
 }
 
-/** A property definition in the shape of the API's schema. */
+/** A property definition in the shape of the API's schema (docs/API.md, server schemaOut) + what the app knows. */
 export function propertyJson(db: Database, prop: PropertyDef) {
   const out: Record<string, unknown> = { id: prop.id, name: prop.name, type: prop.type, readOnly: prop.type !== 'title' && (READ_ONLY_TYPES.has(prop.type) || !isSettable(prop)) }
-  if (prop.options) out.options = prop.options.map((o) => ({ name: o.name, color: o.color, ...(o.group ? { group: o.group } : {}) }))
+  if (prop.options) out.options = prop.options.map((o) => ({ id: o.id, name: o.name, color: o.color, ...(o.group ? { group: o.group } : {}) }))
   if (prop.type === 'relation' && prop.relationDatabaseId) {
-    const target = ws().pages[prop.relationDatabaseId]
-    out.relation = { databaseId: prop.relationDatabaseId, databaseTitle: titleOf(target), twoWay: !!pairOf(db.id, prop) }
+    out.relationDatabaseId = prop.relationDatabaseId
+    out.relationDatabaseTitle = live(prop.relationDatabaseId) ? titleOf(ws().pages[prop.relationDatabaseId]) : '(not available)'
+    out.twoWay = !!pairOf(db.id, prop)
   }
   if (prop.type === 'unique_id' && prop.idPrefix) out.prefix = prop.idPrefix
   if (prop.type === 'rating') out.max = prop.ratingMax ?? 5

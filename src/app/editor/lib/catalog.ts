@@ -38,6 +38,7 @@ import {
   Quote,
   RefreshCw,
   Sheet,
+  Shapes,
   Sigma,
   Smile,
   SquareKanban,
@@ -90,6 +91,12 @@ export interface BlockItem {
 }
 
 const del = (ctx: RunCtx) => ctx.range && ctx.editor.chain().focus().deleteRange(ctx.range).run()
+
+/** Emoji / icon picker at the caret (icons/InlinePickers.tsx); the caret stays where the command was. */
+function openInlinePicker(ctx: RunCtx, kind: 'emoji' | 'icon') {
+  del(ctx)
+  ctx.bridge.setState({ inlinePicker: { kind, pos: ctx.editor.state.selection.from } })
+}
 
 const turn = (target: TurnTarget) => (ctx: RunCtx) => {
   del(ctx)
@@ -315,11 +322,15 @@ export const BLOCKS: BlockItem[] = [
     group: 'inline',
     icon: Smile,
     md: ':',
-    keywords: 'emoji smiley icon',
-    run: (ctx) => {
-      del(ctx)
-      ctx.editor.chain().focus().insertContent(' :').run()
-    },
+    keywords: 'emoji smiley emoticon face smiley gesicht',
+    run: (ctx) => openInlinePicker(ctx, 'emoji'),
+  },
+  {
+    id: 'icon',
+    group: 'inline',
+    icon: Shapes,
+    keywords: 'icon symbol glyph object objekt zeichen piktogramm',
+    run: (ctx) => openInlinePicker(ctx, 'icon'),
   },
   {
     id: 'inlineMath',

@@ -16,6 +16,7 @@ import { renderFaq, renderFooter, renderOwn } from './sections/closing'
 import { renderDeep } from './sections/deep'
 import { loadFeatureIcons, renderFeatures } from './sections/features'
 import { bindHero, renderHero } from './sections/hero'
+import { bindMcp, renderMcp } from './sections/mcp'
 import { renderPrivacy } from './sections/privacy'
 import { bindSavings, renderSavings } from './sections/savings'
 import { renderTopbar } from './sections/topbar'
@@ -70,6 +71,7 @@ export function mountSite(root: HTMLElement, opts: { lang: Lang; underIntro: boo
         ${renderHero(c)}
         ${renderSavings(c)}
         ${renderFeatures(c)}
+        ${renderMcp(c)}
         ${renderDeep(c)}
         ${renderCompare(c)}
         ${renderPrivacy(c)}
@@ -85,6 +87,7 @@ export function mountSite(root: HTMLElement, opts: { lang: Lang; underIntro: boo
     void loadFeatureIcons(root)
     bindChrome()
     cleanups.push(bindHero(root))
+    cleanups.push(bindMcp(root, c))
     hero = heroMotion(root, lang)
     // Reveals only on the first render and only once the visitor can actually see the site.
     cleanups.push(initReveals(root, { skip: revealed }))
@@ -203,7 +206,7 @@ export function mountSite(root: HTMLElement, opts: { lang: Lang; underIntro: boo
   function switchLang(next: Lang): void {
     // Anchor: the innermost block crossing the line under the top bar, and our offset into it.
     // Same DOM order in both languages → the index finds the twin after the re-render.
-    const ANCHORS = 'main > section, .deep-row, .pgroup, .plac, .spec tr, .faq-item, .calc, .schematic, .plate, footer'
+    const ANCHORS = 'main > section, .deep-row, .pgroup, .plac, .spec tr, .faq-item, .calc, .schematic, .plate, .mcp-tools, .mcp-steps > li, footer'
     const probe = 90
     const before = Array.from(root.querySelectorAll<HTMLElement>(ANCHORS))
     let idx = -1

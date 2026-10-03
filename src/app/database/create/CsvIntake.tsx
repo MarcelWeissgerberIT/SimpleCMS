@@ -5,6 +5,7 @@
  * it all: the rows, the new properties and options. Parsing and conversion live in the features
  * area (planCsvIntake / csvIntakeRows); a locked database takes rows but no new properties.
  */
+import { useEffect, useId } from 'react'
 import { create } from 'zustand'
 import type { ID, PropertyDef, PropertyValue, SelectOption } from '../../store/types'
 import { useWorkspace } from '../../store/store'
@@ -25,7 +26,7 @@ interface Pending {
   plan: CsvIntakePlan
 }
 
-const usePending = create<{ cur: Pending | null }>(() => ({ cur: null }))
+const usePending = create<{ cur: Pending | null; hosts: string[] }>(() => ({ cur: null, hosts: [] }))
 const ws = () => useWorkspace.getState()
 const toast = (...args: Parameters<ReturnType<typeof useUI.getState>['toast']>) => useUI.getState().toast(...args)
 
@@ -108,10 +109,16 @@ function applyIntake(dbId: ID, plan: CsvIntakePlan, results: SuggestionResult[])
   })
 }
 
-/** Mount point for the mapping dialog (database views mount one). */
-export function CsvIntakeHost({ dbId }: { dbId: ID }) {
-  const cur = usePending((s) => (s.cur?.dbId === dbId ? s.cur : null))
-  if (!cur) return null
+/** Mount point for the mapping dialog (database views mount one; the first mounted renders). */
+export function CsvIntakeHost() {
+  const id = useId()
+  useEffect(() => {
+    usePending.setState((s) => ({ hosts: [...s.hosts, id] }))
+    return () => usePending.setState((s) => ({ hosts: s.hosts.filter((h) => h !== id) }))
+  }, [id])
+  const primary = usePending((s) => s.hosts[0] === id)
+  const cur = usePending((s) => s.cur)
+  if (!primary || !cur) return null
   return <CsvIntakeDialog pending={cur} />
 }
 
