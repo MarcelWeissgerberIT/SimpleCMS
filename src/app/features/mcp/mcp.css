@@ -244,6 +244,10 @@
 .mcp-install__key:hover {
   text-decoration: none;
 }
+/* .btn--primary's own shadow would hide the focus ring */
+.mcp-install__key:focus-visible {
+  box-shadow: var(--focus-ring);
+}
 .mcp-install__spec {
   white-space: nowrap;
 }
@@ -258,7 +262,7 @@
 }
 .mcp-manual__head {
   display: grid;
-  grid-template-columns: 14px auto minmax(0, 1fr);
+  grid-template-columns: 14px minmax(0, 1fr);
   align-items: center;
   gap: 4px 8px;
   min-height: 40px;
@@ -283,12 +287,11 @@
   font-size: var(--text-sm);
   font-weight: 600;
 }
+/* the clients it covers, under the title */
 .mcp-manual__sub {
-  overflow: hidden;
+  grid-column: 2;
   color: var(--ink-3);
   font-size: var(--text-xs);
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 .mcp-manual__head:hover .mcp-manual__title {
   color: var(--signal-ink);
@@ -645,11 +648,6 @@
   .mcp-msg {
     flex-direction: column;
     align-items: flex-start;
-  }
-  /* the client list wraps under the title instead of being cut */
-  .mcp-manual__sub {
-    grid-column: 2 / -1;
-    white-space: normal;
   }
   .mcp-log__row {
     grid-template-columns: 8.5ch minmax(0, 1fr) auto 24px;

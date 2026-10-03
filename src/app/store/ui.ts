@@ -17,6 +17,8 @@ export type ModalState =
   | { type: 'export'; pageId?: ID | null }
   | { type: 'history'; pageId: ID }
   | { type: 'automations'; databaseId: ID }
+  /** custom functions built by clicking (features/sheets/functions), optionally on one function */
+  | { type: 'functions'; id?: ID }
   | { type: 'share'; pageId: ID }
   | { type: 'shortcuts' }
   | { type: 'move'; pageId: ID }

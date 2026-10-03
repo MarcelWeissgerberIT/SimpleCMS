@@ -69,8 +69,8 @@ export function parseFormula(body: string): Node {
       return t.v === '-' ? { k: 'neg', arg, s: t.s, e: arg.e } : { ...arg, s: t.s }
     }
     let node = primary()
-    while (peek().t === 'op' && peek().v === '%') {
-      const p = next()
+    for (let p = peek(); p.t === 'op' && p.v === '%'; p = peek()) {
+      next()
       node = { k: 'pct', arg: node, s: node.s, e: p.e }
     }
     return node

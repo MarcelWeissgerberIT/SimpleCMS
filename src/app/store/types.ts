@@ -118,7 +118,8 @@ export interface Page {
    * Templates area (root pages with `hidden: true`). Its subpages, databases and rows are ordinary
    * pages below it — editing a template is editing those pages. The whole subtree stays out of
    * normal use (sidebar, search, graph, agenda, reminders, backlinks, recent, folder sync, agent,
-   * exports): ask `inTemplate()` / `templateRootOf()` in store/selectors.ts. "Use" deep-copies the
+   * exports; pickers offer it only on its own pages): ask `inTemplate()` / `templateRootOf()` /
+   * `templateScope()` in store/selectors.ts. "Use" deep-copies the
    * subtree with fresh ids. Absent on every other page. Synced in team workspaces like any field.
    */
   template?: PageTemplate

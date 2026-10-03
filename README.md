@@ -108,7 +108,8 @@ out action items; press `Space` on an empty line to write, or ask questions abou
 pages. The **workspace agent** (`⌘J` / `Ctrl+J`) takes a task in plain words — "tag every open task in the meeting
 notes", "make a project row for each item on this page" — plans the steps across pages and databases and applies
 them only after you have reviewed the changes. Requests go straight from your browser to `api.anthropic.com` with your key (default model Claude Opus 5.5;
-Sonnet 5.5 and Haiku 4.5 selectable). The key never leaves this browser in any other way.
+Sonnet 5.5 and Haiku 4.5 selectable). The key never leaves this browser in any other way, and is stored there
+encrypted — as is the GitHub token for sync ([docs/SECURITY.md](docs/SECURITY.md): how, and what that does and does not protect against).
 
 **Automations for automators** — every database can fire webhooks when rows are created, changed or deleted, set
 properties, or show notifications; buttons and shared forms post to webhooks too. Ready-made recipes for n8n / Make /
@@ -220,7 +221,7 @@ Built for the **Ninja Armory** challenge of the AI Automations community.
 
 - einen Block-Editor mit Slash-Menü, Tabs, Randkommentaren und Buttons mit Aktionen
 - Datenbanken mit acht Ansichten inklusive Formularen, Unterelementen, Abhängigkeiten und Farbregeln
-- Claude-KI mit deinem eigenen API-Key, auch als KI-Autofill für Datenbank-Spalten
+- Claude-KI mit deinem eigenen API-Key (verschlüsselt im Browser gespeichert), auch als KI-Autofill für Datenbank-Spalten
 - Webhook-Automationen für n8n, Make und Zapier – auch aus Buttons und geteilten Formularen
 - Import aus Notion, Obsidian, Evernote, Trello und HTML
 - Veröffentlichen als statische Website, Teilen-Links ohne Server (optional mit Passwort)

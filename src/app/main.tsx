@@ -15,7 +15,7 @@ import { seedWorkspace } from './store/seed'
 import { refreshDemoIcons } from './store/demoIcons'
 import { applyTheme } from './lib/theme'
 import { ALL_MESSAGES } from './i18n'
-import { startHistory, startAutomations, startRecurringTemplates, startInbox, startSync, startMcp, seedDemoHistory } from './features'
+import { startHistory, startAutomations, startRecurringTemplates, startInbox, startSync, startMcp, startCustomFunctions, seedDemoHistory } from './features'
 import { startSyncedBlocks } from './editor'
 import { detectLang, makeTranslator } from '@/shared/i18n'
 import { STORAGE_KEYS, safeLocalGet } from '@/shared/brand'
@@ -78,6 +78,8 @@ async function boot() {
     startService('sync', startSync)
     // local MCP bridge (Settings → Agents · MCP): idle until switched on for this device
     startService('mcp', startMcp)
+    // custom functions (built by clicking) → the spreadsheet engine + database formulas
+    startService('custom functions', startCustomFunctions)
   }
 
   // PWA share target (/app/?title=…&text=…&url=…) → the #/clip route, before the first render

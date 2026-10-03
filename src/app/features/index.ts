@@ -139,3 +139,11 @@ export { startSync, stopSync, openSyncSettings, consumeSyncSettingsRequest, useS
  *  - openMcpSettings(): open Settings on that tab · consumeMcpSettingsRequest(): SettingsModal asks on open
  */
 export { startMcp, McpTab, McpStatusCell, openMcpSettings, consumeMcpSettingsRequest } from './mcp'
+/*
+ * Custom functions, built by clicking — no code (Workspace.functions; usable in spreadsheet cells and database formulas):
+ *  - startCustomFunctions(): background service (start once from main.tsx after hydrate) — pushes the workspace's
+ *    functions into the spreadsheet engine and offers them to database formulas, on every change
+ *  - openFunctionBuilder(id?): open the "Functions" dialog (modal 'functions') · FunctionsModal (lazy)
+ *  - demoFunctions(lang): MARGIN(price; cost) for the seed
+ */
+export { startCustomFunctions, openFunctionBuilder, FunctionsModal, demoFunctions } from './sheets/functions'

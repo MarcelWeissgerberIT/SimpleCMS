@@ -72,7 +72,7 @@ export function FormulaEditor({ db: initialDb, prop, rows, resolver, onClose }: 
   const propList = db.properties.filter((p) => p.id !== prop.id && (!q || p.name.toLowerCase().includes(q)))
   const fnList = FORMULA_CATALOG.filter((f) => f.name !== 'prop' && (!q || f.name.toLowerCase().includes(q)))
   // "Create property “X”": a searched name that is neither a property nor a function
-  const canCreate = !creator.blocked && creator.isNew(query) && !FORMULA_CATALOG.some((f) => f.name.toLowerCase() === q)
+  const canCreate = !creator.blocked && creator.isNew(query) && ![...FORMULA_CATALOG, ...customFormulaFunctions()].some((f) => f.name.toLowerCase() === q)
   const missing = err?.code === 'unknownProperty' && typeof err.vars?.name === 'string' && !creator.blocked && creator.isNew(err.vars.name) ? err.vars.name : null
   const groups = ['logic', 'text', 'math', 'date'] as const
   // the workspace's custom functions (built by clicking — features/sheets/functions); re-read when they change
