@@ -525,7 +525,8 @@
 
 .chb-type__thumb {
   display: block;
-  min-height: 92px;
+  overflow: hidden;
+  height: 112px;
   pointer-events: none;
 }
 

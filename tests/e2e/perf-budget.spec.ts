@@ -242,14 +242,14 @@ test.describe('performance budget (big workspace)', () => {
       expect(tableMs, 'opening a 400-row table').toBeLessThan(6000)
       expect(await page.locator('#main section.db .dbt-body .dbt-row[role="row"]').count(), 'table rows stay virtualised').toBeLessThan(200)
       // a write elsewhere does not make the open table re-derive its rows (see useRelevantPages)
-      const scans = await page.evaluate(async (id) => {
+      const walked = await page.evaluate(async (id) => {
         const w = window as unknown as { __perf: PerfCounters; __one: { workspace: { getState: () => Record<string, any> } } } // eslint-disable-line @typescript-eslint/no-explicit-any
         const before = w.__perf.scans
         w.__one.workspace.getState().updatePage(id, { title: 'Perf · Big page (edited)' })
         await new Promise((r) => setTimeout(r, 120))
         return w.__perf.scans - before
       }, big.bigPageId)
-      expect(scans, 'page-map scans for a write outside the open table').toBeLessThanOrEqual(5)
+      expect(walked, 'page-map scans for a write outside the open table').toBeLessThanOrEqual(WRITE_SCANS)
     })
 
     await test.step('⌘K search', async () => {

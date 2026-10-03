@@ -186,8 +186,17 @@ export function SourceStep({ draft, onChange, allowed, pageId }: { draft: Source
     <div className="chb-source">
       {cards.length > 1 && (
         <div className="chb-cards" role="radiogroup" aria-label={t('charts.source.label')}>
-          {cards.map((k) => (
-            <button key={k} type="button" role="radio" aria-checked={draft.kind === k} className="chb-card" onClick={() => pick(k)} data-source={k}>
+          {cards.map((k, i) => (
+            <button
+              key={k}
+              type="button"
+              role="radio"
+              aria-checked={draft.kind === k}
+              className="chb-card"
+              onClick={() => pick(k)}
+              data-source={k}
+              data-autofocus={(draft.kind ? draft.kind === k : i === 0) || undefined}
+            >
               <span className="chb-card__icon" aria-hidden>
                 {ICONS[k]}
               </span>

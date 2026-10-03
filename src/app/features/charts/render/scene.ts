@@ -414,7 +414,7 @@ function xy(ctx: Ctx, kind: 'bar' | 'stacked' | 'line' | 'area' | 'scatter' | 'b
     }
     if (d) nodes.push(h('path', { d, fill: 'none', stroke: colors[k], 'stroke-width': 2, 'stroke-linejoin': 'round', 'stroke-linecap': 'round', class: 'ch-line' }))
   }
-  const markers = n <= 36
+  const markers = n <= 36 && spacing >= 12
   if (markers)
     for (const { k, pts } of series)
       pts.forEach((p, i) => {

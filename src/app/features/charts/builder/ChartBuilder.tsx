@@ -10,6 +10,7 @@ import type { ChartData, ChartKind, ChartSource, ChartSourceKind, ChartSpec } fr
 import { normalizeSpec, suggestKind } from '../spec'
 import { tableToChartData } from '../table'
 import { useChartData } from '../data/resolve'
+import { metricDef } from '../data/system'
 import { ChartRenderer } from '../render/ChartRenderer'
 import type { BuilderStep, ChartBuilderOptions } from './host'
 import { SourceStep, autoTitle, initialDraft, sourceOf, type SourceDraft } from './SourceStep'
@@ -54,7 +55,8 @@ export default function ChartBuilder(props: ChartBuilderOptions & { onClose: () 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [source, inline, spec.labels, spec.seriesIn, spec.unit, t, lang])
   const data: ChartData = inlineData ?? live.data
-  const suggestion = useMemo(() => suggestKind(source ? data : null), [data, source])
+  // workspace metrics know their best form; everything else is read from the data
+  const suggestion = useMemo(() => (source?.kind === 'system' && metricDef(source.metric) && !data.error ? metricDef(source.metric)!.kind : suggestKind(source ? data : null)), [data, source])
   const kind = kindTouched ? spec.kind : suggestion
   const title = titleTouched ? (spec.title ?? '') : autoTitle(src, t)
 
