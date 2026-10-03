@@ -1,0 +1,34 @@
+{
+  "name": "simplecms-one-server",
+  "private": true,
+  "version": "0.1.0",
+  "description": "SimpleCMS One team cloud server: magic-link auth, workspaces, Yjs sync (Hocuspocus), files. Self-hostable.",
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "engines": {
+    "node": ">=22.13"
+  },
+  "scripts": {
+    "dev": "node build.mjs --watch --run",
+    "build": "node build.mjs",
+    "start": "node --disable-warning=ExperimentalWarning dist/index.js",
+    "cli": "node --disable-warning=ExperimentalWarning dist/cli.js",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "node build.mjs && node --disable-warning=ExperimentalWarning --test --test-concurrency=4 \"test/*.test.ts\""
+  },
+  "dependencies": {
+    "@hocuspocus/server": "^4.7.0",
+    "@hono/node-server": "^2.1.3",
+    "hono": "^4.13.12",
+    "nodemailer": "^10.0.13",
+    "yjs": "^13.6.33",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@hocuspocus/provider": "^4.7.0",
+    "@types/node": "^22.20.5",
+    "@types/nodemailer": "^8.0.2",
+    "esbuild": "^0.28.2",
+    "typescript": "~5.9"
+  }
+}

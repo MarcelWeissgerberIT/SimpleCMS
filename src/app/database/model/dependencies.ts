@@ -4,10 +4,12 @@
  */
 import { differenceInCalendarDays } from 'date-fns'
 import { useWorkspace } from '../../store/store'
+import { useUI } from '../../store/ui'
+import { t } from '../../i18n'
 import type { DateValue, ID, Page, PropertyDef } from '../../store/types'
 import { isDateValue, parseLocal, shiftDateValue } from './format'
 import { writeValue } from './actions'
-import { linkedIds, type DependencyPair } from './hierarchy'
+import { dependenciesOf, linkedIds, type DependencyPair } from './hierarchy'
 
 const ws = () => useWorkspace.getState()
 
@@ -58,4 +60,19 @@ export function shiftDependents(dbId: ID, dateProp: PropertyDef, pair: Dependenc
     }
   }
   return [...before].map(([id, v]) => ({ id, before: v }))
+}
+
+/**
+ * A row's dates were moved by the user (timeline / calendar drag): with "shift dependents" on,
+ * push its dependents later and offer undo in a toast. No-op without dependencies.
+ */
+export function afterDateMove(dbId: ID, dateProp: PropertyDef, rowId: ID): void {
+  const dep = dependenciesOf(ws().databases[dbId])
+  if (!dep || dep.onConflict !== 'shift' || dateProp.type !== 'date') return
+  const moved = shiftDependents(dbId, dateProp, dep, rowId)
+  if (!moved.length) return
+  useUI.getState().toast({
+    message: t(`database.dep.shifted.${moved.length === 1 ? 'one' : 'other'}`, { count: moved.length }),
+    action: { label: t('common.undo'), run: () => moved.forEach((x) => writeValue(dbId, dateProp, x.id, x.before)) },
+  })
 }

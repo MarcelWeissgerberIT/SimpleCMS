@@ -28,7 +28,8 @@ export interface TreeNode {
 /** Indentation stops growing here (deeper levels still nest). */
 export const MAX_INDENT = 4
 
-export function buildTree(m: DbModel, pair: SubItemsPair, expanded: Set<ID>): TreeNode[] {
+/** `collapsed`: parents whose sub-items are hidden (everything else starts open). */
+export function buildTree(m: DbModel, pair: SubItemsPair, collapsed: Set<ID>): TreeNode[] {
   const pages = m.resolver.ctx.pages
   const byId = new Map(m.allRows.map((r) => [r.id, r]))
   const parentOf = (r: Page) => {
@@ -88,7 +89,7 @@ export function buildTree(m: DbModel, pair: SubItemsPair, expanded: Set<ID>): Tr
     const kids = (children.get(row.id) ?? []).filter((k) => !seen.has(k.id))
     const dimmed = !matched.has(row.id)
     // a dimmed parent is only there to show where a match lives: always open
-    const open = kids.length > 0 && (dimmed || expanded.has(row.id))
+    const open = kids.length > 0 && (dimmed || !collapsed.has(row.id))
     out.push({ row, depth, childCount: kids.length, expanded: open, dimmed, last, rails })
     // children see this row's line running on unless it was the last of its siblings (roots have none)
     const childRails = depth > 0 ? rails + (last ? '0' : '1') : ''
@@ -108,7 +109,8 @@ export interface Tree {
 /** Sub-items state of the current table / list view. */
 export function useTree(m: DbModel): Tree {
   const pair = useMemo(() => subItemsOf(m.db), [m.db])
-  const [list, setList] = useLocalState<ID[]>(`one.db.expanded.${m.view.id}`, [])
+  // per viewer + view: the parents someone closed (sub-items start open, so nothing hides by surprise)
+  const [list, setList] = useLocalState<ID[]>(`one.db.subclosed.${m.view.id}`, [])
   const nested = !!pair && (m.view.subItems ?? 'nested') === 'nested' && !m.groups && (m.view.type === 'table' || m.view.type === 'list')
   const key = list.join('|')
   const nodes = useMemo(
@@ -117,7 +119,7 @@ export function useTree(m: DbModel): Tree {
     [nested, pair, m.rows, m.allRows, m.resolver, key, m.view.sorts],
   )
   const toggle = useCallback((id: ID) => setList((cur) => (cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id])), [setList])
-  const expand = useCallback((id: ID) => setList((cur) => (cur.includes(id) ? cur : [...cur, id])), [setList])
+  const expand = useCallback((id: ID) => setList((cur) => (cur.includes(id) ? cur.filter((x) => x !== id) : cur)), [setList])
   return { pair, nodes, toggle, expand }
 }
 

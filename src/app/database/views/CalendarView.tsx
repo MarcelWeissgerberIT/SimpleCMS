@@ -19,6 +19,7 @@ import { writeValue } from '../model/actions'
 import { Select, TypeIcon } from '../parts'
 import { isDateType } from '../model/schema'
 import { activeRules, ruleMatcher } from '../model/colors'
+import { afterDateMove } from '../model/dependencies'
 import './calendar.css'
 
 interface Ev {
@@ -141,7 +142,10 @@ export default function CalendarView() {
     if (!delta) return
     const row = useWorkspace.getState().pages[g.row]
     const v = row?.properties[prop.id]
-    if (row && isDateValue(v)) writeValue(m.db.id, prop, row.id, shiftDateValue(v as DateValue, delta))
+    if (row && isDateValue(v)) {
+      writeValue(m.db.id, prop, row.id, shiftDateValue(v as DateValue, delta))
+      if (delta > 0) afterDateMove(m.db.id, prop, row.id)
+    }
   }
 
   const createOn = (day: Date) => {

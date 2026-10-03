@@ -18,10 +18,10 @@ import { useViewActions, EmptyState } from './shared'
 import { eventsOf, PickDateProp } from './CalendarView'
 import { dfLocale, isDateValue, isoWithTime, parseLocal, toISODate, weekStartsOn } from '../model/format'
 import { writeValue } from '../model/actions'
-import { Segmented, plural } from '../parts'
+import { Segmented } from '../parts'
 import { uniformOffsets, useWindow } from './virtual'
 import { dependenciesOf, linkedIds } from '../model/hierarchy'
-import { shiftDependents } from '../model/dependencies'
+import { afterDateMove } from '../model/dependencies'
 import { DepArrows, type BarGeom, type DepEdge } from './timeline/DepArrows'
 import '../structure.css'
 import './timeline.css'
@@ -228,15 +228,7 @@ export default function TimelineView() {
       const hasRange = differenceInCalendarDays(ne, ns) > 0 || !!dv.end
       writeValue(m.db.id, prop, row.id, { ...dv, start: isoWithTime(ns, withTime), end: hasRange ? isoWithTime(ne, withTime) : null })
       // a blocker that now ends later pushes its dependents (setting: shift) — or just shows red arrows
-      const dep = dependenciesOf(useWorkspace.getState().databases[m.db.id])
-      if (dep?.onConflict === 'shift' && state.mode !== 'start') {
-        const moved = shiftDependents(m.db.id, prop, dep, row.id)
-        if (moved.length)
-          useUI.getState().toast({
-            message: plural(t, 'database.dep.shifted', moved.length),
-            action: { label: t('common.undo'), run: () => moved.forEach((x) => writeValue(m.db.id, prop, x.id, x.before)) },
-          })
-      }
+      if (state.mode !== 'start') afterDateMove(m.db.id, prop, row.id)
     }
     window.addEventListener('pointermove', onMove)
     window.addEventListener('pointerup', onUp)

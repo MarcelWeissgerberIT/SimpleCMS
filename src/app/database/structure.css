@@ -97,8 +97,8 @@
   font-variant-numeric: tabular-nums;
 }
 
-/* takes room only while the row is pointed at, so titles keep their width */
-.db-addsub {
+/* takes room only while the row is pointed at (or its cell is active), so titles keep their width */
+.db-open.db-addsub {
   display: none;
   padding: 0 4px;
 }
@@ -107,14 +107,26 @@
   margin-left: 4px;
 }
 
-.dbt-row:hover .db-addsub,
-.dbt-cell[data-active='true'] .db-addsub,
-.dbl-row:hover .db-addsub,
-.dbl-row:focus-within .db-addsub,
-.db-addsub:focus-visible {
+.dbt-row:hover .db-open.db-addsub,
+.dbt-cell[data-active='true'] .db-open.db-addsub,
+.dbl-row:hover .db-open.db-addsub,
+.dbl-row:focus-within .db-open.db-addsub,
+.db-open.db-addsub:focus-visible {
   display: inline-flex;
   opacity: 1;
   pointer-events: auto;
+}
+
+@media (hover: none) {
+  .dbt-row:hover .db-open.db-addsub,
+  .dbl-row:hover .db-open.db-addsub {
+    display: none;
+  }
+
+  .dbt-cell[data-active='true'] .db-open.db-addsub,
+  .dbl-row:focus-within .db-open.db-addsub {
+    display: inline-flex;
+  }
 }
 
 /* context-only parents (a sub-item matches the filter, they don't) */

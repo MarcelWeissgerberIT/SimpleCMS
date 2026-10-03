@@ -38,14 +38,16 @@ test.describe('sub-items', () => {
   test('enable, add a sub-item, nest + collapse, display modes, no loops, board count', async ({ page }) => {
     await openApp(page)
     const dbId = await pageIdByTitle(page, 'Projects')
-    const webId = await pageIdByTitle(page, 'Website relaunch')
+    // a parent the demo data leaves alone (the seed may nest other rows)
+    const webId = await pageIdByTitle(page, 'Brand refresh')
     await gotoPage(page, dbId)
     await tab(page, 'All projects').click()
     await expect(db(page)).toHaveAttribute('data-view', 'table')
 
     // switch on from the view's "…" menu
     await openMore(page, /^Sub-items/)
-    await page.getByRole('switch', { name: 'Rows can have sub-items' }).click()
+    const subSwitch = page.getByRole('switch', { name: 'Rows can have sub-items' })
+    if ((await subSwitch.getAttribute('aria-checked')) !== 'true') await subSwitch.click()
     await expect.poll(async () => (await structure(page, dbId)).sub?.enabled).toBe(true)
     const st = await structure(page, dbId)
     const parentProp = st.sub!.parentPropertyId as string
@@ -54,7 +56,7 @@ test.describe('sub-items', () => {
     await page.keyboard.press('Escape')
 
     // "+ Add sub-item" on hover of a parent row → new row nested under it, title in edit mode
-    const web = tableRow(page, 'Website relaunch')
+    const web = tableRow(page, 'Brand refresh')
     await web.hover()
     await web.getByRole('button', { name: 'Add sub-item' }).click()
     await expect(page.locator('.db-textedit__area')).toBeFocused()
@@ -72,13 +74,13 @@ test.describe('sub-items', () => {
     const titles = await db(page)
       .locator('.dbt-body .dbt-row[role="row"] .db-rowtitle__text')
       .allTextContents()
-    expect(titles[titles.indexOf('Website relaunch') + 1]).toBe('Wireframes')
+    expect(titles[titles.indexOf('Brand refresh') + 1]).toBe('Wireframes')
 
     // collapse and expand
-    await web.getByRole('button', { name: /Hide sub-items of “Website relaunch”/ }).click()
+    await web.getByRole('button', { name: /Hide sub-items of “Brand refresh”/ }).click()
     await expect(sub).toHaveCount(0)
     await expect(web.locator('.db-tree__n')).toHaveText('1')
-    await web.getByRole('button', { name: /Show 1 sub-items of “Website relaunch”/ }).click()
+    await web.getByRole('button', { name: /Show 1 sub-items of “Brand refresh”/ }).click()
     await expect(sub).toBeVisible()
 
     // display: flat → no nesting; parents only → the sub-item is gone; back to nested
@@ -96,7 +98,7 @@ test.describe('sub-items', () => {
 
     // a loop is refused: the parent can't become a sub-item of its own sub-item
     await gotoPage(page, webId)
-    await (await prop(page, 'Website relaunch', 'Parent item')).click()
+    await (await prop(page, 'Brand refresh', 'Parent item')).click()
     const option = page.locator('.db-picker .db-opt', { hasText: 'Wireframes' })
     await expect(option).toHaveAttribute('aria-disabled', 'true')
     await option.click({ force: true }) // disabled: picking it does nothing
@@ -105,13 +107,13 @@ test.describe('sub-items', () => {
     // … and from the other side too
     await gotoPage(page, subId)
     await (await prop(page, 'Wireframes', 'Sub-items')).click()
-    await expect(page.locator('.db-picker .db-opt', { hasText: 'Website relaunch' })).toHaveAttribute('aria-disabled', 'true')
+    await expect(page.locator('.db-picker .db-opt', { hasText: 'Brand refresh' })).toHaveAttribute('aria-disabled', 'true')
     await page.keyboard.press('Escape')
 
     // board cards count their sub-items
     await gotoPage(page, dbId)
     await tab(page, 'Board').click()
-    await expect(db(page).locator('.dbc', { hasText: 'Website relaunch' }).locator('.dbc-subs')).toHaveText(/1 sub-item$/)
+    await expect(db(page).locator('.dbc', { hasText: 'Brand refresh' }).locator('.dbc-subs')).toHaveText(/1 sub-item$/)
 
     // nesting survives a reload (expand state per view)
     await flush(page)
@@ -133,7 +135,8 @@ test.describe('dependencies', () => {
     await expect(db(page)).toHaveAttribute('data-view', 'timeline')
 
     await openMore(page, /^Dependencies/)
-    await page.getByRole('switch', { name: 'Rows can block other rows' }).click()
+    const depSwitch = page.getByRole('switch', { name: 'Rows can block other rows' })
+    if ((await depSwitch.getAttribute('aria-checked')) !== 'true') await depSwitch.click()
     await expect.poll(async () => (await structure(page, dbId)).dep?.enabled).toBe(true)
     const st = await structure(page, dbId)
     const blockedBy = st.dep!.blockedByPropertyId as string
@@ -224,7 +227,7 @@ test.describe('colour rules', () => {
     await openMore(page, /^Colour rules/)
     const panel = page.locator('.db-rcpanel')
     await panel.getByRole('button', { name: 'Add colour rule' }).click()
-    const rule = panel.locator('.db-rcrule').first()
+    const rule = panel.locator('.db-rcrule').last()
     await rule.getByRole('button', { name: 'Add condition' }).click()
     await page.getByRole('menuitem', { name: 'Status' }).click()
     await rule.locator('.db-frule__value').click()
@@ -235,8 +238,7 @@ test.describe('colour rules', () => {
     await expect(panel).toBeHidden()
 
     const view = await wsEval(page, (s, dbId) => JSON.parse(JSON.stringify(s.databases[dbId].views.find((v: { name: string }) => v.name === 'All projects'))), dbId)
-    expect(view.colorRules).toHaveLength(1)
-    expect(view.colorRules[0]).toMatchObject({ color: 'green', target: 'background' })
+    expect(view.colorRules.at(-1)).toMatchObject({ color: 'green', target: 'background' })
 
     for (const title of ['Import our Notion workspace', 'Brand refresh']) {
       await expect(tableRow(page, title)).toHaveClass(/\bdb-rc\b/)

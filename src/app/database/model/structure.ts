@@ -9,6 +9,7 @@ import { newId } from '../../lib/ids'
 import { t } from '../../i18n'
 import type { Database, DependenciesConfig, ID, PropertyDef, SubItemsConfig } from '../../store/types'
 import { TWO_WAY_SUFFIX, deletePropertiesWithUndo } from './actions'
+import { dependenciesOf, subItemsOf } from './hierarchy'
 
 const ws = () => useWorkspace.getState()
 const toast = (message: string) => useUI.getState().toast({ message })
@@ -29,7 +30,8 @@ function addPair(dbId: ID, forwardName: string, backName: string): [ID, ID] {
 
 export function enableSubItems(dbId: ID): void {
   const db = ws().databases[dbId]
-  if (!db || db.subItems?.enabled) return
+  // a config whose properties were deleted or retyped counts as off: build a fresh pair
+  if (!db || subItemsOf(db)) return
   const c = db.subItems
   if (c && relationIn(db, c.parentPropertyId) && relationIn(db, c.childPropertyId)) {
     ws().updateDatabase(dbId, { subItems: { ...c, enabled: true } })
@@ -58,7 +60,7 @@ export function disableSubItems(dbId: ID, deleteProps: boolean): void {
 
 export function enableDependencies(dbId: ID): void {
   const db = ws().databases[dbId]
-  if (!db || db.dependencies?.enabled) return
+  if (!db || dependenciesOf(db)) return
   const c = db.dependencies
   if (c && relationIn(db, c.blockedByPropertyId) && relationIn(db, c.blockingPropertyId)) {
     ws().updateDatabase(dbId, { dependencies: { ...c, enabled: true } })
