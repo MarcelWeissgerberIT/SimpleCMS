@@ -55,19 +55,44 @@ export function useBreadcrumbs(id: ID | null | undefined): Page[] {
   return useMemo(() => (id ? selectBreadcrumbs(pages, id) : []), [pages, id])
 }
 
-/*
- * "Effectively trashed" (the page or any ancestor is in the trash), memoised per pages map:
- * the map is immutable, so one answer per page id holds until the next store change.
+/**
+ * No page added or removed between two page maps, and every changed page `keeps` what an answer
+ * depends on (the store's shared diff: cheap right after a change).
  */
-const trashedCache = new WeakMap<Record<ID, Page>, Map<ID, boolean>>()
+function sameShape(pages: Record<ID, Page>, prev: Record<ID, Page>, keeps: (p: Page, o: Page) => boolean): boolean {
+  const { changed, added, removed } = pageChanges(pages, prev)
+  if (added.length || removed.length) return false
+  for (const id of changed) if (!keeps(pages[id], prev[id])) return false
+  return true
+}
+
+/*
+ * Answers that depend on a page's ancestry (in the trash? in a template?), memoised per pages map —
+ * the map is immutable, so an answer holds until the next store change. A change that re-parents,
+ * adds, removes, trashes or restores no page (typing, a property) keeps every answer: the new map
+ * shares the previous map's memo instead of rebuilding it page by page.
+ */
+interface AncestryMemo<V> {
+  byPages: WeakMap<Record<ID, Page>, Map<ID, V>>
+  last: Record<ID, Page> | null
+  keeps: (p: Page, o: Page) => boolean
+}
+
+function memoOf<V>(m: AncestryMemo<V>, pages: Record<ID, Page>): Map<ID, V> {
+  let memo = m.byPages.get(pages)
+  if (memo) return memo
+  const prev = m.last ? m.byPages.get(m.last) : undefined
+  memo = prev && sameShape(pages, m.last!, m.keeps) ? prev : new Map()
+  m.byPages.set(pages, memo)
+  m.last = pages
+  return memo
+}
+
+/* "Effectively trashed": the page or any ancestor is in the trash. */
+const trashedMemo: AncestryMemo<boolean> = { byPages: new WeakMap(), last: null, keeps: (p, o) => p.parentId === o.parentId && p.trashed === o.trashed }
 
 function trashedLookup(pages: Record<ID, Page>): (id: ID) => boolean {
-  let known = trashedCache.get(pages)
-  if (!known) {
-    known = new Map()
-    trashedCache.set(pages, known)
-  }
-  const memo = known
+  const memo = memoOf(trashedMemo, pages)
   return (id) => {
     const hit = memo.get(id)
     if (hit !== undefined) return hit
@@ -105,15 +130,10 @@ export function isEffectivelyTrashed(pages: Record<ID, Page>, id: ID): boolean {
  * backlinks of other pages, recent, folder sync, agent context, exports all ask inTemplate().
  * Memoised per pages map like the trash lookup; top-level pages answer without the memo.
  */
-const templateCache = new WeakMap<Record<ID, Page>, Map<ID, ID | null>>()
+const templateMemo: AncestryMemo<ID | null> = { byPages: new WeakMap(), last: null, keeps: (p, o) => p.parentId === o.parentId && !!p.template === !!o.template }
 
 function templateLookup(pages: Record<ID, Page>): (id: ID) => ID | null {
-  let known = templateCache.get(pages)
-  if (!known) {
-    known = new Map()
-    templateCache.set(pages, known)
-  }
-  const memo = known
+  const memo = memoOf(templateMemo, pages)
   return (id) => {
     const page = pages[id]
     if (!page) return null
@@ -239,11 +259,22 @@ export interface PageStats {
 
 const statsCache = new WeakMap<Record<ID, Page>, PageStats>()
 let lastStats: PageStats | null = null
+let lastStatsPages: Record<ID, Page> | null = null
 const sameList = (a: Page[], b: Page[] | undefined) => !!b && a.length === b.length && a.every((p, i) => p === b[i])
+
+/** A changed page leaves the stats as they are: none of what they count, list or sort by changed. */
+const statsKeep = (p: Page, o: Page) =>
+  !p.favorite && !o.favorite && !p.trashed && !o.trashed && p.databaseId === o.databaseId && p.hidden === o.hidden && p.private === o.private && p.parentId === o.parentId && !!p.template === !!o.template
 
 export function pageStats(pages: Record<ID, Page>): PageStats {
   const hit = statsCache.get(pages)
   if (hit) return hit
+  // typing, a row property …: the last pass still holds (no walk over the page map)
+  if (lastStats && lastStatsPages && sameShape(pages, lastStatsPages, statsKeep)) {
+    statsCache.set(pages, lastStats)
+    lastStatsPages = pages
+    return lastStats
+  }
   const rows = new Map<ID, number>()
   const tree = { all: 0, priv: 0, shared: 0 }
   let favs: Page[] = []
@@ -276,6 +307,7 @@ export function pageStats(pages: Record<ID, Page>): PageStats {
   const stats: PageStats = { rows, tree, hasFavorites, favorites: favs, trash }
   statsCache.set(pages, stats)
   lastStats = stats
+  lastStatsPages = pages
   return stats
 }
 

@@ -355,6 +355,20 @@ export function defaultView(type: View['type'], db: Pick<Database, 'properties'>
   return view
 }
 
+/**
+ * Bulk loads (boot, another tab's save, an import or backup): freeze the page map and every page
+ * shallowly before they enter the store. Immer deep-freezes whatever new data a write brings in
+ * and stops at frozen objects — without this, loading a workspace froze every node of every page's
+ * content (seconds for a big one) and the first write after it did the same. A page that changes
+ * later is deep-frozen with that write, as before.
+ */
+function freezePages(pages: Record<ID, Page>): Record<ID, Page> {
+  if (Object.isFrozen(pages)) return pages
+  const ids = Object.keys(pages)
+  for (let i = 0; i < ids.length; i++) Object.freeze(pages[ids[i]])
+  return Object.freeze(pages)
+}
+
 export const useWorkspace = create<WorkspaceState>()(
   immer((set, get) => ({
     ...emptyWorkspace(),
@@ -362,12 +376,13 @@ export const useWorkspace = create<WorkspaceState>()(
 
     hydrate: (ws) =>
       set((s) => {
-        Object.assign(s, ws)
+        Object.assign(s, ws, { pages: freezePages(ws.pages) })
         s.ready = true
       }),
 
     replaceAll: (ws) =>
       set((s) => {
+        freezePages(ws.pages)
         s.version = ws.version
         s.pages = ws.pages
         s.databases = ws.databases

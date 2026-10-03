@@ -1,7 +1,7 @@
 /**
  * The margin rail's outline: headings H1–H3 and toggle headings (`details` with attrs.heading)
  * read from the page's editor, a scroll-spy (IntersectionObserver — no work per scroll frame)
- * and the jump to a heading (opening closed toggles / hidden tabs on the way).
+ * and the jumps to a heading or a date mention (opening closed toggles / hidden tabs on the way).
  */
 import { useEffect, useRef, useState } from 'react'
 import type { Editor } from '@tiptap/core'
@@ -189,10 +189,10 @@ function reveal(el: HTMLElement, root: HTMLElement): boolean {
 }
 
 /**
- * A short signal tick in the gutter left of a heading — drawn in the scroll column, never in
+ * A short signal tick in the gutter left of a heading (or line) — drawn in the scroll column, never in
  * the editor's DOM (ProseMirror re-renders a node whose attributes someone else touched).
  */
-function markHeading(el: HTMLElement, host: HTMLElement) {
+function markBlock(el: HTMLElement, host: HTMLElement) {
   host.querySelector(':scope > .mrail-mark')?.remove()
   const r = el.getBoundingClientRect()
   const h = host.getBoundingClientRect()
@@ -209,7 +209,32 @@ function markHeading(el: HTMLElement, host: HTMLElement) {
 /** Scroll the page column to the n-th outline heading and mark it. */
 export function jumpToHeading(editor: Editor | null, n: number): boolean {
   if (!editor || editor.isDestroyed) return false
-  const el = headingEls(editor)[n]
+  return jumpTo(editor, headingEls(editor)[n])
+}
+
+/**
+ * Scroll the page column to the block holding a date mention (a reminder of this page) and mark
+ * it — the first mention of that date, preferably the one with that reminder code.
+ */
+export function jumpToDate(editor: Editor | null, iso: string, code: string): boolean {
+  if (!editor || editor.isDestroyed) return false
+  let exact = -1
+  let first = -1
+  editor.state.doc.descendants((node, pos) => {
+    if (exact >= 0) return false
+    if (node.type.name !== 'mention' || node.attrs.kind !== 'date' || node.attrs.id !== iso) return
+    if (node.attrs.reminder === code) exact = pos
+    else if (first < 0) first = pos
+  })
+  const pos = exact >= 0 ? exact : first
+  if (pos < 0) return false
+  // the text block around the mention: the tick marks a line, not a word
+  const $pos = editor.state.doc.resolve(pos)
+  const block = $pos.depth > 0 ? editor.view.nodeDOM($pos.before($pos.depth)) : editor.view.nodeDOM(pos)
+  return jumpTo(editor, block instanceof HTMLElement ? block : null)
+}
+
+function jumpTo(editor: Editor, el: HTMLElement | null | undefined): boolean {
   if (!el || el === editor.view.dom) return false
   const host = scrollHostOf(el)
   const go = () => {
@@ -220,7 +245,7 @@ export function jumpToHeading(editor: Editor | null, n: number): boolean {
     host.dispatchEvent(new Event('pointerdown'))
     const top = el.getBoundingClientRect().top - host.getBoundingClientRect().top + host.scrollTop - 28
     host.scrollTo({ top: Math.max(0, top), behavior: reducedMotion() ? 'auto' : 'smooth' })
-    markHeading(el, host)
+    markBlock(el, host)
   }
   // revealed content lays out on the next frames (the tabs view re-renders through React)
   if (reveal(el, editor.view.dom as HTMLElement)) requestAnimationFrame(() => requestAnimationFrame(go))

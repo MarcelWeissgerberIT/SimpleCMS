@@ -1,21 +1,26 @@
 /**
  * The margin rail: on wide page columns, a sticky column right of the text with the page's
- * outline (scroll-spy), its spec readings and the pages linking here. PageView decides when it
- * shows (main column only, wide enough, no focus mode, no comment rail — see page.css).
+ * outline (scroll-spy), its upcoming reminders, its spec readings and the pages linking here.
+ * PageView decides when it shows (main column only, wide enough, no focus mode, no comment rail —
+ * see page.css).
  */
-import { useEffect, useId, useRef, type ReactNode } from 'react'
+import { useEffect, useId, useLayoutEffect, useMemo, useRef, type ReactNode } from 'react'
 import type { Editor } from '@tiptap/core'
-import { PanelRightClose, PanelRightOpen } from 'lucide-react'
+import { format } from 'date-fns'
+import { de, enUS } from 'date-fns/locale'
+import { BellRing, PanelRightClose, PanelRightOpen } from 'lucide-react'
 import { useWorkspace } from '../../store/store'
-import { useBacklinks } from '../../store/selectors'
+import { inTemplate, isEffectivelyTrashed, useBacklinks } from '../../store/selectors'
+import { collectReminders, type ReminderEntry } from '../../features'
 import { PageIcon } from '../../ui/PageIcon'
 import { Tooltip } from '../../ui/Tooltip'
-import { useT } from '../../i18n'
+import { useLang, useT } from '../../i18n'
 import type { Page } from '../../store/types'
 import { goToPage } from '../lib/actions'
-import { useKbdHint } from '../lib/hooks'
+import { fmtRelative } from '../lib/format'
+import { useKbdHint, useNow } from '../lib/hooks'
 import { Stamp, shortId, usePageReadings } from './SpecPlate'
-import { jumpToHeading, useOutline, type OutlineItem } from './outline'
+import { jumpToDate, jumpToHeading, scrollToBlock, useOutline, type OutlineItem } from './outline'
 import { RAIL_SHORTCUT, toggleMarginRail, useMarginRailOpen } from './railPref'
 
 export function MarginRail({ page, editor }: { page: Page; editor: Editor | null }) {
@@ -25,12 +30,15 @@ export function MarginRail({ page, editor }: { page: Page; editor: Editor | null
   const bodyId = useId()
   const outline = useOutline(editor, open)
   const links = useBacklinks(page.id)
+  const due = useUpcomingReminders(page, open)
   const showOutline = outline.items.length >= 2
+  const ref = useRef<HTMLElement>(null)
+  useBesideProperties(ref, !!page.databaseId)
   let n = 0
   const no = () => String(++n).padStart(2, '0')
 
   return (
-    <aside className="mrail" data-open={open || undefined} aria-label={t('shell.rail.label')}>
+    <aside ref={ref} className="mrail" data-open={open || undefined} aria-label={t('shell.rail.label')}>
       <div className="mrail__inner">
         <Tooltip label={t(open ? 'shell.rail.hide' : 'shell.rail.show')} shortcut={kbd(RAIL_SHORTCUT)} placement="left">
           <button type="button" className="mrail__key" aria-expanded={open} aria-controls={open ? bodyId : undefined} onClick={toggleMarginRail}>
@@ -48,6 +56,11 @@ export function MarginRail({ page, editor }: { page: Page; editor: Editor | null
                     if (jumpToHeading(editor, i)) outline.pin(i)
                   }}
                 />
+              </RailSection>
+            )}
+            {due.length > 0 && (
+              <RailSection n={no()} label={t('shell.rail.reminders')} count={due.length}>
+                <Reminders list={due} editor={editor} />
               </RailSection>
             )}
             <RailSection n={no()} label={t(page.databaseId ? 'shell.rail.entry' : 'shell.rail.page')}>
@@ -128,6 +141,80 @@ function Outline({ items, active, onJump }: { items: OutlineItem[]; active: numb
       </ol>
     </nav>
   )
+}
+
+/* ---------------- reminders ---------------- */
+
+const UPCOMING_MAX = 4
+
+/** The reminders of this page that are still to come, soonest first (none in templates or the trash). */
+function useUpcomingReminders(page: Page, enabled: boolean): ReminderEntry[] {
+  const db = useWorkspace((s) => (page.databaseId ? s.databases[page.databaseId] : undefined))
+  // template dates are placeholders, trashed pages remind nobody (as in the inbox)
+  const silent = useWorkspace((s) => inTemplate(s.pages, page.id) || isEffectivelyTrashed(s.pages, page.id))
+  const now = useNow(60_000)
+  const all = useMemo(
+    () => (enabled && !silent ? collectReminders({ [page.id]: page }, db ? { [db.id]: db } : {}) : []),
+    [enabled, silent, page, db],
+  )
+  return useMemo(() => all.filter((r) => r.dueAt > now).slice(0, UPCOMING_MAX), [all, now])
+}
+
+function Reminders({ list, editor }: { list: ReminderEntry[]; editor: Editor | null }) {
+  const t = useT()
+  const lang = useLang()
+  const jump = (r: ReminderEntry, from: HTMLElement) => {
+    if (r.source === 'mention') return jumpToDate(editor, r.iso, r.code)
+    // a date property: the entry's property list
+    const props = from.closest('.pv')?.querySelector<HTMLElement>(':scope > .pv-head .pv-props')
+    if (props) scrollToBlock(props)
+  }
+  return (
+    <ul className="mrail-due">
+      {list.map((r) => {
+        const when = format(r.dueAt, lang === 'de' ? 'EEE dd. MMM · HH:mm' : 'EEE dd MMM · HH:mm', { locale: lang === 'de' ? de : enUS }).toUpperCase()
+        return (
+          <li key={r.key}>
+            <button type="button" className="mrail-due__a" aria-label={t('shell.rail.reminderAt', { when, what: r.excerpt })} onClick={(e) => jump(r, e.currentTarget)}>
+              <span className="mrail-due__when">
+                <BellRing size={12} strokeWidth={1.75} aria-hidden />
+                {when}
+              </span>
+              <span className="mrail-due__in">{fmtRelative(r.dueAt, lang, t('shell.time.justNow')).toUpperCase()}</span>
+              <span className="mrail-due__what">{r.excerpt || '—'}</span>
+            </button>
+          </li>
+        )
+      })}
+    </ul>
+  )
+}
+
+/* ---------------- placement ---------------- */
+
+/**
+ * A database entry: the rail starts beside its property list (the entry's spec sheet), not below
+ * it — a long property list would push the rail out of sight. The offset follows the header's size.
+ */
+function useBesideProperties(ref: React.RefObject<HTMLElement | null>, isRow: boolean) {
+  useLayoutEffect(() => {
+    const rail = ref.current
+    const body = rail?.parentElement
+    const head = rail?.closest('.pv')?.querySelector<HTMLElement>(':scope > .pv-head')
+    const props = head?.querySelector<HTMLElement>('.pv-props')
+    if (!rail || !body || !head || !props || !isRow) return
+    const place = () => {
+      const top = props.getBoundingClientRect().top - body.getBoundingClientRect().top
+      rail.style.top = `${Math.round(top) + 4}px`
+    }
+    place()
+    const ro = new ResizeObserver(place)
+    ro.observe(head)
+    return () => {
+      ro.disconnect()
+      rail.style.top = ''
+    }
+  }, [ref, isRow])
 }
 
 /** The spec plate's readings, as a compact list. */

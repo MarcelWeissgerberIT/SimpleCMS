@@ -226,11 +226,12 @@ async function graphNodes(page: Page): Promise<number> {
   return Number(m![1])
 }
 
-async function agendaBars(page: Page, title: string): Promise<number> {
+/** Agenda sources (one chip per dated database) called `name`. */
+async function agendaSources(page: Page, name: string): Promise<number> {
   await page.evaluate(() => (window.location.hash = '#/agenda'))
   await expect(page.locator('.ag')).toBeVisible()
-  await expect(page.locator('.ag-month')).toBeVisible()
-  return page.locator('.ag-month .ag-bar', { hasText: title }).count()
+  await expect(page.locator('.ag-sources').getByRole('button', { name: /^Projects/ })).toBeVisible()
+  return page.locator('.ag-sources').getByRole('button', { name: new RegExp(`^${name} \\d+$`) }).count()
 }
 
 test.beforeEach(async ({ page }) => {
@@ -242,7 +243,7 @@ test.describe('own templates', () => {
     await openApp(page)
     const kit = await seedKit(page)
     const nodes = await graphNodes(page)
-    expect(await agendaBars(page, 'Kit kickoff')).toBe(1)
+    expect(await agendaSources(page, 'Milestones')).toBe(1)
 
     const tplId = await saveAsTemplate(page, kit.root, { description: 'Brief, checklist and milestones.', category: 'Work' })
     const tpl = await describeTree(page, tplId)
@@ -292,7 +293,7 @@ test.describe('own templates', () => {
     await expect(gallery).toBeHidden()
     // graph and agenda: unchanged
     expect(await graphNodes(page)).toBe(nodes)
-    expect(await agendaBars(page, 'Kit kickoff')).toBe(1)
+    expect(await agendaSources(page, 'Milestones')).toBe(1)
   })
 
   test('use twice: independent copies, every internal reference inside its own copy, variables filled', async ({ page }) => {
@@ -354,14 +355,14 @@ test.describe('own templates', () => {
 
     // the rendered copy: its subpage link and the database rows
     await gotoPage(page, second)
-    await expect(page.locator('#main section.db').getByText('Kit kickoff')).toBeVisible()
+    await expect(page.locator('#main section.db .db-rowtitle__text', { hasText: 'Kit kickoff' })).toBeVisible()
     await editorOf(page).locator('[data-type="mention"]', { hasText: /Checklist/ }).first().click()
     await expect(page).toHaveURL(new RegExp(`#/p/${b.subId}`))
     await expect(page.locator('#main .pv-title')).toHaveValue('Checklist Wed 14 Oct')
 
     // copies are part of normal use: graph (3 pages each) and agenda (one more milestone each)
     expect(await graphNodes(page)).toBe(nodes + 6)
-    expect(await agendaBars(page, 'Kit kickoff')).toBe(3)
+    expect(await agendaSources(page, 'Milestones')).toBe(3)
     await expect(sidebarRow(page, 'Launch kit')).toHaveCount(3)
   })
 
@@ -388,11 +389,11 @@ test.describe('own templates', () => {
     await gotoPage(page, tplId)
 
     // change the content and the gallery details
+    // type at the start of the first line (its middle holds a mention link)
     const ed = editorOf(page, tplId)
-    await ed.locator('p').first().click()
-    await page.keyboard.press(`${MOD}+End`)
-    await page.keyboard.press('Enter')
-    await page.keyboard.type('Edited in the template')
+    await ed.locator('p').first().click({ position: { x: 2, y: 8 } })
+    await page.keyboard.press('Home')
+    await page.keyboard.type('Edited in the template. ')
     await waitForPlain(page, tplId, /Edited in the template/)
     await banner.getByRole('button', { name: 'Details' }).click()
     await banner.getByLabel('Name').fill('Launch kit v2')
@@ -520,7 +521,7 @@ test.describe('own templates', () => {
     // German
     await wsEval(page, (s) => s.updateSettings({ language: 'de' }))
     await gotoPage(page, kit.root)
-    await pageOptions(page)
+    await page.locator('.tb').getByRole('button', { name: 'Seitenoptionen' }).click()
     await expect(page.getByRole('menuitem', { name: 'Als Vorlage speichern…' })).toBeVisible()
     await page.keyboard.press('Escape')
     await page.locator('.sb').getByRole('button', { name: /^Vorlagen/ }).click()
