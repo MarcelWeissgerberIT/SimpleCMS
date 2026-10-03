@@ -204,6 +204,9 @@ export interface UnlinkedHit {
   occ: Occurrence
 }
 
+/** The last few answers per target page (with the page map, title matcher and linked set they hold for). */
+const memo = new Map<ID, { pages: Record<ID, Page>; key: string; linked: ReadonlySet<ID>; hits: UnlinkedHit[] }>()
+
 /**
  * Pages (database rows included) that mention `targetId`'s title in their text without linking it:
  * never the page itself, trashed pages or pages that already link to it. Most recently edited first.
@@ -232,9 +235,6 @@ export function selectUnlinked(pages: Record<ID, Page>, targetId: ID, linked: Re
   if (memo.size > 4) memo.delete(memo.keys().next().value!)
   return hits
 }
-
-/** The last few answers per target page (with the page map, title matcher and linked set they hold for). */
-const memo = new Map<ID, { pages: Record<ID, Page>; key: string; linked: ReadonlySet<ID>; hits: UnlinkedHit[] }>()
 
 /* ------------------------------------------------------------------ */
 /* Actions                                                             */

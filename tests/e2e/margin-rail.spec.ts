@@ -101,12 +101,10 @@ test.describe('margin rail', () => {
     // a signal tick marks the heading (outside the editor's DOM)
     await expect(page.locator('#main > .mrail-mark')).toHaveCount(1)
 
-    // reading on: the next section takes over once it passes the top quarter (a long jump included)
-    await page.evaluate(() => {
-      const main = document.querySelector('#main')!
-      const h = [...main.querySelectorAll<HTMLElement>('.ProseMirror [data-level]')].find((el) => el.textContent === 'Section 7')!
-      main.scrollTop += h.getBoundingClientRect().top - main.getBoundingClientRect().top - 60
-    })
+    // reading on (the wheel releases the picked entry): the next section takes over once it
+    // passes the top quarter of the column, a long scroll included
+    await page.mouse.move(900, 600)
+    await page.mouse.wheel(0, (await headingOffset(page, 'Section 7')) - 60)
     await expect(items.filter({ hasText: 'Section 7' })).toHaveAttribute('aria-current', 'location')
     await page.evaluate(() => document.querySelector('#main')!.scrollTo(0, 0))
     await expect(outline(page).locator('[aria-current]')).toHaveCount(0)

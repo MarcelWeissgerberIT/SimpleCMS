@@ -85,8 +85,9 @@ export function useOutline(editor: Editor | null, enabled: boolean): { items: Ou
   const [items, setItems] = useState<OutlineItem[]>(EMPTY)
   const [active, setActive] = useState(-1)
   const [els, setEls] = useState<HTMLElement[]>([])
-  // a jump pins the clicked entry until the smooth scroll settled
-  const pinned = useRef(0)
+  // a jump pins the picked entry until the reader moves on (wheel, touch, pointer, key): at the
+  // end of a page several headings share the top of the column, the picked one stays lit
+  const pinned = useRef(false)
   // re-read soon (document changed, or the editor re-rendered a heading the spy was watching)
   const reread = useRef<() => void>(() => {})
 
@@ -128,6 +129,14 @@ export function useOutline(editor: Editor | null, enabled: boolean): { items: Ou
     const host = scrollHostOf(els[0])
     const passed = new Array<boolean>(els.length).fill(false)
     const index = new Map(els.map((el, i) => [el, i]))
+    const unpin = (e: Event) => {
+      if (!e.isTrusted || !pinned.current) return
+      pinned.current = false
+      setActive(passed.lastIndexOf(true))
+    }
+    const opts = { capture: true, passive: true }
+    const kinds = ['wheel', 'touchstart', 'pointerdown', 'keydown'] as const
+    kinds.forEach((k) => window.addEventListener(k, unpin, opts))
     const io = new IntersectionObserver(
       (entries) => {
         for (const e of entries) {
@@ -138,19 +147,21 @@ export function useOutline(editor: Editor | null, enabled: boolean): { items: Ou
           // folded away (closed toggle, hidden tab): never the section being read
           passed[i] = e.isIntersecting && (r.width > 0 || r.height > 0)
         }
-        if (Date.now() < pinned.current) return
-        setActive(passed.lastIndexOf(true))
+        if (!pinned.current) setActive(passed.lastIndexOf(true))
       },
       // the band reaches from far above the column down to its top quarter: crossing that line
       // flips the state in either direction, even when a jump skips a whole screen
       { root: host, rootMargin: '1000000px 0px -75% 0px', threshold: 0 },
     )
     els.forEach((el) => io.observe(el))
-    return () => io.disconnect()
+    return () => {
+      io.disconnect()
+      kinds.forEach((k) => window.removeEventListener(k, unpin, opts))
+    }
   }, [els])
 
   const pin = (i: number) => {
-    pinned.current = Date.now() + 900
+    pinned.current = true
     setActive(i)
   }
   return { items, active, pin }
@@ -204,6 +215,9 @@ export function jumpToHeading(editor: Editor | null, n: number): boolean {
   const go = () => {
     if (!el.isConnected) return
     if (!host) return el.scrollIntoView({ block: 'start' })
+    // the column undoes scrolls until the reader touches it (useColumnScroll's hold); a jump is
+    // the reader's own wish — also when a screen reader activates the entry without a pointer
+    host.dispatchEvent(new Event('pointerdown'))
     const top = el.getBoundingClientRect().top - host.getBoundingClientRect().top + host.scrollTop - 28
     host.scrollTo({ top: Math.max(0, top), behavior: reducedMotion() ? 'auto' : 'smooth' })
     markHeading(el, host)

@@ -157,7 +157,8 @@ export function collectReminders(pages: Record<ID, Page>, dbs: Record<ID, Databa
   const out: ReminderEntry[] = []
   /** synced blocks: one entry per key, the original's when it is live */
   const shared = new Map<string, ReminderEntry>()
-  for (const id in pages) {
+  // Object.keys: for…in over a map of thousands of pages costs several times more (a pass per change)
+  for (const id of Object.keys(pages)) {
     const page = pages[id]
     const list = remindersOf(page, page.databaseId ? dbs[page.databaseId] : undefined)
     if (!list.length) continue

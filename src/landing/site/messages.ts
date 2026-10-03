@@ -506,7 +506,7 @@ export const content: Record<Lang, SiteContent> = {
       {
         key: 'ai',
         title: 'Claude, on your key.',
-        text: 'Rewrite a selection, ask the whole workspace with cited pages, or let Claude fill a database column. Autofill shows every proposal first — nothing is written until you accept it.',
+        text: 'Take meeting notes from a live transcript, hand a whole task to the agent (⌘J), rewrite a selection, ask the workspace with cited pages, or let Claude fill a database column. Every change is shown first — nothing is written until you accept it.',
         specs: ['Key stays on this device', 'Autofill: summaries · key info · translations', 'Pay Anthropic per use — no AI seat'],
         fig: 'Fig. 3.2 — Claude',
         shots: [
@@ -640,7 +640,7 @@ export const content: Record<Lang, SiteContent> = {
       {
         key: 'ai',
         title: 'Claude, mit deinem Key.',
-        text: 'Eine Auswahl umschreiben, den ganzen Workspace mit Quellenangaben befragen oder Claude eine Datenbank-Spalte füllen lassen. Autofill zeigt jeden Vorschlag zuerst — geschrieben wird erst, wenn du zustimmst.',
+        text: 'Besprechungen aus einem Live-Transkript protokollieren, dem Agenten (⌘J) eine ganze Aufgabe geben, eine Auswahl umschreiben, den Workspace mit Quellenangaben befragen oder Claude eine Datenbank-Spalte füllen lassen. Jede Änderung siehst du zuerst — geschrieben wird erst, wenn du zustimmst.',
         specs: ['Key bleibt auf diesem Gerät', 'Autofill: Zusammenfassungen · Kerninfos · Übersetzungen', 'Bezahlung nach Nutzung bei Anthropic — kein KI-Abo'],
         fig: 'Abb. 3.2 — Claude',
         shots: [
