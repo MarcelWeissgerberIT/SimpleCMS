@@ -167,7 +167,7 @@ export function DatasetsPanel(props: DatasetsPanelProps) {
               className="input"
               data-autofocus=""
               value={name}
-              placeholder="Revenue"
+              placeholder={t('features.sheets.ds.placeholder')}
               aria-label={t('features.sheets.ds.name')}
               aria-invalid={!!problem}
               onChange={(e) => {

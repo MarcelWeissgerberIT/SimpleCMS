@@ -23,9 +23,16 @@ export function bindCustomInvoker(fn: Invoker): void {
 const NAME_RE = /^[A-Z][A-Z0-9_.]{0,31}$/
 const CUSTOM_NAME_RE = /^[A-Z][A-Z0-9_]{1,31}$/
 
+let notifyQueued = false
+/** Listeners hear about changes in a microtask: a registration during a render never updates other components mid-render. */
 function bump() {
   version++
-  for (const l of listeners) l()
+  if (notifyQueued) return
+  notifyQueued = true
+  queueMicrotask(() => {
+    notifyQueued = false
+    for (const l of listeners) l()
+  })
 }
 
 /** Register built-in functions (replaces a built-in of the same name). */
@@ -71,7 +78,18 @@ function customSpec(fn: CustomFunction): FnSpec {
  * Replace the set of custom functions. Names must be UPPER_SNAKE and may not shadow a built-in
  * (those entries are skipped); later duplicates of a name are skipped too.
  */
+let lastCustom = ''
+
 export function setCustomFunctions(list: CustomFunction[]): void {
+  // the same functions again (several callers sync the workspace's set): nothing changes
+  let sig = ''
+  try {
+    sig = JSON.stringify(list)
+  } catch {
+    sig = String(Math.random())
+  }
+  if (sig === lastCustom) return
+  lastCustom = sig
   const next = new Map<string, FnSpec>()
   for (const fn of list) {
     if (!fn || typeof fn.name !== 'string') continue
