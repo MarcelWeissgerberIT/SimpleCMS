@@ -135,12 +135,34 @@ def key_white(rgb: np.ndarray, m: np.ndarray, bg: np.ndarray, tol: float = 7.0, 
     return m * (1 - soft), soft
 
 
-def process(path: str, name: str, outdir: str, compdir: str | None, shadow_gain: float = 1.0, holes: float = 0.0, keywhite: bool = False) -> dict:
+def warm_mask(img: Image.Image) -> np.ndarray:
+    """The object by colour: warm-white ceramic (R - B >= 5) and the orange accent, on a pure white
+    background with a neutral grey shadow. Rescues large flat faces that the matting net reads as
+    background where they meet the white backdrop (notepad sheet, rotary file cards)."""
+    a = np.asarray(img).astype(np.int16)
+    warm = ((a[..., 0] - a[..., 2]) >= 5).astype(np.uint8)
+    warm = cv2.morphologyEx(warm, cv2.MORPH_CLOSE, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (9, 9)))
+    n, lab = cv2.connectedComponents(1 - warm, connectivity=4)
+    outside = set(np.unique(np.concatenate([lab[0], lab[-1], lab[:, 0], lab[:, -1]])).tolist())
+    filled = warm.copy()
+    for k in range(1, n):
+        if k not in outside:
+            filled[lab == k] = 1
+    n, lab, stats, _ = cv2.connectedComponentsWithStats(filled, 8)
+    obj = (lab == 1 + int(np.argmax(stats[1:, cv2.CC_STAT_AREA])))
+    # interior only: the outermost pixels keep the matting net's soft edge
+    inner = cv2.erode(obj.astype(np.uint8), cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5)))
+    return cv2.GaussianBlur(inner.astype(np.float32), (0, 0), 1.0)
+
+
+def process(path: str, name: str, outdir: str, compdir: str | None, shadow_gain: float = 1.0, holes: float = 0.0, keywhite: bool = False, warmmask: bool = False) -> dict:
     src = Image.open(path).convert("RGB")
     rgb = np.asarray(src).astype(np.float32) / 255.0
     H, W = rgb.shape[:2]
 
     m, patch = object_mask(src)
+    if warmmask:
+        m = np.maximum(m, warm_mask(src))
     hole_mask = None
     if holes > 0:
         m, hole_mask = fill_holes(m, holes)
@@ -245,6 +267,7 @@ if __name__ == "__main__":
     ap.add_argument("--shadow", type=float, default=1.0)
     ap.add_argument("--holes", type=float, default=0.0, help="alpha for enclosed holes (0 = keep transparent)")
     ap.add_argument("--keywhite", action="store_true", help="key background white seen through bores back to transparent")
+    ap.add_argument("--warmmask", action="store_true", help="also take the object by its warm-white colour (flat faces lost to the matte)")
     a = ap.parse_args()
-    r = process(a.src, a.name, a.outdir, a.compdir, a.shadow, a.holes, a.keywhite)
+    r = process(a.src, a.name, a.outdir, a.compdir, a.shadow, a.holes, a.keywhite, a.warmmask)
     print(a.name, r)
