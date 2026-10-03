@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { ArrowLeft, ChevronsRight, Clock3, Lock, Menu as MenuIcon, MoreHorizontal, Presentation, Star, Waypoints, Home, CalendarDays, CalendarRange, CircleSlash, Inbox, type LucideIcon } from 'lucide-react'
+import { ArrowLeft, ChevronsRight, Clock3, Lock, Menu as MenuIcon, MessageSquare, MoreHorizontal, Presentation, Star, Waypoints, Home, CalendarDays, CalendarRange, CircleSlash, Inbox, type LucideIcon } from 'lucide-react'
 import { useWorkspace } from '../../store/store'
 import { useUI } from '../../store/ui'
 import { useBreadcrumbs, usePage } from '../../store/selectors'
@@ -163,6 +163,28 @@ export function SaveLed() {
   )
 }
 
+/** Open-thread count; toggles the editor's comments sheet (or "show resolved" in the margin layout). */
+function CommentsButton({ page }: { page: Page }) {
+  const t = useT()
+  const threads = Array.isArray(page.comments) ? page.comments : []
+  if (!threads.length) return null
+  const open = threads.filter((c) => !c.resolved).length
+  const label = t('shell.topbar.comments', { n: open })
+  return (
+    <Tooltip label={label}>
+      <button
+        type="button"
+        className="icon-btn tb-comments"
+        aria-label={label}
+        onClick={() => window.dispatchEvent(new CustomEvent('one:comments', { detail: { pageId: page.id } }))}
+      >
+        <MessageSquare size={16} />
+        {open > 0 && <span className="tb-comments__n">{open > 99 ? '99+' : open}</span>}
+      </button>
+    </Tooltip>
+  )
+}
+
 function PageActions({ page, mobile }: { page: Page; mobile: boolean }) {
   const t = useT()
   const [menuAnchor, setMenuAnchor] = useState<HTMLElement | null>(null)
@@ -174,6 +196,7 @@ function PageActions({ page, mobile }: { page: Page; mobile: boolean }) {
           {t('shell.topbar.share')}
         </button>
       )}
+      <CommentsButton page={page} />
       {!mobile && (
         <Tooltip label={t('shell.topbar.history')}>
           <button type="button" className="icon-btn" onClick={() => ui.openModal({ type: 'history', pageId: page.id })}>

@@ -179,6 +179,25 @@ button.tb-crumb:hover {
   margin-right: 2px;
   color: var(--ink);
 }
+.tb-comments {
+  position: relative;
+}
+.tb-comments__n {
+  position: absolute;
+  top: 2px;
+  right: 1px;
+  min-width: 14px;
+  height: 14px;
+  padding: 0 3px;
+  border-radius: 7px;
+  background: var(--signal);
+  color: var(--ink-inverse);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  line-height: 14px;
+  text-align: center;
+  pointer-events: none;
+}
 .tb-star[aria-pressed='true'] {
   color: var(--signal);
   background: transparent;

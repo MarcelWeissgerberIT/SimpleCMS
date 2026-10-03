@@ -50,6 +50,7 @@ export const messages: Messages = {
     'shell.topbar.morePath': 'Show full path',
     'shell.topbar.share': 'Share',
     'shell.topbar.history': 'Version history',
+    'shell.topbar.comments': '{n} open comments',
     'shell.topbar.present': 'Present',
     'shell.topbar.pageMenu': 'Page options',
     'shell.topbar.locked': 'Locked',
@@ -294,6 +295,8 @@ export const messages: Messages = {
     'shell.keys.link': 'Add link',
     'shell.keys.titleToBody': 'Title → first line',
     'shell.keys.undo': 'Undo',
+    'shell.keys.switchTab': 'Switch tabs (inside a tabs block)',
+    'shell.keys.comment': 'Comment on the selection',
 
     // settings
     'shell.settings.tab.general': 'General',
@@ -462,6 +465,7 @@ export const messages: Messages = {
     'shell.topbar.morePath': 'Ganzen Pfad zeigen',
     'shell.topbar.share': 'Teilen',
     'shell.topbar.history': 'Versionsverlauf',
+    'shell.topbar.comments': '{n} offene Kommentare',
     'shell.topbar.present': 'Präsentieren',
     'shell.topbar.pageMenu': 'Seitenoptionen',
     'shell.topbar.locked': 'Gesperrt',
@@ -692,6 +696,8 @@ export const messages: Messages = {
     'shell.keys.link': 'Link einfügen',
     'shell.keys.titleToBody': 'Titel → erste Zeile',
     'shell.keys.undo': 'Rückgängig',
+    'shell.keys.switchTab': 'Tab wechseln (im Tabs-Block)',
+    'shell.keys.comment': 'Auswahl kommentieren',
 
     'shell.settings.tab.general': 'Allgemein',
     'shell.settings.tab.appearance': 'Darstellung',

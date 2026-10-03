@@ -42,6 +42,8 @@ export function useShortcutGroups(): ShortcutGroup[] {
         [t('shell.keys.link'), ['Mod+Shift+K']],
         [t('shell.keys.titleToBody'), ['↵']],
         [t('shell.keys.undo'), ['Mod+Z']],
+        [t('shell.keys.comment'), ['Mod+Alt+M']],
+        [t('shell.keys.switchTab'), ['Mod+Alt+←', 'Mod+Alt+→']],
       ],
     },
     {
