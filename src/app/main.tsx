@@ -11,6 +11,7 @@ import { useWorkspace, emptyWorkspace } from './store/store'
 import { useUI } from './store/ui'
 import { flushSave, loadWorkspace, startPersistence } from './store/persistence'
 import { seedWorkspace } from './store/seed'
+import { refreshDemoIcons } from './store/demoIcons'
 import { applyTheme } from './lib/theme'
 import { ALL_MESSAGES } from './i18n'
 import { startHistory, startAutomations, startRecurringTemplates, startInbox, startSync, seedDemoHistory } from './features'
@@ -129,6 +130,8 @@ async function bootLocal() {
   })
 
   startPersistence()
+  // demo pages seeded before the icon change get the new icons (only untouched ones; saved like an edit)
+  refreshDemoIcons()
 }
 
 registerServiceWorker()
