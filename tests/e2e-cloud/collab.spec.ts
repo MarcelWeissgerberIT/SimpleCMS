@@ -288,7 +288,7 @@ test.describe('team cloud — live collaboration', () => {
     await waitForApp(a)
     await waitOnline(a)
     expect(await wsEval(a, (s, id) => s.pages[id]?.title, pageId)).toBe('Field notes (tunnel)')
-    expect(await wsEval(a, (s, id) => ({ fav: s.pages[id].favorite, key: s.settings.aiApiKey, theme: s.settings.theme }), pageId)).toEqual({ fav: true, key: 'sk-ant-e2e-secret', theme: 'dark' })
+    expect(await wsEval(a, (s, id) => ({ fav: s.pages[id].favorite, key: s.settings.aiApiKey, theme: s.settings.theme }), pageId)).toEqual({ fav: true, key: expect.stringMatching(/^vault:[0-9a-z]+:cret$/), theme: 'dark' }) // the key: its vault marker (sealed on this device)
     await gotoPage(a, pageId)
     await expect(editorOf(a, pageId)).toContainText('Before the tunnel.')
     await expect(editorOf(a, pageId)).toContainText('Written offline.')

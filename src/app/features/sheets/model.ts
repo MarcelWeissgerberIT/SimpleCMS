@@ -214,11 +214,13 @@ function readCharts(raw: unknown, sheets: SheetData[]): SheetChart[] {
 }
 
 const cache = new WeakMap<object, SpreadsheetAttrs>()
+const outputs = new WeakSet<object>()
 
-/** Typed, sanitized attrs (memoised per attrs object). */
-export function readAttrs(raw: Record<string, unknown> | null | undefined): SpreadsheetAttrs {
+/** Typed, sanitized attrs (memoised per attrs object; an already sanitized object comes back as is). */
+export function readAttrs(raw: Record<string, unknown> | SpreadsheetAttrs | null | undefined): SpreadsheetAttrs {
+  if (raw && outputs.has(raw)) return raw as SpreadsheetAttrs
   if (raw && cache.has(raw)) return cache.get(raw)!
-  const src = isObj(raw) ? raw : {}
+  const src: Record<string, unknown> = isObj(raw) ? (raw as Record<string, unknown>) : {}
   const names = new Set<string>()
   const sheetsRaw = own(src, 'sheets')
   const list = typeof sheetsRaw === 'string' ? safeParse(sheetsRaw) : sheetsRaw
@@ -246,6 +248,7 @@ export function readAttrs(raw: Record<string, unknown> | null | undefined): Spre
     charts: readCharts(typeof chRaw === 'string' ? safeParse(chRaw) : chRaw, sheets),
   }
   if (raw) cache.set(raw, out)
+  outputs.add(out)
   return out
 }
 

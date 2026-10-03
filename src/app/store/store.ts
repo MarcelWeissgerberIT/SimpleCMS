@@ -377,6 +377,32 @@ function freezePages(pages: Record<ID, Page>): Record<ID, Page> {
   return Object.freeze(pages)
 }
 
+/** Deep-freeze data entering the store, down to the parts already frozen (what Immer's auto-freeze does with a write). */
+function deepFreeze<T>(v: T): T {
+  if (v && typeof v === 'object' && !Object.isFrozen(v)) {
+    Object.freeze(v)
+    for (const k of Object.keys(v)) deepFreeze((v as Record<string, unknown>)[k])
+  }
+  return v
+}
+
+/**
+ * The page map with one page replaced — for the writes that run while someone types (the editor
+ * hands its text over on every pause, a title on every key, a cell on every commit). An Immer draft
+ * of the map copies it and then walks all N pages again to finalise and re-freeze it; this copies
+ * it once (in order), and records the diff that every subscriber asks pageChanges() for, so nobody
+ * walks the map to find the one page that changed.
+ */
+function withPage(prev: Record<ID, Page>, page: Page): Record<ID, Page> {
+  const next: Record<ID, Page> = {}
+  const ids = Object.keys(prev)
+  for (let i = 0; i < ids.length; i++) next[ids[i]] = prev[ids[i]]
+  next[page.id] = deepFreeze(page)
+  Object.freeze(next)
+  rememberChanges(next, prev, { changed: [page.id], added: [], removed: [] }, ids.length, ids.length)
+  return next
+}
+
 export const useWorkspace = create<WorkspaceState>()(
   immer((set, get) => ({
     ...emptyWorkspace(),
@@ -906,9 +932,16 @@ export function pageChanges(next: Record<ID, Page>, prev: Record<ID, Page>): Pag
     keyCounts.set(prev, before)
   }
   if (before + out.added.length > keys.length) for (const id of Object.keys(prev)) if (!(id in next)) out.removed.push(id)
+  rememberChanges(next, prev, out, keys.length, before)
+  return out
+}
+
+/** Keep a diff for pageChanges() (computed there, or handed in by a write that knows it). */
+function rememberChanges(next: Record<ID, Page>, prev: Record<ID, Page>, out: PageChanges, nextCount: number, prevCount: number) {
+  keyCounts.set(next, nextCount)
+  keyCounts.set(prev, prevCount)
   recentDiffs.unshift({ next, prev, out })
   recentDiffs.length = Math.min(recentDiffs.length, 3)
-  return out
 }
 
 /** Snapshot of persistent data (without actions / flags). */
