@@ -142,7 +142,16 @@ test.describe('sync to a folder', () => {
     expect(row).toContain('Status: In progress')
     expect(row).toContain('Tags: [Web, Marketing]')
     expect(row).toContain('Owner: [Alex]')
-    expect(row).toContain('Timeline: 2026-09-23 → 2026-10-17')
+    // the seed dates are relative to today: compare with the row's own value
+    const due = await page.evaluate(() => {
+      type Row = { title: string; databaseId: string | null; properties: Record<string, unknown> }
+      const s = window.__one.workspace.getState() as unknown as { pages: Record<string, Row>; databases: Record<string, { properties: { id: string; name: string }[] }> }
+      const relaunch = Object.values(s.pages).find((p) => p.title === 'Website relaunch' && p.databaseId)!
+      const prop = s.databases[relaunch.databaseId!].properties.find((d) => d.name === 'Timeline')!
+      return relaunch.properties[prop.id] as { start: string; end: string | null }
+    })
+    expect(due.end, 'the seeded timeline is a range').toBeTruthy()
+    expect(row).toContain(`Timeline: ${due.start} → ${due.end}`)
 
     // database: schema + views + rows, and the rows as CSV
     expect(tree['Projects/_database.md'].text).toContain('| Status | status | Backlog · In progress · Review · Done |')
