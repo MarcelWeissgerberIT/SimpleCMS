@@ -130,6 +130,25 @@
   color: var(--ink-3);
   flex: none;
 }
+/* team workspaces: targets in my Private section */
+.move__mark {
+  display: inline-grid;
+  place-items: center;
+  width: 16px;
+  flex: none;
+  color: var(--ink-2);
+}
+.move__private {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  flex: none;
+  padding: 0 4px;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius-1);
+  color: var(--ink-3);
+  line-height: 14px;
+}
 
 /* keyboard sheet */
 .keysheet {

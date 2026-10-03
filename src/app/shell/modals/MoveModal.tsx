@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { CornerDownLeft, Search } from 'lucide-react'
+import { CornerDownLeft, Lock, Search } from 'lucide-react'
 import { useWorkspace, descendantIds } from '../../store/store'
 import { useUI } from '../../store/ui'
 import { isEffectivelyTrashed, selectBreadcrumbs } from '../../store/selectors'
@@ -8,6 +8,11 @@ import { PageIcon } from '../../ui/PageIcon'
 import { logoMarkSvg } from '@/shared/logo'
 import { useT } from '../../i18n'
 import type { ID } from '../../store/types'
+import { usePrivateMode } from '../../cloud'
+import { requestPrivacyMove } from '../sidebar/private'
+
+/** "Move to" target: a page, the workspace's top level (null) or — team workspaces — my Private section. */
+const PRIVATE_ROOT = 'private:root'
 
 export function MoveModal({ pageId, onClose }: { pageId: ID; onClose: () => void }) {
   const t = useT()
@@ -16,6 +21,7 @@ export function MoveModal({ pageId, onClose }: { pageId: ID; onClose: () => void
   const page = pages[pageId]
   const [q, setQ] = useState('')
   const [active, setActive] = useState(0)
+  const privateMode = usePrivateMode()
 
   const targets = useMemo(() => {
     if (!page) return []
@@ -30,13 +36,22 @@ export function MoveModal({ pageId, onClose }: { pageId: ID; onClose: () => void
   }, [pages, pageId, page, q, t])
 
   if (!page) return null
-  const showRoot = !q.trim() && page.parentId !== null
-  const items: Array<{ id: ID | null }> = [...(showRoot ? [{ id: null }] : []), ...targets.map((x) => ({ id: x.page.id }))]
+  const showRoot = !q.trim() && (page.parentId !== null || !!page.private)
+  // team workspaces: the top level of my Private section (pages only I can see)
+  const showPrivate = !q.trim() && privateMode === 'write' && (page.parentId !== null || !page.private)
+  const items: Array<{ id: ID | null }> = [...(showRoot ? [{ id: null }] : []), ...(showPrivate ? [{ id: PRIVATE_ROOT }] : []), ...targets.map((x) => ({ id: x.page.id }))]
 
   const move = (to: ID | null) => {
-    useWorkspace.getState().movePage(pageId, to)
     onClose()
-    const dest = to ? pages[to]?.title.trim() || t('common.untitled') : wsName || 'One'
+    const toPrivate = to === PRIVATE_ROOT || (!!to && !!pages[to]?.private)
+    const parentId = to === PRIVATE_ROOT ? null : to
+    // between Private and the workspace the page changes documents (going public asks first)
+    if (toPrivate !== !!page.private) {
+      void requestPrivacyMove(pageId, toPrivate, { parentId })
+      return
+    }
+    useWorkspace.getState().movePage(pageId, parentId)
+    const dest = parentId ? pages[parentId]?.title.trim() || t('common.untitled') : toPrivate ? t('shell.private.title') : wsName || 'One'
     useUI.getState().toast({ message: t('shell.move.done', { dest }), kind: 'success' })
   }
 
@@ -71,7 +86,7 @@ export function MoveModal({ pageId, onClose }: { pageId: ID; onClose: () => void
         <div className="move__list" role="listbox">
           {items.length === 0 && <div className="move__empty faint">{t('shell.move.none')}</div>}
           {items.map((it, i) => {
-            const x = it.id ? targets.find((tg) => tg.page.id === it.id) : null
+            const x = it.id && it.id !== PRIVATE_ROOT ? targets.find((tg) => tg.page.id === it.id) : null
             return (
               <button
                 key={it.id ?? 'root'}
@@ -87,10 +102,24 @@ export function MoveModal({ pageId, onClose }: { pageId: ID; onClose: () => void
                     <span className="move__mark" dangerouslySetInnerHTML={{ __html: logoMarkSvg(16) }} />
                     <span className="move__title">{t('shell.move.root', { name: wsName || 'One' })}</span>
                   </>
+                ) : it.id === PRIVATE_ROOT ? (
+                  <>
+                    <span className="move__mark">
+                      <Lock size={14} strokeWidth={1.75} />
+                    </span>
+                    <span className="move__title">{t('shell.private.title')}</span>
+                    <span className="move__path">{t('shell.private.hint')}</span>
+                  </>
                 ) : (
                   <>
                     <PageIcon icon={x!.page.icon} kind={x!.page.kind} size={16} />
                     <span className="move__title">{x!.page.title.trim() || t('common.untitled')}</span>
+                    {x!.page.private && (
+                      <span className="move__private label" title={t('shell.private.lock')}>
+                        <Lock size={10} strokeWidth={2} />
+                        {t('shell.private.badge')}
+                      </span>
+                    )}
                     {x!.path && <span className="move__path">{x!.path}</span>}
                   </>
                 )}

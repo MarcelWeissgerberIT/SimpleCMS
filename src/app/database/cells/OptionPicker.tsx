@@ -45,7 +45,9 @@ export function OptionPicker({
   const q = query.trim().toLowerCase()
   const filtered = useMemo(() => options.filter((o) => !q || o.name.toLowerCase().includes(q)), [options, q])
   const exact = options.some((o) => o.name.toLowerCase() === q)
-  const canCreate = !!q && !exact
+  // locked database: pick from the options there are; creating or editing one changes the property
+  const locked = db.locked === true
+  const canCreate = !!q && !exact && !locked
   const ordered = isStatus ? STATUS_GROUPS.flatMap((g) => filtered.filter((o) => (o.group ?? 'todo') === g)) : filtered
   const itemCount = ordered.length + (canCreate ? 1 : 0)
 
@@ -113,17 +115,19 @@ export function OptionPicker({
           <Tag option={o} />
         </span>
         {selected.includes(o.id) && <Check size={14} className="db-opt__check" />}
-        <button
-          type="button"
-          className="icon-btn icon-btn--sm db-opt__more"
-          aria-label={t('database.option.edit')}
-          onClick={(e) => {
-            e.stopPropagation()
-            setEdit({ option: o, el: e.currentTarget })
-          }}
-        >
-          <Ellipsis size={14} />
-        </button>
+        {!locked && (
+          <button
+            type="button"
+            className="icon-btn icon-btn--sm db-opt__more"
+            aria-label={t('database.option.edit')}
+            onClick={(e) => {
+              e.stopPropagation()
+              setEdit({ option: o, el: e.currentTarget })
+            }}
+          >
+            <Ellipsis size={14} />
+          </button>
+        )}
       </div>
     )
   }
@@ -141,8 +145,8 @@ export function OptionPicker({
           data-autofocus=""
           onFocus={caretToEnd}
           value={query}
-          aria-label={t('database.option.searchOrCreate')}
-          placeholder={selected.length ? '' : t('database.option.searchOrCreate')}
+          aria-label={t(locked ? 'database.lock.optionSearch' : 'database.option.searchOrCreate')}
+          placeholder={selected.length ? '' : t(locked ? 'database.lock.optionSearch' : 'database.option.searchOrCreate')}
           onChange={(e) => {
             setQuery(e.target.value)
             setActive(0)
@@ -178,7 +182,7 @@ export function OptionPicker({
         )}
         {!ordered.length && !canCreate && <div className="label db-picker__empty">{t('database.option.none')}</div>}
       </div>
-      {edit && <OptionEditMenu db={db} prop={prop} option={edit.option} anchor={edit.el} onClose={() => setEdit(null)} />}
+      {edit && !locked && <OptionEditMenu db={db} prop={prop} option={edit.option} anchor={edit.el} onClose={() => setEdit(null)} />}
     </div>
   )
 }

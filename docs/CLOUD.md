@@ -73,12 +73,15 @@ workspaces(id, name, icon, created_at, created_by, plan)
 members(workspace_id, user_id, role, created_at, PRIMARY KEY(workspace_id, user_id))
 invites(id, token_hash UNIQUE, workspace_id, role, email NULL, created_by, created_at, expires_at, accepted_by NULL)
 documents(name PRIMARY KEY, workspace_id, data BLOB, updated_at)      -- Yjs state per document
-files(id, workspace_id, name, mime, size, sha256, created_by, created_at)  -- bytes in DATA_DIR/files/<ws>/<id>
+files(id, workspace_id, name, mime, size, sha256, created_by, created_at, private_to NULL)  -- bytes in DATA_DIR/files/<ws>/<id>; private_to: v4
 document_tombstones(name PRIMARY KEY, workspace_id, deleted_at, deleted_by) -- migration v2, see DELETE …/documents
 api_tokens(id, workspace_id, name, scope 'read'|'write', token_hash UNIQUE, created_by, created_at, last_used_at, revoked_at)  -- v3
 webhooks(id, workspace_id, database_id, secret_hash UNIQUE, created_by, created_at, rotated_at, last_delivery_at, deliveries) -- v3
 idempotency(scope, key, workspace_id, status, body, created_at, PRIMARY KEY(scope, key))  -- v3, first answers kept 24 h
 ```
+
+Migration v4 (private pages, see *Private pages* below): `files.private_to` — a file uploaded from a
+private page is served to that user only until it is published.
 
 Migration v3 (public API, [`API.md`](API.md)): API token secrets (`one_<43 chars>`) and incoming-webhook
 secrets (the last path segment of the hook URL) are stored only as HMAC like every other token and shown
@@ -119,9 +122,10 @@ All mutating requests require `Content-Type: application/json` (CSRF guard toget
 | `DELETE /api/workspaces/:id/invites/:inviteId` | admin | |
 | `GET /api/invites/:token` | – | → `{ workspace: { name }, role, inviter }` (preview) |
 | `POST /api/invites/:token/accept` | session | → `{ workspaceId }` |
-| `PUT /api/workspaces/:id/files/:fileId` | member | raw body (≤ MAX_UPLOAD_MB), headers `x-file-name`, `content-type` → `{ id }` |
-| `GET /api/workspaces/:id/files/:fileId` | viewer | bytes, `Cache-Control: private, max-age=31536000, immutable` |
-| `DELETE /api/workspaces/:id/documents/:pageId` | member | *(server addition)* drop the content document of a page deleted for good → `204` (`409 page_exists` while the meta document still lists the page) |
+| `PUT /api/workspaces/:id/files/:fileId` | member | raw body (≤ MAX_UPLOAD_MB), headers `x-file-name`, `content-type`, `x-file-scope: private`? → `{ id }` |
+| `GET /api/workspaces/:id/files/:fileId` | viewer | bytes, `Cache-Control: private, max-age=31536000, immutable` (someone else's private file: `404 file_not_found`) |
+| `POST /api/workspaces/:id/files/publish` | member | *(private pages)* `{ ids: string[] (1–500) }` → `{ published }` — the caller's private files among them become workspace files |
+| `DELETE /api/workspaces/:id/documents/:pageId` | member | *(server addition)* drop the content document of a page deleted for good → `204` (`409 page_exists` while the meta document still lists the page); `?scope=private`: the caller's own private content document of that page |
 | `GET /api/health` | – | `{ ok: true, version }` |
 | `GET /api/dev/mailbox` | DEV_MODE only | last 50 mails `{ to, subject, text, link }` |
 | `POST /api/auth/verify` | – | *(server addition)* form `token=` (the confirmation page) or JSON `{ token }` → sets cookie, `303` to `redirect` |
@@ -227,6 +231,9 @@ Document names:
 - `ws:<workspaceId>` — the workspace **meta document** (structure, properties, databases).
 - `ws:<workspaceId>:p:<pageId>` — the **content** of one page (TipTap via y-prosemirror,
   `XmlFragment` named `default`).
+- `ws:<workspaceId>:u:<userId>` — one member's **private meta document** (same schema; only their
+  private pages, databases and rows) and `ws:<workspaceId>:u:<userId>:p:<pageId>` — the content of one of
+  their private pages. Opened for that user only (see *Private pages*). User ids `[A-Za-z0-9_-]{8,64}`.
 
 ### Server writes (public API, incoming webhooks)
 
@@ -331,7 +338,7 @@ kept in IndexedDB (`one-inbox`); removing a workspace's copy from a device remov
   `session-ended` → status `signed-out`. The browser's `offline` event closes the socket on purpose
   (`online` reconnects at once).
 - **Presence**: the meta document's awareness carries `{ user: { id, name, color, tone }, pageId }`;
-  `pageId` follows the route. `Peer.color` is a CSS colour token (`var(--c-<tone>-text)`).
+  `pageId` follows the route (`null` on a private page). `Peer.color` is a CSS colour token (`var(--c-<tone>-text)`).
 - **Pages deleted for good** (`deletePagePermanently`, empty trash, an undone create …): the client
   that deleted them asks the server to drop their content documents (`DELETE …/documents/:pageId`,
   `purge.ts`), once the meta document's change is confirmed (`hasUnsyncedChanges` false, connected).
@@ -396,6 +403,80 @@ kept in IndexedDB (`one-inbox`); removing a workspace's copy from a device remov
   `http://localhost:8080` and start the server with `PUBLIC_URL=http://localhost:5173`, so mail links go
   through Vite; `GET /api/dev/mailbox?to=<email>` returns the link.
 
+## Private pages
+
+Notion's "Private" next to the workspace's pages: pages only I can see, in the same team workspace —
+enforced by the server, not just hidden in the UI.
+
+**Documents.** Each member has a private meta document `ws:<ws>:u:<userId>` (the meta document schema;
+`workspace` and `people` stay empty) and a content document per private page
+`ws:<ws>:u:<userId>:p:<pageId>`. A page is either in the workspace's meta document or in its owner's
+private one — never both for long (a move writes the target first). Everything below a private page
+(subpages, databases, rows, trashed ones) is private too: a new page goes where its parent / database
+is; a top-level page where it was created (sidebar "PRIVATE → New page" = `createPrivatePage()`).
+
+**Server.**
+- `onAuthenticate`: a `:u:<userId>` document opens only for that user, whatever the role — the
+  workspace's owner and admins included (`forbidden` otherwise, logged as `private document refused`).
+  Viewers open their own private documents **read-only** (pages from before a demotion stay visible;
+  they create none — the app shows no Private section to write in).
+- The server never writes private documents (`collab.write` refuses them): the public API and incoming
+  webhooks only ever read and write `ws:<ws>` and `ws:<ws>:p:<pageId>`, and look every id up in the
+  workspace's meta document — a private page, database or row is a `404` there. Invites never touch
+  documents.
+- Tombstones (`DELETE …/documents/:pageId?scope=private`, the caller's own namespace only — there is no
+  way to name another member's private document) and their revival check the meta document of the same
+  scope: a page moved back into Private revives its private content document.
+- A removed member's private documents are refused at store time (a document still open when the
+  membership ends cannot come back).
+- **Leaving / removal** (`DELETE …/members/:userId`): the member's private documents (+ their
+  tombstones) and private files are **deleted** — the confirmations in Settings → Team say so. Invited
+  again, they start with an empty Private section (an old offline copy on one of their devices may sync
+  back into it — it is their own data). **Workspace deletion** removes everything (cascade).
+- **Files**: `PUT …/files/:id` with `x-file-scope: private` (the app sends it for files saved while a
+  private page is on screen: main view, peek or a pane) stores `private_to = <user>`; `GET` answers
+  `404 file_not_found` to everyone else. `POST …/files/publish { ids }` makes the caller's own private
+  files workspace files; other ids are ignored. Moving a page to Private does not make its files private
+  again (others may have them already).
+
+**Client.**
+- `openCloudWorkspace` opens both meta documents (y-indexeddb `one:ws:<ws>:u:<userId>`, no awareness on
+  the private one); the binding merges them into the store: pages from the private document carry
+  `page.private = true` (a local marker, never a synced field). In both documents at once (another
+  device's move half through): the scope the store already shows, else private. Writes go to the
+  document that holds the page; new pages as above. A plain store change that would move a page between
+  the two documents (`movePage` under a page of the other scope, from any UI) is refused and put back
+  (toast) — that is `movePagePrivacy()`.
+- **Moving** (`movePagePrivacy(pageId, toPrivate, { parentId, index })`, online only, one at a time):
+  every content document of the subtree synced, then a standby provider on the target name for the
+  same Y.Doc until the server confirmed the full state there (Yjs state, not JSON — devices with an old
+  copy of the target name merge instead of duplicating); moving to the workspace first clears mention
+  labels of pages that stay private (a cleared value is not part of the encoded state) and publishes the
+  private files the pages use; then the meta entries are copied (`Y.Map.clone()`, createdBy & co. kept)
+  into the target meta document and deleted from the source one, the store is updated, the content
+  documents switch over (open editors keep their document and carets — the awareness moves with them)
+  and the old content documents are purged (`purge.ts`, `?scope=private` for the private side, once
+  both meta documents are confirmed). Ids stay. The shell asks before a page goes public ("Everyone in
+  <workspace> will see it"). Another device of the same member follows (`rescoped` pages retarget).
+- **Nothing leaks by construction**: search, graph, agenda, inbox, agent, exports, backlinks and the
+  version history only see the store, which never holds another member's private pages. Things that do
+  leave a private page and need care:
+  - *mention labels* — a page mention stores the title as `label` (and `plain`, the search excerpt every
+    member gets, spells it `@label`): the "@" menu stores no label for private pages; a local edit that
+    brings a labelled mention of a private page into a workspace page has the label cleared at once
+    (`content.ts`), and `plain` of workspace pages is written without labels of pages the writing device
+    can't see or holds privately (`privacy.ts`). Members who don't have the page see a neutral
+    **"No access"** chip (`pageLink` and mention views, team workspaces only) — never the stored label.
+  - *presence* — the awareness `pageId` is `null` while a private page is on screen.
+  - *files* — see above; a private upload referenced by a workspace page written on the uploading
+    device (copy & paste) is published automatically.
+  - Deliberate sharing stays possible: copying text, a synced block whose copy sits in a workspace
+    page, a share link, a JSON export.
+- **Offline**: private pages are edited offline like any other (y-indexeddb per document); moving
+  between scopes needs a connection (`CloudError('offline')`, nothing changes).
+- This browser's copies (`device.ts`) include the private documents.
+- The local workspace has no Private section (everything is local anyway).
+
 ## Security notes
 
 - Magic-link tokens: 15 min, single use, bound to the email; sessions 30 days sliding, revocable.
@@ -404,6 +485,8 @@ kept in IndexedDB (`one-inbox`); removing a workspace's copy from a device remov
 - Uploads: size limit, stored outside any served path, served with `Content-Disposition: attachment`
   for non-image types and `X-Content-Type-Options: nosniff`.
 - Every query is scoped by workspace membership; viewers can never write (REST or Yjs).
+- Private documents (`ws:<id>:u:<userId>…`) open for their owner only; the public API, webhooks and the
+  server's own writes never touch them; private files are served to their uploader only.
 - Public API: bearer tokens only on `/api/v1` (the cookie is never read there, so no CSRF surface); a
   token or hook sees only its own workspace — every page / row / database id is looked up in that
   workspace's meta document (`404` otherwise); write needs a `write` token; secrets are HMAC-stored,

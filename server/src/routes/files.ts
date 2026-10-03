@@ -6,8 +6,10 @@ import { join } from 'node:path'
 import { Readable } from 'node:stream'
 import { finished } from 'node:stream/promises'
 import { Hono } from 'hono'
+import { z } from 'zod'
 import type { AppEnv, Services } from '../context.ts'
 import { ApiError, badRequest, notFound } from '../errors.ts'
+import { body } from '../http/util.ts'
 import { newId } from '../tokens.ts'
 import { access } from './access.ts'
 
@@ -20,7 +22,12 @@ const INLINE_TYPES = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/web
  */
 const DRAIN_CAP = 16 * 1024 * 1024
 
-/** PUT/GET /api/workspaces/:id/files/:fileId — bytes live in DATA_DIR/files/<ws>/<id>, never in a served path. */
+/**
+ * PUT/GET /api/workspaces/:id/files/:fileId — bytes live in DATA_DIR/files/<ws>/<id>, never in a served path.
+ * Private files (docs/CLOUD.md § Private pages): a PUT with `x-file-scope: private` (an upload from a
+ * private page) is served to its uploader only — everyone else gets the same 404 as for a missing file —
+ * until POST …/files/publish makes it a workspace file (its page moved to the workspace).
+ */
 export function fileRoutes(s: Services) {
   const app = new Hono<AppEnv>()
   const max = s.config.maxUploadBytes
@@ -51,6 +58,7 @@ export function fileRoutes(s: Services) {
       throw tooLarge(max, false)
     }
     const { size, sha256 } = received
+    const privateTo = c.req.header('x-file-scope') === 'private' ? auth.user.id : null
 
     const final = join(dir, fileId)
     try {
@@ -74,6 +82,7 @@ export function fileRoutes(s: Services) {
       sha256,
       created_by: auth.user.id,
       created_at: Date.now(),
+      private_to: privateTo,
     })
     if (!inserted && !s.repo.file(workspace.id, fileId)) {
       await rm(final, { force: true }) // the workspace was deleted meanwhile
@@ -83,10 +92,11 @@ export function fileRoutes(s: Services) {
   })
 
   app.get('/:id/files/:fileId', (c) => {
-    const { workspace } = access(s, c, 'viewer')
+    const { workspace, auth } = access(s, c, 'viewer')
     const fileId = c.req.param('fileId')
     const row = FILE_ID.test(fileId) ? s.repo.file(workspace.id, fileId) : undefined
-    if (!row) throw notFound('file_not_found', 'File not found')
+    // someone else's private file is not there at all for this member
+    if (!row || (row.private_to !== null && row.private_to !== auth.user.id)) throw notFound('file_not_found', 'File not found')
     const etag = `"${row.sha256}"`
     const headers: Record<string, string> = {
       'Cache-Control': 'private, max-age=31536000, immutable',
@@ -102,6 +112,14 @@ export function fileRoutes(s: Services) {
     if (c.req.method === 'HEAD') return c.body(null, 200, headers) // no file handle for a body nobody reads
     const stream = Readable.toWeb(createReadStream(join(dirOf(workspace.id), row.id))) as unknown as ReadableStream
     return c.body(stream, 200, headers)
+  })
+
+  // the caller's private files among `ids` become workspace files (others' and unknown ids are ignored)
+  app.post('/:id/files/publish', async (c) => {
+    const { workspace, auth } = access(s, c, 'member')
+    const { ids } = await body(c, z.object({ ids: z.array(z.string().regex(FILE_ID)).min(1).max(500) }))
+    const published = s.repo.publishFiles(workspace.id, auth.user.id, [...new Set(ids)])
+    return c.json({ published })
   })
 
   return app

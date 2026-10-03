@@ -3,7 +3,7 @@
  * counter and the "New" split button.
  */
 import { useEffect, useRef, useState } from 'react'
-import { ArrowUpDown, CalendarArrowDown, Download, Ellipsis, Funnel, Group, LayoutTemplate, Link, ListTree, Maximize2, Paintbrush, Search, SlidersHorizontal, Waypoints, X, Zap } from 'lucide-react'
+import { ArrowUpDown, CalendarArrowDown, Download, Ellipsis, Funnel, Group, LayoutTemplate, Link, ListTree, Lock, LockOpen, Maximize2, Paintbrush, Search, SlidersHorizontal, Waypoints, X, Zap } from 'lucide-react'
 import { useUI } from '../../store/ui'
 import { Menu, ViewOnlyTag } from '../parts'
 import type { MenuEntry } from '../../ui/Menu'
@@ -22,6 +22,8 @@ import { formatCount } from '../model/format'
 import { DependenciesPanel, SubItemsPanel } from './StructurePanels'
 import { ColorRulesPanel } from './ColorRules'
 import { structureEntries } from './structureEntries'
+import { LockPlate } from './Lock'
+import { setDbLocked } from '../model/lock'
 
 type PanelKind = 'filter' | 'sort' | 'group' | 'props' | 'layout' | 'more' | 'sub' | 'dep' | 'rc'
 
@@ -100,6 +102,8 @@ export function Toolbar({ m, onNew, setSearch, compact }: { m: DbModel; onNew: (
   const canIcs = view.type === 'calendar' || view.type === 'timeline'
   // view only: searching and exporting stay; everything that changes the shared view or data goes
   const ro = m.readOnly
+  // locked: filters and sorts stay (this tab only), the view's structure is fixed
+  const fixed = m.fixed
 
   useEffect(() => {
     if (searchOpen) searchRef.current?.focus()
@@ -157,14 +161,15 @@ export function Toolbar({ m, onNew, setSearch, compact }: { m: DbModel; onNew: (
       )}
       {!isForm && !ro && <ToolButton compact={compact} icon={<Funnel size={14} />} label={t('database.filter.title')} count={filterCount} active={filterCount > 0} pressed={panel?.kind === 'filter'} onClick={toggle('filter')} />}
       {!isForm && !ro && <ToolButton compact={compact} icon={<ArrowUpDown size={14} />} label={t('database.sort.title')} count={view.sorts.length} active={view.sorts.length > 0} pressed={panel?.kind === 'sort'} onClick={toggle('sort')} />}
-      {canGroup && !ro && <ToolButton compact={compact} icon={<Group size={14} />} label={t('database.group.title')} active={!!view.groupBy} pressed={panel?.kind === 'group'} onClick={toggle('group')} />}
-      {!isForm && !ro && <ToolButton compact icon={<SlidersHorizontal size={14} />} label={t('database.props.title')} pressed={panel?.kind === 'props'} onClick={toggle('props')} />}
+      {canGroup && !fixed && <ToolButton compact={compact} icon={<Group size={14} />} label={t('database.group.title')} active={!!view.groupBy} pressed={panel?.kind === 'group'} onClick={toggle('group')} />}
+      {!isForm && !fixed && <ToolButton compact icon={<SlidersHorizontal size={14} />} label={t('database.props.title')} pressed={panel?.kind === 'props'} onClick={toggle('props')} />}
       {!ro && <ToolButton compact icon={<Zap size={14} />} label={t('database.automations')} count={automations} active={automations > 0} onClick={() => useUI.getState().openModal({ type: 'automations', databaseId: m.db.id })} />}
       <ToolButton compact icon={<Ellipsis size={15} />} label={t('common.more')} pressed={panel?.kind === 'more'} onClick={toggle('more')} />
       <span className="db-counter" title={t('database.counterTitle')} aria-label={t('database.counterTitle')}>
         <span className="db-counter__label">{t('database.rec')}</span>
         <span className="db-counter__num">{filtered ? `${formatCount(m.rows.length, m.resolver.ctx.lang, 0)}/${formatCount(m.allRows.length, m.resolver.ctx.lang, 0)}` : formatCount(m.allRows.length, m.resolver.ctx.lang, 0)}</span>
       </span>
+      {m.locked && <LockPlate m={m} />}
       {ro ? <ViewOnlyTag /> : !isForm && <NewButton m={m} onNew={onNew} />}
 
       {panel?.kind === 'filter' && <FilterPopover m={m} anchor={panel.el} onClose={close} />}
@@ -181,7 +186,7 @@ export function Toolbar({ m, onNew, setSearch, compact }: { m: DbModel; onNew: (
         onClose={close}
         placement="bottom-end"
         entries={[
-          ...(ro
+          ...(fixed
             ? []
             : ([
                 {
@@ -191,6 +196,18 @@ export function Toolbar({ m, onNew, setSearch, compact }: { m: DbModel; onNew: (
                   onSelect: () => setPanel((p) => (p ? { kind: 'layout', el: p.el } : p)),
                 },
                 ...structureEntries(t, m, (kind) => setPanel((p) => (p ? { kind, el: p.el } : p)), { sub: <ListTree size={14} />, dep: <Waypoints size={14} />, rc: <Paintbrush size={14} /> }),
+                { kind: 'separator' },
+              ] satisfies MenuEntry[])),
+          ...(ro
+            ? []
+            : ([
+                {
+                  label: m.locked ? t('database.lock.unlock') : t('database.lock.lock'),
+                  icon: m.locked ? <LockOpen size={14} /> : <Lock size={14} />,
+                  hint: m.locked ? t('database.lock.plate') : undefined,
+                  keywords: 'lock unlock sperren entsperren',
+                  onSelect: () => setDbLocked(m.db.id, !m.locked),
+                },
                 { kind: 'separator' },
               ] satisfies MenuEntry[])),
           { label: t('database.exportCsv'), icon: <Download size={14} />, onSelect: () => exportCsv(m.resolver, m.db, [m.titleProp, ...m.visibleProps], m.rows, m.dbPage.title || t('common.untitled')) },

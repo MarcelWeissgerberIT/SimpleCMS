@@ -77,7 +77,7 @@ function Tab({
   onRename: () => void
   renaming: boolean
   onRenamed: (name: string | null) => void
-  /** view only: a tab only switches views (no menu, rename or reordering) */
+  /** view only or locked: a tab only switches views (no menu, rename or reordering) */
   readOnly: boolean
 }) {
   const t = useT()
@@ -285,7 +285,7 @@ export function ViewTabs({ m, onSelect }: { m: DbModel; onSelect: (id: ID) => vo
                 setRenaming(v.id)
               }}
               renaming={renaming === v.id}
-              readOnly={m.readOnly}
+              readOnly={m.fixed}
               onRenamed={(name) => {
                 if (name !== null && name.trim()) s.updateView(m.db.id, v.id, { name: name.trim() })
                 setRenaming(null)
@@ -294,7 +294,7 @@ export function ViewTabs({ m, onSelect }: { m: DbModel; onSelect: (id: ID) => vo
           ))}
         </SortableContext>
       </DndContext>
-      {!m.readOnly && (
+      {!m.fixed && (
         <button type="button" className="db-tabs__add" aria-label={t('database.view.add')} title={t('database.view.add')} onClick={(e) => setAddAnchor(e.currentTarget)}>
           <Plus size={14} />
         </button>

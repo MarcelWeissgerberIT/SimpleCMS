@@ -14,6 +14,10 @@ import type { Resolver } from './resolve'
 import { constrainRelationWrite, dependenciesOf, subItemsOf } from './hierarchy'
 import { dateValueText, isDateValue, isoWithTime, parseDateText, parseNumberText } from './format'
 import { isDbReadOnly } from '../readonly'
+import { isDbLocked } from './lock'
+
+/** Properties of this database may change (not view only, not locked). */
+const schemaEditable = (dbId: ID | undefined) => !isDbReadOnly() && !isDbLocked(dbId)
 
 const ws = () => useWorkspace.getState()
 
@@ -84,6 +88,7 @@ export function rowsOf(dbId: ID): Page[] {
 
 /** Create the reverse relation property on the target database and backfill it. */
 export function enableTwoWay(dbId: ID, prop: PropertyDef): void {
+  if (!schemaEditable(dbId) || !schemaEditable(prop.relationDatabaseId)) return
   if (!prop.relationDatabaseId || !ws().databases[prop.relationDatabaseId] || pairedRelation(dbId, prop) || twoWayBlocker(dbId, prop)) return
   // the reverse side is named after where it points back to; on a self-relation that would just be
   // this database's own name, so it is named after the forward property instead
@@ -99,7 +104,7 @@ export function enableTwoWay(dbId: ID, prop: PropertyDef): void {
 /** Remove the partner property of an explicit two-way pair (undo via toast). */
 export function disableTwoWay(dbId: ID, prop: PropertyDef): void {
   const pair = pairedRelation(dbId, prop)
-  if (pair) deletePropertyWithUndo(pair.db, pair.prop)
+  if (pair && schemaEditable(dbId)) deletePropertyWithUndo(pair.db, pair.prop)
 }
 
 /* ---------------- delete property: undo + dangling references ---------------- */
@@ -154,6 +159,7 @@ export function deletePropertyWithUndo(db: Database, prop: PropertyDef): void {
 
 /** Delete several properties of one database behind a single undo toast. */
 export function deletePropertiesWithUndo(db: Database, props: PropertyDef[], opts: { message?: string; onUndo?: () => void } = {}): void {
+  if (!schemaEditable(db.id)) return
   const undos = props.map((p) => removeProperty(db.id, p.id)).filter((u): u is () => void => !!u)
   if (!undos.length) return
   useUI.getState().toast({
@@ -250,7 +256,7 @@ export function newOption(name: string, existing: SelectOption[], group?: Select
 
 /** Change a property's type, converting stored values where it makes sense; the toast can undo it. */
 export function changePropertyType(r: Resolver, db: Database, prop: PropertyDef, type: PropertyType): void {
-  if (prop.type === type || prop.type === 'title') return
+  if (prop.type === type || prop.type === 'title' || !schemaEditable(db.id)) return
   const cur = ws().databases[db.id]?.properties.find((p) => p.id === prop.id)
   if (!cur) return
   const def: PropertyDef = JSON.parse(JSON.stringify(cur))
@@ -366,6 +372,7 @@ function convertPropertyType(r: Resolver, db: Database, prop: PropertyDef, type:
 
 /** Add a property and place it in the given view at a position (relative to visible props). */
 export function insertProperty(db: Database, view: View | null, def: Partial<PropertyDef> & Pick<PropertyDef, 'type'>, at?: { anchorId: ID; side: 'left' | 'right' }): ID {
+  if (!schemaEditable(db.id)) return ''
   const s = ws()
   let dbIndex: number | undefined
   if (at) {
@@ -388,6 +395,7 @@ export function insertProperty(db: Database, view: View | null, def: Partial<Pro
 }
 
 export function duplicateProperty(db: Database, view: View | null, prop: PropertyDef): ID {
+  if (!schemaEditable(db.id)) return ''
   const copy: Partial<PropertyDef> & Pick<PropertyDef, 'type'> = JSON.parse(JSON.stringify({ ...prop, id: undefined, name: `${prop.name} (${t('database.copySuffix')})` }))
   const id = insertProperty(db, view, copy, { anchorId: prop.id, side: 'right' })
   if (!isComputed(prop) && prop.type !== 'title') for (const row of rowsOf(db.id)) {

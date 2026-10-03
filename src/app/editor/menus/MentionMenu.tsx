@@ -76,7 +76,8 @@ export function MentionMenu({ editor, bridge, pageId }: { editor: Editor; bridge
         icon: <PageIcon icon={p.icon} kind={p.kind} size={16} />,
         label: pageTitle(p, t('common.untitled')),
         hint: parent ? pageTitle(parent, t('common.untitled')) : undefined,
-        run: (range) => insert(range, { id: p.id, label: p.title, kind: 'page' }),
+        // a private page's title never travels inside a mention (others would read it, docs/CLOUD.md § Private pages)
+        run: (range) => insert(range, { id: p.id, label: p.private ? '' : p.title, kind: 'page' }),
       })
     }
     // dates

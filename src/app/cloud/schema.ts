@@ -180,9 +180,10 @@ function readComments(v: unknown): PageComment[] {
 
 /**
  * A store page from its meta entry. Per-device fields (content, revs, favourite) come from `cur`
- * (or the defaults for a page this device hasn't seen).
+ * (or the defaults for a page this device hasn't seen). `priv`: the entry is in this member's
+ * private meta document (sets the local `private` marker).
  */
-export function readPage(id: ID, yp: YMap, cur: Page | undefined, favorite: boolean): Page {
+export function readPage(id: ID, yp: YMap, cur: Page | undefined, favorite: boolean, priv = false): Page {
   const g = (k: string) => yp.get(k)
   const propsMap = g('properties')
   const properties: Page['properties'] = {}
@@ -212,6 +213,12 @@ export function readPage(id: ID, yp: YMap, cur: Page | undefined, favorite: bool
   }
   const hidden = g('hidden')
   if (hidden !== undefined) next.hidden = hidden === true
+  // who made / last changed it (created_by / last_edited_by): read only, the writing client sets them
+  const createdBy = g('createdBy')
+  if (typeof createdBy === 'string' && createdBy) next.createdBy = createdBy
+  const updatedBy = g('updatedBy')
+  if (typeof updatedBy === 'string' && updatedBy) next.updatedBy = updatedBy
+  if (priv) next.private = true
   const comments = readComments(g('comments'))
   if (comments.length || cur?.comments !== undefined) next.comments = comments
   return reuse(cur, next)

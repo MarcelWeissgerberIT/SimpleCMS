@@ -13,6 +13,8 @@ import { Menu, Segmented, Select, SortableRow, TypeIcon, typeEntries } from '../
 import { BOARD_GROUP_TYPES, TABLE_GROUP_TYPES } from '../model/schema'
 import { insertProperty } from '../model/actions'
 import type { DbModel } from '../hooks'
+import { setViewQuery } from '../model/lock'
+import { SessionNote } from './Lock'
 
 function useSortSensors() {
   return useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 3 } }), useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }))
@@ -25,7 +27,7 @@ export function SortPanel({ m, anchor, onClose }: { m: DbModel; anchor: Element;
   const sensors = useSortSensors()
   const [addAnchor, setAddAnchor] = useState<HTMLElement | null>(null)
   const sorts = m.view.sorts
-  const save = (next: Sort[]) => useWorkspace.getState().updateView(m.db.id, m.view.id, { sorts: next })
+  const save = (next: Sort[]) => setViewQuery(m.db.id, m.view.id, { sorts: next })
   const ids = sorts.map((s) => s.propertyId)
   const onDragEnd = (e: DragEndEvent) => {
     if (!e.over || e.active.id === e.over.id) return
@@ -37,6 +39,7 @@ export function SortPanel({ m, anchor, onClose }: { m: DbModel; anchor: Element;
       <div className="db-panel__head">
         <span className="label">{t('database.sort.title')}</span>
       </div>
+      {m.locked && <SessionNote m={m} />}
       {sorts.length === 0 && <div className="db-panel__empty label">{t('database.sort.none')}</div>}
       <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
         <SortableContext items={ids} strategy={verticalListSortingStrategy}>

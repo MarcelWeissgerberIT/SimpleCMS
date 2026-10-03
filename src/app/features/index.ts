@@ -107,3 +107,10 @@ export {
   DAY_REMINDER_HOUR,
 } from './inbox/reminders'
 export { ReminderSelect, DateReminderEditor, type DateReminderValue } from './inbox/ReminderControls'
+/*
+ * Folder + GitHub sync (a live Markdown copy of the workspace; this device's settings only):
+ *  - startSync(): background service (start once from main.tsx after hydrate) · stopSync()
+ *  - SyncTab: Settings → Sync · SyncStatusCell: status bar read-out (renders nothing while off)
+ *  - openSyncSettings(): open Settings on the Sync tab · consumeSyncSettingsRequest(): SettingsModal asks on open
+ */
+export { startSync, stopSync, openSyncSettings, consumeSyncSettingsRequest, useSync, SyncTab, SyncStatusCell } from './sync'

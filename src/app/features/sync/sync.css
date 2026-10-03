@@ -1,0 +1,345 @@
+/* Settings → Sync: instrument panels (FOLDER · GITHUB), run log, layout spec; status bar cell. */
+
+.sy-panel {
+  margin: 0 0 16px;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius-2);
+  background: var(--surface);
+}
+.sy-panel__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 7px 8px 7px 12px;
+  border-bottom: 1px solid var(--rule);
+  border-radius: var(--radius-2) var(--radius-2) 0 0;
+  background: var(--surface-2);
+}
+.sy-panel__code {
+  color: var(--ink-2);
+}
+.sy-panel__state {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 3px 8px;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-1);
+  background: var(--surface);
+}
+.sy-panel__state .label {
+  color: var(--ink-2);
+}
+.sy-panel[data-state='running'] .sy-panel__state .led,
+.sy-panel[data-state='permission'] .sy-panel__state .led {
+  animation: led-blink 0.5s steps(2, jump-none) infinite;
+}
+.sy-panel[data-state='permission'] .sy-panel__state .led {
+  animation-duration: 1.2s;
+}
+.sy-panel[data-state='error'] .sy-panel__state {
+  border-color: var(--c-red-text);
+}
+.sy-panel[data-state='error'] .sy-panel__state .label {
+  color: var(--c-red-text);
+}
+.sy-panel[data-state='error'] .sy-panel__state .led {
+  background: var(--c-red-text);
+}
+.sy-panel__body {
+  padding: 14px;
+}
+
+.sy-empty {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.sy-empty p {
+  max-width: 52ch;
+  margin: 0;
+  color: var(--ink-2);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+}
+
+/* read-out strip: name · last · files · pending */
+.sy-readout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.7fr) repeat(3, minmax(0, 1fr));
+  margin: 0 0 12px;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-1);
+  background: var(--bg);
+}
+.sy-readout__cell {
+  min-width: 0;
+  padding: 7px 10px 8px;
+  border-left: 1px solid var(--rule);
+}
+.sy-readout__cell:first-child {
+  border-left: 0;
+}
+.sy-readout__cell dt {
+  margin-bottom: 3px;
+}
+.sy-readout__val {
+  overflow: hidden;
+  margin: 0;
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: 15px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.3;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sy-readout__name {
+  font-size: 13px;
+}
+
+.sy-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.sy-actions__gap {
+  flex: 1;
+}
+
+.sy-msg {
+  margin: 0 0 12px;
+  color: var(--ink-2);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+}
+.sy-msg--err {
+  color: var(--c-red-text);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+/* GitHub fields */
+.sy-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px 16px;
+  margin-bottom: 12px;
+}
+.sy-field {
+  min-width: 0;
+}
+.sy-field .input {
+  width: 100%;
+}
+.sy-field__label {
+  display: block;
+  margin-bottom: 5px;
+  font-size: 12.5px;
+  font-weight: 620;
+}
+.sy-field__hint {
+  margin-top: 5px;
+  color: var(--ink-3);
+  font-size: 11.5px;
+  line-height: 1.45;
+}
+.sy-field__hint .st-link {
+  font-size: 11.5px;
+}
+.sy-mono {
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+.sy-test {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  min-height: 28px;
+  margin-bottom: 12px;
+}
+.sy-test__ok {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--ink-2);
+}
+.sy-auto {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--rule);
+}
+.sy-auto__text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+.sy-auto__text .sy-field__hint {
+  margin-top: 2px;
+}
+.sy-auto__label {
+  font-size: 13px;
+  font-weight: 620;
+}
+.sy-auto__every {
+  width: auto;
+  min-width: 128px;
+}
+
+/* run log */
+.sy-log {
+  margin: 4px 0 6px;
+}
+.sy-log__head {
+  padding: 6px 0;
+  border-bottom: 1px solid var(--rule-strong);
+}
+.sy-log__list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+.sy-log__row {
+  display: grid;
+  grid-template-columns: 10ch 8ch minmax(0, 1fr);
+  gap: 10px;
+  padding: 5px 0;
+  border-bottom: 1px dashed var(--rule);
+}
+.sy-log__time,
+.sy-log__tag {
+  color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+}
+.sy-log__tag {
+  font-size: 10px;
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+}
+.sy-log__text {
+  overflow: hidden;
+  color: var(--ink-2);
+  text-overflow: ellipsis;
+}
+.sy-log__row[data-kind='error'] .sy-log__text {
+  color: var(--c-red-text);
+}
+.sy-log__row[data-kind='conflict'] .sy-log__text {
+  color: var(--signal-ink);
+}
+.sy-log__empty {
+  margin: 0;
+  padding: 8px 0;
+  color: var(--ink-3);
+  font-size: var(--text-sm);
+}
+
+/* files deleted outside One */
+.sy-missing {
+  margin: 0 0 16px;
+}
+.sy-missing .danger__label {
+  color: var(--ink-2);
+}
+.sy-missing__list {
+  margin: 6px 0 10px;
+  padding-left: 16px;
+  color: var(--ink-2);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+/* layout spec */
+.sy-spec__tree {
+  overflow-x: auto;
+  margin: 8px 0 0;
+  padding: 8px 10px;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-1);
+  background: var(--surface);
+  color: var(--ink-2);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.6;
+  white-space: pre;
+}
+
+/* status bar cell */
+.sy-status {
+  border: 0;
+  border-right: 1px solid var(--rule);
+  background: transparent;
+  color: var(--ink-2);
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  cursor: pointer;
+}
+.sy-status:hover {
+  background: var(--hover);
+  color: var(--ink);
+}
+.sy-status:focus-visible {
+  outline: 2px solid var(--signal);
+  outline-offset: -2px;
+}
+.sy-status[data-state='running'] .led {
+  animation: led-blink 0.5s steps(2, jump-none) infinite;
+}
+.sy-status[data-state='error'] {
+  color: var(--c-red-text);
+}
+.sy-status[data-state='error'] .led {
+  background: var(--c-red-text);
+}
+
+@media (max-width: 640px) {
+  .sy-readout {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .sy-readout__cell:nth-child(3) {
+    border-left: 0;
+  }
+  .sy-readout__cell:nth-child(n + 3) {
+    border-top: 1px solid var(--rule);
+  }
+  .sy-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .sy-empty {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  .sy-actions__gap {
+    display: none;
+  }
+  .sy-auto {
+    flex-wrap: wrap;
+  }
+  .sy-auto__text {
+    flex-basis: calc(100% - 50px);
+  }
+  .sy-log__row {
+    grid-template-columns: 9ch minmax(0, 1fr);
+  }
+  .sy-log__tag {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sy-panel .led,
+  .sy-status .led {
+    animation: none !important;
+  }
+}

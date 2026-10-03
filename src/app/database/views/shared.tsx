@@ -9,10 +9,10 @@ import { useUI } from '../../store/ui'
 import { Kbd } from '../../ui/controls'
 import { useT } from '../../i18n'
 import { openPage, pageHref } from '../../lib/router'
-import { useWorkspace } from '../../store/store'
+import { setViewQuery } from '../model/lock'
 import { deleteRows, duplicateRows, openRow } from '../model/actions'
 import { countFilters, type RowGroup } from '../model/query'
-import { OptionTag, StatusTag, Avatar } from '../cells/display'
+import { OptionTag, StatusTag, Avatar, ActorChip } from '../cells/display'
 import { saveRowAsTemplate } from '../toolbar/Templates'
 import { useModel, useLocalState } from '../hooks'
 import { Menu, plural } from '../parts'
@@ -66,7 +66,7 @@ export function EmptyState({ onAdd }: { onAdd?: () => void }) {
           type="button"
           className="btn btn--sm"
           onClick={() => {
-            if (filters && !m.readOnly) useWorkspace.getState().updateView(m.db.id, m.view.id, { filter: null })
+            if (filters && !m.readOnly) setViewQuery(m.db.id, m.view.id, { filter: null })
             if (q) actions?.clearSearch()
           }}
         >
@@ -115,6 +115,7 @@ export function RowContextMenu({ row, anchor, onClose }: { row: Page; anchor: Po
 }
 
 export function GroupLabel({ group }: { group: RowGroup }) {
+  if (group.actor) return <ActorGroupLabel actor={group.actor} />
   if (group.option) return group.option.group ? <StatusTag option={group.option} /> : <OptionTag option={group.option} />
   if (group.person)
     return (
@@ -124,6 +125,11 @@ export function GroupLabel({ group }: { group: RowGroup }) {
       </span>
     )
   return <span className={`db-grouplabel${group.empty ? ' is-empty' : ''}`}>{group.label}</span>
+}
+
+function ActorGroupLabel({ actor }: { actor: string }) {
+  const m = useModel()
+  return <ActorChip id={actor} r={m.resolver} />
 }
 
 /** Collapsed group keys (per viewer, per view). */

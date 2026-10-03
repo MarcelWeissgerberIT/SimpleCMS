@@ -10,7 +10,7 @@ import { logoMarkSvg } from '@/shared/logo'
 import { BRAND } from '@/shared/brand'
 import type { ThemePref } from '../../store/types'
 import { ShortcutList } from '../modals/ShortcutsModal'
-import { runAI } from '../../features'
+import { runAI, SyncTab, consumeSyncSettingsRequest } from '../../features'
 import { fmtBytes, plural } from '../lib/format'
 import { requestReset } from '../lib/reset'
 import { WebClipper } from '../capture/WebClipper'
@@ -21,10 +21,10 @@ import { errorText } from '../cloud/errors'
 import { useCloud, useCloudSync } from '../../cloud'
 import './settings.css'
 
-export type SettingsTab = 'general' | 'team' | 'appearance' | 'ai' | 'data' | 'shortcuts' | 'about'
-const LOCAL_TABS: SettingsTab[] = ['general', 'appearance', 'ai', 'data', 'shortcuts', 'about']
+export type SettingsTab = 'general' | 'team' | 'appearance' | 'ai' | 'data' | 'sync' | 'shortcuts' | 'about'
+const LOCAL_TABS: SettingsTab[] = ['general', 'appearance', 'ai', 'data', 'sync', 'shortcuts', 'about']
 /** In a team workspace, "Team" follows "General". */
-const CLOUD_TABS: SettingsTab[] = ['general', 'team', 'appearance', 'ai', 'data', 'shortcuts', 'about']
+const CLOUD_TABS: SettingsTab[] = ['general', 'team', 'appearance', 'ai', 'data', 'sync', 'shortcuts', 'about']
 
 export const AI_MODELS = [
   { id: 'claude-opus-5-5', key: 'shell.ai.opus' },
@@ -36,7 +36,7 @@ export function SettingsModal({ initialTab, onClose }: { initialTab?: SettingsTa
   const t = useT()
   const TABS = useInCloud() ? CLOUD_TABS : LOCAL_TABS
   const [tab, setTab] = useState<SettingsTab>(() => {
-    const asked = initialTab ?? (consumeSettingsTab() as SettingsTab | null)
+    const asked = initialTab ?? (consumeSettingsTab() as SettingsTab | null) ?? (consumeSyncSettingsRequest() ? 'sync' : null)
     return asked && TABS.includes(asked) ? asked : 'general'
   })
   const idx = TABS.indexOf(tab)
@@ -128,6 +128,7 @@ export function SettingsModal({ initialTab, onClose }: { initialTab?: SettingsTa
             {tab === 'appearance' && <AppearanceTab />}
             {tab === 'ai' && <AITab />}
             {tab === 'data' && <DataTab onClose={onClose} />}
+            {tab === 'sync' && <SyncTab />}
             {tab === 'shortcuts' && <ShortcutList />}
             {tab === 'about' && <AboutTab />}
           </div>

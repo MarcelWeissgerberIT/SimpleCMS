@@ -166,4 +166,14 @@ export const migrations: Migration[] = [
       CREATE INDEX idempotency_created ON idempotency(created_at);
     `,
   },
+  {
+    version: 4,
+    name: 'private pages: private files',
+    sql: `
+      -- files uploaded from a private page (docs/CLOUD.md § Private pages): only this user may
+      -- download them until a page that uses them moves to the workspace (POST …/files/publish)
+      ALTER TABLE files ADD COLUMN private_to TEXT;
+      CREATE INDEX files_private ON files(workspace_id, private_to) WHERE private_to IS NOT NULL;
+    `,
+  },
 ]

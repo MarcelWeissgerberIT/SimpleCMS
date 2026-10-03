@@ -9,6 +9,7 @@ import { toggleTheme } from '../lib/actions'
 import { useStageView } from '../lib/stage'
 import { plural } from '../lib/format'
 import { CloudStatusCells, useCloudReadout } from '../cloud/Sync'
+import { SyncStatusCell } from '../../features'
 
 /** 24px instrument read-out along the bottom edge. */
 export function StatusBar({ route }: { route: Route }) {
@@ -45,6 +46,7 @@ export function StatusBar({ route }: { route: Route }) {
           {saveText}
         </span>
       )}
+      <SyncStatusCell />
       {pageId && kind === 'page' && (
         <span className="status__cell">
           {t(plural('shell.stats.words', words), { n: fmtNumber(words, lang) })} · {t('shell.stats.read', { n: readingTime(words) })}

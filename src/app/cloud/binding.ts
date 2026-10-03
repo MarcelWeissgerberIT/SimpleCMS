@@ -11,6 +11,13 @@
  *   isApplyingCloud() (and persistence's isApplyingRemote()) is true — automations, webhooks,
  *   autofill and version history ignore them, and the binding doesn't echo them back.
  * Viewers never push: their local changes are reverted from Y.
+ *
+ * Private pages (docs/CLOUD.md § Private pages): a second meta document holds this member's private
+ * pages (+ their databases and rows). Pages read from it carry `private: true` in the store; writes
+ * go to the document that holds the page; a NEW page goes where its parent (or database) lives — a
+ * root page where `createPrivatePage()` asked, or its own marker says. A plain store change that would
+ * move a page between the two documents (movePage under a page of the other scope) is refused and put
+ * back: that is `movePagePrivacy()`'s job (content documents move too).
  */
 import * as Y from 'yjs'
 import type { JSONContent } from '@tiptap/core'
@@ -18,6 +25,7 @@ import { useWorkspace, type CloudPatch } from '../store/store'
 import { runAsRemote } from '../store/persistence'
 import type { Database, ID, Page, Settings } from '../store/types'
 import { defaultView } from '../store/store'
+import { sharedPlain } from './privacy'
 import { LOCAL, newDatabaseMap, newPageMap, readDatabase, readPage, readPeople, roots, writeDatabase, writePage, writePeople, type YMap } from './schema'
 
 let applying = 0
@@ -44,21 +52,36 @@ export function markFromCloud(json: JSONContent): JSONContent {
   return json
 }
 
+/** New pages with these ids are created in the private meta document (createPrivatePage). */
+const privateIntents = new Set<ID>()
+export function intendPrivate(id: ID): void {
+  privateIntents.add(id)
+}
+
 export interface BindingOptions {
   doc: Y.Doc
+  /** This member's private meta document (null: none — every page is the workspace's). */
+  privateDoc: Y.Doc | null
   userId: () => string
   writable: () => boolean
   isFavorite: (id: ID) => boolean
-  /** Remote changes: pages that appeared, pages whose updatedAt moved, pages that are gone. */
-  onRemotePages: (r: { created: ID[]; touched: ID[]; removed: ID[] }) => void
+  /**
+   * Remote changes: pages that appeared, pages whose updatedAt moved, pages that are gone, pages that
+   * moved between Private and the workspace (their content documents change names).
+   */
+  onRemotePages: (r: { created: ID[]; touched: ID[]; removed: ID[]; rescoped: ID[] }) => void
   /** A local (non-editor) content change to write into the page's content document. */
   bridge: (pageId: ID, base: JSONContent | null, ours: JSONContent | null) => void
-  /** Pages removed locally (content documents / caches can go). */
-  onLocalRemoved: (ids: ID[]) => void
+  /** Pages removed locally (content documents / caches can go); `private`: where they lived. */
+  onLocalRemoved: (removed: Array<{ id: ID; private: boolean }>) => void
   /** Local settings changes (per device; a few keys mirror into the account / workspace). */
   onSettings: (next: Settings, prev: Settings) => void
   /** A viewer changed content locally: put the page's Y content back. */
   revertContent: (pageId: ID) => void
+  /** A plain store change tried to move pages between Private and the workspace: refused and put back. */
+  onBlockedMove?: (ids: ID[]) => void
+  /** Workspace (shared) pages written from this device — they may now reference private uploads. */
+  onSharedWrite?: (pages: Page[]) => void
 }
 
 const EMPTY_PAGE = {} as Page
@@ -80,6 +103,31 @@ function guardDatabase(db: Database): Database {
   return out
 }
 
+type Roots = ReturnType<typeof roots>
+
+const isMap = (v: unknown): v is YMap => v instanceof Y.Map
+
+/**
+ * The entry of a page in the two meta documents. In both (a move another device made is half
+ * through): the scope the store already shows, else the private one.
+ */
+function pick(rs: Roots, rq: Roots | null, id: ID, cur: Page | undefined): { yp: YMap; priv: boolean } | null {
+  const s = rs.pages.get(id)
+  const q = rq?.pages.get(id)
+  if (isMap(s) && isMap(q)) return cur && !cur.private ? { yp: s, priv: false } : { yp: q, priv: true }
+  if (isMap(q)) return { yp: q, priv: true }
+  if (isMap(s)) return { yp: s, priv: false }
+  return null
+}
+
+/** Without the local `private` marker (or with it). Same object when nothing changes. */
+function withScope(p: Page, priv: boolean): Page {
+  if (!!p.private === priv) return p
+  if (priv) return { ...p, private: true }
+  const { private: _p, ...rest } = p
+  return rest
+}
+
 export interface Binding {
   stop: () => void
   /** Rebuild everything from Y (viewer revert, after a role change). */
@@ -87,7 +135,8 @@ export interface Binding {
 }
 
 export function startBinding(o: BindingOptions): Binding {
-  const r = roots(o.doc)
+  const rs = roots(o.doc)
+  const rq = o.privateDoc ? roots(o.privateDoc) : null
   const dirtyPages = new Set<ID>()
   const dirtyDbs = new Set<ID>()
   let dirtyPeople = false
@@ -102,25 +151,30 @@ export function startBinding(o: BindingOptions): Binding {
       else if (e.path.length) into.add(String(e.path[0]))
     }
   }
-  const onPages = collect(r.pages as unknown as Y.AbstractType<unknown>, dirtyPages)
-  const onDbs = collect(r.databases as unknown as Y.AbstractType<unknown>, dirtyDbs)
+  const observed: Array<[Y.AbstractType<unknown>, (events: Array<Y.YEvent<Y.AbstractType<unknown>>>, tr: Y.Transaction) => void]> = []
+  for (const r of rq ? [rs, rq] : [rs]) {
+    const pages = r.pages as unknown as Y.AbstractType<unknown>
+    const dbs = r.databases as unknown as Y.AbstractType<unknown>
+    observed.push([pages, collect(pages, dirtyPages)], [dbs, collect(dbs, dirtyDbs)])
+  }
+  for (const [type, fn] of observed) type.observeDeep(fn)
   const onPeople = (_e: unknown, tr: Y.Transaction) => {
     if (tr.origin !== LOCAL) dirtyPeople = true
   }
   const onWorkspace = (_e: unknown, tr: Y.Transaction) => {
     if (tr.origin !== LOCAL) dirtyWorkspace = true
   }
-  r.pages.observeDeep(onPages)
-  r.databases.observeDeep(onDbs)
-  r.people.observe(onPeople)
-  r.workspace.observe(onWorkspace)
+  rs.people.observe(onPeople)
+  rs.workspace.observe(onWorkspace)
 
   function applyRemote(all = false) {
     const s = useWorkspace.getState()
     if (all) {
-      for (const id of r.pages.keys()) dirtyPages.add(id)
+      for (const r of rq ? [rs, rq] : [rs]) {
+        for (const id of r.pages.keys()) dirtyPages.add(id)
+        for (const id of r.databases.keys()) dirtyDbs.add(id)
+      }
       for (const id of Object.keys(s.pages)) dirtyPages.add(id)
-      for (const id of r.databases.keys()) dirtyDbs.add(id)
       for (const id of Object.keys(s.databases)) dirtyDbs.add(id)
       dirtyPeople = dirtyWorkspace = true
     }
@@ -128,37 +182,43 @@ export function startBinding(o: BindingOptions): Binding {
     const created: ID[] = []
     const touched: ID[] = []
     const removed: ID[] = []
+    const rescoped: ID[] = []
     const nextPages: Record<ID, Page | null> = {}
     for (const id of dirtyPages) {
-      const yp = r.pages.get(id)
       const cur = s.pages[id]
-      if (!(yp instanceof Y.Map)) {
+      const found = pick(rs, rq, id, cur)
+      if (!found) {
         if (cur) {
           nextPages[id] = null
           removed.push(id)
         }
         continue
       }
-      const next = readPage(id, yp as YMap, cur, o.isFavorite(id))
+      const next = readPage(id, found.yp, cur, o.isFavorite(id), found.priv)
       if (next === cur) continue
       nextPages[id] = next
       if (!cur) created.push(id)
-      else if (next.updatedAt !== cur.updatedAt) touched.push(id)
+      else {
+        if (!!next.private !== !!cur.private) rescoped.push(id)
+        if (next.updatedAt !== cur.updatedAt) touched.push(id)
+      }
     }
     dirtyPages.clear()
     if (Object.keys(nextPages).length) patch.pages = nextPages
 
     const nextDbs: Record<ID, Database | null> = {}
     for (const id of dirtyDbs) {
-      const ydb = r.databases.get(id)
       const cur = s.databases[id]
-      if (!(ydb instanceof Y.Map)) {
-        // a database page keeps a schema in the store while its page exists
-        const page = nextPages[id] === undefined ? s.pages[id] : nextPages[id]
+      // a database page keeps a schema in the store while its page exists
+      const page = nextPages[id] === undefined ? s.pages[id] : nextPages[id]
+      const first = (page?.private ? rq : rs)?.databases.get(id)
+      const second = (page?.private ? rs : rq)?.databases.get(id)
+      const ydb = isMap(first) ? first : isMap(second) ? second : null
+      if (!ydb) {
         if (cur && !(page && page.kind === 'database')) nextDbs[id] = null
         continue
       }
-      const next = guardDatabase(readDatabase(id, ydb as YMap, cur))
+      const next = guardDatabase(readDatabase(id, ydb, cur))
       if (next !== cur) nextDbs[id] = next
     }
     dirtyDbs.clear()
@@ -169,18 +229,18 @@ export function startBinding(o: BindingOptions): Binding {
     if (Object.keys(nextDbs).length) patch.databases = nextDbs
 
     if (dirtyPeople) {
-      const people = readPeople(r.people, s.people)
+      const people = readPeople(rs.people, s.people)
       if (people !== s.people) patch.people = people
       dirtyPeople = false
     }
     if (dirtyWorkspace) {
-      const name = r.workspace.get('name')
+      const name = rs.workspace.get('name')
       if (typeof name === 'string' && name && name !== s.settings.workspaceName) patch.settings = { workspaceName: name }
       dirtyWorkspace = false
     }
     if (!patch.pages && !patch.databases && !patch.people && !patch.settings) return
     applyFromCloud(() => s.cloudPatch(patch))
-    if (created.length || touched.length || removed.length) o.onRemotePages({ created, touched, removed })
+    if (created.length || touched.length || removed.length || rescoped.length) o.onRemotePages({ created, touched, removed, rescoped })
   }
 
   const afterTx = (tr: Y.Transaction) => {
@@ -194,6 +254,7 @@ export function startBinding(o: BindingOptions): Binding {
     }
   }
   o.doc.on('afterTransaction', afterTx)
+  o.privateDoc?.on('afterTransaction', afterTx)
 
   /* ---------------------------------------------------------------- store → Y */
 
@@ -202,6 +263,22 @@ export function startBinding(o: BindingOptions): Binding {
     window.clearTimeout(revertTimer)
     revertTimer = window.setTimeout(() => applyRemote(true), 30)
   }
+
+  /** Where a page's entry is (the store's marker decides while a move is half through). */
+  const locate = (id: ID, flag: boolean): Roots | null => {
+    const inS = isMap(rs.pages.get(id))
+    const inQ = !!rq && isMap(rq.pages.get(id))
+    if (inS && inQ) return flag ? rq : rs
+    return inQ ? rq : inS ? rs : null
+  }
+  const locateDb = (id: ID, flag: boolean): Roots | null => {
+    const inS = isMap(rs.databases.get(id))
+    const inQ = !!rq && isMap(rq.databases.get(id))
+    if (inS && inQ) return flag ? rq : rs
+    return inQ ? rq : inS ? rs : null
+  }
+  /** Both documents change in one go (nested transactions, origin 'local'). */
+  const transact = (fn: () => void) => o.doc.transact(() => (o.privateDoc ? o.privateDoc.transact(fn, LOCAL) : fn()), LOCAL)
 
   const unsub = useWorkspace.subscribe((state, prev) => {
     if (applying || !state.ready || !prev.ready) return
@@ -223,26 +300,87 @@ export function startBinding(o: BindingOptions): Binding {
       return
     }
 
+    /** Private here (written there / to be written there): located pages where they are, new ones like their parent. */
+    const decided = new Map<ID, boolean>()
+    const scopeOf = (id: ID, depth = 0): boolean => {
+      const known = decided.get(id)
+      if (known !== undefined) return known
+      const p = state.pages[id]
+      let priv = false
+      if (p && depth < 256) {
+        const at = locate(id, !!p.private)
+        if (at) priv = at === rq
+        else {
+          const up = p.parentId && state.pages[p.parentId] ? p.parentId : p.databaseId && state.pages[p.databaseId] ? p.databaseId : null
+          priv = up ? scopeOf(up, depth + 1) : privateIntents.has(id) || !!p.private
+        }
+      }
+      decided.set(id, priv)
+      return priv
+    }
+    /** Not visible to everyone: private here, or not here at all (someone else's private page, or deleted). */
+    const hidden = (id: ID) => !state.pages[id] || !!state.pages[id].private
+    /** The meta values a workspace page may carry (no titles of pages others can't see in `plain`). */
+    const shareable = (p: Page): Page => {
+      const plain = sharedPlain(p, hidden)
+      return plain === p.plain ? p : { ...p, plain }
+    }
+
     const uid = o.userId()
     const bridges: Array<[ID, JSONContent | null, JSONContent | null]> = []
-    const removed: ID[] = []
-    o.doc.transact(() => {
+    const removed: Array<{ id: ID; private: boolean }> = []
+    const blocked: ID[] = []
+    const reflag: Array<[ID, boolean]> = []
+    const shared: Page[] = []
+    transact(() => {
       if (pagesChanged) {
         for (const id in state.pages) {
           const p = state.pages[id]
           const b = prev.pages[id]
           if (p === b) continue
-          const yp = r.pages.get(id)
-          if (yp instanceof Y.Map) writePage(yp as YMap, p, b ?? EMPTY_PAGE, uid)
-          else r.pages.set(id, newPageMap(p, uid))
+          const at = locate(id, !!(b ?? p).private)
+          if (at) {
+            const priv = at === rq
+            const parentMoved = !!b && (p.parentId !== b.parentId || p.databaseId !== b.databaseId)
+            if (parentMoved) {
+              const up = p.parentId && state.pages[p.parentId] ? p.parentId : p.databaseId && state.pages[p.databaseId] ? p.databaseId : null
+              // a root page stays where it is; under a page it goes where that page is — another
+              // document is a move between Private and the workspace (movePagePrivacy), not this
+              if (up && scopeOf(up) !== priv) {
+                blocked.push(id)
+                continue
+              }
+            }
+            // the marker is the binding's: whoever else changed it gets it put back
+            if (!!p.private !== priv) reflag.push([id, priv])
+            const yp = at.pages.get(id) as YMap
+            if (priv) writePage(yp, p, b ?? EMPTY_PAGE, uid)
+            else {
+              const out = shareable(p)
+              const before = out === p || !b ? (b ?? EMPTY_PAGE) : { ...b, plain: typeof yp.get('plain') === 'string' ? (yp.get('plain') as string) : b.plain }
+              writePage(yp, out, before, uid)
+              shared.push(p)
+            }
+          } else {
+            const priv = scopeOf(id)
+            privateIntents.delete(id)
+            const target = priv ? rq : rs
+            // a private page without a private document (never happens while one is open): store only
+            if (!target) continue
+            target.pages.set(id, newPageMap(priv ? p : shareable(p), uid))
+            if (!!p.private !== priv) reflag.push([id, priv])
+            if (!priv) shared.push(p)
+          }
           if (p.content !== (b?.content ?? null) && !(p.content && fromY.has(p.content)) && !(!b && p.content == null)) {
             bridges.push([id, b?.content ?? null, p.content])
           }
         }
         for (const id in prev.pages) {
           if (id in state.pages) continue
-          r.pages.delete(id)
-          removed.push(id)
+          const at = locate(id, !!prev.pages[id].private)
+          rs.pages.delete(id)
+          rq?.pages.delete(id)
+          removed.push({ id, private: at ? at === rq : !!prev.pages[id].private })
         }
       }
       if (dbsChanged) {
@@ -250,27 +388,61 @@ export function startBinding(o: BindingOptions): Binding {
           const db = state.databases[id]
           const b = prev.databases[id]
           if (db === b) continue
-          const ydb = r.databases.get(id)
-          if (ydb instanceof Y.Map) writeDatabase(ydb as YMap, db, b ?? EMPTY_DB)
-          else r.databases.set(id, newDatabaseMap(db))
+          const at = locateDb(id, !!state.pages[id]?.private)
+          if (at) writeDatabase(at.databases.get(id) as YMap, db, b ?? EMPTY_DB)
+          else {
+            const target = state.pages[id] && scopeOf(id) ? rq : rs
+            target?.databases.set(id, newDatabaseMap(db))
+          }
         }
-        for (const id in prev.databases) if (!(id in state.databases)) r.databases.delete(id)
+        for (const id in prev.databases) {
+          if (id in state.databases) continue
+          rs.databases.delete(id)
+          rq?.databases.delete(id)
+        }
       }
-      if (peopleChanged) writePeople(r.people, state.people, prev.people)
-    }, LOCAL)
+      if (peopleChanged) writePeople(rs.people, state.people, prev.people)
+    })
+    if (reflag.length) {
+      applyFromCloud(() => {
+        const pages: Record<ID, Page> = {}
+        for (const [id, priv] of reflag) {
+          const cur = useWorkspace.getState().pages[id]
+          if (cur) pages[id] = withScope(cur, priv)
+        }
+        useWorkspace.getState().cloudPatch({ pages })
+      })
+    }
+    // created_by / last_edited_by: the store mirrors the createdBy / updatedBy this client just wrote
+    const authors: Record<ID, Page> = {}
+    if (pagesChanged) {
+      for (const id in state.pages) {
+        const cur = useWorkspace.getState().pages[id]
+        const yp = state.pages[id] !== prev.pages[id] && cur ? locate(id, !!cur.private)?.pages.get(id) : undefined
+        if (!isMap(yp) || !cur) continue
+        const by = (k: string) => (typeof yp.get(k) === 'string' && yp.get(k) ? (yp.get(k) as string) : undefined)
+        if (cur.createdBy !== by('createdBy') || cur.updatedBy !== by('updatedBy')) authors[id] = { ...cur, createdBy: by('createdBy'), updatedBy: by('updatedBy') }
+      }
+    }
+    if (Object.keys(authors).length) applyFromCloud(() => useWorkspace.getState().cloudPatch({ pages: authors }))
+    if (blocked.length) {
+      scheduleRevert()
+      o.onBlockedMove?.(blocked)
+    }
     for (const [id, base, ours] of bridges) o.bridge(id, base, ours)
     if (removed.length) o.onLocalRemoved(removed)
+    if (shared.length) o.onSharedWrite?.(shared)
   })
 
   return {
     stop: () => {
       unsub()
       window.clearTimeout(revertTimer)
-      r.pages.unobserveDeep(onPages)
-      r.databases.unobserveDeep(onDbs)
-      r.people.unobserve(onPeople)
-      r.workspace.unobserve(onWorkspace)
+      for (const [type, fn] of observed) type.unobserveDeep(fn)
+      rs.people.unobserve(onPeople)
+      rs.workspace.unobserve(onWorkspace)
       o.doc.off('afterTransaction', afterTx)
+      o.privateDoc?.off('afterTransaction', afterTx)
     },
     resync: () => applyRemote(true),
   }
@@ -278,13 +450,21 @@ export function startBinding(o: BindingOptions): Binding {
 
 /* ------------------------------------------------------------------ hydration */
 
-/** Build the store's workspace parts from the meta document (boot). */
-export function readAll(doc: Y.Doc, isFavorite: (id: ID) => boolean): Pick<CloudPatch, 'people'> & { pages: Record<ID, Page>; databases: Record<ID, Database>; name: string | null } {
+/** Build the store's workspace parts from the meta document (+ this member's private one) at boot. */
+export function readAll(
+  doc: Y.Doc,
+  privateDoc: Y.Doc | null,
+  isFavorite: (id: ID) => boolean,
+): Pick<CloudPatch, 'people'> & { pages: Record<ID, Page>; databases: Record<ID, Database>; name: string | null } {
   const r = roots(doc)
+  const q = privateDoc ? roots(privateDoc) : null
   const pages: Record<ID, Page> = {}
-  for (const [id, yp] of r.pages.entries()) if (yp instanceof Y.Map) pages[id] = readPage(id, yp as YMap, undefined, isFavorite(id))
   const databases: Record<ID, Database> = {}
-  for (const [id, ydb] of r.databases.entries()) if (ydb instanceof Y.Map) databases[id] = guardDatabase(readDatabase(id, ydb as YMap, undefined))
+  // shared first: a page in both (a move half through) shows as private
+  for (const [src, priv] of q ? ([[r, false], [q, true]] as const) : ([[r, false]] as const)) {
+    for (const [id, yp] of src.pages.entries()) if (isMap(yp)) pages[id] = readPage(id, yp, undefined, isFavorite(id), priv)
+    for (const [id, ydb] of src.databases.entries()) if (isMap(ydb)) databases[id] = guardDatabase(readDatabase(id, ydb, undefined))
+  }
   for (const p of Object.values(pages)) if (p.kind === 'database' && !databases[p.id]) databases[p.id] = fallbackDatabase(p.id)
   const name = r.workspace.get('name')
   return { pages, databases, people: readPeople(r.people, []), name: typeof name === 'string' && name ? name : null }
@@ -293,12 +473,15 @@ export function readAll(doc: Y.Doc, isFavorite: (id: ID) => boolean): Pick<Cloud
 /**
  * Pages whose parent (or database) is gone, and parent cycles — both can only come from
  * concurrent edits (a delete racing a move / create). Returns the store updates that repair them.
+ * A parent in the other scope (Private vs the workspace — a move racing a create on another device)
+ * counts as gone: the page becomes a root page of its own scope.
  */
 export function structuralRepairs(pages: Record<ID, Page>, databases: Record<ID, Database>): Array<{ id: ID; patch: Partial<Page> }> {
   const out = new Map<ID, Partial<Page>>()
+  const there = (p: Page, id: ID | null) => !!id && !!pages[id] && !!pages[id].private === !!p.private
   for (const p of Object.values(pages)) {
-    if (p.databaseId && !(databases[p.databaseId] && pages[p.databaseId])) out.set(p.id, { databaseId: null, ...(p.parentId === p.databaseId ? { parentId: null } : {}) })
-    if (p.parentId && (p.parentId === p.id || !pages[p.parentId])) out.set(p.id, { ...out.get(p.id), parentId: null })
+    if (p.databaseId && !(databases[p.databaseId] && there(p, p.databaseId))) out.set(p.id, { databaseId: null, ...(p.parentId === p.databaseId ? { parentId: null } : {}) })
+    if (p.parentId && (p.parentId === p.id || !there(p, p.parentId))) out.set(p.id, { ...out.get(p.id), parentId: null })
   }
   const state = new Map<ID, 1 | 2>()
   for (const start of Object.keys(pages)) {

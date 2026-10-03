@@ -2,7 +2,7 @@
  * DatabaseView — view tabs, toolbar, filter chips and the active layout
  * (table / board / list / gallery / calendar / timeline / chart / form). inline=true: compact embed.
  */
-import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Maximize2 } from 'lucide-react'
 import type { Database, ID, Page, PropertyValue } from '../store/types'
 import { useDatabase, usePage } from '../store/selectors'
@@ -28,6 +28,7 @@ import type { PopoverAnchor } from '../ui/Popover'
 import { AutofillHost } from './autofill'
 import { TurnOffHost } from './toolbar/StructurePanels'
 import { useDbReadOnly } from './readonly'
+import { resetSessionQuery, setViewQuery, useSessionOverlay, withOverlay } from './model/lock'
 import './database.css'
 
 const CalendarView = lazy(() => import('./views/CalendarView'))
@@ -57,7 +58,16 @@ export function DatabaseView({ databaseId, inline, viewId }: DatabaseViewProps) 
 function DatabaseRoot({ db, page, inline, viewId }: { db: Database; page: Page; inline: boolean; viewId?: ID }) {
   const t = useT()
   const [activeId, setActiveId] = useLocalState<ID | null>(`one.db.view.${db.id}.${viewId ?? (inline ? 'inline' : 'page')}`, viewId ?? null)
-  const view = db.views.find((v) => v.id === activeId) ?? db.views.find((v) => v.id === viewId) ?? db.views[0]
+  const saved = db.views.find((v) => v.id === activeId) ?? db.views.find((v) => v.id === viewId) ?? db.views[0]
+  // a locked database: this tab's own filters / sorts over the saved view (model/lock)
+  const overlay = useSessionOverlay(db.id, saved?.id)
+  const view = useMemo(() => (saved ? withOverlay(saved, overlay) : saved), [saved, overlay])
+  const wasLocked = useRef(db.locked)
+  useEffect(() => {
+    // locked or unlocked (here or by someone else): session filters start over from the saved view
+    if (wasLocked.current !== db.locked) resetSessionQuery(db.id)
+    wasLocked.current = db.locked
+  }, [db.locked, db.id])
   const [search, setSearch] = useState('')
   const [editTitleOf, setEditTitleOf] = useState<ID | null>(null)
   const [ctx, setCtx] = useState<{ row: Page; anchor: PopoverAnchor } | null>(null)
@@ -191,7 +201,7 @@ function DatabaseBody({
     if (!prop || m.readOnly) return
     const f = newFilterFor(m, prop)
     const base = view.filter ?? emptyGroup()
-    useWorkspace.getState().updateView(db.id, view.id, { filter: { ...base, items: [...base.items, f] } })
+    setViewQuery(db.id, view.id, { filter: { ...base, items: [...base.items, f] } })
     setAutoChip(f.id)
   }
 
@@ -225,7 +235,13 @@ function DatabaseBody({
   return (
     <DbModelContext.Provider value={m}>
       <ViewActionsContext.Provider value={actions}>
-        <section className={`db${inline ? ' db--inline' : ''}`} data-view={view.type} data-readonly={m.readOnly || undefined} aria-label={page.title || t('common.untitled')}>
+        <section
+          className={`db${inline ? ' db--inline' : ''}`}
+          data-view={view.type}
+          data-readonly={m.readOnly || undefined}
+          data-locked={m.locked || undefined}
+          aria-label={page.title || t('common.untitled')}
+        >
           {inline && <InlineHeader page={page} readOnly={m.readOnly} />}
           <div className="db-bar">
             <ViewTabs m={m} onSelect={setActiveId} />

@@ -142,9 +142,12 @@ export async function getSession(): Promise<{ user: CloudUser; workspaces: Cloud
   return r?.user ? { user: toUser(r.user), workspaces: (r.workspaces ?? []).map(toWorkspace) } : null
 }
 
-/** Drop the stored content document of a page deleted for good (409 page_exists while it is still in the meta document). */
-export function delPageDocument(wsId: string, pageId: string): Promise<void> {
-  return request<void>('DELETE', `api/workspaces/${encodeURIComponent(wsId)}/documents/${encodeURIComponent(pageId)}`)
+/**
+ * Drop the stored content document of a page deleted for good (409 page_exists while it is still in
+ * the meta document). `priv`: this member's private content document of the page.
+ */
+export function delPageDocument(wsId: string, pageId: string, priv = false): Promise<void> {
+  return request<void>('DELETE', `api/workspaces/${encodeURIComponent(wsId)}/documents/${encodeURIComponent(pageId)}${priv ? '?scope=private' : ''}`)
 }
 
 export async function patchMe(name: string): Promise<CloudUser> {
@@ -236,11 +239,17 @@ export function postAcceptInvite(token: string): Promise<{ workspaceId: string; 
   return request<{ workspaceId: string; role?: Role }>('POST', `api/invites/${encodeURIComponent(token)}/accept`)
 }
 
-export function putFile(wsId: string, fileId: string, blob: Blob, name: string): Promise<{ id: string }> {
+/** `priv`: uploaded from a private page — only this member may download it until it is published. */
+export function putFile(wsId: string, fileId: string, blob: Blob, name: string, priv = false): Promise<{ id: string }> {
   return request<{ id: string }>('PUT', `api/workspaces/${encodeURIComponent(wsId)}/files/${encodeURIComponent(fileId)}`, undefined, {
     raw: blob,
-    headers: { 'content-type': blob.type || 'application/octet-stream', 'x-file-name': encodeURIComponent(name || fileId) },
+    headers: { 'content-type': blob.type || 'application/octet-stream', 'x-file-name': encodeURIComponent(name || fileId), ...(priv ? { 'x-file-scope': 'private' } : {}) },
   })
+}
+
+/** This member's private files among `ids` become workspace files (others' and unknown ids are ignored). */
+export function publishFiles(wsId: string, ids: string[]): Promise<{ published: number }> {
+  return request<{ published: number }>('POST', `api/workspaces/${encodeURIComponent(wsId)}/files/publish`, { ids })
 }
 
 /** GET a file's bytes (null when the server doesn't have it). */

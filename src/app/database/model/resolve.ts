@@ -8,6 +8,7 @@ import { FormulaError, runFormula, toText, isDate, withRangeEnd, type FValue } f
 import { aggregate } from './calc'
 import { formatDateValue, formatNumber, formatTimestamp, isDateValue, parseLocal } from './format'
 import { cachedFileName } from './files'
+import { actorName, actorOf, type ActorLabels, type MeCtx } from './actors'
 
 export interface Ctx {
   pages: Record<ID, Page>
@@ -15,7 +16,9 @@ export interface Ctx {
   people: Person[]
   lang: Lang
   now: number
-  labels: { today: string; tomorrow: string; yesterday: string; untitled: string; yes: string; no: string }
+  labels: { today: string; tomorrow: string; yesterday: string; untitled: string; yes: string; no: string } & ActorLabels
+  /** Who "Me" / the local user is (created_by, last_edited_by, "Me" filters). */
+  me: MeCtx
 }
 
 /** Resolved values: stored PropertyValue for plain types, FValue / FormulaError for computed ones. */
@@ -42,6 +45,9 @@ export class Resolver {
         return new Date(row.createdAt)
       case 'last_edited_time':
         return new Date(row.updatedAt)
+      case 'created_by':
+      case 'last_edited_by':
+        return actorOf(prop, row, this.ctx.me)
       case 'formula':
       case 'rollup': {
         const key = row.id + ':' + prop.id
@@ -107,6 +113,9 @@ export class Resolver {
         return (v as string[]).map((id) => this.ctx.pages[id]).filter((x) => x && !x.trashed).map((x) => x.title || this.ctx.labels.untitled)
       case 'files':
         return (v as string[]).map(fileLabel)
+      case 'created_by':
+      case 'last_edited_by':
+        return this.actorName(String(v))
       case 'date':
         if (!isDateValue(v)) return null
         {
@@ -116,6 +125,11 @@ export class Resolver {
       default:
         return v as FValue
     }
+  }
+
+  /** Display name of a created_by / last_edited_by value. */
+  actorName(id: string): string {
+    return actorName(id, this.ctx.people, this.ctx.me, this.ctx.labels)
   }
 
   rollup(db: Database, prop: PropertyDef, row: Page, depth = 0): FValue | FormulaError {
@@ -171,6 +185,9 @@ export class Resolver {
       case 'created_time':
       case 'last_edited_time':
         return isDate(v) ? formatTimestamp(v.getTime(), lang) : ''
+      case 'created_by':
+      case 'last_edited_by':
+        return typeof v === 'string' ? this.actorName(v) : ''
       case 'formula':
       case 'rollup': {
         if (typeof v === 'number' && prop.type === 'rollup' && prop.rollup) return this.rollupNumberText(db, prop, v)

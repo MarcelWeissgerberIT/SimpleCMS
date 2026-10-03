@@ -2561,6 +2561,11 @@ body.db-dragging * {
   .db-counter {
     display: none;
   }
+
+  /* the locked plate keeps its LED and lock (the name is in its label / tooltip) */
+  .db-lockplate__text {
+    display: none;
+  }
 }
 
 /* ---------- mobile ---------- */
@@ -2646,5 +2651,144 @@ body.db-dragging * {
   font-size: 9.5px;
   letter-spacing: var(--tracking-label);
   text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+/* ---------- created by / last edited by: actors that aren't workspace people ---------- */
+/* API token, webhook: an inked key / hook glyph on a hairline square; the local user: initials or a figure */
+.db-avatar--actor {
+  border: 1px solid var(--rule-strong);
+  background: var(--surface-2);
+  color: var(--ink-2);
+}
+.db-avatar--actor[data-actor='local'] {
+  border-color: var(--ink-3);
+  background: var(--surface);
+  color: var(--ink);
+}
+.db-person[data-actor='api'] .db-person__name,
+.db-person[data-actor='hook'] .db-person__name {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  color: var(--ink-2);
+}
+.db-person[data-actor='unknown'] .db-person__name {
+  color: var(--ink-3);
+}
+/* "Me" in person filters: resolved per viewer — a signal-ruled key cap */
+.db-avatar--me {
+  padding: 0 2px;
+  border: 1px solid var(--signal);
+  background: var(--signal-wash);
+  color: var(--signal-ink);
+  letter-spacing: 0;
+}
+
+/* ---------- locked database (model/lock) ---------- */
+/* a riveted placard: solid ink rule, mono caps, a lit LED — one click unlocks */
+.db-lockplate {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 22px;
+  padding: 0 7px 0 6px;
+  border: 1px solid var(--ink-2);
+  border-radius: var(--radius-1);
+  background: var(--surface);
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  font-weight: 650;
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  white-space: nowrap;
+  outline: none;
+}
+.db-lockplate:focus-visible {
+  box-shadow: var(--focus-ring);
+}
+.db-lockplate--btn {
+  cursor: pointer;
+  transition: background var(--dur-1) var(--ease-out), border-color var(--dur-1) var(--ease-out);
+}
+.db-lockplate--btn:hover {
+  border-color: var(--signal);
+  background: var(--signal-wash);
+}
+.db-lockplate--btn:active {
+  transform: translateY(1px);
+}
+.db-lockplate__open {
+  display: none;
+}
+.db-lockplate--btn:hover .db-lockplate__open,
+.db-lockplate--btn:focus-visible .db-lockplate__open {
+  display: inline;
+}
+.db-lockplate--btn:hover .db-lockplate__closed,
+.db-lockplate--btn:focus-visible .db-lockplate__closed {
+  display: none;
+}
+
+/* filter / sort panels and chips of a locked database: this tab only */
+.db-sessionnote {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 4px 6px;
+  padding: 6px 8px;
+  border: 1px dashed var(--rule-strong);
+  border-radius: var(--radius-1);
+  color: var(--ink-2);
+  font-size: 11.5px;
+  line-height: 1.35;
+}
+.db-sessionnote > svg {
+  flex: none;
+  color: var(--ink-3);
+}
+.db-sessionnote__text {
+  flex: 1;
+  min-width: 0;
+}
+.db-chipsbar__session {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 22px;
+  padding: 0 7px;
+  border: 1px dashed var(--rule-strong);
+  border-radius: var(--radius-1);
+  color: var(--ink-2);
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.db-chipsbar__session .db-panel__link {
+  font-family: var(--font-sans);
+  letter-spacing: 0;
+  text-transform: none;
+}
+.db-propmenu__title {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.db-propmenu__name {
+  overflow: hidden;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.db-propmenu__locked {
+  display: flex;
+  align-items: center;
+  gap: 4px;
   color: var(--ink-3);
 }

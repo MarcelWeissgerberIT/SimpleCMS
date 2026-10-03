@@ -1,9 +1,10 @@
 /**
  * This browser's copies of team workspaces (docs/CLOUD.md § This device's data) — and removing them
  * (shared computers, "remove this workspace's copy"). A copy is:
- *   one:ws:<id>, one:ws:<id>:p:<page>   y-indexeddb databases (meta document + page documents)
+ *   one:ws:<id>, one:ws:<id>:p:<page>   y-indexeddb databases (meta document + page documents;
+ *   one:ws:<id>:u:<user>[:p:<page>]     the private ones too, docs/CLOUD.md § Private pages)
  *   one-cloud / kv                      overlay:<id> (settings incl. the AI key, favourites, recent),
- *                                       content:<id>:<page>, uploads:<id>, purge:<id>
+ *                                       content:<id>:<page>, uploads:<id>, purge:<id>, privfiles:<id>
  *   one-files / files                   cached files — only those nothing else in this browser uses
  *   one-history / snapshots             version history of the workspace's pages (idx:<page>, snap:<id>)
  * The team workspace on the server is never touched, nor is the local workspace or anything it uses
@@ -18,7 +19,7 @@ import * as Y from 'yjs'
 import { IndexeddbPersistence } from 'y-indexeddb'
 import { createStore, delMany, entries, get as idbGet } from 'idb-keyval'
 import { deleteFile, FILE_PREFIX } from '../lib/files'
-import { lsGet, lsSet, readChoice, sleep, writeChoice, WS_ID } from './env'
+import { lsGet, lsSet, readChoice, readSession, sleep, writeChoice, WS_ID } from './env'
 import { allDeviceEntries, dropDeviceKeys } from './local'
 
 const FLAG = 'one.cloud.forget'
@@ -27,8 +28,10 @@ const ALL = '*'
 /** BroadcastChannels of one tab hear each other: messages carry the sender. */
 const TAB = Math.random().toString(36).slice(2)
 const REF_RE = /onefile:([A-Za-z0-9_-]{1,64})/g
-const DOC_DB = /^one:ws:([A-Za-z0-9_-]{8,64})(?::p:([A-Za-z0-9_-]{1,64}))?$/
-const KV_KEY = /^(overlay|uploads|purge|content):([A-Za-z0-9_-]{8,64})(?::([A-Za-z0-9_-]{1,64}))?$/
+/** A workspace's documents: meta, page content, and (`:u:<userId>`) a member's private ones. */
+const DOC_DB = /^one:ws:([A-Za-z0-9_-]{8,64})(?::u:[A-Za-z0-9_-]{8,64})?(?::p:([A-Za-z0-9_-]{1,64}))?$/
+const PRIVATE_META_DB = /^one:ws:([A-Za-z0-9_-]{8,64}):u:[A-Za-z0-9_-]{8,64}$/
+const KV_KEY = /^(overlay|uploads|purge|content|privfiles):([A-Za-z0-9_-]{8,64})(?::([A-Za-z0-9_-]{1,64}))?$/
 const LOCAL_WORKSPACE_KEY = 'one.workspace.v1'
 
 function readFlag(): string[] {
@@ -165,9 +168,11 @@ async function forget(flag: string[]): Promise<void> {
     } else if (kind === 'content') collectRefs(v, keep)
   }
   const docDbs = new Set<string>()
-  for (const ws of targets) {
-    const metaName = `one:ws:${ws}`
-    if (dbNames && !dbNames.includes(metaName)) continue
+  // without a list of databases: the signed-in member's private documents are the ones there can be
+  const uid = readSession()?.user.id
+  const metaNames = (ws: string) =>
+    dbNames ? dbNames.filter((n) => n === `one:ws:${ws}` || PRIVATE_META_DB.exec(n)?.[1] === ws) : [`one:ws:${ws}`, ...(uid ? [`one:ws:${ws}:u:${uid}`] : [])]
+  for (const ws of targets) for (const metaName of metaNames(ws)) {
     docDbs.add(metaName)
     // the meta document: page ids (their documents / history) and files in properties / covers
     const doc = new Y.Doc()
@@ -187,7 +192,7 @@ async function forget(flag: string[]): Promise<void> {
     const m = DOC_DB.exec(n)
     if (m && targets.has(m[1])) docDbs.add(n)
   }
-  if (!dbNames) for (const ws of targets) for (const p of pages) docDbs.add(`one:ws:${ws}:p:${p}`)
+  if (!dbNames) for (const ws of targets) for (const p of pages) for (const meta of metaNames(ws)) docDbs.add(`${meta}:p:${p}`)
 
   // the local workspace keeps its pages' history and its files
   const localPages = new Set<string>()

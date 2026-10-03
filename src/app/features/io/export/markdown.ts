@@ -9,7 +9,7 @@ import { guardCell } from '../import/csv'
 import { collectRefs, relativePath, safeName, uniqueName, type ExportTree } from './collect'
 
 /** Quote when needed; cells a spreadsheet would execute (=, +, -, @) get a leading apostrophe. */
-const csvCell = (raw: string) => {
+export const csvCell = (raw: string) => {
   const s = guardCell(raw)
   return /[",\n\r;]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
 }
@@ -61,6 +61,23 @@ export function exportValue(
   return toText(db, prop, row)
 }
 
+/**
+ * Page Markdown written into the file at `from`: internal links (`#/p/<id>`) and file refs
+ * (`onefile:<id>`) become paths relative to it (targets without a path stay as they are).
+ * Shared with the folder / GitHub sync (features/sync).
+ */
+export function rewriteExportLinks(md: string, from: string, pageTarget: (id: ID) => string | undefined, fileTarget: (ref: string) => string | undefined): string {
+  return md
+    .replace(/\]\(#\/p\/([\w-]+)(?:\?[^)\s]*)?\)/g, (all, id: string) => {
+      const target = pageTarget(id)
+      return target ? `](${relativePath(from, target)})` : all
+    })
+    .replace(/onefile:[0-9a-z]+/g, (ref) => {
+      const target = fileTarget(ref)
+      return target ? relativePath(from, target) : ref
+    })
+}
+
 export async function buildMarkdownZip(tree: ExportTree, opts: { untitled: string; onProgress?: (done: number, total: number) => void }): Promise<Blob> {
   const [{ docToMarkdown }, { propertyValueToText }] = await Promise.all([import('../../../editor'), import('../../../database')])
   const out: Record<string, Uint8Array> = {}
@@ -106,16 +123,7 @@ export async function buildMarkdownZip(tree: ExportTree, opts: { untitled: strin
     filePath.set(ref, path)
   }
 
-  const rewrite = (md: string, from: string) =>
-    md
-      .replace(/\]\(#\/p\/([\w-]+)(?:\?[^)\s]*)?\)/g, (all, id: string) => {
-        const target = pathOf.get(id)
-        return target ? `](${relativePath(from, target)})` : all
-      })
-      .replace(/onefile:[0-9a-z]+/g, (ref) => {
-        const target = filePath.get(ref)
-        return target ? relativePath(from, target) : ref
-      })
+  const rewrite = (md: string, from: string) => rewriteExportLinks(md, from, (id) => pathOf.get(id), (ref) => filePath.get(ref))
 
   /** a files value relative to the file it is written into (refs that could not be exported are left out) */
   const fileRef = (from: string) => (ref: string) => {

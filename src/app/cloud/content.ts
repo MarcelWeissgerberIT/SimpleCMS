@@ -1,5 +1,6 @@
 /**
- * Page content documents (`ws:<id>:p:<pageId>`, docs/CLOUD.md § Realtime documents).
+ * Page content documents (`ws:<id>:p:<pageId>`, docs/CLOUD.md § Realtime documents; a private page's
+ * is `ws:<id>:u:<userId>:p:<pageId>`, § Private pages — the name follows the page's `private` marker).
  *
  *  - Registry: one Y.Doc + y-indexeddb + HocuspocusProvider (on the shared socket) per page,
  *    ref-counted by editors (acquire/release) and held by background jobs. An entry with changes
@@ -13,6 +14,11 @@
  *  - Background sync after boot (small concurrency) keeps page.content fresh for search, export,
  *    graph and backlinks without holding every page document open; a cache of the last content
  *    per page makes boots instant.
+ *  - Moving pages between Private and the workspace (prepareMove): the same Y.Doc gets a second
+ *    provider on the other name until the server confirmed the full state there, then that provider
+ *    (and an IndexedDB copy of that name) takes over — open editors keep their document and carets.
+ *  - Workspace pages never keep the title of a private page in a mention's `label` (others would read
+ *    it): local edits that bring one in are cleared at once.
  */
 import * as Y from 'yjs'
 import { HocuspocusProvider } from '@hocuspocus/provider'
@@ -24,10 +30,11 @@ import { deepEqual, mergeContent } from '../store/merge'
 import type { ID, Page } from '../store/types'
 import { docSchema, prepareCollabContent } from '../editor'
 import { applyFromCloud, markFromCloud } from './binding'
+import { stripHiddenMentions } from './privacy'
 import { dropContentCache, saveContentCache, type CachedContent } from './local'
 import { getSocket, isConnected, onConnection } from './socket'
 import { PAGE_ID, within } from './env'
-import type { ContentDocHandle } from './state'
+import { CloudError, type ContentDocHandle } from './state'
 
 /** setContent origin for content typed in this tab's editors (not an editor instance id, not 'sync'). */
 export const CLOUD_EDIT_ORIGIN = 'cloud'
@@ -43,6 +50,8 @@ const CONCURRENCY = 3
 
 export interface ContentContext {
   wsId: string
+  /** This member's account id (names of private page documents). */
+  userId: string
   writable: () => boolean
   user: () => { id: string; name: string; color: string; tone: string }
   /** A document closed / refused by the server (role-changed, membership-revoked …). */
@@ -57,6 +66,8 @@ export interface ContentContext {
 
 interface Entry {
   pageId: ID
+  /** Which document: this member's private one, or the workspace's. */
+  priv: boolean
   doc: Y.Doc
   idb: IndexeddbPersistence
   provider: HocuspocusProvider
@@ -66,7 +77,10 @@ interface Entry {
   isLoaded: boolean
   synced: boolean
   firstSync: Promise<void>
+  resolveSync: () => void
   localEdit: boolean
+  /** The page went away while the entry was in use: drop the local copies once it is let go. */
+  forgotten: boolean
   refreshTimer?: number
   lingerTimer?: number
   handle: ContentDocHandle | null
@@ -79,8 +93,12 @@ export function contentContext(): ContentContext | null {
   return ctx
 }
 
-const docName = (pageId: ID) => `ws:${ctx!.wsId}:p:${pageId}`
-const idbName = (pageId: ID) => `one:${docName(pageId)}`
+const docName = (pageId: ID, priv: boolean) => (priv ? `ws:${ctx!.wsId}:u:${ctx!.userId}:p:${pageId}` : `ws:${ctx!.wsId}:p:${pageId}`)
+const idbName = (pageId: ID, priv: boolean) => `one:${docName(pageId, priv)}`
+/** Where the page lives now (the binding keeps the marker in step with the meta documents). */
+const isPrivate = (pageId: ID) => !!useWorkspace.getState().pages[pageId]?.private
+/** Changes that came from the server or this device's IndexedDB copy (not typed / written here). */
+const isRemoteOrigin = (origin: unknown) => origin instanceof HocuspocusProvider || origin instanceof IndexeddbPersistence
 
 /** Some open page document has changes the server hasn't confirmed. */
 export function contentHasUnsynced(): boolean {
@@ -99,14 +117,14 @@ function ensure(pageId: ID): Entry {
   if (existing) return existing
   const c = ctx!
   const doc = new Y.Doc()
-  const idb = new IndexeddbPersistence(idbName(pageId), doc)
-  const provider = new HocuspocusProvider({ websocketProvider: getSocket(), name: docName(pageId), document: doc })
-  let resolveSync!: () => void
+  const priv = isPrivate(pageId)
+  const idb = new IndexeddbPersistence(idbName(pageId, priv), doc)
   const entry: Entry = {
     pageId,
+    priv,
     doc,
     idb,
-    provider,
+    provider: null as unknown as HocuspocusProvider,
     refs: 0,
     holds: 0,
     loaded: idb.whenSynced.then(() => {
@@ -114,14 +132,17 @@ function ensure(pageId: ID): Entry {
     }),
     isLoaded: false,
     synced: false,
-    firstSync: new Promise<void>((r) => (resolveSync = r)),
+    firstSync: Promise.resolve(),
+    resolveSync: () => {},
     localEdit: false,
+    forgotten: false,
     handle: null,
   }
+  resetSync(entry)
   entries.set(pageId, entry)
 
   doc.on('update', (_u: Uint8Array, origin: unknown) => {
-    if (origin !== idb && origin !== provider && c.writable()) {
+    if (!isRemoteOrigin(origin) && c.writable()) {
       // typed here, undone here, or a bridge write: the server has to confirm it
       // (a viewer's local changes never reach the server — nothing to wait for)
       if (!c.pending.has(pageId)) {
@@ -134,23 +155,91 @@ function ensure(pageId: ID): Entry {
     }
     scheduleRefresh(entry)
   })
+  doc.getXmlFragment(FIELD).observeDeep((events, tr) => scrubPrivateMentions(entry, events, tr))
+  entry.provider = connect(entry, docName(pageId, priv))
+  return entry
+}
+
+function resetSync(e: Entry) {
+  e.synced = false
+  e.firstSync = new Promise<void>((r) => (e.resolveSync = r))
+}
+
+/**
+ * A provider for the entry's document on `name` (the shared socket). Its events act on the entry
+ * only while it is the entry's provider — a move's standby provider just syncs. `awareness`: the
+ * entry's (open editors' carets keep working when a move swaps providers).
+ */
+function connect(e: Entry, name: string, awareness?: HocuspocusProvider['awareness']): HocuspocusProvider {
+  const c = ctx!
+  const provider = new HocuspocusProvider({ websocketProvider: getSocket(), name, document: e.doc, ...(awareness ? { awareness } : {}) })
+  const mine = () => e.provider === provider && entries.get(e.pageId) === e
   provider.on('synced', () => {
-    entry.synced = true
-    resolveSync()
-    scheduleRefresh(entry, 0)
-    checkConfirmed(entry)
+    if (!mine()) return
+    e.synced = true
+    e.resolveSync()
+    scheduleRefresh(e, 0)
+    checkConfirmed(e)
   })
   provider.on('unsyncedChanges', () => {
-    checkConfirmed(entry)
+    if (!mine()) return
+    checkConfirmed(e)
     updateUnsynced()
   })
   provider.on('close', ({ event }: { event: { reason?: string } }) => {
-    entry.synced = false
+    if (!mine()) return
+    e.synced = false
     if (event?.reason) c.onClose(event.reason)
   })
-  provider.on('authenticationFailed', ({ reason }: { reason: string }) => c.onClose(reason === 'unauthenticated' ? 'session-ended' : reason === 'forbidden' ? 'membership-revoked' : reason))
+  provider.on('authenticationFailed', ({ reason }: { reason: string }) => {
+    if (mine()) c.onClose(reason === 'unauthenticated' ? 'session-ended' : reason === 'forbidden' ? 'membership-revoked' : reason)
+  })
   provider.attach()
-  return entry
+  return provider
+}
+
+/** Stop a provider but keep its awareness alive (it moved on to the entry's next provider). */
+function retire(provider: HocuspocusProvider) {
+  const awareness = provider.configuration.awareness
+  provider.configuration.awareness = null
+  try {
+    provider.destroy()
+  } catch {
+    /* gone */
+  }
+  // editors still holding this provider read `.awareness` when they unmount
+  provider.configuration.awareness = awareness
+}
+
+/**
+ * The page moved between Private and the workspace: the entry continues on the other document
+ * (`provider` — a move's standby provider that already holds the full state on the server — or a
+ * fresh one) and keeps its local copy under that name; the old name's local copy goes.
+ */
+function retarget(e: Entry, priv: boolean, provider?: HocuspocusProvider) {
+  if (e.priv === priv) {
+    if (provider && provider !== e.provider) retire(provider)
+    return
+  }
+  const old = e.provider
+  const oldIdb = e.idb
+  const oldName = idbName(e.pageId, e.priv)
+  e.priv = priv
+  e.idb = new IndexeddbPersistence(idbName(e.pageId, priv), e.doc)
+  resetSync(e)
+  e.provider = provider ?? connect(e, docName(e.pageId, priv), old.awareness)
+  if (provider?.isSynced) {
+    e.synced = true
+    e.resolveSync()
+  }
+  if (e.handle) e.handle.provider = e.provider
+  retire(old)
+  void oldIdb
+    .destroy()
+    .then(() => clearDocument(oldName))
+    .catch(() => {})
+  checkConfirmed(e)
+  updateUnsynced()
 }
 
 /** The server confirmed every local change of this page: it is no longer pending. */
@@ -171,9 +260,11 @@ function destroy(e: Entry) {
   } catch {
     /* already gone */
   }
-  void e.idb.destroy()
+  const idbDone = e.idb.destroy()
   e.doc.destroy()
   updateUnsynced()
+  // gone from the store while it was open: its local copies go now (unless it came back)
+  if (e.forgotten && !useWorkspace.getState().pages[e.pageId]) void idbDone.finally(() => forget(e.pageId))
 }
 
 function linger(e: Entry) {
@@ -358,7 +449,9 @@ export function bridgeContent(pageId: ID, base: JSONContent | null, ours: JSONCo
       const theirs = canonical(fragmentJSON(e))
       const b = canonical(base)
       const o = canonical(ours)
-      const target = theirs && !deepEqual(theirs, b) ? mergeContent(b, theirs, o) : o
+      let target = theirs && !deepEqual(theirs, b) ? mergeContent(b, theirs, o) : o
+      // a workspace page never gets the title of a private page through a mention's label
+      if (!e.priv) target = stripHiddenMentions(target, isPrivate) ?? target
       if (deepEqual(target, theirs)) return
       e.doc.transact(() => {
         if (!target) frag.delete(0, frag.length)
@@ -438,7 +531,8 @@ async function work(): Promise<void> {
 }
 
 /** Remote meta changes: new pages and pages someone else changed (content may have moved too). */
-export function onRemotePages(r: { created: ID[]; touched: ID[]; removed: ID[] }): void {
+export function onRemotePages(r: { created: ID[]; touched: ID[]; removed: ID[]; rescoped: ID[] }): void {
+  if (r.rescoped.length) rescope(r.rescoped)
   const stale: ID[] = []
   for (const id of [...r.created, ...r.touched]) {
     const e = entries.get(id)
@@ -454,16 +548,161 @@ export function onRemotePages(r: { created: ID[]; touched: ID[]; removed: ID[] }
   for (const id of r.removed) forget(id)
 }
 
-/** A page is gone for good: drop its document and local copies. */
+/**
+ * A page is gone from this device's store (deleted for good, or — for someone else — moved to a
+ * private section): drop its document and every local copy. An entry still in use (an open
+ * editor) is dropped when it is let go.
+ */
 export function forget(pageId: ID): void {
   if (!ctx) return
   const e = entries.get(pageId)
-  if (e && (e.refs || e.holds)) return
+  if (e && (e.refs || e.holds)) {
+    e.forgotten = true
+    return
+  }
   if (e) destroy(e)
   ctx.cache.delete(pageId)
   dropContentCache(ctx.wsId, pageId)
   if (ctx.pending.delete(pageId)) ctx.savePending()
-  if (PAGE_ID.test(pageId)) void clearDocument(idbName(pageId)).catch(() => {})
+  if (!PAGE_ID.test(pageId)) return
+  void clearDocument(idbName(pageId, false)).catch(() => {})
+  void clearDocument(idbName(pageId, true)).catch(() => {})
+}
+
+/* ------------------------------------------------------------------ private ⇄ workspace */
+
+export interface ContentMove {
+  /** The pages' documents continue on the target names (call right after the meta documents moved). */
+  commit(): void
+  /** Nothing moved: the standby providers go (the caller purges what they left on the server). */
+  abort(): void
+  /** The moved pages' content as the server has it (file references for publishing private uploads). */
+  json: Map<ID, JSONContent | null>
+}
+
+const confirmed = (p: HocuspocusProvider) => p.isSynced && !p.hasUnsyncedChanges
+
+/** Resolves true once `test()` holds (checked on the provider's events and every 100 ms), false after `ms`. */
+function until(test: () => boolean, ms: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    if (test()) return resolve(true)
+    const t0 = Date.now()
+    const timer = window.setInterval(() => {
+      if (test()) {
+        window.clearInterval(timer)
+        resolve(true)
+      } else if (Date.now() - t0 > ms) {
+        window.clearInterval(timer)
+        resolve(false)
+      }
+    }, 100)
+  })
+}
+
+/**
+ * Get the content of `ids` ready to live in the other scope: every document synced with the server
+ * under its current name, then a standby provider per page on the target name (same Y.Doc), until
+ * the server confirmed the full state there. `hidden`: pages whose mentions lose their label first
+ * (moving to the workspace: pages that stay private). Throws CloudError('offline' | 'timeout') —
+ * then nothing is left behind except what standby providers already sent (the caller purges it).
+ */
+export async function prepareMove(ids: ID[], toPrivate: boolean, hidden?: (id: ID) => boolean, timeoutMs = 20_000): Promise<ContentMove> {
+  if (!ctx || !isConnected()) throw new CloudError('offline', 'Moving pages needs a connection.')
+  const held = ids.filter((id) => PAGE_ID.test(id)).map(hold)
+  const standby: Array<{ e: Entry; provider: HocuspocusProvider }> = []
+  const release = () => held.forEach(unhold)
+  try {
+    await Promise.all(held.map((e) => e.loaded))
+    if (!(await until(() => held.every((e) => e.synced), timeoutMs))) throw new CloudError(isConnected() ? 'timeout' : 'offline', 'The server did not answer in time.')
+    // the labels go before the state is copied (a cleared value is not part of the encoded state)
+    if (hidden) for (const e of held) clearLabels(e, [...allMentions(e.doc.getXmlFragment(FIELD))], hidden)
+    for (const e of held) if (e.priv !== toPrivate) standby.push({ e, provider: connect(e, docName(e.pageId, toPrivate), e.provider.awareness) })
+    if (!(await until(() => standby.every((s) => confirmed(s.provider)), timeoutMs))) throw new CloudError(isConnected() ? 'timeout' : 'offline', 'The server did not confirm the copy in time.')
+  } catch (err) {
+    for (const s of standby) retire(s.provider)
+    release()
+    throw err
+  }
+  const json = new Map<ID, JSONContent | null>()
+  for (const e of held) json.set(e.pageId, fragmentJSON(e))
+  let done = false
+  return {
+    json,
+    commit() {
+      if (done) return
+      done = true
+      for (const s of standby) if (entries.get(s.e.pageId) === s.e) retarget(s.e, toPrivate, s.provider)
+      release()
+    },
+    abort() {
+      if (done) return
+      done = true
+      for (const s of standby) retire(s.provider)
+      release()
+    },
+  }
+}
+
+/** Pages another device moved between Private and the workspace: their open documents follow. */
+function rescope(ids: ID[]) {
+  for (const id of ids) {
+    const e = entries.get(id)
+    const priv = isPrivate(id)
+    if (e) retarget(e, priv)
+    // a local copy under the old name is stale now
+    else if (PAGE_ID.test(id)) void clearDocument(idbName(id, !priv)).catch(() => {})
+  }
+}
+
+/* ------------------------------------------------------------------ mention labels */
+
+const isElement = (t: unknown): t is Y.XmlElement => t instanceof Y.XmlElement
+
+function collectMentions(type: unknown, into: Y.XmlElement[]) {
+  if (!isElement(type) && !(type instanceof Y.XmlFragment)) return
+  if (isElement(type) && type.nodeName === 'mention') into.push(type)
+  for (const el of type.createTreeWalker((n) => isElement(n) && n.nodeName === 'mention')) into.push(el as Y.XmlElement)
+}
+
+function allMentions(frag: Y.XmlFragment): Y.XmlElement[] {
+  const out: Y.XmlElement[] = []
+  collectMentions(frag, out)
+  return out
+}
+
+/** Page mentions among `els` that name a `hidden` page and still carry its title. */
+function labelled(els: Y.XmlElement[], hidden: (id: ID) => boolean): Y.XmlElement[] {
+  return els.filter((el) => {
+    const id = el.getAttribute('id')
+    return el.getAttribute('kind') === 'page' && !!el.getAttribute('label') && typeof id === 'string' && hidden(id)
+  })
+}
+
+function clearLabels(e: Entry, els: Y.XmlElement[], hidden: (id: ID) => boolean) {
+  const leak = labelled(els, hidden)
+  if (!leak.length) return
+  e.doc.transact(() => {
+    for (const el of leak) if (el.doc && el.getAttribute('label')) el.setAttribute('label', '')
+  }, BRIDGE)
+}
+
+/**
+ * A mention of a private page written into a WORKSPACE page here (typed, pasted, bridged) loses its
+ * label at once: the other members' copies and the search excerpt must never carry its title.
+ */
+function scrubPrivateMentions(e: Entry, events: Array<Y.YEvent<Y.AbstractType<unknown>>>, tr: Y.Transaction) {
+  if (e.priv || !tr.local || isRemoteOrigin(tr.origin) || !ctx?.writable()) return
+  const found: Y.XmlElement[] = []
+  for (const ev of events) {
+    if (isElement(ev.target) && ev.target.nodeName === 'mention' && (ev as Y.YXmlEvent).attributesChanged?.size) found.push(ev.target)
+    for (const item of ev.changes.added) if (item.content instanceof Y.ContentType) collectMentions(item.content.type, found)
+  }
+  if (!found.length) return
+  const isPriv = (id: ID) => !!useWorkspace.getState().pages[id]?.private
+  if (!labelled(found, isPriv).length) return
+  queueMicrotask(() => {
+    if (entries.get(e.pageId) === e && !e.priv) clearLabels(e, found, isPriv)
+  })
 }
 
 /* ------------------------------------------------------------------ lifecycle */

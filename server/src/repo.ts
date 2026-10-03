@@ -47,6 +47,8 @@ export interface FileRow {
   sha256: string
   created_by: string | null
   created_at: number
+  /** Uploaded from a private page: served to this user only (until published, docs/CLOUD.md § Private pages). */
+  private_to: string | null
 }
 
 export type ApiScope = 'read' | 'write'
@@ -325,6 +327,20 @@ export class Repo {
     })
   }
 
+  /**
+   * A member's private documents (`ws:<id>:u:<userId>` and its page documents) and their tombstones —
+   * when the member leaves or is removed. Returns how many stored documents went.
+   */
+  deletePrivateDocuments(workspaceId: string, userId: string): number {
+    const prefix = `ws:${workspaceId}:u:${userId}`
+    // no LIKE: ids contain `_`, a LIKE wildcard
+    const mine = 'name = ? OR substr(name, 1, ?) = ?'
+    return this.db.tx(() => {
+      this.db.run(`DELETE FROM document_tombstones WHERE workspace_id = ? AND (${mine})`, workspaceId, prefix, prefix.length + 3, `${prefix}:p:`)
+      return this.db.run(`DELETE FROM documents WHERE workspace_id = ? AND (${mine})`, workspaceId, prefix, prefix.length + 3, `${prefix}:p:`)
+    })
+  }
+
   isDocumentDeleted(name: string): boolean {
     return !!this.db.get('SELECT 1 AS x FROM document_tombstones WHERE name = ?', name)
   }
@@ -343,12 +359,30 @@ export class Repo {
   insertFile(row: FileRow): boolean {
     return (
       this.db.run(
-        `INSERT INTO files (id, workspace_id, name, mime, size, sha256, created_by, created_at)
-         SELECT ?, ?, ?, ?, ?, ?, ?, ? WHERE EXISTS (SELECT 1 FROM workspaces WHERE id = ?)
+        `INSERT INTO files (id, workspace_id, name, mime, size, sha256, created_by, created_at, private_to)
+         SELECT ?, ?, ?, ?, ?, ?, ?, ?, ? WHERE EXISTS (SELECT 1 FROM workspaces WHERE id = ?)
          ON CONFLICT DO NOTHING`,
-        row.id, row.workspace_id, row.name, row.mime, row.size, row.sha256, row.created_by, row.created_at, row.workspace_id,
+        row.id, row.workspace_id, row.name, row.mime, row.size, row.sha256, row.created_by, row.created_at, row.private_to, row.workspace_id,
       ) > 0
     )
+  }
+
+  /** The owner's private files become workspace files (their page moved to the workspace). Returns how many. */
+  publishFiles(workspaceId: string, userId: string, ids: string[]): number {
+    let n = 0
+    this.db.tx(() => {
+      for (const id of ids) n += this.db.run('UPDATE files SET private_to = NULL WHERE workspace_id = ? AND id = ? AND private_to = ?', workspaceId, id, userId)
+    })
+    return n
+  }
+
+  /** A leaving member's private files: the rows go, the ids are returned (the bytes are the caller's job). */
+  deletePrivateFiles(workspaceId: string, userId: string): string[] {
+    return this.db.tx(() => {
+      const ids = this.db.all<{ id: string }>('SELECT id FROM files WHERE workspace_id = ? AND private_to = ?', workspaceId, userId).map((r) => r.id)
+      this.db.run('DELETE FROM files WHERE workspace_id = ? AND private_to = ?', workspaceId, userId)
+      return ids
+    })
   }
 
   // ── API tokens (docs/API.md) ─────────────────────────────────────────

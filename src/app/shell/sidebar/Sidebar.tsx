@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
-import { Bell, CalendarDays, CalendarRange, ChevronsLeft, ChevronDown, Home, LayoutTemplate, Plus, Search, Trash2, Upload, Waypoints, Settings, Table2, FilePlus2, Users } from 'lucide-react'
+import { Bell, CalendarDays, CalendarRange, ChevronsLeft, ChevronDown, Home, LayoutTemplate, Lock, Plus, Search, Trash2, Upload, Waypoints, Settings, Table2, FilePlus2, Users } from 'lucide-react'
 import { useWorkspace } from '../../store/store'
 import { useUI } from '../../store/ui'
 import { useFavorites, useTrash, selectBreadcrumbs } from '../../store/selectors'
@@ -12,9 +12,11 @@ import { shortcutLabel } from '../../ui/controls'
 import { useT } from '../../i18n'
 import { logoMarkSvg } from '@/shared/logo'
 import { BRAND } from '@/shared/brand'
-import { DraggableTree, PageList, PageTree } from './PageTree'
+import { DraggableTree, PageList, PageTree, SECTION_DROP, useRootIds, useSectionDrop } from './PageTree'
 import { TrashPopover } from './TrashPopover'
-import { useChildIds, treeKey, useTreeState } from '../lib/tree'
+import { createPrivateDatabaseAndOpen, createPrivatePageAndOpen } from './private'
+import { treeKey, useTreeState } from '../lib/tree'
+import { usePrivateMode } from '../../cloud'
 import { closeMobileSidebar, createDatabaseAndOpen, createPageAndOpen, goHome, toggleSidebar } from '../lib/actions'
 import { useIsMobile, useKbdHint } from '../lib/hooks'
 import { HeaderSub, useWorkspaceEntries } from '../cloud/Switcher'
@@ -49,7 +51,7 @@ export function Sidebar() {
     const chain = selectBreadcrumbs(pages, activeId)
       .slice(0, -1)
       .filter((p) => p.kind !== 'database' || !pages[activeId]?.databaseId || p.id !== pages[activeId].databaseId)
-    if (chain.length) useTreeState.getState().expand(chain.map((p) => treeKey('pages', p.id)))
+    if (chain.length) useTreeState.getState().expand(chain.map((p) => treeKey(p.private ? 'private' : 'pages', p.id)))
   }, [activeId])
 
   const w = Math.min(MAX_W, Math.max(MIN_W, dragW ?? width))
@@ -104,7 +106,11 @@ export function Sidebar() {
         </nav>
         <div className="sb-scroll" onKeyDown={onTreeKeyDown}>
           <FavoritesSection />
-          <PagesSection />
+          {/* one drag & drop context: pages move between the workspace's and my private ones too */}
+          <DraggableTree>
+            <PagesSection />
+            <PrivateSection />
+          </DraggableTree>
         </div>
         <SidebarFooter />
         {!mobile && (
@@ -242,10 +248,11 @@ function InboxNavRow({ active }: { active: boolean }) {
   )
 }
 
-function SectionHead({ n, label, count, children }: { n: string; label: string; count?: number; children?: ReactNode }) {
+function SectionHead({ n, label, count, icon, drop, children }: { n: string; label: string; count?: number; icon?: ReactNode; drop?: ReturnType<typeof useSectionDrop>; children?: ReactNode }) {
   return (
-    <div className="sb-sect">
+    <div className="sb-sect" ref={drop?.ref} data-drop={drop?.over || undefined}>
       <span className="sb-sect__n">{n}</span>
+      {icon && <span className="sb-sect__icon">{icon}</span>}
       <span className="sb-sect__label">{label}</span>
       <span className="sb-sect__leader" aria-hidden />
       {count !== undefined && <span className="sb-sect__count">{String(count).padStart(2, '0')}</span>}
@@ -268,21 +275,32 @@ function FavoritesSection() {
   )
 }
 
-function PagesSection() {
-  const t = useT()
-  const roots = useChildIds(null)
-  const total = useWorkspace((s) => {
+/** Pages of the tree (not trashed, rows or hidden) — of one section in a team workspace. */
+function useTreeCount(priv: boolean | null): number {
+  return useWorkspace((s) => {
     let n = 0
-    for (const p of Object.values(s.pages)) if (!p.trashed && !p.databaseId && !p.hidden) n++
+    for (const p of Object.values(s.pages)) if (!p.trashed && !p.databaseId && !p.hidden && (priv === null || !!p.private === priv)) n++
     return n
   })
-  const hasFavs = useWorkspace((s) => Object.values(s.pages).some((p) => p.favorite && !p.trashed))
+}
+
+const useHasFavs = () => useWorkspace((s) => Object.values(s.pages).some((p) => p.favorite && !p.trashed))
+const sectionNo = (n: number) => String(n).padStart(2, '0')
+
+function PagesSection() {
+  const t = useT()
+  // a team workspace splits the top level: the workspace's pages here, mine under PRIVATE
+  const split = usePrivateMode() !== 'none'
+  const roots = useRootIds(split ? false : null)
+  const total = useTreeCount(split ? false : null)
+  const hasFavs = useHasFavs()
   const menu = useMenu()
   const kbd = useKbdHint()
   const readOnly = useReadOnly()
+  const drop = useSectionDrop(SECTION_DROP.pages, split && !readOnly)
   return (
     <section className="sb-section" aria-label={t('shell.sidebar.pages')}>
-      <SectionHead n={hasFavs ? '02' : '01'} label={t('shell.sidebar.pages')} count={total}>
+      <SectionHead n={sectionNo(hasFavs ? 2 : 1)} label={t('shell.sidebar.pages')} count={total} drop={drop}>
         {!readOnly && (
           <button type="button" className="sb-sect__add" aria-label={t('common.newPage')} onClick={toggleMenu(menu)}>
             <Plus size={14} />
@@ -299,9 +317,7 @@ function PagesSection() {
         ]}
       />
       <div role="tree">
-        <DraggableTree>
-          <PageTree parentId={null} depth={0} section="pages" draggable={!readOnly} />
-        </DraggableTree>
+        <PageTree parentId={null} depth={0} section="pages" draggable={!readOnly} roots={roots} />
       </div>
       {roots.length === 0 && !readOnly && <p className="sb-hint">{t('shell.sidebar.empty')}</p>}
       {!readOnly && (
@@ -314,10 +330,59 @@ function PagesSection() {
   )
 }
 
+/**
+ * PRIVATE (team workspaces): pages only I can see — the server keeps them in my own documents.
+ * Viewers see the section only when they have private pages from before (read-only).
+ */
+function PrivateSection() {
+  const t = useT()
+  const mode = usePrivateMode()
+  const roots = useRootIds(true)
+  const total = useTreeCount(true)
+  const hasFavs = useHasFavs()
+  const menu = useMenu()
+  const write = mode === 'write'
+  const drop = useSectionDrop(SECTION_DROP.private, write)
+  if (mode === 'none' || (!write && roots.length === 0)) return null
+  return (
+    <section className="sb-section sb-section--private" aria-label={t('shell.private.title')} data-testid="private-section">
+      <SectionHead n={sectionNo(hasFavs ? 3 : 2)} label={t('shell.private.title')} count={total} icon={<Lock size={11} strokeWidth={2} aria-label={t('shell.private.lock')} />} drop={drop}>
+        {write && (
+          <button type="button" className="sb-sect__add" aria-label={t('shell.private.add')} onClick={toggleMenu(menu)}>
+            <Plus size={14} />
+          </button>
+        )}
+      </SectionHead>
+      <Menu
+        {...menu.props}
+        width={220}
+        entries={[
+          { label: t('common.newPage'), icon: <FilePlus2 size={15} />, onSelect: () => createPrivatePageAndOpen(null) },
+          { label: t('shell.cmd.newDatabase'), icon: <Table2 size={15} />, onSelect: () => createPrivateDatabaseAndOpen() },
+        ]}
+      />
+      <div role="tree">
+        <PageTree parentId={null} depth={0} section="private" draggable={write} roots={roots} />
+      </div>
+      {roots.length === 0 && <p className="sb-hint sb-hint--private" data-drop={drop.over || undefined}>{drop.dragging ? t('shell.private.dropHere') : t('shell.private.hint')}</p>}
+      {write && (
+        <button type="button" className="sb-newpage" onClick={() => createPrivatePageAndOpen(null)} data-testid="private-new-page">
+          <Plus size={15} />
+          <span>{t('common.newPage')}</span>
+        </button>
+      )}
+    </section>
+  )
+}
+
 function SidebarFooter() {
   const t = useT()
   const trash = useTrash()
-  const hasFavs = useWorkspace((s) => Object.values(s.pages).some((p) => p.favorite && !p.trashed))
+  const hasFavs = useHasFavs()
+  const privateShown = useWorkspace((s) => Object.values(s.pages).some((p) => p.private && !p.trashed && !p.databaseId && !p.hidden))
+  const mode = usePrivateMode()
+  // FAVORITES? · PAGES · PRIVATE? · TRASH
+  const n = 2 + (hasFavs ? 1 : 0) + (mode === 'write' || (mode === 'read' && privateShown) ? 1 : 0)
   const [anchor, setAnchor] = useState<HTMLElement | null>(null)
   const mobile = useIsMobile()
   const btn = useRef<HTMLButtonElement>(null)
@@ -331,7 +396,7 @@ function SidebarFooter() {
         onClick={() => setAnchor((a) => (a ? null : btn.current))}
         aria-haspopup="dialog"
       >
-        <span className="sb-sect__n">{hasFavs ? '03' : '02'}</span>
+        <span className="sb-sect__n">{sectionNo(n)}</span>
         <Trash2 size={14} />
         <span className="sb-trash__label">{t('shell.sidebar.trash')}</span>
         <span className="sb-sect__leader" aria-hidden />

@@ -336,7 +336,7 @@ export function PickDateProp({ m, label }: { m: DbModel; label?: string }) {
   const t = useT()
   const s = useWorkspace.getState()
   const candidates = m.db.properties.filter((p) => isDateType(p.type))
-  if (m.readOnly)
+  if (m.fixed)
     return (
       <div className="db-empty">
         <span className="db-empty__line" aria-hidden />

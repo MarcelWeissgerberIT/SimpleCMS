@@ -8,7 +8,7 @@ import type { CloseReason, CollabControl } from '../context.ts'
 import { isSameOrigin } from '../http/security.ts'
 import type { Logger } from '../log.ts'
 import type { Repo, Role } from '../repo.ts'
-import { parseDocName } from './names.ts'
+import { metaName, parseDocName } from './names.ts'
 
 export const COLLAB_PATH = '/collab'
 /** Big enough for the first sync of a large workspace that was built offline. */
@@ -59,6 +59,13 @@ export function createCollab(deps: { config: Config; log: Logger; repo: Repo; se
       if (!auth) throw deny('unauthenticated')
       const role = repo.memberRole(doc.workspaceId, auth.user.id)
       if (!role) throw deny('forbidden')
+      // private documents (docs/CLOUD.md § Private pages) open for their owner only — never for
+      // another member, whatever the role (the owner of the workspace included)
+      if (doc.owner !== null && doc.owner !== auth.user.id) {
+        log.warn('private document refused', { workspace: doc.workspaceId, user: auth.user.id })
+        throw deny('forbidden')
+      }
+      // viewers read (their own private pages too, e.g. after a demotion) but never write
       connectionConfig.readOnly = role === 'viewer'
       return { userId: auth.user.id, sessionId: auth.session.id, workspaceId: doc.workspaceId, role } satisfies ConnContext
     },
@@ -82,10 +89,13 @@ export function createCollab(deps: { config: Config; log: Logger; repo: Repo; se
     async onStoreDocument({ documentName, document }) {
       const doc = parseDocName(documentName)
       if (!doc) return
+      // a removed member's private documents went with the membership (a late store must not bring them back)
+      if (doc.owner !== null && !repo.memberRole(doc.workspaceId, doc.owner)) return
       if (doc.kind === 'page' && repo.isDocumentDeleted(documentName)) {
         // deleted for good: a device that still had it open (or syncs an old copy) must not bring it
-        // back — unless the page itself is back (an undo, a restored backup with the same page id)
-        if (!(await pageInMeta(doc.workspaceId, doc.pageId))) return
+        // back — unless the page itself is back (an undo, a restored backup with the same page id,
+        // a page moved between Private and the workspace and back) in the meta document of its scope
+        if (!(await pageInMeta(doc.workspaceId, doc.pageId, doc.owner))) return
         repo.reviveDocument(documentName)
         log.info('page document revived', { workspace: doc.workspaceId, page: doc.pageId })
       }
@@ -115,6 +125,8 @@ export function createCollab(deps: { config: Config; log: Logger; repo: Repo; se
   async function write<T>(name: string, fn: (doc: Y.Doc) => T, actor: string): Promise<T> {
     const doc = parseDocName(name)
     if (!doc) throw new Error(`invalid document name ${name}`)
+    // the public API and incoming webhooks only ever see the workspace's shared documents
+    if (doc.owner !== null) throw new Error('the server never writes private documents')
     const conn = await hocuspocus.hocuspocus.openDirectConnection(name, { userId: actor, sessionId: '', workspaceId: doc.workspaceId, role: 'member', actor })
     let result!: T
     try {
@@ -127,8 +139,9 @@ export function createCollab(deps: { config: Config; log: Logger; repo: Repo; se
     return result
   }
 
-  /** Does the workspace's meta document list this page? */
-  const pageInMeta = (workspaceId: string, pageId: string): Promise<boolean> => read(`ws:${workspaceId}`, (d) => d.getMap('pages').has(pageId))
+  /** Does the workspace's meta document (or `owner`'s private one) list this page? */
+  const pageInMeta = (workspaceId: string, pageId: string, owner: string | null = null): Promise<boolean> =>
+    read(metaName(workspaceId, owner), (d) => d.getMap('pages').has(pageId))
 
   const close = (match: (e: Entry) => boolean, reason: CloseReason) => {
     let n = 0

@@ -13,7 +13,8 @@ import {
   type DragStartEvent,
   type Modifier,
 } from '@dnd-kit/core'
-import { ChevronRight, Copy, FolderInput, Link2, MoreHorizontal, PanelRight, PencilLine, Plus, Star, StarOff, Trash2, PanelRightOpen } from 'lucide-react'
+import { ChevronRight, Copy, FolderInput, Link2, Lock, MoreHorizontal, PanelRight, PencilLine, Plus, Star, StarOff, Trash2, PanelRightOpen, Users } from 'lucide-react'
+import { useShallow } from 'zustand/react/shallow'
 import { useWorkspace } from '../../store/store'
 import { useUI } from '../../store/ui'
 import { usePage } from '../../store/selectors'
@@ -29,6 +30,8 @@ import { useIsTouch } from '../lib/hooks'
 import { ALT } from '../../ui/controls'
 import { useReadOnly } from '../cloud/state'
 import { peerNamesOn, usePeerOnPage } from '../cloud/Presence'
+import { usePrivateMode } from '../../cloud'
+import { createPrivatePageAndOpen, requestPrivacyMove } from './private'
 
 type DropPos = 'before' | 'after' | 'inside'
 interface DropState {
@@ -37,6 +40,21 @@ interface DropState {
 }
 
 const INDENT = 14
+
+/** Droppable section heads ("drop on PRIVATE" = to the end of that section's top level). */
+export const SECTION_DROP = { pages: 'section:pages', private: 'section:private' } as const
+const sectionOf = (dropId: string): boolean | null => (dropId === SECTION_DROP.private ? true : dropId === SECTION_DROP.pages ? false : null)
+
+/** The tree section a page shows in (its expanded state is keyed by it). */
+const sectionFor = (id: ID) => (useWorkspace.getState().pages[id]?.private ? 'private' : 'pages')
+
+/**
+ * Top-level pages of one sidebar section: `priv` true = my Private section, false = the workspace's
+ * pages (team workspaces), null = all (the local workspace has no Private section).
+ */
+export function useRootIds(priv: boolean | null): ID[] {
+  return useWorkspace(useShallow((s) => (priv === null ? childIds(s.pages, null) : childIds(s.pages, null).filter((id) => !!s.pages[id]?.private === priv))))
+}
 
 /** Keep the drag chip just below-right of the pointer so the drop target stays visible. */
 const besideCursor: Modifier = ({ transform, activatorEvent, draggingNodeRect }) => {
@@ -82,6 +100,7 @@ export function DraggableTree({ children }: { children: React.ReactNode }) {
     if (!over) return setDrop(null)
     const overId = String(over.id)
     const dragId = String(e.active.id)
+    if (sectionOf(overId) !== null) return setDrop((d) => (d?.overId === overId ? d : { overId, pos: 'inside' }))
     const ae = e.activatorEvent as MouseEvent | TouchEvent
     const startY = 'touches' in ae ? (ae.touches[0]?.clientY ?? 0) : ae.clientY
     const y = startY + e.delta.y
@@ -101,7 +120,7 @@ export function DraggableTree({ children }: { children: React.ReactNode }) {
     if (k !== hoverKey.current) {
       hoverKey.current = k
       window.clearTimeout(hoverTimer.current)
-      if (pos === 'inside') hoverTimer.current = window.setTimeout(() => useTreeState.getState().expand([treeKey('pages', overId)]), 650)
+      if (pos === 'inside') hoverTimer.current = window.setTimeout(() => useTreeState.getState().expand([treeKey(sectionFor(overId), overId)]), 650)
     }
   }
 
@@ -112,22 +131,32 @@ export function DraggableTree({ children }: { children: React.ReactNode }) {
     reset()
     if (!dragId || !d) return
     const s = useWorkspace.getState()
+    const dragged = s.pages[dragId]
+    if (!dragged) return
+    /** Same section: a plain move. Between Private and the workspace: the pages change documents. */
+    const place = (parentId: ID | null, index: number | undefined, priv: boolean) => {
+      if (!!dragged.private === priv) s.movePage(dragId, parentId, index)
+      else void requestPrivacyMove(dragId, priv, { parentId, index })
+    }
+    const section = sectionOf(d.overId)
+    if (section !== null) return place(null, undefined, section)
     const target = s.pages[d.overId]
     if (!target) return
-    const expanded = useTreeState.getState().expanded[treeKey('pages', target.id)]
+    const key = treeKey(target.private ? 'private' : 'pages', target.id)
+    const expanded = useTreeState.getState().expanded[key]
     const hasKids = childIds(s.pages, target.id).filter((c) => c !== dragId).length > 0
     if (d.pos === 'inside' || (d.pos === 'after' && expanded && hasKids)) {
       // after an expanded parent visually means "first child"
-      s.movePage(dragId, target.id, d.pos === 'inside' ? undefined : 0)
-      useTreeState.getState().expand([treeKey('pages', target.id)])
+      place(target.id, d.pos === 'inside' ? undefined : 0, !!target.private)
+      useTreeState.getState().expand([key])
       return
     }
     const parentId = target.parentId
     const sibs = Object.values(s.pages)
-      .filter((p) => p.parentId === parentId && !p.trashed && p.id !== dragId)
+      .filter((p) => p.parentId === parentId && !p.trashed && p.id !== dragId && (parentId !== null || !!p.private === !!target.private))
       .sort((a, b) => a.order - b.order)
     const idx = sibs.findIndex((p) => p.id === target.id)
-    s.movePage(dragId, parentId, d.pos === 'before' ? idx : idx + 1)
+    place(parentId, d.pos === 'before' ? idx : idx + 1, !!target.private)
   }
 
   return (
@@ -150,6 +179,13 @@ export function DraggableTree({ children }: { children: React.ReactNode }) {
 
 const DropContext = createContext<{ activeId: ID | null; drop: DropState | null }>({ activeId: null, drop: null })
 
+/** A section head as a drop target (inside DraggableTree): the ref to attach and whether a page hovers it. */
+export function useSectionDrop(id: (typeof SECTION_DROP)[keyof typeof SECTION_DROP], enabled: boolean) {
+  const { activeId, drop } = useContext(DropContext)
+  const zone = useDroppable({ id, disabled: !enabled })
+  return { ref: zone.setNodeRef, over: drop?.overId === id, dragging: !!activeId }
+}
+
 function DragChip({ id }: { id: ID }) {
   const page = usePage(id)
   const t = useT()
@@ -166,8 +202,9 @@ function DragChip({ id }: { id: ID }) {
 /* Tree                                                                */
 /* ------------------------------------------------------------------ */
 
-export function PageTree({ parentId, depth, section, draggable }: { parentId: ID | null; depth: number; section: string; draggable: boolean }) {
-  const ids = useChildIds(parentId)
+export function PageTree({ parentId, depth, section, draggable, roots }: { parentId: ID | null; depth: number; section: string; draggable: boolean; roots?: ID[] }) {
+  const kids = useChildIds(parentId)
+  const ids = roots ?? kids
   return (
     <>
       {ids.map((id) => (
@@ -231,6 +268,8 @@ function TreeRow({ id, depth, section, draggable, expanded, hasKids }: { id: ID;
   // viewers: no renaming, duplicating, moving or deleting; others on this page show as a dot
   const readOnly = useReadOnly()
   const peer = usePeerOnPage(id)
+  const privateMode = usePrivateMode()
+  const wsName = useWorkspace((s) => s.settings.workspaceName.trim() || 'One')
 
   useEffect(() => {
     if (active && rowRef.current) revealInScroller(rowRef.current)
@@ -257,6 +296,14 @@ function TreeRow({ id, depth, section, draggable, expanded, hasKids }: { id: ID;
     { label: t('common.copyLink'), icon: <Link2 size={15} />, onSelect: () => void copyPageLink(id) },
     // database rows belong to their database: no "Move to"
     ...(page.databaseId || !edit ? [] : ([{ label: t('shell.menu.moveTo'), icon: <FolderInput size={15} />, onSelect: () => useUI.getState().openModal({ type: 'move', pageId: id }) }] as MenuEntry[])),
+    // team workspaces: straight into Private (only me) or out into the workspace (everyone)
+    ...(page.databaseId || !edit || privateMode !== 'write'
+      ? []
+      : ([
+          page.private
+            ? { label: t('shell.private.makeShared', { workspace: wsName }), icon: <Users size={15} />, onSelect: () => void requestPrivacyMove(id, false) }
+            : { label: t('shell.private.makePrivate'), icon: <Lock size={15} />, onSelect: () => void requestPrivacyMove(id, true) },
+        ] as MenuEntry[])),
     { kind: 'separator' },
     {
       label: t('shell.menu.openInPane'),
@@ -363,6 +410,11 @@ function TreeRow({ id, depth, section, draggable, expanded, hasKids }: { id: ID;
               DB
             </span>
           )}
+          {page.private && section !== 'private' && (
+            <span className="sb-row__lock" title={t('shell.private.lock')} aria-label={t('shell.private.lock')} role="img">
+              <Lock size={11} strokeWidth={2} />
+            </span>
+          )}
           {peer && <span className="sb-row__peer" style={{ '--peer': peer } as CSSProperties} title={t('shell.cloud.presence.viewing', { names: peerNamesOn(id) })} data-testid="tree-peer" />}
         </a>
       )}
@@ -379,7 +431,8 @@ function TreeRow({ id, depth, section, draggable, expanded, hasKids }: { id: ID;
               onClick={(e) => {
                 e.stopPropagation()
                 useTreeState.getState().expand([treeKey(section, id)])
-                createPageAndOpen(id)
+                if (page.private) createPrivatePageAndOpen(id)
+                else createPageAndOpen(id)
               }}
             >
               <Plus size={15} />

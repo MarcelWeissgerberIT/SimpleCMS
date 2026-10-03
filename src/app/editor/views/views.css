@@ -722,6 +722,24 @@
   text-decoration-color: var(--signal);
 }
 
+/* team workspaces: a page this member can't see (someone's private page, or deleted) — a neutral chip */
+.doc-content .mention__page[data-no-access] {
+  align-items: center;
+  padding: 0 5px;
+  border: 1px dashed var(--rule-strong);
+  color: var(--ink-3);
+  cursor: default;
+}
+.doc-content .mention__page[data-no-access] .mention__title,
+.doc-content .page-link[data-no-access] .page-link__title {
+  font-weight: 500;
+  text-decoration: none;
+}
+.doc-content .mention__page[data-no-access]:hover {
+  background: transparent;
+  color: var(--ink-3);
+}
+
 .doc-content .mention__date {
   display: inline-flex;
   align-items: center;

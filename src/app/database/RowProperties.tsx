@@ -29,6 +29,8 @@ function RowPropertiesInner({ row, db }: { row: Page; db: Database }) {
   const resolver = useResolver(db.id)
   const [hideEmpty, setHideEmpty] = useLocalState<boolean>(`one.db.hideEmpty.${db.id}`, false)
   const readOnly = useDbReadOnly()
+  // locked database: values stay editable, the properties themselves don't change
+  const locked = db.locked === true
   return (
     <>
       <PropertyRows
@@ -40,7 +42,8 @@ function RowPropertiesInner({ row, db }: { row: Page; db: Database }) {
         onChange={(p, v) => writeValue(db.id, p, row.id, v)}
         hideEmpty={hideEmpty}
         setHideEmpty={setHideEmpty}
-        allowAdd={!readOnly}
+        allowAdd={!readOnly && !locked}
+        noPropMenu={locked}
         autofill
         readOnly={readOnly}
       />

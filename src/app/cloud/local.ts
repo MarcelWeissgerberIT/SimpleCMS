@@ -4,8 +4,10 @@
  *                         pages with local edits the server hasn't confirmed yet
  *   content:<ws>:<page>   the last known content JSON of a page (search/export/graph at boot
  *                         without opening every page document) + the page's updatedAt it matches
- *   uploads:<ws>          files waiting for upload
- *   purge:<ws>            pages deleted for good whose server document still has to go
+ *   uploads:<ws>          files waiting for upload (or for publishing: private uploads, § Private pages)
+ *   privfiles:<ws>        files this device uploaded from private pages and hasn't published
+ *   purge:<ws>            pages deleted for good (or moved between Private and the workspace) whose
+ *                         server document still has to go
  * All in one IndexedDB database ('one-cloud'), separate from the local workspace.
  */
 import { createStore, del, delMany, entries, get, promisifyRequest, set, type UseStore } from 'idb-keyval'
@@ -84,6 +86,10 @@ export interface QueuedUpload {
   id: string
   name: string
   tries: number
+  /** Uploaded from a private page: only this member may download it (`x-file-scope: private`). */
+  private?: boolean
+  /** Not an upload: make this member's private file a workspace file (POST …/files/publish). */
+  publish?: boolean
 }
 
 export async function loadUploads(wsId: string): Promise<QueuedUpload[]> {
@@ -102,9 +108,28 @@ export async function saveUploads(wsId: string, list: QueuedUpload[]): Promise<v
   if (s) await set(`uploads:${wsId}`, list, s)
 }
 
+export async function loadPrivateFiles(wsId: string): Promise<string[]> {
+  const s = db()
+  if (!s) return []
+  try {
+    const v = await get<string[]>(`privfiles:${wsId}`, s)
+    return Array.isArray(v) ? v.filter((x) => typeof x === 'string') : []
+  } catch {
+    return []
+  }
+}
+
+export async function savePrivateFiles(wsId: string, ids: string[]): Promise<void> {
+  const s = db()
+  // a long-lived list stays small: the newest few thousand are enough to catch a copy & paste
+  if (s) await (ids.length ? set(`privfiles:${wsId}`, ids.slice(-5000), s) : del(`privfiles:${wsId}`, s))
+}
+
 export interface QueuedPurge {
   pageId: ID
   tries: number
+  /** This member's private content document of the page (docs/CLOUD.md § Private pages). */
+  private?: boolean
 }
 
 export async function loadPurges(wsId: string): Promise<QueuedPurge[]> {

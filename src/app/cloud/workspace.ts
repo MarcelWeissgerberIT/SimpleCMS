@@ -1,7 +1,8 @@
 /**
- * An open cloud workspace: the meta document (y-indexeddb copy first, then Hocuspocus), the store
- * hydrated from it, the binding, page content documents, presence, files, this device's overlay
- * (settings, favourites, recent) and the connection status / close reasons.
+ * An open cloud workspace: the meta document and this member's private meta document (y-indexeddb
+ * copies first, then Hocuspocus), the store hydrated from both, the binding, page content documents,
+ * presence, files, this device's overlay (settings, favourites, recent) and the connection status /
+ * close reasons.
  */
 import * as Y from 'yjs'
 import { HocuspocusProvider } from '@hocuspocus/provider'
@@ -11,12 +12,14 @@ import { useWorkspace, defaultSettings, WORKSPACE_VERSION } from '../store/store
 import { migrate } from '../store/persistence'
 import type { ID, Person, Settings } from '../store/types'
 import { parseHash } from '../lib/router'
+import { useUI } from '../store/ui'
+import { t } from '../i18n'
 import { getMembers, getSession, onUnauthenticated, patchMe, patchWorkspace } from './api'
 import { isApplyingCloud, readAll, startBinding, structuralRepairs, uniqueIdRepairs, type Binding } from './binding'
 import { bridgeContent, contentHasUnsynced, detachAll, reauthenticate, enqueueSync, forget, onRemotePages, reattachAll, revertContent, staleAtBoot, startContent, type ContentContext } from './content'
 import { displayName, toneCss, userTone, within, writeSession } from './env'
 import { isForgetting } from './device'
-import { kickUploads, startFiles } from './files'
+import { kickUploads, publishReferenced, startFiles } from './files'
 import { queuePurge, startPurge } from './purge'
 import { loadContentCache, loadOverlay, saveOverlay, type Overlay } from './local'
 import { LOCAL, roots } from './schema'
@@ -28,6 +31,9 @@ export interface ActiveCloud {
   user: CloudUser
   doc: Y.Doc
   provider: HocuspocusProvider
+  /** This member's private meta document (`ws:<id>:u:<userId>`, docs/CLOUD.md § Private pages). */
+  privateDoc: Y.Doc
+  privateProvider: HocuspocusProvider
   binding: Binding
   writable: () => boolean
 }
@@ -76,7 +82,11 @@ export async function openCloudWorkspace(ws: CloudWorkspace, user: CloudUser, on
   const cacheP = loadContentCache(ws.id)
   const doc = new Y.Doc()
   const idb = new IndexeddbPersistence(`one:ws:${ws.id}`, doc)
-  await idb.whenSynced
+  // this member's private pages: a document only they can open (the server enforces it)
+  const privateName = `ws:${ws.id}:u:${user.id}`
+  const privateDoc = new Y.Doc()
+  const privateIdb = new IndexeddbPersistence(`one:${privateName}`, privateDoc)
+  await Promise.all([idb.whenSynced, privateIdb.whenSynced])
 
   const socket = getSocket()
   const provider = new HocuspocusProvider({ websocketProvider: socket, name: `ws:${ws.id}`, document: doc })
@@ -89,16 +99,26 @@ export async function openCloudWorkspace(ws: CloudWorkspace, user: CloudUser, on
     setStatus('online')
   })
   provider.attach()
+  // no presence there: only this member ever connects to it
+  const privateProvider = new HocuspocusProvider({ websocketProvider: socket, name: privateName, document: privateDoc, awareness: null })
+  let privateSynced = false
+  const privateFirstSync = new Promise<void>((r) =>
+    privateProvider.on('synced', () => {
+      privateSynced = true
+      r()
+    }),
+  )
+  privateProvider.attach()
 
-  // a device that has never seen this workspace waits (briefly) for the server's copy
-  if (online && roots(doc).pages.size === 0) await within(firstSync, 8000, undefined)
+  // a device that has never seen this workspace waits (briefly) for the server's copies
+  if (online && roots(doc).pages.size === 0) await within(Promise.all([firstSync, privateFirstSync]), 8000, undefined)
 
   const overlay: Overlay = (await overlayP) ?? { settings: null, favorites: [], recent: [], pending: [] }
   const cache = await cacheP
   const baseSettings = overlay.settings ? { ...defaultSettings(), ...overlay.settings } : await emptySettings()
   // no await from here to the binding: every remote change after this read reaches the store
   const favorites = new Set(overlay.favorites)
-  const data = readAll(doc, (id) => favorites.has(id))
+  const data = readAll(doc, privateDoc, (id) => favorites.has(id))
   for (const [id, c] of cache) {
     const p = data.pages[id]
     if (p && c.json) p.content = c.json
@@ -148,9 +168,10 @@ export async function openCloudWorkspace(ws: CloudWorkspace, user: CloudUser, on
       return { id: u.id, name: displayName(u), color: toneCss(tone), tone }
     }
     const awareness = provider.awareness
+    // a private page is nobody else's business: presence shows no page then (not even its id)
     const currentPage = (): string | null => {
       const r = parseHash(window.location.hash)
-      return r.name === 'page' ? r.id : null
+      return r.name === 'page' ? shareablePage(r.id) : null
     }
     awareness?.setLocalState({ user: me(), pageId: currentPage() })
     const updatePeers = () => {
@@ -169,15 +190,20 @@ export async function openCloudWorkspace(ws: CloudWorkspace, user: CloudUser, on
     }
     awareness?.on('change', updatePeers)
     window.addEventListener('hashchange', () => setPresencePageImpl(currentPage()))
+    // the page on screen moved to Private (or back): presence follows
+    useWorkspace.subscribe((s, prev) => {
+      if (s.pages !== prev.pages) setPresencePageImpl(currentPage())
+    })
 
     /* ---------------- content documents */
 
     const unsynced = () => {
-      const any = provider.hasUnsyncedChanges || contentHasUnsynced()
+      const any = provider.hasUnsyncedChanges || privateProvider.hasUnsyncedChanges || contentHasUnsynced()
       useCloudSync.setState((s) => (s.unsynced === any ? s : { ...s, unsynced: any }))
     }
     const contentCtx: ContentContext = {
       wsId: ws.id,
+      userId: user.id,
       writable,
       user: me,
       onClose: (reason) => handleClose(reason),
@@ -194,7 +220,7 @@ export async function openCloudWorkspace(ws: CloudWorkspace, user: CloudUser, on
     const scheduleRepairs = () => {
       window.clearTimeout(repairTimer)
       repairTimer = window.setTimeout(() => {
-        if (!writable() || !firstSynced) return
+        if (!writable() || !firstSynced || !privateSynced) return
         const s = useWorkspace.getState()
         for (const { id, patch } of structuralRepairs(s.pages, s.databases)) useWorkspace.getState().updatePage(id, patch)
         // unique_id numbers handed out twice at the same moment on two devices: later rows move on
@@ -212,6 +238,7 @@ export async function openCloudWorkspace(ws: CloudWorkspace, user: CloudUser, on
     let profileTimer: number | undefined
     const binding = startBinding({
       doc,
+      privateDoc,
       userId: () => user.id,
       writable,
       isFavorite: (id) => favorites.has(id),
@@ -220,11 +247,13 @@ export async function openCloudWorkspace(ws: CloudWorkspace, user: CloudUser, on
         scheduleRepairs()
       },
       bridge: bridgeContent,
-      onLocalRemoved: (ids) => {
-        ids.forEach(forget)
+      onLocalRemoved: (removed) => {
+        removed.forEach((r) => forget(r.id))
         // deleted for good here: their content documents go on the server too
-        queuePurge(ids)
+        queuePurge(removed.map((r) => ({ pageId: r.id, private: r.private })))
       },
+      onBlockedMove: () => useUI.getState().toast({ message: t('shell.private.blocked'), kind: 'error', timeout: 5000 }),
+      onSharedWrite: publishReferenced,
       revertContent,
       onSettings: (next, prev) => {
         // the workspace name is the team's (admins), the user name is the account's
@@ -246,20 +275,23 @@ export async function openCloudWorkspace(ws: CloudWorkspace, user: CloudUser, on
       },
     })
 
-    active = { ws, user, doc, provider, binding, writable }
-    startPurge(ws.id, provider, writable)
+    active = { ws, user, doc, provider, privateDoc, privateProvider, binding, writable }
+    startPurge(ws.id, [provider, privateProvider], writable)
 
     /* ---------------- status & close reasons */
 
     provider.on('unsyncedChanges', unsynced)
+    privateProvider.on('unsyncedChanges', unsynced)
     provider.on('authenticated', ({ scope }: { scope: string }) => {
       const ro = scope === 'readonly'
       if (useCloud.getState().readOnly !== ro && !stopped) useCloud.setState({ readOnly: ro })
     })
-    provider.on('authenticationFailed', ({ reason }: { reason: string }) => handleClose(reason === 'unauthenticated' ? 'session-ended' : reason === 'forbidden' ? 'membership-revoked' : reason))
-    provider.on('close', ({ event }: { event: { reason?: string } }) => {
-      if (event?.reason) handleClose(event.reason)
-    })
+    for (const p of [provider, privateProvider]) {
+      p.on('authenticationFailed', ({ reason }: { reason: string }) => handleClose(reason === 'unauthenticated' ? 'session-ended' : reason === 'forbidden' ? 'membership-revoked' : reason))
+      p.on('close', ({ event }: { event: { reason?: string } }) => {
+        if (event?.reason) handleClose(event.reason)
+      })
+    }
 
     let lastCheck = 0
     let checkTimer: number | undefined
@@ -389,6 +421,7 @@ async function refreshRole(): Promise<void> {
     /* offline: the reconnect authenticates with whatever the server says */
   }
   reauthenticate(a.provider)
+  reauthenticate(a.privateProvider)
   reattachAll()
   // a viewer's view of the data is whatever Y says
   if (!writable()) a.binding.resync()
@@ -398,10 +431,12 @@ function stop(status: 'error' | 'signed-out', error: string): void {
   const a = active
   if (!a || stopped) return
   stopped = true
-  try {
-    a.provider.detach()
-  } catch {
-    /* gone */
+  for (const p of [a.provider, a.privateProvider]) {
+    try {
+      p.detach()
+    } catch {
+      /* gone */
+    }
   }
   detachAll()
   closeSocket()
@@ -417,11 +452,17 @@ function stop(status: 'error' | 'signed-out', error: string): void {
 
 /* ------------------------------------------------------------------ actions used by the public API */
 
+/** The page id others may see in presence: never a private page's. */
+function shareablePage(pageId: string | null): string | null {
+  return pageId && !useWorkspace.getState().pages[pageId]?.private ? pageId : null
+}
+
 export function setPresencePageImpl(pageId: string | null): void {
   const aw = active?.provider.awareness
   if (!aw || stopped) return
+  const next = shareablePage(pageId)
   const cur = (aw.getLocalState() as { pageId?: unknown } | null)?.pageId ?? null
-  if (cur !== pageId) aw.setLocalStateField('pageId', pageId)
+  if (cur !== next) aw.setLocalStateField('pageId', next)
 }
 
 /** Rename the active workspace: the server's record (lists, invites) and the meta document. */

@@ -7,6 +7,7 @@ import { FormulaError, isDate, toText, type FValue } from '../formula'
 import { isDateValue, parseLocal, dfLocale } from './format'
 import { isEmptyValue, type Resolved, type Resolver } from './resolve'
 import { valueKind, type ValueKind } from './schema'
+import { ME_TOKEN, resolveMe } from './actors'
 
 export const isGroup = (x: Filter | FilterGroup): x is FilterGroup => 'items' in x
 
@@ -117,8 +118,17 @@ export function testFilter(r: Resolver, db: Database, f: Filter, row: Page, prop
     case 'person': {
       if (!fv) return true
       const arr = Array.isArray(v) ? (v as string[]) : []
-      if (op === 'contains') return arr.includes(String(fv))
-      if (op === 'not_contains') return !arr.includes(String(fv))
+      // "Me" is resolved now, so a saved view shows every member their own rows (model/actors)
+      const target = kind === 'person' && fv === ME_TOKEN ? resolveMe(prop, r.ctx) : String(fv)
+      if (op === 'contains') return target !== null && arr.includes(target)
+      if (op === 'not_contains') return target === null || !arr.includes(target)
+      return true
+    }
+    case 'actor': {
+      if (!fv) return true
+      const target = fv === ME_TOKEN ? resolveMe(prop, r.ctx) : String(fv)
+      if (op === 'is') return target !== null && v === target
+      if (op === 'is_not') return target === null || v !== target
       return true
     }
     case 'date': {
@@ -247,7 +257,7 @@ export function sortRows(r: Resolver, db: Database, rows: Page[], sorts: Sort[],
 export function searchRows(r: Resolver, db: Database, rows: Page[], query: string): Page[] {
   const q = query.trim().toLowerCase()
   if (!q) return rows
-  const props = db.properties.filter((p) => !['files', 'created_time', 'last_edited_time', 'checkbox', 'rollup'].includes(p.type))
+  const props = db.properties.filter((p) => !['files', 'created_time', 'last_edited_time', 'created_by', 'last_edited_by', 'checkbox', 'rollup'].includes(p.type))
   return rows.filter((row) => {
     if (row.title.toLowerCase().includes(q)) return true
     for (const p of props) {
@@ -266,6 +276,8 @@ export interface RowGroup {
   color?: ColorName
   option?: SelectOption
   person?: Person
+  /** created_by / last_edited_by groups: the actor id (person, API, webhook, local user). */
+  actor?: string
   rows: Page[]
   /** True for the "No value" bucket. */
   empty?: boolean
@@ -288,6 +300,9 @@ export function groupKeys(r: Resolver, db: Database, prop: PropertyDef, row: Pag
     case 'person':
     case 'relation':
       return (v as string[]).length ? (v as string[]) : [NONE_KEY]
+    case 'created_by':
+    case 'last_edited_by':
+      return [String(v)]
     case 'date':
     case 'created_time':
     case 'last_edited_time': {
@@ -318,7 +333,8 @@ export function groupRows(
     }
   }
   const out: RowGroup[] = []
-  const none = (): RowGroup => ({ key: NONE_KEY, label: labels.none, rows: buckets.get(NONE_KEY) ?? [], empty: true, settable: prop.type !== 'formula' && prop.type !== 'created_time' && prop.type !== 'last_edited_time' })
+  const computed = ['formula', 'created_time', 'last_edited_time', 'created_by', 'last_edited_by'].includes(prop.type)
+  const none = (): RowGroup => ({ key: NONE_KEY, label: labels.none, rows: buckets.get(NONE_KEY) ?? [], empty: true, settable: !computed })
   switch (prop.type) {
     case 'select':
     case 'status':
@@ -330,6 +346,23 @@ export function groupRows(
     case 'person': {
       out.push(none())
       for (const p of r.ctx.people) out.push({ key: p.id, label: p.name, color: p.color, person: p, rows: buckets.get(p.id) ?? [], settable: true })
+      break
+    }
+    case 'created_by':
+    case 'last_edited_by': {
+      // the people who actually made / changed rows here, in workspace order; API and webhooks last
+      out.push(none())
+      const people = r.ctx.people
+      const rank = (k: string) => {
+        const i = people.findIndex((p) => p.id === k)
+        return i < 0 ? people.length : i
+      }
+      const keys = [...buckets.keys()].filter((k) => k !== NONE_KEY)
+      keys.sort((a, b) => rank(a) - rank(b) || collator.compare(r.actorName(a), r.actorName(b)))
+      for (const k of keys) {
+        const person = people.find((p) => p.id === k)
+        out.push({ key: k, label: r.actorName(k), color: person?.color, actor: k, rows: buckets.get(k)!, settable: false })
+      }
       break
     }
     case 'checkbox':
@@ -387,8 +420,11 @@ export function valueForGroupMove(prop: PropertyDef, current: PropertyValue | un
   return undefined
 }
 
-/** Property presets for a new row so it matches the view's simple AND filters. */
-export function defaultsFromFilter(view: View, props: Map<ID, PropertyDef>): Record<ID, PropertyValue> {
+/**
+ * Property presets for a new row so it matches the view's simple AND filters. `me` resolves the
+ * "Me" filter value of a person property (null = nobody, no preset).
+ */
+export function defaultsFromFilter(view: View, props: Map<ID, PropertyDef>, me?: (p: PropertyDef) => string | null): Record<ID, PropertyValue> {
   const out: Record<ID, PropertyValue> = {}
   const g = view.filter
   if (!g || (g.op !== 'and' && g.items.length > 1)) return out
@@ -399,7 +435,10 @@ export function defaultsFromFilter(view: View, props: Map<ID, PropertyDef>): Rec
     const op: FilterOperator = it.operator
     const v = it.value
     if ((p.type === 'select' || p.type === 'status') && op === 'is' && v) out[p.id] = v
-    else if ((p.type === 'multi_select' || p.type === 'person') && op === 'contains' && v) out[p.id] = [String(v)]
+    else if (p.type === 'person' && op === 'contains' && v === ME_TOKEN) {
+      const id = me?.(p)
+      if (id) out[p.id] = [id]
+    } else if ((p.type === 'multi_select' || p.type === 'person') && op === 'contains' && v) out[p.id] = [String(v)]
     else if (p.type === 'checkbox' && op === 'is_checked') out[p.id] = true
     else if ((p.type === 'text' || p.type === 'url' || p.type === 'email' || p.type === 'phone') && op === 'is' && v) out[p.id] = String(v)
     else if (p.type === 'number' && op === 'eq' && v !== '' && v !== null && v !== undefined) out[p.id] = Number(v)

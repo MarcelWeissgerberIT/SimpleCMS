@@ -105,6 +105,14 @@ export interface Page {
    */
   createdBy?: string | null
   updatedBy?: string | null
+  /**
+   * Team workspaces: the page lives in this member's PRIVATE meta document (sidebar "Private": only
+   * they can see it — subpages, databases and rows below it too). A local marker set by the cloud
+   * binding from where the page is stored; never a synced field. Absent = the workspace's (shared)
+   * pages, and always in the local workspace. Move pages between the two with the cloud area's
+   * `movePagePrivacy()` (docs/CLOUD.md § Private pages), never by setting this.
+   */
+  private?: true
 }
 
 /* ------------------------------------------------------------------ */
@@ -163,6 +171,9 @@ export type PropertyType =
   | 'last_edited_time'
   | 'unique_id'
   | 'rating'
+  /** Who created / last edited the row: Page.createdBy / updatedBy (team), the local user (local). */
+  | 'created_by'
+  | 'last_edited_by'
 
 export type StatusGroup = 'todo' | 'in_progress' | 'done'
 
@@ -261,7 +272,7 @@ export interface DateValue {
  * multi_select/person/relation/files → string[] (option ids / person ids / page ids / file urls)
  * date → DateValue | null
  * checkbox → boolean
- * formula/rollup/created_time/last_edited_time → computed, never stored
+ * formula/rollup/created_time/last_edited_time/created_by/last_edited_by → computed, never stored
  */
 export type PropertyValue = string | number | boolean | null | string[] | DateValue
 
@@ -463,6 +474,11 @@ export interface Database {
   subItems?: SubItemsConfig | null
   /** Dependencies between rows (absent = never enabled). Managed by database/model/hierarchy. */
   dependencies?: DependenciesConfig | null
+  /**
+   * Locked (Notion's "Lock database"): properties and views can't be added, changed, deleted or
+   * reordered; rows stay editable. Anyone who can edit unlocks it. See database/model/lock.ts.
+   */
+  locked?: boolean
 }
 
 export type AutomationTrigger =

@@ -11,7 +11,7 @@
  * structural and unique_id repairs) · content.ts (page documents, store refresh, bridge, background
  * sync) · purge.ts (server documents of pages deleted for good) · files.ts (uploads, downloads) ·
  * upload.ts (local → team) · device.ts (this browser's copies: removing them) · account.ts + api.ts
- * (REST) · socket.ts (the one WebSocket).
+ * (REST) · socket.ts (the one WebSocket) · private.ts + privacy.ts (Private pages).
  */
 import {
   acceptInviteImpl,
@@ -36,6 +36,9 @@ import { isApplyingCloud } from './binding'
 import { acquire, release } from './content'
 import { uploadLocalWorkspaceImpl } from './upload'
 import { setPresencePageImpl } from './workspace'
+import { createPrivateDatabaseImpl, createPrivatePageImpl, isPrivate, movePagePrivacyImpl, usePrivateModeImpl } from './private'
+import type { NewDatabaseInput, NewPageInput } from '../store/store'
+import type { ID } from '../store/types'
 import { useCloud, type ContentDocHandle, type Invite, type InvitePreview, type Member, type Role, type CloudWorkspace, type WorkspaceRef } from './state'
 
 export {
@@ -189,6 +192,45 @@ export function setPresencePage(pageId: string | null): void {
 /** True while the store is being updated from the cloud (remote changes must not trigger automations). */
 export function isApplyingCloudChange(): boolean {
   return isApplyingCloud()
+}
+
+/* ------------------------------------------------------------------ private pages */
+
+/*
+ * Team workspaces have a "Private" section next to the workspace's pages: pages only this member can
+ * see (docs/CLOUD.md § Private pages — the server enforces it). Subpages, databases and rows below a
+ * private page are private too; such pages carry `page.private` in the store. Search, graph, agent,
+ * inbox and exports only ever see what the store holds, so everyone else never gets them at all.
+ */
+
+/** Which private-pages UI fits: 'none' (local workspace, signed out), 'read' (viewers), 'write'. */
+export function usePrivateMode(): 'none' | 'read' | 'write' {
+  return usePrivateModeImpl()
+}
+
+/** Is this page in my Private section? */
+export function isPrivatePage(pageId: ID | null | undefined): boolean {
+  return isPrivate(pageId)
+}
+
+/** A new page in my Private section (`parentId` only when it is a private page). CloudError 'forbidden' for viewers / local. */
+export function createPrivatePage(input?: NewPageInput): ID {
+  return createPrivatePageImpl(input)
+}
+
+/** A new database in my Private section. */
+export function createPrivateDatabase(input?: NewDatabaseInput): ID {
+  return createPrivateDatabaseImpl(input)
+}
+
+/**
+ * Move a page — with its subpages, databases and rows — into my Private section (`toPrivate`) or
+ * into the workspace (everyone sees it then: ask first), under `target.parentId` (a page of that
+ * scope; null = the section's root) at `target.index`. Ids stay, so links keep working. Needs a
+ * connection. CloudError: 'offline' · 'timeout' · 'busy' · 'forbidden' · 'not_found' · 'invalid_request'.
+ */
+export async function movePagePrivacy(pageId: ID, toPrivate: boolean, target?: { parentId?: ID | null; index?: number }): Promise<void> {
+  return movePagePrivacyImpl(pageId, toPrivate, target)
 }
 
 /* ------------------------------------------------------------------ REST (team settings extras) */

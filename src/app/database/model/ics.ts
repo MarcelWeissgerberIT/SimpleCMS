@@ -6,12 +6,12 @@
  */
 import type { Database, ID, Page, PropertyDef, View } from '../../store/types'
 import { useWorkspace } from '../../store/store'
-import { t } from '../../i18n'
 import { Resolver } from './resolve'
 import { isDateValue, parseLocal } from './format'
 import { isDate, runFormula } from '../formula'
 import { sortRows, testGroup } from './query'
 import { parentIdOf, subItemsOf } from './hierarchy'
+import { workspaceCtx } from './ctx'
 
 const CRLF = '\r\n'
 
@@ -110,21 +110,7 @@ export function rowsOfView(dbId: ID, viewId: ID | null, rows: Page[]): { view: V
   const db = s.databases[dbId]
   const view = db ? (db.views.find((v) => v.id === viewId) ?? db.views[0] ?? null) : null
   if (!db || !view) return { view, rows }
-  const r = new Resolver({
-    pages: s.pages,
-    databases: s.databases,
-    people: s.people,
-    lang: s.settings.language,
-    now: Date.now(),
-    labels: {
-      today: t('database.date.today'),
-      tomorrow: t('database.date.tomorrow'),
-      yesterday: t('database.date.yesterday'),
-      untitled: t('common.untitled'),
-      yes: t('database.yes'),
-      no: t('database.no'),
-    },
-  })
+  const r = new Resolver(workspaceCtx())
   try {
     return { view, rows: viewRows(r, db, view, rows) }
   } catch {

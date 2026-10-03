@@ -11,6 +11,9 @@ import { defaultsFromFilter, groupRows, searchRows, sortRows, testGroup, type Ro
 import { parentIdOf, subItemsOf } from './model/hierarchy'
 import { safeLocalGet, safeLocalSet } from '@/shared/brand'
 import { useDbReadOnly } from './readonly'
+import { useCloud } from '../cloud'
+import { resolverLabels } from './model/ctx'
+import { resolveMe, type MeCtx } from './model/actors'
 
 /** Database ids whose rows matter for this database (relations, rollups — 3 levels). */
 function relevantDbIds(databases: Record<ID, Database>, dbId: ID): Set<ID> {
@@ -47,12 +50,7 @@ export function useLabels() {
   const t = useT()
   return useMemo(
     () => ({
-      today: t('database.date.today'),
-      tomorrow: t('database.date.tomorrow'),
-      yesterday: t('database.date.yesterday'),
-      untitled: t('common.untitled'),
-      yes: t('database.yes'),
-      no: t('database.no'),
+      ...resolverLabels(t),
       days: t('database.calc.daysUnit'),
       none: t('database.group.none'),
       checked: t('database.group.checked'),
@@ -90,6 +88,13 @@ function useClock(dbId: ID): number {
   return tick
 }
 
+/** Who "Me" is: the signed-in account in a team workspace, the local user's name (see model/actors). */
+export function useMe(): MeCtx {
+  const id = useCloud((c) => (c.active.kind === 'cloud' ? (c.user?.id ?? null) : null))
+  const name = useWorkspace((s) => s.settings.userName)
+  return useMemo(() => ({ id, name }), [id, name])
+}
+
 /** A resolver for one database (recomputed when relevant rows / schema change, and as time passes). */
 export function useResolver(dbId: ID): Resolver {
   const relevant = useRelevantPages(dbId)
@@ -98,11 +103,12 @@ export function useResolver(dbId: ID): Resolver {
   const people = useWorkspace((s) => s.people)
   const lang = useLang()
   const labels = useLabels()
+  const me = useMe()
   return useMemo(() => {
-    const ctx: Ctx = { pages: useWorkspace.getState().pages, databases, people, lang, now: Date.now(), labels }
+    const ctx: Ctx = { pages: useWorkspace.getState().pages, databases, people, lang, now: Date.now(), labels, me }
     return new Resolver(ctx)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [relevant, databases, people, lang, labels, tick])
+  }, [relevant, databases, people, lang, labels, tick, me])
 }
 
 export interface DbModel {
@@ -127,6 +133,10 @@ export interface DbModel {
   newRowDefaults: () => Record<ID, PropertyValue>
   /** View only (a viewer in a team workspace): read, never write — every write affordance hides. */
   readOnly: boolean
+  /** The database is locked (model/lock): properties and views are fixed, rows stay editable. */
+  locked: boolean
+  /** Properties and views can't change here: view only or locked. */
+  fixed: boolean
 }
 
 export function useDbModel(db: Database, dbPage: Page, view: View, search: string, inline: boolean, keep: ID[] = []): DbModel {
@@ -162,9 +172,10 @@ export function useDbModel(db: Database, dbPage: Page, view: View, search: strin
   }, [allRows, sub, view.filter, view.sorts, search, resolver, db, propMap, keep])
   const groupProp = view.groupBy && ['table', 'list', 'board'].includes(view.type) ? propMap.get(view.groupBy) ?? null : null
   const groups = useMemo(() => (groupProp ? groupRows(resolver, db, groupProp, rows, labels) : null), [groupProp, resolver, db, rows, labels])
-  const newRowDefaults = useCallback(() => defaultsFromFilter(view, propMap), [view, propMap])
+  const newRowDefaults = useCallback(() => defaultsFromFilter(view, propMap, (p) => resolveMe(p, resolver.ctx)), [view, propMap, resolver])
   const readOnly = useDbReadOnly()
-  return { db, dbPage, view, resolver, propMap, titleProp, visibleProps, allRows, rows, groups, groupProp, search, inline, newRowDefaults, readOnly }
+  const locked = db.locked === true
+  return { db, dbPage, view, resolver, propMap, titleProp, visibleProps, allRows, rows, groups, groupProp, search, inline, newRowDefaults, readOnly, locked, fixed: readOnly || locked }
 }
 
 export const DbModelContext = createContext<DbModel | null>(null)

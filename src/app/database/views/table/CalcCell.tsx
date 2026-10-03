@@ -26,11 +26,11 @@ export function CalcCell({ prop, rows }: { prop: PropertyDef; rows: Page[] }) {
     display = formatAgg(aggregate(fn, prop, values, m.resolver.ctx.lang), prop, m.resolver.ctx.lang, labels)
   }
   const label = (f: CalcFn) => (prop.type === 'checkbox' && (f === 'count_not_empty' || f === 'count_empty') ? t(`database.calc.${f === 'count_not_empty' ? 'checked' : 'unchecked'}`) : t(`database.calc.${f}`))
-  // view only: the readout without the "Calculate" control
-  if (m.readOnly && fn === 'none') return null
+  // view only / locked: the readout without the "Calculate" control
+  if (m.fixed && fn === 'none') return null
   return (
     <>
-      <button type="button" className="dbt-calc" data-set={fn !== 'none'} disabled={m.readOnly} onClick={(e) => setAnchor(e.currentTarget)}>
+      <button type="button" className="dbt-calc" data-set={fn !== 'none'} disabled={m.fixed} onClick={(e) => setAnchor(e.currentTarget)}>
         {fn === 'none' ? (
           <span className="dbt-calc__hint">
             {t('database.calc.calculate')} <ChevronDown size={11} />

@@ -2,21 +2,23 @@
  * Filter builder (AND/OR groups, operators per type) and the removable filter chips bar.
  */
 import { useEffect, useState } from 'react'
-import { ArrowUpDown, Plus, Trash, X, CalendarDays, Layers } from 'lucide-react'
+import { ArrowUpDown, Plus, Trash, X, CalendarDays, Layers, Lock } from 'lucide-react'
 import { SortPanel } from './Panels'
 import type { Database, DateValue, Filter, FilterGroup, FilterOperator, ID, PropertyDef, PropertyValue, View } from '../../store/types'
-import { useWorkspace } from '../../store/store'
 import { Popover } from '../../ui/Popover'
 import { useT } from '../../i18n'
 import { newId } from '../../lib/ids'
 import { Menu, Select, TypeIcon } from '../parts'
 import { DatePicker } from '../cells/DatePicker'
-import { Avatar } from '../cells/display'
+import { ActorAvatar, Avatar, MeAvatar } from '../cells/display'
 import { tagStyle } from '../../lib/colors'
 import { VALUELESS_OPS, operatorsFor } from '../model/schema'
 import { countFilters, inferKind, isGroup } from '../model/query'
 import { formatDateValue, todayISO } from '../model/format'
 import type { DbModel } from '../hooks'
+import { LOCAL_ACTOR, ME_TOKEN, actorKind, isActorType, type ActorKind } from '../model/actors'
+import { currentQuery, resetSessionQuery, setViewQuery, useSessionOverlay } from '../model/lock'
+import { SessionNote } from './Lock'
 import type { Translate } from '@/shared/i18n'
 import { plural } from '../parts'
 
@@ -43,7 +45,9 @@ export function filterValueText(m: DbModel, f: Filter, t: Translate): string {
   const v = f.value
   if (v === undefined || v === null || v === '') return ''
   if (prop.type === 'select' || prop.type === 'status' || prop.type === 'multi_select') return prop.options?.find((o) => o.id === v)?.name ?? ''
+  if (v === ME_TOKEN && (prop.type === 'person' || isActorType(prop.type))) return t('database.me')
   if (prop.type === 'person') return m.resolver.ctx.people.find((p) => p.id === v)?.name ?? ''
+  if (isActorType(prop.type)) return m.resolver.actorName(String(v))
   if (typeof v === 'object' && !Array.isArray(v) && 'start' in v) {
     const dv = v as DateValue
     if ((REL_DATES as readonly string[]).includes(dv.start)) return t(`database.filter.date.${dv.start}`)
@@ -77,16 +81,22 @@ function FilterValue({ m, filter, onChange }: { m: DbModel; filter: Filter; onCh
       />
     )
   }
-  if (prop.type === 'person') {
-    return (
-      <Select
-        value={(v as string) ?? null}
-        placeholder={t('database.filter.pickPerson')}
-        className="db-frule__value"
-        items={m.resolver.ctx.people.map((p) => ({ value: p.id, label: p.name, icon: <Avatar person={p} size={16} /> }))}
-        onChange={onChange}
-      />
-    )
+  if (prop.type === 'person' || isActorType(prop.type)) {
+    const people = m.resolver.ctx.people
+    // "Me" first: resolved per viewer when the filter runs (model/actors)
+    const items = [
+      { value: ME_TOKEN, label: t('database.me'), icon: <MeAvatar /> },
+      ...(isActorType(prop.type) ? actorChoices(m, prop) : people.map((p) => p.id)).map((id) => {
+        const person = people.find((p) => p.id === id)
+        const kind = actorKind(id, people)
+        return {
+          value: id,
+          label: person ? person.name : m.resolver.actorName(id),
+          icon: person ? <Avatar person={person} size={16} /> : <ActorAvatar kind={kind as Exclude<ActorKind, 'person'>} name={m.resolver.actorName(id)} size={16} />,
+        }
+      }),
+    ]
+    return <Select value={(v as string) ?? null} placeholder={t('database.filter.pickPerson')} className="db-frule__value" items={items} onChange={onChange} />
   }
   if (kind === 'date') {
     const dv = v as DateValue | undefined
@@ -125,6 +135,19 @@ function FilterValue({ m, filter, onChange }: { m: DbModel; filter: Filter; onCh
       onKeyDown={(e) => e.stopPropagation()}
     />
   )
+}
+
+/**
+ * Who a created_by / last_edited_by filter can name: the workspace people (team workspaces) and
+ * whoever else made rows here (API tokens, webhooks, former members). Locally only "Me".
+ */
+function actorChoices(m: DbModel, prop: PropertyDef): string[] {
+  const out: string[] = m.resolver.ctx.me.id === null ? [] : m.resolver.ctx.people.map((p) => p.id)
+  for (const row of m.allRows) {
+    const v = m.resolver.value(m.db, prop, row)
+    if (typeof v === 'string' && v !== LOCAL_ACTOR && !out.includes(v)) out.push(v)
+  }
+  return out
 }
 
 /* ---------------- rule + group editors ---------------- */
@@ -231,9 +254,9 @@ export function GroupEditor({ m, group, depth, onChange, onRemove, labels }: { m
 /** Full filter builder popover. */
 export function FilterPopover({ m, anchor, onClose }: { m: DbModel; anchor: Element; onClose: () => void }) {
   const t = useT()
-  const view = useWorkspace((s) => s.databases[m.db.id]?.views.find((v) => v.id === m.view.id)) ?? m.view
+  const view = m.view
   const group = view.filter ?? emptyGroup()
-  const save = (g: FilterGroup) => useWorkspace.getState().updateView(m.db.id, view.id, { filter: g.items.length ? g : null })
+  const save = (g: FilterGroup) => setViewQuery(m.db.id, view.id, { filter: g.items.length ? g : null })
   return (
     <Popover open anchor={anchor} onClose={onClose} placement="bottom-end" className="db-filterpop">
       <div className="db-filterpop__head">
@@ -245,6 +268,7 @@ export function FilterPopover({ m, anchor, onClose }: { m: DbModel; anchor: Elem
           </button>
         )}
       </div>
+      {m.locked && <SessionNote m={m} />}
       <GroupEditor m={m} group={group} depth={0} onChange={save} />
     </Popover>
   )
@@ -253,13 +277,13 @@ export function FilterPopover({ m, anchor, onClose }: { m: DbModel; anchor: Elem
 /* ---------------- chips bar ---------------- */
 
 function RulePopover({ m, view, filter, anchor, onClose }: { m: DbModel; view: View; filter: Filter; anchor: Element; onClose: () => void }) {
-  const live = useWorkspace((s) => s.databases[m.db.id]?.views.find((v) => v.id === view.id)?.filter?.items.find((x) => x.id === filter.id)) as Filter | undefined
+  const live = view.filter?.items.find((x) => x.id === filter.id) as Filter | undefined
   if (!live) return null
   const save = (f: Filter | null) => {
-    const g = useWorkspace.getState().databases[m.db.id]?.views.find((v) => v.id === view.id)?.filter
+    const g = currentQuery(m.db.id, view.id).filter
     if (!g) return
     const items = f ? g.items.map((x) => (x.id === f.id ? f : x)) : g.items.filter((x) => x.id !== filter.id)
-    useWorkspace.getState().updateView(m.db.id, view.id, { filter: items.length ? { ...g, items } : null })
+    setViewQuery(m.db.id, view.id, { filter: items.length ? { ...g, items } : null })
     if (!f) onClose()
   }
   return (
@@ -292,14 +316,25 @@ export function FilterChips({ m, autoOpen, onAutoOpened }: { m: DbModel; autoOpe
   }, [target]) // eslint-disable-line react-hooks/exhaustive-deps
   const removeItem = (id: ID) => {
     const rest = items.filter((x) => x.id !== id)
-    useWorkspace.getState().updateView(m.db.id, view.id, { filter: rest.length ? { ...g!, items: rest } : null })
+    setViewQuery(m.db.id, view.id, { filter: rest.length ? { ...g!, items: rest } : null })
   }
   const sortCount = view.sorts.length
   // view only: the chips say what the view filters and sorts by, nothing more
   const ro = m.readOnly
-  if (!items.length && !sortCount) return null
+  // locked database: this tab's own filters / sorts (model/lock) — say so, offer the saved ones back
+  const session = !!useSessionOverlay(m.db.id, view.id)
+  if (!items.length && !sortCount && !session) return null
   return (
     <div className="db-chipsbar" role="toolbar" aria-label={t('database.filter.title')}>
+      {session && (
+        <span className="db-chipsbar__session" title={t('database.lock.sessionOnly')}>
+          <Lock size={11} strokeWidth={2} aria-hidden />
+          <span>{t('database.lock.notSaved')}</span>
+          <button type="button" className="db-panel__link" onClick={() => resetSessionQuery(m.db.id)}>
+            {t('database.lock.reset')}
+          </button>
+        </span>
+      )}
       {sortCount > 0 && (
         <span className="db-fchip db-fchip--sort">
           <button type="button" className="db-fchip__main" aria-haspopup="dialog" disabled={ro} onClick={(e) => setSortAnchor(sortAnchor ? null : e.currentTarget)}>
@@ -312,7 +347,7 @@ export function FilterChips({ m, autoOpen, onAutoOpened }: { m: DbModel; autoOpe
             ))}
           </button>
           {!ro && (
-            <button type="button" className="db-fchip__x" aria-label={t('database.sort.clear')} title={t('database.sort.clear')} onClick={() => useWorkspace.getState().updateView(m.db.id, view.id, { sorts: [] })}>
+            <button type="button" className="db-fchip__x" aria-label={t('database.sort.clear')} title={t('database.sort.clear')} onClick={() => setViewQuery(m.db.id, view.id, { sorts: [] })}>
               <X size={12} />
             </button>
           )}
@@ -385,7 +420,7 @@ export function FilterChips({ m, autoOpen, onAutoOpened }: { m: DbModel; autoOpe
           onSelect: () => {
             const f = newFilterFor(m, p)
             const base = g ?? emptyGroup()
-            useWorkspace.getState().updateView(m.db.id, view.id, { filter: { ...base, items: [...base.items, f] } })
+            setViewQuery(m.db.id, view.id, { filter: { ...base, items: [...base.items, f] } })
             setPending(f.id)
           },
         }))}

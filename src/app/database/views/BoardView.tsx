@@ -131,7 +131,9 @@ export function BoardView() {
     const gp = m.groupProp
     if (gp && to !== from) {
       const v = valueForGroupMove(gp, useWorkspace.getState().pages[rowId]?.properties[gp.id], from, to)
-      if (v !== undefined) writeValue(db.id, gp, rowId, v)
+      // created by / last edited by: a card can't change who made it — it goes back
+      if (v === undefined) return setItems(fromGroups)
+      writeValue(db.id, gp, rowId, v)
     }
     if (!view.sorts.length) {
       const idx = list.indexOf(a)
@@ -157,7 +159,7 @@ export function BoardView() {
 
   const activeRow = activeId ? rowsById.get(parseItem(activeId).row) : undefined
   const setHidden = (key: string, on: boolean) => {
-    if (m.readOnly) return
+    if (m.fixed) return
     const next = new Set(view.hiddenGroups ?? [])
     if (on) next.add(key)
     else next.delete(key)
@@ -209,7 +211,7 @@ export function BoardView() {
               <div className="dbb-hidden">
                 <div className="label dbb-hidden__head">{t('database.group.hidden')}</div>
                 {hiddenGroups.map((g) => (
-                  <button key={g.key} type="button" className="dbb-hidden__row" disabled={m.readOnly} onClick={() => setHidden(g.key, false)}>
+                  <button key={g.key} type="button" className="dbb-hidden__row" disabled={m.fixed} onClick={() => setHidden(g.key, false)}>
                     <GroupLabel group={g} />
                     <span className="dbb-count">{g.rows.length}</span>
                     <EyeOff size={13} className="faint" />
@@ -234,7 +236,7 @@ export function BoardView() {
             onClose={() => setMenu(null)}
             entries={[
               { label: t('database.group.collapse'), icon: <ChevronsLeftRight size={14} />, onSelect: () => toggleCollapsed(menu.group.key) },
-              ...(m.readOnly ? [] : [{ label: t('database.group.hide'), icon: <Eye size={14} />, onSelect: () => setHidden(menu.group.key, true) }]),
+              ...(m.fixed ? [] : [{ label: t('database.group.hide'), icon: <Eye size={14} />, onSelect: () => setHidden(menu.group.key, true) }]),
             ]}
           />
         )}
@@ -356,7 +358,7 @@ function Card({ id, m, row, rc, props, editing, onEditDone, onOpen, onContext }:
 function ChooseGroup({ m }: { m: DbModel }) {
   const t = useT()
   const candidates = m.db.properties.filter((p) => BOARD_GROUP_TYPES.includes(p.type))
-  if (m.readOnly)
+  if (m.fixed)
     return (
       <div className="db-empty">
         <span className="db-empty__line" aria-hidden />

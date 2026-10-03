@@ -6,8 +6,10 @@ import { useEffect, useRef, useState } from 'react'
 import type { FormConfig, FormQuestion, ID } from '../../store/types'
 import { useWorkspace } from '../../store/store'
 import { formConfig, questionOf } from './fields'
+import { isDbLocked } from '../model/lock'
 
 export function patchForm(dbId: ID, viewId: ID, fn: (cfg: FormConfig) => FormConfig): void {
+  if (isDbLocked(dbId)) return
   const s = useWorkspace.getState()
   const v = s.databases[dbId]?.views.find((x) => x.id === viewId)
   if (!v) return

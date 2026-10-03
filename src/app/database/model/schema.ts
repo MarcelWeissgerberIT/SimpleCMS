@@ -20,6 +20,8 @@ import {
   TextAlignStart,
   Type,
   User,
+  UserPen,
+  UserPlus,
   AtSign,
   ArrowUpRight,
   Table,
@@ -55,6 +57,8 @@ export const TYPE_ICON: Record<PropertyType, LucideIcon> = {
   last_edited_time: ClockArrowUp,
   unique_id: ScanBarcode,
   rating: Star,
+  created_by: UserPlus,
+  last_edited_by: UserPen,
 }
 
 export const VIEW_ICON: Record<ViewType, LucideIcon> = {
@@ -75,10 +79,10 @@ export const CREATABLE_TYPES: PropertyType[][] = [
   ['text', 'number', 'select', 'multi_select', 'status', 'date', 'person', 'checkbox', 'rating'],
   ['url', 'email', 'phone', 'files'],
   ['relation', 'rollup', 'formula'],
-  ['created_time', 'last_edited_time', 'unique_id'],
+  ['created_time', 'created_by', 'last_edited_time', 'last_edited_by', 'unique_id'],
 ]
 
-export const COMPUTED_TYPES: PropertyType[] = ['formula', 'rollup', 'created_time', 'last_edited_time', 'unique_id']
+export const COMPUTED_TYPES: PropertyType[] = ['formula', 'rollup', 'created_time', 'last_edited_time', 'unique_id', 'created_by', 'last_edited_by']
 export const isComputed = (p: PropertyDef) => COMPUTED_TYPES.includes(p.type)
 /** Values the user can't type into. */
 export const isReadOnly = (p: PropertyDef) => isComputed(p)
@@ -88,8 +92,8 @@ export const isTextType = (t: PropertyType) => t === 'title' || t === 'text' || 
 export const isNumberType = (t: PropertyType) => t === 'number' || t === 'rating' || t === 'unique_id'
 export const isDateType = (t: PropertyType) => t === 'date' || t === 'created_time' || t === 'last_edited_time'
 
-/** Abstract value kind used by filters / calculations / grouping. */
-export type ValueKind = 'text' | 'number' | 'select' | 'multi' | 'person' | 'relation' | 'date' | 'checkbox' | 'files' | 'computed'
+/** Abstract value kind used by filters / calculations / grouping. 'actor': created_by / last_edited_by (one person id). */
+export type ValueKind = 'text' | 'number' | 'select' | 'multi' | 'person' | 'actor' | 'relation' | 'date' | 'checkbox' | 'files' | 'computed'
 
 export function valueKind(t: PropertyType): ValueKind {
   switch (t) {
@@ -110,6 +114,9 @@ export function valueKind(t: PropertyType): ValueKind {
       return 'multi'
     case 'person':
       return 'person'
+    case 'created_by':
+    case 'last_edited_by':
+      return 'actor'
     case 'relation':
       return 'relation'
     case 'date':
@@ -142,6 +149,7 @@ export function operatorsFor(kind: ValueKind | 'boolean'): FilterOperator[] {
     case 'number':
       return NUMBER_OPS
     case 'select':
+    case 'actor':
       return SELECT_OPS
     case 'multi':
     case 'person':
@@ -191,7 +199,7 @@ export const ROLLUP_FNS: RollupFn[] = [
 ]
 
 /** Can the board/group-by use this property? */
-export const BOARD_GROUP_TYPES: PropertyType[] = ['status', 'select', 'multi_select', 'person', 'checkbox']
+export const BOARD_GROUP_TYPES: PropertyType[] = ['status', 'select', 'multi_select', 'person', 'checkbox', 'created_by', 'last_edited_by']
 export const TABLE_GROUP_TYPES: PropertyType[] = [
   'status',
   'select',
@@ -208,5 +216,7 @@ export const TABLE_GROUP_TYPES: PropertyType[] = [
   'date',
   'created_time',
   'last_edited_time',
+  'created_by',
+  'last_edited_by',
   'formula',
 ]

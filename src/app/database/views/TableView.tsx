@@ -419,7 +419,8 @@ export function TableView({ onFilterProp }: { onFilterProp: (id: ID) => void }) 
     let to = col
     const onMove = (ev: PointerEvent) => {
       const dx = ev.clientX - startX
-      if (!dragging && (Math.abs(dx) < 5 || col === 0)) return
+      // locked: a click still opens the column menu (sort / filter), columns don't move
+      if (!dragging && (Math.abs(dx) < 5 || col === 0 || m.fixed)) return
       dragging = true
       const cells = Array.from(rootRef.current?.querySelectorAll<HTMLElement>('.dbt-hcell') ?? [])
       const rootLeft = rootRef.current!.getBoundingClientRect().left
@@ -789,12 +790,12 @@ export function TableView({ onFilterProp }: { onFilterProp: (id: ID) => void }) 
                     {autofillOf(p) && <AutofillTag dbId={db.id} prop={p} />}
                     {sort && <span className="dbt-hcell__sort">{sort.direction === 'asc' ? '↑' : '↓'}</span>}
                   </button>
-                  {!ro && <span className="dbt-resize" onPointerDown={(e) => startResize(e, c)} role="separator" aria-orientation="vertical" aria-label={t('database.resize')} />}
+                  {!m.fixed && <span className="dbt-resize" onPointerDown={(e) => startResize(e, c)} role="separator" aria-orientation="vertical" aria-label={t('database.resize')} />}
                 </div>
               )
             })}
             <div className="dbt-hcell dbt-hcell--add">
-              {!ro && (
+              {!m.fixed && (
                 <Tooltip label={t('database.props.new')}>
                   <button type="button" className="icon-btn icon-btn--sm" onClick={(e) => setAddColAnchor(e.currentTarget)}>
                     <Plus size={14} />
@@ -825,6 +826,7 @@ export function TableView({ onFilterProp }: { onFilterProp: (id: ID) => void }) 
           anchor={headMenu.el}
           resolver={m.resolver}
           tableMode
+          locked={m.locked}
           onClose={() => setHeadMenu(null)}
           onFilter={(id) => {
             setHeadMenu(null)
@@ -926,7 +928,7 @@ function rowPropsEqual(a: RowProps, b: RowProps): boolean {
   if (a.m.db !== b.m.db || a.m.view !== b.m.view || a.m.readOnly !== b.m.readOnly) return false
   const ca = a.m.resolver.ctx
   const cb = b.m.resolver.ctx
-  if (ca.people !== cb.people || ca.lang !== cb.lang || ca.databases !== cb.databases) return false
+  if (ca.people !== cb.people || ca.lang !== cb.lang || ca.databases !== cb.databases || ca.me !== cb.me) return false
   return !a.m.db.properties.some((p) => p.type === 'relation' || p.type === 'rollup' || p.type === 'formula')
 }
 

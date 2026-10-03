@@ -15,6 +15,7 @@ import {
   Trash,
   SquareFunction,
   Repeat,
+  Lock,
 } from 'lucide-react'
 import type { Database, NumberDisplay, NumberFormat, PropertyDef, PropertyType, RollupFn, View } from '../../store/types'
 import { useWorkspace } from '../../store/store'
@@ -31,6 +32,7 @@ import { changePropertyType, deletePropertyWithUndo, disableTwoWay, duplicatePro
 import { ROLLUP_FNS, isOptionType, operatorsFor, valueKind } from '../model/schema'
 import type { Resolver } from '../model/resolve'
 import { AiGlyph, autofillOf, canAutofill, openAutofillPanel } from '../autofill'
+import { setViewQuery } from '../model/lock'
 
 export interface PropertyMenuProps {
   db: Database
@@ -45,9 +47,11 @@ export interface PropertyMenuProps {
   onInserted?: (id: string) => void
   /** Called when "Filter" is chosen (toolbar opens a filter for it). */
   onFilter?: (propId: string) => void
+  /** Locked database (model/lock): only sorting and filtering (this tab only) — nothing else changes. */
+  locked?: boolean
 }
 
-export function PropertyMenu({ db, view, prop, anchor, resolver, onClose, tableMode, onInserted, onFilter }: PropertyMenuProps) {
+export function PropertyMenu({ db, view, prop, anchor, resolver, onClose, tableMode, onInserted, onFilter, locked }: PropertyMenuProps) {
   const t = useT()
   const s = useWorkspace.getState()
   const [name, setName] = useState(prop.name)
@@ -56,18 +60,18 @@ export function PropertyMenu({ db, view, prop, anchor, resolver, onClose, tableM
 
   const commitName = () => {
     const n = name.trim()
-    if (n && n !== prop.name) s.updateProperty(db.id, prop.id, { name: n })
+    if (n && n !== prop.name && !locked) s.updateProperty(db.id, prop.id, { name: n })
   }
 
   const setSort = (direction: 'asc' | 'desc') => {
     if (!view) return
-    s.updateView(db.id, view.id, { sorts: [{ propertyId: prop.id, direction }, ...view.sorts.filter((x) => x.propertyId !== prop.id)] })
+    setViewQuery(db.id, view.id, { sorts: [{ propertyId: prop.id, direction }, ...view.sorts.filter((x) => x.propertyId !== prop.id)] })
   }
 
   const confirmDelete = () => deletePropertyWithUndo(db, prop)
 
   const entries: MenuEntry[] = []
-  if (!isTitle) {
+  if (!isTitle && !locked) {
     entries.push({
       label: t('database.prop.type'),
       icon: <Repeat size={14} />,
@@ -75,9 +79,9 @@ export function PropertyMenu({ db, view, prop, anchor, resolver, onClose, tableM
       submenu: typeEntries(t, (type: PropertyType) => changePropertyType(resolver, db, prop, type), prop.type),
     })
   }
-  if (prop.type === 'formula')
+  if (prop.type === 'formula' && !locked)
     entries.push({ label: t('database.formula.edit'), icon: <SquareFunction size={14} />, onSelect: () => setFormulaOpen(true), keepOpen: true })
-  if (canAutofill(prop)) {
+  if (canAutofill(prop) && !locked) {
     const ai = autofillOf(prop)
     entries.push({
       label: t('database.autofill.menu'),
@@ -91,7 +95,7 @@ export function PropertyMenu({ db, view, prop, anchor, resolver, onClose, tableM
     })
   }
   if (view) {
-    entries.push({ kind: 'separator' })
+    if (entries.length) entries.push({ kind: 'separator' })
     entries.push({ label: t('database.sort.asc'), icon: <ArrowUpNarrowWide size={14} />, onSelect: () => setSort('asc') })
     entries.push({ label: t('database.sort.desc'), icon: <ArrowDownWideNarrow size={14} />, onSelect: () => setSort('desc') })
     entries.push({
@@ -102,16 +106,16 @@ export function PropertyMenu({ db, view, prop, anchor, resolver, onClose, tableM
         const kind = valueKind(prop.type)
         const op = operatorsFor(kind === 'computed' ? 'text' : kind)[0]
         const filter = view.filter ?? { id: newId(), op: 'and' as const, items: [] }
-        s.updateView(db.id, view.id, { filter: { ...filter, items: [...filter.items, { id: newId(), propertyId: prop.id, operator: op }] } })
+        setViewQuery(db.id, view.id, { filter: { ...filter, items: [...filter.items, { id: newId(), propertyId: prop.id, operator: op }] } })
       },
     })
-    if (!isTitle)
+    if (!isTitle && !locked)
       entries.push({
         label: t('database.prop.hide'),
         icon: <EyeOff size={14} />,
         onSelect: () => s.updateView(db.id, view.id, { visibleProperties: view.visibleProperties.filter((x) => x !== prop.id) }),
       })
-    if (tableMode)
+    if (tableMode && !locked)
       entries.push({
         label: t('database.prop.wrap'),
         icon: <TextWrap size={14} />,
@@ -119,7 +123,7 @@ export function PropertyMenu({ db, view, prop, anchor, resolver, onClose, tableM
         onSelect: () => s.updateView(db.id, view.id, { wrapCells: !view.wrapCells }),
       })
   }
-  if (tableMode && view) {
+  if (tableMode && view && !locked) {
     entries.push({ kind: 'separator' })
     const ins = (side: 'left' | 'right') => {
       if (isTitle && side === 'left') return
@@ -129,7 +133,7 @@ export function PropertyMenu({ db, view, prop, anchor, resolver, onClose, tableM
     if (!isTitle) entries.push({ label: t('database.prop.insertLeft'), icon: <ArrowLeftToLine size={14} />, onSelect: () => ins('left') })
     entries.push({ label: t('database.prop.insertRight'), icon: <ArrowRightToLine size={14} />, onSelect: () => ins('right') })
   }
-  if (!isTitle) {
+  if (!isTitle && !locked) {
     entries.push({ kind: 'separator' })
     entries.push({ label: t('database.prop.duplicate'), icon: <Copy size={14} />, onSelect: () => duplicateProperty(db, view, prop) })
     entries.push({ label: t('database.prop.delete'), icon: <Trash size={14} />, danger: true, onSelect: confirmDelete })
@@ -142,23 +146,32 @@ export function PropertyMenu({ db, view, prop, anchor, resolver, onClose, tableM
           <span className="db-propmenu__icon">
             <TypeIcon type={prop.type} size={15} />
           </span>
-          <input
-            className="input"
-            data-autofocus=""
-            value={name}
-            aria-label={t('database.prop.name')}
-            onChange={(e) => setName(e.target.value)}
-            onBlur={commitName}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') {
-                e.preventDefault()
-                commitName()
-                onClose()
-              }
-            }}
-          />
+          {locked ? (
+            <span className="db-propmenu__title">
+              <span className="db-propmenu__name">{prop.name}</span>
+              <span className="label db-propmenu__locked">
+                <Lock size={10} strokeWidth={2.2} aria-hidden /> {t('database.lock.propHint')}
+              </span>
+            </span>
+          ) : (
+            <input
+              className="input"
+              data-autofocus=""
+              value={name}
+              aria-label={t('database.prop.name')}
+              onChange={(e) => setName(e.target.value)}
+              onBlur={commitName}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault()
+                  commitName()
+                  onClose()
+                }
+              }}
+            />
+          )}
         </div>
-        <PropertyConfig db={db} prop={prop} onEditFormula={() => setFormulaOpen(true)} />
+        {!locked && <PropertyConfig db={db} prop={prop} onEditFormula={() => setFormulaOpen(true)} />}
         <MenuList entries={entries} onClose={onClose} />
       </Popover>
       {formulaOpen && (

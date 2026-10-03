@@ -2,7 +2,7 @@
  * Read-only renderers for property values (cells, cards, property panel, chips).
  */
 import { memo, type MouseEvent, type ReactNode } from 'react'
-import { AlertTriangle, ArrowUpRight, Check, FileText, Mail, Minus, Phone, Star } from 'lucide-react'
+import { AlertTriangle, ArrowUpRight, Check, FileText, KeyRound, Mail, Minus, Phone, Star, UserRound, Webhook } from 'lucide-react'
 import type { Database, DateValue, ID, Page, Person, PropertyDef, SelectOption } from '../../store/types'
 import { tagStyle, colorText } from '../../lib/colors'
 import { useFileUrl } from '../../lib/files'
@@ -13,6 +13,7 @@ import { formatDateValue, formatNumber, formatTimestamp, isDateValue, numberRati
 import { fileLabel, type Resolver, type Resolved } from '../model/resolve'
 import { guessIsImage, useFileMeta } from '../model/files'
 import { openRow, writeValue } from '../model/actions'
+import { actorKind, localPerson, type ActorKind } from '../model/actors'
 import { useUI } from '../../store/ui'
 
 /* ---------------- atoms ---------------- */
@@ -77,6 +78,41 @@ export function PersonChip({ person, onRemove }: { person: Person; onRemove?: ()
       <Avatar person={person} />
       <span className="db-person__name">{person.name}</span>
       {onRemove && <RemoveX onRemove={onRemove} />}
+    </span>
+  )
+}
+
+/** Avatar of a created_by / last_edited_by actor that isn't a workspace person. */
+export function ActorAvatar({ kind, name, size = 18 }: { kind: Exclude<ActorKind, 'person'>; name: string; size?: number }) {
+  const icon = Math.round(size * 0.62)
+  const glyph = kind === 'api' ? <KeyRound size={icon} strokeWidth={2} /> : kind === 'hook' ? <Webhook size={icon} strokeWidth={2} /> : kind === 'local' && name ? initials(name) : <UserRound size={icon} strokeWidth={2} />
+  return (
+    <span className="db-avatar db-avatar--actor" data-actor={kind} style={{ width: size, height: size, fontSize: Math.round(size * 0.48) }} aria-hidden>
+      {glyph}
+    </span>
+  )
+}
+
+/** Created by / Last edited by: a person chip — or the local user, an API token, a webhook. */
+export function ActorChip({ id, r }: { id: string; r: Resolver }) {
+  const kind = actorKind(id, r.ctx.people)
+  const person = kind === 'person' ? r.ctx.people.find((p) => p.id === id) : kind === 'local' ? localPerson(r.ctx) : undefined
+  if (person) return <PersonChip person={person} />
+  const name = r.actorName(id)
+  return (
+    <span className="db-person" data-actor={kind}>
+      <ActorAvatar kind={kind as Exclude<ActorKind, 'person'>} name={kind === 'local' ? r.ctx.me.name.trim() : name} />
+      <span className="db-person__name">{name}</span>
+    </span>
+  )
+}
+
+/** The "Me" token of person filters (resolved per viewer). */
+export function MeAvatar({ size = 16 }: { size?: number }) {
+  const t = useT()
+  return (
+    <span className="db-avatar db-avatar--me" style={{ minWidth: size, height: size, fontSize: Math.round(size * 0.5) }} aria-hidden>
+      {t('database.me.short')}
     </span>
   )
 }
@@ -308,6 +344,9 @@ export function ValueView({ db, prop, row, r, v, variant = 'cell', interactive }
       const ids = (v as string[] | null) ?? []
       return ids.length ? <PersonList ids={ids} people={r.ctx.people} /> : null
     }
+    case 'created_by':
+    case 'last_edited_by':
+      return typeof v === 'string' ? <ActorChip id={v} r={r} /> : null
     case 'checkbox':
       return <Checkbox checked={v === true} readOnly={!interactive} onToggle={() => writeValue(db.id, prop, row.id, !(v === true))} label={prop.name} />
     case 'url':

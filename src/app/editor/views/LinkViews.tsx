@@ -2,7 +2,7 @@ import { useState, type MouseEvent } from 'react'
 import { NodeViewWrapper, type ReactNodeViewProps } from '@tiptap/react'
 import { useShallow } from 'zustand/react/shallow'
 import { format } from 'date-fns'
-import { ArrowUpRight, BellRing, CalendarDays } from 'lucide-react'
+import { ArrowUpRight, BellRing, CalendarDays, Lock } from 'lucide-react'
 import { useWorkspace } from '../../store/store'
 import { isEffectivelyTrashed } from '../../store/selectors'
 import { useUI } from '../../store/ui'
@@ -11,6 +11,7 @@ import { PageIcon } from '../../ui/PageIcon'
 import { useLang, useT } from '../../i18n'
 import { Popover } from '../../ui/Popover'
 import { DateReminderEditor, normalizeReminder, reminderLabel, type DateReminderValue } from '../../features'
+import { useCloud } from '../../cloud'
 import { mentionDateLabel, mentionHasTime, relativeDateLabel } from '../lib/dates'
 import './dateMention.css'
 
@@ -24,6 +25,12 @@ function usePageInfo(id: string | null) {
   )
 }
 
+/**
+ * Team workspaces: a page that isn't here is someone else's private page (or deleted) — a neutral
+ * "No access", never the title a mention carried when it was written (docs/CLOUD.md § Private pages).
+ */
+const useTeam = () => useCloud((s) => s.active.kind === 'cloud')
+
 function go(e: MouseEvent, id: string) {
   e.preventDefault()
   e.stopPropagation()
@@ -35,13 +42,12 @@ export function PageLinkView({ node, selected }: ReactNodeViewProps) {
   const t = useT()
   const id = node.attrs.pageId as string | null
   const info = usePageInfo(id)
+  const noAccess = useTeam() && !info.exists
   return (
-    <NodeViewWrapper className={`page-link${selected ? ' is-selected' : ''}${!info.exists || info.trashed ? ' is-missing' : ''}`} data-type="page-link" contentEditable={false}>
+    <NodeViewWrapper className={`page-link${selected ? ' is-selected' : ''}${!info.exists || info.trashed ? ' is-missing' : ''}`} data-type="page-link" data-no-access={noAccess || undefined} contentEditable={false}>
       <a href={id ? `#/p/${id}` : undefined} onClick={(e) => id && info.exists && go(e, id)} draggable={false}>
-        <span className="page-link__icon">
-          <PageIcon icon={info.icon} kind={info.kind} size={19} />
-        </span>
-        <span className="page-link__title">{info.exists ? info.title.trim() || t('common.untitled') : t('editor.pageLink.missing')}</span>
+        <span className="page-link__icon">{noAccess ? <Lock size={15} strokeWidth={1.75} /> : <PageIcon icon={info.icon} kind={info.kind} size={19} />}</span>
+        <span className="page-link__title">{info.exists ? info.title.trim() || t('common.untitled') : noAccess ? t('editor.pageLink.noAccess') : t('editor.pageLink.missing')}</span>
         {info.trashed && <span className="page-link__badge label">{t('editor.pageLink.trashed')}</span>}
         <ArrowUpRight className="page-link__arrow" size={14} strokeWidth={1.75} />
       </a>
@@ -111,13 +117,14 @@ export function MentionView({ node, selected, editor, getPos, updateAttributes }
   const label = (node.attrs.label as string | null) ?? ''
   const info = usePageInfo(kind === 'page' ? id : null)
   const person = useWorkspace((s) => (kind === 'person' && id ? s.people.find((p) => p.id === id) : undefined))
+  const noAccess = useTeam() && kind === 'page' && !info.exists
 
   let body
   if (kind === 'page') {
     body = (
-      <a href={id ? `#/p/${id}` : undefined} className="mention__page" onClick={(e) => id && info.exists && go(e, id)} draggable={false}>
-        <PageIcon icon={info.icon} kind={info.kind} size={15} />
-        <span className="mention__title">{info.exists ? info.title.trim() || label || t('common.untitled') : label || t('editor.pageLink.missing')}</span>
+      <a href={id ? `#/p/${id}` : undefined} className="mention__page" data-no-access={noAccess || undefined} onClick={(e) => id && info.exists && go(e, id)} draggable={false}>
+        {noAccess ? <Lock size={12} strokeWidth={2} /> : <PageIcon icon={info.icon} kind={info.kind} size={15} />}
+        <span className="mention__title">{info.exists ? info.title.trim() || label || t('common.untitled') : noAccess ? t('editor.pageLink.noAccess') : label || t('editor.pageLink.missing')}</span>
       </a>
     )
   } else if (kind === 'date') {

@@ -23,8 +23,9 @@ export default function FormView() {
   const t = useT()
   const m = useModel()
   const [chosen, setMode] = useLocalState<Mode>(`one.db.form.${m.view.id}`, 'build')
-  // view only: the form can be looked at (fill mode) but not built, shared or answered
-  const mode: Mode = m.readOnly ? 'fill' : chosen
+  // view only: the form can be looked at (fill mode) but not built, shared or answered;
+  // locked: answered (rows stay editable) but not built or shared (its settings are view settings)
+  const mode: Mode = m.fixed ? 'fill' : chosen
   const [sharing, setSharing] = useState(false)
   const fields = useMemo(() => fieldsOf(m.db, m.view), [m.db, m.view])
   const hook = (formConfig(m.view).webhookUrl ?? '').trim()
@@ -42,7 +43,7 @@ export default function FormView() {
             { value: 'fill', label: t('database.form.fill'), icon: <ClipboardPen size={13} aria-hidden /> },
           ]}
           onChange={(v) => setMode(v)}
-          disabled={m.readOnly ? ['build'] : undefined}
+          disabled={m.fixed ? ['build'] : undefined}
         />
         <span className="label dbf-bar__spec">
           {t(fields.length === 1 ? 'database.form.spec.one' : 'database.form.spec.other', { count: fields.length })} · {t('database.form.specReq', { count: required })}
@@ -51,14 +52,14 @@ export default function FormView() {
         <span className="label dbf-bar__hook" title={connected ? hook : undefined}>
           <span className={`led${connected ? ' led--ok' : ''}`} aria-hidden /> {connected ? hostOf(hook) : t('database.form.hook.noneShort')}
         </span>
-        {!m.readOnly && (
+        {!m.fixed && (
           <button type="button" className="btn btn--sm dbf-bar__share" onClick={() => setSharing(true)}>
             <Share2 size={13} /> <span className="dbf-bar__shareText">{t('database.form.share.button')}</span>
           </button>
         )}
       </div>
       {mode === 'build' ? <FormBuilder m={m} fields={fields} onShare={() => setSharing(true)} /> : <LocalFill m={m} fields={fields} />}
-      {sharing && !m.readOnly && <ShareFormModal m={m} onClose={() => setSharing(false)} />}
+      {sharing && !m.fixed && <ShareFormModal m={m} onClose={() => setSharing(false)} />}
     </div>
   )
 }

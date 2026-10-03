@@ -10,6 +10,7 @@ import { t } from '../../i18n'
 import type { Database, DependenciesConfig, ID, PropertyDef, SubItemsConfig } from '../../store/types'
 import { TWO_WAY_SUFFIX, deletePropertiesWithUndo } from './actions'
 import { dependenciesOf, subItemsOf } from './hierarchy'
+import { isDbLocked } from './lock'
 
 const ws = () => useWorkspace.getState()
 const toast = (message: string) => useUI.getState().toast({ message })
@@ -29,6 +30,7 @@ function addPair(dbId: ID, forwardName: string, backName: string): [ID, ID] {
 }
 
 export function enableSubItems(dbId: ID): void {
+  if (isDbLocked(dbId)) return
   const db = ws().databases[dbId]
   // a config whose properties were deleted or retyped counts as off: build a fresh pair
   if (!db || subItemsOf(db)) return
@@ -44,6 +46,7 @@ export function enableSubItems(dbId: ID): void {
 
 /** Off: keep the two properties as plain relations, or delete them (one undo for both). */
 export function disableSubItems(dbId: ID, deleteProps: boolean): void {
+  if (isDbLocked(dbId)) return
   const db = ws().databases[dbId]
   const c = db?.subItems
   if (!db || !c) return
@@ -59,6 +62,7 @@ export function disableSubItems(dbId: ID, deleteProps: boolean): void {
 }
 
 export function enableDependencies(dbId: ID): void {
+  if (isDbLocked(dbId)) return
   const db = ws().databases[dbId]
   if (!db || dependenciesOf(db)) return
   const c = db.dependencies
@@ -72,6 +76,7 @@ export function enableDependencies(dbId: ID): void {
 }
 
 export function disableDependencies(dbId: ID, deleteProps: boolean): void {
+  if (isDbLocked(dbId)) return
   const db = ws().databases[dbId]
   const c = db?.dependencies
   if (!db || !c) return
@@ -87,6 +92,7 @@ export function disableDependencies(dbId: ID, deleteProps: boolean): void {
 }
 
 export function setConflictMode(dbId: ID, mode: 'shift' | 'warn'): void {
+  if (isDbLocked(dbId)) return
   const c = ws().databases[dbId]?.dependencies
   if (c) ws().updateDatabase(dbId, { dependencies: { ...c, onConflict: mode } })
 }

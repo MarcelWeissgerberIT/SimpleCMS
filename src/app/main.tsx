@@ -13,7 +13,7 @@ import { flushSave, loadWorkspace, startPersistence } from './store/persistence'
 import { seedWorkspace } from './store/seed'
 import { applyTheme } from './lib/theme'
 import { ALL_MESSAGES } from './i18n'
-import { startHistory, startAutomations, startRecurringTemplates, startInbox, seedDemoHistory } from './features'
+import { startHistory, startAutomations, startRecurringTemplates, startInbox, startSync, seedDemoHistory } from './features'
 import { startSyncedBlocks } from './editor'
 import { detectLang, makeTranslator } from '@/shared/i18n'
 import { STORAGE_KEYS, safeLocalGet } from '@/shared/brand'
@@ -73,6 +73,7 @@ async function boot() {
     startService('recurring templates', startRecurringTemplates)
     startService('inbox', startInbox)
     startService('synced blocks', startSyncedBlocks)
+    startService('sync', startSync)
   }
 
   // PWA share target (/app/?title=…&text=…&url=…) → the #/clip route, before the first render

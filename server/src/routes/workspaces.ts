@@ -86,7 +86,7 @@ export function workspaceRoutes(s: Services) {
     return c.json(memberJson(updated))
   })
 
-  app.delete('/:id/members/:userId', (c) => {
+  app.delete('/:id/members/:userId', async (c) => {
     const { workspace, role: actorRole, auth } = access(s, c, 'viewer')
     const userId = c.req.param('userId')
     const self = userId === auth.user.id
@@ -96,7 +96,12 @@ export function workspaceRoutes(s: Services) {
     if (current === 'owner') throw conflict('owner_must_transfer', self ? 'Transfer ownership before leaving (or delete the workspace)' : 'The owner cannot be removed')
     s.repo.removeMember(workspace.id, userId)
     s.collab.closeUser(userId, workspace.id, 'membership-revoked')
-    s.log.info(self ? 'member left' : 'member removed', { workspace: workspace.id, user: userId, by: auth.user.id })
+    // their private pages go with the membership (docs/CLOUD.md § Private pages); stores of documents
+    // still closing are refused for non-members, so nothing comes back
+    const documents = s.repo.deletePrivateDocuments(workspace.id, userId)
+    const files = s.repo.deletePrivateFiles(workspace.id, userId)
+    await Promise.all(files.map((id) => rm(join(s.config.dataDir, 'files', workspace.id, id), { force: true })))
+    s.log.info(self ? 'member left' : 'member removed', { workspace: workspace.id, user: userId, by: auth.user.id, privateDocuments: documents, privateFiles: files.length })
     return c.body(null, 204)
   })
 

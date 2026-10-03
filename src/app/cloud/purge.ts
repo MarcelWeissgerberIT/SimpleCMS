@@ -3,8 +3,13 @@
  * leave their content document on the server. This client — the one that deleted them — asks the
  * server to drop those documents (DELETE …/documents/:pageId, docs/CLOUD.md). The server only does it
  * once its meta document no longer lists the page, so a request waits until this device's change of
- * the meta document is confirmed. The queue lives in this device's storage (purge:<ws>), so a reload
+ * the meta documents is confirmed. The queue lives in this device's storage (purge:<ws>), so a reload
  * or an offline spell doesn't lose it.
+ *
+ * Private pages (docs/CLOUD.md § Private pages): an entry with `private` names this member's private
+ * content document (`?scope=private`). A page moved between Private and the workspace leaves its old
+ * document behind the same way (it stays in the store, in the other scope — so only a page that is
+ * back in the SAME scope keeps its document).
  */
 import type { HocuspocusProvider } from '@hocuspocus/provider'
 import { useWorkspace } from '../store/store'
@@ -19,7 +24,7 @@ import { CloudError } from './state'
 const MAX_TRIES = 4
 
 let wsId: string | null = null
-let provider: HocuspocusProvider | null = null
+let providers: HocuspocusProvider[] = []
 let canWrite: () => boolean = () => false
 let queue: QueuedPurge[] = []
 let running = false
@@ -37,8 +42,8 @@ function schedule(delay: number) {
   timer = window.setTimeout(() => void run(), delay)
 }
 
-/** The server has this device's meta changes (the deletion included). */
-const metaConfirmed = () => !!provider && provider.isSynced && !provider.hasUnsyncedChanges
+/** The server has this device's meta changes (the deletion included) — of both meta documents. */
+const metaConfirmed = () => providers.length > 0 && providers.every((p) => p.isSynced && !p.hasUnsyncedChanges)
 
 async function run(): Promise<void> {
   if (running || !wsId) return
@@ -48,14 +53,15 @@ async function run(): Promise<void> {
     while (queue.length && wsId && canWrite()) {
       if (!isConnected() || !metaConfirmed()) return // the provider's events / the reconnect call again
       const item = queue[0]
-      // back in the meanwhile (an undo): its document stays
-      if (useWorkspace.getState().pages[item.pageId]) {
+      // back in the meanwhile (an undo, moved back): its document stays
+      const page = useWorkspace.getState().pages[item.pageId]
+      if (page && !!page.private === !!item.private) {
         queue.shift()
         persist()
         continue
       }
       try {
-        await delPageDocument(wsId, item.pageId)
+        await delPageDocument(wsId, item.pageId, !!item.private)
         queue.shift()
       } catch (e) {
         const err = e instanceof CloudError ? e : null
@@ -78,34 +84,41 @@ async function run(): Promise<void> {
   }
 }
 
+const key = (q: { pageId: ID; private?: boolean }) => `${q.private ? 'u' : 'w'}:${q.pageId}`
+
 /** Start for the open cloud workspace: waiting deletions from earlier sessions go out once connected. */
-export function startPurge(activeWs: string, metaProvider: HocuspocusProvider, writable: () => boolean): void {
+export function startPurge(activeWs: string, metaProviders: HocuspocusProvider[], writable: () => boolean): void {
   wsId = activeWs
-  provider = metaProvider
+  providers = metaProviders
   canWrite = writable
   loaded = loadPurges(activeWs).then((list) => {
-    const known = new Set(queue.map((q) => q.pageId))
-    queue = [...list.filter((q) => !known.has(q.pageId)), ...queue]
+    const known = new Set(queue.map(key))
+    queue = [...list.filter((q) => !known.has(key(q))), ...queue]
   })
-  metaProvider.on('unsyncedChanges', () => {
-    if (queue.length && metaConfirmed()) schedule(100)
-  })
-  metaProvider.on('synced', () => {
-    if (queue.length) schedule(300)
-  })
+  for (const p of metaProviders) {
+    p.on('unsyncedChanges', () => {
+      if (queue.length && metaConfirmed()) schedule(100)
+    })
+    p.on('synced', () => {
+      if (queue.length) schedule(300)
+    })
+  }
   onConnection((up) => {
     if (up && queue.length) schedule(500)
   })
   void loaded.then(() => queue.length && schedule(1000))
 }
 
-/** Pages this device deleted for good: drop their server documents. */
-export function queuePurge(ids: ID[]): void {
+/**
+ * Pages this device deleted for good (or moved out of a scope): drop their server documents —
+ * `private`: this member's private content document of the page, else the workspace's.
+ */
+export function queuePurge(items: Array<{ pageId: ID; private?: boolean }>): void {
   if (!wsId || !canWrite()) return
   let added = false
-  for (const pageId of ids) {
-    if (!PAGE_ID.test(pageId) || queue.some((q) => q.pageId === pageId)) continue
-    queue.push({ pageId, tries: 0 })
+  for (const it of items) {
+    if (!PAGE_ID.test(it.pageId) || queue.some((q) => key(q) === key(it))) continue
+    queue.push({ pageId: it.pageId, tries: 0, ...(it.private ? { private: true } : {}) })
     added = true
   }
   if (!added) return
