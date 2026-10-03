@@ -33,6 +33,10 @@ export function onUnauthenticated(fn: () => void): () => void {
   unauthListeners.add(fn)
   return () => unauthListeners.delete(fn)
 }
+/** The session is gone (a 401, or GET api/session answered `user: null`). */
+export function notifyUnauthenticated(): void {
+  unauthListeners.forEach((l) => l())
+}
 
 const httpCode = (status: number) =>
   status === 401 ? 'unauthenticated' : status === 403 ? 'forbidden' : status === 404 ? 'not_found' : status === 413 ? 'payload_too_large' : status === 429 ? 'rate_limited' : status >= 500 ? 'internal' : 'invalid_request'
@@ -52,7 +56,7 @@ async function readError(res: Response): Promise<CloudError> {
     const retry = Number(res.headers.get('retry-after'))
     if (Number.isFinite(retry) && retry > 0) err.retryAfter = retry
   }
-  if (res.status === 401) unauthListeners.forEach((l) => l())
+  if (res.status === 401) notifyUnauthenticated()
   return err
 }
 
@@ -130,6 +134,17 @@ const toMs = (v: unknown): number => (typeof v === 'number' ? v : typeof v === '
 export async function getMe(): Promise<{ user: CloudUser; workspaces: CloudWorkspace[] }> {
   const r = await request<{ user: RawUser; workspaces: RawWorkspace[] }>('GET', 'api/me')
   return { user: toUser(r.user), workspaces: (r.workspaces ?? []).map(toWorkspace) }
+}
+
+/** GET api/session: like /api/me, but signed out is `user: null` (200), not a 401 in the console. */
+export async function getSession(): Promise<{ user: CloudUser; workspaces: CloudWorkspace[] } | null> {
+  const r = await request<{ user: RawUser | null; workspaces?: RawWorkspace[] }>('GET', 'api/session')
+  return r?.user ? { user: toUser(r.user), workspaces: (r.workspaces ?? []).map(toWorkspace) } : null
+}
+
+/** Drop the stored content document of a page deleted for good (409 page_exists while it is still in the meta document). */
+export function delPageDocument(wsId: string, pageId: string): Promise<void> {
+  return request<void>('DELETE', `api/workspaces/${encodeURIComponent(wsId)}/documents/${encodeURIComponent(pageId)}`)
 }
 
 export async function patchMe(name: string): Promise<CloudUser> {

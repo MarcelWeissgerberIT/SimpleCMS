@@ -47,7 +47,7 @@ export function authRoutes(s: Services) {
   app.post('/request', async (c) => {
     const input = await body(c, requestSchema)
     const email = normalizeEmail(input.email)
-    const ipWait = s.limiter.hit(`auth:ip:${clientIp(c, s.config)}`, 20, 15 * MINUTE)
+    const ipWait = s.limiter.hit(`auth:ip:${clientIp(c, s.config)}`, s.config.authIpLimit, 15 * MINUTE)
     if (ipWait) throw rateLimited(ipWait)
     const emailWait = s.limiter.hit(`auth:email:${email}`, 5, 15 * MINUTE)
     if (emailWait) throw rateLimited(emailWait)

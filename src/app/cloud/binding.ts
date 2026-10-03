@@ -319,3 +319,46 @@ export function structuralRepairs(pages: Record<ID, Page>, databases: Record<ID,
   }
   return [...out].map(([id, patch]) => ({ id, patch }))
 }
+
+/**
+ * unique_id numbers two devices handed out at the same moment (both saw the same nextUniqueId), or
+ * from a counter that a concurrent write set back: the row created first keeps its number, later rows
+ * get the next free numbers, and nextUniqueId moves past the highest number in use. Deterministic
+ * (value, then createdAt, then id), so every device that runs it on the same data writes the same.
+ */
+export function uniqueIdRepairs(pages: Record<ID, Page>, databases: Record<ID, Database>): { rows: Array<{ id: ID; propId: ID; value: number }>; counters: Array<{ id: ID; next: number }> } {
+  const rows: Array<{ id: ID; propId: ID; value: number }> = []
+  const counters: Array<{ id: ID; next: number }> = []
+  const props = new Map<ID, ID[]>()
+  for (const db of Object.values(databases)) {
+    const ids = db.properties.filter((p) => p.type === 'unique_id').map((p) => p.id)
+    if (ids.length) props.set(db.id, ids)
+  }
+  if (!props.size) return { rows, counters }
+  const byDb = new Map<ID, Page[]>()
+  for (const p of Object.values(pages)) {
+    if (!p.databaseId || !props.has(p.databaseId)) continue
+    const list = byDb.get(p.databaseId)
+    if (list) list.push(p)
+    else byDb.set(p.databaseId, [p])
+  }
+  const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null)
+  for (const [dbId, propIds] of props) {
+    const list = byDb.get(dbId) ?? []
+    let top = 0
+    for (const r of list) for (const pid of propIds) top = Math.max(top, num(r.properties[pid]) ?? 0)
+    for (const pid of propIds) {
+      const numbered = list.filter((r) => num(r.properties[pid]) !== null)
+      numbered.sort((a, b) => (a.properties[pid] as number) - (b.properties[pid] as number) || a.createdAt - b.createdAt || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+      let last: number | null = null
+      for (const r of numbered) {
+        const v = r.properties[pid] as number
+        if (v === last) rows.push({ id: r.id, propId: pid, value: ++top })
+        else last = v
+      }
+    }
+    const next = databases[dbId].nextUniqueId
+    if (!(typeof next === 'number' && next > top)) counters.push({ id: dbId, next: top + 1 })
+  }
+  return { rows, counters }
+}

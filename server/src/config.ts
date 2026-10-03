@@ -24,12 +24,17 @@ export interface Config {
   maxUploadBytes: number
   appDir: string
   trustProxy: boolean
+  /** Sign-in link requests per client IP per 15 minutes (20; only DEV_MODE may change it, via AUTH_IP_LIMIT). */
+  authIpLimit: number
   /** AGPL §13: where users of this server can get its source (set it when you run a modified version). */
   sourceUrl: string
   version: string
 }
 
 export class ConfigError extends Error {}
+
+/** Default sign-in link requests per client IP per 15 minutes (docs/CLOUD.md § Security notes). */
+export const AUTH_IP_LIMIT = 20
 
 /** server/ — the bundle lives in server/dist, sources in server/src. */
 const serverRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
@@ -46,6 +51,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   let publicUrl = `http://localhost:${port}`
   if (env.PUBLIC_URL) publicUrl = parsePublicUrl(env.PUBLIC_URL)
   else if (production) throw new ConfigError('PUBLIC_URL is required in production (e.g. https://cloud.example.com)')
+
+  // test suites sign many accounts in from one address; a deployment keeps the documented limit
+  if (env.AUTH_IP_LIMIT && !devMode) throw new ConfigError('AUTH_IP_LIMIT is only honoured with DEV_MODE=1 (test servers); deployments keep 20 sign-in requests per IP per 15 minutes')
+  const authIpLimit = devMode ? int(env.AUTH_IP_LIMIT, AUTH_IP_LIMIT, 1, 100_000, 'AUTH_IP_LIMIT') : AUTH_IP_LIMIT
 
   const smtpUrl = env.SMTP_URL?.trim() || null
   const host = new URL(publicUrl).hostname
@@ -66,6 +75,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     maxUploadBytes: Math.round(num(env.MAX_UPLOAD_MB, 25, 'MAX_UPLOAD_MB') * 1024 * 1024),
     appDir: resolve(env.APP_DIR || join(serverRoot, '..', 'dist')),
     trustProxy: flag(env.TRUST_PROXY),
+    authIpLimit,
     sourceUrl: env.SOURCE_URL?.trim() || 'https://github.com/MarcelWeissgerberIT/SimpleCMS',
     version: VERSION,
   }

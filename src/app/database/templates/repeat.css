@@ -4,7 +4,7 @@
 .rpt-next {
   display: inline-flex;
   flex-wrap: wrap;
-  align-items: center;
+  align-items: flex-start;
   gap: 2px 7px;
   min-width: 0;
   color: var(--ink-2);
@@ -14,6 +14,14 @@
   letter-spacing: var(--tracking-label);
   line-height: 1.4;
   text-transform: uppercase;
+}
+
+.rpt-next .led {
+  margin-top: 4px; /* centred on the first line, however the text wraps */
+}
+
+.rpt-next__text {
+  min-width: 0;
 }
 
 .rpt-next[data-state='ended'] {
@@ -38,7 +46,7 @@
 
 .db-tplmenu__text .rpt-next {
   flex-wrap: nowrap;
-  white-space: nowrap;
+  max-width: 100%;
 }
 
 /* touch: the row tools (edit · duplicate · delete) can't wait for a hover */
@@ -46,6 +54,11 @@
   .db-tplmenu__row .icon-btn {
     opacity: 1;
   }
+}
+
+/* menus opened from the template editor (repeat selects, property pickers, icon picker) sit above it */
+.modal-scrim:has(.db-tpl) ~ [data-popover] {
+  z-index: calc(var(--z-modal) + 10);
 }
 
 /* ---------- editor section ---------- */

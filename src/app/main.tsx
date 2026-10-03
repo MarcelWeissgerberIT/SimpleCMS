@@ -13,7 +13,7 @@ import { flushSave, loadWorkspace, startPersistence } from './store/persistence'
 import { seedWorkspace } from './store/seed'
 import { applyTheme } from './lib/theme'
 import { ALL_MESSAGES } from './i18n'
-import { startHistory, startAutomations, seedDemoHistory } from './features'
+import { startHistory, startAutomations, startRecurringTemplates, seedDemoHistory } from './features'
 import { detectLang, makeTranslator } from '@/shared/i18n'
 import { STORAGE_KEYS, safeLocalGet } from '@/shared/brand'
 import { registerServiceWorker } from '@/shared/sw'
@@ -69,6 +69,7 @@ async function boot() {
   if (mode !== 'signed-out') {
     startService('history', startHistory)
     startService('automations', startAutomations)
+    startService('recurring templates', startRecurringTemplates)
   }
 
   // PWA share target (/app/?title=…&text=…&url=…) → the #/clip route, before the first render

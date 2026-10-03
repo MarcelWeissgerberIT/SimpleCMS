@@ -268,16 +268,40 @@ export class Repo {
     return this.db.get<{ data: Uint8Array }>('SELECT data FROM documents WHERE name = ?', name)?.data
   }
 
-  /** Upsert; silently skipped when the workspace is gone (a late debounced store after deletion). */
+  /**
+   * Upsert; silently skipped when the workspace is gone (a late debounced store after deletion) or the
+   * document was deleted for good (a client that still had it open, or an offline copy syncing late).
+   */
   saveDocument(name: string, workspaceId: string, data: Uint8Array): boolean {
     return (
       this.db.run(
         `INSERT INTO documents (name, workspace_id, data, updated_at)
          SELECT ?, ?, ?, ? WHERE EXISTS (SELECT 1 FROM workspaces WHERE id = ?)
+                            AND NOT EXISTS (SELECT 1 FROM document_tombstones WHERE name = ?)
          ON CONFLICT(name) DO UPDATE SET data = excluded.data, updated_at = excluded.updated_at`,
-        name, workspaceId, data, Date.now(), workspaceId,
+        name, workspaceId, data, Date.now(), workspaceId, name,
       ) > 0
     )
+  }
+
+  /** Delete a document for good and remember that it is gone. True when stored data was removed. */
+  deleteDocument(name: string, workspaceId: string, userId: string): boolean {
+    return this.db.tx(() => {
+      this.db.run(
+        'INSERT INTO document_tombstones (name, workspace_id, deleted_at, deleted_by) VALUES (?, ?, ?, ?) ON CONFLICT(name) DO NOTHING',
+        name, workspaceId, Date.now(), userId,
+      )
+      return this.db.run('DELETE FROM documents WHERE name = ? AND workspace_id = ?', name, workspaceId) > 0
+    })
+  }
+
+  isDocumentDeleted(name: string): boolean {
+    return !!this.db.get('SELECT 1 AS x FROM document_tombstones WHERE name = ?', name)
+  }
+
+  /** The page came back (undo, restored backup): its document may be stored again. */
+  reviveDocument(name: string): void {
+    this.db.run('DELETE FROM document_tombstones WHERE name = ?', name)
   }
 
   // ── files ────────────────────────────────────────────────────────────

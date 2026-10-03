@@ -5,7 +5,7 @@
  * All colours come from CSS classes (see figures.css) so they follow the theme.
  */
 import type { Lang } from '@/shared/i18n'
-import { esc, rng } from './util'
+import { esc } from './util'
 
 const W = 1600
 const H = 1000
@@ -249,59 +249,6 @@ export function aiSchematic(lang: Lang, label: string): string {
   s += `<rect class="sk-sig sk-caret" x="1232" y="566" width="3" height="20"/>`
   s += `<rect class="sk-key" x="1302" y="606" width="96" height="30" rx="3"/>` + txt(1318, 627, 'Esc', 'sk-mono')
   s += `<rect class="sk-btn" x="1408" y="606" width="96" height="30" rx="3"/>` + txt(1426, 627, '↵', 'sk-mono sk-on-sig')
-  return svg(s, label)
-}
-
-export function graphSchematic(lang: Lang, label: string): string {
-  const r = rng(7)
-  const N = 46
-  const nodes: Array<{ x: number; y: number; r: number }> = []
-  // hubs
-  const hubs = [
-    { x: 820, y: 500 },
-    { x: 520, y: 330 },
-    { x: 1150, y: 360 },
-    { x: 640, y: 720 },
-    { x: 1120, y: 700 },
-  ]
-  hubs.forEach((h, i) => nodes.push({ ...h, r: i === 0 ? 22 : 14 }))
-  for (let i = nodes.length; i < N; i++) {
-    const hub = hubs[Math.floor(r() * hubs.length)]
-    const a = r() * Math.PI * 2
-    const d = 70 + r() * 170
-    nodes.push({ x: hub.x + Math.cos(a) * d * 1.3, y: hub.y + Math.sin(a) * d, r: 5 + r() * 5 })
-  }
-  let s = `<rect class="sk-bg" width="${W}" height="${H}"/>`
-  // grid
-  for (let gx = 0; gx <= W; gx += 80) s += `<line class="sk-grid" x1="${gx}" y1="0" x2="${gx}" y2="${H}"/>`
-  for (let gy = 0; gy <= H; gy += 80) s += `<line class="sk-grid" x1="0" y1="${gy}" x2="${W}" y2="${gy}"/>`
-  const edges: string[] = []
-  for (let i = 1; i < hubs.length; i++) edges.push(`<line class="sk-edge sk-edge-hub" x1="${hubs[0].x}" y1="${hubs[0].y}" x2="${hubs[i].x}" y2="${hubs[i].y}"/>`)
-  for (let i = hubs.length; i < N; i++) {
-    let best = 0
-    let bd = Infinity
-    hubs.forEach((h, j) => {
-      const d = Math.hypot(h.x - nodes[i].x, h.y - nodes[i].y)
-      if (d < bd) {
-        bd = d
-        best = j
-      }
-    })
-    edges.push(`<line class="sk-edge" x1="${nodes[i].x.toFixed(1)}" y1="${nodes[i].y.toFixed(1)}" x2="${hubs[best].x}" y2="${hubs[best].y}"/>`)
-    if (r() < 0.25) {
-      const j = hubs.length + Math.floor(r() * (N - hubs.length))
-      edges.push(`<line class="sk-edge" x1="${nodes[i].x.toFixed(1)}" y1="${nodes[i].y.toFixed(1)}" x2="${nodes[j].x.toFixed(1)}" y2="${nodes[j].y.toFixed(1)}"/>`)
-    }
-  }
-  s += edges.join('')
-  nodes.forEach((n, i) => {
-    const cls = i === 0 ? 'sk-sig' : i < hubs.length ? 'sk-ink' : 'sk-node'
-    s += `<circle class="${cls}" cx="${n.x.toFixed(1)}" cy="${n.y.toFixed(1)}" r="${n.r.toFixed(1)}"/>`
-  })
-  s += `<circle class="sk-ring" cx="${hubs[0].x}" cy="${hubs[0].y}" r="40"/>`
-  const labels = lang === 'de' ? ['Roadmap', 'Besprechungen', 'CRM', 'Journal', 'Leseliste'] : ['Roadmap', 'Meeting notes', 'CRM', 'Journal', 'Reading list']
-  hubs.forEach((h, i) => (s += txt(h.x + (i === 0 ? 50 : 24), h.y + 6, labels[i], i === 0 ? 'sk-txt sk-strong sk-big' : 'sk-txt')))
-  s += txt(40, 60, lang === 'de' ? 'GRAPH · 46 SEITEN · 61 LINKS' : 'GRAPH · 46 PAGES · 61 LINKS', 'sk-mono sk-dim')
   return svg(s, label)
 }
 

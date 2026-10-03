@@ -5,6 +5,7 @@
  *   content:<ws>:<page>   the last known content JSON of a page (search/export/graph at boot
  *                         without opening every page document) + the page's updatedAt it matches
  *   uploads:<ws>          files waiting for upload
+ *   purge:<ws>            pages deleted for good whose server document still has to go
  * All in one IndexedDB database ('one-cloud'), separate from the local workspace.
  */
 import { createStore, del, get, promisifyRequest, set, type UseStore } from 'idb-keyval'
@@ -99,4 +100,25 @@ export async function loadUploads(wsId: string): Promise<QueuedUpload[]> {
 export async function saveUploads(wsId: string, list: QueuedUpload[]): Promise<void> {
   const s = db()
   if (s) await set(`uploads:${wsId}`, list, s)
+}
+
+export interface QueuedPurge {
+  pageId: ID
+  tries: number
+}
+
+export async function loadPurges(wsId: string): Promise<QueuedPurge[]> {
+  const s = db()
+  if (!s) return []
+  try {
+    const v = await get<QueuedPurge[]>(`purge:${wsId}`, s)
+    return Array.isArray(v) ? v.filter((x) => x && typeof x.pageId === 'string') : []
+  } catch {
+    return []
+  }
+}
+
+export async function savePurges(wsId: string, list: QueuedPurge[]): Promise<void> {
+  const s = db()
+  if (s) await (list.length ? set(`purge:${wsId}`, list, s) : del(`purge:${wsId}`, s))
 }

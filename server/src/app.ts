@@ -6,9 +6,10 @@ import { ApiError, notFound } from './errors.ts'
 import { csrfGuard, securityHeaders } from './http/security.ts'
 import { mountStatic } from './http/static.ts'
 import { authRoutes } from './routes/auth.ts'
+import { documentRoutes } from './routes/documents.ts'
 import { fileRoutes } from './routes/files.ts'
 import { inviteRoutes } from './routes/invites.ts'
-import { meRoutes } from './routes/me.ts'
+import { meRoutes, sessionRoutes } from './routes/me.ts'
 import { workspaceRoutes } from './routes/workspaces.ts'
 
 const JSON_LIMIT = 256 * 1024
@@ -47,8 +48,10 @@ export function buildApp(s: Services): Hono<AppEnv> {
 
   app.route('/api/auth', authRoutes(s))
   app.route('/api/me', meRoutes(s))
+  app.route('/api/session', sessionRoutes(s))
   app.route('/api/workspaces', workspaceRoutes(s))
   app.route('/api/workspaces', fileRoutes(s))
+  app.route('/api/workspaces', documentRoutes(s))
   app.route('/api/invites', inviteRoutes(s))
 
   if (s.config.devMode) {

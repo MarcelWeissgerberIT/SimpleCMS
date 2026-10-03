@@ -308,10 +308,6 @@ html.lb-open {
   stroke-width: 1.5;
   fill: none;
 }
-.sk-grid {
-  stroke: var(--rule);
-  stroke-width: 1;
-}
 .sk-bar {
   fill: var(--ink-faint);
   opacity: 0.55;
@@ -396,9 +392,6 @@ html.lb-open {
 .sk-dim {
   fill: var(--ink-3);
 }
-.sk-big {
-  font-size: 22px;
-}
 .sk-mono {
   font-family: var(--font-mono) !important;
   font-size: 14px;
@@ -435,23 +428,6 @@ html.lb-open {
 }
 .sk-switch {
   fill: var(--signal);
-}
-.sk-node {
-  fill: var(--ink-3);
-}
-.sk-edge {
-  stroke: var(--rule-strong);
-  stroke-width: 1.4;
-}
-.sk-edge-hub {
-  stroke: var(--ink-3);
-  stroke-width: 2.2;
-}
-.sk-ring {
-  fill: none;
-  stroke: var(--signal);
-  stroke-width: 1.6;
-  stroke-dasharray: 5 7;
 }
 .sk-caret {
   animation: caret 1.05s steps(1) infinite;
@@ -645,12 +621,13 @@ html.lb-open {
 .import-steps .import-src {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: 5px;
   padding: 14px 0 0;
   border-top: 0;
 }
 .import-src .lbl {
-  padding: 3px 6px;
+  padding: 3px 5px;
+  letter-spacing: 0.04em;
   border: 1px solid var(--rule-strong);
   border-radius: var(--radius-1);
   color: var(--ink-2);

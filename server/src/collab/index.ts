@@ -80,9 +80,32 @@ export function createCollab(deps: { config: Config; log: Logger; repo: Repo; se
     async onStoreDocument({ documentName, document }) {
       const doc = parseDocName(documentName)
       if (!doc) return
+      if (doc.kind === 'page' && repo.isDocumentDeleted(documentName)) {
+        // deleted for good: a device that still had it open (or syncs an old copy) must not bring it
+        // back — unless the page itself is back (an undo, a restored backup with the same page id)
+        if (!(await pageInMeta(doc.workspaceId, doc.pageId))) return
+        repo.reviveDocument(documentName)
+        log.info('page document revived', { workspace: doc.workspaceId, page: doc.pageId })
+      }
       repo.saveDocument(documentName, doc.workspaceId, Y.encodeStateAsUpdate(document))
     },
   })
+
+  /** Does the workspace's meta document list this page? The live copy has the latest changes (stores are debounced). */
+  async function pageInMeta(workspaceId: string, pageId: string): Promise<boolean> {
+    const name = `ws:${workspaceId}`
+    const live = hocuspocus.hocuspocus.documents.get(name) ?? (await hocuspocus.hocuspocus.loadingDocuments.get(name)?.catch(() => undefined))
+    if (live) return live.getMap('pages').has(pageId)
+    const stored = repo.loadDocument(name)
+    if (!stored) return false
+    const doc = new Y.Doc()
+    try {
+      Y.applyUpdate(doc, stored)
+      return doc.getMap('pages').has(pageId)
+    } finally {
+      doc.destroy()
+    }
+  }
 
   const close = (match: (e: Entry) => boolean, reason: CloseReason) => {
     let n = 0
@@ -119,6 +142,7 @@ export function createCollab(deps: { config: Config; log: Logger; repo: Repo; se
     closeUser: (userId, workspaceId, reason) => close((e) => e.userId === userId && e.workspaceId === workspaceId, reason),
     closeWorkspace: (workspaceId, reason) => close((e) => e.workspaceId === workspaceId, reason),
     closeSession: (sessionId, reason) => close((e) => e.sessionId === sessionId, reason),
+    pageInMeta,
     async destroy() {
       clearInterval(sweep)
       await hocuspocus.destroy() // closes connections and flushes pending document stores

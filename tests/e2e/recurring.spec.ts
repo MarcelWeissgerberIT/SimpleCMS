@@ -248,6 +248,11 @@ test.describe('recurring templates', () => {
     const dialog = await editTemplate(page)
     const sw = dialog.getByRole('switch', { name: 'Repeat this template' })
     await expect(sw).toHaveAttribute('aria-checked', 'true')
+    // the frequency menu opens above the editor and changes the preview
+    await dialog.getByRole('button', { name: 'Repeats' }).click()
+    await page.getByRole('menuitem', { name: 'Daily' }).click()
+    await expect(dialog.locator('.rpt__foot .rpt-next__then')).toHaveText('Then · Tue 6 Oct · Wed 7 Oct')
+    await expect(dialog.getByRole('button', { name: 'Monday' })).toHaveCount(0)
     await sw.click()
     await expect(dialog.locator('.rpt__grid')).toHaveCount(0)
     await dialog.getByRole('button', { name: 'Save' }).click()

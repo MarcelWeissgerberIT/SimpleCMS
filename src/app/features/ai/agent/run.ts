@@ -60,7 +60,7 @@ export function taskMessage(history: BetaMessageParam[], task: string, context: 
   const open: string[] = []
   if (last?.role === 'assistant' && Array.isArray(last.content)) for (const b of last.content) if (b.type === 'tool_use') open.push(b.id)
   if (!open.length) return { role: 'user', content: text }
-  const results: BetaToolResultBlockParam[] = open.map((id) => ({ type: 'tool_result', tool_use_id: id, is_error: true, content: 'Not run: the user stopped the previous task.' }))
+  const results: BetaToolResultBlockParam[] = open.map((id) => ({ type: 'tool_result', tool_use_id: id, is_error: true, content: 'Not run: the previous task ended before this call ran.' }))
   return { role: 'user', content: [...results, { type: 'text', text }] }
 }
 

@@ -12,6 +12,8 @@ export interface CollabControl {
   closeUser(userId: string, workspaceId: string, reason: CloseReason): number
   closeWorkspace(workspaceId: string, reason: CloseReason): number
   closeSession(sessionId: string, reason: CloseReason): number
+  /** Does the workspace's meta document (live copy, else the stored one) still list this page? */
+  pageInMeta(workspaceId: string, pageId: string): Promise<boolean>
 }
 
 /** Sent to the client as the reason of a per-document close message (provider `close` event). */

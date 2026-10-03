@@ -3,14 +3,14 @@
  *
  *  - The GitHub Pages build (base ≠ '/') never asks: local only, no request at all.
  *  - Local workspace chosen: boot at once; the server / session are looked up in the background
- *    (for the workspace switcher). /api/me is only asked when this browser has signed in before
- *    (or just came back from a magic link), so anonymous visitors see no 401 in the console.
- *  - Cloud workspace chosen: GET api/config + /api/me, then the store is hydrated from the
+ *    (for the workspace switcher). api/session is only asked when this browser has signed in before
+ *    (or just came back from a magic link) — anonymous visitors cause no session lookups at all.
+ *  - Cloud workspace chosen: GET api/config + api/session, then the store is hydrated from the
  *    workspace's local copy (IndexedDB) and syncs in the background. Without a connection the
  *    local copy opens offline (when this browser has been signed in before).
  */
 import { useWorkspace, emptyWorkspace } from '../store/store'
-import { fetchConfig, getMe, setServerKnown, setServerProbe, type ServerConfig } from './api'
+import { fetchConfig, getSession, notifyUnauthenticated, setServerKnown, setServerProbe, type ServerConfig } from './api'
 import { readChoice, readSession, SERVER_CAPABLE, writeChoice, writeSession } from './env'
 import { useCloud, useCloudSync, type CloudUser, type CloudWorkspace, type WorkspaceRef } from './state'
 import { emptySettings, openCloudWorkspace } from './workspace'
@@ -120,19 +120,20 @@ export async function bootCloud(): Promise<'local' | 'cloud' | 'signed-out'> {
   }
   applyConfig(cfg)
 
-  let me: { user: CloudUser; workspaces: CloudWorkspace[] }
+  // GET api/session (not /api/me): signed out is a 200 with `user: null`, no 401 in the console
+  let me: { user: CloudUser; workspaces: CloudWorkspace[] } | null
   try {
-    me = await getMe()
-  } catch (e) {
-    if ((e as { status?: number }).status === 401) {
-      writeSession(null)
-      useCloud.setState({ status: 'signed-out', user: null, workspaces: [], role: null, readOnly: true, error: null })
-      await hydrateSignedOut()
-      return 'signed-out'
-    }
+    me = await getSession()
+  } catch {
     if (await openOffline(choice)) return 'cloud'
     fallBackToLocal('network', false)
     return 'local'
+  }
+  if (!me) {
+    writeSession(null)
+    useCloud.setState({ status: 'signed-out', user: null, workspaces: [], role: null, readOnly: true, error: null })
+    await hydrateSignedOut()
+    return 'signed-out'
   }
   writeSession({ ...me, at: Date.now() })
   useCloud.setState({ user: me.user, workspaces: me.workspaces })
@@ -166,20 +167,24 @@ async function detect(signedInMarker: boolean): Promise<void> {
   await refreshMe()
 }
 
-/** GET /api/me → useCloud user / workspaces (null when signed out). */
+/** GET api/session → useCloud user / workspaces (null when signed out). */
 export async function refreshMe(): Promise<{ user: CloudUser; workspaces: CloudWorkspace[] } | null> {
+  let me: { user: CloudUser; workspaces: CloudWorkspace[] } | null
   try {
-    const me = await getMe()
-    writeSession({ ...me, at: Date.now() })
-    useCloud.setState({ user: me.user, workspaces: me.workspaces })
-    return me
-  } catch (e) {
-    if ((e as { status?: number }).status === 401) {
-      writeSession(null)
-      useCloud.setState({ user: null, workspaces: [] })
-    }
+    me = await getSession()
+  } catch {
     return null
   }
+  if (!me) {
+    writeSession(null)
+    useCloud.setState({ user: null, workspaces: [] })
+    // an open cloud workspace stops syncing (as on a 401)
+    notifyUnauthenticated()
+    return null
+  }
+  writeSession({ ...me, at: Date.now() })
+  useCloud.setState({ user: me.user, workspaces: me.workspaces })
+  return me
 }
 
 /** Remember the choice for this browser and reload the app into that workspace. */

@@ -169,7 +169,6 @@ export function lightboxHtml(closeLabel: string): string {
   return `
 <dialog class="lightbox tone-carbon" data-lightbox>
   <figure class="lb-fig">
-    <img class="lb-img" alt="" width="1600" height="1000" />
     <figcaption class="lbl lb-cap"><span data-lb-cap></span><button type="button" class="lb-close" data-lb-close>${esc(closeLabel)} <span class="lb-esc" aria-hidden="true">Esc</span></button></figcaption>
   </figure>
 </dialog>`
@@ -182,27 +181,31 @@ export function bindLightbox(root: HTMLElement): () => void {
     root.querySelectorAll('[data-zoom]').forEach((b) => b.remove())
     return () => {}
   }
-  const big = dlg.querySelector<HTMLImageElement>('.lb-img')!
+  const fig = dlg.querySelector<HTMLElement>('.lb-fig')!
   const cap = dlg.querySelector<HTMLElement>('[data-lb-cap]')!
+  // created on first open: an <img> without a source would count as a broken image
+  let big: HTMLImageElement | null = null
   let opener: HTMLElement | null = null
 
-  const open = (fig: HTMLElement, from: HTMLElement) => {
-    const shot = fig.querySelector<HTMLImageElement>('img.frame-img.is-on') ?? fig.querySelector<HTMLImageElement>('img.frame-img')
+  const open = (frame: HTMLElement, from: HTMLElement) => {
+    const shot = frame.querySelector<HTMLImageElement>('img.frame-img.is-on') ?? frame.querySelector<HTMLImageElement>('img.frame-img')
     if (!shot || !shot.naturalWidth) return
+    if (!big) {
+      big = Object.assign(document.createElement('img'), { className: 'lb-img', width: 1600, height: 1000 })
+      fig.prepend(big)
+    }
     big.src = shot.currentSrc || shot.src
     big.alt = shot.alt
-    cap.textContent = fig.querySelector('.frame-cap span')?.textContent ?? shot.alt
+    cap.textContent = frame.querySelector('.frame-cap span')?.textContent ?? shot.alt
     opener = from
     document.documentElement.classList.add('lb-open')
     dlg.showModal()
   }
   const onClick = (e: MouseEvent) => {
     const target = e.target as HTMLElement
-    const zoom = target.closest<HTMLElement>('[data-zoom]')
-    const pic = !zoom && target.closest('.frame-media') && target.closest<HTMLElement>('.frame')?.querySelector('[data-zoom]') ? target.closest<HTMLElement>('.frame-media') : null
-    if (!zoom && !pic) return
-    const fig = (zoom ?? pic)!.closest<HTMLElement>('.frame')
-    if (fig) open(fig, zoom ?? fig.querySelector<HTMLElement>('[data-zoom]') ?? fig)
+    const frame = target.closest('[data-zoom], .frame-media')?.closest<HTMLElement>('.frame')
+    const key = frame?.querySelector<HTMLElement>('[data-zoom]')
+    if (frame && key) open(frame, key)
   }
   const close = () => dlg.open && dlg.close()
   const onClose = () => {
@@ -212,7 +215,7 @@ export function bindLightbox(root: HTMLElement): () => void {
   }
   // a click on the backdrop (the dialog box itself, outside the figure) closes it
   const onDlgClick = (e: MouseEvent) => {
-    if (e.target === dlg || (e.target as HTMLElement).closest('[data-lb-close]') || e.target === big) close()
+    if (e.target === dlg || e.target === big || (e.target as HTMLElement).closest('[data-lb-close]')) close()
   }
   root.addEventListener('click', onClick)
   dlg.addEventListener('click', onDlgClick)

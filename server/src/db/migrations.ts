@@ -106,4 +106,19 @@ export const migrations: Migration[] = [
       );
     `,
   },
+  {
+    version: 2,
+    name: 'document tombstones',
+    sql: `
+      -- content documents of pages deleted for good (DELETE /api/workspaces/:id/documents/:pageId):
+      -- never stored again, even when a device that still holds a copy syncs it later
+      CREATE TABLE document_tombstones (
+        name          TEXT PRIMARY KEY,
+        workspace_id  TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+        deleted_at    INTEGER NOT NULL,
+        deleted_by    TEXT REFERENCES users(id) ON DELETE SET NULL
+      );
+      CREATE INDEX document_tombstones_workspace ON document_tombstones(workspace_id);
+    `,
+  },
 ]

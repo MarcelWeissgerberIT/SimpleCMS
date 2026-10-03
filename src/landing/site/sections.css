@@ -478,8 +478,8 @@
   position: relative;
   display: flex;
   flex-direction: column;
-  min-height: 312px;
-  padding: 26px 24px 28px;
+  min-height: 296px;
+  padding: 24px 24px 26px;
   border-right: 1px solid var(--rule-strong);
   border-bottom: 1px solid var(--rule-strong);
   background: var(--surface);
@@ -566,7 +566,7 @@
 /* Four groups of four, each under a mono rule: [A] WRITE ——— F-01 — F-04 */
 .pgroups {
   display: grid;
-  gap: clamp(28px, 3.2vw, 48px);
+  gap: clamp(24px, 2.4vw, 36px);
 }
 .pgroup-h {
   display: flex;
@@ -679,6 +679,7 @@
 }
 .deep-h {
   margin: 14px 0 18px;
+  text-wrap: balance;
   /* capped where the column stops growing (--maxw 1440px): beyond it, a bigger size only
      pushes long German words ("Automatisierer.") out of the column */
   font-size: clamp(30px, 3.3vw, 47.5px);
@@ -1087,8 +1088,8 @@ td[data-col='One.'] .mk-yes {
 }
 .plate-name {
   grid-column: 1 / -1;
-  margin: 8px 0 0;
-  font-size: clamp(32px, 3.6vw, 56px);
+  margin: 6px 0 0;
+  font-size: clamp(30px, 3.2vw, 48px);
 }
 .plate-where {
   grid-column: 1 / -1;
@@ -1120,7 +1121,7 @@ td[data-col='One.'] .mk-yes {
   align-items: flex-end;
   justify-content: space-between;
   gap: 16px;
-  margin: 26px 0 0;
+  margin: 22px 0 0;
   padding-bottom: 8px;
   border-bottom: 2px solid var(--ink);
 }
@@ -1129,7 +1130,7 @@ td[data-col='One.'] .mk-yes {
   color: var(--ink);
 }
 .plate-time {
-  font-size: clamp(56px, 6.4vw, 104px);
+  font-size: clamp(52px, 5.4vw, 80px);
   line-height: 0.82;
   font-variant-numeric: tabular-nums;
 }

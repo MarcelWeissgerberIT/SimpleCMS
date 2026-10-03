@@ -149,13 +149,15 @@ function Head() {
   return (
     <header className="agent-head">
       <div className="agent-head__plate">
-        <span className="agent-head__code label">§ AI-02</span>
+        <div className="agent-head__line">
+          <span className="agent-head__code label">§ AI-02</span>
+          <span className="agent-head__status label" aria-live="polite">
+            <span className={led} aria-hidden /> {t(`features.agent.status.${status}`)}
+          </span>
+        </div>
         <h2 id="agent-title" className="agent-head__title">
           {t('features.agent.title')}
         </h2>
-        <span className="agent-head__status label" aria-live="polite">
-          <span className={led} aria-hidden /> {t(`features.agent.status.${status}`)}
-        </span>
       </div>
       <div className="agent-head__tools">
         <button type="button" className="ai-model" onClick={cycleModel} disabled={running} title={t('features.ai.switchModel')}>

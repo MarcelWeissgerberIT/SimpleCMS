@@ -62,19 +62,15 @@ function codeBlock(ctx: Ctx): string {
 
 /** What a website export of the "Team wiki" page writes (see features/io/export/site/build.ts). */
 const SITE_TREE: Array<[string, string?]> = [
-  ['index.html'],
-  ['index.md'],
+  ['index.html', '.md'],
   ['brand-voice/index.html', '.md'],
   ['onboarding/index.html', '.md'],
-  ['tooling-automations/index.html', '.md'],
   ['glossary/index.html', '.md'],
   ['sitemap.xml', 'search engines'],
   ['rss.xml', 'feed readers'],
   ['llms.txt', 'AI assistants'],
-  ['llms-full.txt'],
-  ['robots.txt'],
-  ['404.html'],
-  ['assets/site.css'],
+  ['llms-full.txt · robots.txt · 404.html'],
+  ['assets/  site.css · fonts'],
 ]
 
 function siteTree(ctx: Ctx): string {
@@ -84,7 +80,7 @@ function siteTree(ctx: Ctx): string {
     const glyph = i === SITE_TREE.length - 1 ? '└─' : '├─'
     const twin = note === '.md' ? `<span class="j-p"> + .md</span>` : ''
     const comment = note && note !== '.md' ? `<span class="j-p">  # ${esc(notes[note] ?? note)}</span>` : ''
-    const cls = /\.(xml|txt)$/.test(file) ? 'j-s' : 'j-k'
+    const cls = /^(sitemap|rss|llms)\.(xml|txt)$/.test(file) ? 'j-s' : 'j-k'
     return `<span class="j-p">${glyph}</span> <span class="${cls}">${esc(file)}</span>${twin}${comment}`
   }).join('\n')
   const count = 23
@@ -97,7 +93,7 @@ function siteTree(ctx: Ctx): string {
   <div class="code-body code-body-flat">
     <pre tabindex="0" aria-label="${de ? 'Dateien der exportierten Website' : 'Files of the exported website'}"><code><span class="j-k">handbook.acme.studio/</span>\n${rows}</code></pre>
   </div>
-  <div class="code-foot lbl"><span>→ GitHub Pages · Netlify · ${de ? 'jeder Webserver' : 'any web server'}</span><span>${de ? 'Server: 0' : 'Servers: 0'}</span></div>
+  <div class="code-foot lbl"><span>→ GitHub Pages · Netlify · ${de ? 'jeder Host' : 'any host'}</span><span>${de ? 'Server: 0' : 'Servers: 0'}</span></div>
 </figure>`
 }
 
@@ -181,6 +177,12 @@ function figureFor(ctx: Ctx, d: DeepDive): string {
   return fig
 }
 
+/** "\n" marks a line break; only the last line gets the orange full stop (like section titles). */
+function titleLines(title: string): string {
+  const parts = title.split('\n')
+  return parts.map((p, i) => (i === parts.length - 1 ? dotted(p) : esc(p))).join('<br />')
+}
+
 export function renderDeep(ctx: Ctx): string {
   const { t, c } = ctx
   const rows = c.deep
@@ -189,7 +191,7 @@ export function renderDeep(ctx: Ctx): string {
     <article class="deep-row ${i % 2 ? 'is-flip' : ''} ${d.key === 'automations' || d.key === 'website' ? 'is-tall' : ''}" aria-labelledby="deep-${d.key}">
       <div class="deep-text" data-reveal>
         <p class="lbl deep-idx">§ 03.${i + 1}</p>
-        <h3 id="deep-${d.key}" class="deep-h disp">${dotted(d.title)}</h3>
+        <h3 id="deep-${d.key}" class="deep-h disp">${titleLines(d.title)}</h3>
         <p class="deep-p">${esc(d.text)}</p>
         <ul class="deep-specs">${d.specs.map((s) => `<li>${esc(s)}</li>`).join('')}</ul>
         ${d.key === 'import' ? `<a class="btn btn-ink" href="${BRAND.appHref}?import">${esc(t('hero.import'))}<span class="arr" aria-hidden="true">→</span></a>` : ''}

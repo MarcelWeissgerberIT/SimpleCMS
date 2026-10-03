@@ -11,11 +11,12 @@ import { useWorkspace, defaultSettings, WORKSPACE_VERSION } from '../store/store
 import { migrate } from '../store/persistence'
 import type { ID, Person, Settings } from '../store/types'
 import { parseHash } from '../lib/router'
-import { getMe, getMembers, onUnauthenticated, patchMe, patchWorkspace } from './api'
-import { readAll, startBinding, structuralRepairs, type Binding } from './binding'
+import { getMembers, getSession, onUnauthenticated, patchMe, patchWorkspace } from './api'
+import { isApplyingCloud, readAll, startBinding, structuralRepairs, uniqueIdRepairs, type Binding } from './binding'
 import { bridgeContent, contentHasUnsynced, detachAll, reauthenticate, enqueueSync, forget, onRemotePages, reattachAll, revertContent, staleAtBoot, startContent, type ContentContext } from './content'
 import { displayName, toneCss, userTone, within, writeSession } from './env'
 import { kickUploads, startFiles } from './files'
+import { queuePurge, startPurge } from './purge'
 import { loadContentCache, loadOverlay, saveOverlay, type Overlay } from './local'
 import { LOCAL, roots } from './schema'
 import { closeSocket, getSocket, isConnected, onConnection, reconnectSocket } from './socket'
@@ -193,8 +194,16 @@ export async function openCloudWorkspace(ws: CloudWorkspace, user: CloudUser, on
         if (!writable() || !firstSynced) return
         const s = useWorkspace.getState()
         for (const { id, patch } of structuralRepairs(s.pages, s.databases)) useWorkspace.getState().updatePage(id, patch)
+        // unique_id numbers handed out twice at the same moment on two devices: later rows move on
+        const ids = uniqueIdRepairs(useWorkspace.getState().pages, useWorkspace.getState().databases)
+        for (const r of ids.rows) useWorkspace.getState().setRowProperty(r.id, r.propId, r.value)
+        for (const c of ids.counters) useWorkspace.getState().updateDatabase(c.id, { nextUniqueId: c.next })
       }, 1500)
     }
+    // a row numbered here (the database's counter moved) may have taken a number that is in use
+    useWorkspace.subscribe((s, prev) => {
+      if (s.databases !== prev.databases && !isApplyingCloud()) scheduleRepairs()
+    })
 
     let renameTimer: number | undefined
     let profileTimer: number | undefined
@@ -208,7 +217,11 @@ export async function openCloudWorkspace(ws: CloudWorkspace, user: CloudUser, on
         scheduleRepairs()
       },
       bridge: bridgeContent,
-      onLocalRemoved: (ids) => ids.forEach(forget),
+      onLocalRemoved: (ids) => {
+        ids.forEach(forget)
+        // deleted for good here: their content documents go on the server too
+        queuePurge(ids)
+      },
       revertContent,
       onSettings: (next, prev) => {
         // the workspace name is the team's (admins), the user name is the account's
@@ -231,6 +244,7 @@ export async function openCloudWorkspace(ws: CloudWorkspace, user: CloudUser, on
     })
 
     active = { ws, user, doc, provider, binding, writable }
+    startPurge(ws.id, provider, writable)
 
     /* ---------------- status & close reasons */
 
@@ -258,7 +272,11 @@ export async function openCloudWorkspace(ws: CloudWorkspace, user: CloudUser, on
       checkTimer = window.setTimeout(() => {
         if (isConnected() || stopped || navigator.onLine === false || Date.now() - lastCheck < 30_000) return
         lastCheck = Date.now()
-        getMe().catch(() => {}) // a 401 reaches onUnauthenticated
+        getSession()
+          .then((me) => {
+            if (!me) handleClose('session-ended')
+          })
+          .catch(() => {})
       }, 6000)
     })
     onUnauthenticated(() => {
@@ -351,7 +369,11 @@ async function refreshRole(): Promise<void> {
   const a = active
   if (!a) return
   try {
-    const me = await getMe()
+    const me = await getSession()
+    if (!me) {
+      handleClose('session-ended')
+      return
+    }
     writeSession({ ...me, at: Date.now() })
     const ws = me.workspaces.find((w) => w.id === a.ws.id)
     if (!ws) {
