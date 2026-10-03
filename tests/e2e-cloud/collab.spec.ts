@@ -20,6 +20,9 @@ function watch(p: Page, who: string) {
   p.on('console', (m) => {
     if (m.type() === 'error') errors.push(`${who} console.error: ${m.text()}`)
   })
+  p.on('response', (r) => {
+    if (r.status() >= 400) errors.push(`${who} ${r.request().method()} ${new URL(r.url()).pathname} → ${r.status()}`)
+  })
 }
 test.beforeEach(() => {
   errors.length = 0
@@ -186,6 +189,16 @@ test.describe('team cloud — live collaboration', () => {
     // the run status written by A's engine reaches B too
     await expect.poll(() => wsEval(b, (s, id) => s.databases[id].automations[0].lastStatus, ids.dbId)).toBe('ok')
 
+    // files: saved on A's device, uploaded in the background, fetched (and cached) on B's
+    const ref = await a.evaluate(() => (window as any).__one.files.saveFile(new Blob(['quarterly numbers'], { type: 'text/plain' }), 'q3.txt')) // eslint-disable-line @typescript-eslint/no-explicit-any
+    expect(ref).toMatch(/^onefile:/)
+    await expect.poll(() => a.evaluate(() => (window as any).__one.cloud.useCloudSync.getState().pendingUploads)).toBe(0) // eslint-disable-line @typescript-eslint/no-explicit-any
+    const fetched = await b.evaluate(async (ref) => {
+      const f = await (window as any).__one.files.getFile(ref) // eslint-disable-line @typescript-eslint/no-explicit-any
+      return f ? { text: await f.blob.text(), name: f.name } : null
+    }, ref)
+    expect(fetched).toEqual({ text: 'quarterly numbers', name: 'q3.txt' })
+
     // the table on B shows A's row and value
     await b.evaluate((id) => (window.location.hash = `#/p/${id}`), ids.dbId)
     await expect(b.locator('#main section.db')).toContainText('Write the spec')
@@ -243,11 +256,20 @@ test.describe('team cloud — live collaboration', () => {
     expect(await wsEval(a, (s, id) => s.pages[id].title, pageId)).toBe('Field notes (tunnel)')
     await expect(editorOf(a, pageId)).not.toContainText('Viewer was here')
 
+    // per person, per device: favourites, the AI key and the theme never leave A's browser
+    await wsEval(a, (s, id) => {
+      s.toggleFavorite(id)
+      s.updateSettings({ aiApiKey: 'sk-ant-e2e-secret', theme: 'dark' })
+    }, pageId)
+    await a.waitForTimeout(1200)
+    expect(await wsEval(b, (s, id) => ({ fav: s.pages[id].favorite, key: s.settings.aiApiKey, theme: s.settings.theme }), pageId)).toEqual({ fav: false, key: '', theme: 'system' })
+
     // a reload keeps everything (local copy + server)
     await a.reload()
     await waitForApp(a)
     await waitOnline(a)
     expect(await wsEval(a, (s, id) => s.pages[id]?.title, pageId)).toBe('Field notes (tunnel)')
+    expect(await wsEval(a, (s, id) => ({ fav: s.pages[id].favorite, key: s.settings.aiApiKey, theme: s.settings.theme }), pageId)).toEqual({ fav: true, key: 'sk-ant-e2e-secret', theme: 'dark' })
     await gotoPage(a, pageId)
     await expect(editorOf(a, pageId)).toContainText('Before the tunnel.')
     await expect(editorOf(a, pageId)).toContainText('Written offline.')
@@ -310,5 +332,101 @@ test.describe('team cloud — live collaboration', () => {
     await expect(editorOf(b, local.start)).toContainText(local.startText.split('\n')[0].slice(0, 30))
     // the local workspace is untouched
     expect(await wsEval(a, (s) => Object.keys(s.pages).length)).toBe(local.count)
+  })
+
+  test('a role change takes effect at once; a removed member stops syncing; no session = signed out', async ({ page: a, context }) => {
+    await person(a, 'ada')
+    const wsId = await createWorkspace(a, 'Roles')
+    await openApp(a, wsId)
+    await waitOnline(a)
+    const pageId = await newPageWithText(a, 'Roles')
+    await editorOf(a, pageId).click()
+    await a.keyboard.type('Hello team.')
+
+    const b = await newPerson(context)
+    await person(b, 'bob')
+    await join(a, b, wsId, 'viewer')
+    await openApp(b, wsId, `/p/${pageId}`)
+    await waitOnline(b)
+    await expect(editorOf(b, pageId)).toContainText('Hello team.')
+    await expect(editorOf(b, pageId)).toHaveAttribute('contenteditable', 'false')
+    const bobId = (await api<{ user: { id: string } }>(b, 'GET', '/api/me')).json.user.id
+
+    // viewer → member: the documents re-attach with write access, no reload
+    expect((await api(a, 'PATCH', `/api/workspaces/${wsId}/members/${bobId}`, { role: 'member' })).status).toBe(200)
+    await expect.poll(() => cloudEval(b, (c) => ({ role: c.role, readOnly: c.readOnly, status: c.status }))).toEqual({ role: 'member', readOnly: false, status: 'online' })
+    await expect(editorOf(b, pageId)).toHaveAttribute('contenteditable', 'true')
+    await editorOf(b, pageId).click()
+    await b.keyboard.press(`${mod}+End`)
+    await b.keyboard.type(' Bob can write now.')
+    await expect(editorOf(a, pageId)).toContainText('Bob can write now.')
+    await wsEval(b, (s, id) => s.updatePage(id, { title: 'Roles (edited by Bob)' }), pageId)
+    await expect.poll(() => wsEval(a, (s, id) => s.pages[id].title, pageId)).toBe('Roles (edited by Bob)')
+
+    // removed: B's tab stops syncing and says why; the local copy stays readable
+    expect((await api(a, 'DELETE', `/api/workspaces/${wsId}/members/${bobId}`, {})).status).toBe(204)
+    await expect.poll(() => cloudEval(b, (c) => ({ status: c.status, error: c.error, readOnly: c.readOnly }))).toEqual({ status: 'error', error: 'membership-revoked', readOnly: true })
+    await expect(editorOf(b, pageId)).toHaveAttribute('contenteditable', 'false')
+    await expect(editorOf(b, pageId)).toContainText('Bob can write now.')
+
+    // a browser without a session asked for the workspace: signed out, nothing seeded, nothing saved
+    const anon = await newPerson(context)
+    await anon.goto(`/app/?e2e&w=${wsId}`)
+    await waitForApp(anon)
+    expect(await cloudStatus(anon)).toBe('signed-out')
+    expect(await wsEval(anon, (s) => Object.keys(s.pages).length)).toBe(0)
+  })
+
+  test('writes from outside the editor (AI, history restore) and comment replies merge with what others do', async ({ page: a, context }) => {
+    await person(a, 'ada')
+    const wsId = await createWorkspace(a, 'Merge')
+    await openApp(a, wsId)
+    await waitOnline(a)
+    const pageId = await newPageWithText(a, 'Draft')
+    await editorOf(a, pageId).click()
+    await a.keyboard.type('First line.')
+    const b = await newPerson(context)
+    await person(b, 'bob')
+    await join(a, b, wsId)
+    await openApp(b, wsId, `/p/${pageId}`)
+    await waitOnline(b)
+    await expect(editorOf(b, pageId)).toContainText('First line.')
+    await expect.poll(() => wsEval(a, (s, id) => s.pages[id].plain, pageId)).toBe('First line.')
+
+    // B keeps typing while A's AI appends a paragraph (setContent, origin 'ai') — both survive
+    await editorOf(b, pageId).click()
+    await b.keyboard.press(`${mod}+End`)
+    const typing = b.keyboard.type(' Bob adds more.', { delay: 40 })
+    await wsEval(a, (s, id) => {
+      const cur = s.pages[id].content
+      s.setContent(id, { ...cur, content: [...cur.content, { type: 'paragraph', content: [{ type: 'text', text: 'Suggested by the assistant.' }] }] }, 'ai')
+    }, pageId)
+    await typing
+    for (const p of [a, b]) {
+      await expect(editorOf(p, pageId)).toContainText('Suggested by the assistant.')
+      await expect(editorOf(p, pageId)).toContainText('First line. Bob adds more.')
+    }
+    await expect.poll(() => wsEval(a, (s, id) => s.pages[id].plain, pageId)).toBe('First line. Bob adds more.\n\nSuggested by the assistant.')
+
+    // a history restore (origin 'history') replaces the content for everyone
+    await wsEval(a, (s, id) => s.setContent(id, { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Restored version.' }] }] }, 'history'), pageId)
+    for (const p of [a, b]) {
+      await expect(editorOf(p, pageId)).toHaveText('Restored version.')
+    }
+
+    // a comment thread; both reply at the same moment — both replies stay
+    const threadId = await wsEval(a, (s, id) => s.addComment(id, { quote: 'Restored', body: 'Is this final?' }), pageId)
+    await expect.poll(() => wsEval(b, (s, x) => s.pages[x.pageId].comments?.find((c: { id: string }) => c.id === x.threadId)?.body ?? null, { pageId, threadId })).toBe('Is this final?')
+    await Promise.all([
+      wsEval(a, (s, x) => s.addCommentReply(x.pageId, x.threadId, 'Ada: yes'), { pageId, threadId }),
+      wsEval(b, (s, x) => s.addCommentReply(x.pageId, x.threadId, 'Bob: almost'), { pageId, threadId }),
+    ])
+    const replies = (p: Page) => wsEval(p, (s, x) => (s.pages[x.pageId].comments?.[0]?.replies ?? []).map((r: { body: string }) => r.body).sort(), { pageId, threadId })
+    await expect.poll(() => replies(a)).toEqual(['Ada: yes', 'Bob: almost'])
+    await expect.poll(() => replies(b)).toEqual(['Ada: yes', 'Bob: almost'])
+    // resolving the thread doesn't touch the replies
+    await wsEval(b, (s, x) => s.updateComment(x.pageId, x.threadId, { resolved: true }), { pageId, threadId })
+    await expect.poll(() => wsEval(a, (s, x) => s.pages[x.pageId].comments[0].resolved, { pageId, threadId })).toBe(true)
+    expect(await replies(a)).toEqual(['Ada: yes', 'Bob: almost'])
   })
 })

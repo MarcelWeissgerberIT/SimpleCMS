@@ -34,7 +34,9 @@ export const CLOUD_EDIT_ORIGIN = 'cloud'
 /** Y transaction origin of bridge writes. */
 const BRIDGE = { bridge: true }
 const FIELD = 'default'
-const REFRESH_MS = 350
+/** Remote changes reach the store quickly; your own typing in pauses (it also writes the meta document's search excerpt). */
+const REFRESH_MS = 300
+const REFRESH_LOCAL_MS = 900
 /** How long an unused entry lingers (StrictMode remounts, quick back-and-forth). */
 const LINGER_MS = 4000
 const CONCURRENCY = 3
@@ -126,6 +128,8 @@ function ensure(pageId: ID): Entry {
         c.savePending()
       }
       if (origin !== BRIDGE) entry.localEdit = true
+      scheduleRefresh(entry, origin === BRIDGE ? REFRESH_MS : REFRESH_LOCAL_MS)
+      return
     }
     scheduleRefresh(entry)
   })
@@ -286,16 +290,22 @@ export function release(pageId: ID): void {
   }
 }
 
-/** Every entry's provider re-authenticates (after a role change). */
+/**
+ * Authenticate a provider again on the same socket (after the server closed its document, e.g.
+ * 'role-changed'). Not detach() + attach(): detaching sends a CLOSE frame that the server queues
+ * until the new authentication and then replays — closing the fresh connection again.
+ */
+export function reauthenticate(provider: HocuspocusProvider): void {
+  if (!provider.isAttached || provider.isAuthenticated) return
+  void provider
+    .sendToken()
+    .then(() => provider.startSync())
+    .catch((err) => console.warn('[one] could not re-authenticate a document', err))
+}
+
+/** Every page document the server closed authenticates again (after a role change). */
 export function reattachAll(): void {
-  for (const e of entries.values()) {
-    try {
-      e.provider.detach()
-      e.provider.attach()
-    } catch (err) {
-      console.warn('[one] could not re-attach a page document', err)
-    }
-  }
+  for (const e of entries.values()) reauthenticate(e.provider)
 }
 
 /** Stop syncing every page document (signed out / removed); local copies stay. */

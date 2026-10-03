@@ -13,7 +13,7 @@ import type { ID, Person, Settings } from '../store/types'
 import { parseHash } from '../lib/router'
 import { getMe, getMembers, onUnauthenticated, patchMe, patchWorkspace } from './api'
 import { readAll, startBinding, structuralRepairs, type Binding } from './binding'
-import { bridgeContent, contentHasUnsynced, detachAll, enqueueSync, forget, onRemotePages, reattachAll, revertContent, staleAtBoot, startContent, type ContentContext } from './content'
+import { bridgeContent, contentHasUnsynced, detachAll, reauthenticate, enqueueSync, forget, onRemotePages, reattachAll, revertContent, staleAtBoot, startContent, type ContentContext } from './content'
 import { displayName, toneCss, userTone, within, writeSession } from './env'
 import { kickUploads, startFiles } from './files'
 import { loadContentCache, loadOverlay, saveOverlay, type Overlay } from './local'
@@ -365,12 +365,7 @@ async function refreshRole(): Promise<void> {
   } catch {
     /* offline: the reconnect authenticates with whatever the server says */
   }
-  try {
-    a.provider.detach()
-    a.provider.attach()
-  } catch (e) {
-    console.warn('[one] could not re-attach the workspace document', e)
-  }
+  reauthenticate(a.provider)
   reattachAll()
   // a viewer's view of the data is whatever Y says
   if (!writable()) a.binding.resync()

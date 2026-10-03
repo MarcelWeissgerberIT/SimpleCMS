@@ -46,15 +46,36 @@ function setValue(map: YMap, key: string, value: unknown) {
 
 /* ------------------------------------------------------------------ pages */
 
+/**
+ * Comment threads: `<threadId>` → the thread without its replies, `<threadId>/r/<replyId>` → one
+ * reply — so two people replying to the same thread at the same time both keep their reply.
+ */
+const REPLY_SEP = '/r/'
+const threadOnly = (c: PageComment) => {
+  const { replies: _r, ...rest } = c
+  return rest
+}
+
 function writeComments(target: YMap, list: PageComment[] | undefined, before: PageComment[] | undefined) {
   const prev = new Map((Array.isArray(before) ? before : []).map((c) => [c.id, c]))
   const next = Array.isArray(list) ? list : []
   for (const c of next) {
     const was = prev.get(c.id)
-    if (was !== c && !deepEqual(was, c)) target.set(c.id, clone(c))
     prev.delete(c.id)
+    if (was === c) continue
+    if (!was || !deepEqual(threadOnly(was), threadOnly(c))) target.set(c.id, clone(threadOnly(c)))
+    const before = new Map((Array.isArray(was?.replies) ? was!.replies : []).map((r) => [r.id, r]))
+    for (const r of Array.isArray(c.replies) ? c.replies : []) {
+      const old = before.get(r.id)
+      before.delete(r.id)
+      if (old !== r && !deepEqual(old, r)) target.set(`${c.id}${REPLY_SEP}${r.id}`, clone(r))
+    }
+    for (const id of before.keys()) target.delete(`${c.id}${REPLY_SEP}${id}`)
   }
-  for (const id of prev.keys()) target.delete(id)
+  for (const id of prev.keys()) {
+    target.delete(id)
+    for (const k of [...target.keys()]) if (k.startsWith(`${id}${REPLY_SEP}`)) target.delete(k)
+  }
 }
 
 function writeProperties(target: YMap, props: Page['properties'], before: Page['properties'] | undefined) {
@@ -76,7 +97,10 @@ export function newPageMap(page: Page, userId: string): YMap {
   for (const [k, v] of Object.entries(page.properties ?? {})) if (v !== undefined) props.set(k, clone(v))
   yp.set('properties', props)
   const comments = new Y.Map<unknown>()
-  for (const c of Array.isArray(page.comments) ? page.comments : []) comments.set(c.id, clone(c))
+  for (const c of Array.isArray(page.comments) ? page.comments : []) {
+    comments.set(c.id, clone(threadOnly(c)))
+    for (const r of Array.isArray(c.replies) ? c.replies : []) comments.set(`${c.id}${REPLY_SEP}${r.id}`, clone(r))
+  }
   yp.set('comments', comments)
   return yp
 }
@@ -132,9 +156,26 @@ function reuse<T extends object>(prev: T | undefined, next: T): T {
 
 function readComments(v: unknown): PageComment[] {
   if (!(v instanceof Y.Map)) return []
-  const out: PageComment[] = []
-  for (const c of (v as YMap).values()) if (isObj(c) && typeof c.id === 'string') out.push(clone(c) as unknown as PageComment)
-  return out.sort((a, b) => (a.createdAt ?? 0) - (b.createdAt ?? 0) || (a.id < b.id ? -1 : 1))
+  const threads: PageComment[] = []
+  const replies = new Map<string, PageComment['replies']>()
+  for (const [k, c] of (v as YMap).entries()) {
+    if (!isObj(c) || typeof c.id !== 'string') continue
+    const at = k.indexOf(REPLY_SEP)
+    if (at > 0) {
+      const list = replies.get(k.slice(0, at)) ?? []
+      list.push(clone(c) as unknown as PageComment['replies'][number])
+      replies.set(k.slice(0, at), list)
+    } else threads.push(clone(c) as unknown as PageComment)
+  }
+  const byTime = <T extends { id: string; createdAt?: number }>(a: T, b: T) => (a.createdAt ?? 0) - (b.createdAt ?? 0) || (a.id < b.id ? -1 : 1)
+  for (const t of threads) {
+    // a thread written whole (with its replies inside) keeps those as well
+    const inline = Array.isArray(t.replies) ? t.replies : []
+    const own = replies.get(t.id) ?? []
+    const ids = new Set(own.map((r) => r.id))
+    t.replies = [...own, ...inline.filter((r) => !ids.has(r.id))].sort(byTime)
+  }
+  return threads.sort(byTime)
 }
 
 /**
@@ -191,6 +232,7 @@ function writeOrdered<T extends { id: string }>(target: YMap, list: T[], before:
 }
 
 function readOrdered<T>(v: unknown): T[] {
+  if (Array.isArray(v)) return clone(v.filter((x) => isObj(x) && typeof x.id === 'string')) as T[]
   if (!(v instanceof Y.Map)) return []
   const items: Ordered[] = []
   for (const x of (v as YMap).values()) if (isObj(x) && typeof x.id === 'string') items.push(clone(x) as unknown as Ordered)
@@ -198,24 +240,42 @@ function readOrdered<T>(v: unknown): T[] {
   return items.map(({ order: _o, ...rest }) => rest as unknown as T)
 }
 
-/** Database keys other than these are stored as JSON fields of the database entry. */
-const DB_NESTED = new Set(['id', 'properties', 'views'])
+/**
+ * Keyed lists of a database entry: Y.Map id → item (+ `order`), so concurrent changes of different
+ * items (two automations, an automation's run status and its settings …) never overwrite each other.
+ * Database keys other than these are stored as JSON fields of the database entry.
+ */
+const DB_KEYED = ['properties', 'views', 'automations', 'templates'] as const
+const DB_NESTED = new Set<string>(['id', ...DB_KEYED])
+
+const keyedList = (db: Database, key: (typeof DB_KEYED)[number]): Array<{ id: string }> => {
+  const v = (db as unknown as Record<string, unknown>)[key]
+  return Array.isArray(v) ? v.filter((x): x is { id: string } => isObj(x) && typeof x.id === 'string') : []
+}
 
 export function newDatabaseMap(db: Database): YMap {
   const ydb = new Y.Map<unknown>()
-  const props = new Y.Map<unknown>()
-  db.properties.forEach((p, i) => props.set(p.id, { ...clone(p), order: i }))
-  const views = new Y.Map<unknown>()
-  db.views.forEach((v, i) => views.set(v.id, { ...clone(v), order: i }))
-  ydb.set('properties', props)
-  ydb.set('views', views)
+  for (const key of DB_KEYED) {
+    const list = keyedList(db, key)
+    if (!list.length && key !== 'properties' && key !== 'views') continue
+    const m = new Y.Map<unknown>()
+    list.forEach((x, i) => m.set(x.id, { ...clone(x), order: i }))
+    ydb.set(key, m)
+  }
   for (const [k, v] of Object.entries(db)) if (!DB_NESTED.has(k) && v !== undefined) ydb.set(k, clone(v))
   return ydb
 }
 
 export function writeDatabase(ydb: YMap, db: Database, before: Database): void {
-  if (db.properties !== before.properties) writeOrdered(childMap(ydb, 'properties'), db.properties, before.properties)
-  if (db.views !== before.views) writeOrdered(childMap(ydb, 'views'), db.views, before.views)
+  const r = db as unknown as Record<string, unknown>
+  const b = before as unknown as Record<string, unknown>
+  for (const key of DB_KEYED) {
+    if (r[key] === b[key]) continue
+    const target = ydb.get(key)
+    // an older entry kept the list as one JSON value: from now on it is keyed
+    const map = target instanceof Y.Map ? (target as YMap) : childMap(ydb, key)
+    writeOrdered(map, keyedList(db, key), target instanceof Y.Map ? keyedList(before, key) : [])
+  }
   const rec = db as unknown as Record<string, unknown>
   const prev = before as unknown as Record<string, unknown>
   for (const k of new Set([...Object.keys(rec), ...Object.keys(prev)])) {
@@ -229,6 +289,10 @@ export function readDatabase(id: ID, ydb: YMap, cur: Database | undefined): Data
   for (const [k, v] of ydb.entries()) if (!DB_NESTED.has(k) && v !== undefined) next[k] = clone(v)
   next.properties = readOrdered<PropertyDef>(ydb.get('properties'))
   next.views = readOrdered<View>(ydb.get('views'))
+  for (const key of ['automations', 'templates'] as const) {
+    const v = ydb.get(key)
+    if (v !== undefined) next[key] = readOrdered(v)
+  }
   if (typeof next.nextUniqueId !== 'number') next.nextUniqueId = 1
   const db = next as unknown as Database
   if (cur) {

@@ -18,6 +18,7 @@ import { detectLang, makeTranslator } from '@/shared/i18n'
 import { STORAGE_KEYS, safeLocalGet } from '@/shared/brand'
 import { registerServiceWorker } from '@/shared/sw'
 import * as cloud from './cloud'
+import { getFile, saveFile } from './lib/files'
 
 // Apply the remembered theme before first paint to avoid a flash.
 const storedTheme = safeLocalGet(STORAGE_KEYS.theme)
@@ -84,7 +85,7 @@ async function boot() {
 
   // Automation hook for end-to-end tests and the screenshot script (dev, or ?e2e).
   if (import.meta.env.DEV || new URLSearchParams(window.location.search).has('e2e')) {
-    ;(window as unknown as { __one?: unknown }).__one = { workspace: useWorkspace, ui: useUI, flushSave, cloud }
+    ;(window as unknown as { __one?: unknown }).__one = { workspace: useWorkspace, ui: useUI, flushSave, cloud, files: { saveFile, getFile } }
   }
 
   // Deep link from the landing page: /app/?import → open the importer.
