@@ -449,7 +449,7 @@ export function readTarget(tool: McpToolName, args: Record<string, unknown>): st
       return title(args.id)
     case 'one_query_database': {
       const n = Array.isArray(args.filter) ? args.filter.length : 0
-      return `${title(args.databaseId)}${n ? ` · ${t('features.mcp.log.filters', { n })}` : ''}`
+      return `${title(args.databaseId)}${n ? ` · ${t(n === 1 ? 'features.mcp.log.filters.one' : 'features.mcp.log.filters.other', { n })}` : ''}`
     }
     default:
       return workspaceInfo().name

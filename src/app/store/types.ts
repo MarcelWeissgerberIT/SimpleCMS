@@ -113,6 +113,29 @@ export interface Page {
    * `movePagePrivacy()` (docs/CLOUD.md § Private pages), never by setting this.
    */
   private?: true
+  /**
+   * Templates (features/templates): this page is the ROOT of a template, kept in the hidden
+   * Templates area (root pages with `hidden: true`). Its subpages, databases and rows are ordinary
+   * pages below it — editing a template is editing those pages. The whole subtree stays out of
+   * normal use (sidebar, search, graph, agenda, reminders, backlinks, recent, folder sync, agent,
+   * exports): ask `inTemplate()` / `templateRootOf()` in store/selectors.ts. "Use" deep-copies the
+   * subtree with fresh ids. Absent on every other page. Synced in team workspaces like any field.
+   */
+  template?: PageTemplate
+}
+
+export type TemplateCategory = 'work' | 'product' | 'personal' | 'knowledge'
+
+/** Gallery metadata of a template root page (Page.template). */
+export interface PageTemplate {
+  /** Name in the gallery (the root page's title is what copies are called). */
+  name: string
+  description?: string
+  category?: TemplateCategory | null
+  /** Gallery art (absent = the root page's icon). */
+  icon?: PageIcon | null
+  /** A customised built-in: the id of the catalog template it was made from (features/templates/catalog.ts). */
+  from?: string
 }
 
 /* ------------------------------------------------------------------ */

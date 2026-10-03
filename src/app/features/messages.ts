@@ -8,6 +8,7 @@ import { messages as inbox } from './inbox/messages'
 import { messages as sync } from './sync/messages'
 import { messages as meeting } from './ai/meeting/messages'
 import { messages as mcp } from './mcp/messages'
+import { messages as templates } from './templates/messages'
 
-/** features-core: ai, history, share, present, journal · features-data: io, automations, templates, graph · features-publish: website export, protected share links · features-import: import sources · features-agent: workspace agent · inbox: reminders + inbox engine · sync: folder + GitHub sync · meeting: AI meeting notes · mcp: One MCP (local bridge) */
-export const messages = mergeMessages(core, data, publish, importSources, agent, inbox, sync, meeting, mcp)
+/** features-core: ai, history, share, present, journal · features-data: io, automations, templates, graph · features-publish: website export, protected share links · features-import: import sources · features-agent: workspace agent · inbox: reminders + inbox engine · sync: folder + GitHub sync · meeting: AI meeting notes · mcp: One MCP (local bridge) · templates: own templates (gallery, save as template, banner) */
+export const messages = mergeMessages(core, data, publish, importSources, agent, inbox, sync, meeting, mcp, templates)

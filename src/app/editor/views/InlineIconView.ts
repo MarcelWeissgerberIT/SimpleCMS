@@ -23,6 +23,7 @@ export function requestIconEdit(editor: Editor, pos: number) {
 class InlineIconView implements NodeView {
   dom: HTMLElement
   private attrs: IconAttrs
+  private selected = false
   private unsubscribe: (() => void) | null = null
 
   constructor(
@@ -49,7 +50,8 @@ class InlineIconView implements NodeView {
     const label = iconLabel(a)
     this.unsubscribe?.()
     this.unsubscribe = null
-    this.dom.className = `one-icon one-icon--${a.kind}`
+    // a re-render (new attrs) keeps the selection outline: ProseMirror won't select the node again
+    this.dom.className = `one-icon one-icon--${a.kind}${this.selected ? ' ProseMirror-selectednode' : ''}`
     this.dom.dataset.kind = a.kind
     this.dom.dataset.name = a.name
     if (a.color) this.dom.dataset.color = a.color
@@ -96,6 +98,19 @@ class InlineIconView implements NodeView {
       this.render()
     }
     return true
+  }
+
+  selectNode() {
+    this.selected = true
+    this.dom.classList.add('ProseMirror-selectednode')
+    // like ProseMirror's own views: a selected atom can be dragged elsewhere
+    this.dom.draggable = true
+  }
+
+  deselectNode() {
+    this.selected = false
+    this.dom.classList.remove('ProseMirror-selectednode')
+    this.dom.draggable = false
   }
 
   ignoreMutation() {

@@ -47,14 +47,14 @@ test.describe('inline emoji & icons', () => {
     const search = picker.getByRole('searchbox', { name: 'Search emoji' })
     await expect(search).toBeFocused()
     // categories render (the full set, not a shortcode menu)
-    await expect(picker.locator('.ipk-emoji__category').first()).toBeVisible()
+    await expect(picker.locator('.ipk-emoji__category:visible').first()).toBeVisible()
     await page.keyboard.type('rocket')
     await expect(picker.getByRole('option', { selected: true })).toHaveText('🚀')
     await page.keyboard.press('Enter')
     await expect(picker).toBeHidden()
     await expect(ed).toBeFocused()
-    await page.keyboard.type(' now')
-    expect(await firstLine(page, id)).toEqual(['Launch 🚀 now'])
+    await page.keyboard.type(' now ')
+    expect(await firstLine(page, id)).toEqual(['Launch 🚀 now '])
 
     // Esc: closes, the caret is back where the command was typed
     await slash(page, 'emoji', 'Emoji')
@@ -62,19 +62,19 @@ test.describe('inline emoji & icons', () => {
     await page.keyboard.press('Escape')
     await expect(picker).toBeHidden()
     await expect(ed).toBeFocused()
-    await page.keyboard.type('!')
-    expect(await firstLine(page, id)).toEqual(['Launch 🚀 now!'])
+    await page.keyboard.type('! ')
+    expect(await firstLine(page, id)).toEqual(['Launch 🚀 now ! '])
 
     // arrows move through the results; recent emoji lead the next opening
     await slash(page, 'emoji', 'Emoji')
-    await expect(picker.locator('.ipk-emoji__category').first()).toHaveText('Recent')
+    await expect(picker.locator('.ipk-emoji__category:visible').first()).toHaveText('Recent')
     await page.keyboard.type('heart')
     const first = await picker.getByRole('option', { selected: true }).textContent()
     await page.keyboard.press('ArrowRight')
     const second = await picker.getByRole('option', { selected: true }).textContent()
     expect(second).not.toBe(first)
     await page.keyboard.press('Enter')
-    expect((await firstLine(page, id)).join('')).toBe(`Launch 🚀 now!${second}`)
+    expect((await firstLine(page, id)).join('')).toBe(`Launch 🚀 now ! ${second}`)
 
     // the ":" shortcode menu still works as before
     await page.keyboard.type(' :tada')
@@ -130,12 +130,13 @@ test.describe('inline emoji & icons', () => {
     expect(box.height).toBeGreaterThan(14)
     expect(box.height).toBeLessThan(line.height)
 
-    // undo takes the last insertion back (the typed text, then the icon)
-    await page.keyboard.press(`${MOD}+z`)
-    await page.keyboard.press(`${MOD}+z`)
-    await expect.poll(async () => (await firstLine(page, id)).filter((s) => s.startsWith('<icon')).length).toBe(1)
+    // undo takes the glyph back (with the text typed right after it), redo restores it
+    for (let i = 0; i < 3 && (await ed.locator('.one-icon--lucide').count()) > 0; i++) await page.keyboard.press(`${MOD}+z`)
+    await expect(ed.locator('.one-icon--lucide')).toHaveCount(0)
+    await expect(clock).toHaveCount(1)
     await page.keyboard.press(`${MOD}+Shift+z`)
-    await expect.poll(async () => (await firstLine(page, id)).filter((s) => s.startsWith('<icon')).length).toBe(2)
+    await expect(rocket).toHaveCount(1)
+    await expect.poll(async () => (await firstLine(page, id)).filter((s) => s.startsWith('<icon'))).toEqual(['<icon asset:clock>', '<icon lucide:rocket@red>'])
 
     await reloadApp(page)
     await gotoPage(page, id)
@@ -258,7 +259,7 @@ test.describe('inline emoji & icons', () => {
     const file = testInfo.outputPath('icons.html')
     await (await download).saveAs(file)
     const html = readFileSync(file, 'utf8')
-    expect(html).toMatch(/<span[^>]*data-type="icon"[^>]*data-name="book"[^>]*><img src="data:image\/webp;base64,/)
+    expect(html).toMatch(/<span[^>]*data-name="book"[^>]*data-type="icon"[^>]*><img src="data:image\/webp;base64,/)
     expect(html).toMatch(/<span[^>]*data-name="rocket"[^>]*data-color="red"[^>]*><svg[^>]*viewBox="0 0 24 24"[^>]*>(<path|<circle)/)
     await page.keyboard.press('Escape')
 

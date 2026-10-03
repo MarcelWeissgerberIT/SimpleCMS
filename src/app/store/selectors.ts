@@ -99,6 +99,61 @@ export function isEffectivelyTrashed(pages: Record<ID, Page>, id: ID): boolean {
   return trashedLookup(pages)(id)
 }
 
+/*
+ * Templates (Page.template, features/templates): a template is a page subtree whose root carries
+ * `template`. Its pages never show in normal use — sidebar, search, graph, agenda, reminders,
+ * backlinks of other pages, recent, folder sync, agent context, exports all ask inTemplate().
+ * Memoised per pages map like the trash lookup; top-level pages answer without the memo.
+ */
+const templateCache = new WeakMap<Record<ID, Page>, Map<ID, ID | null>>()
+
+function templateLookup(pages: Record<ID, Page>): (id: ID) => ID | null {
+  let known = templateCache.get(pages)
+  if (!known) {
+    known = new Map()
+    templateCache.set(pages, known)
+  }
+  const memo = known
+  return (id) => {
+    const page = pages[id]
+    if (!page) return null
+    if (page.template) return page.id
+    if (!page.parentId) return null
+    const hit = memo.get(id)
+    if (hit !== undefined) return hit
+    const chain: ID[] = []
+    const seen = new Set<ID>()
+    let result: ID | null = null
+    let cur: Page | undefined = page
+    while (cur && !seen.has(cur.id)) {
+      const k = memo.get(cur.id)
+      if (k !== undefined) {
+        result = k
+        break
+      }
+      if (cur.template) {
+        result = cur.id
+        break
+      }
+      seen.add(cur.id)
+      chain.push(cur.id)
+      cur = cur.parentId ? pages[cur.parentId] : undefined
+    }
+    for (const c of chain) memo.set(c, result)
+    return result
+  }
+}
+
+/** The root page id of the template a page belongs to (itself for a template root), else null. */
+export function templateRootOf(pages: Record<ID, Page>, id: ID): ID | null {
+  return templateLookup(pages)(id)
+}
+
+/** Is the page part of a template (its root or anything below it)? Such pages stay out of normal use. */
+export function inTemplate(pages: Record<ID, Page>, id: ID): boolean {
+  return templateLookup(pages)(id) !== null
+}
+
 /** Page ids a content links to, per (immutable) content object: a store change rescans only changed pages. */
 const linksCache = new WeakMap<object, ReadonlySet<ID>>()
 const NO_LINKS: ReadonlySet<ID> = new Set()
@@ -134,7 +189,10 @@ export function mayChangeAnswer(pages: Record<ID, Page>, prev: Record<ID, Page>,
 /** The last few answers (target → pages map it was computed for, answer): typing elsewhere reuses them. */
 const backlinksMemo = new Map<ID, { pages: Record<ID, Page>; out: Page[] }>()
 
-/** Pages linking to `id` (via page links, mentions, links); pages in the trash (or under a trashed parent) don't count. */
+/**
+ * Pages linking to `id` (via page links, mentions, links); pages in the trash (or under a trashed
+ * parent) don't count, nor do template pages — except, for a template page, those of its own template.
+ */
 export function selectBacklinks(pages: Record<ID, Page>, id: ID): Page[] {
   const hit = backlinksMemo.get(id)
   if (hit && (hit.pages === pages || !mayChangeAnswer(pages, hit.pages, id, (p) => !!p.content && linksOf(p).has(id)))) {
@@ -142,10 +200,12 @@ export function selectBacklinks(pages: Record<ID, Page>, id: ID): Page[] {
     return hit.out
   }
   const trashed = trashedLookup(pages)
+  const tplOf = templateLookup(pages)
+  const ownTpl = tplOf(id)
   const out: Page[] = []
   for (const k of Object.keys(pages)) {
     const p = pages[k]
-    if (p.id !== id && !p.trashed && p.content && linksOf(p).has(id) && !trashed(p.id)) out.push(p)
+    if (p.id !== id && !p.trashed && p.content && linksOf(p).has(id) && !trashed(p.id) && tplOf(p.id) === ownTpl) out.push(p)
   }
   backlinksMemo.delete(id)
   backlinksMemo.set(id, { pages, out })
@@ -188,6 +248,8 @@ export function pageStats(pages: Record<ID, Page>): PageStats {
   const tree = { all: 0, priv: 0, shared: 0 }
   let favs: Page[] = []
   let trash: Page[] = []
+  // template pages (Page.template) are not in the tree: top-level ones answer without a walk
+  const tplOf = templateLookup(pages)
   // Object.keys: for…in over a map of thousands of pages costs several times more
   for (const id of Object.keys(pages)) {
     const p = pages[id]
@@ -197,7 +259,7 @@ export function pageStats(pages: Record<ID, Page>): PageStats {
     }
     if (p.favorite) favs.push(p)
     if (p.databaseId) rows.set(p.databaseId, (rows.get(p.databaseId) ?? 0) + 1)
-    else if (!p.hidden) {
+    else if (!p.hidden && !(p.parentId && tplOf(id))) {
       tree.all++
       if (p.private) tree.priv++
       else tree.shared++
@@ -206,7 +268,7 @@ export function pageStats(pages: Record<ID, Page>): PageStats {
   const hasFavorites = favs.length > 0
   if (favs.length) {
     const trashed = trashedLookup(pages)
-    favs = sortPages(favs.filter((p) => !trashed(p.id)))
+    favs = sortPages(favs.filter((p) => !trashed(p.id) && !tplOf(p.id)))
   }
   trash.sort((a, b) => (b.trashedAt ?? 0) - (a.trashedAt ?? 0))
   if (sameList(favs, lastStats?.favorites)) favs = lastStats!.favorites

@@ -95,21 +95,37 @@ function useSearchList(lang: string): SearchEntry[] | null {
   return list
 }
 
-/** Best first: label = query → label prefix → a label word prefix → a tag → a tag prefix → anywhere; recent ones win ties. */
+/**
+ * Best first: label = query → a label word = query → label prefix → a label word prefix → a tag →
+ * a tag prefix → anywhere. Ties: recent ones, then the shorter label ("red heart" before "heart with arrow").
+ */
 function rankEmoji(list: SearchEntry[], query: string, recent: string[]): EmojiEntry[] {
   const words = norm(query).split(/\s+/).filter(Boolean)
   if (!words.length) return []
   const q = words[0]
-  const scored: Array<{ e: EmojiEntry; s: number; r: number; i: number }> = []
+  const scored: Array<{ e: EmojiEntry; s: number; r: number; n: number; i: number }> = []
   list.forEach((x, i) => {
     if (!words.every((w) => x.text.includes(w))) return
+    const parts = x.label.split(/[\s:-]+/)
     const s =
-      x.label === q ? 0 : x.label.startsWith(q) ? 1 : x.label.split(/[\s:-]+/).some((w) => w.startsWith(q)) ? 2 : x.words.includes(q) ? 3 : x.words.some((w) => w.startsWith(q)) ? 4 : 5
+      x.label === q
+        ? 0
+        : parts.includes(q)
+          ? 1
+          : x.label.startsWith(q)
+            ? 2
+            : parts.some((w) => w.startsWith(q))
+              ? 3
+              : x.words.includes(q)
+                ? 4
+                : x.words.some((w) => w.startsWith(q))
+                  ? 5
+                  : 6
     const r = recent.indexOf(x.entry.emoji)
-    scored.push({ e: x.entry, s, r: r < 0 ? RECENT_MAX : r, i })
+    scored.push({ e: x.entry, s, r: r < 0 ? RECENT_MAX : r, n: x.label.length, i })
   })
   return scored
-    .sort((a, b) => a.s - b.s || a.r - b.r || a.i - b.i)
+    .sort((a, b) => a.s - b.s || a.r - b.r || a.n - b.n || a.i - b.i)
     .slice(0, MAX_RESULTS)
     .map((x) => x.e)
 }
@@ -262,8 +278,14 @@ function EmojiBody({ recent, onPick }: { recent: string[]; onPick: (emoji: strin
         <EmojiPicker.ActiveEmoji>
           {({ emoji }) => (
             <div className="ipk__foot" aria-hidden>
-              <span className="ipk__preview ipk__preview--emoji">{emoji?.emoji ?? ''}</span>
-              <span className="ipk__name">{emoji?.label ?? '—'}</span>
+              {emoji ? (
+                <>
+                  <span className="ipk__preview ipk__preview--emoji">{emoji.emoji}</span>
+                  <span className="ipk__name">{emoji.label}</span>
+                </>
+              ) : (
+                <span className="ipk__name ipk__hint">{t('editor.iconPicker.hint')}</span>
+              )}
               <kbd className="kbd">↵</kbd>
             </div>
           )}

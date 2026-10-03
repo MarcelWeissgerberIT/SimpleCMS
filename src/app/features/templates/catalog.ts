@@ -5,7 +5,7 @@
 import type { JSONContent } from '@tiptap/core'
 import type { Lang } from '@/shared/i18n'
 import { useWorkspace, defaultView } from '../../store/store'
-import type { Database, FilterGroup, ID, PageCover, PageIcon, PropertyDef, PropertyValue, View } from '../../store/types'
+import type { Database, FilterGroup, ID, PageCover, PageIcon, PropertyDef, PropertyValue, TemplateCategory, View } from '../../store/types'
 import { newId } from '../../lib/ids'
 import {
   b,
@@ -38,14 +38,14 @@ import {
   weekday,
 } from './doc'
 
-export type TemplateCategory = 'work' | 'product' | 'personal' | 'knowledge'
+export type { TemplateCategory }
 export type OutlineKind = 'page' | 'db' | 'views' | 'fields' | 'rows'
 export interface OutlineLine {
   depth: number
   kind: OutlineKind
   label: string
 }
-type Tr = (en: string, de: string) => string
+export type Tr = (en: string, de: string) => string
 
 export interface TemplateDef {
   id: string

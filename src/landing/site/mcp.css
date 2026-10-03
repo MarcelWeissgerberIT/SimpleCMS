@@ -509,7 +509,8 @@
 .tk-f {
   color: var(--ink-2);
 }
-.mcp-hint {
+.mcp-hint,
+.mcp-step > p.mcp-hint {
   margin: 10px 0 0;
   font-size: 13.5px;
   line-height: 1.45;
@@ -521,8 +522,8 @@
 .mcp-guide {
   display: inline-flex;
   gap: 8px;
-  margin-top: 22px;
-  padding: 6px 0;
+  margin-top: 18px;
+  padding: 10px 0;
   color: var(--signal-ink);
   text-decoration: none;
 }
@@ -557,6 +558,37 @@
   }
 }
 @media (max-width: 600px) {
+  /* the spec strip becomes a read-out list: label left, value right */
+  .mcp-spec {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .mcp-spec > div,
+  .mcp-spec > div:nth-child(3) {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 16px;
+    padding: 10px 0;
+    border-left: 0;
+  }
+  .mcp-spec > div + div {
+    border-top: 1px solid var(--rule);
+  }
+  .mcp-spec dd {
+    margin: 0;
+    font-size: 17px;
+    text-align: right;
+  }
+  /* steps: the number beside the sentence, snippets across the full width */
+  .mcp-step {
+    display: contents;
+  }
+  .mcp-step > :first-child {
+    grid-column: 2;
+  }
+  .mcp-step > :not(:first-child) {
+    grid-column: 1 / -1;
+  }
   .mcp-mode-key {
     flex-direction: column;
     gap: 6px;
@@ -576,6 +608,10 @@
   }
   .mcp-steps > li {
     grid-template-columns: 44px minmax(0, 1fr);
+    align-items: baseline;
+  }
+  .mcp-steps .btn {
+    justify-self: start;
   }
   .mcp-n {
     font-size: 22px;

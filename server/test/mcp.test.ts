@@ -223,6 +223,10 @@ describe('remote MCP', () => {
     assert.equal(get.status, 405)
     assert.equal(get.headers.get('allow'), 'POST')
     await assert.rejects(connect(server.url, `one_${'y'.repeat(43)}`))
+    // only /mcp itself is the endpoint: /mcp/one-mcp.mjs (the local bridge in the app build) stays a static path
+    const file = await fetch(`${server.url}/mcp/one-mcp.mjs`)
+    assert.equal(file.status, 404, 'no app build in this test server')
+    assert.match(file.headers.get('content-type') ?? '', /text\/html/)
   })
 
   test('one_overview: name, page tree, databases with row counts, today', async () => {

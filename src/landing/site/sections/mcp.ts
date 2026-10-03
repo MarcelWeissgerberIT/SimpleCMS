@@ -114,10 +114,10 @@ function wide(t: T, motion: boolean): string {
     <text class="pv-t pv-inv pv-strong" x="692" y="133">${esc(t('mcp.tab'))}</text>
     ${gate(t, 658, 152, 264, 144, idp)}
 
-    ${wires('M940 188 H1004', 'M1004 222 H940', idp, 'sig', motion, 1.2)}
-    ${cylinder(1088, 136, 80, 132)}
-    <text class="pv-t pv-strong" x="1088" y="214" text-anchor="middle">${esc(t('mcp.idb'))}</text>
-    <text class="pv-m pv-dim pv-db-note" x="1088" y="238" text-anchor="middle">${up(t('privacy.idbNote'))}</text>
+    ${wires('M940 188 H988', 'M988 222 H940', idp, 'sig', motion, 1)}
+    ${cylinder(1080, 136, 92, 132)}
+    <text class="pv-t pv-strong" x="1080" y="214" text-anchor="middle">${esc(t('mcp.idb'))}</text>
+    <text class="pv-m pv-dim pv-db-note" x="1080" y="238" text-anchor="middle">${up(t('privacy.idbNote'))}</text>
 
     <text class="pv-m pv-sig" x="20" y="384">${up(t('mcp.laneB'))}</text>
     <text class="pv-m pv-dim" x="1180" y="384" text-anchor="end">${up(t('mcp.laneBNote'))}</text>
@@ -176,7 +176,7 @@ function tall(t: T, motion: boolean): string {
     <text class="pv-t pv-inv pv-strong" x="92" y="453">${esc(t('mcp.tab'))}</text>
     ${gate(t, 56, 472, 288, 146, idp)}
 
-    ${wires('M182 634 V668', 'M218 668 V634', idp, 'sig', motion, 0.9)}
+    ${wires('M182 634 V654', 'M218 654 V634', idp, 'sig', motion, 0.8)}
     ${cylinder(200, 678, 112, 56)}
     <text class="pv-t pv-strong" x="200" y="728" text-anchor="middle">${esc(t('mcp.idb'))}</text>
     <text class="pv-m pv-sig" x="200" y="784" text-anchor="middle">${up(t('mcp.laneANote'))}</text>

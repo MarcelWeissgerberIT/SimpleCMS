@@ -59,6 +59,20 @@ export function iconFromImage(n: JSONContent): JSONContent | null {
   return m ? { type: ICON, attrs: { kind: 'asset', name: m[1], color: null } } : null
 }
 
+/** Public asset paths of the object icons in a doc (the site export copies these files). */
+export function iconAssetPaths(doc: JSONContent | null | undefined): string[] {
+  const out = new Set<string>()
+  const walk = (n: JSONContent) => {
+    if (n.type === ICON) {
+      const a = iconAttrs(n.attrs)
+      if (a.kind === 'asset' && validIcon(a)) out.add(iconAssetPath(a.name))
+    }
+    n.content?.forEach(walk)
+  }
+  if (doc) walk(doc)
+  return [...out]
+}
+
 let preloading = false
 /** Glyphs load at idle once an editor runs, so exports later on draw them as SVG. */
 function preloadGlyphs() {

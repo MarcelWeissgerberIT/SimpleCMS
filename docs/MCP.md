@@ -163,13 +163,13 @@ The bridge is a door into your workspace, so it only opens for One:
 
 ### Browsers
 
-The app is an `https` page talking to `ws://127.0.0.1`. What browsers make of that (checked October 2026):
+The app is an `https` page talking to `ws://127.0.0.1`. What that means per browser:
 
 | Browser | |
 |---|---|
-| **Chrome, Edge** (Chromium) | Works. Loopback addresses count as *potentially trustworthy*, so `ws://127.0.0.1` from an `https` page is not mixed content. Since Chrome 142, **Local Network Access** asks once whether the site may reach *apps and services on this device* — choose **Allow** (the tab says so while the answer is pending). If it was blocked, the tab shows *Blocked by the browser* with the way back: the icon left of the address → *Site settings* → allow local network access, then *Retry now*. No server opt-in header exists for this (the older *Private Network Access* preflight headers don't apply to WebSockets), so the bridge needs none. |
-| **Firefox** | Works: Firefox treats `127.0.0.1` / `localhost` as potentially trustworthy too (no mixed-content block for loopback). |
-| **Safari** | May refuse `ws://` from an `https` page as mixed content even for loopback. The tab then shows *This browser does not let a secure (https) page talk to the bridge*. Use Chrome, Edge or Firefox for agents, or open a local build (`npm run dev` / `vite preview`, http://localhost). |
+| **Chrome, Edge** (Chromium) | Works. Loopback addresses are *potentially trustworthy*, so `ws://127.0.0.1` from an `https` page is not mixed content. Checked with Chromium 141: an `https` page connects and gets the bridge's `welcome` — also with the page forced into the *public* address space and the Local Network Access checks switched on by flag. Chrome 142+ ships **Local Network Access**: a site that reaches *apps and services on this device* may have to ask once — choose **Allow**. While the browser reports the permission as pending the tab says so; if it was **blocked**, the tab shows *Blocked by the browser* and the way back (the icon left of the address → site settings → allow local network access, then *Retry now*). There is no server opt-in header for this — the old *Private Network Access* preflight headers never applied to WebSockets — so the bridge sends none. |
+| **Firefox** | Expected to work: Firefox also treats `127.0.0.1` / `localhost` as potentially trustworthy (not tested here). |
+| **Safari** | May refuse `ws://` from an `https` page as mixed content even for loopback (not tested here). The constructor then throws and the tab shows *This browser does not let a secure (https) page talk to the bridge* — use Chrome, Edge or Firefox for agents, or a local build (`npm run dev` / `vite preview` on http://localhost). |
 
 Self-hosted builds served from `http://localhost` / `http://127.0.0.1` have none of these restrictions.
 

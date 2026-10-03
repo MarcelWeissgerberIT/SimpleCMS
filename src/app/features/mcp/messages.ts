@@ -36,7 +36,7 @@ export const messages: Messages = {
     'features.mcp.portHint': 'The bridge port (default 47321). Set the same port for the bridge with ONE_MCP_PORT.',
 
     'features.mcp.msg.waiting': 'No bridge answers yet. Start your MCP client (it starts the bridge) — this tab keeps trying and connects on its own.',
-    'features.mcp.msg.prompt': 'Your browser will ask whether One may reach apps on this device. Choose Allow, then start your MCP client.',
+    'features.mcp.msg.prompt': 'No bridge answers yet. Start your MCP client — this tab connects on its own. If the browser asks whether One may reach apps on this device, choose Allow.',
     'features.mcp.msg.replaced': 'Another One tab took over the bridge (the newest tab wins). Agents now work in that tab.',
     'features.mcp.msg.insecure':
       'This browser does not let a secure (https) page talk to the bridge on your computer. Use Chrome, Edge or Firefox — or open One from http://localhost.',
@@ -70,7 +70,8 @@ export const messages: Messages = {
     'features.mcp.log.read': 'Read',
     'features.mcp.log.write': 'Write',
     'features.mcp.log.undo': 'Undo {tool}',
-    'features.mcp.log.filters': '{n} filters',
+    'features.mcp.log.filters.one': '{n} filter',
+    'features.mcp.log.filters.other': '{n} filters',
     'features.mcp.log.state.run': 'Running',
     'features.mcp.log.state.wait': 'Waiting for OK',
     'features.mcp.log.state.ok': 'OK',
@@ -170,7 +171,7 @@ export const messages: Messages = {
     'features.mcp.portHint': 'Port der Brücke (Standard 47321). Für die Brücke denselben Port mit ONE_MCP_PORT setzen.',
 
     'features.mcp.msg.waiting': 'Noch antwortet keine Brücke. Starte deinen MCP-Client (er startet die Brücke) — dieser Tab versucht es weiter und verbindet sich von selbst.',
-    'features.mcp.msg.prompt': 'Dein Browser fragt, ob One Apps auf diesem Gerät erreichen darf. Wähle „Zulassen“ und starte dann deinen MCP-Client.',
+    'features.mcp.msg.prompt': 'Noch antwortet keine Brücke. Starte deinen MCP-Client — dieser Tab verbindet sich von selbst. Fragt der Browser, ob One Apps auf diesem Gerät erreichen darf, wähle „Zulassen“.',
     'features.mcp.msg.replaced': 'Ein anderer One-Tab hat die Brücke übernommen (der neueste Tab gewinnt). Agenten arbeiten jetzt dort.',
     'features.mcp.msg.insecure':
       'Dieser Browser lässt eine sichere (https-)Seite nicht mit der Brücke auf deinem Computer sprechen. Nimm Chrome, Edge oder Firefox — oder öffne One über http://localhost.',
@@ -204,7 +205,8 @@ export const messages: Messages = {
     'features.mcp.log.read': 'Lesen',
     'features.mcp.log.write': 'Schreiben',
     'features.mcp.log.undo': '{tool} rückgängig machen',
-    'features.mcp.log.filters': '{n} Filter',
+    'features.mcp.log.filters.one': '{n} Filter',
+    'features.mcp.log.filters.other': '{n} Filter',
     'features.mcp.log.state.run': 'Läuft',
     'features.mcp.log.state.wait': 'Wartet auf OK',
     'features.mcp.log.state.ok': 'OK',

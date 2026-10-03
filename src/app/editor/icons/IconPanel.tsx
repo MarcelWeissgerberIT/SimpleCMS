@@ -289,7 +289,7 @@ export function IconPanel({ current, onPick, onColor, onRemove }: IconPanelProps
             onClick={() => pick(item)}
           >
             {item.attrs.kind === 'asset' ? (
-              <img src={resolveAssetUrl(iconAssetPath(item.attrs.name))} alt="" width={32} height={32} draggable={false} loading="lazy" decoding="async" />
+              <img src={resolveAssetUrl(iconAssetPath(item.attrs.name))} alt="" width={32} height={32} draggable={false} decoding="async" />
             ) : (
               <Glyph node={glyphs!.GLYPH_BY_NAME.get(item.attrs.name)!.node} />
             )}
@@ -308,7 +308,7 @@ export function IconPanel({ current, onPick, onColor, onRemove }: IconPanelProps
             <span className="ipk__code mono">{cur.code}</span>
           </>
         ) : (
-          <span className="ipk__name faint">—</span>
+          <span className="ipk__name ipk__hint">{t('editor.iconPicker.hint')}</span>
         )}
         <kbd className="kbd">↵</kbd>
       </div>

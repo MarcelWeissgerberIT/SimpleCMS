@@ -92,8 +92,10 @@ function PickerPopover({ editor, bridge, picker }: { editor: Editor; bridge: Bri
   }
 
   const label = picker.kind === 'emoji' ? t('editor.emojiPicker.title') : t(picker.edit ? 'editor.iconPicker.change' : 'editor.iconPicker.title')
+  // a tap on an icon (to recolour or remove it) shouldn't pull up the on-screen keyboard
+  const [focusSearch] = useState(() => !picker.edit || !window.matchMedia?.('(pointer: coarse)').matches)
   return (
-    <Popover open anchor={anchor} onClose={() => close(false)} placement="bottom-start" offset={6} className="ipk-pop" role="dialog" aria-label={label}>
+    <Popover open anchor={anchor} onClose={() => close(false)} placement="bottom-start" offset={6} className="ipk-pop" role="dialog" aria-label={label} autoFocus={focusSearch}>
       {picker.kind === 'emoji' ? (
         <EmojiPanel onPick={insert} />
       ) : picker.edit ? (

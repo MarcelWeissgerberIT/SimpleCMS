@@ -19,6 +19,9 @@
  *  - Meeting notes: node `meetingNotes` (content: the notes; attrs: title, status, language, startedAt,
  *      endedAt, duration, transcript = [{ t, text }], recordedBy). Typed attrs + lookup helpers for the
  *      features area (features/ai/meeting runs the recording and Claude).
+ *  - Inline icons: node `icon` (inline atom; attrs: kind 'asset' | 'lucide', name, color = ColorName | null,
+ *      glyphs only). Markdown: ![Clock](assets/icons/clock.webp) / :icon-rocket@red:; plain text [Clock] /
+ *      :rocket:. iconAssetPaths(doc): the public icon files a doc shows (for exports that copy files).
  */
 export { PageEditor, type PageEditorProps } from './PageEditor'
 export { ReadOnlyDoc } from './ReadOnlyDoc'
@@ -26,6 +29,7 @@ export { getExtensions, markdownToDoc, docToMarkdown, docToHTML, stripPrivate, s
 export { stripComments, commentIdsIn } from './schema/comment'
 export { startSyncedBlocks, stopSyncedBlocks } from './synced/service'
 export { syncedCopiesOutside } from './synced/state'
+export { iconAssetPaths } from './schema/icon'
 export {
   MEETING,
   meetingAttrs,

@@ -197,7 +197,7 @@ test.describe('landing: agents · MCP', () => {
     await expect(sec.locator('[data-mcp-note]')).toContainText('Every write is refused')
     await expect(sec.locator('.pv-wide .mcp-gate-read')).toBeVisible()
     await expect(sec.locator('.pv-wide .mcp-gate-ask')).toBeHidden()
-    expect(Number(await sec.locator('.mcp-tool.is-w').first().evaluate((el) => getComputedStyle(el).opacity))).toBeLessThan(0.6)
+    await expect.poll(async () => Number(await sec.locator('.mcp-tool.is-w').first().evaluate((el) => getComputedStyle(el).opacity))).toBeLessThan(0.6)
 
     // the bridge is a file of this site, under its base path
     await expect(sec.getByRole('link', { name: /Download one-mcp\.mjs/ })).toHaveAttribute('href', '/SimpleCMS/mcp/one-mcp.mjs')

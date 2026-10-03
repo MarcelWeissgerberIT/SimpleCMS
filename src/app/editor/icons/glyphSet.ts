@@ -2,7 +2,8 @@
  * Inline glyphs — the "Glyphs" tab of /icon: a curated set of lucide icons with English and German
  * search words. This module is loaded on demand (icons/glyphs.ts imports it lazily, see there for
  * the bundle note) and holds the raw icon nodes, not React components: the editor, exports and
- * share links all draw the same SVG from them. Names are lucide's own (kebab-case).
+ * share links all draw the same SVG from them. Names are lucide's own canonical (kebab-case) names —
+ * aliases such as "trash-2" re-export another file without the data, so they can't be used here.
  */
 import type { LucideIconData, LucideIconNode } from 'lucide-react'
 import { __iconData as iCheck } from 'lucide-react/dist/esm/icons/check.mjs'
@@ -14,7 +15,7 @@ import { __iconData as iCircleAlert } from 'lucide-react/dist/esm/icons/circle-a
 import { __iconData as iTriangleAlert } from 'lucide-react/dist/esm/icons/triangle-alert.mjs'
 import { __iconData as iOctagonAlert } from 'lucide-react/dist/esm/icons/octagon-alert.mjs'
 import { __iconData as iInfo } from 'lucide-react/dist/esm/icons/info.mjs'
-import { __iconData as iCircleHelp } from 'lucide-react/dist/esm/icons/circle-help.mjs'
+import { __iconData as iCircleQuestionMark } from 'lucide-react/dist/esm/icons/circle-question-mark.mjs'
 import { __iconData as iBan } from 'lucide-react/dist/esm/icons/ban.mjs'
 import { __iconData as iCircleDot } from 'lucide-react/dist/esm/icons/circle-dot.mjs'
 import { __iconData as iCircle } from 'lucide-react/dist/esm/icons/circle.mjs'
@@ -72,7 +73,7 @@ import { __iconData as iCalendar } from 'lucide-react/dist/esm/icons/calendar.mj
 import { __iconData as iCalendarDays } from 'lucide-react/dist/esm/icons/calendar-days.mjs'
 import { __iconData as iCalendarCheck } from 'lucide-react/dist/esm/icons/calendar-check.mjs'
 import { __iconData as iCalendarClock } from 'lucide-react/dist/esm/icons/calendar-clock.mjs'
-import { __iconData as iHistory } from 'lucide-react/dist/esm/icons/history.mjs'
+import { __iconData as iRotateCcwClock } from 'lucide-react/dist/esm/icons/rotate-ccw-clock.mjs'
 import { __iconData as iWatch } from 'lucide-react/dist/esm/icons/watch.mjs'
 import { __iconData as iSunrise } from 'lucide-react/dist/esm/icons/sunrise.mjs'
 import { __iconData as iSunset } from 'lucide-react/dist/esm/icons/sunset.mjs'
@@ -81,10 +82,10 @@ import { __iconData as iUsers } from 'lucide-react/dist/esm/icons/users.mjs'
 import { __iconData as iUserPlus } from 'lucide-react/dist/esm/icons/user-plus.mjs'
 import { __iconData as iUserCheck } from 'lucide-react/dist/esm/icons/user-check.mjs'
 import { __iconData as iContact } from 'lucide-react/dist/esm/icons/contact.mjs'
-import { __iconData as iSmile } from 'lucide-react/dist/esm/icons/smile.mjs'
-import { __iconData as iFrown } from 'lucide-react/dist/esm/icons/frown.mjs'
-import { __iconData as iMeh } from 'lucide-react/dist/esm/icons/meh.mjs'
-import { __iconData as iLaugh } from 'lucide-react/dist/esm/icons/laugh.mjs'
+import { __iconData as iFaceSlightlySmiling } from 'lucide-react/dist/esm/icons/face-slightly-smiling.mjs'
+import { __iconData as iFaceSlightlyFrowning } from 'lucide-react/dist/esm/icons/face-slightly-frowning.mjs'
+import { __iconData as iFaceNeutral } from 'lucide-react/dist/esm/icons/face-neutral.mjs'
+import { __iconData as iFaceGrinning } from 'lucide-react/dist/esm/icons/face-grinning.mjs'
 import { __iconData as iMessageSquare } from 'lucide-react/dist/esm/icons/message-square.mjs'
 import { __iconData as iMessageCircle } from 'lucide-react/dist/esm/icons/message-circle.mjs'
 import { __iconData as iMessagesSquare } from 'lucide-react/dist/esm/icons/messages-square.mjs'
@@ -105,7 +106,7 @@ import { __iconData as iPartyPopper } from 'lucide-react/dist/esm/icons/party-po
 import { __iconData as iBaby } from 'lucide-react/dist/esm/icons/baby.mjs'
 import { __iconData as iPersonStanding } from 'lucide-react/dist/esm/icons/person-standing.mjs'
 import { __iconData as iBriefcase } from 'lucide-react/dist/esm/icons/briefcase.mjs'
-import { __iconData as iBuilding2 } from 'lucide-react/dist/esm/icons/building-2.mjs'
+import { __iconData as iBuildingComplex } from 'lucide-react/dist/esm/icons/building-complex.mjs'
 import { __iconData as iLandmark } from 'lucide-react/dist/esm/icons/landmark.mjs'
 import { __iconData as iStore } from 'lucide-react/dist/esm/icons/store.mjs'
 import { __iconData as iShoppingCart } from 'lucide-react/dist/esm/icons/shopping-cart.mjs'
@@ -156,7 +157,7 @@ import { __iconData as iNotebookPen } from 'lucide-react/dist/esm/icons/notebook
 import { __iconData as iNotebook } from 'lucide-react/dist/esm/icons/notebook.mjs'
 import { __iconData as iBook } from 'lucide-react/dist/esm/icons/book.mjs'
 import { __iconData as iBookOpen } from 'lucide-react/dist/esm/icons/book-open.mjs'
-import { __iconData as iBookMarked } from 'lucide-react/dist/esm/icons/book-marked.mjs'
+import { __iconData as iBookBookmark } from 'lucide-react/dist/esm/icons/book-bookmark.mjs'
 import { __iconData as iLibrary } from 'lucide-react/dist/esm/icons/library.mjs'
 import { __iconData as iNewspaper } from 'lucide-react/dist/esm/icons/newspaper.mjs'
 import { __iconData as iStickyNote } from 'lucide-react/dist/esm/icons/sticky-note.mjs'
@@ -173,7 +174,7 @@ import { __iconData as iLink } from 'lucide-react/dist/esm/icons/link.mjs'
 import { __iconData as iPaperclip } from 'lucide-react/dist/esm/icons/paperclip.mjs'
 import { __iconData as iPrinter } from 'lucide-react/dist/esm/icons/printer.mjs'
 import { __iconData as iSearch } from 'lucide-react/dist/esm/icons/search.mjs'
-import { __iconData as iFilter } from 'lucide-react/dist/esm/icons/filter.mjs'
+import { __iconData as iFunnel } from 'lucide-react/dist/esm/icons/funnel.mjs'
 import { __iconData as iSlidersHorizontal } from 'lucide-react/dist/esm/icons/sliders-horizontal.mjs'
 import { __iconData as iSettings } from 'lucide-react/dist/esm/icons/settings.mjs'
 import { __iconData as iWrench } from 'lucide-react/dist/esm/icons/wrench.mjs'
@@ -189,7 +190,7 @@ import { __iconData as iPenTool } from 'lucide-react/dist/esm/icons/pen-tool.mjs
 import { __iconData as iHighlighter } from 'lucide-react/dist/esm/icons/highlighter.mjs'
 import { __iconData as iEraser } from 'lucide-react/dist/esm/icons/eraser.mjs'
 import { __iconData as iScissors } from 'lucide-react/dist/esm/icons/scissors.mjs'
-import { __iconData as iTrash2 } from 'lucide-react/dist/esm/icons/trash-2.mjs'
+import { __iconData as iTrash } from 'lucide-react/dist/esm/icons/trash.mjs'
 import { __iconData as iSave } from 'lucide-react/dist/esm/icons/save.mjs'
 import { __iconData as iImage } from 'lucide-react/dist/esm/icons/image.mjs'
 import { __iconData as iCamera } from 'lucide-react/dist/esm/icons/camera.mjs'
@@ -297,9 +298,16 @@ export interface GlyphEntry {
   node: LucideIconNode[]
   /** Search words: the name's words, English tags, German tags. */
   words: string
+  /** lucide's older names for the same icon ("trash-2" → trash) */
+  aliases: string[]
 }
 
-const g = (name: string, data: LucideIconData, en: string, de: string): GlyphEntry => ({ name, node: data.node, words: `${name.replace(/-/g, ' ')} ${en} ${de}` })
+const g = (name: string, data: LucideIconData, en: string, de: string): GlyphEntry => ({
+  name,
+  node: data.node,
+  words: `${name.replace(/-/g, ' ')} ${en} ${de}`,
+  aliases: data.aliases ?? [],
+})
 
 export const GLYPHS: GlyphEntry[] = [
   // status & marks
@@ -312,7 +320,7 @@ export const GLYPHS: GlyphEntry[] = [
   g('triangle-alert', iTriangleAlert, 'warning caution danger', 'warnung vorsicht gefahr'),
   g('octagon-alert', iOctagonAlert, 'stop error critical', 'stopp fehler kritisch'),
   g('info', iInfo, 'information note about', 'information hinweis'),
-  g('circle-help', iCircleHelp, 'help question faq', 'hilfe frage'),
+  g('circle-question-mark', iCircleQuestionMark, 'help question faq', 'hilfe frage'),
   g('ban', iBan, 'forbidden blocked no', 'verboten gesperrt'),
   g('circle-dot', iCircleDot, 'record active radio', 'aktiv aufnahme'),
   g('circle', iCircle, 'dot round empty', 'kreis punkt leer'),
@@ -372,7 +380,7 @@ export const GLYPHS: GlyphEntry[] = [
   g('calendar-days', iCalendarDays, 'date week schedule', 'kalender woche termine'),
   g('calendar-check', iCalendarCheck, 'scheduled booked done', 'termin gebucht bestätigt'),
   g('calendar-clock', iCalendarClock, 'appointment deadline', 'termin frist'),
-  g('history', iHistory, 'past recent log', 'verlauf vergangenheit'),
+  g('rotate-ccw-clock', iRotateCcwClock, 'history past recent log', 'verlauf vergangenheit'),
   g('watch', iWatch, 'time wrist', 'armbanduhr zeit'),
   g('sunrise', iSunrise, 'morning start', 'sonnenaufgang morgen'),
   g('sunset', iSunset, 'evening end', 'sonnenuntergang abend'),
@@ -382,10 +390,10 @@ export const GLYPHS: GlyphEntry[] = [
   g('user-plus', iUserPlus, 'invite add member', 'einladen mitglied hinzufügen'),
   g('user-check', iUserCheck, 'assigned approved person', 'zugewiesen bestätigt person'),
   g('contact', iContact, 'card address crm', 'kontakt visitenkarte crm'),
-  g('smile', iSmile, 'happy good emoji', 'lächeln glücklich gut'),
-  g('frown', iFrown, 'sad bad', 'traurig schlecht'),
-  g('meh', iMeh, 'neutral okay', 'neutral naja'),
-  g('laugh', iLaugh, 'funny joy', 'lachen lustig freude'),
+  g('face-slightly-smiling', iFaceSlightlySmiling, 'smile happy good emoji', 'lächeln glücklich gut'),
+  g('face-slightly-frowning', iFaceSlightlyFrowning, 'frown sad bad', 'traurig schlecht'),
+  g('face-neutral', iFaceNeutral, 'meh neutral okay', 'neutral naja'),
+  g('face-grinning', iFaceGrinning, 'laugh funny joy', 'lachen lustig freude'),
   g('message-square', iMessageSquare, 'comment chat note', 'nachricht kommentar chat'),
   g('message-circle', iMessageCircle, 'chat talk bubble', 'nachricht sprechblase chat'),
   g('messages-square', iMessagesSquare, 'conversation discussion', 'unterhaltung diskussion'),
@@ -407,7 +415,7 @@ export const GLYPHS: GlyphEntry[] = [
   g('person-standing', iPersonStanding, 'person human individual', 'person mensch'),
   // work & business
   g('briefcase', iBriefcase, 'work job business', 'aktenkoffer arbeit job'),
-  g('building-2', iBuilding2, 'company office', 'gebäude firma büro'),
+  g('building-complex', iBuildingComplex, 'building company office', 'gebäude firma büro'),
   g('landmark', iLandmark, 'bank government institution', 'bank behörde'),
   g('store', iStore, 'shop retail', 'laden geschäft'),
   g('shopping-cart', iShoppingCart, 'cart buy shop', 'einkaufswagen kaufen'),
@@ -459,7 +467,7 @@ export const GLYPHS: GlyphEntry[] = [
   g('notebook', iNotebook, 'notes journal', 'notizbuch'),
   g('book', iBook, 'read manual', 'buch lesen handbuch'),
   g('book-open', iBookOpen, 'read docs wiki', 'buch lesen doku wiki'),
-  g('book-marked', iBookMarked, 'bookmark reading', 'lesezeichen buch'),
+  g('book-bookmark', iBookBookmark, 'book marked bookmark reading', 'lesezeichen buch'),
   g('library', iLibrary, 'books collection', 'bibliothek bücher'),
   g('newspaper', iNewspaper, 'news press article', 'zeitung nachrichten presse'),
   g('sticky-note', iStickyNote, 'note memo', 'notizzettel memo'),
@@ -476,7 +484,7 @@ export const GLYPHS: GlyphEntry[] = [
   g('paperclip', iPaperclip, 'attachment', 'büroklammer anhang'),
   g('printer', iPrinter, 'print', 'drucker drucken'),
   g('search', iSearch, 'find magnifier', 'suche lupe finden'),
-  g('filter', iFilter, 'funnel sort', 'filter trichter'),
+  g('funnel', iFunnel, 'filter funnel sort', 'filter trichter'),
   g('sliders-horizontal', iSlidersHorizontal, 'settings controls adjust', 'regler einstellungen'),
   g('settings', iSettings, 'gear preferences', 'einstellungen zahnrad'),
   g('wrench', iWrench, 'tool fix repair', 'schraubenschlüssel werkzeug reparieren'),
@@ -492,7 +500,7 @@ export const GLYPHS: GlyphEntry[] = [
   g('highlighter', iHighlighter, 'marker highlight', 'textmarker markieren'),
   g('eraser', iEraser, 'delete clear', 'radiergummi löschen'),
   g('scissors', iScissors, 'cut', 'schere schneiden'),
-  g('trash-2', iTrash2, 'delete bin remove', 'papierkorb löschen'),
+  g('trash', iTrash, 'trash bin delete bin remove', 'papierkorb löschen'),
   g('save', iSave, 'disk store', 'speichern diskette'),
   g('image', iImage, 'picture photo', 'bild foto'),
   g('camera', iCamera, 'photo picture', 'kamera foto'),
@@ -599,4 +607,5 @@ export const GLYPHS: GlyphEntry[] = [
   g('gem', iGem, 'diamond value premium', 'edelstein diamant wert'),
 ]
 
-export const GLYPH_BY_NAME: ReadonlyMap<string, GlyphEntry> = new Map(GLYPHS.map((x) => [x.name, x]))
+/** Glyph by name — lucide's aliases included, so Markdown written with an older name still resolves. */
+export const GLYPH_BY_NAME: ReadonlyMap<string, GlyphEntry> = new Map([...GLYPHS.flatMap((x) => x.aliases.map((a) => [a, x] as const)), ...GLYPHS.map((x) => [x.name, x] as const)])
