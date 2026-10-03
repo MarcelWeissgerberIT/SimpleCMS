@@ -5,9 +5,12 @@
  *
  *  - reminders: date mentions with `attrs.reminder` in any page + date properties of rows with
  *    `DateValue.reminder`. A reminder's key changes with its date or code, so changing either
- *    cancels the old one; trashed pages (or pages under a trashed parent) have none.
- *  - team facts (cloud workspaces): my person mentions per block, the person properties I am
- *    in, and every comment reply id of a page — the engine diffs them against a snapshot.
+ *    cancels the old one; trashed pages (or pages under a trashed parent) have none. A date mention
+ *    inside a synced block is one reminder however many pages show the block (keyed by the sync
+ *    group, at the page of the original when it is live).
+ *  - team facts (cloud workspaces): my person mentions per block (a synced copy's at its original),
+ *    the person properties I am in, and every comment reply id of a page — the engine diffs them
+ *    against a snapshot.
  */
 import type { JSONContent } from '@tiptap/core'
 import type { Database, DateValue, ID, Page, PageComment } from '../../store/types'
@@ -15,7 +18,7 @@ import { isEffectivelyTrashed } from '../../store/selectors'
 import { normalizeReminder, reminderDueAt } from './reminders'
 
 export interface ReminderEntry {
-  /** 'm:<page>:<iso>:<code>' (date mention) · 'p:<row>:<prop>:<iso>:<code>' (date property) */
+  /** 'm:<page>:<iso>:<code>' (date mention) · 's:<syncId>:<iso>:<code>' (date mention in a synced block) · 'p:<row>:<prop>:<iso>:<code>' (date property) */
   key: string
   source: 'mention' | 'property'
   pageId: ID
@@ -34,10 +37,17 @@ interface Spot {
   line: string
 }
 
+/** The synced block a mention sits in: its group, and the page of its original (null: this copy is the original). */
+interface SyncedSpot {
+  syncId: string
+  original: boolean
+  source: ID | null
+}
+
 interface ContentFacts {
-  dates: Array<Spot & { iso: string; code: string }>
+  dates: Array<Spot & { iso: string; code: string; synced: SyncedSpot | null }>
   /** person id → where it is mentioned */
-  persons: Map<ID, Spot[]>
+  persons: Map<ID, Array<Spot & { synced: SyncedSpot | null }>>
   /** comment thread id → the block its mark sits in */
   comments: Map<ID, string | null>
 }
@@ -63,10 +73,14 @@ function scanContent(doc: JSONContent): ContentFacts {
   const hit = contentCache.get(doc)
   if (hit) return hit
   const facts: ContentFacts = { dates: [], persons: new Map(), comments: new Map() }
-  const walk = (n: JSONContent, block: string | null) => {
+  const walk = (n: JSONContent, block: string | null, synced: SyncedSpot | null) => {
     const kids = n.content
     if (!kids) return
     const here = typeof n.attrs?.id === 'string' && n.attrs.id ? n.attrs.id : block
+    if (n.type === 'syncedBlock' && typeof n.attrs?.syncId === 'string' && n.attrs.syncId) {
+      const source = typeof n.attrs.sourcePageId === 'string' && n.attrs.sourcePageId ? n.attrs.sourcePageId : null
+      synced = { syncId: n.attrs.syncId, original: !source, source }
+    }
     let line: string | null = null
     const lineOf = () => (line ??= clip(inlineText(kids)))
     for (const c of kids) {
@@ -75,10 +89,10 @@ function scanContent(doc: JSONContent): ContentFacts {
         if (typeof a.id !== 'string' || !a.id) continue
         if (a.kind === 'date') {
           const code = normalizeReminder(a.reminder)
-          if (code) facts.dates.push({ iso: a.id, code, blockId: here, line: lineOf() })
+          if (code) facts.dates.push({ iso: a.id, code, blockId: here, line: lineOf(), synced })
         } else if (a.kind === 'person') {
           const list = facts.persons.get(a.id) ?? []
-          list.push({ blockId: here, line: lineOf() })
+          list.push({ blockId: here, line: lineOf(), synced })
           facts.persons.set(a.id, list)
         }
       } else if (c.type === 'text') {
@@ -86,10 +100,10 @@ function scanContent(doc: JSONContent): ContentFacts {
           const id = m.type === 'comment' ? m.attrs?.id : null
           if (typeof id === 'string' && !facts.comments.has(id)) facts.comments.set(id, here)
         }
-      } else walk(c, here)
+      } else walk(c, here, synced)
     }
   }
-  walk(doc, null)
+  walk(doc, null, null)
   contentCache.set(doc, facts)
   return facts
 }
@@ -100,6 +114,8 @@ function isDateValue(v: unknown): v is DateValue {
 
 /* ------------------------------------------------------------------ reminders */
 
+/** Reminders of synced blocks: from the copy that is the original (the others show the same). */
+const fromOriginal = new WeakSet<ReminderEntry>()
 const pageReminders = new WeakMap<Page, { db: Database | undefined; list: ReminderEntry[] }>()
 
 function remindersOf(page: Page, db: Database | undefined): ReminderEntry[] {
@@ -109,11 +125,13 @@ function remindersOf(page: Page, db: Database | undefined): ReminderEntry[] {
   const seen = new Set<string>()
   if (page.content) {
     for (const d of scanContent(page.content).dates) {
-      const key = `m:${page.id}:${d.iso}:${d.code}`
+      const key = d.synced ? `s:${d.synced.syncId}:${d.iso}:${d.code}` : `m:${page.id}:${d.iso}:${d.code}`
       const dueAt = reminderDueAt(d.iso, d.code)
       if (dueAt === null || seen.has(key)) continue
       seen.add(key)
-      list.push({ key, source: 'mention', pageId: page.id, propId: null, iso: d.iso, code: d.code, dueAt, blockId: d.blockId, excerpt: d.line })
+      const entry: ReminderEntry = { key, source: 'mention', pageId: page.id, propId: null, iso: d.iso, code: d.code, dueAt, blockId: d.blockId, excerpt: d.line }
+      if (d.synced?.original) fromOriginal.add(entry)
+      list.push(entry)
     }
   }
   if (db) {
@@ -134,12 +152,21 @@ function remindersOf(page: Page, db: Database | undefined): ReminderEntry[] {
 /** Every reminder of the workspace (pages in the trash have none), soonest first. */
 export function collectReminders(pages: Record<ID, Page>, dbs: Record<ID, Database>): ReminderEntry[] {
   const out: ReminderEntry[] = []
+  /** synced blocks: one entry per key, the original's when it is live */
+  const shared = new Map<string, ReminderEntry>()
   for (const id in pages) {
     const page = pages[id]
     const list = remindersOf(page, page.databaseId ? dbs[page.databaseId] : undefined)
     if (!list.length || isEffectivelyTrashed(pages, id)) continue
-    out.push(...list)
+    for (const r of list) {
+      if (!r.key.startsWith('s:')) out.push(r)
+      else {
+        const had = shared.get(r.key)
+        if (!had || (fromOriginal.has(r) && !fromOriginal.has(had))) shared.set(r.key, r)
+      }
+    }
   }
+  out.push(...shared.values())
   return out.sort((a, b) => a.dueAt - b.dueAt)
 }
 
@@ -155,9 +182,13 @@ export interface TeamFacts {
   r: ID[]
 }
 
-export function teamFacts(page: Page, db: Database | undefined, me: ID): TeamFacts {
+/**
+ * `hasPage`: is a page in this member's workspace? A mention inside a synced copy whose original is
+ * there counts at the original only — one mention, however many pages show the block.
+ */
+export function teamFacts(page: Page, db: Database | undefined, me: ID, hasPage: (id: ID) => boolean = () => false): TeamFacts {
   const out: TeamFacts = { a: [], r: [] }
-  if (page.content) out.m = (scanContent(page.content).persons.get(me) ?? []).map((s) => s.blockId)
+  if (page.content) out.m = (scanContent(page.content).persons.get(me) ?? []).filter((s) => !s.synced?.source || !hasPage(s.synced.source)).map((s) => s.blockId)
   if (db)
     for (const prop of db.properties) {
       const v = page.properties[prop.id]

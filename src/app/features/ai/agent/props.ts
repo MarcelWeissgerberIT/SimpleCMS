@@ -157,6 +157,8 @@ export function coerceProperty(db: Database, prop: PropertyDef, raw: unknown, ro
       for (const name of names) {
         const hit = opts.find((o) => o.name.toLowerCase() === name.toLowerCase())
         if (!hit && prop.type === 'status') return fail(`unknown status ${JSON.stringify(name)}. Use one of: ${all.map((n) => JSON.stringify(n)).join(', ')}.`)
+        // a locked database keeps its options (database/model/lock.ts): only existing ones can be picked
+        if (!hit && db.locked) return fail(`unknown option ${JSON.stringify(name)} — the database is locked, so no new options can be created. Use one of: ${all.map((n) => JSON.stringify(n)).join(', ')}.`)
         const n = hit?.name ?? name.slice(0, 60)
         if (final.some((x) => x.toLowerCase() === n.toLowerCase())) continue
         if (!hit) fresh.push(n)

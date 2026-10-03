@@ -358,6 +358,45 @@ export interface FormQuestion {
   includeTime?: boolean
   /** title question only (it is not part of visibleProperties): leave it out of the form */
   hidden?: boolean
+  /** Placeholder inside the answer field (text, number, dropdown questions). */
+  placeholder?: string
+  /**
+   * How the question is shown (absent = the kind's default):
+   * select/status 'chips' | 'list' | 'dropdown' · multi-select 'chips' | 'list' ·
+   * rating / number 'scale' (numbered keys) · text 'long' | 'short'.
+   */
+  display?: FormDisplay
+  /** number questions shown as a scale: 1–5 (default) or 1–10 */
+  scale?: 5 | 10
+  /** Show this question only if … (absent / no conditions = always shown). See database/form/logic.ts. */
+  showIf?: FormLogic
+}
+
+export type FormDisplay = 'chips' | 'list' | 'dropdown' | 'scale' | 'short' | 'long'
+
+/** A condition on the answer to an EARLIER question of the same form. */
+export interface FormCondition {
+  /** property id of the question it looks at */
+  q: ID
+  op: FormConditionOp
+  /** select / multi-select: option id · number: a number · text: the text to find · date: "YYYY-MM-DD" */
+  value?: string | number | null
+}
+
+export type FormConditionOp = 'is' | 'is_not' | 'contains' | 'not_contains' | 'empty' | 'not_empty' | 'checked' | 'unchecked' | 'eq' | 'gt' | 'lt' | 'before' | 'after'
+
+export interface FormLogic {
+  /** and: every condition holds · or: any one does */
+  op: 'and' | 'or'
+  conditions: FormCondition[]
+}
+
+/** A page break: a new page (section) of the form starts at the question `before` (a property id). */
+export interface FormPageBreak {
+  id: ID
+  before: ID
+  title?: string
+  description?: string
 }
 
 export interface FormConfig {
@@ -369,6 +408,17 @@ export interface FormConfig {
   questions?: Record<ID, FormQuestion>
   /** Responses from a shared form link are POSTed here (n8n / Make / Zapier …). */
   webhookUrl?: string
+  /** Page breaks (multi-page form); the first page always starts with the first question. */
+  pages?: FormPageBreak[]
+  /** Closing screen after a response: heading + message (defaults: "Response recorded" …). */
+  doneTitle?: string
+  doneMessage?: string
+  /** Shared links: after submitting, respondents continue to this http(s) address. */
+  redirectUrl?: string
+  /** Offer "Submit another response" after submitting (absent = true). */
+  allowAnother?: boolean
+  /** Responses made in the workspace get this option of a select property, so they can be told apart and counted. */
+  marker?: { propertyId: ID; optionId: ID }
 }
 
 export interface View {

@@ -396,6 +396,22 @@ describe('public API v1', () => {
     assert.equal(propsOf(meta.doc, id)['p-status'], 'o-done')
   })
 
+  test('PATCH moving a date keeps the reminder set on it in the app; clearing the date drops it', async () => {
+    const created = await writer.post('/api/v1/databases/db-tasks/rows', { title: 'Remind me', properties: { Due: '2026-11-01' } })
+    const id = created.body.id
+    await waitFor(() => !!rowEntry(meta.doc, id), 5000, 'row')
+    // the app's date editor stores the reminder on the value (types.ts DateValue.reminder)
+    ;(rowEntry(meta.doc, id)!.get('properties') as Y.Map<unknown>).set('p-due', { start: '2026-11-01', end: null, reminder: '-1d' })
+    await flushed(meta)
+    const res = await writer.patch(`/api/v1/rows/${id}`, { properties: { Due: '2026-11-05T10:00' } })
+    assert.equal(res.status, 200)
+    assert.deepEqual(res.body.properties.Due, { start: '2026-11-05T10:00', end: null })
+    await waitFor(() => (propsOf(meta.doc, id)['p-due'] as { start?: string } | null)?.start === '2026-11-05T10:00', 5000, 'date at the client')
+    assert.deepEqual(propsOf(meta.doc, id)['p-due'], { start: '2026-11-05T10:00', end: null, includeTime: true, reminder: '-1d' })
+    await writer.patch(`/api/v1/rows/${id}`, { properties: { Due: null } })
+    await waitFor(() => propsOf(meta.doc, id)['p-due'] === null, 5000, 'cleared at the client')
+  })
+
   test('rows are listed with cursors, in the table order or by time', async () => {
     for (let i = 0; i < 5; i++) await writer.post('/api/v1/databases/db-tasks/rows', { title: `Bulk ${i}` })
     const all: string[] = []

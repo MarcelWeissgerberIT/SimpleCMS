@@ -1,12 +1,14 @@
 /**
  * Pick up files edited outside One (folder or GitHub) — through the Markdown importer's path:
  * its front matter / title / link helpers (io/import/plan.ts, csv.ts) and the editor's
- * markdownToDoc, written with setContent(…, 'sync').
+ * markdownToDoc, written with setContent(…, FILE_ORIGIN) — an edit made on this device, so synced
+ * blocks carry it to their other copies (origin 'sync' is for changes another tab / member made).
  *
  *  - A changed file whose page One did not change since it was written: title, icon, row
  *    properties (front matter) and content are taken over. Content is merged block by block:
  *    blocks the file left as they were keep everything Markdown can't express (comments, button
- *    actions, colours, widths …); only edited / new blocks come from the file.
+ *    actions, colours, widths …); only edited / new blocks come from the file. A synced block's
+ *    blocks are matched one by one: an edit inside it stays inside it (the block stays synced).
  *  - Both sides changed: One's version is kept — the caller saves the file's version as a
  *    "(conflict <date>)" copy.
  *  - A new .md file becomes a new page under the page / database its folder belongs to (a row in a
@@ -88,6 +90,10 @@ const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 
 type Editor = RenderCtx['editor']
 
+/** setContent origin of content taken over from a file (history snapshots it itself, see update()). */
+export const FILE_ORIGIN = 'file'
+const SYNCED = 'syncedBlock'
+
 /** Top-level block → its Markdown, as the file shows it (heading anchors aren't part of file links). */
 const mdKey = (editor: Editor, n: JSONContent) =>
   editor
@@ -103,10 +109,19 @@ const mdKey = (editor: Editor, n: JSONContent) =>
  * a table of contents …) can't have been edited in the file and stay where they are.
  */
 export function mergeBlocks(editor: Editor, ours: JSONContent | null, body: string, parse: (md: string) => JSONContent[]): JSONContent {
-  const o = ours?.content ?? []
+  // a synced block is only its blocks in the file: they are matched one by one, and text that
+  // replaces blocks of it (or sits between two of them) goes back inside it (`wrap`: its index)
+  const wraps: JSONContent[] = []
+  const o: Array<{ node: JSONContent; wrap: number }> = []
+  for (const n of ours?.content ?? []) {
+    if (n.type === SYNCED && n.content?.length) {
+      const w = wraps.push(n) - 1
+      for (const c of n.content) o.push({ node: c, wrap: w })
+    } else o.push({ node: n, wrap: -1 })
+  }
   const text = body.replace(/\r\n?/g, '\n').trim()
-  const out: JSONContent[] = []
-  const keys = o.map((n) => mdKey(editor, n))
+  const out: Array<{ node: JSONContent; wrap: number }> = []
+  const keys = o.map((x) => mdKey(editor, x.node))
   const at = (chunk: string, from: number): number => {
     let p = text.indexOf(chunk, from)
     while (p >= 0) {
@@ -116,10 +131,14 @@ export function mergeBlocks(editor: Editor, ours: JSONContent | null, body: stri
     }
     return -1
   }
-  const gap = (from: number, to: number) => {
+  /** synced blocks of the blocks dropped since the last kept one; the synced block of that one */
+  let dropped: number[] = []
+  let prevWrap = -1
+  const gap = (from: number, to: number, nextWrap: number) => {
     // the blank lines around a gap only separate it from its neighbours
     const md = text.slice(from, to).replace(/^(?:[ \t]*\n)+|(?:\n[ \t]*)+$/g, '')
-    if (md.trim()) out.push(...parse(md))
+    const wrap = dropped.length ? (dropped.every((w) => w === dropped[0]) ? dropped[0] : -1) : prevWrap >= 0 && prevWrap === nextWrap ? prevWrap : -1
+    if (md.trim()) for (const node of parse(md)) out.push({ node, wrap })
   }
   let cursor = 0
   for (let i = 0; i < o.length; i++) {
@@ -130,20 +149,42 @@ export function mergeBlocks(editor: Editor, ours: JSONContent | null, body: stri
     }
     const p = at(key, cursor)
     // gone, or edited: its new text arrives with a gap
-    if (p < 0) continue
+    if (p < 0) {
+      dropped.push(o[i].wrap)
+      continue
+    }
     // a block further down shows up first: this one was deleted here (its twin sits later)
     let deleted = false
     for (let j = i + 1; j < Math.min(o.length, i + 6) && !deleted; j++) {
       const q = keys[j] ? at(keys[j], cursor) : -1
       if (q >= 0 && q + keys[j].length <= p) deleted = true
     }
-    if (deleted) continue
-    gap(cursor, p)
+    if (deleted) {
+      dropped.push(o[i].wrap)
+      continue
+    }
+    gap(cursor, p, o[i].wrap)
     out.push(o[i])
+    dropped = []
+    prevWrap = o[i].wrap
     cursor = p + key.length
   }
-  gap(cursor, text.length)
-  return { type: 'doc', content: out.length ? out : [{ type: 'paragraph' }] }
+  gap(cursor, text.length, -1)
+  // back into their synced blocks (a block whose content came apart keeps its first part)
+  const content: JSONContent[] = []
+  const done = new Set<number>()
+  for (let i = 0; i < out.length; ) {
+    const w = out[i].wrap
+    if (w < 0 || done.has(w)) {
+      content.push(out[i++].node)
+      continue
+    }
+    const run: JSONContent[] = []
+    while (i < out.length && out[i].wrap === w) run.push(out[i++].node)
+    done.add(w)
+    content.push({ ...wraps[w], content: run })
+  }
+  return { type: 'doc', content: content.length ? content : [{ type: 'paragraph' }] }
 }
 
 const PROMOTE = new Set(['doc', 'blockquote', 'callout', 'detailsContent', 'column'])
@@ -280,17 +321,21 @@ export async function applyPickup(input: PickupInput): Promise<PickupResult> {
 
   /* ---------- row properties ---------- */
   const options = new Map<ID, SelectOption[]>()
-  const optionId = (dbId: ID, d: PropertyDef, name: string): string => {
+  /** The option of that name — created when missing, except in a locked database (null: keep the value). */
+  const optionId = (dbId: ID, d: PropertyDef, name: string): string | null => {
     const list = options.get(d.id) ?? [...(d.options ?? [])]
     options.set(d.id, list)
     const hit = list.find((o) => o.name.toLowerCase() === name.trim().toLowerCase())
     if (hit) return hit.id
+    if (ws().databases[dbId]?.locked) return null
     const opt: SelectOption = { id: newId(), name: name.trim(), color: 'default', ...(d.type === 'status' ? { group: 'todo' as const } : {}) }
     list.push(opt)
     ws().updateProperty(dbId, d.id, { options: [...list] })
     return opt.id
   }
   const norm = (v: YamlValue) => (Array.isArray(v) ? v.join('\u0001') : v === null || v === undefined ? '' : String(v))
+  /** Pages with a file value One could not take (a new option in a locked database): their file is written again. */
+  const refused = new Set<ID>()
   const applyProps = (page: Page, data: Map<string, YamlValue>, path: string) => {
     const db = page.databaseId ? ws().databases[page.databaseId] : undefined
     if (!db) return false
@@ -323,12 +368,24 @@ export async function applyPickup(input: PickupInput): Promise<PickupResult> {
           break
         }
         case 'select':
-        case 'status':
-          value = text ? optionId(db.id, d, text) : null
+        case 'status': {
+          const id = text ? optionId(db.id, d, text) : null
+          if (text && !id) {
+            refused.add(page.id)
+            continue
+          }
+          value = id
           break
-        case 'multi_select':
-          value = [...new Set(yamlList(fileVal).map((name) => optionId(db.id, d, name)))]
+        }
+        case 'multi_select': {
+          const ids = yamlList(fileVal).map((name) => optionId(db.id, d, name))
+          if (ids.includes(null)) {
+            refused.add(page.id)
+            continue
+          }
+          value = [...new Set(ids as string[])]
           break
+        }
         default:
           value = text
       }
@@ -371,7 +428,7 @@ export async function applyPickup(input: PickupInput): Promise<PickupResult> {
     const empty = !body.trim()
     if (!(empty && !ours) && !deepEqual(merged, ours)) {
       if (ours) await snapshotNow(page.id, 'manual').catch(() => null)
-      ws().setContent(page.id, empty ? null : merged, 'sync')
+      ws().setContent(page.id, empty ? null : merged, FILE_ORIGIN)
       changed = true
     }
     return changed
@@ -415,7 +472,8 @@ export async function applyPickup(input: PickupInput): Promise<PickupResult> {
     }
     if (await update(page, file)) res.updated.push(page.id)
     res.entries[file.path] = { ...entry, sha: file.sha }
-    res.touched.push(file.path)
+    // One's rendering is what the file says now — unless a value was refused: then the file follows One
+    if (!refused.has(page.id)) res.touched.push(file.path)
   }
 
   /* ---------- 2. new files (or known pages that moved) ---------- */

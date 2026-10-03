@@ -7,7 +7,7 @@ import { NodeSelection, Selection, TextSelection, type Transaction } from '@tipt
 import { toggleHeadingLevel, type ToggleHeadingLevel } from '../schema/toggle'
 
 /** Parents whose children are "blocks" in the Notion sense. */
-const CONTAINERS = new Set(['doc', 'column', 'callout', 'detailsContent', 'blockquote', 'tab', 'syncedBlock'])
+const CONTAINERS = new Set(['doc', 'column', 'callout', 'detailsContent', 'blockquote', 'tab', 'syncedBlock', 'meetingNotes'])
 const LIST_ITEMS = new Set(['listItem', 'taskItem'])
 
 export interface BlockRef {
@@ -114,7 +114,7 @@ export type TurnTarget =
 const LIST_TYPES: Record<string, string> = { bulletList: 'bulletList', orderedList: 'orderedList', taskList: 'taskList' }
 
 /** Containers whose lines are blocks of their own: turning a line into something converts it in place. */
-const TURN_STOPS = new Set(['detailsContent', 'column', 'tableCell', 'tableHeader', 'callout', 'tab', 'syncedBlock'])
+const TURN_STOPS = new Set(['detailsContent', 'column', 'tableCell', 'tableHeader', 'callout', 'tab', 'syncedBlock', 'meetingNotes'])
 
 /**
  * The "Turn into" type of the block at the caret. Lines inside callouts, toggles and columns are

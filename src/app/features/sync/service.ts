@@ -81,6 +81,8 @@ function exclusive<T>(fn: () => Promise<T>): Promise<T> {
   return job
 }
 
+/** Status / log reloads between this browser's tabs. */
+const CHANNEL = 'one-sync-status'
 let channel: BroadcastChannel | null = null
 
 async function log(target: TargetKind, kind: LogKind, vars?: LogEntry['vars']) {
@@ -478,7 +480,8 @@ export function startSync(): () => void {
   started = true
   const gen = ++generation
   void loadAll().catch((e) => console.warn('[one] sync: could not load its settings', e))
-  channel = typeof BroadcastChannel !== 'undefined' ? new BroadcastChannel('one-sync') : null
+  // its own name: 'one-sync' is the workspace persistence's (a 'changed' there re-reads the whole workspace)
+  channel = typeof BroadcastChannel !== 'undefined' ? new BroadcastChannel(CHANNEL) : null
   channel?.addEventListener('message', onMessage)
   window.addEventListener('focus', onFocus)
   document.addEventListener('visibilitychange', onVisible)

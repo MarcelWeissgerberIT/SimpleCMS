@@ -88,6 +88,10 @@ export const messages: Messages = {
     'editor.block.inlineMath.desc': 'A TeX formula inside the text.',
     'editor.block.ai': 'Ask AI',
     'editor.block.ai.desc': 'Write, summarise or brainstorm with Claude.',
+    'editor.block.meetingNotes': 'Meeting notes',
+    'editor.block.meetingNotes.desc': 'Record a meeting — live transcript, then Claude writes summary, decisions and action items.',
+    'editor.meeting.label': 'Meeting notes',
+    'editor.meeting.transcript': 'Transcript · {words} words',
 
     'editor.group.basic': 'Basic',
     'editor.group.lists': 'Lists',
@@ -508,6 +512,10 @@ export const messages: Messages = {
     'editor.block.inlineMath.desc': 'Eine TeX-Formel im Fließtext.',
     'editor.block.ai': 'KI fragen',
     'editor.block.ai.desc': 'Mit Claude schreiben, zusammenfassen, brainstormen.',
+    'editor.block.meetingNotes': 'Besprechungsnotizen',
+    'editor.block.meetingNotes.desc': 'Besprechung aufnehmen — Live-Transkript, dann schreibt Claude Zusammenfassung, Entscheidungen und Aufgaben.',
+    'editor.meeting.label': 'Besprechungsnotizen',
+    'editor.meeting.transcript': 'Transkript · {words} Wörter',
 
     'editor.group.basic': 'Basis',
     'editor.group.lists': 'Listen',

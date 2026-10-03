@@ -138,7 +138,9 @@ export function setCells(entries: Record<string, CellState | null>) {
 function lookup(dbId: ID, propId: ID): { db: Database; prop: PropertyDef; cfg: AutofillConfig } | null {
   const db = useWorkspace.getState().databases[dbId]
   const prop = db?.properties.find((p) => p.id === propId)
-  const cfg = prop ? autofillOf(prop) : null
+  const own = prop ? autofillOf(prop) : null
+  // a locked database keeps its options (model/lock.ts): Claude picks from the ones there are
+  const cfg = own && db?.locked && own.allowNewOptions ? { ...own, allowNewOptions: false } : own
   return db && prop && cfg ? { db, prop, cfg } : null
 }
 
@@ -215,6 +217,9 @@ export function writeProposal(dbId: ID, propId: ID, p: Proposal): PropertyValue 
   if (prop.type === 'select' || prop.type === 'multi_select') {
     let opts = [...(prop.options ?? [])]
     let created = false
+    const known = (n: string) => opts.some((x) => x.name.toLowerCase() === n.toLowerCase())
+    // locked since it was proposed: no new option, so nothing is written
+    if (db.locked && !(p.names ?? []).every(known)) return undefined
     const ids = (p.names ?? []).map((n) => {
       let o = opts.find((x) => x.name.toLowerCase() === n.toLowerCase())
       if (!o) {

@@ -7,9 +7,10 @@ import { Modal } from '../../ui/Modal'
 import { useUI } from '../../store/ui'
 import { useLang, useT } from '../../i18n'
 import type { Translate } from '@/shared/i18n'
+import type { FormConfig } from '../../store/types'
 import type { DbModel } from '../hooks'
 import { fieldsOf, formConfig, isValidHttpUrl, isValidWebhookUrl, sampleJson, type Field } from './fields'
-import { encodeShareForm, formUrl, type FormLimitIssue } from './codec'
+import { encodeShareForm, formUrl, type FormLimitIssue, type ShareClosing } from './codec'
 import { formBody, hostOf, postWebhook, type HookResult } from './webhook'
 import { patchForm, useDraft } from './config'
 
@@ -39,6 +40,13 @@ export function limitMessage(t: Translate, issue: FormLimitIssue, lang: string):
 
 export function formTitle(m: DbModel, untitled: string): string {
   return formConfig(m.view).title?.trim() || m.dbPage.title.trim() || untitled
+}
+
+/** The closing screen settings of a form view (a redirect only to a valid http(s) address). */
+export function closingOf(cfg: FormConfig): ShareClosing {
+  const str = (v: unknown) => (typeof v === 'string' ? v : '')
+  const url = str(cfg.redirectUrl).trim()
+  return { doneTitle: str(cfg.doneTitle), doneMessage: str(cfg.doneMessage), redirectUrl: isValidHttpUrl(url) ? url : '', allowAnother: cfg.allowAnother !== false }
 }
 
 export function WebhookField({ m, fields, autoFocus }: { m: DbModel; fields: Field[]; autoFocus?: boolean }) {
@@ -127,9 +135,10 @@ export function ShareFormModal({ m, onClose }: { m: DbModel; onClose: () => void
   const hookOk = isValidWebhookUrl(hook)
   const title = formTitle(m, t('common.untitled'))
   // over a link limit: no link at all (the receiving side would cut questions or options)
+  const closing = useMemo(() => closingOf(cfg), [cfg])
   const share = useMemo(
-    () => (hookOk ? encodeShareForm({ title, description: cfg.description ?? '', submitLabel: cfg.submitLabel ?? '', webhookUrl: hook, fields }) : null),
-    [hookOk, title, cfg.description, cfg.submitLabel, hook, fields],
+    () => (hookOk ? encodeShareForm({ title, description: cfg.description ?? '', submitLabel: cfg.submitLabel ?? '', webhookUrl: hook, fields, closing }) : null),
+    [hookOk, title, cfg.description, cfg.submitLabel, hook, fields, closing],
   )
   const issue = share?.issue ?? null
   const ready = hookOk && !issue

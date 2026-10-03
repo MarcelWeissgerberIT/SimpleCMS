@@ -21,6 +21,13 @@ export { AutomationsModal } from './automations/AutomationsModal'
 export { isAIConfigured, runAI, type AIAction, type RunAIOptions } from './ai/client'
 export { AIMenu, type AIMenuProps } from './ai/AIMenu'
 /*
+ * AI meeting notes (the editor's `meetingNotes` node view renders these around the notes):
+ *  - MeetingDeck: bar, title, record / pause / stop, live transcript, paste, Claude errors
+ *  - MeetingFoot: privacy line + "Send action items to a database"
+ */
+export { MeetingDeck, type MeetingDeckProps } from './ai/meeting/MeetingDeck'
+export { MeetingFoot } from './ai/meeting/MeetingFoot'
+/*
  * Workspace agent (Claude runs tools over the workspace, every write is staged for review):
  *  - AgentPanel: right-hand sheet, mount once (renders nothing while closed; owns ⌘J / Ctrl+J)
  *  - openAgent({ task?, run? }) / closeAgent() / toggleAgent(); AGENT_SHORTCUT = 'Mod+J'

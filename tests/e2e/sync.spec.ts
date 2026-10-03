@@ -215,7 +215,7 @@ test.describe('sync to a folder', () => {
     await page.evaluate(() => window.__oneSync.pickup())
     await expect.poll(() => wsEval(page, (s, id) => s.pages[id].plain, voice)).toContain('Written in VS Code 0815')
     expect(await wsEval(page, (s, id) => s.pages[id].title, voice)).toBe('Brand voice & tone')
-    expect(await wsEval(page, (s, id) => s.pages[id].contentOrigin, voice)).toBe('sync')
+    expect(await wsEval(page, (s, id) => s.pages[id].contentOrigin, voice)).toBe('file')
     // blocks the file left alone are still One's own (attributes Markdown can't carry included)
     expect(await wsEval(page, (s, id) => JSON.stringify(s.pages[id].content.content[0]), voice)).toBe(firstBlock)
 

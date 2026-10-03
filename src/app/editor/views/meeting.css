@@ -1,0 +1,77 @@
+/* ================================================================
+   Meeting notes block — an instrument panel in the page: a placard bar,
+   the transport (features/ai/meeting/meeting.css), then the notes as
+   ordinary blocks, and a mono privacy line underneath.
+   ================================================================ */
+
+.doc-content .mtg {
+  position: relative;
+  margin: 14px 0 10px;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius-2);
+  background: var(--surface);
+}
+
+.doc-content .mtg.is-recording {
+  border-color: var(--signal);
+}
+
+.doc-content .mtg.ProseMirror-selectednode {
+  outline: 2px solid var(--signal);
+  outline-offset: 2px;
+}
+
+/* ---------- the notes: ProseMirror content ---------- */
+.doc-content .mtg__notes {
+  padding: 4px 16px 10px;
+}
+
+/* NodeViewContent → [data-node-view-content-react] → the blocks */
+.doc-content .mtg__notes > div > * + * {
+  margin-top: 2px;
+}
+
+.doc-content .mtg__notes > div > :first-child {
+  margin-top: 6px;
+}
+
+/* an empty notes area explains itself (instead of the generic line placeholder) */
+.doc-content .mtg.is-blank .mtg__notes > div > p:only-child::before {
+  content: var(--mtg-hint);
+  display: block;
+  float: left;
+  height: 0;
+  white-space: nowrap;
+  color: var(--ink-3);
+  pointer-events: none;
+  font-weight: 400;
+}
+
+/* ---------- static HTML (export, clipboard) ---------- */
+.doc-content div.meeting-notes {
+  margin: 14px 0 10px;
+  padding: 12px 16px;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius-2);
+}
+
+.doc-content .meeting-notes__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+}
+
+.doc-content .meeting-notes__label,
+.doc-content .meeting-notes__when,
+.doc-content .meeting-notes__transcript summary {
+  font: 500 var(--text-2xs) / 1.6 var(--font-mono);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+.doc-content .meeting-notes__transcript time {
+  font: 500 var(--text-2xs) / 1.6 var(--font-mono);
+  color: var(--ink-3);
+}

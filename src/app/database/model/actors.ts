@@ -14,9 +14,11 @@
  *  - team workspace: the signed-in account id (person, created_by, last_edited_by)
  *  - local workspace: LOCAL_ACTOR for created_by / last_edited_by (every row matches); for person
  *    properties the workspace person named like settings.userName — or, without a name, "You" / "Du"
- *    (the demo workspace's own person) — case-insensitive; nobody when there is no such person.
+ *    (the demo workspace's own person, whichever language it was seeded in) — case-insensitive;
+ *    nobody when there is no such person.
  */
 import type { Page, Person, PropertyDef } from '../../store/types'
+import { peopleMessages } from '../people-messages'
 
 export const LOCAL_ACTOR = '@local'
 export const ME_TOKEN = '@me'
@@ -71,10 +73,16 @@ export function actorName(id: string, people: Person[], me: MeCtx, labels: Actor
 
 type MeLookup = { me: MeCtx; people: Person[]; labels: Pick<ActorLabels, 'you'> }
 
+/** The demo workspace's own person in every language it is seeded in ("You", "Du"): the language can change later. */
+const DEMO_YOU = new Set(Object.values(peopleMessages).map((m) => (m['database.actor.you'] ?? '').trim().toLowerCase()).filter(Boolean))
+
 /** Local workspace: the local user's own person — named like settings.userName, or "You" (the demo's). */
 export function localPerson(ctx: MeLookup): Person | null {
-  const name = (ctx.me.name.trim() || ctx.labels.you).toLowerCase()
-  return ctx.people.find((p) => p.name.trim().toLowerCase() === name) ?? null
+  const named = ctx.me.name.trim().toLowerCase()
+  if (named) return ctx.people.find((p) => p.name.trim().toLowerCase() === named) ?? null
+  const you = ctx.labels.you.trim().toLowerCase()
+  const norm = (p: Person) => p.name.trim().toLowerCase()
+  return ctx.people.find((p) => norm(p) === you) ?? ctx.people.find((p) => DEMO_YOU.has(norm(p))) ?? null
 }
 
 /** What ME_TOKEN stands for on a property (null = nobody). */

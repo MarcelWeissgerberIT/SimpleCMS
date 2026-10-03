@@ -19,6 +19,7 @@ import { ButtonNode } from './button'
 import { Tab, Tabs } from './tabs'
 import { CommentMark } from './comment'
 import { SyncedBlock } from './synced'
+import { MeetingNotes } from './meetingNotes'
 import { ToggleDetails, ToggleHeadingInput, ToggleSummary } from './toggle'
 import { Audio, Video } from './media'
 import {
@@ -97,6 +98,7 @@ export const BLOCK_ID_TYPES = [
   'tabs',
   'tab',
   'syncedBlock',
+  'meetingNotes',
 ]
 
 export type ExtensionWrap = Partial<Record<string, (ext: AnyExtension) => AnyExtension>>
@@ -173,6 +175,7 @@ export function baseExtensions({ readOnly = false, wrap = {}, headingOffset = 0,
     w('tabs', Tabs),
     Tab,
     w('syncedBlock', SyncedBlock),
+    w('meetingNotes', MeetingNotes),
     CommentMark,
     UniqueID.configure({ types: BLOCK_ID_TYPES, attributeName: 'id' }),
   ]

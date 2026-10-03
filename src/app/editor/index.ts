@@ -15,9 +15,24 @@
  *  - Synced blocks: node `syncedBlock` (attrs: syncId, sourcePageId — null = the original, a page id =
  *      a reference holding a cached copy). startSyncedBlocks() (main.tsx, after the workspace loaded)
  *      keeps every copy in step via setContent(…, 'synced'); stripPrivate() unwraps them to plain blocks.
+ *  - Meeting notes: node `meetingNotes` (content: the notes; attrs: title, status, language, startedAt,
+ *      endedAt, duration, transcript = [{ t, text }], recordedBy). Typed attrs + lookup helpers for the
+ *      features area (features/ai/meeting runs the recording and Claude).
  */
 export { PageEditor, type PageEditorProps } from './PageEditor'
 export { ReadOnlyDoc } from './ReadOnlyDoc'
 export { getExtensions, markdownToDoc, docToMarkdown, docToHTML, stripPrivate, stripPrivate as stripButtonActions, docSchema, prepareCollabContent } from './convert'
 export { stripComments, commentIdsIn } from './schema/comment'
 export { startSyncedBlocks, stopSyncedBlocks } from './synced/service'
+export {
+  MEETING,
+  meetingAttrs,
+  findMeeting,
+  readTranscript,
+  formatOffset,
+  transcriptWords,
+  transcriptText,
+  type MeetingAttrs,
+  type MeetingStatus,
+  type TranscriptSegment,
+} from './schema/meetingNotes'

@@ -198,7 +198,7 @@ export const BlockSelection = Extension.create({
 /* Keyboard shortcuts                                                  */
 /* ------------------------------------------------------------------ */
 
-const AI_PARENTS = new Set(['doc', 'column', 'callout', 'detailsContent', 'tab', 'syncedBlock'])
+const AI_PARENTS = new Set(['doc', 'column', 'callout', 'detailsContent', 'tab', 'syncedBlock', 'meetingNotes'])
 
 export function shortcutsExtension(bridge: Bridge) {
   return Extension.create({

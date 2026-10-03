@@ -16,6 +16,7 @@ import { ButtonView, StaticButtonView } from './ButtonView'
 import { StaticTabsView, TabsView, tabsViewOptions } from './TabsView'
 import { SyncedBlockView, syncedViewOptions } from './SyncedBlockView'
 import { AudioView, VideoView } from './MediaBlockViews'
+import { MeetingNotesView, meetingViewOptions } from './MeetingNotesView'
 import './views.css'
 import './toggle.css'
 
@@ -63,5 +64,7 @@ export function nodeViewWraps({ readOnly }: { readOnly: boolean }): ExtensionWra
     tabs: withView(readOnly ? StaticTabsView : TabsView, tabsViewOptions),
     // read-only renders show the plain content (schema HTML, no frame)
     ...(readOnly ? {} : { syncedBlock: withView(SyncedBlockView, syncedViewOptions) }),
+    // meeting notes: controls from the features area around the notes (content hole: no guard)
+    meetingNotes: withView(MeetingNotesView, meetingViewOptions),
   }
 }

@@ -235,8 +235,11 @@ after its last sibling. → `201 { "id", "url" }`. `Idempotency-Key` works here 
 
 - `null` (or `""`) clears a value.
 - Dates are **wall-clock times without a time zone**, like in the app: seconds and a zone suffix
-  (`Z`, `+02:00`) are dropped — send local time. An end before the start is a `422`.
+  (`Z`, `+02:00`) are dropped — send local time. An end before the start is a `422`. A reminder set
+  on a date in the app stays with it when `PATCH` moves the date (`null` clears both).
 - Unknown option names are a `422` that lists the allowed names; the API never invents options.
+- A **locked** database (the app's "Lock database") takes new rows and row changes like any other —
+  the lock fixes properties, options and views, and the API changes none of those (like the app).
 - A sub-items parent relation holds one row; a row can't be its own parent.
 
 ## Content (markdown-lite)

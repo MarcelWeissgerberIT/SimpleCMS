@@ -14,7 +14,7 @@ import { resolveAssetUrl } from '../../lib/files'
 import { newId } from '../../lib/ids'
 import type { Automation, ID } from '../../store/types'
 import { isDatabaseApiLoaded, loadDatabaseApi, samplePayload, useRunLog } from './engine'
-import { blankAutomation, makeRecipe, problemOf, recipeAvailable, type RecipeId } from './recipes'
+import { blankAutomation, makeRecipe, problemOf, recipeHint, type RecipeId } from './recipes'
 import { onRovingKey } from '../io/roving'
 import { AutomationEditor } from './AutomationEditor'
 import { n8nWorkflow } from './n8n'
@@ -144,14 +144,14 @@ export function AutomationsModal({ databaseId, onClose }: { databaseId: ID; onCl
           </div>
           <ul className="auto-recipes">
             {RECIPES.map((r) => {
-              const ok = recipeAvailable(db, r)
+              const hint = recipeHint(db, r)
               return (
                 <li key={r}>
-                  <button type="button" className="auto-recipe" disabled={!ok} onClick={() => add(makeRecipe(databaseId, r))} title={ok ? undefined : t('features.auto.recipe.needsStatus')}>
+                  <button type="button" className="auto-recipe" disabled={!!hint} onClick={() => add(makeRecipe(databaseId, r))} title={hint ?? undefined}>
                     <Zap size={13} />
                     <span className="auto-recipe__text">
                       <span className="auto-recipe__name">{t(`features.auto.recipe.${r}`)}</span>
-                      <span className="auto-recipe__desc faint">{ok ? t(`features.auto.recipe.${r}Desc`) : t('features.auto.recipe.needsStatus')}</span>
+                      <span className="auto-recipe__desc faint">{hint ?? t(`features.auto.recipe.${r}Desc`)}</span>
                     </span>
                   </button>
                 </li>

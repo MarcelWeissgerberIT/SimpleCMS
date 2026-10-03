@@ -288,6 +288,8 @@ export class WorkspaceModel {
         const pm = propertiesMap(yp)
         const before: Record<string, unknown> = {}
         for (const k of Object.keys(values)) before[k] = pm.get(k)
+        // a moved date keeps the reminder set on it in the app (it rides along date changes there too)
+        for (const p of db.properties) if (p.type === 'date' && p.id in values) values[p.id] = keepReminder(before[p.id], values[p.id])
         const at = Date.now()
         // —— changes from here on ——
         if (title !== undefined) yp.set('title', title)
@@ -371,6 +373,12 @@ export class WorkspaceModel {
     this.s.log.info('api page created', { workspace: wsId, page: id, by: actor })
     return { id, url: this.url(wsId, id) }
   }
+}
+
+/** The app's reminder of a date value (DateValue.reminder), carried over to its new date. */
+function keepReminder(prev: unknown, next: unknown): unknown {
+  const reminder = prev && typeof prev === 'object' && !Array.isArray(prev) ? (prev as { reminder?: unknown }).reminder : null
+  return typeof reminder === 'string' && reminder && next && typeof next === 'object' && !Array.isArray(next) ? { ...next, reminder } : next
 }
 
 /* ------------------------------------------------------------------ cursors */

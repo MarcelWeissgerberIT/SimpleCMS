@@ -30,6 +30,7 @@ import {
   ListTree,
   Minus,
   MonitorPlay,
+  NotebookPen,
   Network,
   PanelTop,
   Paperclip,
@@ -57,6 +58,7 @@ import { dateMentionAttrs } from './dates'
 import { markFreshButton } from './buttonRun'
 import { caretIntoTabs, newTabsJson, tabsAround } from '../schema/tabs'
 import { insertSynced } from '../synced/actions'
+import { insertMeetingNotes } from '../schema/meetingNotes'
 import { ToggleHeading1, ToggleHeading2, ToggleHeading3 } from './blockGlyphs'
 import { toast } from '../../store/ui'
 import { t } from '../../i18n'
@@ -349,6 +351,13 @@ export const BLOCKS: BlockItem[] = [
       del(ctx)
       ctx.bridge.setState({ ai: { mode: 'block' } })
     },
+  },
+  {
+    id: 'meetingNotes',
+    group: 'ai',
+    icon: NotebookPen,
+    keywords: 'meeting notes ai transcript transcription record recording minutes summary action items claude besprechung besprechungsnotizen protokoll mitschrift transkript aufnahme aufzeichnung ki',
+    run: (ctx) => insertMeetingNotes(ctx.editor, ctx.range),
   },
 ]
 

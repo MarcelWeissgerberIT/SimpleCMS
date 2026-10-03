@@ -5,7 +5,7 @@
 import type { JSONContent } from '@tiptap/core'
 import { useWorkspace } from '../../../store/store'
 import { isEffectivelyTrashed } from '../../../store/selectors'
-import { COLOR_NAMES, type ID, type PropertyDef, type PropertyValue, type SelectOption } from '../../../store/types'
+import { COLOR_NAMES, type DateValue, type ID, type PropertyDef, type PropertyValue, type SelectOption } from '../../../store/types'
 import { markdownToDoc } from '../../../editor'
 import { newId } from '../../../lib/ids'
 import { snapshotNow } from '../../history/snapshots'
@@ -43,6 +43,8 @@ function resolveOptions(dbId: ID, prop: PropertyDef, names: string[], created: M
       continue
     }
     if (live.type === 'status') throw new Error(`unknown status "${name}"`)
+    // locked since it was staged: the options stay as they are
+    if (ws().databases[dbId]?.locked) throw new Error(`the database is locked — no new option "${name}"`)
     const opt: SelectOption = { id: newId(), name, color: palette[(opts.length + fresh.length) % palette.length] }
     opts.push(opt)
     fresh.push(opt)
@@ -53,6 +55,13 @@ function resolveOptions(dbId: ID, prop: PropertyDef, names: string[], created: M
     created.set(prop.id, [...(created.get(prop.id) ?? []), ...fresh.map((o) => o.id)])
   }
   return ids
+}
+
+const isDate = (v: unknown): v is DateValue => !!v && typeof v === 'object' && !Array.isArray(v) && typeof (v as DateValue).start === 'string'
+
+/** A moved date keeps the reminder set on it (like the date editor: it rides along date changes). */
+function keepReminder(prev: PropertyValue | undefined, next: PropertyValue): PropertyValue {
+  return isDate(prev) && prev.reminder && isDate(next) && !next.reminder ? { ...next, reminder: prev.reminder } : next
 }
 
 function resolveValue(dbId: ID, pc: PropChange, created: Map<ID, ID[]>): PropertyValue {
@@ -179,7 +188,7 @@ async function applyOne(c: StagedChange, resolveRow: (id: ID) => ID, rowIds: Rec
       const next: Record<ID, PropertyValue> = {}
       for (const pc of c.props ?? []) {
         prev[pc.propId] = row.properties[pc.propId]
-        next[pc.propId] = resolveValue(dbId, pc, created)
+        next[pc.propId] = keepReminder(prev[pc.propId], resolveValue(dbId, pc, created))
       }
       for (const [propId, v] of Object.entries(next)) ws().setRowProperty(id, propId, v)
       return () => {

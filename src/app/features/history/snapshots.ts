@@ -410,8 +410,8 @@ export function startHistory(): () => void {
       const p = state.pages[id]
       const before = prev.pages[id]
       if (!before || p === before || p.contentRev === before.contentRev) continue
-      // Restores, sync from other tabs and imports are not user edits.
-      if (p.contentOrigin === 'history' || p.contentOrigin === 'sync' || p.contentOrigin === 'import') continue
+      // Restores, sync from other tabs and imports are not user edits; a folder / GitHub pick-up ('file') snapshots itself.
+      if (p.contentOrigin === 'history' || p.contentOrigin === 'sync' || p.contentOrigin === 'import' || p.contentOrigin === 'file') continue
       let s = session.get(id)
       if (!s) {
         // Opening a page can make the editor rewrite it (block ids, normalisation) without any

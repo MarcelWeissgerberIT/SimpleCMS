@@ -206,7 +206,7 @@ function diffPage(me: { id: ID; name: string }, id: ID, own: boolean, baselineAt
     return items
   }
   const db = page.databaseId ? s.databases[page.databaseId] : undefined
-  const cur = teamFacts(page, db, me.id)
+  const cur = teamFacts(page, db, me.id, (pid) => !!s.pages[pid])
   let old = snap[id]
   // content not loaded (yet): keep what was known of it
   snap[id] = cur.m === undefined && old?.m !== undefined ? { ...cur, m: old.m } : cur

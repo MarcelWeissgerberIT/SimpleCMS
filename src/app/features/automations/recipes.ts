@@ -53,10 +53,18 @@ export function isAutoName(a: Automation, db: Database): boolean {
   return !name || name === t('features.auto.untitled') || name === autoName(a, db)
 }
 
-export function recipeAvailable(db: Database, id: RecipeId): boolean {
-  if (id === 'webhook_new') return true
-  return !!doneOption(statusProp(db))
+/** The date property the stamp recipe writes ("Completed"), if the database has one. */
+const stampProp = (db: Database) => db.properties.find((p) => p.type === 'date' && /complet|done|finish|erledigt|abgeschlossen/i.test(p.name))
+
+/** Why a recipe can't be added to this database (null = it can). */
+export function recipeHint(db: Database, id: RecipeId): string | null {
+  if (id === 'webhook_new') return null
+  if (!doneOption(statusProp(db))) return t('features.auto.recipe.needsStatus')
+  // it would add a "Completed" property: a locked database keeps its properties (database/model/lock.ts)
+  if (id === 'stamp_done' && db.locked && !stampProp(db)) return t('features.auto.recipe.needsUnlock')
+  return null
 }
+
 
 /** Build the automation for a recipe (may add a "Completed" date property for the stamp recipe). */
 export function makeRecipe(dbId: ID, id: RecipeId): Automation | null {
@@ -81,7 +89,8 @@ export function makeRecipe(dbId: ID, id: RecipeId): Automation | null {
     return { ...a, name: autoName(a, db) }
   }
   // stamp a date when done
-  let dateProp = db.properties.find((p) => p.type === 'date' && /complet|done|finish|erledigt|abgeschlossen/i.test(p.name))
+  let dateProp = stampProp(db)
+  if (!dateProp && db.locked) return null
   if (!dateProp) {
     const pid = useWorkspace.getState().addProperty(dbId, { type: 'date', name: t('features.auto.recipe.stamp.prop') })
     dateProp = useWorkspace.getState().databases[dbId]?.properties.find((p) => p.id === pid)

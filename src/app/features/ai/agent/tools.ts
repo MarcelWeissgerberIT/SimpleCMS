@@ -304,7 +304,8 @@ const listDatabases: AgentTool = {
     const lines = dbs.map((d) => {
       const page = ws().pages[d.id]
       const where = pathOf(d.id)
-      return `- ${q(titleOf(page))} (id: ${d.id}) · ${rowsOf(d.id).length} rows${where ? ` · in ${q(where)}` : ''}\n  properties: ${schemaLine(d)}`
+      const locked = d.locked ? ' · locked (rows can be added and changed; no new options)' : ''
+      return `- ${q(titleOf(page))} (id: ${d.id}) · ${rowsOf(d.id).length} rows${where ? ` · in ${q(where)}` : ''}${locked}\n  properties: ${schemaLine(d)}`
     })
     return { content: clipResult(`${dbs.length} databases:\n${lines.join('\n')}`), summary: t('features.agent.res.dbs', { count: dbs.length }), state: 'ok' }
   },
