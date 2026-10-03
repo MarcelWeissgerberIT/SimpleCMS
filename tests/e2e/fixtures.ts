@@ -89,6 +89,14 @@ export async function mockClaude(ctx: BrowserContext | Page, answer: (body: stri
     const req = route.request()
     if (req.method() === 'OPTIONS')
       return route.fulfill({ status: 204, headers: { 'access-control-allow-origin': '*', 'access-control-allow-headers': '*', 'access-control-allow-methods': 'POST, GET' } })
+    const cors = { 'content-type': 'application/json', 'access-control-allow-origin': '*' }
+    // key check (models.list)
+    if (req.method() === 'GET' && /\/v1\/models/.test(req.url()))
+      return route.fulfill({
+        status: 200,
+        headers: cors,
+        body: JSON.stringify({ data: [{ type: 'model', id: 'claude-opus-5-5', display_name: 'Claude Opus 5.5', created_at: '2026-01-01T00:00:00Z' }], has_more: false, first_id: 'claude-opus-5-5', last_id: 'claude-opus-5-5' }),
+      })
     const body = req.postData() ?? ''
     bodies.push(body)
     // non-streaming calls (key test) get a plain JSON message

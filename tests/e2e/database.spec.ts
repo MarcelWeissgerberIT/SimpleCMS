@@ -268,3 +268,217 @@ test.describe('database', () => {
   })
 })
 
+
+test.describe('database: more', () => {
+  test('board: move a card to another column with the keyboard', async ({ page }) => {
+    await openApp(page)
+    const dbId = await createTestDb(page)
+    await wsEval(page, (s, id) => s.addView(id, { type: 'board', name: 'Board', groupBy: 'pStatus' }), dbId)
+    await gotoPage(page, dbId)
+    await db(page).getByRole('tab').filter({ hasText: 'Board' }).click()
+    const card = db(page).locator('section.dbb-col[aria-label="Todo"] .dbc', { hasText: 'Beta' })
+    await card.focus()
+    await page.keyboard.press('Space')
+    await page.waitForTimeout(150)
+    await page.keyboard.press('ArrowRight')
+    await page.waitForTimeout(150)
+    await page.keyboard.press('Space')
+    await expect(db(page).locator('section.dbb-col[aria-label="Doing"] .dbc', { hasText: 'Beta' })).toBeVisible()
+    expect((await rowByTitle(page, 'Beta'))!.props.pStatus).toBe('sDoing')
+  })
+
+  test('calendar: rows sit on their dates and "+" on a day creates a dated row', async ({ page }) => {
+    await openApp(page)
+    const dbId = await createTestDb(page)
+    // put the rows into the current month (relative to the browser clock)
+    const iso = await page.evaluate(() => {
+      const d = new Date()
+      const p = (n: number) => String(n).padStart(2, '0')
+      return [10, 20].map((day) => `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(day)}`)
+    })
+    await wsEval(
+      page,
+      (s, { id, iso }) => {
+        const rows = (Object.values(s.pages) as Array<Record<string, any>>).filter((p) => p.databaseId === id)
+        s.setRowProperty(rows.find((r) => r.title === 'Alpha')!.id, 'pDue', { start: iso[0] })
+        s.setRowProperty(rows.find((r) => r.title === 'Beta')!.id, 'pDue', { start: iso[1] })
+        s.addView(id, { type: 'calendar', name: 'Cal', dateProperty: 'pDue' })
+      },
+      { id: dbId, iso },
+    )
+    await gotoPage(page, dbId)
+    await db(page).getByRole('tab').filter({ hasText: 'Cal' }).click()
+    await expect(db(page)).toHaveAttribute('data-view', 'calendar')
+    const week = (day: string) => db(page).locator('.dbcal-week', { has: page.locator(`.dbcal-day[data-day="${day}"]`) })
+    await expect(week(iso[0]).locator('.dbcal-events')).toContainText('Alpha')
+    await expect(week(iso[1]).locator('.dbcal-events')).toContainText('Beta')
+
+    const target = iso[0].replace(/-10$/, '-14')
+    const day = db(page).locator(`.dbcal-day[data-day="${target}"]`)
+    await day.hover()
+    await day.getByRole('button', { name: `New row on ${target}` }).click()
+    // a new row opens (peek) — give it a title there
+    const peek = page.locator('.peek')
+    await expect(peek).toBeVisible()
+    await peek.locator('.pv-title').fill('Dated row')
+    await page.keyboard.press('Escape')
+    await expect(week(target).locator('.dbcal-events')).toContainText('Dated row')
+    const r = await rowByTitle(page, 'Dated row')
+    expect((r!.props.pDue as { start: string }).start).toBe(target)
+  })
+
+  test('table: keyboard navigation and editing', async ({ page }) => {
+    await openApp(page)
+    const dbId = await createTestDb(page)
+    await gotoPage(page, dbId)
+    const grid = db(page).locator('.dbt[role="grid"]')
+    await grid.focus()
+    await page.keyboard.press('ArrowDown') // → first cell (Alpha / Name)
+    await page.keyboard.press('ArrowRight') // → Notes
+    await page.keyboard.press('Enter')
+    await expect(page.locator('.db-textedit__area')).toBeFocused()
+    await page.keyboard.type('typed via keyboard')
+    await page.keyboard.press('Enter')
+    await expect(page.locator('.db-textedit__area')).toHaveCount(0)
+    await expect(tableRow(page, 'Alpha').locator('[role="gridcell"][data-type="text"]')).toHaveText('typed via keyboard')
+    // Esc also commits (Notion semantics, see cells/TextEditor.tsx) and hands focus back to the grid
+    await page.keyboard.press('ArrowDown')
+    await page.keyboard.press('Enter')
+    await page.keyboard.type('second row note')
+    await page.keyboard.press('Escape')
+    await expect(page.locator('.db-textedit__area')).toHaveCount(0)
+    await expect(tableRow(page, 'Beta').locator('[role="gridcell"][data-type="text"]')).toHaveText('second row note')
+    // keyboard keeps working: → Kind (select) → Enter opens the option picker
+    await page.keyboard.press('ArrowRight')
+    await page.keyboard.press('Enter')
+    await expect(page.locator('.db-picker')).toBeVisible()
+    await page.keyboard.type('Apple')
+    await page.keyboard.press('Enter')
+    await expect(tableRow(page, 'Beta').locator('[role="gridcell"][data-type="select"]')).toHaveText('Apple')
+    expect((await rowByTitle(page, 'Alpha'))!.props.pNotes).toBe('typed via keyboard')
+    expect((await rowByTitle(page, 'Beta'))!.props).toMatchObject({ pNotes: 'second row note', pKind: 'oApple' })
+  })
+
+  test('peek: editing the row title updates the table', async ({ page }) => {
+    await openApp(page)
+    const dbId = await createTestDb(page)
+    await gotoPage(page, dbId)
+    const row = tableRow(page, 'Gamma')
+    await row.hover()
+    await row.locator('.db-open').click()
+    const peek = page.locator('.peek')
+    await expect(peek.locator('.pv-title')).toHaveValue('Gamma')
+    await peek.locator('.pv-title').fill('Gamma ray')
+    await expect(tableRow(page, 'Gamma ray')).toBeVisible()
+    await page.keyboard.press('Escape')
+    await expect(page.locator('.peek')).toHaveCount(0)
+    expect(await rowByTitle(page, 'Gamma ray')).not.toBeNull()
+  })
+
+  test('import a CSV file as a database', async ({ page }) => {
+    await openApp(page)
+    await page.locator('.sb').getByRole('button', { name: /^Import/ }).click()
+    const csv = 'Name,Amount,Due,Done\nInvoice 1,120.5,2026-11-01,true\nInvoice 2,80,2026-11-15,false\nInvoice 3,42,,false\n'
+    const chooser = page.waitForEvent('filechooser')
+    await page.getByRole('dialog').getByRole('button', { name: 'Choose files' }).click()
+    await (await chooser).setFiles([{ name: 'invoices.csv', mimeType: 'text/csv', buffer: Buffer.from(csv) }])
+    const dialog = page.getByRole('dialog')
+    await expect(dialog.getByText(/Import complete/)).toBeVisible()
+    await dialog.getByRole('button', { name: 'View import' }).click()
+    const info = await wsEval(page, (s) => {
+      const dbPage = (Object.values(s.pages) as Array<Record<string, any>>).find((p) => p.kind === 'database' && /invoices/i.test(p.title))
+      if (!dbPage) return null
+      const db = s.databases[dbPage.id]
+      const rows = (Object.values(s.pages) as Array<Record<string, any>>).filter((p) => p.databaseId === dbPage.id)
+      return { id: dbPage.id, types: db.properties.map((p: { name: string; type: string }) => `${p.name}:${p.type}`), titles: rows.map((r) => r.title).sort(), amount: rows.find((r) => r.title === 'Invoice 1')?.properties[db.properties.find((p: { name: string }) => p.name === 'Amount').id] }
+    })
+    expect(info, 'a database named after the CSV').not.toBeNull()
+    expect(info!.titles).toEqual(['Invoice 1', 'Invoice 2', 'Invoice 3'])
+    expect(info!.types).toEqual(['Name:title', 'Amount:number', 'Due:date', 'Done:checkbox'])
+    expect(info!.amount).toBe(120.5)
+    await gotoPage(page, info!.id)
+    await expect(db(page).locator('.dbt-body .dbt-row[role="row"]')).toHaveCount(3)
+  })
+})
+
+test.describe('database: dragging dates', () => {
+  test('calendar: drag an event to another day changes its date', async ({ page }) => {
+    await openApp(page)
+    const dbId = await createTestDb(page)
+    const iso = await page.evaluate(() => {
+      const d = new Date()
+      const p = (n: number) => String(n).padStart(2, '0')
+      return [`${d.getFullYear()}-${p(d.getMonth() + 1)}-10`, `${d.getFullYear()}-${p(d.getMonth() + 1)}-12`]
+    })
+    await wsEval(
+      page,
+      (s, { id, iso }) => {
+        const rows = (Object.values(s.pages) as Array<Record<string, any>>).filter((p) => p.databaseId === id)
+        s.setRowProperty(rows.find((r) => r.title === 'Alpha')!.id, 'pDue', { start: iso[0] })
+        s.addView(id, { type: 'calendar', name: 'Cal', dateProperty: 'pDue' })
+      },
+      { id: dbId, iso },
+    )
+    await gotoPage(page, dbId)
+    await db(page).getByRole('tab').filter({ hasText: 'Cal' }).click()
+    const ev = db(page).locator('.dbcal-ev', { hasText: 'Alpha' }).first()
+    await expect(ev).toBeVisible()
+    const from = (await ev.boundingBox())!
+    const to = (await db(page).locator(`.dbcal-day[data-day="${iso[1]}"]`).boundingBox())!
+    await page.mouse.move(from.x + 10, from.y + from.height / 2)
+    await page.mouse.down()
+    await page.mouse.move(from.x + 20, from.y + from.height / 2 + 2, { steps: 4 })
+    await page.mouse.move(to.x + to.width / 2, to.y + to.height / 2, { steps: 15 })
+    await page.mouse.up()
+    await expect.poll(async () => ((await rowByTitle(page, 'Alpha'))!.props.pDue as { start: string }).start).toBe(iso[1])
+  })
+})
+
+test.describe('database: schema changes', () => {
+  test('change a text column to number and a select column to text (with undo)', async ({ page }) => {
+    await openApp(page)
+    const dbId = await createTestDb(page)
+    await wsEval(page, (s, id) => {
+      const rows = (Object.values(s.pages) as Array<Record<string, any>>).filter((p) => p.databaseId === id)
+      s.setRowProperty(rows.find((r) => r.title === 'Alpha')!.id, 'pNotes', '42')
+      s.setRowProperty(rows.find((r) => r.title === 'Beta')!.id, 'pNotes', 'not a number')
+      s.setRowProperty(rows.find((r) => r.title === 'Alpha')!.id, 'pKind', 'oApple')
+    }, dbId)
+    await gotoPage(page, dbId)
+
+    await db(page).locator('.dbt-hcell[data-hcol="pNotes"] .dbt-hcell__btn').click()
+    await page.getByRole('menuitem', { name: /^Type/ }).hover()
+    await page.getByRole('menuitem', { name: /^Number/ }).click()
+    await expect.poll(() => wsEval(page, (s, id) => s.databases[id].properties.find((p: { id: string }) => p.id === 'pNotes').type, dbId)).toBe('number')
+    expect((await rowByTitle(page, 'Alpha'))!.props.pNotes).toBe(42)
+    await expect(tableRow(page, 'Alpha').locator('[role="gridcell"][data-type="number"]').first()).toHaveText('42')
+    // undo puts the text back
+    await page.getByRole('button', { name: 'Undo' }).click()
+    await expect.poll(() => wsEval(page, (s, id) => s.databases[id].properties.find((p: { id: string }) => p.id === 'pNotes').type, dbId)).toBe('text')
+    expect((await rowByTitle(page, 'Beta'))!.props.pNotes).toBe('not a number')
+
+    await page.keyboard.press('Escape')
+    await db(page).locator('.dbt-hcell[data-hcol="pKind"] .dbt-hcell__btn').click()
+    await page.getByRole('menuitem', { name: /^Type/ }).hover()
+    await page.getByRole('menuitem', { name: /^Text/ }).click()
+    await expect.poll(async () => (await rowByTitle(page, 'Alpha'))!.props.pKind).toBe('Apple')
+  })
+
+  test('multi-select: create a new option from the picker', async ({ page }) => {
+    await openApp(page)
+    const projects = await pageIdByTitle(page, 'Projects')
+    await gotoPage(page, projects)
+    await db(page).getByRole('tab').filter({ hasText: 'All projects' }).click()
+    const row = db(page).locator('.dbt-row[role="row"]', { has: page.locator('.dbt-cell--title', { hasText: 'Brand refresh' }) })
+    await row.locator('[role="gridcell"][data-type="multi_select"]').click()
+    const picker = page.locator('.db-picker')
+    await picker.locator('input').fill('Design')
+    await page.keyboard.press('Enter')
+    await page.keyboard.press('Escape')
+    await expect(row.locator('[role="gridcell"][data-type="multi_select"]')).toContainText('Design')
+    const opt = await wsEval(page, (s, id) => s.databases[id].properties.find((p: { name: string }) => p.name === 'Tags').options.find((o: { name: string }) => o.name === 'Design') ?? null, projects)
+    expect(opt).not.toBeNull()
+    // the tag existed before stays
+    await expect(row.locator('[role="gridcell"][data-type="multi_select"]')).toContainText('Marketing')
+  })
+})

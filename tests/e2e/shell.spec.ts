@@ -53,7 +53,7 @@ test.describe('command palette', () => {
     await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark')
   })
 
-  test('Escape closes the palette and returns focus', async ({ page }) => {
+  test('Escape closes the palette', async ({ page }) => {
     await openApp(page)
     const pal = await openPalette(page)
     await page.keyboard.press('Escape')

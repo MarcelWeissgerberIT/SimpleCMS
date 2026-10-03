@@ -36,3 +36,40 @@ test.describe('mobile 390 px', () => {
     expect(overflow).toBeLessThanOrEqual(0)
   })
 })
+
+test.describe('mobile 390 px overlays', () => {
+  test.use({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, deviceScaleFactor: 2 })
+
+  const fits = async (loc: import('@playwright/test').Locator, name: string) => {
+    await expect(loc.first(), name).toBeVisible()
+    const box = (await loc.first().boundingBox())!
+    expect(box.x, `${name} left edge`).toBeGreaterThanOrEqual(-1)
+    expect(box.x + box.width, `${name} right edge`).toBeLessThanOrEqual(391)
+  }
+
+  test('palette, settings, page menu, share and slash menu fit the screen', async ({ page }) => {
+    await openApp(page)
+    await page.getByRole('button', { name: 'Open sidebar' }).tap()
+    await page.locator('aside.sb').getByRole('button', { name: /^Search/ }).tap()
+    await fits(page.locator('.pal'), 'palette')
+    await page.keyboard.press('Escape')
+
+    await page.locator('.tb').getByRole('button', { name: 'Page options' }).tap()
+    await fits(page.locator('[data-popover][role="menu"]'), 'page menu')
+    await page.getByRole('menuitem', { name: 'Share' }).tap()
+    await fits(page.getByRole('dialog'), 'share modal')
+    await page.keyboard.press('Escape')
+
+    await page.getByRole('button', { name: 'Open sidebar' }).tap()
+    await page.locator('aside.sb .sb-head__ws').tap()
+    await page.getByRole('menuitem', { name: /^Settings/ }).tap()
+    await fits(page.getByRole('dialog'), 'settings modal')
+    await page.keyboard.press('Escape')
+
+    await page.locator('#main .ProseMirror p').first().tap()
+    await page.keyboard.press('End')
+    await page.keyboard.press('Enter')
+    await page.keyboard.type('/')
+    await fits(page.locator('.slash'), 'slash menu')
+  })
+})

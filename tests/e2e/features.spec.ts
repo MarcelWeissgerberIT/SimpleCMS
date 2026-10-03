@@ -1,4 +1,4 @@
-import { test, expect, openApp, waitForApp, createPage, doc, para, heading, wsEval, gotoPage, editorOf, plainOf, waitForPlain, flush } from './fixtures'
+import { test, expect, openApp, waitForApp, createPage, doc, para, heading, wsEval, gotoPage, editorOf, plainOf, waitForPlain, flush, selectText } from './fixtures'
 
 test.describe('share link', () => {
   test('generate a link → open it in a fresh browser → read-only page → save to my workspace', async ({ page, browser, errors }) => {
@@ -55,10 +55,9 @@ test.describe('version history', () => {
     await page.keyboard.press('Escape')
     await expect(dialog).toBeHidden()
 
-    // edit
+    // edit: replace the sentence
     await ed.locator('p', { hasText: 'Version one text' }).click()
-    await page.keyboard.press('End')
-    await page.keyboard.press('Shift+Home')
+    await selectText(page, ed, 'Version one text')
     await page.keyboard.type('Version two text')
     await waitForPlain(page, id, /^Version two text$/)
     await flush(page)
@@ -193,5 +192,41 @@ test.describe('presentation', () => {
     // the page is untouched and the app keyboard works again
     expect(await plainOf(page, id)).toContain('Third slide')
     await expect(page.locator('#main .pv-title')).toHaveValue('Deck page')
+  })
+})
+
+test.describe('presentation of a rich page', () => {
+  test('the welcome page presents slide by slide without errors', async ({ page }) => {
+    await openApp(page)
+    await page.locator('.tb').getByRole('button', { name: 'Present' }).click()
+    const deck = page.locator('.pres[role="dialog"]')
+    await expect(deck).toBeVisible()
+    const counter = deck.locator('.pres__corner--br')
+    const total = Number(((await counter.innerText()).match(/\/\s*(\d+)/) ?? [])[1])
+    expect(total).toBeGreaterThan(4)
+    for (let i = 2; i <= total; i++) {
+      await page.keyboard.press('ArrowRight')
+      await expect(counter).toHaveText(new RegExp(`${String(i).padStart(2, '0')}\\s*/`))
+    }
+    await page.keyboard.press('Escape')
+    await expect(deck).toHaveCount(0)
+  })
+})
+
+test.describe('share formats', () => {
+  test('"Copy as Markdown" puts the page on the clipboard as Markdown', async ({ page, context }) => {
+    await context.grantPermissions(['clipboard-read', 'clipboard-write'])
+    await openApp(page)
+    const id = await createPage(page, { title: 'Markdown me', content: doc(heading(2, 'Section'), para('Body text'), { type: 'bulletList', content: [{ type: 'listItem', content: [para('point')] }] }) })
+    await gotoPage(page, id)
+    await page.locator('.tb').getByRole('button', { name: 'Share', exact: true }).click()
+    const dialog = page.getByRole('dialog')
+    await dialog.getByRole('button', { name: /Copy as Markdown/ }).click()
+    await expect(dialog.getByText('Copied')).toBeVisible()
+    const md = await page.evaluate(() => navigator.clipboard.readText())
+    expect(md).toContain('# Markdown me')
+    expect(md).toContain('## Section')
+    expect(md).toContain('Body text')
+    expect(md).toMatch(/^[-*] point$/m)
   })
 })

@@ -108,3 +108,93 @@ test.describe('import / export', () => {
     await d.saveAs(testInfo.outputPath(d.suggestedFilename()))
   })
 })
+
+test.describe('Notion import', () => {
+  test('a Notion "Markdown & CSV" export ZIP becomes pages, a database and working links', async ({ page }) => {
+    const { zipSync, strToU8 } = await import('fflate')
+    const root = 'Export-7f3a'
+    const notes = 'My Notes 1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d'
+    const sub = 'Sub page 0f1e2d3c4b5a69788796a5b4c3d2e1f0'
+    const tasks = 'Tasks 9a8b7c6d5e4f3a2b1c0d9e8f7a6b5c4d'
+    const enc = (s: string) => encodeURIComponent(s)
+    const zip = zipSync({
+      [`${root}/${notes}.md`]: strToU8(`# My Notes\n\nSee [Sub page](${enc(notes)}/${enc(sub)}.md) and the [Tasks](${enc(notes)}/${enc(tasks)}.csv) database.\n\n- [ ] follow up\n`),
+      [`${root}/${notes}/${sub}.md`]: strToU8('# Sub page\n\nHello from the sub page.\n'),
+      [`${root}/${notes}/${tasks}.csv`]: strToU8('﻿Name,Status,Due\nWrite spec,Done,"October 1, 2026"\nShip it,In progress,"October 9, 2026"\n'),
+      [`${root}/${notes}/${tasks}/Write spec 11112222333344445555666677778888.md`]: strToU8('# Write spec\n\nStatus: Done\nDue: October 1, 2026\n\nSpec body text.\n'),
+    })
+    await openApp(page)
+    await page.locator('.sb').getByRole('button', { name: /^Import/ }).click()
+    await pickFiles(page, [{ name: 'Export-7f3a.zip', mimeType: 'application/zip', buffer: Buffer.from(zip) }])
+    const dialog = page.getByRole('dialog')
+    await expect(dialog.getByText(/Import complete/)).toBeVisible({ timeout: 20_000 })
+    await dialog.getByRole('button', { name: 'View import' }).click()
+
+    const r = await wsEval(page, (s) => {
+      const pages = Object.values(s.pages) as Array<Record<string, any>>
+      const find = (title: string, kind = 'page') => pages.find((p) => p.title === title && p.kind === kind && !p.trashed)
+      const notes = find('My Notes')
+      const sub = find('Sub page')
+      const tasks = find('Tasks', 'database')
+      const rows = tasks ? pages.filter((p) => p.databaseId === tasks.id) : []
+      const props = tasks ? s.databases[tasks.id].properties.map((p: { name: string; type: string }) => `${p.name}:${p.type}`) : []
+      return {
+        notes: notes?.id ?? null,
+        sub: sub?.id ?? null,
+        subParent: sub?.parentId ?? null,
+        notesJson: notes ? JSON.stringify(notes.content) : '',
+        tasks: tasks?.id ?? null,
+        rows: rows.map((x) => x.title).sort(),
+        writeSpecPlain: rows.find((x) => x.title === 'Write spec')?.plain ?? '',
+        props,
+      }
+    })
+    expect(r.notes, 'page "My Notes"').not.toBeNull()
+    expect(r.sub, 'page "Sub page"').not.toBeNull()
+    expect(r.subParent).toBe(r.notes)
+    expect(r.tasks, 'database "Tasks"').not.toBeNull()
+    expect(r.rows).toEqual(['Ship it', 'Write spec'])
+    expect(r.props).toEqual(expect.arrayContaining(['Name:title', 'Due:date']))
+    expect(r.props.some((p: string) => /^Status:(select|status)$/.test(p))).toBe(true)
+    expect(r.writeSpecPlain).toContain('Spec body text.')
+    // the relative link to the sub page now points inside the workspace
+    expect(r.notesJson).toContain(r.sub!)
+    expect(r.notesJson).not.toMatch(/Sub%20page%20[0-9a-f]{32}\.md/)
+
+    await gotoPage(page, r.notes!)
+    const link = editorOf(page, r.notes!).getByText('Sub page').first()
+    await link.click()
+    await expect(page.locator('#main .pv-title')).toHaveValue('Sub page')
+  })
+})
+
+test.describe('HTML export', () => {
+  test('the whole workspace as one standalone web page', async ({ page, browser }, testInfo) => {
+    await openApp(page)
+    await page.keyboard.press(`${MOD}+k`)
+    await page.keyboard.type('>export')
+    await page.keyboard.press('Enter')
+    const dialog = page.getByRole('dialog')
+    await dialog.getByRole('radio', { name: /Whole workspace/ }).click()
+    await dialog.getByRole('radio', { name: /Web page/ }).click()
+    const download = page.waitForEvent('download')
+    await dialog.locator('[data-export-run]').click()
+    const d = await download
+    expect(d.suggestedFilename()).toMatch(/\.html$/)
+    const file = testInfo.outputPath(d.suggestedFilename())
+    await d.saveAs(file)
+    const html = readFileSync(file, 'utf8')
+    for (const s of ['Welcome to One', 'Team wiki', 'Website relaunch', 'Brand voice']) expect(html).toContain(s)
+
+    // opens on its own, offline, without errors
+    const ctx = await browser.newContext({ offline: true })
+    const p = await ctx.newPage()
+    const errs: string[] = []
+    p.on('pageerror', (e) => errs.push(e.message))
+    await p.goto(`file://${file}`)
+    await expect(p.locator('body')).toContainText('Welcome to One')
+    await expect(p.locator('h1, h2').filter({ hasText: 'Team wiki' }).first()).toBeAttached()
+    expect(errs).toEqual([])
+    await ctx.close()
+  })
+})

@@ -52,3 +52,43 @@ test.describe('German locale', () => {
     await expect(page.locator('#main .ProseMirror')).toContainText('Kein Konto, kein Server, kein Abo.')
   })
 })
+
+test.describe('every seeded page renders', () => {
+  for (const locale of ['en-US', 'de-DE']) {
+    test.describe(locale, () => {
+      test.use({ locale })
+      test(`all pages, databases and their views render without errors (${locale})`, async ({ page }) => {
+        test.setTimeout(120_000)
+        await openApp(page)
+        const targets = await wsEval(page, (s) =>
+          (Object.values(s.pages) as Array<Record<string, any>>)
+            .filter((p) => !p.databaseId && !p.trashed)
+            .map((p) => ({ id: p.id, title: p.title, kind: p.kind, views: p.kind === 'database' ? s.databases[p.id].views.map((v: { id: string; type: string }) => v.type) : [] })),
+        )
+        expect(targets.length).toBeGreaterThanOrEqual(10)
+        for (const t of targets) {
+          await page.evaluate((id) => (window.location.hash = `#/p/${id}`), t.id)
+          await expect(page.locator('#main .pv-title')).toHaveValue(t.title)
+          await expect(page.locator('#main .fault, #main [role="alert"]:has-text("fault")')).toHaveCount(0)
+          if (t.kind === 'database') {
+            const tabs = page.locator('#main section.db').first().getByRole('tab')
+            await expect(tabs).toHaveCount(t.views.length)
+            for (let i = 0; i < t.views.length; i++) {
+              await tabs.nth(i).click()
+              await expect(page.locator('#main section.db').first()).toHaveAttribute('data-view', t.views[i])
+            }
+          } else {
+            await expect(page.locator('#main .ProseMirror')).toBeVisible()
+          }
+        }
+        // the welcome page's rich blocks actually render
+        await page.evaluate((id) => (window.location.hash = `#/p/${id}`), targets.find((t) => /Welcome|Willkommen/.test(t.title))!.id)
+        const ed = page.locator('#main .ProseMirror')
+        await ed.locator('.mermaid-view__svg svg').first().scrollIntoViewIfNeeded()
+        await expect(ed.locator('.mermaid-view__svg svg').first()).toBeVisible({ timeout: 15_000 })
+        await expect(ed.locator('.katex').first()).toBeAttached()
+        await expect(ed.locator('.mermaid-view__error')).toHaveCount(0)
+      })
+    })
+  }
+})

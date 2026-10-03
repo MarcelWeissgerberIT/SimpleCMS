@@ -80,3 +80,34 @@ test.describe('landing page', () => {
     })
   })
 })
+
+test.describe('landing → app handoff', () => {
+  test('choosing DE on the site carries over into a fresh workspace', async ({ page }) => {
+    await page.goto('./?skip')
+    await page.locator('#site [data-lang="de"]').first().click()
+    await expect(page.locator('html')).toHaveAttribute('lang', 'de')
+    await expect(page.locator('#site').getByRole('link', { name: /Workspace öffnen/ }).first()).toBeVisible()
+    await page.locator('#site').getByRole('link', { name: /Workspace öffnen/ }).first().click()
+    await expect(page.locator('.app')).toBeVisible({ timeout: 30_000 })
+    // first run seeds the German demo workspace
+    await expect(page.locator('#main .pv-title')).toHaveValue('Willkommen bei One')
+    await expect(page.locator('.sb').getByRole('button', { name: /^Suchen/ })).toBeVisible()
+  })
+})
+
+test.describe('share link robustness', () => {
+  test('a cut-off share link shows an explanation instead of a blank page', async ({ page }) => {
+    await page.goto('app/?e2e')
+    await page.waitForFunction(() => !!(window as unknown as { __one?: unknown }).__one)
+    await page.locator('.tb').getByRole('button', { name: 'Share', exact: true }).click()
+    const url = page.getByRole('dialog').getByRole('textbox', { name: 'Share link' })
+    await expect(url).toHaveValue(/#\/s\//)
+    const link = await url.inputValue()
+    const cut = link.slice(0, link.indexOf('#/s/') + 4 + Math.floor((link.length - link.indexOf('#/s/') - 4) / 2))
+    await page.goto('about:blank')
+    await page.goto(cut)
+    await expect(page.getByRole('alert')).toContainText('This link can’t be opened')
+    await page.getByRole('button', { name: 'Go to my workspace' }).click()
+    await expect(page.locator('#main .pv-title')).toHaveValue('Welcome to One')
+  })
+})
