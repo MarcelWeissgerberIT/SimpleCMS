@@ -9,6 +9,8 @@ import { useWorkspace, getWorkspaceSnapshot, plainText, defaultView, DEFAULT_PAG
 import type { Database, ID, Page, Person, PropertyDef, PropertyValue, View } from '../../../store/types'
 import { saveFile } from '../../../lib/files'
 import { newId } from '../../../lib/ids'
+import { useCloud } from '../../../cloud'
+import { t } from '../../../i18n'
 import { cellValue, RELATION_TOKEN, splitList, type ColumnSpec } from './csv'
 import { basename, extname, hexOf, resolveTarget, rewriteLinks, type ImportPlan, type PlanNode } from './plan'
 import { FRAG, calloutBlocks, hasCalloutMarker } from './obsidian'
@@ -116,6 +118,7 @@ export async function applyPlan(
     viewNames?: { table: string; board: string; calendar: string }
   },
 ): Promise<ImportResult> {
+  if (useCloud.getState().readOnly) throw new Error(t('features.io.err.viewOnly'))
   const progress = opts.onProgress ?? (() => {})
   // the editor's converters (and the HTML sanitizer) are loaded on demand
   const { markdownToDoc } = await import('../../../editor')

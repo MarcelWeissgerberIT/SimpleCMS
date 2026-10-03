@@ -10,6 +10,7 @@ import { Resolver, type Ctx } from './model/resolve'
 import { defaultsFromFilter, groupRows, searchRows, sortRows, testGroup, type RowGroup } from './model/query'
 import { parentIdOf, subItemsOf } from './model/hierarchy'
 import { safeLocalGet, safeLocalSet } from '@/shared/brand'
+import { useDbReadOnly } from './readonly'
 
 /** Database ids whose rows matter for this database (relations, rollups — 3 levels). */
 function relevantDbIds(databases: Record<ID, Database>, dbId: ID): Set<ID> {
@@ -124,6 +125,8 @@ export interface DbModel {
   inline: boolean
   /** Presets for new rows (from filters). */
   newRowDefaults: () => Record<ID, PropertyValue>
+  /** View only (a viewer in a team workspace): read, never write — every write affordance hides. */
+  readOnly: boolean
 }
 
 export function useDbModel(db: Database, dbPage: Page, view: View, search: string, inline: boolean, keep: ID[] = []): DbModel {
@@ -160,7 +163,8 @@ export function useDbModel(db: Database, dbPage: Page, view: View, search: strin
   const groupProp = view.groupBy && ['table', 'list', 'board'].includes(view.type) ? propMap.get(view.groupBy) ?? null : null
   const groups = useMemo(() => (groupProp ? groupRows(resolver, db, groupProp, rows, labels) : null), [groupProp, resolver, db, rows, labels])
   const newRowDefaults = useCallback(() => defaultsFromFilter(view, propMap), [view, propMap])
-  return { db, dbPage, view, resolver, propMap, titleProp, visibleProps, allRows, rows, groups, groupProp, search, inline, newRowDefaults }
+  const readOnly = useDbReadOnly()
+  return { db, dbPage, view, resolver, propMap, titleProp, visibleProps, allRows, rows, groups, groupProp, search, inline, newRowDefaults, readOnly }
 }
 
 export const DbModelContext = createContext<DbModel | null>(null)

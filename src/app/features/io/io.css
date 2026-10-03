@@ -386,6 +386,27 @@
   color: var(--c-red-text);
 }
 
+/* team workspace: "replace" is not offered (it would swap the workspace out for everyone) */
+.io-choice__opt:disabled {
+  cursor: not-allowed;
+}
+.io-choice__opt:disabled:hover {
+  background: var(--surface);
+}
+.io-choice__opt:disabled .io-choice__title {
+  color: var(--ink-3);
+  text-decoration: line-through;
+  text-decoration-thickness: 1px;
+}
+.io-choice__opt:disabled .io-choice__pos {
+  border-style: dashed;
+  color: var(--ink-3);
+}
+
+.io-viewonly .io-actions {
+  padding: 0 16px 16px;
+}
+
 .io-choice__desc {
   font-size: var(--text-xs);
 }

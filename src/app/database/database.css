@@ -1562,6 +1562,62 @@
   box-shadow: 0 1px 0 var(--rule-strong), 0 0 0 1px var(--rule-strong);
 }
 
+/* disabled: a readout, not a control (view only, or a mode that doesn't apply) */
+.db-seg__btn:disabled {
+  cursor: default;
+}
+.db-seg__btn:disabled:not([aria-checked='true']) {
+  color: var(--ink-3);
+  opacity: 0.6;
+}
+.db-seg__btn:disabled:hover {
+  color: inherit;
+}
+.db-select:disabled {
+  cursor: default;
+}
+.db-select:disabled:hover {
+  background: transparent;
+}
+.db-select:disabled .db-select__chev {
+  visibility: hidden;
+}
+
+/* ---------- view only (a viewer in a team workspace) ---------- */
+/* the same plate as the shell's VIEW ONLY topbar tag: dashed rule, mono caps, an eye */
+.db-viewonly {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 22px;
+  padding: 0 7px;
+  border: 1px dashed var(--ink-3);
+  border-radius: var(--radius-1);
+  color: var(--ink-2);
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  white-space: nowrap;
+  outline: none;
+}
+.db-viewonly:focus-visible {
+  box-shadow: var(--focus-ring);
+}
+/* filter / sort chips: what the view shows, not a control */
+.db-fchip__main:disabled {
+  cursor: default;
+}
+.db-fchip__main:disabled:hover {
+  background: transparent;
+}
+/* nothing to click into: cells and cards read as text */
+.db[data-readonly] .dbt-cell,
+.db[data-readonly] .db-prow__value {
+  cursor: default;
+}
+
 .db-grip {
   display: inline-grid;
   place-items: center;

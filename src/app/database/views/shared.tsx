@@ -17,6 +17,7 @@ import { saveRowAsTemplate } from '../toolbar/Templates'
 import { useModel, useLocalState } from '../hooks'
 import { Menu, plural } from '../parts'
 import type { PopoverAnchor } from '../../ui/Popover'
+import type { MenuEntry } from '../../ui/Menu'
 
 export interface ViewActions {
   /** Create a row (with filter defaults + extra presets); returns its id. */
@@ -43,6 +44,17 @@ export function EmptyState({ onAdd }: { onAdd?: () => void }) {
   const actions = useContext(ViewActionsContext)
   const filters = countFilters(m.view.filter, m.propMap)
   const q = m.search.trim()
+  if (m.readOnly && !(q && m.allRows.length > 0)) {
+    // view only: say what is (or isn't) here; changing filters or adding rows isn't possible
+    const label = filters > 0 && m.allRows.length > 0 ? plural(t, 'database.emptyFiltered', filters) : t('database.empty.none')
+    return (
+      <div className="db-empty">
+        <span className="db-empty__line" aria-hidden />
+        <span className="label">{label}</span>
+        <span className="db-empty__line" aria-hidden />
+      </div>
+    )
+  }
   if ((filters > 0 || q) && m.allRows.length > 0) {
     const label = filters === 0 ? t('database.emptySearch', { q }) : plural(t, 'database.emptyFiltered', filters + (q ? 1 : 0))
     const action = filters === 0 ? t('database.clearSearch') : q ? t('database.clearAll') : t('database.clearFilters')
@@ -54,11 +66,11 @@ export function EmptyState({ onAdd }: { onAdd?: () => void }) {
           type="button"
           className="btn btn--sm"
           onClick={() => {
-            if (filters) useWorkspace.getState().updateView(m.db.id, m.view.id, { filter: null })
+            if (filters && !m.readOnly) useWorkspace.getState().updateView(m.db.id, m.view.id, { filter: null })
             if (q) actions?.clearSearch()
           }}
         >
-          {action}
+          {m.readOnly ? t('database.clearSearch') : action}
         </button>
         <span className="db-empty__line" aria-hidden />
       </div>
@@ -80,30 +92,26 @@ export function EmptyState({ onAdd }: { onAdd?: () => void }) {
 export function RowContextMenu({ row, anchor, onClose }: { row: Page; anchor: PopoverAnchor; onClose: () => void }) {
   const t = useT()
   const m = useModel()
-  return (
-    <Menu
-      open
-      anchor={anchor}
-      onClose={onClose}
-      entries={[
-        { label: t('common.open'), icon: <ArrowUpRight size={14} />, onSelect: () => openRow(row.id, m.view) },
-        { label: t('database.row.openFull'), icon: <Maximize2 size={14} />, onSelect: () => openPage(row.id) },
-        {
-          label: t('common.copyLink'),
-          icon: <Link size={14} />,
-          onSelect: () => {
-            const url = `${location.origin}${location.pathname}${pageHref(row.id)}`
-            void navigator.clipboard?.writeText(url).then(() => useUI.getState().toast(t('common.copied')))
-          },
-        },
-        { kind: 'separator' },
-        { label: t('common.duplicate'), icon: <Copy size={14} />, hint: '', onSelect: () => duplicateRows(m.db.id, [row.id]) },
-        { label: t('database.templates.saveRow'), icon: <FilePlus2 size={14} />, onSelect: () => saveRowAsTemplate(m.db, row) },
-        { kind: 'separator' },
-        { label: t('common.delete'), icon: <Trash size={14} />, danger: true, onSelect: () => deleteRows([row.id]) },
-      ]}
-    />
-  )
+  const read: MenuEntry[] = [
+    { label: t('common.open'), icon: <ArrowUpRight size={14} />, onSelect: () => openRow(row.id, m.view) },
+    { label: t('database.row.openFull'), icon: <Maximize2 size={14} />, onSelect: () => openPage(row.id) },
+    {
+      label: t('common.copyLink'),
+      icon: <Link size={14} />,
+      onSelect: () => {
+        const url = `${location.origin}${location.pathname}${pageHref(row.id)}`
+        void navigator.clipboard?.writeText(url).then(() => useUI.getState().toast(t('common.copied')))
+      },
+    },
+  ]
+  const write: MenuEntry[] = [
+    { kind: 'separator' },
+    { label: t('common.duplicate'), icon: <Copy size={14} />, hint: '', onSelect: () => duplicateRows(m.db.id, [row.id]) },
+    { label: t('database.templates.saveRow'), icon: <FilePlus2 size={14} />, onSelect: () => saveRowAsTemplate(m.db, row) },
+    { kind: 'separator' },
+    { label: t('common.delete'), icon: <Trash size={14} />, danger: true, onSelect: () => deleteRows([row.id]) },
+  ]
+  return <Menu open anchor={anchor} onClose={onClose} entries={m.readOnly ? read : [...read, ...write]} />
 }
 
 export function GroupLabel({ group }: { group: RowGroup }) {

@@ -9,6 +9,8 @@ import { migrate } from '../../store/persistence'
 import { COLOR_NAMES, type Database, type ID, type Page, type Settings, type Workspace } from '../../store/types'
 import { FILE_PREFIX, getFile, readAsDataUrl, saveFile } from '../../lib/files'
 import { newId } from '../../lib/ids'
+import { useCloud } from '../../cloud'
+import { t } from '../../i18n'
 
 export const BACKUP_FORMAT = 'simplecms-one-backup'
 
@@ -285,6 +287,10 @@ function sanitizeSettings(incoming: Settings, current: Settings): Settings {
 
 /** Restore files, remap their refs and apply the workspace. */
 export async function applyBackup(b: Backup, mode: 'merge' | 'replace', onProgress?: (done: number, total: number) => void): Promise<RestoreResult> {
+  // a team workspace: viewers can't write, and "replace" would swap it out for everyone in it
+  const cloud = useCloud.getState()
+  if (cloud.readOnly) throw new Error(t('features.io.err.viewOnly'))
+  if (mode === 'replace' && cloud.active.kind === 'cloud') throw new Error(t('features.io.err.replaceTeam'))
   const snap = getWorkspaceSnapshot()
   const source = migrate(JSON.parse(JSON.stringify(b.workspace)))
   const rootId = sanitizeIds(source, typeof b.rootId === 'string' ? b.rootId : null)

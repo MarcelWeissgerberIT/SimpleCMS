@@ -5,7 +5,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { ArrowUpDown, CalendarArrowDown, Download, Ellipsis, Funnel, Group, LayoutTemplate, Link, ListTree, Maximize2, Paintbrush, Search, SlidersHorizontal, Waypoints, X, Zap } from 'lucide-react'
 import { useUI } from '../../store/ui'
-import { Menu } from '../parts'
+import { Menu, ViewOnlyTag } from '../parts'
+import type { MenuEntry } from '../../ui/Menu'
 import { Tooltip } from '../../ui/Tooltip'
 import { useT } from '../../i18n'
 import { openPage, pageHref } from '../../lib/router'
@@ -97,6 +98,8 @@ export function Toolbar({ m, onNew, setSearch, compact }: { m: DbModel; onNew: (
   // a form asks for answers: searching, filtering, sorting and "New" don't apply there
   const isForm = view.type === 'form'
   const canIcs = view.type === 'calendar' || view.type === 'timeline'
+  // view only: searching and exporting stay; everything that changes the shared view or data goes
+  const ro = m.readOnly
 
   useEffect(() => {
     if (searchOpen) searchRef.current?.focus()
@@ -152,17 +155,17 @@ export function Toolbar({ m, onNew, setSearch, compact }: { m: DbModel; onNew: (
           )}
         </div>
       )}
-      {!isForm && <ToolButton compact={compact} icon={<Funnel size={14} />} label={t('database.filter.title')} count={filterCount} active={filterCount > 0} pressed={panel?.kind === 'filter'} onClick={toggle('filter')} />}
-      {!isForm && <ToolButton compact={compact} icon={<ArrowUpDown size={14} />} label={t('database.sort.title')} count={view.sorts.length} active={view.sorts.length > 0} pressed={panel?.kind === 'sort'} onClick={toggle('sort')} />}
-      {canGroup && <ToolButton compact={compact} icon={<Group size={14} />} label={t('database.group.title')} active={!!view.groupBy} pressed={panel?.kind === 'group'} onClick={toggle('group')} />}
-      {!isForm && <ToolButton compact icon={<SlidersHorizontal size={14} />} label={t('database.props.title')} pressed={panel?.kind === 'props'} onClick={toggle('props')} />}
-      <ToolButton compact icon={<Zap size={14} />} label={t('database.automations')} count={automations} active={automations > 0} onClick={() => useUI.getState().openModal({ type: 'automations', databaseId: m.db.id })} />
+      {!isForm && !ro && <ToolButton compact={compact} icon={<Funnel size={14} />} label={t('database.filter.title')} count={filterCount} active={filterCount > 0} pressed={panel?.kind === 'filter'} onClick={toggle('filter')} />}
+      {!isForm && !ro && <ToolButton compact={compact} icon={<ArrowUpDown size={14} />} label={t('database.sort.title')} count={view.sorts.length} active={view.sorts.length > 0} pressed={panel?.kind === 'sort'} onClick={toggle('sort')} />}
+      {canGroup && !ro && <ToolButton compact={compact} icon={<Group size={14} />} label={t('database.group.title')} active={!!view.groupBy} pressed={panel?.kind === 'group'} onClick={toggle('group')} />}
+      {!isForm && !ro && <ToolButton compact icon={<SlidersHorizontal size={14} />} label={t('database.props.title')} pressed={panel?.kind === 'props'} onClick={toggle('props')} />}
+      {!ro && <ToolButton compact icon={<Zap size={14} />} label={t('database.automations')} count={automations} active={automations > 0} onClick={() => useUI.getState().openModal({ type: 'automations', databaseId: m.db.id })} />}
       <ToolButton compact icon={<Ellipsis size={15} />} label={t('common.more')} pressed={panel?.kind === 'more'} onClick={toggle('more')} />
       <span className="db-counter" title={t('database.counterTitle')} aria-label={t('database.counterTitle')}>
         <span className="db-counter__label">{t('database.rec')}</span>
         <span className="db-counter__num">{filtered ? `${formatCount(m.rows.length, m.resolver.ctx.lang, 0)}/${formatCount(m.allRows.length, m.resolver.ctx.lang, 0)}` : formatCount(m.allRows.length, m.resolver.ctx.lang, 0)}</span>
       </span>
-      {!isForm && <NewButton m={m} onNew={onNew} />}
+      {ro ? <ViewOnlyTag /> : !isForm && <NewButton m={m} onNew={onNew} />}
 
       {panel?.kind === 'filter' && <FilterPopover m={m} anchor={panel.el} onClose={close} />}
       {panel?.kind === 'sort' && <SortPanel m={m} anchor={panel.el} onClose={close} />}
@@ -178,14 +181,18 @@ export function Toolbar({ m, onNew, setSearch, compact }: { m: DbModel; onNew: (
         onClose={close}
         placement="bottom-end"
         entries={[
-          {
-            label: t('database.view.layout'),
-            icon: <LayoutTemplate size={14} />,
-            keepOpen: true,
-            onSelect: () => setPanel((p) => (p ? { kind: 'layout', el: p.el } : p)),
-          },
-          ...structureEntries(t, m, (kind) => setPanel((p) => (p ? { kind, el: p.el } : p)), { sub: <ListTree size={14} />, dep: <Waypoints size={14} />, rc: <Paintbrush size={14} /> }),
-          { kind: 'separator' },
+          ...(ro
+            ? []
+            : ([
+                {
+                  label: t('database.view.layout'),
+                  icon: <LayoutTemplate size={14} />,
+                  keepOpen: true,
+                  onSelect: () => setPanel((p) => (p ? { kind: 'layout', el: p.el } : p)),
+                },
+                ...structureEntries(t, m, (kind) => setPanel((p) => (p ? { kind, el: p.el } : p)), { sub: <ListTree size={14} />, dep: <Waypoints size={14} />, rc: <Paintbrush size={14} /> }),
+                { kind: 'separator' },
+              ] satisfies MenuEntry[])),
           { label: t('database.exportCsv'), icon: <Download size={14} />, onSelect: () => exportCsv(m.resolver, m.db, [m.titleProp, ...m.visibleProps], m.rows, m.dbPage.title || t('common.untitled')) },
           ...(canIcs ? [{ label: t('database.ics.export'), icon: <CalendarArrowDown size={14} />, hint: '.ICS', onSelect: () => exportIcs(m, t) }] : []),
           {

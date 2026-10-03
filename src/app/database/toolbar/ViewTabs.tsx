@@ -67,6 +67,7 @@ function Tab({
   onRename,
   renaming,
   onRenamed,
+  readOnly,
 }: {
   view: View
   index: number
@@ -76,9 +77,11 @@ function Tab({
   onRename: () => void
   renaming: boolean
   onRenamed: (name: string | null) => void
+  /** view only: a tab only switches views (no menu, rename or reordering) */
+  readOnly: boolean
 }) {
   const t = useT()
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: view.id, disabled: renaming })
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: view.id, disabled: renaming || readOnly })
   const menuTimer = useRef<number | null>(null)
   useEffect(() => () => void (menuTimer.current && window.clearTimeout(menuTimer.current)), [])
   return (
@@ -105,6 +108,7 @@ function Tab({
           className="db-tab__btn"
           onClick={(e) => {
             if (!active) return onSelect()
+            if (readOnly) return
             // a second click on the active tab opens its menu — unless it becomes a double-click (rename)
             const el = e.currentTarget
             if (e.detail > 1) return
@@ -115,11 +119,11 @@ function Tab({
             e.preventDefault()
             if (menuTimer.current) window.clearTimeout(menuTimer.current)
             if (!active) onSelect()
-            onRename()
+            if (!readOnly) onRename()
           }}
           onKeyDown={(e) => {
             listeners?.onKeyDown?.(e)
-            if (e.key === 'F2') {
+            if (e.key === 'F2' && !readOnly) {
               e.preventDefault()
               onRename()
             }
@@ -127,7 +131,7 @@ function Tab({
           onContextMenu={(e) => {
             e.preventDefault()
             onSelect()
-            onMenu(e.currentTarget)
+            if (!readOnly) onMenu(e.currentTarget)
           }}
         >
           <span className="db-tab__idx">{String(index + 1).padStart(2, '0')}</span>
@@ -279,6 +283,7 @@ export function ViewTabs({ m, onSelect }: { m: DbModel; onSelect: (id: ID) => vo
                 setRenaming(v.id)
               }}
               renaming={renaming === v.id}
+              readOnly={m.readOnly}
               onRenamed={(name) => {
                 if (name !== null && name.trim()) s.updateView(m.db.id, v.id, { name: name.trim() })
                 setRenaming(null)
@@ -287,9 +292,11 @@ export function ViewTabs({ m, onSelect }: { m: DbModel; onSelect: (id: ID) => vo
           ))}
         </SortableContext>
       </DndContext>
-      <button type="button" className="db-tabs__add" aria-label={t('database.view.add')} title={t('database.view.add')} onClick={(e) => setAddAnchor(e.currentTarget)}>
-        <Plus size={14} />
-      </button>
+      {!m.readOnly && (
+        <button type="button" className="db-tabs__add" aria-label={t('database.view.add')} title={t('database.view.add')} onClick={(e) => setAddAnchor(e.currentTarget)}>
+          <Plus size={14} />
+        </button>
+      )}
       <Menu
         open={!!addAnchor}
         anchor={addAnchor}

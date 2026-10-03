@@ -3,13 +3,14 @@
  * property-type picker entries, sortable list rows).
  */
 import { useState, type ReactNode } from 'react'
-import { ChevronDown, GripVertical } from 'lucide-react'
+import { ChevronDown, Eye, GripVertical } from 'lucide-react'
 import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { Menu as UiMenu, type MenuEntry, type MenuProps } from '../ui/Menu'
 import type { PropertyDef, PropertyType } from '../store/types'
 import { CREATABLE_TYPES, TYPE_ICON } from './model/schema'
 import { useT } from '../i18n'
+import { Tooltip } from '../ui/Tooltip'
 import type { Translate } from '@/shared/i18n'
 
 /** The shared Menu with this area's localized search placeholder + empty label. */
@@ -34,6 +35,7 @@ export function Select<V extends string>({
   className,
   width,
   ariaLabel,
+  disabled,
 }: {
   value: V | null | undefined
   items: SelectItem<V>[]
@@ -43,6 +45,7 @@ export function Select<V extends string>({
   className?: string
   width?: number
   ariaLabel?: string
+  disabled?: boolean
 }) {
   const [anchor, setAnchor] = useState<HTMLElement | null>(null)
   const cur = items.find((i) => i.value === value)
@@ -53,6 +56,7 @@ export function Select<V extends string>({
         className={`db-select ${className ?? ''}`}
         aria-haspopup="menu"
         aria-label={ariaLabel}
+        disabled={disabled}
         onClick={(e) => setAnchor(anchor ? null : e.currentTarget)}
       >
         {cur?.icon && <span className="db-select__icon">{cur.icon}</span>}
@@ -71,17 +75,39 @@ export function Select<V extends string>({
   )
 }
 
-/** Hardware-style segmented switch. */
-export function Segmented<V extends string>({ value, items, onChange, ariaLabel }: { value: V; items: SelectItem<V>[]; onChange: (v: V) => void; ariaLabel?: string }) {
+/** Hardware-style segmented switch. `disabled`: all of it, or just the listed values. */
+export function Segmented<V extends string>({ value, items, onChange, ariaLabel, disabled }: { value: V; items: SelectItem<V>[]; onChange: (v: V) => void; ariaLabel?: string; disabled?: boolean | V[] }) {
   return (
     <div className="db-seg" role="radiogroup" aria-label={ariaLabel}>
       {items.map((i) => (
-        <button key={i.value} type="button" role="radio" aria-checked={i.value === value} className="db-seg__btn" onClick={() => onChange(i.value)} title={i.label}>
+        <button
+          key={i.value}
+          type="button"
+          role="radio"
+          aria-checked={i.value === value}
+          className="db-seg__btn"
+          disabled={disabled === true || (Array.isArray(disabled) && disabled.includes(i.value))}
+          onClick={() => onChange(i.value)}
+          title={i.label}
+        >
           {i.icon}
           {(!i.icon || items.length <= 4) && <span>{i.label}</span>}
         </button>
       ))}
     </div>
+  )
+}
+
+/** VIEW ONLY plate (a viewer in a team workspace) — the same cue as the shell's topbar tag. */
+export function ViewOnlyTag() {
+  const t = useT()
+  return (
+    <Tooltip label={t('database.viewOnlyHint')}>
+      <span className="db-viewonly" tabIndex={0} data-testid="db-view-only">
+        <Eye size={12} strokeWidth={2} aria-hidden />
+        <span className="db-viewonly__text">{t('database.viewOnly')}</span>
+      </span>
+    </Tooltip>
   )
 }
 

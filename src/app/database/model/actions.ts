@@ -13,6 +13,7 @@ import { isComputed } from './schema'
 import type { Resolver } from './resolve'
 import { constrainRelationWrite, dependenciesOf, subItemsOf } from './hierarchy'
 import { dateValueText, isDateValue, isoWithTime, parseDateText, parseNumberText } from './format'
+import { isDbReadOnly } from '../readonly'
 
 const ws = () => useWorkspace.getState()
 
@@ -46,6 +47,7 @@ export function twoWayBlocker(dbId: ID, prop: PropertyDef): PropertyDef | null {
 
 /** Write a property value; keeps two-way relations in sync. */
 export function writeValue(dbId: ID, prop: PropertyDef, rowId: ID, value: PropertyValue): void {
+  if (isDbReadOnly()) return
   const s = ws()
   if (prop.type === 'title') {
     s.updatePage(rowId, { title: String(value ?? '') })
@@ -397,7 +399,7 @@ export function duplicateProperty(db: Database, view: View | null, prop: Propert
 
 /** Trash rows with an undo toast. */
 export function deleteRows(ids: ID[]): void {
-  if (!ids.length) return
+  if (!ids.length || isDbReadOnly()) return
   const s = ws()
   for (const id of ids) s.trashPage(id)
   useUI.getState().toast({
@@ -407,6 +409,7 @@ export function deleteRows(ids: ID[]): void {
 }
 
 export function duplicateRows(dbId: ID, ids: ID[]): ID[] {
+  if (isDbReadOnly()) return []
   const s = ws()
   const db = s.databases[dbId]
   const out: ID[] = []

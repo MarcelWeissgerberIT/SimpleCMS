@@ -6,7 +6,8 @@
  * only preselects it (e.g. the Obsidian tile forces vault handling and opens a folder picker).
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { AlertTriangle, ChevronRight, FileUp, FolderUp, RotateCcw } from 'lucide-react'
+import { AlertTriangle, ChevronRight, Eye, FileUp, FolderUp, RotateCcw } from 'lucide-react'
+import { useCloud } from '../../cloud'
 import { Modal } from '../../ui/Modal'
 import { Led } from '../../ui/controls'
 import { useLang, useT } from '../../i18n'
@@ -97,6 +98,8 @@ export function ImportModal({ onClose }: { onClose: () => void }) {
   const sourceRef = useRef<HTMLInputElement>(null)
   const sourceMode = useRef<{ mode: SourceMode; folder: boolean }>({ mode: 'auto', folder: false })
   const busy = phase.name === 'running'
+  // viewers of a team workspace read it; nothing can be imported into it
+  const viewOnly = useCloud((s) => s.readOnly)
 
   const dateLabel = new Intl.DateTimeFormat(lang === 'de' ? 'de-DE' : 'en-GB', { day: 'numeric', month: 'short', year: 'numeric' }).format(new Date())
 
@@ -281,6 +284,23 @@ export function ImportModal({ onClose }: { onClose: () => void }) {
 
   return (
     <Modal open onClose={busy ? () => {} : onClose} label="§ IO-01" title={t('features.io.import.title')} width={720} className="io-modal">
+      {viewOnly ? (
+        <div className="io-error io-viewonly" role="note" data-testid="import-view-only">
+          <div className="io-error__stripe" />
+          <div className="io-error__body">
+            <Eye size={18} aria-hidden />
+            <div>
+              <div className="label io-error__label">{t('features.io.viewOnly.label')}</div>
+              <p>{t('features.io.viewOnly.body')}</p>
+            </div>
+          </div>
+          <div className="io-actions">
+            <button type="button" className="btn" onClick={onClose} data-autofocus="">
+              {t('common.close')}
+            </button>
+          </div>
+        </div>
+      ) : (
       <div
         className="io"
         data-over={over || undefined}
@@ -477,6 +497,7 @@ export function ImportModal({ onClose }: { onClose: () => void }) {
           </div>
         )}
       </div>
+      )}
     </Modal>
   )
 }
@@ -516,6 +537,8 @@ function BackupStep({ backup, fileName, onCancel, onDone }: { backup: Backup; fi
   const t = useT()
   const lang = useLang()
   const [mode, setMode] = useState<'merge' | 'replace'>('merge')
+  // a team workspace is everyone's: a backup can add to it, never swap it out
+  const team = useCloud((s) => s.active.kind === 'cloud')
   const [armed, setArmed] = useState(false)
   const [busy, setBusy] = useState<{ done: number; total: number } | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -523,6 +546,7 @@ function BackupStep({ backup, fileName, onCancel, onDone }: { backup: Backup; fi
   const date = backup.exportedAt ? new Intl.DateTimeFormat(lang === 'de' ? 'de-DE' : 'en-GB', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(backup.exportedAt)) : '—'
 
   const go = async () => {
+    if (mode === 'replace' && team) return
     if (mode === 'replace' && !armed) return setArmed(true)
     setBusy({ done: 0, total: backup.files.length })
     const started = performance.now()
@@ -563,6 +587,7 @@ function BackupStep({ backup, fileName, onCancel, onDone }: { backup: Backup; fi
             tabIndex={mode === m ? 0 : -1}
             className="io-choice__opt"
             data-danger={m === 'replace' || undefined}
+            disabled={m === 'replace' && team}
             onClick={() => {
               setMode(m)
               setArmed(false)
@@ -571,7 +596,7 @@ function BackupStep({ backup, fileName, onCancel, onDone }: { backup: Backup; fi
             <span className="io-choice__pos mono">{String.fromCharCode(65 + i)}</span>
             <span className="io-choice__text">
               <span className="io-choice__title">{t(`features.io.backup.${m}`)}</span>
-              <span className="io-choice__desc muted">{t(`features.io.backup.${m}Desc`)}</span>
+              <span className="io-choice__desc muted">{t(team ? `features.io.backup.${m}Team` : `features.io.backup.${m}Desc`)}</span>
             </span>
             <span className="io-choice__led">
               <Led state={mode === m ? 'on' : 'off'} />

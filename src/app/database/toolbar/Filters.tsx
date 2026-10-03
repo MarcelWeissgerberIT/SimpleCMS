@@ -295,12 +295,14 @@ export function FilterChips({ m, autoOpen, onAutoOpened }: { m: DbModel; autoOpe
     useWorkspace.getState().updateView(m.db.id, view.id, { filter: rest.length ? { ...g!, items: rest } : null })
   }
   const sortCount = view.sorts.length
+  // view only: the chips say what the view filters and sorts by, nothing more
+  const ro = m.readOnly
   if (!items.length && !sortCount) return null
   return (
     <div className="db-chipsbar" role="toolbar" aria-label={t('database.filter.title')}>
       {sortCount > 0 && (
         <span className="db-fchip db-fchip--sort">
-          <button type="button" className="db-fchip__main" aria-haspopup="dialog" onClick={(e) => setSortAnchor(sortAnchor ? null : e.currentTarget)}>
+          <button type="button" className="db-fchip__main" aria-haspopup="dialog" disabled={ro} onClick={(e) => setSortAnchor(sortAnchor ? null : e.currentTarget)}>
             <ArrowUpDown size={12} />
             <span className="db-fchip__op">{t('database.sort.title')}</span>
             {view.sorts.map((s, i) => (
@@ -309,9 +311,11 @@ export function FilterChips({ m, autoOpen, onAutoOpened }: { m: DbModel; autoOpe
               </span>
             ))}
           </button>
-          <button type="button" className="db-fchip__x" aria-label={t('database.sort.clear')} title={t('database.sort.clear')} onClick={() => useWorkspace.getState().updateView(m.db.id, view.id, { sorts: [] })}>
-            <X size={12} />
-          </button>
+          {!ro && (
+            <button type="button" className="db-fchip__x" aria-label={t('database.sort.clear')} title={t('database.sort.clear')} onClick={() => useWorkspace.getState().updateView(m.db.id, view.id, { sorts: [] })}>
+              <X size={12} />
+            </button>
+          )}
         </span>
       )}
       {sortAnchor && sortCount > 0 && <SortPanel m={m} anchor={sortAnchor} onClose={() => setSortAnchor(null)} />}
@@ -320,13 +324,15 @@ export function FilterChips({ m, autoOpen, onAutoOpened }: { m: DbModel; autoOpe
         if (isGroup(it))
           return (
             <span key={it.id} className="db-fchip">
-              <button type="button" className="db-fchip__main" onClick={(e) => setBuilder(e.currentTarget)}>
+              <button type="button" className="db-fchip__main" disabled={ro} onClick={(e) => setBuilder(e.currentTarget)}>
                 <Layers size={12} />
                 <span>{plural(t, 'database.filter.groupChip', countFilters(it))}</span>
               </button>
-              <button type="button" className="db-fchip__x" aria-label={t('common.remove')} onClick={() => removeItem(it.id)}>
-                <X size={12} />
-              </button>
+              {!ro && (
+                <button type="button" className="db-fchip__x" aria-label={t('common.remove')} onClick={() => removeItem(it.id)}>
+                  <X size={12} />
+                </button>
+              )}
             </span>
           )
         const prop = m.propMap.get(it.propertyId)
@@ -339,28 +345,34 @@ export function FilterChips({ m, autoOpen, onAutoOpened }: { m: DbModel; autoOpe
                 <span className="db-fchip__prop">{t('database.filter.deletedProp')}</span>
                 <span className="db-fchip__op">{t('database.filter.inactive')}</span>
               </span>
-              <button type="button" className="db-fchip__x" aria-label={t('common.remove')} onClick={() => removeItem(it.id)}>
-                <X size={12} />
-              </button>
+              {!ro && (
+                <button type="button" className="db-fchip__x" aria-label={t('common.remove')} onClick={() => removeItem(it.id)}>
+                  <X size={12} />
+                </button>
+              )}
             </span>
           )
         return (
           <span key={it.id} className="db-fchip" data-incomplete={!VALUELESS_OPS.includes(it.operator) && !val}>
-            <button type="button" data-chip-id={it.id} className="db-fchip__main" onClick={(e) => setOpen({ id: it.id, el: e.currentTarget })}>
+            <button type="button" data-chip-id={it.id} className="db-fchip__main" disabled={ro} onClick={(e) => setOpen({ id: it.id, el: e.currentTarget })}>
               <TypeIcon type={prop.type} size={12} />
               <span className="db-fchip__prop">{prop.name}</span>
               <span className="db-fchip__op">{t(`database.op.${it.operator}`)}</span>
               {val && <span className="db-fchip__val">{val}</span>}
             </button>
-            <button type="button" className="db-fchip__x" aria-label={t('common.remove')} onClick={() => removeItem(it.id)}>
-              <X size={12} />
-            </button>
+            {!ro && (
+              <button type="button" className="db-fchip__x" aria-label={t('common.remove')} onClick={() => removeItem(it.id)}>
+                <X size={12} />
+              </button>
+            )}
           </span>
         )
       })}
-      <button type="button" className="db-chipsbar__add" onClick={(e) => setAddAnchor(e.currentTarget)}>
-        <Plus size={12} /> {t('database.filter.add')}
-      </button>
+      {!ro && (
+        <button type="button" className="db-chipsbar__add" onClick={(e) => setAddAnchor(e.currentTarget)}>
+          <Plus size={12} /> {t('database.filter.add')}
+        </button>
+      )}
       <Menu
         open={!!addAnchor}
         anchor={addAnchor}

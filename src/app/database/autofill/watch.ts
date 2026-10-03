@@ -14,6 +14,7 @@ import { useWorkspace } from '../../store/store'
 import { isApplyingRemote } from '../../store/persistence'
 import { autofillOf, configIssue } from './config'
 import { rowHash } from './context'
+import { isDbReadOnly } from '../readonly'
 import { cellKey, fillRow, hasKey, jobKey, recordFills, setCells, useAutofill, writeProposal } from './store'
 
 const QUIET_MS = 4000
@@ -69,7 +70,7 @@ function check(dbId: ID, rowId: ID) {
   const s = useWorkspace.getState()
   const db = s.databases[dbId]
   const row = s.pages[rowId]
-  if (!db || !row || row.trashed || row.databaseId !== dbId || !hasKey()) return
+  if (!db || !row || row.trashed || row.databaseId !== dbId || !hasKey() || isDbReadOnly()) return
   // a brand-new, still empty row gives Claude nothing to go on
   if (!row.title.trim() && !(row.plain ?? '').trim()) return
   for (const prop of db.properties) {

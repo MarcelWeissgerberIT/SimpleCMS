@@ -27,6 +27,7 @@ import { useUI } from '../store/ui'
 import type { PopoverAnchor } from '../ui/Popover'
 import { AutofillHost } from './autofill'
 import { TurnOffHost } from './toolbar/StructurePanels'
+import { useDbReadOnly } from './readonly'
 import './database.css'
 
 const CalendarView = lazy(() => import('./views/CalendarView'))
@@ -66,10 +67,11 @@ function DatabaseRoot({ db, page, inline, viewId }: { db: Database; page: Page; 
   const filterKey = view ? JSON.stringify(view.filter) : ''
   useEffect(() => setKeep((c) => (c.length ? [] : c)), [view?.id, filterKey, search])
 
-  // A database always needs at least one view.
+  // A database always needs at least one view (a viewer can't add it: the store guard shows a table).
+  const readOnly = useDbReadOnly()
   useEffect(() => {
-    if (!db.views.length) useWorkspace.getState().addView(db.id, { type: 'table', name: t('database.view.table') })
-  }, [db.views.length, db.id, t])
+    if (!db.views.length && !readOnly) useWorkspace.getState().addView(db.id, { type: 'table', name: t('database.view.table') })
+  }, [db.views.length, db.id, t, readOnly])
 
   if (!view) return null
   return (
@@ -141,6 +143,7 @@ function DatabaseBody({
 
   const newRow = useCallback<ViewActions['newRow']>(
     (opts = {}) => {
+      if (m.readOnly) return ''
       const s = useWorkspace.getState()
       let index = opts.index
       if (opts.after) {
@@ -160,6 +163,7 @@ function DatabaseBody({
   )
 
   const onNew = (tpl?: Template) => {
+    if (m.readOnly) return
     const s = useWorkspace.getState()
     const props: Record<ID, PropertyValue> = { ...m.newRowDefaults(), ...(tpl ? JSON.parse(JSON.stringify(tpl.properties)) : {}) }
     const id = s.createRow(db.id, { title: '', properties: props, content: tpl?.content ? JSON.parse(JSON.stringify(tpl.content)) : null, icon: tpl?.icon ?? null })
@@ -184,7 +188,7 @@ function DatabaseBody({
 
   const onFilterProp = (propId: ID) => {
     const prop = m.propMap.get(propId)
-    if (!prop) return
+    if (!prop || m.readOnly) return
     const f = newFilterFor(m, prop)
     const base = view.filter ?? emptyGroup()
     useWorkspace.getState().updateView(db.id, view.id, { filter: { ...base, items: [...base.items, f] } })
@@ -221,8 +225,8 @@ function DatabaseBody({
   return (
     <DbModelContext.Provider value={m}>
       <ViewActionsContext.Provider value={actions}>
-        <section className={`db${inline ? ' db--inline' : ''}`} data-view={view.type} aria-label={page.title || t('common.untitled')}>
-          {inline && <InlineHeader page={page} />}
+        <section className={`db${inline ? ' db--inline' : ''}`} data-view={view.type} data-readonly={m.readOnly || undefined} aria-label={page.title || t('common.untitled')}>
+          {inline && <InlineHeader page={page} readOnly={m.readOnly} />}
           <div className="db-bar">
             <ViewTabs m={m} onSelect={setActiveId} />
             <Toolbar m={m} onNew={onNew} setSearch={setSearch} compact={inline} />
@@ -244,12 +248,12 @@ function DatabaseBody({
   )
 }
 
-function InlineHeader({ page }: { page: Page }) {
+function InlineHeader({ page, readOnly }: { page: Page; readOnly: boolean }) {
   const t = useT()
   const [title, setTitle] = useState(page.title)
   useEffect(() => setTitle(page.title), [page.title])
   const commit = () => {
-    if (title !== page.title) useWorkspace.getState().updatePage(page.id, { title })
+    if (title !== page.title && !readOnly) useWorkspace.getState().updatePage(page.id, { title })
   }
   return (
     <div className="db-inlinehead">
@@ -257,6 +261,7 @@ function InlineHeader({ page }: { page: Page }) {
       <input
         className="db-inlinehead__title"
         value={title}
+        readOnly={readOnly}
         placeholder={t('common.untitled')}
         aria-label={t('database.title')}
         onChange={(e) => setTitle(e.target.value)}

@@ -16,6 +16,7 @@ import { useWorkspace } from '../../store/store'
 import { useUI } from '../../store/ui'
 import { t } from '../../i18n'
 import { newOption, rowsOf, writeValue } from '../model/actions'
+import { isDbReadOnly } from '../readonly'
 import { autofillOf } from './config'
 import { buildRequest } from './context'
 import { coerceAnswer, sameValue } from './coerce'
@@ -256,6 +257,7 @@ function toastNoKey() {
 
 /** Fill a property for all rows, the empty ones, or the given rows. */
 export async function startFill(dbId: ID, propId: ID, mode: RunMode, only?: ID[]): Promise<void> {
+  if (isDbReadOnly()) return
   const key = jobKey(dbId, propId)
   const existing = st().jobs[key]
   if (existing?.phase === 'running') {
@@ -492,6 +494,7 @@ export function saveAutofillConfig(dbId: ID, propId: ID, cfg: AutofillConfig | n
 /* ------------------------------------------------------------------ */
 
 export function openAutofillPanel(dbId: ID, propId: ID) {
+  if (isDbReadOnly()) return
   set({ panel: { dbId, propId } })
 }
 
