@@ -287,14 +287,17 @@ export function usePruneGoneViews() {
 }
 
 let bootRedirected = false
+/** Routes App shows without the workspace: the workspace's first arrival comes later (and redirects then). */
+const STANDALONE: ReadonlySet<Route['name']> = new Set(['share', 'form', 'invite'])
+
 /**
- * On first load at "#/": jump to the start page (or the last visited page). Once per load. main.tsx
- * runs it before the first render — otherwise the home screen (workspace stats, the agenda panel:
- * a pass over every page) is built only to be replaced at once; the hook below covers a workspace
- * that renders later (after signing in).
+ * On the workspace's first arrival at "#/": jump to the start page (or the last visited page). Once
+ * per load. main.tsx runs it before the first render — otherwise the home screen (workspace stats,
+ * the agenda panel: a pass over every page) is built only to be replaced at once; the hook below
+ * covers a workspace that renders later (after a share / form / invite view, after signing in).
  */
 export function bootRedirect(route: Route = parseHash(window.location.hash)) {
-  if (bootRedirected) return
+  if (bootRedirected || STANDALONE.has(route.name)) return
   bootRedirected = true
   if (route.name !== 'home') return
   const { settings, pages } = useWorkspace.getState()
