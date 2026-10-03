@@ -1,4 +1,5 @@
 import { safeLocalGet, safeLocalSet } from '@/shared/brand'
+import { useCloud } from '../../cloud'
 
 /** localStorage flag: wipe all IndexedDB data on the next boot (before anything opens a connection). */
 export const RESET_FLAG = 'one.resetPending'
@@ -22,8 +23,17 @@ function broadcast(msg: { type: 'reset' }) {
  * Erase the workspace: flag the wipe, make every other open tab reload (they hold IndexedDB
  * connections that would block the delete, and their in-memory copy would otherwise be saved
  * back over the fresh workspace), then restart this tab.
+ *
+ * Only for the local workspace: in a team workspace this would erase the browser's local
+ * workspace behind the person's back (the flag runs at the next local boot). There, Settings offers
+ * "remove this workspace's copy" instead (cloud API removeDeviceCopy), and the owner deletes the
+ * team workspace itself under Settings → Team.
  */
 export function requestReset() {
+  if (useCloud.getState().active.kind === 'cloud') {
+    console.warn('[one] erasing is for the local workspace — a team workspace removes its copy instead')
+    return
+  }
   safeLocalSet(RESET_FLAG, '1')
   broadcast({ type: 'reset' })
   window.location.hash = '#/'

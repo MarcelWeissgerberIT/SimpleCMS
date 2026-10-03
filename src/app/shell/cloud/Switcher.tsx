@@ -1,13 +1,11 @@
 import { BookOpen, LogIn, LogOut, Plus } from 'lucide-react'
 import { useShallow } from 'zustand/react/shallow'
 import { useCloud } from '../../cloud'
-import { useUI } from '../../store/ui'
 import type { MenuEntry } from '../../ui/Menu'
 import { Led } from '../../ui/controls'
 import { useT } from '../../i18n'
 import { BRAND } from '@/shared/brand'
 import { cloudApi } from './api'
-import { errorText } from './errors'
 import { Avatar } from './Avatar'
 import { openCloudDialog, roleLabel } from './state'
 

@@ -800,6 +800,73 @@
   letter-spacing: var(--tracking-label);
   text-transform: uppercase;
 }
+
+/* ---------- checkbox row (sign out: remove the copies from this browser) ---------- */
+.cl-check {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius-2);
+  background: var(--surface);
+  cursor: pointer;
+  transition: border-color var(--dur-1) var(--ease-out), background var(--dur-1) var(--ease-out);
+}
+.cl-check:hover {
+  background: var(--surface-2);
+}
+.cl-check:has(.cl-check__box:checked) {
+  border-color: var(--ink);
+  box-shadow: inset 0 0 0 1px var(--ink);
+}
+.cl-check__box {
+  appearance: none;
+  position: relative;
+  width: 16px;
+  height: 16px;
+  margin: 1px 0 0;
+  border: 1.5px solid var(--ink-3);
+  border-radius: var(--radius-1);
+  background: var(--surface);
+  cursor: pointer;
+}
+.cl-check__box:checked {
+  border-color: var(--signal);
+  background: var(--signal);
+}
+.cl-check__box:checked::after {
+  content: '';
+  position: absolute;
+  left: 4px;
+  top: 1px;
+  width: 4px;
+  height: 8px;
+  border: solid var(--surface);
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
+.cl-check__box:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+.cl-check__title {
+  display: block;
+  font-size: 14px;
+  font-weight: 650;
+  line-height: 1.35;
+}
+.cl-check__hint {
+  display: block;
+  margin-top: 3px;
+  color: var(--ink-2);
+  font-size: var(--text-sm);
+  line-height: 1.45;
+}
+.cl-dlg__note {
+  display: block;
+  margin: 12px 0 0;
+}
 .cl-meter {
   margin: 4px 0 6px;
 }

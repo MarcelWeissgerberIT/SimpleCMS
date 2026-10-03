@@ -1,5 +1,5 @@
 import { cloneElement, isValidElement, useEffect, useId, useRef, useState, type ReactNode } from 'react'
-import { Eye, EyeOff, ExternalLink, X, Download, Upload, AlertTriangle, GitBranch } from 'lucide-react'
+import { Eye, EyeOff, ExternalLink, X, Download, Upload, AlertTriangle, GitBranch, HardDrive } from 'lucide-react'
 import { useWorkspace } from '../../store/store'
 import { isEffectivelyTrashed } from '../../store/selectors'
 import { useUI } from '../../store/ui'
@@ -15,7 +15,10 @@ import { fmtBytes, plural } from '../lib/format'
 import { requestReset } from '../lib/reset'
 import { WebClipper } from '../capture/WebClipper'
 import { TeamTab } from '../cloud/TeamTab'
-import { consumeSettingsTab, useInCloud, useReadOnly } from '../cloud/state'
+import { consumeSettingsTab, useInCloud, useReadOnly, useWorkspaceTitle } from '../cloud/state'
+import { cloudApi } from '../cloud/api'
+import { errorText } from '../cloud/errors'
+import { useCloud, useCloudSync } from '../../cloud'
 import './settings.css'
 
 export type SettingsTab = 'general' | 'team' | 'appearance' | 'ai' | 'data' | 'shortcuts' | 'about'
@@ -396,6 +399,7 @@ function DataTab({ onClose }: { onClose: () => void }) {
   const pct = est && est.quota ? Math.min(100, (est.usage / est.quota) * 100) : 0
   const ui = useUI.getState()
   const readOnly = useReadOnly()
+  const inCloud = useInCloud()
   return (
     <>
       <h3 className="st-h">{t('shell.settings.data.title')}</h3>
@@ -439,34 +443,77 @@ function DataTab({ onClose }: { onClose: () => void }) {
           ))}
         </select>
       </Field>
-      <div className="danger">
-        <div className="danger__stripes" aria-hidden />
-        <div className="danger__text">
-          <div className="label danger__label">
-            <AlertTriangle size={12} /> {t('shell.settings.data.danger')}
+      {/* a team workspace is not this browser's to erase: only its copy here can go */}
+      {inCloud ? (
+        <RemoveCopy onClose={onClose} />
+      ) : (
+        <div className="danger">
+          <div className="danger__stripes" aria-hidden />
+          <div className="danger__text">
+            <div className="label danger__label">
+              <AlertTriangle size={12} /> {t('shell.settings.data.danger')}
+            </div>
+            <strong>{t('shell.settings.data.reset')}</strong>
+            <p>{t('shell.settings.data.resetBody')}</p>
           </div>
-          <strong>{t('shell.settings.data.reset')}</strong>
-          <p>{t('shell.settings.data.resetBody')}</p>
+          <button
+            type="button"
+            className="btn btn--danger-solid"
+            onClick={() => {
+              onClose()
+              ui.openModal({
+                type: 'confirm',
+                title: t('shell.settings.data.resetConfirmTitle'),
+                body: t('shell.settings.data.resetConfirmBody'),
+                danger: true,
+                confirmLabel: t('shell.settings.data.resetConfirm'),
+                onConfirm: requestReset,
+              })
+            }}
+          >
+            {t('shell.settings.data.reset')}
+          </button>
         </div>
-        <button
-          type="button"
-          className="btn btn--danger-solid"
-          onClick={() => {
-            onClose()
-            ui.openModal({
-              type: 'confirm',
-              title: t('shell.settings.data.resetConfirmTitle'),
-              body: t('shell.settings.data.resetConfirmBody'),
-              danger: true,
-              confirmLabel: t('shell.settings.data.resetConfirm'),
-              onConfirm: requestReset,
-            })
-          }}
-        >
-          {t('shell.settings.data.reset')}
-        </button>
-      </div>
+      )}
     </>
+  )
+}
+
+/** Cloud workspace: remove this browser's copy (the server keeps the workspace). */
+function RemoveCopy({ onClose }: { onClose: () => void }) {
+  const t = useT()
+  const workspace = useWorkspaceTitle()
+  const wsId = useCloud((c) => (c.active.kind === 'cloud' ? c.active.id : null))
+  if (!wsId) return null
+  const ask = () => {
+    onClose()
+    const sync = useCloudSync.getState()
+    const lost = sync.unsynced || sync.pendingUploads > 0
+    useUI.getState().openModal({
+      type: 'confirm',
+      title: t('shell.cloud.copy.confirmTitle', { workspace }),
+      body: lost ? `${t('shell.cloud.copy.confirmBody')} ${t('shell.cloud.copy.confirmUnsynced')}` : t('shell.cloud.copy.confirmBody'),
+      danger: true,
+      confirmLabel: t('shell.cloud.copy.confirm'),
+      onConfirm: () => {
+        cloudApi.removeDeviceCopy(wsId).catch((e) => useUI.getState().toast({ message: errorText(e, t), kind: 'error' }))
+      },
+    })
+  }
+  return (
+    <div className="danger" data-testid="remove-copy">
+      <div className="danger__stripes" aria-hidden />
+      <div className="danger__text">
+        <div className="label danger__label">
+          <HardDrive size={12} /> {t('shell.cloud.copy.label')}
+        </div>
+        <strong>{t('shell.cloud.copy.title')}</strong>
+        <p>{t('shell.cloud.copy.body', { workspace })}</p>
+      </div>
+      <button type="button" className="btn btn--danger-solid" onClick={ask}>
+        {t('shell.cloud.copy.button')}
+      </button>
+    </div>
   )
 }
 

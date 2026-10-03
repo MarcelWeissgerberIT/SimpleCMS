@@ -1,14 +1,16 @@
 import { useEffect, useId, useState } from 'react'
-import { AlertTriangle, Check, CornerDownLeft, X } from 'lucide-react'
-import { useCloud, type CloudWorkspace } from '../../cloud'
+import { AlertTriangle, Check, CornerDownLeft, LogOut, X } from 'lucide-react'
+import { useShallow } from 'zustand/react/shallow'
+import { useCloud, useCloudSync, type CloudWorkspace } from '../../cloud'
 import { useWorkspace } from '../../store/store'
+import { useUI } from '../../store/ui'
 import { Modal } from '../../ui/Modal'
 import { useLang, useT } from '../../i18n'
 import { fmtNumber } from '../lib/format'
 import { cloudApi } from './api'
 import { errorText } from './errors'
 import { CheckInbox, SignInForm, useSignInFlow } from './SignIn'
-import { closeCloudDialog, useCloudUI } from './state'
+import { closeCloudDialog, useCloudUI, useWorkspaceTitle } from './state'
 import './cloud.css'
 
 /** Host for the cloud dialogs (ModalState only knows the core modals). Mount once in the workspace. */
@@ -16,6 +18,7 @@ export function CloudDialogs() {
   const dialog = useCloudUI((s) => s.dialog)
   if (dialog === 'new-workspace') return <NewWorkspaceDialog />
   if (dialog === 'sign-in') return <SignInDialog />
+  if (dialog === 'sign-out') return <SignOutDialog />
   return null
 }
 
@@ -57,6 +60,85 @@ function SignInDialog() {
           <CheckInbox flow={flow} />
         )}
       </div>
+    </Modal>
+  )
+}
+
+/* ------------------------------------------------------------------ sign out */
+
+/**
+ * Sign out — with the shared-computer question: also remove the team workspace copies from this
+ * browser (default on). The server keeps everything; the local workspace is never touched.
+ */
+function SignOutDialog() {
+  const t = useT()
+  const uid = useId()
+  const { email, inCloud } = useCloud(useShallow((s) => ({ email: s.user?.email ?? '', inCloud: s.active.kind === 'cloud' })))
+  const { unsynced, pending } = useCloudSync(useShallow((s) => ({ unsynced: s.unsynced, pending: s.pendingUploads })))
+  const workspace = useWorkspaceTitle()
+  const [forget, setForget] = useState(true)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const atRisk = forget && inCloud && (unsynced || pending > 0)
+
+  const go = async () => {
+    setBusy(true)
+    setError(null)
+    try {
+      await cloudApi.signOut({ forgetDevice: forget })
+      closeCloudDialog()
+      useUI.getState().toast({ message: forget ? t('shell.cloud.signout.doneForget') : t('shell.cloud.signedOut') })
+    } catch (e) {
+      setError(errorText(e, t))
+      setBusy(false)
+    }
+  }
+
+  return (
+    <Modal open onClose={() => !busy && closeCloudDialog()} width={520} bare className="cl-dlg" ariaLabel={t('shell.cloud.signout.label')}>
+      <DialogHead label={t('shell.cloud.signout.label')} onClose={closeCloudDialog} closable={!busy} />
+      <form
+        onSubmit={(e) => {
+          e.preventDefault()
+          void go()
+        }}
+      >
+        <div className="cl-dlg__body">
+          <h2 className="cl-dlg__title">{t('shell.cloud.signout.title')}</h2>
+          {email && <p className="cl-dlg__p">{t('shell.cloud.signout.who', { email })}</p>}
+          <label className="cl-check" htmlFor={`${uid}-forget`}>
+            <input id={`${uid}-forget`} type="checkbox" className="cl-check__box" checked={forget} onChange={(e) => setForget(e.target.checked)} aria-describedby={`${uid}-forget-hint`} data-autofocus="" />
+            <span className="cl-check__text">
+              <span className="cl-check__title">{t('shell.cloud.signout.forget')}</span>
+              <span className="cl-check__hint" id={`${uid}-forget-hint`}>
+                {t('shell.cloud.signout.forgetHint')}
+              </span>
+            </span>
+          </label>
+          {atRisk && (
+            <p className="cl-err" role="alert">
+              <AlertTriangle size={13} aria-hidden />
+              {t('shell.cloud.signout.unsynced', { workspace })}
+            </p>
+          )}
+          <p className="cl-dlg__hint cl-dlg__note">{t('shell.cloud.signout.local')}</p>
+          {error && (
+            <p className="cl-err" role="alert">
+              <AlertTriangle size={13} aria-hidden />
+              {error}
+            </p>
+          )}
+        </div>
+        <div className="cl-dlg__foot">
+          <button type="button" className="btn btn--ghost" onClick={closeCloudDialog} disabled={busy}>
+            {t('common.cancel')}
+          </button>
+          <button type="submit" className="btn btn--ink" disabled={busy}>
+            <LogOut size={13} aria-hidden />
+            {busy ? t('shell.cloud.signout.busy') : t('shell.cloud.signout.confirm')}
+          </button>
+        </div>
+      </form>
     </Modal>
   )
 }
