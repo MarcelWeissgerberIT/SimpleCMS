@@ -6,7 +6,7 @@
  * Claude is mocked (never reaches api.anthropic.com).
  */
 import type { Locator, Page } from '@playwright/test'
-import { test, expect, openApp, gotoPage, wsEval, flush, reloadApp, pageIdByTitle, editorOf, createPage, doc, mockClaude } from './fixtures'
+import { test, expect, openApp, gotoPage, wsEval, flush, reloadApp, pageIdByTitle, editorOf, createPage, doc, mockClaude, escapeRe } from './fixtures'
 
 type AnyState = Record<string, any> // eslint-disable-line @typescript-eslint/no-explicit-any
 
@@ -27,15 +27,22 @@ async function valueOf(page: Page, rowId: string, propId: string): Promise<unkno
   return wsEval(page, (s, a) => JSON.parse(JSON.stringify(s.pages[a.rowId]?.properties[a.propId] ?? null)), { rowId, propId })
 }
 
-/** Type "@query" at the end of a row page and pick the first page hit. */
-async function mention(page: Page, rowId: string, query: string): Promise<void> {
+/** Type "… @query" at the end of a row page and pick the page titled `query` (Enter: the keyboard way). */
+async function mention(page: Page, rowId: string, query: string, opts: { enter?: boolean } = {}): Promise<void> {
   const ed = editorOf(page, rowId)
-  await ed.click()
+  const before = await ed.locator('.mention--page').count()
+  // focus, not a click: a click could land on an earlier mention (a link)
+  await ed.focus()
   await page.keyboard.press(process.platform === 'darwin' ? 'Meta+End' : 'Control+End')
-  await page.keyboard.type(` @${query}`)
-  await expect(page.locator('.suggest-menu [role="option"]').first()).toBeVisible()
-  await page.keyboard.press('Enter')
-  await expect(ed.locator('.mention--page').last()).toBeVisible()
+  // (a space on an empty line would ask Claude instead)
+  await page.keyboard.type(`See @${query}`)
+  const option = page.locator('.suggest-menu [role="option"]', { has: page.locator('.menu-item__label', { hasText: new RegExp(`^${escapeRe(query)}$`) }) }).first()
+  await expect(option).toBeVisible()
+  if (opts.enter) {
+    await expect(option).toHaveAttribute('aria-selected', 'true')
+    await page.keyboard.press('Enter')
+  } else await option.click()
+  await expect(ed.locator('.mention--page')).toHaveCount(before + 1)
 }
 
 /** Open the menu of a menu item's submenu and pick an entry in it. */
@@ -111,7 +118,7 @@ test.describe('create properties on the fly', () => {
     await expect(offer(page)).toHaveCount(0)
 
     // another database: dismiss → never asked again for Reading list → Content calendar
-    const calRow = await wsEval(page, (s) => (Object.values(s.pages) as AnyState[]).find((p) => p.databaseId && s.pages[p.databaseId]?.title === 'Content calendar')!.title)
+    const calRow = 'October product update'
     await mention(page, book, calRow)
     await expect(offer(page)).toContainText('Link as relation to Content calendar?')
     await offer(page).getByRole('button', { name: 'Don’t ask again for Content calendar' }).click()
@@ -132,7 +139,7 @@ test.describe('create properties on the fly', () => {
     const projects = await pageIdByTitle(page, 'Projects')
     const book = await pageIdByTitle(page, 'Less, but better')
     await gotoPage(page, book)
-    await mention(page, book, 'Website relaunch')
+    await mention(page, book, 'Website relaunch', { enter: true })
     await expect(offer(page)).toBeVisible()
     await page.keyboard.press('Alt+Enter')
     await expect(offer(page).getByRole('button', { name: /^Link/ })).toBeFocused()
@@ -161,9 +168,8 @@ test.describe('create properties on the fly', () => {
     // focus is back in the text
     await expect(editorOf(page, book)).toBeFocused()
 
-    // Esc cancels the dialog: nothing created
-    await mention(page, book, 'Website relaunch')
-    await page.waitForTimeout(300)
+    // the next project: the relation exists now — the offer adds to it; Esc in the dialog would cancel
+    await mention(page, book, 'Brand refresh', { enter: true })
     await expect(offer(page)).toContainText('Add to “Projects read for”?')
   })
 
@@ -404,9 +410,10 @@ test.describe('create properties on the fly', () => {
   test('German: picker entry, offer and dialog', async ({ page }) => {
     await openApp(page)
     await wsEval(page, (s) => s.updateSettings({ language: 'de' }))
-    const reading = await pageIdByTitle(page, 'Leseliste')
+    // (the demo content was seeded in English)
+    const reading = await pageIdByTitle(page, 'Reading list')
     await gotoPage(page, reading)
-    await db(page).getByRole('tab').filter({ hasText: 'Tabelle' }).click()
+    await db(page).getByRole('tab').filter({ hasText: 'Table' }).click()
     await db(page).getByRole('toolbar', { name: 'Datenbank-Werkzeugleiste' }).getByRole('button', { name: 'Filter' }).click()
     await page.locator('.db-filterpop').getByRole('button', { name: 'Filterregel hinzufügen' }).click()
     await page.getByRole('menu').getByRole('textbox').fill('Budget')
@@ -416,13 +423,13 @@ test.describe('create properties on the fly', () => {
 
     const book = await pageIdByTitle(page, 'Shape Up')
     await gotoPage(page, book)
-    await mention(page, book, 'Website-Relaunch')
-    await expect(offer(page)).toContainText('Als Relation zu Projekte verknüpfen?')
+    await mention(page, book, 'Website relaunch')
+    await expect(offer(page)).toContainText('Als Relation zu Projects verknüpfen?')
     await offer(page).getByRole('button', { name: /^Verknüpfen/ }).click()
     const dlg = dialog(page)
-    await expect(dlg.getByRole('heading')).toHaveText('Relation zu Projekte anlegen')
+    await expect(dlg.getByRole('heading')).toHaveText('Relation zu Projects anlegen')
     await expect(dlg.getByRole('button', { name: 'Anlegen' })).toBeEnabled()
-    await expect(dlg).toContainText('Name in Projekte')
+    await expect(dlg).toContainText('Name in Projects')
     await page.keyboard.press('Escape')
     await expect(dlg).toHaveCount(0)
     expect((await propsOf(page, reading)).some((p) => p.type === 'relation')).toBe(false)
