@@ -122,7 +122,7 @@ export const messages: Messages = {
     'charts.source.inline': 'Spreadsheet range',
 
     'charts.sheet.pick': 'Spreadsheet',
-    'charts.sheet.none': 'No spreadsheets yet — insert one with /spreadsheet, then chart it from here or from its toolbar.',
+    'charts.sheet.none': 'No spreadsheets yet — insert one from the / menu, then chart it here or from its toolbar.',
     'charts.sheet.onPage': 'on {page}',
     'charts.sheet.untitled': 'Spreadsheet',
     'charts.sheet.sheet': 'Sheet',
@@ -131,7 +131,7 @@ export const messages: Messages = {
     'charts.sheet.datasets': 'Datasets',
 
     'charts.db.pick': 'Database',
-    'charts.db.none': 'No databases yet — create one with /table.',
+    'charts.db.none': 'No databases yet — create one from the / menu.',
     'charts.db.view': 'Rows',
     'charts.db.allRows': 'All rows',
     'charts.db.viewRows': 'Rows of view “{view}”',
@@ -328,7 +328,7 @@ export const messages: Messages = {
     'charts.source.inline': 'Tabellenbereich',
 
     'charts.sheet.pick': 'Tabellenkalkulation',
-    'charts.sheet.none': 'Noch keine Tabellenkalkulation – füge eine mit /tabellenkalkulation ein und erstelle das Diagramm hier oder über ihre Werkzeugleiste.',
+    'charts.sheet.none': 'Noch keine Tabellenkalkulation – füge eine über das /-Menü ein und erstelle das Diagramm hier oder über ihre Werkzeugleiste.',
     'charts.sheet.onPage': 'auf {page}',
     'charts.sheet.untitled': 'Tabellenkalkulation',
     'charts.sheet.sheet': 'Blatt',
@@ -337,7 +337,7 @@ export const messages: Messages = {
     'charts.sheet.datasets': 'Datenbereiche',
 
     'charts.db.pick': 'Datenbank',
-    'charts.db.none': 'Noch keine Datenbank – erstelle eine mit /tabelle.',
+    'charts.db.none': 'Noch keine Datenbank – erstelle eine über das /-Menü.',
     'charts.db.view': 'Zeilen',
     'charts.db.allRows': 'Alle Zeilen',
     'charts.db.viewRows': 'Zeilen der Ansicht „{view}“',

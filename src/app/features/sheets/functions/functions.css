@@ -143,6 +143,7 @@
   padding: 20px 24px 32px;
   overflow: auto;
   background: var(--surface);
+  container-type: inline-size;
 }
 .fx-back {
   display: none;
@@ -219,6 +220,33 @@
   min-height: 32px;
   margin-top: 8px;
   resize: none;
+}
+
+/* wide: the formula on the left, the test bench and checks beside it (they stay in view) */
+.fx-ed__work {
+  display: grid;
+  gap: 24px;
+}
+.fx-ed__side {
+  display: grid;
+  align-content: start;
+  gap: 16px;
+}
+@container (min-width: 760px) {
+  .fx-ed__work {
+    grid-template-columns: minmax(0, 1fr) 280px;
+    align-items: start;
+  }
+  .fx-ed__side {
+    position: sticky;
+    top: 0;
+  }
+  .fx-ed__side .fx-bench {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .fx-ed__side .fx-bench__in {
+    width: 100%;
+  }
 }
 
 .fx-sec__head {
