@@ -238,6 +238,13 @@ async function forget(flag: string[]): Promise<void> {
     const inboxKeys = [...targets].flatMap((ws) => [`data:cloud:${ws}`, `snap:cloud:${ws}`])
     await delMany(inboxKeys, createStore('one-inbox', 'kv')).catch(() => {})
   }
+  // folder + GitHub sync of this device (features/sync/storage.ts) — incl. the GitHub token
+  if (!dbNames || dbNames.includes('one-sync')) {
+    const syncKeys = [...targets].flatMap((ws) =>
+      ['folder', 'manifest:folder', 'manifest:github', 'github', 'status:folder', 'status:github', 'log'].map((k) => `${k}:cloud:${ws}`),
+    )
+    await delMany(syncKeys, createStore('one-sync', 'kv')).catch(() => {})
+  }
   for (const id of refs) if (!keep.has(id)) await deleteFile(FILE_PREFIX + id).catch(() => {})
   await Promise.all([...docDbs].map(deleteDb))
   done()

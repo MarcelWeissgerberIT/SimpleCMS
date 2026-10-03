@@ -77,10 +77,11 @@ reminders) / people, emoji shortcodes, Markdown paste, block links, margin comme
 **synced blocks** (the same content on several pages — edit it anywhere, it changes everywhere), and **buttons** that
 insert blocks, add rows, edit properties, open links or fire a webhook in one click.
 
-**Databases** — table, board, list, gallery, calendar, timeline, chart and form views over the same rows; 20 property
-types including relations, rollups, formulas (safe parser, no `eval`), status, unique IDs and ratings; filters with
-AND/OR groups, multi-sort, grouping, footer calculations, colour rules, sub-items, timeline dependencies (with
-automatic shifting), row templates — also repeating ones (a fresh meeting entry every Monday at 09:00) — inline databases inside pages, side/centre peek, `.ics` calendar export, and
+**Databases** — table, board, list, gallery, calendar, timeline, chart and form views over the same rows; 22 property
+types including relations, rollups, formulas (safe parser, no `eval`), status, unique IDs, ratings and created by /
+last edited by; filters with AND/OR groups and a "Me" filter, multi-sort, grouping, footer calculations, colour rules,
+sub-items, timeline dependencies (with automatic shifting), row templates — also repeating ones (a fresh meeting entry
+every Monday at 09:00) — locked databases, inline databases inside pages, side/centre peek, `.ics` calendar export, and
 **AI autofill** — summaries, key info, translations or categories per row, reviewed before they are written.
 
 **Workspace** — page tree with drag & drop, favourites, trash, breadcrumbs, `⌘K` palette for search *and* commands,
@@ -124,12 +125,15 @@ without CORS. Payload:
 images), an Obsidian vault (wikilinks, embeds, callouts), Evernote `.enex`, a Trello board, HTML pages, Markdown files,
 CSV or a One backup. Export pages or the whole workspace as Markdown (zip), HTML, PDF or a lossless JSON backup —
 or **publish it as a website**: a static site with navigation, sitemap, RSS, `llms.txt` and a Markdown twin of every
-page, ready for GitHub Pages or Netlify. Share read-only pages as links that *contain* the page (compressed into the
+page, ready for GitHub Pages or Netlify. **Sync** keeps a live, readable copy of the workspace as Markdown files — in a
+folder on your computer (Chrome / Edge) and/or in your own GitHub repository, one commit per push — and picks up
+edits you make to those files outside One (conflicts are kept side by side, nothing is deleted without asking). Share read-only pages as links that *contain* the page (compressed into the
 URL, optionally encrypted with a password) — no server involved.
 
 **Teams, on your own server** — the same app also runs as a team workspace on a small server you host
 (`server/`: Node, SQLite, Yjs, Docker + Caddy; licensed AGPL-3.0): sign-in by email link, roles (owner, admin, member,
-viewer), invitations, live co-editing with cursors and presence, offline copies that sync when you are back, and a
+viewer), invitations, live co-editing with cursors and presence, **private pages** (only you can open them — enforced
+by the server, not just hidden), offline copies that sync when you are back, and a
 **public REST API** with API tokens and an incoming webhook URL per database, so n8n, Make or Zapier can write rows
 into One ([docs/API.md](docs/API.md)). Setup in [docs/SELF_HOSTING.md](docs/SELF_HOSTING.md), architecture in
 [docs/CLOUD.md](docs/CLOUD.md). The local workspace keeps working without any of it.
@@ -204,10 +208,11 @@ Built for the **Ninja Armory** challenge of the AI Automations community.
 - Veröffentlichen als statische Website, Teilen-Links ohne Server (optional mit Passwort)
 - Agenda über alle Datenbanken, Web-Clipper, Graph-Ansicht und Versionsverlauf ohne Zeitlimit
 - Posteingang mit Erinnerungen, synchronisierte Blöcke, Aufklapp-Überschriften, Video und Audio
+- Sync als Markdown in einen Ordner auf deinem Rechner oder dein eigenes GitHub-Repository – in beide Richtungen
 - einen Workspace-Agenten (`⌘J`), der Aufgaben über Seiten und Datenbanken plant und erst nach deiner Prüfung ausführt
 - wiederkehrende Datenbank-Vorlagen, z. B. jeden Montag um 09:00 ein neuer Meeting-Eintrag
 - Präsentationsmodus und Offline-Betrieb
-- optional Team-Workspaces auf dem eigenen Server (Live-Zusammenarbeit, Rollen, Einladungen, öffentliche API und
+- optional Team-Workspaces auf dem eigenen Server (Live-Zusammenarbeit, Rollen, Einladungen, private Seiten, öffentliche API und
   eingehende Webhooks) – Anleitung in [docs/SELF_HOSTING.md](docs/SELF_HOSTING.md)
 
 Alles läuft im Browser, deine Daten verlassen dein Gerät nicht (außer du betreibst den Team-Server). Die Oberfläche gibt es auf Deutsch und Englisch und
