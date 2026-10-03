@@ -4,7 +4,6 @@
  * Values come from a Workbook kept in step with the attrs (incremental recalculation).
  */
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
-import { ClipboardPaste, Copy, Download, MoveHorizontal, Scissors, Trash2, Upload } from 'lucide-react'
 import { useLang, useT } from '../../../i18n'
 import { useWorkspace } from '../../../store/store'
 import { useUI, toast } from '../../../store/ui'
@@ -12,7 +11,7 @@ import type { ColorName } from '../../../store/types'
 import { newId } from '../../../lib/ids'
 import { Menu, type MenuEntry } from '../../../ui/Menu'
 import { pointAnchor } from '../../../ui/Popover'
-import { MOD } from '../../../ui/controls'
+import { MOD, shortcutLabel } from '../../../ui/controls'
 import { parseCSV } from '../../io/import/csv'
 import {
   a1,
@@ -626,12 +625,11 @@ export function SheetBlock({ attrs: raw, update, editable, editor, pageId, inser
   const rowsSel = rect.bottom - rect.top + 1
   const colsSel = rect.right - rect.left + 1
   const cellEntries: MenuEntry[] = [
-    { label: t('features.sheets.cut'), icon: <Scissors size={14} />, hint: `${MOD}X`, disabled: !editable, onSelect: () => copy(null, true) },
-    { label: t('features.sheets.copy'), icon: <Copy size={14} />, hint: `${MOD}C`, onSelect: () => copy(null, false) },
+    { label: t('features.sheets.cut'), hint: shortcutLabel('Mod+X'), disabled: !editable, onSelect: () => copy(null, true) },
+    { label: t('features.sheets.copy'), hint: shortcutLabel('Mod+C'), onSelect: () => copy(null, false) },
     {
       label: t('features.sheets.paste'),
-      icon: <ClipboardPaste size={14} />,
-      hint: `${MOD}V`,
+      hint: shortcutLabel('Mod+V'),
       disabled: !editable,
       onSelect: () => {
         const read = navigator.clipboard?.readText?.()
@@ -647,23 +645,22 @@ export function SheetBlock({ attrs: raw, update, editable, editor, pageId, inser
     { kind: 'separator' },
     { label: rowsSel > 1 ? t('features.sheets.deleteRowsN', { n: rowsSel }) : t('features.sheets.deleteRows'), danger: true, disabled: !editable || rowsSel >= sheet.rows, onSelect: deleteRows },
     { label: colsSel > 1 ? t('features.sheets.deleteColsN', { n: colsSel }) : t('features.sheets.deleteCols'), danger: true, disabled: !editable || colsSel >= sheet.cols, onSelect: deleteCols },
-    { label: t('features.sheets.clear'), icon: <Trash2 size={14} />, hint: 'Del', disabled: !editable, onSelect: clear },
+    { label: t('features.sheets.clear'), hint: 'Del', disabled: !editable, onSelect: clear },
     { kind: 'separator' },
-    { label: t('features.sheets.fillDown'), hint: `${MOD}D`, disabled: !editable || rowsSel < 2, onSelect: () => op(fill(a, sheet.id, rect, 'down')) },
-    { label: t('features.sheets.fillRight'), hint: `${MOD}R`, disabled: !editable || colsSel < 2, onSelect: () => op(fill(a, sheet.id, rect, 'right')) },
+    { label: t('features.sheets.fillDown'), hint: shortcutLabel('Mod+D'), disabled: !editable || rowsSel < 2, onSelect: () => op(fill(a, sheet.id, rect, 'down')) },
+    { label: t('features.sheets.fillRight'), hint: shortcutLabel('Mod+R'), disabled: !editable || colsSel < 2, onSelect: () => op(fill(a, sheet.id, rect, 'right')) },
   ]
 
   const moreEntries: MenuEntry[] = [
     { label: t('features.sheets.insertRowBelow'), disabled: !editable, onSelect: () => insertRows(true) },
     { label: t('features.sheets.insertColRight'), disabled: !editable, onSelect: () => insertCols(true) },
-    { label: t('features.sheets.autofit'), icon: <MoveHorizontal size={14} />, disabled: !editable, onSelect: () => autofit(Array.from({ length: sheet.cols }, (_, i) => i)) },
+    { label: t('features.sheets.autofit'), disabled: !editable, onSelect: () => autofit(Array.from({ length: sheet.cols }, (_, i) => i)) },
     { kind: 'separator' },
     {
       label: t('features.sheets.csvDownload'),
-      icon: <Download size={14} />,
       onSelect: () => download(`${(a.title || t('features.sheets.label')).replace(/[\\/:*?"<>|]+/g, '-')} - ${sheet.name.replace(/[\\/:*?"<>|]+/g, '-')}.csv`, sheetCsv(a, sheet.id, lang)),
     },
-    { label: t('features.sheets.csvImport'), icon: <Upload size={14} />, disabled: !editable, onSelect: () => fileInput.current?.click() },
+    { label: t('features.sheets.csvImport'), disabled: !editable, onSelect: () => fileInput.current?.click() },
   ]
 
   const importCsv = async (file: File) => {

@@ -187,7 +187,7 @@ export function freeName(a: A, base: string): string {
   return name
 }
 
-export function addSheet(a: A, name: string, rows = 20, cols = 8): Patch {
+export function addSheet(a: A, name: string, rows = 15, cols = 8): Patch {
   if (a.sheets.length >= LIMITS.sheets) return {}
   const sheet: SheetData = { id: newId(), name: freeName(a, name), rows, cols, cells: {}, colWidths: {} }
   return { sheets: [...a.sheets, sheet], active: sheet.id }

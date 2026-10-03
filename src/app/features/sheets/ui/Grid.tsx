@@ -231,6 +231,14 @@ export function Grid(props: GridProps) {
     return out
   }
 
+  /** Dataset tags hang above the area; on the first row of their block below it, inside when there is no room. */
+  const tagPlace = (rect: Rect, where: 'frozen' | 'body') => {
+    const first = where === 'body' ? frozen : 0
+    const last = where === 'body' ? sheet.rows - 1 : frozen - 1
+    if (rect.top > first) return ''
+    return Math.min(rect.bottom, sheet.rows - 1) < last ? ' is-below' : ' is-inside'
+  }
+
   const layer = (where: 'frozen' | 'body') => {
     const items: ReactNode[] = []
     overlays.forEach((o, i) => {
@@ -246,7 +254,7 @@ export function Grid(props: GridProps) {
                 <i className="sg-ov__h is-br" />
               </>
             )}
-            {o.tag && (where === 'frozen' || o.rect.top >= frozen) && <span className={`sg-ov__tag${o.rect.top === (where === 'body' ? frozen : 0) ? ' is-inside' : ''}`}>{o.tag}</span>}
+            {o.tag && (where === 'frozen' || o.rect.top >= frozen) && <span className={`sg-ov__tag${tagPlace(o.rect, where)}`}>{o.tag}</span>}
           </div>,
         )
       }

@@ -407,7 +407,8 @@
 
 .sg-colhead.is-sel,
 .sg-rowhead.is-sel {
-  background: var(--signal-wash);
+  /* opaque: the sticky headers cover the cells scrolling under them */
+  background: linear-gradient(var(--signal-wash), var(--signal-wash)), var(--surface-2);
   color: var(--signal-ink);
   font-weight: 700;
 }
@@ -575,6 +576,10 @@
 .sg-ov__tag.is-inside {
   top: 2px;
   left: 2px;
+}
+
+.sg-ov__tag.is-below {
+  top: calc(100% + 1px);
 }
 
 .sg-editor {
@@ -1022,8 +1027,16 @@
 /* ---------- small screens ---------- */
 
 @media (max-width: 640px) {
+  .sh-tb {
+    flex-wrap: wrap;
+    row-gap: 4px;
+  }
   .sh-tb__title {
     flex-basis: 100%;
+  }
+  .sh-tb__group {
+    border-left: 0;
+    padding-left: 0;
   }
   .sh-bar__ref {
     width: 64px;

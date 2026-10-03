@@ -40,14 +40,24 @@ export const sheetSources = (a: SpreadsheetAttrs): SheetSource[] => a.sheets.map
 export const datasetSources = (a: SpreadsheetAttrs): DatasetSource[] => a.datasets.map((d) => ({ id: d.id, name: d.name, ranges: d.ranges }))
 
 const books = new WeakMap<SpreadsheetAttrs, Workbook>()
+/** by block id: successive versions of a block's attrs recalculate incrementally (charts, exports) */
+const byBlock = new Map<string, Workbook>()
+const BLOCKS_KEPT = 16
 
-/** The computed workbook of a block's attrs (memoised per attrs object and language). */
+/** The computed workbook of a block's attrs (kept per block id, else per attrs object). */
 export function workbookOf(attrs: SpreadsheetAttrs, lang: Lang = currentLang()): Workbook {
   syncCustomFunctions()
-  let wb = books.get(attrs)
+  let wb = attrs.id ? byBlock.get(attrs.id) : books.get(attrs)
   if (!wb || wb.lang !== lang) {
     wb = new Workbook({ lang })
-    books.set(attrs, wb)
+    if (attrs.id) {
+      byBlock.set(attrs.id, wb)
+      if (byBlock.size > BLOCKS_KEPT) byBlock.delete(byBlock.keys().next().value!)
+    } else books.set(attrs, wb)
+  } else if (attrs.id) {
+    // most recently used last
+    byBlock.delete(attrs.id)
+    byBlock.set(attrs.id, wb)
   }
   wb.sync(sheetSources(attrs), datasetSources(attrs))
   return wb

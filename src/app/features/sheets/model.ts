@@ -69,7 +69,7 @@ export const LIMITS = {
   frozenRows: 10,
 } as const
 
-export const DEFAULT_ROWS = 20
+export const DEFAULT_ROWS = 15
 export const DEFAULT_COLS = 8
 export const DEFAULT_WIDTH = 104
 export const ROW_HEIGHT = 28
