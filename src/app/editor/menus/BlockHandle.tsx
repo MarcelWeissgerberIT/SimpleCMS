@@ -303,7 +303,7 @@ export function BlockHandle({ editor, bridge, pageId }: { editor: Editor; bridge
     if (!moveFor) return []
     const { pages } = useWorkspace.getState()
     // never a page inside a trashed parent: "Empty trash" would delete the moved block with it
-    const targets = sortPages(livePages(pages).filter((p) => p.kind === 'page' && p.id !== pageId))
+    const targets = sortPages(livePages(pages, pageId).filter((p) => p.kind === 'page' && p.id !== pageId))
     return [
       { kind: 'section', label: t('editor.blockMenu.moveTo') },
       ...targets.map((p) => ({

@@ -4,9 +4,11 @@
  *
  * Idempotent and crash-safe:
  * - rows are sealed in place in transactions, `WHERE enc = 0` (a row sealed meanwhile is skipped);
- * - a file is sealed into a temp file, fsynced and renamed to `<id>.enc` (atomic), THEN its row is
- *   marked, THEN the plaintext `<id>` is removed. Reads prefer `<id>.enc`, so every intermediate
- *   state serves the right bytes, and a run after a crash finishes the job.
+ * - a file is sealed into a temp file, fsynced and renamed to `<id>.enc` (atomic), THEN the plaintext
+ *   `<id>` is removed, THEN its row is marked. Reads prefer `<id>.enc`, so every intermediate state
+ *   serves the right bytes, and a run after a crash finishes the job (a row still unmarked whose
+ *   plaintext is gone is fingerprinted from its sealed bytes) — no plaintext copy can be left behind
+ *   by a row that is already marked.
  */
 import { createHmac } from 'node:crypto'
 import { once } from 'node:events'
@@ -94,11 +96,15 @@ interface PlainFileRow {
   sha256: string
 }
 
-/** Every file from before encryption sealed into `<id>.enc` (name and fingerprint too). */
-export async function sealFiles(db: Db, keys: Keyring, dataDir: string): Promise<FileReport> {
+/**
+ * Every file from before encryption sealed into `<id>.enc` (name and fingerprint too). `signal`
+ * stops between two files (server shutdown); the next start carries on.
+ */
+export async function sealFiles(db: Db, keys: Keyring, dataDir: string, signal?: AbortSignal): Promise<FileReport> {
   const report: FileReport = { files: 0, missing: 0 }
   let last = { ws: '', id: '' }
   for (;;) {
+    if (signal?.aborted) break
     const rows = db.all<PlainFileRow>(
       'SELECT workspace_id, id, name, sha256 FROM files WHERE enc = 0 AND (workspace_id > ? OR (workspace_id = ? AND id > ?)) ORDER BY workspace_id, id LIMIT ?',
       last.ws, last.ws, last.id, BATCH,
@@ -107,6 +113,7 @@ export async function sealFiles(db: Db, keys: Keyring, dataDir: string): Promise
     const tail = rows[rows.length - 1]!
     last = { ws: tail.workspace_id, id: tail.id }
     for (const row of rows) {
+      if (signal?.aborted) break
       const key = keys.forWorkspace(row.workspace_id)
       if (!key) continue
       const result = await sealFile(db, key, dataDir, row)
@@ -135,11 +142,12 @@ async function sealFile(db: Db, key: WorkspaceKey, dataDir: string, row: PlainFi
     fp = createHmac('sha256', key.mac).update(`missing:${row.sha256}`).digest('hex')
     outcome = 'missing'
   }
+  // the plaintext goes before the row is marked: a marked row never leaves a plaintext copy behind
+  await rm(legacy, { force: true })
   const changed = db.run(
     'UPDATE files SET name = ?, sha256 = ?, enc = 1 WHERE workspace_id = ? AND id = ? AND enc = 0',
     sealText(key.aead, row.name, fileNameContext(row.workspace_id, row.id)), fp, row.workspace_id, row.id,
   )
-  await rm(legacy, { force: true })
   return changed ? outcome : 'skipped'
 }
 

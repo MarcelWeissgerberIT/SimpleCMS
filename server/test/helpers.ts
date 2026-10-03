@@ -7,6 +7,12 @@ import * as Y from 'yjs'
 
 const SERVER = new URL('../dist/index.js', import.meta.url).pathname
 
+/**
+ * A FAKE master key for test servers that need an explicit DATA_KEY (production mode): 32 ASCII bytes
+ * that say what they are. Never use it anywhere else (`openssl rand -base64 32` makes a real one).
+ */
+export const TEST_DATA_KEY = Buffer.from('test-only-data-key-not-a-secret!', 'utf8').toString('base64')
+
 const created: string[] = []
 /** A temp directory removed when the test process exits. */
 export function tempDir(): string {

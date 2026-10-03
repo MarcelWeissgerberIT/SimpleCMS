@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
 import { describe, test } from 'node:test'
-import { Client, mailbox, runServerExpectingExit, signIn, sleep, startServer, tempDir } from './helpers.ts'
+import { Client, mailbox, runServerExpectingExit, signIn, sleep, startServer, TEST_DATA_KEY, tempDir } from './helpers.ts'
 
 const CLI = new URL('../dist/cli.js', import.meta.url).pathname
 const cli = (dataDir: string, ...args: string[]) =>
@@ -68,7 +68,7 @@ describe('SIGNUP=domains', () => {
 
 describe('configuration', () => {
   test('production refuses to start without SECRET, PUBLIC_URL, or with DEV_MODE', async () => {
-    const base = { NODE_ENV: 'production', DATA_DIR: tempDir(), PUBLIC_URL: 'https://cloud.example.com', SECRET: 'a'.repeat(64) }
+    const base = { NODE_ENV: 'production', DATA_DIR: tempDir(), PUBLIC_URL: 'https://cloud.example.com', SECRET: 'a'.repeat(64), DATA_KEY: TEST_DATA_KEY }
     const noSecret = await runServerExpectingExit({ ...base, SECRET: '' })
     assert.equal(noSecret.code, 78)
     assert.match(noSecret.output, /SECRET is required in production/)
@@ -85,7 +85,7 @@ describe('configuration', () => {
   })
 
   test('production over https: Secure cookie, no dev mailbox, links in the log without SMTP', async () => {
-    const server = await startServer({ NODE_ENV: 'production', DEV_MODE: '', PUBLIC_URL: 'https://cloud.example.com', SECRET: 'ab'.repeat(32) })
+    const server = await startServer({ NODE_ENV: 'production', DEV_MODE: '', PUBLIC_URL: 'https://cloud.example.com', SECRET: 'ab'.repeat(32), DATA_KEY: TEST_DATA_KEY })
     try {
       assert.equal((await fetch(`${server.url}/api/dev/mailbox`)).status, 404)
       const c = new Client(server.url)

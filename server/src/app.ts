@@ -90,13 +90,16 @@ export function buildApp(s: Services): Hono<AppEnv> {
     if (err instanceof HTTPException && err.status < 500) {
       return c.json({ error: { code: err.status === 413 ? 'payload_too_large' : 'bad_request', message: err.message || 'Bad request' } }, err.status)
     }
-    // a webhook URL's last segment is its secret: never in the log
-    s.log.error('unhandled error', { method: c.req.method, path: c.req.path.replace(/^(\/api\/v1\/hooks\/)[^/]+/, '$1…'), error: err })
+    // a webhook URL's last segment and an invite's token are secrets: never in the log
+    s.log.error('unhandled error', { method: c.req.method, path: redactPath(c.req.path), error: err })
     return c.json({ error: { code: 'internal', message: 'Internal server error' } }, 500)
   })
 
   return app
 }
+
+/** Paths that carry a secret (incoming webhook URLs, invite tokens) as they may appear in a log. */
+export const redactPath = (path: string) => path.replace(/^(\/api\/v1\/hooks\/|\/api\/invites\/)[^/]+/, '$1…')
 
 /** Resolves the session cookie on every API request and slides its expiry (not on the public API). */
 function sessionMiddleware(s: Services): MiddlewareHandler<AppEnv> {

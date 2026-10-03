@@ -97,7 +97,10 @@ export async function loadGitHubConfig(): Promise<GitHubConfig> {
 /** Store the config; a plaintext `token` is sealed first ('' removes the sealed token). */
 export async function saveGitHubConfig(c: GitHubConfig): Promise<void> {
   const token = c.token.trim()
-  if (!token) await clearSecret(TOKEN_SECRET, wsKey()).catch(() => {})
+  if (!token) {
+    tokens.clear()
+    await clearSecret(TOKEN_SECRET, wsKey()).catch(() => {})
+  }
   const stored = token && !isSecretMarker(token) ? { ...c, token: await sealGitHubToken(token) } : c
   await set(k('github'), stored, db())
 }

@@ -75,7 +75,10 @@ export function aiKeyValue(value: unknown, current: string, epoch: string | unde
   const v = typeof value === 'string' ? value.trim() : ''
   const scope = scopeOf(epoch)
   if (!v) {
-    if (user && current) void clearSecret(AI_KEY_SECRET, scope).catch(warn('the Claude API key could not be removed from the vault'))
+    if (user && current) {
+      keys.delete(current)
+      void clearSecret(AI_KEY_SECRET, scope).catch(warn('the Claude API key could not be removed from the vault'))
+    }
     return ''
   }
   if (isSecretMarker(v)) return v

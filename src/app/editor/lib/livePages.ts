@@ -1,4 +1,5 @@
 import type { ID, Page } from '../../store/types'
+import { templateScope } from '../../store/selectors'
 
 /**
  * Ids of pages that are really alive: neither trashed nor inside a trashed parent (the subtree
@@ -34,8 +35,12 @@ export function liveIds(pages: Record<ID, Page>): Set<ID> {
   return live
 }
 
-/** Pages to offer in a picker (link, mention, move to, linked database): live ones only. */
-export function livePages(pages: Record<ID, Page>): Page[] {
+/**
+ * Pages to offer in a picker (link, mention, move to, linked database) opened on page `near`:
+ * live ones only, and template pages (features/templates) only from a page of the same template.
+ */
+export function livePages(pages: Record<ID, Page>, near?: ID | null): Page[] {
   const live = liveIds(pages)
-  return Object.values(pages).filter((p) => live.has(p.id))
+  const scope = templateScope(pages, near)
+  return Object.values(pages).filter((p) => live.has(p.id) && scope(p.id))
 }

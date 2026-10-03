@@ -83,10 +83,12 @@ export async function startServer(config: Config, log: Logger): Promise<RunningS
   const heartbeat = setInterval(beat, HEARTBEAT_EVERY)
   heartbeat.unref()
 
+  const stopSealing = new AbortController()
   const filesSealed = (async () => {
     try {
-      const r = await sealFiles(db, keyring, config.dataDir)
+      const r = await sealFiles(db, keyring, config.dataDir, stopSealing.signal)
       if (r.files || r.missing) log.info('encryption at rest: sealed stored files', { ...r })
+      if (stopSealing.signal.aborted) return
       const left = plaintextLeft(db)
       if (Object.values(left).some((n) => n > 0)) log.warn('encryption at rest: plaintext left (run: node dist/cli.js encrypt-all)', left)
     } catch (err) {
@@ -101,6 +103,8 @@ export async function startServer(config: Config, log: Logger): Promise<RunningS
     app: config.appDir,
     mail: mailer.mode,
     signup: config.signup.mode,
+    // names the master key without revealing it: tells which DATA_KEY this server runs with
+    data_key: keyring.kekId,
     dev: config.devMode || undefined,
   })
   if (mailer.mode === 'dev') log.warn('no SMTP_URL set — sign-in links are only written to this log (dev-mail mode)')
@@ -118,6 +122,7 @@ export async function startServer(config: Config, log: Logger): Promise<RunningS
         server.closeAllConnections()
         limiter.stop()
         mailer.close()
+        stopSealing.abort() // between two files; the next start carries on
         await filesSealed
         try {
           db.run("DELETE FROM server_state WHERE key = 'heartbeat'")

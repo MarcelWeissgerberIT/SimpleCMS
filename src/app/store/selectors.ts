@@ -174,6 +174,19 @@ export function inTemplate(pages: Record<ID, Page>, id: ID): boolean {
   return templateLookup(pages)(id) !== null
 }
 
+/**
+ * What a picker opened on page `near` may offer (link / mention / move targets, linked databases,
+ * relation targets): every page outside templates, template pages only within near's own template.
+ */
+export function templateScope(pages: Record<ID, Page>, near: ID | null | undefined): (id: ID) => boolean {
+  const lookup = templateLookup(pages)
+  const own = near ? lookup(near) : null
+  return (id) => {
+    const tpl = lookup(id)
+    return tpl === null || tpl === own
+  }
+}
+
 /** Page ids a content links to, per (immutable) content object: a store change rescans only changed pages. */
 const linksCache = new WeakMap<object, ReadonlySet<ID>>()
 const NO_LINKS: ReadonlySet<ID> = new Set()

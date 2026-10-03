@@ -54,26 +54,31 @@ Claude Desktop / Claude Code ──stdio──▶ one-mcp.mjs ──ws://127.0.0
 
 The bridge is one file, [`one-mcp.mjs`](https://getonecms.com/mcp/one-mcp.mjs) (Node.js 20 or newer, no install).
 The MCP client starts it; it lists the tools, and forwards every call to the tab, which runs it against the
-workspace in the browser — the same code paths as the in-app agent — and answers.
+workspace in the browser — the same code paths as the in-app agent — and answers. For Claude Desktop it also comes
+packed as an extension, [`one.mcpb`](https://getonecms.com/mcp/one.mcpb), installed with one click.
 
 ### Set up
 
-1. **Get the bridge** — *Settings → Agents · MCP → Setup* has a download button and these snippets ready to copy:
+1. **Add it to your client.** *Settings → Agents · MCP → Setup* in One has all of this ready (download buttons, snippets
+   with copy keys); so does the MCP section of [getonecms.com](https://getonecms.com/#mcp).
 
-   ```bash
-   curl -fsSL https://getonecms.com/mcp/one-mcp.mjs -o ~/one-mcp.mjs
-   ```
-
-2. **Add it to your client.**
+   *Claude Desktop (macOS, Windows) — one click.* **Add to Claude Desktop** downloads
+   [`one.mcpb`](https://getonecms.com/mcp/one.mcpb), a Claude Desktop extension
+   ([MCP Bundle](https://github.com/modelcontextprotocol/mcpb)). Open the file — Claude Desktop shows *SimpleCMS One*
+   with its tools and asks to install it. No terminal, no config file, no Node.js: Claude Desktop runs the extension
+   with the Node.js it ships. Its settings (*Settings → Extensions → SimpleCMS One → Configure*): **Port** (47321, see
+   [Details](#details)) and **Extra allowed origins** (only for One served from your own domain, like `ONE_ORIGINS`).
 
    *Claude Code*
 
    ```bash
+   curl -fsSL https://getonecms.com/mcp/one-mcp.mjs -o ~/one-mcp.mjs
    claude mcp add one -- node ~/one-mcp.mjs
    ```
 
-   *Claude Desktop* — *Settings → Developer → Edit Config* (`claude_desktop_config.json`), with the **full** path
-   (Claude Desktop does not expand `~`), then restart Claude Desktop:
+   *Claude Desktop by hand* (instead of the extension; needs Node.js 20 or newer) — download `one-mcp.mjs` as above,
+   then *Settings → Developer → Edit Config* (`claude_desktop_config.json`), with the **full** path (Claude Desktop
+   does not expand `~`), then restart Claude Desktop:
 
    ```json
    {
@@ -86,7 +91,7 @@ workspace in the browser — the same code paths as the in-app agent — and ans
    *Any other MCP client* (Cursor, VS Code, Windsurf, Zed, your own agent with the MCP SDK): a **stdio** server,
    command `node`, argument the path of `one-mcp.mjs`.
 
-3. **Switch it on in One**: *Settings → Agents · MCP → Allow AI agents on this computer*. The panel's LED turns
+2. **Switch it on in One**: *Settings → Agents · MCP → Allow AI agents on this computer*. The panel's LED turns
    green — *Connected · Claude Desktop · 0 calls* — and a small **AGENT** LED appears in the status bar. Ask
    *“What is in my One workspace?”*
 
@@ -121,13 +126,16 @@ MCP." (a call waits up to 10 s for the tab first). The switch is **per browser**
   every few seconds, every 30 s after two minutes, at once when the tab comes back into view. Chrome logs each
   refused attempt in the developer console (*WebSocket connection … failed*); that is expected while no MCP client
   runs.
-- **Port**: 47321. Another port: `ONE_MCP_PORT` for the bridge and the same number in *Settings → Agents · MCP →
-  Port* (the copied snippets then include it: `"env": { "ONE_MCP_PORT": "47400" }`, `claude mcp add one -e
-  ONE_MCP_PORT=47400 -- node ~/one-mcp.mjs`).
+- **Port**: 47321. Another port: the same number in *Settings → Agents · MCP → Port* and for the bridge — the
+  extension's **Port** setting, or `ONE_MCP_PORT` (the copied snippets then include it: `"env": { "ONE_MCP_PORT":
+  "47400" }`, `claude mcp add one -e ONE_MCP_PORT=47400 -- node ~/one-mcp.mjs`).
+- **Updates.** Extension: download `one.mcpb` again (same button) and open it — Claude Desktop updates the installed
+  extension in place when the new version is higher. File: download `one-mcp.mjs` again and restart the client.
+  `--version` (or the extension's page in Claude Desktop) shows the version you run.
 - **Two MCP clients** (say Claude Desktop *and* Claude Code) each start a bridge; only the first gets the port. The
   second answers every call with *Another One MCP bridge is already using port 47321 …* and takes the port over when
   the first one quits. Use one client at a time, or give the second one another port (and switch the tab to it).
-- **Logs** go to stderr (Claude Desktop: *Settings → Developer → Open Logs Folder*, `mcp-server-one.log`); stdout is
+- **Logs** go to stderr (Claude Desktop: *Settings → Developer → Open Logs Folder*, the `mcp-server-…` file); stdout is
   the MCP channel. `ONE_MCP_QUIET=1` silences them. `node one-mcp.mjs --help` prints the setup, `--version` the
   version.
 - **Environment**: `ONE_MCP_PORT` (47321) · `ONE_ORIGINS` (extra allowed page origins, comma-separated;
@@ -187,7 +195,12 @@ For other implementations: JSON text frames, subprotocol `one-mcp.v1`, defined i
 | bridge → tab | `{ type: "cancel", id }` (the client cancelled, or the bridge gave up) · `{ type: "replaced" }` + close `4001` (a newer tab took over) |
 
 The bridge's own code is in [`mcp/`](../mcp) (`npm --prefix mcp install`, `npm run build:mcp` rebuilds
-`public/mcp/one-mcp.mjs`, which is committed — the Pages build just copies it; `npm run test:mcp` runs its tests).
+`public/mcp/one-mcp.mjs` and packs the extension around it, `public/mcp/one.mcpb` — both committed, the Pages build
+just copies them; `npm run test:mcp` runs its tests). The extension's manifest (MCPB spec 0.3: `server.type: "node"`,
+the tool list from the contract, the *Port* / *Extra allowed origins* settings mapped to `ONE_MCP_PORT` /
+`ONE_ORIGINS`) is generated by `mcp/src/mcpb.ts`; packing is deterministic (fixed order, timestamps and modes), so a
+rebuild without changes gives the same bytes. Check a bundle with the official CLI:
+`npx @anthropic-ai/mcpb info public/mcp/one.mcpb`, or `unpack` it and `validate` its `manifest.json`.
 
 ## Team server
 

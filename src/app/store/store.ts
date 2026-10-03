@@ -505,6 +505,12 @@ export const useWorkspace = create<WorkspaceState>()(
           if (isRoot) {
             copy.title = o.title ? `${o.title} ${suffix}` : ''
             copy.order = o.order + 0.5
+            // a template's root (Page.template): another own template, never a second customised built-in
+            if (copy.template) {
+              const { from: _from, ...meta } = copy.template
+              copy.template = { ...meta, name: `${meta.name} ${suffix}` }
+              copy.title = o.title
+            }
           }
           s.pages[copy.id] = copy
           const db = s.databases[oldId]

@@ -199,7 +199,10 @@ test.describe('landing: agents · MCP', () => {
     await expect(sec.locator('.pv-wide .mcp-gate-ask')).toBeHidden()
     await expect.poll(async () => Number(await sec.locator('.mcp-tool.is-w').first().evaluate((el) => getComputedStyle(el).opacity))).toBeLessThan(0.6)
 
-    // the bridge is a file of this site, under its base path
+    // first the one-click Claude Desktop extension (tests/e2e/mcpb.spec.ts); the bridge file and the
+    // snippets for other clients are folded below it — files of this site, under its base path
+    await expect(sec.getByRole('link', { name: /Add to Claude Desktop/ })).toHaveAttribute('href', '/SimpleCMS/mcp/one.mcpb')
+    await sec.getByText('Other clients · manual setup').click()
     await expect(sec.getByRole('link', { name: /Download one-mcp\.mjs/ })).toHaveAttribute('href', '/SimpleCMS/mcp/one-mcp.mjs')
 
     // copy keys: keyboard, real clipboard, a confirmation that screen readers hear too
@@ -229,7 +232,7 @@ test.describe('landing: agents · MCP', () => {
       const sec = page.locator('#mcp')
       await expect(sec.getByRole('heading', { name: 'One spricht MCP.' })).toBeVisible()
       await expect(sec.getByRole('radio', { name: 'Erst fragen' })).toBeChecked()
-      await expect(sec.getByRole('link', { name: /one-mcp\.mjs herunterladen/ })).toBeVisible()
+      await expect(sec.getByRole('link', { name: /Zu Claude Desktop hinzufügen/ })).toBeVisible()
       await expect(page.locator('.hero-mcp')).toContainText('Lass Claude deinen Workspace bedienen')
     })
   })

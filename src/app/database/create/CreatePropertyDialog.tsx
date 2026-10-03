@@ -7,7 +7,7 @@ import { useMemo, useState } from 'react'
 import { ArrowLeftRight, Lock } from 'lucide-react'
 import type { ID, PropertyDef, PropertyType } from '../../store/types'
 import { useWorkspace } from '../../store/store'
-import { isEffectivelyTrashed, pageTitle, sortPages } from '../../store/selectors'
+import { isEffectivelyTrashed, pageTitle, sortPages, templateScope } from '../../store/selectors'
 import { Modal } from '../../ui/Modal'
 import { PageIcon } from '../../ui/PageIcon'
 import { Kbd, Switch } from '../../ui/controls'
@@ -59,15 +59,15 @@ export function CreatePropertyDialog({ dbId, name: initialName, type: initialTyp
   const taken = !!db && !!propertyByName(db, name)
   const ready = !!db && !readOnly && !locked && !!name.trim() && !taken && (!isRelation || !!target)
 
-  const targets = useMemo(
-    () =>
-      sortPages(Object.values(pages).filter((p) => p.kind === 'database' && databases[p.id] && !p.trashed && !isEffectivelyTrashed(pages, p.id))).map((p) => ({
-        value: p.id,
-        label: pageTitle(p, untitled),
-        icon: <PageIcon icon={p.icon} kind="database" size={14} />,
-      })),
-    [pages, databases, untitled],
-  )
+  const targets = useMemo(() => {
+    // template databases (features/templates) only from a database of the same template
+    const scope = templateScope(pages, dbId)
+    return sortPages(Object.values(pages).filter((p) => p.kind === 'database' && databases[p.id] && !p.trashed && !isEffectivelyTrashed(pages, p.id) && scope(p.id))).map((p) => ({
+      value: p.id,
+      label: pageTitle(p, untitled),
+      icon: <PageIcon icon={p.icon} kind="database" size={14} />,
+    }))
+  }, [pages, databases, untitled, dbId])
 
   const submit = () => {
     if (!ready) return

@@ -37,7 +37,11 @@ describe('magic-link sign-in', () => {
     assert.equal(me.status, 200)
     assert.equal(me.body.user.email, 'alice@example.com')
     assert.equal(me.body.user.name, null)
-    assert.deepEqual(me.body.workspaces, [])
+    // everyone gets a workspace of their own at the first sign-in (docs/CLOUD.md § Tenancy)
+    assert.deepEqual(
+      me.body.workspaces.map((w: { name: string; role: string; personal: boolean }) => [w.name, w.role, w.personal]),
+      [['alice’s space', 'owner', true]],
+    )
 
     // single use
     const again = await new Client(server.url).fetch(link.pathname + link.search)

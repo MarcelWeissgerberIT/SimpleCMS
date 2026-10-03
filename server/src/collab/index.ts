@@ -83,7 +83,13 @@ export function createCollab(deps: { config: Config; log: Logger; repo: Repo; se
     },
 
     async onLoadDocument({ documentName }) {
-      return repo.loadDocument(documentName)
+      try {
+        return repo.loadDocument(documentName)
+      } catch (err) {
+        // never an empty document instead (the next store would overwrite the real one): refuse to load
+        log.error('document cannot be decrypted', { document: documentName, error: (err as Error).message })
+        throw err
+      }
     },
 
     async onStoreDocument({ documentName, document }) {

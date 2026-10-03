@@ -105,7 +105,7 @@ function LinkPanel({ editor, initial, onDone }: { editor: Editor; initial: strin
   // link targets: live pages only (not trashed, not inside a trashed parent) — once per opening
   const candidates = useMemo(() => {
     const self = editor.view.dom.getAttribute('data-page-id')
-    return livePages(useWorkspace.getState().pages).filter((p) => p.id !== self)
+    return livePages(useWorkspace.getState().pages, self).filter((p) => p.id !== self)
   }, [editor])
   const pages = useMemo(() => {
     const q = value.trim()

@@ -219,7 +219,7 @@ function ActionCard({
       body = <InsertFields action={action} pageId={pageId} onChange={onChange} />
       break
     case 'add_page':
-      body = <AddPageFields action={action} onChange={onChange} />
+      body = <AddPageFields action={action} pageId={pageId} onChange={onChange} />
       break
     case 'edit_properties':
       body = rowDb ? <PresetList db={rowDb} mode="edit" values={action.values} onChange={(values) => onChange({ ...action, values })} /> : <p className="bcfg__note">{t('editor.button.err.notRow')}</p>
@@ -357,19 +357,19 @@ function InsertFields({ action, pageId, onChange }: { action: Act<'insert_blocks
   )
 }
 
-function databaseEntries(current: string | null, onPick: (id: string) => void, untitled: string): MenuEntry[] {
+function databaseEntries(current: string | null, onPick: (id: string) => void, untitled: string, near: string | null): MenuEntry[] {
   const { pages, databases } = useWorkspace.getState()
-  const dbs = sortPages(livePages(pages).filter((p) => p.kind === 'database' && databases[p.id]))
+  const dbs = sortPages(livePages(pages, near).filter((p) => p.kind === 'database' && databases[p.id]))
   return dbs.map((p) => ({ label: pageTitle(p, untitled), icon: <PageIcon icon={p.icon} kind="database" size={15} />, checked: p.id === current, onSelect: () => onPick(p.id) }))
 }
 
-function AddPageFields({ action, onChange }: { action: Act<'add_page'>; onChange: (a: ButtonAction) => void }) {
+function AddPageFields({ action, pageId, onChange }: { action: Act<'add_page'>; pageId: string | null; onChange: (a: ButtonAction) => void }) {
   const t = useT()
   const db = useWorkspace((s) => (action.databaseId ? (s.databases[action.databaseId] ?? null) : null))
   const dbPage = useWorkspace((s) => (action.databaseId ? s.pages[action.databaseId] : undefined))
   const entries = useMemo(
-    () => databaseEntries(action.databaseId, (id) => onChange({ ...action, databaseId: id, values: id === action.databaseId ? action.values : [] }), t('common.untitled')),
-    [action, onChange, t],
+    () => databaseEntries(action.databaseId, (id) => onChange({ ...action, databaseId: id, values: id === action.databaseId ? action.values : [] }), t('common.untitled'), pageId),
+    [action, onChange, t, pageId],
   )
   return (
     <>
@@ -439,7 +439,7 @@ function OpenFields({ action, pageId, onChange }: { action: Act<'open'>; pageId:
   const id = useId()
   const target = useWorkspace((s) => (action.pageId ? s.pages[action.pageId] : undefined))
   const entries = useMemo<MenuEntry[]>(() => {
-    const pages = sortPages(livePages(useWorkspace.getState().pages).filter((p) => p.id !== pageId))
+    const pages = sortPages(livePages(useWorkspace.getState().pages, pageId).filter((p) => p.id !== pageId))
     return pages.map((p) => ({ label: pageTitle(p, t('common.untitled')), icon: <PageIcon icon={p.icon} kind={p.kind} size={15} />, checked: p.id === action.pageId, onSelect: () => onChange({ ...action, pageId: p.id, url: '' }) }))
   }, [action, onChange, pageId, t])
   return (

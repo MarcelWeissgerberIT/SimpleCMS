@@ -29,8 +29,8 @@ test('workspace lifecycle: create, invite, accept, roles, ownership, leave, dele
   assert.match(ws.id, /^[A-Za-z0-9_-]{16}$/)
   const me = await owner.get('/api/me')
   assert.deepEqual(
-    me.body.workspaces.map((w: any) => [w.id, w.name, w.role]),
-    [[ws.id, 'Acme Team', 'owner']],
+    me.body.workspaces.map((w: any) => [w.personal ? 'personal' : w.id, w.name, w.role]),
+    [['personal', 'owner’s space', 'owner'], [ws.id, 'Acme Team', 'owner']],
   )
 
   // invite by link
@@ -154,7 +154,11 @@ test('workspace lifecycle: create, invite, accept, roles, ownership, leave, dele
   assert.equal((await owner.del(`/api/workspaces/${ws.id}`)).status, 403)
   assert.equal((await bob.del(`/api/workspaces/${ws.id}`)).status, 204)
   assert.equal((await bob.get(`/api/workspaces/${ws.id}/members`)).status, 404)
-  assert.deepEqual((await owner.get('/api/me')).body.workspaces, [])
+  assert.deepEqual(
+    (await owner.get('/api/me')).body.workspaces.map((w: any) => w.personal),
+    [true],
+    'only their own space is left',
+  )
 })
 
 test('validation and invite rate limit', async () => {
