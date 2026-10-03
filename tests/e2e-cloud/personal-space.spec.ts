@@ -40,7 +40,7 @@ test.describe('a workspace of one’s own', () => {
   test('a new person signs in and lands in their own space', async ({ page }) => {
     const address = email('nora')
     const local = address.split('@')[0]!
-    await page.goto('/app/')
+    await page.goto('/app/?e2e') // the test hook (window.__one) survives the magic link's way back
     await expect(page.locator('.app')).toBeVisible()
     await uiSignIn(page, address)
 
@@ -72,7 +72,7 @@ test.describe('a workspace of one’s own', () => {
   test('a browser that chose its local workspace keeps it; the own space waits in the switcher', async ({ page }) => {
     const address = email('otto')
     const local = address.split('@')[0]!
-    await page.goto('/app/')
+    await page.goto('/app/?e2e') // the test hook (window.__one) survives the magic link's way back
     await expect(page.locator('.app')).toBeVisible()
     await page.evaluate(() => localStorage.setItem('one.cloud.active', 'local'))
     await uiSignIn(page, address)
