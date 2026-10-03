@@ -3,7 +3,7 @@ import { dirname, join, posix } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import type { Locator, Page } from '@playwright/test'
 import { inflateSync, strFromU8, unzipSync } from 'fflate'
-import { test, expect, openApp, gotoPage, createPage, doc, para, heading, pageIdByTitle, MOD } from './fixtures'
+import { test, expect, openApp, gotoPage, createPage, doc, para, heading, pageIdByTitle, wsEval, flush, MOD } from './fixtures'
 
 type Files = Record<string, Uint8Array>
 
@@ -71,6 +71,29 @@ function brokenLinks(files: Files): string[] {
     }
   }
   return out
+}
+
+/** Put files straight into the app's IndexedDB file store ("onefile:<id>"). */
+async function putFiles(page: Page, files: Array<{ id: string; name: string; type: string; text: string }>) {
+  await page.evaluate(async (files) => {
+    await new Promise<void>((resolve, reject) => {
+      const req = indexedDB.open('one-files')
+      req.onupgradeneeded = () => req.result.createObjectStore('files')
+      req.onerror = () => reject(req.error)
+      req.onsuccess = () => {
+        const tx = req.result.transaction('files', 'readwrite')
+        for (const f of files) {
+          const blob = new Blob([f.text], { type: f.type })
+          tx.objectStore('files').put({ blob, name: f.name, type: f.type, size: blob.size, createdAt: 1 }, f.id)
+        }
+        tx.oncomplete = () => {
+          req.result.close()
+          resolve()
+        }
+        tx.onerror = () => reject(tx.error)
+      }
+    })
+  }, files)
 }
 
 function unpack(files: Files, dir: string) {
@@ -245,6 +268,132 @@ test.describe('publish as website', () => {
     // buttons are published as a static key; their actions (webhook URLs) never leave the workspace
     expect(media).toContain('<span class="one-button__key">Notify team</span>')
     for (const [p, data] of Object.entries(files)) expect(strFromU8(data), p).not.toContain('secret-hook')
+  })
+
+  test('nothing outside the scope is published: embedded databases, relations, rollups, page links; views, unsafe media', async ({ page }) => {
+    await openApp(page)
+    await putFiles(page, [
+      { id: 'e2ehtml00001', name: 'Landing draft.html', type: 'text/html', text: '<!doctype html><script>alert("pwned")</script>' },
+      { id: 'e2esvg000001', name: 'Logo.svg', type: 'image/svg+xml', text: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10" onload="alert(1)"><script>alert(2)</script><circle cx="5" cy="5" r="4"/></svg>' },
+    ])
+    const ids = await wsEval(page, (s) => {
+      // OUTSIDE the scope: a private CRM at the workspace root; its view even hides the note
+      const crm = s.createDatabase({
+        parentId: null,
+        title: 'Private CRM',
+        properties: [
+          { id: 'cname', name: 'Name', type: 'title' },
+          { id: 'cmail', name: 'Email', type: 'email' },
+          { id: 'cnote', name: 'Secret note', type: 'text' },
+        ],
+      })
+      const acme = s.createRow(crm, { title: 'Acme Holdings', properties: { cmail: 'ceo@acme-secret.test', cnote: 'launch-codes-7731' } })
+      s.createRow(crm, { title: 'Globex Ventures', properties: { cmail: 'cfo@globex-secret.test', cnote: 'merger-plan-0420' } })
+      // `s` is a snapshot: read what was just created from the live store
+      const live = () => (window as unknown as { __one: { workspace: { getState: () => typeof s } } }).__one.workspace.getState()
+      const crmView = live().databases[crm].views[0].id
+      s.updateView(crm, crmView, { visibleProperties: ['cmail'] })
+
+      // the published branch: a page with an inline team database (relation + rollup into the CRM)
+      const site = s.createPage({ title: 'Public handbook', parentId: null })
+      const team = s.createDatabase({
+        parentId: site,
+        title: 'Team',
+        inline: true,
+        properties: [
+          { id: 'tname', name: 'Name', type: 'title' },
+          { id: 'trole', name: 'Role', type: 'text' },
+          { id: 'tpay', name: 'Salary band', type: 'text' },
+          { id: 'tclient', name: 'Client', type: 'relation', relationDatabaseId: crm },
+          { id: 'troll', name: 'Client email', type: 'rollup', rollup: { relationPropertyId: 'tclient', targetPropertyId: 'cmail', fn: 'show_original' } },
+          { id: 'tform', name: 'Client label', type: 'formula', formula: 'prop("Client")' },
+        ],
+      })
+      s.createRow(team, { title: 'Ada', properties: { trole: 'Engineer', tpay: 'band-E7', tclient: [acme] } })
+      s.createRow(team, { title: 'Grace', properties: { trole: 'Admiral', tpay: 'band-A9' } })
+      s.createRow(team, { title: 'Linus', properties: { trole: 'Intern', tpay: 'band-I1' } })
+      // the embedded view: no interns, newest name first, the salary column hidden
+      const pub = s.addView(team, {
+        type: 'table',
+        name: 'Public',
+        visibleProperties: ['trole'],
+        sorts: [{ propertyId: 'tname', direction: 'desc' }],
+        filter: { id: 'f', op: 'and', items: [{ id: 'r', propertyId: 'trole', operator: 'is_not', value: 'Intern' }] },
+      })
+      const contact = s.createPage({ title: 'Contact us', parentId: site })
+      s.setContent(
+        site,
+        {
+          type: 'doc',
+          content: [
+            { type: 'paragraph', content: [{ type: 'text', text: 'Welcome to the handbook.' }] },
+            { type: 'databaseBlock', attrs: { databaseId: crm, viewId: crmView } },
+            { type: 'pageLink', attrs: { pageId: crm } },
+            { type: 'databaseBlock', attrs: { databaseId: team, viewId: pub } },
+            // a malformed internal link must not abort the export
+            { type: 'paragraph', content: [{ type: 'text', text: 'Broken reference', marks: [{ type: 'link', attrs: { href: '#/p/%E0%A4%A' } }] }] },
+            // "open page" button: not a link of the static page, the sub page stays listed
+            { type: 'button', attrs: { label: 'Write to us', variant: 'signal', actions: [{ id: 'o1', type: 'open', url: '', pageId: contact }] } },
+            { type: 'image', attrs: { src: 'onefile:e2esvg000001', alt: 'Logo' } },
+            { type: 'fileBlock', attrs: { src: 'onefile:e2ehtml00001', name: 'Landing draft.html', size: 48 } },
+          ],
+        },
+        'e2e',
+      )
+      return { site, team, crm }
+    })
+    await flush(page)
+    await gotoPage(page, ids.site)
+    const dialog = await openExport(page)
+    await dialog.getByRole('radio', { name: /Public handbook/ }).click()
+    await dialog.getByRole('radio', { name: /Website/ }).click()
+    await expect(dialog.getByText(/No base URL: sitemap\.xml and the RSS feed are left out/)).toBeVisible()
+    await expect(dialog.locator('[data-site-feed]')).toBeDisabled()
+    const { files } = await exportSite(page, dialog)
+
+    // not one byte of the CRM: names, emails, notes, its title — in any file of the zip
+    for (const [p, data] of Object.entries(files)) {
+      const s = strFromU8(data)
+      for (const secret of ['Private CRM', 'Acme Holdings', 'Globex', 'acme-secret', 'globex-secret', 'launch-codes-7731', 'merger-plan-0420', 'Secret note']) expect(s, `${p} leaks "${secret}"`).not.toContain(secret)
+    }
+    expect(Object.keys(files).some((f) => f.startsWith('private-crm'))).toBe(false)
+
+    const home = text(files, 'index.html')
+    // the page link to the CRM stays, anonymous; the CRM table is gone
+    expect(home).toContain('<span class="page-link__off"><span>Private page</span></span>')
+    // the malformed #/p/ link became text instead of aborting the export
+    expect(home).toContain('<span class="off">Broken reference</span>')
+    // the team table as its view shows it: no interns, Z→A, no salary column
+    const table = home.slice(home.indexOf('<section class="dbx">'), home.indexOf('</section>', home.indexOf('<section class="dbx">')))
+    expect(table).toContain('<th scope="col">Role</th>')
+    expect(table).not.toContain('Salary band')
+    expect(table).not.toContain('band-')
+    expect(table).not.toContain('Linus')
+    expect(table.indexOf('Grace')).toBeGreaterThan(0)
+    expect(table.indexOf('Grace')).toBeLessThan(table.indexOf('Ada'))
+    // a button action is no link: "Contact us" is still listed as a sub page
+    expect(home).toMatch(/<section class="sub"[\s\S]*Contact us/)
+    expect(text(files, 'index.md')).toContain('Private page')
+
+    // the team database itself is part of the site (its rows are pages), the relation into the CRM is not
+    const ada = Object.keys(files).find((f) => /^team\/ada\/index\.html$/.test(f))!
+    expect(ada).toBeDefined()
+    expect(text(files, ada)).toContain('band-E7')
+
+    // no base URL: no feed, and nothing links to one
+    expect(files['rss.xml']).toBeUndefined()
+    for (const [p, data] of Object.entries(files)) if (p.endsWith('.html')) expect(strFromU8(data), p).not.toContain('rss.xml')
+
+    // media: an HTML attachment is published as inert text, an SVG image without its scripts
+    expect(Object.keys(files).filter((f) => /^media\/.*\.(html?|js)$/.test(f))).toEqual([])
+    expect(strFromU8(files['media/landing-draft-html.txt'])).toContain('<script>')
+    expect(home).toContain('href="media/landing-draft-html.txt"')
+    const svg = strFromU8(files['media/logo.svg'])
+    expect(svg).toMatch(/^<svg xmlns="http:\/\/www\.w3\.org\/2000\/svg"/)
+    expect(svg).toContain('<circle')
+    expect(svg).not.toMatch(/<script|onload|alert/)
+    expect(home).toContain('src="media/logo.svg"')
+    expect(brokenLinks(files)).toEqual([])
   })
 })
 

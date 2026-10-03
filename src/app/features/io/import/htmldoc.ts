@@ -75,6 +75,7 @@ function prepare(dom: Document, opts: HtmlToDocOptions): HTMLElement {
     p.appendChild(b)
     h.replaceWith(p)
   }
+  evernote(root)
   callouts(root)
   toggles(root)
   tasks(root)
@@ -116,6 +117,34 @@ function dropTitle(root: HTMLElement, title?: string) {
   if (!title || !h1) return
   const text = norm(h1.textContent ?? '')
   if (text && text === norm(title) && norm(root.textContent ?? '').startsWith(text)) h1.remove()
+}
+
+const EN_HIGHLIGHT: Record<string, string> = { yellow: 'yellow', green: 'green', blue: 'blue', pink: 'pink', purple: 'purple', orange: 'orange', red: 'red' }
+
+/** Evernote 10 ENML styles: checklists, code blocks and highlights live in CSS custom properties. */
+function evernote(root: HTMLElement) {
+  const doc = root.ownerDocument
+  const style = (e: Element) => e.getAttribute('style') ?? ''
+  for (const li of root.querySelectorAll('ul[style*="en-todo"] > li')) {
+    const input = el(doc, 'input', { type: 'checkbox' })
+    if (/--en-checked\s*:\s*true/i.test(style(li))) input.setAttribute('checked', '')
+    li.prepend(input)
+  }
+  for (const box of root.querySelectorAll('div[style*="en-codeblock"]')) {
+    // one child <div> per line; whitespace between them is markup, not code
+    const lines = [...box.childNodes].filter((n) => n.nodeType === 1 || n.textContent?.trim()).map((n) => (n.textContent ?? '').replace(/\u00a0/g, ' '))
+    const pre = el(doc, 'pre')
+    const code = el(doc, 'code')
+    code.textContent = lines.join('\n').replace(/\n+$/, '')
+    pre.appendChild(code)
+    box.replaceWith(pre)
+  }
+  for (const span of root.querySelectorAll('span[style*="en-highlight"]')) {
+    const color = EN_HIGHLIGHT[style(span).match(/--en-highlight\s*:\s*([a-z]+)/i)?.[1]?.toLowerCase() ?? ''] ?? 'yellow'
+    const mark = el(doc, 'mark', { 'data-color': color })
+    while (span.firstChild) mark.appendChild(span.firstChild)
+    span.replaceWith(mark)
+  }
 }
 
 /** Notion (figure.callout), Confluence info / note / warning / tip macros → callout blocks. */

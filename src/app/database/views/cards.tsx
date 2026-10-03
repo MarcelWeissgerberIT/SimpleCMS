@@ -12,6 +12,9 @@ import { ValueView } from '../cells/display'
 import { isEmptyValue } from '../model/resolve'
 import { guessIsImage } from '../model/files'
 import type { DbModel } from '../hooks'
+import { subItemsOf } from '../model/hierarchy'
+import { subItemCount } from './tree'
+import { plural } from '../parts'
 
 function firstImage(node: JSONContent | null | undefined): string | null {
   if (!node) return null
@@ -148,6 +151,7 @@ export function TitleInput({ row, onDone }: { row: Page; onDone: (cancelled: boo
 export const CardBody = memo(function CardBody({ m, row, props, editing, onEditDone }: { m: DbModel; row: Page; props: PropertyDef[]; editing?: boolean; onEditDone?: (cancelled: boolean) => void }) {
   const t = useT()
   const values = props.map((p) => ({ p, v: m.resolver.value(m.db, p, row) })).filter(({ p, v }) => !isEmptyValue(p, v) || p.type === 'checkbox')
+  const subs = subItemCount(m, subItemsOf(m.db), row)
   return (
     <div className="dbc-body">
       <div className="dbc-title">
@@ -162,6 +166,11 @@ export const CardBody = memo(function CardBody({ m, row, props, editing, onEditD
               {p.type === 'checkbox' && <span className="dbc-prop__label">{p.name}</span>}
             </div>
           ))}
+        </div>
+      )}
+      {subs > 0 && (
+        <div className="dbc-subs">
+          <span aria-hidden>↳</span> {plural(t, 'database.sub.count', subs)}
         </div>
       )}
     </div>

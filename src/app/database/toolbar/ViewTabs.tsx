@@ -5,7 +5,7 @@ import { useEffect, useRef, useState } from 'react'
 import { DndContext, PointerSensor, closestCenter, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core'
 import { SortableContext, arrayMove, horizontalListSortingStrategy, useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import { Copy, LayoutTemplate, PanelRight, Pencil, Plus, Trash, SquareSplitHorizontal, Maximize2 } from 'lucide-react'
+import { Copy, LayoutTemplate, ListTree, PanelRight, Paintbrush, Pencil, Plus, Trash, SquareSplitHorizontal, Maximize2, Waypoints } from 'lucide-react'
 import type { ID, View, ViewType } from '../../store/types'
 import { useWorkspace } from '../../store/store'
 import { useUI } from '../../store/ui'
@@ -18,6 +18,9 @@ import type { DbModel } from '../hooks'
 import { LayoutPanel } from './LayoutPanel'
 import { revealInStrip } from '../views/overflow'
 import { isFormable } from '../form/fields'
+import { structureEntries, type StructurePanel } from './structureEntries'
+import { DependenciesPanel, SubItemsPanel } from './StructurePanels'
+import { ColorRulesPanel } from './ColorRules'
 
 export function ViewTypeIcon({ type, size = 14 }: { type: ViewType; size?: number }) {
   const I = VIEW_ICON[type]
@@ -142,6 +145,7 @@ export function ViewTabs({ m, onSelect }: { m: DbModel; onSelect: (id: ID) => vo
   const views = m.db.views
   const [menu, setMenu] = useState<{ view: View; el: HTMLElement } | null>(null)
   const [layout, setLayout] = useState<HTMLElement | null>(null)
+  const [extra, setExtra] = useState<{ kind: StructurePanel; el: HTMLElement } | null>(null)
   const [renaming, setRenaming] = useState<ID | null>(null)
   const [addAnchor, setAddAnchor] = useState<HTMLElement | null>(null)
   const stripRef = useRef<HTMLDivElement>(null)
@@ -218,6 +222,7 @@ export function ViewTabs({ m, onSelect }: { m: DbModel; onSelect: (id: ID) => vo
         ] as const
       ).map(([mode, icon]) => ({ label: t(`database.view.open.${mode}`), icon, checked: (v.openIn ?? 'peek') === mode, onSelect: () => s.updateView(m.db.id, v.id, { openIn: mode }) })),
     },
+    ...(v.id === m.view.id ? structureEntries(t, m, (kind) => menu && setExtra({ kind, el: menu.el }), { sub: <ListTree size={14} />, dep: <Waypoints size={14} />, rc: <Paintbrush size={14} /> }) : []),
     { kind: 'separator' },
     {
       label: t('common.duplicate'),
@@ -292,7 +297,7 @@ export function ViewTabs({ m, onSelect }: { m: DbModel; onSelect: (id: ID) => vo
         entries={[{ kind: 'section', label: t('database.view.addTitle') }, ...VIEW_TYPES.map((type) => ({ label: t(`database.view.${type}`), icon: <ViewTypeIcon type={type} />, hint: t(`database.view.hint.${type}`), onSelect: () => addView(type) }))]}
         width={280}
       />
-      {menu && !layout && (
+      {menu && !layout && !extra && (
         <Popover open anchor={menu.el} onClose={() => setMenu(null)} className="db-viewmenu">
           <div className="db-viewmenu__head">
             <ViewTypeIcon type={menu.view.type} />
@@ -302,6 +307,9 @@ export function ViewTabs({ m, onSelect }: { m: DbModel; onSelect: (id: ID) => vo
           <MenuList entries={viewMenu(menu.view)} onClose={() => setMenu(null)} />
         </Popover>
       )}
+      {extra?.kind === 'sub' && <SubItemsPanel m={m} anchor={extra.el} onClose={() => (setExtra(null), setMenu(null))} />}
+      {extra?.kind === 'dep' && <DependenciesPanel m={m} anchor={extra.el} onClose={() => (setExtra(null), setMenu(null))} />}
+      {extra?.kind === 'rc' && <ColorRulesPanel m={m} anchor={extra.el} onClose={() => (setExtra(null), setMenu(null))} />}
       {layout && menu && (
         <LayoutPanel
           m={m}

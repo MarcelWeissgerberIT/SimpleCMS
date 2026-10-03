@@ -142,6 +142,7 @@ test.describe('form view', () => {
     await dialog.getByRole('button', { name: 'Send test' }).click()
     await expect(dialog.locator('.fb-hook__status')).toContainText('Test delivered')
     expect(bodies.at(-1)).toMatchObject({ event: 'form_test', test: true, form: { title: 'Project intake' }, source: 'simplecms-one' })
+    expect(bodies.at(-1)!.deliveryId).toMatch(/^[\w-]{16,}$/)
     await expect.poll(() => wsEval(page, (s, a) => s.databases[a.db].views.find((v: { id: string }) => v.id === a.view).form.webhookUrl, { db: P.id, view: viewId })).toBe(HOOK)
 
     // the link: the form schema only — no workspace data
@@ -200,16 +201,21 @@ test.describe('form view', () => {
     await form.close()
   })
 
-  test('a webhook without CORS headers still gets the answers (no-cors text/plain fallback)', async ({ page, context, errors }) => {
+  test('a webhook without CORS headers still gets the answers (no-cors text/plain fallback, one deliveryId, "Sent" — not "recorded")', async ({ page, context, errors }) => {
     // A receiver without CORS support makes the JSON request fail with a network-level TypeError
     // (Playwright answers preflights of routed requests itself, so the failure is simulated by
     // aborting the JSON attempt). The browser logs that failure before the fallback succeeds.
     errors.allow(/CORS policy|Failed to fetch|ERR_FAILED/)
     const got: Array<{ type: string; body: string }> = []
+    const jsonAttempts: string[] = []
     await context.route('https://nocors.example.test/**', (route) => {
       const req = route.request()
       const type = req.headers()['content-type'] ?? ''
-      if (req.method() === 'OPTIONS' || type.includes('application/json')) return route.abort('failed')
+      if (req.method() === 'OPTIONS') return route.abort('failed')
+      if (type.includes('application/json')) {
+        jsonAttempts.push(req.postData() ?? '')
+        return route.abort('failed')
+      }
       got.push({ type, body: req.postData() ?? '' })
       return route.fulfill({ status: 200, body: 'ok' })
     })
@@ -226,10 +232,108 @@ test.describe('form view', () => {
     await form.goto(url)
     await form.locator('.fm-q').first().locator('input').fill('Sent without CORS')
     await form.getByRole('button', { name: 'Submit' }).click()
-    await expect(form.locator('.fm--done')).toContainText('Response recorded')
+    // the browser can't see the receiver's answer: "Sent", never "Response recorded"
+    const done = form.locator('.fm--done')
+    await expect(done.locator('.fm-done__title')).toHaveText('Sent')
+    await expect(done).toContainText('The receiver doesn’t allow the browser to confirm delivery')
+    await expect(done).not.toContainText('Response recorded')
     expect(got).toHaveLength(1)
     expect(got[0].type).toContain('text/plain')
-    expect(JSON.parse(got[0].body)).toMatchObject({ event: 'form_submitted', form: { title: 'No-CORS intake' }, answers: { Project: 'Sent without CORS' } })
+    const sent = JSON.parse(got[0].body)
+    expect(sent).toMatchObject({ event: 'form_submitted', form: { title: 'No-CORS intake' }, answers: { Project: 'Sent without CORS' } })
+    // both attempts carry the same deliveryId, so the receiver can drop a duplicate
+    expect(jsonAttempts).toHaveLength(1)
+    expect(sent.deliveryId).toMatch(/^[\w-]{16,}$/)
+    expect(JSON.parse(jsonAttempts[0]).deliveryId).toBe(sent.deliveryId)
+    await form.close()
+  })
+
+  test('share dialog: https webhooks only, and a form over a link limit is blocked with the question and the limit', async ({ page }) => {
+    await openApp(page)
+    const P = await projectsInfo(page)
+    // a select with more options than a shared link can carry
+    await wsEval(page, (s, id) => s.addProperty(id, { type: 'select', name: 'Region', options: Array.from({ length: 130 }, (_, i) => ({ id: `r${i}`, name: `Region ${i + 1}`, color: 'gray' })) }), P.id)
+    await gotoPage(page, P.id)
+    const viewId = await addFormView(page, P.id)
+    await wsEval(page, (s, a) => s.updateView(a.db, a.view, { form: { title: 'Big intake', webhookUrl: 'http://hooks.example.test/plain' } }), { db: P.id, view: viewId })
+
+    await db(page).locator('.dbf-bar').getByRole('button', { name: 'Share form' }).click()
+    const dialog = page.getByRole('dialog', { name: /Share this form/ })
+    // plain http (not localhost): answers would travel unencrypted — no link
+    await expect(dialog.locator('.fb-hook__status')).toContainText('Use an https:// address')
+    await expect(dialog.getByRole('button', { name: 'Copy link' })).toBeDisabled()
+    await expect(dialog.locator('.fshare__need').first()).toContainText('A webhook is required')
+
+    // https: the webhook is fine, but "Region" has too many options for a link
+    await dialog.getByRole('textbox', { name: 'Send responses to a webhook' }).fill('https://hooks.example.test/intake')
+    const limit = dialog.locator('[data-form-limit]')
+    await expect(limit).toHaveAttribute('data-form-limit', 'options')
+    await expect(limit).toContainText('“Region” has 130 options; a shared link allows at most 120 per question.')
+    await expect(dialog.getByRole('button', { name: 'Copy link' })).toBeDisabled()
+    await expect(dialog.getByRole('textbox', { name: 'Form link' })).toHaveValue('Too much for one link — see below')
+
+    // down to the limit: the link is back
+    await wsEval(page, (s, id) => {
+      const region = s.databases[id].properties.find((p: { name: string }) => p.name === 'Region')
+      s.updateProperty(id, region.id, { options: region.options.slice(0, 120) })
+    }, P.id)
+    await expect(limit).toHaveCount(0)
+    await expect(dialog.getByRole('button', { name: 'Copy link' })).toBeEnabled()
+    await expect(dialog.getByRole('textbox', { name: 'Form link' })).toHaveValue(/#\/f\/[\w-]+$/)
+
+    // http://localhost stays allowed for local testing
+    await dialog.getByRole('textbox', { name: 'Send responses to a webhook' }).fill('http://localhost:5678/webhook/test')
+    await expect(dialog.locator('.fb-hook__status')).not.toContainText('Use an https:// address')
+    await expect(dialog.getByRole('button', { name: 'Copy link' })).toBeEnabled()
+  })
+
+  test('shared form: a "__proto__" question is just a key, and files are capped at 5 MB in total', async ({ page, context, errors }) => {
+    const bodies = await mockWebhook(page)
+    await openApp(page)
+    const id = await wsEval(page, (s) =>
+      s.createDatabase({
+        parentId: null,
+        title: 'Proto intake',
+        properties: [
+          { id: 'pname', name: 'Name', type: 'title' },
+          { id: 'pproto', name: '__proto__', type: 'text' },
+          { id: 'pfiles', name: 'Attachments', type: 'files' },
+        ],
+      }),
+    )
+    await gotoPage(page, id)
+    const viewId = await addFormView(page, id)
+    await wsEval(page, (s, a) => s.updateView(a.db, a.view, { visibleProperties: ['pproto', 'pfiles'], form: { title: 'Proto intake', webhookUrl: a.hook } }), { db: id, view: viewId, hook: HOOK })
+    await db(page).locator('.dbf-bar').getByRole('button', { name: 'Share form' }).click()
+    const url = await page.getByRole('dialog', { name: /Share this form/ }).getByRole('textbox', { name: 'Form link' }).inputValue()
+    expect(url).toMatch(/#\/f\/[\w-]+$/)
+
+    const form = await context.newPage()
+    errors.watch(form)
+    await form.goto(url)
+    await form.locator('.fm-q').first().locator('input').fill('Prototype')
+    await form.locator('.fm-q', { hasText: '__proto__' }).locator('textarea').fill('just an answer')
+    // four files of 1.4 MB: each under the per-file limit, together over the 5 MB cap
+    const big = (n: number) => ({ name: `scan-${n}.bin`, mimeType: 'application/octet-stream', buffer: Buffer.alloc(1.4 * 1024 * 1024, n) })
+    const files = form.locator('.fm-q', { hasText: 'Attachments' })
+    await files.locator('input[type="file"]').setInputFiles([big(1), big(2), big(3), big(4)])
+    await expect(files.locator('.fm-file')).toHaveCount(4)
+    await form.getByRole('button', { name: 'Submit' }).click()
+    await expect(files.locator('.fm-q__err')).toContainText(/All files together can be at most 5(\.0)? MB/)
+    expect(bodies.filter((b) => b.event === 'form_submitted')).toHaveLength(0)
+
+    await files.getByRole('button', { name: 'Remove scan-4.bin' }).click()
+    await files.getByRole('button', { name: 'Remove scan-3.bin' }).click()
+    await expect(files.locator('.fm-q__err')).toHaveCount(0)
+    await form.getByRole('button', { name: 'Submit' }).click()
+    await expect(form.locator('.fm--done .fm-done__title')).toHaveText('Response recorded')
+
+    const sent = bodies.filter((b) => b.event === 'form_submitted')
+    expect(sent).toHaveLength(1)
+    const answers = sent[0].answers
+    expect(Object.prototype.hasOwnProperty.call(answers, '__proto__')).toBe(true)
+    expect(Object.getOwnPropertyDescriptor(answers, '__proto__')?.value).toBe('just an answer')
+    expect(answers.Attachments).toHaveLength(2)
     await form.close()
   })
 
@@ -308,5 +412,39 @@ test.describe('calendar export', () => {
     const timed = unfolded.split('BEGIN:VEVENT').find((e) => e.includes('SUMMARY:Überprüfung'))!
     expect(timed).toContain('DTSTART:20261020T123000Z\r\n')
     expect(timed).toContain('DTEND:20261020T133000Z\r\n')
+  })
+
+  test('export .ics by a formula date: midnight values are all-day, ranges keep their end, control characters are dropped', async ({ page }, testInfo) => {
+    await openApp(page)
+    const P = await projectsInfo(page)
+    await wsEval(
+      page,
+      (s, a) => {
+        // the formula passes the Timeline range through; another one shifts it to a plain date
+        const range = s.addProperty(a.db, { type: 'formula', name: 'Window', formula: 'prop("Timeline")' })
+        s.createRow(a.db, { title: 'Bell\u0007 ring\u001b row', properties: { [a.timeline]: { start: '2026-11-03', end: '2026-11-05' } } })
+        const v = s.databases[a.db].views.find((x: { type: string }) => x.type === 'calendar')
+        s.updateView(a.db, v.id, { dateProperty: range })
+      },
+      { db: P.id, timeline: P.timeline },
+    )
+    await flush(page)
+    await gotoPage(page, P.id)
+    await db(page).getByRole('tab').filter({ hasText: 'Calendar' }).click()
+    await expect(db(page)).toHaveAttribute('data-view', 'calendar')
+    await db(page).getByRole('toolbar', { name: 'Database toolbar' }).getByRole('button', { name: 'More' }).click()
+    const download = page.waitForEvent('download')
+    await page.getByRole('menuitem', { name: /Export \.ics/ }).click()
+    const path = testInfo.outputPath('window.ics')
+    await (await download).saveAs(path)
+    const ics = readFileSync(path, 'utf8')
+    // nothing but CRLF line ends and tabs below U+0020
+    expect(ics.replace(/\r\n/g, '')).not.toMatch(/[\u0000-\u0008\u000a-\u001f\u007f]/) // eslint-disable-line no-control-regex
+    const unfolded = ics.replace(/\r\n /g, '')
+    const event = unfolded.split('BEGIN:VEVENT').find((e) => e.includes('SUMMARY:Bell ring row'))!
+    expect(event).toBeDefined()
+    // a formula date at local midnight is a day (not 00:00 local = 23:00Z), and the range end is kept
+    expect(event).toContain('DTSTART;VALUE=DATE:20261103\r\n')
+    expect(event).toContain('DTEND;VALUE=DATE:20261106\r\n')
   })
 })

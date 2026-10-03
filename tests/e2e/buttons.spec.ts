@@ -1,7 +1,7 @@
 /** Button block: slash insert, configuration, actions (blocks, webhook, database rows, row properties), read-only. */
 import type { BrowserContext, Locator, Page } from '@playwright/test'
 import type { JSONContent } from '@tiptap/core'
-import { test, expect, openApp, gotoPage, editorOf, createPage, doc, para, wsEval, uiEval, flush, pageIdByTitle } from './fixtures'
+import { test, expect, openApp, gotoPage, editorOf, createPage, doc, para, wsEval, uiEval, flush, pageIdByTitle, MOD } from './fixtures'
 
 interface Hit {
   method: string
@@ -197,23 +197,160 @@ test.describe('button block', () => {
       )
     expect(await statusName()).toBe('Backlog')
 
-    // keyboard: ↑ from the line below selects the button, ↵ runs it
+    // keyboard: ↑ from the line below selects the button; plain ↵ / Space never run a merely
+    // selected button (↵ starts a new line below it), ⌘↵ / Ctrl+↵ does
     await ed.locator('p').last().click()
     await page.keyboard.press('ArrowUp')
     await expect(ed.locator('.ob.is-selected')).toHaveCount(1)
+    await expect(ed.locator('.ob.is-selected .ob__keys')).toContainText(/(⌘|Ctrl )↵ run/)
+    await page.keyboard.press('Space')
     await page.keyboard.press('Enter')
+    await page.waitForTimeout(400)
+    expect(await statusName()).toBe('Backlog')
+    await expect(page.getByRole('status').filter({ hasText: 'Send to review' })).toHaveCount(0)
+    await expect(ed.locator('.ob')).toHaveCount(1)
+    await page.keyboard.press('ArrowUp')
+    await expect(ed.locator('.ob.is-selected')).toHaveCount(1)
+    await page.keyboard.press(`${MOD}+Enter`)
     await expect(page.getByRole('status').filter({ hasText: 'Send to review' })).toContainText('1 property updated')
     await expect.poll(statusName).toBe('Review')
     // the row's property panel shows it too
     await expect(page.locator('#main .pv-props')).toContainText('Review')
 
-    // ⇧↵ on the selected button opens its configuration
-    await ed.locator('p').last().click()
+    // ⇧↵ on the selected button opens its configuration (↑ from the line ↵ created below it)
+    await ed.locator(':is(.node-button, :has(> .ob)) + p').first().click()
     await page.keyboard.press('ArrowUp')
+    await expect(ed.locator('.ob.is-selected')).toHaveCount(1)
     await page.keyboard.press('Shift+Enter')
     await expect(page.getByRole('dialog', { name: 'Configure button' })).toBeVisible()
     await page.keyboard.press('Escape')
     await expect(page.getByRole('dialog', { name: 'Configure button' })).toBeHidden()
+  })
+
+  test('clipboard: a button pasted from another site has no actions; an in-app copy keeps them (fresh ids)', async ({ page, context }) => {
+    const hits = await mockHooks(context)
+    await openApp(page)
+    const actions = [
+      { id: 'w1', type: 'webhook', url: 'https://hooks.e2e.test/ping', method: 'POST' },
+      { id: 'm1', type: 'message', text: 'Pinged' },
+    ]
+    const id = await createPage(page, { title: 'Paste lab', content: doc(para('Top line'), { type: 'button', attrs: { label: 'Ping', variant: 'signal', actions } }, para('Bottom line')) })
+    await gotoPage(page, id)
+    const ed = editorOf(page, id)
+    await expect(ed.locator('.ob')).toHaveCount(1)
+
+    /** Fire a synthetic clipboard event at the editor; returns the HTML the editor wrote (copy). */
+    const clip = (type: 'copy' | 'paste', html = '') =>
+      page.evaluate(
+        ({ id, type, html }) => {
+          const dom = document.querySelector(`.ProseMirror[data-page-id="${id}"]`)!
+          const dt = new DataTransfer()
+          if (html) {
+            dt.setData('text/html', html)
+            dt.setData('text/plain', 'button')
+          }
+          dom.dispatchEvent(new ClipboardEvent(type, { clipboardData: dt, bubbles: true, cancelable: true }))
+          return dt.getData('text/html')
+        },
+        { id, type, html },
+      )
+
+    // in-app copy: the selected button goes to the clipboard with this session's marker
+    await ed.locator('p', { hasText: 'Bottom line' }).click()
+    await page.keyboard.press('Home')
+    await page.keyboard.press('ArrowUp')
+    await expect(ed.locator('.ob.is-selected')).toHaveCount(1)
+    const copied = await clip('copy')
+    expect(copied).toContain('data-actions=')
+    expect(copied).toContain('data-actions-key=')
+
+    // a web page offering the "same" button (forged marker, or none): pasted without its actions
+    const attr = (s: string) => s.replace(/&/g, '&amp;').replace(/"/g, '&quot;')
+    const evil = JSON.stringify([{ id: 'x', type: 'webhook', url: 'https://hooks.e2e.test/evil', method: 'POST' }])
+    /** caret at the end of the "Bottom line" paragraph (a pasted atom stays selected — never paste over it) */
+    const caretAtBottom = async () => {
+      await ed.locator('p', { hasText: 'Bottom line' }).click()
+      await page.keyboard.press('End')
+    }
+    await caretAtBottom()
+    await clip('paste', `<div data-type="button" data-label="Forged" data-variant="signal" data-actions="${attr(evil)}" data-actions-key="abc.def"><button>Forged</button></div>`)
+    await expect(ed.locator('.ob')).toHaveCount(2)
+    await caretAtBottom()
+    await clip('paste', `<div data-type="button" data-label="Unsigned" data-variant="ink" data-actions="${attr(evil)}"><button>Unsigned</button></div>`)
+    await expect(ed.locator('.ob')).toHaveCount(3)
+    // the in-app copy pasted back: actions kept, with ids of its own
+    await caretAtBottom()
+    await clip('paste', copied)
+    await expect(ed.locator('.ob')).toHaveCount(4)
+
+    await flush(page)
+    const buttons = await wsEval(
+      page,
+      (s, id) => {
+        const out: Array<{ label: string; actions: Array<{ id: string; type: string; url?: string }> }> = []
+        const walk = (n: any) => { // eslint-disable-line @typescript-eslint/no-explicit-any
+          if (n.type === 'button') out.push({ label: n.attrs.label, actions: n.attrs.actions ?? [] })
+          ;(n.content ?? []).forEach(walk)
+        }
+        walk(s.pages[id].content)
+        return JSON.parse(JSON.stringify(out))
+      },
+      id,
+    )
+    const byLabel = (l: string) => buttons.filter((b) => b.label === l)
+    expect(byLabel('Forged')).toEqual([{ label: 'Forged', actions: [] }])
+    expect(byLabel('Unsigned')).toEqual([{ label: 'Unsigned', actions: [] }])
+    const pings = byLabel('Ping')
+    expect(pings).toHaveLength(2)
+    for (const b of pings) expect(b.actions.map((a) => a.type)).toEqual(['webhook', 'message'])
+    const ids = pings.flatMap((b) => b.actions.map((a) => a.id))
+    expect(new Set(ids).size).toBe(4)
+    expect(JSON.stringify(buttons)).not.toContain('/evil')
+
+    // the forged key runs nothing: without actions a click opens the configuration instead
+    await ed.getByRole('button', { name: 'Forged', exact: true }).click()
+    await expect(page.getByRole('dialog', { name: 'Configure button' })).toBeVisible()
+    await page.keyboard.press('Escape')
+    expect(hits).toHaveLength(0)
+  })
+
+  test('insert blocks keeps page mentions pointing at their page (only block ids are renewed)', async ({ page }) => {
+    await openApp(page)
+    const target = await createPage(page, { title: 'Weekly review' })
+    const template = [
+      {
+        type: 'paragraph',
+        attrs: { id: 'tpl-block-1' },
+        content: [
+          { type: 'text', text: 'See ' },
+          { type: 'mention', attrs: { id: target, label: 'Weekly review', kind: 'page' } },
+          { type: 'text', text: ' on {{date}}' },
+        ],
+      },
+    ]
+    const id = await createPage(page, {
+      title: 'Mention lab',
+      content: doc(para('Start'), { type: 'button', attrs: { label: 'Add review line', variant: 'ink', actions: [{ id: 'i1', type: 'insert_blocks', content: template }] } }),
+    })
+    await gotoPage(page, id)
+    const ed = editorOf(page, id)
+    await ed.getByRole('button', { name: 'Add review line', exact: true }).click()
+    await expect(page.getByRole('status').filter({ hasText: 'Add review line' })).toContainText('1 block inserted')
+    await flush(page)
+    const inserted = await wsEval(
+      page,
+      (s, id) => {
+        const blocks = s.pages[id].content.content as any[] // eslint-disable-line @typescript-eslint/no-explicit-any
+        const at = blocks.findIndex((n) => n.type === 'button')
+        return JSON.parse(JSON.stringify(blocks[at + 1]))
+      },
+      id,
+    )
+    const mention = inserted.content.find((n: { type: string }) => n.type === 'mention')
+    expect(mention.attrs).toMatchObject({ id: target, kind: 'page' })
+    // the block itself did not keep the template's id (a fresh one is assigned)
+    expect(inserted.attrs?.id ?? null).not.toBe('tpl-block-1')
+    await expect(ed.locator('.mention', { hasText: 'Weekly review' })).toHaveCount(1)
   })
 
   test('read-only share view renders a disabled button that never runs', async ({ page, context }) => {

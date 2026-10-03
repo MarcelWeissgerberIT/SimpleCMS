@@ -6,7 +6,7 @@ import { useMemo, useRef, useState } from 'react'
 import { DndContext, DragOverlay, PointerSensor, TouchSensor, pointerWithin, useDraggable, useDroppable, useSensor, useSensors, type DragEndEvent, type DragStartEvent } from '@dnd-kit/core'
 import { ChevronLeft, ChevronRight, Plus } from 'lucide-react'
 import { addDays, addMonths, differenceInCalendarDays, eachDayOfInterval, endOfMonth, endOfWeek, format, isSameMonth, isToday, startOfMonth, startOfWeek } from 'date-fns'
-import type { ColorName, DateValue, ID, Page, PropertyDef } from '../../store/types'
+import type { ColorName, ColorRule, DateValue, ID, Page, PropertyDef } from '../../store/types'
 import { useWorkspace } from '../../store/store'
 import { Popover } from '../../ui/Popover'
 import { PageIcon } from '../../ui/PageIcon'
@@ -18,6 +18,7 @@ import { isDate } from '../formula'
 import { writeValue } from '../model/actions'
 import { Select, TypeIcon } from '../parts'
 import { isDateType } from '../model/schema'
+import { activeRules, ruleMatcher } from '../model/colors'
 import './calendar.css'
 
 interface Ev {
@@ -26,6 +27,8 @@ interface Ev {
   end: Date
   time: string | null
   color: ColorName | null
+  /** colour rule the row matches (overrides the status colour) */
+  rc: ColorRule | null
 }
 
 interface Seg {
@@ -48,6 +51,7 @@ function accentOf(m: DbModel, row: Page): ColorName | null {
 export function eventsOf(m: DbModel, prop: PropertyDef): { events: Ev[]; undated: Page[] } {
   const events: Ev[] = []
   const undated: Page[] = []
+  const colorOf = ruleMatcher(m.resolver, m.db, activeRules(m.view, m.propMap), m.propMap)
   for (const row of m.rows) {
     const v = m.resolver.value(m.db, prop, row)
     let start: Date | null = null
@@ -63,7 +67,8 @@ export function eventsOf(m: DbModel, prop: PropertyDef): { events: Ev[]; undated
       continue
     }
     if (!end || end < start) end = start
-    events.push({ row, start, end, time, color: accentOf(m, row) })
+    const rc = colorOf(row)
+    events.push({ row, start, end, time, color: rc?.color ?? accentOf(m, row), rc })
   }
   events.sort((a, b) => a.start.getTime() - b.start.getTime() || b.end.getTime() - a.end.getTime())
   return { events, undated }
@@ -271,7 +276,7 @@ function DayCell({ day, month, hidden, pips, canAdd, onAdd, onMore }: { day: Dat
 function EventChip({ ev, overlay }: { ev: Ev; overlay?: boolean }) {
   const t = useT()
   return (
-    <span className="dbcal-chip" data-overlay={overlay} style={{ ['--ev-accent' as string]: ev.color ? `var(--c-${ev.color}-text)` : 'var(--ink-3)' }}>
+    <span className="dbcal-chip" data-overlay={overlay} data-rc={ev.rc?.target} style={{ ['--ev-accent' as string]: ev.color ? `var(--c-${ev.color}-text)` : 'var(--ink-3)' }}>
       {ev.row.icon && <PageIcon icon={ev.row.icon} size={12} />}
       {ev.time && <span className="dbcal-chip__time">{ev.time}</span>}
       <span className="dbcal-chip__title">{ev.row.title || t('common.untitled')}</span>
@@ -288,8 +293,10 @@ function EventBar({ id, seg, disabled, onGrab, weekStart, onOpen }: { id: string
         ref.current = el
         setNodeRef(el)
       }}
-      className="dbcal-ev"
+      className={`dbcal-ev${seg.ev.rc ? ' db-rc' : ''}`}
       data-dragging={isDragging}
+      data-rc={seg.ev.rc?.target}
+      data-rc-color={seg.ev.rc?.color}
       data-contl={seg.contL}
       data-contr={seg.contR}
       style={{
@@ -297,7 +304,9 @@ function EventBar({ id, seg, disabled, onGrab, weekStart, onOpen }: { id: string
         width: `calc(${(seg.span / 7) * 100}% - 6px)`,
         top: `calc(var(--cal-head) + ${seg.lane} * var(--cal-lane))`,
         ['--ev-accent' as string]: seg.ev.color ? `var(--c-${seg.ev.color}-text)` : 'var(--ink-3)',
-        ['--ev-wash' as string]: seg.ev.color ? `var(--c-${seg.ev.color}-bg)` : 'var(--surface-2)',
+        // an accent-bar rule recolours only the bar; the wash keeps reading as the event
+        ['--ev-wash' as string]: seg.ev.rc?.target === 'accent' ? 'var(--surface-2)' : seg.ev.color ? `var(--c-${seg.ev.color}-bg)` : 'var(--surface-2)',
+        ['--rc-text' as string]: seg.ev.rc ? `var(--c-${seg.ev.rc.color}-text)` : undefined,
       }}
       {...attributes}
       {...listeners}

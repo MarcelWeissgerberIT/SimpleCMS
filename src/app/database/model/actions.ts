@@ -11,6 +11,7 @@ import type { ColorName, Database, FilterGroup, ID, Page, PropertyDef, PropertyT
 import { COLOR_NAMES } from '../../store/types'
 import { isComputed } from './schema'
 import type { Resolver } from './resolve'
+import { constrainRelationWrite, dependenciesOf, subItemsOf } from './hierarchy'
 import { dateValueText, isDateValue, isoWithTime, parseDateText, parseNumberText } from './format'
 
 const ws = () => useWorkspace.getState()
@@ -52,7 +53,8 @@ export function writeValue(dbId: ID, prop: PropertyDef, rowId: ID, value: Proper
   }
   if (prop.type === 'relation') {
     const before = new Set((s.pages[rowId]?.properties[prop.id] as string[] | undefined) ?? [])
-    const after = new Set((value as string[] | null) ?? [])
+    // sub-items / dependencies: one parent per row, no loops (no-op for other relations)
+    const after = new Set(constrainRelationWrite(dbId, prop, rowId, [...before], (value as string[] | null) ?? []))
     s.setRowProperty(rowId, prop.id, [...after])
     const pair = pairedRelation(dbId, prop)
     if (pair) {
@@ -129,6 +131,11 @@ function danglingViewPatch(v: View, propId: ID): Partial<View> | null {
     if (v.chart.yPropertyId === propId) Object.assign(patch.chart, { yPropertyId: null, aggregate: 'count' })
   }
   if (v.cardPreview === propId) patch.cardPreview = v.type === 'gallery' ? 'cover' : 'none'
+  if (v.colorRules?.length) {
+    // a condition on a missing property would match every row: drop it (the rule stays, inert)
+    const rules = v.colorRules.map((r) => ({ ...r, filter: stripFilter(r.filter, propId) ?? { ...r.filter, items: [] } }))
+    if (!same(rules, v.colorRules)) patch.colorRules = rules
+  }
   return Object.keys(patch).length ? patch : null
 }
 
@@ -136,28 +143,49 @@ const same = (a: unknown, b: unknown) => JSON.stringify(a ?? null) === JSON.stri
 
 /**
  * Delete a property; the toast offers undo (definition, values and every reference). Filter rules,
- * calculations, chart axes, card previews and rollups that used it are cleared, so nothing is left
- * pointing at a property that no longer exists.
+ * calculations, chart axes, card previews, colour rules and rollups that used it are cleared, so
+ * nothing is left pointing at a property that no longer exists.
  */
 export function deletePropertyWithUndo(db: Database, prop: PropertyDef): void {
+  deletePropertiesWithUndo(db, [prop])
+}
+
+/** Delete several properties of one database behind a single undo toast. */
+export function deletePropertiesWithUndo(db: Database, props: PropertyDef[], opts: { message?: string; onUndo?: () => void } = {}): void {
+  const undos = props.map((p) => removeProperty(db.id, p.id)).filter((u): u is () => void => !!u)
+  if (!undos.length) return
+  useUI.getState().toast({
+    message: opts.message ?? t('database.prop.deleted', { name: props[0].name }),
+    action: {
+      label: t('common.undo'),
+      run: () => {
+        for (const undo of [...undos].reverse()) undo()
+        opts.onUndo?.()
+      },
+    },
+  })
+}
+
+/** Delete one property and clear what pointed at it; returns how to put everything back. */
+function removeProperty(dbId: ID, propId: ID): (() => void) | null {
   const st = ws()
-  const fresh = st.databases[db.id]
-  if (!fresh) return
-  const index = fresh.properties.findIndex((p) => p.id === prop.id)
-  if (index < 0) return
+  const fresh = st.databases[dbId]
+  if (!fresh) return null
+  const index = fresh.properties.findIndex((p) => p.id === propId)
+  if (index < 0) return null
   const def: PropertyDef = JSON.parse(JSON.stringify(fresh.properties[index]))
   // what the store clears on delete: placement, sorts, grouping, date property
   const refs = fresh.views.map((v) => ({
     id: v.id,
-    at: v.visibleProperties.indexOf(prop.id),
-    sortAt: v.sorts.findIndex((x) => x.propertyId === prop.id),
-    sort: v.sorts.find((x) => x.propertyId === prop.id) ?? null,
-    groupBy: v.groupBy === prop.id,
-    dateProperty: v.dateProperty === prop.id,
+    at: v.visibleProperties.indexOf(propId),
+    sortAt: v.sorts.findIndex((x) => x.propertyId === propId),
+    sort: v.sorts.find((x) => x.propertyId === propId) ?? null,
+    groupBy: v.groupBy === propId,
+    dateProperty: v.dateProperty === propId,
   }))
   // what we clear on top: [view id, before, after] per changed field set
   const viewPatches = fresh.views.flatMap((v) => {
-    const after = danglingViewPatch(v, prop.id)
+    const after = danglingViewPatch(v, propId)
     if (!after) return []
     const before = Object.fromEntries(Object.keys(after).map((k) => [k, JSON.parse(JSON.stringify(v[k as keyof View] ?? null))])) as Partial<View>
     return [{ id: v.id, before, after }]
@@ -168,54 +196,48 @@ export function deletePropertyWithUndo(db: Database, prop: PropertyDef): void {
     for (const p of d.properties) {
       if (p.type !== 'rollup' || !p.rollup) continue
       const rel = d.properties.find((x) => x.id === p.rollup!.relationPropertyId)
-      if (d.id === db.id && p.rollup.relationPropertyId === prop.id) rollups.push({ dbId: d.id, propId: p.id, before: p.rollup, after: { ...p.rollup, relationPropertyId: '', targetPropertyId: '' } })
-      else if (rel?.relationDatabaseId === db.id && p.rollup.targetPropertyId === prop.id) rollups.push({ dbId: d.id, propId: p.id, before: p.rollup, after: { ...p.rollup, targetPropertyId: '' } })
+      if (d.id === dbId && p.rollup.relationPropertyId === propId) rollups.push({ dbId: d.id, propId: p.id, before: p.rollup, after: { ...p.rollup, relationPropertyId: '', targetPropertyId: '' } })
+      else if (rel?.relationDatabaseId === dbId && p.rollup.targetPropertyId === propId) rollups.push({ dbId: d.id, propId: p.id, before: p.rollup, after: { ...p.rollup, targetPropertyId: '' } })
     }
   }
-  const values = rowsOf(db.id)
-    .filter((r) => r.properties[prop.id] !== undefined)
-    .map((r) => [r.id, JSON.parse(JSON.stringify(r.properties[prop.id]))] as const)
+  const values = rowsOf(dbId)
+    .filter((r) => r.properties[propId] !== undefined)
+    .map((r) => [r.id, JSON.parse(JSON.stringify(r.properties[propId]))] as const)
 
-  st.deleteProperty(db.id, prop.id)
-  for (const vp of viewPatches) st.updateView(db.id, vp.id, vp.after)
+  st.deleteProperty(dbId, propId)
+  for (const vp of viewPatches) st.updateView(dbId, vp.id, vp.after)
   for (const r of rollups) st.updateProperty(r.dbId, r.propId, { rollup: r.after })
 
-  useUI.getState().toast({
-    message: t('database.prop.deleted', { name: prop.name }),
-    action: {
-      label: t('common.undo'),
-      run: () => {
-        const w = ws()
-        if (w.databases[db.id]?.properties.some((p) => p.id === prop.id)) return
-        w.addProperty(db.id, def, index)
-        const d = ws().databases[db.id]
-        for (const ref of refs) {
-          const v = d?.views.find((x) => x.id === ref.id)
-          if (!v) continue
-          const patch: Partial<View> = {}
-          const list = v.visibleProperties.filter((x) => x !== prop.id)
-          if (ref.at >= 0) list.splice(Math.min(ref.at, list.length), 0, prop.id)
-          patch.visibleProperties = list
-          if (ref.sort) {
-            const sorts = v.sorts.filter((x) => x.propertyId !== prop.id)
-            sorts.splice(Math.min(ref.sortAt, sorts.length), 0, ref.sort)
-            patch.sorts = sorts
-          }
-          // only take a slot back if nobody changed it meanwhile
-          if (ref.groupBy && !v.groupBy) patch.groupBy = prop.id
-          if (ref.dateProperty && !v.dateProperty) patch.dateProperty = prop.id
-          const vp = viewPatches.find((x) => x.id === ref.id)
-          if (vp) for (const k of Object.keys(vp.after) as Array<keyof View>) if (same(v[k], vp.after[k])) Object.assign(patch, { [k]: vp.before[k] ?? undefined })
-          w.updateView(db.id, ref.id, patch)
-        }
-        for (const r of rollups) {
-          const cur = ws().databases[r.dbId]?.properties.find((p) => p.id === r.propId)
-          if (cur && same(cur.rollup, r.after)) w.updateProperty(r.dbId, r.propId, { rollup: r.before })
-        }
-        for (const [rowId, v] of values) w.setRowProperty(rowId, prop.id, v)
-      },
-    },
-  })
+  return () => {
+    const w = ws()
+    if (w.databases[dbId]?.properties.some((p) => p.id === propId)) return
+    w.addProperty(dbId, def, index)
+    const d = ws().databases[dbId]
+    for (const ref of refs) {
+      const v = d?.views.find((x) => x.id === ref.id)
+      if (!v) continue
+      const patch: Partial<View> = {}
+      const list = v.visibleProperties.filter((x) => x !== propId)
+      if (ref.at >= 0) list.splice(Math.min(ref.at, list.length), 0, propId)
+      patch.visibleProperties = list
+      if (ref.sort) {
+        const sorts = v.sorts.filter((x) => x.propertyId !== propId)
+        sorts.splice(Math.min(ref.sortAt, sorts.length), 0, ref.sort)
+        patch.sorts = sorts
+      }
+      // only take a slot back if nobody changed it meanwhile
+      if (ref.groupBy && !v.groupBy) patch.groupBy = propId
+      if (ref.dateProperty && !v.dateProperty) patch.dateProperty = propId
+      const vp = viewPatches.find((x) => x.id === ref.id)
+      if (vp) for (const k of Object.keys(vp.after) as Array<keyof View>) if (same(v[k], vp.after[k])) Object.assign(patch, { [k]: vp.before[k] ?? undefined })
+      w.updateView(dbId, ref.id, patch)
+    }
+    for (const r of rollups) {
+      const cur = ws().databases[r.dbId]?.properties.find((p) => p.id === r.propId)
+      if (cur && same(cur.rollup, r.after)) w.updateProperty(r.dbId, r.propId, { rollup: r.before })
+    }
+    for (const [rowId, v] of values) w.setRowProperty(rowId, propId, v)
+  }
 }
 
 const nextColor = (opts: SelectOption[]): ColorName => COLOR_NAMES.filter((c) => c !== 'default')[opts.length % (COLOR_NAMES.length - 1)]
@@ -398,8 +420,28 @@ export function duplicateRows(dbId: ID, ids: ID[]): ID[] {
       s.setRowProperty(nid, uid.id, cur.nextUniqueId)
       s.updateDatabase(dbId, { nextUniqueId: cur.nextUniqueId + 1 })
     }
+    relinkCopy(dbId, nid)
   }
   return out
+}
+
+/**
+ * A duplicated row joins its original's parent and blockers (both sides synced), but it does not
+ * take over the original's sub-items or dependents — each row has one parent.
+ */
+function relinkCopy(dbId: ID, rowId: ID): void {
+  const db = ws().databases[dbId]
+  const links: Array<[PropertyDef, PropertyDef]> = []
+  const sub = subItemsOf(db)
+  if (sub) links.push([sub.parent, sub.children])
+  const dep = dependenciesOf(db)
+  if (dep) links.push([dep.blockedBy, dep.blocking])
+  for (const [up, down] of links) {
+    const ids = ws().pages[rowId]?.properties[up.id]
+    ws().setRowProperty(rowId, down.id, [])
+    ws().setRowProperty(rowId, up.id, [])
+    if (Array.isArray(ids) && ids.length) writeValue(dbId, up, rowId, ids)
+  }
 }
 
 /** Open a row according to the view's openIn preference. */

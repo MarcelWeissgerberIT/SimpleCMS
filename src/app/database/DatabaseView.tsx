@@ -26,6 +26,7 @@ import { searchRows, testGroup } from './model/query'
 import { useUI } from '../store/ui'
 import type { PopoverAnchor } from '../ui/Popover'
 import { AutofillHost } from './autofill'
+import { TurnOffHost } from './toolbar/StructurePanels'
 import './database.css'
 
 const CalendarView = lazy(() => import('./views/CalendarView'))
@@ -236,6 +237,7 @@ function DatabaseBody({
           </div>
           {ctx && <RowContextMenu row={ctx.row} anchor={ctx.anchor} onClose={() => setCtx(null)} />}
           <AutofillHost />
+          <TurnOffHost />
         </section>
       </ViewActionsContext.Provider>
     </DbModelContext.Provider>

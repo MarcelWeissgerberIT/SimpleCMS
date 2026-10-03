@@ -280,7 +280,9 @@ export async function buildObsidianPlan(input: ImportEntry[], opts: ObsidianOpti
   }
   const isNote = (p: string) => NOTE_EXT.has(extname(p))
   const texts = new Map<string, string>()
+  const pause = pacer()
   for (const e of entries) {
+    await pause()
     const p = e.path
     exact.set(lower(p), p)
     add(lower(basename(p)), p)
@@ -334,7 +336,6 @@ export async function buildObsidianPlan(input: ImportEntry[], opts: ObsidianOpti
   /* ---------- rewrite every note ---------- */
   const out: ImportEntry[] = []
   const enc = new TextEncoder()
-  const pause = pacer()
   const notes = entries.filter((e) => isNote(e.path))
   let done = 0
   for (const e of entries) {
@@ -436,5 +437,28 @@ export async function buildObsidianPlan(input: ImportEntry[], opts: ObsidianOpti
     n.meta = meta
   }
 
-  return { ...plan, source: 'obsidian', name: vault, report: [...(plan.report ?? []), ...report] }
+  // like Obsidian's file explorer: folders first, then notes A–Z (rows keep their CSV order)
+  const kids = new Map<string | null, typeof plan.nodes>()
+  for (const n of plan.nodes) {
+    const k = n.kind === 'row' ? `row:${n.parentKey}` : n.parentKey
+    const list = kids.get(k)
+    if (list) list.push(n)
+    else kids.set(k, [n])
+  }
+  const isFolder = (n: (typeof plan.nodes)[number]) => n.kind === 'folder' || kids.has(n.key)
+  const ordered: typeof plan.nodes = []
+  const visit = (parent: string | null) => {
+    const list = [...(kids.get(parent) ?? [])].sort((a, b) => Number(isFolder(b)) - Number(isFolder(a)) || a.title.localeCompare(b.title, undefined, { numeric: true, sensitivity: 'base' }))
+    for (const n of list) {
+      ordered.push(n)
+      for (const r of kids.get(`row:${n.key}`) ?? []) {
+        ordered.push(r)
+        visit(r.key)
+      }
+      visit(n.key)
+    }
+  }
+  visit(null)
+
+  return { ...plan, nodes: ordered, roots: ordered.filter((n) => !n.parentKey).map((n) => n.key), source: 'obsidian', name: vault, report: [...(plan.report ?? []), ...report] }
 }

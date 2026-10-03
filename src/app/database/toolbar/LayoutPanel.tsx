@@ -12,6 +12,8 @@ import { VIEW_TYPES, BOARD_GROUP_TYPES, TABLE_GROUP_TYPES, isDateType } from '..
 import { Segmented, Select, TypeIcon } from '../parts'
 import type { DbModel } from '../hooks'
 import { ViewTypeIcon } from './ViewTabs'
+import { SubItemsDisplayRow } from './StructurePanels'
+import { subItemsOf } from '../model/hierarchy'
 
 export function LayoutPanel({ m, anchor, onClose }: { m: DbModel; anchor: Element; onClose: () => void }) {
   const t = useT()
@@ -71,6 +73,7 @@ export function LayoutPanel({ m, anchor, onClose }: { m: DbModel; anchor: Elemen
             />
           </div>
         )}
+        {subItemsOf(m.db) && view.type !== 'chart' && view.type !== 'form' && <SubItemsDisplayRow m={m} />}
         {(view.type === 'board' || view.type === 'gallery') && (
           <>
             <div className="db-cfg__row">

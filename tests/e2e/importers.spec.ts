@@ -263,7 +263,7 @@ test.describe('import from other apps', () => {
     const chooser = page.waitForEvent('filechooser')
     await dialog.getByRole('button', { name: 'Obsidian vault' }).click()
     const fc = await chooser
-    expect(await fc.element().evaluate((el) => el.hasAttribute('webkitdirectory'))).toBe(true)
+    expect(await fc.element().evaluate((el) => (el as HTMLInputElement).hasAttribute('webkitdirectory'))).toBe(true)
     await fc.setFiles(dir)
     await expect(dialog.getByText(/Import complete/)).toBeVisible({ timeout: 30_000 })
     const pages = await livePages(page)

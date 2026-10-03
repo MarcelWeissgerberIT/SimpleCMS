@@ -8,6 +8,7 @@ import { useLang, useT } from '../i18n'
 import type { Database, ID, Page, PropertyDef, PropertyValue, View } from '../store/types'
 import { Resolver, type Ctx } from './model/resolve'
 import { defaultsFromFilter, groupRows, searchRows, sortRows, testGroup, type RowGroup } from './model/query'
+import { parentIdOf, subItemsOf } from './model/hierarchy'
 import { safeLocalGet, safeLocalSet } from '@/shared/brand'
 
 /** Database ids whose rows matter for this database (relations, rollups — 3 levels). */
@@ -140,8 +141,11 @@ export function useDbModel(db: Database, dbPage: Page, view: View, search: strin
       .filter((p) => p.databaseId === db.id && !p.trashed)
       .sort((a, b) => a.order - b.order || a.createdAt - b.createdAt)
   }, [resolver, db.id])
+  // "parents only": sub-items stay out of this view (every layout)
+  const sub = useMemo(() => (view.subItems === 'parents' ? subItemsOf(db) : null), [view.subItems, db])
   const rows = useMemo(() => {
     let out = allRows
+    if (sub) out = out.filter((row) => !parentIdOf(resolver.ctx.pages, sub, row))
     if (view.filter && view.filter.items.length) out = out.filter((row) => testGroup(resolver, db, view.filter!, row, propMap))
     if (search.trim()) out = searchRows(resolver, db, out, search)
     out = sortRows(resolver, db, out, view.sorts, propMap)
@@ -152,7 +156,7 @@ export function useDbModel(db: Database, dbPage: Page, view: View, search: strin
       if (extra.length) out = [...out, ...extra]
     }
     return out
-  }, [allRows, view.filter, view.sorts, search, resolver, db, propMap, keep])
+  }, [allRows, sub, view.filter, view.sorts, search, resolver, db, propMap, keep])
   const groupProp = view.groupBy && ['table', 'list', 'board'].includes(view.type) ? propMap.get(view.groupBy) ?? null : null
   const groups = useMemo(() => (groupProp ? groupRows(resolver, db, groupProp, rows, labels) : null), [groupProp, resolver, db, rows, labels])
   const newRowDefaults = useCallback(() => defaultsFromFilter(view, propMap), [view, propMap])

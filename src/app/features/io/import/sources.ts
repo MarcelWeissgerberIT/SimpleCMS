@@ -67,10 +67,12 @@ export async function planImport(input: ImportEntry[], opts: SourceOptions): Pro
     if (vault) plans.push(await buildObsidianPlan(rest, { looseTitle: opts.looseTitle, name: opts.name, onProgress: opts.onProgress }))
     else {
       const plan = buildPlan(rest, { looseTitle: opts.looseTitle })
-      const html = plan.nodes.some((n) => n.format === 'html')
-      const md = plan.nodes.some((n) => n.format !== 'html' && n.kind !== 'folder')
-      if (html && plan.isNotion) report.push({ code: 'notionHtml', detail: opts.name ?? '' })
-      plans.push({ ...plan, source: plan.isNotion ? 'notion' : html && !md ? 'html' : 'markdown' })
+      const content = plan.nodes.filter((n) => n.kind !== 'folder')
+      const html = content.some((n) => n.format === 'html')
+      const md = content.some((n) => n.format !== 'html')
+      const tables = content.length > 0 && content.every((n) => n.kind === 'database' || n.kind === 'row')
+      if (html && plan.isNotion) report.push({ code: 'notionHtml', detail: opts.name ?? 'HTML' })
+      plans.push({ ...plan, source: plan.isNotion ? 'notion' : tables ? 'csv' : html && !md ? 'html' : 'markdown' })
     }
   }
 

@@ -1,12 +1,15 @@
 /**
  * Timeline (gantt): bars from date ranges, drag to move, drag ends to resize (day snap),
  * zoom week / month / quarter, today line, click empty lane to schedule undated rows.
+ * With dependencies on: arrows blocker → dependent, drag a bar's end dot onto another bar to link
+ * them, select an arrow + Delete to unlink, and moving a blocker shifts (or flags) its dependents.
  */
-import { useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { addDays, differenceInCalendarDays, eachDayOfInterval, format, getISOWeek, startOfDay, startOfMonth, startOfWeek } from 'date-fns'
 import { Crosshair } from 'lucide-react'
 import type { DateValue, ID, Page } from '../../store/types'
 import { useWorkspace } from '../../store/store'
+import { useUI } from '../../store/ui'
 import { useT } from '../../i18n'
 import { PageIcon } from '../../ui/PageIcon'
 import { pointAnchor } from '../../ui/Popover'
@@ -15,19 +18,32 @@ import { useViewActions, EmptyState } from './shared'
 import { eventsOf, PickDateProp } from './CalendarView'
 import { dfLocale, isDateValue, isoWithTime, parseLocal, toISODate, weekStartsOn } from '../model/format'
 import { writeValue } from '../model/actions'
-import { Segmented } from '../parts'
+import { Segmented, plural } from '../parts'
 import { uniformOffsets, useWindow } from './virtual'
+import { dependenciesOf, linkedIds } from '../model/hierarchy'
+import { shiftDependents } from '../model/dependencies'
+import { DepArrows, type BarGeom, type DepEdge } from './timeline/DepArrows'
 import './timeline.css'
 
 type Zoom = 'week' | 'month' | 'quarter'
 const DAY_W: Record<Zoom, number> = { week: 46, month: 20, quarter: 7 }
 const ROW_H = 38
+/** vertical centre of a bar inside its row (bar: top 7, height 24) */
+const BAR_MID = 19
 
 interface Drag {
   row: ID
   mode: 'move' | 'start' | 'end'
   dx: number
   moved: boolean
+}
+
+interface LinkDraft {
+  from: ID
+  /** pointer in lane coordinates */
+  x: number
+  y: number
+  target: ID | null
 }
 
 export default function TimelineView() {
@@ -43,6 +59,9 @@ export default function TimelineView() {
   const scrollRef = useRef<HTMLDivElement>(null)
   const [drag, setDrag] = useState<Drag | null>(null)
   const [ghost, setGhost] = useState<{ row: ID; day: number } | null>(null)
+  const [link, setLink] = useState<LinkDraft | null>(null)
+  const [selectedDep, setSelectedDep] = useState<string | null>(null)
+  const deps = useMemo(() => dependenciesOf(m.db), [m.db])
   const narrow = typeof window !== 'undefined' && window.matchMedia('(max-width: 640px)').matches
   const leftW = narrow ? 132 : 240
 
@@ -79,6 +98,85 @@ export default function TimelineView() {
     })
     return out
   }, [days, zoom, locale])
+
+  /** Bar position per row (day indices, with the live drag applied) and the dependency edges. */
+  const { geom, edges } = useMemo(() => {
+    const geom = new Map<ID, BarGeom>()
+    if (!deps) return { geom, edges: [] as DepEdge[] }
+    m.rows.forEach((row, i) => {
+      const ev = byRow.get(row.id)
+      if (!ev) return
+      let s0 = differenceInCalendarDays(ev.start, range.start)
+      let e0 = differenceInCalendarDays(ev.end, range.start)
+      if (drag && drag.row === row.id) {
+        if (drag.mode === 'move') {
+          s0 += drag.dx
+          e0 += drag.dx
+        } else if (drag.mode === 'start') s0 = Math.min(e0, s0 + drag.dx)
+        else e0 = Math.max(s0, e0 + drag.dx)
+      }
+      geom.set(row.id, { i, s: s0, e: e0, title: row.title || t('common.untitled') })
+    })
+    const pages = m.resolver.ctx.pages
+    const edges: DepEdge[] = []
+    for (const row of m.rows) {
+      const b = geom.get(row.id)
+      if (!b) continue
+      for (const from of linkedIds(pages, row, deps.blockedBy.id)) {
+        const a = geom.get(from)
+        if (a) edges.push({ from, to: row.id, violated: b.s <= a.e })
+      }
+    }
+    return { geom, edges }
+  }, [deps, m.rows, m.resolver, byRow, range.start, drag, t])
+
+  const removeDep = useCallback(
+    (edge: DepEdge) => {
+      if (!deps) return
+      const cur = (useWorkspace.getState().pages[edge.to]?.properties[deps.blockedBy.id] as ID[] | undefined) ?? []
+      writeValue(m.db.id, deps.blockedBy, edge.to, cur.filter((x) => x !== edge.from))
+      setSelectedDep(null)
+      useUI.getState().toast({
+        message: t('database.dep.removed'),
+        action: {
+          label: t('common.undo'),
+          run: () => {
+            const now = (useWorkspace.getState().pages[edge.to]?.properties[deps.blockedBy.id] as ID[] | undefined) ?? []
+            if (!now.includes(edge.from)) writeValue(m.db.id, deps.blockedBy, edge.to, [...now, edge.from])
+          },
+        },
+      })
+    },
+    [deps, m.db.id, t],
+  )
+
+  /** Drag from a bar's end dot onto another row: that row becomes blocked by this one. */
+  const startLink = (e: React.PointerEvent, row: Page) => {
+    if (e.button !== 0 || !deps) return
+    e.stopPropagation()
+    e.preventDefault()
+    const body = bodyRef.current
+    if (!body) return
+    const at = (ev: { clientX: number; clientY: number }) => {
+      const r = body.getBoundingClientRect()
+      const el = document.elementFromPoint(ev.clientX, ev.clientY)?.closest<HTMLElement>('[data-tl-row]')
+      const target = el?.dataset.tlRow ?? null
+      return { x: ev.clientX - r.left - leftW, y: ev.clientY - r.top, target: target && target !== row.id ? target : null }
+    }
+    setLink({ from: row.id, ...at(e) })
+    const onMove = (ev: PointerEvent) => setLink({ from: row.id, ...at(ev) })
+    const onUp = (ev: PointerEvent) => {
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerup', onUp)
+      setLink(null)
+      const { target } = at(ev)
+      if (!target) return
+      const cur = (useWorkspace.getState().pages[target]?.properties[deps.blockedBy.id] as ID[] | undefined) ?? []
+      if (!cur.includes(row.id)) writeValue(m.db.id, deps.blockedBy, target, [...cur, row.id])
+    }
+    window.addEventListener('pointermove', onMove)
+    window.addEventListener('pointerup', onUp)
+  }
 
   const todayIdx = differenceInCalendarDays(startOfDay(new Date()), range.start)
   const scrollToToday = (smooth = true) => {
@@ -128,6 +226,16 @@ export default function TimelineView() {
       const withTime = !!dv.includeTime
       const hasRange = differenceInCalendarDays(ne, ns) > 0 || !!dv.end
       writeValue(m.db.id, prop, row.id, { ...dv, start: isoWithTime(ns, withTime), end: hasRange ? isoWithTime(ne, withTime) : null })
+      // a blocker that now ends later pushes its dependents (setting: shift) — or just shows red arrows
+      const dep = dependenciesOf(useWorkspace.getState().databases[m.db.id])
+      if (dep?.onConflict === 'shift' && state.mode !== 'start') {
+        const moved = shiftDependents(m.db.id, prop, dep, row.id)
+        if (moved.length)
+          useUI.getState().toast({
+            message: plural(t, 'database.dep.shifted', moved.length),
+            action: { label: t('common.undo'), run: () => moved.forEach((x) => writeValue(m.db.id, prop, x.id, x.before)) },
+          })
+      }
     }
     window.addEventListener('pointermove', onMove)
     window.addEventListener('pointerup', onUp)
@@ -145,7 +253,7 @@ export default function TimelineView() {
   const gridStyle = zoom === 'quarter' ? { backgroundImage: lines, backgroundSize: `${lineStep}px 100%` } : { backgroundImage: `${lines}, ${weekend}`, backgroundSize: `${lineStep}px 100%, ${7 * dw}px 100%` }
 
   return (
-    <div className="dbtl" data-zoom={zoom} style={{ ['--dw' as string]: `${dw}px`, ['--tl-left' as string]: `${leftW}px` }}>
+    <div className="dbtl" data-zoom={zoom} data-deps={!!deps} data-linking={!!link} style={{ ['--dw' as string]: `${dw}px`, ['--tl-left' as string]: `${leftW}px` }}>
       <div className="dbtl-controls">
         <Segmented
           value={zoom}
@@ -200,6 +308,22 @@ export default function TimelineView() {
           <div className="dbtl-body" ref={bodyRef}>
             <div className="dbtl-grid" style={{ left: leftW, width, ...gridStyle }} aria-hidden />
             {todayIdx >= 0 && todayIdx < range.days && <div className="dbtl-today" style={{ left: leftW + todayIdx * dw + dw / 2 }} aria-hidden />}
+            {deps && (
+              <DepArrows
+                edges={edges}
+                geom={geom}
+                dw={dw}
+                rowH={ROW_H}
+                barMid={BAR_MID}
+                width={width}
+                height={offsets[m.rows.length]}
+                left={leftW}
+                selected={selectedDep}
+                onSelect={setSelectedDep}
+                onRemove={removeDep}
+                draft={link}
+              />
+            )}
             {topPad > 0 && <div style={{ height: topPad }} aria-hidden />}
             {m.rows.slice(start, end).map((row) => {
               const ev = byRow.get(row.id)
@@ -214,8 +338,9 @@ export default function TimelineView() {
               }
               const barW = Math.max(dw, (e - s + 1) * dw) - 2
               const outside = barW < 96
+              const rc = ev?.rc ?? null
               return (
-                <div key={row.id} className="dbtl-row" style={{ height: ROW_H }}>
+                <div key={row.id} className="dbtl-row" style={{ height: ROW_H }} data-tl-row={row.id} data-link-target={link?.target === row.id || undefined}>
                   <button
                     type="button"
                     className="dbtl-title"
@@ -247,13 +372,16 @@ export default function TimelineView() {
                   >
                     {ev ? (
                       <div
-                        className="dbtl-bar"
+                        className={`dbtl-bar${rc ? ' db-rc' : ''}`}
                         data-dragging={drag?.row === row.id && drag.moved}
                         data-readonly={!editable}
+                        data-rc={rc?.target}
+                        data-rc-color={rc?.color}
                         style={{
                           left: s * dw + 1,
                           width: barW,
                           ['--ev-accent' as string]: ev.color ? `var(--c-${ev.color}-text)` : 'var(--signal)',
+                          ...(rc ? { ['--rc-text' as string]: `var(--c-${rc.color}-text)`, ['--rc-bg' as string]: `var(--c-${rc.color}-bg)` } : null),
                         }}
                         onPointerDown={(e2) => (editable ? startDrag(e2, row, 'move') : undefined)}
                         onClick={(e2) => {
@@ -265,6 +393,15 @@ export default function TimelineView() {
                         {editable && <span className="dbtl-bar__h dbtl-bar__h--l" onPointerDown={(e2) => startDrag(e2, row, 'start')} />}
                         <span className={`dbtl-bar__label${outside ? ' is-outside' : ''}`}>{row.title || t('common.untitled')}</span>
                         {editable && <span className="dbtl-bar__h dbtl-bar__h--r" onPointerDown={(e2) => startDrag(e2, row, 'end')} />}
+                        {deps && (
+                          <span
+                            className="dbtl-bar__dep"
+                            role="presentation"
+                            title={t('database.dep.connect')}
+                            onPointerDown={(e2) => startLink(e2, row)}
+                            onClick={(e2) => e2.stopPropagation()}
+                          />
+                        )}
                       </div>
                     ) : (
                       ghost?.row === row.id && (

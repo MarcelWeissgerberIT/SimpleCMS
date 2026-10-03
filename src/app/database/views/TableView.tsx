@@ -5,7 +5,7 @@
  */
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ChevronRight, Copy, GripVertical, PencilLine, Plus, Trash, X } from 'lucide-react'
-import type { ID, Page, PropertyDef, PropertyValue } from '../../store/types'
+import type { ColorRule, ID, Page, PropertyDef, PropertyValue } from '../../store/types'
 import { useWorkspace } from '../../store/store'
 import { Tooltip } from '../../ui/Tooltip'
 import { useT } from '../../i18n'
@@ -25,6 +25,9 @@ import { CalcCell } from './table/CalcCell'
 import { pointAnchor } from '../../ui/Popover'
 import { parseDateText } from '../model/format'
 import { AutofillCellMark, AutofillTag, autofillOf, startFill } from '../autofill'
+import { useRowColor, useTree } from './tree'
+import { AddSubButton, TreeCount, TreeLead } from './treeParts'
+import { ruleStyle } from '../model/colors'
 import './table/table.css'
 
 function useNarrow(): boolean {
@@ -108,12 +111,14 @@ export function TableView({ onFilterProp }: { onFilterProp: (id: ID) => void }) 
   const template = `${gutter}px ${widths.map((w) => `${w}px`).join(' ')} ${ADD_COL}px minmax(${FILL_MIN}px, 1fr)`
 
   const [collapsed, toggleCollapsed] = useCollapsed(view.id)
+  const tree = useTree(m)
+  const colorOf = useRowColor(m)
   const hiddenKey = (view.hiddenGroups ?? []).join('|')
   const collapsedKey = [...collapsed].join('|')
   const items = useMemo(
-    () => buildItems(m.rows, m.groups, new Set(view.hiddenGroups ?? []), collapsed, ROW_H, Object.values(view.calculations ?? {}).some((f) => f !== 'none')),
+    () => buildItems(m.rows, m.groups, new Set(view.hiddenGroups ?? []), collapsed, ROW_H, Object.values(view.calculations ?? {}).some((f) => f !== 'none'), tree.nodes),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [m.rows, m.groups, hiddenKey, collapsedKey, view.calculations],
+    [m.rows, m.groups, hiddenKey, collapsedKey, view.calculations, tree.nodes],
   )
   const offsets = useMemo(() => offsetsOf(items), [items])
   const rowItems = useMemo(() => items.map((it, i) => ({ it, i })).filter((x) => x.it.kind === 'row') as Array<{ it: Extract<Item, { kind: 'row' }>; i: number }>, [items])
@@ -268,6 +273,13 @@ export function TableView({ onFilterProp }: { onFilterProp: (id: ID) => void }) 
     const idx = Math.min(active.idx, rowItems.length - 1)
     const col = Math.min(active.col, cols.length - 1)
     if (idx < 0 || col < 0) return
+    if (e.altKey && !mod && (e.key === 'ArrowRight' || e.key === 'ArrowLeft')) {
+      // Alt+→ / Alt+← open and close a row's sub-items
+      const node = rowItems[idx]?.it.node
+      e.preventDefault()
+      if (node?.childCount && node.expanded !== (e.key === 'ArrowRight')) tree.toggle(node.row.id)
+      return
+    }
     switch (e.key) {
       case 'ArrowDown':
         e.preventDefault()
@@ -614,6 +626,14 @@ export function TableView({ onFilterProp }: { onFilterProp: (id: ID) => void }) 
             openLabel={t('database.open')}
             groupKey={it.groupKey}
             handlers={rowHandlers}
+            nested={!!it.node}
+            depth={it.node?.depth ?? 0}
+            kids={it.node?.childCount ?? 0}
+            open={!!it.node?.expanded}
+            dimmed={!!it.node?.dimmed}
+            last={!!it.node?.last}
+            rails={it.node?.rails ?? ''}
+            rc={colorOf(it.row)}
           />
         )
       }
@@ -639,6 +659,14 @@ export function TableView({ onFilterProp }: { onFilterProp: (id: ID) => void }) 
       e.preventDefault()
       actions.contextMenu(row, pointAnchor(e.clientX, e.clientY))
     },
+    onToggle: (id) => tree.toggle(id),
+    onAddSub: (parent) => {
+      const pair = tree.pair
+      if (!pair) return
+      tree.expand(parent.id)
+      const id = actions.newRow({ editTitle: true })
+      writeValue(db.id, pair.parent, id, [parent.id])
+    },
   }
   const rowHandlers = useMemo<RowHandlers>(
     () => ({
@@ -646,6 +674,8 @@ export function TableView({ onFilterProp }: { onFilterProp: (id: ID) => void }) 
       onToggleSel: (...a) => handlerRef.current!.onToggleSel(...a),
       onGripDown: (...a) => handlerRef.current!.onGripDown(...a),
       onContext: (...a) => handlerRef.current!.onContext(...a),
+      onToggle: (...a) => handlerRef.current!.onToggle(...a),
+      onAddSub: (...a) => handlerRef.current!.onAddSub(...a),
     }),
     [],
   )
@@ -659,7 +689,7 @@ export function TableView({ onFilterProp }: { onFilterProp: (id: ID) => void }) 
       className="dbt"
       style={{ ['--dbt-cols' as string]: template, ['--dbt-gutter' as string]: `${gutter}px` }}
       tabIndex={0}
-      role="grid"
+      role={tree.nodes ? 'treegrid' : 'grid'}
       aria-rowcount={m.rows.length}
       aria-colcount={cols.length}
       data-wrap={!!view.wrapCells}
@@ -846,6 +876,8 @@ interface RowHandlers {
   onToggleSel: (idx: number, e: React.MouseEvent) => void
   onGripDown: (e: React.PointerEvent, row: Page, group: string | null) => void
   onContext: (e: React.MouseEvent, row: Page) => void
+  onToggle: (rowId: ID) => void
+  onAddSub: (parent: Page) => void
 }
 
 interface RowProps {
@@ -864,6 +896,16 @@ interface RowProps {
   openLabel: string
   groupKey: string | null
   handlers: RowHandlers
+  /** sub-items nested display */
+  nested: boolean
+  depth: number
+  kids: number
+  open: boolean
+  dimmed: boolean
+  last: boolean
+  rails: string
+  /** colour rule the row matches */
+  rc: ColorRule | null
 }
 
 /** Rows re-render when their own data changes; a new resolver only matters for cross-row values. */
@@ -877,17 +919,23 @@ function rowPropsEqual(a: RowProps, b: RowProps): boolean {
   return !a.m.db.properties.some((p) => p.type === 'relation' || p.type === 'rollup' || p.type === 'formula')
 }
 
-const TableRow = memo(function TableRow({ m, row, idx, cols, gutter, height, selected, anySelected, activeCol, editingCol, dragging, openLabel, groupKey, handlers }: RowProps) {
+const TableRow = memo(function TableRow({ m, row, idx, cols, gutter, height, selected, anySelected, activeCol, editingCol, dragging, openLabel, groupKey, handlers, nested, depth, kids, open, dimmed, last, rails, rc }: RowProps) {
   const t = useT()
   return (
     <div
-      className="dbt-row"
+      className={`dbt-row${rc ? ' db-rc' : ''}`}
       role="row"
       aria-rowindex={idx + 1}
       aria-selected={selected}
+      aria-level={nested ? depth + 1 : undefined}
+      aria-expanded={nested && kids > 0 ? open : undefined}
       data-selected={selected}
       data-dragging={dragging}
-      style={height ? { height } : undefined}
+      data-dimmed={dimmed || undefined}
+      data-rc={rc?.target}
+      data-rc-color={rc?.color}
+      title={dimmed ? t('database.sub.context') : undefined}
+      style={{ ...(height ? { height } : null), ...(rc ? ruleStyle(rc.color) : null) }}
       onContextMenu={(e) => handlers.onContext(e, row)}
     >
       <div className="dbt-gutter dbt-sticky0" data-any={anySelected}>
@@ -924,9 +972,14 @@ const TableRow = memo(function TableRow({ m, row, idx, cols, gutter, height, sel
           onClick={(e) => handlers.onCell(idx, c, e)}
         >
           {c === 0 ? (
-            <RowTitle row={row}>
-              <OpenButton row={row} view={m.view} label={openLabel} />
-            </RowTitle>
+            <>
+              {nested && <TreeLead depth={depth} kids={kids} open={open} last={last} rails={rails} title={row.title || t('common.untitled')} onToggle={() => handlers.onToggle(row.id)} />}
+              <RowTitle row={row}>
+                {nested && <TreeCount kids={kids} open={open} />}
+                {nested && <AddSubButton onAdd={() => handlers.onAddSub(row)} />}
+                <OpenButton row={row} view={m.view} label={openLabel} />
+              </RowTitle>
+            </>
           ) : (
             <ValueView db={m.db} prop={p} row={row} r={m.resolver} v={m.resolver.value(m.db, p, row)} interactive />
           )}

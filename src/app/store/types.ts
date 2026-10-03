@@ -373,6 +373,40 @@ export interface View {
   /** form view settings (optional; older workspaces have none) */
   form?: FormConfig
   openIn?: 'peek' | 'center' | 'full'
+  /** With sub-items on: nested (table/list, default) · flattened · parents only (hides sub-items). */
+  subItems?: SubItemsDisplay
+  /** Conditional colours, evaluated top to bottom; the first matching rule wins. */
+  colorRules?: ColorRule[]
+}
+
+export type SubItemsDisplay = 'nested' | 'flattened' | 'parents'
+
+/** A conditional colour of a view: rows matching `filter` get `color` on `target`. */
+export interface ColorRule {
+  id: ID
+  filter: FilterGroup
+  color: ColorName
+  /** background: row / card tint · accent: left bar · text: coloured text */
+  target: 'background' | 'accent' | 'text'
+}
+
+/**
+ * Sub-items: a two-way self-relation pair (parent → `<parent id>.2way` children). Switching the
+ * feature off keeps the config with enabled=false when the properties stay, so it can be reused.
+ */
+export interface SubItemsConfig {
+  enabled: boolean
+  parentPropertyId: ID
+  childPropertyId: ID
+}
+
+/** Dependencies (timeline): a two-way self-relation pair "Blocked by" ↔ "Blocking". */
+export interface DependenciesConfig {
+  enabled: boolean
+  blockedByPropertyId: ID
+  blockingPropertyId: ID
+  /** Moving a blocker past its dependents: shift them later (default) or only flag the conflict. */
+  onConflict?: 'shift' | 'warn'
 }
 
 export interface Database {
@@ -388,6 +422,10 @@ export interface Database {
   templates?: Array<{ id: ID; name: string; icon?: PageIcon | null; content: JSONContent | null; properties: Record<ID, PropertyValue> }>
   /** Automations (webhooks etc.), managed by features/automations. */
   automations?: Automation[]
+  /** Sub-items (absent = never enabled). Managed by database/model/hierarchy. */
+  subItems?: SubItemsConfig | null
+  /** Dependencies between rows (absent = never enabled). Managed by database/model/hierarchy. */
+  dependencies?: DependenciesConfig | null
 }
 
 export type AutomationTrigger =

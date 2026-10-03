@@ -6,8 +6,8 @@
 
 /* ---------- highlight (decorations; the mark itself stays unstyled) ---------- */
 .doc-content .cmark-hl {
-  background: color-mix(in srgb, var(--c-yellow-bg) 72%, transparent);
-  box-shadow: inset 0 -2px 0 color-mix(in srgb, var(--c-yellow-text) 38%, transparent);
+  background: color-mix(in srgb, var(--c-yellow-bg) 60%, transparent);
+  box-shadow: inset 0 -2px 0 color-mix(in srgb, var(--c-yellow-text) 35%, transparent);
   transition:
     background var(--dur-1) var(--ease-out),
     box-shadow var(--dur-1) var(--ease-out);
@@ -396,6 +396,10 @@
     transform: translateX(24px);
     opacity: 0;
   }
+}
+
+.csheet:focus {
+  outline: none;
 }
 
 .csheet__head {

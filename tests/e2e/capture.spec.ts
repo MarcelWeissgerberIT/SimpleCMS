@@ -21,6 +21,13 @@ const routeId = (page: Page) => page.evaluate(() => window.location.hash.match(/
 
 const enc = encodeURIComponent
 
+/** This device's clip token, as the "Clip to One" bookmarklet carries it (k=…). */
+const TOKEN = 'e2eClipToken_0123456789abcdef'
+const setClipToken = (page: Page) => page.evaluate((token) => localStorage.setItem('one.clipToken', token), TOKEN)
+
+/** The "Save to Inbox?" card shown for clips without this device's token. */
+const askCard = (page: Page) => page.getByRole('dialog', { name: 'Save to Inbox?' })
+
 /* ------------------------------------------------------------------ */
 /* Unlinked mentions                                                   */
 /* ------------------------------------------------------------------ */
@@ -91,6 +98,21 @@ test.describe('unlinked mentions', () => {
     expect(rowDoc).toContain(`"id":"${target}"`)
     expect(rowDoc).toContain('Blocked by ')
     expect(rowDoc).toContain(' sign-off.')
+    // the text was bold: so is the mention that replaced it
+    const rowMention = await wsEval(
+      page,
+      (s, a) => {
+        let found: unknown = null
+        const walk = (n: Record<string, any>) => { // eslint-disable-line @typescript-eslint/no-explicit-any
+          if (n.type === 'mention' && n.attrs?.id === a.target) found = JSON.parse(JSON.stringify(n))
+          ;(n.content ?? []).forEach(walk)
+        }
+        walk(s.pages[a.row].content)
+        return found
+      },
+      { row, target },
+    )
+    expect(rowMention).toMatchObject({ type: 'mention', marks: [{ type: 'bold' }] })
   })
 
   test('"Link all" links every listed page; Undo restores the text', async ({ page }) => {
@@ -107,8 +129,17 @@ test.describe('unlinked mentions', () => {
     await expect(section).toHaveCount(0)
     for (const id of [a, b]) expect(JSON.stringify((await pageById(page, id)).content)).toContain(`"id":"${target}"`)
 
+    // B is edited after the link: Undo can't restore the old doc, it turns the mention back into
+    // the text exactly as it was written ("Halcyon Budget", not the page title "Halcyon budget")
+    await wsEval(
+      page,
+      (s, id) => s.setContent(id, { ...s.pages[id].content, content: [...s.pages[id].content.content, { type: 'paragraph', content: [{ type: 'text', text: 'Added later.' }] }] }, 'e2e'),
+      b,
+    )
     await page.locator('.toast').filter({ hasText: 'Linked 2 mentions' }).getByRole('button', { name: 'Undo' }).click()
     await expect.poll(async () => (await pageById(page, a)).content.content[0].content).toEqual([{ type: 'text', text: 'The halcyon budget is due.' }])
+    await expect.poll(async () => (await pageById(page, b)).content.content[0].content).toEqual([{ type: 'text', text: 'Ask finance about Halcyon Budget numbers.' }])
+    expect((await pageById(page, b)).content.content[1].content[0].text).toBe('Added later.')
     await expect(page.locator('#main section.pv-um').getByRole('button', { name: /Unlinked mentions/ })).toHaveText(/· 02/)
   })
 
@@ -127,11 +158,12 @@ test.describe('unlinked mentions', () => {
 /* ------------------------------------------------------------------ */
 
 test.describe('web clipper', () => {
-  test('#/clip creates exactly one page in the Inbox (bookmark + quote + date), reload does not duplicate', async ({ page }) => {
+  test('#/clip with this device\'s token creates exactly one page in the Inbox (bookmark + quote + date), reload does not duplicate', async ({ page }) => {
     await openApp(page)
+    await setClipToken(page)
     expect(await inboxIds(page)).toEqual([])
     const url = 'https://example.com/articles/one?id=7&ref=feed'
-    const hash = `#/clip?url=${enc(url)}&title=${enc('An example article')}&text=${enc('First line of the quote\nsecond line\n\nNext paragraph')}&desc=${enc('A short description')}`
+    const hash = `#/clip?k=${TOKEN}&url=${enc(url)}&title=${enc('An example article')}&text=${enc('First line of the quote\nsecond line\n\nNext paragraph')}&desc=${enc('A short description')}`
     // a fresh tab, as the bookmarklet opens one
     await page.goto('about:blank')
     await page.goto(`app/?e2e${hash}`)
@@ -173,8 +205,10 @@ test.describe('web clipper', () => {
     expect(await inboxIds(page)).toHaveLength(1)
 
     // a second clip lands in the same Inbox; javascript: URLs are never kept
-    await page.evaluate(() => (window.location.hash = `#/clip?url=${encodeURIComponent('javascript:alert(1)')}&title=Second`))
+    await page.evaluate((token) => (window.location.hash = `#/clip?k=${token}&url=${encodeURIComponent('javascript:alert(1)')}&title=Second`), TOKEN)
     await expect(page.locator('#main .pv-title')).toHaveValue('Second')
+    // silent: no question asked
+    await expect(askCard(page)).toHaveCount(0)
     expect(await inboxIds(page)).toHaveLength(1)
     expect(await childrenOf(page, inbox[0])).toHaveLength(2)
     const second = (await routeId(page))!
@@ -197,7 +231,64 @@ test.describe('web clipper', () => {
     expect(await inboxIds(page)).toEqual([])
   })
 
-  test('PWA share target: the manifest points at the app, the shared URL becomes a clip', async ({ page }) => {
+  test('a #/clip link without this device\'s token asks first: Discard saves nothing, Save (↵) files it', async ({ page }) => {
+    await openApp(page)
+    await setClipToken(page)
+    const before = await wsEval(page, (s) => Object.keys(s.pages).length)
+    // any web page can open this link — it carries no (or a wrong) token
+    await page.evaluate((h) => (window.location.hash = h), `#/clip?url=${enc('https://evil.example/landing')}&title=${enc('Sneaky page')}&text=${enc('Injected text that would land in your workspace')}`)
+    const ask = askCard(page)
+    await expect(ask).toBeVisible()
+    await expect(ask.locator('.clipq__page')).toHaveText('Sneaky page')
+    await expect(ask.locator('.clipq__host')).toContainText('evil.example')
+    await expect(ask.locator('.clipq__quote')).toContainText('Injected text that would land in your workspace')
+    // the route is gone already (a reload must not ask again), nothing saved yet
+    await expect(page).not.toHaveURL(/#\/clip/)
+    expect(await wsEval(page, (s) => Object.keys(s.pages).length)).toBe(before)
+    await ask.getByRole('button', { name: /Discard/ }).click()
+    await expect(ask).toHaveCount(0)
+    expect(await wsEval(page, (s) => Object.keys(s.pages).length)).toBe(before)
+    expect(await inboxIds(page)).toEqual([])
+
+    // Esc discards too
+    await page.evaluate((h) => (window.location.hash = h), `#/clip?k=${'W'.repeat(32)}&title=${enc('Wrong key')}`)
+    await expect(ask).toBeVisible()
+    await page.keyboard.press('Escape')
+    await expect(ask).toHaveCount(0)
+    expect(await inboxIds(page)).toEqual([])
+
+    // a wrong token asks as well — ↵ saves (the Save key has focus)
+    await page.evaluate((h) => (window.location.hash = h), `#/clip?k=${'x'.repeat(32)}&url=${enc('https://example.net/a')}&title=${enc('Chosen page')}`)
+    await expect(ask).toBeVisible()
+    await expect(ask.getByRole('button', { name: /Save to Inbox/ })).toBeFocused()
+    await page.keyboard.press('Enter')
+    await expect(ask).toHaveCount(0)
+    await expect(page.locator('#main .pv-title')).toHaveValue('Chosen page')
+    await expect(page.getByText('Saved to your Inbox')).toBeVisible()
+    const inbox = await inboxIds(page)
+    expect(inbox).toHaveLength(1)
+    expect((await childrenOf(page, inbox[0])).map(([, title]) => title)).toEqual(['Chosen page'])
+  })
+
+  test('a clip inside a frame is refused, even with the token', async ({ page }) => {
+    await openApp(page)
+    await setClipToken(page)
+    await page.evaluate((src) => {
+      const f = document.createElement('iframe')
+      f.id = 'clipframe'
+      f.style.cssText = 'position:fixed;inset:0;width:900px;height:700px;z-index:9999'
+      f.src = src
+      document.body.appendChild(f)
+    }, `?e2e#/clip?k=${TOKEN}&url=${enc('https://example.com/framed')}&title=${enc('Framed clip')}`)
+    const frame = page.frameLocator('#clipframe')
+    await expect(frame.getByText('Web clips are only saved in One’s own tab, never from inside another page')).toBeVisible({ timeout: 30_000 })
+    await expect(frame.getByRole('dialog', { name: 'Save to Inbox?' })).toHaveCount(0)
+    const inner = page.frames().find((f) => f !== page.mainFrame())!
+    expect(await inner.evaluate(() => (Object.values((window as any).__one.workspace.getState().pages) as Array<{ title: string }>).some((p) => p.title === 'Framed clip'))).toBe(false) // eslint-disable-line @typescript-eslint/no-explicit-any
+    expect(await inboxIds(page)).toEqual([])
+  })
+
+  test('PWA share target: the manifest points at the app; a shared URL is shown first and saved on "Save to Inbox"', async ({ page }) => {
     await openApp(page)
     const res = await page.request.get('manifest.webmanifest')
     expect(res.ok()).toBe(true)
@@ -212,9 +303,17 @@ test.describe('web clipper', () => {
     await page.goto('about:blank')
     await page.goto(share.href)
     await waitForApp(page)
-    await expect(page.locator('#main .pv-title')).toHaveValue('Shared from phone')
+    // any app can share into One: it shows what it would save and asks
+    const ask = askCard(page)
+    await expect(ask).toBeVisible()
+    await expect(ask.locator('.clipq__page')).toHaveText('Shared from phone')
+    await expect(ask.locator('.clipq__host')).toContainText('example.org')
+    await expect(ask.locator('.clipq__quote')).toHaveText('Worth reading')
     // the share query is gone (a reload must not share again), the test flag stays
     expect(await page.evaluate(() => window.location.search)).toBe('?e2e')
+    expect(await inboxIds(page)).toEqual([])
+    await ask.getByRole('button', { name: /Save to Inbox/ }).click()
+    await expect(page.locator('#main .pv-title')).toHaveValue('Shared from phone')
     const id = (await routeId(page))!
     const p = await pageById(page, id)
     expect(p.content.content[1]).toMatchObject({ type: 'bookmark', attrs: { url: 'https://example.org/post?x=1' } })
@@ -241,6 +340,10 @@ test.describe('web clipper', () => {
     expect(href.startsWith('javascript:')).toBe(true)
     const code = decodeURIComponent(href.slice('javascript:'.length))
     expect(code).toContain(JSON.stringify(app))
+    // this device's clip token is baked in (created on first use, kept in localStorage)
+    const token = (await page.evaluate(() => localStorage.getItem('one.clipToken')))!
+    expect(token).toMatch(/^[\w-]{20,64}$/)
+    expect(code).toContain(JSON.stringify(token))
     // clicking it inside the app only explains what to do
     await key.click()
     await expect(page.getByText('Drag the key to your bookmarks bar — it clips other pages, not this one.')).toBeVisible()
@@ -266,8 +369,26 @@ test.describe('web clipper', () => {
     })
     await site.evaluate(code)
     const opened = await site.evaluate(() => (window as unknown as { __opened?: string }).__opened ?? '')
+
+    // a selection cut right inside an emoji (surrogate pair) at the 4000-character limit still clips
+    await site.evaluate(() => {
+      const p = document.createElement('p')
+      p.textContent = `${'a'.repeat(3999)}😀 tail`
+      document.body.appendChild(p)
+      const sel = window.getSelection()!
+      sel.removeAllRanges()
+      const r = document.createRange()
+      r.selectNodeContents(p)
+      sel.addRange(r)
+      ;(window as unknown as { __opened: string }).__opened = ''
+    })
+    await site.evaluate(code)
+    const openedEmoji = await site.evaluate(() => (window as unknown as { __opened?: string }).__opened ?? '')
     await site.close()
-    expect(opened.startsWith(`${app}#/clip?`)).toBe(true)
+    expect(openedEmoji).toContain(`&text=${'a'.repeat(3999)}${enc('😀')}`)
+    expect(openedEmoji).not.toContain('tail')
+
+    expect(opened.startsWith(`${app}#/clip?k=${token}&`)).toBe(true)
     expect(opened).toContain(`url=${enc('https://clip.example/post/42')}`)
 
     await page.goto(opened.replace('#/clip', '?e2e#/clip'))

@@ -5,6 +5,7 @@
 import type { Page, PropertyDef, PropertyType, View } from '../../../store/types'
 import type { RowGroup } from '../../model/query'
 import { NONE_KEY } from '../../model/query'
+import type { TreeNode } from '../tree'
 
 export const ROW_H = 36
 export const GROUP_H = 46
@@ -46,17 +47,19 @@ export const minWidth = (prop: PropertyDef) => (prop.type === 'title' ? 140 : 72
 
 export type Item =
   | { kind: 'group'; key: string; group: RowGroup; h: number }
-  | { kind: 'row'; key: string; row: Page; index: number; groupKey: string | null; h: number }
+  | { kind: 'row'; key: string; row: Page; index: number; groupKey: string | null; h: number; node?: TreeNode }
   | { kind: 'add'; key: string; group: RowGroup | null; h: number }
   | { kind: 'calc'; key: string; group: RowGroup | null; rows: Page[]; h: number }
   | { kind: 'empty'; key: string; h: number }
 
-export function buildItems(rows: Page[], groups: RowGroup[] | null, hidden: Set<string>, collapsed: Set<string>, rowH: number, groupCalcs = true): Item[] {
+/** `nodes`: sub-items nested display order (ungrouped views only); rows stay the calculation base. */
+export function buildItems(rows: Page[], groups: RowGroup[] | null, hidden: Set<string>, collapsed: Set<string>, rowH: number, groupCalcs = true, nodes: TreeNode[] | null = null): Item[] {
   const items: Item[] = []
   let index = 0
   if (!groups) {
     if (!rows.length) items.push({ kind: 'empty', key: 'empty', h: 120 })
-    for (const row of rows) items.push({ kind: 'row', key: row.id, row, index: index++, groupKey: null, h: rowH })
+    if (nodes && rows.length) for (const node of nodes) items.push({ kind: 'row', key: node.row.id, row: node.row, index: index++, groupKey: null, h: rowH, node })
+    else for (const row of rows) items.push({ kind: 'row', key: row.id, row, index: index++, groupKey: null, h: rowH })
     items.push({ kind: 'add', key: 'add', group: null, h: ADD_H })
     items.push({ kind: 'calc', key: 'calc', group: null, rows, h: CALC_H })
     return items

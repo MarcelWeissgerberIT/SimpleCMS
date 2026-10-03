@@ -32,6 +32,9 @@ import { NONE_KEY, valueForGroupMove, type RowGroup } from '../model/query'
 import { orderBetween, writeValue } from '../model/actions'
 import { BOARD_GROUP_TYPES } from '../model/schema'
 import { Menu, Select, TypeIcon } from '../parts'
+import { useRowColor } from './tree'
+import { ruleStyle } from '../model/colors'
+import type { ColorRule } from '../../store/types'
 import './views.css'
 
 const SEP = '::'
@@ -64,6 +67,7 @@ export function BoardView() {
   const size = view.cardSize ?? 'medium'
   // the column already shows the group value — don't repeat it on every card
   const cardProps = useMemo(() => m.visibleProps.filter((p) => p.id !== view.groupBy), [m.visibleProps, view.groupBy])
+  const colorOf = useRowColor(m)
 
   const fromGroups = useMemo(() => Object.fromEntries(visibleGroups.map((g) => [g.key, g.rows.map((r) => itemId(g.key, r.id))])), [visibleGroups])
   const [items, setItems] = useState<Record<string, string[]>>(fromGroups)
@@ -183,6 +187,7 @@ export function BoardView() {
                   ids={items[g.key] ?? []}
                   rowsById={rowsById}
                   cardProps={cardProps}
+                  colorOf={colorOf}
                   editing={editing}
                   // like the table (and Notion): Esc on a fresh card keeps it, untitled
                   onEditDone={() => setEditing(null)}
@@ -251,6 +256,7 @@ function Column({
   ids,
   rowsById,
   cardProps,
+  colorOf,
   editing,
   onEditDone,
   onAdd,
@@ -264,6 +270,7 @@ function Column({
   ids: string[]
   rowsById: Map<ID, Page>
   cardProps: PropertyDef[]
+  colorOf: (row: Page) => ColorRule | null
   editing: ID | null
   onEditDone: (id: ID, cancelled: boolean) => void
   onAdd: () => void
@@ -294,7 +301,7 @@ function Column({
           {shown.map((id) => {
             const row = rowsById.get(id.slice(id.lastIndexOf(SEP) + SEP.length))
             if (!row) return null
-            return <Card key={id} id={id} m={m} row={row} props={cardProps} editing={editing === row.id} onEditDone={(c) => onEditDone(row.id, c)} onOpen={() => onOpen(row)} onContext={(e) => onContext(row, e)} />
+            return <Card key={id} id={id} m={m} row={row} rc={colorOf(row)} props={cardProps} editing={editing === row.id} onEditDone={(c) => onEditDone(row.id, c)} onOpen={() => onOpen(row)} onContext={(e) => onContext(row, e)} />
           })}
         </SortableContext>
         {ids.length > shown.length && (
@@ -310,14 +317,16 @@ function Column({
   )
 }
 
-function Card({ id, m, row, props, editing, onEditDone, onOpen, onContext }: { id: string; m: DbModel; row: Page; props: PropertyDef[]; editing: boolean; onEditDone: (cancelled: boolean) => void; onOpen: () => void; onContext: (e: React.MouseEvent) => void }) {
+function Card({ id, m, row, rc, props, editing, onEditDone, onOpen, onContext }: { id: string; m: DbModel; row: Page; rc: ColorRule | null; props: PropertyDef[]; editing: boolean; onEditDone: (cancelled: boolean) => void; onOpen: () => void; onContext: (e: React.MouseEvent) => void }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id, disabled: editing })
   return (
     <article
       ref={setNodeRef}
-      className="dbc"
+      className={`dbc${rc ? ' db-rc' : ''}`}
       data-dragging={isDragging}
-      style={{ transform: CSS.Translate.toString(transform), transition }}
+      data-rc={rc?.target}
+      data-rc-color={rc?.color}
+      style={{ transform: CSS.Translate.toString(transform), transition, ...(rc ? ruleStyle(rc.color) : null) }}
       {...attributes}
       {...listeners}
       onClick={() => !editing && onOpen()}

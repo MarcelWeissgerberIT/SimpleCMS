@@ -226,7 +226,8 @@ export function ancestorsOf(plan: SitePlan, id: ID): SiteNode[] {
 /** Number of web pages and files the site will contain (media that cannot be read are dropped later). */
 export function siteCounts(plan: SitePlan, hasBaseUrl: boolean): { pages: number; files: number } {
   const pages = plan.order.length + (plan.home ? 0 : 1)
-  // html + md per page, media, site.css + favicon + 4 fonts, 404, robots, rss, llms, llms-full, content.json (+ sitemap)
-  const files = pages * 2 + plan.media.length + 6 + 6 + (hasBaseUrl ? 1 : 0)
+  // html + md per page, media, site.css + favicon + 4 fonts, 404, robots, llms, llms-full, content.json
+  // (+ sitemap and rss, which need absolute URLs and are only written with a base URL)
+  const files = pages * 2 + plan.media.length + 6 + 5 + (hasBaseUrl ? 2 : 0)
   return { pages, files }
 }

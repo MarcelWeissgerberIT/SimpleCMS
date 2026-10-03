@@ -10,7 +10,7 @@ import { useLocalState, useModel, type DbModel } from '../hooks'
 import { Segmented } from '../parts'
 import { openRow, writeValue } from '../model/actions'
 import { uploadFiles } from '../model/files'
-import { answersToRow, fieldsOf, formConfig, isValidHttpUrl, type Answers, type Field } from './fields'
+import { answersToRow, fieldsOf, formConfig, isValidWebhookUrl, type Answers, type Field } from './fields'
 import { FormFill, type SubmitOutcome } from './FormFill'
 import { FormBuilder } from './FormBuilder'
 import { ShareFormModal, formTitle } from './ShareForm'
@@ -26,7 +26,7 @@ export default function FormView() {
   const [sharing, setSharing] = useState(false)
   const fields = useMemo(() => fieldsOf(m.db, m.view), [m.db, m.view])
   const hook = (formConfig(m.view).webhookUrl ?? '').trim()
-  const connected = isValidHttpUrl(hook)
+  const connected = isValidWebhookUrl(hook)
   const required = fields.filter((f) => f.required).length
 
   return (

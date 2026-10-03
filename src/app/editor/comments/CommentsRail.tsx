@@ -94,16 +94,20 @@ export function Comments({ editor, bridge, pageId }: { editor: Editor; bridge: B
   useLayoutEffect(() => setHost(rootRef.current?.parentElement ?? null), [])
   const mode = useMode(host)
 
-  // anchors follow the document
+  // anchors follow the document (pages without comments skip all of this)
   const [docRev, setDocRev] = useState(0)
   const [layoutRev, setLayoutRev] = useState(0)
+  const live = useRef(false)
+  live.current = threads.length > 0 || !!ui.draft
   useEffect(() => {
     let raf = 0
     const bump = () => {
+      if (!live.current) return
       cancelAnimationFrame(raf)
       raf = requestAnimationFrame(() => setLayoutRev((n) => n + 1))
     }
     const onTr = ({ transaction }: { transaction: { docChanged: boolean } }) => {
+      if (!live.current) return
       if (transaction.docChanged) setDocRev((n) => n + 1)
       bump()
     }
@@ -118,7 +122,10 @@ export function Comments({ editor, bridge, pageId }: { editor: Editor; bridge: B
       window.removeEventListener('resize', bump)
     }
   }, [editor])
-  const anchors = useMemo(() => (editor.isDestroyed ? new Map<string, { from: number; to: number }>() : anchorRanges(editor.state.doc)), [editor, docRev]) // eslint-disable-line react-hooks/exhaustive-deps
+  const anchors = useMemo(
+    () => (editor.isDestroyed || !threads.length ? new Map<string, { from: number; to: number }>() : anchorRanges(editor.state.doc)),
+    [editor, docRev, threads], // eslint-disable-line react-hooks/exhaustive-deps
+  )
 
   // thread states → highlight decorations
   const resolvedMap = useMemo(() => Object.fromEntries(threads.map((c) => [c.id, !!c.resolved])), [threads])
@@ -203,9 +210,15 @@ export function Comments({ editor, bridge, pageId }: { editor: Editor; bridge: B
     useUI.getState().openModal({ type: 'confirm', title: t('editor.comments.deleteTitle'), body: t('editor.comments.deleteBody', { count: c.replies.length }), danger: true, confirmLabel: t('common.delete'), onConfirm: run })
   }
 
+  // the sheet opened from the summary button takes the focus, and gives it back on close
+  const sheetRef = useRef<HTMLDivElement>(null)
+  const opener = useRef<HTMLElement | null>(null)
   const closeSheet = () => {
     setUI(bridge, { panel: false })
-    if (!editor.isDestroyed && editor.isEditable) editor.commands.focus()
+    const back = opener.current
+    opener.current = null
+    if (back?.isConnected) back.focus()
+    else if (!editor.isDestroyed && editor.isEditable) editor.commands.focus()
   }
 
   const onKeyDown = (e: React.KeyboardEvent) => {
@@ -366,7 +379,12 @@ export function Comments({ editor, bridge, pageId }: { editor: Editor; bridge: B
         type="button"
         className="csummary__btn"
         aria-expanded={mode === 'sheet' ? ui.panel : ui.showResolved}
-        onClick={() => (mode === 'sheet' ? setUI(bridge, { panel: !ui.panel, showResolved: ui.showResolved || !open.length }) : setUI(bridge, { showResolved: true }))}
+        onClick={(e) => {
+          if (mode !== 'sheet') return setUI(bridge, { showResolved: true })
+          if (ui.panel) return closeSheet()
+          opener.current = e.currentTarget
+          setUI(bridge, { panel: true, via: 'rail', showResolved: ui.showResolved || !open.length })
+        }}
       >
         {mode === 'sheet' ? t(ui.panel ? 'editor.comments.hide' : 'editor.comments.view') : t('editor.comments.showResolved')}
       </button>
@@ -374,6 +392,9 @@ export function Comments({ editor, bridge, pageId }: { editor: Editor; bridge: B
   )
 
   const sheetOn = mode === 'sheet' && ui.panel && (threads.length > 0 || !!draftState)
+  useEffect(() => {
+    if (sheetOn && opener.current && !draftState) sheetRef.current?.focus()
+  }, [sheetOn]) // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <div ref={rootRef} className="ccomments">
@@ -387,7 +408,7 @@ export function Comments({ editor, bridge, pageId }: { editor: Editor; bridge: B
       )}
       {sheetOn &&
         createPortal(
-          <div className="csheet" role="dialog" aria-modal="false" aria-label={t('editor.comments.title')} onKeyDown={onKeyDown}>
+          <div ref={sheetRef} className="csheet" role="dialog" aria-modal="false" aria-label={t('editor.comments.title')} tabIndex={-1} onKeyDown={onKeyDown}>
             {head(true)}
             <div className="csheet__list">
               {draftCard}

@@ -279,7 +279,10 @@ export async function applyPlan(
       }
     }
     if (n.kind === 'folder') {
-      for (const c of kids.get(`kid:${n.key}`) ?? []) if (c.kind !== 'row') blocks.push(linkBlock(ids.get(c.key)!, c.kind === 'database'))
+      const list = (kids.get(`kid:${n.key}`) ?? []).filter((c) => c.kind !== 'row')
+      // page cards for a normal folder; a big one (an Evernote notebook with 1,000 notes) gets a light link list
+      if (list.length <= BIG_FOLDER) for (const c of list) blocks.push(linkBlock(ids.get(c.key)!, c.kind === 'database'))
+      else blocks.push({ type: 'bulletList', content: list.map((c) => ({ type: 'listItem', content: [{ type: 'paragraph', content: [{ type: 'text', text: c.title || opts.untitled, marks: [{ type: 'link', attrs: { href: `#/p/${ids.get(c.key)}` } }] }] }] })) })
     }
     // a database that shares the page's name ("X.md" + "X.csv") sits inline at the end, unless linked already
     for (const k of n.embeds ?? []) {
@@ -542,6 +545,9 @@ function metaCallout(meta: Array<[string, string]>): JSONContent {
   })
   return { type: 'callout', attrs: { icon: '🏷️', color: 'gray' }, content: [{ type: 'paragraph', content }] }
 }
+
+/** Folders with more children than this list them as links instead of page cards (render cost) */
+const BIG_FOLDER = 60
 
 /** Containers whose children may become page-link / file blocks */
 const PROMOTE = new Set(['doc', 'blockquote', 'callout', 'detailsContent', 'column'])

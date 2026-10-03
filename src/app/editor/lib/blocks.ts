@@ -377,7 +377,7 @@ export function caretIntoBlock(editor: Editor, pos: number): boolean {
 
 const NEEDS_INPUT = new Set(['image', 'bookmark', 'embed', 'fileBlock', 'blockMath'])
 /** Blocks too big for a table cell: they go after the table instead. */
-const HEAVY = new Set(['databaseBlock', 'columns', 'table', 'toc', 'embed', 'mermaid'])
+const HEAVY = new Set(['databaseBlock', 'columns', 'table', 'toc', 'embed', 'mermaid', 'tabs'])
 const CELLS = new Set(['tableCell', 'tableHeader'])
 
 /**

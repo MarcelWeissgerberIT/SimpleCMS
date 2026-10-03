@@ -3,7 +3,7 @@
  * counter and the "New" split button.
  */
 import { useEffect, useRef, useState } from 'react'
-import { ArrowUpDown, CalendarArrowDown, Download, Ellipsis, Funnel, Group, LayoutTemplate, Link, Maximize2, Search, SlidersHorizontal, X, Zap } from 'lucide-react'
+import { ArrowUpDown, CalendarArrowDown, Download, Ellipsis, Funnel, Group, LayoutTemplate, Link, ListTree, Maximize2, Paintbrush, Search, SlidersHorizontal, Waypoints, X, Zap } from 'lucide-react'
 import { useUI } from '../../store/ui'
 import { Menu } from '../parts'
 import { Tooltip } from '../../ui/Tooltip'
@@ -18,8 +18,11 @@ import { GroupPanel, PropertiesPanel, SortPanel } from './Panels'
 import { LayoutPanel } from './LayoutPanel'
 import { NewButton, type Template } from './Templates'
 import { formatCount } from '../model/format'
+import { DependenciesPanel, SubItemsPanel } from './StructurePanels'
+import { ColorRulesPanel } from './ColorRules'
+import { structureEntries } from './structureEntries'
 
-type PanelKind = 'filter' | 'sort' | 'group' | 'props' | 'layout' | 'more'
+type PanelKind = 'filter' | 'sort' | 'group' | 'props' | 'layout' | 'more' | 'sub' | 'dep' | 'rc'
 
 function ToolButton({ icon, label, count, active, onClick, compact, pressed }: { icon: React.ReactNode; label: string; count?: number; active?: boolean; onClick: (e: React.MouseEvent<HTMLButtonElement>) => void; compact?: boolean; pressed?: boolean }) {
   const btn = (
@@ -166,6 +169,9 @@ export function Toolbar({ m, onNew, setSearch, compact }: { m: DbModel; onNew: (
       {panel?.kind === 'group' && <GroupPanel m={m} anchor={panel.el} onClose={close} />}
       {panel?.kind === 'props' && <PropertiesPanel m={m} anchor={panel.el} onClose={close} />}
       {panel?.kind === 'layout' && <LayoutPanel m={m} anchor={panel.el} onClose={close} />}
+      {panel?.kind === 'sub' && <SubItemsPanel m={m} anchor={panel.el} onClose={close} />}
+      {panel?.kind === 'dep' && <DependenciesPanel m={m} anchor={panel.el} onClose={close} />}
+      {panel?.kind === 'rc' && <ColorRulesPanel m={m} anchor={panel.el} onClose={close} />}
       <Menu
         open={panel?.kind === 'more'}
         anchor={panel?.kind === 'more' ? panel.el : null}
@@ -178,6 +184,8 @@ export function Toolbar({ m, onNew, setSearch, compact }: { m: DbModel; onNew: (
             keepOpen: true,
             onSelect: () => setPanel((p) => (p ? { kind: 'layout', el: p.el } : p)),
           },
+          ...structureEntries(t, m, (kind) => setPanel((p) => (p ? { kind, el: p.el } : p)), { sub: <ListTree size={14} />, dep: <Waypoints size={14} />, rc: <Paintbrush size={14} /> }),
+          { kind: 'separator' },
           { label: t('database.exportCsv'), icon: <Download size={14} />, onSelect: () => exportCsv(m.resolver, m.db, [m.titleProp, ...m.visibleProps], m.rows, m.dbPage.title || t('common.untitled')) },
           ...(canIcs ? [{ label: t('database.ics.export'), icon: <CalendarArrowDown size={14} />, hint: '.ICS', onSelect: () => exportIcs(m, t) }] : []),
           {

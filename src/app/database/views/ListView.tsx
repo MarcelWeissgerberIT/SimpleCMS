@@ -4,7 +4,7 @@
  */
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { ChevronRight, Plus } from 'lucide-react'
-import type { ID, Page } from '../../store/types'
+import type { ColorRule, ID, Page } from '../../store/types'
 import { useT } from '../../i18n'
 import { pointAnchor } from '../../ui/Popover'
 import { PageIcon } from '../../ui/PageIcon'
@@ -15,6 +15,10 @@ import { TitleInput } from './cards'
 import { isEmptyValue } from '../model/resolve'
 import { NONE_KEY, valueForGroupMove, type RowGroup } from '../model/query'
 import { uniformOffsets, useWindow } from './virtual'
+import { useRowColor, useTree, type TreeNode } from './tree'
+import { AddSubButton, TreeCount, TreeLead } from './treeParts'
+import { ruleStyle } from '../model/colors'
+import { writeValue } from '../model/actions'
 import './views.css'
 
 const LIST_ROW_H = 41
@@ -28,8 +32,12 @@ export function ListView() {
   const rootRef = useRef<HTMLDivElement>(null)
   const hidden = new Set(m.view.hiddenGroups ?? [])
   const flatRef = useRef<HTMLDivElement>(null)
-  const offsets = useMemo(() => uniformOffsets(m.rows.length, LIST_ROW_H), [m.rows.length])
-  const [start, end] = useWindow(flatRef, offsets, !m.groups && m.rows.length > 80)
+  const tree = useTree(m)
+  const colorOf = useRowColor(m)
+  // flat list: the matching rows, or the nested display order with sub-items on
+  const flat = useMemo<Array<{ row: Page; node?: TreeNode }>>(() => (tree.nodes ? tree.nodes.map((node) => ({ row: node.row, node })) : m.rows.map((row) => ({ row }))), [tree.nodes, m.rows])
+  const offsets = useMemo(() => uniformOffsets(flat.length, LIST_ROW_H), [flat.length])
+  const [start, end] = useWindow(flatRef, offsets, !m.groups && flat.length > 80)
 
   useEffect(() => {
     if (actions.editTitleOf && m.rows.some((r) => r.id === actions.editTitleOf)) {
@@ -54,12 +62,24 @@ export function ListView() {
     }
   }
 
-  const renderRows = (rows: Page[]) =>
-    rows.map((row) => (
+  const addSub = (parent: Page) => {
+    if (!tree.pair) return
+    tree.expand(parent.id)
+    const id = actions.newRow()
+    writeValue(m.db.id, tree.pair.parent, id, [parent.id])
+    setEditing(id)
+  }
+
+  const renderRows = (rows: Array<{ row: Page; node?: TreeNode }>) =>
+    rows.map(({ row, node }) => (
       <ListRow
         key={row.id}
         m={m}
         row={row}
+        node={node}
+        rc={colorOf(row)}
+        onToggle={() => tree.toggle(row.id)}
+        onAddSub={() => addSub(row)}
         editing={editing === row.id}
         onEditDone={() => setEditing(null)}
         onOpen={() => actions.open(row)}
@@ -94,7 +114,7 @@ export function ListView() {
                 </header>
                 {!collapsed.has(g.key) && (
                   <>
-                    {renderRows(g.rows)}
+                    {renderRows(g.rows.map((row) => ({ row })))}
                     {addRow(g)}
                   </>
                 )}
@@ -104,8 +124,8 @@ export function ListView() {
           <>
             <div ref={flatRef}>
               {offsets[start] > 0 && <div style={{ height: offsets[start] }} aria-hidden />}
-              {renderRows(m.rows.slice(start, end))}
-              {offsets[m.rows.length] - offsets[end] > 0 && <div style={{ height: offsets[m.rows.length] - offsets[end] }} aria-hidden />}
+              {renderRows(flat.slice(start, end))}
+              {offsets[flat.length] - offsets[end] > 0 && <div style={{ height: offsets[flat.length] - offsets[end] }} aria-hidden />}
             </div>
             {addRow(null)}
           </>
@@ -114,26 +134,63 @@ export function ListView() {
   )
 }
 
-function ListRow({ m, row, editing, onEditDone, onOpen, onContext }: { m: DbModel; row: Page; editing: boolean; onEditDone: (cancel: boolean) => void; onOpen: () => void; onContext: (e: React.MouseEvent) => void }) {
+function ListRow({
+  m,
+  row,
+  node,
+  rc,
+  editing,
+  onEditDone,
+  onOpen,
+  onContext,
+  onToggle,
+  onAddSub,
+}: {
+  m: DbModel
+  row: Page
+  node?: TreeNode
+  rc: ColorRule | null
+  editing: boolean
+  onEditDone: (cancel: boolean) => void
+  onOpen: () => void
+  onContext: (e: React.MouseEvent) => void
+  onToggle: () => void
+  onAddSub: () => void
+}) {
   const t = useT()
   const values = m.visibleProps.map((p) => ({ p, v: m.resolver.value(m.db, p, row) })).filter(({ p, v }) => !isEmptyValue(p, v))
   return (
     <div
-      className="dbl-row"
+      className={`dbl-row${rc ? ' db-rc' : ''}`}
       tabIndex={0}
       role="button"
+      data-dimmed={node?.dimmed || undefined}
+      data-rc={rc?.target}
+      data-rc-color={rc?.color}
+      aria-expanded={node && node.childCount > 0 ? node.expanded : undefined}
+      style={rc ? ruleStyle(rc.color) : undefined}
+      title={node?.dimmed ? t('database.sub.context') : undefined}
       onClick={() => !editing && onOpen()}
       onKeyDown={(e) => {
-        if (e.target === e.currentTarget && e.key === 'Enter') onOpen()
+        if (e.target !== e.currentTarget) return
+        if (e.key === 'Enter') onOpen()
+        else if (node?.childCount && e.altKey && (e.key === 'ArrowRight' || e.key === 'ArrowLeft') && node.expanded !== (e.key === 'ArrowRight')) {
+          e.preventDefault()
+          e.stopPropagation()
+          onToggle()
+        }
       }}
       onContextMenu={onContext}
     >
+      {node && <TreeLead depth={node.depth} kids={node.childCount} open={node.expanded} last={node.last} rails={node.rails} title={row.title || t('common.untitled')} onToggle={onToggle} tabbable />}
       <span className="dbl-row__icon">
         <PageIcon icon={row.icon} size={16} />
       </span>
       <span className="dbl-row__title">
         {editing ? <TitleInput row={row} onDone={onEditDone} /> : <span className={row.title ? '' : 'is-empty'}>{row.title || t('common.untitled')}</span>}
       </span>
+      {node && <TreeCount kids={node.childCount} open={node.expanded} />}
+      {node && !editing && <AddSubButton onAdd={onAddSub} />}
       <span className="dbl-row__props">
         {values.map(({ p, v }) => (
           <span key={p.id} className="dbl-row__prop" data-type={p.type} title={p.name}>

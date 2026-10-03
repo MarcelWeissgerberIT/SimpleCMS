@@ -22,16 +22,12 @@
   -webkit-user-select: none;
 }
 
+/* many tabs (or a phone): the keys wrap onto more rows — no tab is ever out of sight */
 .tabs__list {
   display: flex;
   flex: 0 1 auto;
+  flex-wrap: wrap;
   min-width: 0;
-  overflow-x: auto;
-  scrollbar-width: none;
-}
-
-.tabs__list::-webkit-scrollbar {
-  display: none;
 }
 
 .tabs__slot {
@@ -126,10 +122,13 @@ button.tabs__key:active {
   color: var(--ink-faint);
 }
 
+/* tools and the spec label sit on the last row of keys, where "+" appends */
 .tabs__tools {
   display: flex;
   align-items: center;
+  align-self: flex-end;
   gap: 2px;
+  height: 34px;
   padding: 0 2px;
 }
 
@@ -164,7 +163,10 @@ button.tabs__key:active {
 }
 
 .tabs__spec {
-  align-self: center;
+  display: flex;
+  align-items: center;
+  align-self: flex-end;
+  height: 34px;
   margin-left: auto;
   padding: 0 2px 0 10px;
   color: var(--ink-faint);
@@ -185,7 +187,8 @@ button.tabs__key:active {
 
 /* a touch device has no hover: give the keys and tools a finger-sized hit area */
 @media (pointer: coarse) {
-  .tabs__key {
+  .tabs__key,
+  .tabs__tools {
     height: 40px;
   }
   .tabs__tool {

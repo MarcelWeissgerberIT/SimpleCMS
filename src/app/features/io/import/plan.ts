@@ -61,7 +61,7 @@ export interface PlanNode {
   values?: Record<string, PropertyValue>
 }
 
-export type ImportSource = 'notion' | 'markdown' | 'html' | 'obsidian' | 'evernote' | 'trello' | 'mixed'
+export type ImportSource = 'notion' | 'markdown' | 'csv' | 'html' | 'obsidian' | 'evernote' | 'trello' | 'mixed'
 
 export interface ImportPlan {
   nodes: PlanNode[]

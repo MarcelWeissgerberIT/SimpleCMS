@@ -160,14 +160,21 @@ function FilterRule({ m, filter, onChange, onRemove }: { m: DbModel; filter: Fil
   )
 }
 
-function GroupEditor({ m, group, depth, onChange, onRemove }: { m: DbModel; group: FilterGroup; depth: number; onChange: (g: FilterGroup) => void; onRemove?: () => void }) {
+/** Wording of the builder where it edits something other than the view filter (e.g. colour rules). */
+export interface GroupEditorLabels {
+  empty?: string
+  addRule?: string
+}
+
+/** AND/OR group editor (rules + one level of nested groups). Also used by colour rules. */
+export function GroupEditor({ m, group, depth, onChange, onRemove, labels }: { m: DbModel; group: FilterGroup; depth: number; onChange: (g: FilterGroup) => void; onRemove?: () => void; labels?: GroupEditorLabels }) {
   const t = useT()
   const [addAnchor, setAddAnchor] = useState<HTMLElement | null>(null)
   const setItem = (i: number, it: Filter | FilterGroup) => onChange({ ...group, items: group.items.map((x, j) => (j === i ? it : x)) })
   const removeItem = (i: number) => onChange({ ...group, items: group.items.filter((_, j) => j !== i) })
   return (
     <div className={`db-fgroup${depth > 0 ? ' db-fgroup--nested' : ''}`}>
-      {group.items.length === 0 && <div className="label db-fgroup__empty">{t('database.filter.noRules')}</div>}
+      {group.items.length === 0 && <div className="label db-fgroup__empty">{labels?.empty ?? t('database.filter.noRules')}</div>}
       {group.items.map((it, i) => (
         <div key={it.id} className="db-fgroup__item">
           <span className="db-fgroup__conj">
@@ -188,7 +195,7 @@ function GroupEditor({ m, group, depth, onChange, onRemove }: { m: DbModel; grou
             )}
           </span>
           {isGroup(it) ? (
-            <GroupEditor m={m} group={it} depth={depth + 1} onChange={(g) => setItem(i, g)} onRemove={() => removeItem(i)} />
+            <GroupEditor m={m} group={it} depth={depth + 1} onChange={(g) => setItem(i, g)} onRemove={() => removeItem(i)} labels={labels} />
           ) : (
             <FilterRule m={m} filter={it} onChange={(f) => setItem(i, f)} onRemove={() => removeItem(i)} />
           )}
@@ -196,7 +203,7 @@ function GroupEditor({ m, group, depth, onChange, onRemove }: { m: DbModel; grou
       ))}
       <div className="db-fgroup__actions">
         <button type="button" className="btn btn--ghost btn--sm" onClick={(e) => setAddAnchor(e.currentTarget)}>
-          <Plus size={13} /> {t('database.filter.addRule')}
+          <Plus size={13} /> {labels?.addRule ?? t('database.filter.addRule')}
         </button>
         {depth === 0 && (
           <button type="button" className="btn btn--ghost btn--sm" onClick={() => onChange({ ...group, items: [...group.items, { ...emptyGroup(), op: group.op === 'and' ? 'or' : 'and' }] })}>
