@@ -113,7 +113,7 @@ export function inTrash(r: Roots, id: string): boolean {
 }
 
 /** Keyed lists (Y.Map id → item + order), or the older JSON-array form — like readOrdered in the app. */
-function readOrdered<T>(v: unknown): T[] {
+export function readOrdered<T>(v: unknown): T[] {
   if (Array.isArray(v)) return clone(v.filter((x) => isObj(x) && typeof x.id === 'string')) as T[]
   if (!(v instanceof Y.Map)) return []
   const items: Array<{ id: string; order?: number }> = []
@@ -170,7 +170,11 @@ export function nextOrder(r: Roots, parentId: string | null): number {
 
 export interface NewPage {
   id: string
+  /** 'database' for a database's own page (default 'page') */
+  kind?: 'page' | 'database'
   title: string
+  /** PageIcon JSON ({ type: 'emoji' | 'asset' | 'lucide', value }) or null */
+  icon?: unknown
   parentId: string | null
   databaseId: string | null
   order: number
@@ -183,9 +187,9 @@ export interface NewPage {
 export function newPageMap(p: NewPage, actor: string): YMap {
   const yp = new Y.Map<unknown>()
   const fields: Record<string, unknown> = {
-    kind: 'page',
+    kind: p.kind ?? 'page',
     title: p.title,
-    icon: null,
+    icon: p.icon ?? null,
     cover: null,
     parentId: p.parentId,
     databaseId: p.databaseId,

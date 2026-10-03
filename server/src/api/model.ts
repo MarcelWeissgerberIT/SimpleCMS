@@ -349,7 +349,7 @@ export class WorkspaceModel {
     }
   }
 
-  async createPage(wsId: string, input: { parentId?: string | null; title: string; content?: string }, actor: string) {
+  async createPage(wsId: string, input: { parentId?: string | null; title: string; content?: string; icon?: unknown }, actor: string) {
     const parentId = input.parentId ?? null
     const check = (r: Roots) => {
       if (!parentId) return
@@ -366,7 +366,7 @@ export class WorkspaceModel {
       (doc) => {
         const r = roots(doc)
         check(r)
-        r.pages.set(id, newPageMap({ id, title: input.title, parentId, databaseId: null, order: nextOrder(r, parentId), properties: {}, plain: nodes ? plainText(nodes) : '', at: Date.now() }, actor))
+        r.pages.set(id, newPageMap({ id, title: input.title, icon: input.icon ?? null, parentId, databaseId: null, order: nextOrder(r, parentId), properties: {}, plain: nodes ? plainText(nodes) : '', at: Date.now() }, actor))
       },
       actor,
     )
