@@ -7,9 +7,11 @@
  * with code 'unavailable'. The implementation lives in this folder; keep these names and shapes stable.
  *
  * Implementation map: boot.ts (server / session / choice) · workspace.ts (an open cloud workspace:
- * meta document, status, presence, close reasons) · binding.ts + schema.ts (store ⇄ meta document)
- * · content.ts (page documents, store refresh, bridge, background sync) · files.ts (uploads,
- * downloads) · upload.ts (local → team) · account.ts + api.ts (REST) · socket.ts (the one WebSocket).
+ * meta document, status, presence, close reasons) · binding.ts + schema.ts (store ⇄ meta document,
+ * structural and unique_id repairs) · content.ts (page documents, store refresh, bridge, background
+ * sync) · purge.ts (server documents of pages deleted for good) · files.ts (uploads, downloads) ·
+ * upload.ts (local → team) · device.ts (this browser's copies: removing them) · account.ts + api.ts
+ * (REST) · socket.ts (the one WebSocket).
  */
 import {
   acceptInviteImpl,
@@ -21,6 +23,7 @@ import {
   previewInviteImpl,
   removeMemberImpl,
   renameWorkspaceImpl,
+  removeDeviceCopyImpl,
   requestSignInImpl,
   revokeInviteImpl,
   setMemberRoleImpl,
@@ -89,9 +92,24 @@ export async function requestSignIn(email: string, opts?: { invite?: string; lan
   return requestSignInImpl(email, opts)
 }
 
-/** End the session. In a cloud workspace the tab switches back to the local workspace (reload). */
-export async function signOut(): Promise<void> {
-  return signOutImpl()
+/**
+ * End the session. In a cloud workspace the tab switches back to the local workspace (reload).
+ * `forgetDevice`: also remove every team workspace copy from this browser (shared computers) —
+ * documents, cached files, history, this device's settings for them; the server keeps everything.
+ */
+export async function signOut(opts?: { forgetDevice?: boolean }): Promise<void> {
+  return signOutImpl(opts)
+}
+
+/**
+ * Remove this browser's copy of a team workspace: its documents, cached files (unless the local
+ * workspace uses them), page history and this device's settings for it (incl. the AI key). The
+ * team workspace on the server is untouched — opening it again downloads it afresh. Removing the
+ * open workspace's copy switches this tab to the local workspace (reload); changes not yet on the
+ * server are lost (see useCloudSync().unsynced / pendingUploads).
+ */
+export async function removeDeviceCopy(wsId: string): Promise<void> {
+  return removeDeviceCopyImpl(wsId)
 }
 
 export async function updateProfile(name: string): Promise<void> {

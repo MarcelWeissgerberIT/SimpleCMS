@@ -298,6 +298,7 @@ export const messages: Messages = {
     'shell.keys.undo': 'Undo',
     'shell.keys.switchTab': 'Switch tabs (inside a tabs block)',
     'shell.keys.comment': 'Comment on the selection',
+    'shell.keys.agent': 'Ask the agent (Claude, your key)',
 
     // settings
     'shell.settings.tab.general': 'General',
@@ -699,6 +700,7 @@ export const messages: Messages = {
     'shell.keys.undo': 'Rückgängig',
     'shell.keys.switchTab': 'Tab wechseln (im Tabs-Block)',
     'shell.keys.comment': 'Auswahl kommentieren',
+    'shell.keys.agent': 'Agent beauftragen (Claude, eigener Key)',
 
     'shell.settings.tab.general': 'Allgemein',
     'shell.settings.tab.appearance': 'Darstellung',

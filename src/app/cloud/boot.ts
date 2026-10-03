@@ -11,6 +11,7 @@
  */
 import { useWorkspace, emptyWorkspace } from '../store/store'
 import { fetchConfig, getSession, notifyUnauthenticated, setServerKnown, setServerProbe, type ServerConfig } from './api'
+import { listenForForget, runPendingForget } from './device'
 import { readChoice, readSession, SERVER_CAPABLE, writeChoice, writeSession } from './env'
 import { useCloud, useCloudSync, type CloudUser, type CloudWorkspace, type WorkspaceRef } from './state'
 import { emptySettings, openCloudWorkspace } from './workspace'
@@ -97,6 +98,13 @@ export async function bootCloud(): Promise<'local' | 'cloud' | 'signed-out'> {
     useCloud.setState({ available: false, status: 'local', active: LOCAL })
     return 'local'
   }
+  // copies of team workspaces removed from this browser (sign-out on a shared computer, "remove
+  // this workspace's copy") go first — before anything opens their databases
+  await runPendingForget()
+  listenForForget(
+    () => (useCloud.getState().active.kind === 'cloud' ? useCloud.getState().active.id : null),
+    () => switchWorkspaceImpl(LOCAL),
+  )
   const choice = readChoice()
   const signedInMarker = consumeSignedInMarker()
   if (choice.kind === 'local') {

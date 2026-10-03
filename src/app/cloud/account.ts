@@ -16,6 +16,7 @@ import {
   postWorkspace,
 } from './api'
 import { refreshMe, SIGNED_IN_PARAM, switchWorkspaceImpl } from './boot'
+import { runPendingForget, scheduleForget } from './device'
 import { writeSession } from './env'
 import { useCloud, type CloudWorkspace, type Invite, type InvitePreview, type Member, type Role } from './state'
 import { activeCloud, renameActive, setNameEverywhere, updateProfileImpl } from './workspace'
@@ -38,18 +39,36 @@ export async function requestSignInImpl(email: string, opts?: { invite?: string;
   await postSignIn({ email: email.trim(), redirect: returnPath(), lang: opts?.lang ?? lang(), ...(opts?.invite ? { invite: opts.invite } : {}) })
 }
 
-export async function signOutImpl(): Promise<void> {
+export async function signOutImpl(opts: { forgetDevice?: boolean } = {}): Promise<void> {
   try {
     await postLogout()
   } finally {
     writeSession(null)
   }
+  // shared computer: every team workspace copy leaves this browser (the next boot removes them)
+  if (opts.forgetDevice) scheduleForget('all')
   if (useCloud.getState().active.kind === 'cloud') {
     // the cloud workspace can't sync without a session: back to this browser's own workspace
     switchWorkspaceImpl({ kind: 'local', id: 'local' })
     return
   }
   useCloud.setState({ user: null, workspaces: [] })
+  // this tab holds no cloud database open: remove the copies right away
+  if (opts.forgetDevice) await runPendingForget(15_000)
+}
+
+/**
+ * Remove this browser's copy of a team workspace (the server keeps it; opening the workspace again
+ * downloads it afresh). The open workspace's copy goes at the reload into the local workspace.
+ */
+export async function removeDeviceCopyImpl(wsId: string): Promise<void> {
+  scheduleForget([wsId])
+  const active = useCloud.getState().active
+  if (active.kind === 'cloud' && active.id === wsId) {
+    switchWorkspaceImpl({ kind: 'local', id: 'local' })
+    return
+  }
+  await runPendingForget(15_000)
 }
 
 export async function createWorkspaceImpl(name: string): Promise<CloudWorkspace> {

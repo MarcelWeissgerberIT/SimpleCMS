@@ -8,7 +8,7 @@
  *   purge:<ws>            pages deleted for good whose server document still has to go
  * All in one IndexedDB database ('one-cloud'), separate from the local workspace.
  */
-import { createStore, del, get, promisifyRequest, set, type UseStore } from 'idb-keyval'
+import { createStore, del, delMany, entries, get, promisifyRequest, set, type UseStore } from 'idb-keyval'
 import type { JSONContent } from '@tiptap/core'
 import type { ID, Settings } from '../store/types'
 
@@ -121,4 +121,20 @@ export async function loadPurges(wsId: string): Promise<QueuedPurge[]> {
 export async function savePurges(wsId: string, list: QueuedPurge[]): Promise<void> {
   const s = db()
   if (s) await (list.length ? set(`purge:${wsId}`, list, s) : del(`purge:${wsId}`, s))
+}
+
+/** Every entry of this device's cloud data (removing a workspace's copy, see device.ts). */
+export async function allDeviceEntries(): Promise<Array<[string, unknown]>> {
+  const s = db()
+  if (!s) return []
+  try {
+    return (await entries<IDBValidKey, unknown>(s)).map(([k, v]) => [String(k), v])
+  } catch {
+    return []
+  }
+}
+
+export async function dropDeviceKeys(keys: string[]): Promise<void> {
+  const s = db()
+  if (s && keys.length) await delMany(keys, s)
 }

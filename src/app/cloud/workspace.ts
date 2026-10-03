@@ -15,6 +15,7 @@ import { getMembers, getSession, onUnauthenticated, patchMe, patchWorkspace } fr
 import { isApplyingCloud, readAll, startBinding, structuralRepairs, uniqueIdRepairs, type Binding } from './binding'
 import { bridgeContent, contentHasUnsynced, detachAll, reauthenticate, enqueueSync, forget, onRemotePages, reattachAll, revertContent, staleAtBoot, startContent, type ContentContext } from './content'
 import { displayName, toneCss, userTone, within, writeSession } from './env'
+import { isForgetting } from './device'
 import { kickUploads, startFiles } from './files'
 import { queuePurge, startPurge } from './purge'
 import { loadContentCache, loadOverlay, saveOverlay, type Overlay } from './local'
@@ -123,6 +124,8 @@ export async function openCloudWorkspace(ws: CloudWorkspace, user: CloudUser, on
     const saveOverlayNow = () => {
       window.clearTimeout(overlayTimer)
       overlayTimer = undefined
+      // this copy is being removed from the browser (the settings hold the AI key): write nothing back
+      if (isForgetting(ws.id)) return
       const s = useWorkspace.getState()
       const favs: ID[] = []
       for (const p of Object.values(s.pages)) if (p.favorite) favs.push(p.id)
