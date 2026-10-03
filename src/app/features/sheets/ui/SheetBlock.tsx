@@ -67,6 +67,10 @@ import { FunctionBrowser } from './FunctionBrowser'
 import { DatasetsPanel } from './DatasetsPanel'
 import { internalClip, parseTsv, rememberClip, toHtmlTable, toTsv } from './clip'
 import { openFunctionBuilder } from '../functions'
+import { openChartBuilder, type ChartSpec } from '../../charts'
+import { Charts } from './Charts'
+import { chartSpec, qualifiedRef } from '../charts'
+import { readSheetData, usedSize } from '../compute'
 import './sheet.css'
 
 interface Sel {
@@ -89,6 +93,8 @@ interface Edit {
   point: { s: number; e: number; anchor: Pos } | null
 }
 
+/** Tallest grid viewport (taller sheets scroll inside). */
+const GRID_MAX = 600
 const ORIGIN: Sel = { anchor: { r: 0, c: 0 }, focus: { r: 0, c: 0 }, extra: [] }
 const rectOf = (s: Sel): Rect => ({ top: Math.min(s.anchor.r, s.focus.r), bottom: Math.max(s.anchor.r, s.focus.r), left: Math.min(s.anchor.c, s.focus.c), right: Math.max(s.anchor.c, s.focus.c) })
 const clampPos = (p: Pos, sheet: SheetData): Pos => ({ r: Math.max(0, Math.min(sheet.rows - 1, p.r)), c: Math.max(0, Math.min(sheet.cols - 1, p.c)) })
@@ -113,7 +119,7 @@ function download(name: string, text: string) {
   window.setTimeout(() => URL.revokeObjectURL(url), 2000)
 }
 
-export function SheetBlock({ attrs: raw, update, editable, editor }: SheetBlockProps) {
+export function SheetBlock({ attrs: raw, update, editable, editor, pageId, insertAfter }: SheetBlockProps) {
   const t = useT()
   const lang = useLang()
   const a = readAttrs(raw)
@@ -358,7 +364,11 @@ export function SheetBlock({ attrs: raw, update, editable, editor }: SheetBlockP
   const deleteRows = () => op(structural(a, { kind: 'delete', axis: 'row', sheetId: sheet.id, at: rect.top, count: rect.bottom - rect.top + 1 }))
   const deleteCols = () => op(structural(a, { kind: 'delete', axis: 'col', sheetId: sheet.id, at: rect.left, count: rect.right - rect.left + 1 }))
 
-  const style = (fn: (c: SheetCell) => SheetCell) => op(styleCells(a, sheet.id, areas, fn))
+  const style = (fn: (c: SheetCell) => SheetCell) => {
+    op(styleCells(a, sheet.id, areas, fn))
+    // toolbar / menu actions hand the keyboard back to the grid
+    if (!editRef.current) requestAnimationFrame(focusGrid)
+  }
   const toggle = (key: 'b' | 'i') => {
     const on = !activeCell?.[key]
     style((c) => ({ ...c, [key]: on || undefined }))
@@ -678,6 +688,45 @@ export function SheetBlock({ attrs: raw, update, editable, editor }: SheetBlockP
     }
   }
 
+  /* ---------------- charts ---------------- */
+
+  const chartInline = (sheetId: string) => (ref: string) => readSheetData(aRef.current, ref, { lang, sheetId })
+
+  /** A new chart from the selection (several areas: a DS), or the sheet's used range for a single cell. */
+  const newChart = () => {
+    if (editRef.current) commit(null)
+    const used = usedSize(sheet)
+    const ref =
+      areas.length > 1
+        ? `DS(${areas.map((r) => rectText(r)).join('; ')})`
+        : cellsOfRect(rect) > 1 || !used.rows
+          ? rectText(rect)
+          : rectText({ top: 0, left: 0, bottom: used.rows - 1, right: Math.max(0, used.cols - 1) })
+    const sheetId = sheet.id
+    openChartBuilder({
+      source: { kind: 'inline', ref },
+      allowedSources: ['inline'],
+      pageId,
+      inline: chartInline(sheetId),
+      onSave: (spec: ChartSpec) => write({ charts: [...aRef.current.charts, { id: newId(), sheet: sheetId, spec: spec as unknown as Record<string, unknown> }] }),
+    })
+  }
+
+  const editChart = (id: string) => {
+    const chart = a.charts.find((c) => c.id === id)
+    const spec = chart && chartSpec(chart)
+    if (!chart || !spec) return
+    openChartBuilder({
+      initial: spec,
+      source: spec.source,
+      allowedSources: ['inline'],
+      pageId,
+      step: 'type',
+      inline: chartInline(chart.sheet),
+      onSave: (next: ChartSpec) => write({ charts: aRef.current.charts.map((c) => (c.id === id ? { ...c, spec: next as unknown as Record<string, unknown> } : c)) }),
+    })
+  }
+
   /* ---------------- render ---------------- */
 
   const datasetNames = a.datasets.map((d) => d.name)
@@ -713,7 +762,7 @@ export function SheetBlock({ attrs: raw, update, editable, editor }: SheetBlockP
         frozen={!!sheet.frozenRows}
         editable={editable}
         showDS={showDS}
-        hasCharts={false}
+        hasCharts
         t={t}
         onTitle={(title) => write({ title })}
         onToggle={toggle}
@@ -722,7 +771,7 @@ export function SheetBlock({ attrs: raw, update, editable, editor }: SheetBlockP
         onDecimals={setDecimals}
         onFreeze={() => op(setSheet(a, sheet.id, { frozenRows: sheet.frozenRows ? 0 : 1 }))}
         onToggleDS={() => setShowDS((v) => !v)}
-        onOpen={(kind, anchor) => setPanel((p) => (p?.kind === kind ? null : { kind, anchor }))}
+        onOpen={(kind, anchor) => (kind === 'chart' ? newChart() : setPanel((p) => (p?.kind === kind ? null : { kind, anchor })))}
         more={moreEntries}
       />
       <div className="sh-bar">
@@ -767,6 +816,7 @@ export function SheetBlock({ attrs: raw, update, editable, editor }: SheetBlockP
         editorNode={cellEditor}
         viewportRef={viewportRef}
         editable={editable}
+        height={Math.min(GRID_MAX, HEAD_H + Math.max(...a.sheets.map((x) => x.rows)) * ROW_HEIGHT + 2)}
         onPointer={onPointer}
         onDouble={(pos) => {
           if (editRef.current) return
@@ -803,6 +853,25 @@ export function SheetBlock({ attrs: raw, update, editable, editor }: SheetBlockP
             e.preventDefault()
             pasteText(e.clipboardData.getData('text/plain'))
           },
+        }}
+      />
+      <Charts
+        attrs={a}
+        sheetId={sheet.id}
+        version={version}
+        editable={editable}
+        lang={lang}
+        t={t}
+        onEdit={(c) => editChart(c.id)}
+        onDuplicate={(c) => {
+          const i = a.charts.indexOf(c)
+          write({ charts: [...a.charts.slice(0, i + 1), { ...c, id: newId() }, ...a.charts.slice(i + 1)] })
+        }}
+        onDelete={(c) => write({ charts: a.charts.filter((x) => x.id !== c.id) })}
+        onPlace={(c) => {
+          const spec = chartSpec(c)
+          if (!spec || spec.source.kind !== 'inline' || !pageId || !a.id) return
+          insertAfter({ type: 'chart', attrs: { spec: { ...spec, source: { kind: 'sheet', pageId, sheetBlockId: a.id, ref: qualifiedRef(a, c, spec.source.ref) } } } })
         }}
       />
       <div className="sh-foot">

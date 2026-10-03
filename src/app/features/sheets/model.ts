@@ -40,12 +40,12 @@ export interface DatasetDef {
   ranges: Array<{ sheet: string; ref: string }>
 }
 
-/** A chart of the spreadsheet (spec: the charts module's ChartSpec, source.kind 'inline'). */
+/** A chart of the spreadsheet (spec: the charts module's ChartSpec, source { kind: 'inline', ref }). */
 export interface SheetChart {
   id: string
-  /** sheet id: the chart sits under that sheet's grid */
+  /** sheet id: the chart sits under that sheet's grid; its unqualified refs read that sheet */
   sheet: string
-  spec: Record<string, unknown> & { source?: { kind?: string; ref?: string } }
+  spec: Record<string, unknown> & { source?: { kind?: string; ref?: string }; title?: string }
 }
 
 export interface SpreadsheetAttrs {

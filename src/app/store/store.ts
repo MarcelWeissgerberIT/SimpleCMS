@@ -13,6 +13,7 @@ import type { JSONContent } from '@tiptap/core'
 import { newId } from '../lib/ids'
 import { detectLang } from '@/shared/i18n'
 import { aiKeyValue, attachSecrets, checkAIKey, withSealedKey } from './secrets'
+import { isSafeFunctionId } from './functions'
 import type {
   CustomFunction,
   Database,
@@ -781,6 +782,8 @@ export const useWorkspace = create<WorkspaceState>()(
 
     upsertFunction: (fn) =>
       set((s) => {
+        // ids become object keys (and Yjs map keys): plain tokens only
+        if (!isSafeFunctionId(fn.id)) return
         s.functions ??= {}
         const cur = s.functions[fn.id]
         s.functions[fn.id] = { ...JSON.parse(JSON.stringify(fn)), createdAt: cur?.createdAt ?? fn.createdAt ?? now(), updatedAt: now() }

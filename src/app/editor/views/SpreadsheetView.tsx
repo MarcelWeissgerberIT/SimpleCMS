@@ -6,6 +6,7 @@
 import { Component, lazy, Suspense, useCallback, useEffect, useReducer, type ReactNode } from 'react'
 import { NodeViewWrapper, type ReactNodeViewProps } from '@tiptap/react'
 import type { JSONContent } from '@tiptap/core'
+import { closeHistory } from '@tiptap/pm/history'
 import { loadSheetBlock } from '../../features'
 import { useWorkspace } from '../../store/store'
 import { useCloud } from '../../cloud'
@@ -27,7 +28,7 @@ class SheetGuard extends Component<{ fallback: ReactNode; children: ReactNode },
   }
 }
 
-export function SpreadsheetView({ node, editor, updateAttributes, getPos, selected }: ReactNodeViewProps) {
+export function SpreadsheetView({ node, editor, getPos, selected }: ReactNodeViewProps) {
   const t = useT()
   // locking the page (or a viewer role) flips the editor's editable flag without a transaction
   const pageId = editor.view.dom.getAttribute('data-page-id')
@@ -40,7 +41,19 @@ export function SpreadsheetView({ node, editor, updateAttributes, getPos, select
   }, [locked, viewer])
   const editable = !editor.isDestroyed && editor.isEditable && !locked
 
-  const update = useCallback((patch: Record<string, unknown>) => updateAttributes(patch), [updateAttributes])
+  // every edit of the grid is its own undo step (no merging of quick successive edits)
+  const update = useCallback(
+    (patch: Record<string, unknown>) => {
+      const pos = getPos()
+      if (typeof pos !== 'number' || editor.isDestroyed) return
+      const current = editor.state.doc.nodeAt(pos)
+      if (!current || current.type.name !== 'spreadsheet') return
+      const tr = editor.state.tr.setNodeMarkup(pos, undefined, { ...current.attrs, ...patch })
+      closeHistory(tr)
+      editor.view.dispatch(tr)
+    },
+    [editor, getPos],
+  )
   const insertAfter = useCallback(
     (json: JSONContent) => {
       const pos = getPos()

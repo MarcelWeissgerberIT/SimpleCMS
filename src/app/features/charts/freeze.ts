@@ -17,7 +17,9 @@ export function frozenSpec(spec: ChartSpec): ChartSpec {
   if (spec.source.kind === 'manual') return spec
   const data = resolveChartDataSync(spec.source, spec)
   const rows = data.error ? [] : chartDataToRows(data)
-  const colors = spec.colors ?? (data.series.length && data.series.every((s) => s.color) ? data.series.map((s) => s.color!) : undefined)
+  // donuts colour their categories (select options …), everything else its series
+  const own = spec.kind === 'donut' ? (data.labelColors?.some(Boolean) ? data.labelColors.map((c) => c ?? 'default') : undefined) : data.series.length && data.series.every((s) => s.color) ? data.series.map((s) => s.color!) : undefined
+  const colors = spec.colors ?? own
   const out: ChartSpec = { ...spec, source: { kind: 'manual', rows }, labels: 'firstColumn', seriesIn: 'columns' }
   if (colors) out.colors = colors
   if (!spec.unit && data.unit) out.unit = data.unit

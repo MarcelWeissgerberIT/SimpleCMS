@@ -4,6 +4,7 @@
 }
 
 .chb__head {
+  position: relative;
   display: grid;
   grid-template-columns: auto 1fr;
   align-items: baseline;
@@ -22,6 +23,12 @@
   font-weight: 800;
   font-stretch: var(--display-stretch);
   letter-spacing: var(--tracking-tight);
+}
+
+.chb__close {
+  position: absolute;
+  top: 10px;
+  right: 10px;
 }
 
 .chb__steps {
@@ -88,7 +95,8 @@
   overflow: auto;
 }
 
-.chb__body--type {
+.chb__body--type,
+.chb__body--single {
   grid-template-columns: minmax(0, 1fr);
 }
 
@@ -661,6 +669,18 @@
 
   .chb-types {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .chb__cancel {
+    display: none;
+  }
+
+  .chb__foot .chb__spacer {
+    display: none;
+  }
+
+  .chb__foot {
+    justify-content: flex-end;
   }
 
   .chb-colors__row {

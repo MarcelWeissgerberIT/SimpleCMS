@@ -57,6 +57,8 @@ export interface GridProps {
   onResize: (col: number, width: number) => void
   onAutofit: (col: number) => void
   editable: boolean
+  /** viewport height (the same for every sheet of the block: the tabs below never jump) */
+  height: number
   gridProps: React.HTMLAttributes<HTMLDivElement>
 }
 
@@ -126,7 +128,7 @@ const Row = memo(function Row({ sheet, wb, lang, r, tpl, top, rowSel, t }: RowPr
 })
 
 export function Grid(props: GridProps) {
-  const { sheet, wb, version, lang, t, overlays, selRows, selCols, editCell, editorNode, viewportRef, onPointer, onDouble, onContext, onResize, onAutofit, editable, gridProps } = props
+  const { sheet, wb, version, lang, t, overlays, selRows, selCols, editCell, editorNode, viewportRef, onPointer, onDouble, onContext, onResize, onAutofit, editable, height, gridProps } = props
   const [view, setView] = useState({ top: 0, h: 560 })
   const [resize, setResize] = useState<{ col: number; w: number } | null>(null)
   const raf = useRef(0)
@@ -303,7 +305,7 @@ export function Grid(props: GridProps) {
         const tg = targetOf(e.target as Element)
         if (tg) onContext(tg, e)
       }}
-      style={{ maxHeight: Math.min(HEAD_H + sheet.rows * ROW_HEIGHT + 2, 640) }}
+      style={{ height }}
       {...gridProps}
     >
       <div className="sg__inner" style={{ width: RH_W + totalW }} role="presentation">

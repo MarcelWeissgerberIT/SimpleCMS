@@ -133,15 +133,16 @@ function areaRows(wb: Workbook, a: Area, lang: Lang): Array<Array<number | strin
 /**
  * Computed values for an A1 range ("B2:D9"), a cross-sheet ref ("'Q1 Budget'!A1:C4"), DS(...)
  * (several areas stacked in order, narrower ones padded) or a named dataset ("Revenue" /
- * "DS(Revenue)"). Unqualified refs read the active sheet. `error`: a plain-language reason.
+ * "DS(Revenue)"). Unqualified refs read the active sheet (or `opts.sheetId`). `error`: a plain-language reason.
  */
-export function readSheetData(rawAttrs: Record<string, unknown> | SpreadsheetAttrs, ref: string, opts: { lang?: Lang } = {}): { values: Array<Array<number | string | boolean | null>>; error?: string } {
+export function readSheetData(rawAttrs: Record<string, unknown> | SpreadsheetAttrs, ref: string, opts: { lang?: Lang; sheetId?: string } = {}): { values: Array<Array<number | string | boolean | null>>; error?: string } {
   const attrs = readAttrs(rawAttrs)
+  const sheetId = opts.sheetId && attrs.sheets.some((s) => s.id === opts.sheetId) ? opts.sheetId : attrs.active
   const lang = opts.lang ?? currentLang()
   const body = (ref ?? '').trim().replace(/^=/, '')
   if (!body) return { values: [], error: 'No range selected.' }
   const wb = workbookOf(attrs, lang)
-  const v: Value = wb.evaluate(body, attrs.active)
+  const v: Value = wb.evaluate(body, sheetId)
   if (isErr(v)) return { values: [], error: v.msg ? `${v.code} — ${v.msg}` : v.code }
   if (isRange(v)) return { values: areaRows(wb, v, lang) }
   if (isDataset(v)) {

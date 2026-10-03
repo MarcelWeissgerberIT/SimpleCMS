@@ -1,7 +1,7 @@
 /**
  * uploadLocalWorkspace: copy this browser's local workspace into an empty team workspace — files
  * first, then every page's content document, the meta document (pages, databases, rows, comments,
- * people) last. Until the meta document is written the team workspace still looks empty, so an
+ * people, custom functions) last. Until the meta document is written the team workspace still looks empty, so an
  * interrupted upload can simply be started again (content documents are diffed, not duplicated).
  */
 import * as Y from 'yjs'
@@ -170,6 +170,8 @@ export async function uploadLocalWorkspaceImpl(wsId: string, onProgress?: (p: nu
       for (const p of pages) r.pages.set(p.id, newPageMap({ ...p, content: prepared.get(p.id) ?? p.content }, userId))
       for (const db of Object.values(local.databases)) r.databases.set(db.id, newDatabaseMap(db))
       for (const person of local.people) if (person?.id) r.people.set(person.id, { id: person.id, name: person.name, color: person.color })
+      // custom functions: one JSON entry each, as the binding writes them (every reader sanitizes them)
+      for (const fn of Object.values(local.functions ?? {})) r.functions.set(fn.id, JSON.parse(JSON.stringify(fn)))
       if (r.workspace.get('name') === undefined) {
         r.workspace.set('name', target?.name ?? local.settings.workspaceName)
         r.workspace.set('icon', target?.icon ?? null)

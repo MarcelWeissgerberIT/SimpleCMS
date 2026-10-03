@@ -3,7 +3,8 @@
  * Default path = 3 clicks: pick a source (sensible defaults are pre-picked) → Next → the
  * suggested type is already chosen → Insert. Every step can save once a source exists.
  */
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+import { X } from 'lucide-react'
 import { useLang, useT } from '../../../i18n'
 import { Modal } from '../../../ui/Modal'
 import type { ChartData, ChartKind, ChartSource, ChartSourceKind, ChartSpec } from '../types'
@@ -23,10 +24,24 @@ const ALL: ChartSourceKind[] = ['sheet', 'database', 'system', 'manual']
 
 export type Draft = Omit<ChartSpec, 'source' | 'kind'> & { kind: ChartKind }
 
+const NARROW = '(max-width: 760px)'
+function useNarrow(): boolean {
+  const [narrow, setNarrow] = useState(() => typeof window !== 'undefined' && !!window.matchMedia?.(NARROW).matches)
+  useEffect(() => {
+    const mq = window.matchMedia?.(NARROW)
+    if (!mq) return
+    const on = () => setNarrow(mq.matches)
+    mq.addEventListener('change', on)
+    return () => mq.removeEventListener('change', on)
+  }, [])
+  return narrow
+}
+
 export default function ChartBuilder(props: ChartBuilderOptions & { onClose: () => void }) {
   const { initial, onSave, onCancel, onClose, inline, pageId } = props
   const t = useT()
   const lang = useLang()
+  const narrow = useNarrow()
   const allowed = props.allowedSources?.length ? props.allowedSources : ALL
   const startSource = initial?.source ?? props.source ?? null
   const [step, setStep] = useState<BuilderStep>(props.step ?? (initial ? 'source' : startSource ? 'type' : 'source'))
@@ -83,6 +98,9 @@ export default function ChartBuilder(props: ChartBuilderOptions & { onClose: () 
         <h2 className="chb__title" data-modal-title>
           {t(initial ? 'charts.builder.edit' : 'charts.builder.new')}
         </h2>
+        <button type="button" className="icon-btn chb__close" onClick={cancel} aria-label={t('common.close')}>
+          <X size={16} />
+        </button>
         <nav className="chb__steps" aria-label={t('charts.builder.steps')}>
           {STEPS.map((s, i) => (
             <button key={s} type="button" className="chb__step" aria-current={s === step ? 'step' : undefined} disabled={i > 0 && !source} onClick={() => go(s)}>
@@ -92,7 +110,7 @@ export default function ChartBuilder(props: ChartBuilderOptions & { onClose: () 
           ))}
         </nav>
       </header>
-      <div className={`chb__body chb__body--${step}`}>
+      <div className={`chb__body chb__body--${step}${source ? '' : ' chb__body--single'}`}>
         <section className="chb__main" aria-label={stepName(step)}>
           {step === 'source' && <SourceStep draft={src} onChange={setSrc} allowed={allowed} pageId={pageId ?? null} />}
           {step === 'type' && (
@@ -120,19 +138,19 @@ export default function ChartBuilder(props: ChartBuilderOptions & { onClose: () 
             />
           )}
         </section>
-        {step !== 'type' && (
+        {step !== 'type' && source && (
           <aside className="chb__preview" aria-label={t('charts.builder.preview')}>
             <div className="chb__previewhead">
               <span className="label">{t('charts.builder.preview')}</span>
               {!data.error && data.labels.length > 0 && <span className="label faint">{t('charts.builder.points', { n: data.labels.length, s: data.series.length })}</span>}
             </div>
             {title && <div className="chb__previewtitle">{title}</div>}
-            <ChartRenderer spec={preview} data={source ? (live.loading && !inlineData && !live.data.labels.length ? { labels: [], series: [], error: t('charts.err.loading') } : data) : { labels: [], series: [] }} height={Math.min(220, preview.height ?? 220)} interactive={false} />
+            <ChartRenderer spec={preview} data={source ? (live.loading && !inlineData && !live.data.labels.length ? { labels: [], series: [], error: t('charts.err.loading') } : data) : { labels: [], series: [] }} height={narrow ? 150 : Math.min(220, preview.height ?? 220)} interactive={false} />
           </aside>
         )}
       </div>
       <footer className="chb__foot">
-        <button type="button" className="btn btn--ghost" onClick={cancel}>
+        <button type="button" className="btn btn--ghost chb__cancel" onClick={cancel}>
           {t('common.cancel')}
         </button>
         <span className="chb__spacer" />
@@ -142,11 +160,11 @@ export default function ChartBuilder(props: ChartBuilderOptions & { onClose: () 
           </button>
         )}
         {at < STEPS.length - 1 && (
-          <button type="button" className={`btn${at === 0 && !initial ? ' btn--primary' : ''}`} disabled={!source} onClick={() => go(STEPS[at + 1])}>
+          <button type="button" className={`btn${at === 0 && !initial && !props.source ? ' btn--primary' : ''}`} disabled={!source} onClick={() => go(STEPS[at + 1])}>
             {t('charts.builder.next')}
           </button>
         )}
-        {(at > 0 || !!initial) && (
+        {(at > 0 || !!initial || !!props.source) && (
           <button type="button" className="btn btn--primary" disabled={!full} onClick={save} data-testid="chart-builder-save">
             {t(initial ? 'charts.builder.save' : 'charts.builder.insert')}
           </button>

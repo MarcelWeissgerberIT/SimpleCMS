@@ -5,6 +5,9 @@
 import { displayGrid, currentLang, type DisplayCell } from './compute'
 import { readAttrs, type SpreadsheetAttrs } from './model'
 import { colName } from './engine'
+import { chartDomSpec } from '../charts/render/static'
+import { chartMarkdown } from '../charts/export'
+import { chartSpec, sheetChartData } from './charts'
 
 type Spec = [string, Record<string, string>, ...unknown[]]
 
@@ -34,6 +37,13 @@ export function spreadsheetHTML(raw: Record<string, unknown> | SpreadsheetAttrs,
     const fig: Spec = ['figure', { class: 'sheet-static__sheet', 'data-sheet': sheet.id }, ['figcaption', {}, sheetLabel(i, sheet.name)]]
     const grid = displayGrid(attrs, sheet, lang)
     fig.push(grid.length ? tableSpec(grid) : ['p', { class: 'sheet-static__empty' }, '—'])
+    // the sheet's charts as static SVG (design-token colours: the reader's theme)
+    for (const chart of attrs.charts) {
+      const spec = chart.sheet === sheet.id ? chartSpec(chart) : null
+      if (!spec) continue
+      const svg = chartDomSpec(spec, sheetChartData(attrs, chart, lang), { lang })
+      fig.push(['figure', { class: 'sheet-static__chart', 'data-chart': chart.id }, ...(spec.title ? [['figcaption', {}, spec.title]] : []), svg])
+    }
     out.push(fig)
   })
   return out
@@ -53,6 +63,10 @@ export function spreadsheetMarkdown(raw: Record<string, unknown> | SpreadsheetAt
     const lines = grid.map((row) => `| ${row.map((c) => mdCell(c.text)).join(' | ')} |`)
     const sep = `| ${grid[0].map((c) => (c.align === 'right' ? '---:' : c.align === 'center' ? ':---:' : '---')).join(' | ')} |`
     parts.push([lines[0], sep, ...lines.slice(1)].join('\n'))
+    for (const chart of attrs.charts) {
+      const spec = chart.sheet === sheet.id ? chartSpec(chart) : null
+      if (spec) parts.push(chartMarkdown(spec, sheetChartData(attrs, chart, lang)))
+    }
   })
   return parts.join('\n\n')
 }

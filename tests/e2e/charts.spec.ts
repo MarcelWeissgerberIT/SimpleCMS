@@ -3,9 +3,10 @@
  * database / workspace / spreadsheet sources (live), keyboard readouts, downloads, share view +
  * Markdown, 390 px, dark theme, German, and unit-level checks of ticks and table detection.
  */
+import { readFileSync } from 'node:fs'
 import type { Locator, Page } from '@playwright/test'
 import type { JSONContent } from '@tiptap/core'
-import { test, expect, openApp, gotoPage, editorOf, createPage, doc, para, wsEval, flush, pageById } from './fixtures'
+import { test, expect, openApp, gotoPage, editorOf, createPage, doc, para, wsEval, flush, pageById, MOD } from './fixtures'
 
 type Spec = Record<string, unknown>
 const chart = (spec: Spec | null): JSONContent => ({ type: 'chart', attrs: { spec } })
@@ -342,9 +343,7 @@ test.describe('charts', () => {
       await block.getByRole('button', { name: 'Chart menu' }).click()
       const [download] = await Promise.all([page.waitForEvent('download'), page.getByRole('menuitem', { name: item }).click()])
       expect(download.suggestedFilename()).toBe(`monthly-sales.${ext}`)
-      const path = await download.path()
-      const { readFileSync } = await import('node:fs')
-      const bytes = readFileSync(path!)
+      const bytes = readFileSync((await download.path())!)
       if (ext === 'png') expect(bytes.subarray(1, 4).toString()).toBe('PNG')
       else {
         const svg = bytes.toString()
@@ -387,6 +386,22 @@ test.describe('charts', () => {
     // read-only: no edit tools
     await expect(shared.getByRole('button', { name: 'Edit' })).toHaveCount(0)
     await other.close()
+
+    // HTML export: static SVG charts in token colours (the page follows the reader's theme), data frozen
+    await page.keyboard.press(`${MOD}+k`)
+    await page.keyboard.type('>export')
+    await page.keyboard.press('Enter')
+    const exp = page.getByRole('dialog')
+    await exp.getByRole('radio', { name: /Share chart/ }).click()
+    await exp.getByRole('radio', { name: /Web page/ }).click()
+    const pending = page.waitForEvent('download')
+    await exp.locator('[data-export-run]').click()
+    const html = readFileSync((await (await pending).path())!, 'utf8')
+    expect(html).toContain('data-type="chart"')
+    expect(html).toMatch(/<svg[^>]*class="ch-svg ch-svg--line"/)
+    expect(html).toContain('var(--signal)')
+    expect(html).toContain('Monthly sales')
+    expect(html).not.toContain(P.id)
 
   })
 

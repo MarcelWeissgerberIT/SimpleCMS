@@ -31,6 +31,7 @@ export function TypeStep({ data, spec, kind, suggestion, onPick }: { data: Chart
             aria-checked={on}
             tabIndex={on ? 0 : -1}
             data-kind={k}
+            data-autofocus={on || undefined}
             className={`chb-type${fits ? '' : ' is-misfit'}${k === suggestion ? ' is-suggested' : ''}`}
             title={fits ? undefined : t('charts.type.misfit')}
             onClick={() => onPick(k)}

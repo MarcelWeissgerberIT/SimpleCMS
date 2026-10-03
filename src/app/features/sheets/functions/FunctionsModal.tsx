@@ -2,6 +2,9 @@
  * "Functions": the workspace's own functions, built by clicking. Left the list (search, new),
  * right the editor of the selected one. Edits are drafts until saved (⌘S); every function keeps
  * its own undo history while the dialog is open. Phones: list, then editor (with a back key).
+ * Saving a rename rewrites the calls everywhere this workspace holds them — spreadsheet cells,
+ * database formulas, other functions (usage.ts) — so nothing turns into #NAME?. Deleting warns
+ * with the number of places that use the function (those do show #NAME? then).
  */
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { ArrowLeft, Copy, Plus, Search, Trash2 } from 'lucide-react'

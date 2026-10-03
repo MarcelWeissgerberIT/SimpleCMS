@@ -130,7 +130,7 @@ test.describe('spreadsheet block', () => {
     // everything survives a reload
     await reloadApp(page)
     await expect(cell(page, 'A5')).toHaveText('65')
-    await expect(cell(page, 'B3')).toHaveText('60')
+    await expect(cell(page, 'B4')).toHaveText('60')
     a = await stored(page, id)
     expect(a.sheets[0].cells.A2.v).toBe('5')
   })
@@ -379,7 +379,8 @@ test.describe('spreadsheet block', () => {
     const groupColors = await page.locator('.fx-input--cell .fx-m--group').evaluateAll((els) => [...new Set(els.map((el) => (el as HTMLElement).style.color))])
     expect(groupColors).toHaveLength(2)
     await page.keyboard.press('Enter')
-    await expect(cell(page, 'E2')).toHaveText('33')
+    // text cells (B, D) don't count in SUM: 1 + 2 + 10
+    await expect(cell(page, 'E2')).toHaveText('13')
 
     // one rectangle needed: VLOOKUP over a two-area DS is #VALUE!
     await enter(page, 'F1', '=VLOOKUP(1; DS(A1:B2; C1:D2); 2; FALSE)')
@@ -447,6 +448,46 @@ test.describe('spreadsheet block', () => {
     )
     await sheetPage(page, [['Sheet 1', { A1: '4', A2: '9', A3: '1', B2: '20', B3: '-3', C1: '=SPREAD(DS(A1:A3; B2:B3))' }]])
     await expect(cell(page, 'C1')).toHaveText('23')
+  })
+
+  test('charts: from the selection, live with the cells, refs follow inserted rows, placed as a block', async ({ page }) => {
+    await openApp(page)
+    const id = await sheetPage(page, [['Sheet 1', { A1: 'Month', B1: 'Sales', A2: 'Jan', B2: '10', A3: 'Feb', B3: '20', A4: 'Mar', B4: '30' }]])
+    await cell(page, 'A1').click()
+    await cell(page, 'B4').click({ modifiers: ['Shift'] })
+    await page.getByRole('button', { name: 'Chart', exact: true }).click()
+    await page.locator('[data-testid="chart-builder-save"]').click()
+    const card = page.locator('.sheet .sh-chart')
+    await expect(card).toHaveCount(1)
+    await expect(card.locator('.sh-chart__ref')).toHaveText('A1:B4')
+    await card.getByRole('button', { name: 'Data table' }).click()
+    await expect(card.locator('.ch-table')).toContainText('30')
+
+    // the chart follows the cells
+    await enter(page, 'B4', '75')
+    await expect(card.locator('.ch-table')).toContainText('75')
+    const a = (await stored(page, id)) as unknown as { charts: Array<{ sheet: string; spec: { source: { kind: string; ref: string } } }> }
+    expect(a.charts[0].sheet).toBe('s1')
+    expect(a.charts[0].spec.source).toEqual({ kind: 'inline', ref: 'A1:B4' })
+
+    // inserting a row above moves its reference
+    await cell(page, 'A1').click({ button: 'right' })
+    await page.getByRole('menuitem', { name: 'Insert row above' }).click()
+    await expect(card.locator('.sh-chart__ref')).toHaveText('A2:B5')
+    await expect(card.locator('.ch-table')).toContainText('75')
+
+    // place it as a chart block below: it reads this spreadsheet by block id
+    await card.getByRole('button', { name: 'Chart options' }).click()
+    await page.getByRole('menuitem', { name: 'Place as block below' }).click()
+    await page.waitForTimeout(500)
+    const placed = await wsEval(page, (s, id) => {
+      const content = s.pages[id].content.content
+      const sheetNode = content.find((n: { type: string }) => n.type === 'spreadsheet')
+      const chart = content.find((n: { type: string }) => n.type === 'chart')
+      return { blockId: sheetNode.attrs.id, source: chart?.attrs?.spec?.source }
+    }, id)
+    expect(placed.source).toEqual({ kind: 'sheet', pageId: id, sheetBlockId: placed.blockId, ref: "'Sheet 1'!A2:B5" })
+    await expect(page.locator('.ProseMirror [data-type="chart"]').first()).toBeVisible()
   })
 
   test('phone width: the block scrolls inside itself, the page does not', async ({ page }) => {

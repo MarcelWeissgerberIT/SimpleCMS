@@ -227,9 +227,9 @@ function rowsAt(ctx: Ctx, i: number, colors: string[]): TargetRow[] {
 /** Which x labels to print: every `step`-th (and labels clipped to their slot). */
 function labelPlan(labels: string[], spacing: number): { step: number; chars: number } {
   const longest = Math.min(16, Math.max(1, ...labels.map((l) => l.length)))
-  const need = longest * 6.2 + 10
+  const need = longest * 6.4 + 14
   const step = Math.max(1, Math.ceil(need / Math.max(1, spacing)))
-  const chars = Math.max(3, Math.floor((spacing * step - 8) / 6.2))
+  const chars = Math.max(3, Math.floor((spacing * step - 12) / 6.4))
   return { step, chars }
 }
 
@@ -320,8 +320,12 @@ function xy(ctx: Ctx, kind: 'bar' | 'stacked' | 'line' | 'area' | 'scatter' | 'b
   data.labels.forEach((l, i) => {
     if (i % plan.step !== 0) return
     const x = xAt(i)
-    const anchor = lineLike && n > 1 && i === 0 && x - ml < 20 ? 'start' : 'middle'
-    nodes.push(h('text', { ...XLABEL, x: anchor === 'start' ? x - 4 : x, y: bottom + 16, 'text-anchor': anchor, class: 'ch-xlabel', 'data-i': i }, clip(l, plan.chars)))
+    const text = clip(l, plan.chars)
+    // a label never runs off the picture: the outer ones hug the edge instead of centring
+    const half = monoWidth(text, 10, 0.4) / 2
+    const anchor = x - half < 0 ? 'start' : x + half > width ? 'end' : 'middle'
+    const tx = anchor === 'start' ? 0 : anchor === 'end' ? width : x
+    nodes.push(h('text', { ...XLABEL, x: tx, y: bottom + 16, 'text-anchor': anchor, class: 'ch-xlabel', 'data-i': i }, text))
   })
 
   const targets: SceneTarget[] = []
