@@ -166,6 +166,8 @@ describe('remote MCP', () => {
       { type: 'paragraph', content: [{ type: 'icon', attrs: { kind: 'asset', name: 'app-icon' } }, { type: 'icon', attrs: { kind: 'lucide', name: 'rocket', color: 'red' } }] },
       { type: 'databaseBlock', attrs: { databaseId: 'db-tasks', viewId: null } },
       { type: 'codeBlock', attrs: { language: 'ts' }, text: [['const x = 1']] },
+      { type: 'spreadsheet', attrs: { id: 'sh-1', title: 'Budget', active: 's1', sheets: [{ id: 's1', name: 'Q1', rows: 10, cols: 5, cells: { A1: { v: 'Item' }, B1: { v: 'Cost' }, A2: { v: 'Ads' }, B2: { v: '120' }, B3: { v: '=SUM(B2:B2)' } } }] } },
+      { type: 'chart', attrs: { id: 'ch-1', spec: { kind: 'bar', title: 'Spend', source: { kind: 'manual', rows: [['Month', 'Spend'], ['Jan', 3]] } } } },
     ])
     await flushed(content)
 
@@ -295,6 +297,10 @@ describe('remote MCP', () => {
     assert.match(md, /\[Database: Tasks\]\(#\/p\/db-tasks\)/)
     assert.match(md, /```ts\nconst x = 1\n```/)
     assert.match(md, /^\[App icon\]:rocket:$/m, 'inline icons: an object by name, a glyph as :name:')
+    // a spreadsheet as typed (formulas included), a chart with its stored numbers
+    assert.match(md, /\*\*Budget\*\*\n\n\*Sheet 01 · Q1\*\n\n\|  \| A \| B \|\n\| --- \| --- \| --- \|\n\| 1 \| Item \| Cost \|/)
+    assert.match(md, /\| 3 \|  \| =SUM\(B2:B2\) \|/)
+    assert.match(md, /\*\*Chart: Spend\*\* \(bar\)\n\n\| Month \| Spend \|\n\| --- \| --- \|\n\| Jan \| 3 \|/)
     assert.ok(!md.includes('Secret plans'), 'a private page’s stored mention label never leaves')
     assert.match(md, /@\(No access\)/)
 

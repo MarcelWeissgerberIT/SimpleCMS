@@ -93,6 +93,7 @@ export function seedWorkspace(lang: Lang): void {
   const calendar = newId()
   const wiki = s.createPage({ title: L('Team wiki', 'Team-Wiki'), icon: { type: 'asset', value: 'binder' } })
   const meeting = s.createPage({ title: L('Weekly sync — notes', 'Weekly Sync — Notizen'), icon: { type: 'asset', value: 'notepad' } })
+  const budget = s.createPage({ title: L('Budget 2026', 'Budget 2026'), icon: { type: 'asset', value: 'code' } })
 
   /* ---------- Projects database ---------- */
   const statusOpts = [
@@ -474,6 +475,82 @@ export function seedWorkspace(lang: Lang): void {
     'seed',
   )
 
+  /* ---------- Budget: a spreadsheet (two sheets, a dataset, MARGIN), its chart, a live database chart ---------- */
+  {
+    const q1 = newId()
+    const q2 = newId()
+    const eur = { type: 'currency', currency: 'EUR', decimals: 0 }
+    const pct = { type: 'percent', decimals: 0 }
+    const head = (v: string) => ({ v, b: true })
+    const items: Array<[string, number, number]> = [
+      [L('Website relaunch', 'Website-Relaunch'), 18000, 11200],
+      [L('Notion import', 'Notion-Import'), 6000, 4100],
+      [L('Brand refresh', 'Marken-Refresh'), 9500, 7300],
+      [L('n8n lead routing', 'n8n Lead-Routing'), 4200, 1900],
+    ]
+    const q1Cells: Record<string, object> = {
+      A1: head(L('Item', 'Posten')),
+      B1: { ...head(L('Price', 'Preis')), align: 'right' },
+      C1: { ...head(L('Cost', 'Kosten')), align: 'right' },
+      D1: { ...head(L('Margin', 'Marge')), align: 'right' },
+      A6: head(L('Total', 'Summe')),
+      B6: { v: '=SUM(DS(Revenue))', fmt: eur, b: true },
+      C6: { v: '=SUM(C2:C5)', fmt: eur, b: true },
+      D6: { v: '=MARGIN(B6; C6)', fmt: pct, b: true },
+    }
+    items.forEach(([name, price, cost], i) => {
+      const r = i + 2
+      q1Cells[`A${r}`] = { v: name }
+      q1Cells[`B${r}`] = { v: String(price), fmt: eur }
+      q1Cells[`C${r}`] = { v: String(cost), fmt: eur }
+      q1Cells[`D${r}`] = { v: `=MARGIN(B${r}; C${r})`, fmt: pct }
+    })
+    const q2Cells: Record<string, object> = {
+      A1: head(L('Quarter', 'Quartal')),
+      B1: { ...head(L('Revenue', 'Umsatz')), align: 'right' },
+      A2: { v: 'Q1' },
+      B2: { v: "='Q1'!B6", fmt: eur },
+      A3: { v: L('Q2 (plan)', 'Q2 (Plan)') },
+      B3: { v: '=ROUND(B2*1.15; 0)', fmt: eur },
+      A4: head(L('Growth', 'Wachstum')),
+      B4: { v: '=B3/B2-1', fmt: pct, b: true },
+    }
+    s.setContent(
+      budget,
+      doc(
+        p(
+          L('A spreadsheet inside a page: two sheets, formulas, a coloured dataset ', 'Eine Tabellenkalkulation mitten in der Seite: zwei Blätter, Formeln, ein farbiger Datenbereich '),
+          code('DS(Revenue)'),
+          L(' and ', ' und '),
+          code('MARGIN'),
+          L(' — a function built by clicking (⌘K → Custom functions). Select cells and press Chart for a chart that follows them.', ' — eine Funktion, per Klick gebaut (⌘K → Eigene Funktionen). Markiere Zellen und drücke Diagramm für ein Diagramm, das mitläuft.'),
+        ),
+        {
+          type: 'spreadsheet',
+          attrs: {
+            id: newId(),
+            title: L('Budget 2026', 'Budget 2026'),
+            active: q1,
+            sheets: [
+              { id: q1, name: 'Q1', rows: 8, cols: 5, cells: q1Cells, colWidths: { A: 180, B: 130, C: 120 } },
+              { id: q2, name: 'Q2', rows: 8, cols: 4, cells: q2Cells, colWidths: { A: 160 } },
+            ],
+            datasets: [{ id: newId(), name: 'Revenue', color: 'green', ranges: [{ sheet: q1, ref: 'B2:B5' }] }],
+            charts: [{ id: newId(), sheet: q1, spec: { kind: 'bar', title: L('Price and cost per item', 'Preis und Kosten pro Posten'), unit: '€', source: { kind: 'inline', ref: 'A1:C5' } } }],
+          },
+        },
+        h2(L('Live from the database', 'Live aus der Datenbank')),
+        {
+          type: 'chart',
+          attrs: {
+            spec: { kind: 'bar', title: L('Project budget by status', 'Projektbudget nach Status'), unit: '€', source: { kind: 'database', databaseId: projects, x: P.status, y: P.budget, aggregate: 'sum' } },
+          },
+        },
+      ),
+      'seed',
+    )
+  }
+
   /* ---------- Welcome page ---------- */
   s.setContent(
     welcome,
@@ -494,6 +571,7 @@ export function seedWorkspace(lang: Lang): void {
         task(false, L('Drag a block by its ', 'Zieh einen Block an seinem '), code('⋮⋮'), L(' handle', '-Griff')),
         task(false, L('Open ', 'Öffne '), mention(projects, L('Projects', 'Projekte')), L(' and switch between Board, Timeline and Chart', ' und wechsle zwischen Board, Zeitleiste und Diagramm')),
         task(false, L('Drag a card on the ', 'Zieh auf dem '), mention(projects, L('Projects', 'Projekte')), L(' board to Done', '-Board eine Karte nach Erledigt')),
+        task(false, L('Change a price in ', 'Ändere einen Preis in '), mention(budget, L('Budget 2026', 'Budget 2026')), L(' — the totals, the coloured dataset and the chart follow', ' — Summen, farbiger Datenbereich und Diagramm laufen mit')),
         task(false, L('Alt-click ', 'Alt-Klick auf '), mention(wiki, L('Team wiki', 'Team-Wiki')), L(' to open it in a side-by-side pane', ', um es nebeneinander zu öffnen')),
         task(false, L('Add your Claude key in Settings → Claude AI, then press Space on an empty line', 'Hinterlege deinen Claude-Key unter Einstellungen → Claude KI und drücke dann Leertaste in einer leeren Zeile')),
         task(false, L('Move in from Notion, Obsidian, Evernote or Trello with ', 'Zieh mit '), b(L('Import', 'Importieren')), L(' in the sidebar', ' in der Seitenleiste aus Notion, Obsidian, Evernote oder Trello um')),
@@ -567,8 +645,8 @@ export function seedWorkspace(lang: Lang): void {
     body: L('Only after Alex signs off QA on staging. (Margin notes: select text, press Comment or ⌘⌥M / Ctrl+Alt+M — they stay on this device.)', 'Erst nach Alex’ QA-Freigabe auf Staging. (Randnotizen: Text markieren, Kommentieren oder ⌘⌥M / Strg+Alt+M — sie bleiben auf diesem Gerät.)'),
   })
 
-  // order in sidebar: Welcome, Projects, Reading list, Content calendar, Wiki, Meeting
-  const order: ID[] = [welcome, projects, reading, calendar, wiki, meeting, meetings]
+  // order in sidebar: Welcome, Projects, Reading list, Content calendar, Wiki, Meeting, Meetings, Budget
+  const order: ID[] = [welcome, projects, reading, calendar, wiki, meeting, meetings, budget]
   order.forEach((id, idx) => s.updatePage(id, { order: idx + 1 }))
   s.toggleFavorite(welcome)
   s.toggleFavorite(projects)

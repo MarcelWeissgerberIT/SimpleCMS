@@ -84,6 +84,19 @@ export function plainText(node: JSONContent | null | undefined, max = 20000): st
     if (n.type === 'meetingNotes' && Array.isArray(n.attrs?.transcript)) {
       for (const seg of n.attrs.transcript) if (seg?.text) out += `${seg.text}\n`
     }
+    // spreadsheets: title, sheet names and what was typed into cells (not formulas — values are computed)
+    if (n.type === 'spreadsheet') {
+      if (typeof n.attrs?.title === 'string' && n.attrs.title) out += `${n.attrs.title}\n`
+      for (const sheet of Array.isArray(n.attrs?.sheets) ? n.attrs.sheets : []) {
+        if (out.length > max) break
+        if (typeof sheet?.name === 'string') out += `${sheet.name}\n`
+        const cells = sheet?.cells && typeof sheet.cells === 'object' ? Object.values(sheet.cells as Record<string, { v?: unknown }>) : []
+        const typed = cells.map((c) => c?.v).filter((v): v is string => typeof v === 'string' && v !== '' && !v.startsWith('='))
+        if (typed.length) out += `${typed.join(' ')}\n`
+      }
+    }
+    // charts: their title (editor/schema/chart.ts)
+    if (n.type === 'chart' && typeof n.attrs?.spec?.title === 'string' && n.attrs.spec.title) out += `${n.attrs.spec.title}\n`
   }
   walk(node)
   return out.replace(/\n{3,}/g, '\n\n').trim().slice(0, max)

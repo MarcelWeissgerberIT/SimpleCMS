@@ -15,7 +15,7 @@ import { seedWorkspace } from './store/seed'
 import { refreshDemoIcons } from './store/demoIcons'
 import { applyTheme } from './lib/theme'
 import { ALL_MESSAGES } from './i18n'
-import { startHistory, startAutomations, startRecurringTemplates, startInbox, startSync, startMcp, startCustomFunctions, seedDemoHistory } from './features'
+import { startHistory, startAutomations, startRecurringTemplates, startInbox, startSync, startMcp, startCustomFunctions, seedDemoHistory, demoFunctions } from './features'
 import { startSyncedBlocks } from './editor'
 import { detectLang, makeTranslator } from '@/shared/i18n'
 import { STORAGE_KEYS, safeLocalGet } from '@/shared/brand'
@@ -128,6 +128,8 @@ async function bootLocal() {
       ws.settings.language = detectLang()
       store.hydrate(ws)
       seedWorkspace(ws.settings.language)
+      // MARGIN, built by clicking (the seeded budget sheet uses it)
+      for (const fn of demoFunctions(ws.settings.language)) useWorkspace.getState().upsertFunction(fn)
       // persist the seed right away — a reload before the first edit must not seed new ids
       await flushSave()
       // give the start page a short back-dated version history, so the tape has something to scrub

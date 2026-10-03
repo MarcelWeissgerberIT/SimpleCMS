@@ -34,11 +34,16 @@ src/app/shell/**                     layout, sidebar, topbar, page view, command
 src/app/editor/**                    TipTap block editor (public API: editor/index.ts)
 src/app/database/**                  databases & views (public API: database/index.ts)
 src/app/features/**                  AI (+ workspace agent), history, graph, share, import/export, present, automations,
-                                     templates (+ repeating), journal, inbox + reminders, sync (folder / GitHub Markdown,
-                                     per-device IndexedDB `one-sync`) (public API: features/index.ts)
+                                     templates (+ repeating, own templates), journal, inbox + reminders, sync (folder /
+                                     GitHub Markdown, per-device IndexedDB `one-sync`), mcp (local bridge UI), sheets
+                                     (spreadsheet engine + grid; functions/ = custom functions built by clicking), charts
+                                     (SVG renderer, chart builder, data sources) (public API: features/index.ts)
 src/app/cloud/**                     team-cloud client: store ⇄ Yjs binding, page documents, private pages, files
                                      (public API: cloud/index.ts; protocol + meta-document schema: docs/CLOUD.md)
 server/**                            team-cloud server (Node, Hono, Hocuspocus, SQLite; AGPL) + public API (docs/API.md)
+                                     + team MCP at /mcp (docs/MCP.md); content encrypted at rest (docs/CLOUD.md § Tenancy)
+mcp/**                               local MCP bridge (Claude Desktop / Code ⇄ the open tab), bundled to public/mcp/
+                                     one-mcp.mjs + the Claude Desktop extension one.mcpb (`npm --prefix mcp test`)
 public/assets/icons|covers           generated art (OpenArt) + manifest.json
 ```
 
@@ -51,7 +56,7 @@ the public APIs stable — other areas are built against them in parallel.
 - All persistent data goes through `useWorkspace` actions in `src/app/store/store.ts`. Never mutate state directly.
 - Page content is TipTap JSON. Write it ONLY with `setContent(pageId, json, origin)`; `origin` is the writer
   (editor instance id, 'history', 'ai', 'sync', 'import', 'synced' = synced-block service, 'file' = folder / GitHub
-  pick-up …). Editors must apply external updates when
+  pick-up, 'template' = a template copy …). Editors must apply external updates when
   `page.contentOrigin !== <own id>` and `contentRev` changed.
 - Database rows are pages with `databaseId` set (parentId = database page id). Title lives in `page.title`.
 - Binary files (images, attachments) go to IndexedDB via `saveFile()` → `"onefile:<id>"`; display with `useFileUrl()`.
@@ -66,6 +71,21 @@ the public APIs stable — other areas are built against them in parallel.
   see features/inbox/reminders.ts); inbox state is per device (IndexedDB `one-inbox`), never synced.
 - Team workspaces: `Page.private` is a local marker set by the cloud binding (the page lives in the member's
   private documents); move pages between Private and the workspace ONLY with `movePagePrivacy()` (cloud/index.ts).
+- Local persistence (store/persistence.ts, layout v2): one IndexedDB record per page (`one.page.v2:<id>`) and per
+  database (`one.db.v2:<id>`) plus `one.ws.v2`; the old single record `one.workspace.v1` is converted on first save.
+- `Page.template` marks a template root (hidden subtree, features/templates): keep template pages out of normal lists
+  with `inTemplate()` and out of pickers with `templateScope()`; the server API / MCP treat them as not found.
+- Custom functions: `Workspace.functions` (body = an `FnExpr` tree, never code) — write only with `upsertFunction` /
+  `deleteFunction`; synced through the meta map `functions`; every reader sanitizes (store/functions.ts); database
+  formulas reach them through lib/formulaFunctions.ts. No eval / `new Function` anywhere in formula code.
+- Secrets: `settings.aiApiKey` / `GitHubConfig.token` hold vault markers (`vault:<id>:<last4>`), the secrets are sealed
+  in IndexedDB `one-vault` (lib/vault.ts). Read the Claude key only via `getAIKey()` (store/secrets.ts), the GitHub
+  token only via `openGitHubToken()`.
+- Markdown files One reads back (Markdown export, folder / GitHub sync) write date / person mentions as
+  `[@label](one:date/<id>?r=<code>)` / `[@label](one:person/<id>)` (features/io/import/mentions.ts); share / site /
+  HTML exports never do.
+- Team cloud: every account gets a personal workspace (`CloudWorkspace.personal`); server content is encrypted at rest
+  with a key per workspace wrapped by `DATA_KEY` (docs/CLOUD.md § Tenancy & encryption at rest).
 
 ## TipTap node names (shared contract — seed, export, share, history all rely on these)
 
@@ -85,7 +105,12 @@ title, status 'idle'|'recording'|'paused'|'summarizing'|'done', language, starte
 [{ t: ms offset, text }], recordedBy; never nested; runtime + Claude in features/ai/meeting), `button` (attrs: label, variant 'signal'|'ink'|'ghost', actions = JSON
 array, see editor/schema/button.ts — strip with `stripButtonActions()` before a doc leaves the workspace),
 `tabs` (container of `tab`, no tabs inside tabs; the shown tab is editor view state) / `tab` (attrs: title; content:
-blocks); marks `highlight` (attrs: color = ColorName), `textStyle` + color
+blocks), `icon` (inline atom; attrs: kind 'asset'|'lucide', name, color — glyphs only; editor/schema/icon.ts),
+`spreadsheet` (atom; attrs: id, title, sheets = [{ id, name, rows, cols, cells: { A1: { v = raw input, fmt, b, i,
+align } }, colWidths, frozenRows }], active = sheet id, datasets = [{ id, name, color, ranges: [{ sheet, ref }] }],
+charts = [{ id, sheet, spec }]; values are computed by features/sheets, never stored), `chart` (atom; attrs: spec =
+ChartSpec JSON, features/charts/types.ts — source sheet | database | system | manual; `stripPrivate()` freezes live
+sources into manual data before a doc leaves the workspace); marks `highlight` (attrs: color = ColorName), `textStyle` + color
 (attrs: color = ColorName), `comment` (attrs: id = a `Page.comments` thread id; never leaves the device —
 `stripButtonActions()` / `docToHTML` / `docToMarkdown` strip it). Colours are ColorName strings, rendered via CSS vars `--c-<name>-text|bg`.
 
