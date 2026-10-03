@@ -1,6 +1,7 @@
 # Skool post — Ninja Armory submission
 
-**Attach:** `docs/media/simplecms-one-promo.mp4` (60 s video) and the three images in `docs/media/post/`
+**Attach:** `public/media/simplecms-one.mp4` (60 s video, also online at
+https://marcelweissgerberit.github.io/SimpleCMS/media/simplecms-one.mp4) and the three images in `docs/media/post/`
 (`01-ugly-1997.png`, `02-the-bill.png`, `03-spec-sheet.png`). Don't post a screenshot of the new landing
 site: people should see it for themselves after 15 seconds.
 

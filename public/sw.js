@@ -65,6 +65,8 @@ self.addEventListener('fetch', (event) => {
   if (req.method !== 'GET') return
   const url = new URL(req.url)
   if (url.origin !== self.location.origin) return
+  // video streams use Range requests, and the Cache API cannot store partial responses
+  if (req.headers.has('range') || /\.(mp4|webm|mov)$/i.test(url.pathname)) return
 
   if (req.mode === 'navigate') {
     event.respondWith(

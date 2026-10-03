@@ -18,7 +18,7 @@ and **no server**. Everything lives in your browser.
 
 <sub>First visit only: sit still for 15 seconds on the 1997 spreadsheet homepage. Replay any time with <code>?intro</code>.</sub>
 
-**[▶ 60-second tour (video)](docs/media/simplecms-one-promo.mp4)**
+**[▶ 60-second tour (video)](https://marcelweissgerberit.github.io/SimpleCMS/media/simplecms-one.mp4)**
 
 </div>
 
