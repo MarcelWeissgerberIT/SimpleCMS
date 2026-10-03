@@ -606,7 +606,9 @@ body[data-dragging] {
   cursor: grabbing;
 }
 
-.sb-newpage {
+/* .sb-newprivate: the PRIVATE section's own "New page" (same look, its own hook) */
+.sb-newpage,
+.sb-newprivate {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -622,7 +624,8 @@ body[data-dragging] {
   font-weight: 520;
   text-align: left;
 }
-.sb-newpage:hover {
+.sb-newpage:hover,
+.sb-newprivate:hover {
   background: var(--hover);
   color: var(--ink);
 }

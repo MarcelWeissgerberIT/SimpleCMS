@@ -403,28 +403,27 @@ export function startBinding(o: BindingOptions): Binding {
       }
       if (peopleChanged) writePeople(rs.people, state.people, prev.people)
     })
-    if (reflag.length) {
-      applyFromCloud(() => {
+    // Follow-up store patches (the local `private` marker; created_by / last_edited_by mirror the
+    // createdBy / updatedBy this client just wrote) go out after every store listener saw this change:
+    // patched from inside this listener, the listeners after it (the inbox …) would see the nested,
+    // "remote" patch first and take this device's own change for someone else's.
+    const touchedIds: ID[] = []
+    if (pagesChanged) for (const id in state.pages) if (state.pages[id] !== prev.pages[id]) touchedIds.push(id)
+    if (reflag.length || touchedIds.length) {
+      queueMicrotask(() => {
+        const now = useWorkspace.getState().pages
         const pages: Record<ID, Page> = {}
-        for (const [id, priv] of reflag) {
-          const cur = useWorkspace.getState().pages[id]
-          if (cur) pages[id] = withScope(cur, priv)
+        for (const [id, priv] of reflag) if (now[id]) pages[id] = withScope(now[id], priv)
+        for (const id of touchedIds) {
+          const cur = pages[id] ?? now[id]
+          const yp = cur ? locate(id, !!cur.private)?.pages.get(id) : undefined
+          if (!isMap(yp) || !cur) continue
+          const by = (k: string) => (typeof yp.get(k) === 'string' && yp.get(k) ? (yp.get(k) as string) : undefined)
+          if (cur.createdBy !== by('createdBy') || cur.updatedBy !== by('updatedBy')) pages[id] = { ...cur, createdBy: by('createdBy'), updatedBy: by('updatedBy') }
         }
-        useWorkspace.getState().cloudPatch({ pages })
+        if (Object.keys(pages).length) applyFromCloud(() => useWorkspace.getState().cloudPatch({ pages }))
       })
     }
-    // created_by / last_edited_by: the store mirrors the createdBy / updatedBy this client just wrote
-    const authors: Record<ID, Page> = {}
-    if (pagesChanged) {
-      for (const id in state.pages) {
-        const cur = useWorkspace.getState().pages[id]
-        const yp = state.pages[id] !== prev.pages[id] && cur ? locate(id, !!cur.private)?.pages.get(id) : undefined
-        if (!isMap(yp) || !cur) continue
-        const by = (k: string) => (typeof yp.get(k) === 'string' && yp.get(k) ? (yp.get(k) as string) : undefined)
-        if (cur.createdBy !== by('createdBy') || cur.updatedBy !== by('updatedBy')) authors[id] = { ...cur, createdBy: by('createdBy'), updatedBy: by('updatedBy') }
-      }
-    }
-    if (Object.keys(authors).length) applyFromCloud(() => useWorkspace.getState().cloudPatch({ pages: authors }))
     if (blocked.length) {
       scheduleRevert()
       o.onBlockedMove?.(blocked)

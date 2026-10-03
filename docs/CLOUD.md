@@ -285,7 +285,7 @@ Y.Map 'databases'  dbId → Y.Map {
                      automations: Y.Map automationId → JSON Automation (incl. `order` number)
                      templates:   Y.Map templateId → JSON template (incl. `order` number)
                      nextUniqueId: number, inline?: boolean,
-                     any other Database key (subItems, dependencies …): JSON
+                     any other Database key (subItems, dependencies, locked …): JSON
                    }
 Y.Map 'people'     personId → JSON Person   (workspace people; members are mirrored as people)
 ```

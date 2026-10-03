@@ -88,41 +88,62 @@ const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 
 type Editor = RenderCtx['editor']
 
-/** Top-level block → its Markdown (the key two versions of a page are compared by). */
-const mdKey = (editor: Editor, n: JSONContent) => editor.docToMarkdown({ type: 'doc', content: [n] }).trim()
+/** Top-level block → its Markdown, as the file shows it (heading anchors aren't part of file links). */
+const mdKey = (editor: Editor, n: JSONContent) =>
+  editor
+    .docToMarkdown({ type: 'doc', content: [n] })
+    .trim()
+    .replace(/\]\(#\/p\/([\w-]+)\?[^)\s]*\)/g, '](#/p/$1)')
 
 /**
- * The file's blocks, but every block that is unchanged (same Markdown) stays One's own block.
- * Blocks without any Markdown (empty paragraphs, a table of contents …) can't have been edited
- * in the file and are kept where they are.
+ * The page after an edit in its file: every block of the page whose Markdown is still in the file
+ * (in order, on block boundaries) stays One's own block — with everything Markdown can't carry
+ * (comments, button actions, columns, colours, widths, ids). Only the text between those blocks is
+ * new or edited and comes from the file (`parse`). Blocks without any Markdown (empty paragraphs,
+ * a table of contents …) can't have been edited in the file and stay where they are.
  */
-export function mergeBlocks(editor: Editor, ours: JSONContent | null, theirs: JSONContent): JSONContent {
+export function mergeBlocks(editor: Editor, ours: JSONContent | null, body: string, parse: (md: string) => JSONContent[]): JSONContent {
   const o = ours?.content ?? []
-  const tb = theirs.content ?? []
-  if (!o.length) return theirs
-  const ok = o.map((n) => mdKey(editor, n))
-  const tk = tb.map((n) => mdKey(editor, n))
-  const n = o.length
-  const m = tb.length
-  if (n * m > 4_000_000) return theirs
-  const w = m + 1
-  const dp = new Int32Array((n + 1) * w)
-  for (let i = n - 1; i >= 0; i--)
-    for (let j = m - 1; j >= 0; j--) dp[i * w + j] = ok[i] && ok[i] === tk[j] ? dp[(i + 1) * w + j + 1] + 1 : Math.max(dp[(i + 1) * w + j], dp[i * w + j + 1])
+  const text = body.replace(/\r\n?/g, '\n').trim()
   const out: JSONContent[] = []
-  let i = 0
-  let j = 0
-  while (i < n || j < m) {
-    if (i < n && j < m && ok[i] && ok[i] === tk[j]) {
-      out.push(o[i++])
-      j++
-    } else if (i < n && (j >= m || dp[(i + 1) * w + j] >= dp[i * w + j + 1])) {
-      // gone from the file — unless the file could not show it at all
-      if (!ok[i]) out.push(o[i])
-      i++
-    } else out.push(tb[j++])
+  const keys = o.map((n) => mdKey(editor, n))
+  const at = (chunk: string, from: number): number => {
+    let p = text.indexOf(chunk, from)
+    while (p >= 0) {
+      const end = p + chunk.length
+      if ((p === 0 || text[p - 1] === '\n') && (end === text.length || text[end] === '\n')) return p
+      p = text.indexOf(chunk, p + 1)
+    }
+    return -1
   }
-  return { ...theirs, content: out.length ? out : [{ type: 'paragraph' }] }
+  const gap = (from: number, to: number) => {
+    // the blank lines around a gap only separate it from its neighbours
+    const md = text.slice(from, to).replace(/^(?:[ \t]*\n)+|(?:\n[ \t]*)+$/g, '')
+    if (md.trim()) out.push(...parse(md))
+  }
+  let cursor = 0
+  for (let i = 0; i < o.length; i++) {
+    const key = keys[i]
+    if (!key) {
+      out.push(o[i])
+      continue
+    }
+    const p = at(key, cursor)
+    // gone, or edited: its new text arrives with a gap
+    if (p < 0) continue
+    // a block further down shows up first: this one was deleted here (its twin sits later)
+    let deleted = false
+    for (let j = i + 1; j < Math.min(o.length, i + 6) && !deleted; j++) {
+      const q = keys[j] ? at(keys[j], cursor) : -1
+      if (q >= 0 && q + keys[j].length <= p) deleted = true
+    }
+    if (deleted) continue
+    gap(cursor, p)
+    out.push(o[i])
+    cursor = p + key.length
+  }
+  gap(cursor, text.length)
+  return { type: 'doc', content: out.length ? out : [{ type: 'paragraph' }] }
 }
 
 const PROMOTE = new Set(['doc', 'blockquote', 'callout', 'detailsContent', 'column'])
@@ -218,7 +239,8 @@ export async function applyPickup(input: PickupInput): Promise<PickupResult> {
   /* ---------- Markdown body → doc ---------- */
   const fresh = new Map<string, string>()
   const metas = new Map<string, FileMetaInfo>()
-  const toDoc = async (body: string, path: string): Promise<JSONContent> => {
+  /** Relative links of a file back to what One writes: `#/p/<id>` and `onefile:` refs. */
+  const toOne = async (body: string, path: string): Promise<string> => {
     const dir = dirname(path)
     const map = new Map<string, string>()
     for (const href of linkTargets(body)) {
@@ -247,14 +269,13 @@ export async function applyPickup(input: PickupInput): Promise<PickupResult> {
         }
       }
     }
-    // images and media take the file ref itself; links get a placeholder (see restoreNodes)
-    const md = rewriteLinks(body, (href, isImage) => {
-      const to = map.get(href.trim())
-      if (!to) return null
-      return to.startsWith('onefile:') && !isImage ? FILE_URL + encodeURIComponent(to) : to
-    })
+    return rewriteLinks(body, (href) => map.get(href.trim()) ?? null)
+  }
+  /** Markdown (with One's links) → blocks. Links to stored files travel as placeholders (see restoreNodes). */
+  const parse = (md: string): JSONContent[] => {
+    const safe = rewriteLinks(md, (href, isImage) => (href.startsWith('onefile:') && !isImage ? FILE_URL + encodeURIComponent(href) : null))
     const s = ws()
-    return restoreNodes(editor.markdownToDoc(md), s.pages, (id) => s.pages[id]?.kind === 'database' && !!s.databases[id], untitled, (ref) => metas.get(ref))
+    return restoreNodes(editor.markdownToDoc(safe), s.pages, (id) => s.pages[id]?.kind === 'database' && !!s.databases[id], untitled, (ref) => metas.get(ref)).content ?? []
   }
 
   /* ---------- row properties ---------- */
@@ -345,9 +366,8 @@ export async function applyPickup(input: PickupInput): Promise<PickupResult> {
       }
     }
     if (applyProps(page, fm.data, file.path)) changed = true
-    const theirs = await toDoc(body, file.path)
     const ours = ws().pages[page.id]?.content ?? null
-    const merged = mergeBlocks(editor, ours, theirs)
+    const merged = mergeBlocks(editor, ours, await toOne(body, file.path), parse)
     const empty = !body.trim()
     if (!(empty && !ours) && !deepEqual(merged, ours)) {
       if (ours) await snapshotNow(page.id, 'manual').catch(() => null)
@@ -419,7 +439,8 @@ export async function applyPickup(input: PickupInput): Promise<PickupResult> {
       continue
     }
     const { title: h1 } = takeTitle(fm.body)
-    const title = yamlText(fm.data.get('title')).trim() || h1 || basename(file.path).replace(/\.(md|markdown)$/i, '')
+    // the same order an update uses: the heading, then the front matter, then the file name
+    const title = h1 || yamlText(fm.data.get('title')).trim() || basename(file.path).replace(/\.(md|markdown)$/i, '')
     const { parentId, dbId } = parentFor(dir)
     const s = ws()
     const pageId = dbId ? s.createRow(dbId, { title }) : s.createPage({ parentId, title })

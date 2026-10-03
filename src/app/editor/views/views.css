@@ -725,8 +725,14 @@
 /* team workspaces: a page this member can't see (someone's private page, or deleted) — a neutral chip */
 .doc-content .mention__page[data-no-access] {
   align-items: center;
+  gap: 4px;
   padding: 0 5px;
   border: 1px dashed var(--rule-strong);
+  font-family: var(--font-mono);
+  font-size: 0.8em;
+  letter-spacing: 0.01em;
+  line-height: 1.55;
+  vertical-align: 0.06em;
   color: var(--ink-3);
   cursor: default;
 }

@@ -161,8 +161,10 @@ test.describe('sync to a folder', () => {
     await expect(panel.locator('.sy-readout')).toContainText(DIR)
     await expect(dialog.locator('.sy-log__row').first()).toContainText(/Wrote \d+/)
     await page.keyboard.press('Escape')
-    // and the status bar shows the sync
+    // and the status bar shows the sync; it opens Settings → Sync
     await expect(page.locator('.status .sy-status')).toContainText(/Sync · \d\d:\d\d/)
+    await page.locator('.status .sy-status').click()
+    await expect(page.getByRole('dialog').getByRole('tab', { name: /Sync$/ })).toHaveAttribute('aria-selected', 'true')
   })
 
   test('an edit rewrites only that file; renames, moves and the trash move files', async ({ page }) => {
@@ -216,6 +218,17 @@ test.describe('sync to a folder', () => {
     expect(await wsEval(page, (s, id) => s.pages[id].contentOrigin, voice)).toBe('sync')
     // blocks the file left alone are still One's own (attributes Markdown can't carry included)
     expect(await wsEval(page, (s, id) => JSON.stringify(s.pages[id].content.content[0]), voice)).toBe(firstBlock)
+
+    // a page with blocks Markdown can't carry (a button with actions, columns …): an edit elsewhere keeps them
+    const notes = await pageIdByTitle(page, 'Weekly sync — notes')
+    const richBefore = await wsEval(page, (s, id) => JSON.stringify(s.pages[id].content.content), notes)
+    expect(richBefore).toContain('"actions":[{')
+    const notesFile = (await fileText(page, 'Weekly sync — notes.md'))!
+    await writeExternal(page, 'Weekly sync — notes.md', notesFile.trimEnd() + '\n\nOne more line from the folder.\n')
+    await page.evaluate(() => window.__oneSync.pickup())
+    await expect.poll(() => wsEval(page, (s, id) => s.pages[id].plain, notes)).toContain('One more line from the folder.')
+    const richAfter = await wsEval(page, (s, id) => s.pages[id].content.content.map((n: unknown) => JSON.stringify(n)), notes)
+    expect(JSON.stringify(richAfter.slice(0, -1).map((x: string) => JSON.parse(x)))).toBe(richBefore)
 
     // a row property edited in the front matter
     const row = (await fileText(page, 'Projects/Website relaunch.md'))!

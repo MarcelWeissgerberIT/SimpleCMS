@@ -366,7 +366,7 @@ function PrivateSection() {
       </div>
       {roots.length === 0 && <p className="sb-hint sb-hint--private" data-drop={drop.over || undefined}>{drop.dragging ? t('shell.private.dropHere') : t('shell.private.hint')}</p>}
       {write && (
-        <button type="button" className="sb-newpage" onClick={() => createPrivatePageAndOpen(null)} data-testid="private-new-page">
+        <button type="button" className="sb-newprivate" onClick={() => createPrivatePageAndOpen(null)} data-testid="private-new-page">
           <Plus size={15} />
           <span>{t('common.newPage')}</span>
         </button>

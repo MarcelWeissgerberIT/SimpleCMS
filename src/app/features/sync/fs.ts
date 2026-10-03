@@ -117,7 +117,8 @@ export async function listFiles(root: FileSystemDirectoryHandle, skip: (path: st
   const out = new Map<string, FileSystemFileHandle>()
   const walk = async (dir: FileSystemDirectoryHandle, prefix: string) => {
     for await (const h of (dir as unknown as IterableDir).values()) {
-      const path = `${prefix}${h.name}`
+      // NFC: some file systems hand names back decomposed ("U+0308"), One writes them composed
+      const path = `${prefix}${h.name.normalize('NFC')}`
       if (h.kind === 'directory') {
         if (!h.name.startsWith('.') && !skip(`${path}/`)) await walk(h as FileSystemDirectoryHandle, `${path}/`)
       } else if (!skip(path)) out.set(path, h as FileSystemFileHandle)

@@ -84,6 +84,9 @@ function exclusive<T>(fn: () => Promise<T>): Promise<T> {
 let channel: BroadcastChannel | null = null
 
 async function log(target: TargetKind, kind: LogKind, vars?: LogEntry['vars']) {
+  // the same error again (a retry on every change / poll) is not news
+  const last = useSync.getState().log[0]
+  if (kind === 'error' && last && last.kind === 'error' && last.target === target && JSON.stringify(last.vars) === JSON.stringify(vars)) return
   const next = await appendLog({ at: Date.now(), target, kind, vars })
   useSync.setState({ log: next })
 }

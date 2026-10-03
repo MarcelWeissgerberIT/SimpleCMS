@@ -24,8 +24,9 @@ export function SyncStatusCell() {
   const last = Math.max(folder.lastAt ?? 0, github.lastAt ?? 0)
   const time = last ? new Date(last).toLocaleTimeString(lang === 'de' ? 'de-DE' : 'en-US', { hour: '2-digit', minute: '2-digit', hour12: false }) : null
 
+  // while a run is busy the LED blinks; the read-out keeps its text (no jumping status bar on every save)
   const [state, text] = running
-    ? (['running', t('features.sync.status.running')] as const)
+    ? (['running', pending > 0 ? t('features.sync.status.pending', { n: pending }) : time ? t('features.sync.status.synced', { time }) : t('features.sync.status.running')] as const)
     : error
       ? (['error', t('features.sync.status.error')] as const)
       : paused

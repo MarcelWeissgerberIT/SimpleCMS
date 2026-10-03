@@ -227,9 +227,12 @@ export async function renderFile(ctx: RenderCtx, f: Desired): Promise<Rendered |
   const db = ctx.databases[f.kind === 'row' ? (p.databaseId ?? '') : p.id]
   if (f.kind === 'row') return db ? cached(f.path, [p, db, ctx.people, ctx.sig], () => renderPage(ctx, p, f.path)) : cached(f.path, [p, ctx.sig], () => renderPage(ctx, p, f.path))
   if (!db) return null
-  const rows = ctx.layout.files.filter((x) => x.kind === 'row' && ctx.pages[x.id!]?.databaseId === db.id && x.trashed === f.trashed).map((x) => ctx.pages[x.id!])
   if (f.kind === 'database') return cached(f.path, [p, db, ctx.sig], () => renderDatabase(ctx, p, db, f.path))
-  if (f.kind === 'csv') return cached(f.path, [db, ctx.people, ctx.sig, ...rows], () => renderRowsCsv(ctx, db, f.path, rows))
+  if (f.kind === 'csv') {
+    // formulas and rollups read other rows and databases: the table follows every change
+    const rows = ctx.layout.files.filter((x) => x.kind === 'row' && ctx.pages[x.id!]?.databaseId === db.id && x.trashed === f.trashed).map((x) => ctx.pages[x.id!])
+    return cached(f.path, [ctx.pages, ctx.databases, ctx.people, ctx.sig], () => renderRowsCsv(ctx, db, f.path, rows))
+  }
   return null
 }
 
@@ -252,8 +255,4 @@ export function layoutSig(pages: Record<ID, Page>, layout: Layout): string {
     add(path)
   }
   return `${(h >>> 0).toString(36)}:${layout.pathOfId.size}:${layout.pathOfRef.size}`
-}
-
-export function clearRenderCache(): void {
-  cache.clear()
 }
