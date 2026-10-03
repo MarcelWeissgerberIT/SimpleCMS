@@ -24,6 +24,8 @@ export interface Config {
   maxUploadBytes: number
   appDir: string
   trustProxy: boolean
+  /** AGPL §13: where users of this server can get its source (set it when you run a modified version). */
+  sourceUrl: string
   version: string
 }
 
@@ -38,7 +40,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   if (production && devMode) throw new ConfigError('DEV_MODE must not be enabled when NODE_ENV=production')
 
   const port = int(env.PORT, 8080, 0, 65535, 'PORT')
-  const dataDir = resolve(env.DATA_DIR || (production ? '/data' : join(serverRoot, '.data')))
+  const dataDir = resolveDataDir(env)
   mkdirSync(dataDir, { recursive: true })
 
   let publicUrl = `http://localhost:${port}`
@@ -64,11 +66,16 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     maxUploadBytes: Math.round(num(env.MAX_UPLOAD_MB, 25, 'MAX_UPLOAD_MB') * 1024 * 1024),
     appDir: resolve(env.APP_DIR || join(serverRoot, '..', 'dist')),
     trustProxy: flag(env.TRUST_PROXY),
+    sourceUrl: env.SOURCE_URL?.trim() || 'https://github.com/MarcelWeissgerberIT/SimpleCMS',
     version: VERSION,
   }
 }
 
 export const isSecureUrl = (url: string) => url.startsWith('https://')
+
+/** DATA_DIR, default /data in production and server/.data in development. */
+export const resolveDataDir = (env: NodeJS.ProcessEnv = process.env) =>
+  resolve(env.DATA_DIR || (env.NODE_ENV === 'production' ? '/data' : join(serverRoot, '.data')))
 
 function flag(v: string | undefined): boolean {
   return v === '1' || v === 'true' || v === 'yes'

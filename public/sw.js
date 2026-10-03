@@ -67,6 +67,9 @@ self.addEventListener('fetch', (event) => {
   if (url.origin !== self.location.origin) return
   // video streams use Range requests, and the Cache API cannot store partial responses
   if (req.headers.has('range') || /\.(mp4|webm|mov)$/i.test(url.pathname)) return
+  // team cloud (served from the same origin): API answers and the live channel are never cached
+  const rel = url.pathname.slice(new URL(self.registration.scope).pathname.length)
+  if (rel.startsWith('api/') || rel === 'collab' || rel.startsWith('collab/')) return
 
   if (req.mode === 'navigate') {
     event.respondWith(

@@ -11,6 +11,7 @@ import { Resolver } from './resolve'
 import { isDateValue, parseLocal } from './format'
 import { isDate, runFormula } from '../formula'
 import { sortRows, testGroup } from './query'
+import { parentIdOf, subItemsOf } from './hierarchy'
 
 const CRLF = '\r\n'
 
@@ -94,7 +95,10 @@ function spanOf(r: Resolver, db: Database, prop: PropertyDef, row: Page): Span |
 /** Rows of a view as it shows them: its filters, then its sorts (search is a momentary lens and is ignored). */
 export function viewRows(r: Resolver, db: Database, view: View, rows: Page[]): Page[] {
   const props = new Map(db.properties.map((p) => [p.id, p]))
-  return sortRows(r, db, filteredRows(r, db, view, rows, props), Array.isArray(view.sorts) ? view.sorts : [], props)
+  // "Parents only" hides sub-items everywhere the view is shown (calendar export, published sites)
+  const pair = view.subItems === 'parents' ? subItemsOf(db) : null
+  const visible = pair ? rows.filter((row) => !parentIdOf(r.ctx.pages, pair, row)) : rows
+  return sortRows(r, db, filteredRows(r, db, view, visible, props), Array.isArray(view.sorts) ? view.sorts : [], props)
 }
 
 /**

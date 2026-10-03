@@ -83,7 +83,7 @@ export function AddSubButton({ onAdd, tabbable }: { onAdd: () => void; tabbable?
   return (
     <button
       type="button"
-      className="db-open db-addsub"
+      className="db-key db-addsub"
       tabIndex={tabbable ? 0 : -1}
       aria-label={t('database.sub.add')}
       title={t('database.sub.add')}

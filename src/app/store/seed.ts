@@ -1,7 +1,8 @@
 /**
  * First-run demo workspace (EN/DE). Shows off what One can do on first open:
- * a guided welcome page, a project database with many views, a reading list gallery,
- * a content calendar, meeting notes and a small linked wiki (nice graph).
+ * a guided welcome page (tabs, a button), a project database with many views
+ * (form, sub-items, dependencies, a colour rule, AI autofill), a reading list gallery,
+ * a content calendar, meeting notes (a comment, a button) and a small linked wiki (nice graph).
  * Uses ONLY the node names from the CLAUDE.md contract.
  */
 import type { JSONContent } from '@tiptap/core'
@@ -115,7 +116,7 @@ export function seedWorkspace(lang: Lang): void {
   const projectProps: PropertyDef[] = [
     { id: P.name, name: L('Project', 'Projekt'), type: 'title' },
     { id: P.status, name: 'Status', type: 'status', options: statusOpts },
-    { id: P.prio, name: L('Priority', 'Priorität'), type: 'select', options: prioOpts },
+    { id: P.prio, name: L('Priority', 'Priorität'), type: 'select', options: prioOpts, autofill: { preset: 'categorize' } },
     { id: P.owner, name: L('Owner', 'Verantwortlich'), type: 'person' },
     { id: P.due, name: L('Timeline', 'Zeitraum'), type: 'date' },
     { id: P.progress, name: L('Progress', 'Fortschritt'), type: 'number', numberFormat: 'percent', numberDisplay: 'bar' },
@@ -133,8 +134,22 @@ export function seedWorkspace(lang: Lang): void {
     const cal = { ...defaultView('calendar', db, L('Calendar', 'Kalender')), dateProperty: P.due }
     // budget per status: varied bars (7,500 / 20,500 / 13,000 / 12,000) instead of four equal counts
     const chart = { ...defaultView('chart', db, L('Chart', 'Diagramm')), chart: { kind: 'bar' as const, xPropertyId: P.status, aggregate: 'sum' as const, yPropertyId: P.budget } }
+    const form = {
+      ...defaultView('form', db, L('Intake form', 'Eingangsformular')),
+      visibleProperties: [P.status, P.prio, P.owner, P.due, P.tags, P.budget],
+      form: {
+        title: L('Project intake', 'Projekt-Einreichung'),
+        description: L('Pitch a project for next quarter. We read every submission on Mondays.', 'Schlag ein Projekt fürs nächste Quartal vor. Wir lesen jede Einreichung montags.'),
+        submitLabel: L('Send pitch', 'Pitch senden'),
+        questions: {
+          [P.name]: { required: true, help: L('A short, specific name.', 'Ein kurzer, konkreter Name.') },
+          [P.status]: { required: true },
+          [P.due]: { help: L('When should it start?', 'Wann soll es losgehen?') },
+        },
+      },
+    }
     s.updateDatabase(projects, {
-      views: [board, tableView, timeline, cal, chart],
+      views: [board, tableView, timeline, cal, chart, form],
       nextUniqueId: 1,
       // one armed automation, so the feature is visible from the start (same shape as the notify_done recipe)
       automations: [
@@ -182,6 +197,38 @@ export function seedWorkspace(lang: Lang): void {
       ),
     })
     rowIds.push(rowId)
+  }
+
+  /* ---------- Projects: sub-items, dependencies, a colour rule ---------- */
+  {
+    const SUB = newId()
+    const DEP = newId()
+    const rel = (id: ID, name: string) => s.addProperty(projects, { id, type: 'relation', name, relationDatabaseId: projects })
+    rel(SUB, L('Parent item', 'Übergeordnet'))
+    rel(`${SUB}.2way`, L('Sub-items', 'Unterelemente'))
+    rel(DEP, L('Blocked by', 'Blockiert durch'))
+    rel(`${DEP}.2way`, L('Blocking', 'Blockiert'))
+    const managed = [SUB, `${SUB}.2way`, DEP, `${DEP}.2way`]
+    for (const v of useWorkspace.getState().databases[projects].views) s.updateView(projects, v.id, { visibleProperties: v.visibleProperties.filter((x) => !managed.includes(x)) })
+    s.updateDatabase(projects, {
+      subItems: { enabled: true, parentPropertyId: SUB, childPropertyId: `${SUB}.2way` },
+      dependencies: { enabled: true, blockedByPropertyId: DEP, blockingPropertyId: `${DEP}.2way`, onConflict: 'shift' },
+    })
+    // both sides of each pair, the way writeValue keeps them
+    const link = (propId: ID, from: ID, to: ID) => {
+      const get = (row: ID, prop: ID) => (useWorkspace.getState().pages[row]?.properties[prop] as ID[] | undefined) ?? []
+      s.setRowProperty(from, propId, [...get(from, propId), to])
+      s.setRowProperty(to, `${propId}.2way`, [...get(to, `${propId}.2way`), from])
+    }
+    link(SUB, rowIds[5], rowIds[0]) // Pricing page experiment ⊂ Website relaunch
+    link(SUB, rowIds[4], rowIds[3]) // Customer onboarding video ⊂ Q4 content calendar
+    link(DEP, rowIds[0], rowIds[1]) // Website relaunch waits for the Notion import (ink arrow)
+    link(DEP, rowIds[4], rowIds[6]) // onboarding video waits for the AI assistant — overlap: orange arrow
+    const tableView = useWorkspace.getState().databases[projects].views.find((v) => v.type === 'table')
+    if (tableView)
+      s.updateView(projects, tableView.id, {
+        colorRules: [{ id: newId(), color: 'green', target: 'background', filter: { id: newId(), op: 'and', items: [{ id: newId(), propertyId: P.status, operator: 'is', value: statusOpts[3].id }] } }],
+      })
   }
 
   /* ---------- Reading list (gallery) ---------- */
@@ -338,9 +385,26 @@ export function seedWorkspace(lang: Lang): void {
       h2(L('Agenda', 'Agenda')),
       ul(li(mention(rowIds[0], L('Website relaunch', 'Website-Relaunch')), L(' — launch date', ' — Launch-Termin')), li(mention(rowIds[2], L('n8n lead-routing automation', 'n8n Lead-Routing-Automation'))), li(L('Budget check', 'Budget-Check'))),
       h2(L('Decisions', 'Entscheidungen')),
-      callout('✅', 'green', p(L('Relaunch goes live on ', 'Relaunch geht live am '), dateMention(day(14), day(14)), '.')),
+      callout('✅', 'green', p(txt(L('Relaunch goes live on ', 'Relaunch geht live am '), [{ type: 'comment', attrs: { id: 'seed-c1' } }]), dateMention(day(14), day(14)), '.')),
       h2(L('Action items', 'Aufgaben')),
       tasks(task(false, b('Alex'), L(' — final QA on staging', ' — finale QA auf Staging')), task(false, b('Sam'), L(' — connect webhook to n8n', ' — Webhook mit n8n verbinden')), task(true, b('Mira'), L(' — draft the newsletter', ' — Newsletter-Entwurf'))),
+      p(L('Before it goes out, check the newsletter against our brand voice.', 'Vor dem Versand den Newsletter mit unserer Markenstimme abgleichen.')),
+      h2(L('Next sync', 'Nächstes Sync')),
+      {
+        type: 'button',
+        attrs: {
+          label: L('New meeting entry', 'Neuer Meeting-Eintrag'),
+          variant: 'signal',
+          actions: [
+            {
+              id: 'seed-btn-1a',
+              type: 'insert_blocks',
+              content: [h3('Sync {{date}}'), tasks(task(false, L('Decisions', 'Entscheidungen')))],
+            },
+            { id: 'seed-btn-1b', type: 'message', text: L('Logged at {{time}} — have a good sync, {{user}}', 'Erfasst um {{time}} — gutes Meeting, {{user}}') },
+          ],
+        },
+      },
     ),
     'seed',
   )
@@ -367,8 +431,24 @@ export function seedWorkspace(lang: Lang): void {
         task(false, L('Drag a card on the ', 'Zieh auf dem '), mention(projects, L('Projects', 'Projekte')), L(' board to Done', '-Board eine Karte nach Erledigt')),
         task(false, L('Alt-click ', 'Alt-Klick auf '), mention(wiki, L('Team wiki', 'Team-Wiki')), L(' to open it in a side-by-side pane', ', um es nebeneinander zu öffnen')),
         task(false, L('Add your Claude key in Settings → Claude AI, then press Space on an empty line', 'Hinterlege deinen Claude-Key unter Einstellungen → Claude KI und drücke dann Leertaste in einer leeren Zeile')),
-        task(false, L('Import your Notion export with ', 'Importiere deinen Notion-Export über '), b(L('Import', 'Importieren')), L(' in the sidebar', ' in der Seitenleiste')),
+        task(false, L('Move in from Notion, Obsidian, Evernote or Trello with ', 'Zieh mit '), b(L('Import', 'Importieren')), L(' in the sidebar', ' in der Seitenleiste aus Notion, Obsidian, Evernote oder Trello um')),
+        task(false, L('Publish any page as a website: ', 'Veröffentliche jede Seite als Website: '), b(L('Export → Website', 'Exportieren → Website'))),
       ),
+      h2(L('Three ways to work', 'Drei Arten zu arbeiten')),
+      {
+        type: 'tabs',
+        content: [
+          { type: 'tab', attrs: { title: L('Write', 'Schreiben') }, content: [p(L('Type / for blocks, select text for the toolbar, press Space on an empty line to ask AI.', 'Tippe / für Blöcke, markiere Text für die Werkzeugleiste, drücke Leertaste in einer leeren Zeile für die KI.'))] },
+          { type: 'tab', attrs: { title: L('Organise', 'Ordnen') }, content: [p(L('Drag blocks by their handle, nest pages in the sidebar, plan everything dated in the Agenda.', 'Zieh Blöcke am Griff, verschachtle Seiten in der Seitenleiste, plane alles mit Datum in der Agenda.'))] },
+          {
+            type: 'tab',
+            attrs: { title: L('Share', 'Teilen') },
+            content: [
+              p(L('Share links carry the page itself — no server, optional password. Or publish a whole section as a website.', 'Teilen-Links tragen die Seite selbst — kein Server, optional mit Passwort. Oder veröffentliche einen ganzen Bereich als Website.')),
+            ],
+          },
+        ],
+      },
       h2(L('Why One', 'Warum One')),
       columns(
         [
@@ -387,6 +467,14 @@ export function seedWorkspace(lang: Lang): void {
       h2(L('Your projects, live', 'Deine Projekte, live')),
       p(L('Databases can live inside pages. This one is the same data as ', 'Datenbanken können in Seiten leben. Diese hier zeigt dieselben Daten wie '), mention(projects, L('Projects', 'Projekte')), '.'),
       dbBlock(projects),
+      {
+        type: 'button',
+        attrs: {
+          label: L('Add a project', 'Projekt anlegen'),
+          variant: 'ink',
+          actions: [{ id: 'seed-btn-2a', type: 'add_page', databaseId: projects, title: L('New project {{date}}', 'Neues Projekt {{date}}'), values: [{ propertyId: P.status, value: statusOpts[0].id }, { propertyId: P.due, value: '@today' }], open: true }],
+        },
+      },
       h2(L('Blocks for nerds', 'Blöcke für Nerds')),
       p(L('Inline math like ', 'Inline-Mathe wie '), imath('e^{i\\pi} + 1 = 0'), L(', block equations, code with highlighting and diagrams:', ', Formeln, Code mit Highlighting und Diagramme:')),
       math('\\text{saved}_{year} = \\text{seats} \\times \\text{price} \\times 12'),
@@ -406,6 +494,12 @@ export function seedWorkspace(lang: Lang): void {
     ),
     'seed',
   )
+
+  s.addComment(meeting, {
+    id: 'seed-c1',
+    quote: L('Relaunch goes live on ', 'Relaunch geht live am '),
+    body: L('Only after Alex signs off QA on staging. (Margin notes: select text, press Comment or ⌘⌥M / Ctrl+Alt+M — they stay on this device.)', 'Erst nach Alex’ QA-Freigabe auf Staging. (Randnotizen: Text markieren, Kommentieren oder ⌘⌥M / Strg+Alt+M — sie bleiben auf diesem Gerät.)'),
+  })
 
   // order in sidebar: Welcome, Projects, Reading list, Content calendar, Wiki, Meeting
   const order: ID[] = [welcome, projects, reading, calendar, wiki, meeting]

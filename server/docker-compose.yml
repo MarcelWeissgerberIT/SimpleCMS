@@ -1,0 +1,48 @@
+# SimpleCMS One — team cloud with automatic HTTPS.
+#
+#   cp .env.example .env    # set DOMAIN, SECRET, SMTP_URL …
+#   docker compose up -d --build
+#
+# Needs a DNS record for DOMAIN pointing at this machine and ports 80 + 443 open.
+# Step-by-step guide: docs/SELF_HOSTING.md
+
+name: simplecms-one
+
+services:
+  one:
+    build:
+      context: ..
+      dockerfile: server/Dockerfile
+    image: simplecms-one:latest
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      PUBLIC_URL: https://${DOMAIN:?set DOMAIN in .env}
+      TRUST_PROXY: "1"
+    volumes:
+      - one-data:/data
+    expose:
+      - "8080"
+    stop_grace_period: 20s
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    depends_on:
+      one:
+        condition: service_healthy
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      DOMAIN: ${DOMAIN:?set DOMAIN in .env}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+
+volumes:
+  one-data:
+  caddy-data:
+  caddy-config:

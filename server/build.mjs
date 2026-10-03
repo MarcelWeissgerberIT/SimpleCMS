@@ -29,8 +29,17 @@ if (!watch) {
   await build(options)
 } else {
   let child = null
-  const restart = () => {
-    if (child) child.kill('SIGTERM')
+  const stopChild = () =>
+    new Promise((resolve) => {
+      const c = child
+      child = null
+      if (!c || c.exitCode !== null || c.signalCode !== null) return resolve()
+      c.once('exit', resolve)
+      c.kill('SIGTERM')
+    })
+  // the old server must release the port (and flush its documents) before the new one starts
+  const restart = async () => {
+    await stopChild()
     child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', '--enable-source-maps', 'dist/index.js'], {
       stdio: 'inherit',
       env: { DEV_MODE: '1', ...process.env },
@@ -41,9 +50,11 @@ if (!watch) {
     plugins: run ? [{ name: 'run', setup: (b) => b.onEnd((r) => { if (!r.errors.length) restart() }) }] : [],
   })
   await ctx.watch()
-  process.on('SIGINT', async () => {
-    child?.kill('SIGTERM')
+  const quit = async () => {
+    await stopChild()
     await ctx.dispose()
     process.exit(0)
-  })
+  }
+  process.on('SIGINT', quit)
+  process.on('SIGTERM', quit)
 }

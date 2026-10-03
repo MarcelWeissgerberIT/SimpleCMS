@@ -6,9 +6,9 @@
 
 **Notion, rebuilt. Minus the bill.**
 
-A local-first workspace that does what Notion does — block editor, databases with seven views,
-Claude AI with your own key, webhook automations, Notion import — for **$0**, with **no account**
-and **no server**. Everything lives in your browser.
+A local-first workspace that does what Notion does — block editor, databases with eight views, forms,
+Claude AI with your own key, webhook automations, import from Notion, Obsidian, Evernote and Trello,
+publishing as a website — for **$0**, with **no account** and **no server**. Everything lives in your browser.
 
 **[Live demo → marcelweissgerberit.github.io/SimpleCMS](https://marcelweissgerberit.github.io/SimpleCMS/)** ·
 [Open the workspace](https://marcelweissgerberit.github.io/SimpleCMS/app/) ·
@@ -42,6 +42,11 @@ AI on every workspace with your own Claude key, and an honest export.
 | Use without an account | no | **yes** |
 | Full AI on every plan | Business only | **yes** — bring your own Claude key |
 | Webhook automations | paid plans | **free** on every database |
+| Forms | yes | **free** — shared forms send answers to your n8n / Make / Zapier webhook |
+| AI autofill for database columns | Business only | **yes** — with review before anything is written |
+| Publish as a website | Notion Sites (custom domain extra) | **static site you own** — sitemap, RSS, `llms.txt`, Markdown twins |
+| Import | Notion-to-Notion | **Notion, Obsidian, Evernote, Trello, HTML, Markdown, CSV** |
+| Calendar across all databases | separate app (Notion Calendar) | **Agenda** built in, plus `.ics` export |
 | Graph view of linked pages | no | **yes** |
 | Version history | 7 / 30 / 90 days by plan | **no limit**, block-level diff |
 | Share without a server | no | **yes** — the page travels inside the link |
@@ -64,17 +69,21 @@ AI on every workspace with your own Claude key, and an honest export.
 </table>
 
 **Block editor** — slash menu (with the Markdown shortcut shown next to every command), drag handles, turn-into,
-toggles, callouts, columns, tables, to-dos, code with highlighting, KaTeX math, Mermaid diagrams, images & files,
-embeds, bookmarks, table of contents, @-mentions of pages / dates / people, emoji shortcodes, Markdown paste,
-block links.
+toggles, callouts, columns, tables, tabs, to-dos, code with highlighting, KaTeX math, Mermaid diagrams, images &
+files, embeds, bookmarks, table of contents, @-mentions of pages / dates / people, emoji shortcodes, Markdown paste,
+block links, margin comments (they never leave the device), and **buttons** that insert blocks, add rows, edit
+properties, open links or fire a webhook in one click.
 
-**Databases** — table, board, list, gallery, calendar, timeline and chart views over the same rows; 20 property types
-including relations, rollups, formulas (safe parser, no `eval`), status, unique IDs and ratings; filters with AND/OR
-groups, multi-sort, grouping, footer calculations, row templates, inline databases inside pages, side/centre peek.
+**Databases** — table, board, list, gallery, calendar, timeline, chart and form views over the same rows; 20 property
+types including relations, rollups, formulas (safe parser, no `eval`), status, unique IDs and ratings; filters with
+AND/OR groups, multi-sort, grouping, footer calculations, colour rules, sub-items, timeline dependencies (with
+automatic shifting), row templates, inline databases inside pages, side/centre peek, `.ics` calendar export, and
+**AI autofill** — summaries, key info, translations or categories per row, reviewed before they are written.
 
 **Workspace** — page tree with drag & drop, favourites, trash, breadcrumbs, `⌘K` palette for search *and* commands,
-home dashboard, today's journal, stacked panes (`Alt`-click any link), focus mode, presentation mode (any page becomes
-slides), 11 templates (meeting notes, project tracker, roadmap, content calendar, reading list, CRM, bug tracker,
+home dashboard, today's journal, an **Agenda** with everything dated in the workspace (month, week, list), backlinks
+and unlinked mentions, a web clipper (bookmarklet and Android share target) that saves to an Inbox, stacked panes
+(`Alt`-click any link), focus mode, presentation mode (any page becomes slides), 11 templates (meeting notes, project tracker, roadmap, content calendar, reading list, CRM, bug tracker,
 OKRs, weekly planner, wiki, habits), light "Paper" and dark "Carbon" themes, English and German.
 
 **AI, your key** — select text and ask Claude to improve, shorten, extend, fix, translate, explain, summarise or pull
@@ -83,7 +92,9 @@ pages. Requests go straight from your browser to `api.anthropic.com` with your k
 Sonnet 5.5 and Haiku 4.5 selectable). The key never leaves this browser in any other way.
 
 **Automations for automators** — every database can fire webhooks when rows are created, changed or deleted, set
-properties, or show notifications. Ready-made recipes for n8n / Make / Zapier. Payload:
+properties, or show notifications; buttons and shared forms post to webhooks too. Ready-made recipes for n8n / Make /
+Zapier. Every delivery carries a `deliveryId`, so receivers can drop the rare duplicate when a browser has to retry
+without CORS. Payload:
 
 ```json
 {
@@ -98,14 +109,17 @@ properties, or show notifications. Ready-made recipes for n8n / Make / Zapier. P
   },
   "changes": [{ "property": "Status", "from": "Backlog", "to": "In progress" }],
   "timestamp": "2026-10-03T09:41:07.000Z",
+  "deliveryId": "V1StGXR8_Z5jdHi6B-myT",
   "source": "simplecms-one"
 }
 ```
 
 **Move in, move out** — import a Notion export (Markdown & CSV zip, nested pages, databases with typed columns,
-images), Markdown files, CSV or a One backup. Export pages or the whole workspace as Markdown (zip), HTML, PDF or a
-lossless JSON backup. Share read-only pages as links that *contain* the page (compressed into the URL) — no server
-involved.
+images), an Obsidian vault (wikilinks, embeds, callouts), Evernote `.enex`, a Trello board, HTML pages, Markdown files,
+CSV or a One backup. Export pages or the whole workspace as Markdown (zip), HTML, PDF or a lossless JSON backup —
+or **publish it as a website**: a static site with navigation, sitemap, RSS, `llms.txt` and a Markdown twin of every
+page, ready for GitHub Pages or Netlify. Share read-only pages as links that *contain* the page (compressed into the
+URL, optionally encrypted with a password) — no server involved.
 
 **Private by construction** — no analytics, no cookies, no backend. A service worker keeps the app working offline
 after the first visit. Several tabs stay in sync — when two of them edit the same page at the same moment, the
@@ -168,11 +182,13 @@ Built for the **Ninja Armory** challenge of the AI Automations community.
 
 **SimpleCMS One** ist ein Workspace wie Notion, nur lokal, kostenlos und ohne Konto. Er bietet:
 
-- einen Block-Editor mit Slash-Menü
-- Datenbanken mit sieben Ansichten
-- Claude-KI mit deinem eigenen API-Key
-- Webhook-Automationen für n8n, Make und Zapier
-- Notion-Import, Teilen-Links ohne Server, Graph-Ansicht und Versionsverlauf ohne Zeitlimit
+- einen Block-Editor mit Slash-Menü, Tabs, Randkommentaren und Buttons mit Aktionen
+- Datenbanken mit acht Ansichten inklusive Formularen, Unterelementen, Abhängigkeiten und Farbregeln
+- Claude-KI mit deinem eigenen API-Key, auch als KI-Autofill für Datenbank-Spalten
+- Webhook-Automationen für n8n, Make und Zapier – auch aus Buttons und geteilten Formularen
+- Import aus Notion, Obsidian, Evernote, Trello und HTML
+- Veröffentlichen als statische Website, Teilen-Links ohne Server (optional mit Passwort)
+- Agenda über alle Datenbanken, Web-Clipper, Graph-Ansicht und Versionsverlauf ohne Zeitlimit
 - Präsentationsmodus und Offline-Betrieb
 
 Alles läuft im Browser, deine Daten verlassen dein Gerät nicht. Die Oberfläche gibt es auf Deutsch und Englisch und

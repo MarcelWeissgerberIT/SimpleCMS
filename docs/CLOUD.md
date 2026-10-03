@@ -50,6 +50,15 @@ The GitHub Pages build stays local-only.
 | `DEV_MODE` | `1` = magic links are logged and returned by `/api/dev/mailbox` (never in production) |
 | `MAX_UPLOAD_MB` | default 25 |
 | `PORT` | default 8080 |
+| `HOST` | default `0.0.0.0` *(server addition)* |
+| `APP_DIR` | the app build to serve; default `../dist` next to `server/`, `/app/dist` in Docker *(server addition)* |
+| `TRUST_PROXY` | `1` behind a reverse proxy: client IP for rate limits = right-most `X-Forwarded-For` (compose sets it) *(server addition)* |
+| `SOURCE_URL` | AGPL §13 source offer, returned by `GET /api/config` *(server addition)* |
+| `LOG_LEVEL` | `debug` · `info` (default) · `warn` · `error` *(server addition)* |
+
+In development (`NODE_ENV` ≠ `production`) `DATA_DIR` defaults to `server/.data`, `PUBLIC_URL` to
+`http://localhost:$PORT`, and a `SECRET` is generated once into `DATA_DIR/dev-secret`. Production refuses to
+start without `SECRET` and `PUBLIC_URL`, or with `DEV_MODE=1` (exit code 78, message names the variable).
 
 ## Data on the server (SQLite)
 
@@ -66,6 +75,13 @@ files(id, workspace_id, name, mime, size, sha256, created_by, created_at)  -- by
 
 Roles: `owner` > `admin` > `member` (edit) > `viewer` (read-only connection). Exactly one owner per
 workspace (transferable). Tokens (login, invite, session) are random 32 bytes, stored only as SHA-256.
+
+As implemented (migration v1, additive to the above): tokens are stored as HMAC-SHA256 keyed with
+`SECRET` (a leaked database alone cannot be replayed or forged; rotating `SECRET` signs everyone out);
+`sessions.last_used_at`; `login_tokens.browser_hash, invite_hash, lang` (see sign-in below);
+`invites.accepted_at`; `files` primary key is `(workspace_id, id)` because file ids are chosen by the
+client; a partial unique index enforces at most one `owner` per workspace; all child tables
+`ON DELETE CASCADE` from `workspaces`. Timestamps are integer ms in SQLite and ISO strings in the API.
 
 ## REST API (same origin, JSON, session cookie `one_session`)
 
@@ -93,14 +109,80 @@ All mutating requests require `Content-Type: application/json` (CSRF guard toget
 | `GET /api/workspaces/:id/files/:fileId` | viewer | bytes, `Cache-Control: private, max-age=31536000, immutable` |
 | `GET /api/health` | – | `{ ok: true, version }` |
 | `GET /api/dev/mailbox` | DEV_MODE only | last 50 mails `{ to, subject, text, link }` |
+| `POST /api/auth/verify` | – | *(server addition)* form `token=` (the confirmation page) or JSON `{ token }` → sets cookie, `303` to `redirect` |
+| `GET /api/config` | – | *(server addition)* `{ version, signup: { mode, domains? }, max_upload_mb, dev_mode, source_url }` |
 
 Errors: `{ error: { code, message } }` with 400/401/403/404/409/413/429.
+
+### As implemented (server v0.1) — details the client needs
+
+- **Sign-in request** also takes `lang?: 'en'|'de'` (mail language; else `Accept-Language`) and
+  `invite?: <invite token>` (lets a new address through `SIGNUP=invite`/`domains`). Over the limit it
+  answers `429 rate_limited` with `Retry-After` (seconds). With `SIGNUP` restrictions an address that may
+  not sign up still gets `204` but no mail.
+- **Magic link** (`GET /api/auth/verify`): the request sets a short-lived `one_login` cookie
+  (path `/api/auth`). Opened in that same browser the link signs in at once (`302`). Opened elsewhere
+  (other device, or a mail security scanner pre-fetching links) it shows a *Confirm sign-in* page whose
+  button POSTs to `/api/auth/verify` — so scanners cannot burn the single-use token. Invalid/used/expired
+  links render an HTML error page (`400`); a new account refused by `SIGNUP` renders `403`. `redirect` must
+  be a same-origin path (`/…`, not `//…`), else `/app/`; fragments are kept (`/app/#/invite/<token>`).
+- **Session cookie** `one_session`: HttpOnly, SameSite=Lax, Path=/, Max-Age 30 days, `Secure` when
+  `PUBLIC_URL` is https. The expiry slides on API use (re-sent at most once a day) — call `GET /api/me` on
+  boot. An invalid cookie is cleared.
+- **Workspace object** (`POST` → `201`, `PATCH` → `200`, `/api/me`):
+  `{ id, name, icon, role, plan, created_at }`; `icon` is opaque JSON (`null`, a string ≤ 64 chars or an
+  object ≤ 2 KB); `name` 1–100 chars, trimmed. At most 20 new workspaces per user per day.
+- **Members**: `created_at` is the membership date. `PATCH … { role: 'owner' }` transfers ownership (owner
+  only; the old owner becomes `admin`). The owner's own role can only change through a transfer
+  (`409 owner_must_transfer`); the owner cannot leave or be removed (same code). Non-members get `404
+  workspace_not_found` for every workspace route (existence is not revealed), members below the needed role
+  `403 forbidden`.
+- **Invites**: `POST` → `201 { id, link, expires_at, role, email, email_sent? }`; roles `admin|member|viewer`
+  (default `member`); valid 7 days; **single use**; `lang?` picks the mail language. The **link is
+  `${PUBLIC_URL}/app/#/invite/<token>`** — the app's router handles `#/invite/<token>`: preview with
+  `GET /api/invites/:token`, sign in if needed (pass `invite` and `redirect`), then accept. The token is
+  stored hashed, so the link is only returned once. `GET …/invites` →
+  `[{ id, role, email, created_at, expires_at, inviter: { id, name, email } | null }]`.
+  `409 already_member` when inviting the email of a member.
+- **Invite preview** → `{ workspace: { name, icon }, role, inviter: { name, email } | null, email, expires_at }`.
+  **Accept** → `{ workspaceId, role }`; an email-bound invite needs that email (`403 invite_email_mismatch`);
+  accepting while already a member keeps the role and leaves the invite unused.
+- **Files**: `PUT` is exempt from the JSON rule (it carries the file's type; PUT always needs a CORS
+  preflight, which the server never grants) but cross-origin `Origin` is still rejected. `x-file-name` is
+  **URI-encoded** (`encodeURIComponent`). Ids: `[A-Za-z0-9_-]{1,64}`. Answers `201 { id }`, or `200 { id }`
+  when that id already exists (uploads are idempotent; content for an id never changes). Check
+  `max_upload_mb` from `/api/config` before uploading. `GET` sends `ETag` (sha256) and honours
+  `If-None-Match`; raster images (`png|jpeg|gif|webp|avif`) are `inline`, everything else (SVG too)
+  `attachment`; viewers may download.
+- **CSRF**: besides `Content-Type: application/json` (on POST/PATCH/DELETE, also without a body), a
+  request whose `Origin` (or `Sec-Fetch-Site`) is not this site is refused with `403 bad_origin`. Don't
+  send API requests with `referrerPolicy: 'no-referrer'` — browsers then send `Origin: null`.
+- **Dev mailbox**: newest first, optional `?to=<email>`, entries also carry `created_at`.
+- **Error codes** — 400: `invalid_request` (zod; `details` attached), `invalid_json`, `json_required`,
+  `invalid_file_id` · 401: `unauthenticated` · 403: `forbidden`, `owner_only`, `bad_origin`,
+  `invite_email_mismatch` · 404: `not_found`, `workspace_not_found`, `member_not_found`,
+  `invite_not_found`, `invite_used`, `invite_expired`, `file_not_found` · 409: `owner_must_transfer`,
+  `already_member` · 413: `file_too_large`, `payload_too_large` (JSON > 256 KB) · 429: `rate_limited` ·
+  500: `internal`.
 
 ## Realtime documents (Yjs over Hocuspocus, `wss://…/collab`)
 
 Authentication: the WebSocket upgrade carries the session cookie; `onAuthenticate` resolves the
 user and the membership for the document's workspace; viewers get `connection.readOnly = true`.
 Unknown document names are rejected.
+
+As implemented: one socket per browser tab can carry many documents (`HocuspocusProviderWebsocket`
+shared by several `HocuspocusProvider`s, each `attach()`ed); no `token` is needed (the cookie is used).
+The upgrade is refused with `401` without a valid session, `403` when `Origin` is another site, `404` on
+any path but `/collab`. Per document: `authenticated` → `scope` is `'read-write'` or `'readonly'`
+(viewers — make the editor read-only; their updates are not applied); `authenticationFailed` → `reason`
+is `'unauthenticated' | 'forbidden' | 'invalid-document'`. The server closes a document connection
+(provider `close` event, `event.reason`) with `'membership-revoked'` (removed or left), `'role-changed'`
+(viewer ↔ writer: re-attach to get the new scope), `'workspace-deleted'` or `'session-ended'` (logout,
+revoked or expired session). Name ids: workspace `[A-Za-z0-9_-]{8,64}`, page `[A-Za-z0-9_-]{1,64}`.
+State is stored debounced (2 s, at most 10 s) and on the last disconnect and shutdown. The server never
+writes into documents itself: renaming a workspace means `PATCH /api/workspaces/:id` (what `/api/me` and
+invites show) **and** the meta document's `workspace` map; mirroring members into `people` is the client's job.
 
 Document names:
 
@@ -148,6 +230,12 @@ overlay per workspace.
 - Files: `saveFile()` keeps writing to IndexedDB (`onefile:<id>`) and, in a cloud workspace,
   uploads in the background; `useFileUrl()` falls back to `GET /api/workspaces/:id/files/:id` and caches.
 - Cross-tab merging (`store/merge.ts`) is off in cloud workspaces — Yjs handles it.
+- **Service worker** (`public/sw.js`): it must not touch `/api/` and `/collab` — today its
+  stale-while-revalidate branch would cache same-origin `GET /api/me`, member lists and files. Return early
+  for those paths (file downloads may be cached by `useFileUrl()` instead).
+- Development against a local server: proxy `/api` and `/collab` (`ws: true`) from Vite to
+  `http://localhost:8080` and start the server with `PUBLIC_URL=http://localhost:5173`, so mail links go
+  through Vite; `GET /api/dev/mailbox?to=<email>` returns the link.
 
 ## Security notes
 
@@ -157,6 +245,14 @@ overlay per workspace.
   for non-image types and `X-Content-Type-Options: nosniff`.
 - Every query is scoped by workspace membership; viewers can never write (REST or Yjs).
 - Security headers on all responses (CSP for the app, frame-ancestors 'none', referrer policy).
+- As implemented: the app CSP allows scripts/styles/fonts from the origin only (`'unsafe-inline'` for
+  styles), `connect-src 'self' wss://<host> https:` — `https:` because the browser calls
+  api.anthropic.com with the user's own key **and** posts automation webhooks to user-chosen endpoints —
+  and `frame-src https:` for page embeds. API responses get `default-src 'none'; sandbox`; downloads a
+  sandboxed CSP. Also `nosniff`, `X-Frame-Options: DENY`, COOP `same-origin`, a restrictive
+  `Permissions-Policy`, HSTS when https. The WebSocket upgrade checks `Origin` (cross-site WebSocket
+  hijacking). Magic links are bound to the requesting browser (see sign-in) so link scanners cannot use
+  them up.
 
 ## Roadmap
 

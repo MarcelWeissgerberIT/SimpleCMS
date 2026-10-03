@@ -30,7 +30,7 @@ export function appCsp(config: Config): string {
   ].join('; ')
 }
 
-/** For JSON, files and everything that is not an app page. */
+/** For API responses (JSON). Static files get the app policy: a worker script (sw.js) runs under its own response's CSP. */
 export const LOCKED_CSP = "default-src 'none'; frame-ancestors 'none'; sandbox"
 
 export function securityHeaders(config: Config): MiddlewareHandler<AppEnv> {
@@ -39,13 +39,13 @@ export function securityHeaders(config: Config): MiddlewareHandler<AppEnv> {
   return async (c, next) => {
     await next()
     const h = c.res.headers
-    const type = h.get('content-type') ?? ''
-    if (!h.has('content-security-policy')) h.set('Content-Security-Policy', type.startsWith('text/html') ? csp : LOCKED_CSP)
+    const api = c.req.path.startsWith('/api/') && !(h.get('content-type') ?? '').startsWith('text/html')
+    if (!h.has('content-security-policy')) h.set('Content-Security-Policy', api ? LOCKED_CSP : csp)
     h.set('X-Content-Type-Options', 'nosniff')
     h.set('X-Frame-Options', 'DENY')
     if (!h.has('referrer-policy')) h.set('Referrer-Policy', 'strict-origin-when-cross-origin')
     h.set('Cross-Origin-Opener-Policy', 'same-origin')
-    h.set('Permissions-Policy', 'camera=(), microphone=(), geolocation=(), payment=(), usb=(), interest-cohort=()')
+    h.set('Permissions-Policy', 'camera=(), microphone=(), geolocation=(), payment=(), usb=()')
     if (hsts) h.set('Strict-Transport-Security', 'max-age=31536000')
   }
 }

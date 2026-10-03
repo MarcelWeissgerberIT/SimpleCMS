@@ -1021,7 +1021,9 @@
   font-weight: 450;
 }
 
-.db-open {
+/* .db-open: the row "OPEN" key · .db-key: the same keycap for other row actions (add sub-item) */
+.db-open,
+.db-key {
   flex: none;
   display: inline-flex;
   align-items: center;
@@ -1043,12 +1045,14 @@
   transition: opacity var(--dur-1) var(--ease-out);
 }
 
-.db-open:hover {
+.db-open:hover,
+.db-key:hover {
   color: var(--signal-ink);
   border-color: var(--signal);
 }
 
-.db-open:active {
+.db-open:active,
+.db-key:active {
   transform: translateY(1px);
   border-bottom-width: 1px;
 }

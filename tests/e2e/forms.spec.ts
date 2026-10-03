@@ -39,7 +39,8 @@ async function addFormView(page: Page, dbId: string): Promise<string> {
   await page.getByRole('menuitem', { name: /^Form/ }).click()
   await expect(db(page)).toHaveAttribute('data-view', 'form')
   await expect(db(page).locator('.fb')).toBeVisible()
-  return wsEval(page, (s, id) => s.databases[id].views.find((v: { type: string }) => v.type === 'form').id, dbId)
+  // the newest form view (the seed already ships one: "Intake form")
+  return wsEval(page, (s, id) => s.databases[id].views.filter((v: { type: string }) => v.type === 'form').at(-1).id, dbId)
 }
 
 /** CORS-friendly webhook mock; returns the captured request bodies. */

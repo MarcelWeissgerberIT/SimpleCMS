@@ -1,0 +1,7 @@
+# Automatic HTTPS (Let's Encrypt) for $DOMAIN, proxying to the SimpleCMS One container.
+# WebSockets (/collab) need no extra configuration.
+{$DOMAIN} {
+	encode zstd gzip
+	reverse_proxy one:8080
+	header -Server
+}

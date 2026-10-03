@@ -1,0 +1,103 @@
+import { Hono, type MiddlewareHandler } from 'hono'
+import { bodyLimit } from 'hono/body-limit'
+import { HTTPException } from 'hono/http-exception'
+import type { AppEnv, Services } from './context.ts'
+import { ApiError, notFound } from './errors.ts'
+import { csrfGuard, securityHeaders } from './http/security.ts'
+import { mountStatic } from './http/static.ts'
+import { authRoutes } from './routes/auth.ts'
+import { fileRoutes } from './routes/files.ts'
+import { inviteRoutes } from './routes/invites.ts'
+import { meRoutes } from './routes/me.ts'
+import { workspaceRoutes } from './routes/workspaces.ts'
+
+const JSON_LIMIT = 256 * 1024
+
+export function buildApp(s: Services): Hono<AppEnv> {
+  const app = new Hono<AppEnv>()
+
+  app.use('*', securityHeaders(s.config))
+  app.use('/api/*', async (c, next) => {
+    await next()
+    if (!c.res.headers.has('cache-control')) c.res.headers.set('Cache-Control', 'no-store')
+  })
+  app.use('/api/*', csrfGuard(s.config))
+  app.use('/api/*', jsonLimit())
+  app.use('/api/*', sessionMiddleware(s))
+
+  app.get('/api/health', (c) => {
+    try {
+      s.db.get('SELECT 1')
+      return c.json({ ok: true, version: s.config.version })
+    } catch {
+      return c.json({ ok: false, version: s.config.version }, 503)
+    }
+  })
+
+  // what the sign-in screen and uploader need to know about this server
+  app.get('/api/config', (c) =>
+    c.json({
+      version: s.config.version,
+      signup: s.config.signup,
+      max_upload_mb: s.config.maxUploadBytes / 1024 / 1024,
+      dev_mode: s.config.devMode,
+      source_url: s.config.sourceUrl,
+    }),
+  )
+
+  app.route('/api/auth', authRoutes(s))
+  app.route('/api/me', meRoutes(s))
+  app.route('/api/workspaces', workspaceRoutes(s))
+  app.route('/api/workspaces', fileRoutes(s))
+  app.route('/api/invites', inviteRoutes(s))
+
+  if (s.config.devMode) {
+    app.get('/api/dev/mailbox', (c) => {
+      const to = c.req.query('to')?.toLowerCase()
+      return c.json(s.mailer.mailbox().filter((m) => !to || m.to === to))
+    })
+  }
+
+  app.all('/api/*', () => {
+    throw notFound('not_found', 'Unknown API endpoint')
+  })
+
+  mountStatic(app, s)
+
+  app.onError((err, c) => {
+    if (err instanceof ApiError) {
+      for (const [k, v] of Object.entries(err.headers ?? {})) c.header(k, v)
+      return c.json({ error: { code: err.code, message: err.message, ...(err.details ? { details: err.details } : {}) } }, err.status)
+    }
+    if (err instanceof HTTPException && err.status < 500) {
+      return c.json({ error: { code: err.status === 413 ? 'payload_too_large' : 'bad_request', message: err.message || 'Bad request' } }, err.status)
+    }
+    s.log.error('unhandled error', { method: c.req.method, path: c.req.path, error: err })
+    return c.json({ error: { code: 'internal', message: 'Internal server error' } }, 500)
+  })
+
+  return app
+}
+
+/** Resolves the session cookie on every API request and slides its expiry. */
+function sessionMiddleware(s: Services): MiddlewareHandler<AppEnv> {
+  return async (c, next) => {
+    const token = s.sessions.readCookie(c)
+    const auth = token ? s.sessions.resolve(token) : null
+    c.set('auth', auth)
+    if (token && !auth) s.sessions.clearCookie(c)
+    if (token && auth && s.sessions.touch(auth.session)) s.sessions.setCookie(c, token)
+    await next()
+  }
+}
+
+/** JSON bodies are small; file uploads (PUT …/files/:id) enforce MAX_UPLOAD_MB themselves while streaming. */
+function jsonLimit(): MiddlewareHandler<AppEnv> {
+  const limit = bodyLimit({
+    maxSize: JSON_LIMIT,
+    onError: () => {
+      throw new ApiError(413, 'payload_too_large', 'Request body too large')
+    },
+  })
+  return (c, next) => (c.req.method === 'PUT' && /\/files\/[^/]+$/.test(c.req.path) ? next() : limit(c, next))
+}

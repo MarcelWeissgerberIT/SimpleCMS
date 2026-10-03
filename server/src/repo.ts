@@ -49,7 +49,7 @@ export interface FileRow {
   created_at: number
 }
 
-export const publicUser = (u: UserRow) => ({ id: u.id, email: u.email, name: u.name })
+export const publicUser = (u: Pick<UserRow, 'id' | 'email' | 'name'>) => ({ id: u.id, email: u.email, name: u.name })
 
 export const publicWorkspace = (w: WorkspaceRow, role: Role) => ({
   id: w.id,

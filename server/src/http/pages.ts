@@ -8,7 +8,7 @@ function page(lang: Lang, title: string, content: string): string {
   return `<!doctype html>
 <html lang="${lang}"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="referrer" content="no-referrer"><meta name="robots" content="noindex">
+<meta name="referrer" content="same-origin"><meta name="robots" content="noindex">
 <title>${e(title)} — SimpleCMS One</title>
 <style>
 :root{--bg:#f2f0ea;--card:#fbfaf6;--ink:#141413;--ink2:#67635b;--rule:#d9d5ca;--signal:#ff4f00}
