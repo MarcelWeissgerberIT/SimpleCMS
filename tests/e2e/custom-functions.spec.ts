@@ -202,7 +202,7 @@ test.describe('custom functions', () => {
 
     // the formula editor: a "Custom functions" group + "Build your own…"
     await page.locator('#main section.db .dbt-hcell', { hasText: 'Margin' }).first().click()
-    await page.getByRole('menuitem', { name: /formula/i }).first().click()
+    await page.getByRole('menuitem', { name: 'Edit formula' }).click()
     const editor = page.getByRole('dialog', { name: 'Margin' })
     await expect(editor.locator('.db-fx__refitem--fn', { hasText: 'DOUBLE' })).toBeVisible()
     await editor.locator('[data-edit-functions]').click()

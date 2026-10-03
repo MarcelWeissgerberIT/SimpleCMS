@@ -3,7 +3,7 @@
  * function (built-ins by category with their signature, plus the workspace's own functions).
  * One search field on top doubles as quick entry: "42" offers the number 42, "abc" the text.
  */
-import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
+import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import { Popover } from '../../../ui/Popover'
 import { useT, useLang } from '../../../i18n'
 import type { FnParam } from '../../../store/types'
@@ -46,6 +46,14 @@ export function NodePicker({ anchor, mode, params, catalog, self, initialQuery =
   const [cat, setCat] = useState<string>(() => (catalog.customs.length ? 'custom' : 'math'))
   const [active, setActive] = useState(0)
   const listRef = useRef<HTMLDivElement>(null)
+  const inputRef = useRef<HTMLInputElement>(null)
+  // focus the field right away: a key typed just after opening (e.g. "3" then ⏎) must land in it
+  useLayoutEffect(() => {
+    const el = inputRef.current
+    if (!el) return
+    el.focus({ preventScroll: true })
+    el.setSelectionRange(el.value.length, el.value.length)
+  }, [])
 
   const customs = useMemo(() => (self && self.name ? [...catalog.customs.filter((c) => c.name !== self.name), self] : catalog.customs), [catalog.customs, self])
   const categories = useMemo(() => {
@@ -149,10 +157,10 @@ export function NodePicker({ anchor, mode, params, catalog, self, initialQuery =
       }
     }
     // operators: all keys without a query, else the ones whose key or name matches
+    // operators: all keys without a query; typed as a symbol ("*", "<=") they come first …
+    const opName = (s: CallSpec) => t(`features.fn.op.${OPERATOR_KEYS[s.name as keyof typeof OPERATOR_KEYS].id}`).toLowerCase()
     for (const s of catalog.operators) {
-      const k = OPERATOR_KEYS[s.name as keyof typeof OPERATOR_KEYS]
-      if (q && !(q === s.name || q === k.key || t(`features.fn.op.${k.id}`).toLowerCase().startsWith(ql))) continue
-      out.push(opOption(s))
+      if (!q || q === s.name || q === OPERATOR_KEYS[s.name as keyof typeof OPERATOR_KEYS].key) out.push(opOption(s))
     }
     if (!q) {
       const list = cat === 'custom' ? customs : catalog.builtins.filter((b) => b.category === cat)
@@ -165,6 +173,8 @@ export function NodePicker({ anchor, mode, params, catalog, self, initialQuery =
       }
       ranked.sort((a, b) => a[0] - b[0] || a[1].name.localeCompare(b[1].name))
       for (const [, s] of ranked.slice(0, 60)) out.push(fnOption(s))
+      // … typed as a word ("minus", "mal") after the functions (MIN before minus)
+      for (const s of catalog.operators) if (ql.length > 1 && opName(s).startsWith(ql) && !out.some((o) => o.id === `op:${s.name}`)) out.push(opOption(s))
     }
     // text last: any query can be a text value
     if (mode === 'fill' && q && !NUM.test(q))
@@ -174,7 +184,10 @@ export function NodePicker({ anchor, mode, params, catalog, self, initialQuery =
         choice: { k: 'str', v: q.replace(/^"(.*)"$/, '$1') },
         face: <ValueFace label={t('features.fn.kind.str')} value={`“${q.replace(/^"(.*)"$/, '$1')}”`} />,
       })
-    return out
+    // grouped as shown (sections in the order they first come), so ↑ ↓ follow the screen
+    const first = new Map<Option['section'], number>()
+    out.forEach((o, i) => first.has(o.section) || first.set(o.section, i))
+    return out.map((o, i) => [o, i] as const).sort((a, b) => first.get(a[0].section)! - first.get(b[0].section)! || a[1] - b[1]).map(([o]) => o)
   }, [query, mode, params, catalog, customs, cat, lang, t])
 
   useEffect(() => setActive(0), [query, cat])
@@ -223,6 +236,7 @@ export function NodePicker({ anchor, mode, params, catalog, self, initialQuery =
         <input
           className="input fx-pick__search"
           value={query}
+          ref={inputRef}
           data-autofocus=""
           placeholder={mode === 'wrap' ? t('features.fn.pick.searchFn') : t('features.fn.pick.search')}
           aria-label={mode === 'wrap' ? t('features.fn.pick.searchFn') : t('features.fn.pick.search')}

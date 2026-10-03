@@ -2,7 +2,7 @@
  * The menu of a filled node: edit its value (numbers, text, yes / no), replace it, wrap it into a
  * function, unwrap a function, add or remove an optional argument, empty the slot.
  */
-import { useRef, useState, type KeyboardEvent } from 'react'
+import { useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react'
 import { ArrowDownToLine, ArrowUpFromLine, CornerDownLeft, Eraser, Minus, Plus, Replace } from 'lucide-react'
 import { Popover } from '../../../ui/Popover'
 import { useT, useLang } from '../../../i18n'
@@ -29,6 +29,13 @@ export function NodeMenu({ anchor, node, spec, canAdd, canRemove, readOnly, onVa
   const t = useT()
   const lang = useLang()
   const listRef = useRef<HTMLDivElement>(null)
+  const inputRef = useRef<HTMLInputElement>(null)
+  // focus right away (keys typed just after opening land here): the value field, else the first action
+  useLayoutEffect(() => {
+    const el = inputRef.current ?? listRef.current?.querySelector<HTMLElement>('button')
+    el?.focus({ preventScroll: true })
+    if (el instanceof HTMLInputElement) el.select()
+  }, [])
   const [text, setText] = useState(node.k === 'num' ? numText(node.v) : node.k === 'str' ? node.v : '')
   const num = Number(text.replace(',', '.'))
   const numOk = node.k !== 'num' || (text.trim() !== '' && Number.isFinite(num))
@@ -139,6 +146,7 @@ export function NodeMenu({ anchor, node, spec, canAdd, canRemove, readOnly, onVa
           }}
         >
           <input
+            ref={inputRef}
             className="input fx-menu__input"
             value={text}
             data-autofocus=""
