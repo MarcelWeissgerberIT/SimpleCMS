@@ -284,7 +284,7 @@ test.describe('button block', () => {
     await expect(ed.locator('.ob')).toHaveCount(4)
 
     await flush(page)
-    const buttons = await wsEval(
+    const buttons: Array<{ label: string; actions: Array<{ id: string; type: string }> }> = await wsEval(
       page,
       (s, id) => {
         const out: Array<{ label: string; actions: Array<{ id: string; type: string; url?: string }> }> = []
