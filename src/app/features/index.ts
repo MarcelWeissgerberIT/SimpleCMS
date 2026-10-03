@@ -172,3 +172,45 @@ export {
   type CellValue as SheetCellValue,
   type SpreadsheetAttrs,
 } from './sheets'
+/*
+ * Charts (pure SVG, Instrument look — the `chart` block, spreadsheet charts, database chart view; see charts/index.ts):
+ *  - ChartRenderer { spec, data, height?, interactive? } · useChartData(source, spec?) → { data, loading } (live)
+ *  - tableToChartData(values, spec?) · openChartBuilder({ initial?, source?, allowedSources?, onSave, inline? … })
+ *  - chartToSvg(spec, data, { width, theme }) · chartDomSpec · chartMarkdown · freezeCharts(doc) (exports, shares)
+ *  - normalizeSpec(raw) (untrusted JSON → ChartSpec | null) · downloads (PNG / SVG) · copyChartTsv · demoCharts()
+ */
+export {
+  ChartRenderer,
+  DataTable as ChartDataTable,
+  useChartData,
+  resolveChartData,
+  resolveChartDataSync,
+  tableToChartData,
+  chartDataToRows,
+  chartDataToTsv,
+  openChartBuilder,
+  closeChartBuilder,
+  chartToSvg,
+  chartDomSpec,
+  chartMarkdown,
+  freezeCharts,
+  frozenSpec,
+  normalizeSpec as normalizeChartSpec,
+  suggestKind as suggestChartKind,
+  chartHeight,
+  downloadChartPng,
+  downloadChartSvg,
+  copyChartTsv,
+  demoCharts,
+  CHART_KINDS,
+  CHART_NODE,
+  type ChartKind,
+  type ChartData,
+  type ChartSeries,
+  type ChartSource,
+  type ChartSourceKind,
+  type ChartSpec,
+  type CellValue as ChartCellValue,
+  type ChartBuilderOptions,
+  type ChartRendererProps,
+} from './charts'
