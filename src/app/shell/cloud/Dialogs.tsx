@@ -57,7 +57,6 @@ function SignInDialog() {
           <CheckInbox flow={flow} />
         )}
       </div>
-      <div className="cl-dlg__foot" />
     </Modal>
   )
 }
@@ -254,18 +253,16 @@ function NewWorkspaceDialog() {
               </p>
             )}
           </div>
-          <div className="cl-dlg__foot">
-            {copyState === 'failed' && (
-              <>
-                <button type="button" className="btn btn--ghost" onClick={() => open(ws.id)}>
-                  {t('shell.cloud.new.openAnyway')}
-                </button>
-                <button type="button" className="btn btn--ink" onClick={() => void copy(ws)}>
-                  {t('shell.cloud.new.retry')}
-                </button>
-              </>
-            )}
-          </div>
+          {copyState === 'failed' && (
+            <div className="cl-dlg__foot">
+              <button type="button" className="btn btn--ghost" onClick={() => open(ws.id)}>
+                {t('shell.cloud.new.openAnyway')}
+              </button>
+              <button type="button" className="btn btn--ink" onClick={() => void copy(ws)}>
+                {t('shell.cloud.new.retry')}
+              </button>
+            </div>
+          )}
         </>
       )}
     </Modal>

@@ -17,6 +17,7 @@ import { startHistory, startAutomations, seedDemoHistory } from './features'
 import { detectLang, makeTranslator } from '@/shared/i18n'
 import { STORAGE_KEYS, safeLocalGet } from '@/shared/brand'
 import { registerServiceWorker } from '@/shared/sw'
+import * as cloud from './cloud'
 
 // Apply the remembered theme before first paint to avoid a flash.
 const storedTheme = safeLocalGet(STORAGE_KEYS.theme)
@@ -51,6 +52,53 @@ function startService(name: string, start: () => unknown) {
 async function boot() {
   bootStatus(bootT('shell.boot.loading'))
 
+  // Team cloud first: which workspace does this tab show? 'cloud' → the store is already filled
+  // from the cloud workspace's local copy (it syncs in the background; no seed, no local
+  // persistence, no cross-tab merge — Yjs does that). 'signed-out' → an empty, unsaved workspace
+  // behind the sign-in screen. 'local' → exactly as before. A cloud failure never blocks local mode.
+  let mode: Awaited<ReturnType<typeof cloud.bootCloud>> = 'local'
+  try {
+    mode = await cloud.bootCloud()
+  } catch (e) {
+    console.error('[one] cloud boot failed — opening the local workspace', e)
+    cloud.useCloud.setState({ status: 'local', active: { kind: 'local', id: 'local' }, role: null, readOnly: false })
+  }
+  if (mode === 'local') await bootLocal()
+
+  if (mode !== 'signed-out') {
+    startService('history', startHistory)
+    startService('automations', startAutomations)
+  }
+
+  // PWA share target (/app/?title=…&text=…&url=…) → the #/clip route, before the first render
+  if (mode !== 'signed-out') startService('share target', consumeShareTarget)
+
+  createRoot(document.getElementById('root')!).render(
+    <StrictMode>
+      <ErrorBoundary>
+        <App />
+      </ErrorBoundary>
+    </StrictMode>,
+  )
+  document.getElementById('boot')?.remove()
+
+  // Automation hook for end-to-end tests and the screenshot script (dev, or ?e2e).
+  if (import.meta.env.DEV || new URLSearchParams(window.location.search).has('e2e')) {
+    ;(window as unknown as { __one?: unknown }).__one = { workspace: useWorkspace, ui: useUI, flushSave, cloud }
+  }
+
+  // Deep link from the landing page: /app/?import → open the importer.
+  const params = new URLSearchParams(window.location.search)
+  if (params.has('import')) {
+    useUI.getState().openModal({ type: 'import' })
+    params.delete('import')
+    const qs = params.toString()
+    history.replaceState(null, '', `${window.location.pathname}${qs ? `?${qs}` : ''}${window.location.hash}`)
+  }
+}
+
+/** The browser-only workspace: load (or seed) it from IndexedDB and start saving + cross-tab sync. */
+async function bootLocal() {
   // reset → load → seed → first save run under a cross-tab lock: a second tab waits and
   // then loads the very same workspace instead of seeding its own.
   await withBootLock(async () => {
@@ -75,34 +123,6 @@ async function boot() {
   })
 
   startPersistence()
-  startService('history', startHistory)
-  startService('automations', startAutomations)
-
-  // PWA share target (/app/?title=…&text=…&url=…) → the #/clip route, before the first render
-  startService('share target', consumeShareTarget)
-
-  createRoot(document.getElementById('root')!).render(
-    <StrictMode>
-      <ErrorBoundary>
-        <App />
-      </ErrorBoundary>
-    </StrictMode>,
-  )
-  document.getElementById('boot')?.remove()
-
-  // Automation hook for end-to-end tests and the screenshot script (dev, or ?e2e).
-  if (import.meta.env.DEV || new URLSearchParams(window.location.search).has('e2e')) {
-    ;(window as unknown as { __one?: unknown }).__one = { workspace: useWorkspace, ui: useUI, flushSave }
-  }
-
-  // Deep link from the landing page: /app/?import → open the importer.
-  const params = new URLSearchParams(window.location.search)
-  if (params.has('import')) {
-    useUI.getState().openModal({ type: 'import' })
-    params.delete('import')
-    const qs = params.toString()
-    history.replaceState(null, '', `${window.location.pathname}${qs ? `?${qs}` : ''}${window.location.hash}`)
-  }
 }
 
 registerServiceWorker()

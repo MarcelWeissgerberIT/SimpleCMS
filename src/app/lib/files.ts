@@ -19,16 +19,60 @@ export interface StoredFile {
 
 export const FILE_PREFIX = 'onefile:'
 
+/**
+ * Team cloud (src/app/cloud registers this in a cloud workspace): files saved here are also
+ * uploaded in the background, and files missing on this device are fetched from the server.
+ */
+export interface CloudFileHooks {
+  /** A file was saved on this device (queue its upload). */
+  saved(id: string, file: StoredFile): void
+  /** The file isn't on this device: get it from the server (undefined when it has none). */
+  fetch(id: string): Promise<StoredFile | undefined>
+}
+
+let cloudHooks: CloudFileHooks | null = null
+
+export function setCloudFileHooks(hooks: CloudFileHooks | null): void {
+  cloudHooks = hooks
+}
+
 export async function saveFile(blob: Blob, name = 'file'): Promise<string> {
   const id = newId()
   const rec: StoredFile = { blob, name, type: blob.type, size: blob.size, createdAt: Date.now() }
   await set(id, rec, fileStore)
+  cloudHooks?.saved(id, rec)
   return FILE_PREFIX + id
+}
+
+/** Downloads in flight (several views asking for the same missing file share one request). */
+const fetching = new Map<string, Promise<StoredFile | undefined>>()
+
+/** The file stored on this device only (no server fallback). */
+export async function getLocalFile(ref: string): Promise<StoredFile | undefined> {
+  if (!ref.startsWith(FILE_PREFIX)) return undefined
+  return get<StoredFile>(ref.slice(FILE_PREFIX.length), fileStore)
 }
 
 export async function getFile(ref: string): Promise<StoredFile | undefined> {
   if (!ref.startsWith(FILE_PREFIX)) return undefined
-  return get<StoredFile>(ref.slice(FILE_PREFIX.length), fileStore)
+  const id = ref.slice(FILE_PREFIX.length)
+  const local = await get<StoredFile>(id, fileStore)
+  const hooks = cloudHooks
+  if (local || !hooks) return local
+  let job = fetching.get(id)
+  if (!job) {
+    job = hooks
+      .fetch(id)
+      .then(async (remote) => {
+        // cache on this device (a failed cache write still shows the file)
+        if (remote) await set(id, remote, fileStore).catch(() => {})
+        return remote
+      })
+      .catch(() => undefined)
+      .finally(() => fetching.delete(id))
+    fetching.set(id, job)
+  }
+  return job
 }
 
 export async function deleteFile(ref: string): Promise<void> {

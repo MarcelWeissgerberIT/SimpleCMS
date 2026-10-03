@@ -64,7 +64,7 @@ export function Topbar({ route }: { route: Route }) {
         {page ? <Crumbs page={page} compact={mobile} /> : <RouteCrumb route={route} />}
       </nav>
       <div className="tb-right">
-        <PresenceStack pageId={route.name === 'page' ? route.id : null} />
+        <PresenceStack pageId={route.name === 'page' ? route.id : null} max={mobile ? 2 : 4} />
         <ViewOnlyTag />
         <SaveLed />
         {page && !page.trashed && <PageActions page={page} mobile={mobile} />}

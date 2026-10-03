@@ -174,7 +174,7 @@ export function SignInScreen() {
     <CloudFrame
       docTitle={t('shell.cloud.signin.doc')}
       steps={signInSteps(t, flow.phase)}
-      status={{ led: flow.phase === 'sent' ? 'on' : 'off', text: flow.phase === 'sent' ? t('shell.cloud.inbox.title') : t('shell.cloud.signedOut') }}
+      status={{ led: flow.phase === 'sent' ? 'on' : 'off', text: flow.phase === 'sent' ? t('shell.cloud.status.sent') : t('shell.cloud.status.signedOut') }}
     >
       {flow.phase === 'form' ? (
         <>

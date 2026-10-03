@@ -101,9 +101,11 @@ export interface BaseExtensionOptions {
   wrap?: ExtensionWrap
   /** DOM tag offset for heading blocks: 1 renders H1–H3 as <h2>–<h4> under a page title (JSON level unchanged). */
   headingOffset?: number
+  /** Live collaboration: Y undo replaces ProseMirror's undo history. */
+  collab?: boolean
 }
 
-export function baseExtensions({ readOnly = false, wrap = {}, headingOffset = 0 }: BaseExtensionOptions = {}): AnyExtension[] {
+export function baseExtensions({ readOnly = false, wrap = {}, headingOffset = 0, collab = false }: BaseExtensionOptions = {}): AnyExtension[] {
   const w = (name: string, ext: AnyExtension) => (wrap[name] ? wrap[name]!(ext) : ext)
   return [
     StarterKit.configure({
@@ -117,7 +119,7 @@ export function baseExtensions({ readOnly = false, wrap = {}, headingOffset = 0 
         HTMLAttributes: { target: null, rel: 'noopener noreferrer nofollow', class: null },
       },
       dropcursor: { color: 'var(--signal)', width: 2, class: 'drop-cursor' },
-      undoRedo: readOnly ? false : { depth: 200 },
+      undoRedo: readOnly || collab ? false : { depth: 200 },
       trailingNode: readOnly ? false : undefined,
     }),
     OutlineHeading.configure({ levels: [1, 2, 3], outlineOffset: headingOffset }),

@@ -9,6 +9,7 @@ import { PageIcon } from '../../ui/PageIcon'
 import { useLang, useT } from '../../i18n'
 import { fmtRelative } from '../lib/format'
 import { goToPage } from '../lib/actions'
+import { useReadOnly } from '../cloud/state'
 
 export function TrashPopover({ anchor, onClose, placement }: { anchor: HTMLElement | null; onClose: () => void; placement: Placement }) {
   const t = useT()
@@ -17,6 +18,8 @@ export function TrashPopover({ anchor, onClose, placement }: { anchor: HTMLEleme
   const pages = useWorkspace((s) => s.pages)
   const [q, setQ] = useState('')
   const [armed, setArmed] = useState<string | null>(null)
+  // viewers can look into the trash, not restore or delete
+  const readOnly = useReadOnly()
 
   // only show top-level trashed items (children of a trashed page travel with it)
   const items = useMemo(() => {
@@ -68,10 +71,12 @@ export function TrashPopover({ anchor, onClose, placement }: { anchor: HTMLEleme
                   </span>
                 </span>
               </button>
-              <button type="button" className="icon-btn icon-btn--sm" title={t('shell.trash.restore')} aria-label={t('shell.trash.restore')} onClick={() => restore(p.id)}>
-                <RotateCcw size={14} />
-              </button>
-              {armed === p.id ? (
+              {!readOnly && (
+                <button type="button" className="icon-btn icon-btn--sm" title={t('shell.trash.restore')} aria-label={t('shell.trash.restore')} onClick={() => restore(p.id)}>
+                  <RotateCcw size={14} />
+                </button>
+              )}
+              {readOnly ? null : armed === p.id ? (
                 <button
                   type="button"
                   className="trash-item__confirm"
@@ -98,7 +103,7 @@ export function TrashPopover({ anchor, onClose, placement }: { anchor: HTMLEleme
         <button
           type="button"
           className="btn btn--sm btn--ghost btn--danger"
-          disabled={trash.length === 0}
+          disabled={trash.length === 0 || readOnly}
           onClick={() => {
             onClose()
             useUI.getState().openModal({

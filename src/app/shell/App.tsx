@@ -28,7 +28,6 @@ import { SignInScreen } from './cloud/SignIn'
 import { InviteScreen } from './cloud/InviteScreen'
 import { CloudDialogs } from './cloud/Dialogs'
 import { CloudBanner } from './cloud/Sync'
-import { usePresenceSync } from './cloud/Presence'
 import './stage/stage.css'
 
 installCloudDevHook()
@@ -76,7 +75,6 @@ function Workspace({ route }: { route: Route }) {
   useRouteEffects(route)
   useDrawerAutoClose()
   usePruneGoneViews()
-  usePresenceSync(route)
   const t = useT()
   const mobile = useIsMobile()
   const focus = useUI((s) => s.focusMode)

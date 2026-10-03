@@ -19,7 +19,6 @@ export const messages: Messages = {
 
     // sidebar
     'shell.sidebar.label': 'Workspace sidebar',
-    'shell.sidebar.sub': 'Local workspace',
     'shell.sidebar.database': 'Database',
     'shell.sidebar.favorites': 'Favorites',
     'shell.sidebar.pages': 'Pages',
@@ -437,7 +436,6 @@ export const messages: Messages = {
     'shell.nav.import': 'Importieren',
 
     'shell.sidebar.label': 'Seitenleiste',
-    'shell.sidebar.sub': 'Lokaler Workspace',
     'shell.sidebar.database': 'Datenbank',
     'shell.sidebar.favorites': 'Favoriten',
     'shell.sidebar.pages': 'Seiten',

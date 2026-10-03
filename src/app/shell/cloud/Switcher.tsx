@@ -30,7 +30,6 @@ export function useWorkspaceEntries(): MenuEntry[] {
       id: 'ws-local',
       label: t('shell.cloud.switcher.local'),
       icon: <Led state={isLocal ? 'ok' : 'off'} />,
-      hint: t('shell.cloud.switcher.localTag').toUpperCase(),
       checked: isLocal,
       onSelect: () => !isLocal && cloudApi.switchWorkspace({ kind: 'local', id: 'local' }),
     },
@@ -108,7 +107,7 @@ export function HeaderSub() {
   if (kind === 'local') return <>{t('shell.cloud.sub.local')}</>
   return (
     <>
-      <Led state={status === 'online' ? 'ok' : status === 'error' ? 'off' : 'on'} />
+      <Led state={status === 'online' ? 'ok' : status === 'connecting' || status === 'checking' ? 'on' : 'off'} />
       {t('shell.cloud.sub.team', { role: roleLabel(t, role) || '—' })}
     </>
   )

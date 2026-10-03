@@ -92,8 +92,8 @@ export function InviteScreen({ token }: { token: string }) {
     load.state === 'loading'
       ? { led: 'on' as const, text: t('shell.cloud.invite.loading') }
       : load.state === 'ready'
-        ? { led: 'ok' as const, text: signedIn ? t('shell.cloud.invite.signedInAs', { email: user.email }) : t('shell.cloud.signedOut') }
-        : { led: 'off' as const, text: load.state === 'no-server' ? t('shell.cloud.invite.noServerTitle') : t('shell.cloud.invite.deadTitle') }
+        ? { led: signedIn ? ('ok' as const) : flow.phase === 'sent' ? ('on' as const) : ('off' as const), text: signedIn ? t('shell.cloud.invite.signedInAs', { email: user.email }) : flow.phase === 'sent' ? t('shell.cloud.status.sent') : t('shell.cloud.status.signedOut') }
+        : { led: 'off' as const, text: load.state === 'no-server' ? t('shell.cloud.status.noServer') : load.state === 'dead' ? t('shell.cloud.status.inviteDead') : t('shell.cloud.err.network') }
 
   return (
     <CloudFrame docTitle={t('shell.cloud.invite.doc')} steps={steps} status={status}>

@@ -18,6 +18,7 @@ import { Backlinks } from './Backlinks'
 import { SpecPlate } from './SpecPlate'
 import { consumeTitleFocus } from '../lib/actions'
 import { NotFound } from '../home/NotFound'
+import { useReadOnly } from '../cloud/state'
 import './page.css'
 
 export type PageVariant = 'main' | 'pane' | 'peek'
@@ -34,7 +35,9 @@ function PageViewInner({ page, variant }: { page: Page; variant: PageVariant }) 
   const isDb = page.kind === 'database'
   const isRow = !!page.databaseId
   const locked = page.settings.locked
-  const readOnly = locked || trashed
+  // a viewer in a team workspace reads every page like a locked one
+  const viewer = useReadOnly()
+  const readOnly = locked || trashed || viewer
   const wide = page.settings.fullWidth || isDb
 
   const articleRef = useRef<HTMLElement>(null)
@@ -60,7 +63,7 @@ function PageViewInner({ page, variant }: { page: Page; variant: PageVariant }) 
       data-has-cover={page.cover ? true : undefined}
       data-locked={readOnly || undefined}
     >
-      {trashed && <TrashBanner page={page} />}
+      {trashed && <TrashBanner page={page} canEdit={!viewer} />}
       <Cover page={page} editable={!readOnly} />
       <header className="pv-head">
         <div className="pv-col">
@@ -248,7 +251,7 @@ function PageTitle({ page, readOnly, variant, onEnter }: { page: Page; readOnly:
 
 /* ---------------- trash banner ---------------- */
 
-function TrashBanner({ page }: { page: Page }) {
+function TrashBanner({ page, canEdit }: { page: Page; canEdit: boolean }) {
   const t = useT()
   const ws = useWorkspace.getState()
   // a child of a trashed page: restore the trashed ancestor
@@ -266,28 +269,32 @@ function TrashBanner({ page }: { page: Page }) {
     <div className="pv-trash" role="status">
       <span className="pv-trash__stripes" aria-hidden />
       <span className="pv-trash__text">{t('shell.page.inTrash')}</span>
-      <button type="button" className="btn btn--sm" onClick={() => ws.restorePage(rootTrashed.id)}>
-        <RotateCcw size={13} />
-        {t('shell.trash.restore')}
-      </button>
-      <button
-        type="button"
-        className="btn btn--sm btn--ghost btn--danger"
-        onClick={() =>
-          useUI.getState().openModal({
-            type: 'confirm',
-            title: t('shell.trash.deleteForeverTitle'),
-            body: t('shell.trash.deleteForeverBody'),
-            danger: true,
-            confirmLabel: t('shell.trash.deleteForever'),
-            // the main column, panes and the peek all let go of the page (usePruneGoneViews)
-            onConfirm: () => useWorkspace.getState().deletePagePermanently(rootTrashed.id),
-          })
-        }
-      >
-        <Trash2 size={13} />
-        {t('shell.trash.deleteForever')}
-      </button>
+      {canEdit && (
+        <>
+          <button type="button" className="btn btn--sm" onClick={() => ws.restorePage(rootTrashed.id)}>
+            <RotateCcw size={13} />
+            {t('shell.trash.restore')}
+          </button>
+          <button
+            type="button"
+            className="btn btn--sm btn--ghost btn--danger"
+            onClick={() =>
+              useUI.getState().openModal({
+                type: 'confirm',
+                title: t('shell.trash.deleteForeverTitle'),
+                body: t('shell.trash.deleteForeverBody'),
+                danger: true,
+                confirmLabel: t('shell.trash.deleteForever'),
+                // the main column, panes and the peek all let go of the page (usePruneGoneViews)
+                onConfirm: () => useWorkspace.getState().deletePagePermanently(rootTrashed.id),
+              })
+            }
+          >
+            <Trash2 size={13} />
+            {t('shell.trash.deleteForever')}
+          </button>
+        </>
+      )}
     </div>
   )
 }

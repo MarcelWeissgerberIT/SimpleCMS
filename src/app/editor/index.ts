@@ -10,8 +10,10 @@
  *      docToHTML and docToMarkdown already apply it (comments: both; actions: HTML).
  *  - stripComments(doc): only the comment anchors. commentIdsIn(doc): thread ids anchored in a doc.
  *  - Tabs block: nodes `tabs` / `tab` (attrs: title). Which tab is shown is editor view state.
+ *  - Team cloud: docSchema() (the document schema) and prepareCollabContent(json, ids) (schema-valid
+ *      content with unique block ids) for writing TipTap JSON into a page's Y document.
  */
 export { PageEditor, type PageEditorProps } from './PageEditor'
 export { ReadOnlyDoc } from './ReadOnlyDoc'
-export { getExtensions, markdownToDoc, docToMarkdown, docToHTML, stripPrivate, stripPrivate as stripButtonActions } from './convert'
+export { getExtensions, markdownToDoc, docToMarkdown, docToHTML, stripPrivate, stripPrivate as stripButtonActions, docSchema, prepareCollabContent } from './convert'
 export { stripComments, commentIdsIn } from './schema/comment'

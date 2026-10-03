@@ -71,7 +71,9 @@ export function trackMove(editor: Editor, json: JSONContent, targetId: string) {
     list = own
     moves.set(editor, own)
     const onTransaction = ({ transaction }: { transaction: Transaction }) => {
-      if (!transaction.docChanged || !transaction.getMeta('history$')) return
+      // undo / redo: ProseMirror history, or Y undo in a team-cloud page
+      const undoRedo = !!transaction.getMeta('history$') || !!(transaction.getMeta('y-sync$') as { isUndoRedoOperation?: boolean } | undefined)?.isUndoRedoOperation
+      if (!transaction.docChanged || !undoRedo) return
       for (const m of own) {
         const present = hasBlock(editor.state.doc, m.id)
         if (present === m.here) continue

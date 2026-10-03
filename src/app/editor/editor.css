@@ -849,3 +849,55 @@
     padding: 10px 12px;
   }
 }
+
+/* ------------------------------------------------------------------ */
+/* Live collaboration (team cloud): other people's carets + selections */
+/* A hairline in the person's colour, a small mono name tag on top.    */
+/* ------------------------------------------------------------------ */
+
+.doc-content .collab-caret {
+  position: relative;
+  margin-left: -0.5px;
+  margin-right: -0.5px;
+  border-left: 1px solid var(--caret, var(--signal));
+  word-break: normal;
+  pointer-events: none;
+}
+
+.doc-content .collab-caret__label {
+  position: absolute;
+  bottom: calc(100% - 0.15em);
+  left: -1px;
+  padding: 1px 4px 0;
+  border-radius: var(--radius-1) var(--radius-1) var(--radius-1) 0;
+  background: var(--caret, var(--signal));
+  color: var(--surface);
+  font: 600 9.5px/1.45 var(--font-mono);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  user-select: none;
+  opacity: 0.92;
+  transition: opacity var(--dur-2) var(--ease-out);
+}
+
+/* a caret at the very top of the page: the tag goes below the line instead */
+.doc-content > :first-child .collab-caret__label {
+  bottom: auto;
+  top: calc(100% - 0.1em);
+  border-radius: 0 var(--radius-1) var(--radius-1) var(--radius-1);
+}
+
+.doc-content .collab-sel {
+  background: var(--caret-wash, var(--signal-wash));
+}
+
+.one-editor.is-loading {
+  min-height: 120px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .doc-content .collab-caret__label {
+    transition: none;
+  }
+}

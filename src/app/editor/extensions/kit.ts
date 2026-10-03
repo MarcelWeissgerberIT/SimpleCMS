@@ -12,6 +12,8 @@ import { BlockFlash, BlockSelection, ExtraInputRules, OnePlaceholder, QuietStart
 import { commentsExtension } from '../comments/plugin'
 import { pasteExtension } from './paste'
 import { ButtonKeys } from '../schema/button'
+import type { ContentDocHandle } from '../../cloud'
+import { collabExtensions } from '../collab'
 
 const typography = () =>
   Typography.configure({ oneHalf: false, oneQuarter: false, threeQuarters: false, superscriptTwo: false, superscriptThree: false, laquo: false, raquo: false })
@@ -23,15 +25,19 @@ export function editorExtensions({
   bridge,
   readOnly = false,
   headingOffset = 0,
+  collab,
 }: {
   bridge: Bridge | null
   readOnly?: boolean
   /** 1 under a page title (<h1>): heading blocks render as <h2>–<h4>. */
   headingOffset?: number
+  /** Team cloud: bind to the page's content document (live collaboration, Y undo, carets). */
+  collab?: ContentDocHandle
 }): AnyExtension[] {
-  const exts = baseExtensions({ readOnly, wrap: nodeViewWraps({ readOnly }), headingOffset })
-  if (readOnly || !bridge) return [...exts, pasteExtension(null), BlockFlash, QuietStart]
+  const exts = baseExtensions({ readOnly, wrap: nodeViewWraps({ readOnly }), headingOffset, collab: !!collab })
+  if (readOnly || !bridge) return [...exts, pasteExtension(null), BlockFlash, QuietStart, ...(collab ? collabExtensions(collab) : [])]
   return [
+    ...(collab ? collabExtensions(collab) : []),
     ...exts,
     typography(),
     OnePlaceholder,

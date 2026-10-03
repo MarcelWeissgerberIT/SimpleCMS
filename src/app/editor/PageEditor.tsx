@@ -3,8 +3,10 @@
  *  - initial content from page.content; debounced writes via setContent(…, instanceId)
  *  - applies external updates (history restore, AI, other panes) without echo
  *  - overlays: drag handle + block menu, slash menu, bubble toolbar, mention/emoji, AI …
+ *  - team cloud: bound to the page's Y document instead (collab.ts) — no initial content, no
+ *    setContent for its own edits (the cloud area keeps page.content fresh), Y undo, carets
  */
-import { useCallback, useEffect, useMemo, useRef, type MouseEvent as ReactMouseEvent } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react'
 import { EditorContent, useEditor } from '@tiptap/react'
 import type { Editor, JSONContent } from '@tiptap/core'
 import type { Node as PMNode } from '@tiptap/pm/model'
@@ -19,6 +21,7 @@ import { findBlockById, flashBlock } from './extensions/behaviors'
 import { sanitize, withBlockIds } from './convert'
 import { EditorOverlays } from './menus/EditorOverlays'
 import { Comments } from './comments/CommentsRail'
+import { acquireContentDoc, releaseContentDoc, useCloud, type ContentDocHandle } from '../cloud'
 import './editor.css'
 
 export interface PageEditorProps {
@@ -206,7 +209,34 @@ function mergeExternal(editor: Editor, baseJson: JSONContent, theirsJson: JSONCo
 
 export function PageEditor(props: PageEditorProps) {
   // A fresh editor per page keeps undo history and plugins page-scoped.
+  // (A tab shows one workspace for its whole life: switching workspaces reloads the app.)
+  if (useCloud.getState().active.kind === 'cloud') return <CloudEditor key={props.pageId} {...props} />
   return <EditorInstance key={props.pageId} {...props} />
+}
+
+/** Team cloud: hold the page's content document while mounted; render once its local copy is loaded. */
+function CloudEditor(props: PageEditorProps) {
+  const [handle, setHandle] = useState<ContentDocHandle | null>(null)
+  const [unbound, setUnbound] = useState(false)
+  const { pageId } = props
+  useEffect(() => {
+    const h = acquireContentDoc(pageId)
+    if (!h) {
+      setUnbound(true)
+      return
+    }
+    let alive = true
+    const show = () => alive && setHandle(h)
+    h.ready.then(show, show)
+    return () => {
+      alive = false
+      setHandle(null)
+      releaseContentDoc(pageId)
+    }
+  }, [pageId])
+  if (unbound) return <EditorInstance {...props} />
+  if (!handle) return <div className={['one-editor', 'is-loading', props.className ?? ''].filter(Boolean).join(' ')} aria-busy="true" />
+  return <EditorInstance {...props} collab={handle} />
 }
 
 /** Sanitised content with block ids filled in (ids missing → persist once after mount). */
@@ -216,14 +246,16 @@ function prepareContent(c: JSONContent | null | undefined): { doc: JSONContent |
   return { doc, idsAdded: changed }
 }
 
-function EditorInstance({ pageId, readOnly, autoFocus, onReady, className }: PageEditorProps) {
+function EditorInstance({ pageId, readOnly, autoFocus, onReady, className, collab }: PageEditorProps & { collab?: ContentDocHandle }) {
   const instanceId = useMemo(() => `editor:${newId()}`, [])
   const bridge = useMemo(() => createBridge(), [])
   const locked = useWorkspace((s) => !!s.pages[pageId]?.settings.locked)
   const font = useWorkspace((s) => s.pages[pageId]?.settings.font ?? 'sans')
   const small = useWorkspace((s) => !!s.pages[pageId]?.settings.smallText)
   const spellcheck = useWorkspace((s) => s.settings.spellcheck)
-  const editable = !readOnly && !locked
+  // viewers (and a revoked membership) read only
+  const cloudReadOnly = useCloud((s) => !!collab && s.readOnly)
+  const editable = !readOnly && !locked && !cloudReadOnly
 
   const lastRev = useRef(useWorkspace.getState().pages[pageId]?.contentRev ?? 0)
   const dirty = useRef(false)
@@ -251,8 +283,9 @@ function EditorInstance({ pageId, readOnly, autoFocus, onReady, className }: Pag
   }, [pageId, instanceId])
 
   // the page title is the one <h1>: heading blocks render as <h2>–<h4> beneath it
-  const extensions = useMemo(() => editorExtensions({ bridge, headingOffset: 1 }), [bridge])
-  const initial = useMemo(() => prepareContent(useWorkspace.getState().pages[pageId]?.content), [pageId])
+  const extensions = useMemo(() => editorExtensions({ bridge, headingOffset: 1, collab }), [bridge])
+  // collaboration: the content comes from the Y document, not the store
+  const initial = useMemo(() => (collab ? { doc: undefined, idsAdded: false } : prepareContent(useWorkspace.getState().pages[pageId]?.content)), [pageId])
 
   const editor = useEditor(
     {
@@ -273,7 +306,8 @@ function EditorInstance({ pageId, readOnly, autoFocus, onReady, className }: Pag
         }
       },
       onUpdate: ({ editor: ed }) => {
-        if (!ed.isEditable || ed.isDestroyed) return
+        // collaboration: the Y document is the copy; the cloud area refreshes page.content
+        if (collab || !ed.isEditable || ed.isDestroyed) return
         editorRef.current = ed
         dirty.current = true
         window.clearTimeout(timer.current)
@@ -311,8 +345,9 @@ function EditorInstance({ pageId, readOnly, autoFocus, onReady, className }: Pag
   }, [editor, bridge])
 
   // external content updates (history restore, AI, other editor instances …)
+  // collaboration: they reach the Y document (cloud bridge) and arrive like anyone's edits
   useEffect(() => {
-    if (!editor) return
+    if (!editor || collab) return
     return useWorkspace.subscribe((s, prev) => {
       const p = s.pages[pageId]
       if (!p || p === prev.pages[pageId]) return
@@ -331,7 +366,7 @@ function EditorInstance({ pageId, readOnly, autoFocus, onReady, className }: Pag
       dirty.current = false
       applyExternalContent(editor, theirs)
     })
-  }, [editor, pageId, instanceId, flush])
+  }, [editor, pageId, instanceId, flush, collab])
 
   // flush on unload (module-level listener, see flushAllEditors) / tab hide / unmount
   useEffect(() => {

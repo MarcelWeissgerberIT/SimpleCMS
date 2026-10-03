@@ -1,9 +1,10 @@
 import { Eye } from 'lucide-react'
 import { useShallow } from 'zustand/react/shallow'
-import { useCloud, type CloudStatus } from '../../cloud'
+import { useCloud, useCloudSync, type CloudStatus } from '../../cloud'
 import { Led } from '../../ui/controls'
 import { Tooltip } from '../../ui/Tooltip'
 import { useT } from '../../i18n'
+import { plural } from '../lib/format'
 import { cloudApi } from './api'
 import { useWorkspaceTitle } from './state'
 
@@ -29,19 +30,28 @@ export function useCloudReadout(): CloudReadout | null {
   }
 }
 
-/** Status-bar cells in a cloud workspace: sync state, VIEW ONLY, people online. */
+/** Status-bar cells in a cloud workspace: sync state, VIEW ONLY, files on their way, people online. */
 export function CloudStatusCells({ readout }: { readout: CloudReadout }) {
   const t = useT()
   const { readOnly, others } = useCloud(
     useShallow((s) => ({ readOnly: s.readOnly, others: new Set(s.peers.filter((p) => p.userId !== s.user?.id).map((p) => p.userId)).size })),
   )
+  const { unsynced, pending, failed } = useCloudSync(useShallow((s) => ({ unsynced: s.unsynced, pending: s.pendingUploads, failed: s.failedUploads })))
+  // online but the server has not confirmed the last change yet: show the write in flight
+  const syncing = readout.state === 'online' && unsynced
   return (
     <>
-      <span className="status__cell status__save" data-cloud={readout.state} role="status" title={readout.tip}>
-        <Led state={readout.led} />
-        {readout.text}
+      <span className="status__cell status__save" data-cloud={syncing ? 'syncing' : readout.state} role="status" title={readout.tip}>
+        <Led state={syncing ? 'on' : readout.led} />
+        {syncing ? t('shell.cloud.sync.syncing') : readout.text}
       </span>
       {readOnly && <span className="status__cell status__ro">{t('shell.cloud.viewOnly')}</span>}
+      {pending > 0 && <span className="status__cell">↑ {t(plural('shell.cloud.sync.pending', pending), { n: pending })}</span>}
+      {failed.length > 0 && (
+        <span className="status__cell status__failed" title={failed.map((f) => f.name).join(', ')}>
+          {t(plural('shell.cloud.sync.failed', failed.length), { n: failed.length })}
+        </span>
+      )}
       {others > 0 && readout.state === 'online' && <span className="status__cell">{t(others === 1 ? 'shell.cloud.sync.peers.one' : 'shell.cloud.sync.peers', { n: others })}</span>}
     </>
   )
@@ -56,7 +66,7 @@ export function ViewOnlyTag() {
     <Tooltip label={t('shell.cloud.viewOnlyHint')}>
       <span className="cl-viewonly" tabIndex={0} data-testid="view-only">
         <Eye size={12} strokeWidth={2} aria-hidden />
-        {t('shell.cloud.viewOnly')}
+        <span className="cl-viewonly__text">{t('shell.cloud.viewOnly')}</span>
       </span>
     </Tooltip>
   )

@@ -22,6 +22,7 @@ const KEYS: Record<string, string> = {
   member_not_found: 'shell.cloud.err.notFound',
   not_found: 'shell.cloud.err.notFound',
   invalid_request: 'shell.cloud.err.invalid',
+  workspace_not_empty: 'shell.cloud.err.notEmpty',
   file_too_large: 'shell.cloud.err.tooLarge',
   payload_too_large: 'shell.cloud.err.tooLarge',
 }

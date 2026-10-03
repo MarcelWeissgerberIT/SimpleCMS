@@ -70,7 +70,6 @@ export const cloudMessages: Messages = {
     'shell.cloud.invite.joining': 'Joining…',
     'shell.cloud.invite.notNow': 'Not now',
     'shell.cloud.invite.otherAccount': 'Not you? Sign out',
-    'shell.cloud.invite.joined': 'You joined {workspace}.',
     'shell.cloud.invite.deadTitle': 'This invite can’t be used.',
     'shell.cloud.invite.deadHint': 'Ask the person who invited you for a new link — invites work once and for 7 days.',
     'shell.cloud.invite.open': 'Open my workspace',
@@ -79,7 +78,6 @@ export const cloudMessages: Messages = {
     // switcher
     'shell.cloud.switcher.workspaces': 'Workspaces',
     'shell.cloud.switcher.local': 'This browser (local)',
-    'shell.cloud.switcher.localTag': 'Local',
     'shell.cloud.switcher.new': 'New team workspace…',
     'shell.cloud.switcher.signIn': 'Sign in to the team cloud…',
     'shell.cloud.switcher.signOut': 'Sign out',
@@ -90,6 +88,10 @@ export const cloudMessages: Messages = {
     'shell.cloud.sub.local': 'Local workspace',
     'shell.cloud.sub.team': 'Team · {role}',
     'shell.cloud.signedOut': 'Signed out.',
+    'shell.cloud.status.signedOut': 'Signed out',
+    'shell.cloud.status.sent': 'Link sent · waiting',
+    'shell.cloud.status.noServer': 'No server',
+    'shell.cloud.status.inviteDead': 'Invite not usable',
 
     // new workspace modal
     'shell.cloud.new.label': 'New team workspace',
@@ -119,7 +121,6 @@ export const cloudMessages: Messages = {
 
     // team settings
     'shell.settings.tab.team': 'Team',
-    'shell.cloud.team.tab': 'Team',
     'shell.cloud.team.title': 'Team',
     'shell.cloud.team.body': 'Who can open this workspace, and what they can do.',
     'shell.cloud.team.you': 'You',
@@ -145,7 +146,6 @@ export const cloudMessages: Messages = {
     'shell.cloud.team.leaveQ': 'Leave {workspace}? You need a new invite to come back.',
     'shell.cloud.team.leaveTitle': 'Leave workspace',
     'shell.cloud.team.leaveBody': 'You lose access on every device. Your local workspace is not affected.',
-    'shell.cloud.team.ownerStays': 'The owner can’t leave. Transfer ownership first.',
     'shell.cloud.team.invites': 'Invite people',
     'shell.cloud.team.inviteRole': 'Role',
     'shell.cloud.team.inviteEmail': 'Email (optional)',
@@ -197,6 +197,11 @@ export const cloudMessages: Messages = {
     'shell.cloud.sync.errorTip': 'Not syncing — see the banner above',
     'shell.cloud.sync.peers': '{n} online',
     'shell.cloud.sync.peers.one': '1 other online',
+    'shell.cloud.sync.syncing': 'Syncing…',
+    'shell.cloud.sync.pending': '{n} files waiting',
+    'shell.cloud.sync.pending.one': '1 file waiting',
+    'shell.cloud.sync.failed': '{n} uploads refused',
+    'shell.cloud.sync.failed.one': '1 upload refused',
 
     // error banner
     'shell.cloud.banner.label': 'Sync stopped',
@@ -228,6 +233,7 @@ export const cloudMessages: Messages = {
     'shell.cloud.err.notFound': 'That workspace no longer exists, or you are no longer a member.',
     'shell.cloud.err.invalid': 'The server did not accept that. Check the input.',
     'shell.cloud.err.tooLarge': 'That file is larger than the server allows.',
+    'shell.cloud.err.notEmpty': 'That workspace already has content — copy into a new, empty one.',
     'shell.cloud.err.generic': 'Something went wrong: {msg}',
 
     // palette
@@ -298,7 +304,6 @@ export const cloudMessages: Messages = {
     'shell.cloud.invite.joining': 'Tritt bei…',
     'shell.cloud.invite.notNow': 'Nicht jetzt',
     'shell.cloud.invite.otherAccount': 'Nicht du? Abmelden',
-    'shell.cloud.invite.joined': 'Du bist {workspace} beigetreten.',
     'shell.cloud.invite.deadTitle': 'Diese Einladung lässt sich nicht nutzen.',
     'shell.cloud.invite.deadHint': 'Bitte die Person, die dich eingeladen hat, um einen neuen Link — Einladungen gelten einmal und 7 Tage lang.',
     'shell.cloud.invite.open': 'Meinen Workspace öffnen',
@@ -306,7 +311,6 @@ export const cloudMessages: Messages = {
 
     'shell.cloud.switcher.workspaces': 'Workspaces',
     'shell.cloud.switcher.local': 'Dieser Browser (lokal)',
-    'shell.cloud.switcher.localTag': 'Lokal',
     'shell.cloud.switcher.new': 'Neuer Team-Workspace…',
     'shell.cloud.switcher.signIn': 'In der Team-Cloud anmelden…',
     'shell.cloud.switcher.signOut': 'Abmelden',
@@ -317,6 +321,10 @@ export const cloudMessages: Messages = {
     'shell.cloud.sub.local': 'Lokaler Workspace',
     'shell.cloud.sub.team': 'Team · {role}',
     'shell.cloud.signedOut': 'Abgemeldet.',
+    'shell.cloud.status.signedOut': 'Abgemeldet',
+    'shell.cloud.status.sent': 'Link gesendet · wartet',
+    'shell.cloud.status.noServer': 'Kein Server',
+    'shell.cloud.status.inviteDead': 'Einladung ungültig',
 
     'shell.cloud.new.label': 'Neuer Team-Workspace',
     'shell.cloud.new.nameTitle': 'Gib dem Workspace einen Namen.',
@@ -344,7 +352,6 @@ export const cloudMessages: Messages = {
     'shell.cloud.new.signInBody': 'Team-Workspaces liegen auf dem Server. Melde dich einmal mit deiner E-Mail an, dann leg einen an.',
 
     'shell.settings.tab.team': 'Team',
-    'shell.cloud.team.tab': 'Team',
     'shell.cloud.team.title': 'Team',
     'shell.cloud.team.body': 'Wer diesen Workspace öffnen darf und was er darin tun kann.',
     'shell.cloud.team.you': 'Du',
@@ -370,7 +377,6 @@ export const cloudMessages: Messages = {
     'shell.cloud.team.leaveQ': '{workspace} verlassen? Für die Rückkehr brauchst du eine neue Einladung.',
     'shell.cloud.team.leaveTitle': 'Workspace verlassen',
     'shell.cloud.team.leaveBody': 'Du verlierst den Zugriff auf allen Geräten. Dein lokaler Workspace bleibt unberührt.',
-    'shell.cloud.team.ownerStays': 'Der Inhaber kann nicht gehen. Übertrage zuerst die Inhaberschaft.',
     'shell.cloud.team.invites': 'Personen einladen',
     'shell.cloud.team.inviteRole': 'Rolle',
     'shell.cloud.team.inviteEmail': 'E-Mail (optional)',
@@ -419,6 +425,11 @@ export const cloudMessages: Messages = {
     'shell.cloud.sync.errorTip': 'Synchronisiert nicht — siehe Hinweis oben',
     'shell.cloud.sync.peers': '{n} online',
     'shell.cloud.sync.peers.one': '1 weitere Person online',
+    'shell.cloud.sync.syncing': 'Synchronisiert…',
+    'shell.cloud.sync.pending': '{n} Dateien warten',
+    'shell.cloud.sync.pending.one': '1 Datei wartet',
+    'shell.cloud.sync.failed': '{n} Uploads abgelehnt',
+    'shell.cloud.sync.failed.one': '1 Upload abgelehnt',
 
     'shell.cloud.banner.label': 'Sync gestoppt',
     'shell.cloud.banner.revoked': 'Du wurdest aus {workspace} entfernt.',
@@ -448,6 +459,7 @@ export const cloudMessages: Messages = {
     'shell.cloud.err.notFound': 'Diesen Workspace gibt es nicht mehr, oder du bist kein Mitglied mehr.',
     'shell.cloud.err.invalid': 'Der Server hat das nicht angenommen. Prüfe die Eingabe.',
     'shell.cloud.err.tooLarge': 'Die Datei ist größer, als der Server erlaubt.',
+    'shell.cloud.err.notEmpty': 'Dieser Workspace hat schon Inhalt — kopiere in einen neuen, leeren.',
     'shell.cloud.err.generic': 'Etwas ist schiefgegangen: {msg}',
 
     'shell.cloud.cmd.newWorkspace': 'Neuer Team-Workspace',

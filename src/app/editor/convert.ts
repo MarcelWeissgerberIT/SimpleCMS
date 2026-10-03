@@ -342,3 +342,12 @@ export function withBlockIds(doc: JSONContent): { doc: JSONContent; changed: boo
   const next = walk(doc)
   return { doc: next, changed }
 }
+
+/**
+ * Content about to be written into a page's Y document (team cloud): valid for the schema and —
+ * with `ids` — every block carrying a unique id (blocks without one get a fresh id).
+ */
+export function prepareCollabContent(json: JSONContent, ids: boolean): JSONContent {
+  const doc = sanitize(json.type === 'doc' ? json : { type: 'doc', content: [json] })
+  return ids ? withBlockIds(doc).doc : doc
+}

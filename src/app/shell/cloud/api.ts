@@ -4,6 +4,7 @@
  * calls for screenshots and UI tests without a server: window.__oneCloud.mock({ listMembers: … }).
  */
 import {
+  CloudError,
   acceptInvite,
   createInvite,
   createWorkspace,
@@ -51,6 +52,7 @@ export function installCloudDevHook(): void {
   if (!on) return
   ;(window as unknown as { __oneCloud?: unknown }).__oneCloud = {
     state: useCloud,
+    CloudError,
     set: (patch: Partial<ReturnType<typeof useCloud.getState>>) => useCloud.setState(patch),
     mock: (over: Partial<CloudApi>) => Object.assign(cloudApi, over),
   }

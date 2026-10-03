@@ -95,5 +95,17 @@ export default defineConfig({
       },
     },
   },
-  server: { host: '127.0.0.1' },
+  server: {
+    host: '127.0.0.1',
+    // Team cloud against a local server (server/README.md): ONE_SERVER=http://127.0.0.1:8080 npm run dev
+    // (start the server with PUBLIC_URL=<this dev origin> so magic links come back through Vite)
+    ...(process.env.ONE_SERVER
+      ? {
+          proxy: {
+            '/api': { target: process.env.ONE_SERVER, changeOrigin: false },
+            '/collab': { target: process.env.ONE_SERVER.replace(/^http/, 'ws'), ws: true, changeOrigin: false },
+          },
+        }
+      : {}),
+  },
 })

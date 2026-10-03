@@ -1,20 +1,11 @@
-import { useEffect, useMemo } from 'react'
-import { setPresencePage, useCloud, type Peer } from '../../cloud'
-import type { Route } from '../../lib/router'
+import { useMemo } from 'react'
+import { useCloud, type Peer } from '../../cloud'
 import { Tooltip } from '../../ui/Tooltip'
 import { useT } from '../../i18n'
 import { Avatar } from './Avatar'
 
-const MAX = 4
 
-/** Tell the others which page the main column shows (null off pages and on leaving). */
-export function usePresenceSync(route: Route): void {
-  const pageId = route.name === 'page' ? route.id : null
-  useEffect(() => {
-    setPresencePage(pageId)
-  }, [pageId])
-  useEffect(() => () => setPresencePage(null), [])
-}
+// Presence itself (which page this tab shows) is published by the cloud core, which follows the route.
 
 /** One entry per person (the same person may have several tabs open). */
 function uniquePeople(peers: Peer[]): Peer[] {
@@ -22,13 +13,13 @@ function uniquePeople(peers: Peer[]): Peer[] {
   return peers.filter((p) => (seen.has(p.userId) ? false : (seen.add(p.userId), true)))
 }
 
-/** Topbar: who else is on this page — overlapping initials, at most four, then "+N". */
-export function PresenceStack({ pageId }: { pageId: string | null }) {
+/** Topbar: who else is on this page — overlapping initials, at most four (two on phones), then "+N". */
+export function PresenceStack({ pageId, max = 4 }: { pageId: string | null; max?: number }) {
   const t = useT()
   const peers = useCloud((s) => s.peers)
   const here = useMemo(() => (pageId ? uniquePeople(peers.filter((p) => p.pageId === pageId)) : []), [peers, pageId])
   if (!here.length) return null
-  const shown = here.slice(0, MAX)
+  const shown = here.slice(0, max)
   const rest = here.length - shown.length
   const names = here.map((p) => p.name).join(', ')
   return (

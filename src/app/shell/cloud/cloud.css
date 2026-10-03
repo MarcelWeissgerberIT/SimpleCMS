@@ -417,6 +417,9 @@
   color: var(--ink-3);
   font-size: var(--text-sm);
 }
+.cl-dead .cl-actions {
+  margin-top: 24px;
+}
 .cl-join__who {
   margin: 0 0 12px;
 }
@@ -522,7 +525,7 @@
 }
 .cl-peers__item {
   display: inline-flex;
-  margin-left: -5px;
+  margin-left: -3px;
 }
 .cl-peers__item:first-child {
   margin-left: 0;
@@ -535,7 +538,7 @@
   place-items: center;
   height: 22px;
   min-width: 26px;
-  margin-left: -5px;
+  margin-left: -3px;
   padding: 0 4px;
   border: 1px solid var(--rule-strong);
   border-radius: var(--radius-1);
@@ -575,9 +578,18 @@
   outline: none;
 }
 
+/* phones: the eye alone (the tooltip and the label in the menu say the rest) */
+.app[data-mobile] .cl-viewonly {
+  padding: 0 5px;
+}
+.app[data-mobile] .cl-viewonly__text {
+  display: none;
+}
+
 /* ---------- status bar cells ---------- */
 .status__save[data-cloud='connecting'] .led,
-.status__save[data-cloud='checking'] .led {
+.status__save[data-cloud='checking'] .led,
+.status__save[data-cloud='syncing'] .led {
   animation: cl-blink 0.6s steps(2, jump-none) infinite;
 }
 .status__save[data-cloud='offline'] {
@@ -591,6 +603,9 @@
 }
 .status__save[data-cloud='error'] .led {
   background: var(--c-red-text);
+}
+.status__failed {
+  color: var(--c-red-text);
 }
 .status__ro {
   color: var(--ink);
@@ -675,8 +690,11 @@
 .cl-dlg__body {
   padding: 22px 22px 8px;
 }
+.cl-dlg__body:last-child {
+  padding-bottom: 24px;
+}
 .cl-dlg__title {
-  margin: 0 0 6px;
+  margin: 0 0 16px;
   font-size: 24px;
   font-weight: 800;
   font-stretch: var(--display-stretch);
@@ -684,7 +702,7 @@
   line-height: 1.1;
 }
 .cl-dlg__p {
-  margin: 0 0 18px;
+  margin: -8px 0 18px;
   color: var(--ink-2);
   font-size: var(--text-md);
 }
@@ -1042,6 +1060,11 @@
   }
   .cl-form__row {
     flex-direction: column;
+  }
+  /* column direction: flex-basis 0 would collapse the field's height */
+  .cl-form__input {
+    flex: none;
+    width: 100%;
   }
   .cl-form__submit {
     width: 100%;

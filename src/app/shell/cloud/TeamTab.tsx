@@ -1,13 +1,12 @@
 import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import { AlertTriangle, Copy, Link2, LogOut, RotateCw, Trash2, UserMinus } from 'lucide-react'
-import { format } from 'date-fns'
+import { format, formatDistanceToNowStrict } from 'date-fns'
 import { de, enUS } from 'date-fns/locale'
 import { useShallow } from 'zustand/react/shallow'
 import { useCloud, type Invite, type Member, type Role } from '../../cloud'
 import { useUI } from '../../store/ui'
 import { useLang, useT } from '../../i18n'
 import { Led } from '../../ui/controls'
-import { fmtRelative } from '../lib/format'
 import { cloudApi } from './api'
 import { errorText } from './errors'
 import { Avatar } from './Avatar'
@@ -251,11 +250,11 @@ function Members({
       toast({ message: t('shell.cloud.team.removed', { name: nameOf(m) }) })
     })
 
+  // leaving the open workspace switches this tab to the local workspace (cloud core)
   const leave = (m: Member) =>
     run(m.user.id, async () => {
       await cloudApi.removeMember(wsId, m.user.id)
       onLeft()
-      cloudApi.switchWorkspace({ kind: 'local', id: 'local' })
     })
 
   return (
@@ -458,7 +457,7 @@ function Invites({ wsId, invites, setInvites, reload }: { wsId: string; invites:
             </button>
           </div>
           <p className="tm-link__hint">
-            {t('shell.cloud.team.linkHint')} {created.email ? t('shell.cloud.team.mailed', { email: created.email }) : ''}
+            {t('shell.cloud.team.linkHint')} {created.email && created.email_sent !== false ? t('shell.cloud.team.mailed', { email: created.email }) : ''}
           </p>
         </div>
       )}
@@ -470,8 +469,7 @@ function Invites({ wsId, invites, setInvites, reload }: { wsId: string; invites:
       ) : (
         <ul className="tm-list">
           {invites.map((inv) => {
-            const inviter = (inv as { inviter?: { name?: string; email?: string } | null }).inviter
-            const by = inviter ? inviter.name?.trim() || inviter.email || '' : ''
+            const by = inv.inviter ? inv.inviter.name.trim() || inv.inviter.email : ''
             return (
               <li key={inv.id} className="tm-inv" data-testid="invite">
                 <span className="cl-role" data-role={inv.role}>
@@ -481,7 +479,7 @@ function Invites({ wsId, invites, setInvites, reload }: { wsId: string; invites:
                   {inv.email ?? t('shell.cloud.team.anyone')}
                   <span className="tm-inv__meta">
                     {by ? `${t('shell.cloud.team.by', { name: by })} · ` : ''}
-                    {t('shell.cloud.team.expiresIn', { when: fmtRelative(toMs(inv.expires_at), lang, '') })}
+                    {t('shell.cloud.team.expiresIn', { when: formatDistanceToNowStrict(toMs(inv.expires_at), { addSuffix: true, locale: lang === 'de' ? de : enUS }) })}
                   </span>
                 </span>
                 <button type="button" className="btn btn--sm btn--ghost" onClick={() => void revoke(inv)}>
@@ -508,6 +506,7 @@ function Danger({ wsId, owner, myId, onDone }: { wsId: string; owner: boolean; m
   const [error, setError] = useState<string | null>(null)
   const toast = useUI.getState().toast
 
+  // deleting / leaving the open workspace switches this tab to the local workspace (cloud core)
   const go = async () => {
     setBusy(true)
     setError(null)
@@ -517,7 +516,6 @@ function Danger({ wsId, owner, myId, onDone }: { wsId: string; owner: boolean; m
         toast({ message: t('shell.cloud.team.deleted', { name }) })
       } else if (myId) await cloudApi.removeMember(wsId, myId)
       onDone()
-      cloudApi.switchWorkspace({ kind: 'local', id: 'local' })
     } catch (e) {
       setError(errorText(e, t))
       setBusy(false)
