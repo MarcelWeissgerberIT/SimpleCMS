@@ -13,10 +13,31 @@ const EMPTY: ID[] = []
 
 let lastPages: Record<ID, Page> | null = null
 let lastMap = new Map<string, ID[]>()
+let lastCount = 0
+
+/** What the tree is built from: an edit that changes none of it (typing, a row property) keeps the tree. */
+const treeFieldsDiffer = (a: Page, b: Page) =>
+  a.parentId !== b.parentId || a.order !== b.order || a.createdAt !== b.createdAt || a.trashed !== b.trashed || a.databaseId !== b.databaseId || a.hidden !== b.hidden
+
+/** Same pages, and none of them moved, appeared, disappeared or changed visibility? (one identity pass) */
+function sameTree(pages: Record<ID, Page>, prev: Record<ID, Page>): boolean {
+  let n = 0
+  for (const id in pages) {
+    n++
+    const p = pages[id]
+    const o = prev[id]
+    if (p !== o && (!o || treeFieldsDiffer(p, o))) return false
+  }
+  return n === lastCount
+}
 
 /** Visible tree children (not trashed, not database rows, not hidden), sorted. */
 export function childMap(pages: Record<ID, Page>): Map<string, ID[]> {
   if (pages === lastPages) return lastMap
+  if (lastPages && sameTree(pages, lastPages)) {
+    lastPages = pages
+    return lastMap
+  }
   const groups = new Map<string, Page[]>()
   for (const p of Object.values(pages)) {
     if (p.trashed || p.databaseId || p.hidden) continue
@@ -29,6 +50,7 @@ export function childMap(pages: Record<ID, Page>): Map<string, ID[]> {
   for (const [k, arr] of groups) map.set(k, arr.sort((a, b) => a.order - b.order || a.createdAt - b.createdAt).map((p) => p.id))
   lastPages = pages
   lastMap = map
+  lastCount = Object.keys(pages).length
   return map
 }
 

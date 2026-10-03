@@ -14,6 +14,7 @@ import { t } from '../../../i18n'
 import { cellValue, RELATION_TOKEN, splitList, type ColumnSpec } from './csv'
 import { basename, extname, hexOf, resolveTarget, rewriteLinks, type ImportPlan, type PlanNode } from './plan'
 import { FRAG, calloutBlocks, hasCalloutMarker } from './obsidian'
+import { isMentionHref, mentionFromLink } from './mentions'
 import { warningsToReport, type ReportItem } from './report'
 import type { HtmlToDoc } from './htmldoc'
 
@@ -135,10 +136,13 @@ export async function applyPlan(
   const ids = new Map<string, ID>()
   const byHex = new Map<string, PlanNode>()
   const byKey = new Map<string, PlanNode>()
+  /** page id → title (page mentions written as "@Title" links come back by title) */
+  const titleById = new Map<ID, string>()
   for (const n of plan.nodes) {
     ids.set(n.key, newId())
     byKey.set(n.key, n)
     if (n.hex) byHex.set(n.hex, n)
+    titleById.set(ids.get(n.key)!, n.title.trim() || opts.untitled)
   }
 
   const pause = budget()
@@ -173,6 +177,8 @@ export async function applyPlan(
 
   /** Link / image target inside node `n` → placeholder URL (file, page) or null (leave as is). */
   const placeholder = (n: PlanNode, href: string): string | null => {
+    // date / person mentions of One's own Markdown (fixInline turns them back into mentions)
+    if (isMentionHref(href)) return null
     const p = resolveTarget(n.dir, href)
     if (p && saved.has(p)) return F_URL + fileNo.get(p) + keepFrag(href)
     const target = nodeFor(n.dir, href)
@@ -344,8 +350,9 @@ export async function applyPlan(
         const href: string | undefined = only?.type === 'text' ? only.marks?.find((m) => m.type === 'link')?.attrs?.href : undefined
         if (href?.startsWith(P_URL)) {
           const { ref, frag } = splitPlaceholder(href, P_URL)
-          // wiki links ([[Note]], [[Note|alias]], [[Note#H]]) stay inline; ![[Note]] and plain links become blocks
-          if (!frag || frag === FRAG.embed) {
+          // wiki links ([[Note]], [[Note|alias]], [[Note#H]]) and mentions ("@Title") stay inline; ![[Note]] and plain links become blocks
+          const mention = !frag && only?.text?.startsWith('@') && only.text.slice(1).trim() === titleById.get(ref)
+          if ((!frag || frag === FRAG.embed) && !mention) {
             out.push(linkBlock(ref, isDbId(ref)))
             continue
           }
@@ -374,24 +381,39 @@ export async function applyPlan(
   function fixInline(n: JSONContent): JSONContent {
     let next: JSONContent = { ...n }
     if (n.marks) {
-      let mention: { id: string } | null = null
+      let mention: { id: string; label: string } | null = null
+      /** a date / person mention (`one:` link, see mentions.ts) */
+      let linked: JSONContent | null = null
       next.marks = n.marks.flatMap((m) => {
         const href: unknown = m.type === 'link' ? m.attrs?.href : undefined
         if (typeof href !== 'string') return [m]
         if (href.startsWith(P_URL)) {
           const { ref, frag } = splitPlaceholder(href, P_URL)
           if (frag === FRAG.mention && n.type === 'text') {
-            mention = { id: ref }
+            mention = { id: ref, label: n.text ?? '' }
+            return []
+          }
+          // a page mention as One's Markdown export writes it: "[@Title](Title.md)"
+          const label = n.type === 'text' && n.text?.startsWith('@') ? n.text.slice(1).trim() : ''
+          if (!frag && label && label === titleById.get(ref)) {
+            mention = { id: ref, label }
             return []
           }
           const anchor = frag.startsWith(FRAG.heading) ? `${ANCHOR}${frag.slice(FRAG.heading.length)}` : ''
           return [{ ...m, attrs: { ...m.attrs, href: `#/p/${ref}${anchor}`, target: null } }]
         }
         if (href.startsWith(F_URL)) return []
+        if (n.type === 'text' && isMentionHref(href)) {
+          linked = mentionFromLink(n.text ?? '', href)
+          if (linked) return []
+        }
         return [m]
       })
       if (!next.marks.length) delete next.marks
-      if (mention) next = { type: 'mention', attrs: { id: (mention as { id: string }).id, label: n.text ?? '', kind: 'page' }, ...(next.marks ? { marks: next.marks } : {}) }
+      const page = mention as { id: string; label: string } | null
+      const other = linked as JSONContent | null
+      if (page) next = { type: 'mention', attrs: { id: page.id, label: page.label, kind: 'page' }, ...(next.marks ? { marks: next.marks } : {}) }
+      else if (other) next = { ...other, ...(next.marks ? { marks: next.marks } : {}) }
     }
     if (n.type === 'image' && typeof n.attrs?.src === 'string' && n.attrs.src.startsWith(F_URL)) {
       const { ref, frag } = splitPlaceholder(n.attrs.src, F_URL)

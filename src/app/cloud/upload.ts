@@ -6,11 +6,10 @@
  */
 import * as Y from 'yjs'
 import { HocuspocusProvider, HocuspocusProviderWebsocket } from '@hocuspocus/provider'
-import { get as idbGet } from 'idb-keyval'
 import { prosemirrorJSONToYXmlFragment } from '@tiptap/y-tiptap'
 import type { JSONContent } from '@tiptap/core'
 import { getWorkspaceSnapshot } from '../store/store'
-import { flushSave, migrate } from '../store/persistence'
+import { flushSave, migrate, readStoredWorkspace } from '../store/persistence'
 import type { ID, Workspace } from '../store/types'
 import { FILE_PREFIX, getLocalFile } from '../lib/files'
 import { newId } from '../lib/ids'
@@ -101,7 +100,7 @@ export async function uploadLocalWorkspaceImpl(wsId: string, onProgress?: (p: nu
     await flushSave()
     local = JSON.parse(JSON.stringify(getWorkspaceSnapshot())) as Workspace
   } else {
-    const raw = await idbGet('one.workspace.v1')
+    const raw = await readStoredWorkspace()
     if (!raw) throw new CloudError('nothing_to_upload', 'This browser has no local workspace.')
     local = migrate(raw)
   }

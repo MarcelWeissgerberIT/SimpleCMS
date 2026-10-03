@@ -8,9 +8,9 @@
  *    cancels the old one; trashed pages (or pages under a trashed parent) have none. A date mention
  *    inside a synced block is one reminder however many pages show the block (keyed by the sync
  *    group, at the page of the original when it is live).
- *  - team facts (cloud workspaces): my person mentions per block (a synced copy's at its original),
- *    the person properties I am in, and every comment reply id of a page — the engine diffs them
- *    against a snapshot.
+ *  - team facts (cloud workspaces): my person mentions per block (and the sync group of those in
+ *    synced blocks), the person properties I am in, and every comment reply id of a page — the
+ *    engine diffs them against a snapshot.
  */
 import type { JSONContent } from '@tiptap/core'
 import type { Database, DateValue, ID, Page, PageComment } from '../../store/types'
@@ -149,15 +149,22 @@ function remindersOf(page: Page, db: Database | undefined): ReminderEntry[] {
   return list
 }
 
-/** Every reminder of the workspace (pages in the trash have none), soonest first. */
-export function collectReminders(pages: Record<ID, Page>, dbs: Record<ID, Database>): ReminderEntry[] {
+/**
+ * Every reminder of the workspace (pages in the trash have none), soonest first. `trashed` collects
+ * the reminders of pages in the trash (the engine notes those that come due there, see engine.ts).
+ */
+export function collectReminders(pages: Record<ID, Page>, dbs: Record<ID, Database>, trashed?: ReminderEntry[]): ReminderEntry[] {
   const out: ReminderEntry[] = []
   /** synced blocks: one entry per key, the original's when it is live */
   const shared = new Map<string, ReminderEntry>()
   for (const id in pages) {
     const page = pages[id]
     const list = remindersOf(page, page.databaseId ? dbs[page.databaseId] : undefined)
-    if (!list.length || isEffectivelyTrashed(pages, id)) continue
+    if (!list.length) continue
+    if (isEffectivelyTrashed(pages, id)) {
+      trashed?.push(...list)
+      continue
+    }
     for (const r of list) {
       if (!r.key.startsWith('s:')) out.push(r)
       else {
@@ -174,21 +181,26 @@ export function collectReminders(pages: Record<ID, Page>, dbs: Record<ID, Databa
 
 /** What concerns "me" in one page — diffed against the engine's snapshot. */
 export interface TeamFacts {
-  /** block ids (repeated per mention) where I am @mentioned; absent: the content is not loaded yet */
+  /** block ids (repeated per mention, synced blocks included) where I am @mentioned; absent: the content is not loaded yet */
   m?: Array<string | null>
+  /**
+   * per entry of `m`: the sync group it sits in (null: not in a synced block) — a group's mentions are
+   * tracked across pages (engine.ts). Absent in snapshots written before groups were tracked.
+   */
+  g?: Array<string | null>
   /** person properties (ids) I am in */
   a: ID[]
   /** every comment reply id on the page */
   r: ID[]
 }
 
-/**
- * `hasPage`: is a page in this member's workspace? A mention inside a synced copy whose original is
- * there counts at the original only — one mention, however many pages show the block.
- */
-export function teamFacts(page: Page, db: Database | undefined, me: ID, hasPage: (id: ID) => boolean = () => false): TeamFacts {
+export function teamFacts(page: Page, db: Database | undefined, me: ID): TeamFacts {
   const out: TeamFacts = { a: [], r: [] }
-  if (page.content) out.m = (scanContent(page.content).persons.get(me) ?? []).filter((s) => !s.synced?.source || !hasPage(s.synced.source)).map((s) => s.blockId)
+  if (page.content) {
+    const spots = scanContent(page.content).persons.get(me) ?? []
+    out.m = spots.map((s) => s.blockId)
+    out.g = spots.map((s) => s.synced?.syncId ?? null)
+  }
   if (db)
     for (const prop of db.properties) {
       const v = page.properties[prop.id]
@@ -203,6 +215,13 @@ export function mentionLine(page: Page, me: ID, blockId: string | null): string 
   if (!page.content) return ''
   const spots = scanContent(page.content).persons.get(me) ?? []
   return (spots.find((s) => s.blockId === blockId) ?? spots[0])?.line ?? ''
+}
+
+/** My first mention in a sync group on a page: its block, its line and the page of the group's original (null: this page). */
+export function groupMention(page: Page, me: ID, syncId: string): { blockId: string | null; line: string; source: ID | null } | null {
+  if (!page.content) return null
+  const spot = (scanContent(page.content).persons.get(me) ?? []).find((s) => s.synced?.syncId === syncId)
+  return spot ? { blockId: spot.blockId, line: spot.line, source: spot.synced!.source } : null
 }
 
 /** The block a comment thread's mark sits in (for a deep link), if any. */

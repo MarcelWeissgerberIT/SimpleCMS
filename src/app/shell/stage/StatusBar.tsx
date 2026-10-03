@@ -1,5 +1,6 @@
 import { useWorkspace } from '../../store/store'
 import { useUI } from '../../store/ui'
+import { useRowCount } from '../../store/selectors'
 import type { Route } from '../../lib/router'
 import { Led, shortcutLabel } from '../../ui/controls'
 import { useLang, useT } from '../../i18n'
@@ -20,12 +21,7 @@ export function StatusBar({ route }: { route: Route }) {
   const pageId = paneId ?? (route.name === 'page' ? route.id : null)
   const plain = useWorkspace((s) => (pageId ? s.pages[pageId]?.plain : undefined))
   const kind = useWorkspace((s) => (pageId ? s.pages[pageId]?.kind : undefined))
-  const rows = useWorkspace((s) => {
-    if (!pageId || s.pages[pageId]?.kind !== 'database') return 0
-    let n = 0
-    for (const p of Object.values(s.pages)) if (p.databaseId === pageId && !p.trashed) n++
-    return n
-  })
+  const rows = useRowCount(kind === 'database' ? pageId : null)
   const views = useWorkspace((s) => (pageId ? (s.databases[pageId]?.views.length ?? 0) : 0))
   const panes = useUI((s) => s.panes.length)
   const words = wordCount(plain)

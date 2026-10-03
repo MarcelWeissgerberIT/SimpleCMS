@@ -15,6 +15,7 @@
  *  - Synced blocks: node `syncedBlock` (attrs: syncId, sourcePageId — null = the original, a page id =
  *      a reference holding a cached copy). startSyncedBlocks() (main.tsx, after the workspace loaded)
  *      keeps every copy in step via setContent(…, 'synced'); stripPrivate() unwraps them to plain blocks.
+ *      syncedCopiesOutside(pageIds, counts?): copies on other pages of the originals on those pages.
  *  - Meeting notes: node `meetingNotes` (content: the notes; attrs: title, status, language, startedAt,
  *      endedAt, duration, transcript = [{ t, text }], recordedBy). Typed attrs + lookup helpers for the
  *      features area (features/ai/meeting runs the recording and Claude).
@@ -24,6 +25,7 @@ export { ReadOnlyDoc } from './ReadOnlyDoc'
 export { getExtensions, markdownToDoc, docToMarkdown, docToHTML, stripPrivate, stripPrivate as stripButtonActions, docSchema, prepareCollabContent } from './convert'
 export { stripComments, commentIdsIn } from './schema/comment'
 export { startSyncedBlocks, stopSyncedBlocks } from './synced/service'
+export { syncedCopiesOutside } from './synced/state'
 export {
   MEETING,
   meetingAttrs,

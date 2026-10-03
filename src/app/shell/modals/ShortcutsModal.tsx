@@ -18,6 +18,7 @@ export function useShortcutGroups(): ShortcutGroup[] {
         [t('shell.cmd.sidebar'), ['Mod+\\']],
         [t('shell.cmd.theme'), ['Mod+Shift+L']],
         [t('shell.cmd.focus'), ['Mod+Shift+F']],
+        [t('shell.rail.toggle'), ['Mod+.']],
         [t('shell.cmd.settings'), ['Mod+,']],
         [t('shell.cmd.shortcuts'), ['Mod+/', '?']],
         [t('shell.keys.closePeek'), ['Esc']],

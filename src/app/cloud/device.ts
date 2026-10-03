@@ -17,10 +17,11 @@
  */
 import * as Y from 'yjs'
 import { IndexeddbPersistence } from 'y-indexeddb'
-import { createStore, delMany, entries, get as idbGet } from 'idb-keyval'
+import { createStore, delMany, entries } from 'idb-keyval'
 import { deleteFile, FILE_PREFIX } from '../lib/files'
 import { lsGet, lsSet, readChoice, readSession, sleep, writeChoice, WS_ID } from './env'
 import { allDeviceEntries, dropDeviceKeys } from './local'
+import { readStoredWorkspace } from '../store/persistence'
 
 const FLAG = 'one.cloud.forget'
 const CHANNEL = 'one-cloud-forget'
@@ -32,7 +33,6 @@ const REF_RE = /onefile:([A-Za-z0-9_-]{1,64})/g
 const DOC_DB = /^one:ws:([A-Za-z0-9_-]{8,64})(?::u:[A-Za-z0-9_-]{8,64})?(?::p:([A-Za-z0-9_-]{1,64}))?$/
 const PRIVATE_META_DB = /^one:ws:([A-Za-z0-9_-]{8,64}):u:[A-Za-z0-9_-]{8,64}$/
 const KV_KEY = /^(overlay|uploads|purge|content|privfiles):([A-Za-z0-9_-]{8,64})(?::([A-Za-z0-9_-]{1,64}))?$/
-const LOCAL_WORKSPACE_KEY = 'one.workspace.v1'
 
 function readFlag(): string[] {
   try {
@@ -197,7 +197,7 @@ async function forget(flag: string[]): Promise<void> {
   // the local workspace keeps its pages' history and its files
   const localPages = new Set<string>()
   try {
-    const local = (await idbGet(LOCAL_WORKSPACE_KEY)) as { pages?: Record<string, unknown> } | undefined
+    const local = (await readStoredWorkspace()) as { pages?: Record<string, unknown> } | undefined
     if (local?.pages) for (const id of Object.keys(local.pages)) localPages.add(id)
     collectRefs(local, keep)
   } catch {

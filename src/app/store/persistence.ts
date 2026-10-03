@@ -1,12 +1,17 @@
 /**
  * IndexedDB persistence + live cross-tab sync.
  *
- * - The workspace lives under one key. Saves are debounced and read-modify-write: a tab only
- *   writes what IT changed (dirty pages / databases / settings keys / people / recent) on top of
- *   what is stored, inside one IndexedDB transaction, so two tabs never clobber each other.
- * - Other tabs hear about a save via BroadcastChannel and merge the stored workspace with their
- *   own unsaved changes. Pages that changed elsewhere get a fresh contentRev + origin 'sync', so
- *   open editors always apply (or merge) them.
+ * - Storage layout (v2, idb-keyval's "keyval-store"): one record per page (`one.page.v2:<id>`) and
+ *   per database (`one.db.v2:<id>`), plus `one.ws.v2` for the rest (version, epoch, settings,
+ *   people, recent). A save costs what changed, not the workspace: typing on one page writes that
+ *   page. The single-record layout of older versions (`one.workspace.v1`) is read once and
+ *   converted (the first save writes every record and removes the old one).
+ * - Saves are debounced and read-modify-write: a tab only writes what IT changed (dirty pages /
+ *   databases / settings keys / people / recent) on top of what is stored, inside one IndexedDB
+ *   transaction, so two tabs never clobber each other.
+ * - Other tabs hear about a save via BroadcastChannel — with the ids it wrote — and read just those
+ *   records, keeping their own unsaved changes. Pages that changed elsewhere get a fresh contentRev
+ *   + origin 'sync', so open editors always apply (or merge) them.
  * - Two tabs editing the same page at nearly the same time: each tab remembers the stored copy
  *   its unsaved edits started from (`syncBase`). When the save finds that another tab stored a
  *   different copy meanwhile, it three-way merges (see merge.ts) instead of overwriting, writes the
@@ -18,14 +23,19 @@
  *   not-yet-saved pages synchronously to localStorage, because the browser may abort the async
  *   IndexedDB write. The next boot (or another open tab) puts them back.
  */
-import { get as idbGet, set as idbSet, update as idbUpdate } from 'idb-keyval'
+import { createStore, type UseStore } from 'idb-keyval'
 import { useWorkspace, getWorkspaceSnapshot, emptyWorkspace, WORKSPACE_VERSION, defaultSettings, defaultView, DEFAULT_PAGE_SETTINGS } from './store'
 import type { Database, ID, Page, PropertyDef, Settings, Workspace } from './types'
 import { newId } from '../lib/ids'
 import { mergePage, samePage } from './merge'
 
-const KEY = 'one.workspace.v1'
+/** The single-record layout before v2 (read once, then converted). */
+const LEGACY_KEY = 'one.workspace.v1'
 const BACKUP_KEY = 'one.workspace.v1.bak'
+/** v2: everything but pages and databases */
+const META_KEY = 'one.ws.v2'
+const PAGE_PREFIX = 'one.page.v2:'
+const DB_PREFIX = 'one.db.v2:'
 /** localStorage: pages (and databases) that were not saved yet when the page went away. */
 const UNSAVED_KEY = 'one.unsaved'
 /** Epoch of workspaces stored before epochs existed. */
@@ -369,6 +379,100 @@ function takeStash(ws: Workspace, stash: Stash, keepDbs?: Set<ID>): { pages: ID[
 }
 
 /* ------------------------------------------------------------------ */
+/* Records (IndexedDB)                                                 */
+/* ------------------------------------------------------------------ */
+
+let kvStore: UseStore | null = null
+/** idb-keyval's default database and store (where the workspace always lived). */
+const kv = (): UseStore => (kvStore ??= createStore('keyval-store', 'keyval'))
+const prefixRange = (prefix: string) => IDBKeyRange.bound(prefix, `${prefix}\uffff`)
+
+/**
+ * One transaction: `fn` issues its requests (chained through their success callbacks) and leaves
+ * its result in `out.value`; resolves once the transaction completed, rejects if it aborted.
+ */
+function inTx<T>(mode: IDBTransactionMode, fn: (os: IDBObjectStore, out: { value?: T }) => void): Promise<T> {
+  return kv()(
+    mode,
+    (os) =>
+      new Promise<T>((resolve, reject) => {
+        const tx = os.transaction
+        const out: { value?: T } = {}
+        tx.oncomplete = () => resolve(out.value as T)
+        tx.onabort = tx.onerror = () => reject(tx.error ?? new Error('IndexedDB transaction aborted'))
+        fn(os, out)
+      }),
+  )
+}
+
+/** Records under `prefix` as a map id → value (keys and values come back in the same order). */
+function zip(prefix: string, keys: IDBValidKey[], values: unknown[]): Obj {
+  const out: Obj = {}
+  keys.forEach((k, i) => (out[String(k).slice(prefix.length)] = values[i]))
+  return out
+}
+
+interface StoredRaw {
+  /** the workspace as stored: { version, epoch, settings, people, recent, pages, databases } */
+  raw: unknown
+  /** stored in the single-record layout of older versions */
+  legacy: boolean
+  /** v2 records without their meta record (damage) */
+  noMeta: boolean
+}
+
+/** Everything stored (v2 records, else the legacy record), or null when nothing is stored. */
+function readAll(): Promise<StoredRaw | null> {
+  return inTx<StoredRaw | null>('readonly', (os, out) => {
+    const meta = os.get(META_KEY)
+    const pk = os.getAllKeys(prefixRange(PAGE_PREFIX))
+    const pv = os.getAll(prefixRange(PAGE_PREFIX))
+    const dk = os.getAllKeys(prefixRange(DB_PREFIX))
+    const dv = os.getAll(prefixRange(DB_PREFIX))
+    // requests of a transaction complete in order: the last one sees every result
+    dv.onsuccess = () => {
+      if (meta.result === undefined && !pk.result.length && !dk.result.length) {
+        const legacy = os.get(LEGACY_KEY)
+        legacy.onsuccess = () => (out.value = legacy.result === undefined ? null : { raw: legacy.result, legacy: true, noMeta: false })
+        return
+      }
+      const m: Obj = isObj(meta.result) ? meta.result : {}
+      out.value = { raw: { ...m, pages: zip(PAGE_PREFIX, pk.result, pv.result), databases: zip(DB_PREFIX, dk.result, dv.result) }, legacy: false, noMeta: !isObj(meta.result) }
+    }
+  })
+}
+
+/** Some records (another tab saved them): undefined = not stored (deleted). */
+function readSome(pageIds: ID[], dbIds: ID[], meta: boolean): Promise<{ pages: Map<ID, unknown>; dbs: Map<ID, unknown>; meta: unknown }> {
+  return inTx('readonly', (os, out) => {
+    const res = { pages: new Map<ID, unknown>(), dbs: new Map<ID, unknown>(), meta: undefined as unknown }
+    out.value = res
+    for (const id of pageIds) {
+      const r = os.get(PAGE_PREFIX + id)
+      r.onsuccess = () => res.pages.set(id, r.result)
+    }
+    for (const id of dbIds) {
+      const r = os.get(DB_PREFIX + id)
+      r.onsuccess = () => res.dbs.set(id, r.result)
+    }
+    if (meta) {
+      const r = os.get(META_KEY)
+      r.onsuccess = () => (res.meta = r.result)
+    }
+  })
+}
+
+const metaOf = (ws: Workspace) => ({ version: ws.version, epoch: ws.epoch, settings: ws.settings, people: ws.people, recent: ws.recent })
+
+/**
+ * The stored local workspace as raw data (v2 records assembled, or the legacy record) for readers
+ * outside this tab's store (team cloud: upload, settings, device cleanup). Pass it through migrate().
+ */
+export async function readStoredWorkspace(): Promise<unknown> {
+  return (await readAll())?.raw
+}
+
+/* ------------------------------------------------------------------ */
 /* Load                                                                */
 /* ------------------------------------------------------------------ */
 
@@ -377,7 +481,8 @@ function takeStash(ws: Workspace, stash: Stash, keepDbs?: Set<ID>): { pages: ID[
  * an erase); read errors reject, so the caller never seeds over existing data.
  */
 export async function loadWorkspace(): Promise<Workspace | null> {
-  const raw: unknown = await idbGet(KEY)
+  const stored = await readAll()
+  const raw: unknown = stored ? stored.raw : undefined
   if (raw === undefined) {
     // stashed edits belong to a workspace that no longer exists
     localRemove(UNSAVED_KEY)
@@ -388,10 +493,12 @@ export async function loadWorkspace(): Promise<Workspace | null> {
   const { ws, repaired } = migrateWithReport(raw)
   if (repaired) {
     // keep the original before anything is written (a failure here fails the boot: nothing is lost)
-    await idbSet(BACKUP_KEY, raw)
+    await inTx<void>('readwrite', (os) => void os.put(raw, BACKUP_KEY))
     console.warn(`[one] the stored workspace had damaged entries — repaired; the original is kept in IndexedDB under "${BACKUP_KEY}"`)
     fullWriteNext = true
   }
+  // the older single-record layout (or records without their meta): the first save writes every record
+  if (stored?.legacy || stored?.noMeta) fullWriteNext = true
   if (!isObj(raw)) return null // nothing recoverable (backed up above): start fresh
 
   // edits from the last moments before this tab (or another) went away
@@ -415,8 +522,46 @@ export async function loadWorkspace(): Promise<Workspace | null> {
 
 /** Stored workspace for a sync (errors are the caller's business). */
 async function readStored(): Promise<Workspace | null> {
-  const raw: unknown = await idbGet(KEY)
+  const raw = (await readAll())?.raw
   return isObj(raw) ? migrate(raw) : null
+}
+
+/** What a save tells the other tabs: the records it wrote (`full`: all of them). */
+interface ChangedMessage {
+  type: 'changed'
+  from: string
+  full: boolean
+  pages: ID[]
+  dbs: ID[]
+  meta: boolean
+}
+
+/**
+ * This tab's workspace with the records another tab just saved read back in (a page / database
+ * not stored any more is gone). Only those records are read: the rest of the store stays as is.
+ */
+async function readChanged(pageIds: ID[], dbIds: ID[], meta: boolean): Promise<Workspace> {
+  const rec = await readSome(pageIds, dbIds, meta)
+  const local = useWorkspace.getState()
+  const ws: Workspace = { ...getWorkspaceSnapshot(), pages: { ...local.pages }, databases: { ...local.databases } }
+  if (meta && isObj(rec.meta)) {
+    const m = migrate({ ...rec.meta, pages: {}, databases: {} })
+    ws.settings = m.settings
+    ws.people = m.people
+    ws.recent = m.recent
+  }
+  const now = Date.now()
+  for (const [id, v] of rec.pages) {
+    const r = normalizePage(id, v, now)
+    if (r) ws.pages[id] = r.page
+    else delete ws.pages[id]
+  }
+  for (const [id, v] of rec.dbs) {
+    const r = normalizeDatabase(id, v, ws.settings.language)
+    if (r) ws.databases[id] = r.db
+    else delete ws.databases[id]
+  }
+  return ws
 }
 
 /* ------------------------------------------------------------------ */
@@ -424,64 +569,112 @@ async function readStored(): Promise<Workspace | null> {
 /* ------------------------------------------------------------------ */
 
 /**
- * Overlay this tab's changes onto the stored workspace. A page another tab stored since our
- * edits started (stored copy ≠ our base) is merged rather than overwritten; `merged` collects
- * those (id → [the copy we wrote, our snapshot copy]).
+ * Our copy of a page to store: when another tab stored a different copy since our edits started
+ * (stored copy ≠ our base) the two are merged rather than ours overwriting theirs; `merged`
+ * collects those (id → [the copy we wrote, our snapshot copy]).
  */
-function overlay(
-  stored: Obj,
-  snap: Workspace,
-  pages: ID[],
-  dbs: ID[],
-  settingKeys: Array<keyof Settings>,
-  people: boolean,
-  recent: boolean,
-  bases: Map<ID, Page>,
-  merged: Map<ID, [Page, Page]>,
-): Obj {
-  const out: Obj = { ...stored, version: snap.version }
-  if (pages.length) {
-    const next = { ...(isObj(stored.pages) ? stored.pages : {}) }
-    for (const id of pages) {
-      const ours = snap.pages[id]
-      if (!ours) {
-        delete next[id]
-        continue
+function pageToWrite(id: ID, ours: Page, base: Page | undefined, theirs: unknown, merged: Map<ID, [Page, Page]>): Page {
+  if (!base || !isObj(theirs)) return ours
+  try {
+    const t = normalizePage(id, theirs, Date.now())?.page
+    if (!t || samePage(t, base)) return ours
+    const m = mergePage(base, t, ours)
+    if (m === ours) return ours // theirs adds nothing ours does not have
+    merged.set(id, [m, ours])
+    return m
+  } catch (e) {
+    // never fail a save over a merge: ours wins as before
+    console.warn('[one] could not merge concurrent edits of a page', e)
+    return ours
+  }
+}
+
+interface WriteSet {
+  pages: ID[]
+  dbs: ID[]
+  settingKeys: Array<keyof Settings>
+  people: boolean
+  recent: boolean
+  /** every record (first run, a repair, the conversion from the legacy layout) */
+  full: boolean
+}
+
+/** Run `then` once every request has succeeded (at once when there are none). */
+function afterAll(reqs: IDBRequest[], then: () => void) {
+  let left = reqs.length
+  if (!left) return then()
+  for (const r of reqs) r.addEventListener('success', () => --left === 0 && then())
+}
+
+/**
+ * Write this tab's changes in ONE read-modify-write transaction: read what a merge needs (the meta
+ * record, stored copies of pages edited from a known base), then take the store's snapshot and
+ * put / delete exactly the changed records. Nothing stored yet (or `full`): every record, and
+ * stored keys that are not in the snapshot go. Resolves with the snapshot's pages (what was
+ * written, merges aside) and whether that was a full write.
+ */
+function writeRecords(set: WriteSet, bases: Map<ID, Page>, merged: Map<ID, [Page, Page]>): Promise<{ pages: Record<ID, Page>; full: boolean }> {
+  return inTx('readwrite', (os, out) => {
+    const theirs = new Map<ID, unknown>()
+    const meta = os.get(META_KEY)
+    const reads = set.full
+      ? []
+      : set.pages
+          .filter((id) => bases.has(id))
+          .map((id) => {
+            const r = os.get(PAGE_PREFIX + id)
+            r.onsuccess = () => theirs.set(id, r.result)
+            return r
+          })
+
+    const writeAll = (storedKeys: IDBValidKey[]) => {
+      const snap = getWorkspaceSnapshot()
+      out.value = { pages: snap.pages, full: true }
+      const keep = new Set<string>()
+      const put = (key: string, value: unknown) => {
+        keep.add(key)
+        os.put(value, key)
       }
-      next[id] = ours
-      const base = bases.get(id)
-      const theirs = isObj(stored.pages) ? stored.pages[id] : undefined
-      if (!base || !isObj(theirs)) continue
-      try {
-        const t = normalizePage(id, theirs, Date.now())?.page
-        if (!t || samePage(t, base)) continue
-        const m = mergePage(base, t, ours)
-        if (m === ours) continue // theirs adds nothing ours does not have
-        next[id] = m
-        merged.set(id, [m, ours])
-      } catch (e) {
-        // never fail a save over a merge: ours wins as before
-        console.warn('[one] could not merge concurrent edits of a page', e)
+      for (const [id, p] of Object.entries(snap.pages)) put(PAGE_PREFIX + id, p)
+      for (const [id, db] of Object.entries(snap.databases)) put(DB_PREFIX + id, db)
+      for (const k of storedKeys) if (!keep.has(String(k))) os.delete(k)
+      os.put(metaOf(snap), META_KEY)
+      os.delete(LEGACY_KEY)
+    }
+
+    const writeChanged = () => {
+      const snap = getWorkspaceSnapshot()
+      out.value = { pages: snap.pages, full: false }
+      for (const id of set.pages) {
+        const ours = snap.pages[id]
+        if (ours) os.put(pageToWrite(id, ours, bases.get(id), theirs.get(id), merged), PAGE_PREFIX + id)
+        else os.delete(PAGE_PREFIX + id)
+      }
+      for (const id of set.dbs) {
+        const db = snap.databases[id]
+        if (db) os.put(db, DB_PREFIX + id)
+        else os.delete(DB_PREFIX + id)
+      }
+      if (set.settingKeys.length || set.people || set.recent) {
+        const next: Obj = { ...(meta.result as Obj), version: snap.version }
+        if (set.settingKeys.length) {
+          const settings: Obj = { ...(isObj(next.settings) ? next.settings : snap.settings) }
+          for (const k of set.settingKeys) settings[k] = snap.settings[k]
+          next.settings = settings
+        }
+        if (set.people) next.people = snap.people
+        if (set.recent) next.recent = snap.recent
+        os.put(next, META_KEY)
       }
     }
-    out.pages = next
-  }
-  if (dbs.length) {
-    const next = { ...(isObj(stored.databases) ? stored.databases : {}) }
-    for (const id of dbs) {
-      if (snap.databases[id]) next[id] = snap.databases[id]
-      else delete next[id]
-    }
-    out.databases = next
-  }
-  if (settingKeys.length) {
-    const next: Obj = { ...(isObj(stored.settings) ? stored.settings : {}) }
-    for (const k of settingKeys) next[k] = snap.settings[k]
-    out.settings = next
-  }
-  if (people) out.people = snap.people
-  if (recent) out.recent = snap.recent
-  return out
+
+    afterAll([meta, ...reads], () => {
+      merged.clear()
+      if (!set.full && isObj(meta.result)) return writeChanged()
+      const keys = [PAGE_PREFIX, DB_PREFIX].map((prefix) => os.getAllKeys(prefixRange(prefix)))
+      afterAll(keys, () => writeAll(keys.flatMap((k) => k.result)))
+    })
+  })
 }
 
 let chain: Promise<void> = Promise.resolve()
@@ -520,17 +713,11 @@ async function writeChanges(): Promise<void> {
     if (b) bases.set(id, b)
   }
   const merged = new Map<ID, [Page, Page]>()
-  let written: Record<ID, Page> = {}
   try {
     setStatus('saving')
-    await idbUpdate(KEY, (stored: unknown) => {
-      merged.clear()
-      const snap = getWorkspaceSnapshot()
-      written = snap.pages
-      // nothing stored yet (first run, seed) or a repair: the whole snapshot
-      if (full || !isObj(stored)) return snap
-      return overlay(stored, snap, pages, dbs, settingKeys, people, recent, bases, merged)
-    })
+    // nothing stored yet (first run, seed), a repair or the legacy layout: every record (full)
+    const res = await writeRecords({ pages, dbs, settingKeys, people, recent, full }, bases, merged)
+    const written = res.pages
     // what is stored now is what this tab's pages descend from
     for (const id of pages) {
       const page = merged.get(id)?.[0] ?? written[id]
@@ -545,7 +732,9 @@ async function writeChanges(): Promise<void> {
       if (localGet(UNSAVED_KEY) === stash) localRemove(UNSAVED_KEY)
       if (pendingStash === stash) pendingStash = null
     }
-    channel?.postMessage({ type: 'changed', from: TAB_ID })
+    // other tabs read just these records (a full write: everything)
+    const msg: ChangedMessage = { type: 'changed', from: TAB_ID, full: res.full, pages, dbs, meta: settingKeys.length > 0 || people || recent }
+    channel?.postMessage(msg)
   } catch (e) {
     console.error('[one] failed to save workspace', e)
     pages.forEach((id) => dirtyPages.add(id))
@@ -674,14 +863,17 @@ export function startPersistence(): () => void {
   })
 
   const onMessage = async (ev: MessageEvent) => {
-    if (ev.data?.type !== 'changed' || ev.data.from === TAB_ID) return
+    const msg = ev.data as Partial<ChangedMessage> | null
+    if (msg?.type !== 'changed' || msg.from === TAB_ID) return
+    // which records changed (a message without ids — a full write — means: all of them)
+    const some = !msg.full && Array.isArray(msg.pages) && Array.isArray(msg.dbs) ? { pages: msg.pages, dbs: msg.dbs, meta: !!msg.meta } : null
     let ws: Workspace | null
     try {
       // a save of ours that finished while we were reading: read again, or our older stored
       // copy would replace what we just wrote
       for (let i = 0; ; i++) {
         const gen = saveGen
-        ws = await readStored()
+        ws = some ? await readChanged(some.pages, some.dbs, some.meta) : await readStored()
         if (gen === saveGen || i >= 3) break
       }
     } catch (e) {
@@ -711,7 +903,9 @@ export function startPersistence(): () => void {
     for (const id of [...syncBase.keys()]) {
       if (!dirtyPages.has(id) && !inflightPages.has(id)) syncBase.delete(id)
     }
-    for (const p of Object.values(ws.pages)) markIncoming(local.pages[p.id], p)
+    if (some) {
+      for (const id of some.pages) if (ws.pages[id]) markIncoming(local.pages[id], ws.pages[id])
+    } else for (const p of Object.values(ws.pages)) markIncoming(local.pages[p.id], p)
     applyRemote(ws)
   }
   channel?.addEventListener('message', onMessage)

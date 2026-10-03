@@ -99,10 +99,24 @@ export function isEffectivelyTrashed(pages: Record<ID, Page>, id: ID): boolean {
   return trashedLookup(pages)(id)
 }
 
+/** Page ids a content links to, per (immutable) content object: a store change rescans only changed pages. */
+const linksCache = new WeakMap<object, ReadonlySet<ID>>()
+const NO_LINKS: ReadonlySet<ID> = new Set()
+
+function linksOf(p: Page): ReadonlySet<ID> {
+  if (!p.content) return NO_LINKS
+  let hit = linksCache.get(p.content)
+  if (!hit) {
+    hit = new Set(linkedPageIds(p.content))
+    linksCache.set(p.content, hit)
+  }
+  return hit
+}
+
 /** Pages linking to `id` (via page links, mentions, links); pages in the trash (or under a trashed parent) don't count. */
 export function selectBacklinks(pages: Record<ID, Page>, id: ID): Page[] {
   const trashed = trashedLookup(pages)
-  return Object.values(pages).filter((p) => p.id !== id && !p.trashed && linkedPageIds(p.content).includes(id) && !trashed(p.id))
+  return Object.values(pages).filter((p) => p.id !== id && !p.trashed && linksOf(p).has(id) && !trashed(p.id))
 }
 
 export function useBacklinks(id: ID | null | undefined): Page[] {
@@ -110,20 +124,87 @@ export function useBacklinks(id: ID | null | undefined): Page[] {
   return useMemo(() => (id ? selectBacklinks(pages, id) : []), [pages, id])
 }
 
-export function useFavorites(): Page[] {
-  const pages = useWorkspace((s) => s.pages)
-  return useMemo(() => {
+/*
+ * Workspace-wide counts and lists that views read on every store change (sidebar, status bar,
+ * spec plate): ONE pass per pages map — the map is immutable, so the answer holds until the next
+ * change — instead of an Object.values() scan per reader, selector run and keystroke. Lists keep
+ * their identity while their members do, so readers do not re-render for unrelated edits.
+ */
+export interface PageStats {
+  /** live rows per database */
+  rows: Map<ID, number>
+  /** sidebar tree pages (not trashed, rows or hidden): all of them / private ones / the others */
+  tree: { all: number; priv: number; shared: number }
+  /** any favourite that is not in the trash itself */
+  hasFavorites: boolean
+  /** favourites (not trashed, nor under a trashed parent), in tree order */
+  favorites: Page[]
+  /** pages in the trash, most recently trashed first */
+  trash: Page[]
+}
+
+const statsCache = new WeakMap<Record<ID, Page>, PageStats>()
+let lastStats: PageStats | null = null
+const sameList = (a: Page[], b: Page[] | undefined) => !!b && a.length === b.length && a.every((p, i) => p === b[i])
+
+export function pageStats(pages: Record<ID, Page>): PageStats {
+  const hit = statsCache.get(pages)
+  if (hit) return hit
+  const rows = new Map<ID, number>()
+  const tree = { all: 0, priv: 0, shared: 0 }
+  let favs: Page[] = []
+  let trash: Page[] = []
+  for (const id in pages) {
+    const p = pages[id]
+    if (p.trashed) {
+      trash.push(p)
+      continue
+    }
+    if (p.favorite) favs.push(p)
+    if (p.databaseId) rows.set(p.databaseId, (rows.get(p.databaseId) ?? 0) + 1)
+    else if (!p.hidden) {
+      tree.all++
+      if (p.private) tree.priv++
+      else tree.shared++
+    }
+  }
+  const hasFavorites = favs.length > 0
+  if (favs.length) {
     const trashed = trashedLookup(pages)
-    return sortPages(Object.values(pages).filter((p) => p.favorite && !trashed(p.id)))
-  }, [pages])
+    favs = sortPages(favs.filter((p) => !trashed(p.id)))
+  }
+  trash.sort((a, b) => (b.trashedAt ?? 0) - (a.trashedAt ?? 0))
+  if (sameList(favs, lastStats?.favorites)) favs = lastStats!.favorites
+  if (sameList(trash, lastStats?.trash)) trash = lastStats!.trash
+  const stats: PageStats = { rows, tree, hasFavorites, favorites: favs, trash }
+  statsCache.set(pages, stats)
+  lastStats = stats
+  return stats
+}
+
+/** Live rows of a database. */
+export function useRowCount(dbId: ID | null | undefined): number {
+  return useWorkspace((s) => (dbId ? (pageStats(s.pages).rows.get(dbId) ?? 0) : 0))
+}
+
+/** Sidebar tree pages: all (null), my private ones (true) or the workspace's (false). */
+export function useTreeCount(priv: boolean | null): number {
+  return useWorkspace((s) => {
+    const t = pageStats(s.pages).tree
+    return priv === null ? t.all : priv ? t.priv : t.shared
+  })
+}
+
+export function useHasFavorites(): boolean {
+  return useWorkspace((s) => pageStats(s.pages).hasFavorites)
+}
+
+export function useFavorites(): Page[] {
+  return useWorkspace((s) => pageStats(s.pages).favorites)
 }
 
 export function useTrash(): Page[] {
-  const pages = useWorkspace((s) => s.pages)
-  return useMemo(
-    () => Object.values(pages).filter((p) => p.trashed).sort((a, b) => (b.trashedAt ?? 0) - (a.trashedAt ?? 0)),
-    [pages],
-  )
+  return useWorkspace((s) => pageStats(s.pages).trash)
 }
 
 /** Display title with fallback. */

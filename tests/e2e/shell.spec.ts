@@ -298,8 +298,9 @@ test.describe('workflows', () => {
           const r = indexedDB.open('keyval-store')
           r.onerror = () => reject(r.error)
           r.onsuccess = () => {
-            const q = r.result.transaction('keyval', 'readonly').objectStore('keyval').get('one.workspace.v1')
-            q.onsuccess = () => resolve(JSON.stringify(q.result.pages[id].content))
+            // one record per page (store/persistence.ts, layout v2)
+            const q = r.result.transaction('keyval', 'readonly').objectStore('keyval').get(`one.page.v2:${id}`)
+            q.onsuccess = () => resolve(JSON.stringify(q.result.content))
             q.onerror = () => reject(q.error)
           }
         }),

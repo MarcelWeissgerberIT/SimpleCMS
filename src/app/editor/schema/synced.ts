@@ -171,8 +171,10 @@ function touchesOrphan(tr: Transaction, doc: PMNode): boolean {
       }
     }
     map.forEach((from, to) => check(from, to))
-    const s = step as unknown as { from?: number; to?: number }
+    const s = step as unknown as { from?: number; to?: number; pos?: number }
     if (typeof s.from === 'number' && typeof s.to === 'number') check(s.from, s.to)
+    // attribute / node-mark steps (setNodeAttribute …) map nothing: the node they change starts at `pos`
+    if (typeof s.pos === 'number') check(s.pos, s.pos)
     if (hit) return true
     rs = rs.map((r) => ({ from: map.map(r.from, 1), to: map.map(r.to, -1) }))
   }

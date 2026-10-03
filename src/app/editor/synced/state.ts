@@ -133,3 +133,21 @@ export function putEntries(next: Map<string, SyncedEntry | undefined>): void {
 export function allEntries(): SyncedEntry[] {
   return [...entries.values()]
 }
+
+/**
+ * Copies of the synced blocks whose live original sits on one of `pages`, held by other live pages
+ * that `counts` accepts (e.g. workspace pages, when `pages` go private): how many copies (pages),
+ * of how many blocks.
+ */
+export function syncedCopiesOutside(pages: ReadonlySet<ID>, counts: (pageId: ID) => boolean = () => true): { copies: number; blocks: number } {
+  let copies = 0
+  let blocks = 0
+  for (const e of entries.values()) {
+    if (!e.source || !pages.has(e.source)) continue
+    const n = e.uses.filter((u) => !u.original && !pages.has(u.pageId) && counts(u.pageId)).length
+    if (!n) continue
+    copies += n
+    blocks++
+  }
+  return { copies, blocks }
+}

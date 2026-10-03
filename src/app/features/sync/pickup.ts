@@ -27,6 +27,7 @@ import { safeName } from '../io/export/collect'
 import { basename, dirname, linkTargets, normPath, resolveTarget, rewriteLinks, takeTitle } from '../io/import/plan'
 import { cellValue } from '../io/import/csv'
 import { mimeOf } from '../io/import/apply'
+import { mentionFromLink, toFileMarkdown } from '../io/import/mentions'
 import { deepEqual } from '../../store/merge'
 import { DB_FILE, FILES_DIR, ROWS_FILE, TRASH_DIR } from './layout'
 import { BASE_KEYS, EDITABLE_PROPS, iconText, parseIcon, propKey, propYaml, type RenderCtx } from './render'
@@ -96,8 +97,7 @@ const SYNCED = 'syncedBlock'
 
 /** Top-level block → its Markdown, as the file shows it (heading anchors aren't part of file links). */
 const mdKey = (editor: Editor, n: JSONContent) =>
-  editor
-    .docToMarkdown({ type: 'doc', content: [n] })
+  toFileMarkdown(editor.docToMarkdown, { type: 'doc', content: [n] })
     .trim()
     .replace(/\]\(#\/p\/([\w-]+)\?[^)\s]*\)/g, '](#/p/$1)')
 
@@ -201,7 +201,8 @@ export interface FileMetaInfo {
 /**
  * What the exporter wrote for page links, mentions, inline databases and file blocks comes back as
  * those nodes (a paragraph holding only `[Title](page)` is a page link block, `[@Title](page)` a
- * mention, `[📎 name](file)` a file block).
+ * mention, `[@Oct 17](one:date/…)` / `[@Alex](one:person/…)` a date / person mention (io/import/mentions.ts),
+ * `[📎 name](file)` a file block).
  */
 export function restoreNodes(doc: JSONContent, pages: Record<ID, Page>, isDb: (id: ID) => boolean, untitled: string, fileMeta: (ref: string) => FileMetaInfo | undefined = () => undefined): JSONContent {
   const titleOf = (id: ID) => (pages[id]?.title.trim() || untitled)
@@ -221,6 +222,8 @@ export function restoreNodes(doc: JSONContent, pages: Record<ID, Page>, isDb: (i
     if (n.type === 'text' && n.text?.startsWith('@')) {
       const id = linkOf(n)
       if (id && n.text.slice(1).trim() === titleOf(id)) return { type: 'mention', attrs: { id, label: titleOf(id), kind: 'page' } }
+      const mention = mentionFromLink(n.text, hrefOf(n) ?? '')
+      if (mention) return mention
     }
     // an inline link to a stored file: the text stays, the link can't
     if (n.type === 'text' && fileOf(n)) return { ...n, marks: n.marks?.filter((mk) => mk.type !== 'link') }

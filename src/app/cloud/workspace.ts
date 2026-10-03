@@ -7,9 +7,8 @@
 import * as Y from 'yjs'
 import { HocuspocusProvider } from '@hocuspocus/provider'
 import { IndexeddbPersistence } from 'y-indexeddb'
-import { get as idbGet } from 'idb-keyval'
 import { useWorkspace, defaultSettings, WORKSPACE_VERSION } from '../store/store'
-import { migrate } from '../store/persistence'
+import { migrate, readStoredWorkspace } from '../store/persistence'
 import type { ID, Person, Settings } from '../store/types'
 import { parseHash } from '../lib/router'
 import { useUI } from '../store/ui'
@@ -61,7 +60,7 @@ function setStatus(status: 'connecting' | 'online' | 'offline') {
 /** Settings a new cloud workspace starts with on this device: the local workspace's (theme, language, AI key …). */
 async function localSettings(): Promise<Partial<Settings>> {
   try {
-    const raw = await idbGet('one.workspace.v1')
+    const raw = await readStoredWorkspace()
     if (!raw) return {}
     const s = migrate(raw).settings
     return { ...s, startPageId: null, lastPageId: null }
