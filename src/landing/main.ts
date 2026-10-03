@@ -14,6 +14,10 @@ import { STORAGE_KEYS, safeLocalGet, safeLocalSet } from '@/shared/brand'
 import { detectLang } from '@/shared/i18n'
 import { mountSite } from './site/site'
 import { registerServiceWorker } from '@/shared/sw'
+import { gsap } from 'gsap'
+
+// Dev-only hook so scripts/record-intro.mjs can render the site entrance frame by frame.
+if (import.meta.env.DEV) (window as unknown as { __gsap?: typeof gsap }).__gsap = gsap
 
 const params = new URLSearchParams(window.location.search)
 const forceIntro = params.has('intro')

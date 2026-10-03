@@ -1,0 +1,246 @@
+import type { Page } from '@playwright/test'
+import { test, expect, openApp, reloadApp, gotoPage, createPage, doc, para, wsEval, pageById, pageIdByTitle, sidebarRow, MOD } from './fixtures'
+
+async function openPalette(page: Page) {
+  await page.keyboard.press(`${MOD}+k`)
+  const pal = page.getByRole('dialog', { name: 'Command palette' })
+  await expect(pal).toBeVisible()
+  await expect(pal.getByRole('combobox')).toBeFocused()
+  return pal
+}
+
+test.describe('command palette', () => {
+  test('search by title, open the result', async ({ page }) => {
+    await openApp(page)
+    const pal = await openPalette(page)
+    await page.keyboard.type('reading')
+    const hit = pal.getByRole('option').filter({ hasText: 'Reading list' }).first()
+    await expect(hit).toBeVisible()
+    // the best hit is preselected
+    await expect(pal.locator('[role="option"][aria-selected="true"]')).toContainText('Reading list')
+    await page.keyboard.press('Enter')
+    await expect(pal).toBeHidden()
+    await expect(page.locator('#main .pv-title')).toHaveValue('Reading list')
+    // database page renders its gallery view
+    await expect(page.locator('#main [role="tablist"][aria-label="Views"]')).toBeVisible()
+  })
+
+  test('search by page content shows a snippet and opens the page', async ({ page }) => {
+    await openApp(page)
+    const pal = await openPalette(page)
+    await page.keyboard.type('Respect the reader')
+    const hit = pal.getByRole('option').filter({ hasText: 'Brand voice' })
+    await expect(hit).toBeVisible()
+    await expect(hit.locator('.pal-item__snippet mark').first()).toBeVisible()
+    await hit.click()
+    await expect(page.locator('#main .pv-title')).toHaveValue('Brand voice')
+    await expect(page.locator('#main .ProseMirror')).toContainText('Respect the reader')
+  })
+
+  test('run a command: toggle dark mode', async ({ page }) => {
+    await openApp(page)
+    await expect(page.locator('html')).toHaveAttribute('data-theme', 'light')
+    const pal = await openPalette(page)
+    await page.keyboard.type('>dark')
+    await expect(pal.locator('.pal-mode')).toHaveText('RUN')
+    await expect(pal.locator('[role="option"][aria-selected="true"]')).toContainText('Toggle dark mode')
+    await page.keyboard.press('Enter')
+    await expect(pal).toBeHidden()
+    await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark')
+    expect(await wsEval(page, (s) => s.settings.theme)).toBe('dark')
+    // theme survives a reload
+    await reloadApp(page)
+    await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark')
+  })
+
+  test('Escape closes the palette and returns focus', async ({ page }) => {
+    await openApp(page)
+    const pal = await openPalette(page)
+    await page.keyboard.press('Escape')
+    await expect(pal).toBeHidden()
+  })
+})
+
+test.describe('sidebar', () => {
+  test('rename a page from the row menu', async ({ page }) => {
+    await openApp(page)
+    const id = await createPage(page, { title: 'Rename me' })
+    const row = sidebarRow(page, 'Rename me')
+    await row.hover()
+    await row.getByRole('button', { name: 'More' }).click()
+    await page.getByRole('menuitem', { name: 'Rename' }).click()
+    // while renaming, the row shows an input instead of its title
+    const input = page.locator('.sb input.sb-row__rename')
+    await expect(input).toBeFocused()
+    await input.fill('Renamed page')
+    await input.press('Enter')
+    await expect(sidebarRow(page, 'Renamed page')).toBeVisible()
+    expect((await pageById(page, id)).title).toBe('Renamed page')
+  })
+
+  test('nest a page under another via "Move to…"', async ({ page }) => {
+    await openApp(page)
+    const id = await createPage(page, { title: 'Movable page' })
+    const wiki = await pageIdByTitle(page, 'Team wiki')
+    const row = sidebarRow(page, 'Movable page')
+    await row.hover()
+    await row.getByRole('button', { name: 'More' }).click()
+    await page.getByRole('menuitem', { name: 'Move to…' }).click()
+    const dialog = page.getByRole('dialog')
+    await expect(dialog).toBeVisible()
+    await dialog.getByPlaceholder('Find a destination page…').fill('Team wiki')
+    await dialog.getByRole('option').filter({ hasText: 'Team wiki' }).first().click()
+    await expect(dialog).toBeHidden()
+    await expect.poll(async () => (await pageById(page, id)).parentId).toBe(wiki)
+    // the tree shows it inside the wiki (expand the wiki to see it)
+    const wikiRow = sidebarRow(page, 'Team wiki')
+    const toggle = wikiRow.locator('.sb-row__toggle')
+    if ((await toggle.getAttribute('aria-label')) === 'Expand') await toggle.click()
+    const child = page.locator('.sb section[aria-label="Pages"] .sb-children .sb-row__title', { hasText: 'Movable page' })
+    await expect(child).toBeVisible()
+    await expect(child.locator('xpath=ancestor::a[1]')).toHaveAttribute('aria-level', '2')
+  })
+
+  test('favourite a page, then unfavourite it', async ({ page }) => {
+    await openApp(page)
+    await createPage(page, { title: 'Star me' })
+    const favs = page.locator('.sb section[aria-label="Favorites"]')
+    await expect(favs.locator('.sb-row')).toHaveCount(2)
+    const row = sidebarRow(page, 'Star me')
+    await row.hover()
+    await row.getByRole('button', { name: 'More' }).click()
+    await page.getByRole('menuitem', { name: 'Add to favorites' }).click()
+    await expect(favs.locator('.sb-row__title', { hasText: 'Star me' })).toBeVisible()
+    await expect(favs.locator('.sb-row')).toHaveCount(3)
+    // the topbar star reflects it on the open page
+    await row.locator('.sb-row__link').click()
+    await expect(page.locator('.tb-star')).toHaveAttribute('aria-pressed', 'true')
+    await page.locator('.tb-star').click()
+    await expect(favs.locator('.sb-row__title', { hasText: 'Star me' })).toHaveCount(0)
+  })
+
+  test('delete → trash → restore', async ({ page }) => {
+    await openApp(page)
+    const id = await createPage(page, { title: 'Trash me', content: doc(para('precious words')) })
+    await gotoPage(page, id)
+    const row = sidebarRow(page, 'Trash me')
+    await row.hover()
+    await row.getByRole('button', { name: 'More' }).click()
+    await page.getByRole('menuitem', { name: 'Delete' }).click()
+    await expect(sidebarRow(page, 'Trash me')).toHaveCount(0)
+    await expect(page.getByText('Moved “Trash me” to trash')).toBeVisible()
+    // leaving a deleted page: back to home
+    await expect(page).not.toHaveURL(new RegExp(`#/p/${id}`))
+    expect((await pageById(page, id)).trashed).toBe(true)
+
+    await page.locator('.sb-trash').click()
+    const trash = page.getByRole('dialog', { name: 'Trash' })
+    await expect(trash).toBeVisible()
+    const item = trash.locator('.trash-item', { hasText: 'Trash me' })
+    await expect(item).toBeVisible()
+    await item.getByRole('button', { name: 'Restore' }).click()
+    await expect(sidebarRow(page, 'Trash me')).toBeVisible()
+    const p = await pageById(page, id)
+    expect(p.trashed).toBe(false)
+    expect(p.plain).toContain('precious words')
+  })
+})
+
+test.describe('workflows', () => {
+  test('palette: "Create page" from a query that matches nothing', async ({ page }) => {
+    await openApp(page)
+    const pal = await openPalette(page)
+    await page.keyboard.type('Quarterly zebra plan')
+    const create = pal.getByRole('option', { name: /Create page “Quarterly zebra plan”/ })
+    await expect(create).toBeVisible()
+    await create.click()
+    await expect(page.locator('#main .pv-title')).toHaveValue('Quarterly zebra plan')
+    await expect(sidebarRow(page, 'Quarterly zebra plan')).toBeVisible()
+  })
+
+  test('Undo in the "moved to trash" toast restores the page and its star', async ({ page }) => {
+    await openApp(page)
+    const projects = await pageIdByTitle(page, 'Projects')
+    await gotoPage(page, projects)
+    await page.locator('.tb').getByRole('button', { name: 'Page options' }).click()
+    await page.getByRole('menuitem', { name: 'Delete' }).click()
+    const toast = page.getByText('Moved “Projects” to trash')
+    await expect(toast).toBeVisible()
+    await expect(page.locator('.sb section[aria-label="Favorites"] .sb-row__title', { hasText: 'Projects' })).toHaveCount(0)
+    await page.getByRole('button', { name: 'Undo' }).click()
+    await expect(page.locator('.sb section[aria-label="Favorites"] .sb-row__title', { hasText: 'Projects' })).toBeVisible()
+    await expect(page.locator('#main .pv-title')).toHaveValue('Projects')
+    const p = await pageById(page, projects)
+    expect(p.trashed).toBe(false)
+    expect(p.favorite).toBe(true)
+    // its rows are reachable again
+    await expect(page.locator('#main section.db').getByText('Website relaunch').first()).toBeVisible()
+  })
+
+  test('keyboard shortcuts: new page, sidebar, focus mode, shortcuts sheet', async ({ page }) => {
+    await openApp(page)
+    const before = await wsEval(page, (s) => Object.keys(s.pages).length)
+    await page.locator('#main .pv-title').click()
+    await page.keyboard.press('Control+Alt+n')
+    await expect(page.locator('#main .pv-title')).toHaveValue('')
+    await expect(page.locator('#main .pv-title')).toBeFocused()
+    expect(await wsEval(page, (s) => Object.keys(s.pages).length)).toBe(before + 1)
+
+    await page.keyboard.press(`${MOD}+\\`)
+    await expect(page.locator('aside.sb')).toHaveAttribute('data-state', 'collapsed')
+    await page.keyboard.press(`${MOD}+\\`)
+    await expect(page.locator('aside.sb')).toHaveAttribute('data-state', 'docked')
+
+    await page.keyboard.press(`${MOD}+Shift+f`)
+    await expect(page.locator('.app')).toHaveAttribute('data-focus', 'true')
+    await page.locator('body').click({ position: { x: 5, y: 5 } })
+    await page.keyboard.press('Escape')
+    await expect(page.locator('.app')).not.toHaveAttribute('data-focus', 'true')
+
+    await page.keyboard.press(`${MOD}+/`)
+    const sheet = page.getByRole('dialog')
+    await expect(sheet).toContainText('New page')
+    await page.keyboard.press('Escape')
+  })
+
+  test('the welcome page documents the same shortcuts the app binds', async ({ page }) => {
+    await openApp(page)
+    // the real binding (shortcuts sheet / palette): New page = Ctrl+Alt+N (Ctrl+N belongs to the browser)
+    await page.keyboard.press(`${MOD}+/`)
+    const sheet = page.getByRole('dialog')
+    const row = sheet.locator('*', { hasText: /^New page$/ }).last().locator('xpath=ancestor::*[self::li or self::tr or self::div][1]')
+    await expect(row).toContainText(/Alt/)
+    await page.keyboard.press('Escape')
+    const welcome = page.locator('#main .ProseMirror')
+    const table = welcome.locator('table').filter({ hasText: 'New page' })
+    await welcome.getByText('Keyboard shortcuts').first().click()
+    const newPageRow = table.locator('tr', { hasText: 'New page' })
+    await expect(newPageRow).toBeVisible()
+    await expect(newPageRow, 'welcome page teaches the New page shortcut').toContainText(/Ctrl\+Alt\+N|⌘⌥N/)
+  })
+
+  test('two tabs stay in sync (local-first, BroadcastChannel)', async ({ page, context, errors }) => {
+    await openApp(page)
+    const id = await createPage(page, { title: 'Synced page', content: doc(para('tab A wrote this')) })
+    const tabB = await context.newPage()
+    errors.watch(tabB)
+    await tabB.goto(`app/?e2e#/p/${id}`)
+    await tabB.waitForFunction(() => !!(window as unknown as { __one?: unknown }).__one)
+    await expect(tabB.locator(`.ProseMirror[data-page-id="${id}"]`)).toContainText('tab A wrote this')
+
+    // edit in A → shows up in B without reload
+    await gotoPage(page, id)
+    const edA = page.locator(`.ProseMirror[data-page-id="${id}"]`)
+    await edA.locator('p').first().click()
+    await page.keyboard.press('End')
+    await page.keyboard.type(' + more from A')
+    await expect(tabB.locator(`.ProseMirror[data-page-id="${id}"]`)).toContainText('tab A wrote this + more from A', { timeout: 10_000 })
+
+    // rename in B → sidebar of A follows
+    await tabB.locator('#main .pv-title').fill('Synced page (renamed in B)')
+    await expect(page.locator('.sb .sb-row__title', { hasText: 'Synced page (renamed in B)' }).first()).toBeVisible({ timeout: 10_000 })
+    // and A's text survived B's write
+    await expect(edA).toContainText('+ more from A')
+    await tabB.close()
+  })
+})
