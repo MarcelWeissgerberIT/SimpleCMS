@@ -30,9 +30,11 @@ export interface ValueEditorBaseProps {
   onClose: (reason?: DoneReason) => void
   initialText?: string
   minWidth?: number
+  /** The row being edited (relation pickers use it to keep sub-items / dependencies loop-free). */
+  rowId?: string
 }
 
-export function ValueEditorBase({ db, prop, value, onChange, anchor, onClose, initialText, minWidth }: ValueEditorBaseProps) {
+export function ValueEditorBase({ db, prop, value, onChange, anchor, onClose, initialText, minWidth, rowId }: ValueEditorBaseProps) {
   const esc = useEscapeFlag()
   if (!canEdit(prop)) return null
   if (TEXT_EDIT_TYPES.includes(prop.type)) {
@@ -67,7 +69,7 @@ export function ValueEditorBase({ db, prop, value, onChange, anchor, onClose, in
       body = <PersonPicker value={(value as string[] | null) ?? []} onChange={onChange} onClose={() => onClose('tab')} initialQuery={initialText} />
       break
     case 'relation':
-      body = <RelationPicker prop={prop} value={(value as string[] | null) ?? []} onChange={onChange} onClose={() => onClose('tab')} initialQuery={initialText} />
+      body = <RelationPicker prop={prop} value={(value as string[] | null) ?? []} onChange={onChange} onClose={() => onClose('tab')} initialQuery={initialText} rowId={rowId} />
       break
     case 'files':
       body = <FilesEditor value={(value as string[] | null) ?? []} onChange={onChange} />
@@ -132,6 +134,7 @@ export function ValueEditor({ db, prop, rows, anchor, onClose, initialText, minW
       onClose={onClose}
       initialText={initialText}
       minWidth={minWidth}
+      rowId={rows.length === 1 ? first.id : undefined}
       onChange={(v) => {
         for (const r of rows) writeValue(db.id, prop, r.id, v)
       }}

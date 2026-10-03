@@ -152,7 +152,7 @@ export function useDbModel(db: Database, dbPage: Page, view: View, search: strin
     if (keep.length) {
       // rows just created here stay visible even when they don't match (like Notion) — at the end
       const shown = new Set(out.map((r) => r.id))
-      const extra = allRows.filter((r) => keep.includes(r.id) && !shown.has(r.id))
+      const extra = allRows.filter((r) => keep.includes(r.id) && !shown.has(r.id) && !(sub && parentIdOf(resolver.ctx.pages, sub, r)))
       if (extra.length) out = [...out, ...extra]
     }
     return out

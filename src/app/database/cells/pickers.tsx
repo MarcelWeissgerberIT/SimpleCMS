@@ -12,6 +12,7 @@ import { Avatar, FileChip, PersonChip, RelationChip } from './display'
 import { uploadFiles, useFileMeta } from '../model/files'
 import { fileLabel } from '../model/resolve'
 import { useRows } from '../../store/selectors'
+import { invalidTargets } from '../model/hierarchy'
 
 /* ---------------- generic searchable list ---------------- */
 
@@ -117,7 +118,22 @@ export function PersonPicker({ value, onChange, onClose, initialQuery }: { value
 
 /* ---------------- relation ---------------- */
 
-export function RelationPicker({ prop, value, onChange, onClose, initialQuery }: { prop: PropertyDef; value: string[]; onChange: (v: string[]) => void; onClose: () => void; initialQuery?: string }) {
+export function RelationPicker({
+  prop,
+  value,
+  onChange,
+  onClose,
+  initialQuery,
+  rowId,
+}: {
+  prop: PropertyDef
+  value: string[]
+  onChange: (v: string[]) => void
+  onClose: () => void
+  initialQuery?: string
+  /** The row being edited: sub-items / dependencies disable links that would loop. */
+  rowId?: ID
+}) {
   const t = useT()
   const targetId = prop.relationDatabaseId
   const targetPage = useWorkspace((s) => (targetId ? s.pages[targetId] : undefined))
@@ -125,9 +141,12 @@ export function RelationPicker({ prop, value, onChange, onClose, initialQuery }:
   const pages = useWorkspace((s) => s.pages)
   const [query, setQuery] = useState(initialQuery ?? '')
   const q = query.trim().toLowerCase()
-  const list = useMemo(() => rows.filter((r) => !q || (r.title || '').toLowerCase().includes(q)).slice(0, 200), [rows, q])
+  // pages + value: the loop check follows every link change
+  const blocked = useMemo(() => (rowId && targetId ? invalidTargets(targetId, prop, rowId) : null), [rowId, targetId, prop, pages]) // eslint-disable-line react-hooks/exhaustive-deps
+  const list = useMemo(() => rows.filter((r) => r.id !== (blocked ? rowId : undefined) && (!q || (r.title || '').toLowerCase().includes(q))).slice(0, 200), [rows, q, blocked, rowId])
   const toggle = (id: ID) => onChange(value.includes(id) ? value.filter((x) => x !== id) : [...value, id])
   const pick = (id: ID) => {
+    if (blocked?.has(id) && !value.includes(id)) return
     toggle(id)
     setQuery('')
     keys.setActive(0)
@@ -177,13 +196,28 @@ export function RelationPicker({ prop, value, onChange, onClose, initialQuery }:
         <div className="label db-picker__section">
           <PageIcon icon={targetPage.icon} kind="database" size={12} /> {targetPage.title || t('common.untitled')}
         </div>
-        {list.map((r: Page, i) => (
-          <div key={r.id} className="db-opt" role="option" aria-selected={value.includes(r.id)} data-active={keys.active === i} onMouseEnter={() => keys.setActive(i)} onClick={() => pick(r.id)}>
-            <PageIcon icon={r.icon} size={16} />
-            <span className={`db-opt__name${r.title ? '' : ' faint'}`}>{r.title || t('common.untitled')}</span>
-            {value.includes(r.id) && <Check size={14} className="db-opt__check" />}
-          </div>
-        ))}
+        {list.map((r: Page, i) => {
+          const loop = !!blocked?.has(r.id) && !value.includes(r.id)
+          return (
+            <div
+              key={r.id}
+              className="db-opt"
+              role="option"
+              aria-selected={value.includes(r.id)}
+              aria-disabled={loop || undefined}
+              data-loop={loop || undefined}
+              title={loop ? t('database.sub.loopOption') : undefined}
+              data-active={keys.active === i}
+              onMouseEnter={() => keys.setActive(i)}
+              onClick={() => pick(r.id)}
+            >
+              <PageIcon icon={r.icon} size={16} />
+              <span className={`db-opt__name${r.title ? '' : ' faint'}`}>{r.title || t('common.untitled')}</span>
+              {loop && <span className="db-opt__loop">{t('database.sub.loopTag')}</span>}
+              {value.includes(r.id) && <Check size={14} className="db-opt__check" />}
+            </div>
+          )
+        })}
         {q && (
           <div className="db-opt" data-active={keys.active === list.length} onMouseEnter={() => keys.setActive(list.length)} onClick={create}>
             <Plus size={14} className="faint" />

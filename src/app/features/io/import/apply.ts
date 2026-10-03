@@ -280,9 +280,18 @@ export async function applyPlan(
     }
     if (n.kind === 'folder') {
       const list = (kids.get(`kid:${n.key}`) ?? []).filter((c) => c.kind !== 'row')
-      // page cards for a normal folder; a big one (an Evernote notebook with 1,000 notes) gets a light link list
+      // page cards for a normal folder; a big one (an Evernote notebook with 1,000 notes) gets a light
+      // link index — 25 links per paragraph, one per line (renders several times faster than cards or a list)
       if (list.length <= BIG_FOLDER) for (const c of list) blocks.push(linkBlock(ids.get(c.key)!, c.kind === 'database'))
-      else blocks.push({ type: 'bulletList', content: list.map((c) => ({ type: 'listItem', content: [{ type: 'paragraph', content: [{ type: 'text', text: c.title || opts.untitled, marks: [{ type: 'link', attrs: { href: `#/p/${ids.get(c.key)}` } }] }] }] })) })
+      else
+        for (let i = 0; i < list.length; i += 25)
+          blocks.push({
+            type: 'paragraph',
+            content: list.slice(i, i + 25).flatMap((c, j) => [
+              ...(j ? [{ type: 'hardBreak' }] : []),
+              { type: 'text', text: c.title || opts.untitled, marks: [{ type: 'link', attrs: { href: `#/p/${ids.get(c.key)}` } }] },
+            ]),
+          })
     }
     // a database that shares the page's name ("X.md" + "X.csv") sits inline at the end, unless linked already
     for (const k of n.embeds ?? []) {

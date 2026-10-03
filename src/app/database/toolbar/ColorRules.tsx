@@ -13,7 +13,7 @@ import type { DbModel } from '../hooks'
 import { GroupEditor, emptyGroup } from './Filters'
 import { RULE_COLORS, ruleStyle } from '../model/colors'
 import { countFilters } from '../model/query'
-import './structure.css'
+import '../structure.css'
 
 const TARGETS: ColorRule['target'][] = ['background', 'accent', 'text']
 
@@ -60,6 +60,9 @@ export function ColorRulesPanel({ m, anchor, onClose }: { m: DbModel; anchor: El
                   onChange={(color) => update(i, { color })}
                 />
                 <Segmented value={r.target} ariaLabel={t('database.rc.target')} items={TARGETS.map((v) => ({ value: v, label: t(`database.rc.target.${v}`) }))} onChange={(target) => update(i, { target })} />
+                <span className="db-rcrule__sample" data-rc={r.target} aria-hidden>
+                  Aa
+                </span>
                 <span style={{ flex: 1 }} />
                 <button type="button" className="icon-btn icon-btn--sm" aria-label={t('database.rc.up')} disabled={i === 0} onClick={() => move(i, -1)}>
                   <ArrowUp size={13} />

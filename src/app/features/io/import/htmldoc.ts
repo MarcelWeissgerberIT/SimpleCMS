@@ -110,13 +110,14 @@ function inlineClassStyles(dom: Document) {
   }
 }
 
-/** A first <h1> that repeats the page title (before any other text) is the title, not content. */
+/** The first line repeating the page title (an <h1>, Google Docs' "title" paragraph …) is the title, not content. */
 function dropTitle(root: HTMLElement, title?: string) {
   const norm = (s: string) => s.replace(/\s+/g, ' ').trim().toLowerCase()
-  const h1 = root.querySelector('h1')
-  if (!title || !h1) return
-  const text = norm(h1.textContent ?? '')
-  if (text && text === norm(title) && norm(root.textContent ?? '').startsWith(text)) h1.remove()
+  if (!title) return
+  const first = [...root.querySelectorAll('h1, h2, h3, p, .title')].find((e) => norm(e.textContent ?? ''))
+  if (!first) return
+  const text = norm(first.textContent ?? '')
+  if (text === norm(title) && norm(root.textContent ?? '').startsWith(text)) first.remove()
 }
 
 const EN_HIGHLIGHT: Record<string, string> = { yellow: 'yellow', green: 'green', blue: 'blue', pink: 'pink', purple: 'purple', orange: 'orange', red: 'red' }
@@ -298,8 +299,12 @@ function urls(root: HTMLElement, opts: HtmlToDocOptions) {
     let next: string | null = null
     if (/^https?:/i.test(src) || /^data:image\/(png|jpe?g|gif|webp|avif);/i.test(src)) next = src
     else if (src && !SCHEME.test(src) && !src.startsWith('//')) next = opts.rewrite?.(src, true) ?? null
-    if (next) img.setAttribute('src', next)
-    else img.remove()
+    if (next) {
+      img.setAttribute('src', next)
+      // Google Docs sizes images with inline styles only
+      const w = img.getAttribute('style')?.match(/(?:^|;)\s*width\s*:\s*(\d+(?:\.\d+)?)px/i)?.[1]
+      if (w && !img.getAttribute('width')) img.setAttribute('width', String(Math.round(Number(w))))
+    } else img.remove()
   }
   for (const a of [...root.querySelectorAll('a')]) {
     let href = (a.getAttribute('href') ?? '').trim()

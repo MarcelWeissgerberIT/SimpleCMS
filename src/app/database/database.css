@@ -2567,3 +2567,24 @@ body.db-dragging * {
   background: var(--hover);
   outline: none;
 }
+
+/* relation picker: a link that would make sub-items / dependencies loop */
+.db-opt[data-loop='true'] {
+  cursor: not-allowed;
+}
+
+.db-opt[data-loop='true'] > :not(.db-opt__loop) {
+  opacity: 0.45;
+}
+
+.db-opt__loop {
+  margin-left: auto;
+  padding: 1px 5px;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius-1);
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  color: var(--ink-3);
+}

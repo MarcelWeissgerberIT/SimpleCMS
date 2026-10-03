@@ -1,0 +1,485 @@
+/* ==========================================================================
+   Sub-items, dependencies, colour rules
+   ========================================================================== */
+
+/* ---------- sub-items: indented lead with hairline connectors ---------- */
+.db-tree {
+  position: relative;
+  flex: none;
+  align-self: stretch;
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  width: calc(var(--tree-indent, 0) * 16px + 20px);
+  margin-right: 2px;
+}
+
+/* elbow from the parent's toggle down to this row */
+.db-tree[data-child='true']::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: var(--tree-elbow);
+  width: 7px;
+  border-left: 1px solid var(--rule-strong);
+  pointer-events: none;
+  background: linear-gradient(var(--rule-strong), var(--rule-strong)) 0 50% / 100% 1px no-repeat;
+}
+
+.db-tree[data-child='true'][data-last='true']::before {
+  bottom: 50%;
+  background: none;
+  border-bottom: 1px solid var(--rule-strong);
+}
+
+/* an open parent's line starts under its toggle */
+.db-tree[data-open='true']::after {
+  content: '';
+  position: absolute;
+  top: calc(50% + 9px);
+  bottom: 0;
+  left: calc(var(--tree-indent, 0) * 16px + 11px);
+  border-left: 1px solid var(--rule-strong);
+  pointer-events: none;
+}
+
+.db-tree__toggle {
+  position: relative;
+  z-index: 1;
+  display: inline-grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius-1);
+  background: var(--surface);
+  color: var(--ink-2);
+  cursor: pointer;
+}
+
+.db-tree__toggle:hover {
+  border-color: var(--ink-3);
+  color: var(--ink);
+}
+
+.db-tree__toggle:active {
+  transform: translateY(1px);
+}
+
+.db-tree__toggle svg {
+  transition: transform var(--dur-2) var(--ease-out);
+}
+
+.db-tree__toggle[aria-expanded='true'] {
+  border-color: var(--ink-3);
+  color: var(--ink);
+}
+
+.db-tree__toggle[aria-expanded='true'] svg {
+  transform: rotate(90deg);
+}
+
+.db-tree__n {
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  min-width: 18px;
+  height: 16px;
+  padding: 0 4px;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius-1);
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  font-weight: 600;
+  color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+}
+
+/* takes room only while the row is pointed at, so titles keep their width */
+.db-addsub {
+  display: none;
+  padding: 0 4px;
+}
+
+.db-addsub + .db-open {
+  margin-left: 4px;
+}
+
+.dbt-row:hover .db-addsub,
+.dbt-cell[data-active='true'] .db-addsub,
+.dbl-row:hover .db-addsub,
+.dbl-row:focus-within .db-addsub,
+.db-addsub:focus-visible {
+  display: inline-flex;
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* context-only parents (a sub-item matches the filter, they don't) */
+.dbt-row[data-dimmed='true'] .dbt-cell > :not(.db-tree),
+.dbl-row[data-dimmed='true'] > :not(.db-tree) {
+  opacity: 0.48;
+}
+
+.dbl-row .db-tree {
+  margin-left: -4px;
+}
+
+.dbl-row .db-addsub {
+  margin-left: 0;
+}
+
+/* board / gallery: sub-item count */
+.dbc-subs {
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+/* ---------- colour rules: rows, cards, lines, bars ---------- */
+.dbt-row[data-rc='background'] > * {
+  background-color: var(--rc-bg);
+}
+
+.dbt-row[data-rc='accent'] > .dbt-gutter {
+  box-shadow: inset 3px 0 0 var(--rc-text);
+}
+
+.dbt-row[data-rc='text'] > .dbt-cell,
+.dbt-row[data-rc='text'] .db-rowtitle__text {
+  color: var(--rc-text);
+}
+
+.dbl-row[data-rc='background'] {
+  background: var(--rc-bg);
+}
+
+.dbl-row[data-rc='background']:hover {
+  background: linear-gradient(var(--hover), var(--hover)), var(--rc-bg);
+}
+
+.dbl-row[data-rc='accent'] {
+  box-shadow: inset 3px 0 0 var(--rc-text);
+}
+
+.dbl-row[data-rc='text'] .dbl-row__title {
+  color: var(--rc-text);
+}
+
+.dbc[data-rc='background'] {
+  background: var(--rc-bg);
+}
+
+.dbc[data-rc='accent']::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 1;
+  width: 3px;
+  background: var(--rc-text);
+  pointer-events: none;
+}
+
+.dbc[data-rc='text'] .dbc-title {
+  color: var(--rc-text);
+}
+
+.dbtl-bar[data-rc='background'],
+.dbtl-bar[data-rc='text'] {
+  background: var(--rc-bg);
+  color: var(--rc-text);
+  box-shadow:
+    inset 4px 0 0 var(--rc-text),
+    inset 0 0 0 1px var(--rc-text);
+}
+
+.dbtl-bar[data-rc='background']:hover,
+.dbtl-bar[data-rc='text']:hover {
+  box-shadow:
+    inset 4px 0 0 var(--rc-text),
+    inset 0 0 0 1px var(--rc-text),
+    0 0 0 1px var(--signal);
+}
+
+.dbcal-ev[data-rc='text'] .dbcal-chip__title {
+  color: var(--rc-text);
+}
+
+/* ---------- timeline: dependency arrows ---------- */
+.dbtl-deps {
+  position: absolute;
+  top: 0;
+  z-index: 1;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.dbtl-dep {
+  color: var(--ink-2);
+}
+
+.dbtl-dep__line {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1;
+  shape-rendering: crispEdges;
+}
+
+.dbtl-dep__head {
+  fill: currentColor;
+}
+
+.dbtl-dep__hit {
+  fill: none;
+  stroke: transparent;
+  stroke-width: 12;
+  pointer-events: stroke;
+  cursor: pointer;
+  outline: none;
+}
+
+.dbtl-dep:hover {
+  color: var(--ink);
+}
+
+.dbtl-dep[data-violated='true'] {
+  color: var(--signal);
+}
+
+.dbtl-dep[data-violated='true'] .dbtl-dep__line {
+  stroke-width: 1.5;
+  shape-rendering: auto;
+}
+
+.dbtl-dep[data-selected='true'] {
+  color: var(--signal);
+}
+
+.dbtl-dep[data-selected='true'] .dbtl-dep__line {
+  stroke-width: 2.5;
+  stroke-dasharray: 6 3;
+  shape-rendering: auto;
+}
+
+.dbtl-depdraft {
+  fill: none;
+  stroke: var(--signal);
+  stroke-width: 1.5;
+  stroke-dasharray: 4 3;
+}
+
+/* connector jack at a bar's end: drag it onto another bar */
+.dbtl-bar__dep {
+  position: absolute;
+  top: 50%;
+  right: -16px;
+  z-index: 2;
+  width: 11px;
+  height: 11px;
+  margin-top: -5.5px;
+  border: 1.5px solid var(--ink);
+  border-radius: var(--radius-led);
+  background: var(--surface);
+  cursor: crosshair;
+  opacity: 0;
+  touch-action: none;
+  transition: opacity var(--dur-1) var(--ease-out);
+}
+
+.dbtl-bar:hover .dbtl-bar__dep,
+.dbtl[data-linking='true'] .dbtl-bar__dep {
+  opacity: 1;
+}
+
+.dbtl-bar__dep:hover {
+  border-color: var(--signal);
+  background: var(--signal);
+}
+
+.dbtl[data-deps='true'] .dbtl-bar__label.is-outside {
+  padding-left: 24px;
+}
+
+.dbtl[data-linking='true'],
+.dbtl[data-linking='true'] * {
+  cursor: crosshair !important;
+}
+
+.dbtl-row[data-link-target='true'] .dbtl-lane,
+.dbtl-row[data-link-target='true'] .dbtl-title {
+  background: var(--signal-wash);
+}
+
+.dbtl-row[data-link-target='true'] .dbtl-bar {
+  box-shadow:
+    inset 4px 0 0 var(--ev-accent),
+    0 0 0 2px var(--signal);
+}
+
+/* ---------- settings panels ---------- */
+.db-struct {
+  width: min(380px, calc(100vw - 16px));
+}
+
+.db-struct__state {
+  color: var(--ink-3);
+}
+
+.db-struct__pair {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 4px 8px 6px;
+  padding: 7px 10px;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius-1);
+  background: var(--surface-2);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  color: var(--ink);
+}
+
+.db-struct__prop {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.db-struct__link {
+  color: var(--signal-ink);
+  font-size: 13px;
+}
+
+.db-struct__row {
+  flex-wrap: wrap;
+  row-gap: 4px;
+  padding-top: 4px;
+  padding-bottom: 4px;
+}
+
+.db-struct__note {
+  margin: 4px 8px 6px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--ink-3);
+}
+
+.db-struct-dialog__body {
+  margin: 0;
+  font-size: 13.5px;
+  line-height: 1.55;
+  color: var(--ink-2);
+}
+
+/* ---------- colour rules editor ---------- */
+.db-rcpanel__order {
+  color: var(--signal-ink);
+}
+
+.db-rcpanel__empty {
+  margin: 2px 2px 8px;
+}
+
+.db-rcpanel__list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0 0 4px;
+  padding: 0;
+  list-style: none;
+}
+
+.db-rcrule {
+  position: relative;
+  padding: 8px 8px 8px 14px;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius-2);
+  background: var(--surface);
+}
+
+.db-rcrule::before {
+  content: '';
+  position: absolute;
+  top: -1px;
+  bottom: -1px;
+  left: -1px;
+  width: 4px;
+  border-radius: var(--radius-2) 0 0 var(--radius-2);
+  background: var(--rc-text);
+}
+
+.db-rcrule[data-inert='true']::before {
+  background: repeating-linear-gradient(180deg, var(--rc-text) 0 4px, transparent 4px 7px);
+}
+
+.db-rcrule__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.db-rcrule__idx {
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  font-weight: 600;
+  letter-spacing: var(--tracking-label);
+  color: var(--ink-3);
+}
+
+.db-rcrule__color {
+  width: 128px;
+}
+
+.db-rcrule__swatch {
+  background: var(--rc-bg);
+  box-shadow: inset 0 0 0 1px var(--rc-text);
+}
+
+.db-rcrule__sample {
+  display: inline-grid;
+  place-items: center;
+  width: 30px;
+  height: 22px;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius-1);
+  font-size: 11.5px;
+  font-weight: 650;
+  color: var(--ink);
+}
+
+.db-rcrule__sample[data-rc='background'] {
+  background: var(--rc-bg);
+}
+
+.db-rcrule__sample[data-rc='accent'] {
+  box-shadow: inset 3px 0 0 var(--rc-text);
+}
+
+.db-rcrule__sample[data-rc='text'] {
+  color: var(--rc-text);
+}
+
+@media (max-width: 640px) {
+  .db-rcrule__color {
+    width: auto;
+    flex: 1 1 110px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .db-tree__toggle svg,
+  .dbtl-bar__dep {
+    transition: none;
+  }
+}

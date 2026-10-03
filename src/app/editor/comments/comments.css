@@ -317,17 +317,19 @@
 
 .ccomposer__row {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: flex-end;
   gap: 6px;
   margin-top: 6px;
 }
 
+/* the key legend gets its own line: the rail is narrow */
 .ccomposer__hint {
-  display: inline-flex;
+  display: flex;
+  flex: 1 1 100%;
   align-items: center;
   gap: 4px;
-  margin-right: auto;
   white-space: nowrap;
 }
 

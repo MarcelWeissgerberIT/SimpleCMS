@@ -14,7 +14,7 @@ import { Segmented } from '../parts'
 import type { DbModel } from '../hooks'
 import { dependenciesOf, subItemsOf } from '../model/hierarchy'
 import { disableDependencies, disableSubItems, enableDependencies, enableSubItems, setConflictMode } from '../model/structure'
-import './structure.css'
+import '../structure.css'
 
 type Kind = 'sub' | 'dep'
 

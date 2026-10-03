@@ -161,6 +161,7 @@ export function PropertyRows({ db, row, resolver, props, getValue, onChange, hid
           anchor={editing.el}
           initialText={editing.text}
           minWidth={320}
+          rowId={row.id}
           onClose={(reason) => {
             const el = editing.el
             setEditing(null)

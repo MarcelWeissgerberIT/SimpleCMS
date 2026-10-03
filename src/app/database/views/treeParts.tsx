@@ -94,7 +94,6 @@ export function AddSubButton({ onAdd, tabbable }: { onAdd: () => void; tabbable?
       onKeyDown={(e) => e.stopPropagation()}
     >
       <CornerDownRight size={12} strokeWidth={2} />
-      <span>{t('database.sub.addShort')}</span>
     </button>
   )
 }

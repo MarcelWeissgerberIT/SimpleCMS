@@ -23,6 +23,7 @@ import { uniformOffsets, useWindow } from './virtual'
 import { dependenciesOf, linkedIds } from '../model/hierarchy'
 import { shiftDependents } from '../model/dependencies'
 import { DepArrows, type BarGeom, type DepEdge } from './timeline/DepArrows'
+import '../structure.css'
 import './timeline.css'
 
 type Zoom = 'week' | 'month' | 'quarter'
