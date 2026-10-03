@@ -74,7 +74,9 @@ AI on every workspace with your own Claude key, and an honest export.
 toggles and toggle headings, callouts, columns, tables, tabs, to-dos, code with highlighting, KaTeX math, Mermaid
 diagrams, images, video & audio, files, embeds, bookmarks, table of contents, @-mentions of pages / dates (with
 reminders) / people, emoji shortcodes, Markdown paste, block links, margin comments (they never leave the device),
-**synced blocks** (the same content on several pages — edit it anywhere, it changes everywhere), and **buttons** that
+**synced blocks** (the same content on several pages — edit it anywhere, it changes everywhere), **AI meeting notes**
+(a live transcript from the browser's speech recognition, then summary, decisions and action items by Claude — action
+items go straight into a database), and **buttons** that
 insert blocks, add rows, edit properties, open links or fire a webhook in one click.
 
 **Databases** — table, board, list, gallery, calendar, timeline, chart and form views over the same rows; 22 property
@@ -82,7 +84,8 @@ types including relations, rollups, formulas (safe parser, no `eval`), status, u
 last edited by; filters with AND/OR groups and a "Me" filter, multi-sort, grouping, footer calculations, colour rules,
 sub-items, timeline dependencies (with automatic shifting), row templates — also repeating ones (a fresh meeting entry
 every Monday at 09:00) — locked databases, inline databases inside pages, side/centre peek, `.ics` calendar export, and
-**AI autofill** — summaries, key info, translations or categories per row, reviewed before they are written.
+**AI autofill** — summaries, key info, translations or categories per row, reviewed before they are written. Forms
+have conditional questions, several pages, scales and checkbox lists, a closing screen and a response summary.
 
 **Workspace** — page tree with drag & drop, favourites, trash, breadcrumbs, `⌘K` palette for search *and* commands,
 home dashboard, today's journal, an **Inbox** with reminders (and, in team workspaces, mentions, assignments and
@@ -208,6 +211,8 @@ Built for the **Ninja Armory** challenge of the AI Automations community.
 - Veröffentlichen als statische Website, Teilen-Links ohne Server (optional mit Passwort)
 - Agenda über alle Datenbanken, Web-Clipper, Graph-Ansicht und Versionsverlauf ohne Zeitlimit
 - Posteingang mit Erinnerungen, synchronisierte Blöcke, Aufklapp-Überschriften, Video und Audio
+- KI-Besprechungsnotizen: Live-Transkript, danach Zusammenfassung, Entscheidungen und Aufgaben per Claude
+- Formulare mit bedingten Fragen, mehreren Seiten und Antwort-Übersicht
 - Sync als Markdown in einen Ordner auf deinem Rechner oder dein eigenes GitHub-Repository – in beide Richtungen
 - einen Workspace-Agenten (`⌘J`), der Aufgaben über Seiten und Datenbanken plant und erst nach deiner Prüfung ausführt
 - wiederkehrende Datenbank-Vorlagen, z. B. jeden Montag um 09:00 ein neuer Meeting-Eintrag

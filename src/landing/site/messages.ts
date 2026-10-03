@@ -473,7 +473,7 @@ export const content: Record<Lang, SiteContent> = {
   en: {
     features: [
       { key: 'editor', group: 'write', code: 'Ed', title: 'Block editor', text: 'Slash menu, drag handles, tabs, toggle headings, synced blocks, video and audio, math, Mermaid — and margin comments.' },
-      { key: 'ai', group: 'write', code: 'Ai', title: 'Claude AI, your key', text: 'Write, rewrite, summarise, ask your whole workspace — or hand a whole task to the agent (⌘J). Billed per use to your own Anthropic key.' },
+      { key: 'ai', group: 'write', code: 'Ai', title: 'Claude AI, your key', text: 'Write, rewrite, summarise, take meeting notes, ask your whole workspace — or hand a task to the agent (⌘J). Your own Anthropic key.' },
       { key: 'history', group: 'write', code: 'Hi', title: 'Version history', text: 'Snapshots of every page with a block-level diff and no day limit. Scroll back, restore, carry on.' },
       { key: 'graph', group: 'write', code: 'Gr', title: 'Graph & backlinks', text: 'A live map of every link between pages, plus backlinks and unlinked mentions on each one.' },
       { key: 'databases', group: 'organise', code: 'Db', title: 'Databases, 8 views', text: 'Table, board, list, gallery, calendar, timeline, chart and form over the same rows. 22 property types.' },
@@ -481,7 +481,7 @@ export const content: Record<Lang, SiteContent> = {
       { key: 'agenda', group: 'organise', code: 'Ag', title: 'Agenda & inbox', text: 'Every date from every database in one month, week or list view — and reminders that land in your inbox.' },
       { key: 'palette', group: 'organise', code: '⌘K', title: 'Search & ⌘K', text: 'One shortcut finds every page and row and runs every command. Hands stay on the keys.' },
       { key: 'automations', group: 'automate', code: 'Au', title: 'Webhook automations', text: 'When a row is created, changed or deleted: fire a webhook, set a property, notify. Free on every database.' },
-      { key: 'forms', group: 'automate', code: 'Fm', title: 'Forms', text: 'Turn a database into a form. Shared forms send every answer to your n8n, Make or Zapier webhook.' },
+      { key: 'forms', group: 'automate', code: 'Fm', title: 'Forms', text: 'A database becomes a form — with conditional questions and pages. Shared forms post every answer to your webhook.' },
       { key: 'buttons', group: 'automate', code: 'Bt', title: 'Buttons', text: 'One click inserts blocks, adds rows, edits properties, opens links or fires a webhook.' },
       { key: 'autofill', group: 'automate', code: 'Af', title: 'AI autofill', text: 'Claude fills a column — summaries, key facts, translations, categories. You review before anything is written.' },
       { key: 'website', group: 'publish', code: 'Ws', title: 'Publish as a website', text: 'Any page becomes a static site with sitemap, RSS and llms.txt. Host it anywhere, own every file.' },
@@ -604,7 +604,7 @@ export const content: Record<Lang, SiteContent> = {
   de: {
     features: [
       { key: 'editor', group: 'write', code: 'Ed', title: 'Block-Editor', text: 'Slash-Menü, Ziehgriffe, Tabs, Aufklapp-Überschriften, synchronisierte Blöcke, Video und Audio, Formeln, Mermaid — und Randkommentare.' },
-      { key: 'ai', group: 'write', code: 'Ai', title: 'Claude-KI, dein Key', text: 'Schreiben, umschreiben, zusammenfassen, den ganzen Workspace fragen — oder dem Agenten (⌘J) eine ganze Aufgabe geben. Abgerechnet über deinen eigenen Anthropic-Key.' },
+      { key: 'ai', group: 'write', code: 'Ai', title: 'Claude-KI, dein Key', text: 'Schreiben, umschreiben, zusammenfassen, Besprechungen protokollieren, den Workspace fragen — oder dem Agenten (⌘J) eine Aufgabe geben. Dein eigener Anthropic-Key.' },
       { key: 'history', group: 'write', code: 'Hi', title: 'Versionsverlauf', text: 'Schnappschüsse jeder Seite mit Vergleich auf Block-Ebene, ohne Tageslimit. Zurückblättern, wiederherstellen, weitermachen.' },
       { key: 'graph', group: 'write', code: 'Gr', title: 'Graph & Backlinks', text: 'Eine lebendige Karte aller Links zwischen Seiten, dazu Backlinks und unverlinkte Erwähnungen auf jeder Seite.' },
       { key: 'databases', group: 'organise', code: 'Db', title: 'Datenbanken, 8 Ansichten', text: 'Tabelle, Board, Liste, Galerie, Kalender, Zeitleiste, Diagramm und Formular auf dieselben Zeilen. 22 Eigenschaftstypen.' },
@@ -612,7 +612,7 @@ export const content: Record<Lang, SiteContent> = {
       { key: 'agenda', group: 'organise', code: 'Ag', title: 'Agenda & Posteingang', text: 'Jeder Termin aus jeder Datenbank in Monat, Woche oder Liste — und Erinnerungen, die im Posteingang landen.' },
       { key: 'palette', group: 'organise', code: '⌘K', title: 'Suche & ⌘K', text: 'Ein Kürzel findet jede Seite und Zeile und führt jeden Befehl aus. Die Hände bleiben auf der Tastatur.' },
       { key: 'automations', group: 'automate', code: 'Au', title: 'Webhook-Automationen', text: 'Zeile angelegt, geändert oder gelöscht: Webhook feuern, Eigenschaft setzen, Hinweis zeigen. Kostenlos in jeder Datenbank.' },
-      { key: 'forms', group: 'automate', code: 'Fo', title: 'Formulare', text: 'Aus einer Datenbank wird ein Formular. Geteilte Formulare senden jede Antwort an deinen n8n-, Make- oder Zapier-Webhook.' },
+      { key: 'forms', group: 'automate', code: 'Fo', title: 'Formulare', text: 'Aus einer Datenbank wird ein Formular — mit bedingten Fragen und Seiten. Geteilte Formulare senden jede Antwort an deinen Webhook.' },
       { key: 'buttons', group: 'automate', code: 'Bt', title: 'Buttons', text: 'Ein Klick fügt Blöcke ein, legt Zeilen an, ändert Eigenschaften, öffnet Links oder feuert einen Webhook.' },
       { key: 'autofill', group: 'automate', code: 'Af', title: 'KI-Autofill', text: 'Claude füllt eine Spalte — Zusammenfassungen, Kerninfos, Übersetzungen, Kategorien. Du prüfst, bevor etwas geschrieben wird.' },
       { key: 'website', group: 'publish', code: 'Ws', title: 'Als Website veröffentlichen', text: 'Jede Seite wird zur statischen Website mit Sitemap, RSS und llms.txt. Hosten, wo du willst — jede Datei gehört dir.' },
