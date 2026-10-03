@@ -323,6 +323,14 @@ textarea.input {
 }
 
 /* ---------- Popover / Menu ---------- */
+/* every portalled popover — also `bare` ones that bring their own class (icon picker …) — sits above
+   the page, its sticky table headers and the sidebar; one opened from a dialog sits above the dialog */
+[data-popover] {
+  z-index: var(--z-popover);
+}
+.modal-scrim ~ [data-popover] {
+  z-index: calc(var(--z-modal) + 10);
+}
 .popover {
   z-index: var(--z-popover);
   min-width: 200px;
