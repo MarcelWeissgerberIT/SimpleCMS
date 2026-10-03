@@ -7,6 +7,7 @@
  * thin marks with a 2px rounded data end, square line markers with a surface ring, a 2px
  * surface gap between touching fills, value labels with a surface halo, selective labels.
  */
+import type { ColorName } from '../../../store/types'
 import type { ChartData, ChartKind, ChartSpec } from '../types'
 import { looksLikeTime } from '../spec'
 import { h, type VNode } from './vnode'
@@ -212,7 +213,12 @@ function hbarPath(y: number, hh: number, base: number, end: number): string {
   return `M${base},${y}H${end + r}q${-r},0 ${-r},${r}V${y + hh - r}q0,${r} ${r},${r}H${base}Z`
 }
 
-const seriesColors = (ctx: Ctx) => ctx.data.series.map((s, i) => seriesColor(i, ctx.spec.colors?.[i] ?? s.color))
+/** spec.colors[i] ('default' = automatic) → the series' own colour → the order. */
+const pickColor = (ctx: Ctx, i: number, own?: ColorName) => {
+  const set = ctx.spec.colors?.[i]
+  return seriesColor(i, set && set !== 'default' ? set : own)
+}
+const seriesColors = (ctx: Ctx) => ctx.data.series.map((s, i) => pickColor(ctx, i, s.color))
 
 function rowsAt(ctx: Ctx, i: number, colors: string[]): TargetRow[] {
   return ctx.data.series.map((s, k) => ({ name: s.name, color: colors[k], value: formatValue(s.values[i], ctx.fmt) }))
@@ -520,7 +526,7 @@ function scatter(ctx: Ctx): Body {
   const pairMode = !numLabels && data.series.length >= 2
   const xs = numLabels ? data.labels.map(Number) : pairMode ? data.series[0].values : data.labels.map((_, i) => i + 1)
   const ys = pairMode ? data.series.slice(1) : data.series
-  const colors = ys.map((s, i) => seriesColor(i, ctx.spec.colors?.[i] ?? s.color))
+  const colors = ys.map((s, i) => pickColor(ctx, i, s.color))
   const legendH = legend(ctx, ys.map((s, i) => ({ name: s.name, color: colors[i] })), 'bar', ctx.frame.top)
   const top = ctx.frame.top + legendH + 10
   const plotH = Math.max(40, ctx.height - 22 - 16)

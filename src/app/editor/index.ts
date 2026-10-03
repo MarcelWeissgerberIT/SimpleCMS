@@ -22,6 +22,9 @@
  *  - Inline icons: node `icon` (inline atom; attrs: kind 'asset' | 'lucide', name, color = ColorName | null,
  *      glyphs only). Markdown: ![Clock](assets/icons/clock.webp) / :icon-rocket@red:; plain text [Clock] /
  *      :rocket:. iconAssetPaths(doc): the public icon files a doc shows (for exports that copy files).
+ *  - Charts: node `chart` (atom; attrs: spec = ChartSpec JSON — features/charts/types.ts). The live view, sources and
+ *      builder come from features/charts; HTML = <figure data-type="chart" data-spec> + static SVG, Markdown = title +
+ *      data table. stripPrivate() freezes live sources into the numbers they show (share links, exports).
  */
 export { PageEditor, type PageEditorProps } from './PageEditor'
 export { ReadOnlyDoc } from './ReadOnlyDoc'

@@ -18,6 +18,7 @@ import { SyncedBlockView, syncedViewOptions } from './SyncedBlockView'
 import { AudioView, VideoView } from './MediaBlockViews'
 import { MeetingNotesView, meetingViewOptions } from './MeetingNotesView'
 import { SpreadsheetView, spreadsheetViewOptions } from './SpreadsheetView'
+import { ChartBlockView, chartViewOptions } from './ChartBlockView'
 import { withInlineIconView } from './InlineIconView'
 import './views.css'
 import './toggle.css'
@@ -72,5 +73,7 @@ export function nodeViewWraps({ readOnly }: { readOnly: boolean }): ExtensionWra
     meetingNotes: withView(MeetingNotesView, meetingViewOptions),
     // spreadsheet: the grid (lazy) while editing; read-only renders show the schema's static tables
     ...(readOnly ? {} : { spreadsheet: withView(guardView(SpreadsheetView), spreadsheetViewOptions) }),
+    // chart: the live chart (features/charts); read-only renders keep the readouts, without the tools
+    chart: withView(guardView(ChartBlockView), chartViewOptions),
   }
 }

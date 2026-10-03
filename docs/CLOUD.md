@@ -301,6 +301,9 @@ Y.Map 'databases'  dbId → Y.Map {
                      any other Database key (subItems, dependencies, locked …): JSON
                    }
 Y.Map 'people'     personId → JSON Person   (workspace people; members are mirrored as people)
+Y.Map 'functions'  functionId → JSON CustomFunction   (custom functions built by clicking —
+                     { id, name, description?, params, body: expression tree, createdAt, updatedAt };
+                     last writer wins per function; every reader sanitizes it, see src/app/store/functions.ts)
 ```
 
 *(client C1 refinements, backwards compatible on read)*: comment **replies** are entries of their

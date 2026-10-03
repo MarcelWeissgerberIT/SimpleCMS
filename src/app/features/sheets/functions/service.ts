@@ -7,10 +7,9 @@
 import { useWorkspace } from '../../../store/store'
 import type { CustomFunction, ID } from '../../../store/types'
 import { setFormulaFunctions, type FormulaCallResult, type FormulaFunctions, type FormulaPlain } from '../../../lib/formulaFunctions'
-import { getFunction, listFunctions, setCustomFunctions } from '../engine/registry'
-import { callFunction } from '../engine/evaluate'
-import { cellsOf, datasetOf, DAY, EPOCH, isDataset, isErr, isRange } from '../engine/values'
-import type { CellValue, Value } from '../engine/types'
+import { callFunction, cellsOf, datasetOf, getFunction, isDataset, isErr, isRange, listFunctions, setCustomFunctions } from '../engine'
+import type { CellValue, Value } from '../engine'
+import { DAY, EPOCH } from '../engine/values'
 
 /* ------------------------------------------------------------------ database formulas */
 

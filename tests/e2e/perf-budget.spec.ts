@@ -18,10 +18,20 @@ import type { CDPSession, Page } from '@playwright/test'
 import { test, expect, openApp, reloadApp, wsEval, flush } from './fixtures'
 import { loadBigWorkspace, type BigInfo } from './helpers/bigWorkspace'
 
+/** Page-map scans (Object.keys / values / entries of ≥ 2,000 entries) allowed until the app is up, and per store write. */
+const BOOT_SCANS = 40
+const WRITE_SCANS = 5
+
 /** Counters installed before the app runs (survive reloads of the page). */
 function installCounters() {
-  const w = window as unknown as { __perf: PerfCounters }
-  const perf: PerfCounters = (w.__perf = { scans: 0, puts: [], longTasks: [], keys: [] })
+  const w = window as unknown as { __perf: PerfCounters; __perfStopWatch: () => void }
+  const perf: PerfCounters = (w.__perf = { scans: 0, puts: [], longTasks: [], keys: [], homeSeen: false })
+  // the home screen (a pass over every page for its stats + the agenda panel) must not render on the way to the start page
+  const watch = new MutationObserver((list) => {
+    for (const m of list) for (const n of m.addedNodes) if (n instanceof Element && (n.matches('.home') || n.querySelector('.home'))) perf.homeSeen = true
+  })
+  watch.observe(document, { childList: true, subtree: true })
+  w.__perfStopWatch = () => watch.disconnect()
   // a "scan": Object.keys / values / entries of a map with thousands of entries (the page map)
   for (const name of ['keys', 'values', 'entries'] as const) {
     const orig = Object[name] as (o: object) => unknown[]
@@ -59,15 +69,22 @@ interface PerfCounters {
   puts: Array<{ t: number; db: string; key: string; size: number }>
   longTasks: Array<{ t: number; d: number }>
   keys: Array<{ t: number; d: number }>
+  homeSeen: boolean
 }
 
 const now = (page: Page) => page.evaluate(() => performance.now())
 const counters = (page: Page) => page.evaluate(() => (window as unknown as { __perf: PerfCounters }).__perf)
+const scans = (page: Page) => page.evaluate(() => (window as unknown as { __perf: PerfCounters }).__perf.scans)
 const since = <T extends { t: number }>(list: T[], t0: number) => list.filter((x) => x.t >= t0)
+/** A reading for the report (playwright's JSON / HTML reporters show it). */
+const note = (what: string, value: unknown) => test.info().annotations.push({ type: what, description: JSON.stringify(value) })
+const median = (xs: number[]) => [...xs].sort((a, b) => a - b)[Math.floor(xs.length / 2)] ?? 0
 
-async function busyMs(cdp: CDPSession): Promise<number> {
+/** Main-thread time (ms): every task (`busy`), and the part that is the app's own work (`work`: script, style, layout). */
+async function mainThread(cdp: CDPSession): Promise<{ busy: number; work: number }> {
   const { metrics } = (await cdp.send('Performance.getMetrics')) as { metrics: Array<{ name: string; value: number }> }
-  return (metrics.find((m) => m.name === 'TaskDuration')?.value ?? 0) * 1000
+  const ms = (name: string) => (metrics.find((m) => m.name === name)?.value ?? 0) * 1000
+  return { busy: ms('TaskDuration'), work: ms('ScriptDuration') + ms('RecalcStyleDuration') + ms('LayoutDuration') }
 }
 
 /** Navigate by hash and resolve with the ms until `ready` holds in a rendered frame. */
@@ -101,9 +118,16 @@ test.describe('performance budget (big workspace)', () => {
 
     await test.step('cold boot', async () => {
       await page.goto('app/?e2e')
-      await page.waitForFunction(() => !!document.querySelector('.app') && !document.getElementById('boot'), null, { polling: 'raf', timeout: 60_000 })
+      await page.waitForFunction(() => !!document.querySelector('.app') && !document.getElementById('boot'), null, { polling: 'raf', timeout: 90_000 })
       const bootMs = await now(page)
-      expect(bootMs, 'cold boot of ~13,000 pages to a usable app').toBeLessThan(20_000)
+      const c = await counters(page)
+      await page.evaluate(() => (window as unknown as { __perfStopWatch: () => void }).__perfStopWatch())
+      note('boot', { ms: Math.round(bootMs), scans: c.scans })
+      // "#/" opens the start page: the home screen is never built just to be replaced (it was: ~1 s here)
+      expect(c.homeSeen, 'home screen rendered on the way to the start page').toBe(false)
+      expect(c.scans, 'page-map scans until the app is up').toBeLessThanOrEqual(BOOT_SCANS)
+      // wall clock: order-of-magnitude only (a loaded box takes several times longer than a quiet one)
+      expect(bootMs, 'cold boot of ~13,000 pages to a usable app').toBeLessThan(45_000)
       await page.waitForTimeout(4000) // the services' first passes (inbox, synced blocks, sync)
     })
 
@@ -112,6 +136,7 @@ test.describe('performance budget (big workspace)', () => {
 
     await test.step('open the 200-block page', async () => {
       const ms = await timeTo(page, pageHash, editorReady)
+      note('open page ms', Math.round(ms))
       expect(ms, 'opening a page with 200 blocks').toBeLessThan(6000)
       await page.waitForTimeout(2500)
     })
@@ -123,35 +148,57 @@ test.describe('performance budget (big workspace)', () => {
         w.__one.workspace.subscribe(() => w.__perfIdle++)
       })
       const t0 = await now(page)
-      const busy0 = await busyMs(cdp)
-      const wall0 = Date.now()
-      await page.waitForTimeout(10_000)
-      const busy = (await busyMs(cdp)) - busy0
-      const wall = Date.now() - wall0
+      // V8 tidies a big heap a few seconds after a burst of work (incremental marking + a major GC,
+      // ~1 s here): housekeeping, not the app. Collect now; should it still run, the second window is quiet.
+      await cdp.send('HeapProfiler.enable')
+      await cdp.send('HeapProfiler.collectGarbage')
+      const windows: Array<{ busy: number; work: number }> = []
+      for (let i = 0; i < 2; i++) {
+        const a = await mainThread(cdp)
+        const wall0 = Date.now()
+        await page.waitForTimeout(10_000)
+        const b = await mainThread(cdp)
+        const wall = Date.now() - wall0
+        windows.push({ busy: (b.busy - a.busy) / wall, work: (b.work - a.work) / wall })
+        if (windows[i].busy < 0.05) break
+      }
+      note('idle', windows)
       const c = await counters(page)
       expect(await page.evaluate(() => (window as unknown as { __perfIdle: number }).__perfIdle), 'store changes while idle').toBe(0)
       expect(since(c.puts, t0).filter((p) => p.db === 'keyval-store'), 'workspace writes while idle').toEqual([])
-      expect(busy / wall, 'main-thread busy share while idle').toBeLessThan(0.05)
+      for (const w of windows) expect(w.work, 'script / style / layout share of an idle 10 s window').toBeLessThan(0.02)
+      expect(Math.min(...windows.map((w) => w.busy)), 'main-thread busy share while idle (quietest 10 s window)').toBeLessThan(0.05)
     })
 
     await test.step('store writes of the open page walk the page map only a few times', async () => {
-      const res = await page.evaluate(async (id) => {
-        const w = window as unknown as { __perf: PerfCounters; __one: { workspace: { getState: () => Record<string, any> } } } // eslint-disable-line @typescript-eslint/no-explicit-any
-        const scans: number[] = []
-        for (let i = 0; i < 4; i++) {
-          const s = w.__one.workspace.getState()
-          const content = JSON.parse(JSON.stringify(s.pages[id].content))
-          content.content[1].content.push({ type: 'text', text: ` budget ${i}` })
-          const before = w.__perf.scans
-          s.setContent(id, content, 'perf-budget')
-          // the renders it causes (sidebar, backlinks, unlinked mentions, status bar …) + deferred ones
-          await new Promise((r) => setTimeout(r, 120))
-          scans.push(w.__perf.scans - before)
-        }
-        return scans
-      }, big.bigPageId)
-      // today: 1 shared diff + 1 shared stats pass; before the fix: 12+ (each reader scanned for itself)
-      for (const n of res) expect(n, `page-map scans per store write (${res.join(', ')})`).toBeLessThanOrEqual(5)
+      const res = await page.evaluate(
+        async ({ id, rowId, propId }) => {
+          const w = window as unknown as { __perf: PerfCounters; __one: { workspace: { getState: () => Record<string, any> } } } // eslint-disable-line @typescript-eslint/no-explicit-any
+          const out: Record<'content' | 'title' | 'cell', number[]> = { content: [], title: [], cell: [] }
+          // scans of one write + the renders it causes (sidebar, backlinks, unlinked mentions, status bar …) + deferred work
+          const measure = async (kind: keyof typeof out, write: () => void) => {
+            const before = w.__perf.scans
+            write()
+            await new Promise((r) => setTimeout(r, 120))
+            out[kind].push(w.__perf.scans - before)
+          }
+          for (let i = 0; i < 4; i++) {
+            const s = w.__one.workspace.getState()
+            const content = JSON.parse(JSON.stringify(s.pages[id].content))
+            content.content[1].content.push({ type: 'text', text: ` budget ${i}` })
+            await measure('content', () => s.setContent(id, content, 'perf-budget'))
+            // a title typed key by key, a table cell
+            await measure('title', () => s.updatePage(id, { title: `Perf · Big page ${'x'.repeat(i + 1)}` }))
+            await measure('cell', () => s.setRowProperty(rowId, propId, 100 + i))
+          }
+          w.__one.workspace.getState().updatePage(id, { title: 'Perf · Big page' })
+          return out
+        },
+        { id: big.bigPageId, rowId: big.bigTableRowId, propId: big.bigTableNumberProp },
+      )
+      note('write scans', res)
+      // today: 1 copy of the map per write (the diff every reader asks for comes with it); before the fix: 12+ (each reader scanned for itself)
+      for (const [kind, list] of Object.entries(res)) for (const n of list) expect(n, `page-map scans per store write: ${kind} (${list.join(', ')})`).toBeLessThanOrEqual(WRITE_SCANS)
       await page.waitForTimeout(1500)
     })
 
@@ -179,6 +226,7 @@ test.describe('performance budget (big workspace)', () => {
       expect(Math.max(0, ...long.map((x) => x.d)), 'longest main-thread task while typing').toBeLessThan(1000)
       expect(longMs, 'main-thread time in long tasks during a 10-word typing session').toBeLessThan(8000)
       const keys = since(c.keys, t0).map((k) => k.d).sort((a, b) => a - b)
+      note('typing', { saves: puts.length, bytes, longTasks: long.length, longMs: Math.round(longMs), keysOver16: keys })
       if (keys.length) expect(keys[Math.floor(keys.length / 2)], 'median keypress → paint (Event Timing)').toBeLessThan(200)
     })
 
@@ -187,6 +235,7 @@ test.describe('performance budget (big workspace)', () => {
       await page.evaluate((id) => (window.location.hash = `#/p/${id}`), home)
       await page.waitForTimeout(800)
       const tableMs = await timeTo(page, `#/p/${big.bigTableId}`, `document.querySelectorAll('#main section.db .dbt-body .dbt-row[role="row"]').length > 10`)
+      note('open table ms', Math.round(tableMs))
       expect(tableMs, 'opening a 400-row table').toBeLessThan(6000)
       expect(await page.locator('#main section.db .dbt-body .dbt-row[role="row"]').count(), 'table rows stay virtualised').toBeLessThan(200)
       // a write elsewhere does not make the open table re-derive its rows (see useRelevantPages)
@@ -201,6 +250,8 @@ test.describe('performance budget (big workspace)', () => {
     })
 
     await test.step('⌘K search', async () => {
+      // a page to find by a typo (fuzzy title match)
+      await wsEval(page, (s) => s.createPage({ title: 'Quarterly roadmap' }))
       await page.keyboard.press('Escape')
       await page.locator('#main').click({ position: { x: 5, y: 5 } })
       await page.keyboard.press('Control+k')
@@ -214,6 +265,18 @@ test.describe('performance budget (big workspace)', () => {
       await input.fill(big.bodyWord)
       await expect(page.locator('.pal').getByText(big.bodyWord).first()).toBeVisible()
       expect(Date.now() - t1, '⌘K body-text search').toBeLessThan(3000)
+      // a typo, key by key: from "quartel" on nothing matches literally, so every key runs the fuzzy
+      // title match (Fuse over the titles that can still match: ~5× less work than over all of them)
+      await input.fill('')
+      await page.waitForTimeout(300)
+      const s0 = await scans(page)
+      const k0 = await now(page)
+      await input.pressSequentially('quartely roadmap', { delay: 60 })
+      await expect(page.locator('.pal-item', { hasText: 'Quarterly roadmap' }).first()).toBeVisible()
+      expect((await scans(page)) - s0, 'page-map scans while typing a query (the index is built once per open)').toBeLessThanOrEqual(1)
+      const slow = since((await counters(page)).keys, k0).map((k) => k.d)
+      note('palette keys over 16 ms', slow)
+      if (slow.length) expect(median(slow), `median keypress → paint in ⌘K, of the keys over 16 ms (${slow.length})`).toBeLessThan(300)
       await page.keyboard.press('Escape')
     })
 

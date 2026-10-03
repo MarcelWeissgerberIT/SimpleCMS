@@ -11,6 +11,7 @@ import {
   Bookmark,
   CalendarDays,
   ChartColumn,
+  ChartColumnIncreasing,
   ChartGantt,
   ChevronRight,
   Code,
@@ -62,6 +63,7 @@ import { caretIntoTabs, newTabsJson, tabsAround } from '../schema/tabs'
 import { insertSynced } from '../synced/actions'
 import { insertMeetingNotes } from '../schema/meetingNotes'
 import { insertSpreadsheet } from '../schema/spreadsheet'
+import { insertChart } from '../schema/chart'
 import { ToggleHeading1, ToggleHeading2, ToggleHeading3 } from './blockGlyphs'
 import { toast } from '../../store/ui'
 import { t } from '../../i18n'
@@ -189,6 +191,13 @@ export const BLOCKS: BlockItem[] = [
     icon: FileSpreadsheet,
     keywords: 'spreadsheet sheet sheets excel calc calculation formula formulas sum vlookup tabellenkalkulation tabellenblatt rechnen formel formeln summe sverweis kalkulation',
     run: (ctx) => insertSpreadsheet(ctx.editor, ctx.range),
+  },
+  {
+    id: 'chart',
+    group: 'basic',
+    icon: ChartColumnIncreasing,
+    keywords: 'chart graph diagram diagramm grafik kpi bar balken line linie pie torte donut plot statistics statistik visualize visualisierung',
+    run: (ctx) => insertChart(ctx.editor, ctx.range),
   },
   // ---------------- lists
   { id: 'bullet', group: 'lists', icon: List, md: '-', keys: 'Mod+Shift+8', keywords: 'bullet list unordered ul aufzählung liste punkte', turnInto: 'bulletList', run: turn('bulletList') },

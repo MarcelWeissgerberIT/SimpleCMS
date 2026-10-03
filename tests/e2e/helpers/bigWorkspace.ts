@@ -33,6 +33,9 @@ export interface BigInfo {
   bigPageBlocks: number
   bigTableId: string
   bigTableRows: number
+  /** a row of the big table and its number property ("Estimate") */
+  bigTableRowId: string
+  bigTableNumberProp: string
   /** a word that occurs in the body text of rich pages only (⌘K content search) */
   bodyWord: string
   /** a title fragment many pages share (⌘K title search) */
@@ -380,7 +383,7 @@ export function generateBigWorkspace(o: BigOptions): { pages: Record<string, unk
     pages,
     databases,
     people,
-    info: { bigPageId, bigPageBlocks, bigTableId, bigTableRows: o.rowsPerDb, bodyWord: BODY_WORD, titleWord: TITLE_WORD, pages: Object.keys(pages).length, rows, jsonChars },
+    info: { bigPageId, bigPageBlocks, bigTableId, bigTableRows: o.rowsPerDb, bigTableRowId: rowsOf.get(bigTableId)![0], bigTableNumberProp: `${bigTableId}-est`, bodyWord: BODY_WORD, titleWord: TITLE_WORD, pages: Object.keys(pages).length, rows, jsonChars },
   }
 }
 

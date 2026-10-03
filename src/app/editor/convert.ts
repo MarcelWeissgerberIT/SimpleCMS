@@ -9,6 +9,7 @@ import { BLOCK_ID_TYPES, baseExtensions } from './schema/base'
 import { stripButtonActions } from './schema/button'
 import { stripComments } from './schema/comment'
 import { stripSynced } from './schema/synced'
+import { freezeCharts } from '../features/charts'
 import { iconFromImage } from './schema/icon'
 import { safeHref } from './lib/embeds'
 import { escapeMarkdownText } from './lib/mdText'
@@ -269,11 +270,12 @@ function withoutUnsafeLinks(doc: JSONContent): JSONContent {
 
 /**
  * The doc without anything that must stay in this workspace / on this device: button actions
- * (webhook URLs, database ids), comment anchors and synced-block links (their content stays,
- * as plain blocks). For share links, exports, AI input.
+ * (webhook URLs, database ids), comment anchors, synced-block links (their content stays,
+ * as plain blocks) and live chart sources (charts keep the numbers they show right now).
+ * For share links, exports, AI input.
  */
 export function stripPrivate(doc: JSONContent): JSONContent {
-  return stripSynced(stripComments(stripButtonActions(doc)))
+  return freezeCharts(stripSynced(stripComments(stripButtonActions(doc))))
 }
 
 export function docToMarkdown(doc: JSONContent | null): string {

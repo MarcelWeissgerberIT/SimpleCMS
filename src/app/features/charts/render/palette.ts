@@ -18,9 +18,9 @@ export function colorVar(c: ColorName): string {
   return c === 'default' ? 'var(--ink)' : `var(--c-${c}-text)`
 }
 
-/** Colour of series i: explicit colour (spec.colors[i] ?? series.color) or the fixed order. */
+/** Colour of series i: explicit colour (spec.colors[i] ?? series.color; 'default' = automatic) or the fixed order. */
 export function seriesColor(i: number, explicit?: ColorName | null): string {
-  if (explicit) return colorVar(explicit)
+  if (explicit && explicit !== 'default') return colorVar(explicit)
   return SERIES_ORDER[i % SERIES_ORDER.length]
 }
 
@@ -41,8 +41,9 @@ export function categoryColors(count: number, own: (ColorName | null | undefined
   const taken = (c: string) => used.has(c) || (SAME_HUE[c] ?? []).some((x) => used.has(x))
   const out: string[] = []
   for (let i = 0; i < count; i++) {
-    let c = explicit[i] ? colorVar(explicit[i]) : own[i] && own[i] !== 'default' ? colorVar(own[i]!) : ''
-    if (!c || (taken(c) && !explicit[i])) c = SERIES_ORDER.find((x) => !taken(x)) ?? 'var(--ink-3)'
+    const set = explicit[i] && explicit[i] !== 'default' ? explicit[i] : null
+    let c = set ? colorVar(set) : own[i] && own[i] !== 'default' ? colorVar(own[i]!) : ''
+    if (!c || (taken(c) && !set)) c = SERIES_ORDER.find((x) => !taken(x)) ?? 'var(--ink-3)'
     used.add(c)
     out.push(c)
   }

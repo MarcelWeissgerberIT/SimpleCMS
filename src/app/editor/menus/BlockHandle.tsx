@@ -27,6 +27,7 @@ import { TURN_INTO_ITEMS } from '../lib/catalog'
 import { BlockGlyph } from './SlashMenu'
 import { toggleHeadingLevel } from '../schema/toggle'
 import { mediaMenuEntries } from './mediaMenu'
+import { chartMenuEntries } from './chartMenu'
 import { ColorGrid } from './BubbleToolbar'
 import { blockMenuSyncedEntries } from '../synced/menu'
 
@@ -58,6 +59,7 @@ const TYPE_LABEL: Record<string, string> = {
   columns: 'columns2',
   blockMath: 'math',
   mermaid: 'mermaid',
+  chart: 'chart',
   pageLink: 'page',
   databaseBlock: 'dbTable',
   bookmark: 'bookmark',
@@ -259,6 +261,8 @@ export function BlockHandle({ editor, bridge, pageId }: { editor: Editor; bridge
       })
     // video / audio: replace, download, copy a web link
     items.push(...mediaMenuEntries(editor, ref, t))
+    // chart: edit, type, downloads, data, source
+    items.push(...chartMenuEntries(editor, ref, t))
     items.push(
       { kind: 'separator' },
       { label: t('common.duplicate'), icon: <Copy size={15} />, hint: isTouch ? undefined : shortcutLabel('Mod+D'), onSelect: () => duplicateBlock(editor, ref) },
