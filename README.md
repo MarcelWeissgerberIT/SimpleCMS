@@ -18,6 +18,8 @@ and **no server**. Everything lives in your browser.
 
 <sub>First visit only: sit still for 15 seconds on the 1997 spreadsheet homepage. Replay any time with <code>?intro</code>.</sub>
 
+**[▶ 60-second tour (video)](docs/media/simplecms-one-promo.mp4)**
+
 </div>
 
 ---
@@ -137,7 +139,9 @@ npm run test:e2e     # Playwright end-to-end suite (builds + previews automatica
 E2E_PORT=4190 npm run test:e2e   # a second suite in parallel: own port, own build folder
 ```
 
-`node scripts/capture-shots.mjs` regenerates the landing-page screenshots from the real app.
+`node scripts/capture-shots.mjs` regenerates the landing-page screenshots from the real app. The promo video and the
+challenge-post images are produced by the scripts in `scripts/promo/` (Playwright recordings, a synthesised soundtrack,
+ffmpeg assembly; Python 3 with numpy + scipy).
 
 ## How it's built
 
