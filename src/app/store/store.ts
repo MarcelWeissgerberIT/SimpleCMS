@@ -77,6 +77,10 @@ export function plainText(node: JSONContent | null | undefined, max = 20000): st
       for (const c of n.content) walk(c)
       if (n.type !== 'text' && n.type !== 'doc') out += '\n'
     }
+    // meeting notes: the transcript lives in an attribute (editor/schema/meetingNotes.ts)
+    if (n.type === 'meetingNotes' && Array.isArray(n.attrs?.transcript)) {
+      for (const seg of n.attrs.transcript) if (seg?.text) out += `${seg.text}\n`
+    }
   }
   walk(node)
   return out.replace(/\n{3,}/g, '\n\n').trim().slice(0, max)

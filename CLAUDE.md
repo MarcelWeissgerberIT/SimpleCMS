@@ -79,7 +79,9 @@ a date id is `yyyy-MM-dd` or `yyyy-MM-ddTHH:mm` local time; mentions of private 
 `toc`, `fileBlock` (attrs: src, name, size), `video` (attrs: src, name, caption, width, align) and `audio` (attrs: src,
 name, caption) — src = `onefile:<id>` or an http(s) URL, `syncedBlock` (attrs: syncId, sourcePageId — null = the
 original, else a reference holding a cached copy; content: blocks; never nested; the sync service writes with origin
-'synced'; `stripButtonActions()` unwraps it to plain blocks), `button` (attrs: label, variant 'signal'|'ink'|'ghost', actions = JSON
+'synced'; `stripButtonActions()` unwraps it to plain blocks), `meetingNotes` (content: the notes as normal blocks; attrs:
+title, status 'idle'|'recording'|'paused'|'summarizing'|'done', language, startedAt, endedAt, duration, transcript =
+[{ t: ms offset, text }], recordedBy; never nested; runtime + Claude in features/ai/meeting), `button` (attrs: label, variant 'signal'|'ink'|'ghost', actions = JSON
 array, see editor/schema/button.ts — strip with `stripButtonActions()` before a doc leaves the workspace),
 `tabs` (container of `tab`, no tabs inside tabs; the shown tab is editor view state) / `tab` (attrs: title; content:
 blocks); marks `highlight` (attrs: color = ColorName), `textStyle` + color

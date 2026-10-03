@@ -3,7 +3,7 @@
  */
 import type { BrowserContext, Page } from '@playwright/test'
 import type { JSONContent } from '@tiptap/core'
-import { test, expect, openApp, wsEval, createPage, doc, pageIdByTitle, gotoPage, MOD } from './fixtures'
+import { test, expect, openApp, wsEval, createPage, doc, pageIdByTitle, gotoPage, editorOf, flush, MOD } from './fixtures'
 
 declare global {
   interface Window {
@@ -432,5 +432,37 @@ test.describe('automation recipes × locked database', () => {
     expect(await autos()).toBe(autosBefore)
     // the other recipes stay available (automations are allowed on a locked database)
     await expect(dialog.locator('.auto-recipe', { hasText: 'Notify when Status' })).toBeEnabled()
+  })
+})
+
+test.describe('synced blocks × controls inside a read-only copy', () => {
+  test('a copy whose original is gone: its to-do boxes and date chips do not pretend to change', async ({ page }) => {
+    await openApp(page)
+    const content = (source: string | null): JSONContent => ({
+      type: 'syncedBlock',
+      attrs: { syncId: 'review-orphan', sourcePageId: source },
+      content: [
+        { type: 'taskList', content: [{ type: 'taskItem', attrs: { checked: false }, content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Sign the contract' }] }] }] },
+        dateLine('Due ', '2026-10-20', 'at'),
+      ],
+    })
+    const a = await createPage(page, { title: 'Contract', content: doc(content(null)) })
+    const b = await createPage(page, { title: 'Legal hub', content: doc({ type: 'paragraph', content: [{ type: 'text', text: 'Hub' }] }, content(a)) })
+    await wsEval(page, (s, id) => s.trashPage(id), a)
+    await gotoPage(page, b)
+    const ref = editorOf(page, b).locator('[data-type="synced-block"]')
+    await expect(ref).toHaveAttribute('data-role', 'orphan')
+
+    const box = ref.locator('ul[data-type="taskList"] li input[type="checkbox"]')
+    await box.click({ force: true })
+    await flush(page)
+    const stored = await wsEval(page, (s, id) => JSON.stringify(s.pages[id].content), b)
+    expect(stored).toContain('"checked":false')
+    // what the page shows is what it holds
+    await expect(box).not.toBeChecked()
+
+    await ref.locator('.mention__date').click({ force: true })
+    await page.waitForTimeout(300)
+    await expect(page.getByRole('dialog', { name: 'Change date or reminder' })).toHaveCount(0)
   })
 })

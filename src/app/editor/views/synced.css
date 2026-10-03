@@ -146,6 +146,11 @@
   cursor: default;
 }
 
+/* its to-do boxes can't change either (a click would tick the box, not the page) */
+.doc-content .synced.is-orphan .synced__body ul[data-type='taskList'] li > label {
+  pointer-events: none;
+}
+
 .synced__key {
   flex: none;
   background: var(--ink);

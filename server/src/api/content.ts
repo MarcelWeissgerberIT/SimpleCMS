@@ -297,9 +297,18 @@ export function plainText(nodes: Node[], max = 20_000): string {
       for (const c of n.content) walk(c)
       if (n.type !== 'text' && n.type !== 'doc') out += '\n'
     }
+    if (n.type === 'meetingNotes') out += transcriptText(n.attrs?.transcript)
   }
   walk({ type: 'doc', content: nodes })
   return out.replace(/\n{3,}/g, '\n\n').trim().slice(0, max)
+}
+
+/** A meeting-notes block's transcript (attr: [{ t, text }], the app's editor/schema/meetingNotes.ts) as lines. */
+function transcriptText(transcript: unknown): string {
+  if (!Array.isArray(transcript)) return ''
+  let out = ''
+  for (const seg of transcript) if (seg && typeof (seg as { text?: unknown }).text === 'string') out += `${(seg as { text: string }).text}\n`
+  return out
 }
 
 /** Plain text of a content document's fragment (GET /api/v1/pages/:id), by the same rules. */
@@ -320,6 +329,7 @@ export function fragmentText(doc: Y.Doc, max = 100_000): string {
       for (const c of n.toArray()) walk(c)
       out += '\n'
     }
+    if (n.nodeName === 'meetingNotes') out += transcriptText(n.getAttribute('transcript'))
   }
   for (const c of doc.getXmlFragment('default').toArray()) walk(c)
   return out.replace(/\n{3,}/g, '\n\n').trim().slice(0, max)

@@ -122,7 +122,7 @@ export function MeetingDeck({ editor, node, editable }: MeetingDeckProps) {
   const record = () => blockId && startRecording(blockId, { language: attrs.language || 'en-US', resumeFrom: attrs.duration })
   const stop = () => blockId && stopRecording(blockId, { summarize: true })
   const summarize = () => blockId && void summarizeMeeting(blockId)
-  const usePasted = (segs: TranscriptSegment[]) => {
+  const applyPasted = (segs: TranscriptSegment[]) => {
     if (!blockId) return
     setPaste(false)
     const ok = patchMeeting(target(), (a) => ({ transcript: [...a.transcript, ...segs], startedAt: a.startedAt ?? Date.now(), endedAt: a.endedAt ?? Date.now() }), { history: true })
@@ -227,7 +227,7 @@ export function MeetingDeck({ editor, node, editable }: MeetingDeckProps) {
       {canAct && (paste || (mode === 'blank' && !supported)) && (
         <>
           {!supported && mode === 'blank' && <p className="mtg__note">{t('features.meeting.unsupported')}</p>}
-          <PastePanel onUse={usePasted} onCancel={supported || mode !== 'blank' ? () => setPaste(false) : undefined} />
+          <PastePanel onUse={applyPasted} onCancel={supported || mode !== 'blank' ? () => setPaste(false) : undefined} />
         </>
       )}
 

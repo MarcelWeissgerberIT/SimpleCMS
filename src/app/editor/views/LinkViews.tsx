@@ -13,6 +13,8 @@ import { Popover } from '../../ui/Popover'
 import { DateReminderEditor, normalizeReminder, reminderLabel, type DateReminderValue } from '../../features'
 import { useCloud } from '../../cloud'
 import { mentionDateLabel, mentionHasTime, relativeDateLabel } from '../lib/dates'
+import { syncedAround } from '../schema/synced'
+import { isOrphanGroup, useSyncedEntry } from '../synced/state'
 import './dateMention.css'
 
 function usePageInfo(id: string | null) {
@@ -55,6 +57,15 @@ export function PageLinkView({ node, selected }: ReactNodeViewProps) {
   )
 }
 
+/** The sync group of the synced REFERENCE a node sits in (null: none, or it is in an original). */
+function syncedCopyAt(editor: ReactNodeViewProps['editor'], getPos: ReactNodeViewProps['getPos']): string | null {
+  const pos = typeof getPos === 'function' ? getPos() : undefined
+  if (typeof pos !== 'number' || editor.isDestroyed || pos > editor.state.doc.content.size) return null
+  const around = syncedAround(editor.state.doc.resolve(pos))
+  const id = around?.node.attrs.sourcePageId ? around.node.attrs.syncId : null
+  return typeof id === 'string' && id ? id : null
+}
+
 /**
  * A date mention: the date (relative when near) and a bell when it has a reminder. In an editable
  * doc a click opens the date + time + reminder popover; read-only renders (share, history) only show it.
@@ -68,6 +79,10 @@ function DateMention({ node, editor, getPos, updateAttributes }: Pick<ReactNodeV
   const reminder = normalizeReminder(node.attrs.reminder)
   const text = id ? relativeDateLabel(id, lang, { today: t('editor.date.today'), tomorrow: t('editor.date.tomorrow'), yesterday: t('editor.date.yesterday') }) : label
   const bell = reminder && id ? t('inbox.remind.set', { label: reminderLabel(reminder, mentionHasTime(id), t) }) : null
+  // a synced copy whose original is gone is read-only: its dates too
+  const copyOf = syncedCopyAt(editor, getPos)
+  useSyncedEntry(copyOf)
+  const frozen = !!copyOf && isOrphanGroup(copyOf)
   const body = (
     <>
       <CalendarDays size={13} strokeWidth={1.75} />
@@ -75,7 +90,7 @@ function DateMention({ node, editor, getPos, updateAttributes }: Pick<ReactNodeV
       {bell && <BellRing className="mention__bell" size={11} strokeWidth={2} aria-label={bell} />}
     </>
   )
-  if (!editor.isEditable)
+  if (!editor.isEditable || frozen)
     return (
       <span className="mention__date" title={[id, bell].filter(Boolean).join(' · ') || undefined}>
         {body}

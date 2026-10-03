@@ -68,6 +68,7 @@ const TYPE_LABEL: Record<string, string> = {
   audio: 'audio',
   tabs: 'tabs',
   syncedBlock: 'synced',
+  meetingNotes: 'meetingNotes',
   button: 'button',
 }
 
