@@ -12,6 +12,7 @@ import {
   listInvites,
   listMembers,
   previewInvite,
+  removeDeviceCopy,
   removeMember,
   renameWorkspace,
   requestSignIn,
@@ -41,6 +42,7 @@ export const cloudApi = {
   acceptInvite,
   uploadLocalWorkspace,
   switchWorkspace,
+  removeDeviceCopy,
 }
 
 export type CloudApi = typeof cloudApi

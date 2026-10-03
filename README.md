@@ -45,7 +45,7 @@ AI on every workspace with your own Claude key, and an honest export.
 | Forms | yes | **free** — shared forms send answers to your n8n / Make / Zapier webhook |
 | AI autofill for database columns | Business only | **yes** — with review before anything is written |
 | Publish as a website | Notion Sites (custom domain extra) | **static site you own** — sitemap, RSS, `llms.txt`, Markdown twins |
-| Import | Notion-to-Notion | **Notion, Obsidian, Evernote, Trello, HTML, Markdown, CSV** |
+| Import & export | many importers; export flattens views, relations and formulas | **Notion, Obsidian, Evernote, Trello, HTML, Markdown, CSV in — lossless JSON, Markdown, HTML, website out** |
 | Calendar across all databases | separate app (Notion Calendar) | **Agenda** built in, plus `.ics` export |
 | Graph view of linked pages | no | **yes** |
 | Version history | 7 / 30 / 90 days by plan | **no limit**, block-level diff |

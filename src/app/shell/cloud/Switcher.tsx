@@ -86,12 +86,8 @@ export function useWorkspaceEntries(): MenuEntry[] {
         id: 'cloud-signout',
         label: t('shell.cloud.switcher.signOut'),
         icon: <LogOut size={15} />,
-        onSelect: () => {
-          cloudApi
-            .signOut()
-            .then(() => useUI.getState().toast({ message: t('shell.cloud.signedOut') }))
-            .catch((e) => useUI.getState().toast({ message: errorText(e, t), kind: 'error' }))
-        },
+        // asks first: on a shared computer the team workspace copies should leave this browser too
+        onSelect: () => openCloudDialog('sign-out'),
       },
     )
   } else {
