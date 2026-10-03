@@ -202,7 +202,7 @@ function planCreatePage(args: Record<string, unknown>): WritePlan {
   const parent = c.parentId ? ws().pages[c.parentId] : undefined
   const where = parent ? titleOf(parent) : t('features.mcp.plan.topLevel')
   const lines: PlanLine[] = [{ k: 'fact', label: t('features.mcp.plan.in'), value: parent ? [pathOf(parent.id), titleOf(parent)].filter(Boolean).join(' / ') : where }]
-  if (icon) lines.push({ k: 'fact', label: t('features.mcp.plan.icon'), value: icon.value })
+  if (icon) lines.push({ k: 'fact', label: t('features.mcp.plan.icon'), value: iconText(icon) ?? '' })
   if (markdown.trim()) lines.push({ k: 'md', label: t('features.mcp.plan.content', { n: chars(markdown.trim().length) }), value: preview(markdown) })
   return {
     tool: 'one_create_page',
@@ -241,7 +241,7 @@ function planUpdatePage(args: Record<string, unknown>): WritePlan {
   }
   const iconChanged = icon !== undefined && iconText(icon) !== iconText(page.icon)
   if (iconChanged) {
-    lines.push({ k: 'prop', name: t('features.mcp.plan.icon'), before: page.icon?.type === 'emoji' ? page.icon.value : page.icon ? '◇' : '—', after: icon ? icon.value : '—' })
+    lines.push({ k: 'prop', name: t('features.mcp.plan.icon'), before: iconText(page.icon) ?? '—', after: iconText(icon) ?? '—' })
     changed.push('icon')
   }
   let replaceWith: JSONContent | null = null

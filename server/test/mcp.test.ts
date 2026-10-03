@@ -213,6 +213,12 @@ describe('remote MCP', () => {
     assert.equal(ok.headers.get('access-control-allow-origin'), null, 'no CORS')
     assert.equal(((await ok.json()) as { result: { serverInfo: { name: string } } }).result.serverInfo.name, 'one')
     assert.equal((await post({ authorization: `Bearer ${writeToken}`, origin: 'https://evil.example' })).status, 403)
+    const big = await fetch(`${server.url}/mcp`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${writeToken}`, 'content-type': 'application/json', accept: 'application/json, text/event-stream' },
+      body: JSON.stringify({ ...init, params: { ...init.params, padding: 'x'.repeat(300_000) } }),
+    })
+    assert.equal(big.status, 413, 'requests are limited to 256 KB like the public API')
     const get = await fetch(`${server.url}/mcp`, { headers: { authorization: `Bearer ${writeToken}`, accept: 'text/event-stream' } })
     assert.equal(get.status, 405)
     assert.equal(get.headers.get('allow'), 'POST')

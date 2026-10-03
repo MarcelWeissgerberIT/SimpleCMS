@@ -19134,14 +19134,56 @@ var MCP_PROPERTY_TYPES = [
   "last_edited_by",
   "unique_id"
 ];
-var MCP_FILTER_OPS = ["equals", "not_equals", "contains", "not_contains", "is_empty", "is_not_empty", "gt", "gte", "lt", "lte"];
+var MCP_FILTER_OPS = [
+  "equals",
+  "not_equals",
+  "contains",
+  "not_contains",
+  "is_empty",
+  "is_not_empty",
+  "gt",
+  "gte",
+  "lt",
+  "lte",
+  "starts_with",
+  "ends_with",
+  "is_checked",
+  "is_not_checked",
+  // aliases
+  "eq",
+  "neq",
+  "is",
+  "is_not",
+  "before",
+  "after",
+  "on_or_before",
+  "on_or_after"
+];
+var ICON = 'An emoji (e.g. "\u{1F680}"), "asset:<name>" or "lucide:<IconName>".';
+var optionItem = {
+  anyOf: [
+    { type: "string" },
+    {
+      type: "object",
+      properties: { name: { type: "string" }, color: { type: "string", description: "gray, brown, orange, yellow, green, blue, purple, pink, red" }, group: { type: "string", enum: ["todo", "in_progress", "done"] } },
+      required: ["name"],
+      additionalProperties: false
+    }
+  ]
+};
+var sortItem = {
+  type: "object",
+  properties: { property: { type: "string" }, direction: { type: "string", enum: ["asc", "desc"] } },
+  required: ["property"],
+  additionalProperties: false
+};
 var VALUES = 'Values are plain JSON by property name: text, numbers, true/false, an option name for select and status (a list of names for multi_select), dates as "YYYY-MM-DD" or "YYYY-MM-DDTHH:mm" or {"start", "end"}, people by name, relations by row id or title, null to clear. Formula, rollup, created/edited and unique-id properties are computed and cannot be set.';
 var propertySpec = {
   type: "object",
   properties: {
     name: { type: "string", description: "Property name, unique in the database." },
     type: { type: "string", enum: MCP_PROPERTY_TYPES },
-    options: { type: "array", items: { type: "string" }, description: "Option names for select, multi_select and status (status: first = to do, last = done)." },
+    options: { type: "array", items: optionItem, description: "Options for select, multi_select and status: names, or {name, color, group} (status without groups: first = to do, last = done)." },
     relation: {
       type: "object",
       description: 'Required for type "relation".',
@@ -19217,7 +19259,7 @@ var MCP_TOOLS = [
     name: "one_query_database",
     title: "Query a database",
     write: false,
-    description: 'Rows of a database with their property values (by property name: option names, ISO dates, people, related rows as {id, title}). Filters are ANDed; operators compare case-insensitively (gt/gte/lt/lte compare numbers and dates). Page through with cursor = the "next" of the previous answer.',
+    description: 'Rows of a database with their property values (by property name: option names, ISO dates, people, related rows as {id, title}). Filters are ANDed and compare case-insensitively; property "title" is the row title, "createdAt" / "updatedAt" the timestamps; gt/gte/lt/lte compare numbers and dates ("YYYY-MM-DD"). Page through with cursor = the "next" of the previous answer.',
     inputSchema: {
       type: "object",
       properties: {
@@ -19236,7 +19278,10 @@ var MCP_TOOLS = [
             additionalProperties: false
           }
         },
-        sort: { type: "string", description: 'A property name, "createdAt", "updatedAt" or "order" (default, the table order); prefix "-" for descending, e.g. "-Due".' },
+        sort: {
+          anyOf: [{ type: "string" }, sortItem, { type: "array", items: sortItem, maxItems: 5 }],
+          description: 'A property name, "createdAt", "updatedAt" or "order" (default, the table order); prefix "-" for descending, e.g. "-Due". Or {property, direction} (a list of them for several keys).'
+        },
         limit: { type: "integer", minimum: 1, maximum: 100, description: "Rows per answer (default 50)." },
         cursor: { type: "string", description: 'The "next" value of the previous answer.' }
       },
@@ -19255,7 +19300,7 @@ var MCP_TOOLS = [
         title: { type: "string" },
         parentId: { type: "string", description: "Parent page id. Omit for a top-level page." },
         markdown: { type: "string", description: "Page content as Markdown." },
-        icon: { type: "string", description: 'An emoji, e.g. "\u{1F680}".' }
+        icon: { type: "string", description: ICON }
       },
       required: ["title"],
       additionalProperties: false
@@ -19265,13 +19310,13 @@ var MCP_TOOLS = [
     name: "one_update_page",
     title: "Update a page",
     write: true,
-    description: 'Change a page or row: its title, its icon (an emoji; "" removes it) and/or its content. mode "append" (default) adds the Markdown at the end; "replace" replaces the whole content (the old version stays in the page history).',
+    description: 'Change a page or row: its title, its icon and/or its content. mode "append" (default) adds the Markdown at the end; "replace" replaces the whole content (the old version stays in the page history).',
     inputSchema: {
       type: "object",
       properties: {
         id: { type: "string", description: "Page or row id." },
         title: { type: "string" },
-        icon: { type: "string", description: 'An emoji, or "" to remove the icon.' },
+        icon: { type: "string", description: `${ICON} "" removes the icon.` },
         markdown: { type: "string", description: 'Markdown to append, or the new content (mode "replace").' },
         mode: { type: "string", enum: ["append", "replace"], description: 'What to do with markdown (default "append").' }
       },
@@ -19327,13 +19372,18 @@ var MCP_TOOLS = [
     name: "one_create_database",
     title: "Create a database",
     write: true,
-    description: 'Create a full-page database at the top level or under a parent page. It always gets a title property "Name"; pass properties to define the other columns (default: Status, Tags, Date). Returns the database id and its schema.',
+    description: 'Create a full-page database at the top level or under a parent page. It always has a title property ("Name" unless you pass one of type "title"); pass properties to define the other columns (without any: Name, Status, Tags, Date). Returns the database id and its schema.',
     inputSchema: {
       type: "object",
       properties: {
         title: { type: "string" },
         parentId: { type: "string", description: "Parent page id. Omit for a top-level database." },
-        properties: { type: "array", items: propertySpec, description: "Properties besides the title." }
+        properties: {
+          type: "array",
+          maxItems: 50,
+          items: { ...propertySpec, properties: { ...propertySpec.properties, type: { type: "string", enum: ["title", ...MCP_PROPERTY_TYPES] } } },
+          description: 'The columns. A "title" entry names the title property (default "Name").'
+        }
       },
       required: ["title"],
       additionalProperties: false
