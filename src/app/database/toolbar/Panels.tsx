@@ -48,7 +48,7 @@ export function SortPanel({ m, anchor, onClose }: { m: DbModel; anchor: Element;
         <span className="label">{t('database.sort.title')}</span>
       </div>
       {m.locked && <SessionNote m={m} />}
-      {sorts.length === 0 && <div className="db-panel__empty label">{t('database.sort.none')}</div>}
+      {sorts.length === 0 && <div className="db-panel__empty label">{t(m.view.type === 'feed' ? (m.view.feed?.order === 'oldest' ? 'database.feed.sortNoneOldest' : 'database.feed.sortNone') : 'database.sort.none')}</div>}
       <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
         <SortableContext items={ids} strategy={verticalListSortingStrategy}>
           {sorts.map((s, i) => (

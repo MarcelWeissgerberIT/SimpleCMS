@@ -7,7 +7,8 @@ import { pageChanges, useWorkspace } from '../store/store'
 import { useLang, useT } from '../i18n'
 import type { Database, ID, Page, PropertyDef, PropertyValue, View } from '../store/types'
 import { Resolver, type Ctx } from './model/resolve'
-import { defaultsFromFilter, groupRows, searchRows, sortRows, testGroup, type RowGroup } from './model/query'
+import { defaultsFromFilter, groupRows, searchRows, testGroup, type RowGroup } from './model/query'
+import { orderRows, type ViewOrder } from './model/feed'
 import { parentIdOf, subItemsOf } from './model/hierarchy'
 import { safeLocalGet, safeLocalSet } from '@/shared/brand'
 import { useDbReadOnly } from './readonly'
@@ -176,12 +177,14 @@ export function useDbModel(db: Database, dbPage: Page, view: View, search: strin
   }, [resolver, db.id])
   // "parents only": sub-items stay out of this view (every layout)
   const sub = useMemo(() => (view.subItems === 'parents' ? subItemsOf(db) : null), [view.subItems, db])
+  const order = useMemo<ViewOrder>(() => ({ type: view.type, sorts: view.sorts, feed: view.feed }), [view.type, view.sorts, view.feed])
   const rows = useMemo(() => {
     let out = allRows
     if (sub) out = out.filter((row) => !parentIdOf(resolver.ctx.pages, sub, row))
     if (view.filter && view.filter.items.length) out = out.filter((row) => testGroup(resolver, db, view.filter!, row, propMap))
     if (search.trim()) out = searchRows(resolver, db, out, search)
-    out = sortRows(resolver, db, out, view.sorts, propMap)
+    // the view's sorts — a feed without any: newest first (model/feed)
+    out = orderRows(resolver, db, order, out, propMap)
     if (keep.length) {
       // rows just created here stay visible even when they don't match (like Notion) — at the end
       const shown = new Set(out.map((r) => r.id))
@@ -189,7 +192,7 @@ export function useDbModel(db: Database, dbPage: Page, view: View, search: strin
       if (extra.length) out = [...out, ...extra]
     }
     return out
-  }, [allRows, sub, view.filter, view.sorts, search, resolver, db, propMap, keep])
+  }, [allRows, sub, view.filter, order, search, resolver, db, propMap, keep])
   const groupProp = view.groupBy && ['table', 'list', 'board'].includes(view.type) ? propMap.get(view.groupBy) ?? null : null
   const groups = useMemo(() => (groupProp ? groupRows(resolver, db, groupProp, rows, labels) : null), [groupProp, resolver, db, rows, labels])
   const newRowDefaults = useCallback(() => defaultsFromFilter(view, propMap, (p) => resolveMe(p, resolver.ctx)), [view, propMap, resolver])

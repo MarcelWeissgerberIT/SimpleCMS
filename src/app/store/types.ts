@@ -343,7 +343,7 @@ export interface Sort {
   direction: 'asc' | 'desc'
 }
 
-export type ViewType = 'table' | 'board' | 'list' | 'gallery' | 'calendar' | 'timeline' | 'chart' | 'form'
+export type ViewType = 'table' | 'board' | 'list' | 'gallery' | 'calendar' | 'timeline' | 'chart' | 'form' | 'feed'
 
 export type CalcFn =
   | 'none'
@@ -376,6 +376,19 @@ export interface ChartConfig {
   seriesPropertyId?: ID | null
   /** date x axis: bucket size (absent = month) */
   dateBucket?: 'day' | 'week' | 'month' | 'quarter' | 'year'
+}
+
+/**
+ * Feed view (database/views/FeedView): the rows as a stream of entries with their page content.
+ * Without sorts of its own a feed shows the newest entries first. All fields optional (absent = default).
+ */
+export interface FeedConfig {
+  /** The date it orders and stamps entries by: a date / created time / last edited property (absent / null = created time). */
+  dateProperty?: ID | null
+  /** newest first (default) or oldest first — only while the view has no sorts */
+  order?: 'newest' | 'oldest'
+  /** Show each page's content under its entry (default true). */
+  content?: boolean
 }
 
 /** Form view: one question per property. Which and in what order = title + view.visibleProperties. */
@@ -473,6 +486,8 @@ export interface View {
   chart?: ChartConfig
   /** form view settings (optional; older workspaces have none) */
   form?: FormConfig
+  /** feed view settings (optional) */
+  feed?: FeedConfig
   openIn?: 'peek' | 'center' | 'full'
   /** With sub-items on: nested (table/list, default) · flattened · parents only (hides sub-items). */
   subItems?: SubItemsDisplay
@@ -624,6 +639,64 @@ export interface Settings {
   mcpServers?: McpServerConfig[]
   /** The MCP instructions template added to Claude's system prompt; absent / '' = the built-in default (UI language). */
   mcpInstructions?: string
+  /**
+   * Gmail → a "Mails" database (features/mail): per device like every setting, never synced. Holds no
+   * secret — the OAuth client ID is public, access tokens live in the tab's memory only. Absent = never
+   * set up. Write it only through the mail area (features/mail/settings.ts), which normalizes it.
+   */
+  mail?: MailSettings
+}
+
+/** What a property of the Mails database is for (features/mail/schema.ts). */
+export type MailPropRole =
+  | 'messageId'
+  | 'from'
+  | 'to'
+  | 'date'
+  | 'labels'
+  | 'thread'
+  | 'link'
+  | 'attachments'
+  | 'unread'
+  | 'images'
+  | 'category'
+  | 'priority'
+  | 'needsReply'
+  | 'summary'
+  | 'project'
+
+/** Settings → Mail (features/mail). */
+export interface MailSettings {
+  /** Google OAuth client ID ("…apps.googleusercontent.com") — public, never a client secret */
+  clientId: string
+  /** first day to sync, "YYYY-MM-DD" */
+  from: string
+  /** Gmail label ids to sync (default ['INBOX']) */
+  labels: string[]
+  excludeSpamTrash: boolean
+  /** new mails fetched per run (the rest waits for the next run) */
+  maxPerRun: number
+  /** 'open' = when One opens · 'interval' = every `everyMin` minutes while open · 'manual' */
+  auto: 'open' | 'interval' | 'manual'
+  everyMin: number
+  /** where a new Mails database goes (a page id; null = top level — the Private section in a team workspace) */
+  parentId: ID | null
+  /** the Mails database (null = created on the first sync) */
+  databaseId: ID | null
+  /** property ids of the Mails database by role */
+  props?: Partial<Record<MailPropRole, ID>>
+  organise: MailOrganise
+}
+
+/** "Organise with Claude" (off by default; needs the Claude key — mail content then goes to Anthropic). */
+export interface MailOrganise {
+  enabled: boolean
+  categories: string[]
+  priority: boolean
+  needsReply: boolean
+  summary: boolean
+  /** a database to relate each mail to (a "Projects" database …); null = none */
+  relationDatabaseId: ID | null
 }
 
 /** A remote MCP server (Streamable HTTP / SSE over https) that Anthropic connects to on Claude's behalf. */

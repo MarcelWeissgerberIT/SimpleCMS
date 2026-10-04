@@ -1,6 +1,6 @@
 /**
  * DatabaseView — view tabs, toolbar, filter chips and the active layout
- * (table / board / list / gallery / calendar / timeline / chart / form). inline=true: compact embed.
+ * (table / board / list / gallery / feed / calendar / timeline / chart / form). inline=true: compact embed.
  */
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Maximize2 } from 'lucide-react'
@@ -36,6 +36,7 @@ import './database.css'
 const CalendarView = lazy(() => import('./views/CalendarView'))
 const TimelineView = lazy(() => import('./views/TimelineView'))
 const ChartView = lazy(() => import('./views/ChartView'))
+const FeedView = lazy(() => import('./views/FeedView'))
 const FormView = lazy(() => import('./form/FormView'))
 
 export interface DatabaseViewProps {
@@ -229,6 +230,9 @@ function DatabaseBody({
       break
     case 'form':
       body = <FormView />
+      break
+    case 'feed':
+      body = <FeedView />
       break
     default:
       body = <TableView onFilterProp={onFilterProp} />

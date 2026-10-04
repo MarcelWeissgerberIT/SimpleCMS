@@ -32,6 +32,7 @@ import {
   ChartGantt,
   ChartColumn,
   ClipboardList,
+  Newspaper,
   type LucideIcon,
 } from 'lucide-react'
 import type { CalcFn, FilterOperator, PropertyDef, PropertyType, RollupFn, ViewType } from '../../store/types'
@@ -70,9 +71,10 @@ export const VIEW_ICON: Record<ViewType, LucideIcon> = {
   timeline: ChartGantt,
   chart: ChartColumn,
   form: ClipboardList,
+  feed: Newspaper,
 }
 
-export const VIEW_TYPES: ViewType[] = ['table', 'board', 'list', 'gallery', 'calendar', 'timeline', 'chart', 'form']
+export const VIEW_TYPES: ViewType[] = ['table', 'board', 'list', 'gallery', 'feed', 'calendar', 'timeline', 'chart', 'form']
 
 /** Types offered in "add property" / "change type" pickers, grouped. */
 export const CREATABLE_TYPES: PropertyType[][] = [

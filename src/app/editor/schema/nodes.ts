@@ -9,7 +9,7 @@ import Highlight from '@tiptap/extension-highlight'
 import { Details } from '@tiptap/extension-details'
 import { InlineMath } from '@tiptap/extension-mathematics'
 import { useWorkspace } from '../../store/store'
-import { domainOf, embedSrc, detectProvider, PROVIDER_LABEL, safeHref, type EmbedProvider } from '../lib/embeds'
+import { domainOf, embedFrame, embedSrc, fileNameOfUrl, PROVIDER_LABEL, providerOf, safeHref } from '../lib/embeds'
 import { escapeMarkdownText, escapeMarkdownTitle } from '../lib/mdText'
 
 declare module '@tiptap/core' {
@@ -111,7 +111,7 @@ export const Callout = Node.create({
 export const Columns = Node.create({
   name: 'columns',
   group: 'block',
-  content: 'column{2,4}',
+  content: 'column{2,5}',
   defining: true,
   isolating: true,
   parseHTML() {
@@ -294,13 +294,27 @@ export const Embed = Node.create({
   },
   renderHTML({ node, HTMLAttributes }) {
     const url = str(node.attrs.url)
-    const src = embedSrc(url, node.attrs.provider)
+    const provider = providerOf(url, node.attrs.provider)
+    const href = safeHref(url)
+    // a PDF only shows in the browser's own viewer, which a sandboxed frame never gets: a link
+    const src = provider === 'pdf' ? null : embedSrc(url, provider)
+    const frame = embedFrame(provider, url)
     return [
       'div',
       mergeAttributes(HTMLAttributes, { 'data-type': 'embed', class: 'embed' }),
       src
-        ? ['iframe', { src, loading: 'lazy', allow: 'fullscreen; picture-in-picture', sandbox: 'allow-scripts allow-same-origin allow-popups allow-presentation allow-forms', referrerpolicy: 'strict-origin-when-cross-origin' }]
-        : ['a', safeHref(url) ? { href: safeHref(url), rel: 'noopener noreferrer' } : {}, url],
+        ? [
+            'iframe',
+            {
+              src,
+              loading: 'lazy',
+              allow: 'fullscreen; picture-in-picture',
+              sandbox: 'allow-scripts allow-same-origin allow-popups allow-presentation allow-forms',
+              referrerpolicy: 'strict-origin-when-cross-origin',
+              ...(frame.height ? { height: String(frame.height), style: `height:${frame.height}px` } : {}),
+            },
+          ]
+        : ['a', href ? { href, rel: 'noopener noreferrer' } : {}, provider === 'pdf' ? `PDF: ${fileNameOfUrl(url)}` : url],
     ]
   },
   renderText({ node }) {
@@ -308,8 +322,8 @@ export const Embed = Node.create({
   },
   renderMarkdown(node) {
     const url = str(node.attrs?.url)
-    const p = (node.attrs?.provider as EmbedProvider) || detectProvider(url) || 'web'
-    const label = `${PROVIDER_LABEL[p] ?? 'Embed'}: ${mdEscape(domainOf(url))}`
+    const p = providerOf(url, node.attrs?.provider as string | null)
+    const label = `${PROVIDER_LABEL[p] ?? 'Embed'}: ${mdEscape(p === 'pdf' ? fileNameOfUrl(url) : domainOf(url))}`
     const href = safeHref(url)
     return href ? `[${label}](${href})` : label
   },
@@ -344,6 +358,15 @@ export const FileBlock = Node.create({
         default: 0,
         parseHTML: (el) => Number(el.getAttribute('data-size') ?? 0),
         renderHTML: (a) => ({ 'data-size': String(a.size ?? 0) }),
+      },
+      // PDFs: 'viewer' (inline, the browser's own viewer) or 'file' (the compact card); null = by type (PDF → viewer)
+      display: {
+        default: null,
+        parseHTML: (el) => {
+          const d = el.getAttribute('data-display')
+          return d === 'viewer' || d === 'file' ? d : null
+        },
+        renderHTML: (a) => (a.display === 'viewer' || a.display === 'file' ? { 'data-display': a.display } : {}),
       },
     }
   },

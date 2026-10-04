@@ -1,8 +1,8 @@
 /**
  * Layout settings for the active view: layout type, grouping, card preview/size,
- * date property, chart config, wrap, open pages in.
+ * date property, feed order + content, chart config, wrap, open pages in.
  */
-import type { View, ViewType } from '../../store/types'
+import type { FeedConfig, View, ViewType } from '../../store/types'
 import { useWorkspace } from '../../store/store'
 import { defaultView } from '../../store/store'
 import { Popover } from '../../ui/Popover'
@@ -14,6 +14,7 @@ import type { DbModel } from '../hooks'
 import { ViewTypeIcon } from './ViewTabs'
 import { SubItemsDisplayRow } from './StructurePanels'
 import { subItemsOf } from '../model/hierarchy'
+import { FEED_CREATED, feedDateProp } from '../model/feed'
 
 export function LayoutPanel({ m, anchor, onClose }: { m: DbModel; anchor: Element; onClose: () => void }) {
   const t = useT()
@@ -101,6 +102,7 @@ export function LayoutPanel({ m, anchor, onClose }: { m: DbModel; anchor: Elemen
             />
           </div>
         )}
+        {view.type === 'feed' && <FeedOptions m={m} />}
         {view.type === 'table' && (
           <label className="db-cfg__row db-cfg__row--switch">
             <span>{t('database.layout.wrap')}</span>
@@ -119,5 +121,38 @@ export function LayoutPanel({ m, anchor, onClose }: { m: DbModel; anchor: Elemen
         )}
       </div>
     </Popover>
+  )
+}
+
+/** Feed: the date it orders by (created time unless a date property is picked), newest / oldest first, page content on / off. */
+function FeedOptions({ m }: { m: DbModel }) {
+  const t = useT()
+  const feed = m.view.feed ?? {}
+  const upd = (patch: Partial<FeedConfig>) => useWorkspace.getState().updateView(m.db.id, m.view.id, { feed: { ...feed, ...patch } })
+  const current = feedDateProp(m.db, m.view)
+  const dates = m.db.properties.filter((p) => isDateType(p.type) && p.type !== 'created_time')
+  return (
+    <>
+      <div className="db-cfg__row">
+        <span className="label">{t('database.feed.orderBy')}</span>
+        <Select
+          value={current === FEED_CREATED || current.type === 'created_time' ? FEED_CREATED.id : current.id}
+          items={[{ value: FEED_CREATED.id, label: t('database.type.created_time'), icon: <TypeIcon type="created_time" /> }, ...dates.map((p) => ({ value: p.id, label: p.name, icon: <TypeIcon type={p.type} /> }))]}
+          onChange={(v) => upd({ dateProperty: v === FEED_CREATED.id ? null : v })}
+        />
+      </div>
+      <div className="db-cfg__row">
+        <span className="label">{t('database.feed.order')}</span>
+        <Segmented
+          value={feed.order ?? 'newest'}
+          items={(['newest', 'oldest'] as const).map((o) => ({ value: o, label: t(`database.feed.${o}`) }))}
+          onChange={(v) => upd({ order: v })}
+        />
+      </div>
+      <label className="db-cfg__row db-cfg__row--switch">
+        <span>{t('database.feed.content')}</span>
+        <Switch checked={feed.content !== false} label={t('database.feed.content')} onChange={(v) => upd({ content: v })} />
+      </label>
+    </>
   )
 }
