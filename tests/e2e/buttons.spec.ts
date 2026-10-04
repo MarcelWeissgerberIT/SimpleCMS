@@ -270,7 +270,16 @@ test.describe('button block', () => {
     /** caret at the end of the "Bottom line" paragraph (a pasted atom stays selected — never paste over it) */
     const caretAtBottom = async () => {
       await ed.locator('p', { hasText: 'Bottom line' }).click()
+      // a human-scale pause: ProseMirror re-syncs its selection shortly after focus
+      await page.waitForTimeout(150)
       await page.keyboard.press('End')
+      // the caret really sits at the end of "Bottom line" before anything is pasted
+      await expect
+        .poll(() => page.evaluate(() => {
+          const sel = getSelection()
+          return sel?.isCollapsed && sel.anchorNode?.nodeType === Node.TEXT_NODE ? `${sel.anchorNode.textContent}@${sel.anchorOffset}` : ''
+        }))
+        .toBe(`Bottom line@${'Bottom line'.length}`)
     }
     await caretAtBottom()
     await clip('paste', `<div data-type="button" data-label="Forged" data-variant="signal" data-actions="${attr(evil)}" data-actions-key="abc.def"><button>Forged</button></div>`)
