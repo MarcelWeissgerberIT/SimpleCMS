@@ -700,6 +700,8 @@
 .sg {
   /* no callout / magnifier on a long press (iOS): it selects a range here */
   -webkit-touch-callout: none;
+  /* a double tap edits the cell (iOS would zoom the page) */
+  touch-action: manipulation;
 }
 
 /* touch: room past the last row / column for the handles and the fill tab (the hatch shows below) */
@@ -949,6 +951,231 @@
 @media (pointer: coarse) {
   .sh-pick__item {
     min-height: 40px;
+  }
+}
+
+.sh-pick__panel {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+
+/* the long-press sheet: finger-sized rows */
+.sh-pick__panel.is-touch .sh-pick__search {
+  height: 40px;
+  font-size: var(--text-md);
+}
+
+.sh-pick__panel.is-touch .sh-pick__list {
+  max-height: 222px;
+}
+
+.sh-pick__panel.is-touch .sh-pick__item {
+  min-height: 44px;
+  padding: 0 10px;
+  font-size: var(--text-md);
+}
+
+/* ---------- touch: suggestion strip (above the cell editor / formula bar and the keyboard) ---------- */
+
+.sh-strip {
+  z-index: var(--z-popover);
+  display: flex;
+  flex-direction: column;
+  max-width: calc(100vw - 16px);
+  overflow: hidden;
+  border-radius: var(--radius-2);
+  background: var(--surface);
+  box-shadow: var(--shadow-pop);
+  animation: pop-in var(--dur-1) var(--ease-out);
+}
+
+/* inside a call: its signature, the argument at the caret marked */
+.sh-strip__sig {
+  overflow: hidden;
+  border-bottom: 1px solid var(--rule);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.sh-strip__row {
+  display: flex;
+  align-items: stretch;
+  min-width: 0;
+}
+
+.sh-strip__label {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  padding: 0 9px;
+  border-right: 1px solid var(--rule-strong);
+  background: var(--surface-2);
+  white-space: nowrap;
+}
+
+.sh-strip__chips {
+  display: flex;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.sh-strip__chips::-webkit-scrollbar {
+  display: none;
+}
+
+.sh-strip__chip {
+  position: relative;
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 7px;
+  max-width: 240px;
+  min-height: 44px;
+  padding: 0 12px;
+  border: 0;
+  border-right: 1px solid var(--rule);
+  background: transparent;
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-size: var(--text-md);
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background var(--dur-1) var(--ease-out), transform var(--dur-1) var(--ease-out);
+}
+
+.sh-strip__chip:last-child {
+  border-right: 0;
+}
+
+.sh-strip__chip.is-value {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sh-strip__chip:active {
+  transform: translateY(1px);
+  background: var(--signal-wash);
+}
+
+/* the one ↵ takes: a signal rule under it and the keycap */
+.sh-strip__chip.is-enter {
+  box-shadow: inset 0 -2px 0 var(--signal);
+}
+
+.sh-strip__enter {
+  flex: none;
+}
+
+.sh-strip__fn {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.sh-strip__args {
+  max-width: 150px;
+  overflow: hidden;
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  font-weight: 400;
+  color: var(--ink-3);
+  text-overflow: ellipsis;
+}
+
+.sh-strip__ds {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+
+.sh-strip__swatch {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: var(--radius-1);
+}
+
+.sh-strip__chip.is-action {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--signal-ink);
+}
+
+.sh-strip__chip.is-action svg {
+  flex: none;
+}
+
+/* ---------- touch: the long-press sheet ---------- */
+
+.sh-hold {
+  display: flex;
+  flex-direction: column;
+  width: min(300px, calc(100vw - 16px));
+  padding: 0;
+  overflow: hidden;
+}
+
+.sh-hold__head {
+  flex: none;
+  padding: 7px 10px 6px;
+  border-bottom: 1px solid var(--rule);
+  color: var(--ink-2);
+}
+
+.sh-hold__keys {
+  display: grid;
+  flex: none;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1px;
+  margin: 6px 6px 0;
+  padding: 3px;
+  border-radius: var(--radius-2);
+  background: var(--ink);
+  color: var(--ink-inverse);
+}
+
+.sh-hold__keys .sh-touchbar__key {
+  width: 100%;
+  height: 48px;
+}
+
+.sh-hold__section {
+  flex: none;
+  padding: 10px 10px 0;
+}
+
+.sh-hold .sh-pick__search {
+  margin: 6px 6px 4px;
+}
+
+/* "+ Area" latched by a long-press drag: the next long press adds another area */
+.sh-touchbar__key[aria-pressed='true'].is-hint {
+  box-shadow: inset 0 -2px 0 var(--signal), inset 0 0 0 1px color-mix(in srgb, var(--signal) 55%, transparent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sh-strip {
+    animation: none;
+  }
+  .sh-strip__chip {
+    transition: none;
+  }
+}
+
+/* iOS zooms the page into any field under 16px: not into the sheet's fields on touch */
+@supports (-webkit-touch-callout: none) {
+  .sheet.is-touch .fx-input,
+  .sh-pick__search {
+    font-size: 16px;
   }
 }
 

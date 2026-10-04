@@ -4,26 +4,25 @@
  * colours) — with function / dataset autocomplete and a signature hint (current argument marked).
  * Plain text may carry a ghost completion (AutoComplete from the column): drawn selected after
  * the typed text in the mirror, never part of the input's value until it is accepted.
+ * Phone keyboards send no usable keydown (key "Unidentified" / 229, compositions, replacement
+ * text): what happened is read from the input events (inputType) instead — a Backspace that only
+ * drops the ghost is a cancelled `beforeinput`.
  */
-import { useEffect, useId, useMemo, useState, type KeyboardEvent, type ReactNode, type RefObject } from 'react'
-import { callAt, getFunction, listFunctions, paintFormula, wordAt, type FnSpec } from '../engine'
+import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent, type ReactNode, type RefObject } from 'react'
+import { getFunction, paintFormula, type FnSpec } from '../engine'
 import { DS_COLORS } from '../model'
 import { useT } from '../../../i18n'
 import { Floating } from './Floating'
+import { acceptSuggestion, argIndex, formulaContext, formulaSuggestions, type Suggestion } from './suggest'
 
 export const groupColor = (id: number) => DS_COLORS[id % DS_COLORS.length]
-
-interface Suggestion {
-  name: string
-  kind: 'fn' | 'ds'
-  hint: string
-}
 
 export interface FormulaInputProps {
   value: string
   /** caret position (controlled: the parent also moves it when pointing inserts a reference) */
   caret: number
-  onChange: (text: string, caret: number) => void
+  /** a change of the text — `inputType` of the input event that made it (insertText, deleteContentBackward, insertCompositionText …) */
+  onChange: (text: string, caret: number, inputType?: string) => void
   onCaret?: (caret: number) => void
   onKeyDown?: (e: KeyboardEvent<HTMLInputElement>) => void
   onFocus?: () => void
@@ -40,6 +39,10 @@ export interface FormulaInputProps {
   style?: React.CSSProperties
   /** AutoComplete: the entry that completes the typed text (shown after it, selected) */
   ghost?: string | null
+  /** a Backspace / Delete at the end only drops the ghost (keyboards that send no Backspace keydown) */
+  onDropGhost?: () => void
+  /** touch: the suggestion strip shows the suggestions and the signature (no popups under the input; ↵ still takes the first) */
+  touch?: boolean
 }
 
 /** Coloured segments of the text (formulas only). */
@@ -77,9 +80,9 @@ function mirror(text: string): ReactNode[] {
   return out
 }
 
-function signature(spec: FnSpec, arg: number, lang: 'en' | 'de'): ReactNode {
-  const lastRepeat = spec.args.findIndex((a) => a.repeat)
-  const at = lastRepeat >= 0 && arg >= spec.args.length ? spec.args.length - 1 : Math.min(arg, spec.args.length - 1)
+/** A function's signature, the argument at the caret marked (also the touch strip's first row). */
+export function signature(spec: FnSpec, arg: number, lang: 'en' | 'de', description = true): ReactNode {
+  const at = argIndex(spec, arg)
   return (
     <>
       <span className="fx-sig__name">{spec.name}(</span>
@@ -93,12 +96,12 @@ function signature(spec: FnSpec, arg: number, lang: 'en' | 'de'): ReactNode {
         </span>
       ))}
       <span className="fx-sig__name">)</span>
-      <span className="fx-sig__desc">{spec.description[lang] || spec.description.en}</span>
+      {description && <span className="fx-sig__desc">{spec.description[lang] || spec.description.en}</span>}
     </>
   )
 }
 
-export function FormulaInput({ value, caret, onChange, onCaret, onKeyDown, onFocus, onBlur, inputRef, active, datasets, lang, className, ariaLabel, readOnly, placeholder, style, ghost }: FormulaInputProps) {
+export function FormulaInput({ value, caret, onChange, onCaret, onKeyDown, onFocus, onBlur, inputRef, active, datasets, lang, className, ariaLabel, readOnly, placeholder, style, ghost, onDropGhost, touch }: FormulaInputProps) {
   const t = useT()
   const listId = useId()
   const [index, setIndex] = useState(0)
@@ -108,28 +111,21 @@ export function FormulaInput({ value, caret, onChange, onCaret, onKeyDown, onFoc
 
   const formula = value[0] === '='
   const rest = !formula && ghost && ghost.length > value.length && ghost.toLocaleLowerCase().startsWith(value.toLocaleLowerCase()) ? ghost.slice(value.length) : ''
-  const body = formula ? value.slice(1) : ''
-  const caretB = caret - 1
 
-  const word = formula && active ? wordAt(body, caretB) : null
-  const call = formula && active ? callAt(body, caretB) : null
-  const inDS = call?.name === 'DS'
+  const ctx = formula && active ? formulaContext(value, caret) : null
+  const word = ctx?.word ?? null
+  const call = ctx?.call ?? null
 
-  const suggestions = useMemo<Suggestion[]>(() => {
-    if (!word || dismissed === `${word.start}:${word.word}`) return []
-    const w = word.word.toUpperCase()
-    const out: Suggestion[] = []
-    if (inDS) for (const d of datasets) if (d.toUpperCase().startsWith(w)) out.push({ name: d, kind: 'ds', hint: 'DS' })
-    for (const f of listFunctions()) {
-      if (out.length >= 8) break
-      if (f.name.startsWith(w) && !(f.name === w && body[caretB] === '(')) out.push({ name: f.name, kind: 'fn', hint: f.description[lang] || f.description.en })
-    }
-    return out
-  }, [word?.word, word?.start, inDS, datasets, dismissed, lang, body, caretB]) // eslint-disable-line react-hooks/exhaustive-deps
+  const suggestions = useMemo<Suggestion[]>(
+    () => (!word || dismissed === `${word.start}:${word.word}` ? [] : formulaSuggestions(ctx, datasets, lang)),
+    [word?.word, word?.start, ctx?.inDS, datasets, dismissed, lang, ctx?.body, caret], // eslint-disable-line react-hooks/exhaustive-deps
+  )
 
-  const open = active && focused && suggestions.length > 0
+  /** the keys work the list (↑↓ ↵ Tab Esc) — on touch it is drawn by the strip, not here */
+  const listed = active && focused && suggestions.length > 0
+  const open = listed && !touch
   const sel = Math.min(index, Math.max(0, suggestions.length - 1))
-  const spec = !open && active && focused && call ? getFunction(call.name) : null
+  const spec = !listed && !touch && active && focused && call ? getFunction(call.name) : null
 
   useEffect(() => setIndex(0), [word?.word])
 
@@ -149,13 +145,27 @@ export function FormulaInput({ value, caret, onChange, onCaret, onKeyDown, onFoc
     sync()
   }
 
+  // a Backspace / Delete the keydown didn't see (phone keyboards): with a ghost at the end it only drops the ghost
+  const drop = useRef({ rest, onDropGhost })
+  drop.current = { rest, onDropGhost }
+  useEffect(() => {
+    const el = inputRef.current
+    if (!el) return
+    const onBefore = (e: InputEvent) => {
+      if (e.inputType !== 'deleteContentBackward' && e.inputType !== 'deleteContentForward') return
+      const { rest: shown, onDropGhost: dropGhost } = drop.current
+      if (!shown || !dropGhost || e.isComposing || !e.cancelable) return
+      if (el.selectionStart !== el.value.length || el.selectionEnd !== el.value.length) return
+      e.preventDefault()
+      dropGhost()
+    }
+    el.addEventListener('beforeinput', onBefore)
+    return () => el.removeEventListener('beforeinput', onBefore)
+  }, [inputRef])
+
   const accept = (s: Suggestion) => {
     if (!word) return
-    const start = word.start + 1
-    const next = value[caret] === '('
-    const insert = s.kind === 'fn' && !next ? `${s.name}(` : s.name
-    const text = value.slice(0, start) + insert + value.slice(caret)
-    const pos = start + insert.length + (s.kind === 'fn' && next ? 1 : 0)
+    const { text, caret: pos } = acceptSuggestion(value, caret, word.start, s)
     onChange(text, pos)
     requestAnimationFrame(() => {
       // not when typing went on before this frame: the caret is already where it belongs
@@ -166,7 +176,8 @@ export function FormulaInput({ value, caret, onChange, onCaret, onKeyDown, onFoc
   }
 
   const keyDown = (e: KeyboardEvent<HTMLInputElement>) => {
-    if (open) {
+    // an IME composition owns its keys (↵ confirms the composed text there)
+    if (listed && !e.nativeEvent.isComposing && e.keyCode !== 229) {
       if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
         e.preventDefault()
         const n = suggestions.length
@@ -210,6 +221,8 @@ export function FormulaInput({ value, caret, onChange, onCaret, onKeyDown, onFoc
         placeholder={placeholder}
         spellCheck={false}
         autoComplete="off"
+        autoCorrect="off"
+        enterKeyHint="done"
         aria-label={ariaLabel}
         aria-description={rest ? ghost! : undefined}
         aria-autocomplete={formula ? 'list' : 'both'}
@@ -219,7 +232,7 @@ export function FormulaInput({ value, caret, onChange, onCaret, onKeyDown, onFoc
         onChange={(e) => {
           const c = e.target.selectionStart ?? e.target.value.length
           setDismissed(null)
-          onChange(e.target.value, c)
+          onChange(e.target.value, c, (e.nativeEvent as InputEvent).inputType)
         }}
         onSelect={track}
         onKeyUp={track}

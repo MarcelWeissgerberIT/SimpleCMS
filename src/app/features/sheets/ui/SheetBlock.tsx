@@ -1,10 +1,12 @@
 /**
  * Spreadsheet block UI: toolbar, formula bar, grid, sheet tabs, status line, function browser,
- * datasets panel; on touch selection handles, long-press / header drags and an action bar.
+ * datasets panel; on touch selection handles, long-press / header drags, an action bar, a
+ * suggestion strip while editing and the long-press sheet (pick a value, + Area, fill, edit).
  * Every edit is one attrs update of the node (one undo step in the editor).
  * Values come from a Workbook kept in step with the attrs (incremental recalculation).
  */
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
+import { flushSync } from 'react-dom'
 import { useLang, useT } from '../../../i18n'
 import { useWorkspace } from '../../../store/store'
 import { useUI, toast } from '../../../store/ui'
@@ -16,6 +18,7 @@ import { MOD, shortcutLabel } from '../../../ui/controls'
 import { parseCSV } from '../../io/import/csv'
 import {
   a1,
+  callAt,
   canPoint,
   canonicalInput,
   colName,
@@ -81,6 +84,8 @@ import { useFillDrag } from './fill'
 import { targetUnder, useTouchGestures } from './touch'
 import { sheetBarKeys, TouchBar } from './TouchBar'
 import { PickList } from './PickList'
+import { HoldSheet } from './HoldSheet'
+import { SuggestStrip } from './SuggestStrip'
 import { setAutoComplete, useAutoComplete } from './prefs'
 import { openFunctionBuilder } from '../functions'
 import { openChartBuilder, type ChartSpec } from '../../charts'
@@ -109,7 +114,21 @@ interface Edit {
   point: { s: number; e: number; anchor: Pos } | null
   /** AutoComplete may propose an entry: the last change typed text at the end (Backspace / Delete / caret moves turn it off) */
   auto: boolean
+  /** touch: the keyboard is put away while the grid points a range ("Pick range") */
+  picking?: boolean
 }
+
+/** The long-press sheet: a finger held on a cell and lifted without dragging. */
+interface Hold {
+  pos: Pos
+  sheetId: string
+  /** the selection before the long press ("+ Area" keeps it) */
+  before: Sel
+  anchor: Element
+}
+
+/** "+ Area": latched by the key (the next press starts another area) or by a long-press drag ('hold': the next long press does). */
+type AddArea = boolean | 'hold'
 
 interface Pick {
   r: number
@@ -125,6 +144,8 @@ interface Mods {
   add: boolean
   shift: boolean
   prevent: () => void
+  /** a finger's long press */
+  hold?: boolean
 }
 const NO_MODS: Mods = { add: false, shift: false, prevent: () => undefined }
 
@@ -149,6 +170,20 @@ const ORIGIN: Sel = { anchor: { r: 0, c: 0 }, focus: { r: 0, c: 0 }, extra: [] }
 const rectOf = (s: Sel): Rect => ({ top: Math.min(s.anchor.r, s.focus.r), bottom: Math.max(s.anchor.r, s.focus.r), left: Math.min(s.anchor.c, s.focus.c), right: Math.max(s.anchor.c, s.focus.c) })
 const clampPos = (p: Pos, sheet: SheetData): Pos => ({ r: Math.max(0, Math.min(sheet.rows - 1, p.r)), c: Math.max(0, Math.min(sheet.cols - 1, p.c)) })
 const cellsOfRect = (r: Rect) => (r.bottom - r.top + 1) * (r.right - r.left + 1)
+const isCell = (r: Rect, p: Pos) => r.top === r.bottom && r.left === r.right && r.top === p.r && r.left === p.c
+
+/**
+ * May AutoComplete propose after this change? Typing at the end — never after deleting. The input
+ * event's type tells (phone keyboards send no usable keydown): a keyboard's correction / prediction
+ * replacing the word counts as typing; otherwise the text must have grown.
+ */
+function proposes(prev: string, text: string, caret: number, inputType?: string): boolean {
+  if (caret !== text.length || inputType?.startsWith('delete')) return false
+  return inputType === 'insertReplacementText' || text.length > prev.length
+}
+
+/** A column entry as cell input: kept text even where it would read as a number, a date or a formula. */
+const asText = (value: string, type?: CellFormat['type']) => (value[0] !== '=' && value[0] !== "'" && typeof literal(value, type).value === 'string' ? value : `'${value}`)
 
 /** A reference token as a rectangle (whole columns: to the sheet's end). */
 function tokRect(tok: RefTok): Rect {
@@ -214,17 +249,23 @@ export function SheetBlock({ attrs: raw, update, editable, editor, pageId, inser
   /** the keyboard focus is inside the block */
   const [focused, setFocused] = useState(false)
   /** "+ Area" is latched: the next press starts another area (⌘/Ctrl-click by touch) */
-  const [addArea, setAddAreaState] = useState(false)
-  const addAreaRef = useRef(false)
-  const setAddArea = (on: boolean) => {
+  const [addArea, setAddAreaState] = useState<AddArea>(false)
+  const addAreaRef = useRef<AddArea>(false)
+  const setAddArea = (on: AddArea) => {
     addAreaRef.current = on
     setAddAreaState(on)
   }
-  const takeAddArea = () => {
-    if (!addAreaRef.current) return false
+  /** Does this press start another area? A long-press drag's latch only counts for another long press (a tap starts over). */
+  const takeAddArea = (hold = false) => {
+    const on = addAreaRef.current
+    if (!on) return false
     setAddArea(false)
-    return true
+    return on === true || hold
   }
+  /** the long-press sheet */
+  const [hold, setHold] = useState<Hold | null>(null)
+  /** the selection when the current long press began */
+  const holdFrom = useRef<Sel | null>(null)
 
   const rect = rectOf(sel)
   const areas = [...sel.extra, rect]
@@ -244,14 +285,14 @@ export function SheetBlock({ attrs: raw, update, editable, editor, pageId, inser
 
   const focusGrid = () => viewportRef.current?.focus({ preventScroll: true })
 
-  // put the caret where the edit state says (typing keeps them equal; pointing moves it)
+  // put the caret where the edit state says (typing keeps them equal; pointing moves it) — not while the keyboard is put away to pick a range
   useLayoutEffect(() => {
-    if (!edit) return
+    if (!edit || edit.picking) return
     const el = edit.where === 'cell' ? cellInput.current : barInput.current
     if (!el) return
     if (document.activeElement !== el) el.focus({ preventScroll: true })
     if (el.selectionStart !== edit.caret || el.selectionEnd !== edit.caret) el.setSelectionRange(edit.caret, edit.caret)
-  }, [edit?.where, edit?.caret, edit?.text, edit?.r, edit?.c]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [edit?.where, edit?.caret, edit?.text, edit?.r, edit?.c, edit?.picking]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const reveal = (p: Pos) => {
     const vp = viewportRef.current
@@ -302,7 +343,9 @@ export function SheetBlock({ attrs: raw, update, editable, editor, pageId, inser
   }
 
   // typing at the end may complete; deleting (or editing in the middle) never does
-  const setText = (text: string, caret: number) => setEdit((e) => (e ? { ...e, text, caret, point: null, auto: caret === text.length && text.length > e.text.length } : e))
+  const setText = (text: string, caret: number, inputType?: string) => setEdit((e) => (e ? { ...e, text, caret, point: null, auto: proposes(e.text, text, caret, inputType) } : e))
+  /** a Backspace / Delete at the end only took the proposal away */
+  const dropGhost = () => setEdit((e) => (e ? { ...e, auto: false } : e))
   const setCaret = (caret: number) => setEdit((e) => (e ? { ...e, caret, point: e.point && caret === e.point.e ? e.point : null, auto: e.auto && caret === e.text.length } : e))
 
   /* ---------------- AutoComplete (entries of the same column) ---------------- */
@@ -390,13 +433,17 @@ export function SheetBlock({ attrs: raw, update, editable, editor, pageId, inser
   const pickValue = (value: string) => {
     const p = pick
     setPick(null)
-    if (!p) return
+    if (p) writeEntry(p, value)
+  }
+
+  /** A picked column entry into its cell (ends an edit there). */
+  const writeEntry = (p: { r: number; c: number; sheetId: string }, value: string) => {
     const s = aRef.current.sheets.find((x) => x.id === p.sheetId)
     if (!s) return
     const addr = a1(p.r, p.c)
     const prev = s.cells[addr]
     // the entries are texts: keep them text even where they would read as a number or a date
-    const v = value[0] !== '=' && value[0] !== "'" && typeof literal(value, prev?.fmt?.type).value === 'string' ? value : `'${value}`
+    const v = asText(value, prev?.fmt?.type)
     if (editRef.current) {
       setEdit(null)
       editRef.current = null
@@ -435,20 +482,33 @@ export function SheetBlock({ attrs: raw, update, editable, editor, pageId, inser
   /* ---------------- pointing (Excel point mode) ---------------- */
 
   const pointable = (e: Edit | null) => !!e && e.text[0] === '=' && e.sheetId === sheet.id && (!!e.point || canPoint(e.text.slice(1), e.caret - 1))
+  /** A long press adds a reference also after an argument inside a call (not inside a "text"). */
+  const holdPointable = (e: Edit | null) => {
+    if (pointable(e)) return true
+    if (!e || e.text[0] !== '=' || e.sheetId !== sheet.id) return false
+    const before = e.text.slice(1, e.caret)
+    return !((before.match(/"/g) ?? []).length % 2) && !!callAt(e.text.slice(1), e.caret - 1)
+  }
 
-  const point = (pos: Pos, phase: PointerPhase, add: boolean) => {
+  /** Pointing: a press inserts a reference at the caret (or replaces the one just pointed); `add` / a long press (`hold`) adds another. */
+  const point = (pos: Pos, phase: PointerPhase, add: boolean, hold = false) => {
     const e = editRef.current
     if (!e) return
     if (phase === 'down') {
       const ref = a1(pos.r, pos.c)
       let text: string
       let s: number
-      if (e.point && add) {
+      if (e.point && (add || (hold && e.caret === e.point.e))) {
+        // another area / argument after the reference just pointed (inside DS(…): another area of it)
         s = e.point.e + 2
         text = `${e.text.slice(0, e.point.e)}; ${ref}${e.text.slice(e.point.e)}`
       } else if (e.point && e.caret === e.point.e) {
         s = e.point.s
         text = e.text.slice(0, e.point.s) + ref + e.text.slice(e.point.e)
+      } else if (hold && !canPoint(e.text.slice(1), e.caret - 1)) {
+        // a long press after an argument: one more, separated
+        s = e.caret + 2
+        text = `${e.text.slice(0, e.caret)}; ${ref}${e.text.slice(e.caret)}`
       } else {
         s = e.caret
         text = e.text.slice(0, e.caret) + ref + e.text.slice(e.caret)
@@ -472,19 +532,25 @@ export function SheetBlock({ attrs: raw, update, editable, editor, pageId, inser
   const pointer = (target: GridTarget, phase: PointerPhase, m: Mods) => {
     if (phase === 'down') {
       setCtx(null)
-      const add = target.kind !== 'corner' && (m.add || takeAddArea())
+      const add = target.kind !== 'corner' && (m.add || takeAddArea(!!m.hold))
       const cur = editRef.current
-      if (target.kind === 'cell' && pointable(cur)) {
+      if (target.kind === 'cell' && (m.hold ? holdPointable(cur) : pointable(cur))) {
         m.prevent()
         dragMode.current = 'point'
-        point(target.pos, 'down', add)
+        point(target.pos, 'down', add, m.hold)
         return
       }
       if (cur) commit(null)
       if (target.kind === 'cell') {
         dragMode.current = 'select'
         const pos = target.pos
-        setSel((s) => (m.shift ? { ...s, focus: pos } : add ? { anchor: pos, focus: pos, extra: [...s.extra, rectOf(s)].slice(-31) } : { anchor: pos, focus: pos, extra: [] }))
+        setSel((s) => {
+          if (m.shift) return { ...s, focus: pos }
+          if (!add) return { anchor: pos, focus: pos, extra: [] }
+          // a long press on the single cell that just started an area restarts that area (no duplicate)
+          const r = rectOf(s)
+          return { anchor: pos, focus: pos, extra: m.hold && isCell(r, pos) ? s.extra : [...s.extra, r].slice(-31) }
+        })
       } else if (target.kind === 'col') {
         dragMode.current = 'cols'
         setSel((s) => ({ anchor: { r: 0, c: m.shift ? s.anchor.c : target.index }, focus: { r: sheet.rows - 1, c: target.index }, extra: add ? [...s.extra, rectOf(s)] : [] }))
@@ -517,7 +583,15 @@ export function SheetBlock({ attrs: raw, update, editable, editor, pageId, inser
   const touch = useTouchGestures({
     viewportRef,
     sheetRef,
-    onTarget: (target, phase) => pointer(target, phase, NO_MODS),
+    onTarget: (target, phase, moved) => {
+      if (phase === 'down' && target.kind === 'cell') holdFrom.current = sel
+      const selecting = phase === 'up' && dragMode.current === 'select'
+      pointer(target, phase, { ...NO_MODS, hold: target.kind === 'cell' })
+      if (!selecting || target.kind !== 'cell' || !editable) return
+      // dragged: a range — "+ Area" stays latched for the next long press; lifted in place: the long-press sheet
+      if (moved) setAddArea('hold')
+      else openHold(target.pos)
+    },
     onHandle: (corner, pos, phase) => {
       if (phase === 'down') {
         setCtx(null)
@@ -540,10 +614,80 @@ export function SheetBlock({ attrs: raw, update, editable, editor, pageId, inser
     pointer(target, 'up', NO_MODS)
   }
 
+  /* ---------------- touch: the long-press sheet ---------------- */
+
+  const openHold = (pos: Pos) => {
+    const anchor = rootRef.current?.querySelector(`[data-cell="${pos.r}:${pos.c}"]`)
+    if (anchor) setHold({ pos, sheetId: sheet.id, before: holdFrom.current ?? ORIGIN, anchor })
+  }
+
+  const closeHold = () => {
+    setHold(null)
+    // the keyboard goes back to the grid — unless something else took it
+    requestAnimationFrame(() => {
+      const el = document.activeElement
+      if (!el || el === document.body) focusGrid()
+    })
+  }
+
+  /** "+ Area" in the sheet: this cell starts another area next to what was selected before the long press. */
+  const holdArea = (h: Hold) => {
+    closeHold()
+    const x = h.pos
+    // the long press already made it another area: back to this cell alone
+    if (sel.extra.length) {
+      setSel({ anchor: x, focus: x, extra: [] })
+      setAddArea(false)
+      return
+    }
+    const before = rectOf(h.before)
+    // nothing else was selected: like the bar's key, the next press starts another area
+    if (!h.before.extra.length && isCell(before, x)) return setAddArea(true)
+    setSel({ anchor: x, focus: x, extra: [...h.before.extra, before].slice(-31) })
+    // a long-press drag from here stretches this area, from elsewhere adds one more
+    setAddArea('hold')
+  }
+
+  const holdEdit = (h: Hold) => {
+    setHold(null)
+    // at once, inside the tap: only then does a phone open its keyboard for the editor
+    flushSync(() => startEdit(h.pos))
+  }
+
+  /* ---------------- touch: the suggestion strip ---------------- */
+
+  /** Take a column entry from the strip: the cell gets it, the edit ends. */
+  const takeEntry = (entry: string) => {
+    const cur = editRef.current
+    if (cur) writeEntry(cur, entry)
+  }
+
+  /** "Pick range": the keyboard steps aside (the grid takes the focus, the edit stays open) and taps / long presses point. */
+  const pickRange = () => {
+    const e = editRef.current
+    if (!e) return
+    const next = { ...e, picking: true }
+    editRef.current = next
+    setEdit(next)
+    focusGrid()
+  }
+
+  /** Back to the keyboard after picking a range (focused inside the tap: the phone opens its keyboard). */
+  const keepTyping = () => {
+    const e = editRef.current
+    if (!e) return
+    const el = (e.where === 'cell' ? cellInput : barInput).current
+    el?.focus({ preventScroll: true })
+    el?.setSelectionRange(e.caret, e.caret)
+    const next = { ...e, picking: false }
+    editRef.current = next
+    setEdit(next)
+  }
+
   /** Pointer events from the grid (mouse, and the browser's compatibility mouse events of a tap). */
   const onPointer = (target: GridTarget, phase: PointerPhase, e: MouseEvent | React.MouseEvent) => {
-    // what Chrome may still send after a long press or a drag is no tap
-    if (phase === 'down' && touch.aftermath()) return
+    // what Chrome may still send after a long press or a drag is no tap — nor may it move the focus (out of a formula being edited)
+    if (phase === 'down' && touch.aftermath()) return e.preventDefault()
     pointer(target, phase, { add: e.ctrlKey || e.metaKey, shift: e.shiftKey, prevent: () => e.preventDefault() })
   }
 
@@ -688,6 +832,17 @@ export function SheetBlock({ attrs: raw, update, editable, editor, pageId, inser
 
   const gridKey = (e: React.KeyboardEvent<HTMLDivElement>) => {
     if (e.target !== viewportRef.current) return
+    // picking a range for a formula (touch): the grid has the keyboard, the edit stays open
+    if (editRef.current?.picking) {
+      if (e.key === 'Enter') {
+        e.preventDefault()
+        commit(null)
+      } else if (e.key === 'Escape') {
+        e.preventDefault()
+        cancel()
+      }
+      return
+    }
     const mod = e.ctrlKey || e.metaKey
     const k = e.key
     const page = Math.max(1, Math.floor((viewportRef.current?.clientHeight ?? 400) / ROW_HEIGHT) - 2)
@@ -965,7 +1120,7 @@ export function SheetBlock({ attrs: raw, update, editable, editor, pageId, inser
 
   const fillView: FillView | null = editable
     ? {
-        handle: !edit && !pick && areas.length === 1 && (!touchUI || focused) ? rect : null,
+        handle: !edit && !pick && !hold && areas.length === 1 && (!touchUI || focused) ? rect : null,
         preview: fillDrag?.dest ?? null,
         dir: fillDrag?.dest ? fillDirection(fillDrag.src, fillDrag.dest) : null,
         tip: fillTip,
@@ -977,9 +1132,9 @@ export function SheetBlock({ attrs: raw, update, editable, editor, pageId, inser
 
   /* ---------------- touch: handles + action bar ---------------- */
 
-  const handles: HandlesView | null = touchUI && (focused || touch.busy) && !edit && !pick ? { rect, onDown: touch.startHandle } : null
+  const handles: HandlesView | null = touchUI && (focused || touch.busy) && !edit && !pick && !hold ? { rect, onDown: touch.startHandle } : null
   const pointing = touchUI && !!edit && edit.sheetId === sheet.id && pointable(edit)
-  const barMode = !touchUI || !focused || touch.busy || fillDrag || pick || ctx || panel ? null : edit ? (pointing ? 'point' : null) : 'select'
+  const barMode = !touchUI || !focused || touch.busy || fillDrag || pick || ctx || panel || hold ? null : edit ? (pointing ? 'point' : null) : 'select'
   const boundary = useRef<{ el: Element | null } | null>(null)
   // the page column the block lives in (looked up again when the block moved, e.g. into a peek)
   if (barMode && !(boundary.current && (boundary.current.el?.contains(rootRef.current) ?? true))) boundary.current = { el: scrollParent(rootRef.current) }
@@ -1046,10 +1201,38 @@ export function SheetBlock({ attrs: raw, update, editable, editor, pageId, inser
         className="fx-input--cell"
         style={{ width: Math.min(560, Math.max(colWidth(sheet, edit.c), (completion ?? edit.text).length * 7.6 + 24)) }}
         ghost={completion}
+        onDropGhost={dropGhost}
+        touch={touchUI}
         onChange={setText}
         onCaret={setCaret}
         onKeyDown={editKey}
+        onFocus={() => {
+          // tapped back into while picking a range: typing again
+          if (editRef.current?.picking) setEdit((e) => (e ? { ...e, picking: false } : e))
+        }}
         onBlur={editBlur}
+      />
+    ) : null
+
+  const strip =
+    touchUI && editable && edit && edit.sheetId === sheet.id && !hold ? (
+      <SuggestStrip
+        getAnchor={() => rootRef.current?.querySelector(edit.where === 'cell' ? '.sg-editor' : '.sh-bar') ?? null}
+        value={edit.text}
+        caret={edit.caret}
+        col={edit.c}
+        entries={entries}
+        completion={completion}
+        datasets={a.datasets}
+        lang={lang}
+        t={t}
+        pointable={pointable(edit)}
+        picking={!!edit.picking}
+        onValue={takeEntry}
+        onText={(text, caret) => setEdit((e) => (e ? { ...e, text, caret, point: null, auto: false } : e))}
+        onPickRange={pickRange}
+        onKeepTyping={keepTyping}
+        onDone={() => commit(null)}
       />
     ) : null
 
@@ -1063,7 +1246,10 @@ export function SheetBlock({ attrs: raw, update, editable, editor, pageId, inser
       }}
       onFocus={() => setFocused(true)}
       onBlur={(e) => {
-        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setFocused(false)
+        if (e.currentTarget.contains(e.relatedTarget as Node | null)) return
+        setFocused(false)
+        // picking a range (the grid had the keyboard): leaving the block ends the edit as typing would
+        if (editRef.current?.picking) editBlur()
       }}
     >
       <Toolbar
@@ -1104,10 +1290,12 @@ export function SheetBlock({ attrs: raw, update, editable, editor, pageId, inser
           onFocus={() => {
             if (!editable) return
             const cur = editRef.current
-            if (cur) setEdit({ ...cur, where: 'bar' })
+            if (cur) setEdit({ ...cur, where: 'bar', picking: false })
             else setEdit({ r: active.r, c: active.c, sheetId: sheet.id, text: activeCell?.v ?? '', caret: (activeCell?.v ?? '').length, where: 'bar', fresh: false, point: null, auto: false })
           }}
           ghost={completion}
+          onDropGhost={dropGhost}
+          touch={touchUI}
           onChange={setText}
           onCaret={setCaret}
           onKeyDown={editKey}
@@ -1290,6 +1478,30 @@ export function SheetBlock({ attrs: raw, update, editable, editor, pageId, inser
         />
       )}
       {pick && <PickList anchor={pick.anchor} entries={pick.entries} column={colName(pick.c)} initial={pick.initial} t={t} onPick={pickValue} onClose={closePick} />}
+      {strip}
+      {hold && hold.sheetId === sheet.id && (
+        <HoldSheet
+          anchor={hold.anchor}
+          addr={a1(hold.pos.r, hold.pos.c)}
+          column={colName(hold.pos.c)}
+          entries={pickEntries(sheet, hold.pos.r, hold.pos.c, lang)}
+          areaOn={sel.extra.length > 0}
+          canFill={hold.pos.r > 0}
+          t={t}
+          onPick={(value) => {
+            setHold(null)
+            writeEntry({ r: hold.pos.r, c: hold.pos.c, sheetId: hold.sheetId }, value)
+          }}
+          onArea={() => holdArea(hold)}
+          onFill={() => {
+            const { r, c } = hold.pos
+            closeHold()
+            op(fill(a, sheet.id, { top: r - 1, bottom: r, left: c, right: c }, 'down'))
+          }}
+          onEdit={() => holdEdit(hold)}
+          onClose={closeHold}
+        />
+      )}
       {panel?.kind === 'fx' && (
         <FunctionBrowser
           anchor={panel.anchor}

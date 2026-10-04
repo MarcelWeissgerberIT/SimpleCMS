@@ -1,7 +1,8 @@
 /**
  * Touch on the grid (pointerType 'touch' — the mouse keeps its own path in Grid):
- *  - press and hold a cell (~400 ms, a short vibration), then drag: a range selection. A swipe
- *    still scrolls; a tap still selects through the browser's compatibility mouse events.
+ *  - press and hold a cell (~400 ms, a short vibration), then drag: a range selection; lifted
+ *    without leaving the cell, the block offers what a long press can do there. A swipe still
+ *    scrolls; a tap still selects through the browser's compatibility mouse events.
  *  - drag along the column letters / row numbers: several columns / rows (taps: Grid as before)
  *  - selection handles: drag a corner, the opposite corner stays
  * While a gesture owns the finger the grid doesn't scroll (a non-passive touchmove listener:
@@ -25,8 +26,11 @@ interface Options {
   viewportRef: RefObject<HTMLDivElement | null>
   /** the sheet as it is now (read on every move) */
   sheetRef: RefObject<SheetData>
-  /** a long press on a cell ('down'), the finger over other cells ('move'), lifted ('up'); header drags the same */
-  onTarget: (target: GridTarget, phase: PointerPhase) => void
+  /**
+   * a long press on a cell ('down'), the finger over other cells ('move'), lifted ('up' — `moved`:
+   * it went over another cell on the way); header drags the same
+   */
+  onTarget: (target: GridTarget, phase: PointerPhase, moved?: boolean) => void
   /** a selection handle: 'down' with its corner cell, then the cell under the moved corner */
   onHandle: (corner: Corner, pos: Pos, phase: PointerPhase) => void
   /** a handle (or the fill tab) was tapped, not dragged: a tap at this point on what lies under it */
@@ -143,10 +147,12 @@ export function useTouchGestures({ viewportRef, sheetRef, onTarget, onHandle, on
         return target.kind === 'cell' ? { kind: 'cell', pos: p } : target.kind === 'col' ? { kind: 'col', index: p.c } : { kind: 'row', index: p.r }
       }
       let last: GridTarget = target
+      let moved = false
       const emit = (pt: Pt) => {
         const next = at(pt)
         if (keyOf(next) === keyOf(last)) return
         last = next
+        moved = true
         handlers.current.onTarget(next, 'move')
       }
       const begin = () => {
@@ -173,7 +179,7 @@ export function useTouchGestures({ viewportRef, sheetRef, onTarget, onHandle, on
         },
         (live) => {
           window.clearTimeout(timer)
-          if (live) handlers.current.onTarget(last, 'up')
+          if (live) handlers.current.onTarget(last, 'up', moved)
         },
       )
     },

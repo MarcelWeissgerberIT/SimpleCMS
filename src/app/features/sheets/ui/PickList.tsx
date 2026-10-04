@@ -1,9 +1,12 @@
 /**
  * "Pick from list" (Alt+↓ / the cell menu): the distinct texts of the cell's column in a small
- * listbox — type to narrow, ↑↓ to move, ↵ to take, Esc to close.
+ * listbox — type to narrow, ↑↓ to move, ↵ to take, Esc to close. PickPanel is the list itself
+ * (also inside the touch long-press sheet, finger-sized there).
  */
 import { useId, useMemo, useState } from 'react'
 import { Popover } from '../../../ui/Popover'
+
+type T = (key: string, vars?: Record<string, string | number>) => string
 
 export interface PickListProps {
   anchor: Element | null
@@ -12,14 +15,26 @@ export interface PickListProps {
   column: string
   /** text to start the search with (what was typed in the cell) */
   initial?: string
-  t: (key: string, vars?: Record<string, string | number>) => string
+  t: T
   onPick: (value: string) => void
   onClose: () => void
 }
 
-const fold = (s: string) => s.toLocaleLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+export interface PickPanelProps {
+  entries: string[]
+  column: string
+  initial?: string
+  t: T
+  onPick: (value: string) => void
+  /** the search field takes the keyboard when the panel opens */
+  autoFocus?: boolean
+  /** finger-sized rows (the touch sheet) */
+  touch?: boolean
+}
 
-export function PickList({ anchor, entries, column, initial = '', t, onPick, onClose }: PickListProps) {
+const fold = (s: string) => s.toLocaleLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
+
+export function PickPanel({ entries, column, initial = '', t, onPick, autoFocus = true, touch }: PickPanelProps) {
   const id = useId()
   const [q, setQ] = useState(initial)
   const [active, setActive] = useState(0)
@@ -33,10 +48,10 @@ export function PickList({ anchor, entries, column, initial = '', t, onPick, onC
   const sel = Math.min(active, Math.max(0, list.length - 1))
 
   return (
-    <Popover open={!!anchor} anchor={anchor} onClose={onClose} placement="bottom-start" className="sh-pick" role="dialog" aria-label={t('features.sheets.pick.title')}>
+    <div className={`sh-pick__panel${touch ? ' is-touch' : ''}`}>
       <input
         className="input sh-pick__search"
-        data-autofocus=""
+        data-autofocus={autoFocus ? '' : undefined}
         value={q}
         placeholder={t('features.sheets.pick.search')}
         aria-label={t('features.sheets.pick.search')}
@@ -46,6 +61,8 @@ export function PickList({ anchor, entries, column, initial = '', t, onPick, onC
         aria-activedescendant={list.length ? `${id}-${sel}` : undefined}
         spellCheck={false}
         autoComplete="off"
+        autoCorrect="off"
+        enterKeyHint="done"
         onChange={(e) => {
           setQ(e.target.value)
           setActive(0)
@@ -87,6 +104,14 @@ export function PickList({ anchor, entries, column, initial = '', t, onPick, onC
       <div className="sh-pick__foot label" aria-hidden>
         {t(list.length === 1 ? 'features.sheets.pick.count1' : 'features.sheets.pick.count', { n: list.length, col: column })}
       </div>
+    </div>
+  )
+}
+
+export function PickList({ anchor, entries, column, initial = '', t, onPick, onClose }: PickListProps) {
+  return (
+    <Popover open={!!anchor} anchor={anchor} onClose={onClose} placement="bottom-start" className="sh-pick" role="dialog" aria-label={t('features.sheets.pick.title')}>
+      <PickPanel entries={entries} column={column} initial={initial} t={t} onPick={onPick} />
     </Popover>
   )
 }

@@ -3,7 +3,9 @@
  * DevTools protocol): selection handles, long press + drag, swipe still scrolls, header taps and
  * drags, the touch action bar (copy / paste, fill, clear, chart, "+ Area" for DS(…) areas — also
  * while pointing in a formula), read-only, the fill tab, and that a finger's long press never opens
- * the cell menu.
+ * the cell menu. Phone keyboards (IME compositions, inserted text, keyCode 229 keydowns, input
+ * events instead of keys): AutoComplete, the suggestion strip (values, functions, datasets, "Pick
+ * range"), the long-press sheet (pick a value, + Area, fill, edit) and long presses in formulas.
  */
 import type { Locator, Page } from '@playwright/test'
 import { test, expect, openApp, gotoPage, createPage, wsEval, flush } from './fixtures'
@@ -11,7 +13,7 @@ import { test, expect, openApp, gotoPage, createPage, wsEval, flush } from './fi
 type Cells = Record<string, string>
 
 /** A page with one spreadsheet block: 12 rows × 8 columns of 64 px (A–E fit a phone). */
-async function touchSheet(page: Page, cells: Cells, opts: { rows?: number; frozenRows?: number } = {}): Promise<string> {
+async function touchSheet(page: Page, cells: Cells, opts: { rows?: number; frozenRows?: number; datasets?: unknown[] } = {}): Promise<string> {
   const widths = Object.fromEntries('ABCDEFGH'.split('').map((c) => [c, 64]))
   const id = await createPage(page, {
     title: 'Touch sheet',
@@ -24,7 +26,7 @@ async function touchSheet(page: Page, cells: Cells, opts: { rows?: number; froze
             title: 'Budget',
             sheets: [{ id: 's1', name: 'Sheet 1', rows: opts.rows ?? 12, cols: 8, frozenRows: opts.frozenRows ?? 0, cells: Object.fromEntries(Object.entries(cells).map(([k, v]) => [k, { v }])), colWidths: widths }],
             active: 's1',
-            datasets: [],
+            datasets: opts.datasets ?? [],
           },
         },
         { type: 'paragraph' },
@@ -74,6 +76,33 @@ async function finger(page: Page) {
     },
   }
 }
+
+/** An on-screen keyboard (CDP): compositions, committed text, keyCode 229 keydowns, its action key. */
+async function phoneKeys(page: Page) {
+  const cdp = await page.context().newCDPSession(page)
+  const k229 = async (type: 'rawKeyDown' | 'keyUp') => cdp.send('Input.dispatchKeyEvent', { type, key: 'Unidentified', code: '', windowsVirtualKeyCode: 229, nativeVirtualKeyCode: 229 })
+  return {
+    /** a word being composed (Android keyboards): every key a 229 keydown, the text an IME composition */
+    async compose(text: string) {
+      await k229('rawKeyDown')
+      await cdp.send('Input.imeSetComposition', { text, selectionStart: text.length, selectionEnd: text.length })
+      await k229('keyUp')
+    },
+    /** text committed by the keyboard (ends a composition; iOS-like typing): input events, no key */
+    async insert(text: string) {
+      await cdp.send('Input.insertText', { text })
+    },
+    /** the keyboard's action key ("done") */
+    async enter() {
+      await cdp.send('Input.dispatchKeyEvent', { type: 'rawKeyDown', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13, nativeVirtualKeyCode: 13 })
+      await cdp.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13, nativeVirtualKeyCode: 13 })
+    },
+  }
+}
+
+const strip = (page: Page) => page.locator('.sh-strip')
+const chip = (page: Page, name: string | RegExp) => strip(page).getByRole('button', { name })
+const holdSheet = (page: Page) => page.locator('.sh-hold')
 
 /** The block's attrs as stored (after the editor's write debounce). */
 async function stored(page: Page, id: string): Promise<{ sheets: Array<{ cells: Record<string, { v?: string }> }>; charts: Array<{ spec: { source: { kind: string; ref: string } } }> }> {
@@ -271,6 +300,300 @@ test.describe('spreadsheet block by touch — phone', () => {
       expect(b.width).toBeGreaterThanOrEqual(38)
       expect(b.height).toBeGreaterThanOrEqual(40)
     }
+  })
+})
+
+const TASKS: Cells = { A1: 'Task', A2: 'Website relaunch', A3: 'Design review', A4: 'Webinar', B1: 'Owner', B2: 'Ada', B3: 'Grace', B4: 'Ada', C1: '1', C2: '2', C3: '3', C4: '4' }
+const AREA = 'Add another area (like ⌘/Ctrl-click): tap or hold where it starts'
+
+test.describe('spreadsheet block by touch — phone keyboards and long presses', () => {
+  test.use({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true })
+
+  test('AutoComplete with an on-screen keyboard: compositions and 229 keys propose, a chip takes the value, Backspace as an input event drops the proposal', async ({ page }) => {
+    await openApp(page)
+    const id = await touchSheet(page, TASKS)
+    const kb = await phoneKeys(page)
+    const f = await finger(page)
+    const cellInput = page.locator('.fx-input--cell input')
+    const ghost = page.locator('.fx-input--cell .fx-ghost')
+
+    // A5: the long-press sheet's Edit opens the in-cell editor (the keyboard comes up)
+    await f.drag(await mid(cell(page, 'A5')), await mid(cell(page, 'A5')), { hold: 550 })
+    await holdSheet(page).getByRole('button', { name: 'Edit the cell' }).tap()
+    await expect(cellInput).toBeFocused()
+    // "We" composed like Android keyboards do: no usable keydown, an IME composition
+    await kb.compose('W')
+    await kb.compose('We')
+    await expect(cellInput).toHaveValue('We')
+    // the nearest entry is the ghost and the first chip (↵ takes it); every match is a chip
+    await expect(ghost).toHaveText('binar')
+    await expect(strip(page)).toBeVisible()
+    await expect(strip(page).getByRole('button')).toHaveText(['Webinar↵', 'Website relaunch'])
+    await expect(strip(page)).toContainText('COL A')
+    // the strip sits above the editor, inside the screen
+    const sb = (await strip(page).boundingBox())!
+    const eb = (await page.locator('.sheet .sg-editor').boundingBox())!
+    expect(sb.y + sb.height).toBeLessThanOrEqual(eb.y)
+    expect(sb.x).toBeGreaterThanOrEqual(0)
+    expect(sb.x + sb.width).toBeLessThanOrEqual(390)
+    for (const b of await strip(page).getByRole('button').all()) expect((await b.boundingBox())!.height).toBeGreaterThanOrEqual(44)
+    // a tap on a chip — still composing — takes it; the input kept the focus up to then (no keyboard flicker)
+    await chip(page, 'Website relaunch').tap()
+    await expect(cell(page, 'A5')).toHaveText('Website relaunch')
+    await expect(cellInput).toHaveCount(0)
+    await expect(strip(page)).toHaveCount(0)
+
+    // the formula bar, text committed word by word (iOS): the proposal follows, the keyboard's ↵ takes it
+    await cell(page, 'A6').tap()
+    await page.getByRole('textbox', { name: 'Formula' }).tap()
+    await kb.insert('D')
+    await kb.insert('e')
+    await expect(page.locator('.fx-input--bar .fx-ghost')).toHaveText('sign review')
+    await expect(chip(page, /Design review/)).toBeVisible()
+    // a Backspace the keyboard reports only as an input event: drops the proposal, keeps the text
+    const bar = page.locator('.sh-bar .fx-input__field')
+    const prevented = await bar.evaluate((el) => !el.dispatchEvent(new InputEvent('beforeinput', { inputType: 'deleteContentBackward', bubbles: true, cancelable: true })))
+    expect(prevented).toBe(true)
+    await expect(page.locator('.fx-input--bar .fx-ghost')).toHaveCount(0)
+    await expect(bar).toHaveValue('De')
+    // the strip still offers the column's matches
+    await expect(chip(page, /Design review/)).toBeVisible()
+    await kb.insert('s')
+    await expect(page.locator('.fx-input--bar .fx-ghost')).toHaveText('ign review')
+    await kb.enter()
+    await expect(cell(page, 'A6')).toHaveText('Design review')
+    await expect(nameBox(page)).toHaveText('A7')
+
+    // a composition that shrinks (Backspace while composing) proposes nothing; numbers never
+    await page.getByRole('textbox', { name: 'Formula' }).tap()
+    await kb.compose('Webs')
+    await expect(page.locator('.fx-input--bar .fx-ghost')).toHaveText('ite relaunch')
+    await kb.compose('Web')
+    await expect(page.locator('.fx-input--bar .fx-ghost')).toHaveCount(0)
+    await kb.insert('Web')
+    await kb.enter()
+    await expect(cell(page, 'A7')).toHaveText('Web')
+    await cell(page, 'C5').tap()
+    await page.getByRole('textbox', { name: 'Formula' }).tap()
+    await kb.insert('1')
+    await expect(strip(page)).toHaveCount(0)
+    await kb.enter()
+
+    const a = await stored(page, id)
+    expect(a.sheets[0].cells.A5.v).toBe('Website relaunch')
+    expect(a.sheets[0].cells.A6.v).toBe('Design review')
+    expect(a.sheets[0].cells.A7.v).toBe('Web')
+    expect(a.sheets[0].cells.C5.v).toBe('1')
+  })
+
+  test('formulas on a phone: "=SU" offers SUM / SUMIF with their arguments, a tap inserts SUM( and keeps the keyboard; Pick range points; datasets as DS(…)', async ({ page }) => {
+    await openApp(page)
+    const id = await touchSheet(page, NUMBERS, { datasets: [{ id: 'd1', name: 'Plan', color: 'green', ranges: [{ sheet: 's1', ref: 'B2:B5' }] }] })
+    const kb = await phoneKeys(page)
+    const f = await finger(page)
+    const bar = page.locator('.sh-bar .fx-input__field')
+    await cell(page, 'E2').tap()
+    await page.getByRole('textbox', { name: 'Formula' }).tap()
+    await kb.insert('=')
+    // where a reference can go: "Pick range" and the datasets
+    await expect(strip(page).getByRole('button')).toHaveText(['Pick range', 'DS · PLAN'])
+    await expect(strip(page)).toContainText('FX')
+    await kb.compose('SU')
+    await expect(chip(page, /^SUM\(/)).toBeVisible()
+    await expect(chip(page, /^SUMIF\(/)).toBeVisible()
+    await expect(chip(page, /^SUM\(/)).toContainText('(number1; [number2]; …)')
+    // no list under the input on touch: the strip is the list
+    await expect(page.locator('.fx-suggest')).toHaveCount(0)
+    await chip(page, /^SUM\(/).tap()
+    await expect(bar).toHaveValue('=SUM(')
+    await expect(bar).toBeFocused()
+    // a dataset chip: DS(NAME) at the caret
+    await chip(page, 'Dataset Plan').tap()
+    await expect(bar).toHaveValue('=SUM(DS(Plan)')
+    await kb.insert(')')
+    await kb.enter()
+    await expect(cell(page, 'E2')).toHaveText('22')
+
+    // Pick range: the keyboard steps aside (the grid has the focus), a long-press drag points, Keep typing returns
+    await cell(page, 'E3').tap()
+    await page.getByRole('textbox', { name: 'Formula' }).tap()
+    await kb.insert('=MAX(')
+    await chip(page, 'Pick range').tap()
+    await expect(bar).not.toBeFocused()
+    await expect(strip(page)).toContainText('RANGE')
+    await f.drag(await mid(cell(page, 'C4')), await mid(cell(page, 'D5')), { hold: 550 })
+    await expect(bar).toHaveValue('=MAX(C4:D5')
+    // a tap replaces the pointed reference
+    await page.waitForTimeout(200)
+    await f.tap(await mid(cell(page, 'C5')))
+    await expect(bar).toHaveValue('=MAX(C5')
+    await expect(bar).not.toBeFocused()
+    await chip(page, 'Keep typing').tap()
+    await expect(bar).toBeFocused()
+    await kb.insert(')')
+    await kb.enter()
+    await expect(cell(page, 'E3')).toHaveText('11')
+    // "Done" ends it from the strip as well
+    await cell(page, 'E4').tap()
+    await page.getByRole('textbox', { name: 'Formula' }).tap()
+    await kb.insert('=')
+    await chip(page, 'Pick range').tap()
+    await f.tap(await mid(cell(page, 'B4')))
+    await chip(page, 'Done').tap()
+    await expect(cell(page, 'E4')).toHaveText('7')
+    const a = await stored(page, id)
+    expect(a.sheets[0].cells.E2.v).toBe('=SUM(DS(Plan))')
+    expect(a.sheets[0].cells.E3.v).toBe('=MAX(C5)')
+    expect(a.sheets[0].cells.E4.v).toBe('=B4')
+  })
+
+  test('long press lifted in place: the sheet picks a value, fills down, edits; dragged it stays a range selection', async ({ page }) => {
+    await openApp(page)
+    const id = await touchSheet(page, TASKS)
+    const f = await finger(page)
+    const at = async (addr: string) => f.drag(await mid(cell(page, addr)), await mid(cell(page, addr)), { hold: 550 })
+
+    await at('B5')
+    const sheet = page.getByRole('dialog', { name: 'Cell B5' })
+    await expect(sheet).toBeVisible()
+    await expect(sheet).toContainText('Pick a value')
+    await expect(sheet.getByRole('option')).toHaveText(['Ada', 'Grace', 'Owner'])
+    // finger-sized, inside the screen
+    for (const o of await sheet.getByRole('option').all()) expect((await o.boundingBox())!.height).toBeGreaterThanOrEqual(44)
+    for (const k of await sheet.getByRole('toolbar').getByRole('button').all()) expect((await k.boundingBox())!.height).toBeGreaterThanOrEqual(44)
+    const box = (await sheet.boundingBox())!
+    expect(box.x).toBeGreaterThanOrEqual(0)
+    expect(box.x + box.width).toBeLessThanOrEqual(390)
+    // no keyboard yet: the search field waits for a tap
+    await expect(sheet.getByRole('combobox')).not.toBeFocused()
+    await sheet.getByRole('combobox').tap()
+    await page.keyboard.type('gr')
+    await expect(sheet.getByRole('option')).toHaveText(['Grace'])
+    await sheet.getByRole('option', { name: 'Grace' }).tap()
+    await expect(sheet).toHaveCount(0)
+    await expect(cell(page, 'B5')).toHaveText('Grace')
+
+    // Fill ↓ from the cell above
+    await at('B6')
+    await page.getByRole('dialog', { name: 'Cell B6' }).getByRole('button', { name: 'Fill down from the cell above' }).tap()
+    await expect(cell(page, 'B6')).toHaveText('Grace')
+    // Edit: the in-cell editor with the keyboard
+    await at('C6')
+    await page.getByRole('dialog', { name: 'Cell C6' }).getByRole('button', { name: 'Edit the cell' }).tap()
+    await expect(page.locator('.fx-input--cell input')).toBeFocused()
+    await page.keyboard.type('5')
+    await page.keyboard.press('Enter')
+    await expect(cell(page, 'C6')).toHaveText('5')
+    // Esc / a tap outside closes it without writing
+    await at('B8')
+    await expect(page.getByRole('dialog', { name: 'Cell B8' })).toBeVisible()
+    await page.keyboard.press('Escape')
+    await expect(holdSheet(page)).toHaveCount(0)
+    await expect(cell(page, 'B8')).toHaveText('')
+
+    // dragged: a range, no sheet; "+ Area" is highlighted for the next long press
+    await f.drag(await mid(cell(page, 'C2')), await mid(cell(page, 'C4')), { hold: 550 })
+    await expect(nameBox(page)).toHaveText('C2:C4')
+    await expect(holdSheet(page)).toHaveCount(0)
+    await expect(key(page, AREA)).toHaveAttribute('aria-pressed', 'true')
+    await expect(key(page, AREA)).toHaveClass(/is-hint/)
+    // a tap starts over (once the long press's leftover mouse events are through)
+    await page.waitForTimeout(200)
+    await cell(page, 'D8').tap()
+    await expect(nameBox(page)).toHaveText('D8')
+    await expect(key(page, AREA)).toHaveAttribute('aria-pressed', 'false')
+    const a = await stored(page, id)
+    expect(a.sheets[0].cells.B5.v).toBe('Grace')
+    expect(a.sheets[0].cells.B6.v).toBe('Grace')
+    expect(a.sheets[0].cells.C6.v).toBe('5')
+  })
+
+  test('"+ Area" from the long-press sheet and a second long-press drag: two areas for a chart; long presses in a formula add areas inside DS(…)', async ({ page }) => {
+    await openApp(page)
+    const id = await touchSheet(page, { A1: '1', A2: '2', A3: '3', C1: '10', C2: '20', A6: '4', A7: '5', A8: '6', C6: '7', C7: '8' })
+    const f = await finger(page)
+    await cell(page, 'A1').tap()
+    await f.drag(await mid(page.locator('.sheet .sg-handle.is-br')), await mid(cell(page, 'A3')))
+    await expect(nameBox(page)).toHaveText('A1:A3')
+    // hold C1, lift: the sheet — "+ Area" starts another area here, A1:A3 stays
+    await f.drag(await mid(cell(page, 'C1')), await mid(cell(page, 'C1')), { hold: 550 })
+    const sheet = page.getByRole('dialog', { name: 'Cell C1' })
+    await expect(sheet.getByRole('button', { name: 'Start another area here' })).toHaveAttribute('aria-pressed', 'false')
+    await sheet.getByRole('button', { name: 'Start another area here' }).tap()
+    await expect(sheet).toHaveCount(0)
+    await expect(nameBox(page)).toHaveText('C1 +1')
+    await expect(key(page, AREA)).toHaveClass(/is-hint/)
+    // a long-press drag from there stretches the new area (no duplicate)
+    await f.drag(await mid(cell(page, 'C1')), await mid(cell(page, 'C2')), { hold: 550 })
+    await expect(nameBox(page)).toHaveText('C1:C2 +1')
+    await expect(page.locator('.sheet .sg-ov--sel')).toHaveCount(2)
+    await expect(page.locator('.sheet .sh-status')).toContainText('SUM 36')
+    await key(page, 'Chart from the selection').tap()
+    await page.locator('[data-testid="chart-builder-save"]').tap()
+    await expect(page.locator('.sheet .sh-chart')).toHaveCount(1)
+    expect((await stored(page, id)).charts[0].spec.source.ref).toBe('DS(A1:A3; C1:C2)')
+
+    // still latched after the drag: another long-press drag adds a third area
+    await f.drag(await mid(cell(page, 'A6')), await mid(cell(page, 'A7')), { hold: 550 })
+    await expect(nameBox(page)).toHaveText('A6:A7 +2')
+
+    // a formula: long presses point, the second one adds another area of the DS (no "+ Area" needed)
+    await page.waitForTimeout(200)
+    await cell(page, 'D1').tap()
+    await page.getByRole('textbox', { name: 'Formula' }).tap()
+    await page.keyboard.type('=SUM(DS(')
+    await f.drag(await mid(cell(page, 'A6')), await mid(cell(page, 'A8')), { hold: 550 })
+    const input = page.locator('.sh-bar .fx-input__field')
+    await expect(input).toHaveValue('=SUM(DS(A6:A8')
+    await f.drag(await mid(cell(page, 'C6')), await mid(cell(page, 'C7')), { hold: 550 })
+    await expect(input).toHaveValue('=SUM(DS(A6:A8; C6:C7')
+    // lifted in place: one more cell, no sheet while editing
+    await f.drag(await mid(cell(page, 'A3')), await mid(cell(page, 'A3')), { hold: 550 })
+    await expect(input).toHaveValue('=SUM(DS(A6:A8; C6:C7; A3')
+    await expect(holdSheet(page)).toHaveCount(0)
+    // on touch the signature heads the strip (the input's own popups stay closed)
+    await expect(strip(page).locator('.fx-sig__name').first()).toHaveText('DS(')
+    await expect(page.locator('.fx-pop')).toHaveCount(0)
+    await page.keyboard.type('))')
+    await page.keyboard.press('Enter')
+    await expect(cell(page, 'D1')).toHaveText('33')
+    // outside DS(…) a long press after an argument adds one more argument
+    await page.waitForTimeout(200)
+    await cell(page, 'D2').tap()
+    await page.getByRole('textbox', { name: 'Formula' }).tap()
+    await page.keyboard.type('=SUM(A1')
+    await f.drag(await mid(cell(page, 'C7')), await mid(cell(page, 'C7')), { hold: 550 })
+    await expect(input).toHaveValue('=SUM(A1; C7')
+    await page.keyboard.type(')')
+    await page.keyboard.press('Enter')
+    await expect(cell(page, 'D2')).toHaveText('9')
+    const a = await stored(page, id)
+    expect(a.sheets[0].cells.D1.v).toBe('=SUM(DS(A6:A8; C6:C7; A3))')
+    expect(a.sheets[0].cells.D2.v).toBe('=SUM(A1; C7)')
+  })
+
+  test('German: the strip and the long-press sheet speak German', async ({ page }) => {
+    await openApp(page)
+    await wsEval(page, (s) => s.updateSettings({ language: 'de' }))
+    await touchSheet(page, TASKS)
+    const f = await finger(page)
+    const kb = await phoneKeys(page)
+    await f.drag(await mid(cell(page, 'A5')), await mid(cell(page, 'A5')), { hold: 550 })
+    const sheet = page.getByRole('dialog', { name: 'Zelle A5' })
+    await expect(sheet).toContainText('Wert wählen')
+    await expect(sheet.getByRole('button', { name: 'Hier einen weiteren Bereich beginnen' })).toContainText('+ Bereich')
+    await expect(sheet.getByRole('button', { name: 'Von der Zelle darüber ausfüllen' })).toContainText('Ausfüllen ↓')
+    await sheet.getByRole('button', { name: 'Zelle bearbeiten' }).tap()
+    await kb.compose('We')
+    await expect(strip(page)).toContainText('SPALTE A')
+    await expect(page.getByRole('toolbar', { name: 'Vorschläge' })).toBeVisible()
+    await kb.insert('We')
+    await kb.enter()
+    await expect(cell(page, 'A5')).toHaveText('Webinar')
+    await cell(page, 'D2').tap()
+    await page.getByRole('textbox', { name: 'Formel' }).tap()
+    await kb.insert('=')
+    await expect(chip(page, 'Bereich wählen')).toBeVisible()
   })
 })
 

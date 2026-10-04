@@ -17,4 +17,4 @@ export { colName, colIndex, a1, parseA1, parseRect, rectText, isA1Like, quoteShe
 export { adjustFormula, adjustExpression, adjustRect, shiftFormula, renameSheetRefs, renameSheetInExpression, dropSheetRefs, rewriteFormula, rewriteRefs, refText, type StructOp } from './adjust'
 export { paintFormula, callAt, wordAt, canPoint, type FormulaGroup, type FormulaPaint } from './analyze'
 export { fillLine, type FillCell, type FillMode } from './series'
-export { cellText, columnEntries, completeEntry, pickEntries, type ColumnSource } from './complete'
+export { cellText, columnEntries, completeEntry, completeEntries, pickEntries, type ColumnSource } from './complete'

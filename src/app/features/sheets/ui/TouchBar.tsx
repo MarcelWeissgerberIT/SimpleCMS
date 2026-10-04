@@ -19,6 +19,8 @@ export interface BarKey {
   disabled?: boolean
   /** latched (aria-pressed) */
   on?: boolean
+  /** latched by a long-press drag: drawn as a hint (the next long press adds) */
+  hint?: boolean
   onPress: (el: HTMLButtonElement) => void
 }
 
@@ -46,12 +48,14 @@ const BELOW = 46
 const INSET = 8
 const SETTLE_MS = 220
 
-function Key({ k }: { k: BarKey }) {
+/** One key of the strip (also the long-press sheet's keys). */
+export function Key({ k, autoFocus }: { k: BarKey; autoFocus?: boolean }) {
   return (
     <button
       type="button"
-      className="sh-touchbar__key"
+      className={`sh-touchbar__key${k.hint ? ' is-hint' : ''}`}
       data-key={k.id}
+      data-autofocus={autoFocus ? '' : undefined}
       aria-label={k.label}
       title={k.label}
       aria-pressed={k.on === undefined ? undefined : k.on}
@@ -161,8 +165,8 @@ interface SheetKeysOptions {
   /** select: the selection's keys · point: building a formula reference (only "+ Area") */
   mode: 'select' | 'point'
   editable: boolean
-  /** "+ Area" is latched */
-  addArea: boolean
+  /** "+ Area" is latched ('hold': by a long-press drag — the next long press adds another area) */
+  addArea: boolean | 'hold'
   fillDown: boolean
   fillRight: boolean
   on: Record<'copy' | 'cut' | 'paste' | 'fillDown' | 'fillRight' | 'clear' | 'chart' | 'area', () => void> & { more: (el: HTMLElement) => void }
@@ -180,7 +184,7 @@ export function sheetBarKeys({ t, mode, editable, addArea, fillDown, fillRight, 
     onPress,
     ...extra,
   })
-  const area = k('area', 'features.sheets.touch.addArea', 'features.sheets.touch.area', SquareDashedPlus, on.area, { on: addArea })
+  const area = k('area', 'features.sheets.touch.addArea', 'features.sheets.touch.area', SquareDashedPlus, on.area, { on: !!addArea, hint: addArea === 'hold' })
   if (mode === 'point') return { groups: [[area]] }
   const copy = k('copy', 'features.sheets.copy', 'features.sheets.touch.copy', Copy, on.copy)
   if (!editable) return { groups: [[copy]] }

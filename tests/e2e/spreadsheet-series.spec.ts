@@ -5,7 +5,7 @@
  * "Pick from list" offer.
  */
 import { test, expect } from '@playwright/test'
-import { columnEntries, completeEntry, fillLine, pickEntries, type FillCell, type FillMode } from '../../src/app/features/sheets/engine'
+import { columnEntries, completeEntries, completeEntry, fillLine, pickEntries, type FillCell, type FillMode } from '../../src/app/features/sheets/engine'
 
 type Lang = 'en' | 'de'
 
@@ -171,6 +171,17 @@ test.describe('AutoComplete entries', () => {
     expect(completeEntry(['2026 plan'], '2026', 'en')).toBeNull()
     expect(completeEntry(['Web', 'Website'], 'web', 'en')).toBeNull()
     expect(completeEntry(['Design'], 'design', 'en')).toBeNull()
+  })
+
+  test('every completion (the touch strip): the same rules, nearest first, capped; the first is the proposal', () => {
+    const e = ['Design', 'Web shop', 'Webinar', 'Website relaunch', 'Task']
+    expect(completeEntries(e, 'we', 'en')).toEqual(['Web shop', 'Webinar', 'Website relaunch'])
+    expect(completeEntries(e, 'we', 'en', 2)).toEqual(['Web shop', 'Webinar'])
+    expect(completeEntries(e, 'we', 'en')[0]).toBe(completeEntry(e, 'we', 'en'))
+    expect(completeEntries(e, '', 'en')).toEqual([])
+    expect(completeEntries(e, '=W', 'en')).toEqual([])
+    expect(completeEntries(['12 apples', '12 pears'], '12', 'en')).toEqual([])
+    expect(completeEntries(['Web', 'Website'], 'web', 'en')).toEqual([])
   })
 
   test('pick list: distinct, sorted, the whole column when the region is empty', () => {

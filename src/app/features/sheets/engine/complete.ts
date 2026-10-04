@@ -67,12 +67,25 @@ export function columnEntries(s: ColumnSource, row: number, col: number): string
  * or already one of the entries.
  */
 export function completeEntry(entries: string[], typed: string, lang: 'en' | 'de'): string | null {
-  if (!typed || typed[0] === '=' || typed[0] === "'" || !entries.length) return null
+  return completeEntries(entries, typed, lang, 1)[0] ?? null
+}
+
+/**
+ * Every entry that completes what was typed (the touch suggestion strip), nearest first — the
+ * same rules as completeEntry, whose proposal is the first of them.
+ */
+export function completeEntries(entries: string[], typed: string, lang: 'en' | 'de', max = Infinity): string[] {
+  if (!typed || typed[0] === '=' || typed[0] === "'" || !entries.length) return []
   const canon = canonicalInput(typed, lang)
-  if (canon.fmt || typeof literal(canon.v).value !== 'string') return null
+  if (canon.fmt || typeof literal(canon.v).value !== 'string') return []
   const low = typed.toLocaleLowerCase()
-  if (entries.some((e) => e.toLocaleLowerCase() === low)) return null
-  return entries.find((e) => e.length > typed.length && e.toLocaleLowerCase().startsWith(low)) ?? null
+  if (entries.some((e) => e.toLocaleLowerCase() === low)) return []
+  const out: string[] = []
+  for (const e of entries) {
+    if (out.length >= max) break
+    if (e.length > typed.length && e.toLocaleLowerCase().startsWith(low)) out.push(e)
+  }
+  return out
 }
 
 /**
