@@ -271,6 +271,7 @@ export const messages: Messages = {
     'footer.version': 'Rev {version}',
     'footer.top': 'Back to top',
     'footer.selfhost': 'Self-hosting guide',
+    'footer.help': 'Help',
 
     'fig.pending': 'Figure',
     'fig.views': 'views',
@@ -541,6 +542,7 @@ export const messages: Messages = {
     'footer.version': 'Rev {version}',
     'footer.top': 'Nach oben',
     'footer.selfhost': 'Anleitung zum Selbst-Hosten',
+    'footer.help': 'Hilfe',
 
     'fig.pending': 'Abbildung',
     'fig.views': 'Ansichten',

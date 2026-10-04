@@ -101,6 +101,7 @@ export function renderFooter(ctx: Ctx): string {
           <li><a href="#mcp">${esc(t('sec.mcp'))}</a></li>
           <li><a href="#compare">${esc(t('nav.compare'))}</a></li>
           <li><a href="#faq">${esc(t('nav.faq'))}</a></li>
+          <li><a href="${BRAND.homeHref}help/${ctx.lang === 'de' ? 'de/' : ''}">${esc(t('footer.help'))}</a></li>
         </ul>
       </nav>
       <nav aria-label="${esc(t('footer.project'))}">
