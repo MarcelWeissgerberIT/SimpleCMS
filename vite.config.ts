@@ -87,6 +87,8 @@ export default defineConfig({
   define: {
     'import.meta.env.VITE_ONE_SERVER': JSON.stringify(process.env.ONE_SERVER ?? ''),
     'import.meta.env.VITE_STATIC_HOST': JSON.stringify(process.env.STATIC_HOST ?? ''),
+    // when this build was made (Settings → About), so people can tell an update arrived
+    'import.meta.env.VITE_BUILD_TIME': JSON.stringify(new Date().toISOString()),
   },
   resolve: {
     alias: { '@': fileURLToPath(new URL('./src', import.meta.url)) },

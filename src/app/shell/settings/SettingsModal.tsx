@@ -537,8 +537,15 @@ function RemoveCopy({ onClose }: { onClose: () => void }) {
   )
 }
 
+/** When this build was made, in the reader's language (dev: now). */
+function buildStamp(lang: string): string {
+  const at = new Date(import.meta.env.VITE_BUILD_TIME || Date.now())
+  return Number.isNaN(at.getTime()) ? '' : at.toLocaleString(lang, { dateStyle: 'medium', timeStyle: 'short' })
+}
+
 function AboutTab() {
   const t = useT()
+  const lang = useLang()
   const pages = useWorkspace((x) => Object.keys(x.pages).length)
   return (
     <div className="about">
@@ -547,7 +554,7 @@ function AboutTab() {
         <div>
           <div className="display about__name">{BRAND.name}</div>
           <div className="label">
-            {t('shell.about.version', { v: BRAND.version })} · {t(plural('shell.about.records', pages), { n: pages })}
+            {t('shell.about.version', { v: BRAND.version })} · {t('shell.about.build', { at: buildStamp(lang) })} · {t(plural('shell.about.records', pages), { n: pages })}
           </div>
         </div>
       </div>

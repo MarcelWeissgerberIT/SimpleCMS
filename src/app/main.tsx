@@ -14,12 +14,12 @@ import { flushSave, loadWorkspace, startPersistence } from './store/persistence'
 import { seedWorkspace } from './store/seed'
 import { refreshDemoIcons } from './store/demoIcons'
 import { applyTheme } from './lib/theme'
-import { ALL_MESSAGES } from './i18n'
+import { ALL_MESSAGES, t } from './i18n'
 import { startHistory, startAutomations, startRecurringTemplates, startInbox, startSync, startMcp, startCustomFunctions, seedDemoHistory, demoFunctions } from './features'
 import { startSyncedBlocks } from './editor'
 import { detectLang, makeTranslator } from '@/shared/i18n'
 import { STORAGE_KEYS, safeLocalGet } from '@/shared/brand'
-import { registerServiceWorker } from '@/shared/sw'
+import { registerServiceWorker, watchForUpdates } from '@/shared/sw'
 import * as cloud from './cloud'
 import { getFile, saveFile } from './lib/files'
 
@@ -144,6 +144,14 @@ async function bootLocal() {
 }
 
 registerServiceWorker()
+// a newer build is live: offer to reload (saves first) — the home-screen app is often only resumed
+watchForUpdates(() =>
+  useUI.getState().toast({
+    message: t('shell.update.ready'),
+    timeout: 0,
+    action: { label: t('shell.update.reload'), run: () => void flushSave().finally(() => window.location.reload()) },
+  }),
+)
 
 boot().catch((e) => {
   console.error('[one] boot failed', e)
