@@ -51,7 +51,7 @@ function attachmentsBlock(list: MailAttachment[]): JSONContent[] {
     para(text(t(list.length === 1 ? 'features.mail.body.attachments.one' : 'features.mail.body.attachments', { n: list.length }), [{ type: 'bold' }])),
     {
       type: 'bulletList',
-      content: list.map((a) => ({ type: 'listItem', content: [para(text(a.name), text(` · ${fmtSize(a.size, lang)}`, [{ type: 'code' }]))] })),
+      content: list.map((a) => ({ type: 'listItem', content: [para(text(`${a.name} · `), text(fmtSize(a.size, lang), [{ type: 'code' }]))] })),
     },
   ]
 }

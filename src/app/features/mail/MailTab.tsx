@@ -4,6 +4,7 @@
  * Claude (categories, fields, related database, cost) — plus where the mail goes.
  */
 import { useEffect, useId, useMemo, useState, type ReactNode } from 'react'
+import { format } from 'date-fns'
 import { Copy, ExternalLink, Mail, Plug, RefreshCw, Send, Tags, Unplug, X, Plus, Square, ArrowUpRight, RotateCcw } from 'lucide-react'
 import { useWorkspace } from '../../store/store'
 import { inTemplate, isEffectivelyTrashed } from '../../store/selectors'
@@ -202,7 +203,7 @@ function AccessPanel() {
   const connected = useMail((s) => s.connected)
   const account = useMail((s) => s.account)
   const phase = useMail((s) => s.phase)
-  const error = useMail((s) => s.error)
+  const error = useMail((s) => (s.errorAt === 'access' ? s.error : null))
   const reconnect = useMail((s) => s.reconnect)
   const ready = CLIENT_ID_RE.test(cfg.clientId)
   const state: ReadoutState = phase === 'connecting' ? 'running' : connected ? 'ok' : reconnect ? 'reconnect' : 'off'
@@ -235,7 +236,7 @@ function AccessPanel() {
         )}
       </div>
       <p className="ml-field__hint ml-scope">{t('features.mail.access.scope')}</p>
-      {!connected && error && (
+      {error && (
         <p className="ml-msg ml-msg--err" role="alert">
           {error}
         </p>
@@ -358,7 +359,7 @@ function SyncPanel() {
   const { state, text } = useMailReadout()
   const ready = CLIENT_ID_RE.test(cfg.clientId)
   const busy = m.phase === 'running' || m.phase === 'organising'
-  const today = new Date().toISOString().slice(0, 10)
+  const today = format(new Date(), 'yyyy-MM-dd')
   const num = (n: number) => n.toLocaleString(lang === 'de' ? 'de-DE' : 'en-US')
   const pct = m.progress && m.progress.total ? Math.round((m.progress.done / m.progress.total) * 100) : 0
   const askReset = () =>
@@ -422,7 +423,7 @@ function SyncPanel() {
         </div>
       )}
       <RetryNote />
-      {m.connected && m.error && (
+      {m.errorAt === 'sync' && m.error && (
         <p className="ml-msg ml-msg--err" role="alert">
           {m.error}
         </p>

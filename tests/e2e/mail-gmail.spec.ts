@@ -11,7 +11,7 @@
  * never being stored. The team workspace (private database) runs against the real server: tests/e2e-cloud.
  */
 import type { Page, Route } from '@playwright/test'
-import { test, expect, openApp, wsEval, uiEval, gotoPage, editorOf, flush, createPage } from './fixtures'
+import { test, expect, openApp, wsEval, uiEval, gotoPage, editorOf, flush, createPage, reloadApp } from './fixtures'
 
 type AnyState = Record<string, any> // eslint-disable-line @typescript-eslint/no-explicit-any
 
@@ -21,6 +21,7 @@ declare global {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     __oneMail: any
     __gis: { calls: AnyState[]; mode: 'ok' | 'popup' | 'deny'; revoked: string[] }
+    __gisMode?: 'ok' | 'popup' | 'deny'
   }
 }
 
@@ -36,7 +37,7 @@ const DAY = 86_400_000
 const GIS_JS = `
 (() => {
   let n = 0
-  window.__gis = { calls: [], mode: 'ok', revoked: [] }
+  window.__gis = { calls: [], mode: window.__gisMode || 'ok', revoked: [] }
   window.google = { accounts: { oauth2: {
     initTokenClient(cfg) {
       return {
@@ -516,6 +517,27 @@ test.describe('Mail (Gmail)', () => {
     expect(Object.keys(stored.known).sort()).toEqual(['m1', 'm2'])
   })
 
+  test('connect failures are explained (blocked window, access denied); disconnect revokes the token', async ({ page }) => {
+    await setup(page)
+    await openApp(page)
+    await configure(page)
+    await page.evaluate(() => (window.__gisMode = 'popup'))
+    const dialog = await openMailTab(page)
+    await dialog.getByRole('button', { name: 'Connect Gmail' }).click()
+    await expect(dialog.getByRole('alert')).toHaveText('Google’s window was blocked — allow pop-ups for this site and try again.')
+    await page.evaluate(() => (window.__gis.mode = 'deny'))
+    await dialog.getByRole('button', { name: 'Connect Gmail' }).click()
+    await expect(dialog.getByRole('alert')).toHaveText('Access was not granted.')
+    await page.evaluate(() => (window.__gis.mode = 'ok'))
+    await dialog.getByRole('button', { name: 'Connect Gmail' }).click()
+    await expect(dialog.getByTestId('mail-account')).toHaveText(ACCOUNT)
+    await expect(dialog.getByRole('alert')).toHaveCount(0)
+    await dialog.getByRole('button', { name: 'Disconnect' }).click()
+    await expect(dialog.getByRole('button', { name: 'Reconnect' })).toBeVisible()
+    expect(await page.evaluate(() => window.__gis.revoked)).toEqual(['ya29.e2e-SECRET-TOKEN-1'])
+    expect(await page.evaluate(() => window.__oneMail.state().connected)).toBe(false)
+  })
+
   test('labels: a label added to the selection lists again; per-run limit keeps a backlog', async ({ page }) => {
     const env = await setup(page)
     await openApp(page)
@@ -706,6 +728,26 @@ test.describe('Mail (Gmail)', () => {
     expect((await mailRows(page)).map((r) => r.title)).toContain('Private note')
   })
 
+  test('when One opens: after a reload one click signs in again (no token survives) and syncs', async ({ page }) => {
+    const env = await setup(page)
+    await openApp(page)
+    await configure(page, { auto: 'open' })
+    await connect(page)
+    await syncAndWait(page)
+    await closeSettings(page)
+    env.box.add({ id: 'm6', labelIds: ['INBOX', 'UNREAD'], date: Date.now() - 60_000, subject: 'Lunch?', from: 'carol@example.test', to: ACCOUNT, text: 'Lunch on Thursday?' })
+    await reloadApp(page)
+    // the token did not survive the reload: nothing was synced on its own, one click does it
+    expect(await page.evaluate(() => window.__oneMail.state().connected)).toBe(false)
+    await expect(page.getByText(`Gmail: sign in again to sync ${ACCOUNT}`)).toBeVisible()
+    expect((await mailRows(page)).map((r) => r.title)).not.toContain('Lunch?')
+    await page.getByRole('button', { name: 'Sync', exact: true }).click()
+    await expect.poll(async () => (await mailRows(page)).map((r) => r.title)).toContain('Lunch?')
+    // Google was asked again for the known account
+    expect(await page.evaluate(() => window.__gis.calls.map((c) => c.hint))).toEqual([ACCOUNT])
+    expect(env.box.calls.some((c) => c.startsWith('history?'))).toBe(true)
+  })
+
   test('429: Gmail’s rate limit is waited out with backoff and the run completes', async ({ page, errors }) => {
     errors.allow(/status of 429/)
     const env = await setup(page)
@@ -830,21 +872,22 @@ test.describe('Mail screenshots', () => {
         await gotoPage(page, sale.id)
         await page.waitForTimeout(600)
         await page.screenshot({ path: out('row') })
-        await editorOf(page).evaluate((el) => el.scrollIntoView({ block: 'start' }))
-        await page.waitForTimeout(300)
+        await page.mouse.move(w / 2, h / 2)
+        await page.mouse.wheel(0, mobile ? 1500 : 600)
+        await page.waitForTimeout(400)
         await page.screenshot({ path: out('body') })
         await editorOf(page).getByRole('button', { name: 'Load images' }).click()
         await expect(editorOf(page).locator('img[src="https://img.example.test/hero.png"]')).toBeVisible()
         await page.waitForTimeout(300)
-        await editorOf(page).evaluate((el) => el.scrollIntoView({ block: 'start' }))
         await page.waitForTimeout(300)
         await page.screenshot({ path: out('row-images') })
-        await editorOf(page).evaluate((el) => el.parentElement?.scrollIntoView({ block: 'end' }))
-        await page.waitForTimeout(300)
+        await page.mouse.wheel(0, 900)
+        await page.waitForTimeout(400)
         await page.screenshot({ path: out('body-end') })
         const review = rowBy(await mailRows(page), 'Draft review')
         await gotoPage(page, review.id)
-        await editorOf(page).evaluate((el) => el.scrollIntoView({ block: 'start' }))
+        await page.waitForTimeout(300)
+        await page.mouse.wheel(0, mobile ? 1500 : 600)
         await page.waitForTimeout(400)
         await page.screenshot({ path: out('text-mail') })
         expect(env.box.calls.length).toBeGreaterThan(0)

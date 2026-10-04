@@ -41,6 +41,8 @@ export interface MailState {
   unorganised: number
   /** friendly message of the last failure (never mail content) */
   error: string | null
+  /** where it belongs: signing in ('access') or a run ('sync') */
+  errorAt: 'access' | 'sync' | null
   /** the failure needs a new Google sign-in */
   reconnect: boolean
   /** the Mails database can't take mails: offer a new one */
@@ -62,6 +64,7 @@ export const useMail = create<MailState>()(() => ({
   backlog: 0,
   unorganised: 0,
   error: null,
+  errorAt: null,
   reconnect: false,
   target: null,
   labels: null,
@@ -106,6 +109,7 @@ async function refresh(): Promise<void> {
     backlog: s.backlog.length,
     unorganised: live.filter((k) => !k.o).length,
     error: s.lastError,
+    errorAt: s.lastError ? 'sync' : null,
   })
 }
 
@@ -123,10 +127,10 @@ async function saveError(text: string | null): Promise<void> {
 export async function connectGmail(): Promise<boolean> {
   const cfg = readMail()
   if (!CLIENT_ID_RE.test(cfg.clientId)) {
-    patch({ error: t('features.mail.err.clientId') })
+    patch({ error: t('features.mail.err.clientId'), errorAt: 'access' })
     return false
   }
-  patch({ phase: 'connecting', error: null })
+  patch({ phase: 'connecting', error: null, errorAt: null })
   try {
     await requestToken(cfg.clientId, { prompt: '', hint: useMail.getState().account })
     const prof = await (await gmailApi()).profile(gctx())
@@ -135,14 +139,14 @@ export async function connectGmail(): Promise<boolean> {
       // another account: its history and backlog are not this one's (rows stay; ids never collide)
       await saveState({ ...s, account: prof.emailAddress, historyId: null, scope: null, backlog: [], lastError: null })
     } else if (s.lastError) await saveError(null)
-    patch({ account: prof.emailAddress, connected: true, reconnect: false, error: null })
+    patch({ account: prof.emailAddress, connected: true, reconnect: false, error: null, errorAt: null })
     announce()
     void loadLabels()
     return true
   } catch (e) {
     const info = errorInfo(e)
     if (info.reconnect) clearToken()
-    patch({ error: info.text, reconnect: !!info.reconnect })
+    patch({ error: info.text, errorAt: 'access', reconnect: !!info.reconnect })
     return false
   } finally {
     patch({ phase: 'idle' })
@@ -207,7 +211,7 @@ async function run(): Promise<void> {
   abort?.abort()
   const ctrl = new AbortController()
   abort = ctrl
-  patch({ phase: 'running', error: null, target: null, reconnect: false, progress: { done: 0, total: 0 } })
+  patch({ phase: 'running', error: null, errorAt: null, target: null, reconnect: false, progress: { done: 0, total: 0 } })
   try {
     const { runSync, organiseRows } = await engine()
     const res = await runSync({
@@ -234,7 +238,7 @@ async function run(): Promise<void> {
     if (ctrl.signal.aborted) return
     const info = errorInfo(e)
     if (info.reconnect) clearToken()
-    patch({ error: info.text, reconnect: !!info.reconnect, target: info.target ?? null })
+    patch({ error: info.text, errorAt: 'sync', reconnect: !!info.reconnect, target: info.target ?? null })
     await saveError(info.text).catch(() => {})
   } finally {
     if (abort === ctrl) abort = null
@@ -242,7 +246,7 @@ async function run(): Promise<void> {
     const err = useMail.getState().error
     await refresh().catch(() => {})
     // the run's own error stays on screen even if the saved state is older
-    if (err) patch({ error: err })
+    if (err) patch({ error: err, errorAt: 'sync' })
     announce()
   }
 }
@@ -253,13 +257,13 @@ export async function organiseEarlier(): Promise<void> {
   const ctrl = new AbortController()
   abort = ctrl
   running = (async () => {
-    patch({ phase: 'organising', error: null })
+    patch({ phase: 'organising', error: null, errorAt: null })
     try {
       const { organiseCandidates, organiseRows } = await engine()
       const ids = await organiseCandidates(readMail().maxPerRun)
       await organiseRows(ids, ctrl.signal, (p) => patch({ progress: p }))
     } catch (e) {
-      if (!ctrl.signal.aborted) patch({ error: errorInfo(e).text })
+      if (!ctrl.signal.aborted) patch({ error: errorInfo(e).text, errorAt: 'sync' })
     } finally {
       patch({ phase: 'idle', progress: null })
       await refresh().catch(() => {})
@@ -283,7 +287,7 @@ export async function resetMailSync(): Promise<void> {
   const account = useMail.getState().account
   await clearAll()
   await saveState({ ...emptyState(), account })
-  patch({ error: null, target: null })
+  patch({ error: null, errorAt: null, target: null })
   await refresh()
   announce()
 }
@@ -293,7 +297,7 @@ export async function startNewDatabase(): Promise<void> {
   setMail({ databaseId: null, props: {} })
   const account = useMail.getState().account
   await saveState({ ...emptyState(), account })
-  patch({ error: null, target: null })
+  patch({ error: null, errorAt: null, target: null })
   await refresh()
 }
 

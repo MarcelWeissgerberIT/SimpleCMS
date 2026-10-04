@@ -158,7 +158,8 @@ function after(path: string[], key: string): string | undefined {
   return i >= 0 ? path[i + 1] : undefined
 }
 
-const enc = encodeURIComponent
+/** A path segment (already URL-encoded by URL) as is when it is plain — ids like "uXjVO1Qe4Vk=", "@user" — else encoded. */
+const enc = (seg: string) => (/^[\w.~=@%-]+$/.test(seg) ? seg : encodeURIComponent(seg))
 
 /** Google Docs / Sheets / Slides / Forms: a published ("/d/e/<id>") or shared ("/d/<id>") file. */
 function googleDocSrc(kind: 'document' | 'spreadsheets' | 'presentation' | 'forms', path: string[]): string | null {
@@ -235,11 +236,11 @@ export function embedSrc(raw: string, provider?: string | null): string | null {
     case 'gforms':
       return googleDocSrc('forms', path)
     case 'gdrive': {
-      const file = after(path, 'd') ?? (path[0] === 'open' || path[0] === 'uc' ? u.searchParams.get('id') : null)
+      const file = after(path, 'd') ?? (path[0] === 'open' || path[0] === 'uc' ? (u.searchParams.get('id') ?? '').replace(/[^\w-]/g, '') || null : null)
       if (path[0] === 'file' && file) return `https://drive.google.com/file/d/${enc(file)}/preview`
       const folder = after(path, 'folders')
-      if (folder) return `https://drive.google.com/embeddedfolderview?id=${enc(folder)}#list`
-      if (path[0] === 'embeddedfolderview' && u.searchParams.get('id')) return `https://drive.google.com/embeddedfolderview?id=${enc(u.searchParams.get('id')!)}#list`
+      if (folder) return `https://drive.google.com/embeddedfolderview?id=${encodeURIComponent(safeDecode(folder))}#list`
+      if (path[0] === 'embeddedfolderview' && u.searchParams.get('id')) return `https://drive.google.com/embeddedfolderview?id=${encodeURIComponent(u.searchParams.get('id')!)}#list`
       return file ? `https://drive.google.com/file/d/${enc(file)}/preview` : null
     }
     case 'miro': {
@@ -263,7 +264,7 @@ export function embedSrc(raw: string, provider?: string | null): string | null {
       if (u.hostname === 'w.soundcloud.com') return u.searchParams.get('url') ? u.toString() : null
       if (!path.length) return null
       const track = `https://soundcloud.com/${path.map(enc).join('/')}`
-      return `https://w.soundcloud.com/player/?url=${enc(track)}&auto_play=false&hide_related=true&show_comments=false&show_teaser=false&visual=false`
+      return `https://w.soundcloud.com/player/?url=${encodeURIComponent(track)}&auto_play=false&hide_related=true&show_comments=false&show_teaser=false&visual=false`
     }
     case 'typeform': {
       const id = after(path, 'to')
@@ -285,7 +286,7 @@ export function embedSrc(raw: string, provider?: string | null): string | null {
     }
     case 'replit': {
       if (!path[0]?.startsWith('@') || !path[1]) return null
-      return `https://replit.com/${enc(path[0]).replace('%40', '@')}/${enc(path[1])}?embed=true`
+      return `https://replit.com/${enc(path[0])}/${enc(path[1])}?embed=true`
     }
     case 'twitter': {
       const id = path[path.findIndex((s) => s === 'status' || s === 'statuses') + 1]

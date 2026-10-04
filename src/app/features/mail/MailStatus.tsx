@@ -27,7 +27,7 @@ export function useMailReadout(): { state: ReadoutState; text: string } {
   const lang = useLang()
   const phase = useMail((s) => s.phase)
   const progress = useMail((s) => s.progress)
-  const error = useMail((s) => s.error)
+  const error = useMail((s) => (s.errorAt === 'sync' ? s.error : null))
   const reconnect = useMail((s) => s.reconnect)
   const lastAt = useMail((s) => s.lastAt)
   const dbId = useWorkspace((s) => s.settings.mail?.databaseId ?? null)

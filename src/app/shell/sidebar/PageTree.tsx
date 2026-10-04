@@ -10,6 +10,7 @@ import {
   useSensor,
   useSensors,
   type DragMoveEvent,
+  type DragOverEvent,
   type DragStartEvent,
   type Modifier,
 } from '@dnd-kit/core'
@@ -96,7 +97,7 @@ export function DraggableTree({ children }: { children: React.ReactNode }) {
     document.body.dataset.dragging = 'tree'
   }
 
-  const onMove = (e: DragMoveEvent) => {
+  const onMove = (e: DragMoveEvent | DragOverEvent) => {
     const over = e.over
     if (!over) return setDrop(null)
     const overId = String(over.id)
@@ -187,6 +188,8 @@ export function DraggableTree({ children }: { children: React.ReactNode }) {
       collisionDetection={pointerWithin}
       onDragStart={onStart}
       onDragMove={onMove}
+      // `over` settles a render after the move that reached a new row: look again then
+      onDragOver={onMove}
       onDragEnd={onEnd}
       onDragCancel={() => {
         delete document.body.dataset.dragging
