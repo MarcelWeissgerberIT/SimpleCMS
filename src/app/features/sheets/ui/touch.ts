@@ -27,7 +27,7 @@
 import { useCallback, useEffect, useRef, useState, type RefObject } from 'react'
 import type { SheetData } from '../model'
 import type { Pos } from '../ops'
-import { cellFromPoint, targetOf, type GridTarget, type PointerPhase } from './Grid'
+import { cellFromPoint, cellUnder, targetOf, type GridTarget, type PointerPhase } from './Grid'
 import { edgeScroll, type Pt } from './drag'
 
 export const LONG_PRESS_MS = 450
@@ -69,13 +69,7 @@ interface Options {
 const keyOf = (t: GridTarget) => (t.kind === 'cell' ? `${t.pos.r}:${t.pos.c}` : t.kind === 'corner' ? t.kind : `${t.kind}${t.index}`)
 
 /** What a tap at (x, y) means on the grid, looking through the handles and the fill tab. */
-export function targetUnder(x: number, y: number): GridTarget | null {
-  for (const el of document.elementsFromPoint(x, y)) {
-    if (el.closest('[data-sel-handle], [data-fill-handle], [data-sel-menu]')) continue
-    return targetOf(el)
-  }
-  return null
-}
+export const targetUnder = (x: number, y: number): GridTarget | null => targetOf(cellUnder(x, y))
 
 /** A short tick where the device can vibrate (and the page may: after a first tap). */
 function buzz() {

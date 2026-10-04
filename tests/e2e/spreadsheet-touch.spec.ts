@@ -1,14 +1,17 @@
 /**
  * Spreadsheet block by touch (phone 390 px and tablet 768 px, touch driven through the Chrome
  * DevTools protocol): selection handles, long press + drag, swipe still scrolls, header taps and
- * drags, read-only, the fill tab. The cell menu (no floating bar): a tap selects with no overlay, a
- * second tap on the selection, the "⋯" key or a long press (at the threshold, the finger still
- * down — with pointer events, touch events or both) opens it; every entry (copy / cut / paste,
- * fill, clear, chart, pick a value, + Area with its chip, edit, more); it never covers the
- * selection. Phone keyboards (IME compositions, inserted text, keyCode 229 keydowns, input events
- * instead of keys): AutoComplete, the suggestion strip (values, functions, datasets, "Pick range",
- * + Area / Type / Done while pointing) and long presses in formulas. iOS sequences (cancelled
- * fingers, compatibility mouse events, pointer events that stop).
+ * drags, read-only, the fill tab. The "⋯" key and the fill tab sit on the selection's own edge (a
+ * cell, a 64 px column, a range, a row wider than the screen, the last column): they cover no other
+ * cell, the neighbours' centres stay theirs, the knob keeps its 40 px. The cell menu (no floating
+ * bar): a tap selects with no overlay, a second tap on the selection, the "⋯" key or a long press
+ * (at the threshold, the finger still down — with pointer events, touch events or both) opens it;
+ * every entry (copy / cut / paste, fill, clear, chart, pick a value, + Area with its chip, edit,
+ * more); it never covers the selection. Phone keyboards (IME compositions, inserted text, keyCode
+ * 229 keydowns, input events instead of keys): AutoComplete, the suggestion strip (values,
+ * functions, datasets, "Pick range", + Area / Type / Done while pointing) and long presses in
+ * formulas. iOS sequences (cancelled fingers, compatibility mouse events, pointer events that
+ * stop).
  */
 import type { Locator, Page } from '@playwright/test'
 import { test, expect, openApp, gotoPage, createPage, wsEval, flush } from './fixtures'
@@ -143,6 +146,72 @@ async function menuClear(page: Page, from: string, to: string, width: number, he
   expect(apart(m, sel), `menu ${JSON.stringify(m)} over the selection ${JSON.stringify(sel)}`).toBe(true)
 }
 
+const fillTab = (page: Page) => page.locator('.sheet .sg-fill.is-tab')
+const brKnob = (page: Page) => page.locator('.sheet .sg-handle.is-br')
+
+/**
+ * The "⋯" key and the fill tab sit on the edge of the selection `from`…`to`: inside its box but for
+ * a few px over the border, inside the grid's visible part, apart from each other and from the
+ * bottom-right knob; a finger on either's face gets it. Nothing takes the centre of a cell around
+ * the selection (a tap there selects that cell) nor of a selected one (a double tap there edits),
+ * and the knob keeps a 40 px hit area of its own.
+ */
+async function onEdge(page: Page, from: string, to: string) {
+  const a = (await cell(page, from).boundingBox())!
+  const b = (await cell(page, to).boundingBox())!
+  const sel = { left: a.x, top: a.y, right: b.x + b.width, bottom: b.y + b.height }
+  const grid = await page.locator('.sheet .sg').evaluate((el) => {
+    const r = el.getBoundingClientRect()
+    // under no header: right of the row numbers, below the column letters
+    return { left: r.left + el.clientLeft + 46, top: r.top + el.clientTop + 26, right: r.left + el.clientLeft + el.clientWidth, bottom: r.top + el.clientTop + el.clientHeight }
+  })
+  const knob = (await brKnob(page).count()) ? await brKnob(page).boundingBox() : null
+  const boxes = []
+  for (const loc of [menuKey(page), fillTab(page)]) {
+    if (!(await loc.count())) continue
+    const k = (await loc.boundingBox())!
+    boxes.push(k)
+    const what = `${await loc.getAttribute('class')} ${JSON.stringify(k)} on ${JSON.stringify(sel)}`
+    expect(k.x, what).toBeGreaterThanOrEqual(Math.max(sel.left - 1, grid.left))
+    expect(k.y, what).toBeGreaterThanOrEqual(Math.max(sel.top - 3, grid.top))
+    expect(k.x + k.width, what).toBeLessThanOrEqual(Math.min(sel.right + 6, grid.right))
+    expect(k.y + k.height, what).toBeLessThanOrEqual(Math.min(sel.bottom + 6, grid.bottom))
+    if (knob) expect(apart(k, knob), `${what} clear of the knob ${JSON.stringify(knob)}`).toBe(true)
+    expect(await loc.evaluate((el) => {
+      const r = el.getBoundingClientRect()
+      return el.contains(document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2))
+    }), what).toBe(true)
+  }
+  if (boxes.length === 2) expect(apart(boxes[0], boxes[1]), 'the key apart from the tab').toBe(true)
+  // the cells around the selection and in it (those in view) keep their centres
+  const [r0, c0] = pos(from)
+  const [r1, c1] = pos(to)
+  const taken = await page.evaluate(({ r0, c0, r1, c1, grid }) => {
+    const out: string[] = []
+    for (let r = r0 - 1; r <= r1 + 1; r++)
+      for (let c = c0 - 1; c <= c1 + 1; c++) {
+        const el = document.querySelector(`.sheet [data-cell="${r}:${c}"]`)
+        if (!el) continue
+        const b = el.getBoundingClientRect()
+        const x = b.x + b.width / 2
+        const y = b.y + b.height / 2
+        if (x < grid.left || x > grid.right || y < grid.top || y > grid.bottom || y > innerHeight) continue
+        const hit = document.elementFromPoint(x, y)
+        if (hit?.closest('[data-cell]') !== el) out.push(`${r}:${c} → ${hit?.className}`)
+      }
+    return out
+  }, { r0, c0, r1, c1, grid })
+  expect(taken, 'cells whose centre something covers').toEqual([])
+  // (where the grid shows it: next to the grid's edge the rest is cut off)
+  const kx = knob ? knob.x + knob.width / 2 : -1
+  const ky = knob ? knob.y + knob.height / 2 : -1
+  for (const [dx, dy] of [[0, 0], [-12, -12], [24, -12], [-12, 24], [24, 24]]) {
+    const p = { x: kx + dx, y: ky + dy }
+    if (p.x < grid.left || p.x > grid.right - 1 || p.y < grid.top || p.y > grid.bottom - 1) continue
+    expect(await page.evaluate(({ x, y }) => document.elementFromPoint(x, y)?.className ?? '', p), `the knob at ${dx}, ${dy}`).toBe('sg-handle is-br')
+  }
+}
+
 /** A gesture just ended: its leftover compatibility mouse events are ignored for a moment — let them pass. */
 const settle = (page: Page) => page.waitForTimeout(450)
 
@@ -158,7 +227,7 @@ const NUMBERS: Cells = { A1: 'Item', B1: 'Q1', C1: 'Q2', D1: 'Q3', B2: '1', C2: 
 test.describe('spreadsheet block by touch — phone', () => {
   test.use({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true })
 
-  test('handles: drag the bottom-right, then the top-left corner; the status line follows; the fill tab sits apart', async ({ page }) => {
+  test('handles: drag the bottom-right, then the top-left corner; the status line follows; the "⋯" key and the fill tab sit on the edge', async ({ page }) => {
     await openApp(page)
     await touchSheet(page, NUMBERS)
     const f = await finger(page)
@@ -169,14 +238,13 @@ test.describe('spreadsheet block by touch — phone', () => {
     await expect(page.locator('.sh-touchbar')).toHaveCount(0)
     await expect(menu(page)).toHaveCount(0)
     await expect(menuKey(page)).toBeVisible()
-    // the fill tab is not the corner handle: it hangs outside it
-    const br = (await page.locator('.sheet .sg-handle.is-br').boundingBox())!
-    const tab = (await page.locator('.sheet .sg-fill.is-tab').boundingBox())!
-    expect(tab.x).toBeGreaterThan(br.x + br.width)
-    expect(tab.y).toBeGreaterThan(br.y + br.height)
+    // the fill tab is not the corner handle; neither it nor the key covers another cell
+    await expect(fillTab(page)).toBeVisible()
+    await onEdge(page, 'B2', 'B2')
 
     await f.drag(await mid(page.locator('.sheet .sg-handle.is-br')), await mid(cell(page, 'D5')))
     await expect(nameBox(page)).toHaveText('B2:D5')
+    await onEdge(page, 'B2', 'D5')
     await expect(page.locator('.sheet .sh-status')).toContainText('SUM 78')
     await expect(page.locator('.sheet .sh-status')).toContainText('COUNT 12')
     await expect(page.locator('.sheet .sg-ov--sel')).toHaveCount(1)
@@ -240,19 +308,18 @@ test.describe('spreadsheet block by touch — phone', () => {
     // the keyboard is back on the grid
     await expect(page.locator('.sheet .sg')).toBeFocused()
 
-    // the "⋯" key: 32 px to see, a finger-sized hit area, in a corner diagonal to the selection — below-left
-    // here (below-right, right of the fill tab, is out of view)
+    // the "⋯" key: 32 px to see, a finger-sized hit area, centred on the selection's bottom edge (the fill tab
+    // at its right end); the cells below and beside the selection stay free at their centres
     const k = (await menuKey(page).boundingBox())!
-    const sel = (await cell(page, 'C9').boundingBox())!
+    const c9 = (await cell(page, 'C9').boundingBox())!
+    const d9 = (await cell(page, 'D9').boundingBox())!
     expect(k.width).toBe(32)
-    expect(k.y).toBeGreaterThanOrEqual(sel.y + sel.height)
-    expect(k.x + k.width).toBeLessThanOrEqual(sel.x)
-    // the cells right below the selection stay free at their centres
-    for (const n of ['C10', 'D10']) {
-      const c = await mid(cell(page, n))
-      expect(await page.evaluate(([x, y]) => !!document.elementFromPoint(x, y)?.closest('[data-cell]'), [c.x, c.y])).toBe(true)
-    }
-    expect(await menuKey(page).evaluate((el) => getComputedStyle(el, '::before').inset)).toBe('-10px -6px -8px')
+    expect(Math.abs(k.x + k.width / 2 - (c9.x + d9.x + d9.width) / 2)).toBeLessThanOrEqual(1)
+    expect(k.y).toBeLessThan(c9.y + c9.height)
+    expect(k.y + k.height).toBeGreaterThan(c9.y + c9.height)
+    expect(k.y + k.height).toBeLessThanOrEqual(c9.y + c9.height + 6)
+    await onEdge(page, 'C7', 'D9')
+    expect(await menuKey(page).evaluate((el) => getComputedStyle(el, '::before').inset)).toBe('-3px -7px -5px')
     await menuKey(page).tap()
     await expect(page.getByRole('dialog', { name: 'Cell menu C7:D9' })).toBeVisible()
     // the handles and the key step aside while it is open
@@ -338,12 +405,15 @@ test.describe('spreadsheet block by touch — phone', () => {
     // an internal paste moves the references like ⌘V does
     expect((await stored(page, id)).sheets[0].cells.E9.v).toBe('=D10*2')
 
-    // Cut: the source empties once pasted
+    // Cut: the source empties once pasted (the key a moment after the tap that brought it: right away
+    // the two taps are a double tap — that edits the cell)
     await f.tap(await mid(cell(page, 'C2')))
+    await settle(page)
     await menuKey(page).tap()
     await entry(page, 'Cut').tap()
     await expect(page.getByText('Cut C2 — paste it where it should go.')).toBeVisible()
     await f.tap(await mid(cell(page, 'C4')))
+    await settle(page)
     await menuKey(page).tap()
     await entry(page, 'Paste').tap()
     await expect(cell(page, 'C4')).toHaveText('k')
@@ -360,10 +430,12 @@ test.describe('spreadsheet block by touch — phone', () => {
     await expect(page.locator('.sheet .sh-status')).toContainText('SUM 28')
     // Fill → on a single column takes the column to its left; column A has none: greyed
     await f.tap(await mid(cell(page, 'D8')))
+    await settle(page)
     await menuKey(page).tap()
     await entry(page, 'Fill right').tap()
     await expect(cell(page, 'D8')).toHaveText('7')
     await f.tap(await mid(cell(page, 'A9')))
+    await settle(page)
     await menuKey(page).tap()
     await expect(entry(page, 'Fill right')).toBeDisabled()
     await expect(entry(page, 'Fill down')).toBeEnabled()
@@ -437,6 +509,7 @@ test.describe('spreadsheet block by touch — phone', () => {
 
     // × on the chip: nothing waits any more, the next tap selects
     await f.tap(await mid(cell(page, 'B5')))
+    await settle(page)
     await menuKey(page).tap()
     await entry(page, AREA).tap()
     await areaChip(page).getByRole('button', { name: 'Cancel “+ Area”' }).tap()
@@ -480,6 +553,7 @@ test.describe('spreadsheet block by touch — phone', () => {
     await expect(nameBox(page)).toHaveText('B2:C3')
     await expect(page.locator('.sheet .sh-status')).toContainText('SUM 12')
     await expect(menuKey(page)).toBeVisible()
+    await onEdge(page, 'B2', 'C3')
     await menuKey(page).tap()
     await expect(menu(page).getByRole('menuitem')).toHaveCount(1)
     await entry(page, 'Copy').tap()
@@ -873,9 +947,13 @@ test.describe('spreadsheet block by touch — tablet', () => {
     await page.keyboard.press('Escape')
 
     // the top-left handle up into the frozen row
+    await onEdge(page, 'C4', 'C4')
     await f.drag(await mid(page.locator('.sheet .sg-handle.is-tl')), await mid(cell(page, 'B1')))
     await expect(nameBox(page)).toHaveText('B1:C4')
     await expect(page.locator('.sheet .sg-frozen .sg-handle.is-tl')).toHaveCount(1)
+    // from the frozen row into the body: the key and the tab on the body's bottom edge
+    await expect(page.locator('.sheet .sg-body .sg-menukey')).toHaveCount(1)
+    await onEdge(page, 'B1', 'C4')
 
     // the bottom-right handle down past the grid's edge: the grid scrolls by itself
     const grid = page.locator('.sheet .sg')
@@ -1263,6 +1341,107 @@ test.describe('spreadsheet block by touch — iOS Safari sequences', () => {
     await expect(page.getByRole('dialog', { name: 'Cell menu B5' })).toBeVisible()
     await expect.poll(pageSelect).toBe(initial)
     expect(await page.evaluate(() => document.documentElement.getAttribute('style') ?? '')).not.toMatch(/user-select/)
+  })
+})
+
+/** Text in every cell — left-aligned, where a key or a tab over a neighbour would hide it ("2b" in B2). */
+function lettered(extra: Cells = {}): Cells {
+  const out: Cells = {}
+  for (let r = 1; r <= 12; r++) for (const c of 'ABCDEFGH') out[`${c}${r}`] = `${r}${c.toLowerCase()}`
+  return { ...out, ...extra }
+}
+
+test.describe('spreadsheet block by touch — the "⋯" key and the fill tab on the selection\'s edge', () => {
+  test.use({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true })
+
+  test('a cell, one 64 px column, a range, a row wider than the screen, the last column: nothing covers another cell; the knob drags, the tab fills, the key opens the menu, a tap beside selects', async ({ page }) => {
+    await openApp(page)
+    await touchSheet(page, lettered({ D1: 'Mon' }))
+    const f = await finger(page)
+    // A1 (64 px): the key on the bottom edge, the tab on the right edge — no room for both below; the
+    // top-left knob on row 1 stays whole and its own
+    await f.tap(await mid(cell(page, 'A1')))
+    await expect(nameBox(page)).toHaveText('A1')
+    await onEdge(page, 'A1', 'A1')
+    await expect(fillTab(page)).toHaveClass(/is-right/)
+    const tl = await mid(page.locator('.sheet .sg-handle.is-tl'))
+    expect(await page.evaluate(({ x, y }) => document.elementFromPoint(x, y)?.matches('.sg-handle.is-tl') ?? false, tl)).toBe(true)
+    // a tap beside the selection selects there — B2, where the key and the tab used to hang
+    await f.tap(await mid(cell(page, 'B2')))
+    await expect(nameBox(page)).toHaveText('B2')
+    await expect(menu(page)).toHaveCount(0)
+    await onEdge(page, 'B2', 'B2')
+    await settle(page)
+    await f.tap(await mid(cell(page, 'A1')))
+    await expect(nameBox(page)).toHaveText('A1')
+
+    // one 64 px column (the knob drags): the key below, the tab on the right edge above the knob
+    await f.drag(await mid(brKnob(page)), await mid(cell(page, 'A10')))
+    await expect(nameBox(page)).toHaveText('A1:A10')
+    await onEdge(page, 'A1', 'A10')
+    await expect(fillTab(page)).toHaveClass(/is-right/)
+    await f.tap(await mid(cell(page, 'A11')))
+    await expect(nameBox(page)).toHaveText('A11')
+    await f.tap(await mid(cell(page, 'B11')))
+    await expect(nameBox(page)).toHaveText('B11')
+
+    // a double tap edits the cell — also when its second tap lands on the key its first one brought
+    await settle(page)
+    const c9 = await mid(cell(page, 'C9'))
+    await f.down(c9)
+    await f.up()
+    await page.waitForTimeout(100)
+    await f.down({ x: c9.x, y: c9.y + 8 })
+    await f.up()
+    await expect(page.locator('.sheet .sg-editor')).toBeVisible()
+    await expect(menu(page)).toHaveCount(0)
+    await page.keyboard.press('Escape')
+    await expect(page.locator('.sheet .sg-editor')).toHaveCount(0)
+    await expect(cell(page, 'C9')).toHaveText('9c')
+
+    // a range: both on the bottom edge — the key centred, the tab at the right end; the key opens the menu
+    await settle(page)
+    await f.tap(await mid(cell(page, 'B2')))
+    await f.drag(await mid(brKnob(page)), await mid(cell(page, 'D5')))
+    await expect(nameBox(page)).toHaveText('B2:D5')
+    await onEdge(page, 'B2', 'D5')
+    await expect(fillTab(page)).toHaveClass(/is-bottom/)
+    await menuKey(page).tap()
+    await expect(page.getByRole('dialog', { name: 'Cell menu B2:D5' })).toBeVisible()
+    await page.keyboard.press('Escape')
+    await expect(menu(page)).toHaveCount(0)
+    // a tap on the tab (no drag) is a tap on the selection under it: the menu, the range stays
+    await settle(page)
+    await f.tap(await mid(fillTab(page)))
+    await expect(page.getByRole('dialog', { name: 'Cell menu B2:D5' })).toBeVisible()
+    await page.keyboard.press('Escape')
+    await expect(menu(page)).toHaveCount(0)
+    await expect(nameBox(page)).toHaveText('B2:D5')
+
+    // the tab fills — here from one cell, the tab on its right edge
+    await f.tap(await mid(cell(page, 'D1')))
+    await expect(nameBox(page)).toHaveText('D1')
+    await f.drag(await mid(fillTab(page)), await mid(cell(page, 'D4')))
+    await expect(cell(page, 'D4')).toHaveText('Thu')
+    await expect(cell(page, 'D2')).toHaveText('Tue')
+    await expect(nameBox(page)).toHaveText('D1:D4')
+    await onEdge(page, 'D1', 'D4')
+
+    // a row wider than the screen: both on the bottom edge's part in view
+    await settle(page)
+    await page.locator('.sheet [data-rowhead="5"]').tap()
+    await expect(nameBox(page)).toHaveText('A6:H6')
+    await onEdge(page, 'A6', 'H6')
+    await expect(fillTab(page)).toHaveClass(/is-bottom/)
+
+    // scrolled to the last column: the cell at the corner of the sheet
+    await page.locator('.sheet .sg').evaluate((el) => (el.scrollLeft = el.scrollWidth))
+    await page.waitForTimeout(300)
+    await f.tap(await mid(cell(page, 'H12')))
+    await expect(nameBox(page)).toHaveText('H12')
+    await onEdge(page, 'H12', 'H12')
+    await f.tap(await mid(cell(page, 'G11')))
+    await expect(nameBox(page)).toHaveText('G11')
   })
 })
 

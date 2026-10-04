@@ -2,8 +2,8 @@
  * The cell grid: sticky column letters and row numbers, virtualised rows (only the visible ones
  * plus a margin are in the DOM), a frozen first row, selection / reference / dataset overlays,
  * the fill handle with its live preview, column resizing, the in-cell editor slot; on touch the
- * selection handles, the fill tab and the "⋯" key that opens the cell menu. Pointer and keyboard
- * decisions are the parent's.
+ * selection handles, and the fill tab and the "⋯" key (opens the cell menu) on the selection's
+ * edges (edge.ts). Pointer and keyboard decisions are the parent's.
  */
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from 'react'
 import { Ellipsis } from 'lucide-react'
@@ -12,6 +12,7 @@ import { a1, colName, formatValue, isErr, type ErrorCode, type Rect, type Workbo
 import { autoAlign } from '../compute'
 import { colWidth, ROW_HEIGHT, type SheetData } from '../model'
 import type { Pos } from '../ops'
+import { edgePlaces } from './edge'
 
 export const HEAD_H = 26
 /** half a selection knob (sheet.css .sg-handle) */
@@ -43,11 +44,11 @@ export interface FillView {
   tip: string | null
   label: string
   onHandleDown: (e: React.PointerEvent<HTMLElement>) => void
-  /** touch: a tab just outside the selection handle's corner instead of the small square */
+  /** touch: a tab on the selection's edge (edge.ts) instead of the small square */
   touch?: boolean
 }
 
-/** Touch: round handles on the selection's top-left and bottom-right corners, the "⋯" key by the latter. */
+/** Touch: round handles on the selection's top-left and bottom-right corners, the "⋯" key on its bottom edge. */
 export interface HandlesView {
   rect: Rect
   onDown: (corner: 'tl' | 'br', e: React.PointerEvent<HTMLElement>) => void
@@ -55,16 +56,6 @@ export interface HandlesView {
   onMenu?: () => void
   menuLabel?: string
 }
-
-/**
- * The "⋯" key sits in a corner diagonal to the selection — the neighbours least often tapped
- * (directly below / right of the selection a finger enters the next value): below-right, right of
- * the fill tab; where that is out of view, below-left; where that is too, under the selection left
- * of its bottom-right handle.
- */
-const MENU_KEY_W = 32
-const MENU_KEY_X = 34
-const MENU_KEY_INSET = 56
 
 const ERROR_KEYS: Record<ErrorCode, string> = {
   '#DIV/0!': 'div0',
@@ -105,7 +96,7 @@ export interface GridProps {
   fill?: FillView | null
   /** selection handles (touch) */
   handles?: HandlesView | null
-  /** room (px) below the last row and right of the last column for the handles and the fill tab (touch) */
+  /** room (px) below the last row and right of the last column for the bottom-right knob (touch) */
   runout?: number
   /** touch: the cell of a long press that fired (the finger still down) */
   armed?: Pos | null
@@ -161,6 +152,11 @@ export function visibleBox(vp: HTMLElement, sheet: SheetData, rect: Rect, xs: nu
   const right2 = Math.min(x0 + RH_W + xs[right + 1] - vp.scrollLeft, x0 + vp.clientWidth)
   if (bot <= top || right2 <= left) return null
   return new DOMRect(left, top, right2 - left, bot - top)
+}
+
+/** The topmost element at a point that is no touch key, tab or knob (what they lie over). */
+export function cellUnder(x: number, y: number): Element | null {
+  return document.elementsFromPoint(x, y).find((el) => !el.closest('[data-sel-handle], [data-fill-handle], [data-sel-menu]')) ?? null
 }
 
 export function targetOf(el: Element | null): GridTarget | null {
@@ -245,7 +241,7 @@ export function Grid(props: GridProps) {
     if (!el) return
     const measure = () => setView({ top: el.scrollTop, h: el.clientHeight, left: el.scrollLeft, w: el.clientWidth })
     measure()
-    // the visible width decides which side of the selection the touch "⋯" key goes
+    // the part in view decides where on the selection's edges the touch "⋯" key and fill tab go
     const ro = new ResizeObserver(measure)
     ro.observe(el)
     return () => ro.disconnect()
@@ -334,6 +330,19 @@ export function Grid(props: GridProps) {
   /** A corner at x is not scrolled under the row numbers (handles there would sit on top of them). */
   const inView = (x: number) => x >= view.left + RH_W - 2
 
+  /** A selection knob (touch): its layer and centre, null when scrolled under the row numbers. */
+  const knob = (h: Rect, corner: 'tl' | 'br') => {
+    const r = corner === 'tl' ? h.top : Math.min(h.bottom, sheet.rows - 1)
+    const where = r < frozen ? 'frozen' : 'body'
+    const left = RH_W + xs[corner === 'tl' ? Math.min(h.left, sheet.cols) : Math.min(h.right + 1, sheet.cols)]
+    let top = ((corner === 'tl' ? r : r + 1) - (where === 'body' ? frozen : 0)) * ROW_HEIGHT
+    // the top-left knob on the first visible row would sit half under the sticky column letters:
+    // nudge it into its cell (only while that row still shows)
+    const edge = (where === 'body' ? view.top : 0) + HANDLE_R
+    if (corner === 'tl' && top < edge && top + ROW_HEIGHT > edge) top = edge
+    return inView(left) ? { corner, where, left, top } : null
+  }
+
   /** Dataset tags hang above the area; on the first row of their block below it, inside when there is no room. */
   const tagPlace = (rect: Rect, where: 'frozen' | 'body') => {
     const first = where === 'body' ? frozen : 0
@@ -375,29 +384,33 @@ export function Grid(props: GridProps) {
         )
       })
     }
-    if (fill?.handle && (where === 'frozen') === Math.min(fill.handle.bottom, sheet.rows - 1) < frozen) {
+    if (fill?.handle && !fill.touch && (where === 'frozen') === Math.min(fill.handle.bottom, sheet.rows - 1) < frozen) {
       const h = fill.handle
       const bottom = Math.min(h.bottom, sheet.rows - 1)
       const left = RH_W + xs[Math.min(h.right + 1, sheet.cols)]
       const top = (where === 'frozen' ? bottom + 1 : bottom - frozen + 1) * ROW_HEIGHT
-      if (!fill.touch) items.push(<span key="fill-handle" className="sg-fill" data-fill-handle="" style={{ left, top }} title={fill.label} aria-hidden onPointerDown={fill.onHandleDown} />)
-      else if (inView(left))
-        items.push(
-          <span key="fill-handle" className="sg-fill is-tab" data-fill-handle="" style={{ left, top }} aria-hidden onPointerDown={fill.onHandleDown}>
-            <i />
-          </span>,
-        )
+      items.push(<span key="fill-handle" className="sg-fill" data-fill-handle="" style={{ left, top }} title={fill.label} aria-hidden onPointerDown={fill.onHandleDown} />)
     }
-    if (handles) {
-      const h = handles.rect
-      const bottom = Math.min(h.bottom, sheet.rows - 1)
-      if (handles.onMenu && (where === 'frozen') === bottom < frozen) {
-        const right = RH_W + xs[Math.min(h.right + 1, sheet.cols)]
-        const start = RH_W + xs[Math.min(h.left, sheet.cols)]
-        const visible = (x: number) => x >= view.left + RH_W && x + MENU_KEY_W <= Math.min(view.left + view.w, RH_W + totalW + runout)
-        const left = [right + MENU_KEY_X, start - 8 - MENU_KEY_W].find(visible) ?? Math.max(start, right - MENU_KEY_INSET)
-        const top = (bottom + 1 - (where === 'body' ? frozen : 0)) * ROW_HEIGHT
-        if (inView(left))
+    // touch: the "⋯" key and the fill tab on the selection's edges, the knobs drawn over them
+    const tab = fill?.touch ? fill.handle : null
+    const sel = handles?.rect ?? tab
+    if (sel) {
+      const [tl, br] = handles ? [knob(sel, 'tl'), knob(sel, 'br')] : [null, null]
+      const bottom = Math.min(sel.bottom, sheet.rows - 1)
+      const box = boxes(sel).find((b) => b.where === (bottom < frozen ? 'frozen' : 'body'))
+      if (box?.where === where && (handles?.onMenu || tab)) {
+        const left = Number(box.style.left)
+        const top = Number(box.style.top)
+        const place = edgePlaces({
+          sel: { left, top, right: left + Number(box.style.width), bottom: top + Number(box.style.height) },
+          view: { left: view.left + RH_W, right: view.left + view.w, ...(where === 'body' ? { top: view.top, bottom: view.top + view.h - HEAD_H - frozen * ROW_HEIGHT } : { top: 0, bottom: frozen * ROW_HEIGHT }) },
+          br: !!br && br.left <= view.left + view.w,
+          tl: tl?.where === where ? { x: tl.left, y: tl.top } : null,
+          key: !!handles?.onMenu,
+          tab: !!tab,
+        })
+        const open = handles?.onMenu
+        if (place.key && open)
           items.push(
             // a plain span opened by its (compatibility) mousedown: no button, tabindex or click handler — Chrome
             // snaps nearby touches onto those, and the cells around it must stay theirs. The keyboard has the
@@ -407,29 +420,29 @@ export function Grid(props: GridProps) {
               className="sg-menukey"
               data-sel-menu=""
               role="button"
-              style={{ left, top }}
-              aria-label={handles.menuLabel}
+              style={place.key}
+              aria-label={handles?.menuLabel}
               aria-haspopup="menu"
               onMouseDown={(e) => {
                 e.preventDefault()
-                if (e.button === 0) handles.onMenu?.()
+                // the second tap of a double tap on the cell under it: that edits (onDoubleClick looks through the key)
+                if (e.button === 0 && e.detail < 2) open()
               }}
             >
               <Ellipsis size={16} strokeWidth={2} aria-hidden />
             </span>,
           )
+        if (place.tab && fill)
+          items.push(
+            <span key="fill-handle" className={`sg-fill is-tab is-${place.tab.side}`} data-fill-handle="" style={{ left: place.tab.left, top: place.tab.top }} aria-hidden onPointerDown={fill.onHandleDown}>
+              <i />
+            </span>,
+          )
       }
-      for (const corner of ['tl', 'br'] as const) {
-        const r = corner === 'tl' ? h.top : Math.min(h.bottom, sheet.rows - 1)
-        if ((where === 'frozen') !== r < frozen) continue
-        const left = RH_W + xs[corner === 'tl' ? Math.min(h.left, sheet.cols) : Math.min(h.right + 1, sheet.cols)]
-        let top = ((corner === 'tl' ? r : r + 1) - (where === 'body' ? frozen : 0)) * ROW_HEIGHT
-        // the top-left knob on the first visible row would sit half under the sticky column letters:
-        // nudge it into its cell (only while that row still shows)
-        const edge = (where === 'body' ? view.top : 0) + HANDLE_R
-        if (corner === 'tl' && top < edge && top + ROW_HEIGHT > edge) top = edge
-        if (!inView(left)) continue
-        items.push(<span key={`handle-${corner}`} className={`sg-handle is-${corner}`} data-sel-handle={corner} style={{ left, top }} aria-hidden onPointerDown={(e) => handles.onDown(corner, e)} />)
+      for (const k of [tl, br]) {
+        if (!k || k.where !== where || !handles) continue
+        const corner = k.corner
+        items.push(<span key={`handle-${corner}`} className={`sg-handle is-${corner}`} data-sel-handle={corner} style={{ left: k.left, top: k.top }} aria-hidden onPointerDown={(e) => handles.onDown(corner, e)} />)
       }
     }
     if (armed && (where === 'frozen') === armed.r < frozen) {
@@ -483,7 +496,9 @@ export function Grid(props: GridProps) {
         down(e)
       }}
       onDoubleClick={(e) => {
-        const tg = targetOf(e.target as Element)
+        // through the touch key, tab and knobs (the "⋯" key shows up on the cell a double tap's first tap
+        // selected): a double tap edits the cell under them — the mouse's fill handle fills down instead
+        const tg = (e.target as Element).closest('.sg-fill:not(.is-tab)') ? null : targetOf(cellUnder(e.clientX, e.clientY))
         if (tg?.kind === 'cell') onDouble(tg.pos)
       }}
       onContextMenu={(e) => {

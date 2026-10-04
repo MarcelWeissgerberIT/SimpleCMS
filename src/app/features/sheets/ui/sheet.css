@@ -743,6 +743,13 @@
   border-radius: var(--radius-led);
 }
 
+/* the bottom-right knob's (40 × 40) reaches 14px into the selection, the rest outwards: inside lie
+   the "⋯" key and the fill tab (edge.ts). Insets from the padding box (inside the 2px ring). */
+.sg-handle.is-br::before {
+  inset: -9px -21px -21px -9px;
+  border-radius: 0;
+}
+
 /* while a finger drags the selection: signal */
 .sheet.is-gesture .sg-handle {
   background: var(--signal);
@@ -801,20 +808,28 @@
   -webkit-touch-callout: default;
 }
 
-/* the fill tab (touch): a signal key just outside the bottom-right handle */
+/* the fill tab (touch): a signal key astride the selection's bottom edge left of its bottom-right knob,
+   or astride its right edge above it (edge.ts) — 5px over the border, the rest low in the selection */
 .sg-fill.is-tab {
   display: grid;
   place-items: center;
-  width: 18px;
-  height: 18px;
-  margin: 11px 0 0 11px;
+  width: 16px;
+  height: 16px;
+  margin: 0;
   border-radius: var(--radius-1);
   box-shadow: 0 0 0 1px var(--surface);
   cursor: default;
 }
 
+/* its hit area (32 × 22): 9px past the border at most, short of the neighbours' centres and of the
+   centres of the selected row's cells (a double tap there edits) */
 .sg-fill.is-tab::before {
-  inset: -9px;
+  inset: -2px -8px -4px;
+}
+
+/* on the right edge (28 × 32) */
+.sg-fill.is-tab.is-right::before {
+  inset: -8px -4px -8px -8px;
 }
 
 /* a corner bracket: pull the corner out to fill */
@@ -826,7 +841,8 @@
   border-bottom: 1.5px solid var(--on-signal);
 }
 
-/* the "⋯" key (touch): ink on paper, by the selection's bottom-right handle, right of the fill tab — the cell menu */
+/* the "⋯" key (touch): ink on paper, astride the selection's bottom edge — 5px over the border, the
+   rest low in its last row (edge.ts) — the cell menu */
 .sg-menukey {
   position: absolute;
   z-index: 2;
@@ -834,8 +850,7 @@
   place-items: center;
   box-sizing: border-box;
   width: 32px;
-  height: 24px;
-  margin-top: 5px;
+  height: 16px;
   padding: 0;
   border: 1px solid var(--ink);
   border-radius: var(--radius-1);
@@ -846,11 +861,13 @@
   touch-action: manipulation;
 }
 
-/* a finger-sized hit area (44 × 42) — short of the centre of the row after next */
+/* its hit area (44 × 22; insets from inside the 1px border): 9px past the border — short of the centre
+   of the row below — and up to just short of the selected cells' centres; above, the selection itself
+   opens the menu */
 .sg-menukey::before {
   content: '';
   position: absolute;
-  inset: -10px -6px -8px;
+  inset: -3px -7px -5px;
 }
 
 /* no :hover / :active styles here: Chrome would snap touches meant for the cells around onto the key */
