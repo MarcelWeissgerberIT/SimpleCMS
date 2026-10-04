@@ -158,7 +158,10 @@ export async function runSync(ctx: RunCtx): Promise<RunResult> {
   // 2 · the queue: new first, then what waited; never a mail synced before (even if its row was deleted)
   const queue = [...new Set([...candidates, ...state.backlog])].filter((id) => !state.known[id])
   const take = queue.slice(0, cfg.maxPerRun)
-  state.backlog = queue.slice(cfg.maxPerRun)
+  const rest = queue.slice(cfg.maxPerRun)
+  /** fetched and handled (a stop or failure puts the others back in front of the backlog) */
+  const handled = new Set<string>()
+  state.backlog = rest
   const existing = rowsByMessageId(dbId, props.messageId)
   const created: string[] = []
   let updated = 0
@@ -178,8 +181,9 @@ export async function runSync(ctx: RunCtx): Promise<RunResult> {
           throw e
         }
       })
-      for (const m of fetched) {
+      for (const [j, m] of fetched.entries()) {
         done++
+        handled.add(batch[j])
         if (!m) continue
         if (!inScope(m.labelIds, cfg) || m.date < minDate) continue
         const already = existing.get(m.id)
@@ -199,6 +203,7 @@ export async function runSync(ctx: RunCtx): Promise<RunResult> {
         created.push(m.id)
       }
       ctx.progress({ done, total: take.length })
+      state.backlog = [...take.filter((id) => !handled.has(id)), ...rest]
       await saveState(state)
     }
 
@@ -230,6 +235,7 @@ export async function runSync(ctx: RunCtx): Promise<RunResult> {
     state.lastError = null
   } finally {
     ctx.progress(null)
+    state.backlog = [...take.filter((id) => !handled.has(id)), ...rest]
     await saveState(state)
   }
   return { added: created.length, updated, backlog: state.backlog.length, total: Object.keys(state.known).length, created, databaseId: dbId }

@@ -12,6 +12,7 @@ import { BRAND } from '@/shared/brand'
 import type { ThemePref } from '../../store/types'
 import { ShortcutList } from '../modals/ShortcutsModal'
 import { runAI, SyncTab, consumeSyncSettingsRequest, McpTab, consumeMcpSettingsRequest, McpServers, MailTab, consumeMailSettingsRequest } from '../../features'
+import { ServerAgentsSettings } from '../../features'
 import { fmtBytes, plural } from '../lib/format'
 import { requestReset } from '../lib/reset'
 import { WebClipper } from '../capture/WebClipper'
@@ -142,6 +143,7 @@ export function SettingsModal({ initialTab, onClose }: { initialTab?: SettingsTa
             {tab === 'sync' && <SyncTab />}
             {tab === 'mail' && <MailTab />}
             {tab === 'mcp' && <McpTab />}
+            {tab === 'mcp' && <ServerAgentsSettings />}
             {tab === 'shortcuts' && <ShortcutList />}
             {tab === 'about' && <AboutTab />}
           </div>

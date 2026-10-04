@@ -70,15 +70,28 @@ function setRuns(agentId: ID, runs: AgentRun[]) {
   useAgentRuns.setState((s) => ({ byAgent: { ...s.byAgent, [agentId]: runs } }))
 }
 
-/** Load an agent's runs into useAgentRuns. */
+/** Runs per agent queue their writes: one read-modify-write after another. */
+const queues = new Map<ID, Promise<unknown>>()
+/** Runs of an agent this tab put whose write is not stored yet (their copy here is the newest). */
+const inflight = new Map<ID, Map<string, number>>()
+
+/** Load an agent's runs into useAgentRuns (after this tab's queued writes are stored). */
 export async function loadRuns(agentId: ID): Promise<AgentRun[]> {
   listen()
   const store = kv()
   let runs: AgentRun[] = useAgentRuns.getState().byAgent[agentId] ?? []
   if (store) {
     try {
+      await queues.get(agentId)
       const v = await get<unknown>(`runs:${agentId}`, store)
       runs = Array.isArray(v) ? v.filter(isRun) : []
+      // runs put while this read was going on win over the stored copies
+      const fly = inflight.get(agentId)
+      if (fly?.size) {
+        const mem = useAgentRuns.getState().byAgent[agentId] ?? []
+        const newer = mem.filter((r) => fly.has(r.id))
+        runs = [...newer, ...runs.filter((r) => !fly.has(r.id))].sort((a, b) => b.startedAt - a.startedAt).slice(0, MAX_RUNS)
+      }
     } catch (e) {
       console.warn('[one] agents: no IndexedDB, keeping runs in memory', e)
       noDb = true
@@ -87,9 +100,6 @@ export async function loadRuns(agentId: ID): Promise<AgentRun[]> {
   setRuns(agentId, runs)
   return runs
 }
-
-/** Runs per agent queue their writes: one read-modify-write after another. */
-const queues = new Map<ID, Promise<unknown>>()
 
 /** Insert or replace a run (by id) — in this tab right away, then stored. */
 export function putRun(run: AgentRun): Promise<void> {
@@ -103,11 +113,19 @@ export function putRun(run: AgentRun): Promise<void> {
   setRuns(agentId, merge(useAgentRuns.getState().byAgent[agentId] ?? []))
   const store = kv()
   if (!store) return Promise.resolve()
+  const fly = inflight.get(agentId) ?? new Map<string, number>()
+  inflight.set(agentId, fly)
+  fly.set(run.id, (fly.get(run.id) ?? 0) + 1)
   const prev = queues.get(agentId) ?? Promise.resolve()
   const job = prev
     .then(() => update<unknown>(`runs:${agentId}`, (cur) => merge(Array.isArray(cur) ? cur.filter(isRun) : []), store))
     .then(() => post(agentId))
     .catch((e) => console.warn('[one] agents: could not save a run', e))
+    .finally(() => {
+      const left = (fly.get(run.id) ?? 1) - 1
+      if (left > 0) fly.set(run.id, left)
+      else fly.delete(run.id)
+    })
   queues.set(agentId, job)
   return job
 }

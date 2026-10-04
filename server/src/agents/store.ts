@@ -10,7 +10,7 @@ import type { Keyring } from '../crypto/keyring.ts'
 import type { Db } from '../db/index.ts'
 import { randomToken } from '../tokens.ts'
 import type { SlotState } from './schedule.ts'
-import type { AgentRun, Runtime, RunStatus } from './types.ts'
+import type { AgentRun, Runtime } from './types.ts'
 
 /** Runs kept per agent (older ones are deleted when a new one starts). */
 export const RUNS_KEPT = 200
@@ -158,10 +158,6 @@ export class AgentStore {
   /** Runs that were 'running' when the server stopped (crash, kill): they end as errors at startup. */
   interrupted(): Array<{ id: string; workspace_id: string }> {
     return this.db.all<{ id: string; workspace_id: string }>("SELECT id, workspace_id FROM agent_runs WHERE status = 'running'")
-  }
-
-  countRunning(wsId: string, agentId: string, status: RunStatus = 'running'): number {
-    return this.db.get<{ n: number }>('SELECT COUNT(*) AS n FROM agent_runs WHERE workspace_id = ? AND agent_id = ? AND status = ?', wsId, agentId, status)?.n ?? 0
   }
 
   // ── webhook triggers ─────────────────────────────────────────────────

@@ -14,13 +14,15 @@ summary: Let Claude Desktop, Claude Code or any MCP client work in your open One
 2. Back in One, switch on **Allow AI agents on this computer**.
 3. Ask Claude Desktop: *“What is in my One workspace?”*
 
-If the browser asks whether One may reach apps on this device (“Local network access”), choose **Allow**. Safari does not let an https page talk to the bridge — use Chrome, Edge or Firefox.
+If the browser asks whether One may reach apps on this device (“Local network access”), choose **Allow**. If the tab says the browser does not let a secure page talk to the bridge (Safari may), use Chrome, Edge or Firefox.
 
 ## Claude Code, Cursor, VS Code …
-**Other clients · manual setup** (needs Node.js 20 or newer): download the bridge file `one-mcp.mjs` to your home folder, then for Claude Code:
+**Other clients · manual setup** (needs Node.js 20 or newer): save the bridge file `one-mcp.mjs` in your home folder, then for Claude Code:
 ```
+curl -fsSL https://getonecms.com/mcp/one-mcp.mjs -o ~/one-mcp.mjs
 claude mcp add one -- node ~/one-mcp.mjs
 ```
+Other MCP clients start it as a stdio server: command `node`, argument the path of `one-mcp.mjs`.
 
 ## What agents may do
 - **Ask first** — every change waits for your OK on a card in this tab (2 minutes, then it is refused). Reading needs no OK.

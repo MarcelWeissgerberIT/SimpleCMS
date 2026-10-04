@@ -4,6 +4,7 @@
  * Who a row's creator / last editor is:
  *  - team workspace: Page.createdBy / updatedBy from the meta document — an account id (= the
  *    person id of that member), `api:<tokenId>` (public API) or `hook:<hookId>` (incoming webhook).
+ *    `agent:<agentId>`: a custom agent applied the change (features/agents) — in both workspaces.
  *    A row without them (not stamped yet) shows nothing.
  *  - local workspace: the fields are absent and there is exactly one author, so both properties
  *    always hold LOCAL_ACTOR: the local user — shown as their own person when the workspace has one
@@ -18,6 +19,7 @@
  *    nobody when there is no such person.
  */
 import type { Page, Person, PropertyDef } from '../../store/types'
+import { useWorkspace } from '../../store/store'
 import { peopleMessages } from '../people-messages'
 
 export const LOCAL_ACTOR = '@local'
@@ -30,14 +32,15 @@ export interface MeCtx {
   name: string
 }
 
-export type ActorKind = 'person' | 'api' | 'hook' | 'local' | 'unknown'
+export type ActorKind = 'person' | 'api' | 'hook' | 'agent' | 'local' | 'unknown'
 
 export const isActorType = (t: PropertyDef['type']): t is 'created_by' | 'last_edited_by' => t === 'created_by' || t === 'last_edited_by'
 
 /** The actor id a created_by / last_edited_by property shows for a row (null = unknown). */
 export function actorOf(prop: PropertyDef, row: Page, me: MeCtx): string | null {
-  if (me.id === null) return LOCAL_ACTOR
   const v = prop.type === 'created_by' ? row.createdBy : row.updatedBy
+  // local workspace: the local user — unless a custom agent made the change
+  if (me.id === null) return typeof v === 'string' && v.startsWith('agent:') ? v : LOCAL_ACTOR
   return typeof v === 'string' && v ? v : null
 }
 
@@ -45,6 +48,7 @@ export function actorKind(id: string, people: Person[]): ActorKind {
   if (id === LOCAL_ACTOR) return 'local'
   if (id.startsWith('api:')) return 'api'
   if (id.startsWith('hook:')) return 'hook'
+  if (id.startsWith('agent:')) return 'agent'
   return people.some((p) => p.id === id) ? 'person' : 'unknown'
 }
 
@@ -53,6 +57,8 @@ export interface ActorLabels {
   api: string
   webhook: string
   unknown: string
+  /** "Agent" — a custom agent shows as "Agent · <its name>" */
+  agent?: string
 }
 
 /** Display name of an actor id. */
@@ -64,6 +70,8 @@ export function actorName(id: string, people: Person[], me: MeCtx, labels: Actor
       return labels.api
     case 'hook':
       return labels.webhook
+    case 'agent':
+      return `${labels.agent ?? 'Agent'} · ${useWorkspace.getState().agents?.[id.slice(6)]?.name ?? labels.unknown}`
     case 'person':
       return people.find((p) => p.id === id)!.name
     default:

@@ -13,6 +13,7 @@ import { messages as functions } from './sheets/functions/messages'
 import { messages as charts } from './charts/messages'
 import { messages as sheets } from './sheets/messages'
 import { messages as mail } from './mail/messages'
+import { messages as agents } from './agents/messages'
 
-/** features-core: ai, history, share, present, journal · features-data: io, automations, templates, graph · features-publish: website export, protected share links · features-import: import sources · features-agent: workspace agent · inbox: reminders + inbox engine · sync: folder + GitHub sync · meeting: AI meeting notes · mcp: One MCP (local bridge) · templates: own templates (gallery, save as template, banner) · mail: Gmail → Mails database */
-export const messages = mergeMessages(core, data, publish, importSources, agent, inbox, sync, meeting, mcp, templates, functions, charts, sheets, mail)
+/** features-core: ai, history, share, present, journal · features-data: io, automations, templates, graph · features-publish: website export, protected share links · features-import: import sources · features-agent: workspace agent · inbox: reminders + inbox engine · sync: folder + GitHub sync · meeting: AI meeting notes · mcp: One MCP (local bridge) · templates: own templates (gallery, save as template, banner) · mail: Gmail → Mails database · agents: custom agents */
+export const messages = mergeMessages(core, data, publish, importSources, agent, inbox, sync, meeting, mcp, templates, functions, charts, sheets, mail, agents)

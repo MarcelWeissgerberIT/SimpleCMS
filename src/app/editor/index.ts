@@ -25,6 +25,12 @@
  *  - Charts: node `chart` (atom; attrs: spec = ChartSpec JSON — features/charts/types.ts). The live view, sources and
  *      builder come from features/charts; HTML = <figure data-type="chart" data-spec> + static SVG, Markdown = title +
  *      data table. stripPrivate() freezes live sources into the numbers they show (share links, exports).
+ *  - Breadcrumb: node `breadcrumb` (atom; attrs: path = null — live: the path of the page it sits on). stripPrivate(),
+ *      docToHTML() and docToMarkdown() freeze it into the titles [workspace, …ancestors, page] of the page whose content
+ *      they are given; Markdown = "<!-- breadcrumb -->" + the path as a plain line (read back as the block).
+ *  - fileBlock attr `display` ('viewer' | 'file' | null): a PDF shows in the browser's own viewer unless 'file'.
+ *  - detectEmbedProvider(url): the embed provider a link is shown with (null: generic / not embeddable) — e.g. for
+ *      the share codec's allowlist of received embeds.
  */
 export { PageEditor, type PageEditorProps } from './PageEditor'
 export { ReadOnlyDoc } from './ReadOnlyDoc'
@@ -33,6 +39,7 @@ export { stripComments, commentIdsIn } from './schema/comment'
 export { startSyncedBlocks, stopSyncedBlocks } from './synced/service'
 export { syncedCopiesOutside } from './synced/state'
 export { iconAssetPaths } from './schema/icon'
+export { detectProvider as detectEmbedProvider } from './lib/embeds'
 export {
   MEETING,
   meetingAttrs,

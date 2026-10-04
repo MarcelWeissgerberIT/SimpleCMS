@@ -107,6 +107,13 @@ MAX_UPLOAD_MB=25
 - **`API_RATE_LIMIT`** (optional, default `120`) — requests per minute for each API token and each
   incoming webhook. Admins create tokens and webhook URLs under Settings → Team → API & webhooks;
   the endpoints are described in [`API.md`](API.md).
+- **Custom agents** run on the server around the clock once a workspace admin sets up the agent runtime
+  (a Claude API key of the workspace, optional MCP servers) — nothing to configure here. They need
+  **outbound HTTPS to `api.anthropic.com`** (port 443); external MCP servers are called by Anthropic, not
+  by your server. Optional: `AGENTS=off` switches the runner off, `AGENT_CONCURRENCY` (default `4`) caps
+  the runs at the same time, `ANTHROPIC_BASE_URL` points at a proxy in front of the API. The key and the
+  MCP tokens are stored encrypted with the workspace's key (like documents) and never shown again —
+  details in [`CLOUD.md`](CLOUD.md#agents).
 
 ### Encryption at rest (`DATA_KEY`)
 
@@ -358,7 +365,9 @@ Rebuild about once a month even without a new release, to get security fixes of 
       `docker compose logs` could sign in as anyone.
 - [ ] SPF/DKIM/DMARC set for the `MAIL_FROM` domain.
 - [ ] Server logs contain email addresses: keep access restricted and log retention short.
-- [ ] Run one instance per database (rate limits and live sessions are held in memory).
+- [ ] Run one instance per database (rate limits, live sessions and the agents' scheduler are held in memory).
+- [ ] Outbound firewall: allow HTTPS to `api.anthropic.com` if workspaces use server agents (or set
+      `AGENTS=off`). Agent runs cost money on the workspace's Claude key — each agent has a budget per run.
 - [ ] Changed the server code? The AGPL requires you to offer your users the modified source: publish
       it and set `SOURCE_URL` to it.
 - [ ] Public instance in Germany/the EU: Impressum and privacy policy, data processing agreements
@@ -415,4 +424,5 @@ server {
 | `database schema vN is newer than this server` | You went back to an older version — restore the backup from before the update |
 | `DATA_KEY is required in production` | Add `DATA_KEY=$(openssl rand -base64 32)` to `.env` — only for a new server or the first update to encryption at rest; an existing encrypted server needs its old key back |
 | `DATA_KEY (key id …) is not the key this database's workspace keys are wrapped with` | `.env` has another key than the one the data was encrypted with (a restore with today's key, a typo, a half-done rotation). Put the right key back; to finish a rotation run `rotate-data-key` again |
+| Server agents end with *The Claude API could not be reached (network)* | The server has no outbound HTTPS to `api.anthropic.com` (firewall, proxy) — allow it, or set `ANTHROPIC_BASE_URL` to your proxy |
 | A page does not open, the log says `document cannot be decrypted` | The stored document was damaged or swapped on disk — restore it from a backup; the server never replaces it with an empty one |

@@ -606,8 +606,14 @@ body[data-dragging] .sb-children::before {
 .sb-more {
   height: 24px;
 }
+/* lined up with the entries' titles (touch: chevron and icon sit side by side) */
 .sb-more__link {
-  padding-left: 26px;
+  padding-left: 30px;
+}
+@media (hover: none) {
+  .sb-more__link {
+    padding-left: 50px;
+  }
 }
 .sb-more__label {
   display: inline-flex;

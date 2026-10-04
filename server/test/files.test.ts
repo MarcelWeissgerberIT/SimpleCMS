@@ -107,7 +107,7 @@ test('size limit (declared and streamed) and nothing left behind', async () => {
   // an endless stream is cut off (connection closed) — the server keeps working
   await put(owner, 'big3', chunked(400, 100_000), 'application/octet-stream').then(
     (res) => assert.equal(res.status, 413),
-    (err: Error) => assert.match(String(err.cause ?? err), /closed|reset|terminated|socket/i),
+    (err: Error) => assert.match(String(err.cause ?? err), /closed|reset|terminated|socket|EPIPE/i),
   )
   assert.equal((await owner.fetch(`/api/workspaces/${wsId}/files/big3`)).status, 404)
   assert.equal((await owner.fetch(`/api/workspaces/${wsId}/files/big1`)).status, 404)

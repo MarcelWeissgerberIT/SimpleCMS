@@ -8,6 +8,8 @@ cloud (in Germany) and your self-hosted instance.
 - **Contract** (REST API, document names, schema, security): [`docs/CLOUD.md`](../docs/CLOUD.md)
 - **Public API & incoming webhooks** (n8n, Make, Zapier, scripts): [`docs/API.md`](../docs/API.md)
 - **Remote MCP** for Claude Code, Claude Desktop and other MCP clients (same API tokens): [`docs/MCP.md`](../docs/MCP.md#team-server)
+- **Custom agents** that run on the server around the clock (schedules, row and webhook triggers, the
+  workspace's own Claude key, MCP servers): [`docs/CLOUD.md`](../docs/CLOUD.md#agents)
 - **Self-hosting guide** (VPS, DNS, SMTP, backups, updates): [`docs/SELF_HOSTING.md`](../docs/SELF_HOSTING.md)
 - **Licence:** AGPL-3.0 ([`LICENSE`](LICENSE)). The app in `src/` stays MIT.
 
@@ -28,7 +30,8 @@ wrapped by `DATA_KEY`; documents, files, file names and kept API answers are AES
 disk. Deleting a workspace shreds its key first.
 
 Stack: Node 22 · TypeScript bundled with esbuild · Hono on `@hono/node-server` · Hocuspocus 4 ·
-`node:sqlite` (no native modules) · nodemailer · zod · the MCP TypeScript SDK (remote MCP).
+`node:sqlite` (no native modules) · nodemailer · zod · the MCP TypeScript SDK (remote MCP) · the Anthropic
+TypeScript SDK (custom agents).
 
 ## Run it locally
 

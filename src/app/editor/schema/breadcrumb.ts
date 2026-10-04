@@ -41,7 +41,8 @@ export const Breadcrumb = Node.create({
     const path = frozenPathOf(node.attrs.path) ?? []
     const items = path.flatMap((label, i) => {
       const item = ['span', { class: 'breadcrumb__item' }, label] as const
-      return i ? [['span', { class: 'breadcrumb__sep', 'aria-hidden': 'true' }, BREADCRUMB_SEP] as const, item] : [item]
+      // spaced: exported pages without our styles still read "One › Parent › Page"
+      return i ? [['span', { class: 'breadcrumb__sep', 'aria-hidden': 'true' }, ` ${BREADCRUMB_SEP} `] as const, item] : [item]
     })
     return ['nav', mergeAttributes(HTMLAttributes, { 'data-type': 'breadcrumb', class: 'breadcrumb', 'aria-label': t('editor.block.breadcrumb') }), ...items]
   },

@@ -2,7 +2,7 @@
  * Read-only renderers for property values (cells, cards, property panel, chips).
  */
 import { memo, type MouseEvent, type ReactNode } from 'react'
-import { AlertTriangle, ArrowUpRight, Check, FileText, KeyRound, Mail, Minus, Phone, Star, UserRound, Webhook } from 'lucide-react'
+import { AlertTriangle, ArrowUpRight, Bot, Check, FileText, KeyRound, Mail, Minus, Phone, Star, UserRound, Webhook } from 'lucide-react'
 import type { Database, DateValue, ID, Page, Person, PropertyDef, SelectOption } from '../../store/types'
 import { tagStyle, colorText } from '../../lib/colors'
 import { useFileUrl } from '../../lib/files'
@@ -85,7 +85,7 @@ export function PersonChip({ person, onRemove }: { person: Person; onRemove?: ()
 /** Avatar of a created_by / last_edited_by actor that isn't a workspace person. */
 export function ActorAvatar({ kind, name, size = 18 }: { kind: Exclude<ActorKind, 'person'>; name: string; size?: number }) {
   const icon = Math.round(size * 0.62)
-  const glyph = kind === 'api' ? <KeyRound size={icon} strokeWidth={2} /> : kind === 'hook' ? <Webhook size={icon} strokeWidth={2} /> : kind === 'local' && name ? initials(name) : <UserRound size={icon} strokeWidth={2} />
+  const glyph = kind === 'api' ? <KeyRound size={icon} strokeWidth={2} /> : kind === 'hook' ? <Webhook size={icon} strokeWidth={2} /> : kind === 'agent' ? <Bot size={icon} strokeWidth={2} /> : kind === 'local' && name ? initials(name) : <UserRound size={icon} strokeWidth={2} />
   return (
     <span className="db-avatar db-avatar--actor" data-actor={kind} style={{ width: size, height: size, fontSize: Math.round(size * 0.48) }} aria-hidden>
       {glyph}

@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
-import { Bell, CalendarDays, CalendarRange, ChevronsLeft, ChevronDown, Home, LayoutTemplate, Lock, PenLine, Plus, Search, Trash2, Upload, Waypoints, Settings, Table2, FilePlus2, Users } from 'lucide-react'
+import { Bell, Bot, CalendarDays, CalendarRange, ChevronsLeft, ChevronDown, Home, LayoutTemplate, Lock, PenLine, Plus, Search, Trash2, Upload, Waypoints, Settings, Table2, FilePlus2, Users } from 'lucide-react'
 import { useWorkspace } from '../../store/store'
 import { useUI } from '../../store/ui'
 import { useFavorites, useTrash, useTreeCount, useHasFavorites } from '../../store/selectors'
 import { navigate, useRoute } from '../../lib/router'
-import { openTodayJournal } from '../../features'
+import { openTodayJournal, AgentsNavBadge } from '../../features'
 import { Menu, useMenu, type MenuEntry } from '../../ui/Menu'
 import { toggleMenu } from '../lib/menu'
 import { Tooltip } from '../../ui/Tooltip'
@@ -96,6 +96,7 @@ export function Sidebar() {
           )}
           <NavRow icon={<CalendarRange size={16} />} label={t('shell.nav.agenda')} active={route.name === 'agenda'} onClick={() => (closeMobileSidebar(), navigate({ name: 'agenda' }))} />
           <NavRow icon={<Waypoints size={16} />} label={t('shell.nav.graph')} active={route.name === 'graph'} onClick={() => (closeMobileSidebar(), navigate({ name: 'graph' }))} />
+          <NavRow icon={<Bot size={16} />} label={t('features.agents.title')} active={route.name === 'agents'} badge={<AgentsNavBadge />} onClick={() => (closeMobileSidebar(), navigate({ name: 'agents' }))} />
           {!readOnly && (
             <>
               <NavRow icon={<LayoutTemplate size={16} />} label={t('shell.nav.templates')} onClick={() => (closeMobileSidebar(), useUI.getState().openModal({ type: 'templates', parentId: null }))} />

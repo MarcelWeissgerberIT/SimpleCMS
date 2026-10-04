@@ -235,7 +235,7 @@ function AgentCard({ agent, n, now }: { agent: CustomAgent; n: number; now: numb
         </div>
         <div>
           <dt>{t('features.agents.spec.next')}</dt>
-          <dd className="mono">{nextRunText(t, agent, lang, now)}</dd>
+          <dd className={agent.trigger.type === 'schedule' && agent.enabled ? 'mono' : undefined}>{nextRunText(t, agent, lang, now)}</dd>
         </div>
         <div>
           <dt>{t('features.agents.spec.last')}</dt>
@@ -363,7 +363,7 @@ function AgentDetail({ id }: { id: ID }) {
         </div>
         <div>
           <dt>{t('features.agents.spec.next')}</dt>
-          <dd className="mono">{nextRunText(t, agent, lang, now)}</dd>
+          <dd className={agent.trigger.type === 'schedule' && agent.enabled ? 'mono' : undefined}>{nextRunText(t, agent, lang, now)}</dd>
         </div>
         <div>
           <dt>{t('features.agents.spec.scope')}</dt>

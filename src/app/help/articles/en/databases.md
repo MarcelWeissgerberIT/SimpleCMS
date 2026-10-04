@@ -9,7 +9,7 @@ summary: A database is a collection of pages with properties — shown as a tabl
 ---
 ## Three ways to create one
 - **As a page:** **+** next to **Pages** in the sidebar → **New database**, or ⌘K → *New database*.
-- **Inside a page:** type `/table view`, `/board view`, `/calendar view` … (German: `/tabellenansicht`, `/board-ansicht`). The database lives in the page; **•••** → **Open as full page** opens it on its own.
+- **Inside a page:** type `/table view`, `/board view`, `/calendar view` … The database lives in the page; **•••** → **Open as full page** opens it on its own.
 - **Show an existing one:** `/linked database` places a database that already exists on this page — with views of its own.
 
 ## Rows are pages

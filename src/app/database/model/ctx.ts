@@ -25,6 +25,7 @@ export function resolverLabels(tr: Translate): Ctx['labels'] {
     you: tr('database.actor.you'),
     api: tr('database.actor.api'),
     webhook: tr('database.actor.webhook'),
+    agent: tr('features.agents.actorPrefix'),
     unknown: tr('database.actor.unknown'),
   }
 }

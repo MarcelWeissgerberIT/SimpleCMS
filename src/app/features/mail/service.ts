@@ -142,6 +142,8 @@ export async function connectGmail(): Promise<boolean> {
     patch({ account: prof.emailAddress, connected: true, reconnect: false, error: null, errorAt: null })
     announce()
     void loadLabels()
+    // "every N minutes" starts with the first connection (it waited for a configured account)
+    if (!timer) schedule()
     return true
   } catch (e) {
     const info = errorInfo(e)
@@ -248,6 +250,7 @@ async function run(): Promise<void> {
     // the run's own error stays on screen even if the saved state is older
     if (err) patch({ error: err, errorAt: 'sync' })
     announce()
+    if (!timer) schedule()
   }
 }
 

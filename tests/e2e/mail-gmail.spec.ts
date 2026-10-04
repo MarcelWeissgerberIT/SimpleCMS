@@ -115,6 +115,9 @@ class Mailbox {
   historyFloor = 0
   /** the next N message fetches answer 429 */
   fail429 = 0
+  /** after N more message fetches the token in use expires (401 from then on) */
+  authFailAfter: number | null = null
+  rejected = new Set<string>()
   calls: string[] = []
   tokens = new Set<string>()
   labels = [
@@ -167,7 +170,7 @@ class Mailbox {
     const json = (status: number, body: unknown, extra: Record<string, string> = {}) => route.fulfill({ status, headers: { ...cors, 'content-type': 'application/json', ...extra }, body: JSON.stringify(body) })
     const auth = (await req.allHeaders()).authorization ?? ''
     const token = auth.replace(/^Bearer /, '')
-    if (!token.startsWith('ya29.')) return json(401, { error: { code: 401, status: 'UNAUTHENTICATED' } })
+    if (!token.startsWith('ya29.') || this.rejected.has(token)) return json(401, { error: { code: 401, status: 'UNAUTHENTICATED' } })
     this.tokens.add(token)
     this.calls.push(`${path}${url.search}`)
     if (path === 'profile') return json(200, { emailAddress: ACCOUNT, messagesTotal: this.mails.length, historyId: String(this.historyId) })
@@ -187,6 +190,11 @@ class Mailbox {
     }
     const one = path.match(/^messages\/([^/]+)$/)
     if (one) {
+      if (this.authFailAfter !== null && this.authFailAfter-- <= 0) {
+        this.authFailAfter = null
+        this.rejected.add(token)
+        return json(401, { error: { code: 401, status: 'UNAUTHENTICATED' } })
+      }
       if (this.fail429 > 0) {
         this.fail429--
         return json(429, { error: { code: 429, status: 'RESOURCE_EXHAUSTED' } }, { 'retry-after': '1' })
@@ -726,6 +734,27 @@ test.describe('Mail (Gmail)', () => {
     await syncAndWait(page)
     expect(sent).toHaveLength(2)
     expect((await mailRows(page)).map((r) => r.title)).toContain('Private note')
+  })
+
+  test('the token expires mid-run: the run stops, asks for a new sign-in, and the next run fetches what was left', async ({ page, errors }) => {
+    errors.allow(/status of 401/)
+    const env = await setup(page)
+    await openApp(page)
+    await configure(page)
+    const dialog = await connect(page)
+    env.box.authFailAfter = 1
+    await dialog.getByRole('button', { name: 'Sync now' }).click()
+    await expect(dialog.getByRole('alert')).toHaveText('Google’s sign-in expired — reconnect to continue.')
+    await expect(dialog.getByRole('button', { name: 'Reconnect' })).toBeVisible()
+    expect(await page.evaluate(() => window.__oneMail.state().connected)).toBe(false)
+    expect((await page.evaluate(() => window.__oneMail.stored())).backlog.sort()).toEqual(['m1', 'm2'])
+    expect(await mailRows(page)).toHaveLength(0)
+    // "Sync now" signs in again (the known account as hint) and finishes the job
+    await dialog.getByRole('button', { name: 'Sync now' }).click()
+    await expect.poll(async () => (await mailRows(page)).length).toBe(2)
+    await expect.poll(() => page.evaluate(() => window.__oneMail.state().phase)).toBe('idle')
+    expect(await page.evaluate(() => window.__gis.calls.map((c) => c.hint))).toEqual([null, ACCOUNT])
+    await expect(dialog.getByRole('alert')).toHaveCount(0)
   })
 
   test('when One opens: after a reload one click signs in again (no token survives) and syncs', async ({ page }) => {

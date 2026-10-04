@@ -68,9 +68,24 @@ function Field({ label, hint, error, children, id }: { label: string; hint?: Rea
 /** A segmented single choice (radiogroup). */
 function Seg<V extends string>({ value, options, onChange, label, disabled }: { value: V; options: Array<{ v: V; label: string; disabled?: boolean }>; onChange: (v: V) => void; label: string; disabled?: boolean }) {
   return (
-    <div className="seg agx-seg" role="radiogroup" aria-label={label}>
+    <div
+      className="agx-seg"
+      role="radiogroup"
+      aria-label={label}
+      onKeyDown={(e) => {
+        if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key) || disabled) return
+        e.preventDefault()
+        const usable = options.filter((o) => !o.disabled)
+        const i = usable.findIndex((o) => o.v === value)
+        const next = usable[(i + (e.key === 'ArrowLeft' || e.key === 'ArrowUp' ? -1 : 1) + usable.length) % usable.length]
+        if (!next) return
+        onChange(next.v)
+        const root = e.currentTarget
+        requestAnimationFrame(() => root.querySelector<HTMLElement>('[aria-checked="true"]')?.focus())
+      }}
+    >
       {options.map((o) => (
-        <button key={o.v} type="button" role="radio" aria-checked={value === o.v} className="seg__btn" disabled={disabled || o.disabled} onClick={() => onChange(o.v)}>
+        <button key={o.v} type="button" role="radio" aria-checked={value === o.v} tabIndex={value === o.v ? 0 : -1} className="agx-seg__btn" disabled={disabled || o.disabled} onClick={() => onChange(o.v)}>
           {o.label}
         </button>
       ))}

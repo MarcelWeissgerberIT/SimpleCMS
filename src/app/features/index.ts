@@ -229,3 +229,10 @@ export {
   type ChartBuilderOptions,
   type ChartRendererProps,
 } from './charts'
+/*
+ * Custom agents (Workspace.agents — saved AI helpers started by a schedule or a trigger; see agents/index.ts):
+ *  - startAgents(): background service (start once from main.tsx after hydrate) — browser runner (leader tab)
+ *  - AgentsRoute { agentId? } (route #/agents, #/agents/<id>) · AgentsNavBadge (sidebar: proposals to review)
+ *  - ServerAgentsSettings (Settings → Agents · MCP, team workspaces) · agentLabel(actor) → "Agent · <name>" | null
+ */
+export { startAgents, AgentsRoute, AgentsNavBadge, useAgentsAttention, ServerAgentsSettings, agentLabel } from './agents'

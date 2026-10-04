@@ -11,7 +11,7 @@ import { de, enUS } from 'date-fns/locale'
 import { BellRing, PanelRightClose, PanelRightOpen } from 'lucide-react'
 import { useWorkspace } from '../../store/store'
 import { inTemplate, isEffectivelyTrashed, useBacklinks } from '../../store/selectors'
-import { collectReminders, type ReminderEntry } from '../../features'
+import { agentLabel, collectReminders, type ReminderEntry } from '../../features'
 import { PageIcon } from '../../ui/PageIcon'
 import { Tooltip } from '../../ui/Tooltip'
 import { useLang, useT } from '../../i18n'
@@ -247,8 +247,11 @@ function Readings({ page }: { page: Page }) {
 function useLastEditor(page: Page): string | null {
   const t = useT()
   const person = useWorkspace((s) => (page.updatedBy ? s.people.find((p) => p.id === page.updatedBy)?.name : undefined))
+  // a custom agent: "Agent · <name>" (also in the local workspace)
+  const agent = useWorkspace(() => agentLabel(page.updatedBy))
   const id = page.updatedBy
   if (!id) return null
+  if (agent) return agent
   if (id.startsWith('api:')) return t('shell.rail.byApi')
   if (id.startsWith('hook:')) return t('shell.rail.byWebhook')
   return person?.trim() || null

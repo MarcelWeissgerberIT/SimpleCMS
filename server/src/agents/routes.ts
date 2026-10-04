@@ -84,7 +84,6 @@ const sameOrigin = (a: string, b: string) => {
 export function agentRoutes(s: Services, model: WorkspaceModel, agents: AgentService) {
   const app = new Hono<AppEnv>()
   const writes = new McpWrites(s, model)
-  const store = agents.store
   /** Runs whose staged changes are being applied right now (one apply per run at a time). */
   const applying = new Set<string>()
 
@@ -103,13 +102,13 @@ export function agentRoutes(s: Services, model: WorkspaceModel, agents: AgentSer
 
   app.get('/:id/agent-runtime', (c) => {
     const { workspace } = access(s, c, 'member')
-    return c.json(runtimeJson(store.runtime(workspace.id)))
+    return c.json(runtimeJson(agents.store.runtime(workspace.id)))
   })
 
   app.put('/:id/agent-runtime', async (c) => {
     const { workspace, auth } = access(s, c, 'admin')
     const input = await body(c, runtimeSchema)
-    const cur = store.runtime(workspace.id)
+    const cur = agents.store.runtime(workspace.id)
     const prev = cur?.runtime ?? EMPTY_RUNTIME
     let mcpServers = prev.mcpServers
     if (input.mcpServers) {
@@ -127,7 +126,7 @@ export function agentRoutes(s: Services, model: WorkspaceModel, agents: AgentSer
     }
     const runtime: Runtime = { claudeKey: input.claudeKey === undefined ? prev.claudeKey : input.claudeKey || null, mcpServers }
     const enabled = input.enabled ?? cur?.enabled ?? false
-    store.saveRuntime(workspace.id, runtime, enabled, auth.user.id)
+    agents.store.saveRuntime(workspace.id, runtime, enabled, auth.user.id)
     s.log.info('agent runtime updated', {
       workspace: workspace.id,
       user: auth.user.id,
@@ -135,7 +134,7 @@ export function agentRoutes(s: Services, model: WorkspaceModel, agents: AgentSer
       mcp: input.mcpServers ? mcpServers.length : undefined,
       enabled,
     })
-    return c.json(runtimeJson(store.runtime(workspace.id)))
+    return c.json(runtimeJson(agents.store.runtime(workspace.id)))
   })
 
   // ── runs ─────────────────────────────────────────────────────────────
@@ -146,18 +145,18 @@ export function agentRoutes(s: Services, model: WorkspaceModel, agents: AgentSer
     if (agentId !== null && !idSchema.safeParse(agentId).success) throw new ApiError(400, 'invalid_request', 'agentId is not an id')
     const limit = c.req.query('limit') === undefined ? 50 : Number(c.req.query('limit'))
     if (!Number.isInteger(limit) || limit < 1 || limit > 200) throw new ApiError(400, 'invalid_request', 'limit is a whole number from 1 to 200')
-    return c.json(store.runs(workspace.id, { agentId, limit }))
+    return c.json(agents.store.runs(workspace.id, { agentId, limit }))
   })
 
   app.post('/:id/agents/:agentId/run', async (c) => {
     const { workspace, auth } = access(s, c, 'member')
     if (!agents.enabled) throw agentsOff()
     const agentId = c.req.param('agentId')
-    const rt = store.runtime(workspace.id)
-    if (!rt?.enabled || !rt.runtime.claudeKey) throw conflict('runtime_not_ready', 'The server runtime is not set up: an admin adds a Claude key and switches it on')
     const agent = idSchema.safeParse(agentId).success ? await agents.agent(workspace.id, agentId) : undefined
     if (!agent) throw notFound('agent_not_found', 'No such agent in this workspace')
     if (agent.runner !== 'server') throw conflict('agent_not_server', 'This agent runs in the browser, not on the server')
+    const rt = agents.store.runtime(workspace.id)
+    if (!rt?.enabled || !rt.runtime.claudeKey) throw conflict('runtime_not_ready', 'The server runtime is not set up: an admin adds a Claude key and switches it on')
     let run: AgentRun
     try {
       run = agents.enqueue({ wsId: workspace.id, agentId, trigger: { type: 'manual', detail: auth.user.name || auth.user.email.split('@')[0] }, by: auth.user.name || auth.user.email.split('@')[0] })
@@ -171,7 +170,7 @@ export function agentRoutes(s: Services, model: WorkspaceModel, agents: AgentSer
 
   /** A run with staged changes, for the member resolving them (one at a time per run). */
   const stagedRun = (wsId: string, runId: string): AgentRun => {
-    const run = idSchema.safeParse(runId).success ? store.run(wsId, runId) : undefined
+    const run = idSchema.safeParse(runId).success ? agents.store.run(wsId, runId) : undefined
     if (!run) throw notFound('run_not_found', 'No such agent run')
     if (run.status === 'running') throw conflict('run_running', 'The run has not finished yet')
     return run
@@ -193,7 +192,7 @@ export function agentRoutes(s: Services, model: WorkspaceModel, agents: AgentSer
       const staged = (run.staged ?? []).map((x) => ({ ...x }))
       const applied = await applyStaged(model, writes, workspace.id, staged, agentActor(run.agentId), input.changeIds ? new Set(input.changeIds) : null)
       const next = settle({ ...run, staged, applied: (run.applied ?? 0) + applied })
-      store.updateRun(workspace.id, next)
+      agents.store.updateRun(workspace.id, next)
       s.log.info('agent changes applied', { workspace: workspace.id, agent: run.agentId, run: run.id, applied, failed: staged.filter((x) => x.status === 'failed').length || undefined, user: auth.user.id })
       return c.json(next)
     } finally {
@@ -220,7 +219,7 @@ export function agentRoutes(s: Services, model: WorkspaceModel, agents: AgentSer
       return dropped.has(x.id) ? { ...x, status: 'discarded' as const } : x
     })
     const next = settle({ ...run, staged, applied: (run.applied ?? 0) + applied })
-    store.updateRun(workspace.id, next)
+    agents.store.updateRun(workspace.id, next)
     s.log.info('agent changes resolved', { workspace: workspace.id, agent: run.agentId, run: run.id, applied, discarded: dropped.size || undefined, user: auth.user.id })
     return c.json(next)
   })
@@ -233,9 +232,11 @@ export function agentRoutes(s: Services, model: WorkspaceModel, agents: AgentSer
     return raw
   }
 
-  app.get('/:id/agents/:agentId/hook', (c) => {
+  app.get('/:id/agents/:agentId/hook', async (c) => {
     const { workspace } = access(s, c, 'member')
-    const hook = store.hook(workspace.id, agentParam(c.req.param('agentId')))
+    const agentId = agentParam(c.req.param('agentId'))
+    if (!(await agents.agent(workspace.id, agentId))) throw notFound('agent_not_found', 'No such agent in this workspace')
+    const hook = agents.store.hook(workspace.id, agentId)
     return c.json({ set: !!hook, created_at: iso(hook?.created_at), last_delivery_at: iso(hook?.last_delivery_at), deliveries: hook?.deliveries ?? 0 })
   })
 
@@ -244,7 +245,7 @@ export function agentRoutes(s: Services, model: WorkspaceModel, agents: AgentSer
     const agentId = agentParam(c.req.param('agentId'))
     const agent = await agents.agent(workspace.id, agentId)
     if (!agent) throw notFound('agent_not_found', 'No such agent in this workspace')
-    const secret = store.setHook(workspace.id, agentId, auth.user.id)
+    const secret = agents.store.setHook(workspace.id, agentId, auth.user.id)
     s.log.info('agent webhook created', { workspace: workspace.id, agent: agentId, user: auth.user.id })
     return c.json({ url: hookUrl(agentId, secret), created_at: iso(Date.now()) }, 201)
   })
@@ -252,7 +253,7 @@ export function agentRoutes(s: Services, model: WorkspaceModel, agents: AgentSer
   app.delete('/:id/agents/:agentId/hook', (c) => {
     const { workspace, auth } = access(s, c, 'admin')
     const agentId = agentParam(c.req.param('agentId'))
-    if (!store.deleteHook(workspace.id, agentId)) throw notFound('hook_not_found', 'This agent has no webhook URL')
+    if (!agents.store.deleteHook(workspace.id, agentId)) throw notFound('hook_not_found', 'This agent has no webhook URL')
     s.log.info('agent webhook deleted', { workspace: workspace.id, agent: agentId, user: auth.user.id })
     return c.body(null, 204)
   })

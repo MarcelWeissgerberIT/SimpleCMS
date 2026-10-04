@@ -223,14 +223,12 @@ export function useEntryIds(dbId: ID, parentRow: ID | null, openId: ID | null): 
   )
 }
 
-/** How many entries a list has (its "show all" count). */
-export function useEntryTotal(dbId: ID, parentRow: ID | null): number {
-  return useWorkspace((s) => entryList(s, dbId, parentRow).length)
-}
-
-/** Sub-item rows below an entry (0 without sub-items, or for anything else). */
-export function useSubEntryCount(dbId: ID | null, rowId: ID): number {
-  return useWorkspace((s) => (dbId ? entryList(s, dbId, rowId).length : 0))
+/**
+ * How many entries a list has: a database's (parentRow null) or a row's sub-items (0 without
+ * sub-items). dbId null: 0 without computing anything (a closed database, a plain page).
+ */
+export function useEntryCount(dbId: ID | null, parentRow: ID | null): number {
+  return useWorkspace((s) => (dbId ? entryList(s, dbId, parentRow).length : 0))
 }
 
 /* ---------------- expanded state (localStorage, per viewer) ---------------- */

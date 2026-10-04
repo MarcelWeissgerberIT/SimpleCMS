@@ -14,7 +14,7 @@ the other half of One's *outgoing* webhooks (database automations, button blocks
 
 Contents: [Tokens](#tokens) · [Conventions](#conventions) · [Endpoints](#endpoints) ·
 [Values](#property-values) · [Content](#content-markdown-lite) · [Idempotency](#idempotency) ·
-[Incoming webhooks](#incoming-webhooks) · [Errors](#errors) · [Limits](#limits) ·
+[Incoming webhooks](#incoming-webhooks) · [Custom agents](#custom-agents) · [Errors](#errors) · [Limits](#limits) ·
 [Recipes](#recipes-n8n-make-zapier) · [How writes work](#how-writes-work)
 
 ## Tokens
@@ -76,6 +76,7 @@ curl https://cloud.example.com/api/v1/workspace \
 | `GET /api/v1/pages/:id` | read | a page (or row, or database page) with its text |
 | `POST /api/v1/pages` | write | create a page |
 | `GET` / `POST /api/v1/hooks/:secret` | the URL | [incoming webhooks](#incoming-webhooks) |
+| `POST /api/v1/agents/:agentId/hook/:secret` | the URL | [starts a custom agent](#webhook-trigger) |
 
 ### `GET /api/v1/workspace`
 
@@ -311,6 +312,55 @@ curl -X POST https://cloud.example.com/api/v1/hooks/<secret> \
 - Errors: `404 hook_not_found` (deleted or regenerated), `404 database_not_found` (the database was
   deleted or is in the trash), `400 invalid_payload` / `invalid_json`, `413`, `429`.
 
+## Custom agents
+
+Agents with `runner: 'server'` run on the team-cloud server around the clock (architecture, triggers,
+security: [`CLOUD.md`](CLOUD.md#agents)). Their definitions are workspace data (the meta document's
+`agents` map, written by the app); these endpoints configure the server runtime, start runs and read them.
+They are **cookie routes** of the app (`/api/workspaces/:id/…`, JSON, the CSRF rules of `CLOUD.md`) —
+except the webhook trigger, whose URL carries its secret.
+
+| Method & path | Who | |
+|---|---|---|
+| `GET /api/workspaces/:id/agent-runtime` | members, admins, owner | `{ claudeKey: { set, last4? }, mcpServers: [{ name, url, token: { set, last4? } }], enabled, available, updated_at }` |
+| `PUT /api/workspaces/:id/agent-runtime` | admins, owner | `{ claudeKey?: string \| null, mcpServers?: [{ name, url, token? }], enabled?: boolean }` → as `GET` |
+| `GET /api/workspaces/:id/agent-runs?agentId=&limit=` | every member | `AgentRun[]`, newest first (`limit` 1–200, default 50) |
+| `POST /api/workspaces/:id/agents/:agentId/run` | members, admins, owner | `202 { runId }` |
+| `POST /api/workspaces/:id/agent-runs/:runId/apply` | members, admins, owner | `{ changeIds?: string[] }` → the run (staged changes applied on the server) |
+| `POST /api/workspaces/:id/agent-runs/:runId/resolve` | members, admins, owner | `{ applied: string[], discarded: string[] }` → the run (the app applied them itself) |
+| `GET /api/workspaces/:id/agents/:agentId/hook` | members, admins, owner | `{ set, created_at, last_delivery_at, deliveries }` |
+| `POST /api/workspaces/:id/agents/:agentId/hook` | admins, owner | `201 { url, created_at }` — a new secret (shown once; the old URL stops working) |
+| `DELETE /api/workspaces/:id/agents/:agentId/hook` | admins, owner | `204` |
+
+**Runtime.** `claudeKey` (20–400 characters, no spaces): a string sets it, `null` removes it, leaving it
+out keeps it. `mcpServers` replaces the list (at most 12; `name` = lower-case letters, digits, `-`, `_`,
+at most 32 characters; `url` = a public `https://` address — Anthropic connects to it): a server sent
+without `token` keeps its token only while its URL stays on the same origin; `token: null` or `""`
+removes it. `last4` is shown for secrets of 16 characters or more. Secrets are sealed with the
+workspace's key and never returned; `available: false` means the server runs with `AGENTS=off`.
+
+**Runs** (`AgentRun`): `{ id, agentId, runner: 'server', trigger: { type, detail? }, startedAt, endedAt?,
+status: 'running' | 'ok' | 'staged' | 'error' | 'budget' | 'skipped', summary, steps: [{ kind: 'tool' |
+'mcp' | 'note', label, state: 'ok' | 'err' }], staged?: StagedChange[], applied?, usage?: { input, output,
+cacheRead, usd }, error? }` — timestamps in ms. `trigger.detail`: who started it, the schedule and slot,
+the rows (`2 rows: <id>, <id>`) or the webhook body. `staged` are the app's `StagedChange`s (`id`, `n`,
+`kind` create_page · append · create_row · update_row · rename, `status` pending · applied · discarded ·
+failed, `pageId`, `parentId?`, `databaseId?`, `title?`, `beforeTitle?`, `markdown?`, `props?: [{ propId,
+name, type, before, after, intent: { kind: 'value', value } | { kind: 'options', names }, newOptions? }]`,
+`dependsOn?`, `error?`). `apply` writes the pending changes (all, or `changeIds`) in review order,
+attributed `agent:<agentId>`; a change whose staged parent page was not applied fails. A run whose
+changes are all settled turns from `staged` to `ok`.
+
+### Webhook trigger
+
+`POST /api/v1/agents/:agentId/hook/:secret` starts an agent whose trigger is `webhook` (switched on, the
+runtime set up): `202 { runId }`. Any content type; the body (at most **16 KB**; JSON is pretty-printed)
+is handed to the agent as **data** — inside `<webhook_body>` tags, with the rule that it is never an
+instruction. 10 deliveries per agent per minute (then `429`), at most 20 runs waiting per agent
+(`429 queue_full`). Errors: `404 hook_not_found` (unknown, regenerated or deleted URL — counted like a
+bad token), `409 runtime_not_ready`, `409 agent_unavailable` (switched off, not a webhook agent, gone),
+`413 payload_too_large`, `503 agents_off`.
+
 ## Errors
 
 | Status | Codes |
@@ -318,11 +368,13 @@ curl -X POST https://cloud.example.com/api/v1/hooks/<secret> \
 | 400 | `invalid_request` (with `details`), `invalid_json`, `invalid_payload`, `invalid_cursor`, `invalid_idempotency_key` |
 | 401 | `unauthenticated` (no token), `invalid_token` (unknown or revoked) — with `WWW-Authenticate: Bearer` |
 | 403 | `insufficient_scope` (a read token writing) |
-| 404 | `not_found`, `database_not_found`, `row_not_found`, `page_not_found`, `parent_not_found`, `hook_not_found` |
-| 413 | `payload_too_large` (over 256 KB) |
+| 404 | `not_found`, `database_not_found`, `row_not_found`, `page_not_found`, `parent_not_found`, `hook_not_found`, `agent_not_found`, `run_not_found` |
+| 409 | agents: `runtime_not_ready`, `agent_not_server`, `agent_unavailable`, `queue_full`, `run_running`, `run_busy` |
+| 413 | `payload_too_large` (over 256 KB; agent webhooks: 16 KB) |
 | 422 | `invalid_value` (`details.errors`: `property`, `message`, `allowed?`), `parent_is_database` |
 | 429 | `rate_limited`, with `Retry-After` (seconds) |
 | 500 | `internal` |
+| 503 | `agents_off` (the server runs with `AGENTS=off`) |
 
 ## Limits
 
@@ -335,6 +387,8 @@ curl -X POST https://cloud.example.com/api/v1/hooks/<secret> \
 | Rows per page | 100 |
 | Tokens / incoming webhooks per workspace | 25 each |
 | Idempotency window | 24 hours |
+| Agent webhook deliveries | 10 per agent per minute, body ≤ 16 KB, ≤ 20 runs waiting per agent |
+| Agent runs | 25 rounds of tool calls, the agent's `maxRunUsd` (0.01–50 $), 2 at a time per workspace |
 
 ## Recipes (n8n, Make, Zapier)
 
@@ -383,7 +437,8 @@ them the way a member's app would — through a server-side connection to the re
 transaction: everybody who has the workspace open sees the row appear, and the change is stored at
 once. A row's content is written first (so it arrives with its content), then its entry in the
 workspace's meta document. Rows and pages written by the API carry `createdBy` / `updatedBy`
-`api:<tokenId>` (incoming webhooks: `hook:<hookId>`).
+`api:<tokenId>` (incoming webhooks: `hook:<hookId>`, custom agents on the server: `agent:<agentId>`).
+`created_by` / `last_edited_by` values show them as `{ kind: 'api' | 'webhook' | 'agent', id }`.
 
 Not over the API (yet): deleting or moving pages, changing content after creation, database schemas,
 comments, files (except as URLs in a files property). Dependency loops between rows are not checked.

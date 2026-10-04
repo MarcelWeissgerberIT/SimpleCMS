@@ -7,6 +7,7 @@
  *   #/journal       → today's journal entry (created on demand)
  *   #/agenda        → workspace agenda (every dated row, journal entry and date mention)
  *   #/inbox         → inbox: reminders, mentions, assignments, comment replies (see shell/inbox)
+ *   #/agents        → custom agents (features/agents) · #/agents/<id> → one agent: its runs and review
  *   #/s/<payload>   → read-only shared page (payload = compressed page, see features/share)
  *   #/clip?url=…&title=…&text=… → clip a web page into the Inbox, then replaced by #/p/<new page>
  *   #/invite/<token> → join a team workspace (preview, sign in if needed, accept; see shell/cloud)
@@ -23,6 +24,8 @@ export type Route =
   | { name: 'agenda' }
   /** #/inbox → this device's inbox (see features/inbox, shell/inbox) */
   | { name: 'inbox' }
+  /** #/agents → custom agents · #/agents/<id> → one agent (see features/agents) */
+  | { name: 'agents'; id?: string }
   | { name: 'share'; payload: string }
   /** #/f/<payload> → public form (payload = compressed form schema, see database/form/codec) */
   | { name: 'form'; payload: string }
@@ -45,6 +48,7 @@ export function parseHash(hash: string): Route {
   if (parts[0] === 'journal') return { name: 'journal' }
   if (parts[0] === 'agenda') return { name: 'agenda' }
   if (parts[0] === 'inbox') return { name: 'inbox' }
+  if (parts[0] === 'agents') return parts[1] ? { name: 'agents', id: parts[1] } : { name: 'agents' }
   if (parts[0] === 's' && parts[1]) return { name: 'share', payload: parts.slice(1).join('/') }
   if (parts[0] === 'f' && parts[1]) return { name: 'form', payload: parts.slice(1).join('/') }
   if (parts[0] === 'invite' && parts[1]) return { name: 'invite', token: parts[1] }
@@ -71,6 +75,8 @@ export function routeHref(r: Route): string {
       return '#/agenda'
     case 'inbox':
       return '#/inbox'
+    case 'agents':
+      return r.id ? `#/agents/${r.id}` : '#/agents'
     case 'share':
       return `#/s/${r.payload}`
     case 'form':

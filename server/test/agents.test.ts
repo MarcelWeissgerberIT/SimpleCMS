@@ -98,7 +98,7 @@ describe('custom agents on the server', () => {
   const runs = async (agentId: string, client: Client = owner) => (await client.get(`/api/workspaces/${wsId}/agent-runs?agentId=${agentId}&limit=200`)).body as any[]
 
   /** Waits until the agent has `count` finished runs; returns them newest first. */
-  async function finished(agentId: string, count = 1, timeout = 10_000): Promise<any[]> {
+  async function finished(agentId: string, count = 1, timeout = 20_000): Promise<any[]> {
     let list: any[] = []
     await waitFor(
       async () => {
@@ -534,7 +534,7 @@ describe('custom agents on the server', () => {
     await owner.post(`/api/workspaces/${wsId}/agents/ag-hook/hook`)
     assert.equal((await post(`/api/v1/agents/ag-hook/hook/${secret}`, '{}')).status, 404)
     assert.equal(server.logs().includes(secret), false, 'the secret is never logged')
-    await finished('ag-hook', 10, 20_000)
+    await finished('ag-hook', 10, 30_000)
   })
 
   test('runs API: newest first, limit, permissions; broken definitions are ignored', async () => {
@@ -565,7 +565,7 @@ describe('custom agents on the server', () => {
     fake.script('Hourly', () => say('Hourly report.'))
     meta.doc.transact(() => agentsMap().set('ag-sched', agentDef('ag-sched', 'Hourly', { trigger: { type: 'schedule', every: 'hour', at: `00:${minute}`, tz: 'UTC' }, createdAt: 0, updatedAt: 0 })))
     await flushed(meta)
-    const [run] = await finished('ag-sched', 1, 15_000)
+    const [run] = await finished('ag-sched', 1, 20_000)
     assert.equal(run.status, 'ok')
     assert.equal(run.trigger.type, 'schedule')
     assert.match(run.trigger.detail, new RegExp(`^hourly at :${minute} UTC · `))

@@ -224,14 +224,16 @@ const readPage: AgentTool = {
         .filter((c) => c.parentId === p.id && !c.databaseId && !outOfReach(r, c.id))
         .sort((a, b) => a.order - b.order)
       if (kids.length) lines.push(`sub-pages: ${kids.slice(0, 40).map((c) => `${q(titleOf(c))} (id: ${c.id})`).join(', ')}${kids.length > 40 ? ` and ${kids.length - 40} more` : ''}`)
+      // links and mentions in the content show titles of pages in scope only ("No access" otherwise)
       const titles = new Map<string, string | null>()
-      for (const [pid, yp] of r.pages.entries()) {
-        const t = (yp as { get?: (k: string) => unknown }).get?.('title')
+      for (const pid of r.pages.keys()) {
+        const t = pageMap(r, pid)?.get('title')
         titles.set(pid, inScope(r, ctx.agent.scope, pid) ? (typeof t === 'string' && t.trim() ? t.trim() : 'Untitled') : null)
       }
       return { lines, titles, isDatabase: p.kind === 'database' }
     })
-    const md = head.isDatabase ? '' : (await ctx.s.collab.read(contentDoc(ctx.wsId, id), (doc) => fragmentMarkdown(doc, { title: (pid) => head.titles.get(pid) ?? null }))).markdown.trim()
+    if (head.isDatabase) return head.lines.join('\n')
+    const md = (await ctx.s.collab.read(contentDoc(ctx.wsId, id), (doc) => fragmentMarkdown(doc, { title: (pid) => head.titles.get(pid) ?? null }))).markdown.trim()
     const part = md.slice(offset, offset + PAGE_PART_CHARS)
     let body = md ? part : '(empty page)'
     if (offset && !part) body = `(offset ${offset} is past the end: the page has ${md.length} characters)`

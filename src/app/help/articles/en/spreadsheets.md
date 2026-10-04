@@ -10,7 +10,7 @@ summary: A real spreadsheet inside a page — several sheets, Excel-style formul
 Insert one with `/spreadsheet` (German `/tabellenkalkulation`).
 
 ## Cells and formulas
-Click a cell and type; start with `=` for a formula: `=SUM(B2:B9)`, `=IF(C2>100; "big"; "small")`, `=VLOOKUP(A2; Prices!A:B; 2)`. Both `;` and `,` separate arguments. **fx** opens the function browser — about 80 functions, searchable by name, purpose or the German Excel name (`SVERWEIS` finds VLOOKUP). Other sheets: `Sheet2!A1`.
+Click a cell and type; start with `=` for a formula: `=SUM(B2:B9)`, `=IF(C2>100; "big"; "small")`, `=VLOOKUP(A2; Prices!A:B; 2)`. Both `;` and `,` separate arguments. **fx** opens the function browser — about 80 functions, searchable by name, purpose or the German Excel name (`SVERWEIS` finds VLOOKUP). Other sheets: `Prices!A1`, or `'Sheet 2'!A1` when the name has a space.
 
 While you type, suggestions show matching functions; click cells or drag a range to insert a reference.
 

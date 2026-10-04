@@ -18,14 +18,14 @@ import { ChevronRight, Copy, FilePlus2, FolderInput, Link2, Lock, MoreHorizontal
 import { useShallow } from 'zustand/react/shallow'
 import { useWorkspace } from '../../store/store'
 import { useUI } from '../../store/ui'
-import { usePage, useRowCount } from '../../store/selectors'
+import { usePage } from '../../store/selectors'
 import { useRoute } from '../../lib/router'
 import { PageIcon } from '../../ui/PageIcon'
 import { Menu, useMenu, type MenuEntry } from '../../ui/Menu'
 import { toggleMenu } from '../lib/menu'
 import { useLang, useT } from '../../i18n'
 import type { ID } from '../../store/types'
-import { ENTRY_LIMIT, childIds, treeKey, useChildIds, useEntryIds, useEntryTotal, useSubEntryCount, useTreeState } from '../lib/tree'
+import { ENTRY_LIMIT, childIds, treeKey, useChildIds, useEntryCount, useEntryIds, useTreeState } from '../lib/tree'
 import { closeMobileSidebar, copyPageLink, createPageAndOpen, duplicateAndOpen, goToPage, trashWithUndo } from '../lib/actions'
 import { canLeaveFor, createEntryAndOpen, dropOptions, nodeKind, requestLeaveDatabase, requestMakeEntry } from './entries'
 import { useIsTouch } from '../lib/hooks'
@@ -262,8 +262,9 @@ const TreeNode = memo(function TreeNode({ id, depth, section, draggable }: { id:
   const kids = useChildIds(id)
   const kind = useWorkspace((s) => (s.pages[id] ? nodeKind(s.pages[id]) : 'page'))
   const dbId = useWorkspace((s) => s.pages[id]?.databaseId ?? null)
-  const rows = useRowCount(kind === 'database' ? id : null)
-  const subs = useSubEntryCount(kind === 'entry' ? dbId : null, id)
+  // entries are counted (and ordered) only while the database is open
+  const rows = useEntryCount(expanded && kind === 'database' ? id : null, null)
+  const subs = useEntryCount(expanded && kind === 'entry' ? dbId : null, id)
   const empty = kids.length === 0 && rows === 0 && subs === 0
   return (
     <div className="sb-node">
@@ -288,7 +289,7 @@ const TreeNode = memo(function TreeNode({ id, depth, section, draggable }: { id:
 function EntryList({ dbId, parentRow, depth, section, draggable }: { dbId: ID; parentRow: ID | null; depth: number; section: string; draggable: boolean }) {
   const route = useRoute()
   const ids = useEntryIds(dbId, parentRow, route.name === 'page' ? route.id : null)
-  const total = useEntryTotal(dbId, parentRow)
+  const total = useEntryCount(dbId, parentRow)
   return (
     <>
       {ids.map((id) => (

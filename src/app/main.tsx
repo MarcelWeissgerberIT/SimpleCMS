@@ -15,7 +15,7 @@ import { seedWorkspace } from './store/seed'
 import { refreshDemoIcons } from './store/demoIcons'
 import { applyTheme } from './lib/theme'
 import { ALL_MESSAGES, t } from './i18n'
-import { startHistory, startAutomations, startRecurringTemplates, startInbox, startSync, startMcp, startCustomFunctions, startMail, seedDemoHistory, demoFunctions } from './features'
+import { startHistory, startAutomations, startRecurringTemplates, startInbox, startSync, startMcp, startCustomFunctions, startMail, startAgents, seedDemoHistory, demoFunctions } from './features'
 import { startSyncedBlocks } from './editor'
 import { detectLang, makeTranslator } from '@/shared/i18n'
 import { STORAGE_KEYS, safeLocalGet } from '@/shared/brand'
@@ -82,6 +82,8 @@ async function boot() {
     startService('custom functions', startCustomFunctions)
     // Gmail → Mails database (Settings → Mail): schedule + "Load images"; idle until set up on this device
     startService('mail', startMail)
+    // custom agents (#/agents): the browser runner — schedules and row triggers in the leader tab
+    startService('agents', startAgents)
   }
 
   // PWA share target (/app/?title=…&text=…&url=…) → the #/clip route, before the first render

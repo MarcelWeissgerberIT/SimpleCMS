@@ -15,7 +15,7 @@ import * as Y from 'yjs'
 import { buildApp } from '../src/app.ts'
 import { loadConfig } from '../src/config.ts'
 import type { Services } from '../src/context.ts'
-import { Client, type DocClient, flushed, mailbox, openDoc, signIn, startServer, tempDir, type TestServer } from './helpers.ts'
+import { Client, type DocClient, flushed, mailbox, openDoc, signIn, startServer, tempDir, type TestServer, waitFor } from './helpers.ts'
 
 /* ------------------------------------------------------------------ fixtures */
 
@@ -165,6 +165,9 @@ interface Foreign {
   page: string
   db: string
   row: string
+  /** A custom agent of B (meta map `agents`) and one of its runs. */
+  agent: string
+  run: string
 }
 
 /**
@@ -231,6 +234,16 @@ const ROUTES: Record<string, Entry> = {
   'POST /api/workspaces/:id/hooks': { scope: 'workspace', req: (ws, x) => ({ method: 'POST', path: `${W(ws)}/hooks`, json: { databaseId: x.db } }), own: 404 },
   'POST /api/workspaces/:id/hooks/:hookId/regenerate': { scope: 'workspace', req: (ws, x) => ({ method: 'POST', path: `${W(ws)}/hooks/${x.hook}/regenerate` }), own: 404 },
   'DELETE /api/workspaces/:id/hooks/:hookId': { scope: 'workspace', req: (ws, x) => ({ method: 'DELETE', path: `${W(ws)}/hooks/${x.hook}` }), own: 404 },
+  'GET /api/workspaces/:id/agent-runtime': { scope: 'workspace', req: (ws) => ({ method: 'GET', path: `${W(ws)}/agent-runtime` }) },
+  'PUT /api/workspaces/:id/agent-runtime': { scope: 'workspace', req: (ws) => ({ method: 'PUT', path: `${W(ws)}/agent-runtime`, json: { enabled: false, claudeKey: null } }) },
+  'GET /api/workspaces/:id/agent-runs': { scope: 'workspace', req: (ws, x) => ({ method: 'GET', path: `${W(ws)}/agent-runs?agentId=${x.agent}` }) },
+  'POST /api/workspaces/:id/agents/:agentId/run': { scope: 'workspace', req: (ws, x) => ({ method: 'POST', path: `${W(ws)}/agents/${x.agent}/run` }), own: 404 },
+  'POST /api/workspaces/:id/agent-runs/:runId/apply': { scope: 'workspace', req: (ws, x) => ({ method: 'POST', path: `${W(ws)}/agent-runs/${x.run}/apply` }), own: 404 },
+  'POST /api/workspaces/:id/agent-runs/:runId/resolve': { scope: 'workspace', req: (ws, x) => ({ method: 'POST', path: `${W(ws)}/agent-runs/${x.run}/resolve`, json: { applied: [], discarded: [] } }), own: 404 },
+  'GET /api/workspaces/:id/agents/:agentId/hook': { scope: 'workspace', req: (ws, x) => ({ method: 'GET', path: `${W(ws)}/agents/${x.agent}/hook` }), own: 404 },
+  'POST /api/workspaces/:id/agents/:agentId/hook': { scope: 'workspace', req: (ws, x) => ({ method: 'POST', path: `${W(ws)}/agents/${x.agent}/hook` }), own: 404 },
+  'DELETE /api/workspaces/:id/agents/:agentId/hook': { scope: 'workspace', req: (ws, x) => ({ method: 'DELETE', path: `${W(ws)}/agents/${x.agent}/hook` }), own: 404 },
+  'POST /api/v1/agents/:agentId/hook/:secret': { scope: 'secret', why: 'the agent webhook URL secret is the credential (and names one agent)' },
 
   'GET /api/v1/workspace': { scope: 'api', req: () => ({ method: 'GET', path: '/api/v1/workspace' }), expect: (b, x) => assert.notEqual(b.id, x.ws) },
   'GET /api/v1/databases': { scope: 'api', req: () => ({ method: 'GET', path: '/api/v1/databases' }), expect: (b, x) => assert.ok(!JSON.stringify(b).includes(x.db)) },
@@ -292,7 +305,8 @@ describe('isolation sweep: a member of A against workspace B', () => {
 
   before(async () => {
     // Bob is a server admin (registration links); Alice is not
-    server = await startServer({ API_RATE_LIMIT: '1000', ADMIN_EMAILS: 'bob@sweep.test', SIGNUP: 'domains:sweep.test' })
+    // agents: a local address nothing listens on — B's run fails fast, nothing reaches a real API
+    server = await startServer({ API_RATE_LIMIT: '1000', ADMIN_EMAILS: 'bob@sweep.test', SIGNUP: 'domains:sweep.test', ANTHROPIC_BASE_URL: 'http://127.0.0.1:9' })
     alice = await signIn(server, 'alice@sweep.test')
     bob = await signIn(server, 'bob@sweep.test')
     aliceId = (await alice.get('/api/me')).body.user.id
@@ -307,6 +321,7 @@ describe('isolation sweep: a member of A against workspace B', () => {
 
     const metaB = await doc(bob, `ws:${B}`)
     seedMeta(metaB.doc, { db: 'db-bravo', row: 'row-bravo', page: 'page-bravo' }, MARKER)
+    metaB.doc.getMap('agents').set('ag-bravo', { id: 'ag-bravo', name: `Agent ${MARKER}`, instructions: MARKER, trigger: { type: 'manual' }, scope: { everything: true, pages: [], databases: [] }, write: 'apply', runner: 'server', enabled: true, maxRunUsd: 1, createdAt: 1, updatedAt: 1 })
     await flushed(metaB)
     const pageB = await doc(bob, `ws:${B}:p:page-bravo`)
     writeText(pageB.doc, `content of B ${MARKER}`)
@@ -324,7 +339,12 @@ describe('isolation sweep: a member of A against workspace B', () => {
     hookSecretB = hook.url.split('/hooks/')[1]
     const signupLink = (await bob.post('/api/server/signup-links', { max_uses: 5 })).body
     assert.ok(signupLink.id, JSON.stringify(signupLink))
-    x = { ws: B, owner: bobId, invite: invite.id, token: token.id, hook: hook.id, signupLink: signupLink.id, file: 'file-bravo', page: 'page-bravo', db: 'db-bravo', row: 'row-bravo' }
+    // B's agent runtime, a run of B's agent (it ends as an error: the API address is unreachable) and its webhook URL
+    assert.equal((await bob.json('PUT', `${W(B)}/agent-runtime`, { claudeKey: `sk-ant-sweep-${MARKER}-000000`, enabled: true })).status, 200)
+    const runId = (await bob.post(`${W(B)}/agents/ag-bravo/run`)).body.runId
+    await waitFor(async () => (await bob.get(`${W(B)}/agent-runs`)).body[0]?.status === 'error', 15_000, 'B\'s run ends')
+    assert.equal((await bob.post(`${W(B)}/agents/ag-bravo/hook`)).status, 201)
+    x = { ws: B, owner: bobId, invite: invite.id, token: token.id, hook: hook.id, signupLink: signupLink.id, file: 'file-bravo', page: 'page-bravo', db: 'db-bravo', row: 'row-bravo', agent: 'ag-bravo', run: runId }
   })
 
   after(async () => {
@@ -469,5 +489,10 @@ describe('isolation sweep: a member of A against workspace B', () => {
     assert.deepEqual(rows.rows.map((r) => r.title), [`Row ${MARKER}`])
     // B's hook still answers
     assert.equal((await fetch(`${server.url}/api/v1/hooks/${hookSecretB}`)).status, 200)
+    // B's agent runtime, its run and its webhook URL are as B left them
+    const runtime = (await bob.get(`${W(x.ws)}/agent-runtime`)).body
+    assert.deepEqual([runtime.enabled, runtime.claudeKey.set], [true, true])
+    assert.deepEqual((await bob.get(`${W(x.ws)}/agent-runs`)).body.map((r: { id: string; status: string }) => [r.id, r.status]), [[x.run, 'error']])
+    assert.equal((await bob.get(`${W(x.ws)}/agents/${x.agent}/hook`)).body.set, true)
   })
 })
