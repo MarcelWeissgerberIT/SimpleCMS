@@ -1,0 +1,92 @@
+/**
+ * "Pick from list" (Alt+↓ / the cell menu): the distinct texts of the cell's column in a small
+ * listbox — type to narrow, ↑↓ to move, ↵ to take, Esc to close.
+ */
+import { useId, useMemo, useState } from 'react'
+import { Popover } from '../../../ui/Popover'
+
+export interface PickListProps {
+  anchor: Element | null
+  entries: string[]
+  /** the column letter (spec label) */
+  column: string
+  /** text to start the search with (what was typed in the cell) */
+  initial?: string
+  t: (key: string, vars?: Record<string, string | number>) => string
+  onPick: (value: string) => void
+  onClose: () => void
+}
+
+const fold = (s: string) => s.toLocaleLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+
+export function PickList({ anchor, entries, column, initial = '', t, onPick, onClose }: PickListProps) {
+  const id = useId()
+  const [q, setQ] = useState(initial)
+  const [active, setActive] = useState(0)
+  const list = useMemo(() => {
+    const f = fold(q.trim())
+    if (!f) return entries
+    // starts-with first, then contains
+    const starts = entries.filter((e) => fold(e).startsWith(f))
+    return [...starts, ...entries.filter((e) => !starts.includes(e) && fold(e).includes(f))]
+  }, [entries, q])
+  const sel = Math.min(active, Math.max(0, list.length - 1))
+
+  return (
+    <Popover open={!!anchor} anchor={anchor} onClose={onClose} placement="bottom-start" className="sh-pick" role="dialog" aria-label={t('features.sheets.pick.title')}>
+      <input
+        className="input sh-pick__search"
+        data-autofocus=""
+        value={q}
+        placeholder={t('features.sheets.pick.search')}
+        aria-label={t('features.sheets.pick.search')}
+        role="combobox"
+        aria-expanded
+        aria-controls={id}
+        aria-activedescendant={list.length ? `${id}-${sel}` : undefined}
+        spellCheck={false}
+        autoComplete="off"
+        onChange={(e) => {
+          setQ(e.target.value)
+          setActive(0)
+        }}
+        onKeyDown={(e) => {
+          if (e.nativeEvent.isComposing) return
+          const n = list.length || 1
+          if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+            e.preventDefault()
+            setActive((sel + (e.key === 'ArrowDown' ? 1 : n - 1)) % n)
+          } else if (e.key === 'Home' || e.key === 'End') {
+            if (!list.length) return
+            e.preventDefault()
+            setActive(e.key === 'Home' ? 0 : list.length - 1)
+          } else if ((e.key === 'Enter' || e.key === 'Tab') && list[sel] !== undefined) {
+            e.preventDefault()
+            onPick(list[sel])
+          }
+        }}
+      />
+      <div className="sh-pick__list" id={id} role="listbox" aria-label={t('features.sheets.pick.title')}>
+        {list.length === 0 && <div className="sh-pick__empty">{entries.length ? t('features.sheets.pick.none') : t('features.sheets.pick.empty')}</div>}
+        {list.map((e, i) => (
+          <div
+            key={e}
+            id={`${id}-${i}`}
+            role="option"
+            aria-selected={i === sel}
+            className={`sh-pick__item${i === sel ? ' is-active' : ''}`}
+            onMouseEnter={() => setActive(i)}
+            onMouseDown={(ev) => ev.preventDefault()}
+            onClick={() => onPick(e)}
+            ref={i === sel ? (el) => el?.scrollIntoView({ block: 'nearest' }) : undefined}
+          >
+            {e}
+          </div>
+        ))}
+      </div>
+      <div className="sh-pick__foot label" aria-hidden>
+        {t(list.length === 1 ? 'features.sheets.pick.count1' : 'features.sheets.pick.count', { n: list.length, col: column })}
+      </div>
+    </Popover>
+  )
+}

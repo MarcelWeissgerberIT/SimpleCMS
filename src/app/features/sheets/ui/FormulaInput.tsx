@@ -2,6 +2,8 @@
  * The formula input (formula bar and in-cell editor): an <input> over a coloured mirror of its
  * text — every DS(…) group in its colour, other references in theirs (the grid draws the same
  * colours) — with function / dataset autocomplete and a signature hint (current argument marked).
+ * Plain text may carry a ghost completion (AutoComplete from the column): drawn selected after
+ * the typed text in the mirror, never part of the input's value until it is accepted.
  */
 import { useEffect, useId, useMemo, useState, type KeyboardEvent, type ReactNode, type RefObject } from 'react'
 import { callAt, getFunction, listFunctions, paintFormula, wordAt, type FnSpec } from '../engine'
@@ -36,6 +38,8 @@ export interface FormulaInputProps {
   readOnly?: boolean
   placeholder?: string
   style?: React.CSSProperties
+  /** AutoComplete: the entry that completes the typed text (shown after it, selected) */
+  ghost?: string | null
 }
 
 /** Coloured segments of the text (formulas only). */
@@ -94,7 +98,7 @@ function signature(spec: FnSpec, arg: number, lang: 'en' | 'de'): ReactNode {
   )
 }
 
-export function FormulaInput({ value, caret, onChange, onCaret, onKeyDown, onFocus, onBlur, inputRef, active, datasets, lang, className, ariaLabel, readOnly, placeholder, style }: FormulaInputProps) {
+export function FormulaInput({ value, caret, onChange, onCaret, onKeyDown, onFocus, onBlur, inputRef, active, datasets, lang, className, ariaLabel, readOnly, placeholder, style, ghost }: FormulaInputProps) {
   const t = useT()
   const listId = useId()
   const [index, setIndex] = useState(0)
@@ -103,6 +107,7 @@ export function FormulaInput({ value, caret, onChange, onCaret, onKeyDown, onFoc
   const [focused, setFocused] = useState(false)
 
   const formula = value[0] === '='
+  const rest = !formula && ghost && ghost.length > value.length && ghost.toLocaleLowerCase().startsWith(value.toLocaleLowerCase()) ? ghost.slice(value.length) : ''
   const body = formula ? value.slice(1) : ''
   const caretB = caret - 1
 
@@ -153,7 +158,9 @@ export function FormulaInput({ value, caret, onChange, onCaret, onKeyDown, onFoc
     const pos = start + insert.length + (s.kind === 'fn' && next ? 1 : 0)
     onChange(text, pos)
     requestAnimationFrame(() => {
-      inputRef.current?.setSelectionRange(pos, pos)
+      // not when typing went on before this frame: the caret is already where it belongs
+      const el = inputRef.current
+      if (el && el.value === text) el.setSelectionRange(pos, pos)
       sync()
     })
   }
@@ -184,7 +191,16 @@ export function FormulaInput({ value, caret, onChange, onCaret, onKeyDown, onFoc
   return (
     <div ref={setAnchor} className={`fx-input${formula ? ' is-formula' : ''} ${className ?? ''}`} style={style}>
       <div className="fx-input__mirror" aria-hidden>
-        {formula ? mirror(value) : null}
+        {formula ? (
+          mirror(value)
+        ) : rest ? (
+          <>
+            <span className="fx-ghost__typed">{value}</span>
+            <span className="fx-ghost" data-ghost="">
+              {rest}
+            </span>
+          </>
+        ) : null}
       </div>
       <input
         ref={inputRef}
@@ -195,7 +211,8 @@ export function FormulaInput({ value, caret, onChange, onCaret, onKeyDown, onFoc
         spellCheck={false}
         autoComplete="off"
         aria-label={ariaLabel}
-        aria-autocomplete="list"
+        aria-description={rest ? ghost! : undefined}
+        aria-autocomplete={formula ? 'list' : 'both'}
         aria-expanded={open}
         aria-controls={open ? listId : undefined}
         aria-activedescendant={open ? `${listId}-${sel}` : undefined}

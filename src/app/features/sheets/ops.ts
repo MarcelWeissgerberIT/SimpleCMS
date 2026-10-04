@@ -12,6 +12,7 @@ import {
   colIndex,
   colName,
   dropSheetRefs,
+  fillLine,
   lex,
   MAX_COLS,
   MAX_ROWS,
@@ -21,6 +22,7 @@ import {
   rewriteRefs,
   sameName,
   shiftFormula,
+  type FillMode,
   type Rect,
   type StructOp,
 } from './engine'
@@ -335,6 +337,103 @@ export function fill(a: A, sheetId: string, rect: Rect, dir: 'down' | 'right'): 
       changes[a1(r, c)] = { ...cell, v }
     }
   return setCells(a, sheetId, changes)
+}
+
+/* ------------------------------------------------------------------ */
+/* AutoFill (fill handle, Fill series)                                 */
+/* ------------------------------------------------------------------ */
+
+/** Which way `dest` extends `src` (null: it doesn't). */
+export function fillDirection(src: Rect, dest: Rect): 'down' | 'up' | 'right' | 'left' | null {
+  if (dest.bottom > src.bottom) return 'down'
+  if (dest.top < src.top) return 'up'
+  if (dest.right > src.right) return 'right'
+  if (dest.left < src.left) return 'left'
+  return null
+}
+
+/** The cells `src` continues with across `dest` (src ∪ the extension), by address. */
+function fillChanges(s: SheetData, src: Rect, dest: Rect, mode: FillMode, lang: 'en' | 'de', firstLineOnly = false): Record<string, SheetCell | null> {
+  const dir = fillDirection(src, dest)
+  const changes: Record<string, SheetCell | null> = {}
+  if (!dir) return changes
+  const vertical = dir === 'down' || dir === 'up'
+  const len = vertical ? src.bottom - src.top + 1 : src.right - src.left + 1
+  const ext = dir === 'down' ? dest.bottom - src.bottom : dir === 'up' ? src.top - dest.top : dir === 'right' ? dest.right - src.right : src.left - dest.left
+  const at = Array.from({ length: ext }, (_, i) => (dir === 'down' || dir === 'right' ? len + i : -1 - i))
+  const [from, to] = vertical ? [src.left, src.right] : [src.top, src.bottom]
+  for (let k = from; k <= (firstLineOnly ? from : to); k++) {
+    const seed: Array<SheetCell | null> = []
+    for (let i = 0; i < len; i++) seed.push(s.cells[vertical ? a1(src.top + i, k) : a1(k, src.left + i)] ?? null)
+    const out = fillLine(seed, at, vertical, mode, lang)
+    at.forEach((p, i) => {
+      const addr = vertical ? a1(src.top + p, k) : a1(k, src.left + p)
+      changes[addr] = out[i]
+    })
+  }
+  return changes
+}
+
+/**
+ * The fill handle: `src` (the selection) continued across `dest` — series, names, numbered text,
+ * dates, shifted formulas, formats — as one patch (one undo step).
+ */
+export function autoFill(a: A, sheetId: string, src: Rect, dest: Rect, mode: FillMode = 'auto', lang: 'en' | 'de' = 'en'): Patch {
+  const s = sheetOf(a, sheetId)
+  if (!s) return {}
+  const clipped: Rect = { top: Math.max(0, dest.top), left: Math.max(0, dest.left), bottom: Math.min(s.rows - 1, dest.bottom), right: Math.min(s.cols - 1, dest.right) }
+  return setCells(a, sheetId, fillChanges(s, src, clipped, mode, lang))
+}
+
+/** What the far end of the fill's first line would hold (the drag tooltip). */
+export function fillEndCell(a: A, sheetId: string, src: Rect, dest: Rect, mode: FillMode = 'auto', lang: 'en' | 'de' = 'en'): { cell: SheetCell | null; addr: string } | null {
+  const s = sheetOf(a, sheetId)
+  const dir = fillDirection(src, dest)
+  if (!s || !dir) return null
+  const addr = dir === 'down' ? a1(dest.bottom, src.left) : dir === 'up' ? a1(dest.top, src.left) : dir === 'right' ? a1(src.top, dest.right) : a1(src.top, dest.left)
+  const far: Rect = dir === 'down' ? { ...src, bottom: dest.bottom } : dir === 'up' ? { ...src, top: dest.top } : dir === 'right' ? { ...src, right: dest.right } : { ...src, left: dest.left }
+  const changes = fillChanges(s, src, far, mode, lang, true)
+  return { cell: changes[addr] ?? null, addr }
+}
+
+/**
+ * "Fill series": each column of a taller-than-one-row selection (else each row) continues from
+ * its leading filled cells to the end of the selection.
+ */
+export function fillSeriesIn(a: A, sheetId: string, rect: Rect, lang: 'en' | 'de' = 'en'): Patch {
+  const s = sheetOf(a, sheetId)
+  if (!s) return {}
+  const bottom = Math.min(rect.bottom, s.rows - 1)
+  const right = Math.min(rect.right, s.cols - 1)
+  const vertical = bottom > rect.top
+  const changes: Record<string, SheetCell | null> = {}
+  const [from, to] = vertical ? [rect.left, right] : [rect.top, bottom]
+  const len = vertical ? bottom - rect.top + 1 : right - rect.left + 1
+  for (let k = from; k <= to; k++) {
+    const addr = (i: number) => (vertical ? a1(rect.top + i, k) : a1(k, rect.left + i))
+    let lead = 0
+    while (lead < len && s.cells[addr(lead)]?.v) lead++
+    if (!lead || lead >= len) continue
+    const src: Rect = vertical ? { top: rect.top, bottom: rect.top + lead - 1, left: k, right: k } : { top: k, bottom: k, left: rect.left, right: rect.left + lead - 1 }
+    const dest: Rect = vertical ? { ...src, bottom } : { ...src, right }
+    Object.assign(changes, fillChanges(s, src, dest, 'series', lang))
+  }
+  return setCells(a, sheetId, changes)
+}
+
+/**
+ * Double-click on the fill handle: the last row to fill down to — the end of the data in the
+ * column left of the selection (else right of it), from the row below the selection; null when
+ * neither has data there.
+ */
+export function fillDownEnd(s: SheetData, src: Rect): number | null {
+  for (const c of [src.left - 1, src.right + 1]) {
+    if (c < 0 || c >= s.cols) continue
+    let r = src.bottom
+    while (r + 1 < s.rows && s.cells[a1(r + 1, c)]?.v) r++
+    if (r > src.bottom) return r
+  }
+  return null
 }
 
 /** Format / style patch on every cell of the rectangles. */

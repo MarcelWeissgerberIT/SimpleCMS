@@ -1,7 +1,9 @@
 /**
  * Spreadsheet block: insertion, formulas, references while editing (colours, point mode),
  * structure edits with reference adjustment, sheets, clipboard, formats, function browser,
- * datasets DS(…), undo, persistence, exports, share links, phone width, German UI.
+ * datasets DS(…), undo, persistence, exports, share links, phone width, German UI; AutoComplete of
+ * cell values, Pick from list (Alt+↓), the fill handle (series, names, dates, formulas, double-click,
+ * autoscroll, touch) and Fill series.
  */
 import { readFileSync } from 'node:fs'
 import type { Page } from '@playwright/test'
@@ -50,6 +52,27 @@ async function enter(page: Page, addr: string, text: string) {
   await page.keyboard.type(text)
   await page.keyboard.press('Enter')
 }
+
+/** Drag the fill handle of the selection to the middle of a cell (optionally holding Ctrl). */
+async function dragFill(page: Page, to: string, opts: { ctrl?: boolean; check?: (page: Page) => Promise<void> } = {}) {
+  const h = (await page.locator('.sheet .sg-fill').boundingBox())!
+  const t = (await cell(page, to).boundingBox())!
+  await page.mouse.move(h.x + h.width / 2, h.y + h.height / 2)
+  await page.mouse.down()
+  await page.mouse.move(t.x + t.width / 2, t.y + t.height / 2, { steps: 6 })
+  if (opts.ctrl) await page.keyboard.down('Control')
+  await opts.check?.(page)
+  await page.mouse.up()
+  if (opts.ctrl) await page.keyboard.up('Control')
+}
+
+/** Select a range by click + shift-click. */
+async function select(page: Page, from: string, to?: string) {
+  await cell(page, from).click()
+  if (to) await cell(page, to).click({ modifiers: ['Shift'] })
+}
+
+const ghost = (page: Page, where: 'cell' | 'bar' = 'cell') => page.locator(`.fx-input--${where} .fx-ghost`)
 
 /** The block's attrs as stored (after the editor's write debounce). */
 async function stored(page: Page, id: string): Promise<{ sheets: Array<{ id: string; name: string; cells: Record<string, { v?: string; fmt?: { type: string } }> }>; datasets: Array<{ name: string; ranges: Array<{ sheet: string; ref: string }> }>; active: string }> {
@@ -510,6 +533,349 @@ test.describe('spreadsheet block', () => {
     await expect(cell(page, 'B2')).toHaveText('42')
   })
 
+  test('AutoComplete: the column proposes, Enter / Tab / → take it, Backspace drops it, numbers and formulas never', async ({ page }) => {
+    await openApp(page)
+    const id = await sheetPage(page, [['Sheet 1', { A1: 'Task', A2: 'Website relaunch', A3: 'Design review', C1: '12 apples', C2: '7' }]])
+    const input = page.locator('.fx-input--cell input')
+
+    // typing under the entries: the nearest match appears after the typed text (cell and formula bar)
+    await cell(page, 'A4').click()
+    await page.keyboard.type('web')
+    await expect(input).toHaveValue('web')
+    await expect(ghost(page)).toHaveText('site relaunch')
+    await expect(ghost(page, 'bar')).toHaveText('site relaunch')
+    // Enter takes it, with the entry's casing, and moves down
+    await page.keyboard.press('Enter')
+    await expect(cell(page, 'A4')).toHaveText('Website relaunch')
+    await expect(page.locator('.sh-bar__ref')).toHaveText('A5')
+
+    // typing narrows; Backspace drops the proposal and keeps the typed text; typing on proposes again
+    await page.keyboard.type('D')
+    await expect(ghost(page)).toHaveText('esign review')
+    await page.keyboard.type('es')
+    await expect(ghost(page)).toHaveText('ign review')
+    await page.keyboard.press('Backspace')
+    await expect(ghost(page)).toHaveCount(0)
+    await expect(input).toHaveValue('Des')
+    await page.keyboard.type('i')
+    await expect(ghost(page)).toHaveText('gn review')
+    // Esc cancels the edit as always
+    await page.keyboard.press('Escape')
+    await expect(cell(page, 'A5')).toHaveText('')
+
+    // Tab takes it and moves right
+    await page.keyboard.type('d')
+    await page.keyboard.press('Tab')
+    await expect(cell(page, 'A5')).toHaveText('Design review')
+    await expect(page.locator('.sh-bar__ref')).toHaveText('B5')
+
+    // → takes it and keeps editing
+    await cell(page, 'A6').click()
+    await page.keyboard.type('Webs')
+    await page.keyboard.press('ArrowRight')
+    await expect(input).toHaveValue('Website relaunch')
+    await expect(ghost(page)).toHaveCount(0)
+    await page.keyboard.type(' 2')
+    await page.keyboard.press('Enter')
+    await expect(cell(page, 'A6')).toHaveText('Website relaunch 2')
+
+    // numbers are never completed (nor completing), formulas neither
+    await cell(page, 'C3').click()
+    await page.keyboard.type('12')
+    await expect(ghost(page)).toHaveCount(0)
+    await page.keyboard.press('Enter')
+    await expect(cell(page, 'C3')).toHaveText('12')
+    await cell(page, 'C4').click()
+    await page.keyboard.type('=1')
+    await expect(ghost(page)).toHaveCount(0)
+    await page.keyboard.press('Escape')
+    await expect(cell(page, 'C4')).toHaveText('')
+
+    // the formula bar completes as well
+    await cell(page, 'A7').click()
+    await page.getByRole('textbox', { name: 'Formula' }).click()
+    await page.keyboard.type('Desi')
+    await expect(ghost(page, 'bar')).toHaveText('gn review')
+    await page.keyboard.press('Enter')
+    await expect(cell(page, 'A7')).toHaveText('Design review')
+
+    const a = await stored(page, id)
+    expect(a.sheets[0].cells.A4.v).toBe('Website relaunch')
+    expect(a.sheets[0].cells.A6.v).toBe('Website relaunch 2')
+    expect(a.sheets[0].cells.C3.v).toBe('12')
+  })
+
+  test('AutoComplete can be switched off per device (⋯ menu), and stays off after a reload', async ({ page }) => {
+    await openApp(page)
+    await sheetPage(page, [['Sheet 1', { A1: 'Website relaunch' }]])
+    const more = page.locator('.sheet .sh-tb').getByRole('button', { name: 'More', exact: true })
+    await more.click()
+    const item = page.getByRole('menuitem', { name: /AutoComplete cell values/ })
+    await expect(item).toContainText('ON')
+    await item.click()
+    await cell(page, 'A2').click()
+    await page.keyboard.type('Web')
+    await expect(ghost(page)).toHaveCount(0)
+    await page.keyboard.press('Enter')
+    await expect(cell(page, 'A2')).toHaveText('Web')
+    expect(await page.evaluate(() => localStorage.getItem('one.sheets.autocomplete'))).toBe('0')
+
+    await reloadApp(page)
+    await cell(page, 'A3').click()
+    await page.keyboard.type('Webs')
+    await expect(ghost(page)).toHaveCount(0)
+    await page.keyboard.press('Escape')
+    await more.click()
+    await expect(page.getByRole('menuitem', { name: /AutoComplete cell values/ })).toContainText('OFF')
+    await page.getByRole('menuitem', { name: /AutoComplete cell values/ }).click()
+    await cell(page, 'A3').click()
+    await page.keyboard.type('Webs')
+    await expect(ghost(page)).toHaveText('ite relaunch')
+  })
+
+  test('Pick from list: Alt+↓ and the cell menu offer the column texts, type to narrow, ↵ takes', async ({ page }) => {
+    await openApp(page)
+    const id = await sheetPage(page, [['Sheet 1', { B1: 'Owner', B2: 'Grace', B3: 'Ada', B4: 'grace', B5: '42' }]])
+    await cell(page, 'B6').click()
+    await page.keyboard.press('Alt+ArrowDown')
+    const list = page.getByRole('dialog', { name: 'Pick from list' })
+    await expect(list.getByRole('option')).toHaveText(['Ada', 'grace', 'Owner'])
+    await expect(list).toContainText('3 ENTRIES · COLUMN B')
+    await page.keyboard.type('ow')
+    await expect(list.getByRole('option')).toHaveText(['Owner'])
+    await page.keyboard.press('Enter')
+    await expect(list).toHaveCount(0)
+    await expect(cell(page, 'B6')).toHaveText('Owner')
+    // the grid has the keyboard again
+    await page.keyboard.press('ArrowDown')
+    await expect(page.locator('.sh-bar__ref')).toHaveText('B7')
+
+    // from the cell menu, ↓ ↵; Esc closes without writing
+    await cell(page, 'B7').click({ button: 'right' })
+    await page.getByRole('menuitem', { name: 'Pick from list…' }).click()
+    await expect(list.getByRole('option').first()).toHaveAttribute('aria-selected', 'true')
+    await page.keyboard.press('ArrowDown')
+    await page.keyboard.press('Enter')
+    await expect(cell(page, 'B7')).toHaveText('grace')
+    await cell(page, 'B8').click()
+    await page.keyboard.press('Alt+ArrowDown')
+    await expect(list).toBeVisible()
+    await page.keyboard.press('Escape')
+    await expect(list).toHaveCount(0)
+    await expect(cell(page, 'B8')).toHaveText('')
+    await expect(page.locator('.sheet .sg')).toBeFocused()
+
+    // while typing in a cell, the list starts filtered by the typed text
+    await page.keyboard.type('a')
+    await page.keyboard.press('Alt+ArrowDown')
+    await expect(list.getByRole('option')).toHaveText(['Ada', 'grace'])
+    await page.keyboard.press('Enter')
+    await expect(cell(page, 'B8')).toHaveText('Ada')
+    const a = await stored(page, id)
+    expect(a.sheets[0].cells.B6.v).toBe('Owner')
+    expect(a.sheets[0].cells.B8.v).toBe('Ada')
+  })
+
+  test('fill handle: number series, dates, weekdays, months, numbered text, formulas, Ctrl copies / counts, undo in one step', async ({ page }) => {
+    await openApp(page)
+    const id = await sheetPage(page, [
+      [
+        'Sheet 1',
+        {
+          A1: '1',
+          A2: '2',
+          B1: '2026-01-31',
+          B2: '2026-02-28',
+          C1: 'Mon',
+          D1: 'Januar',
+          E1: 'Item 1',
+          F1: '=A1*2+$A$1',
+          C6: { v: '5', fmt: { type: 'currency', currency: 'EUR' } },
+          C8: '5',
+          A12: 'Q1',
+        },
+      ],
+    ])
+
+    // 1, 2 → 3 … 6, with a live preview and the last value in the tooltip
+    await select(page, 'A1', 'A2')
+    await dragFill(page, 'A6', {
+      check: async (p) => {
+        await expect(p.locator('.sheet .sg-fillprev')).toHaveCount(1)
+        await expect(p.locator('.sheet .sg-fillprev__tip')).toHaveText('→ 6')
+      },
+    })
+    await expect(page.locator('.sheet .sg-fillprev')).toHaveCount(0)
+    for (const [addr, v] of [['A3', '3'], ['A4', '4'], ['A5', '5'], ['A6', '6']]) await expect(cell(page, addr)).toHaveText(v)
+    // the filled range is selected
+    await expect(page.locator('.sh-bar__ref')).toHaveText('A1:A6')
+
+    // month ends stay month ends
+    await select(page, 'B1', 'B2')
+    await dragFill(page, 'B4')
+    await expect(cell(page, 'B3')).toHaveText('Mar 31, 2026')
+    await expect(cell(page, 'B4')).toHaveText('Apr 30, 2026')
+
+    // weekday and month names, numbered text
+    await select(page, 'C1')
+    await dragFill(page, 'C4')
+    await expect(cell(page, 'C2')).toHaveText('Tue')
+    await expect(cell(page, 'C4')).toHaveText('Thu')
+    await select(page, 'D1')
+    await dragFill(page, 'D3')
+    await expect(cell(page, 'D2')).toHaveText('Februar')
+    await expect(cell(page, 'D3')).toHaveText('März')
+    await select(page, 'E1')
+    await dragFill(page, 'E3')
+    await expect(cell(page, 'E2')).toHaveText('Item 2')
+    await expect(cell(page, 'E3')).toHaveText('Item 3')
+
+    // formulas shift their relative references, $A$1 stays
+    await select(page, 'F1')
+    await dragFill(page, 'F3')
+    await expect(cell(page, 'F2')).toHaveText('5')
+    await expect(cell(page, 'F3')).toHaveText('7')
+
+    // one number is copied (format too); Ctrl-drag counts up
+    await select(page, 'C6')
+    await dragFill(page, 'C7')
+    await expect(cell(page, 'C7')).toHaveText('€5.00')
+    await select(page, 'C8')
+    await dragFill(page, 'C10', { ctrl: true })
+    await expect(cell(page, 'C9')).toHaveText('6')
+    await expect(cell(page, 'C10')).toHaveText('7')
+
+    // to the right: Q1 → Q2, Q3
+    await select(page, 'A12')
+    await dragFill(page, 'C12')
+    await expect(cell(page, 'B12')).toHaveText('Q2')
+    await expect(cell(page, 'C12')).toHaveText('Q3')
+
+    let a = await stored(page, id)
+    const c = a.sheets[0].cells
+    expect(c.B3.v).toBe('2026-03-31')
+    expect(c.F2.v).toBe('=A2*2+$A$1')
+    expect(c.F3.v).toBe('=A3*2+$A$1')
+    expect(c.C7).toEqual({ v: '5', fmt: { type: 'currency', currency: 'EUR' } })
+
+    // one undo step takes the whole last fill back
+    await page.keyboard.press(`${MOD}+z`)
+    await expect(cell(page, 'B12')).toHaveText('')
+    await expect(cell(page, 'C12')).toHaveText('')
+    await expect(cell(page, 'A12')).toHaveText('Q1')
+    await expect(cell(page, 'C10')).toHaveText('7')
+    a = await stored(page, id)
+    expect(a.sheets[0].cells.B12).toBeUndefined()
+  })
+
+  test('fill handle: double-click fills down to the end of the neighbour column; drag up continues backwards; Esc cancels', async ({ page }) => {
+    await openApp(page)
+    const id = await sheetPage(page, [['Sheet 1', { A1: '10', A2: '20', A3: '30', A4: '40', A5: '50', B1: '=A1*2', D5: '5', D6: '6' }]])
+    await select(page, 'B1')
+    const h = (await page.locator('.sheet .sg-fill').boundingBox())!
+    await page.mouse.dblclick(h.x + h.width / 2, h.y + h.height / 2)
+    await expect(cell(page, 'B5')).toHaveText('100')
+    await expect(cell(page, 'B6')).toHaveText('')
+    await expect(page.locator('.sh-bar__ref')).toHaveText('B1:B5')
+    let a = await stored(page, id)
+    expect(a.sheets[0].cells.B5.v).toBe('=A5*2')
+
+    // dragging up continues a series backwards
+    await select(page, 'D5', 'D6')
+    await dragFill(page, 'D2')
+    await expect(cell(page, 'D2')).toHaveText('2')
+    await expect(cell(page, 'D4')).toHaveText('4')
+
+    // Esc during the drag cancels it
+    await select(page, 'A5')
+    const box = (await page.locator('.sheet .sg-fill').boundingBox())!
+    const to = (await cell(page, 'A8').boundingBox())!
+    await page.mouse.move(box.x + 3, box.y + 3)
+    await page.mouse.down()
+    await page.mouse.move(to.x + 10, to.y + 10, { steps: 4 })
+    await expect(page.locator('.sheet .sg-fillprev')).toHaveCount(1)
+    await page.keyboard.press('Escape')
+    await expect(page.locator('.sheet .sg-fillprev')).toHaveCount(0)
+    await page.mouse.up()
+    await expect(cell(page, 'A6')).toHaveText('')
+    a = await stored(page, id)
+    expect(a.sheets[0].cells.A6).toBeUndefined()
+  })
+
+  test('Fill series (cell menu, also from the keyboard) continues each column from its first cells', async ({ page }) => {
+    await openApp(page)
+    const id = await sheetPage(page, [['Sheet 1', { A1: '3', B1: 'Mo', C1: '2026-10-30' }]])
+    await select(page, 'A1', 'C4')
+    // Shift+F10 opens the cell menu under the active cell
+    await page.keyboard.press('Shift+F10')
+    await page.getByRole('menuitem', { name: 'Fill series' }).click()
+    await expect(page.locator('.sheet .sg')).toBeFocused()
+    await expect(cell(page, 'A4')).toHaveText('6')
+    await expect(cell(page, 'B4')).toHaveText('Do')
+    await expect(cell(page, 'C4')).toHaveText('Nov 2, 2026')
+    const a = await stored(page, id)
+    expect(a.sheets[0].cells.A2.v).toBe('4')
+    expect(a.sheets[0].cells.C3.v).toBe('2026-11-01')
+  })
+
+  test('fill handle: frozen row, virtualised rows and autoscroll at the edge; a chart follows live; read-only shows no handle', async ({ page }) => {
+    await openApp(page)
+    const id = await createPage(page, {
+      title: 'Long sheet',
+      content: {
+        type: 'doc',
+        content: [
+          {
+            type: 'spreadsheet',
+            attrs: {
+              title: '',
+              sheets: [{ id: 's1', name: 'Sheet 1', rows: 120, cols: 4, frozenRows: 1, cells: { A1: { v: 'n' }, A2: { v: '1' }, A3: { v: '2' }, B1: { v: '=SUM(A2:A120)' } }, colWidths: {} }],
+              active: 's1',
+              datasets: [],
+              charts: [{ id: 'c1', sheet: 's1', spec: { kind: 'bar', title: 'Run', source: { kind: 'inline', ref: 'A1:A6' } } }],
+            },
+          },
+          { type: 'paragraph' },
+        ],
+      },
+    })
+    await gotoPage(page, id)
+    await expect(page.locator('.sheet .sg-cell').first()).toBeVisible()
+    await select(page, 'A2', 'A3')
+    const vp = page.locator('.sheet .sg')
+    await vp.scrollIntoViewIfNeeded()
+    const box = (await vp.boundingBox())!
+    const h = (await page.locator('.sheet .sg-fill').boundingBox())!
+    const edge = Math.min(box.y + box.height, page.viewportSize()!.height) - 4
+    await page.mouse.move(h.x + h.width / 2, h.y + h.height / 2)
+    await page.mouse.down()
+    await page.mouse.move(box.x + 70, edge, { steps: 6 })
+    // holding at the edge scrolls the grid on its own
+    await expect.poll(() => vp.evaluate((el) => el.scrollTop), { timeout: 5000 }).toBeGreaterThan(300)
+    await page.mouse.up()
+    const a = await stored(page, id)
+    const cells = a.sheets[0].cells
+    const filled = Object.keys(cells).filter((k) => /^A\d+$/.test(k) && k !== 'A1').map((k) => Number(k.slice(1)))
+    const last = Math.max(...filled)
+    expect(last).toBeGreaterThan(25)
+    for (let r = 2; r <= last; r++) expect(cells[`A${r}`]?.v).toBe(String(r - 1))
+    // the frozen header row was not touched, the sum follows
+    expect(cells.A1.v).toBe('n')
+    await vp.evaluate((el) => (el.scrollTop = 0))
+    await expect(cell(page, 'B1')).toHaveText(String(((last - 1) * last) / 2))
+    // the chart reads the filled cells
+    await page.locator('.sheet .sh-chart').getByRole('button', { name: 'Data table' }).click()
+    await expect(page.locator('.sheet .sh-chart .ch-table')).toContainText('5')
+
+    // locked page: no handle, no pick list
+    await wsEval(page, (s, id) => s.updatePageSettings(id, { locked: true }), id)
+    await expect(page.locator('.sheet.is-readonly')).toBeVisible()
+    await cell(page, 'A4').click()
+    await expect(page.locator('.sheet .sg-fill')).toHaveCount(0)
+    await page.keyboard.press('Alt+ArrowDown')
+    await expect(page.getByRole('dialog', { name: 'Pick from list' })).toHaveCount(0)
+  })
+
   test('German UI', async ({ page }) => {
     await openApp(page)
     await wsEval(page, (s) => s.updateSettings({ language: 'de' }))
@@ -529,5 +895,59 @@ test.describe('spreadsheet block', () => {
     await expect(cell(page, 'A2')).toHaveText('3')
     await enter(page, 'A3', '=1/0')
     await expect(cell(page, 'A3')).toHaveAttribute('title', 'Division durch null')
+
+    // AutoFill + AutoComplete in German: "Jan" continues with "Mär", the menus speak German
+    await enter(page, 'B1', 'Jan')
+    await select(page, 'B1')
+    await dragFill(page, 'B3')
+    await expect(cell(page, 'B3')).toHaveText('Mär')
+    await page.locator('.sheet .sh-tb').getByRole('button', { name: 'Mehr', exact: true }).click()
+    await expect(page.getByRole('menuitem', { name: /AutoVervollständigen für Zellwerte/ })).toContainText('AN')
+    await page.keyboard.press('Escape')
+    await cell(page, 'B4').click({ button: 'right' })
+    await expect(page.getByRole('menuitem', { name: 'Reihe ausfüllen' })).toBeVisible()
+    await page.getByRole('menuitem', { name: 'Aus Liste auswählen…' }).click()
+    const list = page.getByRole('dialog', { name: 'Aus Liste auswählen' })
+    await expect(list).toContainText('3 EINTRÄGE · SPALTE B')
+    await page.keyboard.press('Escape')
+    await cell(page, 'B4').click()
+    await page.keyboard.type('f')
+    await expect(ghost(page)).toHaveText('eb')
+  })
+})
+
+test.describe('spreadsheet block on a phone', () => {
+  test.use({ viewport: { width: 390, height: 844 }, hasTouch: true })
+
+  test('the fill handle follows a finger; AutoComplete proposes while typing', async ({ page }) => {
+    await openApp(page)
+    const id = await sheetPage(page, [['Sheet 1', { A1: 'Mon', B1: 'Website relaunch' }]])
+    await page.locator('.sheet').scrollIntoViewIfNeeded()
+    await cell(page, 'A1').tap()
+    const handle = page.locator('.sheet .sg-fill')
+    await expect(handle).toBeVisible()
+    const h = (await handle.boundingBox())!
+    const t = (await cell(page, 'A4').boundingBox())!
+    const cdp = await page.context().newCDPSession(page)
+    const touch = (type: string, x: number, y: number) => cdp.send('Input.dispatchTouchEvent', { type, touchPoints: type === 'touchEnd' ? [] : [{ x, y }] })
+    await touch('touchStart', h.x + h.width / 2, h.y + h.height / 2)
+    const [x0, y0, x1, y1] = [h.x + h.width / 2, h.y + h.height / 2, t.x + t.width / 2, t.y + t.height / 2]
+    for (let i = 1; i <= 6; i++) await touch('touchMove', x0 + ((x1 - x0) * i) / 6, y0 + ((y1 - y0) * i) / 6)
+    await expect(page.locator('.sheet .sg-fillprev__tip')).toHaveText('→ Thu')
+    await touch('touchEnd', 0, 0)
+    await expect(cell(page, 'A4')).toHaveText('Thu')
+    // Chrome turns a tap that follows a touch gesture this closely into no click at all
+    await page.waitForTimeout(600)
+    // the page itself never scrolled sideways
+    const doc = await page.evaluate(() => ({ scroll: document.documentElement.scrollWidth, client: document.documentElement.clientWidth }))
+    expect(doc.scroll).toBeLessThanOrEqual(doc.client)
+
+    await cell(page, 'B2').tap()
+    await page.keyboard.type('W')
+    await expect(ghost(page)).toHaveText('ebsite relaunch')
+    await page.keyboard.press('Enter')
+    await expect(cell(page, 'B2')).toHaveText('Website relaunch')
+    const a = await stored(page, id)
+    expect(a.sheets[0].cells.A3.v).toBe('Wed')
   })
 })

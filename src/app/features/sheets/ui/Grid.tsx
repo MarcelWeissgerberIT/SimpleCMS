@@ -1,7 +1,8 @@
 /**
  * The cell grid: sticky column letters and row numbers, virtualised rows (only the visible ones
  * plus a margin are in the DOM), a frozen first row, selection / reference / dataset overlays,
- * column resizing, the in-cell editor slot. Pointer and keyboard decisions are the parent's.
+ * the fill handle with its live preview, column resizing, the in-cell editor slot. Pointer and
+ * keyboard decisions are the parent's.
  */
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from 'react'
 import type { ColorName } from '../../../store/types'
@@ -23,7 +24,22 @@ export interface Overlay {
 }
 
 export type PointerPhase = 'down' | 'move' | 'up'
+
 export type GridTarget = { kind: 'cell'; pos: Pos } | { kind: 'row'; index: number } | { kind: 'col'; index: number } | { kind: 'corner' }
+
+/** The fill handle at the selection's bottom-right corner and the live preview of a fill drag. */
+export interface FillView {
+  /** the selection the handle sits on (null: no handle) */
+  handle: Rect | null
+  /** the range being filled (src ∪ extension) while dragging */
+  preview: Rect | null
+  /** which way the preview extends (where its tooltip goes) */
+  dir: 'down' | 'up' | 'right' | 'left' | null
+  /** "→ 12": the value at the far end */
+  tip: string | null
+  label: string
+  onHandleDown: (e: React.PointerEvent<HTMLElement>) => void
+}
 
 const ERROR_KEYS: Record<ErrorCode, string> = {
   '#DIV/0!': 'div0',
@@ -59,7 +75,28 @@ export interface GridProps {
   editable: boolean
   /** viewport height (the same for every sheet of the block: the tabs below never jump) */
   height: number
+  /** fill handle + preview (editable blocks only) */
+  fill?: FillView | null
   gridProps: React.HTMLAttributes<HTMLDivElement>
+}
+
+/**
+ * The cell under a viewport point — computed from the layout, so it also works for rows that are
+ * not rendered (virtualised) and for points beyond the edges (clamped to the sheet).
+ */
+export function cellFromPoint(vp: HTMLElement, sheet: SheetData, x: number, y: number, xs: number[] = offsets(sheet)): Pos {
+  const box = vp.getBoundingClientRect()
+  const frozen = Math.min(sheet.frozenRows ?? 0, sheet.rows)
+  const vy = y - box.top - vp.clientTop
+  const vx = x - box.left - vp.clientLeft
+  let r: number
+  if (frozen && vy >= HEAD_H && vy < HEAD_H + frozen * ROW_HEIGHT) r = Math.floor((vy - HEAD_H) / ROW_HEIGHT)
+  else if (frozen && vy < HEAD_H) r = 0
+  else r = frozen + Math.floor((vy + vp.scrollTop - HEAD_H - frozen * ROW_HEIGHT) / ROW_HEIGHT)
+  const cx = vx + vp.scrollLeft - RH_W
+  let c = 0
+  while (c < sheet.cols - 1 && xs[c + 1] <= cx) c++
+  return { r: Math.max(0, Math.min(sheet.rows - 1, r)), c }
 }
 
 /** Column x offsets (after the row-number column). */
@@ -128,7 +165,7 @@ const Row = memo(function Row({ sheet, wb, lang, r, tpl, top, rowSel, t }: RowPr
 })
 
 export function Grid(props: GridProps) {
-  const { sheet, wb, version, lang, t, overlays, selRows, selCols, editCell, editorNode, viewportRef, onPointer, onDouble, onContext, onResize, onAutofit, editable, height, gridProps } = props
+  const { sheet, wb, version, lang, t, overlays, selRows, selCols, editCell, editorNode, viewportRef, onPointer, onDouble, onContext, onResize, onAutofit, editable, height, gridProps, fill } = props
   const [view, setView] = useState({ top: 0, h: 560 })
   const [resize, setResize] = useState<{ col: number; w: number } | null>(null)
   const raf = useRef(0)
@@ -259,6 +296,26 @@ export function Grid(props: GridProps) {
         )
       }
     })
+    if (fill?.preview) {
+      const all = boxes(fill.preview)
+      all.forEach((b, i) => {
+        if (b.where !== where) return
+        // the tooltip at the far end: the last box going down / right, the first going up / left
+        const tipHere = fill.tip && (fill.dir === 'up' || fill.dir === 'left' ? i === 0 : i === all.length - 1)
+        items.push(
+          <div key={`fill-${where}`} className={`sg-fillprev is-${fill.dir ?? 'down'}`} style={b.style} aria-hidden>
+            {tipHere && <span className="sg-fillprev__tip">→ {fill.tip}</span>}
+          </div>,
+        )
+      })
+    }
+    if (fill?.handle && (where === 'frozen') === Math.min(fill.handle.bottom, sheet.rows - 1) < frozen) {
+      const h = fill.handle
+      const bottom = Math.min(h.bottom, sheet.rows - 1)
+      const left = RH_W + xs[Math.min(h.right + 1, sheet.cols)]
+      const top = (where === 'frozen' ? bottom + 1 : bottom - frozen + 1) * ROW_HEIGHT
+      items.push(<span key="fill-handle" className="sg-fill" data-fill-handle="" style={{ left, top }} title={fill.label} aria-hidden onPointerDown={fill.onHandleDown} />)
+    }
     if (editCell && editorNode && (where === 'frozen') === editCell.r < frozen) {
       const b = boxes({ top: editCell.r, bottom: editCell.r, left: editCell.c, right: editCell.c })[0]
       if (b) items.push(
@@ -302,7 +359,7 @@ export function Grid(props: GridProps) {
       className="sg"
       onScroll={onScroll}
       onMouseDown={(e) => {
-        if ((e.target as Element).closest('[data-resize], .sg-editor')) return
+        if ((e.target as Element).closest('[data-resize], .sg-editor, [data-fill-handle]')) return
         down(e)
       }}
       onDoubleClick={(e) => {
@@ -312,6 +369,8 @@ export function Grid(props: GridProps) {
       onContextMenu={(e) => {
         const tg = targetOf(e.target as Element)
         if (tg) onContext(tg, e)
+        // the menu key on the focused grid: the block opens its own cell menu
+        else if (e.target === e.currentTarget) e.preventDefault()
       }}
       style={{ height }}
       {...gridProps}

@@ -17,17 +17,23 @@ import {
   a1,
   canPoint,
   canonicalInput,
+  colName,
+  columnEntries,
+  completeEntry,
   formatValue,
+  literal,
   MAX_COLS,
   MAX_ROWS,
   paintFormula,
   parseRect,
+  pickEntries,
   registryVersion,
   rectText,
   sameName,
   subscribeRegistry,
   Workbook,
   type CellFormat,
+  type FillMode,
   type Rect,
   type RefTok,
 } from '../engine'
@@ -35,6 +41,7 @@ import { datasetSources, sheetSources, syncCustomFunctions } from '../compute'
 import { activeSheet, colWidth, datasetNameProblem, readAttrs, ROW_HEIGHT, type Align, type SheetCell, type SheetData, type SpreadsheetAttrs } from '../model'
 import {
   addSheet,
+  autoFill,
   cellsIn,
   clearContents,
   datasetUsers,
@@ -42,6 +49,10 @@ import {
   deleteSheet,
   duplicateSheet,
   fill,
+  fillDirection,
+  fillDownEnd,
+  fillEndCell,
+  fillSeriesIn,
   moveSheet,
   paste,
   renameDataset,
@@ -58,13 +69,16 @@ import {
 } from '../ops'
 import { sheetCsv } from '../static'
 import type { SheetBlockProps } from '../index'
-import { Grid, HEAD_H, offsets, RH_W, type GridTarget, type Overlay, type PointerPhase } from './Grid'
+import { Grid, HEAD_H, offsets, RH_W, type FillView, type GridTarget, type Overlay, type PointerPhase } from './Grid'
 import { FormulaInput, groupColor } from './FormulaInput'
 import { SheetTabs } from './SheetTabs'
 import { Toolbar } from './Toolbar'
 import { FunctionBrowser } from './FunctionBrowser'
 import { DatasetsPanel } from './DatasetsPanel'
 import { internalClip, parseTsv, rememberClip, toHtmlTable, toTsv } from './clip'
+import { useFillDrag } from './fill'
+import { PickList } from './PickList'
+import { setAutoComplete, useAutoComplete } from './prefs'
 import { openFunctionBuilder } from '../functions'
 import { openChartBuilder, type ChartSpec } from '../../charts'
 import { Charts } from './Charts'
@@ -90,6 +104,17 @@ interface Edit {
   fresh: boolean
   /** the reference inserted by pointing (clicking again replaces it, dragging stretches it) */
   point: { s: number; e: number; anchor: Pos } | null
+  /** AutoComplete may propose an entry: the last change typed text at the end (Backspace / Delete / caret moves turn it off) */
+  auto: boolean
+}
+
+interface Pick {
+  r: number
+  c: number
+  sheetId: string
+  anchor: Element
+  entries: string[]
+  initial: string
 }
 
 /** Tallest grid viewport (taller sheets scroll inside). */
@@ -154,6 +179,10 @@ export function SheetBlock({ attrs: raw, update, editable, editor, pageId, inser
   const barInput = useRef<HTMLInputElement>(null)
   const fileInput = useRef<HTMLInputElement>(null)
   const dragMode = useRef<'select' | 'point' | 'rows' | 'cols' | null>(null)
+  const sheetRef = useRef(sheet)
+  sheetRef.current = sheet
+  const autoOn = useAutoComplete()
+  const [pick, setPick] = useState<Pick | null>(null)
 
   const rect = rectOf(sel)
   const areas = [...sel.extra, rect]
@@ -203,7 +232,7 @@ export function SheetBlock({ attrs: raw, update, editable, editor, pageId, inser
   const startEdit = (p: Pos, text?: string, where: 'cell' | 'bar' = 'cell') => {
     if (!editable) return
     const raw = text ?? sheet.cells[a1(p.r, p.c)]?.v ?? ''
-    setEdit({ r: p.r, c: p.c, sheetId: sheet.id, text: raw, caret: raw.length, where, fresh: text !== undefined, point: null })
+    setEdit({ r: p.r, c: p.c, sheetId: sheet.id, text: raw, caret: raw.length, where, fresh: text !== undefined, point: null, auto: text !== undefined })
   }
 
   const commit = (move: [number, number] | null = null, cur = editRef.current) => {
@@ -230,7 +259,18 @@ export function SheetBlock({ attrs: raw, update, editable, editor, pageId, inser
     focusGrid()
   }
 
-  const setText = (text: string, caret: number) => setEdit((e) => (e ? { ...e, text, caret, point: null } : e))
+  // typing at the end may complete; deleting (or editing in the middle) never does
+  const setText = (text: string, caret: number) => setEdit((e) => (e ? { ...e, text, caret, point: null, auto: caret === text.length && text.length > e.text.length } : e))
+  const setCaret = (caret: number) => setEdit((e) => (e ? { ...e, caret, point: e.point && caret === e.point.e ? e.point : null, auto: e.auto && caret === e.text.length } : e))
+
+  /* ---------------- AutoComplete (entries of the same column) ---------------- */
+
+  const editSheet = edit ? (a.sheets.find((x) => x.id === edit.sheetId) ?? null) : null
+  const entries = useMemo(
+    () => (edit && autoOn && editSheet ? columnEntries(editSheet, edit.r, edit.c) : null),
+    [autoOn, editSheet?.cells, edit?.sheetId, edit?.r, edit?.c], // eslint-disable-line react-hooks/exhaustive-deps
+  )
+  const completion = edit && edit.auto && entries && edit.caret === edit.text.length ? completeEntry(entries, edit.text, lang) : null
 
   /** Insert text at the caret of the open edit (function browser, datasets panel). */
   const insertAtCaret = (snippet: string) => {
@@ -242,28 +282,103 @@ export function SheetBlock({ attrs: raw, update, editable, editor, pageId, inser
     }
     if (!editable) return
     const text = `=${snippet}`
-    setEdit({ r: active.r, c: active.c, sheetId: sheet.id, text, caret: text.length, where: 'bar', fresh: false, point: null })
+    setEdit({ r: active.r, c: active.c, sheetId: sheet.id, text, caret: text.length, where: 'bar', fresh: false, point: null, auto: false })
   }
 
   const editKey = (e: React.KeyboardEvent<HTMLInputElement>) => {
     const cur = editRef.current
     if (!cur) return
+    // IME composition owns the keys until it ends
+    if (e.nativeEvent.isComposing || e.keyCode === 229) return
+    if (e.altKey && e.key === 'ArrowDown') {
+      e.preventDefault()
+      if (cur.text[0] !== '=') openPick({ r: cur.r, c: cur.c }, cur.text)
+      return
+    }
+    const mod = e.ctrlKey || e.metaKey
+    if (completion && !mod && !e.altKey) {
+      // Backspace / Delete drop the proposal (the typed text stays); → takes it and keeps editing
+      if (e.key === 'Backspace' || e.key === 'Delete') {
+        e.preventDefault()
+        setEdit({ ...cur, auto: false })
+        return
+      }
+      if (e.key === 'ArrowRight' && !e.shiftKey) {
+        e.preventDefault()
+        setEdit({ ...cur, text: completion, caret: completion.length, auto: false, point: null })
+        return
+      }
+    }
+    // Enter / Tab (and the arrows of a fresh entry) commit the proposal with the entry's casing
+    const done = completion ? { ...cur, text: completion } : cur
     if (e.key === 'Enter' && !e.altKey) {
       e.preventDefault()
-      commit([e.shiftKey ? -1 : 1, 0])
+      commit([e.shiftKey ? -1 : 1, 0], done)
     } else if (e.key === 'Tab') {
       e.preventDefault()
-      commit([0, e.shiftKey ? -1 : 1])
+      commit([0, e.shiftKey ? -1 : 1], done)
     } else if (e.key === 'Escape') {
       e.preventDefault()
       e.stopPropagation()
       cancel()
-    } else if (cur.fresh && cur.where === 'cell' && cur.text[0] !== '=' && e.key.startsWith('Arrow')) {
+    } else if (cur.fresh && cur.where === 'cell' && cur.text[0] !== '=' && e.key.startsWith('Arrow') && !mod && !e.altKey) {
       e.preventDefault()
       const d: Record<string, [number, number]> = { ArrowUp: [-1, 0], ArrowDown: [1, 0], ArrowLeft: [0, -1], ArrowRight: [0, 1] }
-      commit(d[e.key])
+      commit(d[e.key], done)
     }
   }
+
+  /* ---------------- pick from list (Alt+↓) ---------------- */
+
+  const openPick = (p: Pos, typed = '') => {
+    if (!editable) return
+    const s = sheetRef.current
+    const editor = editRef.current?.where === 'cell' ? rootRef.current?.querySelector('.sg-editor') : null
+    const anchor = editor ?? rootRef.current?.querySelector(`[data-cell="${p.r}:${p.c}"]`) ?? viewportRef.current
+    if (!anchor) return
+    setPick({ r: p.r, c: p.c, sheetId: s.id, anchor, entries: pickEntries(s, p.r, p.c, lang), initial: typed })
+  }
+
+  const closePick = () => {
+    setPick(null)
+    const e = editRef.current
+    requestAnimationFrame(() => (e ? (e.where === 'cell' ? cellInput : barInput).current?.focus({ preventScroll: true }) : focusGrid()))
+  }
+
+  const pickValue = (value: string) => {
+    const p = pick
+    setPick(null)
+    if (!p) return
+    const s = aRef.current.sheets.find((x) => x.id === p.sheetId)
+    if (!s) return
+    const addr = a1(p.r, p.c)
+    const prev = s.cells[addr]
+    // the entries are texts: keep them text even where they would read as a number or a date
+    const v = value[0] !== '=' && value[0] !== "'" && typeof literal(value, prev?.fmt?.type).value === 'string' ? value : `'${value}`
+    if (editRef.current) {
+      setEdit(null)
+      editRef.current = null
+    }
+    if (prev?.v !== v) write(setCellsPatch(aRef.current, p.sheetId, { [addr]: { ...prev, v } }))
+    focusGrid()
+  }
+
+  /* ---------------- fill handle ---------------- */
+
+  const applyFill = (src: Rect, dest: Rect, mode: FillMode) => {
+    write(autoFill(aRef.current, sheetRef.current.id, src, dest, mode, lang))
+    setSel({ anchor: { r: dest.top, c: dest.left }, focus: { r: dest.bottom, c: dest.right }, extra: [] })
+    focusGrid()
+  }
+  const { drag: fillDrag, start: startFill } = useFillDrag({
+    viewportRef,
+    sheetRef,
+    onApply: applyFill,
+    onDouble: (src) => {
+      const end = fillDownEnd(sheetRef.current, src)
+      if (end !== null) applyFill(src, { ...src, bottom: end }, 'auto')
+    },
+  })
 
   // leaving the block (focus elsewhere on the page) commits; popovers of the block don't count
   const editBlur = () => {
@@ -483,7 +598,15 @@ export function SheetBlock({ attrs: raw, update, editable, editor, pageId, inser
     const k = e.key
     const page = Math.max(1, Math.floor((viewportRef.current?.clientHeight ?? 400) / ROW_HEIGHT) - 2)
     const arrows: Record<string, [number, number]> = { ArrowUp: [-1, 0], ArrowDown: [1, 0], ArrowLeft: [0, -1], ArrowRight: [0, 1] }
-    if (arrows[k]) {
+    if (e.altKey && k === 'ArrowDown') {
+      e.preventDefault()
+      openPick(active)
+    } else if (k === 'ContextMenu' || (e.shiftKey && k === 'F10')) {
+      // the cell menu from the keyboard, under the active cell
+      e.preventDefault()
+      const box = rootRef.current?.querySelector(`[data-cell="${active.r}:${active.c}"]`)?.getBoundingClientRect()
+      if (box) setCtx({ x: box.left + 8, y: box.bottom, target: { kind: 'cell', pos: active } })
+    } else if (arrows[k]) {
       e.preventDefault()
       move(arrows[k][0], arrows[k][1], e.shiftKey, mod)
     } else if (k === 'Tab') {
@@ -649,6 +772,9 @@ export function SheetBlock({ attrs: raw, update, editable, editor, pageId, inser
     { kind: 'separator' },
     { label: t('features.sheets.fillDown'), hint: shortcutLabel('Mod+D'), disabled: !editable || rowsSel < 2, onSelect: () => op(fill(a, sheet.id, rect, 'down')) },
     { label: t('features.sheets.fillRight'), hint: shortcutLabel('Mod+R'), disabled: !editable || colsSel < 2, onSelect: () => op(fill(a, sheet.id, rect, 'right')) },
+    { label: t('features.sheets.fillSeries'), disabled: !editable || cellsOfRect(rect) < 2, onSelect: () => op(fillSeriesIn(a, sheet.id, rect, lang)) },
+    { kind: 'separator' },
+    { label: t('features.sheets.pick.menu'), hint: shortcutLabel('Alt+↓'), disabled: !editable, onSelect: () => openPick(active) },
   ]
 
   const moreEntries: MenuEntry[] = [
@@ -661,6 +787,8 @@ export function SheetBlock({ attrs: raw, update, editable, editor, pageId, inser
       onSelect: () => download(`${(a.title || t('features.sheets.label')).replace(/[\\/:*?"<>|]+/g, '-')} - ${sheet.name.replace(/[\\/:*?"<>|]+/g, '-')}.csv`, sheetCsv(a, sheet.id, lang)),
     },
     { label: t('features.sheets.csvImport'), disabled: !editable, onSelect: () => fileInput.current?.click() },
+    { kind: 'separator' },
+    { label: t('features.sheets.autocomplete'), hint: t(autoOn ? 'features.sheets.on' : 'features.sheets.off'), checked: autoOn, onSelect: () => setAutoComplete(!autoOn) },
   ]
 
   const importCsv = async (file: File) => {
@@ -732,6 +860,27 @@ export function SheetBlock({ attrs: raw, update, editable, editor, pageId, inser
   const formulas = wb.formulaCount(sheet.id)
   const sheetIndex = a.sheets.indexOf(sheet)
 
+  const fillTip = useMemo(() => {
+    if (!fillDrag?.dest) return null
+    const end = fillEndCell(a, sheet.id, fillDrag.src, fillDrag.dest, fillDrag.mode, lang)
+    const raw = end?.cell?.v
+    if (!end || !raw) return '—'
+    if (raw[0] === '=') return raw
+    const lit = literal(raw, end.cell?.fmt?.type)
+    return formatValue(lit.value, end.cell?.fmt, lit.hint, lang)
+  }, [fillDrag, a, sheet.id, lang])
+
+  const fillView: FillView | null = editable
+    ? {
+        handle: !edit && !pick && areas.length === 1 ? rect : null,
+        preview: fillDrag?.dest ?? null,
+        dir: fillDrag?.dest ? fillDirection(fillDrag.src, fillDrag.dest) : null,
+        tip: fillTip,
+        label: t('features.sheets.fill.handle'),
+        onHandleDown: (e) => startFill(e, rect),
+      }
+    : null
+
   const cellEditor =
     edit && edit.where === 'cell' && edit.sheetId === sheet.id ? (
       <FormulaInput
@@ -743,9 +892,10 @@ export function SheetBlock({ attrs: raw, update, editable, editor, pageId, inser
         lang={lang}
         ariaLabel={t('features.sheets.cellEditor', { addr: a1(edit.r, edit.c) })}
         className="fx-input--cell"
-        style={{ width: Math.min(560, Math.max(colWidth(sheet, edit.c), edit.text.length * 7.6 + 24)) }}
+        style={{ width: Math.min(560, Math.max(colWidth(sheet, edit.c), (completion ?? edit.text).length * 7.6 + 24)) }}
+        ghost={completion}
         onChange={setText}
-        onCaret={(caret) => setEdit((e) => (e ? { ...e, caret, point: e.point && caret === e.point.e ? e.point : null } : e))}
+        onCaret={setCaret}
         onKeyDown={editKey}
         onBlur={editBlur}
       />
@@ -792,10 +942,11 @@ export function SheetBlock({ attrs: raw, update, editable, editor, pageId, inser
             if (!editable) return
             const cur = editRef.current
             if (cur) setEdit({ ...cur, where: 'bar' })
-            else setEdit({ r: active.r, c: active.c, sheetId: sheet.id, text: activeCell?.v ?? '', caret: (activeCell?.v ?? '').length, where: 'bar', fresh: false, point: null })
+            else setEdit({ r: active.r, c: active.c, sheetId: sheet.id, text: activeCell?.v ?? '', caret: (activeCell?.v ?? '').length, where: 'bar', fresh: false, point: null, auto: false })
           }}
+          ghost={completion}
           onChange={setText}
-          onCaret={(caret) => setEdit((e) => (e ? { ...e, caret, point: e.point && caret === e.point.e ? e.point : null } : e))}
+          onCaret={setCaret}
           onKeyDown={editKey}
           onBlur={editBlur}
         />
@@ -813,6 +964,7 @@ export function SheetBlock({ attrs: raw, update, editable, editor, pageId, inser
         editorNode={cellEditor}
         viewportRef={viewportRef}
         editable={editable}
+        fill={fillView}
         height={Math.min(GRID_MAX, HEAD_H + Math.max(...a.sheets.map((x) => x.rows)) * ROW_HEIGHT + 2)}
         onPointer={onPointer}
         onDouble={(pos) => {
@@ -942,7 +1094,22 @@ export function SheetBlock({ attrs: raw, update, editable, editor, pageId, inser
           if (f) void importCsv(f)
         }}
       />
-      {ctx && <Menu open anchor={pointAnchor(ctx.x, ctx.y)} onClose={() => setCtx(null)} entries={cellEntries} />}
+      {ctx && (
+        <Menu
+          open
+          anchor={pointAnchor(ctx.x, ctx.y)}
+          onClose={() => {
+            setCtx(null)
+            // the keyboard goes back to the grid — unless something else took it (a click elsewhere, a pick list)
+            requestAnimationFrame(() => {
+              const el = document.activeElement
+              if (!el || el === document.body) focusGrid()
+            })
+          }}
+          entries={cellEntries}
+        />
+      )}
+      {pick && <PickList anchor={pick.anchor} entries={pick.entries} column={colName(pick.c)} initial={pick.initial} t={t} onPick={pickValue} onClose={closePick} />}
       {panel?.kind === 'fx' && (
         <FunctionBrowser
           anchor={panel.anchor}
