@@ -154,6 +154,11 @@ export function visibleBox(vp: HTMLElement, sheet: SheetData, rect: Rect, xs: nu
   return new DOMRect(left, top, right2 - left, bot - top)
 }
 
+/** The topmost element at a point that is no touch key, tab or knob (what they lie over). */
+export function cellUnder(x: number, y: number): Element | null {
+  return document.elementsFromPoint(x, y).find((el) => !el.closest('[data-sel-handle], [data-fill-handle], [data-sel-menu]')) ?? null
+}
+
 export function targetOf(el: Element | null): GridTarget | null {
   const hit = el?.closest?.('[data-cell],[data-rowhead],[data-colhead],[data-corner]') as HTMLElement | null
   if (!hit) return null
@@ -420,7 +425,8 @@ export function Grid(props: GridProps) {
               aria-haspopup="menu"
               onMouseDown={(e) => {
                 e.preventDefault()
-                if (e.button === 0) open()
+                // the second tap of a double tap on the cell under it: that edits (onDoubleClick looks through the key)
+                if (e.button === 0 && e.detail < 2) open()
               }}
             >
               <Ellipsis size={16} strokeWidth={2} aria-hidden />
@@ -490,7 +496,8 @@ export function Grid(props: GridProps) {
         down(e)
       }}
       onDoubleClick={(e) => {
-        const tg = targetOf(e.target as Element)
+        // the "⋯" key shows up on a cell its first tap selected: a double tap there still edits the cell
+        const tg = targetOf((e.target as Element).closest('[data-sel-menu]') ? cellUnder(e.clientX, e.clientY) : (e.target as Element))
         if (tg?.kind === 'cell') onDouble(tg.pos)
       }}
       onContextMenu={(e) => {

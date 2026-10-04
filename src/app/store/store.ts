@@ -12,7 +12,7 @@ import { immer } from 'zustand/middleware/immer'
 import type { JSONContent } from '@tiptap/core'
 import { newId } from '../lib/ids'
 import { detectLang } from '@/shared/i18n'
-import { aiKeyValue, attachSecrets, checkAIKey, withSealedKey } from './secrets'
+import { aiKeyValue, attachSecrets, checkAIKey, mcpServersValue, withSealedKey } from './secrets'
 import { isSafeFunctionId } from './functions'
 import type {
   CustomFunction,
@@ -787,7 +787,9 @@ export const useWorkspace = create<WorkspaceState>()(
 
     updateSettings: (patch) => {
       // a key goes into the vault; the store keeps its marker ('' removes it, secrets.ts)
-      const p = 'aiApiKey' in patch ? { ...patch, aiApiKey: aiKeyValue(patch.aiApiKey, get().settings.aiApiKey, get().epoch, true) } : patch
+      let p = 'aiApiKey' in patch ? { ...patch, aiApiKey: aiKeyValue(patch.aiApiKey, get().settings.aiApiKey, get().epoch, true) } : patch
+      // MCP server tokens likewise: markers only in the list (secrets.ts)
+      if ('mcpServers' in p) p = { ...p, mcpServers: mcpServersValue(p.mcpServers, get().settings.mcpServers, get().epoch) }
       set((s) => {
         Object.assign(s.settings, p)
       })

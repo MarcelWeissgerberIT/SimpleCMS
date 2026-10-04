@@ -19,7 +19,7 @@
  */
 import { clearSecret, hintOf, isSecretMarker, markerHint, newSecretMarker, openSecret, sealSecret, vaultAvailable } from '../lib/vault'
 import type { WorkspaceState } from './store'
-import type { Settings } from './types'
+import type { McpServerConfig, Settings } from './types'
 
 /** Vault name of the Claude API key. */
 export const AI_KEY_SECRET = 'claude-api-key'
@@ -51,16 +51,16 @@ const sealing = new Map<string, Promise<void>>()
 
 const warn = (what: string) => (e: unknown) => console.warn(`[one] ${what}`, e instanceof Error ? e.message : e)
 
-/** Put `marker` → `key` into memory and seal it; resolves true once it is stored encrypted. */
-function seal(marker: string, key: string, scope: string): Promise<boolean> {
+/** Put `marker` → `key` into memory and seal it as `name`; resolves true once it is stored encrypted. */
+function seal(marker: string, key: string, scope: string, name = AI_KEY_SECRET): Promise<boolean> {
   keys.set(marker, key)
   if (!vaultAvailable()) return Promise.resolve(false)
-  const job = sealSecret(AI_KEY_SECRET, key, scope)
+  const job = sealSecret(name, key, scope)
   sealing.set(marker, job)
   return job.then(
     () => true,
     (e) => {
-      warn('the Claude API key could not be stored encrypted')(e)
+      warn(`${name === AI_KEY_SECRET ? 'the Claude API key' : 'an MCP server token'} could not be stored encrypted`)(e)
       return false
     },
   ).finally(() => sealing.delete(marker))
@@ -106,18 +106,18 @@ export function withSealedKey(settings: Settings, current: string, epoch: string
   return v === settings.aiApiKey ? settings : { ...settings, aiApiKey: v }
 }
 
-/** The key behind `marker` in `scope` (memory, then the vault; a team workspace may inherit the local one). */
-async function resolve(marker: string, scope: string): Promise<string | null> {
+/** The secret `name` behind `marker` in `scope` (memory, then the vault; a team workspace may inherit the local one). */
+async function resolve(marker: string, scope: string, name = AI_KEY_SECRET): Promise<string | null> {
   const known = keys.get(marker)
   if (known) return known
   await sealing.get(marker)
-  let key = await openSecret(AI_KEY_SECRET, scope)
+  let key = await openSecret(name, scope)
   if (key === null && scope !== LOCAL_SCOPE) {
-    // this team workspace started with the local workspace's settings: the same key, sealed for "local"
-    const local = await openSecret(AI_KEY_SECRET, LOCAL_SCOPE)
+    // this team workspace started with the local workspace's settings: the same secret, sealed for "local"
+    const local = await openSecret(name, LOCAL_SCOPE)
     if (local !== null && hintOf(local) === markerHint(marker)) {
       key = local
-      await sealSecret(AI_KEY_SECRET, local, scope).catch(warn('the Claude API key could not be stored encrypted'))
+      await sealSecret(name, local, scope).catch(warn('a secret could not be stored encrypted'))
     }
   }
   if (key !== null) keys.set(marker, key)
@@ -173,4 +173,58 @@ export async function checkAIKey(): Promise<void> {
 export async function sealStoredAIKey(key: string, scope: string): Promise<string | null> {
   const marker = newSecretMarker(key)
   return (await seal(marker, key, scope)) ? marker : null
+}
+
+/* ------------------------------------------------------------------ */
+/* MCP server tokens                                                   */
+/* ------------------------------------------------------------------ */
+
+/*
+ * `settings.mcpServers[].token` holds a vault marker like the Claude key, sealed per server as
+ * "mcp-token:<server id>" in the workspace's scope. Only updateSettings({ mcpServers }) writes the
+ * list: a plaintext token in it is sealed there and replaced by its marker; a token that was removed
+ * (and every token of a removed server) leaves the vault. Only the AI client opens a token, per
+ * request (getMcpToken) — it goes to api.anthropic.com inside `mcp_servers` and nowhere else.
+ */
+
+/** Vault name of an MCP server's bearer token. */
+export const mcpTokenSecret = (serverId: string) => `mcp-token:${serverId}`
+
+/** What the store keeps for an incoming `settings.mcpServers` (updateSettings): tokens as markers only. */
+export function mcpServersValue(value: unknown, current: McpServerConfig[] | undefined, epoch: string | undefined): McpServerConfig[] | undefined {
+  const scope = scopeOf(epoch)
+  const before = new Map((current ?? []).map((s) => [s.id, s]))
+  const drop = (id: string, marker: string) => {
+    keys.delete(marker)
+    void clearSecret(mcpTokenSecret(id), scope).catch(warn('an MCP server token could not be removed from the vault'))
+  }
+  const list = Array.isArray(value) ? value.filter((s): s is McpServerConfig => !!s && typeof s === 'object' && typeof s.id === 'string' && !!s.id) : undefined
+  const kept = new Set(list?.map((s) => s.id))
+  for (const old of before.values()) if (!kept.has(old.id) && isSecretMarker(old.token)) drop(old.id, old.token)
+  if (!list) return undefined
+  return list.map((s) => {
+    const v = typeof s.token === 'string' ? s.token.trim() : ''
+    const old = before.get(s.id)?.token ?? ''
+    if (!v) {
+      if (isSecretMarker(old)) drop(s.id, old)
+      return { ...s, token: '' }
+    }
+    if (isSecretMarker(v)) return v === s.token ? s : { ...s, token: v }
+    // a new token: sealed now (memory at once, the vault in the background); the list keeps its marker
+    const marker = newSecretMarker(v)
+    void seal(marker, v, scope, mcpTokenSecret(s.id))
+    return { ...s, token: marker }
+  })
+}
+
+/**
+ * The bearer token of an MCP server for one request: '' = the server has none, null = it has one,
+ * but this browser cannot open it (another device's settings, a cleared vault) — ask for it again.
+ */
+export async function getMcpToken(server: Pick<McpServerConfig, 'id' | 'token'>): Promise<string | null> {
+  const v = typeof server.token === 'string' ? server.token.trim() : ''
+  if (!v) return ''
+  // the list never holds a plaintext (mcpServersValue): anything else is unusable
+  if (!isSecretMarker(v)) return null
+  return resolve(v, scopeOf(store?.getState().epoch), mcpTokenSecret(server.id)).catch(() => null)
 }

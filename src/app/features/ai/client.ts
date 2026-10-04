@@ -5,10 +5,13 @@
  * this tab, this session) and it is sent to api.anthropic.com and nowhere else.
  */
 import type AnthropicSDK from '@anthropic-ai/sdk'
+import type { BetaContentBlock, BetaMessage, BetaMessageParam, BetaMessageStreamParams } from '@anthropic-ai/sdk/resources/beta/messages/messages'
 import { useWorkspace } from '../../store/store'
 import { getAIKey } from '../../store/secrets'
 import { t } from '../../i18n'
 import { demoAnswer, streamDemo } from './demo'
+import { MCP_BETA, attachMcp, type McpAttachment } from './mcp-servers/config'
+import { foldMcpBlock, type McpCall } from './mcp-servers/activity'
 
 export type AIAction = 'continue' | 'improve' | 'shorter' | 'longer' | 'fix' | 'summarize' | 'translate' | 'explain' | 'action_items' | 'custom' | 'autofill'
 
@@ -23,6 +26,13 @@ export interface RunAIOptions {
   /** Called with each streamed text delta (not the accumulated text). */
   onToken?: (text: string) => void
   signal?: AbortSignal
+  /**
+   * 'custom' (a free-form request) uses the enabled MCP servers (Settings → Claude AI) unless this
+   * is false — e.g. a key test. The one-click actions never do.
+   */
+  mcp?: boolean
+  /** MCP tool calls of the request so far, whenever one starts or ends */
+  onMcp?: (calls: McpCall[]) => void
 }
 
 /* ------------------------------------------------------------------ */
@@ -102,6 +112,8 @@ export type AIErrorCode =
   /** the tab runs an older build whose Claude SDK file is gone from the server: reload */
   | 'outdated'
   | 'bad_request'
+  /** an MCP server could not be used (unreachable, rejected the token …): `server` names it */
+  | 'mcp'
   | 'refusal'
   | 'empty'
   | 'aborted'
@@ -111,10 +123,12 @@ export type AIErrorCode =
 export class AIError extends Error {
   code: AIErrorCode
   detail?: string
-  constructor(code: AIErrorCode, detail?: string) {
+  /** 'mcp': the server's name ('' = not known) */
+  server?: string
+  constructor(code: AIErrorCode, detail?: string, server?: string) {
     let message: string = code
     try {
-      message = t(`features.ai.err.${code}`, { model: resolveModel(useWorkspace.getState().settings.aiModel).name, detail: detail ?? '' })
+      message = aiErrorText(code, { model: resolveModel(useWorkspace.getState().settings.aiModel).name, detail, server })
     } catch {
       /* i18n unavailable — keep the code */
     }
@@ -122,7 +136,14 @@ export class AIError extends Error {
     this.name = 'AIError'
     this.code = code
     this.detail = detail
+    this.server = server
   }
+}
+
+/** The friendly sentence for an error code (in the current UI language). */
+export function aiErrorText(code: AIErrorCode, v: { model: string; detail?: string; server?: string }): string {
+  if (code === 'mcp') return t(v.server ? 'features.ai.err.mcp' : 'features.ai.err.mcpAny', { server: v.server ?? '', detail: v.detail ?? '' })
+  return t(`features.ai.err.${code}`, { model: v.model, detail: v.detail ?? '' })
 }
 
 type SDKModule = typeof import('@anthropic-ai/sdk')
@@ -165,13 +186,23 @@ export async function claudeClient(): Promise<{ client: AnthropicSDK; sdk: SDKMo
 
 export type { SDKModule }
 
-/** Map anything thrown by the SDK to an AIError (most specific class first). */
-export function toAIError(e: unknown, sdk: SDKModule | null): AIError {
+/**
+ * Map anything thrown by the SDK to an AIError (most specific class first). `mcp`: the MCP servers
+ * the request attached — an API error about one of them becomes 'mcp' (it is not the key's fault).
+ */
+export function toAIError(e: unknown, sdk: SDKModule | null, mcp?: string[]): AIError {
   if (e instanceof AIError) return e
   if (e instanceof DOMException && e.name === 'AbortError') return new AIError('aborted')
   if (sdk) {
     const A = sdk.default
     if (e instanceof A.APIUserAbortError) return new AIError('aborted')
+    if (mcp?.length && e instanceof A.APIError && e.status !== undefined) {
+      const server = mcpServerOf(e.message, mcp)
+      if (server !== null) {
+        const detail = cleanMessage(e.message)
+        return new AIError('mcp', detail.length > 240 ? `${detail.slice(0, 239)}…` : detail, server)
+      }
+    }
     if (e instanceof A.AuthenticationError) return new AIError('invalid_key', e.message)
     if (e instanceof A.PermissionDeniedError) return new AIError('permission', e.message)
     if (e instanceof A.RateLimitError) return new AIError('rate_limit', e.message)
@@ -184,10 +215,23 @@ export function toAIError(e: unknown, sdk: SDKModule | null): AIError {
   return new AIError('unknown', e instanceof Error ? e.message : String(e))
 }
 
+/** The server an API error message is about: its name, '' (MCP, but which one is unclear), null (not about MCP). */
+function mcpServerOf(msg: string, names: string[]): string | null {
+  const text = msg.toLowerCase()
+  const named = names.find((n) => new RegExp(`(^|[^a-z0-9_-])${n.replace(/[-]/g, '\\-')}([^a-z0-9_-]|$)`).test(text))
+  if (!/\bmcp\b|mcp_|mcp server/i.test(msg)) return null
+  return named ?? (names.length === 1 ? names[0] : '')
+}
+
 function cleanMessage(msg: string): string {
   // SDK messages look like '400 {"type":"error","error":{"message":"…"}}'
-  const m = msg.match(/"message"\s*:\s*"([^"]+)"/)
-  return m ? m[1] : msg
+  const m = msg.match(/"message"\s*:\s*"((?:[^"\\]|\\.)+)"/)
+  if (!m) return msg
+  try {
+    return JSON.parse(`"${m[1]}"`) as string
+  } catch {
+    return m[1]
+  }
 }
 
 /** Check a key without spending tokens (lists one model). */
@@ -212,10 +256,19 @@ export interface StreamOptions {
   prompt: string
   onToken?: (delta: string) => void
   signal?: AbortSignal
+  /** MCP servers for this request (attachMcp) — their prompt part is appended to `system` here */
+  mcp?: McpAttachment | null
+  onMcp?: (calls: McpCall[]) => void
 }
 
-/** Stream one completion with the configured model. Resolves with the full text. */
-export async function streamCompletion({ system, prompt, onToken, signal }: StreamOptions): Promise<string> {
+/** A paused turn (server-side tool loop) is resumed at most this often. */
+const MAX_RESUMES = 3
+
+/**
+ * Stream one completion with the configured model. Resolves with the full text — with MCP tools,
+ * the answer after the last tool call (text Claude wrote before it was a progress note).
+ */
+export async function streamCompletion({ system, prompt, onToken, signal, mcp, onMcp }: StreamOptions): Promise<string> {
   const apiKey = await getAIKey()
   if (!apiKey) throw new AIError('no_key')
   const settings = useWorkspace.getState().settings
@@ -235,7 +288,11 @@ export async function streamCompletion({ system, prompt, onToken, signal }: Stre
     }
 
     let stopReason: string | null
-    if (model === 'claude-haiku-4-5') {
+    if (mcp) {
+      const final = await streamWithMcp(client, model, `${system}\n\n${mcp.system}`, prompt, mcp, onText, onMcp, signal)
+      stopReason = final.stop_reason
+      text = answerText(final.content) || text
+    } else if (model === 'claude-haiku-4-5') {
       const stream = client.messages.stream({ model, max_tokens: 8000, system, messages })
       const abort = () => stream.abort()
       signal?.addEventListener('abort', abort, { once: true })
@@ -272,8 +329,73 @@ export async function streamCompletion({ system, prompt, onToken, signal }: Stre
     return text
   } catch (e) {
     if (signal?.aborted) throw new AIError('aborted')
-    throw toAIError(e, sdk)
+    throw toAIError(e, sdk, mcp?.names)
   }
+}
+
+/**
+ * One streamed request with MCP servers attached (beta: the connector). Tool calls run inside the
+ * response; a paused turn is sent back unchanged to continue it. Resolves with the last message.
+ */
+async function streamWithMcp(
+  client: AnthropicSDK,
+  model: AIModelId,
+  system: string,
+  prompt: string,
+  mcp: McpAttachment,
+  onText: (delta: string) => void,
+  onMcp: ((calls: McpCall[]) => void) | undefined,
+  signal: AbortSignal | undefined,
+): Promise<BetaMessage> {
+  const opus = model !== 'claude-haiku-4-5'
+  const messages: BetaMessageParam[] = [{ role: 'user', content: prompt }]
+  let calls: McpCall[] = []
+  for (let resumes = 0; ; resumes++) {
+    const params: BetaMessageStreamParams = {
+      model,
+      max_tokens: opus ? 16000 : 8000,
+      system,
+      messages,
+      mcp_servers: mcp.servers,
+      tools: mcp.toolsets,
+      // Opus / Sonnet 5.5: thinking is always on (adaptive) — never send `thinking`; refusal fallbacks as above
+      ...(opus
+        ? { betas: ['server-side-fallback-2026-07-01', MCP_BETA], fallbacks: 'default' as const, output_config: { effort: 'low' as const } }
+        : { betas: [MCP_BETA] }),
+    }
+    const stream = client.beta.messages.stream(params)
+    const abort = () => stream.abort()
+    signal?.addEventListener('abort', abort, { once: true })
+    stream.on('text', onText)
+    stream.on('contentBlock', (block: BetaContentBlock) => {
+      const next = foldMcpBlock(calls, block)
+      if (next === calls) return
+      calls = next
+      onMcp?.(calls)
+    })
+    let final: BetaMessage
+    try {
+      final = await stream.finalMessage()
+    } finally {
+      signal?.removeEventListener('abort', abort)
+    }
+    if (final.stop_reason !== 'pause_turn' || resumes >= MAX_RESUMES) return final
+    messages.push({ role: 'assistant', content: final.content })
+  }
+}
+
+/** The answer of a response: the text after its last MCP tool call (all text when it made none). */
+function answerText(content: BetaContentBlock[]): string {
+  let start = 0
+  content.forEach((b, i) => {
+    if (b.type === 'mcp_tool_use' || b.type === 'mcp_tool_result') start = i + 1
+  })
+  const pick = (from: number) =>
+    content
+      .slice(from)
+      .map((b) => (b.type === 'text' ? b.text : ''))
+      .join('')
+  return pick(start).trim() ? pick(start) : pick(0)
 }
 
 /* ------------------------------------------------------------------ */
@@ -412,11 +534,15 @@ export async function runAI(opts: RunAIOptions): Promise<string> {
     const lang = useWorkspace.getState().settings.language === 'de' ? 'de' : 'en'
     return stripFence(await streamDemoText(demoAnswer(opts, lang), opts.onToken, opts.signal))
   }
+  // a free-form request may use the enabled MCP servers; the one-click actions stay cheap
+  const mcp = opts.action === 'custom' && opts.mcp !== false ? await attachMcp() : null
   const text = await streamCompletion({
     system: SYSTEM,
     prompt: buildPrompt(opts),
     onToken: opts.onToken,
     signal: opts.signal,
+    mcp,
+    onMcp: opts.onMcp,
   })
   return opts.action === 'autofill' ? text.trim().replace(/^["'`]|["'`]$/g, '') : stripFence(text)
 }

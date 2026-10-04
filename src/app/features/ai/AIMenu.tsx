@@ -44,7 +44,9 @@ import { useWorkspace } from '../../store/store'
 import { useUI } from '../../store/ui'
 import { markdownToDoc } from '../../editor'
 import { toMarkdown } from '../share/markdown'
-import { AI_MODELS, AIError, isAIDemo, onAIDemo, resolveModel, runAI, setAIDemo, stripFence, verifyKey, type AIAction } from './client'
+import { AI_MODELS, AIError, aiErrorText, isAIDemo, onAIDemo, resolveModel, runAI, setAIDemo, stripFence, verifyKey, type AIAction } from './client'
+import { readServers } from './mcp-servers/config'
+import { callLabel, type McpCall } from './mcp-servers/activity'
 import { askWorkspace, citationsToLinks, findSource, type WorkspaceSource } from './workspace'
 import { MarkdownLite } from './MarkdownLite'
 import { snapshotNow } from '../history/snapshots'
@@ -268,6 +270,15 @@ export function AIMenu({ editor, pageId, mode, onClose }: AIMenuProps) {
   const [output, setOutput] = useState('')
   const [error, setError] = useState<AIError | null>(null)
   const [sources, setSources] = useState<WorkspaceSource[]>([])
+  /** tool calls of external MCP servers in the running / last request */
+  const [mcpCalls, setMcpCalls] = useState<McpCall[]>([])
+  /** the MCP servers a free-form request would use ("ATLAS · GITHUB", '' = none) */
+  const mcpNames = useWorkspace((s) =>
+    readServers(s.settings)
+      .filter((x) => x.enabled)
+      .map((x) => x.name.toUpperCase())
+      .join(' · '),
+  )
   const [run, setRun] = useState<{ req: Request; started: number; ended?: number } | null>(null)
   const [active, setActive] = useState(0)
 
@@ -370,6 +381,7 @@ export function AIMenu({ editor, pageId, mode, onClose }: AIMenuProps) {
       setOutput('')
       setError(null)
       setSources([])
+      setMcpCalls([])
       setQuery('')
       setActive(0)
       makeRoom(true)
@@ -396,6 +408,9 @@ export function AIMenu({ editor, pageId, mode, onClose }: AIMenuProps) {
             context: isContinue ? (p?.title ? `# ${p.title}` : '') : pageContext(),
             onToken,
             signal: ac.signal,
+            onMcp: (calls) => {
+              if (!ac.signal.aborted) setMcpCalls(calls)
+            },
           })
         }
         if (ac.signal.aborted) return
@@ -662,6 +677,16 @@ export function AIMenu({ editor, pageId, mode, onClose }: AIMenuProps) {
       out.push({ id: 'retry', label: t('features.ai.res.retry'), icon: RotateCcw, run: retry })
       if (error && (error.code === 'invalid_key' || error.code === 'permission' || error.code === 'no_key'))
         out.push({ id: 'key', label: t('features.ai.res.changeKey'), icon: KeyRound, run: () => setSetup(true) })
+      if (error?.code === 'mcp')
+        out.push({
+          id: 'mcp',
+          label: t('features.ai.mcp.openSettings'),
+          icon: Settings2,
+          run: () => {
+            onClose()
+            useUI.getState().openModal({ type: 'settings', tab: 'ai' })
+          },
+        })
       out.push({ id: 'discard', label: t('features.ai.res.discard'), icon: Trash2, run: dismiss, hint: <Kbd>esc</Kbd>, danger: true })
       return out
     }
@@ -706,6 +731,11 @@ export function AIMenu({ editor, pageId, mode, onClose }: AIMenuProps) {
           code: 'ASK',
           icon: CornerDownLeft,
           run: () => start({ kind: 'action', action: 'custom', label: t('features.ai.custom'), code: 'ASK', instruction: query.trim() }),
+          hint: mcpNames ? (
+            <span className="ai-row__mcp" title={t('features.ai.mcp.uses', { names: mcpNames })}>
+              + {mcpNames}
+            </span>
+          ) : undefined,
         }
       : null
     const list: Row[] = matched.map((a) => ({ ...a }))
@@ -725,7 +755,7 @@ export function AIMenu({ editor, pageId, mode, onClose }: AIMenuProps) {
       })
     }
     return list
-  }, [query, setup, phase, wsMode, view, actions, t, start, output, target, targetRev, run, error, dismiss, sources, handToAgent]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [query, setup, phase, wsMode, view, actions, t, start, output, target, targetRev, run, error, dismiss, sources, handToAgent, mcpNames, onClose]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     setActive((a) => Math.min(a, Math.max(0, rows.length - 1)))
@@ -891,6 +921,7 @@ export function AIMenu({ editor, pageId, mode, onClose }: AIMenuProps) {
                     </button>
                   )}
                 </div>
+                {mcpCalls.length > 0 && <McpChips calls={mcpCalls} />}
                 {(output || busy) && (
                   <div
                     className="ai-out__body"
@@ -1039,13 +1070,37 @@ function Elapsed({ start, end }: { start: number; end?: number }) {
   )
 }
 
+/** Tool calls of external MCP servers: "ATLAS · search_records" chips with an LED; failures said politely. */
+function McpChips({ calls }: { calls: McpCall[] }) {
+  const t = useT()
+  const failed = calls.filter((c) => c.state === 'err')
+  return (
+    <div className="ai-mcp">
+      <ul className="ai-mcp__list" aria-label={t('features.ai.mcp.calls')}>
+        {calls.map((c) => (
+          <li key={c.id} className="ai-mcp__chip" data-state={c.state} title={c.arg ? `${callLabel(c)} — ${c.arg}` : callLabel(c)}>
+            <span className={`led${c.state === 'run' ? ' led--on ai-led--live' : c.state === 'err' ? ' ai-led--err' : ' led--ok'}`} aria-hidden />
+            {callLabel(c)}
+          </li>
+        ))}
+      </ul>
+      {failed.map((c) => (
+        <p key={c.id} className="ai-mcp__err">
+          {c.error ? t('features.ai.mcp.callErr', { server: c.server.toUpperCase(), tool: c.tool, error: c.error }) : t('features.ai.mcp.callErrBare', { server: c.server.toUpperCase(), tool: c.tool })}{' '}
+          {t('features.ai.mcp.callErrNote')}
+        </p>
+      ))}
+    </div>
+  )
+}
+
 function ErrorNote({ error, model }: { error: AIError; model: string }) {
   const t = useT()
-  const detail = error.code === 'bad_request' || error.code === 'unknown' ? (error.detail ?? '') : ''
+  const detail = error.code === 'bad_request' || error.code === 'unknown' || error.code === 'mcp' ? (error.detail ?? '') : ''
   return (
     <div className="ai-error" role="alert">
       <span className="ai-error__code label">ERR · {error.code.toUpperCase()}</span>
-      <p>{t(`features.ai.err.${error.code}`, { model, detail })}</p>
+      <p>{aiErrorText(error.code, { model, detail, server: error.server })}</p>
       {error.code === 'outdated' && (
         <button type="button" className="btn btn--sm" onClick={() => window.location.reload()}>
           {t('features.ai.reload')}

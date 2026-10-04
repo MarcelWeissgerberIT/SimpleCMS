@@ -620,10 +620,14 @@ export function SheetBlock({ attrs: raw, update, editable, editor, pageId, inser
     onTap: (x, y) => tapAt(x, y),
   })
 
-  /** A tap that landed on a handle or the fill tab: it was meant for the cell (or header) underneath. */
+  /**
+   * A tap that landed on a handle or the fill tab: it was meant for the cell (or header) underneath —
+   * on the selection (they sit on its edges) its menu, as a tap there.
+   */
   const tapAt = (x: number, y: number) => {
     const target = targetUnder(x, y)
     if (!target) return
+    if (tapsMenu(target, {})) return openMenu()
     pointer(target, 'down', NO_MODS)
     pointer(target, 'up', NO_MODS)
   }
@@ -656,7 +660,7 @@ export function SheetBlock({ attrs: raw, update, editable, editor, pageId, inser
    * A finger tapped the selection again (its compatibility mousedown): the cell menu — not while
    * editing, while "+ Area" waits for its area, or when this very press closed the menu.
    */
-  const tapsMenu = (target: GridTarget, e: MouseEvent | React.MouseEvent) =>
+  const tapsMenu = (target: GridTarget, e: { shiftKey?: boolean; ctrlKey?: boolean; metaKey?: boolean }) =>
     finger.current &&
     target.kind === 'cell' &&
     !e.shiftKey &&

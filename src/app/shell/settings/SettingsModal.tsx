@@ -11,7 +11,7 @@ import { logoMarkSvg } from '@/shared/logo'
 import { BRAND } from '@/shared/brand'
 import type { ThemePref } from '../../store/types'
 import { ShortcutList } from '../modals/ShortcutsModal'
-import { runAI, SyncTab, consumeSyncSettingsRequest, McpTab, consumeMcpSettingsRequest } from '../../features'
+import { runAI, SyncTab, consumeSyncSettingsRequest, McpTab, consumeMcpSettingsRequest, McpServers } from '../../features'
 import { fmtBytes, plural } from '../lib/format'
 import { requestReset } from '../lib/reset'
 import { WebClipper } from '../capture/WebClipper'
@@ -334,7 +334,8 @@ function AITab() {
     abort.current = ctrl
     setTest({ state: 'running' })
     try {
-      await runAI({ action: 'custom', input: '', instruction: 'Reply with the single word OK.', signal: ctrl.signal })
+      // the key alone: no MCP server is attached to this check
+      await runAI({ action: 'custom', input: '', instruction: 'Reply with the single word OK.', signal: ctrl.signal, mcp: false })
       if (!ctrl.signal.aborted) setTest({ state: 'ok' })
     } catch (e) {
       if (!ctrl.signal.aborted) setTest({ state: 'error', msg: e instanceof Error ? e.message : String(e) })
@@ -400,6 +401,7 @@ function AITab() {
           </a>
         </div>
       </div>
+      <McpServers />
     </>
   )
 }

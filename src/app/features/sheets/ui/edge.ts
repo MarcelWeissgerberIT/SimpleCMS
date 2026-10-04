@@ -5,22 +5,28 @@
  *    end, just short of the bottom-right knob;
  *  - a narrow selection (one column): the key on the bottom edge, the tab on the right edge above
  *    the knob — on a single row at the row's top.
- * Both reach OUT px past the border, into the neighbours' padding (no text there). The knobs are
- * drawn over them: a knob keeps its whole hit area, the key and the tab take what is left.
+ * Both straddle the border: OUT px over it, into the neighbours' padding (no text there), the rest
+ * low in the selection's last row, clear of its cells' centres (a tap there is the cell's — a double
+ * tap edits it; a tap on the selection opens the menu anyway). The knobs are drawn over them: a knob
+ * keeps its whole hit area, the key and the tab take what is left.
  */
 
 /* sizes as in sheet.css (.sg-menukey, .sg-fill.is-tab, .sg-handle and their ::before hit areas) */
 export const KEY_W = 32
-export const KEY_H = 24
-export const TAB = 18
+export const KEY_H = 16
+export const TAB = 16
 /** how far the key and the tab reach past the selection's border */
-export const OUT = 4
+export const OUT = 5
+/** their hit areas along the bottom edge: the key's 44 wide, the tab's 32 — they may share a few px (the tab's) */
 const KEY_HIT = 44
-const TAB_HIT = 34
+const TAB_HIT = 32
+const SHARE = 8
+/** the right-edge tab's hit area reaches 8 px above and below its face */
+const TAB_REACH = 8
 /** how far the bottom-right knob's hit area reaches into the selection */
 const KNOB_IN = 14
-/** the top-left knob's hit area: 22 px around its centre */
-const TL_HIT = 22
+/** the top-left knob's hit area: a circle 20 px around its centre */
+const TL_HIT = 20
 /** the bottom-right knob's visual radius (+ a hair of air) */
 const KNOB_R = 9
 
@@ -57,25 +63,27 @@ export function edgePlaces({ sel, view, br, tl, key, tab }: EdgeInput): EdgePlac
   const x0 = Math.max(sel.left, view.left)
   const x1 = Math.min(sel.right, view.right)
   if (x1 <= x0) return out
+  const top = sel.bottom + OUT - KEY_H
   // the hit areas end short of the bottom-right knob's (or of the view's right edge)
   const end = br ? sel.right - KNOB_IN : x1 - 2
   let lo = x0 + KEY_HIT / 2
-  // a single row: the top-left knob's hit area comes down to the key's — its centre stays clear of it
-  if (tl && tl.y + TL_HIT > sel.bottom + OUT - KEY_H) lo = Math.max(lo, tl.x + TL_HIT + 8)
-  const both = end - TAB_HIT - KEY_HIT / 2
+  // a single row: the top-left knob's hit area comes down to the key's band — the key's face stays clear of it
+  const dy = top - (tl?.y ?? -Infinity)
+  if (tl && dy < TL_HIT) lo = Math.max(lo, tl.x + Math.sqrt(TL_HIT * TL_HIT - dy * dy) + KEY_W / 2 + 1)
+  const both = end - TAB_HIT - KEY_HIT / 2 + SHARE
   const tabBelow = tab && (key ? both >= lo : end - TAB_HIT >= x0)
   if (tabBelow) out.tab = { left: Math.round(end - (TAB_HIT + TAB) / 2), top: sel.bottom + OUT - TAB, side: 'bottom' }
   // the key: wherever its face fits between the view's edge (or the left border) and the knob
   if (key && (br ? sel.right - KNOB_R : x1) - x0 >= KEY_W + 2) {
     const hi = tabBelow ? both : end - KEY_HIT / 2
     const x = lo <= hi ? clamp((x0 + x1) / 2, lo, hi) : Math.max((lo + hi) / 2, x0 + KEY_W / 2 + 1)
-    out.key = { left: Math.round(x - KEY_W / 2), top: sel.bottom + OUT - KEY_H }
+    out.key = { left: Math.round(x - KEY_W / 2), top }
   }
-  // no room below: the right edge, above the knob — no further up than the row above's padding,
-  // nor under the headers
+  // no room below: the right edge, above the knob — no further up than the row above's padding, nor
+  // under the headers
   if (tab && !tabBelow && br && sel.right + OUT - TAB >= view.left) {
-    const top = Math.max(sel.bottom - KNOB_IN - (TAB_HIT + TAB) / 2, sel.top - 2, view.top + 1)
-    out.tab = { left: sel.right + OUT - TAB, top: Math.round(top), side: 'right' }
+    const y = Math.max(sel.bottom - KNOB_IN - TAB_REACH - TAB, sel.top - 2, view.top + 1)
+    out.tab = { left: sel.right + OUT - TAB, top: Math.round(y), side: 'right' }
   }
   return out
 }

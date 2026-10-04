@@ -4,7 +4,7 @@
  * changes (nothing is written before "Apply") → usage meter.
  */
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { ArrowDown, ArrowRight, CornerDownLeft, ExternalLink, KeyRound, RotateCcw, Square, Undo2, X } from 'lucide-react'
+import { ArrowDown, ArrowRight, CornerDownLeft, ExternalLink, KeyRound, RotateCcw, Settings2, Square, Undo2, X } from 'lucide-react'
 import { useT } from '../../../i18n'
 import { useWorkspace } from '../../../store/store'
 import { useUI } from '../../../store/ui'
@@ -16,6 +16,8 @@ import { MarkdownLite } from '../MarkdownLite'
 import { closeAgent, useAgent } from './state'
 import { applyStaged, changeTarget, discardAllStaged, discardStaged, newTask, restoreStaged, runTask, stopTask, tn } from './session'
 import { MAX_TOOL_CALLS } from './tools'
+import { currentSetup, readServers, setupKey } from '../mcp-servers/config'
+import { callLabel } from '../mcp-servers/activity'
 import { AGENT_SHORTCUT } from './AgentPanel'
 import type { AgentStep, AgentTurn, PropChange, StagedChange } from './types'
 import '../ai.css'
@@ -123,6 +125,7 @@ export default function AgentSheet() {
           </button>
         </div>
       )}
+      <McpChanged />
       <Composer inputRef={inputRef} disabled={!hasKey} />
       <Meter />
     </aside>
@@ -197,6 +200,13 @@ function NoKey() {
 
 function Standby({ onPick, disabled }: { onPick: (task: string) => void; disabled: boolean }) {
   const t = useT()
+  // external MCP servers the next conversation will use (Settings → Claude AI)
+  const mcp = useWorkspace((s) =>
+    readServers(s.settings)
+      .filter((x) => x.enabled)
+      .map((x) => x.name.toUpperCase())
+      .join(' · '),
+  )
   const examples = [t('features.agent.ex.1'), t('features.agent.ex.2'), t('features.agent.ex.3')]
   return (
     <div className="agent-standby">
@@ -214,6 +224,12 @@ function Standby({ onPick, disabled }: { onPick: (task: string) => void; disable
           <dt className="label">{t('features.agent.caps.limit')}</dt>
           <dd>{t('features.agent.caps.limitList', { max: MAX_TOOL_CALLS })}</dd>
         </div>
+        {mcp && (
+          <div>
+            <dt className="label">{t('features.ai.mcp.agentCaps')}</dt>
+            <dd className="agent-spec__mcp">{mcp}</dd>
+          </div>
+        )}
       </dl>
       <div className="agent-examples">
         <span className="label">{t('features.agent.examples')}</span>
@@ -264,7 +280,7 @@ function TurnView({ turn, last }: { turn: AgentTurn; last: boolean }) {
       </div>
       <p className="agent-turn__task">{turn.task}</p>
       <ol className="agent-steps" role="log" aria-label={t('features.agent.log')} aria-live="polite">
-        {steps.map((s) => (s.kind === 'note' ? <NoteRow key={s.id} step={s} /> : <StepRow key={s.id} step={s} n={++n} />))}
+        {steps.map((s) => (s.kind === 'note' ? <NoteRow key={s.id} step={s} /> : s.kind === 'mcp' ? <McpRow key={s.id} step={s} n={++n} /> : <StepRow key={s.id} step={s} n={++n} />))}
         {running && !live && (
           <li className="agent-step agent-step--wait" aria-hidden>
             <span className="led led--on ai-led--live" />
@@ -304,6 +320,11 @@ function TurnError({ error }: { error: NonNullable<AgentTurn['error']> }) {
           <KeyRound size={13} strokeWidth={1.75} aria-hidden /> {t('features.agent.nokey.open')}
         </button>
       )}
+      {error.code === 'mcp' && (
+        <button type="button" className="btn btn--sm" onClick={() => useUI.getState().openModal({ type: 'settings', tab: 'ai' })}>
+          <Settings2 size={13} strokeWidth={1.75} aria-hidden /> {t('features.ai.mcp.openSettings')}
+        </button>
+      )}
     </div>
   )
 }
@@ -324,6 +345,53 @@ function StepRow({ step, n }: { step: AgentStep; n: number }) {
       </span>
       <span className="agent-step__res mono">{result}</span>
     </li>
+  )
+}
+
+/** A tool call of an external MCP server ("ATLAS · search_records"), run by Anthropic. */
+function McpRow({ step, n }: { step: AgentStep; n: number }) {
+  const t = useT()
+  const call = step.mcp!
+  const led = step.state === 'run' ? 'led led--on ai-led--live' : step.state === 'err' ? 'led ai-led--err' : 'led led--ok'
+  const result = step.state === 'run' ? t('features.ai.mcp.res.run') : step.state === 'err' ? t('features.ai.mcp.res.err') : t('features.ai.mcp.res.ok')
+  const server = call.server.toUpperCase()
+  return (
+    <li className="agent-step agent-step--mcp" data-state={step.state} data-mcp={call.server}>
+      <span className={led} aria-hidden />
+      <span className="agent-step__n mono">{pad(n)}</span>
+      <span className="agent-mcp mono" title={callLabel(call)}>
+        {callLabel(call)}
+      </span>
+      <span className="agent-step__arg" title={step.arg}>
+        {step.arg}
+      </span>
+      <span className="agent-step__res mono">{result}</span>
+      {step.state === 'err' && (
+        <p className="agent-step__err">
+          {call.error ? t('features.ai.mcp.callErr', { server, tool: call.tool, error: call.error }) : t('features.ai.mcp.callErrBare', { server, tool: call.tool })} {t('features.ai.mcp.callErrNote')}
+        </p>
+      )}
+    </li>
+  )
+}
+
+/** The MCP setup in Settings differs from the one this conversation was started with. */
+function McpChanged() {
+  const t = useT()
+  const pinned = useAgent((s) => s.mcp?.key ?? null)
+  const hasTurns = useAgent((s) => s.turns.length > 0)
+  const running = useAgent((s) => s.status === 'running')
+  // the settings object changes on every setting: compare the setup's signature, not the object
+  const now = useWorkspace((s) => (pinned === null ? null : setupKey(currentSetup(s.settings))))
+  if (!hasTurns || running || now === null || now === pinned) return null
+  return (
+    <div className="agent-mcpnote" role="status">
+      <span className="led led--on" aria-hidden />
+      <span className="agent-mcpnote__text">{t('features.ai.mcp.agentChanged')}</span>
+      <button type="button" className="btn btn--sm" onClick={newTask}>
+        <RotateCcw size={12} strokeWidth={1.75} aria-hidden /> {t('features.agent.newTask')}
+      </button>
+    </div>
   )
 }
 

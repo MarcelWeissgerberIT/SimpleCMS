@@ -20,6 +20,8 @@ export interface AgentState {
   live: string
   /** tool calls in the running task */
   calls: number
+  /** the MCP setup this conversation runs with (pinned at its first task; null = none yet) */
+  mcp: { key: string; names: string[] } | null
 }
 
 export const initialAgentState = (): Omit<AgentState, 'open' | 'draft' | 'autorun'> => ({
@@ -30,6 +32,7 @@ export const initialAgentState = (): Omit<AgentState, 'open' | 'draft' | 'autoru
   usage: { ...EMPTY_USAGE },
   live: '',
   calls: 0,
+  mcp: null,
 })
 
 export const useAgent = create<AgentState>()(() => ({ open: false, draft: '', autorun: false, ...initialAgentState() }))

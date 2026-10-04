@@ -24,8 +24,11 @@ export interface AgentStep {
   id: string
   /** task number (1-based) the step belongs to */
   turn: number
-  kind: 'tool' | 'note'
+  /** 'mcp': a tool of an external MCP server, run by Anthropic inside the response */
+  kind: 'tool' | 'note' | 'mcp'
   tool?: ToolName
+  /** kind 'mcp': the call (server, tool name, the error text of a failed call) */
+  mcp?: { id: string; server: string; tool: string; error?: string }
   /** what the tool was asked for (a query, a page title …) */
   arg?: string
   /** readout after the call: "4 results", "staged #2" */

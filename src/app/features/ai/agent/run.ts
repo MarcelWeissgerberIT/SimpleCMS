@@ -8,11 +8,16 @@
  *   Claude writes between tool calls reach the step log; refusal fallbacks as in client.ts.
  * - Limits: MAX_TOOL_CALLS per task (then Claude is told to wrap up, and the run ends if it keeps
  *   calling tools), tool results clipped with a note (tools.ts), max_iterations as a backstop.
+ * - External MCP servers (Settings → Claude AI): attached as `mcp_servers` + `mcp_toolset`s; their
+ *   calls run inside a response (mcp_tool_use / mcp_tool_result, kept in the history unchanged) and
+ *   only reach the step log. The session pins the setup per conversation (system + tools stay put).
  */
 import type AnthropicSDK from '@anthropic-ai/sdk'
-import type { BetaContentBlock, BetaMessageParam, BetaToolResultBlockParam, BetaUsage } from '@anthropic-ai/sdk/resources/beta/messages/messages'
+import type { BetaContentBlock, BetaMessageParam, BetaToolResultBlockParam, BetaToolUnion, BetaUsage } from '@anthropic-ai/sdk/resources/beta/messages/messages'
 import type { BetaRunnableTool } from '@anthropic-ai/sdk/lib/tools/BetaRunnableTool'
 import { AIError, claudeClient, toAIError } from '../client'
+import { MCP_BETA, type McpAttachment } from '../mcp-servers/config'
+import { foldMcpBlock, type McpCall } from '../mcp-servers/activity'
 import { AGENT_TOOLS, MAX_TOOL_CALLS, RESULT_CHARS, ToolInputError, argLabel, clipResult, type StageApi, type ToolOutcome } from './tools'
 import type { ToolName } from './types'
 
@@ -51,6 +56,8 @@ export interface RunHooks {
   history(messages: BetaMessageParam[]): void
   /** Claude hit the tool-call limit and was asked to wrap up */
   limit(): void
+  /** an MCP tool call started or ended (Anthropic runs it inside the response) */
+  mcp(call: McpCall): void
 }
 
 /** The user turn for a task: context first, then the task. Closes tool calls a stopped run left open. */
@@ -70,8 +77,17 @@ const isOpus = (m: string) => m !== 'claude-haiku-4-5'
  * Run one task. Resolves with how the run ended; throws AIError (code 'aborted' after Stop).
  * `history` is the conversation of earlier tasks in this session.
  */
-export async function runAgent(opts: { history: BetaMessageParam[]; user: BetaMessageParam; stage: StageApi; signal: AbortSignal; hooks: RunHooks }): Promise<RunEnd> {
+export async function runAgent(opts: {
+  history: BetaMessageParam[]
+  user: BetaMessageParam
+  stage: StageApi
+  signal: AbortSignal
+  hooks: RunHooks
+  /** the external MCP servers of this conversation (null = none) */
+  mcp?: McpAttachment | null
+}): Promise<RunEnd> {
   const { stage, signal, hooks } = opts
+  const mcp = opts.mcp ?? null
   let messages: BetaMessageParam[] = [...opts.history, opts.user]
   if (signal.aborted) {
     hooks.history(messages)
@@ -129,17 +145,20 @@ export async function runAgent(opts: { history: BetaMessageParam[]; user: BetaMe
       max_iterations: MAX_TOOL_CALLS + 6,
       // automatic prompt caching: system + tools + the growing history are re-read every step
       cache_control: { type: 'ephemeral' as const },
-      system: AGENT_SYSTEM,
-      tools,
+      system: mcp ? `${AGENT_SYSTEM}\n\n${mcp.system}` : AGENT_SYSTEM,
+      tools: mcp ? [...tools, ...mcp.toolsets] : (tools as Array<BetaRunnableTool<Record<string, unknown>> | BetaToolUnion>),
+      ...(mcp ? { mcp_servers: mcp.servers } : {}),
       ...(isOpus(model)
         ? {
             // Opus / Sonnet 5.5: thinking is always on (adaptive); "updates" returns the progress notes
-            betas: ['server-side-fallback-2026-07-01', 'thinking-display-updates-2026-08-18'],
+            betas: ['server-side-fallback-2026-07-01', 'thinking-display-updates-2026-08-18', ...(mcp ? [MCP_BETA] : [])],
             fallbacks: 'default' as const,
             thinking: { type: 'adaptive' as const, display: 'updates' as const },
             output_config: { effort: 'medium' as const },
           }
-        : {}),
+        : mcp
+          ? { betas: [MCP_BETA] }
+          : {}),
     }
 
     let end: RunEnd = 'done'
@@ -149,9 +168,15 @@ export async function runAgent(opts: { history: BetaMessageParam[]; user: BetaMe
       outer: for (;;) {
         try {
           for await (const stream of runner) {
+            let mcpCalls: McpCall[] = []
             stream.on('text', (delta) => hooks.text(delta))
             stream.on('contentBlock', (block: BetaContentBlock) => {
               if (block.type === 'thinking' && block.thinking.trim()) hooks.note(block.thinking.trim())
+              const next = foldMcpBlock(mcpCalls, block)
+              if (next === mcpCalls) return
+              const changed = next.find((c, i) => c !== mcpCalls[i])
+              mcpCalls = next
+              if (changed) hooks.mcp(changed)
             })
             const msg = await stream.finalMessage()
             jsonRetries = 0
@@ -196,7 +221,7 @@ export async function runAgent(opts: { history: BetaMessageParam[]; user: BetaMe
     return end
   } catch (e) {
     if (signal.aborted) throw new AIError('aborted')
-    throw toAIError(e, sdk)
+    throw toAIError(e, sdk, mcp?.names)
   }
 }
 

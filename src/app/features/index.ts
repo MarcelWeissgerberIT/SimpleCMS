@@ -21,6 +21,11 @@ export { AutomationsModal } from './automations/AutomationsModal'
 export { isAIConfigured, runAI, type AIAction, type RunAIOptions } from './ai/client'
 export { AIMenu, type AIMenuProps } from './ai/AIMenu'
 /*
+ * External MCP servers for Claude (Messages API MCP connector): McpServers = the section of
+ * Settings → Claude AI (servers, sealed tokens, usage prompts, the MCP instructions template).
+ */
+export { McpServers } from './ai/mcp-servers/McpServers'
+/*
  * AI meeting notes (the editor's `meetingNotes` node view renders these around the notes):
  *  - MeetingDeck: bar, title, record / pause / stop, live transcript, paste, Claude errors
  *  - MeetingFoot: privacy line + "Send action items to a database"

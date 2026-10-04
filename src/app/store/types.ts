@@ -616,6 +616,37 @@ export interface Settings {
   aiModel: string
   /** Snapshot interval for version history in minutes */
   historyIntervalMin: number
+  /**
+   * Remote MCP servers Claude may use (Messages API MCP connector, features/ai/mcp-servers): per
+   * device like every setting — never synced. Absent = none. Write the list only through
+   * updateSettings({ mcpServers }): a plaintext `token` in it is sealed into the vault there.
+   */
+  mcpServers?: McpServerConfig[]
+  /** The MCP instructions template added to Claude's system prompt; absent / '' = the built-in default (UI language). */
+  mcpInstructions?: string
+}
+
+/** A remote MCP server (Streamable HTTP / SSE over https) that Anthropic connects to on Claude's behalf. */
+export interface McpServerConfig {
+  id: ID
+  /** the `mcp_server_name`: a–z, 0–9, "_" and "-", 1–32 characters, unique in the list */
+  name: string
+  /** https:// endpoint */
+  url: string
+  /**
+   * Bearer token as a vault MARKER ("vault:<seal id>:<last 4>", '' = none), never the token: sealed in
+   * this browser's vault as "mcp-token:<id>" (store/secrets.ts). Never exported, synced or shared.
+   */
+  token: string
+  enabled: boolean
+  /** usage guide for Claude, added to the system prompt ('' = none yet) */
+  prompt: string
+  /** 'auto' = generated and unchanged since · 'edited' = written or changed by the user */
+  promptSource?: 'auto' | 'edited'
+  /** tool names seen at the last check (display only) */
+  tools?: string[]
+  /** last successful check (ms since epoch) */
+  checkedAt?: number
 }
 
 export interface Workspace {

@@ -10,6 +10,7 @@ import { parseHash } from '../../../lib/router'
 import type { ID } from '../../../store/types'
 import { t } from '../../../i18n'
 import { AIError, resolveModel } from '../client'
+import { attachMcp, currentSetup, setupKey, type McpSetup } from '../mcp-servers/config'
 import { applyChanges, type ApplyResult } from './apply'
 import { runAgent, taskMessage, type RunHooks } from './run'
 import { initialAgentState, setStopHandler, useAgent } from './state'
@@ -27,6 +28,11 @@ let rowIds: Record<string, ID> = {}
 let reported: Record<string, StagedChange['status']> = {}
 let controller: AbortController | null = null
 let seq = 0
+/**
+ * The MCP setup of this conversation: pinned at its first task, so the system prompt and the tool
+ * list stay the same for every later request (prompt cache, thinking). "New task" picks up changes.
+ */
+let mcpSetup: McpSetup | null = null
 
 const nextId = (p: string) => `${p}${(++seq).toString(36)}`
 
@@ -96,6 +102,11 @@ export async function runTask(raw?: string): Promise<void> {
   controller = ac
   setStopHandler(() => ac.abort())
   set((s) => ({ status: 'running', draft: '', autorun: false, live: '', calls: 0, turns: [...s.turns, { n, task, startedAt: Date.now(), status: 'running', answer: '' }] }))
+  if (!history.length || !mcpSetup) {
+    mcpSetup = currentSetup()
+    set({ mcp: { key: setupKey(mcpSetup), names: mcpSetup.servers.map((x) => x.name) } })
+  }
+  const setup = mcpSetup
 
   let answer = ''
   // streamed text is batched per frame
@@ -161,6 +172,12 @@ export async function runTask(raw?: string): Promise<void> {
     limit() {
       note(t('features.agent.limitNote'))
     },
+    mcp(call) {
+      const step = get().steps.find((x) => x.mcp?.id === call.id)
+      const mcp = { id: call.id, server: call.server, tool: call.tool, error: call.error }
+      if (step) patchStep(step.id, { state: call.state, arg: call.arg || step.arg, mcp, ms: call.state === 'run' ? undefined : Date.now() - step.startedAt })
+      else set((s) => ({ steps: [...s.steps, { id: nextId('s'), turn: n, kind: 'mcp', arg: call.arg, state: call.state, startedAt: Date.now(), mcp }] }))
+    },
   }
 
   const finish = (status: AgentStatus, error?: AgentTurn['error']) => {
@@ -177,7 +194,8 @@ export async function runTask(raw?: string): Promise<void> {
   }
 
   try {
-    const end = await runAgent({ history, user: taskMessage(history, task, context()), stage, signal: ac.signal, hooks })
+    const mcp = setup.servers.length ? await attachMcp(setup) : null
+    const end = await runAgent({ history, user: taskMessage(history, task, context()), stage, signal: ac.signal, hooks, mcp })
     if (end === 'max_tokens') finish('error', { code: 'max_tokens', message: t('features.agent.err.maxTokens') })
     else finish(end === 'limit' ? 'limit' : 'done')
   } catch (e) {
@@ -204,6 +222,7 @@ export function newTask() {
   history = []
   rowIds = {}
   reported = {}
+  mcpSetup = null
   set({ ...initialAgentState(), draft: '', autorun: false })
 }
 
