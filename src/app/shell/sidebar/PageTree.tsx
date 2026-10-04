@@ -247,23 +247,32 @@ export function PageList({ ids, section }: { ids: ID[]; section: string }) {
   )
 }
 
+/**
+ * One tree node: a page, a database or an entry (a database row). Open, a database lists its entries
+ * (ordered like its first view, see lib/tree) and an entry its sub-items (sub-items on) — then, for
+ * all three, the pages inside.
+ */
 const TreeNode = memo(function TreeNode({ id, depth, section, draggable }: { id: ID; depth: number; section: string; draggable: boolean }) {
   const t = useT()
   const key = treeKey(section, id)
   const expanded = useTreeState((s) => !!s.expanded[key])
   const kids = useChildIds(id)
-  const isDb = useWorkspace((s) => s.pages[id]?.kind === 'database')
-  const open = expanded && (!isDb || kids.length > 0)
+  const kind = useWorkspace((s) => (s.pages[id] ? nodeKind(s.pages[id]) : 'page'))
+  const dbId = useWorkspace((s) => s.pages[id]?.databaseId ?? null)
+  const rows = useRowCount(kind === 'database' ? id : null)
+  const subs = useSubEntryCount(kind === 'entry' ? dbId : null, id)
+  const empty = kids.length === 0 && rows === 0 && subs === 0
   return (
     <div className="sb-node">
-      <TreeRow id={id} depth={depth} section={section} draggable={draggable} expanded={open} hasKids={kids.length > 0} />
-      {open && (
-        <div className="sb-children" role="group" style={{ '--depth': depth } as CSSProperties}>
-          {kids.length > 0 ? (
-            <PageTree parentId={id} depth={depth + 1} section={section} draggable={draggable} />
-          ) : (
+      <TreeRow id={id} depth={depth} section={section} draggable={draggable} expanded={expanded} />
+      {expanded && (
+        <div className="sb-children" role="group" data-kind={kind} style={{ '--depth': depth } as CSSProperties}>
+          {rows > 0 && <EntryList dbId={id} parentRow={null} depth={depth + 1} section={section} draggable={draggable} />}
+          {subs > 0 && dbId && <EntryList dbId={dbId} parentRow={id} depth={depth + 1} section={section} draggable={draggable} />}
+          {kids.length > 0 && <PageTree parentId={id} depth={depth + 1} section={section} draggable={draggable} />}
+          {empty && (
             <div className="sb-empty" style={{ paddingLeft: 10 + (depth + 1) * INDENT + 22 }}>
-              {t('shell.sidebar.noPagesInside')}
+              {kind === 'database' ? t('shell.sidebar.noEntries') : t('shell.sidebar.noPagesInside')}
             </div>
           )}
         </div>
@@ -272,13 +281,57 @@ const TreeNode = memo(function TreeNode({ id, depth, section, draggable }: { id:
   )
 })
 
-function TreeRow({ id, depth, section, draggable, expanded, hasKids }: { id: ID; depth: number; section: string; draggable: boolean; expanded: boolean; hasKids: boolean }) {
+/** A database's entries (parentRow null) or a row's sub-items: the first ENTRY_LIMIT, then a "show all" key. */
+function EntryList({ dbId, parentRow, depth, section, draggable }: { dbId: ID; parentRow: ID | null; depth: number; section: string; draggable: boolean }) {
+  const route = useRoute()
+  const ids = useEntryIds(dbId, parentRow, route.name === 'page' ? route.id : null)
+  const total = useEntryTotal(dbId, parentRow)
+  return (
+    <>
+      {ids.map((id) => (
+        <TreeNode key={id} id={id} depth={depth} section={section} draggable={draggable} />
+      ))}
+      {total > ENTRY_LIMIT && <ShowAllKey dbId={dbId} depth={depth} total={total} />}
+    </>
+  )
+}
+
+/** "SHOW ALL · 143": the rest of a long database lives in the database itself — this opens it. */
+function ShowAllKey({ dbId, depth, total }: { dbId: ID; depth: number; total: number }) {
+  const t = useT()
+  const lang = useLang()
+  const db = useWorkspace((s) => s.pages[dbId]?.title.trim() || '')
+  const n = total.toLocaleString(lang === 'de' ? 'de-DE' : 'en-US')
+  return (
+    <div className="sb-row sb-more" style={{ '--depth': depth } as CSSProperties}>
+      <a
+        className="sb-row__link sb-more__link"
+        href={`#/p/${dbId}`}
+        draggable={false}
+        data-no-pane=""
+        role="treeitem"
+        aria-level={depth + 1}
+        aria-label={t('shell.sidebar.showAllLabel', { n, db: db || t('common.untitled') })}
+        data-testid="tree-show-all"
+        onClick={(e) => {
+          if (e.metaKey || e.ctrlKey || e.shiftKey) return
+          e.preventDefault()
+          goToPage(dbId)
+        }}
+      >
+        <span className="sb-more__label">{t('shell.sidebar.showAll', { n })}</span>
+      </a>
+    </div>
+  )
+}
+
+function TreeRow({ id, depth, section, draggable, expanded }: { id: ID; depth: number; section: string; draggable: boolean; expanded: boolean }) {
   const t = useT()
   const page = usePage(id)
   const route = useRoute()
   const active = route.name === 'page' && route.id === id
-  // a database row is open → mark its database
-  const activeWithin = useWorkspace((s) => route.name === 'page' && s.pages[route.id]?.databaseId === id)
+  // an entry of this (closed) database is open → mark the database
+  const activeWithin = useWorkspace((s) => !expanded && route.name === 'page' && s.pages[route.id]?.databaseId === id)
   const { activeId, drop } = useContext(DropContext)
   const toggle = useTreeState((s) => s.toggle)
   const [renaming, setRenaming] = useState(false)
@@ -298,14 +351,21 @@ function TreeRow({ id, depth, section, draggable, expanded, hasKids }: { id: ID;
   }, [active])
 
   if (!page) return null
-  const isDb = page.kind === 'database'
-  const canExpand = !isDb || hasKids
+  const kind = nodeKind(page)
+  const isDb = kind === 'database'
   const title = page.title.trim() || t('common.untitled')
   const dropPos = drop?.overId === id ? drop.pos : undefined
   const isDragging = activeId === id
 
   const edit = !readOnly
+  const addInside = () => {
+    useTreeState.getState().expand([treeKey(section, id)])
+    if (isDb) createEntryAndOpen(id)
+    else if (page.private) createPrivatePageAndOpen(id)
+    else createPageAndOpen(id)
+  }
   const entries: MenuEntry[] = [
+    ...(edit && isDb ? ([{ label: t('shell.sidebar.newEntry'), icon: <FilePlus2 size={15} />, onSelect: addInside }, { kind: 'separator' }] as MenuEntry[]) : []),
     ...(edit
       ? ([
           { label: t('common.rename'), icon: <PencilLine size={15} />, onSelect: () => setRenaming(true) },
@@ -358,6 +418,7 @@ function TreeRow({ id, depth, section, draggable, expanded, hasKids }: { id: ID;
         dropZone.setNodeRef(el)
       }}
       className="sb-row"
+      data-kind={kind}
       data-active={active || undefined}
       data-active-within={activeWithin || undefined}
       data-drop={dropPos}
@@ -374,20 +435,18 @@ function TreeRow({ id, depth, section, draggable, expanded, hasKids }: { id: ID;
         <span className="sb-row__icon">
           <PageIcon icon={page.icon} kind={page.kind} size={16} />
         </span>
-        {canExpand && (
-          <button
-            type="button"
-            className="sb-row__toggle"
-            aria-label={expanded ? t('shell.sidebar.collapse') : t('shell.sidebar.expand')}
-            data-open={expanded || undefined}
-            onClick={(e) => {
-              e.stopPropagation()
-              toggle(treeKey(section, id))
-            }}
-          >
-            <ChevronRight size={14} strokeWidth={2} />
-          </button>
-        )}
+        <button
+          type="button"
+          className="sb-row__toggle"
+          aria-label={expanded ? t('shell.sidebar.collapse') : t('shell.sidebar.expand')}
+          data-open={expanded || undefined}
+          onClick={(e) => {
+            e.stopPropagation()
+            toggle(treeKey(section, id))
+          }}
+        >
+          <ChevronRight size={14} strokeWidth={2} />
+        </button>
       </span>
       {renaming ? (
         <RenameInput
@@ -421,7 +480,7 @@ function TreeRow({ id, depth, section, draggable, expanded, hasKids }: { id: ID;
           aria-current={active ? 'page' : undefined}
           role="treeitem"
           aria-level={depth + 1}
-          aria-expanded={canExpand ? expanded : undefined}
+          aria-expanded={expanded}
           data-tree-key={treeKey(section, id)}
         >
           <span className="sb-row__title" data-untitled={!page.title.trim() || undefined}>
@@ -445,16 +504,14 @@ function TreeRow({ id, depth, section, draggable, expanded, hasKids }: { id: ID;
           <button type="button" className="sb-row__btn" aria-label={t('common.more')} onClick={toggleMenu(menu)}>
             <MoreHorizontal size={15} />
           </button>
-          {!isDb && edit && (
+          {edit && (
             <button
               type="button"
               className="sb-row__btn"
-              aria-label={t('shell.sidebar.addInside')}
+              aria-label={isDb ? t('shell.sidebar.newEntry') : t('shell.sidebar.addInside')}
               onClick={(e) => {
                 e.stopPropagation()
-                useTreeState.getState().expand([treeKey(section, id)])
-                if (page.private) createPrivatePageAndOpen(id)
-                else createPageAndOpen(id)
+                addInside()
               }}
             >
               <Plus size={15} />

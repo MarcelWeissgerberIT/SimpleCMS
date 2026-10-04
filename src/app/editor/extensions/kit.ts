@@ -13,6 +13,7 @@ import { commentsExtension } from '../comments/plugin'
 import { pasteExtension } from './paste'
 import { ButtonKeys } from '../schema/button'
 import { MediaKeys } from '../schema/media'
+import { BlockToolKeys } from './blockTools'
 import { IconKeys } from '../views/InlineIconView'
 import type { ContentDocHandle } from '../../cloud'
 import { collabExtensions } from '../collab'
@@ -55,6 +56,7 @@ export function editorExtensions({
     suggestExtension('emoji', ':', bridge, { shouldShow: emojiQuery }),
     ButtonKeys,
     MediaKeys,
+    BlockToolKeys,
     IconKeys,
     commentsExtension(bridge),
     QuietStart,

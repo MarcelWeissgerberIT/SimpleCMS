@@ -1,11 +1,12 @@
 /**
  * Help panel state (this tab only, never persisted): open or not, and a small browser-like history of
- * places — the manual's index, a chapter, an article, the keyboard sheet or "Ask the help".
+ * places — the manual's index, search results, a chapter, an article, the keyboard sheet or "Ask the help".
  */
 import { create } from 'zustand'
 
 export type HelpLoc =
   | { kind: 'home' }
+  | { kind: 'search' }
   | { kind: 'section'; id: string }
   | { kind: 'article'; id: string }
   | { kind: 'keys' }
