@@ -80,15 +80,18 @@ AI on every workspace with your own Claude key, and an honest export.
 </table>
 
 **Block editor** — slash menu (with the Markdown shortcut shown next to every command), drag handles, turn-into,
-toggles and toggle headings, callouts, columns, tables, tabs, to-dos, code with highlighting, KaTeX math, Mermaid
-diagrams, images, video & audio, files, embeds, bookmarks, table of contents, @-mentions of pages / dates (with
+toggles and toggle headings, callouts, 2–5 columns, tables, tabs, to-dos, code with highlighting, KaTeX math, Mermaid
+diagrams, images, video & audio, files, PDFs shown inline, embeds (YouTube, Figma, Loom, Google Docs / Sheets / Slides /
+Drive, Miro, Excalidraw, GitHub Gist, Spotify, Typeform, Calendly, Airtable, CodeSandbox, X and more — all in sandboxed
+frames), bookmarks, breadcrumbs, links to existing pages, a one-step **/form** block, table of contents, @-mentions of pages / dates (with
 reminders) / people, emoji shortcodes, Markdown paste, block links, margin comments (they never leave the device),
 **synced blocks** (the same content on several pages — edit it anywhere, it changes everywhere), **AI meeting notes**
 (a live transcript from the browser's speech recognition, then summary, decisions and action items by Claude — action
 items go straight into a database), and **buttons** that
 insert blocks, add rows, edit properties, open links or fire a webhook in one click.
 
-**Databases** — table, board, list, gallery, calendar, timeline, chart and form views over the same rows; 22 property
+**Databases** — table, board, list, gallery, **feed** (a stream of posts with their content), calendar, timeline,
+chart and form views over the same rows; 22 property
 types including relations, rollups, formulas (safe parser, no `eval`), status, unique IDs, ratings and created by /
 last edited by; filters with AND/OR groups and a "Me" filter, multi-sort, grouping, footer calculations, colour rules,
 sub-items, timeline dependencies (with automatic shifting), row templates — also repeating ones (a fresh meeting entry
@@ -97,6 +100,8 @@ every Monday at 09:00) — locked databases, inline databases inside pages, side
 have conditional questions, several pages, scales and checkbox lists, a closing screen and a response summary.
 Missing properties are created on the fly — when you link a row of another database, type an unknown name into a
 filter, sort or formula, or take in a CSV. Own templates sit next to the built-in ones (which you can customise too).
+In the sidebar a database opens like a folder: its entries (in the order of its first view), their sub-items and
+sub-pages; `+` adds an entry, and dragging a page onto a database makes it one.
 
 **Spreadsheets, functions, charts** — a spreadsheet block with several sheets, 75+ functions (SUM, VLOOKUP/XLOOKUP,
 SUMIFS, dates, text, finance …), cross-sheet references, copy & paste with Excel / Sheets / Numbers, and **datasets**:
@@ -112,7 +117,9 @@ home dashboard, today's journal, an **Inbox** with reminders (and, in team works
 replies), an **Agenda** with everything dated in the workspace (month, week, list), backlinks
 and unlinked mentions, a web clipper (bookmarklet and Android share target) that saves to a Clippings page, stacked panes
 (`Alt`-click any link), focus mode, presentation mode (any page becomes slides), 11 templates (meeting notes, project tracker, roadmap, content calendar, reading list, CRM, bug tracker,
-OKRs, weekly planner, wiki, habits), light "Paper" and dark "Carbon" themes, English and German.
+OKRs, weekly planner, wiki, habits), light "Paper" and dark "Carbon" themes, English and German — and a built-in
+**help centre** (`?`): 54 short articles in both languages, searchable from `⌘K`, an "Ask the help" box that has Claude
+answer from those articles only, and the same manual as public pages at [getonecms.com/help](https://getonecms.com/help/).
 
 **AI, your key** — select text and ask Claude to improve, shorten, extend, fix, translate, explain, summarise or pull
 out action items; press `Space` on an empty line to write, or ask questions about your whole workspace with cited
@@ -121,6 +128,21 @@ notes", "make a project row for each item on this page" — plans the steps acro
 them only after you have reviewed the changes. Requests go straight from your browser to `api.anthropic.com` with your key (default model Claude Opus 5.5;
 Sonnet 5.5 and Haiku 4.5 selectable). The key never leaves this browser in any other way, and is stored there
 encrypted — as is the GitHub token for sync ([docs/SECURITY.md](docs/SECURITY.md): how, and what that does and does not protect against).
+**External tools via MCP:** add any remote MCP server — a knowledge base, a tracker, a CRM — with its URL and a token
+(sealed in the same vault); One checks it, has Claude write an editable usage guide for it, and from then on the agent,
+your own requests and `⌘K ?` can use its tools (Anthropic's MCP connector makes the calls; every call shows as a chip).
+
+**Custom agents** — saved AI helpers for recurring work, like Notion's: a job in plain words, a trigger (a schedule, a
+new or changed row — which covers form answers and synced mails —, by hand, or a webhook), what they may read and
+write, external MCP tools, and a budget per run. They report back and, by default, stage their changes for your
+review (or apply them directly, undoable in the version history; their edits show as "Agent · name"). They run in your
+browser while One is open — missed runs catch up once — or, in a team workspace, **around the clock on your server**,
+also when nobody is online.
+
+**Mail as a database** — connect Gmail with your own Google client ID (read-only scope, the access token only in memory):
+mails from a date you choose, by label, become rows of a "Mails" database with sender, labels, link and the cleaned-up
+body (remote images and tracking pixels blocked). Turn on "organise with Claude" and each mail gets a category,
+priority, "needs reply" and a one-line summary — or let a custom agent triage new mail every morning.
 
 **Automations for automators** — every database can fire webhooks when rows are created, changed or deleted, set
 properties, or show notifications; buttons and shared forms post to webhooks too. Ready-made recipes for n8n / Make /
@@ -233,9 +255,11 @@ Built for the **Ninja Armory** challenge of the AI Automations community.
 
 **SimpleCMS One** ist ein Workspace wie Notion, nur lokal, kostenlos und ohne Konto. Er bietet:
 
-- einen Block-Editor mit Slash-Menü, Tabs, Randkommentaren und Buttons mit Aktionen
-- Datenbanken mit acht Ansichten inklusive Formularen, Unterelementen, Abhängigkeiten und Farbregeln; fehlende
-  Eigenschaften entstehen beim Verlinken, Filtern oder CSV-Import gleich mit
+- einen Block-Editor mit Slash-Menü, Tabs, Randkommentaren, Buttons mit Aktionen, Brotkrumen, 2–5 Spalten,
+  PDF-Anzeige, einem `/Formular`-Block und vielen Einbettungen (Google Docs, Miro, Excalidraw, Spotify, Typeform …)
+- Datenbanken mit neun Ansichten inklusive Feed (Beiträge mit Inhalt) und Formularen, Unterelementen, Abhängigkeiten
+  und Farbregeln; fehlende Eigenschaften entstehen beim Verlinken, Filtern oder CSV-Import gleich mit; in der
+  Seitenleiste lassen sich Datenbanken wie Ordner aufklappen
 - Tabellenkalkulation in der Seite: mehrere Blätter, 75+ Funktionen, farbige Datenbereiche `DS(A1:A10; C2:C7)`
 - eigene Funktionen per Klick aus einem Formelbaum (kein Code), nutzbar in Tabellen und Datenbank-Formeln
 - Diagramme in drei Klicks aus Tabellen, Datenbanken oder den Zahlen des Workspaces – live, als PNG/SVG
@@ -250,6 +274,14 @@ Built for the **Ninja Armory** challenge of the AI Automations community.
 - Formulare mit bedingten Fragen, mehreren Seiten und Antwort-Übersicht
 - Sync als Markdown in einen Ordner auf deinem Rechner oder dein eigenes GitHub-Repository – in beide Richtungen
 - einen Workspace-Agenten (`⌘J`), der Aufgaben über Seiten und Datenbanken plant und erst nach deiner Prüfung ausführt
+- eigene Agenten für wiederkehrende Arbeit: Auftrag in eigenen Worten, Zeitplan oder Auslöser (neue Zeile, Formular,
+  Mail, Webhook), Zugriff und Budget festlegen; Vorschläge zur Prüfung oder direkt anwenden – im Browser, solange One
+  offen ist, oder rund um die Uhr auf dem eigenen Team-Server
+- externe MCP-Server (z. B. eine Wissensdatenbank) für Claude in One: Adresse und Token eintragen, den Rest erledigt One
+- Gmail als Datenbank: Mails ab einem Datum, nach Labels, mit eigener Google-Client-ID; auf Wunsch sortiert Claude
+  sie nach Kategorie, Priorität und „braucht Antwort“
+- eine eingebaute Hilfe (`?`) mit 54 Artikeln auf Deutsch und Englisch, „Frag die Hilfe“ und öffentlich unter
+  [getonecms.com/help](https://getonecms.com/help/de/)
 - MCP für KI-Agenten: Claude Desktop, Claude Code & Co. suchen, lesen und schreiben im Workspace – lokal über eine
   Brücke zu deinem offenen Tab (Änderungen nach deiner Freigabe; für Claude Desktop mit einem Klick als Erweiterung
   `one.mcpb`), im Team über den `/mcp`-Endpunkt des Servers
