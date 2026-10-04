@@ -72,13 +72,14 @@ export function guardAgentAuthors(doc: Y.Doc, opts: { workspaceId: string; log: 
   if (store.pendingStructs) pendingFrom.add(UNVERIFIED)
   /** The waiting structs when a transaction started (those it applies are not its sender's own). */
   const pendingAtStart = new WeakMap<Y.Transaction, Uint8Array>()
-  const decoded = new WeakMap<Y.Transaction, Struct[]>()
+  /** Decoded waiting structs, per pending update (it stays the same object until structs are added). */
+  const decoded = new WeakMap<Uint8Array, Struct[]>()
 
   const wasPending = (tr: Y.Transaction, id: Y.ID): boolean => {
     const update = pendingAtStart.get(tr)
     if (!update) return false
-    let structs = decoded.get(tr)
-    if (!structs) decoded.set(tr, (structs = Y.decodeUpdateV2(update).structs))
+    let structs = decoded.get(update)
+    if (!structs) decoded.set(update, (structs = Y.decodeUpdateV2(update).structs))
     return structs.some((s) => s.id.client === id.client && s.id.clock <= id.clock && id.clock < s.id.clock + s.length)
   }
 
@@ -87,14 +88,19 @@ export function guardAgentAuthors(doc: Y.Doc, opts: { workspaceId: string; log: 
   }
 
   const afterTx = (tr: Y.Transaction) => {
-    if (!store.pendingStructs) return pendingFrom.clear()
-    const account = accountOf(tr.origin)
-    if (account) pendingFrom.add(account)
+    const pending = store.pendingStructs
+    if (!pending) return pendingFrom.clear()
+    // this transaction left (other) structs waiting: its sender may have written them
+    if (pending.update !== pendingAtStart.get(tr)) pendingFrom.add(accountOf(tr.origin) ?? UNVERIFIED)
   }
 
   const onAgents = (event: Y.YMapEvent<unknown>, tr: Y.Transaction) => {
+    // corrections are never corrected again (no loop)
+    if (tr.origin === STAMP_ORIGIN) return
+    // a member's connection — else the server's own write, which keeps its attribution (unless it
+    // released waiting structs: those are looked at whoever applied them)
     const sender = accountOf(tr.origin)
-    if (!sender) return
+    if (!sender && !pendingAtStart.has(tr)) return
     try {
       const fixes: Array<[string, Record<string, unknown>]> = []
       for (const [key, change] of event.changes.keys) {
@@ -105,7 +111,9 @@ export function guardAgentAuthors(doc: Y.Doc, opts: { workspaceId: string; log: 
         // written again exactly as it was: nothing changed, the last writer stays
         if (before && sameJson(before, value)) continue
         const item = agents._map.get(key)
-        const writers = item && wasPending(tr, item.id) ? [...pendingFrom] : [sender]
+        const released = !!item && wasPending(tr, item.id)
+        if (!released && !sender) continue
+        const writers = sender && !released ? [sender] : [...pendingFrom]
         if (!writers.length) writers.push(UNVERIFIED)
         const creator = before ? actorOf(before.createdBy) : null
         // only the creator themself may hand an agent over (their successor confirms before it runs)

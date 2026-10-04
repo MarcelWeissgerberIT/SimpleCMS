@@ -105,11 +105,11 @@ test.describe('help panel', () => {
     await section.scrollIntoViewIfNeeded()
     await section.getByRole('button', { name: 'Open help' }).click()
     await expect(panel(page)).toBeVisible()
-    await expect(articleTitle(page)).toHaveText('MCP servers (Atlas & co)')
+    await expect(articleTitle(page)).toHaveText('MCP servers (knowledge bases & co)')
     await expect(panel(page)).toHaveAttribute('data-layer', 'modal')
     // the sheet is usable on top of the dialog: Tab moves inside it, a link works
     await panel(page).locator('.help-related').getByRole('link').first().click()
-    await expect(articleTitle(page)).not.toHaveText('MCP servers (Atlas & co)')
+    await expect(articleTitle(page)).not.toHaveText('MCP servers (knowledge bases & co)')
     await articleTitle(page).focus()
     await page.keyboard.press('Escape')
     await expect(panel(page)).toHaveCount(0)

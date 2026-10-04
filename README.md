@@ -77,6 +77,10 @@ AI on every workspace with your own Claude key, and an honest export.
 <td><img src="public/assets/shots/synced.webp" alt="Synced block: the same principles on two pages side by side, edited in either place" /></td>
 <td><img src="public/assets/shots/inbox.webp" alt="Inbox: reminders from date mentions and date properties, and the ones still scheduled" /></td>
 </tr>
+<tr>
+<td><img src="public/assets/shots/agents.webp" alt="Custom agent: a weekly project check — its trigger, scope and budget, a run's report and two proposed changes waiting for review" /></td>
+<td><img src="public/assets/shots/forms.webp" alt="Form builder: a question shown only if Status is not Backlog, and a second page" /></td>
+</tr>
 </table>
 
 **Block editor** — slash menu (with the Markdown shortcut shown next to every command), drag handles, turn-into,

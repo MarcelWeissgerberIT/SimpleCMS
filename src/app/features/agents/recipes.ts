@@ -1,7 +1,7 @@
 /**
  * Custom agents — starter recipes (DE / EN): a filled-in draft for a common job. The draft picks
  * matching parts of the workspace when it finds them (a Mails database, a Projects database, a
- * database with a form, an MCP server called "atlas"); the editor shows what is still missing.
+ * database with a form, an MCP server that looks like a knowledge base); the editor shows what is still missing.
  */
 import type { CustomAgent, Database, ID, PageIcon } from '../../store/types'
 import { useWorkspace } from '../../store/store'
@@ -93,7 +93,9 @@ export function recipeDraft(id: RecipeId): CustomAgent {
       break
     }
     case 'atlas': {
-      const atlas = readServers().find((s) => /atlas/i.test(s.name))
+      // the server that looks like a knowledge base, else the only one there is
+      const servers = readServers()
+      const atlas = servers.find((s) => /atlas|knowledge|wiki|kb|docs|notion|confluence/i.test(s.name)) ?? (servers.length === 1 ? servers[0] : undefined)
       draft.trigger = { type: 'schedule', every: 'week', weekday: 5, at: '16:00', tz }
       draft.mcpServers = atlas ? [atlas.name] : []
       draft.write = 'stage'

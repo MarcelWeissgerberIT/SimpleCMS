@@ -34,7 +34,7 @@ export function renderTopbar({ t, lang }: Ctx): string {
     </a>
     <nav class="tb-nav" aria-label="${esc(t('nav.label'))}">
       ${anchors.map(([id, key]) => `<a href="#${id}">${esc(t(key))}</a>`).join('')}
-      <a class="tb-help" href="${help}" data-help>${esc(t('nav.help'))}</a>
+      <a class="tb-help" href="${help}">${esc(t('nav.help'))}</a>
     </nav>
     <div class="tb-tools">
       <div class="lang-switch" role="group" aria-label="${esc(t('nav.lang'))}">

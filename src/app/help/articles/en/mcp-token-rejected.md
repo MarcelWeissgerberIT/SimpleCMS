@@ -3,13 +3,13 @@ id: mcp-token-rejected
 title: MCP token rejected
 section: trouble
 order: 3
-keywords: mcp, token, rejected, expired, unauthorized, 401, atlas, server error, token missing, abgelehnt, abgelaufen
+keywords: mcp, token, rejected, expired, unauthorized, 401, server error, token missing, abgelehnt, abgelaufen
 related: mcp-servers, anthropic-unreachable, claude-key
 summary: “The MCP server rejected the token” — replace the token, or switch the server off.
 ---
-**The MCP server “atlas” rejected the token — it may be wrong or expired.** Claude can't use that server until it gets a valid token.
+**The MCP server “kb” rejected the token — it may be wrong or expired.** Claude can't use that server until it gets a valid token.
 
-1. In the service (e.g. Atlas), create a new token — read-only where possible — or check that the old one is still valid.
+1. In the service (e.g. your knowledge base), create a new token — read-only where possible — or check that the old one is still valid.
 2. In One: **Settings → Claude AI → MCP servers**, open the server's **Details**.
 3. **Token** → **Replace**, paste the new token and confirm. One tests the connection right away; the LED should turn to **Connected**.
 

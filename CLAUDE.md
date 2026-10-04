@@ -113,7 +113,8 @@ the public APIs stable — other areas are built against them in parallel.
   (`createPrivateDatabase`); a shared one pauses the sync. Mail content reaches Anthropic only with "Organise with Claude".
 - Custom agents: `Workspace.agents` (`CustomAgent`, store/types.ts; `createdBy` / `updatedBy` = account ids in a team,
   null locally — `upsertAgent` stamps `updatedBy` with the saver; a team browser agent runs only while `updatedBy` is its
-  creator, otherwise it waits for the creator to confirm, features/agents/confirm.ts) — write only with `upsertAgent` / `deleteAgent`;
+  creator, otherwise it waits for the creator to confirm, features/agents/confirm.ts; on the team server `updatedBy` is
+  stamped and `createdBy` kept by the server, server/src/collab/agent-authors.ts) — write only with `upsertAgent` / `deleteAgent`;
   every reader sanitizes (store/agents.ts); team: meta map `agents`. Runs are per device (IndexedDB `one-agents`, last
   100 per agent), never synced; server runs come from `GET agent-runs`. Browser agents (features/agents/runner.ts) run in
   one leader tab per workspace (Web Lock), in team workspaces only in their creator's browser; one run per agent at a

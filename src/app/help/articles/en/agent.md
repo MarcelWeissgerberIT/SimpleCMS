@@ -19,5 +19,5 @@ Ask a follow-up or a correction in the same field. **New task** starts over; **S
 ## Good to know
 - The meter at the bottom shows tokens and an estimated cost of the task (your key).
 - A task ends at a limit of tool calls; Claude is asked to wrap up.
-- MCP servers you added (e.g. Atlas) are available to the agent.
+- MCP servers you added (e.g. your knowledge base) are available to the agent.
 - Nothing changes until you apply. In a team workspace, viewers see the proposals but cannot apply them.

@@ -321,7 +321,7 @@ function agents(ctx: Ctx): string {
           <p>${esc(t('agents.text'))}</p>
           <p class="mcp-agents-where"><span class="led" aria-hidden="true"></span>${esc(t('agents.where'))}</p>
           <div class="mcp-agents-ctas">
-            <a class="btn btn-sig" href="${BRAND.appHref}#/agents" data-agents-open>${esc(t('agents.open'))}<span class="arr" aria-hidden="true">→</span></a>
+            <a class="btn btn-sig" href="${BRAND.appHref}#/agents">${esc(t('agents.open'))}<span class="arr" aria-hidden="true">→</span></a>
             <a class="btn btn-ghost" href="${help}">${esc(t('agents.help'))}</a>
           </div>
         </div>

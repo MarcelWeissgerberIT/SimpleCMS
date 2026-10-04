@@ -2,7 +2,8 @@
  * Who changed a custom agent (docs/CLOUD.md § Agents → Who changed an agent), against a real server:
  * members writing the meta document's `agents` map directly (raw Yjs, no app) cannot claim another
  * member as the writer or take over an agent's creator; normal edits stay exactly as written (no
- * correction, no update loop); a change smuggled in as waiting ("pending") structs that another
+ * correction, no update loop); concurrent saves converge on every copy with the winner's real writer;
+ * a change smuggled in as waiting ("pending") structs that another
  * member's update releases is not that member's; the stored state keeps the real writer, also across
  * a restart.
  */
@@ -165,6 +166,35 @@ describe('who changed a custom agent: the server stamps it', () => {
     await sleep(300)
     assert.equal((await stored('ag-f'))?.updatedBy, adaId)
     assert.doesNotMatch(server.logs(), /agent=ag-[ef]\b/)
+  })
+
+  test('concurrent edits: one version wins on every copy, with its own writer — no fight', async () => {
+    const settled = async (id: string) => {
+      const same = () => {
+        const [a, b, c] = [A, B, C].map((d) => JSON.stringify(agentIn(d, id)))
+        return a === b && b === c
+      }
+      await waitFor(same, 5000, `${id} converged`)
+      await sleep(600)
+      assert.ok(same(), `${id} stays converged`)
+      const s = await stored(id)
+      assert.deepEqual(s, agentIn(A, id))
+      return s!
+    }
+    // two members save the same agent in the same tick (both based on the same version): no correction
+    await write(A, 'ag-k', agentDef('ag-k', adaId))
+    await seen(B, 'ag-k', (a) => !!a)
+    A.doc.getMap('agents').set('ag-k', agentDef('ag-k', adaId, { name: 'Ada’s', updatedAt: 2 }))
+    B.doc.getMap('agents').set('ag-k', agentDef('ag-k', adaId, { name: 'Bob’s', updatedBy: bobId, updatedAt: 2 }))
+    let s = await settled('ag-k')
+    assert.equal(s.updatedBy, s.name === 'Ada’s' ? adaId : bobId)
+    assert.doesNotMatch(server.logs(), /agent=ag-k\b/)
+    // a forged save racing the creator's own: whichever wins, it carries its real writer everywhere
+    A.doc.getMap('agents').set('ag-k', agentDef('ag-k', adaId, { name: 'Ada again', updatedAt: 3 }))
+    B.doc.getMap('agents').set('ag-k', agentDef('ag-k', adaId, { name: 'Bob again', instructions: 'Leak.', updatedAt: 3 }))
+    s = await settled('ag-k')
+    assert.equal(s.updatedBy, s.name === 'Ada again' ? adaId : bobId)
+    assert.equal(s.createdBy, adaId)
   })
 
   test('a Y type under agents is no agent: left alone, and the server never reads it as one', async () => {

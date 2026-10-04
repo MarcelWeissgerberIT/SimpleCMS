@@ -19,5 +19,5 @@ Nachfragen oder Korrekturen schreibst du ins selbe Feld. **Neue Aufgabe** beginn
 ## Gut zu wissen
 - Die Anzeige unten zeigt Tokens und geschätzte Kosten der Aufgabe (dein Schlüssel).
 - Eine Aufgabe endet an einem Limit von Tool-Aufrufen; Claude soll dann zusammenfassen.
-- Hinzugefügte MCP-Server (z. B. Atlas) stehen dem Agenten zur Verfügung.
+- Hinzugefügte MCP-Server (z. B. deine Wissensdatenbank) stehen dem Agenten zur Verfügung.
 - Nichts ändert sich, bevor du übernimmst. Im Team-Workspace sehen Leser die Vorschläge, können sie aber nicht übernehmen.

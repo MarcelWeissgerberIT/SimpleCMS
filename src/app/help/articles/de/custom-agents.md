@@ -7,12 +7,12 @@ keywords: eigene agenten, agenten, zeitplan, wiederkehrend, automatisieren, ausl
 related: agent, automations, mcp-servers, gmail-sync
 summary: Gespeicherte KI-Helfer für wiederkehrende Arbeit — jeder mit Auftrag, Auslöser und Grenzen. Sie laufen selbstständig und berichten.
 ---
-**Agenten** in der Seitenleiste listet deine eigenen Agenten. **Neuer Agent** startet mit einem Rezept — *Tägliche Mail-Sortierung*, *Wochenbericht aus Projekten*, *Neue Formularantworten zusammenfassen*, *Atlas-Wissen mit Seiten abgleichen* — oder **Leer**. Nichts läuft, bevor du speicherst.
+**Agenten** in der Seitenleiste listet deine eigenen Agenten. **Neuer Agent** startet mit einem Rezept — *Tägliche Mail-Sortierung*, *Wochenbericht aus Projekten*, *Neue Formularantworten zusammenfassen*, *Seiten mit der Wissensdatenbank abgleichen* — oder **Leer**. Nichts läuft, bevor du speicherst.
 
 ## Was ein Agent hat
 - **Auftrag** — einen **Namen** und **Anweisungen** in klaren Worten (**Mit Claude verbessern** schleift sie).
 - **Auslöser** — **Manuell**, **Zeitplan** (stündlich, täglich, werktags, wöchentlich, monatlich, zu Uhrzeit und Zeitzone), **Neue Zeile** in einer Datenbank (auch Formularantworten und synchronisierte Mails), **Zeile geändert** oder **Webhook** (nur Server-Agenten).
-- **Zugriff** — **Darf nutzen**: alles oder ausgewählte Seiten und Datenbanken. **Änderungen**: **Nur lesen**, **Vorschläge zur Prüfung** oder **Direkt anwenden** (als „Agent · Name“, rückgängig über den Versionsverlauf). **MCP-Server**, die er aufrufen darf, z. B. Atlas.
+- **Zugriff** — **Darf nutzen**: alles oder ausgewählte Seiten und Datenbanken. **Änderungen**: **Nur lesen**, **Vorschläge zur Prüfung** oder **Direkt anwenden** (als „Agent · Name“, rückgängig über den Versionsverlauf). **MCP-Server**, die er aufrufen darf, z. B. deine Wissensdatenbank.
 - **Bericht** — eine optionale **Berichtsseite**, auf die jeder Lauf schreibt (unten anfügen oder ersetzen).
 - **Antrieb** — **Läuft wo**, **Modell**, **Aufwand** und ein **Budget pro Lauf**: Der Lauf stoppt, wenn seine geschätzten Kosten darüber gehen.
 

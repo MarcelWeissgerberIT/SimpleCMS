@@ -388,7 +388,7 @@ Y.Map 'agents'     agentId → JSON CustomAgent   (custom agents — { id, name,
                      scope, write, output?, mcpServers, runner, model?, effort?, maxRunUsd, enabled, createdBy?, updatedBy?,
                      createdAt, updatedAt }; last writer wins per agent; every reader sanitizes it, see
                      src/app/store/agents.ts; runs are not here: per device / server table `agent_runs`;
-                     createdBy / updatedBy are stamped by the SERVER — see Agents → Who changed an agent)
+                     updatedBy is stamped, createdBy kept by the SERVER — see Agents → Who changed an agent)
 ```
 
 *(client C1 refinements, backwards compatible on read)*: comment **replies** are entries of their
@@ -399,8 +399,8 @@ writes each run's status into its automation, which must not overwrite someone's
 of another automation; a JSON array found there is read and becomes keyed on the next write.
 `createdBy` / `updatedBy` are the account ids of the writing client — or `agent:<agentId>` for the
 changes a custom agent applies (browser runner: the client stamps them while it applies; server runner:
-the server). In the `agents` map the server stamps them itself, whatever a client wrote (*Agents → Who
-changed an agent*). The `workspace` map is filled
+the server). In the `agents` map the server stamps `updatedBy` itself and keeps `createdBy`, whatever
+a client wrote (*Agents → Who changed an agent*). The `workspace` map is filled
 (name, icon, createdAt) by the first member who writes after its first sync, if it is empty.
 
 Not synced (per person, per device): `favorite`, `recent`, all `Settings` (theme, language,
@@ -753,16 +753,23 @@ So the server, not the client, says who changed an entry of the shared meta docu
   nothing). A needed correction is **one** transaction with the server's own origin (`source: 'local'`,
   stored and broadcast like any change), written in the same tick — clients (the writer too) receive the
   change and its correction together and converge. Corrections are never corrected again (no loop); the
-  app stamps its own saves correctly, so its edits never cause one.
+  app stamps its own saves correctly, so its edits never cause one (except a save made before it knew
+  the account, `@unknown`). Concurrent saves resolve as usual (the last writer wins per agent): the
+  version that wins carries its own writer on every copy.
 - **Waiting structs**: Yjs keeps structs whose predecessors are missing ("pending") and applies them in a
   later transaction — possibly another member's, e.g. the creator's next edit. A change applied from such
   structs is attributed to the members whose updates left structs waiting, never to the agent's creator
   while someone else may have written it; **`@unverified`** when they came back from the stored state (a
   restart), so the agent waits for its creator.
 - The server's own writes (public API, incoming webhooks, the agent runner's `agent:<agentId>` writes)
-  never touch this map and keep their attribution; private meta documents hold no agents. Values that are
-  not JSON objects are no agents for any reader and are left alone. Audit: a correction that replaces
-  another account named by the client, or puts `createdBy` back, is logged as a warning (ids only).
+  never touch this map and keep their attribution (waiting structs they might release are still looked
+  at); private meta documents hold no agents. Values that are not JSON objects are no agents for any
+  reader and are left alone. A deleted agent is gone: an entry written under its id again is a new one.
+  Audit: a correction that replaces another account named by the client, or puts `createdBy` back, is
+  logged as a warning (ids only).
+- **Limits**: entries stored before a server with this check keep what they say until their next change.
+  A member's device that sends back a change the server no longer has (a server restored from an older
+  backup) is that change's writer.
 
 ### Triggers
 
