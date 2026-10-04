@@ -500,10 +500,12 @@ export function AIMenu({ editor, pageId, mode, onClose }: AIMenuProps) {
 
   /** Close and hand the caret (or the original selection) back to the editor, so typing continues. */
   const dismiss = useCallback(() => {
-    // focus already moved on (the user clicked into the page and typed): leave the caret there
-    const active = document.activeElement
-    const fromPanel = !active || active === document.body || !!inputRef.current?.closest('.ai-panel')?.contains(active)
-    if (!editor.isDestroyed && fromPanel) {
+    const panel = inputRef.current?.closest('.ai-panel') ?? null
+    const handBack = () => {
+      // focus already moved on (the user clicked into the page and typed) or ⌘K opened the palette: leave it there
+      const active = document.activeElement
+      const fromPanel = !active || active === document.body || !!panel?.contains(active)
+      if (editor.isDestroyed || !fromPanel || useUI.getState().paletteOpen) return
       try {
         const size = editor.state.doc.content.size
         const from = Math.max(0, Math.min(target.from, size))
@@ -515,6 +517,13 @@ export function AIMenu({ editor, pageId, mode, onClose }: AIMenuProps) {
       }
       editor.view.focus()
     }
+    if (document.activeElement === document.body) {
+      // closed in the middle of a focus move (focus left the panel and has not landed yet): decide once it has
+      onClose()
+      requestAnimationFrame(handBack)
+      return
+    }
+    handBack()
     onClose()
   }, [editor, target, onClose])
 

@@ -13,6 +13,7 @@ import { UrlPasteMenu } from './UrlPasteMenu'
 import { TableToolbar } from './TableToolbar'
 import { LinkHover } from './LinkHover'
 import { InlinePickers } from '../icons/InlinePickers'
+import { useUI } from '../../store/ui'
 import './menus.css'
 
 function AI({ editor, bridge, pageId }: { editor: Editor; bridge: Bridge; pageId: string }) {
@@ -23,7 +24,10 @@ function AI({ editor, bridge, pageId }: { editor: Editor; bridge: Bridge; pageId
     // keep typing where you were — unless the close came from focusing something else
     requestAnimationFrame(() => {
       const el = document.activeElement
-      if (!editor.isDestroyed && (!el || el === document.body)) editor.commands.focus()
+      // ⌘K opening is what closed it: the palette keeps the focus. view.focus() acts now — commands.focus()
+      // would wait another frame and could take the focus from a palette that opened in between
+      if (useUI.getState().paletteOpen) return
+      if (!editor.isDestroyed && (!el || el === document.body)) editor.view.focus()
     })
   }
   return <AIMenuSlot editor={editor} pageId={pageId} mode={ai.mode} onClose={close} />
