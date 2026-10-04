@@ -145,13 +145,23 @@ async function bootLocal() {
 
 registerServiceWorker()
 // a newer build is live: offer to reload (saves first) — the home-screen app is often only resumed
-watchForUpdates(() =>
+let reloadOffered = false
+const offerReload = () => {
+  if (reloadOffered) return
+  reloadOffered = true
   useUI.getState().toast({
     message: t('shell.update.ready'),
     timeout: 0,
     action: { label: t('shell.update.reload'), run: () => void flushSave().finally(() => window.location.reload()) },
-  }),
-)
+  })
+}
+watchForUpdates(offerReload)
+// a tab left open across deploys asks for a part of its own (older) build that is gone from the server:
+// the part shows its fallback, and the reload brings the whole app up to date
+window.addEventListener('vite:preloadError', (e) => {
+  console.warn('[one] a part of the app could not load — offering a reload', (e as Event & { payload?: unknown }).payload)
+  offerReload()
+})
 
 boot().catch((e) => {
   console.error('[one] boot failed', e)

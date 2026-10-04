@@ -121,7 +121,15 @@ export function DatabaseBlockView({ node, selected }: ReactNodeViewProps) {
           inline
           viewId={viewId}
           loading={<div className="database-block__loading label">{t('common.loading')}</div>}
-          fallback={<div className="database-block__missing label">{t('editor.database.failed')}</div>}
+          fallback={
+            <div className="database-block__missing label">
+              {t('editor.database.failed')}
+              {/* mostly a tab left open across an update: the reload brings the whole app up to date (leaving saves) */}
+              <button type="button" className="btn btn--sm database-block__reload" onClick={() => window.location.reload()}>
+                {t('editor.database.reload')}
+              </button>
+            </div>
+          }
         />
       ) : (
         <div className="database-block__missing label">{t('editor.database.missing')}</div>

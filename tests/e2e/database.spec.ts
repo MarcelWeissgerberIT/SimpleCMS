@@ -226,6 +226,30 @@ test.describe('database', () => {
     expect((await rowByTitle(page, 'Alpha'))!.props.pStatus).toBe('sDone')
   })
 
+  test('a view whose code is gone (a tab left open across an update): the block says so, offers Reload, the app offers the new version', async ({ page, errors }) => {
+    // the server no longer has this (older) build's calendar view
+    errors.allow(/404 \(Not Found\)|Failed to fetch dynamically imported module|CalendarView/)
+    await openApp(page)
+    await page.route(/\/assets\/CalendarView-[^/]+\.js$/, (r) => r.fulfill({ status: 404, body: 'gone' }))
+    const pageId = await createPage(page, { title: 'Stale view' })
+    await gotoPage(page, pageId)
+    const ed = editorOf(page, pageId)
+    await ed.click()
+    await page.keyboard.type('/Calendar view')
+    await expect(page.locator('.slash__item[aria-selected="true"] .slash__name')).toHaveText('Calendar view')
+    await page.keyboard.press('Enter')
+    const failed = ed.locator('.database-block__missing')
+    await expect(failed).toContainText('Database could not be displayed')
+    await expect(failed.getByRole('button', { name: 'Reload' })).toBeVisible()
+    const toast = page.locator('.toast', { hasText: 'A new version of One is ready.' })
+    await expect(toast).toHaveCount(1)
+    // the reload brings the view back (the code is there again)
+    await page.unroute(/\/assets\/CalendarView-[^/]+\.js$/)
+    await failed.getByRole('button', { name: 'Reload' }).click()
+    await expect(editorOf(page, pageId).locator('section.db.db--inline')).toBeVisible()
+    await expect(page.locator('.database-block__missing')).toHaveCount(0)
+  })
+
   test('inline database block: create from the slash menu and add a row', async ({ page }) => {
     await openApp(page)
     const pageId = await createPage(page, { title: 'Page with inline DB' })

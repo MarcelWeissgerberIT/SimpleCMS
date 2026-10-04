@@ -47,6 +47,28 @@ test.describe('AI', () => {
 })
 
 test.describe('page operations', () => {
+  test('a tab left open across an update: the Claude SDK file is gone — "reload", not "offline"', async ({ page, context, errors }) => {
+    errors.allow(/404 \(Not Found\)|Failed to fetch dynamically imported module|\/sdk-/)
+    const bodies = await mockClaude(context, () => 'Never asked.')
+    await openApp(page)
+    await page.route(/\/assets\/sdk-[^/]+\.js$/, (r) => r.fulfill({ status: 404, body: 'gone' }))
+    await wsEval(page, (s) => s.updateSettings({ aiApiKey: 'sk-ant-e2e-test-key' }))
+    const id = await createPage(page, { title: 'Stale tab' })
+    await gotoPage(page, id)
+    await editorOf(page, id).click()
+    await page.keyboard.press('Space')
+    const ask = page.getByPlaceholder('Ask Claude to write anything…')
+    await expect(ask).toBeFocused()
+    await ask.fill('Write a haiku')
+    await page.keyboard.press('Enter')
+    const err = page.locator('.ai-error')
+    await expect(err.locator('.ai-error__code')).toHaveText('ERR · OUTDATED')
+    await expect(err).toContainText('One was updated while this tab was open. Reload to use Claude.')
+    await expect(err.getByRole('button', { name: 'Reload' })).toBeVisible()
+    await expect(page.locator('.toast', { hasText: 'A new version of One is ready.' })).toHaveCount(1)
+    expect(bodies.filter((b) => /stream/.test(b))).toHaveLength(0)
+  })
+
   test('lock a page: title and body become read-only; the "Locked" tag unlocks it', async ({ page }) => {
     await openApp(page)
     const id = await createPage(page, { title: 'Lockable', content: doc(para('frozen text')) })

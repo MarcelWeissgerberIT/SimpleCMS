@@ -99,6 +99,8 @@ export type AIErrorCode =
   | 'rate_limit'
   | 'overloaded'
   | 'offline'
+  /** the tab runs an older build whose Claude SDK file is gone from the server: reload */
+  | 'outdated'
   | 'bad_request'
   | 'refusal'
   | 'empty'
@@ -138,8 +140,9 @@ async function getClient(apiKey: string): Promise<{ client: AnthropicSDK; sdk: S
   let sdk: SDKModule
   try {
     sdk = await loadSDK()
-  } catch {
-    throw new AIError('offline', 'Could not load the Claude SDK')
+  } catch (e) {
+    // online, yet our own file did not load: a tab left open across an update (its build's files are gone)
+    throw new AIError(navigator.onLine ? 'outdated' : 'offline', `Could not load the Claude SDK: ${e instanceof Error ? e.message : String(e)}`)
   }
   if (!cached || cached.key !== apiKey) {
     const Anthropic = sdk.default

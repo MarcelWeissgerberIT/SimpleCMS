@@ -2,7 +2,8 @@
  * SimpleCMS One service worker — makes the app work offline after the first visit.
  *  - Install: precaches every file the workspace can load, lazy views included (the build
  *    stamps BUILD_ID and PRECACHE below, see vite.config.ts; in dev both stay empty).
- *  - Activate: drops the caches of older builds.
+ *  - Activate: drops the caches of older builds, except the one before (a tab still running it can
+ *    load its lazy views after a deploy took its files off the server).
  *  - Navigations (HTML): network first, cached copy when offline (stored per path, without the query).
  *  - Hashed build assets (/assets/*-<hash>.*): cache first (immutable).
  *  - Other same-origin GETs (icons, covers, emoji data): stale-while-revalidate.
@@ -14,6 +15,8 @@ const BUILD_ID = 'dev'
 /** Scope-relative URLs (filled in by the build). */
 const PRECACHE = []
 const CACHE = 'one-' + BUILD_ID
+/** the build caches kept, oldest first (the current one and the one before) */
+const META = 'one-meta'
 const MATCH = { ignoreVary: true }
 
 self.addEventListener('install', (event) => {
@@ -37,7 +40,17 @@ self.addEventListener('install', (event) => {
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     (async () => {
-      for (const key of await caches.keys()) if (key.startsWith('one-') && key !== CACHE) await caches.delete(key)
+      let keep = [CACHE]
+      try {
+        const meta = await caches.open(META)
+        const res = await meta.match('builds')
+        const seen = res ? await res.json() : []
+        keep = [...(Array.isArray(seen) ? seen : []).filter((k) => typeof k === 'string' && k !== CACHE), CACHE].slice(-2)
+        await meta.put('builds', new Response(JSON.stringify(keep), { headers: { 'content-type': 'application/json' } }))
+      } catch {
+        // no record: keep only this build
+      }
+      for (const key of await caches.keys()) if (key.startsWith('one-') && key !== META && !keep.includes(key)) await caches.delete(key)
       await self.clients.claim()
     })(),
   )
@@ -97,7 +110,8 @@ self.addEventListener('fetch', (event) => {
     event.respondWith(
       (async () => {
         const cache = await caches.open(CACHE)
-        const hit = await cache.match(req, MATCH)
+        // this build's files, or the build before's (a tab still running it)
+        const hit = (await cache.match(req, MATCH)) || (await caches.match(req, MATCH))
         if (hit) return hit
         const res = await fetch(req)
         if (res.ok) cache.put(req, res.clone())

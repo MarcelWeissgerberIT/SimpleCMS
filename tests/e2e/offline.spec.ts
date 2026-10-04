@@ -63,7 +63,7 @@ test.describe('offline', () => {
       .poll(
         () =>
           page.evaluate(async () => {
-            const names = (await caches.keys()).filter((n) => n.startsWith('one-'))
+            const names = (await caches.keys()).filter((n) => n.startsWith('one-') && n !== 'one-meta')
             if (names.length !== 1 || names[0] === 'one-dev') return -1
             return (await (await caches.open(names[0])).keys()).length
           }),
@@ -86,5 +86,25 @@ test.describe('offline', () => {
     await gotoPage(page, await pageIdByTitle(page, 'Welcome to One'))
     await expect(page.locator('#main .mermaid-view__svg svg').first()).toBeVisible({ timeout: 20_000 })
     await context.setOffline(false)
+  })
+
+  test('after an update a tab of the build before keeps working: its files come from the kept cache', async ({ page }) => {
+    await openApp(page)
+    await controlled(page)
+    const r = await page.evaluate(async () => {
+      // the record of kept builds: this one (and later the one before)
+      const meta = await caches.open('one-meta')
+      const keys = await meta.keys()
+      const builds = keys.length ? await (await meta.match(keys[0]))!.json() : null
+      const current = (await caches.keys()).filter((n) => n.startsWith('one-') && n !== 'one-meta')
+      // a lazy file of the build before: gone from the server, still in its cache
+      const url = new URL('../assets/OldView-AbCd1234.js', location.href).href
+      await (await caches.open('one-before')).put(url, new Response('export const old = 1', { headers: { 'content-type': 'text/javascript' } }))
+      const res = await fetch(url)
+      return { builds, current, status: res.status, body: await res.text() }
+    })
+    expect(r.builds).toEqual(r.current.filter((n) => n !== 'one-before'))
+    expect(r.status).toBe(200)
+    expect(r.body).toBe('export const old = 1')
   })
 })
