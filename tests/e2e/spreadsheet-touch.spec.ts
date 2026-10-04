@@ -7,10 +7,11 @@
  * bar): a tap selects with no overlay, a second tap on the selection, the "⋯" key or a long press
  * (at the threshold, the finger still down — with pointer events, touch events or both) opens it;
  * every entry (copy / cut / paste, fill, clear, chart, pick a value, + Area with its chip, edit,
- * more); it never covers the selection. Phone keyboards (IME compositions, inserted text, keyCode 229 keydowns, input events
- * instead of keys): AutoComplete, the suggestion strip (values, functions, datasets, "Pick range",
- * + Area / Type / Done while pointing) and long presses in formulas. iOS sequences (cancelled
- * fingers, compatibility mouse events, pointer events that stop).
+ * more); it never covers the selection. Phone keyboards (IME compositions, inserted text, keyCode
+ * 229 keydowns, input events instead of keys): AutoComplete, the suggestion strip (values,
+ * functions, datasets, "Pick range", + Area / Type / Done while pointing) and long presses in
+ * formulas. iOS sequences (cancelled fingers, compatibility mouse events, pointer events that
+ * stop).
  */
 import type { Locator, Page } from '@playwright/test'
 import { test, expect, openApp, gotoPage, createPage, wsEval, flush } from './fixtures'

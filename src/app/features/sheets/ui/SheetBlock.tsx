@@ -143,7 +143,7 @@ const coarse = () => typeof window !== 'undefined' && !!window.matchMedia?.('(po
 
 /** Tallest grid viewport (taller sheets scroll inside). */
 const GRID_MAX = 600
-/** touch: room past the sheet's last row / column for the handles, the fill tab and the "⋯" key */
+/** touch: room past the sheet's last row / column for the bottom-right knob (it reaches outwards) */
 const RUNOUT = 40
 /** touch: a tap on the selection this soon after the cell menu was dismissed is the dismissing press itself */
 const REOPEN_MS = 600

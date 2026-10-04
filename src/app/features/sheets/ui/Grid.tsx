@@ -2,8 +2,8 @@
  * The cell grid: sticky column letters and row numbers, virtualised rows (only the visible ones
  * plus a margin are in the DOM), a frozen first row, selection / reference / dataset overlays,
  * the fill handle with its live preview, column resizing, the in-cell editor slot; on touch the
- * selection handles, the fill tab and the "⋯" key that opens the cell menu. Pointer and keyboard
- * decisions are the parent's.
+ * selection handles, and the fill tab and the "⋯" key (opens the cell menu) on the selection's
+ * edges (edge.ts). Pointer and keyboard decisions are the parent's.
  */
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from 'react'
 import { Ellipsis } from 'lucide-react'
@@ -44,11 +44,11 @@ export interface FillView {
   tip: string | null
   label: string
   onHandleDown: (e: React.PointerEvent<HTMLElement>) => void
-  /** touch: a tab just outside the selection handle's corner instead of the small square */
+  /** touch: a tab on the selection's edge (edge.ts) instead of the small square */
   touch?: boolean
 }
 
-/** Touch: round handles on the selection's top-left and bottom-right corners, the "⋯" key by the latter. */
+/** Touch: round handles on the selection's top-left and bottom-right corners, the "⋯" key on its bottom edge. */
 export interface HandlesView {
   rect: Rect
   onDown: (corner: 'tl' | 'br', e: React.PointerEvent<HTMLElement>) => void
@@ -96,7 +96,7 @@ export interface GridProps {
   fill?: FillView | null
   /** selection handles (touch) */
   handles?: HandlesView | null
-  /** room (px) below the last row and right of the last column for the handles and the fill tab (touch) */
+  /** room (px) below the last row and right of the last column for the bottom-right knob (touch) */
   runout?: number
   /** touch: the cell of a long press that fired (the finger still down) */
   armed?: Pos | null
@@ -241,7 +241,7 @@ export function Grid(props: GridProps) {
     if (!el) return
     const measure = () => setView({ top: el.scrollTop, h: el.clientHeight, left: el.scrollLeft, w: el.clientWidth })
     measure()
-    // the visible width decides which side of the selection the touch "⋯" key goes
+    // the part in view decides where on the selection's edges the touch "⋯" key and fill tab go
     const ro = new ResizeObserver(measure)
     ro.observe(el)
     return () => ro.disconnect()
@@ -496,8 +496,9 @@ export function Grid(props: GridProps) {
         down(e)
       }}
       onDoubleClick={(e) => {
-        // the "⋯" key shows up on a cell its first tap selected: a double tap there still edits the cell
-        const tg = targetOf((e.target as Element).closest('[data-sel-menu]') ? cellUnder(e.clientX, e.clientY) : (e.target as Element))
+        // through the touch key, tab and knobs (the "⋯" key shows up on the cell a double tap's first tap
+        // selected): a double tap edits the cell under them — the mouse's fill handle fills down instead
+        const tg = (e.target as Element).closest('.sg-fill:not(.is-tab)') ? null : targetOf(cellUnder(e.clientX, e.clientY))
         if (tg?.kind === 'cell') onDouble(tg.pos)
       }}
       onContextMenu={(e) => {

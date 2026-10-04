@@ -12,14 +12,15 @@
  */
 
 /* sizes as in sheet.css (.sg-menukey, .sg-fill.is-tab, .sg-handle and their ::before hit areas) */
-export const KEY_W = 32
-export const KEY_H = 16
-export const TAB = 16
+const KEY_W = 32
+const KEY_H = 16
+const TAB = 16
 /** how far the key and the tab reach past the selection's border */
-export const OUT = 5
-/** their hit areas along the bottom edge: the key's 44 wide, the tab's 32 — they may share a few px (the tab's) */
+const OUT = 5
+/** their hit areas along the bottom edge: the key's 44 wide, the tab's 32 */
 const KEY_HIT = 44
 const TAB_HIT = 32
+/** how far those two may overlap (the tab, drawn later, takes the overlap) */
 const SHARE = 8
 /** the right-edge tab's hit area reaches 8 px above and below its face */
 const TAB_REACH = 8
@@ -68,7 +69,7 @@ export function edgePlaces({ sel, view, br, tl, key, tab }: EdgeInput): EdgePlac
   const end = br ? sel.right - KNOB_IN : x1 - 2
   let lo = x0 + KEY_HIT / 2
   // a single row: the top-left knob's hit area comes down to the key's band — the key's face stays clear of it
-  const dy = top - (tl?.y ?? -Infinity)
+  const dy = tl ? Math.abs(top - tl.y) : TL_HIT
   if (tl && dy < TL_HIT) lo = Math.max(lo, tl.x + Math.sqrt(TL_HIT * TL_HIT - dy * dy) + KEY_W / 2 + 1)
   const both = end - TAB_HIT - KEY_HIT / 2 + SHARE
   const tabBelow = tab && (key ? both >= lo : end - TAB_HIT >= x0)
