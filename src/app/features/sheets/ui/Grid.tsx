@@ -14,6 +14,8 @@ import { colWidth, ROW_HEIGHT, type SheetData } from '../model'
 import type { Pos } from '../ops'
 
 export const HEAD_H = 26
+/** half a selection knob (sheet.css .sg-handle) */
+const HANDLE_R = 7
 export const RH_W = 46
 const OVERSCAN = 8
 
@@ -421,7 +423,11 @@ export function Grid(props: GridProps) {
         const r = corner === 'tl' ? h.top : Math.min(h.bottom, sheet.rows - 1)
         if ((where === 'frozen') !== r < frozen) continue
         const left = RH_W + xs[corner === 'tl' ? Math.min(h.left, sheet.cols) : Math.min(h.right + 1, sheet.cols)]
-        const top = ((corner === 'tl' ? r : r + 1) - (where === 'body' ? frozen : 0)) * ROW_HEIGHT
+        let top = ((corner === 'tl' ? r : r + 1) - (where === 'body' ? frozen : 0)) * ROW_HEIGHT
+        // the top-left knob on the first visible row would sit half under the sticky column letters:
+        // nudge it into its cell (only while that row still shows)
+        const edge = (where === 'body' ? view.top : 0) + HANDLE_R
+        if (corner === 'tl' && top < edge && top + ROW_HEIGHT > edge) top = edge
         if (!inView(left)) continue
         items.push(<span key={`handle-${corner}`} className={`sg-handle is-${corner}`} data-sel-handle={corner} style={{ left, top }} aria-hidden onPointerDown={(e) => handles.onDown(corner, e)} />)
       }

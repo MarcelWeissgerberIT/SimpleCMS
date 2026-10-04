@@ -192,6 +192,21 @@ test.describe('spreadsheet block by touch — phone', () => {
     await f.tap({ x: h.x + 10, y: h.y + 10 })
     await expect(nameBox(page)).toHaveText('E6')
     await expect(menu(page)).toHaveCount(0)
+
+    // row 1: the top-left knob sits whole below the column letters, nothing covers it, it still drags
+    await settle(page)
+    await f.tap(await mid(cell(page, 'A1')))
+    await expect(nameBox(page)).toHaveText('A1')
+    await f.drag(await mid(page.locator('.sheet .sg-handle.is-br')), await mid(cell(page, 'B3')))
+    await expect(nameBox(page)).toHaveText('A1:B3')
+    const tl = page.locator('.sheet .sg-handle.is-tl')
+    const knob = (await tl.boundingBox())!
+    const letters = (await page.locator('.sheet .sg-head').boundingBox())!
+    expect(knob.y).toBeGreaterThanOrEqual(letters.y + letters.height)
+    const c = await mid(tl)
+    expect(await page.evaluate(({ x, y }) => document.elementFromPoint(x, y)?.matches('.sg-handle.is-tl') ?? false, c)).toBe(true)
+    await f.drag(c, await mid(cell(page, 'B2')))
+    await expect(nameBox(page)).toHaveText('B2:B3')
   })
 
   test('the cell menu: a tap selects (nothing pops up), a second tap on the selection opens it, so does the "⋯" key; Esc and a tap outside close it', async ({ page }) => {
