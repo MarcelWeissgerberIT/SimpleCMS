@@ -116,7 +116,9 @@ the public APIs stable — other areas are built against them in parallel.
   100 per agent), never synced; server runs come from `GET agent-runs`. Browser agents (features/agents/runner.ts) run in
   one leader tab per workspace (Web Lock), in team workspaces only in their creator's browser; one run per agent at a
   time. Agent writes are stamped `agent:<agentId>` (team: `writeAsAgent()`, cloud/index.ts) and never trigger agents;
-  render `agent:` ids with `agentLabel()` ("Agent · <name>"). Routes `#/agents`, `#/agents/<id>`.
+  render `agent:` ids with `agentLabel()` ("Agent · <name>"). Routes `#/agents`, `#/agents/<id>`. Team workspaces: a
+  browser agent's "everything" scope is the shared pages; private pages only when named in its scope. Anything an
+  agent writes turns web images into links (features/agents/images.ts) — no auto-loading pixels from injected text.
 - Team-cloud agents (server/src/agents): agents with `runner: 'server'` run on the server (scheduler, row triggers,
   webhooks) with a per-workspace Claude key + MCP tokens encrypted at rest; their writes carry `agent:<agentId>` as
   createdBy / updatedBy; `AGENTS=off` disables them; the server needs outbound HTTPS to api.anthropic.com.
