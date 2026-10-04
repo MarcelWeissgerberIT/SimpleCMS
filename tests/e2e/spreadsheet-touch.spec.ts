@@ -74,6 +74,12 @@ async function finger(page: Page) {
       await send('touchEnd')
       await page.waitForTimeout(350)
     },
+    /** the finger comes down (and stays) */
+    down: (p: { x: number; y: number }) => send('touchStart', p),
+    move: (p: { x: number; y: number }) => send('touchMove', p),
+    up: () => send('touchEnd'),
+    /** the system takes the finger (iOS: its own long press, a callout): touchcancel / pointercancel, no touchend */
+    cancel: () => send('touchCancel'),
   }
 }
 
@@ -654,5 +660,265 @@ test.describe('spreadsheet block by touch — tablet', () => {
     expect(sb.y + sb.height).toBeLessThanOrEqual(eb.y)
     await chip(page, /Design review/).tap()
     await expect(cell(page, 'A5')).toHaveText('Design review')
+  })
+})
+
+/**
+ * Synthetic iOS input dispatched straight on the pressed cell (no browser gesture handling) — what
+ * CDP can't produce: touch events that go on after the pointer events stopped (iOS sends both to the
+ * pressed element, also once it left the DOM) and a second finger. `at`: the cell the finger is over.
+ */
+function iosFinger(page: Page, pressed: string) {
+  /** `second`: a second finger comes down · `scrolling`: the browser scrolls already (the touchmove can't be cancelled) */
+  return (type: string, at: string, { second = false, scrolling = false } = {}) =>
+    page.evaluate(
+      ([type, pressed, at, second, scrolling]) => {
+        const q = (rc: string) => document.querySelector(`.sheet [data-cell="${rc}"]`) as HTMLElement
+        const el = q(pressed)
+        const b = q(at).getBoundingClientRect()
+        const x = b.x + b.width / 2
+        const y = b.y + b.height / 2
+        if (type.startsWith('pointer')) {
+          el.dispatchEvent(new PointerEvent(type, { pointerId: 41, pointerType: 'touch', isPrimary: true, clientX: x, clientY: y, bubbles: true, cancelable: type !== 'pointercancel', composed: true }))
+          return
+        }
+        const one = new Touch({ identifier: 41, target: el, clientX: x, clientY: y })
+        const two = new Touch({ identifier: 42, target: el, clientX: x + 30, clientY: y })
+        const down = type === 'touchend' || type === 'touchcancel' ? [] : second ? [one, two] : [one]
+        el.dispatchEvent(new TouchEvent(type, { touches: down, targetTouches: down, changedTouches: [second ? two : one], bubbles: true, cancelable: !scrolling, composed: true }))
+      },
+      [type, pos(pressed).join(':'), pos(at).join(':'), second, scrolling] as const,
+    )
+}
+
+/** iOS's compatibility mouse events at a point (no pointer events with them). */
+async function mouseAt(page: Page, addr: string, types: string[]) {
+  const p = await mid(cell(page, addr))
+  await cell(page, addr).evaluate(
+    (el, [types, x, y]) => {
+      for (const type of types as string[]) el.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, composed: true, clientX: x as number, clientY: y as number, button: 0, view: window }))
+    },
+    [types, p.x, p.y] as const,
+  )
+}
+
+/** All the stylesheets the app loaded, as shipped (Chromium drops -webkit-touch-callout from the CSSOM). */
+async function shippedCss(page: Page): Promise<string> {
+  return page.evaluate(async () => {
+    const links = [...document.querySelectorAll<HTMLLinkElement>('link[rel="stylesheet"]')].filter((l) => l.href.startsWith(location.origin))
+    const texts = await Promise.all(links.map(async (l) => (await fetch(l.href)).text()))
+    return texts.join('\n') + [...document.querySelectorAll('style')].map((s) => s.textContent).join('\n')
+  })
+}
+
+test.describe('spreadsheet block by touch — iOS Safari sequences', () => {
+  test.use({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true })
+  const armed = (page: Page) => page.locator('.sheet .sg-armed')
+
+  test('the system takes a held finger (touchcancel, no touchend): before the long press armed nothing happens; once armed — the cell locks on — it is a lift: the sheet opens', async ({ page }) => {
+    await openApp(page)
+    await touchSheet(page, TASKS)
+    const f = await finger(page)
+    const before = await nameBox(page).textContent()
+    await f.down(await mid(cell(page, 'B5')))
+    await page.waitForTimeout(150)
+    await expect(armed(page)).toHaveCount(0)
+    await f.cancel()
+    await page.waitForTimeout(600)
+    await expect(armed(page)).toHaveCount(0)
+    await expect(holdSheet(page)).toHaveCount(0)
+    await expect(nameBox(page)).toHaveText(before ?? '')
+
+    await f.down(await mid(cell(page, 'B5')))
+    // armed: the signal frame sits on the held cell
+    await expect(armed(page)).toBeVisible()
+    const a = (await armed(page).boundingBox())!
+    const c = (await cell(page, 'B5').boundingBox())!
+    expect(Math.abs(a.x - c.x)).toBeLessThanOrEqual(1)
+    expect(Math.abs(a.y - c.y)).toBeLessThanOrEqual(1)
+    expect(Math.abs(a.width - c.width)).toBeLessThanOrEqual(2)
+    await page.waitForTimeout(250)
+    await f.cancel()
+    await expect(page.getByRole('dialog', { name: 'Cell B5' })).toBeVisible()
+    await expect(armed(page)).toHaveCount(0)
+    await expect(nameBox(page)).toHaveText('B5')
+  })
+
+  test('a long-press drag the system cancels keeps its range, "+ Area" latched for the next long press', async ({ page }) => {
+    await openApp(page)
+    await touchSheet(page, NUMBERS)
+    const f = await finger(page)
+    const from = await mid(cell(page, 'B2'))
+    const to = await mid(cell(page, 'C4'))
+    await f.down(from)
+    await page.waitForTimeout(550)
+    await expect(armed(page)).toBeVisible()
+    for (let i = 1; i <= 8; i++) await f.move({ x: from.x + ((to.x - from.x) * i) / 8, y: from.y + ((to.y - from.y) * i) / 8 })
+    // dragging: the range is the feedback now
+    await expect(armed(page)).toHaveCount(0)
+    await f.cancel()
+    await expect(nameBox(page)).toHaveText('B2:C4')
+    await expect(page.locator('.sheet .sh-status')).toContainText('SUM 27')
+    await expect(holdSheet(page)).toHaveCount(0)
+    await expect(key(page, AREA)).toHaveAttribute('aria-pressed', 'true')
+    await expect(key(page, AREA)).toHaveClass(/is-hint/)
+  })
+
+  test("iOS's compatibility mouse events at the finger's point — mid-press and after the lift — neither cancel the long press nor close its sheet", async ({ page }) => {
+    await openApp(page)
+    await touchSheet(page, TASKS)
+    const f = await finger(page)
+    await f.down(await mid(cell(page, 'B6')))
+    await mouseAt(page, 'B6', ['mouseover', 'mousemove', 'mousedown', 'mouseup'])
+    await expect(armed(page)).toBeVisible()
+    await mouseAt(page, 'B6', ['mousemove', 'mousedown', 'mouseup', 'click'])
+    await page.waitForTimeout(100)
+    await expect(armed(page)).toBeVisible()
+    await f.up()
+    const sheet = page.getByRole('dialog', { name: 'Cell B6' })
+    await expect(sheet).toBeVisible()
+    // the click iOS sends where a long press was
+    await mouseAt(page, 'B6', ['mousemove', 'mousedown', 'mouseup', 'click'])
+    await page.waitForTimeout(150)
+    await expect(sheet).toBeVisible()
+    await sheet.getByRole('option', { name: 'Grace' }).tap()
+    await expect(cell(page, 'B6')).toHaveText('Grace')
+    // a real tap later still selects (the leftovers are only ignored for a moment)
+    await page.waitForTimeout(900)
+    await cell(page, 'C3').tap()
+    await expect(nameBox(page)).toHaveText('C3')
+  })
+
+  test('the grid is neither selectable nor has a callout; the cell editor stays a selectable text field', async ({ page }) => {
+    await openApp(page)
+    await touchSheet(page, TASKS)
+    for (const sel of ['.sg-cell', '.sg-colhead', '.sg-rowhead']) expect(await page.locator(`.sheet ${sel}`).first().evaluate((el) => getComputedStyle(el).userSelect)).toBe('none')
+    const css = await shippedCss(page)
+    expect(css).toMatch(/\.sg\{[^}]*-webkit-touch-callout:none/)
+    expect(css).toMatch(/\.sg\{[^}]*touch-action:manipulation/)
+    expect(css).toMatch(/\.sg-editor\{[^}]*user-select:text/)
+    expect(css).toMatch(/\.sg-editor\{[^}]*-webkit-touch-callout:default/)
+
+    const f = await finger(page)
+    await f.drag(await mid(cell(page, 'A5')), await mid(cell(page, 'A5')), { hold: 550 })
+    await page.getByRole('dialog', { name: 'Cell A5' }).getByRole('button', { name: 'Edit the cell' }).tap()
+    const input = page.locator('.fx-input--cell input')
+    await expect(input).toBeFocused()
+    expect(await page.locator('.sheet .sg-editor').evaluate((el) => getComputedStyle(el).userSelect)).toBe('text')
+    expect(await input.evaluate((el) => getComputedStyle(el).userSelect)).not.toBe('none')
+    await page.keyboard.type('Webinar')
+    const range = await input.evaluate((el: HTMLInputElement) => {
+      el.select()
+      return [el.selectionStart, el.selectionEnd]
+    })
+    expect(range).toEqual([0, 7])
+  })
+
+  test('a swipe scrolls the grid with no touchmove prevented; only a long-press drag holds the page still', async ({ page }) => {
+    await openApp(page)
+    await touchSheet(page, NUMBERS)
+    await page.evaluate(() => {
+      const w = window as unknown as { __tm: { n: number; prevented: number } }
+      w.__tm = { n: 0, prevented: 0 }
+      window.addEventListener('touchmove', (e) => {
+        w.__tm.n++
+        if (e.defaultPrevented) w.__tm.prevented++
+      })
+    })
+    const counts = () => page.evaluate(() => (window as unknown as { __tm: { n: number; prevented: number } }).__tm)
+    const reset = () => page.evaluate(() => ((window as unknown as { __tm: { n: number; prevented: number } }).__tm = { n: 0, prevented: 0 }))
+    const f = await finger(page)
+    const grid = page.locator('.sheet .sg')
+    const from = await mid(cell(page, 'D8'))
+    await f.drag(from, { x: from.x - 200, y: from.y }, { steps: 10 })
+    await expect.poll(() => grid.evaluate((el) => el.scrollLeft)).toBeGreaterThan(40)
+    let c = await counts()
+    expect(c.n).toBeGreaterThan(0)
+    expect(c.prevented).toBe(0)
+    await grid.evaluate((el) => (el.scrollLeft = 0))
+    await page.waitForTimeout(300)
+    await reset()
+    await f.drag(await mid(cell(page, 'B3')), await mid(cell(page, 'C5')), { hold: 550 })
+    await expect(nameBox(page)).toHaveText('B3:C5')
+    c = await counts()
+    expect(c.prevented).toBeGreaterThan(0)
+    expect(await grid.evaluate((el) => el.scrollLeft)).toBe(0)
+    // and right after, a swipe scrolls again
+    await reset()
+    const again = await mid(cell(page, 'D9'))
+    await f.drag(again, { x: again.x - 200, y: again.y }, { steps: 10 })
+    await expect.poll(() => grid.evaluate((el) => el.scrollLeft)).toBeGreaterThan(40)
+    expect((await counts()).prevented).toBe(0)
+  })
+
+  test("pointer events stop mid-drag (iOS: the pressed row scrolled out of the DOM) — the finger's touch events carry it on; an early pointercancel doesn't end a still finger; a second finger does", async ({ page }) => {
+    await openApp(page)
+    await touchSheet(page, TASKS)
+    const one = iosFinger(page, 'B2')
+    await one('pointerdown', 'B2')
+    await one('touchstart', 'B2')
+    await expect(armed(page)).toBeVisible()
+    await one('touchmove', 'B3')
+    await one('touchmove', 'C4')
+    await one('touchend', 'C4')
+    await expect(nameBox(page)).toHaveText('B2:C4')
+    await expect(holdSheet(page)).toHaveCount(0)
+
+    // the pointer cancelled before the long press armed, the finger still down and still: it arms, the lift opens the sheet
+    await page.waitForTimeout(900)
+    const two = iosFinger(page, 'B6')
+    await two('pointerdown', 'B6')
+    await two('touchstart', 'B6')
+    await two('pointercancel', 'B6')
+    await expect(armed(page)).toBeVisible()
+    await two('touchend', 'B6')
+    await expect(page.getByRole('dialog', { name: 'Cell B6' })).toBeVisible()
+    await page.keyboard.press('Escape')
+    await expect(holdSheet(page)).toHaveCount(0)
+
+    // a second finger before it armed: a pinch, no long press
+    await page.waitForTimeout(900)
+    const kept = (await nameBox(page).textContent()) ?? ''
+    const three = iosFinger(page, 'B7')
+    await three('pointerdown', 'B7')
+    await three('touchstart', 'B7')
+    await three('touchstart', 'B7', { second: true })
+    await page.waitForTimeout(600)
+    await expect(armed(page)).toHaveCount(0)
+    await three('touchend', 'B7')
+    await expect(holdSheet(page)).toHaveCount(0)
+
+    // the pointer cancelled early and the touch moves on while the browser scrolls: a swipe, no long press
+    const four = iosFinger(page, 'B8')
+    await four('pointerdown', 'B8')
+    await four('touchstart', 'B8')
+    await four('pointercancel', 'B8')
+    await four('touchmove', 'B8', { scrolling: true })
+    await page.waitForTimeout(600)
+    await expect(armed(page)).toHaveCount(0)
+    await four('touchend', 'B8')
+    await expect(holdSheet(page)).toHaveCount(0)
+    await expect(nameBox(page)).toHaveText(kept)
+  })
+
+  test('on iOS the page is unselectable while a finger is down on the grid, selectable again just after', async ({ page }) => {
+    // WebKit on a touch screen, as the grid detects it
+    await page.addInitScript(() => {
+      const supports = CSS.supports.bind(CSS) as (a: string, b?: string) => boolean
+      CSS.supports = ((a: string, b?: string) => (a.includes('touch-callout') ? true : b === undefined ? supports(a) : supports(a, b))) as typeof CSS.supports
+    })
+    await openApp(page)
+    await touchSheet(page, TASKS)
+    const f = await finger(page)
+    const pageSelect = () => page.evaluate(() => getComputedStyle(document.documentElement).userSelect)
+    const initial = await pageSelect()
+    expect(initial).not.toBe('none')
+    await f.down(await mid(cell(page, 'B5')))
+    await expect.poll(pageSelect).toBe('none')
+    await expect(armed(page)).toBeVisible()
+    await f.up()
+    await expect(page.getByRole('dialog', { name: 'Cell B5' })).toBeVisible()
+    await expect.poll(pageSelect).toBe(initial)
+    expect(await page.evaluate(() => document.documentElement.getAttribute('style') ?? '')).not.toMatch(/user-select/)
   })
 })

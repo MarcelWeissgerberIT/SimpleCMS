@@ -75,7 +75,8 @@ export interface GridProps {
   editCell: Pos | null
   editorNode: ReactNode
   viewportRef: RefObject<HTMLDivElement | null>
-  onPointer: (target: GridTarget, phase: PointerPhase, e: MouseEvent | React.MouseEvent) => void
+  /** false on 'down': not a press of its own (a touch's leftover mouse events) — no drag follows */
+  onPointer: (target: GridTarget, phase: PointerPhase, e: MouseEvent | React.MouseEvent) => boolean | void
   onDouble: (pos: Pos) => void
   onContext: (target: GridTarget, e: React.MouseEvent) => void
   onResize: (col: number, width: number) => void
@@ -89,6 +90,8 @@ export interface GridProps {
   handles?: HandlesView | null
   /** room (px) below the last row and right of the last column for the handles and the fill tab (touch) */
   runout?: number
+  /** touch: the cell of a long press that armed (lift: its panel · drag: a range) */
+  armed?: Pos | null
   gridProps: React.HTMLAttributes<HTMLDivElement>
 }
 
@@ -202,7 +205,7 @@ const Row = memo(function Row({ sheet, wb, lang, r, tpl, top, rowSel, t }: RowPr
 })
 
 export function Grid(props: GridProps) {
-  const { sheet, wb, version, lang, t, overlays, selRows, selCols, editCell, editorNode, viewportRef, onPointer, onDouble, onContext, onResize, onAutofit, editable, height, gridProps, fill, handles, runout = 0 } = props
+  const { sheet, wb, version, lang, t, overlays, selRows, selCols, editCell, editorNode, viewportRef, onPointer, onDouble, onContext, onResize, onAutofit, editable, height, gridProps, fill, handles, runout = 0, armed } = props
   const [view, setView] = useState({ top: 0, h: 560, left: 0 })
   const [resize, setResize] = useState<{ col: number; w: number } | null>(null)
   const raf = useRef(0)
@@ -238,7 +241,7 @@ export function Grid(props: GridProps) {
       if (e.button !== 0) return
       const target = targetOf(e.target as Element)
       if (!target) return
-      onPointer(target, 'down', e)
+      if (onPointer(target, 'down', e) === false) return
       dragging.current = true
       const move = (ev: MouseEvent) => {
         if (!dragging.current) return
@@ -372,6 +375,10 @@ export function Grid(props: GridProps) {
         if (!inView(left)) continue
         items.push(<span key={`handle-${corner}`} className={`sg-handle is-${corner}`} data-sel-handle={corner} style={{ left, top }} aria-hidden onPointerDown={(e) => handles.onDown(corner, e)} />)
       }
+    }
+    if (armed && (where === 'frozen') === armed.r < frozen) {
+      const b = boxes({ top: armed.r, bottom: armed.r, left: armed.c, right: armed.c })[0]
+      if (b) items.push(<div key={`armed-${armed.r}:${armed.c}`} className="sg-armed" data-armed="" style={b.style} aria-hidden />)
     }
     if (editCell && editorNode && (where === 'frozen') === editCell.r < frozen) {
       const b = boxes({ top: editCell.r, bottom: editCell.r, left: editCell.c, right: editCell.c })[0]

@@ -748,6 +748,58 @@
   box-shadow: 0 0 0 1px var(--signal), 0 0 0 5px var(--signal-wash);
 }
 
+/*
+ * a long press armed (lift: the cell's panel · move: a range): the cell locks on — a signal frame,
+ * and brackets that close in from outside the fingertip (iOS has no vibration: this is the tick)
+ */
+.sg-armed {
+  position: absolute;
+  /* over the active cell's frame, under the frozen rows (the body scrolls beneath them) */
+  z-index: 2;
+  box-sizing: border-box;
+  border: 2px solid var(--signal);
+  background: var(--signal-wash);
+  pointer-events: none;
+}
+
+.sg-armed::before {
+  content: '';
+  position: absolute;
+  inset: -6px;
+  border: 1px solid var(--signal);
+  border-radius: var(--radius-1);
+  /* corner brackets: the frame's middles cut away */
+  -webkit-mask:
+    linear-gradient(var(--ink) 0 0) top left / 9px 9px no-repeat,
+    linear-gradient(var(--ink) 0 0) top right / 9px 9px no-repeat,
+    linear-gradient(var(--ink) 0 0) bottom left / 9px 9px no-repeat,
+    linear-gradient(var(--ink) 0 0) bottom right / 9px 9px no-repeat;
+  mask:
+    linear-gradient(var(--ink) 0 0) top left / 9px 9px no-repeat,
+    linear-gradient(var(--ink) 0 0) top right / 9px 9px no-repeat,
+    linear-gradient(var(--ink) 0 0) bottom left / 9px 9px no-repeat,
+    linear-gradient(var(--ink) 0 0) bottom right / 9px 9px no-repeat;
+  animation: sg-lock var(--dur-2) var(--ease-out) both;
+}
+
+@keyframes sg-lock {
+  from {
+    inset: -22px;
+    opacity: 0;
+  }
+  to {
+    inset: -6px;
+    opacity: 1;
+  }
+}
+
+/* the cell editor is a text field: selectable, with its callout (the grid around it is neither) */
+.sg-editor {
+  -webkit-user-select: text;
+  user-select: text;
+  -webkit-touch-callout: default;
+}
+
 /* the fill tab (touch): a signal key just outside the bottom-right handle */
 .sg-fill.is-tab {
   display: grid;
@@ -892,6 +944,9 @@
   .sh-touchbar__key,
   .sg-handle {
     transition: none;
+  }
+  .sg-armed::before {
+    animation: none;
   }
 }
 

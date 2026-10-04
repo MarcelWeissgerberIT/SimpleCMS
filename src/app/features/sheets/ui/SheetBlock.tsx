@@ -686,8 +686,12 @@ export function SheetBlock({ attrs: raw, update, editable, editor, pageId, inser
 
   /** Pointer events from the grid (mouse, and the browser's compatibility mouse events of a tap). */
   const onPointer = (target: GridTarget, phase: PointerPhase, e: MouseEvent | React.MouseEvent) => {
-    // what Chrome may still send after a long press or a drag is no tap — nor may it move the focus (out of a formula being edited)
-    if (phase === 'down' && touch.aftermath()) return e.preventDefault()
+    // what the browser sends while a finger is down or right after a long press / drag (iOS: at the
+    // finger's point, also mid-press) is no tap and no drag — nor may it move the focus (out of a formula being edited)
+    if (phase === 'down' && touch.aftermath()) {
+      e.preventDefault()
+      return false
+    }
     pointer(target, phase, { add: e.ctrlKey || e.metaKey, shift: e.shiftKey, prevent: () => e.preventDefault() })
   }
 
@@ -1120,7 +1124,8 @@ export function SheetBlock({ attrs: raw, update, editable, editor, pageId, inser
 
   const fillView: FillView | null = editable
     ? {
-        handle: !edit && !pick && !hold && areas.length === 1 && (!touchUI || focused) ? rect : null,
+        // a long press that armed shows its lock-on alone (the handles return with the drag)
+        handle: !edit && !pick && !hold && !touch.armed && areas.length === 1 && (!touchUI || focused) ? rect : null,
         preview: fillDrag?.dest ?? null,
         dir: fillDrag?.dest ? fillDirection(fillDrag.src, fillDrag.dest) : null,
         tip: fillTip,
@@ -1132,7 +1137,7 @@ export function SheetBlock({ attrs: raw, update, editable, editor, pageId, inser
 
   /* ---------------- touch: handles + action bar ---------------- */
 
-  const handles: HandlesView | null = touchUI && (focused || touch.busy) && !edit && !pick && !hold ? { rect, onDown: touch.startHandle } : null
+  const handles: HandlesView | null = touchUI && (focused || touch.busy) && !edit && !pick && !hold && !touch.armed ? { rect, onDown: touch.startHandle } : null
   const pointing = touchUI && !!edit && edit.sheetId === sheet.id && pointable(edit)
   const barMode = !touchUI || !focused || touch.busy || fillDrag || pick || ctx || panel || hold ? null : edit ? (pointing ? 'point' : null) : 'select'
   const boundary = useRef<{ el: Element | null } | null>(null)
@@ -1318,6 +1323,7 @@ export function SheetBlock({ attrs: raw, update, editable, editor, pageId, inser
         fill={fillView}
         handles={handles}
         runout={touchUI ? RUNOUT : 0}
+        armed={touch.armed}
         height={Math.min(GRID_MAX, HEAD_H + Math.max(...a.sheets.map((x) => x.rows)) * ROW_HEIGHT + 2 + (touchUI ? RUNOUT : 0))}
         onPointer={onPointer}
         onDouble={(pos) => {
@@ -1328,7 +1334,7 @@ export function SheetBlock({ attrs: raw, update, editable, editor, pageId, inser
         onContext={(target, e) => {
           e.preventDefault()
           // a finger held on the grid is a long press (range selection): the cell menu is ⋯ on the touch bar
-          if (touch.quietContext() || (e.nativeEvent as PointerEvent).pointerType === 'touch') return
+          if (touch.aftermath() || (e.nativeEvent as PointerEvent).pointerType === 'touch') return
           if (target.kind === 'cell') {
             const inside = areas.some((r) => target.pos.r >= r.top && target.pos.r <= r.bottom && target.pos.c >= r.left && target.pos.c <= r.right)
             if (!inside) setSel({ anchor: target.pos, focus: target.pos, extra: [] })
