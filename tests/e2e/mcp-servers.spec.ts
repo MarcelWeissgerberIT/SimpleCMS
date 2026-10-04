@@ -336,7 +336,7 @@ test.describe('MCP servers (mocked Claude API, made-up server)', () => {
     // the conversation keeps its setup; a change in Settings applies from the next new task
     await wsEval(page, (s) => s.updateSettings({ mcpServers: s.settings.mcpServers.map((x: AnyState) => ({ ...x, enabled: false })) }))
     const note = panel.getByRole('status').filter({ hasText: 'MCP servers changed' })
-    await expect(note).toHaveText('MCP servers changed. Start a new task to use the new setup.New task')
+    await expect(note).toContainText('MCP servers changed. Start a new task to use the new setup.')
     await note.getByRole('button', { name: 'New task' }).click()
     await expect(note).toHaveCount(0)
     await runAgentTask(page, 'Fresh start')
