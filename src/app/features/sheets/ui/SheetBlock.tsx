@@ -1161,6 +1161,7 @@ export function SheetBlock({ attrs: raw, update, editable, editor, pageId, inser
     ? sheetBarKeys({
         t,
         mode: barMode,
+        picking: !!edit?.picking,
         editable,
         addArea,
         fillDown: !(rect.top === rect.bottom && rect.top === 0),
@@ -1180,6 +1181,8 @@ export function SheetBlock({ attrs: raw, update, editable, editor, pageId, inser
           clear,
           chart: newChart,
           area: () => setAddArea(!addAreaRef.current),
+          type: keepTyping,
+          done: () => commit(null),
           more: (el) => {
             const box = el.getBoundingClientRect()
             setCtx({ x: box.left, y: box.bottom, target: { kind: 'cell', pos: active } })
@@ -1215,7 +1218,7 @@ export function SheetBlock({ attrs: raw, update, editable, editor, pageId, inser
     ) : null
 
   const strip =
-    touchUI && editable && edit && edit.sheetId === sheet.id && !hold ? (
+    touchUI && editable && edit && edit.sheetId === sheet.id && !edit.picking && !hold ? (
       <SuggestStrip
         getAnchor={() => rootRef.current?.querySelector(edit.where === 'cell' ? '.sg-editor' : '.sh-bar') ?? null}
         value={edit.text}
@@ -1227,12 +1230,9 @@ export function SheetBlock({ attrs: raw, update, editable, editor, pageId, inser
         lang={lang}
         t={t}
         pointable={pointable(edit)}
-        picking={!!edit.picking}
         onValue={takeEntry}
         onText={(text, caret) => setEdit((e) => (e ? { ...e, text, caret, point: null, auto: false } : e))}
         onPickRange={pickRange}
-        onKeepTyping={keepTyping}
-        onDone={() => commit(null)}
       />
     ) : null
 
@@ -1453,7 +1453,7 @@ export function SheetBlock({ attrs: raw, update, editable, editor, pageId, inser
       {barMode && bar && (
         <TouchBar
           getBox={barBox}
-          boxKey={`${barMode}:${sheet.id}:${rectText(rect)}:${areas.length}`}
+          boxKey={`${barMode}:${!!edit?.picking}:${sheet.id}:${rectText(rect)}:${areas.length}`}
           contextElement={viewportRef.current}
           boundary={boundary.current?.el ?? null}
           groups={bar.groups}

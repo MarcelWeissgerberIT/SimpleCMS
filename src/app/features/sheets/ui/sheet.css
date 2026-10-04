@@ -1124,6 +1124,14 @@
   overflow: hidden;
 }
 
+.sh-hold__body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  outline: none;
+}
+
 .sh-hold__head {
   flex: none;
   padding: 7px 10px 6px;

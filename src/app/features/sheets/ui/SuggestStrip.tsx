@@ -5,7 +5,6 @@
  *  - formula: the functions (with their arguments) and datasets that complete the word at the
  *    caret; where a reference can go, "Pick range" (the keyboard steps aside, the grid points)
  *    and the saved datasets as DS(…)
- *  - picking a range: "Keep typing" and "Done"
  * Inside a function call its signature heads the strip (the argument at the caret marked) — on
  * touch the input's own popups stay closed. Chips never take the focus (no keyboard flicker): a
  * press keeps it in the input.
@@ -13,7 +12,7 @@
 import { useEffect, useLayoutEffect, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { autoUpdate, flip, offset, shift, useFloating } from '@floating-ui/react'
-import { Check, Keyboard, SquareDashedMousePointer } from 'lucide-react'
+import { SquareDashedMousePointer } from 'lucide-react'
 import type { ColorName } from '../../../store/types'
 import { colName, completeEntries, getFunction, type FnSpec } from '../engine'
 import { signature } from './FormulaInput'
@@ -48,20 +47,16 @@ export interface SuggestStripProps {
   t: (key: string, vars?: Record<string, string | number>) => string
   /** a reference can go at the caret */
   pointable: boolean
-  /** the keyboard is put away: the grid points */
-  picking: boolean
   /** take a column entry (ends the edit) */
   onValue: (entry: string) => void
   /** a new formula text + caret */
   onText: (text: string, caret: number) => void
   onPickRange: () => void
-  onKeepTyping: () => void
-  onDone: () => void
 }
 
-const icon = (C: typeof Check) => <C size={15} strokeWidth={1.75} aria-hidden />
+const icon = (C: typeof SquareDashedMousePointer) => <C size={15} strokeWidth={1.75} aria-hidden />
 
-const action = (id: string, C: typeof Check, text: string, onPress: () => void): StripChip => ({
+const action = (id: string, C: typeof SquareDashedMousePointer, text: string, onPress: () => void): StripChip => ({
   id,
   kind: 'action',
   content: (
@@ -86,18 +81,6 @@ export function stripChips(p: Omit<SuggestStripProps, 'getAnchor'>): StripConten
   const ctx = formulaContext(value, caret)
   const callSpec = ctx?.call ? getFunction(ctx.call.name) : undefined
   const sig = ctx?.call && callSpec ? { spec: callSpec, arg: ctx.call.arg } : null
-  if (p.picking)
-    return {
-      sig,
-      label: (
-        <>
-          <span className="led led--on" aria-hidden />
-          {t('features.sheets.strip.range')}
-        </>
-      ),
-      chips: [action('keep', Keyboard, t('features.sheets.strip.keepTyping'), p.onKeepTyping), action('done', Check, t('features.sheets.strip.done'), p.onDone)],
-    }
-
   if (!ctx) {
     const list = p.entries && caret === value.length ? completeEntries(p.entries, value, p.lang, MAX) : []
     return {

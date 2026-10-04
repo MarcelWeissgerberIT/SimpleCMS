@@ -420,7 +420,9 @@ test.describe('spreadsheet block by touch — phone keyboards and long presses',
     await kb.insert('=MAX(')
     await chip(page, 'Pick range').tap()
     await expect(bar).not.toBeFocused()
-    await expect(strip(page)).toContainText('RANGE')
+    // the strip steps aside too; the corner bar has + Area, Type, Done
+    await expect(strip(page)).toHaveCount(0)
+    await expect(page.locator('.sh-touchbar').getByRole('button')).toHaveCount(3)
     await f.drag(await mid(cell(page, 'C4')), await mid(cell(page, 'D5')), { hold: 550 })
     await expect(bar).toHaveValue('=MAX(C4:D5')
     // a tap replaces the pointed reference
@@ -428,7 +430,7 @@ test.describe('spreadsheet block by touch — phone keyboards and long presses',
     await f.tap(await mid(cell(page, 'C5')))
     await expect(bar).toHaveValue('=MAX(C5')
     await expect(bar).not.toBeFocused()
-    await chip(page, 'Keep typing').tap()
+    await key(page, 'Keep typing').tap()
     await expect(bar).toBeFocused()
     await kb.insert(')')
     await kb.enter()
@@ -439,7 +441,7 @@ test.describe('spreadsheet block by touch — phone keyboards and long presses',
     await kb.insert('=')
     await chip(page, 'Pick range').tap()
     await f.tap(await mid(cell(page, 'B4')))
-    await chip(page, 'Done').tap()
+    await key(page, 'Done — take the formula').tap()
     await expect(cell(page, 'E4')).toHaveText('7')
     const a = await stored(page, id)
     expect(a.sheets[0].cells.E2.v).toBe('=SUM(DS(Plan))')
@@ -631,5 +633,26 @@ test.describe('spreadsheet block by touch — tablet', () => {
     await expect(page.locator('.sheet .sh-status')).toContainText('SUM 72')
     await f.drag(await mid(page.locator('.sheet [data-colhead="0"]')), await mid(page.locator('.sheet [data-colhead="2"]')))
     await expect(nameBox(page)).toHaveText('A1:C40')
+  })
+
+  test('the long-press sheet and the suggestion strip fit the tablet; the strip stays above the cell editor', async ({ page }) => {
+    await openApp(page)
+    await touchSheet(page, TASKS)
+    const f = await finger(page)
+    const kb = await phoneKeys(page)
+    await f.drag(await mid(cell(page, 'A5')), await mid(cell(page, 'A5')), { hold: 550 })
+    const sheet = page.getByRole('dialog', { name: 'Cell A5' })
+    const box = (await sheet.boundingBox())!
+    expect(box.x).toBeGreaterThanOrEqual(0)
+    expect(box.x + box.width).toBeLessThanOrEqual(768)
+    expect(box.y + box.height).toBeLessThanOrEqual(1024)
+    await sheet.getByRole('button', { name: 'Edit the cell' }).tap()
+    await kb.compose('Des')
+    await expect(chip(page, /Design review/)).toBeVisible()
+    const sb = (await strip(page).boundingBox())!
+    const eb = (await page.locator('.sheet .sg-editor').boundingBox())!
+    expect(sb.y + sb.height).toBeLessThanOrEqual(eb.y)
+    await chip(page, /Design review/).tap()
+    await expect(cell(page, 'A5')).toHaveText('Design review')
   })
 })

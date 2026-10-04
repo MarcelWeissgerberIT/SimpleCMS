@@ -36,18 +36,19 @@ export function HoldSheet({ anchor, addr, column, entries, areaOn, canFill, t, o
   ]
   return (
     <Popover open anchor={anchor} onClose={onClose} placement="bottom-start" offset={6} className="sh-hold" role="dialog" aria-label={t('features.sheets.hold.title', { addr })}>
-      <div className="sh-hold__head label">
-        <span>{t('features.sheets.hold.spec', { addr })}</span>
+      {/* the focus goes into the sheet, onto no key (a finger opened it: no focus ring, no keyboard) */}
+      <div className="sh-hold__body" tabIndex={-1} data-autofocus="">
+        <div className="sh-hold__head label">{t('features.sheets.hold.spec', { addr })}</div>
+        <div className="sh-hold__keys" role="toolbar" aria-label={t('features.sheets.hold.keys')} onMouseDown={(e) => e.preventDefault()}>
+          {keys.map((k) => (
+            <Key key={k.id} k={k} />
+          ))}
+        </div>
+        <div className="sh-hold__section label" aria-hidden>
+          {t('features.sheets.hold.pick')}
+        </div>
+        <PickPanel entries={entries} column={column} t={t} onPick={onPick} autoFocus={false} touch />
       </div>
-      <div className="sh-hold__keys" role="toolbar" aria-label={t('features.sheets.hold.keys')} onMouseDown={(e) => e.preventDefault()}>
-        {keys.map((k, i) => (
-          <Key key={k.id} k={k} autoFocus={i === 0} />
-        ))}
-      </div>
-      <div className="sh-hold__section label" aria-hidden>
-        {t('features.sheets.hold.pick')}
-      </div>
-      <PickPanel entries={entries} column={column} t={t} onPick={onPick} autoFocus={false} touch />
     </Popover>
   )
 }

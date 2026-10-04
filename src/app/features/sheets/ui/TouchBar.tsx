@@ -1,13 +1,14 @@
 /**
  * Touch action bar: an ink key strip floating above the selection (below it when there is no
- * room) — Copy · Cut · Paste · Fill ↓ · Fill → · Clear · Chart · + Area · ⋯. It never takes the
+ * room) — Copy · Cut · Paste · Fill ↓ · Fill → · Clear · Chart · + Area · ⋯; while a formula
+ * points, in the grid's corner: + Area (picking a range without the keyboard: · Type · Done). It never takes the
  * keyboard (the grid or the formula keeps it), hides while anything scrolls, and stacks its key
  * groups in two rows where one row doesn't fit (⋯ stays at the end).
  */
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { autoUpdate, flip, offset, shift, useFloating } from '@floating-ui/react'
-import { ArrowDownToLine, ArrowRightToLine, ChartColumnBig, ClipboardPaste, Copy, Ellipsis, Eraser, Scissors, SquareDashedPlus } from 'lucide-react'
+import { ArrowDownToLine, ArrowRightToLine, ChartColumnBig, Check, ClipboardPaste, Copy, Ellipsis, Eraser, Keyboard, Scissors, SquareDashedPlus } from 'lucide-react'
 
 export interface BarKey {
   id: string
@@ -49,13 +50,12 @@ const INSET = 8
 const SETTLE_MS = 220
 
 /** One key of the strip (also the long-press sheet's keys). */
-export function Key({ k, autoFocus }: { k: BarKey; autoFocus?: boolean }) {
+export function Key({ k }: { k: BarKey }) {
   return (
     <button
       type="button"
       className={`sh-touchbar__key${k.hint ? ' is-hint' : ''}`}
       data-key={k.id}
-      data-autofocus={autoFocus ? '' : undefined}
       aria-label={k.label}
       title={k.label}
       aria-pressed={k.on === undefined ? undefined : k.on}
@@ -162,20 +162,22 @@ export function TouchBar({ getBox, boxKey, contextElement, boundary, groups, mor
 
 interface SheetKeysOptions {
   t: (key: string, vars?: Record<string, string | number>) => string
-  /** select: the selection's keys · point: building a formula reference (only "+ Area") */
+  /** select: the selection's keys · point: building a formula reference ("+ Area"; picking a range without the keyboard: also back to typing, done) */
   mode: 'select' | 'point'
+  /** the keyboard is put away while the grid points ("Pick range") */
+  picking?: boolean
   editable: boolean
   /** "+ Area" is latched ('hold': by a long-press drag — the next long press adds another area) */
   addArea: boolean | 'hold'
   fillDown: boolean
   fillRight: boolean
-  on: Record<'copy' | 'cut' | 'paste' | 'fillDown' | 'fillRight' | 'clear' | 'chart' | 'area', () => void> & { more: (el: HTMLElement) => void }
+  on: Record<'copy' | 'cut' | 'paste' | 'fillDown' | 'fillRight' | 'clear' | 'chart' | 'area', () => void> & { more: (el: HTMLElement) => void; type?: () => void; done?: () => void }
 }
 
 const icon = (C: typeof Copy) => <C size={16} strokeWidth={1.75} />
 
 /** The spreadsheet's keys: Copy · Cut · Paste | Fill ↓ · Fill → · Clear | Chart · + Area, ⋯ — read-only: Copy. */
-export function sheetBarKeys({ t, mode, editable, addArea, fillDown, fillRight, on }: SheetKeysOptions): { groups: BarKey[][]; more?: BarKey } {
+export function sheetBarKeys({ t, mode, picking, editable, addArea, fillDown, fillRight, on }: SheetKeysOptions): { groups: BarKey[][]; more?: BarKey } {
   const k = (id: string, label: string, legend: string, i: typeof Copy, onPress: () => void, extra: Partial<BarKey> = {}): BarKey => ({
     id,
     label: t(label),
@@ -185,7 +187,13 @@ export function sheetBarKeys({ t, mode, editable, addArea, fillDown, fillRight, 
     ...extra,
   })
   const area = k('area', 'features.sheets.touch.addArea', 'features.sheets.touch.area', SquareDashedPlus, on.area, { on: !!addArea, hint: addArea === 'hold' })
-  if (mode === 'point') return { groups: [[area]] }
+  if (mode === 'point')
+    return {
+      groups:
+        picking && on.type && on.done
+          ? [[area], [k('type', 'features.sheets.touch.keepTyping', 'features.sheets.touch.typeShort', Keyboard, on.type), k('done', 'features.sheets.touch.done', 'features.sheets.touch.doneShort', Check, on.done)]]
+          : [[area]],
+    }
   const copy = k('copy', 'features.sheets.copy', 'features.sheets.touch.copy', Copy, on.copy)
   if (!editable) return { groups: [[copy]] }
   return {
