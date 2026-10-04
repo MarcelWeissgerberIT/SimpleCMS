@@ -63,6 +63,44 @@ export function urlProblem(raw: string): '' | 'empty' | 'format' | 'https' | 'lo
   return ''
 }
 
+/** Path parts and host labels that say nothing about which server it is. */
+const GENERIC = new Set(['mcp', 'sse', 'api', 'apis', 'server', 'servers', 'http', 'https', 'stream', 'streamable', 'rpc', 'jsonrpc', 'www', 'app', 'remote', 'connect', 'public', 'latest', 'tools', 'index'])
+
+/**
+ * A name for a server from its URL: the last meaningful path part, else a meaningful subdomain,
+ * else the domain ("https://example.com/api/atlas/mcp" → "atlas", "https://mcp.linear.app/sse" →
+ * "linear"), made unique among `others`.
+ */
+export function deriveName(url: string, others: string[]): string {
+  let base = ''
+  try {
+    const u = new URL(url.trim())
+    const parts = u.pathname
+      .split('/')
+      .map((p) => {
+        try {
+          return slugName(decodeURIComponent(p))
+        } catch {
+          return slugName(p)
+        }
+      })
+      .map((p) => p.replace(/[-_]+$/, ''))
+      .filter((p) => p && !GENERIC.has(p) && !/^v\d+$/.test(p))
+    base = parts[parts.length - 1] ?? ''
+    if (!base) {
+      const labels = u.hostname.toLowerCase().split('.').filter(Boolean)
+      const domain = labels.length >= 2 ? labels[labels.length - 2] : (labels[0] ?? '')
+      base = slugName(labels.slice(0, -2).find((l) => !GENERIC.has(l)) ?? domain).replace(/[-_]+$/, '')
+    }
+  } catch {
+    base = ''
+  }
+  if (!NAME_RE.test(base)) base = 'server'
+  let name = base
+  for (let n = 2; others.includes(name); n++) name = `${base.slice(0, NAME_MAX - String(n).length - 1)}-${n}`
+  return name
+}
+
 /** The stored list, sanitized (bad entries are left out, never "fixed" into something else). */
 export function readServers(settings: Pick<Settings, 'mcpServers'> = useWorkspace.getState().settings): McpServerConfig[] {
   const list = Array.isArray(settings.mcpServers) ? settings.mcpServers : []
@@ -82,6 +120,7 @@ export function readServers(settings: Pick<Settings, 'mcpServers'> = useWorkspac
       promptSource: s.promptSource === 'auto' || s.promptSource === 'edited' ? s.promptSource : undefined,
       tools: Array.isArray(s.tools) ? s.tools.filter((x): x is string => typeof x === 'string').slice(0, 200) : undefined,
       checkedAt: typeof s.checkedAt === 'number' ? s.checkedAt : undefined,
+      checkError: typeof s.checkError === 'string' && s.checkError ? s.checkError.slice(0, 300) : undefined,
       scope: s.scope === 'all' ? 'all' : undefined,
     })
     if (out.length >= MAX_SERVERS) break

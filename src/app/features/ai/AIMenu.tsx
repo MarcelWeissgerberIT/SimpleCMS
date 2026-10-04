@@ -677,7 +677,7 @@ export function AIMenu({ editor, pageId, mode, onClose }: AIMenuProps) {
       out.push({ id: 'retry', label: t('features.ai.res.retry'), icon: RotateCcw, run: retry })
       if (error && (error.code === 'invalid_key' || error.code === 'permission' || error.code === 'no_key'))
         out.push({ id: 'key', label: t('features.ai.res.changeKey'), icon: KeyRound, run: () => setSetup(true) })
-      if (error?.code === 'mcp')
+      if (error?.code === 'mcp' || error?.code === 'mcp_auth')
         out.push({
           id: 'mcp',
           label: t('features.ai.mcp.openSettings'),

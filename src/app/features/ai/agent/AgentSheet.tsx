@@ -320,7 +320,7 @@ function TurnError({ error }: { error: NonNullable<AgentTurn['error']> }) {
           <KeyRound size={13} strokeWidth={1.75} aria-hidden /> {t('features.agent.nokey.open')}
         </button>
       )}
-      {error.code === 'mcp' && (
+      {(error.code === 'mcp' || error.code === 'mcp_auth') && (
         <button type="button" className="btn btn--sm" onClick={() => useUI.getState().openModal({ type: 'settings', tab: 'ai' })}>
           <Settings2 size={13} strokeWidth={1.75} aria-hidden /> {t('features.ai.mcp.openSettings')}
         </button>

@@ -28,6 +28,9 @@ export function inputLabel(input: unknown): string {
 
 const clip = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1)}…` : s)
 
+/** End a server's message like a sentence (it is followed by one of ours). */
+const sentence = (s: string) => (!s || /[.!?…:)]$/.test(s) ? s : `${s}.`)
+
 function resultText(content: unknown): string {
   if (typeof content === 'string') return content
   if (Array.isArray(content)) return content.map((b) => (b && typeof b === 'object' && 'text' in b && typeof b.text === 'string' ? b.text : '')).join(' ')
@@ -44,7 +47,7 @@ export function foldMcpBlock(calls: McpCall[], block: BetaContentBlock): McpCall
     const i = calls.findIndex((c) => c.id === block.tool_use_id)
     if (i < 0) return calls
     const next = [...calls]
-    next[i] = block.is_error ? { ...calls[i], state: 'err', error: clip(resultText(block.content).trim(), 240) } : { ...calls[i], state: 'ok' }
+    next[i] = block.is_error ? { ...calls[i], state: 'err', error: sentence(clip(resultText(block.content).trim().replace(/\s+/g, ' '), 240)) } : { ...calls[i], state: 'ok' }
     return next
   }
   return calls

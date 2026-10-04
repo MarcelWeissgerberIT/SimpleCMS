@@ -221,7 +221,7 @@ export async function runAgent(opts: {
     return end
   } catch (e) {
     if (signal.aborted) throw new AIError('aborted')
-    throw toAIError(e, sdk, mcp?.names)
+    throw toAIError(e, sdk, mcp)
   }
 }
 

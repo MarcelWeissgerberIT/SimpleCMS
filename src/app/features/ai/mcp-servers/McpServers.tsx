@@ -1,7 +1,11 @@
 /**
- * Settings → Claude AI → "MCP servers": the remote MCP servers One's Claude may use (name, https URL,
- * a sealed token, on/off, a usage prompt Claude can write itself) and the editable MCP instructions
- * template. Everything here is this device's setting; tokens live in the vault (store/secrets.ts).
+ * Settings → Claude AI → "MCP servers": the remote MCP servers One's Claude may use.
+ *
+ * Adding one takes two fields — the URL and (optionally) a token. The name is derived from the URL,
+ * the server is switched on, and a background check tests the connection and writes the usage
+ * prompt (checks.ts); the row's LED shows how that went. Everything else (name, scope, token,
+ * usage prompt, regenerate, remove) sits behind the row's collapsed "Details". Everything here is
+ * this device's setting; tokens live in the vault (store/secrets.ts).
  */
 import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react'
 import { format } from 'date-fns'
@@ -18,6 +22,7 @@ import {
   NAME_MAX,
   PROMPT_MAX,
   defaultInstructions,
+  deriveName,
   nameProblem,
   patchServer,
   readServers,
@@ -26,7 +31,7 @@ import {
   urlProblem,
   writeServers,
 } from './config'
-import { inspectServer } from './generate'
+import { cancelCheck, checkServer, useMcpChecks, type CheckMode } from './checks'
 import './mcp-servers.css'
 
 type T = ReturnType<typeof useT>
@@ -40,12 +45,17 @@ export function McpServers() {
   const raw = useWorkspace((s) => s.settings.mcpServers)
   const servers = useMemo(() => readServers({ mcpServers: raw }), [raw])
   const hasKey = useWorkspace((s) => !!s.settings.aiApiKey.trim())
-  /** the expanded card: a server id, or 'new' for the add form */
+  /** the add form is open */
+  const [adding, setAdding] = useState(false)
+  /** the server whose details are open */
   const [open, setOpen] = useState<string | null>(null)
-  /** a server added in this visit (its card says what to do next) */
-  const [added, setAdded] = useState<string | null>(null)
   const headId = useId()
-  const names = servers.map((s) => s.name)
+
+  // a key arrived (or Settings opened with one): servers that were never checked get their check now
+  useEffect(() => {
+    if (!hasKey) return
+    for (const s of readServers()) if (s.enabled && !s.checkedAt && !s.checkError && !useMcpChecks.getState().running[s.id]) void checkServer(s.id, s.prompt.trim() ? 'test' : 'guide')
+  }, [hasKey])
 
   return (
     <section className="mcps" aria-labelledby={headId} data-testid="mcp-servers">
@@ -57,7 +67,7 @@ export function McpServers() {
           </h4>
         </div>
         <span className="label mcps__count">{t('features.ai.mcp.count', { count: servers.length, max: MAX_SERVERS })}</span>
-        <button type="button" className="btn btn--sm" onClick={() => setOpen('new')} disabled={open === 'new' || servers.length >= MAX_SERVERS}>
+        <button type="button" className="btn btn--sm" onClick={() => setAdding(true)} disabled={adding || servers.length >= MAX_SERVERS}>
           <Plus size={13} strokeWidth={1.75} aria-hidden /> {t('features.ai.mcp.add')}
         </button>
       </header>
@@ -65,30 +75,11 @@ export function McpServers() {
       {servers.length > 0 && (
         <ul className="mcps__list">
           {servers.map((s) => (
-            <ServerCard
-              key={s.id}
-              server={s}
-              others={names.filter((n) => n !== s.name)}
-              open={open === s.id}
-              onOpen={(v) => setOpen(v ? s.id : null)}
-              hasKey={hasKey}
-              fresh={added === s.id}
-            />
+            <ServerRow key={s.id} server={s} others={servers.filter((x) => x.id !== s.id).map((x) => x.name)} open={open === s.id} onOpen={(v) => setOpen(v ? s.id : null)} hasKey={hasKey} />
           ))}
         </ul>
       )}
-      {open === 'new' ? (
-        <NewServer
-          others={names}
-          onAdded={(id) => {
-            setAdded(id)
-            setOpen(id)
-          }}
-          onCancel={() => setOpen(null)}
-        />
-      ) : (
-        servers.length === 0 && <p className="mcps__empty">{t('features.ai.mcp.empty')}</p>
-      )}
+      {adding ? <NewServer onDone={() => setAdding(false)} /> : servers.length === 0 && <p className="mcps__empty">{t('features.ai.mcp.empty')}</p>}
       <Instructions />
       <p className="mcps__via">
         <Info size={14} strokeWidth={1.7} aria-hidden />
@@ -116,95 +107,53 @@ function Field({ id, label, hint, error, children }: { id: string; label: string
   )
 }
 
-/** Name + URL inputs with their checks (shared by "add" and "edit"). */
-function useConnection(initial: { name: string; url: string }, others: string[]) {
-  const t = useT()
-  const [name, setName] = useState(initial.name)
-  const [url, setUrl] = useState(initial.url)
-  const [touched, setTouched] = useState({ name: false, url: false, all: false })
-  const nameErr = nameProblem(name.replace(/[-_]+$/, ''), others)
-  const urlErr = urlProblem(url)
-  const show = (k: 'name' | 'url', err: string) => (err && (touched.all || (touched[k] && err !== 'empty')) ? t(`features.ai.mcp.err.${k}.${err}`) : '')
-  return {
-    name,
-    url,
-    setName: (v: string) => setName(slugName(v)),
-    setUrl,
-    reset: (v: { name: string; url: string }) => {
-      setName(v.name)
-      setUrl(v.url)
-      setTouched({ name: false, url: false, all: false })
-    },
-    blur: (k: 'name' | 'url') => setTouched((x) => ({ ...x, [k]: true })),
-    tryAll: () => setTouched((x) => ({ ...x, all: true })),
-    valid: !nameErr && !urlErr,
-    nameError: show('name', nameErr),
-    urlError: show('url', urlErr),
-    clean: { name: name.replace(/[-_]+$/, ''), url: url.trim() },
-  }
-}
-
-function ConnectionFields({ c, ids }: { c: ReturnType<typeof useConnection>; ids: { name: string; url: string } }) {
-  const t = useT()
+function UrlInput({ id, value, error, onChange, onBlur, autoFocus }: { id: string; value: string; error: string; onChange: (v: string) => void; onBlur: () => void; autoFocus?: boolean }) {
   return (
-    <>
-      <Field id={ids.name} label={t('features.ai.mcp.name')} hint={t('features.ai.mcp.nameHint')} error={c.nameError}>
-        <input
-          id={ids.name}
-          className="input mcps-input--mono"
-          value={c.name}
-          maxLength={NAME_MAX}
-          placeholder="atlas"
-          autoComplete="off"
-          spellCheck={false}
-          aria-invalid={c.nameError ? true : undefined}
-          aria-describedby={`${ids.name}-hint`}
-          onChange={(e) => c.setName(e.target.value)}
-          onBlur={() => c.blur('name')}
-        />
-      </Field>
-      <Field id={ids.url} label={t('features.ai.mcp.url')} hint={t('features.ai.mcp.urlHint')} error={c.urlError}>
-        <input
-          id={ids.url}
-          className="input mcps-input--mono"
-          type="url"
-          inputMode="url"
-          value={c.url}
-          placeholder="https://mcp.example.com/mcp"
-          autoComplete="off"
-          spellCheck={false}
-          aria-invalid={c.urlError ? true : undefined}
-          aria-describedby={`${ids.url}-hint`}
-          onChange={(e) => c.setUrl(e.target.value)}
-          onBlur={() => c.blur('url')}
-        />
-      </Field>
-    </>
+    <input
+      id={id}
+      className="input mcps-input--mono"
+      type="url"
+      inputMode="url"
+      value={value}
+      placeholder="https://mcp.example.com/mcp"
+      autoComplete="off"
+      spellCheck={false}
+      autoFocus={autoFocus}
+      aria-invalid={error ? true : undefined}
+      aria-describedby={`${id}-hint`}
+      onChange={(e) => onChange(e.target.value)}
+      onBlur={onBlur}
+    />
   )
 }
 
 /* ------------------------------------------------------------------ */
-/* Add                                                                 */
+/* Add: URL + token, nothing else                                      */
 /* ------------------------------------------------------------------ */
 
-function NewServer({ others, onAdded, onCancel }: { others: string[]; onAdded: (id: string) => void; onCancel: () => void }) {
+function NewServer({ onDone }: { onDone: () => void }) {
   const t = useT()
   const uid = useId()
-  const c = useConnection({ name: '', url: '' }, others)
+  const [url, setUrl] = useState('')
   const [token, setToken] = useState('')
-  useEffect(() => {
-    document.getElementById(`${uid}-name`)?.focus()
-  }, [uid])
+  const [touched, setTouched] = useState(false)
+  const [tried, setTried] = useState(false)
+  const problem = urlProblem(url)
+  const error = problem && (tried || (touched && problem !== 'empty')) ? t(`features.ai.mcp.err.url.${problem}`) : ''
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault()
-    c.tryAll()
-    if (!c.valid) return
+    setTried(true)
+    if (problem) return
+    const list = readServers()
     const id = newId()
+    const clean = url.trim()
     // the store seals a plaintext token and keeps its marker (store/secrets.ts)
-    writeServers([...readServers(), { id, name: c.clean.name, url: c.clean.url, token: token.trim(), enabled: true, prompt: '' }])
+    writeServers([...list, { id, name: deriveName(clean, list.map((s) => s.name)), url: clean, token: token.trim(), enabled: true, prompt: '' }])
     setToken('')
-    onAdded(id)
+    onDone()
+    // test + usage prompt, in the background
+    void checkServer(id, 'guide')
   }
 
   return (
@@ -217,34 +166,33 @@ function NewServer({ others, onAdded, onCancel }: { others: string[]; onAdded: (
         if (e.key === 'Escape') {
           e.preventDefault()
           e.stopPropagation()
-          onCancel()
+          onDone()
         }
       }}
     >
       <div className="mcps-card__body">
-        <div className="mcps-grid">
-          <ConnectionFields c={c} ids={{ name: `${uid}-name`, url: `${uid}-url` }} />
-          <div className="mcps-grid__wide">
-            <Field id={`${uid}-token`} label={`${t('features.ai.mcp.token')} · ${t('features.ai.mcp.tokenOptional')}`} hint={t('features.ai.mcp.tokenHint')}>
-            <input
-              id={`${uid}-token`}
-              className="input"
-              type="password"
-              value={token}
-              autoComplete="off"
-              spellCheck={false}
-              aria-describedby={`${uid}-token-hint`}
-              onChange={(e) => setToken(e.target.value)}
-              />
-            </Field>
-          </div>
-        </div>
+        <Field id={`${uid}-url`} label={t('features.ai.mcp.url')} hint={t('features.ai.mcp.urlHint')} error={error}>
+          <UrlInput id={`${uid}-url`} value={url} error={error} onChange={setUrl} onBlur={() => setTouched(true)} autoFocus />
+        </Field>
+        <Field id={`${uid}-token`} label={`${t('features.ai.mcp.token')} · ${t('features.ai.mcp.tokenOptional')}`} hint={t('features.ai.mcp.tokenHint')}>
+          <input
+            id={`${uid}-token`}
+            className="input"
+            type="password"
+            value={token}
+            autoComplete="off"
+            spellCheck={false}
+            aria-describedby={`${uid}-token-hint`}
+            onChange={(e) => setToken(e.target.value)}
+          />
+        </Field>
         <div className="mcps-actions">
-          <button type="button" className="btn btn--sm btn--ghost" onClick={onCancel}>
+          <span className="mcps-actions__note">{t('features.ai.mcp.addNote')}</span>
+          <button type="button" className="btn btn--sm btn--ghost" onClick={onDone}>
             {t('common.cancel')}
           </button>
           <button type="submit" className="btn btn--sm btn--primary">
-            {t('features.ai.mcp.addSubmit')}
+            {t('common.save')}
           </button>
         </div>
       </div>
@@ -270,33 +218,56 @@ function useTokenState(server: McpServerConfig): 'none' | 'ok' | 'missing' | nul
   return state
 }
 
-function ServerCard({ server, others, open, onOpen, hasKey, fresh }: { server: McpServerConfig; others: string[]; open: boolean; onOpen: (v: boolean) => void; hasKey: boolean; fresh: boolean }) {
+type RowState = 'off' | 'missing' | 'checking' | 'error' | 'ok' | 'unchecked'
+
+function ServerRow({ server, others, open, onOpen, hasKey }: { server: McpServerConfig; others: string[]; open: boolean; onOpen: (v: boolean) => void; hasKey: boolean }) {
   const t = useT()
   const token = useTokenState(server)
-  const state = !server.enabled ? 'off' : token === 'missing' ? 'missing' : 'on'
+  const running = useMcpChecks((s) => s.running[server.id])
   const bodyId = useId()
-  const meta = [
-    t(`features.ai.mcp.state.${state}`),
-    server.token ? t('features.ai.mcp.meta.token') : t('features.ai.mcp.meta.noToken'),
-    server.tools ? tn(t, 'features.ai.mcp.meta.tools', server.tools.length) : t('features.ai.mcp.meta.unchecked'),
-  ]
+  const state: RowState = running ? 'checking' : !server.enabled ? 'off' : token === 'missing' ? 'missing' : server.checkError ? 'error' : server.checkedAt ? 'ok' : 'unchecked'
+  const meta = [t(`features.ai.mcp.status.${state}`)]
+  if (server.tools && (state === 'ok' || state === 'off')) meta.push(tn(t, 'features.ai.mcp.meta.tools', server.tools.length))
+  if (server.scope === 'all') meta.push(t('features.ai.mcp.scope.allShort'))
+  const reason =
+    state === 'error'
+      ? server.checkError
+      : state === 'missing'
+        ? t('features.ai.mcp.tokenMissingShort')
+        : state === 'unchecked' && !hasKey
+          ? t('features.ai.mcp.needsKey')
+          : state === 'ok' && server.tools?.length === 0
+            ? t('features.ai.mcp.noTools')
+            : ''
+  const led = state === 'ok' ? 'led led--ok' : state === 'checking' ? 'led led--on mcps-led--live' : state === 'error' || state === 'missing' ? 'led mcps-led--warn' : 'led'
   return (
     <li className="mcps-card" data-state={state} data-open={open || undefined} data-server={server.name}>
       <div className="mcps-card__head">
-        <span className={`led${state === 'on' ? ' led--ok' : state === 'missing' ? ' mcps-led--warn' : ''}`} aria-hidden />
-        <button type="button" className="mcps-card__toggle" aria-expanded={open} aria-controls={open ? bodyId : undefined} onClick={() => onOpen(!open)} aria-label={t('features.ai.mcp.details', { name: server.name })}>
+        <span className={led} aria-hidden />
+        <button type="button" className="mcps-card__toggle" aria-expanded={open} aria-controls={open ? bodyId : undefined} onClick={() => onOpen(!open)}>
           <span className="mcps-card__name">{server.name.toUpperCase()}</span>
           <span className="mcps-card__url">{shortUrl(server.url)}</span>
-          <span className="mcps-card__meta label">{meta.join(' · ')}</span>
-          <ChevronDown className="mcps-card__chev" size={15} strokeWidth={1.75} aria-hidden />
+          <span className="mcps-card__meta label" data-testid="mcp-status">
+            {meta.join(' · ')}
+          </span>
+          <span className="mcps-card__more label">
+            <span className="mcps-card__more-text">{t('features.ai.mcp.detailsToggle')}</span>
+            <ChevronDown className="mcps-card__chev" size={14} strokeWidth={1.75} aria-hidden />
+          </span>
         </button>
         <Switch checked={server.enabled} onChange={(v) => patchServer(server.id, { enabled: v })} label={t('features.ai.mcp.enable', { name: server.name })} />
       </div>
+      {reason && (
+        <p className="mcps-card__reason" data-kind={state} role={state === 'error' ? 'alert' : undefined}>
+          {reason}
+        </p>
+      )}
       {open && (
         <div className="mcps-card__body" id={bodyId}>
           <Connection server={server} others={others} />
+          <Scope server={server} />
           <Token server={server} state={token} />
-          <Prompt server={server} hasKey={hasKey} fresh={fresh} blocked={token === 'missing'} />
+          <Prompt server={server} hasKey={hasKey} blocked={token === 'missing'} running={running} />
           <Remove server={server} />
         </div>
       )}
@@ -304,29 +275,64 @@ function ServerCard({ server, others, open, onOpen, hasKey, fresh }: { server: M
   )
 }
 
+/** Name + URL (a changed URL is tested again). */
 function Connection({ server, others }: { server: McpServerConfig; others: string[] }) {
   const t = useT()
   const uid = useId()
-  const c = useConnection(server, others)
-  const { reset } = c
+  const [name, setName] = useState(server.name)
+  const [url, setUrl] = useState(server.url)
+  const [touched, setTouched] = useState(false)
   // saved elsewhere (another tab): show what is stored
-  useEffect(() => reset({ name: server.name, url: server.url }), [server.name, server.url]) // eslint-disable-line react-hooks/exhaustive-deps
-  const dirty = c.clean.name !== server.name || c.clean.url !== server.url
+  useEffect(() => {
+    setName(server.name)
+    setUrl(server.url)
+  }, [server.name, server.url])
+  const cleanName = name.replace(/[-_]+$/, '')
+  const nameErr = nameProblem(cleanName, others)
+  const urlErr = urlProblem(url)
+  const dirty = cleanName !== server.name || url.trim() !== server.url
+  const nameError = nameErr && (touched || nameErr !== 'empty') ? t(`features.ai.mcp.err.name.${nameErr}`) : ''
+  const urlError = urlErr && (touched || urlErr !== 'empty') ? t(`features.ai.mcp.err.url.${urlErr}`) : ''
   return (
     <form
       className="mcps-grid"
       noValidate
       onSubmit={(e) => {
         e.preventDefault()
-        c.tryAll()
-        if (!dirty || !c.valid) return
-        patchServer(server.id, { name: c.clean.name, url: c.clean.url })
+        setTouched(true)
+        if (!dirty || nameErr || urlErr) return
+        const moved = url.trim() !== server.url
+        patchServer(server.id, { name: cleanName, url: url.trim(), ...(moved ? { checkedAt: undefined, checkError: undefined, tools: undefined } : {}) })
+        if (moved) void checkServer(server.id, server.prompt.trim() ? 'test' : 'guide')
       }}
     >
-      <ConnectionFields c={c} ids={{ name: `${uid}-name`, url: `${uid}-url` }} />
+      <Field id={`${uid}-name`} label={t('features.ai.mcp.name')} hint={t('features.ai.mcp.nameHint')} error={nameError}>
+        <input
+          id={`${uid}-name`}
+          className="input mcps-input--mono"
+          value={name}
+          maxLength={NAME_MAX}
+          autoComplete="off"
+          spellCheck={false}
+          aria-invalid={nameError ? true : undefined}
+          aria-describedby={`${uid}-name-hint`}
+          onChange={(e) => setName(slugName(e.target.value))}
+        />
+      </Field>
+      <Field id={`${uid}-url`} label={t('features.ai.mcp.url')} hint={t('features.ai.mcp.urlHint')} error={urlError}>
+        <UrlInput id={`${uid}-url`} value={url} error={urlError} onChange={setUrl} onBlur={() => setTouched(true)} />
+      </Field>
       {dirty && (
         <div className="mcps-actions mcps-grid__wide">
-          <button type="button" className="btn btn--sm btn--ghost" onClick={() => reset({ name: server.name, url: server.url })}>
+          <button
+            type="button"
+            className="btn btn--sm btn--ghost"
+            onClick={() => {
+              setName(server.name)
+              setUrl(server.url)
+              setTouched(false)
+            }}
+          >
             {t('common.cancel')}
           </button>
           <button type="submit" className="btn btn--sm btn--primary">
@@ -335,6 +341,31 @@ function Connection({ server, others }: { server: McpServerConfig; others: strin
         </div>
       )}
     </form>
+  )
+}
+
+/** Which requests use the server. */
+function Scope({ server }: { server: McpServerConfig }) {
+  const t = useT()
+  const id = useId()
+  const value = server.scope === 'all' ? 'all' : 'free'
+  return (
+    <div className="mcps-field">
+      <div className="mcps-field__label" id={`${id}-label`}>
+        {t('features.ai.mcp.scope.label')}
+      </div>
+      <div className="mcps-scope" role="radiogroup" aria-labelledby={`${id}-label`} aria-describedby={`${id}-hint`}>
+        {(['free', 'all'] as const).map((v) => (
+          <button key={v} type="button" role="radio" aria-checked={value === v} className="mcps-scope__opt" onClick={() => patchServer(server.id, { scope: v === 'all' ? 'all' : undefined })}>
+            <span className="mcps-scope__dot" aria-hidden />
+            <span>{t(`features.ai.mcp.scope.${v}`)}</span>
+          </button>
+        ))}
+      </div>
+      <div className="mcps-field__hint" id={`${id}-hint`}>
+        {t('features.ai.mcp.scope.hint')}
+      </div>
+    </div>
   )
 }
 
@@ -359,9 +390,10 @@ function Token({ server, state }: { server: McpServerConfig; state: 'none' | 'ok
         value={draft}
         onChange={setDraft}
         onSubmit={(v) => {
-          // a plaintext token: the store seals it and keeps the marker
-          patchServer(server.id, { token: v })
+          // a plaintext token: the store seals it and keeps the marker; then it is tested
+          patchServer(server.id, { token: v, checkError: undefined })
           setDraft('')
+          void checkServer(server.id, server.prompt.trim() ? 'test' : 'guide')
         }}
         onRemove={() => patchServer(server.id, { token: '' })}
         placeholder={t('features.ai.mcp.tokenOptional')}
@@ -376,61 +408,30 @@ function Token({ server, state }: { server: McpServerConfig; state: 'none' | 'ok
   )
 }
 
-function Prompt({ server, hasKey, fresh, blocked }: { server: McpServerConfig; hasKey: boolean; fresh: boolean; blocked: boolean }) {
+function Prompt({ server, hasKey, blocked, running }: { server: McpServerConfig; hasKey: boolean; blocked: boolean; running: CheckMode | undefined }) {
   const t = useT()
   const id = useId()
   const [draft, setDraft] = useState(server.prompt)
-  const [busy, setBusy] = useState<null | 'test' | 'guide'>(null)
-  const [result, setResult] = useState<{ kind: 'ok' | 'warn' | 'err'; text: string } | null>(null)
   const [confirm, setConfirm] = useState(false)
-  const ac = useRef<AbortController | null>(null)
   const latest = useRef({ draft, server })
   latest.current = { draft, server }
 
   useEffect(() => setDraft(server.prompt), [server.prompt])
-  // closing the card (or Settings) keeps what was typed, and stops a running check
-  useEffect(
-    () => () => {
-      ac.current?.abort()
-      commit(latest.current.server, latest.current.draft)
-    },
-    [],
-  )
+  // closing the details (or Settings) keeps what was typed
+  useEffect(() => () => commit(latest.current.server, latest.current.draft), [])
 
   const src = !server.prompt.trim() ? 'empty' : server.promptSource === 'auto' ? 'auto' : 'edited'
-
-  const run = async (mode: 'test' | 'guide') => {
+  const run = (mode: CheckMode) => {
     if (mode === 'guide' && src === 'edited' && !confirm) {
       setConfirm(true)
       return
     }
     setConfirm(false)
     commit(server, draft)
-    ac.current?.abort()
-    const ctrl = new AbortController()
-    ac.current = ctrl
-    setBusy(mode)
-    setResult(null)
-    try {
-      const res = await inspectServer(server, mode, ctrl.signal)
-      if (ctrl.signal.aborted) return
-      const patch: Partial<McpServerConfig> = { tools: res.tools, checkedAt: Date.now() }
-      if (mode === 'guide' && res.guide) Object.assign(patch, { prompt: res.guide.slice(0, PROMPT_MAX), promptSource: 'auto' })
-      patchServer(server.id, patch)
-      if (!res.tools.length) setResult({ kind: 'warn', text: t('features.ai.mcp.noTools') })
-      else setResult({ kind: 'ok', text: mode === 'guide' && res.guide ? `${tn(t, 'features.ai.mcp.ok', res.tools.length)} · ${t('features.ai.mcp.generated')}` : tn(t, 'features.ai.mcp.ok', res.tools.length) })
-    } catch (e) {
-      if (ctrl.signal.aborted) return
-      setResult({ kind: 'err', text: e instanceof Error ? e.message : String(e) })
-    } finally {
-      if (ac.current === ctrl) {
-        ac.current = null
-        setBusy(null)
-      }
-    }
+    void checkServer(server.id, mode, { replaceEdited: mode === 'guide' })
   }
 
-  const disabled = !hasKey || blocked || !!busy
+  const disabled = !hasKey || blocked || !!running
   return (
     <div className="mcps-prompt">
       <div className="mcps-prompt__head">
@@ -441,11 +442,11 @@ function Prompt({ server, hasKey, fresh, blocked }: { server: McpServerConfig; h
           {t(`features.ai.mcp.src.${src}`)}
         </span>
         <span className="mcps-spacer" />
-        <button type="button" className="btn btn--sm" disabled={disabled} onClick={() => void run('test')}>
-          {busy === 'test' ? t('features.ai.mcp.testing') : t('features.ai.mcp.test')}
+        <button type="button" className="btn btn--sm" disabled={disabled} onClick={() => run('test')}>
+          {running === 'test' ? t('features.ai.mcp.testing') : t('features.ai.mcp.test')}
         </button>
-        <button type="button" className="btn btn--sm btn--ink" disabled={disabled} onClick={() => void run('guide')}>
-          {busy === 'guide' ? t('features.ai.mcp.generating') : server.prompt.trim() ? t('features.ai.mcp.regenerate') : t('features.ai.mcp.generate')}
+        <button type="button" className="btn btn--sm btn--ink" disabled={disabled} onClick={() => run('guide')}>
+          {running === 'guide' ? t('features.ai.mcp.generating') : server.prompt.trim() ? t('features.ai.mcp.regenerate') : t('features.ai.mcp.generate')}
         </button>
       </div>
       {confirm && (
@@ -455,7 +456,7 @@ function Prompt({ server, hasKey, fresh, blocked }: { server: McpServerConfig; h
           <button type="button" className="btn btn--sm btn--ghost" onClick={() => setConfirm(false)}>
             {t('features.ai.mcp.keep')}
           </button>
-          <button type="button" className="btn btn--sm btn--ink" onClick={() => void run('guide')}>
+          <button type="button" className="btn btn--sm btn--ink" onClick={() => run('guide')}>
             {t('features.ai.mcp.replace')}
           </button>
         </div>
@@ -473,18 +474,8 @@ function Prompt({ server, hasKey, fresh, blocked }: { server: McpServerConfig; h
         onBlur={() => commit(server, draft)}
       />
       <p className="mcps-hint" id={`${id}-hint`}>
-        {fresh && src === 'empty' ? t('features.ai.mcp.added') : !hasKey ? t('features.ai.mcp.needsKey') : src === 'empty' ? t('features.ai.mcp.generateHint') : t('features.ai.mcp.promptHint')}
+        {!hasKey ? t('features.ai.mcp.needsKey') : t('features.ai.mcp.promptHint')}
       </p>
-      {busy && (
-        <p className="mcps-result" data-kind="run" role="status">
-          <span className="led led--on mcps-led--live" aria-hidden /> {busy === 'test' ? t('features.ai.mcp.testing') : t('features.ai.mcp.generating')}
-        </p>
-      )}
-      {result && !busy && (
-        <p className="mcps-result" data-kind={result.kind} role={result.kind === 'err' ? 'alert' : 'status'}>
-          <span className={`led${result.kind === 'ok' ? ' led--ok' : result.kind === 'err' ? ' mcps-led--warn' : ' led--on'}`} aria-hidden /> {result.text}
-        </p>
-      )}
       {server.tools && server.tools.length > 0 && (
         <div className="mcps-tools">
           <div className="mcps-tools__head">
@@ -524,8 +515,15 @@ function Remove({ server }: { server: McpServerConfig }) {
           <button type="button" className="btn btn--sm btn--ghost" onClick={() => setArm(false)}>
             {t('common.cancel')}
           </button>
-          {/* the store removes the server's token from the vault too */}
-          <button type="button" className="btn btn--sm btn--danger" onClick={() => writeServers(readServers().filter((s) => s.id !== server.id))}>
+          <button
+            type="button"
+            className="btn btn--sm btn--danger"
+            onClick={() => {
+              cancelCheck(server.id)
+              // the store removes the server's token from the vault too
+              writeServers(readServers().filter((s) => s.id !== server.id))
+            }}
+          >
             <Trash2 size={13} strokeWidth={1.75} aria-hidden /> {t('common.remove')}
           </button>
         </>

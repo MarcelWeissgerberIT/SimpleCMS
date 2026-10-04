@@ -113,8 +113,10 @@ export type AIErrorCode =
   /** the tab runs an older build whose Claude SDK file is gone from the server: reload */
   | 'outdated'
   | 'bad_request'
-  /** an MCP server could not be used (unreachable, rejected the token …): `server` names it */
+  /** an MCP server could not be used (unreachable, an error …): `server` names it */
   | 'mcp'
+  /** an MCP server rejected its token (wrong, expired, revoked) */
+  | 'mcp_auth'
   | 'refusal'
   | 'empty'
   | 'aborted'
@@ -144,6 +146,7 @@ export class AIError extends Error {
 /** The friendly sentence for an error code (in the current UI language). */
 export function aiErrorText(code: AIErrorCode, v: { model: string; detail?: string; server?: string }): string {
   if (code === 'mcp') return t(v.server ? 'features.ai.err.mcp' : 'features.ai.err.mcpAny', { server: v.server ?? '', detail: v.detail ?? '' })
+  if (code === 'mcp_auth') return t(v.server ? 'features.ai.err.mcp_auth' : 'features.ai.err.mcp_authAny', { server: v.server ?? '' })
   return t(`features.ai.err.${code}`, { model: v.model, detail: v.detail ?? '' })
 }
 
@@ -189,18 +192,31 @@ export type { SDKModule }
 
 /**
  * Map anything thrown by the SDK to an AIError (most specific class first). `mcp`: the MCP servers
- * the request attached — an API error about one of them becomes 'mcp' (it is not the key's fault).
+ * the request attached — an API error about one of them becomes 'mcp' / 'mcp_auth' (it is not the
+ * key's fault), and no message ever carries one of their tokens.
  */
-export function toAIError(e: unknown, sdk: SDKModule | null, mcp?: string[]): AIError {
+export function toAIError(e: unknown, sdk: SDKModule | null, mcp?: Pick<McpAttachment, 'names' | 'servers'> | null): AIError {
+  const err = mapError(e, sdk, mcp)
+  if (!mcp) return err
+  // a server could echo what it was sent: the tokens never reach a message, a detail or a log
+  const tokens = mcp.servers.map((x) => x.authorization_token ?? '').filter((x) => x.length >= 4)
+  const scrub = (v: string) => tokens.reduce((out, tok) => out.split(tok).join('••••'), v)
+  if (err.detail) err.detail = scrub(err.detail)
+  err.message = scrub(err.message)
+  return err
+}
+
+function mapError(e: unknown, sdk: SDKModule | null, mcp?: Pick<McpAttachment, 'names' | 'servers'> | null): AIError {
   if (e instanceof AIError) return e
   if (e instanceof DOMException && e.name === 'AbortError') return new AIError('aborted')
   if (sdk) {
     const A = sdk.default
     if (e instanceof A.APIUserAbortError) return new AIError('aborted')
-    if (mcp?.length && e instanceof A.APIError && e.status !== undefined) {
-      const server = mcpServerOf(e.message, mcp)
+    if (mcp?.names.length && e instanceof A.APIError && e.status !== undefined) {
+      const server = mcpServerOf(e.message, mcp.names)
       if (server !== null) {
         const detail = cleanMessage(e.message)
+        if (MCP_AUTH_RE.test(detail)) return new AIError('mcp_auth', undefined, server)
         return new AIError('mcp', detail.length > 240 ? `${detail.slice(0, 239)}…` : detail, server)
       }
     }
@@ -215,6 +231,9 @@ export function toAIError(e: unknown, sdk: SDKModule | null, mcp?: string[]): AI
   if (e instanceof TypeError) return new AIError('offline', e.message)
   return new AIError('unknown', e instanceof Error ? e.message : String(e))
 }
+
+/** An MCP server turned the token down. */
+const MCP_AUTH_RE = /\b(401|403)\b|unauthori[sz]ed|forbidden|authenticat|invalid[^.]{0,40}token|token[^.]{0,40}(invalid|expired|revoked|rejected)|expired/i
 
 /** The server an API error message is about: its name, '' (MCP, but which one is unclear), null (not about MCP). */
 function mcpServerOf(msg: string, names: string[]): string | null {
@@ -336,7 +355,7 @@ export async function streamCompletion({ system, prompt, onToken, signal, mcp, o
     return text
   } catch (e) {
     if (signal?.aborted) throw new AIError('aborted')
-    throw toAIError(e, sdk, attached?.names)
+    throw toAIError(e, sdk, attached)
   }
 }
 
@@ -495,7 +514,7 @@ export async function completeStructured({ system, prompt, schema, maxTokens = 4
     return text
   } catch (e) {
     if (signal?.aborted) throw new AIError('aborted')
-    throw toAIError(e, sdk, attached?.names)
+    throw toAIError(e, sdk, attached)
   }
 }
 

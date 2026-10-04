@@ -57,7 +57,7 @@ export function parseInspect(text: string): InspectResult {
 /** Run one check against `server`. Throws AIError ('mcp' when the server could not be used). */
 export async function inspectServer(server: McpServerConfig, mode: 'test' | 'guide', signal?: AbortSignal): Promise<InspectResult> {
   const mcp = await attachMcp({ servers: [{ ...server, enabled: true }], instructions: '' })
-  if (!mcp) throw new AIError('mcp', 'token missing', server.name)
+  if (!mcp) throw new AIError('mcp', 'the token is not available in this browser', server.name)
   let sdk: SDKModule | null = null
   try {
     const got = await claudeClient()
@@ -85,6 +85,6 @@ export async function inspectServer(server: McpServerConfig, mode: 'test' | 'gui
     return out
   } catch (e) {
     if (signal?.aborted) throw new AIError('aborted')
-    throw toAIError(e, sdk, [server.name])
+    throw toAIError(e, sdk, mcp)
   }
 }

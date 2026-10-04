@@ -95,10 +95,10 @@
 
 .mcps-card__toggle {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) 16px;
+  grid-template-columns: auto minmax(0, 1fr) auto;
   grid-template-areas:
-    'name url chev'
-    'meta meta chev';
+    'name url more'
+    'meta meta more';
   align-items: baseline;
   column-gap: 10px;
   row-gap: 2px;
@@ -145,10 +145,16 @@
   color: var(--ink-3);
 }
 
-.mcps-card__chev {
-  grid-area: chev;
+.mcps-card__more {
+  grid-area: more;
   align-self: center;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   color: var(--ink-3);
+}
+
+.mcps-card__chev {
   transition: transform var(--dur-1) var(--ease-out);
 }
 
@@ -156,8 +162,30 @@
   transform: rotate(180deg);
 }
 
-.mcps-card__toggle:hover .mcps-card__chev {
+.mcps-card__toggle:hover .mcps-card__more {
   color: var(--ink);
+}
+
+.mcps-card[data-state='error'] .mcps-card__meta {
+  color: var(--c-red-text);
+}
+
+.mcps-card[data-state='checking'] .mcps-card__meta {
+  color: var(--signal-ink);
+}
+
+/* why: the failed check, the missing token, the missing Claude key */
+.mcps-card__reason {
+  margin: -4px 12px 10px 36px;
+  color: var(--ink-2);
+  font-size: var(--text-xs);
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.mcps-card__reason[data-kind='error'],
+.mcps-card__reason[data-kind='missing'] {
+  color: var(--c-red-text);
 }
 
 .mcps-card__body {
@@ -230,8 +258,67 @@
 
 .mcps-actions {
   display: flex;
+  flex-wrap: wrap;
+  align-items: center;
   justify-content: flex-end;
   gap: 6px;
+}
+
+.mcps-actions__note {
+  flex: 1;
+  min-width: 160px;
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+  line-height: 1.4;
+}
+
+/* ---------- scope ---------- */
+.mcps-scope {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.mcps-scope__opt {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 32px;
+  padding: 0 12px 0 10px;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius-1);
+  background: var(--surface);
+  color: var(--ink-2);
+  font-size: var(--text-sm);
+  text-align: left;
+  transition: border-color var(--dur-1) var(--ease-out), transform var(--dur-1) var(--ease-out);
+}
+
+.mcps-scope__opt:hover {
+  border-color: var(--ink-3);
+  color: var(--ink);
+}
+
+.mcps-scope__opt:active {
+  transform: translateY(1px);
+}
+
+.mcps-scope__opt[aria-checked='true'] {
+  border-color: var(--ink);
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.mcps-scope__dot {
+  flex: none;
+  width: 12px;
+  height: 12px;
+  border: 1px solid var(--rule-strong);
+  border-radius: 50%;
+}
+
+.mcps-scope__opt[aria-checked='true'] .mcps-scope__dot {
+  border: 4px solid var(--signal);
 }
 
 .mcps-warn {
@@ -481,6 +568,16 @@
 @media (max-width: 767px) {
   .mcps__head {
     flex-wrap: wrap;
+    align-items: center;
+  }
+
+  .mcps__heading {
+    flex-basis: 100%;
+  }
+
+  .mcps__count {
+    margin-right: auto;
+    padding-bottom: 0;
   }
 
   .mcps-grid {
@@ -494,10 +591,14 @@
 
   .mcps-card__toggle {
     grid-template-areas:
-      'name chev'
-      'url chev'
-      'meta chev';
-    grid-template-columns: minmax(0, 1fr) 16px;
+      'name more'
+      'url more'
+      'meta more';
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .mcps-card__reason {
+    margin-left: 34px;
   }
 }
 
@@ -507,7 +608,8 @@
   }
 
   .mcps-card__chev,
-  .mcps-tpl__chev {
+  .mcps-tpl__chev,
+  .mcps-scope__opt {
     transition: none;
   }
 }
