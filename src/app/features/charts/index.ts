@@ -10,7 +10,8 @@
  *    (← → Home End Esc on the focused plot), "Data table" toggle, empty / error states, responsive.
  *  - useChartData(source, spec?) → { data, loading }: live (sheet, database, system, manual; 'inline' is
  *    passed in by its spreadsheet). resolveChartDataSync / resolveChartData: the same outside React.
- *  - tableToChartData(values: CellValue[][], spec?, { lang, seriesName }?): header row / label column detection.
+ *  - tableToChartData(values: CellValue[][], spec?, { lang, seriesName, countName }?): header row / label column detection;
+ *    a range without numbers counts its repeating values.
  *  - openChartBuilder({ initial?, source?, allowedSources?, onSave(spec), onCancel?, step?, pageId?,
  *    inline?(ref) → { values, error? } }): the 3-step builder (data → type → options). For a spreadsheet's
  *    own charts: source { kind: 'inline', ref }, allowedSources ['inline'], inline = its readSheetData.

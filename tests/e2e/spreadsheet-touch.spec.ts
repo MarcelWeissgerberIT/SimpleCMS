@@ -396,8 +396,11 @@ test.describe('spreadsheet block by touch — phone', () => {
     await expect(areaChip(page)).toContainText('+ Area')
     await expect(areaChip(page)).toContainText('tap or drag the next one')
     const c = (await areaChip(page).boundingBox())!
-    const row1 = (await cell(page, 'B1').boundingBox())!
-    expect(c.y + c.height).toBeLessThanOrEqual(row1.y)
+    // on the formula bar: the column letters and the cells stay in sight
+    const letters = (await page.locator('.sheet .sg-head').boundingBox())!
+    expect(c.y + c.height).toBeLessThanOrEqual(letters.y)
+    const bar = (await page.locator('.sheet .sh-bar').boundingBox())!
+    expect(c.y).toBeGreaterThanOrEqual(bar.y)
     expect(c.x + c.width).toBeLessThanOrEqual(390)
     // latched: the menu shows it on
     await menuKey(page).tap()

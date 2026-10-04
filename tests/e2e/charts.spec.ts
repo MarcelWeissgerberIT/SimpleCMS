@@ -498,6 +498,17 @@ test.describe('charts', () => {
           ['A', '40%'],
           ['B', '60%'],
         ]),
+        // no numbers: the repeating column counts its values; a lone first cell is its header
+        c1: data([['Status'], ['Done'], ['Open'], ['Done'], ['Done']]),
+        c2: data([
+          ['Name', 'Team'],
+          ['Ada', 'Core'],
+          ['Grace', 'Web'],
+          ['Linus', 'Core'],
+        ]),
+        // labels without numbers yet (nothing repeats) stay empty
+        c3: data([['Jan'], ['Feb'], ['Mar']]),
+        c4: C.tableToChartData([['1a', '1a'], ['1a', '2b'], ['1a', '1a'], ['1a', null]], {}, { lang: 'de' }),
         s1: C.suggestKind({ labels: ['Total'], series: [{ name: 'x', values: [5] }] }),
         s2: C.suggestKind({ labels: ['2026-01', '2026-02', '2026-03'], series: [{ name: 'x', values: [1, 2, 3] }] }),
         s3: C.suggestKind({ labels: ['A', 'B', 'C'], series: [{ name: 'x', values: [1, 2, 3] }] }),
@@ -532,6 +543,10 @@ test.describe('charts', () => {
     expect(r.d5.series[1].values).toEqual([3, 4])
     expect(r.d6.unit).toBe('%')
     expect(r.d6.series[0].values).toEqual([40, 60])
+    expect(r.c1).toEqual({ labels: ['Done', 'Open'], series: [{ name: 'Count', values: [3, 1] }] })
+    expect(r.c2).toEqual({ labels: ['Core', 'Web'], series: [{ name: 'Count', values: [2, 1] }] })
+    expect(r.c3).toEqual({ labels: [], series: [] })
+    expect(r.c4).toEqual({ labels: ['1a', '2b'], series: [{ name: 'Anzahl', values: [2, 1] }] })
     expect(r.s1).toBe('kpi')
     expect(r.s2).toBe('line')
     expect(r.s3).toBe('bar')

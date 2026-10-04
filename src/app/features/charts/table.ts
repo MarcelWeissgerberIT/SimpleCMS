@@ -95,6 +95,8 @@ export interface TableOptions {
   lang?: 'en' | 'de'
   /** name for an unnamed series: (n) => "Series 2" */
   seriesName?: (n: number) => string
+  /** the series of a text-only table, which counts its values (default "Count" / "Anzahl") */
+  countName?: string
 }
 
 /**
@@ -142,6 +144,7 @@ export function tableToChartData(values: CellValue[][], spec: Partial<Pick<Chart
     const title = head ? cellText(head[j]) : ''
     series.push({ name: title || name(series.length + 1), values: vals })
   }
+  if (!series.length) return countValues(grid, opts.countName ?? (lang === 'de' ? 'Anzahl' : 'Count'))
   let labels = data.map((r, i) => (labelCol ? cellText(r[0]) : String(i + 1)))
 
   // drop rows without a label and without any value
@@ -154,6 +157,37 @@ export function tableToChartData(values: CellValue[][], spec: Partial<Pick<Chart
   const unit = spec.unit || (units.size === 1 ? [...units][0] : '')
   if (unit) out.unit = unit
   return out
+}
+
+/**
+ * A table without a single number ("Done / Open / Done"): how often each value occurs, in the
+ * column that groups best — one whose values repeat, with two or more groups when there is one,
+ * the fewest groups. A first cell that never repeats over a column that does is its header.
+ * Nothing to count when no value repeats (labels typed before their numbers stay "no data yet").
+ */
+function countValues(grid: CellValue[][], name: string): ChartData {
+  let best: { values: string[]; rank: number[] } | null = null
+  for (let j = 0; j < (grid[0]?.length ?? 0); j++) {
+    const values = grid.map((r) => cellText(r[j]))
+    const rest = values.slice(1).filter(Boolean)
+    if (values[0] && rest.length > 1 && new Set(rest).size < rest.length && !rest.includes(values[0])) values.shift()
+    const filled = values.filter(Boolean)
+    const distinct = new Set(filled).size
+    if (!distinct) continue
+    // a column whose values repeat, then one with ≥ 2 groups, then the fewest groups
+    const rank = [distinct < filled.length ? 0 : 1, distinct > 1 ? 0 : 1, distinct]
+    if (!best || before(rank, best.rank)) best = { values, rank }
+  }
+  if (!best || best.rank[0]) return { labels: [], series: [] }
+  const counts = new Map<string, number>()
+  for (const v of best.values) if (v) counts.set(v, (counts.get(v) ?? 0) + 1)
+  return { labels: [...counts.keys()], series: [{ name, values: [...counts.values()] }] }
+}
+
+/** lexicographic a < b */
+function before(a: number[], b: number[]): boolean {
+  const i = a.findIndex((x, k) => x !== b[k])
+  return i >= 0 && a[i] < b[i]
 }
 
 function isSequence(col: CellValue[], lang: 'en' | 'de'): boolean {

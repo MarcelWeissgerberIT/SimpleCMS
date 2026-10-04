@@ -1322,6 +1322,24 @@ export function SheetBlock({ attrs: raw, update, editable, editor, pageId, inser
           onKeyDown={editKey}
           onBlur={editBlur}
         />
+        {addArea && !edit && (
+          <div className="sh-areachip" role="status">
+            <span className="sh-areachip__label">{t('features.sheets.touch.area')}</span>
+            <span className="sh-areachip__hint">{t('features.sheets.area.hint')}</span>
+            <button
+              type="button"
+              className="sh-areachip__x"
+              aria-label={t('features.sheets.area.cancel')}
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => {
+                setAddArea(false)
+                focusGrid()
+              }}
+            >
+              <X size={14} strokeWidth={1.75} aria-hidden />
+            </button>
+          </div>
+        )}
       </div>
       <div className="sh-grid">
         <Grid
@@ -1385,24 +1403,6 @@ export function SheetBlock({ attrs: raw, update, editable, editor, pageId, inser
             },
           }}
         />
-        {addArea && !edit && (
-          <div className="sh-areachip" role="status">
-            <span className="sh-areachip__label">{t('features.sheets.touch.area')}</span>
-            <span className="sh-areachip__hint">{t('features.sheets.area.hint')}</span>
-            <button
-              type="button"
-              className="sh-areachip__x"
-              aria-label={t('features.sheets.area.cancel')}
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={() => {
-                setAddArea(false)
-                focusGrid()
-              }}
-            >
-              <X size={14} strokeWidth={1.75} aria-hidden />
-            </button>
-          </div>
-        )}
       </div>
       <Charts
         attrs={a}
