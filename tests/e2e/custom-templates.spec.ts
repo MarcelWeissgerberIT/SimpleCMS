@@ -410,8 +410,8 @@ test.describe('own templates', () => {
     await expect(editorOf(page)).toContainText('Edited in the template')
     expect(await wsEval(page, (s, id) => s.pages[id].plain, first)).not.toContain('Edited in the template')
 
-    // Undo in the toast: the fresh copy goes to the trash, back to the page before
-    await page.getByRole('button', { name: 'Undo' }).click()
+    // Undo in the fresh copy's toast (the first use's toast may still be showing): the copy goes to the trash
+    await page.getByRole('status').filter({ hasText: '“Launch kit v2” added' }).getByRole('button', { name: 'Undo' }).click()
     await expect(page).toHaveURL(new RegExp(`#/p/${first}$`))
     expect(await wsEval(page, (s, id) => s.pages[id].trashed, second)).toBe(true)
   })
