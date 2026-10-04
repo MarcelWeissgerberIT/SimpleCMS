@@ -95,6 +95,19 @@ the public APIs stable — other areas are built against them in parallel.
   `getMcpToken()` (store/secrets.ts) at request time — it goes only into `mcp_servers[].authorization_token`. Free-form
   requests (agent, own AI-menu requests, ⌘K "?") get every enabled server, other requests only `scope: 'all'`
   servers; client.ts decides centrally. No server is preset in the app.
+- Database views: table | board | list | gallery | feed | calendar | timeline | chart | form. Feed settings live in
+  `View.feed` (dateProperty — null = created time, order newest | oldest, content); without sorts of its own a feed
+  orders newest first. Rows in view order come from `orderRows()` (database/model/feed.ts), used by `rowsOfView()` too.
+- Sidebar: a database expands to its entries in first-view order (shell/lib/tree.ts, computed only while open); page ⇄
+  entry only via `shell/sidebar/entries.ts` (`parentId` / `databaseId` = the database, properties emptied, with Undo).
+- Mail (features/mail): Gmail → a "Mails" database with the user's own Google OAuth client ID (`settings.mail`, per
+  device, no secret). Google Identity Services token client, scope `gmail.readonly`; the access token lives in memory only.
+  Sync state per device + workspace in IndexedDB `one-mail`, never synced. Rows dedupe by the Gmail message id; re-syncs
+  write only Labels / Unread; bodies are written with origin `'mail'`. Team workspaces: the database is created private
+  (`createPrivateDatabase`); a shared one pauses the sync. Mail content reaches Anthropic only with "Organise with Claude".
+- Team-cloud agents (server/src/agents): agents with `runner: 'server'` run on the server (scheduler, row triggers,
+  webhooks) with a per-workspace Claude key + MCP tokens encrypted at rest; their writes carry `agent:<agentId>` as
+  createdBy / updatedBy; `AGENTS=off` disables them; the server needs outbound HTTPS to api.anthropic.com.
 - MCP addresses workspaces by id (`local:<hash>` / `team:<id>`, features/mcp/identity.ts; per-browser localStorage
   `one.mcp.device`); every bridge call is bound to that id and refused on a mismatch — never act in another workspace.
 
@@ -104,11 +117,14 @@ StarterKit: `paragraph`, `heading` (levels 1–3), `bulletList`, `orderedList`, 
 `codeBlock` (attrs: language), `horizontalRule`, `hardBreak`; marks `bold`, `italic`, `strike`, `code`,
 `underline`, `link`. Plus: `taskList`/`taskItem` (attrs: checked), `details`/`detailsSummary`/`detailsContent`
 (toggle; attrs: heading 0|1|2|3 — 1–3 = toggle heading H1–H3), `callout` (attrs: icon, color), `image` (attrs: src, alt, caption, width, align), `table`/`tableRow`/
-`tableHeader`/`tableCell`, `columns`/`column`, `blockMath`/`inlineMath` (attrs: latex), `mermaid` (attrs: code),
+`tableHeader`/`tableCell`, `columns`/`column` (2–5 columns), `blockMath`/`inlineMath` (attrs: latex), `mermaid` (attrs: code),
 `pageLink` (attrs: pageId), `mention` (attrs: id, label, kind: 'page'|'date'|'person', reminder — date mentions only;
 a date id is `yyyy-MM-dd` or `yyyy-MM-ddTHH:mm` local time; mentions of private pages carry no label), `databaseBlock`
 (attrs: databaseId, viewId), `bookmark` (attrs: url, title, description, image), `embed` (attrs: url, provider),
-`toc`, `fileBlock` (attrs: src, name, size), `video` (attrs: src, name, caption, width, align) and `audio` (attrs: src,
+`toc`, `breadcrumb` (atom; attrs: path = null — live: the path of the page it sits on, workspace › ancestors › page;
+`stripPrivate()` / `docToHTML` / `docToMarkdown` freeze it into titles; Markdown `<!-- breadcrumb -->` + the path line, read
+back as the block), `fileBlock` (attrs: src, name, size, display 'viewer'|'file'|null — a PDF shows in the browser's own
+viewer unless 'file'), `video` (attrs: src, name, caption, width, align) and `audio` (attrs: src,
 name, caption) — src = `onefile:<id>` or an http(s) URL, `syncedBlock` (attrs: syncId, sourcePageId — null = the
 original, else a reference holding a cached copy; content: blocks; never nested; the sync service writes with origin
 'synced'; `stripButtonActions()` unwraps it to plain blocks), `meetingNotes` (content: the notes as normal blocks; attrs:
