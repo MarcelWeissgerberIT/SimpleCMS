@@ -12,7 +12,7 @@ import type { StagedChange } from '../ai/agent/types'
 import { asAgent, stampLocal } from './attribution'
 import { touchedBy } from './exec'
 import { putRun } from './runs'
-import { patchServerRun, resolveServerRun } from './server'
+import { patchServerRun, resolveServerRun, serverErrorText } from './server'
 import type { AgentRun } from './types'
 
 const tn = (key: string, count: number) => t(`${key}.${count === 1 ? 'one' : 'other'}`, { count })
@@ -24,7 +24,7 @@ async function save(run: AgentRun, applied: string[], discarded: string[]): Prom
       await resolveServerRun(run.id, applied, discarded)
     } catch (e) {
       console.warn('[one] agents: could not mark the server run', e)
-      useUI.getState().toast({ message: t('features.agents.review.serverFailed'), kind: 'error' })
+      useUI.getState().toast({ message: `${t('features.agents.review.serverFailed')} ${serverErrorText(e)}`, kind: 'error' })
     }
   } else await putRun(run)
 }

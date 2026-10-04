@@ -1,9 +1,11 @@
 /**
  * The manual as data: every article in both languages, numbered and ordered by chapter. Pure — shared
  * by the in-app panel (help/content.ts feeds it the bundled files) and the static /help/ build.
+ * vite.config.ts loads this file (via src/help-site): imports here and in markdown / sections / messages
+ * carry a .js specifier, the form Vite's config loader resolves without warnings.
  */
-import { parseArticle, type ParsedArticle } from './markdown'
-import { HELP_SECTIONS, articleNum } from './sections'
+import { parseArticle, type ParsedArticle } from './markdown.js'
+import { HELP_SECTIONS, articleNum } from './sections.js'
 
 export type HelpLang = 'en' | 'de'
 export const HELP_LANGS: HelpLang[] = ['en', 'de']

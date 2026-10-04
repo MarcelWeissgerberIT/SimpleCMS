@@ -189,6 +189,13 @@
   caret-color: var(--signal);
 }
 
+/* the frame shows focus (focus-within above) */
+.help-search__input:focus,
+.help-search__input:focus-visible {
+  outline: none;
+  box-shadow: none;
+}
+
 .help-search__input::-webkit-search-cancel-button {
   display: none;
 }
@@ -496,6 +503,13 @@
   font-family: var(--font-mono);
   font-size: 10px;
   font-weight: 700;
+}
+
+.help-doc code,
+.help-doc__pre,
+.help-doc__kbd {
+  /* "==", "!=", ">=" stay as typed — no ligatures in code */
+  font-variant-ligatures: none;
 }
 
 .help-doc code {

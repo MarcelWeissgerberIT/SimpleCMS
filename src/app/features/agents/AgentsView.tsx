@@ -294,6 +294,7 @@ function AgentDetail({ id }: { id: ID }) {
   const menu = useMenu()
   const now = useMinute()
   const serverState = useServerAgents((s) => s.state)
+  const runtime = useServerAgents((s) => s.runtime)
 
   if (!agent)
     return (
@@ -415,6 +416,12 @@ function AgentDetail({ id }: { id: ID }) {
         <div className="agx-notice" role="note">
           <span className="led agx-led--err" aria-hidden />
           <span>{t('features.agents.server.unsupported')}</span>
+        </div>
+      )}
+      {agent.runner === 'server' && runtime && (!runtime.available || !runtime.enabled) && (
+        <div className="agx-notice" role="note">
+          <span className="led agx-led--err" aria-hidden />
+          <span>{!runtime.available ? t('features.agents.server.off') : t('features.agents.runner.serverOff')}</span>
         </div>
       )}
 

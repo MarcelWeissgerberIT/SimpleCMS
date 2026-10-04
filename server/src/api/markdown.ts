@@ -14,6 +14,8 @@ import * as Y from 'yjs'
 export interface MarkdownContext {
   /** Title of a page in the workspace's meta document; null when it isn't there. */
   title(pageId: string): string | null
+  /** The page's path (workspace › ancestors › page) for a live breadcrumb block; omitted = leave it out. */
+  path?(): string[] | null
 }
 
 interface MdText {
@@ -335,6 +337,12 @@ function block(n: MdNode, ctx: MarkdownContext): string {
       return `[Button: ${str(n.attrs.label)}]`
     case 'toc':
       return ''
+    case 'breadcrumb': {
+      // navigation, not content: a frozen path (from an import) or the page's own path when the caller knows it
+      const frozen = Array.isArray(n.attrs.path) ? (n.attrs.path as unknown[]).map((x) => str(x)).filter(Boolean) : null
+      const path = frozen?.length ? frozen : (ctx.path?.() ?? null)
+      return path?.length ? `<!-- breadcrumb -->\n${path.join(' › ')}` : ''
+    }
     case 'tabs':
       return kids.map((tab) => `**${str(tab.attrs.title) || 'Tab'}**\n\n${blocks(blockChildren(tab), ctx)}`).join('\n\n')
     case 'spreadsheet':

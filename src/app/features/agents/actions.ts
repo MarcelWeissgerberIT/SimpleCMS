@@ -3,11 +3,10 @@ import { useWorkspace } from '../../store/store'
 import { useUI } from '../../store/ui'
 import type { CustomAgent, ID } from '../../store/types'
 import { navigate } from '../../lib/router'
-import { CloudError } from '../../cloud'
 import { t } from '../../i18n'
 import { executeRun } from './exec'
 import { dropRuns } from './runs'
-import { loadServerRuns, runOnServer } from './server'
+import { loadServerRuns, runOnServer, serverErrorText } from './server'
 
 /** Start a run now: in this tab (browser runner) or on the team server. */
 export async function runNow(agent: CustomAgent): Promise<void> {
@@ -17,8 +16,7 @@ export async function runNow(agent: CustomAgent): Promise<void> {
       useUI.getState().toast({ message: t('features.agents.toast.serverStarted', { name: agent.name }), kind: 'success' })
       window.setTimeout(() => void loadServerRuns(agent.id), 1200)
     } catch (e) {
-      const unsupported = e instanceof CloudError && (e.status === 404 || e.code === 'not_found')
-      useUI.getState().toast({ message: unsupported ? t('features.agents.server.unsupported') : t('features.agents.toast.serverFailed', { msg: e instanceof Error ? e.message : String(e) }), kind: 'error' })
+      useUI.getState().toast({ message: t('features.agents.toast.serverFailed', { msg: serverErrorText(e) }), kind: 'error' })
     }
     return
   }

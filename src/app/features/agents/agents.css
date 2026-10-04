@@ -1033,3 +1033,28 @@
     flex-wrap: wrap;
   }
 }
+
+/* ---------- webhook address (server agents) ---------- */
+.agx-hook {
+  display: grid;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-2);
+  background: var(--surface-2);
+}
+.agx-hook__title {
+  color: var(--ink-3);
+}
+.agx-hook__url {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 6px 8px;
+  align-items: center;
+}
+.agx-hook__url > .agx-field__hint {
+  grid-column: 1 / -1;
+}
+.agx-hook__confirm {
+  font-size: var(--text-sm);
+}

@@ -14,13 +14,15 @@ export function appCsp(config: Config): string {
   const ws = config.publicUrl.replace(/^http/, 'ws')
   return [
     "default-src 'self'",
-    "script-src 'self'",
+    // Google's sign-in script (Gmail sync: the user's own OAuth client, loaded only when they connect)
+    "script-src 'self' https://accounts.google.com",
     "style-src 'self' 'unsafe-inline'",
     "img-src 'self' data: blob: https:",
     "font-src 'self' data:",
     "media-src 'self' data: blob: https:",
     `connect-src 'self' ${ws} https:`,
-    'frame-src https:',
+    // blob: the PDF viewer shows a local file through the browser's own viewer
+    'frame-src https: blob:',
     "worker-src 'self' blob:",
     "manifest-src 'self'",
     "object-src 'none'",
@@ -44,8 +46,10 @@ export function securityHeaders(config: Config): MiddlewareHandler<AppEnv> {
     h.set('X-Content-Type-Options', 'nosniff')
     h.set('X-Frame-Options', 'DENY')
     if (!h.has('referrer-policy')) h.set('Referrer-Policy', 'strict-origin-when-cross-origin')
-    h.set('Cross-Origin-Opener-Policy', 'same-origin')
-    h.set('Permissions-Policy', 'camera=(), microphone=(), geolocation=(), payment=(), usb=()')
+    // allow-popups: Google's sign-in popup (Gmail sync) must be able to report back
+    h.set('Cross-Origin-Opener-Policy', 'same-origin-allow-popups')
+    // microphone: AI meeting notes record in the app itself
+    h.set('Permissions-Policy', 'camera=(), microphone=(self), geolocation=(), payment=(), usb=()')
     if (hsts) h.set('Strict-Transport-Security', 'max-age=31536000')
   }
 }

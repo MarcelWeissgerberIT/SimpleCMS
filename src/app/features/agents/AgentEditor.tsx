@@ -4,7 +4,7 @@
  * budget) and the on/off switch. Works on a draft; "Save" validates and writes it with upsertAgent.
  */
 import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react'
-import { ChevronDown, PenLine, Plus, Undo2, X } from 'lucide-react'
+import { ChevronDown, Copy, PenLine, Plus, Undo2, X } from 'lucide-react'
 import { useWorkspace } from '../../store/store'
 import { useUI } from '../../store/ui'
 import { inTemplate, isEffectivelyTrashed } from '../../store/selectors'
@@ -21,7 +21,7 @@ import { useLang, useT } from '../../i18n'
 import { AI_MODELS, AIError, runAI } from '../ai/client'
 import { readServers } from '../ai/mcp-servers/config'
 import { weekdayName } from './format'
-import { useServerAgents } from './server'
+import { createHook, deleteHook, getHook, serverErrorText, useServerAgents, type HookState } from './server'
 import './agents.css'
 
 type Errors = Partial<Record<'name' | 'instructions' | 'trigger' | 'scope' | 'output' | 'budget' | 'runner' | 'mcp', string>>
@@ -148,7 +148,7 @@ export function AgentEditor({ initial, isNew, onClose, onSaved }: { initial: Cus
   const databases = useWorkspace((s) => s.databases)
   const inCloud = useCloud((s) => s.active.kind === 'cloud')
   const runtime = useServerAgents((s) => s.runtime)
-  const serverOk = !!runtime?.enabled
+  const serverOk = !!runtime?.enabled && runtime.available
   const uid = useId()
   const set = (patch: Partial<CustomAgent>) => setD((x) => ({ ...x, ...patch }))
   const ids = { name: `${uid}-name`, instr: `${uid}-instr`, budget: `${uid}-budget`, out: `${uid}-out`, db: `${uid}-db` }
@@ -293,7 +293,7 @@ export function AgentEditor({ initial, isNew, onClose, onSaved }: { initial: Cus
             />
           </Field>
           {!inCloud && <p className="agx-note">{t('features.agents.runner.localOnly')}</p>}
-          {inCloud && !serverOk && <p className="agx-note">{t('features.agents.runner.serverOff')}</p>}
+          {inCloud && !serverOk && <p className="agx-note">{runtime && !runtime.available ? t('features.agents.server.off') : t('features.agents.runner.serverOff')}</p>}
           <div className="agx-grid2">
             <Field label={t('features.agents.ed.model')} id={`${uid}-model`}>
               <select id={`${uid}-model`} className="input" value={d.model ?? ''} onChange={(e) => set({ model: e.target.value || null })}>
@@ -473,6 +473,7 @@ function Instructions({ value, onChange, error, id }: { value: string; onChange:
 
 function TriggerFields({ t, lang, d, set, error, dbId, pages, databases }: { t: T; lang: string; d: CustomAgent; set: (p: Partial<CustomAgent>) => void; error?: string; dbId: string; pages: Record<ID, Page>; databases: ReturnType<typeof useWorkspace.getState>['databases'] }) {
   const uid = useId()
+  const saved = useWorkspace((s) => !!s.agents?.[d.id])
   const tr = d.trigger
   const kind = tr.type
   const toKind = (k: AgentTrigger['type']) => {
@@ -591,7 +592,7 @@ function TriggerFields({ t, lang, d, set, error, dbId, pages, databases }: { t: 
           )}
         </div>
       )}
-      {tr.type === 'webhook' && <p className="agx-note mono">POST {window.location.origin}/api/v1/agents/{d.id}/hook/&lt;secret&gt; — {t('features.agents.trig.webhookSecret')}</p>}
+      {tr.type === 'webhook' && <HookPanel agentId={d.id} saved={saved} />}
       {(tr.type === 'row_created' || tr.type === 'row_changed') && pages[tr.databaseId] && <p className="agx-note">{t('features.agents.trig.coalesce')}</p>}
     </>
   )
@@ -673,6 +674,120 @@ function McpFields({ d, set }: { d: CustomAgent; set: (p: Partial<CustomAgent>) 
         </div>
       )}
       <p className="agx-field__hint">{t('features.agents.ed.mcpHint')}</p>
+    </div>
+  )
+}
+
+/** Server agents started by a webhook: the address (shown once when created), regenerate, delete. */
+function HookPanel({ agentId, saved }: { agentId: ID; saved: boolean }) {
+  const t = useT()
+  const lang = useLang()
+  const role = useCloud((s) => s.role)
+  const admin = role === 'owner' || role === 'admin'
+  const [hook, setHook] = useState<HookState | null>(null)
+  const [url, setUrl] = useState('')
+  const [confirm, setConfirm] = useState<'regen' | 'delete' | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  useEffect(() => {
+    if (!saved) return
+    let live = true
+    getHook(agentId)
+      .then((h) => live && setHook(h))
+      .catch((e) => live && setError(serverErrorText(e)))
+    return () => {
+      live = false
+    }
+  }, [agentId, saved])
+  const act = async (fn: () => Promise<void>) => {
+    setBusy(true)
+    setError('')
+    try {
+      await fn()
+    } catch (e) {
+      setError(serverErrorText(e))
+    } finally {
+      setBusy(false)
+      setConfirm(null)
+    }
+  }
+  const create = () =>
+    act(async () => {
+      setUrl(await createHook(agentId))
+      setHook(await getHook(agentId).catch(() => ({ set: true, createdAt: new Date().toISOString(), lastDeliveryAt: null, deliveries: 0 })))
+    })
+  const remove = () =>
+    act(async () => {
+      await deleteHook(agentId)
+      setUrl('')
+      setHook({ set: false, createdAt: null, lastDeliveryAt: null, deliveries: 0 })
+    })
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(url)
+      useUI.getState().toast({ message: t('features.agents.hook.copied'), kind: 'success' })
+    } catch {
+      /* the field stays selectable */
+    }
+  }
+  const when = hook?.createdAt ? new Date(hook.createdAt).toLocaleDateString(lang) : '—'
+  return (
+    <div className="agx-hook" role="group" aria-label={t('features.agents.hook.title')}>
+      <span className="label agx-hook__title">{t('features.agents.hook.title')}</span>
+      {!saved ? (
+        <p className="agx-note">{t('features.agents.hook.saveFirst')}</p>
+      ) : (
+        <>
+          <p className="agx-note">{hook?.set ? t('features.agents.hook.set', { when, n: hook.deliveries }) : t('features.agents.hook.none')}</p>
+          {url && (
+            <div className="agx-hook__url">
+              <input className="input mono" readOnly value={url} aria-label={t('features.agents.hook.title')} onFocus={(e) => e.currentTarget.select()} />
+              <button type="button" className="btn btn--sm btn--ink" onClick={() => void copy()}>
+                <Copy size={12} strokeWidth={1.8} aria-hidden /> {t('features.agents.hook.copy')}
+              </button>
+              <p className="agx-field__hint">{t('features.agents.hook.once')}</p>
+            </div>
+          )}
+          {admin ? (
+            confirm ? (
+              <div className="agx-row agx-row--wrap agx-hook__confirm" role="alertdialog" aria-label={t(confirm === 'regen' ? 'features.agents.hook.regenTitle' : 'features.agents.hook.deleteTitle')}>
+                <strong>{t(confirm === 'regen' ? 'features.agents.hook.regenTitle' : 'features.agents.hook.deleteTitle')}</strong>
+                <span className="agx-field__hint">{t(confirm === 'regen' ? 'features.agents.hook.regenBody' : 'features.agents.hook.deleteBody')}</span>
+                <button type="button" className="btn btn--sm btn--ghost" onClick={() => setConfirm(null)}>
+                  {t('common.cancel')}
+                </button>
+                <button type="button" className="btn btn--sm btn--danger" disabled={busy} onClick={() => void (confirm === 'regen' ? create() : remove())}>
+                  {t(confirm === 'regen' ? 'features.agents.hook.regenerate' : 'features.agents.hook.delete')}
+                </button>
+              </div>
+            ) : (
+              <div className="agx-row agx-row--wrap">
+                {hook?.set ? (
+                  <>
+                    <button type="button" className="btn btn--sm" disabled={busy} onClick={() => setConfirm('regen')}>
+                      {t('features.agents.hook.regenerate')}
+                    </button>
+                    <button type="button" className="btn btn--sm btn--ghost" disabled={busy} onClick={() => setConfirm('delete')}>
+                      {t('features.agents.hook.delete')}
+                    </button>
+                  </>
+                ) : (
+                  <button type="button" className="btn btn--sm btn--ink" disabled={busy || !hook} onClick={() => void create()}>
+                    {t('features.agents.hook.create')}
+                  </button>
+                )}
+              </div>
+            )
+          ) : (
+            <p className="agx-field__hint">{t('features.agents.hook.adminsOnly')}</p>
+          )}
+          {error && (
+            <p className="agx-field__error" role="alert">
+              {t('features.agents.hook.failed', { msg: error })}
+            </p>
+          )}
+        </>
+      )}
     </div>
   )
 }

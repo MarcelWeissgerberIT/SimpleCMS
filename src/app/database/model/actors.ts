@@ -70,8 +70,10 @@ export function actorName(id: string, people: Person[], me: MeCtx, labels: Actor
       return labels.api
     case 'hook':
       return labels.webhook
-    case 'agent':
-      return `${labels.agent ?? 'Agent'} · ${useWorkspace.getState().agents?.[id.slice(6)]?.name ?? labels.unknown}`
+    case 'agent': {
+      const name = useWorkspace.getState().agents?.[id.slice(6)]?.name
+      return name ? `${labels.agent ?? 'Agent'} · ${name}` : (labels.agent ?? 'Agent')
+    }
     case 'person':
       return people.find((p) => p.id === id)!.name
     default:

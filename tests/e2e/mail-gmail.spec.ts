@@ -283,6 +283,27 @@ async function setup(page: Page, mails?: (now: number) => MockMail[]): Promise<E
   return { box, gis, images, claude }
 }
 
+/** Claude (structured output) answering for the mails in the prompt; returns the request bodies. */
+async function routeClaude(page: Page): Promise<AnyState[]> {
+  const sent: AnyState[] = []
+  await page.unroute('https://api.anthropic.com/**')
+  await page.route('https://api.anthropic.com/**', (route) => {
+    const req = route.request()
+    if (req.method() === 'OPTIONS') return route.fulfill({ status: 204, headers: { 'access-control-allow-origin': '*', 'access-control-allow-headers': '*', 'access-control-allow-methods': 'POST, GET' } })
+    const body = JSON.parse(req.postData() ?? '{}')
+    sent.push(body)
+    const prompt = String(body.messages?.[0]?.content ?? '')
+    const ids = [...prompt.matchAll(/<mail id="([^"]+)">/g)].map((m) => m[1])
+    const answer = { mails: ids.map((id) => ({ id, category: id === 'm2' ? 'Todo' : 'Newsletter', priority: id === 'm2' ? 'high' : 'low', needsReply: id === 'm2', summary: `Summary of ${id}` })) }
+    return route.fulfill({
+      status: 200,
+      headers: { 'content-type': 'application/json', 'access-control-allow-origin': '*' },
+      body: JSON.stringify({ id: 'msg_mail', type: 'message', role: 'assistant', model: 'claude-opus-5-5', content: [{ type: 'text', text: JSON.stringify(answer) }], stop_reason: 'end_turn', stop_sequence: null, usage: { input_tokens: 900, output_tokens: 120 } }),
+    })
+  })
+  return sent
+}
+
 /* ------------------------------------------------------------------ */
 /* App helpers                                                         */
 /* ------------------------------------------------------------------ */
@@ -661,7 +682,7 @@ test.describe('Mail (Gmail)', () => {
     expect(nodes(rowBy(await mailRows(page), 'Autumn sale — 30 % off').content, 'image')).toHaveLength(0)
   })
 
-  test('organise with Claude: category, priority, needs reply and summary filled; the request carries mail content only when on', async ({ page }) => {
+  test('organise with Claude: category, priority, needs reply, summary and project filled; the request carries mail content only when on', async ({ page }) => {
     const env = await setup(page)
     const sent: AnyState[] = []
     await page.unroute('https://api.anthropic.com/**')
@@ -672,8 +693,16 @@ test.describe('Mail (Gmail)', () => {
       sent.push(body)
       const prompt = String(body.messages?.[0]?.content ?? '')
       const ids = [...prompt.matchAll(/<mail id="([^"]+)">/g)].map((m) => m[1])
+      const projects = JSON.parse(`[${prompt.match(/^Projects: (.*)$/m)?.[1] ?? ''}]`) as string[]
       const answer = {
-        mails: ids.map((id) => ({ id, category: id === 'm2' ? 'Todo' : 'Newsletter', priority: id === 'm2' ? 'high' : 'low', needsReply: id === 'm2', summary: id === 'm2' ? 'Bob asks for a draft review by Friday.' : 'Autumn sale, 30 % off.' })),
+        mails: ids.map((id) => ({
+          id,
+          category: id === 'm2' ? 'Todo' : 'Newsletter',
+          priority: id === 'm2' ? 'high' : 'low',
+          needsReply: id === 'm2',
+          summary: id === 'm2' ? 'Bob asks for a draft review by Friday.' : 'Autumn sale, 30 % off.',
+          ...(projects.length ? { project: id === 'm2' ? projects[0] : null } : {}),
+        })),
       }
       return route.fulfill({
         status: 200,
@@ -687,6 +716,17 @@ test.describe('Mail (Gmail)', () => {
     const dialog = await connect(page)
     await dialog.getByRole('switch', { name: 'Organise new mails with Claude' }).click()
     await expect(dialog.getByText(/the subject, sender, date and text of each new mail go to Anthropic/)).toBeVisible()
+    // each mail may belong to a row of the seeded "Projects" database
+    const projectsDb = await wsEval(page, (s) => (Object.values(s.pages) as AnyState[]).find((p) => p.kind === 'database' && p.title === 'Projects' && !p.trashed)!.id as string)
+    await dialog.getByLabel('Link each mail to').selectOption(projectsDb)
+    const firstProject = await wsEval(
+      page,
+      (s, db) =>
+        (Object.values(s.pages) as AnyState[])
+          .filter((p) => p.databaseId === db && !p.trashed && p.title.trim())
+          .map((p) => p.title.trim())[0],
+      projectsDb,
+    )
     await expect(dialog.getByTestId('mail-cost')).toContainText('up to 50 mails · OPUS 5.5')
     await expect(dialog.getByText('Invoice', { exact: true })).toBeVisible()
     await dialog.getByRole('button', { name: 'Sync now' }).click()
@@ -705,6 +745,10 @@ test.describe('Mail (Gmail)', () => {
 
     const rows = await mailRows(page)
     expect(rowBy(rows, 'Draft review').props).toMatchObject({ Category: 'Todo', Priority: 'High', 'Needs reply': true, Summary: 'Bob asks for a draft review by Friday.' })
+    expect(prompt).toContain(`Projects: ${JSON.stringify(firstProject)}`)
+    const projectRow = await wsEval(page, (s, { db, title }) => (Object.values(s.pages) as AnyState[]).find((p) => p.databaseId === db && p.title.trim() === title)!.id, { db: projectsDb, title: firstProject })
+    expect(rowBy(rows, 'Draft review').props.Project).toEqual([projectRow])
+    expect(rowBy(rows, 'Autumn sale — 30 % off').props.Project ?? []).toEqual([])
     expect(rowBy(rows, 'Autumn sale — 30 % off').props).toMatchObject({ Category: 'Newsletter', Priority: 'Low', Summary: 'Autumn sale, 30 % off.' })
     const views = await wsEval(page, (s) => s.databases[s.settings.mail.databaseId].views.map((v: AnyState) => `${v.name}:${v.type}`))
     expect(views).toEqual(['Inbox:table', 'By category:board'])
@@ -734,6 +778,28 @@ test.describe('Mail (Gmail)', () => {
     await syncAndWait(page)
     expect(sent).toHaveLength(2)
     expect((await mailRows(page)).map((r) => r.title)).toContain('Private note')
+  })
+
+  test('organise earlier mails: synced while off, organised on request in one request', async ({ page }) => {
+    const env = await setup(page)
+    const sent = await routeClaude(page)
+    await openApp(page)
+    await configure(page)
+    await wsEval(page, (s) => s.updateSettings({ aiApiKey: 'sk-ant-e2e-test-key' }))
+    const dialog = await connect(page)
+    await dialog.getByRole('button', { name: 'Sync now' }).click()
+    await expect.poll(async () => (await mailRows(page)).length).toBe(2)
+    await expect.poll(() => page.evaluate(() => window.__oneMail.state().phase)).toBe('idle')
+    expect(sent).toHaveLength(0)
+    expect(env.claude).toEqual([])
+    await dialog.getByRole('switch', { name: 'Organise new mails with Claude' }).click()
+    await dialog.getByRole('button', { name: 'Organise 2 earlier mails' }).click()
+    await expect.poll(() => page.evaluate(() => window.__oneMail.state().unorganised)).toBe(0)
+    expect(sent).toHaveLength(1)
+    const rows = await mailRows(page)
+    expect(rowBy(rows, 'Draft review').props).toMatchObject({ Category: 'Todo', Priority: 'High', 'Needs reply': true })
+    expect(rowBy(rows, 'Autumn sale — 30 % off').props).toMatchObject({ Category: 'Newsletter', Priority: 'Low' })
+    await expect(dialog.getByRole('button', { name: /earlier mail/ })).toHaveCount(0)
   })
 
   test('the token expires mid-run: the run stops, asks for a new sign-in, and the next run fetches what was left', async ({ page, errors }) => {

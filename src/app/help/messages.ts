@@ -1,4 +1,4 @@
-import type { Messages } from '@/shared/i18n'
+import type { Messages } from '../../shared/i18n.js'
 
 /**
  * Strings of the help area (the in-app Help panel and the static /help/ pages). Keys start with "help.".

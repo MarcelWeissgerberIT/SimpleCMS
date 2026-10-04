@@ -11,6 +11,7 @@
  * tab would run it). The agents' own writes never trigger agents.
  */
 import { pageChanges, useWorkspace } from '../../store/store'
+import { isApplyingRemote } from '../../store/persistence'
 import { inTemplate } from '../../store/selectors'
 import type { CustomAgent, Database, ID, Page, PropertyDef } from '../../store/types'
 import { useCloud } from '../../cloud'
@@ -240,10 +241,15 @@ function diff(state: ReturnType<typeof useWorkspace.getState>, prev: ReturnType<
   if (!watching.length) return
   const { changed } = pageChanges(state.pages, prev.pages)
   if (!changed.length) return
+  // a change that came from elsewhere (another tab, another device) carries its writer: an agent's
+  // writes never start agents (this tab's own agent writes are skipped before diff() runs)
+  const remote = isApplyingRemote()
+  const byAgent = (v: string | null | undefined) => remote && typeof v === 'string' && v.startsWith('agent:')
   const hits = new Map<ID, ID[]>()
   for (const id of changed) {
     const page = state.pages[id]
     if (!page.databaseId || page.trashed) continue
+    if (byAgent(prev.pages[id] ? page.updatedBy : page.createdBy)) continue
     const db = state.databases[page.databaseId]
     if (!db || inTemplate(state.pages, db.id)) continue
     const before = prev.pages[id]

@@ -89,6 +89,16 @@ export function ServerAgentsSettings() {
           <span className="led" aria-hidden /> {t('features.agents.server.unsupported')}
         </p>
       )}
+      {state === 'forbidden' && (
+        <p className="agx-notice" role="note">
+          <span className="led" aria-hidden /> {t('features.agents.server.forbidden')}
+        </p>
+      )}
+      {runtime && !runtime.available && (
+        <p className="agx-notice" role="note" data-testid="agx-server-off">
+          <span className="led agx-led--err" aria-hidden /> {t('features.agents.server.off')}
+        </p>
+      )}
       {state === 'error' && (
         <p className="agx-notice" role="alert">
           <span className="led agx-led--err" aria-hidden /> {t('features.agents.srv.loadFailed', { msg: error ?? '' })}

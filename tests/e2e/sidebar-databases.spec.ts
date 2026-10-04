@@ -19,8 +19,12 @@ async function expand(page: Page, title: string) {
   await expect(r.locator('.sb-row__link')).toHaveAttribute('aria-expanded', 'true')
 }
 
-/** Start dragging `src` and hover `dst` at `frac` of its height (0 = top edge, 0.5 = middle). */
+/**
+ * Start dragging `src` and hover `dst` at `frac` of its height (0 = top edge, 0.5 = middle). A tall
+ * window keeps both rows clear of the tree's edges, where dragging scrolls the tree.
+ */
 async function dragOver(page: Page, src: Locator, dst: Locator, frac = 0.5) {
+  if ((page.viewportSize()?.height ?? 0) < 1400) await page.setViewportSize({ width: 1440, height: 1400 })
   await src.scrollIntoViewIfNeeded()
   const a = (await src.boundingBox())!
   await page.mouse.move(a.x + 60, a.y + a.height / 2)

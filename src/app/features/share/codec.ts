@@ -12,7 +12,7 @@ import { useWorkspace } from '../../store/store'
 import type { ColorName, ID, Page, PageCover, PageIcon } from '../../store/types'
 import { FILE_PREFIX, getFile, readAsDataUrl } from '../../lib/files'
 import { propertyValueToText } from '../../database'
-import { getExtensions, stripButtonActions } from '../../editor'
+import { detectEmbedProvider, getExtensions, stripButtonActions } from '../../editor'
 import { t } from '../../i18n'
 
 export interface SharePayload {
@@ -331,15 +331,9 @@ function embedProvider(url: string): string | null {
     return null
   }
   if (u.protocol !== 'https:') return null
-  const h = u.hostname.replace(/^www\./, '').toLowerCase()
-  const is = (d: string) => h === d || h.endsWith(`.${d}`)
-  if (is('youtube.com') || h === 'youtu.be' || is('youtube-nocookie.com')) return 'youtube'
-  if (is('vimeo.com')) return 'vimeo'
-  if (is('loom.com')) return 'loom'
-  if (is('figma.com')) return 'figma'
-  if (is('codepen.io')) return 'codepen'
-  if ((/^(maps\.)?google\.[a-z.]{2,6}$/.test(h) && u.pathname.startsWith('/maps')) || h === 'maps.app.goo.gl') return 'maps'
-  return null
+  // the editor's provider list (sandboxed frames); a PDF stays a link here — its viewer frame can't be sandboxed
+  const p = detectEmbedProvider(u.href)
+  return p && p !== 'pdf' && p !== 'web' ? p : null
 }
 
 /** Defensive cleanup of a received doc: unsafe links, sources and embeds are removed. */

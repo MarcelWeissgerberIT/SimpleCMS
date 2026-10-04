@@ -339,7 +339,7 @@ export async function contentHTML(ctx: RenderCtx, node: SiteNode, idPrefix: stri
   const p = node.page
   if (!p.content) return ''
   const from = node.file
-  const html = ctx.docToHTML(ctx.stripButtonActions(p.content))
+  const html = ctx.docToHTML(siteBreadcrumbs(ctx, p, ctx.stripButtonActions(p.content)))
   if (!html) return ''
   const dom = new DOMParser().parseFromString(`<div id="root">${html}</div>`, 'text/html')
   const root = dom.getElementById('root')!
@@ -569,6 +569,31 @@ export function rewriteMarkdown(ctx: RenderCtx, md: string, fromMd: string): str
  * live title of page-link and database blocks): such page links become a neutral line, such
  * database blocks are left out.
  */
+/**
+ * Breadcrumb blocks show the path inside the site only: the page and those of its ancestors that are
+ * part of the export (an ancestor outside the exported scope never shows its title).
+ */
+export function siteBreadcrumbs(ctx: RenderCtx, page: Page, doc: JSONContent): JSONContent {
+  let path: string[] | null = null
+  const pathOf = () => {
+    if (path) return path
+    const titles: string[] = []
+    const seen = new Set<ID>()
+    for (let cur: Page | undefined = page; cur && ctx.plan.nodes.has(cur.id) && !seen.has(cur.id); cur = cur.parentId ? ctx.tree.pages[cur.parentId] : undefined) {
+      seen.add(cur.id)
+      titles.unshift(titleOf(ctx, cur))
+    }
+    return (path = titles.length ? titles : [titleOf(ctx, page)])
+  }
+  const walk = (n: JSONContent): JSONContent => {
+    if (n.type === 'breadcrumb') return { ...n, attrs: { ...n.attrs, path: pathOf() } }
+    if (!n.content) return n
+    const kids = n.content.map(walk)
+    return kids.every((k, i) => k === n.content![i]) ? n : { ...n, content: kids }
+  }
+  return walk(doc)
+}
+
 export function scopeDoc(ctx: RenderCtx, doc: JSONContent): JSONContent {
   const inSite = (id: unknown) => typeof id === 'string' && ctx.plan.nodes.has(id)
   const walk = (n: JSONContent): JSONContent | null => {
@@ -607,7 +632,7 @@ export function pageMarkdown(ctx: RenderCtx, node: SiteNode): string {
     }
     if (lines.length) parts.push(lines.join('  \n'))
   }
-  const body = p.content ? ctx.docToMarkdown(scopeDoc(ctx, ctx.stripButtonActions(p.content))).trim() : ''
+  const body = p.content ? ctx.docToMarkdown(siteBreadcrumbs(ctx, p, scopeDoc(ctx, ctx.stripButtonActions(p.content)))).trim() : ''
   if (body) parts.push(rewriteMarkdown(ctx, body, from))
   const db = ctx.tree.databases[p.id]
   if (p.kind === 'database' && db) {

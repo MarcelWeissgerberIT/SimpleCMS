@@ -149,8 +149,8 @@ export function requestLeaveDatabase(rowId: ID, parentId: ID | null, index?: num
     type: 'confirm',
     title: t('shell.entry.leaveTitle'),
     body: t('shell.entry.leaveBody', { title: titleOf(row), db: titleOf(s.pages[row.databaseId]) }),
+    // not "irreversible": the toast after it has Undo
     confirmLabel: t('shell.entry.leaveLabel'),
-    danger: true,
     onConfirm: () => leaveDatabase(rowId, parentId, index),
   })
 }

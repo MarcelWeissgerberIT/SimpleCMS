@@ -8,6 +8,7 @@ import { create } from 'zustand'
 import { CloudError, cloudRequest, useCloud } from '../../cloud'
 import type { ID } from '../../store/types'
 import type { StagedChange } from '../ai/agent/types'
+import { t } from '../../i18n'
 import type { AgentRun, AgentRunStatus, AgentRunStep } from './types'
 
 export interface SecretState {
@@ -19,6 +20,8 @@ export interface AgentRuntime {
   claudeKey: SecretState
   mcpServers: Array<{ name: string; url: string; token: SecretState }>
   enabled: boolean
+  /** false: the server runs with AGENTS=off (no server agent can run there) */
+  available: boolean
 }
 
 export interface RuntimePatch {
@@ -27,7 +30,8 @@ export interface RuntimePatch {
   enabled?: boolean
 }
 
-export type ServerState = 'idle' | 'loading' | 'ready' | 'unsupported' | 'error'
+/** 'forbidden': viewers may not read the runtime (MCP URLs can hold secrets) */
+export type ServerState = 'idle' | 'loading' | 'ready' | 'unsupported' | 'forbidden' | 'error'
 
 interface ServerAgentsState {
   /** the workspace the state belongs to */
@@ -49,7 +53,17 @@ export function teamId(): string | null {
 }
 
 const path = (wsId: string, rest: string) => `api/workspaces/${encodeURIComponent(wsId)}/${rest}`
-const unsupported = (e: unknown) => e instanceof CloudError && (e.status === 404 || e.status === 405 || e.code === 'not_found' || e.code === 'unavailable')
+/** An older server without the agent endpoints (a specific 404 code — agent_not_found … — is not that). */
+export const unsupported = (e: unknown) => e instanceof CloudError && (e.code === 'not_found' || e.code === 'unavailable' || e.code === 'invalid_response' || e.status === 405)
+
+const CODES = ['runtime_not_ready', 'agent_not_server', 'agent_unavailable', 'queue_full', 'run_running', 'run_busy', 'agent_not_found', 'run_not_found', 'hook_not_found', 'agents_off', 'forbidden']
+
+/** A friendly sentence for a failed agent request (the server's code, else its message). */
+export function serverErrorText(e: unknown): string {
+  if (unsupported(e)) return t('features.agents.server.unsupported')
+  if (e instanceof CloudError && CODES.includes(e.code)) return t(`features.agents.server.err.${e.code}`)
+  return t('features.agents.server.err.other', { msg: e instanceof Error ? e.message : String(e) })
+}
 
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v)
 const str = (v: unknown, max: number) => (typeof v === 'string' ? v.slice(0, max) : '')
@@ -67,6 +81,7 @@ export function readRuntime(v: unknown): AgentRuntime {
   return {
     claudeKey: secret(o.claudeKey),
     enabled: o.enabled === true,
+    available: o.available !== false,
     mcpServers: list.filter(isObj).slice(0, 24).map((s) => ({ name: str(s.name, 32), url: str(s.url, 500), token: secret(s.token) })).filter((s) => s.name),
   }
 }
@@ -126,7 +141,8 @@ export async function loadRuntime(): Promise<void> {
   } catch (e) {
     if (teamId() !== wsId) return
     if (unsupported(e)) useServerAgents.setState({ state: 'unsupported', runtime: null })
-    else useServerAgents.setState({ state: 'error', error: e instanceof Error ? e.message : String(e) })
+    else if (e instanceof CloudError && e.status === 403) useServerAgents.setState({ state: 'forbidden', runtime: null })
+    else useServerAgents.setState({ state: 'error', error: serverErrorText(e) })
   }
 }
 
@@ -172,4 +188,41 @@ export async function resolveServerRun(runId: string, applied: string[], discard
 /** Update one server run in the cache (after a review here). */
 export function patchServerRun(run: AgentRun): void {
   useServerAgents.setState((s) => ({ runs: { ...s.runs, [run.agentId]: (s.runs[run.agentId] ?? []).map((r) => (r.id === run.id ? run : r)) } }))
+}
+
+/* ------------------------------------------------------------------ webhook URLs */
+
+export interface HookState {
+  set: boolean
+  createdAt: string | null
+  lastDeliveryAt: string | null
+  deliveries: number
+}
+
+/** Whether a server agent has a webhook URL (the secret itself is never shown again). */
+export async function getHook(agentId: ID): Promise<HookState> {
+  const wsId = teamId()
+  if (!wsId) throw new CloudError('unavailable', 'Not a team workspace.')
+  const r = await cloudRequest<Record<string, unknown>>('GET', path(wsId, `agents/${encodeURIComponent(agentId)}/hook`))
+  return {
+    set: r?.set === true,
+    createdAt: typeof r?.created_at === 'string' ? r.created_at : null,
+    lastDeliveryAt: typeof r?.last_delivery_at === 'string' ? r.last_delivery_at : null,
+    deliveries: typeof r?.deliveries === 'number' ? r.deliveries : 0,
+  }
+}
+
+/** Admins: create (or regenerate — the old URL stops working) the webhook URL. Shown once. */
+export async function createHook(agentId: ID): Promise<string> {
+  const wsId = teamId()
+  if (!wsId) throw new CloudError('unavailable', 'Not a team workspace.')
+  const r = await cloudRequest<{ url?: string }>('POST', path(wsId, `agents/${encodeURIComponent(agentId)}/hook`))
+  return typeof r?.url === 'string' ? r.url : ''
+}
+
+/** Admins: remove the webhook URL. */
+export async function deleteHook(agentId: ID): Promise<void> {
+  const wsId = teamId()
+  if (!wsId) return
+  await cloudRequest('DELETE', path(wsId, `agents/${encodeURIComponent(agentId)}/hook`))
 }

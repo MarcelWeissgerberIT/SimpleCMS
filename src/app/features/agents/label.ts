@@ -5,5 +5,5 @@ import { t } from '../../i18n'
 export function agentLabel(actor: string | null | undefined): string | null {
   if (typeof actor !== 'string' || !actor.startsWith('agent:')) return null
   const agent = useWorkspace.getState().agents?.[actor.slice(6)]
-  return t('features.agents.actor', { name: agent?.name ?? t('features.agents.actorGone') })
+  return agent ? t('features.agents.actor', { name: agent.name }) : t('features.agents.actorPrefix')
 }

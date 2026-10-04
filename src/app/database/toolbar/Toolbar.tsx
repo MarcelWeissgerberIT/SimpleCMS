@@ -2,9 +2,10 @@
  * Instrument-panel toolbar: search, filter, sort, group, properties, automations, more, record
  * counter and the "New" split button.
  */
-import { useEffect, useRef, useState } from 'react'
+import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import { ArrowUpDown, CalendarArrowDown, Download, Ellipsis, FileUp, Funnel, Group, LayoutTemplate, Link, ListTree, Lock, LockOpen, Maximize2, Paintbrush, Search, SlidersHorizontal, Waypoints, X, Zap } from 'lucide-react'
 import { useUI } from '../../store/ui'
+import { useWorkspace } from '../../store/store'
 import { Menu, ViewOnlyTag } from '../parts'
 import type { MenuEntry } from '../../ui/Menu'
 import { Tooltip } from '../../ui/Tooltip'
@@ -25,6 +26,9 @@ import { structureEntries } from './structureEntries'
 import { LockPlate } from './Lock'
 import { setDbLocked } from '../model/lock'
 import { importCsvInto } from '../create/CsvIntake'
+
+/** The Gmail sync LED (features/mail) — loaded only for the database the mail sync writes to. */
+const MailSyncLed = lazy(() => import('../../features').then((m) => ({ default: m.MailSyncLed })))
 
 type PanelKind = 'filter' | 'sort' | 'group' | 'props' | 'layout' | 'more' | 'sub' | 'dep' | 'rc'
 
@@ -97,6 +101,7 @@ export function Toolbar({ m, onNew, setSearch, compact }: { m: DbModel; onNew: (
   const view = m.view
   const filterCount = countFilters(view.filter, m.propMap)
   const automations = (m.db.automations ?? []).filter((a) => a.enabled).length
+  const isMailDb = useWorkspace((s) => s.settings.mail?.databaseId === m.db.id)
   const canGroup = view.type === 'table' || view.type === 'list' || view.type === 'board'
   // a form asks for answers: searching, filtering, sorting and "New" don't apply there
   const isForm = view.type === 'form'
@@ -166,6 +171,11 @@ export function Toolbar({ m, onNew, setSearch, compact }: { m: DbModel; onNew: (
       {!isForm && !fixed && <ToolButton compact icon={<SlidersHorizontal size={14} />} label={t('database.props.title')} pressed={panel?.kind === 'props'} onClick={toggle('props')} />}
       {!ro && <ToolButton compact icon={<Zap size={14} />} label={t('database.automations')} count={automations} active={automations > 0} onClick={() => useUI.getState().openModal({ type: 'automations', databaseId: m.db.id })} />}
       <ToolButton compact icon={<Ellipsis size={15} />} label={t('common.more')} pressed={panel?.kind === 'more'} onClick={toggle('more')} />
+      {isMailDb && (
+        <Suspense fallback={null}>
+          <MailSyncLed databaseId={m.db.id} />
+        </Suspense>
+      )}
       <span className="db-counter" title={t('database.counterTitle')} aria-label={t('database.counterTitle')}>
         <span className="db-counter__label">{t('database.rec')}</span>
         <span className="db-counter__num">{filtered ? `${formatCount(m.rows.length, m.resolver.ctx.lang, 0)}/${formatCount(m.allRows.length, m.resolver.ctx.lang, 0)}` : formatCount(m.allRows.length, m.resolver.ctx.lang, 0)}</span>

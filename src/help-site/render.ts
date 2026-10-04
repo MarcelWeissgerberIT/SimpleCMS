@@ -4,10 +4,10 @@
  * (plugin.ts) reads the files and writes the pages. No client framework: one small script (help.js) adds
  * the search on the index, platform keycaps and the stored theme.
  */
-import { helpLinkId, type Block, type Inline } from '../app/help/markdown'
-import { HELP_SECTIONS, sectionNum } from '../app/help/sections'
-import { HELP_LANGS, helpPath, neighbours, relatedArticles, sectionArticles, type HelpArticle, type HelpLang, type HelpLibrary } from '../app/help/library'
-import { messages } from '../app/help/messages'
+import { helpLinkId, type Block, type Inline } from '../app/help/markdown.js'
+import { HELP_SECTIONS, sectionNum } from '../app/help/sections.js'
+import { HELP_LANGS, helpPath, neighbours, relatedArticles, sectionArticles, type HelpArticle, type HelpLang, type HelpLibrary } from '../app/help/library.js'
+import { messages } from '../app/help/messages.js'
 
 export interface SiteOptions {
   /** the Vite base: "/" (getonecms.com) or "/SimpleCMS/" (a project page) */

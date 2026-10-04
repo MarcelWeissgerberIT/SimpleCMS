@@ -2,8 +2,9 @@ import { defineConfig, type Plugin, type ResolvedConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import { fileURLToPath, URL } from 'node:url'
 import { createHash } from 'node:crypto'
-import { existsSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
 import { resolve } from 'node:path'
+import { helpSite } from './src/help-site/plugin.js'
 
 /** Runtime data the workspace fetches from public/ (icon picker, emoji picker). */
 const PUBLIC_PRECACHE = [
@@ -81,7 +82,17 @@ function serviceWorkerPrecache(): Plugin {
 // BASE_PATH: "/" for getonecms.com (npm run build:pages); "/SimpleCMS/" when a fork serves it as a project page
 export default defineConfig({
   base: process.env.BASE_PATH ?? '/',
-  plugins: [react(), serviceWorkerPrecache()],
+  plugins: [
+    react(),
+    serviceWorkerPrecache(),
+    // the public help pages (/help/, /help/de/ …), prerendered from src/app/help/articles (src/help-site)
+    helpSite({
+      root: fileURLToPath(new URL('.', import.meta.url)),
+      origin: process.env.SITE_ORIGIN ?? 'https://getonecms.com',
+      io: { readText: (p) => readFileSync(p, 'utf8'), listDir: (p) => readdirSync(p) },
+      hash: (text) => createHash('sha256').update(text).digest('hex').slice(0, 10),
+    }) as unknown as Plugin,
+  ],
   // the dev server only looks for a team-cloud server when one is proxied (ONE_SERVER, see below)
   // STATIC_HOST: a build for a static host (GitHub Pages) never looks for a team-cloud server either
   define: {
