@@ -36,6 +36,16 @@ export const messages: Messages = {
     'features.agents.state.error': 'Fault',
     'features.agents.state.ready': 'Ready',
     'features.agents.state.idle': 'Standby',
+    'features.agents.state.waiting': 'Waiting',
+
+    'features.agents.wait.text': 'Changed by {editor} — waiting for {creator} to confirm.',
+    'features.agents.wait.you': 'Changed by {editor} — waiting for you to confirm.',
+    'features.agents.wait.hint': 'Check its settings and job; it runs again once you confirm.',
+    'features.agents.wait.someone': 'another member',
+    'features.agents.wait.creator': 'its creator',
+    'features.agents.wait.confirm': 'Confirm',
+    'features.agents.wait.review': 'Review and confirm',
+    'features.agents.wait.confirmed': 'Confirmed — {name} runs again',
 
     'features.agents.status.running': 'Running',
     'features.agents.status.ok': 'Done',
@@ -59,6 +69,7 @@ export const messages: Messages = {
     'features.agents.next.onRow': 'On the next row',
     'features.agents.next.onHook': 'On a webhook call',
     'features.agents.next.manual': 'When you run it',
+    'features.agents.next.waiting': 'After confirmation',
 
     'features.agents.trig.manual': 'Manual',
     'features.agents.trig.schedule': 'Schedule',
@@ -105,6 +116,10 @@ export const messages: Messages = {
     'features.agents.runner.serverHint': 'Runs on the team server around the clock, also when nobody is online. Uses the server’s Claude key and MCP servers.',
     'features.agents.runner.localOnly': 'Server agents exist only in team workspaces.',
     'features.agents.runner.serverOff': 'Server agents are not set up on this server yet (Settings → Agents · MCP).',
+    'features.agents.runner.browserTeam': 'In a team it runs only in its creator’s browser; changes by others wait for the creator to confirm them.',
+    'features.agents.ed.othersBrowser': 'Runs in {name}’s browser, with {name}’s Claude key. After you save, it pauses until {name} confirms your changes.',
+    'features.agents.ed.othersBrowserAnon': 'Runs in its creator’s browser, with their Claude key. After you save, it pauses until they confirm your changes.',
+    'features.agents.ed.serverTeam': 'Server agent: every member sees it and can change it — changes count from its next run.',
 
     'features.agents.scope.all': 'Everything',
     'features.agents.scope.some': 'Chosen pages',
@@ -235,6 +250,7 @@ export const messages: Messages = {
     'features.agents.toast.failed': '{name}: the run failed',
     'features.agents.toast.done': '{name}: run finished',
     'features.agents.toast.busy': '{name} is running already',
+    'features.agents.toast.waiting': '{name} waits until its creator confirms a change',
     'features.agents.toast.serverStarted': '{name} started on the server',
     'features.agents.toast.serverFailed': 'The server could not start the run: {msg}',
 
@@ -340,6 +356,16 @@ export const messages: Messages = {
     'features.agents.state.error': 'Störung',
     'features.agents.state.ready': 'Bereit',
     'features.agents.state.idle': 'Bereitschaft',
+    'features.agents.state.waiting': 'Wartet',
+
+    'features.agents.wait.text': 'Geändert von {editor} — wartet auf Bestätigung von {creator}.',
+    'features.agents.wait.you': 'Geändert von {editor} — wartet auf deine Bestätigung.',
+    'features.agents.wait.hint': 'Prüfe Einstellungen und Auftrag; nach der Bestätigung läuft er wieder.',
+    'features.agents.wait.someone': 'einem anderen Mitglied',
+    'features.agents.wait.creator': 'seinem Ersteller',
+    'features.agents.wait.confirm': 'Bestätigen',
+    'features.agents.wait.review': 'Prüfen und bestätigen',
+    'features.agents.wait.confirmed': 'Bestätigt — {name} läuft wieder',
 
     'features.agents.status.running': 'Läuft',
     'features.agents.status.ok': 'Fertig',
@@ -363,6 +389,7 @@ export const messages: Messages = {
     'features.agents.next.onRow': 'Bei der nächsten Zeile',
     'features.agents.next.onHook': 'Bei einem Webhook-Aufruf',
     'features.agents.next.manual': 'Wenn du ihn startest',
+    'features.agents.next.waiting': 'Nach Bestätigung',
 
     'features.agents.trig.manual': 'Manuell',
     'features.agents.trig.schedule': 'Zeitplan',
@@ -409,6 +436,10 @@ export const messages: Messages = {
     'features.agents.runner.serverHint': 'Läuft rund um die Uhr auf dem Team-Server, auch wenn niemand online ist. Nutzt den Claude-Key und die MCP-Server des Servers.',
     'features.agents.runner.localOnly': 'Server-Agenten gibt es nur in Team-Workspaces.',
     'features.agents.runner.serverOff': 'Server-Agenten sind auf diesem Server noch nicht eingerichtet (Einstellungen → Agenten · MCP).',
+    'features.agents.runner.browserTeam': 'Im Team läuft er nur im Browser seines Erstellers; Änderungen anderer warten auf dessen Bestätigung.',
+    'features.agents.ed.othersBrowser': 'Läuft in {name}s Browser, mit {name}s Claude-Key. Nach dem Speichern pausiert er, bis {name} deine Änderungen bestätigt.',
+    'features.agents.ed.othersBrowserAnon': 'Läuft im Browser seines Erstellers, mit dessen Claude-Key. Nach dem Speichern pausiert er, bis der Ersteller deine Änderungen bestätigt.',
+    'features.agents.ed.serverTeam': 'Server-Agent: Jedes Mitglied sieht ihn und kann ihn ändern — Änderungen gelten ab seinem nächsten Lauf.',
 
     'features.agents.scope.all': 'Alles',
     'features.agents.scope.some': 'Ausgewählte Seiten',
@@ -539,6 +570,7 @@ export const messages: Messages = {
     'features.agents.toast.failed': '{name}: Der Lauf ist fehlgeschlagen',
     'features.agents.toast.done': '{name}: Lauf beendet',
     'features.agents.toast.busy': '{name} läuft bereits',
+    'features.agents.toast.waiting': '{name} wartet, bis sein Ersteller eine Änderung bestätigt',
     'features.agents.toast.serverStarted': '{name} wurde auf dem Server gestartet',
     'features.agents.toast.serverFailed': 'Der Server konnte den Lauf nicht starten: {msg}',
 

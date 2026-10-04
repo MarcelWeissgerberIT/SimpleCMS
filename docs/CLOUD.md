@@ -385,7 +385,7 @@ Y.Map 'functions'  functionId → JSON CustomFunction   (custom functions built 
                      { id, name, description?, params, body: expression tree, createdAt, updatedAt };
                      last writer wins per function; every reader sanitizes it, see src/app/store/functions.ts)
 Y.Map 'agents'     agentId → JSON CustomAgent   (custom agents — { id, name, icon?, instructions, trigger,
-                     scope, write, output?, mcpServers, runner, model?, effort?, maxRunUsd, enabled, createdBy?,
+                     scope, write, output?, mcpServers, runner, model?, effort?, maxRunUsd, enabled, createdBy?, updatedBy?,
                      createdAt, updatedAt }; last writer wins per agent; every reader sanitizes it, see
                      src/app/store/agents.ts; runs are not here: per device / server table `agent_runs`)
 ```

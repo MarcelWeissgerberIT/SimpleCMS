@@ -1,15 +1,18 @@
 /**
- * PDF viewer: a PDF file block (or an embed of a .pdf link) shown inline in the browser's own
- * PDF viewer — no pdf.js. A local file ("onefile:") is handed to the frame as a blob URL typed
- * application/pdf (only when its bytes start with "%PDF-", so nothing else ever renders in this
- * origin); a web PDF loads from its https URL. Chrome refuses its viewer inside sandboxed frames,
- * so this frame has no sandbox — which is why it only ever shows a PDF.
+ * PDF viewer: a PDF file block shown inline in the browser's own PDF viewer — no pdf.js. Only a
+ * LOCAL file ("onefile:") is framed: handed over as a blob URL typed application/pdf, and only when
+ * its bytes start with "%PDF-", so nothing else ever renders in this origin. Chrome refuses its
+ * viewer inside sandboxed frames, so this frame has no sandbox — which is why it only ever shows
+ * bytes that were checked here.
+ * A web PDF (an embed of a .pdf link, a file block pointing at one) is never framed: its server could
+ * answer with a page instead of a PDF, and that page would run unsandboxed next to One. It shows as
+ * a link card instead — name, host, "Open" in a new tab, "Download".
  */
 import { useEffect, useState, type KeyboardEvent as RKeyboardEvent, type ReactNode } from 'react'
 import { Download, ExternalLink, FileText, PanelTop, Rows2 } from 'lucide-react'
 import { FILE_PREFIX, getFile } from '../../lib/files'
 import { useT } from '../../i18n'
-import { safeHref } from '../lib/embeds'
+import { domainOf, webUrl } from '../lib/embeds'
 import './blocks.css'
 
 /** File name / link that reads as a PDF. */
@@ -19,14 +22,10 @@ export function isPdfName(name: string | null | undefined): boolean {
 
 type Source = { state: 'loading' } | { state: 'ready'; url: string } | { state: 'none' }
 
-/** The URL the frame shows: a blob URL typed as PDF for local files, the https link otherwise. */
+/** The blob URL the frame shows: the local file re-typed as PDF, after its first bytes said it is one. */
 function usePdfSource(src: string): Source {
-  const [source, setSource] = useState<Source>(() => (src.startsWith(FILE_PREFIX) ? { state: 'loading' } : pdfLink(src)))
+  const [source, setSource] = useState<Source>({ state: 'loading' })
   useEffect(() => {
-    if (!src.startsWith(FILE_PREFIX)) {
-      setSource(pdfLink(src))
-      return
-    }
     let alive = true
     let url = ''
     setSource({ state: 'loading' })
@@ -49,9 +48,9 @@ function usePdfSource(src: string): Source {
   return source
 }
 
-function pdfLink(src: string): Source {
-  const href = safeHref(src)
-  return href && /^https:\/\//i.test(href) ? { state: 'ready', url: href } : { state: 'none' }
+/** A web link to the PDF (an explicit http(s) URL), or null. */
+function webHref(src: string): string | null {
+  return /^https?:\/\//i.test(src.trim()) ? (webUrl(src)?.toString() ?? null) : null
 }
 
 /**
@@ -75,14 +74,14 @@ function useFrameBlocked(url: string | null): boolean {
 }
 
 export interface PdfViewerProps {
-  /** "onefile:<id>" or an https link to a PDF. */
+  /** "onefile:<id>" (the inline viewer) or a link to a PDF (a link card, never framed). */
   src: string
   name: string
   /** Size line (e.g. "1.2 MB"), when known. */
   meta?: string
   selected: boolean
   editable: boolean
-  /** Toggle to the compact file card (absent: no toggle). */
+  /** Toggle to the compact file card (absent: no toggle; a web PDF is a card already and has none). */
   onShowAsFile?: () => void
   /** Escape inside the toolbar: back to the block. */
   onEscape?: () => void
@@ -92,18 +91,26 @@ export interface PdfViewerProps {
   dataType: string
 }
 
-export function PdfViewer({ src, name, meta, selected, editable, onShowAsFile, onEscape, extra, dataType }: PdfViewerProps) {
-  const t = useT()
-  const source = usePdfSource(src)
-  const url = source.state === 'ready' ? source.url : null
-  const blocked = useFrameBlocked(url)
-  const local = src.startsWith(FILE_PREFIX)
-  const onKeyDown = (e: RKeyboardEvent) => {
+/** A PDF block: the inline viewer for a local file, a link card for a web PDF (never framed). */
+export function PdfViewer(props: PdfViewerProps) {
+  return props.src.startsWith(FILE_PREFIX) ? <LocalPdf {...props} /> : <PdfLinkCard {...props} />
+}
+
+/** Escape inside a block's toolbar: back to the block. */
+function escapeKey(onEscape?: () => void) {
+  return (e: RKeyboardEvent) => {
     if (e.key !== 'Escape' || !onEscape) return
     e.preventDefault()
     e.stopPropagation()
     onEscape()
   }
+}
+
+function LocalPdf({ src, name, meta, selected, editable, onShowAsFile, onEscape, extra, dataType }: PdfViewerProps) {
+  const t = useT()
+  const source = usePdfSource(src)
+  const url = source.state === 'ready' ? source.url : null
+  const blocked = useFrameBlocked(url)
   return (
     <div className={`pdf-view${selected ? ' is-selected' : ''}`} data-type={dataType} data-pdf="">
       <div className="pdf-view__bar">
@@ -114,7 +121,7 @@ export function PdfViewer({ src, name, meta, selected, editable, onShowAsFile, o
         </span>
         {meta && <span className="pdf-view__meta">{meta}</span>}
         <span className="pdf-view__spacer" />
-        <span className="pdf-view__tools" role="toolbar" aria-label={t('editor.pdf.tools')} data-block-tools="" onKeyDown={onKeyDown}>
+        <span className="pdf-view__tools" role="toolbar" aria-label={t('editor.pdf.tools')} data-block-tools="" onKeyDown={escapeKey(onEscape)}>
           {extra}
           {editable && onShowAsFile && (
             <button type="button" className="btn btn--ghost btn--sm" onClick={onShowAsFile} title={t('editor.pdf.asFile')} aria-label={t('editor.pdf.asFile')}>
@@ -125,13 +132,13 @@ export function PdfViewer({ src, name, meta, selected, editable, onShowAsFile, o
           <a
             className="btn btn--ghost btn--sm"
             href={url ?? undefined}
-            {...(local ? { download: name } : { target: '_blank', rel: 'noopener noreferrer' })}
+            download={name}
             aria-disabled={!url}
             onClick={(e) => !url && e.preventDefault()}
-            title={local ? t('editor.file.download') : t('common.open')}
-            aria-label={local ? t('editor.file.download') : t('common.open')}
+            title={t('editor.file.download')}
+            aria-label={t('editor.file.download')}
           >
-            {local ? <Download size={13} /> : <ExternalLink size={13} />}
+            <Download size={13} />
           </a>
         </span>
       </div>
@@ -145,6 +152,40 @@ export function PdfViewer({ src, name, meta, selected, editable, onShowAsFile, o
           </div>
         )}
       </div>
+    </div>
+  )
+}
+
+/**
+ * A web PDF as a file card: never framed, never fetched by One. "Open" and "Download" go to a new tab
+ * without opener or referrer — whatever the server answers stays in that tab.
+ */
+function PdfLinkCard({ src, name, meta, selected, onEscape, extra, dataType }: PdfViewerProps) {
+  const t = useT()
+  const href = webHref(src)
+  const host = href ? domainOf(href) : ''
+  const off = { 'aria-disabled': true, onClick: (e: { preventDefault: () => void }) => e.preventDefault() }
+  const link = href ? { href, target: '_blank', rel: 'noopener noreferrer', referrerPolicy: 'no-referrer' as const } : off
+  return (
+    <div className={`file-view pdf-link${selected ? ' is-selected' : ''}`} data-type={dataType} data-pdf="link">
+      <span className="file-view__tile" aria-hidden>
+        <span>PDF</span>
+      </span>
+      <span className="file-view__meta">
+        <span className="file-view__name" title={name}>
+          {name}
+        </span>
+        <span className="file-view__size">{href ? [host, meta && meta !== host ? meta : null, t('editor.pdf.web')].filter(Boolean).join(' · ') : t('editor.pdf.unavailable')}</span>
+      </span>
+      <span className="file-view__tools" role="toolbar" aria-label={t('editor.pdf.tools')} data-block-tools="" onKeyDown={escapeKey(onEscape)}>
+        {extra}
+        <a className="btn btn--sm" {...link} title={t('editor.pdf.openTab')} aria-label={t('editor.pdf.openTab')}>
+          <ExternalLink size={13} /> <span className="pdf-view__btnText">{t('common.open')}</span>
+        </a>
+        <a className="btn btn--ghost btn--sm" {...link} download={name} title={t('editor.file.download')} aria-label={t('editor.file.download')}>
+          <Download size={13} />
+        </a>
+      </span>
     </div>
   )
 }

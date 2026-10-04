@@ -2,6 +2,8 @@
  * Custom agents — the editor (a dialog): job (name, icon, instructions + "Improve with Claude"),
  * trigger, access (scope, write mode, MCP servers), report page, engine (runner, model, effort,
  * budget) and the on/off switch. Works on a draft; "Save" validates and writes it with upsertAgent.
+ * Team workspaces: it says whose browser runs it — saved by another member, a browser agent waits for
+ * its creator's confirmation (confirm.ts); a server agent's changes count for everyone right away.
  */
 import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react'
 import { ChevronDown, Copy, PenLine, Plus, Undo2, X } from 'lucide-react'
@@ -151,9 +153,14 @@ export function AgentEditor({ initial, isNew, onClose, onSaved }: { initial: Cus
   const pages = useWorkspace((s) => s.pages)
   const databases = useWorkspace((s) => s.databases)
   const inCloud = useCloud((s) => s.active.kind === 'cloud')
+  const me = useCloud((s) => s.user?.id ?? null)
+  const people = useWorkspace((s) => s.people)
   const runtime = useServerAgents((s) => s.runtime)
   const serverOk = !!runtime?.enabled && runtime.available
   const uid = useId()
+  // someone else's browser agent: saving it pauses it until its creator confirms
+  const othersAgent = inCloud && !isNew && d.runner === 'browser' && !!initial.createdBy && initial.createdBy !== me
+  const creatorName = othersAgent ? people.find((p) => p.id === initial.createdBy)?.name.trim() : ''
   const set = (patch: Partial<CustomAgent>) => setD((x) => ({ ...x, ...patch }))
   const ids = { name: `${uid}-name`, instr: `${uid}-instr`, budget: `${uid}-budget`, out: `${uid}-out`, db: `${uid}-db` }
 
@@ -211,6 +218,18 @@ export function AgentEditor({ initial, isNew, onClose, onSaved }: { initial: Cus
         }}
         noValidate
       >
+        {othersAgent && (
+          <p className="agx-notice agx-notice--wait agx-editor__notice" role="note">
+            <span className="led led--on" aria-hidden />
+            <span>{creatorName ? t('features.agents.ed.othersBrowser', { name: creatorName }) : t('features.agents.ed.othersBrowserAnon')}</span>
+          </p>
+        )}
+        {inCloud && d.runner === 'server' && (
+          <p className="agx-notice agx-editor__notice" role="note">
+            <span className="led" aria-hidden />
+            <span>{t('features.agents.ed.serverTeam')}</span>
+          </p>
+        )}
         {/* ---------------------------------------------------------- 01 job */}
         <Section n="01" title={t('features.agents.ed.job')}>
           <div className="agx-row">
@@ -285,7 +304,11 @@ export function AgentEditor({ initial, isNew, onClose, onSaved }: { initial: Cus
 
         {/* ---------------------------------------------------------- 05 engine */}
         <Section n="05" title={t('features.agents.ed.engine')}>
-          <Field label={t('features.agents.ed.runner')} hint={d.runner === 'server' ? t('features.agents.runner.serverHint') : t('features.agents.runner.browserHint')} error={errors.runner}>
+          <Field
+            label={t('features.agents.ed.runner')}
+            hint={d.runner === 'server' ? t('features.agents.runner.serverHint') : `${t('features.agents.runner.browserHint')}${inCloud ? ` ${t('features.agents.runner.browserTeam')}` : ''}`}
+            error={errors.runner}
+          >
             <Seg
               label={t('features.agents.ed.runner')}
               value={d.runner}

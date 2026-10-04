@@ -254,7 +254,7 @@ test.describe('Notion blocks', () => {
     await expect(fake.locator('iframe')).toHaveCount(0)
   })
 
-  test('embed providers: the right frame source, always sandboxed; unknown links stay generic; a PDF link opens the viewer', async ({ page, context }) => {
+  test('embed providers: the right frame source, always sandboxed; unknown links stay generic; a PDF link is a card, never a frame', async ({ page, context }) => {
     await answerExternal(context)
     await openApp(page)
     const cases: Array<{ url: string; provider: string; src: string | RegExp; height?: number }> = [
@@ -299,21 +299,75 @@ test.describe('Notion blocks', () => {
     }
     await expect(frames.last().locator('.label').first()).toHaveText('Web')
 
-    // typed into an empty embed: detected, stored with its provider; a PDF link gets the browser's viewer
+    // typed into an empty embed: detected, stored with its provider; a PDF link is a link card —
+    // never framed (its server could answer with a page), opened in a new tab without opener
     await page.keyboard.press(`${MOD}+End`)
     await ed.locator('p').last().click()
     await slash(page, 'embed', 'Embed')
     const input = ed.locator('.media-empty[data-type="embed"] input')
     await input.fill('https://files.example.com/docs/handbook.pdf')
     await page.keyboard.press('Enter')
-    const pdf = ed.locator('.pdf-view[data-type="embed"]')
-    await expect(pdf.locator('.pdf-view__name')).toHaveText('handbook.pdf')
-    await expect(pdf.locator('iframe')).toHaveAttribute('src', 'https://files.example.com/docs/handbook.pdf#view=FitH&navpanes=0')
+    const pdf = ed.locator('.pdf-link[data-type="embed"]')
+    await expect(pdf.locator('.file-view__name')).toHaveText('handbook.pdf')
+    await expect(pdf.locator('.file-view__size')).toHaveText('files.example.com · Web PDF')
     await expect.poll(async () => (await blocksOf(page, id)).find((b) => b.type === 'embed' && /handbook/.test(String(b.attrs?.url)))?.attrs?.provider).toBe('pdf')
-    // "As file": a file block pointing at the link
-    await pdf.getByRole('button', { name: 'Show as file' }).click()
-    await expect(ed.locator('.file-view', { hasText: 'handbook.pdf' })).toBeVisible()
-    await expect.poll(async () => (await blocksOf(page, id)).find((b) => b.type === 'fileBlock')?.attrs).toMatchObject({ src: 'https://files.example.com/docs/handbook.pdf', display: 'file' })
+    await expect(ed.locator('iframe[src*="handbook.pdf"]')).toHaveCount(0)
+    await expect(ed.locator('.pdf-view')).toHaveCount(0)
+    for (const name of ['Open in a new tab', 'Download']) {
+      const link = pdf.getByRole('link', { name })
+      await expect(link).toHaveAttribute('href', 'https://files.example.com/docs/handbook.pdf')
+      await expect(link).toHaveAttribute('target', '_blank')
+      await expect(link).toHaveAttribute('rel', 'noopener noreferrer')
+    }
+    await expect(pdf.getByRole('button', { name: 'Show as file' })).toHaveCount(0)
+    await expect(pdf.getByRole('button', { name: 'Show as bookmark' })).toBeVisible()
+  })
+
+  test('a ".pdf" link whose server answers with a script page: never framed, nothing of it runs in One, the tab stays', async ({ page, context }) => {
+    // the server of the link answers every request with a page that would message / navigate One if it ran next to it
+    const hits: string[] = []
+    const evil = `<!doctype html><title>not a pdf</title><script>
+      try { if (window.top !== window) parent.postMessage('framed-script-ran', '*') } catch (e) {}
+      try { if (window.opener) window.opener.location = 'https://evil.example.com/phish' } catch (e) {}
+      document.title = 'evil page'
+    </script>`
+    await context.route('https://evil.example.com/**', (route) => {
+      hits.push(route.request().url())
+      return route.fulfill({ status: 200, contentType: 'text/html', body: evil })
+    })
+    await openApp(page)
+    await page.evaluate(() => window.addEventListener('message', (e) => ((window as unknown as { __ran?: unknown }).__ran = e.data)))
+    // as pasted pages / share links bring them: an embed of the link and a file block pointing at one
+    const id = await createPage(page, {
+      title: 'Pasted handout',
+      content: doc(
+        { type: 'embed', attrs: { url: 'https://evil.example.com/files/report.pdf', provider: 'pdf' } },
+        { type: 'fileBlock', attrs: { src: 'https://evil.example.com/files/terms.pdf', name: 'terms.pdf', size: 0, display: 'viewer' } },
+        para(''),
+      ),
+    })
+    await gotoPage(page, id)
+    const ed = editorOf(page, id)
+    const cards = ed.locator('.pdf-link')
+    await expect(cards).toHaveCount(2)
+    await expect(cards.nth(0).locator('.file-view__name')).toHaveText('report.pdf')
+    await expect(cards.nth(1).locator('.file-view__name')).toHaveText('terms.pdf')
+    await expect(page.locator('iframe')).toHaveCount(0)
+    await page.waitForTimeout(600)
+    expect(hits, 'One never loads the link itself').toEqual([])
+
+    // "Open": a new tab without opener; the page there cannot reach One, One stays where it was
+    const at = page.url()
+    const popup = context.waitForEvent('page')
+    await cards.nth(0).getByRole('link', { name: 'Open in a new tab' }).click()
+    const tab = await popup
+    await expect(tab).toHaveTitle('evil page')
+    expect(await tab.evaluate(() => window.opener)).toBeNull()
+    await tab.close()
+    await page.waitForTimeout(400)
+    expect(page.url()).toBe(at)
+    await expect(cards).toHaveCount(2)
+    expect(await page.evaluate(() => (window as unknown as { __ran?: unknown }).__ran ?? null)).toBeNull()
   })
 
   test('/feed view inserts an inline database shown as a feed', async ({ page }) => {

@@ -141,6 +141,8 @@ describe('agent definitions are sanitized on the server', () => {
       maxRunUsd: 1e9,
       enabled: true,
       evil: '<script>',
+      createdBy: 'acc-ada',
+      updatedBy: 'acc-bob',
       createdAt: 5,
     })!
     assert.equal(a.name.length, 200)
@@ -154,6 +156,10 @@ describe('agent definitions are sanitized on the server', () => {
     assert.equal(a.effort, null)
     assert.equal(a.maxRunUsd, 50)
     assert.equal(a.updatedAt, 5)
+    // who saved it last is kept (the app's browser runner waits for the creator's confirmation)
+    assert.equal(a.createdBy, 'acc-ada')
+    assert.equal(a.updatedBy, 'acc-bob')
+    assert.equal(sanitizeAgent('ag-5', { name: 'Old', runner: 'server' })!.updatedBy, null)
     assert.equal('evil' in a, false)
     // ignored: not an object, mismatched id, a row trigger without a database
     assert.equal(sanitizeAgent('ag-2', 'nope'), null)

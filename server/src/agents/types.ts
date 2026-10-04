@@ -39,6 +39,8 @@ export interface CustomAgent {
   maxRunUsd: number
   enabled: boolean
   createdBy: string | null
+  /** who saved it last (account id, written by the app; the browser runner's confirmation — kept, not used here) */
+  updatedBy?: string | null
   createdAt: number
   updatedAt: number
 }

@@ -8,7 +8,8 @@
  *    remote changes alike — rows from other tabs, other devices, form answers, synced mails); bursts
  *    are coalesced: one run per agent per minute with all its rows as the trigger detail
  * In a team workspace a browser agent runs in its creator's browser only (else every member's open
- * tab would run it). The agents' own writes never trigger agents.
+ * tab would run it), and only while its last change is the creator's (confirm.ts). The agents' own
+ * writes never trigger agents.
  */
 import { pageChanges, useWorkspace } from '../../store/store'
 import { isApplyingRemote } from '../../store/persistence'
@@ -18,6 +19,7 @@ import { useCloud } from '../../cloud'
 import { sameValue } from '../automations/engine'
 import { t } from '../../i18n'
 import { isAgentWriting, startAttributionKeeper } from './attribution'
+import { awaitsConfirm } from './confirm'
 import { isRunningAnywhere, wsKey } from './locks'
 import { latestSlot } from './schedule'
 import { forgetSlots, getSlot, loadRuns, putRun, setSlot, useAgentRuns } from './runs'
@@ -41,7 +43,8 @@ export function runsHere(agent: CustomAgent): boolean {
   if (!agent.enabled || agent.runner !== 'browser') return false
   const c = useCloud.getState()
   if (c.active.kind !== 'cloud') return true
-  return !!c.user && agent.createdBy === c.user.id && !c.readOnly
+  // changed by another member: waits until its creator confirms (their key, their private pages)
+  return !!c.user && agent.createdBy === c.user.id && !c.readOnly && !awaitsConfirm(agent)
 }
 
 const mine = (): CustomAgent[] => Object.values(useWorkspace.getState().agents ?? {}).filter(runsHere)

@@ -14,7 +14,7 @@ import { newId } from '../lib/ids'
 import { detectLang } from '@/shared/i18n'
 import { aiKeyValue, attachSecrets, checkAIKey, mcpServersValue, withSealedKey } from './secrets'
 import { isSafeFunctionId } from './functions'
-import { sanitizeAgent } from './agents'
+import { agentEditor, sanitizeAgent } from './agents'
 import type {
   CustomAgent,
   CustomFunction,
@@ -822,8 +822,9 @@ export const useWorkspace = create<WorkspaceState>()(
     upsertAgent: (agent) => {
       const cur = get().agents?.[agent.id]
       const t = now()
-      // the stored copy is always a sanitized one (bounded strings, known fields, checked ids)
-      const clean = sanitizeAgent(agent.id, { ...JSON.parse(JSON.stringify(agent)), createdAt: cur?.createdAt ?? agent.createdAt ?? t, createdBy: cur ? (cur.createdBy ?? null) : (agent.createdBy ?? null), updatedAt: t })
+      // the stored copy is always a sanitized one (bounded strings, known fields, checked ids); the
+      // saver is stamped (team: a browser agent changed by someone else waits for its creator)
+      const clean = sanitizeAgent(agent.id, { ...JSON.parse(JSON.stringify(agent)), createdAt: cur?.createdAt ?? agent.createdAt ?? t, createdBy: cur ? (cur.createdBy ?? null) : (agent.createdBy ?? null), updatedBy: agentEditor(), updatedAt: t })
       if (!clean) return
       set((s) => {
         s.agents ??= {}

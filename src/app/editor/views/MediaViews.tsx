@@ -328,6 +328,8 @@ export function FileBlockView({ node, updateAttributes, selected, editor, getPos
   }
 
   const ext = (name.match(/\.([a-z0-9]{1,5})$/i)?.[1] ?? 'file').toUpperCase()
+  // a file on the web opens in a new tab (cross-origin downloads ignore `download`) and never takes the One tab away
+  const local = src.startsWith('onefile:')
   return (
     <NodeViewWrapper className={`file-view${selected ? ' is-selected' : ''}`} data-type="file" contentEditable={false}>
       <span className="file-view__tile" aria-hidden>
@@ -338,8 +340,16 @@ export function FileBlockView({ node, updateAttributes, selected, editor, getPos
         {size > 0 && <span className="file-view__size">{formatBytes(size)}</span>}
       </span>
       <span className="file-view__tools" role="toolbar" aria-label={t('editor.file.tools')} data-block-tools="" onKeyDown={(e) => e.key === 'Escape' && (e.preventDefault(), e.stopPropagation(), reselect(editor, getPos))}>
-        {pdf && editor.isEditable && <ShowViewerButton onClick={() => updateAttributes({ display: 'viewer' })} />}
-        <a className="btn btn--sm" href={url || undefined} download={name} aria-disabled={!url} onClick={(e) => !url && e.preventDefault()}>
+        {/* only a local PDF has a viewer — a web PDF is never framed (PdfViewer shows it as a link card) */}
+        {pdf && local && editor.isEditable && <ShowViewerButton onClick={() => updateAttributes({ display: 'viewer' })} />}
+        <a
+          className="btn btn--sm"
+          href={url || undefined}
+          download={name}
+          {...(local ? {} : { target: '_blank', rel: 'noopener noreferrer', referrerPolicy: 'no-referrer' as const })}
+          aria-disabled={!url}
+          onClick={(e) => !url && e.preventDefault()}
+        >
           <Download size={13} /> {t('editor.file.download')}
         </a>
       </span>

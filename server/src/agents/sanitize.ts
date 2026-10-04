@@ -91,6 +91,7 @@ export function sanitizeAgent(key: string, raw: unknown): CustomAgent | null {
     maxRunUsd: Math.min(MAX_RUN_USD, Math.max(0.01, num(v.maxRunUsd, DEFAULT_RUN_USD))),
     enabled: v.enabled === true,
     createdBy: typeof v.createdBy === 'string' ? v.createdBy.slice(0, 128) : null,
+    updatedBy: typeof v.updatedBy === 'string' && v.updatedBy ? v.updatedBy.slice(0, 128) : null,
     createdAt,
     updatedAt: num(v.updatedAt, createdAt),
   }

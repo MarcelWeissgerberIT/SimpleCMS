@@ -28,6 +28,7 @@ import { agentTools, scopeFilter, scopeText } from './scope'
 import { asAgent, stampLocal } from './attribution'
 import { putRun } from './runs'
 import { exclusive } from './locks'
+import { awaitsConfirm } from './confirm'
 import { withoutWebImages } from './images'
 import type { AgentRun, AgentRunStep } from './types'
 
@@ -166,8 +167,16 @@ async function writeReport(agent: CustomAgent, run: AgentRun): Promise<boolean> 
   return true
 }
 
-/** Run an agent now in this tab. Resolves with the finished run, or 'busy' when it runs already. */
-export async function executeRun(agent: CustomAgent, req: RunRequest): Promise<AgentRun | 'busy'> {
+/**
+ * Run an agent now in this tab. Resolves with the finished run, 'busy' when it runs already, or
+ * 'waiting' when another member changed it and its creator has not confirmed that yet (confirm.ts).
+ */
+export async function executeRun(agent: CustomAgent, req: RunRequest): Promise<AgentRun | 'busy' | 'waiting'> {
+  const cur = useWorkspace.getState().agents?.[agent.id]
+  if (awaitsConfirm(agent) || (cur && awaitsConfirm(cur))) {
+    if (req.manual) useUI.getState().toast({ message: t('features.agents.toast.waiting', { name: agent.name }) })
+    return 'waiting'
+  }
   const res = await exclusive(agent.id, () => runOnce(agent, req))
   if (res === 'busy' && req.manual) useUI.getState().toast({ message: t('features.agents.toast.busy', { name: agent.name }) })
   return res

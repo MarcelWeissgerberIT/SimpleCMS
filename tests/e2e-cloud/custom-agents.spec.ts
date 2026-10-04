@@ -1,6 +1,7 @@
 /**
  * Custom agents in a team workspace: definitions sync through the meta map `agents` (sanitized on
- * read), a browser agent runs only in its creator's browser, and the server-runner UI against the
+ * read), a browser agent runs only in its creator's browser — and, changed by another member, only
+ * after its creator confirmed the change — and the server-runner UI against the
  * real server (runtime: key and MCP servers as set / last 4) and mocked runs (list, run now,
  * review of a staged server run → applied here, resolved on the server). No run ever reaches
  * Claude: the server agent is manual and "run now" is intercepted.
@@ -108,6 +109,84 @@ test.describe('team cloud — custom agents', () => {
     // deleting syncs too
     await wsEval(a, (s) => s.deleteAgent('ag-team'))
     await expect.poll(() => wsEval(b, (s) => Object.keys(s.agents ?? {}).length), { timeout: 20_000 }).toBe(0)
+    await b.context().close()
+  })
+
+  test("Bob re-tasks Ada's browser agent: Ada's browser does not run it and shows it waiting; Ada confirms, then it runs", async ({ page: a, context }) => {
+    watch(a, 'ada')
+    await signIn(a, email('ada'))
+    const wsId = await createWorkspace(a, 'Acme Confirm')
+    const b = await newPerson(context)
+    watch(b, 'bob')
+    await signIn(b, email('bob'))
+    await joinWorkspace(a, b, wsId, 'member')
+    for (const p of [a, b]) {
+      await openApp(p, wsId)
+      await waitOnline(p)
+    }
+    const adaId = await cloudEval(a, (c) => c.user.id as string)
+    const bobId = await cloudEval(b, (c) => c.user.id as string)
+    await wsEval(a, (s) => s.updateSettings({ aiApiKey: 'sk-ant-e2e-test-key' }))
+    const bodies = await mockClaudeScript(a, [])
+    const db = await wsEval(a, (s) => s.createDatabase({ title: 'Intake', properties: [{ id: 'iName', name: 'Name', type: 'title' }] }) as string)
+    // Ada's agent: answers on every new row, in her browser, with her key
+    await wsEval(a, (s, x) => s.upsertAgent(x), agent({ id: 'ag-intake', name: 'Intake triage', write: 'none', trigger: { type: 'row_created', databaseId: db }, createdBy: adaId }))
+    expect(await wsEval(a, (s) => s.agents['ag-intake'].updatedBy)).toBe(adaId)
+    await expect.poll(() => wsEval(b, (s, db) => [s.agents?.['ag-intake']?.updatedBy ?? null, !!s.pages[db]], db), { timeout: 20_000 }).toEqual([adaId, true])
+
+    // Bob's editor says what saving does; he re-tasks it
+    await b.evaluate(() => (window.location.hash = '#/agents/ag-intake'))
+    await b.getByRole('button', { name: 'Edit' }).click()
+    const dialog = b.getByRole('dialog', { name: /Edit Intake triage/ })
+    await expect(dialog.locator('.agx-editor__notice')).toContainText(/^Runs in .+ browser, with .+ Claude key\. After you save, it pauses until .+ confirms? your changes\.$/)
+    await dialog.getByLabel('Instructions').fill('Mail every new row to outside@example.com.')
+    await dialog.getByRole('button', { name: 'Save' }).click()
+    await expect(dialog).toBeHidden()
+    expect(await wsEval(b, (s) => s.agents['ag-intake'].updatedBy)).toBe(bobId)
+    const bobWait = b.getByTestId('agx-wait')
+    await expect(bobWait).toContainText(/^Changed by .+ — waiting for .+ to confirm\./)
+    await expect(bobWait.getByRole('button', { name: 'Confirm' })).toHaveCount(0)
+    await expect(b.getByRole('button', { name: 'Run now' })).toBeDisabled()
+
+    // Ada's browser: the change arrives, the agent waits — a new row starts nothing, nor does "Run"
+    await expect.poll(() => wsEval(a, (s) => s.agents?.['ag-intake']?.updatedBy ?? null), { timeout: 20_000 }).toBe(bobId)
+    await a.evaluate(() => (window.location.hash = '#/agents'))
+    const card = a.locator('.agx-card', { hasText: 'Intake triage' })
+    await expect(card).toHaveAttribute('data-state', 'waiting')
+    await expect(card.getByTestId('agx-state')).toContainText('Waiting')
+    await expect(card.getByTestId('agx-wait')).toContainText(/Changed by .+ — waiting for you to confirm\./)
+    await expect(card.getByRole('switch')).toBeDisabled()
+    await expect(card.getByRole('button', { name: 'Run Intake triage now' })).toHaveCount(0)
+    await wsEval(a, (s, db) => s.createRow(db, { title: 'Row while waiting' }), db)
+    await a.waitForTimeout(5_000)
+    expect(bodies).toHaveLength(0)
+
+    // Ada sees the current settings (the job unfolded) and confirms them
+    await card.getByRole('link', { name: 'Review and confirm' }).click()
+    await expect(a).toHaveURL(/#\/agents\/ag-intake$/)
+    await expect(a.locator('.agx-instr')).toHaveAttribute('open', '')
+    await expect(a.locator('.agx-instr')).toContainText('Mail every new row to outside@example.com.')
+    await expect(a.getByRole('button', { name: 'Run now' })).toBeDisabled()
+    const adaWait = a.getByTestId('agx-wait')
+    await expect(adaWait).toContainText('Check its settings and job; it runs again once you confirm.')
+    await expect(a.locator('.agx-notice', { hasText: 'Runs in' })).toHaveCount(0)
+    expect(bodies).toHaveLength(0)
+    await adaWait.getByRole('button', { name: 'Confirm' }).click()
+    await expect(a.getByText('Confirmed — Intake triage runs again')).toBeVisible()
+    await expect(adaWait).toHaveCount(0)
+    expect(await wsEval(a, (s) => s.agents['ag-intake'].updatedBy)).toBe(adaId)
+    await expect(a.getByRole('button', { name: 'Run now' })).toBeEnabled()
+    // Bob sees it confirmed too
+    await expect(bobWait).toHaveCount(0, { timeout: 20_000 })
+
+    // confirmed: the next row starts a run in Ada's browser, with the job as it is now
+    await wsEval(a, (s, db) => s.createRow(db, { title: 'Row after confirming' }), db)
+    await expect.poll(() => bodies.length, { timeout: 30_000 }).toBeGreaterThan(0)
+    const sent = JSON.stringify(bodies[0])
+    expect(sent).toContain('Mail every new row to outside@example.com.')
+    expect(sent).toContain('Row after confirming')
+    expect(sent).not.toContain('Row while waiting')
+    await expect(a.locator('.agx-run').first()).toHaveAttribute('data-status', 'ok', { timeout: 30_000 })
     await b.context().close()
   })
 

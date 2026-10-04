@@ -38,6 +38,19 @@ const int = (v: unknown, min: number, max: number, d: number) => (typeof v === '
 
 export const isSafeAgentId = (id: unknown): id is ID => typeof id === 'string' && SAFE_ID.test(id) && !RESERVED_KEYS.has(id)
 
+/** An account id as stored in createdBy / updatedBy (null when it is not one). */
+const actorId = (v: unknown): string | null => (typeof v === 'string' && v && v.length <= 128 ? v : null)
+
+let editor: () => string | null = () => null
+/**
+ * Who saves agents in this tab — upsertAgent stamps it as `updatedBy`: the signed-in account in a team
+ * workspace, null in the local one. features/agents registers it (the store knows no accounts).
+ */
+export function setAgentEditor(fn: () => string | null): void {
+  editor = fn
+}
+export const agentEditor = (): string | null => editor()
+
 const zones = new Map<string, boolean>()
 /** An IANA time zone this browser knows ("Europe/Berlin", "UTC"). */
 export function isTimeZone(tz: unknown): tz is string {
@@ -127,6 +140,7 @@ export function sanitizeAgent(id: unknown, raw: unknown): CustomAgent | null {
   const model = own(raw, 'model')
   const effort = own(raw, 'effort')
   const createdBy = own(raw, 'createdBy')
+  const updatedBy = own(raw, 'updatedBy')
   const mcp = own(raw, 'mcpServers')
   const createdAt = num(own(raw, 'createdAt'), 0)
   const agent: CustomAgent = {
@@ -144,7 +158,8 @@ export function sanitizeAgent(id: unknown, raw: unknown): CustomAgent | null {
     effort: AGENT_EFFORTS.includes(effort as (typeof AGENT_EFFORTS)[number]) ? (effort as (typeof AGENT_EFFORTS)[number]) : null,
     maxRunUsd: Math.min(AGENT_LIMITS.maxRunUsd, Math.max(AGENT_LIMITS.minRunUsd, Math.round(num(own(raw, 'maxRunUsd'), DEFAULT_RUN_USD) * 100) / 100)),
     enabled: own(raw, 'enabled') === true,
-    createdBy: typeof createdBy === 'string' && createdBy && createdBy.length <= 128 ? createdBy : null,
+    createdBy: actorId(createdBy),
+    updatedBy: actorId(updatedBy),
     createdAt,
     updatedAt: num(own(raw, 'updatedAt'), createdAt),
   }

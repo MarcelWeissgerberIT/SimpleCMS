@@ -359,6 +359,38 @@
   flex: 1 1 220px;
   min-width: 0;
 }
+/* changed by another member: waits for its creator's confirmation (confirm.ts) */
+.agx-card[data-state='waiting'] {
+  border-color: var(--signal);
+}
+.agx-wait {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 0;
+  color: var(--ink-2);
+  font-size: var(--text-sm);
+  line-height: 1.4;
+}
+.agx-wait .led {
+  margin-top: 6px;
+}
+.agx-card__foot a.btn {
+  text-decoration: none;
+}
+.agx-notice--wait {
+  border-color: var(--signal);
+  background: var(--signal-wash);
+  color: var(--ink);
+}
+.agx-notice__sub {
+  display: block;
+  margin-top: 2px;
+  color: var(--ink-2);
+}
+.agx-editor__notice {
+  margin: 0 0 8px;
+}
 .agx-spec__aside {
   margin-left: 4px;
   font-size: var(--text-xs);

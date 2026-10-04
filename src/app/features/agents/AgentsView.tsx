@@ -1,13 +1,14 @@
 /**
  * #/agents — custom agents as instrument cards (LED status, trigger, next run, last run, cost of the
  * last runs, what waits for review), "New agent" from a starter recipe; #/agents/<id> — one agent:
- * its spec plate, run now, edit, and its run history with the review of staged changes.
+ * its spec plate, run now, edit, and its run history with the review of staged changes. A team browser
+ * agent changed by another member waits for its creator, who confirms it on its page (confirm.ts).
  */
 import { useEffect, useMemo, useState } from 'react'
-import { ArrowLeft, KeyRound, MoreHorizontal, Pencil, Play, Plus, Trash2 } from 'lucide-react'
+import { ArrowLeft, Check, KeyRound, MoreHorizontal, Pencil, Play, Plus, Trash2 } from 'lucide-react'
 import { useWorkspace } from '../../store/store'
 import { useUI } from '../../store/ui'
-import type { CustomAgent, ID } from '../../store/types'
+import type { CustomAgent, ID, Person } from '../../store/types'
 import { navigate } from '../../lib/router'
 import { useCloud } from '../../cloud'
 import { Modal } from '../../ui/Modal'
@@ -24,6 +25,7 @@ import { awaitsReview, loadRuns, useAgentRuns } from './runs'
 import { loadRuntime, loadServerRuns, teamId, useServerAgents } from './server'
 import { fmtUsd, fmtWhen, nextRunText, recentCost, statusLed, triggerText } from './format'
 import { runsHere } from './runner'
+import { confirmAgent, useConfirmState, type ConfirmState } from './confirm'
 import type { AgentRun } from './types'
 import './agents.css'
 
@@ -192,13 +194,26 @@ function AgentList() {
   )
 }
 
-/** LED + word for an agent: running, waiting for review, failed, ok, off. */
-function agentState(agent: CustomAgent, last: AgentRun | undefined, review: boolean): { led: string; key: string } {
+/** LED + word for an agent: running, waiting for its creator, waiting for review, failed, ok, off. */
+function agentState(agent: CustomAgent, last: AgentRun | undefined, review: boolean, waiting: boolean): { led: string; key: string } {
   if (last?.status === 'running') return { led: statusLed('running'), key: 'running' }
+  if (waiting) return { led: 'led led--on', key: 'waiting' }
   if (review) return { led: statusLed('staged'), key: 'review' }
   if (!agent.enabled) return { led: 'led', key: 'off' }
   if (last && (last.status === 'error' || last.status === 'budget')) return { led: statusLed('error'), key: 'error' }
   return { led: last ? 'led led--ok' : 'led', key: last ? 'ready' : 'idle' }
+}
+
+/** "Changed by Bob — waiting for Ada to confirm." (the creator reads "… for you to confirm.") */
+function waitText(t: ReturnType<typeof useT>, wait: ConfirmState, people: Person[]): string {
+  const name = (id: string | null) => (id ? people.find((p) => p.id === id)?.name.trim() : '') || ''
+  const editor = name(wait.editor) || t('features.agents.wait.someone')
+  return wait.mine ? t('features.agents.wait.you', { editor }) : t('features.agents.wait.text', { editor, creator: name(wait.creator) || t('features.agents.wait.creator') })
+}
+
+/** The next run, or "After confirmation" while it waits for its creator. */
+function nextText(t: ReturnType<typeof useT>, agent: CustomAgent, wait: ConfirmState, lang: string, now: number): string {
+  return wait.waiting && agent.enabled ? t('features.agents.next.waiting') : nextRunText(t, agent, lang, now)
 }
 
 function AgentCard({ agent, n, now }: { agent: CustomAgent; n: number; now: number }) {
@@ -207,10 +222,12 @@ function AgentCard({ agent, n, now }: { agent: CustomAgent; n: number; now: numb
   const pages = useWorkspace((s) => s.pages)
   const databases = useWorkspace((s) => s.databases)
   const readOnly = useCloud((s) => s.readOnly)
+  const people = useWorkspace((s) => s.people)
+  const wait = useConfirmState(agent)
   const { runs } = useRunsOf(agent)
   const last = runs[0]
   const reviews = runs.filter(awaitsReview)
-  const st = agentState(agent, last, reviews.length > 0)
+  const st = agentState(agent, last, reviews.length > 0, wait.waiting)
   const pending = reviews.reduce((sum, r) => sum + (r.staged ?? []).filter((c) => c.status === 'pending' || c.status === 'failed').length, 0)
   const cost = recentCost(runs)
   const href = `#/agents/${agent.id}`
@@ -222,7 +239,7 @@ function AgentCard({ agent, n, now }: { agent: CustomAgent; n: number; now: numb
           <span className={st.led} aria-hidden /> {t(`features.agents.state.${st.key}`)}
         </span>
         <span className="agx-spacer" />
-        <Switch checked={agent.enabled} onChange={(v) => setEnabled(agent, v)} label={t('features.agents.enableNamed', { name: agent.name })} disabled={readOnly} />
+        <Switch checked={agent.enabled} onChange={(v) => setEnabled(agent, v)} label={t('features.agents.enableNamed', { name: agent.name })} disabled={readOnly || wait.waiting} />
       </div>
       <a className="agx-card__name" href={href}>
         <PageIcon icon={agent.icon} size={20} />
@@ -235,7 +252,7 @@ function AgentCard({ agent, n, now }: { agent: CustomAgent; n: number; now: numb
         </div>
         <div>
           <dt>{t('features.agents.spec.next')}</dt>
-          <dd className={agent.trigger.type === 'schedule' && agent.enabled ? 'mono' : undefined}>{nextRunText(t, agent, lang, now)}</dd>
+          <dd className={agent.trigger.type === 'schedule' && agent.enabled && !wait.waiting ? 'mono' : undefined}>{nextText(t, agent, wait, lang, now)}</dd>
         </div>
         <div>
           <dt>{t('features.agents.spec.last')}</dt>
@@ -256,6 +273,11 @@ function AgentCard({ agent, n, now }: { agent: CustomAgent; n: number; now: numb
           </dd>
         </div>
       </dl>
+      {wait.waiting && (
+        <p className="agx-wait" data-testid="agx-wait">
+          <span className="led led--on" aria-hidden /> <span>{waitText(t, wait, people)}</span>
+        </p>
+      )}
       <div className="agx-card__foot">
         <span className="agx-chip label">{t(`features.agents.runner.${agent.runner}`)}</span>
         <span className="agx-chip label">{t(`features.agents.write.${agent.write}Short`)}</span>
@@ -265,10 +287,16 @@ function AgentCard({ agent, n, now }: { agent: CustomAgent; n: number; now: numb
           </a>
         )}
         <span className="agx-spacer" />
-        {!readOnly && (
-          <button type="button" className="btn btn--sm" onClick={() => void runNow(agent)} disabled={last?.status === 'running'} aria-label={t('features.agents.runNamed', { name: agent.name })}>
-            <Play size={12} strokeWidth={1.9} aria-hidden /> {t('features.agents.run')}
-          </button>
+        {wait.waiting && wait.mine ? (
+          <a className="btn btn--sm btn--ink" href={href}>
+            <Check size={12} strokeWidth={1.9} aria-hidden /> {t('features.agents.wait.review')}
+          </a>
+        ) : (
+          !readOnly && (
+            <button type="button" className="btn btn--sm" onClick={() => void runNow(agent)} disabled={last?.status === 'running' || wait.waiting} aria-label={t('features.agents.runNamed', { name: agent.name })}>
+              <Play size={12} strokeWidth={1.9} aria-hidden /> {t('features.agents.run')}
+            </button>
+          )
         )}
       </div>
     </li>
@@ -288,6 +316,7 @@ function AgentDetail({ id }: { id: ID }) {
   const hasKey = useWorkspace((s) => !!s.settings.aiApiKey.trim())
   const readOnly = useCloud((s) => s.readOnly)
   const people = useWorkspace((s) => s.people)
+  const wait = useConfirmState(agent)
   const index = useAgents().findIndex((a) => a.id === id)
   const { runs, state } = useRunsOf(agent)
   const [editing, setEditing] = useState(false)
@@ -308,8 +337,9 @@ function AgentDetail({ id }: { id: ID }) {
 
   const last = runs[0]
   const reviews = runs.filter(awaitsReview)
-  const st = agentState(agent, last, reviews.length > 0)
-  const elsewhere = agent.runner === 'browser' && agent.enabled && !runsHere(agent) && !!teamId()
+  const st = agentState(agent, last, reviews.length > 0, wait.waiting)
+  // runs in another member's browser (while it waits for its creator: unless that is the viewer)
+  const elsewhere = agent.runner === 'browser' && agent.enabled && !!teamId() && (wait.waiting ? !wait.mine : !runsHere(agent))
   const creator = agent.createdBy ? people.find((p) => p.id === agent.createdBy)?.name : null
   const scope = agent.scope.everything
     ? t('features.agents.scope.all')
@@ -341,7 +371,7 @@ function AgentDetail({ id }: { id: ID }) {
             <Switch checked={agent.enabled} onChange={(v) => setEnabled(agent, v)} label={t('features.agents.enableNamed', { name: agent.name })} disabled={readOnly} />
             {!readOnly && (
               <>
-                <button type="button" className="btn btn--primary" onClick={() => void runNow(agent)} disabled={last?.status === 'running'}>
+                <button type="button" className="btn btn--primary" onClick={() => void runNow(agent)} disabled={last?.status === 'running' || wait.waiting}>
                   <Play size={13} strokeWidth={1.9} aria-hidden /> {t('features.agents.runNow')}
                 </button>
                 <button type="button" className="btn" onClick={() => setEditing(true)}>
@@ -364,7 +394,7 @@ function AgentDetail({ id }: { id: ID }) {
         </div>
         <div>
           <dt>{t('features.agents.spec.next')}</dt>
-          <dd className={agent.trigger.type === 'schedule' && agent.enabled ? 'mono' : undefined}>{nextRunText(t, agent, lang, now)}</dd>
+          <dd className={agent.trigger.type === 'schedule' && agent.enabled && !wait.waiting ? 'mono' : undefined}>{nextText(t, agent, wait, lang, now)}</dd>
         </div>
         <div>
           <dt>{t('features.agents.spec.scope')}</dt>
@@ -397,6 +427,26 @@ function AgentDetail({ id }: { id: ID }) {
         </div>
       </dl>
 
+      {wait.waiting && (
+        <div className="agx-notice agx-notice--wait" role="status" data-testid="agx-wait">
+          <span className="led led--on" aria-hidden />
+          <span>
+            {waitText(t, wait, people)}
+            {wait.mine && <span className="agx-notice__sub">{t('features.agents.wait.hint')}</span>}
+          </span>
+          {wait.mine && (
+            <button
+              type="button"
+              className="btn btn--sm btn--ink"
+              onClick={() => {
+                if (confirmAgent(agent)) useUI.getState().toast({ message: t('features.agents.wait.confirmed', { name: agent.name }), kind: 'success' })
+              }}
+            >
+              <Check size={13} strokeWidth={1.9} aria-hidden /> {t('features.agents.wait.confirm')}
+            </button>
+          )}
+        </div>
+      )}
       {!hasKey && agent.runner === 'browser' && !elsewhere && (
         <div className="agx-notice" role="note">
           <span className="led" aria-hidden />
@@ -425,7 +475,7 @@ function AgentDetail({ id }: { id: ID }) {
         </div>
       )}
 
-      <details className="agx-instr">
+      <details className="agx-instr" open={wait.waiting || undefined}>
         <summary className="label">{t('features.agents.ed.instructions')}</summary>
         <p>{agent.instructions}</p>
       </details>

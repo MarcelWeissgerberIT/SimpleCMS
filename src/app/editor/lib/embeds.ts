@@ -188,7 +188,7 @@ export function providerOf(url: string, stored?: string | null): EmbedProvider {
   return (own && own !== 'web' ? own : detectProvider(url)) ?? 'web'
 }
 
-/** Turn a share URL into an embeddable iframe src. */
+/** Turn a share URL into an embeddable iframe src ('pdf': the link itself, which no view frames). */
 export function embedSrc(raw: string, provider?: string | null): string | null {
   const u = parseUrl(raw)
   if (!u || !/^https?:$/.test(u.protocol)) return null
@@ -294,6 +294,8 @@ export function embedSrc(raw: string, provider?: string | null): string | null {
       return id && /^\d+$/.test(id) ? `https://platform.twitter.com/embed/Tweet.html?id=${id}&dnt=true` : null
     }
     case 'pdf':
+      // accepted as an embed, but never framed: a web PDF shows as a link card (views/PdfViewer.tsx) —
+      // its server could answer with a page, and the browser's PDF viewer refuses sandboxed frames
       return isPdfUrl(raw) ? u.toString() : null
     default:
       return u.protocol === 'https:' ? u.toString() : null
@@ -346,8 +348,6 @@ export function embedRatio(provider?: string | null): number {
       return 0.62
     case 'gslides':
       return 0.5925
-    case 'pdf':
-      return 1.1
     case 'web':
       return 0.62
     default:

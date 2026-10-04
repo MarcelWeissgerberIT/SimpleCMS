@@ -810,6 +810,11 @@ export interface CustomAgent {
   enabled: boolean
   /** account id (team) / null (local) */
   createdBy?: string | null
+  /**
+   * who saved it last: account id (team, set by upsertAgent) / null (local; absent on older data = the
+   * creator). A team browser agent runs only while this is its creator (features/agents/confirm.ts).
+   */
+  updatedBy?: string | null
   createdAt: number
   updatedAt: number
 }
