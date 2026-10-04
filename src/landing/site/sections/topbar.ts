@@ -15,6 +15,8 @@ export function renderTopbar({ t, lang }: Ctx): string {
     ['own-it', 'nav.cloud'],
     ['faq', 'nav.faq'],
   ]
+  // The manual lives on its own pages (prerendered at /help/, German at /help/de/).
+  const help = `${BRAND.homeHref}help/${lang === 'de' ? 'de/' : ''}`
   const n = SECTIONS.length - 1
   const marks = SECTIONS.map(
     (s, i) =>
@@ -32,6 +34,7 @@ export function renderTopbar({ t, lang }: Ctx): string {
     </a>
     <nav class="tb-nav" aria-label="${esc(t('nav.label'))}">
       ${anchors.map(([id, key]) => `<a href="#${id}">${esc(t(key))}</a>`).join('')}
+      <a class="tb-help" href="${help}" data-help>${esc(t('nav.help'))}</a>
     </nav>
     <div class="tb-tools">
       <div class="lang-switch" role="group" aria-label="${esc(t('nav.lang'))}">
@@ -52,6 +55,7 @@ export function renderTopbar({ t, lang }: Ctx): string {
   <div class="tb-sheet" id="tb-sheet" hidden>
     <p class="lbl">${esc(t('nav.menu'))}</p>
     <ol>${sheet}</ol>
+    <a class="tb-sheet-help" href="${help}"><span class="lbl" aria-hidden="true">?</span>${esc(t('nav.help'))}</a>
   </div>
 </header>`
 }

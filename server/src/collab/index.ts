@@ -8,6 +8,7 @@ import type { CloseReason, CollabControl } from '../context.ts'
 import { isSameOrigin } from '../http/security.ts'
 import type { Logger } from '../log.ts'
 import type { Repo, Role } from '../repo.ts'
+import { guardAgentAuthors } from './agent-authors.ts'
 import { metaName, parseDocName } from './names.ts'
 
 export const COLLAB_PATH = '/collab'
@@ -91,6 +92,13 @@ export function createCollab(deps: { config: Config; log: Logger; repo: Repo; se
         log.error('document cannot be decrypted', { document: documentName, error: (err as Error).message })
         throw err
       }
+    },
+
+    async afterLoadDocument({ documentName, document }) {
+      // custom agents live in the workspace's shared meta document: the server, not the client, says
+      // who changed one (docs/CLOUD.md § Agents → Who changed an agent)
+      const doc = parseDocName(documentName)
+      if (doc?.kind === 'meta' && doc.owner === null) document.on('destroy', guardAgentAuthors(document, { workspaceId: doc.workspaceId, log }))
     },
 
     async onStoreDocument({ documentName, document }) {

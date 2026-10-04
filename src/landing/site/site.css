@@ -290,6 +290,20 @@ html {
   color: var(--ink);
   background: var(--hover);
 }
+/* Help leaves the page: set apart from the section anchors by a hairline. */
+.tb-nav .tb-help {
+  position: relative;
+  margin-left: 13px;
+}
+.tb-nav .tb-help::before {
+  content: '';
+  position: absolute;
+  left: -8px;
+  top: 9px;
+  bottom: 9px;
+  width: 1px;
+  background: var(--rule-strong);
+}
 .tb-tools {
   display: flex;
   align-items: center;
@@ -457,6 +471,15 @@ html {
 .tb-sheet a:hover {
   background: var(--hover);
 }
+.tb-sheet .tb-sheet-help {
+  margin-top: 6px;
+  border-top: 1px solid var(--rule);
+  border-radius: 0 0 var(--radius-1) var(--radius-1);
+}
+/* as wide as "§ 00", so the word lines up with the section names */
+.tb-sheet-help .lbl {
+  min-width: calc(4ch + 0.32em);
+}
 
 /* ---------- Sections ---------- */
 .sec {
@@ -578,6 +601,12 @@ html {
 }
 
 /* ---------- Responsive chrome ---------- */
+@media (max-width: 1040px) {
+  /* no room next to the anchors: Help stays in the § sheet and the footer */
+  .tb-nav .tb-help {
+    display: none;
+  }
+}
 @media (max-width: 960px) {
   .tb-nav {
     display: none;

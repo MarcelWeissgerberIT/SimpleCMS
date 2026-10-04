@@ -54,6 +54,11 @@ const T = {
     andVal: 'Set  Closed on  →  today',
     last: 'LAST RUN  200 OK · 0.21 s',
     enabled: 'ENABLED',
+    agent: 'Weekly project check',
+    agentSpec: ['TRIGGER', 'NEXT', 'SCOPE', 'CHANGES', 'REPORT', 'MCP', 'MODEL', 'BUDGET'],
+    agentRuns: 'RUNS · 01',
+    agentReview: 'REVIEW · 2 PROPOSALS',
+    agentApply: 'Apply all',
   },
   de: {
     ws: 'Acme Studio',
@@ -89,6 +94,11 @@ const T = {
     andVal: 'Setze  Abgeschlossen  →  heute',
     last: 'LETZTER LAUF  200 OK · 0,21 s',
     enabled: 'AKTIV',
+    agent: 'Wöchentlicher Projekt-Check',
+    agentSpec: ['AUSLÖSER', 'NÄCHSTER', 'BEREICH', 'ÄNDERUNGEN', 'BERICHT', 'MCP', 'MODELL', 'BUDGET'],
+    agentRuns: 'LÄUFE · 01',
+    agentReview: 'PRÜFEN · 2 VORSCHLÄGE',
+    agentApply: 'Alle anwenden',
   },
 }
 
@@ -298,5 +308,37 @@ export function websiteSchematic(lang: Lang, label: string): string {
   const files = ['index.html', 'sitemap.xml', 'rss.xml', 'llms.txt']
   files.forEach((f, i) => (s += txt(432, 476 + i * 34, f, 'sk-mono')))
   s += txt(432, 726, de ? 'Website exportieren' : 'Export site', 'sk-txt sk-strong')
+  return svg(s, label)
+}
+
+/* ------------------------------------------------------------------ */
+/* Custom agent: one agent, its spec grid and a run waiting for review  */
+/* ------------------------------------------------------------------ */
+
+export function agentSchematic(lang: Lang, label: string): string {
+  const t = T[lang]
+  let s = chrome(lang, 0)
+  s += txt(380, 130, 'AG-01', 'sk-mono sk-sig-txt')
+  s += txt(380, 186, t.agent, 'sk-title')
+  s += `<rect class="sk-btn" x="1336" y="146" width="112" height="36" rx="3"/>` + txt(1356, 170, '▷', 'sk-mono sk-on-sig')
+  // spec grid: two rows of four read-outs
+  s += `<rect class="sk-card" x="380" y="216" width="1150" height="128" rx="4"/>`
+  s += `<line class="sk-line" x1="380" y1="280" x2="1530" y2="280"/>`
+  t.agentSpec.forEach((k, i) => {
+    const x = 380 + (i % 4) * 287.5
+    const y = i < 4 ? 216 : 280
+    if (i % 4) s += `<line class="sk-line" x1="${x}" y1="${y}" x2="${x}" y2="${y + 64}"/>`
+    s += txt(x + 16, y + 24, k, 'sk-mono sk-dim') + bar(x + 16, y + 38, 120 + ((i * 37) % 80), i === 3 ? 'sk-sig' : 'sk-bar')
+  })
+  // the run: report, steps, two proposals and the review keys
+  s += txt(380, 398, t.agentRuns, 'sk-mono sk-dim')
+  s += `<line class="sk-line" x1="380" y1="414" x2="1530" y2="414"/>`
+  s += `<circle class="sk-sig" cx="390" cy="448" r="6"/>` + txt(408, 454, t.agentReview, 'sk-mono sk-sig-txt')
+  s += bar(380, 484, 760) + bar(380, 510, 690) + bar(380, 536, 520)
+  for (const y of [580, 700]) {
+    s += `<rect class="sk-pop" x="380" y="${y}" width="1150" height="104" rx="4"/>`
+    s += bar(404, y + 26, 240, 'sk-bar') + bar(404, y + 58, 150, 'sk-bar-2') + `<rect class="sk-wash" x="580" y="${y + 50}" width="160" height="26" rx="2"/>`
+  }
+  s += `<rect class="sk-btn" x="1394" y="830" width="136" height="36" rx="3"/>` + txt(1414, 854, t.agentApply, 'sk-txt sk-on-sig')
   return svg(s, label)
 }

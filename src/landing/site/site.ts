@@ -206,7 +206,7 @@ export function mountSite(root: HTMLElement, opts: { lang: Lang; underIntro: boo
   function switchLang(next: Lang): void {
     // Anchor: the innermost block crossing the line under the top bar, and our offset into it.
     // Same DOM order in both languages → the index finds the twin after the re-render.
-    const ANCHORS = 'main > section, .deep-row, .pgroup, .plac, .spec tr, .faq-item, .calc, .schematic, .plate, .mcp-tools, .mcp-steps > li, footer'
+    const ANCHORS = 'main > section, .deep-row, .pgroup, .plac, .spec tr, .faq-item, .calc, .schematic, .plate, .mcp-port, .mcp-tools, .mcp-steps > li, .agent-plate, .mcp-agents-fig, footer'
     const probe = 90
     const before = Array.from(root.querySelectorAll<HTMLElement>(ANCHORS))
     let idx = -1

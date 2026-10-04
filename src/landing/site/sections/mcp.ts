@@ -1,14 +1,20 @@
 import { BRAND } from '@/shared/brand'
+import { logoMarkSvg } from '@/shared/logo'
 import type { Ctx } from '../context'
+import { agentSchematic } from '../figures'
+import { frame } from '../frame'
 import { asset, esc, prefersReducedMotion } from '../util'
+import { dotted } from './hero'
 import { sectionHead } from './head'
 
 /**
- * § 03 — Agents · MCP: One as an instrument with an agent port. A schematic of both ways in
- * (local bridge → your tab; remote → your team server), the mode selector of the local bridge
- * (it re-labels the approval gate in the drawing and darkens the write tools), the tool table and
- * the setup: first the one-click Claude Desktop extension (mcp/one.mcpb), then — folded — the
- * bridge file and the snippets for other clients, with copy keys.
+ * § 03 — Agents · MCP: One as an instrument with two ports. Plate 3.1 shows both directions
+ * (Claude Desktop → One; One's Claude → your MCP servers). Then the port "in" up close: a schematic
+ * of both ways in (local bridge → your tab; remote → your team server), the mode selector of the
+ * local bridge (it re-labels the approval gate in the drawing and darkens the write tools), the
+ * tool table and the setup: first the one-click Claude Desktop extension (mcp/one.mcpb), then —
+ * folded — the bridge file and the snippets for other clients, with copy keys. Last, 3.3: custom
+ * agents — a nameplate of an example agent and a real screenshot of a run.
  */
 
 type T = Ctx['t']
@@ -257,6 +263,86 @@ function bridgeUrl(): string {
   }
 }
 
+/* ------------------------------------------------------------------ both ports + agents */
+
+/** Lucide "library" (ISC): the stand-in for a knowledge base behind an MCP server. */
+const LIBRARY_ICON =
+  '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m16 6 4 14"/><path d="M12 6v14"/><path d="M8 8v12"/><path d="M4 4v16"/></svg>'
+
+const oneNode = () => `<span class="mcp-node is-one">${logoMarkSvg(18)}<span>One</span></span>`
+
+/** One port of the two: direction, a one-line wiring (node → wire → node) and a line of text. */
+function port(dir: 'in' | 'out', t: T, tools: number, help: string): string {
+  const wire = (label: string) => `<span class="mcp-wire"><span class="mcp-wire-t">MCP · ${esc(label)}</span><i class="mcp-wire-pkt"></i></span>`
+  const nodes =
+    dir === 'in'
+      ? `<span class="mcp-node"><span class="mcp-node-cap">&gt;_</span><span>${esc(t('mcp.client'))}</span></span>${wire(t('mcp.inWire'))}${oneNode()}`
+      : `${oneNode()}${wire(t('mcp.outWire'))}<span class="mcp-node is-ext"><span class="mcp-node-cap">${LIBRARY_ICON}</span><span>${esc(t('mcp.outNode'))}</span></span>`
+  const where =
+    dir === 'out'
+      ? `<p class="mcp-port-where"><span class="lbl">${esc(t('mcp.outWhere'))}</span><a class="lbl" href="${help}">${esc(t('mcp.outHelp'))} <span aria-hidden="true">→</span></a></p>`
+      : `<p class="mcp-port-where"><span class="lbl">${esc(t('mcp.inWhere'))}</span><a class="lbl" href="#mcp-setup">${esc(t('mcp.inSetup'))} <span aria-hidden="true">↓</span></a></p>`
+  return `
+      <div class="mcp-port is-${dir}">
+        <p class="lbl mcp-port-dir"><span class="mcp-port-jack" aria-hidden="true"></span>${esc(t(`mcp.${dir}`))}</p>
+        <h3 class="mcp-port-h">${esc(t(`mcp.${dir}Title`))}</h3>
+        <div class="mcp-port-wiring" role="img" aria-label="${esc(t(`mcp.${dir}Alt`))}">${nodes}</div>
+        <p class="mcp-port-p">${esc(t(`mcp.${dir}Text`, { n: tools }))}</p>
+        ${where}
+      </div>`
+}
+
+/** Plate 3.1: Claude Desktop → One (the schematic below wires it up) and One's Claude → your MCP servers. */
+function ports(ctx: Ctx): string {
+  const { t, c, lang } = ctx
+  const help = `${BRAND.homeHref}help/${lang === 'de' ? 'de/' : ''}mcp-servers/`
+  return `
+    <figure class="mcp-ports" data-reveal>
+      <div class="mcp-port-row">${port('in', t, c.mcpTools.length, help)}${port('out', t, c.mcpTools.length, help)}</div>
+      <figcaption class="lbl mcp-ports-cap"><span>${esc(t('mcp.ports'))}</span><span>${esc(t('mcp.portsMeta'))}</span></figcaption>
+    </figure>`
+}
+
+const AGENT_SPEC = ['job', 'trigger', 'scope', 'mcp', 'changes', 'budget', 'runs'] as const
+
+/** 3.3: custom agents — a riveted nameplate of an example agent next to a real screenshot. */
+function agents(ctx: Ctx): string {
+  const { t, lang } = ctx
+  const help = `${BRAND.homeHref}help/${lang === 'de' ? 'de/' : ''}custom-agents/`
+  const spec = AGENT_SPEC.map(
+    (k) => `<div class="agent-row${k === 'changes' ? ' is-sig' : ''}"><dt class="lbl">${esc(t(`agents.k.${k}`))}</dt><dd>${esc(t(`agents.v.${k}`))}</dd></div>`,
+  ).join('')
+  return `
+    <div class="mcp-agents" role="group" aria-labelledby="mcp-agents-h">
+      <header class="mcp-agents-head" data-reveal>
+        <p class="lbl mcp-agents-label">${esc(t('agents.label'))}</p>
+        <h3 id="mcp-agents-h" class="mcp-agents-h disp">${dotted(t('agents.title'))}</h3>
+        <div class="mcp-agents-copy">
+          <p>${esc(t('agents.text'))}</p>
+          <p class="mcp-agents-where"><span class="led" aria-hidden="true"></span>${esc(t('agents.where'))}</p>
+          <div class="mcp-agents-ctas">
+            <a class="btn btn-sig" href="${BRAND.appHref}#/agents" data-agents-open>${esc(t('agents.open'))}<span class="arr" aria-hidden="true">→</span></a>
+            <a class="btn btn-ghost" href="${help}">${esc(t('agents.help'))}</a>
+          </div>
+        </div>
+      </header>
+      <div class="mcp-agents-body">
+        <article class="agent-plate tone-print" aria-label="${esc(`${t('agents.plate')}: ${t('agents.name')}`)}" data-reveal>
+          <i class="screw s-tl" aria-hidden="true"></i><i class="screw s-tr" aria-hidden="true"></i><i class="screw s-bl" aria-hidden="true"></i><i class="screw s-br" aria-hidden="true"></i>
+          <header class="agent-plate-head">
+            <p class="lbl">${esc(t('agents.plate'))} · AG-M</p>
+            <p class="lbl agent-plate-state"><span class="led" aria-hidden="true"></span>${esc(t('agents.state'))}</p>
+          </header>
+          <p class="agent-plate-name disp">${esc(t('agents.name'))}</p>
+          <dl class="agent-spec">${spec}</dl>
+        </article>
+        <div class="mcp-agents-fig" data-reveal>
+          ${frame({ shot: 'assets/shots/agents.webp', alt: t('agents.fig'), schematic: agentSchematic(lang, t('agents.fig')), caption: t('agents.fig'), meta: '1600 × 1000', zoom: t('fig.enlarge') })}
+        </div>
+      </div>
+    </div>`
+}
+
 export function renderMcp(ctx: Ctx): string {
   const { t, c } = ctx
   const motion = !prefersReducedMotion()
@@ -283,10 +369,11 @@ export function renderMcp(ctx: Ctx): string {
     <dl class="mcp-spec" data-reveal>
       ${spec.map(([k, v]) => `<div><dt class="lbl">${esc(k)}</dt><dd>${esc(v)}</dd></div>`).join('')}
     </dl>
+    ${ports(ctx)}
     <figure class="schematic mcp-schematic" data-reveal>
       ${wide(t, motion)}
       ${tall(t, motion)}
-      <figcaption class="lbl schematic-cap"><span>${esc(t('mcp.fig'))}</span><span>${esc(t('mcp.figMeta'))}</span></figcaption>
+      <figcaption class="lbl schematic-cap"><span>${esc(t('mcp.fig'))}</span><span>${esc(t('mcp.figMeta', { n: c.mcpTools.length }))}</span></figcaption>
     </figure>
     <div class="mcp-deck">
       <div class="mcp-left">
@@ -303,7 +390,7 @@ export function renderMcp(ctx: Ctx): string {
           <ol class="mcp-tool-list">${tools}</ol>
         </div>
       </div>
-      <div class="mcp-setup" data-reveal>
+      <div class="mcp-setup" id="mcp-setup" data-reveal>
         <div class="mcp-setup-head">
           <h3 class="lbl">${esc(t('mcp.setup'))}</h3>
           <p class="lbl">${esc(t('mcp.steps'))}</p>
@@ -347,6 +434,7 @@ export function renderMcp(ctx: Ctx): string {
         <a class="mcp-guide lbl" href="${guide}" rel="noopener">${esc(t('mcp.guide'))} <span aria-hidden="true">→</span></a>
       </div>
     </div>
+    ${agents(ctx)}
     <p class="sr" aria-live="polite" data-mcp-live></p>
   </div>
 </section>`

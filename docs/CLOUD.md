@@ -387,7 +387,8 @@ Y.Map 'functions'  functionId → JSON CustomFunction   (custom functions built 
 Y.Map 'agents'     agentId → JSON CustomAgent   (custom agents — { id, name, icon?, instructions, trigger,
                      scope, write, output?, mcpServers, runner, model?, effort?, maxRunUsd, enabled, createdBy?, updatedBy?,
                      createdAt, updatedAt }; last writer wins per agent; every reader sanitizes it, see
-                     src/app/store/agents.ts; runs are not here: per device / server table `agent_runs`)
+                     src/app/store/agents.ts; runs are not here: per device / server table `agent_runs`;
+                     createdBy / updatedBy are stamped by the SERVER — see Agents → Who changed an agent)
 ```
 
 *(client C1 refinements, backwards compatible on read)*: comment **replies** are entries of their
@@ -398,7 +399,8 @@ writes each run's status into its automation, which must not overwrite someone's
 of another automation; a JSON array found there is read and becomes keyed on the next write.
 `createdBy` / `updatedBy` are the account ids of the writing client — or `agent:<agentId>` for the
 changes a custom agent applies (browser runner: the client stamps them while it applies; server runner:
-the server). The `workspace` map is filled
+the server). In the `agents` map the server stamps them itself, whatever a client wrote (*Agents → Who
+changed an agent*). The `workspace` map is filled
 (name, icon, createdAt) by the first member who writes after its first sync, if it is empty.
 
 Not synced (per person, per device): `favorite`, `recent`, all `Settings` (theme, language,
@@ -726,9 +728,41 @@ connects to them through the MCP connector, so the URL must be public https) and
 The server reads agents from the workspace's **shared** meta document (`Y.Map 'agents'`, JSON values —
 the live copy when loaded, else the stored one) with its own sanitizer (`agents/sanitize.ts`: unknown
 fields dropped, strings clamped, ids validated, enums defaulted, `maxRunUsd` clamped to 0.01–50; an entry
-that cannot be an agent is ignored). Only `runner: 'server'` and `enabled: true` agents are scheduled or
+that cannot be an agent is ignored — so is a value that is not a JSON object: a Y type, binary, a number,
+as in the app). Only `runner: 'server'` and `enabled: true` agents are scheduled or
 triggered; a person may also start a switched-off server agent by hand. The list is refreshed on every
 store of the meta document (and at least every 5 minutes).
+
+### Who changed an agent
+
+*(server addition, `server/src/collab/agent-authors.ts`)* A team **browser** agent runs in its creator's
+browser — with their Claude key, MCP servers and, when its scope names them, private pages — and only
+while its last change is the creator's (`updatedBy` = `createdBy`; app: `features/agents/confirm.ts`).
+So the server, not the client, says who changed an entry of the shared meta document's `agents` map:
+
+- **`updatedBy`**: every entry a member's connection adds or changes gets `updatedBy` = that member's
+  account id, whatever the client wrote there (another member's id, an `agent:` id, `null`, nothing). An
+  entry written again exactly as it was (any key order) is no change — its last writer stays.
+- **`createdBy`** stays what it was once set: changed or dropped by anyone but that creator, it is put
+  back. The creator may hand an agent over (the new creator confirms it before it runs in their browser).
+  A new entry (or one without a creator) keeps the `createdBy` it was written with: its writer is stamped,
+  so it waits for that creator's confirmation.
+- **How**: every loaded shared meta document (Hocuspocus `afterLoadDocument`) has an observer on the map;
+  it sees each transaction's origin (the member's connection → its account) and the keys it changed. Only
+  an entry whose current value that transaction wrote is looked at (a concurrent write that lost changes
+  nothing). A needed correction is **one** transaction with the server's own origin (`source: 'local'`,
+  stored and broadcast like any change), written in the same tick — clients (the writer too) receive the
+  change and its correction together and converge. Corrections are never corrected again (no loop); the
+  app stamps its own saves correctly, so its edits never cause one.
+- **Waiting structs**: Yjs keeps structs whose predecessors are missing ("pending") and applies them in a
+  later transaction — possibly another member's, e.g. the creator's next edit. A change applied from such
+  structs is attributed to the members whose updates left structs waiting, never to the agent's creator
+  while someone else may have written it; **`@unverified`** when they came back from the stored state (a
+  restart), so the agent waits for its creator.
+- The server's own writes (public API, incoming webhooks, the agent runner's `agent:<agentId>` writes)
+  never touch this map and keep their attribution; private meta documents hold no agents. Values that are
+  not JSON objects are no agents for any reader and are left alone. Audit: a correction that replaces
+  another account named by the client, or puts `createdBy` back, is logged as a warning (ids only).
 
 ### Triggers
 

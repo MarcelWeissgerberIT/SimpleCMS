@@ -9,6 +9,7 @@ const GROUPS: Array<{ key: FeatureGroup; code: string }> = [
   { key: 'calculate', code: 'C' },
   { key: 'automate', code: 'D' },
   { key: 'publish', code: 'E' },
+  { key: 'delegate', code: 'F' },
 ]
 
 const num = (n: number) => `F-${String(n).padStart(2, '0')}`
@@ -77,6 +78,10 @@ const KEYWORDS: Record<FeatureKey, string[]> = {
   functions: ['fx', 'function', 'tree', 'keys'],
   charts: ['chart', 'bars', 'graph', 'plot'],
   formulas: ['adder', 'sum', 'rollup', 'calculator'],
+  customAgents: ['clock', 'schedule', 'time', 'agent'],
+  agent: ['focus', 'target', 'task', 'agent'],
+  mcpTools: ['sync', 'link', 'chain', 'connect'],
+  mail: ['import', 'inbox', 'tray', 'mail'],
 }
 
 /** Hand-picked art per feature (manifest `name`); keyword matching is only the fallback. */
@@ -95,12 +100,16 @@ const PREFERRED: Partial<Record<FeatureKey, string>> = {
   autofill: 'code', // a calculator: it fills in the numbers
   website: 'publish', // a paper plane: send it out
   share: 'lock',
-  import: 'import',
-  clipper: 'sync', // two chain links: save a link
+  import: 'binder', // a binder of notes you bring along
+  clipper: 'cardbox', // a card file: your Clippings
   sheets: 'sheet', // a slab of cells with one orange cell
   functions: 'fx', // a tree of keys: a formula built by clicking
   charts: 'chart',
   formulas: 'adder', // a mechanical adding machine
+  customAgents: 'clock', // an alarm clock: runs on its schedule
+  agent: 'focus', // a target: the task you hand over
+  mcpTools: 'sync', // two chain links: another system, connected
+  mail: 'import', // an in-tray: mail arriving
 }
 
 interface IconRef {

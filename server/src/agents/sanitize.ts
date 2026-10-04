@@ -66,10 +66,13 @@ function sanitizeScope(v: unknown): AgentScope {
   return { everything: s.everything === true, pages: ids(s.pages), databases: ids(s.databases) }
 }
 
-/** One agent (`key`: its id in the `agents` map), or null when it cannot be one. */
-export function sanitizeAgent(key: string, raw: unknown): CustomAgent | null {
-  const v = raw instanceof Y.Map ? (raw.toJSON() as unknown) : raw
-  if (!isObj(v) || !isId(key)) return null
+/**
+ * One agent (`key`: its id in the `agents` map), or null when it cannot be one. Agents are JSON objects;
+ * a Y type or binary value there is not one (the app ignores it too, and the server stamps who changed
+ * JSON entries only — collab/agent-authors.ts).
+ */
+export function sanitizeAgent(key: string, v: unknown): CustomAgent | null {
+  if (!isObj(v) || v instanceof Y.AbstractType || v instanceof Y.Doc || ArrayBuffer.isView(v) || !isId(key)) return null
   if (v.id !== undefined && v.id !== key) return null
   const trigger = sanitizeTrigger(v.trigger)
   if (!trigger) return null

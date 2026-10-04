@@ -563,7 +563,7 @@
   color: var(--ink-2);
 }
 
-/* Five groups of four, each under a mono rule: [A] WRITE ——— F-01 — F-04 */
+/* Six groups of four, each under a mono rule: [A] WRITE ——— F-01 — F-04 */
 .pgroups {
   display: grid;
   gap: clamp(24px, 2.4vw, 36px);
