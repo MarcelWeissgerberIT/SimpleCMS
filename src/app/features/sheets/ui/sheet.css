@@ -825,123 +825,344 @@
   border-bottom: 1.5px solid var(--on-signal);
 }
 
-/* ---------- touch action bar ---------- */
-
-.sh-touchbar {
-  z-index: var(--z-popover);
-  display: flex;
-  align-items: stretch;
-  gap: 1px;
-  max-width: calc(100vw - 16px);
-  padding: 3px;
-  border-radius: var(--radius-2);
-  background: var(--ink);
-  color: var(--ink-inverse);
-  box-shadow: var(--shadow-pop);
-  animation: pop-in var(--dur-1) var(--ease-out);
-}
-
-.sh-touchbar__keys {
-  display: flex;
-  min-width: 0;
-  overflow-x: auto;
-  scrollbar-width: none;
-}
-
-.sh-touchbar__keys::-webkit-scrollbar {
-  display: none;
-}
-
-.sh-touchbar__group {
-  display: flex;
-  flex: none;
-  gap: 1px;
-}
-
-.sh-touchbar__group + .sh-touchbar__group {
-  margin-left: 2px;
-  padding-left: 2px;
-  border-left: 1px solid color-mix(in srgb, var(--ink-inverse) 22%, transparent);
-}
-
-.sh-touchbar.is-stacked .sh-touchbar__keys {
-  flex-wrap: wrap;
-  gap: 1px 10px;
-}
-
-.sh-touchbar.is-stacked .sh-touchbar__group + .sh-touchbar__group {
-  margin-left: 0;
-  padding-left: 0;
-  border-left: 0;
-}
-
-.sh-touchbar > .sh-touchbar__key {
-  margin-left: 2px;
-  border-left: 1px solid color-mix(in srgb, var(--ink-inverse) 22%, transparent);
-  border-radius: 0 var(--radius-1) var(--radius-1) 0;
-}
-
-.sh-touchbar__key {
-  display: inline-flex;
-  flex: none;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 4px;
-  min-width: 38px;
-  height: 42px;
-  padding: 0 3px;
-  border: 0;
+/* the "⋯" key (touch): ink on paper, by the selection's bottom-right handle, right of the fill tab — the cell menu */
+.sg-menukey {
+  position: absolute;
+  z-index: 2;
+  display: grid;
+  place-items: center;
+  box-sizing: border-box;
+  width: 32px;
+  height: 24px;
+  margin-top: 5px;
+  padding: 0;
+  border: 1px solid var(--ink);
   border-radius: var(--radius-1);
-  background: transparent;
-  color: inherit;
-  opacity: 0.9;
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: 0 1px 0 var(--ink);
   cursor: pointer;
-  transition: background var(--dur-1) var(--ease-out), opacity var(--dur-1) var(--ease-out), transform var(--dur-1) var(--ease-out);
+  touch-action: manipulation;
 }
 
-.sh-touchbar__legend {
+/* a finger-sized hit area (44 × 42) — short of the centre of the row after next */
+.sg-menukey::before {
+  content: '';
+  position: absolute;
+  inset: -10px -6px -8px;
+}
+
+/* no :hover / :active styles here: Chrome would snap touches meant for the cells around onto the key */
+
+/* the grid and what sits on its top edge ("+ Area" waiting for its area) */
+.sh-grid {
+  position: relative;
+}
+
+.sh-areachip {
+  position: absolute;
+  top: 2px;
+  right: 3px;
+  z-index: 7;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  max-width: calc(100% - 52px);
+  height: 22px;
+  padding-left: 8px;
+  border: 1px solid var(--signal);
+  border-radius: var(--radius-1);
+  background: var(--surface);
+  box-shadow: 0 2px 6px -2px var(--rule-strong);
   font-family: var(--font-mono);
-  font-size: 8.5px;
-  font-weight: 500;
-  letter-spacing: 0.04em;
-  line-height: 1;
+  font-size: var(--text-2xs);
+  letter-spacing: var(--tracking-label);
   text-transform: uppercase;
   white-space: nowrap;
+  animation: sh-chip-in var(--dur-2) var(--ease-out);
 }
 
-.sh-touchbar__key:hover:not(:disabled) {
-  opacity: 1;
-  background: color-mix(in srgb, var(--ink-inverse) 10%, transparent);
+.sh-areachip__label {
+  flex: none;
+  font-weight: 700;
+  color: var(--signal-ink);
 }
 
-.sh-touchbar__key:active:not(:disabled) {
+.sh-areachip__hint {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ink-2);
+  text-overflow: ellipsis;
+}
+
+.sh-areachip__hint::before {
+  content: '· ';
+  color: var(--ink-3);
+}
+
+.sh-areachip__x {
+  position: relative;
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 28px;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  border-left: 1px solid var(--rule);
+  background: transparent;
+  color: var(--ink-2);
+  cursor: pointer;
+}
+
+/* taller to the finger: up over the formula bar's edge, never down onto the cells */
+.sh-areachip__x::before {
+  content: '';
+  position: absolute;
+  inset: -12px -4px -3px;
+}
+
+.sh-areachip__x:active {
   transform: translateY(1px);
-  background: color-mix(in srgb, var(--ink-inverse) 16%, transparent);
+  color: var(--ink);
 }
 
-.sh-touchbar__key:disabled {
-  opacity: 0.35;
-  cursor: default;
-}
-
-.sh-touchbar__key[aria-pressed='true'] {
-  opacity: 1;
-  color: var(--signal);
-  background: color-mix(in srgb, var(--ink-inverse) 9%, transparent);
-  box-shadow: inset 0 -2px 0 var(--signal);
-}
-
-.sh-touchbar__key:focus-visible {
+.sh-areachip__x:focus-visible {
   outline: none;
   box-shadow: inset 0 0 0 2px var(--signal);
 }
 
+@keyframes sh-chip-in {
+  from {
+    opacity: 0;
+    transform: translateY(-3px);
+  }
+}
+
+/* ---------- touch: the cell menu ---------- */
+
+.sh-cmenu {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: var(--z-popover);
+  display: flex;
+  flex-direction: column;
+  width: min(304px, calc(100vw - 16px));
+  overflow: hidden auto;
+  overscroll-behavior: contain;
+  border-radius: var(--radius-2);
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: var(--shadow-pop);
+  font-size: var(--text-sm);
+  animation: pop-in var(--dur-1) var(--ease-out);
+}
+
+/* the selection fills the screen: a sheet across it, docked to the edge it covers less of */
+.sh-cmenu.is-docked {
+  width: calc(100vw - 16px);
+  max-width: 480px;
+}
+
+.sh-cmenu__body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  outline: none;
+}
+
+.sh-cmenu__head {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  height: 28px;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--rule-strong);
+  background: var(--surface-2);
+}
+
+.sh-cmenu__ref {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ink);
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sh-cmenu__group + .sh-cmenu__group {
+  border-top: 1px solid var(--rule);
+}
+
+.sh-cmenu__group.is-keys {
+  display: grid;
+  grid-auto-columns: 1fr;
+  grid-auto-flow: column;
+}
+
+.sh-cmenu__row,
+.sh-cmenu__key,
+.sh-cmenu__back {
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  cursor: pointer;
+  transition: background var(--dur-1) var(--ease-out), transform var(--dur-1) var(--ease-out);
+}
+
+.sh-cmenu__row {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  width: 100%;
+  min-height: 44px;
+  padding: 0 12px;
+  font-size: var(--text-md);
+  text-align: left;
+}
+
+.sh-cmenu__row svg,
+.sh-cmenu__key svg {
+  flex: none;
+  color: var(--ink-2);
+}
+
+.sh-cmenu__text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sh-cmenu__hint {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+  color: var(--ink-3);
+}
+
+.sh-cmenu__count {
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+}
+
+/* + Area latched: the key reads on */
+.sh-cmenu__row[aria-pressed='true'] .sh-cmenu__text {
+  color: var(--signal-ink);
+  font-weight: 600;
+}
+
+.sh-cmenu__row[aria-pressed='true'] svg {
+  color: var(--signal);
+}
+
+.sh-cmenu__key {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  min-width: 0;
+  min-height: 50px;
+  padding: 4px 2px;
+}
+
+.sh-cmenu__key + .sh-cmenu__key {
+  border-left: 1px solid var(--rule);
+}
+
+.sh-cmenu__legend {
+  max-width: 100%;
+  overflow: hidden;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  /* room above the caps: Ü / Ä keep their dots */
+  line-height: 1.4;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.sh-cmenu__row:active:not(:disabled),
+.sh-cmenu__key:active:not(:disabled),
+.sh-cmenu__back:active {
+  transform: translateY(1px);
+  background: var(--surface-2);
+}
+
+@media (hover: hover) {
+  .sh-cmenu__row:hover:not(:disabled),
+  .sh-cmenu__key:hover:not(:disabled),
+  .sh-cmenu__back:hover {
+    background: var(--hover);
+  }
+}
+
+.sh-cmenu__row:disabled,
+.sh-cmenu__key:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.sh-cmenu__row:focus-visible,
+.sh-cmenu__key:focus-visible,
+.sh-cmenu__back:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 2px var(--signal);
+}
+
+/* a sub-view (Pick a value, More…): back to the menu */
+.sh-cmenu__back {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 0 12px 0 8px;
+  border-bottom: 1px solid var(--rule-strong);
+  background: var(--surface-2);
+  text-align: left;
+}
+
+.sh-cmenu__back .label {
+  color: var(--ink);
+}
+
+.sh-cmenu .sh-pick__search {
+  margin: 8px 8px 4px;
+}
+
+.sh-cmenu__more {
+  padding: 4px;
+}
+
+.sh-cmenu__more .menu-item {
+  min-height: 44px;
+  padding: 0 10px;
+  font-size: var(--text-md);
+}
+
+.sh-cmenu__more .menu-sep {
+  margin: 4px -4px;
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .sh-touchbar {
+  .sh-cmenu,
+  .sh-areachip {
     animation: none;
   }
-  .sh-touchbar__key,
+  .sh-cmenu__row,
+  .sh-cmenu__key,
+  .sh-cmenu__back,
   .sg-handle {
     transition: none;
   }
@@ -1016,7 +1237,7 @@
   min-height: 0;
 }
 
-/* the long-press sheet: finger-sized rows */
+/* the cell menu's Pick a value: finger-sized rows */
 .sh-pick__panel.is-touch .sh-pick__search {
   height: 40px;
   font-size: var(--text-md);
@@ -1169,60 +1390,10 @@
   flex: none;
 }
 
-/* ---------- touch: the long-press sheet ---------- */
-
-.sh-hold {
-  display: flex;
-  flex-direction: column;
-  width: min(300px, calc(100vw - 16px));
-  padding: 0;
-  overflow: hidden;
-}
-
-.sh-hold__body {
-  display: flex;
-  flex: 1;
-  flex-direction: column;
-  min-height: 0;
-  outline: none;
-}
-
-.sh-hold__head {
-  flex: none;
-  padding: 7px 10px 6px;
-  border-bottom: 1px solid var(--rule);
-  color: var(--ink-2);
-}
-
-.sh-hold__keys {
-  display: grid;
-  flex: none;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 1px;
-  margin: 6px 6px 0;
-  padding: 3px;
-  border-radius: var(--radius-2);
-  background: var(--ink);
-  color: var(--ink-inverse);
-}
-
-.sh-hold__keys .sh-touchbar__key {
-  width: 100%;
-  height: 48px;
-}
-
-.sh-hold__section {
-  flex: none;
-  padding: 10px 10px 0;
-}
-
-.sh-hold .sh-pick__search {
-  margin: 6px 6px 4px;
-}
-
-/* "+ Area" latched by a long-press drag: the next long press adds another area */
-.sh-touchbar__key[aria-pressed='true'].is-hint {
-  box-shadow: inset 0 -2px 0 var(--signal), inset 0 0 0 1px color-mix(in srgb, var(--signal) 55%, transparent);
+/* "+ Area" latched in the strip (the next tap adds another reference) */
+.sh-strip__chip[aria-pressed='true'] {
+  background: var(--signal-wash);
+  box-shadow: inset 0 -2px 0 var(--signal);
 }
 
 @media (prefers-reduced-motion: reduce) {

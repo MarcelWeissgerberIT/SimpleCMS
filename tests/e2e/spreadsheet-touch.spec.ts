@@ -1,11 +1,14 @@
 /**
  * Spreadsheet block by touch (phone 390 px and tablet 768 px, touch driven through the Chrome
  * DevTools protocol): selection handles, long press + drag, swipe still scrolls, header taps and
- * drags, the touch action bar (copy / paste, fill, clear, chart, "+ Area" for DS(…) areas — also
- * while pointing in a formula), read-only, the fill tab, and that a finger's long press never opens
- * the cell menu. Phone keyboards (IME compositions, inserted text, keyCode 229 keydowns, input
- * events instead of keys): AutoComplete, the suggestion strip (values, functions, datasets, "Pick
- * range"), the long-press sheet (pick a value, + Area, fill, edit) and long presses in formulas.
+ * drags, read-only, the fill tab. The cell menu (no floating bar): a tap selects with no overlay, a
+ * second tap on the selection, the "⋯" key or a long press (at the threshold, the finger still
+ * down — with pointer events, touch events or both) opens it; every entry (copy / cut / paste,
+ * fill, clear, chart, pick a value, + Area with its chip, edit, more); it never covers the
+ * selection. Phone keyboards (IME compositions, inserted text, keyCode 229 keydowns, input events
+ * instead of keys): AutoComplete, the suggestion strip (values, functions, datasets, "Pick range",
+ * + Area / Type / Done while pointing) and long presses in formulas. iOS sequences (cancelled
+ * fingers, compatibility mouse events, pointer events that stop).
  */
 import type { Locator, Page } from '@playwright/test'
 import { test, expect, openApp, gotoPage, createPage, wsEval, flush } from './fixtures'
@@ -45,8 +48,14 @@ function pos(addr: string): [number, number] {
 }
 const cell = (page: Page, addr: string) => page.locator(`.sheet [data-cell="${pos(addr).join(':')}"]`)
 const nameBox = (page: Page) => page.locator('.sheet .sh-bar__ref')
-const bar = (page: Page) => page.locator('.sh-touchbar')
-const key = (page: Page, name: string) => bar(page).getByRole('button', { name, exact: true })
+/** the cell menu (any) and one of its entries */
+const menu = (page: Page) => page.locator('.sh-cmenu')
+const entry = (page: Page, name: string) => menu(page).getByRole('menuitem', { name, exact: true })
+/** the "⋯" key on the selection */
+const menuKey = (page: Page) => page.locator('.sheet .sg-menukey')
+/** "+ Area" waiting for its area: the chip on the grid's top edge */
+const areaChip = (page: Page) => page.locator('.sheet .sh-areachip')
+const AREA = 'Add another area (like ⌘/Ctrl-click): tap or drag where it goes'
 
 async function mid(loc: Locator): Promise<{ x: number; y: number }> {
   const b = (await loc.boundingBox())!
@@ -70,6 +79,13 @@ async function finger(page: Page) {
       await page.waitForTimeout(450)
     },
     async tap(p: { x: number; y: number }) {
+      await send('touchStart', p)
+      await send('touchEnd')
+      await page.waitForTimeout(350)
+    },
+    /** a tap on what a tap just selected — apart enough not to be a double tap (that edits) */
+    async again(p: { x: number; y: number }) {
+      await page.waitForTimeout(300)
       await send('touchStart', p)
       await send('touchEnd')
       await page.waitForTimeout(350)
@@ -108,7 +124,27 @@ async function phoneKeys(page: Page) {
 
 const strip = (page: Page) => page.locator('.sh-strip')
 const chip = (page: Page, name: string | RegExp) => strip(page).getByRole('button', { name })
-const holdSheet = (page: Page) => page.locator('.sh-hold')
+
+/** Neither rectangle overlaps the other. */
+function apart(a: { x: number; y: number; width: number; height: number }, b: { x: number; y: number; width: number; height: number }): boolean {
+  return a.x + a.width <= b.x || b.x + b.width <= a.x || a.y + a.height <= b.y || b.y + b.height <= a.y
+}
+
+/** The cell menu lies inside the screen and off the selected cells (`from`…`to`). */
+async function menuClear(page: Page, from: string, to: string, width: number, height: number) {
+  const m = (await menu(page).boundingBox())!
+  expect(m.x).toBeGreaterThanOrEqual(0)
+  expect(m.y).toBeGreaterThanOrEqual(0)
+  expect(m.x + m.width).toBeLessThanOrEqual(width)
+  expect(m.y + m.height).toBeLessThanOrEqual(height)
+  const a = (await cell(page, from).boundingBox())!
+  const b = (await cell(page, to).boundingBox())!
+  const sel = { x: a.x, y: a.y, width: b.x + b.width - a.x, height: b.y + b.height - a.y }
+  expect(apart(m, sel), `menu ${JSON.stringify(m)} over the selection ${JSON.stringify(sel)}`).toBe(true)
+}
+
+/** A gesture just ended: its leftover compatibility mouse events are ignored for a moment — let them pass. */
+const settle = (page: Page) => page.waitForTimeout(450)
 
 /** The block's attrs as stored (after the editor's write debounce). */
 async function stored(page: Page, id: string): Promise<{ sheets: Array<{ cells: Record<string, { v?: string }> }>; charts: Array<{ spec: { source: { kind: string; ref: string } } }> }> {
@@ -129,7 +165,10 @@ test.describe('spreadsheet block by touch — phone', () => {
     await cell(page, 'B2').tap()
     await expect(nameBox(page)).toHaveText('B2')
     await expect(page.locator('.sheet .sg-handle')).toHaveCount(2)
-    await expect(bar(page)).toBeVisible()
+    // no floating bar, no menu: the selection, its handles and its "⋯" key
+    await expect(page.locator('.sh-touchbar')).toHaveCount(0)
+    await expect(menu(page)).toHaveCount(0)
+    await expect(menuKey(page)).toBeVisible()
     // the fill tab is not the corner handle: it hangs outside it
     const br = (await page.locator('.sheet .sg-handle.is-br').boundingBox())!
     const tab = (await page.locator('.sheet .sg-fill.is-tab').boundingBox())!
@@ -148,12 +187,75 @@ test.describe('spreadsheet block by touch — phone', () => {
     await expect(page.locator('.sheet .sh-status')).toContainText('SUM 51')
 
     // a tap that lands on a handle belongs to the cell under it
+    await settle(page)
     const h = await mid(page.locator('.sheet .sg-handle.is-br'))
     await f.tap({ x: h.x + 10, y: h.y + 10 })
     await expect(nameBox(page)).toHaveText('E6')
+    await expect(menu(page)).toHaveCount(0)
   })
 
-  test('long press + drag selects a range; a swipe scrolls and selects nothing; a tap selects one cell', async ({ page }) => {
+  test('the cell menu: a tap selects (nothing pops up), a second tap on the selection opens it, so does the "⋯" key; Esc and a tap outside close it', async ({ page }) => {
+    await openApp(page)
+    await touchSheet(page, NUMBERS)
+    const f = await finger(page)
+    await f.tap(await mid(cell(page, 'B2')))
+    await expect(nameBox(page)).toHaveText('B2')
+    await expect(menu(page)).toHaveCount(0)
+    // the same cell again (no double tap — that edits): its menu
+    await f.again(await mid(cell(page, 'B2')))
+    await expect(page.getByRole('dialog', { name: 'Cell menu B2' })).toBeVisible()
+    await expect(menu(page)).toContainText('1 cell')
+    await menuClear(page, 'B2', 'B2', 390, 844)
+    // a tap outside closes it and selects there (it doesn't reopen on the tapped selection either)
+    await f.tap(await mid(cell(page, 'C7')))
+    await expect(menu(page)).toHaveCount(0)
+    await expect(nameBox(page)).toHaveText('C7')
+
+    // a range: a tap anywhere inside it
+    await f.drag(await mid(page.locator('.sheet .sg-handle.is-br')), await mid(cell(page, 'D9')))
+    await expect(nameBox(page)).toHaveText('C7:D9')
+    await settle(page)
+    await f.tap(await mid(cell(page, 'D8')))
+    await expect(page.getByRole('dialog', { name: 'Cell menu C7:D9' })).toBeVisible()
+    await expect(menu(page)).toContainText('6 cells')
+    await expect(nameBox(page)).toHaveText('C7:D9')
+    await menuClear(page, 'C7', 'D9', 390, 844)
+    await page.keyboard.press('Escape')
+    await expect(menu(page)).toHaveCount(0)
+    // the keyboard is back on the grid
+    await expect(page.locator('.sheet .sg')).toBeFocused()
+
+    // the "⋯" key: 32 px to see, a finger-sized hit area, in a corner diagonal to the selection — below-left
+    // here (below-right, right of the fill tab, is out of view)
+    const k = (await menuKey(page).boundingBox())!
+    const sel = (await cell(page, 'C9').boundingBox())!
+    expect(k.width).toBe(32)
+    expect(k.y).toBeGreaterThanOrEqual(sel.y + sel.height)
+    expect(k.x + k.width).toBeLessThanOrEqual(sel.x)
+    // the cells right below the selection stay free at their centres
+    for (const n of ['C10', 'D10']) {
+      const c = await mid(cell(page, n))
+      expect(await page.evaluate(([x, y]) => !!document.elementFromPoint(x, y)?.closest('[data-cell]'), [c.x, c.y])).toBe(true)
+    }
+    expect(await menuKey(page).evaluate((el) => getComputedStyle(el, '::before').inset)).toBe('-10px -6px -8px')
+    await menuKey(page).tap()
+    await expect(page.getByRole('dialog', { name: 'Cell menu C7:D9' })).toBeVisible()
+    // the handles and the key step aside while it is open
+    await expect(page.locator('.sheet .sg-handle')).toHaveCount(0)
+    await expect(menuKey(page)).toHaveCount(0)
+    // a hardware keyboard (iPad): the arrows walk the entries
+    await page.keyboard.press('ArrowDown')
+    await expect(entry(page, 'Pick a value for C7')).toBeFocused()
+    await page.keyboard.press('ArrowRight')
+    await expect(entry(page, AREA)).toBeFocused()
+    await page.keyboard.press('End')
+    await expect(entry(page, 'More cell actions')).toBeFocused()
+    // a scroll closes it
+    await page.locator('.sheet .sg').evaluate((el) => (el.scrollLeft = 40))
+    await expect(menu(page)).toHaveCount(0)
+  })
+
+  test('long press + drag selects a range (the menu that opened at the threshold closes); a swipe scrolls and selects nothing; a tap selects one cell', async ({ page }) => {
     await openApp(page)
     await touchSheet(page, NUMBERS)
     const f = await finger(page)
@@ -161,6 +263,7 @@ test.describe('spreadsheet block by touch — phone', () => {
     await f.drag(await mid(cell(page, 'B3')), await mid(cell(page, 'C5')), { hold: 550 })
     await expect(nameBox(page)).toHaveText('B3:C5')
     await expect(page.locator('.sheet .sh-status')).toContainText('SUM 45')
+    await expect(menu(page)).toHaveCount(0)
 
     // a swipe: the grid scrolls, the selection stays
     const grid = page.locator('.sheet .sg')
@@ -168,12 +271,13 @@ test.describe('spreadsheet block by touch — phone', () => {
     await f.drag(from, { x: from.x - 200, y: from.y }, { steps: 10 })
     await expect.poll(() => grid.evaluate((el) => el.scrollLeft)).toBeGreaterThan(40)
     await expect(nameBox(page)).toHaveText('B3:C5')
+    await expect(menu(page)).toHaveCount(0)
 
     await grid.evaluate((el) => (el.scrollLeft = 0))
     await page.waitForTimeout(300)
     await cell(page, 'B9').tap()
     await expect(nameBox(page)).toHaveText('B9')
-    // a finger's long press is no right-click: the cell menu stays closed (it is ⋯ on the bar)
+    // a finger's long press is no right-click: the desktop menu stays closed (the cell menu opened at the threshold)
     await cell(page, 'B9').evaluate((el) => el.dispatchEvent(new PointerEvent('contextmenu', { pointerType: 'touch', bubbles: true, cancelable: true })))
     await expect(page.getByRole('menu')).toHaveCount(0)
   })
@@ -197,18 +301,21 @@ test.describe('spreadsheet block by touch — phone', () => {
     await expect(nameBox(page)).toHaveText('A1:H12')
   })
 
-  test('action bar: copy → paste into another range, fill down, clear; ⋯ opens the cell menu', async ({ page, context }) => {
+  test('menu entries: copy → paste into another range, cut → paste, fill down / right, clear; More… holds the rest of the cell menu', async ({ page, context }) => {
     await context.grantPermissions(['clipboard-read', 'clipboard-write'])
     await openApp(page)
-    const id = await touchSheet(page, { A5: 'x', B5: '=A6*2', A6: '21', C8: '7' })
+    const id = await touchSheet(page, { A5: 'x', B5: '=A6*2', A6: '21', C8: '7', C2: 'k' })
     const f = await finger(page)
     await cell(page, 'A5').tap()
     await f.drag(await mid(page.locator('.sheet .sg-handle.is-br')), await mid(cell(page, 'B6')))
     await expect(nameBox(page)).toHaveText('A5:B6')
-    await key(page, 'Copy').tap()
+    await menuKey(page).tap()
+    await entry(page, 'Copy').tap()
+    await expect(menu(page)).toHaveCount(0)
     await expect(page.getByText('Copied A5:B6.')).toBeVisible()
-    await cell(page, 'D9').tap()
-    await key(page, 'Paste').tap()
+    await f.tap(await mid(cell(page, 'D9')))
+    await f.again(await mid(cell(page, 'D9')))
+    await entry(page, 'Paste').tap()
     await expect(cell(page, 'D9')).toHaveText('x')
     await expect(cell(page, 'E9')).toHaveText('42')
     await expect(cell(page, 'D10')).toHaveText('21')
@@ -216,64 +323,133 @@ test.describe('spreadsheet block by touch — phone', () => {
     // an internal paste moves the references like ⌘V does
     expect((await stored(page, id)).sheets[0].cells.E9.v).toBe('=D10*2')
 
-    // Fill ↓ from the bar: the top cell of the selection down
-    await cell(page, 'C8').tap()
+    // Cut: the source empties once pasted
+    await f.tap(await mid(cell(page, 'C2')))
+    await menuKey(page).tap()
+    await entry(page, 'Cut').tap()
+    await expect(page.getByText('Cut C2 — paste it where it should go.')).toBeVisible()
+    await f.tap(await mid(cell(page, 'C4')))
+    await menuKey(page).tap()
+    await entry(page, 'Paste').tap()
+    await expect(cell(page, 'C4')).toHaveText('k')
+    await expect(cell(page, 'C2')).toHaveText('')
+
+    // Fill ↓ from the menu: the top cell of the selection down
+    await f.tap(await mid(cell(page, 'C8')))
     await f.drag(await mid(page.locator('.sheet .sg-handle.is-br')), await mid(cell(page, 'C11')))
     await expect(nameBox(page)).toHaveText('C8:C11')
-    await key(page, 'Fill down').tap()
+    await settle(page)
+    await f.tap(await mid(cell(page, 'C9')))
+    await entry(page, 'Fill down').tap()
     await expect(cell(page, 'C11')).toHaveText('7')
     await expect(page.locator('.sheet .sh-status')).toContainText('SUM 28')
+    // Fill → on a single column takes the column to its left; column A has none: greyed
+    await f.tap(await mid(cell(page, 'D8')))
+    await menuKey(page).tap()
+    await entry(page, 'Fill right').tap()
+    await expect(cell(page, 'D8')).toHaveText('7')
+    await f.tap(await mid(cell(page, 'A9')))
+    await menuKey(page).tap()
+    await expect(entry(page, 'Fill right')).toBeDisabled()
+    await expect(entry(page, 'Fill down')).toBeEnabled()
+    await page.keyboard.press('Escape')
 
     // Clear
-    await key(page, 'Clear contents').tap()
+    await f.tap(await mid(cell(page, 'C8')))
+    await f.drag(await mid(page.locator('.sheet .sg-handle.is-br')), await mid(cell(page, 'C11')))
+    await menuKey(page).tap()
+    await entry(page, 'Clear contents').tap()
     await expect(cell(page, 'C8')).toHaveText('')
     await expect(cell(page, 'C11')).toHaveText('')
 
-    // ⋯: the existing cell menu (with Fill series)
-    await key(page, 'More cell actions').tap()
-    await expect(page.getByRole('menuitem', { name: 'Fill series' })).toBeVisible()
-    await page.keyboard.press('Escape')
+    // More…: the cell menu's other entries in place (with Fill series), back returns
+    await menuKey(page).tap()
+    await entry(page, 'More cell actions').tap()
+    await expect(menu(page).getByRole('menuitem', { name: 'Fill series' })).toBeVisible()
+    await menu(page).getByRole('button', { name: /^Back/ }).tap()
+    await expect(entry(page, 'Copy')).toBeVisible()
+    await entry(page, 'More cell actions').tap()
+    await menu(page).getByRole('menuitem', { name: 'Insert row below' }).tap()
+    await expect(menu(page)).toHaveCount(0)
     const a = await stored(page, id)
     expect(a.sheets[0].cells.C9).toBeUndefined()
+    expect(a.sheets[0].cells.C4.v).toBe('k')
+    expect(a.sheets[0].cells.C2).toBeUndefined()
+    expect(a.sheets[0].cells.D8.v).toBe('7')
+    // four rows went in under C8:C11
+    expect((a.sheets[0] as unknown as { rows: number }).rows).toBe(16)
   })
 
-  test('"+ Area" builds a second area: the chart takes DS(…) of both; pointing in a formula adds an area too', async ({ page }) => {
+  test('"+ Area": the chip waits on the grid\'s top edge, a tap starts the next area, the chart takes DS(…) of both; × cancels; pointing in a formula adds an area from the strip', async ({ page }) => {
     await openApp(page)
     const id = await touchSheet(page, { A1: '1', A2: '2', A3: '3', C1: '10', C2: '20', A6: '4', A7: '5', A8: '6', C6: '7', C7: '8' })
     const f = await finger(page)
     await cell(page, 'A1').tap()
     await f.drag(await mid(page.locator('.sheet .sg-handle.is-br')), await mid(cell(page, 'A3')))
     await expect(nameBox(page)).toHaveText('A1:A3')
-    await key(page, 'Add another area (like ⌘/Ctrl-click): tap or hold where it starts').tap()
-    await expect(key(page, 'Add another area (like ⌘/Ctrl-click): tap or hold where it starts')).toHaveAttribute('aria-pressed', 'true')
-    await cell(page, 'C1').tap()
+    await menuKey(page).tap()
+    await expect(entry(page, AREA)).toHaveAttribute('aria-pressed', 'false')
+    await entry(page, AREA).tap()
+    await expect(menu(page)).toHaveCount(0)
+    // the chip sits on the column letters, over no cell
+    await expect(areaChip(page)).toBeVisible()
+    await expect(areaChip(page)).toContainText('+ Area')
+    await expect(areaChip(page)).toContainText('tap or drag the next one')
+    const c = (await areaChip(page).boundingBox())!
+    const row1 = (await cell(page, 'B1').boundingBox())!
+    expect(c.y + c.height).toBeLessThanOrEqual(row1.y)
+    expect(c.x + c.width).toBeLessThanOrEqual(390)
+    // latched: the menu shows it on
+    await menuKey(page).tap()
+    await expect(entry(page, AREA)).toHaveAttribute('aria-pressed', 'true')
+    await page.keyboard.press('Escape')
+    await f.tap(await mid(cell(page, 'C1')))
+    await expect(nameBox(page)).toHaveText('C1 +1')
+    await expect(areaChip(page)).toHaveCount(0)
     await f.drag(await mid(page.locator('.sheet .sg-handle.is-br')), await mid(cell(page, 'C2')))
     await expect(nameBox(page)).toHaveText('C1:C2 +1')
     await expect(page.locator('.sheet .sg-ov--sel')).toHaveCount(2)
     await expect(page.locator('.sheet .sh-status')).toContainText('SUM 36')
-    await key(page, 'Chart from the selection').tap()
+    await menuKey(page).tap()
+    await expect(menu(page)).toContainText('5 cells')
+    await entry(page, 'Chart from the selection').tap()
     await page.locator('[data-testid="chart-builder-save"]').tap()
     await expect(page.locator('.sheet .sh-chart')).toHaveCount(1)
     expect((await stored(page, id)).charts[0].spec.source.ref).toBe('DS(A1:A3; C1:C2)')
 
-    // a typed =SUM(DS( and two areas pointed by touch (below the formula's signature hint)
+    // × on the chip: nothing waits any more, the next tap selects
+    await f.tap(await mid(cell(page, 'B5')))
+    await menuKey(page).tap()
+    await entry(page, AREA).tap()
+    await areaChip(page).getByRole('button', { name: 'Cancel “+ Area”' }).tap()
+    await expect(areaChip(page)).toHaveCount(0)
+    await f.tap(await mid(cell(page, 'B8')))
+    await expect(nameBox(page)).toHaveText('B8')
+
+    // a typed =SUM(DS(, one area pointed by a long press, "+ Area" in the strip, the next by a tap
     await cell(page, 'D1').tap()
     await page.getByRole('textbox', { name: 'Formula' }).tap()
     await page.keyboard.type('=SUM(DS(')
-    await expect(bar(page).getByRole('button')).toHaveCount(1)
+    await expect(chip(page, AREA)).toHaveCount(0)
     await f.drag(await mid(cell(page, 'A6')), await mid(cell(page, 'A8')), { hold: 550 })
     const input = page.locator('.sh-bar .fx-input__field')
     await expect(input).toHaveValue('=SUM(DS(A6:A8')
-    await key(page, 'Add another area (like ⌘/Ctrl-click): tap or hold where it starts').tap()
-    await f.drag(await mid(cell(page, 'C6')), await mid(cell(page, 'C7')), { hold: 550 })
-    await expect(input).toHaveValue('=SUM(DS(A6:A8; C6:C7')
+    await expect(menu(page)).toHaveCount(0)
+    await expect(chip(page, AREA)).toHaveAttribute('aria-pressed', 'false')
+    await chip(page, AREA).tap()
+    await expect(chip(page, AREA)).toHaveAttribute('aria-pressed', 'true')
+    await settle(page)
+    await f.tap(await mid(cell(page, 'C6')))
+    await expect(input).toHaveValue('=SUM(DS(A6:A8; C6')
+    // the selection's chip never shows while a formula is edited
+    await expect(areaChip(page)).toHaveCount(0)
     await page.keyboard.type('))')
     await page.keyboard.press('Enter')
-    await expect(cell(page, 'D1')).toHaveText('30')
-    expect((await stored(page, id)).sheets[0].cells.D1.v).toBe('=SUM(DS(A6:A8; C6:C7))')
+    await expect(cell(page, 'D1')).toHaveText('22')
+    expect((await stored(page, id)).sheets[0].cells.D1.v).toBe('=SUM(DS(A6:A8; C6))')
   })
 
-  test('read-only: handles still select, the bar only copies, no fill tab', async ({ page }) => {
+  test('read-only: handles still select, the "⋯" key stays, the menu only copies, no fill tab', async ({ page }) => {
     await openApp(page)
     const id = await touchSheet(page, NUMBERS)
     await wsEval(page, (s, id) => s.updatePageSettings(id, { locked: true }), id)
@@ -285,32 +461,55 @@ test.describe('spreadsheet block by touch — phone', () => {
     await f.drag(await mid(page.locator('.sheet .sg-handle.is-br')), await mid(cell(page, 'C3')))
     await expect(nameBox(page)).toHaveText('B2:C3')
     await expect(page.locator('.sheet .sh-status')).toContainText('SUM 12')
-    await expect(bar(page).getByRole('button')).toHaveCount(1)
-    await expect(key(page, 'Copy')).toBeVisible()
+    await expect(menuKey(page)).toBeVisible()
+    await menuKey(page).tap()
+    await expect(menu(page).getByRole('menuitem')).toHaveCount(1)
+    await entry(page, 'Copy').tap()
+    await expect(page.getByText('Copied B2:C3.')).toBeVisible()
+    // a long press: the same menu, Copy alone
+    await f.down(await mid(cell(page, 'B7')))
+    await expect(menu(page).getByRole('menuitem')).toHaveCount(1)
+    await f.up()
   })
 
-  test('German: the bar speaks German and fits the phone (its groups stack)', async ({ page }) => {
+  test('German: the menu speaks German and fits the phone — rows and keys finger-sized; the chip too', async ({ page }) => {
     await openApp(page)
     await wsEval(page, (s) => s.updateSettings({ language: 'de' }))
     await touchSheet(page, NUMBERS)
-    await cell(page, 'B6').tap()
-    await expect(key(page, 'Kopieren')).toBeVisible()
-    await expect(key(page, 'Nach unten ausfüllen')).toContainText('Füllen ↓')
-    const box = (await bar(page).boundingBox())!
+    const f = await finger(page)
+    await f.tap(await mid(cell(page, 'A6')))
+    await f.again(await mid(cell(page, 'A6')))
+    const m = page.getByRole('dialog', { name: 'Zellmenü A6' })
+    await expect(m).toBeVisible()
+    await expect(m).toContainText('1 Zelle')
+    await expect(m.getByRole('menuitem', { name: 'Kopieren', exact: true })).toContainText('Kopieren')
+    await expect(m.getByRole('menuitem', { name: 'Nach unten ausfüllen' })).toContainText('Füllen ↓')
+    await expect(m.getByRole('menuitem', { name: 'Wert für A6 wählen' })).toContainText('Wert wählen')
+    await expect(m.getByRole('menuitem', { name: 'A6 bearbeiten' })).toContainText('Bearbeiten')
+    await expect(m.getByRole('menuitem', { name: 'Weitere Zellaktionen' })).toContainText('Mehr…')
+    // a single column A: nothing to its left to fill from
+    await expect(m.getByRole('menuitem', { name: 'Nach rechts ausfüllen' })).toBeDisabled()
+    const box = (await m.boundingBox())!
     expect(box.x).toBeGreaterThanOrEqual(0)
     expect(box.x + box.width).toBeLessThanOrEqual(390)
-    // every key is on screen, none scrolled away
-    for (const k of await bar(page).getByRole('button').all()) {
+    for (const k of await m.getByRole('menuitem').all()) {
       const b = (await k.boundingBox())!
       expect(b.x + b.width).toBeLessThanOrEqual(390)
-      expect(b.width).toBeGreaterThanOrEqual(38)
-      expect(b.height).toBeGreaterThanOrEqual(40)
+      expect(b.width).toBeGreaterThanOrEqual(44)
+      expect(b.height).toBeGreaterThanOrEqual(44)
     }
+    await m.getByRole('menuitem', { name: /^Weiteren Bereich hinzufügen/ }).tap()
+    await expect(areaChip(page)).toContainText('+ Bereich')
+    await expect(areaChip(page)).toContainText('tippen oder ziehen')
+    const c = (await areaChip(page).boundingBox())!
+    expect(c.x).toBeGreaterThanOrEqual(0)
+    expect(c.x + c.width).toBeLessThanOrEqual(390)
+    // the whole hint fits (no ellipsis)
+    expect(await areaChip(page).locator('.sh-areachip__hint').evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true)
   })
 })
 
 const TASKS: Cells = { A1: 'Task', A2: 'Website relaunch', A3: 'Design review', A4: 'Webinar', B1: 'Owner', B2: 'Ada', B3: 'Grace', B4: 'Ada', C1: '1', C2: '2', C3: '3', C4: '4' }
-const AREA = 'Add another area (like ⌘/Ctrl-click): tap or hold where it starts'
 
 test.describe('spreadsheet block by touch — phone keyboards and long presses', () => {
   test.use({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true })
@@ -323,9 +522,9 @@ test.describe('spreadsheet block by touch — phone keyboards and long presses',
     const cellInput = page.locator('.fx-input--cell input')
     const ghost = page.locator('.fx-input--cell .fx-ghost')
 
-    // A5: the long-press sheet's Edit opens the in-cell editor (the keyboard comes up)
+    // A5: the cell menu's Edit opens the in-cell editor (the keyboard comes up)
     await f.drag(await mid(cell(page, 'A5')), await mid(cell(page, 'A5')), { hold: 550 })
-    await holdSheet(page).getByRole('button', { name: 'Edit the cell' }).tap()
+    await entry(page, 'Edit A5').tap()
     await expect(cellInput).toBeFocused()
     // "We" composed like Android keyboards do: no usable keydown, an IME composition
     await kb.compose('W')
@@ -426,17 +625,20 @@ test.describe('spreadsheet block by touch — phone keyboards and long presses',
     await kb.insert('=MAX(')
     await chip(page, 'Pick range').tap()
     await expect(bar).not.toBeFocused()
-    // the strip steps aside too; the corner bar has + Area, Type, Done
-    await expect(strip(page)).toHaveCount(0)
-    await expect(page.locator('.sh-touchbar').getByRole('button')).toHaveCount(3)
+    // the strip turns into the picking keys: Type, Done (+ Area once a reference is pointed) — no floating bar
+    await expect(strip(page)).toContainText('RANGE')
+    await expect(strip(page).getByRole('button')).toHaveText(['Type', 'Done'])
+    await expect(page.locator('.sh-touchbar')).toHaveCount(0)
     await f.drag(await mid(cell(page, 'C4')), await mid(cell(page, 'D5')), { hold: 550 })
     await expect(bar).toHaveValue('=MAX(C4:D5')
+    await expect(menu(page)).toHaveCount(0)
+    await expect(strip(page).getByRole('button')).toHaveText(['+ Area', 'Type', 'Done'])
     // a tap replaces the pointed reference
-    await page.waitForTimeout(200)
+    await settle(page)
     await f.tap(await mid(cell(page, 'C5')))
     await expect(bar).toHaveValue('=MAX(C5')
     await expect(bar).not.toBeFocused()
-    await key(page, 'Keep typing').tap()
+    await chip(page, 'Keep typing').tap()
     await expect(bar).toBeFocused()
     await kb.insert(')')
     await kb.enter()
@@ -447,7 +649,7 @@ test.describe('spreadsheet block by touch — phone keyboards and long presses',
     await kb.insert('=')
     await chip(page, 'Pick range').tap()
     await f.tap(await mid(cell(page, 'B4')))
-    await key(page, 'Done — take the formula').tap()
+    await chip(page, 'Done — take the formula').tap()
     await expect(cell(page, 'E4')).toHaveText('7')
     const a = await stored(page, id)
     expect(a.sheets[0].cells.E2.v).toBe('=SUM(DS(Plan))')
@@ -455,98 +657,124 @@ test.describe('spreadsheet block by touch — phone keyboards and long presses',
     expect(a.sheets[0].cells.E4.v).toBe('=B4')
   })
 
-  test('long press lifted in place: the sheet picks a value, fills down, edits; dragged it stays a range selection', async ({ page }) => {
+  test('long press: the menu opens at the threshold, the finger still down; pick a value, fill down, edit; a finger that travels on closes it for a range', async ({ page }) => {
     await openApp(page)
     const id = await touchSheet(page, TASKS)
     const f = await finger(page)
     const at = async (addr: string) => f.drag(await mid(cell(page, addr)), await mid(cell(page, addr)), { hold: 550 })
 
-    await at('B5')
-    const sheet = page.getByRole('dialog', { name: 'Cell B5' })
-    await expect(sheet).toBeVisible()
-    await expect(sheet).toContainText('Pick a value')
-    await expect(sheet.getByRole('option')).toHaveText(['Ada', 'Grace', 'Owner'])
+    await f.down(await mid(cell(page, 'B5')))
+    const m = page.getByRole('dialog', { name: 'Cell menu B5' })
+    // open while the finger is still down, the cell selected, the menu off it
+    await expect(m).toBeVisible()
+    await expect(nameBox(page)).toHaveText('B5')
+    await menuClear(page, 'B5', 'B5', 390, 844)
+    await f.up()
+    await expect(m).toBeVisible()
+    await expect(entry(page, 'Pick a value for B5')).toContainText('3')
+    await entry(page, 'Pick a value for B5').tap()
+    await expect(m.getByRole('option')).toHaveText(['Ada', 'Grace', 'Owner'])
     // finger-sized, inside the screen
-    for (const o of await sheet.getByRole('option').all()) expect((await o.boundingBox())!.height).toBeGreaterThanOrEqual(44)
-    for (const k of await sheet.getByRole('toolbar').getByRole('button').all()) expect((await k.boundingBox())!.height).toBeGreaterThanOrEqual(44)
-    const box = (await sheet.boundingBox())!
+    for (const o of await m.getByRole('option').all()) expect((await o.boundingBox())!.height).toBeGreaterThanOrEqual(44)
+    const box = (await m.boundingBox())!
     expect(box.x).toBeGreaterThanOrEqual(0)
     expect(box.x + box.width).toBeLessThanOrEqual(390)
     // no keyboard yet: the search field waits for a tap
-    await expect(sheet.getByRole('combobox')).not.toBeFocused()
-    await sheet.getByRole('combobox').tap()
+    await expect(m.getByRole('combobox')).not.toBeFocused()
+    await m.getByRole('combobox').tap()
     await page.keyboard.type('gr')
-    await expect(sheet.getByRole('option')).toHaveText(['Grace'])
-    await sheet.getByRole('option', { name: 'Grace' }).tap()
-    await expect(sheet).toHaveCount(0)
+    await expect(m.getByRole('option')).toHaveText(['Grace'])
+    await m.getByRole('option', { name: 'Grace' }).tap()
+    await expect(m).toHaveCount(0)
     await expect(cell(page, 'B5')).toHaveText('Grace')
 
-    // Fill ↓ from the cell above
+    // Fill ↓ (a single cell takes the one above)
     await at('B6')
-    await page.getByRole('dialog', { name: 'Cell B6' }).getByRole('button', { name: 'Fill down from the cell above' }).tap()
+    await entry(page, 'Fill down').tap()
     await expect(cell(page, 'B6')).toHaveText('Grace')
     // Edit: the in-cell editor with the keyboard
     await at('C6')
-    await page.getByRole('dialog', { name: 'Cell C6' }).getByRole('button', { name: 'Edit the cell' }).tap()
+    await entry(page, 'Edit C6').tap()
     await expect(page.locator('.fx-input--cell input')).toBeFocused()
     await page.keyboard.type('5')
     await page.keyboard.press('Enter')
     await expect(cell(page, 'C6')).toHaveText('5')
-    // Esc / a tap outside closes it without writing
+    // Esc closes it without writing
     await at('B8')
-    await expect(page.getByRole('dialog', { name: 'Cell B8' })).toBeVisible()
+    await expect(page.getByRole('dialog', { name: 'Cell menu B8' })).toBeVisible()
     await page.keyboard.press('Escape')
-    await expect(holdSheet(page)).toHaveCount(0)
+    await expect(menu(page)).toHaveCount(0)
     await expect(cell(page, 'B8')).toHaveText('')
 
-    // dragged: a range, no sheet; "+ Area" is highlighted for the next long press
-    await f.drag(await mid(cell(page, 'C2')), await mid(cell(page, 'C4')), { hold: 550 })
+    // the finger travels on after the menu opened: it closes, the drag selects a range
+    const from = await mid(cell(page, 'C2'))
+    const to = await mid(cell(page, 'C4'))
+    await f.down(from)
+    await expect(page.getByRole('dialog', { name: 'Cell menu C2' })).toBeVisible()
+    for (let i = 1; i <= 6; i++) await f.move({ x: from.x + ((to.x - from.x) * i) / 6, y: from.y + ((to.y - from.y) * i) / 6 })
+    await expect(menu(page)).toHaveCount(0)
     await expect(nameBox(page)).toHaveText('C2:C4')
-    await expect(holdSheet(page)).toHaveCount(0)
-    await expect(key(page, AREA)).toHaveAttribute('aria-pressed', 'true')
-    await expect(key(page, AREA)).toHaveClass(/is-hint/)
-    // a tap starts over (once the long press's leftover mouse events are through)
-    await page.waitForTimeout(200)
-    await cell(page, 'D8').tap()
-    await expect(nameBox(page)).toHaveText('D8')
-    await expect(key(page, AREA)).toHaveAttribute('aria-pressed', 'false')
+    await f.up()
+    await expect(nameBox(page)).toHaveText('C2:C4')
+    await expect(menu(page)).toHaveCount(0)
+    // the keyboard (and so the handles) are back on the grid
+    await expect(page.locator('.sheet .sg')).toBeFocused()
+    await expect(page.locator('.sheet .sg-handle')).toHaveCount(2)
+    // a long press inside the selection: the menu for all of it, the selection stays
+    await settle(page)
+    await f.down(await mid(cell(page, 'C3')))
+    await expect(page.getByRole('dialog', { name: 'Cell menu C2:C4' })).toBeVisible()
+    await f.up()
+    await expect(nameBox(page)).toHaveText('C2:C4')
+    await page.keyboard.press('Escape')
     const a = await stored(page, id)
     expect(a.sheets[0].cells.B5.v).toBe('Grace')
     expect(a.sheets[0].cells.B6.v).toBe('Grace')
     expect(a.sheets[0].cells.C6.v).toBe('5')
   })
 
-  test('"+ Area" from the long-press sheet and a second long-press drag: two areas for a chart; long presses in a formula add areas inside DS(…)', async ({ page }) => {
+  test('"+ Area" from a long-press menu and a long-press drag: two areas for a chart; a drag inside the current area keeps the others; long presses in a formula add areas inside DS(…)', async ({ page }) => {
     await openApp(page)
     const id = await touchSheet(page, { A1: '1', A2: '2', A3: '3', C1: '10', C2: '20', A6: '4', A7: '5', A8: '6', C6: '7', C7: '8' })
     const f = await finger(page)
     await cell(page, 'A1').tap()
     await f.drag(await mid(page.locator('.sheet .sg-handle.is-br')), await mid(cell(page, 'A3')))
     await expect(nameBox(page)).toHaveText('A1:A3')
-    // hold C1, lift: the sheet — "+ Area" starts another area here, A1:A3 stays
-    await f.drag(await mid(cell(page, 'C1')), await mid(cell(page, 'C1')), { hold: 550 })
-    const sheet = page.getByRole('dialog', { name: 'Cell C1' })
-    await expect(sheet.getByRole('button', { name: 'Start another area here' })).toHaveAttribute('aria-pressed', 'false')
-    await sheet.getByRole('button', { name: 'Start another area here' }).tap()
-    await expect(sheet).toHaveCount(0)
-    await expect(nameBox(page)).toHaveText('C1 +1')
-    await expect(key(page, AREA)).toHaveClass(/is-hint/)
-    // a long-press drag from there stretches the new area (no duplicate)
+    // hold A2 (inside): the menu for A1:A3 — "+ Area" there, then a long-press drag from C1 is the next area
+    await settle(page)
+    await f.down(await mid(cell(page, 'A2')))
+    await expect(page.getByRole('dialog', { name: 'Cell menu A1:A3' })).toBeVisible()
+    await f.up()
+    await entry(page, AREA).tap()
+    await expect(areaChip(page)).toBeVisible()
     await f.drag(await mid(cell(page, 'C1')), await mid(cell(page, 'C2')), { hold: 550 })
     await expect(nameBox(page)).toHaveText('C1:C2 +1')
+    await expect(areaChip(page)).toHaveCount(0)
+    await expect(menu(page)).toHaveCount(0)
     await expect(page.locator('.sheet .sg-ov--sel')).toHaveCount(2)
     await expect(page.locator('.sheet .sh-status')).toContainText('SUM 36')
-    await key(page, 'Chart from the selection').tap()
+    await settle(page)
+    await f.tap(await mid(cell(page, 'C1')))
+    await entry(page, 'Chart from the selection').tap()
     await page.locator('[data-testid="chart-builder-save"]').tap()
     await expect(page.locator('.sheet .sh-chart')).toHaveCount(1)
     expect((await stored(page, id)).charts[0].spec.source.ref).toBe('DS(A1:A3; C1:C2)')
 
-    // still latched after the drag: another long-press drag adds a third area
+    // a third area by a long press (latched from the ⋯ key's menu; the chart builder took the keyboard)
+    await page.locator('.sheet .sg').focus()
+    await menuKey(page).tap()
+    await entry(page, AREA).tap()
     await f.drag(await mid(cell(page, 'A6')), await mid(cell(page, 'A7')), { hold: 550 })
     await expect(nameBox(page)).toHaveText('A6:A7 +2')
+    // a long-press drag from inside the current area restarts it, the other areas stay
+    await f.drag(await mid(cell(page, 'A6')), await mid(cell(page, 'A8')), { hold: 550 })
+    await expect(nameBox(page)).toHaveText('A6:A8 +2')
+    // from inside an older area: a new selection
+    await f.drag(await mid(cell(page, 'A2')), await mid(cell(page, 'B2')), { hold: 550 })
+    await expect(nameBox(page)).toHaveText('A2:B2')
 
     // a formula: long presses point, the second one adds another area of the DS (no "+ Area" needed)
-    await page.waitForTimeout(200)
+    await settle(page)
     await cell(page, 'D1').tap()
     await page.getByRole('textbox', { name: 'Formula' }).tap()
     await page.keyboard.type('=SUM(DS(')
@@ -555,10 +783,10 @@ test.describe('spreadsheet block by touch — phone keyboards and long presses',
     await expect(input).toHaveValue('=SUM(DS(A6:A8')
     await f.drag(await mid(cell(page, 'C6')), await mid(cell(page, 'C7')), { hold: 550 })
     await expect(input).toHaveValue('=SUM(DS(A6:A8; C6:C7')
-    // lifted in place: one more cell, no sheet while editing
+    // lifted in place: one more cell, no menu while editing
     await f.drag(await mid(cell(page, 'A3')), await mid(cell(page, 'A3')), { hold: 550 })
     await expect(input).toHaveValue('=SUM(DS(A6:A8; C6:C7; A3')
-    await expect(holdSheet(page)).toHaveCount(0)
+    await expect(menu(page)).toHaveCount(0)
     // on touch the signature heads the strip (the input's own popups stay closed)
     await expect(strip(page).locator('.fx-sig__name').first()).toHaveText('DS(')
     await expect(page.locator('.fx-pop')).toHaveCount(0)
@@ -566,7 +794,7 @@ test.describe('spreadsheet block by touch — phone keyboards and long presses',
     await page.keyboard.press('Enter')
     await expect(cell(page, 'D1')).toHaveText('33')
     // outside DS(…) a long press after an argument adds one more argument
-    await page.waitForTimeout(200)
+    await settle(page)
     await cell(page, 'D2').tap()
     await page.getByRole('textbox', { name: 'Formula' }).tap()
     await page.keyboard.type('=SUM(A1')
@@ -580,18 +808,21 @@ test.describe('spreadsheet block by touch — phone keyboards and long presses',
     expect(a.sheets[0].cells.D2.v).toBe('=SUM(A1; C7)')
   })
 
-  test('German: the strip and the long-press sheet speak German', async ({ page }) => {
+  test('German: the strip and the long-press menu speak German', async ({ page }) => {
     await openApp(page)
     await wsEval(page, (s) => s.updateSettings({ language: 'de' }))
     await touchSheet(page, TASKS)
     const f = await finger(page)
     const kb = await phoneKeys(page)
     await f.drag(await mid(cell(page, 'A5')), await mid(cell(page, 'A5')), { hold: 550 })
-    const sheet = page.getByRole('dialog', { name: 'Zelle A5' })
-    await expect(sheet).toContainText('Wert wählen')
-    await expect(sheet.getByRole('button', { name: 'Hier einen weiteren Bereich beginnen' })).toContainText('+ Bereich')
-    await expect(sheet.getByRole('button', { name: 'Von der Zelle darüber ausfüllen' })).toContainText('Ausfüllen ↓')
-    await sheet.getByRole('button', { name: 'Zelle bearbeiten' }).tap()
+    const m = page.getByRole('dialog', { name: 'Zellmenü A5' })
+    await expect(m).toContainText('Wert wählen')
+    await expect(m.getByRole('menuitem', { name: /^Weiteren Bereich hinzufügen/ })).toContainText('+ Bereich')
+    await expect(m.getByRole('menuitem', { name: 'Nach unten ausfüllen' })).toContainText('Füllen ↓')
+    await m.getByRole('menuitem', { name: 'Wert für A5 wählen' }).tap()
+    await expect(m.getByRole('button', { name: 'Zurück: Wert für A5' })).toBeVisible()
+    await m.getByRole('button', { name: 'Zurück: Wert für A5' }).tap()
+    await m.getByRole('menuitem', { name: 'A5 bearbeiten' }).tap()
     await kb.compose('We')
     await expect(strip(page)).toContainText('SPALTE A')
     await expect(page.getByRole('toolbar', { name: 'Vorschläge' })).toBeVisible()
@@ -602,22 +833,26 @@ test.describe('spreadsheet block by touch — phone keyboards and long presses',
     await page.getByRole('textbox', { name: 'Formel' }).tap()
     await kb.insert('=')
     await expect(chip(page, 'Bereich wählen')).toBeVisible()
+    await chip(page, 'Bereich wählen').tap()
+    await expect(strip(page)).toContainText('BEREICH')
+    await expect(chip(page, 'Weiter tippen')).toContainText('Tippen')
+    await expect(chip(page, 'Fertig — Formel übernehmen')).toContainText('Fertig')
   })
 })
 
 test.describe('spreadsheet block by touch — tablet', () => {
   test.use({ viewport: { width: 768, height: 1024 }, hasTouch: true, isMobile: true })
 
-  test('handles across a frozen row, long press, header drag; the bar sits in one row above the selection', async ({ page }) => {
+  test('handles across a frozen row, long press, header drag; the menu sits off the selection, inside the tablet', async ({ page }) => {
     await openApp(page)
     await touchSheet(page, NUMBERS, { frozenRows: 1, rows: 40 })
     const f = await finger(page)
-    await cell(page, 'C4').tap()
-    await expect(bar(page)).toBeVisible()
-    await expect(bar(page)).not.toHaveClass(/is-stacked/)
-    const b = (await bar(page).boundingBox())!
-    const sel = (await cell(page, 'C4').boundingBox())!
-    expect(b.y + b.height).toBeLessThanOrEqual(sel.y)
+    await f.tap(await mid(cell(page, 'C4')))
+    await expect(menu(page)).toHaveCount(0)
+    await f.again(await mid(cell(page, 'C4')))
+    await expect(menu(page)).toBeVisible()
+    await menuClear(page, 'C4', 'C4', 768, 1024)
+    await page.keyboard.press('Escape')
 
     // the top-left handle up into the frozen row
     await f.drag(await mid(page.locator('.sheet .sg-handle.is-tl')), await mid(cell(page, 'B1')))
@@ -641,18 +876,15 @@ test.describe('spreadsheet block by touch — tablet', () => {
     await expect(nameBox(page)).toHaveText('A1:C40')
   })
 
-  test('the long-press sheet and the suggestion strip fit the tablet; the strip stays above the cell editor', async ({ page }) => {
+  test('the long-press menu and the suggestion strip fit the tablet; the strip stays above the cell editor', async ({ page }) => {
     await openApp(page)
     await touchSheet(page, TASKS)
     const f = await finger(page)
     const kb = await phoneKeys(page)
     await f.drag(await mid(cell(page, 'A5')), await mid(cell(page, 'A5')), { hold: 550 })
-    const sheet = page.getByRole('dialog', { name: 'Cell A5' })
-    const box = (await sheet.boundingBox())!
-    expect(box.x).toBeGreaterThanOrEqual(0)
-    expect(box.x + box.width).toBeLessThanOrEqual(768)
-    expect(box.y + box.height).toBeLessThanOrEqual(1024)
-    await sheet.getByRole('button', { name: 'Edit the cell' }).tap()
+    await expect(page.getByRole('dialog', { name: 'Cell menu A5' })).toBeVisible()
+    await menuClear(page, 'A5', 'A5', 768, 1024)
+    await entry(page, 'Edit A5').tap()
     await kb.compose('Des')
     await expect(chip(page, /Design review/)).toBeVisible()
     const sb = (await strip(page).boundingBox())!
@@ -715,7 +947,7 @@ test.describe('spreadsheet block by touch — iOS Safari sequences', () => {
   test.use({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true })
   const armed = (page: Page) => page.locator('.sheet .sg-armed')
 
-  test('the system takes a held finger (touchcancel, no touchend): before the long press armed nothing happens; once armed — the cell locks on — it is a lift: the sheet opens', async ({ page }) => {
+  test('the system takes a held finger (touchcancel, no touchend): before the threshold nothing happens; at it — the cell locks on — the menu is open already and stays', async ({ page }) => {
     await openApp(page)
     await touchSheet(page, TASKS)
     const f = await finger(page)
@@ -726,12 +958,13 @@ test.describe('spreadsheet block by touch — iOS Safari sequences', () => {
     await f.cancel()
     await page.waitForTimeout(600)
     await expect(armed(page)).toHaveCount(0)
-    await expect(holdSheet(page)).toHaveCount(0)
+    await expect(menu(page)).toHaveCount(0)
     await expect(nameBox(page)).toHaveText(before ?? '')
 
     await f.down(await mid(cell(page, 'B5')))
-    // armed: the signal frame sits on the held cell
+    // at the threshold: the signal frame sits on the held cell, the menu is open — the finger still down
     await expect(armed(page)).toBeVisible()
+    await expect(page.getByRole('dialog', { name: 'Cell menu B5' })).toBeVisible()
     const a = (await armed(page).boundingBox())!
     const c = (await cell(page, 'B5').boundingBox())!
     expect(Math.abs(a.x - c.x)).toBeLessThanOrEqual(1)
@@ -739,12 +972,13 @@ test.describe('spreadsheet block by touch — iOS Safari sequences', () => {
     expect(Math.abs(a.width - c.width)).toBeLessThanOrEqual(2)
     await page.waitForTimeout(250)
     await f.cancel()
-    await expect(page.getByRole('dialog', { name: 'Cell B5' })).toBeVisible()
     await expect(armed(page)).toHaveCount(0)
+    await page.waitForTimeout(300)
+    await expect(page.getByRole('dialog', { name: 'Cell menu B5' })).toBeVisible()
     await expect(nameBox(page)).toHaveText('B5')
   })
 
-  test('a long-press drag the system cancels keeps its range, "+ Area" latched for the next long press', async ({ page }) => {
+  test('a long-press drag the system cancels keeps its range (no menu, nothing latched)', async ({ page }) => {
     await openApp(page)
     await touchSheet(page, NUMBERS)
     const f = await finger(page)
@@ -759,12 +993,11 @@ test.describe('spreadsheet block by touch — iOS Safari sequences', () => {
     await f.cancel()
     await expect(nameBox(page)).toHaveText('B2:C4')
     await expect(page.locator('.sheet .sh-status')).toContainText('SUM 27')
-    await expect(holdSheet(page)).toHaveCount(0)
-    await expect(key(page, AREA)).toHaveAttribute('aria-pressed', 'true')
-    await expect(key(page, AREA)).toHaveClass(/is-hint/)
+    await expect(menu(page)).toHaveCount(0)
+    await expect(areaChip(page)).toHaveCount(0)
   })
 
-  test("iOS's compatibility mouse events at the finger's point — mid-press and after the lift — neither cancel the long press nor close its sheet", async ({ page }) => {
+  test("iOS's compatibility mouse events at the finger's point — mid-press and after the lift — neither cancel the long press nor close its menu", async ({ page }) => {
     await openApp(page)
     await touchSheet(page, TASKS)
     const f = await finger(page)
@@ -774,14 +1007,16 @@ test.describe('spreadsheet block by touch — iOS Safari sequences', () => {
     await mouseAt(page, 'B6', ['mousemove', 'mousedown', 'mouseup', 'click'])
     await page.waitForTimeout(100)
     await expect(armed(page)).toBeVisible()
+    const m = page.getByRole('dialog', { name: 'Cell menu B6' })
+    await expect(m).toBeVisible()
     await f.up()
-    const sheet = page.getByRole('dialog', { name: 'Cell B6' })
-    await expect(sheet).toBeVisible()
+    await expect(m).toBeVisible()
     // the click iOS sends where a long press was
     await mouseAt(page, 'B6', ['mousemove', 'mousedown', 'mouseup', 'click'])
     await page.waitForTimeout(150)
-    await expect(sheet).toBeVisible()
-    await sheet.getByRole('option', { name: 'Grace' }).tap()
+    await expect(m).toBeVisible()
+    await entry(page, 'Pick a value for B6').tap()
+    await m.getByRole('option', { name: 'Grace' }).tap()
     await expect(cell(page, 'B6')).toHaveText('Grace')
     // a real tap later still selects (the leftovers are only ignored for a moment)
     await page.waitForTimeout(900)
@@ -801,7 +1036,7 @@ test.describe('spreadsheet block by touch — iOS Safari sequences', () => {
 
     const f = await finger(page)
     await f.drag(await mid(cell(page, 'A5')), await mid(cell(page, 'A5')), { hold: 550 })
-    await page.getByRole('dialog', { name: 'Cell A5' }).getByRole('button', { name: 'Edit the cell' }).tap()
+    await entry(page, 'Edit A5').tap()
     const input = page.locator('.fx-input--cell input')
     await expect(input).toBeFocused()
     expect(await page.locator('.sheet .sg-editor').evaluate((el) => getComputedStyle(el).userSelect)).toBe('text')
@@ -862,19 +1097,20 @@ test.describe('spreadsheet block by touch — iOS Safari sequences', () => {
     await one('touchmove', 'C4')
     await one('touchend', 'C4')
     await expect(nameBox(page)).toHaveText('B2:C4')
-    await expect(holdSheet(page)).toHaveCount(0)
+    await expect(menu(page)).toHaveCount(0)
 
-    // the pointer cancelled before the long press armed, the finger still down and still: it arms, the lift opens the sheet
+    // the pointer cancelled before the threshold, the finger still down and still: the menu opens at the threshold
     await page.waitForTimeout(900)
     const two = iosFinger(page, 'B6')
     await two('pointerdown', 'B6')
     await two('touchstart', 'B6')
     await two('pointercancel', 'B6')
     await expect(armed(page)).toBeVisible()
+    await expect(page.getByRole('dialog', { name: 'Cell menu B6' })).toBeVisible()
     await two('touchend', 'B6')
-    await expect(page.getByRole('dialog', { name: 'Cell B6' })).toBeVisible()
+    await expect(page.getByRole('dialog', { name: 'Cell menu B6' })).toBeVisible()
     await page.keyboard.press('Escape')
-    await expect(holdSheet(page)).toHaveCount(0)
+    await expect(menu(page)).toHaveCount(0)
 
     // a second finger before it armed: a pinch, no long press
     await page.waitForTimeout(900)
@@ -886,7 +1122,7 @@ test.describe('spreadsheet block by touch — iOS Safari sequences', () => {
     await page.waitForTimeout(600)
     await expect(armed(page)).toHaveCount(0)
     await three('touchend', 'B7')
-    await expect(holdSheet(page)).toHaveCount(0)
+    await expect(menu(page)).toHaveCount(0)
 
     // the pointer cancelled early and the touch moves on while the browser scrolls: a swipe, no long press
     const four = iosFinger(page, 'B8')
@@ -897,8 +1133,96 @@ test.describe('spreadsheet block by touch — iOS Safari sequences', () => {
     await page.waitForTimeout(600)
     await expect(armed(page)).toHaveCount(0)
     await four('touchend', 'B8')
-    await expect(holdSheet(page)).toHaveCount(0)
+    await expect(menu(page)).toHaveCount(0)
     await expect(nameBox(page)).toHaveText(kept)
+  })
+
+  test('touch events alone (no pointer events): the menu opens at ~450 ms, the finger still down; a touchcancel afterwards keeps it', async ({ page }) => {
+    await openApp(page)
+    await touchSheet(page, TASKS)
+    const one = iosFinger(page, 'B3')
+    const t0 = await page.evaluate(() => performance.now())
+    await one('touchstart', 'B3')
+    await page.waitForTimeout(250)
+    await expect(menu(page)).toHaveCount(0)
+    await expect(page.getByRole('dialog', { name: 'Cell menu B3' })).toBeVisible()
+    const t1 = await page.evaluate(() => performance.now())
+    expect(t1 - t0).toBeGreaterThanOrEqual(440)
+    await expect(armed(page)).toBeVisible()
+    await expect(nameBox(page)).toHaveText('B3')
+    await one('touchcancel', 'B3')
+    await expect(armed(page)).toHaveCount(0)
+    await page.waitForTimeout(300)
+    await expect(page.getByRole('dialog', { name: 'Cell menu B3' })).toBeVisible()
+    await page.keyboard.press('Escape')
+
+    // moved past the slop before the threshold: a swipe, no menu
+    await page.waitForTimeout(900)
+    const two = iosFinger(page, 'B5')
+    await two('touchstart', 'B5')
+    await two('touchmove', 'C5')
+    await page.waitForTimeout(700)
+    await expect(menu(page)).toHaveCount(0)
+    await two('touchend', 'C5')
+    // held, then travelling on: the menu closes, a range follows the touch
+    await page.waitForTimeout(900)
+    const three = iosFinger(page, 'A2')
+    await three('touchstart', 'A2')
+    await expect(page.getByRole('dialog', { name: 'Cell menu A2' })).toBeVisible()
+    await three('touchmove', 'B3')
+    await three('touchmove', 'B4')
+    await expect(menu(page)).toHaveCount(0)
+    await three('touchend', 'B4')
+    await expect(nameBox(page)).toHaveText('A2:B4')
+  })
+
+  test('pointer events alone (no touch events) open it at the threshold too; pointer + touch in either order are one press — one menu, one tick', async ({ page }) => {
+    await page.addInitScript(() => {
+      const w = window as unknown as { __buzz: number }
+      w.__buzz = 0
+      Object.defineProperty(navigator, 'userActivation', { configurable: true, get: () => ({ hasBeenActive: true, isActive: true }) })
+      navigator.vibrate = () => {
+        w.__buzz++
+        return true
+      }
+    })
+    await openApp(page)
+    await touchSheet(page, TASKS)
+    const buzzes = () => page.evaluate(() => (window as unknown as { __buzz: number }).__buzz)
+    const one = iosFinger(page, 'B4')
+    await one('pointerdown', 'B4')
+    await page.waitForTimeout(250)
+    await expect(menu(page)).toHaveCount(0)
+    await expect(page.getByRole('dialog', { name: 'Cell menu B4' })).toBeVisible()
+    await one('pointerup', 'B4')
+    await expect(page.getByRole('dialog', { name: 'Cell menu B4' })).toBeVisible()
+    expect(await buzzes()).toBe(1)
+    await page.keyboard.press('Escape')
+
+    // the touchstart first, its pointerdown after: joined
+    await page.waitForTimeout(900)
+    const two = iosFinger(page, 'C3')
+    await two('touchstart', 'C3')
+    await two('pointerdown', 'C3')
+    await expect(page.getByRole('dialog', { name: 'Cell menu C3' })).toBeVisible()
+    await page.waitForTimeout(300)
+    expect(await buzzes()).toBe(2)
+    await expect(menu(page)).toHaveCount(1)
+    await two('pointerup', 'C3')
+    await two('touchend', 'C3')
+    await page.keyboard.press('Escape')
+
+    // the pointerdown first, its touchstart after: joined as well
+    await page.waitForTimeout(900)
+    const three = iosFinger(page, 'A4')
+    await three('pointerdown', 'A4')
+    await three('touchstart', 'A4')
+    await expect(page.getByRole('dialog', { name: 'Cell menu A4' })).toBeVisible()
+    await page.waitForTimeout(300)
+    expect(await buzzes()).toBe(3)
+    await three('touchend', 'A4')
+    await three('pointerup', 'A4')
+    await expect(menu(page)).toHaveCount(1)
   })
 
   test('on iOS the page is unselectable while a finger is down on the grid, selectable again just after', async ({ page }) => {
@@ -916,9 +1240,75 @@ test.describe('spreadsheet block by touch — iOS Safari sequences', () => {
     await f.down(await mid(cell(page, 'B5')))
     await expect.poll(pageSelect).toBe('none')
     await expect(armed(page)).toBeVisible()
+    await expect(page.getByRole('dialog', { name: 'Cell menu B5' })).toBeVisible()
     await f.up()
-    await expect(page.getByRole('dialog', { name: 'Cell B5' })).toBeVisible()
+    await expect(page.getByRole('dialog', { name: 'Cell menu B5' })).toBeVisible()
     await expect.poll(pageSelect).toBe(initial)
     expect(await page.evaluate(() => document.documentElement.getAttribute('style') ?? '')).not.toMatch(/user-select/)
+  })
+})
+
+test.describe('spreadsheet block by touch — where the menu goes', () => {
+  test.use({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true })
+
+  test('the menu never covers the selected cells and stays on the screen: a range at the top, a cell at the bottom, the whole sheet', async ({ page }) => {
+    await openApp(page)
+    await touchSheet(page, NUMBERS)
+    const f = await finger(page)
+    await f.tap(await mid(cell(page, 'A1')))
+    await f.drag(await mid(page.locator('.sheet .sg-handle.is-br')), await mid(cell(page, 'A5')))
+    await settle(page)
+    await f.tap(await mid(cell(page, 'A3')))
+    await expect(menu(page)).toBeVisible()
+    await menuClear(page, 'A1', 'A5', 390, 844)
+    await page.keyboard.press('Escape')
+
+    // the block's last row at the screen's bottom edge
+    await cell(page, 'B12').evaluate((el) => el.scrollIntoView({ block: 'end' }))
+    await page.waitForTimeout(300)
+    const last = (await cell(page, 'B12').boundingBox())!
+    expect(last.y + last.height).toBeLessThanOrEqual(844)
+    expect(last.y).toBeGreaterThan(600)
+    await f.tap(await mid(cell(page, 'B12')))
+    await f.again(await mid(cell(page, 'B12')))
+    await expect(menu(page)).toBeVisible()
+    await menuClear(page, 'B12', 'B12', 390, 844)
+    await page.keyboard.press('Escape')
+
+    // the whole sheet selected (taller than half the screen)
+    await page.locator('.sheet .sg-corner').tap()
+    await expect(nameBox(page)).toHaveText('A1:H12')
+    await f.tap(await mid(cell(page, 'B6')))
+    await expect(menu(page)).toBeVisible()
+    await expect(menu(page)).toContainText('96 cells')
+    await menuClear(page, 'A1', 'A12', 390, 844)
+  })
+})
+
+test.describe('spreadsheet block with a mouse — unchanged', () => {
+  test('a second click on the selection opens nothing, no "⋯" key, no handles; the right-click menu as before', async ({ page }) => {
+    await openApp(page)
+    await touchSheet(page, NUMBERS)
+    await cell(page, 'B2').click()
+    await cell(page, 'B2').click()
+    await expect(nameBox(page)).toHaveText('B2')
+    await expect(menu(page)).toHaveCount(0)
+    await expect(menuKey(page)).toHaveCount(0)
+    await expect(page.locator('.sheet .sg-handle')).toHaveCount(0)
+    await expect(page.locator('.sheet .sg-fill:not(.is-tab)')).toHaveCount(1)
+    await cell(page, 'C3').click({ button: 'right' })
+    await expect(page.getByRole('menuitem', { name: 'Fill series' })).toBeVisible()
+    await page.keyboard.press('Escape')
+    // a held mouse button is a drag selection, never a long-press menu
+    const from = await mid(cell(page, 'B3'))
+    const to = await mid(cell(page, 'C4'))
+    await page.mouse.move(from.x, from.y)
+    await page.mouse.down()
+    await page.waitForTimeout(700)
+    await expect(menu(page)).toHaveCount(0)
+    await page.mouse.move(to.x, to.y, { steps: 4 })
+    await page.mouse.up()
+    await expect(nameBox(page)).toHaveText('B3:C4')
+    await expect(menu(page)).toHaveCount(0)
   })
 })

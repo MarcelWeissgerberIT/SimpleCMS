@@ -1,7 +1,7 @@
 /**
  * "Pick from list" (Alt+↓ / the cell menu): the distinct texts of the cell's column in a small
  * listbox — type to narrow, ↑↓ to move, ↵ to take, Esc to close. PickPanel is the list itself
- * (also inside the touch long-press sheet, finger-sized there).
+ * (also inside the touch cell menu's "Pick a value", finger-sized there).
  */
 import { useId, useMemo, useState } from 'react'
 import { Popover } from '../../../ui/Popover'

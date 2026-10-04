@@ -4,7 +4,9 @@
  *  - text: the column entries that complete what was typed (AutoComplete's rules; ↵ takes the first)
  *  - formula: the functions (with their arguments) and datasets that complete the word at the
  *    caret; where a reference can go, "Pick range" (the keyboard steps aside, the grid points)
- *    and the saved datasets as DS(…)
+ *    and the saved datasets as DS(…); right after a reference was pointed "+ Area" (the next tap
+ *    adds one more instead of replacing it)
+ *  - picking a range (the keyboard put away): + Area · Type (the keyboard back) · Done
  * Inside a function call its signature heads the strip (the argument at the caret marked) — on
  * touch the input's own popups stay closed. Chips never take the focus (no keyboard flicker): a
  * press keeps it in the input.
@@ -12,7 +14,7 @@
 import { useEffect, useLayoutEffect, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { autoUpdate, flip, offset, shift, useFloating } from '@floating-ui/react'
-import { SquareDashedMousePointer } from 'lucide-react'
+import { Check, Keyboard, SquareDashedMousePointer, SquareDashedPlus } from 'lucide-react'
 import type { ColorName } from '../../../store/types'
 import { colName, completeEntries, getFunction, type FnSpec } from '../engine'
 import { signature } from './FormulaInput'
@@ -28,6 +30,8 @@ export interface StripChip {
   label?: string
   /** ↵ on the keyboard takes this one */
   enter?: boolean
+  /** latched (aria-pressed) */
+  pressed?: boolean
   onPress: () => void
 }
 
@@ -47,6 +51,17 @@ export interface SuggestStripProps {
   t: (key: string, vars?: Record<string, string | number>) => string
   /** a reference can go at the caret */
   pointable: boolean
+  /** the keyboard is put away while the grid points ("Pick range") */
+  picking?: boolean
+  /** a reference was just pointed (the caret at its end): "+ Area" can add another */
+  pointed?: boolean
+  /** "+ Area" is latched */
+  areaOn?: boolean
+  onArea?: () => void
+  /** back to the keyboard after picking a range */
+  onType?: () => void
+  /** take the formula */
+  onDone?: () => void
   /** take a column entry (ends the edit) */
   onValue: (entry: string) => void
   /** a new formula text + caret */
@@ -56,7 +71,7 @@ export interface SuggestStripProps {
 
 const icon = (C: typeof SquareDashedMousePointer) => <C size={15} strokeWidth={1.75} aria-hidden />
 
-const action = (id: string, C: typeof SquareDashedMousePointer, text: string, onPress: () => void): StripChip => ({
+const action = (id: string, C: typeof SquareDashedMousePointer, text: string, onPress: () => void, extra: Partial<StripChip> = {}): StripChip => ({
   id,
   kind: 'action',
   content: (
@@ -66,6 +81,7 @@ const action = (id: string, C: typeof SquareDashedMousePointer, text: string, on
     </>
   ),
   onPress,
+  ...extra,
 })
 
 interface StripContent {
@@ -81,6 +97,13 @@ export function stripChips(p: Omit<SuggestStripProps, 'getAnchor'>): StripConten
   const ctx = formulaContext(value, caret)
   const callSpec = ctx?.call ? getFunction(ctx.call.name) : undefined
   const sig = ctx?.call && callSpec ? { spec: callSpec, arg: ctx.call.arg } : null
+  const area = p.pointed && p.onArea ? action('area', SquareDashedPlus, t('features.sheets.touch.area'), p.onArea, { label: t('features.sheets.touch.addArea'), pressed: !!p.areaOn }) : null
+  if (ctx && p.picking) {
+    const chips: StripChip[] = area ? [area] : []
+    if (p.onType) chips.push(action('type', Keyboard, t('features.sheets.touch.typeShort'), p.onType, { label: t('features.sheets.touch.keepTyping') }))
+    if (p.onDone) chips.push(action('done', Check, t('features.sheets.touch.doneShort'), p.onDone, { label: t('features.sheets.touch.done') }))
+    return { label: t('features.sheets.strip.picking'), chips, sig }
+  }
   if (!ctx) {
     const list = p.entries && caret === value.length ? completeEntries(p.entries, value, p.lang, MAX) : []
     return {
@@ -145,7 +168,9 @@ export function stripChips(p: Omit<SuggestStripProps, 'getAnchor'>): StripConten
     for (const n of names.slice(0, MAX - 1)) chips.push(dsChip(n, caret))
   }
   // while a word is completed, its suggestions are the point (the signature comes back after)
-  return { label: t('features.sheets.strip.formula'), chips, sig: ctx.word && chips.length ? null : sig }
+  const completing = !!ctx.word && chips.length > 0
+  if (area) chips.unshift(area)
+  return { label: t('features.sheets.strip.formula'), chips, sig: completing ? null : sig }
 }
 
 export function SuggestStrip(props: SuggestStripProps) {
@@ -196,7 +221,17 @@ export function SuggestStrip(props: SuggestStripProps) {
           <span className="sh-strip__label label">{label}</span>
           <div className="sh-strip__chips">
             {chips.map((c) => (
-              <button key={c.id} type="button" tabIndex={-1} className={`sh-strip__chip is-${c.kind}${c.enter ? ' is-enter' : ''}`} data-chip={c.id} aria-label={c.label} onMouseDown={(e) => e.preventDefault()} onClick={c.onPress}>
+              <button
+                key={c.id}
+                type="button"
+                tabIndex={-1}
+                className={`sh-strip__chip is-${c.kind}${c.enter ? ' is-enter' : ''}`}
+                data-chip={c.id}
+                aria-label={c.label}
+                aria-pressed={c.pressed}
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={c.onPress}
+              >
                 {c.content}
                 {c.enter && (
                   <span className="kbd sh-strip__enter" aria-hidden>

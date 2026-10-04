@@ -2,9 +2,11 @@
  * The cell grid: sticky column letters and row numbers, virtualised rows (only the visible ones
  * plus a margin are in the DOM), a frozen first row, selection / reference / dataset overlays,
  * the fill handle with its live preview, column resizing, the in-cell editor slot; on touch the
- * selection handles and the fill tab. Pointer and keyboard decisions are the parent's.
+ * selection handles, the fill tab and the "⋯" key that opens the cell menu. Pointer and keyboard
+ * decisions are the parent's.
  */
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from 'react'
+import { Ellipsis } from 'lucide-react'
 import type { ColorName } from '../../../store/types'
 import { a1, colName, formatValue, isErr, type ErrorCode, type Rect, type Workbook } from '../engine'
 import { autoAlign } from '../compute'
@@ -43,11 +45,24 @@ export interface FillView {
   touch?: boolean
 }
 
-/** Touch: round handles on the selection's top-left and bottom-right corners. */
+/** Touch: round handles on the selection's top-left and bottom-right corners, the "⋯" key by the latter. */
 export interface HandlesView {
   rect: Rect
   onDown: (corner: 'tl' | 'br', e: React.PointerEvent<HTMLElement>) => void
+  /** the "⋯" key: opens the cell menu */
+  onMenu?: () => void
+  menuLabel?: string
 }
+
+/**
+ * The "⋯" key sits in a corner diagonal to the selection — the neighbours least often tapped
+ * (directly below / right of the selection a finger enters the next value): below-right, right of
+ * the fill tab; where that is out of view, below-left; where that is too, under the selection left
+ * of its bottom-right handle.
+ */
+const MENU_KEY_W = 32
+const MENU_KEY_X = 34
+const MENU_KEY_INSET = 56
 
 const ERROR_KEYS: Record<ErrorCode, string> = {
   '#DIV/0!': 'div0',
@@ -90,7 +105,7 @@ export interface GridProps {
   handles?: HandlesView | null
   /** room (px) below the last row and right of the last column for the handles and the fill tab (touch) */
   runout?: number
-  /** touch: the cell of a long press that armed (lift: its panel · drag: a range) */
+  /** touch: the cell of a long press that fired (the finger still down) */
   armed?: Pos | null
   gridProps: React.HTMLAttributes<HTMLDivElement>
 }
@@ -206,7 +221,7 @@ const Row = memo(function Row({ sheet, wb, lang, r, tpl, top, rowSel, t }: RowPr
 
 export function Grid(props: GridProps) {
   const { sheet, wb, version, lang, t, overlays, selRows, selCols, editCell, editorNode, viewportRef, onPointer, onDouble, onContext, onResize, onAutofit, editable, height, gridProps, fill, handles, runout = 0, armed } = props
-  const [view, setView] = useState({ top: 0, h: 560, left: 0 })
+  const [view, setView] = useState({ top: 0, h: 560, left: 0, w: 800 })
   const [resize, setResize] = useState<{ col: number; w: number } | null>(null)
   const raf = useRef(0)
 
@@ -220,12 +235,18 @@ export function Grid(props: GridProps) {
     cancelAnimationFrame(raf.current)
     raf.current = requestAnimationFrame(() => {
       const el = viewportRef.current
-      if (el) setView({ top: el.scrollTop, h: el.clientHeight, left: el.scrollLeft })
+      if (el) setView({ top: el.scrollTop, h: el.clientHeight, left: el.scrollLeft, w: el.clientWidth })
     })
   }
   useLayoutEffect(() => {
     const el = viewportRef.current
-    if (el) setView({ top: el.scrollTop, h: el.clientHeight, left: el.scrollLeft })
+    if (!el) return
+    const measure = () => setView({ top: el.scrollTop, h: el.clientHeight, left: el.scrollLeft, w: el.clientWidth })
+    measure()
+    // the visible width decides which side of the selection the touch "⋯" key goes
+    const ro = new ResizeObserver(measure)
+    ro.observe(el)
+    return () => ro.disconnect()
   }, [viewportRef, sheet.id])
   useEffect(() => () => cancelAnimationFrame(raf.current), [])
 
@@ -367,6 +388,35 @@ export function Grid(props: GridProps) {
     }
     if (handles) {
       const h = handles.rect
+      const bottom = Math.min(h.bottom, sheet.rows - 1)
+      if (handles.onMenu && (where === 'frozen') === bottom < frozen) {
+        const right = RH_W + xs[Math.min(h.right + 1, sheet.cols)]
+        const start = RH_W + xs[Math.min(h.left, sheet.cols)]
+        const visible = (x: number) => x >= view.left + RH_W && x + MENU_KEY_W <= Math.min(view.left + view.w, RH_W + totalW + runout)
+        const left = [right + MENU_KEY_X, start - 8 - MENU_KEY_W].find(visible) ?? Math.max(start, right - MENU_KEY_INSET)
+        const top = (bottom + 1 - (where === 'body' ? frozen : 0)) * ROW_HEIGHT
+        if (inView(left))
+          items.push(
+            // a plain span opened by its (compatibility) mousedown: no button, tabindex or click handler — Chrome
+            // snaps nearby touches onto those, and the cells around it must stay theirs. The keyboard has the
+            // menu key / Shift+F10.
+            <span
+              key="menu-key"
+              className="sg-menukey"
+              data-sel-menu=""
+              role="button"
+              style={{ left, top }}
+              aria-label={handles.menuLabel}
+              aria-haspopup="menu"
+              onMouseDown={(e) => {
+                e.preventDefault()
+                if (e.button === 0) handles.onMenu?.()
+              }}
+            >
+              <Ellipsis size={16} strokeWidth={2} aria-hidden />
+            </span>,
+          )
+      }
       for (const corner of ['tl', 'br'] as const) {
         const r = corner === 'tl' ? h.top : Math.min(h.bottom, sheet.rows - 1)
         if ((where === 'frozen') !== r < frozen) continue
@@ -423,7 +473,7 @@ export function Grid(props: GridProps) {
       className="sg"
       onScroll={onScroll}
       onMouseDown={(e) => {
-        if ((e.target as Element).closest('[data-resize], .sg-editor, [data-fill-handle], [data-sel-handle]')) return
+        if ((e.target as Element).closest('[data-resize], .sg-editor, [data-fill-handle], [data-sel-handle], [data-sel-menu]')) return
         down(e)
       }}
       onDoubleClick={(e) => {

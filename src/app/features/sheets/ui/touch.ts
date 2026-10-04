@@ -1,18 +1,21 @@
 /**
  * Touch on the grid (pointerType 'touch' — the mouse keeps its own path in Grid):
- *  - press and hold a cell (~400 ms): the long press arms — the cell locks on in signal orange (a
- *    short vibration where the device has one); then drag: a range selection; lifted without
- *    leaving the cell, the block offers what a long press can do there. A swipe still scrolls; a
- *    tap still selects through the browser's compatibility mouse events.
+ *  - press and hold a cell (~450 ms): the long press fires AT the threshold, the finger still down —
+ *    the cell locks on in signal orange (a short vibration where the device has one) and the block
+ *    opens its cell menu right then (whatever iOS does with the finger afterwards no longer
+ *    matters). Travels the finger on: the menu closes, a range drag follows. A swipe still
+ *    scrolls; a tap still selects through the browser's compatibility mouse events.
  *  - drag along the column letters / row numbers: several columns / rows (taps: Grid as before)
  *  - selection handles: drag a corner, the opposite corner stays
  * While a gesture owns the finger the grid doesn't scroll (non-passive touchmove listeners that
  * prevent only then: touch-action can't change mid-gesture); near the edges it scrolls by itself.
  *
+ * A press starts on whichever arrives first — the pointerdown or the plain touchstart (iOS doesn't
+ * always deliver both, nor in the same order); the other one joins the same press, never a second.
+ *
  * iOS Safari on top of that:
  *  - its own long-press gestures may take the finger: pointercancel / touchcancel instead of
- *    pointerup / touchend. Once the gesture owns the finger that is a lift (in place: the panel;
- *    after a drag: the range stays).
+ *    pointerup / touchend. Once the gesture owns the finger that is a lift.
  *  - it sends the finger's pointer events to the pressed cell even after that cell left the DOM
  *    (a virtualised row scrolled away): the finger's touch events, which go there too, carry the
  *    gesture on.
@@ -27,13 +30,20 @@ import type { Pos } from '../ops'
 import { cellFromPoint, targetOf, type GridTarget, type PointerPhase } from './Grid'
 import { edgeScroll, type Pt } from './drag'
 
-const LONG_PRESS_MS = 400
-/** movement (px) that makes a press a swipe — and, once the long press armed, a drag */
-const SLOP = 8
+export const LONG_PRESS_MS = 450
+/** movement (px) that makes a press a swipe */
+const SLOP = 10
+/** after the long press fired: how far the finger travels before it is a range drag (a finger rolling as it lifts is not) */
+const HOLD_SLOP = 12
 /** how long after a gesture its leftover compatibility mouse events (or a double click) are ignored */
 const AFTERMATH_MS = 800
 /** iOS may still start a text selection right after the finger lifted */
 const SELECT_BACK_MS = 300
+/** the pointerdown and the touchstart of one finger: this close in time and place */
+const JOIN_MS = 600
+
+/** What a press on the grid may not start on (they have their own handling). */
+const OWN = '.sg-editor, [data-fill-handle], [data-sel-handle], [data-sel-menu], [data-resize]'
 
 export type Corner = 'tl' | 'br'
 
@@ -42,10 +52,14 @@ interface Options {
   /** the sheet as it is now (read on every move) */
   sheetRef: RefObject<SheetData>
   /**
-   * a long press on a cell ('down'), the finger over other cells ('move'), lifted ('up' — `moved`:
-   * it went over another cell on the way); header drags the same
+   * a header drag starts ('down'), the finger over other cells / headers ('move'), lifted ('up' —
+   * `moved`: it went over another cell on the way) — header drags and long-press drags
    */
   onTarget: (target: GridTarget, phase: PointerPhase, moved?: boolean) => void
+  /** a cell held to the threshold — the finger is still down */
+  onHold: (pos: Pos) => void
+  /** the held finger travels on: from here on a range drag */
+  onHoldDrag: (pos: Pos) => void
   /** a selection handle: 'down' with its corner cell, then the cell under the moved corner */
   onHandle: (corner: Corner, pos: Pos, phase: PointerPhase) => void
   /** a handle (or the fill tab) was tapped, not dragged: a tap at this point on what lies under it */
@@ -57,7 +71,7 @@ const keyOf = (t: GridTarget) => (t.kind === 'cell' ? `${t.pos.r}:${t.pos.c}` : 
 /** What a tap at (x, y) means on the grid, looking through the handles and the fill tab. */
 export function targetUnder(x: number, y: number): GridTarget | null {
   for (const el of document.elementsFromPoint(x, y)) {
-    if (el.closest('[data-sel-handle], [data-fill-handle]')) continue
+    if (el.closest('[data-sel-handle], [data-fill-handle], [data-sel-menu]')) continue
     return targetOf(el)
   }
   return null
@@ -101,12 +115,16 @@ function pageSelect(off: boolean) {
 }
 
 interface Follow {
-  /** the finger's pointer */
-  id: number
+  /** the finger's pointer (null: the press began with its touchstart — the pointerdown may join) */
+  pointerId: number | null
+  /** the finger's touch (null: the press began with its pointerdown — the touchstart joins) */
+  touchId: number | null
   /** what the finger came down on: its touch events go there for good (iOS: its pointer events too) */
   el: HTMLElement
   axis: 'x' | 'y' | 'both'
   start: Pt
+  /** the gesture drags now (the grid may scroll by itself near its edges) — default: once it owns the finger */
+  drags?: () => boolean
   /** the finger at `pt`; `far`: it has travelled past the slop since it came down */
   onMove: (pt: Pt, far: boolean) => void
   /**
@@ -116,48 +134,54 @@ interface Follow {
   onDone: (live: boolean, cancelled: boolean) => void
 }
 
-export function useTouchGestures({ viewportRef, sheetRef, onTarget, onHandle, onTap }: Options) {
-  const handlers = useRef({ onTarget, onHandle, onTap })
-  handlers.current = { onTarget, onHandle, onTap }
+interface Followed {
+  /** the gesture takes the finger over */
+  own: () => void
+  /** not this gesture after all (a swipe) */
+  stop: () => void
+  /** the finger's pointerdown arrived after its touchstart */
+  joinPointer: (id: number) => void
+  readonly live: boolean
+  readonly done: boolean
+  readonly pointerId: number | null
+  readonly start: Pt
+  readonly since: number
+}
+
+export function useTouchGestures({ viewportRef, sheetRef, onTarget, onHold, onHoldDrag, onHandle, onTap }: Options) {
+  const handlers = useRef({ onTarget, onHold, onHoldDrag, onHandle, onTap })
+  handlers.current = { onTarget, onHold, onHoldDrag, onHandle, onTap }
   /** a gesture owns the finger (the grid must not scroll) */
   const [busy, setBusy] = useState(false)
-  /** the cell of a long press that armed and hasn't moved yet (lift: the panel · move: a range) */
+  /** the cell of a long press that fired and hasn't moved yet */
   const [armed, setArmed] = useState<Pos | null>(null)
   const lock = useRef(false)
   /** a touch is down on the grid (mouse events and a contextmenu now are the browser's, not the user's) */
   const pressing = useRef(false)
   /** when the last long press / drag ended (0: a new touch began since) */
   const ended = useRef(0)
-
-  useEffect(() => {
-    const vp = viewportRef.current
-    if (!vp) return
-    // there from the start: iOS only lets touchmove stop the scrolling when a non-passive listener was there at touchstart
-    const block = (e: TouchEvent) => {
-      if (lock.current && e.cancelable) e.preventDefault()
-    }
-    vp.addEventListener('touchmove', block, { passive: false })
-    return () => vp.removeEventListener('touchmove', block)
-  }, [viewportRef])
+  /** the press on the grid being followed (one finger at a time) */
+  const current = useRef<Followed | null>(null)
 
   /** Follow one finger until it lifts; the grid scrolls by itself near its edges. */
-  const follow = ({ id, el, axis, start, onMove, onDone }: Follow) => {
+  const follow = ({ pointerId: firstPointer, touchId: firstTouch, el, axis, start, drags = () => true, onMove, onDone }: Follow): Followed => {
     const vp = viewportRef.current!
     let pt = start
     let raf = 0
     let live = false
     let far = false
     let done = false
-    /** the finger's touch (touch events), known from its touchstart */
-    let touchId: number | null = null
+    let pointerId = firstPointer
+    let touchId = firstTouch
     /** the pointer was cancelled before the gesture owned the finger, the touch goes on: follow that */
     let pointerGone = false
+    const since = performance.now()
     pressing.current = true
     pageSelect(true)
 
     const tick = () => {
       raf = requestAnimationFrame(tick)
-      if (live && far && edgeScroll(vp, sheetRef.current, pt, axis)) onMove(pt, far)
+      if (live && far && drags() && edgeScroll(vp, sheetRef.current, pt, axis)) onMove(pt, far)
     }
     const to = (x: number, y: number) => {
       pt = { x, y }
@@ -176,6 +200,7 @@ export function useTouchGestures({ viewportRef, sheetRef, onTarget, onHandle, on
       el.removeEventListener('touchend', touchEnd)
       el.removeEventListener('touchcancel', touchEnd)
       pressing.current = false
+      if (current.current === followed) current.current = null
       pageSelect(false)
       if (live) {
         lock.current = false
@@ -186,13 +211,13 @@ export function useTouchGestures({ viewportRef, sheetRef, onTarget, onHandle, on
     }
 
     const pointerMove = (ev: PointerEvent) => {
-      if (ev.pointerId === id && !pointerGone) to(ev.clientX, ev.clientY)
+      if (ev.pointerId === pointerId && !pointerGone) to(ev.clientX, ev.clientY)
     }
     const pointerUp = (ev: PointerEvent) => {
-      if (ev.pointerId === id) finish(false)
+      if (ev.pointerId === pointerId) finish(false)
     }
     const pointerCancel = (ev: PointerEvent) => {
-      if (ev.pointerId !== id) return
+      if (ev.pointerId !== pointerId) return
       // the gesture owns the finger: the system took it (iOS) — a lift. Before: a scroll began — unless
       // the finger stayed put and its touch goes on (then that decides)
       if (!live && !far && touchId !== null) pointerGone = true
@@ -208,15 +233,20 @@ export function useTouchGestures({ viewportRef, sheetRef, onTarget, onHandle, on
         if (!live) finish(true)
         return
       }
-      if (touchId === null && ev.target === el) touchId = ev.changedTouches[0]?.identifier ?? null
+      const t = ev.changedTouches[0]
+      if (!t) return
+      // this finger's own touchstart (its pointerdown came first) — else a lone new finger: the press
+      // before lost its end somewhere, it is over
+      if (touchId === null && Math.hypot(t.clientX - start.x, t.clientY - start.y) <= SLOP * 2) touchId = t.identifier
+      else if (t.identifier !== touchId) finish(true)
     }
     const touchMove = (ev: TouchEvent) => {
       if (live && ev.cancelable) ev.preventDefault()
       const t = mine(ev)
       if (!t) return
-      // the pointer is gone and the browser no longer waits for this page: it scrolls — a swipe (or,
-      // owned already, the end of the drag: no range following a scrolling page)
-      if (pointerGone && !ev.cancelable) return finish(true)
+      // the pointer is gone (or never came) and the browser no longer waits for this page: it scrolls —
+      // a swipe (or, owned already, the end of the drag: no range following a scrolling page)
+      if ((pointerGone || pointerId === null) && !ev.cancelable) return finish(true)
       to(t.clientX, t.clientY)
     }
     const touchEnd = (ev: TouchEvent) => {
@@ -230,8 +260,7 @@ export function useTouchGestures({ viewportRef, sheetRef, onTarget, onHandle, on
     el.addEventListener('touchmove', touchMove, { passive: false })
     el.addEventListener('touchend', touchEnd)
     el.addEventListener('touchcancel', touchEnd)
-    return {
-      /** the gesture takes the finger over */
+    const followed: Followed = {
       own: () => {
         if (live || done) return
         live = true
@@ -239,76 +268,137 @@ export function useTouchGestures({ viewportRef, sheetRef, onTarget, onHandle, on
         setBusy(true)
         raf = requestAnimationFrame(tick)
       },
-      /** not this gesture after all (a swipe) */
       stop: () => finish(true),
+      joinPointer: (id: number) => {
+        pointerId = id
+      },
       get live() {
         return live
       },
+      get done() {
+        return done
+      },
+      get pointerId() {
+        return pointerId
+      },
+      start,
+      since,
     }
+    current.current = followed
+    return followed
+  }
+
+  /** A finger came down on the grid (its pointerdown or its touchstart, whichever came first). */
+  const press = (el: HTMLElement, start: Pt, ids: { pointerId: number | null; touchId: number | null }) => {
+    ended.current = 0
+    if (el.closest(OWN)) return
+    const target = targetOf(el)
+    const vp = viewportRef.current
+    if (!vp || !target || target.kind === 'corner') return
+    const axis = target.kind === 'col' ? 'x' : target.kind === 'row' ? 'y' : 'both'
+    const at = (pt: Pt): GridTarget => {
+      const p = cellFromPoint(vp, sheetRef.current, pt.x, pt.y)
+      return target.kind === 'cell' ? { kind: 'cell', pos: p } : target.kind === 'col' ? { kind: 'col', index: p.c } : { kind: 'row', index: p.r }
+    }
+    let last: GridTarget = target
+    let moved = false
+    /** the long press fired here (the finger's point at the threshold) */
+    let heldAt: Pt | null = null
+    /** the held finger travelled on: a range drag */
+    let dragging = false
+    let pt = start
+    const emit = (p: Pt) => {
+      const next = at(p)
+      if (keyOf(next) === keyOf(last)) return
+      last = next
+      moved = true
+      handlers.current.onTarget(next, 'move')
+    }
+    const begin = () => {
+      g.own()
+      if (target.kind === 'cell') {
+        heldAt = pt
+        setArmed(target.pos)
+        buzz()
+        handlers.current.onHold(target.pos)
+      } else handlers.current.onTarget(target, 'down')
+    }
+    const timer = target.kind === 'cell' ? window.setTimeout(begin, LONG_PRESS_MS) : 0
+    const g = follow({
+      ...ids,
+      el,
+      axis,
+      start,
+      // a held cell scrolls the grid only once its range drag began (the menu stays put before)
+      drags: () => target.kind !== 'cell' || dragging,
+      onMove: (p, far) => {
+        pt = p
+        if (g.live) {
+          if (target.kind !== 'cell') return far ? emit(p) : undefined
+          if (!dragging) {
+            if (!heldAt || Math.hypot(p.x - heldAt.x, p.y - heldAt.y) <= HOLD_SLOP) return
+            dragging = true
+            setArmed(null)
+            handlers.current.onHoldDrag(target.pos)
+          }
+          return emit(p)
+        }
+        const dx = Math.abs(p.x - start.x)
+        const dy = Math.abs(p.y - start.y)
+        // a cell: any early movement is a swipe (the browser scrolls); a header: along its strip is a drag
+        if (target.kind === 'cell') {
+          if (far) g.stop()
+        } else if ((axis === 'x' ? dx : dy) > SLOP) {
+          begin()
+          emit(p)
+        } else if ((axis === 'x' ? dy : dx) > SLOP) g.stop()
+      },
+      onDone: (live) => {
+        window.clearTimeout(timer)
+        setArmed(null)
+        if (live) handlers.current.onTarget(last, 'up', moved)
+      },
+    })
   }
 
   /** pointerdown on the grid: a long press on a cell, a drag along the headers. */
-  const onPointerDown = useCallback(
-    (e: React.PointerEvent<HTMLElement>) => {
-      if (e.pointerType !== 'touch' || !e.isPrimary) return
-      ended.current = 0
-      const el = e.target as HTMLElement
-      if (el.closest('.sg-editor, [data-fill-handle], [data-sel-handle], [data-resize]')) return
-      const target = targetOf(el)
-      const vp = viewportRef.current
-      if (!vp || !target || target.kind === 'corner') return
-      const start = { x: e.clientX, y: e.clientY }
-      const axis = target.kind === 'col' ? 'x' : target.kind === 'row' ? 'y' : 'both'
-      const at = (pt: Pt): GridTarget => {
-        const p = cellFromPoint(vp, sheetRef.current, pt.x, pt.y)
-        return target.kind === 'cell' ? { kind: 'cell', pos: p } : target.kind === 'col' ? { kind: 'col', index: p.c } : { kind: 'row', index: p.r }
+  const onPointerDown = (e: React.PointerEvent<HTMLElement>) => {
+    if (e.pointerType !== 'touch' || !e.isPrimary) return
+    const cur = current.current
+    if (cur && !cur.done) {
+      // the finger's touchstart began this press: the pointer joins it
+      if (cur.pointerId === null && performance.now() - cur.since < JOIN_MS && Math.hypot(e.clientX - cur.start.x, e.clientY - cur.start.y) <= SLOP * 2) {
+        cur.joinPointer(e.pointerId)
+        return
       }
-      let last: GridTarget = target
-      let moved = false
-      const emit = (pt: Pt) => {
-        const next = at(pt)
-        if (keyOf(next) === keyOf(last)) return
-        last = next
-        if (!moved) setArmed(null)
-        moved = true
-        handlers.current.onTarget(next, 'move')
-      }
-      const begin = () => {
-        g.own()
-        if (target.kind === 'cell') {
-          setArmed(target.pos)
-          buzz()
-        }
-        handlers.current.onTarget(target, 'down')
-      }
-      const timer = target.kind === 'cell' ? window.setTimeout(begin, LONG_PRESS_MS) : 0
-      const g = follow({
-        id: e.pointerId,
-        el,
-        axis,
-        start,
-        onMove: (pt, far) => {
-          // owned: a range once the finger travels (a finger rolling as it lifts is still "in place")
-          if (g.live) return far ? emit(pt) : undefined
-          const dx = Math.abs(pt.x - start.x)
-          const dy = Math.abs(pt.y - start.y)
-          // a cell: any early movement is a swipe (the browser scrolls); a header: along its strip is a drag
-          if (target.kind === 'cell') {
-            if (far) g.stop()
-          } else if ((axis === 'x' ? dx : dy) > SLOP) {
-            begin()
-            emit(pt)
-          } else if ((axis === 'x' ? dy : dx) > SLOP) g.stop()
-        },
-        onDone: (live) => {
-          window.clearTimeout(timer)
-          setArmed(null)
-          if (live) handlers.current.onTarget(last, 'up', moved)
-        },
-      })
-    },
-    [viewportRef, sheetRef], // eslint-disable-line react-hooks/exhaustive-deps
-  )
+      // a press whose end never came: over
+      cur.stop()
+    }
+    press(e.target as HTMLElement, { x: e.clientX, y: e.clientY }, { pointerId: e.pointerId, touchId: null })
+  }
+  const pressRef = useRef(press)
+  pressRef.current = press
+
+  useEffect(() => {
+    const vp = viewportRef.current
+    if (!vp) return
+    // there from the start: iOS only lets touchmove stop the scrolling when a non-passive listener was there at touchstart
+    const block = (e: TouchEvent) => {
+      if (lock.current && e.cancelable) e.preventDefault()
+    }
+    // a finger whose pointerdown hasn't come (yet): the press starts with its touchstart
+    const touchStart = (e: TouchEvent) => {
+      if (e.touches.length !== 1 || (current.current && !current.current.done)) return
+      const t = e.changedTouches[0]
+      if (t) pressRef.current(e.target as HTMLElement, { x: t.clientX, y: t.clientY }, { pointerId: null, touchId: t.identifier })
+    }
+    vp.addEventListener('touchmove', block, { passive: false })
+    vp.addEventListener('touchstart', touchStart, { passive: true })
+    return () => {
+      vp.removeEventListener('touchmove', block)
+      vp.removeEventListener('touchstart', touchStart)
+    }
+  }, [viewportRef])
 
   /** pointerdown on a selection handle: the corner follows the finger, the opposite corner stays. */
   const startHandle = useCallback(
@@ -324,6 +414,7 @@ export function useTouchGestures({ viewportRef, sheetRef, onTarget, onHandle, on
         // not capturable (synthetic events): the window listeners still follow the pointer
       }
       ended.current = 0
+      current.current?.stop()
       // the finger rarely lands on the exact corner: keep its offset; 2px inwards is the corner's cell
       const box = e.currentTarget.getBoundingClientRect()
       const inward = corner === 'br' ? -2 : 2
@@ -333,7 +424,8 @@ export function useTouchGestures({ viewportRef, sheetRef, onTarget, onHandle, on
       let last = cellAt(start)
       let end = start
       const g = follow({
-        id: e.pointerId,
+        pointerId: e.pointerId,
+        touchId: null,
         el: e.target as HTMLElement,
         axis: 'both',
         start,
