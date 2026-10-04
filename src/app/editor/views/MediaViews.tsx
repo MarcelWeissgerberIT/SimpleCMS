@@ -1,11 +1,13 @@
-import { useRef, useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { NodeViewWrapper, type ReactNodeViewProps } from '@tiptap/react'
 import { Bookmark as BookmarkIcon, Download, ExternalLink, Link2, MonitorPlay, Paperclip, Pencil, Upload } from 'lucide-react'
 import { saveFile, useFileUrl } from '../../lib/files'
 import { useT } from '../../i18n'
-import { detectProvider, domainOf, embedRatio, embedSrc, parseUrl, PROVIDER_LABEL, safeDecode, safeHref, webUrl, type EmbedProvider } from '../lib/embeds'
+import { NodeSelection } from '@tiptap/pm/state'
+import { detectProvider, domainOf, embedFrame, embedSrc, fileNameOfUrl, parseUrl, PROVIDER_LABEL, providerOf, safeDecode, safeHref, webUrl } from '../lib/embeds'
 import { pickFiles } from '../lib/upload'
 import { caretAfterNode, leaveNodeView } from '../lib/blocks'
+import { isPdfName, PdfViewer, ShowViewerButton } from './PdfViewer'
 
 /** Inline URL form used by empty bookmark / embed blocks. */
 function UrlForm({ icon, label, placeholder, autoFocus, onSubmit, hint, submit }: { icon: ReactNode; label: string; placeholder: string; autoFocus: boolean; onSubmit: (url: string) => string | null; hint?: string; submit: string }) {
@@ -124,10 +126,48 @@ export function BookmarkView({ node, updateAttributes, selected, editor, getPos 
 
 /* ------------------------------------------------------------------ */
 
+/** Back to the block (NodeSelection) — Escape inside a block's toolbar. */
+function reselect(editor: ReactNodeViewProps['editor'], getPos: ReactNodeViewProps['getPos']) {
+  const pos = getPos()
+  if (typeof pos !== 'number' || editor.isDestroyed) return
+  editor.view.dispatch(editor.state.tr.setSelection(NodeSelection.create(editor.state.doc, pos)))
+  editor.view.focus()
+}
+
+/**
+ * A post on X sizes its frame through postMessage ("twttr.private.resize"); only messages from that
+ * frame and origin count, and only a sane height is taken.
+ */
+function useTweetHeight(frame: React.RefObject<HTMLIFrameElement | null>, on: boolean): number | null {
+  const [height, setHeight] = useState<number | null>(null)
+  useEffect(() => {
+    if (!on) return
+    const onMessage = (e: MessageEvent) => {
+      if (e.origin !== 'https://platform.twitter.com' || e.source !== frame.current?.contentWindow) return
+      let data: unknown = e.data
+      if (typeof data === 'string') {
+        try {
+          data = JSON.parse(data)
+        } catch {
+          return
+        }
+      }
+      const rpc = (data as { 'twttr.embed'?: { method?: string; params?: Array<{ height?: unknown }> } } | null)?.['twttr.embed']
+      const h = rpc?.method === 'twttr.private.resize' ? Number(rpc.params?.[0]?.height) : NaN
+      if (Number.isFinite(h) && h >= 80 && h <= 4000) setHeight(Math.ceil(h))
+    }
+    window.addEventListener('message', onMessage)
+    return () => window.removeEventListener('message', onMessage)
+  }, [frame, on])
+  return height
+}
+
 export function EmbedView({ node, updateAttributes, selected, editor, getPos }: ReactNodeViewProps) {
   const t = useT()
   const url = String(node.attrs.url ?? '')
-  const provider = ((node.attrs.provider as EmbedProvider | null) || detectProvider(url) || 'web') as EmbedProvider
+  const provider = providerOf(url, node.attrs.provider as string | null)
+  const frameRef = useRef<HTMLIFrameElement>(null)
+  const tweetHeight = useTweetHeight(frameRef, provider === 'twitter')
 
   if (!url) {
     return (
@@ -155,12 +195,41 @@ export function EmbedView({ node, updateAttributes, selected, editor, getPos }: 
     )
   }
 
-  const src = embedSrc(url, provider)
-  const toBookmark = () => {
+  const replaceWith = (json: object) => {
     const pos = getPos()
     if (typeof pos !== 'number') return
-    editor.chain().focus().insertContentAt({ from: pos, to: pos + node.nodeSize }, { type: 'bookmark', attrs: { url } }).run()
+    editor.chain().focus().insertContentAt({ from: pos, to: pos + node.nodeSize }, json).run()
   }
+  const toBookmark = () => replaceWith({ type: 'bookmark', attrs: { url } })
+  const bookmarkButton = editor.isEditable && (
+    <button type="button" className="btn btn--ghost btn--sm" onClick={toBookmark} title={t('editor.embed.toBookmark')} aria-label={t('editor.embed.toBookmark')}>
+      <BookmarkIcon size={12} />
+    </button>
+  )
+
+  // a link to a PDF: the browser's own viewer (views/PdfViewer.tsx); "as file" makes it a file block
+  if (provider === 'pdf') {
+    return (
+      <NodeViewWrapper contentEditable={false}>
+        <PdfViewer
+          src={url}
+          name={fileNameOfUrl(url)}
+          meta={domainOf(url)}
+          selected={selected}
+          editable={editor.isEditable}
+          dataType="embed"
+          extra={bookmarkButton}
+          onShowAsFile={() => replaceWith({ type: 'fileBlock', attrs: { src: url, name: fileNameOfUrl(url), size: 0, display: 'file' } })}
+          onEscape={() => reselect(editor, getPos)}
+        />
+      </NodeViewWrapper>
+    )
+  }
+
+  const src = embedSrc(url, provider)
+  const frame = embedFrame(provider, url)
+  const height = provider === 'twitter' ? (tweetHeight ?? frame.height) : frame.height
+  const theme = provider === 'twitter' && document.documentElement.dataset.theme === 'dark' ? '&theme=dark' : ''
   return (
     <NodeViewWrapper className={`embed-view${selected ? ' is-selected' : ''}`} data-type="embed" data-provider={provider} contentEditable={false}>
       <div className="embed-view__bar">
@@ -168,19 +237,18 @@ export function EmbedView({ node, updateAttributes, selected, editor, getPos }: 
         <span className="label">{PROVIDER_LABEL[provider] ?? 'Embed'}</span>
         <span className="embed-view__domain">{domainOf(url)}</span>
         <span style={{ flex: 1 }} />
-        {editor.isEditable && (
-          <button type="button" className="btn btn--ghost btn--sm" onClick={toBookmark} title={t('editor.embed.toBookmark')}>
-            <BookmarkIcon size={12} />
-          </button>
-        )}
-        <a className="btn btn--ghost btn--sm" href={safeHref(url) ?? undefined} target="_blank" rel="noopener noreferrer" title={t('common.open')}>
-          <ExternalLink size={12} />
-        </a>
+        <span className="embed-view__tools" role="toolbar" aria-label={t('editor.embed.tools')} data-block-tools="" onKeyDown={(e) => e.key === 'Escape' && (e.preventDefault(), e.stopPropagation(), reselect(editor, getPos))}>
+          {bookmarkButton}
+          <a className="btn btn--ghost btn--sm" href={safeHref(url) ?? undefined} target="_blank" rel="noopener noreferrer" title={t('common.open')} aria-label={t('common.open')}>
+            <ExternalLink size={12} />
+          </a>
+        </span>
       </div>
-      <div className="embed-view__frame" style={{ paddingTop: `${embedRatio(provider) * 100}%` }}>
+      <div className="embed-view__frame" data-fixed={height ? '' : undefined} style={height ? { height } : { paddingTop: `${(frame.ratio ?? 0.5625) * 100}%` }}>
         {src ? (
           <iframe
-            src={src}
+            ref={frameRef}
+            src={`${src}${theme}`}
             title={`${PROVIDER_LABEL[provider]} — ${domainOf(url)}`}
             loading="lazy"
             sandbox="allow-scripts allow-same-origin allow-popups allow-presentation allow-forms"

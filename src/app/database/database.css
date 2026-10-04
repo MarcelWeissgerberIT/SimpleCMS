@@ -1954,7 +1954,8 @@
 
 .db-layout__types {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  /* nine layouts: a 3 × 3 keypad */
+  grid-template-columns: repeat(3, 1fr);
   gap: 4px;
   padding: 4px 8px 10px;
   border-bottom: 1px solid var(--rule);

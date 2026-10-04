@@ -12,6 +12,7 @@ import { stripSynced } from './schema/synced'
 import { freezeCharts } from '../features/charts'
 import { iconFromImage } from './schema/icon'
 import { safeHref } from './lib/embeds'
+import { freezeBreadcrumbs } from './lib/breadcrumbs'
 import { escapeMarkdownText } from './lib/mdText'
 
 export function getExtensions(opts: { readOnly?: boolean } = {}): Extensions {
@@ -63,7 +64,7 @@ const ALERTS: Record<string, { color: string; icon: string }> = {
   CAUTION: { color: 'red', icon: '🛑' },
 }
 
-const BLOCK_ATOMS = new Set(['image', 'blockMath', 'mermaid', 'pageLink', 'databaseBlock', 'bookmark', 'embed', 'toc', 'fileBlock', 'video', 'audio', 'horizontalRule'])
+const BLOCK_ATOMS = new Set(['image', 'blockMath', 'mermaid', 'pageLink', 'databaseBlock', 'bookmark', 'embed', 'toc', 'fileBlock', 'video', 'audio', 'horizontalRule', 'breadcrumb'])
 const EMOJI_START = /^(\p{Extended_Pictographic}(?:️|‍\p{Extended_Pictographic})*)\s*/u
 
 /**
@@ -272,17 +273,18 @@ function withoutUnsafeLinks(doc: JSONContent): JSONContent {
  * The doc without anything that must stay in this workspace / on this device: button actions
  * (webhook URLs, database ids), comment anchors, synced-block links (their content stays,
  * as plain blocks) and live chart sources (charts keep the numbers they show right now).
+ * Breadcrumbs are frozen into the titles of their page's path (nobody outside can look it up).
  * For share links, exports, AI input.
  */
 export function stripPrivate(doc: JSONContent): JSONContent {
-  return freezeCharts(stripSynced(stripComments(stripButtonActions(doc))))
+  return freezeCharts(stripSynced(stripComments(stripButtonActions(freezeBreadcrumbs(doc)))))
 }
 
 export function docToMarkdown(doc: JSONContent | null): string {
   if (!doc) return ''
   try {
-    // comments never leave the device (Markdown goes to the clipboard, files and Claude)
-    const out = md().serialize(stripComments(withoutUnsafeLinks(doc)))
+    // comments never leave the device (Markdown goes to the clipboard, files and Claude); breadcrumbs: the path as text
+    const out = md().serialize(stripComments(withoutUnsafeLinks(freezeBreadcrumbs(doc))))
     return out.replace(/\n{3,}/g, '\n\n').trim() + '\n'
   } catch (err) {
     console.warn('[editor] markdown serialize failed', err)
@@ -294,7 +296,9 @@ export function docToHTML(doc: JSONContent | null): string {
   if (!doc) return ''
   try {
     // button actions (webhook URLs, database ids) and comments never leave the workspace in exported HTML
-    return generateHTML(stripPrivate(withoutUnsafeLinks(sanitize(doc.type === 'doc' ? doc : { type: 'doc', content: [doc] }))), getExtensions({ readOnly: true }))
+    // breadcrumbs are frozen on the doc as passed in (that object identifies its page)
+    const frozen = doc.type === 'doc' ? freezeBreadcrumbs(doc) : { type: 'doc', content: [doc] }
+    return generateHTML(stripPrivate(withoutUnsafeLinks(sanitize(frozen))), getExtensions({ readOnly: true }))
   } catch (err) {
     console.warn('[editor] html render failed', err)
     return ''

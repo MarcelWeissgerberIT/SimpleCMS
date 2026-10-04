@@ -1,0 +1,580 @@
+/*
+ * FEED view — a logbook: entries down a ruled rail, each stamped with its date plate,
+ * a card with who / when, the headline, spec labels and the page itself (clamped).
+ * Narrow feeds (phones, slim inline blocks) drop the rail; the date moves into the stamp.
+ */
+.dbf {
+  --dbf-rail: 76px;
+  --dbf-max: 860px;
+  --dbf-doc: 15px;
+  /* twelve lines of the page's text */
+  --dbf-clamp: calc(var(--dbf-doc) * 1.65 * 12 + 14px);
+  container: dbf / inline-size;
+  padding: 10px 0 22px;
+}
+
+/* ---------- head: order + new entry ---------- */
+.dbf-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: var(--dbf-max);
+  min-height: 32px;
+  margin: 0 0 12px;
+  padding-left: var(--dbf-rail);
+}
+
+.dbf-head__spacer {
+  flex: 1;
+}
+
+.dbf-head__by {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dbf-order,
+.dbf-new,
+.dbf-act,
+.dbf-loadmore {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 9px;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius-1);
+  background: var(--surface);
+  color: var(--ink-2);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  font-weight: 500;
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  white-space: nowrap;
+  transition:
+    background var(--dur-1) var(--ease-out),
+    border-color var(--dur-1) var(--ease-out),
+    color var(--dur-1) var(--ease-out),
+    transform var(--dur-1) var(--ease-out);
+}
+
+.dbf-order[data-static] {
+  border-color: transparent;
+  background: transparent;
+  padding-left: 0;
+}
+
+button.dbf-order:hover,
+.dbf-new:hover,
+.dbf-act:hover,
+.dbf-loadmore:hover {
+  border-color: var(--ink-3);
+  color: var(--ink);
+}
+
+button.dbf-order:active,
+.dbf-new:active,
+.dbf-act:active,
+.dbf-loadmore:active {
+  transform: translateY(1px);
+}
+
+.dbf-new {
+  border-style: dashed;
+}
+
+.dbf-new:hover {
+  border-style: solid;
+  background: var(--hover);
+}
+
+/* ---------- the rail and its entries ---------- */
+.dbf-list {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  max-width: var(--dbf-max);
+}
+
+/* the ruled line the date plates hang on */
+.dbf-list::before {
+  content: '';
+  position: absolute;
+  top: 4px;
+  bottom: 4px;
+  left: calc(var(--dbf-rail) - 12px);
+  width: 1px;
+  background: var(--rule-strong);
+  pointer-events: none;
+}
+
+.dbf-entry {
+  position: relative;
+  display: grid;
+  grid-template-columns: var(--dbf-rail) minmax(0, 1fr);
+  min-width: 0;
+  border-radius: var(--radius-2);
+  outline: none;
+}
+
+.dbf-entry:focus-visible .dbf-card {
+  border-color: var(--signal);
+  box-shadow: 0 0 0 3px var(--signal-wash-strong);
+}
+
+/* date plate: day in display type, month + year and time as mono specs */
+.dbf-date {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 3px;
+  padding: 14px 22px 0 0;
+  text-align: right;
+}
+
+/* tick from the plate to the rail */
+.dbf-date::after {
+  content: '';
+  position: absolute;
+  top: 26px;
+  right: 8px;
+  width: 9px;
+  height: 1px;
+  background: var(--ink-3);
+}
+
+.dbf-entry:first-child .dbf-date::after {
+  height: 3px;
+  top: 25px;
+  background: var(--signal);
+}
+
+.dbf-date__day {
+  font-stretch: var(--display-stretch);
+  font-size: 26px;
+  font-weight: 800;
+  line-height: 0.95;
+  letter-spacing: var(--tracking-tight);
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+
+.dbf-date__month,
+.dbf-date__time {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  white-space: nowrap;
+}
+
+.dbf-date__time {
+  color: var(--ink-2);
+}
+
+.dbf-date--none .dbf-date__day {
+  color: var(--ink-faint);
+}
+
+.dbf-date--none .label {
+  font-size: 9.5px;
+}
+
+/* ---------- card ---------- */
+.dbf-card {
+  position: relative;
+  min-width: 0;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius-2);
+  background: var(--surface);
+  overflow: hidden;
+  transition:
+    border-color var(--dur-1) var(--ease-out),
+    box-shadow var(--dur-1) var(--ease-out);
+}
+
+.dbf-card__head {
+  padding: 14px 20px 14px;
+}
+
+.dbf-stamp {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 0;
+  min-height: 20px;
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+.dbf-stamp > * + *::before {
+  content: '·';
+  margin: 0 7px;
+  color: var(--ink-faint);
+}
+
+.dbf-stamp .db-person {
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--ink-2);
+}
+
+.dbf-stamp .db-person__name {
+  font-weight: 560;
+}
+
+/* only in narrow feeds (no date plate) */
+.dbf-stamp__date {
+  display: none;
+  color: var(--ink-2);
+}
+
+.dbf-title {
+  margin: 6px 0 0;
+  font-size: 21px;
+  font-weight: 760;
+  font-stretch: 112%;
+  line-height: 1.22;
+  letter-spacing: -0.012em;
+  overflow-wrap: anywhere;
+}
+
+.dbf-title__link {
+  display: inline;
+  border-radius: var(--radius-1);
+}
+
+/* (an inline database sits inside the page editor, whose link styles reach in here) */
+.dbf .dbf-title a.dbf-title__link,
+.dbf .dbf-title a.dbf-title__link:hover {
+  color: var(--ink);
+  text-decoration: none;
+}
+
+.dbf-title__link > span:first-child:not(:only-child) {
+  display: inline-grid;
+  margin-right: 8px;
+  vertical-align: -2px;
+}
+
+.dbf-title__link:hover > span:last-child {
+  text-decoration: underline;
+  text-decoration-color: var(--signal);
+  text-decoration-thickness: 2px;
+  text-underline-offset: 4px;
+}
+
+.dbf-title .is-empty {
+  color: var(--ink-3);
+  font-weight: 500;
+}
+
+/* ---------- spec labels ---------- */
+.dbf-specs {
+  --dbf-spec-pad: 14px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 0;
+  /* every spec has its rule on the left; the one starting a line is shifted out and clipped */
+  margin: 12px 0 0 calc(-1 * var(--dbf-spec-pad) - 1px);
+  clip-path: inset(-6px -6px -6px calc(var(--dbf-spec-pad) + 1px));
+}
+
+.dbf-spec {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  max-width: 100%;
+  padding: 0 var(--dbf-spec-pad);
+  border-left: 1px solid var(--rule);
+}
+
+.dbf-spec__name {
+  flex: none;
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  font-weight: 500;
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+.dbf-spec__value {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  max-width: 300px;
+  margin: 0;
+  font-size: var(--text-sm);
+}
+
+.dbf-spec__value .db-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dbf-spec__value .db-chips {
+  flex-wrap: wrap;
+}
+
+.dbf-spec:is([data-type='date'], [data-type='created_time'], [data-type='last_edited_time'], [data-type='number'], [data-type='unique_id'], [data-type='formula'], [data-type='rollup']) .dbf-spec__value {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--ink-2);
+}
+
+/* ---------- the page (clamped) ---------- */
+.dbf-body {
+  position: relative;
+  max-height: var(--dbf-clamp);
+  padding: 0 20px;
+  border-top: 1px solid var(--rule);
+  overflow: hidden;
+}
+
+.dbf-body[data-expanded='true'] {
+  max-height: none;
+}
+
+.dbf-card:has(.dbf-act--more[aria-expanded='false']) .dbf-body {
+  mask-image: linear-gradient(to bottom, var(--ink) calc(100% - 64px), transparent);
+}
+
+.dbf-body__inner {
+  padding: 12px 0 2px;
+}
+
+.one-doc.dbf-doc,
+.dbf-plain {
+  --doc-size: var(--dbf-doc);
+}
+
+.dbf-plain {
+  font-size: var(--dbf-doc);
+  line-height: 1.65;
+  white-space: pre-line;
+  color: var(--ink);
+}
+
+.dbf-doc .doc-content > :first-child {
+  margin-top: 0;
+}
+
+.dbf-doc .doc-content :is(h1, h2, h3, h4):where([data-level='1']) {
+  font-size: 1.4em;
+}
+
+.dbf-doc .doc-content :is(h1, h2, h3, h4):where([data-level='2']) {
+  font-size: 1.2em;
+}
+
+.dbf-doc .doc-content :is(h1, h2, h3, h4):where([data-level='3']) {
+  font-size: 1.06em;
+}
+
+/* a static render: nothing ever looks selected */
+.dbf-doc .ProseMirror-selectednode {
+  outline: none;
+}
+
+.dbf-doc :is(.media-empty, .embed-view, .file-view).is-selected,
+.dbf-doc .bookmark-card.is-selected .bookmark-card__main {
+  border-color: var(--rule-strong);
+  box-shadow: none;
+}
+
+.dbf-doc .image-view.is-selected .image-view__frame img {
+  outline: none;
+}
+
+.dbf-doc :is(.math-block.is-selected .math-block__inner, .math-inline.is-selected, .mention.is-selected, .toc-view.is-selected) {
+  background: transparent;
+}
+
+/* ---------- foot: show more · comments · open ---------- */
+.dbf-card__foot {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 46px;
+  padding: 8px 12px 9px 20px;
+  border-top: 1px solid var(--rule);
+}
+
+.dbf-card__head + .dbf-card__foot {
+  border-top-style: dashed;
+}
+
+.dbf-card__spacer {
+  flex: 1;
+}
+
+.dbf-act {
+  height: 26px;
+  padding: 0 8px;
+}
+
+.dbf-act--more {
+  margin-left: -9px;
+  border-color: transparent;
+  background: transparent;
+  color: var(--ink);
+}
+
+.dbf-act--more:hover {
+  background: var(--hover);
+  border-color: transparent;
+}
+
+.dbf-act--more svg {
+  transition: transform var(--dur-2) var(--ease-out);
+}
+
+.dbf-act--more[aria-expanded='true'] svg {
+  transform: rotate(180deg);
+}
+
+.dbf-act--comments {
+  border-color: transparent;
+  background: transparent;
+  font-variant-numeric: tabular-nums;
+}
+
+.dbf-act--open {
+  color: var(--ink);
+}
+
+.dbf-act--open:hover {
+  border-color: var(--signal);
+  color: var(--signal-ink);
+}
+
+.dbf-loadmore {
+  justify-content: center;
+  width: calc(100% - var(--dbf-rail));
+  max-width: calc(var(--dbf-max) - var(--dbf-rail));
+  height: 34px;
+  margin: 18px 0 0 var(--dbf-rail);
+  border-style: dashed;
+  background: transparent;
+}
+
+.dbf-loadmore .label {
+  color: inherit;
+}
+
+/* ---------- colour rules ---------- */
+.dbf-entry[data-rc='background'] .dbf-card {
+  background: var(--rc-bg);
+}
+
+.dbf-entry[data-rc='accent'] .dbf-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 1;
+  width: 3px;
+  background: var(--rc-text);
+  pointer-events: none;
+}
+
+.dbf .dbf-entry[data-rc='text'] .dbf-title a.dbf-title__link {
+  color: var(--rc-text);
+}
+
+/* ---------- narrow: no rail, the date joins the stamp ---------- */
+@container dbf (max-width: 600px) {
+  .dbf > * {
+    --dbf-rail: 0px;
+  }
+
+  .dbf-new__text {
+    display: none;
+  }
+
+  .dbf-new {
+    width: 32px;
+    justify-content: center;
+    padding: 0;
+  }
+
+  .dbf-list::before,
+  .dbf-date {
+    display: none;
+  }
+
+  .dbf-entry {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .dbf-stamp__date {
+    display: inline;
+  }
+
+  .dbf-list {
+    gap: 12px;
+  }
+
+  .dbf-card__head {
+    padding: 12px 14px;
+  }
+
+  .dbf-body {
+    padding: 0 14px;
+  }
+
+  .dbf-card__foot {
+    padding: 6px 8px 7px 14px;
+  }
+
+  .dbf-act--more {
+    margin-left: -8px;
+  }
+
+  .dbf-title {
+    font-size: 19px;
+  }
+
+  .dbf-specs {
+    --dbf-spec-pad: 10px;
+  }
+}
+
+/* the container query needs an inline-size container: an inline database's body scrolls itself */
+.db--inline .dbf {
+  padding-right: 2px;
+}
+
+@media (pointer: coarse) {
+  .dbf-act,
+  .dbf-order,
+  .dbf-new {
+    height: 34px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dbf-act--more svg {
+    transition: none;
+  }
+}

@@ -38,13 +38,7 @@ export default function FeedView() {
     entries[Math.max(0, Math.min(entries.length - 1, at + (e.key === 'PageDown' ? 1 : -1)))]?.focus()
   }
 
-  if (!m.rows.length)
-    return (
-      <div className="dbf">
-        <FeedHead m={m} onAdd={add} />
-        <EmptyState onAdd={add} />
-      </div>
-    )
+  if (!m.rows.length) return <EmptyState onAdd={add} />
   const shown = m.rows.slice(0, limit)
   return (
     <div className="dbf">
@@ -95,9 +89,9 @@ function FeedHead({ m, onAdd }: { m: DbModel; onAdd?: () => void }) {
       {own && <span className="dbf-head__by label">{by}</span>}
       <span className="dbf-head__spacer" />
       {onAdd && (
-        <button type="button" className="dbf-new" onClick={onAdd}>
+        <button type="button" className="dbf-new" aria-label={t('database.feed.new')} title={t('database.feed.new')} onClick={onAdd}>
           <Plus size={13} strokeWidth={1.8} aria-hidden />
-          {t('database.feed.new')}
+          <span className="dbf-new__text">{t('database.feed.new')}</span>
         </button>
       )}
     </div>

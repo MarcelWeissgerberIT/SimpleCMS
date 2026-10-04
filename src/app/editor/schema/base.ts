@@ -25,6 +25,7 @@ import { ChartNode } from './chart'
 import { ToggleDetails, ToggleHeadingInput, ToggleSummary } from './toggle'
 import { Audio, Video } from './media'
 import { InlineIcon } from './icon'
+import { Breadcrumb } from './breadcrumb'
 import {
   BlockImage,
   Bookmark,
@@ -104,6 +105,7 @@ export const BLOCK_ID_TYPES = [
   'meetingNotes',
   'spreadsheet',
   'chart',
+  'breadcrumb',
 ]
 
 export type ExtensionWrap = Partial<Record<string, (ext: AnyExtension) => AnyExtension>>
@@ -184,6 +186,7 @@ export function baseExtensions({ readOnly = false, wrap = {}, headingOffset = 0,
     w('meetingNotes', MeetingNotes),
     w('spreadsheet', Spreadsheet),
     w('chart', ChartNode),
+    w('breadcrumb', Breadcrumb),
     CommentMark,
     UniqueID.configure({ types: BLOCK_ID_TYPES, attributeName: 'id' }),
   ]

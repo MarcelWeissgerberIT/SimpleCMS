@@ -136,6 +136,7 @@ function FeedOptions({ m }: { m: DbModel }) {
       <div className="db-cfg__row">
         <span className="label">{t('database.feed.orderBy')}</span>
         <Select
+          ariaLabel={t('database.feed.orderBy')}
           value={current === FEED_CREATED || current.type === 'created_time' ? FEED_CREATED.id : current.id}
           items={[{ value: FEED_CREATED.id, label: t('database.type.created_time'), icon: <TypeIcon type="created_time" /> }, ...dates.map((p) => ({ value: p.id, label: p.name, icon: <TypeIcon type={p.type} /> }))]}
           onChange={(v) => upd({ dateProperty: v === FEED_CREATED.id ? null : v })}
