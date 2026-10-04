@@ -404,12 +404,15 @@ test.describe('spreadsheet block by touch — phone', () => {
     // an internal paste moves the references like ⌘V does
     expect((await stored(page, id)).sheets[0].cells.E9.v).toBe('=D10*2')
 
-    // Cut: the source empties once pasted
+    // Cut: the source empties once pasted (the key a moment after the tap that brought it: right away
+    // the two taps are a double tap — that edits the cell)
     await f.tap(await mid(cell(page, 'C2')))
+    await settle(page)
     await menuKey(page).tap()
     await entry(page, 'Cut').tap()
     await expect(page.getByText('Cut C2 — paste it where it should go.')).toBeVisible()
     await f.tap(await mid(cell(page, 'C4')))
+    await settle(page)
     await menuKey(page).tap()
     await entry(page, 'Paste').tap()
     await expect(cell(page, 'C4')).toHaveText('k')
@@ -426,10 +429,12 @@ test.describe('spreadsheet block by touch — phone', () => {
     await expect(page.locator('.sheet .sh-status')).toContainText('SUM 28')
     // Fill → on a single column takes the column to its left; column A has none: greyed
     await f.tap(await mid(cell(page, 'D8')))
+    await settle(page)
     await menuKey(page).tap()
     await entry(page, 'Fill right').tap()
     await expect(cell(page, 'D8')).toHaveText('7')
     await f.tap(await mid(cell(page, 'A9')))
+    await settle(page)
     await menuKey(page).tap()
     await expect(entry(page, 'Fill right')).toBeDisabled()
     await expect(entry(page, 'Fill down')).toBeEnabled()
@@ -503,6 +508,7 @@ test.describe('spreadsheet block by touch — phone', () => {
 
     // × on the chip: nothing waits any more, the next tap selects
     await f.tap(await mid(cell(page, 'B5')))
+    await settle(page)
     await menuKey(page).tap()
     await entry(page, AREA).tap()
     await areaChip(page).getByRole('button', { name: 'Cancel “+ Area”' }).tap()

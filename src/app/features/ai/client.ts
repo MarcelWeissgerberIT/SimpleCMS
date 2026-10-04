@@ -10,7 +10,7 @@ import { useWorkspace } from '../../store/store'
 import { getAIKey } from '../../store/secrets'
 import { t } from '../../i18n'
 import { demoAnswer, streamDemo } from './demo'
-import { MCP_BETA, attachMcp, type McpAttachment } from './mcp-servers/config'
+import { MCP_BETA, attachMcp, type McpAttachment, type McpRequestKind } from './mcp-servers/config'
 import { foldMcpBlock, type McpCall } from './mcp-servers/activity'
 
 export type AIAction = 'continue' | 'improve' | 'shorter' | 'longer' | 'fix' | 'summarize' | 'translate' | 'explain' | 'action_items' | 'custom' | 'autofill'
@@ -27,8 +27,9 @@ export interface RunAIOptions {
   onToken?: (text: string) => void
   signal?: AbortSignal
   /**
-   * 'custom' (a free-form request) uses the enabled MCP servers (Settings → Claude AI) unless this
-   * is false — e.g. a key test. The one-click actions never do.
+   * false: no MCP server at all (e.g. a key test). Otherwise 'custom' (a free-form request) gets
+   * every enabled MCP server (Settings → Claude AI), the one-click actions only the servers set to
+   * "All AI calls".
    */
   mcp?: boolean
   /** MCP tool calls of the request so far, whenever one starts or ends */
@@ -256,8 +257,11 @@ export interface StreamOptions {
   prompt: string
   onToken?: (delta: string) => void
   signal?: AbortSignal
-  /** MCP servers for this request (attachMcp) — their prompt part is appended to `system` here */
-  mcp?: McpAttachment | null
+  /**
+   * Which MCP servers join (their prompt part is appended to `system` here): 'free' = a free-form
+   * request, every enabled server · 'fixed' (default) = only servers set to "All AI calls" · false = none.
+   */
+  mcp?: McpRequestKind | false
   onMcp?: (calls: McpCall[]) => void
 }
 
@@ -275,6 +279,7 @@ export async function streamCompletion({ system, prompt, onToken, signal, mcp, o
   if (signal?.aborted) throw new AIError('aborted')
   const model = resolveModel(settings.aiModel).id
   let sdk: SDKModule | null = null
+  let attached: McpAttachment | null = null
   try {
     const got = await getClient(apiKey)
     sdk = got.sdk
@@ -287,9 +292,11 @@ export async function streamCompletion({ system, prompt, onToken, signal, mcp, o
       onToken?.(delta)
     }
 
+    attached = mcp === false ? null : await attachMcp(undefined, mcp ?? 'fixed')
+    if (signal?.aborted) throw new AIError('aborted')
     let stopReason: string | null
-    if (mcp) {
-      const final = await streamWithMcp(client, model, `${system}\n\n${mcp.system}`, prompt, mcp, onText, onMcp, signal)
+    if (attached) {
+      const final = await streamWithMcp(client, model, `${system}\n\n${attached.system}`, prompt, attached, onText, onMcp, signal)
       stopReason = final.stop_reason
       text = answerText(final.content) || text
     } else if (model === 'claude-haiku-4-5') {
@@ -329,7 +336,7 @@ export async function streamCompletion({ system, prompt, onToken, signal, mcp, o
     return text
   } catch (e) {
     if (signal?.aborted) throw new AIError('aborted')
-    throw toAIError(e, sdk, mcp?.names)
+    throw toAIError(e, sdk, attached?.names)
   }
 }
 
@@ -356,12 +363,9 @@ async function streamWithMcp(
       max_tokens: opus ? 16000 : 8000,
       system,
       messages,
-      mcp_servers: mcp.servers,
-      tools: mcp.toolsets,
+      ...mcpParams(mcp),
       // Opus / Sonnet 5.5: thinking is always on (adaptive) — never send `thinking`; refusal fallbacks as above
-      ...(opus
-        ? { betas: ['server-side-fallback-2026-07-01', MCP_BETA], fallbacks: 'default' as const, output_config: { effort: 'low' as const } }
-        : { betas: [MCP_BETA] }),
+      ...(opus ? { betas: [FALLBACK_BETA, MCP_BETA], fallbacks: 'default' as const, output_config: { effort: 'low' as const } } : { betas: [MCP_BETA] }),
     }
     const stream = client.beta.messages.stream(params)
     const abort = () => stream.abort()
@@ -382,6 +386,13 @@ async function streamWithMcp(
     if (final.stop_reason !== 'pause_turn' || resumes >= MAX_RESUMES) return final
     messages.push({ role: 'assistant', content: final.content })
   }
+}
+
+const FALLBACK_BETA = 'server-side-fallback-2026-07-01'
+
+/** The MCP half of a request: the servers and one `mcp_toolset` per server (the beta goes with `betas`). */
+function mcpParams(mcp: McpAttachment) {
+  return { mcp_servers: mcp.servers, tools: mcp.toolsets }
 }
 
 /** The answer of a response: the text after its last MCP tool call (all text when it made none). */
@@ -411,6 +422,8 @@ export interface StructuredOptions {
   signal?: AbortSignal
   /** SDK retries for 408/409/429/5xx and connection errors, with backoff (honours retry-after). */
   maxRetries?: number
+  /** MCP servers as for streamCompletion — default 'fixed': only servers set to "All AI calls" */
+  mcp?: McpRequestKind | false
 }
 
 /**
@@ -418,13 +431,14 @@ export interface StructuredOptions {
  * `output_config.format`). Resolves with the raw answer text; parsing and validation are the
  * caller's job, so a malformed answer can become a per-item error instead of an exception here.
  */
-export async function completeStructured({ system, prompt, schema, maxTokens = 4096, signal, maxRetries = 4 }: StructuredOptions): Promise<string> {
+export async function completeStructured({ system, prompt, schema, maxTokens = 4096, signal, maxRetries = 4, mcp }: StructuredOptions): Promise<string> {
   const apiKey = await getAIKey()
   if (!apiKey) throw new AIError('no_key')
   const settings = useWorkspace.getState().settings
   if (signal?.aborted) throw new AIError('aborted')
   const model = resolveModel(settings.aiModel).id
   let sdk: SDKModule | null = null
+  let attached: McpAttachment | null = null
   try {
     const got = await getClient(apiKey)
     sdk = got.sdk
@@ -434,7 +448,31 @@ export async function completeStructured({ system, prompt, schema, maxTokens = 4
     const format = { type: 'json_schema' as const, schema }
     let stopReason: string | null
     let blocks: Array<{ type: string; text?: string }>
-    if (model === 'claude-haiku-4-5') {
+    attached = mcp === false ? null : await attachMcp(undefined, mcp ?? 'fixed')
+    if (signal?.aborted) throw new AIError('aborted')
+    if (attached) {
+      // with MCP servers ("All AI calls"): the beta request, a paused turn resumed; the answer is the text after the last tool call
+      const opus = model !== 'claude-haiku-4-5'
+      const turn: BetaMessageParam[] = [{ role: 'user', content: prompt }]
+      let msg: BetaMessage
+      for (let resumes = 0; ; resumes++) {
+        msg = await client.beta.messages.create(
+          {
+            model,
+            max_tokens: maxTokens,
+            system: `${system}\n\n${attached.system}`,
+            messages: turn,
+            ...mcpParams(attached),
+            ...(opus ? { betas: [FALLBACK_BETA, MCP_BETA], fallbacks: 'default' as const, output_config: { effort: 'low' as const, format } } : { betas: [MCP_BETA], output_config: { format } }),
+          },
+          { signal, maxRetries },
+        )
+        if (msg.stop_reason !== 'pause_turn' || resumes >= MAX_RESUMES) break
+        turn.push({ role: 'assistant', content: msg.content })
+      }
+      stopReason = msg.stop_reason
+      blocks = [{ type: 'text', text: answerText(msg.content) }]
+    } else if (model === 'claude-haiku-4-5') {
       const msg = await client.messages.create({ model, max_tokens: maxTokens, system, messages, output_config: { format } }, { signal, maxRetries })
       stopReason = msg.stop_reason
       blocks = msg.content
@@ -457,7 +495,7 @@ export async function completeStructured({ system, prompt, schema, maxTokens = 4
     return text
   } catch (e) {
     if (signal?.aborted) throw new AIError('aborted')
-    throw toAIError(e, sdk)
+    throw toAIError(e, sdk, attached?.names)
   }
 }
 
@@ -534,14 +572,13 @@ export async function runAI(opts: RunAIOptions): Promise<string> {
     const lang = useWorkspace.getState().settings.language === 'de' ? 'de' : 'en'
     return stripFence(await streamDemoText(demoAnswer(opts, lang), opts.onToken, opts.signal))
   }
-  // a free-form request may use the enabled MCP servers; the one-click actions stay cheap
-  const mcp = opts.action === 'custom' && opts.mcp !== false ? await attachMcp() : null
+  // a free-form request gets every enabled MCP server; the one-click actions only "All AI calls" ones
   const text = await streamCompletion({
     system: SYSTEM,
     prompt: buildPrompt(opts),
     onToken: opts.onToken,
     signal: opts.signal,
-    mcp,
+    mcp: opts.mcp === false ? false : opts.action === 'custom' ? 'free' : 'fixed',
     onMcp: opts.onMcp,
   })
   return opts.action === 'autofill' ? text.trim().replace(/^["'`]|["'`]$/g, '') : stripFence(text)

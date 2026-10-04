@@ -647,6 +647,11 @@ export interface McpServerConfig {
   tools?: string[]
   /** last successful check (ms since epoch) */
   checkedAt?: number
+  /**
+   * Which requests use the server: absent / 'free' = the agent, own requests to Claude and ⌘K "?" ·
+   * 'all' = every AI call (also the one-click actions, autofill, meeting summaries).
+   */
+  scope?: 'free' | 'all'
 }
 
 export interface Workspace {

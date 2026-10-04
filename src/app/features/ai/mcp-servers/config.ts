@@ -82,6 +82,7 @@ export function readServers(settings: Pick<Settings, 'mcpServers'> = useWorkspac
       promptSource: s.promptSource === 'auto' || s.promptSource === 'edited' ? s.promptSource : undefined,
       tools: Array.isArray(s.tools) ? s.tools.filter((x): x is string => typeof x === 'string').slice(0, 200) : undefined,
       checkedAt: typeof s.checkedAt === 'number' ? s.checkedAt : undefined,
+      scope: s.scope === 'all' ? 'all' : undefined,
     })
     if (out.length >= MAX_SERVERS) break
   }
@@ -127,6 +128,13 @@ export function mcpSystemText(servers: McpServerConfig[], instructions: string):
 /* Attaching servers to a request                                      */
 /* ------------------------------------------------------------------ */
 
+/**
+ * What kind of request asks: 'free' = a free-form one (the agent, "Ask Claude" with your own words,
+ * ⌘K "?") gets every enabled server · 'fixed' = everything else (one-click actions, autofill, meeting
+ * summaries, "Ask your workspace") gets only the servers whose scope is "All AI calls".
+ */
+export type McpRequestKind = 'free' | 'fixed'
+
 /** What one request sends for MCP. */
 export interface McpAttachment {
   servers: BetaRequestMCPServerURLDefinition[]
@@ -149,16 +157,17 @@ export function currentSetup(settings: Pick<Settings, 'mcpServers' | 'mcpInstruc
 
 /** A stable signature of a setup (what the prompt and the tool list are made of). */
 export function setupKey(setup: McpSetup): string {
-  return JSON.stringify([setup.instructions, setup.servers.map((s) => [s.id, s.name, s.url, s.prompt])])
+  return JSON.stringify([setup.instructions, setup.servers.map((s) => [s.id, s.name, s.url, s.prompt, s.scope ?? 'free'])])
 }
 
 /**
  * The attachment for a request (null = no server to attach). Tokens are opened from the vault
  * for this request only; a server whose token is not available in this browser is left out.
  */
-export async function attachMcp(setup: McpSetup = currentSetup()): Promise<McpAttachment | null> {
+export async function attachMcp(setup: McpSetup = currentSetup(), kind: McpRequestKind = 'free'): Promise<McpAttachment | null> {
   const usable: Array<{ s: McpServerConfig; token: string }> = []
   for (const s of setup.servers) {
+    if (kind === 'fixed' && s.scope !== 'all') continue
     const token = await getMcpToken(s)
     if (token === null) continue
     usable.push({ s, token })
