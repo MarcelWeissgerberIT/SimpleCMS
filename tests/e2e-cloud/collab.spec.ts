@@ -131,7 +131,7 @@ test.describe('team cloud — live collaboration', () => {
     await expect(caret.locator('.collab-caret__label')).toHaveText('Bob')
     expect(await cloudEval(a, (c, id) => c.peers.filter((p: { pageId: string }) => p.pageId === id).map((p: { name: string }) => p.name), pageId)).toEqual(['Bob'])
 
-    // undo only takes back your own typing
+    // undo only takes back your own typing — from where you placed the caret (click, End) on
     await para(a).click()
     await a.keyboard.press('End')
     await a.keyboard.type(' Typo')
@@ -139,6 +139,12 @@ test.describe('team cloud — live collaboration', () => {
     await b.keyboard.type('Kept ')
     await expect.poll(() => textOf(a)).toContain('bravo bravo Kept Ship')
     await a.keyboard.press(`${mod}+z`)
+    await expect.poll(() => textOf(a)).toBe('bravo bravo Kept Ship it on Monday alpha alpha')
+    await expect.poll(() => textOf(b)).toBe('bravo bravo Kept Ship it on Monday alpha alpha')
+    // what A typed while B was typing is one step — B's keystrokes arriving in between don't split it
+    await a.keyboard.press(`${mod}+z`)
+    await expect.poll(() => textOf(a)).toBe('bravo bravo Kept Ship it on Monday')
+    await a.keyboard.press(`${mod}+Shift+z`)
     await expect.poll(() => textOf(a)).toBe('bravo bravo Kept Ship it on Monday alpha alpha')
     await expect.poll(() => textOf(b)).toBe('bravo bravo Kept Ship it on Monday alpha alpha')
 

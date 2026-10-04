@@ -1,17 +1,18 @@
 /**
  * Live collaboration in the editor (team cloud): the page's Y document instead of page.content.
- *  - Collaboration: binds the doc's XmlFragment ('default'); brings Y undo (only your own changes).
+ *  - Collaboration: binds the doc's XmlFragment ('default'); brings Y undo (only your own changes,
+ *    in steps — see "Undo steps" below).
  *  - CollaborationCaret: other people's carets — a hairline in their colour with a small mono name
  *    tag (INSTRUMENT), selections tinted in their colour's wash.
  *  - CollabBlockIds: block ids stay unique when concurrent edits (from different people) end up
  *    with the same id — the second occurrence gets a fresh one.
  */
 import { Extension, type AnyExtension } from '@tiptap/core'
-import { Plugin, PluginKey, TextSelection, type EditorState, type Transaction } from '@tiptap/pm/state'
+import { Plugin, PluginKey, TextSelection, type EditorState, type StateField, type Transaction } from '@tiptap/pm/state'
 import type { DecorationAttrs, EditorView } from '@tiptap/pm/view'
 import Collaboration from '@tiptap/extension-collaboration'
 import CollaborationCaret from '@tiptap/extension-collaboration-caret'
-import { ProsemirrorBinding, relativePositionToAbsolutePosition, ySyncPluginKey } from '@tiptap/y-tiptap'
+import { ProsemirrorBinding, relativePositionToAbsolutePosition, ySyncPluginKey, yUndoPluginKey } from '@tiptap/y-tiptap'
 import * as Y from 'yjs'
 import type { ContentDocHandle } from '../cloud'
 import { COLOR_NAMES } from '../store/types'
@@ -66,7 +67,8 @@ function fixCaret(binding: BindingLike, rel: RelSel | null, before: EditorState 
   if (anchor === null || head === null) return
   if (state.selection.anchor === anchor && state.selection.head === head) return
   if (!sameTextblock(before, rel.absAnchor, state, anchor) || !sameTextblock(before, rel.absHead, state, head)) return
-  view.dispatch(state.tr.setSelection(TextSelection.create(state.doc, anchor, head)).setMeta('addToHistory', false))
+  // selection only: nothing to undo (marking it 'addToHistory: false' would close your undo step)
+  view.dispatch(state.tr.setSelection(TextSelection.create(state.doc, anchor, head)))
 }
 
 const proto = ProsemirrorBinding.prototype as unknown as {
@@ -87,6 +89,92 @@ if (!proto.__oneCaretFix) {
     }
   }
 }
+
+/* ------------------------------------------------------------------ */
+/* Undo steps                                                          */
+/*                                                                     */
+/* Y undo merges your own changes into one step while they follow each */
+/* other within 500 ms; `stopCapturing()` ends the step early. Two     */
+/* things made the steps wrong in a shared page:                       */
+/*                                                                     */
+/* 1. y-tiptap 3.0.9's sync plugin keeps `addToHistory: false` after a */
+/*    REMOTE change (it only updates the flag on doc-changing          */
+/*    transactions), and its view calls `stopCapturing()` on each      */
+/*    later transaction that is not a remote change: the caret repaint */
+/*    after each of someone else's keystrokes, the caret fix above. So */
+/*    while someone else typed, each of your keystrokes became its own */
+/*    step, and where your last step began depended on whose keystroke */
+/*    came last: ⌘Z after more typing took a stray letter back with    */
+/*    it. Changes from Yjs are never written back (the binding's       */
+/*    mutex), so the flag only matters for your own changes — remote   */
+/*    ones now leave it as your last own change set it.                */
+/* 2. Y undo knows only time; ProseMirror's history (local workspaces) */
+/*    also starts a new step when the next change is somewhere else.   */
+/*    Here placing the caret — a press in the editor, a caret key —    */
+/*    ends the step: what you type after it is undone on its own.      */
+/* ------------------------------------------------------------------ */
+
+interface SyncPluginState {
+  isChangeOrigin: boolean
+  addToHistory: boolean
+}
+
+const patchedSyncFields = new WeakSet<object>()
+
+/** Remote / undo / re-render transactions (`isChangeOrigin`) leave `addToHistory` as it was. */
+function keepOwnHistoryFlag(plugin: Plugin) {
+  const field = plugin.spec.state as StateField<SyncPluginState> | undefined
+  if (!field || patchedSyncFields.has(field)) return
+  patchedSyncFields.add(field)
+  const apply = field.apply
+  field.apply = function (this: Plugin, tr, value, oldState, newState) {
+    const next = apply.call(this, tr, value, oldState, newState)
+    // y-tiptap copies its state for these, so the previous state object stays untouched
+    if (next !== value && next.isChangeOrigin) next.addToHistory = value.addToHistory
+    return next
+  }
+}
+
+const OneCollaboration = Collaboration.extend({
+  addProseMirrorPlugins() {
+    const plugins = this.parent?.() ?? []
+    for (const plugin of plugins) if (plugin.spec.key === ySyncPluginKey) keepOwnHistoryFlag(plugin)
+    return plugins
+  },
+})
+
+const CARET_KEYS = new Set(['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End', 'PageUp', 'PageDown'])
+
+function closeUndoStep(view: EditorView) {
+  const undo = yUndoPluginKey.getState(view.state) as { undoManager?: Y.UndoManager } | undefined
+  undo?.undoManager?.stopCapturing()
+}
+
+/** Placing the caret (a press in the editor, a caret key) closes the current undo step. */
+const CollabUndoSteps = Extension.create({
+  name: 'oneCollabUndoSteps',
+  // before other handlers: they may stop the event (handled keys, node views)
+  priority: 1001,
+  addProseMirrorPlugins() {
+    return [
+      new Plugin({
+        key: new PluginKey('oneCollabUndoSteps'),
+        props: {
+          handleDOMEvents: {
+            pointerdown: (view) => {
+              closeUndoStep(view)
+              return false
+            },
+            keydown: (view, event) => {
+              if (CARET_KEYS.has(event.key) && !event.isComposing) closeUndoStep(view)
+              return false
+            },
+          },
+        },
+      }),
+    ]
+  },
+})
 
 /** The person's colour name: `tone`, or parsed from a `var(--c-<name>-text)` colour. */
 function toneOf(user: Record<string, unknown>): string {
@@ -155,8 +243,9 @@ export function collabExtensions(handle: ContentDocHandle): AnyExtension[] {
   const m = handle.user.color.match(/^var\(--c-([a-z]+)-text\)$/)
   const user = { name: handle.user.name, css: handle.user.color, color: handle.user.color, tone: m && TONES.has(m[1]) ? m[1] : 'orange' }
   return [
-    Collaboration.configure({ document: handle.doc, field: handle.field }),
+    OneCollaboration.configure({ document: handle.doc, field: handle.field }),
     CollaborationCaret.configure({ provider: handle.provider, user, render: renderCaret, selectionRender: renderSelection }),
     CollabBlockIds,
+    CollabUndoSteps,
   ]
 }
