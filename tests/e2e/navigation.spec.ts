@@ -1,4 +1,4 @@
-import { test, expect, openApp, reloadApp, gotoPage, createPage, doc, para, wsEval, pageIdByTitle, editorOf, MOD } from './fixtures'
+import { test, expect, openApp, reloadApp, gotoPage, createPage, doc, para, wsEval, uiEval, pageIdByTitle, editorOf, MOD } from './fixtures'
 
 test.describe('navigation', () => {
   test('browser back / forward walk through visited pages', async ({ page }) => {
@@ -52,10 +52,10 @@ test.describe('navigation', () => {
     await expect(ed).toBeFocused()
     await page.keyboard.type(' A')
     await expect(ed).toContainText('caret lives here A')
-    // a dialog (settings) does the same
+    // a dialog with a field does the same ("Move to", opened right from the editor)
     await ed.locator('p').first().click()
     await page.keyboard.press('End')
-    await page.keyboard.press(`${MOD}+,`)
+    await uiEval(page, (s, pageId) => s.openModal({ type: 'move', pageId }), id)
     await expect(page.getByRole('dialog')).toBeVisible()
     await page.keyboard.press('Escape')
     await expect(page.getByRole('dialog')).toHaveCount(0)
