@@ -233,23 +233,24 @@ export class WorkspaceModel {
 
   /* ---------------------------------------------------------------- writes */
 
-  /** Validates (strict), then creates. */
-  async createRow(wsId: string, dbId: string, input: RowInput, actor: string) {
+  /** Validates (strict), then creates. `opts.id`: the new row's id (agents' staged rows), else a fresh one. */
+  async createRow(wsId: string, dbId: string, input: RowInput, actor: string, opts: { id?: string } = {}) {
     const resolved = await this.read(wsId, (r) => {
       const db = liveDatabase(r, dbId)
       if (!db) throw notFound('database_not_found', 'No such database in this workspace')
+      if (opts.id && pageMap(r, opts.id)) throw new ApiError(409, 'page_exists', 'A page with this id exists already')
       const { title, values } = this.resolveStrict(db.properties, input, this.context(wsId, r))
       return { title: title ?? '', values, nodes: input.content !== undefined && input.content.trim() ? markdownToNodes(input.content) : null }
     })
-    return this.insertRow(wsId, dbId, resolved, actor)
+    return this.insertRow(wsId, dbId, resolved, actor, opts.id)
   }
 
   /**
    * Write a resolved row: its content document first (so the row arrives with its content), then the
    * meta entry — order after the last row, unique ids from the database's counter, two-way relations.
    */
-  async insertRow(wsId: string, dbId: string, row: ResolvedRow, actor: string): Promise<{ id: string; url: string }> {
-    const id = newId()
+  async insertRow(wsId: string, dbId: string, row: ResolvedRow, actor: string, presetId?: string): Promise<{ id: string; url: string }> {
+    const id = presetId ?? newId()
     if (row.nodes?.length) await this.s.collab.write(contentDoc(wsId, id), (doc) => appendBlocks(doc, row.nodes!), actor)
     await this.s.collab.write(
       metaDoc(wsId),
@@ -257,6 +258,7 @@ export class WorkspaceModel {
         const r = roots(doc)
         const db = liveDatabase(r, dbId)
         if (!db) throw notFound('database_not_found', 'No such database in this workspace')
+        if (presetId && pageMap(r, id)) throw new ApiError(409, 'page_exists', 'A page with this id exists already')
         this.checkHierarchy(db.ydb, db.properties, id, row.values)
         const values = { ...row.values }
         const uniques = db.properties.filter((p) => p.type === 'unique_id')
@@ -349,9 +351,11 @@ export class WorkspaceModel {
     }
   }
 
-  async createPage(wsId: string, input: { parentId?: string | null; title: string; content?: string; icon?: unknown }, actor: string) {
+  /** `input.id`: the new page's id (agents' staged pages), else a fresh one. */
+  async createPage(wsId: string, input: { id?: string; parentId?: string | null; title: string; content?: string; icon?: unknown }, actor: string) {
     const parentId = input.parentId ?? null
     const check = (r: Roots) => {
+      if (input.id && pageMap(r, input.id)) throw new ApiError(409, 'page_exists', 'A page with this id exists already')
       if (!parentId) return
       const parent = livePage(r, parentId)
       if (!parent) throw notFound('parent_not_found', 'No such parent page in this workspace')
@@ -359,7 +363,7 @@ export class WorkspaceModel {
     }
     await this.read(wsId, check)
     const nodes = input.content?.trim() ? markdownToNodes(input.content) : null
-    const id = newId()
+    const id = input.id ?? newId()
     if (nodes) await this.s.collab.write(contentDoc(wsId, id), (doc) => appendBlocks(doc, nodes), actor)
     await this.s.collab.write(
       metaDoc(wsId),

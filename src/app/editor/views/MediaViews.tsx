@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode, type RefObject } from 'react'
 import { NodeViewWrapper, type ReactNodeViewProps } from '@tiptap/react'
-import { Bookmark as BookmarkIcon, Download, ExternalLink, Link2, MonitorPlay, Paperclip, Pencil, Upload } from 'lucide-react'
+import { Bookmark as BookmarkIcon, BookOpenText, Download, ExternalLink, Link2, MonitorPlay, Paperclip, Pencil, Upload } from 'lucide-react'
 import { saveFile, useFileUrl } from '../../lib/files'
 import { useT } from '../../i18n'
 import { NodeSelection } from '@tiptap/pm/state'
@@ -279,8 +279,10 @@ export function FileBlockView({ node, updateAttributes, selected, editor, getPos
   const size = Number(node.attrs.size ?? 0)
   const url = useFileUrl(src || null)
 
+  // "/PDF" inserts an empty file block meant for a PDF (display: viewer)
+  const wantsPdf = node.attrs.display === 'viewer'
   const upload = async () => {
-    const [file] = await pickFiles('*/*')
+    const [file] = await pickFiles(wantsPdf ? 'application/pdf,.pdf' : '*/*')
     if (!file) return
     const ref = await saveFile(file, file.name)
     updateAttributes({ src: ref, name: file.name, size: file.size })
@@ -291,13 +293,13 @@ export function FileBlockView({ node, updateAttributes, selected, editor, getPos
     return (
       <NodeViewWrapper className={`media-empty${selected ? ' is-selected' : ''}`} data-type="file" contentEditable={false}>
         <div className="media-empty__head">
-          <Paperclip size={16} strokeWidth={1.7} />
-          <span className="label">{t('editor.file.empty')}</span>
+          {wantsPdf ? <BookOpenText size={16} strokeWidth={1.7} /> : <Paperclip size={16} strokeWidth={1.7} />}
+          <span className="label">{t(wantsPdf ? 'editor.pdf.empty' : 'editor.file.empty')}</span>
         </div>
         {editor.isEditable && (
           <div className="media-empty__body">
             <button type="button" className="btn btn--sm" onClick={upload} autoFocus={selected}>
-              <Upload size={13} /> {t('editor.file.upload')}
+              <Upload size={13} /> {t(wantsPdf ? 'editor.pdf.upload' : 'editor.file.upload')}
             </button>
           </div>
         )}

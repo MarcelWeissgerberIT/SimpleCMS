@@ -75,7 +75,6 @@ export function FeedEntry({ m, row, rc, dateProp, showContent, index, total }: F
       aria-posinset={index + 1}
       aria-setsize={total}
       tabIndex={0}
-      data-row-id={row.id}
       onKeyDown={(e) => {
         if (e.key === 'Enter' && e.target === e.currentTarget) {
           e.preventDefault()

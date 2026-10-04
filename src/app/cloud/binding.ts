@@ -23,7 +23,8 @@ import * as Y from 'yjs'
 import type { JSONContent } from '@tiptap/core'
 import { useWorkspace, type CloudPatch } from '../store/store'
 import { runAsRemote } from '../store/persistence'
-import type { CustomFunction, Database, ID, Page, Settings } from '../store/types'
+import type { CustomAgent, CustomFunction, Database, ID, Page, Settings } from '../store/types'
+import { sameAgent, sanitizeAgent } from '../store/agents'
 import { defaultView } from '../store/store'
 import { sharedPlain } from './privacy'
 import { LOCAL, newDatabaseMap, newPageMap, readDatabase, readFunctions, readPage, readPeople, roots, writeDatabase, writeFunctions, writePage, writePeople, type YMap } from './schema'
@@ -50,6 +51,58 @@ const fromY = new WeakSet<object>()
 export function markFromCloud(json: JSONContent): JSONContent {
   fromY.add(json)
   return json
+}
+
+/**
+ * Who this client's page writes are stamped with (createdBy / updatedBy) while a custom agent applies
+ * its changes: `agent:<agentId>` instead of the member's account id (features/agents). Null = the member.
+ */
+let writeActor: string | null = null
+const AGENT_ACTOR = /^agent:[\w-]{1,64}$/
+/** Attribute the page writes made while `fn` runs to an agent (`agent:<id>`); other ids are ignored. */
+export async function withWriteActor<T>(actor: string, fn: () => Promise<T> | T): Promise<T> {
+  if (!AGENT_ACTOR.test(actor)) return fn()
+  const prev = writeActor
+  writeActor = actor
+  try {
+    return await fn()
+  } finally {
+    writeActor = prev
+  }
+}
+
+/* ------------------------------------------------------------------ custom agents (meta map 'agents') */
+
+/** Agents: one JSON entry per agent (only the ones that changed are written). */
+function writeAgents(target: Y.Map<unknown>, next: Record<ID, CustomAgent> | undefined, before: Record<ID, CustomAgent> | undefined): void {
+  const prev = before ?? {}
+  const cur = next ?? {}
+  for (const [id, agent] of Object.entries(cur)) {
+    if (prev[id] === agent) continue
+    target.set(id, JSON.parse(JSON.stringify(agent)))
+  }
+  for (const id of Object.keys(prev)) if (!(id in cur)) target.delete(id)
+}
+
+/**
+ * The store's agents from the meta document, every entry sanitized (store/agents.ts); unchanged ones
+ * keep their object, and `cur` itself comes back when nothing changed.
+ */
+function readAgents(source: Y.Map<unknown>, cur: Record<ID, CustomAgent> | undefined): Record<ID, CustomAgent> {
+  const prev = cur ?? {}
+  const out: Record<ID, CustomAgent> = {}
+  let same = true
+  for (const [id, v] of source.entries()) {
+    const agent = sanitizeAgent(id, v)
+    if (!agent) continue
+    if (prev[id] && sameAgent(prev[id], agent) && prev[id].updatedAt === agent.updatedAt) out[id] = prev[id]
+    else {
+      out[id] = agent
+      same = false
+    }
+  }
+  if (Object.keys(prev).some((id) => !(id in out))) same = false
+  return same && cur ? cur : out
 }
 
 /** New pages with these ids are created in the private meta document (createPrivatePage). */
@@ -142,6 +195,8 @@ export function startBinding(o: BindingOptions): Binding {
   let dirtyPeople = false
   let dirtyWorkspace = false
   let dirtyFunctions = false
+  const agentsMap = o.doc.getMap<unknown>('agents')
+  let dirtyAgents = false
 
   /* ---------------------------------------------------------------- Y → store */
 
@@ -168,9 +223,13 @@ export function startBinding(o: BindingOptions): Binding {
   const onFunctions = (_e: unknown, tr: Y.Transaction) => {
     if (tr.origin !== LOCAL) dirtyFunctions = true
   }
+  const onAgents = (_e: unknown, tr: Y.Transaction) => {
+    if (tr.origin !== LOCAL) dirtyAgents = true
+  }
   rs.people.observe(onPeople)
   rs.workspace.observe(onWorkspace)
   rs.functions.observe(onFunctions)
+  agentsMap.observe(onAgents)
 
   function applyRemote(all = false) {
     const s = useWorkspace.getState()
@@ -181,7 +240,7 @@ export function startBinding(o: BindingOptions): Binding {
       }
       for (const id of Object.keys(s.pages)) dirtyPages.add(id)
       for (const id of Object.keys(s.databases)) dirtyDbs.add(id)
-      dirtyPeople = dirtyWorkspace = dirtyFunctions = true
+      dirtyPeople = dirtyWorkspace = dirtyFunctions = dirtyAgents = true
     }
     const patch: CloudPatch = {}
     const created: ID[] = []
@@ -253,14 +312,24 @@ export function startBinding(o: BindingOptions): Binding {
       }
       dirtyFunctions = false
     }
-    if (!patch.pages && !patch.databases && !patch.people && !patch.settings && !patch.functions) return
+    if (dirtyAgents) {
+      const agents = readAgents(agentsMap, s.agents)
+      if (agents !== s.agents) {
+        const next: Record<ID, CustomAgent | null> = {}
+        for (const [id, agent] of Object.entries(agents)) if (s.agents?.[id] !== agent) next[id] = agent
+        for (const id of Object.keys(s.agents ?? {})) if (!(id in agents)) next[id] = null
+        if (Object.keys(next).length) patch.agents = next
+      }
+      dirtyAgents = false
+    }
+    if (!patch.pages && !patch.databases && !patch.people && !patch.settings && !patch.functions && !patch.agents) return
     applyFromCloud(() => s.cloudPatch(patch))
     if (created.length || touched.length || removed.length || rescoped.length) o.onRemotePages({ created, touched, removed, rescoped })
   }
 
   const afterTx = (tr: Y.Transaction) => {
     if (tr.origin === LOCAL) return
-    if (dirtyPages.size || dirtyDbs.size || dirtyPeople || dirtyWorkspace || dirtyFunctions) {
+    if (dirtyPages.size || dirtyDbs.size || dirtyPeople || dirtyWorkspace || dirtyFunctions || dirtyAgents) {
       try {
         applyRemote()
       } catch (e) {
@@ -301,8 +370,9 @@ export function startBinding(o: BindingOptions): Binding {
     const dbsChanged = state.databases !== prev.databases
     const peopleChanged = state.people !== prev.people
     const functionsChanged = state.functions !== prev.functions
+    const agentsChanged = state.agents !== prev.agents
     if (state.settings !== prev.settings) o.onSettings(state.settings, prev.settings)
-    if (!pagesChanged && !dbsChanged && !peopleChanged && !functionsChanged) return
+    if (!pagesChanged && !dbsChanged && !peopleChanged && !functionsChanged && !agentsChanged) return
 
     if (!o.writable()) {
       if (pagesChanged) {
@@ -342,7 +412,7 @@ export function startBinding(o: BindingOptions): Binding {
       return plain === p.plain ? p : { ...p, plain }
     }
 
-    const uid = o.userId()
+    const uid = writeActor ?? o.userId()
     const bridges: Array<[ID, JSONContent | null, JSONContent | null]> = []
     const removed: Array<{ id: ID; private: boolean }> = []
     const blocked: ID[] = []
@@ -419,6 +489,7 @@ export function startBinding(o: BindingOptions): Binding {
       }
       if (peopleChanged) writePeople(rs.people, state.people, prev.people)
       if (functionsChanged) writeFunctions(rs.functions, state.functions, prev.functions)
+      if (agentsChanged) writeAgents(agentsMap, state.agents, prev.agents)
     })
     // Follow-up store patches (the local `private` marker; created_by / last_edited_by mirror the
     // createdBy / updatedBy this client just wrote) go out after every store listener saw this change:
@@ -450,6 +521,16 @@ export function startBinding(o: BindingOptions): Binding {
     if (shared.length) o.onSharedWrite?.(shared)
   })
 
+  // the agents are not part of the boot read (readAll): they come in now, like a remote change
+  if (agentsMap.size || Object.keys(useWorkspace.getState().agents ?? {}).length) {
+    dirtyAgents = true
+    try {
+      applyRemote()
+    } catch (e) {
+      console.error('[one] could not read the agents of the cloud workspace', e)
+    }
+  }
+
   return {
     stop: () => {
       unsub()
@@ -458,6 +539,7 @@ export function startBinding(o: BindingOptions): Binding {
       rs.people.unobserve(onPeople)
       rs.workspace.unobserve(onWorkspace)
       rs.functions.unobserve(onFunctions)
+      agentsMap.unobserve(onAgents)
       o.doc.off('afterTransaction', afterTx)
       o.privateDoc?.off('afterTransaction', afterTx)
     },

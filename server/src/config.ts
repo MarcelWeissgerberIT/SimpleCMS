@@ -35,6 +35,21 @@ export interface Config {
   /** AGPL §13: where users of this server can get its source (set it when you run a modified version). */
   sourceUrl: string
   version: string
+  /** Custom agents on the server (docs/CLOUD.md § Agents). */
+  agents: AgentConfig
+}
+
+export interface AgentConfig {
+  /** AGENTS=off turns the server runner off (no scheduler, no runs, no outbound calls to Claude). */
+  enabled: boolean
+  /** The Messages API (ANTHROPIC_BASE_URL, default https://api.anthropic.com). */
+  apiUrl: string
+  /** Runs at the same time, over all workspaces (AGENT_CONCURRENCY, default 4); per workspace at most 2. */
+  concurrency: number
+  /** How often schedules are checked (30 s; only DEV_MODE may change it, via AGENT_TICK_MS). */
+  tickMs: number
+  /** Row triggers collect changes this long into one run (60 s; DEV_MODE: AGENT_COALESCE_MS). */
+  coalesceMs: number
 }
 
 export class ConfigError extends Error {}
@@ -65,6 +80,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   if (env.AUTH_IP_LIMIT && !devMode) throw new ConfigError('AUTH_IP_LIMIT is only honoured with DEV_MODE=1 (test servers); deployments keep 20 sign-in requests per IP per 15 minutes')
   const authIpLimit = devMode ? int(env.AUTH_IP_LIMIT, AUTH_IP_LIMIT, 1, 100_000, 'AUTH_IP_LIMIT') : AUTH_IP_LIMIT
 
+  for (const name of ['AGENT_TICK_MS', 'AGENT_COALESCE_MS']) {
+    if (env[name] && !devMode) throw new ConfigError(`${name} is only honoured with DEV_MODE=1 (test servers); deployments check schedules every 30 s and collect row changes for 60 s`)
+  }
+
   const smtpUrl = env.SMTP_URL?.trim() || null
   const host = new URL(publicUrl).hostname
   const mailFrom = env.MAIL_FROM?.trim() || `SimpleCMS One <no-reply@${host.includes('.') ? host : 'localhost.localdomain'}>`
@@ -91,7 +110,29 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     apiRateLimit: int(env.API_RATE_LIMIT, API_RATE_LIMIT, 1, 100_000, 'API_RATE_LIMIT'),
     sourceUrl: env.SOURCE_URL?.trim() || 'https://github.com/MarcelWeissgerberIT/SimpleCMS',
     version: VERSION,
+    agents: {
+      enabled: !['0', 'off', 'false', 'no'].includes((env.AGENTS ?? '').trim().toLowerCase()),
+      apiUrl: parseApiUrl(env.ANTHROPIC_BASE_URL),
+      concurrency: int(env.AGENT_CONCURRENCY, 4, 1, 32, 'AGENT_CONCURRENCY'),
+      tickMs: devMode ? int(env.AGENT_TICK_MS, 30_000, 50, 3_600_000, 'AGENT_TICK_MS') : 30_000,
+      coalesceMs: devMode ? int(env.AGENT_COALESCE_MS, 60_000, 0, 3_600_000, 'AGENT_COALESCE_MS') : 60_000,
+    },
   }
+}
+
+/** ANTHROPIC_BASE_URL: the Messages API origin (a proxy in front of it, or a fake one in tests). */
+function parseApiUrl(raw: string | undefined): string {
+  const v = raw?.trim()
+  if (!v) return 'https://api.anthropic.com'
+  let url: URL
+  try {
+    url = new URL(v)
+  } catch {
+    throw new ConfigError(`ANTHROPIC_BASE_URL is not a valid URL: ${v}`)
+  }
+  if (url.protocol !== 'https:' && url.protocol !== 'http:') throw new ConfigError('ANTHROPIC_BASE_URL must start with https:// (or http:// for a local proxy)')
+  if (url.username || url.password) throw new ConfigError('ANTHROPIC_BASE_URL must not contain credentials')
+  return v.replace(/\/+$/, '')
 }
 
 export const isSecureUrl = (url: string) => url.startsWith('https://')

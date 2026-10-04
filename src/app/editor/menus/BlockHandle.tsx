@@ -72,6 +72,7 @@ const TYPE_LABEL: Record<string, string> = {
   syncedBlock: 'synced',
   meetingNotes: 'meetingNotes',
   button: 'button',
+  breadcrumb: 'breadcrumb',
 }
 
 const isTouch = typeof window !== 'undefined' && !!window.matchMedia?.('(hover: none)').matches
@@ -136,6 +137,7 @@ function blockAnchor(editor: Editor, pos: number): PopoverAnchor {
 function blockLabelKey(node: PMNode): string {
   if (node.type.name === 'heading') return `editor.block.heading${node.attrs.level}`
   if (node.type.name === 'details' && toggleHeadingLevel(node)) return `editor.block.toggleHeading${toggleHeadingLevel(node)}`
+  if (node.type.name === 'columns') return `editor.block.columns${Math.min(5, Math.max(2, node.childCount))}`
   return `editor.block.${TYPE_LABEL[node.type.name] ?? 'text'}`
 }
 

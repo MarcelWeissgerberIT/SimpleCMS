@@ -825,3 +825,50 @@
 .paste-menu__foot .kbd {
   margin-right: 2px;
 }
+
+/* ---------- "Link to page" picker ---------- */
+.page-picker {
+  width: 340px;
+  max-width: calc(100vw - 24px);
+  padding: 0;
+  overflow: hidden;
+}
+
+.page-picker__head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 10px 6px;
+  border-bottom: 1px solid var(--rule);
+}
+
+.page-picker__search {
+  padding: 6px;
+  border-bottom: 1px solid var(--rule);
+}
+
+.page-picker__search .input {
+  width: 100%;
+}
+
+.page-picker__list {
+  max-height: min(320px, 50vh);
+  overflow-y: auto;
+  padding: 4px;
+}
+
+.page-picker__item {
+  cursor: pointer;
+  min-height: 32px;
+}
+
+.page-picker__item[aria-selected='true'] {
+  box-shadow: inset 2px 0 0 var(--signal);
+}
+
+.page-picker__parent {
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

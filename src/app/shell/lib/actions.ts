@@ -6,7 +6,7 @@ import { useWorkspace, descendantIds } from '../../store/store'
 import { useUI } from '../../store/ui'
 import { navigate, openPage, parseHash } from '../../lib/router'
 import { t } from '../../i18n'
-import type { ID } from '../../store/types'
+import type { ID, Page } from '../../store/types'
 import { revealMain, useStageView } from './stage'
 
 const ws = () => useWorkspace.getState()
@@ -156,12 +156,29 @@ export function toggleFocusMode() {
   ui().setFocusMode(!ui().focusMode)
 }
 
-/** Can `id` be placed under `parentId`? (not itself / descendants / database rows / databases) */
+/** Is `ancestor` the page `id` itself or one of its ancestors? Walks up: O(depth), cycle-safe. */
+export function isWithin(pages: Record<ID, Page>, id: ID, ancestor: ID): boolean {
+  const seen = new Set<ID>()
+  let cur: ID | null = id
+  while (cur && !seen.has(cur)) {
+    if (cur === ancestor) return true
+    seen.add(cur)
+    cur = pages[cur]?.parentId ?? null
+  }
+  return false
+}
+
+/**
+ * Can the page `id` be placed under `parentId` with a plain move? Not into itself or its own sub-pages,
+ * not into a database (a page becomes an entry there: sidebar/entries.ts) — and a database's rows never
+ * move this way. Pages inside an entry (a database row) are fine.
+ */
 export function canNestUnder(id: ID, parentId: ID | null): boolean {
+  const pages = ws().pages
+  if (pages[id]?.databaseId) return false
   if (parentId === null) return true
   if (parentId === id) return false
-  const pages = ws().pages
   const target = pages[parentId]
-  if (!target || target.trashed || target.databaseId || target.kind === 'database') return false
-  return !descendantIds(pages, id).includes(parentId)
+  if (!target || target.trashed || target.kind === 'database') return false
+  return !isWithin(pages, parentId, id)
 }

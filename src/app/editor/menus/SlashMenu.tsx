@@ -11,10 +11,11 @@ import { Popover } from '../../ui/Popover'
 import { shortcutLabel } from '../../ui/controls'
 import { useT } from '../../i18n'
 import type { Bridge } from '../lib/bridge'
-import { BLOCKS, GROUPS, type BlockItem } from '../lib/catalog'
+import { BLOCKS, GROUPS, type BlockItem, type BlockPicker } from '../lib/catalog'
 import { dismissPlusSlash, SUGGEST_KEYS, type SuggestRun } from '../extensions/suggest'
 import { useScrollActive, useSuggestAnchor, useSuggestKeys } from './common'
 import { DatabasePicker } from './DatabasePicker'
+import { PagePicker } from './PagePicker'
 
 export function BlockGlyph({ item, size = 16 }: { item: BlockItem; size?: number }) {
   if (item.icon === 'AI') return <span className="ai-glyph">AI</span>
@@ -28,7 +29,7 @@ export function SlashMenu({ editor, bridge, pageId, filter }: { editor: Editor; 
   const plusOpened = useStore(bridge, (s) => s.plusOpened)
   const anchor = useSuggestAnchor(editor, suggest)
   const [active, setActive] = useState(0)
-  const [picker, setPicker] = useState<number | null>(null)
+  const [picker, setPicker] = useState<{ kind: BlockPicker; pos: number } | null>(null)
   const listRef = useRef<HTMLDivElement>(null)
   const query = suggest?.query.trim().toLowerCase() ?? ''
 
@@ -96,12 +97,13 @@ export function SlashMenu({ editor, bridge, pageId, filter }: { editor: Editor; 
   const run = (i: number) => {
     const row = rows[i]
     if (!row || !suggest) return
-    if (row.item.id === 'dbLinked') {
+    const kind = row.item.picker
+    if (kind) {
       const pos = suggest.range.from
       suggest.command(((range) => {
         editor.chain().focus().deleteRange(range).run()
       }) as SuggestRun)
-      setPicker(pos)
+      setPicker({ kind, pos })
       return
     }
     suggest.command(((range) => row.item.run({ editor, pageId, range, bridge })) as SuggestRun)
@@ -198,7 +200,8 @@ export function SlashMenu({ editor, bridge, pageId, filter }: { editor: Editor; 
           </span>
         </div>
       </Popover>
-      {picker !== null && <DatabasePicker editor={editor} pos={picker} onClose={() => setPicker(null)} />}
+      {picker?.kind === 'database' && <DatabasePicker editor={editor} pos={picker.pos} onClose={() => setPicker(null)} />}
+      {picker?.kind === 'page' && <PagePicker editor={editor} pos={picker.pos} onClose={() => setPicker(null)} />}
     </>
   )
 }

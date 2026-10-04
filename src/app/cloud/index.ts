@@ -37,7 +37,7 @@ import {
 } from './account'
 import { request } from './api'
 import { bootCloud as bootCloudImpl, refreshMe, switchWorkspaceImpl } from './boot'
-import { isApplyingCloud } from './binding'
+import { isApplyingCloud, withWriteActor } from './binding'
 import { acquire, release } from './content'
 import { uploadLocalWorkspaceImpl } from './upload'
 import { setPresencePageImpl } from './workspace'
@@ -325,6 +325,14 @@ export async function movePagePrivacy(pageId: ID, toPrivate: boolean, target?: {
  * 'api/workspaces/<id>/tokens'): same origin, session cookie, the CSRF content type. Failures are
  * CloudError with the server's code (docs/CLOUD.md), like every call above.
  */
-export function cloudRequest<T>(method: 'GET' | 'POST' | 'PATCH' | 'DELETE', path: string, body?: unknown): Promise<T> {
+export function cloudRequest<T>(method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE', path: string, body?: unknown): Promise<T> {
   return request<T>(method, path, body)
+}
+
+/**
+ * Custom agents (features/agents): the page writes made while `fn` runs are stamped `agent:<agentId>`
+ * (createdBy / updatedBy in the meta document) instead of the member's account id. Only `agent:` ids.
+ */
+export function writeAsAgent<T>(actor: string, fn: () => Promise<T> | T): Promise<T> {
+  return withWriteActor(actor, fn)
 }

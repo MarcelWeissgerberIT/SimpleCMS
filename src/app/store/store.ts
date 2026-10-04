@@ -14,7 +14,9 @@ import { newId } from '../lib/ids'
 import { detectLang } from '@/shared/i18n'
 import { aiKeyValue, attachSecrets, checkAIKey, mcpServersValue, withSealedKey } from './secrets'
 import { isSafeFunctionId } from './functions'
+import { sanitizeAgent } from './agents'
 import type {
+  CustomAgent,
   CustomFunction,
   Database,
   ID,
@@ -195,6 +197,10 @@ export interface WorkspaceState extends Workspace {
   upsertFunction: (fn: CustomFunction) => void
   deleteFunction: (id: ID) => void
 
+  // custom agents (features/agents): insert or replace by id (sanitized; updatedAt is set here) · remove
+  upsertAgent: (agent: CustomAgent) => void
+  deleteAgent: (id: ID) => void
+
   // comments (margin notes): threads live on the page, their anchors are `comment` marks in its content
   addComment: (pageId: ID, input: { id?: ID; quote: string; body: string }) => ID
   updateComment: (pageId: ID, commentId: ID, patch: Partial<Pick<PageComment, 'body' | 'resolved' | 'quote'>>) => void
@@ -217,6 +223,8 @@ export interface CloudPatch {
   settings?: Partial<Settings>
   /** custom functions by id (`null` removes one) */
   functions?: Record<ID, CustomFunction | null>
+  /** custom agents by id (`null` removes one) */
+  agents?: Record<ID, CustomAgent | null>
 }
 
 const now = () => Date.now()
@@ -431,7 +439,7 @@ export const useWorkspace = create<WorkspaceState>()(
       // the Claude API key: a vault marker, never the key (secrets.ts)
       const settings = withSealedKey(ws.settings, get().settings.aiApiKey, ws.epoch)
       set((s) => {
-        Object.assign(s, ws, { pages: freezePages(ws.pages), settings, functions: ws.functions ?? {} })
+        Object.assign(s, ws, { pages: freezePages(ws.pages), settings, functions: ws.functions ?? {}, agents: ws.agents ?? {} })
         s.ready = true
       })
       void checkAIKey()
@@ -447,6 +455,7 @@ export const useWorkspace = create<WorkspaceState>()(
         s.settings = withSealedKey(ws.settings, s.settings.aiApiKey, s.epoch)
         s.recent = ws.recent
         s.functions = ws.functions ?? {}
+        s.agents = ws.agents ?? {}
       }),
 
     createPage: (input = {}) => {
@@ -810,6 +819,23 @@ export const useWorkspace = create<WorkspaceState>()(
         if (s.functions?.[id]) delete s.functions[id]
       }),
 
+    upsertAgent: (agent) => {
+      const cur = get().agents?.[agent.id]
+      const t = now()
+      // the stored copy is always a sanitized one (bounded strings, known fields, checked ids)
+      const clean = sanitizeAgent(agent.id, { ...JSON.parse(JSON.stringify(agent)), createdAt: cur?.createdAt ?? agent.createdAt ?? t, createdBy: cur ? (cur.createdBy ?? null) : (agent.createdBy ?? null), updatedAt: t })
+      if (!clean) return
+      set((s) => {
+        s.agents ??= {}
+        s.agents[clean.id] = clean
+      })
+    },
+
+    deleteAgent: (id) =>
+      set((s) => {
+        if (s.agents?.[id]) delete s.agents[id]
+      }),
+
     // comments bump the page's updatedAt: cross-tab sync compares pages by it (merge.ts samePage)
     addComment: (pageId, input) => {
       const id = input.id ?? newId()
@@ -897,6 +923,11 @@ export const useWorkspace = create<WorkspaceState>()(
           if (fn) s.functions[id] = fn
           else delete s.functions[id]
         }
+        for (const [id, agent] of Object.entries(patch.agents ?? {})) {
+          s.agents ??= {}
+          if (agent) s.agents[id] = agent
+          else delete s.agents[id]
+        }
         if (patch.settings) Object.assign(s.settings, withSealedKey({ ...s.settings, ...patch.settings }, s.settings.aiApiKey, s.epoch))
         if (removed && s.recent.some((r) => !s.pages[r])) s.recent = s.recent.filter((r) => !!s.pages[r])
       }),
@@ -966,5 +997,6 @@ export function getWorkspaceSnapshot(): Workspace {
     settings: s.settings,
     recent: s.recent,
     functions: s.functions ?? {},
+    agents: s.agents ?? {},
   }
 }

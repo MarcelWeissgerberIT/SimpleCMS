@@ -223,11 +223,12 @@ export function friendly(prop: PropertyDef, row: { id: string; createdAt: number
   }
 }
 
-/** Who wrote a page: a member like a person value, or the API token / incoming webhook that did. */
+/** Who wrote a page: a member like a person value, or the API token / incoming webhook / custom agent that did. */
 function actorOut(actor: string | null, ctx: ValueContext) {
   if (!actor) return null
   if (actor.startsWith('api:')) return { kind: 'api', id: actor.slice(4) }
   if (actor.startsWith('hook:')) return { kind: 'webhook', id: actor.slice(5) }
+  if (actor.startsWith('agent:')) return { kind: 'agent', id: actor.slice(6) }
   const m = ctx.members.find((x) => x.id === actor)
   const p = ctx.people.get(actor)
   return { kind: 'person', id: actor, name: p?.name ?? m?.name ?? m?.email ?? '', email: m?.email ?? null }

@@ -370,6 +370,10 @@ Y.Map 'people'     personId → JSON Person   (workspace people; members are mir
 Y.Map 'functions'  functionId → JSON CustomFunction   (custom functions built by clicking —
                      { id, name, description?, params, body: expression tree, createdAt, updatedAt };
                      last writer wins per function; every reader sanitizes it, see src/app/store/functions.ts)
+Y.Map 'agents'     agentId → JSON CustomAgent   (custom agents — { id, name, icon?, instructions, trigger,
+                     scope, write, output?, mcpServers, runner, model?, effort?, maxRunUsd, enabled, createdBy?,
+                     createdAt, updatedAt }; last writer wins per agent; every reader sanitizes it, see
+                     src/app/store/agents.ts; runs are not here: per device / server table `agent_runs`)
 ```
 
 *(client C1 refinements, backwards compatible on read)*: comment **replies** are entries of their
@@ -378,7 +382,9 @@ their reply; a thread written whole with `replies` inside is still read (merged 
 `automations` and `templates` are keyed by id like properties and views — the automation engine
 writes each run's status into its automation, which must not overwrite someone's concurrent edit
 of another automation; a JSON array found there is read and becomes keyed on the next write.
-`createdBy` / `updatedBy` are the account ids of the writing client. The `workspace` map is filled
+`createdBy` / `updatedBy` are the account ids of the writing client — or `agent:<agentId>` for the
+changes a custom agent applies (browser runner: the client stamps them while it applies; server runner:
+the server). The `workspace` map is filled
 (name, icon, createdAt) by the first member who writes after its first sync, if it is empty.
 
 Not synced (per person, per device): `favorite`, `recent`, all `Settings` (theme, language,

@@ -1,0 +1,9 @@
+/**
+ * Gmail → a "Mails" database (features/mail) — re-exported by features/index.ts.
+ *  - startMail(): background service (main.tsx, after the workspace loaded): schedule, "Load images"
+ *  - MailTab: Settings → Mail · MailSyncLed { databaseId }: the Mails database's header read-out
+ *  - openMailSettings() / consumeMailSettingsRequest(): open Settings on the Mail tab
+ */
+export { startMail, stopMail, openMailSettings, consumeMailSettingsRequest, useMail } from './service'
+export { MailTab } from './MailTab'
+export { MailSyncLed } from './MailStatus'

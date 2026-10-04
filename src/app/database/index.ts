@@ -6,6 +6,14 @@
  *  - propertyValueToText: plain-text rendering of a property value (search, export, AI context).
  *  - SharedFormView: the public page of a shared form (route #/f/<payload>; lazy-loaded inside).
  */
+import type { ID, Page } from '../store/types'
+import { useWorkspace } from '../store/store'
+import { Resolver } from './model/resolve'
+import { workspaceCtx } from './model/ctx'
+import { orderRows } from './model/feed'
+import { defaultsFromFilter } from './model/query'
+import { resolveMe } from './model/actors'
+import { isDbReadOnly } from './readonly'
 export { DatabaseView, type DatabaseViewProps } from './DatabaseView'
 export { RowProperties } from './RowProperties'
 export { propertyValueToText } from './values'
@@ -42,3 +50,35 @@ export {
   type DatabaseChartAggregate,
   type DatabaseChartBucket,
 } from './model/chartData'
+
+/**
+ * A database's entries outside its views (the sidebar tree, shell/lib/tree.ts):
+ *  - entryOrder(dbId, rows): the rows in the order the database's FIRST view shows them (its sorts, a feed's
+ *      date order), unfiltered; without sorts: manual order, then created.
+ *  - createEntry(dbId, { title? }): a new row with the first view's presets (from its filters) — what the
+ *      view's "New" button creates. null: view only, or no such database.
+ *  - subItemsOf(db) / parentIdOf(pages, pair, row): the sub-items hierarchy ("Parent item" ↔ "Sub-items").
+ */
+export { subItemsOf, parentIdOf, type SubItemsPair } from './model/hierarchy'
+
+export function entryOrder(dbId: ID, rows: Page[]): Page[] {
+  const base = [...rows].sort((a, b) => a.order - b.order || a.createdAt - b.createdAt)
+  const db = useWorkspace.getState().databases[dbId]
+  const view = db?.views[0]
+  if (!db || !view) return base
+  try {
+    return orderRows(new Resolver(workspaceCtx()), db, view, base, new Map(db.properties.map((p) => [p.id, p])))
+  } catch {
+    return base
+  }
+}
+
+export function createEntry(dbId: ID, input: { title?: string } = {}): ID | null {
+  const s = useWorkspace.getState()
+  const db = s.databases[dbId]
+  if (!db || isDbReadOnly()) return null
+  const view = db.views[0]
+  const ctx = workspaceCtx()
+  const properties = view ? defaultsFromFilter(view, new Map(db.properties.map((p) => [p.id, p])), (p) => resolveMe(p, ctx)) : {}
+  return s.createRow(dbId, { title: input.title ?? '', properties })
+}

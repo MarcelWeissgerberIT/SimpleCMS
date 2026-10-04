@@ -254,4 +254,61 @@ export const migrations: Migration[] = [
       ALTER TABLE login_tokens ADD COLUMN signup_hash TEXT;
     `,
   },
+  {
+    version: 8,
+    name: 'custom agents: server runtime, runs, schedule state, webhook triggers',
+    sql: `
+      -- the server runtime of a workspace's custom agents (docs/CLOUD.md § Agents): data is the sealed
+      -- JSON { claudeKey, mcpServers: [{ name, url, token }] } (workspace key, never plaintext);
+      -- enabled_at: when an admin last switched it on (slots before that never run)
+      CREATE TABLE agent_runtime (
+        workspace_id  TEXT PRIMARY KEY REFERENCES workspaces(id) ON DELETE CASCADE,
+        enabled       INTEGER NOT NULL DEFAULT 0,
+        enabled_at    INTEGER,
+        data          TEXT NOT NULL,
+        updated_by    TEXT REFERENCES users(id) ON DELETE SET NULL,
+        updated_at    INTEGER NOT NULL
+      );
+      CREATE INDEX agent_runtime_enabled ON agent_runtime(enabled) WHERE enabled = 1;
+
+      -- one row per run; data is the sealed AgentRun JSON (summary, steps, staged changes, usage …),
+      -- the plain columns are only what lists and housekeeping need (the last 200 per agent are kept)
+      CREATE TABLE agent_runs (
+        id            TEXT PRIMARY KEY,
+        workspace_id  TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+        agent_id      TEXT NOT NULL,
+        status        TEXT NOT NULL,
+        trigger_type  TEXT NOT NULL,
+        started_at    INTEGER NOT NULL,
+        ended_at      INTEGER,
+        data          TEXT NOT NULL
+      );
+      CREATE INDEX agent_runs_agent ON agent_runs(workspace_id, agent_id, started_at);
+      CREATE INDEX agent_runs_workspace ON agent_runs(workspace_id, started_at);
+      CREATE INDEX agent_runs_running ON agent_runs(status) WHERE status = 'running';
+
+      -- the last schedule slot each agent ran (or skipped) for: one run per slot across restarts.
+      -- sig: a hash of the schedule (a changed schedule starts over), seen_at: when it was recorded
+      CREATE TABLE agent_slots (
+        workspace_id  TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+        agent_id      TEXT NOT NULL,
+        last_slot     INTEGER NOT NULL,
+        sig           TEXT NOT NULL,
+        seen_at       INTEGER NOT NULL,
+        PRIMARY KEY (workspace_id, agent_id)
+      );
+
+      -- webhook triggers: POST /api/v1/agents/<agentId>/hook/<secret>; the secret is stored as HMAC
+      CREATE TABLE agent_hooks (
+        workspace_id      TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+        agent_id          TEXT NOT NULL,
+        secret_hash       TEXT NOT NULL UNIQUE,
+        created_by        TEXT REFERENCES users(id) ON DELETE SET NULL,
+        created_at        INTEGER NOT NULL,
+        last_delivery_at  INTEGER,
+        deliveries        INTEGER NOT NULL DEFAULT 0,
+        PRIMARY KEY (workspace_id, agent_id)
+      );
+    `,
+  },
 ]

@@ -13,19 +13,20 @@ import {
   type DragStartEvent,
   type Modifier,
 } from '@dnd-kit/core'
-import { ChevronRight, Copy, FolderInput, Link2, Lock, MoreHorizontal, PanelRight, PencilLine, Plus, Star, StarOff, Trash2, PanelRightOpen, Users } from 'lucide-react'
+import { ChevronRight, Copy, FilePlus2, FolderInput, Link2, Lock, MoreHorizontal, PanelRight, PencilLine, Plus, Star, StarOff, Trash2, PanelRightOpen, Users } from 'lucide-react'
 import { useShallow } from 'zustand/react/shallow'
 import { useWorkspace } from '../../store/store'
 import { useUI } from '../../store/ui'
-import { usePage } from '../../store/selectors'
+import { usePage, useRowCount } from '../../store/selectors'
 import { useRoute } from '../../lib/router'
 import { PageIcon } from '../../ui/PageIcon'
 import { Menu, useMenu, type MenuEntry } from '../../ui/Menu'
 import { toggleMenu } from '../lib/menu'
-import { useT } from '../../i18n'
+import { useLang, useT } from '../../i18n'
 import type { ID } from '../../store/types'
-import { childIds, treeKey, useChildIds, useTreeState } from '../lib/tree'
-import { canNestUnder, closeMobileSidebar, copyPageLink, createPageAndOpen, duplicateAndOpen, goToPage, trashWithUndo } from '../lib/actions'
+import { ENTRY_LIMIT, childIds, treeKey, useChildIds, useEntryIds, useEntryTotal, useSubEntryCount, useTreeState } from '../lib/tree'
+import { closeMobileSidebar, copyPageLink, createPageAndOpen, duplicateAndOpen, goToPage, trashWithUndo } from '../lib/actions'
+import { canLeaveFor, createEntryAndOpen, dropOptions, nodeKind, requestLeaveDatabase, requestMakeEntry } from './entries'
 import { useIsTouch } from '../lib/hooks'
 import { ALT } from '../../ui/controls'
 import { useReadOnly } from '../cloud/state'
@@ -100,21 +101,35 @@ export function DraggableTree({ children }: { children: React.ReactNode }) {
     if (!over) return setDrop(null)
     const overId = String(over.id)
     const dragId = String(e.active.id)
-    if (sectionOf(overId) !== null) return setDrop((d) => (d?.overId === overId ? d : { overId, pos: 'inside' }))
+    const pages = useWorkspace.getState().pages
+    const section = sectionOf(overId)
+    if (section !== null) {
+      // an entry dropped on a section head leaves its database for that section's top level
+      if (pages[dragId]?.databaseId && !canLeaveFor(pages, dragId, null, section)) return setDrop(null)
+      return setDrop((d) => (d?.overId === overId ? d : { overId, pos: 'inside' }))
+    }
     const ae = e.activatorEvent as MouseEvent | TouchEvent
     const startY = 'touches' in ae ? (ae.touches[0]?.clientY ?? 0) : ae.clientY
     const y = startY + e.delta.y
     const rect = over.rect
     const rel = (y - rect.top) / rect.height
-    const pages = useWorkspace.getState().pages
     const target = pages[overId]
     if (!target || overId === dragId) return setDrop(null)
-    const canInside = canNestUnder(dragId, overId)
-    let pos: DropPos = rel < 0.3 ? 'before' : rel > 0.7 ? 'after' : canInside ? 'inside' : rel < 0.5 ? 'before' : 'after'
-    // before/after need a valid parent too
-    if (pos !== 'inside' && !canNestUnder(dragId, target.parentId)) pos = canInside ? 'inside' : pos
-    if (pos !== 'inside' && !canNestUnder(dragId, target.parentId)) return setDrop(null)
-    setDrop((d) => (d?.overId === overId && d.pos === pos ? d : { overId, pos }))
+    const { inside, beside } = dropOptions(pages, dragId, overId)
+    const kind = nodeKind(target)
+    let pos: DropPos | null
+    // entries never reorder in the tree (their order is the database's): only "inside" an entry
+    if (kind === 'entry') pos = inside ? 'inside' : null
+    else {
+      pos = rel < 0.3 ? 'before' : rel > 0.7 ? 'after' : inside ? 'inside' : rel < 0.5 ? 'before' : 'after'
+      // before/after need a valid parent too
+      if (pos !== 'inside' && !beside) pos = inside ? 'inside' : null
+      // right below an open database come its entries: "after" it means into it
+      if (pos === 'after' && kind === 'database' && useTreeState.getState().expanded[treeKey(sectionFor(overId), overId)]) pos = inside ? 'inside' : null
+    }
+    if (!pos) return setDrop(null)
+    const p: DropPos = pos
+    setDrop((d) => (d?.overId === overId && d.pos === p ? d : { overId, pos: p }))
     // hover "inside" a collapsed page for a moment → expand it
     const k = `${overId}:${pos}`
     if (k !== hoverKey.current) {
@@ -133,19 +148,26 @@ export function DraggableTree({ children }: { children: React.ReactNode }) {
     const s = useWorkspace.getState()
     const dragged = s.pages[dragId]
     if (!dragged) return
-    /** Same section: a plain move. Between Private and the workspace: the pages change documents. */
+    const entry = !!dragged.databaseId
+    /**
+     * Same section: a plain move. Between Private and the workspace: the pages change documents.
+     * An entry leaves its database (asks first: it loses its properties).
+     */
     const place = (parentId: ID | null, index: number | undefined, priv: boolean) => {
-      if (!!dragged.private === priv) s.movePage(dragId, parentId, index)
+      if (entry) requestLeaveDatabase(dragId, parentId, index)
+      else if (!!dragged.private === priv) s.movePage(dragId, parentId, index)
       else void requestPrivacyMove(dragId, priv, { parentId, index })
     }
     const section = sectionOf(d.overId)
     if (section !== null) return place(null, undefined, section)
     const target = s.pages[d.overId]
     if (!target) return
+    // a page dropped on a database becomes one of its entries
+    if (nodeKind(target) === 'database' && d.pos === 'inside') return requestMakeEntry(dragId, target.id)
     const key = treeKey(target.private ? 'private' : 'pages', target.id)
     const expanded = useTreeState.getState().expanded[key]
     const hasKids = childIds(s.pages, target.id).filter((c) => c !== dragId).length > 0
-    if (d.pos === 'inside' || (d.pos === 'after' && expanded && hasKids)) {
+    if (d.pos === 'inside' || (d.pos === 'after' && expanded && hasKids && dropOptions(s.pages, dragId, target.id).inside)) {
       // after an expanded parent visually means "first child"
       place(target.id, d.pos === 'inside' ? undefined : 0, !!target.private)
       useTreeState.getState().expand([key])

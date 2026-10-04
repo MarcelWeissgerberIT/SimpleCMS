@@ -749,6 +749,69 @@ export interface Workspace {
    * Write only with upsertFunction / deleteFunction. Synced in team workspaces (meta map `functions`).
    */
   functions?: Record<ID, CustomFunction>
+  /**
+   * Custom agents (features/agents): saved AI helpers started by a schedule or a trigger. Write only
+   * with upsertAgent / deleteAgent; every reader sanitizes (store/agents.ts). Synced in team
+   * workspaces (meta map `agents`). Their runs are per device (IndexedDB `one-agents`), never here.
+   */
+  agents?: Record<ID, CustomAgent>
+}
+
+/* ------------------------------------------------------------------ */
+/* Custom agents (shared contract with the server runner)              */
+/* ------------------------------------------------------------------ */
+
+/** What starts an agent. Times are wall-clock time in `tz` (IANA). */
+export type AgentTrigger =
+  | { type: 'manual' }
+  | {
+      type: 'schedule'
+      every: 'hour' | 'day' | 'weekday' | 'week' | 'month'
+      /** 'HH:mm' ('hour': only the minutes count) */
+      at: string
+      /** 'week': 0 = Sunday … 6 = Saturday */
+      weekday?: number
+      /** 'month': 1–31 (short months use their last day) */
+      day?: number
+      tz: string
+    }
+  /** a new row in the database (form answers and synced mails included) */
+  | { type: 'row_created'; databaseId: ID }
+  /** a row's property changed (null = any property) */
+  | { type: 'row_changed'; databaseId: ID; propertyId: ID | null }
+  /** server runner only: POST to a URL with a secret */
+  | { type: 'webhook' }
+
+export type AgentTriggerType = AgentTrigger['type']
+
+/** read only (answer only) · propose changes for review · apply directly */
+export type AgentWriteMode = 'none' | 'stage' | 'apply'
+
+export interface CustomAgent {
+  id: ID
+  name: string
+  icon?: PageIcon | null
+  /** the job in plain language (≤ 8000 characters) */
+  instructions: string
+  trigger: AgentTrigger
+  /** what it may read (and write, see `write`): everything, or these pages / databases and what is below them */
+  scope: { everything: boolean; pages: ID[]; databases: ID[] }
+  write: AgentWriteMode
+  /** where the run's report goes (null = nowhere) */
+  output?: { pageId: ID | null; mode: 'append' | 'replace' } | null
+  /** MCP server NAMES (browser: settings.mcpServers · server: the server runtime's list) */
+  mcpServers: string[]
+  runner: 'browser' | 'server'
+  /** null = the workspace default */
+  model?: string | null
+  effort?: 'low' | 'medium' | 'high' | null
+  /** estimated budget per run in USD: the run stops (status 'budget') when it is exceeded */
+  maxRunUsd: number
+  enabled: boolean
+  /** account id (team) / null (local) */
+  createdBy?: string | null
+  createdAt: number
+  updatedAt: number
 }
 
 /* ------------------------------------------------------------------ */

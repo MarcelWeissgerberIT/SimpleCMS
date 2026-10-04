@@ -240,13 +240,18 @@ button.dbf-order:active,
   color: var(--ink-2);
 }
 
-.dbf-title {
+/* .dbf in front: an inline database sits inside the page editor, whose heading styles reach in here */
+.dbf .dbf-title {
   margin: 6px 0 0;
+  padding: 0;
+  font-family: var(--font-sans);
   font-size: 21px;
   font-weight: 760;
   font-stretch: 112%;
+  font-variation-settings: normal;
   line-height: 1.22;
   letter-spacing: -0.012em;
+  color: var(--ink);
   overflow-wrap: anywhere;
 }
 
@@ -551,7 +556,7 @@ button.dbf-order:active,
     margin-left: -8px;
   }
 
-  .dbf-title {
+  .dbf .dbf-title {
     font-size: 19px;
   }
 

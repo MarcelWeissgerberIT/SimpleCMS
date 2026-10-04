@@ -526,7 +526,8 @@ function ChangeItem({ change: c, all, disabled }: { change: StagedChange; all: S
   )
 }
 
-function PropDiff({ props }: { props: PropChange[] }) {
+/** Property changes of a staged change (also the custom agents' review, features/agents). */
+export function PropDiff({ props }: { props: PropChange[] }) {
   const t = useT()
   return (
     <dl className="agent-diff">
@@ -553,7 +554,8 @@ function PropDiff({ props }: { props: PropChange[] }) {
 
 const PREVIEW_LINES = 10
 
-function Preview({ markdown, append }: { markdown: string; append: boolean }) {
+/** Content preview of a staged change (also the custom agents' review, features/agents). */
+export function Preview({ markdown, append }: { markdown: string; append: boolean }) {
   const t = useT()
   const lines = markdown.trim().split('\n')
   // never cut inside a code fence or a table: show whole blocks up to the limit

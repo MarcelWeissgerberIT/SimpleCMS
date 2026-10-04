@@ -109,9 +109,27 @@ const day = (ms: number) => new Date(ms).toISOString().slice(0, 10)
 const titleOf = (p: Page | undefined) => p?.title.trim() || 'Untitled'
 const q = (s: string) => JSON.stringify(s)
 
+/**
+ * Custom agents (features/agents): the pages a scoped run may see (null = everything). Set only for
+ * the duration of one tool call (withToolScope) — tool runs are synchronous.
+ */
+let visible: ((id: ID) => boolean) | null = null
+
+/** Run `fn` (a tool call) seeing only the pages `filter` lets through. */
+export function withToolScope<T>(filter: ((id: ID) => boolean) | null, fn: () => T): T {
+  const prev = visible
+  visible = filter
+  try {
+    return fn()
+  } finally {
+    visible = prev
+  }
+}
+
 function live(id: ID): Page | null {
   const { pages } = ws()
   const p = pages[id]
+  if (visible && !visible(id)) return null
   return p && !p.trashed && !isEffectivelyTrashed(pages, id) ? p : null
 }
 
@@ -224,7 +242,8 @@ const searchPages: AgentTool = {
   run(input) {
     const query = str(input, 'query', { required: true, max: 300 }).trim()
     const limit = int(input, 'limit', 8, 1, 20)
-    const hits = retrieve(query, workspaceDocs(), limit)
+    const scope = visible
+    const hits = retrieve(query, scope ? workspaceDocs().filter((d) => scope(d.id)) : workspaceDocs(), limit)
     if (!hits.length) return { content: `No pages match ${q(query)}. Try other keywords, or list_databases for databases.`, summary: t('features.agent.res.results', { count: 0 }), state: 'ok' }
     const { pages } = ws()
     const lines = hits.map((h) => {

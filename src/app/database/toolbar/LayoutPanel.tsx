@@ -150,6 +150,7 @@ function FeedOptions({ m }: { m: DbModel }) {
           onChange={(v) => upd({ order: v })}
         />
       </div>
+      {m.view.sorts.length > 0 && <div className="db-cfg__row db-cfg__note">{t('database.feed.sortsWin')}</div>}
       <label className="db-cfg__row db-cfg__row--switch">
         <span>{t('database.feed.content')}</span>
         <Switch checked={feed.content !== false} label={t('database.feed.content')} onChange={(v) => upd({ content: v })} />

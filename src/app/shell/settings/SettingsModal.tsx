@@ -11,7 +11,7 @@ import { logoMarkSvg } from '@/shared/logo'
 import { BRAND } from '@/shared/brand'
 import type { ThemePref } from '../../store/types'
 import { ShortcutList } from '../modals/ShortcutsModal'
-import { runAI, SyncTab, consumeSyncSettingsRequest, McpTab, consumeMcpSettingsRequest, McpServers } from '../../features'
+import { runAI, SyncTab, consumeSyncSettingsRequest, McpTab, consumeMcpSettingsRequest, McpServers, MailTab, consumeMailSettingsRequest } from '../../features'
 import { fmtBytes, plural } from '../lib/format'
 import { requestReset } from '../lib/reset'
 import { WebClipper } from '../capture/WebClipper'
@@ -24,10 +24,10 @@ import { errorText } from '../cloud/errors'
 import { useCloud, useCloudSync } from '../../cloud'
 import './settings.css'
 
-export type SettingsTab = 'general' | 'team' | 'server' | 'appearance' | 'ai' | 'data' | 'sync' | 'mcp' | 'shortcuts' | 'about'
-const LOCAL_TABS: SettingsTab[] = ['general', 'appearance', 'ai', 'data', 'sync', 'mcp', 'shortcuts', 'about']
+export type SettingsTab = 'general' | 'team' | 'server' | 'appearance' | 'ai' | 'data' | 'sync' | 'mail' | 'mcp' | 'shortcuts' | 'about'
+const LOCAL_TABS: SettingsTab[] = ['general', 'appearance', 'ai', 'data', 'sync', 'mail', 'mcp', 'shortcuts', 'about']
 /** In a team workspace, "Team" follows "General". */
-const CLOUD_TABS: SettingsTab[] = ['general', 'team', 'appearance', 'ai', 'data', 'sync', 'mcp', 'shortcuts', 'about']
+const CLOUD_TABS: SettingsTab[] = ['general', 'team', 'appearance', 'ai', 'data', 'sync', 'mail', 'mcp', 'shortcuts', 'about']
 /** Server admins (ADMIN_EMAILS) also get "Server" (registration links) — after Team, or after General. */
 const withServer = (tabs: SettingsTab[], admin: boolean): SettingsTab[] => {
   if (!admin) return tabs
@@ -46,7 +46,7 @@ export function SettingsModal({ initialTab, onClose }: { initialTab?: SettingsTa
   const serverAdmin = useCloud((c) => !!c.user && !!c.serverAdmin)
   const TABS = withServer(useInCloud() ? CLOUD_TABS : LOCAL_TABS, serverAdmin)
   const [tab, setTab] = useState<SettingsTab>(() => {
-    const asked = initialTab ?? (consumeSettingsTab() as SettingsTab | null) ?? (consumeSyncSettingsRequest() ? 'sync' : null) ?? (consumeMcpSettingsRequest() ? 'mcp' : null)
+    const asked = initialTab ?? (consumeSettingsTab() as SettingsTab | null) ?? (consumeSyncSettingsRequest() ? 'sync' : null) ?? (consumeMcpSettingsRequest() ? 'mcp' : null) ?? (consumeMailSettingsRequest() ? 'mail' : null)
     return asked && TABS.includes(asked) ? asked : 'general'
   })
   const idx = TABS.indexOf(tab)
@@ -140,6 +140,7 @@ export function SettingsModal({ initialTab, onClose }: { initialTab?: SettingsTa
             {tab === 'ai' && <AITab />}
             {tab === 'data' && <DataTab onClose={onClose} />}
             {tab === 'sync' && <SyncTab />}
+            {tab === 'mail' && <MailTab />}
             {tab === 'mcp' && <McpTab />}
             {tab === 'shortcuts' && <ShortcutList />}
             {tab === 'about' && <AboutTab />}

@@ -15,10 +15,10 @@
 import type AnthropicSDK from '@anthropic-ai/sdk'
 import type { BetaContentBlock, BetaMessageParam, BetaToolResultBlockParam, BetaToolUnion, BetaUsage } from '@anthropic-ai/sdk/resources/beta/messages/messages'
 import type { BetaRunnableTool } from '@anthropic-ai/sdk/lib/tools/BetaRunnableTool'
-import { AIError, claudeClient, toAIError } from '../client'
+import { AIError, claudeClient, resolveModel, toAIError } from '../client'
 import { MCP_BETA, type McpAttachment } from '../mcp-servers/config'
 import { foldMcpBlock, type McpCall } from '../mcp-servers/activity'
-import { AGENT_TOOLS, MAX_TOOL_CALLS, RESULT_CHARS, ToolInputError, argLabel, clipResult, type StageApi, type ToolOutcome } from './tools'
+import { AGENT_TOOLS, MAX_TOOL_CALLS, RESULT_CHARS, ToolInputError, argLabel, clipResult, type AgentTool, type StageApi, type ToolOutcome } from './tools'
 import type { ToolName } from './types'
 
 export const AGENT_SYSTEM = `You are the workspace agent in One, a local-first workspace of pages and databases (like Notion). You carry out the user's task by reading their workspace with tools and proposing changes.
@@ -85,6 +85,14 @@ export async function runAgent(opts: {
   hooks: RunHooks
   /** the external MCP servers of this conversation (null = none) */
   mcp?: McpAttachment | null
+  /**
+   * Custom agents (features/agents) run the same loop headless with their own tool list (a subset,
+   * scope-checked), system prompt, model and effort. Absent = the workspace agent's defaults.
+   */
+  tools?: AgentTool[]
+  system?: string
+  model?: string | null
+  effort?: 'low' | 'medium' | 'high' | null
 }): Promise<RunEnd> {
   const { stage, signal, hooks } = opts
   const mcp = opts.mcp ?? null
@@ -97,11 +105,13 @@ export async function runAgent(opts: {
   try {
     const got = await claudeClient()
     sdk = got.sdk
-    const { client, model } = got
+    const { client } = got
+    const model = opts.model ? resolveModel(opts.model).id : got.model
+    const system = opts.system ?? AGENT_SYSTEM
     let calls = 0
     let warned = false
 
-    const tools: BetaRunnableTool<Record<string, unknown>>[] = AGENT_TOOLS.map((tool) => ({
+    const tools: BetaRunnableTool<Record<string, unknown>>[] = (opts.tools ?? AGENT_TOOLS).map((tool) => ({
       type: 'custom',
       name: tool.name,
       description: tool.description,
@@ -145,7 +155,7 @@ export async function runAgent(opts: {
       max_iterations: MAX_TOOL_CALLS + 6,
       // automatic prompt caching: system + tools + the growing history are re-read every step
       cache_control: { type: 'ephemeral' as const },
-      system: mcp ? `${AGENT_SYSTEM}\n\n${mcp.system}` : AGENT_SYSTEM,
+      system: mcp ? `${system}\n\n${mcp.system}` : system,
       tools: mcp ? [...tools, ...mcp.toolsets] : (tools as Array<BetaRunnableTool<Record<string, unknown>> | BetaToolUnion>),
       ...(mcp ? { mcp_servers: mcp.servers } : {}),
       ...(isOpus(model)
@@ -154,7 +164,7 @@ export async function runAgent(opts: {
             betas: ['server-side-fallback-2026-07-01', 'thinking-display-updates-2026-08-18', ...(mcp ? [MCP_BETA] : [])],
             fallbacks: 'default' as const,
             thinking: { type: 'adaptive' as const, display: 'updates' as const },
-            output_config: { effort: 'medium' as const },
+            output_config: { effort: opts.effort ?? ('medium' as const) },
           }
         : mcp
           ? { betas: [MCP_BETA] }

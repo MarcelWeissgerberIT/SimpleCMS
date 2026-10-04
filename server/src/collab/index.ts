@@ -43,6 +43,7 @@ export interface Collab extends CollabControl {
 export function createCollab(deps: { config: Config; log: Logger; repo: Repo; sessions: Sessions }): Collab {
   const { config, log, repo, sessions } = deps
   const live = new Set<Entry>()
+  const storedListeners = new Set<(name: string, doc: Y.Doc) => void>()
 
   const hocuspocus = new Hocuspocus<ConnContext>({
     name: 'one',
@@ -105,7 +106,17 @@ export function createCollab(deps: { config: Config; log: Logger; repo: Repo; se
         repo.reviveDocument(documentName)
         log.info('page document revived', { workspace: doc.workspaceId, page: doc.pageId })
       }
-      repo.saveDocument(documentName, doc.workspaceId, Y.encodeStateAsUpdate(document))
+      const saved = repo.saveDocument(documentName, doc.workspaceId, Y.encodeStateAsUpdate(document))
+      // what others react to (custom agents' row triggers) — shared documents only
+      if (saved && doc.owner === null) {
+        for (const fn of storedListeners) {
+          try {
+            fn(documentName, document)
+          } catch (err) {
+            log.error('document stored listener failed', { document: documentName, error: err as Error })
+          }
+        }
+      }
     },
   })
 
@@ -187,6 +198,10 @@ export function createCollab(deps: { config: Config; log: Logger; repo: Repo; se
     pageInMeta,
     read,
     write,
+    onStored(fn) {
+      storedListeners.add(fn)
+      return () => storedListeners.delete(fn)
+    },
     async destroy() {
       clearInterval(sweep)
       await hocuspocus.destroy() // closes connections and flushes pending document stores

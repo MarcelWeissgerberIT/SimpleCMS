@@ -30,6 +30,12 @@ export interface CollabControl {
    * Private documents (`ws:<id>:u:…`) are refused: the server never writes them.
    */
   write<T>(documentName: string, fn: (doc: Y.Doc) => T, actor: string): Promise<T>
+  /**
+   * Called after a shared document (never a private one) was stored — debounced client edits, server
+   * writes, the last disconnect. `fn` runs synchronously inside the store: it must be quick, must not
+   * change the document and must not throw (errors are logged and ignored). Returns an unsubscribe.
+   */
+  onStored(fn: (documentName: string, doc: Y.Doc) => void): () => void
 }
 
 /** Sent to the client as the reason of a per-document close message (provider `close` event). */

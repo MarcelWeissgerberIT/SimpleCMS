@@ -26,6 +26,7 @@ export const feedMessages: Messages = {
     'database.feed.orderBy': 'Order by',
     'database.feed.order': 'Order',
     'database.feed.content': 'Show page content',
+    'database.feed.sortsWin': 'The view’s sorts decide the order while it has any.',
   },
   de: {
     'database.view.feed': 'Feed',
@@ -51,5 +52,6 @@ export const feedMessages: Messages = {
     'database.feed.orderBy': 'Sortieren nach',
     'database.feed.order': 'Reihenfolge',
     'database.feed.content': 'Seiteninhalt zeigen',
+    'database.feed.sortsWin': 'Solange die Ansicht sortiert ist, bestimmt ihre Sortierung die Reihenfolge.',
   },
 }

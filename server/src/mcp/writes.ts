@@ -420,7 +420,7 @@ function backfillUniqueIds(r: Roots, ydb: Y.Map<unknown>, dbId: string, propId: 
 }
 
 /** Option names in a select / multi_select input ("A, B" splits unless it is one option's name — like coerce). */
-function optionNames(prop: PropertyDef, raw: unknown): string[] {
+export function optionNames(prop: PropertyDef, raw: unknown): string[] {
   if (raw === null || raw === undefined || raw === '') return []
   const whole = (v: string) => (prop.options ?? []).some((o) => o.id === v.trim() || o.name.trim().toLowerCase() === v.trim().toLowerCase())
   const items = Array.isArray(raw) ? raw : typeof raw === 'string' && prop.type === 'multi_select' && !whole(raw) ? raw.split(',') : [raw]
@@ -430,7 +430,7 @@ function optionNames(prop: PropertyDef, raw: unknown): string[] {
 const EMAIL = /^[^\s@]+@[^\s@]+$/
 
 /** People by name and related rows by title (exact, case-insensitive), as ids — what coerce() takes. */
-function friendlyIn(r: Roots, prop: PropertyDef, raw: unknown, ctx: ValueContext): unknown {
+export function friendlyIn(r: Roots, prop: PropertyDef, raw: unknown, ctx: ValueContext): unknown {
   if (prop.type !== 'person' && prop.type !== 'relation') return raw
   const one = (v: unknown): unknown => {
     if (typeof v !== 'string' || !v.trim()) return v

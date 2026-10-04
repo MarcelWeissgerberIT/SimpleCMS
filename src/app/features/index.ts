@@ -19,6 +19,8 @@ export { HistoryModal } from './history/HistoryModal'
 export { startAutomations } from './automations/engine'
 export { AutomationsModal } from './automations/AutomationsModal'
 export { isAIConfigured, runAI, type AIAction, type RunAIOptions } from './ai/client'
+/* one streamed completion with your own system prompt (help/ask.ts: "Ask the help", mcp: false = no MCP server) */
+export { streamCompletion, type StreamOptions } from './ai/client'
 export { AIMenu, type AIMenuProps } from './ai/AIMenu'
 /*
  * External MCP servers for Claude (Messages API MCP connector): McpServers = the section of
@@ -137,6 +139,13 @@ export { ReminderSelect, DateReminderEditor, type DateReminderValue } from './in
  *  - openSyncSettings(): open Settings on the Sync tab · consumeSyncSettingsRequest(): SettingsModal asks on open
  */
 export { startSync, stopSync, openSyncSettings, consumeSyncSettingsRequest, useSync, SyncTab, SyncStatusCell } from './sync'
+/*
+ * Gmail → a "Mails" database (BYO Google OAuth client ID, gmail.readonly, token in memory only; this device's settings):
+ *  - startMail(): background service (start once from main.tsx after hydrate): schedule + "Load images" in mail rows
+ *  - MailTab: Settings → Mail · MailSyncLed { databaseId }: LED read-out for the Mails database's header (nothing elsewhere)
+ *  - openMailSettings(): open Settings on the Mail tab · consumeMailSettingsRequest(): SettingsModal asks on open
+ */
+export { startMail, stopMail, openMailSettings, consumeMailSettingsRequest, useMail, MailTab, MailSyncLed } from './mail'
 /*
  * One MCP, local bridge (Claude Desktop / Claude Code drive this tab through mcp/one-mcp.mjs):
  *  - startMcp(): background service (start once from main.tsx after hydrate; idle until switched on)

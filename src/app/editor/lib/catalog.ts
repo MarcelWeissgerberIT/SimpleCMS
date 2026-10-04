@@ -9,15 +9,19 @@ import {
   AtSign,
   AudioLines,
   Bookmark,
+  BookOpenText,
   CalendarDays,
   ChartColumn,
   ChartColumnIncreasing,
   ChartGantt,
   ChevronRight,
+  ClipboardPen,
   Code,
   FileSpreadsheet,
   Columns2,
   Columns3,
+  Columns4,
+  FileSymlink,
   FileText,
   Film,
   Heading1,
@@ -41,6 +45,7 @@ import {
   RefreshCw,
   Sheet,
   Shapes,
+  Signpost,
   Sigma,
   Smile,
   SquareKanban,
@@ -52,9 +57,10 @@ import {
   Type,
   type LucideIcon,
 } from 'lucide-react'
-import { useWorkspace, defaultView } from '../../store/store'
+import { useWorkspace, defaultView, type NewDatabaseInput } from '../../store/store'
 import { openPage } from '../../lib/router'
-import type { ViewType } from '../../store/types'
+import { newId } from '../../lib/ids'
+import type { PropertyDef, ViewType } from '../../store/types'
 import type { Bridge } from './bridge'
 import { insertBlock, moveIntoToggleBody, turnInto, type TurnTarget } from './blocks'
 import { dateMentionAttrs } from './dates'
@@ -64,7 +70,7 @@ import { insertSynced } from '../synced/actions'
 import { insertMeetingNotes } from '../schema/meetingNotes'
 import { insertSpreadsheet } from '../schema/spreadsheet'
 import { insertChart } from '../schema/chart'
-import { ToggleHeading1, ToggleHeading2, ToggleHeading3 } from './blockGlyphs'
+import { Columns5, ToggleHeading1, ToggleHeading2, ToggleHeading3 } from './blockGlyphs'
 import { toast } from '../../store/ui'
 import { t } from '../../i18n'
 
@@ -80,6 +86,9 @@ export interface RunCtx {
   pickDatabase?: () => void
 }
 
+/** Items that open a picker in the slash menu instead of inserting right away. */
+export type BlockPicker = 'database' | 'page'
+
 export interface BlockItem {
   id: string
   group: BlockGroup
@@ -91,6 +100,8 @@ export interface BlockItem {
   /** Extra search terms (EN + DE) */
   keywords: string
   turnInto?: TurnTarget
+  /** The slash menu opens this picker (the item's `run` is not called). */
+  picker?: BlockPicker
   run: (ctx: RunCtx) => void
 }
 
@@ -128,16 +139,38 @@ function tableJson(rows: number, cols: number) {
   }
 }
 
-function createInlineDatabase(ctx: RunCtx, type: ViewType) {
+/** An inline database on this page (its first view of `type`), or one with a ready schema + views. */
+function createInlineDatabase(ctx: RunCtx, type: ViewType, input: Pick<NewDatabaseInput, 'title' | 'properties' | 'views'> = {}) {
   const ws = useWorkspace.getState()
-  const id = ws.createDatabase({ parentId: ctx.pageId, inline: true, title: '' })
+  const id = ws.createDatabase({ parentId: ctx.pageId, inline: true, title: '', ...input })
   const db = useWorkspace.getState().databases[id]
   const first = db?.views[0]
-  if (db && first && type !== 'table') {
+  if (db && first && type !== 'table' && !input.views) {
     const { id: _ignore, ...rest } = defaultView(type, db)
     ws.updateView(id, first.id, rest)
   }
   insertBlock(ctx.editor, { type: 'databaseBlock', attrs: { databaseId: id, viewId: null } }, ctx.range)
+}
+
+/**
+ * "/Form": an inline database whose first view is a form (database/form) with three starter
+ * questions — Name (title, required), Email (required), Message — and a table of the responses.
+ * Answers given on the page become rows; the form view's Share key makes a public link.
+ */
+function insertForm(ctx: RunCtx) {
+  const ids = { name: newId(), email: newId(), message: newId() }
+  const properties: PropertyDef[] = [
+    { id: ids.name, name: t('editor.form.q.name'), type: 'title' },
+    { id: ids.email, name: t('editor.form.q.email'), type: 'email' },
+    { id: ids.message, name: t('editor.form.q.message'), type: 'text' },
+  ]
+  const form = {
+    ...defaultView('form', { properties }, t('editor.form.view')),
+    visibleProperties: [ids.email, ids.message],
+    form: { questions: { [ids.name]: { required: true }, [ids.email]: { required: true, placeholder: 'name@example.com' } } },
+  }
+  const responses = defaultView('table', { properties }, t('editor.form.responses'))
+  createInlineDatabase(ctx, 'form', { title: t('editor.form.title'), properties, views: [form, responses] })
 }
 
 const dbItem = (id: string, type: ViewType, icon: LucideIcon, keywords: string): BlockItem => ({
@@ -167,6 +200,14 @@ export const BLOCKS: BlockItem[] = [
         focusNewPageTitle(id)
       }, 30)
     },
+  },
+  {
+    id: 'linkPage',
+    group: 'basic',
+    icon: FileSymlink,
+    keywords: 'link to page existing page reference pagelink link zur seite verknüpfen bestehende seite verweis seitenlink',
+    picker: 'page',
+    run: () => {},
   },
   { id: 'callout', group: 'basic', icon: Lightbulb, md: '!>', keywords: 'callout note info box hinweis notiz kasten', turnInto: 'callout', run: turn('callout') },
   { id: 'quote', group: 'basic', icon: Quote, md: '>', keywords: 'quote blockquote citation zitat', turnInto: 'blockquote', run: turn('blockquote') },
@@ -232,6 +273,13 @@ export const BLOCKS: BlockItem[] = [
     run: (ctx) => insertBlock(ctx.editor, { type: 'embed', attrs: { url: '' } }, ctx.range),
   },
   { id: 'file', group: 'media', icon: Paperclip, keywords: 'file attachment upload pdf datei anhang', run: (ctx) => insertBlock(ctx.editor, { type: 'fileBlock', attrs: { src: '' } }, ctx.range) },
+  {
+    id: 'pdf',
+    group: 'media',
+    icon: BookOpenText,
+    keywords: 'pdf viewer document reader paper read upload dokument betrachter lesen anzeigen',
+    run: (ctx) => insertBlock(ctx.editor, { type: 'fileBlock', attrs: { src: '', display: 'viewer' } }, ctx.range),
+  },
   // ---------------- database
   dbItem('dbTable', 'table', Sheet, 'table view database spreadsheet tabelle datenbank'),
   dbItem('dbBoard', 'board', SquareKanban, 'board kanban view database tafel'),
@@ -240,7 +288,14 @@ export const BLOCKS: BlockItem[] = [
   dbItem('dbCalendar', 'calendar', Calendar, 'calendar view database kalender'),
   dbItem('dbTimeline', 'timeline', ChartGantt, 'timeline gantt view database zeitleiste'),
   dbItem('dbChart', 'chart', ChartColumn, 'chart graph view database diagramm'),
-  { id: 'dbLinked', group: 'database', icon: Link2, keywords: 'linked database existing verknüpfte datenbank', run: (ctx) => ctx.pickDatabase?.() },
+  {
+    id: 'form',
+    group: 'database',
+    icon: ClipboardPen,
+    keywords: 'form survey questionnaire signup contact feedback poll quiz typeform formular umfrage fragebogen anmeldung kontakt rückmeldung abfrage',
+    run: insertForm,
+  },
+  { id: 'dbLinked', group: 'database', icon: Link2, keywords: 'linked database existing verknüpfte datenbank', picker: 'database', run: (ctx) => ctx.pickDatabase?.() },
   // ---------------- advanced
   { id: 'code', group: 'advanced', icon: Code, md: '```', keys: 'Mod+Alt+C', keywords: 'code snippet programming quellcode', turnInto: 'codeBlock', run: turn('codeBlock') },
   {
@@ -298,6 +353,13 @@ export const BLOCKS: BlockItem[] = [
   },
   { id: 'toc', group: 'advanced', icon: ListTree, keywords: 'toc table of contents outline inhaltsverzeichnis gliederung', run: (ctx) => insertBlock(ctx.editor, { type: 'toc' }, ctx.range) },
   {
+    id: 'breadcrumb',
+    group: 'advanced',
+    icon: Signpost,
+    keywords: 'breadcrumb breadcrumbs path location navigation parent brotkrumen brotkrümel pfad navigation übergeordnet',
+    run: (ctx) => insertBlock(ctx.editor, { type: 'breadcrumb' }, ctx.range),
+  },
+  {
     id: 'columns2',
     group: 'advanced',
     icon: Columns2,
@@ -310,6 +372,20 @@ export const BLOCKS: BlockItem[] = [
     icon: Columns3,
     keywords: 'columns layout three 3 spalten drei',
     run: (ctx) => insertBlock(ctx.editor, columns(3), ctx.range),
+  },
+  {
+    id: 'columns4',
+    group: 'advanced',
+    icon: Columns4,
+    keywords: 'columns layout four 4 spalten vier',
+    run: (ctx) => insertBlock(ctx.editor, columns(4), ctx.range),
+  },
+  {
+    id: 'columns5',
+    group: 'advanced',
+    icon: Columns5,
+    keywords: 'columns layout five 5 spalten fünf',
+    run: (ctx) => insertBlock(ctx.editor, columns(5), ctx.range),
   },
   // ---------------- inline
   {

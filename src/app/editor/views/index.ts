@@ -20,6 +20,7 @@ import { MeetingNotesView, meetingViewOptions } from './MeetingNotesView'
 import { SpreadsheetView, spreadsheetViewOptions } from './SpreadsheetView'
 import { ChartBlockView, chartViewOptions } from './ChartBlockView'
 import { withInlineIconView } from './InlineIconView'
+import { BreadcrumbView } from './BreadcrumbView'
 import './views.css'
 import './toggle.css'
 
@@ -75,5 +76,7 @@ export function nodeViewWraps({ readOnly }: { readOnly: boolean }): ExtensionWra
     ...(readOnly ? {} : { spreadsheet: withView(guardView(SpreadsheetView), spreadsheetViewOptions) }),
     // chart: the live chart (features/charts); read-only renders keep the readouts, without the tools
     chart: withView(guardView(ChartBlockView), chartViewOptions),
+    // breadcrumb: the live path of the page (read-only renders: the open page, or the frozen titles)
+    breadcrumb: withView(guardView(BreadcrumbView)),
   }
 }
