@@ -607,6 +607,7 @@ function ScopeFields({ d, set, error }: { d: CustomAgent; set: (p: Partial<Custo
   const pages = useWorkspace((s) => s.pages)
   const menu = useMenu()
   const list = useCandidates('any')
+  const inCloud = useCloud((s) => s.active.kind === 'cloud')
   const chosen = [...d.scope.pages, ...d.scope.databases]
   const add = (p: Page) => {
     if (chosen.includes(p.id)) return
@@ -615,7 +616,7 @@ function ScopeFields({ d, set, error }: { d: CustomAgent; set: (p: Partial<Custo
   const remove = (id: ID) => set({ scope: { ...d.scope, pages: d.scope.pages.filter((x) => x !== id), databases: d.scope.databases.filter((x) => x !== id) } })
   const entries: MenuEntry[] = list.filter((p) => !chosen.includes(p.id)).map((p) => ({ label: p.title.trim() || t('common.untitled'), icon: <PageIcon icon={p.icon} kind={p.kind} size={15} />, hint: p.kind === 'database' ? t('features.agents.ed.db') : undefined, onSelect: () => add(p) }))
   return (
-    <Field label={t('features.agents.ed.scope')} hint={t('features.agents.ed.scopeHint')} error={error}>
+    <Field label={t('features.agents.ed.scope')} hint={inCloud ? `${t('features.agents.ed.scopeHint')} ${t('features.agents.ed.scopeHintTeam')}` : t('features.agents.ed.scopeHint')} error={error}>
       <Seg
         label={t('features.agents.ed.scope')}
         value={d.scope.everything ? 'all' : 'some'}

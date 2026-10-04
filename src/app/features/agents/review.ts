@@ -11,6 +11,7 @@ import { applyChanges, type ApplyResult } from '../ai/agent/apply'
 import type { StagedChange } from '../ai/agent/types'
 import { asAgent, stampLocal } from './attribution'
 import { touchedBy } from './exec'
+import { withoutWebImages } from './images'
 import { putRun } from './runs'
 import { patchServerRun, resolveServerRun, serverErrorText } from './server'
 import type { AgentRun } from './types'
@@ -35,7 +36,9 @@ export async function applyRun(run: AgentRun, ids?: string[]): Promise<void> {
   const targets = ids ? all.filter((c) => ids.includes(c.id)) : all.filter((c) => c.status === 'pending' || c.status === 'failed')
   if (!targets.length) return
   const rowIds: Record<string, ID> = { ...(run.rowIds ?? {}) }
-  const res = await asAgent(run.agentId, () => applyChanges(targets, all, (id) => rowIds[id] ?? id))
+  // proposals from a server run (or stored before images.ts) load no web image either
+  const safe = (c: StagedChange): StagedChange => (typeof c.markdown === 'string' ? { ...c, markdown: withoutWebImages(c.markdown) } : c)
+  const res = await asAgent(run.agentId, () => applyChanges(targets.map(safe), all.map(safe), (id) => rowIds[id] ?? id))
   Object.assign(rowIds, res.rowIds)
   const staged = all.map((c): StagedChange => {
     if (res.applied.includes(c.id)) return { ...c, status: 'applied', error: undefined }

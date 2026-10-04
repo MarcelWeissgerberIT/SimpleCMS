@@ -3,10 +3,16 @@
  * databases together with what lies below them (subpages, inline databases, rows). Templates are never
  * in scope. The workspace agent's tools are reused: each call runs inside withToolScope() (lists and
  * lookups only see pages in scope) and is refused up front when it names a page outside the scope.
+ *
+ * Team workspaces: a browser agent runs in its creator's browser, which also holds the creator's
+ * PRIVATE pages — but every member who can edit may change the agent's job and report page. So
+ * "everything" means the workspace's shared pages (as for the server runner, which never sees private
+ * pages); a private page is in scope only when the scope names it (or a private page above it).
  */
 import { useWorkspace } from '../../store/store'
 import { inTemplate } from '../../store/selectors'
 import type { CustomAgent, ID, Page } from '../../store/types'
+import { useCloud } from '../../cloud'
 import { AGENT_TOOLS, ToolInputError, withToolScope, type AgentTool, type StageApi } from '../ai/agent/tools'
 
 /** The ids a tool input can point at. */
@@ -26,9 +32,15 @@ function under(pages: Record<ID, Page>, id: ID, roots: Set<ID>): boolean {
   return false
 }
 
+const inTeam = () => useCloud.getState().active.kind === 'cloud'
+
 /** The scope check of an agent (null = everything outside templates — the tools exclude those already). */
 export function scopeFilter(agent: Pick<CustomAgent, 'scope'>): ((id: ID) => boolean) | null {
-  if (agent.scope.everything) return null
+  if (agent.scope.everything) {
+    if (!inTeam()) return null
+    // the workspace's pages, not the private ones of the person whose browser runs the agent
+    return (id) => !useWorkspace.getState().pages[id]?.private
+  }
   const roots = new Set<ID>([...agent.scope.pages, ...agent.scope.databases])
   return (id) => {
     const pages = useWorkspace.getState().pages
@@ -38,7 +50,7 @@ export function scopeFilter(agent: Pick<CustomAgent, 'scope'>): ((id: ID) => boo
 
 /** The scope in words for Claude (titles and ids). */
 export function scopeText(agent: Pick<CustomAgent, 'scope'>): string {
-  if (agent.scope.everything) return 'the whole workspace'
+  if (agent.scope.everything) return inTeam() ? "the whole workspace except people's private pages" : 'the whole workspace'
   const pages = useWorkspace.getState().pages
   const items = [...agent.scope.pages, ...agent.scope.databases]
     .filter((id) => pages[id] && !pages[id].trashed)
@@ -71,7 +83,7 @@ export function agentTools(agent: Pick<CustomAgent, 'scope' | 'write'>): AgentTo
           throw new ToolInputError(`${JSON.stringify(page.title.trim() || 'Untitled')} (id: ${id}) is outside this agent's scope: refused. It may only use ${scopeText(agent)}.`)
         }
       }
-      if (tool.name === 'create_page' && !(typeof input.parent_id === 'string' && input.parent_id.trim())) {
+      if (!agent.scope.everything && tool.name === 'create_page' && !(typeof input.parent_id === 'string' && input.parent_id.trim())) {
         throw new ToolInputError(`This agent may not create top-level pages: refused. Create the page under a page in its scope (${scopeText(agent)}).`)
       }
       return withToolScope(filter, () => tool.run(input, stage))

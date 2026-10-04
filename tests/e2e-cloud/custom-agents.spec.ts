@@ -41,6 +41,41 @@ const agent = (over: AnyState) => ({
   ...over,
 })
 
+type Block = { type: 'text'; text: string } | { type: 'tool_use'; id: string; name: string; input: Record<string, unknown> }
+
+/** One streamed assistant message (Messages API SSE): text and tool calls. */
+function sseMessage(blocks: Block[]): string {
+  const ev = (type: string, data: object) => `event: ${type}\ndata: ${JSON.stringify({ type, ...data })}\n\n`
+  let body = ev('message_start', { message: { id: 'msg_cloud_agent', type: 'message', role: 'assistant', model: 'claude-opus-5-5', content: [], stop_reason: null, stop_sequence: null, usage: { input_tokens: 900, output_tokens: 1 } } })
+  blocks.forEach((b, index) => {
+    if (b.type === 'text') {
+      body += ev('content_block_start', { index, content_block: { type: 'text', text: '' } })
+      body += ev('content_block_delta', { index, delta: { type: 'text_delta', text: b.text } })
+    } else {
+      body += ev('content_block_start', { index, content_block: { type: 'tool_use', id: b.id, name: b.name, input: {} } })
+      body += ev('content_block_delta', { index, delta: { type: 'input_json_delta', partial_json: JSON.stringify(b.input) } })
+    }
+    body += ev('content_block_stop', { index })
+  })
+  body += ev('message_delta', { delta: { stop_reason: blocks.some((b) => b.type === 'tool_use') ? 'tool_use' : 'end_turn', stop_sequence: null }, usage: { output_tokens: 40 } })
+  return body + ev('message_stop', {})
+}
+
+/** api.anthropic.com → request n answers script[n] (later ones: a short report). Returns the request bodies. */
+async function mockClaudeScript(p: Page, script: Array<() => string>): Promise<AnyState[]> {
+  const bodies: AnyState[] = []
+  await p.route('https://api.anthropic.com/**', (route: Route) => {
+    const cors = { 'access-control-allow-origin': '*', 'access-control-allow-headers': '*', 'access-control-allow-methods': 'POST, GET' }
+    if (route.request().method() === 'OPTIONS') return route.fulfill({ status: 204, headers: cors })
+    bodies.push(JSON.parse(route.request().postData() ?? '{}'))
+    const step = script[bodies.length - 1] ?? (() => sseMessage([{ type: 'text', text: 'Done.' }]))
+    return route.fulfill({ status: 200, headers: { ...cors, 'content-type': 'text/event-stream' }, body: step() })
+  })
+  return bodies
+}
+
+const toolResults = (body: AnyState) => (body.messages as AnyState[]).flatMap((m) => (Array.isArray(m.content) ? m.content : [])).filter((c: AnyState) => c.type === 'tool_result')
+
 test.describe('team cloud — custom agents', () => {
   test('definitions sync both ways; a browser agent runs only in its creator’s browser', async ({ page: a, context }) => {
     watch(a, 'ada')
@@ -74,6 +109,56 @@ test.describe('team cloud — custom agents', () => {
     await wsEval(a, (s) => s.deleteAgent('ag-team'))
     await expect.poll(() => wsEval(b, (s) => Object.keys(s.agents ?? {}).length), { timeout: 20_000 }).toBe(0)
     await b.context().close()
+  })
+
+  test("a browser agent never sees its creator's private pages unless its scope names them (others can edit its job)", async ({ page: a }) => {
+    watch(a, 'ada')
+    await signIn(a, email('ada'))
+    const wsId = await createWorkspace(a, 'Acme Private Agents')
+    await openApp(a, wsId)
+    await waitOnline(a)
+    const adaId = await cloudEval(a, (c) => c.user.id as string)
+    const secret = await a.evaluate(() => (window as any).__one.cloud.createPrivatePage({ title: 'Salary list' })) // eslint-disable-line @typescript-eslint/no-explicit-any
+    await wsEval(a, (s, id) => s.setContent(id, { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Bob earns 9000' }] }] }, 'e2e'), secret)
+    const shared = await wsEval(a, (s) => s.createPage({ title: 'Salary notes (shared)' }) as string)
+    await expect.poll(() => wsEval(a, (s, ids) => ids.map((id: string) => !!s.pages[id]?.private), [secret, shared])).toEqual([true, false])
+    await wsEval(a, (s) => s.updateSettings({ aiApiKey: 'sk-ant-e2e-test-key' }))
+
+    // scope "everything": the shared pages only — search does not list the private page, reading it is refused
+    let bodies = await mockClaudeScript(a, [
+      () => sseMessage([{ type: 'tool_use', id: 'tu1', name: 'search_pages', input: { query: 'salary' } }]),
+      () => sseMessage([{ type: 'tool_use', id: 'tu2', name: 'read_page', input: { id: secret } }]),
+    ])
+    await wsEval(a, (s, x) => s.upsertAgent(x), agent({ id: 'ag-priv', name: 'Salary digest', write: 'none', createdBy: adaId }))
+    await a.evaluate(() => (window.location.hash = '#/agents/ag-priv'))
+    await a.getByRole('button', { name: 'Run now' }).click()
+    const run = a.locator('.agx-run').first()
+    await expect(run).toHaveAttribute('data-status', 'ok', { timeout: 30_000 })
+    expect(bodies).toHaveLength(3)
+    const search = toolResults(bodies[1]).find((r: AnyState) => r.tool_use_id === 'tu1')
+    expect(JSON.stringify(search.content)).toContain('Salary notes (shared)')
+    expect(JSON.stringify(search.content)).not.toContain('Salary list')
+    const read = toolResults(bodies[2]).find((r: AnyState) => r.tool_use_id === 'tu2')
+    expect(read).toMatchObject({ tool_use_id: 'tu2', is_error: true })
+    expect(JSON.stringify(read.content)).toContain("outside this agent's scope: refused")
+    expect(JSON.stringify(bodies)).not.toContain('Bob earns 9000')
+    expect(JSON.stringify(bodies[0].messages[0].content)).toContain('except people')
+    // the editor says so
+    await a.getByRole('button', { name: 'Edit' }).click()
+    const editor = a.getByRole('dialog', { name: /Salary digest/ })
+    await expect(editor).toContainText('Private pages only when they are picked here')
+    await editor.getByRole('button', { name: 'Cancel' }).click()
+
+    // named in the scope by its creator: the private page is in reach
+    await a.unroute('https://api.anthropic.com/**')
+    bodies = await mockClaudeScript(a, [() => sseMessage([{ type: 'tool_use', id: 'tu3', name: 'read_page', input: { id: secret } }])])
+    await wsEval(a, (s, id) => s.upsertAgent({ ...s.agents['ag-priv'], scope: { everything: false, pages: [id], databases: [] } }), secret)
+    await a.getByRole('button', { name: 'Run now' }).click()
+    await expect(a.locator('.agx-run')).toHaveCount(2)
+    await expect(a.locator('.agx-run').first()).toHaveAttribute('data-status', 'ok', { timeout: 30_000 })
+    const ok = toolResults(bodies[1]).find((r: AnyState) => r.tool_use_id === 'tu3')
+    expect(ok.is_error ?? false).toBe(false)
+    expect(JSON.stringify(ok.content)).toContain('Bob earns 9000')
   })
 
   test('server runner: runtime set / last 4 (real server), runs list, run now and the review of a staged server run (mocked)', async ({ page: a }) => {
