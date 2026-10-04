@@ -23,6 +23,7 @@ import { cleanWorkspaceName, WORKSPACE_NAME_MAX } from '../lib/workspaceName'
 import { cloudApi } from '../cloud/api'
 import { errorText } from '../cloud/errors'
 import { useCloud, useCloudSync } from '../../cloud'
+import { HelpLink } from '../../help'
 import './settings.css'
 
 export type SettingsTab = 'general' | 'team' | 'server' | 'appearance' | 'ai' | 'data' | 'sync' | 'mail' | 'mcp' | 'shortcuts' | 'about'
@@ -355,7 +356,9 @@ function AITab() {
           : t('shell.ai.ready')
   return (
     <>
-      <h3 className="st-h">{t('shell.settings.ai.title')}</h3>
+      <h3 className="st-h">
+        {t('shell.settings.ai.title')} <HelpLink id="claude-key" />
+      </h3>
       <p className="st-p">{t('shell.settings.ai.body')}</p>
       <div className="ai-status" data-state={configured ? test.state : 'none'} role="status">
         <Led state={!configured ? 'off' : test.state === 'running' ? 'on' : test.state === 'ok' ? 'ok' : test.state === 'error' ? 'off' : 'on'} />
@@ -427,7 +430,9 @@ function DataTab({ onClose }: { onClose: () => void }) {
   const inCloud = useInCloud()
   return (
     <>
-      <h3 className="st-h">{t('shell.settings.data.title')}</h3>
+      <h3 className="st-h">
+        {t('shell.settings.data.title')} <HelpLink id="export" />
+      </h3>
       <p className="st-p">{t('shell.settings.data.body')}</p>
       <div className="st-actions">
         <button type="button" className="btn" onClick={() => ui.openModal({ type: 'export', pageId: null })}>

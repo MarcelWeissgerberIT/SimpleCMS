@@ -38,6 +38,12 @@ src/app/features/**                  AI (+ workspace agent), history, graph, sha
                                      GitHub Markdown, per-device IndexedDB `one-sync`), mcp (local bridge UI), sheets
                                      (spreadsheet engine + grid; functions/ = custom functions built by clicking), charts
                                      (SVG renderer, chart builder, data sources) (public API: features/index.ts)
+src/app/help/**                      help centre: panel (?, status bar, ⌘K, workspace menu), 54 articles EN+DE twins
+                                     (help/articles/{en,de}/<id>.md, `help:<id>` links), Ask (Claude over the articles);
+                                     link UI to an article with `<HelpLink id="…" />` (public API: help/index.ts)
+src/help-site/**                     build-time public /help pages (prerendered from the same articles, hreflang)
+src/app/features/agents/**           custom agents (#/agents, editor, browser runner, review, server-agent settings)
+src/app/features/mail/**             Gmail sync → "Mails" database (own Google client ID)
 src/app/cloud/**                     team-cloud client: store ⇄ Yjs binding, page documents, private pages, files
                                      (public API: cloud/index.ts; protocol + meta-document schema: docs/CLOUD.md)
 server/**                            team-cloud server (Node, Hono, Hocuspocus, SQLite; AGPL) + public API (docs/API.md)
