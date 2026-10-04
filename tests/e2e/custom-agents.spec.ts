@@ -357,6 +357,30 @@ test.describe('Custom agents', () => {
     expect(fetched).toEqual([])
   })
 
+  test('390 px: a run with a long step and a long word stays inside the screen (chips ellipsize, text wraps)', async ({ page, context }) => {
+    await page.setViewportSize({ width: 390, height: 844 })
+    await openApp(page)
+    await setKey(page)
+    const projects = await pageIdByTitle(page, 'Projects')
+    const row = await wsEval(page, (s, db) => s.createRow(db, { title: `Quarterly planning ${'with a very long row title '.repeat(5)}` }) as string, projects)
+    await mockClaude(context, [
+      () => sseMessage([{ type: 'tool_use', id: 'tu1', name: 'read_page', input: { id: row } }]),
+      () => sseMessage([{ type: 'text', text: `Read it. See https://docs.example.test/${'segment'.repeat(30)}/edit and ${'Unbreakable'.repeat(12)}.` }]),
+    ])
+    const id = await addAgent(page, { id: 'ag-narrow', name: 'Narrow', scope: { everything: false, pages: [], databases: [projects] } })
+    await goAgent(page, id)
+    await page.getByRole('button', { name: 'Run now' }).click()
+    const run = page.locator('.agx-run').first()
+    await expect(run).toHaveAttribute('data-status', 'ok', { timeout: 20_000 })
+    await expect(run.locator('.agx-step')).toHaveCount(1)
+    const right = (sel: string) => run.locator(sel).first().evaluate((el) => Math.round(el.getBoundingClientRect().right))
+    expect(await right('.agx-step')).toBeLessThanOrEqual(390)
+    expect(await right('.agx-run__summary')).toBeLessThanOrEqual(390)
+    expect(await right('.agx-run__body')).toBeLessThanOrEqual(390)
+    // the chip shortens its label instead of growing
+    expect(await run.locator('.agx-step__text').evaluate((el) => el.scrollWidth > el.clientWidth)).toBe(true)
+  })
+
   test('scope: a tool call for a page outside the scope is refused', async ({ page, context }) => {
     await openApp(page)
     await setKey(page)

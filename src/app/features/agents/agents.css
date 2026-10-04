@@ -477,6 +477,8 @@
 }
 .agx-run__body {
   display: grid;
+  /* a long step chip or word never widens the run past its column (the chips ellipsize instead) */
+  grid-template-columns: minmax(0, 1fr);
   gap: 12px;
   padding: 4px 8px 16px 32px;
 }
@@ -546,6 +548,7 @@
   color: var(--c-red-text);
 }
 .agx-step__text {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
