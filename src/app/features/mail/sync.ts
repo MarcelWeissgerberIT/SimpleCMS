@@ -13,15 +13,16 @@
  * Gmail is only ever read (gmail.readonly): deleting a row in One never touches the mail in Gmail, and a
  * deleted row is not brought back by the next run.
  */
-import { format, parse as parseDate, startOfDay } from 'date-fns'
+import { parse as parseDate, startOfDay } from 'date-fns'
 import { plainText, useWorkspace } from '../../store/store'
 import type { ID, MailPropRole, MailSettings, PropertyValue } from '../../store/types'
 import { t } from '../../i18n'
 import * as gmail from './gmail'
 import { GmailError, type GmailCtx } from './gmail'
-import { parseMessage, type ParsedMail } from './parse'
+import { decodeBody, parseMessage, type ParsedMail } from './parse'
 import { MAIL_ORIGIN, mailDoc, textHash } from './body'
-import { checkTarget, createMailDatabase, ensureOptions, ensureProps, labelName, rowValues, rowsByMessageId } from './schema'
+import { TargetError, checkTarget, createMailDatabase, ensureOptions, ensureProps, inTeam, labelName, priorityOptions, rowValues, rowsByMessageId } from './schema'
+import { useCloud } from '../../cloud'
 import { emptyState, loadBody, loadState, saveBody, saveState, type MailSyncState } from './storage'
 import { readMail, scopeOf, setMail } from './settings'
 import { ORGANISE_BATCH, organiseBatch, type OrganiseMail } from './organise'
@@ -73,6 +74,7 @@ function target(cfg: MailSettings): { dbId: ID; props: Partial<Record<MailPropRo
     return { dbId: cfg.databaseId, props }
   }
   if (cfg.databaseId) checkTarget(cfg.databaseId) // gone for good → 'trashed'
+  if (inTeam() && useCloud.getState().readOnly) throw new TargetError('readonly')
   const made = createMailDatabase(cfg)
   // the date the first run listed from is kept (the default moves with the calendar)
   setMail({ databaseId: made.dbId, props: made.props, from: cfg.from })
@@ -89,10 +91,7 @@ async function fetchBodies(g: GmailCtx, m: ParsedMail): Promise<void> {
   for (const p of m.pending) {
     try {
       const r = await gmail.attachment(g, m.id, p.attachmentId)
-      if (r.data) {
-        const { decodeBody } = await import('./parse')
-        m[p.kind] = decodeBody(r.data, p.charset)
-      }
+      if (r.data) m[p.kind] = decodeBody(r.data, p.charset)
     } catch (e) {
       if (e instanceof GmailError && (e.code === 'auth' || e.code === 'aborted')) throw e
       // the other body part (or the snippet) stands in
@@ -302,9 +301,8 @@ export async function organiseRows(ids: string[], signal: AbortSignal, progress:
       }
       if (batch.length) {
         const answers = await organiseBatch(batch, o, [...projects.keys()], signal)
-        const ws = useWorkspace.getState()
         const cats = props.category ? ensureOptions(dbId, props.category, o.categories) : new Map<string, ID>()
-        const prios = props.priority ? new Map((ws.databases[dbId]?.properties.find((p) => p.id === props.priority)?.options ?? []).map((x, i) => [(['high', 'medium', 'low'] as const)[i] ?? x.id, x.id])) : new Map<string, ID>()
+        const prios = props.priority ? priorityOptions(dbId, props.priority) : new Map<string, ID>()
         for (const m of batch) {
           const a = answers.get(m.id)
           const k = state.known[m.id]
@@ -373,6 +371,3 @@ export async function applyImages(rowId: ID, on: boolean, g: GmailCtx | null, fo
   }
   return 'ok'
 }
-
-/** "YYYY-MM-DD" of a ms time (local). */
-export const dayOf = (ms: number) => format(new Date(ms), 'yyyy-MM-dd')

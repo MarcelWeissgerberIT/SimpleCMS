@@ -204,6 +204,27 @@ export function ensureOptions(dbId: ID, propId: ID, names: string[]): Map<string
   return out
 }
 
+/** Option ids of the Priority property by level (matched by name in either language; missing ones are added). */
+export function priorityOptions(dbId: ID, propId: ID): Map<Priority, ID> {
+  const prop = useWorkspace.getState().databases[dbId]?.properties.find((p) => p.id === propId)
+  const out = new Map<Priority, ID>()
+  const missing: Priority[] = []
+  for (const level of PRIORITIES) {
+    const names = [ALL_MESSAGES.en[`features.mail.priority.${level}`], ALL_MESSAGES.de[`features.mail.priority.${level}`]].map((n) => n.toLowerCase())
+    const opt = prop?.options?.find((o) => names.includes(o.name.trim().toLowerCase()))
+    if (opt) out.set(level, opt.id)
+    else missing.push(level)
+  }
+  if (missing.length) {
+    const made = ensureOptions(dbId, propId, missing.map((l) => t(`features.mail.priority.${l}`)))
+    for (const l of missing) {
+      const id = made.get(t(`features.mail.priority.${l}`).toLowerCase())
+      if (id) out.set(l, id)
+    }
+  }
+  return out
+}
+
 /** Gmail's system labels in the workspace language (UNREAD is the "Unread" checkbox, CHAT is no mail). */
 const SYSTEM_LABELS = ['INBOX', 'SENT', 'IMPORTANT', 'STARRED', 'SPAM', 'TRASH', 'DRAFT', 'CATEGORY_PERSONAL', 'CATEGORY_SOCIAL', 'CATEGORY_PROMOTIONS', 'CATEGORY_UPDATES', 'CATEGORY_FORUMS']
 const SKIP_LABELS = new Set(['UNREAD', 'CHAT'])

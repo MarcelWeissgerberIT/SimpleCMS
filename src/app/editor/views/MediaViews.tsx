@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type ReactNode, type RefObject } from 'react'
 import { NodeViewWrapper, type ReactNodeViewProps } from '@tiptap/react'
 import { Bookmark as BookmarkIcon, Download, ExternalLink, Link2, MonitorPlay, Paperclip, Pencil, Upload } from 'lucide-react'
 import { saveFile, useFileUrl } from '../../lib/files'
@@ -138,7 +138,7 @@ function reselect(editor: ReactNodeViewProps['editor'], getPos: ReactNodeViewPro
  * A post on X sizes its frame through postMessage ("twttr.private.resize"); only messages from that
  * frame and origin count, and only a sane height is taken.
  */
-function useTweetHeight(frame: React.RefObject<HTMLIFrameElement | null>, on: boolean): number | null {
+function useTweetHeight(frame: RefObject<HTMLIFrameElement | null>, on: boolean): number | null {
   const [height, setHeight] = useState<number | null>(null)
   useEffect(() => {
     if (!on) return
@@ -305,6 +305,26 @@ export function FileBlockView({ node, updateAttributes, selected, editor, getPos
     )
   }
 
+  // a PDF shows in the browser's own viewer unless switched to the compact card
+  const pdf = isPdfName(name) || (!src.startsWith('onefile:') && isPdfName(parseUrl(src)?.pathname))
+  const display = node.attrs.display as 'viewer' | 'file' | null
+  if (pdf && display !== 'file') {
+    return (
+      <NodeViewWrapper contentEditable={false}>
+        <PdfViewer
+          src={src}
+          name={name}
+          meta={size ? formatBytes(size) : undefined}
+          selected={selected}
+          editable={editor.isEditable}
+          dataType="file"
+          onShowAsFile={() => updateAttributes({ display: 'file' })}
+          onEscape={() => reselect(editor, getPos)}
+        />
+      </NodeViewWrapper>
+    )
+  }
+
   const ext = (name.match(/\.([a-z0-9]{1,5})$/i)?.[1] ?? 'file').toUpperCase()
   return (
     <NodeViewWrapper className={`file-view${selected ? ' is-selected' : ''}`} data-type="file" contentEditable={false}>
@@ -313,11 +333,14 @@ export function FileBlockView({ node, updateAttributes, selected, editor, getPos
       </span>
       <span className="file-view__meta">
         <span className="file-view__name">{name}</span>
-        <span className="file-view__size">{formatBytes(size)}</span>
+        {size > 0 && <span className="file-view__size">{formatBytes(size)}</span>}
       </span>
-      <a className="btn btn--sm" href={url || undefined} download={name} aria-disabled={!url} onClick={(e) => !url && e.preventDefault()}>
-        <Download size={13} /> {t('editor.file.download')}
-      </a>
+      <span className="file-view__tools" role="toolbar" aria-label={t('editor.file.tools')} data-block-tools="" onKeyDown={(e) => e.key === 'Escape' && (e.preventDefault(), e.stopPropagation(), reselect(editor, getPos))}>
+        {pdf && editor.isEditable && <ShowViewerButton onClick={() => updateAttributes({ display: 'viewer' })} />}
+        <a className="btn btn--sm" href={url || undefined} download={name} aria-disabled={!url} onClick={(e) => !url && e.preventDefault()}>
+          <Download size={13} /> {t('editor.file.download')}
+        </a>
+      </span>
     </NodeViewWrapper>
   )
 }
