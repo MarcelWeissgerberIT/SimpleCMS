@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from 'react'
-import { AlertTriangle, Copy, Link2, LogOut, RotateCw, Trash2, UserMinus } from 'lucide-react'
-import { format, formatDistanceToNowStrict } from 'date-fns'
+import { AlertTriangle, LogOut, RotateCw, Trash2, UserMinus } from 'lucide-react'
+import { format } from 'date-fns'
 import { de, enUS } from 'date-fns/locale'
 import { useShallow } from 'zustand/react/shallow'
-import { useCloud, type Invite, type Member, type Role } from '../../cloud'
+import { consumeInviteSettingsRequest, useCloud, type Invite, type Member, type Role } from '../../cloud'
 import { useUI } from '../../store/ui'
 import { useLang, useT } from '../../i18n'
 import { Led } from '../../ui/controls'
@@ -11,11 +11,11 @@ import { cloudApi } from './api'
 import { errorText } from './errors'
 import { Avatar } from './Avatar'
 import { ApiSection } from './ApiSection'
+import { Invites } from './Invites'
 import { canAdmin, roleLabel, useWorkspaceTitle } from './state'
 import './cloud.css'
 
 const RANK: Record<Role, number> = { owner: 0, admin: 1, member: 2, viewer: 3 }
-const INVITE_ROLES: Role[] = ['member', 'viewer', 'admin']
 const toMs = (v: number | string) => (typeof v === 'number' ? v : new Date(v).getTime())
 const nameOf = (m: Member) => m.user.name.trim() || m.user.email.split('@')[0]
 
@@ -34,6 +34,8 @@ export function TeamTab({ onClose }: { onClose: () => void }) {
   const [members, setMembers] = useState<Member[] | null>(null)
   const [invites, setInvites] = useState<Invite[]>([])
   const [loadError, setLoadError] = useState<string | null>(null)
+  // opened from the Share dialog / the workspace menu: go straight to the invite form
+  const [wantInviteForm] = useState(() => consumeInviteSettingsRequest())
 
   const reload = useCallback(async () => {
     if (!wsId) return
@@ -76,7 +78,11 @@ export function TeamTab({ onClose }: { onClose: () => void }) {
         <Members wsId={wsId} members={members} myId={user?.id ?? null} myRole={role} setMembers={setMembers} onLeft={onClose} />
       )}
       <Sect n="04" label={t('shell.cloud.team.invites')} count={admin ? invites.length : undefined} />
-      {admin ? <Invites wsId={wsId} invites={invites} setInvites={setInvites} reload={reload} /> : <p className="tm-empty">{t('shell.cloud.team.adminOnly')}</p>}
+      {admin ? (
+        <Invites wsId={wsId} invites={invites} setInvites={setInvites} reload={reload} focusForm={wantInviteForm && (members !== null || loadError !== null)} />
+      ) : (
+        <p className="tm-empty">{t('shell.cloud.team.adminOnly')}</p>
+      )}
       <ApiSection wsId={wsId} admin={admin} />
       <Danger wsId={wsId} owner={role === 'owner'} myId={user?.id ?? null} onDone={onClose} />
     </>
@@ -346,153 +352,6 @@ function Members({
         )
       })}
     </ul>
-  )
-}
-
-/* ------------------------------------------------------------------ invites */
-
-function Invites({ wsId, invites, setInvites, reload }: { wsId: string; invites: Invite[]; setInvites: (i: Invite[]) => void; reload: () => Promise<void> }) {
-  const t = useT()
-  const lang = useLang()
-  const uid = useId()
-  const [role, setRole] = useState<Role>('member')
-  const [email, setEmail] = useState('')
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [created, setCreated] = useState<Invite | null>(null)
-  const linkRef = useRef<HTMLInputElement>(null)
-  const toast = useUI.getState().toast
-
-  const create = async () => {
-    setBusy(true)
-    setError(null)
-    try {
-      const inv = await cloudApi.createInvite(wsId, role, email.trim() || undefined)
-      setCreated(inv)
-      setEmail('')
-      void reload()
-    } catch (e) {
-      setError(errorText(e, t))
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  const copy = async (link: string) => {
-    try {
-      await navigator.clipboard.writeText(link)
-      toast({ message: t('shell.cloud.team.copied'), kind: 'success' })
-    } catch {
-      linkRef.current?.select()
-    }
-  }
-
-  const revoke = async (inv: Invite) => {
-    try {
-      await cloudApi.revokeInvite(wsId, inv.id)
-      setInvites(invites.filter((x) => x.id !== inv.id))
-      if (created?.id === inv.id) setCreated(null)
-      toast({ message: t('shell.cloud.team.revoked') })
-    } catch (e) {
-      toast({ message: errorText(e, t), kind: 'error' })
-    }
-  }
-
-  return (
-    <>
-      <form
-        className="tm-invite"
-        onSubmit={(e) => {
-          e.preventDefault()
-          void create()
-        }}
-      >
-        <div className="tm-invite__field">
-          <label className="label" htmlFor={`${uid}-role`}>
-            {t('shell.cloud.team.inviteRole')}
-          </label>
-          <select id={`${uid}-role`} className="input" value={role} onChange={(e) => setRole(e.target.value as Role)}>
-            {INVITE_ROLES.map((r) => (
-              <option key={r} value={r}>
-                {roleLabel(t, r)}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div className="tm-invite__field">
-          <label className="label" htmlFor={`${uid}-email`}>
-            {t('shell.cloud.team.inviteEmail')}
-          </label>
-          <input
-            id={`${uid}-email`}
-            className="input"
-            type="email"
-            autoComplete="off"
-            placeholder={t('shell.cloud.team.inviteEmailPh')}
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            aria-describedby={`${uid}-hint`}
-          />
-        </div>
-        <button type="submit" className="btn btn--ink" disabled={busy}>
-          <Link2 size={14} aria-hidden />
-          {busy ? t('shell.cloud.team.creating') : t('shell.cloud.team.createLink')}
-        </button>
-      </form>
-      <p className="tm-invite__hint" id={`${uid}-hint`}>
-        {t(`shell.cloud.roleHint.${role}`).replace(/^./, (c) => c.toUpperCase())}. {t('shell.cloud.team.inviteEmailHint')}
-      </p>
-      {error && (
-        <p className="cl-err" role="alert">
-          <AlertTriangle size={13} aria-hidden />
-          {error}
-        </p>
-      )}
-      {created?.link && (
-        <div className="tm-link" data-testid="invite-link">
-          <span className="label">{t('shell.cloud.team.link')}</span>
-          <div className="tm-link__row">
-            <input ref={linkRef} className="input tm-link__url" readOnly value={created.link} onFocus={(e) => e.currentTarget.select()} aria-label={t('shell.cloud.team.link')} />
-            <button type="button" className="btn btn--primary" onClick={() => void copy(created.link!)}>
-              <Copy size={13} aria-hidden />
-              {t('shell.cloud.team.copy')}
-            </button>
-          </div>
-          <p className="tm-link__hint">
-            {t('shell.cloud.team.linkHint')} {created.email && created.email_sent !== false ? t('shell.cloud.team.mailed', { email: created.email }) : ''}
-          </p>
-        </div>
-      )}
-      <div className="label" style={{ margin: '18px 0 6px' }}>
-        {t('shell.cloud.team.open')}
-      </div>
-      {invites.length === 0 ? (
-        <p className="tm-empty">{t('shell.cloud.team.noOpen')}</p>
-      ) : (
-        <ul className="tm-list">
-          {invites.map((inv) => {
-            const by = inv.inviter ? inv.inviter.name.trim() || inv.inviter.email : ''
-            return (
-              <li key={inv.id} className="tm-inv" data-testid="invite">
-                <span className="cl-role" data-role={inv.role}>
-                  {roleLabel(t, inv.role)}
-                </span>
-                <span className="tm-inv__who">
-                  {inv.email ?? t('shell.cloud.team.anyone')}
-                  <span className="tm-inv__meta">
-                    {by ? `${t('shell.cloud.team.by', { name: by })} · ` : ''}
-                    {t('shell.cloud.team.expiresIn', { when: formatDistanceToNowStrict(toMs(inv.expires_at), { addSuffix: true, locale: lang === 'de' ? de : enUS }) })}
-                  </span>
-                </span>
-                <button type="button" className="btn btn--sm btn--ghost" onClick={() => void revoke(inv)}>
-                  {t('shell.cloud.team.revoke')}
-                </button>
-              </li>
-            )
-          })}
-        </ul>
-      )}
-    </>
   )
 }
 

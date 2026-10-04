@@ -220,4 +220,38 @@ export const migrations: Migration[] = [
       );
     `,
   },
+  {
+    version: 7,
+    name: 'reusable invites, registration links',
+    sql: `
+      -- reusable workspace invites (docs/CLOUD.md § Invites): one link for up to max_uses people; a
+      -- single-use invite is max_uses 1. uses counts the people who joined through it, accepted_by /
+      -- accepted_at name the latest one. allowed_domains: NULL = any address, else comma-separated
+      -- domains the joiner's verified address must be at (exact match, no subdomains).
+      ALTER TABLE invites ADD COLUMN max_uses INTEGER NOT NULL DEFAULT 1;
+      ALTER TABLE invites ADD COLUMN uses INTEGER NOT NULL DEFAULT 0;
+      ALTER TABLE invites ADD COLUMN allowed_domains TEXT;
+      UPDATE invites SET uses = 1 WHERE accepted_by IS NOT NULL OR accepted_at IS NOT NULL;
+
+      -- registration links (server admins = ADMIN_EMAILS): let someone create an account on a server
+      -- with SIGNUP=invite / domains:… — they get their own space and no membership anywhere. The token
+      -- (in the link only) is stored as HMAC; uses counts the accounts the link let in.
+      CREATE TABLE signup_links (
+        id              TEXT PRIMARY KEY,
+        token_hash      TEXT NOT NULL UNIQUE,
+        label           TEXT,
+        created_by      TEXT REFERENCES users(id) ON DELETE SET NULL,
+        created_at      INTEGER NOT NULL,
+        expires_at      INTEGER NOT NULL,
+        max_uses        INTEGER NOT NULL CHECK (max_uses >= 1),
+        uses            INTEGER NOT NULL DEFAULT 0,
+        last_used_at    INTEGER,
+        allowed_domains TEXT
+      );
+      CREATE INDEX signup_links_created ON signup_links(created_at);
+
+      -- the registration link a sign-in request carried: checked again (and used) when the link is opened
+      ALTER TABLE login_tokens ADD COLUMN signup_hash TEXT;
+    `,
+  },
 ]

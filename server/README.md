@@ -83,7 +83,8 @@ Working on the app with Vite instead of the built copy? Proxy the API and the so
 | `DATA_DIR` | `/data` (production) · `server/.data` (dev) | SQLite database and uploaded files |
 | `SMTP_URL` | – | nodemailer URL, e.g. `smtps://user:pass@smtp.example.com:465`. Unset → dev-mail mode (links only in the log) |
 | `MAIL_FROM` | `SimpleCMS One <no-reply@<host>>` | Sender address |
-| `SIGNUP` | `open` | `open` · `invite` (only invited addresses) · `domains:acme.com,acme.de` (those domains, plus invited people) |
+| `SIGNUP` | `open` | `open` · `invite` (only invited addresses) · `domains:acme.com,acme.de` (those domains, plus invited people). Invite-only servers let people in with a workspace invite or a **registration link** |
+| `ADMIN_EMAILS` | – | Server admins, comma-separated addresses. They create registration links (app: Settings → Server) and may always create their own account |
 | `DEV_MODE` | off | `1`: `/api/dev/mailbox` and logged links. Refused when `NODE_ENV=production` |
 | `MAX_UPLOAD_MB` | `25` | Per-file upload limit |
 | `PORT` / `HOST` | `8080` / `0.0.0.0` | Listen address (`PORT=0` picks a free port) |
@@ -100,11 +101,11 @@ Working on the app with Vite instead of the built copy? Proxy the API and the so
 Full details, shapes and error codes: [`docs/CLOUD.md`](../docs/CLOUD.md#rest-api-same-origin-json-session-cookie-one_session).
 
 ```
-POST   /api/auth/request                  { email, redirect?, lang?, invite? } → 204
+POST   /api/auth/request                  { email, redirect?, lang?, invite?, signup? } → 204
 GET    /api/auth/verify?token=            → 302 (same browser) or confirmation page
 POST   /api/auth/verify                   confirmation form → 303
 POST   /api/auth/logout                   → 204
-GET    /api/me   PATCH /api/me            { user, workspaces (own workspace first, personal: true) } / { name }
+GET    /api/me   PATCH /api/me            { user, workspaces (own workspace first, personal: true), server_admin? } / { name }
 GET    /api/session                       { user | null, workspaces } — 200 even when signed out
 POST   /api/workspaces                    { name, icon? } → 201 workspace
 PATCH  /api/workspaces/:id                admin
@@ -112,11 +113,16 @@ DELETE /api/workspaces/:id                owner
 GET    /api/workspaces/:id/members        any member
 PATCH  /api/workspaces/:id/members/:uid   admin ({ role: 'owner' } = transfer, owner only)
 DELETE /api/workspaces/:id/members/:uid   admin, or yourself (leave)
-POST   /api/workspaces/:id/invites        admin { role, email?, lang? } → { id, link, expires_at, … }
-GET    /api/workspaces/:id/invites        admin
+POST   /api/workspaces/:id/invites        admin { role, email?, lang?, max_uses?, expires_in_days?, domains? } → link once
+POST   /api/workspaces/:id/invites/emails admin { emails (≤ 20), role, expires_in_days?, lang? } → { results }
+GET    /api/workspaces/:id/invites        admin: open invites with uses
 DELETE /api/workspaces/:id/invites/:iid   admin
-GET    /api/invites/:token                preview, no auth
+GET    /api/invites/:token                preview, no auth (places left: the workspace's admins only)
 POST   /api/invites/:token/accept         → { workspaceId, role }
+GET    /api/server/signup-links           server admin (ADMIN_EMAILS): open registration links
+POST   /api/server/signup-links           server admin { max_uses?, expires_in_days?, domains?, label? } → link once
+DELETE /api/server/signup-links/:lid      server admin: revoke
+GET    /api/signup/:token                 registration link preview, no auth
 PUT    /api/workspaces/:id/files/:fid     member, raw body (x-file-name, content-type) → { id }
 GET    /api/workspaces/:id/files/:fid     any member
 DELETE /api/workspaces/:id/documents/:pid member: content of a page deleted for good (409 while it exists)
@@ -180,13 +186,13 @@ src/
   app.ts              middleware (security headers, CSRF, sessions, body limit), routes, errors
   config.ts           env parsing + validation
   db/                 node:sqlite wrapper and versioned migrations
-  repo.ts             all SQL (users, workspaces, members, invites, documents, files); seals / opens content
+  repo.ts             all SQL (users, workspaces, members, invites, registration links, documents, files); seals / opens content
   crypto/             AES-256-GCM envelopes + streamed files (aead), workspace keys wrapped by DATA_KEY
                       (keyring, rotation), sealing data from before encryption (migrate)
   storage.ts          where file bytes live (files/<ws>/<id>.enc)
-  auth/               sessions + cookies, rate limiter, signup policy
+  auth/               sessions + cookies, rate limiter, signup policy (who may create an account, and why)
   routes/             auth, me + session, workspaces (+ members, invites), invites (public), files, documents,
-                      integrations (API tokens + incoming webhooks of a workspace)
+                      integrations (API tokens + incoming webhooks of a workspace), server (registration links)
   api/                public API v1: bearer auth + idempotency, routes, incoming webhooks, the model that
                       reads / writes meta + content documents, value coercion, markdown-lite → Y.XmlElement
   collab/             Hocuspocus on /collab: upgrade gate, auth per document, persistence, disconnects,

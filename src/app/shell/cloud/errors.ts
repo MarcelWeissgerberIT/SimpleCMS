@@ -13,6 +13,12 @@ const KEYS: Record<string, string> = {
   invite_used: 'shell.cloud.err.inviteUsed',
   invite_expired: 'shell.cloud.err.inviteExpired',
   invite_email_mismatch: 'shell.cloud.err.inviteEmail',
+  invite_domain_mismatch: 'shell.cloud.err.inviteDomain',
+  signup_link_not_found: 'shell.cloud.err.signupDead',
+  signup_link_used: 'shell.cloud.err.signupUsed',
+  signup_link_expired: 'shell.cloud.err.signupExpired',
+  server_admin_only: 'shell.cloud.err.serverAdminOnly',
+  signup_open: 'shell.cloud.err.signupOpen',
   forbidden: 'shell.cloud.err.forbidden',
   owner_only: 'shell.cloud.err.forbidden',
   owner_must_transfer: 'shell.cloud.err.ownerMustTransfer',
@@ -55,3 +61,5 @@ export function errorText(e: unknown, t: Translate): string {
 
 /** Invite codes that mean "this link is dead" (not a passing network problem). */
 export const DEAD_INVITE = new Set(['invite_not_found', 'invite_used', 'invite_expired', 'not_found'])
+/** The same for registration links. */
+export const DEAD_SIGNUP = new Set(['signup_link_not_found', 'signup_link_used', 'signup_link_expired', 'not_found'])

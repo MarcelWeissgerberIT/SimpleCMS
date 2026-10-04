@@ -3,7 +3,9 @@
  * download as standalone HTML, copy Markdown.
  */
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Check, ClipboardCopy, Download, ExternalLink, Eye, EyeOff, FileCode2, KeyRound, Link2, Lock } from 'lucide-react'
+import { ArrowRight, Check, ClipboardCopy, Download, ExternalLink, Eye, EyeOff, FileCode2, KeyRound, Link2, Lock, UserPlus } from 'lucide-react'
+import { useShallow } from 'zustand/react/shallow'
+import { openInviteSettings, useCloud } from '../../cloud'
 import { Modal } from '../../ui/Modal'
 import { Switch } from '../../ui/controls'
 import { useLang, useT } from '../../i18n'
@@ -271,6 +273,34 @@ export function ShareModal({ pageId, onClose }: { pageId: ID; onClose: () => voi
           </a>
         )}
       </div>
+      <TeamInvite />
     </Modal>
+  )
+}
+
+/** In a team workspace, its admins can invite people instead of sending a copy (Settings → Team). */
+function TeamInvite() {
+  const t = useT()
+  const ws = useCloud(
+    useShallow((c) => {
+      const admin = c.active.kind === 'cloud' && !!c.user && (c.role === 'owner' || c.role === 'admin')
+      return admin ? (c.workspaces.find((w) => w.id === c.active.id)?.name ?? null) : null
+    }),
+  )
+  if (!ws) return null
+  return (
+    <div className="share__team">
+      <div className="label share__formats-label">{t('features.share.team.label')}</div>
+      <button type="button" className="share__card share__card--wide" data-testid="share-invite" onClick={openInviteSettings}>
+        <span className="share__card-icon">
+          <UserPlus size={18} strokeWidth={1.6} />
+        </span>
+        <span className="share__card-text">
+          <span className="share__card-title">{t('features.share.team.title', { workspace: ws })}</span>
+          <span className="share__card-sub">{t('features.share.team.sub')}</span>
+        </span>
+        <ArrowRight size={15} strokeWidth={1.7} className="share__card-go" />
+      </button>
+    </div>
   )
 }

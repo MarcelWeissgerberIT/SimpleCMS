@@ -1,13 +1,13 @@
-import { BookOpen, LogIn, LogOut, Plus } from 'lucide-react'
+import { BookOpen, LogIn, LogOut, Plus, UserPlus } from 'lucide-react'
 import { useShallow } from 'zustand/react/shallow'
-import { useCloud } from '../../cloud'
+import { openInviteSettings, useCloud } from '../../cloud'
 import type { MenuEntry } from '../../ui/Menu'
 import { Led } from '../../ui/controls'
 import { useT } from '../../i18n'
 import { BRAND } from '@/shared/brand'
 import { cloudApi } from './api'
 import { Avatar } from './Avatar'
-import { openCloudDialog, roleLabel } from './state'
+import { canAdmin, openCloudDialog, roleLabel } from './state'
 
 export const SELF_HOSTING_URL = `${BRAND.repoUrl}/blob/main/docs/SELF_HOSTING.md`
 
@@ -18,8 +18,8 @@ export const SELF_HOSTING_URL = `${BRAND.repoUrl}/blob/main/docs/SELF_HOSTING.md
  */
 export function useWorkspaceEntries(): MenuEntry[] {
   const t = useT()
-  const { available, user, workspaces, active, status } = useCloud(
-    useShallow((s) => ({ available: s.available, user: s.user, workspaces: s.workspaces, active: s.active, status: s.status })),
+  const { available, user, workspaces, active, status, role } = useCloud(
+    useShallow((s) => ({ available: s.available, user: s.user, workspaces: s.workspaces, active: s.active, status: s.status, role: s.role })),
   )
   const isLocal = active.kind === 'local'
   const entries: MenuEntry[] = [
@@ -59,6 +59,10 @@ export function useWorkspaceEntries(): MenuEntry[] {
     return entries
   }
 
+  // the open team workspace's admins: straight to Settings → Team → Invite people
+  if (user && active.kind === 'cloud' && canAdmin(role)) {
+    entries.push({ id: 'cloud-invite', label: t('shell.cloud.inv.entry'), icon: <UserPlus size={15} />, keywords: 'invite link members einladen', onSelect: () => openInviteSettings() })
+  }
   entries.push({
     id: 'cloud-new',
     label: t('shell.cloud.switcher.new'),

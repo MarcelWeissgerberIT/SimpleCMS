@@ -1,8 +1,19 @@
 import { Hono } from 'hono'
 import { z } from 'zod'
+import type { Auth } from '../auth/sessions.ts'
+import { isServerAdmin } from '../auth/signup.ts'
 import type { AppEnv, Services } from '../context.ts'
 import { body, requireAuth } from '../http/util.ts'
 import { publicUser, publicWorkspace } from '../repo.ts'
+
+/** The signed-in person, their workspaces (own one first) and — for server admins only — `server_admin: true`. */
+function account(s: Services, auth: Auth) {
+  return {
+    user: publicUser(auth.user),
+    workspaces: s.repo.workspacesForUser(auth.user.id).map((w) => publicWorkspace(w, w.role, auth.user.id)),
+    ...(isServerAdmin(s.config, auth.user) ? { server_admin: true } : {}),
+  }
+}
 
 /**
  * GET /api/session: who is signed in, answered with 200 either way (`user: null` when nobody is), so
@@ -13,7 +24,7 @@ export function sessionRoutes(s: Services) {
   app.get('/', (c) => {
     const auth = c.get('auth')
     if (!auth) return c.json({ user: null, workspaces: [] })
-    return c.json({ user: publicUser(auth.user), workspaces: s.repo.workspacesForUser(auth.user.id).map((w) => publicWorkspace(w, w.role, auth.user.id)) })
+    return c.json(account(s, auth))
   })
   return app
 }
@@ -21,10 +32,7 @@ export function sessionRoutes(s: Services) {
 export function meRoutes(s: Services) {
   const app = new Hono<AppEnv>()
 
-  app.get('/', (c) => {
-    const { user } = requireAuth(c)
-    return c.json({ user: publicUser(user), workspaces: s.repo.workspacesForUser(user.id).map((w) => publicWorkspace(w, w.role, user.id)) })
-  })
+  app.get('/', (c) => c.json(account(s, requireAuth(c))))
 
   app.patch('/', async (c) => {
     const { user } = requireAuth(c)

@@ -2,20 +2,52 @@ import { rm } from 'node:fs/promises'
 import { Hono } from 'hono'
 import { z } from 'zod'
 import type { AppEnv, Services } from '../context.ts'
-import { conflict, forbidden, notFound, rateLimited } from '../errors.ts'
+import { domainList, parseDomains } from '../auth/signup.ts'
+import { badRequest, conflict, forbidden, notFound, rateLimited } from '../errors.ts'
 import { body, idSchema, requireAuth } from '../http/util.ts'
 import { pickLang } from '../i18n.ts'
 import { inviteMail } from '../mail/templates.ts'
-import { INVITE_TTL, publicUser, publicWorkspace, type Role } from '../repo.ts'
+import { MAX_LINK_USES, normalizeEmail, publicUser, publicWorkspace, type InviteRow, type Role } from '../repo.ts'
 import { filesDir, legacyPath, sealedPath } from '../storage.ts'
 import { DAY, iso } from '../tokens.ts'
 import { access, iconSchema, nameSchema } from './access.ts'
 
 const WORKSPACES_PER_DAY = 20
 const INVITES_PER_DAY = 50
+/** "Send by email" takes at most this many addresses at once (one single-use invite + mail each). */
+export const INVITE_EMAILS_MAX = 20
 
 const roleSchema = z.enum(['owner', 'admin', 'member', 'viewer'])
 const inviteRoleSchema = z.enum(['admin', 'member', 'viewer'])
+/** Validity in days (the app offers 1 · 7 · 30) and people per link (1 · 5 · 10 · 25 · 100). */
+export const daysSchema = z.number().int().min(1).max(30)
+export const usesSchema = z.number().int().min(1).max(MAX_LINK_USES)
+export const domainsSchema = z.array(z.string().max(254)).max(10)
+const langSchema = z.enum(['en', 'de'])
+
+/** Domains typed by an admin → normalised list, or a 400 naming the problem. */
+export function domainsOrThrow(input: string[] | undefined): string[] | null {
+  const list = parseDomains(input)
+  if (!list) throw badRequest('invalid_request', 'domains: every entry must be a domain like example.com')
+  return list.length ? list : null
+}
+
+/** An invite as the admins' list and the create answers show it (never the token). */
+function inviteJson(i: InviteRow & { inviter_name?: string | null; inviter_email?: string | null; joiner_name?: string | null; joiner_email?: string | null }) {
+  return {
+    id: i.id,
+    role: i.role,
+    email: i.email,
+    created_at: iso(i.created_at),
+    expires_at: iso(i.expires_at),
+    max_uses: i.max_uses,
+    uses: i.uses,
+    domains: domainList(i.allowed_domains),
+    last_joined_at: iso(i.accepted_at),
+    ...('inviter_email' in i ? { inviter: i.created_by ? { id: i.created_by, name: i.inviter_name ?? null, email: i.inviter_email ?? null } : null } : {}),
+    ...('joiner_email' in i ? { last_joined: i.accepted_by ? { id: i.accepted_by, name: i.joiner_name ?? null, email: i.joiner_email ?? null } : null } : {}),
+  }
+}
 
 /** Workspaces, members and a workspace's invites (all under /api/workspaces). */
 export function workspaceRoutes(s: Services) {
@@ -110,44 +142,99 @@ export function workspaceRoutes(s: Services) {
 
   // ── invites (admin) ──────────────────────────────────────────────────
 
+  const inviteSchema = z.object({
+    role: inviteRoleSchema.default('member'),
+    email: z.email().max(254).optional(),
+    lang: langSchema.optional(),
+    max_uses: usesSchema.optional(),
+    expires_in_days: daysSchema.optional(),
+    domains: domainsSchema.optional(),
+  })
+
+  const mailInvite = async (to: string, input: { link: string; workspace: string; inviter: string; role: string; days: number; lang: 'en' | 'de' }): Promise<boolean> => {
+    const mail = inviteMail(input.lang, { link: input.link, workspace: input.workspace, inviter: input.inviter, role: input.role, days: input.days })
+    try {
+      await s.mailer.send({ to, link: input.link, ...mail })
+      return true
+    } catch (err) {
+      s.log.error('sending invite mail failed', { to, error: (err as Error).message })
+      return false
+    }
+  }
+
+  const inviteLink = (token: string) => `${s.config.publicUrl}/app/#/invite/${token}`
+
   app.post('/:id/invites', async (c) => {
     const { workspace, auth } = access(s, c, 'admin')
-    const input = await body(c, z.object({ role: inviteRoleSchema.default('member'), email: z.email().max(254).optional(), lang: z.enum(['en', 'de']).optional() }))
+    const input = await body(c, inviteSchema)
+    const maxUses = input.max_uses ?? 1
+    const domains = domainsOrThrow(input.domains)
+    // an address-bound invite is for that one person; a reusable link never makes admins
+    if (input.email && (maxUses !== 1 || domains)) throw badRequest('invalid_request', 'An invite for an email address is single-use and has no domain restriction')
+    if (input.role === 'admin' && maxUses !== 1) throw badRequest('invalid_request', 'Admin invites are single-use')
     if (s.repo.countInvitesSince(workspace.id, Date.now() - DAY) >= INVITES_PER_DAY) throw rateLimited(3600)
     if (input.email) {
       const existing = s.repo.userByEmail(input.email)
       if (existing && s.repo.memberRole(workspace.id, existing.id)) throw conflict('already_member', 'This person is already a member')
     }
-    const { token, row } = s.repo.createInvite({ workspaceId: workspace.id, role: input.role, email: input.email ?? null, createdBy: auth.user.id })
-    const link = `${s.config.publicUrl}/app/#/invite/${token}`
+    const days = input.expires_in_days ?? 7
+    const { token, row } = s.repo.createInvite({ workspaceId: workspace.id, role: input.role, email: input.email ?? null, createdBy: auth.user.id, maxUses, ttl: days * DAY, domains })
+    const link = inviteLink(token)
 
     let emailSent: boolean | undefined
     if (row.email) {
       const lang = pickLang(input.lang, c.req.header('accept-language'))
-      const mail = inviteMail(lang, { link, workspace: workspace.name, inviter: auth.user.name || auth.user.email, role: row.role, days: INVITE_TTL / DAY })
-      try {
-        await s.mailer.send({ to: row.email, link, ...mail })
-        emailSent = true
-      } catch (err) {
-        s.log.error('sending invite mail failed', { to: row.email, error: (err as Error).message })
-        emailSent = false
-      }
+      emailSent = await mailInvite(row.email, { link, workspace: workspace.name, inviter: auth.user.name || auth.user.email, role: row.role, days, lang })
     }
-    return c.json({ id: row.id, link, expires_at: iso(row.expires_at), role: row.role, email: row.email, ...(emailSent === undefined ? {} : { email_sent: emailSent }) }, 201)
+    if (maxUses > 1) s.log.info('reusable invite created', { workspace: workspace.id, invite: row.id, user: auth.user.id, max_uses: maxUses })
+    return c.json({ ...inviteJson(row), link, ...(emailSent === undefined ? {} : { email_sent: emailSent }) }, 201)
+  })
+
+  /**
+   * Several people by email at once: one single-use invite + mail per address. Per address:
+   * `sent` · `failed` (the mail could not be sent — the invite exists, `link` lets the admin pass it on)
+   * · `already_member` · `invalid`. Duplicates count once.
+   */
+  app.post('/:id/invites/emails', async (c) => {
+    const { workspace, auth } = access(s, c, 'admin')
+    const input = await body(
+      c,
+      z.object({
+        emails: z.array(z.string().max(320)).min(1).max(INVITE_EMAILS_MAX),
+        role: inviteRoleSchema.default('member'),
+        expires_in_days: daysSchema.optional(),
+        lang: langSchema.optional(),
+      }),
+    )
+    const addresses = [...new Set(input.emails.map(normalizeEmail).filter(Boolean))]
+    const valid = addresses.filter((a) => z.email().max(254).safeParse(a).success)
+    const toInvite = valid.filter((a) => {
+      const user = s.repo.userByEmail(a)
+      return !(user && s.repo.memberRole(workspace.id, user.id))
+    })
+    if (s.repo.countInvitesSince(workspace.id, Date.now() - DAY) + toInvite.length > INVITES_PER_DAY) throw rateLimited(3600)
+    const days = input.expires_in_days ?? 7
+    const lang = pickLang(input.lang, c.req.header('accept-language'))
+    const inviter = auth.user.name || auth.user.email
+    type Result = { email: string; status: 'sent' | 'failed' | 'already_member' | 'invalid'; id?: string; link?: string; expires_at?: string | null }
+    // the invites are made in order; the mails go out side by side (a slow SMTP server costs one wait, not twenty)
+    const results = await Promise.all(
+      addresses.map(async (email): Promise<Result> => {
+        if (!valid.includes(email)) return { email, status: 'invalid' }
+        if (!toInvite.includes(email)) return { email, status: 'already_member' }
+        const { token, row } = s.repo.createInvite({ workspaceId: workspace.id, role: input.role, email, createdBy: auth.user.id, ttl: days * DAY })
+        const link = inviteLink(token)
+        const sent = await mailInvite(email, { link, workspace: workspace.name, inviter, role: row.role, days, lang })
+        return { email, status: sent ? 'sent' : 'failed', id: row.id, link, expires_at: iso(row.expires_at) }
+      }),
+    )
+    s.log.info('invites sent', { workspace: workspace.id, user: auth.user.id, sent: results.filter((r) => r.status === 'sent').length, failed: results.filter((r) => r.status === 'failed').length })
+    return c.json({ results })
   })
 
   app.get('/:id/invites', (c) => {
     const { workspace } = access(s, c, 'admin')
-    return c.json(
-      s.repo.openInvites(workspace.id).map((i) => ({
-        id: i.id,
-        role: i.role,
-        email: i.email,
-        created_at: iso(i.created_at),
-        expires_at: iso(i.expires_at),
-        inviter: i.created_by ? { id: i.created_by, name: i.inviter_name, email: i.inviter_email } : null,
-      })),
-    )
+    return c.json(s.repo.openInvites(workspace.id).map(inviteJson))
   })
 
   app.delete('/:id/invites/:inviteId', (c) => {

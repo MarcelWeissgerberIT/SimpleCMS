@@ -416,7 +416,7 @@ async function refreshRole(): Promise<void> {
       stop('error', 'membership-revoked')
       return
     }
-    useCloud.setState({ user: me.user, workspaces: me.workspaces, role: ws.role, readOnly: ws.role === 'viewer' })
+    useCloud.setState({ user: me.user, workspaces: me.workspaces, serverAdmin: me.serverAdmin, role: ws.role, readOnly: ws.role === 'viewer' })
   } catch {
     /* offline: the reconnect authenticates with whatever the server says */
   }
@@ -445,7 +445,7 @@ function stop(status: 'error' | 'signed-out', error: string): void {
     error,
     readOnly: true,
     peers: [],
-    ...(status === 'signed-out' ? { user: null, workspaces: [] } : {}),
+    ...(status === 'signed-out' ? { user: null, workspaces: [], serverAdmin: false } : {}),
   })
   if (status === 'signed-out') writeSession(null)
 }

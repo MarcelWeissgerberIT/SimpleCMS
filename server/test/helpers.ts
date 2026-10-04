@@ -1,5 +1,6 @@
 import { spawn, type ChildProcess } from 'node:child_process'
 import { mkdtempSync, rmSync } from 'node:fs'
+import { createServer, type Server } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { HocuspocusProvider, HocuspocusProviderWebsocket } from '@hocuspocus/provider'
@@ -223,3 +224,56 @@ export function openDoc(server: TestServer, client: Client | null, name: string,
 
 /** Waits until the server acknowledged every local change. */
 export const flushed = (d: DocClient) => waitFor(() => d.provider.unsyncedChanges === 0 && d.provider.isSynced, 5000, 'server ack')
+
+/**
+ * A minimal SMTP server (so a test server runs with SMTP, as deployments do). It accepts every mail —
+ * except to recipients `reject` names, which get "550" (the server's mail then fails, as a bounce would).
+ */
+export async function smtpSink(opts: { reject?: (rcpt: string) => boolean } = {}): Promise<{ port: number; mails: string[]; close: () => Promise<void> }> {
+  const mails: string[] = []
+  const server: Server = createServer((sock) => {
+    sock.setEncoding('utf8')
+    let buf = ''
+    let inData = false
+    sock.write('220 sink ESMTP\r\n')
+    sock.on('data', (chunk: string) => {
+      buf += chunk
+      for (;;) {
+        if (inData) {
+          const end = buf.indexOf('\r\n.\r\n')
+          if (end === -1) return
+          mails.push(buf.slice(0, end))
+          buf = buf.slice(end + 5)
+          inData = false
+          sock.write('250 queued\r\n')
+          continue
+        }
+        const nl = buf.indexOf('\r\n')
+        if (nl === -1) return
+        const line = buf.slice(0, nl)
+        const verb = line.slice(0, 4).toUpperCase()
+        buf = buf.slice(nl + 2)
+        if (verb === 'EHLO') sock.write('250-sink\r\n250 8BITMIME\r\n')
+        else if (verb === 'RCPT' && opts.reject?.(/<([^>]*)>/.exec(line)?.[1] ?? '')) sock.write('550 no such user\r\n')
+        else if (verb === 'DATA') {
+          inData = true
+          sock.write('354 go ahead\r\n')
+        } else if (verb === 'QUIT') {
+          sock.end('221 bye\r\n')
+          return
+        } else sock.write('250 ok\r\n')
+      }
+    })
+    sock.on('error', () => {})
+  })
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+  const port = (server.address() as { port: number }).port
+  return { port, mails, close: () => new Promise((resolve) => server.close(() => resolve())) }
+}
+
+/** The text of a MIME mail with quoted-printable and base64 parts decoded. */
+export function decodeMail(raw: string): string {
+  const qp = raw.replace(/=\r\n/g, '').replace(/=([0-9A-F]{2})/g, (_, h: string) => String.fromCharCode(parseInt(h, 16)))
+  const b64 = [...raw.matchAll(/\r\n\r\n([A-Za-z0-9+/=\r\n]{40,})(?:\r\n--|$)/g)].map((m) => Buffer.from(m[1]!.replace(/\r\n/g, ''), 'base64').toString('utf8'))
+  return [qp, ...b64].join('\n')
+}

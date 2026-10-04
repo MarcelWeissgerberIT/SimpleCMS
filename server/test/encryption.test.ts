@@ -9,7 +9,6 @@
 import assert from 'node:assert/strict'
 import { execFileSync, spawnSync } from 'node:child_process'
 import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
-import { createServer, type Server } from 'node:net'
 import { join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { describe, test } from 'node:test'
@@ -19,7 +18,7 @@ import { Keyring } from '../src/crypto/keyring.ts'
 import { openDb } from '../src/db/index.ts'
 import { migrations } from '../src/db/migrations.ts'
 import { Repo } from '../src/repo.ts'
-import { Client, flushed, openDoc, runServerExpectingExit, signIn, sleep, startServer, TEST_DATA_KEY, tempDir, type TestServer, waitFor } from './helpers.ts'
+import { Client, decodeMail, flushed, openDoc, runServerExpectingExit, signIn, sleep, smtpSink, startServer, TEST_DATA_KEY, tempDir, type TestServer, waitFor } from './helpers.ts'
 
 const CLI = new URL('../dist/cli.js', import.meta.url).pathname
 /** A second FAKE master key (rotation tests): 32 ASCII bytes that say what they are. */
@@ -531,54 +530,6 @@ describe('keys', () => {
 })
 
 /* ------------------------------------------------------------------ secrets */
-
-/** A minimal SMTP server that accepts every mail (so the server runs with SMTP, as deployments do). */
-async function smtpSink(): Promise<{ port: number; mails: string[]; close: () => Promise<void> }> {
-  const mails: string[] = []
-  const server: Server = createServer((sock) => {
-    sock.setEncoding('utf8')
-    let buf = ''
-    let inData = false
-    sock.write('220 sink ESMTP\r\n')
-    sock.on('data', (chunk: string) => {
-      buf += chunk
-      for (;;) {
-        if (inData) {
-          const end = buf.indexOf('\r\n.\r\n')
-          if (end === -1) return
-          mails.push(buf.slice(0, end))
-          buf = buf.slice(end + 5)
-          inData = false
-          sock.write('250 queued\r\n')
-          continue
-        }
-        const nl = buf.indexOf('\r\n')
-        if (nl === -1) return
-        const verb = buf.slice(0, Math.min(nl, 4)).toUpperCase()
-        buf = buf.slice(nl + 2)
-        if (verb === 'EHLO') sock.write('250-sink\r\n250 8BITMIME\r\n')
-        else if (verb === 'DATA') {
-          inData = true
-          sock.write('354 go ahead\r\n')
-        } else if (verb === 'QUIT') {
-          sock.end('221 bye\r\n')
-          return
-        } else sock.write('250 ok\r\n')
-      }
-    })
-    sock.on('error', () => {})
-  })
-  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
-  const port = (server.address() as { port: number }).port
-  return { port, mails, close: () => new Promise((resolve) => server.close(() => resolve())) }
-}
-
-/** The text of a MIME mail with quoted-printable and base64 parts decoded. */
-function decodeMail(raw: string): string {
-  const qp = raw.replace(/=\r\n/g, '').replace(/=([0-9A-F]{2})/g, (_, h: string) => String.fromCharCode(parseInt(h, 16)))
-  const b64 = [...raw.matchAll(/\r\n\r\n([A-Za-z0-9+/=\r\n]{40,})(?:\r\n--|$)/g)].map((m) => Buffer.from(m[1]!.replace(/\r\n/g, ''), 'base64').toString('utf8'))
-  return [qp, ...b64].join('\n')
-}
 
 describe('secrets', () => {
   test('raw sign-in, session, invite, API and hook secrets never reach the database or the log', async () => {

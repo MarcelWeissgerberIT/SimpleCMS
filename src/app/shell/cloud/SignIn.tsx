@@ -10,8 +10,12 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
 export type SignInFlow = ReturnType<typeof useSignInFlow>
 
-/** Email → magic link → "check your inbox", with a resend cooldown. Shared by sign-in and invite screens. */
-export function useSignInFlow(invite?: string) {
+/**
+ * Email → magic link → "check your inbox", with a resend cooldown. Shared by the sign-in, invite and
+ * registration screens; `invite` / `signup`: the token the person holds (lets a new address in);
+ * `domains`: the link only admits addresses there — say so before a mail that would never come.
+ */
+export function useSignInFlow(invite?: string, signup?: string, domains?: string[]) {
   const t = useT()
   const lang = useLang()
   const [email, setEmail] = useState('')
@@ -33,11 +37,15 @@ export function useSignInFlow(invite?: string) {
       setError(t('shell.cloud.signin.invalid'))
       return
     }
+    if (domains?.length && !domains.includes(address.slice(address.lastIndexOf('@') + 1).toLowerCase())) {
+      setError(t('shell.cloud.signin.wrongDomain', { domains: domains.map((d) => `@${d}`).join(', ') }))
+      return
+    }
     setBusy(true)
     setError(null)
     setNotice(null)
     try {
-      await cloudApi.requestSignIn(address, { invite, lang })
+      await cloudApi.requestSignIn(address, { invite, lang, ...(signup ? { signup } : {}) })
       setPhase('sent')
       setCooldown(COOLDOWN_S)
       if (again) setNotice(t('shell.cloud.inbox.resent'))

@@ -10,10 +10,10 @@
  *    local copy opens offline (when this browser has been signed in before).
  */
 import { useWorkspace, emptyWorkspace } from '../store/store'
-import { fetchConfig, getSession, notifyUnauthenticated, setServerKnown, setServerProbe, type ServerConfig } from './api'
+import { fetchConfig, getSession, notifyUnauthenticated, setServerKnown, setServerProbe, type Account, type ServerConfig } from './api'
 import { listenForForget, runPendingForget } from './device'
 import { hasStoredChoice, readChoice, readSession, SERVER_CAPABLE, writeChoice, writeSession } from './env'
-import { useCloud, useCloudSync, type CloudUser, type CloudWorkspace, type WorkspaceRef } from './state'
+import { useCloud, useCloudSync, type WorkspaceRef } from './state'
 import { emptySettings, openCloudWorkspace } from './workspace'
 
 const LOCAL: WorkspaceRef = { kind: 'local', id: 'local' }
@@ -87,7 +87,7 @@ async function openOffline(choice: { id: string }): Promise<'cloud' | null> {
   return 'cloud'
 }
 
-type Me = { user: CloudUser; workspaces: CloudWorkspace[] }
+type Me = Account
 
 /**
  * Back from the magic link in a browser that never chose a workspace (and with no invitation to
@@ -177,12 +177,12 @@ export async function bootCloud(): Promise<'local' | 'cloud' | 'signed-out'> {
   }
   if (!me) {
     writeSession(null)
-    useCloud.setState({ status: 'signed-out', user: null, workspaces: [], role: null, readOnly: true, error: null })
+    useCloud.setState({ status: 'signed-out', user: null, workspaces: [], serverAdmin: false, role: null, readOnly: true, error: null })
     await hydrateSignedOut()
     return 'signed-out'
   }
   writeSession({ ...me, at: Date.now() })
-  useCloud.setState({ user: me.user, workspaces: me.workspaces })
+  useCloud.setState({ user: me.user, workspaces: me.workspaces, serverAdmin: me.serverAdmin })
   const ws = me.workspaces.find((w) => w.id === choice.id)
   if (!ws) {
     fallBackToLocal('workspace_not_found', true)
@@ -213,9 +213,9 @@ async function detect(signedInMarker: boolean): Promise<void> {
   await refreshMe()
 }
 
-/** GET api/session → useCloud user / workspaces (null when signed out). */
-export async function refreshMe(): Promise<{ user: CloudUser; workspaces: CloudWorkspace[] } | null> {
-  let me: { user: CloudUser; workspaces: CloudWorkspace[] } | null
+/** GET api/session → useCloud user / workspaces / serverAdmin (null when signed out). */
+export async function refreshMe(): Promise<Me | null> {
+  let me: Me | null
   try {
     me = await getSession()
   } catch {
@@ -223,13 +223,13 @@ export async function refreshMe(): Promise<{ user: CloudUser; workspaces: CloudW
   }
   if (!me) {
     writeSession(null)
-    useCloud.setState({ user: null, workspaces: [] })
+    useCloud.setState({ user: null, workspaces: [], serverAdmin: false })
     // an open cloud workspace stops syncing (as on a 401)
     notifyUnauthenticated()
     return null
   }
   writeSession({ ...me, at: Date.now() })
-  useCloud.setState({ user: me.user, workspaces: me.workspaces })
+  useCloud.setState({ user: me.user, workspaces: me.workspaces, serverAdmin: me.serverAdmin })
   return me
 }
 

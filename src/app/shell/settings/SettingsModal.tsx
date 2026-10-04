@@ -16,16 +16,23 @@ import { fmtBytes, plural } from '../lib/format'
 import { requestReset } from '../lib/reset'
 import { WebClipper } from '../capture/WebClipper'
 import { TeamTab } from '../cloud/TeamTab'
+import { ServerTab } from '../cloud/ServerTab'
 import { consumeSettingsTab, useInCloud, useReadOnly, useWorkspaceTitle } from '../cloud/state'
 import { cloudApi } from '../cloud/api'
 import { errorText } from '../cloud/errors'
 import { useCloud, useCloudSync } from '../../cloud'
 import './settings.css'
 
-export type SettingsTab = 'general' | 'team' | 'appearance' | 'ai' | 'data' | 'sync' | 'mcp' | 'shortcuts' | 'about'
+export type SettingsTab = 'general' | 'team' | 'server' | 'appearance' | 'ai' | 'data' | 'sync' | 'mcp' | 'shortcuts' | 'about'
 const LOCAL_TABS: SettingsTab[] = ['general', 'appearance', 'ai', 'data', 'sync', 'mcp', 'shortcuts', 'about']
 /** In a team workspace, "Team" follows "General". */
 const CLOUD_TABS: SettingsTab[] = ['general', 'team', 'appearance', 'ai', 'data', 'sync', 'mcp', 'shortcuts', 'about']
+/** Server admins (ADMIN_EMAILS) also get "Server" (registration links) — after Team, or after General. */
+const withServer = (tabs: SettingsTab[], admin: boolean): SettingsTab[] => {
+  if (!admin) return tabs
+  const at = tabs.indexOf('team') >= 0 ? tabs.indexOf('team') + 1 : 1
+  return [...tabs.slice(0, at), 'server', ...tabs.slice(at)]
+}
 
 export const AI_MODELS = [
   { id: 'claude-opus-5-5', key: 'shell.ai.opus' },
@@ -35,7 +42,8 @@ export const AI_MODELS = [
 
 export function SettingsModal({ initialTab, onClose }: { initialTab?: SettingsTab; onClose: () => void }) {
   const t = useT()
-  const TABS = useInCloud() ? CLOUD_TABS : LOCAL_TABS
+  const serverAdmin = useCloud((c) => !!c.user && !!c.serverAdmin)
+  const TABS = withServer(useInCloud() ? CLOUD_TABS : LOCAL_TABS, serverAdmin)
   const [tab, setTab] = useState<SettingsTab>(() => {
     const asked = initialTab ?? (consumeSettingsTab() as SettingsTab | null) ?? (consumeSyncSettingsRequest() ? 'sync' : null) ?? (consumeMcpSettingsRequest() ? 'mcp' : null)
     return asked && TABS.includes(asked) ? asked : 'general'
@@ -126,6 +134,7 @@ export function SettingsModal({ initialTab, onClose }: { initialTab?: SettingsTa
           <div className="st__body">
             {tab === 'general' && <GeneralTab />}
             {tab === 'team' && <TeamTab onClose={onClose} />}
+            {tab === 'server' && <ServerTab />}
             {tab === 'appearance' && <AppearanceTab />}
             {tab === 'ai' && <AITab />}
             {tab === 'data' && <DataTab onClose={onClose} />}

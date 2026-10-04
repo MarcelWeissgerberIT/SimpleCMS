@@ -86,6 +86,9 @@ the public APIs stable — other areas are built against them in parallel.
   HTML exports never do.
 - Team cloud: every account gets a personal workspace (`CloudWorkspace.personal`); server content is encrypted at rest
   with a key per workspace wrapped by `DATA_KEY` (docs/CLOUD.md § Tenancy & encryption at rest).
+- Team cloud invites: workspace invites can be reusable (`max_uses`, validity, allowed domains; never admin) or sent to
+  several addresses; server admins (`ADMIN_EMAILS`, Settings → Server) create registration links `#/signup/<token>`
+  for invite-only servers (docs/CLOUD.md § Invites & registration links).
 
 ## TipTap node names (shared contract — seed, export, share, history all rely on these)
 

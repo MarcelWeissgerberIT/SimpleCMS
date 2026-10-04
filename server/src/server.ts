@@ -103,6 +103,7 @@ export async function startServer(config: Config, log: Logger): Promise<RunningS
     app: config.appDir,
     mail: mailer.mode,
     signup: config.signup.mode,
+    admins: config.adminEmails.length || undefined,
     // names the master key without revealing it: tells which DATA_KEY this server runs with
     data_key: keyring.kekId,
     dev: config.devMode || undefined,

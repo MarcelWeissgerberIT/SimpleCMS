@@ -1,7 +1,7 @@
 import { Hono, type Context } from 'hono'
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie'
 import { z } from 'zod'
-import { mayCreateAccount } from '../auth/signup.ts'
+import { admission, mayCreateAccount } from '../auth/signup.ts'
 import type { AppEnv, Services } from '../context.ts'
 import { isSealedText, keyFromSecret, openText, sealText } from '../crypto/aead.ts'
 import { rateLimited } from '../errors.ts'
@@ -36,6 +36,7 @@ interface LoginTokenRow {
   redirect: string | null
   browser_hash: string | null
   invite_hash: string | null
+  signup_hash: string | null
   lang: string | null
 }
 
@@ -45,6 +46,8 @@ const requestSchema = z.object({
   lang: z.enum(['en', 'de']).optional(),
   /** Invite token the person is holding (lets a new account through SIGNUP=invite / domains). */
   invite: z.string().max(100).optional(),
+  /** Registration link token the person is holding (the same, without joining a workspace). */
+  signup: z.string().max(100).optional(),
 })
 
 export function authRoutes(s: Services) {
@@ -69,7 +72,8 @@ export function authRoutes(s: Services) {
     setCookie(c, LOGIN_COOKIE, browser, { path: '/api/auth', httpOnly: true, sameSite: 'Lax', secure, maxAge: LINK_TTL / 1000 })
 
     const inviteHash = isTokenShape(input.invite) ? s.repo.hash(input.invite) : null
-    if (!s.repo.userByEmail(email) && !mayCreateAccount(s.config.signup, s.repo, email, inviteHash)) {
+    const signupHash = isTokenShape(input.signup) ? s.repo.hash(input.signup) : null
+    if (!s.repo.userByEmail(email) && !mayCreateAccount(s.config, s.repo, email, inviteHash, signupHash)) {
       s.log.info('sign-in link not sent: signup not allowed for this address', { email, signup: s.config.signup.mode })
       return c.body(null, 204)
     }
@@ -78,9 +82,9 @@ export function authRoutes(s: Services) {
     const lang = pickLang(input.lang, c.req.header('accept-language'))
     const now = Date.now()
     s.db.run(
-      `INSERT INTO login_tokens (token_hash, email, created_at, expires_at, redirect, browser_hash, invite_hash, lang)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      s.repo.hash(token), email, now, now + LINK_TTL, sealRedirect(token, safeRedirect(input.redirect)), s.repo.hash(browser), inviteHash, lang,
+      `INSERT INTO login_tokens (token_hash, email, created_at, expires_at, redirect, browser_hash, invite_hash, signup_hash, lang)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      s.repo.hash(token), email, now, now + LINK_TTL, sealRedirect(token, safeRedirect(input.redirect)), s.repo.hash(browser), inviteHash, signupHash, lang,
     )
     const link = `${s.config.publicUrl}/api/auth/verify?token=${token}`
     // not awaited: SMTP latency must not reveal whether an account exists
@@ -131,13 +135,8 @@ export function authRoutes(s: Services) {
     const used = s.db.run('UPDATE login_tokens SET used_at = ? WHERE token_hash = ? AND used_at IS NULL AND expires_at > ?', now, s.repo.hash(token), now)
     if (!used) return htmlPage(c, linkInvalidPage(lang, 'invalid'), 400)
 
-    let user = s.repo.userByEmail(row.email)
-    if (!user) {
-      // re-checked here: the invite that allowed the request may have been revoked meanwhile
-      if (!mayCreateAccount(s.config.signup, s.repo, row.email, row.invite_hash)) return htmlPage(c, linkInvalidPage(lang, 'signup_closed'), 403)
-      user = s.repo.findOrCreateUser(row.email).user
-      s.log.info('account created', { user: user.id })
-    }
+    const user = s.repo.userByEmail(row.email) ?? createAccount(row)
+    if (!user) return htmlPage(c, linkInvalidPage(lang, row.signup_hash ? 'signup_link' : 'signup_closed'), 403)
     ensurePersonalSpace(user, lang)
 
     const previous = s.sessions.resolve(s.sessions.readCookie(c))
@@ -150,6 +149,25 @@ export function authRoutes(s: Services) {
     deleteCookie(c, LOGIN_COOKIE, { path: '/api/auth', httpOnly: true, sameSite: 'Lax', secure })
     c.header('Cache-Control', 'no-store')
     return c.redirect(safeRedirect(openRedirect(token, row.redirect)), c.req.method === 'POST' ? 303 : 302)
+  }
+
+  /**
+   * A new account — admitted again here (docs/CLOUD.md § Invites & registration links): the invite or
+   * registration link that allowed the request may have been revoked, used up or expired meanwhile. A
+   * registration link that admits the account loses a place in the same transaction (the last place
+   * goes to one person only). Null: not admitted.
+   */
+  function createAccount(row: LoginTokenRow): UserRow | null {
+    const created = s.db.tx(() => {
+      const existing = s.repo.userByEmail(row.email)
+      if (existing) return { user: existing, via: null }
+      const why = admission(s.config, s.repo, row.email, row.invite_hash, row.signup_hash)
+      if (!why) return null
+      if (why.by === 'signup-link' && !s.repo.consumeSignupLink(why.link.id)) return null
+      return { user: s.repo.createUser(row.email), via: why }
+    })
+    if (created?.via) s.log.info('account created', { user: created.user.id, via: created.via.by, link: created.via.by === 'signup-link' ? created.via.link.id : undefined })
+    return created?.user ?? null
   }
 
   /**

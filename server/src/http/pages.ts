@@ -43,7 +43,8 @@ export function confirmSignInPage(lang: Lang, input: { email: string; token: str
   )
 }
 
-export function linkInvalidPage(lang: Lang, reason: 'invalid' | 'signup_closed'): string {
+/** invalid: the magic link itself · signup_closed: no account for this address · signup_link: the registration link died meanwhile */
+export function linkInvalidPage(lang: Lang, reason: 'invalid' | 'signup_closed' | 'signup_link'): string {
   const t =
     lang === 'de'
       ? {
@@ -52,7 +53,9 @@ export function linkInvalidPage(lang: Lang, reason: 'invalid' | 'signup_closed')
           body:
             reason === 'invalid'
               ? 'Dieser Anmeldelink ist ungültig, abgelaufen oder wurde schon benutzt. Fordere einfach einen neuen an.'
-              : 'Auf diesem Server können sich nur eingeladene Adressen registrieren. Bitte eine Admin-Person um eine Einladung.',
+              : reason === 'signup_link'
+                ? 'Dieser Registrierungslink ist inzwischen abgelaufen, aufgebraucht oder wurde zurückgezogen. Bitte die Admin-Person dieses Servers um einen neuen.'
+                : 'Auf diesem Server können sich nur eingeladene Adressen registrieren. Bitte eine Admin-Person um eine Einladung.',
           button: 'Zur App',
         }
       : {
@@ -61,7 +64,9 @@ export function linkInvalidPage(lang: Lang, reason: 'invalid' | 'signup_closed')
           body:
             reason === 'invalid'
               ? 'This sign-in link is invalid, expired or was already used. Just request a new one.'
-              : 'This server only accepts invited addresses. Ask an admin of your team for an invitation.',
+              : reason === 'signup_link'
+                ? 'This registration link expired, was used up or revoked meanwhile. Ask the admin of this server for a new one.'
+                : 'This server only accepts invited addresses. Ask an admin of your team for an invitation.',
           button: 'Open the app',
         }
   return page(lang, t.title, `${label(t.label)}<h1>${e(t.title)}</h1><p>${e(t.body)}</p><div class="actions"><a class="button" href="/app/">${e(t.button)} &rarr;</a></div>`)

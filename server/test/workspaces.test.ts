@@ -52,8 +52,10 @@ test('workspace lifecycle: create, invite, accept, roles, ownership, leave, dele
   assert.deepEqual(accepted.body, { workspaceId: ws.id, role: 'member' })
   const reused = await dave.post(`/api/invites/${linkToken}/accept`)
   assert.equal(reused.status, 404)
-  assert.equal(reused.body.error.code, 'invite_used')
-  assert.equal((await new Client(server.url).get(`/api/invites/${linkToken}`)).body.error.code, 'invite_used')
+  // used up, expired, revoked and unknown look the same to everyone but the workspace's admins
+  assert.equal(reused.body.error.code, 'invite_not_found')
+  assert.equal((await new Client(server.url).get(`/api/invites/${linkToken}`)).body.error.code, 'invite_not_found')
+  assert.equal((await owner.get(`/api/invites/${linkToken}`)).body.error.code, 'invite_used')
 
   // invite by email (sent in the inviter's language)
   const emailInvite = await owner.fetch(`/api/workspaces/${ws.id}/invites`, {

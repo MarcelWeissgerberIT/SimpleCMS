@@ -9,6 +9,8 @@ export const ROLE_RANK: Record<Role, number> = { viewer: 0, member: 1, admin: 2,
 export const atLeast = (role: Role, min: Role) => ROLE_RANK[role] >= ROLE_RANK[min]
 
 export const INVITE_TTL = 7 * DAY
+/** Reusable links: at most this many people per invite / registration link. */
+export const MAX_LINK_USES = 100
 
 export interface UserRow {
   id: string
@@ -40,8 +42,28 @@ export interface InviteRow {
   created_by: string | null
   created_at: number
   expires_at: number
+  /** The latest person who joined through it (and when). */
   accepted_by: string | null
   accepted_at: number | null
+  /** How many people may join through it (1 = single use) and how many did. */
+  max_uses: number
+  uses: number
+  /** Comma-separated domains the joiner's address must be at; null = any address. */
+  allowed_domains: string | null
+}
+
+/** A registration link (server admins): lets someone create an account under SIGNUP=invite / domains. */
+export interface SignupLinkRow {
+  id: string
+  token_hash: string
+  label: string | null
+  created_by: string | null
+  created_at: number
+  expires_at: number
+  max_uses: number
+  uses: number
+  last_used_at: number | null
+  allowed_domains: string | null
 }
 
 export interface FileRow {
@@ -292,7 +314,7 @@ export class Repo {
 
   // ── invites ──────────────────────────────────────────────────────────
 
-  createInvite(input: { workspaceId: string; role: InviteRole; email: string | null; createdBy: string }) {
+  createInvite(input: { workspaceId: string; role: InviteRole; email: string | null; createdBy: string; maxUses?: number; ttl?: number; domains?: string[] | null }) {
     const token = randomToken()
     const now = Date.now()
     const row: InviteRow = {
@@ -303,14 +325,17 @@ export class Repo {
       email: input.email ? normalizeEmail(input.email) : null,
       created_by: input.createdBy,
       created_at: now,
-      expires_at: now + INVITE_TTL,
+      expires_at: now + (input.ttl ?? INVITE_TTL),
       accepted_by: null,
       accepted_at: null,
+      max_uses: input.maxUses ?? 1,
+      uses: 0,
+      allowed_domains: input.domains?.length ? input.domains.join(',') : null,
     }
     this.db.run(
-      `INSERT INTO invites (id, token_hash, workspace_id, role, email, created_by, created_at, expires_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      row.id, row.token_hash, row.workspace_id, row.role, row.email, row.created_by, row.created_at, row.expires_at,
+      `INSERT INTO invites (id, token_hash, workspace_id, role, email, created_by, created_at, expires_at, max_uses, allowed_domains)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      row.id, row.token_hash, row.workspace_id, row.role, row.email, row.created_by, row.created_at, row.expires_at, row.max_uses, row.allowed_domains,
     )
     return { token, row }
   }
@@ -319,10 +344,12 @@ export class Repo {
     return this.db.get<{ n: number }>('SELECT COUNT(*) AS n FROM invites WHERE workspace_id = ? AND created_at > ?', workspaceId, since)?.n ?? 0
   }
 
+  /** Invites with places left that have not expired, newest first, with their creator and the latest joiner. */
   openInvites(workspaceId: string) {
-    return this.db.all<InviteRow & { inviter_name: string | null; inviter_email: string | null }>(
-      `SELECT i.*, u.name AS inviter_name, u.email AS inviter_email FROM invites i LEFT JOIN users u ON u.id = i.created_by
-       WHERE i.workspace_id = ? AND i.accepted_by IS NULL AND i.expires_at > ? ORDER BY i.created_at DESC`,
+    return this.db.all<InviteRow & { inviter_name: string | null; inviter_email: string | null; joiner_name: string | null; joiner_email: string | null }>(
+      `SELECT i.*, u.name AS inviter_name, u.email AS inviter_email, j.name AS joiner_name, j.email AS joiner_email
+       FROM invites i LEFT JOIN users u ON u.id = i.created_by LEFT JOIN users j ON j.id = i.accepted_by
+       WHERE i.workspace_id = ? AND i.uses < i.max_uses AND i.expires_at > ? ORDER BY i.created_at DESC`,
       workspaceId,
       Date.now(),
     )
@@ -342,15 +369,76 @@ export class Repo {
 
   hasOpenInviteForEmail(email: string): boolean {
     return !!this.db.get(
-      'SELECT 1 FROM invites WHERE email = ? AND accepted_by IS NULL AND expires_at > ? LIMIT 1',
+      'SELECT 1 FROM invites WHERE email = ? AND uses < max_uses AND expires_at > ? LIMIT 1',
       normalizeEmail(email),
       Date.now(),
     )
   }
 
-  /** Marks the invite used; returns false when someone else got there first. */
+  /**
+   * One more person joined: atomically, only while a place is left and the invite has not expired.
+   * False when someone else took the last place (or it expired) meanwhile.
+   */
   consumeInvite(inviteId: string, userId: string): boolean {
-    return this.db.run('UPDATE invites SET accepted_by = ?, accepted_at = ? WHERE id = ? AND accepted_by IS NULL', userId, Date.now(), inviteId) > 0
+    const now = Date.now()
+    return this.db.run('UPDATE invites SET uses = uses + 1, accepted_by = ?, accepted_at = ? WHERE id = ? AND uses < max_uses AND expires_at > ?', userId, now, inviteId, now) > 0
+  }
+
+  // ── registration links (server admins) ───────────────────────────────
+
+  createSignupLink(input: { createdBy: string; ttl: number; maxUses: number; domains: string[] | null; label: string | null }) {
+    const token = randomToken()
+    const now = Date.now()
+    const row: SignupLinkRow = {
+      id: newId(),
+      token_hash: this.hash(token),
+      label: input.label,
+      created_by: input.createdBy,
+      created_at: now,
+      expires_at: now + input.ttl,
+      max_uses: input.maxUses,
+      uses: 0,
+      last_used_at: null,
+      allowed_domains: input.domains?.length ? input.domains.join(',') : null,
+    }
+    this.db.run(
+      `INSERT INTO signup_links (id, token_hash, label, created_by, created_at, expires_at, max_uses, allowed_domains)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      row.id, row.token_hash, row.label, row.created_by, row.created_at, row.expires_at, row.max_uses, row.allowed_domains,
+    )
+    return { token, row }
+  }
+
+  countSignupLinksSince(since: number): number {
+    return this.db.get<{ n: number }>('SELECT COUNT(*) AS n FROM signup_links WHERE created_at > ?', since)?.n ?? 0
+  }
+
+  /** Links with places left that have not expired, newest first, with their creator. */
+  openSignupLinks() {
+    return this.db.all<SignupLinkRow & { creator_name: string | null; creator_email: string | null }>(
+      `SELECT l.*, u.name AS creator_name, u.email AS creator_email FROM signup_links l LEFT JOIN users u ON u.id = l.created_by
+       WHERE l.uses < l.max_uses AND l.expires_at > ? ORDER BY l.created_at DESC`,
+      Date.now(),
+    )
+  }
+
+  signupLinkByToken(token: string) {
+    return this.db.get<SignupLinkRow>('SELECT * FROM signup_links WHERE token_hash = ?', this.hash(token))
+  }
+
+  signupLinkByHash(hash: string) {
+    return this.db.get<SignupLinkRow>('SELECT * FROM signup_links WHERE token_hash = ?', hash)
+  }
+
+  /** Revoking a registration link deletes it: the link stops working at once. */
+  deleteSignupLink(id: string): boolean {
+    return this.db.run('DELETE FROM signup_links WHERE id = ?', id) > 0
+  }
+
+  /** An account was created through the link: atomically, only while a place is left and it has not expired. */
+  consumeSignupLink(id: string): boolean {
+    const now = Date.now()
+    return this.db.run('UPDATE signup_links SET uses = uses + 1, last_used_at = ? WHERE id = ? AND uses < max_uses AND expires_at > ?', now, id, now) > 0
   }
 
   // ── Yjs documents ────────────────────────────────────────────────────
@@ -605,7 +693,8 @@ export class Repo {
     return {
       loginTokens: this.db.run('DELETE FROM login_tokens WHERE expires_at < ?', now - DAY),
       sessions: this.db.run('DELETE FROM sessions WHERE expires_at < ?', now),
-      invites: this.db.run('DELETE FROM invites WHERE accepted_by IS NULL AND expires_at < ?', now - 30 * DAY),
+      invites: this.db.run('DELETE FROM invites WHERE uses = 0 AND expires_at < ?', now - 30 * DAY),
+      signupLinks: this.db.run('DELETE FROM signup_links WHERE expires_at < ?', now - 30 * DAY),
       idempotency: this.db.run('DELETE FROM idempotency WHERE created_at < ?', now - DAY),
       // revoked tokens are kept a while for the audit trail (rows written by `api:<tokenId>`)
       apiTokens: this.db.run('DELETE FROM api_tokens WHERE revoked_at IS NOT NULL AND revoked_at < ?', now - 90 * DAY),

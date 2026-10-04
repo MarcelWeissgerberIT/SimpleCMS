@@ -83,6 +83,7 @@ DATA_KEY=<paste the output of: openssl rand -base64 32>
 SMTP_URL=smtp://USERNAME:PASSWORD@smtp.provider.example:587
 MAIL_FROM="Your Company Cloud <cloud@yourcompany.com>"
 SIGNUP=invite
+ADMIN_EMAILS=you@yourcompany.com
 MAX_UPLOAD_MB=25
 ```
 
@@ -93,10 +94,16 @@ MAX_UPLOAD_MB=25
   `.env` — rotate it with the CLI instead. Without it, neither the server nor any backup can be read. It
   must differ from `SECRET`; the server refuses to start without it.
 - **`SIGNUP`** decides who can create an account:
-  - `invite` — only people with an invitation (recommended; you create the first admin in step 7),
+  - `invite` — only people with an invitation to a workspace or a **registration link** (recommended),
   - `domains:yourcompany.com,yourcompany.de` — anyone with an address at those domains (subdomains
-    don't count) plus invited people,
-  - `open` — anyone with an email address.
+    don't count), plus invited people and holders of a registration link,
+  - `open` — anyone with an email address (registration links are not needed then).
+- **`ADMIN_EMAILS`** — the server's admins, comma-separated (`you@yourcompany.com,it@yourcompany.com`).
+  They can always create their own account (no CLI needed, whatever `SIGNUP` says) and get *Settings →
+  Server* in the app: the sign-up mode at a glance and **registration links** — a link that lets people
+  create an account (with a workspace of their own, nothing else) on an invite-only server. Links are
+  reusable for 1–100 people, valid 1–30 days, optionally only for addresses at certain domains, shown
+  once, and can be revoked. Leave it empty for no server admins.
 - **`API_RATE_LIMIT`** (optional, default `120`) — requests per minute for each API token and each
   incoming webhook. Admins create tokens and webhook URLs under Settings → Team → API & webhooks;
   the endpoints are described in [`API.md`](API.md).
@@ -148,7 +155,8 @@ server and ports 80/443 are open (`docker compose logs caddy`).
 
 ## 7. First sign-in
 
-With `SIGNUP=invite`, create your own account first:
+With your address in `ADMIN_EMAILS` you simply sign in (step 1). Without it, and with `SIGNUP=invite`,
+create your own account first:
 
 ```bash
 docker compose exec one node dist/cli.js create-user you@yourcompany.com "Your Name"
@@ -158,8 +166,13 @@ docker compose exec one node dist/cli.js create-user you@yourcompany.com "Your N
 2. Click the link in the mail (it is valid for 15 minutes and works once). Opened on another device or
    in another browser, the link shows a *Confirm sign-in* button first — that is intentional.
 3. You land in your own workspace (`<Name>’s space`) — everybody gets one at their first sign-in. Create
-   a team workspace (workspace menu → *New team workspace…*), then invite your team from its member
-   settings — by email or with a link (links are shown once, valid for 7 days, single use).
+   a team workspace (workspace menu → *New team workspace…*), then invite your team (workspace menu →
+   *Invite people…*, or *Share* on any page): with a **link** — single use or for up to 100 people, valid
+   1, 7 or 30 days, optionally only for addresses at your domain — or **by email**, up to 20 addresses at
+   once (each gets a single-use link). Links are shown once; Settings → Team lists the open ones with how
+   many places are used, and revokes them.
+4. People who should only get an account (and their own space), not a workspace yet: *Settings → Server →
+   Registration links* (server admins only). Send them the link; whoever opens it creates an account.
 
 Useful admin commands (`docker compose exec one node dist/cli.js help` lists all):
 
@@ -335,6 +348,8 @@ Rebuild about once a month even without a new release, to get security fixes of 
 - [ ] `encrypt-all` reports `everything is encrypted at rest` (after updating from an older version) and
       backups from before encryption were deleted.
 - [ ] `SIGNUP=invite` (or `domains:…`) unless you really want an open server.
+- [ ] `ADMIN_EMAILS` lists only addresses whose mailboxes you control (whoever reads that mailbox can sign in
+      as a server admin and create registration links). Revoke registration links you no longer need.
 - [ ] Firewall: only 22, 80, 443 (and UDP 443) inbound. SSH with keys only (`PasswordAuthentication no`).
 - [ ] `unattended-upgrades` on; images rebuilt and Caddy pulled regularly.
 - [ ] Backups run nightly, are stored off-site and a restore was tested.
@@ -394,7 +409,7 @@ server {
 |---|---|
 | Browser shows a certificate error | DNS not pointing to the server yet, or port 80/443 blocked — `docker compose logs caddy` |
 | `configuration error: …` and the container restarts | A required variable is missing or malformed — the message says which |
-| No sign-in mail | `docker compose logs one` shows `smtp connection failed` or `sending sign-in mail failed`; check port (587), credentials and URL-encoding. With `SIGNUP=invite` unknown addresses get no mail by design |
+| No sign-in mail | `docker compose logs one` shows `smtp connection failed` or `sending sign-in mail failed`; check port (587), credentials and URL-encoding. With `SIGNUP=invite` unknown addresses get no mail by design — send them a workspace invite or a registration link (Settings → Server) |
 | `bad_origin` errors | The app is opened under another host than `DOMAIN` (e.g. `www.` or the IP) — use exactly `https://DOMAIN` |
 | Live editing doesn't connect behind your own proxy | The proxy drops the WebSocket upgrade on `/collab` — see the nginx example |
 | `database schema vN is newer than this server` | You went back to an older version — restore the backup from before the update |

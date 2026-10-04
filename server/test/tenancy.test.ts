@@ -159,6 +159,8 @@ interface Foreign {
   invite: string
   token: string
   hook: string
+  /** A registration link B's owner (a server admin) created. */
+  signupLink: string
   file: string
   page: string
   db: string
@@ -170,10 +172,12 @@ interface Foreign {
  * with :id = B (always `404 workspace_not_found`), and, when `own` is set, with :id = A and B's ids in
  * the other parameters (that status: nothing of B is found or touched). `api`: the public API with A's
  * token and B's ids. `mcp`: see MCP_TOOLS. `secret`: the path carries the credential itself (nobody
- * can name another workspace's secret). `none`: not about a workspace.
+ * can name another workspace's secret). `server`: server administration (ADMIN_EMAILS) — A's owner,
+ * no server admin, is refused (403) and signed-out callers too (401). `none`: not about a workspace.
  */
 type Entry =
   | { scope: 'workspace'; req: (ws: string, x: Foreign) => Req; own?: number }
+  | { scope: 'server'; req: (x: Foreign) => Req }
   | { scope: 'api'; req: (x: Foreign) => Req; expect: number | ((body: any, x: Foreign) => void) }
   | { scope: 'mcp' | 'secret' | 'none'; why: string }
 
@@ -193,6 +197,10 @@ const ROUTES: Record<string, Entry> = {
   'POST /api/workspaces': { scope: 'none', why: 'creates a new workspace owned by the caller' },
   'GET /api/invites/:token': { scope: 'secret', why: 'the invite token is the credential' },
   'POST /api/invites/:token/accept': { scope: 'secret', why: 'the invite token is the credential' },
+  'GET /api/signup/:token': { scope: 'secret', why: 'the registration link token is the credential (and names no workspace)' },
+  'GET /api/server/signup-links': { scope: 'server', req: () => ({ method: 'GET', path: '/api/server/signup-links' }) },
+  'POST /api/server/signup-links': { scope: 'server', req: () => ({ method: 'POST', path: '/api/server/signup-links', json: { max_uses: 100, expires_in_days: 30 } }) },
+  'DELETE /api/server/signup-links/:linkId': { scope: 'server', req: (x) => ({ method: 'DELETE', path: `/api/server/signup-links/${x.signupLink}` }) },
   'GET /api/v1/hooks/:secret': { scope: 'secret', why: 'the hook URL secret is the credential (and names one database)' },
   'POST /api/v1/hooks/:secret': { scope: 'secret', why: 'the hook URL secret is the credential (and names one database)' },
   'GET /api/dev/mailbox': { scope: 'none', why: 'DEV_MODE only' },
@@ -209,6 +217,7 @@ const ROUTES: Record<string, Entry> = {
   'PATCH /api/workspaces/:id/members/:userId': { scope: 'workspace', req: (ws, x) => ({ method: 'PATCH', path: `${W(ws)}/members/${x.owner}`, json: { role: 'viewer' } }), own: 404 },
   'DELETE /api/workspaces/:id/members/:userId': { scope: 'workspace', req: (ws, x) => ({ method: 'DELETE', path: `${W(ws)}/members/${x.owner}` }), own: 404 },
   'POST /api/workspaces/:id/invites': { scope: 'workspace', req: (ws) => ({ method: 'POST', path: `${W(ws)}/invites`, json: { role: 'admin' } }) },
+  'POST /api/workspaces/:id/invites/emails': { scope: 'workspace', req: (ws) => ({ method: 'POST', path: `${W(ws)}/invites/emails`, json: { emails: ['mallory@sweep.test'], role: 'admin' } }) },
   'GET /api/workspaces/:id/invites': { scope: 'workspace', req: (ws) => ({ method: 'GET', path: `${W(ws)}/invites` }) },
   'DELETE /api/workspaces/:id/invites/:inviteId': { scope: 'workspace', req: (ws, x) => ({ method: 'DELETE', path: `${W(ws)}/invites/${x.invite}` }), own: 404 },
   'PUT /api/workspaces/:id/files/:fileId': { scope: 'workspace', req: (ws, x) => ({ method: 'PUT', path: `${W(ws)}/files/${x.file}`, body: 'overwrite', headers: { 'content-type': 'text/plain' } }) },
@@ -281,7 +290,8 @@ describe('isolation sweep: a member of A against workspace B', () => {
   }
 
   before(async () => {
-    server = await startServer({ API_RATE_LIMIT: '1000' })
+    // Bob is a server admin (registration links); Alice is not
+    server = await startServer({ API_RATE_LIMIT: '1000', ADMIN_EMAILS: 'bob@sweep.test', SIGNUP: 'domains:sweep.test' })
     alice = await signIn(server, 'alice@sweep.test')
     bob = await signIn(server, 'bob@sweep.test')
     aliceId = (await alice.get('/api/me')).body.user.id
@@ -311,7 +321,9 @@ describe('isolation sweep: a member of A against workspace B', () => {
     tokenSecretB = token.token
     const hook = (await bob.post(`${W(B)}/hooks`, { databaseId: 'db-bravo' })).body
     hookSecretB = hook.url.split('/hooks/')[1]
-    x = { ws: B, owner: bobId, invite: invite.id, token: token.id, hook: hook.id, file: 'file-bravo', page: 'page-bravo', db: 'db-bravo', row: 'row-bravo' }
+    const signupLink = (await bob.post('/api/server/signup-links', { max_uses: 5 })).body
+    assert.ok(signupLink.id, JSON.stringify(signupLink))
+    x = { ws: B, owner: bobId, invite: invite.id, token: token.id, hook: hook.id, signupLink: signupLink.id, file: 'file-bravo', page: 'page-bravo', db: 'db-bravo', row: 'row-bravo' }
   })
 
   after(async () => {
@@ -340,6 +352,23 @@ describe('isolation sweep: a member of A against workspace B', () => {
       assert.equal(inA.status, entry.own, `${route} in A with B's ids`)
       if (route === 'POST /api/workspaces/:id/files/publish') assert.deepEqual(await inA.json(), { published: 0 })
     }
+  })
+
+  test('server administration: refused to everyone but the server admins', async () => {
+    const anonymous = new Client(server.url)
+    for (const [route, entry] of Object.entries(ROUTES)) {
+      if (entry.scope !== 'server') continue
+      const r = entry.req(x)
+      const res = await alice.fetch(r.path, { method: r.method, json: r.json ?? (r.method === 'GET' ? undefined : {}) })
+      assert.equal(res.status, 403, route)
+      assert.equal(((await res.json()) as { error: { code: string } }).error.code, 'server_admin_only', route)
+      const out = await anonymous.fetch(r.path, { method: r.method, json: r.json ?? (r.method === 'GET' ? undefined : {}) })
+      assert.equal(out.status, 401, `${route} signed out`)
+    }
+    // a member of B is no server admin either; the link is untouched
+    assert.equal((await bob.get('/api/server/signup-links')).body.map((l: { id: string }) => l.id).join(), x.signupLink)
+    assert.equal((await alice.get('/api/me')).body.server_admin, undefined)
+    assert.equal((await bob.get('/api/me')).body.server_admin, true)
   })
 
   test('public API: A\'s token never reaches B', async () => {

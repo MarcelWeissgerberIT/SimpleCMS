@@ -69,6 +69,11 @@ export interface CloudState {
    */
   signup?: 'open' | 'invite' | 'domains' | null
   signupDomains?: string[]
+  /**
+   * The signed-in person is one of this server's admins (ADMIN_EMAILS on the server): they create
+   * registration links (Settings → Server). False when signed out or unknown.
+   */
+  serverAdmin?: boolean
 }
 
 export class CloudError extends Error {
@@ -95,6 +100,7 @@ export const useCloud = create<CloudState>(() => ({
   error: null,
   signup: null,
   signupDomains: [],
+  serverAdmin: false,
 }))
 
 /**
@@ -137,6 +143,31 @@ export interface Invite {
   inviter?: { id: string; name: string; email: string } | null
   /** Create only: whether the server sent the invitation mail. */
   email_sent?: boolean
+  /** How many people may join through it (1 = single use) and how many did. */
+  max_uses?: number
+  uses?: number
+  /** Only addresses at these domains may join (null / absent = any address). */
+  domains?: string[] | null
+  /** The latest person who joined through it, and when (list only). */
+  last_joined?: { id: string; name: string; email: string } | null
+  last_joined_at?: number | null
+}
+
+/** Options of a new invite link (server defaults: single use, 7 days, any address). */
+export interface InviteOptions {
+  /** 1–100 people (reusable links: member / viewer only). */
+  maxUses?: number
+  /** 1–30 days. */
+  days?: number
+  /** Only addresses at these domains may join. */
+  domains?: string[]
+}
+
+/** One address of "send by email": `failed` = the mail did not go out, the invite exists (`link`). */
+export interface EmailInviteResult {
+  email: string
+  status: 'sent' | 'failed' | 'already_member' | 'invalid'
+  link?: string
 }
 
 export interface InvitePreview {
@@ -147,6 +178,38 @@ export interface InvitePreview {
   /** Email-bound invites: the address that may accept it. */
   email?: string | null
   expires_at?: number
+  /** Only addresses at these domains may join. */
+  domains?: string[] | null
+  /** Admins of the workspace only: places left on the link, of `max_uses`. */
+  places_left?: number
+  max_uses?: number
+}
+
+/** A registration link (server admins): lets people create an account on an invite-only server. */
+export interface SignupLink {
+  id: string
+  label: string | null
+  created_at: number
+  expires_at: number
+  max_uses: number
+  uses: number
+  last_used_at: number | null
+  domains: string[] | null
+  created_by?: { id: string; name: string; email: string } | null
+  /** Only right after creation (the server keeps a fingerprint). */
+  link?: string
+}
+
+/** What #/signup/<token> shows before the account exists. */
+export interface SignupPreview {
+  /** The server's host, e.g. cloud.example.com. */
+  server: string
+  expires_at: number
+  domains: string[] | null
+  /** Server admins only. */
+  places_left?: number
+  max_uses?: number
+  label?: string | null
 }
 
 export interface ContentDocHandle {

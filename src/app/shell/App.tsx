@@ -27,6 +27,7 @@ import { useCloud } from '../cloud'
 import { installCloudDevHook } from './cloud/api'
 import { SignInScreen } from './cloud/SignIn'
 import { InviteScreen } from './cloud/InviteScreen'
+import { SignupScreen } from './cloud/SignupScreen'
 import { CloudDialogs } from './cloud/Dialogs'
 import { CloudBanner } from './cloud/Sync'
 import './stage/stage.css'
@@ -55,7 +56,15 @@ export function App() {
   if (route.name === 'invite')
     return (
       <ErrorBoundary>
-        <InviteScreen token={route.token} />
+        <InviteScreen key={route.token} token={route.token} />
+        <Toasts />
+      </ErrorBoundary>
+    )
+  // a registration link: create an account (signed in already: open the own space)
+  if (route.name === 'signup')
+    return (
+      <ErrorBoundary>
+        <SignupScreen key={route.token} token={route.token} />
         <Toasts />
       </ErrorBoundary>
     )

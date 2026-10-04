@@ -288,7 +288,7 @@ export function usePruneGoneViews() {
 
 let bootRedirected = false
 /** Routes App shows without the workspace: the workspace's first arrival comes later (and redirects then). */
-const STANDALONE: ReadonlySet<Route['name']> = new Set(['share', 'form', 'invite'])
+const STANDALONE: ReadonlySet<Route['name']> = new Set(['share', 'form', 'invite', 'signup'])
 
 /**
  * On the workspace's first arrival at "#/": jump to the start page (or the last visited page). Once

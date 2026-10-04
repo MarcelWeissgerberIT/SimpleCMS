@@ -16,16 +16,21 @@
 import {
   acceptInviteImpl,
   createInviteImpl,
+  createSignupLinkImpl,
   createWorkspaceImpl,
   deleteWorkspaceImpl,
   listInvitesImpl,
   listMembersImpl,
+  listSignupLinksImpl,
   previewInviteImpl,
+  previewSignupLinkImpl,
   removeMemberImpl,
   renameWorkspaceImpl,
   removeDeviceCopyImpl,
   requestSignInImpl,
   revokeInviteImpl,
+  revokeSignupLinkImpl,
+  sendInvitesImpl,
   setMemberRoleImpl,
   signOutImpl,
   updateProfile as updateProfileImpl,
@@ -39,7 +44,21 @@ import { setPresencePageImpl } from './workspace'
 import { createPrivateDatabaseImpl, createPrivatePageImpl, isPrivate, movePagePrivacyImpl, usePrivateModeImpl } from './private'
 import type { NewDatabaseInput, NewPageInput } from '../store/store'
 import type { ID } from '../store/types'
-import { useCloud, type ContentDocHandle, type Invite, type InvitePreview, type Member, type Role, type CloudWorkspace, type WorkspaceRef } from './state'
+import { useUI } from '../store/ui'
+import {
+  useCloud,
+  type ContentDocHandle,
+  type EmailInviteResult,
+  type Invite,
+  type InviteOptions,
+  type InvitePreview,
+  type Member,
+  type Role,
+  type CloudWorkspace,
+  type SignupLink,
+  type SignupPreview,
+  type WorkspaceRef,
+} from './state'
 
 export {
   CloudError,
@@ -55,7 +74,11 @@ export {
   type CloudSyncState,
   type Member,
   type Invite,
+  type InviteOptions,
+  type EmailInviteResult,
   type InvitePreview,
+  type SignupLink,
+  type SignupPreview,
   type ContentDocHandle,
 } from './state'
 
@@ -90,9 +113,11 @@ export function refreshAccount(): Promise<unknown> {
 
 /**
  * Send a magic link. The link brings the person back to the current view (an invite link keeps
- * its #/invite/<token>). Errors: CloudError 'rate_limited' (retryAfter seconds) · 'network' · …
+ * its #/invite/<token>, a registration link its #/signup/<token>). `invite` / `signup`: the token the
+ * person holds — lets a new address through an invite-only server. Errors: CloudError 'rate_limited'
+ * (retryAfter seconds) · 'network' · …
  */
-export async function requestSignIn(email: string, opts?: { invite?: string; lang?: string }): Promise<void> {
+export async function requestSignIn(email: string, opts?: { invite?: string; signup?: string; lang?: string }): Promise<void> {
   return requestSignInImpl(email, opts)
 }
 
@@ -143,8 +168,20 @@ export async function setMemberRole(wsId: string, userId: string, role: Role): P
 export async function removeMember(wsId: string, userId: string): Promise<void> {
   return removeMemberImpl(wsId, userId)
 }
-export async function createInvite(wsId: string, role: Role, email?: string): Promise<Invite> {
-  return createInviteImpl(wsId, role, email)
+/**
+ * An invite link (admins). With `email`: single use, for that address, and mailed. Without: a link —
+ * `opts` makes it reusable (`maxUses` 1–100, member / viewer only), sets its validity (`days` 1–30,
+ * default 7) and limits it to addresses at `domains`. The answer carries `link` (shown once).
+ */
+export async function createInvite(wsId: string, role: Role, email?: string, opts?: InviteOptions): Promise<Invite> {
+  return createInviteImpl(wsId, role, email, opts)
+}
+/**
+ * Invite several addresses at once (≤ 20): one single-use invite + mail each, in the app's language.
+ * Per address: 'sent' · 'failed' (mail not sent; `link` to pass on by hand) · 'already_member' · 'invalid'.
+ */
+export async function sendInvites(wsId: string, emails: string[], role: Role, opts?: { days?: number }): Promise<EmailInviteResult[]> {
+  return sendInvitesImpl(wsId, emails, role, opts)
 }
 export async function listInvites(wsId: string): Promise<Invite[]> {
   return listInvitesImpl(wsId)
@@ -152,13 +189,61 @@ export async function listInvites(wsId: string): Promise<Invite[]> {
 export async function revokeInvite(wsId: string, inviteId: string): Promise<void> {
   return revokeInviteImpl(wsId, inviteId)
 }
-/** `inviter` is a display name (or address); also `email` (email-bound invites) and `expires_at`. */
+/**
+ * `inviter` is a display name (or address); also `email` (email-bound invites), `expires_at`, `domains`
+ * and — for the workspace's admins only — `places_left`. A dead link (unknown, expired, used up,
+ * revoked) is CloudError 'invite_not_found' (admins: 'invite_used' / 'invite_expired').
+ */
 export async function previewInvite(token: string): Promise<InvitePreview> {
   return previewInviteImpl(token)
 }
 /** Also refreshes useCloud().workspaces. Then call switchWorkspace({ kind: 'cloud', id: workspaceId }). */
 export async function acceptInvite(token: string): Promise<{ workspaceId: string; role?: Role }> {
   return acceptInviteImpl(token)
+}
+
+/**
+ * Open Settings → Team at the invite form (the Share dialog, the workspace menu). Admins of a team
+ * workspace only — elsewhere it just opens the settings.
+ */
+export function openInviteSettings(): void {
+  wantInviteForm = true
+  useUI.getState().openModal({ type: 'settings', tab: 'team' })
+}
+let wantInviteForm = false
+/** The Team tab asks when it opens (holds for this tick: StrictMode runs effects twice). */
+export function consumeInviteSettingsRequest(): boolean {
+  if (!wantInviteForm) return false
+  window.setTimeout(() => (wantInviteForm = false), 0)
+  return true
+}
+
+/* ------------------------------------------------------------------ registration links (server admins) */
+
+/*
+ * A registration link lets someone create an account on a server that only admits invited addresses
+ * (SIGNUP=invite / domains:…) — they get their own space, no membership. Server admins
+ * (`useCloud().serverAdmin`, ADMIN_EMAILS on the server) create, list and revoke them; anyone else gets
+ * CloudError 'server_admin_only'. On a SIGNUP=open server creating one is 'signup_open' (no link needed).
+ */
+
+/** Open links (places left, not expired), newest first. */
+export async function listSignupLinks(): Promise<SignupLink[]> {
+  return listSignupLinksImpl()
+}
+/** A new link (`maxUses` 1–100, `days` 1–30, optional `domains`, `label`); `link` is in the answer only. */
+export async function createSignupLink(opts: InviteOptions & { label?: string }): Promise<SignupLink> {
+  return createSignupLinkImpl(opts)
+}
+export async function revokeSignupLink(id: string): Promise<void> {
+  return revokeSignupLinkImpl(id)
+}
+/**
+ * What #/signup/<token> shows. A dead link is CloudError 'signup_link_not_found' (server admins:
+ * 'signup_link_used' / 'signup_link_expired'). Then `requestSignIn(email, { signup: token })`.
+ */
+export async function previewSignupLink(token: string): Promise<SignupPreview> {
+  return previewSignupLinkImpl(token)
 }
 
 /**

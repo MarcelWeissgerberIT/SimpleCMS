@@ -15,6 +15,7 @@ import { fileRoutes } from './routes/files.ts'
 import { integrationRoutes } from './routes/integrations.ts'
 import { inviteRoutes } from './routes/invites.ts'
 import { meRoutes, sessionRoutes } from './routes/me.ts'
+import { serverRoutes, signupRoutes } from './routes/server.ts'
 import { workspaceRoutes } from './routes/workspaces.ts'
 
 const JSON_LIMIT = 256 * 1024
@@ -63,6 +64,8 @@ export function buildApp(s: Services): Hono<AppEnv> {
   app.route('/api/workspaces', documentRoutes(s))
   app.route('/api/workspaces', integrationRoutes(s, model))
   app.route('/api/invites', inviteRoutes(s))
+  app.route('/api/signup', signupRoutes(s))
+  app.route('/api/server', serverRoutes(s))
   app.route('/api/v1/hooks', hookRoutes(s, model))
   app.route('/api/v1', apiRoutes(s, model))
 
@@ -90,7 +93,7 @@ export function buildApp(s: Services): Hono<AppEnv> {
     if (err instanceof HTTPException && err.status < 500) {
       return c.json({ error: { code: err.status === 413 ? 'payload_too_large' : 'bad_request', message: err.message || 'Bad request' } }, err.status)
     }
-    // a webhook URL's last segment and an invite's token are secrets: never in the log
+    // a webhook URL's last segment, an invite's and a registration link's token are secrets: never in the log
     s.log.error('unhandled error', { method: c.req.method, path: redactPath(c.req.path), error: err })
     return c.json({ error: { code: 'internal', message: 'Internal server error' } }, 500)
   })
@@ -98,8 +101,8 @@ export function buildApp(s: Services): Hono<AppEnv> {
   return app
 }
 
-/** Paths that carry a secret (incoming webhook URLs, invite tokens) as they may appear in a log. */
-export const redactPath = (path: string) => path.replace(/^(\/api\/v1\/hooks\/|\/api\/invites\/)[^/]+/, '$1…')
+/** Paths that carry a secret (incoming webhook URLs, invite and registration tokens) as they may appear in a log. */
+export const redactPath = (path: string) => path.replace(/^(\/api\/v1\/hooks\/|\/api\/invites\/|\/api\/signup\/)[^/]+/, '$1…')
 
 /** Resolves the session cookie on every API request and slides its expiry (not on the public API). */
 function sessionMiddleware(s: Services): MiddlewareHandler<AppEnv> {

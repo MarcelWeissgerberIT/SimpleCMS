@@ -3,22 +3,38 @@ import { useWorkspace } from '../store/store'
 import {
   delInvite,
   delMember,
+  delSignupLink,
   delWorkspace,
   getInvitePreview,
   getInvites,
   getMembers,
+  getSignupLinks,
+  getSignupPreview,
   patchMember,
   patchWorkspace,
   postAcceptInvite,
   postInvite,
+  postInviteEmails,
   postLogout,
   postSignIn,
+  postSignupLink,
   postWorkspace,
 } from './api'
 import { refreshMe, SIGNED_IN_PARAM, switchWorkspaceImpl } from './boot'
 import { runPendingForget, scheduleForget } from './device'
 import { writeSession } from './env'
-import { useCloud, type CloudWorkspace, type Invite, type InvitePreview, type Member, type Role } from './state'
+import {
+  useCloud,
+  type CloudWorkspace,
+  type EmailInviteResult,
+  type Invite,
+  type InviteOptions,
+  type InvitePreview,
+  type Member,
+  type Role,
+  type SignupLink,
+  type SignupPreview,
+} from './state'
 import { activeCloud, renameActive, setNameEverywhere, updateProfileImpl } from './workspace'
 
 const lang = () => useWorkspace.getState().settings.language
@@ -35,8 +51,14 @@ function returnPath(): string {
   }
 }
 
-export async function requestSignInImpl(email: string, opts?: { invite?: string; lang?: string }): Promise<void> {
-  await postSignIn({ email: email.trim(), redirect: returnPath(), lang: opts?.lang ?? lang(), ...(opts?.invite ? { invite: opts.invite } : {}) })
+export async function requestSignInImpl(email: string, opts?: { invite?: string; signup?: string; lang?: string }): Promise<void> {
+  await postSignIn({
+    email: email.trim(),
+    redirect: returnPath(),
+    lang: opts?.lang ?? lang(),
+    ...(opts?.invite ? { invite: opts.invite } : {}),
+    ...(opts?.signup ? { signup: opts.signup } : {}),
+  })
 }
 
 export async function signOutImpl(opts: { forgetDevice?: boolean } = {}): Promise<void> {
@@ -52,7 +74,7 @@ export async function signOutImpl(opts: { forgetDevice?: boolean } = {}): Promis
     switchWorkspaceImpl({ kind: 'local', id: 'local' })
     return
   }
-  useCloud.setState({ user: null, workspaces: [] })
+  useCloud.setState({ user: null, workspaces: [], serverAdmin: false })
   // this tab holds no cloud database open: remove the copies right away
   if (opts.forgetDevice) await runPendingForget(15_000)
 }
@@ -115,8 +137,12 @@ export async function removeMemberImpl(wsId: string, userId: string): Promise<vo
   if (c.active.kind === 'cloud' && c.active.id === wsId) switchWorkspaceImpl({ kind: 'local', id: 'local' })
 }
 
-export function createInviteImpl(wsId: string, role: Role, email?: string): Promise<Invite> {
-  return postInvite(wsId, role, email?.trim() || undefined, lang())
+export function createInviteImpl(wsId: string, role: Role, email?: string, opts?: InviteOptions): Promise<Invite> {
+  return postInvite(wsId, role, email?.trim() || undefined, lang(), opts)
+}
+
+export function sendInvitesImpl(wsId: string, emails: string[], role: Role, opts?: { days?: number }): Promise<EmailInviteResult[]> {
+  return postInviteEmails(wsId, emails, role, { days: opts?.days, lang: lang() })
 }
 
 export function listInvitesImpl(wsId: string): Promise<Invite[]> {
@@ -135,6 +161,22 @@ export async function acceptInviteImpl(token: string): Promise<{ workspaceId: st
   const r = await postAcceptInvite(token)
   await refreshMe()
   return r
+}
+
+export function listSignupLinksImpl(): Promise<SignupLink[]> {
+  return getSignupLinks()
+}
+
+export function createSignupLinkImpl(opts: InviteOptions & { label?: string }): Promise<SignupLink> {
+  return postSignupLink(opts)
+}
+
+export function revokeSignupLinkImpl(id: string): Promise<void> {
+  return delSignupLink(id)
+}
+
+export function previewSignupLinkImpl(token: string): Promise<SignupPreview> {
+  return getSignupPreview(token)
 }
 
 export const updateProfile = updateProfileImpl

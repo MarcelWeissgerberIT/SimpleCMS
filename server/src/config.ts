@@ -23,6 +23,8 @@ export interface Config {
   smtpUrl: string | null
   mailFrom: string
   signup: SignupPolicy
+  /** Server admins (ADMIN_EMAILS, normalised): they create registration links and may always create their account. */
+  adminEmails: string[]
   maxUploadBytes: number
   appDir: string
   trustProxy: boolean
@@ -81,6 +83,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     smtpUrl,
     mailFrom,
     signup: parseSignup(env.SIGNUP),
+    adminEmails: parseAdminEmails(env.ADMIN_EMAILS),
     maxUploadBytes: Math.round(num(env.MAX_UPLOAD_MB, 25, 'MAX_UPLOAD_MB') * 1024 * 1024),
     appDir: resolve(env.APP_DIR || join(serverRoot, '..', 'dist')),
     trustProxy: flag(env.TRUST_PROXY),
@@ -127,20 +130,31 @@ function parsePublicUrl(raw: string): string {
   return url.origin
 }
 
+/** An email domain as SIGNUP, invites and registration links take it: lower case, no "@", at least one dot. */
+export const normalizeDomain = (d: string) => d.trim().toLowerCase().replace(/^@/, '')
+export const isDomain = (d: string) => d.length <= 253 && /^[a-z0-9-]+(\.[a-z0-9-]+)*\.[a-z]{2,}$/.test(d)
+
 export function parseSignup(raw: string | undefined): SignupPolicy {
   const v = (raw ?? 'open').trim()
   if (v === '' || v === 'open') return { mode: 'open' }
   if (v === 'invite') return { mode: 'invite' }
   if (v.startsWith('domains:')) {
-    const domains = v
-      .slice('domains:'.length)
-      .split(',')
-      .map((d) => d.trim().toLowerCase().replace(/^@/, ''))
-      .filter(Boolean)
-    if (!domains.length || domains.some((d) => !/^[a-z0-9.-]+\.[a-z]{2,}$/.test(d))) throw new ConfigError(`SIGNUP domains are invalid: ${v}`)
+    const domains = v.slice('domains:'.length).split(',').map(normalizeDomain).filter(Boolean)
+    if (!domains.length || domains.some((d) => !isDomain(d))) throw new ConfigError(`SIGNUP domains are invalid: ${v}`)
     return { mode: 'domains', domains }
   }
   throw new ConfigError(`SIGNUP must be "open", "invite" or "domains:example.com,example.de" (got "${v}")`)
+}
+
+/** ADMIN_EMAILS: comma- (or space-) separated addresses of the server admins; empty = none. */
+export function parseAdminEmails(raw: string | undefined): string[] {
+  const list = (raw ?? '')
+    .split(/[\s,;]+/)
+    .map((e) => e.trim().toLowerCase())
+    .filter(Boolean)
+  const bad = list.filter((e) => e.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e))
+  if (bad.length) throw new ConfigError(`ADMIN_EMAILS must be a comma-separated list of email addresses (not valid: ${bad.join(', ')})`)
+  return [...new Set(list)]
 }
 
 /**

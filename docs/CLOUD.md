@@ -48,7 +48,8 @@ The GitHub Pages build stays local-only.
 | `SECRET` | 32+ random bytes (hex/base64), signs tokens; required in production |
 | `DATA_KEY` | exactly 32 random bytes (base64 or hex, `openssl rand -base64 32`): the master key that wraps every workspace's data key (*Tenancy & encryption at rest*); required in production, never equal to `SECRET` *(server addition)* |
 | `SMTP_URL` / `MAIL_FROM` | nodemailer transport URL and sender; without SMTP the server runs in dev-mail mode |
-| `SIGNUP` | `open` (default) · `invite` (only invited emails) · `domains:acme.com,acme.de` |
+| `SIGNUP` | `open` (default) · `invite` (only invited emails, or a registration link) · `domains:acme.com,acme.de` (those domains, plus invited people and registration links) |
+| `ADMIN_EMAILS` | server admins, comma-separated addresses: they create registration links (*Invites & registration links*) and may always create their own account; malformed → exit 78 *(server addition)* |
 | `DEV_MODE` | `1` = magic links are logged and returned by `/api/dev/mailbox` (never in production) |
 | `MAX_UPLOAD_MB` | default 25 |
 | `PORT` | default 8080 |
@@ -84,7 +85,15 @@ users.personal_space_at, workspaces.personal_of                             -- v
 workspace_keys(workspace_id PRIMARY KEY, wrapped BLOB, kek_id, created_at, rotated_at)  -- v6, wrapped data keys
 documents.enc, files.enc (0 = plaintext from before v6, 1 = sealed)          -- v6
 server_state(key PRIMARY KEY, value, updated_at)                            -- v6, the running server's heartbeat
+invites.max_uses (default 1), invites.uses, invites.allowed_domains NULL     -- v7, reusable invites
+signup_links(id, token_hash UNIQUE, label, created_by, created_at, expires_at, max_uses, uses, last_used_at, allowed_domains)  -- v7
+login_tokens.signup_hash                                                    -- v7, the registration link a sign-in carried
 ```
+
+Migration v7 (*Invites & registration links* below): an invite is for up to `max_uses` people (1 = single
+use, what every invite was before — accepted ones get `uses = 1`); `accepted_by` / `accepted_at` now name
+the latest person who joined. Registration links are server-level (no workspace), `ON DELETE SET NULL`
+from their creator; their tokens are HMAC-stored like every other token.
 
 Migrations v5/v6 (*Tenancy & encryption at rest* below): the own workspace of every account, one data
 key per workspace (stored wrapped), and the `enc` markers — `documents.data`, file bytes
@@ -119,7 +128,7 @@ All mutating requests require `Content-Type: application/json` (CSRF guard toget
 | `POST /api/auth/request` | – | `{ email, redirect? }` → `204` (always, no account enumeration; rate-limited per email and IP) |
 | `GET /api/auth/verify?token=` | – | sets cookie, `302` to `redirect` (default `/app/`), or an error page |
 | `POST /api/auth/logout` | session | → `204` |
-| `GET /api/me` | session | → `{ user: { id, email, name }, workspaces: [{ id, name, icon, role, personal }] }` — the caller's own workspace first |
+| `GET /api/me` | session | → `{ user: { id, email, name }, workspaces: [{ id, name, icon, role, personal }], server_admin? }` — the caller's own workspace first; `server_admin: true` only for the addresses in `ADMIN_EMAILS` |
 | `GET /api/session` | – | *(server addition)* → `200 { user: {…} \| null, workspaces: [...] }` — like `/api/me`, but signed out is `user: null`, not a 401 |
 | `PATCH /api/me` | session | `{ name }` → user |
 | `POST /api/workspaces` | session | `{ name }` → workspace (caller = owner) |
@@ -128,11 +137,16 @@ All mutating requests require `Content-Type: application/json` (CSRF guard toget
 | `GET /api/workspaces/:id/members` | member | → `[{ user: {id,email,name}, role, created_at }]` |
 | `PATCH /api/workspaces/:id/members/:userId` | admin | `{ role }` (owner transfer only by owner) |
 | `DELETE /api/workspaces/:id/members/:userId` | admin, or self (leave) | |
-| `POST /api/workspaces/:id/invites` | admin | `{ role, email? }` → `{ id, link, expires_at }` (email → also sent) |
-| `GET /api/workspaces/:id/invites` | admin | open invites |
+| `POST /api/workspaces/:id/invites` | admin | `{ role, email?, max_uses?, expires_in_days?, domains? }` → `{ id, link, expires_at, … }` (email → also sent) |
+| `POST /api/workspaces/:id/invites/emails` | admin | *(server addition)* `{ emails: string[] (1–20), role, expires_in_days?, lang? }` → `{ results: [{ email, status, link? }] }` |
+| `GET /api/workspaces/:id/invites` | admin | open invites (with `max_uses`, `uses`, latest joiner) |
 | `DELETE /api/workspaces/:id/invites/:inviteId` | admin | |
-| `GET /api/invites/:token` | – | → `{ workspace: { name }, role, inviter }` (preview) |
+| `GET /api/invites/:token` | – | → `{ workspace: { name }, role, inviter, domains, … }` (preview; places left: the workspace's admins only) |
 | `POST /api/invites/:token/accept` | session | → `{ workspaceId }` |
+| `GET /api/signup/:token` | – | *(server addition)* registration link preview → `{ server, expires_at, domains, … }` |
+| `GET /api/server/signup-links` | server admin | *(server addition)* open registration links `[{ id, label, created_at, expires_at, max_uses, uses, last_used_at, domains, created_by }]` |
+| `POST /api/server/signup-links` | server admin | *(server addition)* `{ max_uses? (1–100, 1), expires_in_days? (1–30, 7), domains?, label? }` → `201` link **+ `link`** (only here); `409 signup_open` on a `SIGNUP=open` server |
+| `DELETE /api/server/signup-links/:linkId` | server admin | *(server addition)* revoke → `204` (`404 signup_link_not_found`) |
 | `PUT /api/workspaces/:id/files/:fileId` | member | raw body (≤ MAX_UPLOAD_MB), headers `x-file-name`, `content-type`, `x-file-scope: private`? → `{ id }` |
 | `GET /api/workspaces/:id/files/:fileId` | viewer | bytes, `Cache-Control: private, max-age=31536000, immutable` (someone else's private file: `404 file_not_found`) |
 | `POST /api/workspaces/:id/files/publish` | member | *(private pages)* `{ ids: string[] (1–500) }` → `{ published }` — the caller's private files among them become workspace files |
@@ -154,15 +168,17 @@ Errors: `{ error: { code, message } }` with 400/401/403/404/409/413/429.
 
 ### As implemented (server v0.1) — details the client needs
 
-- **Sign-in request** also takes `lang?: 'en'|'de'` (mail language; else `Accept-Language`) and
-  `invite?: <invite token>` (lets a new address through `SIGNUP=invite`/`domains`). Over the limit it
+- **Sign-in request** also takes `lang?: 'en'|'de'` (mail language; else `Accept-Language`),
+  `invite?: <invite token>` and `signup?: <registration link token>` (let a new address through
+  `SIGNUP=invite`/`domains`, see *Invites & registration links*). Over the limit it
   answers `429 rate_limited` with `Retry-After` (seconds). With `SIGNUP` restrictions an address that may
   not sign up still gets `204` but no mail.
 - **Magic link** (`GET /api/auth/verify`): the request sets a short-lived `one_login` cookie
   (path `/api/auth`). Opened in that same browser the link signs in at once (`302`). Opened elsewhere
   (other device, or a mail security scanner pre-fetching links) it shows a *Confirm sign-in* page whose
   button POSTs to `/api/auth/verify` — so scanners cannot burn the single-use token. Invalid/used/expired
-  links render an HTML error page (`400`); a new account refused by `SIGNUP` renders `403`. `redirect` must
+  links render an HTML error page (`400`); a new account refused by `SIGNUP` renders `403` (a registration
+  link that died between the request and the click says so). `redirect` must
   be a same-origin path (`/…`, not `//…`), else `/app/`; fragments are kept (`/app/#/invite/<token>`).
 - **Session cookie** `one_session`: HttpOnly, SameSite=Lax, Path=/, Max-Age 30 days, `Secure` when
   `PUBLIC_URL` is https. The expiry slides on API use (re-sent at most once a day) — call `GET /api/session`
@@ -177,16 +193,27 @@ Errors: `{ error: { code, message } }` with 400/401/403/404/409/413/429.
   (`409 owner_must_transfer`); the owner cannot leave or be removed (same code). Non-members get `404
   workspace_not_found` for every workspace route (existence is not revealed), members below the needed role
   `403 forbidden`.
-- **Invites**: `POST` → `201 { id, link, expires_at, role, email, email_sent? }`; roles `admin|member|viewer`
-  (default `member`); valid 7 days; **single use**; `lang?` picks the mail language. The **link is
+- **Invites**: `POST` → `201 { id, link, expires_at, role, email, max_uses, uses, domains, email_sent? }`; roles
+  `admin|member|viewer` (default `member`); `expires_in_days` 1–30 (default 7); `max_uses` 1–100 (default
+  **1 = single use**; the app offers 1 · 5 · 10 · 25 · 100); `domains` (≤ 10) limits who may join to addresses
+  at those domains; `lang?` picks the mail language. An invite with `email` is single-use and has no
+  domains; `admin` invites are single-use (`400 invalid_request` otherwise). The **link is
   `${PUBLIC_URL}/app/#/invite/<token>`** — the app's router handles `#/invite/<token>`: preview with
   `GET /api/invites/:token`, sign in if needed (pass `invite` and `redirect`), then accept. The token is
-  stored hashed, so the link is only returned once. `GET …/invites` →
-  `[{ id, role, email, created_at, expires_at, inviter: { id, name, email } | null }]`.
-  `409 already_member` when inviting the email of a member.
-- **Invite preview** → `{ workspace: { name, icon }, role, inviter: { name, email } | null, email, expires_at }`.
-  **Accept** → `{ workspaceId, role }`; an email-bound invite needs that email (`403 invite_email_mismatch`);
-  accepting while already a member keeps the role and leaves the invite unused.
+  stored hashed, so the link is only returned once. `GET …/invites` (open ones: places left, not expired) →
+  `[{ id, role, email, created_at, expires_at, max_uses, uses, domains, last_joined_at, last_joined: { id, name, email } | null, inviter: { id, name, email } | null }]`.
+  `409 already_member` when inviting the email of a member. **Several addresses** (`POST …/invites/emails`,
+  ≤ 20, duplicates count once): one single-use invite + mail per address, `results[].status` =
+  `sent` · `failed` (the mail did not go out — the invite exists, `link` lets the admin pass it on) ·
+  `already_member` · `invalid`; the 50-invites-a-day budget counts every invite made.
+- **Invite preview** → `{ workspace: { name, icon }, role, inviter: { name, email } | null, email, expires_at, domains }`
+  — plus `max_uses`, `uses`, `places_left` **only for the workspace's admins** (invitees never see how many
+  places a link has). Unknown, expired, used-up and revoked tokens are the same `404 invite_not_found` for
+  everyone else; the workspace's admins get `invite_used` / `invite_expired`.
+  **Accept** → `{ workspaceId, role }`; an email-bound invite needs that email (`403 invite_email_mismatch`), a
+  domain-restricted one an address at one of its domains (`403 invite_domain_mismatch`); accepting while
+  already a member keeps the role and uses no place. A join takes a place atomically (the last place goes to
+  one person only).
 - **Files**: `PUT` is exempt from the JSON rule (it carries the file's type; PUT always needs a CORS
   preflight, which the server never grants) but cross-origin `Origin` is still rejected. `x-file-name` is
   **URI-encoded** (`encodeURIComponent`). Ids: `[A-Za-z0-9_-]{1,64}`. Answers `201 { id }`, or `200 { id }`
@@ -210,12 +237,51 @@ Errors: `{ error: { code, message } }` with 400/401/403/404/409/413/429.
   Idempotent `204`; every call is logged (`page document deleted`, workspace, page, user).
 - **Error codes** — 400: `invalid_request` (zod; `details` attached), `invalid_json`, `json_required`,
   `invalid_file_id`, `invalid_page_id` · 401: `unauthenticated` · 403: `forbidden`, `owner_only`, `bad_origin`,
-  `invite_email_mismatch` · 404: `not_found`, `workspace_not_found`, `member_not_found`,
-  `invite_not_found`, `invite_used`, `invite_expired`, `file_not_found`, `token_not_found`, `hook_not_found`,
-  `database_not_found` · 409: `owner_must_transfer`, `already_member`, `page_exists`, `too_many_tokens`,
-  `too_many_hooks` · 413: `file_too_large`, `payload_too_large` (JSON > 256 KB) · 429: `rate_limited` ·
+  `invite_email_mismatch`, `invite_domain_mismatch`, `server_admin_only` · 404: `not_found`,
+  `workspace_not_found`, `member_not_found`, `invite_not_found`, `invite_used`, `invite_expired`,
+  `signup_link_not_found`, `signup_link_used`, `signup_link_expired`, `file_not_found`, `token_not_found`,
+  `hook_not_found`, `database_not_found` · 409: `owner_must_transfer`, `already_member`, `page_exists`,
+  `too_many_tokens`, `too_many_hooks`, `signup_open` · 413: `file_too_large`, `payload_too_large` (JSON > 256 KB) · 429: `rate_limited` ·
   500: `internal`. The public API adds its own (`invalid_token`, `insufficient_scope`, `invalid_value` …,
   see [`API.md`](API.md#errors)).
+
+## Invites & registration links
+
+Two ways in, both a link whose token is the credential (32 random bytes, stored as HMAC only, shown once):
+
+| | Workspace invite | Registration link |
+|---|---|---|
+| Made by | the workspace's owner and admins (Settings → Team) | server admins = `ADMIN_EMAILS` (Settings → Server) |
+| Link | `/app/#/invite/<token>` | `/app/#/signup/<token>` |
+| Gives | membership in that workspace (role admin / member / viewer) | an account — with its own space, no membership |
+| On an invite-only server | lets a new address create its account too | that is all it does |
+| Options | role, validity 1–30 days, people 1–100, only addresses at domains | validity, people, domains, a label |
+| A place is used | when someone joins (joining twice: no use) | when an account is created through it |
+
+**Who may create an account** (the request for a sign-in link and, again, opening it — `auth/signup.ts`),
+first reason that holds: the address is in `ADMIN_EMAILS` · `SIGNUP=open` · `domains:` and an allowed
+domain · an open invite addressed to it · an open invite link the person holds (its domain restriction
+included) · an open registration link the person holds (its domain restriction included). Only the last
+reason uses up a place of the registration link — in the same transaction that creates the account, so
+the last place goes to one person; somebody else, or a link revoked, used up or expired between the
+request and the click, gets the `403` page (no account). An address that may not sign up gets the usual
+`204` and no mail (no enumeration). Domains are checked on the address the magic link proved, exactly
+(subdomains don't count).
+
+**Registration links** (`/api/server/*`, server admins only — everyone else `403 server_admin_only`, signed
+out `401`): `POST` → `201 { id, label, created_at, expires_at, max_uses, uses, last_used_at, domains, link }`
+(`link` only here); `GET` lists the open ones (places left, not expired) with `created_by`; `DELETE` revokes
+(the row goes: the link is dead at once, accounts made with it stay); 50 new links a day per server;
+`409 signup_open` while `SIGNUP=open` (the plain sign-up page needs no link). The preview
+`GET /api/signup/:token` → `{ server (PUBLIC_URL's host), expires_at, domains }` — `label`, `max_uses`, `uses`,
+`places_left` for server admins only; dead links are `404 signup_link_not_found` (server admins:
+`signup_link_used` / `signup_link_expired`). The app's `#/signup/<token>` shows it, asks for the email and
+requests the sign-in link with `signup: <token>`; after the magic link the person lands in their own space
+(signed in already: "Open my space").
+
+Logs and storage: tokens are never logged (`redactPath` covers `/api/invites/…` and `/api/signup/…`; with
+SMTP no mail link is logged), never stored in the clear (`server/test/invites.test.ts` checks the log and
+the database file), and compared through their HMAC like every other token.
 
 ## Realtime documents (Yjs over Hocuspocus, `wss://…/collab`)
 
@@ -513,7 +579,8 @@ is reachable from another, and what a workspace contains is encrypted on disk wi
   bring it back. `workspaces.personal_of` says whose it is; handing it over (ownership transfer) makes it
   an ordinary workspace. Accounts that already owned a workspace before migration v5 count as having one.
 - Sharing only by explicit invitation, as before. Accepting an invitation adds the team workspace next to
-  the own one. `SIGNUP` is unchanged (no account → no workspace).
+  the own one. `SIGNUP` is unchanged (no account → no workspace); a registration link creates an account
+  with its own space and nothing else.
 - `/api/me` lists the own workspace first, with `personal: true`. It does not count towards the
   20-per-day limit.
 - **Client**: back from the magic link (`?signed-in`) in a browser that never chose a workspace
@@ -535,7 +602,8 @@ skip the check.
 | Incoming webhooks | the URL secret names one hook = one database of one workspace | `404 hook_not_found` |
 | WebSocket `/collab` | `onAuthenticate`: the document name's workspace needs a membership; `ws:<id>:u:<userId>…` only for that user | `forbidden` (no document is loaded) |
 | Files | rows keyed `(workspace_id, id)`, bytes under `files/<workspace>/`; private files for their uploader only | `404 file_not_found` |
-| Invite links, magic links | the token is the credential, stored as HMAC only | `404` / error page |
+| Invite links, magic links, registration links | the token is the credential, stored as HMAC only; an invite names one workspace, a registration link none | `404` / error page |
+| Server administration `/api/server/*` | `ADMIN_EMAILS` (the signed-in address) | `403 server_admin_only` |
 
 ### Encryption at rest — one key per workspace
 
@@ -615,7 +683,11 @@ back an older ciphertext of the same document (the AAD binds the place, not the 
 
 - Magic-link tokens: 15 min, single use, bound to the email; sessions 30 days sliding, revocable.
 - Rate limits: auth requests 5/15 min per email and 20/15 min per IP (`AUTH_IP_LIMIT`, test servers with
-  `DEV_MODE=1` only); invite creation 50/day per workspace.
+  `DEV_MODE=1` only); invite creation 50/day per workspace (a batch of addresses counts each); 20 addresses
+  per batch; registration links 50/day per server.
+- Invites and registration links: unknown, expired, used-up and revoked tokens look the same to everyone but
+  the admins concerned; reusable invite links never make admins; places are taken atomically; an
+  invite's / registration link's admission of a new account is checked again when the magic link is opened.
 - Uploads: size limit, stored outside any served path, served with `Content-Disposition: attachment`
   for non-image types and `X-Content-Type-Options: nosniff`.
 - Every query is scoped by workspace membership; viewers can never write (REST or Yjs). The isolation

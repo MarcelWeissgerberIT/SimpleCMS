@@ -10,6 +10,7 @@
  *   #/s/<payload>   → read-only shared page (payload = compressed page, see features/share)
  *   #/clip?url=…&title=…&text=… → clip a web page into the Inbox, then replaced by #/p/<new page>
  *   #/invite/<token> → join a team workspace (preview, sign in if needed, accept; see shell/cloud)
+ *   #/signup/<token> → create an account with a registration link (team cloud; see shell/cloud)
  */
 import { useSyncExternalStore } from 'react'
 
@@ -29,6 +30,8 @@ export type Route =
   | { name: 'clip'; url: string; title: string; text: string; desc: string }
   /** #/invite/<token> → team-cloud invitation (link from POST /api/workspaces/:id/invites) */
   | { name: 'invite'; token: string }
+  /** #/signup/<token> → team-cloud registration link (from POST /api/server/signup-links) */
+  | { name: 'signup'; token: string }
   | { name: 'notfound'; path: string }
 
 export function parseHash(hash: string): Route {
@@ -45,6 +48,7 @@ export function parseHash(hash: string): Route {
   if (parts[0] === 's' && parts[1]) return { name: 'share', payload: parts.slice(1).join('/') }
   if (parts[0] === 'f' && parts[1]) return { name: 'form', payload: parts.slice(1).join('/') }
   if (parts[0] === 'invite' && parts[1]) return { name: 'invite', token: parts[1] }
+  if (parts[0] === 'signup' && parts[1]) return { name: 'signup', token: parts[1] }
   if (parts[0] === 'clip') {
     // the whole query (a stray unencoded "?" in a shared URL must not cut it short)
     const q = new URLSearchParams(raw.includes('?') ? raw.slice(raw.indexOf('?') + 1) : '')
@@ -73,6 +77,8 @@ export function routeHref(r: Route): string {
       return `#/f/${r.payload}`
     case 'invite':
       return `#/invite/${r.token}`
+    case 'signup':
+      return `#/signup/${r.token}`
     case 'clip': {
       const q = new URLSearchParams()
       for (const k of ['url', 'title', 'text', 'desc'] as const) if (r[k]) q.set(k, r[k])

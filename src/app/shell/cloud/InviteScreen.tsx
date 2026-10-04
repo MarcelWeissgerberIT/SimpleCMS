@@ -16,11 +16,15 @@ interface Preview {
   inviter: string | null
   email: string | null
   expires: number | null
+  /** Only addresses at these domains may join. */
+  domains: string[]
+  /** Admins of the workspace only: places left on the link. */
+  places: { left: number; max: number } | null
 }
 
 /** The core passes the server's preview through; read it defensively (inviter is a name or { name, email }). */
 function readPreview(raw: unknown): Preview {
-  const p = (raw ?? {}) as { workspace?: { name?: string }; role?: Role; inviter?: unknown; email?: unknown; expires_at?: unknown }
+  const p = (raw ?? {}) as { workspace?: { name?: string }; role?: Role; inviter?: unknown; email?: unknown; expires_at?: unknown; domains?: unknown; places_left?: unknown; max_uses?: unknown }
   let inviter: string | null = null
   if (typeof p.inviter === 'string') inviter = p.inviter.trim() || null
   else if (p.inviter && typeof p.inviter === 'object') {
@@ -34,6 +38,8 @@ function readPreview(raw: unknown): Preview {
     inviter,
     email: typeof p.email === 'string' && p.email ? p.email : null,
     expires: Number.isFinite(exp) ? exp : null,
+    domains: Array.isArray(p.domains) ? p.domains.filter((d): d is string => typeof d === 'string') : [],
+    places: typeof p.places_left === 'number' ? { left: p.places_left, max: typeof p.max_uses === 'number' ? p.max_uses : p.places_left } : null,
   }
 }
 
@@ -47,7 +53,7 @@ export function InviteScreen({ token }: { token: string }) {
   const [load, setLoad] = useState<Load>({ state: 'loading' })
   const [joining, setJoining] = useState(false)
   const [joinError, setJoinError] = useState<{ code: string; text: string } | null>(null)
-  const flow = useSignInFlow(token)
+  const flow = useSignInFlow(token, undefined, load.state === 'ready' ? load.preview.domains : undefined)
 
   const fetchPreview = useCallback(() => {
     let live = true
@@ -161,6 +167,21 @@ export function InviteScreen({ token }: { token: string }) {
                 <dd className="cl-addr">{load.preview.email}</dd>
               </div>
             )}
+            {load.preview.domains.length > 0 && (
+              <div>
+                <dt>{t('shell.cloud.invite.onlyFor')}</dt>
+                <dd className="cl-addr">{load.preview.domains.map((d) => `@${d}`).join(', ')}</dd>
+              </div>
+            )}
+            {load.preview.places && (
+              <div data-testid="invite-places">
+                <dt>{t('shell.cloud.invite.places')}</dt>
+                <dd>
+                  <span className="cl-places">{t('shell.cloud.invite.placesV', { n: load.preview.places.left, max: load.preview.places.max })}</span>
+                  <span className="cl-card__hint">{t('shell.cloud.invite.adminsOnly')}</span>
+                </dd>
+              </div>
+            )}
           </dl>
 
           {signedIn ? (
@@ -181,7 +202,7 @@ export function InviteScreen({ token }: { token: string }) {
                   {joinError.text}
                 </p>
               )}
-              {(joinError?.code === 'invite_email_mismatch' || load.preview.email) && (
+              {(joinError?.code === 'invite_email_mismatch' || joinError?.code === 'invite_domain_mismatch' || load.preview.email) && (
                 <button type="button" className="cl-textbtn" onClick={() => void cloudApi.signOut().catch(() => undefined)}>
                   {t('shell.cloud.invite.otherAccount')}
                 </button>
