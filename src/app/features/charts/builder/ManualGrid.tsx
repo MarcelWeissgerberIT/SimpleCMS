@@ -1,8 +1,9 @@
 /**
  * "Enter data": a small grid. First row = series names, first column = labels. Paste a block
- * from any spreadsheet into a cell and it fills the grid from there (TSV / CSV).
+ * from any spreadsheet into a cell and it fills the grid from there (TSV / CSV, or "label number"
+ * lines from a phone's notes).
  */
-import { useRef, type ClipboardEvent, type KeyboardEvent } from 'react'
+import { useRef, type ClipboardEvent, type FocusEvent, type KeyboardEvent } from 'react'
 import { Minus, Plus } from 'lucide-react'
 import { useT } from '../../../i18n'
 import { rowsFromText } from '../table'
@@ -39,6 +40,17 @@ export function ManualGrid({ rows, onChange }: { rows: string[][]; onChange: (ro
       e.preventDefault()
       focus(r - 1, c)
     }
+  }
+  // phones: once the on-screen keyboard is up, the cell being typed in stays visible above it
+  const onFocus = (e: FocusEvent<HTMLInputElement>) => {
+    const el = e.currentTarget
+    const vv = window.visualViewport
+    if (!vv || !window.matchMedia?.('(pointer: coarse)').matches) return
+    window.setTimeout(() => {
+      if (document.activeElement !== el) return
+      const r = el.getBoundingClientRect()
+      if (r.bottom > vv.offsetTop + vv.height - 8 || r.top < vv.offsetTop) el.scrollIntoView({ block: 'center', inline: 'nearest' })
+    }, 320)
   }
   const addRow = () => grid.length < MANUAL_MAX_ROWS && onChange([...grid, Array.from({ length: width }, () => '')])
   const addCol = () => width < MANUAL_MAX_COLS && onChange(grid.map((r) => [...r, '']))
@@ -84,6 +96,9 @@ export function ManualGrid({ rows, onChange }: { rows: string[][]; onChange: (ro
                       data-cell={`${i}:${j}`}
                       aria-label={t('charts.manual.cell', { r: i + 1, c: j + 1 })}
                       spellCheck={false}
+                      autoComplete="off"
+                      enterKeyHint="next"
+                      onFocus={onFocus}
                       onChange={(e) => set(i, j, e.target.value)}
                       onPaste={onPaste(i, j)}
                       onKeyDown={onKey(i, j)}

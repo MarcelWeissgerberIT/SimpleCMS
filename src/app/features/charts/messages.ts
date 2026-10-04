@@ -160,6 +160,11 @@ export const messages: Messages = {
 
     'charts.type.suggested': 'Suggested',
     'charts.type.misfit': 'Needs different data',
+    'charts.type.sample': 'Sample',
+    'charts.type.sampleNote': 'The cards show sample data.',
+    'charts.type.empty.manual': 'No data yet — enter it in 01 Data',
+    'charts.type.empty.live': 'No numbers in this source yet — the chart fills in as soon as there are some',
+    'charts.type.empty.back': 'Back to 01 Data',
 
     'charts.opt.title': 'Title',
     'charts.opt.titlePlaceholder': 'Untitled chart',
@@ -366,6 +371,11 @@ export const messages: Messages = {
 
     'charts.type.suggested': 'Vorschlag',
     'charts.type.misfit': 'Braucht andere Daten',
+    'charts.type.sample': 'Beispiel',
+    'charts.type.sampleNote': 'Die Karten zeigen Beispieldaten.',
+    'charts.type.empty.manual': 'Noch keine Daten — in 01 Daten eintragen',
+    'charts.type.empty.live': 'Noch keine Zahlen in dieser Quelle — das Diagramm füllt sich, sobald welche da sind',
+    'charts.type.empty.back': 'Zurück zu 01 Daten',
 
     'charts.opt.title': 'Titel',
     'charts.opt.titlePlaceholder': 'Diagramm ohne Titel',

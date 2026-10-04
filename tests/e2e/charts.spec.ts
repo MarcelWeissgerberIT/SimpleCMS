@@ -2,6 +2,8 @@
  * Charts: /chart → builder (data → type → options), manual data → bar in three clicks, type switch,
  * database / workspace / spreadsheet sources (live), keyboard readouts, downloads, share view +
  * Markdown, 390 px, dark theme, German, and unit-level checks of ticks and table detection.
+ * On a phone (390 × 844, touch): step 02 draws every type from typed, pasted and database data;
+ * without numbers the cards are marked samples under one hint that leads back to step 01.
  */
 import { readFileSync } from 'node:fs'
 import type { Locator, Page } from '@playwright/test'
@@ -542,3 +544,232 @@ test.describe('charts', () => {
     expect(r.kpi).not.toContain('var(--')
   })
 })
+
+/* ------------------------------------------------------------------ */
+/* Phone: the builder at 390 × 844 with touch                          */
+/* ------------------------------------------------------------------ */
+
+/** Marks of every chart type (bars, lines, areas, slices, points, the KPI number). */
+const MARKS = '.ch-bar, .ch-line, .ch-area, .ch-slice, .ch-point, .ch-kpi-value'
+
+/** Step 02: all nine cards draw the real data — no sample, no empty state, a picture of real size. */
+async function expectRealCards(dialog: Locator) {
+  const cards = dialog.locator('.chb-type')
+  await expect(cards).toHaveCount(9)
+  await expect(dialog.locator('.chb-typehint')).toHaveCount(0)
+  for (const card of await cards.all()) {
+    const kind = (await card.getAttribute('data-kind')) ?? ''
+    await expect(card, kind).not.toHaveClass(/is-sample/)
+    await expect(card.locator('svg.ch-svg'), kind).toHaveCount(1)
+    await expect(card.locator('svg.ch-svg--empty'), kind).toHaveCount(0)
+    expect(await card.locator(MARKS).count(), kind).toBeGreaterThan(0)
+    const box = (await card.locator('svg.ch-svg').boundingBox())!
+    expect(box.width, kind).toBeGreaterThan(60)
+    expect(box.height, kind).toBeGreaterThan(40)
+  }
+}
+
+/** No element matching `selector` cuts its text off. */
+async function expectNoClipping(root: Locator, selector: string) {
+  const clipped = await root.locator(selector).evaluateAll((els) => els.filter((e) => e.scrollWidth > e.clientWidth + 1).map((e) => `${e.className}: ${e.textContent}`))
+  expect(clipped).toEqual([])
+}
+
+/** A paste event with plain text (what a phone's paste puts on the clipboard). */
+async function paste(target: Locator, text: string) {
+  await target.evaluate((el, text) => {
+    const dt = new DataTransfer()
+    dt.setData('text/plain', text)
+    el.dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }))
+  }, text)
+}
+
+test.describe('charts on a phone', () => {
+  test.use({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true })
+
+  test('typed data: every type card draws it; the footer keys stay on screen', async ({ page }) => {
+    await openApp(page)
+    const id = await createPage(page, { title: 'Phone chart', content: doc(para('Numbers')) })
+    await gotoPage(page, id)
+    await slashChart(page, editorOf(page, id), 'Numbers')
+    const dialog = page.getByRole('dialog', { name: 'New chart' })
+    await dialog.getByRole('radio', { name: /Enter data/ }).tap()
+    const cell = (r: number, c: number) => dialog.getByRole('textbox', { name: `Row ${r}, column ${c}` })
+    // touch has no hover: the remove keys are there anyway (and a tap lands on them)
+    await dialog.getByRole('button', { name: 'Remove column 3' }).tap()
+    await expect(dialog.locator('.chb-manual__grid thead th')).toHaveCount(3)
+    const table = [
+      ['Region', 'Visits'],
+      ['North', '7'],
+      ['South', '11'],
+      ['East', '13'],
+      ['West', '17'],
+      ['Central', '19'],
+    ]
+    for (const [r, row] of table.entries()) for (const [c, v] of row.entries()) await cell(r + 1, c + 1).fill(v)
+    await dialog.getByRole('button', { name: 'Next' }).tap()
+
+    await expectRealCards(dialog)
+    // the cards show these numbers, not a sample: 7 + 11 + 13 + 17 + 19
+    await expect(dialog.locator('.chb-type[data-kind="kpi"] .ch-kpi-value')).toHaveText('67')
+    await expect(dialog.locator('.chb-type[data-kind="donut"] .ch-center')).toHaveText('67')
+    await expect(dialog.getByRole('radio', { name: /^Bar/ })).toContainText('Suggested')
+    await expectNoClipping(dialog, '.chb-type__name, .chb-type__kind, .chb-type__tag')
+    expect(await dialog.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true)
+    const insert = dialog.getByRole('button', { name: 'Insert chart' })
+    const box = (await insert.boundingBox())!
+    expect(box.y + box.height).toBeLessThanOrEqual(844)
+
+    await insert.tap()
+    await expect(dialog).toBeHidden()
+    await expect.poll(async () => ((await storedCharts(page, id))[0]?.source as { rows?: unknown[][] })?.rows?.[5]).toEqual(['Central', 19])
+  })
+
+  test('pasted "label number" lines (a phone\'s notes) fill the grid and every card', async ({ page }) => {
+    await openApp(page)
+    const id = await createPage(page, { title: 'Pasted chart', content: doc(para('Paste here')) })
+    await gotoPage(page, id)
+    await slashChart(page, editorOf(page, id), 'Paste here')
+    const dialog = page.getByRole('dialog', { name: 'New chart' })
+    await dialog.getByRole('radio', { name: /Enter data/ }).tap()
+    await dialog.getByRole('button', { name: 'Remove column 3' }).tap()
+    const cell = (r: number, c: number) => dialog.getByRole('textbox', { name: `Row ${r}, column ${c}` })
+    await paste(cell(1, 1), 'Region Sales\nNorth 7\nSouth 11\nEast 13\nWest 17\nCentral 19\n')
+    await expect(cell(1, 2)).toHaveValue('Sales')
+    await expect(cell(2, 1)).toHaveValue('North')
+    await expect(cell(2, 2)).toHaveValue('7')
+    await expect(cell(6, 2)).toHaveValue('19')
+    await dialog.getByRole('button', { name: 'Next' }).tap()
+    await expectRealCards(dialog)
+    await expect(dialog.locator('.chb-type[data-kind="kpi"] .ch-kpi-value')).toHaveText('67')
+  })
+
+  test('database source: every card draws the rows; an empty database shows samples, Insert still works', async ({ page }) => {
+    await openApp(page)
+    const P = await projects(page)
+    const id = await createPage(page, { title: 'Phone db chart', content: doc(para('Board')) })
+    await wsEval(page, (s, parentId) => s.createDatabase({ title: 'Empty board', parentId }), id)
+    await gotoPage(page, id)
+    await slashChart(page, editorOf(page, id), 'Board')
+    const dialog = page.getByRole('dialog', { name: 'New chart' })
+    await dialog.getByRole('radio', { name: /Database/ }).tap()
+    await dialog.getByLabel('Database', { exact: true }).selectOption({ label: 'Projects' })
+    await dialog.getByRole('button', { name: 'Next' }).tap()
+    await expectRealCards(dialog)
+    const rows = await wsEval(page, (s, P) => (Object.values(s.pages) as Spec[]).filter((r) => r.databaseId === P.id && !r.trashed).length, P)
+    await expect(dialog.locator('.chb-type[data-kind="kpi"] .ch-kpi-value')).toHaveText(String(rows))
+
+    // a database without rows: samples + the "fills in later" hint; a live chart can still go in
+    await dialog.getByRole('button', { name: 'Back' }).tap()
+    await dialog.getByLabel('Database', { exact: true }).selectOption({ label: 'Empty board' })
+    await dialog.getByRole('button', { name: 'Next' }).tap()
+    await expect(dialog.locator('.chb-typehint')).toContainText('No numbers in this source yet')
+    await expect(dialog.locator('.chb-type.is-sample')).toHaveCount(9)
+    await dialog.getByRole('button', { name: 'Insert chart' }).tap()
+    await expect(dialog).toBeHidden()
+    await expect.poll(async () => ((await storedCharts(page, id))[0]?.source as { kind?: string })?.kind).toBe('database')
+  })
+
+  test('no numbers yet (German): samples marked BEISPIEL, one hint, its key returns to 01; nothing cut off', async ({ page }) => {
+    await openApp(page)
+    await wsEval(page, (s) => s.updateSettings({ language: 'de' }))
+    const id = await createPage(page, { title: 'Leer', content: doc(para('Zahlen')) })
+    await gotoPage(page, id)
+    await slashChart(page, editorOf(page, id), 'Zahlen', '/diagramm')
+    const dialog = page.getByRole('dialog', { name: 'Neues Diagramm' })
+    await dialog.getByRole('radio', { name: /Daten eingeben/ }).tap()
+    const cell = (r: number, c: number) => dialog.getByRole('textbox', { name: `Zeile ${r}, Spalte ${c}` })
+    // the reported case: labels typed, no numbers (yet)
+    for (let r = 2; r <= 6; r++) for (let c = 2; c <= 3; c++) await cell(r, c).fill('')
+    await dialog.getByRole('button', { name: 'Weiter' }).tap()
+
+    const hint = dialog.locator('.chb-typehint')
+    await expect(hint).toHaveCount(1)
+    await expect(hint).toContainText('Noch keine Daten — in 01 Daten eintragen')
+    await expect(hint).toContainText('Die Karten zeigen Beispieldaten.')
+    const cards = dialog.locator('.chb-type')
+    await expect(cards).toHaveCount(9)
+    for (const card of await cards.all()) {
+      const kind = (await card.getAttribute('data-kind')) ?? ''
+      await expect(card, kind).toHaveClass(/is-sample/)
+      await expect(card.locator('.chb-type__sample'), kind).toHaveText('Beispiel')
+      await expect(card.locator('svg.ch-svg--empty'), kind).toHaveCount(0)
+      expect(await card.locator(MARKS).count(), kind).toBeGreaterThan(0)
+    }
+    // no "suggested" for a sample, no greyed misfits
+    await expect(dialog.locator('.chb-type__tag')).toHaveCount(0)
+    await expect(dialog.locator('.chb-type.is-misfit')).toHaveCount(0)
+    await expectNoClipping(dialog, '.chb-type__name, .chb-type__kind, .chb-type__sample, .chb-typehint__text, .chb-typehint__main, .chb-typehint__note, .chb-typehint__key')
+    // an empty typed table cannot go in; a type can still be picked
+    await expect(dialog.getByRole('button', { name: 'Diagramm einfügen' })).toBeDisabled()
+    await dialog.getByRole('radio', { name: /Linie/ }).tap()
+    await expect(dialog.getByRole('radio', { name: /Linie/ })).toHaveAttribute('aria-checked', 'true')
+
+    // the hint's key: back to 01, the grid there to type into
+    await dialog.getByRole('button', { name: 'Zurück zu 01 Daten' }).tap()
+    await expect(dialog.locator('.chb__step[aria-current="step"]')).toContainText('Daten')
+    await expect(cell(2, 2)).toBeInViewport()
+    await cell(2, 2).fill('5')
+    await dialog.getByRole('button', { name: 'Weiter' }).tap()
+    await expect(hint).toHaveCount(0)
+    await expect(dialog.locator('.chb-type.is-sample')).toHaveCount(0)
+    await expect(dialog.locator('.chb-type[data-kind="line"] svg.ch-svg')).toBeVisible()
+    await expect(dialog.getByRole('button', { name: 'Diagramm einfügen' })).toBeEnabled()
+  })
+})
+
+test('unit: phone-style pasted lines, wrapped messages instead of clipped ones', async ({ page }) => {
+  await openApp(page)
+  const r = await page.evaluate(() => {
+    const C = (window as unknown as { __oneCharts: Record<string, (...a: unknown[]) => unknown> }).__oneCharts
+    const rows = (text: string) => C.rowsFromText(text) as string[][]
+    const svg = (width: number, error: string) => C.chartToSvg({ kind: 'bar', source: { kind: 'manual', rows: [] } }, { labels: [], series: [], error }, { width, theme: 'light' }) as string
+    return {
+      p1: rows('Jan 12\nFeb 18\nMar 15'),
+      p2: rows('Month Revenue\nJan: 1,5\nFeb 2,25'),
+      p3: rows('Website relaunch 18.000 €\nBrand refresh 9.500 €'),
+      p4: rows('North 1 2\nSouth 3 4'),
+      csv: rows('Jan, 12\nFeb, 18'),
+      csv2: rows('Design,12,9\nSales,15,17'),
+      tsv: rows('A\t1\nB\t2'),
+      prose: rows('Some words\nmore words'),
+      narrow: svg(150, 'Source not available — it was deleted or moved to the trash'),
+      wide: svg(700, 'Source not available — it was deleted or moved to the trash'),
+    }
+  })
+  expect(r.p1).toEqual([
+    ['Jan', '12'],
+    ['Feb', '18'],
+    ['Mar', '15'],
+  ])
+  expect(r.p2).toEqual([
+    ['Month', 'Revenue'],
+    ['Jan', '1,5'],
+    ['Feb', '2,25'],
+  ])
+  expect(r.p3).toEqual([
+    ['Website relaunch', '18.000 €'],
+    ['Brand refresh', '9.500 €'],
+  ])
+  expect(r.p4).toEqual([
+    ['North', '1', '2'],
+    ['South', '3', '4'],
+  ])
+  expect(r.csv).toEqual([
+    ['Jan', '12'],
+    ['Feb', '18'],
+  ])
+  expect(r.csv2[1]).toEqual(['Sales', '15', '17'])
+  expect(r.tsv).toEqual([
+    ['A', '1'],
+    ['B', '2'],
+  ])
+  expect(r.prose).toEqual([['Some words'], ['more words']])
+  // narrow: the message wraps over several lines, every word whole
+  const lines = [...r.narrow.matchAll(/class="ch-message"[^>]*>([^<]*)</g)].map((m) => m[1])
+  expect(lines.length).toBeGreaterThan(2)
+  expect(lines.join(' ')).toBe('SOURCE NOT AVAILABLE — IT WAS DELETED OR MOVED TO THE TRASH')
+  // wide: one line
+  expect([...r.wide.matchAll(/class="ch-message"/g)]).toHaveLength(1)
+})
+

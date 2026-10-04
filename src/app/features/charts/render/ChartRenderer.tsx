@@ -35,7 +35,8 @@ export function useSceneText(): SceneText {
   return useMemo(() => ({ other: t('charts.other'), total: t('charts.total'), versus: (label: string) => t('charts.versus', { label }), noData: t('charts.state.noData') }), [t])
 }
 
-function useWidth(ref: React.RefObject<HTMLDivElement | null>): number {
+/** Content width of an element, kept current with a ResizeObserver (0 until it is laid out). */
+export function useWidth(ref: React.RefObject<HTMLElement | null>): number {
   const [w, setW] = useState(0)
   useLayoutEffect(() => {
     const el = ref.current

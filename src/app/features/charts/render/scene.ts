@@ -32,6 +32,8 @@ export interface SceneOptions {
   title?: boolean
   /** paint the surface behind the chart (downloads) */
   background?: boolean
+  /** thumbnails (the builder's type cards): the donut without its list */
+  compact?: boolean
 }
 
 export interface TargetRow {
@@ -154,21 +156,53 @@ function finish(ctx: Ctx, body: Body): Scene {
 
 function messageScene(spec: ChartSpec, width: number, opts: SceneOptions, message: string): Scene {
   const height = Math.max(96, Math.min(opts.height, 160))
-  const text = clip(message.toLocaleUpperCase(opts.lang === 'de' ? 'de-DE' : 'en-US'), Math.max(8, Math.floor((width - 80) / 7.2)))
-  const tw = monoWidth(text, 10.5, 0.84)
+  const upper = message.toLocaleUpperCase(opts.lang === 'de' ? 'de-DE' : 'en-US')
+  const cw = 10.5 * 0.6 + 0.84
   const cx = width / 2
   const cy = height / 2
   const nodes: VNode[] = []
   if (opts.background) nodes.push(h('rect', { x: 0, y: 0, width, height, fill: 'var(--surface)' }))
   if (opts.title && spec.title) nodes.push(h('text', { x: 0, y: 16, 'font-family': FONT_SANS, 'font-size': 15, 'font-weight': 700, fill: 'var(--ink)' }, spec.title))
-  const line = Math.max(0, Math.min(80, (width - tw) / 2 - 16))
-  if (line > 8) {
-    nodes.push(h('line', { x1: cx - tw / 2 - 12 - line, x2: cx - tw / 2 - 12, y1: cy, y2: cy, stroke: 'var(--rule-strong)', 'stroke-width': 1 }))
-    nodes.push(h('line', { x1: cx + tw / 2 + 12, x2: cx + tw / 2 + 12 + line, y1: cy, y2: cy, stroke: 'var(--rule-strong)', 'stroke-width': 1 }))
+  const text = { 'text-anchor': 'middle', 'font-family': FONT_MONO, 'font-size': 10.5, 'letter-spacing': 0.84, fill: 'var(--ink-3)', class: 'ch-message' }
+  const tw = monoWidth(upper, 10.5, 0.84)
+  if (tw + 2 * (12 + 9) <= width) {
+    // one line between two hairlines
+    const line = Math.max(0, Math.min(80, (width - tw) / 2 - 16))
+    if (line > 8) {
+      nodes.push(h('line', { x1: cx - tw / 2 - 12 - line, x2: cx - tw / 2 - 12, y1: cy, y2: cy, stroke: 'var(--rule-strong)', 'stroke-width': 1 }))
+      nodes.push(h('line', { x1: cx + tw / 2 + 12, x2: cx + tw / 2 + 12 + line, y1: cy, y2: cy, stroke: 'var(--rule-strong)', 'stroke-width': 1 }))
+    }
+    nodes.push(h('text', { ...text, x: cx, y: cy, dy: '0.35em' }, upper))
+  } else {
+    // narrow: the message wraps (never clipped to a few letters), a short rule above it
+    const lines = wrapWords(upper, Math.max(6, Math.floor((width - 8) / cw)), 4)
+    const lh = 15
+    const y0 = cy - ((lines.length - 1) * lh) / 2
+    nodes.push(h('line', { x1: cx - 12, x2: cx + 12, y1: y0 - 16.5, y2: y0 - 16.5, stroke: 'var(--rule-strong)', 'stroke-width': 1 }))
+    lines.forEach((l, i) => nodes.push(h('text', { ...text, x: cx, y: y0 + i * lh, dy: '0.35em' }, l)))
   }
-  nodes.push(h('text', { x: cx, y: cy, dy: '0.35em', 'text-anchor': 'middle', 'font-family': FONT_MONO, 'font-size': 10.5, 'letter-spacing': 0.84, fill: 'var(--ink-3)', class: 'ch-message' }, text))
   const svg = h('svg', { xmlns: 'http://www.w3.org/2000/svg', viewBox: `0 0 ${width} ${height}`, width, height, class: 'ch-svg ch-svg--empty', role: 'img', 'aria-label': message }, ...nodes)
   return { svg, width, height, targets: [], crosshair: null, marker: false }
+}
+
+/** Words into lines of at most `chars` characters (long words are clipped); a cut-off last line ends in …. */
+export function wrapWords(text: string, chars: number, maxLines: number): string[] {
+  const lines: string[] = []
+  let cur = ''
+  for (const w of text.split(/\s+/).filter(Boolean)) {
+    const next = cur ? `${cur} ${w}` : w
+    if (next.length <= chars) cur = next
+    else {
+      if (cur) lines.push(cur)
+      cur = clip(w, chars)
+    }
+  }
+  if (cur) lines.push(cur)
+  if (lines.length <= maxLines) return lines
+  const head = lines.slice(0, maxLines)
+  const last = head[maxLines - 1]
+  head[maxLines - 1] = last.length < chars ? `${last}…` : `${last.slice(0, chars - 1).trimEnd()}…`
+  return head
 }
 
 /** Legend row(s) for ≥ 2 series (or forced); returns the height used. */
@@ -598,9 +632,10 @@ function donut(ctx: Ctx): Body {
     slices = [...slices.filter((x) => keep.has(x.i)), { i: -1, label: opts.text.other, value: rest.reduce((a, x) => a + x.value, 0), color: 'var(--ink-3)' }]
   }
   const total = slices.reduce((a, x) => a + x.value, 0) || 1
-  const wide = width >= 440
+  const compact = !!opts.compact
+  const wide = !compact && width >= 440
   const top = ctx.frame.top + 6
-  const D = Math.max(96, Math.min(ctx.height - 12, wide ? Math.min(260, width * 0.42) : Math.min(240, width - 24)))
+  const D = compact ? Math.max(40, Math.min(ctx.height - 12, width - 8)) : Math.max(96, Math.min(ctx.height - 12, wide ? Math.min(260, width * 0.42) : Math.min(240, width - 24)))
   const r = D / 2
   const ri = r * 0.62
   const cx = wide ? r + 4 : width / 2
@@ -634,7 +669,8 @@ function donut(ctx: Ctx): Body {
   nodes.push(h('text', { x: cx, y: cy - 2, 'text-anchor': 'middle', 'font-family': FONT_SANS, 'font-size': size, 'font-weight': 800, 'font-stretch': '125%', fill: 'var(--ink)', class: 'ch-center' }, totalText))
   nodes.push(h('text', { ...TICK, x: cx, y: cy + 16, 'text-anchor': 'middle', class: 'ch-centerlabel' }, opts.text.total.toLocaleUpperCase()))
 
-  // legend list: swatch · label · value · share
+  // legend list: swatch · label · value · share (not on thumbnails)
+  if (compact) return { nodes, height: top + D + 6, targets }
   const listX = wide ? D + 32 : 0
   const listW = wide ? width - listX : width
   let ly = wide ? top + Math.max(0, r - (slices.length * 24) / 2) : top + D + 18
@@ -756,7 +792,8 @@ function sparkline(ctx: Ctx): Body {
   const nodes: VNode[] = []
   const { last } = lastTwo(s.values)
   const lastText = formatValue(last, fmt)
-  nodes.push(h('text', { ...TICK, 'font-size': 10.5, 'letter-spacing': 0.84, x: 0, y: top + 12, class: 'ch-kpi-label' }, clip(s.name.toLocaleUpperCase(), Math.floor((width - 120) / 7))))
+  const valueW = sansWidth(lastText, 20) * 1.2
+  nodes.push(h('text', { ...TICK, 'font-size': 10.5, 'letter-spacing': 0.84, x: 0, y: top + 12, class: 'ch-kpi-label' }, clip(s.name.toLocaleUpperCase(), Math.floor((width - valueW - 12) / 7.14))))
   nodes.push(h('text', { x: width, y: top + 16, 'text-anchor': 'end', 'font-family': FONT_SANS, 'font-size': 20, 'font-weight': 800, 'font-stretch': '125%', fill: 'var(--ink)', class: 'ch-kpi-value' }, lastText))
   const sy = top + 30
   const sh = Math.max(24, ctx.height - 54)
@@ -766,9 +803,18 @@ function sparkline(ctx: Ctx): Body {
   const vals = s.values.filter(finite)
   const lo = Math.min(...vals)
   const hi = Math.max(...vals)
-  nodes.push(h('text', { ...TICK, x: 0, y: sy + sh + 16, class: 'ch-tick' }, `${data.labels[0] ?? ''}`))
-  nodes.push(h('text', { ...TICK, x: width, y: sy + sh + 16, 'text-anchor': 'end', class: 'ch-tick' }, `${data.labels[data.labels.length - 1] ?? ''}`))
-  nodes.push(h('text', { ...TICK, x: width / 2, y: sy + sh + 16, 'text-anchor': 'middle', class: 'ch-tick' }, `${formatValue(lo, fmt)} – ${formatValue(hi, fmt)}`))
+  // first label · min – max · last label — the range goes first when space is short, then the labels shorten
+  const cw = 10 * 0.6 + 0.4
+  const range = `${formatValue(lo, fmt)} – ${formatValue(hi, fmt)}`
+  const ends = Math.max(3, Math.floor((width / 2 - 8) / cw))
+  const first = clip(data.labels[0] ?? '', ends)
+  const lastLabel = clip(data.labels[data.labels.length - 1] ?? '', ends)
+  const side = (width - range.length * cw) / 2 - 10
+  const withRange = Math.max(first.length, lastLabel.length) * cw <= side
+  const by = sy + sh + 16
+  nodes.push(h('text', { ...TICK, x: 0, y: by, class: 'ch-tick' }, first))
+  if (data.labels.length > 1) nodes.push(h('text', { ...TICK, x: width, y: by, 'text-anchor': 'end', class: 'ch-tick' }, lastLabel))
+  if (withRange) nodes.push(h('text', { ...TICK, x: width / 2, y: by, 'text-anchor': 'middle', class: 'ch-tick' }, range))
   const targets: SceneTarget[] = []
   const n = s.values.length
   sp.pts.forEach((p, i) => {

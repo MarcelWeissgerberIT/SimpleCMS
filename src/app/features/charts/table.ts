@@ -182,10 +182,53 @@ export function chartDataToTsv(data: ChartData, labelHeader = ''): string {
     .join('\n')
 }
 
-/** Pasted text (TSV from a spreadsheet, or CSV / semicolon lists) → grid rows. */
+/** Pasted text (TSV from a spreadsheet, or CSV / semicolon lists, or "label number" lines) → grid rows. */
 export function rowsFromText(text: string, maxRows = 400, maxCols = 24): string[][] {
   const lines = text.replace(/\r\n?/g, '\n').split('\n')
   while (lines.length && !lines[lines.length - 1].trim()) lines.pop()
-  const sep = lines.some((l) => l.includes('\t')) ? '\t' : lines.every((l) => !l.trim() || l.includes(';')) ? ';' : ','
-  return lines.slice(0, maxRows).map((l) => l.split(sep).slice(0, maxCols).map((c) => c.trim().replace(/^"(.*)"$/, '$1')))
+  const split = (sep: string) => lines.slice(0, maxRows).map((l) => l.split(sep).slice(0, maxCols).map((c) => c.trim().replace(/^"(.*)"$/, '$1')))
+  if (lines.some((l) => l.includes('\t'))) return split('\t')
+  if (lines.every((l) => !l.trim() || l.includes(';'))) return split(';')
+  return labelNumberRows(lines.slice(0, maxRows), maxCols) ?? split(',')
+}
+
+const NUM = String.raw`\(?[-+]?[€$£¥₹]?\d[\d.,'\u00a0\u202f]*[%€$£¥₹]?\)?`
+const NUM_ONLY = new RegExp(`^${NUM}$`)
+/** "Jan 12", "Jan: 12 15", "Website relaunch 18.000 €", "Q1 = 1,5" */
+const LABEL_NUMBERS = new RegExp(String.raw`^(.*?\S)(?:\s*[:=]\s*|\s+)((?:${NUM})(?:\s+${NUM})*|[€$£¥₹]\s?${NUM}|${NUM}\s?[%€$£¥₹])$`)
+
+/**
+ * Lines with a label and trailing numbers, separated by spaces (what a phone's notes app or a
+ * copied web page gives). A first line without digits is the header. Null when the text is
+ * not like that (≥ 2 such lines, no comma inside a label — "Jan, 12" stays CSV).
+ */
+function labelNumberRows(lines: string[], maxCols: number): string[][] | null {
+  const rows: string[][] = []
+  let matched = 0
+  let width = 2
+  let header: string | null = null
+  for (let i = 0; i < lines.length; i++) {
+    const l = lines[i].trim()
+    if (!l) {
+      rows.push([''])
+      continue
+    }
+    const m = l.length <= 240 ? LABEL_NUMBERS.exec(l) : null
+    if (m && !m[1].includes(',')) {
+      const tokens = m[2].split(/\s+/)
+      const nums = tokens.length > 1 && tokens.every((x) => NUM_ONLY.test(x)) ? tokens : [m[2]]
+      rows.push([m[1], ...nums].slice(0, maxCols))
+      width = Math.max(width, Math.min(maxCols, nums.length + 1))
+      matched++
+    } else if (i === 0 && !/\d/.test(l)) {
+      header = l
+      rows.push([l])
+    } else return null
+  }
+  if (matched < 2) return null
+  if (header !== null) {
+    const words = header.split(/\s+/)
+    if (words.length === width) rows[0] = words
+  }
+  return rows
 }
