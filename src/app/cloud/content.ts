@@ -350,6 +350,18 @@ function remember(e: Entry, json: JSONContent, page: Page) {
 
 /* ------------------------------------------------------------------ editor handles */
 
+/**
+ * Hand what the document received (local copy, server, others) to the store now — before an editor
+ * binds to it. The editor's own first changes (block ids, a trailing line …) are local edits: had the
+ * loaded state not reached the store yet, the next refresh would pass all of it off as typed in this
+ * tab, and a copy that is merely stale (a synced block, say) would look like this tab's edit.
+ */
+function settle(e: Entry) {
+  if (e.refreshTimer === undefined || entries.get(e.pageId) !== e) return
+  window.clearTimeout(e.refreshTimer)
+  refresh(e)
+}
+
 export function acquire(pageId: ID): ContentDocHandle | null {
   if (!ctx || !PAGE_ID.test(pageId)) return null
   const e = ensure(pageId)
@@ -361,9 +373,10 @@ export function acquire(pageId: ID): ContentDocHandle | null {
       await e.loaded
       // first time on this device: wait (briefly) for the server's copy instead of showing an empty page
       if (!e.doc.getXmlFragment(FIELD).length && isConnected() && !e.synced) await within(e.firstSync, 4000, undefined)
+      settle(e)
     })()
     e.handle = { doc: e.doc, provider: e.provider, field: FIELD, user: { name: u.name, color: u.color }, readOnly: !ctx.writable(), ready }
-  }
+  } else if (e.isLoaded) settle(e)
   e.handle.readOnly = !ctx.writable()
   return e.handle
 }

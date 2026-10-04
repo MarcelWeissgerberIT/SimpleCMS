@@ -6,7 +6,8 @@
  *  - The SOURCE of a group is its earliest live original (page createdAt, id, document order);
  *    later originals (duplicated page / block, template, import) become references to it.
  *  - A page's content changed (origin = who wrote it):
- *      · a block of a group differs from the canon → that block was edited: it becomes the canon
+ *      · a block of a group that this write changed differs from the canon → that block was edited
+ *        (a copy the write left as it was is only stale, never the lead): it becomes the canon
  *        and every other copy (the original included) is rewritten — setContent(…, 'synced'),
  *        only the blocks of that group, unchanged child blocks keep their ids (open editors patch
  *        the changed range and keep the caret)
@@ -225,10 +226,32 @@ const groupsOf = (scan: Scan | undefined) => {
   return m
 }
 
+/**
+ * The copies of a group that this write changed (indexes into `scan`), by comparison with the
+ * page's copies before it: paired in document order, or — when copies came or went — by content.
+ * A copy the write left as it was never leads, even when it differs from the canon: it is merely
+ * stale (its update is still on the way — e.g. a team page whose content arrived together with a
+ * local change elsewhere on it) and must not overwrite the newer canon.
+ */
+function writtenCopies(idx: number[], scan: Scan, prev: string[]): number[] {
+  if (prev.length === idx.length) return idx.filter((i, k) => scan.keys[i] !== prev[k])
+  const left = [...prev]
+  return idx.filter((i) => {
+    const at = left.indexOf(scan.keys[i])
+    if (at < 0) return true
+    left.splice(at, 1)
+    return false
+  })
+}
+
 /** A page's content changed: who leads — this page's copy, or the canon? */
 function decide(pageId: ID, origin: string | null, before: Scan | undefined, scan: Scan, pass: Pass) {
-  const countBefore = new Map<string, number>()
-  before?.hits.forEach((h) => countBefore.set(h.syncId, (countBefore.get(h.syncId) ?? 0) + 1))
+  const keysBefore = new Map<string, string[]>()
+  before?.hits.forEach((h, i) => {
+    const list = keysBefore.get(h.syncId)
+    if (list) list.push(before.keys[i])
+    else keysBefore.set(h.syncId, [before.keys[i]])
+  })
   const remote = pass.remote || origin === 'sync'
   for (const [syncId, idx] of groupsOf(scan)) {
     const known = canonKey.get(syncId)
@@ -238,14 +261,15 @@ function decide(pageId: ID, origin: string | null, before: Scan | undefined, sca
       continue
     }
     if (origin === SYNCED_ORIGIN) continue
-    const changed = idx.filter((i) => scan.keys[i] !== known)
+    const prev = keysBefore.get(syncId) ?? []
+    const changed = writtenCopies(idx, scan, prev).filter((i) => scan.keys[i] !== known)
     if (!changed.length) continue
     const lead = changed.find((i) => !scan.hits[i].sourcePageId) ?? changed[0]
     if (remote || !pass.write) {
       setCanonFrom(syncId, scan.hits[lead].node.content, scan.keys[lead])
       continue
     }
-    const arrived = idx.length > (countBefore.get(syncId) ?? 0)
+    const arrived = idx.length > prev.length
     const revivedOriginal = arrived && !syncedEntry(syncId)?.source && changed.some((i) => !scan.hits[i].sourcePageId)
     const restored = !!origin && PULL_ORIGINS.has(origin) && changed.every((i) => !!scan.hits[i].sourcePageId)
     if ((arrived && !revivedOriginal) || restored) {

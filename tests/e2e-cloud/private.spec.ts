@@ -197,8 +197,11 @@ test.describe('team cloud — private pages', () => {
     // Ada's side: it left her private section, the private content document is purged on the server
     expect(await wsEval(a, (s, ids) => ids.map((id: string) => !!s.pages[id].private), [pageId, dbId, rowId])).toEqual([false, false, false])
     await expect(a.getByTestId('private-section').locator('.sb-row', { hasText: 'Secret plan' })).toHaveCount(0)
-    await expect.poll(() => stored(`ws:${wsId}:u:${ada}:p:${pageId}`), { timeout: 15_000 }).toEqual([])
-    expect(tombstoned(`ws:${wsId}:u:${ada}:p:${pageId}`)).toBe(true)
+    // (the purge follows the move once both meta documents are confirmed: wait for its tombstone —
+    // "not stored" alone proves nothing, a document younger than the server's store debounce may never
+    // have been stored)
+    await expect.poll(() => tombstoned(`ws:${wsId}:u:${ada}:p:${pageId}`), { timeout: 15_000 }).toBe(true)
+    expect(stored(`ws:${wsId}:u:${ada}:p:${pageId}`)).toEqual([])
 
     // Bob edits it while it is shared
     await editorOf(b, pageId).click()
@@ -232,8 +235,8 @@ test.describe('team cloud — private pages', () => {
     expect(await wsEval(a, (s, ids) => ids.map((id: string) => !!s.pages[id].private), [pageId, dbId, rowId])).toEqual([true, true, true])
     // the workspace's content documents are purged (and tombstoned); the private ones are back
     for (const id of [pageId, rowId]) {
-      await expect.poll(() => stored(`ws:${wsId}:p:${id}`), { timeout: 15_000 }).toEqual([])
-      expect(tombstoned(`ws:${wsId}:p:${id}`)).toBe(true)
+      await expect.poll(() => tombstoned(`ws:${wsId}:p:${id}`), { timeout: 15_000 }).toBe(true)
+      expect(stored(`ws:${wsId}:p:${id}`)).toEqual([])
     }
     await expect.poll(() => stored(`ws:${wsId}:u:${ada}:p:${pageId}`).length, { timeout: 15_000 }).toBe(1)
 
@@ -243,6 +246,10 @@ test.describe('team cloud — private pages', () => {
     await a.keyboard.type(' (private again)')
     await a.waitForTimeout(1500)
     await expectNoSecret(b, [pageId, dbId, rowId])
+    // the workspace's copies stay gone (a late store of a copy still open somewhere is refused)
+    await a.waitForTimeout(1000)
+    expect(stored(`ws:${wsId}:p:${pageId}`)).toEqual([])
+    expect(stored(`ws:${wsId}:p:${rowId}`)).toEqual([])
     await b.context().close()
   })
 

@@ -36,6 +36,34 @@ test.describe('navigation', () => {
     await expect(ed).toContainText('caret lives here still typing')
   })
 
+  // regression: focus given back with a plain focus() put the caret at the start when the last click
+  // in the editor was under 300 ms ago (ProseMirror then trusts the browser's reset) — quick hands lost it
+  test('the palette and dialogs give the editor its caret back, even right after a click', async ({ page }) => {
+    await openApp(page)
+    const id = await createPage(page, { title: 'Quick hands', content: doc(para('caret lives here')) })
+    await gotoPage(page, id)
+    const ed = editorOf(page, id)
+    await ed.locator('p').first().click()
+    await page.keyboard.press('End')
+    await expect(ed).toBeFocused()
+    await page.keyboard.press(`${MOD}+k`)
+    await expect(page.getByRole('dialog', { name: 'Command palette' })).toBeVisible()
+    await page.keyboard.press('Escape')
+    await expect(ed).toBeFocused()
+    await page.keyboard.type(' A')
+    await expect(ed).toContainText('caret lives here A')
+    // a dialog (settings) does the same
+    await ed.locator('p').first().click()
+    await page.keyboard.press('End')
+    await page.keyboard.press(`${MOD}+,`)
+    await expect(page.getByRole('dialog')).toBeVisible()
+    await page.keyboard.press('Escape')
+    await expect(page.getByRole('dialog')).toHaveCount(0)
+    await expect(ed).toBeFocused()
+    await page.keyboard.type(' B')
+    await expect(ed).toContainText('caret lives here A B')
+  })
+
   test('start page setting and collapsed sidebar survive a reload', async ({ page }) => {
     await openApp(page)
     await page.keyboard.press(`${MOD}+,`)

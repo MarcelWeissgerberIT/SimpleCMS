@@ -48,6 +48,20 @@ const docText = (p: Page, id: string) =>
 const count = (s: string, part: string) => s.split(part).length - 1
 const P = (text: string) => ({ type: 'paragraph', content: [{ type: 'text', text }] })
 
+/** Ada (`p`) writes the original on a page "Handbook" and a reference to it on "Onboarding". */
+const handbook = (p: Page) =>
+  wsEval(
+    p,
+    (s, arg) => {
+      const src = s.createPage({ title: 'Handbook' })
+      s.setContent(src, { type: 'doc', content: [arg.intro, { type: 'syncedBlock', attrs: { syncId: 'cloud-grp', sourcePageId: null }, content: [arg.shared] }] }, 'e2e')
+      const ref = s.createPage({ title: 'Onboarding' })
+      s.setContent(ref, { type: 'doc', content: [arg.welcome, { type: 'syncedBlock', attrs: { syncId: 'cloud-grp', sourcePageId: src }, content: [arg.shared] }] }, 'e2e')
+      return { src: src as string, ref: ref as string }
+    },
+    { intro: P('Handbook intro'), welcome: P('Welcome aboard'), shared: P('Office hours 9 to 5') },
+  )
+
 test('team workspace: a reference edit reaches the original once, for everyone; the original edits flow back', async ({ page: a, context }) => {
   await person(a, 'ada')
   const wsId = await createWorkspace(a, 'Synced Co')
@@ -60,17 +74,7 @@ test('team workspace: a reference edit reaches the original once, for everyone; 
   await waitOnline(b)
 
   // Ada: the original on "Handbook", a reference on "Onboarding"
-  const { src, ref } = await wsEval(
-    a,
-    (s, arg) => {
-      const src = s.createPage({ title: 'Handbook' })
-      s.setContent(src, { type: 'doc', content: [arg.intro, { type: 'syncedBlock', attrs: { syncId: 'cloud-grp', sourcePageId: null }, content: [arg.shared] }] }, 'e2e')
-      const ref = s.createPage({ title: 'Onboarding' })
-      s.setContent(ref, { type: 'doc', content: [arg.welcome, { type: 'syncedBlock', attrs: { syncId: 'cloud-grp', sourcePageId: src }, content: [arg.shared] }] }, 'e2e')
-      return { src, ref }
-    },
-    { intro: P('Handbook intro'), welcome: P('Welcome aboard'), shared: P('Office hours 9 to 5') },
-  )
+  const { src, ref } = await handbook(a)
 
   // Bob has both pages; he looks at the original
   await expect.poll(() => wsEval(b, (s, id) => s.pages[id]?.plain ?? '', src), { timeout: 20_000 }).toContain('Office hours 9 to 5')
@@ -108,4 +112,54 @@ test('team workspace: a reference edit reaches the original once, for everyone; 
   // the rest of each page is untouched
   expect(await docText(a, ref)).toContain('Welcome aboard')
   expect(await docText(b, src)).toContain('Handbook intro')
+})
+
+/*
+ * Regression (a race that decided runs by machine speed): Bob's tab hands his own change on the
+ * original's page to the store while his copy of the synced block is still the old one — Ada's new
+ * text has reached him through the reference, the original follows a moment later. The old copy
+ * was taken for Bob's edit of the original and written back over Ada's reference.
+ */
+test('team workspace: a copy that is only behind never overwrites a newer edit of the block', async ({ page: a, context }) => {
+  await person(a, 'ada')
+  const wsId = await createWorkspace(a, 'Stale Co')
+  await openApp(a, wsId)
+  await waitOnline(a)
+  const b = await newPerson(context)
+  await person(b, 'bob')
+  await join(a, b, wsId)
+  await openApp(b, wsId)
+  await waitOnline(b)
+  const { src, ref } = await handbook(a)
+
+  // Bob looks at the original, caret at the end of its intro line
+  await expect.poll(() => wsEval(b, (s, id) => s.pages[id]?.plain ?? '', src), { timeout: 20_000 }).toContain('Office hours 9 to 5')
+  await gotoPage(b, src)
+  await expect(editorOf(b, src).locator('[data-type="synced-block"]')).toHaveAttribute('data-role', 'original')
+  await editorOf(b, src).locator('p', { hasText: 'Handbook intro' }).click()
+  await b.waitForTimeout(150)
+  await b.keyboard.press('End')
+
+  // Ada types in the reference; Bob's tab has her text through the reference, not yet through the original
+  await gotoPage(a, ref)
+  const reference = editorOf(a, ref).locator('[data-type="synced-block"]')
+  await reference.locator('p', { hasText: 'Office hours' }).click()
+  await a.waitForTimeout(150)
+  await a.keyboard.press('End')
+  await a.keyboard.type(', Fridays until 3')
+  await expect.poll(() => wsEval(b, (s, id) => s.pages[id]?.plain ?? '', ref), { timeout: 10_000 }).toContain('Fridays until 3')
+  // right then Bob types on the original's page and his tab hands the page to the store at once (tab hidden)
+  await b.keyboard.type(' (v2)')
+  await b.evaluate(() => window.dispatchEvent(new Event('pagehide')))
+
+  // Ada's text stays in the reference and reaches the original — once; Bob's line is kept too
+  await expect.poll(() => wsEval(a, (s, id) => s.pages[id].plain, src), { timeout: 15_000 }).toContain('Office hours 9 to 5, Fridays until 3')
+  await expect.poll(() => docText(b, src), { timeout: 15_000 }).toContain('Office hours 9 to 5, Fridays until 3')
+  await expect(reference).toContainText('Office hours 9 to 5, Fridays until 3')
+  await a.waitForTimeout(2000)
+  expect(count(await docText(a, ref), 'Fridays until 3')).toBe(1)
+  expect(count(await docText(b, src), 'Fridays until 3')).toBe(1)
+  expect(await docText(b, src)).toContain('Handbook intro (v2)')
+  await expect.poll(() => wsEval(a, (s, id) => s.pages[id].plain, src), { timeout: 15_000 }).toContain('Handbook intro (v2)')
+  await b.context().close()
 })

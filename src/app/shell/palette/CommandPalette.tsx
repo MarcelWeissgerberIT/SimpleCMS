@@ -7,6 +7,7 @@ import { inTemplate, isEffectivelyTrashed, selectBreadcrumbs } from '../../store
 import { isAIConfigured, runAI, templateName, templateRoots } from '../../features'
 import { markdownToDoc, ReadOnlyDoc } from '../../editor'
 import { PageIcon } from '../../ui/PageIcon'
+import { restoreFocus as restoreFocusTo } from '../../ui/focus'
 import { shortcutLabel, ALT } from '../../ui/controls'
 import { useT } from '../../i18n'
 import type { ID, Page } from '../../store/types'
@@ -73,7 +74,7 @@ function Palette() {
 
   const finish = (restoreFocus = false) => {
     close()
-    if (restoreFocus) requestAnimationFrame(() => prevFocus.current?.focus?.({ preventScroll: true }))
+    if (restoreFocus) requestAnimationFrame(() => restoreFocusTo(prevFocus.current))
   }
   const openPageItem = (id: ID, pane = false) => {
     finish()

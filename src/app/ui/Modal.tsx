@@ -2,6 +2,7 @@ import { useEffect, useId, useRef, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { X } from 'lucide-react'
 import { useT } from '../i18n'
+import { restoreFocus } from './focus'
 
 export interface ModalProps {
   open: boolean
@@ -136,7 +137,7 @@ export function Modal({ open, onClose, title, label, children, footer, width, cl
       if (i >= 0) stack.splice(i, 1)
       // un-inert first: an inert element cannot take focus back
       unlockBackground()
-      prev?.focus?.({ preventScroll: true })
+      restoreFocus(prev)
     }
   }, [open, bare, ariaLabel, titleId])
 
