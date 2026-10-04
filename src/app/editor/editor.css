@@ -677,8 +677,30 @@
   background: var(--rule);
 }
 
+/* 4 and 5 columns: tighter gutters; between tablet and desktop they wrap into two rows */
+.doc-content .columns:has(> .column:nth-child(4)) {
+  gap: 20px;
+}
+
+.one-editor.is-editable .doc-content .columns:has(> .column:nth-child(4)):hover > .column + .column::before {
+  left: -10px;
+}
+
+@media (max-width: 1100px) {
+  .doc-content .columns:has(> .column:nth-child(4)) {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .doc-content .columns:has(> .column:nth-child(5)) {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .one-editor.is-editable .doc-content .columns:has(> .column:nth-child(4)):hover > .column + .column::before {
+    display: none;
+  }
+}
+
 @media (max-width: 640px) {
-  .doc-content .columns {
+  .doc-content .columns,
+  .doc-content .columns:has(> .column:nth-child(4)) {
     grid-template-columns: minmax(0, 1fr);
     gap: 4px;
   }

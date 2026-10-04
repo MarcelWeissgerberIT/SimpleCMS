@@ -232,17 +232,14 @@ export function parseInline(src: string): Inline[] {
 /* ------------------------------------------------------------------ */
 
 export function inlineToPlain(nodes: Inline[]): string {
-  return nodes.map((n) => (n.t === 'text' || n.t === 'code' || n.t === 'kbd' ? n.v : inlineToPlain(n.c))).join('')
+  return nodes.map((n) => ('v' in n ? n.v : inlineToPlain(n.c))).join('')
 }
 
 export function blocksToPlain(blocks: Block[]): string {
   return blocks
-    .map((b) => (b.t === 'pre' ? b.v : b.t === 'ul' || b.t === 'ol' ? b.items.map(inlineToPlain).join('\n') : inlineToPlain(b.c)))
+    .map((b) => ('v' in b ? b.v : 'items' in b ? b.items.map(inlineToPlain).join('\n') : inlineToPlain(b.c)))
     .join('\n')
 }
-
-/** "Mod+Shift+K" → its parts, for keycap rendering. */
-export const kbdParts = (keys: string): string[] => keys.split('+').map((k) => k.trim()).filter(Boolean)
 
 /** Article id of a `help:<id>` link (null for anything else). */
 export function helpLinkId(href: string): string | null {

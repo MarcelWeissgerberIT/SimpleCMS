@@ -267,13 +267,13 @@ button.dbf-order:active,
   text-decoration: none;
 }
 
-.dbf-title__link > span:first-child:not(:only-child) {
+.dbf-title__icon {
   display: inline-grid;
   margin-right: 8px;
   vertical-align: -2px;
 }
 
-.dbf-title__link:hover > span:last-child {
+.dbf-title__link:hover .dbf-title__text {
   text-decoration: underline;
   text-decoration-color: var(--signal);
   text-decoration-thickness: 2px;
@@ -563,11 +563,6 @@ button.dbf-order:active,
   .dbf-specs {
     --dbf-spec-pad: 10px;
   }
-}
-
-/* the container query needs an inline-size container: an inline database's body scrolls itself */
-.db--inline .dbf {
-  padding-right: 2px;
 }
 
 @media (pointer: coarse) {

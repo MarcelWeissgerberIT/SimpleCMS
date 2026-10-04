@@ -71,7 +71,7 @@ async function addFeedView(page: Page, db: Locator, label = 'Feed'): Promise<voi
 
 const mainDb = (page: Page) => page.locator('#main section.db').first()
 const entries = (scope: Locator) => scope.locator('.dbf-entry')
-const titles = (scope: Locator) => scope.locator('.dbf-entry .dbf-title__link > span:last-child').allTextContents()
+const titles = (scope: Locator) => scope.locator('.dbf-entry .dbf-title__text').allTextContents()
 const entry = (scope: Locator, title: string) => scope.locator('.dbf-entry', { has: scope.page().locator('.dbf-title', { hasText: title }) })
 const feedView = (page: Page, dbId: string) => wsEval(page, (s, id) => JSON.parse(JSON.stringify(s.databases[id].views.find((v: { type: string }) => v.type === 'feed') ?? null)), dbId)
 
@@ -95,7 +95,7 @@ test.describe('database: feed view', () => {
     await expect(db.locator('.dbf-head')).toContainText('Created time')
 
     const delta = entry(feed, 'Delta release')
-    await expect(delta.locator('.dbf-title span[aria-hidden]').first()).toHaveText('🚀')
+    await expect(delta.locator('.dbf-title__icon')).toHaveText('🚀')
     // spec labels: name + value
     await expect(delta.locator('.dbf-spec', { hasText: 'Status' })).toContainText('Draft')
     await expect(delta.locator('.dbf-spec', { hasText: 'Release date' })).toContainText('Feb 10')

@@ -14,6 +14,8 @@ import { DAY, MINUTE, safeEqual } from '../tokens.ts'
 export const BAD_AUTH_PER_MIN = 30
 
 export const HOOKS_PREFIX = '/api/v1/hooks/'
+/** Agent webhook triggers (POST /api/v1/agents/:agentId/hook/:secret): the secret is the credential. */
+export const AGENT_HOOKS_PREFIX = '/api/v1/agents/'
 
 /** Counts a failed attempt from this client; past the limit the answer is 429 instead of 401/404. */
 export function failedAttempt(s: Services, c: Context<AppEnv>, error: ApiError): ApiError {
@@ -23,7 +25,7 @@ export function failedAttempt(s: Services, c: Context<AppEnv>, error: ApiError):
 
 export function bearer(s: Services): MiddlewareHandler<AppEnv> {
   return async (c, next) => {
-    if (c.req.path.startsWith(HOOKS_PREFIX)) return next()
+    if (c.req.path.startsWith(HOOKS_PREFIX) || c.req.path.startsWith(AGENT_HOOKS_PREFIX)) return next()
     const header = c.req.header('authorization')
     const secret = /^Bearer\s+(\S+)\s*$/i.exec(header ?? '')?.[1]
     const row = isApiTokenShape(secret) ? s.repo.apiTokenBySecret(secret) : undefined

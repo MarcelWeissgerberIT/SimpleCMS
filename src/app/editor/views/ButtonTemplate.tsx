@@ -17,7 +17,7 @@ import { InlinePickers } from '../icons/InlinePickers'
 import '../editor.css'
 import '../menus/menus.css'
 
-const NOT_IN_TEMPLATES = new Set(['page', 'dbTable', 'dbBoard', 'dbList', 'dbGallery', 'dbCalendar', 'dbTimeline', 'dbChart', 'dbLinked', 'form', 'toc', 'breadcrumb', 'mention', 'ai', 'button'])
+const NOT_IN_TEMPLATES = new Set(['page', 'dbTable', 'dbBoard', 'dbList', 'dbGallery', 'dbCalendar', 'dbTimeline', 'dbChart', 'dbFeed', 'dbLinked', 'form', 'toc', 'breadcrumb', 'mention', 'ai', 'button'])
 const templateBlock = (item: BlockItem) => !NOT_IN_TEMPLATES.has(item.id)
 
 export function TemplateEditor({

@@ -137,7 +137,7 @@ export function PdfViewer({ src, name, meta, selected, editable, onShowAsFile, o
       </div>
       <div className="pdf-view__frame">
         {url && !blocked ? (
-          <iframe src={url} title={t('editor.pdf.frameTitle', { name })} loading="lazy" referrerPolicy="no-referrer" />
+          <iframe src={`${url}#view=FitH&navpanes=0`} title={t('editor.pdf.frameTitle', { name })} loading="lazy" referrerPolicy="no-referrer" />
         ) : (
           <div className="pdf-view__note">
             <FileText size={22} strokeWidth={1.5} aria-hidden />

@@ -57,11 +57,8 @@ export function FeedEntry({ m, row, rc, dateProp, showContent, index, total }: F
   const ref = useRef<HTMLElement>(null)
   const collapse = () => {
     setExpanded(false)
-    // back to the entry's head when it scrolled away while reading
-    requestAnimationFrame(() => {
-      const el = ref.current
-      if (el && el.getBoundingClientRect().top < 0) el.scrollIntoView({ block: 'start' })
-    })
+    // the entry shrinks: keep its "Show more" (which has the focus) on screen instead of the entries below
+    requestAnimationFrame(() => ref.current?.querySelector('.dbf-act--more')?.scrollIntoView({ block: 'nearest' }))
   }
 
   return (
@@ -94,8 +91,12 @@ export function FeedEntry({ m, row, rc, dateProp, showContent, index, total }: F
           <EntryStamp m={m} row={row} stamp={stamp} />
           <h3 className="dbf-title" id={titleId}>
             <a href={pageHref(row.id)} className="dbf-title__link" onClick={open}>
-              {row.icon && <PageIcon icon={row.icon} size={20} />}
-              <span className={row.title ? undefined : 'is-empty'}>{row.title || t('common.untitled')}</span>
+              {row.icon && (
+                <span className="dbf-title__icon">
+                  <PageIcon icon={row.icon} size={20} />
+                </span>
+              )}
+              <span className={`dbf-title__text${row.title ? '' : ' is-empty'}`}>{row.title || t('common.untitled')}</span>
             </a>
           </h3>
           <EntrySpecs m={m} row={row} />

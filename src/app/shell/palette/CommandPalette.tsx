@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Command } from 'cmdk'
-import { ArrowRight, Copy, CornerDownLeft, FilePlus2, KeyRound, LayoutTemplate, ListPlus, Square } from 'lucide-react'
+import { ArrowRight, CircleHelp, Copy, CornerDownLeft, FilePlus2, KeyRound, LayoutTemplate, ListPlus, Square } from 'lucide-react'
 import { useWorkspace } from '../../store/store'
 import { useUI } from '../../store/ui'
 import { inTemplate, isEffectivelyTrashed, selectBreadcrumbs } from '../../store/selectors'
@@ -16,6 +16,7 @@ import { contextPageId, createPageAndOpen, goToPage } from '../lib/actions'
 import { useMediaQuery } from '../lib/hooks'
 import { buildIndex, search, type Range, type SearchHit } from './search'
 import { useReadOnly } from '../cloud/state'
+import { openHelp, useHelpHits } from '../../help'
 import './palette.css'
 
 export function CommandPalette() {
@@ -71,6 +72,8 @@ function Palette() {
     if (mode !== 'find' || n.length < 2) return []
     return roots.filter((p) => templateName(p).toLowerCase().includes(n)).slice(0, 4)
   }, [roots, mode, term])
+  // articles of the manual (help area) — after the workspace's own pages
+  const helpHits = useHelpHits(mode === 'find' ? term : '', lang)
 
   const finish = (restoreFocus = false) => {
     close()
@@ -216,6 +219,24 @@ function Palette() {
                   {contentHits.length > 0 && (
                     <Command.Group heading={<GroupHead label={t('shell.palette.inContent')} n={contentHits.length} />}>
                       {contentHits.map(pageHit)}
+                    </Command.Group>
+                  )}
+                  {helpHits.length > 0 && (
+                    <Command.Group heading={<GroupHead label={t('help.palette.group')} n={helpHits.length} />}>
+                      {helpHits.map((h) => (
+                        <Command.Item key={h.id} value={`help:${h.id}`} className="pal-item" onSelect={() => (finish(), openHelp(h.id))}>
+                          <span className="pal-item__icon">
+                            <CircleHelp size={16} strokeWidth={1.7} />
+                          </span>
+                          <span className="pal-item__main">
+                            <span className="pal-item__line">
+                              <span className="pal-item__title">{h.title}</span>
+                              <span className="pal-item__path">{t('help.palette.path', { num: h.num })}</span>
+                            </span>
+                          </span>
+                          <CornerDownLeft size={13} className="pal-item__enter" />
+                        </Command.Item>
+                      ))}
                     </Command.Group>
                   )}
                   {!readOnly && (

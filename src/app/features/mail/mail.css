@@ -192,11 +192,10 @@
 .ml-origin__url {
   flex: 1;
   min-width: 0;
-  overflow: hidden;
+  padding: 4px 0;
   font-family: var(--font-mono);
   font-size: 12px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
 }
 .ml-origin__tag {
   color: var(--signal-ink);

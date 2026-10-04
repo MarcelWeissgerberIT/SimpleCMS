@@ -2,6 +2,8 @@ import type { Server as HttpServer } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { join } from 'node:path'
 import { createAdaptorServer } from '@hono/node-server'
+import { AgentService } from './agents/service.ts'
+import { WorkspaceModel } from './api/model.ts'
 import { buildApp } from './app.ts'
 import { RateLimiter } from './auth/ratelimit.ts'
 import { Sessions } from './auth/sessions.ts'
@@ -40,7 +42,11 @@ export async function startServer(config: Config, log: Logger): Promise<RunningS
   const mailer = createMailer(config, log)
   const limiter = new RateLimiter()
   const collab = createCollab({ config, log, repo, sessions })
-  const app = buildApp({ config, log, db, repo, sessions, mailer, limiter, collab })
+  const services = { config, log, db, repo, sessions, mailer, limiter, collab }
+  const model = new WorkspaceModel(services)
+  // custom agents (docs/CLOUD.md § Agents): schedules, triggers and runs in this process
+  const agents = new AgentService(services, model)
+  const app = buildApp(services, { model, agents })
 
   const server = createAdaptorServer({ fetch: app.fetch }) as HttpServer
   server.on('upgrade', (req, socket, head) => collab.handleUpgrade(req, socket, head))
@@ -65,6 +71,7 @@ export async function startServer(config: Config, log: Logger): Promise<RunningS
   housekeeping.unref()
   repo.purgeExpired()
   void mailer.verify()
+  agents.start()
 
   // the CLI refuses a key rotation while this heartbeat is fresh (docs/SELF_HOSTING.md § Rotating DATA_KEY)
   const started = Date.now()
@@ -103,6 +110,7 @@ export async function startServer(config: Config, log: Logger): Promise<RunningS
     app: config.appDir,
     mail: mailer.mode,
     signup: config.signup.mode,
+    agents: config.agents.enabled ? undefined : 'off',
     admins: config.adminEmails.length || undefined,
     // names the master key without revealing it: tells which DATA_KEY this server runs with
     data_key: keyring.kekId,
@@ -119,6 +127,7 @@ export async function startServer(config: Config, log: Logger): Promise<RunningS
         clearInterval(housekeeping)
         clearInterval(heartbeat)
         server.close()
+        await agents.stop() // running runs end (and are saved) before the documents are flushed
         await collab.destroy()
         server.closeAllConnections()
         limiter.stop()

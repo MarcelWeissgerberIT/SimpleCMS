@@ -1,6 +1,8 @@
 import { Hono, type MiddlewareHandler } from 'hono'
 import { bodyLimit } from 'hono/body-limit'
 import { HTTPException } from 'hono/http-exception'
+import { agentHookRoutes, agentRoutes } from './agents/routes.ts'
+import { AgentService } from './agents/service.ts'
 import { hookRoutes } from './api/hooks.ts'
 import { WorkspaceModel } from './api/model.ts'
 import { apiRoutes } from './api/v1.ts'
@@ -23,9 +25,11 @@ const JSON_LIMIT = 256 * 1024
 /** The public API: bearer tokens / webhook secrets only — never the session cookie (docs/API.md). */
 export const PUBLIC_API = '/api/v1/'
 
-export function buildApp(s: Services): Hono<AppEnv> {
+/** `extra`: the workspace model and the agent service the server runs (else fresh ones, not started). */
+export function buildApp(s: Services, extra: { model?: WorkspaceModel; agents?: AgentService } = {}): Hono<AppEnv> {
   const app = new Hono<AppEnv>()
-  const model = new WorkspaceModel(s)
+  const model = extra.model ?? new WorkspaceModel(s)
+  const agents = extra.agents ?? new AgentService(s, model)
 
   app.use('*', securityHeaders(s.config))
   app.use('/api/*', async (c, next) => {
@@ -63,10 +67,12 @@ export function buildApp(s: Services): Hono<AppEnv> {
   app.route('/api/workspaces', fileRoutes(s))
   app.route('/api/workspaces', documentRoutes(s))
   app.route('/api/workspaces', integrationRoutes(s, model))
+  app.route('/api/workspaces', agentRoutes(s, model, agents))
   app.route('/api/invites', inviteRoutes(s))
   app.route('/api/signup', signupRoutes(s))
   app.route('/api/server', serverRoutes(s))
   app.route('/api/v1/hooks', hookRoutes(s, model))
+  app.route('/api/v1/agents', agentHookRoutes(s, agents))
   app.route('/api/v1', apiRoutes(s, model))
 
   if (s.config.devMode) {
@@ -101,8 +107,9 @@ export function buildApp(s: Services): Hono<AppEnv> {
   return app
 }
 
-/** Paths that carry a secret (incoming webhook URLs, invite and registration tokens) as they may appear in a log. */
-export const redactPath = (path: string) => path.replace(/^(\/api\/v1\/hooks\/|\/api\/invites\/|\/api\/signup\/)[^/]+/, '$1…')
+/** Paths that carry a secret (incoming webhook URLs, agent webhooks, invite and registration tokens) as they may appear in a log. */
+export const redactPath = (path: string) =>
+  path.replace(/^(\/api\/v1\/hooks\/|\/api\/invites\/|\/api\/signup\/)[^/]+/, '$1…').replace(/^(\/api\/v1\/agents\/[^/]+\/hook\/)[^/]+/, '$1…')
 
 /** Resolves the session cookie on every API request and slides its expiry (not on the public API). */
 function sessionMiddleware(s: Services): MiddlewareHandler<AppEnv> {

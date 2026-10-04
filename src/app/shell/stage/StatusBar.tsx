@@ -12,6 +12,7 @@ import { useStageView } from '../lib/stage'
 import { plural } from '../lib/format'
 import { CloudStatusCells, useCloudReadout } from '../cloud/Sync'
 import { SyncStatusCell, McpStatusCell } from '../../features'
+import { toggleHelp, useHelp } from '../../help'
 
 /** 24px instrument read-out along the bottom edge. */
 export function StatusBar({ route }: { route: Route }) {
@@ -30,6 +31,7 @@ export function StatusBar({ route }: { route: Route }) {
   const dark = useResolvedTheme() === 'dark'
   // a team workspace reports sync with the server instead of the local save
   const cloud = useCloudReadout()
+  const helpOpen = useHelp((s) => s.open)
 
   const saveText =
     status === 'saving' ? t('shell.status.writing') : status === 'error' ? t('shell.status.error') : t('shell.status.saved')
@@ -74,7 +76,7 @@ export function StatusBar({ route }: { route: Route }) {
       <button type="button" className="status__cell status__btn" onClick={() => useUI.getState().openPalette()}>
         {shortcutLabel('Mod+K')} {t('shell.status.commands')}
       </button>
-      <button type="button" className="status__cell status__btn" onClick={() => useUI.getState().openModal({ type: 'shortcuts' })}>
+      <button type="button" className="status__cell status__btn" onClick={toggleHelp} aria-expanded={helpOpen}>
         ? {t('shell.status.help')}
       </button>
     </footer>

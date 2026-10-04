@@ -3,16 +3,18 @@ import { HistoryModal, ShareModal, ImportModal, ExportModal, AutomationsModal, T
 import { SettingsModal } from '../settings/SettingsModal'
 import { ConfirmModal } from './ConfirmModal'
 import { MoveModal } from './MoveModal'
-import { ShortcutsModal } from './ShortcutsModal'
+import { ShortcutList, ShortcutsModal } from './ShortcutsModal'
+import { HelpHost } from '../../help'
 import './modals.css'
 
-/** Renders the single active modal from useUI.modal (and the workspace agent's side sheet). */
+/** Renders the single active modal from useUI.modal (and the side sheets: the workspace agent, Help). */
 export function ModalHost() {
   const modal = useUI((s) => s.modal)
   const close = useUI((s) => s.closeModal)
   return (
     <>
       <AgentPanel />
+      <HelpHost shortcuts={<ShortcutList />} />
       {modal && <ModalSwitch modal={modal} onClose={close} />}
     </>
   )

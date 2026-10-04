@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 
 import { Bell, CalendarDays, CalendarRange, ChevronsLeft, ChevronDown, Home, LayoutTemplate, Lock, PenLine, Plus, Search, Trash2, Upload, Waypoints, Settings, Table2, FilePlus2, Users } from 'lucide-react'
 import { useWorkspace } from '../../store/store'
 import { useUI } from '../../store/ui'
-import { useFavorites, useTrash, useTreeCount, useHasFavorites, selectBreadcrumbs } from '../../store/selectors'
+import { useFavorites, useTrash, useTreeCount, useHasFavorites } from '../../store/selectors'
 import { navigate, useRoute } from '../../lib/router'
 import { openTodayJournal } from '../../features'
 import { Menu, useMenu, type MenuEntry } from '../../ui/Menu'
@@ -15,7 +15,7 @@ import { BRAND } from '@/shared/brand'
 import { DraggableTree, PageList, PageTree, SECTION_DROP, useRootIds, useSectionDrop } from './PageTree'
 import { TrashPopover } from './TrashPopover'
 import { createPrivateDatabaseAndOpen, createPrivatePageAndOpen } from './private'
-import { treeKey, useTreeState } from '../lib/tree'
+import { treeAncestors, treeKey, useTreeState } from '../lib/tree'
 import { usePrivateMode } from '../../cloud'
 import { closeMobileSidebar, createDatabaseAndOpen, createPageAndOpen, goHome, toggleSidebar } from '../lib/actions'
 import { useIsMobile, useKbdHint } from '../lib/hooks'
@@ -48,11 +48,8 @@ export function Sidebar() {
   const activeId = route.name === 'page' ? route.id : null
   useEffect(() => {
     if (!activeId) return
-    const pages = useWorkspace.getState().pages
-    // databases only expand for real sub-pages (rows never show in the tree)
-    const chain = selectBreadcrumbs(pages, activeId)
-      .slice(0, -1)
-      .filter((p) => p.kind !== 'database' || !pages[activeId]?.databaseId || p.id !== pages[activeId].databaseId)
+    // an entry opens its database (and a sub-item its parent entry) like any page its parent
+    const chain = treeAncestors(useWorkspace.getState(), activeId)
     if (chain.length) useTreeState.getState().expand(chain.map((p) => treeKey(p.private ? 'private' : 'pages', p.id)))
   }, [activeId])
 

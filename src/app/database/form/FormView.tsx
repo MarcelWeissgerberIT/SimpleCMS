@@ -26,7 +26,8 @@ type Mode = 'build' | 'fill' | 'responses'
 export default function FormView() {
   const t = useT()
   const m = useModel()
-  const [chosen, setMode] = useLocalState<Mode>(`one.db.form.${m.view.id}`, 'build')
+  // on a page (an inline form, e.g. the editor's "/Form" block) it opens ready to fill in; the database page builds
+  const [chosen, setMode] = useLocalState<Mode>(`one.db.form.${m.view.id}`, m.inline ? 'fill' : 'build')
   // view only: the form can be looked at (fill mode) but not built, shared or answered;
   // locked: answered (rows stay editable) but not built or shared (its settings are view settings)
   const mode: Mode = m.fixed && chosen === 'build' ? 'fill' : chosen

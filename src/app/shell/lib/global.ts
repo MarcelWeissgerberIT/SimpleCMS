@@ -9,6 +9,7 @@ import { t } from '../../i18n'
 import { createPageAndOpen, currentPageId, pruneUndoToasts, toggleFocusMode, toggleSidebar, toggleTheme } from './actions'
 import { runClipRoute } from '../capture/inbox'
 import { isReadOnly, useWorkspaceTitle } from '../cloud/state'
+import { openHelp } from '../../help'
 
 const isEditable = (el: EventTarget | null) => {
   const e = el as HTMLElement | null
@@ -115,7 +116,7 @@ export function useGlobalShortcuts() {
       const mod = e.metaKey || e.ctrlKey
       if (e.key === '?' && !mod && !e.altKey && !isEditable(e.target) && !overlayOpen()) {
         e.preventDefault()
-        ui.openModal({ type: 'shortcuts' })
+        openHelp()
         return
       }
       if (e.key === 'Escape' && !e.defaultPrevented && !overlayOpen()) {

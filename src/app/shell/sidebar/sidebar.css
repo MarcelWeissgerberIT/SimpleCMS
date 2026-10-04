@@ -598,6 +598,46 @@ body[data-dragging] .sb-children::before {
   color: var(--ink-3);
   font-size: var(--text-sm);
 }
+/* a database's entries: the guide rule runs dotted, like a table's ruled column */
+.sb-children[data-kind='database']::before {
+  background: repeating-linear-gradient(to bottom, var(--rule-strong) 0 2px, transparent 2px 4px);
+}
+/* "SHOW ALL · 143": a mono key at the end of a long database (opens the database) */
+.sb-more {
+  height: 24px;
+}
+.sb-more__link {
+  padding-left: 26px;
+}
+.sb-more__label {
+  display: inline-flex;
+  align-items: center;
+  height: 18px;
+  padding: 0 6px;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius-1);
+  color: var(--ink-3);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  font-weight: 500;
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  white-space: nowrap;
+  transition:
+    color var(--dur-1),
+    border-color var(--dur-1);
+}
+.sb-more:hover {
+  background: transparent;
+}
+.sb-more:hover .sb-more__label,
+.sb-more__link:focus-visible .sb-more__label {
+  border-color: var(--ink-3);
+  color: var(--ink);
+}
+.sb-more:active .sb-more__label {
+  transform: translateY(1px);
+}
 
 /* drop indicators: dot + rule, or an outlined target */
 .sb-row[data-drop='before']::after,

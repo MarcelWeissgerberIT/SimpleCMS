@@ -38,6 +38,7 @@ import {
   MonitorPlay,
   NotebookPen,
   Network,
+  Newspaper,
   PanelTop,
   Paperclip,
   Pi,
@@ -288,6 +289,7 @@ export const BLOCKS: BlockItem[] = [
   dbItem('dbCalendar', 'calendar', Calendar, 'calendar view database kalender'),
   dbItem('dbTimeline', 'timeline', ChartGantt, 'timeline gantt view database zeitleiste'),
   dbItem('dbChart', 'chart', ChartColumn, 'chart graph view database diagramm'),
+  dbItem('dbFeed', 'feed', Newspaper, 'feed posts stream announcements blog beiträge ankündigungen'),
   {
     id: 'form',
     group: 'database',

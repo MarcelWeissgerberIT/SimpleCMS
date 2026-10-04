@@ -1,6 +1,7 @@
-import { Modal } from '../../ui/Modal'
+import { useLayoutEffect } from 'react'
 import { useT } from '../../i18n'
 import { shortcutLabel, ALT } from '../../ui/controls'
+import { openHelp } from '../../help'
 
 export interface ShortcutGroup {
   label: string
@@ -20,7 +21,8 @@ export function useShortcutGroups(): ShortcutGroup[] {
         [t('shell.cmd.focus'), ['Mod+Shift+F']],
         [t('shell.rail.toggle'), ['Mod+.']],
         [t('shell.cmd.settings'), ['Mod+,']],
-        [t('shell.cmd.shortcuts'), ['Mod+/', '?']],
+        [t('shell.cmd.shortcuts'), ['Mod+/']],
+        [t('help.title'), ['?']],
         [t('shell.keys.closePeek'), ['Esc']],
       ],
     },
@@ -100,11 +102,14 @@ export function ShortcutList() {
   )
 }
 
+/**
+ * The keyboard sheet lives in the Help panel now (its "Keys" tab): the `shortcuts` modal — ⌘/ / Ctrl+/,
+ * the palette's "Keyboard shortcuts", the sidebar menu — hands over to it and closes at once.
+ */
 export function ShortcutsModal({ onClose }: { onClose: () => void }) {
-  const t = useT()
-  return (
-    <Modal open onClose={onClose} width={760} label={`§ ${t('shell.shortcuts.code')}`} title={t('shell.cmd.shortcuts')}>
-      <ShortcutList />
-    </Modal>
-  )
+  useLayoutEffect(() => {
+    openHelp({ tab: 'keys' })
+    onClose()
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  return null
 }
