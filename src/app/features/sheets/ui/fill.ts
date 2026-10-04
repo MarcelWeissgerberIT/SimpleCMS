@@ -2,13 +2,15 @@
  * Dragging the fill handle (mouse, pen or finger): the range follows the pointer along the axis
  * it moved further on (down / up / right / left), the grid scrolls by itself near its edges,
  * Ctrl / ⌘ / ⌥ switches to the alternate fill, Esc cancels. A tap twice in a row is the
- * double-click (fill down to the end of the neighbour column).
+ * double-click (fill down to the end of the neighbour column) — on touch a tap belongs to the cell
+ * under the tab (`onTouchTap`).
  */
 import { useCallback, useRef, useState, type RefObject } from 'react'
 import type { FillMode, Rect } from '../engine'
-import { ROW_HEIGHT, type SheetData } from '../model'
+import type { SheetData } from '../model'
 import type { Pos } from '../ops'
-import { cellFromPoint, HEAD_H, offsets, RH_W } from './Grid'
+import { cellFromPoint, offsets } from './Grid'
+import { edgeScroll } from './drag'
 
 export interface FillDrag {
   src: Rect
@@ -30,8 +32,6 @@ export function extendTo(src: Rect, p: Pos): Rect | null {
   return right > 0 ? { ...src, right: p.c } : { ...src, left: p.c }
 }
 
-const EDGE = 28
-const MAX_SPEED = 36
 const DOUBLE_MS = 450
 
 interface Options {
@@ -40,14 +40,16 @@ interface Options {
   sheetRef: RefObject<SheetData>
   onApply: (src: Rect, dest: Rect, mode: FillMode) => void
   onDouble: (src: Rect) => void
+  /** a finger tapped the fill tab without dragging (its hit area lies over a neighbouring cell) */
+  onTouchTap?: (x: number, y: number) => void
 }
 
-export function useFillDrag({ viewportRef, sheetRef, onApply, onDouble }: Options) {
+export function useFillDrag({ viewportRef, sheetRef, onApply, onDouble, onTouchTap }: Options) {
   const [drag, setDrag] = useState<FillDrag | null>(null)
   /** the last tap on the handle (no drag): a second one on the same selection soon after is a double-click */
   const lastTap = useRef({ at: 0, key: '' })
-  const handlers = useRef({ onApply, onDouble })
-  handlers.current = { onApply, onDouble }
+  const handlers = useRef({ onApply, onDouble, onTouchTap })
+  handlers.current = { onApply, onDouble, onTouchTap }
 
   const start = useCallback(
     (e: React.PointerEvent<HTMLElement>, src: Rect) => {
@@ -62,6 +64,7 @@ export function useFillDrag({ viewportRef, sheetRef, onApply, onDouble }: Option
         // not capturable (synthetic events): the window listeners still follow the pointer
       }
       const id = e.pointerId
+      const finger = e.pointerType === 'touch' && !!handlers.current.onTouchTap
       const x0 = e.clientX
       const y0 = e.clientY
       let pt = { x: x0, y: y0 }
@@ -80,25 +83,7 @@ export function useFillDrag({ viewportRef, sheetRef, onApply, onDouble }: Option
       // scroll while the pointer is near (or past) an edge of the visible part of the grid
       const tick = () => {
         raf = requestAnimationFrame(tick)
-        if (!moved) return
-        const box = vp.getBoundingClientRect()
-        const frozen = Math.min(sheetRef.current.frozenRows ?? 0, sheetRef.current.rows) * ROW_HEIGHT
-        const top = Math.max(box.top, 0) + HEAD_H + frozen
-        const bottom = Math.min(box.bottom, window.innerHeight)
-        const left = Math.max(box.left, 0) + RH_W
-        const right = Math.min(box.right, window.innerWidth)
-        const speed = (d: number) => Math.min(MAX_SPEED, Math.ceil(d / 3) + 2)
-        let dy = 0
-        let dx = 0
-        if (pt.y > bottom - EDGE) dy = speed(pt.y - (bottom - EDGE))
-        else if (pt.y < top) dy = -speed(top - pt.y)
-        if (pt.x > right - EDGE) dx = speed(pt.x - (right - EDGE))
-        else if (pt.x < left) dx = -speed(left - pt.x)
-        if (!dy && !dx) return
-        const before = vp.scrollTop + vp.scrollLeft
-        vp.scrollTop += dy
-        vp.scrollLeft += dx
-        if (vp.scrollTop + vp.scrollLeft !== before) update()
+        if (moved && edgeScroll(vp, sheetRef.current, pt)) update()
       }
 
       const finish = (apply: boolean) => {
@@ -114,6 +99,8 @@ export function useFillDrag({ viewportRef, sheetRef, onApply, onDouble }: Option
         if (dest) {
           lastTap.current = { at: 0, key: '' }
           handlers.current.onApply(src, dest, alt ? 'alt' : 'auto')
+        } else if (!moved && finger) {
+          handlers.current.onTouchTap?.(pt.x, pt.y)
         } else if (!moved) {
           const now = performance.now()
           if (lastTap.current.key === tap && now - lastTap.current.at < DOUBLE_MS) {

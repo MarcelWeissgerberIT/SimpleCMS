@@ -62,5 +62,8 @@ let last: InternalClip | null = null
 export const rememberClip = (c: InternalClip | null) => {
   last = c
 }
+/** The last internal copy (pasting where the system clipboard can't be read). */
+export const lastClip = (): InternalClip | null => last
+
 /** The internal copy when the pasted text is exactly what it put on the clipboard. */
 export const internalClip = (text: string): InternalClip | null => (last && last.text.replace(/\r\n/g, '\n') === text.replace(/\r\n/g, '\n') ? last : null)

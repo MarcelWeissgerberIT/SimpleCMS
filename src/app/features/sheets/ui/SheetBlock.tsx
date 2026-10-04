@@ -1,6 +1,7 @@
 /**
  * Spreadsheet block UI: toolbar, formula bar, grid, sheet tabs, status line, function browser,
- * datasets panel. Every edit is one attrs update of the node (one undo step in the editor).
+ * datasets panel; on touch selection handles, long-press / header drags and an action bar.
+ * Every edit is one attrs update of the node (one undo step in the editor).
  * Values come from a Workbook kept in step with the attrs (incremental recalculation).
  */
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
@@ -69,14 +70,16 @@ import {
 } from '../ops'
 import { sheetCsv } from '../static'
 import type { SheetBlockProps } from '../index'
-import { Grid, HEAD_H, offsets, RH_W, type FillView, type GridTarget, type Overlay, type PointerPhase } from './Grid'
+import { Grid, HEAD_H, offsets, RH_W, visibleBox, type FillView, type GridTarget, type HandlesView, type Overlay, type PointerPhase } from './Grid'
 import { FormulaInput, groupColor } from './FormulaInput'
 import { SheetTabs } from './SheetTabs'
 import { Toolbar } from './Toolbar'
 import { FunctionBrowser } from './FunctionBrowser'
 import { DatasetsPanel } from './DatasetsPanel'
-import { internalClip, parseTsv, rememberClip, toHtmlTable, toTsv } from './clip'
+import { internalClip, lastClip, parseTsv, rememberClip, toHtmlTable, toTsv } from './clip'
 import { useFillDrag } from './fill'
+import { targetUnder, useTouchGestures } from './touch'
+import { sheetBarKeys, TouchBar } from './TouchBar'
 import { PickList } from './PickList'
 import { setAutoComplete, useAutoComplete } from './prefs'
 import { openFunctionBuilder } from '../functions'
@@ -117,8 +120,31 @@ interface Pick {
   initial: string
 }
 
+/** Modifiers of a pointer press on the grid (touch gestures have none). */
+interface Mods {
+  add: boolean
+  shift: boolean
+  prevent: () => void
+}
+const NO_MODS: Mods = { add: false, shift: false, prevent: () => undefined }
+
+const coarse = () => typeof window !== 'undefined' && !!window.matchMedia?.('(pointer: coarse)').matches
+
+/** The nearest scrolling ancestor (the page column): the touch bar stays inside it. */
+function scrollParent(el: Element | null): Element | null {
+  for (let p = el?.parentElement ?? null; p; p = p.parentElement) {
+    const o = getComputedStyle(p).overflowY
+    if (o === 'auto' || o === 'scroll') return p
+  }
+  return null
+}
+
 /** Tallest grid viewport (taller sheets scroll inside). */
 const GRID_MAX = 600
+/** touch: room past the sheet's last row / column for the handles and the fill tab */
+const RUNOUT = 40
+/** touch: the bar needs this much room between the column letters and the selection, else it goes above the letters */
+const BAR_ROOM = 64
 const ORIGIN: Sel = { anchor: { r: 0, c: 0 }, focus: { r: 0, c: 0 }, extra: [] }
 const rectOf = (s: Sel): Rect => ({ top: Math.min(s.anchor.r, s.focus.r), bottom: Math.max(s.anchor.r, s.focus.r), left: Math.min(s.anchor.c, s.focus.c), right: Math.max(s.anchor.c, s.focus.c) })
 const clampPos = (p: Pos, sheet: SheetData): Pos => ({ r: Math.max(0, Math.min(sheet.rows - 1, p.r)), c: Math.max(0, Math.min(sheet.cols - 1, p.c)) })
@@ -183,6 +209,22 @@ export function SheetBlock({ attrs: raw, update, editable, editor, pageId, inser
   sheetRef.current = sheet
   const autoOn = useAutoComplete()
   const [pick, setPick] = useState<Pick | null>(null)
+  /** the last press on the block was a finger (or the device is touch-first and nothing was pressed yet) */
+  const [touchUI, setTouchUI] = useState(coarse)
+  /** the keyboard focus is inside the block */
+  const [focused, setFocused] = useState(false)
+  /** "+ Area" is latched: the next press starts another area (⌘/Ctrl-click by touch) */
+  const [addArea, setAddAreaState] = useState(false)
+  const addAreaRef = useRef(false)
+  const setAddArea = (on: boolean) => {
+    addAreaRef.current = on
+    setAddAreaState(on)
+  }
+  const takeAddArea = () => {
+    if (!addAreaRef.current) return false
+    setAddArea(false)
+    return true
+  }
 
   const rect = rectOf(sel)
   const areas = [...sel.extra, rect]
@@ -378,6 +420,7 @@ export function SheetBlock({ attrs: raw, update, editable, editor, pageId, inser
       const end = fillDownEnd(sheetRef.current, src)
       if (end !== null) applyFill(src, { ...src, bottom: end }, 'auto')
     },
+    onTouchTap: (x, y) => tapAt(x, y),
   })
 
   // leaving the block (focus elsewhere on the page) commits; popovers of the block don't count
@@ -426,13 +469,13 @@ export function SheetBlock({ attrs: raw, update, editable, editor, pageId, inser
 
   /* ---------------- pointer on the grid ---------------- */
 
-  const onPointer = (target: GridTarget, phase: PointerPhase, e: MouseEvent | React.MouseEvent) => {
-    const add = e.ctrlKey || e.metaKey
+  const pointer = (target: GridTarget, phase: PointerPhase, m: Mods) => {
     if (phase === 'down') {
       setCtx(null)
+      const add = target.kind !== 'corner' && (m.add || takeAddArea())
       const cur = editRef.current
       if (target.kind === 'cell' && pointable(cur)) {
-        e.preventDefault()
+        m.prevent()
         dragMode.current = 'point'
         point(target.pos, 'down', add)
         return
@@ -441,13 +484,13 @@ export function SheetBlock({ attrs: raw, update, editable, editor, pageId, inser
       if (target.kind === 'cell') {
         dragMode.current = 'select'
         const pos = target.pos
-        setSel((s) => (e.shiftKey ? { ...s, focus: pos } : add ? { anchor: pos, focus: pos, extra: [...s.extra, rectOf(s)].slice(-31) } : { anchor: pos, focus: pos, extra: [] }))
+        setSel((s) => (m.shift ? { ...s, focus: pos } : add ? { anchor: pos, focus: pos, extra: [...s.extra, rectOf(s)].slice(-31) } : { anchor: pos, focus: pos, extra: [] }))
       } else if (target.kind === 'col') {
         dragMode.current = 'cols'
-        setSel((s) => ({ anchor: { r: 0, c: e.shiftKey ? s.anchor.c : target.index }, focus: { r: sheet.rows - 1, c: target.index }, extra: add ? [...s.extra, rectOf(s)] : [] }))
+        setSel((s) => ({ anchor: { r: 0, c: m.shift ? s.anchor.c : target.index }, focus: { r: sheet.rows - 1, c: target.index }, extra: add ? [...s.extra, rectOf(s)] : [] }))
       } else if (target.kind === 'row') {
         dragMode.current = 'rows'
-        setSel((s) => ({ anchor: { r: e.shiftKey ? s.anchor.r : target.index, c: 0 }, focus: { r: target.index, c: sheet.cols - 1 }, extra: add ? [...s.extra, rectOf(s)] : [] }))
+        setSel((s) => ({ anchor: { r: m.shift ? s.anchor.r : target.index, c: 0 }, focus: { r: target.index, c: sheet.cols - 1 }, extra: add ? [...s.extra, rectOf(s)] : [] }))
       } else {
         dragMode.current = null
         setSel({ anchor: { r: 0, c: 0 }, focus: { r: sheet.rows - 1, c: sheet.cols - 1 }, extra: [] })
@@ -467,6 +510,41 @@ export function SheetBlock({ attrs: raw, update, editable, editor, pageId, inser
       const r = target.kind === 'row' ? target.index : target.pos.r
       setSel((s) => ({ ...s, focus: { r, c: sheet.cols - 1 } }))
     }
+  }
+
+  /* ---------------- touch: long press, header drags, selection handles ---------------- */
+
+  const touch = useTouchGestures({
+    viewportRef,
+    sheetRef,
+    onTarget: (target, phase) => pointer(target, phase, NO_MODS),
+    onHandle: (corner, pos, phase) => {
+      if (phase === 'down') {
+        setCtx(null)
+        // the opposite corner stays where it is
+        setSel((s) => {
+          const r = rectOf(s)
+          return { ...s, anchor: corner === 'br' ? { r: r.top, c: r.left } : { r: r.bottom, c: r.right }, focus: pos }
+        })
+        focusGrid()
+      } else if (phase === 'move') setSel((s) => ({ ...s, focus: pos }))
+    },
+    onTap: (x, y) => tapAt(x, y),
+  })
+
+  /** A tap that landed on a handle or the fill tab: it was meant for the cell (or header) underneath. */
+  const tapAt = (x: number, y: number) => {
+    const target = targetUnder(x, y)
+    if (!target) return
+    pointer(target, 'down', NO_MODS)
+    pointer(target, 'up', NO_MODS)
+  }
+
+  /** Pointer events from the grid (mouse, and the browser's compatibility mouse events of a tap). */
+  const onPointer = (target: GridTarget, phase: PointerPhase, e: MouseEvent | React.MouseEvent) => {
+    // what Chrome may still send after a long press or a drag is no tap
+    if (phase === 'down' && touch.aftermath()) return
+    pointer(target, phase, { add: e.ctrlKey || e.metaKey, shift: e.shiftKey, prevent: () => e.preventDefault() })
   }
 
   /* ---------------- operations ---------------- */
@@ -570,6 +648,22 @@ export function SheetBlock({ attrs: raw, update, editable, editor, pageId, inser
     setSel({ anchor: active, focus: { r: active.r + h - 1, c: active.c + w - 1 }, extra: [] })
   }
 
+  /** Paste from the system clipboard (menu, touch bar); where it can't be read, the last copy made here. */
+  const pasteFromClipboard = () => {
+    const fallback = () => {
+      const own = lastClip()
+      if (own) pasteText(own.text)
+      else toast(t('features.sheets.pasteHint', { key: MOD }))
+    }
+    const read = navigator.clipboard?.readText?.()
+    if (!read) return fallback()
+    read.then((text) => (text ? pasteText(text) : fallback())).catch(fallback)
+  }
+
+  /** Fill down / right (⌘D / ⌘R): a single row / column takes the one above / to the left. */
+  const fillDown = () => op(fill(a, sheet.id, rect.top === rect.bottom && rect.top > 0 ? { ...rect, top: rect.top - 1 } : rect, 'down'))
+  const fillRight = () => op(fill(a, sheet.id, rect.left === rect.right && rect.left > 0 ? { ...rect, left: rect.left - 1 } : rect, 'right'))
+
   /* ---------------- keyboard on the grid ---------------- */
 
   const move = (dr: number, dc: number, extend: boolean, jump = false) => {
@@ -640,10 +734,10 @@ export function SheetBlock({ attrs: raw, update, editable, editor, pageId, inser
       return
     } else if (mod && k.toLowerCase() === 'd') {
       e.preventDefault()
-      op(fill(a, sheet.id, rect.top === rect.bottom && rect.top > 0 ? { ...rect, top: rect.top - 1 } : rect, 'down'))
+      fillDown()
     } else if (mod && k.toLowerCase() === 'r') {
       e.preventDefault()
-      op(fill(a, sheet.id, rect.left === rect.right && rect.left > 0 ? { ...rect, left: rect.left - 1 } : rect, 'right'))
+      fillRight()
     } else if (mod && k.toLowerCase() === 'b') {
       e.preventDefault()
       toggle('b')
@@ -658,6 +752,7 @@ export function SheetBlock({ attrs: raw, update, editable, editor, pageId, inser
       startEdit(active)
     } else if (k === 'Escape') {
       setSel((s) => ({ ...s, extra: [] }))
+      setAddArea(false)
     } else if (k.length === 1 && !mod && !e.altKey) {
       e.preventDefault()
       startEdit(active, k)
@@ -747,18 +842,16 @@ export function SheetBlock({ attrs: raw, update, editable, editor, pageId, inser
 
   const rowsSel = rect.bottom - rect.top + 1
   const colsSel = rect.right - rect.left + 1
+  /** keyboard hints in the menus, not on touch (the bar's ⋯ opens the cell menu there) */
+  const kbd = (keys: string) => (touchUI ? undefined : keys === 'Del' ? keys : shortcutLabel(keys))
   const cellEntries: MenuEntry[] = [
-    { label: t('features.sheets.cut'), hint: shortcutLabel('Mod+X'), disabled: !editable, onSelect: () => copy(null, true) },
-    { label: t('features.sheets.copy'), hint: shortcutLabel('Mod+C'), onSelect: () => copy(null, false) },
+    { label: t('features.sheets.cut'), hint: kbd('Mod+X'), disabled: !editable, onSelect: () => copy(null, true) },
+    { label: t('features.sheets.copy'), hint: kbd('Mod+C'), onSelect: () => copy(null, false) },
     {
       label: t('features.sheets.paste'),
-      hint: shortcutLabel('Mod+V'),
+      hint: kbd('Mod+V'),
       disabled: !editable,
-      onSelect: () => {
-        const read = navigator.clipboard?.readText?.()
-        if (!read) return void toast(t('features.sheets.pasteHint', { key: MOD }))
-        read.then(pasteText).catch(() => toast(t('features.sheets.pasteHint', { key: MOD })))
-      },
+      onSelect: pasteFromClipboard,
     },
     { kind: 'separator' },
     { label: t('features.sheets.insertRowAbove'), disabled: !editable, onSelect: () => insertRows(false) },
@@ -768,13 +861,13 @@ export function SheetBlock({ attrs: raw, update, editable, editor, pageId, inser
     { kind: 'separator' },
     { label: rowsSel > 1 ? t('features.sheets.deleteRowsN', { n: rowsSel }) : t('features.sheets.deleteRows'), danger: true, disabled: !editable || rowsSel >= sheet.rows, onSelect: deleteRows },
     { label: colsSel > 1 ? t('features.sheets.deleteColsN', { n: colsSel }) : t('features.sheets.deleteCols'), danger: true, disabled: !editable || colsSel >= sheet.cols, onSelect: deleteCols },
-    { label: t('features.sheets.clear'), hint: 'Del', disabled: !editable, onSelect: clear },
+    { label: t('features.sheets.clear'), hint: kbd('Del'), disabled: !editable, onSelect: clear },
     { kind: 'separator' },
-    { label: t('features.sheets.fillDown'), hint: shortcutLabel('Mod+D'), disabled: !editable || rowsSel < 2, onSelect: () => op(fill(a, sheet.id, rect, 'down')) },
-    { label: t('features.sheets.fillRight'), hint: shortcutLabel('Mod+R'), disabled: !editable || colsSel < 2, onSelect: () => op(fill(a, sheet.id, rect, 'right')) },
+    { label: t('features.sheets.fillDown'), hint: kbd('Mod+D'), disabled: !editable || rowsSel < 2, onSelect: () => op(fill(a, sheet.id, rect, 'down')) },
+    { label: t('features.sheets.fillRight'), hint: kbd('Mod+R'), disabled: !editable || colsSel < 2, onSelect: () => op(fill(a, sheet.id, rect, 'right')) },
     { label: t('features.sheets.fillSeries'), disabled: !editable || cellsOfRect(rect) < 2, onSelect: () => op(fillSeriesIn(a, sheet.id, rect, lang)) },
     { kind: 'separator' },
-    { label: t('features.sheets.pick.menu'), hint: shortcutLabel('Alt+↓'), disabled: !editable, onSelect: () => openPick(active) },
+    { label: t('features.sheets.pick.menu'), hint: kbd('Alt+↓'), disabled: !editable, onSelect: () => openPick(active) },
   ]
 
   const moreEntries: MenuEntry[] = [
@@ -872,13 +965,72 @@ export function SheetBlock({ attrs: raw, update, editable, editor, pageId, inser
 
   const fillView: FillView | null = editable
     ? {
-        handle: !edit && !pick && areas.length === 1 ? rect : null,
+        handle: !edit && !pick && areas.length === 1 && (!touchUI || focused) ? rect : null,
         preview: fillDrag?.dest ?? null,
         dir: fillDrag?.dest ? fillDirection(fillDrag.src, fillDrag.dest) : null,
         tip: fillTip,
         label: t('features.sheets.fill.handle'),
         onHandleDown: (e) => startFill(e, rect),
+        touch: touchUI,
       }
+    : null
+
+  /* ---------------- touch: handles + action bar ---------------- */
+
+  const handles: HandlesView | null = touchUI && (focused || touch.busy) && !edit && !pick ? { rect, onDown: touch.startHandle } : null
+  const pointing = touchUI && !!edit && edit.sheetId === sheet.id && pointable(edit)
+  const barMode = !touchUI || !focused || touch.busy || fillDrag || pick || ctx || panel ? null : edit ? (pointing ? 'point' : null) : 'select'
+  const boundary = useRef<{ el: Element | null } | null>(null)
+  // the page column the block lives in (looked up again when the block moved, e.g. into a peek)
+  if (barMode && !(boundary.current && (boundary.current.el?.contains(rootRef.current) ?? true))) boundary.current = { el: scrollParent(rootRef.current) }
+
+  /** What the bar floats over: the selection — while pointing, the grid (it sits in its bottom-right corner, off the formula). */
+  const barBox = () => {
+    const vp = viewportRef.current
+    if (!vp) return null
+    const v = vp.getBoundingClientRect()
+    let box = barMode === 'point' ? new DOMRect(v.left + vp.clientLeft + RH_W, v.top + vp.clientTop + HEAD_H, vp.clientWidth - RH_W, vp.clientHeight - HEAD_H) : visibleBox(vp, sheetRef.current, rect)
+    if (!box) return null
+    // never over the column letters (they are touch targets too): above them when the selection starts right below
+    const head = v.top + vp.clientTop
+    if (barMode === 'select' && box.top - head - HEAD_H < BAR_ROOM) box = new DOMRect(box.left, head, box.width, box.bottom - head)
+    // and inside the page column
+    const col = boundary.current?.el?.getBoundingClientRect()
+    if (!col) return box
+    const top = Math.max(box.top, col.top)
+    const bottom = Math.min(box.bottom, col.bottom)
+    return bottom > top ? new DOMRect(box.left, top, box.width, bottom - top) : null
+  }
+
+  const bar = barMode
+    ? sheetBarKeys({
+        t,
+        mode: barMode,
+        editable,
+        addArea,
+        fillDown: !(rect.top === rect.bottom && rect.top === 0),
+        fillRight: !(rect.left === rect.right && rect.left === 0),
+        on: {
+          copy: () => {
+            copy(null, false)
+            toast({ message: t('features.sheets.touch.copied', { ref: rectText(rect) }), kind: 'success' })
+          },
+          cut: () => {
+            copy(null, true)
+            toast({ message: t('features.sheets.touch.cutDone', { ref: rectText(rect) }), kind: 'success' })
+          },
+          paste: pasteFromClipboard,
+          fillDown,
+          fillRight,
+          clear,
+          chart: newChart,
+          area: () => setAddArea(!addAreaRef.current),
+          more: (el) => {
+            const box = el.getBoundingClientRect()
+            setCtx({ x: box.left, y: box.bottom, target: { kind: 'cell', pos: active } })
+          },
+        },
+      })
     : null
 
   const cellEditor =
@@ -902,7 +1054,18 @@ export function SheetBlock({ attrs: raw, update, editable, editor, pageId, inser
     ) : null
 
   return (
-    <div ref={rootRef} className={`sheet${editable ? '' : ' is-readonly'}`} data-sheet-block="">
+    <div
+      ref={rootRef}
+      className={`sheet${editable ? '' : ' is-readonly'}${touchUI ? ' is-touch' : ''}${touch.busy ? ' is-gesture' : ''}`}
+      data-sheet-block=""
+      onPointerDownCapture={(e) => {
+        if (!(e.target as Element).closest('[data-sel-handle]')) setTouchUI(e.pointerType === 'touch')
+      }}
+      onFocus={() => setFocused(true)}
+      onBlur={(e) => {
+        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setFocused(false)
+      }}
+    >
       <Toolbar
         title={a.title}
         cell={activeCell}
@@ -965,15 +1128,19 @@ export function SheetBlock({ attrs: raw, update, editable, editor, pageId, inser
         viewportRef={viewportRef}
         editable={editable}
         fill={fillView}
-        height={Math.min(GRID_MAX, HEAD_H + Math.max(...a.sheets.map((x) => x.rows)) * ROW_HEIGHT + 2)}
+        handles={handles}
+        runout={touchUI ? RUNOUT : 0}
+        height={Math.min(GRID_MAX, HEAD_H + Math.max(...a.sheets.map((x) => x.rows)) * ROW_HEIGHT + 2 + (touchUI ? RUNOUT : 0))}
         onPointer={onPointer}
         onDouble={(pos) => {
-          if (editRef.current) return
+          if (editRef.current || touch.aftermath()) return
           setSel({ anchor: pos, focus: pos, extra: [] })
           startEdit(pos)
         }}
         onContext={(target, e) => {
           e.preventDefault()
+          // a finger held on the grid is a long press (range selection): the cell menu is ⋯ on the touch bar
+          if (touch.quietContext() || (e.nativeEvent as PointerEvent).pointerType === 'touch') return
           if (target.kind === 'cell') {
             const inside = areas.some((r) => target.pos.r >= r.top && target.pos.r <= r.bottom && target.pos.c >= r.left && target.pos.c <= r.right)
             if (!inside) setSel({ anchor: target.pos, focus: target.pos, extra: [] })
@@ -990,6 +1157,7 @@ export function SheetBlock({ attrs: raw, update, editable, editor, pageId, inser
           'aria-colcount': sheet.cols + 1,
           'aria-multiselectable': true,
           onKeyDown: gridKey,
+          onPointerDown: touch.onPointerDown,
           onCopy: (e) => {
             if (e.target === viewportRef.current) copy(e, false)
           },
@@ -1094,6 +1262,18 @@ export function SheetBlock({ attrs: raw, update, editable, editor, pageId, inser
           if (f) void importCsv(f)
         }}
       />
+      {barMode && bar && (
+        <TouchBar
+          getBox={barBox}
+          boxKey={`${barMode}:${sheet.id}:${rectText(rect)}:${areas.length}`}
+          contextElement={viewportRef.current}
+          boundary={boundary.current?.el ?? null}
+          groups={bar.groups}
+          more={bar.more}
+          label={t('features.sheets.touch.bar')}
+          placement={barMode === 'point' ? 'inside' : 'over'}
+        />
+      )}
       {ctx && (
         <Menu
           open

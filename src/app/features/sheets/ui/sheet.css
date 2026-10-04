@@ -433,8 +433,16 @@
   cursor: col-resize;
 }
 
-.sg-resize:hover {
-  background: linear-gradient(90deg, transparent 3px, var(--signal) 3px 4px, transparent 4px);
+/* hover styles only where there is hover: on touch they would make Chrome snap nearby taps onto these */
+@media (hover: hover) {
+  .sg-resize:hover {
+    background: linear-gradient(90deg, transparent 3px, var(--signal) 3px 4px, transparent 4px);
+  }
+}
+
+/* column widths are a mouse affair: on touch the grips would only catch taps meant for the letters */
+.sheet.is-touch .sg-resize {
+  display: none;
 }
 
 .sg-frozen {
@@ -618,8 +626,10 @@
   inset: -6px;
 }
 
-.sg-fill:hover {
-  transform: scale(1.3);
+@media (hover: hover) {
+  .sg-fill:hover {
+    transform: scale(1.3);
+  }
 }
 
 /* like the active cell's frame: signal while the block has the keyboard */
@@ -682,6 +692,204 @@
   }
   .sg-fill::before {
     inset: -12px;
+  }
+}
+
+/* ---------- touch: selection handles, fill tab, headers ---------- */
+
+.sg {
+  /* no callout / magnifier on a long press (iOS): it selects a range here */
+  -webkit-touch-callout: none;
+}
+
+/* touch: room past the last row / column for the handles and the fill tab (the hatch shows below) */
+.sg__inner.has-runout {
+  box-sizing: border-box;
+  background: linear-gradient(var(--surface), var(--surface)) top / 100% calc(100% - var(--runout)) no-repeat;
+}
+
+/* a finger along the letters selects columns (a vertical swipe still scrolls), along the numbers rows */
+.sg-colhead {
+  touch-action: pan-y;
+}
+
+.sg-rowhead {
+  touch-action: pan-x;
+}
+
+/* round ink handles on the selection's corners, a finger-sized hit area around each */
+.sg-handle {
+  position: absolute;
+  z-index: 2;
+  box-sizing: border-box;
+  width: 14px;
+  height: 14px;
+  margin: -7px 0 0 -7px;
+  border: 2px solid var(--surface);
+  border-radius: var(--radius-led);
+  background: var(--ink);
+  box-shadow: 0 0 0 1px var(--ink);
+  touch-action: none;
+  transition: background var(--dur-1) var(--ease-out), box-shadow var(--dur-1) var(--ease-out);
+}
+
+.sg-handle::before {
+  content: '';
+  position: absolute;
+  inset: -15px;
+  border-radius: var(--radius-led);
+}
+
+/* while a finger drags the selection: signal */
+.sheet.is-gesture .sg-handle {
+  background: var(--signal);
+  box-shadow: 0 0 0 1px var(--signal), 0 0 0 5px var(--signal-wash);
+}
+
+/* the fill tab (touch): a signal key just outside the bottom-right handle */
+.sg-fill.is-tab {
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  margin: 11px 0 0 11px;
+  border-radius: var(--radius-1);
+  box-shadow: 0 0 0 1px var(--surface);
+  cursor: default;
+}
+
+.sg-fill.is-tab::before {
+  inset: -9px;
+}
+
+/* a corner bracket: pull the corner out to fill */
+.sg-fill.is-tab i {
+  width: 6px;
+  height: 6px;
+  margin: -2px 0 0 -2px;
+  border-right: 1.5px solid var(--on-signal);
+  border-bottom: 1.5px solid var(--on-signal);
+}
+
+/* ---------- touch action bar ---------- */
+
+.sh-touchbar {
+  z-index: var(--z-popover);
+  display: flex;
+  align-items: stretch;
+  gap: 1px;
+  max-width: calc(100vw - 16px);
+  padding: 3px;
+  border-radius: var(--radius-2);
+  background: var(--ink);
+  color: var(--ink-inverse);
+  box-shadow: var(--shadow-pop);
+  animation: pop-in var(--dur-1) var(--ease-out);
+}
+
+.sh-touchbar__keys {
+  display: flex;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.sh-touchbar__keys::-webkit-scrollbar {
+  display: none;
+}
+
+.sh-touchbar__group {
+  display: flex;
+  flex: none;
+  gap: 1px;
+}
+
+.sh-touchbar__group + .sh-touchbar__group {
+  margin-left: 2px;
+  padding-left: 2px;
+  border-left: 1px solid color-mix(in srgb, var(--ink-inverse) 22%, transparent);
+}
+
+.sh-touchbar.is-stacked .sh-touchbar__keys {
+  flex-wrap: wrap;
+  gap: 1px 10px;
+}
+
+.sh-touchbar.is-stacked .sh-touchbar__group + .sh-touchbar__group {
+  margin-left: 0;
+  padding-left: 0;
+  border-left: 0;
+}
+
+.sh-touchbar > .sh-touchbar__key {
+  margin-left: 2px;
+  border-left: 1px solid color-mix(in srgb, var(--ink-inverse) 22%, transparent);
+  border-radius: 0 var(--radius-1) var(--radius-1) 0;
+}
+
+.sh-touchbar__key {
+  display: inline-flex;
+  flex: none;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-width: 38px;
+  height: 42px;
+  padding: 0 3px;
+  border: 0;
+  border-radius: var(--radius-1);
+  background: transparent;
+  color: inherit;
+  opacity: 0.9;
+  cursor: pointer;
+  transition: background var(--dur-1) var(--ease-out), opacity var(--dur-1) var(--ease-out), transform var(--dur-1) var(--ease-out);
+}
+
+.sh-touchbar__legend {
+  font-family: var(--font-mono);
+  font-size: 8.5px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  line-height: 1;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.sh-touchbar__key:hover:not(:disabled) {
+  opacity: 1;
+  background: color-mix(in srgb, var(--ink-inverse) 10%, transparent);
+}
+
+.sh-touchbar__key:active:not(:disabled) {
+  transform: translateY(1px);
+  background: color-mix(in srgb, var(--ink-inverse) 16%, transparent);
+}
+
+.sh-touchbar__key:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.sh-touchbar__key[aria-pressed='true'] {
+  opacity: 1;
+  color: var(--signal);
+  background: color-mix(in srgb, var(--ink-inverse) 9%, transparent);
+  box-shadow: inset 0 -2px 0 var(--signal);
+}
+
+.sh-touchbar__key:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 2px var(--signal);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sh-touchbar {
+    animation: none;
+  }
+  .sh-touchbar__key,
+  .sg-handle {
+    transition: none;
   }
 }
 

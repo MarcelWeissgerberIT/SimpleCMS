@@ -1,8 +1,8 @@
 /**
  * The cell grid: sticky column letters and row numbers, virtualised rows (only the visible ones
  * plus a margin are in the DOM), a frozen first row, selection / reference / dataset overlays,
- * the fill handle with its live preview, column resizing, the in-cell editor slot. Pointer and
- * keyboard decisions are the parent's.
+ * the fill handle with its live preview, column resizing, the in-cell editor slot; on touch the
+ * selection handles and the fill tab. Pointer and keyboard decisions are the parent's.
  */
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from 'react'
 import type { ColorName } from '../../../store/types'
@@ -39,6 +39,14 @@ export interface FillView {
   tip: string | null
   label: string
   onHandleDown: (e: React.PointerEvent<HTMLElement>) => void
+  /** touch: a tab just outside the selection handle's corner instead of the small square */
+  touch?: boolean
+}
+
+/** Touch: round handles on the selection's top-left and bottom-right corners. */
+export interface HandlesView {
+  rect: Rect
+  onDown: (corner: 'tl' | 'br', e: React.PointerEvent<HTMLElement>) => void
 }
 
 const ERROR_KEYS: Record<ErrorCode, string> = {
@@ -77,6 +85,10 @@ export interface GridProps {
   height: number
   /** fill handle + preview (editable blocks only) */
   fill?: FillView | null
+  /** selection handles (touch) */
+  handles?: HandlesView | null
+  /** room (px) below the last row and right of the last column for the handles and the fill tab (touch) */
+  runout?: number
   gridProps: React.HTMLAttributes<HTMLDivElement>
 }
 
@@ -106,7 +118,32 @@ export function offsets(sheet: SheetData, override?: { col: number; w: number } 
   return out
 }
 
-function targetOf(el: Element | null): GridTarget | null {
+/**
+ * The visible part of a rectangle of cells in client coordinates (not under the headers or the
+ * frozen rows, inside the grid's viewport), or null when none of it is in view.
+ */
+export function visibleBox(vp: HTMLElement, sheet: SheetData, rect: Rect, xs: number[] = offsets(sheet)): DOMRect | null {
+  const box = vp.getBoundingClientRect()
+  const frozen = Math.min(sheet.frozenRows ?? 0, sheet.rows)
+  const bottom = Math.min(rect.bottom, sheet.rows - 1)
+  const right = Math.min(rect.right, sheet.cols - 1)
+  if (bottom < rect.top || right < rect.left) return null
+  const x0 = box.left + vp.clientLeft
+  const y0 = box.top + vp.clientTop
+  const rowY = (r: number) => y0 + HEAD_H + r * ROW_HEIGHT - (r < frozen ? 0 : vp.scrollTop)
+  const minY = y0 + HEAD_H + (rect.top >= frozen ? frozen * ROW_HEIGHT : 0)
+  const top = Math.max(rowY(rect.top), minY)
+  // a range from the frozen rows into the body: at least its frozen part stays in view
+  let bot = rowY(bottom) + ROW_HEIGHT
+  if (rect.top < frozen) bot = Math.max(bot, rowY(Math.min(bottom, frozen - 1)) + ROW_HEIGHT)
+  bot = Math.min(bot, y0 + vp.clientHeight)
+  const left = Math.max(x0 + RH_W + xs[rect.left] - vp.scrollLeft, x0 + RH_W)
+  const right2 = Math.min(x0 + RH_W + xs[right + 1] - vp.scrollLeft, x0 + vp.clientWidth)
+  if (bot <= top || right2 <= left) return null
+  return new DOMRect(left, top, right2 - left, bot - top)
+}
+
+export function targetOf(el: Element | null): GridTarget | null {
   const hit = el?.closest?.('[data-cell],[data-rowhead],[data-colhead],[data-corner]') as HTMLElement | null
   if (!hit) return null
   if (hit.dataset.cell) {
@@ -165,8 +202,8 @@ const Row = memo(function Row({ sheet, wb, lang, r, tpl, top, rowSel, t }: RowPr
 })
 
 export function Grid(props: GridProps) {
-  const { sheet, wb, version, lang, t, overlays, selRows, selCols, editCell, editorNode, viewportRef, onPointer, onDouble, onContext, onResize, onAutofit, editable, height, gridProps, fill } = props
-  const [view, setView] = useState({ top: 0, h: 560 })
+  const { sheet, wb, version, lang, t, overlays, selRows, selCols, editCell, editorNode, viewportRef, onPointer, onDouble, onContext, onResize, onAutofit, editable, height, gridProps, fill, handles, runout = 0 } = props
+  const [view, setView] = useState({ top: 0, h: 560, left: 0 })
   const [resize, setResize] = useState<{ col: number; w: number } | null>(null)
   const raf = useRef(0)
 
@@ -180,12 +217,12 @@ export function Grid(props: GridProps) {
     cancelAnimationFrame(raf.current)
     raf.current = requestAnimationFrame(() => {
       const el = viewportRef.current
-      if (el) setView({ top: el.scrollTop, h: el.clientHeight })
+      if (el) setView({ top: el.scrollTop, h: el.clientHeight, left: el.scrollLeft })
     })
   }
   useLayoutEffect(() => {
     const el = viewportRef.current
-    if (el) setView({ top: el.scrollTop, h: el.clientHeight })
+    if (el) setView({ top: el.scrollTop, h: el.clientHeight, left: el.scrollLeft })
   }, [viewportRef, sheet.id])
   useEffect(() => () => cancelAnimationFrame(raf.current), [])
 
@@ -268,6 +305,9 @@ export function Grid(props: GridProps) {
     return out
   }
 
+  /** A corner at x is not scrolled under the row numbers (handles there would sit on top of them). */
+  const inView = (x: number) => x >= view.left + RH_W - 2
+
   /** Dataset tags hang above the area; on the first row of their block below it, inside when there is no room. */
   const tagPlace = (rect: Rect, where: 'frozen' | 'body') => {
     const first = where === 'body' ? frozen : 0
@@ -314,7 +354,24 @@ export function Grid(props: GridProps) {
       const bottom = Math.min(h.bottom, sheet.rows - 1)
       const left = RH_W + xs[Math.min(h.right + 1, sheet.cols)]
       const top = (where === 'frozen' ? bottom + 1 : bottom - frozen + 1) * ROW_HEIGHT
-      items.push(<span key="fill-handle" className="sg-fill" data-fill-handle="" style={{ left, top }} title={fill.label} aria-hidden onPointerDown={fill.onHandleDown} />)
+      if (!fill.touch) items.push(<span key="fill-handle" className="sg-fill" data-fill-handle="" style={{ left, top }} title={fill.label} aria-hidden onPointerDown={fill.onHandleDown} />)
+      else if (inView(left))
+        items.push(
+          <span key="fill-handle" className="sg-fill is-tab" data-fill-handle="" style={{ left, top }} aria-hidden onPointerDown={fill.onHandleDown}>
+            <i />
+          </span>,
+        )
+    }
+    if (handles) {
+      const h = handles.rect
+      for (const corner of ['tl', 'br'] as const) {
+        const r = corner === 'tl' ? h.top : Math.min(h.bottom, sheet.rows - 1)
+        if ((where === 'frozen') !== r < frozen) continue
+        const left = RH_W + xs[corner === 'tl' ? Math.min(h.left, sheet.cols) : Math.min(h.right + 1, sheet.cols)]
+        const top = ((corner === 'tl' ? r : r + 1) - (where === 'body' ? frozen : 0)) * ROW_HEIGHT
+        if (!inView(left)) continue
+        items.push(<span key={`handle-${corner}`} className={`sg-handle is-${corner}`} data-sel-handle={corner} style={{ left, top }} aria-hidden onPointerDown={(e) => handles.onDown(corner, e)} />)
+      }
     }
     if (editCell && editorNode && (where === 'frozen') === editCell.r < frozen) {
       const b = boxes({ top: editCell.r, bottom: editCell.r, left: editCell.c, right: editCell.c })[0]
@@ -359,7 +416,7 @@ export function Grid(props: GridProps) {
       className="sg"
       onScroll={onScroll}
       onMouseDown={(e) => {
-        if ((e.target as Element).closest('[data-resize], .sg-editor, [data-fill-handle]')) return
+        if ((e.target as Element).closest('[data-resize], .sg-editor, [data-fill-handle], [data-sel-handle]')) return
         down(e)
       }}
       onDoubleClick={(e) => {
@@ -375,7 +432,11 @@ export function Grid(props: GridProps) {
       style={{ height }}
       {...gridProps}
     >
-      <div className="sg__inner" style={{ width: RH_W + totalW }} role="presentation">
+      <div
+        className={`sg__inner${runout ? ' has-runout' : ''}`}
+        style={runout ? ({ width: RH_W + totalW + runout, paddingBottom: runout, '--runout': `${runout}px` } as CSSProperties) : { width: RH_W + totalW }}
+        role="presentation"
+      >
         <div className="sg-head" style={{ gridTemplateColumns: tpl }} role="row" aria-rowindex={1}>
           <div className="sg-corner" data-corner="" role="columnheader" aria-hidden />
           {heads}
