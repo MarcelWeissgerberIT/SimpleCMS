@@ -21,9 +21,11 @@ export function TestBench({ fn, params, functions, samples, onSample, holes }: T
   const t = useT()
   const lang = useLang()
   // `functions`: calls of other functions run their saved versions — when those change, run again
+  // nothing to run until every input has a sample (an empty one would only show #DIV/0! or #VALUE!)
+  const missing = params.filter((p) => (samples[p.name] ?? '').trim() === '').length
   const result: RunResult | null = useMemo(
     () =>
-      fn
+      fn && !missing
         ? runFunction(
             fn,
             params.map((p) => samples[p.name] ?? ''),
@@ -31,7 +33,7 @@ export function TestBench({ fn, params, functions, samples, onSample, holes }: T
           )
         : null,
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [fn, params, samples, functions, lang],
+    [fn, params, samples, functions, lang, missing],
   )
 
   return (
@@ -65,11 +67,13 @@ export function TestBench({ fn, params, functions, samples, onSample, holes }: T
           </label>
         ))}
       </div>
-      <div className="fx-bench__out" data-state={!fn ? 'idle' : result?.ok ? 'ok' : 'error'} aria-live="polite">
-        <span className={`led${fn ? (result?.ok ? ' led--ok' : ' led--on') : ''}`} aria-hidden />
+      <div className="fx-bench__out" data-state={!fn || !result ? 'idle' : result.ok ? 'ok' : 'error'} aria-live="polite">
+        <span className={`led${fn && result ? (result.ok ? ' led--ok' : ' led--on') : ''}`} aria-hidden />
         {!fn ? (
           <span className="faint">{holes ? t('features.fn.bench.fillFirst', { n: holes }) : t('features.fn.bench.fixFirst')}</span>
-        ) : result?.ok ? (
+        ) : !result ? (
+          <span className="faint">{t('features.fn.bench.samplesFirst')}</span>
+        ) : result.ok ? (
           <>
             <span className="fx-bench__eq" aria-hidden>
               =

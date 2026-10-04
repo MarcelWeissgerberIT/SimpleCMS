@@ -83,7 +83,11 @@ export default defineConfig({
   base: process.env.BASE_PATH ?? '/',
   plugins: [react(), serviceWorkerPrecache()],
   // the dev server only looks for a team-cloud server when one is proxied (ONE_SERVER, see below)
-  define: { 'import.meta.env.VITE_ONE_SERVER': JSON.stringify(process.env.ONE_SERVER ?? '') },
+  // STATIC_HOST: a build for a static host (GitHub Pages) never looks for a team-cloud server either
+  define: {
+    'import.meta.env.VITE_ONE_SERVER': JSON.stringify(process.env.ONE_SERVER ?? ''),
+    'import.meta.env.VITE_STATIC_HOST': JSON.stringify(process.env.STATIC_HOST ?? ''),
+  },
   resolve: {
     alias: { '@': fileURLToPath(new URL('./src', import.meta.url)) },
   },

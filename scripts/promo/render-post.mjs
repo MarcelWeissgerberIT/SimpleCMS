@@ -44,7 +44,7 @@ const frame = (fig, rev) => `
 <div class="mark tl"></div><div class="mark tr"></div><div class="mark bl"></div><div class="mark br"></div>
 <div class="top mono"><span>SimpleCMS One · ${fig}</span><span>${rev}</span></div>
 <div class="foot">${LOGO()}<span class="name">SimpleCMS One</span><span class="url">getonecms.com</span>
-<span class="tags mono">Free · Local-first · Open source (MIT) · Bring your own Claude key</span></div>`
+<span class="tags mono">Free · Local-first · Open source · Bring your own Claude key</span></div>`
 
 /* ------------------------------------------------------------------ 02 — the bill */
 const bill = `<!doctype html><html><head><style>${CSS}
@@ -86,7 +86,7 @@ ${frame('Fig. 01 — The bill', 'Rev 2026.10')}
     <div class="row">
       <div class="who mono">SimpleCMS One · unlimited people</div>
       <div class="line"><div class="meter"><div class="zero"></div></div><span class="val sig">$0</span></div>
-      <div class="calc mono">No seats · no account · no server · no subscription</div>
+      <div class="calc mono">No seats · no subscription · account &amp; server optional</div>
     </div>
     <div class="note"><span class="led"></span><span>AI included: bring your own Claude key and pay Anthropic only for what you use.</span></div>
   </div>
@@ -97,7 +97,7 @@ ${frame('Fig. 01 — The bill', 'Rev 2026.10')}
   <div class="cap mono"><span>Fig. 1 — Projects database · board + side peek</span><span>Runs 100% in your browser</span></div>
 </div>
 <div class="chips">
-  <span class="chip"><b>7</b> database views</span><span class="chip"><b>20</b> property types</span><span class="chip">Relations · rollups · formulas</span>
+  <span class="chip"><b>8</b> database views</span><span class="chip"><b>22</b> property types</span><span class="chip">Relations · rollups · formulas</span>
   <span class="chip">Webhooks → n8n · Make · Zapier</span><span class="chip">Works offline</span>
 </div>
 <img class="hammer" src="${file('public/assets/icons/hammer.png')}">
@@ -106,7 +106,7 @@ ${frame('Fig. 01 — The bill', 'Rev 2026.10')}
 /* ------------------------------------------------------------------ 03 — the spec sheet */
 const FEATURES = [
   ['blocks', 'Block editor', 'Slash menu, drag handles, toggles, callouts, code, math, Mermaid diagrams.'],
-  ['database', 'Databases', 'Table, board, list, gallery, calendar, timeline, chart. Relations, rollups, formulas.'],
+  ['database', 'Databases', 'Table, board, list, gallery, calendar, timeline, chart, form. Relations, rollups, formulas.'],
   ['ai', 'Claude, your key', 'Rewrite, summarise, translate, ask your workspace. Pay per use, no plan upgrade.'],
   ['automation', 'Automations', 'Every database fires webhooks into n8n, Make or Zapier. Free.'],
   ['graph', '⌘K, panes, graph', 'One palette for everything, pages side by side, a live graph of every link.'],

@@ -31,6 +31,8 @@ jobs:
       - run: npm run build:pages
         env:
           BASE_PATH: ${{ steps.pages.outputs.base_path }}/
+          # a static host: the app never looks for a team-cloud server here (no api/config probe, no 404)
+          STATIC_HOST: '1'
       - run: cp dist/index.html dist/404.html
       - uses: actions/upload-pages-artifact@v3
         with:

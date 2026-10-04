@@ -18,7 +18,7 @@ publishing as a website — for **$0**, with **no account** and **no server**. E
 
 <sub>First visit only: sit still for 15 seconds on the 1997 spreadsheet homepage. Replay any time with <code>?intro</code>.</sub>
 
-**[▶ 60-second tour (video)](https://getonecms.com/media/simplecms-one.mp4)**
+**[▶ 70-second tour (video)](https://getonecms.com/media/simplecms-one.mp4)**
 
 </div>
 
