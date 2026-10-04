@@ -33,11 +33,19 @@ export const messages: Messages = {
     'features.mcp.ro.port': 'Port',
     'features.mcp.ro.team': 'Team',
     'features.mcp.ro.viewer': 'View only',
+    'features.mcp.as': 'Connected as',
+    'features.mcp.asId': 'Workspace id {id} — agents address this workspace by it',
     'features.mcp.portHint': 'The bridge port (default 47321). Set the same port for the bridge with ONE_MCP_PORT.',
 
     'features.mcp.msg.waiting': 'No bridge answers yet. Start your MCP client (it starts the bridge) — this tab keeps trying and connects on its own.',
     'features.mcp.msg.prompt': 'No bridge answers yet. Start your MCP client — this tab connects on its own. If the browser asks whether One may reach apps on this device, choose Allow.',
-    'features.mcp.msg.replaced': 'Another One tab took over the bridge (the newest tab wins). Agents now work in that tab.',
+    'features.mcp.msg.replaced': 'Another tab of this workspace took over the bridge (the newest tab wins). Agents now work in that tab.',
+    'features.mcp.msg.peers.one': 'Also connected in another tab: {names}. Agents name the workspace they mean — a call meant for one workspace never runs in another.',
+    'features.mcp.msg.peers.other': 'Also connected in other tabs: {names}. Agents name the workspace they mean — a call meant for one workspace never runs in another.',
+    'features.mcp.msg.legacy': 'The bridge on this computer is an older version: one tab at a time, and calls are not bound to a workspace. Update it (download one.mcpb or one-mcp.mjs again) to work with several workspaces safely.',
+    'features.mcp.peer': '“{name}” ({kind})',
+    'features.mcp.peer.local': 'local',
+    'features.mcp.peer.team': 'team',
     'features.mcp.msg.insecure':
       'This browser does not let a secure (https) page talk to the bridge on your computer. Use Chrome, Edge or Firefox — or open One from http://localhost.',
     'features.mcp.msg.permission':
@@ -107,6 +115,7 @@ export const messages: Messages = {
     'features.mcp.card.approve': 'Approve',
     'features.mcp.card.to': 'becomes',
     'features.mcp.card.newOption': 'New option',
+    'features.mcp.card.workspace': 'Workspace',
 
     'features.mcp.toast.applied': 'Done: {what}',
     'features.mcp.toast.undone': 'Agent change undone',
@@ -176,11 +185,19 @@ export const messages: Messages = {
     'features.mcp.ro.port': 'Port',
     'features.mcp.ro.team': 'Team',
     'features.mcp.ro.viewer': 'Nur lesen',
+    'features.mcp.as': 'Verbunden als',
+    'features.mcp.asId': 'Workspace-ID {id} — Agenten sprechen diesen Workspace damit an',
     'features.mcp.portHint': 'Port der Brücke (Standard 47321). Für die Brücke denselben Port mit ONE_MCP_PORT setzen.',
 
     'features.mcp.msg.waiting': 'Noch antwortet keine Brücke. Starte deinen MCP-Client (er startet die Brücke) — dieser Tab versucht es weiter und verbindet sich von selbst.',
     'features.mcp.msg.prompt': 'Noch antwortet keine Brücke. Starte deinen MCP-Client — dieser Tab verbindet sich von selbst. Fragt der Browser, ob One Apps auf diesem Gerät erreichen darf, wähle „Zulassen“.',
-    'features.mcp.msg.replaced': 'Ein anderer One-Tab hat die Brücke übernommen (der neueste Tab gewinnt). Agenten arbeiten jetzt dort.',
+    'features.mcp.msg.replaced': 'Ein anderer Tab dieses Workspace hat die Brücke übernommen (der neueste Tab gewinnt). Agenten arbeiten jetzt dort.',
+    'features.mcp.msg.peers.one': 'Ebenfalls verbunden, in einem anderen Tab: {names}. Agenten nennen den Workspace, den sie meinen — ein Aufruf für einen Workspace läuft nie in einem anderen.',
+    'features.mcp.msg.peers.other': 'Ebenfalls verbunden, in anderen Tabs: {names}. Agenten nennen den Workspace, den sie meinen — ein Aufruf für einen Workspace läuft nie in einem anderen.',
+    'features.mcp.msg.legacy': 'Die Brücke auf diesem Computer ist eine ältere Version: ein Tab zur Zeit, Aufrufe sind nicht an einen Workspace gebunden. Aktualisiere sie (one.mcpb oder one-mcp.mjs neu herunterladen), um sicher mit mehreren Workspaces zu arbeiten.',
+    'features.mcp.peer': '„{name}“ ({kind})',
+    'features.mcp.peer.local': 'lokal',
+    'features.mcp.peer.team': 'Team',
     'features.mcp.msg.insecure':
       'Dieser Browser lässt eine sichere (https-)Seite nicht mit der Brücke auf deinem Computer sprechen. Nimm Chrome, Edge oder Firefox — oder öffne One über http://localhost.',
     'features.mcp.msg.permission':
@@ -250,6 +267,7 @@ export const messages: Messages = {
     'features.mcp.card.approve': 'Freigeben',
     'features.mcp.card.to': 'wird zu',
     'features.mcp.card.newOption': 'Neue Option',
+    'features.mcp.card.workspace': 'Workspace',
 
     'features.mcp.toast.applied': 'Erledigt: {what}',
     'features.mcp.toast.undone': 'Agenten-Änderung rückgängig gemacht',

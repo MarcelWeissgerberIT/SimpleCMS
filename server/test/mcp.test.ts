@@ -101,7 +101,7 @@ async function fails(client: McpClient, name: string, args: Record<string, unkno
   return res.content[0]!.text
 }
 
-const READ_TOOLS = ['one_get_database', 'one_get_page', 'one_list_databases', 'one_overview', 'one_query_database', 'one_search']
+const READ_TOOLS = ['one_get_database', 'one_get_page', 'one_list_databases', 'one_list_workspaces', 'one_overview', 'one_query_database', 'one_search']
 const WRITE_TOOLS = ['one_create_database', 'one_create_page', 'one_create_property', 'one_create_row', 'one_trash_page', 'one_update_page', 'one_update_row']
 
 /* ------------------------------------------------------------------ suite */
@@ -252,6 +252,42 @@ describe('remote MCP', () => {
     assert.equal(tasks.rows, 3)
     assert.equal((await call(writer, 'one_overview')).access, 'read-write')
     assert.deepEqual(o.people, [{ name: 'Olivia Owner', email: 'owner@mcp.test' }])
+  })
+
+  test('workspaces: the token\'s is the only one — listed, named in every answer; "workspace" naming another is refused', async () => {
+    const list = await call(reader, 'one_list_workspaces')
+    assert.match(list.workspaces[0].site, /^https?:\/\//, 'the server\'s public address')
+    assert.deepEqual(list.workspaces.map(({ site: _site, ...w }: Record<string, unknown>) => w), [
+      {
+        id: `team:${wsId}`,
+        name: 'MCP Works',
+        kind: 'team',
+        access: 'read-only',
+        readOnly: true,
+        mode: 'read',
+        changes: 'Refused: this token can only read.',
+        newest: true,
+      },
+    ])
+    assert.equal((await call(writer, 'one_list_workspaces')).workspaces[0].access, 'read-write')
+    assert.match(writer.getInstructions() ?? '', new RegExp(`team:${wsId}`))
+    // every answer names the workspace (the overview keeps its url)
+    const o = await call(reader, 'one_overview')
+    assert.deepEqual([o.workspace.id, o.workspace.name], [`team:${wsId}`, 'MCP Works'])
+    assert.match(o.workspace.url, /\/app\/\?w=/)
+    assert.deepEqual((await call(reader, 'one_list_databases')).workspace, { id: `team:${wsId}`, name: 'MCP Works' })
+    // the token's own workspace by id (with or without "team:") or by its name (any case) is fine
+    for (const workspace of [`team:${wsId}`, wsId, 'mcp works', '  MCP   Works ']) assert.equal((await call(reader, 'one_get_page', { id: 'doc-1', workspace })).title, 'Handbook', workspace)
+    // anything else: refused before the tool runs — nothing read, nothing written
+    for (const workspace of ['Elsewhere', 'team:nope', 'local:abc', `local:${wsId}`]) {
+      const msg = await fails(writer, 'one_create_page', { title: 'Wrong place', workspace }, /^workspace_mismatch: this connection \(its API token\) reaches only the workspace "MCP Works"/)
+      assert.ok(msg.includes(JSON.stringify(workspace.trim())))
+    }
+    await fails(reader, 'one_get_page', { id: 'doc-1', workspace: 'Elsewhere' }, /^workspace_mismatch/)
+    assert.ok(!(await call(reader, 'one_search', { query: 'Wrong place' })).results.length, 'nothing was created')
+    // the outsider's token knows only its own workspace, even when it names this one
+    await fails(outsider, 'one_overview', { workspace: 'MCP Works' }, /^workspace_mismatch: .*"Elsewhere"/)
+    await fails(outsider, 'one_get_page', { id: 'doc-1', workspace: `team:${wsId}` }, /^workspace_mismatch/)
   })
 
   test('one_search: titles and content, snippets; trash and private pages stay out', async () => {

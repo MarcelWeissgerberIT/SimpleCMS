@@ -89,6 +89,8 @@ the public APIs stable — other areas are built against them in parallel.
 - Team cloud invites: workspace invites can be reusable (`max_uses`, validity, allowed domains; never admin) or sent to
   several addresses; server admins (`ADMIN_EMAILS`, Settings → Server) create registration links `#/signup/<token>`
   for invite-only servers (docs/CLOUD.md § Invites & registration links).
+- MCP addresses workspaces by id (`local:<hash>` / `team:<id>`, features/mcp/identity.ts; per-browser localStorage
+  `one.mcp.device`); every bridge call is bound to that id and refused on a mismatch — never act in another workspace.
 
 ## TipTap node names (shared contract — seed, export, share, history all rely on these)
 

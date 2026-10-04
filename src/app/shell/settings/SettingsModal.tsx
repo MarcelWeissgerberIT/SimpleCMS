@@ -18,6 +18,7 @@ import { WebClipper } from '../capture/WebClipper'
 import { TeamTab } from '../cloud/TeamTab'
 import { ServerTab } from '../cloud/ServerTab'
 import { consumeSettingsTab, useInCloud, useReadOnly, useWorkspaceTitle } from '../cloud/state'
+import { cleanWorkspaceName, WORKSPACE_NAME_MAX } from '../lib/workspaceName'
 import { cloudApi } from '../cloud/api'
 import { errorText } from '../cloud/errors'
 import { useCloud, useCloudSync } from '../../cloud'
@@ -214,7 +215,13 @@ function GeneralTab() {
       <h3 className="st-h">{t('shell.settings.general.title')}</h3>
       {!inCloud && (
         <Field label={t('shell.settings.workspaceName')} hint={t('shell.settings.workspaceNameHint')}>
-          <input className="input" value={s.workspaceName} maxLength={40} onChange={(e) => set({ workspaceName: e.target.value })} />
+          <input
+            className="input"
+            value={s.workspaceName}
+            maxLength={WORKSPACE_NAME_MAX}
+            onChange={(e) => set({ workspaceName: e.target.value.replace(/[\u0000-\u001f\u007f-\u009f]/g, ' ') })}
+            onBlur={(e) => set({ workspaceName: cleanWorkspaceName(e.target.value) || 'One' })}
+          />
         </Field>
       )}
       <Field label={t('shell.settings.userName')} hint={t('shell.settings.userNameHint')}>

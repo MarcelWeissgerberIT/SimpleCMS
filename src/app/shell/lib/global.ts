@@ -8,7 +8,7 @@ import { isMac } from '../../ui/controls'
 import { t } from '../../i18n'
 import { createPageAndOpen, currentPageId, pruneUndoToasts, toggleFocusMode, toggleSidebar, toggleTheme } from './actions'
 import { runClipRoute } from '../capture/inbox'
-import { isReadOnly } from '../cloud/state'
+import { isReadOnly, useWorkspaceTitle } from '../cloud/state'
 
 const isEditable = (el: EventTarget | null) => {
   const e = el as HTMLElement | null
@@ -211,6 +211,8 @@ export function useRouteEffects(route: Route) {
   const title = useWorkspace((s) => (pageId ? s.pages[pageId]?.title : undefined))
   const exists = useWorkspace((s) => (pageId ? !!s.pages[pageId] && !s.pages[pageId].trashed : false))
   const lang = useWorkspace((s) => s.settings.language)
+  // "Page — Workspace": the workspace's one name (team: the server's)
+  const workspace = useWorkspaceTitle()
 
   useEffect(() => {
     let name: string
@@ -222,8 +224,8 @@ export function useRouteEffects(route: Route) {
     else if (route.name === 'clip') name = t('shell.capture.crumb')
     else if (route.name === 'notfound') name = t('shell.notFound.title')
     else name = t('shell.nav.home')
-    document.title = `${name} — One`
-  }, [route, title, exists, lang])
+    document.title = `${name} — ${workspace.trim() || 'One'}`
+  }, [route, title, exists, lang, workspace])
 
   useEffect(() => {
     if (pageId && exists) useWorkspace.getState().touchRecent(pageId)

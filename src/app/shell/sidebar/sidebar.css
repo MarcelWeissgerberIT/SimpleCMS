@@ -143,6 +143,49 @@
   flex: none;
   color: var(--ink-3);
 }
+/* renaming in place: the name becomes a field, the sub line counts and names the keys */
+.sb-head__edit {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+  flex: 1;
+  height: 32px;
+  padding: 0 6px;
+  border-radius: var(--radius-1);
+  background: var(--surface);
+  box-shadow: inset 0 0 0 1px var(--signal);
+}
+.sb-head__edit[data-busy] {
+  opacity: 0.7;
+}
+.sb-head__edit .sb-head__text {
+  flex: 1;
+}
+.sb-head__input {
+  width: 100%;
+  min-width: 0;
+  height: 17px;
+  padding: 0;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: var(--ink);
+  caret-color: var(--signal);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 700;
+  font-stretch: 112%;
+  letter-spacing: -0.01em;
+}
+/* the field's frame is the focus mark — no second ring around the text */
+.sb-head__input:focus-visible {
+  outline: none;
+  box-shadow: none;
+}
+.sb-head__sub[data-problem] {
+  color: var(--c-red-text);
+}
 .sb-head__collapse {
   opacity: 0;
   transition: opacity var(--dur-1);

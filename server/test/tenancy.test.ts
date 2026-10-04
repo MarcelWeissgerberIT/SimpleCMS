@@ -246,6 +246,7 @@ const ROUTES: Record<string, Entry> = {
 /** Every MCP tool with B's ids: refused (not found), or — for the listing tools — nothing of B in the answer. */
 const MCP_TOOLS: Record<string, (x: Foreign) => Record<string, unknown>> = {
   one_overview: () => ({}),
+  one_list_workspaces: () => ({}),
   one_search: () => ({ query: MARKER.slice(0, 10) }), // (the answer repeats the query)
   one_list_databases: () => ({}),
   one_get_page: (x) => ({ id: x.page }),
@@ -404,8 +405,25 @@ describe('isolation sweep: a member of A against workspace B', () => {
         const text = res.content.map((c) => c.text).join('\n')
         assert.ok(!text.includes(MARKER), `${name} must not show B's content: ${text}`)
         if (name === 'one_search') assert.equal(JSON.parse(text).total, 0, text)
+        else if (name === 'one_list_workspaces') assert.deepEqual(JSON.parse(text).workspaces.map((w: { id: string; name: string }) => [w.id, w.name]), [[`team:${A}`, 'Alpha']])
         else if (!['one_overview', 'one_list_databases'].includes(name)) assert.equal(res.isError, true, `${name} must be refused: ${text}`)
       }
+      // the `workspace` argument naming B (its id, bare or "team:", its name) is refused by every tool — even with A's own ids
+      const own: Foreign = { ...x, page: 'page-alpha', db: 'db-alpha', row: 'row-alpha' }
+      for (const target of [x.ws, `team:${x.ws}`, 'Bravo', ' bravo ']) {
+        for (const [name, args] of Object.entries(MCP_TOOLS)) {
+          if (name === 'one_list_workspaces') continue
+          const res = (await client.callTool({ name, arguments: { ...args(own), workspace: target } })) as { isError?: boolean; content: Array<{ text: string }> }
+          const text = res.content.map((c) => c.text).join('\n')
+          assert.equal(res.isError, true, `${name} with workspace ${JSON.stringify(target)}: ${text}`)
+          assert.match(text, /^workspace_mismatch: this connection \(its API token\) reaches only the workspace "Alpha"/, name)
+          assert.ok(!text.includes(MARKER), `${name} must not show B's content`)
+        }
+      }
+      // nothing of A was changed by those refused calls
+      const page = (await client.callTool({ name: 'one_get_page', arguments: { id: 'page-alpha', workspace: 'alpha' } })) as { isError?: boolean; content: Array<{ text: string }> }
+      assert.ok(!page.isError, page.content[0]?.text)
+      assert.notEqual(JSON.parse(page.content[0]!.text).title, 'changed')
     } finally {
       await client.close()
     }

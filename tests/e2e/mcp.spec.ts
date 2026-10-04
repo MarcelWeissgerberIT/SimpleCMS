@@ -4,6 +4,10 @@
  * preview origin http://127.0.0.1:<port> is on the bridge's allowlist) connects to it and runs the
  * tools against the seeded workspace. Never talks to api.anthropic.com.
  *
+ * Every test opens a fresh browser context — a new local workspace with its own id. The bridge runs
+ * for the whole file and keeps calls without "workspace" in the workspace it last worked in, so each
+ * test first names its own workspace once (connect → adopt), like an agent told by the person.
+ *
  * Needs the bridge's dependencies once: `npm --prefix mcp install` (for the SDK client used here).
  */
 import { existsSync } from 'node:fs'
@@ -11,10 +15,12 @@ import { fileURLToPath } from 'node:url'
 import type { Page } from '@playwright/test'
 import { Client } from '../../mcp/node_modules/@modelcontextprotocol/sdk/dist/esm/client/index.js'
 import { StdioClientTransport } from '../../mcp/node_modules/@modelcontextprotocol/sdk/dist/esm/client/stdio.js'
-import { test, expect, openApp, wsEval, pageIdByTitle, flush } from './fixtures'
+import { test, expect, openApp, waitForApp, wsEval, pageIdByTitle, flush } from './fixtures'
 
 const BRIDGE = fileURLToPath(new URL('../../public/mcp/one-mcp.mjs', import.meta.url))
 const PORT = 47399
+/** a stand-in for an older bridge (protocol v1 only) */
+const OLD_PORT = 47396
 
 type ToolResult = { content?: Array<{ type: string; text?: string }>; isError?: boolean }
 
@@ -56,14 +62,34 @@ async function openAgentsTab(page: Page) {
   await page.getByRole('tab', { name: /Agents · MCP|Agenten · MCP/ }).click()
 }
 
-/** Settings → Agents · MCP: the test port, switch on, wait for the bridge. */
-async function connect(page: Page) {
+type Listed = { id: string; name: string; kind: string; mode: string; newest: boolean }
+
+/**
+ * This test's workspace becomes the session's: once the previous test's tab is gone, name it in one
+ * call (an earlier test's workspace was another one — calls without "workspace" would be refused).
+ */
+async function adopt(): Promise<Listed> {
+  let list: { workspaces: Listed[]; lastUsed?: { id: string } } = { workspaces: [] }
+  await expect
+    .poll(async () => {
+      list = json(await call('one_list_workspaces'))
+      return list.workspaces.length
+    })
+    .toBe(1)
+  const mine = list.workspaces[0]
+  if (list.lastUsed && list.lastUsed.id !== mine.id) json(await call('one_list_databases', { workspace: mine.id }))
+  return mine
+}
+
+/** Settings → Agents · MCP: the test port, switch on, wait for the bridge; then adopt the workspace. */
+async function connect(page: Page, own = true): Promise<void> {
   await openAgentsTab(page)
   const port = page.getByLabel('Port', { exact: true })
   await port.fill(String(PORT))
   await port.press('Enter')
   await page.getByRole('switch', { name: 'Allow AI agents on this computer' }).click()
   await expect(page.getByTestId('mcp-state')).toContainText('Connected · Claude Code · 0 calls')
+  if (own) await adopt()
 }
 
 async function closeSettings(page: Page) {
@@ -253,6 +279,7 @@ test('German UI, Reject button, and the newest tab wins', async ({ page, context
   await port.press('Enter')
   await page.getByRole('switch', { name: 'KI-Agenten auf diesem Computer erlauben' }).click()
   await expect(page.getByTestId('mcp-state')).toContainText('Verbunden · Claude Code · 0 Aufrufe')
+  await adopt()
   await expect(page.getByRole('radio', { name: 'Erst fragen' })).toHaveAttribute('aria-checked', 'true')
   await expect(page.getByText('Agenten-Protokoll')).toBeVisible()
   await closeSettings(page)
@@ -279,4 +306,199 @@ test('German UI, Reject button, and the newest tab wins', async ({ page, context
   await page.getByRole('button', { name: 'Diesen Tab nutzen' }).click()
   await expect(page.getByTestId('mcp-state')).toContainText('Verbunden · Claude Code')
   await second.close()
+})
+
+test.describe('workspaces', () => {
+  test('name it once: renamed in the sidebar — window title, Settings, one_overview and one_list_workspaces follow', async ({ page }) => {
+    await openApp(page)
+    await connect(page)
+    await closeSettings(page)
+    const head = page.locator('aside.sb .sb-head__ws')
+    const name = page.locator('aside.sb .sb-head__name')
+    await expect(name).toHaveText('One')
+    await expect(page).toHaveTitle(/ — One$/)
+
+    // header menu → Rename workspace: the name becomes a field in place
+    await head.click()
+    await page.getByRole('menuitem', { name: /Rename workspace/ }).click()
+    const field = page.getByRole('textbox', { name: 'Workspace name' })
+    await expect(field).toBeFocused()
+    await expect(field).toHaveValue('One')
+    await expect(page.locator('.sb-head__edit .sb-head__sub')).toContainText('03/60')
+    // empty is refused (the field stays), then a messy name is cleaned: spaces trimmed and collapsed
+    await field.fill('   ')
+    await field.press('Enter')
+    await expect(page.getByRole('alert').filter({ hasText: 'A name is needed' })).toBeVisible()
+    await expect(field).toHaveAttribute('aria-invalid', 'true')
+    await field.fill('  Atlas    Labs ')
+    await field.press('Enter')
+    await expect(name).toHaveText('Atlas Labs')
+    await expect(head).toBeFocused()
+    await expect(page).toHaveTitle(/ — Atlas Labs$/)
+    expect(await wsEval(page, (s) => s.settings.workspaceName)).toBe('Atlas Labs')
+
+    // F2 on the header, then Esc: nothing changes; a double click opens the field too
+    await head.press('F2')
+    await field.fill('Nope')
+    await field.press('Escape')
+    await expect(name).toHaveText('Atlas Labs')
+    // a person's double click: the first click opens the menu, the second lands on the name again
+    const box = (await head.boundingBox())!
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
+    await page.mouse.down()
+    await page.mouse.up()
+    await page.waitForTimeout(150)
+    await page.mouse.down({ clickCount: 2 })
+    await page.mouse.up({ clickCount: 2 })
+    await expect(field).toBeFocused()
+    await field.press('Escape')
+    await expect(page.locator('[data-popover][role="menu"]')).toHaveCount(0)
+
+    // the bridge has the new name; every answer names the workspace
+    await expect.poll(async () => (json(await call('one_list_workspaces')).workspaces as Listed[])[0]?.name).toBe('Atlas Labs')
+    const ov = json(await call('one_overview'))
+    expect(ov.workspace).toMatchObject({ name: 'Atlas Labs', kind: 'local' })
+    expect(ov.workspace.id).toMatch(/^local:[0-9a-z]{11}$/)
+    const found = json(await call('one_search', { query: 'Team wiki', workspace: 'atlas labs' }))
+    expect(found.workspace).toEqual({ id: ov.workspace.id, name: 'Atlas Labs' })
+
+    // Settings → Agents · MCP: "Connected as" with the id's short form; General has the same name (≤ 60)
+    await openAgentsTab(page)
+    const as = page.getByTestId('mcp-as')
+    await expect(as).toContainText('Connected as')
+    await expect(as).toContainText('Atlas Labs')
+    await expect(as.locator('code')).toHaveText(`${ov.workspace.id.slice(0, 14)}…`)
+    await page.getByRole('tab', { name: 'General' }).click()
+    const setting = page.getByLabel('Workspace name')
+    await expect(setting).toHaveValue('Atlas Labs')
+    await expect(setting).toHaveAttribute('maxlength', '60')
+  })
+
+  test('two workspaces at once: addressed by name or id, never guessed; ids of one are not found in the other', async ({ page, browser, errors }) => {
+    await openApp(page)
+    await wsEval(page, (s) => s.updateSettings({ workspaceName: 'Atlas' }))
+    await connect(page)
+    await page.getByRole('radio', { name: 'Apply directly' }).click()
+
+    // a second browser profile: its own local workspace
+    const ctx = await browser.newContext({ serviceWorkers: 'block', locale: 'en-US' })
+    const p2 = await ctx.newPage()
+    errors.watch(p2)
+    await p2.goto(page.url().replace(/#.*$/, ''))
+    await waitForApp(p2)
+    await wsEval(p2, (s) => s.updateSettings({ workspaceName: 'Borealis' }))
+    await connect(p2, false)
+    await p2.getByRole('radio', { name: 'Apply directly' }).click()
+
+    const list = json(await call('one_list_workspaces')).workspaces as Listed[]
+    expect(list.map((w) => [w.name, w.kind, w.mode, w.newest])).toEqual([
+      ['Borealis', 'local', 'apply', true],
+      ['Atlas', 'local', 'apply', false],
+    ])
+    const [b, a] = list
+    expect(a.id).not.toBe(b.id)
+
+    // the first tab notes the other workspace; the second the first
+    await expect(page.getByTestId('mcp-peers')).toContainText('Also connected in another tab: “Borealis” (local)')
+    await expect(p2.getByTestId('mcp-peers')).toContainText('“Atlas” (local)')
+
+    // without "workspace": refused, nothing written anywhere
+    const guess = await call('one_create_page', { title: 'Where am I?' })
+    expect(guess.isError).toBe(true)
+    expect(text(guess)).toMatch(/^workspace_required: 2 One workspaces are connected/)
+
+    // by name: lands in Borealis only
+    const made = json(await call('one_create_page', { title: 'Only in Borealis', workspace: 'borealis' }))
+    expect(made.workspace).toEqual({ id: b.id, name: 'Borealis' })
+    expect(await wsEval(p2, (s, id) => s.pages[id]?.title, made.id)).toBe('Only in Borealis')
+    expect(await wsEval(page, (s, id) => !!s.pages[id] || Object.values(s.pages).some((p: any) => p.title === 'Only in Borealis'), made.id)).toBe(false) // eslint-disable-line @typescript-eslint/no-explicit-any
+
+    // by id: Atlas — and Borealis' page id means nothing there
+    const cross = await call('one_get_page', { id: made.id, workspace: a.id })
+    expect(cross.isError).toBe(true)
+    expect(text(cross)).toContain(`No page with id "${made.id}"`)
+    const inA = json(await call('one_overview', { workspace: a.id }))
+    expect(inA.workspace).toMatchObject({ id: a.id, name: 'Atlas' })
+    expect(inA.counts.pages).toBe(await wsEval(page, (s) => Object.values(s.pages).filter((p: any) => p.kind === 'page' && !p.databaseId && !p.trashed).length)) // eslint-disable-line @typescript-eslint/no-explicit-any
+
+    // Borealis leaves: Atlas is alone again, the note goes
+    await ctx.close()
+    await expect(page.getByTestId('mcp-peers')).toHaveCount(0)
+    await expect.poll(async () => (json(await call('one_list_workspaces')).workspaces as Listed[]).map((w) => w.name)).toEqual(['Atlas'])
+  })
+
+  test('a change waiting for approval is cancelled when the tab switches workspace — nothing is written', async ({ page }) => {
+    await openApp(page)
+    await connect(page)
+    await closeSettings(page)
+    const pending = call('one_create_page', { title: 'Switch me' })
+    const card = page.getByRole('alertdialog')
+    await expect(card).toBeVisible()
+    await expect(card.getByTestId('mcp-card-workspace')).toHaveText(/Workspace\s*One/)
+
+    // the tab now shows a team workspace (cloud state; this test build has no server)
+    await page.evaluate(() =>
+      (window as unknown as { __oneCloud: { set: (s: object) => void } }).__oneCloud.set({
+        available: true,
+        status: 'online',
+        active: { kind: 'cloud', id: 'ws_acme123' },
+        workspaces: [{ id: 'ws_acme123', name: 'Acme Studio', icon: null, role: 'owner' }],
+        role: 'owner',
+        readOnly: false,
+      }),
+    )
+    const res = await pending
+    expect(res.isError).toBe(true)
+    expect(text(res)).toMatch(/^workspace_mismatch: /)
+    await expect(card).toHaveCount(0)
+    expect(await wsEval(page, (s) => Object.values(s.pages).some((p: any) => p.title === 'Switch me'))).toBe(false) // eslint-disable-line @typescript-eslint/no-explicit-any
+
+    // the bridge lists the tab under its new workspace; the old one is gone
+    const list = json(await call('one_list_workspaces')).workspaces as Listed[]
+    expect(list.map((w) => [w.id, w.name, w.kind])).toEqual([['team:ws_acme123', 'Acme Studio', 'team']])
+    // without "workspace" the agent is stopped: its session worked in the local workspace
+    expect(text(await call('one_overview'))).toMatch(/^workspace_mismatch: the connected One tab now shows the workspace "Acme Studio"/)
+    // named: the tab still refuses — it holds no data of that workspace
+    expect(text(await call('one_overview', { workspace: 'Acme Studio' }))).toMatch(/^workspace_mismatch: .*between workspaces/)
+
+    await openAgentsTab(page)
+    await expect(page.locator('.mcp-log__row', { hasText: 'one_create_page' })).toContainText('Cancelled')
+  })
+
+  test('an older bridge (v1): calls run as before, answers name the workspace, the panel asks for an update', async ({ page }) => {
+    const { WebSocketServer } = (await import('../../mcp/node_modules/ws/wrapper.mjs')) as typeof import('../../mcp/node_modules/@types/ws/index.d.ts')
+    const seen: Array<Record<string, any>> = [] // eslint-disable-line @typescript-eslint/no-explicit-any
+    // like bridge 1.0.0: speaks one-mcp.v1 only, one tab, calls carry no workspace
+    const wss = new WebSocketServer({ host: '127.0.0.1', port: OLD_PORT, handleProtocols: (p: Set<string>) => (p.has('one-mcp.v1') ? 'one-mcp.v1' : false) })
+    wss.on('connection', (ws) => {
+      ws.on('message', (d) => {
+        const m = JSON.parse(String(d))
+        seen.push(m)
+        if (m.type !== 'hello') return
+        ws.send(JSON.stringify({ type: 'welcome', bridge: '1.0.0', client: { name: 'claude-code', version: '1' } }))
+        ws.send(JSON.stringify({ type: 'call', id: 'c1', tool: 'one_overview', args: {} }))
+      })
+    })
+    try {
+      await openApp(page)
+      await openAgentsTab(page)
+      const port = page.getByLabel('Port', { exact: true })
+      await port.fill(String(OLD_PORT))
+      await port.press('Enter')
+      await page.getByRole('switch', { name: 'Allow AI agents on this computer' }).click()
+      await expect(page.getByTestId('mcp-state')).toContainText('Connected · Claude Code')
+      await expect(page.getByTestId('mcp-legacy')).toContainText('older version')
+      await expect.poll(() => seen.some((m) => m.type === 'result')).toBe(true)
+      const hello = seen.find((m) => m.type === 'hello')!
+      expect(hello.workspace).toMatchObject({ name: 'One', kind: 'local', readOnly: false })
+      expect(hello.workspace.id).toMatch(/^local:/)
+      const result = seen.find((m) => m.type === 'result')!
+      expect(result.id).toBe('c1')
+      expect(result.result.workspace).toMatchObject({ id: hello.workspace.id, name: 'One', kind: 'local' })
+      expect(result.result.pages.length).toBeGreaterThan(0)
+    } finally {
+      await page.getByRole('switch', { name: 'Allow AI agents on this computer' }).click()
+      await new Promise<void>((r) => wss.close(() => r()))
+    }
+  })
 })

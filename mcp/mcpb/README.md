@@ -27,6 +27,7 @@ version when the new one is higher.
 `server/one-mcp.mjs` is the One MCP bridge (MIT): Claude Desktop starts it over stdio; it listens on
 `ws://127.0.0.1:<port>` for the One tab, which runs every tool against the workspace in your browser.
 Loopback only, One's own origins only; changes wait for your approval in One unless you choose
-otherwise there. Nothing leaves your computer through One.
+otherwise there. Several workspaces can be connected at once (one tab each): every call is bound to
+the workspace it is meant for and never runs in another. Nothing leaves your computer through One.
 
 Guide and security model: https://github.com/MarcelWeissgerberIT/SimpleCMS/blob/main/docs/MCP.md

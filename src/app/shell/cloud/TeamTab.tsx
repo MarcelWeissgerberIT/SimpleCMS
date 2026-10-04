@@ -192,7 +192,7 @@ function ProfileAndName({ wsId, admin }: { wsId: string; admin: boolean }) {
         hint={admin ? t('shell.cloud.team.wsNameHint') : t('shell.cloud.team.wsNameRO')}
         value={title}
         disabled={!admin}
-        maxLength={100}
+        maxLength={60}
         onSave={(v) => cloudApi.renameWorkspace(wsId, v)}
       />
     </>

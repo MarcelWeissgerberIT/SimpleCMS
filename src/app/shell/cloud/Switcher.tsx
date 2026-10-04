@@ -1,6 +1,7 @@
 import { BookOpen, LogIn, LogOut, Plus, UserPlus } from 'lucide-react'
 import { useShallow } from 'zustand/react/shallow'
 import { openInviteSettings, useCloud } from '../../cloud'
+import { useWorkspace } from '../../store/store'
 import type { MenuEntry } from '../../ui/Menu'
 import { Led } from '../../ui/controls'
 import { useT } from '../../i18n'
@@ -22,11 +23,13 @@ export function useWorkspaceEntries(): MenuEntry[] {
     useShallow((s) => ({ available: s.available, user: s.user, workspaces: s.workspaces, active: s.active, status: s.status, role: s.role })),
   )
   const isLocal = active.kind === 'local'
+  // the local workspace's name is known while it is open
+  const localName = useWorkspace((x) => (isLocal ? x.settings.workspaceName.trim() : ''))
   const entries: MenuEntry[] = [
     { kind: 'section', label: t('shell.cloud.switcher.workspaces') },
     {
       id: 'ws-local',
-      label: t('shell.cloud.switcher.local'),
+      label: localName ? `${localName} · ${t('shell.cloud.switcher.local')}` : t('shell.cloud.switcher.local'),
       icon: <Led state={isLocal ? 'ok' : 'off'} />,
       checked: isLocal,
       onSelect: () => !isLocal && cloudApi.switchWorkspace({ kind: 'local', id: 'local' }),

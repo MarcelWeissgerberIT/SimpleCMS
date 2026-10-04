@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 import WebSocket from 'ws'
-import { MCP_SUBPROTOCOL, type AppMessage, type BridgeMessage } from '../../src/app/features/mcp/contract.ts'
+import { MCP_SUBPROTOCOL, MCP_SUBPROTOCOL_V1, type AppMessage, type BridgeMessage, type McpWorkspaceInfo } from '../../src/app/features/mcp/contract.ts'
 
 export const BUNDLE = fileURLToPath(new URL('../../public/mcp/one-mcp.mjs', import.meta.url))
 export const PORT = 47399
@@ -45,6 +45,8 @@ export async function waitFor(ok: () => boolean, ms = 5000, what: () => string =
 
 export interface FakeApp {
   ws: WebSocket
+  /** the workspace it said hello with (helloApp) */
+  workspace: McpWorkspaceInfo | null
   messages: BridgeMessage[]
   closed: { code: number } | null
   send: (msg: AppMessage) => void
@@ -62,6 +64,7 @@ export function connectApp(opts: { origin?: string | null; protocol?: string | n
   })
   const app: FakeApp = {
     ws,
+    workspace: null,
     messages: [],
     closed: null,
     send: (msg) => ws.send(JSON.stringify(msg)),
@@ -86,22 +89,46 @@ export function connectApp(opts: { origin?: string | null; protocol?: string | n
   })
 }
 
-/** Connect and say hello; resolves with the welcome. */
-export async function helloApp(name = 'Test workspace', mode: 'ask' | 'apply' | 'read' = 'ask'): Promise<FakeApp> {
-  const app = await connectApp()
-  app.send({ type: 'hello', app: 'one', version: '1.0', workspace: { name, kind: 'local', readOnly: false }, mode })
+/** 'Acme Studio' → 'local:acme-studio' (a v2 tab's id, unless one is given). */
+export const idFor = (name: string, kind: 'local' | 'team' = 'local') => `${kind}:${name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'x'}`
+
+export interface HelloOptions {
+  id?: string
+  kind?: 'local' | 'team'
+  readOnly?: boolean
+  /** an older app: subprotocol one-mcp.v1, no workspace id */
+  legacy?: boolean
+  origin?: string
+}
+
+/** Connect and say hello (v2: with a workspace id); resolves with the welcome. */
+export async function helloApp(name = 'Test workspace', mode: 'ask' | 'apply' | 'read' = 'ask', opts: HelloOptions = {}): Promise<FakeApp> {
+  const app = await connectApp({ protocol: opts.legacy ? MCP_SUBPROTOCOL_V1 : MCP_SUBPROTOCOL, origin: opts.origin })
+  const kind = opts.kind ?? 'local'
+  const workspace: McpWorkspaceInfo = opts.legacy ? { name, kind, readOnly: !!opts.readOnly } : { id: opts.id ?? idFor(name, kind), name, kind, readOnly: !!opts.readOnly }
+  app.workspace = workspace
+  app.send({ type: 'hello', app: 'one', version: '1.0', workspace, mode })
   await app.next('welcome')
   return app
 }
 
-/** Answer every call with a canned result (or error) per tool. */
-export function serve(app: FakeApp, answer: (tool: string, args: Record<string, unknown>) => { result?: unknown; error?: string } | null) {
+/**
+ * Answer every call with a canned result (or error) per tool. Like the real tab, a v2 app checks the
+ * call's workspace and names its own in every (object) result.
+ */
+export function serve(app: FakeApp, answer: (tool: string, args: Record<string, unknown>, call: Extract<BridgeMessage, { type: 'call' }>) => { result?: unknown; error?: string } | null) {
   const handle = (msg: BridgeMessage) => {
     if (msg.type !== 'call') return
-    const a = answer(msg.tool, msg.args)
+    const ws = app.workspace
+    if (ws?.id && msg.workspace !== ws.id) return app.send({ type: 'error', id: msg.id, error: `workspace_mismatch: meant for ${msg.workspace}, this tab shows ${ws.id}` })
+    const a = answer(msg.tool, msg.args, msg)
     if (!a) return
     if (a.error !== undefined) app.send({ type: 'error', id: msg.id, error: a.error })
-    else app.send({ type: 'result', id: msg.id, result: a.result })
+    else {
+      const r = a.result
+      const stamped = ws?.id && r && typeof r === 'object' && !Array.isArray(r) ? { ...(r as object), workspace: { id: ws.id, name: ws.name } } : r
+      app.send({ type: 'result', id: msg.id, result: stamped })
+    }
   }
   // calls that arrived before we started serving (right after the welcome)
   for (const msg of app.messages.filter((m) => m.type === 'call')) handle(msg)

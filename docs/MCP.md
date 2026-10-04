@@ -6,19 +6,20 @@ in, with **one tool set** — the same names, arguments and result shapes:
 
 | | Local bridge | Team server |
 |---|---|---|
-| Workspace | the local workspace (and any team workspace) **open in your browser tab** | a team workspace on your own server |
+| Workspace | the local workspace and any team workspace **open in your browser tabs** — several at once, each by its id | the token's team workspace on your own server — only that one |
 | Transport | stdio — your MCP client starts `one-mcp.mjs` on your computer | Streamable HTTP — `https://<your server>/mcp` |
 | Needs | One open in a tab, *Settings → Agents · MCP* switched on | an API token (*Settings → Team → API tokens*) |
 | Data path | MCP client ⇄ `one-mcp` (localhost) ⇄ your One tab ⇄ IndexedDB — nothing leaves your computer | MCP client ⇄ your server ⇄ the workspace's live documents |
 | Changes | wait for your approval in the app (*Ask first*, the default) or apply directly; *read only* switch | apply at once; a **read** token only gets the read tools |
 
-Contents: [Tools](#tools) · [Local bridge](#local-bridge) · [Team server](#team-server)
+Contents: [Tools](#tools) · [Workspaces](#workspaces) · [Local bridge](#local-bridge) · [Team server](#team-server)
 
 ## Tools
 
 | Tool | | What it does |
 |---|---|---|
-| `one_overview` | read | workspace name, today's date, the page tree, every database with its row count, the people |
+| `one_overview` | read | workspace name and id, today's date, the page tree, every database with its row count, the people |
+| `one_list_workspaces` | read | the connected workspaces: id, name, kind (`local` / `team`), access, change mode, which tab connected last — no content ([Workspaces](#workspaces)) |
 | `one_search` | read | `{ query, limit? }` — titles, text and row values; ids, paths and a snippet per hit |
 | `one_get_page` | read | `{ id }` or `{ title }` — title, icon, path, row properties, the content as **Markdown**, sub-pages, backlinks |
 | `one_list_databases` | read | every database: id, title, path, row count, property names and types |
@@ -32,6 +33,10 @@ Contents: [Tools](#tools) · [Local bridge](#local-bridge) · [Team server](#tea
 | `one_create_database` | write | `{ title, parentId?, properties? }` — a database with a table view |
 | `one_trash_page` | write | `{ id }` — to the trash, restorable in the app |
 
+Every tool but `one_list_workspaces` also takes **`workspace`** (optional): the id (`"local:…"`, `"team:…"`) or the
+exact name of the workspace the call is meant for. Every result names the workspace it came from:
+`"workspace": { "id": "team:…", "name": "Acme" }`.
+
 **Values** are the friendly ones of the public API ([API.md § Property values](API.md#property-values)): option
 names, dates `"YYYY-MM-DD"` / `"YYYY-MM-DDTHH:mm"` (wall-clock time) or `{ start, end }`, people by email or name,
 relations by row id or title, `true` / `false`, numbers, `null` to clear. A select or multi-select option that doesn't
@@ -41,6 +46,50 @@ exist yet is added to the property; everything else that doesn't fit fails the w
 dates). **Sort** is a property name, `createdAt`, `updatedAt` or `order` (the table's order, the default); `-` in
 front sorts descending (`"-Due"`). Results are JSON; failures are MCP tool errors (`isError: true`) with a message an
 agent can act on.
+
+## Workspaces
+
+A **name** is for people; an **id** routes. You name your workspace once — click the workspace name at the top of
+the sidebar → *Rename workspace* (or double-click the name, or <kbd>F2</kbd> on it), ↵ saves, Esc cancels; or
+*Settings → General → Workspace name*. 1–60 characters, trimmed, no control characters. The same name shows in the
+sidebar, the workspace switcher, the window title (*Page — Workspace*), export and site-title defaults and to agents.
+A **team** workspace's name is the server's: its owners and admins rename it (everyone sees the new name at once);
+for everyone else it is read-only. Two workspaces may share a name, so the MCP tools address them by id:
+
+| Workspace | Id | Stable … |
+|---|---|---|
+| this browser's local workspace | `local:` + 11 characters — a hash of a random per-browser device id (`localStorage` `one.mcp.device`) and the workspace's epoch | across reloads and for every tab of this browser (and site); a new id after the workspace is erased. Not a secret, nothing of the content |
+| a team workspace | `team:` + the server's workspace id | everywhere — the team server's `/mcp` uses the same id |
+
+**The boundary** — what the local bridge guarantees:
+
+- **Several workspaces at once, one tab each.** Every tab tells the bridge its workspace id. A second tab of the
+  **same** workspace replaces the older one (newest wins); tabs of **other** workspaces stay connected next to each
+  other. `one_list_workspaces` lists them (newest first, `newest: true` on the tab that connected last).
+- **Addressing.** `workspace` resolves: an exact id → else the exact name (case-insensitive, spaces trimmed). A name
+  two connected workspaces share is an error listing their ids (`workspace_ambiguous`); a name or id nobody has is an
+  error listing what is connected (`workspace_unknown`). Something shaped like an id only ever matches ids — a tab
+  *named* `team:…` never receives that workspace's calls. Nothing is ever guessed:
+  - one workspace connected, no `workspace`: that one — as long as it is the workspace this MCP session last worked
+    in. If the tab switched to another workspace since (or another one took its place), the call is refused with
+    `workspace_mismatch` until the agent names the workspace — after asking the person;
+  - several connected, no `workspace`: refused (`workspace_required`).
+- **Binding.** The bridge sends each call to the resolved tab **with the expected workspace id**. The tab runs it
+  only while it shows exactly that workspace — checked when the call arrives and again right before a change is
+  written; otherwise it answers `workspace_mismatch` and nothing happens (the person switched meanwhile, or the tab is
+  between workspaces: a team workspace still loading, signed out, removed). A tab that switches workspace while a
+  call is open fails that call on the bridge too, and a result that names another workspace than the call's is
+  dropped. Changes waiting for approval are **cancelled** the moment the tab's workspace changes; the approval card
+  names the workspace the change is for.
+- **No cross-resolution.** A tab only ever holds its own workspace's data, so ids from one workspace used in another
+  are simply "not found" — never another workspace's page. A team workspace tab holds only what its member may see
+  (other members' private pages never reach the browser).
+- **Errors** start with a code: `workspace_mismatch` (nothing was done — ask the person which workspace),
+  `workspace_required`, `workspace_unknown`, `workspace_ambiguous`. The server instructions tell agents to ask, never
+  to retry in another workspace on their own.
+
+*Settings → Agents · MCP* shows **Connected as** *name* with the id's short form, and a note when another workspace is
+connected in another tab too.
 
 ## Local bridge
 
@@ -53,8 +102,8 @@ Claude Desktop / Claude Code ──stdio──▶ one-mcp.mjs ──ws://127.0.0
 ```
 
 The bridge is one file, [`one-mcp.mjs`](https://getonecms.com/mcp/one-mcp.mjs) (Node.js 20 or newer, no install).
-The MCP client starts it; it lists the tools, and forwards every call to the tab, which runs it against the
-workspace in the browser — the same code paths as the in-app agent — and answers. For Claude Desktop it also comes
+The MCP client starts it; it lists the tools, and forwards every call to the tab of the workspace it is meant for,
+which runs it against that workspace in the browser — the same code paths as the in-app agent — and answers. For Claude Desktop it also comes
 packed as an extension, [`one.mcpb`](https://getonecms.com/mcp/one.mcpb), installed with one click.
 
 ### Set up
@@ -119,9 +168,10 @@ MCP." (a call waits up to 10 s for the tab first). The switch is **per browser**
 
 ### Details
 
-- **One tab at a time, the newest wins.** Opening a second One tab (with the switch on) moves the agent there; the
-  older tab says *Another tab is connected* and offers **Use this tab**. It does not reconnect on its own, so two
-  tabs never take turns.
+- **One tab per workspace, the newest wins.** Opening a second tab of the same workspace (with the switch on) moves
+  the agent there; the older tab says *Another tab is connected* and offers **Use this tab**. It does not reconnect
+  on its own, so two tabs never take turns. Tabs of other workspaces (another browser, a team workspace) connect
+  next to it — see [Workspaces](#workspaces).
 - **Reconnects by itself**: while no bridge answers (*Waiting for an agent · start Claude Desktop*) the tab retries —
   every few seconds, every 30 s after two minutes, at once when the tab comes back into view. Chrome logs each
   refused attempt in the developer console (*WebSocket connection … failed*); that is expected while no MCP client
@@ -155,9 +205,15 @@ The bridge is a door into your workspace, so it only opens for One:
   `file://` (`Origin: null`), clients without an Origin — gets `403` before any data flows.
 - **Host check against DNS rebinding.** A site that points its own domain at 127.0.0.1 still sends its own `Host`;
   only `127.0.0.1`, `localhost` and `[::1]` with the bridge's port are accepted.
-- **Versioned handshake.** The tab must speak the subprotocol `one-mcp.v1` and introduce itself within 5 s; a
-  connection that never does cannot push the real tab out. Plain HTTP gets `426` and nothing else (no CORS headers,
+- **Versioned handshake.** The tab must speak the subprotocol `one-mcp.v2` (or `one-mcp.v1`, older apps) and
+  introduce itself — with a valid workspace id — within 5 s; a connection that never does cannot push the real tab
+  out. A tab of another site that claims a connected workspace's id does not replace it either: both stay, and
+  calls for that id are refused as ambiguous. Plain HTTP gets `426` and nothing else (no CORS headers,
   no information). Messages are capped at 16 MB; dead connections are dropped after a missed ping.
+- **The workspace boundary** ([Workspaces](#workspaces)): calls are bound to a workspace id and run only there.
+  Tabs learn only the **names** of the other connected workspaces (for the settings note) — never their ids, and
+  nothing of their content; ids are random (a hash for local workspaces, the server's id for team workspaces), so a
+  page cannot claim another tab's workspace.
 - **The tab decides.** The bridge never sees your workspace except the answers to the calls the agent makes. Writes
   need your approval by default, *Read only* refuses them, viewers of a team workspace can't write, and the switch
   is off until you turn it on — per browser.
@@ -183,16 +239,21 @@ Self-hosted builds served from `http://localhost` / `http://127.0.0.1` have none
 
 ### The tab protocol
 
-For other implementations: JSON text frames, subprotocol `one-mcp.v1`, defined in
+For other implementations: JSON text frames, subprotocol `one-mcp.v2`, defined in
 [`src/app/features/mcp/contract.ts`](../src/app/features/mcp/contract.ts) (shared by the bridge and the app).
 
 | Direction | Message |
 |---|---|
-| tab → bridge | `{ type: "hello", app: "one", version, workspace: { name, kind, readOnly }, mode }` — first message; then `status` with the same fields when they change |
+| tab → bridge | `{ type: "hello", app: "one", version, workspace: { id, name, kind, readOnly }, mode }` — first message; then `status` with the same fields when they change (another `id` = the tab now shows another workspace) |
 | bridge → tab | `{ type: "welcome", bridge, client: { name, version } \| null }` — the MCP client from its `initialize` (later changes: `client`) |
-| bridge → tab | `{ type: "call", id, tool, args }` |
-| tab → bridge | `{ type: "result", id, result }` · `{ type: "error", id, error }` · `{ type: "pending", id, timeoutMs }` (waiting for approval: the bridge extends the deadline) |
-| bridge → tab | `{ type: "cancel", id }` (the client cancelled, or the bridge gave up) · `{ type: "replaced" }` + close `4001` (a newer tab took over) |
+| bridge → tab | `{ type: "call", id, tool, args, workspace }` — `workspace` = the id the call is meant for; the tab answers `workspace_mismatch` unless it shows exactly that workspace |
+| tab → bridge | `{ type: "result", id, result }` (an object with `workspace: { id, name }` — checked against the call's) · `{ type: "error", id, error }` · `{ type: "pending", id, timeoutMs }` (waiting for approval: the bridge extends the deadline) |
+| bridge → tab | `{ type: "cancel", id }` (the client cancelled, the bridge gave up, or the tab switched workspace) · `{ type: "replaced" }` + close `4001` (a newer tab of the same workspace took over) · `{ type: "peers", workspaces: [{ name, kind }] }` (the other connected workspaces) |
+
+**Older versions.** The bridge also speaks `one-mcp.v1` with apps from before workspaces: such a tab (no id) is the
+only one, as before — it replaces every tab, any newer tab replaces it — its calls carry no `workspace`, and its
+answers get `workspace: { id: null, name }`. A new app offers `one-mcp.v2, one-mcp.v1`; an older bridge picks v1 and
+the app works as before (one tab, unbound calls) and asks for an update in *Settings → Agents · MCP*.
 
 The bridge's own code is in [`mcp/`](../mcp) (`npm --prefix mcp install`, `npm run build:mcp` rebuilds
 `public/mcp/one-mcp.mjs` and packs the extension around it, `public/mcp/one.mcpb` — both committed, the Pages build
@@ -210,7 +271,7 @@ with the API tokens of the [public API](API.md#tokens) — no extra setup on the
 ### Connect
 
 1. An owner or admin creates a token in **Settings → Team → API tokens**: scope **write** lets the agent change
-   things, **read** gives it only the six read tools (the write tools are not even listed).
+   things, **read** gives it only the seven read tools (the write tools are not even listed).
 2. Add the server to your MCP client with the token as a bearer header.
 
 **Claude Code**
@@ -253,7 +314,11 @@ curl -s https://team.example.com/mcp \
 ### What it sees and does
 
 - **One workspace per token** — the token's. Every id is looked up in that workspace's meta document; anything else
-  (another workspace, a page in the trash, a template's page) is "not found".
+  (another workspace, a page in the trash, a template's page) is "not found". `one_list_workspaces` lists just that
+  workspace (`team:<id>`, its name, `read-only` for a read token); every answer names it in `workspace: { id, name }`.
+  The `workspace` argument may name it — by `team:<id>`, the bare id or its current name (any case) — and anything
+  else is refused before the tool runs (`workspace_mismatch`: nothing was done). Another workspace needs its own
+  token.
 - **Private pages never**: another member's — and your own — *Private* pages live in documents the server never
   reads for the API or MCP. A link or @-mention of a page the endpoint can't see shows as "(No access)" in the
   Markdown, never with its stored title.

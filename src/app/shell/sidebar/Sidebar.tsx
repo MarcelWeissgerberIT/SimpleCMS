@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
-import { Bell, CalendarDays, CalendarRange, ChevronsLeft, ChevronDown, Home, LayoutTemplate, Lock, Plus, Search, Trash2, Upload, Waypoints, Settings, Table2, FilePlus2, Users } from 'lucide-react'
+import { Bell, CalendarDays, CalendarRange, ChevronsLeft, ChevronDown, Home, LayoutTemplate, Lock, PenLine, Plus, Search, Trash2, Upload, Waypoints, Settings, Table2, FilePlus2, Users } from 'lucide-react'
 import { useWorkspace } from '../../store/store'
 import { useUI } from '../../store/ui'
 import { useFavorites, useTrash, useTreeCount, useHasFavorites, selectBreadcrumbs } from '../../store/selectors'
@@ -21,6 +21,8 @@ import { closeMobileSidebar, createDatabaseAndOpen, createPageAndOpen, goHome, t
 import { useIsMobile, useKbdHint } from '../lib/hooks'
 import { HeaderSub, useWorkspaceEntries } from '../cloud/Switcher'
 import { openSettingsTab, useInCloud, useReadOnly, useWorkspaceTitle } from '../cloud/state'
+import { useRenameMode } from '../lib/workspaceName'
+import { WorkspaceRename } from './WorkspaceRename'
 import { useInboxUnread } from '../inbox/model'
 import { INBOX_KEYS, useInboxShortcut } from '../inbox/keys'
 import './sidebar.css'
@@ -164,9 +166,35 @@ function SidebarHeader() {
   const mobile = useIsMobile()
   const kbd = useKbdHint()
   const set = useWorkspace.getState().updateSettings
+  // the name: renamed in place (local workspace; team workspaces: admins), read-only for everyone else
+  const renameMode = useRenameMode()
+  const [renaming, setRenaming] = useState(false)
+  const headRef = useRef<HTMLButtonElement>(null)
+  // the right to rename went away (another role, signed out): the field goes too
+  useEffect(() => {
+    if (!renameMode) setRenaming(false)
+  }, [renameMode])
+  const startRename = () => {
+    if (!renameMode) return
+    // a double click opened (or toggled) the menu on its way: it must not take the focus back
+    menu.close()
+    setRenaming(true)
+  }
+  const endRename = () => {
+    setRenaming(false)
+    requestAnimationFrame(() => headRef.current?.focus())
+  }
   const entries: MenuEntry[] = [
     ...workspaces,
     { kind: 'separator' },
+    {
+      id: 'ws-rename',
+      label: t('shell.wsname.rename'),
+      icon: <PenLine size={15} />,
+      hint: renameMode ? (mobile ? undefined : 'F2') : t('shell.wsname.adminsOnly').toUpperCase(),
+      disabled: !renameMode,
+      onSelect: startRename,
+    },
     { label: t('common.settings'), icon: <Settings size={15} />, hint: kbd('Mod+,'), onSelect: () => useUI.getState().openModal({ type: 'settings' }) },
     ...(inCloud ? ([{ label: t('shell.cloud.cmd.team'), icon: <Users size={15} />, onSelect: () => openSettingsTab('team') }] as MenuEntry[]) : []),
     {
@@ -191,16 +219,35 @@ function SidebarHeader() {
   ]
   return (
     <div className="sb-head">
-      <button type="button" className="sb-head__ws" onClick={toggleMenu(menu)} aria-haspopup="menu" aria-expanded={menu.open} title={t('shell.cloud.switcher.label')}>
-        <span className="sb-head__mark" dangerouslySetInnerHTML={{ __html: logoMarkSvg(24) }} />
-        <span className="sb-head__text">
-          <span className="sb-head__name">{name}</span>
-          <span className="sb-head__sub">
-            <HeaderSub />
+      {renaming && renameMode ? (
+        <WorkspaceRename current={name} onDone={endRename} />
+      ) : (
+        <button
+          ref={headRef}
+          type="button"
+          className="sb-head__ws"
+          onClick={toggleMenu(menu)}
+          onDoubleClick={startRename}
+          onKeyDown={(e) => {
+            if (e.key === 'F2' && renameMode) {
+              e.preventDefault()
+              startRename()
+            }
+          }}
+          aria-haspopup="menu"
+          aria-expanded={menu.open}
+          title={t('shell.cloud.switcher.label')}
+        >
+          <span className="sb-head__mark" dangerouslySetInnerHTML={{ __html: logoMarkSvg(24) }} />
+          <span className="sb-head__text">
+            <span className="sb-head__name">{name}</span>
+            <span className="sb-head__sub">
+              <HeaderSub />
+            </span>
           </span>
-        </span>
-        <ChevronDown size={14} className="sb-head__chev" />
-      </button>
+          <ChevronDown size={14} className="sb-head__chev" />
+        </button>
+      )}
       <Tooltip label={mobile ? t('common.close') : t('shell.sidebar.collapseSidebar')} shortcut={mobile ? undefined : shortcutLabel('Mod+\\')}>
         <button type="button" className="icon-btn sb-head__collapse" onClick={toggleSidebar}>
           <ChevronsLeft size={16} />

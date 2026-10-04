@@ -180,7 +180,7 @@ test.describe('landing: agents · MCP', () => {
     // the drawing names both ways in; the tool table lists every tool, write tools marked
     await expect(sec.getByRole('img', { name: /one-mcp bridge over stdio/ }).first()).toBeAttached()
     const tools = sec.locator('.mcp-tool')
-    await expect(tools).toHaveCount(13)
+    await expect(tools).toHaveCount(14)
     await expect(sec.locator('.mcp-tool.is-w')).toHaveCount(7)
     await expect(tools.first()).toContainText('one_overview')
     await expect(sec.locator('.mcp-tool.is-w').last()).toContainText('one_trash_page')

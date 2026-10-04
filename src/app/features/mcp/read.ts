@@ -5,7 +5,6 @@
  */
 import { format } from 'date-fns'
 import { useUI } from '../../store/ui'
-import { useCloud } from '../../cloud'
 import { inTemplate, selectBacklinks } from '../../store/selectors'
 import type { Database, ID, Page, PropertyDef } from '../../store/types'
 import { docToMarkdown } from '../../editor'
@@ -13,6 +12,7 @@ import { parseHash } from '../../lib/router'
 import { t } from '../../i18n'
 import { retrieve, workspaceDocs } from '../ai/workspace'
 import { MCP_FILTER_OPS, type McpAgentMode, type McpToolName } from './contract'
+import { workspaceInfo } from './identity'
 import { comparable, databaseOrThrow, friendlyValue, iconText, iso, kindOf, live, McpToolError, pageUrl, pathOf, propertyJson, q, rowJson, rowProperties, rowsOf, titleOf, ws } from './values'
 
 /** Characters of page Markdown in one answer. */
@@ -25,16 +25,6 @@ function int(v: unknown, def: number, min: number, max: number, key: string): nu
   const n = typeof v === 'number' ? v : Number(v)
   if (!Number.isFinite(n)) throw new McpToolError(`"${key}" must be a number.`)
   return Math.max(min, Math.min(max, Math.floor(n)))
-}
-
-/** Workspace name and kind as the tab shows them. */
-export function workspaceInfo() {
-  const c = useCloud.getState()
-  if (c.active.kind === 'cloud') {
-    const name = c.workspaces.find((w) => w.id === c.active.id)?.name ?? 'Team workspace'
-    return { name, kind: 'team' as const, readOnly: c.readOnly, role: c.role }
-  }
-  return { name: ws().settings.workspaceName.trim() || 'Workspace', kind: 'local' as const, readOnly: false, role: null }
 }
 
 const ref = (p: Page) => ({ id: p.id, title: titleOf(p), kind: kindOf(p) })
@@ -76,7 +66,7 @@ function overview(mode: McpAgentMode) {
     .map((p) => ({ id: p.id, title: titleOf(p), path: pathOf(p.id), rows: rowsOf(p.id).length }))
     .sort((a, b) => a.path.localeCompare(b.path) || a.title.localeCompare(b.title))
   return {
-    workspace: { name: info.name, kind: info.kind, url: `${window.location.origin}${window.location.pathname}` },
+    workspace: { id: info.id, name: info.name, kind: info.kind, url: `${window.location.origin}${window.location.pathname}` },
     access: mode === 'read' || info.readOnly ? 'read-only' : 'read-write',
     approval: mode === 'ask' ? 'Each change waits for the person to approve it in One.' : mode === 'apply' ? 'Changes are applied directly.' : 'Changes are refused (read only).',
     today: format(now, 'yyyy-MM-dd'),
@@ -428,8 +418,17 @@ function decodeCursor(v: unknown, fp: string): number {
 
 /* ------------------------------------------------------------------ */
 
+/** The bridge answers one_list_workspaces itself (every tab); a tab asked directly names only its own. */
+function ownWorkspace(mode: McpAgentMode) {
+  const info = workspaceInfo()
+  return {
+    workspaces: [{ id: info.id, name: info.name, kind: info.kind, access: mode === 'read' || info.readOnly ? 'read-only' : 'read-write', readOnly: info.readOnly, mode, newest: true }],
+  }
+}
+
 export const READ_TOOLS: Partial<Record<McpToolName, (args: Record<string, unknown>, mode: McpAgentMode) => unknown>> = {
   one_overview: (_args, mode) => overview(mode),
+  one_list_workspaces: (_args, mode) => ownWorkspace(mode),
   one_search: search,
   one_get_page: getPage,
   one_list_databases: listDatabases,

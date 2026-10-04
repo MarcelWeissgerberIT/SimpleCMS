@@ -662,6 +662,7 @@ export const content: Record<Lang, SiteContent> = {
     ],
     mcpTools: [
       { name: 'one_overview', text: 'Workspace at a glance: tree, databases, today' },
+      { name: 'one_list_workspaces', text: 'Connected workspaces, by name and id' },
       { name: 'one_search', text: 'Full-text search with snippets' },
       { name: 'one_get_page', text: 'A page as Markdown, with backlinks' },
       { name: 'one_list_databases', text: 'Every database and its row count' },
@@ -820,6 +821,7 @@ export const content: Record<Lang, SiteContent> = {
     ],
     mcpTools: [
       { name: 'one_overview', text: 'Workspace auf einen Blick: Baum, Datenbanken, Datum' },
+      { name: 'one_list_workspaces', text: 'Verbundene Workspaces, mit Name und ID' },
       { name: 'one_search', text: 'Volltextsuche mit Ausschnitten' },
       { name: 'one_get_page', text: 'Eine Seite als Markdown, mit Rückverweisen' },
       { name: 'one_list_databases', text: 'Alle Datenbanken mit Zeilenzahl' },

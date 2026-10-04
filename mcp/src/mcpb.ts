@@ -23,6 +23,7 @@ const REPO = 'https://github.com/MarcelWeissgerberIT/SimpleCMS'
  */
 const TOOL_SUMMARIES: Record<McpToolName, string> = {
   one_overview: 'Workspace name, today, the page tree, every database and the people.',
+  one_list_workspaces: 'The workspaces connected right now (one per tab): id, name, access.',
   one_search: 'Search titles, text and row values.',
   one_get_page: 'Read a page or row: properties, content as Markdown, sub-pages, backlinks.',
   one_list_databases: 'Every database with its properties and row count.',
@@ -43,6 +44,7 @@ const LONG_DESCRIPTION = `Claude searches, reads and writes your [One](https://g
 
 - **Nothing leaves your computer.** The extension listens on 127.0.0.1 only and accepts One's own pages; your workspace stays in the browser.
 - **You stay in charge.** Each change waits for your approval in One (*Ask first*, the default) — or set *Apply directly* or *Read only* there. Every call is logged and can be undone.
+- **Workspaces stay apart.** Several workspaces can be connected at once (each in its tab); Claude names the one it means, and a call meant for one workspace never runs in another.
 - **Same tools everywhere:** the team server of One offers the same tools at \`/mcp\`.
 
 Guide and security model: ${REPO}/blob/main/docs/MCP.md`

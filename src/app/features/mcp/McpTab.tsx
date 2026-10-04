@@ -1,16 +1,18 @@
 /**
- * Settings → Agents · MCP: the bridge panel (switch, connection LED, read-out), what agents may
- * change, the setup (first: the Claude Desktop extension one.mcpb; then, folded: the bridge file,
- * Claude Code command, Claude Desktop JSON) and the activity log.
+ * Settings → Agents · MCP: the bridge panel (switch, connection LED, read-out, "Connected as" with
+ * the workspace id, other workspaces connected in other tabs), what agents may change, the setup
+ * (first: the Claude Desktop extension one.mcpb; then, folded: the bridge file, Claude Code command,
+ * Claude Desktop JSON) and the activity log.
  */
 import { useId, useState, type ReactNode } from 'react'
 import { ChevronRight, Copy, Download, RotateCcw, Undo2 } from 'lucide-react'
 import { useUI } from '../../store/ui'
 import { useWorkspace } from '../../store/store'
+import { useCloud } from '../../cloud'
 import { Led, Switch } from '../../ui/controls'
 import { useLang, useT } from '../../i18n'
 import { MCP_DEFAULT_PORT, type McpAgentMode } from './contract'
-import { workspaceInfo } from './read'
+import { shortId, workspaceInfo } from './identity'
 import { clearMcpActivity, connectMcpNow, setMcpEnabled, setMcpMode, setMcpPort, undoMcpActivity } from './service'
 import { clientLabel, useMcp, validPort, type McpActivity, type McpConn } from './state'
 import './mcp.css'
@@ -109,9 +111,13 @@ function BridgePanel() {
   const t = useT()
   const lang = useLang()
   const s = useMcp()
-  // re-render when the workspace name changes
+  // re-render when the workspace (its name) changes
   useWorkspace((x) => x.settings.workspaceName)
+  useWorkspace((x) => x.epoch)
+  useCloud((x) => x.workspaces)
   const ws = workspaceInfo()
+  const connected = s.enabled && s.conn === 'connected'
+  const peerNames = s.peers.map((p) => t('features.mcp.peer', { name: p.name, kind: t(`features.mcp.peer.${p.kind}`) })).join(', ')
   const client = clientLabel(s.client)
   const [port, setPort] = useState(String(s.port))
   const portId = useId()
@@ -170,6 +176,25 @@ function BridgePanel() {
           </dd>
         </div>
       </dl>
+      {connected && (
+        <p className="mcp-as" data-testid="mcp-as">
+          <span className="label">{t('features.mcp.as')}</span>
+          <span className="mcp-as__name">{ws.name}</span>
+          <code className="mcp-as__id" title={t('features.mcp.asId', { id: ws.id })}>
+            {shortId(ws.id)}
+          </code>
+        </p>
+      )}
+      {connected && s.peers.length > 0 && (
+        <div className="mcp-msg mcp-msg--info" data-testid="mcp-peers">
+          <p>{t(s.peers.length === 1 ? 'features.mcp.msg.peers.one' : 'features.mcp.msg.peers.other', { names: peerNames })}</p>
+        </div>
+      )}
+      {connected && s.legacy && (
+        <div className="mcp-msg" data-testid="mcp-legacy">
+          <p>{t('features.mcp.msg.legacy')}</p>
+        </div>
+      )}
       {s.enabled && s.conn === 'waiting' && (
         <div className="mcp-msg">
           <p>{s.prompt ? t('features.mcp.msg.prompt') : t('features.mcp.msg.waiting')}</p>

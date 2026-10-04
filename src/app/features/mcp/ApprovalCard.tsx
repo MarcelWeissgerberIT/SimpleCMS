@@ -1,7 +1,8 @@
 /**
  * One MCP — the approval card (Ask first): bottom right, one change at a time (a queue counter
- * when more wait). Approve ↵ / Reject Esc while the card has focus; it takes focus when it appears
- * unless the person is typing. A hairline drains over the two-minute window.
+ * when more wait). It names the workspace the change is for (switching the tab's workspace cancels
+ * it). Approve ↵ / Reject Esc while the card has focus; it takes focus when it appears unless the
+ * person is typing. A hairline drains over the two-minute window.
  */
 import { useEffect, useId, useRef, useState, type KeyboardEvent } from 'react'
 import { Check, X } from 'lucide-react'
@@ -118,7 +119,7 @@ function ApprovalCard({ approval, total }: { approval: McpApproval; total: numbe
       role="alertdialog"
       aria-modal="false"
       aria-labelledby={`${uid}-sum`}
-      aria-describedby={`${uid}-lines`}
+      aria-describedby={`${uid}-ws ${uid}-lines`}
       tabIndex={-1}
       onKeyDown={onKeyDown}
       data-tool={plan.tool}
@@ -129,6 +130,10 @@ function ApprovalCard({ approval, total }: { approval: McpApproval; total: numbe
         <span className="label mcp-card__verb">{plan.verb}</span>
         {total > 1 && <span className="label mcp-card__count">{t('features.mcp.card.queue', { n: 1, total })}</span>}
       </header>
+      <p className="mcp-card__ws" id={`${uid}-ws`} data-testid="mcp-card-workspace" title={approval.workspace.id}>
+        <span className="label">{t('features.mcp.card.workspace')}</span>
+        <span className="mcp-card__wsname">{approval.workspace.name}</span>
+      </p>
       <p className="mcp-card__sum" id={`${uid}-sum`}>
         {plan.summary}
       </p>

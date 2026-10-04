@@ -164,9 +164,11 @@ into One ([docs/API.md](docs/API.md)). Setup in [docs/SELF_HOSTING.md](docs/SELF
 [docs/CLOUD.md](docs/CLOUD.md). The local workspace keeps working without any of it.
 
 **Agents & MCP** — One speaks the Model Context Protocol, so Claude Desktop, Claude Code or any MCP client can search,
-read and write your workspace: pages, databases, rows and properties, with 13 tools. Locally, a small bridge
-(`one-mcp.mjs`, one file — or **one click** as a Claude Desktop extension, `one.mcpb`) drives the One tab you have
-open — nothing leaves your computer, and changes wait for your one-click approval unless you switch that off. A team server has a remote MCP endpoint (`/mcp`) that works with the
+read and write your workspace: pages, databases, rows and properties, with 14 tools. Locally, a small bridge
+(`one-mcp.mjs`, one file — or **one click** as a Claude Desktop extension, `one.mcpb`) drives the One tabs you have
+open — nothing leaves your computer, and changes wait for your one-click approval unless you switch that off. Several
+workspaces can be connected at once (each in its tab); agents name the one they mean, and a call meant for one
+workspace never runs in another. A team server has a remote MCP endpoint (`/mcp`) that works with the
 API tokens; a read token gets only the read tools. Setup and tool reference in [docs/MCP.md](docs/MCP.md).
 
 **Private by construction** — no analytics, no cookies, no backend (unless you run the team server). A service worker keeps the app working offline

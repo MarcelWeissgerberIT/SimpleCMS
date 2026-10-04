@@ -149,6 +149,32 @@
   background: var(--surface);
 }
 
+/* "Connected as" — the workspace agents address, by name and id */
+.mcp-as {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+  margin: 10px 0 0;
+  min-width: 0;
+}
+.mcp-as__name {
+  min-width: 0;
+  overflow: hidden;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mcp-as__id {
+  padding: 0 5px;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-1);
+  color: var(--ink-3);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+
 .mcp-msg {
   display: flex;
   align-items: center;
@@ -167,6 +193,9 @@
 }
 .mcp-msg--err {
   border-left-color: var(--c-red-text);
+}
+.mcp-msg--info {
+  border-left-color: var(--ink-3);
 }
 .mcp-msg--err p {
   color: var(--c-red-text);
@@ -494,9 +523,30 @@
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
+.mcp-card__ws {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+  margin: 0;
+  padding: 10px 12px 0;
+}
+.mcp-card__ws .label {
+  flex: none;
+  color: var(--ink-3);
+}
+.mcp-card__wsname {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--signal-ink);
+  font-size: var(--text-sm);
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .mcp-card__sum {
   margin: 0;
-  padding: 12px 12px 4px;
+  padding: 6px 12px 4px;
   font-size: var(--text-md);
   font-weight: 620;
   line-height: 1.35;

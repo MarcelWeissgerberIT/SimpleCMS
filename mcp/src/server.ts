@@ -1,7 +1,8 @@
 /**
  * The MCP side: the tool list comes straight from the shared contract; every call is forwarded
- * to the One tab through the bridge. Results are the tab's JSON, errors are tool errors
- * (isError) with the tab's human-readable message.
+ * to the One tab of the workspace it is meant for (bridge.ts, workspaces.ts) — one_list_workspaces
+ * the bridge answers itself. Results are the tab's JSON (naming the workspace it ran in), errors are
+ * tool errors (isError) with the tab's or the bridge's human-readable message.
  */
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { CallToolRequestSchema, ListToolsRequestSchema, type CallToolResult, type Tool } from '@modelcontextprotocol/sdk/types.js'
@@ -57,6 +58,10 @@ export function createMcpServer(bridge: Bridge, version: string): McpServer {
         .catch(() => {})
     }
     try {
+      if (def.name === 'one_list_workspaces') {
+        const out = await bridge.listWorkspaces(extra.signal)
+        return out.ok ? text(JSON.stringify(out.result, null, 2)) : text(out.error, true)
+      }
       const out = await bridge.call(def.name as McpToolName, args, {
         signal: extra.signal,
         onPending: () => {

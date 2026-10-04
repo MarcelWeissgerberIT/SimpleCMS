@@ -4,7 +4,7 @@
  * synced to a team. The activity log is this tab's session only.
  */
 import { create } from 'zustand'
-import { MCP_DEFAULT_PORT, type McpAgentMode, type McpClientInfo, type McpToolName } from './contract'
+import { MCP_DEFAULT_PORT, type McpAgentMode, type McpClientInfo, type McpPeer, type McpToolName } from './contract'
 import type { WritePlan } from './write'
 
 export const MCP_STORAGE_KEY = 'one.mcp'
@@ -71,12 +71,15 @@ export interface McpActivity {
   undo?: () => boolean
 }
 
-export type Verdict = 'approve' | 'reject' | 'timeout' | 'cancel' | 'mode' | 'gone'
+/** … 'workspace': the tab switched to another workspace while the change waited */
+export type Verdict = 'approve' | 'reject' | 'timeout' | 'cancel' | 'mode' | 'gone' | 'workspace'
 
 export interface McpApproval {
   /** the bridge's call id */
   id: string
   plan: WritePlan
+  /** the workspace the change is for (the card names it; switching away cancels the change) */
+  workspace: { id: string; name: string }
   at: number
   expiresAt: number
 }
@@ -88,6 +91,10 @@ export interface McpState extends McpSettings {
   prompt: boolean
   client: McpClientInfo | null
   bridge: string | null
+  /** the bridge speaks only the first protocol (one tab, calls not bound to a workspace): update it */
+  legacy: boolean
+  /** other workspaces connected to the same bridge right now (other tabs) */
+  peers: McpPeer[]
   /** tool calls since this connection started */
   calls: number
   /** a call is being answered right now */
@@ -103,6 +110,8 @@ export const useMcp = create<McpState>()(() => ({
   prompt: false,
   client: null,
   bridge: null,
+  legacy: false,
+  peers: [],
   calls: 0,
   busy: 0,
   activity: [],
