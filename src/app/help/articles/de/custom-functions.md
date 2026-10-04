@@ -18,6 +18,6 @@ summary: Bau deine eigene Formelfunktion per Klick — und nutze sie in Tabellen
 
 ## Verwenden
 - In einer Tabellenzelle: `=MARGIN(B2; C2)`
-- In einer Datenbankformel: `MARGIN(prop("Preis"), prop("Kosten"))`
+- In einer Datenbankformel: `MARGIN(prop("Preis"), prop("Kosten"))` — siehe [Formeln](help:formulas)
 
 Umbenennen aktualisiert jede Stelle, die die Funktion nutzt. Löschen einer genutzten Funktion fragt nach — dort stünde dann `#NAME?`. Funktionen gehören zum Workspace (im Team-Workspace kann sie jede:r nutzen).

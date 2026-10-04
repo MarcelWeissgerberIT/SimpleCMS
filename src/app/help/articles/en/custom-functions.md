@@ -18,6 +18,6 @@ Open the builder with ⌘K → *Custom functions*, or **Edit functions…** in a
 
 ## Use it
 - In a spreadsheet cell: `=MARGIN(B2; C2)`
-- In a database formula: `MARGIN(prop("Price"), prop("Cost"))`
+- In a database formula: `MARGIN(prop("Price"), prop("Cost"))` — see [Formulas](help:formulas)
 
 Renaming a function updates every place that uses it. Deleting one that is used asks first — those places would show `#NAME?`. Functions belong to the workspace (in a team workspace, everyone can use them).

@@ -25,6 +25,6 @@ One reads Gmail straight from this browser — no server in between. Because of 
 The first sync creates the **Mails** database: subject, from, to, date, labels, unread, attachments, a Gmail link — and the mail itself as the page. The Gmail LED in its header opens these settings. Remote images are blocked until you click **Load images**. Your edits to rows stay; a re-sync only updates Gmail's fields.
 
 ## Organise with Claude
-Off by default. When on (needs your Claude key), each new mail gets a **Category** from your list, a **Priority**, **Needs reply** and a **One-line summary**, optionally a link to a row of a database like Projects.
+Off by default. When on (needs [your Claude key](help:claude-key)), each new mail gets a **Category** from your list, a **Priority**, **Needs reply** and a **One-line summary**, optionally a link to a row of a database like Projects.
 
 > One only reads Gmail (scope `gmail.readonly`): deleting a row never deletes a mail. Google's access token lives only in this tab's memory and expires after about an hour. Mail content reaches Anthropic only while **Organise with Claude** is on. In a team workspace, the Mails database is created in your **Private** section.

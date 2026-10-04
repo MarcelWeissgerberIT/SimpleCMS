@@ -16,9 +16,9 @@ Press <kbd>Space</kbd> on an empty line (or `/ai`). Type any request, or pick:
 ## On a selection: Ask AI
 Select text → **Ask AI** in the toolbar. **Edit selection**: **Improve writing**, **Fix spelling & grammar**, **Make shorter**, **Make longer**, **Translate**. **Understand**: **Explain this**, **Summarize**, **Find action items**.
 
-The answer streams in. Then **Replace selection** (or **Insert below**), **Revise** with a follow-up instruction, **Try again**, **Copy** or **Discard**. Before Claude changes a page, a version is saved — see **Version history**.
+The answer streams in. Then **Replace selection** (or **Insert below**), **Revise** with a follow-up instruction, **Try again**, **Copy** or **Discard**. Before Claude changes a page, a version is saved — see [Version history](help:history).
 
 ## ⌘K, then ?
 Type `?` in the command palette to ask Claude about the open page. Append the answer to the page, make it a new page, or copy it.
 
-> Requests go from your browser to Anthropic with your key. MCP servers you added can join free-form requests — see **MCP servers**.
+> Requests go from your browser to Anthropic with your key. MCP servers you added can join free-form requests — see [MCP servers](help:mcp-servers).

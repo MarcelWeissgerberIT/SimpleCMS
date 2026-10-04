@@ -13,7 +13,7 @@ summary: Markdown, eine Webseite, ein Druckdokument, ein Komplett-Backup — ode
 - **Webseite** — eine gestaltete, eigenständige HTML-Datei mit eingebetteten Bildern.
 - **Komplett-Backup** — alles inklusive Dateien, als `.json`. Wiederherstellen mit **Importieren**.
 - **Druckdokument** — eine druckfertige Leseansicht: im Druckdialog *Als PDF sichern* wählen.
-- **Website** — eine statische Website (siehe **Website veröffentlichen**).
+- **Website** — eine statische Website (siehe [Website veröffentlichen](help:publish-site)).
 
 ## Backup wiederherstellen
 **Importieren** → die `.json`-Datei ablegen → wählen:

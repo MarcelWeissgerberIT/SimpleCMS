@@ -7,7 +7,7 @@ keywords: mcp, mcp-server, atlas, werkzeuge, connector, wissensdatenbank, token,
 related: agent, ai-menu, mcp-token-rejected, mcp-bridge, claude-key
 summary: Lass Ones Claude die Werkzeuge anderer Systeme nutzen — eine Wissensdatenbank wie Atlas, einen Tracker, ein CRM.
 ---
-**Einstellungen → Claude KI → MCP-Server.** Dafür brauchst du zuerst deinen Claude-Schlüssel.
+**Einstellungen → Claude KI → MCP-Server.** Dafür brauchst du zuerst [deinen Claude-Schlüssel](help:claude-key).
 
 ## Server hinzufügen (Beispiel Atlas)
 1. In Atlas die MCP-Server-Adresse kopieren (`https://…/mcp`) und ein Token für One erstellen — nur lesend und auf die nötigen Projekte beschränkt, wenn Atlas das anbietet.

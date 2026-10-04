@@ -214,6 +214,7 @@ kbd,
   border-radius: var(--radius-1);
   font-size: var(--text-sm);
   font-weight: 650;
+  word-spacing: 0.08em;
   text-decoration: none;
   white-space: nowrap;
   transition: background var(--dur-1) var(--ease-out), transform var(--dur-1) var(--ease-out);

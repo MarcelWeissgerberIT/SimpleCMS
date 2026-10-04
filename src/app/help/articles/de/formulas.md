@@ -27,4 +27,4 @@ if(prop("Erledigt"), "✓", "offen")
 dateBetween(prop("Fällig"), today(), "days")
 ```
 
-Fehler werden an der Stelle markiert, mit kurzer Erklärung. Deine **eigenen Funktionen** gehen hier auch — z. B. `MARGIN(prop("Preis"), prop("Kosten"))`.
+Fehler werden an der Stelle markiert, mit kurzer Erklärung. Deine [eigenen Funktionen](help:custom-functions) gehen hier auch — z. B. `MARGIN(prop("Preis"), prop("Kosten"))`.

@@ -38,6 +38,12 @@
 }
 
 @media (max-width: 640px) {
+  /* 16px: iOS zooms into smaller fields on focus */
+  .help-search__input,
+  .help-ask__field {
+    font-size: 16px;
+  }
+
   .help {
     width: 100vw;
     border-left: 0;

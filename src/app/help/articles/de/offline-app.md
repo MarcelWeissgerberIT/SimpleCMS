@@ -13,7 +13,7 @@ Nach dem ersten Besuch hält One alles, was es braucht, auf dem Gerät — jede 
 ## Als App installieren
 - **Chrome / Edge (Computer):** das Installieren-Symbol in der Adressleiste, oder Browser-Menü → *Installieren*.
 - **Android:** Browser-Menü → *App installieren* (oder *Zum Startbildschirm hinzufügen*). Installiert erscheint One im Teilen-Menü: Teile eine Webseite an One, und sie landet in der **Ablage**.
-- **iPhone / iPad:** siehe **iPhone & Home-Bildschirm**.
+- **iPhone / iPad:** siehe [iPhone & Home-Bildschirm](help:iphone).
 
 Die installierte App öffnet sich ohne Browserleisten und nutzt dieselben Daten wie der Browser-Tab auf diesem Gerät — außer auf dem iPhone, wo die App auf dem Home-Bildschirm einen eigenen Speicher hat.
 

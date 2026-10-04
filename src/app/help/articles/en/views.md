@@ -17,7 +17,7 @@ The tabs above a database are its views. **+** (**Add view**) creates one:
 - **Timeline** — bars from start to end date (Gantt); drag to move or resize, and draw dependencies.
 - **Chart** — bar, line or donut, grouped by a property, counting rows or summing a number.
 - **Form** — questions that create a row per answer.
-- **Feed** — a stream of cards with each page's content, newest first (see **The feed view**).
+- **Feed** — a stream of cards with each page's content, newest first (see [The feed view](help:feed)).
 
 ## Per view
 Click the active view tab again (or right-click it) for its menu: rename, **Layout…**, **Open pages in** (side peek, center peek or full page), duplicate, delete. Double-click renames. **Layout…** sets the layout type, card preview and size, the date property and **Wrap all cells**. **Colour rules…** (also under **•••**) tints rows that match conditions — the first matching rule wins.

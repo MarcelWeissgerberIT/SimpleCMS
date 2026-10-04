@@ -45,7 +45,10 @@ export function buildLibrary(files: HelpFile[], warn: (msg: string) => void = ()
   for (const lang of HELP_LANGS) {
     lib[lang].sort((a, b) => sectionIndex(a.section) - sectionIndex(b.section) || a.order - b.order || a.id.localeCompare(b.id))
     const ids = new Set(lib[lang].map((a) => a.id))
-    for (const a of lib[lang]) for (const r of a.related) if (!ids.has(r)) warn(`help: ${lang}/${a.id}.md relates to unknown "${r}"`)
+    for (const a of lib[lang]) {
+      for (const r of a.related) if (!ids.has(r)) warn(`help: ${lang}/${a.id}.md relates to unknown "${r}"`)
+      for (const m of a.source.matchAll(/\]\(help:([a-z0-9-]+)\)/g)) if (!ids.has(m[1])) warn(`help: ${lang}/${a.id}.md links to unknown "${m[1]}"`)
+    }
   }
   const en = new Set(lib.en.map((a) => a.id))
   const de = new Set(lib.de.map((a) => a.id))

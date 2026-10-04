@@ -17,7 +17,7 @@ Die Reiter über einer Datenbank sind ihre Ansichten. **+** (**Ansicht hinzufüg
 - **Zeitleiste** — Balken von Start- bis Enddatum (Gantt); ziehen zum Verschieben oder Verlängern, Abhängigkeiten zeichnen.
 - **Diagramm** — Balken, Linie oder Ring, gruppiert nach einer Eigenschaft, zählt Einträge oder summiert eine Zahl.
 - **Formular** — Fragen, die pro Antwort einen Eintrag anlegen.
-- **Feed** — ein Strom von Karten mit dem Inhalt jeder Seite, neueste zuerst (siehe **Die Feed-Ansicht**).
+- **Feed** — ein Strom von Karten mit dem Inhalt jeder Seite, neueste zuerst (siehe [Die Feed-Ansicht](help:feed)).
 
 ## Pro Ansicht
 Klick den aktiven Reiter noch einmal (oder Rechtsklick) für sein Menü: umbenennen, **Layout…**, **Seiten öffnen in** (Seitenvorschau, mittige Vorschau oder ganze Seite), duplizieren, löschen. Doppelklick benennt um. **Layout…** legt Layout-Typ, Kartenvorschau und -größe, die Datumseigenschaft und **Alle Zellen umbrechen** fest. **Farbregeln…** (auch unter **•••**) färbt Einträge, die Bedingungen erfüllen — die erste passende Regel gilt.

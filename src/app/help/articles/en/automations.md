@@ -21,4 +21,4 @@ Switch it on with **Enabled**; the LED shows armed, needs setup or last run fail
 
 > Automations run in your browser while One is open. A new row fires once it has a title and editing pauses. Webhooks time out after 10 s, and the receiving service must allow requests from a browser (CORS).
 
-In a team workspace, the server can also receive data: see **Public API & webhooks**.
+In a team workspace, the server can also receive data: see [Public API & webhooks](help:public-api).

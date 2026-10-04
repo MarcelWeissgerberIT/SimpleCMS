@@ -13,7 +13,7 @@ summary: Markdown, a web page, a print document, a full backup — or a whole we
 - **Web page** — one styled, self-contained HTML file with images inlined.
 - **Full backup** — everything including files, as `.json`. Restore it with **Import**.
 - **Print document** — a print-ready reading view: choose *Save as PDF* in the print dialog.
-- **Website** — a static site (see **Publish a website**).
+- **Website** — a static site (see [Publish a website](help:publish-site)).
 
 ## Restore a backup
 **Import** → drop the `.json` file → choose:

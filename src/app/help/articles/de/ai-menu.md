@@ -16,9 +16,9 @@ Drück <kbd>Leertaste</kbd> in einer leeren Zeile (oder `/ki`). Tippe eine belie
 ## An einer Auswahl: KI fragen
 Text markieren → **KI fragen** in der Werkzeugleiste. **Auswahl bearbeiten**: **Text verbessern**, **Rechtschreibung & Grammatik**, **Kürzer machen**, **Länger machen**, **Übersetzen**. **Verstehen**: **Erklären**, **Zusammenfassen**, **Aufgaben finden**.
 
-Die Antwort erscheint fortlaufend. Dann **Auswahl ersetzen** (oder **Darunter einfügen**), **Überarbeiten** mit einer weiteren Anweisung, **Nochmal versuchen**, **Kopieren** oder **Verwerfen**. Bevor Claude eine Seite ändert, wird eine Version gesichert — siehe **Versionsverlauf**.
+Die Antwort erscheint fortlaufend. Dann **Auswahl ersetzen** (oder **Darunter einfügen**), **Überarbeiten** mit einer weiteren Anweisung, **Nochmal versuchen**, **Kopieren** oder **Verwerfen**. Bevor Claude eine Seite ändert, wird eine Version gesichert — siehe [Versionsverlauf](help:history).
 
 ## ⌘K, dann ?
 Tippe `?` in der Befehlspalette, um Claude zur geöffneten Seite zu fragen. Die Antwort an die Seite anhängen, als neue Seite anlegen oder kopieren.
 
-> Anfragen gehen aus deinem Browser mit deinem Schlüssel an Anthropic. Hinzugefügte MCP-Server können bei freien Anfragen mitmachen — siehe **MCP-Server**.
+> Anfragen gehen aus deinem Browser mit deinem Schlüssel an Anthropic. Hinzugefügte MCP-Server können bei freien Anfragen mitmachen — siehe [MCP-Server](help:mcp-servers).

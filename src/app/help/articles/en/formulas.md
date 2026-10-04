@@ -27,4 +27,4 @@ if(prop("Done"), "✓", "open")
 dateBetween(prop("Due"), today(), "days")
 ```
 
-Errors are marked in place with a short explanation. Your own **custom functions** work here too — e.g. `MARGIN(prop("Price"), prop("Cost"))`.
+Errors are marked in place with a short explanation. Your own [custom functions](help:custom-functions) work here too — e.g. `MARGIN(prop("Price"), prop("Cost"))`.

@@ -20,4 +20,4 @@ One's AI talks from your browser straight to `api.anthropic.com`. **Cannot reach
 - **Rate limit reached** / **Claude is very busy right now** — wait a moment and try again.
 - **This API key is not allowed to use …** — pick another **Model** in Settings → Claude AI.
 - **One was updated while this tab was open** — reload the tab.
-- An MCP server error — see **MCP token rejected**.
+- An MCP server error — see [MCP token rejected](help:mcp-token-rejected).

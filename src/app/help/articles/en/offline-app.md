@@ -13,7 +13,7 @@ After your first visit One keeps everything it needs on the device — every vie
 ## Install as an app
 - **Chrome / Edge (computer):** the install icon in the address bar, or the browser menu → *Install*.
 - **Android:** browser menu → *Install app* (or *Add to Home screen*). Installed, One appears in the share sheet: share a web page to One and it lands in **Clippings**.
-- **iPhone / iPad:** see **iPhone & home screen**.
+- **iPhone / iPad:** see [iPhone & home screen](help:iphone).
 
 The installed app opens without browser chrome and uses the same data as the browser tab on that device — except on iPhone, where the home-screen app keeps its own storage.
 

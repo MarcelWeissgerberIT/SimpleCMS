@@ -127,7 +127,7 @@ export function AskView() {
         />
         <div className="help-ask__bar">
           <span className="label help-ask__hint">
-            <span className="kbd">↵</span> {t('help.ask.go')} · <span className="kbd">{shortcutLabel('Shift')}↵</span>
+            <span className="kbd">↵</span> {t('help.ask.go')} · <span className="kbd">{shortcutLabel('Shift')}↵</span> {t('help.ask.newLine')}
           </span>
           {phase === 'running' ? (
             <button type="button" className="btn btn--sm" onClick={stop}>

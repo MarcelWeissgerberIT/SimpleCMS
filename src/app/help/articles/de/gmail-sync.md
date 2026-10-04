@@ -25,6 +25,6 @@ One liest Gmail direkt aus diesem Browser — ohne Server dazwischen. Deshalb nu
 Die erste Synchronisation legt die Datenbank **Mails** an: Betreff, Von, An, Datum, Labels, ungelesen, Anhänge, ein Gmail-Link — und die Mail selbst als Seite. Die Gmail-LED in ihrem Kopf öffnet diese Einstellungen. Bilder aus dem Web bleiben blockiert, bis du **Bilder laden** klickst. Deine Änderungen an Einträgen bleiben; eine erneute Synchronisation ändert nur Gmails Felder.
 
 ## Mit Claude ordnen
-Standardmäßig aus. Eingeschaltet (braucht deinen Claude-Schlüssel) bekommt jede neue Mail eine **Kategorie** aus deiner Liste, eine **Priorität**, **Antwort nötig** und eine **Einzeilige Zusammenfassung**, auf Wunsch auch eine Verknüpfung zu einem Eintrag einer Datenbank wie Projekte.
+Standardmäßig aus. Eingeschaltet (braucht [deinen Claude-Schlüssel](help:claude-key)) bekommt jede neue Mail eine **Kategorie** aus deiner Liste, eine **Priorität**, **Antwort nötig** und eine **Einzeilige Zusammenfassung**, auf Wunsch auch eine Verknüpfung zu einem Eintrag einer Datenbank wie Projekte.
 
 > One liest Gmail nur (Bereich `gmail.readonly`): Eine gelöschte Zeile löscht nie die Mail. Googles Zugriffstoken liegt nur im Speicher dieses Tabs und läuft nach etwa einer Stunde ab. Mail-Inhalte erreichen Anthropic nur, solange **Mit Claude ordnen** an ist. Im Team-Workspace entsteht die Mails-Datenbank in deinem Bereich **Privat**.

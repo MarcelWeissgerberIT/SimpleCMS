@@ -21,4 +21,4 @@ Mit **Aktiv** schaltest du sie scharf; die LED zeigt scharf, Einrichtung nötig 
 
 > Automationen laufen in deinem Browser, solange One geöffnet ist. Eine neue Zeile löst aus, sobald sie einen Titel hat und das Tippen pausiert. Webhooks brechen nach 10 s ab, und der empfangende Dienst muss Anfragen aus dem Browser erlauben (CORS).
 
-Im Team-Workspace kann auch der Server Daten empfangen: siehe **Öffentliche API & Webhooks**.
+Im Team-Workspace kann auch der Server Daten empfangen: siehe [Öffentliche API & Webhooks](help:public-api).

@@ -20,4 +20,4 @@ Ones KI spricht aus deinem Browser direkt mit `api.anthropic.com`. **api.anthrop
 - **Rate-Limit erreicht** / **Claude ist gerade stark ausgelastet** — kurz warten und erneut versuchen.
 - **Dieser API-Schlüssel darf … nicht verwenden** — wähle ein anderes **Modell** unter Einstellungen → Claude KI.
 - **One wurde aktualisiert, während dieser Tab offen war** — Tab neu laden.
-- Ein Fehler eines MCP-Servers — siehe **MCP-Token abgelehnt**.
+- Ein Fehler eines MCP-Servers — siehe [MCP-Token abgelehnt](help:mcp-token-rejected).
