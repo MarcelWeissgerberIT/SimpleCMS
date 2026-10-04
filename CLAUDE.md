@@ -89,6 +89,12 @@ the public APIs stable — other areas are built against them in parallel.
 - Team cloud invites: workspace invites can be reusable (`max_uses`, validity, allowed domains; never admin) or sent to
   several addresses; server admins (`ADMIN_EMAILS`, Settings → Server) create registration links `#/signup/<token>`
   for invite-only servers (docs/CLOUD.md § Invites & registration links).
+- External MCP servers for One's own Claude (features/ai/mcp-servers, Messages API MCP connector — Anthropic connects
+  to the server): `settings.mcpServers` is per device; `token` holds a vault marker, the token is sealed as
+  `mcp-token:<serverId>`. Write the list only with `updateSettings({ mcpServers })`; open a token only via
+  `getMcpToken()` (store/secrets.ts) at request time — it goes only into `mcp_servers[].authorization_token`. Free-form
+  requests (agent, own AI-menu requests, ⌘K "?") get every enabled server, other requests only `scope: 'all'`
+  servers; client.ts decides centrally. No server is preset in the app.
 - MCP addresses workspaces by id (`local:<hash>` / `team:<id>`, features/mcp/identity.ts; per-browser localStorage
   `one.mcp.device`); every bridge call is bound to that id and refused on a mismatch — never act in another workspace.
 

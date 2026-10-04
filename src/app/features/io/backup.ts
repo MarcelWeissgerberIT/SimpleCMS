@@ -94,8 +94,8 @@ export async function buildBackup(rootId: ID | null, onProgress?: (done: number,
     ...snap,
     pages: topId && pages[topId] ? { ...pages, [topId]: { ...pages[topId], parentId: null } } : pages,
     databases,
-    // never export the API key
-    settings: { ...snap.settings, aiApiKey: '' },
+    // never export the API key, nor the MCP servers' token markers
+    settings: { ...snap.settings, aiApiKey: '', ...(snap.settings.mcpServers ? { mcpServers: snap.settings.mcpServers.map((s) => ({ ...s, token: '' })) } : {}) },
     recent: rootId ? [] : snap.recent,
   }
   // only files that are referenced (no orphans from deleted pages or earlier merges)

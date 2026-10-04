@@ -493,6 +493,8 @@ test.describe('MCP servers (mocked Claude API, made-up server)', () => {
     const file = testInfo.outputPath('backup.json')
     await (await download).saveAs(file)
     expect(readFileSync(file, 'utf8')).not.toContain(TOKEN)
+    // not even the marker (its last four characters)
+    expect(readFileSync(file, 'utf8')).not.toContain(marker)
     await page.keyboard.press('Escape')
 
     // a request: the token is opened then, and goes only into mcp_servers[].authorization_token to api.anthropic.com
@@ -545,6 +547,42 @@ test.describe('MCP servers (mocked Claude API, made-up server)', () => {
     // nothing of either token in any console message
     expect(logs.join('\n')).not.toContain(TOKEN)
     expect(logs.join('\n')).not.toContain(TOKEN2)
+  })
+
+  test('structured requests (meeting summaries, autofill) carry a server only when its scope is "All AI calls"', async ({ page, context }) => {
+    // no speech recognition here: the meeting block takes a pasted transcript
+    await context.addInitScript(() => {
+      for (const k of ['SpeechRecognition', 'webkitSpeechRecognition']) Object.defineProperty(window, k, { value: undefined, configurable: true, writable: true })
+    })
+    const summary = { title: 'Relaunch sync', summary: ['We ship in two steps.'], decisions: ['Ship in two steps.'], actionItems: [{ text: 'Send the deck to legal', owner: 'Alex', due: null }] }
+    const sent = await mockApi(context, (r) => (r.stream ? undefined : { json: jsonMessage(JSON.stringify(summary)) }))
+    await openApp(page)
+    await setKey(page)
+    const summarize = async (title: string) => {
+      const id = await createPage(page, { title })
+      await gotoPage(page, id)
+      await editorOf(page).click()
+      await page.keyboard.type('/transcript')
+      await expect(page.locator('.slash')).toBeVisible()
+      await page.keyboard.press('Enter')
+      const deck = page.locator('#main .mtg').first()
+      await deck.getByRole('textbox', { name: 'Transcript text' }).fill('Ada: We ship in two steps.\nAlex: I send the deck to legal.')
+      await deck.getByRole('button', { name: 'Use transcript' }).click()
+      await expect(deck.locator('.mtg__notes').getByRole('heading', { name: 'Action items' })).toBeVisible()
+      return sent[sent.length - 1]
+    }
+    await setServers(page, [atlas()])
+    const plain = await summarize('Sync without MCP')
+    expect(plain.body.output_config.format.type).toBe('json_schema')
+    expect(plain.body.mcp_servers).toBeUndefined()
+
+    await setServers(page, [atlas({ scope: 'all' })])
+    const withMcp = await summarize('Sync with MCP')
+    expect(withMcp.beta.split(',')).toContain('mcp-client-2025-11-20')
+    expect(withMcp.body.mcp_servers).toEqual([{ type: 'url', url: URL1, name: 'atlas', authorization_token: TOKEN }])
+    expect(withMcp.body.tools).toEqual([{ type: 'mcp_toolset', mcp_server_name: 'atlas' }])
+    expect(withMcp.body.output_config.format.type).toBe('json_schema')
+    expect(String(withMcp.body.system)).toContain('<mcp_server name="atlas">')
   })
 
   test('a token this browser cannot open: "Token missing", the server is left out of requests', async ({ page, context }) => {

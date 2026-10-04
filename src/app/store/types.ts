@@ -635,7 +635,8 @@ export interface McpServerConfig {
   url: string
   /**
    * Bearer token as a vault MARKER ("vault:<seal id>:<last 4>", '' = none), never the token: sealed in
-   * this browser's vault as "mcp-token:<id>" (store/secrets.ts). Never exported, synced or shared.
+   * this browser's vault as "mcp-token:<id>" (store/secrets.ts). The token itself is never stored in
+   * the clear, exported, synced or shared; only the AI client opens it, per request, for `mcp_servers`.
    */
   token: string
   enabled: boolean
