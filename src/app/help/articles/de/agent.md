@@ -4,7 +4,7 @@ title: Der Agent
 section: ai
 order: 3
 keywords: agent, claude, automatisieren, massenänderung, aufgaben, einträge, seiten, übernehmen, prüfen, workspace agent
-related: ai-menu, mcp-servers, mcp-bridge, claude-key
+related: custom-agents, ai-menu, mcp-servers, mcp-bridge
 summary: Beschreib eine Aufgabe für deinen Workspace — Claude liest, schlägt Änderungen vor, und du übernimmst sie.
 ---
 Drück <kbd>Mod+J</kbd> (oder ⌘K → *Agent beauftragen…*). Der Agent öffnet sich rechts.

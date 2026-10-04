@@ -2,7 +2,7 @@
 id: templates
 title: Templates
 section: writing
-order: 9
+order: 10
 keywords: template, gallery, reuse, save as template, repeat, recurring, weekly, daily, Vorlage, wiederholen, wiederkehrend
 related: databases, buttons, synced-blocks
 summary: Start from a built-in template, save your own, or let a database template repeat on a schedule.

@@ -11,7 +11,7 @@ summary: Fold content away, put it side by side, or behind tabs.
 `/toggle` (or `>> ` at the start of a line) creates a **Toggle list**: a title line that folds the blocks under it. **Toggle heading 1–3** are headings that fold the section below them — or type `> ` at the start of a heading. <kbd>Mod+Enter</kbd> opens or closes the toggle you are in.
 
 ## Columns
-`/2 columns` or `/3 columns` splits the page. Drag blocks into a column by their ⋮⋮ handle. <kbd>Tab</kbd> and <kbd>Shift+Tab</kbd> jump between columns. On a phone, columns stack.
+`/2 columns` up to `/5 columns` splits the page. Drag blocks into a column by their ⋮⋮ handle. <kbd>Tab</kbd> and <kbd>Shift+Tab</kbd> jump between columns. On a phone, columns stack.
 
 ## Tabs
 `/tabs` inserts a strip of tabs; only one tab's content is visible at a time.

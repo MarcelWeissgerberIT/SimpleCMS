@@ -47,9 +47,13 @@ function useCandidates(kind: 'page' | 'database' | 'any'): Page[] {
 function Field({ label, hint, error, children, id }: { label: string; hint?: ReactNode; error?: string; children: ReactNode; id?: string }) {
   return (
     <div className="agx-field" data-invalid={error ? '' : undefined}>
-      <label className="agx-field__label" htmlFor={id}>
-        {label}
-      </label>
+      {id ? (
+        <label className="agx-field__label" htmlFor={id}>
+          {label}
+        </label>
+      ) : (
+        <span className="agx-field__label">{label}</span>
+      )}
       {children}
       {hint && !error && (
         <p className="agx-field__hint" id={id ? `${id}-hint` : undefined}>

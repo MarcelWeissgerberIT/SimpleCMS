@@ -15,6 +15,7 @@ import type { ID } from '../../store/types'
 import { pageToMarkdown } from './markdown'
 import { canEncrypt, encodePayload, encryptPayload, preparePage, shareUrl, SHARE_WARN_BYTES, type PrepareStats, type SharePayload } from './codec'
 import { buildStandaloneHTML, downloadText } from './html'
+import { HelpLink } from '../../help'
 import './share.css'
 
 interface Built {
@@ -149,7 +150,19 @@ export function ShareModal({ pageId, onClose }: { pageId: ID; onClose: () => voi
   const ratio = built && built.bytes ? built.raw / built.bytes : 0
 
   return (
-    <Modal open onClose={onClose} label={`§ ${t('features.share.label')}`} title={t('features.share.title')} width={600} className="share">
+    <Modal
+      open
+      onClose={onClose}
+      label={`§ ${t('features.share.label')}`}
+      title={
+        <>
+          {t('features.share.title')}
+          <HelpLink id="share-links" />
+        </>
+      }
+      width={600}
+      className="share"
+    >
       <div className="share__hero">
         <p className="share__claim">{t('features.share.claim')}</p>
         <p className="share__sub">{t('features.share.sub')}</p>

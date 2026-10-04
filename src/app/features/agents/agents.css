@@ -346,7 +346,7 @@
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 10px;
+  gap: 8px 10px;
   margin: 14px 0 0;
   padding: 10px 12px;
   border: 1px solid var(--rule-strong);
@@ -354,6 +354,14 @@
   background: var(--surface-2);
   color: var(--ink-2);
   font-size: var(--text-sm);
+}
+.agx-notice > span:not(.led) {
+  flex: 1 1 220px;
+  min-width: 0;
+}
+.agx-spec__aside {
+  margin-left: 4px;
+  font-size: var(--text-xs);
 }
 .agx-note {
   margin: 4px 0 0;
@@ -1003,12 +1011,19 @@
     flex-wrap: wrap;
     row-gap: 2px;
   }
-  .agx-run__trig {
+  .agx-run__trig,
+  .agx-run__meta--when {
     flex-basis: calc(100% - 40px);
-    order: 9;
     margin-left: 34px;
   }
-  .agx-run__meta--dur {
+  .agx-run__trig {
+    order: 9;
+  }
+  .agx-run__meta--when {
+    order: 10;
+  }
+  .agx-run__meta--dur,
+  .agx-run__badge {
     display: none;
   }
   .agx-run__body {

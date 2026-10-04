@@ -2,7 +2,7 @@
 id: meeting-notes
 title: Meeting notes
 section: ai
-order: 4
+order: 5
 keywords: meeting, notes, transcript, record, recording, minutes, summary, action items, zoom, teams, meet, Besprechung, Protokoll, Transkript, aufnehmen
 related: ai-menu, claude-key, databases
 summary: Record a meeting as a live transcript; Claude writes summary, decisions and action items.

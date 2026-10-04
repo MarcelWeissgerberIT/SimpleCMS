@@ -2,7 +2,7 @@
 id: templates
 title: Vorlagen
 section: writing
-order: 9
+order: 10
 keywords: vorlage, galerie, wiederverwenden, als vorlage speichern, wiederholen, wiederkehrend, wöchentlich, täglich, template, recurring
 related: databases, buttons, synced-blocks
 summary: Starte mit einer mitgelieferten Vorlage, speichere eigene, oder lass eine Datenbankvorlage nach Plan wiederkehren.

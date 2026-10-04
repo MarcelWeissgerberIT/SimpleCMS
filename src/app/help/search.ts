@@ -58,18 +58,29 @@ export function queryWords(q: string): string[] {
   return kept.length ? kept : all
 }
 
-const wordStart = (hay: string, w: string) => {
-  let i = hay.indexOf(w)
-  while (i >= 0) {
-    if (i === 0 || !/[\p{L}\p{N}]/u.test(hay[i - 1])) return true
-    i = hay.indexOf(w, i + 1)
+const LETTER = /[\p{L}\p{N}]/u
+
+/**
+ * How well `w` names a word of `hay`: 1 = a whole word, w.length / word length for a word it starts
+ * ("formula" in "formulare" ≈ 0.78), 0 = starts no word. A whole word beats a longer one it only begins.
+ */
+function wordMatch(hay: string, w: string): number {
+  let best = 0
+  for (let i = hay.indexOf(w); i >= 0 && best < 1; i = hay.indexOf(w, i + 1)) {
+    if (i > 0 && LETTER.test(hay[i - 1])) continue
+    let end = i + w.length
+    while (end < hay.length && LETTER.test(hay[end])) end++
+    best = Math.max(best, w.length / (end - i))
   }
-  return false
+  return best
 }
 
+const wordStart = (hay: string, w: string) => wordMatch(hay, w) > 0
+
+/** Occurrences of `w` at the start of a word (at most `cap`). */
 const count = (hay: string, w: string, cap: number) => {
   let n = 0
-  for (let i = hay.indexOf(w); i >= 0 && n < cap; i = hay.indexOf(w, i + w.length)) n++
+  for (let i = hay.indexOf(w); i >= 0 && n < cap; i = hay.indexOf(w, i + w.length)) if (i === 0 || !LETTER.test(hay[i - 1])) n++
   return n
 }
 
@@ -112,13 +123,18 @@ function indexOf(lib: HelpLibrary, lang: HelpLang): Index {
 }
 
 function wordScore(e: Entry, w: string): number {
+  const named = (hay: string, full: number) => {
+    const r = wordMatch(hay, w)
+    return r ? full * r * r : hay.includes(w) && w.length >= 4 ? full * 0.3 : 0
+  }
+  const body = wordMatch(e.body, w)
   const scores = [
-    wordStart(e.title, w) ? 12 : e.title.includes(w) ? 8 : 0,
-    wordStart(e.keywords, w) ? 7 : e.keywords.includes(w) ? 5 : 0,
-    e.summary.includes(w) ? 4 : 0,
-    wordStart(e.alt, w) ? 5 : e.alt.includes(w) ? 3 : 0,
-    Math.min(4, count(e.body, w, 4) * 1.2),
-    e.altBody.includes(w) ? 1 : 0,
+    named(e.title, 14),
+    named(e.keywords, 9),
+    named(e.summary, 4),
+    named(e.alt, 6),
+    body ? Math.min(4, count(e.body, w, 4) * 1.2) * (body > 0.85 ? 1 : 0.5) : 0,
+    wordStart(e.altBody, w) ? 1 : 0,
   ]
   const max = Math.max(...scores)
   const sum = scores.reduce((x, y) => x + y, 0)
@@ -163,11 +179,20 @@ function snippetOf(a: HelpArticle, words: string[]): HelpHit['snippet'] {
   return { text: shown, ranges: rangesIn(body, words).map(([s, e]) => [s + prefix.length, e + prefix.length] as Range) }
 }
 
+export interface SearchOptions {
+  /**
+   * Names only (the command palette): every word must start a word of the title or the keywords (in either
+   * language) — no body text, no fuzzy matches. A page or command named like the query stays first.
+   */
+  strict?: boolean
+}
+
 /** Best matches first. `limit` caps the list (default 24). */
-export function searchHelp(lib: HelpLibrary, lang: HelpLang, query: string, limit = 24): HelpHit[] {
+export function searchHelp(lib: HelpLibrary, lang: HelpLang, query: string, limit = 24, opts: SearchOptions = {}): HelpHit[] {
   const words = queryWords(query)
   if (!words.length) return []
   const { entries, fuse } = indexOf(lib, lang)
+  if (opts.strict) return strictHits(entries, words, limit)
   const phrase = fold(query.trim())
   const fuzzy = new Map<string, Map<Entry, number>>()
   const fuzzyFor = (w: string) => {
@@ -197,6 +222,24 @@ export function searchHelp(lib: HelpLibrary, lang: HelpLang, query: string, limi
     const coverage = matched / words.length
     const score = total * (0.4 + 0.6 * coverage * coverage)
     hits.push({ article: e.article, score, titleRanges: rangesIn(e.article.title, words), snippet: snippetOf(e.article, words) })
+  }
+  hits.sort((a, b) => b.score - a.score || a.article.num.localeCompare(b.article.num, undefined, { numeric: true }))
+  return hits.slice(0, limit)
+}
+
+function strictHits(entries: Entry[], words: string[], limit: number): HelpHit[] {
+  const hits: HelpHit[] = []
+  for (const e of entries) {
+    let score = 0
+    for (const w of words) {
+      const s = Math.max(3 * wordMatch(e.title, w) ** 2, 2.5 * wordMatch(e.keywords, w) ** 2, 1.5 * wordMatch(e.alt, w) ** 2)
+      if (!s) {
+        score = 0
+        break
+      }
+      score += s
+    }
+    if (score) hits.push({ article: e.article, score, titleRanges: rangesIn(e.article.title, words), snippet: null })
   }
   hits.sort((a, b) => b.score - a.score || a.article.num.localeCompare(b.article.num, undefined, { numeric: true }))
   return hits.slice(0, limit)

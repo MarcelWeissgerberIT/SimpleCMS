@@ -3,7 +3,7 @@ id: sidebar
 title: Seitenleiste & Seitenbaum
 section: start
 order: 2
-keywords: seitenleiste, seitenbaum, verschachteln, unterseite, favoriten, papierkorb, verschieben, ziehen, sidebar, page tree, trash
+keywords: seitenleiste, seitenbaum, verschachteln, unterseite, favoriten, papierkorb, verschieben, ziehen, datenbank-einträge, alle anzeigen, sidebar, page tree, trash
 related: first-steps, command-palette, team-cloud
 summary: Jede Seite hat ihren Platz im Baum. Ziehen zum Ordnen oder Verschachteln, Stern für das, was du oft brauchst.
 ---
@@ -15,6 +15,12 @@ Die Seitenleiste zeigt **Suchen**, **Start**, **Posteingang**, **Heute** (dein J
 - Zieh eine Seite auf eine andere, um sie zu verschachteln, oder zwischen zwei, um sie umzusortieren. **Verschieben nach…** im Menü macht dasselbe per Tastatur.
 - Das **•••**-Menü einer Zeile: umbenennen, duplizieren, zu Favoriten hinzufügen, Link kopieren, verschieben, im Seitenbereich oder in der Vorschau öffnen, löschen.
 - **Favoriten** sammelt markierte Seiten ganz oben.
+
+## Datenbanken im Baum
+Eine Datenbank in der Seitenleiste klappt zu ihren Einträgen auf — in der Reihenfolge ihrer ersten Ansicht, höchstens 20, dann öffnet **Alle anzeigen · n** die Datenbank. Einträge klappen zu ihren Unterelementen und Unterseiten auf.
+- **+** an einer Datenbankzeile legt einen **Neuen Eintrag** an.
+- Zieh eine Seite auf eine Datenbank: One fragt nach, dann wird die Seite ein Eintrag (ihre Unterseiten kommen mit; die Eigenschaften starten leer).
+- Zieh einen Eintrag aus seiner Datenbank heraus: One fragt, bevor er eine normale Seite wird — seine Eigenschaften fallen weg.
 
 ## Papierkorb
 Gelöschte Seiten landen im **Papierkorb** unten in der Seitenleiste. **Wiederherstellen** legt eine Seite an ihren alten Platz zurück; **Endgültig löschen** entfernt sie von diesem Gerät.

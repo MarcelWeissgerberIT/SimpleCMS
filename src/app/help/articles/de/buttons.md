@@ -2,7 +2,7 @@
 id: buttons
 title: Schaltflächen
 section: writing
-order: 8
+order: 9
 keywords: schaltfläche, knopf, button, aktion, klick, automatisieren, blöcke einfügen, eintrag anlegen, webhook
 related: automations, templates, databases
 summary: Eine Schaltfläche führt mit einem Klick eine Liste von Aktionen aus.

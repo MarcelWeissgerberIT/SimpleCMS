@@ -2,7 +2,7 @@
 id: automations
 title: Automations & webhooks
 section: databases
-order: 8
+order: 9
 keywords: automation, webhook, n8n, make, zapier, trigger, action, notify, set property, integration, Automation, Webhook, Auslöser
 related: buttons, forms, public-api, ai-autofill
 summary: When a row is created, changed or deleted — send a webhook, set a property or show a notice.

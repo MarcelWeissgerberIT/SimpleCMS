@@ -2,7 +2,7 @@
 id: automations
 title: Automationen & Webhooks
 section: databases
-order: 8
+order: 9
 keywords: automation, automationen, webhook, n8n, make, zapier, auslöser, aktion, benachrichtigen, eigenschaft setzen, integration, trigger
 related: buttons, forms, public-api, ai-autofill
 summary: Wenn ein Eintrag angelegt, geändert oder gelöscht wird — Webhook senden, Eigenschaft setzen oder Hinweis zeigen.

@@ -2,7 +2,7 @@
 id: mentions-dates
 title: Mentions, dates & reminders
 section: writing
-order: 4
+order: 5
 keywords: mention, @, link page, date, today, tomorrow, reminder, remind, notification, inbox, agenda, Erwähnung, Datum, Erinnerung
 related: blocks, properties, comments
 summary: Type @ to link a page, a date or a person — dates can remind you.

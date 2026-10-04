@@ -11,7 +11,7 @@ summary: Inhalte einklappen, nebeneinander stellen oder hinter Tabs legen.
 `/aufklappliste` (oder `>> ` am Zeilenanfang) legt eine **Aufklappliste** an: eine Titelzeile, die die Blöcke darunter einklappt. **Aufklapp-Überschrift 1–3** sind Überschriften, die den Abschnitt darunter einklappen — oder tippe `> ` am Anfang einer Überschrift. <kbd>Mod+Enter</kbd> klappt die Liste auf oder zu, in der du gerade bist.
 
 ## Spalten
-`/2 spalten` oder `/3 spalten` teilt die Seite. Zieh Blöcke am Griff ⋮⋮ in eine Spalte. <kbd>Tab</kbd> und <kbd>Shift+Tab</kbd> springen zwischen Spalten. Auf dem Handy stehen Spalten untereinander.
+`/2 spalten` bis `/5 spalten` teilt die Seite. Zieh Blöcke am Griff ⋮⋮ in eine Spalte. <kbd>Tab</kbd> und <kbd>Shift+Tab</kbd> springen zwischen Spalten. Auf dem Handy stehen Spalten untereinander.
 
 ## Tabs
 `/tabs` fügt eine Leiste von Reitern ein; sichtbar ist immer nur der Inhalt eines Tabs.

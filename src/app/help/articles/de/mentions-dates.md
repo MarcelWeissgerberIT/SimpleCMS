@@ -2,7 +2,7 @@
 id: mentions-dates
 title: Erwähnungen, Daten & Erinnerungen
 section: writing
-order: 4
+order: 5
 keywords: erwähnung, @, seite verlinken, datum, heute, morgen, erinnerung, erinnern, benachrichtigung, posteingang, agenda, mention, reminder
 related: blocks, properties, comments
 summary: Tippe @, um eine Seite, ein Datum oder eine Person zu verlinken — Daten können dich erinnern.

@@ -2,7 +2,7 @@
 id: filter-sort-group
 title: Filtern, sortieren & gruppieren
 section: databases
-order: 5
+order: 6
 keywords: filter, filtern, sortieren, sortierung, gruppieren, gruppe, suchen, und, oder, bedingung, ich, heute, sort, group
 related: views, properties, lock
 summary: Zeig nur die Einträge, die du brauchst, in deiner Reihenfolge, gruppiert nach jeder Eigenschaft.

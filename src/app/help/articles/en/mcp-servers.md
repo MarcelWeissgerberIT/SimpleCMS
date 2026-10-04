@@ -2,7 +2,7 @@
 id: mcp-servers
 title: MCP servers (Atlas & co)
 section: ai
-order: 5
+order: 6
 keywords: mcp, mcp server, atlas, tools, connector, knowledge base, token, external tools, integration, MCP-Server, Werkzeuge, Wissensdatenbank
 related: agent, ai-menu, mcp-token-rejected, mcp-bridge, claude-key
 summary: Let One's Claude use the tools of other systems — a knowledge base like Atlas, a tracker, a CRM.

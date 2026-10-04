@@ -2,7 +2,7 @@
 id: ai-autofill
 title: KI-Autofill
 section: databases
-order: 9
+order: 10
 keywords: autofill, ki, claude, zusammenfassen, herausziehen, kategorisieren, übersetzen, spalte füllen, ausfüllen, ai
 related: properties, claude-key, automations
 summary: Lass Claude eine Eigenschaft für jeden Eintrag füllen — eine Zusammenfassung, eine Kategorie, ein Detail aus der Seite.

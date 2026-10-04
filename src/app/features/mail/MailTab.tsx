@@ -19,6 +19,7 @@ import { cancelRun, connectGmail, disconnectGmail, loadLabels, organiseEarlier, 
 import { estimateOrganise } from './organise'
 import { fmtTime, useMailReadout, type ReadoutState } from './MailStatus'
 import './mail.css'
+import { HelpLink } from '../../help'
 
 type T = ReturnType<typeof useT>
 
@@ -585,7 +586,10 @@ export function MailTab() {
   const team = useCloud((c) => c.active.kind === 'cloud')
   return (
     <div className="ml">
-      <h3 className="st-h">{t('features.mail.title')}</h3>
+      <h3 className="st-h">
+        {t('features.mail.title')}
+        <HelpLink id="gmail-sync" />
+      </h3>
       <p className="st-p">{t('features.mail.intro')}</p>
       {team && <p className="ml-msg">{t('features.mail.teamNote')}</p>}
       <AccessPanel />

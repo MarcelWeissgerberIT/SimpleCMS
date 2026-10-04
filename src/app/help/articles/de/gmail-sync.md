@@ -13,7 +13,7 @@ One liest Gmail direkt aus diesem Browser — ohne Server dazwischen. Deshalb nu
 1. Lege in der **Google Cloud Console** ein Projekt an (Name beliebig).
 2. Aktiviere die **Gmail API** für dieses Projekt.
 3. Richte den **OAuth-Zustimmungsbildschirm** ein: Zielgruppe *Extern*, im Status *Test* lassen und deine eigene Google-Adresse als Testnutzer eintragen.
-4. Erstelle einen **OAuth-Client** vom Typ *Webanwendung* und trage die **Autorisierten JavaScript-Quellen** ein, die One zeigt (z. B. `https://getonecms.com` — mit Kopier-Tasten).
+4. Erstelle einen **OAuth-Client** vom Typ *Webanwendung* und trage die **Autorisierten JavaScript-Quellen** ein, die One zeigt (z. B. `https://getonecms.com`).
 5. Kopiere die **Client-ID** (sie endet auf `.apps.googleusercontent.com`) und füge sie bei **OAuth-Client-ID** ein. Nur die ID — One braucht nie einen Clientschlüssel.
 
 ## Verbinden und synchronisieren
@@ -22,7 +22,7 @@ One liest Gmail direkt aus diesem Browser — ohne Server dazwischen. Deshalb nu
 - **Labels** — z. B. Posteingang; **Spam und Papierkorb überspringen**,
 - **Mails pro Durchlauf** und **Wann**: beim Öffnen, alle paar Minuten oder manuell (**Jetzt synchronisieren**).
 
-Die erste Synchronisation legt die Datenbank **Mails** an: Betreff, Von, An, Datum, Labels, ungelesen, Anhänge, ein Gmail-Link — und die Mail selbst als Seite. Bilder aus dem Web bleiben blockiert, bis du **Bilder laden** klickst. Deine Änderungen an Einträgen bleiben; eine erneute Synchronisation ändert nur Gmails Felder.
+Die erste Synchronisation legt die Datenbank **Mails** an: Betreff, Von, An, Datum, Labels, ungelesen, Anhänge, ein Gmail-Link — und die Mail selbst als Seite. Die Gmail-LED in ihrem Kopf öffnet diese Einstellungen. Bilder aus dem Web bleiben blockiert, bis du **Bilder laden** klickst. Deine Änderungen an Einträgen bleiben; eine erneute Synchronisation ändert nur Gmails Felder.
 
 ## Mit Claude ordnen
 Standardmäßig aus. Eingeschaltet (braucht deinen Claude-Schlüssel) bekommt jede neue Mail eine **Kategorie** aus deiner Liste, eine **Priorität**, **Antwort nötig** und eine **Einzeilige Zusammenfassung**, auf Wunsch auch eine Verknüpfung zu einem Eintrag einer Datenbank wie Projekte.

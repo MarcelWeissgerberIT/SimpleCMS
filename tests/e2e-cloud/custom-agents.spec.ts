@@ -66,7 +66,9 @@ test.describe('team cloud — custom agents', () => {
 
     // Bob's browser does not run Ada's browser agent
     await b.evaluate(() => (window.location.hash = '#/agents/ag-team'))
-    await expect(b.locator('.agx-notice', { hasText: 'browser' })).toContainText(/Runs in .*browser while One is open there/)
+    await expect(b.locator('.agx-notice', { hasText: 'Runs in' })).toContainText(/Runs in .*browser while One is open there/)
+    // (so this browser's missing Claude key does not matter for it)
+    await expect(b.locator('.agx-notice', { hasText: 'No Claude API key' })).toHaveCount(0)
 
     // deleting syncs too
     await wsEval(a, (s) => s.deleteAgent('ag-team'))

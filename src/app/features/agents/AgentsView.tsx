@@ -242,7 +242,7 @@ function AgentCard({ agent, n, now }: { agent: CustomAgent; n: number; now: numb
           <dd>
             {last ? (
               <>
-                <span className={statusLed(last.status)} aria-hidden /> {t(`features.agents.status.${last.status}`)} <span className="mono faint">· {fmtWhen(t, last.startedAt, lang, now)}</span>
+                <span className={statusLed(last.status)} aria-hidden /> {t(`features.agents.status.${last.status}`)} <span className="agx-spec__aside mono faint">{fmtWhen(t, last.startedAt, lang, now)}</span>
               </>
             ) : (
               '—'
@@ -252,7 +252,7 @@ function AgentCard({ agent, n, now }: { agent: CustomAgent; n: number; now: numb
         <div>
           <dt>{t('features.agents.spec.cost')}</dt>
           <dd className="mono">
-            {fmtUsd(cost)} <span className="faint">· {t('features.agents.spec.lastN', { n: Math.min(runs.length, 10) })}</span>
+            {fmtUsd(cost)} <span className="agx-spec__aside faint">{t('features.agents.spec.lastN', { n: Math.min(runs.length, 10) })}</span>
           </dd>
         </div>
       </dl>
@@ -397,7 +397,7 @@ function AgentDetail({ id }: { id: ID }) {
         </div>
       </dl>
 
-      {!hasKey && agent.runner === 'browser' && (
+      {!hasKey && agent.runner === 'browser' && !elsewhere && (
         <div className="agx-notice" role="note">
           <span className="led" aria-hidden />
           <span>{t('features.agents.noKey')}</span>

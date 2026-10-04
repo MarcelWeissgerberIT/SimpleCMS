@@ -2,7 +2,7 @@
 id: mcp-bridge
 title: Claude Desktop & local MCP
 section: ai
-order: 6
+order: 7
 keywords: mcp, claude desktop, claude code, cursor, bridge, mcpb, extension, agent, local, one-mcp, Brücke, Erweiterung
 related: mcp-servers, agent, team-cloud
 summary: Let Claude Desktop, Claude Code or any MCP client work in your open One tab.

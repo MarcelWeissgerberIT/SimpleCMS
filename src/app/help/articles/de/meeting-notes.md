@@ -2,7 +2,7 @@
 id: meeting-notes
 title: Besprechungsnotizen
 section: ai
-order: 4
+order: 5
 keywords: besprechung, notizen, protokoll, transkript, aufnehmen, aufnahme, zusammenfassung, aufgaben, zoom, teams, meet, meeting
 related: ai-menu, claude-key, databases
 summary: Nimm eine Besprechung als Live-Transkript auf; Claude schreibt Zusammenfassung, Entscheidungen und Aufgaben.

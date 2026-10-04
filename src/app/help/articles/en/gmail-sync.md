@@ -13,7 +13,7 @@ One reads Gmail straight from this browser — no server in between. Because of 
 1. Create a project in the **Google Cloud console** (any name).
 2. Enable the **Gmail API** for that project.
 3. Set up the **OAuth consent screen**: audience *External*, leave it in *Testing* and add your own Google address as a test user.
-4. Create an **OAuth client** of type *Web application* and add the **Authorized JavaScript origins** One shows (e.g. `https://getonecms.com` — copy keys included).
+4. Create an **OAuth client** of type *Web application* and add the **Authorized JavaScript origins** One shows (e.g. `https://getonecms.com`).
 5. Copy the **client ID** (it ends in `.apps.googleusercontent.com`) and paste it into **OAuth client ID**. Only the ID — One never needs a client secret.
 
 ## Connect and sync
@@ -22,7 +22,7 @@ One reads Gmail straight from this browser — no server in between. Because of 
 - **Labels** — e.g. Inbox; **Skip spam and trash**,
 - **Mails per run** and **When**: when One opens, every few minutes, or manually (**Sync now**).
 
-The first sync creates the **Mails** database: subject, from, to, date, labels, unread, attachments, a Gmail link — and the mail itself as the page. Remote images are blocked until you click **Load images**. Your edits to rows stay; a re-sync only updates Gmail's fields.
+The first sync creates the **Mails** database: subject, from, to, date, labels, unread, attachments, a Gmail link — and the mail itself as the page. The Gmail LED in its header opens these settings. Remote images are blocked until you click **Load images**. Your edits to rows stay; a re-sync only updates Gmail's fields.
 
 ## Organise with Claude
 Off by default. When on (needs your Claude key), each new mail gets a **Category** from your list, a **Priority**, **Needs reply** and a **One-line summary**, optionally a link to a row of a database like Projects.

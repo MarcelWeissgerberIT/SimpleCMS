@@ -2,7 +2,7 @@
 id: icons-emoji
 title: Emoji, Icons & Titelbilder
 section: writing
-order: 5
+order: 6
 keywords: emoji, icon, seiten-icon, titelbild, cover, bild, symbol, glyph
 related: blocks, first-steps
 summary: Gib Seiten ein Icon und ein Titelbild; setz Emoji und Icons in den Text.

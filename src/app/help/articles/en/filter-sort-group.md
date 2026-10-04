@@ -2,7 +2,7 @@
 id: filter-sort-group
 title: Filter, sort & group
 section: databases
-order: 5
+order: 6
 keywords: filter, sort, group, search, order, and, or, condition, me, today, Filter, sortieren, gruppieren, suchen
 related: views, properties, lock
 summary: Show only the rows you need, in the order you need, grouped by any property.

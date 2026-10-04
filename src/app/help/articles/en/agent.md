@@ -4,7 +4,7 @@ title: The agent
 section: ai
 order: 3
 keywords: agent, claude, automate, bulk, tasks, rows, pages, workspace agent, apply, review, Agent, Aufgaben, automatisieren
-related: ai-menu, mcp-servers, mcp-bridge, claude-key
+related: custom-agents, ai-menu, mcp-servers, mcp-bridge
 summary: Describe a task for your workspace — Claude reads, proposes changes, and you apply them.
 ---
 Press <kbd>Mod+J</kbd> (or ⌘K → *Ask the agent…*). The agent opens on the right.

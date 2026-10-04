@@ -2,7 +2,7 @@
 id: comments
 title: Kommentare
 section: writing
-order: 6
+order: 7
 keywords: kommentar, kommentieren, anmerkung, randnotiz, antworten, erledigt, diskutieren, comment, reply, resolve
 related: blocks, team-cloud
 summary: Text markieren, kommentieren, antworten, erledigen — am Rand neben der Seite.

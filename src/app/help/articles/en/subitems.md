@@ -2,7 +2,7 @@
 id: subitems
 title: Sub-items & dependencies
 section: databases
-order: 6
+order: 7
 keywords: sub-items, subtasks, nesting, parent, children, dependencies, blocked by, blocking, gantt, timeline, arrow, Unterelemente, Abhängigkeiten, blockiert
 related: views, properties, filter-sort-group
 summary: Nest rows under a parent, and let rows wait for each other on the timeline.

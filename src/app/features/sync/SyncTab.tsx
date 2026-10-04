@@ -27,6 +27,7 @@ import {
 import { sealGitHubToken } from './storage'
 import type { GitHubConfig, LogEntry } from './types'
 import './sync.css'
+import { HelpLink } from '../../help'
 
 type T = ReturnType<typeof useT>
 
@@ -402,7 +403,10 @@ export function SyncTab() {
   const inCloud = useCloud((c) => c.active.kind === 'cloud')
   return (
     <div className="sy">
-      <h3 className="st-h">{t('features.sync.title')}</h3>
+      <h3 className="st-h">
+        {t('features.sync.title')}
+        <HelpLink id="sync" />
+      </h3>
       <p className="st-p">{t('features.sync.body')}</p>
       {inCloud && <p className="sy-msg">{t('features.sync.cloudNote')}</p>}
       <MissingNotice />

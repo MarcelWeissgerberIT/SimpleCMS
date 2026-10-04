@@ -105,6 +105,12 @@ the public APIs stable — other areas are built against them in parallel.
   Sync state per device + workspace in IndexedDB `one-mail`, never synced. Rows dedupe by the Gmail message id; re-syncs
   write only Labels / Unread; bodies are written with origin `'mail'`. Team workspaces: the database is created private
   (`createPrivateDatabase`); a shared one pauses the sync. Mail content reaches Anthropic only with "Organise with Claude".
+- Custom agents: `Workspace.agents` (`CustomAgent`, store/types.ts) — write only with `upsertAgent` / `deleteAgent`;
+  every reader sanitizes (store/agents.ts); team: meta map `agents`. Runs are per device (IndexedDB `one-agents`, last
+  100 per agent), never synced; server runs come from `GET agent-runs`. Browser agents (features/agents/runner.ts) run in
+  one leader tab per workspace (Web Lock), in team workspaces only in their creator's browser; one run per agent at a
+  time. Agent writes are stamped `agent:<agentId>` (team: `writeAsAgent()`, cloud/index.ts) and never trigger agents;
+  render `agent:` ids with `agentLabel()` ("Agent · <name>"). Routes `#/agents`, `#/agents/<id>`.
 - Team-cloud agents (server/src/agents): agents with `runner: 'server'` run on the server (scheduler, row triggers,
   webhooks) with a per-workspace Claude key + MCP tokens encrypted at rest; their writes carry `agent:<agentId>` as
   createdBy / updatedBy; `AGENTS=off` disables them; the server needs outbound HTTPS to api.anthropic.com.

@@ -18,10 +18,13 @@ import { useCloud } from '../../cloud'
 import { sameValue } from '../automations/engine'
 import { t } from '../../i18n'
 import { isAgentWriting, startAttributionKeeper } from './attribution'
-import { executeRun, isRunningAnywhere } from './exec'
+import { isRunningAnywhere, wsKey } from './locks'
 import { latestSlot } from './schedule'
 import { forgetSlots, getSlot, loadRuns, putRun, setSlot, useAgentRuns } from './runs'
 import { newId } from '../../lib/ids'
+
+/** The run code (the agent loop, its tools, apply) loads on the first run, not at boot. */
+const exec = () => import('./exec')
 
 export const TICK_MS = 30_000
 /** quiet time after the last row event before a trigger run starts */
@@ -32,11 +35,6 @@ export const TRIGGER_GAP_MS = 60_000
 const UNTITLED_MAX_MS = 15_000
 
 const COMPUTED = new Set<PropertyDef['type']>(['formula', 'rollup', 'created_time', 'last_edited_time', 'created_by', 'last_edited_by', 'unique_id'])
-
-const wsKey = () => {
-  const a = useCloud.getState().active
-  return `${a.kind}:${a.id}`
-}
 
 /** Does this browser run the agent? */
 export function runsHere(agent: CustomAgent): boolean {
@@ -150,7 +148,7 @@ export async function tick(now = Date.now()): Promise<void> {
         await putRun({ id: newId(), agentId: agent.id, runner: 'browser', trigger: { type: 'schedule', detail }, startedAt: Date.now(), endedAt: Date.now(), status: 'skipped', summary: t('features.agents.run.skipped'), steps: [] })
         continue
       }
-      void executeRun(agent, { trigger: { type: 'schedule', detail } })
+      void exec().then((m) => m.executeRun(agent, { trigger: { type: 'schedule', detail } }))
     }
   } catch (e) {
     console.error('[one] agents: schedule check failed', e)
@@ -222,7 +220,7 @@ async function flushTrigger(agentId: ID) {
   lastTriggerRun.set(agentId, Date.now())
   const titles = rows.map((id) => pages[id].title.trim() || t('common.untitled'))
   const detail = `${rows.length} · ${titles.slice(0, 3).join(', ')}${titles.length > 3 ? ' …' : ''}`
-  const res = await executeRun(agent, { trigger: { type: agent.trigger.type, detail }, rows })
+  const res = await (await exec()).executeRun(agent, { trigger: { type: agent.trigger.type, detail }, rows })
   // another tab started it in between: the rows wait for the next run
   if (res === 'busy') queueRows(agent, rows)
 }
@@ -277,11 +275,22 @@ function diff(state: ReturnType<typeof useWorkspace.getState>, prev: ReturnType<
 
 let unsubStore: (() => void) | null = null
 
+/** The 30-second check runs only while this tab has scheduled agents to run (an idle app runs nothing). */
+function syncTicker() {
+  const needed = leader && mine().some((a) => a.trigger.type === 'schedule')
+  if (needed && !tickTimer) tickTimer = window.setInterval(() => void tick(), TICK_MS)
+  if (!needed && tickTimer) {
+    window.clearInterval(tickTimer)
+    tickTimer = 0
+  }
+}
+
 function lead() {
   window.clearInterval(tickTimer)
+  tickTimer = 0
   // another tab may have advanced the slots while it led
   forgetSlots()
-  tickTimer = window.setInterval(() => void tick(), TICK_MS)
+  syncTicker()
   void tick()
   unsubStore?.()
   unsubStore = useWorkspace.subscribe((state, prev) => {
@@ -297,6 +306,7 @@ function lead() {
 
 function stopLeading() {
   window.clearInterval(tickTimer)
+  tickTimer = 0
   unsubStore?.()
   unsubStore = null
   for (const p of pending.values()) window.clearTimeout(p.timer)
@@ -331,6 +341,7 @@ export function startAgents(): () => void {
   const unsubAgents = useWorkspace.subscribe((s, p) => {
     if (s.agents !== p.agents) {
       loadAll()
+      syncTicker()
       // a schedule edited to a time that is due: no need to wait for the next check
       if (leader) window.setTimeout(() => void tick(), 50)
     }

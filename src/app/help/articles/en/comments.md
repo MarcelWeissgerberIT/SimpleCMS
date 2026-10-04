@@ -2,7 +2,7 @@
 id: comments
 title: Comments
 section: writing
-order: 6
+order: 7
 keywords: comment, note, margin, reply, resolve, discuss, Kommentar, Anmerkung, Antwort
 related: blocks, team-cloud
 summary: Select text, comment, reply and resolve — in the margin next to the page.

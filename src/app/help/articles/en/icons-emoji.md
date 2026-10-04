@@ -2,7 +2,7 @@
 id: icons-emoji
 title: Emoji, icons & covers
 section: writing
-order: 5
+order: 6
 keywords: emoji, icon, page icon, cover, image, header, glyph, Emoji, Icon, Titelbild
 related: blocks, first-steps
 summary: Give pages an icon and a cover; put emoji and icons into the text.

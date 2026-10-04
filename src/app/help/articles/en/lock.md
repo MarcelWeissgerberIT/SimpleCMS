@@ -2,7 +2,7 @@
 id: lock
 title: Lock pages & databases
 section: writing
-order: 11
+order: 12
 keywords: lock, read only, protect, freeze, unlock, sperren, schreibgeschützt, entsperren
 related: history, databases, properties
 summary: Lock a page against accidental edits, or a database against schema changes.

@@ -6,6 +6,7 @@
 import { useMemo, useState, useSyncExternalStore } from 'react'
 import { Popover } from '../../../ui/Popover'
 import { listFunctions, registryVersion, subscribeRegistry, type FnCategory, type FnSpec } from '../engine'
+import { HelpLink } from '../../../help'
 
 const CATS: FnCategory[] = ['data', 'math', 'stats', 'logic', 'text', 'date', 'lookup', 'info', 'custom']
 
@@ -98,7 +99,10 @@ export function FunctionBrowser({ anchor, onClose, onInsert, onEditFunctions, la
         ))}
       </div>
       <div className="fxb__foot">
-        <span className="label">{list.length === 1 ? t('features.sheets.fn.count1') : t('features.sheets.fn.count', { n: list.length })}</span>
+        <span className="label">
+          {list.length === 1 ? t('features.sheets.fn.count1') : t('features.sheets.fn.count', { n: list.length })}
+          <HelpLink id="spreadsheets" />
+        </span>
         {onEditFunctions && (
           <button
             type="button"

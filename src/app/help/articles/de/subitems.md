@@ -2,7 +2,7 @@
 id: subitems
 title: Unterelemente & Abhängigkeiten
 section: databases
-order: 6
+order: 7
 keywords: unterelemente, unteraufgaben, verschachteln, übergeordnet, abhängigkeiten, blockiert durch, blockiert, gantt, zeitleiste, pfeil, sub-items, dependencies
 related: views, properties, filter-sort-group
 summary: Einträge unter einem übergeordneten verschachteln — und auf der Zeitleiste aufeinander warten lassen.

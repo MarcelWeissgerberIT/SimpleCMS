@@ -2,7 +2,7 @@
 id: synced-blocks
 title: Synchronisierte Blöcke
 section: writing
-order: 7
+order: 8
 keywords: synchronisierter block, synchron, spiegeln, wiederverwenden, gleicher inhalt, kopieren und synchronisieren, entkoppeln, synced block
 related: block-handle, templates, layout-blocks
 summary: Derselbe Inhalt auf mehreren Seiten — irgendwo bearbeiten, überall geändert.

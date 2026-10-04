@@ -18,6 +18,7 @@ import { blankAutomation, makeRecipe, problemOf, recipeHint, type RecipeId } fro
 import { onRovingKey } from '../io/roving'
 import { AutomationEditor } from './AutomationEditor'
 import { n8nWorkflow } from './n8n'
+import { HelpLink } from '../../help'
 import './automations.css'
 
 const RECIPES: RecipeId[] = ['webhook_new', 'notify_done', 'stamp_done']
@@ -95,7 +96,19 @@ export function AutomationsModal({ databaseId, onClose }: { databaseId: ID; onCl
   const dbTitle = page.title.trim() || t('common.untitled')
 
   return (
-    <Modal open onClose={onClose} label="§ AUTO" title={t('features.auto.titleFor', { db: dbTitle })} width={1040} className="auto-modal">
+    <Modal
+      open
+      onClose={onClose}
+      label="§ AUTO"
+      title={
+        <>
+          {t('features.auto.titleFor', { db: dbTitle })}
+          <HelpLink id="automations" />
+        </>
+      }
+      width={1040}
+      className="auto-modal"
+    >
       <div className="auto">
         {/* ------------ rail ------------ */}
         <aside className="auto-rail">

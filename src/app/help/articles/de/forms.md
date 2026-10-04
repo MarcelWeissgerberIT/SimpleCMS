@@ -2,7 +2,7 @@
 id: forms
 title: Formulare
 section: databases
-order: 7
+order: 8
 keywords: formular, umfrage, fragebogen, fragen, antworten, formular teilen, öffentlicher link, webhook, logik, form, survey
 related: views, automations, share-links
 summary: Ein Formular fragt die Eigenschaften einer Datenbank ab — jede Antwort wird ein Eintrag.

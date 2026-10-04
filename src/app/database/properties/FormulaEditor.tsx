@@ -14,6 +14,7 @@ import { useUI } from '../../store/ui'
 import { Resolver } from '../model/resolve'
 import { Menu, TypeIcon } from '../parts'
 import { useCreateProperty } from '../create/entry'
+import { HelpLink } from '../../help'
 
 export function FormulaEditor({ db: initialDb, prop, rows, resolver, onClose }: { db: Database; prop: PropertyDef; rows: Page[]; resolver: Resolver; onClose: () => void }) {
   const t = useT()
@@ -190,7 +191,10 @@ export function FormulaEditor({ db: initialDb, prop, rows, resolver, onClose }: 
               )}
             </div>
           </div>
-          <div className="db-fx__help faint">{hint ?? t('database.formula.help')}</div>
+          <div className="db-fx__help faint">
+            {hint ?? t('database.formula.help')}
+            <HelpLink id="formulas" />
+          </div>
         </div>
         <aside className="db-fx__ref">
           <input className="input" value={query} placeholder={t('database.formula.searchRef')} onChange={(e) => setQuery(e.target.value)} />

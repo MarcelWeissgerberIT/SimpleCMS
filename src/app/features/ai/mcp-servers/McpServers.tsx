@@ -32,6 +32,7 @@ import {
   writeServers,
 } from './config'
 import { cancelCheck, checkServer, useMcpChecks, type CheckMode } from './checks'
+import { HelpLink } from '../../../help'
 import './mcp-servers.css'
 
 type T = ReturnType<typeof useT>
@@ -64,6 +65,7 @@ export function McpServers() {
           <span className="label mcps__code">§ MCP — {t('features.ai.mcp.code')}</span>
           <h4 className="mcps__title" id={headId}>
             {t('features.ai.mcp.title')}
+            <HelpLink id="mcp-servers" />
           </h4>
         </div>
         <span className="label mcps__count">{t('features.ai.mcp.count', { count: servers.length, max: MAX_SERVERS })}</span>

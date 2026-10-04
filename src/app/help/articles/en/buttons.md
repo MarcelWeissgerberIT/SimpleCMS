@@ -2,7 +2,7 @@
 id: buttons
 title: Buttons
 section: writing
-order: 8
+order: 9
 keywords: button, action, click, automate, insert blocks, add row, webhook, Schaltfläche, Knopf, Aktion
 related: automations, templates, databases
 summary: A button runs a list of actions with one click.

@@ -15,6 +15,7 @@ import { ViewTypeIcon } from './ViewTabs'
 import { SubItemsDisplayRow } from './StructurePanels'
 import { subItemsOf } from '../model/hierarchy'
 import { FEED_CREATED, feedDateProp } from '../model/feed'
+import { HelpLink } from '../../help'
 
 export function LayoutPanel({ m, anchor, onClose }: { m: DbModel; anchor: Element; onClose: () => void }) {
   const t = useT()
@@ -134,7 +135,10 @@ function FeedOptions({ m }: { m: DbModel }) {
   return (
     <>
       <div className="db-cfg__row">
-        <span className="label">{t('database.feed.orderBy')}</span>
+        <span className="label">
+          {t('database.feed.orderBy')}
+          <HelpLink id="feed" />
+        </span>
         <Select
           ariaLabel={t('database.feed.orderBy')}
           value={current === FEED_CREATED || current.type === 'created_time' ? FEED_CREATED.id : current.id}

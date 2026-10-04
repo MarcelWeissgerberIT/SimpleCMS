@@ -55,9 +55,9 @@ function RunItem({ run, n, first }: { run: AgentRun; n: number; first: boolean }
             {t(pending === 1 ? 'features.agents.review.badge.one' : 'features.agents.review.badge.other', { count: pending })}
           </span>
         )}
-        <span className="agx-run__meta mono">{fmtWhen(t, run.startedAt, lang)}</span>
+        <span className="agx-run__meta agx-run__meta--when mono">{fmtWhen(t, run.startedAt, lang)}</span>
         <span className="agx-run__meta agx-run__meta--dur mono">{dur}</span>
-        <span className="agx-run__meta mono" data-testid="agx-run-usd">
+        <span className="agx-run__meta agx-run__meta--usd mono" data-testid="agx-run-usd">
           {run.usage ? fmtUsd(run.usage.usd) : '—'}
         </span>
       </button>

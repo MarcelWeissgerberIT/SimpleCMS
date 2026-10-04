@@ -47,10 +47,8 @@ export function useHelpHits(term: string, lang: Lang, limit = 4): HelpPaletteHit
   return useMemo(
     () => {
       if (!mod || q.length < 2) return []
-      const hits = mod.searchHelp(mod.LIBRARY, lang, q, limit)
-      // the palette is for "what did they mean": only articles close to the best match
-      const best = hits[0]?.score ?? 0
-      return hits.filter((h) => h.score >= best * 0.4).map(({ article: a }) => ({ id: a.id, title: a.title, num: a.num, section: a.section }))
+      // the palette is for "what did they mean": articles named like the query, never body-text or fuzzy hits
+      return mod.searchHelp(mod.LIBRARY, lang, q, limit, { strict: true }).map(({ article: a }) => ({ id: a.id, title: a.title, num: a.num, section: a.section }))
     },
     [mod, q, lang, limit],
   )
