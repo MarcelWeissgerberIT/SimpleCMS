@@ -176,10 +176,20 @@ async function openAIPanel(page: Page) {
   const id = await createPage(page, { title: 'Launch plan', content: doc(para('We launch in two weeks.'), para('')) })
   await gotoPage(page, id)
   const ed = editorOf(page, id)
-  await ed.locator('p').last().click()
-  await page.keyboard.press('Space')
   const ask = page.getByPlaceholder('Ask Claude to write anything…')
-  await expect(ask).toBeFocused()
+  // Space opens the AI menu only in an empty line: under load the first click can land before the
+  // editor settles — then the space is typed; take it back and try again
+  await expect(async () => {
+    await ed.locator('p').last().click()
+    await page.keyboard.press('End')
+    await page.keyboard.press('Space')
+    try {
+      await expect(ask).toBeFocused({ timeout: 2000 })
+    } catch (e) {
+      if (!(await ask.count())) await page.keyboard.press('Backspace')
+      throw e
+    }
+  }).toPass({ timeout: 15_000 })
   return { id, ask, panel: page.getByRole('dialog', { name: 'Ask Claude' }) }
 }
 
