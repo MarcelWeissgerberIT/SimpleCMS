@@ -788,7 +788,14 @@
   pointer-events: none;
 }
 
+/* the blurred editor keeps its selection painted (TipTap Selection, `.selection`) — not inside selected blocks */
+.doc-content .is-block-selected .selection {
+  background: transparent;
+}
+
+.doc-content .is-block-selected::selection,
 .doc-content .is-block-selected *::selection,
+.doc-content.ProseMirror-hideselection *::selection,
 .doc-content.ProseMirror-noderangeselection *::selection {
   background: transparent;
 }

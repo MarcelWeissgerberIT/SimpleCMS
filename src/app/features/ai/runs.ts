@@ -35,6 +35,7 @@ import { countWords, pageRead, type RunReads } from './reads'
 import { readableContent } from '../../editor'
 import { requestRedo } from './redo/request'
 import type { RedoPassage } from './redo/passages'
+import { ImageLoadError, runImageRequest, type ImageIssue, type ImageMeta, type ImageRunRequest } from './image/run'
 
 /* ------------------------------------------------------------------ */
 /* Types                                                               */
@@ -47,6 +48,8 @@ export type RunRequest =
   | { kind: 'todb'; label: string; code: string; instruction?: string }
   /** "Redo with instructions": marked passages rewritten by the instructions (+ a rules page), reviewed one by one */
   | { kind: 'redo'; label: string; code: string; instructions: string; rulesPageId: ID | null; passages: RedoPassage[] }
+  /** Claude looks at an image block: describe / read out the text / tables / a question (image/run.ts) */
+  | ImageRunRequest
 
 export type RunStatus = 'running' | 'done' | 'error' | 'interrupted'
 
@@ -83,6 +86,10 @@ export interface AIRun {
   reads?: RunReads | null
   /** "Redo with instructions": one result per passage */
   redo?: { items: RedoItem[] } | null
+  /** an image request: what was sent of the picture (size, type — never the pixels) */
+  image?: ImageMeta | null
+  /** an image request whose picture could not be loaded (a web image without CORS, a missing file …) */
+  imageIssue?: ImageIssue | null
 }
 
 interface RunsState {
@@ -311,6 +318,14 @@ async function execute(id: string, editor: Editor) {
       if (ac.signal.aborted) return
       const items: RedoItem[] = req.passages.map((p) => ({ n: p.n, after: p.skip ? null : (answer.get(p.n) ?? null), decision: null }))
       patch(id, { status: 'done', redo: { items }, finishedAt: Date.now() })
+    } else if (req.kind === 'image') {
+      // the picture + the page as its context marks allow
+      const pr = pageRead(run.pageId, null)
+      patch(id, { reads: pr.reads })
+      const text = await runImageRequest(req, pr.context, { onToken, signal: ac.signal, onImage: (image) => !ac.signal.aborted && patch(id, { image }) })
+      if (ac.signal.aborted) return
+      buffers.delete(id)
+      patch(id, { status: 'done', output: text, finishedAt: Date.now() })
     } else {
       let text: string
       if (req.kind === 'workspace') {
@@ -341,6 +356,7 @@ async function execute(id: string, editor: Editor) {
     const partial = buffers.get(id) ?? ''
     buffers.delete(id)
     if (e instanceof TodbError) return patch(id, { status: 'error', issue: e.issue, finishedAt: Date.now() })
+    if (e instanceof ImageLoadError) return patch(id, { status: 'error', imageIssue: e.issue, finishedAt: Date.now() })
     const err = e instanceof AIError ? e : new AIError('unknown', String(e))
     if (err.code === 'aborted') return
     patch(id, { status: 'error', output: partial, error: { code: err.code, detail: err.detail, server: err.server }, finishedAt: Date.now() })
@@ -382,6 +398,11 @@ export function stopRun(id: string): boolean {
   const partial = stripFence(buffers.get(id) ?? S().runs[id]?.output ?? '')
   buffers.delete(id)
   if (run.status !== 'running') return true
+  // half a JSON answer (image description / tables) is no result
+  if (run.req.kind === 'image' && (run.req.action === 'describe' || run.req.action === 'table')) {
+    removeRun(id)
+    return false
+  }
   if (!partial.trim()) {
     removeRun(id)
     return false

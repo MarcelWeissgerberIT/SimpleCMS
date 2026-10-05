@@ -414,6 +414,82 @@ async function openAIPanel(page) {
   await ai.first().waitFor()
 }
 
+/* Gmail stand-ins: Google's token client and an in-memory mailbox (gmail.googleapis.com). */
+const GIS_JS = `(() => {
+  let n = 0
+  window.google = { accounts: { oauth2: {
+    initTokenClient(cfg) {
+      return { requestAccessToken() { setTimeout(() => cfg.callback({ access_token: 'ya29.shots-token-' + (++n), expires_in: 3599, scope: cfg.scope, token_type: 'Bearer' }), 40) } }
+    },
+    hasGrantedAllScopes(r, ...scopes) { return scopes.every((s) => String(r.scope || '').split(' ').includes(s)) },
+    revoke(token, done) { done && done() },
+  } } }
+})()`
+
+const ACCOUNT = 'marcel@acme.studio'
+const b64url = (s) => Buffer.from(s, 'utf8').toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+const HOUR = 3_600_000
+
+/** Fictional mails, newest first. */
+const MAILS = (now) => [
+  { id: 'm1', labelIds: ['INBOX', 'UNREAD'], date: now - 1 * HOUR, subject: 'Re: Relaunch QA — staging access', from: 'Sam Okafor <sam@acme.studio>', text: 'Hi Marcel,\n\ncould you give me access to staging today? I want to run the QA pass on the checkout pages before Thursday.\n\nThanks, Sam' },
+  { id: 'm2', labelIds: ['INBOX', 'UNREAD'], date: now - 5 * HOUR, subject: 'Contract renewal — please sign by Friday', from: 'Lena Hoffmann <lena@northwind.example>', text: 'Hello Marcel,\n\nattached is the renewal for next year, unchanged terms. Could you sign it by Friday?\n\nBest, Lena' },
+  { id: 'm3', labelIds: ['INBOX'], date: now - 26 * HOUR, subject: 'Invoice 2026-114 for September', from: 'Billing <billing@cloudhost.example>', text: 'Your invoice for September: €480.00, due on 20 October.' },
+  { id: 'm4', labelIds: ['INBOX', 'UNREAD'], date: now - 30 * HOUR, subject: 'Quote for the onboarding video', from: 'Studio Lumen <hello@studiolumen.example>', text: 'Hi! Our quote: €6,000 for a five-minute video with two revision rounds. Can we talk next week?' },
+  { id: 'm5', labelIds: ['INBOX'], date: now - 50 * HOUR, subject: 'Lunch on Thursday?', from: 'Mira Jensen <mira@acme.studio>', text: 'Lunch on Thursday at the usual place? 12:30?' },
+  { id: 'm6', labelIds: ['INBOX', 'CATEGORY_PROMOTIONS'], date: now - 74 * HOUR, subject: 'The week in SaaS: pricing pages that convert', from: 'SaaS Weekly <news@saasweekly.example>', text: 'This week: five pricing pages that convert, and why annual plans win.' },
+  { id: 'm7', labelIds: ['INBOX'], date: now - 98 * HOUR, subject: 'New sign-in to your account', from: 'Security <no-reply@accounts.example>', text: 'A new sign-in from Chrome on macOS. If this was you, nothing to do.' },
+]
+
+/** What Claude (mocked) says about each mail. */
+const SORTED = {
+  m1: { category: 'Todo', priority: 'high', needsReply: true, summary: 'Sam needs staging access today for the checkout QA.' },
+  m2: { category: 'Customer', priority: 'high', needsReply: true, summary: 'Northwind’s renewal, same terms — sign by Friday.' },
+  m3: { category: 'Invoice', priority: 'medium', needsReply: false, summary: 'September invoice: €480, due 20 October.' },
+  m4: { category: 'Todo', priority: 'medium', needsReply: true, summary: 'Video quote: €6,000, two revision rounds; wants a call.' },
+  m5: { category: 'Personal', priority: 'low', needsReply: true, summary: 'Mira asks about lunch on Thursday, 12:30.' },
+  m6: { category: 'Newsletter', priority: 'low', needsReply: false, summary: 'Newsletter about pricing pages.' },
+  m7: { category: 'Notification', priority: 'low', needsReply: false, summary: 'New sign-in from Chrome on macOS.' },
+}
+
+class Mailbox {
+  constructor(mails) {
+    this.mails = mails
+    this.historyId = 1000
+  }
+  async handle(route) {
+    const req = route.request()
+    const cors = { 'access-control-allow-origin': '*', 'access-control-expose-headers': 'retry-after' }
+    if (req.method() === 'OPTIONS') return route.fulfill({ status: 204, headers: { ...cors, 'access-control-allow-headers': 'authorization, accept', 'access-control-allow-methods': 'GET' } })
+    const url = new URL(req.url())
+    const path = url.pathname.replace('/gmail/v1/users/me/', '')
+    const json = (status, body) => route.fulfill({ status, headers: { ...cors, 'content-type': 'application/json' }, body: JSON.stringify(body) })
+    if (path === 'profile') return json(200, { emailAddress: ACCOUNT, messagesTotal: this.mails.length, historyId: String(this.historyId) })
+    if (path === 'labels') return json(200, { labels: ['INBOX', 'UNREAD', 'STARRED', 'SPAM', 'TRASH', 'CATEGORY_PROMOTIONS'].map((id) => ({ id, name: id, type: 'system' })).concat([{ id: 'Label_work', name: 'Work', type: 'user' }]) })
+    if (path === 'messages') {
+      const after = Number((url.searchParams.get('q') ?? '').match(/after:(\d+)/)?.[1] ?? 0) * 1000
+      const labelIds = url.searchParams.getAll('labelIds')
+      const hits = this.mails.filter((m) => m.date >= after && labelIds.every((l) => m.labelIds.includes(l)))
+      return json(200, { messages: hits.map((m) => ({ id: m.id, threadId: `t-${m.id}` })), resultSizeEstimate: hits.length })
+    }
+    const one = path.match(/^messages\/([^/]+)$/)
+    if (one) {
+      const m = this.mails.find((x) => x.id === one[1])
+      if (!m) return json(404, { error: { code: 404 } })
+      const headers = [
+        { name: 'Subject', value: m.subject },
+        { name: 'From', value: m.from },
+        { name: 'To', value: `Marcel <${ACCOUNT}>` },
+        { name: 'Date', value: new Date(m.date).toUTCString() },
+        { name: 'Content-Type', value: 'text/plain; charset="UTF-8"' },
+      ]
+      return json(200, { id: m.id, threadId: `t-${m.id}`, labelIds: m.labelIds, snippet: m.text.slice(0, 80), historyId: String(this.historyId), internalDate: String(m.date), sizeEstimate: 2048, payload: { mimeType: 'text/plain', filename: '', headers, body: { size: m.text.length, data: b64url(m.text) } } })
+    }
+    if (path === 'history') return json(200, { history: [], historyId: String(this.historyId) })
+    return json(400, { error: { code: 400 } })
+  }
+}
+
 /** The tool result Claude got back for a tool_use id. */
 const toolResult = (body, id) => (body.messages ?? []).flatMap((m) => (Array.isArray(m.content) ? m.content : [])).find((c) => c.type === 'tool_result' && c.tool_use_id === id)
 
@@ -592,21 +668,21 @@ const shots = {
       () => sseTurn([{ type: 'thinking', text: 'Checking Projects for overdue and stuck rows.' }, { type: 'tool_use', id: 'toolu_q', name: 'query_database', input: { database_id: ids.projects } }]),
       () =>
         sseTurn([
-          { type: 'tool_use', id: 'toolu_u1', name: 'update_row', input: { id: ids.n8n, properties: { Priority: 'High' } } },
-          { type: 'tool_use', id: 'toolu_u2', name: 'update_row', input: { id: ids.video, properties: { Status: 'Backlog' } } },
+          { type: 'tool_use', id: 'toolu_u1', name: 'update_row', input: { id: ids.video, properties: { Priority: 'Medium' } } },
+          { type: 'tool_use', id: 'toolu_u2', name: 'update_row', input: { id: ids.pricing, properties: { Priority: 'Low' } } },
         ]),
       () =>
         sseTurn([
           {
             type: 'text',
-            text: '**Week check:** 8 projects, 3 in progress. *n8n lead-routing automation* blocks the relaunch — proposed **High** priority. *Customer onboarding video* waits on the AI assistant — proposed back to **Backlog**. Budget: €11,000 of €18,000 spent.',
+            text: '**Week check:** 8 projects, 2 in progress, 2 in review. *Customer onboarding video* starts in 9 days and is still in the backlog — proposed **Medium** priority. *Pricing page experiment* waits for the relaunch — proposed **Low**. Overdue: none.',
           },
         ]),
     ]
     const { ctx, page } = await freshPage(browser, { claude: { turns } })
     ids.projects = await pageIdByTitle(page, 'Projects')
-    ids.n8n = await pageIdByTitle(page, 'n8n lead-routing automation')
     ids.video = await pageIdByTitle(page, 'Customer onboarding video')
+    ids.pricing = await pageIdByTitle(page, 'Pricing page experiment')
     await page.evaluate((projects) => {
       const now = Date.now()
       window.__one.workspace.getState().upsertAgent({
@@ -642,6 +718,49 @@ const shots = {
     await page.waitForTimeout(800)
     await rest(page)
     await save(page, 'custom-agents')
+    await ctx.close()
+  },
+
+  /** Gmail → the "Mails" database, organised by Claude (category, priority, needs reply, summary). */
+  async gmail(browser) {
+    const box = new Mailbox(MAILS(Date.now()))
+    const organise = (body) => {
+      const prompt = String(body.messages?.[0]?.content ?? '')
+      const ids = [...prompt.matchAll(/<mail id="([^"]+)">/g)].map((m) => m[1])
+      return { mails: ids.map((id) => ({ id, ...(SORTED[id] ?? { category: 'Notification', priority: 'low', needsReply: false, summary: '' }) })) }
+    }
+    const setup = async (ctx) => {
+      await ctx.route('https://accounts.google.com/**', (route) => route.fulfill({ status: 200, contentType: 'application/javascript', body: GIS_JS }))
+      await ctx.route('https://gmail.googleapis.com/**', (route) => box.handle(route))
+    }
+    const { ctx, page } = await freshPage(browser, { claude: { json: organise }, setup })
+    const from = isoDay(-10)
+    await page.evaluate((from) => window.__one.workspace.getState().updateSettings({ mail: { clientId: '123456789012-shotsclientid0001.apps.googleusercontent.com', from } }), from)
+    await page.evaluate(() => window.__one.ui.getState().openModal({ type: 'settings' }))
+    const dialog = page.getByRole('dialog', { name: 'Settings' })
+    await dialog.getByRole('tab', { name: /Mail$/ }).click()
+    await dialog.getByRole('button', { name: 'Connect Gmail' }).click()
+    await dialog.getByTestId('mail-account').waitFor()
+    await dialog.getByRole('switch', { name: 'Organise new mails with Claude' }).click()
+    await dialog.getByRole('button', { name: 'Sync now' }).click()
+    await page.waitForFunction(() => window.__oneMail?.state().phase === 'idle' && Object.values(window.__one.workspace.getState().pages).some((p) => p.title === 'Contract renewal — please sign by Friday'), null, { timeout: 30_000 })
+    await page.waitForTimeout(500)
+    await page.keyboard.press('Escape')
+    const dbId = await page.evaluate(() => window.__one.workspace.getState().settings.mail.databaseId)
+    // the Inbox table shows what Claude filled in (Properties → shown columns, as a person would set them)
+    await page.evaluate((dbId) => {
+      const s = window.__one.workspace.getState()
+      const db = s.databases[dbId]
+      const id = (name) => db.properties.find((p) => p.name === name)?.id
+      const view = db.views.find((v) => v.type === 'table')
+      s.updateView(dbId, view.id, { visibleProperties: ['Category', 'Priority', 'Needs reply', 'Summary'].map(id).filter(Boolean) })
+    }, dbId)
+    await openPage(page, dbId)
+    const db = page.locator('#main section.db').first()
+    await scrollToTop(db, 12)
+    await page.locator('.toast button[aria-label]').last().click().catch(() => {})
+    await rest(page)
+    await save(page, 'gmail')
     await ctx.close()
   },
 

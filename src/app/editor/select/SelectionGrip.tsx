@@ -63,7 +63,6 @@ export function SelectionGrip({ editor, bridge, pageId, hidden, onOpen }: Select
     },
   })
   const [box, setBox] = useState<Box | null>(null)
-  const gripRef = useRef<HTMLButtonElement>(null)
 
   const measure = useCallback(() => {
     if (!st || editor.isDestroyed) return setBox(null)
@@ -94,7 +93,8 @@ export function SelectionGrip({ editor, bridge, pageId, hidden, onOpen }: Select
     (keyboard: boolean) => {
       const b = readBlockSel(editor.state)
       if (!b) return
-      const anchor: PopoverAnchor = gripRef.current ?? {
+      // a virtual anchor at the first block (the grip itself steps aside while the menu is open)
+      const anchor: PopoverAnchor = {
         contextElement: editor.view.dom,
         getBoundingClientRect: () => {
           const r = (editor.view.nodeDOM(b.from) as HTMLElement | null)?.getBoundingClientRect?.()
@@ -166,7 +166,6 @@ export function SelectionGrip({ editor, bridge, pageId, hidden, onOpen }: Select
             <Plus size={16} strokeWidth={1.8} />
           </button>
           <button
-            ref={gripRef}
             type="button"
             className="block-handle__btn block-handle__grip sel-grip__grip"
             aria-label={st.count > 1 ? t('editor.select.menuN', { n: st.count }) : t('editor.handle.menu')}
@@ -256,13 +255,12 @@ export function selectByLongPress(editor: Editor, pos: number): boolean {
 }
 
 /**
- * Pointer handlers for a long-press (touch / pen): `onLong` after LONG_PRESS ms without moving; the
- * click that follows a long-press is swallowed.
+ * Pointer handlers for a long-press (touch / pen): `onLong` after LONG_PRESS ms without moving. The
+ * click the lifted finger then makes is swallowed (the grip under it may have changed meanwhile).
  */
 export function useLongPress(onLong: () => void) {
   const timer = useRef(0)
   const start = useRef<{ x: number; y: number } | null>(null)
-  const fired = useRef(false)
   const cancel = () => {
     window.clearTimeout(timer.current)
     start.current = null
@@ -270,10 +268,15 @@ export function useLongPress(onLong: () => void) {
   return {
     onPointerDown: (e: ReactPointerEvent) => {
       if (e.pointerType === 'mouse') return
-      fired.current = false
       start.current = { x: e.clientX, y: e.clientY }
       timer.current = window.setTimeout(() => {
-        fired.current = true
+        start.current = null
+        const swallow = (ev: Event) => {
+          ev.preventDefault()
+          ev.stopPropagation()
+        }
+        window.addEventListener('click', swallow, { capture: true, once: true })
+        window.setTimeout(() => window.removeEventListener('click', swallow, { capture: true }), 800)
         onLong()
       }, LONG_PRESS)
     },
@@ -283,15 +286,8 @@ export function useLongPress(onLong: () => void) {
     },
     onPointerUp: cancel,
     onPointerCancel: cancel,
-    onContextMenu: (e: React.MouseEvent) => {
-      if (fired.current || start.current) e.preventDefault()
-    },
-    onClickCapture: (e: React.MouseEvent) => {
-      if (!fired.current) return
-      fired.current = false
-      e.preventDefault()
-      e.stopPropagation()
-    },
+    // Android's long-press menu
+    onContextMenu: (e: React.MouseEvent) => e.preventDefault(),
   }
 }
 
