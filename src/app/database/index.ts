@@ -37,6 +37,8 @@ export { createPropertyQuick, createPropertiesQuick, dropCreated, canCreatePrope
 export { CreatePropertyDialog, type CreatePropertyDialogProps } from './create/CreatePropertyDialog'
 export { CreatePropertiesDialog, DATA_TYPES, type CreatePropertiesDialogProps, type PropertySuggestion, type SuggestionResult } from './create/CreatePropertiesDialog'
 export { PAGE_MENTIONED } from './create/RelationOffer'
+/** NONE_KEY: the group key of a board's "No value" column (View.hiddenGroups). */
+export { NONE_KEY } from './model/query'
 /**
  * Chart series of a database (features/charts `chart` blocks with a database source): rows after a view's
  * filters, grouped by x (options in order + colour, date buckets day … year with gaps filled), count / sum /

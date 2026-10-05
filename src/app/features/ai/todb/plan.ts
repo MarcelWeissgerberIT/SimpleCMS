@@ -15,6 +15,7 @@ import type { JSONContent } from '@tiptap/core'
 import { COLOR_NAMES, type ColorName, type ID, type NumberFormat, type PropertyDef, type PropertyValue, type SelectOption, type View } from '../../../store/types'
 import { defaultView } from '../../../store/store'
 import { newId } from '../../../lib/ids'
+import { NONE_KEY } from '../../../database'
 import { toMarkdown } from '../../share/markdown'
 import { parseDateValue, parseNumber, splitList } from '../../io/import/csv'
 
@@ -532,6 +533,8 @@ export function buildDatabase(plan: TablePlan, draft: TableDraft, names: { board
   if (groupDef) {
     const board = defaultView('board', { properties }, names.board)
     board.groupBy = groupDef.id
+    // every entry has a group: no empty "No value" column in front of them (it can be shown again)
+    if (rows.every((r) => r.properties[groupDef.id] != null)) board.hiddenGroups = [NONE_KEY]
     if (effectiveView(plan, draft) === 'board') views.unshift(board)
     else views.push(board)
   }

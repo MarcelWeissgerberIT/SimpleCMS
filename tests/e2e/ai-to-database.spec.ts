@@ -313,10 +313,11 @@ test.describe('Turn into database (AI menu)', () => {
     expect(optName(props.Assignee, r104.properties[props.Assignee.id])).toBe('Tom Weber')
     expect(got.rows[9].properties[props.Assignee.id]).toBeUndefined()
 
-    // on the page: a board with 6 groups and 16 cards (plus the board's own empty "No value" drop column)
+    // on the page: a board with 6 groups and 16 cards — every entry has a topic, so no empty "No value" column
     const board = page.locator('#main section.db').first()
     const groups = board.locator('.dbb-col').filter({ has: page.locator('.dbc') })
     await expect(groups).toHaveCount(6)
+    await expect(board.locator('.dbb-col')).toHaveCount(6)
     await expect(groups.locator('.dbb-col__head')).toContainText([...TOPICS.map((t) => t.name)])
     await expect(board.locator('.dbb-col .dbc')).toHaveCount(16)
 
