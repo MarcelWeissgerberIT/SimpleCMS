@@ -330,12 +330,21 @@ test.describe('Workspace agent (mocked Claude API)', () => {
         return stable
       }, { intervals: [600] })
       .toBe(true)
-    // an empty line → space opens the AI menu
+    // an empty line → space opens the AI menu. The caret goes to the end of the line through the
+    // editor (a click + End raced with focus handling and sometimes scrolled the column instead)
     await editor.getByText('Before it goes out').click()
     await expect(editor).toBeFocused()
+    await editor.evaluate((root) => {
+      const ed = (root as unknown as { editor: AnyState }).editor
+      let pos = -1
+      ed.state.doc.descendants((n: AnyState, p: number) => {
+        if (pos < 0 && n.isTextblock && n.textContent.startsWith('Before it goes out')) pos = p + n.nodeSize - 1
+        return pos < 0
+      })
+      ed.chain().focus().setTextSelection(pos).run()
+    })
     // a human-scale pause before typing on (ProseMirror re-syncs its selection shortly after focus)
     await page.waitForTimeout(150)
-    await page.keyboard.press('End')
     await page.keyboard.press('Enter')
     await page.keyboard.press('Space')
     const menu = page.locator('.ai-panel')

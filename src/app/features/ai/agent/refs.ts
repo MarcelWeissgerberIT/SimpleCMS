@@ -43,14 +43,16 @@ function domSelection(): { editor: Editor; from: number; to: number } | null {
   const el = (node instanceof Element ? node : node.parentElement)?.closest('.ProseMirror') as EditorDom | null
   const editor = el?.editor
   if (!editor || editor.isDestroyed) return null
+  // a focused editor keeps its own selection in sync (node and cell selections included); a
+  // read-only one (no focus) only has the DOM's
   const s = editor.state.selection
-  if (!s.empty) return { editor, from: s.from, to: s.to }
+  if (editor.view.hasFocus() && !s.empty) return { editor, from: s.from, to: s.to }
   try {
     const a = editor.view.posAtDOM(range.startContainer, range.startOffset)
     const b = editor.view.posAtDOM(range.endContainer, range.endOffset)
     return a === b ? null : { editor, from: Math.min(a, b), to: Math.max(a, b) }
   } catch {
-    return null
+    return s.empty ? null : { editor, from: s.from, to: s.to }
   }
 }
 
