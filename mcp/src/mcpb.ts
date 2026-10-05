@@ -34,15 +34,25 @@ const TOOL_SUMMARIES: Record<McpToolName, string> = {
   one_create_row: 'Add a row to a database.',
   one_update_row: 'Set property values of a row.',
   one_create_property: 'Add a property (column) to a database.',
+  one_update_property: 'Rename a property, change its options or (safely) its type.',
+  one_delete_property: 'Delete a property and its values.',
   one_create_database: 'Create a database with a table view.',
-  one_trash_page: 'Move a page, row or database to the trash (restorable).',
+  one_update_database: 'Rename a database or change its icon.',
+  one_create_view: 'Add a view: table, board, list, gallery, calendar, timeline, feed.',
+  one_update_view: 'Change a view: layout, grouping, filter, sorts, visible properties.',
+  one_delete_view: 'Remove a view (the rows stay).',
+  one_move_page: 'Move a page or database to another place in the tree.',
+  one_move_row: 'Move a row into another database whose properties fit.',
+  one_trash_page: 'Move pages, rows or databases (with their rows) to the trash — one or many, restorable.',
+  one_restore_page: 'Bring pages, rows or databases back from the trash.',
 }
 
 const LONG_DESCRIPTION = `Claude searches, reads and writes your [One](https://getonecms.com/) workspace — pages, databases, rows and properties — in the One tab you have open in your browser.
 
-**After installing:** open One and switch on *Settings → Agents · MCP → Allow AI agents on this computer*. The panel's LED turns green. Then ask Claude *"What is in my One workspace?"*
+**After installing:** open One and switch on *Settings → Agents · MCP → Allow AI agents on this computer*. The panel's LED turns green. Then ask Claude *"What is in my One workspace?"* — or start a message with the codeword \`one:\`, e.g. *"one: tidy up my Projects database"*.
 
 - **Nothing leaves your computer.** The extension listens on 127.0.0.1 only and accepts One's own pages; your workspace stays in the browser.
+- **Tidy up, safely.** Move pages and rows, reshape databases (properties, options, views), trash whole databases with their rows — nothing is deleted for good, everything can be restored.
 - **You stay in charge.** Each change waits for your approval in One (*Ask first*, the default) — or set *Apply directly* or *Read only* there. Every call is logged and can be undone.
 - **Workspaces stay apart.** Several workspaces can be connected at once (each in its tab); Claude names the one it means, and a call meant for one workspace never runs in another.
 - **Same tools everywhere:** the team server of One offers the same tools at \`/mcp\`.

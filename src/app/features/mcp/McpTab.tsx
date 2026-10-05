@@ -11,7 +11,7 @@ import { useWorkspace } from '../../store/store'
 import { useCloud } from '../../cloud'
 import { Led, Switch } from '../../ui/controls'
 import { useLang, useT } from '../../i18n'
-import { MCP_DEFAULT_PORT, type McpAgentMode } from './contract'
+import { MCP_CODEWORD, MCP_DEFAULT_PORT, type McpAgentMode } from './contract'
 import { shortId, workspaceInfo } from './identity'
 import { clearMcpActivity, connectMcpNow, setMcpEnabled, setMcpMode, setMcpPort, undoMcpActivity } from './service'
 import { clientLabel, useMcp, validPort, type McpActivity, type McpConn } from './state'
@@ -245,6 +245,19 @@ function ModePanel() {
   )
 }
 
+/** "Codeword: start a message in Claude with one: …" — the codeword set as a key. */
+function Codeword() {
+  const t = useT()
+  const [before, after = ''] = t('features.mcp.setup.codeword', { code: '\u0000' }).split('\u0000')
+  return (
+    <p className="mcp-hint mcp-codeword" data-testid="mcp-codeword">
+      {before}
+      <kbd className="kbd">{MCP_CODEWORD}</kbd>
+      {after}
+    </p>
+  )
+}
+
 function SetupPanel() {
   const t = useT()
   const port = useMcp((s) => s.port)
@@ -277,6 +290,7 @@ function SetupPanel() {
           <div>
             <div className="mcp-steps__title">{t('features.mcp.setup.try')}</div>
             <p className="mcp-hint">{t('features.mcp.setup.tryHint')}</p>
+            <Codeword />
           </div>
         </li>
       </ol>
