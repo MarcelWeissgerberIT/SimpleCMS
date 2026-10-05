@@ -95,15 +95,19 @@ test.describe('block selection', () => {
       ['paragraph', 'Delta line.'],
     ])
 
-    // Shift+click on another block's grip grows the selection too
+    // while blocks are selected another block shows no grip (the pinned one is THE handle) — with Shift
+    // held it does, and Shift+click on it grows the selection too
     await selectBlockOf(page, ed.locator('p', { hasText: 'Charlie' }))
     await ed.locator('p', { hasText: 'Alpha' }).hover()
     const hoverGrip = page.locator('.block-handle-wrap .block-handle__grip')
+    await page.waitForTimeout(150)
+    await expect(hoverGrip).toBeHidden()
+    await expect(grip(page)).toBeVisible()
+    await page.keyboard.down('Shift')
     await expect(hoverGrip).toBeVisible()
     await page.waitForTimeout(150)
     const hg = (await hoverGrip.boundingBox())!
     await page.mouse.move(hg.x + hg.width / 2, hg.y + hg.height / 2, { steps: 4 })
-    await page.keyboard.down('Shift')
     await page.mouse.down()
     await page.mouse.up()
     await page.keyboard.up('Shift')

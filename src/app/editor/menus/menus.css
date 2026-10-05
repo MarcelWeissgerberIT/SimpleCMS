@@ -88,6 +88,13 @@
   cursor: grabbing;
 }
 
+/* blocks are selected: their pinned grip (editor/select) is the one handle — no hover handle beside it
+   (the drag-handle plugin shows / hides the wrapper with inline styles, hence !important) */
+.block-handle-wrap.is-quiet {
+  visibility: hidden !important;
+  pointer-events: none !important;
+}
+
 @media (hover: none) {
   .block-handle-wrap {
     display: none !important;

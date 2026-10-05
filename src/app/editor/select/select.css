@@ -23,11 +23,6 @@
   pointer-events: auto;
 }
 
-/* the hover handle is on the first selected block (same place, same menu): the pinned buttons step aside */
-.sel-grip[data-covered] .block-handle {
-  visibility: hidden;
-}
-
 /* own classes (not .block-handle__btn): the hover handle and this grip stay apart for scripts and tests */
 .sel-grip__btn {
   display: grid;

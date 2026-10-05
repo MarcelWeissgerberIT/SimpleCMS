@@ -21,6 +21,7 @@ import type { Bridge } from '../lib/bridge'
 import { toggleHeadingLevel } from '../schema/toggle'
 import { useContextPicking } from '../context/read'
 import { blockSelectionAt, extendSelection, isBlockSelection, readBlockSel } from './model'
+import { gutterLeft, gutterLeftAt } from './gutter'
 import { inTapMode, registerBlockMenuOpener, setTapMode } from './registry'
 import './select.css'
 
@@ -46,15 +47,13 @@ export interface SelectionGripProps {
   editor: Editor
   bridge: Bridge
   pageId: string
-  /** a menu of the block handle is open */
+  /** a menu of the block handle is open, or the selection is the soft one a hover-grip menu left behind */
   hidden: boolean
-  /** the hover handle sits on the first selected block right now (it opens the same menu): the buttons step aside */
-  covered?: boolean
   /** open the block menu for the selection, anchored at `anchor` */
   onOpen: (anchor: PopoverAnchor, keyboard: boolean) => void
 }
 
-export function SelectionGrip({ editor, bridge, pageId, hidden, covered, onOpen }: SelectionGripProps) {
+export function SelectionGrip({ editor, bridge, pageId, hidden, onOpen }: SelectionGripProps) {
   const t = useT()
   const picking = useContextPicking() === pageId
   const st = useEditorState({
@@ -72,11 +71,14 @@ export function SelectionGrip({ editor, bridge, pageId, hidden, covered, onOpen 
     const host = editor.view.dom.closest('.one-editor') as HTMLElement | null
     const first = editor.view.nodeDOM(st.from) as HTMLElement | null
     const last = editor.view.nodeDOM(st.last) as HTMLElement | null
-    if (!host || !first?.getBoundingClientRect || !last?.getBoundingClientRect) return setBox(null)
+    const node = editor.state.doc.nodeAt(st.from)
+    if (!host || !node || !(first instanceof HTMLElement) || !last?.getBoundingClientRect) return setBox(null)
     const h = host.getBoundingClientRect()
     const a = first.getBoundingClientRect()
     const z = last.getBoundingClientRect()
-    setBox({ top: a.top - h.top, left: a.left - h.left, bottom: Math.max(a.bottom, z.bottom) - h.top, place: a.left > 220 && !COARSE ? 'side' : 'badge' })
+    // beside a list item's bullet / number / checkbox, never on it (siblings share their marker column)
+    const left = gutterLeft(first, node)
+    setBox({ top: a.top - h.top, left: left - h.left, bottom: Math.max(a.bottom, z.bottom) - h.top, place: left > 220 && !COARSE ? 'side' : 'badge' })
   }, [st, editor])
 
   useLayoutEffect(measure, [measure])
@@ -101,7 +103,7 @@ export function SelectionGrip({ editor, bridge, pageId, hidden, covered, onOpen 
         contextElement: editor.view.dom,
         getBoundingClientRect: () => {
           const r = (editor.view.nodeDOM(b.from) as HTMLElement | null)?.getBoundingClientRect?.()
-          return r ? new DOMRect(r.left - 4, r.top, 0, Math.min(r.height, 28)) : new DOMRect()
+          return r ? new DOMRect((gutterLeftAt(editor.view, b.from) ?? r.left) - 4, r.top, 0, Math.min(r.height, 28)) : new DOMRect()
         },
       }
       onOpen(anchor, keyboard)
@@ -163,7 +165,7 @@ export function SelectionGrip({ editor, bridge, pageId, hidden, covered, onOpen 
   return (
     <>
       <div className="sel-rule" style={{ top: box.top, height: Math.max(8, box.bottom - box.top), left: box.left - 5 }} aria-hidden />
-      <div className="sel-grip" style={{ top: box.top, left: box.left }} data-place={box.place} data-covered={covered || undefined} data-testid="selection-grip">
+      <div className="sel-grip" style={{ top: box.top, left: box.left }} data-place={box.place} data-testid="selection-grip">
         <div className="block-handle" data-kind={st.kind}>
           <button type="button" className="sel-grip__btn sel-grip__plus" aria-label={t('editor.handle.add')} title={t('editor.handle.addHint')} onMouseDown={(e) => e.preventDefault()} onClick={plus}>
             <Plus size={16} strokeWidth={1.8} />

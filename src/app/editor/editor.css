@@ -208,6 +208,8 @@
   width: 5px;
   height: 5px;
   background: var(--ink);
+  /* the hover handle finds its block from the point under the pointer: the square lets it through to the line */
+  pointer-events: none;
 }
 
 .doc-content ul:not([data-type='taskList']) ul:not([data-type='taskList']) > li::before {
@@ -284,6 +286,19 @@
 
 .doc-content ul[data-type='taskList'] ul[data-type='taskList'] {
   padding-left: 0;
+}
+
+/* a nested to-do's box reaches over its parent's checkbox column (layout unchanged): the hover handle
+   (editor/menus/BlockHandle) finds the block under the pointer, so the gap left of a nested to-do is its
+   own, not the parent's; the selection wash still starts at the checkbox */
+.doc-content li ul[data-type='taskList'] > li {
+  --todo-reach: 25px;
+  margin-left: calc(-1 * var(--todo-reach));
+  padding-left: var(--todo-reach);
+}
+
+.doc-content li ul[data-type='taskList'] > li.is-block-selected::after {
+  left: calc(var(--todo-reach) - 4px);
 }
 
 .doc-content input[type='checkbox'] {

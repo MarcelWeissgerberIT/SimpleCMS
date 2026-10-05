@@ -5,7 +5,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { Editor } from '@tiptap/core'
 import type { Node as PMNode } from '@tiptap/pm/model'
-import { NodeSelection, TextSelection } from '@tiptap/pm/state'
+import { NodeSelection, TextSelection, type Selection } from '@tiptap/pm/state'
+import type { NestedOptions } from '@tiptap/extension-drag-handle'
 import { DragHandle } from '@tiptap/extension-drag-handle-react'
 import { useEditorState } from '@tiptap/react'
 import { useStore } from 'zustand'
@@ -35,18 +36,41 @@ import { redoBlockMenuEntries } from '../context/menu'
 import { splitMenuEntries } from '../split/menu'
 import { blockSplitRange, type SplitRange } from '../split/range'
 import { SelectionGrip, selectByLongPress, useLongPress } from '../select/SelectionGrip'
-import { blockSelectionAt, extendSelection, menuSelection, readBlockSel, type BlockSel } from '../select/model'
+import { blockSelectionAt, extendSelection, isBlockSelection, menuSelection, readBlockSel, type BlockSel } from '../select/model'
+import { gutterLeft, gutterLeftAt } from '../select/gutter'
 import { selectionMenuEntries } from '../select/menu'
 import { moveBlocks } from '../select/actions'
 
 const TEXTUAL = new Set(['paragraph', 'heading', 'bulletList', 'orderedList', 'taskList', 'listItem', 'taskItem', 'blockquote', 'callout', 'details', 'codeBlock'])
 const EXCLUDED = new Set(['column', 'detailsSummary', 'detailsContent', 'tab'])
-const NESTED = {
-  edgeDetection: 'left' as const,
-  rules: [
-    { id: 'noWrappers', evaluate: ({ node }: { node: PMNode }) => (EXCLUDED.has(node.type.name) ? 1000 : 0) },
-    { id: 'noCellContent', evaluate: ({ parent }: { parent: PMNode | null }) => (parent && (parent.type.name === 'tableCell' || parent.type.name === 'tableHeader') ? 1000 : 0) },
-  ],
+const LIST_ITEMS = new Set(['listItem', 'taskItem'])
+/** Within this many px of a block's left / top edge its container takes the hover (the library's 'left' preset). */
+const EDGE = 12
+
+/**
+ * Which block the hover handle is for. Never a wrapper (column, toggle parts, tab) or a table cell's
+ * content; near a block's left / top edge its container wins (a callout's or quote's inner line → the
+ * callout) — but not for list items: an item's marker, the gap left of it and its first line belong to
+ * the item itself, so every level of a nested list is reachable (the library's own edge rule handed
+ * them to the parent). `pointer`: the last mouse position over the editor.
+ */
+function nestedOptions(pointer: { current: { x: number; y: number } }): NestedOptions {
+  return {
+    edgeDetection: 'none',
+    rules: [
+      { id: 'noWrappers', evaluate: ({ node }) => (EXCLUDED.has(node.type.name) ? 1000 : 0) },
+      { id: 'noCellContent', evaluate: ({ parent }) => (parent && (parent.type.name === 'tableCell' || parent.type.name === 'tableHeader') ? 1000 : 0) },
+      {
+        id: 'edgesOutsideLists',
+        evaluate: ({ node, pos, depth, view }) => {
+          if (LIST_ITEMS.has(node.type.name)) return 0
+          const r = (view.nodeDOM(pos) as HTMLElement | null)?.getBoundingClientRect?.()
+          const { x, y } = pointer.current
+          return r && (x - r.left < EDGE || y - r.top < EDGE) ? 500 * depth : 0
+        },
+      },
+    ],
+  }
 }
 
 const TYPE_LABEL: Record<string, string> = {
@@ -130,14 +154,14 @@ function blockColors(node: PMNode): { text: string | null; bg: string | null } {
   return { text: text ?? null, bg: bg ?? null }
 }
 
-/** Virtual anchor at the left edge of a block's DOM. */
+/** Virtual anchor at the left edge of a block's DOM (a list item's: left of its marker). */
 function blockAnchor(editor: Editor, pos: number): PopoverAnchor {
   return {
     contextElement: editor.view.dom,
     getBoundingClientRect: () => {
       const dom = editor.isDestroyed ? null : (editor.view.nodeDOM(pos) as HTMLElement | null)
       const r = dom?.getBoundingClientRect?.()
-      return r ? new DOMRect(r.left - 4, r.top, 0, Math.min(r.height, 28)) : new DOMRect()
+      return r ? new DOMRect((gutterLeftAt(editor.view, pos) ?? r.left) - 4, r.top, 0, Math.min(r.height, 28)) : new DOMRect()
     },
   }
 }
@@ -153,16 +177,66 @@ export function BlockHandle({ editor, bridge, pageId }: { editor: Editor; bridge
   const t = useT()
   const current = useRef<BlockRef | null>(null)
   const [kind, setKind] = useState<string>('paragraph')
-  // `sel`: several selected blocks the menu acts on (editor/select), else the block at `ref`
-  const [menu, setMenu] = useState<{ el: PopoverAnchor; ref: BlockRef; keyboard?: boolean; sel?: BlockSel | null } | null>(null)
+  // `sel`: several selected blocks the menu acts on (editor/select), else the block at `ref`;
+  // `fromHover`: opened from the hover grip with no blocks selected — the selection it makes is soft (below)
+  const [menu, setMenu] = useState<{ el: PopoverAnchor; ref: BlockRef; keyboard?: boolean; sel?: BlockSel | null; fromHover?: boolean } | null>(null)
   const [moveFor, setMoveFor] = useState<{ el: PopoverAnchor; ref: BlockRef; sel?: BlockSel | null } | null>(null)
   const requested = useStore(bridge, (s) => s.blockMenu)
   /** "Turn into page": the selected blocks when the menu's block is one of them (read before the block gets selected) */
   const splitFor = useRef<SplitRange | null>(null)
 
-  // the pinned grip of a block selection steps aside while the hover handle is over its block (editor/select)
+  // One grip at a time: while blocks are selected, their pinned grip (editor/select) is THE handle — the
+  // hover handle stays away from every block (with Shift held it shows on unselected ones: Shift+click on
+  // it extends the selection). A selection the hover grip itself left behind (its menu, a drag) is
+  // "soft": no pinned grip, the hover handle goes on as usual (menu on one block, then on the next).
+  const soft = useRef<Selection | null>(null)
+  /** the hover grip drags a block right now; `drag.current`: it was no (hard) selection's block */
+  const [dragging, setDragging] = useState(false)
+  const drag = useRef(false)
+  const sel = useEditorState({
+    editor,
+    selector: ({ editor: e }) => {
+      if (!e || e.isDestroyed || !e.isEditable) return null
+      const b = readBlockSel(e.state)
+      return b ? { from: b.from, to: b.to, soft: !!soft.current && e.state.selection.eq(soft.current) } : null
+    },
+  })
+  useEffect(() => {
+    const forget = () => {
+      if (soft.current && !editor.state.selection.eq(soft.current)) soft.current = null
+    }
+    editor.on('transaction', forget)
+    return () => {
+      editor.off('transaction', forget)
+    }
+  }, [editor])
   const [hoverPos, setHoverPos] = useState(-1)
-  const pinnedAt = useEditorState({ editor, selector: ({ editor: e }) => (e ? (readBlockSel(e.state)?.from ?? -1) : -1) })
+  const shift = useShiftKey(!!sel && !sel.soft)
+  const overSelection = !!sel && hoverPos >= sel.from && hoverPos < sel.to
+  const quiet = !!sel && !sel.soft && !menu?.fromHover && !dragging && (overSelection || !shift)
+
+  // which block is hovered: the pointer over the editor feeds the edge rule (nestedOptions)
+  const pointer = useRef({ x: Number.NaN, y: Number.NaN })
+  const nested = useMemo(() => nestedOptions(pointer), [])
+  useEffect(() => {
+    const dom = editor.view.dom
+    const track = (e: MouseEvent) => {
+      pointer.current = { x: e.clientX, y: e.clientY }
+    }
+    dom.addEventListener('mousemove', track)
+    return () => dom.removeEventListener('mousemove', track)
+  }, [editor])
+  // where the handle stands: left of the block — of a list item's bullet / number / checkbox (select/gutter)
+  const reference = useCallback(() => {
+    const ref = current.current
+    const dom = ref && !editor.isDestroyed ? editor.view.nodeDOM(ref.pos) : null
+    if (!ref || !(dom instanceof HTMLElement)) return null
+    const r = dom.getBoundingClientRect()
+    const left = gutterLeft(dom, ref.node)
+    const rect = new DOMRect(left, r.top, r.right - left, r.height)
+    return { getBoundingClientRect: () => rect }
+  }, [editor])
+
   const onNodeChange = useCallback(({ node, pos }: { node: PMNode | null; pos: number }) => {
     current.current = node && pos >= 0 ? { node, pos } : null
     setHoverPos(node && pos >= 0 ? pos : -1)
@@ -196,7 +270,7 @@ export function BlockHandle({ editor, bridge, pageId }: { editor: Editor; bridge
   }
 
   const openAt = useCallback(
-    (el: PopoverAnchor, pos: number, keyboard = false) => {
+    (el: PopoverAnchor, pos: number, keyboard = false, fromHover = false) => {
       const node = editor.state.doc.nodeAt(pos)
       if (!node) return
       splitFor.current = blockSplitRange(editor.state, pos)
@@ -205,7 +279,7 @@ export function BlockHandle({ editor, bridge, pageId }: { editor: Editor; bridge
       const selection = sel ? blockSelectionAt(editor.state.doc, sel.from, sel.to) : null
       editor.view.dispatch(editor.state.tr.setSelection(selection ?? NodeSelection.create(editor.state.doc, pos)))
       editor.view.dispatch(editor.state.tr.setMeta('lockDragHandle', true))
-      setMenu({ el, ref: { node, pos }, keyboard, sel: selection ? sel : null })
+      setMenu({ el, ref: { node, pos }, keyboard, sel: selection ? sel : null, fromHover })
     },
     [editor],
   )
@@ -216,7 +290,7 @@ export function BlockHandle({ editor, bridge, pageId }: { editor: Editor; bridge
     // Shift+click on another block's grip while blocks are selected: the selection grows to it
     const grown = e.shiftKey ? extendSelection(editor.state, ref.node.isLeaf ? ref.pos : ref.pos + 1) : null
     if (grown) return void editor.view.dispatch(editor.state.tr.setSelection(grown))
-    openAt(e.currentTarget, ref.pos)
+    openAt(e.currentTarget, ref.pos, false, !sel || sel.soft)
   }
 
   // keyboard (Alt+Enter) / touch grip → block menu anchored at the block itself
@@ -232,8 +306,10 @@ export function BlockHandle({ editor, bridge, pageId }: { editor: Editor; bridge
   }
 
   const closeMenu = () => {
+    const closing = menu
     setMenu(null)
     if (editor.isDestroyed) return
+    soft.current = closing?.fromHover && isBlockSelection(editor.state.selection) ? editor.state.selection : null
     editor.view.dispatch(editor.state.tr.setMeta('lockDragHandle', false))
     refocus()
   }
@@ -381,7 +457,21 @@ export function BlockHandle({ editor, bridge, pageId }: { editor: Editor; bridge
   return (
     <>
       {isTouch && <TouchGrip editor={editor} hidden={!!menu || !!moveFor} onOpen={(el, pos) => openAt(el, pos)} />}
-      <DragHandle editor={editor} onNodeChange={onNodeChange} nested={NESTED} className="block-handle-wrap">
+      <DragHandle
+        editor={editor}
+        onNodeChange={onNodeChange}
+        nested={nested}
+        getReferencedVirtualElement={reference}
+        onElementDragStart={() => {
+          drag.current = !sel || sel.soft
+          setDragging(true)
+        }}
+        onElementDragEnd={() => {
+          setDragging(false)
+          if (!editor.isDestroyed) soft.current = drag.current && isBlockSelection(editor.state.selection) ? editor.state.selection : null
+        }}
+        className={quiet ? 'block-handle-wrap is-quiet' : 'block-handle-wrap'}
+      >
         <div className="block-handle" data-kind={kind}>
           <button type="button" className="block-handle__btn" aria-label={t('editor.handle.add')} title={t('editor.handle.addHint')} onMouseDown={(e) => e.preventDefault()} onClick={plus}>
             <Plus size={16} strokeWidth={1.8} />
@@ -404,8 +494,7 @@ export function BlockHandle({ editor, bridge, pageId }: { editor: Editor; bridge
         editor={editor}
         bridge={bridge}
         pageId={pageId}
-        hidden={!!menu || !!moveFor}
-        covered={!isTouch && hoverPos >= 0 && hoverPos === pinnedAt}
+        hidden={!!menu || !!moveFor || !!sel?.soft}
         onOpen={(el, keyboard) => {
           const b = readBlockSel(editor.state)
           if (b) openAt(el, b.from, keyboard)
@@ -417,6 +506,30 @@ export function BlockHandle({ editor, bridge, pageId }: { editor: Editor; bridge
       </Popover>
     </>
   )
+}
+
+/** Whether Shift is held — tracked only while `on`. */
+function useShiftKey(on: boolean): boolean {
+  const [held, setHeld] = useState(false)
+  useEffect(() => {
+    if (!on) return setHeld(false)
+    const key = (e: KeyboardEvent) => {
+      if (e.key === 'Shift') setHeld(e.type === 'keydown')
+    }
+    const move = (e: MouseEvent) => setHeld(e.shiftKey)
+    const off = () => setHeld(false)
+    window.addEventListener('keydown', key, true)
+    window.addEventListener('keyup', key, true)
+    window.addEventListener('mousemove', move, true)
+    window.addEventListener('blur', off)
+    return () => {
+      window.removeEventListener('keydown', key, true)
+      window.removeEventListener('keyup', key, true)
+      window.removeEventListener('mousemove', move, true)
+      window.removeEventListener('blur', off)
+    }
+  }, [on])
+  return held
 }
 
 /**
