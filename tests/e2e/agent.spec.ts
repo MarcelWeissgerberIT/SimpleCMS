@@ -194,6 +194,9 @@ test.describe('Workspace agent (mocked Claude API)', () => {
     expect(b0.tools.some((x: AnyState) => 'run' in x || 'parse' in x)).toBe(false)
     expect(b0.thinking).toMatchObject({ type: 'adaptive', display: 'updates' })
     expect(b0.system).toContain('stages one proposed change')
+    // asked "which MCP do you know?", the agent names One itself (built-in tools) first
+    expect(b0.system).toContain('You run inside One itself')
+    expect(b0.system).toContain('name One first')
     expect(JSON.stringify(b0.messages[0].content)).toContain(TASK)
     expect(JSON.stringify(b0.messages[0].content)).toContain('Today:')
     // the read_page result carries the page as Markdown
