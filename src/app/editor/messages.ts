@@ -1,12 +1,14 @@
 import type { Messages } from '@/shared/i18n'
 import { syncedMessages } from './synced/messages'
 import { iconMessages } from './icons/messages'
+import { contextMessages } from './context/messages'
 
 /** Strings for the editor area. Keys MUST be prefixed with "editor." — always add both en and de. */
 export const messages: Messages = {
   en: {
     ...syncedMessages.en,
     ...iconMessages.en,
+    ...contextMessages.en,
     // blocks: name + description (slash menu, turn into, block menu)
     'editor.block.text': 'Text',
     'editor.block.text.desc': 'Plain paragraph. The default line.',
@@ -484,6 +486,7 @@ export const messages: Messages = {
   de: {
     ...syncedMessages.de,
     ...iconMessages.de,
+    ...contextMessages.de,
     'editor.block.text': 'Text',
     'editor.block.text.desc': 'Einfacher Absatz. Die Standardzeile.',
     'editor.block.heading1': 'Überschrift 1',

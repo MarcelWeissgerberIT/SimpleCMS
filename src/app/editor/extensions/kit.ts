@@ -17,6 +17,7 @@ import { BlockToolKeys } from './blockTools'
 import { IconKeys } from '../views/InlineIconView'
 import type { ContentDocHandle } from '../../cloud'
 import { collabExtensions } from '../collab'
+import { ContextMarks } from '../context/plugin'
 
 const typography = () =>
   Typography.configure({ oneHalf: false, oneQuarter: false, threeQuarters: false, superscriptTwo: false, superscriptThree: false, laquo: false, raquo: false })
@@ -59,6 +60,8 @@ export function editorExtensions({
     BlockToolKeys,
     IconKeys,
     commentsExtension(bridge),
+    // what Claude may read of the page (context marks + the picker's paused typing)
+    ContextMarks,
     QuietStart,
     FileHandler.configure({
       onPaste: (editor, files) => void uploadFiles(editor, files),

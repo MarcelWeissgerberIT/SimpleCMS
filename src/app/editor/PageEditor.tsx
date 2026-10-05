@@ -21,6 +21,7 @@ import { findBlockById, flashBlock } from './extensions/behaviors'
 import { sanitize, withBlockIds } from './convert'
 import { EditorOverlays } from './menus/EditorOverlays'
 import { Comments } from './comments/CommentsRail'
+import { ContextPicker } from './context/ContextPicker'
 import { acquireContentDoc, releaseContentDoc, useCloud, type ContentDocHandle } from '../cloud'
 import './editor.css'
 
@@ -415,6 +416,8 @@ function EditorInstance({ pageId, readOnly, autoFocus, onReady, className, colla
       <EditorContent editor={editor} className="one-editor__content" />
       {editable && <div className="one-editor__tail" onMouseDown={onTailDown} aria-hidden />}
       {editor && editable && <EditorOverlays editor={editor} bridge={bridge} pageId={pageId} />}
+      {/* what Claude may read: the picker (also on read-only pages — the AI terminal reads them too) */}
+      {editor && <ContextPicker editor={editor} pageId={pageId} />}
     </div>
   )
 }

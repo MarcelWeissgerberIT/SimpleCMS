@@ -31,6 +31,13 @@
  *  - fileBlock attr `display` ('viewer' | 'file' | null): a PDF shows in the browser's own viewer unless 'file'.
  *  - detectEmbedProvider(url): the embed provider a link is shown with (null: generic / not embeddable) — e.g. for
  *      the share codec's allowlist of received embeds.
+ *  - Context marks — what Claude may read of a page for a request (per tab, in memory, never saved or synced):
+ *      mode 'page' (default, everything) | 'marked' (only the marked top-level blocks, by block id — they follow
+ *      every edit) | 'none' (nothing). contextMarksOf(editor) / pageContextMarks(pageId) / useContextMarks(pageId)
+ *      → { mode, blocks, words, marked, total }; readableContent(pageId) → the same + markdown / plain of what may be
+ *      read; setContextMode(editor | pageId, mode); openContextPicker(editor | pageId, { onEnd(done) }) — the picker
+ *      on the page (boxes in the gutter, a bar at the bottom; Done / Esc), closeContextPicker(done),
+ *      useContextPicking() (the page being picked, or null).
  */
 export { PageEditor, type PageEditorProps } from './PageEditor'
 export { ReadOnlyDoc } from './ReadOnlyDoc'
@@ -52,3 +59,6 @@ export {
   type MeetingStatus,
   type TranscriptSegment,
 } from './schema/meetingNotes'
+export { contextMarksOf, pageContextMarks, readableContent, isContextLimited, useContextMarks, useContextPicking, type ContextMarks, type ReadableContent } from './context/read'
+export { setContextMode, openContextPicker, closeContextPicker, contextPickingPage } from './context/api'
+export type { ContextMode } from './context/store'

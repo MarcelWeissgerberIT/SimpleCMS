@@ -1,0 +1,204 @@
+/*
+ * Context picker — INSTRUMENT. A box per top-level block in the left gutter, a signal rule along
+ * the marked blocks, the rest dimmed; a slim instrument strip at the bottom of the page area.
+ */
+
+.one-editor {
+  /* the gutter the boxes sit in (the page's side padding, at most 44px) */
+  --ctx-gutter: clamp(26px, calc(var(--pv-pad, 48px) - 4px), 44px);
+}
+
+/* while picking: no drag handle, no touch grip (the boxes take the gutter) */
+.one-editor:has(.ctx-layer) :is(.block-handle-wrap, .touch-grip) {
+  display: none !important;
+}
+
+/* unmarked blocks: dimmed slightly (decorations, plugin.ts) */
+.doc-content > .ctx-off {
+  opacity: 0.4;
+  transition: opacity var(--dur-2) var(--ease-out);
+}
+
+.doc-content > .ctx-on {
+  transition: opacity var(--dur-2) var(--ease-out);
+}
+
+.ctx-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 8;
+  outline: none;
+}
+
+.ctx-row {
+  position: absolute;
+  left: calc(-1 * var(--ctx-gutter));
+  right: -6px;
+  border-radius: var(--radius-1);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: background var(--dur-1) var(--ease-out);
+}
+
+@media (hover: hover) {
+  .ctx-row:hover {
+    background: var(--hover);
+  }
+  .ctx-row:hover .ctx-row__box {
+    border-color: var(--ink);
+  }
+}
+
+.ctx-row:active .ctx-row__box {
+  transform: translateY(1px);
+}
+
+/* the box: in the gutter, level with the block's first line */
+.ctx-row__box {
+  position: absolute;
+  left: calc(var(--ctx-gutter) - 30px);
+  top: 4px;
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border: 1.5px solid var(--ink-3);
+  border-radius: var(--radius-1);
+  background: var(--surface);
+  color: var(--on-signal);
+  transition:
+    background var(--dur-1) var(--ease-out),
+    border-color var(--dur-1) var(--ease-out),
+    transform var(--dur-1) var(--ease-out);
+}
+
+.ctx-row[data-on] .ctx-row__box {
+  border-color: var(--signal);
+  background: var(--signal);
+}
+
+/* the rule along a marked block, between the box and the text */
+.ctx-row__rule {
+  position: absolute;
+  left: calc(var(--ctx-gutter) - 7px);
+  top: 1px;
+  bottom: 1px;
+  width: 2px;
+  background: transparent;
+  transition: background var(--dur-1) var(--ease-out);
+}
+
+.ctx-row[data-on] .ctx-row__rule {
+  background: var(--signal);
+}
+
+/* keyboard focus ring (shown once the keyboard is used) */
+.ctx-layer[data-kbd] .ctx-row[data-focus] {
+  box-shadow: inset 0 0 0 1px var(--signal);
+  background: var(--signal-wash);
+}
+
+.ctx-layer:focus-visible .ctx-row[data-focus] .ctx-row__box {
+  box-shadow: 0 0 0 2px var(--surface), 0 0 0 3px var(--signal);
+}
+
+/* ---------- the bar ---------- */
+.ctx-bar {
+  position: fixed;
+  z-index: calc(var(--z-popover) - 10);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+  min-height: 40px;
+  padding: 5px 5px 5px 12px;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius-2);
+  background: var(--surface);
+  box-shadow: var(--shadow-pop);
+  animation: ctx-bar-in var(--dur-2) var(--ease-out);
+}
+
+@keyframes ctx-bar-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+
+.ctx-bar__read {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  margin: 0;
+  color: var(--ink);
+  white-space: nowrap;
+}
+
+.ctx-bar__count {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ctx-bar__keys {
+  display: flex;
+  flex: none;
+  gap: 4px;
+}
+
+.ctx-bar__key {
+  gap: 6px;
+}
+
+.ctx-bar__key .kbd {
+  height: 16px;
+  min-width: 16px;
+  font-size: 9.5px;
+}
+
+.ctx-bar__key.btn--primary .kbd {
+  border-color: color-mix(in srgb, currentColor 35%, transparent);
+  background: transparent;
+  color: inherit;
+}
+
+@media (hover: none) {
+  .ctx-bar__key .kbd {
+    display: none;
+  }
+}
+
+/* phones: the readout on top, four big keys below */
+@media (max-width: 640px) {
+  .ctx-bar {
+    padding: 8px;
+  }
+  .ctx-bar__read {
+    flex-basis: 100%;
+    padding-left: 4px;
+  }
+  .ctx-bar__keys {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    width: 100%;
+  }
+  .ctx-bar__key {
+    height: 40px;
+    font-size: var(--text-sm);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ctx-bar {
+    animation: none;
+  }
+  .doc-content > .ctx-off,
+  .doc-content > .ctx-on,
+  .ctx-row,
+  .ctx-row__box,
+  .ctx-row__rule {
+    transition: none;
+  }
+}
