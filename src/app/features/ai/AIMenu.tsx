@@ -6,6 +6,10 @@
  * The request itself is a background run (runs.ts): closing the panel — Esc, a click elsewhere, another
  * page — leaves it running; only Stop and Discard end it. The page shows its runs (RunsHost) and reopens
  * the panel on one of them (`runId`).
+ *
+ * The reads line under the prompt says what goes to Claude from this page (the page's context marks:
+ * whole page / only the marked blocks / nothing — plus the selection for selection actions); it opens
+ * the choice, and "Mark blocks…" opens the picker on the page (the panel waits and comes back on Done).
  */
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
@@ -20,7 +24,10 @@ import {
   BookOpenText,
   Check,
   Copy,
+  ChevronDown,
   CornerDownLeft,
+  EyeOff,
+  FileText,
   KeyRound,
   Languages,
   Lightbulb,
@@ -36,17 +43,19 @@ import {
   ShieldCheck,
   SpellCheck,
   Square,
+  SquareCheck,
   SquareKanban,
+  SquareDashed,
   Trash2,
   Workflow,
   type LucideIcon,
 } from 'lucide-react'
 import { Popover } from '../../ui/Popover'
 import { Kbd } from '../../ui/controls'
-import { useT } from '../../i18n'
+import { useLang, useT } from '../../i18n'
 import { useWorkspace } from '../../store/store'
 import { useUI } from '../../store/ui'
-import { markdownToDoc } from '../../editor'
+import { markdownToDoc, openContextPicker, pageContextMarks, setContextMode, useContextMarks, type ContextMode } from '../../editor'
 import { toMarkdown } from '../share/markdown'
 import { AI_MODELS, AIError, aiErrorText, isAIDemo, onAIDemo, resolveModel, setAIDemo, verifyKey } from './client'
 import { readServers } from './mcp-servers/config'
@@ -58,11 +67,13 @@ import { snapshotNow } from '../history/snapshots'
 import { openAgent } from './agent/state'
 import { afterBlock, captureTarget, mapTarget, type RunTarget } from './runsTarget'
 import { markSeen, removeRun, setTodbDraft, startRun, stopRun, useAIRuns, viewRun, type RunRequest } from './runs'
+import { effectiveMode, readsFor, readsShort, readsText } from './reads'
 import { effectiveView, type BlockRange } from './todb/plan'
 import { convertToDatabase, sameBlocks, TodbError, type TodbIssue } from './todb/run'
 import { TodbPreview } from './todb/TodbPreview'
 import './ai.css'
 import './runs.css'
+import './reads.css'
 
 export interface AIMenuProps {
   editor: Editor
@@ -149,6 +160,8 @@ interface ActionDef {
   group: string
   run: () => void
   keywords?: string
+  /** only listed when the query matches */
+  hidden?: boolean
 }
 
 interface LangDef {
@@ -238,7 +251,13 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun }: AIMenu
   const narrow = useNarrow()
   const [setup, setSetup] = useState(!hasKey && !isAIDemo() && !openRun)
   const [query, setQuery] = useState('')
-  const [view, setView] = useState<'actions' | 'translate'>('actions')
+  const lang = useLang()
+  const [view, setView] = useState<'actions' | 'translate' | 'reads'>('actions')
+  /** the context picker is open on the page: the panel steps aside until Done / Esc */
+  const [picking, setPicking] = useState(false)
+  /** a page-level request that needs page text while Claude may read nothing of it: asked first */
+  const [ask, setAsk] = useState<{ req: RunRequest; label: string } | null>(null)
+  const marks = useContextMarks(pageId)
   const [wsMode, setWsMode] = useState(false)
   /** a conversion that failed ("Turn into database") */
   const [convertIssue, setConvertIssue] = useState<TodbIssue | null>(null)
@@ -369,6 +388,44 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun }: AIMenu
   }
 
   const retry = () => run && start(run.req)
+
+  /* ---------------- what Claude reads ---------------- */
+
+  /** The picker on the page; the panel comes back (with the request kept) on Done or Esc. */
+  const pickBlocks = useCallback(() => {
+    const ok = openContextPicker(editor, {
+      onEnd: () => {
+        setPicking(false)
+        setView('actions')
+        setActive(0)
+      },
+    })
+    if (ok) setPicking(true)
+  }, [editor])
+
+  const chooseMode = useCallback(
+    (mode: ContextMode) => {
+      if (mode === 'marked' && !pageContextMarks(pageId).marked) return pickBlocks()
+      setContextMode(editor, mode)
+      setView('actions')
+      setActive(0)
+      requestAnimationFrame(() => inputRef.current?.focus({ preventScroll: true }))
+    },
+    [editor, pageId, pickBlocks],
+  )
+
+  /** Continue / summarize / action items of the page need its text: with nothing to read, ask first. */
+  const startPageLevel = useCallback(
+    (req: RunRequest, label: string) => {
+      if (effectiveMode(pageContextMarks(pageId)) === 'none') {
+        setAsk({ req, label })
+        setActive(0)
+        return
+      }
+      start(req)
+    },
+    [pageId, start],
+  )
 
   /* ---------------- applying ---------------- */
 
@@ -510,6 +567,7 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun }: AIMenu
   /* ---------------- lists ---------------- */
 
   const actions: ActionDef[] = useMemo(() => {
+    const pageLevel = own.t.mode !== 'selection'
     const A = (id: Extract<RunRequest, { kind: 'action' }>['action'], label: string, code: string, icon: LucideIcon, group: string, keywords = ''): ActionDef => ({
       id,
       label,
@@ -517,8 +575,26 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun }: AIMenu
       icon,
       group,
       keywords,
-      run: () => start({ kind: 'action', action: id, label, code }),
+      run: () =>
+        pageLevel && (id === 'continue' || id === 'summarize' || id === 'action_items')
+          ? startPageLevel({ kind: 'action', action: id, label, code }, label)
+          : start({ kind: 'action', action: id, label, code }),
     })
+    // only when typed for ("context", "liest" …): the choice of what Claude reads
+    const reads: ActionDef = {
+      id: 'reads',
+      label: t('features.ai.reads.action'),
+      code: 'CTX',
+      icon: SquareCheck,
+      group: t('features.ai.reads.title'),
+      keywords: 'context kontext reads liest lesen read marked markiert markieren blocks blöcke',
+      hidden: true,
+      run: () => {
+        setView('reads')
+        setQuery('')
+        setActive(0)
+      },
+    }
     const prefill = (id: string, label: string, code: string, icon: LucideIcon, group: string, text: string): ActionDef => ({
       id,
       label,
@@ -583,6 +659,7 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun }: AIMenu
         A('summarize', t('features.ai.act.summarize'), 'SUM', AlignLeft, gRead, 'summary zusammenfassen tldr'),
         A('action_items', t('features.ai.act.actionItems'), 'ACT', ListChecks, gRead, 'todo tasks aufgaben'),
         agent,
+        reads,
       ]
     return [
       A('continue', t('features.ai.act.continue'), 'CNT', ArrowRightToLine, gWrite, 'continue weiter'),
@@ -604,10 +681,11 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun }: AIMenu
         },
       },
       agent,
+      reads,
     ]
-  }, [t, own.t.mode, own.t.todb, start, handToAgent])
+  }, [t, own.t.mode, own.t.todb, start, startPageLevel, handToAgent])
 
-  type Row = { id: string; label: ReactNode; code?: string; icon?: LucideIcon; group?: string; run: () => void; hint?: ReactNode; danger?: boolean; disabled?: boolean }
+  type Row = { id: string; label: ReactNode; code?: string; icon?: LucideIcon; group?: string; run: () => void; hint?: ReactNode; danger?: boolean; disabled?: boolean; current?: boolean }
 
   const rows: Row[] = useMemo(() => {
     const q = query.trim().toLowerCase()
@@ -685,6 +763,44 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun }: AIMenu
       out.push({ id: 'discard', label: todb ? t('common.cancel') : t('features.ai.res.discard'), icon: Trash2, run: discard, hint: <Kbd>esc</Kbd>, danger: true })
       return out
     }
+    if (ask) {
+      return [
+        { id: 'ask-whole', label: t('features.ai.reads.runWhole'), code: 'ALL', icon: FileText, run: () => {
+          setContextMode(editor, 'page')
+          const req = ask.req
+          setAsk(null)
+          start(req)
+        }, hint: <Kbd>↵</Kbd> },
+        { id: 'ask-pick', label: t('features.ai.reads.opt.mark'), icon: SquareCheck, run: () => {
+          setAsk(null)
+          pickBlocks()
+        } },
+        { id: 'ask-back', label: t('features.ai.reads.back'), icon: ArrowLeft, run: () => {
+          setAsk(null)
+          requestAnimationFrame(() => inputRef.current?.focus())
+        } },
+      ]
+    }
+    if (view === 'reads') {
+      const m = marks ? effectiveMode(marks) : 'page'
+      const group = t('features.ai.reads.title')
+      const blocks = marks?.marked ?? 0
+      const n = (x: number) => x.toLocaleString(lang === 'de' ? 'de-DE' : 'en-US')
+      return [
+        { id: 'reads-page', label: t('features.ai.reads.opt.page'), icon: FileText, group, current: m === 'page', run: () => chooseMode('page'), code: 'ALL' },
+        {
+          id: 'reads-marked',
+          label: blocks ? t('features.ai.reads.opt.marked') : t('features.ai.reads.opt.markedFirst'),
+          icon: SquareCheck,
+          group,
+          current: m === 'marked',
+          run: () => chooseMode('marked'),
+          code: blocks ? t(`features.ai.reads.blocks.${blocks === 1 ? 'one' : 'other'}`, { count: n(blocks) }).toUpperCase() : 'MRK',
+        },
+        { id: 'reads-pick', label: t('features.ai.reads.opt.mark'), icon: SquareDashed, group, run: pickBlocks, code: 'PICK' },
+        { id: 'reads-none', label: t('features.ai.reads.opt.none'), icon: EyeOff, group, current: m === 'none', run: () => chooseMode('none'), code: 'NONE' },
+      ]
+    }
     if (wsMode) {
       if (!q) return []
       return [
@@ -714,7 +830,7 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun }: AIMenu
     }
     const matched = q
       ? actions.filter((a) => a.label.toLowerCase().includes(q) || a.code.toLowerCase().startsWith(q) || a.keywords?.toLowerCase().includes(q))
-      : actions
+      : actions.filter((a) => !a.hidden)
     const custom: Row | null = q
       ? {
           id: 'custom',
@@ -733,7 +849,7 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun }: AIMenu
           ) : undefined,
         }
       : null
-    const list: Row[] = matched.map((a) => ({ ...a }))
+    const list: Row[] = matched.map(({ hidden: _hidden, keywords: _keywords, ...a }) => ({ ...a }))
     if (custom) {
       if (matched.length) list.push(custom)
       else list.unshift(custom)
@@ -750,7 +866,7 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun }: AIMenu
       })
     }
     return list
-  }, [query, setup, phase, wsMode, view, actions, t, start, output, target, run, error, discard, sources, handToAgent, mcpNames, onClose, table, todbInPlace]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [query, setup, phase, wsMode, view, actions, t, start, output, target, run, error, discard, sources, handToAgent, mcpNames, onClose, table, todbInPlace, ask, marks, lang, chooseMode, pickBlocks]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     setActive((a) => Math.min(a, Math.max(0, rows.length - 1)))
@@ -759,6 +875,13 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun }: AIMenu
   useEffect(() => {
     setActive(0)
   }, [query, view, wsMode])
+
+  // the current choice is highlighted when the reads view opens
+  useEffect(() => {
+    if (view !== 'reads') return
+    const m = marks ? effectiveMode(marks) : 'page'
+    setActive(m === 'page' ? 0 : m === 'marked' ? 1 : 3)
+  }, [view]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     listRef.current?.querySelector(`[data-index="${active}"]`)?.scrollIntoView({ block: 'nearest' })
@@ -785,7 +908,10 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun }: AIMenu
       const row = rows[active]
       if (row && !row.disabled) row.run()
     } else if (e.key === 'Backspace' && !query) {
-      if (view === 'translate') {
+      if (ask) {
+        e.preventDefault()
+        setAsk(null)
+      } else if (view === 'translate' || view === 'reads') {
         e.preventDefault()
         setView('actions')
       } else if (wsMode && phase === 'idle') {
@@ -820,12 +946,14 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun }: AIMenu
   const isTodb = run?.req.kind === 'todb'
   const todbBlocks = isTodb && target.todb && !editor.isDestroyed ? countBlocks(editor, target.todb) : 0
   const words = output.trim() ? output.trim().split(/\s+/).length : 0
+  /** what the next request reads (the line under the prompt) */
+  const readsNow = wsMode && phase === 'idle' ? { ...readsFor(marks, null), workspace: true } : readsFor(marks, target.mode === 'selection' ? target.selected : null)
 
   let lastGroup: string | undefined
   return (
     <>
-      {target.mode === 'selection' && !target.lost && <SelectionShade editor={editor} from={target.from} to={target.to} />}
-      <Popover open anchor={anchor} onClose={onPopoverClose} placement="bottom-start" offset={8} bare className="ai-panel" role="dialog" aria-label={t('features.ai.title')}>
+      {target.mode === 'selection' && !target.lost && !picking && <SelectionShade editor={editor} from={target.from} to={target.to} />}
+      <Popover open={!picking} anchor={anchor} onClose={onPopoverClose} placement="bottom-start" offset={8} bare className="ai-panel" role="dialog" aria-label={t('features.ai.title')}>
         {setup ? (
           <KeySetup
             reason={error?.code === 'invalid_key' ? 'invalid' : hasKey ? 'change' : 'missing'}
@@ -852,6 +980,11 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun }: AIMenu
               {view === 'translate' && phase === 'idle' && (
                 <button className="ai-chip" onClick={() => setView('actions')}>
                   <ArrowLeft size={11} strokeWidth={2} /> {t('features.ai.translateTo')}
+                </button>
+              )}
+              {view === 'reads' && (
+                <button className="ai-chip" onClick={() => setView('actions')}>
+                  <ArrowLeft size={11} strokeWidth={2} /> {t('features.ai.reads.title')}
                 </button>
               )}
               <input
@@ -893,12 +1026,50 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun }: AIMenu
               </div>
             )}
 
+            <button
+              type="button"
+              className="ai-reads"
+              data-mode={readsNow.workspace ? 'workspace' : readsNow.mode}
+              data-open={view === 'reads' || undefined}
+              data-testid="ai-reads"
+              disabled={busy}
+              aria-expanded={view === 'reads'}
+              title={t('features.ai.reads.change')}
+              onClick={() => {
+                setAsk(null)
+                setView((v) => (v === 'reads' ? 'actions' : 'reads'))
+                requestAnimationFrame(() => inputRef.current?.focus({ preventScroll: true }))
+              }}
+            >
+              <span className={`led${readsNow.mode === 'none' && !readsNow.selection && !readsNow.workspace ? '' : ' led--on'}`} aria-hidden />
+              <span className="ai-reads__k">{t('features.ai.reads.label')}</span>
+              <span className="ai-reads__sep" aria-hidden>
+                ·
+              </span>
+              <span className="ai-reads__v">{readsText(t, lang, readsNow, marks ?? undefined)}</span>
+              <ChevronDown className="ai-reads__chev" size={12} strokeWidth={1.8} aria-hidden />
+            </button>
+
+            {ask && (
+              <p className="ai-lost ai-ask" role="note" data-testid="ai-reads-ask">
+                {t('features.ai.reads.needs', { action: ask.label })}
+              </p>
+            )}
+
             {showOutput && (
               <div className="ai-out" data-phase={phase}>
                 <div className="ai-out__bar label">
                   <span className="ai-out__code">{run?.req.code}</span>
                   <span className="ai-out__title">{run?.req.label}</span>
                   <span className="ai-out__spacer" />
+                  {run?.reads && (
+                    <>
+                      <span className="ai-out__reads" title={t('features.ai.reads.spec', { what: readsText(t, lang, run.reads) })} data-testid="ai-run-reads">
+                        {readsShort(t, lang, run.reads)}
+                      </span>
+                      <span className="ai-out__sep">·</span>
+                    </>
+                  )}
                   {run && <Elapsed start={run.startedAt} end={run.finishedAt ?? undefined} />}
                   {!isTodb && (
                     <>
@@ -1009,6 +1180,7 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun }: AIMenu
                         role="option"
                         aria-selected={i === active}
                         aria-disabled={r.disabled || undefined}
+                        aria-current={r.current || undefined}
                         data-index={i}
                         data-active={i === active}
                         className={`ai-row${r.danger ? ' ai-row--danger' : ''}`}
@@ -1017,6 +1189,7 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun }: AIMenu
                       >
                         <span className="ai-row__icon">{Icon ? <Icon size={15} strokeWidth={1.7} /> : null}</span>
                         <span className="ai-row__label">{r.label}</span>
+                        {r.current && <span className="led led--on ai-row__cur" aria-hidden />}
                         {r.hint}
                         {r.code && <span className="ai-row__code">{r.code}</span>}
                       </button>

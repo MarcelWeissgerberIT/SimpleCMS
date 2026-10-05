@@ -8,7 +8,7 @@ import { Plugin, PluginKey } from '@tiptap/pm/state'
 import { Decoration, DecorationSet } from '@tiptap/pm/view'
 import type { Node as PMNode } from '@tiptap/pm/model'
 import { blockKey } from './read'
-import { bumpRev, contextStore, pageContext, pageIdOfEditor, registerEditor, unregisterEditor } from './store'
+import { bumpRev, contextStore, pageIdOfEditor, registerEditor, unregisterEditor } from './store'
 
 interface CtxState {
   picking: boolean
@@ -20,7 +20,7 @@ export const contextKey = new PluginKey<CtxState>('contextMarks')
 function decorate(doc: PMNode, editor: Editor): CtxState {
   const picker = contextStore.getState().picker
   if (!picker || picker.editor !== editor) return { picking: false, deco: DecorationSet.empty }
-  const on = new Set(pageContext(picker.pageId).ids)
+  const on = new Set(picker.ids)
   const decos: Decoration[] = []
   doc.forEach((node, pos, i) => {
     decos.push(Decoration.node(pos, pos + node.nodeSize, { class: on.has(blockKey(node, i)) ? 'ctx-on' : 'ctx-off' }))
@@ -63,7 +63,7 @@ export const ContextMarks = Extension.create<Record<string, never>, { pageId: st
           // marks or the picker changed: redraw (the decorations read the store)
           let last = contextStore.getState()
           const unsub = contextStore.subscribe((s) => {
-            const changed = s.picker !== last.picker || s.pages !== last.pages
+            const changed = s.picker !== last.picker
             last = s
             if (!changed || view.isDestroyed) return
             if (s.picker?.editor === editor || contextKey.getState(view.state)?.picking) view.dispatch(view.state.tr.setMeta(contextKey, true).setMeta('addToHistory', false))

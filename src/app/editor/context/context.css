@@ -202,3 +202,9 @@
     transition: none;
   }
 }
+
+/* redo: the marked passages are numbered */
+.ctx-row__n {
+  font: 600 10px/1 var(--font-mono);
+  letter-spacing: 0;
+}

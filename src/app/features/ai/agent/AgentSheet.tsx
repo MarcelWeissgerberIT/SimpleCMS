@@ -17,7 +17,10 @@ import { shortcutLabel } from '../../../ui/controls'
 import { AI_MODELS, resolveModel } from '../client'
 import { MarkdownLite } from '../MarkdownLite'
 import { closeAgent, clampHeight, removeRef, setTermHeight, stopAgent, useAgent, HEIGHT_DEFAULT, type EchoEntry } from './state'
-import { applyStaged, changeTarget, contextPageId, discardAllStaged, discardStaged, newTask, restoreStaged, runTask, submitPrompt, tn, undoLastBatch } from './session'
+import { applyStaged, changeTarget, contextPageId, discardAllStaged, discardStaged, newTask, pickContext, restoreStaged, runTask, submitPrompt, tn, undoLastBatch } from './session'
+import { Menu, useMenu, type MenuEntry } from '../../../ui/Menu'
+import { setContextMode, useContextMarks, type ContextMode } from '../../../editor'
+import { effectiveMode } from '../reads'
 import { MAX_TOOL_CALLS } from './tools'
 import { currentSetup, readServers, setupKey } from '../mcp-servers/config'
 import { callLabel } from '../mcp-servers/activity'
@@ -1029,17 +1032,7 @@ function Chips() {
   if (!pageId && !refs.length && !shown.length) return null
   return (
     <ul className="term-chips" aria-label={t('features.agent.ctx.label')}>
-      {pageId && (
-        <li className="term-chip" data-kind="page">
-          <span className="term-chip__glyph" aria-hidden>
-            ▣
-          </span>
-          <span className="term-chip__text">{pageTitle}</span>
-          <button type="button" className="term-chip__x" onClick={() => useAgent.setState({ pageOff: pageId })} aria-label={t('features.agent.ctx.remove', { title: pageTitle })}>
-            <X size={11} strokeWidth={2} aria-hidden />
-          </button>
-        </li>
-      )}
+      {pageId && <PageChip pageId={pageId} title={pageTitle} />}
       {refs.map((r) => {
         // "Delta report · Project Delta: open… · 18 lines": links and Markdown marks out of the gist
         const gist = r.markdown
@@ -1071,6 +1064,55 @@ function Chips() {
         </li>
       ))}
     </ul>
+  )
+}
+
+/**
+ * The open page as context: its title, what Claude may read of it ("· 3 blocks" / "· nothing") and a
+ * menu to change that — whole page / only marked blocks / mark blocks… / nothing from this page.
+ */
+function PageChip({ pageId, title }: { pageId: string; title: string }) {
+  const t = useT()
+  const marks = useContextMarks(pageId)
+  const isDb = useWorkspace((s) => s.pages[pageId]?.kind === 'database')
+  const menu = useMenu()
+  const m = marks ? effectiveMode(marks) : 'page'
+  const suffix = m === 'marked' ? tn('features.agent.ctx.mode.marked', marks?.blocks ?? 0) : m === 'none' ? t('features.agent.ctx.mode.none') : ''
+  const choose = (mode: ContextMode) => {
+    if (mode === 'marked' && !marks?.marked) return pickContext(null)
+    setContextMode(pageId, mode)
+    focusPrompt()
+  }
+  const entries: MenuEntry[] = [
+    { kind: 'section', label: t('features.agent.ctx.menu', { title }) },
+    { label: t('features.ai.reads.opt.page'), checked: m === 'page', onSelect: () => choose('page') },
+    { label: marks?.marked ? t('features.ai.reads.opt.marked') : t('features.ai.reads.opt.markedFirst'), checked: m === 'marked', hint: marks?.marked ? tn('features.ai.reads.blocks', marks.marked) : undefined, onSelect: () => choose('marked') },
+    { label: t('features.ai.reads.opt.mark'), hint: '/context', onSelect: () => pickContext(null) },
+    { label: t('features.ai.reads.opt.none'), checked: m === 'none', onSelect: () => choose('none') },
+  ]
+  return (
+    <li className="term-chip" data-kind="page" data-mode={m}>
+      <button
+        type="button"
+        className="term-chip__btn"
+        onClick={isDb ? undefined : menu.toggle}
+        disabled={isDb}
+        aria-haspopup={isDb ? undefined : 'menu'}
+        aria-expanded={isDb ? undefined : menu.open}
+        title={isDb ? undefined : t('features.ai.reads.change')}
+        data-testid="term-page-chip"
+      >
+        <span className="term-chip__glyph" aria-hidden>
+          ▣
+        </span>
+        <span className="term-chip__text">{title}</span>
+        {suffix && <span className="term-chip__meta term-chip__mode">· {suffix}</span>}
+      </button>
+      <button type="button" className="term-chip__x" onClick={() => useAgent.setState({ pageOff: pageId })} aria-label={t('features.agent.ctx.remove', { title })}>
+        <X size={11} strokeWidth={2} aria-hidden />
+      </button>
+      {!isDb && <Menu {...menu.props} entries={entries} width={280} placement="top-start" />}
+    </li>
   )
 }
 

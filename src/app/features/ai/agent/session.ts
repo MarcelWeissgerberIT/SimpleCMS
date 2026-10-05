@@ -18,7 +18,8 @@ import { runAgent, taskMessage, type RunHooks } from './run'
 import { initialAgentState, openAgent, setStopHandler, useAgent, type EchoEntry } from './state'
 import { loadHistory, pushHistory } from './history'
 import { parseCommand } from './commands'
-import type { StageApi } from './tools'
+import type { ReadLimit, StageApi } from './tools'
+import { isContextLimited, openContextPicker, pageContextMarks, readableContent } from '../../../editor'
 import { depsOf, type AgentStatus, type AgentStep, type AgentTurn, type StagedChange, type TermMention, type TermRef, type TurnContext } from './types'
 
 const set = useAgent.setState
@@ -74,6 +75,32 @@ export function contextPageId(): string | null {
 
 const q = (s: string) => JSON.stringify(s)
 
+/**
+ * What Claude may read of a page in this tab (the page's context marks, editor area): only the marked
+ * blocks, or nothing — null = the whole page. Applies to every page with marks set, not only the open one.
+ */
+export function terminalReadLimit(id: ID): ReadLimit | null {
+  if (!isContextLimited(id)) return null
+  const r = readableContent(id)
+  if (r.mode === 'marked' && r.blocks) return { mode: 'marked', markdown: r.markdown, plain: r.plain, blocks: r.blocks }
+  return { mode: 'none', markdown: '', plain: '', blocks: 0 }
+}
+
+/** "· 3 blocks" / "· nothing" after a page title (chip, log line) — '' for the whole page. */
+export function contextSuffix(pageId: ID): string {
+  const m = pageContextMarks(pageId)
+  if (m.mode === 'page') return ''
+  if (m.mode === 'marked' && m.blocks) return tn('features.agent.ctx.mode.marked', m.blocks)
+  return t('features.agent.ctx.mode.none')
+}
+
+/** The open page (also when its chip was removed), for /context and /redo. */
+function openPageId(): ID | null {
+  const route = parseHash(window.location.hash)
+  const page = route.name === 'page' ? useWorkspace.getState().pages[route.id] : undefined
+  return page && !page.trashed ? page.id : null
+}
+
 function context(refs: TermRef[], mentions: TermMention[]): string {
   const s = useWorkspace.getState()
   const now = new Date()
@@ -83,7 +110,12 @@ function context(refs: TermRef[], mentions: TermMention[]): string {
   ]
   const openId = contextPageId()
   const open = openId ? s.pages[openId] : undefined
-  if (open) lines.push(`Open page: ${q(open.title.trim() || 'Untitled')} (id: ${open.id})`)
+  if (open) {
+    lines.push(`Open page: ${q(open.title.trim() || 'Untitled')} (id: ${open.id})`)
+    const lim = terminalReadLimit(open.id)
+    if (lim?.mode === 'marked') lines.push(`The person limited what you may read on the open page: only the ${lim.blocks} block${lim.blocks === 1 ? '' : 's'} they marked (read_page returns just those). Writing to it works as usual.`)
+    else if (lim) lines.push(`The person excluded the open page's content: you may not read it (read_page withholds it). Writing to it works as usual.`)
+  }
   if (mentions.length) lines.push(`The user pointed at: ${mentions.map((m) => `${q(m.title)} (id: ${m.id}, ${m.kind})`).join('; ')}`)
   if (refs.length) {
     lines.push(`References — passages the user selected and sent along with this task (${refs.length}):`)
@@ -142,7 +174,12 @@ export async function runTask(raw?: string): Promise<void> {
   const refs = get().refs
   const mentions = get().mentions.filter((m) => task.includes(`@${m.title}`))
   const pageId = contextPageId()
-  const ctx: TurnContext = { refs: refs.length, mentions: mentions.map((m) => m.title), ...(pageId ? { page: useWorkspace.getState().pages[pageId]?.title.trim() || t('common.untitled') } : {}) }
+  const suffix = pageId ? contextSuffix(pageId) : ''
+  const ctx: TurnContext = {
+    refs: refs.length,
+    mentions: mentions.map((m) => m.title),
+    ...(pageId ? { page: `${useWorkspace.getState().pages[pageId]?.title.trim() || t('common.untitled')}${suffix ? ` · ${suffix}` : ''}` } : {}),
+  }
   const text = context(refs, mentions)
   const { setup, prompt } = prepareTask(task)
   set((s) => ({
@@ -245,7 +282,7 @@ export async function runTask(raw?: string): Promise<void> {
 
   try {
     const mcp = setup.servers.length ? await attachMcp(setup) : null
-    const end = await runAgent({ history, user: taskMessage(history, prompt, text), stage, signal: ac.signal, hooks, mcp })
+    const end = await runAgent({ history, user: taskMessage(history, prompt, text), stage, signal: ac.signal, hooks, mcp, readLimit: terminalReadLimit })
     if (end === 'max_tokens') finish('error', { code: 'max_tokens', message: t('features.agent.err.maxTokens') })
     else finish(end === 'limit' ? 'limit' : 'done')
   } catch (e) {
@@ -331,9 +368,36 @@ export async function submitPrompt(raw?: string): Promise<void> {
     case 'cost':
       echo(input, 'cost', { usage: { ...get().usage } })
       return
+    case 'context':
+      pickContext(input)
+      return
     default:
       info(input, 'features.agent.echo.unknown', { cmd: input.split(/\s/)[0] })
   }
+}
+
+/**
+ * /context (and "Mark blocks…" on the page chip, input null: nothing logged): the picker on the open page
+ * (what Claude may read). Phones: the terminal sheet covers the page, so it steps aside and comes back
+ * on Done / Esc; the result goes into the log.
+ */
+export function pickContext(input: string | null) {
+  const pageId = openPageId()
+  const say = (key: string, vars?: Record<string, string | number>) => input !== null && info(input, key, vars)
+  if (!pageId) return say('features.agent.echo.noPage')
+  const phone = window.matchMedia?.('(max-width: 640px)').matches ?? false
+  const ok = openContextPicker(pageId, {
+    onEnd: (done) => {
+      openAgent()
+      const title = useWorkspace.getState().pages[pageId]?.title.trim() || t('common.untitled')
+      if (!done) return say('features.agent.echo.contextKept')
+      const m = pageContextMarks(pageId)
+      const what = m.mode === 'marked' && m.blocks ? tn('features.agent.ctx.mode.marked', m.blocks) : t('features.agent.ctx.mode.none')
+      say('features.agent.echo.context', { title, what })
+    },
+  })
+  if (!ok) return say('features.agent.echo.noBlocks')
+  if (phone) useAgent.setState({ open: false })
 }
 
 /** Forget the session: conversation, steps and every proposal that was not applied. */

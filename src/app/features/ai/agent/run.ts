@@ -18,7 +18,8 @@ import type { BetaRunnableTool } from '@anthropic-ai/sdk/lib/tools/BetaRunnableT
 import { AIError, claudeClient, resolveModel, toAIError } from '../client'
 import { MCP_BETA, type McpAttachment } from '../mcp-servers/config'
 import { foldMcpBlock, type McpCall } from '../mcp-servers/activity'
-import { TERMINAL_TOOLS, MAX_TOOL_CALLS, RESULT_CHARS, ToolInputError, argLabel, clipResult, type AgentTool, type StageApi, type ToolOutcome } from './tools'
+import { TERMINAL_TOOLS, MAX_TOOL_CALLS, RESULT_CHARS, ToolInputError, argLabel, clipResult, withReadLimit, type AgentTool, type ReadLimit, type StageApi, type ToolOutcome } from './tools'
+import type { ID } from '../../../store/types'
 import type { ToolName } from './types'
 
 export const AGENT_SYSTEM = `You are the workspace agent in One, a local-first workspace of pages and databases (like Notion). You carry out the user's task by reading their workspace with tools and proposing changes.
@@ -96,6 +97,8 @@ export async function runAgent(opts: {
   system?: string
   model?: string | null
   effort?: 'low' | 'medium' | 'high' | null
+  /** the AI terminal: what the person lets Claude read of a page (context marks), null = everything */
+  readLimit?: ((id: ID) => ReadLimit | null) | null
 }): Promise<RunEnd> {
   const { stage, signal, hooks } = opts
   const mcp = opts.mcp ?? null
@@ -138,7 +141,7 @@ export async function runAgent(opts: {
         const stepId = hooks.toolStart(tool.name, arg)
         let out: ToolOutcome
         try {
-          out = tool.run(input, stage)
+          out = withReadLimit(opts.readLimit ?? null, () => tool.run(input, stage))
         } catch (e) {
           const ms = performance.now() - started
           const msg = e instanceof ToolInputError ? e.message : `The tool failed: ${e instanceof Error ? e.message : String(e)}`

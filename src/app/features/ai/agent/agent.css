@@ -1632,3 +1632,37 @@
   display: block;
   margin-top: 4px;
 }
+
+/* the page chip: its title opens "what Claude reads" (context marks) */
+.term-chip__btn {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 5px;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.term-chip__btn:disabled {
+  cursor: default;
+}
+
+.term-chip__btn:hover:not(:disabled) .term-chip__text {
+  text-decoration: underline;
+  text-decoration-color: var(--rule-strong);
+  text-underline-offset: 2px;
+}
+
+.term-chip[data-mode='marked'],
+.term-chip[data-mode='none'] {
+  border-color: var(--t-signal, var(--signal));
+}
+
+.term-chip__mode {
+  color: var(--signal-ink);
+}

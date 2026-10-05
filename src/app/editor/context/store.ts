@@ -18,13 +18,20 @@ export interface PageContext {
   ids: string[]
 }
 
+/**
+ * Why blocks are picked: 'read' — what Claude may read of the page (the context marks; Done sets them)
+ * · 'redo' — passages to redo with instructions (the caller gets them; the context marks stay).
+ */
+export type PickPurpose = 'read' | 'redo'
+
 export interface PickerSession {
   pageId: ID
   editor: Editor
-  /** the marks before the picker opened (Esc restores them) */
-  saved: PageContext
-  /** called once when the picker closes: true = Done, false = cancelled */
-  onEnd?: (done: boolean) => void
+  purpose: PickPurpose
+  /** the block ids marked in this session (committed on Done only) */
+  ids: string[]
+  /** called once when the picker closes: done (false = cancelled) and the marked ids that exist */
+  onEnd?: (done: boolean, ids: string[]) => void
 }
 
 interface ContextState {
@@ -90,27 +97,30 @@ export function bumpRev() {
 /* Picker                                                              */
 /* ------------------------------------------------------------------ */
 
-export function startPicker(pageId: ID, editor: Editor, onEnd?: (done: boolean) => void): boolean {
+export function startPicker(pageId: ID, editor: Editor, opts: { purpose?: PickPurpose; ids?: string[]; onEnd?: (done: boolean, ids: string[]) => void } = {}): boolean {
   if (editor.isDestroyed) return false
-  const cur = contextStore.getState().picker
-  if (cur) endPicker(false)
-  const saved = pageContext(pageId)
-  contextStore.setState({ picker: { pageId, editor, saved: { mode: saved.mode, ids: [...saved.ids] }, onEnd } })
+  if (contextStore.getState().picker) endPicker(false)
+  const purpose = opts.purpose ?? 'read'
+  const ids = opts.ids ?? (purpose === 'read' ? pageContext(pageId).ids : [])
+  contextStore.setState({ picker: { pageId, editor, purpose, ids: [...new Set(ids)], onEnd: opts.onEnd } })
   return true
 }
 
+/** The marks of the open picker change (nothing is committed before Done). */
+export function setPickerIds(ids: string[]) {
+  const picker = contextStore.getState().picker
+  if (picker) contextStore.setState({ picker: { ...picker, ids: [...new Set(ids)] } })
+}
+
 /**
- * Close the picker. Done: the marks hold — none marked means "nothing from this page", else
- * "only the marked blocks". Cancelled: the marks (and the mode) from before come back.
+ * Close the picker. Done ('read'): none marked means "nothing from this page", else "only the marked
+ * blocks". Cancelled: nothing changes. `liveIds`: the marked blocks that still exist.
  */
 export function endPicker(done: boolean, liveIds?: string[]) {
   const picker = contextStore.getState().picker
   if (!picker) return
-  const cur = pageContext(picker.pageId)
-  if (done) {
-    const ids = liveIds ?? cur.ids
-    putPageContext(picker.pageId, { mode: ids.length ? 'marked' : 'none', ids })
-  } else putPageContext(picker.pageId, picker.saved)
+  const ids = liveIds ?? picker.ids
+  if (done && picker.purpose === 'read') putPageContext(picker.pageId, { mode: ids.length ? 'marked' : 'none', ids })
   contextStore.setState({ picker: null })
-  picker.onEnd?.(done)
+  picker.onEnd?.(done, done ? ids : [])
 }

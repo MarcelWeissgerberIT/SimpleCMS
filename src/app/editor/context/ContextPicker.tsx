@@ -13,7 +13,7 @@ import { Kbd } from '../../ui/controls'
 import { useLang, useT } from '../../i18n'
 import type { ID } from '../../store/types'
 import { blockKey, countWords } from './read'
-import { contextStore, endPicker, pageContext, putPageContext } from './store'
+import { contextStore, endPicker, setPickerIds, type PickPurpose } from './store'
 import './context.css'
 
 interface Row {
@@ -25,6 +25,7 @@ interface Row {
 }
 
 const subscribe = (fn: () => void) => contextStore.subscribe(fn)
+const NO_IDS: string[] = []
 
 /** Mounted with every page editor; shows only while the picker is open on this editor. */
 export function ContextPicker({ editor, pageId }: { editor: Editor; pageId: ID }) {
@@ -51,7 +52,8 @@ function PickerLayer({ editor, pageId }: { editor: Editor; pageId: ID }) {
   const [focus, setFocus] = useState(0)
   const [kbd, setKbd] = useState(false)
   const anchor = useRef<number | null>(null)
-  const ids = useSyncExternalStore(subscribe, () => pageContext(pageId).ids)
+  const ids = useSyncExternalStore(subscribe, () => contextStore.getState().picker?.ids ?? NO_IDS)
+  const purpose: PickPurpose = useSyncExternalStore(subscribe, () => contextStore.getState().picker?.purpose ?? 'read')
   const on = new Set(ids)
 
   /* ---------- measuring: one row per top-level block, relative to .one-editor ---------- */
@@ -100,13 +102,13 @@ function PickerLayer({ editor, pageId }: { editor: Editor; pageId: ID }) {
   }, [])
 
   /* ---------- marking ---------- */
-  const setIds = useCallback((next: Set<string>) => putPageContext(pageId, { ...pageContext(pageId), ids: [...next] }), [pageId])
+  const setIds = useCallback((next: Set<string>) => setPickerIds([...next]), [])
 
   const toggle = useCallback(
     (i: number, range = false) => {
       const row = rows[i]
       if (!row) return
-      const next = new Set(pageContext(pageId).ids)
+      const next = new Set(contextStore.getState().picker?.ids ?? [])
       if (range && anchor.current !== null && rows[anchor.current]) {
         const value = next.has(rows[anchor.current].key)
         const [a, b] = anchor.current < i ? [anchor.current, i] : [i, anchor.current]
@@ -122,16 +124,16 @@ function PickerLayer({ editor, pageId }: { editor: Editor; pageId: ID }) {
       setIds(next)
       setFocus(i)
     },
-    [rows, pageId, setIds],
+    [rows, setIds],
   )
 
-  const all = useCallback(() => setIds(new Set([...pageContext(pageId).ids, ...rows.map((r) => r.key)])), [rows, pageId, setIds])
+  const all = useCallback(() => setIds(new Set(rows.map((r) => r.key))), [rows, setIds])
   const none = useCallback(() => setIds(new Set()), [setIds])
   const done = useCallback(() => {
     // only blocks that still exist count
     const live = new Set(rows.map((r) => r.key))
-    endPicker(true, pageContext(pageId).ids.filter((id) => live.has(id)))
-  }, [rows, pageId])
+    endPicker(true, (contextStore.getState().picker?.ids ?? []).filter((id) => live.has(id)))
+  }, [rows])
   const cancel = useCallback(() => endPicker(false), [])
 
   // the focus ring follows into view
@@ -181,9 +183,13 @@ function PickerLayer({ editor, pageId }: { editor: Editor; pageId: ID }) {
   const marked = rows.filter((r) => on.has(r.key))
   const words = marked.reduce((n, r) => n + r.words, 0)
   const num = (n: number) => n.toLocaleString(lang === 'de' ? 'de-DE' : 'en-US')
+  const head = t(purpose === 'redo' ? 'editor.ctx.redo' : 'editor.ctx.label')
+  const unit = purpose === 'redo' ? 'editor.ctx.passages' : 'editor.ctx.blocks'
   const readout = marked.length
-    ? `${t('editor.ctx.label')} · ${t(`editor.ctx.blocks.${marked.length === 1 ? 'one' : 'other'}`, { count: num(marked.length) })} · ${t(`editor.ctx.words.${words === 1 ? 'one' : 'other'}`, { count: num(words) })}`
-    : `${t('editor.ctx.label')} · ${t('editor.ctx.nothing')}`
+    ? `${head} · ${t(`${unit}.${marked.length === 1 ? 'one' : 'other'}`, { count: num(marked.length) })} · ${t(`editor.ctx.words.${words === 1 ? 'one' : 'other'}`, { count: num(words) })}`
+    : `${head} · ${t(purpose === 'redo' ? 'editor.ctx.nothingRedo' : 'editor.ctx.nothing')}`
+  // redo: the passages are numbered in document order (the review says "PASSAGE 2/5")
+  const order = new Map(marked.map((r, i) => [r.key, i + 1]))
 
   return (
     <>
@@ -192,7 +198,8 @@ function PickerLayer({ editor, pageId }: { editor: Editor; pageId: ID }) {
         className="ctx-layer"
         role="listbox"
         aria-multiselectable="true"
-        aria-label={t('editor.ctx.layer')}
+        aria-label={t(purpose === 'redo' ? 'editor.ctx.layerRedo' : 'editor.ctx.layer')}
+        data-purpose={purpose}
         aria-activedescendant={rows[focus] ? `${uid}-${focus}` : undefined}
         tabIndex={0}
         data-kbd={kbd || undefined}
@@ -219,13 +226,13 @@ function PickerLayer({ editor, pageId }: { editor: Editor; pageId: ID }) {
             }}
           >
             <span className="ctx-row__box" aria-hidden>
-              {on.has(r.key) && <Check size={12} strokeWidth={2.6} />}
+              {on.has(r.key) && (purpose === 'redo' ? <span className="ctx-row__n">{order.get(r.key)}</span> : <Check size={12} strokeWidth={2.6} />)}
             </span>
             <span className="ctx-row__rule" aria-hidden />
           </div>
         ))}
       </div>
-      <PickerBar barRef={barRef} editor={editor} readout={readout} count={marked.length} onAll={all} onNone={none} onDone={done} onCancel={cancel} />
+      <PickerBar barRef={barRef} editor={editor} purpose={purpose} readout={readout} count={marked.length} onAll={all} onNone={none} onDone={done} onCancel={cancel} />
     </>
   )
 }
@@ -234,6 +241,7 @@ function PickerLayer({ editor, pageId }: { editor: Editor; pageId: ID }) {
 function PickerBar({
   barRef,
   editor,
+  purpose,
   readout,
   count,
   onAll,
@@ -243,6 +251,7 @@ function PickerBar({
 }: {
   barRef: React.RefObject<HTMLDivElement | null>
   editor: Editor
+  purpose: PickPurpose
   readout: string
   count: number
   onAll: () => void
@@ -278,7 +287,7 @@ function PickerBar({
 
   if (!box) return null
   return createPortal(
-    <div ref={barRef} className="ctx-bar" role="toolbar" aria-label={t('editor.ctx.bar')} style={box} data-testid="ctx-bar">
+    <div ref={barRef} className="ctx-bar" role="toolbar" aria-label={t(purpose === 'redo' ? 'editor.ctx.barRedo' : 'editor.ctx.bar')} style={box} data-purpose={purpose} data-testid="ctx-bar">
       <p className="ctx-bar__read label" aria-live="polite" title={t('editor.ctx.hint')}>
         <span className={`led${count ? ' led--on' : ''}`} aria-hidden />
         <span className="ctx-bar__count">{readout}</span>

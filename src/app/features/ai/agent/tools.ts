@@ -115,6 +115,33 @@ const q = (s: string) => JSON.stringify(s)
  */
 let visible: ((id: ID) => boolean) | null = null
 
+/**
+ * The AI terminal: what the person lets Claude read of a page (its context marks, editor area) —
+ * null = everything. Set only for the duration of one tool call (withReadLimit).
+ */
+export interface ReadLimit {
+  mode: 'marked' | 'none'
+  /** the marked blocks as Markdown / plain text ('' for 'none') */
+  markdown: string
+  plain: string
+  blocks: number
+}
+
+let readLimit: ((id: ID) => ReadLimit | null) | null = null
+
+/** Run `fn` (a tool call) reading pages only as `limit` allows. */
+export function withReadLimit<T>(limit: ((id: ID) => ReadLimit | null) | null, fn: () => T): T {
+  const prev = readLimit
+  readLimit = limit
+  try {
+    return fn()
+  } finally {
+    readLimit = prev
+  }
+}
+
+const LIMITED_NOTE = 'The person limited what you may read on this page'
+
 /** Run `fn` (a tool call) seeing only the pages `filter` lets through. */
 export function withToolScope<T>(filter: ((id: ID) => boolean) | null, fn: () => T): T {
   const prev = visible
@@ -299,7 +326,14 @@ const searchPages: AgentTool = {
     const query = str(input, 'query', { required: true, max: 300 }).trim()
     const limit = int(input, 'limit', 8, 1, 20)
     const scope = visible
-    const hits = retrieve(query, scope ? workspaceDocs().filter((d) => scope(d.id)) : workspaceDocs(), limit)
+    const lim = readLimit
+    let docs = scope ? workspaceDocs().filter((d) => scope(d.id)) : workspaceDocs()
+    // a page whose reading is limited is searched (and quoted) only by what may be read of it
+    if (lim) docs = docs.map((d) => {
+      const l = lim(d.id)
+      return l ? { ...d, text: l.plain } : d
+    })
+    const hits = retrieve(query, docs, limit)
     if (!hits.length) return { content: `No pages match ${q(query)}. Try other keywords, or list_databases for databases.`, summary: t('features.agent.res.results', { count: 0 }), state: 'ok' }
     const { pages } = ws()
     const lines = hits.map((h) => {
@@ -362,13 +396,21 @@ const readPage: AgentTool = {
       .filter((c) => c.parentId === p.id && !c.databaseId && !c.trashed)
       .sort((a, b) => a.order - b.order)
     if (children.length) head.push(`sub-pages: ${children.slice(0, 40).map((c) => `${q(titleOf(c))} (id: ${c.id})`).join(', ')}${children.length > 40 ? ` and ${children.length - 40} more` : ''}`)
-    const md = markdownOf(p.content)
+    const lim = readLimit?.(p.id) ?? null
+    if (lim?.mode === 'none')
+      return {
+        content: `${head.join('\n')}\n\n[Content withheld. ${LIMITED_NOTE}: you may not read its content (context: nothing from this page). Don't try to get it another way. You can still stage changes to it; if you need its text, say so — the person can change the context in the terminal.]`,
+        summary: t('features.agent.res.withheld'),
+        state: 'ok',
+      }
+    if (lim) head.push(`[${LIMITED_NOTE}: only the ${lim.blocks} block${lim.blocks === 1 ? '' : 's'} they marked are shown below — the rest of the page is not available to you.]`)
+    const md = lim ? lim.markdown.trim() : markdownOf(p.content)
     const part = md.slice(offset, offset + PAGE_PART_CHARS)
     const more = offset + PAGE_PART_CHARS < md.length
     let body = md ? part : '(empty page)'
     if (offset && !part) body = `(offset ${offset} is past the end: the page has ${md.length} characters)`
     if (more) body += `\n[Part ${offset}–${offset + part.length} of ${md.length} characters. Call read_page with offset ${offset + part.length} for the rest.]`
-    return { content: `${head.join('\n')}\n\n${body}`, summary: t('features.agent.res.chars', { count: md.length.toLocaleString() }), state: 'ok' }
+    return { content: `${head.join('\n')}\n\n${body}`, summary: t(lim ? 'features.agent.res.limited' : 'features.agent.res.chars', { count: md.length.toLocaleString() }), state: 'ok' }
   },
 }
 
@@ -502,7 +544,11 @@ const currentPage: AgentTool = {
     const peekId = useUI.getState().peekPageId
     const peek = peekId ? live(peekId) : null
     if (!main && !peek) return { content: `No page is open (the user is on the ${route.name} screen).`, summary: t('features.agent.res.noPage'), state: 'ok' }
-    const line = (p: Page) => `id: ${p.id} · ${kindOf(p)} · ${q(titleOf(p))}${pathOf(p.id) ? ` · in ${q(pathOf(p.id))}` : ''}`
+    const note = (p: Page) => {
+      const l = readLimit?.(p.id)
+      return !l ? '' : l.mode === 'none' ? ` · ${LIMITED_NOTE}: nothing of its content may be read` : ` · ${LIMITED_NOTE}: only ${l.blocks} marked block${l.blocks === 1 ? '' : 's'}`
+    }
+    const line = (p: Page) => `id: ${p.id} · ${kindOf(p)} · ${q(titleOf(p))}${pathOf(p.id) ? ` · in ${q(pathOf(p.id))}` : ''}${note(p)}`
     const parts = [main ? `Open page: ${line(main)}` : '', peek ? `In the side peek: ${line(peek)}` : ''].filter(Boolean)
     return { content: `${parts.join('\n')}\nUse read_page to read it.`, summary: titleOf(main ?? peek ?? undefined).slice(0, 40), state: 'ok' }
   },

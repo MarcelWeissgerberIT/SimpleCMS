@@ -7,7 +7,7 @@ import { inTemplate, isEffectivelyTrashed, selectBreadcrumbs } from '../../../st
 import type { Page } from '../../../store/types'
 import type { TermMention } from './types'
 
-export type CommandId = 'new' | 'stop' | 'apply' | 'discard' | 'history' | 'help' | 'mcp' | 'cost'
+export type CommandId = 'new' | 'stop' | 'apply' | 'discard' | 'history' | 'help' | 'mcp' | 'cost' | 'context'
 
 /** Names per command: English first, then the German aliases. */
 export const COMMANDS: Array<{ id: CommandId; en: string; de: string[] }> = [
@@ -19,6 +19,7 @@ export const COMMANDS: Array<{ id: CommandId; en: string; de: string[] }> = [
   { id: 'help', en: 'help', de: ['hilfe'] },
   { id: 'mcp', en: 'mcp', de: [] },
   { id: 'cost', en: 'cost', de: ['kosten'] },
+  { id: 'context', en: 'context', de: ['kontext'] },
 ]
 
 /** A prompt that is a command ("/help", "/hilfe "): its id, 'unknown' for another "/word", null for a task. */
