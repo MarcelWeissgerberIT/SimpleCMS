@@ -95,10 +95,13 @@ export function createCollab(deps: { config: Config; log: Logger; repo: Repo; se
     },
 
     async afterLoadDocument({ documentName, document }) {
-      // custom agents live in the workspace's shared meta document: the server, not the client, says
-      // who changed one (docs/CLOUD.md § Agents → Who changed an agent)
+      // custom agents (and scripts) live in the workspace's shared meta document: the server, not the
+      // client, says who changed one (docs/CLOUD.md § Agents → Who changed an agent)
       const doc = parseDocName(documentName)
-      if (doc?.kind === 'meta' && doc.owner === null) document.on('destroy', guardAgentAuthors(document, { workspaceId: doc.workspaceId, log }))
+      if (doc?.kind === 'meta' && doc.owner === null) {
+        document.on('destroy', guardAgentAuthors(document, { workspaceId: doc.workspaceId, log }))
+        document.on('destroy', guardAgentAuthors(document, { workspaceId: doc.workspaceId, log, map: 'scripts' }))
+      }
     },
 
     async onStoreDocument({ documentName, document }) {

@@ -328,7 +328,7 @@
   .sc-row__name {
     grid-area: name;
   }
-  .sc-chip-kind {
+  .sc-row .sc-chip-kind {
     grid-area: kind;
     justify-self: end;
   }

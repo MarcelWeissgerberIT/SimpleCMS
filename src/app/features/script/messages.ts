@@ -51,7 +51,7 @@ export const messages: Messages = {
     'features.script.example.query.name': 'Open tasks',
     'features.script.example.query.desc': 'A live query: open entries, soonest first.',
     'features.script.starter.script':
-      '# One Script — ⌘↵ runs, ⌘⇧↵ is a dry run (changes nothing)\n# Type @ to pick a page or database.\n\nlet name = ask("Who are you?", default: "Ada")\nnotify("Hello {name}!")\n',
+      '# One Script — Run, or Dry run first (it changes nothing)\n# Type @ to pick a page or database.\n\nlet name = ask("Who are you?", default: "Ada")\nnotify("Hello {name}!")\n',
     'features.script.starter.query': '# A query: its result shows live below.\n# Type @ and pick a database, e.g. db(@Tasks).where(Status = "Open")\n',
     'features.script.tab.console': 'Console',
     'features.script.tab.runs': 'Run log',
@@ -84,7 +84,7 @@ export const messages: Messages = {
     'features.script.ed.ref.agent': 'AGENT',
     'features.script.ed.ref.script': 'SCRIPT',
 
-    'features.script.console.empty': 'Nothing ran yet. ⌘⇧↵ shows what the script would do without changing anything.',
+    'features.script.console.empty': 'Nothing ran yet. A dry run shows what the script would do without changing anything.',
     'features.script.console.jump': 'Go to this line',
     'features.script.console.line': 'Line {n}',
     'features.script.console.ms': '{ms} ms',
@@ -408,7 +408,7 @@ export const messages: Messages = {
     'features.script.example.query.name': 'Offene Aufgaben',
     'features.script.example.query.desc': 'Eine Live-Abfrage: offene Einträge, die nächsten zuerst.',
     'features.script.starter.script':
-      '# One Script — ⌘↵ führt aus, ⌘⇧↵ ist ein Probelauf (ändert nichts)\n# Tippe @, um eine Seite oder Datenbank zu wählen.\n\nlet name = ask("Wie heißt du?", default: "Ada")\nnotify("Hallo {name}!")\n',
+      '# One Script — Ausführen, oder erst der Probelauf (ändert nichts)\n# Tippe @, um eine Seite oder Datenbank zu wählen.\n\nlet name = ask("Wie heißt du?", default: "Ada")\nnotify("Hallo {name}!")\n',
     'features.script.starter.query': '# Eine Abfrage: ihr Ergebnis steht live darunter.\n# Tippe @ und wähle eine Datenbank, z. B. db(@Aufgaben).where(Status = "Offen")\n',
     'features.script.tab.console': 'Konsole',
     'features.script.tab.runs': 'Laufprotokoll',
@@ -441,7 +441,7 @@ export const messages: Messages = {
     'features.script.ed.ref.agent': 'AGENT',
     'features.script.ed.ref.script': 'SKRIPT',
 
-    'features.script.console.empty': 'Noch nichts gelaufen. ⌘⇧↵ zeigt, was das Skript tun würde, ohne etwas zu ändern.',
+    'features.script.console.empty': 'Noch nichts gelaufen. Ein Probelauf zeigt, was das Skript tun würde, ohne etwas zu ändern.',
     'features.script.console.jump': 'Zu dieser Zeile',
     'features.script.console.line': 'Zeile {n}',
     'features.script.console.ms': '{ms} ms',

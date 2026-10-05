@@ -421,7 +421,7 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
         // a page shorter than the screen (its min-height swallows the first pixels): measured with a spacer as
         // tall as the screen — past any min-height, where every pixel counts — then set to what the room needs
         const range = () => scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop
-        if (range() < delta) {
+        if (!isDoc && range() < delta) {
           const probe = spacer.offsetHeight + scroller.clientHeight
           spacer.style.height = `${probe}px`
           spacer.style.height = `${Math.max(0, Math.ceil(probe + delta - range()))}px`

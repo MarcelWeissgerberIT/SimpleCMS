@@ -16,6 +16,10 @@
  * (same tick, so clients receive both together); it is never corrected again (no loop). The server's
  * own writes (public API, webhooks, the agent runner) keep their attribution. Values that are not JSON
  * objects are not agents for any reader (the app's and the server's sanitizers) and are left alone.
+ *
+ * The same guard watches the `scripts` map (One Script, app: features/script): a script asks before it
+ * runs a version the device did not save (by its code's hash — never by `updatedBy`); the name it shows
+ * there ("Bob changed it last") is this stamp.
  */
 import { isTransactionOrigin, type LocalTransactionOrigin } from '@hocuspocus/server'
 import * as Y from 'yjs'
@@ -63,9 +67,11 @@ type Struct = { id: Y.ID; length: number }
  * Watches one shared meta document while it is loaded; returns the function that stops watching.
  * Call it right after the stored state was applied (Hocuspocus `afterLoadDocument`).
  */
-export function guardAgentAuthors(doc: Y.Doc, opts: { workspaceId: string; log: Logger }): () => void {
+export function guardAgentAuthors(doc: Y.Doc, opts: { workspaceId: string; log: Logger; map?: 'agents' | 'scripts' }): () => void {
   const { workspaceId, log } = opts
-  const agents = doc.getMap<unknown>('agents')
+  const mapName = opts.map ?? 'agents'
+  const what = mapName === 'scripts' ? 'script' : 'agent'
+  const agents = doc.getMap<unknown>(mapName)
   const store = doc.store
   /** Who may have written the structs that wait for missing ones (an over-approximation). */
   const pendingFrom = new Set<string>()
@@ -125,13 +131,13 @@ export function guardAgentAuthors(doc: Y.Doc, opts: { workspaceId: string; log: 
         fixes.push([key, { ...value, ...(restore ? { createdBy } : {}), updatedBy: writer }])
         // audit: who claimed what (ids only, never content); `@…` markers are the app's "not known yet"
         const claimed = actorOf(value.updatedBy)
-        const fields = { workspace: workspaceId, agent: key.slice(0, 64), by: writer, claimed: claimed?.slice(0, 128), createdBy: restore ? 'restored' : undefined }
-        if (restore || (claimed !== null && claimed !== writer && !claimed.startsWith('@'))) log.warn('agent change attributed to its real writer', fields)
-        else log.debug('agent change attributed', fields)
+        const fields = { workspace: workspaceId, [what]: key.slice(0, 64), by: writer, claimed: claimed?.slice(0, 128), createdBy: restore ? 'restored' : undefined }
+        if (restore || (claimed !== null && claimed !== writer && !claimed.startsWith('@'))) log.warn(`${what} change attributed to its real writer`, fields)
+        else log.debug(`${what} change attributed`, fields)
       }
       if (fixes.length) doc.transact(() => fixes.forEach(([key, v]) => agents.set(key, v)), STAMP_ORIGIN)
     } catch (err) {
-      log.error('agent attribution failed', { workspace: workspaceId, error: err as Error })
+      log.error(`${what} attribution failed`, { workspace: workspaceId, error: err as Error })
     }
   }
 
