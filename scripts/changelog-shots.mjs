@@ -323,6 +323,97 @@ const para = (t) => (t ? { type: 'paragraph', content: [text(t)] } : { type: 'pa
 const h = (level, t) => ({ type: 'heading', attrs: { level }, content: [text(t)] })
 const li = (...content) => ({ type: 'listItem', content })
 
+/** A pasted status report (fictional) for "Turn into database". */
+const REPORT = {
+  title: 'Project Delta: open high-priority items',
+  intro: 'Pasted from the knowledge base on Monday.',
+  source: 'Source: knowledge base, projects “Delta Core” and “Delta UI”. 12 items, grouped by topic.',
+  topics: [
+    ['API v1 and migration', [['/r/24701', 'Bug', 'v1 result routes registered twice', 'In progress', 'Lea Brandt'], ['/r/24702', 'Ticket', 'v1 has no audit area', 'Open', 'Tom Weber'], ['/r/24703', 'Spike', 'port the detail page to the REST framework', 'Todo', 'Tom Weber']]],
+    ['Results and calibration', [['/r/24772', 'Bug', 'checkout rounding differs from the invoice', 'In progress', 'Mia Roth'], ['/r/24705', 'Ticket', 'export results as CSV', 'Open', 'Mia Roth'], ['/r/24706', 'Bug', 'rounding differs between list and detail', 'Todo', 'Mia Roth']]],
+    ['Permissions', [['/r/24790', 'Bug', 'viewers can open the export dialog', 'In progress', 'Jan Vogel'], ['/r/24708', 'Ticket', 'role editor for lab leads', 'Open', 'Jan Vogel'], ['/r/24709', 'Spike', 'single sign-on for partner labs', 'Todo', 'Lea Brandt']]],
+    ['Search', [['/r/24811', 'Bug', 'umlauts break the sample search', 'Open', null], ['/r/24812', 'Ticket', 'save search filters per user', 'Todo', 'Mia Roth'], ['/r/24813', 'Bug', 'result list takes 9 s with 5,000 rows', 'Open', null]]],
+  ],
+}
+
+function reportDoc() {
+  const line = ([ref, type, what, status, who]) => `${ref} ${type}: ${what}. ${status} · ${who ?? 'unassigned'}`
+  return doc(
+    para(REPORT.intro),
+    h(2, REPORT.title),
+    para(REPORT.source),
+    { type: 'orderedList', attrs: { start: 1 }, content: REPORT.topics.map(([name, items]) => li(para(name), { type: 'bulletList', content: items.map((i) => li(para(line(i)))) })) },
+    h(3, 'Notes'),
+    { type: 'bulletList', content: [li(para('Two items have no assignee: /r/24811, /r/24813.')), li(para('Next review on Friday.'))] },
+  )
+}
+
+function reportAnswer() {
+  const all = REPORT.topics.flatMap(([, items]) => items)
+  const uniq = (xs) => [...new Set(xs.filter(Boolean))]
+  return {
+    title: REPORT.title,
+    columns: [
+      { name: 'Topic', type: 'select', options: REPORT.topics.map(([n]) => n) },
+      { name: 'Type', type: 'select', options: ['Bug', 'Ticket', 'Spike'] },
+      { name: 'Ref', type: 'text', options: [] },
+      { name: 'Status', type: 'select', options: uniq(all.map((i) => i[3])) },
+      { name: 'Assignee', type: 'select', options: uniq(all.map((i) => i[4])) },
+    ],
+    entries: REPORT.topics.flatMap(([topic, items]) =>
+      items.map(([ref, type, what, status, who]) => ({
+        title: what[0].toUpperCase() + what.slice(1),
+        values: [
+          { column: 'Topic', value: topic },
+          { column: 'Type', value: type },
+          { column: 'Ref', value: ref },
+          { column: 'Status', value: status },
+          ...(who ? [{ column: 'Assignee', value: who }] : []),
+        ],
+        body: null,
+      })),
+    ),
+    groupBy: 'Topic',
+    keep: [1, 3, 5, 6],
+  }
+}
+
+/** Planning notes (fictional) for the "what Claude reads" and "redo" shots. */
+const PLAN = {
+  goal: 'Goal: ship the relaunch in two steps — homepage and pricing first, the blog after; the CMS migration stays on the critical path.',
+  budget: 'Budget: €18,000 for the quarter, €11,000 spent; the remaining burn rate covers QA and one more design iteration.',
+  salary: 'Salary bands for the two new hires — confidential, HR only.',
+  risks: 'Risks: the pricing copy is still open and QA needs two more days, so the go-live has a dependency on legal sign-off.',
+  personal: 'Personal note: call the bank on Thursday.',
+}
+const planDoc = () => doc(h(2, 'Where we stand'), para(PLAN.goal), para(PLAN.budget), para(PLAN.salary), para(PLAN.risks), para(PLAN.personal), para(''))
+
+/** Claude's rewrite of the marked passages (by their text), as the structured redo answer. */
+const REDONE = {
+  [PLAN.goal]: 'Goal: ship the relaunch in two steps — homepage and pricing first, the blog after. Moving to the new CMS (the system behind the site) comes first, or everything slips.',
+  [PLAN.budget]: 'Budget: €18,000 for the quarter, €11,000 spent; what we spend per month still covers QA and one more design round.',
+  [PLAN.risks]: 'Risks: the pricing copy is still open and QA needs two more days — and we can only go live once legal has signed off.',
+}
+function redoAnswer(body) {
+  const prompt = String(body.messages?.[0]?.content ?? '')
+  const items = [...prompt.matchAll(/<passage n="(\d+)">\n([\s\S]*?)\n<\/passage>/g)].map((m) => ({ n: Number(m[1]), markdown: REDONE[m[2].trim()] ?? m[2] }))
+  return { items }
+}
+
+/** Caret on the empty last line of the open page, Space → the AI menu. */
+async function openAIPanel(page) {
+  const ed = page.locator('#main .ProseMirror').first()
+  const ai = page.locator('.ai-panel')
+  for (let attempt = 0; attempt < 4 && !(await ai.count()); attempt++) {
+    await ed.locator('p').last().click()
+    await ed.evaluate((root) => root.editor?.chain().focus().setTextSelection(root.editor.state.doc.content.size - 1).run())
+    await page.waitForTimeout(150)
+    await page.keyboard.press('Space')
+    await page.waitForTimeout(500)
+  }
+  await ai.first().waitFor()
+}
+
 /** The tool result Claude got back for a tool_use id. */
 const toolResult = (body, id) => (body.messages ?? []).flatMap((m) => (Array.isArray(m.content) ? m.content : [])).find((c) => c.type === 'tool_result' && c.tool_use_id === id)
 
@@ -435,6 +526,143 @@ const shots = {
     await page.mouse.move(W + 40, H + 40)
     const box = union(await boxOf(menu), await boxOf(page.locator('#main :is(h1, h2, h3)', { hasText: 'Open tickets' }).first()))
     await save(page, 'slash-menu', frameAround(box, { width: W, height: H }, 16 / 10, 32))
+    await ctx.close()
+  },
+
+  /** What Claude reads: the AI menu's reads line → "Mark blocks…" → boxes in the gutter, the bar counts. */
+  async 'claude-reads'(browser) {
+    const { ctx, page } = await freshPage(browser)
+    const id = await createPage(page, 'Q4 planning', planDoc(), { icon: { type: 'asset', value: 'calendar' } })
+    await openPage(page, id)
+    await openAIPanel(page)
+    const ai = page.locator('.ai-panel').first()
+    await ai.locator('.ai-cmd__input').fill('Draft a status update for the team')
+    await page.getByTestId('ai-reads').click()
+    await ai.getByRole('option', { name: /Mark blocks/ }).click()
+    const layer = page.getByTestId('ctx-layer')
+    await layer.waitFor()
+    await page.keyboard.press('n')
+    const rows = layer.getByRole('option')
+    for (const i of [0, 1, 2, 4]) await rows.nth(i).click()
+    // the keyboard ring on the next block, as with j / k
+    await page.keyboard.press('j')
+    await page.waitForTimeout(400)
+    await page.mouse.move(W + 40, H + 40)
+    const bar = page.getByTestId('ctx-bar')
+    const box = union(await boxOf(page.locator('#main .pv-title').first()), await boxOf(layer), await boxOf(bar))
+    await save(page, 'claude-reads', frameAround(box, { width: W, height: H }, 16 / 10, 28))
+    await ctx.close()
+  },
+
+  /** Redo with instructions: three passages marked, instructions given, the review — one passage at a time. */
+  async redo(browser) {
+    const { ctx, page } = await freshPage(browser, { claude: { json: redoAnswer } })
+    const id = await createPage(page, 'Q4 planning', planDoc(), { icon: { type: 'asset', value: 'calendar' } })
+    await openPage(page, id)
+    // a selection → Ask AI → Redo with instructions…: its block comes marked; two more by click
+    await page.locator('#main .ProseMirror p', { hasText: 'Goal:' }).first().click()
+    await selectRange(page, 'ship the relaunch')
+    await page.locator('[aria-label="Formatting"]').first().getByRole('button', { name: /^Ask AI$/ }).click()
+    const ai = page.locator('.ai-panel').first()
+    await ai.getByRole('option', { name: /Redo with instructions/ }).click()
+    const layer = page.getByTestId('ctx-layer')
+    await layer.waitFor()
+    const rows = layer.getByRole('option')
+    await rows.nth(2).click()
+    await rows.nth(4).click()
+    await page.keyboard.press('Enter')
+    const card = page.getByTestId('redo-setup')
+    await card.waitFor()
+    await page.keyboard.type('Shorter, informal, explain the jargon.')
+    await card.getByRole('button', { name: /Save as preset/ }).click()
+    await page.waitForTimeout(200)
+    await card.getByRole('textbox', { name: 'Instructions' }).press('Control+Enter')
+    const review = page.getByTestId('redo-review')
+    await review.waitFor({ timeout: 20_000 })
+    await page.waitForTimeout(700)
+    await page.mouse.move(W + 40, H + 40)
+    await save(page, 'redo', frameAround(union(await boxOf(page.locator('.ai-panel').first()), await boxOf(page.locator('#main .pv-title').first())), { width: W, height: H }, 16 / 10, 28))
+    await ctx.close()
+  },
+
+  /** #/agents/<id>: a weekly agent, run once — its report and two proposals waiting for review. */
+  async 'custom-agents'(browser) {
+    const ids = {}
+    const turns = [
+      () => sseTurn([{ type: 'thinking', text: 'Checking Projects for overdue and stuck rows.' }, { type: 'tool_use', id: 'toolu_q', name: 'query_database', input: { database_id: ids.projects } }]),
+      () =>
+        sseTurn([
+          { type: 'tool_use', id: 'toolu_u1', name: 'update_row', input: { id: ids.n8n, properties: { Priority: 'High' } } },
+          { type: 'tool_use', id: 'toolu_u2', name: 'update_row', input: { id: ids.video, properties: { Status: 'Backlog' } } },
+        ]),
+      () =>
+        sseTurn([
+          {
+            type: 'text',
+            text: '**Week check:** 8 projects, 3 in progress. *n8n lead-routing automation* blocks the relaunch — proposed **High** priority. *Customer onboarding video* waits on the AI assistant — proposed back to **Backlog**. Budget: €11,000 of €18,000 spent.',
+          },
+        ]),
+    ]
+    const { ctx, page } = await freshPage(browser, { claude: { turns } })
+    ids.projects = await pageIdByTitle(page, 'Projects')
+    ids.n8n = await pageIdByTitle(page, 'n8n lead-routing automation')
+    ids.video = await pageIdByTitle(page, 'Customer onboarding video')
+    await page.evaluate((projects) => {
+      const now = Date.now()
+      window.__one.workspace.getState().upsertAgent({
+        id: 'ag-weekly',
+        name: 'Weekly project check',
+        icon: { type: 'asset', value: 'kanban' },
+        instructions: 'Every Monday, go through Projects: flag rows that are overdue or stuck, propose a new priority or status where it helps, and write a short report with the budget.',
+        trigger: { type: 'schedule', every: 'week', at: '08:00', weekday: 1, tz: 'Europe/Berlin' },
+        scope: { everything: false, pages: [], databases: [projects] },
+        write: 'stage',
+        output: null,
+        mcpServers: [],
+        runner: 'browser',
+        model: null,
+        effort: null,
+        maxRunUsd: 0.5,
+        enabled: true,
+        createdAt: now,
+        updatedAt: now,
+      })
+    }, ids.projects)
+    await page.evaluate(() => (window.location.hash = '#/agents/ag-weekly'))
+    await page.locator('.agx-dhead').waitFor()
+    await page.getByRole('button', { name: 'Run now' }).click()
+    const run = page.locator('.agx-run').first()
+    try {
+      await page.waitForFunction(() => document.querySelector('.agx-run')?.getAttribute('data-status') === 'staged', null, { timeout: 30_000 })
+    } catch (e) {
+      await page.screenshot({ path: `${TMP}/custom-agents-debug.png` })
+      console.log('  run status:', await run.getAttribute('data-status').catch(() => 'none'))
+      throw e
+    }
+    await page.waitForTimeout(800)
+    await rest(page)
+    await save(page, 'custom-agents')
+    await ctx.close()
+  },
+
+  /** A pasted report selected → Ask AI → Turn into database: the preview (columns, group by, board). */
+  async 'turn-into-database'(browser) {
+    const { ctx, page } = await freshPage(browser, { claude: { json: reportAnswer } })
+    const id = await createPage(page, 'Delta report', reportDoc(), { icon: { type: 'asset', value: 'binder' } })
+    await openPage(page, id)
+    await page.locator('#main .ProseMirror p', { hasText: REPORT.intro }).first().click()
+    await selectRange(page, REPORT.intro, 'Next review on Friday.')
+    await page.locator('[aria-label="Formatting"]').first().getByRole('button', { name: /^Ask AI$/ }).click()
+    const ai = page.locator('.ai-panel').first()
+    await ai.waitFor()
+    await ai.getByRole('option', { name: /Turn into database/ }).click()
+    const pv = page.getByTestId('todb-preview')
+    await pv.waitFor({ timeout: 20_000 })
+    await page.waitForTimeout(600)
+    // from the columns down: group by, board or table, the first entries
+    await scrollToTop(pv.locator('.todb__cols'), 34)
+    await page.mouse.move(W + 40, H + 40)
+    await save(page, 'turn-into-database', await boxOf(ai))
     await ctx.close()
   },
 

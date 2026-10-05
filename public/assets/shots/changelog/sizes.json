@@ -3,6 +3,10 @@
     1440,
     900
   ],
+  "claude-reads.webp": [
+    1440,
+    900
+  ],
   "help-centre.webp": [
     1440,
     900
@@ -15,8 +19,16 @@
     1440,
     1072
   ],
+  "redo.webp": [
+    1440,
+    900
+  ],
   "slash-menu.webp": [
     1440,
     899
+  ],
+  "turn-into-database.webp": [
+    1440,
+    1368
   ]
 }

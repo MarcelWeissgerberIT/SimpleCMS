@@ -148,6 +148,13 @@ export function SelectionGrip({ editor, bridge, pageId, hidden, onOpen }: Select
     const first = st ? (editor.view.nodeDOM(st.from) as HTMLElement | null) : null
     if (first instanceof HTMLElement) e.dataTransfer.setDragImage(first, 0, 0)
   }
+  // dropped elsewhere / cancelled: ProseMirror only clears a drag that started in its own DOM
+  const onDragEnd = () => {
+    const mine = editor.view.dragging
+    window.setTimeout(() => {
+      if (!editor.isDestroyed && editor.view.dragging === mine) editor.view.dragging = null
+    }, 50)
+  }
 
   if (!st || !box || hidden || picking) return null
   return (
@@ -166,6 +173,7 @@ export function SelectionGrip({ editor, bridge, pageId, hidden, onOpen }: Select
             title={t('editor.handle.menuHint')}
             draggable
             onDragStart={onDragStart}
+            onDragEnd={onDragEnd}
             onClick={() => openAtFirst(false)}
           >
             <GripVertical size={16} strokeWidth={1.8} />

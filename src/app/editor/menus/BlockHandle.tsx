@@ -33,6 +33,10 @@ import { blockMenuSyncedEntries } from '../synced/menu'
 import { redoBlockMenuEntries } from '../context/menu'
 import { splitMenuEntries } from '../split/menu'
 import { blockSplitRange, type SplitRange } from '../split/range'
+import { SelectionGrip, selectByLongPress, useLongPress } from '../select/SelectionGrip'
+import { blockSelectionAt, extendSelection, menuSelection, readBlockSel, type BlockSel } from '../select/model'
+import { selectionMenuEntries } from '../select/menu'
+import { moveBlocks } from '../select/actions'
 
 const TEXTUAL = new Set(['paragraph', 'heading', 'bulletList', 'orderedList', 'taskList', 'listItem', 'taskItem', 'blockquote', 'callout', 'details', 'codeBlock'])
 const EXCLUDED = new Set(['column', 'detailsSummary', 'detailsContent', 'tab'])
@@ -148,8 +152,9 @@ export function BlockHandle({ editor, bridge, pageId }: { editor: Editor; bridge
   const t = useT()
   const current = useRef<BlockRef | null>(null)
   const [kind, setKind] = useState<string>('paragraph')
-  const [menu, setMenu] = useState<{ el: PopoverAnchor; ref: BlockRef; keyboard?: boolean } | null>(null)
-  const [moveFor, setMoveFor] = useState<{ el: PopoverAnchor; ref: BlockRef } | null>(null)
+  // `sel`: several selected blocks the menu acts on (editor/select), else the block at `ref`
+  const [menu, setMenu] = useState<{ el: PopoverAnchor; ref: BlockRef; keyboard?: boolean; sel?: BlockSel | null } | null>(null)
+  const [moveFor, setMoveFor] = useState<{ el: PopoverAnchor; ref: BlockRef; sel?: BlockSel | null } | null>(null)
   const requested = useStore(bridge, (s) => s.blockMenu)
   /** "Turn into page": the selected blocks when the menu's block is one of them (read before the block gets selected) */
   const splitFor = useRef<SplitRange | null>(null)
@@ -190,16 +195,23 @@ export function BlockHandle({ editor, bridge, pageId }: { editor: Editor; bridge
       const node = editor.state.doc.nodeAt(pos)
       if (!node) return
       splitFor.current = blockSplitRange(editor.state, pos)
-      editor.view.dispatch(editor.state.tr.setSelection(NodeSelection.create(editor.state.doc, pos)))
+      // the block is one of several selected blocks: the menu acts on all of them (they stay selected)
+      const sel = menuSelection(editor.state, pos)
+      const selection = sel ? blockSelectionAt(editor.state.doc, sel.from, sel.to) : null
+      editor.view.dispatch(editor.state.tr.setSelection(selection ?? NodeSelection.create(editor.state.doc, pos)))
       editor.view.dispatch(editor.state.tr.setMeta('lockDragHandle', true))
-      setMenu({ el, ref: { node, pos }, keyboard })
+      setMenu({ el, ref: { node, pos }, keyboard, sel: selection ? sel : null })
     },
     [editor],
   )
 
   const openMenu = (e: React.MouseEvent<HTMLElement>) => {
     const ref = current.current
-    if (ref) openAt(e.currentTarget, ref.pos)
+    if (!ref) return
+    // Shift+click on another block's grip while blocks are selected: the selection grows to it
+    const grown = e.shiftKey ? extendSelection(editor.state, ref.pos + 1) : null
+    if (grown) return void editor.view.dispatch(editor.state.tr.setSelection(grown))
+    openAt(e.currentTarget, ref.pos)
   }
 
   // keyboard (Alt+Enter) / touch grip → block menu anchored at the block itself
@@ -224,6 +236,17 @@ export function BlockHandle({ editor, bridge, pageId }: { editor: Editor; bridge
   const entries = useMemo<MenuEntry[]>(() => {
     if (!menu) return []
     const { ref } = menu
+    // several selected blocks: one menu for all of them (editor/select)
+    if (menu.sel)
+      return selectionMenuEntries(editor, menu.sel, t, {
+        pageId,
+        bridge,
+        onMoveTo: () => {
+          const m = menu
+          closeMenu()
+          setMoveFor(m)
+        },
+      })
     const node = ref.node
     const textual = TEXTUAL.has(node.type.name)
     const range = blockTextRange(ref)
@@ -331,6 +354,11 @@ export function BlockHandle({ editor, bridge, pageId }: { editor: Editor; bridge
         label: pageTitle(p, t('common.untitled')),
         icon: <PageIcon icon={p.icon} size={16} />,
         onSelect: () => {
+          if (moveFor.sel) {
+            if (moveBlocks(editor, moveFor.sel, p.id))
+              toast({ message: t('editor.blockMenu.moved', { title: pageTitle(p, t('common.untitled')) }), kind: 'success', action: { label: t('common.open'), run: () => openPage(p.id) } })
+            return
+          }
           const node = editor.state.doc.nodeAt(moveFor.ref.pos)
           if (!node) return
           // the block keeps its id: undo here takes it back out of the target (see trackMove),
@@ -356,6 +384,17 @@ export function BlockHandle({ editor, bridge, pageId }: { editor: Editor; bridge
           </button>
         </div>
       </DragHandle>
+      {/* blocks selected: the grip stays at the first one (+ gutter rule, count chip) and opens this menu for all of them */}
+      <SelectionGrip
+        editor={editor}
+        bridge={bridge}
+        pageId={pageId}
+        hidden={!!menu || !!moveFor}
+        onOpen={(el, keyboard) => {
+          const b = readBlockSel(editor.state)
+          if (b) openAt(el, b.from, keyboard)
+        }}
+      />
       <Menu open={!!menu} anchor={menu?.el ?? null} onClose={closeMenu} entries={entries} placement="left-start" width={240} searchable={!isTouch} searchPlaceholder={t('editor.blockMenu.search')} emptyLabel={t('editor.slash.empty')} />
       <Popover open={!!moveFor} anchor={moveFor?.el ?? null} onClose={closeMove} placement="left-start" style={{ width: 280 }}>
         <MenuList entries={moveEntries} onClose={closeMove} searchable searchPlaceholder={t('editor.blockMenu.movePlaceholder')} emptyLabel={t('editor.slash.empty')} />
@@ -379,6 +418,10 @@ function TouchGrip({ editor, hidden, onOpen }: { editor: Editor; hidden: boolean
     },
   })
   const [top, setTop] = useState<number | null>(null)
+  // long-press: the block is selected; taps on other blocks then extend the selection (editor/select)
+  const press = useLongPress(() => {
+    if (st) selectByLongPress(editor, st.pos)
+  })
   useEffect(() => {
     if (!st) return setTop(null)
     const dom = editor.view.nodeDOM(st.pos) as HTMLElement | null
@@ -396,6 +439,7 @@ function TouchGrip({ editor, hidden, onOpen }: { editor: Editor; hidden: boolean
       onMouseDown={(e) => e.preventDefault()}
       onTouchStart={(e) => e.stopPropagation()}
       onClick={(e) => onOpen(e.currentTarget, st.pos)}
+      {...press}
     >
       <GripVertical size={16} strokeWidth={1.8} />
     </button>

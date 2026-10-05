@@ -770,11 +770,22 @@
 }
 
 /* ---------- Selection, flash, cursors ---------- */
+/* a selected block (editor/select): the wash is laid OVER it, so images, embeds, databases and charts are
+   tinted like text; it bleeds 1px up and down, so a range reads as one band (the gutter rule, the grip
+   and the count chip are the SelectionGrip overlay's) */
 .doc-content .is-block-selected {
   position: relative;
   border-radius: var(--radius-1);
-  background-color: var(--signal-wash);
-  box-shadow: 0 0 0 2px var(--signal-wash);
+}
+
+.doc-content .is-block-selected::after {
+  content: '';
+  position: absolute;
+  z-index: 1;
+  inset: -1px -4px;
+  border-radius: var(--radius-1);
+  background: var(--signal-wash-strong);
+  pointer-events: none;
 }
 
 .doc-content .is-block-selected *::selection,

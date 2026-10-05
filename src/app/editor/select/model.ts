@@ -101,8 +101,10 @@ export function menuSelection(state: EditorState, pos: number): BlockSel | null 
 
 /** The child of `b.parent` that holds `$pos` (its index), or -1 when `$pos` lies elsewhere. */
 function indexIn(b: BlockSel, $pos: ResolvedPos): number {
-  if ($pos.depth <= b.depth) return -1
+  if ($pos.depth < b.depth) return -1
   if ($pos.start(b.depth) !== $pos.doc.resolve(b.from).start(b.depth)) return -1
+  // a position between the children: the block after it (the last one at the end)
+  if ($pos.depth === b.depth) return Math.min($pos.index(b.depth), b.parent.childCount - 1)
   return $pos.index(b.depth)
 }
 
