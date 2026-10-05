@@ -66,24 +66,14 @@ function counterText(n: number, type: string): string {
   return type.startsWith('upper') ? text.toUpperCase() : text
 }
 
-/**
- * Width of an ordered list item's outside marker ("12. " — the suffix space included), at least that
- * of the list's last item: the grips of one list stand in one column ("9." and "10." alike).
- */
-function markerWidth(li: HTMLElement, list: HTMLOListElement): number {
-  const start = Number.isFinite(list.start) ? list.start : 1
-  let n = start
-  let total = 0
-  for (const el of list.children)
-    if (el.tagName === 'LI') {
-      if (el === li) n = start + total
-      total++
-    }
-  const m = getComputedStyle(li, '::marker')
-  const font = `${m.fontStyle} ${m.fontWeight} ${m.fontSize} ${m.fontFamily}`
-  const type = getComputedStyle(list).listStyleType
-  const width = (k: number) => textWidth(`${counterText(k, type)}. `, font)
-  return Math.max(width(n), width(start + total - 1))
+/** Width of the outside marker ("12. " — the suffix space included) of a list's last item: its widest number. */
+function lastMarkerWidth(list: HTMLOListElement): number {
+  const items = [...list.children].filter((el) => el.tagName === 'LI')
+  const last = items[items.length - 1]
+  if (!last) return 0
+  const n = (Number.isFinite(list.start) ? list.start : 1) + items.length - 1
+  const m = getComputedStyle(last, '::marker')
+  return textWidth(`${counterText(n, getComputedStyle(list).listStyleType)}. `, `${m.fontStyle} ${m.fontWeight} ${m.fontSize} ${m.fontFamily}`)
 }
 
 /** Left edge of the page content (the editor's top-level blocks). */
@@ -101,14 +91,14 @@ export function pageColumn(view: EditorView): number {
   let column = left
   for (const ol of view.dom.querySelectorAll(':scope > ol')) {
     const last = ol.lastElementChild
-    if (last instanceof HTMLElement && ol instanceof HTMLOListElement) column = Math.min(column, last.getBoundingClientRect().left - markerWidth(last, ol))
+    if (last instanceof HTMLElement && ol instanceof HTMLOListElement) column = Math.min(column, last.getBoundingClientRect().left - lastMarkerWidth(ol))
   }
   memo = { doc: view.state.doc, left, column }
   return column
 }
 
 /** Position of the innermost callout / quote / column / synced block holding the block at `pos`, or -1. */
-export function edgeContainerAt(doc: PMNode, pos: number): number {
+function edgeContainerAt(doc: PMNode, pos: number): number {
   const $pos = doc.resolve(pos)
   for (let d = $pos.depth; d > 0; d--) if (EDGE_CONTAINERS.has($pos.node(d).type.name)) return $pos.before(d)
   return -1

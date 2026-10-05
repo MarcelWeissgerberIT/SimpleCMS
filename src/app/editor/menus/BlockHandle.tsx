@@ -177,7 +177,7 @@ function blockColors(node: PMNode): { text: string | null; bg: string | null } {
   return { text: text ?? null, bg: bg ?? null }
 }
 
-/** Virtual anchor at the left edge of a block's DOM (a list item's: left of its marker). */
+/** Virtual anchor at the gutter column of a block (select/gutter), on its first line. */
 function blockAnchor(editor: Editor, pos: number): PopoverAnchor {
   return {
     contextElement: editor.view.dom,
