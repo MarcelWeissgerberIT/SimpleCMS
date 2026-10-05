@@ -15,6 +15,7 @@ import { newId } from '../../../lib/ids'
 import { t } from '../../../i18n'
 import { retrieve, workspaceDocs } from '../workspace'
 import { coerceProperties, isSettable, mergeProps } from './props'
+import { planEdits, readWithRefs, stripRefs, type RawEdit } from './edit'
 import type { ChangeKind, ColumnSpec, ColumnType, PropChange, StagedChange, ToolName } from './types'
 
 /* ------------------------------------------------------------------ */
@@ -125,6 +126,8 @@ export interface ReadLimit {
   markdown: string
   plain: string
   blocks: number
+  /** the marked top-level blocks (their ids) — read_page with refs and edit_page only see these */
+  ids?: string[]
 }
 
 let readLimit: ((id: ID) => ReadLimit | null) | null = null
@@ -352,12 +355,13 @@ const readPage: AgentTool = {
   name: 'read_page',
   write: false,
   description:
-    'Read one page as Markdown, with its title, location, last-edit date, sub-pages and — for database rows — its property values. Call this before you summarise, quote or change a page. Long pages come in parts: pass the offset given at the end of a part to continue. For a database this returns its schema; use query_database for its rows.',
+    'Read one page as Markdown, with its title, location, last-edit date, sub-pages and — for database rows — its property values. Call this before you summarise, quote or change a page. Long pages come in parts: pass the offset given at the end of a part to continue. For a database this returns its schema; use query_database for its rows. Pass refs: true before you change existing text with edit_page: every block (and list item) then carries a ref like ⟦b3⟧ to cite.',
   input_schema: {
     type: 'object',
     properties: {
       id: { type: 'string', description: 'Page id (from search_pages, query_database or another tool).' },
       offset: { type: 'integer', description: 'Character offset into the page Markdown (default 0).' },
+      refs: { type: 'boolean', description: 'true: label every block and list item with a ref (⟦b3⟧) for edit_page. The labels are not part of the text — never write them into content.' },
     },
     required: ['id'],
     additionalProperties: false,
@@ -404,12 +408,20 @@ const readPage: AgentTool = {
         state: 'ok',
       }
     if (lim) head.push(`[${LIMITED_NOTE}: only the ${lim.blocks} block${lim.blocks === 1 ? '' : 's'} they marked are shown below — the rest of the page is not available to you.]`)
-    const md = lim ? lim.markdown.trim() : markdownOf(p.content)
-    const part = md.slice(offset, offset + PAGE_PART_CHARS)
-    const more = offset + PAGE_PART_CHARS < md.length
+    const withRefs = input.refs === true || input.refs === 'true'
+    if (withRefs && p.kind !== 'database') head.push('[Blocks are labelled with refs (⟦b1⟧ …) for edit_page: cite them as "b1". The labels are not part of the text: never write them into content.]')
+    const md = withRefs && p.kind !== 'database' ? readWithRefs(p.id, lim ? new Set(lim.ids ?? []) : null).markdown : lim ? lim.markdown.trim() : markdownOf(p.content)
+    // a part ends at a block boundary when it can (refs stay with their block)
+    let end = Math.min(md.length, offset + PAGE_PART_CHARS)
+    if (end < md.length) {
+      const cut = md.lastIndexOf('\n\n', end)
+      if (cut > offset + PAGE_PART_CHARS * 0.6) end = cut
+    }
+    const part = md.slice(offset, end)
+    const more = end < md.length
     let body = md ? part : '(empty page)'
     if (offset && !part) body = `(offset ${offset} is past the end: the page has ${md.length} characters)`
-    if (more) body += `\n[Part ${offset}–${offset + part.length} of ${md.length} characters. Call read_page with offset ${offset + part.length} for the rest.]`
+    if (more) body += `\n[Part ${offset}–${offset + part.length} of ${md.length} characters. Call read_page with offset ${offset + part.length}${withRefs ? ' and refs: true' : ''} for the rest.]`
     return { content: `${head.join('\n')}\n\n${body}`, summary: t(lim ? 'features.agent.res.limited' : 'features.agent.res.chars', { count: md.length.toLocaleString() }), state: 'ok' }
   },
 }
@@ -583,7 +595,7 @@ const createPage: AgentTool = {
   },
   run(input, stage) {
     const title = str(input, 'title', { required: true, max: 300 }).trim()
-    const markdown = str(input, 'markdown', { max: 200_000 })
+    const markdown = stripRefs(str(input, 'markdown', { max: 200_000 }))
     const parentRaw = str(input, 'parent_id', { max: 80 }).trim()
     let parentId: ID | null = null
     let dependsOn: string | undefined
@@ -620,7 +632,8 @@ const appendToPage: AgentTool = {
   },
   run(input, stage) {
     const rawId = str(input, 'id', { required: true, max: 80 }).trim()
-    const markdown = str(input, 'markdown', { required: true, max: 200_000 }).trim()
+    const markdown = stripRefs(str(input, 'markdown', { required: true, max: 200_000 })).trim()
+    if (!markdown) throw new ToolInputError('"markdown" holds only refs. Write the content itself.')
     const staged = stagedCreate(stage, rawId)
     if (staged?.kind === 'create_database') throw new ToolInputError(`${q(staged.title ?? '')} is a staged database. Use create_row to add rows to it.`)
     if (staged && staged.status === 'pending') {
@@ -634,6 +647,70 @@ const appendToPage: AgentTool = {
       ? stage.update(pending.id, { markdown: `${pending.markdown}\n\n${markdown}` })
       : stage.add({ kind: 'append', pageId: p.id, title: titleOf(p), markdown })
     return { content: `${stagedNote(c)} It adds ${markdown.length} characters at the end of ${q(titleOf(p))}.`, summary: t('features.agent.res.staged', { n: c.n }), state: 'staged', changeId: c.id }
+  },
+}
+
+const editPage: AgentTool = {
+  name: 'edit_page',
+  write: true,
+  description:
+    'Stage changes to the existing content of a page — only when the task asks to fix, rewrite, update or remove what is there (to add something, use append_to_page). First call read_page with refs: true and cite its refs ("b3"). Each edit becomes its own proposed change that the user reviews as a diff and applies or discards; a version of the page is kept first. Change only the blocks the task is about and copy the rest of their text exactly. Ops: replace (from, optional to: a range of blocks side by side → markdown), delete (from, optional to), insert_after (ref → markdown), replace_all (markdown: the whole page — only for a full rewrite the task asks for).',
+  input_schema: {
+    type: 'object',
+    properties: {
+      id: { type: 'string', description: 'Page id.' },
+      edits: {
+        type: 'array',
+        description: 'The changes, each on other blocks.',
+        items: {
+          type: 'object',
+          properties: {
+            op: { type: 'string', enum: ['replace', 'delete', 'insert_after', 'replace_all'] },
+            from: { type: 'string', description: 'replace / delete: the first block (a ref like "b3").' },
+            to: { type: 'string', description: 'replace / delete: the last block of the range (omit for one block).' },
+            ref: { type: 'string', description: 'insert_after: the block the new content follows.' },
+            markdown: { type: 'string', description: 'replace / insert_after / replace_all: the new content as Markdown (no refs). Replacing a list item: the item text, or list items.' },
+          },
+          required: ['op'],
+          additionalProperties: false,
+        },
+      },
+    },
+    required: ['id', 'edits'],
+    additionalProperties: false,
+  },
+  run(input, stage) {
+    const rawId = str(input, 'id', { required: true, max: 80 }).trim()
+    const raw = input.edits
+    if (!Array.isArray(raw) || !raw.length) throw new ToolInputError('"edits" must list at least one edit.')
+    if (raw.length > 30) throw new ToolInputError(`Too many edits (${raw.length}, at most 30). Use replace_all for a full rewrite.`)
+    const staged = stagedCreate(stage, rawId)
+    if (staged && staged.status !== 'applied') throw new ToolInputError(`${q(staged.title ?? '')} is staged (change #${staged.n}) and not applied yet: there is nothing to edit. Use append_to_page to add to it.`)
+    const p = pageOrThrow(stage, rawId)
+    if (p.kind === 'database') throw new ToolInputError(`${q(titleOf(p))} is a database. Use update_row for its rows' properties, edit_page for a row's page content.`)
+    const lim = readLimit?.(p.id) ?? null
+    if (lim?.mode === 'none') throw new ToolInputError(`${q(titleOf(p))}: ${LIMITED_NOTE} — nothing of its content is readable, so you may not change it: refused. Use append_to_page to add to it.`)
+    const pending = stage.list().filter((c) => c.kind === 'edit' && c.pageId === p.id && c.status === 'pending')
+    const res = planEdits(p.id, raw as RawEdit[], lim ? new Set(lim.ids ?? []) : null, pending, 200_000)
+    if ('error' in res) throw new ToolInputError(res.error)
+    const title = titleOf(p)
+    const out = res.plans.map((plan) => {
+      if (plan.revises) {
+        const prev = plan.revises
+        // insert_after the same block again: both go in, in order
+        const markdown = plan.edit.op === 'insert_after' && prev.markdown ? `${prev.markdown}\n\n${plan.markdown ?? ''}` : plan.markdown
+        return { c: stage.update(prev.id, { edit: plan.edit, title, ...(markdown !== undefined ? { markdown } : {}) }), revised: true }
+      }
+      return { c: stage.add({ kind: 'edit', pageId: p.id, title, edit: plan.edit, ...(plan.markdown !== undefined ? { markdown: plan.markdown } : {}) }), revised: false }
+    })
+    const lines = out.map(({ c, revised }) => `#${c.n} ${c.edit!.op} ${c.edit!.refs}${revised ? ' (revised)' : ''}`)
+    const ns = out.map(({ c }) => c.n)
+    return {
+      content: `Staged ${out.length === 1 ? 'as change' : 'as changes'} ${lines.join('; ')} on ${q(title)}. Each is reviewed and applied on its own; nothing is written until the user applies it.`,
+      summary: t('features.agent.res.staged', { n: ns.length > 1 && ns[ns.length - 1] - ns[0] === ns.length - 1 ? `${ns[0]}–${ns[ns.length - 1]}` : ns.join(' #') }),
+      state: 'staged',
+      changeId: out[0].c.id,
+    }
   },
 }
 
@@ -657,7 +734,7 @@ const createRow: AgentTool = {
     const dbId = str(input, 'database_id', { required: true, max: 80 }).trim()
     const schema = schemaOf(stage, dbId)
     const title = str(input, 'title', { required: true, max: 300 }).trim()
-    const markdown = str(input, 'markdown', { max: 200_000 })
+    const markdown = stripRefs(str(input, 'markdown', { max: 200_000 }))
     const res = coerceProperties(schema.db, input.properties, null)
     if (!res.ok) throw new ToolInputError(res.error)
     const needs = needsOf(schema, res.changes)
@@ -919,7 +996,7 @@ const addProperty: AgentTool = {
 }
 
 /** Stable order: the tool list is part of the cached prompt prefix. */
-export const AGENT_TOOLS: AgentTool[] = [searchPages, readPage, listDatabases, queryDatabase, currentPage, createPage, appendToPage, createRow, updateRow, setPageTitle]
+export const AGENT_TOOLS: AgentTool[] = [searchPages, readPage, listDatabases, queryDatabase, currentPage, createPage, appendToPage, editPage, createRow, updateRow, setPageTitle]
 
 /**
  * The workspace agent's (the AI terminal's) tools: AGENT_TOOLS plus the database tools. Custom
@@ -944,6 +1021,10 @@ export function argLabel(name: ToolName, input: Record<string, unknown>, stage: 
     case 'append_to_page':
     case 'update_row':
       return title(s('id'))
+    case 'edit_page': {
+      const n = Array.isArray(input.edits) ? input.edits.length : 0
+      return `${title(s('id'))}${n ? ` · ${t('features.agent.edits', { count: n })}` : ''}`
+    }
     case 'query_database': {
       const n = Array.isArray(input.filters) ? input.filters.length : 0
       return `${title(s('database_id'))}${n ? ` · ${t('features.agent.filters', { count: n })}` : ''}`

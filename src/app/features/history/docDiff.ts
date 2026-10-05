@@ -94,16 +94,17 @@ function lcs<T>(a: T[], b: T[], key: (x: T) => string): Op<T>[] {
 /* Plain text                                                          */
 /* ------------------------------------------------------------------ */
 
-const tokenize = (s: string): string[] => s.match(/\s+|[^\s]+/g) ?? []
+/** Words with the whitespace after them ("quick "); whitespace at the very start on its own. */
+const tokenize = (s: string): string[] => s.match(/^\s+|\S+\s*/g) ?? []
 
 /** Word-level diff of two strings (whitespace rides with the words). */
 export function wordRuns(before: string, after: string): WordRun[] {
   const out: WordRun[] = []
-  for (const o of lcs(tokenize(before), tokenize(after), (x) => x)) {
-    const text = (o.op === 'add' ? o.b : o.a) ?? ''
+  for (const n of mergeInline([{ type: 'text', text: before }], [{ type: 'text', text: after }])) {
+    const op: WordOp = n.diff ?? 'same'
     const last = out[out.length - 1]
-    if (last && last.op === o.op) last.text += text
-    else out.push({ op: o.op, text })
+    if (last && last.op === op) last.text += n.text ?? ''
+    else out.push({ op, text: n.text ?? '' })
   }
   return out
 }
@@ -186,8 +187,9 @@ function inlineTokens(content: JSONContent[] | undefined): Token[] {
     if (n.type === 'text' && typeof n.text === 'string') {
       const mk = markKey(n.marks)
       for (const part of tokenize(n.text)) {
-        // whitespace compares as whitespace: a mark that happens to span a space is no change
-        const key = /^\s+$/.test(part) ? ' ' : `t${mk}\u0000${part}`
+        // a word compares without the whitespace after it ("fox" = "fox "); whitespace alone as whitespace
+        const word = part.trimEnd()
+        const key = word ? `t${mk}\u0000${word}` : ' '
         out.push({ key, node: { type: 'text', text: part, ...(n.marks?.length ? { marks: n.marks } : {}) } })
       }
     } else out.push({ key: `a${blockKey(n)}`, node: n })
@@ -195,11 +197,59 @@ function inlineTokens(content: JSONContent[] | undefined): Token[] {
   return out
 }
 
+const tokText = (t: Token | undefined) => (t?.node.type === 'text' ? (t.node.text ?? '') : '')
+
+/**
+ * Readable runs: a replaced word group ends where the words end, not after their space — "~~quick~~
+ * slow brown" instead of "~~quick ~~slow brown". The trailing whitespace of a group of changes moves
+ * into the unchanged text after it.
+ */
+function tidy(ops: Op<Token>[]): Op<Token>[] {
+  const out: Op<Token>[] = []
+  let i = 0
+  while (i < ops.length) {
+    if (ops[i].op === 'same') {
+      out.push(ops[i++])
+      continue
+    }
+    let j = i
+    while (j < ops.length && ops[j].op !== 'same') j++
+    const group = ops.slice(i, j)
+    const lastDel = group.findLast((o) => o.op === 'del')
+    const lastAdd = group.findLast((o) => o.op === 'add')
+    const ws = (o: Op<Token> | undefined) => (o ? (/\s+$/.exec(tokText(o.op === 'add' ? o.b : o.a))?.[0] ?? null) : null)
+    const wd = ws(lastDel)
+    const wa = ws(lastAdd)
+    const keep = lastDel && lastAdd ? (wd && wa ? wa : null) : (wd ?? wa)
+    if (!keep) out.push(...group)
+    else {
+      const strip = (o: Op<Token>): Op<Token> | null => {
+        if (o !== lastDel && o !== lastAdd) return o
+        const tok = (o.op === 'add' ? o.b : o.a)!
+        const text = tokText(tok).replace(/\s+$/, '')
+        if (!text) return null
+        const next: Token = { key: tok.key, node: { ...tok.node, text } }
+        return o.op === 'add' ? { ...o, b: next } : { ...o, a: next }
+      }
+      for (const o of group) {
+        const s = strip(o)
+        if (s) out.push(s)
+      }
+      const src = (lastAdd?.b ?? lastDel?.a)!
+      const space: Token = { key: ' ', node: { type: 'text', text: keep, ...(src.node.marks?.length ? { marks: src.node.marks } : {}) } }
+      out.push({ op: 'same', a: space, b: space })
+    }
+    i = j
+  }
+  return out
+}
+
 /** Word-level merge of two inline contents. */
 function mergeInline(a: JSONContent[] | undefined, b: JSONContent[] | undefined): DiffNode[] {
   const out: DiffNode[] = []
-  for (const o of lcs(inlineTokens(a), inlineTokens(b), (x) => x.key)) {
-    const tok = (o.op === 'add' ? o.b : o.a)!
+  for (const o of tidy(lcs(inlineTokens(a), inlineTokens(b), (x) => x.key))) {
+    // unchanged words are shown as they read now (their spacing, their marks)
+    const tok = (o.op === 'del' ? o.a : o.b)!
     const diff = o.op === 'same' ? undefined : o.op
     const node = tok.node
     const last = out[out.length - 1]
@@ -277,9 +327,16 @@ export function mergeBlock(a: JSONContent, b: JSONContent): DiffNode | null {
   return { ...base, content }
 }
 
+/** Top-level blocks without the empty lines at the end (the editor keeps one there). */
+function trimmed(doc: JSONContent | null | undefined): JSONContent[] {
+  const blocks = [...(doc?.content ?? [])]
+  while (blocks.length && blocks[blocks.length - 1].type === 'paragraph' && !blocks[blocks.length - 1].content?.length) blocks.pop()
+  return blocks
+}
+
 /** Diff two docs: their top-level blocks, changed ones merged word by word. */
 export function diffDocs(oldDoc: JSONContent | null | undefined, newDoc: JSONContent | null | undefined): DocItem[] {
-  return diffChildren(oldDoc?.content ?? [], newDoc?.content ?? []).map((op): DocItem => {
+  return diffChildren(trimmed(oldDoc), trimmed(newDoc)).map((op): DocItem => {
     if (op.kind === 'same') return { kind: 'same', block: op.b }
     if (op.kind === 'removed') return { kind: 'removed', block: op.a }
     if (op.kind === 'added') return { kind: 'added', block: op.b }
@@ -336,4 +393,20 @@ export function foldRows(items: DocItem[], context: number, open: ReadonlySet<nu
     i = j
   }
   return rows
+}
+
+/** Words removed / added over a whole diff (whole blocks count all their words). */
+export function itemsWordCounts(items: DocItem[]): { del: number; add: number } {
+  const c = { del: 0, add: 0 }
+  const n = (s: string) => (s.match(/\S+/g) ?? []).length
+  for (const it of items) {
+    if (it.kind === 'removed') c.del += n(textOf(it.block))
+    else if (it.kind === 'added') c.add += n(textOf(it.block))
+    else if (it.kind === 'changed') {
+      const w = wordCounts(it.merged)
+      c.del += w.del
+      c.add += w.add
+    }
+  }
+  return c
 }

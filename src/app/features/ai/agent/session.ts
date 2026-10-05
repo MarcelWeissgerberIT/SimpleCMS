@@ -25,7 +25,7 @@ import { localProposal, proposeAfterTask, terminalSource, trivialTask } from '..
 import { confirmProposal, duplicateOf } from '../memory/open'
 import { recallTool, rememberTool } from '../memory/tools'
 import type { MemoryProposal } from '../memory/types'
-import { isContextLimited, openContextPicker, pageContextMarks, readableContent, startRedo } from '../../../editor'
+import { isContextLimited, openContextPicker, pageContextMarks, readableBlocks, readableContent, startRedo } from '../../../editor'
 import { withRefImages } from '../image/terminal'
 import { depsOf, type AgentStatus, type AgentStep, type AgentTurn, type StagedChange, type TermMention, type TermRef, type TurnContext } from './types'
 
@@ -100,8 +100,10 @@ const q = (s: string) => JSON.stringify(s)
 export function terminalReadLimit(id: ID): ReadLimit | null {
   if (!isContextLimited(id)) return null
   const r = readableContent(id)
-  if (r.mode === 'marked' && r.blocks) return { mode: 'marked', markdown: r.markdown, plain: r.plain, blocks: r.blocks }
-  return { mode: 'none', markdown: '', plain: '', blocks: 0 }
+  // the marked blocks by id (read_page with refs / edit_page see only these)
+  const ids = () => readableBlocks(id).flatMap((b) => (typeof b.attrs?.id === 'string' && b.attrs.id ? [b.attrs.id] : []))
+  if (r.mode === 'marked' && r.blocks) return { mode: 'marked', markdown: r.markdown, plain: r.plain, blocks: r.blocks, ids: ids() }
+  return { mode: 'none', markdown: '', plain: '', blocks: 0, ids: [] }
 }
 
 /** "· 3 blocks" / "· nothing" after a page title (chip, log line) — '' for the whole page. */

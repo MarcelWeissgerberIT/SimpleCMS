@@ -9,7 +9,7 @@ import { Check } from 'lucide-react'
 import { Switch } from '../../../ui/controls'
 import { useT } from '../../../i18n'
 import { TypeIcon } from '../../../database'
-import { effectiveView, liveColumns, liveGroup, placementOf, TITLE_NAME, type CellValue, type PlanColumn, type TableDraft, type TablePlan, type TodbView } from './plan'
+import { effectiveView, liveColumns, liveDate, liveGroup, placementOf, TITLE_NAME, type CellValue, type PlanColumn, type TableDraft, type TablePlan, type TodbView } from './plan'
 import './todb.css'
 
 const SAMPLE = 5
@@ -22,6 +22,8 @@ export interface TodbPreviewProps {
   gists: string[]
   /** Enter in the title field */
   onConvert: () => void
+  /** the views offered (default Board | Table, + Timeline when there is a date column); one or none: no switch */
+  views?: TodbView[]
 }
 
 /** "16 ENTRIES · 6 COLUMNS · 2 BLOCKS KEPT" */
@@ -36,10 +38,11 @@ export function specLine(t: ReturnType<typeof useT>, plan: TablePlan, draft: Tab
   ].join(' · ')
 }
 
-export function TodbPreview({ plan, draft, onDraft, gists, onConvert }: TodbPreviewProps) {
+export function TodbPreview({ plan, draft, onDraft, gists, onConvert, views: offered }: TodbPreviewProps) {
   const t = useT()
   const ids = useId()
   const cols = liveColumns(plan, draft)
+  const views: TodbView[] = offered ?? (plan.columns.some((c) => c.type === 'date') ? ['board', 'table', 'timeline'] : ['board', 'table'])
   const selects = cols.filter((c) => c.type === 'select')
   const group = liveGroup(plan, draft)
   const view: TodbView = effectiveView(plan, draft)
@@ -148,26 +151,28 @@ export function TodbPreview({ plan, draft, onDraft, gists, onConvert }: TodbPrev
             ))}
           </select>
         </div>
-        <div className="todb__opt">
-          <span className="todb__label label" id={`${ids}-view`}>
-            {t('features.ai.todb.viewLabel')}
-          </span>
-          <div className="todb__seg" role="group" aria-labelledby={`${ids}-view`}>
-            {(['board', 'table'] as const).map((v) => (
-              <button
-                key={v}
-                type="button"
-                className="todb__seg-btn"
-                aria-pressed={view === v}
-                disabled={v === 'board' && !group}
-                title={v === 'board' && !group ? t('features.ai.todb.boardNeedsGroup') : undefined}
-                onClick={() => set({ view: v })}
-              >
-                {t(`features.ai.todb.view.${v}`)}
-              </button>
-            ))}
+        {views.length > 1 && (
+          <div className="todb__opt">
+            <span className="todb__label label" id={`${ids}-view`}>
+              {t('features.ai.todb.viewLabel')}
+            </span>
+            <div className="todb__seg" role="group" aria-labelledby={`${ids}-view`}>
+              {views.map((v) => (
+                <button
+                  key={v}
+                  type="button"
+                  className="todb__seg-btn"
+                  aria-pressed={view === v}
+                  disabled={(v === 'board' && !group) || (v === 'timeline' && !liveDate(plan, draft))}
+                  title={v === 'board' && !group ? t('features.ai.todb.boardNeedsGroup') : undefined}
+                  onClick={() => set({ view: v })}
+                >
+                  {t(`features.ai.todb.view.${v}`)}
+                </button>
+              ))}
+            </div>
           </div>
-        </div>
+        )}
       </div>
 
       <div className="todb__sample">

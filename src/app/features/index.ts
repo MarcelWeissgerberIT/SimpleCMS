@@ -17,6 +17,8 @@
 export { startHistory, seedDemoHistory } from './history/snapshots'
 /* a version of a page right now, before a structural edit (editor: "Turn into page") */
 export { snapshotNow } from './history/snapshots'
+/* aiWrite(fn): synchronous writes by Claude / an agent / an automation — the row's (page's) state right before is kept as an "AI" version (once per page per call) */
+export { aiWrite } from './history/snapshots'
 export { HistoryModal } from './history/HistoryModal'
 export { startAutomations } from './automations/engine'
 export { AutomationsModal } from './automations/AutomationsModal'

@@ -28,6 +28,7 @@ import { AGENT_REF_SHORTCUT, AGENT_SHORTCUT, AGENT_STOP_SHORTCUT } from './Agent
 import { COMMANDS, completionAt, type Completion } from './commands'
 import { loadHistory } from './history'
 import { PropDiff, Preview, SchemaDiff } from './ReviewParts'
+import { EditDiff } from './EditDiff'
 import { depsOf, type AgentStep, type AgentTurn, type StagedChange } from './types'
 import { ImageRefChip } from '../image/ImageRefChip'
 import { MemoryProposals } from './MemoryProposals'
@@ -1019,7 +1020,7 @@ function ChangeItem({
         <s className="agent-diff__before">{c.beforeTitle}</s> <span className="agent-diff__arrow">→</span> {c.title}
       </>
     )
-  else if (c.kind === 'append' || c.kind === 'update_row') title = titleOf(c.pageId, all) || c.title
+  else if (c.kind === 'append' || c.kind === 'update_row' || c.kind === 'edit') title = titleOf(c.pageId, all) || c.title
   else if (c.kind === 'add_property') title = c.prop?.name
   else if (c.kind === 'memory') title = c.memory?.text ?? c.title
 
@@ -1083,8 +1084,9 @@ function ChangeItem({
       </div>
       {!compact && (c.kind === 'create_database' || c.kind === 'add_property') && <SchemaDiff change={c} />}
       {!compact && c.props && c.props.length > 0 && <PropDiff props={c.props} />}
-      {!compact && c.markdown?.trim() && c.kind !== 'rename' && <Preview markdown={c.markdown} append={c.kind === 'append'} />}
-      {c.status === 'failed' && c.error && <p className="term-change__error">{t('features.agent.review.failed', { error: c.error })}</p>}
+      {!compact && c.kind === 'edit' && <EditDiff change={c} />}
+      {!compact && c.markdown?.trim() && c.kind !== 'rename' && c.kind !== 'edit' && <Preview markdown={c.markdown} append={c.kind === 'append'} />}
+      {c.status === 'failed' && c.error && <p className="term-change__error">{t(c.kind === 'edit' ? 'features.agent.review.skipped' : 'features.agent.review.failed', { error: c.error })}</p>}
       {blocked && missing && c.status === 'pending' && <p className="term-change__hint">{t('features.agent.review.needs', { n: missing.n })}</p>}
     </li>
   )

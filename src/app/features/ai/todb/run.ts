@@ -22,7 +22,7 @@ import type { ID } from '../../../store/types'
 import { t } from '../../../i18n'
 import { snapshotNow } from '../../history/snapshots'
 import { completeStructured } from '../client'
-import { blockGist, buildDatabase, buildTodbPrompt, initialDraft, parseTodbAnswer, placementOf, rangeNodes, readBlocks, type BlockRange, type RangeNodes, type TableDraft, type TablePlan } from './plan'
+import { blockGist, buildDatabase, buildTodbPrompt, initialDraft, parseTodbAnswer, placementOf, rangeNodes, readBlocks, type BlockRange, type RangeNodes, type TableDraft, type TablePlan, type TodbFocus } from './plan'
 
 /** Why a request or a conversion did not happen (an i18n key under features.ai.todb.err). */
 export type TodbIssue = 'none' | 'bad' | 'changed' | 'gone'
@@ -44,7 +44,7 @@ export interface TableAnswer {
 }
 
 /** Ask Claude for the table. Throws AIError (client.ts: no key, offline, aborted …) or TodbError. */
-export async function requestTable(doc: PMNode, range: BlockRange, opts: { pageTitle?: string; instruction?: string; signal?: AbortSignal }): Promise<TableAnswer> {
+export async function requestTable(doc: PMNode, range: BlockRange, opts: { pageTitle?: string; instruction?: string; signal?: AbortSignal; focus?: TodbFocus }): Promise<TableAnswer> {
   const source = readBlocks(doc, range)
   if (!source) throw new TodbError('changed')
   const { system, prompt, schema } = buildTodbPrompt(source.blocks, opts)
@@ -68,12 +68,17 @@ export function sameBlocks(doc: PMNode, range: BlockRange | null, blocks: JSONCo
   return now.nodes.every((n, i) => JSON.stringify(n.toJSON()) === JSON.stringify(blocks[i])) ? now : null
 }
 
+export interface ConvertOptions {
+  /** "Keep the original below" (Transform into): the consumed blocks go into a collapsed toggle with this title right after the database */
+  original?: string | null
+}
+
 /**
  * Create the database and put it in place of the blocks (or, `range` null, at the end of the page).
  * Resolves with the database id; throws TodbError ('changed': the blocks were edited meanwhile, 'gone':
  * the page or the editor went away).
  */
-export async function convertToDatabase(editor: Editor, pageId: ID, range: BlockRange | null, answer: Pick<TableAnswer, 'plan' | 'blocks'>, draft: TableDraft): Promise<ID> {
+export async function convertToDatabase(editor: Editor, pageId: ID, range: BlockRange | null, answer: Pick<TableAnswer, 'plan' | 'blocks'>, draft: TableDraft, opts: ConvertOptions = {}): Promise<ID> {
   if (editor.isDestroyed) throw new TodbError('gone')
   if (range && !sameBlocks(editor.state.doc, range, answer.blocks)) throw new TodbError('changed')
   await snapshotNow(pageId, 'ai')
@@ -86,7 +91,7 @@ export async function convertToDatabase(editor: Editor, pageId: ID, range: Block
   const dbType = asPage ? editor.schema.nodes.pageLink : editor.schema.nodes.databaseBlock
   if (!dbType) throw new TodbError('gone')
 
-  const spec = buildDatabase(answer.plan, draft, { board: t('features.ai.todb.view.board'), table: t('features.ai.todb.view.table'), untitled: t('common.untitled') })
+  const spec = buildDatabase(answer.plan, draft, { board: t('features.ai.todb.view.board'), table: t('features.ai.todb.view.table'), timeline: t('features.ai.todb.view.timeline'), untitled: t('common.untitled') })
   // its own page: a full-page database below this page (private exactly when this page is — the cloud binding follows the parent)
   const dbId = ws.createDatabase({ parentId: pageId, inline: !asPage, title: spec.title, properties: spec.properties, views: spec.views })
   for (const row of spec.rows) {
@@ -108,6 +113,8 @@ export async function convertToDatabase(editor: Editor, pageId: ID, range: Block
       consumed.push(node)
     })
     if (!consumed.length) nodes.push(dbNode)
+    const original = opts.original && consumed.length ? originalToggle(editor, opts.original, consumed) : null
+    if (original) nodes.splice(nodes.indexOf(dbNode) + 1, 0, original)
     const content = Fragment.from(nodes)
     if (!at.parent.canReplace(at.start, at.end, content)) {
       useWorkspace.getState().deletePagePermanently(dbId)
@@ -135,6 +142,19 @@ export async function convertToDatabase(editor: Editor, pageId: ID, range: Block
     action: { label: t('common.undo'), run: () => undoConversion(editor, dbId, after, consumed) },
   })
   return dbId
+}
+
+/** The consumed blocks folded into a closed toggle titled `title` (null: no toggle in this schema). */
+export function originalToggle(editor: Editor, title: string, blocks: PMNode[]): PMNode | null {
+  const { details, detailsSummary, detailsContent } = editor.schema.nodes
+  if (!details || !detailsSummary || !detailsContent || !blocks.length) return null
+  try {
+    const node = details.create({ open: false }, [detailsSummary.create(null, editor.schema.text(title)), detailsContent.create(null, blocks)])
+    node.check()
+    return node
+  } catch {
+    return null
+  }
 }
 
 /** The toast's Undo: the text back (the editor's own undo while nothing changed since), the database gone. */

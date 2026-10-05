@@ -12,6 +12,7 @@ import { useCloud } from '../../cloud'
 import { useLang, useT } from '../../i18n'
 import { MarkdownLite } from '../ai/MarkdownLite'
 import { PropDiff, Preview } from '../ai/agent/AgentSheet'
+import { EditDiff } from '../ai/agent/EditDiff'
 import type { StagedChange } from '../ai/agent/types'
 import { canUndoRun, undoRun } from './exec'
 import { applyRun, discardRun } from './review'
@@ -178,7 +179,7 @@ function Change({ run, change: c, disabled }: { run: AgentRun; change: StagedCha
         <s className="agent-diff__before">{c.beforeTitle}</s> <span className="agent-diff__arrow">→</span> {c.title}
       </>
     )
-  else if (c.kind === 'append' || c.kind === 'update_row') title = titleOf(targetId) || c.title
+  else if (c.kind === 'append' || c.kind === 'update_row' || c.kind === 'edit') title = titleOf(targetId) || c.title
   return (
     <li className="agent-change" data-status={c.status} data-kind={c.kind} aria-label={`${label} ${t(`features.agent.kind.${c.kind}`)}`}>
       <div className="agent-change__head">
@@ -226,8 +227,9 @@ function Change({ run, change: c, disabled }: { run: AgentRun; change: StagedCha
       </div>
       {title && <div className="agent-change__title">{title}</div>}
       {c.props && c.props.length > 0 && <PropDiff props={c.props} />}
-      {c.markdown?.trim() && c.kind !== 'rename' && <Preview markdown={c.markdown} append={c.kind === 'append'} />}
-      {c.status === 'failed' && c.error && <p className="agent-change__error">{t('features.agent.review.failed', { error: c.error })}</p>}
+      {c.kind === 'edit' && <EditDiff change={c} />}
+      {c.markdown?.trim() && c.kind !== 'rename' && c.kind !== 'edit' && <Preview markdown={c.markdown} append={c.kind === 'append'} />}
+      {c.status === 'failed' && c.error && <p className="agent-change__error">{t(c.kind === 'edit' ? 'features.agent.review.skipped' : 'features.agent.review.failed', { error: c.error })}</p>}
       {blocked && parent && c.status === 'pending' && <p className="agent-change__hint label">{t('features.agent.review.needs', { n: parent.n })}</p>}
     </li>
   )

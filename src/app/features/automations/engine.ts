@@ -16,6 +16,7 @@ import type { Automation, AutomationAction, Database, DateValue, ID, Page, Prope
 import { newId } from '../../lib/ids'
 import { postWebhook, type WebhookOutcome } from '../../lib/webhook'
 import { t } from '../../i18n'
+import { aiWrite } from '../history/snapshots'
 
 /* The database area is loaded lazily so this always-on service doesn't pull it in statically. */
 type DatabaseApi = typeof import('../../database')
@@ -270,8 +271,11 @@ async function runAutomation(dbId: ID, automationId: ID, rowSnapshot: Page, even
         if (event === 'row_deleted') throw new Error(t('features.auto.err.deleted'))
         applyingAction = true
         try {
-          if (prop.type === 'title') useWorkspace.getState().updatePage(row.id, { title: String(action.value ?? '') })
-          else useWorkspace.getState().setRowProperty(row.id, prop.id, resolveSetValue(prop, action.value))
+          // version history keeps the row as it was (an "AI" version: written by an automation)
+          aiWrite(() => {
+            if (prop.type === 'title') useWorkspace.getState().updatePage(row.id, { title: String(action.value ?? '') })
+            else useWorkspace.getState().setRowProperty(row.id, prop.id, resolveSetValue(prop, action.value))
+          })
         } finally {
           applyingAction = false
         }

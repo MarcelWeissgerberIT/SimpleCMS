@@ -40,6 +40,8 @@ import { memoryFor, noteUse } from './memory/use'
 import { condense } from './memory/propose'
 import { pageSource } from './memory/save'
 import type { MemoryProposal, MemoryUse } from './memory/types'
+import { runTransform, type TransformRunRequest } from './transform/run'
+import { TransformError, type TransformIssue, type TransformState } from './transform/types'
 
 /* ------------------------------------------------------------------ */
 /* Types                                                               */
@@ -57,6 +59,8 @@ export type RunRequest =
   | { kind: 'redo'; label: string; code: string; instructions: string; rulesPageId: ID | null; passages: RedoPassage[] }
   /** Claude looks at an image block: describe / read out the text / tables / a question (image/run.ts) */
   | ImageRunRequest
+  /** "Transform into …": the selected blocks as a diagram, chart, board, columns … (transform/run.ts), previewed first */
+  | TransformRunRequest
 
 export type RunStatus = 'running' | 'done' | 'error' | 'interrupted'
 
@@ -102,6 +106,10 @@ export interface AIRun {
   /** a memory request: the proposal (saved only on the person's OK) and what saving did */
   proposals?: MemoryProposal[] | null
   memSaved?: { id: ID; how: 'new' | 'updated' } | null
+  /** "Transform into": the forms asked so far (a switch back needs no request), the one shown, the options */
+  transform?: TransformState | null
+  /** "Transform into": why the form could not be made (no dates, a diagram Mermaid would not parse …) */
+  transformIssue?: TransformIssue | null
 }
 
 interface RunsState {
@@ -237,6 +245,8 @@ export interface StartRunOptions {
 
 /** Start a run in the background; resolves nothing — the panel and the page indicator subscribe. */
 export function startRun({ editor, pageId, req, target, replaces }: StartRunOptions): string {
+  // "Transform into": a run that replaces one (another form, Try again) keeps the forms asked so far
+  const carried = replaces && req.kind === 'transform' ? (S().runs[replaces]?.transform ?? null) : null
   if (replaces) removeRun(replaces)
   const id = newId()
   const run: AIRun = {
@@ -256,6 +266,7 @@ export function startRun({ editor, pageId, req, target, replaces }: StartRunOpti
     finishedAt: null,
     seen: false,
     reads: null,
+    ...(req.kind === 'transform' ? { transform: carried } : {}),
   }
   useAIRuns.setState((s) => ({ runs: { ...s.runs, [id]: run } }))
   bind(id, editor)
@@ -324,6 +335,18 @@ async function execute(id: string, editor: Editor) {
       const res = await requestTable(editor.state.doc, target.todb, { pageTitle: title, instruction: req.instruction, signal: ac.signal })
       if (ac.signal.aborted) return
       patch(id, { status: 'done', table: res, finishedAt: Date.now() })
+    } else if (req.kind === 'transform') {
+      // like "Turn into database": the selected blocks only (and the page title) — never the One memory
+      patch(id, { reads: { mode: 'none', selection: true, blocks: 0, words: countWords(target.selected) } })
+      if (!target.range || editor.isDestroyed) throw new TodbError('changed')
+      const title = useWorkspace.getState().pages[run.pageId]?.title ?? ''
+      const state = await runTransform(editor.state.doc, target.range, req, run.transform, {
+        pageTitle: title,
+        signal: ac.signal,
+        onState: (transform) => !ac.signal.aborted && patch(id, { transform }),
+      })
+      if (ac.signal.aborted) return
+      patch(id, { status: 'done', transform: state, finishedAt: Date.now() })
     } else if (req.kind === 'redo') {
       const pr = pageRead(run.pageId, null)
       const sent = req.passages.filter((p) => !p.skip)
@@ -383,6 +406,7 @@ async function execute(id: string, editor: Editor) {
     const partial = buffers.get(id) ?? ''
     buffers.delete(id)
     if (e instanceof TodbError) return patch(id, { status: 'error', issue: e.issue, finishedAt: Date.now() })
+    if (e instanceof TransformError) return patch(id, { status: 'error', transformIssue: e.issue, finishedAt: Date.now() })
     if (e instanceof ImageLoadError) return patch(id, { status: 'error', imageIssue: e.issue, finishedAt: Date.now() })
     const err = e instanceof AIError ? e : new AIError('unknown', String(e))
     if (err.code === 'aborted') return
@@ -488,6 +512,12 @@ export function setRedoOutcome(id: string, outcome: Record<number, 'applied' | '
 export function setTodbDraft(id: string, draft: TableDraft) {
   const run = S().runs[id]
   if (run?.table) patch(id, { table: { ...run.table, draft } })
+}
+
+/** "Transform into": the preview changed the state (an option, a database draft, the form shown from the cache). */
+export function setTransform(id: string, next: (state: TransformState) => TransformState) {
+  const run = S().runs[id]
+  if (run?.transform) patch(id, { transform: next(run.transform) })
 }
 
 /** A panel shows this run (returns the release). */

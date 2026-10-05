@@ -1,6 +1,9 @@
 /**
  * Workspace agent — apply staged changes through the store (content origin 'ai') and undo a
  * whole batch. Undo is careful: content the user edited after applying is left alone.
+ * Edits of existing content (kind 'edit', edit.ts) are applied per page, all of a batch in one
+ * transaction after a version is kept. Property writes run inside aiWrite (features/history): the
+ * row's state right before them is kept as an "AI" version.
  */
 import type { JSONContent } from '@tiptap/core'
 import { useWorkspace } from '../../../store/store'
@@ -9,10 +12,11 @@ import { COLOR_NAMES, type DateValue, type ID, type PropertyDef, type PropertyVa
 import { defaultView } from '../../../store/store'
 import { markdownToDoc } from '../../../editor'
 import { newId } from '../../../lib/ids'
-import { snapshotNow } from '../../history/snapshots'
+import { aiWrite, snapshotNow } from '../../history/snapshots'
 import { t } from '../../../i18n'
 import { depsOf, type ColumnSpec, type PropChange, type StagedChange } from './types'
 import { saveMemory, updateMemory } from '../memory/save'
+import { applyPageEdits } from './edit'
 
 const ws = () => useWorkspace.getState()
 const ORIGIN = 'ai'
@@ -120,7 +124,21 @@ export async function applyChanges(changes: StagedChange[], all: StagedChange[],
   const done = new Set(all.filter((c) => c.status === 'applied').map((c) => c.id))
   const ordered = [...changes].filter((c) => c.status === 'pending' || c.status === 'failed').sort((a, b) => rank(a) - rank(b) || a.n - b.n)
 
+  const editedPages = new Set<ID>()
   for (const c of ordered) {
+    // edits of existing content: every edit of this page in the batch, in one transaction
+    if (c.kind === 'edit') {
+      const pageId = resolveRow(c.pageId)
+      if (editedPages.has(pageId)) continue
+      editedPages.add(pageId)
+      const group = ordered.filter((x) => x.kind === 'edit' && resolveRow(x.pageId) === pageId)
+      const res = await applyPageEdits(pageId, group)
+      if (res.applied.length) undos.push(res.undo)
+      applied.push(...res.applied)
+      res.applied.forEach((id) => done.add(id))
+      failed.push(...res.failed)
+      continue
+    }
     try {
       const missing = depsOf(c).find((id) => !done.has(id))
       if (missing) {
@@ -221,7 +239,10 @@ async function applyOne(c: StagedChange, resolveRow: (id: ID) => ID, rowIds: Rec
         prev[pc.propId] = row.properties[pc.propId]
         next[pc.propId] = keepReminder(prev[pc.propId], resolveValue(dbId, pc, created))
       }
-      for (const [propId, v] of Object.entries(next)) ws().setRowProperty(id, propId, v)
+      // the row as it was is kept as an "AI" version first (features/history)
+      aiWrite(() => {
+        for (const [propId, v] of Object.entries(next)) ws().setRowProperty(id, propId, v)
+      })
       return () => {
         const now = ws().pages[id]
         if (!now) return false
@@ -238,6 +259,9 @@ async function applyOne(c: StagedChange, resolveRow: (id: ID) => ID, rowIds: Rec
         return !kept
       }
     }
+    case 'edit':
+      // applied per page, together (applyPageEdits in applyChanges)
+      throw new Error('an edit is applied with its page')
     case 'append': {
       const id = resolveRow(c.pageId)
       if (!alive(id)) throw new Error('the page is gone')
@@ -292,7 +316,7 @@ async function applyOne(c: StagedChange, resolveRow: (id: ID) => ID, rowIds: Rec
       const m = c.memory
       if (!m) throw new Error('nothing to remember')
       if (m.updates && alive(m.updates)) {
-        const undo = updateMemory(m.updates, m)
+        const undo = aiWrite(() => updateMemory(m.updates!, m))
         return () => {
           undo()
           return true
@@ -315,7 +339,7 @@ async function applyOne(c: StagedChange, resolveRow: (id: ID) => ID, rowIds: Rec
       if (!alive(id)) throw new Error('the page is gone')
       const prev = s.pages[id].title
       const title = c.title ?? prev
-      ws().updatePage(id, { title })
+      aiWrite(() => ws().updatePage(id, { title }))
       return () => {
         const now = ws().pages[id]
         if (!now || now.title !== title) return false

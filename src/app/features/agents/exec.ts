@@ -2,7 +2,8 @@
  * Custom agents — one run in this browser: the workspace agent's loop (features/ai/agent/run.ts)
  * headless, with the agent's instructions, its scope-checked tools, its MCP servers, model, effort
  * and budget. Write modes: 'none' (no writing tools) · 'stage' (proposals stay in the run for review)
- * · 'apply' (applied through apply.ts when the run ends, stamped `agent:<id>`, undoable). The run's
+ * · 'apply' (applied through apply.ts when the run ends, stamped `agent:<id>`, undoable — except
+ * edits of existing text (edit_page): those always wait for a person's review in the run). The run's
  * report can go to a page. Never two runs of one agent at once (a Web Lock across tabs).
  */
 import type { BetaUsage } from '@anthropic-ai/sdk/resources/beta/messages/messages'
@@ -38,12 +39,18 @@ import { recallTool } from '../ai/memory/tools'
 /* Prompt                                                              */
 /* ------------------------------------------------------------------ */
 
+/** When to change existing text (edit_page) instead of adding to it. */
+const EDIT_RULE = `- To add to a page use append_to_page. Change existing text with edit_page only when the job asks to fix, update or remove it: read the page with read_page and refs: true and cite the refs of exactly the blocks concerned; never rewrite blocks the job does not touch.`
+
 const WRITE_RULES: Record<CustomAgent['write'], string> = {
   none: `- You can only read: you have no writing tools. Put everything you find into your report.`,
-  stage: `- The writing tools (create_page, append_to_page, create_row, update_row, set_page_title) never change the workspace directly. Each call stages one proposed change; a person reviews the list later and applies or discards each item. Stage what the job needs, then finish.
-- Ids returned for staged pages and rows work right away: you can append to, update, rename or create pages under something you staged earlier in this run.`,
+  stage: `- The writing tools (create_page, append_to_page, edit_page, create_row, update_row, set_page_title) never change the workspace directly. Each call stages one proposed change (edit_page: one per edit); a person reviews the list later and applies or discards each item. Stage what the job needs, then finish.
+- Ids returned for staged pages and rows work right away: you can append to, update, rename or create pages under something you staged earlier in this run.
+${EDIT_RULE}`,
   apply: `- The writing tools (create_page, append_to_page, create_row, update_row, set_page_title) collect changes that are applied automatically when the run ends (people can undo them). Change only what the job needs; never delete or overwrite content you were not asked to change.
-- Ids returned for new pages and rows work right away within this run.`,
+- edit_page is the exception: changes to existing text always wait for a person's review — they are never applied automatically.
+- Ids returned for new pages and rows work right away within this run.
+${EDIT_RULE}`,
 }
 
 export function agentSystem(write: CustomAgent['write']): string {
@@ -325,7 +332,9 @@ async function runOnce(agent: CustomAgent, req: RunRequest): Promise<AgentRun> {
   // what the run wrote or proposed
   if (changes.length) {
     if (agent.write === 'apply' && run.status === 'ok') {
-      const res = await asAgent(agent.id, () => applyChanges(changes, changes, (id) => rowIds[id] ?? id))
+      // edits of existing text always wait for a person's OK: they stay in the run for review
+      const direct = changes.filter((c) => c.kind !== 'edit')
+      const res = await asAgent(agent.id, () => applyChanges(direct, changes, (id) => rowIds[id] ?? id))
       Object.assign(rowIds, res.rowIds)
       for (let i = 0; i < changes.length; i++) {
         const c = changes[i]
@@ -338,6 +347,11 @@ async function runOnce(agent: CustomAgent, req: RunRequest): Promise<AgentRun> {
       run.applied = res.applied.length
       if (res.applied.length) rememberUndo(run.id, res)
       if (res.failed.length) run.steps.push({ kind: 'note', label: t('features.agents.run.applyFailed', { count: res.failed.length }), state: 'err' })
+      const waiting = changes.filter((c) => c.kind === 'edit' && c.status === 'pending').length
+      if (waiting) {
+        run.status = 'staged'
+        run.steps.push({ kind: 'note', label: t(waiting === 1 ? 'features.agents.run.editsWait.one' : 'features.agents.run.editsWait.other', { count: waiting }), state: 'ok' })
+      }
     } else if (run.status === 'ok') run.status = 'staged'
     run.staged = changes
     run.rowIds = rowIds

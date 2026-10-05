@@ -5,6 +5,7 @@
 import type { ID, PropertyType, PropertyValue } from '../../../store/types'
 import type { AIErrorCode } from '../client'
 import type { MemoryProposal, MemoryUse } from '../memory/types'
+import type { BlockEdit } from './edit'
 
 export type ToolName =
   | 'search_pages'
@@ -14,6 +15,8 @@ export type ToolName =
   | 'get_current_page'
   | 'create_page'
   | 'append_to_page'
+  /** changes existing content, block by block (staged one change per edit, kind 'edit') */
+  | 'edit_page'
   | 'create_row'
   | 'update_row'
   | 'set_page_title'
@@ -79,7 +82,7 @@ export interface ColumnSpec {
   options?: string[]
 }
 
-export type ChangeKind = 'create_page' | 'append' | 'create_row' | 'update_row' | 'rename' | 'create_database' | 'add_property' | 'memory'
+export type ChangeKind = 'create_page' | 'append' | 'edit' | 'create_row' | 'update_row' | 'rename' | 'create_database' | 'add_property' | 'memory'
 export type ChangeStatus = 'pending' | 'applied' | 'discarded' | 'failed'
 
 export interface StagedChange {
@@ -98,8 +101,10 @@ export interface StagedChange {
   title?: string
   /** rename: the title when the change was staged */
   beforeTitle?: string
-  /** create_page / create_row: content · append: what gets added */
+  /** create_page / create_row: content · append: what gets added · edit: the new blocks (none for a delete) */
   markdown?: string
+  /** edit (edit_page): which blocks, as they were when staged; one change per edit, each applied or discarded on its own */
+  edit?: BlockEdit
   props?: PropChange[]
   /** id of the staged change that creates this change's parent page (or its database) */
   dependsOn?: string

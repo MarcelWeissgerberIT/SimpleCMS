@@ -3,7 +3,8 @@
  *  - startMail(): background service (main.tsx, after the workspace loaded): schedule, "Load images"
  *  - MailTab: Settings → Mail · MailSyncLed { databaseId }: the Mails database's header read-out
  *  - openMailSettings() / consumeMailSettingsRequest(): open Settings on the Mail tab
+ *  - syncNow({ connect? }) / organiseEarlier(): run a sync / "Organise with Claude" now (database commands)
  */
-export { startMail, stopMail, openMailSettings, consumeMailSettingsRequest, useMail } from './service'
+export { startMail, stopMail, openMailSettings, consumeMailSettingsRequest, useMail, syncNow, organiseEarlier } from './service'
 export { MailTab } from './MailTab'
 export { MailSyncLed } from './MailStatus'

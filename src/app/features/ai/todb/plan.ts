@@ -279,15 +279,28 @@ export const TODB_SCHEMA: Record<string, unknown> = {
   additionalProperties: false,
 }
 
+/**
+ * "Transform into → Timeline" (features/ai/transform): the same database, every entry a dated item. The
+ * dates go into one date column (a period as "start → end") — only dates the text states.
+ */
+const TIMELINE_RULES = `
+This database becomes a timeline: every entry is a dated item (a milestone, an event, a phase, a deadline).
+- Put each entry's date into ONE date column named "Date" ("Datum" for German text): YYYY-MM-DD, or "YYYY-MM-DD → YYYY-MM-DD" for a period.
+- Only dates the text states. A month without a day is the 1st of that month; a weekday or "next week" without a date is no date. An entry without a date gets no Date value — never guess one.
+- groupBy: a phase or stream column when there is one, else null.`
+
+/** What the request is for: a plain database, or the timeline of "Transform into". */
+export type TodbFocus = 'table' | 'timeline'
+
 /** System prompt, user prompt and schema. Exported for tests / debugging. */
-export function buildTodbPrompt(blocks: SourceBlock[], opts: { pageTitle?: string; instruction?: string } = {}): { system: string; prompt: string; schema: Record<string, unknown> } {
+export function buildTodbPrompt(blocks: SourceBlock[], opts: { pageTitle?: string; instruction?: string; focus?: TodbFocus } = {}): { system: string; prompt: string; schema: Record<string, unknown> } {
   const parts: string[] = []
   if (opts.pageTitle?.trim()) parts.push(`Page: ${opts.pageTitle.trim()}`)
   const numbered = blocks.map((b, i) => (b.markdown ? `[B${i + 1}] ${b.markdown}` : '')).filter(Boolean)
   parts.push(`<blocks>\n${numbered.join('\n\n')}\n</blocks>`)
   if (opts.instruction?.trim()) parts.push(`Request from the user: ${opts.instruction.trim()}`)
-  parts.push('Turn the entries in these blocks into a database.')
-  return { system: SYSTEM, prompt: parts.join('\n\n'), schema: TODB_SCHEMA }
+  parts.push(opts.focus === 'timeline' ? 'Turn the dated entries in these blocks into a timeline database.' : 'Turn the entries in these blocks into a database.')
+  return { system: opts.focus === 'timeline' ? `${SYSTEM}\n${TIMELINE_RULES}` : SYSTEM, prompt: parts.join('\n\n'), schema: TODB_SCHEMA }
 }
 
 /* ------------------------------------------------------------------ */
@@ -458,7 +471,8 @@ function optionNames(type: 'select' | 'multi_select', v: CellValue): string[] {
 /* Draft (what the preview changes) → database                         */
 /* ------------------------------------------------------------------ */
 
-export type TodbView = 'board' | 'table'
+/** 'timeline': only with a live date column ("Transform into → Timeline") */
+export type TodbView = 'board' | 'table' | 'timeline'
 /** Where the database goes: here as an inline block, or as its own page (a child of this page) linked here. */
 export type TodbPlacement = 'inline' | 'page'
 
@@ -488,8 +502,14 @@ export function liveGroup(plan: TablePlan, draft: TableDraft): PlanColumn | null
   return liveColumns(plan, draft).find((c) => c.name === draft.groupBy && c.type === 'select') ?? null
 }
 
-/** The view the database opens with: a board only while there is a group column. */
+/** The date column a timeline would use (the first live one), or null. */
+export function liveDate(plan: TablePlan, draft: TableDraft): PlanColumn | null {
+  return liveColumns(plan, draft).find((c) => c.type === 'date') ?? null
+}
+
+/** The view the database opens with: a board only while there is a group column, a timeline only with a date column. */
 export function effectiveView(plan: TablePlan, draft: TableDraft): TodbView {
+  if (draft.view === 'timeline') return liveDate(plan, draft) ? 'timeline' : 'table'
   return liveGroup(plan, draft) ? draft.view : 'table'
 }
 
@@ -506,7 +526,7 @@ export interface DatabaseSpec {
 }
 
 /** Properties, views (the chosen one first) and converted row values. */
-export function buildDatabase(plan: TablePlan, draft: TableDraft, names: { board: string; table: string; untitled: string }): DatabaseSpec {
+export function buildDatabase(plan: TablePlan, draft: TableDraft, names: { board: string; table: string; untitled: string; timeline?: string }): DatabaseSpec {
   const cols = liveColumns(plan, draft)
   const titleProp: PropertyDef = { id: newId(), name: TITLE_NAME, type: 'title' }
   const defs = cols.map((c) => {
@@ -543,6 +563,14 @@ export function buildDatabase(plan: TablePlan, draft: TableDraft, names: { board
     if (rows.every((r) => r.properties[groupDef.id] != null)) board.hiddenGroups = [NONE_KEY]
     if (effectiveView(plan, draft) === 'board') views.unshift(board)
     else views.push(board)
+  }
+  // a timeline (chosen in "Transform into"): first, on the first live date column
+  const date = effectiveView(plan, draft) === 'timeline' ? liveDate(plan, draft) : null
+  const dateDef = date ? defs.find((x) => x.col === date)?.def : undefined
+  if (dateDef) {
+    const timeline = defaultView('timeline', { properties }, names.timeline ?? 'Timeline')
+    timeline.dateProperty = dateDef.id
+    views.unshift(timeline)
   }
   return { title: draft.title.trim() || plan.title || names.untitled, properties, views, rows }
 }
