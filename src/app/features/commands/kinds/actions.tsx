@@ -8,7 +8,7 @@ import { ListChecks } from 'lucide-react'
 import { useWorkspace } from '../../../store/store'
 import { useUI } from '../../../store/ui'
 import { isEffectivelyTrashed } from '../../../store/selectors'
-import type { ID } from '../../../store/types'
+import type { Database, ID } from '../../../store/types'
 import { useT, t } from '../../../i18n'
 import { ButtonActionsEditor, buttonPresetValues, fillButtonVars, newButtonAction, normalizeButtonActions, openButtonTarget, sendButtonWebhook, type ButtonAction, type ButtonActionType } from '../../../editor'
 import { propertyValueToText } from '../../../database'
@@ -151,6 +151,18 @@ async function run(ctx: CommandRunContext<ActionsConfig>): Promise<string | null
   // a retry would repeat what already worked (a second row …): no Retry key
   if (!steps.every((x) => x.ok)) throw new CommandFailure(said.map((x) => (x.ok ? x.text : `✕ ${x.text}`)).join(' · '), null)
   return said.map((x) => x.text).join(' · ') || null
+}
+
+/**
+ * A database's commands without their webhook URLs (bearer secrets: Slack, Zapier, n8n …) — for page
+ * backups people pass around (features/io, like the automations' webhooks there). Other commands stay.
+ */
+export function withoutCommandSecrets(db: Database): Database {
+  if (!db.commands?.some((c) => c.kind === 'actions')) return db
+  return {
+    ...db,
+    commands: db.commands.map((c) => (c.kind === 'actions' ? { ...c, config: { actions: sanitize(c.config).actions.map((a) => (a.type === 'webhook' ? { ...a, url: '' } : a)) } } : c)),
+  }
 }
 
 export const actionsKind: CommandKindDef<ActionsConfig> = {

@@ -14,10 +14,13 @@
  *  - CommandsEditor { databaseId, onClose } (modal 'dbCommands') · openCommandsEditor(dbId)
  *  - paletteDbCommands(): the ⌘K entries (shell/lib/commands.ts)
  *  - readDbCommands(raw) (every reader: sanitized list) · saveDbCommands(dbId, list) (the only writer)
+ *  - withoutCommandSecrets(db): the database with its commands' webhook URLs emptied (page backups, features/io)
  *
  * EXTENSION POINT — registerCommandKind(def): a new kind of own command, offered in "Edit commands… → Add
  * command". Call it once at module load of the area that owns the kind (e.g. features/script for "Run
- * script"); nothing here changes. The def (types.ts CommandKindDef):
+ * script"), in a module the app loads at boot (one features/index.ts imports — not a lazy chunk: until its
+ * kind is registered, a command of that kind stays out of the menus and ⌘K); nothing here changes. Keep
+ * `run` light at the top and import heavy code (an interpreter) inside it. The def (types.ts CommandKindDef):
  *    kind      'script' — stored as DbCommand.kind ([a-z][a-z0-9-]{1,23}, not 'default')
  *    label     string | () => string — its name (a function: translated when shown)
  *    icon      a lucide icon
@@ -50,4 +53,5 @@ export { DbCommandKey, DbCommandsMenu, openCommandsEditor, type DbCommandKeyProp
 export { CommandsEditor } from './CommandsEditor'
 export { paletteDbCommands, type PaletteCommand } from './palette'
 export { readDbCommands, saveDbCommands } from './model'
+export { withoutCommandSecrets } from './kinds/actions'
 export type { CommandKindDef, CommandPickerProps, CommandRunContext, CommandSurface, CommandHost } from './types'

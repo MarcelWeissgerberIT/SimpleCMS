@@ -285,6 +285,37 @@ export {
  */
 export { startAgents, AgentsRoute, AgentsNavBadge, useAgentsAttention, ServerAgentsSettings, agentLabel } from './agents'
 /*
+ * One Script (features/script — a small, safe script language that only reaches One; see script/index.ts):
+ *  - ScriptsRoute { scriptId? } (route #/scripts, #/scripts/<id>) · ScriptDialogHost (mount once: what a run asks)
+ *  - createScript(kind?, { name?, code?, open? }) · openScripts(id?) · saveScript · runScriptById(id, { mode? })
+ *  - runScript({ code, mode: 'run' | 'dry' | 'query', … }) · registerEffect(name, impl) · loadScriptEngine()
+ */
+export {
+  ScriptsRoute,
+  ScriptDialogHost,
+  createScript,
+  openScripts,
+  saveScript,
+  duplicateScript,
+  deleteScript,
+  runScriptById,
+  runScript,
+  undoRun as undoScriptRun,
+  stopScript,
+  useActiveRuns as useActiveScriptRuns,
+  registerEffect as registerScriptEffect,
+  loadScriptEngine,
+  appRunUI as appScriptUI,
+  silentRunUI as silentScriptUI,
+  type RunByIdOptions as ScriptRunByIdOptions,
+  type RunOptions as ScriptRunOptions,
+  type RunResult as ScriptRunResult,
+  type RunUI as ScriptRunUI,
+  type ScriptRun,
+  type EffectName as ScriptEffectName,
+  type EffectImpl as ScriptEffectImpl,
+} from './script'
+/*
  * Database commands (a database's menu of things to run — sidebar ⌘ key / row menu, toolbar key, ⌘K; see commands/index.ts):
  *  - DbCommandKey { dbId, variant, rowIds?, host?, onOpenChange? } · DbCommandsMenu (a row menu with the commands on top)
  *  - CommandsEditor (modal 'dbCommands') · openCommandsEditor(dbId) · paletteDbCommands() (⌘K entries)

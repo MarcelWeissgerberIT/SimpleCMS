@@ -283,6 +283,9 @@ export function ensurePeople(mailDbId: ID): PeopleCtx {
     if (id) mail[kind] = id
   }
   placeInMailViews(mailDbId, added)
+  // a relation to a directory that is gone (deleted, replaced): kept with its links, but out of the views
+  const stale = PEOPLE_KINDS.map((kind) => cfg.props?.[MAIL_ROLE[kind]]).filter((id): id is ID => !!id && !Object.values(mail).includes(id))
+  if (stale.length && !ws().databases[mailDbId]?.locked) for (const v of ws().databases[mailDbId]?.views ?? []) if (v.visibleProperties.some((x) => stale.includes(x))) ws().updateView(mailDbId, v.id, { visibleProperties: v.visibleProperties.filter((x) => !stale.includes(x)) })
   const props = { ...(readMail().props ?? {}) }
   let dirty = false
   for (const kind of PEOPLE_KINDS) {
@@ -419,7 +422,9 @@ const tick = () => new Promise<void>((r) => setTimeout(r, 0))
 
 /**
  * Link the synced mails that were not linked yet on this device (new ones, and on the first run every
- * earlier one — the backfill), oldest first so names come from the first mail. Returns how many.
+ * earlier one — the backfill), oldest first so names come from the first mail. A directory that is gone
+ * (deleted) is created again and every synced mail is linked once more (only empty fields are filled, so
+ * nothing doubles). Returns how many.
  */
 export async function linkPending(signal: AbortSignal, progress: (p: { done: number; total: number } | null) => void): Promise<number> {
   const cfg = readMail()
@@ -431,10 +436,12 @@ export async function linkPending(signal: AbortSignal, progress: (p: { done: num
     const v = cfg.props?.date ? ws().pages[rowId]?.properties[cfg.props.date] : null
     return v && typeof v === 'object' && !Array.isArray(v) ? v.start : ''
   }
-  const pending = Object.values(state.known).filter((k) => {
+  const live = Object.values(state.known).filter((k) => {
     const p = ws().pages[k.r]
-    return !k.c && !!p && !p.trashed && p.databaseId === dbId
+    return !!p && !p.trashed && p.databaseId === dbId
   })
+  const again = live.some((k) => k.c) && PEOPLE_KINDS.some((kind) => !peopleDbId(kind))
+  const pending = again ? live : live.filter((k) => !k.c)
   if (!pending.length) return 0
   pending.sort((a, b) => dateOf(a.r).localeCompare(dateOf(b.r)))
   const linker = makeLinker(ensurePeople(dbId), state.account)

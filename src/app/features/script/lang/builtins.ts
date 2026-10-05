@@ -411,7 +411,10 @@ function tableOf(v: Value): Record<string, MethodDef> | null {
 
 /** A method of a built-in value, bound to it (null: none by that name). */
 export function builtinMethod(self: Value, name: string): NativeFn | null {
-  const def = tableOf(self)?.[normName(name)]
+  const table = tableOf(self)
+  const key = normName(name)
+  // own entries only: "constructor", "__proto__" … are not methods
+  const def = table && Object.prototype.hasOwnProperty.call(table, key) ? table[key] : undefined
   if (!def) return null
   return native(name, (args, ctx) => def.fn(self as never, args, ctx), { lazy: def.lazy })
 }

@@ -12,6 +12,8 @@ summary: A database is a collection of pages with properties — shown as a tabl
 - **Inside a page:** type `/table view`, `/board view`, `/calendar view` … The database lives in the page; **•••** → **Open as full page** opens it on its own.
 - **Show an existing one:** `/linked database` places a database that already exists on this page — with views of its own.
 
+From text you already have: select it → **Ask AI** → **Turn into database**, or **Transform into…** → **Board**, **Table** or **Timeline** ([The AI menu](help:ai-menu)).
+
 ## Rows are pages
 Every row is a page: click its title to open it in the side peek and write in it like in any page. Its properties sit at the top. **New** (top right of the database) adds a row; so does **+ New** under a table.
 
@@ -20,5 +22,7 @@ In the database toolbar, **•••**:
 - **Import CSV into this database…** — columns are matched to properties by name; missing ones can be created.
 - **Export as CSV**, and **Export .ics** for databases with dates (for calendar apps).
 - **Copy link** to the database.
+
+New entry, Export CSV, a view and more are also the database's [commands](help:database-commands): the **⌘** key on its sidebar row and in its toolbar — and you can add your own.
 
 > Moving in from Notion, Trello or a spreadsheet? Use **Import** in the sidebar — whole databases arrive with their properties.

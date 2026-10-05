@@ -35,9 +35,20 @@ export interface EchoEntry {
   id: string
   after: number
   input: string
-  kind: 'help' | 'history' | 'mcp' | 'cost' | 'unknown' | 'info'
-  /** kind 'info': message key + vars · 'history': the prompts · 'mcp': server names · 'cost': usage snapshot */
-  data?: { key?: string; vars?: Record<string, string | number>; list?: string[]; usage?: AgentUsage; requests?: number }
+  kind: 'help' | 'history' | 'mcp' | 'cost' | 'unknown' | 'info' | 'ask'
+  /**
+   * kind 'info': message key + vars · 'history': the prompts · 'mcp': server names · 'cost': usage snapshot ·
+   * 'ask': a y / n question (key + vars) and its answer
+   */
+  data?: { key?: string; vars?: Record<string, string | number>; list?: string[]; usage?: AgentUsage; requests?: number; ask?: EchoAsk }
+}
+
+/** A command's y / n question in the log (/clear-history): open until answered (y / n in the prompt, or its keys). */
+export interface EchoAsk {
+  what: 'clearhistory'
+  state: 'open' | 'yes' | 'no'
+  /** what the answer did: message key + vars (both languages) */
+  result?: { key: string; vars?: Record<string, string | number> }
 }
 
 export interface AgentState {

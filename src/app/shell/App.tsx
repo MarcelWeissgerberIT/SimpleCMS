@@ -3,7 +3,7 @@ import { useWorkspace } from '../store/store'
 import { useUI } from '../store/ui'
 import { usePage } from '../store/selectors'
 import { useThemeAndLanguage } from '../lib/theme'
-import { GraphView, SharedPageView, Presentation, AgentsRoute } from '../features'
+import { GraphView, SharedPageView, Presentation, AgentsRoute, ScriptsRoute, ScriptDialogHost } from '../features'
 import { SharedFormView } from '../database'
 import { PageIcon } from '../ui/PageIcon'
 import { useT } from '../i18n'
@@ -133,6 +133,7 @@ function Workspace({ route }: { route: Route }) {
       <ErrorBoundary inline>
         <ModalHost />
         <CloudDialogs />
+        <ScriptDialogHost />
       </ErrorBoundary>
       <Toasts />
       {presentId && <Presentation pageId={presentId} onClose={() => useUI.getState().present(null)} />}
@@ -155,6 +156,8 @@ function RouteView({ route }: { route: Route }) {
       return <Inbox />
     case 'agents':
       return <AgentsRoute agentId={route.id} />
+    case 'scripts':
+      return <ScriptsRoute scriptId={route.id} />
     case 'journal':
       return <JournalPending />
     case 'clip':
@@ -174,5 +177,5 @@ function RouteTitle({ route }: { route: Route }) {
         <span>{page.title.trim() || t('common.untitled')}</span>
       </>
     )
-  return <span>{route.name === 'graph' ? t('shell.nav.graph') : route.name === 'agenda' ? t('shell.nav.agenda') : route.name === 'inbox' ? t('shell.nav.inbox') : route.name === 'agents' ? t('features.agents.title') : t('shell.nav.home')}</span>
+  return <span>{route.name === 'graph' ? t('shell.nav.graph') : route.name === 'agenda' ? t('shell.nav.agenda') : route.name === 'inbox' ? t('shell.nav.inbox') : route.name === 'agents' ? t('features.agents.title') : route.name === 'scripts' ? t('features.script.title') : t('shell.nav.home')}</span>
 }

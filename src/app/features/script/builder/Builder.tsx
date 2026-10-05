@@ -149,7 +149,7 @@ function ValuePicker({ prop, op, value, onChange, label }: { prop: PropertyDef |
       </span>
     )
   }
-  if (prop && (prop.type === 'person' || (kind === 'multi' && prop.type === 'person'))) {
+  if (prop?.type === 'person') {
     const cur = value.kind === 'person' ? value.id : value.kind === 'me' ? '@me' : ''
     return (
       <select

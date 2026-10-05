@@ -8,6 +8,7 @@ import { Modal } from '../../../ui/Modal'
 import { useT } from '../../../i18n'
 import { answerDialog, useScriptDialogs, type PendingDialog } from '../runtime/dialogs'
 import type { ConfirmItem } from '../runtime/types'
+import './dialogs.css'
 
 const KIND_LABEL: Record<ConfirmItem['kind'], string> = { mail: 'MAIL', claude: 'CLAUDE', http: 'HTTP', trash: 'TRASH' }
 
@@ -154,6 +155,9 @@ function Dialog({ d }: { d: PendingDialog }) {
         <>
           <button type="button" className="btn" onClick={() => answer(false)}>
             {t('features.script.dlg.skip')}
+          </button>
+          <button type="button" className="btn" onClick={() => answer('all')}>
+            {t(`features.script.dlg.allowAll.${req.item.kind}`)}
           </button>
           <button type="button" className="btn btn--primary" onClick={() => answer(true)} data-autofocus>
             {t('features.script.dlg.allow')}

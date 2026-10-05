@@ -196,7 +196,9 @@ function chainDb(a: Analysis, toks: Token[], dot: number): { dbId: string | null
 
 export function completionAt(code: string, a: Analysis, offset: number): CompletionContext {
   const tok = tokenAt(a, offset)
-  if (tok && (tok.type === 'comment' || (tok.type === 'str' && offset < tok.pos.end) || tok.type === 'ref')) return null
+  // inside a comment, a text or a finished @ chip: nothing to offer (an @Name being typed is a ref token too)
+  const chip = tok?.type === 'ref' && !!(tok.value as { id: string | null } | undefined)?.id
+  if (tok && (tok.type === 'comment' || (tok.type === 'str' && offset < tok.pos.end) || chip)) return null
   // @ references: "@" … caret on one line, no brackets in between
   const lineStart = code.lastIndexOf('\n', offset - 1) + 1
   const before = code.slice(lineStart, offset)

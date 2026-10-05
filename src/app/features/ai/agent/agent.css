@@ -658,6 +658,67 @@
   font-size: 11px;
 }
 
+/* a y / n question (/clear-history): the question, its two keys; then the answer and what it did */
+.term-ask {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+  color: var(--ink);
+}
+
+.term-ask__keys {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.term-ask__key {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 24px;
+  padding: 1px 8px 1px 3px;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius-1);
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  cursor: pointer;
+  transition: background var(--dur-1) var(--ease-out);
+}
+
+.term-ask__key:hover {
+  background: var(--hover);
+}
+
+.term-ask__key:active {
+  transform: translateY(1px);
+}
+
+.term-ask__key:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.term-ask__key[data-answer='yes'] {
+  border-color: var(--signal-ink);
+}
+
+.term-ask__answer {
+  color: var(--signal-ink);
+  font-weight: 650;
+}
+
+.term-ask__answer::before {
+  content: '› ';
+  color: var(--ink-3);
+}
+
+.term-ask__result {
+  margin-top: 2px !important;
+}
+
 .term-table {
   display: grid;
   /* one key column for every row (rows are subgrids); long keys wrap past 40 % */

@@ -12,6 +12,7 @@ import type { RunResult } from '../runtime/run'
 import { ResultTable } from './ResultTable'
 import { summarize } from './summary'
 import { errorMessage } from './errors'
+import { rowsLabel } from './format'
 
 export interface Output {
   mode: 'run' | 'dry' | 'query' | 'eval'
@@ -127,7 +128,7 @@ export function LogLines({ log, onJump }: { log: LogLine[]; onJump?: (line: numb
           )}
           {l.table ? (
             <div className="sc-log__body">
-              <span className="sc-log__count label">{t('features.script.result.rows', { n: l.table.total })}</span>
+              <span className="sc-log__count label">{rowsLabel(t, l.table.total)}</span>
               <ResultTable table={l.table} compact />
             </div>
           ) : (
@@ -158,7 +159,7 @@ export function Console({ out, onJump }: { out: Output | null; onJump: (line: nu
         <div className="sc-console__value">
           {r.table ? (
             <>
-              <span className="sc-log__count label">{t('features.script.result.rows', { n: r.table.total })}</span>
+              <span className="sc-log__count label">{rowsLabel(t, r.table.total)}</span>
               <ResultTable table={r.table} compact />
             </>
           ) : (

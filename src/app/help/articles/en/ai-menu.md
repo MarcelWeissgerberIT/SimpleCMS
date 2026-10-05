@@ -3,7 +3,7 @@ id: ai-menu
 title: The AI menu & asking
 section: ai
 order: 2
-keywords: ai, claude, space, ask ai, improve, summarize, translate, explain, continue writing, action items, ask workspace, turn into database, board, table, background, context, what claude reads, mark blocks, redo, rewrite, instructions, presets, style guide, image, picture, alt text, caption, ocr, read text, image to table, screenshot, photo, KI, Leertaste, verbessern, zusammenfassen, übersetzen, Datenbank, Kontext, neu machen, Vorgaben, Bild, Alternativtext
+keywords: ai, claude, space, ask ai, improve, summarize, translate, explain, continue writing, action items, ask workspace, turn into database, board, table, transform into, diagram, flowchart, mind map, mermaid, chart, timeline, columns, tabs, toggles, cards, visualize, background, context, what claude reads, mark blocks, redo, rewrite, instructions, presets, style guide, image, picture, alt text, caption, ocr, read text, image to table, screenshot, photo, KI, Leertaste, verbessern, zusammenfassen, übersetzen, Datenbank, verwandeln, Schaubild, Diagramm, Spalten, Karten, Kontext, neu machen, Vorgaben, Bild, Alternativtext
 related: claude-key, agent, command-palette, history
 summary: Space on an empty line, or Ask AI on a selection — Claude writes, edits and answers right in the page.
 ---
@@ -28,6 +28,18 @@ Your own requests take the [One memory](help:memory) along: **MEMORY · 3** unde
 
 ## Turn into database
 Select a list, a table or a report of several blocks → **Ask AI** → **Turn into database**. Claude reads the blocks and proposes a table: the entries with their fields (status, assignee, tags, reference codes …), grouped by the headings they were listed under. The preview shows the counts, the columns (switch off what you don't want), **Group by**, **Board** or **Table**, the first entries and what stays as text — introductions and notes keep their original formatting and links. **Convert** (<kbd>Enter</kbd>) puts the database where the list was; <kbd>Mod+Z</kbd> brings the text back in one step (the toast's **Undo** also removes the database). Nothing is invented: a value the text doesn't state stays empty. **Place**: **Here (inline)** (the default) or **As its own page (linked)** — a full-page database below this page, with a link to it where the list was.
+
+## Transform into
+Select a few blocks — steps, numbers, a comparison, questions and answers — → **Ask AI** → **Transform into…** (also in the block menu ⋮⋮ of several selected blocks). Pick the form:
+- **Auto** — Claude picks the form that fits and says why in one line.
+- **Board**, **Table** — the database of **Turn into database**, with its preview and **Place** choice. **Timeline** — the same with the dates of the text, opened on a timeline view.
+- **Diagram** — a Mermaid flowchart, mind map, sequence, timeline, Gantt or org chart. Labels are short: Claude shortens your own words.
+- **Chart** — bar, line, area or donut from the numbers in the text, as entered data of a [chart](help:charts).
+- **Columns** (2–5), **Tabs**, **Toggles**, **Cards** — the same text side by side, behind tabs, folded away or as callouts ([Toggles, columns & tabs](help:layout-blocks)).
+
+The preview shows the real result — the diagram drawn, the chart rendered, columns as columns. The strip on top switches the form (<kbd>←</kbd> / <kbd>→</kbd> in the empty prompt); a form asked before comes back without a new request. Small options: the diagram kind and direction, the chart kind, the number of columns. **Not carried over** lists what stays as text and any number Claude named that the text doesn't state — it is left out. **Transform** (<kbd>Enter</kbd>) puts the result in place of the blocks in one step: <kbd>Mod+Z</kbd> brings the text back, and a version is saved first. **Keep the original below (collapsed)** adds the source blocks in a closed toggle under the new block.
+
+Nothing is invented: names, numbers, dates and steps come only from the text. A diagram Mermaid can't read gets one automatic repair, then an error — nothing changes. Only the selected blocks go to Claude, never the One memory; the request keeps running in the background like any other.
 
 ## Turn into page
 **Ask AI** → **Structure** → **Turn into page** moves the selected blocks into a new sub-page at once — no Claude involved — and leaves a link in their place. The same in the block menu ⋮⋮ (**Turn into → Page**) and with <kbd>Mod+Alt+9</kbd>; see [Drag, turn into, colour](help:block-handle).

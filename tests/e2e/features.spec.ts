@@ -67,6 +67,11 @@ test.describe('version history', () => {
     const manual = dialog.locator('.hist__row', { has: page.locator('.hist__tag--manual') }).first()
     await expect(manual).toBeVisible()
     await manual.click()
+    // Changes is word level: the old word struck, the new one marked, inside the changed paragraph
+    await expect(dialog.locator('.hist__preview .ddiff__seg[data-state="changed"]')).toContainText('Version')
+    await expect(dialog.locator('.hist__preview .ddiff-del')).toHaveText(['one'])
+    await expect(dialog.locator('.hist__preview .ddiff-ins')).toHaveText(['two'])
+    await dialog.getByRole('tab', { name: 'Version', exact: true }).click()
     await expect(dialog.locator('.hist__preview')).toContainText('Version one text')
     await dialog.getByRole('button', { name: 'Restore this version' }).click()
     await expect(dialog).toBeHidden()

@@ -5,7 +5,7 @@
  * carry over, and "Keep the original below". Everything here only changes the run's state; nothing is written
  * before Transform.
  */
-import { useId, useMemo, type ReactNode } from 'react'
+import { useEffect, useId, useMemo, useRef, type ReactNode } from 'react'
 import { Switch } from '../../../ui/controls'
 import { useT } from '../../../i18n'
 import { ReadOnlyDoc } from '../../../editor'
@@ -55,9 +55,19 @@ export function TransformPreview({ state, forms, asking, busy, wait, issue, onPi
   const shown = busy ? asking : (state?.shown ?? asking)
   const auto = state?.auto ?? null
 
+  // a phone's strip scrolls: the form shown stays in sight (clear of the fading edge)
+  const stripRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const el = stripRef.current
+    const b = el?.querySelector<HTMLElement>('[aria-pressed="true"]')
+    if (!el || !b || el.scrollWidth <= el.clientWidth) return
+    if (b.offsetLeft < el.scrollLeft + 14) el.scrollLeft = b.offsetLeft - 14
+    else if (b.offsetLeft + b.offsetWidth > el.scrollLeft + el.clientWidth - 32) el.scrollLeft = b.offsetLeft + b.offsetWidth - el.clientWidth + 32
+  }, [shown])
+
   return (
     <div className="trf" role="group" aria-label={t('features.ai.transform.preview')} data-testid="transform-preview">
-      <div className="trf__forms" role="group" aria-label={t('features.ai.transform.forms')} data-testid="transform-forms">
+      <div className="trf__forms" ref={stripRef} role="group" aria-label={t('features.ai.transform.forms')} data-testid="transform-forms">
         {forms.map((f) => {
           const Icon = TRANSFORM_ICONS[f]
           const cached = !!state && !!state.results[resultKey(f, state.opts)]
@@ -123,7 +133,7 @@ export function TransformPreview({ state, forms, asking, busy, wait, issue, onPi
   )
 }
 
-/** A block result: spec line, its options, the blocks as they will be, what does not carry over. */
+/** A block result: spec line, the blocks as they will be (first: the room is small), its options, what does not carry over. */
 function BlockPreview({ res, state, onOpts }: { res: BlockResult; state: TransformState; onOpts: (patch: Partial<TransformOpts>) => void }) {
   const t = useT()
   const ids = useId()
@@ -199,10 +209,10 @@ function BlockPreview({ res, state, onOpts }: { res: BlockResult; state: Transfo
       <div className="trf__spec label" data-testid="transform-spec">
         {spec.join(' · ')}
       </div>
-      {options && <div className="trf__opts">{options}</div>}
       <div className="trf__plate" data-testid="transform-plate" data-form={res.type === 'sections' ? res.of : res.type}>
         <ReadOnlyDoc content={doc} className="trf__doc" />
       </div>
+      {options && <div className="trf__opts">{options}</div>}
       <div className="trf__left">
         <span className="trf__label label">{t('features.ai.transform.left.title')}</span>
         {kept.length || res.left.length || dropped.length ? (

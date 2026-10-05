@@ -16,10 +16,10 @@
   top: 0;
   z-index: 1;
   display: flex;
+  flex-wrap: wrap;
   gap: 4px;
   margin: 0 -14px 10px;
   padding: 10px 14px 9px;
-  overflow-x: auto;
   border-bottom: 1px solid var(--rule);
   background: var(--surface);
   scrollbar-width: none;
@@ -148,7 +148,7 @@
   flex-wrap: wrap;
   align-items: flex-end;
   gap: 10px 14px;
-  margin-bottom: 12px;
+  margin-top: 12px;
 }
 
 .trf__opt {
@@ -191,6 +191,31 @@
 
 .trf__doc .doc-content {
   font-size: var(--text-md);
+}
+
+/* a diagram or a chart brings its own frame: the plate is only the corner mark */
+.trf__plate:is([data-form='diagram'], [data-form='chart']) {
+  padding: 0;
+  border: 0;
+  background: none;
+}
+
+.trf__doc .doc-content :is(.mermaid-view, .chart-block) {
+  margin: 0;
+}
+
+/* a static preview: nothing in it looks selected (a lone diagram / chart starts as a node selection) */
+.trf__doc .doc-content .ProseMirror-selectednode:not(.is-block-selected) {
+  outline: none;
+}
+
+.trf__doc .doc-content :is(.chart-block, .mermaid-view).is-selected {
+  border-color: var(--rule);
+}
+
+/* a tall diagram is drawn smaller, so most of it shows at once */
+.trf__doc .doc-content .mermaid-view__svg svg {
+  max-height: 320px;
 }
 
 .trf__doc .doc-content > :first-child {
@@ -270,9 +295,31 @@
   cursor: pointer;
 }
 
+/* the forms list of the AI panel: what each form is for */
+.trf-hint {
+  flex: 0 1 auto;
+  max-width: 58%;
+  overflow: hidden;
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 @media (max-width: 520px) {
   .trf {
     max-height: 52vh;
+  }
+
+  /* one scrolling row on a phone; the edge fades where more forms wait */
+  .trf__forms {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    mask-image: linear-gradient(to right, var(--ink) calc(100% - 28px), transparent);
+  }
+
+  .trf-hint {
+    display: none;
   }
 
   .trf__form {

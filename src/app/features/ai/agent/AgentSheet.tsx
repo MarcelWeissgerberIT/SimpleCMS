@@ -17,7 +17,7 @@ import { shortcutLabel } from '../../../ui/controls'
 import { AI_MODELS, resolveModel } from '../client'
 import { MarkdownLite } from '../MarkdownLite'
 import { closeAgent, clampHeight, removeRef, setTermHeight, stopAgent, useAgent, HEIGHT_DEFAULT, type EchoEntry } from './state'
-import { applyStaged, changeTarget, contextPageId, discardAllStaged, discardStaged, newTask, pickContext, restoreStaged, runTask, submitPrompt, tn, undoLastBatch } from './session'
+import { answerAsk, applyStaged, changeTarget, contextPageId, discardAllStaged, discardStaged, newTask, pickContext, restoreStaged, runTask, submitPrompt, tn, undoLastBatch } from './session'
 import { Menu, useMenu, type MenuEntry } from '../../../ui/Menu'
 import { setContextMode, useContextMarks, type ContextMode } from '../../../editor'
 import { effectiveMode } from '../reads'
@@ -25,7 +25,7 @@ import { MAX_TOOL_CALLS } from './tools'
 import { currentSetup, readServers, setupKey } from '../mcp-servers/config'
 import { callLabel } from '../mcp-servers/activity'
 import { AGENT_REF_SHORTCUT, AGENT_SHORTCUT, AGENT_STOP_SHORTCUT } from './AgentPanel'
-import { COMMANDS, completionAt, type Completion } from './commands'
+import { COMMANDS, completionAt, helpNames, type Completion } from './commands'
 import { loadHistory } from './history'
 import { PropDiff, Preview, SchemaDiff } from './ReviewParts'
 import { EditDiff } from './EditDiff'
@@ -682,8 +682,6 @@ function McpChanged() {
 
 /* ---------- command output ---------- */
 
-const COMMAND_IDS = COMMANDS.map((c) => c.id)
-
 function Echo({ entry }: { entry: EchoEntry }) {
   const t = useT()
   const lang = useLang()
@@ -693,16 +691,12 @@ function Echo({ entry }: { entry: EchoEntry }) {
       out = (
         <>
           <dl className="term-table">
-            {COMMAND_IDS.map((id) => {
-              const c = COMMANDS.find((x) => x.id === id)!
-              const names = lang === 'de' ? [...c.de.slice(0, 1), c.en] : [c.en, ...c.de.slice(0, 1)]
-              return (
-                <div key={id}>
-                  <dt>{[...new Set(names)].map((n) => `/${n}`).join('  ')}</dt>
-                  <dd>{t(`features.agent.cmd.${id}`)}</dd>
-                </div>
-              )
-            })}
+            {COMMANDS.map((c) => (
+              <div key={c.id}>
+                <dt>{helpNames(c, lang).map((n) => `/${n}`).join('  ')}</dt>
+                <dd>{t(`features.agent.cmd.${c.id}`)}</dd>
+              </div>
+            ))}
           </dl>
           <dl className="term-table term-table--keys">
             {KEYS.map(([keys, label]) => (
@@ -778,6 +772,9 @@ function Echo({ entry }: { entry: EchoEntry }) {
       )
       break
     }
+    case 'ask':
+      out = <AskOut entry={entry} />
+      break
     case 'unknown':
     case 'info':
       out = <p>{t(entry.data?.key ?? 'features.agent.echo.unknown', entry.data?.vars)}</p>
@@ -793,6 +790,39 @@ function Echo({ entry }: { entry: EchoEntry }) {
       </div>
       <div className="term-echo__out">{out}</div>
     </section>
+  )
+}
+
+/** A y / n question (/clear-history): y or n in the prompt answers it, so do its two keys; then what it did. */
+function AskOut({ entry }: { entry: EchoEntry }) {
+  const t = useT()
+  const ask = entry.data?.ask
+  if (!ask) return null
+  const answer = (yes: boolean) => {
+    answerAsk(entry.id, yes)
+    focusPrompt()
+  }
+  return (
+    <>
+      <p className="term-ask">
+        <span>{t(entry.data?.key ?? '', entry.data?.vars)}</span>{' '}
+        {ask.state === 'open' ? (
+          <span className="term-ask__keys" role="group" aria-label={t('features.agent.ask.label')}>
+            <button type="button" className="term-ask__key" data-answer="yes" onClick={() => answer(true)}>
+              <span className="kbd">y</span> {t(`features.agent.ask.${ask.what}.yes`)}
+            </button>
+            <button type="button" className="term-ask__key" data-answer="no" onClick={() => answer(false)}>
+              <span className="kbd">n</span> {t(`features.agent.ask.${ask.what}.no`)}
+            </button>
+          </span>
+        ) : (
+          <span className="term-ask__answer" data-answer={ask.state}>
+            {ask.state === 'yes' ? 'y' : 'n'}
+          </span>
+        )}
+      </p>
+      {ask.result && <p className="term-ask__result">{t(ask.result.key, ask.result.vars)}</p>}
+    </>
   )
 }
 
@@ -1204,6 +1234,8 @@ function Prompt({ disabled, onReview }: { disabled: boolean; onReview: () => boo
   const draft = useAgent((s) => s.draft)
   const running = useAgent((s) => s.status === 'running')
   const hasTurns = useAgent((s) => s.turns.length > 0)
+  /** a question in the log waits for y / n (it goes even without a key or while a task runs) */
+  const asking = useAgent((s) => s.echo.some((e) => e.data?.ask?.state === 'open'))
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const [caret, setCaret] = useState(0)
   const [active, setActive] = useState(0)
@@ -1257,8 +1289,8 @@ function Prompt({ disabled, onReview }: { disabled: boolean; onReview: () => boo
 
   const submit = () => {
     const text = draft.trim()
-    // without a key (or while a task runs) only /commands go
-    if (!text || ((disabled || running) && !text.startsWith('/'))) return
+    // without a key (or while a task runs) only /commands and answers go
+    if (!text || ((disabled || running) && !text.startsWith('/') && !asking)) return
     hist.current.at = null
     setBrowsing(false)
     // the prompt goes into the history synchronously (before the task's first request)
@@ -1328,6 +1360,8 @@ function Prompt({ disabled, onReview }: { disabled: boolean; onReview: () => boo
       const up = e.key === 'ArrowUp'
       const firstLine = !draft.slice(0, el.selectionStart).includes('\n')
       const lastLine = !draft.slice(el.selectionEnd).includes('\n')
+      // fresh at the start of a walk (/clear-history may have emptied it meanwhile)
+      if (up && h.at === null) h.list = loadHistory()
       if (up && firstLine && h.list.length && h.at !== 0) {
         e.preventDefault()
         setBrowsing(true)
@@ -1350,7 +1384,7 @@ function Prompt({ disabled, onReview }: { disabled: boolean; onReview: () => boo
     }
   }
 
-  const placeholder = disabled ? t('features.agent.placeholderNoKey') : hasTurns ? t('features.agent.placeholderNext') : t('features.agent.placeholder')
+  const placeholder = asking ? t('features.agent.placeholderAsk') : disabled ? t('features.agent.placeholderNoKey') : hasTurns ? t('features.agent.placeholderNext') : t('features.agent.placeholder')
   return (
     <form
       className="term-prompt"
@@ -1413,7 +1447,7 @@ function Prompt({ disabled, onReview }: { disabled: boolean; onReview: () => boo
             <Square size={8} fill="currentColor" strokeWidth={0} aria-hidden /> {t('features.agent.stop')}
           </button>
         ) : (
-          <button type="submit" className="term-run" disabled={!draft.trim() || (disabled && !draft.trim().startsWith('/'))}>
+          <button type="submit" className="term-run" disabled={!draft.trim() || (disabled && !draft.trim().startsWith('/') && !asking)}>
             {t('features.agent.run')} <CornerDownLeft size={11} strokeWidth={2} aria-hidden />
           </button>
         )}

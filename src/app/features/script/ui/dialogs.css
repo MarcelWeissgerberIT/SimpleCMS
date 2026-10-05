@@ -1,0 +1,139 @@
+/* ================================================================
+   One Script — what a running script asks (ScriptDialogHost): its
+   own questions, the list of effects before a run, more time, a
+   team version to confirm. Loaded with the shell (runs start anywhere).
+   ================================================================ */
+
+.sc-dlg__text {
+  margin: 0 0 12px;
+  color: var(--ink);
+  font-size: var(--text-md);
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.sc-dlg__form {
+  display: grid;
+  gap: 8px;
+}
+.sc-dlg__form .sc-dlg__text {
+  margin: 0;
+}
+.sc-dlg__note {
+  margin: 10px 0 0;
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+}
+.sc-dlg__item {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius-2);
+  background: var(--surface-2);
+  overflow-wrap: anywhere;
+}
+.sc-dlg__keys {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+  width: 100%;
+}
+.sc-dlg__code {
+  max-height: 260px;
+  margin: 0;
+  padding: 10px 12px;
+  overflow: auto;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius-2);
+  background: var(--surface-2);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.55;
+  white-space: pre;
+}
+
+.sc-plan {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  border-top: 1px solid var(--rule);
+  list-style: none;
+}
+.sc-plan li {
+  border-bottom: 1px solid var(--rule);
+}
+.sc-plan__item {
+  display: grid;
+  grid-template-columns: 18px auto minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  min-height: 40px;
+  padding: 6px 2px;
+  cursor: pointer;
+}
+.sc-plan__item input {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: var(--signal);
+}
+.sc-plan__kind {
+  min-width: 56px;
+  padding: 2px 6px;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius-1);
+  color: var(--ink-2);
+  font-size: 9.5px;
+  text-align: center;
+}
+.sc-plan__kind--mail,
+.sc-plan__kind--claude {
+  border-color: var(--signal);
+  color: var(--signal-ink);
+}
+.sc-plan__kind--http,
+.sc-plan__kind--trash {
+  border-color: var(--c-red-text);
+  color: var(--c-red-text);
+}
+.sc-plan__label {
+  overflow-wrap: anywhere;
+}
+
+.sc-choose {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.sc-choose__item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 36px;
+  padding: 6px 10px;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius-1);
+  background: var(--surface);
+  color: var(--ink);
+  text-align: left;
+  transition:
+    background var(--dur-1) var(--ease-out),
+    transform var(--dur-1) var(--ease-out);
+}
+.sc-choose__item:hover {
+  background: var(--surface-2);
+}
+.sc-choose__item:active {
+  transform: translateY(1px);
+}
+.sc-choose__n {
+  color: var(--signal-ink);
+  font-size: 10.5px;
+}

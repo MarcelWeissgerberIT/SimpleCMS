@@ -1,0 +1,59 @@
+/**
+ * ONE SCRIPT — public API (re-exported by features/index.ts). A small, safe script language that only
+ * reaches One: pages, databases, people (+ mail / Claude / web as declared effects the person allows).
+ * Scripts live in Workspace.scripts (store/scripts.ts; write only with upsertScript / deleteScript or
+ * saveScript below); runs and trusted versions are per device (IndexedDB "one-scripts").
+ *
+ * UI (rendered by the shell)
+ *  - ScriptsRoute { scriptId? }: #/scripts (list) and #/scripts/<id> (workbench), lazy
+ *  - ScriptDialogHost: what a running script asks (modal / confirm / ask / choose, the list of effects
+ *    before a run, one more effect, more time, a team version to confirm) — mount once
+ *  - createScript(kind?, { name?, code?, open? }) → id | null · openScripts(id?) · saveScript(script) ·
+ *    duplicateScript(id) · deleteScript(id) (Undo toast)
+ *
+ * Running (integrations: buttons, database commands, automations, MCP, the AI terminal) — the engine
+ * loads on first use, so these are async:
+ *  - runScriptById(id, { mode?: 'run' | 'dry', contextPageId?, ui?, notify?, limits? }) → RunResult | null —
+ *    a saved script with the app's dialogs, its run log and a toast with Undo (null: missing / already running)
+ *  - runScript({ code, mode: 'run' | 'dry' | 'query', scriptId?, name?, contextPageId?, ui?, signal?, onLog?,
+ *    record?, trusted?, limits?, table? }) → RunResult { status, value, plain, text, table, log, changes,
+ *    effects, error, ms, run }: 'query' = read-only (writes, effects and dialogs refused — the query tester,
+ *    tools) · 'dry' = reads for real, records every write and effect, executes none ("Probelauf") ·
+ *    'run' = team: an unconfirmed version asks first; effects / trash are listed and confirmed once;
+ *    writes with origin 'script', a version before the first change of each page; undoRun(run) restores
+ *  - undoRun(run) · stopScript(id) · useActiveRuns (scriptId → the run in progress in this tab)
+ *  - loadScriptEngine(): the engine module for synchronous use (parse, syntaxError, tokenize, ScriptError,
+ *    errorTextEn, queryFromCode / queryToCode — the builder's model, GLOBAL_FUNCTIONS / MEMBERS, summarizeRun …)
+ *  - registerEffect('mail.send' | 'claude' | 'http.post', impl) → restore(): replace an effect's default
+ *    (mail.send: a mailto: draft · claude: the AI client with the person's key · http.post: a JSON POST).
+ *    A run asks the person before any effect; dry runs and queries never call one.
+ *  - appRunUI / silentRunUI: RunUI implementations (the app's dialogs · nobody is asked, defaults answer)
+ *  - errorMessage(error, t): an ErrorInfo in the UI language
+ */
+import type { RunOptions, RunResult } from './runtime/run'
+import type { ScriptRun } from './runtime/types'
+
+export { ScriptsRoute } from './ScriptsRoute'
+export { ScriptDialogHost } from './ui/DialogHost'
+export { createScript, openScripts, saveScript, duplicateScript, deleteScript } from './actions'
+export { runScriptById, stopScript, useActiveRuns, type RunByIdOptions } from './runtime/active'
+export { registerEffect, mailtoUrl, type EffectName, type EffectImpl, type EffectInputs, type EffectOutputs, type EffectEnv, type MailInput, type ClaudeInput, type HttpInput } from './runtime/effects'
+export { appRunUI, silentRunUI } from './runtime/dialogs'
+export { loadScriptRuns, useScriptRuns, MAX_RUNS } from './runtime/runs'
+export { errorMessage } from './ui/errors'
+export type { RunOptions, RunResult } from './runtime/run'
+export type { RunUI, RunMode, ScriptRun, LogLine, ChangeItem, EffectItem, ConfirmItem, ErrorInfo, ResultTable, Cell } from './runtime/types'
+export type { BQuery, BCond, BGroup, BOp, BVal } from './builder/model'
+
+/** The engine module (language, runner, query model, catalog) — loaded once on first use. */
+export const loadScriptEngine = () => import('./engine')
+
+/** Run code (see the header). */
+export async function runScript(o: RunOptions): Promise<RunResult> {
+  return (await loadScriptEngine()).runScript(o)
+}
+
+/** Undo a run of this device's run log (pages it created go to the trash, everything else back). */
+export async function undoRun(run: ScriptRun): Promise<boolean> {
+  return (await loadScriptEngine()).undoRun(run)
+}

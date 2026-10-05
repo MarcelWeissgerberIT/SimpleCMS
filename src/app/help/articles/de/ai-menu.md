@@ -3,7 +3,7 @@ id: ai-menu
 title: KI-Menü & Fragen
 section: ai
 order: 2
-keywords: ki, claude, leertaste, ki fragen, verbessern, zusammenfassen, übersetzen, erklären, weiterschreiben, aufgaben, workspace fragen, in datenbank umwandeln, board, tabelle, hintergrund, kontext, was claude liest, blöcke markieren, neu machen, umschreiben, vorgaben, styleguide, bild, foto, alternativtext, bildunterschrift, text auslesen, ocr, bild in tabelle, screenshot, ai, ask, database, context, redo, image
+keywords: ki, claude, leertaste, ki fragen, verbessern, zusammenfassen, übersetzen, erklären, weiterschreiben, aufgaben, workspace fragen, in datenbank umwandeln, board, tabelle, verwandeln in, schaubild, flussdiagramm, mindmap, mermaid, diagramm, zeitleiste, spalten, tabs, aufklappliste, karten, visualisieren, hintergrund, kontext, was claude liest, blöcke markieren, neu machen, umschreiben, vorgaben, styleguide, bild, foto, alternativtext, bildunterschrift, text auslesen, ocr, bild in tabelle, screenshot, ai, ask, database, transform, diagram, chart, context, redo, image
 related: claude-key, agent, command-palette, history
 summary: Leertaste in einer leeren Zeile, oder „KI fragen“ an einer Auswahl — Claude schreibt, bearbeitet und antwortet direkt in der Seite.
 ---
@@ -28,6 +28,18 @@ Eigene Anfragen nehmen das [One-Gedächtnis](help:memory) mit: **GEDÄCHTNIS · 
 
 ## In Datenbank umwandeln
 Markiere eine Liste, eine Tabelle oder einen Bericht aus mehreren Blöcken → **KI fragen** → **In Datenbank umwandeln**. Claude liest die Blöcke und schlägt eine Tabelle vor: die Einträge mit ihren Feldern (Status, Zuständige, Tags, Referenzcodes …), gruppiert nach den Überschriften, unter denen sie standen. Die Vorschau zeigt die Anzahl, die Spalten (was du nicht willst, schaltest du ab), **Gruppieren nach**, **Board** oder **Tabelle**, die ersten Einträge und was als Text bleibt — Einleitungen und Notizen behalten Formatierung und Links. **Umwandeln** (<kbd>Enter</kbd>) setzt die Datenbank an die Stelle der Liste; <kbd>Mod+Z</kbd> holt den Text in einem Schritt zurück (**Rückgängig** im Hinweis entfernt auch die Datenbank). Nichts wird erfunden: Was der Text nicht sagt, bleibt leer. **Platzierung**: **Hier (inline)** (Standard) oder **Als eigene Seite (verlinkt)** — eine ganzseitige Datenbank unter dieser Seite, verlinkt an der Stelle der Liste.
+
+## Verwandeln in
+Markiere ein paar Blöcke — Schritte, Zahlen, einen Vergleich, Fragen und Antworten — → **KI fragen** → **Verwandeln in …** (auch im Blockmenü ⋮⋮ mehrerer markierter Blöcke). Wähle die Form:
+- **Automatisch** — Claude wählt die passende Form und sagt in einer Zeile, warum.
+- **Board**, **Tabelle** — die Datenbank von **In Datenbank umwandeln**, mit ihrer Vorschau und der **Platzierung**. **Zeitleiste** — dasselbe mit den Daten aus dem Text, geöffnet in einer Zeitleisten-Ansicht.
+- **Schaubild** — ein Mermaid-Flussdiagramm, eine Mindmap, ein Ablauf, Zeitstrahl, Gantt oder Organigramm. Die Beschriftungen sind kurz: Claude kürzt deine eigenen Worte.
+- **Diagramm** — Säulen, Linie, Fläche oder Ring aus den Zahlen im Text, als eingegebene Daten eines [Diagramms](help:charts).
+- **Spalten** (2–5), **Tabs**, **Aufklappliste**, **Karten** — derselbe Text nebeneinander, hinter Reitern, eingeklappt oder als Hinweisboxen ([Aufklapper, Spalten & Tabs](help:layout-blocks)).
+
+Die Vorschau zeigt das echte Ergebnis — das Schaubild gezeichnet, das Diagramm gerendert, Spalten als Spalten. Die Leiste oben wechselt die Form (<kbd>←</kbd> / <kbd>→</kbd> in der leeren Eingabe); eine schon angefragte Form kommt ohne neue Anfrage zurück. Kleine Optionen: Art und Richtung des Schaubilds, Art des Diagramms, Zahl der Spalten. **Nicht übernommen** zeigt, was als Text bleibt, und jede Zahl, die Claude nennt, die aber nicht im Text steht — sie wird weggelassen. **Verwandeln** (<kbd>Enter</kbd>) setzt das Ergebnis in einem Schritt an die Stelle der Blöcke: <kbd>Mod+Z</kbd> holt den Text zurück, vorher wird eine Version gesichert. **Original darunter behalten (zugeklappt)** legt die Ausgangsblöcke in eine geschlossene Aufklappliste unter den neuen Block.
+
+Nichts wird erfunden: Namen, Zahlen, Daten und Schritte kommen nur aus dem Text. Ein Schaubild, das Mermaid nicht lesen kann, wird einmal automatisch korrigiert, sonst kommt ein Fehler — es ändert sich nichts. Nur die markierten Blöcke gehen an Claude, nie das One-Gedächtnis; die Anfrage läuft wie jede andere im Hintergrund weiter.
 
 ## In Seite umwandeln
 **KI fragen** → **Strukturieren** → **In Seite umwandeln** verschiebt die markierten Blöcke sofort in eine neue Unterseite — ohne Claude — und lässt an ihrer Stelle einen Link. Dasselbe im Blockmenü ⋮⋮ (**Umwandeln in → Seite**) und mit <kbd>Mod+Alt+9</kbd>; siehe [Ziehen, umwandeln, färben](help:block-handle).

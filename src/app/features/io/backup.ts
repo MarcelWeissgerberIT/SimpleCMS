@@ -11,6 +11,7 @@ import { FILE_PREFIX, getFile, readAsDataUrl, saveFile } from '../../lib/files'
 import { newId } from '../../lib/ids'
 import { useCloud } from '../../cloud'
 import { t } from '../../i18n'
+import { withoutCommandSecrets } from '../commands'
 
 export const BACKUP_FORMAT = 'simplecms-one-backup'
 
@@ -89,7 +90,8 @@ export async function buildBackup(rootId: ID | null, onProgress?: (done: number,
   const snap = getWorkspaceSnapshot()
   const scoped = collectScope(rootId)
   const { pages, topId } = scoped
-  const databases = rootId ? Object.fromEntries(Object.entries(scoped.databases).map(([id, db]) => [id, withoutWebhookSecrets(db)])) : scoped.databases
+  // (database commands' webhooks too: features/commands)
+  const databases = rootId ? Object.fromEntries(Object.entries(scoped.databases).map(([id, db]) => [id, withoutCommandSecrets(withoutWebhookSecrets(db))])) : scoped.databases
   const workspace: Workspace = {
     ...snap,
     pages: topId && pages[topId] ? { ...pages, [topId]: { ...pages[topId], parentId: null } } : pages,

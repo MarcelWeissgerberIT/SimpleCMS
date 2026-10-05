@@ -11,6 +11,8 @@ Tippe `/` in einer leeren Zeile (oder nach einem Leerzeichen) und schreib weiter
 
 Das Menü ist gruppiert: **Basis** (Text, Überschriften, Seite, Link zur Seite, Hinweisbox, Zitat, Trennlinie, Tabelle, Tabellenkalkulation, Diagramm), **Listen** (Aufzählung, nummeriert, To-do, Aufklapplisten), **Medien** (Bild, Lesezeichen, Einbetten, PDF, Datei, Video, Audio), **Datenbank** (Tabellen-, Board-, Listen-, Galerie-, Kalenderansicht, Zeitleiste, Diagrammansicht, Formular, verknüpfte Datenbank), **Erweitert** (Code, Formeln, Mermaid-Diagramme, Inhaltsverzeichnis, Brotkrumen, 2 bis 5 Spalten, Tabs, synchronisierter Block, Schaltfläche), **Im Text** (Erwähnung, Datum, Emoji, Icon, Formel im Text) und **KI** (KI fragen, Besprechungsnotizen).
 
+Ein Mermaid-Diagramm musst du nicht tippen: Markiere eine Liste von Schritten → **KI fragen** → **Verwandeln in …** → **Schaubild** ([KI-Menü & Fragen](help:ai-menu)).
+
 ## Markdown-Kürzel
 Am Zeilenanfang tippen:
 - `# `, `## `, `### ` — Überschriften

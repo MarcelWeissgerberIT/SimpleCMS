@@ -1,7 +1,8 @@
 /**
  * The Gmail sync read-out: LED + "GMAIL · 14:05" (running: "GMAIL · 12/50", failed: "GMAIL · ERROR").
- *  - MailSyncLed { databaseId }: for the Mails database's header — opens Settings → Mail; in the header of
- *    Contacts / Companies (people.ts markers) also "Merge…"; renders nothing for any other database.
+ *  - MailSyncLed { databaseId }: for the Mails database's header — opens Settings → Mail; for Contacts /
+ *    Companies (people.ts markers) also "Merge…" (shown where the database toolbar renders it for them —
+ *    today it does so for the Mails database only); renders nothing for any other database.
  *  - useMailReadout(): the same state + text for the settings tab's panel head.
  */
 import { Led } from '../../ui/controls'

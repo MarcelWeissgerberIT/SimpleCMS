@@ -492,10 +492,16 @@ function askSignIn(rowId: ID, key: string): void {
   })
 }
 
+/** Loads in flight ("<row>|<key>"): a second press while the first is still loading is not a second download. */
+const loading = new Set<string>()
+
 async function loadNow(rowId: ID, key: string): Promise<void> {
-  const { loadAttachments } = await attachmentsApi()
+  const job = `${rowId}|${key}`
+  if (loading.has(job)) return
+  loading.add(job)
   const toast = useUI.getState().toast
   try {
+    const { loadAttachments } = await attachmentsApi()
     const r = await loadAttachments(rowId, key === '*' ? null : [key], gctx())
     if (r.loaded.length) toast({ message: r.loaded.length === 1 ? t('features.mail.att.loaded', { name: r.loaded[0] }) : t('features.mail.att.loadedN', { n: r.loaded.length }), kind: 'success' })
     for (const name of r.tooBig) toast({ message: t('features.mail.att.refused', { name }), kind: 'error' })
@@ -507,6 +513,8 @@ async function loadNow(rowId: ID, key: string): Promise<void> {
       patch({ reconnect: true })
       askSignIn(rowId, key)
     } else toast({ message: info.text, kind: 'error' })
+  } finally {
+    loading.delete(job)
   }
 }
 

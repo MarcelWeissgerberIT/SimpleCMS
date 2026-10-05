@@ -11,6 +11,8 @@ Type `/` on an empty line (or after a space) and keep typing to filter: `/todo`,
 
 The menu is grouped: **Basic** (text, headings, page, link to page, callout, quote, divider, table, spreadsheet, chart), **Lists** (bulleted, numbered, to-do, toggles), **Media** (image, bookmark, embed, PDF, file, video, audio), **Database** (table, board, list, gallery, calendar, timeline and chart views, form, linked database), **Advanced** (code, equations, Mermaid diagrams, table of contents, breadcrumb, 2 to 5 columns, tabs, synced block, button), **Inline** (mention, date, emoji, icon, inline equation) and **AI** (Ask AI, meeting notes).
 
+A Mermaid diagram doesn't have to be typed: select a list of steps → **Ask AI** → **Transform into…** → **Diagram** ([The AI menu](help:ai-menu)).
+
 ## Markdown shortcuts
 Type these at the start of a line:
 - `# `, `## `, `### ` — headings

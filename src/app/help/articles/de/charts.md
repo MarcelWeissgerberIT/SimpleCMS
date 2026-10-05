@@ -4,7 +4,7 @@ title: Diagramme
 section: calculate
 order: 3
 keywords: diagramm, grafik, balken, säulen, linie, ring, kennzahl, kpi, sparkline, streuung, visualisieren, chart, graph
-related: spreadsheets, views, databases
+related: spreadsheets, views, databases, ai-menu
 summary: Säulen, Linie, Ring, Kennzahl und mehr — aus einer Tabelle, einer Datenbank oder deinem Workspace.
 ---
 Ein Diagramm fügst du mit `/diagramm` ein. Der Baukasten hat drei Schritte:
@@ -18,6 +18,8 @@ Ein Diagramm fügst du mit `/diagramm` ein. Der Baukasten hat drei Schritte:
 3. **Optionen** — Titel, Kategorien, Farben, Legende, Wertbeschriftung, Einheit, Nachkommastellen, Achsenbereich, Höhe.
 
 **Diagramm einfügen** setzt es in die Seite. Diagramme aus einer Tabelle, einer Datenbank oder dem Workspace bleiben live: Ändert sich eine Zahl, zieht das Diagramm nach.
+
+Stehen die Zahlen schon im Text? Markieren → **KI fragen** → **Verwandeln in …** → **Diagramm**: Claude baut das Diagramm aus den Zahlen, die im Text stehen — siehe [KI-Menü & Fragen](help:ai-menu).
 
 ## In einer Tabelle
 Bereich markieren und **Diagramm** in der Werkzeugleiste der Tabelle klicken. Ein Diagramm eines Blatts lässt sich **Als Block darunter einfügen**.

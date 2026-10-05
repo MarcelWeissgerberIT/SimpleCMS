@@ -3,7 +3,7 @@
  * defaults switched on / off, own commands (label, icon, kind + its settings). Edits stay in a draft and
  * are written once when the sheet closes (Done / Esc). A locked database (or a viewer) sees it read-only.
  */
-import { useId, useRef, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import { ArrowDown, ArrowUp, ChevronLeft, GripVertical, Lock, Pencil, Plus, Trash2, Zap } from 'lucide-react'
 import { DndContext, KeyboardSensor, PointerSensor, closestCenter, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core'
 import { SortableContext, arrayMove, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable'
@@ -35,9 +35,13 @@ type Item =
 const pad2 = (n: number) => String(n).padStart(2, '0')
 
 function initial(dbId: ID): Item[] {
-  const db = useWorkspace.getState().databases[dbId]
-  return mergeCommands(readDbCommands(db?.commands), defaultsFor(dbId), { keep: true }).map<Item>((e) =>
-    e.source === 'default' ? { id: e.id, source: 'default', hidden: e.hidden, spec: e.spec } : e.source === 'own' ? { id: e.id, source: 'own', command: e.command } : e,
+  const s = useWorkspace.getState()
+  const db = s.databases[dbId]
+  return (
+    mergeCommands(readDbCommands(db?.commands), defaultsFor(dbId), { keep: true })
+      // a deleted agent's place is not kept (a template or a second view may come back, an agent id does not)
+      .filter((e) => !(e.source === 'gone' && e.id.startsWith('agent:') && !s.agents?.[e.id.slice(6)]))
+      .map<Item>((e) => (e.source === 'default' ? { id: e.id, source: 'default', hidden: e.hidden, spec: e.spec } : e.source === 'own' ? { id: e.id, source: 'own', command: e.command } : e))
   )
 }
 
@@ -67,10 +71,19 @@ export function CommandsEditor({ databaseId, onClose }: { databaseId: ID; onClos
     dirty.current = true
     setItems(fn)
   }
+  const save = () => {
+    if (!dirty.current || !editable) return
+    dirty.current = false
+    saveDbCommands(databaseId, toStored(latest.current))
+  }
   const close = () => {
-    if (dirty.current && editable) saveDbCommands(databaseId, toStored(latest.current))
+    save()
     onClose()
   }
+  // closed another way (another modal took its place): the draft is saved too
+  const saveRef = useRef(save)
+  saveRef.current = save
+  useEffect(() => () => saveRef.current(), [])
   const focusRow = (id: string) => requestAnimationFrame(() => listRef.current?.querySelector<HTMLElement>(`[data-cmd="${globalThis.CSS.escape(id)}"] .dbc-grip`)?.focus())
 
   const move = (id: string, dir: -1 | 1) => {
@@ -254,21 +267,26 @@ function Row({
         <span className="dbc-row__kind">{sub}</span>
       </span>
       <span className="dbc-row__tools">
-        <button type="button" className="icon-btn icon-btn--sm" onClick={() => onMove(-1)} disabled={!editable || index === 0} aria-label={`${t('features.cmd.ed.up')}: ${label}`} title={t('features.cmd.ed.up')}>
-          <ArrowUp size={13} />
-        </button>
-        <button type="button" className="icon-btn icon-btn--sm" onClick={() => onMove(1)} disabled={!editable || index === total - 1} aria-label={`${t('features.cmd.ed.down')}: ${label}`} title={t('features.cmd.ed.down')}>
-          <ArrowDown size={13} />
-        </button>
-        {own && (
+        {editable && (
           <>
-            <button type="button" className="icon-btn icon-btn--sm" onClick={onEdit} aria-label={t('features.cmd.ed.editOne', { name: label })} title={t('common.edit')}>
-              <Pencil size={13} />
+            <button type="button" className="icon-btn icon-btn--sm" onClick={() => onMove(-1)} disabled={index === 0} aria-label={`${t('features.cmd.ed.up')}: ${label}`} title={t('features.cmd.ed.up')}>
+              <ArrowUp size={13} />
             </button>
-            <button type="button" className="icon-btn icon-btn--sm" onClick={onRemove} disabled={!editable} aria-label={t('features.cmd.ed.delete', { name: label })} title={t('common.delete')}>
-              <Trash2 size={13} />
+            <button type="button" className="icon-btn icon-btn--sm" onClick={() => onMove(1)} disabled={index === total - 1} aria-label={`${t('features.cmd.ed.down')}: ${label}`} title={t('features.cmd.ed.down')}>
+              <ArrowDown size={13} />
             </button>
           </>
+        )}
+        {/* read-only: an own command's settings can still be looked at */}
+        {own && (
+          <button type="button" className="icon-btn icon-btn--sm" onClick={onEdit} aria-label={t('features.cmd.ed.editOne', { name: label })} title={t('common.edit')}>
+            <Pencil size={13} />
+          </button>
+        )}
+        {own && editable && (
+          <button type="button" className="icon-btn icon-btn--sm" onClick={onRemove} aria-label={t('features.cmd.ed.delete', { name: label })} title={t('common.delete')}>
+            <Trash2 size={13} />
+          </button>
         )}
         <Switch checked={!hidden} onChange={onToggle} label={t('features.cmd.ed.show', { name: label })} disabled={!editable} />
       </span>

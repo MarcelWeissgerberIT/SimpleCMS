@@ -254,6 +254,9 @@ test.describe('Transform into (AI menu)', () => {
     // the list of forms: Auto first, then what may go here
     await ai.getByRole('option', { name: /^Transform into…/ }).click()
     await expect(ai.locator('.ai-list__group', { hasText: 'Transform into' })).toBeVisible()
+    // only the selected blocks go to Claude: the reads line says so
+    await expect(ai.getByTestId('ai-reads')).toContainText(/selection · \d+ words/)
+    await expect(ai.getByTestId('ai-reads')).not.toContainText('page')
     await expect(ai.getByRole('option')).toHaveText([/^Auto/, /^Board/, /^Table/, /^Timeline/, /^Diagram/, /^Chart/, /^Columns/, /^Tabs/, /^Toggles/, /^Cards/])
     // typing filters
     await ai.locator('.ai-cmd__input').fill('flow')
@@ -269,6 +272,8 @@ test.describe('Transform into (AI menu)', () => {
     await expect(pv.getByTestId('transform-plate')).toContainText('Part missing?')
     await expect(pv.getByTestId('transform-left').locator('li')).toHaveText([/Setting up the kit:.*stays where it is/, /Allow about 20 minutes\..*stays as text below/])
     await expect(ai.getByRole('option', { name: /^Transform/ })).toContainText('DIAGRAM')
+    // a short page scrolls (a spacer below it) so the panel opens at its full height under the selection
+    await expect.poll(async () => (await ai.boundingBox())!.height).toBeGreaterThan(540)
 
     // one structured request with the numbered blocks, the selection only, no MCP server
     expect(claude.captured).toHaveLength(1)
@@ -631,6 +636,11 @@ test.describe('Transform into (AI menu)', () => {
     await transformInto(ai, /^Chart/)
     const pv = preview(page)
     await expect(pv.getByTestId('transform-plate').locator('svg').first()).toBeVisible()
+    // the strip scrolls on a phone: the form shown stays in sight
+    const strip = await pv.getByTestId('transform-forms').boundingBox()
+    const chart = await pv.getByTestId('transform-forms').getByRole('button', { name: /Chart/ }).boundingBox()
+    expect(chart!.x).toBeGreaterThanOrEqual(strip!.x)
+    expect(chart!.x + chart!.width).toBeLessThanOrEqual(strip!.x + strip!.width)
     const box = await ai.boundingBox()
     expect(box!.x).toBeGreaterThanOrEqual(0)
     expect(box!.x + box!.width).toBeLessThanOrEqual(390)

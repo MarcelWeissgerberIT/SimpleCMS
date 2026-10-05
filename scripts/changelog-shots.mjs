@@ -867,6 +867,100 @@ const shots = {
     await ctx.close()
   },
 
+  /** The ⌘ key of the Mails database in the sidebar: its command menu, "Sync now" with the last sync's time. */
+  async 'db-commands'(browser) {
+    const box = new Mailbox(MAILS(Date.now()))
+    const setup = async (ctx) => {
+      await ctx.route('https://accounts.google.com/**', (route) => route.fulfill({ status: 200, contentType: 'application/javascript', body: GIS_JS }))
+      await ctx.route('https://gmail.googleapis.com/**', (route) => box.handle(route))
+    }
+    const { ctx, page } = await freshPage(browser, { setup })
+    await page.evaluate((from) => window.__one.workspace.getState().updateSettings({ mail: { clientId: '123456789012-shotsclientid0001.apps.googleusercontent.com', from } }), isoDay(-10))
+    // a first sync (a token without Google's window: the mail test hook) creates the Mails database
+    await page.evaluate((account) => window.__oneMail.setToken('ya29.shots-token-db', account), ACCOUNT)
+    await page.evaluate(() => window.__oneMail.sync())
+    await page.waitForFunction(() => window.__oneMail?.state().phase === 'idle' && !!window.__one.workspace.getState().settings.mail?.databaseId, null, { timeout: 30_000 })
+    await page.locator('.toast button[aria-label]').last().click().catch(() => {})
+    const dbId = await page.evaluate(() => window.__one.workspace.getState().settings.mail.databaseId)
+    await openPage(page, dbId)
+    const row = page.locator('.sb section[aria-label="Pages"] .sb-row').filter({ has: page.locator(`a[href="#/p/${dbId}"]`) })
+    await row.hover()
+    await page.waitForTimeout(200)
+    await row.getByTestId('tree-commands').click()
+    const menu = page.locator('.popover.cmd-menu')
+    await menu.getByRole('menuitem', { name: 'Sync now' }).hover()
+    await page.waitForTimeout(400)
+    // the sidebar from the left edge, the menu and a part of the Mails table: 16 : 10
+    const area = union(await boxOf(row, 8), await boxOf(menu, 16))
+    const width = 1040
+    const height = Math.round(width / 1.6)
+    const y = Math.min(Math.max(0, Math.round(area.y + area.height / 2 - height / 2)), H - height)
+    await save(page, 'db-commands', { x: 0, y, width, height })
+    await ctx.close()
+  },
+
+  /** Settings → Mail with One's own Google access: "Ready · One access", Google's warning in one line, Connect Gmail; the own client folded away. */
+  async 'gmail-one-click'(browser) {
+    const { ctx, page } = await freshPage(browser)
+    // One's built-in Google client at this origin through the mail test hook (?e2e only) — nothing is sent to Google
+    await page.evaluate(() => window.__oneMail.builtin('123456789012-shotsoneaccess01.apps.googleusercontent.com'))
+    await page.evaluate(() => window.__one.ui.getState().openModal({ type: 'settings', tab: 'mail' }))
+    const dialog = page.getByRole('dialog', { name: 'Settings' })
+    await dialog.getByTestId('mail-one-access').waitFor()
+    await page.waitForTimeout(400)
+    await rest(page)
+    await save(page, 'gmail-one-click', await boxOf(dialog))
+    await ctx.close()
+  },
+
+  /** A list of steps selected → Ask AI → Transform into… → Diagram: the drawn flowchart in the preview, the strip of forms above it. */
+  async transform(browser) {
+    // a client onboarding checklist (fictional); Claude's answer is canned like in tests/e2e/ai-transform.spec.ts
+    const intro = 'How we onboard a new client:'
+    const note = 'Usually done within two weeks.'
+    const steps = ['Sign the contract', 'Send the welcome pack', 'Kick-off call within five days', 'Is the data export ready? If not, chase their IT team', 'Import the data', 'Go live and hand over to support']
+    const flow = [
+      'flowchart TD',
+      '  s1["Sign the contract"] --> s2["Send welcome pack"]',
+      '  s2 --> s3["Kick-off call"]',
+      '  s3 --> s4{"Data export ready?"}',
+      '  s4 -->|no| s5["Chase their IT team"]',
+      '  s5 --> s4',
+      '  s4 -->|yes| s6["Import the data"]',
+      '  s6 --> s7["Go live, hand over"]',
+    ].join('\n')
+    const answer = (body) => {
+      const system = typeof body.system === 'string' ? body.system : JSON.stringify(body.system ?? '')
+      return system.includes('Mermaid diagram') ? { diagram: 'flowchart', code: flow, keep: [1], left: [note] } : {}
+    }
+    const { ctx, page } = await freshPage(browser, { claude: { json: answer } })
+    const id = await createPage(page, 'Client onboarding', doc(para(intro), { type: 'orderedList', attrs: { start: 1 }, content: steps.map((x) => li(para(x))) }, para(note), para('')), { icon: { type: 'asset', value: 'binder' } })
+    await openPage(page, id)
+    await page.locator('#main .ProseMirror p', { hasText: intro }).first().click()
+    await selectRange(page, intro, note)
+    await page.locator('[aria-label="Formatting"]').first().getByRole('button', { name: /^Ask AI$/ }).click()
+    const ai = page.locator('.ai-panel').first()
+    await ai.waitFor()
+    await ai.getByRole('option', { name: /^Transform into…/ }).click()
+    await ai.getByRole('option', { name: /^Diagram/ }).click()
+    const plate = page.getByTestId('transform-plate')
+    await plate.locator('svg').first().waitFor({ timeout: 20_000 })
+    await page.waitForTimeout(900)
+    // drawn left to right (a local option: no new request)
+    await page.getByTestId('transform-direction').getByRole('button', { name: 'Left to right' }).click()
+    await page.waitForTimeout(1200)
+    // the preview scrolled to the drawing; the strip of forms stays on top (sticky)
+    const strip = (await page.getByTestId('transform-forms').boundingBox())?.height ?? 80
+    await scrollToTop(plate, Math.round(strip) + 8)
+    await page.mouse.move(W + 40, H + 40)
+    // the page column only (no cut-off sidebar): from the selected list down to the panel's foot
+    const box = union(await boxOf(ai), await boxOf(page.locator('#main .ProseMirror p', { hasText: intro }).first()))
+    const left = Math.round((await page.locator('.sb').first().boundingBox())?.width ?? 0) + 1
+    const top = Math.max(0, Math.round(box.y - 20))
+    await save(page, 'transform', { x: left, y: top, width: W - left, height: Math.min(H - 30 - top, Math.round(box.y + box.height + 12 - top)) })
+    await ctx.close()
+  },
+
   /** Several blocks selected (text, image, table): the wash on each, the pinned grip, the count chip. */
   async 'block-select'(browser) {
     const { ctx, page } = await freshPage(browser)

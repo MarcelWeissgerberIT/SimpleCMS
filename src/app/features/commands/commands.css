@@ -20,7 +20,7 @@
 
 /* touch: the row's ⋯ menu has the commands — no third key in every database row */
 @media (hover: none), (pointer: coarse) {
-  .cmd-key--row {
+  .sb-row__btn.cmd-key--row {
     display: none;
   }
 }
@@ -225,6 +225,12 @@
   margin-left: 6px;
 }
 
+/* locked / view only: the switches read, they don't invite */
+.dbc-row__tools .switch:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+
 .dbc-row__tools .icon-btn:disabled {
   opacity: 0.3;
   pointer-events: none;
@@ -240,6 +246,11 @@
   .dbc-row:hover .dbc-row__tools .icon-btn,
   .dbc-row:focus-within .dbc-row__tools .icon-btn {
     opacity: 1;
+  }
+
+  .dbc-row:hover .dbc-row__tools .icon-btn:disabled,
+  .dbc-row:focus-within .dbc-row__tools .icon-btn:disabled {
+    opacity: 0.3;
   }
 }
 

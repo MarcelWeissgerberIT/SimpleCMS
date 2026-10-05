@@ -137,10 +137,11 @@ class Namespace extends HostObject {
     super()
   }
   method(name: string): NativeFn | undefined {
-    return this.fns[normName(name)]
+    const key = normName(name)
+    return Object.prototype.hasOwnProperty.call(this.fns, key) ? this.fns[key] : undefined
   }
   member(name: string): Value | undefined {
-    return this.fns[normName(name)]
+    return this.method(name)
   }
   display(): string {
     return this.typeName
@@ -288,15 +289,15 @@ export function globalsFor(host: Host): Record<string, Value> {
     const i = picked === null ? -1 : labels.indexOf(picked)
     return i >= 0 ? options[i] : null
   })
-  const notify = native('notify', (args) => {
-    host.notify(toText(argAt(args, 0, 'text')).slice(0, 500))
+  const notify = native('notify', (args, ctx) => {
+    host.notify(toText(argAt(args, 0, 'text')).slice(0, 500), ctx.pos)
     return null
   })
-  const open = native('open', (args) => {
+  const open = native('open', (args, ctx) => {
     const v = argAt(args, 0)
-    if (v instanceof PageObj) host.open(v.id)
-    else if (v instanceof QueryObj) host.open(v.dbId)
-    else host.open(pageArg(v, 'page').id)
+    if (v instanceof PageObj) host.open(v.id, ctx.pos)
+    else if (v instanceof QueryObj) host.open(v.dbId, ctx.pos)
+    else host.open(pageArg(v, 'page').id, ctx.pos)
     return null
   })
 
@@ -310,7 +311,7 @@ export function globalsFor(host: Host): Record<string, Value> {
       const bad = [...to, ...cc, ...bcc].find((a) => !EMAIL.test(a))
       if (!to.length) throw new ScriptError('bad_args', { name: 'mail.send', detail: 'no recipient (to:)' })
       if (bad) throw new ScriptError('bad_args', { name: 'mail.send', detail: `"${bad}" is not an e-mail address` })
-      const out = await host.effect('mail.send', { to, cc, bcc, subject, body }, clip(`${to.join(', ')}${cc.length ? ` (cc ${cc.join(', ')})` : ''} · ${subject || '—'}`))
+      const out = await host.effect('mail.send', { to, cc, bcc, subject, body }, clip(`${to.join(', ')}${cc.length ? ` (cc ${cc.join(', ')})` : ''} · ${subject || '—'}`), ctx.pos)
       return new SRecord([['status', out?.status ?? (host.mode === 'run' ? 'skipped' : 'dry')]])
     }),
   })
@@ -319,7 +320,7 @@ export function globalsFor(host: Host): Record<string, Value> {
     const prompt = needText(argAt(args, 0, 'prompt'), ctx).slice(0, 100_000)
     const context = argAt(args, 1, 'context')
     if (!prompt.trim()) throw new ScriptError('bad_args', { name: 'claude', detail: 'an empty prompt' })
-    const out = await host.effect('claude', { prompt, context: context === null ? '' : toText(context).slice(0, 200_000) }, clip(prompt.replace(/\s+/g, ' ')))
+    const out = await host.effect('claude', { prompt, context: context === null ? '' : toText(context).slice(0, 200_000) }, clip(prompt.replace(/\s+/g, ' ')), ctx.pos)
     return out ?? ''
   })
 
@@ -334,7 +335,7 @@ export function globalsFor(host: Host): Record<string, Value> {
       }
       if (!parsed || parsed.protocol !== 'https:') throw new ScriptError('bad_args', { name: 'http.post', detail: 'an https:// address' })
       const data = toPlain(argAt(args, 1, 'data'))
-      const out = await host.effect('http.post', { url: parsed.href, data }, clip(`${parsed.host}${parsed.pathname}`))
+      const out = await host.effect('http.post', { url: parsed.href, data }, clip(`${parsed.host}${parsed.pathname}`), ctx.pos)
       if (!out) return null
       return new SRecord([
         ['status', out.status],

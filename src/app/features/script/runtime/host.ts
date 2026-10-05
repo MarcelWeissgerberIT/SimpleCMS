@@ -59,6 +59,10 @@ export class Host {
   private readonly onLog?: (line: LogLine) => void
   private readonly approved: { keys: Set<string>; labels: Map<string, string> } | null
   private readonly counts = new Map<string, number>()
+  /** kinds the person allowed for the rest of this run ("Allow all") */
+  private readonly allowedKinds = new Set<string>()
+  /** check pass: the script asked the person something (its plan depends on the answers) */
+  usedDialogs = false
   private readonly drafts = new Map<ID, Page>()
   private draftSeq = 0
   /** the line currently running (log lines) */
@@ -343,10 +347,14 @@ export class Host {
     if (this.mode === 'dry') return true
     if (this.mode !== 'run') return false
     if (this.approved && this.approved.labels.get(key) === label) return this.approved.keys.has(key)
-    return this.ui.allowOne(item, this.scriptName, this.signal)
+    if (this.allowedKinds.has(kind)) return true
+    const answer = await this.ui.allowOne(item, this.scriptName, this.signal)
+    if (this.signal.aborted) throw new ScriptError('stopped')
+    if (answer === 'all') this.allowedKinds.add(kind)
+    return answer === true || answer === 'all'
   }
 
-  async effect<K extends EffectName>(name: K, input: EffectInputs[K], label: string): Promise<EffectOutputs[K] | null> {
+  async effect<K extends EffectName>(name: K, input: EffectInputs[K], label: string, pos?: Pos | null): Promise<EffectOutputs[K] | null> {
     if (this.mode === 'query') throw new ScriptError('read_only', { what: name })
     const kind = EFFECT_KIND[name]
     const key = `${kind}#${(this.counts.get(kind) ?? 0) + 1}`
@@ -354,17 +362,18 @@ export class Host {
     if (this.mode === 'check') return null
     if (this.mode === 'dry') {
       this.effects.push({ kind, key, label, status: 'planned' })
+      this.write('effect', `${name}: ${label}`, pos)
       return null
     }
     if (!allowed) {
       this.effects.push({ kind, key, label, status: 'skipped' })
-      this.write('warn', `${name}: ${label} — ${kind === 'http' ? 'refused' : 'skipped'}`)
+      this.write('warn', `${name}: ${label} — ${kind === 'http' ? 'refused' : 'skipped'}`, pos)
       return null
     }
     try {
       const out = await effectImpl(name)(input, { signal: this.signal, scriptName: this.scriptName, lang: this.lang })
       this.effects.push({ kind, key, label, status: 'done' })
-      this.write('effect', `${name}: ${label}`)
+      this.write('effect', `${name}: ${label}`, pos)
       return out
     } catch (e) {
       if (this.signal.aborted) throw new ScriptError('stopped')
@@ -378,25 +387,30 @@ export class Host {
 
   async dialog<T>(what: string, show: () => Promise<T>, fallback: T): Promise<T> {
     if (this.mode === 'query') throw new ScriptError('read_only', { what })
-    if (this.mode === 'check') return fallback
-    return show()
+    if (this.mode === 'check') {
+      this.usedDialogs = true
+      return fallback
+    }
+    const answer = await show()
+    if (this.signal.aborted) throw new ScriptError('stopped')
+    return answer
   }
 
-  notify(text: string): void {
+  notify(text: string, pos?: Pos | null): void {
     if (this.mode === 'query') throw new ScriptError('read_only', { what: 'notify()' })
     if (this.mode === 'check') return
     if (this.mode === 'dry') {
-      this.write('info', `notify: ${text}`)
+      this.write('info', `notify: ${text}`, pos)
       return
     }
     this.ui.notify(text)
   }
 
-  open(id: ID): void {
+  open(id: ID, pos?: Pos | null): void {
     if (this.mode === 'query') throw new ScriptError('read_only', { what: 'open()' })
     if (this.mode === 'check') return
     if (this.mode === 'dry' || this.isDraft(id)) {
-      this.write('info', `open: ${this.page(id)?.title || id}`)
+      this.write('info', `open: ${this.page(id)?.title || id}`, pos)
       return
     }
     navigate({ name: 'page', id })

@@ -284,8 +284,13 @@ export function HistoryModal({ pageId, onClose }: { pageId: ID; onClose: () => v
                   <>
                     <span>{t('features.history.since')}</span>
                     {stats.changed > 0 && <span className="hist__legend hist__legend--chg">~{stats.changed} {t('features.history.changed')}</span>}
-                    <span className="hist__legend hist__legend--add">+{stats.added} {t('features.history.added')}</span>
-                    <span className="hist__legend hist__legend--rem">−{stats.removed} {t('features.history.removed')}</span>
+                    {/* only the properties changed: no "+0 added −0 removed" */}
+                    {(stats.added > 0 || stats.removed > 0 || stats.changed > 0) && (
+                      <>
+                        <span className="hist__legend hist__legend--add">+{stats.added} {t('features.history.added')}</span>
+                        <span className="hist__legend hist__legend--rem">−{stats.removed} {t('features.history.removed')}</span>
+                      </>
+                    )}
                     {propChanges > 0 && <span className="hist__legend hist__legend--chg">{t(page?.databaseId ? 'features.history.props.count' : 'features.history.props.meta', { count: propChanges })}</span>}
                   </>
                 ) : (

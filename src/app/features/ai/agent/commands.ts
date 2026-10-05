@@ -1,5 +1,5 @@
 /**
- * AI terminal — the prompt's /commands (EN names + DE aliases, both always work) and Tab
+ * AI terminal — the prompt's /commands (EN and DE names, all of them always work) and Tab
  * completion of /commands and @page / @database mentions (title search).
  */
 import { useWorkspace } from '../../../store/store'
@@ -9,25 +9,50 @@ import type { TermMention } from './types'
 import { examples } from '../memory/example'
 import { memoryInUse } from '../memory/settings'
 
-export type CommandId = 'new' | 'stop' | 'apply' | 'discard' | 'history' | 'help' | 'mcp' | 'cost' | 'context' | 'redo' | 'remember' | 'nomemory' | 'example'
+export type CommandId = 'new' | 'stop' | 'apply' | 'discard' | 'history' | 'clearhistory' | 'help' | 'mcp' | 'cost' | 'context' | 'redo' | 'remember' | 'nomemory' | 'example'
 
-/** Names per command: English first, then the German aliases. */
-export const COMMANDS: Array<{ id: CommandId; en: string; de: string[] }> = [
-  { id: 'new', en: 'new', de: ['neu'] },
-  { id: 'stop', en: 'stop', de: ['stopp'] },
-  { id: 'apply', en: 'apply', de: ['übernehmen', 'uebernehmen'] },
-  { id: 'discard', en: 'discard', de: ['verwerfen'] },
-  { id: 'history', en: 'history', de: ['verlauf'] },
-  { id: 'help', en: 'help', de: ['hilfe'] },
-  { id: 'mcp', en: 'mcp', de: [] },
-  { id: 'cost', en: 'cost', de: ['kosten'] },
-  { id: 'context', en: 'context', de: ['kontext'] },
-  { id: 'redo', en: 'redo', de: ['neu-machen'] },
+export interface Command {
+  id: CommandId
+  /** English names, the main one first */
+  en: string[]
+  /** German names, the main one first (spellings without umlauts work too, /help leaves them out) */
+  de: string[]
+}
+
+/** The commands with their names (/help lists them in this order). */
+export const COMMANDS: Command[] = [
+  { id: 'new', en: ['new', 'clear'], de: ['neu', 'leeren'] },
+  { id: 'stop', en: ['stop'], de: ['stopp'] },
+  { id: 'apply', en: ['apply'], de: ['übernehmen', 'uebernehmen'] },
+  { id: 'discard', en: ['discard'], de: ['verwerfen'] },
+  { id: 'history', en: ['history'], de: ['verlauf'] },
+  // asks y / n first (session.ts): this device's prompt history of the workspace goes
+  { id: 'clearhistory', en: ['clear-history'], de: ['verlauf-leeren'] },
+  { id: 'help', en: ['help'], de: ['hilfe'] },
+  { id: 'mcp', en: ['mcp'], de: [] },
+  { id: 'cost', en: ['cost'], de: ['kosten'] },
+  { id: 'context', en: ['context'], de: ['kontext'] },
+  { id: 'redo', en: ['redo'], de: ['neu-machen'] },
   // One memory (features/ai/memory): these two also take text after the name
-  { id: 'remember', en: 'remember', de: ['merken'] },
-  { id: 'nomemory', en: 'no-memory', de: ['ohne-gedächtnis', 'ohne-gedaechtnis'] },
-  { id: 'example', en: 'example', de: ['beispiel'] },
+  { id: 'remember', en: ['remember'], de: ['merken'] },
+  { id: 'nomemory', en: ['no-memory'], de: ['ohne-gedächtnis', 'ohne-gedaechtnis'] },
+  { id: 'example', en: ['example'], de: ['beispiel'] },
 ]
+
+/** Every name of a command, those of the UI language first. */
+export const namesOf = (c: Command, lang: 'en' | 'de'): string[] => (lang === 'de' ? [...c.de, ...c.en] : [...c.en, ...c.de])
+
+/** "uebernehmen" spells "übernehmen" without umlauts: it works, but lists don't show it. */
+const plain = (s: string) => s.replace(/ä/g, 'ae').replace(/ö/g, 'oe').replace(/ü/g, 'ue').replace(/ß/g, 'ss')
+const shown = (names: string[]) => names.filter((n) => !names.some((m) => m !== n && plain(m) === n))
+
+/** The names /help lists: all of the UI language, then the other language's main name. */
+export function helpNames(c: Command, lang: 'en' | 'de'): string[] {
+  const [own, other] = lang === 'de' ? [c.de, c.en] : [c.en, c.de]
+  return [...new Set([...shown(own), ...other.slice(0, 1)])]
+}
+
+const byName = (word: string) => COMMANDS.find((c) => c.en.includes(word) || c.de.includes(word))
 
 /** Commands that take text after their name ("/remember Reports go out on Fridays"). */
 const WITH_TEXT: CommandId[] = ['remember', 'nomemory', 'example']
@@ -36,17 +61,15 @@ const WITH_TEXT: CommandId[] = ['remember', 'nomemory', 'example']
 export function parseCommandText(input: string): { id: CommandId; text: string } | null {
   const m = /^\/([\p{L}\d_-]+)\s+([\s\S]+)$/u.exec(input.trim())
   if (!m) return null
-  const word = m[1].toLowerCase()
-  const cmd = COMMANDS.find((c) => (c.en === word || c.de.includes(word)) && WITH_TEXT.includes(c.id))
-  return cmd ? { id: cmd.id, text: m[2].trim() } : null
+  const cmd = byName(m[1].toLowerCase())
+  return cmd && WITH_TEXT.includes(cmd.id) ? { id: cmd.id, text: m[2].trim() } : null
 }
 
 /** A prompt that is a command ("/help", "/hilfe "): its id, 'unknown' for another "/word", null for a task. */
 export function parseCommand(input: string): CommandId | 'unknown' | null {
   const m = /^\/([\p{L}\d_-]+)\s*$/u.exec(input.trim())
   if (!m) return null
-  const word = m[1].toLowerCase()
-  return COMMANDS.find((c) => c.en === word || c.de.includes(word))?.id ?? 'unknown'
+  return byName(m[1].toLowerCase())?.id ?? 'unknown'
 }
 
 export interface CompletionItem {
@@ -113,9 +136,10 @@ export function completionAt(draft: string, caret: number, lang: 'en' | 'de'): C
     const from = before.length - cmd[1].length - 1
     const items: Array<CompletionItem & { primary: boolean }> = []
     for (const c of COMMANDS) {
-      const names = lang === 'de' ? [...c.de, c.en] : [c.en, ...c.de]
-      const hit = names.find((n) => n.startsWith(word))
-      if (hit) items.push({ key: c.id, insert: `/${hit}`, label: `/${hit}`, command: c.id, primary: hit === names[0] })
+      const names = namesOf(c, lang)
+      // a name typed out exactly wins over a longer one ("/clear": new, not /clear-history)
+      const hit = names.find((n) => n === word) ?? names.find((n) => n.startsWith(word))
+      if (hit) items.push({ key: c.id, insert: `/${hit}`, label: `/${hit}`, command: c.id, primary: (lang === 'de' ? c.de : c.en).includes(hit) })
     }
     // names of the UI language first ("/hi" in German: /hilfe before /history)
     items.sort((a, b) => Number(b.primary) - Number(a.primary))

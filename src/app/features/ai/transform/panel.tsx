@@ -21,6 +21,9 @@ import { fitsAt, fittingTypes } from './range'
 import { TransformPreview } from './TransformPreview'
 import { resultKey, shownResult, TRANSFORM_TYPES, type TransformOpts, type TransformType } from './types'
 
+/** The room (px) the preview wants below the selection: a transform run scrolls the page that far when it can. */
+export const TRANSFORM_ROOM = 600
+
 /** A row of the panel's list (the shape AIMenu renders). */
 export interface TransformRow {
   id: string

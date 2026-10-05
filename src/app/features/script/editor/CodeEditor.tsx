@@ -5,11 +5,12 @@
  * autocomplete for @ references, names, members and property names, signature help, and the error
  * of the last check or run (squiggle, gutter mark, the message at the end of its line).
  *
- * Keys: Tab / Shift+Tab indent, Enter keeps the indentation, Mod+/ comments lines, Backspace after a
- * chip removes the whole chip; Esc then Tab leaves the editor. The parent handles run keys (onKey).
+ * Keys: Tab / Shift+Tab indent, Enter keeps the indentation, Backspace after a chip removes the whole
+ * chip; Esc then Tab leaves the editor (Mod+/ stays the app's shortcut sheet). The parent handles run keys (onKey).
  */
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react'
 import { useT } from '../../../i18n'
+import { fnDesc } from '../ui/format'
 import { analyze, completionAt, memberCandidates, nameCandidates, openCall, segments, signatureOf, type Segment } from './analyze'
 
 export interface RefCandidate {
@@ -65,21 +66,23 @@ export const refToken = (c: Pick<RefCandidate, 'label' | 'kind' | 'id'>) => `@[$
 const IDENT = /^[\p{L}_][\p{L}\p{N}_]*$/u
 const nameCode = (n: string) => (IDENT.test(n) ? n : `\`${n.replace(/`/g, '')}\``)
 
+/**
+ * An @ reference as a chip. It takes exactly the width of its source text (`@[Label](p:id)`, in `ch`
+ * of the monospace font), so the caret in the textarea above still lines up: the label as a pill, the
+ * id as a faint tail in what is left.
+ */
 function Chip({ code, seg }: { code: string; seg: Segment }) {
   const raw = code.slice(seg.start, seg.end)
   const m = /^@\[(.*)\]\(([pusa]):([\w-]+)\)$/s.exec(raw)
   if (!m) return <span className="sc-tok sc-tok--ref">{raw}</span>
-  const labelRaw = m[1]
+  const label = m[1].replace(/\\([\]\\])/g, '$1')
   return (
-    <span className={`sc-chip sc-chip--${m[2]}`}>
-      <span className="sc-chip__at">@</span>
-      <span className="sc-chip__gap">[</span>
-      <span className="sc-chip__label">{labelRaw}</span>
-      <span className="sc-chip__gap">](</span>
-      <span className="sc-chip__id">
-        {m[2]}:{m[3]}
+    <span className={`sc-chip sc-chip--${m[2]}`} style={{ width: `${[...raw].length}ch` }} title={`${label} · ${m[2]}:${m[3]}`}>
+      <span className="sc-chip__pill">
+        <span className="sc-chip__at">@</span>
+        {label}
       </span>
-      <span className="sc-chip__gap">)</span>
+      <span className="sc-chip__tail">{m[3]}</span>
     </span>
   )
 }
@@ -310,14 +313,6 @@ export function CodeEditor({ value, onChange, error = null, readOnly, refs, prop
         return
       }
     }
-    if ((e.metaKey || e.ctrlKey) && e.key === '/') {
-      e.preventDefault()
-      const ls = value.slice(0, a).lastIndexOf('\n') + 1
-      const lineEnd = value.indexOf('\n', Math.max(b - 1, a))
-      const block = value.slice(ls, lineEnd < 0 ? value.length : lineEnd)
-      const all = block.split('\n').every((l) => /^\s*#/.test(l) || !l.trim())
-      insertText(ls, ls + block.length, all ? block.replace(/^(\s*)# ?/gm, '$1') : block.replace(/^/gm, '# '))
-    }
   }
 
   const onSelect = () => {
@@ -437,7 +432,7 @@ export function CodeEditor({ value, onChange, error = null, readOnly, refs, prop
         {sig ? (
           <span className="sc-code__sig">
             <code>{sig.sig}</code>
-            <span className="sc-code__sigdesc">{t(`features.script.fn.${sig.name}`)}</span>
+            <span className="sc-code__sigdesc">{fnDesc(t, sig.name)}</span>
           </span>
         ) : (
           <span className="sc-code__hint">{t('features.script.ed.hint')}</span>

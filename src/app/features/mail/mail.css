@@ -557,9 +557,16 @@
   white-space: nowrap;
 }
 .ml-dir__count {
-  flex: 1;
-  min-width: 0;
+  flex: 1 0 auto;
   color: var(--ink-3);
+  white-space: nowrap;
+}
+/* the keys keep to the right; on a phone they wrap under the name as one group */
+.ml-dir__keys {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
 }
 .ml-free {
   margin-bottom: 0;

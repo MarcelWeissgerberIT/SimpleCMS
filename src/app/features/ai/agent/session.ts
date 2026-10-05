@@ -15,8 +15,8 @@ import { useCloud } from '../../../cloud'
 import { attachMcp, codewordTask, currentSetup, setupKey, type McpSetup } from '../mcp-servers/config'
 import { applyChanges, type ApplyResult } from './apply'
 import { AGENT_SYSTEM, runAgent, taskMessage, type RunHooks } from './run'
-import { initialAgentState, openAgent, setStopHandler, useAgent, type EchoEntry, type MemCard, type MemItem } from './state'
-import { loadHistory, pushHistory } from './history'
+import { initialAgentState, openAgent, setStopHandler, useAgent, type EchoAsk, type EchoEntry, type MemCard, type MemItem } from './state'
+import { clearHistory, loadHistory, pushHistory } from './history'
 import { parseCommand, parseCommandText } from './commands'
 import { TERMINAL_TOOLS, type ReadLimit, type StageApi } from './tools'
 import { memoryFor, noteUse } from '../memory/use'
@@ -366,10 +366,43 @@ function echo(input: string, kind: EchoEntry['kind'], data?: EchoEntry['data']) 
 
 const info = (input: string, key: string, vars?: Record<string, string | number>) => echo(input, 'info', { key, ...(vars ? { vars } : {}) })
 
+/* ---------- y / n questions in the log (/clear-history) ---------- */
+
+const YES = new Set(['y', 'yes', 'j', 'ja'])
+const NO = new Set(['n', 'no', 'nein'])
+
+/** The question in the log that waits for its y / n (null: none). */
+export const openAsk = (): EchoEntry | null => get().echo.findLast((e) => e.kind === 'ask' && e.data?.ask?.state === 'open') ?? null
+
+/** Answer a question in the log: y does what it asks, n leaves everything as it is. */
+export function answerAsk(id: string, yes: boolean) {
+  const entry = get().echo.find((e) => e.id === id)
+  const ask = entry?.data?.ask
+  if (!entry || !ask || ask.state !== 'open') return
+  let result: EchoAsk['result']
+  if (ask.what === 'clearhistory') {
+    const count = Number(entry.data?.vars?.count) || 0
+    if (yes) clearHistory()
+    result = yes ? { key: `features.agent.echo.clearHistory.cleared.${count === 1 ? 'one' : 'other'}`, vars: { count } } : { key: 'features.agent.echo.clearHistory.kept' }
+  }
+  const next: EchoAsk = { ...ask, state: yes ? 'yes' : 'no', ...(result ? { result } : {}) }
+  set((s) => ({ echo: s.echo.map((e) => (e.id === id ? { ...e, data: { ...e.data, ask: next } } : e)) }))
+}
+
 /** Run what is in the prompt: a /command right here, anything else as a task for Claude. */
 export async function submitPrompt(raw?: string): Promise<void> {
   const input = (raw ?? get().draft).trim()
   if (!input) return
+  // a question waits for y / n: the answer goes there (never into the prompt history); anything else drops it
+  const asking = openAsk()
+  if (asking) {
+    const word = input.toLowerCase()
+    if (YES.has(word) || NO.has(word)) {
+      set({ draft: '' })
+      return answerAsk(asking.id, YES.has(word))
+    }
+    answerAsk(asking.id, false)
+  }
   // /remember <sentence> · /no-memory <task>
   const withText = parseCommandText(input)
   if (withText) {
@@ -411,6 +444,14 @@ export async function submitPrompt(raw?: string): Promise<void> {
       const list = loadHistory()
       if (list[list.length - 1] === input) list.pop()
       echo(input, 'history', { list: list.slice(-20) })
+      return
+    }
+    case 'clearhistory': {
+      // this command is the newest entry already: the prompts before it
+      const list = loadHistory()
+      const count = list.length - (list[list.length - 1] === input ? 1 : 0)
+      if (!count) return info(input, 'features.agent.echo.clearHistory.empty')
+      echo(input, 'ask', { key: `features.agent.echo.clearHistory.ask.${count === 1 ? 'one' : 'other'}`, vars: { count }, ask: { what: 'clearhistory', state: 'open' } })
       return
     }
     case 'help':

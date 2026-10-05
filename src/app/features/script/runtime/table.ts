@@ -6,6 +6,8 @@
 import { HostObject, SRecord, toText, type CallCtx, type Value } from '../lang'
 import { PageObj, QueryObj } from './objects'
 import type { Cell, ResultTable } from './types'
+import { propByName } from './props'
+import { propertyValueToText } from '../../../database'
 
 export const TABLE_MAX = 200
 const COLS_MAX = 12
@@ -28,9 +30,14 @@ function rowColumns(rows: PageObj[]): string[] {
 }
 
 function rowCells(row: PageObj, columns: string[]): Cell[] {
+  const db = row.db
+  const page = row.host.page(row.id)
   return columns.map((c, i) => {
     if (i === 0) return { text: row.display(), pageId: row.id }
     try {
+      // a property as the database shows it (number formats, dates, options); else the script's value
+      const prop = db && page && !row.host.isDraft(row.id) ? propByName(db, c) : undefined
+      if (prop && prop.type !== 'relation') return propertyValueToText(db!, prop, page!)
       return cell(row.scope(c) ?? null)
     } catch {
       return ''

@@ -478,7 +478,7 @@ function SyncPanel() {
         </MlField>
       </div>
       <div className="ml-grid">
-        <MlField label={t('features.mail.att.auto')} wide hint={t(`features.mail.att.autoHint.${cfg.attachments}`)}>
+        <MlField label={t('features.mail.att.auto')} hint={t(`features.mail.att.autoHint.${cfg.attachments}`)}>
           <div className="seg ml-seg ml-seg--att" role="radiogroup" aria-label={t('features.mail.att.auto')}>
             {(['off', 'media', 'all'] as const).map((a) => (
               <button key={a} type="button" role="radio" aria-checked={cfg.attachments === a} className="seg__btn" onClick={() => setMail({ attachments: a })}>

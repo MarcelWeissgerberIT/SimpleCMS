@@ -20,3 +20,5 @@ summary: Inhalte einklappen, nebeneinander stellen oder hinter Tabs legen.
 - <kbd>Mod+Alt+←</kbd> / <kbd>Mod+Alt+→</kbd> wechseln den Tab, während du in einem schreibst.
 
 Tabs gehen nicht in Tabs. Welcher Tab offen ist, wird nicht mit der Seite gespeichert.
+
+> Steht es schon als Liste da? Markieren → **KI fragen** → **Verwandeln in …** → **Spalten**, **Tabs**, **Aufklappliste** oder **Karten** — Claude verteilt den Text darauf, mit Vorschau. Siehe [KI-Menü & Fragen](help:ai-menu).

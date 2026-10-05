@@ -155,8 +155,10 @@ function DatabaseBody({
 }) {
   const t = useT()
   const m = useDbModel(db, page, view, search, inline, keep)
-  // rows selected in the table: database commands started here get them
-  const [selection, setSelection] = useState<ID[]>([])
+  // rows selected in the table: database commands started here get them (a new value only when it changed:
+  // the table publishes on every selection change, and an empty one again on each Escape)
+  const [selection, setSelectionState] = useState<ID[]>([])
+  const setSelection = useCallback((ids: ID[]) => setSelectionState((cur) => (cur.length === ids.length && cur.every((x, i) => x === ids[i]) ? cur : ids)), [])
 
   /** A new row that the view's filters / search would hide: keep it on screen and say so. */
   const keepVisible = (id: ID) => {

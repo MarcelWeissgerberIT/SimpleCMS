@@ -29,9 +29,9 @@ import { loadState, saveState } from './storage'
 export type AttachmentKind = 'image' | 'pdf' | 'audio' | 'video' | 'file'
 
 const extOf = (name: string) => name.toLowerCase().match(/\.([a-z0-9]{1,8})$/)?.[1] ?? ''
-/** Never rendered: markup that could run or load things. */
-const ACTIVE_EXT = new Set(['html', 'htm', 'xhtml', 'shtml', 'svg', 'svgz', 'xml', 'xsl', 'xslt', 'mht', 'mhtml', 'js', 'mjs', 'hta'])
-const ACTIVE_MIME = /html|svg|xml|javascript|ecmascript/
+/** Never rendered: markup that could run or load things (an attached mail, .eml / message/rfc822, included). */
+const ACTIVE_EXT = new Set(['html', 'htm', 'xhtml', 'shtml', 'svg', 'svgz', 'xml', 'xsl', 'xslt', 'mht', 'mhtml', 'eml', 'js', 'mjs', 'hta'])
+const ACTIVE_MIME = /html|svg|xml|xsl|javascript|ecmascript|^message\/|^multipart\//
 const IMAGE: Record<string, string> = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp', avif: 'image/avif', bmp: 'image/bmp' }
 const AUDIO: Record<string, string> = { mp3: 'audio/mpeg', m4a: 'audio/mp4', aac: 'audio/aac', wav: 'audio/wav', ogg: 'audio/ogg', oga: 'audio/ogg', opus: 'audio/ogg', flac: 'audio/flac' }
 const VIDEO: Record<string, string> = { mp4: 'video/mp4', m4v: 'video/mp4', webm: 'video/webm', mov: 'video/quicktime', ogv: 'video/ogg' }

@@ -108,11 +108,13 @@ function Directory({ kind }: { kind: PeopleKind }) {
       <Icon size={14} aria-hidden className="ml-dir__icon" />
       <span className="ml-dir__name">{name}</span>
       <span className="ml-dir__count label">{id ? t(count === 1 ? 'features.mail.people.rows.one' : 'features.mail.people.rows', { n: count }) : t('features.mail.people.later')}</span>
-      {id && kind !== 'conversations' && <MergeKey dbId={id} kind={kind} />}
       {id && (
-        <button type="button" className="btn btn--sm btn--ghost" onClick={() => openPage(id)} aria-label={`${t('common.open')} — ${name}`}>
-          <ArrowUpRight size={13} /> {t('common.open')}
-        </button>
+        <span className="ml-dir__keys">
+          {kind !== 'conversations' && <MergeKey dbId={id} kind={kind} />}
+          <button type="button" className="btn btn--sm btn--ghost" onClick={() => openPage(id)} aria-label={`${t('common.open')} — ${name}`}>
+            <ArrowUpRight size={13} /> {t('common.open')}
+          </button>
+        </span>
       )}
     </li>
   )

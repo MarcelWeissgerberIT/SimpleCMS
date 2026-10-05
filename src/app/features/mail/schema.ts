@@ -66,8 +66,13 @@ export const gmailLink = (id: string) => `https://mail.google.com/mail/u/0/#all/
 
 /** A property's name in the workspace language. */
 const nameOf = (role: MailPropRole | 'subject') => t(`features.mail.prop.${role}`)
-/** Both languages' names (an adopted database may have been created in the other one). */
-const namesOf = (role: MailPropRole) => [ALL_MESSAGES.en[`features.mail.prop.${role}`], ALL_MESSAGES.de[`features.mail.prop.${role}`]].filter(Boolean).map((n) => n.toLowerCase())
+/**
+ * Names a role had in earlier builds: the German thread text was "Konversation" until the Conversation
+ * relation (people.ts) took that name — such a property is still the thread and gets today's name.
+ */
+const LEGACY: Partial<Record<MailPropRole, string[]>> = { thread: ['konversation'] }
+/** Both languages' names (an adopted database may have been created in the other one), and earlier ones. */
+const namesOf = (role: MailPropRole) => [ALL_MESSAGES.en[`features.mail.prop.${role}`], ALL_MESSAGES.de[`features.mail.prop.${role}`]].filter(Boolean).map((n) => n.toLowerCase()).concat(LEGACY[role] ?? [])
 
 /** The roles the database needs with these settings. */
 export function neededRoles(cfg: MailSettings): MailPropRole[] {
@@ -180,6 +185,7 @@ export function ensureProps(dbId: ID, cfg: MailSettings): Partial<Record<MailPro
     if (prop) {
       out[role] = prop.id
       taken.add(prop.id)
+      if (LEGACY[role]?.includes(prop.name.trim().toLowerCase()) && !db.locked) s.updateProperty(dbId, prop.id, { name: ALL_MESSAGES.de[`features.mail.prop.${role}`] ?? nameOf(role) })
     }
   }
   for (const role of PEOPLE_ROLES) {

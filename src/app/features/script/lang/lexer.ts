@@ -4,7 +4,8 @@
  * also returns comments and error tokens, so every character of the source belongs to some token or
  * to whitespace.
  *
- * Newlines end statements; inside ( … ) and [ … ] they are only whitespace.
+ * Newlines end statements; inside ( … ) and [ … ] they are only whitespace (a { } block in there
+ * counts them again: `list.map(fn(x) { … })` over several lines).
  */
 import { ScriptError, type Pos } from './errors'
 import type { RefKind } from './ast'
@@ -66,7 +67,8 @@ export function tokenize(src: string, opts: LexOptions = {}): Token[] {
   let i = 0
   let line = base.line
   let col = base.col
-  let depth = 0
+  /** open brackets: newlines count at the top level and directly inside { } (blocks), not inside ( ) / [ ] */
+  const open: string[] = []
 
   const posAt = (start: number, sLine: number, sCol: number): Pos => ({ start: base.offset + start, end: base.offset + i, line: sLine, col: sCol })
   const fail = (code: ConstructorParameters<typeof ScriptError>[0], params: Record<string, string | number>, start: number, sLine: number, sCol: number): void => {
@@ -91,7 +93,8 @@ export function tokenize(src: string, opts: LexOptions = {}): Token[] {
     // whitespace (newlines count outside brackets)
     if (c === '\n') {
       step()
-      if (depth === 0 && out.length && out[out.length - 1].type !== 'nl') out.push({ type: 'nl', text: '\n', pos: posAt(start, sLine, sCol) })
+      const top = open[open.length - 1]
+      if ((top === undefined || top === '{') && out.length && out[out.length - 1].type !== 'nl') out.push({ type: 'nl', text: '\n', pos: posAt(start, sLine, sCol) })
       continue
     }
     if (c === ' ' || c === '\t' || c === '\r' || c === '\f' || c === '\v' || c === ' ') {
@@ -278,8 +281,13 @@ export function tokenize(src: string, opts: LexOptions = {}): Token[] {
     const op = OPS.find((o) => src.startsWith(o, i))
     if (op) {
       for (let k = 0; k < op.length; k++) step()
-      if (op === '(' || op === '[') depth++
-      else if ((op === ')' || op === ']') && depth > 0) depth--
+      if (op === '(' || op === '[' || op === '{') open.push(op)
+      else if (op === ')' || op === ']' || op === '}') {
+        const want = op === ')' ? '(' : op === ']' ? '[' : '{'
+        // a stray closer leaves the others as they are (the parser reports it)
+        const at = open.lastIndexOf(want)
+        if (at >= 0) open.length = at
+      }
       out.push({ type: 'op', text: op, pos: posAt(start, sLine, sCol) })
       continue
     }

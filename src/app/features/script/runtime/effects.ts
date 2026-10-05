@@ -55,7 +55,8 @@ export type EffectImpl<K extends EffectName> = (input: EffectInputs[K], env: Eff
 
 /** mailto: with a body that fits the length mail programs accept (≈ 1,800 characters). */
 export function mailtoUrl(m: MailInput): string {
-  const enc = encodeURIComponent
+  // addresses keep their "@" readable (RFC 6068); everything else is percent-encoded
+  const enc = (s: string) => encodeURIComponent(s).replace(/%40/g, '@')
   const params: string[] = []
   if (m.cc.length) params.push(`cc=${enc(m.cc.join(','))}`)
   if (m.bcc.length) params.push(`bcc=${enc(m.bcc.join(','))}`)

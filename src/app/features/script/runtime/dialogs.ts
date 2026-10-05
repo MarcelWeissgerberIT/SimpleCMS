@@ -55,7 +55,7 @@ export const appRunUI: RunUI = {
   choose: (text, options, signal) => ask({ type: 'choose', text, options }, signal, null),
   notify: (text) => void toast(text),
   confirmPlan: (items, scriptName, signal) => ask<Set<string> | null>({ type: 'plan', items, scriptName }, signal, null),
-  allowOne: (item, scriptName, signal) => ask({ type: 'one', item, scriptName }, signal, false),
+  allowOne: (item, scriptName, signal) => ask<boolean | 'all'>({ type: 'one', item, scriptName }, signal, false),
   moreTime: (scriptName, signal) => ask({ type: 'time', scriptName }, signal, false),
   trust: (info, signal) => ask({ type: 'trust', ...info }, signal, false),
 }

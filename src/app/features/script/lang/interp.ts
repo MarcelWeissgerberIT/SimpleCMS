@@ -405,7 +405,8 @@ export class Interpreter {
       throw new ScriptError('no_member', { type: obj.typeName, name }, pos)
     }
     if (isNative(obj) && obj.members) {
-      const m = obj.members[name] ?? obj.members[normName(name)]
+      const own = (k: string) => (Object.prototype.hasOwnProperty.call(obj.members, k) ? obj.members![k] : undefined)
+      const m = own(name) ?? own(normName(name))
       if (m) return m()
     }
     if (obj === null) throw new ScriptError('no_member', { type: 'null', name }, pos)

@@ -1,6 +1,6 @@
 /**
- * AI terminal — prompt history (↑ / ↓, /history): the last 50 prompts per device and workspace in
- * localStorage. Never synced or exported; without storage it lives for this tab only.
+ * AI terminal — prompt history (↑ / ↓, /history, /clear-history): the last 50 prompts per device and
+ * workspace in localStorage. Never synced or exported; without storage it lives for this tab only.
  */
 import { activeWorkspace } from '../../../cloud'
 
@@ -39,4 +39,17 @@ export function pushHistory(entry: string): string[] {
     /* this tab only */
   }
   return next
+}
+
+/** Forget this device's prompts of the active workspace (/clear-history). Returns how many there were. */
+export function clearHistory(): number {
+  const count = loadHistory().length
+  const k = key()
+  memory.delete(k)
+  try {
+    window.localStorage.removeItem(k)
+  } catch {
+    /* no storage: the tab's list is gone */
+  }
+  return count
 }

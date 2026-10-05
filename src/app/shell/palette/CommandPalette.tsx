@@ -50,7 +50,8 @@ function Palette() {
   const commands = useMemo(() => buildCommands(t, pageId), [t, pageId, pages, lang, readOnly])
   const cmdHits = useMemo(() => {
     if (mode === 'ask') return []
-    if (!term) return mode === 'run' ? commands : commands.filter((c) => CORE.includes(c.id))
+    // database commands ("Mails: Sync now") only by typing: the empty lists stay short
+    if (!term) return mode === 'run' ? commands.filter((c) => c.group !== 'database') : commands.filter((c) => CORE.includes(c.id))
     return rankCommands(commands, term)
   }, [commands, mode, term])
   const titleHits = useMemo(() => hits.filter((h) => h.field === 'title'), [hits])
@@ -61,7 +62,8 @@ function Palette() {
    * pages whose title matches beat commands found only via keywords; body-text hits and
    * "Create page" never shadow a command.
    */
-  const commandsFirst = cmdHits.length > 0 && (titleHits.length === 0 || (term.length >= 3 && cmdHits.some((c) => labelStarts(c.label, term))))
+  // (a database's commands start with its name: "Projects" still opens the page, not "Projects: New entry")
+  const commandsFirst = cmdHits.length > 0 && (titleHits.length === 0 || (term.length >= 3 && cmdHits.some((c) => c.group !== 'database' && labelStarts(c.label, term))))
   const recent = useMemo(
     () => recentIds.map((id) => pages[id]).filter((p): p is Page => !!p && !isEffectivelyTrashed(pages, p.id) && !inTemplate(pages, p.id) && p.id !== pageId).slice(0, 6),
     [recentIds, pages, pageId],
@@ -296,7 +298,7 @@ function rankCommands(commands: Cmd[], term: string): Cmd[] {
     if (wordStarts(label, n)) return 1
     if (wordStarts(keywords, n)) return 2
     if (label.includes(n)) return 3
-    if (keywords.includes(n) || c.id.includes(n)) return 4
+    if (keywords.includes(n) || (c.group !== 'database' && c.id.includes(n))) return 4
     return -1
   }
   return commands

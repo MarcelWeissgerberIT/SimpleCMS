@@ -161,14 +161,13 @@ export async function runScript(o: RunOptions): Promise<RunResult> {
     return empty('error', errorInfo(e))
   }
 
-  // team workspaces: someone else's version runs only after the person confirmed it
-  if (o.mode === 'run' && !o.trusted && o.scriptId) {
-    const script = useWorkspace.getState().scripts?.[o.scriptId]
-    if (script && script.code === o.code && !(await isTrusted(script))) {
-      const editor = script.updatedBy ? (useWorkspace.getState().people.find((p) => p.id === script.updatedBy)?.name ?? null) : null
-      if (!(await ui.trust({ name: script.name, editor, code: script.code }, signal))) return empty('cancelled')
-      await trustCode(script.code)
-    }
+  // team workspaces: a version this device did not save or confirm runs only after the person confirmed it
+  if (o.mode === 'run' && !o.trusted && o.scriptId && !(await isTrusted({ code: o.code }))) {
+    const s = useWorkspace.getState()
+    const script = s.scripts?.[o.scriptId]
+    const editor = script?.updatedBy ? (s.people.find((p) => p.id === script.updatedBy)?.name ?? null) : null
+    if (!(await ui.trust({ name: script?.name ?? o.name ?? '', editor, code: o.code }, signal))) return empty('cancelled')
+    await trustCode(o.code)
   }
 
   // a run first lists what will leave One or go to the trash, and asks once
@@ -177,7 +176,9 @@ export async function runScript(o: RunOptions): Promise<RunResult> {
     const check = await pass(program, o.code, 'check', o, silentRunUI, signal, null)
     if (signal.aborted) return empty('stopped', errorInfo(new ScriptError('stopped')))
     const items = check.host.confirmItems
-    if (!check.error && items.length) {
+    // a script that asks the person first (ask, choose …) may do other things than the check saw:
+    // then each of them is asked when it comes (with "Allow all" for the rest of its kind)
+    if (!check.error && items.length && !check.host.usedDialogs) {
       const keys = await ui.confirmPlan(items, o.name ?? '', signal)
       if (!keys) return empty('cancelled')
       approved = { keys, labels: new Map(items.map((i) => [i.key, i.label])) }

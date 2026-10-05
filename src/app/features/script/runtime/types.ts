@@ -119,8 +119,8 @@ export interface RunUI {
   notify(text: string): void
   /** before a run: the things that leave One or go to the trash; resolves the allowed keys (null: cancel the run) */
   confirmPlan(items: ConfirmItem[], scriptName: string, signal: AbortSignal): Promise<Set<string> | null>
-  /** during a run: one more such thing that was not on that list */
-  allowOne(item: ConfirmItem, scriptName: string, signal: AbortSignal): Promise<boolean>
+  /** during a run: one more such thing that was not on that list ('all': this one and the rest of its kind in this run) */
+  allowOne(item: ConfirmItem, scriptName: string, signal: AbortSignal): Promise<boolean | 'all'>
   /** the time budget ran out: another one? */
   moreTime(scriptName: string, signal: AbortSignal): Promise<boolean>
   /** team workspace: a script someone else changed last — run this exact version? */

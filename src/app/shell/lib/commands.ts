@@ -38,11 +38,12 @@ import {
   SquareFunction,
   CircleHelp,
   Newspaper,
+  SquareCode,
 } from 'lucide-react'
 import { useWorkspace } from '../../store/store'
 import { useUI } from '../../store/ui'
 import { navigate } from '../../lib/router'
-import { openTodayJournal, openAgent, AGENT_SHORTCUT, openFunctionBuilder } from '../../features'
+import { openTodayJournal, openAgent, AGENT_SHORTCUT, openFunctionBuilder, paletteDbCommands, createScript, openScripts } from '../../features'
 import type { ID } from '../../store/types'
 import type { Translate } from '@/shared/i18n'
 import { quickNoteToInbox } from '../capture/inbox'
@@ -68,8 +69,8 @@ export interface Command {
   /** "Mod+Shift+L" style; rendered with shortcutLabel() */
   shortcut?: string
   keywords?: string
-  /** group for the palette */
-  group: 'create' | 'page' | 'navigate' | 'workspace'
+  /** group for the palette ('database': a database's command, "<database>: <command>" — found by typing only) */
+  group: 'create' | 'page' | 'navigate' | 'workspace' | 'database'
   run: () => void
 }
 
@@ -84,11 +85,13 @@ export function buildCommands(t: Translate, pageId: ID | null): Command[] {
     { id: 'new-database', group: 'create', label: t('shell.cmd.newDatabase'), icon: Table2, keywords: 'table board kanban datenbank tabelle', run: () => createDatabaseAndOpen(null) },
     { id: 'quick-note', group: 'create', label: t('shell.cmd.quickNote'), icon: Inbox, keywords: 'inbox capture jot memo eingang notiz schnell', run: () => { closeMobileSidebar(); quickNoteToInbox() } },
     { id: 'templates', group: 'create', label: t('shell.cmd.templates'), icon: LayoutTemplate, keywords: 'vorlagen gallery', run: () => ui.openModal({ type: 'templates', parentId: null }) },
+    { id: 'new-script', group: 'create', label: t('features.script.cmd.new'), icon: SquareCode, keywords: 'script code automate query abfrage skript programm one script code automatisieren', run: () => { closeMobileSidebar(); createScript('script') } },
     { id: 'journal', group: 'navigate', label: t('shell.cmd.journal'), icon: CalendarDays, keywords: 'today daily note tagebuch heute', run: () => { closeMobileSidebar(); openTodayJournal() } },
     { id: 'agenda', group: 'navigate', label: t('shell.cmd.agenda'), icon: CalendarRange, keywords: 'calendar kalender schedule termine week month woche monat upcoming due overdue fällig', run: () => { closeMobileSidebar(); navigate({ name: 'agenda' }) } },
     { id: 'inbox', group: 'navigate', label: t('shell.cmd.inbox'), icon: Bell, shortcut: 'G I', keywords: 'notifications reminders mentions benachrichtigungen erinnerungen erwähnungen posteingang', run: () => { closeMobileSidebar(); navigate({ name: 'inbox' }) } },
     { id: 'home', group: 'navigate', label: t('shell.cmd.home'), icon: Home, keywords: 'dashboard start', run: () => navigate({ name: 'home' }) },
     { id: 'graph', group: 'navigate', label: t('shell.cmd.graph'), icon: Waypoints, keywords: 'map network links karte', run: () => navigate({ name: 'graph' }) },
+    { id: 'scripts', group: 'navigate', label: t('features.script.cmd.open'), icon: SquareCode, keywords: 'scripts queries code one script skripte abfragen', run: () => { closeMobileSidebar(); openScripts() } },
     { id: 'import', group: 'workspace', label: t('shell.cmd.import'), icon: Upload, keywords: 'notion markdown csv zip importieren', run: () => ui.openModal({ type: 'import' }) },
     { id: 'export', group: 'workspace', label: t('shell.cmd.export'), icon: Download, keywords: 'markdown html pdf backup exportieren', run: () => ui.openModal({ type: 'export', pageId: live ? page.id : null }) },
     { id: 'theme', group: 'workspace', label: t('shell.cmd.theme'), icon: SunMoon, shortcut: 'Mod+Shift+L', keywords: 'dark light mode carbon paper dunkel hell', run: toggleTheme },
@@ -134,10 +137,12 @@ export function buildCommands(t: Translate, pageId: ID | null): Command[] {
     list.push({ id: 'cloud-new', group: 'workspace', label: t('shell.cloud.cmd.newWorkspace'), icon: CloudUpload, keywords: 'team cloud workspace sync share invite neu', run: () => openCloudDialog(cloud.user ? 'new-workspace' : 'sign-in') })
   if (cloud.active.kind === 'cloud')
     list.push({ id: 'team', group: 'workspace', label: t('shell.cloud.cmd.team'), icon: Users, keywords: 'members invite people roles mitglieder einladen rollen', run: () => openSettingsTab('team') })
+  // database commands (features/commands): "Mails: Sync now", "Projects: New entry" … (viewers get only those that don't write)
+  for (const c of paletteDbCommands()) list.push({ id: `db:${c.id}`, group: 'database', label: c.label, icon: c.icon, keywords: c.keywords, run: () => { closeMobileSidebar(); c.run() } })
   // viewers read: nothing that creates, moves or deletes pages
   if (cloud.readOnly) return list.filter((c) => !EDITING.has(c.id))
   return list
 }
 
 /** Commands that write to the workspace (hidden for viewers). */
-const EDITING = new Set(['new-page', 'new-subpage', 'new-database', 'quick-note', 'templates', 'journal', 'import', 'duplicate', 'move', 'delete', 'lock', 'full-width'])
+const EDITING = new Set(['new-page', 'new-subpage', 'new-database', 'new-script', 'quick-note', 'templates', 'journal', 'import', 'duplicate', 'move', 'delete', 'lock', 'full-width'])

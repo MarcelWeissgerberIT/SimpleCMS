@@ -168,10 +168,13 @@ review (or apply them directly, undoable in the version history; their edits sho
 browser while One is open — missed runs catch up once — or, in a team workspace, **around the clock on your server**,
 also when nobody is online.
 
-**Mail as a database** — connect Gmail with your own Google client ID (read-only scope, the access token only in memory):
-mails from a date you choose, by label, become rows of a "Mails" database with sender, labels, link and the cleaned-up
-body (remote images and tracking pixels blocked). Turn on "organise with Claude" and each mail gets a category,
-priority, "needs reply" and a one-line summary — or let a custom agent triage new mail every morning.
+**Mail as a database** — connect Gmail in one click with One's own Google access, or with your own Google client ID
+(read-only scope, the access token only in memory): mails from a date you choose, by label, become rows of a "Mails"
+database with sender, labels, link and the cleaned-up body (remote images and tracking pixels blocked). Senders,
+their companies and threads fill linked Contacts, Companies and Conversations databases — names instead of addresses,
+rename or merge once. Attachments load on demand (or automatically) as real blocks: PDFs in the viewer, images, files.
+Turn on "organise with Claude" and each mail gets a category, priority, "needs reply" and a one-line summary — or let a
+custom agent triage new mail every morning.
 
 **Automations for automators** — every database can fire webhooks when rows are created, changed or deleted, set
 properties, or show notifications; buttons and shared forms post to webhooks too. Ready-made recipes for n8n / Make /
@@ -321,8 +324,10 @@ Built for the **Ninja Armory** challenge of the AI Automations community.
   offen ist, oder rund um die Uhr auf dem eigenen Team-Server
 - externe MCP-Server (z. B. eine Wissensdatenbank) für Claude in One: Adresse und Token eintragen, den Rest erledigt One
   – mit Codewort je Server: Eine Anfrage, die mit `kb:` beginnt, geht zuerst an diesen Server
-- Gmail als Datenbank: Mails ab einem Datum, nach Labels, mit eigener Google-Client-ID; auf Wunsch sortiert Claude
-  sie nach Kategorie, Priorität und „braucht Antwort“
+- Gmail als Datenbank: mit einem Klick verbunden (oder mit eigener Google-Client-ID), Mails ab einem Datum, nach
+  Labels; Absender, Firmen und Threads landen verknüpft in Kontakten, Firmen und Konversationen, Anhänge kommen auf
+  Wunsch als echte Blöcke dazu (PDF im Viewer, Bilder, Dateien); auf Wunsch sortiert Claude sie nach Kategorie,
+  Priorität und „braucht Antwort“
 - eine eingebaute Hilfe (`?`) mit 54 Artikeln auf Deutsch und Englisch, „Frag die Hilfe“ und öffentlich unter
   [getonecms.com/help](https://getonecms.com/help/de/)
 - MCP für KI-Agenten: Claude Desktop, Claude Code & Co. suchen, lesen, schreiben und räumen auf im Workspace –

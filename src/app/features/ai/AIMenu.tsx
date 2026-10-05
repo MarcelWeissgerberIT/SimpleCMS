@@ -95,7 +95,7 @@ import { imageActionRows, imageRunTarget, refineImage, useImagePanel } from './i
 import type { ImageAction } from './image/request'
 import { MemoryLine, useMemoryPreview } from './memory/MenuParts'
 import { TRANSFORM_CODES, TRANSFORM_ICONS, TRANSFORM_KEYWORDS, transformChoices, transformRequest, typeLabel } from './transform/forms'
-import { useTransformPanel } from './transform/panel'
+import { TRANSFORM_ROOM, useTransformPanel } from './transform/panel'
 import type { TransformPick } from './transform/types'
 import { MemoryBodyView, MemoryEdit } from './memory/MemoryCard'
 import { isRememberRequest, stripRemember } from './memory/propose'
@@ -143,10 +143,11 @@ function sliceToMarkdown(state: EditorState, from: number, to: number): string {
 }
 
 /** Scrollable ancestor of an element (or the document scroller). */
-function scrollParent(el: HTMLElement | null): HTMLElement {
+function scrollParent(el: HTMLElement | null, short = false): HTMLElement {
   for (let n = el?.parentElement; n; n = n.parentElement) {
     const oy = getComputedStyle(n).overflowY
-    if (/(auto|scroll)/.test(oy) && n.scrollHeight > n.clientHeight + 1) return n
+    // `short`: the column that scrolls once it is taller (a page shorter than the screen, about to get a spacer)
+    if (/(auto|scroll)/.test(oy) && (short || n.scrollHeight > n.clientHeight + 1)) return n
   }
   return (document.scrollingElement as HTMLElement) ?? document.documentElement
 }
@@ -383,15 +384,16 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
    * Room for the answer. Phones: lift the target block towards the top as soon as the panel opens
    * (the keyboard takes the lower half anyway). Larger screens: when a run starts with little space
    * below the target, scroll it up to ~120px from the top, so the panel opens downwards at full height
-   * instead of being squeezed (or flipped over the text it is writing about).
+   * instead of being squeezed (or flipped over the text it is writing about). `running` as a number: the
+   * room a preview needs below the target ("Transform into": the drawn result, its options and keys).
    */
   const makeRoom = useCallback(
-    (running = false) => {
+    (running: boolean | number = false) => {
       if (editor.isDestroyed) return
       const phone = !!window.matchMedia?.('(max-width: 640px)').matches
       if (!phone && !running) return
       const r = anchor.getBoundingClientRect()
-      const scroller = scrollParent(editor.view.dom as HTMLElement)
+      const scroller = scrollParent(editor.view.dom as HTMLElement, typeof running === 'number')
       const isDoc = scroller === document.scrollingElement || scroller === document.documentElement
       const box = isDoc ? { top: 0, bottom: window.innerHeight } : scroller.getBoundingClientRect()
       const behavior: ScrollBehavior = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth'
@@ -401,8 +403,10 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
         return
       }
       const below = Math.min(window.innerHeight, box.bottom) - r.bottom
-      if (below >= 360) return
-      const delta = r.top - (box.top + 120)
+      const need = typeof running === 'number' ? running : 360
+      if (below >= need) return
+      // a preview: as far as its room needs, the target's first line kept in view
+      const delta = typeof running === 'number' ? Math.min(need - below, r.top - (box.top + 24)) : r.top - (box.top + 120)
       if (delta <= 24) return
       // the last lines of a page cannot scroll that far: a temporary spacer below the editor makes room
       const max = scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop
@@ -414,6 +418,14 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
         spacer.style.height = `${Math.ceil(delta - max) + (roomRef.current?.offsetHeight ?? 0)}px`
         if (!spacer.isConnected) host.append(spacer)
         roomRef.current = spacer
+        // a page shorter than the screen (its min-height swallows the first pixels): measured with a spacer as
+        // tall as the screen — past any min-height, where every pixel counts — then set to what the room needs
+        const range = () => scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop
+        if (range() < delta) {
+          const probe = spacer.offsetHeight + scroller.clientHeight
+          spacer.style.height = `${probe}px`
+          spacer.style.height = `${Math.max(0, Math.ceil(probe + delta - range()))}px`
+        }
       }
       scroller.scrollBy({ top: delta, behavior })
     },
@@ -426,10 +438,11 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
     return () => cancelAnimationFrame(id)
   }, [makeRoom])
 
-  // opened on an image run (the image toolbar, the block menu): room below the picture, like a request started here
+  // opened on an image run (the image toolbar, the block menu) / a transform run ("AI result ready"): room below the target, like a request started here
   useEffect(() => {
-    if (!openRun || useAIRuns.getState().runs[openRun]?.req.kind !== 'image') return
-    const id = requestAnimationFrame(() => makeRoom(true))
+    const kind = openRun ? useAIRuns.getState().runs[openRun]?.req.kind : null
+    if (kind !== 'image' && kind !== 'transform') return
+    const id = requestAnimationFrame(() => makeRoom(kind === 'transform' ? TRANSFORM_ROOM : true))
     return () => cancelAnimationFrame(id)
   }, [openRun, makeRoom])
 
@@ -449,7 +462,7 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
       setMemDraft(null)
       setMemEdit(false)
       if (view === 'memory' || view === 'memhist' || view === 'transform') setView('actions')
-      makeRoom(true)
+      makeRoom(req.kind === 'transform' ? TRANSFORM_ROOM : true)
     },
     [editor, pageId, runId, makeRoom, view],
   )
@@ -1259,7 +1272,7 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
           code: TRANSFORM_CODES[p],
           icon: TRANSFORM_ICONS[p],
           group,
-          hint: <span className="ai-row__mem">{t(`features.ai.transform.hint.${p}`)}</span>,
+          hint: <span className="trf-hint">{t(`features.ai.transform.hint.${p}`)}</span>,
           run: () => transformRun(p),
         }))
     }
@@ -1460,12 +1473,14 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
   const words = output.trim() ? output.trim().split(/\s+/).length : 0
   /** the passages the instructions card would send (they recount as the page changes) */
   const redoSent = useMemo(() => (redoCard && redoIds && !editor.isDestroyed ? capturePassages(editor, redoIds).filter((p) => !p.skip) : []), [redoCard, redoIds, editor, marks])
-  /** what the next request reads (the line under the prompt) */
+  /** what the next request reads (the line under the prompt); "Transform into" reads the selected blocks only */
   const readsNow: RunReads = redoCard
     ? redoReads(readsFor(marks, null), redoSent.length, redoSent.reduce((n, p) => n + countWords(p.anchor), 0))
     : wsMode && phase === 'idle'
       ? { ...readsFor(marks, null), workspace: true }
-      : readsFor(marks, target.mode === 'selection' && !img?.only ? target.selected : null)
+      : (isTransform || view === 'transform') && target.mode === 'selection'
+        ? { mode: 'none', selection: true, blocks: 0, words: countWords(target.selected) }
+        : readsFor(marks, target.mode === 'selection' && !img?.only ? target.selected : null)
   /** a redo result is under review: the review has the keyboard (no prompt, no reads line) */
   const reviewing = isRedo && phase === 'done' && !redoEdit
   /** the prompt gives way to a title while the instructions card or the review shows */

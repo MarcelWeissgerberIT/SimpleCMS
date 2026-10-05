@@ -172,10 +172,19 @@ class Parser {
           }
       }
     }
-    // an expression, or an assignment `target = value` (`=` at the top level of a statement assigns)
+    // an expression, or an assignment `target = value` (`=` at the top level of a statement assigns
+    // to a name, a field or an item; after anything else it compares: `count(x) = 3` is a yes/no)
     const expr = this.expr(0, false)
     if (this.isOp('=')) {
-      if (expr.type !== 'Ident' && expr.type !== 'Member' && expr.type !== 'Index') throw new ScriptError('bad_assign', {}, expr.pos)
+      if (expr.type !== 'Ident' && expr.type !== 'Member' && expr.type !== 'Index') {
+        this.next()
+        this.skipNl()
+        const right = this.expr(BP['='])
+        let cmp: Expr = { type: 'Binary', op: '=', left: expr, right, pos: span(expr.pos, right.pos) }
+        // the rest of the line (`a = b and c`) as in any condition
+        cmp = this.continueExpr(cmp)
+        return { type: 'ExprStmt', expr: cmp, pos: cmp.pos }
+      }
       this.next()
       this.skipNl()
       const value = this.expr()
@@ -232,7 +241,12 @@ class Parser {
    * passed on to the right operands of that statement's operators, reset inside brackets).
    */
   expr(minBp = 0, eq = true): Expr {
-    let left = this.prefix()
+    return this.continueExpr(this.prefix(), minBp, eq)
+  }
+
+  /** The Pratt loop from an already parsed left operand. */
+  private continueExpr(start: Expr, minBp = 0, eq = true): Expr {
+    let left = start
     for (;;) {
       let t = this.cur
       // a line that starts with "." continues a method chain

@@ -1336,6 +1336,37 @@ test.describe('Mail — contacts, companies, conversations', () => {
     expect(await counts(page)).toEqual([4, 2, 4])
   })
 
+  test('found by their marker: a duplicate is ignored, a deleted directory comes back on the next run and every mail is linked to it again', async ({ page }) => {
+    const env = await setup(page, peopleMails)
+    await openApp(page)
+    await configure(page, { labels: ['INBOX', 'SENT'] })
+    await connect(page)
+    await syncAndWait(page)
+    const live = (sys: string) => wsEval(page, (s, sys) => (Object.values(s.databases) as AnyState[]).filter((d) => d.system === sys && !s.pages[d.id]?.trashed).map((d) => d.id), sys)
+    const [contacts] = await live('mail-contacts')
+    // a duplicate of Contacts (newer, same marker): new people still go to the original
+    const copy = await wsEval(page, (s, id) => s.duplicatePage(id), contacts)
+    expect(await live('mail-contacts')).toEqual([contacts, copy])
+    const copyRows = await wsEval(page, (s, id) => (Object.values(s.pages) as AnyState[]).filter((p) => p.databaseId === id && !p.trashed).length, copy)
+    env.box.add({ id: 'c9', labelIds: ['INBOX'], date: Date.now() - 60_000, subject: 'Neu hier', from: 'Lea Lang <lea@firma.de>', to: ACCOUNT, text: 'Hallo!' })
+    await syncAndWait(page)
+    expect((await directory(page, 'contacts')).map((c) => c.title)).toContain('Lea Lang')
+    expect(await wsEval(page, (s, id) => (Object.values(s.pages) as AnyState[]).filter((p) => p.databaseId === id && !p.trashed).length, copy)).toBe(copyRows)
+
+    // Conversations deleted: created again on the next run, the earlier mails are linked to the new one
+    const [oldConv] = await live('mail-conversations')
+    await wsEval(page, (s, id) => s.trashPage(id), oldConv)
+    await page.evaluate(() => window.__oneMail.link())
+    await expect.poll(async () => (await live('mail-conversations')).length).toBe(1)
+    expect((await live('mail-conversations'))[0]).not.toBe(oldConv)
+    await expect.poll(async () => (await directory(page, 'conversations')).map((c) => c.title)).toEqual(['Angebot P2', 'Fotos vom Wochenende', 'Neu hier', 'Termin Dienstag'])
+    const linked = await mailLinks(page)
+    expect(linked['AW: Angebot P2']).toEqual(['Felix Merz', 'Firma', 'Angebot P2'])
+    expect(linked['Re: Termin Dienstag'][2]).toBe('Termin Dienstag')
+    // contacts and companies stay as they were (nothing twice)
+    expect((await counts(page)).slice(0, 2)).toEqual([4, 2])
+  })
+
   test('German: Kontakte, Firmen, Konversationen; the Mails database’s Kontakt / Firma / Konversation', async ({ page }) => {
     await setup(page, peopleMails)
     await openApp(page)
@@ -1359,6 +1390,27 @@ test.describe('Mail — contacts, companies, conversations', () => {
     await expect(dialog.getByTestId('mail-dir-companies')).toContainText('2 Einträge')
     await dialog.getByTestId('mail-dir-contacts').getByRole('button', { name: /^Zusammenführen…/ }).click()
     await expect(page.getByRole('dialog', { name: 'Zwei Einträge zusammenführen' })).toBeVisible()
+  })
+
+  test('an earlier German Mails database: its thread text “Konversation” becomes “Thread-ID”, the new relation takes the name', async ({ page }) => {
+    await setup(page, peopleMails)
+    await openApp(page)
+    await wsEval(page, (s) => s.updateSettings({ language: 'de' }))
+    // as the previous build created it: the thread id in a text property named "Konversation"
+    const ids = await wsEval(page, (s) => {
+      const dbId = s.createDatabase({ title: 'Mails', properties: [{ id: 'p-subject', name: 'Betreff', type: 'title' }, { id: 'p-thread', name: 'Konversation', type: 'text' }] })
+      return { dbId }
+    })
+    await configure(page, { labels: ['INBOX', 'SENT'], databaseId: ids.dbId, props: { thread: 'p-thread' } })
+    const dialog = await openMailTab(page, /E-Mail$/)
+    await dialog.getByRole('button', { name: 'Gmail verbinden' }).click()
+    await expect(dialog.getByTestId('mail-account')).toHaveText(ACCOUNT)
+    await syncAndWait(page)
+    const props = await wsEval(page, (s, id) => s.databases[id].properties.map((p: AnyState) => [p.name, p.type]), ids.dbId)
+    expect(props).toEqual(expect.arrayContaining([['Thread-ID', 'text'], ['Konversation', 'relation']]))
+    expect(props.filter(([n]: string[]) => n === 'Konversation')).toHaveLength(1)
+    expect((await mailCfg(page)).props.thread).toBe('p-thread')
+    expect((await mailLinks(page))['AW: Angebot P2']).toEqual(['Felix Merz', 'Firma', 'Angebot P2'])
   })
 
   test.describe('390 px', () => {
@@ -1520,7 +1572,8 @@ test.describe('Mail — attachments on demand', () => {
     expect(env.box.calls.filter((c) => c.includes('/attachments/'))).toHaveLength(4)
   })
 
-  test('“PDFs + images” loads them on sync (others keep their key); after a reload a Load key signs in first, then loads', async ({ page }) => {
+  test('“PDFs + images” loads them on sync (others keep their key); after a reload a Load key signs in first, then loads; an expired token asks again', async ({ page, errors }) => {
+    errors.allow(/status of 401/)
     const env = await setup(page, attachmentMails)
     await openApp(page)
     await configure(page)
@@ -1549,6 +1602,18 @@ test.describe('Mail — attachments on demand', () => {
     st = await attachmentState(page)
     expect(st.files.map((f) => f.name)).toEqual(['photo.png', 'report.pdf', 'data.csv'])
     expect(await page.evaluate(() => window.__gis.calls.map((c) => c.hint))).toEqual([ACCOUNT])
+
+    // the token expires (Gmail answers 401): the key asks for a sign-in again, nothing is lost or loaded twice
+    for (const token of env.box.tokens) env.box.rejected.add(token)
+    await editorOf(page).locator('li', { hasText: 'page.html' }).getByRole('button', { name: 'Load', exact: true }).click()
+    const again = page.locator('.toast', { hasText: 'Sign in to Gmail to load the attachment.' }).last()
+    await expect(again).toBeVisible()
+    await again.getByRole('button', { name: 'Connect Gmail' }).click()
+    await expect(page.locator('.toast', { hasText: 'Loaded page.html' })).toBeVisible()
+    st = await attachmentState(page)
+    expect(st.files.map((f) => f.name)).toEqual(['photo.png', 'report.pdf', 'data.csv', 'page.html'])
+    expect(st.waiting.map((w) => w.text)).toEqual(['huge.zip'])
+    expect(env.box.calls.filter((c) => c.includes('/attachments/att-page.html'))).toHaveLength(1)
   })
 
   test('German: Laden, Alle laden, the toast', async ({ page }) => {

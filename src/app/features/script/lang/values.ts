@@ -223,8 +223,12 @@ export function inspect(v: Value, depth = 0): string {
   if (v instanceof SRecord) return `{${[...v.fields].map(([k, x]) => `${/^[\p{L}_][\p{L}\p{N}_]*$/u.test(k) ? k : JSON.stringify(k)}: ${inspect(x, depth + 1)}`).join(', ')}}`
   if (v instanceof Closure) return `fn ${v.name ?? ''}(${v.params.map((p) => p.name).join(', ')})`
   if (isNative(v)) return `fn ${v.name}`
-  if (v instanceof HostObject) return depth ? v.display() : v.display()
-  return toText(v)
+  if (v instanceof HostObject) return v.display()
+  if (v instanceof SDate) return dateText(v)
+  if (v instanceof SDuration) return durationText(v)
+  if (typeof v === 'number' || typeof v === 'boolean') return toText(v)
+  // nothing else is a script value (never recurse into toText for it)
+  return '?'
 }
 
 /** Plain JSON of a value (results for tools; dates as ISO strings). */

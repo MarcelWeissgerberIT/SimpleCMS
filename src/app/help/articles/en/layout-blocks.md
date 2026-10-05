@@ -20,3 +20,5 @@ summary: Fold content away, put it side by side, or behind tabs.
 - <kbd>Mod+Alt+←</kbd> / <kbd>Mod+Alt+→</kbd> switch tabs while you write inside one.
 
 Tabs cannot go inside tabs. Which tab is shown is not saved with the page.
+
+> Already written as a list? Select it → **Ask AI** → **Transform into…** → **Columns**, **Tabs**, **Toggles** or **Cards** — Claude sorts the text into them, with a preview first. See [The AI menu](help:ai-menu).

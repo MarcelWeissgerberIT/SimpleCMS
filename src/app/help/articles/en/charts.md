@@ -4,7 +4,7 @@ title: Charts
 section: calculate
 order: 3
 keywords: chart, graph, bar, line, donut, kpi, sparkline, scatter, visualize, plot, Diagramm, Grafik, Balken, Linie
-related: spreadsheets, views, databases
+related: spreadsheets, views, databases, ai-menu
 summary: Bar, line, donut, KPI and more — from a spreadsheet, a database or your workspace.
 ---
 Insert a chart with `/chart`. The builder has three steps:
@@ -18,6 +18,8 @@ Insert a chart with `/chart`. The builder has three steps:
 3. **Options** — title, categories, colours, legend, value labels, unit, decimals, axis range, height.
 
 **Insert chart** puts it on the page. Charts from a spreadsheet, a database or the workspace stay live: change a number and the chart follows.
+
+Numbers already written in the text? Select them → **Ask AI** → **Transform into…** → **Chart**: Claude builds the chart from the numbers the text states — see [The AI menu](help:ai-menu).
 
 ## Inside a spreadsheet
 Select a range and click **Chart** in the spreadsheet toolbar. A sheet's chart can be **Placed as block below**.
