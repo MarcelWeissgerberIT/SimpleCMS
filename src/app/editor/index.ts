@@ -35,7 +35,7 @@
  *      mode 'page' (default, everything) | 'marked' (only the marked top-level blocks, by block id — they follow
  *      every edit) | 'none' (nothing). contextMarksOf(editor) / pageContextMarks(pageId) / useContextMarks(pageId)
  *      → { mode, blocks, words, marked, total }; readableContent(pageId) → the same + markdown / plain of what may be
- *      read; setContextMode(editor | pageId, mode); openContextPicker(editor | pageId, { onEnd(done) }) — the picker
+ *      read; readableBlocks(pageId) → those top-level blocks as TipTap JSON; setContextMode(editor | pageId, mode); openContextPicker(editor | pageId, { onEnd(done) }) — the picker
  *      on the page (boxes in the gutter, a bar at the bottom; Done / Esc), closeContextPicker(done),
  *      useContextPicking() (the page being picked, or null). The picker has a second purpose, 'redo' (passages to
  *      redo with instructions): openContextPicker(…, { purpose: 'redo', ids, onEnd(done, ids) }) — the marks go to
@@ -68,7 +68,7 @@ export {
   type MeetingStatus,
   type TranscriptSegment,
 } from './schema/meetingNotes'
-export { contextMarksOf, pageContextMarks, readableContent, isContextLimited, useContextMarks, useContextPicking, type ContextMarks, type ReadableContent } from './context/read'
+export { contextMarksOf, pageContextMarks, readableContent, readableBlocks, isContextLimited, useContextMarks, useContextPicking, type ContextMarks, type ReadableContent } from './context/read'
 export { setContextMode, openContextPicker, closeContextPicker, contextPickingPage, topBlockKeys } from './context/api'
 export { startRedo } from './context/redo'
 export type { ContextMode, PickPurpose } from './context/store'

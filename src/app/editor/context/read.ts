@@ -108,6 +108,20 @@ export function readableContent(pageId: ID): ReadableContent {
   return { ...marks, markdown, plain: nodes.map(blockText).join('\n') }
 }
 
+/**
+ * The top-level blocks Claude may read of a page, as TipTap JSON (the same choice as readableContent:
+ * all, the marked ones, none) — for copying them (One memory: a page saved as an example).
+ */
+export function readableBlocks(pageId: ID): JSONContent[] {
+  const doc = docOf(pageId)
+  const ctx = pageContext(pageId)
+  if (!doc || ctx.mode === 'none') return []
+  const nodes: PMNode[] = []
+  if (ctx.mode === 'marked') nodes.push(...markedBlocks(doc, ctx))
+  else doc.forEach((b) => nodes.push(b))
+  return nodes.map((n) => n.toJSON() as JSONContent)
+}
+
 /** Is reading this page limited (marked blocks only, or nothing)? */
 export function isContextLimited(pageId: ID): boolean {
   return pageContext(pageId).mode !== 'page'
