@@ -802,6 +802,35 @@ export interface Workspace {
    * workspaces (meta map `agents`). Their runs are per device (IndexedDB `one-agents`), never here.
    */
   agents?: Record<ID, CustomAgent>
+  /**
+   * One Script (features/script): small scripts and queries in One's own script language. Write only
+   * with upsertScript / deleteScript; every reader sanitizes (store/scripts.ts). Synced in team
+   * workspaces (meta map `scripts`). Runs and trusted versions are per device (IndexedDB
+   * `one-scripts`), never here.
+   */
+  scripts?: Record<ID, OneScript>
+}
+
+/* ------------------------------------------------------------------ */
+/* One Script (features/script)                                        */
+/* ------------------------------------------------------------------ */
+
+export interface OneScript {
+  id: ID
+  /** 1–80 characters */
+  name: string
+  icon?: PageIcon | null
+  description?: string
+  /** the source; @ references are stable tokens `@[Label](p:<id>)` (u: person, a: agent, s: script) */
+  code: string
+  /** 'query': read-only, its result shows as a live table under the editor */
+  kind: 'script' | 'query'
+  /** account id (team) / null (local) */
+  createdBy?: string | null
+  /** who saved it last: account id (team, stamped by upsertScript) / null (local) */
+  updatedBy?: string | null
+  createdAt: number
+  updatedAt: number
 }
 
 /* ------------------------------------------------------------------ */

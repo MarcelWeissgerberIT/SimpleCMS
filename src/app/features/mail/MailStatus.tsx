@@ -1,7 +1,7 @@
 /**
  * The Gmail sync read-out: LED + "GMAIL · 14:05" (running: "GMAIL · 12/50", failed: "GMAIL · ERROR").
- *  - MailSyncLed { databaseId }: for the Mails database's header — renders nothing for any other database;
- *    opens Settings → Mail.
+ *  - MailSyncLed { databaseId }: for the Mails database's header — opens Settings → Mail; in the header of
+ *    Contacts / Companies (people.ts markers) also "Merge…"; renders nothing for any other database.
  *  - useMailReadout(): the same state + text for the settings tab's panel head.
  */
 import { Led } from '../../ui/controls'
@@ -9,6 +9,8 @@ import { useLang, useT } from '../../i18n'
 import { useWorkspace } from '../../store/store'
 import type { ID } from '../../store/types'
 import { openMailSettings, useMail } from './service'
+import { peopleKindOf } from './people'
+import { MergeKey } from './PeopleUI'
 import './mail.css'
 
 export type ReadoutState = 'off' | 'running' | 'ok' | 'error' | 'reconnect'
@@ -45,12 +47,17 @@ export function useMailReadout(): { state: ReadoutState; text: string } {
 export function MailSyncLed({ databaseId }: { databaseId: ID }) {
   const t = useT()
   const mine = useWorkspace((s) => s.settings.mail?.databaseId === databaseId)
+  // Contacts / Companies / Conversations: filled by the same sync — the LED, and "Merge…" for two rows
+  const kind = useWorkspace((s) => peopleKindOf(s.databases[databaseId]))
   const { state, text } = useMailReadout()
-  if (!mine) return null
+  if (!mine && !kind) return null
   return (
-    <button type="button" className="ml-led" data-state={state} onClick={openMailSettings} title={t('features.mail.status.title')} aria-label={`${text} — ${t('features.mail.status.title')}`} data-testid="mail-led">
-      <Led state={state === 'ok' ? 'ok' : state === 'running' || state === 'reconnect' ? 'on' : 'off'} />
-      <span>{text}</span>
-    </button>
+    <>
+      <button type="button" className="ml-led" data-state={state} onClick={openMailSettings} title={t('features.mail.status.title')} aria-label={`${text} — ${t('features.mail.status.title')}`} data-testid="mail-led">
+        <Led state={state === 'ok' ? 'ok' : state === 'running' || state === 'reconnect' ? 'on' : 'off'} />
+        <span>{text}</span>
+      </button>
+      {kind && kind !== 'conversations' && <MergeKey dbId={databaseId} kind={kind} compact />}
+    </>
   )
 }

@@ -12,7 +12,7 @@ import { inTemplate, isEffectivelyTrashed } from '../../store/selectors'
 import { useUI } from '../../store/ui'
 import { openPage } from '../../lib/router'
 import { useCloud } from '../../cloud'
-import { Led, Switch } from '../../ui/controls'
+import { Led } from '../../ui/controls'
 import { useLang, useT } from '../../i18n'
 import { CLIENT_ID_RE, EVERY_MIN, MAX_PER_RUN, PUBLIC_ORIGIN, SECRET_RE, cleanCategory, MAX_CATEGORIES, setMail, setOrganise, useMailSettings } from './settings'
 import { preloadGis } from './auth'
@@ -20,6 +20,8 @@ import { builtinClientId, effectiveClient, useBuiltinClient } from './builtin'
 import { backToOneAccess, cancelRun, connectGmail, disconnectGmail, loadLabels, organiseEarlier, resetMailSync, setOwnClientId, startNewDatabase, syncNow, useMail } from './service'
 import { estimateOrganise } from './organise'
 import { fmtTime, useMailReadout, type ReadoutState } from './MailStatus'
+import { MlField, Panel, SwitchRow } from './parts'
+import { PeoplePanel } from './PeopleUI'
 import './mail.css'
 import { HelpLink } from '../../help'
 
@@ -30,56 +32,6 @@ const LINKS = {
   api: 'https://console.cloud.google.com/apis/library/gmail.googleapis.com',
   consent: 'https://console.cloud.google.com/auth/audience',
   client: 'https://console.cloud.google.com/auth/clients/create',
-}
-
-function Panel({ id, code, title, state, stateText, children }: { id: string; code: string; title: string; state: ReadoutState; stateText: string; children: ReactNode }) {
-  return (
-    <section className="ml-panel" aria-labelledby={`${id}-h`} data-state={state}>
-      <header className="ml-panel__head">
-        <span className="label ml-panel__code" id={`${id}-h`}>
-          {code} — {title}
-        </span>
-        <span className="ml-panel__state" role="status">
-          <Led state={state === 'ok' ? 'ok' : state === 'running' || state === 'reconnect' ? 'on' : 'off'} />
-          <span className="label">{stateText}</span>
-        </span>
-      </header>
-      <div className="ml-panel__body">{children}</div>
-    </section>
-  )
-}
-
-function MlField({ label, hint, htmlFor, children, wide }: { label: string; hint?: ReactNode; htmlFor?: string; children: ReactNode; wide?: boolean }) {
-  return (
-    <div className="ml-field" data-wide={wide || undefined}>
-      {htmlFor ? (
-        <label className="ml-field__label" htmlFor={htmlFor}>
-          {label}
-        </label>
-      ) : (
-        <div className="ml-field__label">{label}</div>
-      )}
-      {children}
-      {hint && (
-        <div className="ml-field__hint" id={htmlFor ? `${htmlFor}-hint` : undefined}>
-          {hint}
-        </div>
-      )}
-    </div>
-  )
-}
-
-function SwitchRow({ label, hint, checked, onChange, disabled, children }: { label: string; hint?: ReactNode; checked: boolean; onChange: (v: boolean) => void; disabled?: boolean; children?: ReactNode }) {
-  return (
-    <div className="ml-row">
-      <Switch checked={checked} onChange={onChange} label={label} disabled={disabled} />
-      <span className="ml-row__text">
-        <span className="ml-row__label">{label}</span>
-        {hint && <span className="ml-field__hint">{hint}</span>}
-      </span>
-      {children}
-    </div>
-  )
 }
 
 async function copy(text: string, t: T) {
@@ -475,7 +427,7 @@ function SyncPanel() {
   const { state, text } = useMailReadout()
   useBuiltinClient()
   const ready = !!effectiveClient(cfg)
-  const busy = m.phase === 'running' || m.phase === 'organising'
+  const busy = m.phase === 'running' || m.phase === 'linking' || m.phase === 'organising'
   const today = format(new Date(), 'yyyy-MM-dd')
   const num = (n: number) => n.toLocaleString(lang === 'de' ? 'de-DE' : 'en-US')
   const pct = m.progress && m.progress.total ? Math.round((m.progress.done / m.progress.total) * 100) : 0
@@ -644,7 +596,7 @@ function OrganisePanel() {
   const est = estimateOrganise(cfg.maxPerRun)
   const usd = est.usd < 0.01 ? '< $0.01' : `≈ $${est.usd.toFixed(2)}`
   return (
-    <Panel id={uid} code="§ C" title={t('features.mail.claude.title')} state={on ? 'ok' : 'off'} stateText={on ? t('features.mail.claude.on') : t('features.mail.claude.off')}>
+    <Panel id={uid} code="§ D" title={t('features.mail.claude.title')} state={on ? 'ok' : 'off'} stateText={on ? t('features.mail.claude.on') : t('features.mail.claude.off')}>
       <SwitchRow
         label={t('features.mail.claude.switch')}
         hint={hasKey ? t('features.mail.claude.switchHint') : t('features.mail.claude.needsKey')}
@@ -710,6 +662,7 @@ export function MailTab() {
       {team && <p className="ml-msg">{t('features.mail.teamNote')}</p>}
       <AccessPanel />
       <SyncPanel />
+      <PeoplePanel />
       <OrganisePanel />
       <div className="st-note">
         <span className="st-note__mark" aria-hidden />

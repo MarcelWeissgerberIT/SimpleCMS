@@ -15,9 +15,11 @@ import { detectLang } from '@/shared/i18n'
 import { aiKeyValue, attachSecrets, checkAIKey, mcpServersValue, withSealedKey } from './secrets'
 import { isSafeFunctionId } from './functions'
 import { agentEditor, sanitizeAgent } from './agents'
+import { sanitizeScript } from './scripts'
 import type {
   CustomAgent,
   CustomFunction,
+  OneScript,
   Database,
   ID,
   Page,
@@ -201,6 +203,10 @@ export interface WorkspaceState extends Workspace {
   upsertAgent: (agent: CustomAgent) => void
   deleteAgent: (id: ID) => void
 
+  // One Script (features/script): insert or replace by id (sanitized; updatedAt / updatedBy are set here) · remove
+  upsertScript: (script: OneScript) => void
+  deleteScript: (id: ID) => void
+
   // comments (margin notes): threads live on the page, their anchors are `comment` marks in its content
   addComment: (pageId: ID, input: { id?: ID; quote: string; body: string }) => ID
   updateComment: (pageId: ID, commentId: ID, patch: Partial<Pick<PageComment, 'body' | 'resolved' | 'quote'>>) => void
@@ -225,6 +231,8 @@ export interface CloudPatch {
   functions?: Record<ID, CustomFunction | null>
   /** custom agents by id (`null` removes one) */
   agents?: Record<ID, CustomAgent | null>
+  /** scripts by id (`null` removes one) */
+  scripts?: Record<ID, OneScript | null>
 }
 
 const now = () => Date.now()
@@ -439,7 +447,7 @@ export const useWorkspace = create<WorkspaceState>()(
       // the Claude API key: a vault marker, never the key (secrets.ts)
       const settings = withSealedKey(ws.settings, get().settings.aiApiKey, ws.epoch)
       set((s) => {
-        Object.assign(s, ws, { pages: freezePages(ws.pages), settings, functions: ws.functions ?? {}, agents: ws.agents ?? {} })
+        Object.assign(s, ws, { pages: freezePages(ws.pages), settings, functions: ws.functions ?? {}, agents: ws.agents ?? {}, scripts: ws.scripts ?? {} })
         s.ready = true
       })
       void checkAIKey()
@@ -456,6 +464,7 @@ export const useWorkspace = create<WorkspaceState>()(
         s.recent = ws.recent
         s.functions = ws.functions ?? {}
         s.agents = ws.agents ?? {}
+        s.scripts = ws.scripts ?? {}
       }),
 
     createPage: (input = {}) => {
@@ -837,6 +846,23 @@ export const useWorkspace = create<WorkspaceState>()(
         if (s.agents?.[id]) delete s.agents[id]
       }),
 
+    upsertScript: (script) => {
+      const cur = get().scripts?.[script.id]
+      const t = now()
+      // a sanitized copy; the saver is stamped like agents' (team: a script changed by someone else asks before it runs)
+      const clean = sanitizeScript(script.id, { ...JSON.parse(JSON.stringify(script)), createdAt: cur?.createdAt ?? script.createdAt ?? t, createdBy: cur ? (cur.createdBy ?? null) : (script.createdBy ?? agentEditor()), updatedBy: agentEditor(), updatedAt: t })
+      if (!clean) return
+      set((s) => {
+        s.scripts ??= {}
+        s.scripts[clean.id] = clean
+      })
+    },
+
+    deleteScript: (id) =>
+      set((s) => {
+        if (s.scripts?.[id]) delete s.scripts[id]
+      }),
+
     // comments bump the page's updatedAt: cross-tab sync compares pages by it (merge.ts samePage)
     addComment: (pageId, input) => {
       const id = input.id ?? newId()
@@ -929,6 +955,11 @@ export const useWorkspace = create<WorkspaceState>()(
           if (agent) s.agents[id] = agent
           else delete s.agents[id]
         }
+        for (const [id, script] of Object.entries(patch.scripts ?? {})) {
+          s.scripts ??= {}
+          if (script) s.scripts[id] = script
+          else delete s.scripts[id]
+        }
         if (patch.settings) Object.assign(s.settings, withSealedKey({ ...s.settings, ...patch.settings }, s.settings.aiApiKey, s.epoch))
         if (removed && s.recent.some((r) => !s.pages[r])) s.recent = s.recent.filter((r) => !!s.pages[r])
       }),
@@ -999,5 +1030,6 @@ export function getWorkspaceSnapshot(): Workspace {
     recent: s.recent,
     functions: s.functions ?? {},
     agents: s.agents ?? {},
+    scripts: s.scripts ?? {},
   }
 }
