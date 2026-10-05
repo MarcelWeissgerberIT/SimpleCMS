@@ -550,6 +550,22 @@ class Bridge {
   }
 }
 
+/** A minimal, valid PDF with `pages` pages (the "Claude for files" picture: its page count shows in the panel). */
+function shotPdf(pages) {
+  const objs = ['<< /Type /Catalog /Pages 2 0 R >>', `<< /Type /Pages /Kids [${Array.from({ length: pages }, (_, i) => `${3 + i} 0 R`).join(' ')}] /Count ${pages} >>`]
+  for (let i = 0; i < pages; i++) objs.push('<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] >>')
+  let out = '%PDF-1.4\n'
+  const offsets = []
+  objs.forEach((o, i) => {
+    offsets.push(out.length)
+    out += `${i + 1} 0 obj\n${o}\nendobj\n`
+  })
+  const xref = out.length
+  out += `xref\n0 ${objs.length + 1}\n0000000000 65535 f \n${offsets.map((o) => `${String(o).padStart(10, '0')} 00000 n \n`).join('')}`
+  out += `trailer\n<< /Size ${objs.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`
+  return new TextEncoder().encode(out)
+}
+
 /** The table in the "Claude for images" picture — and what Claude (mocked) reads out of it. */
 const VOLUMES = { title: 'Volumes', header: ['Reagent', 'Volume (µl)', 'Wells'], rows: [['Buffer', '50', 'A1–A12'], ['Enzyme', '2,5', 'B1–B12'], ['Sample', '10', 'C1–C12'], ['Water', '37,5', 'D1–D12']] }
 
@@ -984,6 +1000,63 @@ const shots = {
     const head = await boxOf(page.locator('.sc-head'))
     const top = Math.max(0, Math.round(head.y - 12))
     await save(page, 'one-script', { x: left, y: top, width: W - left, height: Math.min(H - 30 - top, Math.round(live.y + live.height + 16 - top)) })
+    await ctx.close()
+  },
+
+  /** Claude for files: a mail's PDF attachment → the AI key → Summarise: what was sent, the summary, its keys. */
+  async 'file-ai'(browser) {
+    // a fictional invoice; Claude's summary is canned like in tests/e2e/file-ai.spec.ts
+    const summary = [
+      'An **invoice** from Acme Studio GmbH to Northwind, dated 30 September 2025, for the website relaunch (September).',
+      '',
+      '- Design and prototyping: 18 h · **1,710.00 €**',
+      '- Hosting, October–December: **300.50 €**',
+      '- Total incl. 19 % VAT: **2,392.49 €**',
+      '- Payment within 14 days — due **14 October 2025**',
+      '',
+      '**To do:** pay by 14 October; reference *2025-117*.',
+    ].join('\n')
+    const answer = (body) => (/Summarise the file/.test(JSON.stringify(body.messages ?? '')) ? summary : 'Done.')
+    const { ctx, page } = await freshPage(browser, { claude: { text: answer }, viewport: { width: W, height: 1200 } })
+    const id = await page.evaluate(async (pdf) => {
+      const one = window.__one
+      const save = async (data, type, name) => one.files.saveFile(new Blob([Uint8Array.from(atob(data), (c) => c.charCodeAt(0))], { type }), name)
+      const invoice = await save(pdf, 'application/pdf', 'invoice-2025-117.pdf')
+      const report = await save(btoa('PK'), 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'Relaunch report.docx')
+      const s = one.workspace.getState()
+      const id = s.createPage({ title: 'Invoice 2025-117 · Acme Studio', parentId: null, icon: { type: 'asset', value: 'notepad' } })
+      const p = (t) => ({ type: 'paragraph', content: [{ type: 'text', text: t }] })
+      s.setContent(
+        id,
+        {
+          type: 'doc',
+          content: [
+            p('From billing@acme.example — “The relaunch report, and your invoice for September. Thanks again!”'),
+            { type: 'fileBlock', attrs: { src: report, name: 'Relaunch report.docx', size: 23_904, display: null } },
+            { type: 'fileBlock', attrs: { src: invoice, name: 'invoice-2025-117.pdf', size: atob(pdf).length, display: 'file' } },
+            { type: 'paragraph' },
+          ],
+        },
+        'mail',
+      )
+      return id
+    }, Buffer.from(shotPdf(2)).toString('base64'))
+    await openPage(page, id)
+    const ed = page.locator('#main .ProseMirror').first()
+    const card = ed.locator('.file-view', { hasText: 'invoice-2025-117.pdf' }).first()
+    await card.hover()
+    await card.getByTestId('file-ai-key').click()
+    await page.getByRole('menuitem', { name: /^Summarise/ }).click()
+    const ai = page.getByRole('dialog', { name: 'Ask Claude' })
+    await ai.getByTestId('ai-file-meta').waitFor()
+    await ai.getByText('To do:').waitFor({ timeout: 20_000 })
+    await page.waitForTimeout(700)
+    await page.mouse.move(W + 40, H + 40)
+    // the page column only (no cut-off sidebar): from the mail's line to the panel's foot
+    const box = union(await boxOf(ed.locator('p').first()), await boxOf(ai))
+    const left = Math.round((await page.locator('.sb').first().boundingBox())?.width ?? 0) + 1
+    const top = Math.max(0, Math.round(box.y - 28))
+    await save(page, 'file-ai', { x: left, y: top, width: W - left, height: Math.min(1200 - 30 - top, Math.round(box.y + box.height + 24 - top)) })
     await ctx.close()
   },
 

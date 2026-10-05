@@ -8,6 +8,7 @@ import { detectProvider, domainOf, embedFrame, embedSrc, fileNameOfUrl, parseUrl
 import { pickFiles } from '../lib/upload'
 import { caretAfterNode, leaveNodeView } from '../lib/blocks'
 import { isPdfName, PdfViewer, ShowViewerButton } from './PdfViewer'
+import { FileAIKey } from './FileAIKey'
 
 /** Inline URL form used by empty bookmark / embed blocks. */
 function UrlForm({ icon, label, placeholder, autoFocus, onSubmit, hint, submit }: { icon: ReactNode; label: string; placeholder: string; autoFocus: boolean; onSubmit: (url: string) => string | null; hint?: string; submit: string }) {
@@ -320,6 +321,7 @@ export function FileBlockView({ node, updateAttributes, selected, editor, getPos
           selected={selected}
           editable={editor.isEditable}
           dataType="file"
+          extra={<FileAIKey editor={editor} getPos={getPos} name={name} ghost />}
           onShowAsFile={() => updateAttributes({ display: 'file' })}
           onEscape={() => reselect(editor, getPos)}
         />
@@ -340,6 +342,8 @@ export function FileBlockView({ node, updateAttributes, selected, editor, getPos
         {size > 0 && <span className="file-view__size">{formatBytes(size)}</span>}
       </span>
       <span className="file-view__tools" role="toolbar" aria-label={t('editor.file.tools')} data-block-tools="" onKeyDown={(e) => e.key === 'Escape' && (e.preventDefault(), e.stopPropagation(), reselect(editor, getPos))}>
+        {/* Claude for files: summarise, extract, tables, ask — or open as page / import as database (here on the device) */}
+        <FileAIKey editor={editor} getPos={getPos} name={name} />
         {/* only a local PDF has a viewer — a web PDF is never framed (PdfViewer shows it as a link card) */}
         {pdf && local && editor.isEditable && <ShowViewerButton onClick={() => updateAttributes({ display: 'viewer' })} />}
         <a

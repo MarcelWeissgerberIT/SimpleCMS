@@ -13,6 +13,8 @@ import { toMarkdown } from '../../share/markdown'
 import { addRef, openAgent, REF_MAX } from './state'
 import { imageOnlyIn, imageRef } from '../image/terminal'
 import { imageBytes } from '../image/load'
+import { fileOnlyIn, fileRef } from '../file/terminal'
+import { fileBytes } from '../file/load'
 import type { TermRef } from './types'
 
 /** Characters of one reference, at most (the rest is cut with a note to Claude). */
@@ -70,6 +72,9 @@ export function captureRef(editor?: Editor): TermRef | null {
   // a selected image block: the picture itself goes along (Claude for images)
   const img = imageOnlyIn(hit.editor, hit.from, hit.to)
   if (img) return imageRef(img, pageId, page.title.trim() || t('common.untitled'))
+  // a selected file block: the file itself goes along (Claude for files)
+  const file = fileOnlyIn(hit.editor, hit.from, hit.to)
+  if (file) return fileRef(file, pageId, page.title.trim() || t('common.untitled'))
   const full = sliceToMarkdown(hit.editor.state, hit.from, hit.to).trim()
   if (!full) return null
   const clipped = full.length > REF_CHARS
@@ -92,6 +97,8 @@ export async function addSelectionRef(editor?: Editor, opts: { open?: boolean } 
   const ref = captureRef(editor)
   // an image: its file size for the chip ("image 1.2 MB")
   if (ref?.image) ref.image.bytes = await imageBytes(ref.image.src)
+  // a file: its size for the chip ("PDF 1.2 MB")
+  if (ref?.file) ref.file.bytes = await fileBytes(ref.file.src)
   if (!ref) {
     // ⌘J opens the terminal anyway; "Add to terminal" without a selection only explains
     if (opts.open) openAgent()

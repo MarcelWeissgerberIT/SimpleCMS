@@ -37,6 +37,8 @@ Benenne einen Eintrag einmal um, und jede Mail zeigt den neuen Namen — erkannt
 ## Anhänge
 Jede Mail listet ihre Anhänge mit einer Taste **Laden** (und **Alle laden**). Laden holt die Datei aus Gmail in One und setzt sie als echten Block in die Seite: ein PDF im Viewer des Browsers, ein Bild, Audio oder Video, alles andere als Datei zum Herunterladen. HTML-, SVG- und XML-Anhänge gibt es nur zum Herunterladen, angezeigt werden sie nie. Dateien über 25 MB bleiben in Gmail — die Liste verlinkt die Mail.
 
+Eine geladene Datei ist ein Block wie jeder andere: Ihre Taste **KI** fasst ein PDF zusammen, liest seinen Text oder seine Tabellen aus, öffnet eine Word- oder HTML-Datei als Seite, importiert eine CSV- oder Excel-Tabelle als Datenbank — siehe [Claude für Dateien](help:ai-menu). Die Datei erreicht Anthropic nur mit den Claude-Aktionen; die Umwandlungen bleiben auf diesem Gerät.
+
 **Anhänge automatisch laden** (Einstellungen → E-Mail): *Aus* (Standard), *PDFs + Bilder* bis 10 MB oder *Alle* bis 25 MB — für neue Mails. Geladene Dateien bleiben, wenn die Mail erneut synchronisiert wird. Ist Googles Anmeldung abgelaufen, fragt die Taste zuerst nach der Anmeldung.
 
 ## Mit Claude ordnen

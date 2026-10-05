@@ -171,6 +171,8 @@ export interface TermRef {
   clipped?: boolean
   /** an image block (Claude for images): the picture goes along as an image; bytes = its file size (null: not known) */
   image?: { src: string; bytes: number | null }
+  /** a file block (Claude for files): the file goes along as a document; bytes = its size (null: not known) */
+  file?: { src: string; name: string; bytes: number | null }
 }
 
 /** A page or database pointed at with @ in the prompt. */

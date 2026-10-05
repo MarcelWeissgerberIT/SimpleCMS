@@ -41,6 +41,8 @@ import { condense } from './memory/propose'
 import { pageSource } from './memory/save'
 import type { MemoryProposal, MemoryUse } from './memory/types'
 import { runTransform, type TransformRunRequest } from './transform/run'
+import { FileLoadError, runFileRequest, type FileMeta, type FileProblem, type FileRunRequest } from './file/run'
+import { isLocalAction, isStructuredAction } from './file/kinds'
 import { shownResult, TransformError, type TransformIssue, type TransformState } from './transform/types'
 
 /* ------------------------------------------------------------------ */
@@ -61,6 +63,8 @@ export type RunRequest =
   | ImageRunRequest
   /** "Transform into …": the selected blocks as a diagram, chart, board, columns … (transform/run.ts), previewed first */
   | TransformRunRequest
+  /** Claude for files: a file block → summarise / extract / tables / ask, or a local conversion (file/run.ts) */
+  | FileRunRequest
 
 export type RunStatus = 'running' | 'done' | 'error' | 'interrupted'
 
@@ -110,6 +114,10 @@ export interface AIRun {
   transform?: TransformState | null
   /** "Transform into": why the form could not be made (no dates, a diagram Mermaid would not parse …) */
   transformIssue?: TransformIssue | null
+  /** a file request: what was sent or converted of the file (kind, size, pages — never its content) */
+  file?: FileMeta | null
+  /** a file request whose file could not be used (too large, too many pages, a web file without CORS …) */
+  fileIssue?: FileProblem | null
 }
 
 interface RunsState {
@@ -371,6 +379,14 @@ async function execute(id: string, editor: Editor) {
       if (ac.signal.aborted) return
       buffers.delete(id)
       patch(id, { status: 'done', output: text, finishedAt: Date.now() })
+    } else if (req.kind === 'file') {
+      // the file + the page as its context marks allow — a local conversion reads (and sends) nothing
+      const pr = isLocalAction(req.action) ? null : pageRead(run.pageId, null)
+      if (pr) patch(id, { reads: pr.reads })
+      const text = await runFileRequest(req, pr?.context ?? '', { onToken, signal: ac.signal, onFile: (file) => !ac.signal.aborted && patch(id, { file }) })
+      if (ac.signal.aborted) return
+      buffers.delete(id)
+      patch(id, { status: 'done', output: text, finishedAt: Date.now() })
     } else {
       let text: string
       if (req.kind === 'workspace') {
@@ -408,6 +424,7 @@ async function execute(id: string, editor: Editor) {
     if (e instanceof TodbError) return patch(id, { status: 'error', issue: e.issue, finishedAt: Date.now() })
     if (e instanceof TransformError) return patch(id, { status: 'error', transformIssue: e.issue, finishedAt: Date.now() })
     if (e instanceof ImageLoadError) return patch(id, { status: 'error', imageIssue: e.issue, finishedAt: Date.now() })
+    if (e instanceof FileLoadError) return patch(id, { status: 'error', fileIssue: e.problem, finishedAt: Date.now() })
     const err = e instanceof AIError ? e : new AIError('unknown', String(e))
     if (err.code === 'aborted') return
     patch(id, { status: 'error', output: partial, error: { code: err.code, detail: err.detail, server: err.server }, finishedAt: Date.now() })
@@ -456,6 +473,11 @@ export function stopRun(id: string): boolean {
   if (run.status !== 'running') return true
   // half a JSON answer (image description / tables) is no result
   if (run.req.kind === 'image' && (run.req.action === 'describe' || run.req.action === 'table')) {
+    removeRun(id)
+    return false
+  }
+  // half of a file's tables or of a conversion is no result either
+  if (run.req.kind === 'file' && isStructuredAction(run.req.action)) {
     removeRun(id)
     return false
   }

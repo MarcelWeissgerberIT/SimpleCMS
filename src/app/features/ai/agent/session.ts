@@ -27,6 +27,7 @@ import { recallTool, rememberTool } from '../memory/tools'
 import type { MemoryProposal } from '../memory/types'
 import { isContextLimited, openContextPicker, pageContextMarks, readableBlocks, readableContent, startRedo } from '../../../editor'
 import { withRefImages } from '../image/terminal'
+import { withRefFiles } from '../file/terminal'
 import { depsOf, type AgentStatus, type AgentStep, type AgentTurn, type StagedChange, type TermMention, type TermRef, type TurnContext } from './types'
 
 const set = useAgent.setState
@@ -317,7 +318,9 @@ export async function runTask(raw?: string, opts: { noMemory?: boolean; history?
   try {
     const mcp = setup.servers.length ? await attachMcp(setup) : null
     // referenced image blocks go along as images (Claude for images); one that cannot be loaded is noted
-    const user = await withRefImages(taskMessage(history, prompt, text), refs, ac.signal, (title) => note(t('features.ai.image.refFailed', { title })))
+    const withImages = await withRefImages(taskMessage(history, prompt, text), refs, ac.signal, (title) => note(t('features.ai.image.refFailed', { title })))
+    // referenced file blocks go along as documents (Claude for files); one that cannot be read is noted
+    const user = await withRefFiles(withImages, refs, ac.signal, (title) => note(t('features.ai.file.refFailed', { title })))
     const end = await runAgent({
       history,
       user,

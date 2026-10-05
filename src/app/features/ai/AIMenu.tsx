@@ -18,6 +18,10 @@
  * "Transform into …" (transform/**): a submenu of forms (Auto, Board, Table, Timeline, Diagram, Chart, Columns,
  * Tabs, Toggles, Cards) on a selection of blocks; the run's preview and keys come from transform/panel.tsx.
  * Opened on a form from elsewhere (the grip menu of selected blocks): `transform`.
+ *
+ * Claude for files (file/**): a file block (node-selected, or the one file of a selection) lists its actions
+ * (summarise, extract, tables, ask — or the local conversions: open as page, import as database, open as
+ * spreadsheet); the run's body and keys come from file/FilePanel.tsx.
  */
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
@@ -93,6 +97,10 @@ import { findImage, imageInSelection, imageTarget } from './image/locate'
 import { imageRequest } from './image/actions'
 import { imageActionRows, imageRunTarget, refineImage, useImagePanel } from './image/ImagePanel'
 import type { ImageAction } from './image/request'
+import { fileInSelection, findFile, fileTarget } from './file/locate'
+import { fileRequest } from './file/actions'
+import { FILE_ROOM, fileActionRows, fileAskLabel, fileRunTarget, refineFile, useFilePanel } from './file/FilePanel'
+import { isLocalAction, isStructuredAction, type FileAction } from './file/kinds'
 import { MemoryLine, useMemoryPreview } from './memory/MenuParts'
 import { TRANSFORM_CODES, TRANSFORM_ICONS, TRANSFORM_KEYWORDS, transformChoices, transformRequest, typeLabel } from './transform/forms'
 import { TRANSFORM_ROOM, useTransformPanel } from './transform/panel'
@@ -169,7 +177,7 @@ function makeAnchor(editor: Editor, get: () => RunTarget): VirtualElement {
         }
         // an image (Claude for images): below the picture — a tall one only down to the middle of the screen
         const pic = target.mode === 'selection' ? view.state.doc.nodeAt(target.from) : null
-        const picEl = pic?.type.name === 'image' && target.to === target.from + pic.nodeSize ? (view.nodeDOM(target.from) as HTMLElement | null) : null
+        const picEl = (pic?.type.name === 'image' || pic?.type.name === 'fileBlock') && target.to === target.from + pic.nodeSize ? (view.nodeDOM(target.from) as HTMLElement | null) : null
         if (picEl?.getBoundingClientRect) {
           const r = picEl.getBoundingClientRect()
           const bottom = Math.min(r.bottom, Math.max(r.top + 40, window.innerHeight * 0.5))
@@ -252,6 +260,8 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
   const [own] = useState(() => ({ t: captureTarget(editor, mode, (from, to) => sliceToMarkdown(editor.state, from, to)) }))
   /** the image the panel was opened on (node-selected, or the one image of the selection): Claude for images */
   const [img] = useState(() => (openRun ? null : imageInSelection(editor.state)))
+  /** the file block the panel was opened on (node-selected, or the one file of the selection): Claude for files */
+  const [file] = useState(() => (openRun ? null : fileInSelection(editor.state)))
   const [, setOwnRev] = useState(0)
   useEffect(() => {
     const onTx = ({ transaction }: { transaction: Transaction }) => {
@@ -268,7 +278,12 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
   const [runId, setRunId] = useState<string | null>(openRun ?? null)
   const run = useAIRuns((s) => (runId ? (s.runs[runId] ?? null) : null))
   // an image run: its image found again (the picture is the target, not text)
-  const target: RunTarget = run?.req.kind === 'image' && !editor.isDestroyed ? imageRunTarget(editor, run, run.target) : (run?.target ?? own.t)
+  const target: RunTarget =
+    run?.req.kind === 'image' && !editor.isDestroyed
+      ? imageRunTarget(editor, run, run.target)
+      : run?.req.kind === 'file' && !editor.isDestroyed
+        ? fileRunTarget(editor, run, run.target)
+        : (run?.target ?? own.t)
   const targetRef = useRef(target)
   targetRef.current = target
   const anchor = useMemo(() => makeAnchor(editor, () => targetRef.current), [editor])
@@ -334,6 +349,8 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
   const table = phase === 'done' ? (run?.table ?? null) : null
   const issue = convertIssue ?? run?.issue ?? null
   const interrupted = run?.status === 'interrupted'
+  /** a file's local conversion is shown: text typed now is a question about the file (its kind) */
+  const fileLocal = run?.req.kind === 'file' && isLocalAction(run.req.action) ? run.req.fileKind : null
 
   /** the MCP servers a free-form request would use ("ATLAS · GITHUB", '' = none) */
   const mcpNames = useWorkspace((s) =>
@@ -441,8 +458,9 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
   // opened on an image run (the image toolbar, the block menu) / a transform run ("AI result ready"): room below the target, like a request started here
   useEffect(() => {
     const kind = openRun ? useAIRuns.getState().runs[openRun]?.req.kind : null
-    if (kind !== 'image' && kind !== 'transform') return
-    const id = requestAnimationFrame(() => makeRoom(kind === 'transform' ? TRANSFORM_ROOM : true))
+    if (kind !== 'image' && kind !== 'transform' && kind !== 'file') return
+    const r = openRun ? useAIRuns.getState().runs[openRun]?.req : null
+    const id = requestAnimationFrame(() => makeRoom(kind === 'transform' ? TRANSFORM_ROOM : r?.kind === 'file' && isStructuredAction(r.action) ? FILE_ROOM : true))
     return () => cancelAnimationFrame(id)
   }, [openRun, makeRoom])
 
@@ -462,7 +480,7 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
       setMemDraft(null)
       setMemEdit(false)
       if (view === 'memory' || view === 'memhist' || view === 'transform') setView('actions')
-      makeRoom(req.kind === 'transform' ? TRANSFORM_ROOM : true)
+      makeRoom(req.kind === 'transform' ? TRANSFORM_ROOM : req.kind === 'file' && isStructuredAction(req.action) ? FILE_ROOM : true)
     },
     [editor, pageId, runId, makeRoom, view],
   )
@@ -704,6 +722,30 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
     }
   }
 
+  /* ---------------- Claude for files ---------------- */
+
+  /** A file action on the file the panel is about (found again — the page may have changed meanwhile). */
+  const startFile = (action: FileAction, question?: string) => {
+    if (!file || editor.isDestroyed) return
+    const hit = findFile(editor.state.doc, { src: String(file.hit.node.attrs.src), blockId: (file.hit.node.attrs.id as string | null) ?? null }, file.hit.pos)
+    if (hit) start(fileRequest(action, hit, { question }), fileTarget(editor.state.doc, hit.pos))
+  }
+
+  /** a file run: its result body and keys (a page preview, the tables / sheets, a database, Upload a copy …) */
+  const filePanel = useFilePanel({
+    editor,
+    pageId,
+    run: run?.req.kind === 'file' ? run : null,
+    phase,
+    start,
+    finish: () => {
+      if (run) removeRun(run.id)
+      onClose()
+    },
+    discard,
+    copy: (text) => void copyText(text),
+  })
+
   /** an image run: its result body and keys (alt text + caption, tables, Upload a copy …) */
   const imagePanel = useImagePanel({
     editor,
@@ -741,8 +783,8 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
 
   /** the forms the selection may become (Auto first; [] when it is no whole blocks) */
   const transformPicks = useMemo(
-    () => (own.t.mode === 'selection' && !img?.only && !editor.isDestroyed ? transformChoices(editor.state.doc, own.t.range) : []),
-    [own.t.mode, own.t.range, img, editor],
+    () => (own.t.mode === 'selection' && !img?.only && !file?.only && !editor.isDestroyed ? transformChoices(editor.state.doc, own.t.range) : []),
+    [own.t.mode, own.t.range, img, file, editor],
   )
   const transformRun = useCallback((pick: TransformPick) => start(transformRequest(pick)), [start])
 
@@ -852,7 +894,20 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
           },
         )
       : []
+    // a file block in the selection: its Claude actions and local conversions ("Ask about the file…" focuses the prompt)
+    const fileGroup: ActionDef[] = file
+      ? fileActionRows(
+          t,
+          file.hit.kind,
+          (a) => startFile(a),
+          () => {
+            setQuery('')
+            requestAnimationFrame(() => inputRef.current?.focus())
+          },
+        )
+      : []
     if (img?.only) return [...imageGroup, agent, reads]
+    if (file?.only) return [...fileGroup, agent, reads]
     // spans blocks (or holds a list / table) where a database block may go
     const todb: ActionDef[] = own.t.todb
       ? [
@@ -901,6 +956,7 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
     if (own.t.mode === 'selection')
       return [
         ...imageGroup,
+        ...fileGroup,
         A('improve', t('features.ai.act.improve'), 'IMP', PenLine, gEdit, 'better rewrite verbessern'),
         A('fix', t('features.ai.act.fix'), 'FIX', SpellCheck, gEdit, 'spelling grammar rechtschreibung grammatik'),
         A('shorter', t('features.ai.act.shorter'), 'SHR', Minimize2, gEdit, 'short kürzer'),
@@ -982,9 +1038,9 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
   /* ---------------- One memory ---------------- */
 
   const memInUse = useWorkspace(() => memoryInUse())
-  const remembering = !!query.trim() && isRememberRequest(query) && !img?.only
+  const remembering = !!query.trim() && isRememberRequest(query) && !img?.only && !file?.only
   /** the typed text would go to Claude as an own request (or a revision): its memory preview shows */
-  const previewing = memInUse && !!query.trim() && !remembering && !wsMode && !img?.only && !redoIds && (view === 'actions' || view === 'memory' || view === 'memhist') && phase !== 'streaming' && run?.req.kind !== 'todb' && run?.req.kind !== 'memory' && run?.req.kind !== 'transform'
+  const previewing = memInUse && !!query.trim() && !remembering && !wsMode && !img?.only && !file?.only && !redoIds && (view === 'actions' || view === 'memory' || view === 'memhist') && phase !== 'streaming' && run?.req.kind !== 'todb' && run?.req.kind !== 'memory' && run?.req.kind !== 'transform' && run?.req.kind !== 'file'
   const preview = useMemoryPreview(query.trim(), previewing, memOff)
   /** the line under the reads line: the preview while typing, else what the shown run took along */
   const lineUse = previewing ? preview : !query.trim() && run?.req.kind === 'action' ? (run.memory ?? null) : null
@@ -1144,14 +1200,17 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
             id: 'refine',
             label: (
               <>
-                {t('features.ai.refine')} <span className="ai-quote">“{query.trim()}”</span>
+                {/* after a local conversion of a file the text is a question about it */}
+                {fileLocal ? fileAskLabel(t, fileLocal) : t('features.ai.refine')} <span className="ai-quote">“{query.trim()}”</span>
               </>
             ),
-            code: 'REF',
+            code: fileLocal ? 'ASK' : 'REF',
             icon: CornerDownLeft,
             run: () =>
               run?.req.kind === 'image'
                 ? start(refineImage(run.req, query))
+                : run?.req.kind === 'file'
+                ? start(refineFile(t, run.req, query))
                 : run?.req.kind === 'transform'
                 ? transformPanel.again(query)
                 : run?.req.kind === 'todb'
@@ -1172,6 +1231,8 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
         ]
       // an image result: its own keys (Apply / Insert below / as table · spreadsheet · database / Upload a copy)
       if (imagePanel.rows) return imagePanel.rows
+      // a file result: its own keys (Create the page / Insert below / as spreadsheet · table · database / Upload a copy)
+      if (filePanel.rows) return filePanel.rows
       const out: Row[] = []
       const todb = run?.req.kind === 'todb'
       const transform = run?.req.kind === 'transform'
@@ -1321,7 +1382,22 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
             run: () => startImage('ask', query.trim()),
           }
         : null
-    const custom: Row | null = q && !img?.only
+    // the file alone is selected: a typed request is a question about it
+    const fileAsk: Row | null =
+      q && file
+        ? {
+            id: 'ask-file',
+            label: (
+              <>
+                {fileAskLabel(t, file.hit.kind)} <span className="ai-quote">“{query.trim()}”</span>
+              </>
+            ),
+            code: 'ASK',
+            icon: MessageSquareText,
+            run: () => startFile('ask', query.trim()),
+          }
+        : null
+    const custom: Row | null = q && !img?.only && !file?.only
       ? {
           id: 'custom',
           label: (
@@ -1356,6 +1432,7 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
       })
     }
     if (imageAsk) list.unshift(imageAsk)
+    if (fileAsk) list.unshift(fileAsk)
     // "remember …" / "merk dir …": a memory proposal, not an answer
     if (remembering)
       list.unshift({
@@ -1370,7 +1447,7 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
         run: () => start({ kind: 'memory', label: t('features.memory.menu.label'), code: 'MEM', text: query.trim(), from: 'request' }),
       })
     return list
-  }, [query, setup, phase, wsMode, view, actions, t, start, output, target, run, error, discard, sources, handToAgent, mcpNames, onClose, table, todbInPlace, ask, marks, lang, chooseMode, pickBlocks, redoCard, isRedo, imagePanel.rows, img, lineUse, memOff, previewing, histOf, memEdit, memDup, remembering, tagQuery, transformPicks, transformRun, transformPanel.apply]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [query, setup, phase, wsMode, view, actions, t, start, output, target, run, error, discard, sources, handToAgent, mcpNames, onClose, table, todbInPlace, ask, marks, lang, chooseMode, pickBlocks, redoCard, isRedo, imagePanel.rows, img, filePanel.rows, file, lineUse, memOff, previewing, histOf, memEdit, memDup, remembering, tagQuery, transformPicks, transformRun, transformPanel.apply]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     setActive((a) => Math.min(a, Math.max(0, rows.length - 1)))
@@ -1384,6 +1461,11 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
   useEffect(() => {
     if (imagePanel.mode) setActive(0)
   }, [imagePanel.mode])
+
+  // a file result switched its keys (the data → "As database…" and back): the first key again
+  useEffect(() => {
+    if (filePanel.mode) setActive(0)
+  }, [filePanel.mode])
 
   // a transform run shows another form / finished: Transform is the key again
   useEffect(() => {
@@ -1454,7 +1536,7 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
   }
 
   const phKey =
-    phase === 'done' || phase === 'error' ? 'refine' : wsMode ? 'workspace' : view === 'translate' ? 'language' : view === 'transform' ? 'transform' : img && view === 'actions' ? 'image' : target.mode === 'selection' ? 'selection' : 'block'
+    phase === 'done' || phase === 'error' ? (fileLocal ? 'file' : 'refine') : wsMode ? 'workspace' : view === 'translate' ? 'language' : view === 'transform' ? 'transform' : img && view === 'actions' ? 'image' : file && view === 'actions' ? 'file' : target.mode === 'selection' ? 'selection' : 'block'
   const placeholder = t(`features.ai.placeholder.${phKey}${narrow ? 'Short' : ''}`)
 
   /** Back from the key card to the panel (re-running a request that failed for lack of a key). */
@@ -1480,7 +1562,7 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
       ? { ...readsFor(marks, null), workspace: true }
       : (isTransform || view === 'transform') && target.mode === 'selection'
         ? { mode: 'none', selection: true, blocks: 0, words: countWords(target.selected) }
-        : readsFor(marks, target.mode === 'selection' && !img?.only ? target.selected : null)
+        : readsFor(marks, target.mode === 'selection' && !img?.only && !file?.only ? target.selected : null)
   /** a redo result is under review: the review has the keyboard (no prompt, no reads line) */
   const reviewing = isRedo && phase === 'done' && !redoEdit
   /** the prompt gives way to a title while the instructions card or the review shows */
@@ -1489,7 +1571,7 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
   let lastGroup: string | undefined
   return (
     <>
-      {target.mode === 'selection' && !target.lost && !picking && !redoIds && !isRedo && !img?.only && run?.req.kind !== 'image' && <SelectionShade editor={editor} from={target.from} to={target.to} />}
+      {target.mode === 'selection' && !target.lost && !picking && !redoIds && !isRedo && !img?.only && !file?.only && run?.req.kind !== 'image' && run?.req.kind !== 'file' && <SelectionShade editor={editor} from={target.from} to={target.to} />}
       <Popover open={!picking} anchor={anchor} onClose={onPopoverClose} placement="bottom-start" offset={8} bare className="ai-panel" role="dialog" aria-label={t('features.ai.title')}>
         {setup ? (
           <KeySetup
@@ -1608,6 +1690,7 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
                   ·
                 </span>
                 {(img || run?.req.kind === 'image') && <span className="ai-reads__img">{t('features.ai.image.readsImage')}</span>}
+                {(run ? run.req.kind === 'file' && !isLocalAction(run.req.action) : !!file) && <span className="ai-reads__file">{t('features.ai.file.readsFile')}</span>}
                 <span className="ai-reads__v">{readsText(t, lang, readsNow, marks ?? undefined)}</span>
                 <ChevronDown className="ai-reads__chev" size={12} strokeWidth={1.8} aria-hidden />
               </button>
@@ -1668,14 +1751,14 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
                   {run?.reads && (
                     <>
                       <span className="ai-out__reads" title={t('features.ai.reads.spec', { what: readsText(t, lang, run.reads) })} data-testid="ai-run-reads">
-                        {run.req.kind === 'image' ? `${t('features.ai.image.readsImage')} ` : ''}
+                        {run.req.kind === 'image' ? `${t('features.ai.image.readsImage')} ` : run.req.kind === 'file' ? `${t('features.ai.file.readsFile')} ` : ''}
                         {readsShort(t, lang, run.reads)}
                       </span>
                       <span className="ai-out__sep">·</span>
                     </>
                   )}
                   {run && <Elapsed start={run.startedAt} end={run.finishedAt ?? undefined} />}
-                  {!isTodb && !isRedo && !isMemory && !isTransform && !imagePanel.structured && (
+                  {!isTodb && !isRedo && !isMemory && !isTransform && !imagePanel.structured && !filePanel.structured && (
                     <>
                       <span className="ai-out__sep">·</span>
                       <span>{t('features.ai.words', { count: words })}</span>
@@ -1689,6 +1772,7 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
                 </div>
                 {mcpCalls.length > 0 && <McpChips calls={mcpCalls} />}
                 {imagePanel.body}
+                {filePanel.body}
                 {transformPanel.body}
                 {isTodb && busy && (
                   <div className="ai-out__body">
@@ -1739,7 +1823,7 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
                     )}
                   </div>
                 )}
-                {!isTodb && !isRedo && !isMemory && !isTransform && !imagePanel.structured && !run?.imageIssue && (output || busy) && (
+                {!isTodb && !isRedo && !isMemory && !isTransform && !imagePanel.structured && !filePanel.structured && !run?.imageIssue && !run?.fileIssue && (output || busy) && (
                   <div
                     className="ai-out__body"
                     ref={outRef}
