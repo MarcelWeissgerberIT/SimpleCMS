@@ -11,6 +11,8 @@
  *    workspace + run, never synced or exported; the last 20, dropped after 7 days or once accepted /
  *    discarded. A run a reload cut off comes back as 'interrupted'.
  *  - a run that finishes while its page is not open says so in a toast ("AI result ready · <page>" → Open).
+ *  - what a request reads of its page follows the page's context marks (reads.ts: whole page / only the
+ *    marked blocks / nothing); the run keeps that record (`reads`) for its spec line.
  */
 import { create } from 'zustand'
 import { createStore, del, entries, set as idbSet, type UseStore } from 'idb-keyval'
@@ -29,6 +31,8 @@ import type { McpCall } from './mcp-servers/activity'
 import { mapTarget, reanchor, type RunTarget } from './runsTarget'
 import { requestTable, TodbError, type TableAnswer, type TodbIssue } from './todb/run'
 import type { TableDraft } from './todb/plan'
+import { countWords, pageRead, type RunReads } from './reads'
+import { readableContent } from '../../editor'
 
 /* ------------------------------------------------------------------ */
 /* Types                                                               */
@@ -63,6 +67,8 @@ export interface AIRun {
   finishedAt: number | null
   /** the finished result was shown (the sidebar LED is for unseen ones) */
   seen: boolean
+  /** what the request read of its page (null: from before this was recorded) */
+  reads?: RunReads | null
 }
 
 interface RunsState {
@@ -216,6 +222,7 @@ export function startRun({ editor, pageId, req, target, replaces }: StartRunOpti
     startedAt: Date.now(),
     finishedAt: null,
     seen: false,
+    reads: null,
   }
   useAIRuns.setState((s) => ({ runs: { ...s.runs, [id]: run } }))
   bind(id, editor)
@@ -227,10 +234,31 @@ export function startRun({ editor, pageId, req, target, replaces }: StartRunOpti
   return id
 }
 
-/** The page as context for a request (title + plain text). */
-function pageContext(pageId: ID): string {
-  const p = useWorkspace.getState().pages[pageId]
-  return p ? `${p.title.trim() ? `# ${p.title.trim()}\n\n` : ''}${p.plain ?? ''}` : ''
+/**
+ * What an action request sends of its page — by the page's context marks (reads.ts): the whole page,
+ * only the marked blocks, or nothing. "Continue" reads the text before the caret (whole page), the
+ * marked blocks (marked) or nothing; a selection always goes along as the text to work on.
+ */
+function actionRead(run: AIRun, req: Extract<RunRequest, { kind: 'action' }>): { input: string; context: string; reads: RunReads } {
+  const { target } = run
+  const selection = target.mode === 'selection' ? target.selected : null
+  const pr = pageRead(run.pageId, selection)
+  if (req.action !== 'continue') return { input: req.input ?? target.selected, context: pr.context, reads: pr.reads }
+  const p = useWorkspace.getState().pages[run.pageId]
+  const title = p?.title.trim() ? `# ${p.title.trim()}` : ''
+  if (pr.reads.mode === 'none') return { input: '', context: '', reads: pr.reads }
+  if (pr.reads.mode === 'marked') return { input: pr.marked, context: title, reads: pr.reads }
+  const input = req.input ?? target.before
+  return { input, context: title, reads: { ...pr.reads, words: countWords(input) } }
+}
+
+/** "Ask your workspace": this page as its context marks allow (null: no limit). */
+function workspaceLimit(pageId: ID): { limit: { id: ID; text: string | null } | null; reads: RunReads } {
+  const r = readableContent(pageId)
+  const mode = r.mode === 'marked' && !r.blocks ? 'none' : r.mode
+  const reads: RunReads = { mode, selection: false, blocks: mode === 'marked' ? r.blocks : 0, words: 0, workspace: true }
+  if (mode === 'page') return { limit: null, reads }
+  return { limit: { id: pageId, text: mode === 'none' ? null : r.plain }, reads }
 }
 
 async function execute(id: string, editor: Editor) {
@@ -246,6 +274,8 @@ async function execute(id: string, editor: Editor) {
   const { req, target } = run
   try {
     if (req.kind === 'todb') {
+      // reads the selected blocks only (and the page title)
+      patch(id, { reads: { mode: 'none', selection: true, blocks: 0, words: countWords(target.selected) } })
       if (!target.todb || editor.isDestroyed) throw new TodbError('changed')
       const title = useWorkspace.getState().pages[run.pageId]?.title ?? ''
       const res = await requestTable(editor.state.doc, target.todb, { pageTitle: title, instruction: req.instruction, signal: ac.signal })
@@ -254,16 +284,18 @@ async function execute(id: string, editor: Editor) {
     } else {
       let text: string
       if (req.kind === 'workspace') {
-        const res = await askWorkspace({ question: req.question, onToken, signal: ac.signal, onSources: (sources) => !ac.signal.aborted && patch(id, { sources }, false) })
+        const ws = workspaceLimit(run.pageId)
+        patch(id, { reads: ws.reads })
+        const res = await askWorkspace({ question: req.question, onToken, signal: ac.signal, limit: ws.limit, onSources: (sources) => !ac.signal.aborted && patch(id, { sources }, false) })
         text = res.text
       } else {
-        const p = useWorkspace.getState().pages[run.pageId]
-        const isContinue = req.action === 'continue'
+        const read = actionRead(run, req)
+        patch(id, { reads: read.reads })
         text = await runAI({
           action: req.action,
-          input: req.input ?? (isContinue ? target.before : target.selected),
+          input: read.input,
           instruction: req.instruction,
-          context: isContinue ? (p?.title ? `# ${p.title}` : '') : pageContext(run.pageId),
+          context: read.context,
           onToken,
           signal: ac.signal,
           onMcp: (calls) => !ac.signal.aborted && patch(id, { mcpCalls: calls }, false),

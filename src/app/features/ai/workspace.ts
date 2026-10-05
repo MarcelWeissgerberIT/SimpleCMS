@@ -108,8 +108,12 @@ export async function askWorkspace(opts: {
   signal?: AbortSignal
   /** called as soon as retrieval is done, before streaming starts */
   onSources?: (sources: WorkspaceSource[]) => void
+  /** what may be read of one page (its context marks): text = the readable part, null = leave the page out */
+  limit?: { id: ID; text: string | null } | null
 }): Promise<{ text: string; sources: WorkspaceSource[] }> {
-  const hits = retrieve(opts.question, workspaceDocs())
+  const lim = opts.limit
+  const docs = lim ? workspaceDocs().flatMap((d) => (d.id !== lim.id ? [d] : lim.text === null ? [] : [{ ...d, text: lim.text }])) : workspaceDocs()
+  const hits = retrieve(opts.question, docs)
   const sources = hits.map((d) => ({ id: d.id, title: d.title }))
   opts.onSources?.(sources)
   if (usesDemo()) {
