@@ -21,7 +21,7 @@ import type { GmailCtx, GmailLabel } from './gmail'
 import type { TargetProblem } from './schema'
 import type { ID } from '../../store/types'
 
-export type MailPhase = 'idle' | 'connecting' | 'running' | 'organising'
+export type MailPhase = 'idle' | 'connecting' | 'running' | 'linking' | 'organising'
 
 export interface MailState {
   loaded: boolean
@@ -76,6 +76,7 @@ export const useMail = create<MailState>()(() => ({
 
 const patch = (p: Partial<MailState>) => useMail.setState(p)
 const engine = () => import('./sync')
+const peopleApi = () => import('./people')
 const gmailApi = () => import('./gmail')
 const gctx = (signal?: AbortSignal): GmailCtx => ({ token: currentToken, signal })
 
@@ -268,6 +269,10 @@ async function run(): Promise<void> {
       })
     }
     const cfg = readMail()
+    if (cfg.people.enabled) {
+      patch({ phase: 'linking', progress: null })
+      await (await peopleApi()).linkPending(ctrl.signal, (p) => patch({ progress: p }))
+    }
     if (cfg.organise.enabled && res.created.length && isAIConfigured()) {
       patch({ phase: 'organising' })
       await organiseRows(res.created, ctrl.signal, (p) => patch({ progress: p }))
@@ -308,6 +313,36 @@ export async function organiseEarlier(): Promise<void> {
       await refresh().catch(() => {})
       announce()
     }
+  })().finally(() => {
+    running = null
+  })
+  return running
+}
+
+/**
+ * Link the synced mails to Contacts / Companies / Conversations now — "Contacts & companies" was switched
+ * on. Needs no Gmail: everything comes from the rows (From, To, Thread).
+ */
+export function linkNow(): Promise<void> {
+  if (running) return running
+  running = (async () => {
+    const work = async () => {
+      const ctrl = new AbortController()
+      abort = ctrl
+      patch({ phase: 'linking', error: null, errorAt: null, progress: null })
+      try {
+        await (await peopleApi()).linkPending(ctrl.signal, (p) => patch({ progress: p }))
+      } catch (e) {
+        if (!ctrl.signal.aborted) patch({ error: errorInfo(e).text, errorAt: 'sync' })
+      } finally {
+        if (abort === ctrl) abort = null
+        patch({ phase: 'idle', progress: null })
+        announce()
+      }
+    }
+    const locks = typeof navigator !== 'undefined' ? navigator.locks : undefined
+    if (locks?.request) await locks.request(`one-mail-run:${wsKey()}`, work)
+    else await work()
   })().finally(() => {
     running = null
   })
@@ -512,6 +547,7 @@ if (typeof window !== 'undefined' && (import.meta.env.DEV || new URLSearchParams
       if (account) patch({ account })
     },
     sync: () => syncNow(),
+    link: linkNow,
     organiseEarlier,
     reset: resetMailSync,
     /** One's built-in Google client at this origin (?e2e only, kept across reloads); null = off again */

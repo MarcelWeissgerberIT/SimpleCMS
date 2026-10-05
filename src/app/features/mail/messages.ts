@@ -401,7 +401,7 @@ export const messages: Messages = {
     'features.mail.prop.unread': 'Ungelesen',
     'features.mail.prop.attachments': 'Hat Anhänge',
     'features.mail.prop.link': 'Gmail-Link',
-    'features.mail.prop.thread': 'Konversation',
+    'features.mail.prop.thread': 'Thread-ID',
     'features.mail.prop.messageId': 'Nachrichten-ID',
     'features.mail.prop.images': 'Bilder anzeigen',
     'features.mail.prop.category': 'Kategorie',

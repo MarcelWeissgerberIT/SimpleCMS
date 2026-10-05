@@ -579,8 +579,10 @@ export interface Database {
    * relations to the memory). Only a marker: the database stays an ordinary database the person edits.
    * Several (a duplicate, a restored backup): the oldest live one counts; in a team workspace only a
    * private one; a deleted one is simply created again on next use.
+   * 'mail-contacts' / 'mail-companies' / 'mail-conversations' = the directories the Gmail sync fills
+   * (features/mail/people.ts) — same rules.
    */
-  system?: 'memory' | 'memory-log'
+  system?: 'memory' | 'memory-log' | 'mail-contacts' | 'mail-companies' | 'mail-conversations'
 }
 
 export type AutomationTrigger =
@@ -687,6 +689,10 @@ export type MailPropRole =
   | 'needsReply'
   | 'summary'
   | 'project'
+  /** relations to the three directories the sync fills (features/mail/people.ts): sender · its company · thread */
+  | 'contact'
+  | 'company'
+  | 'conversation'
 
 /** Settings → Mail (features/mail). */
 export interface MailSettings {
@@ -709,6 +715,17 @@ export interface MailSettings {
   /** property ids of the Mails database by role */
   props?: Partial<Record<MailPropRole, ID>>
   organise: MailOrganise
+  /** "Contacts & companies": link each mail to Contacts / Companies / Conversations (on by default) */
+  people: MailPeople
+  /** "Load attachments automatically" on sync: 'off' (default) · 'media' = PDFs + images ≤ 10 MB · 'all' ≤ 25 MB */
+  attachments: 'off' | 'media' | 'all'
+}
+
+/** Contacts, companies, conversations (features/mail/people.ts). */
+export interface MailPeople {
+  enabled: boolean
+  /** domains that never become a company (freemail / personal); "yahoo.*" = any ending */
+  freemail: string[]
 }
 
 /** "Organise with Claude" (off by default; needs the Claude key — mail content then goes to Anthropic). */

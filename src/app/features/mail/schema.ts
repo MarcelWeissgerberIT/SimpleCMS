@@ -37,7 +37,13 @@ const ROLE_TYPE: Record<MailPropRole, PropertyDef['type']> = {
   needsReply: 'checkbox',
   summary: 'text',
   project: 'relation',
+  contact: 'relation',
+  company: 'relation',
+  conversation: 'relation',
 }
+
+/** Relations to Contacts / Companies / Conversations: created and kept by people.ts, not by ensureProps. */
+export const PEOPLE_ROLES = ['contact', 'company', 'conversation'] as const satisfies readonly MailPropRole[]
 
 export const PRIORITIES = ['high', 'medium', 'low'] as const
 export type Priority = (typeof PRIORITIES)[number]
@@ -173,6 +179,10 @@ export function ensureProps(dbId: ID, cfg: MailSettings): Partial<Record<MailPro
       out[role] = prop.id
       taken.add(prop.id)
     }
+  }
+  for (const role of PEOPLE_ROLES) {
+    const id = cfg.props?.[role]
+    if (id && db.properties.some((p) => p.id === id && p.type === 'relation')) out[role] = id
   }
   return out
 }

@@ -31,9 +31,9 @@ export function useMailReadout(): { state: ReadoutState; text: string } {
   const reconnect = useMail((s) => s.reconnect)
   const lastAt = useMail((s) => s.lastAt)
   const dbId = useWorkspace((s) => s.settings.mail?.databaseId ?? null)
-  if (phase === 'running' || phase === 'organising') {
+  if (phase === 'running' || phase === 'linking' || phase === 'organising') {
     const n = progress && progress.total ? `${progress.done}/${progress.total}` : ''
-    return { state: 'running', text: t(phase === 'organising' ? 'features.mail.status.organising' : 'features.mail.status.running', { n }).trim() }
+    return { state: 'running', text: t(`features.mail.status.${phase}`, { n }).trim() }
   }
   if (error) return { state: 'error', text: t('features.mail.status.error') }
   if (reconnect) return { state: 'reconnect', text: t('features.mail.status.reconnect') }

@@ -32,6 +32,8 @@ export interface KnownMail {
   u: boolean
   /** organised by Claude (never again automatically) */
   o?: 1
+  /** linked to Contacts / Companies / Conversations on this device (people.ts) */
+  c?: 1
   /** fingerprint of the body text One wrote (an edited body is never replaced without asking) */
   h?: string
 }
