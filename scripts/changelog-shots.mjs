@@ -961,6 +961,32 @@ const shots = {
     await ctx.close()
   },
 
+  /** One Script: a query in the editor (a chip for the database), the query builder and the live result table. */
+  async 'one-script'(browser) {
+    const { ctx, page } = await freshPage(browser)
+    const id = await page.evaluate(() => {
+      const s = window.__one.workspace.getState()
+      const db = Object.values(s.pages).find((p) => p.kind === 'database' && p.title === 'Projects')
+      const id = 'scshot1'
+      const now = Date.now()
+      const code = `# Open projects with high priority, soonest first\ndb(@[Projects](p:${db.id}))\n  .where(Status != "Done", Priority = "High")\n  .sort(Timeline)\n  .limit(5)\n`
+      s.upsertScript({ id, name: 'Urgent projects', code, kind: 'query', createdAt: now, updatedAt: now })
+      return id
+    })
+    await page.evaluate((id) => (window.location.hash = `#/scripts/${id}`), id)
+    await page.locator('.sc-code__input').waitFor()
+    await page.getByTestId('sc-live-count').waitFor()
+    await page.locator('.sc-live tbody tr').first().waitFor()
+    await page.waitForTimeout(600)
+    await rest(page)
+    const left = Math.round((await page.locator('.sb').first().boundingBox())?.width ?? 0) + 1
+    const live = await boxOf(page.locator('.sc-live'))
+    const head = await boxOf(page.locator('.sc-head'))
+    const top = Math.max(0, Math.round(head.y - 12))
+    await save(page, 'one-script', { x: left, y: top, width: W - left, height: Math.min(H - 30 - top, Math.round(live.y + live.height + 16 - top)) })
+    await ctx.close()
+  },
+
   /** Several blocks selected (text, image, table): the wash on each, the pinned grip, the count chip. */
   async 'block-select'(browser) {
     const { ctx, page } = await freshPage(browser)

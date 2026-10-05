@@ -136,6 +136,11 @@ export class PageObj extends HostObject {
     return SCOPE_BUILTINS.has(normName(name)) ? this.builtin(name) : undefined
   }
 
+  unknownName(name: string): ScriptError | undefined {
+    const db = this.db
+    return db ? new ScriptError('unknown_prop', { db: ws().pages[db.id]?.title || untitled(), name }) : undefined
+  }
+
   method(name: string): NativeFn | undefined {
     const n = normName(name)
     const host = this.host

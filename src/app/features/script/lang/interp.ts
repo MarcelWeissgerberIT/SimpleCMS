@@ -81,6 +81,8 @@ class Env {
     readonly parent: Env | null,
     /** names of an item inside where / sort / select (a row's properties, a record's fields) */
     readonly scope: ((name: string) => Value | undefined | Promise<Value | undefined>) | null = null,
+    /** the item's own error for a name nobody knows ("Tasks has no property X") */
+    readonly miss: ((name: string) => ScriptError | undefined) | null = null,
   ) {}
 }
 
@@ -325,6 +327,11 @@ export class Interpreter {
     if (g !== undefined) return g
     const f = this.opts.fallback?.(name)
     if (f !== undefined) return f
+    // inside where / sort / select: the item says what is missing (a row: its database has no such property)
+    for (let e: Env | null = env; e; e = e.parent) {
+      const err = e.miss?.(name)
+      if (err) throw err.at(pos)
+    }
     throw new ScriptError('unknown_name', { name }, pos)
   }
 
@@ -644,7 +651,7 @@ export class Interpreter {
       limits: { list: this.limits.list, text: this.limits.text },
       eval: (th) => this.eval(th.node, th.env as Env),
       evalFor: async (th, item) => {
-        const inner = new Env(th.env as Env, this.itemScope(item, ctx))
+        const inner = new Env(th.env as Env, this.itemScope(item, ctx), item instanceof HostObject && item.unknownName ? (n) => item.unknownName!(n) : null)
         inner.vars.set('it', item)
         const v = await this.eval(th.node, inner)
         return isCallable(v) ? this.callValue(v, [item], th.node.pos, inner) : v

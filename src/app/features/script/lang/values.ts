@@ -126,6 +126,8 @@ export abstract class HostObject {
   scope(_name: string, _ctx: CallCtx): Value | undefined | Promise<Value | undefined> {
     return undefined
   }
+  /** the error for a name nothing knows inside where / sort / select of this item (absent: "Unknown name") */
+  unknownName?(name: string): ScriptError | undefined
   /** `obj.name = value` (rows: set a property) — absent: not allowed */
   setMember?(name: string, value: Value, ctx: CallCtx): Promise<void>
   /** `for x in obj` (a query: its rows) — absent: not iterable */
