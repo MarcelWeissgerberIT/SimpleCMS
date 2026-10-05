@@ -189,7 +189,7 @@ test.describe('Workspace agent (mocked Claude API)', () => {
     const b0 = bodies[0]
     expect(b0.model).toBe('claude-opus-5-5')
     expect(b0.stream).toBe(true)
-    expect(b0.tools.map((x: AnyState) => x.name)).toEqual(['search_pages', 'read_page', 'list_databases', 'query_database', 'get_current_page', 'create_page', 'append_to_page', 'edit_page', 'create_row', 'update_row', 'set_page_title', 'create_database', 'add_property'])
+    expect(b0.tools.map((x: AnyState) => x.name)).toEqual(['search_pages', 'read_page', 'list_databases', 'query_database', 'get_current_page', 'create_page', 'append_to_page', 'edit_page', 'create_row', 'update_row', 'set_page_title', 'run_query', 'create_database', 'add_property', 'write_script'])
     expect(b0.tools.every((x: AnyState) => x.eager_input_streaming === true && x.input_schema?.type === 'object')).toBe(true)
     expect(b0.tools.some((x: AnyState) => 'run' in x || 'parse' in x)).toBe(false)
     expect(b0.thinking).toMatchObject({ type: 'adaptive', display: 'updates' })

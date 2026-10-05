@@ -45,6 +45,8 @@ const TOOL_SUMMARIES: Record<McpToolName, string> = {
   one_move_row: 'Move a row into another database whose properties fit.',
   one_trash_page: 'Move pages, rows or databases (with their rows) to the trash — one or many, restorable.',
   one_restore_page: 'Bring pages, rows or databases back from the trash.',
+  one_run_query: 'Answer questions across databases with a read-only One Script query.',
+  one_run_script: 'Run one of your saved scripts — after you approved its dry run in One.',
 }
 
 const LONG_DESCRIPTION = `Claude searches, reads and writes your [One](https://getonecms.com/) workspace — pages, databases, rows and properties — in the One tab you have open in your browser.
@@ -55,7 +57,8 @@ const LONG_DESCRIPTION = `Claude searches, reads and writes your [One](https://g
 - **Tidy up, safely.** Move pages and rows, reshape databases (properties, options, views), trash whole databases with their rows — nothing is deleted for good, everything can be restored.
 - **You stay in charge.** Each change waits for your approval in One (*Ask first*, the default) — or set *Apply directly* or *Read only* there. Every call is logged and can be undone.
 - **Workspaces stay apart.** Several workspaces can be connected at once (each in its tab); Claude names the one it means, and a call meant for one workspace never runs in another.
-- **Same tools everywhere:** the team server of One offers the same tools at \`/mcp\`.
+- **Queries and your scripts:** one_run_query answers questions across databases (read-only One Script); one_run_script runs a script you saved in One — only after you approved its dry run there.
+- **Same tools everywhere:** the team server of One offers the same tools at \`/mcp\` (except the two One Script tools, which run in your browser).
 
 Guide and security model: ${REPO}/blob/main/docs/MCP.md`
 

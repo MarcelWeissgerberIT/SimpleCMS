@@ -36,6 +36,8 @@ export interface HostOptions {
   onLog?: (line: LogLine) => void
   /** run: what the person allowed upfront (keys) and the labels they saw then */
   approved?: { keys: Set<string>; labels: Map<string, string> } | null
+  /** only these pages are reachable (a custom agent's scope); null = all */
+  scope?: ((id: ID) => boolean) | null
 }
 
 const EFFECT_KIND: Record<EffectName, EffectKind> = { 'mail.send': 'mail', claude: 'claude', 'http.post': 'http' }
@@ -48,6 +50,8 @@ export class Host {
   readonly ui: RunUI
   readonly signal: AbortSignal
   readonly lang: 'en' | 'de'
+  /** only these pages are reachable (a custom agent's scope); null = all */
+  readonly scope: ((id: ID) => boolean) | null
   readonly started = Date.now()
   readonly log: LogLine[] = []
   readonly changes: ChangeItem[] = []
@@ -78,6 +82,12 @@ export class Host {
     this.lang = o.lang
     this.onLog = o.onLog
     this.approved = o.approved ?? null
+    this.scope = o.scope ?? null
+  }
+
+  /** Is this page inside the run's scope (always, without one)? */
+  sees(id: ID): boolean {
+    return !this.scope || this.scope(id)
   }
 
   /* ---------------------------------------------------------------- console */
@@ -100,7 +110,7 @@ export class Host {
     const d = this.drafts.get(id)
     if (d) return d
     const p = useWorkspace.getState().pages[id]
-    return p && !p.trashed ? p : null
+    return p && !p.trashed && this.sees(id) ? p : null
   }
 
   isDraft(id: ID): boolean {

@@ -77,7 +77,10 @@ function stageWith(stage: StageApi, name: ToolName, input: Record<string, unknow
   const tool = AGENT_TOOLS.find((x) => x.name === name)
   if (!tool) throw new Error(`agent tool ${name} missing`)
   try {
-    return tool.run(input, stage)
+    const out = tool.run(input, stage)
+    // the staging tools answer at once (only run_query / write_script load the script engine)
+    if (out instanceof Promise) throw new Error(`agent tool ${name} is not a staging tool`)
+    return out
   } catch (e) {
     if (e instanceof ToolInputError) throw new McpToolError(mcpMessage(e.message))
     throw e

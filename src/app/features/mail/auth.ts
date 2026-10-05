@@ -3,7 +3,9 @@
  * own OAuth client ID, else One's built-in one (builtin.ts `effectiveClient()`; the caller passes the ID).
  *
  *  - The GIS script (accounts.google.com/gsi/client) is loaded on demand — only when someone connects.
- *  - Scope: gmail.readonly, nothing else. No client secret exists in this flow (a client ID is public).
+ *  - Scope: gmail.readonly for the sync. A One Script that sends a mail adds gmail.send once (incremental
+ *    consent with the same token client: `scopes` + include_granted_scopes). No client secret exists in
+ *    this flow (a client ID is public).
  *  - The access token lives in this module's memory only: never stored, logged or sent anywhere but
  *    gmail.googleapis.com (and Google's revoke endpoint on "Disconnect"). It expires after about an hour;
  *    reconnecting asks Google again — without a screen when access was granted before.
@@ -54,7 +56,7 @@ export class AuthError extends Error {
 
 /* ------------------------------------------------------------------ token (memory only) */
 
-let token: { value: string; expiresAt: number } | null = null
+let token: { value: string; expiresAt: number; scopes: string[] } | null = null
 const listeners = new Set<() => void>()
 const changed = () => listeners.forEach((l) => l())
 
@@ -63,6 +65,11 @@ export function currentToken(): string | null {
   if (!token) return null
   if (token.expiresAt - 60_000 <= Date.now()) return null
   return token.value
+}
+
+/** The current token carries this scope (and is still good for a minute)? */
+export function tokenHasScope(scope: string): boolean {
+  return !!currentToken() && !!token?.scopes.includes(scope)
 }
 
 export function tokenExpiresAt(): number | null {
@@ -83,7 +90,7 @@ export function onTokenChange(l: () => void): () => void {
 
 /** Test hook only (dev / ?e2e): a token without Google's window (team workspaces in the cloud suite). */
 export function setTokenForTests(value: string, expiresInSec = 3600): void {
-  token = { value, expiresAt: Date.now() + expiresInSec * 1000 }
+  token = { value, expiresAt: Date.now() + expiresInSec * 1000, scopes: [GMAIL_SCOPE] }
   changed()
 }
 
@@ -129,17 +136,20 @@ const CLIENT_ERRORS = /invalid_client|unauthorized_client|redirect_uri|origin|id
 /**
  * Ask Google for an access token (opens Google's window — call it from a click). `prompt: ''` shows the
  * consent screen only the first time; `hint` (the known address) picks the account without asking.
+ * `scopes` (default: read only): more than one asks incrementally — Google shows only what is new and the
+ * token carries every scope granted so far.
  */
-export async function requestToken(clientId: string, opts: { prompt?: '' | 'none' | 'consent' | 'select_account'; hint?: string | null } = {}): Promise<string> {
+export async function requestToken(clientId: string, opts: { prompt?: '' | 'none' | 'consent' | 'select_account'; hint?: string | null; scopes?: string[] } = {}): Promise<string> {
   const o = await loadGis()
+  const scopes = opts.scopes?.length ? opts.scopes : [GMAIL_SCOPE]
   return new Promise<string>((resolve, reject) => {
     let client: TokenClient
     try {
       client = o.initTokenClient({
         client_id: clientId,
-        scope: GMAIL_SCOPE,
+        scope: scopes.join(' '),
         prompt: opts.prompt ?? '',
-        include_granted_scopes: false,
+        include_granted_scopes: scopes.length > 1,
         ...(opts.hint ? { login_hint: opts.hint } : {}),
         callback: (r) => {
           if (r.error) {
@@ -147,10 +157,11 @@ export async function requestToken(clientId: string, opts: { prompt?: '' | 'none
             return reject(new AuthError(code, r.error))
           }
           if (!r.access_token) return reject(new AuthError('unknown', 'no token'))
-          const granted = o.hasGrantedAllScopes ? o.hasGrantedAllScopes(r, GMAIL_SCOPE) : (r.scope ?? '').split(/\s+/).includes(GMAIL_SCOPE)
+          const granted = o.hasGrantedAllScopes ? o.hasGrantedAllScopes(r, ...scopes) : scopes.every((x) => (r.scope ?? '').split(/\s+/).includes(x))
           if (!granted) return reject(new AuthError('scope'))
           const ttl = Number(r.expires_in) > 0 ? Number(r.expires_in) : 3599
-          token = { value: r.access_token, expiresAt: Date.now() + ttl * 1000 }
+          const have = (r.scope ?? '').split(/\s+/).filter(Boolean)
+          token = { value: r.access_token, expiresAt: Date.now() + ttl * 1000, scopes: [...new Set([...scopes, ...have])] }
           changed()
           resolve(r.access_token)
         },

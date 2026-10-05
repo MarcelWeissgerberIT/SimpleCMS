@@ -1,7 +1,7 @@
 ---
 id: 2026-10-05-gmail-one-click
 date: 2026-10-05
-order: 5
+order: 6
 title: Gmail in one click — with names and attachments
 summary: Connect Gmail without a Google Cloud setup; every mail now names its contact, company and conversation, and attachments come into One as real files.
 image: assets/shots/changelog/gmail-one-click.webp

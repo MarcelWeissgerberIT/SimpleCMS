@@ -42,7 +42,13 @@ export function autoName(a: Pick<Automation, 'trigger' | 'actions'>, db: Databas
     else when = `${prop.name} = ${valueName(prop, trig.toValue)}`
   } else when = t(`features.auto.nm.${trig.type}`)
   const then = a.actions
-    .map((act) => (act.type === 'set_property' ? t('features.auto.nm.set', { prop: db.properties.find((p) => p.id === act.propertyId)?.name ?? '…' }) : t(`features.auto.nm.${act.type}`)))
+    .map((act) =>
+      act.type === 'set_property'
+        ? t('features.auto.nm.set', { prop: db.properties.find((p) => p.id === act.propertyId)?.name ?? '…' })
+        : act.type === 'run_script'
+          ? t('features.auto.nm.run_script', { name: (act.scriptId && useWorkspace.getState().scripts?.[act.scriptId]?.name) || '…' })
+          : t(`features.auto.nm.${act.type}`),
+    )
     .join(' + ')
   return then ? `${when} → ${then}` : when
 }
@@ -115,6 +121,10 @@ export function blankAutomation(db: Database): Automation {
 export function blankAction(type: AutomationAction['type'], db: Database): AutomationAction {
   if (type === 'webhook') return { type: 'webhook', url: '', method: 'POST' }
   if (type === 'notify') return { type: 'notify', message: '' }
+  if (type === 'run_script') {
+    const scripts = Object.values(useWorkspace.getState().scripts ?? {}).filter((s) => s.kind === 'script')
+    return { type: 'run_script', scriptId: scripts.length === 1 ? scripts[0].id : null }
+  }
   const prop = db.properties.find((p) => p.type === 'checkbox') ?? db.properties.find((p) => SETTABLE.has(p.type) && p.type !== 'title')
   return { type: 'set_property', propertyId: prop?.id ?? '', value: prop?.type === 'checkbox' ? true : null }
 }
@@ -127,6 +137,7 @@ export function problemOf(a: Automation, db: Database): string | null {
   for (const act of a.actions) {
     if (act.type === 'webhook' && !isValidWebhookUrl(act.url)) return t('features.auto.problem.url')
     if (act.type === 'set_property' && !db.properties.some((p) => p.id === act.propertyId)) return t('features.auto.problem.setProp')
+    if (act.type === 'run_script' && !(act.scriptId && useWorkspace.getState().scripts?.[act.scriptId])) return t('features.auto.problem.script')
   }
   return null
 }

@@ -100,16 +100,32 @@ const defaultHttp: EffectImpl<'http.post'> = async (input, env) => {
 
 const defaults: { [K in EffectName]: EffectImpl<K> } = { 'mail.send': defaultMail, claude: defaultClaude, 'http.post': defaultHttp }
 const impls: { [K in EffectName]?: EffectImpl<K> } = {}
+/** what the confirm list says about how an effect happens now ("via Gmail · ada@…"), per registration */
+const notes: { [K in EffectName]?: () => string | null } = {}
 
 /**
  * Replace the implementation of an effect (e.g. mail.send through the person's Gmail). Returns a
  * function that puts the previous one back. The run still asks the person before calling it.
+ * `note`: a short line the run's confirm list shows next to such an effect (null: none right now).
  */
-export function registerEffect<K extends EffectName>(name: K, impl: EffectImpl<K>): () => void {
+export function registerEffect<K extends EffectName>(name: K, impl: EffectImpl<K>, opts: { note?: () => string | null } = {}): () => void {
   const prev = impls[name]
+  const prevNote = notes[name]
   ;(impls as Record<string, unknown>)[name] = impl
+  notes[name] = opts.note
   return () => {
-    if (impls[name] === impl) (impls as Record<string, unknown>)[name] = prev
+    if (impls[name] !== impl) return
+    ;(impls as Record<string, unknown>)[name] = prev
+    notes[name] = prevNote
+  }
+}
+
+/** The confirm list's note of an effect (null: none). */
+export function effectNote(name: EffectName): string | null {
+  try {
+    return notes[name]?.() ?? null
+  } catch {
+    return null
   }
 }
 

@@ -48,11 +48,12 @@ export function pageUrl(id: ID): string {
   return typeof window === 'undefined' ? `#/p/${id}` : `${window.location.origin}${window.location.pathname}#/p/${id}`
 }
 
-/** A page a script may reach: there, not in the trash, not part of a template. */
-export function reachable(id: ID): Page | null {
+/** A page a script may reach: there, not in the trash, not part of a template (and in the run's scope, given its host). */
+export function reachable(id: ID, host?: Pick<Host, 'sees'> | null): Page | null {
   const { pages } = ws()
   const p = pages[id]
   if (!p || p.trashed || isEffectivelyTrashed(pages, id) || inTemplate(pages, id)) return null
+  if (host && !host.sees(id)) return null
   return p
 }
 
@@ -194,7 +195,7 @@ export class PageObj extends HostObject {
         return rec
       }
       case 'children':
-        return this.host.isDraft(this.id) ? [] : selectChildren(ws().pages, this.id).filter((c) => !inTemplate(ws().pages, c.id)).map((c) => (ws().databases[c.id] ? new QueryObj(this.host, c.id) : new PageObj(this.host, c.id)))
+        return this.host.isDraft(this.id) ? [] : selectChildren(ws().pages, this.id).filter((c) => !inTemplate(ws().pages, c.id) && this.host.sees(c.id)).map((c) => (ws().databases[c.id] ? new QueryObj(this.host, c.id) : new PageObj(this.host, c.id)))
       case 'parent': {
         const parentId = p.parentId
         if (!parentId) return null
@@ -253,7 +254,7 @@ export class QueryObj extends HostObject {
 
   get db(): Database {
     const db = ws().databases[this.dbId]
-    if (!db || !reachable(this.dbId)) throw new ScriptError('not_found', { what: 'database', name: this.dbId })
+    if (!db || !reachable(this.dbId, this.host)) throw new ScriptError('not_found', { what: 'database', name: this.dbId })
     return db
   }
 
@@ -290,7 +291,7 @@ export class QueryObj extends HostObject {
   baseRows(): Page[] {
     this.db
     return Object.values(ws().pages)
-      .filter((p) => p.databaseId === this.dbId && !p.trashed)
+      .filter((p) => p.databaseId === this.dbId && !p.trashed && this.host.sees(p.id))
       .sort((a, b) => a.order - b.order || a.createdAt - b.createdAt)
   }
 

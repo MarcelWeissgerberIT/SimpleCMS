@@ -13,14 +13,14 @@ result shapes:
 | Data path | MCP client ⇄ `one-mcp` (localhost) ⇄ your One tab ⇄ IndexedDB — nothing leaves your computer | MCP client ⇄ your server ⇄ the workspace's live documents |
 | Changes | wait for your approval in the app (*Ask first*, the default) or apply directly; *read only* switch | apply at once; a **read** token only gets the read tools |
 
-Contents: [Tools](#tools) · [Tidying up](#tidying-up) · [The codeword "one:"](#the-codeword-one) · [Workspaces](#workspaces) ·
+Contents: [Tools](#tools) · [Tidying up](#tidying-up) · [One Script](#one-script) · [The codeword "one:"](#the-codeword-one) · [Workspaces](#workspaces) ·
 [Local bridge](#local-bridge) · [Team server](#team-server)
 
 ## Tools
 
 | Tool | | What it does |
 |---|---|---|
-| `one_overview` | read | workspace name and id, today's date, the page tree, every database with its row count, the people |
+| `one_overview` | read | workspace name and id, today's date, the page tree, every database with its row count, the people (local bridge: also the saved `scripts`) |
 | `one_list_workspaces` | read | the connected workspaces: id, name, kind (`local` / `team`), access, change mode, which tab connected last — no content ([Workspaces](#workspaces)) |
 | `one_search` | read | `{ query, limit? }` — titles, text and row values; ids, paths and a snippet per hit |
 | `one_get_page` | read | `{ id }` or `{ title }` — title, icon, path, row properties, the content as **Markdown**, sub-pages, backlinks |
@@ -43,6 +43,8 @@ Contents: [Tools](#tools) · [Tidying up](#tidying-up) · [The codeword "one:"](
 | `one_move_row` | write | `{ id, databaseId }` — a row into another database whose properties fit |
 | `one_trash_page` | write · destructive | `{ id }` or `{ ids: [≤ 50] }` — to the trash (a database with its rows: `rows`), never for good |
 | `one_restore_page` | write | `{ id }` or `{ ids: [≤ 50] }` — back from the trash |
+| `one_run_query` | read | `{ code, limit? }` — a read-only [One Script](#one-script) query: `{ count, columns, rows: [{ id?, <column>: text }] (≤ 100), truncated? }` or `{ value }` — local bridge only |
+| `one_run_script` | write · destructive | `{ script (id or name), pageId?, dryRun? }` — a saved script, [always approved first](#one-script) — local bridge only |
 
 Every tool but `one_list_workspaces` also takes **`workspace`** (optional): the id (`"local:…"`, `"team:…"`) or the
 exact name of the workspace the call is meant for. Every result names the workspace it came from:
@@ -98,6 +100,25 @@ The tools that delete, adjust, create and reorganise follow the same rules on bo
   **Undo** (a trashed database comes back with its rows, a moved page goes back, a deleted property comes back with
   its values and view settings, view changes are reverted — parts edited since are kept); *Read only* refuses them.
   Team server: a **write** token is needed; changes carry `api:<tokenId>` as `updatedBy`.
+
+## One Script
+
+The local bridge offers the person's [One Script](../src/app/help/articles/en/one-script.md) (the tab runs it; the
+team server does not have these two tools — its workspace model would need the script runtime ported):
+
+- **`one_run_query`** runs code in the script engine's *query* mode: it only reads — writes, effects (mail, Claude,
+  web) and dialogs are refused with an error. The answer is the value of the last expression: a table result
+  (a query, a list of rows or records) as `rows` with the row `id` (keep it with `.select(id, …)`), at most 100,
+  `count` = how many matched; anything else as `value`. Syntax and run errors say where (`line:col`). The tool
+  description carries the language reference.
+- **`one_run_script`** runs a saved script (by id or exact name; `one_overview` lists them). The tab dry-runs it
+  first (the script's dialogs answer their defaults, nothing happens) and shows the result on the approval card —
+  every change (*Change · Angebot schreiben · Aufgaben — Priorität: Niedrig → Hoch*) and effect (*Mail · to …*). It is
+  **always asked**, also in *Apply directly*; *Read only* refuses it. Approved, it runs with the app's dialogs: the
+  list of effects the card showed is not asked again, anything else (a web request — off unless ticked —, something
+  the dry run did not show, the script's own questions) is asked in the app. The answer lists the changes, effects,
+  printed lines and the result; the activity log has **Undo** (the script's own undo of the run). `dryRun: true`
+  answers the dry run without asking; a saved *query* answers at once.
 
 ## The codeword "one:"
 

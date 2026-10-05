@@ -17,6 +17,7 @@ import { retrieve, workspaceDocs } from '../workspace'
 import { coerceProperties, isSettable, mergeProps } from './props'
 import { planEdits, readWithRefs, stripRefs, type RawEdit } from './edit'
 import type { ChangeKind, ColumnSpec, ColumnType, PropChange, StagedChange, ToolName } from './types'
+import { SCRIPT_REFERENCE } from '../../script/reference'
 
 /* ------------------------------------------------------------------ */
 /* Contracts                                                           */
@@ -48,7 +49,8 @@ export interface AgentTool {
   input_schema: { type: 'object'; properties: Record<string, unknown>; required?: string[]; additionalProperties?: boolean }
   /** stages changes (shown with a different verb in the log) */
   write: boolean
-  run(input: Record<string, unknown>, stage: StageApi): ToolOutcome
+  /** most tools answer at once; run_query / write_script load the script engine first */
+  run(input: Record<string, unknown>, stage: StageApi): ToolOutcome | Promise<ToolOutcome>
 }
 
 /** A call Claude has to fix: the message goes back to Claude as an error result. */
@@ -995,14 +997,105 @@ const addProperty: AgentTool = {
   },
 }
 
+/* ---------- One Script (features/script): a read-only query · a script drafted for review ---------- */
+
+/** Rows one run_query answer carries (the count says how many matched). */
+export const QUERY_ROWS = 60
+
+/** Page text in code: `.markdown` / `.text` (or ["markdown"]). */
+const READS_TEXT = /\.\s*(markdown|text)\b|\[\s*["'](markdown|text)["']\s*\]/i
+
+const runQuery: AgentTool = {
+  name: 'run_query',
+  write: false,
+  description: `Answer a question across the workspace with a read-only One Script query: filters, sorts, counts, sums, groups and look-ups over databases that query_database cannot express. Returns JSON: a table result as rows (at most ${QUERY_ROWS}; "count" says how many matched, each row with its "id") or a single value. Writes, effects and dialogs are refused here — to change data, use the writing tools. Use exact database and property names (list_databases).\n\n${SCRIPT_REFERENCE}`,
+  input_schema: {
+    type: 'object',
+    properties: { code: { type: 'string', description: 'One Script code; the value of its last expression is the answer, e.g. db("Tasks").where(Status != "Done").sort(Due).select(Name, Due).' } },
+    required: ['code'],
+    additionalProperties: false,
+  },
+  async run(input) {
+    const code = str(input, 'code', { required: true, max: 20_000 })
+    // the call's scope and read limit hold for its synchronous part only: taken along now
+    const scope = visible
+    const limit = readLimit
+    if (limit && READS_TEXT.test(code) && Object.keys(ws().pages).some((id) => limit(id) !== null))
+      throw new ToolInputError(`${LIMITED_NOTE} on some pages, so run_query cannot read page text (.markdown / .text) now. Query properties only, or read pages with read_page.`)
+    const { runQueryForTool } = await import('../../script')
+    const out = await runQueryForTool(code, { scope, maxRows: QUERY_ROWS })
+    if (!out.ok) throw new ToolInputError(`${out.error} Fix the query and call run_query again.`)
+    const { ok: _ok, ms: _ms, ...answer } = out
+    const value = JSON.stringify(out.value) ?? 'null'
+    const summary = out.count !== undefined ? t(out.count === 1 ? 'features.script.int.agent.rows.one' : 'features.script.int.agent.rows.other', { n: out.count }) : `= ${value.length > 28 ? `${value.slice(0, 27)}…` : value}`
+    return { content: clipResult(JSON.stringify(answer, null, 1)), summary, state: 'ok' }
+  },
+}
+
+const NAME_MAX = 80
+
+const writeScript: AgentTool = {
+  name: 'write_script',
+  write: true,
+  description: `Draft a One Script for the person — a new script or query, or a change of a saved one (script_id). The code is checked by the parser (a syntax error comes back: fix it and call again) and staged for review: the person reads it and saves it. It never runs on its own — they run it themselves, with a dry run first. Use it when the task asks for a script, a reusable automation or a saved query; for a one-off change, use the other writing tools. Write comments (#) in the language of the task.\n\n${SCRIPT_REFERENCE}`,
+  input_schema: {
+    type: 'object',
+    properties: {
+      name: { type: 'string', description: "The script's name (1–80 characters). Required for a new script." },
+      code: { type: 'string', description: 'The whole One Script code.' },
+      kind: { type: 'string', enum: ['script', 'query'], description: 'query = read-only, its result shows as a live table (default: script; a change keeps the kind unless given).' },
+      description: { type: 'string', description: 'One sentence: what it does.' },
+      script_id: { type: 'string', description: 'Change this saved script (its id) instead of creating a new one.' },
+    },
+    required: ['code'],
+    additionalProperties: false,
+  },
+  async run(input, stage) {
+    const code = str(input, 'code', { required: true, max: 20_000 })
+    const rawName = str(input, 'name', { max: 200 }).replace(/\s+/g, ' ').trim()
+    const description = str(input, 'description', { max: 500 }).trim()
+    const rawKind = str(input, 'kind').trim()
+    if (rawKind && rawKind !== 'script' && rawKind !== 'query') throw new ToolInputError('"kind" must be "script" or "query".')
+    const id = str(input, 'script_id', { max: 80 }).trim()
+    const existing = id ? ws().scripts?.[id] : undefined
+    if (id && !existing) throw new ToolInputError(`No script with id ${q(id)}. Omit script_id to create a new script.`)
+    if (!existing && !rawName) throw new ToolInputError('A new script needs a "name".')
+    if (rawName.length > NAME_MAX) throw new ToolInputError(`The name is too long (${rawName.length} characters, at most ${NAME_MAX}).`)
+    const { syntaxErrorText } = await import('../../script')
+    const syntax = await syntaxErrorText(code)
+    if (syntax) throw new ToolInputError(`The code does not parse: ${syntax} Nothing was staged. Fix it and call write_script again.`)
+    const name = rawName || existing!.name
+    const kind: 'script' | 'query' = rawKind === 'script' || rawKind === 'query' ? rawKind : (existing?.kind ?? 'script')
+    // the same script staged before (still open): that change is updated
+    const prior = stage.list().find((c) => c.kind === 'script' && c.status !== 'applied' && c.status !== 'discarded' && (existing ? c.script?.id === existing.id : !c.script?.before && c.script?.name.toLowerCase() === name.toLowerCase()))
+    const script = {
+      id: existing?.id ?? prior?.script?.id ?? newId(),
+      name,
+      kind,
+      code: code.endsWith('\n') ? code : `${code}\n`,
+      ...(description ? { description } : existing?.description ? { description: existing.description } : {}),
+      before: existing ? { name: existing.name, kind: existing.kind, code: existing.code } : null,
+    }
+    const c = prior ? stage.update(prior.id, { title: name, script, status: 'pending', error: undefined }) : stage.add({ kind: 'script', pageId: script.id, title: name, script })
+    const lines = script.code.trimEnd().split('\n').length
+    return {
+      content: `${stagedNote(c)} ${existing ? 'Changed' : 'New'} ${kind} ${q(name)} (id: ${script.id}, ${lines} line${lines === 1 ? '' : 's'}). It parses; once saved, the person runs it themselves (a dry run first) — it never runs on its own.`,
+      summary: t('features.agent.res.staged', { n: c.n }),
+      state: 'staged',
+      changeId: c.id,
+    }
+  },
+}
+
 /** Stable order: the tool list is part of the cached prompt prefix. */
-export const AGENT_TOOLS: AgentTool[] = [searchPages, readPage, listDatabases, queryDatabase, currentPage, createPage, appendToPage, editPage, createRow, updateRow, setPageTitle]
+export const AGENT_TOOLS: AgentTool[] = [searchPages, readPage, listDatabases, queryDatabase, currentPage, createPage, appendToPage, editPage, createRow, updateRow, setPageTitle, runQuery]
 
 /**
- * The workspace agent's (the AI terminal's) tools: AGENT_TOOLS plus the database tools. Custom
- * agents and the MCP bridge build on AGENT_TOOLS (their scope rules do not cover new databases).
+ * The workspace agent's (the AI terminal's) tools: AGENT_TOOLS plus the database tools and
+ * write_script. Custom agents and the MCP bridge build on AGENT_TOOLS (their scope rules do not cover
+ * new databases; custom agents get run_query — inside their scope — but no write_script).
  */
-export const TERMINAL_TOOLS: AgentTool[] = [...AGENT_TOOLS, createDatabase, addProperty]
+export const TERMINAL_TOOLS: AgentTool[] = [...AGENT_TOOLS, createDatabase, addProperty, writeScript]
 
 /** Short argument readout for the step log (titles instead of ids). */
 export function argLabel(name: ToolName, input: Record<string, unknown>, stage: StageApi): string {
@@ -1039,6 +1132,12 @@ export function argLabel(name: ToolName, input: Record<string, unknown>, stage: 
       return `${title(s('id'))} → ${s('title')}`
     case 'recall':
       return `“${s('query')}”`
+    case 'run_query': {
+      const line = s('code').split('\n').find((l) => l.trim() && !/^\s*(#|\/\/)/.test(l))?.trim() ?? ''
+      return line.length > 60 ? `${line.slice(0, 59)}…` : line
+    }
+    case 'write_script':
+      return s('name') || title(s('script_id'))
     case 'remember':
       return s('text')
     default:

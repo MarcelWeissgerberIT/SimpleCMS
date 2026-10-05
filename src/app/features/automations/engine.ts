@@ -2,7 +2,8 @@
  * Automations engine. Watches the workspace store, diffs database rows and runs the
  * matching automations of a database:
  *   triggers: row_created · row_deleted (trashed or removed) · property_changed (optional property / target value)
- *   actions:  webhook (POST/PUT JSON) · set_property · notify (toast)
+ *   actions:  webhook (POST/PUT JSON) · set_property · notify (toast) · run_script (a saved One Script for the
+ *             row; automations pause while it runs, so its own writes never start them again)
  * Only the tab where the change happened fires (changes applied from other tabs are ignored).
  * Rapid edits are coalesced per automation + row so typing doesn't spam webhooks; a new row
  * fires once it has a title and has been quiet for a moment (capped, see CREATED_MAX_MS).
@@ -17,6 +18,7 @@ import { newId } from '../../lib/ids'
 import { postWebhook, type WebhookOutcome } from '../../lib/webhook'
 import { t } from '../../i18n'
 import { aiWrite } from '../history/snapshots'
+import { errorMessage, runScriptById } from '../script'
 
 /* The database area is loaded lazily so this always-on service doesn't pull it in statically. */
 type DatabaseApi = typeof import('../../database')
@@ -284,6 +286,10 @@ async function runAutomation(dbId: ID, automationId: ID, rowSnapshot: Page, even
         const text = fill(action.message || automation.name, db, row)
         toast({ message: text, kind: 'info', action: event !== 'row_deleted' ? { label: t('common.open'), run: () => (window.location.hash = `#/p/${row.id}`) } : undefined })
         message = t('features.auto.res.notified')
+      } else if (action.type === 'run_script') {
+        const out = await runScriptAction(action.scriptId, event === 'row_deleted' ? dbId : row.id)
+        ok = out.ok
+        message = out.message
       }
     } catch (err) {
       ok = false
@@ -294,6 +300,27 @@ async function runAutomation(dbId: ID, automationId: ID, rowSnapshot: Page, even
     pushLog({ databaseId: dbId, automationId, automationName: automation.name, event, rowTitle: row.title, action: action.type, status: ok ? 'ok' : 'error', message })
   }
   setStatus(dbId, automationId, status, messages.join(' · ') || t('features.auto.res.noActions'))
+}
+
+/**
+ * A saved One Script for the row (page.current; a deleted row: the database page). Automations pause
+ * while it runs: its own writes (and anything else written meanwhile) never start them again. Its
+ * effects are asked first like any run; its toast says what it changed (with Undo).
+ */
+async function runScriptAction(scriptId: ID | null, contextPageId: ID): Promise<{ ok: boolean; message: string }> {
+  const script = scriptId ? useWorkspace.getState().scripts?.[scriptId] : undefined
+  if (!script) return { ok: false, message: t('features.auto.err.script') }
+  const resume = pauseAutomations()
+  try {
+    const r = await runScriptById(script.id, { contextPageId })
+    if (!r) return { ok: false, message: t('features.auto.err.scriptBusy', { name: script.name }) }
+    if (r.status === 'error' && r.error) return { ok: false, message: `${script.name}: ${errorMessage(r.error, t)}` }
+    if (r.status !== 'ok') return { ok: true, message: t('features.auto.res.scriptCancelled', { name: script.name }) }
+    const n = r.changes.filter((c) => !c.skipped).length
+    return { ok: true, message: t(n === 1 ? 'features.auto.res.script.one' : 'features.auto.res.script.other', { name: script.name, n }) }
+  } finally {
+    resume()
+  }
 }
 
 /* ------------------------------------------------------------------ */

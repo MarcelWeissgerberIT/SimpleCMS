@@ -1,6 +1,8 @@
 /** Editor for one automation, drawn as a signal chain: WHEN (trigger) → THEN (actions, in order). */
 import { useState } from 'react'
-import { Bell, Copy, Globe, PenLine, Plus, Send, Trash2, X } from 'lucide-react'
+import { Bell, Copy, Globe, PenLine, Plus, Send, SquareCode, Trash2, X } from 'lucide-react'
+import { useShallow } from 'zustand/react/shallow'
+import { useWorkspace } from '../../store/store'
 import { Menu, useMenu } from '../../ui/Menu'
 import { Switch, Led } from '../../ui/controls'
 import { Tooltip } from '../../ui/Tooltip'
@@ -11,7 +13,7 @@ import { autoName, blankAction, isAutoName, problemOf } from './recipes'
 import { onRovingKey } from '../io/roving'
 import { PropertyPicker, ValuePicker } from './pickers'
 
-const ACTION_ICON = { webhook: Globe, set_property: PenLine, notify: Bell }
+const ACTION_ICON = { webhook: Globe, set_property: PenLine, notify: Bell, run_script: SquareCode }
 
 export function AutomationEditor({ db, automation, onChange, onDelete, onDuplicate }: { db: Database; automation: Automation; onChange: (a: Automation) => void; onDelete: () => void; onDuplicate: () => void }) {
   const t = useT()
@@ -132,6 +134,7 @@ export function AutomationEditor({ db, automation, onChange, onDelete, onDuplica
                     <ValuePicker prop={db.properties.find((p) => p.id === a.propertyId)} value={a.value} ariaLabel={t('features.auto.setValue')} onChange={(v) => setAction(i, { ...a, value: v ?? null })} />
                   </div>
                 )}
+                {a.type === 'run_script' && <ScriptField action={a} onChange={(next) => setAction(i, next)} />}
                 {a.type === 'notify' && (
                   <div className="auto-field">
                     <input className="input" value={a.message} placeholder={t('features.auto.notifyPlaceholder')} aria-label={t('features.auto.act.notify')} onChange={(e) => setAction(i, { ...a, message: e.target.value })} />
@@ -154,7 +157,7 @@ export function AutomationEditor({ db, automation, onChange, onDelete, onDuplica
             <Menu
               {...addMenu.props}
               className="auto-menu"
-              entries={(['webhook', 'set_property', 'notify'] as const).map((type) => {
+              entries={(['webhook', 'set_property', 'notify', 'run_script'] as const).map((type) => {
                 const Icon = ACTION_ICON[type]
                 return { label: t(`features.auto.act.${type}`), icon: <Icon size={14} />, hint: t(`features.auto.actHint.${type}`), onSelect: () => set({ actions: [...automation.actions, blankAction(type, db)] }) }
               })}
@@ -162,6 +165,31 @@ export function AutomationEditor({ db, automation, onChange, onDelete, onDuplica
           </div>
         </li>
       </ol>
+    </div>
+  )
+}
+
+/** "Run script": which saved script runs for the row (features/script). */
+function ScriptField({ action, onChange }: { action: Extract<AutomationAction, { type: 'run_script' }>; onChange: (a: Extract<AutomationAction, { type: 'run_script' }>) => void }) {
+  const t = useT()
+  const menu = useMenu()
+  const scripts = useWorkspace(useShallow((s) => Object.values(s.scripts ?? {}).filter((x) => x.kind === 'script').sort((a, b) => a.name.localeCompare(b.name))))
+  const cur = scripts.find((s) => s.id === action.scriptId)
+  return (
+    <div className="auto-field">
+      <div className="auto-sentence">
+        <span className="auto-sentence__word">{t('features.auto.sentence.run')}</span>
+        <button type="button" className="auto-pick" onClick={menu.toggle} aria-haspopup="menu" aria-expanded={menu.open} aria-label={t('features.auto.pickScript')}>
+          {cur ? cur.name : <span className="faint">{action.scriptId ? t('features.auto.scriptGone') : t('features.auto.pickScript')}</span>}
+        </button>
+        <span className="auto-sentence__word">{t('features.auto.sentence.forRow')}</span>
+      </div>
+      <Menu
+        {...menu.props}
+        className="auto-menu"
+        entries={scripts.length ? scripts.map((s) => ({ label: s.name, icon: <SquareCode size={14} />, checked: s.id === action.scriptId, onSelect: () => onChange({ ...action, scriptId: s.id }) })) : [{ label: t('features.auto.noScripts'), disabled: true }]}
+      />
+      <span className="auto-hint faint">{t('features.auto.scriptHint')}</span>
     </div>
   )
 }

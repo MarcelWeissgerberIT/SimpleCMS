@@ -1,7 +1,7 @@
 ---
 id: 2026-10-05-transform
 date: 2026-10-05
-order: 2
+order: 3
 title: Text in Schaubilder, Diagramme, Boards und Spalten verwandeln
 summary: Markiere eine Liste oder einen Abschnitt, und Claude macht einen stärkeren Block daraus — ein Flussdiagramm, ein Diagramm, ein Board, eine Zeitleiste, Spalten, Tabs, Aufklapplisten oder Karten —, mit Vorschau.
 image: assets/shots/changelog/transform.webp

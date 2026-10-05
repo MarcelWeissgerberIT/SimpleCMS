@@ -8,9 +8,18 @@ import { Modal } from '../../../ui/Modal'
 import { useT } from '../../../i18n'
 import { answerDialog, useScriptDialogs, type PendingDialog } from '../runtime/dialogs'
 import type { ConfirmItem } from '../runtime/types'
+import { effectNote, type EffectName } from '../runtime/effects'
 import './dialogs.css'
 
 const KIND_LABEL: Record<ConfirmItem['kind'], string> = { mail: 'MAIL', claude: 'CLAUDE', http: 'HTTP', trash: 'TRASH' }
+const EFFECT_OF: Partial<Record<ConfirmItem['kind'], EffectName>> = { mail: 'mail.send', claude: 'claude', http: 'http.post' }
+
+/** How the effect happens now, when its implementation says so ("via Gmail · ada@example.com"). */
+function Via({ kind }: { kind: ConfirmItem['kind'] }) {
+  const name = EFFECT_OF[kind]
+  const note = name ? effectNote(name) : null
+  return note ? <span className="sc-plan__via">{note}</span> : null
+}
 
 function PlanList({ items, on, setOn }: { items: ConfirmItem[]; on: Set<string>; setOn: (s: Set<string>) => void }) {
   const t = useT()
@@ -31,6 +40,7 @@ function PlanList({ items, on, setOn }: { items: ConfirmItem[]; on: Set<string>;
             />
             <span className={`sc-plan__kind label sc-plan__kind--${it.kind}`}>{KIND_LABEL[it.kind]}</span>
             <span className="sc-plan__label">{t(`features.script.plan.${it.kind}`, { label: it.label })}</span>
+            <Via kind={it.kind} />
           </label>
         </li>
       ))}
@@ -147,7 +157,7 @@ function Dialog({ d }: { d: PendingDialog }) {
         <>
           <p className="sc-dlg__text">{t('features.script.dlg.oneLead', { name: req.scriptName || t('features.script.untitled') })}</p>
           <p className="sc-dlg__item">
-            <span className={`sc-plan__kind label sc-plan__kind--${req.item.kind}`}>{KIND_LABEL[req.item.kind]}</span> {t(`features.script.plan.${req.item.kind}`, { label: req.item.label })}
+            <span className={`sc-plan__kind label sc-plan__kind--${req.item.kind}`}>{KIND_LABEL[req.item.kind]}</span> {t(`features.script.plan.${req.item.kind}`, { label: req.item.label })} <Via kind={req.item.kind} />
           </p>
         </>
       )

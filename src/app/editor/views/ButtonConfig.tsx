@@ -4,7 +4,7 @@
  */
 import { useId, useMemo, useRef, useState, type ReactNode } from 'react'
 import type { Editor, JSONContent } from '@tiptap/core'
-import { ArrowDown, ArrowUp, ChevronDown, ExternalLink, FilePlus2, ListPlus, MessageSquare, PencilLine, Plus, Trash2, Webhook, X, type LucideIcon } from 'lucide-react'
+import { ArrowDown, ArrowUp, ChevronDown, ExternalLink, FilePlus2, ListPlus, MessageSquare, PencilLine, Plus, SquareCode, Trash2, Webhook, X, type LucideIcon } from 'lucide-react'
 import { Modal } from '../../ui/Modal'
 import { Menu, useMenu, type MenuEntry } from '../../ui/Menu'
 import { Switch } from '../../ui/controls'
@@ -36,6 +36,7 @@ const ACTION_ICON: Record<ButtonActionType, LucideIcon> = {
   webhook: Webhook,
   open: ExternalLink,
   message: MessageSquare,
+  run_script: SquareCode,
 }
 
 const TYPE_GLYPH: Partial<Record<PropertyDef['type'], string>> = {
@@ -268,6 +269,9 @@ function ActionCard({
       break
     case 'message':
       body = <VarInput label={t('editor.button.message.text')} value={action.text} placeholder={t('editor.button.message.placeholder')} onChange={(text) => onChange({ ...action, text })} />
+      break
+    case 'run_script':
+      body = <ScriptFields action={action} onChange={onChange} />
       break
   }
   return (
@@ -502,6 +506,30 @@ function OpenFields({ action, pageId, onChange }: { action: Act<'open'>; pageId:
           <Picker ariaLabel={t('editor.button.open.page')} placeholder={t('editor.button.open.page')} searchable entries={entries} label={null} />
         </div>
       )}
+    </div>
+  )
+}
+
+/** "Run script": one of the workspace's saved scripts (features/script), run for this page. */
+function ScriptFields({ action, onChange }: { action: Act<'run_script'>; onChange: (a: ButtonAction) => void }) {
+  const t = useT()
+  const scripts = useWorkspace((s) => s.scripts)
+  const list = useMemo(() => Object.values(scripts ?? {}).filter((x) => x.kind === 'script').sort((a, b) => a.name.localeCompare(b.name)), [scripts])
+  const cur = action.scriptId ? scripts?.[action.scriptId] : undefined
+  const entries: MenuEntry[] = list.length
+    ? list.map((s) => ({ label: s.name, icon: s.icon ? <PageIcon icon={s.icon} size={15} /> : <SquareCode size={15} strokeWidth={1.7} />, checked: s.id === action.scriptId, onSelect: () => onChange({ ...action, scriptId: s.id }) }))
+    : [{ label: t('editor.button.script.none'), disabled: true }]
+  return (
+    <div className="bcfg__field">
+      <span className="label">{t('editor.button.script.label')}</span>
+      <Picker
+        ariaLabel={t('editor.button.script.label')}
+        placeholder={t('editor.button.script.pick')}
+        searchable={list.length > 6}
+        entries={entries}
+        label={cur ? cur.name : action.scriptId ? <span className="faint">{t('editor.button.err.scriptMissing')}</span> : null}
+      />
+      <p className="bcfg__note">{t('editor.button.script.hint')}</p>
     </div>
   )
 }

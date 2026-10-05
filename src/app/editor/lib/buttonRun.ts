@@ -1,6 +1,7 @@
 /**
  * Button runtime: runs a button's actions in order and reports what happened in one toast.
- *   insert_blocks · add_page · edit_properties · webhook · open · message
+ *   insert_blocks · add_page · edit_properties · webhook · open · message · run_script (a saved One Script,
+ *   page.current = the button's page; the run says itself how it went: its toast with Undo, or its error)
  * Webhooks go through lib/webhook.ts like the database automations (JSON + CORS first; on a
  * network/CORS failure one no-cors text/plain retry, reported as "unconfirmed", never as success).
  * Every body carries a `deliveryId`, the same in both attempts.
@@ -306,7 +307,20 @@ async function runAction(ctx: RunContext, a: ButtonAction, now: Date): Promise<S
     case 'message':
       toast({ message: fillVars(a.text, now).trim() || ctx.label, kind: 'info' })
       return { ok: true, text: '', quiet: true }
+    case 'run_script':
+      return runScriptAction(ctx, a)
   }
+}
+
+/** A saved One Script for the button's page (the script area loads its engine on the first run). */
+async function runScriptAction(ctx: RunContext, a: Extract<ButtonAction, { type: 'run_script' }>): Promise<Step> {
+  const script = a.scriptId ? useWorkspace.getState().scripts?.[a.scriptId] : undefined
+  if (!script) return fail(t(a.scriptId ? 'editor.button.err.scriptMissing' : 'editor.button.err.noScript'))
+  const { runScriptById } = await import('../../features')
+  const r = await runScriptById(script.id, { contextPageId: ctx.pageId })
+  if (!r) return fail(t('editor.button.err.scriptBusy', { name: script.name }))
+  // its own toast told what happened (changes with Undo, or the error); a cancelled run is no failure
+  return { ok: r.status !== 'error', text: '', quiet: true }
 }
 
 /** Run every action in order (a failing action doesn't stop the next ones). Returns true when all succeeded. */
@@ -322,7 +336,7 @@ export async function runButton(ctx: RunContext): Promise<boolean> {
   }
   const ok = steps.every((s) => s.ok)
   const said = steps.filter((s) => !s.quiet && s.text)
-  if (!said.length && ok) return ok
+  if (!said.length) return ok
   const rowId = steps.find((s) => s.rowId)?.rowId
   toast({
     message: `${ctx.label} · ${said.map((s) => (s.ok ? s.text : `✕ ${s.text}`)).join(' · ')}`,

@@ -27,6 +27,7 @@ import { currentWorkspace, workspaceInfo, type McpIdentity } from './identity'
 import { READ_TOOLS, readTarget } from './read'
 import { McpToolError } from './values'
 import { mcpMessage, planWrite, type WritePlan } from './write'
+import { planRunScript } from './script'
 import { DEFAULT_SETTINGS, loadSettings, MCP_STORAGE_KEY, saveSettings, useMcp, validPort, type ActivityState, type McpActivity, type McpSettings, type Verdict } from './state'
 
 const set = useMcp.setState
@@ -390,21 +391,22 @@ async function handleCall(id: string, tool: McpToolName, args: Record<string, un
     const at = boundWorkspace(expected)
     if (!at.ok) return fail(at.error, 'rejected')
     if (!def.write) {
-      const result = READ_TOOLS[tool]!(args, get().mode)
+      const result = await READ_TOOLS[tool]!(args, get().mode)
       send({ type: 'result', id, result: stamped(result, at.ws) })
       logPatch(key, { state: 'ok', ms: ms() })
       return
     }
     if (get().mode === 'read') return fail(ERR.readOnly, 'rejected')
     if (useCloud.getState().readOnly) return fail(ERR.viewer, 'rejected')
-    const plan = planWrite(tool, args)
+    const plan = tool === 'one_run_script' ? await planRunScript(args) : planWrite(tool, args)
     logPatch(key, { target: plan.target })
     if (plan.noop) {
       send({ type: 'result', id, result: stamped(plan.noop, at.ws) })
       logPatch(key, { state: 'same', ms: ms() })
       return
     }
-    const ask = get().mode === 'ask'
+    // a script is always asked (it may send mail, call Claude, trash pages), also in "Apply directly"
+    const ask = get().mode === 'ask' || !!plan.alwaysAsk
     if (ask) {
       send({ type: 'pending', id, timeoutMs: MCP_APPROVAL_MS })
       logPatch(key, { state: 'wait' })
