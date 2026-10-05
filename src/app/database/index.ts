@@ -17,6 +17,8 @@ import { isDbReadOnly } from './readonly'
 export { DatabaseView, type DatabaseViewProps } from './DatabaseView'
 export { RowProperties } from './RowProperties'
 export { propertyValueToText } from './values'
+/** writePropertyValue(dbId, prop, rowId, value): write one value the way a cell does (two-way relations kept in step) — version history's restore. */
+export { writeValue as writePropertyValue } from './model/actions'
 /** TypeIcon: the lucide glyph of a property type (features/ai/todb lists the columns it will create). */
 export { TypeIcon } from './parts'
 /** rowsOfView: rows of a view as it shows them (its filters + sorts) — for exports outside React. */

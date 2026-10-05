@@ -1,9 +1,9 @@
 /**
- * Version history: a tape-deck scrubber over all snapshots of a page, a day-grouped list,
- * a block-level diff against the current page, and restore.
+ * Version history: a tape-deck scrubber over all snapshots of a page, a day-grouped list, the
+ * changes against the current page (word level inside changed blocks; a database entry's properties
+ * above them), and restore.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { JSONContent } from '@tiptap/core'
 import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, History as HistoryIcon, Plus, X } from 'lucide-react'
 import { Modal } from '../../ui/Modal'
 import { Tooltip } from '../../ui/Tooltip'
@@ -13,8 +13,11 @@ import { useWorkspace } from '../../store/store'
 import { useUI } from '../../store/ui'
 import type { ID } from '../../store/types'
 import { ReadOnlyDoc } from '../../editor'
-import { countWords, hashContent, listSnapshots, loadSnapshot, onHistoryChange, restoreSnapshot, snapshotNow, type SnapshotBody, type SnapshotMeta } from './snapshots'
-import { diffBlocks, diffStats, segments, type DiffSegment } from './diff'
+import { countWords, hashPage, listSnapshots, loadSnapshot, onHistoryChange, restoreSnapshot, snapshotNow, type SnapshotBody, type SnapshotMeta } from './snapshots'
+import { diffDocs, docDiffStats } from './docDiff'
+import { DocDiff } from './DiffDoc'
+import { PropsDiff } from './PropsDiff'
+import { diffProps } from './props'
 import './history.css'
 import '../share/readonly.css'
 
@@ -54,7 +57,7 @@ export function HistoryModal({ pageId, onClose }: { pageId: ID; onClose: () => v
     refresh().then((list) => {
       if (!alive) return
       const cur = useWorkspace.getState().pages[pageId]
-      const hash = cur ? hashContent(cur.content ?? null, cur.title) : ''
+      const hash = cur ? hashPage(cur) : ''
       const differs = list.map((m) => m.hash !== hash).lastIndexOf(true)
       setIndex((i) => i ?? (differs >= 0 ? differs : Math.max(0, list.length - 1)))
     })
@@ -89,8 +92,10 @@ export function HistoryModal({ pageId, onClose }: { pageId: ID; onClose: () => v
   const body = selMeta ? bodies[selMeta.id] : undefined
   const current = page?.content ?? null
 
-  const ops = useMemo(() => (body ? diffBlocks(body.content, current) : []), [body, current])
-  const stats = useMemo(() => diffStats(ops), [ops])
+  const items = useMemo(() => (body ? diffDocs(body.content, current) : []), [body, current])
+  const stats = useMemo(() => docDiffStats(items), [items])
+  // a database entry: how many of its properties differ (the Properties block lists them)
+  const propChanges = useMemo(() => (body?.props && page ? diffProps(body.props, page).length : 0), [body, page])
 
   const step = (d: number) => setIndex((i) => Math.max(0, Math.min(items.length - 1, (i ?? 0) + d)))
 
@@ -128,11 +133,13 @@ export function HistoryModal({ pageId, onClose }: { pageId: ID; onClose: () => v
     if (!selMeta || busy) return
     setBusy(true)
     try {
-      const before = await restoreSnapshot(pageId, selMeta.id)
+      const { before, notRestored } = await restoreSnapshot(pageId, selMeta.id)
+      const skipped = notRestored.map((x) => `${x.name} (${t(`features.history.skip.${x.reason}`)})`).join(', ')
       useUI.getState().toast({
-        message: t('features.history.restored', { time: fmtTime.format(selMeta.at) }),
-        kind: 'success',
+        message: `${t('features.history.restored', { time: fmtTime.format(selMeta.at) })}${skipped ? ` · ${t('features.history.notRestored', { list: skipped })}` : ''}`,
+        kind: skipped ? 'info' : 'success',
         action: before ? { label: t('common.undo'), run: () => void restoreSnapshot(pageId, before.id) } : undefined,
+        ...(skipped ? { timeout: 10_000 } : {}),
       })
       onClose()
     } catch {
@@ -274,25 +281,28 @@ export function HistoryModal({ pageId, onClose }: { pageId: ID; onClose: () => v
           ) : (
             <div className="hist__doc">
               <div className="hist__banner label">
-                {stats.added || stats.removed ? (
+                {stats.added || stats.removed || stats.changed || propChanges ? (
                   <>
                     <span>{t('features.history.since')}</span>
+                    {stats.changed > 0 && <span className="hist__legend hist__legend--chg">~{stats.changed} {t('features.history.changed')}</span>}
                     <span className="hist__legend hist__legend--add">+{stats.added} {t('features.history.added')}</span>
                     <span className="hist__legend hist__legend--rem">−{stats.removed} {t('features.history.removed')}</span>
+                    {propChanges > 0 && <span className="hist__legend hist__legend--chg">{t('features.history.props.count', { count: propChanges })}</span>}
                   </>
                 ) : (
                   <span>{t('features.history.noChanges')}</span>
                 )}
               </div>
-              {body.title !== (page?.title ?? '') && (
+              {body.title !== (page?.title ?? '') && !page?.databaseId && (
                 <div className="hist__title-diff">
                   <span className="label">{t('features.history.titleLabel')}</span>
-                  <del>{body.title || t('common.untitled')}</del>
+                  <del className="ddiff-del">{body.title || t('common.untitled')}</del>
                   <span aria-hidden>→</span>
-                  <ins>{page?.title || t('common.untitled')}</ins>
+                  <ins className="ddiff-ins">{page?.title || t('common.untitled')}</ins>
                 </div>
               )}
-              <DiffView segs={segments(ops)} />
+              {page && <PropsDiff body={body} page={page} />}
+              <DocDiff items={items} context={2} variant="rich" />
             </div>
           )}
         </section>
@@ -322,45 +332,6 @@ function relTime(ts: number, lang: string): string {
   if (abs < 3600) return rtf.format(Math.round(s / 60), 'minute')
   if (abs < 86400) return rtf.format(Math.round(s / 3600), 'hour')
   return rtf.format(Math.round(s / 86400), 'day')
-}
-
-/* ------------------------------------------------------------------ */
-/* Diff view                                                           */
-/* ------------------------------------------------------------------ */
-
-function DiffView({ segs }: { segs: DiffSegment[] }) {
-  const t = useT()
-  const [open, setOpen] = useState<Set<number>>(new Set())
-  return (
-    <div className="hdiff">
-      {segs.map((s, i) => {
-        const doc = (blocks: JSONContent[]): JSONContent => ({ type: 'doc', content: blocks })
-        if (s.kind === 'same' && s.blocks.length > 6 && !open.has(i)) {
-          const head = i === 0 ? [] : s.blocks.slice(0, 2)
-          const tail = i === segs.length - 1 ? [] : s.blocks.slice(-2)
-          const hidden = s.blocks.length - head.length - tail.length
-          return (
-            <div key={i} className="hdiff__seg hdiff__seg--same">
-              {head.length > 0 && <ReadOnlyDoc content={doc(head)} />}
-              <button className="hdiff__fold" onClick={() => setOpen((o) => new Set(o).add(i))}>
-                <span className="hdiff__fold-rule" />
-                <span className="label">{t('features.history.unchangedBlocks', { count: hidden })}</span>
-                <span className="hdiff__fold-rule" />
-              </button>
-              {tail.length > 0 && <ReadOnlyDoc content={doc(tail)} />}
-            </div>
-          )
-        }
-        const blank = s.blocks.every((b) => b.type === 'paragraph' && !b.content?.length)
-        return (
-          <div key={i} className={`hdiff__seg hdiff__seg--${s.kind}`}>
-            {s.kind !== 'same' && <span className="hdiff__mark mono" aria-label={s.kind === 'added' ? t('features.history.added') : t('features.history.removed')}>{s.kind === 'added' ? '+' : '−'}</span>}
-            {blank && s.kind !== 'same' ? <span className="hdiff__blank label">¶ {t('features.history.emptyLines', { count: s.blocks.length })}</span> : <ReadOnlyDoc content={doc(s.blocks)} />}
-          </div>
-        )
-      })}
-    </div>
-  )
 }
 
 /* ------------------------------------------------------------------ */

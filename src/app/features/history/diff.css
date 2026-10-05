@@ -1,0 +1,306 @@
+/*
+ * The word-level diff (DiffDoc.tsx) — History "Changes" and the AI terminal's review of an edit.
+ * Removed: struck through on a red tint · added: on the signal tint · changed blocks carry both, word
+ * by word. The colours are variables so the ink terminal can re-map them (agent.css).
+ */
+.ddiff {
+  --dd-del: var(--c-red-text);
+  --dd-del-bg: color-mix(in srgb, var(--c-red-text) 11%, transparent);
+  --dd-add: var(--signal-ink);
+  --dd-add-bg: var(--signal-wash-strong);
+  --dd-bar: var(--rule-strong);
+  min-width: 0;
+}
+
+.ddiff__seg {
+  position: relative;
+  min-width: 0;
+}
+
+.ddiff__seg[data-state='removed'],
+.ddiff__seg[data-state='added'],
+.ddiff__seg[data-state='changed'] {
+  margin: 6px 0;
+  padding: 4px 12px 4px 26px;
+  border-radius: var(--radius-1);
+}
+
+.ddiff__seg[data-state='removed'] {
+  background: var(--dd-del-bg);
+  box-shadow: inset 2px 0 0 var(--dd-del);
+  color: var(--ink-2);
+  text-decoration: line-through;
+  text-decoration-color: var(--dd-del);
+  text-decoration-thickness: 1px;
+}
+
+.ddiff__seg[data-state='removed'] * {
+  text-decoration: inherit;
+}
+
+.ddiff__seg[data-state='added'] {
+  background: var(--dd-add-bg);
+  box-shadow: inset 2px 0 0 var(--signal);
+}
+
+.ddiff__seg[data-state='changed'] {
+  box-shadow: inset 2px 0 0 var(--dd-bar);
+}
+
+.ddiff__mark {
+  position: absolute;
+  top: 5px;
+  left: 10px;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.4;
+  text-decoration: none;
+  color: var(--ink-3);
+}
+
+.ddiff__seg[data-state='removed'] .ddiff__mark {
+  color: var(--dd-del);
+}
+
+.ddiff__seg[data-state='added'] .ddiff__mark {
+  color: var(--dd-add);
+}
+
+/* words */
+.ddiff-del,
+.ddiff [data-diff='del'] {
+  color: var(--dd-del);
+  background: var(--dd-del-bg);
+  text-decoration: line-through;
+  text-decoration-color: var(--dd-del);
+  text-decoration-thickness: 1px;
+}
+
+.ddiff [data-diff='del'] * {
+  text-decoration: inherit;
+}
+
+.ddiff-ins,
+.ddiff [data-diff='add'] {
+  background: var(--dd-add-bg);
+  color: inherit;
+  text-decoration: none;
+  box-shadow: inset 0 -1.5px 0 var(--signal);
+}
+
+.ddiff-del,
+.ddiff-ins {
+  border-radius: 1px;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+}
+
+/* removed / added blocks inside a changed one (a list item, a table row): no underline bar on blocks */
+.ddiff :is(li, p, tr, div, blockquote, pre)[data-diff='add'] {
+  box-shadow: inset 2px 0 0 var(--signal);
+}
+
+.ddiff :is(li, p, tr, div, blockquote, pre)[data-diff='del'] {
+  box-shadow: inset 2px 0 0 var(--dd-del);
+}
+
+.ddiff li[data-diff] {
+  padding-left: 4px;
+}
+
+.ddiff-chip {
+  color: var(--ink-2);
+}
+
+.ddiff-link {
+  text-decoration: underline;
+  text-decoration-color: var(--rule-strong);
+  text-underline-offset: 2px;
+}
+
+/* to-dos: the box as a glyph (ticked → struck old box, new box) */
+.ddiff .ddiff-tasks {
+  list-style: none;
+  padding-left: 0.1em;
+}
+
+.ddiff .ddiff-task {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.ddiff .ddiff-task::before {
+  content: none !important;
+}
+
+.ddiff-task__box {
+  flex: none;
+  display: inline-flex;
+  gap: 2px;
+  color: var(--ink-2);
+}
+
+.ddiff-task > div {
+  flex: 1;
+  min-width: 0;
+}
+
+.ddiff-box {
+  margin: 4px 0;
+  padding-left: 10px;
+  border-left: 1px solid var(--rule);
+}
+
+.ddiff-box__label {
+  display: block;
+  margin-bottom: 2px;
+}
+
+.ddiff-summary {
+  font-weight: 600;
+}
+
+.ddiff-table {
+  border-collapse: collapse;
+  margin: 4px 0;
+  font-size: 0.92em;
+}
+
+.ddiff-table :is(td, th) {
+  padding: 3px 8px;
+  border: 1px solid var(--rule);
+  text-align: left;
+  vertical-align: top;
+}
+
+.ddiff-table :is(td, th) > p {
+  margin: 0;
+}
+
+/* a block without text: a placard */
+.ddiff-atom {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 8px;
+  margin: 4px 0;
+  padding: 6px 10px;
+  border: 1px dashed var(--rule-strong);
+  border-radius: var(--radius-1);
+  color: var(--ink-2);
+}
+
+.ddiff-atom__detail {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: var(--text-sm);
+}
+
+/* unchanged blocks, folded */
+.ddiff__fold {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  margin: 6px 0;
+  padding: 6px 0;
+  border: 0;
+  background: none;
+  color: var(--ink-3);
+  cursor: pointer;
+}
+
+.ddiff__fold:hover .label,
+.ddiff__fold:focus-visible .label {
+  color: var(--ink);
+}
+
+.ddiff__fold:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.ddiff__fold-rule {
+  flex: 1;
+  height: 1px;
+  background-image: repeating-linear-gradient(to right, var(--rule-strong) 0 4px, transparent 4px 8px);
+}
+
+.ddiff__blank {
+  display: block;
+  padding: 3px 0;
+  text-decoration: none;
+}
+
+/* ---------- plain: drawn without the editor (terminal, agent review) ---------- */
+.ddiff[data-variant='plain'] {
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--ink-2);
+}
+
+.ddiff[data-variant='plain'] .ddiff__seg {
+  padding: 2px 10px 2px 22px;
+  margin: 2px 0;
+}
+
+.ddiff[data-variant='plain'] .ddiff__seg[data-state='same'] {
+  color: var(--ink-3);
+}
+
+.ddiff[data-variant='plain'] .ddiff__seg[data-state='changed'] {
+  color: var(--ink);
+}
+
+.ddiff[data-variant='plain'] .ddiff__mark {
+  top: 3px;
+  left: 8px;
+  font-size: 11px;
+}
+
+.ddiff__plain {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.ddiff__plain :is(p, h2, h3, h4, ul, ol, blockquote, pre) {
+  margin: 0.15em 0;
+}
+
+.ddiff__plain :is(h2, h3, h4) {
+  font-size: 1.08em;
+  font-weight: 700;
+}
+
+.ddiff__plain h2 {
+  font-size: 1.18em;
+}
+
+.ddiff__plain :is(ul, ol) {
+  padding-left: 1.3em;
+}
+
+.ddiff__plain blockquote {
+  padding-left: 10px;
+  border-left: 2px solid var(--rule-strong);
+}
+
+.ddiff__plain pre {
+  font-family: var(--font-mono);
+  font-size: 0.95em;
+  white-space: pre-wrap;
+}
+
+.ddiff__plain .callout {
+  display: flex;
+  gap: 8px;
+  padding: 4px 8px;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-1);
+}
+
+.ddiff__plain code {
+  font-family: var(--font-mono);
+  font-size: 0.95em;
+}

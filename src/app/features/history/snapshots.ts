@@ -2,24 +2,29 @@
  * Version history. Page snapshots live in their own IndexedDB store
  * (one-history/snapshots), separate from the workspace blob:
  *   idx:<pageId>  → SnapshotMeta[] (oldest → newest)
- *   snap:<id>     → SnapshotBody (content + title + icon)
+ *   snap:<id>     → SnapshotBody (content + title + icon; database rows also their stored
+ *                   property values with the schema they were read with — props.ts)
  *
  * Policy (startHistory): on the first edit of a page in this session the PRE-edit state is
  * saved; while editing continues, at most one snapshot every settings.historyIntervalMin
- * minutes (trailing, so the latest state is always captured). Max 100 per page — thinned
- * so that recent history stays dense and older history gets sparser.
+ * minutes (trailing, so the latest state is always captured). An edit is a content change, a
+ * new title or icon, or — for a database row — a changed property value. Writes by Claude, an
+ * agent, an automation or the MCP bridge (aiWrite) keep the state right before them as an "AI"
+ * version. Max 100 per page — thinned so that recent history stays dense and older history
+ * gets sparser.
  */
 import type { JSONContent } from '@tiptap/core'
 import { createStore, delMany, get, setMany, type UseStore } from 'idb-keyval'
 import { pageChanges, plainText, useWorkspace } from '../../store/store'
 import { isApplyingRemote } from '../../store/persistence'
-import type { ID, PageIcon } from '../../store/types'
+import type { ID, Page, PageIcon } from '../../store/types'
 import { newId } from '../../lib/ids'
 import { getSchema } from '@tiptap/core'
 import type { Schema } from '@tiptap/pm/model'
 import { getExtensions } from '../../editor'
 import { docKey } from './diff'
 import { t } from '../../i18n'
+import { iconKey, propsChanged, propsKey, propsOf, restoreProps, type NotRestored, type SnapshotProps } from './props'
 
 export type SnapshotReason = 'session' | 'auto' | 'ai' | 'restore' | 'manual'
 
@@ -38,6 +43,14 @@ export interface SnapshotBody {
   content: JSONContent | null
   title: string
   icon: PageIcon | null
+  /** database rows: stored property values + the schema then (absent: content only — older versions, plain pages) */
+  props?: SnapshotProps
+}
+
+/** A page's current state as a snapshot body (rows with their properties). */
+export function bodyOf(p: Page): SnapshotBody {
+  const props = p.databaseId ? propsOf(p) : null
+  return { content: p.content, title: p.title, icon: p.icon, ...(props ? { props } : {}) }
 }
 
 export const MAX_SNAPSHOTS = 100
@@ -97,6 +110,17 @@ export function hashContent(content: JSONContent | null, title: string): string 
   return `${fnv1a(json)}.${json.length.toString(36)}.${fnv1a(title)}`
 }
 
+/** Hash of a whole version: content + title, plus icon and property values when there are any (older hashes stay valid). */
+export function hashBody(body: Pick<SnapshotBody, 'content' | 'title' | 'icon' | 'props'>): string {
+  const base = hashContent(body.content, body.title)
+  const icon = iconKey(body.icon)
+  const props = propsKey(body.props)
+  return icon || (props && props !== '[]') ? `${base}.${fnv1a(`${icon}\n${props}`)}` : base
+}
+
+/** Hash of a page as it is now (to find the versions that differ from it). */
+export const hashPage = (p: Page): string => hashBody(bodyOf(p))
+
 export function countWords(content: JSONContent | null): number {
   const text = plainText(content, 2_000_000)
   return text ? text.split(/\s+/).filter(Boolean).length : 0
@@ -106,6 +130,9 @@ function isEmptyDoc(content: JSONContent | null): boolean {
   if (!content?.content?.length) return true
   return content.content.every((b) => b.type === 'paragraph' && !b.content?.length)
 }
+
+/** Nothing worth a version: an empty page (a row always is one — its properties are the content). */
+const nothingToKeep = (p: Pick<Page, 'content' | 'databaseId'>) => !p.databaseId && isEmptyDoc(p.content)
 
 /** Serialize read-modify-write cycles per page. */
 const queues = new Map<ID, Promise<unknown>>()
@@ -180,7 +207,7 @@ async function writeSnapshot(pageId: ID, body: SnapshotBody, reason: SnapshotRea
   if (!s) return null
   return enqueue(pageId, async () => {
     const idx = (await get<SnapshotMeta[]>(idxKey(pageId), s)) ?? []
-    const hash = hashContent(body.content, body.title)
+    const hash = hashBody(body)
     const latest = idx[idx.length - 1]
     if (latest && latest.hash === hash) return null // identical to the newest version
     const meta: SnapshotMeta = {
@@ -216,21 +243,28 @@ async function writeSnapshot(pageId: ID, body: SnapshotBody, reason: SnapshotRea
  */
 export async function snapshotNow(pageId: ID, reason: SnapshotReason = 'manual'): Promise<SnapshotMeta | null> {
   const p = useWorkspace.getState().pages[pageId]
-  if (!p || isEmptyDoc(p.content)) return null
+  if (!p || nothingToKeep(p)) return null
   const s = session.get(pageId)
   if (s) {
     s.last = Date.now()
     s.dirty = false
   }
-  return writeSnapshot(pageId, { content: p.content, title: p.title, icon: p.icon }, reason)
+  return writeSnapshot(pageId, bodyOf(p), reason)
+}
+
+export interface RestoreResult {
+  /** the state before the restore, as a version (its undo) */
+  before: SnapshotMeta | null
+  /** properties that were left as they are (deleted since, another type, an option deleted) */
+  notRestored: NotRestored[]
 }
 
 /**
- * Restore a snapshot into the page. The current state is saved first and returned, so the
- * restore can always be undone — when that state is already the newest version, that version
- * is returned instead.
+ * Restore a snapshot into the page: content, title, icon and — for a database row — the property
+ * values that can go back. The current state is saved first and returned, so the restore can always
+ * be undone — when that state is already the newest version, that version is returned instead.
  */
-export async function restoreSnapshot(pageId: ID, snapId: ID): Promise<SnapshotMeta | null> {
+export async function restoreSnapshot(pageId: ID, snapId: ID): Promise<RestoreResult> {
   const body = await loadSnapshot(snapId)
   if (!body) throw new Error('Snapshot not found')
   const cur = useWorkspace.getState().pages[pageId]
@@ -241,16 +275,48 @@ export async function restoreSnapshot(pageId: ID, snapId: ID): Promise<SnapshotM
     s.dirty = false
   }
   // even an empty page is kept here: undo must be able to bring it back
-  const before =
-    (await writeSnapshot(pageId, { content: cur.content, title: cur.title, icon: cur.icon }, 'restore')) ??
-    (await listSnapshots(pageId)).filter((m) => m.hash === hashContent(cur.content, cur.title)).at(-1) ??
-    null
+  const now = bodyOf(cur)
+  const before = (await writeSnapshot(pageId, now, 'restore')) ?? (await listSnapshots(pageId)).filter((m) => m.hash === hashBody(now)).at(-1) ?? null
   const st = useWorkspace.getState()
-  st.setContent(pageId, body.content, 'history')
-  const page = useWorkspace.getState().pages[pageId]
-  if (page && body.title !== page.title) st.updatePage(pageId, { title: body.title })
-  return before
+  restoring++
+  try {
+    st.setContent(pageId, body.content, 'history')
+    const page = useWorkspace.getState().pages[pageId]
+    if (page && body.title !== page.title) st.updatePage(pageId, { title: body.title })
+    if (page && iconKey(body.icon) !== iconKey(page.icon)) st.updatePage(pageId, { icon: body.icon ?? null })
+    const notRestored = body.props ? restoreProps(pageId, body.props) : []
+    return { before, notRestored }
+  } finally {
+    restoring--
+  }
 }
+
+/** A restore is writing: its own title / icon / property writes start no session and no AI version. */
+let restoring = 0
+
+/* ---------------- writes by Claude, agents, automations, the MCP bridge ---------------- */
+
+let aiDepth = 0
+/** pages already kept as an "AI" version in the current aiWrite (outermost scope) */
+let aiKept = new Set<ID>()
+
+/**
+ * Run writes by Claude, an agent, an automation or the MCP bridge (synchronous store writes). Before
+ * the first of them touches a row's properties or a page's title / icon, that page's state is kept as
+ * an "AI" version — once per page per call, however many writes follow (no snapshot storm).
+ * Content writes keep their version themselves (snapshotNow(…, 'ai') before setContent).
+ */
+export function aiWrite<T>(fn: () => T): T {
+  aiDepth++
+  try {
+    return fn()
+  } finally {
+    aiDepth--
+    if (!aiDepth) aiKept = new Set()
+  }
+}
+
+export const isAIWriting = () => aiDepth > 0
 
 /** Delete all versions of a page. */
 export async function clearHistory(pageId: ID): Promise<void> {
@@ -316,7 +382,7 @@ export async function seedDemoHistory(pageId: ID): Promise<void> {
   const doc = (blocks: JSONContent[]): JSONContent => ({ ...base, content: structuredClone(blocks) })
   const H = 3_600_000
   const now = Date.now()
-  const currentHash = hashContent(p.content, p.title)
+  const currentHash = hashPage(p)
   // a story that only moves forward: blocks get added day by day, the wording is polished last
   const early = earlierWording(all) ?? all
   const versions: Array<{ at: number; body: SnapshotBody }> = [
@@ -331,7 +397,7 @@ export async function seedDemoHistory(pageId: ID): Promise<void> {
     const metas: SnapshotMeta[] = []
     const entries: Array<[string, SnapshotBody | SnapshotMeta[]]> = []
     for (const v of versions) {
-      const hash = hashContent(v.body.content, v.body.title)
+      const hash = hashBody(v.body)
       if (hash === currentHash || metas.some((m) => m.hash === hash)) continue
       const meta: SnapshotMeta = {
         id: newId(),
@@ -376,8 +442,8 @@ function captureCurrent(pageId: ID, reason: SnapshotReason) {
     s.timer = undefined
   }
   const p = useWorkspace.getState().pages[pageId]
-  if (!p || p.trashed || isEmptyDoc(p.content)) return
-  void writeSnapshot(pageId, { content: p.content, title: p.title, icon: p.icon }, reason)
+  if (!p || p.trashed || nothingToKeep(p)) return
+  void writeSnapshot(pageId, bodyOf(p), reason)
 }
 
 function schedule(pageId: ID, s: SessionState) {
@@ -407,18 +473,27 @@ export function startHistory(): () => void {
     for (const id of changed) {
       const p = state.pages[id]
       const before = prev.pages[id]
-      if (!before || p === before || p.contentRev === before.contentRev) continue
+      if (!before || p === before || restoring) continue
+      const content = p.contentRev !== before.contentRev
+      // title, icon, a row's property values
+      const meta = p.title !== before.title || iconKey(p.icon) !== iconKey(before.icon) || propsChanged(before, p)
+      if (!content && !meta) continue
       // Restores, sync from other tabs and imports are not user edits; a folder / GitHub pick-up ('file') snapshots itself.
-      if (p.contentOrigin === 'history' || p.contentOrigin === 'sync' || p.contentOrigin === 'import' || p.contentOrigin === 'file') continue
+      if (!meta && (p.contentOrigin === 'history' || p.contentOrigin === 'sync' || p.contentOrigin === 'import' || p.contentOrigin === 'file')) continue
+      // Claude / an agent / an automation: the state right before, as an "AI" version
+      if (meta && aiDepth && !aiKept.has(id)) {
+        aiKept.add(id)
+        if (!nothingToKeep(before)) void writeSnapshot(id, bodyOf(before), 'ai', Date.now() - 1)
+      }
       let s = session.get(id)
       if (!s) {
         // Opening a page can make the editor rewrite it (block ids, normalisation) without any
         // visible change — that is not an edit and must not start a session.
-        if (before.title === p.title && contentKey(before.content) === contentKey(p.content)) continue
+        if (!meta && contentKey(before.content) === contentKey(p.content)) continue
         s = { last: Date.now(), dirty: true }
         session.set(id, s)
         // First edit of this session: keep the state the page had before it.
-        if (!isEmptyDoc(before.content)) void writeSnapshot(id, { content: before.content, title: before.title, icon: before.icon }, 'session', Date.now() - 1)
+        if (!nothingToKeep(before) && !aiDepth) void writeSnapshot(id, bodyOf(before), 'session', Date.now() - 1)
         schedule(id, s)
         continue
       }
