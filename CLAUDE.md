@@ -101,6 +101,11 @@ the public APIs stable — other areas are built against them in parallel.
   `getMcpToken()` (store/secrets.ts) at request time — it goes only into `mcp_servers[].authorization_token`. Free-form
   requests (agent, own AI-menu requests, ⌘K "?") get every enabled server, other requests only `scope: 'all'`
   servers; client.ts decides centrally. No server is preset in the app.
+- AI-menu runs (features/ai/runs.ts) live outside the panel: closing it or leaving the page never aborts a run — only
+  Stop / Discard; targets are mapped through doc changes (runsTarget.ts). Mount `AIRunsSlot` once per editable editor.
+  Results are per device in IndexedDB `one-ai-runs` (key `<scope>|<runId>`, scope `local:local` / `cloud:<id>`), never
+  synced or exported, wiped with the workspace copy (cloud/device.ts). "Turn into database" (features/ai/todb) writes
+  rows and their bodies with origin `'ai'`.
 - Database views: table | board | list | gallery | feed | calendar | timeline | chart | form. Feed settings live in
   `View.feed` (dateProperty — null = created time, order newest | oldest, content); without sorts of its own a feed
   orders newest first. Rows in view order come from `orderRows()` (database/model/feed.ts), used by `rowsOfView()` too.

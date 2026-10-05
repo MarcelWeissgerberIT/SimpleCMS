@@ -237,6 +237,36 @@ test.describe('team cloud — hardening', () => {
     let device = await deviceData(a)
     expect(device.dbs).toContain(`one:ws:${wsId}`)
     expect(device.kv.some((k) => k.startsWith(`content:${wsId}:`) || k === `overlay:${wsId}`)).toBe(true)
+    // a background AI result of each workspace on this device (features/ai/runs.ts)
+    const aiRuns = (op: 'seed' | 'list', ws: string) =>
+      a.evaluate(
+        ({ op, ws }) =>
+          new Promise<string[]>((resolve, reject) => {
+            const r = indexedDB.open('one-ai-runs')
+            r.onupgradeneeded = () => r.result.createObjectStore('runs')
+            r.onerror = () => reject(r.error)
+            r.onsuccess = () => {
+              const db = r.result
+              const tx = db.transaction('runs', op === 'seed' ? 'readwrite' : 'readonly')
+              const os = tx.objectStore('runs')
+              let out: string[] = []
+              if (op === 'seed') {
+                os.put({ id: 'r-team', scope: `cloud:${ws}`, output: 'Team words.' }, `cloud:${ws}|r-team`)
+                os.put({ id: 'r-local', scope: 'local:local', output: 'Local words.' }, 'local:local|r-local')
+              } else {
+                const k = os.getAllKeys()
+                k.onsuccess = () => (out = k.result.map(String))
+              }
+              tx.oncomplete = () => {
+                db.close()
+                resolve(out)
+              }
+              tx.onerror = () => reject(tx.error)
+            }
+          }),
+        { op, ws },
+      )
+    await aiRuns('seed', wsId)
 
     await a.keyboard.press('Control+,')
     const settings = a.getByRole('dialog', { name: 'Settings' })
@@ -257,6 +287,7 @@ test.describe('team cloud — hardening', () => {
         return device.dbs.filter((n) => n.startsWith(`one:ws:${wsId}`)).length + device.kv.filter((k) => k.includes(wsId)).length
       })
       .toBe(0)
+    expect(await aiRuns('list', wsId)).toEqual(['local:local|r-local'])
     // the team workspace itself is untouched: opening it again downloads it
     await openApp(a, wsId)
     await waitOnline(a)

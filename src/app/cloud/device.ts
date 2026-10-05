@@ -18,7 +18,7 @@
  */
 import * as Y from 'yjs'
 import { IndexeddbPersistence } from 'y-indexeddb'
-import { createStore, delMany, entries } from 'idb-keyval'
+import { createStore, delMany, entries, keys } from 'idb-keyval'
 import { deleteFile, FILE_PREFIX } from '../lib/files'
 import { lsGet, lsSet, readChoice, readSession, sleep, writeChoice, WS_ID } from './env'
 import { allDeviceEntries, dropDeviceKeys } from './local'
@@ -239,6 +239,15 @@ async function forget(flag: string[]): Promise<void> {
   if (!dbNames || dbNames.includes('one-inbox')) {
     const inboxKeys = [...targets].flatMap((ws) => [`data:cloud:${ws}`, `snap:cloud:${ws}`])
     await delMany(inboxKeys, createStore('one-inbox', 'kv')).catch(() => {})
+  }
+  // background AI-menu results of this device (features/ai/runs.ts): keys "cloud:<ws>|<runId>"
+  if (!dbNames || dbNames.includes('one-ai-runs')) {
+    const runs = createStore('one-ai-runs', 'runs')
+    const runKeys = (await keys(runs).catch(() => [] as IDBValidKey[])).filter((k) => {
+      const m = /^cloud:([^|]+)\|/.exec(String(k))
+      return !!m && targets.has(m[1])
+    })
+    if (runKeys.length) await delMany(runKeys, runs).catch(() => {})
   }
   // folder + GitHub sync of this device (features/sync/storage.ts)
   if (!dbNames || dbNames.includes('one-sync')) {
