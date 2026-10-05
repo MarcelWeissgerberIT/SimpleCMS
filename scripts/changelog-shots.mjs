@@ -8,7 +8,7 @@
  *
  * (CHANGELOG_DRAFT=1 lets the build pass while a new entry's picture does not exist yet.)
  *
- * Shots: image-ai, claude-reads, redo, ai-terminal, mcp-codewords, mcp-tidy-up, slash-menu, turn-into-database,
+ * Shots: block-select, split-to-page, image-ai, claude-reads, redo, ai-terminal, mcp-codewords, mcp-tidy-up, slash-menu, turn-into-database,
  * custom-agents, gmail, help-centre, mcp-servers, feed-blocks — each named like its image. Every shot starts from a fresh, seeded
  * workspace in English, light theme, 1440 × 900 at device scale 2; the crop of the relevant area is scaled
  * to 1440 px wide and saved as public/assets/shots/changelog/<shot>.webp (≤ 150 KB: the quality steps down
@@ -708,6 +708,77 @@ const shots = {
     await page.mouse.move(W + 40, H + 40)
     const box = union(await boxOf(menu), await boxOf(page.locator('#main :is(h1, h2, h3)', { hasText: 'Open tickets' }).first()))
     await save(page, 'slash-menu', frameAround(box, { width: W, height: H }, 16 / 10, 32))
+    await ctx.close()
+  },
+
+  /** Several blocks selected (text, image, table): the wash on each, the pinned grip, the count chip. */
+  async 'block-select'(browser) {
+    const { ctx, page } = await freshPage(browser)
+    const cell = (tag, t) => ({ type: tag, content: [para(t)] })
+    const table = { type: 'table', content: [['Slot', 'Labware', 'Volume'], ['1', 'Tips 200 µl', '—'], ['2', '96-well plate', '50 µl'], ['3', 'Reservoir', '12 ml']].map((r, i) => ({ type: 'tableRow', content: r.map((t) => cell(i === 0 ? 'tableHeader' : 'tableCell', t)) })) }
+    const id = await createPage(
+      page,
+      'Run sheet',
+      doc(para('Before the run: check the deck against this sheet.'), para('The deck as it was set up on Monday — slots 1 to 3:'), { type: 'image', attrs: { src: 'assets/covers/aluminum.webp', alt: 'The deck', width: 520 } }, table, para('After the run, photograph the plate.')),
+      { icon: { type: 'asset', value: 'binder' } },
+    )
+    await openPage(page, id)
+    const ed = page.locator('#main .ProseMirror').first()
+    await ed.locator('img').first().waitFor()
+    await page.waitForTimeout(500)
+    // Esc on the line selects its block; Shift+↓ twice grows the range over the image and the table
+    await ed.locator('p', { hasText: 'The deck as it was set up' }).click()
+    await page.keyboard.press('Escape')
+    await page.keyboard.press('Shift+ArrowDown')
+    await page.keyboard.press('Shift+ArrowDown')
+    await page.getByTestId('selection-count').filter({ hasText: '3 blocks' }).waitFor()
+    await scrollToTop(ed.locator('p', { hasText: 'Before the run' }).first(), 40)
+    await page.mouse.move(W - 5, H - 20)
+    await page.waitForTimeout(300)
+    // the selection as it stays: wash, pinned grip and the count chip (the menu, once open, takes their place)
+    const chip = await boxOf(page.getByTestId('selection-count'))
+    const box = union(chip, await boxOf(ed.locator('p', { hasText: 'Before the run' }).first()), await boxOf(ed.locator('p', { hasText: 'After the run' }).first()))
+    const left = Math.round((await page.locator('.sb').first().boundingBox())?.width ?? 0) + 1
+    const top = Math.max(0, Math.round(box.y - 28))
+    await save(page, 'block-select', { x: left, y: top, width: W - left, height: Math.round(box.y + box.height + 28 - top) })
+    await ctx.close()
+  },
+
+  /** Three blocks turned into a page: one link in their place, the new sub-page in the sidebar, the toast. */
+  async 'split-to-page'(browser) {
+    const { ctx, page } = await freshPage(browser)
+    const id = await createPage(
+      page,
+      'Project notes',
+      doc(
+        para('Weekly notes for the relaunch. The plan has grown, so it gets its own page.'),
+        h(2, 'Launch plan'),
+        para('Homepage and pricing ship first, the blog follows in a second step.'),
+        { type: 'bulletList', content: [li(para('QA on staging until Thursday')), li(para('Pricing copy signed off by legal')), li(para('Webhook to n8n switched to production'))] },
+        h(2, 'Open questions'),
+        para('Who signs off on the pricing page experiment?'),
+      ),
+      { icon: { type: 'asset', value: 'notepad' } },
+    )
+    await openPage(page, id)
+    const ed = page.locator('#main .ProseMirror').first()
+    // Esc on the heading, Shift+↓ twice: heading, paragraph, list
+    await ed.locator('h2, h3', { hasText: 'Launch plan' }).click()
+    await page.keyboard.press('Escape')
+    await page.keyboard.press('Shift+ArrowDown')
+    await page.keyboard.press('Shift+ArrowDown')
+    await page.getByTestId('selection-count').filter({ hasText: '3 blocks' }).waitFor()
+    await page.keyboard.press('Control+Alt+9')
+    await page.locator('.toast', { hasText: /Moved to a new page/ }).waitFor({ timeout: 10_000 })
+    // the sidebar shows the new sub-page under its parent
+    const row = page.locator('.sb section[aria-label="Pages"] .sb-row', { has: page.locator('.sb-row__title', { hasText: /^Project notes$/ }) }).first()
+    const toggle = row.locator('.sb-row__toggle')
+    if ((await toggle.getAttribute('aria-label')) === 'Expand') await toggle.click()
+    await page.waitForTimeout(500)
+    await page.evaluate(() => document.activeElement instanceof HTMLElement && document.activeElement.blur())
+    await page.mouse.move(W + 40, H + 40)
+    await page.waitForTimeout(400)
+    await save(page, 'split-to-page')
     await ctx.close()
   },
 

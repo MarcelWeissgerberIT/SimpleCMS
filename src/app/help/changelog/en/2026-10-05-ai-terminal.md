@@ -1,7 +1,7 @@
 ---
 id: 2026-10-05-ai-terminal
 date: 2026-10-05
-order: 4
+order: 6
 title: The AI terminal
 summary: Give Claude a task by keyboard — it docks under the page, keeps working while hidden and waits for your review.
 image: assets/shots/changelog/ai-terminal.webp
