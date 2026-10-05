@@ -33,6 +33,8 @@ import { requestTable, TodbError, type TableAnswer, type TodbIssue } from './tod
 import type { TableDraft } from './todb/plan'
 import { countWords, pageRead, type RunReads } from './reads'
 import { readableContent } from '../../editor'
+import { requestRedo } from './redo/request'
+import type { RedoPassage } from './redo/passages'
 
 /* ------------------------------------------------------------------ */
 /* Types                                                               */
@@ -43,8 +45,18 @@ export type RunRequest =
   | { kind: 'workspace'; question: string; label: string; code: string }
   /** "Turn into database": Claude reads the selected blocks, the panel previews the table */
   | { kind: 'todb'; label: string; code: string; instruction?: string }
+  /** "Redo with instructions": marked passages rewritten by the instructions (+ a rules page), reviewed one by one */
+  | { kind: 'redo'; label: string; code: string; instructions: string; rulesPageId: ID | null; passages: RedoPassage[] }
 
 export type RunStatus = 'running' | 'done' | 'error' | 'interrupted'
+
+/** A redo passage's result: Claude's Markdown (null: skipped / missing), the review decision, what applying did. */
+export interface RedoItem {
+  n: number
+  after: string | null
+  decision: 'accept' | 'reject' | null
+  outcome?: 'applied' | 'changed'
+}
 
 /** "Turn into database": Claude's table, the blocks it read (JSON) and what the preview changed. */
 export type TodbResult = TableAnswer
@@ -69,6 +81,8 @@ export interface AIRun {
   seen: boolean
   /** what the request read of its page (null: from before this was recorded) */
   reads?: RunReads | null
+  /** "Redo with instructions": one result per passage */
+  redo?: { items: RedoItem[] } | null
 }
 
 interface RunsState {
@@ -252,6 +266,13 @@ function actionRead(run: AIRun, req: Extract<RunRequest, { kind: 'action' }>): {
   return { input, context: title, reads: { ...pr.reads, words: countWords(input) } }
 }
 
+/** The rules page of a redo request: its title + what may be read of it (its own context marks apply). */
+function rulesOf(pageId: ID | null): { title: string; markdown: string } | null {
+  const p = pageId ? useWorkspace.getState().pages[pageId] : undefined
+  if (!p || p.trashed) return null
+  return { title: p.title.trim() || t('common.untitled'), markdown: readableContent(p.id).markdown }
+}
+
 /** "Ask your workspace": this page as its context marks allow (null: no limit). */
 function workspaceLimit(pageId: ID): { limit: { id: ID; text: string | null } | null; reads: RunReads } {
   const r = readableContent(pageId)
@@ -281,6 +302,15 @@ async function execute(id: string, editor: Editor) {
       const res = await requestTable(editor.state.doc, target.todb, { pageTitle: title, instruction: req.instruction, signal: ac.signal })
       if (ac.signal.aborted) return
       patch(id, { status: 'done', table: res, finishedAt: Date.now() })
+    } else if (req.kind === 'redo') {
+      const pr = pageRead(run.pageId, null)
+      const sent = req.passages.filter((p) => !p.skip)
+      const words = sent.reduce((n, p) => n + countWords(p.anchor), 0)
+      patch(id, { reads: { ...pr.reads, passages: sent.length, words: pr.reads.words + (pr.reads.mode === 'page' ? 0 : words) } })
+      const answer = sent.length ? await requestRedo({ passages: req.passages, instructions: req.instructions, rules: rulesOf(req.rulesPageId), context: pr.context }, ac.signal) : new Map<number, string>()
+      if (ac.signal.aborted) return
+      const items: RedoItem[] = req.passages.map((p) => ({ n: p.n, after: p.skip ? null : (answer.get(p.n) ?? null), decision: null }))
+      patch(id, { status: 'done', redo: { items }, finishedAt: Date.now() })
     } else {
       let text: string
       if (req.kind === 'workspace') {
@@ -379,6 +409,27 @@ export function removeRun(id: string) {
 export function markSeen(id: string) {
   const run = S().runs[id]
   if (run && !run.seen && run.status !== 'running') patch(id, { seen: true })
+}
+
+/** The review's decision on a redo passage (null: undecided again). */
+export function setRedoDecision(id: string, n: number, decision: RedoItem['decision']) {
+  const run = S().runs[id]
+  if (!run?.redo) return
+  patch(id, { redo: { items: run.redo.items.map((x) => (x.n === n ? { ...x, decision } : x)) } })
+}
+
+/** Decide every undecided passage that has a result. */
+export function decideAllRedo(id: string, decision: 'accept' | 'reject') {
+  const run = S().runs[id]
+  if (!run?.redo) return
+  patch(id, { redo: { items: run.redo.items.map((x) => (x.after !== null && !x.decision ? { ...x, decision } : x)) } })
+}
+
+/** What applying did, per passage. */
+export function setRedoOutcome(id: string, outcome: Record<number, 'applied' | 'changed'>) {
+  const run = S().runs[id]
+  if (!run?.redo) return
+  patch(id, { redo: { items: run.redo.items.map((x) => (outcome[x.n] ? { ...x, outcome: outcome[x.n] } : x)) } })
 }
 
 export function setTodbDraft(id: string, draft: TableDraft) {

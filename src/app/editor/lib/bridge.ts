@@ -30,7 +30,8 @@ export interface CommentsUI {
 
 export interface OverlayState {
   suggest: SuggestState | null
-  ai: { mode: 'selection' | 'block' } | null
+  /** the AI panel; `redo`: opened on passages marked to redo (block ids — "Redo with instructions") */
+  ai: { mode: 'selection' | 'block'; redo?: string[] } | null
   /** URL pasted on an empty line → offer Link / Bookmark / Embed */
   urlPaste: { url: string; from: number; to: number } | null
   /** Mod+K / link button: bubble toolbar in link-input mode */

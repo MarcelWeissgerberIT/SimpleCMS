@@ -24,6 +24,7 @@ export const contextMessages: Messages = {
     'editor.ctx.nothingRedo': 'mark the passages to redo',
     'editor.ctx.layerRedo': 'Passages to redo — Space marks, ↑ ↓ move',
     'editor.ctx.barRedo': 'Passages to redo',
+    'editor.blockMenu.redo': 'Redo with instructions…',
   },
   de: {
     'editor.ctx.layer': 'Blöcke, die Claude lesen darf — Leertaste markiert, ↑ ↓ bewegen',
@@ -47,5 +48,6 @@ export const contextMessages: Messages = {
     'editor.ctx.nothingRedo': 'Stellen zum Neu-Machen markieren',
     'editor.ctx.layerRedo': 'Stellen zum Neu-Machen — Leertaste markiert, ↑ ↓ bewegen',
     'editor.ctx.barRedo': 'Stellen zum Neu-Machen',
+    'editor.blockMenu.redo': 'Neu machen mit Vorgaben…',
   },
 }

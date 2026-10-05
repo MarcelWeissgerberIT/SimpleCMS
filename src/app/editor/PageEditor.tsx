@@ -22,6 +22,7 @@ import { sanitize, withBlockIds } from './convert'
 import { EditorOverlays } from './menus/EditorOverlays'
 import { Comments } from './comments/CommentsRail'
 import { ContextPicker } from './context/ContextPicker'
+import { registerBridge } from './context/redo'
 import { acquireContentDoc, releaseContentDoc, useCloud, type ContentDocHandle } from '../cloud'
 import './editor.css'
 
@@ -326,6 +327,9 @@ function EditorInstance({ pageId, readOnly, autoFocus, onReady, className, colla
   useEffect(() => {
     if (editor && !editor.isDestroyed) onReadyRef.current?.(editor)
   }, [editor])
+
+  // "Redo with instructions" from outside the page (block menu, AI terminal) opens this editor's AI panel
+  useEffect(() => (editor ? registerBridge(editor, bridge) : undefined), [editor, bridge])
 
   // editable / spellcheck follow page + settings
   useEffect(() => {

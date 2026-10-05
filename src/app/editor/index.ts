@@ -39,7 +39,8 @@
  *      on the page (boxes in the gutter, a bar at the bottom; Done / Esc), closeContextPicker(done),
  *      useContextPicking() (the page being picked, or null). The picker has a second purpose, 'redo' (passages to
  *      redo with instructions): openContextPicker(…, { purpose: 'redo', ids, onEnd(done, ids) }) — the marks go to
- *      onEnd only; topBlockKeys(editor, from, to) pre-marks a selection / the cursor block.
+ *      onEnd only; topBlockKeys(editor, from, to) pre-marks a selection / the cursor block. startRedo(editor | pageId,
+ *      { ids }) — the redo picker from anywhere; on Done the page's AI panel opens on the passages (AIMenuProps.redo).
  */
 export { PageEditor, type PageEditorProps } from './PageEditor'
 export { ReadOnlyDoc } from './ReadOnlyDoc'
@@ -63,4 +64,5 @@ export {
 } from './schema/meetingNotes'
 export { contextMarksOf, pageContextMarks, readableContent, isContextLimited, useContextMarks, useContextPicking, type ContextMarks, type ReadableContent } from './context/read'
 export { setContextMode, openContextPicker, closeContextPicker, contextPickingPage, topBlockKeys } from './context/api'
+export { startRedo } from './context/redo'
 export type { ContextMode, PickPurpose } from './context/store'

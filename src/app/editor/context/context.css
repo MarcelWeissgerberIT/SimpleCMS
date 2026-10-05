@@ -30,6 +30,12 @@
   outline: none;
 }
 
+/* the layer holds the keyboard; its focus shows on the focused row, not around the page */
+.ctx-layer:focus-visible {
+  outline: none;
+  box-shadow: none;
+}
+
 .ctx-row {
   position: absolute;
   left: calc(-1 * var(--ctx-gutter));
@@ -56,7 +62,7 @@
 /* the box: in the gutter, level with the block's first line */
 .ctx-row__box {
   position: absolute;
-  left: calc(var(--ctx-gutter) - 30px);
+  left: max(0px, calc(var(--ctx-gutter) - 30px));
   top: 4px;
   display: grid;
   place-items: center;
@@ -184,7 +190,7 @@
     grid-template-columns: repeat(4, 1fr);
     width: 100%;
   }
-  .ctx-bar__key {
+  .ctx-bar .ctx-bar__key {
     height: 40px;
     font-size: var(--text-sm);
   }

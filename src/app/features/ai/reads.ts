@@ -21,6 +21,8 @@ export interface RunReads {
   words: number
   /** "Ask your workspace": excerpts of the most relevant pages (this page as its mode allows) */
   workspace?: boolean
+  /** "Redo with instructions": the passages sent */
+  passages?: number
 }
 
 export const countWords = (text: string): number => {
@@ -42,6 +44,11 @@ export function readsText(t: Translate, lang: string, r: RunReads, wsMarks?: Pic
     const page = m === 'page' ? t('features.ai.reads.wsPage') : m === 'none' ? t('features.ai.reads.wsNone') : t(`features.ai.reads.wsMarked.${plural(wsMarks?.blocks ?? r.blocks)}`, { count: num(wsMarks?.blocks ?? r.blocks, lang) })
     return t('features.ai.reads.workspace', { page })
   }
+  if (r.passages) {
+    const head = t(`features.ai.redo.passages.${plural(r.passages)}`, { count: num(r.passages, lang) })
+    const page = r.mode === 'page' ? t('features.ai.reads.wsPage') : r.mode === 'marked' ? t(`features.ai.reads.wsMarked.${plural(r.blocks)}`, { count: num(r.blocks, lang) }) : t('features.ai.reads.wsNone')
+    return t('features.ai.redo.reads', { head, page, words })
+  }
   if (r.selection) {
     if (r.mode === 'page') return t('features.ai.reads.selectionPage', { words })
     if (r.mode === 'marked') return t(`features.ai.reads.selectionMarked.${plural(r.blocks)}`, { count: num(r.blocks, lang), words })
@@ -55,6 +62,7 @@ export function readsText(t: Translate, lang: string, r: RunReads, wsMarks?: Pic
 /** Short form for a run's spec line: "PAGE" / "3 BLOCKS" / "NO PAGE" / "SELECTION" / "WORKSPACE". */
 export function readsShort(t: Translate, lang: string, r: RunReads): string {
   if (r.workspace) return t('features.ai.reads.short.workspace')
+  if (r.passages) return t(`features.ai.redo.passages.${plural(r.passages)}`, { count: num(r.passages, lang) })
   const page = r.mode === 'page' ? t('features.ai.reads.short.page') : r.mode === 'marked' ? t(`features.ai.reads.short.marked.${plural(r.blocks)}`, { count: num(r.blocks, lang) }) : ''
   if (r.selection) return page ? `${t('features.ai.reads.short.selection')} + ${page}` : t('features.ai.reads.short.selection')
   return page || t('features.ai.reads.short.none')

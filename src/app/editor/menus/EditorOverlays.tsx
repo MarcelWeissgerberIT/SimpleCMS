@@ -30,7 +30,7 @@ function AI({ editor, bridge, pageId }: { editor: Editor; bridge: Bridge; pageId
       if (!editor.isDestroyed && (!el || el === document.body)) editor.view.focus()
     })
   }
-  return <AIMenuSlot editor={editor} pageId={pageId} mode={ai.mode} onClose={close} />
+  return <AIMenuSlot editor={editor} pageId={pageId} mode={ai.mode} redo={ai.redo} onClose={close} />
 }
 
 export const EditorOverlays = memo(function EditorOverlays({ editor, bridge, pageId }: { editor: Editor; bridge: Bridge; pageId: string }) {
