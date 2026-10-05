@@ -5,7 +5,7 @@ order: 4
 title: MCP-Server für Ones Claude
 summary: Verbinde eine Wissensdatenbank, einen Tracker oder ein CRM — Claude nutzt ihre Werkzeuge in deinen eigenen Anfragen und im Agenten.
 image: assets/shots/changelog/mcp-servers.webp
-alt: Einstellungen → Claude KI → MCP-Server: eine verbundene Wissensdatenbank mit ihren Werkzeugen und dem Nutzungs-Prompt
+alt: Einstellungen → Claude KI → MCP-Server: eine Wissensdatenbank, verbunden, mit drei Werkzeugen
 help: mcp-servers, mcp-token-rejected, claude-key
 try: settings-ai
 ---

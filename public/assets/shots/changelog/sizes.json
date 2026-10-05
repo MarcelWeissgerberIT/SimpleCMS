@@ -1,10 +1,22 @@
 {
+  "ai-terminal.webp": [
+    1440,
+    900
+  ],
   "help-centre.webp": [
+    1440,
+    900
+  ],
+  "mcp-codewords.webp": [
     1440,
     900
   ],
   "mcp-servers.webp": [
     1440,
     1072
+  ],
+  "slash-menu.webp": [
+    1440,
+    900
   ]
 }

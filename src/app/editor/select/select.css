@@ -1,0 +1,86 @@
+/* Block selection overlay — INSTRUMENT: the pinned grip, a 2px signal rule down the gutter, a mono count chip. */
+
+.sel-rule {
+  position: absolute;
+  z-index: 4;
+  width: 2px;
+  border-radius: 1px;
+  background: var(--signal);
+  pointer-events: none;
+  animation: fade-in var(--dur-1) var(--ease-out);
+}
+
+.sel-grip {
+  position: absolute;
+  z-index: 6;
+  display: flex;
+  align-items: flex-start;
+  transform: translateX(-100%);
+  pointer-events: none;
+}
+
+.sel-grip .block-handle {
+  pointer-events: auto;
+}
+
+/* the grip of a selection reads as "on": ink on the wash, not the faint hover grey */
+.sel-grip__grip {
+  background: var(--signal-wash);
+  color: var(--signal-ink);
+}
+
+.sel-grip__grip:hover,
+.sel-grip__grip:focus-visible {
+  background: var(--signal-wash-strong);
+  color: var(--ink);
+}
+
+.sel-grip__grip:active {
+  transform: translateY(1px);
+}
+
+.sel-grip__count {
+  position: absolute;
+  top: 6px;
+  right: 100%;
+  margin-right: 4px;
+  padding: 2px 6px;
+  border: 1px solid var(--signal);
+  border-radius: var(--radius-1);
+  background: var(--surface);
+  color: var(--signal-ink);
+  font-size: 10px;
+  line-height: 14px;
+  white-space: nowrap;
+  pointer-events: none;
+  animation: fade-in var(--dur-1) var(--ease-out);
+}
+
+/* no room in the margin (narrow pages, phones): the chip sits on the selection's top edge */
+.sel-grip[data-place='top'] .sel-grip__count {
+  top: auto;
+  right: auto;
+  bottom: 100%;
+  left: 100%;
+  margin: 0 0 3px 2px;
+}
+
+/* phones: just the grip (no "+"), the size of the touch grip; the caret's touch grip steps aside */
+@media (hover: none) {
+  .sel-grip__plus {
+    display: none;
+  }
+
+  .sel-grip .block-handle {
+    padding-right: 2px;
+  }
+
+  .sel-grip__grip {
+    width: 26px;
+    height: 30px;
+  }
+
+  .one-editor:has(.sel-grip) .touch-grip {
+    display: none;
+  }
+}

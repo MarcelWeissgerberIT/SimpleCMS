@@ -316,7 +316,128 @@ for q in (86, 82, 78, 74, 70, 66, 62, 58):
 /* Shots                                                                */
 /* ------------------------------------------------------------------ */
 
+/** Tiny TipTap JSON builders. */
+const text = (t) => ({ type: 'text', text: t })
+const doc = (...content) => ({ type: 'doc', content })
+const para = (t) => (t ? { type: 'paragraph', content: [text(t)] } : { type: 'paragraph' })
+const h = (level, t) => ({ type: 'heading', attrs: { level }, content: [text(t)] })
+const li = (...content) => ({ type: 'listItem', content })
+
+/** The tool result Claude got back for a tool_use id. */
+const toolResult = (body, id) => (body.messages ?? []).flatMap((m) => (Array.isArray(m.content) ? m.content : [])).find((c) => c.type === 'tool_result' && c.tool_use_id === id)
+
 const shots = {
+  /** ⌘J: a reference from the page, the task, the step log and a staged board with its rows. */
+  async 'ai-terminal'(browser) {
+    const ids = {}
+    let dbId = ''
+    const turns = [
+      () =>
+        sseTurn([
+          { type: 'thinking', text: 'The action items are on the open page. A board grouped by status fits.' },
+          {
+            type: 'tool_use',
+            id: 'toolu_db',
+            name: 'create_database',
+            input: { title: 'Open items', parent_id: ids.weekly, columns: [{ name: 'Status', type: 'select', options: ['Todo', 'Doing', 'Done'] }, { name: 'Owner', type: 'text' }, { name: 'Due', type: 'date' }], view: 'board', group_by: 'Status' },
+          },
+        ]),
+      (body) => {
+        dbId = /New database id: ([\w-]+)/.exec(String(toolResult(body, 'toolu_db')?.content ?? ''))?.[1] ?? ''
+        return sseTurn([
+          { type: 'tool_use', id: 'toolu_r1', name: 'create_row', input: { database_id: dbId, title: 'Final QA on staging', properties: { Status: 'Todo', Owner: 'Alex', Due: isoDay(3) } } },
+          { type: 'tool_use', id: 'toolu_r2', name: 'create_row', input: { database_id: dbId, title: 'Connect webhook to n8n', properties: { Status: 'Doing', Owner: 'Sam', Due: isoDay(2) } } },
+          { type: 'tool_use', id: 'toolu_r3', name: 'create_row', input: { database_id: dbId, title: 'Draft the newsletter', properties: { Status: 'Done', Owner: 'Mira' } } },
+        ])
+      },
+      () => sseTurn([{ type: 'text', text: 'Staged a board **Open items** under this page, grouped by Status, with the three action items — Mira’s newsletter is already done.' }]),
+    ]
+    const { ctx, page } = await freshPage(browser, { claude: { turns } })
+    ids.weekly = await openPage(page, 'Weekly sync — notes')
+    await page.locator('#main .ProseMirror').first().click()
+    await selectRange(page, 'final QA on staging', 'draft the newsletter')
+    await page.keyboard.press('Control+Shift+j')
+    const term = page.getByRole('region', { name: 'AI terminal' })
+    await term.waitFor()
+    const prompt = term.getByRole('textbox', { name: 'Task for the agent' })
+    await prompt.fill('Make a board of the open items on this page')
+    await prompt.press('Enter')
+    await term.locator('.term-head__status').filter({ hasText: 'Done' }).waitFor({ timeout: 30_000 })
+    await page.waitForTimeout(800)
+    // a taller dock, its log from the task down; the page shows the action items above it
+    await prompt.focus()
+    await page.keyboard.press('Alt+ArrowUp')
+    await page.keyboard.press('Alt+ArrowUp')
+    await page.waitForTimeout(400)
+    // the page's selection collapses (a click at the end of a line), the dock keeps its task
+    await page.locator('#main .ProseMirror').first().evaluate((root) => {
+      const ed = root.editor
+      ed?.commands.setTextSelection(1)
+      ed?.commands.blur()
+    })
+    await scrollToTop(page.locator('#main :is(h1, h2, h3)', { hasText: 'Decisions' }).first(), 24)
+    const box = await term.boundingBox()
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
+    await page.mouse.wheel(0, -6000)
+    await page.waitForTimeout(500)
+    await rest(page)
+    await save(page, 'ai-terminal')
+    await ctx.close()
+  },
+
+  /** The AI menu with "atlas: …" typed: the chip names the server that answers first. */
+  async 'mcp-codewords'(browser) {
+    const { ctx, page } = await freshPage(browser)
+    await page.evaluate((guide) => window.__one.workspace.getState().updateSettings({ mcpServers: [{ id: 'srvkb00001', name: 'atlas', url: 'https://kb.acme.studio/mcp', token: '', enabled: true, prompt: guide, promptSource: 'auto', tools: ['atlas_search', 'atlas_get', 'atlas_constraints'], checkedAt: Date.now() - 3 * 60_000, scope: 'own', codeword: 'atlas' }] }), ATLAS_GUIDE)
+    const id = await createPage(page, 'Launch plan', doc(h(2, 'Relaunch'), para('Homepage and pricing ship first, the blog follows in a second step.'), para('Open: the final launch date and who signs off on the pricing copy.'), para('')), { icon: { type: 'asset', value: 'megaphone' } })
+    await openPage(page, id)
+    const ask = page.getByPlaceholder('Ask Claude to write anything…')
+    for (let attempt = 0; attempt < 4 && !(await ask.count()); attempt++) {
+      await page.locator('#main .ProseMirror p').last().click()
+      await page.keyboard.press('End')
+      await page.keyboard.press('Space')
+      await page.waitForTimeout(600)
+    }
+    await ask.pressSequentially('atlas: when do we launch?', { delay: 8 })
+    const panel = page.locator('.ai-panel').first()
+    await panel.getByTestId('mcp-codeword-chip').waitFor()
+    await page.waitForTimeout(400)
+    await page.mouse.move(W + 40, H + 40)
+    const box = union(await boxOf(panel), await boxOf(page.locator('#main :is(h1, h2, h3)', { hasText: 'Relaunch' }).first()))
+    await save(page, 'mcp-codewords', frameAround(box, { width: W, height: H }, 16 / 10, 40))
+    await ctx.close()
+  },
+
+  /** References like /r/24772 stay plain text; the "/" menu opens where "/" was just typed. */
+  async 'slash-menu'(browser) {
+    const { ctx, page } = await freshPage(browser)
+    const content = doc(
+      h(2, 'Open tickets'),
+      { type: 'bulletList', content: [li(para('Checkout rounding differs from the invoice — /r/24772')), li(para('Viewers can open the export dialog — /r/24790')), li(para('Umlauts break the sample search — /r/24811'))] },
+      para('Status and owners are in the knowledge base: /r/24772, /r/24790, /r/24811.'),
+      para(''),
+    )
+    const id = await createPage(page, 'Release checklist', content, { icon: { type: 'asset', value: 'binder' } })
+    await openPage(page, id)
+    // the caret in the middle of a reference: no menu
+    await page.locator('#main .ProseMirror li p').first().click()
+    await page.keyboard.press('End')
+    await page.keyboard.press('ArrowLeft')
+    await page.keyboard.press('ArrowLeft')
+    await page.waitForTimeout(300)
+    // a "/" typed on the empty line: the menu (room below it: the list at the top of the view)
+    await scrollToTop(page.locator('#main :is(h1, h2, h3)', { hasText: 'Open tickets' }).first(), 70)
+    await page.locator('#main .ProseMirror > p').last().click()
+    await page.keyboard.type('/')
+    const menu = page.locator('.slash')
+    await menu.waitFor()
+    await page.waitForTimeout(400)
+    await page.mouse.move(W + 40, H + 40)
+    const box = union(await boxOf(menu), await boxOf(page.locator('#main :is(h1, h2, h3)', { hasText: 'Open tickets' }).first()))
+    await save(page, 'slash-menu', frameAround(box, { width: W, height: H }, 16 / 10, 32))
+    await ctx.close()
+  },
+
   /** The help sheet beside a page, on an article with steps (searched from the sheet). */
   async 'help-centre'(browser) {
     const { ctx, page } = await freshPage(browser)
@@ -335,17 +456,14 @@ const shots = {
     await ctx.close()
   },
 
-  /** Settings → Claude AI → MCP servers: a connected knowledge base, its details open. */
+  /** Settings → Claude AI → MCP servers: a knowledge base, connected (LED), with its tools. */
   async 'mcp-servers'(browser) {
     const { ctx, page } = await freshPage(browser)
     await page.evaluate((guide) => window.__one.workspace.getState().updateSettings({ mcpServers: [{ id: 'srvkb00001', name: 'atlas', url: 'https://kb.acme.studio/mcp', token: '', enabled: true, prompt: guide, promptSource: 'auto', tools: ['atlas_search', 'atlas_get', 'atlas_constraints'], checkedAt: Date.now() - 3 * 60_000, scope: 'own' }] }), ATLAS_GUIDE)
     await page.evaluate(() => window.__one.ui.getState().openModal({ type: 'settings', tab: 'ai' }))
     const section = page.getByTestId('mcp-servers')
     await section.waitFor()
-    // the details: name, codeword, usage prompt, tools
-    await section.locator('.mcps-card[data-server="atlas"]').getByRole('button', { name: /ATLAS/ }).click()
-    await page.waitForTimeout(400)
-    await scrollToTop(section.locator('h3, h2').filter({ hasText: 'MCP servers' }).first(), 70)
+    await scrollToTop(section, 24)
     await rest(page)
     const dialog = page.getByRole('dialog', { name: 'Settings' })
     await save(page, 'mcp-servers', await boxOf(dialog))

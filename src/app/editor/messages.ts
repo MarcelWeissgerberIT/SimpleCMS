@@ -3,6 +3,7 @@ import { syncedMessages } from './synced/messages'
 import { iconMessages } from './icons/messages'
 import { contextMessages } from './context/messages'
 import { splitMessages } from './split/messages'
+import { selectMessages } from './select/messages'
 
 /** Strings for the editor area. Keys MUST be prefixed with "editor." — always add both en and de. */
 export const messages: Messages = {
@@ -11,6 +12,7 @@ export const messages: Messages = {
     ...iconMessages.en,
     ...contextMessages.en,
     ...splitMessages.en,
+    ...selectMessages.en,
     // blocks: name + description (slash menu, turn into, block menu)
     'editor.block.text': 'Text',
     'editor.block.text.desc': 'Plain paragraph. The default line.',
@@ -490,6 +492,7 @@ export const messages: Messages = {
     ...iconMessages.de,
     ...contextMessages.de,
     ...splitMessages.de,
+    ...selectMessages.de,
     'editor.block.text': 'Text',
     'editor.block.text.desc': 'Einfacher Absatz. Die Standardzeile.',
     'editor.block.heading1': 'Überschrift 1',

@@ -5,7 +5,7 @@ order: 4
 title: MCP servers for One's Claude
 summary: Connect a knowledge base, a tracker or a CRM — Claude uses its tools in your own requests and in the agent.
 image: assets/shots/changelog/mcp-servers.webp
-alt: Settings → Claude AI → MCP servers: a connected knowledge base with its tools and usage prompt
+alt: Settings → Claude AI → MCP servers: a knowledge base, connected, with three tools
 help: mcp-servers, mcp-token-rejected, claude-key
 try: settings-ai
 ---

@@ -3,7 +3,7 @@
  */
 import { Extension, InputRule } from '@tiptap/core'
 import type { Fragment, Node as PMNode, ResolvedPos, Schema } from '@tiptap/pm/model'
-import { NodeSelection, Plugin, PluginKey, Selection, TextSelection } from '@tiptap/pm/state'
+import { AllSelection, NodeSelection, Plugin, PluginKey, Selection, TextSelection } from '@tiptap/pm/state'
 import { Decoration, DecorationSet, type EditorView } from '@tiptap/pm/view'
 import { isNodeRangeSelection } from '@tiptap/extension-node-range'
 import { t } from '../../i18n'
@@ -11,6 +11,9 @@ import type { Bridge } from '../lib/bridge'
 import { findEmoji } from '../lib/emoji'
 import { revealPos } from '../schema/tabs'
 import { toggleHeadingLevel } from '../schema/toggle'
+import { allBlocks, extendSelection, isBlockSelection, readBlockSel, stepSelection } from '../select/model'
+import { duplicateBlocks, moveBlocksBy } from '../select/actions'
+import { openBlockMenu } from '../select/registry'
 import {
   caretAfterNode,
   caretIntoBlock,
@@ -133,35 +136,74 @@ export const OnePlaceholder = Extension.create({
 })
 
 /* ------------------------------------------------------------------ */
-/* Block selection highlight (drag handle / Esc / Shift+click ranges)  */
+/* Block selection (Esc, grip, Shift+click / ↑ ↓, margin drag, taps)   */
 /* ------------------------------------------------------------------ */
 
-/** A whole block is selected (Esc, grip click, clicking an image …) — not a text range. */
-function isBlockSelection(sel: Selection): boolean {
-  return (sel instanceof NodeSelection && sel.node.isBlock) || isNodeRangeSelection(sel)
-}
-
+/**
+ * One block (NodeSelection) or several neighbours (a node range — editor/select): every selected
+ * block is marked `.is-block-selected` (a signal wash laid OVER the block, so images and embeds are
+ * tinted too); the pinned grip, the gutter rule and the count chip are the overlay's (SelectionGrip).
+ */
 export const BlockSelection = Extension.create({
   name: 'blockSelection',
   // before the core keymap (Enter would otherwise insert a line next to the block)
   priority: 1050,
   addProseMirrorPlugins() {
     const editor = this.editor
+    const go = (view: EditorView, sel: Selection | null) => {
+      if (sel) view.dispatch(view.state.tr.setSelection(sel).scrollIntoView())
+      return true
+    }
     return [
       new Plugin({
         key: new PluginKey('blockSelection'),
         props: {
           /**
-           * Notion's block-selection mode: character keys never replace the selected block,
-           * Enter goes back to editing its text. Backspace / Delete still remove it.
+           * Notion's block-selection mode: character keys never replace the selected block, Enter
+           * goes back to editing its text, Esc leaves it, Shift+↑ / ↓ grow or shrink it, Alt+Enter
+           * opens the block menu for all of it, ⌘D / ⌘⇧↑ ↓ duplicate / move all of it. Backspace /
+           * Delete still remove it. ⌘A on an all-text selection selects every block.
            */
           handleKeyDown(view, event) {
             const sel = view.state.selection
-            if (!isBlockSelection(sel) || event.isComposing) return false
+            if (event.isComposing) return false
+            const mod = event.metaKey || event.ctrlKey
+            if (mod && !event.altKey && !event.shiftKey && event.key.toLowerCase() === 'a' && (sel instanceof AllSelection || isBlockSelection(sel))) {
+              event.preventDefault()
+              return go(view, allBlocks(view.state.doc))
+            }
+            if (!isBlockSelection(sel)) return false
             const plain = !event.ctrlKey && !event.metaKey && !event.altKey
+            const range = isNodeRangeSelection(sel)
             if (event.key === 'Enter' && plain && !event.shiftKey && sel instanceof NodeSelection) {
               if (caretIntoBlock(editor, sel.from)) return true
               return caretAfterNode(editor, sel.from, { newLine: true })
+            }
+            if (event.key === 'Enter' && event.altKey && !mod && !event.shiftKey) return openBlockMenu(view)
+            if (event.key === 'Enter' && plain && range) return true
+            if (event.key === 'Escape' && plain && !event.shiftKey) {
+              // back to the text: the caret at the end of the first block's text (or the next text)
+              const b = readBlockSel(view.state)
+              if (b && caretIntoBlock(editor, b.from)) return true
+              const near = Selection.findFrom(view.state.doc.resolve(b?.to ?? sel.to), 1, true) ?? Selection.findFrom(view.state.doc.resolve(b?.from ?? sel.from), -1, true)
+              if (near) view.dispatch(view.state.tr.setSelection(near))
+              else editor.commands.blur()
+              return true
+            }
+            if (event.shiftKey && !mod && !event.altKey && (event.key === 'ArrowDown' || event.key === 'ArrowUp')) {
+              event.preventDefault()
+              return go(view, stepSelection(view.state, event.key === 'ArrowDown' ? 1 : -1))
+            }
+            if (range) {
+              const b = readBlockSel(view.state)
+              if (b && mod && !event.altKey && !event.shiftKey && event.key.toLowerCase() === 'd') {
+                event.preventDefault()
+                return duplicateBlocks(editor, b)
+              }
+              if (b && event.shiftKey && (mod || event.altKey) && (event.key === 'ArrowDown' || event.key === 'ArrowUp')) {
+                event.preventDefault()
+                return moveBlocksBy(editor, b, event.key === 'ArrowDown' ? 1 : -1)
+              }
             }
             if (plain && event.key.length === 1) {
               event.preventDefault()
@@ -171,6 +213,21 @@ export const BlockSelection = Extension.create({
           },
           handleTextInput(view) {
             return isBlockSelection(view.state.selection)
+          },
+          handleDOMEvents: {
+            // Shift+click on another block while blocks are selected: the selection grows to it
+            mousedown(view, event) {
+              if (!event.shiftKey || event.button !== 0 || !isBlockSelection(view.state.selection)) return false
+              const target = event.target as Element | null
+              if (target?.closest('input, textarea, select, button, a[href], [contenteditable="false"] [contenteditable="true"]')) return false
+              const at = view.posAtCoords({ left: event.clientX, top: event.clientY })
+              const next = at ? extendSelection(view.state, at.inside >= 0 ? at.inside : at.pos) : null
+              if (!next) return false
+              event.preventDefault()
+              view.dispatch(view.state.tr.setSelection(next))
+              view.focus()
+              return true
+            },
           },
           decorations(state) {
             const sel = state.selection
