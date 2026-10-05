@@ -1,6 +1,7 @@
 /** Suggestion plugins ("/", "@", ":") bridged to React menus via the overlay store. */
 import { Extension, type Range } from '@tiptap/core'
-import { PluginKey, Selection } from '@tiptap/pm/state'
+import { Plugin, PluginKey, Selection, type EditorState, type Transaction } from '@tiptap/pm/state'
+import { ReplaceStep } from '@tiptap/pm/transform'
 import type { EditorView } from '@tiptap/pm/view'
 import Suggestion, { exitSuggestion } from '@tiptap/suggestion'
 import type { Bridge, SuggestKind } from '../lib/bridge'
@@ -12,6 +13,44 @@ export const SUGGEST_KEYS: Record<SuggestKind, PluginKey> = {
 }
 
 export type SuggestRun = (range: Range) => void
+
+/**
+ * Where the trigger character was just typed (or put there by the "+" button) — a menu opens only there, like
+ * Notion: moving the caret into existing text such as "/r/24772", "@home" or " :x" never opens one. Pastes and
+ * drops don't arm; a caret move out of the line disarms.
+ */
+function armPlugin(key: PluginKey<number | null>, suggestKey: PluginKey, char: string) {
+  return new Plugin<number | null>({
+    key,
+    state: {
+      init: () => null,
+      apply(tr: Transaction, prev: number | null): number | null {
+        // Esc / dismissed: the same "/" doesn't open the menu again
+        if ((tr.getMeta(suggestKey) as { exit?: boolean } | undefined)?.exit) return null
+        let armed = prev
+        if (armed !== null && tr.docChanged) {
+          const m = tr.mapping.mapResult(armed, 1)
+          armed = m.deletedAfter ? null : m.pos
+        }
+        if (tr.docChanged && !tr.getMeta('paste') && !['paste', 'drop'].includes(tr.getMeta('uiEvent'))) {
+          tr.steps.forEach((step, i) => {
+            if (!(step instanceof ReplaceStep) || step.slice.size < 1) return
+            const text = step.slice.content.textBetween(0, step.slice.content.size)
+            if (!text.endsWith(char)) return
+            const end = tr.mapping.slice(i + 1).map(step.from + step.slice.size)
+            if (tr.selection.empty && tr.selection.head === end) armed = end - 1
+          })
+        } else if (armed !== null && tr.selectionSet && !tr.docChanged) {
+          const $head = tr.selection.$head
+          if (armed >= tr.doc.content.size || $head.pos <= armed || !$head.sameParent(tr.doc.resolve(armed))) armed = null
+        }
+        return armed
+      },
+    },
+  })
+}
+
+const armedAt = (key: PluginKey<number | null>, state: EditorState) => key.getState(state) ?? null
 
 /** Slash menu opened via the "+" button and dismissed: remove the "/" again (and the line "+" created). */
 export function dismissPlusSlash(view: EditorView, bridge: Bridge, range: Range) {
@@ -37,12 +76,15 @@ export function suggestExtension(
   extra: { allowSpaces?: boolean; allowedPrefixes?: string[] | null; shouldShow?: (query: string) => boolean } = {},
 ) {
   const key = SUGGEST_KEYS[kind]
+  const armKey = new PluginKey<number | null>(`suggest-${kind}-armed`)
   return Extension.create({
     name: `suggest-${kind}`,
     // must run before the keymaps (Enter / Tab / arrows) of other extensions
     priority: 1000,
     addProseMirrorPlugins() {
       return [
+        // before the suggestion plugin: its state is read in `allow` of the same transaction
+        armPlugin(armKey, key, char),
         Suggestion<unknown, SuggestRun>({
           editor: this.editor,
           pluginKey: key,
@@ -51,11 +93,13 @@ export function suggestExtension(
           allowedPrefixes: extra.allowedPrefixes === undefined ? [' ', '(', ' '] : extra.allowedPrefixes,
           shouldShow: extra.shouldShow ? ({ query }) => extra.shouldShow!(query) : undefined,
           decorationClass: `suggest-query suggest-query--${kind}`,
-          allow: ({ state, range }) => {
+          allow: ({ state, range, isActive }) => {
             const $from = state.doc.resolve(range.from)
             if ($from.parent.type.spec.code) return false
             if (state.schema.marks.code && state.doc.rangeHasMark(range.from, range.to, state.schema.marks.code)) return false
-            return true
+            // a path or reference ("/r/24772", "/api/v1") is no command
+            if (kind === 'slash' && state.doc.textBetween(range.from + 1, range.to).includes('/')) return false
+            return !!isActive || armedAt(armKey, state) === range.from
           },
           items: () => [],
           command: ({ range, props }) => props(range),
