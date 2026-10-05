@@ -1,7 +1,7 @@
 ---
 id: 2026-10-05-one-script
 date: 2026-10-05
-order: 1
+order: 2
 title: One Script — small scripts and live queries
 summary: A small, safe script language that only reaches your workspace — with dry runs, a live query tester and a query builder.
 image: assets/shots/changelog/one-script.webp

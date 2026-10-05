@@ -21,6 +21,7 @@ import { t } from '../../../i18n'
 import { snapshotNow } from '../../history/snapshots'
 import { startRun, useAIRuns, type AIRun } from '../runs'
 import { markdownToDoc } from '../../../editor'
+import { withoutWebImages } from '../../agents/images'
 import { buildDatabase, placementOf, type TableDraft, type TablePlan } from '../todb/plan'
 import { afterBlock } from '../runsTarget'
 import { findImage, imageAt, imageTarget, type ImageHit } from './locate'
@@ -130,9 +131,9 @@ export async function insertBelowImage(editor: Editor, pageId: ID, run: AIRun, b
   editor.chain().focus().insertContentAt(at, blocks).run()
 }
 
-/** Markdown below the image. */
+/** Markdown below the image (web images in Claude's answer become links: no auto-loading pixels from text in a picture). */
 export function insertMarkdownBelow(editor: Editor, pageId: ID, run: AIRun, markdown: string): Promise<void> {
-  return insertBelowImage(editor, pageId, run, (markdownToDoc(markdown).content ?? []).filter(Boolean))
+  return insertBelowImage(editor, pageId, run, (markdownToDoc(withoutWebImages(markdown)).content ?? []).filter(Boolean))
 }
 
 /**
@@ -150,7 +151,7 @@ export async function createImageDatabase(editor: Editor, pageId: ID, run: AIRun
   const dbId = ws.createDatabase({ parentId: pageId, inline: !asPage, title: spec.title, properties, views: spec.views })
   for (const row of spec.rows) {
     const rowId = useWorkspace.getState().createRow(dbId, { title: row.title, properties: row.properties })
-    if (row.body) useWorkspace.getState().setContent(rowId, markdownToDoc(row.body), 'ai')
+    if (row.body) useWorkspace.getState().setContent(rowId, markdownToDoc(withoutWebImages(row.body)), 'ai')
   }
   if (editor.isDestroyed) return dbId
   const node = asPage ? editor.schema.nodes.pageLink.create({ pageId: dbId }) : editor.schema.nodes.databaseBlock.create({ databaseId: dbId, viewId: null })

@@ -1,7 +1,7 @@
 ---
 id: 2026-10-05-transform
 date: 2026-10-05
-order: 2
+order: 3
 title: Transform text into diagrams, charts, boards and columns
 summary: Select a list or a passage and Claude turns it into a stronger block — a flowchart, a chart, a board, a timeline, columns, tabs, toggles or cards — with a preview first.
 image: assets/shots/changelog/transform.webp

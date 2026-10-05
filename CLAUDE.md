@@ -146,6 +146,14 @@ the public APIs stable — other areas are built against them in parallel.
 - Claude for images (features/ai/image): run kind `'image'` (describe → alt + caption, read → Markdown, table → table /
   spreadsheet / database, ask); the picture goes to Anthropic only on these actions, as a base64 image block (≤ 1568 px,
   ≤ 5 MB) loaded in the browser (no proxy; CORS → "Upload a copy"); AI-terminal image references `TermRef.image`.
+- Claude for files (features/ai/file): run kind 'file' on any `fileBlock` (uploads, mail attachments, web files). Claude
+  actions (summarize / extract → page / tables → table · spreadsheet · database / ask): a PDF as a base64 `document`
+  (≤ 23 MB raw, ≤ 600 pages, 100 on Haiku 4.5 — counted locally, refused before sending), other files as a text document
+  (≤ 400k chars). Local actions (nothing sent, marked LOCAL): page (docx via fflate + DOMParser, HTML via the import's
+  DOMPurify converter, md, RTF, txt) and database / sheet (CSV / TSV / xlsx, types via `inferColumns`). Preview first; one
+  transaction after `snapshotNow`; origin 'ai' / 'import'; private parent → `createPrivatePage` / `createPrivateDatabase`;
+  web images in converted pages and in every Claude answer about a file or image become links (`withoutWebImages`).
+  AI-terminal file references `TermRef.file`; runs keep `AIRun.file` (meta, never content).
 - Turn into page (editor/split, Mod+Alt+9): blocks of one container move into a new sub-page (content written with
   origin `'split'`), one `pageLink` in their place; inline databases, linked sub-pages and comment threads move along;
   private parent → `createPrivatePage`. Turn into database: `TableDraft.placement` 'inline' (default) | 'page'.

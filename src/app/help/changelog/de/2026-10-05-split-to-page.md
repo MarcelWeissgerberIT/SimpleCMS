@@ -1,7 +1,7 @@
 ---
 id: 2026-10-05-split-to-page
 date: 2026-10-05
-order: 9
+order: 10
 title: Blöcke in eine Seite umwandeln
 summary: Markiere Blöcke und verschieb sie in einem Schritt in eine neue Unterseite — an ihrer Stelle bleibt ein Link.
 image: assets/shots/changelog/split-to-page.webp

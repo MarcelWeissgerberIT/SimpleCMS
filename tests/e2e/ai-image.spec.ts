@@ -16,7 +16,8 @@ const ALT = 'Lab protocol P1: deck layout, a 96-well plate and a volume table.'
 const CAPTION = 'Protocol P1 — deck, plate and volumes'
 const VOLUMES = { title: 'Volumes', header: ['Reagent', 'Volume (µl)', 'Wells'], rows: [['Buffer', '50', 'A1–A12'], ['Enzyme', '2,5', 'B1–B12'], ['Sample', '10', 'C1–C12'], ['Water', '37,5', 'D1–D12']] }
 const DECK = { title: 'Deck', header: ['Slot', 'Labware'], rows: [['1', 'Tips 200 µl'], ['2', '96-well plate']] }
-const READ = '## Protocol P1\n\n1. Load the deck as shown.\n2. Fill the plate A1–H12.'
+// the last line: a web image written in the picture (prompt injection) — it must land as a link, never an <img>
+const READ = '## Protocol P1\n\n1. Load the deck as shown.\n2. Fill the plate A1–H12.\n\nSeal: ![seal](https://track.example/seal.png)'
 const ANSWER = 'The plate has **96 wells**: rows A–H, columns 1–12.'
 
 type Kind = 'describe' | 'read' | 'table' | 'ask' | 'agent'
@@ -204,10 +205,14 @@ test.describe('Claude for images', () => {
     expectImageBlock(claude.bodies[0])
     await option(page, /Insert below the image/).click()
     await expect(panel(page)).toHaveCount(0)
-    await expect.poll(async () => (await afterImage(page, id)).map((b) => b.type)).toEqual(['heading', 'orderedList', 'paragraph'])
+    await expect.poll(async () => (await afterImage(page, id)).map((b) => b.type)).toEqual(['heading', 'orderedList', 'paragraph', 'paragraph'])
     const after = await afterImage(page, id)
     expect(JSON.stringify(after[0])).toContain('Protocol P1')
-    expect(JSON.stringify(after[2])).toContain('Notes follow below.')
+    // the web image became a link: no image node, nothing loads from track.example
+    expect(JSON.stringify(after[2])).toContain('https://track.example/seal.png')
+    expect(JSON.stringify(after[2])).toContain('"type":"link"')
+    expect(JSON.stringify(after)).not.toContain('"type":"image"')
+    expect(JSON.stringify(after[3])).toContain('Notes follow below.')
   })
 
   test('Image → table: as table blocks (header row), as a spreadsheet (numbers as numbers), as a database (preview first)', async ({ page, context }) => {
