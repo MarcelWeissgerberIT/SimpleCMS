@@ -1,13 +1,15 @@
 # SimpleCMS One — Claude Desktop extension {{version}}
 
-Lets Claude search, read and write your One workspace — pages, databases, rows and properties — in the
-One tab you have open in your browser (https://getonecms.com/app/ or your own build).
+Lets Claude search, read and write your One workspace — pages, databases, rows and properties — and tidy
+it up (move, reshape, trash and restore) in the One tab you have open in your browser
+(https://getonecms.com/app/ or your own build).
 
 ## Use it
 
 1. Open this file (`one.mcpb`) — Claude Desktop asks to install it. Or drag it into *Settings → Extensions*.
 2. Open One and switch on *Settings → Agents · MCP → Allow AI agents on this computer*.
-3. Ask Claude: *"What is in my One workspace?"*
+3. Ask Claude: *"What is in my One workspace?"* — or start a message with the codeword `one:`, e.g.
+   *"one: tidy up my Projects database"* (also in Claude's prompt menu as **One**).
 
 Claude Desktop runs the extension with the Node.js it ships — nothing else to install.
 
