@@ -8,3 +8,4 @@ playwright-report
 .DS_Store
 .vite
 __pycache__/
+.claude/worktrees/
