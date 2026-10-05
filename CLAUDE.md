@@ -109,6 +109,11 @@ the public APIs stable — other areas are built against them in parallel.
   Results are per device in IndexedDB `one-ai-runs` (key `<scope>|<runId>`, scope `local:local` / `cloud:<id>`), never
   synced or exported, wiped with the workspace copy (cloud/device.ts). "Turn into database" (features/ai/todb) writes
   rows and their bodies with origin `'ai'`.
+- AI terminal (features/ai/agent; the ⌘J dock, full screen at phone width): a task keeps running while the terminal is
+  hidden — only Stop / ⌘. / `/stop` ends it; every write is staged and reviewed (incl. `create_database` / `add_property`,
+  applied pages → databases → properties → rows; `TERMINAL_TOOLS` = `AGENT_TOOLS` + those two — custom agents keep
+  `AGENT_TOOLS`); prompt history per device + workspace in localStorage `one.term.history:<kind>:<id>`, never synced;
+  references (⌘⇧J / bubble "Add to terminal") send the selection as Markdown with page title + id.
 - Database views: table | board | list | gallery | feed | calendar | timeline | chart | form. Feed settings live in
   `View.feed` (dateProperty — null = created time, order newest | oldest, content); without sorts of its own a feed
   orders newest first. Rows in view order come from `orderRows()` (database/model/feed.ts), used by `rowsOfView()` too.
