@@ -17,7 +17,7 @@ import { useLang, useT } from '../../i18n'
 import { CLIENT_ID_RE, EVERY_MIN, MAX_PER_RUN, PUBLIC_ORIGIN, SECRET_RE, cleanCategory, MAX_CATEGORIES, setMail, setOrganise, useMailSettings } from './settings'
 import { preloadGis } from './auth'
 import { builtinClientId, effectiveClient, useBuiltinClient } from './builtin'
-import { backToOneAccess, cancelRun, connectGmail, disconnectGmail, loadLabels, organiseEarlier, resetMailSync, startNewDatabase, syncNow, useMail } from './service'
+import { backToOneAccess, cancelRun, connectGmail, disconnectGmail, loadLabels, organiseEarlier, resetMailSync, setOwnClientId, startNewDatabase, syncNow, useMail } from './service'
 import { estimateOrganise } from './organise'
 import { fmtTime, useMailReadout, type ReadoutState } from './MailStatus'
 import './mail.css'
@@ -183,9 +183,7 @@ function ClientIdField({ onCleared }: { onCleared?: (byKey: boolean) => void }) 
       const byKey = document.activeElement === input.current
       const builtin = !!builtinClientId()
       refocusClientId = byKey && builtin && !!v
-      setMail({ clientId: v })
-      // another client (an own one, or back to One's): the token came from the previous one
-      if (v || builtin) disconnectGmail()
+      setOwnClientId(v)
       if (!v && builtin) onCleared?.(byKey)
     }
   }
@@ -316,7 +314,7 @@ function AccessPanel() {
     </div>
   )
   const errorMsg = error && (
-    <div className="ml-err">
+    <div className="ml-err" data-own={(ownHint && viaOne) || undefined}>
       <p className="ml-msg ml-msg--err" role="alert">
         {error}
       </p>

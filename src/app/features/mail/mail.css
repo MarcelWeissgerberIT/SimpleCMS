@@ -244,6 +244,65 @@
   margin-top: 10px;
 }
 
+/* One's built-in Google client: one line, Connect — the own client waits behind "advanced" */
+.ml-one__lead {
+  margin: 0;
+  color: var(--ink);
+  font-size: 13.5px;
+  line-height: 1.5;
+}
+.ml-one__review {
+  max-width: 64ch;
+}
+.ml-own {
+  margin: 16px 0 0;
+}
+.ml-own__body {
+  padding: 0 12px 12px;
+}
+.ml-own__intro {
+  margin: 0 0 4px;
+  color: var(--ink-2);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+}
+.ml-own .ml-steps {
+  padding: 2px 0 12px;
+}
+.ml-back {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  margin-top: 12px;
+}
+.ml-back__hint {
+  flex: 1;
+  min-width: 200px;
+  margin-top: 0;
+}
+.ml-err {
+  margin: 8px 0 0;
+}
+.ml-err > .ml-msg--err {
+  margin: 0 0 8px;
+}
+/* One's access refused for this account: a placard with the way out (the own client) */
+.ml-err[data-own] {
+  padding: 10px 12px;
+  border: 1px solid var(--c-red-text);
+  border-left-width: 3px;
+  border-radius: var(--radius-1);
+  background: var(--c-red-bg);
+}
+.ml-err[data-own] > .ml-msg--err {
+  margin: 0 0 10px;
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+}
+
 /* chips: labels (toggles) and categories (tags) */
 .ml-chips {
   display: flex;

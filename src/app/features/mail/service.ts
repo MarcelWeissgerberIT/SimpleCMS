@@ -14,7 +14,7 @@ import { openPage } from '../../lib/router'
 import { isApplyingCloudChange } from '../../cloud'
 import { isAIConfigured } from '../ai/client'
 import { clearToken, currentToken, onTokenChange, requestToken, revokeToken, setTokenForTests } from './auth'
-import { effectiveClient, setBuiltinForTests } from './builtin'
+import { builtinClientId, effectiveClient, setBuiltinForTests } from './builtin'
 import { readMail, setMail } from './settings'
 import { clearAll, emptyState, loadState, saveState, wsKey } from './storage'
 import type { GmailCtx, GmailLabel } from './gmail'
@@ -181,13 +181,20 @@ export function disconnectGmail(): void {
 }
 
 /**
- * "Back to One's access": forget the own client ID — the database, its rows and the sync settings stay.
- * The token came from the own client, so it goes too; the next "Connect Gmail" signs in with One's client.
+ * The person's own client ID from now on ('' = none: One's built-in client takes over where there is one).
+ * A token from the previous client goes — except when the ID is only removed and no other client takes
+ * over (it keeps working until it expires). A sign-in error of the previous client goes too. The database,
+ * its rows and the sync settings stay.
  */
+export function setOwnClientId(clientId: string): void {
+  setMail({ clientId })
+  if (clientId || builtinClientId()) disconnectGmail()
+  if (useMail.getState().errorAt === 'access') patch({ error: null, errorAt: null, ownHint: false })
+}
+
+/** "Back to One's access": forget the own client ID; the next "Connect Gmail" signs in with One's client. */
 export function backToOneAccess(): void {
-  setMail({ clientId: '' })
-  disconnectGmail()
-  patch({ error: null, errorAt: null, ownHint: false })
+  setOwnClientId('')
 }
 
 export async function loadLabels(): Promise<void> {

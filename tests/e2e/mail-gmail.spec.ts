@@ -20,8 +20,8 @@ declare global {
     // the mail service's test hook (features/mail/service.ts, dev or ?e2e)
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     __oneMail: any
-    __gis: { calls: AnyState[]; mode: 'ok' | 'popup' | 'deny'; revoked: string[] }
-    __gisMode?: 'ok' | 'popup' | 'deny'
+    __gis: { calls: AnyState[]; mode: 'ok' | 'popup' | 'deny' | 'closed'; revoked: string[] }
+    __gisMode?: 'ok' | 'popup' | 'deny' | 'closed'
   }
 }
 
@@ -46,6 +46,7 @@ const GIS_JS = `
           setTimeout(() => {
             if (window.__gis.mode === 'popup') return cfg.error_callback && cfg.error_callback({ type: 'popup_failed_to_open' })
             if (window.__gis.mode === 'deny') return cfg.callback({ error: 'access_denied' })
+            if (window.__gis.mode === 'closed') return cfg.error_callback && cfg.error_callback({ type: 'popup_closed' })
             cfg.callback({ access_token: 'ya29.e2e-SECRET-TOKEN-' + (++n), expires_in: 3599, scope: cfg.scope, token_type: 'Bearer' })
           }, 40)
         },
@@ -404,6 +405,10 @@ test.describe('Mail (Gmail)', () => {
     const here = await page.evaluate(() => window.location.origin)
     await expect(origins.getByText(here, { exact: true })).toBeVisible()
     await expect(dialog.getByRole('button', { name: `Copy ${here}` })).toBeVisible()
+    // no built-in client at this origin: nothing of the one-click path
+    await expect(dialog.getByTestId('mail-one-access')).toHaveCount(0)
+    await expect(dialog.getByTestId('mail-own-client')).toHaveCount(0)
+    await expect(dialog.getByText('Not set up')).toBeVisible()
 
     const connectBtn = dialog.getByRole('button', { name: 'Connect Gmail' })
     await expect(connectBtn).toBeDisabled()
@@ -907,6 +912,205 @@ test.describe('Mail (Gmail)', () => {
     expect(dump).not.toContain('SECRET-TOKEN')
     expect(JSON.stringify(await context.cookies())).not.toContain('ya29.')
     expect(JSON.stringify(await mailCfg(page))).not.toContain('ya29.')
+  })
+})
+
+/* ------------------------------------------------------------------ */
+/* One's built-in Google client (turned on through the ?e2e test seam)  */
+/* ------------------------------------------------------------------ */
+
+const BUILTIN_ID = '987654321098-onebuiltinclient01.apps.googleusercontent.com'
+
+/** One's built-in client at this origin (features/mail/builtin.ts — ?e2e only, kept across reloads). */
+async function builtinOn(page: Page) {
+  await page.evaluate((id) => window.__oneMail.builtin(id), BUILTIN_ID)
+}
+
+test.describe('Mail — One’s built-in Google client', () => {
+  test('one click: READY · ONE ACCESS, Connect signs in with the built-in client, the first sync creates Mails; the own client waits behind “advanced”', async ({ page }) => {
+    const env = await setup(page)
+    await openApp(page)
+    await builtinOn(page)
+    await configure(page, { clientId: '' })
+    const dialog = await openMailTab(page)
+    const access = dialog.locator('.ml-panel').first()
+    await expect(access.getByRole('status')).toHaveText('Ready · One access')
+    await expect(access.getByTestId('mail-one-access')).toContainText('One connects to Gmail with its own Google access')
+    await expect(access.getByTestId('mail-one-access')).toContainText('click Continue')
+    // the 5 steps and the client-ID field stay folded away
+    await expect(dialog.getByText('Set up your Google client')).toHaveCount(0)
+    const own = dialog.getByTestId('mail-own-client')
+    await expect(own).not.toHaveAttribute('open', '')
+    await expect(dialog.getByLabel('OAuth client ID')).toBeHidden()
+    await expect(dialog.getByText('Enable the Gmail API for that project.')).toBeHidden()
+    expect(env.gis.loads()).toBe(0)
+
+    await dialog.getByRole('button', { name: 'Connect Gmail' }).click()
+    await expect(dialog.getByTestId('mail-account')).toHaveText(ACCOUNT)
+    await expect(access.getByRole('status')).toHaveText('Connected · One access')
+    expect(await page.evaluate(() => window.__gis.calls)).toEqual([{ client_id: BUILTIN_ID, scope: 'https://www.googleapis.com/auth/gmail.readonly', prompt: '', hint: null }])
+
+    await dialog.getByRole('button', { name: 'Sync now' }).click()
+    await expect.poll(() => page.evaluate(() => window.__oneMail.state().phase)).toBe('idle')
+    await expect(page.getByText('2 new mails')).toBeVisible()
+    expect((await mailRows(page)).map((r) => r.title)).toEqual(['Autumn sale — 30 % off', 'Draft review'])
+    const cfg = await mailCfg(page)
+    expect(cfg.clientId).toBe('')
+    expect(cfg.databaseId).toBeTruthy()
+
+    // "advanced" opens the steps and the field
+    await own.getByText('Use your own Google client (advanced)').click()
+    await expect(dialog.getByLabel('OAuth client ID')).toBeVisible()
+    await expect(own.getByText('Enable the Gmail API for that project.')).toBeVisible()
+
+    // the seam survives a reload (?e2e) — the next connect asks Google for the known account
+    await closeSettings(page)
+    await reloadApp(page)
+    const again = await openMailTab(page)
+    await expect(again.locator('.ml-panel').first().getByRole('status')).toHaveText('Ready · One access')
+    await expect(again.getByRole('button', { name: 'Reconnect' })).toBeEnabled()
+  })
+
+  test('an own client ID overrides the built-in one; “Back to One’s access” returns and keeps the database and the sync settings', async ({ page }) => {
+    await setup(page)
+    await openApp(page)
+    await builtinOn(page)
+    await configure(page, { clientId: '', maxPerRun: 100 })
+    const dialog = await openMailTab(page)
+    const access = dialog.locator('.ml-panel').first()
+    await dialog.getByTestId('mail-own-client').getByText('Use your own Google client (advanced)').click()
+    const field = dialog.getByLabel('OAuth client ID')
+    await field.fill(CLIENT_ID)
+    await field.press('Enter')
+    await expect.poll(async () => (await mailCfg(page)).clientId).toBe(CLIENT_ID)
+    // the own layout: plain READY, the field (focus kept), the way back
+    await expect(access.getByRole('status')).toHaveText('Ready')
+    await expect(dialog.getByTestId('mail-one-access')).toHaveCount(0)
+    await expect(dialog.getByLabel('OAuth client ID')).toBeFocused()
+    const back = dialog.getByRole('button', { name: 'Back to One’s access' })
+    await expect(back).toBeVisible()
+
+    await dialog.getByRole('button', { name: 'Connect Gmail' }).click()
+    await expect(dialog.getByTestId('mail-account')).toHaveText(ACCOUNT)
+    await expect(access.getByRole('status')).toHaveText('Connected')
+    await syncAndWait(page)
+    const before = await mailCfg(page)
+    expect(before.databaseId).toBeTruthy()
+
+    await back.click()
+    await expect.poll(async () => (await mailCfg(page)).clientId).toBe('')
+    const after = await mailCfg(page)
+    expect(after).toMatchObject({ databaseId: before.databaseId, labels: before.labels, from: before.from, maxPerRun: 100 })
+    // the own client's token is revoked; One's access is back, Connect has the focus
+    expect(await page.evaluate(() => window.__gis.revoked)).toEqual(['ya29.e2e-SECRET-TOKEN-1'])
+    await expect(access.getByRole('status')).toHaveText('Ready · One access')
+    const reconnect = dialog.getByRole('button', { name: 'Reconnect' })
+    await expect(reconnect).toBeFocused()
+    await reconnect.click()
+    await expect(dialog.getByTestId('mail-account')).toHaveText(ACCOUNT)
+    expect(await page.evaluate(() => window.__gis.calls.map((c) => c.client_id))).toEqual([CLIENT_ID, BUILTIN_ID])
+    expect((await mailRows(page)).length).toBe(2)
+  })
+
+  test('Google refuses the built-in client (access denied, the window closed): the review message, and its button opens the advanced part', async ({ page }) => {
+    await setup(page)
+    await openApp(page)
+    await builtinOn(page)
+    await configure(page, { clientId: '' })
+    await page.evaluate(() => (window.__gisMode = 'deny'))
+    const dialog = await openMailTab(page)
+    const connect = dialog.getByRole('button', { name: 'Connect Gmail' })
+    await connect.click()
+    const alert = dialog.getByRole('alert')
+    await expect(alert).toHaveText(/^Google did not allow this account yet: One’s Google access is still in Google’s review, and only approved accounts can use it\. Ask the operator to add your address, or use your own Google client \(advanced\)\.$/)
+    const useOwn = dialog.getByRole('button', { name: 'Use your own Google client', exact: true })
+    await expect(useOwn).toBeVisible()
+    // the window closed (after Google's refusal page — GIS can't tell): one message that covers both
+    await page.evaluate(() => (window.__gis.mode = 'closed'))
+    await connect.click()
+    await expect(alert).toContainText('Google’s window closed before access was granted. If Google said the app is blocked or not verified')
+    await useOwn.click()
+    const own = dialog.getByTestId('mail-own-client')
+    await expect(own).toHaveAttribute('open', '')
+    await expect(own.locator('summary')).toBeFocused()
+    await expect(dialog.getByLabel('OAuth client ID')).toBeVisible()
+    // a blocked pop-up is no refusal: today's message, no detour
+    await page.evaluate(() => (window.__gis.mode = 'popup'))
+    await connect.click()
+    await expect(alert).toHaveText('Google’s window was blocked — allow pop-ups for this site and try again.')
+    await expect(useOwn).toHaveCount(0)
+    // an own client after a refusal: the old message goes
+    await page.evaluate(() => (window.__gis.mode = 'deny'))
+    await connect.click()
+    await expect(useOwn).toBeVisible()
+    await dialog.getByLabel('OAuth client ID').fill(CLIENT_ID)
+    await dialog.getByLabel('OAuth client ID').press('Enter')
+    await expect(dialog.getByRole('alert')).toHaveCount(0)
+    // with the own client, a refusal reads as before
+    await connect.click()
+    await expect(dialog.getByRole('alert')).toHaveText('Access was not granted.')
+    await expect(useOwn).toHaveCount(0)
+  })
+
+  test('German: BEREIT · ONE-ZUGANG, Gmail verbinden, the advanced part', async ({ page }) => {
+    await setup(page)
+    await openApp(page)
+    await builtinOn(page)
+    await wsEval(page, (s) => s.updateSettings({ language: 'de' }))
+    const dialog = await openMailTab(page, /E-Mail$/)
+    const access = dialog.locator('.ml-panel').first()
+    await expect(access.getByRole('status')).toHaveText('Bereit · One-Zugang')
+    await expect(access.getByTestId('mail-one-access')).toContainText('One verbindet sich mit seinem eigenen Google-Zugang mit Gmail')
+    await expect(access.getByTestId('mail-one-access')).toContainText('„Weiter“')
+    await expect(dialog.getByRole('button', { name: 'Gmail verbinden' })).toBeEnabled()
+    await dialog.getByText('Eigenen Google-Client verwenden (erweitert)').click()
+    await expect(dialog.getByLabel('OAuth-Client-ID')).toBeVisible()
+    await page.evaluate(() => (window.__gisMode = 'deny'))
+    await dialog.getByRole('button', { name: 'Gmail verbinden' }).click()
+    await expect(dialog.getByRole('alert')).toContainText('Google hat dieses Konto noch nicht zugelassen')
+    await expect(dialog.getByRole('button', { name: 'Eigenen Google-Client verwenden', exact: true })).toBeVisible()
+  })
+
+  test('without ?e2e the test seam is unreachable: the tab is the own-client setup', async ({ page }) => {
+    await setup(page)
+    await page.goto('app/')
+    await expect(page.locator('#boot')).toHaveCount(0)
+    await expect(page.locator('.app')).toBeVisible()
+    await page.evaluate((id) => localStorage.setItem('one.mail.builtin-e2e', id), BUILTIN_ID)
+    await page.reload()
+    await expect(page.locator('.app')).toBeVisible()
+    expect(await page.evaluate(() => typeof (window as unknown as { __oneMail?: unknown }).__oneMail)).toBe('undefined')
+    await page.keyboard.press('Control+,')
+    const dialog = page.getByRole('dialog', { name: 'Settings' })
+    await dialog.getByRole('tab', { name: /Mail$/ }).click()
+    await expect(dialog.getByText('Set up your Google client')).toBeVisible()
+    await expect(dialog.getByTestId('mail-one-access')).toHaveCount(0)
+    await expect(dialog.getByRole('button', { name: 'Connect Gmail' })).toBeDisabled()
+  })
+
+  test.describe('390 px', () => {
+    test.use({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, deviceScaleFactor: 2 })
+    test('the one-click block fits the phone: Connect reachable, no sideways scroll, the advanced part opens', async ({ page }) => {
+      await setup(page)
+      await openApp(page)
+      await builtinOn(page)
+      const dialog = await openMailTab(page)
+      const access = dialog.locator('.ml-panel').first()
+      await expect(access.getByRole('status')).toHaveText('Ready · One access')
+      const connect = dialog.getByRole('button', { name: 'Connect Gmail' })
+      await connect.scrollIntoViewIfNeeded()
+      await expect(connect).toBeInViewport()
+      const box = await access.boundingBox()
+      expect(box!.x).toBeGreaterThanOrEqual(0)
+      expect(box!.x + box!.width).toBeLessThanOrEqual(390)
+      expect(await access.evaluate((el) => el.scrollWidth <= el.clientWidth + 1)).toBe(true)
+      await dialog.getByTestId('mail-own-client').locator('summary').click()
+      await expect(dialog.getByLabel('OAuth client ID')).toBeVisible()
+      expect(await access.evaluate((el) => el.scrollWidth <= el.clientWidth + 1)).toBe(true)
+      await connect.click()
+      await expect(dialog.getByTestId('mail-account')).toHaveText(ACCOUNT)
+      expect(await page.evaluate(() => window.__gis.calls.map((c) => c.client_id))).toEqual([BUILTIN_ID])
+    })
   })
 })
 
