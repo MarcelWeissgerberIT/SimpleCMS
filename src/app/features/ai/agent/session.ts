@@ -12,7 +12,7 @@ import type { ID } from '../../../store/types'
 import { t } from '../../../i18n'
 import { AIError, resolveModel } from '../client'
 import { useCloud } from '../../../cloud'
-import { attachMcp, currentSetup, setupKey, type McpSetup } from '../mcp-servers/config'
+import { attachMcp, codewordTask, currentSetup, setupKey, type McpSetup } from '../mcp-servers/config'
 import { applyChanges, type ApplyResult } from './apply'
 import { runAgent, taskMessage, type RunHooks } from './run'
 import { initialAgentState, openAgent, setStopHandler, useAgent, type EchoEntry } from './state'
@@ -126,7 +126,7 @@ function prepareTask(task: string): { setup: McpSetup; prompt: string } {
     mcpSetup = currentSetup()
     set({ mcp: { key: setupKey(mcpSetup), names: mcpSetup.servers.map((x) => x.name) } })
   }
-  return { setup: mcpSetup, prompt: task }
+  return { setup: mcpSetup, prompt: codewordTask(task) }
 }
 
 /** Run the task in the prompt (or `raw`). One task at a time. */

@@ -798,6 +798,23 @@ test.describe('MCP servers (mocked Claude API, made-up server)', () => {
     expect(String(last.body.system)).not.toContain('<mcp_codeword>')
   })
 
+  test('codeword in the AI terminal: "kb: …" goes without the prefix and tells Claude who was addressed; the task log keeps what was typed', async ({ page, context }) => {
+    const sent = await mockApi(context, (r) => (r.stream ? { sse: sseMessage([{ type: 'text', text: 'According to Atlas: launch on 2026-10-18.' }]) } : undefined))
+    await openApp(page)
+    await setKey(page)
+    await setServers(page, [atlas({ codeword: 'kb' })])
+    const panel = await openAgent(page)
+    await runAgentTask(page, 'kb: When is the launch?')
+    await expect(panel.locator('.term-answer')).toContainText('According to Atlas')
+    const last = sent[sent.length - 1]
+    expect(last.body.mcp_servers.map((x: AnyState) => x.name)).toEqual(['atlas'])
+    const user = JSON.stringify(last.body.messages[last.body.messages.length - 1].content)
+    expect(user).toContain('The person addressed atlas by its codeword: answer with its tools first; say when it has nothing.')
+    expect(user).toContain('When is the launch?')
+    expect(user).not.toContain('kb:')
+    await expect(panel).toContainText('kb: When is the launch?')
+  })
+
   test('codeword in Settings (German): suggested from the name, "use" saves it, checked (reserved one, taken, characters), shown as "kb:"; readers drop bad ones; reload keeps it; the backup has it, never the token', async ({ page, context }, testInfo) => {
     await mockApi(context)
     await openApp(page)
