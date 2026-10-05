@@ -29,9 +29,10 @@ The open page's chip says how much of it Claude may read: just the title for the
 - <kbd>Tab</kbd> completes `/commands` and `@` mentions; on an empty prompt it moves into the review list.
 - In the review list: <kbd>j</kbd> / <kbd>k</kbd> (or arrows) move, <kbd>Space</kbd> marks, <kbd>Enter</kbd> applies the marked (or the current) entry, <kbd>a</kbd> applies all, <kbd>d</kbd> discards, <kbd>o</kbd> opens the page, <kbd>u</kbd> undoes the last apply, <kbd>Esc</kbd> goes back to the prompt.
 - <kbd>Alt+↑</kbd> / <kbd>Alt+↓</kbd> or dragging the top edge change the height; the maximise key fills the content area.
-- `/new` starts over · `/stop` · `/apply` · `/discard` · `/history` · `/mcp` (servers in use) · `/cost` (tokens and estimated cost) · `/context` (what Claude reads on the open page) · `/redo` (redo passages with instructions) · `/help`. German names work too: `/neu`, `/stopp`, `/übernehmen`, `/verwerfen`, `/verlauf`, `/kosten`, `/kontext`, `/neu-machen`, `/hilfe`.
+- `/new` starts over · `/stop` · `/apply` · `/discard` · `/history` · `/mcp` (servers in use) · `/cost` (tokens and estimated cost) · `/context` (what Claude reads on the open page) · `/redo` (redo passages with instructions) · `/remember <sentence>`, `/no-memory`, `/example <tag>` ([One memory](help:memory)) · `/help`. German names work too: `/neu`, `/stopp`, `/übernehmen`, `/verwerfen`, `/verlauf`, `/kosten`, `/kontext`, `/neu-machen`, `/merken`, `/ohne-gedächtnis`, `/beispiel`, `/hilfe`.
 
 ## Good to know
 - Claude can create databases (a table or a board grouped by a column) and add properties, then fill them with rows in the same task. Locked databases refuse new properties.
 - A task ends at a limit of tool calls; Claude is asked to wrap up. MCP servers you added are available to it.
 - The meter shows tokens and an estimated cost (billed by Anthropic to your key). Nothing changes until you apply; in a team workspace, viewers see proposals but cannot apply them.
+- The [One memory](help:memory) goes along with every task (**MEMORY · 3** in the head), and after a task Claude may propose what to remember — saved only with your OK. `#tag` takes a saved example along in full.

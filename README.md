@@ -151,6 +151,12 @@ AI menu and the AI terminal show it ("Reads · 3 marked blocks · 412 words") an
 Mark passages anywhere on a page and have Claude redo them with your instructions — saved presets, a style-guide page as
 rules —, then accept or reject each one in a word-level review; everything accepted lands in one step, one `⌘Z` to undo.
 
+**One memory** — Claude remembers what you confirm: after an AI-terminal task it proposes what is worth keeping
+(`y` saves, `n` dismisses), `/remember …` or "remember …" in the AI menu add your own. The memory is a database in your
+workspace (private in a team) — facts, preferences, decisions, procedures with their template, and whole pages saved as
+**examples** with a tag: "take #wochenbericht as the template" builds new content on that example. The matching memories
+go along with every free-form request as the template for the task; a usage log shows what was used, where and when.
+
 **Claude for images** — the AI key on any image: alt text + caption written for it, the text in it read out as
 Markdown, every table in the picture turned into a real table, a spreadsheet (numbers as numbers) or a database, or any
 question answered about it — background runs like every AI-menu request; the picture goes out only on these actions.
@@ -306,6 +312,10 @@ Built for the **Ninja Armory** challenge of the AI Automations community.
 - ein KI-Terminal (`⌘J`): der Workspace-Agent als Tastatur-Dock unter der Seite – plant Aufgaben über Seiten und
   Datenbanken (legt auch Datenbanken und Eigenschaften an) und führt sie erst nach deiner Prüfung aus; arbeitet
   ausgeblendet weiter, nimmt markierten Text als Referenz mit (`⌘⇧J`), kennt `@`-Erwähnungen, Verlauf und `/Befehle`
+- One-Gedächtnis: Claude merkt sich, was du bestätigst (Vorschläge nach Terminal-Aufgaben, `/merken …`, „merk dir …“) –
+  Fakten, Vorlieben, Entscheidungen, Vorgehensweisen und ganze Seiten als Beispiel mit Tag („nimm #wochenbericht als
+  Vorlage“); eine Datenbank im Workspace (im Team privat), die passenden Erinnerungen gehen als Vorlage mit jeder
+  freien Anfrage mit, ein Verlauf zeigt, was wann verwendet wurde
 - eigene Agenten für wiederkehrende Arbeit: Auftrag in eigenen Worten, Zeitplan oder Auslöser (neue Zeile, Formular,
   Mail, Webhook), Zugriff und Budget festlegen; Vorschläge zur Prüfung oder direkt anwenden – im Browser, solange One
   offen ist, oder rund um die Uhr auf dem eigenen Team-Server

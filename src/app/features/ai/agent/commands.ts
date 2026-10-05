@@ -6,8 +6,10 @@ import { useWorkspace } from '../../../store/store'
 import { inTemplate, isEffectivelyTrashed, selectBreadcrumbs } from '../../../store/selectors'
 import type { Page } from '../../../store/types'
 import type { TermMention } from './types'
+import { examples } from '../memory/example'
+import { memoryInUse } from '../memory/settings'
 
-export type CommandId = 'new' | 'stop' | 'apply' | 'discard' | 'history' | 'help' | 'mcp' | 'cost' | 'context' | 'redo' | 'remember' | 'nomemory'
+export type CommandId = 'new' | 'stop' | 'apply' | 'discard' | 'history' | 'help' | 'mcp' | 'cost' | 'context' | 'redo' | 'remember' | 'nomemory' | 'example'
 
 /** Names per command: English first, then the German aliases. */
 export const COMMANDS: Array<{ id: CommandId; en: string; de: string[] }> = [
@@ -24,10 +26,11 @@ export const COMMANDS: Array<{ id: CommandId; en: string; de: string[] }> = [
   // One memory (features/ai/memory): these two also take text after the name
   { id: 'remember', en: 'remember', de: ['merken'] },
   { id: 'nomemory', en: 'no-memory', de: ['ohne-gedächtnis', 'ohne-gedaechtnis'] },
+  { id: 'example', en: 'example', de: ['beispiel'] },
 ]
 
 /** Commands that take text after their name ("/remember Reports go out on Fridays"). */
-const WITH_TEXT: CommandId[] = ['remember', 'nomemory']
+const WITH_TEXT: CommandId[] = ['remember', 'nomemory', 'example']
 
 /** A command with text after its name ("/merken Berichte auf Deutsch"): its id and the text; null for anything else. */
 export function parseCommandText(input: string): { id: CommandId; text: string } | null {
@@ -54,10 +57,12 @@ export interface CompletionItem {
   /** command id (its description) or the mention */
   command?: CommandId
   mention?: TermMention & { where: string }
+  /** an example of the One memory: "#wochenbericht" → its name */
+  example?: { tag: string; text: string }
 }
 
 export interface Completion {
-  kind: 'command' | 'mention'
+  kind: 'command' | 'mention' | 'tag'
   /** the token's range in the draft */
   from: number
   to: number
@@ -115,6 +120,16 @@ export function completionAt(draft: string, caret: number, lang: 'en' | 'de'): C
     // names of the UI language first ("/hi" in German: /hilfe before /history)
     items.sort((a, b) => Number(b.primary) - Number(a.primary))
     return items.length ? { kind: 'command', from, to: caret, query: word, items: items.map(({ primary: _p, ...x }) => x) } : null
+  }
+  // an example of the One memory: "#" at a word start
+  const hash = /(^|\s)#([a-z0-9-]{0,32})$/i.exec(before)
+  if (hash && memoryInUse()) {
+    const query = hash[2].toLowerCase()
+    const items = examples()
+      .filter((m) => m.tag.startsWith(query))
+      .slice(0, MENTION_MAX)
+      .map((m) => ({ key: m.id, insert: `#${m.tag} `, label: `#${m.tag}`, example: { tag: m.tag, text: m.text } }))
+    if (items.length) return { kind: 'tag', from: before.length - query.length - 1, to: caret, query, items }
   }
   // a mention: "@" at a word start, up to 40 characters, no line break
   const at = /(^|\s)@([^\n@]{0,40})$/.exec(before)

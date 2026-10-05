@@ -8,7 +8,7 @@
  *
  * (CHANGELOG_DRAFT=1 lets the build pass while a new entry's picture does not exist yet.)
  *
- * Shots: block-select, split-to-page, image-ai, claude-reads, redo, ai-terminal, mcp-codewords, mcp-tidy-up, slash-menu, turn-into-database,
+ * Shots: memory, block-select, split-to-page, image-ai, claude-reads, redo, ai-terminal, mcp-codewords, mcp-tidy-up, slash-menu, turn-into-database,
  * custom-agents, gmail, help-centre, mcp-servers, feed-blocks — each named like its image. Every shot starts from a fresh, seeded
  * workspace in English, light theme, 1440 × 900 at device scale 2; the crop of the relevant area is scaled
  * to 1440 px wide and saved as public/assets/shots/changelog/<shot>.webp (≤ 150 KB: the quality steps down
@@ -600,6 +600,51 @@ function drawVolumeTable(t) {
 const toolResult = (body, id) => (body.messages ?? []).flatMap((m) => (Array.isArray(m.content) ? m.content : [])).find((c) => c.type === 'tool_result' && c.tool_use_id === id)
 
 const shots = {
+  /** One memory: the memory database above, the AI terminal below with Claude's proposals after a task ("REMEMBER? · 2"). */
+  async memory(browser) {
+    const proposals = {
+      memories: [
+        { type: 'preference', text: 'CNSX reports are written in German, with numbers first.', topics: ['CNSX'], body: '' },
+        { type: 'procedure', text: 'Weekly CNSX report: done, next steps, risks.', topics: ['CNSX'], body: '1. Pull the numbers from Projects\n2. Three sections: done, next steps, risks\n3. One line per item, owner in brackets' },
+      ],
+    }
+    const turns = [() => sseTurn([{ type: 'text', text: 'Drafted the outline for the CNSX report: **Done**, **Next steps**, **Risks** — numbers first, as in last week’s report.' }])]
+    const { ctx, page } = await freshPage(browser, { claude: { turns, json: (body) => (String(body.system ?? '').includes('remember') ? proposals : 'ok') } })
+    // the memory, set up in Settings, with a few entries
+    await page.evaluate(() => window.__one.ui.getState().openModal({ type: 'settings', tab: 'ai' }))
+    await page.getByTestId('memory-settings').getByRole('button', { name: 'Set up memory' }).click()
+    await page.keyboard.press('Escape')
+    const memId = await page.evaluate(() => {
+      const s = window.__one.workspace.getState()
+      const db = Object.values(s.databases).find((d) => d.system === 'memory')
+      const prop = (n) => db.properties.find((p) => p.name === n)
+      const type = (n) => prop('Type').options.find((o) => o.name === n).id
+      const topics = prop('Topics')
+      s.updateProperty(db.id, topics.id, { options: [{ id: 'tp-atlas', name: 'Atlas', color: 'blue' }, { id: 'tp-launch', name: 'Launch', color: 'green' }] })
+      const add = (title, t, tps) => s.createRow(db.id, { title, properties: { [prop('Type').id]: type(t), [prop('Active').id]: true, [topics.id]: tps, [prop('Source').id]: 'AI terminal · 2026-10-02' } })
+      add('Atlas is the team knowledge base for decisions and specs.', 'Fact', ['tp-atlas'])
+      add('Answers are short: bullets first, no preamble.', 'Preference', [])
+      add('We launch on Tuesdays, never on Fridays.', 'Decision', ['tp-launch'])
+      return db.id
+    })
+    await openPage(page, memId)
+    await page.keyboard.press('Control+j')
+    const term = page.getByRole('region', { name: 'AI terminal' })
+    await term.waitFor()
+    const prompt = term.getByRole('textbox', { name: 'Task for the agent' })
+    await prompt.fill('Draft the weekly CNSX report outline')
+    await prompt.press('Enter')
+    await term.getByTestId('term-memory').getByRole('list').waitFor({ timeout: 30_000 })
+    await prompt.focus()
+    await page.keyboard.press('Alt+ArrowUp')
+    await page.waitForTimeout(300)
+    await prompt.press('Tab')
+    await page.waitForTimeout(500)
+    await page.mouse.move(W + 40, H + 40)
+    await save(page, 'memory')
+    await ctx.close()
+  },
+
   /** ⌘J: a reference from the page, the task, the step log and a staged board with its rows. */
   async 'ai-terminal'(browser) {
     const ids = {}

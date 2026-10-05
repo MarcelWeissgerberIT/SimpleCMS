@@ -21,7 +21,7 @@ export function useMemoryPreview(text: string, on: boolean, off: boolean): Memor
 export function MemoryLine({ use, open, onToggle, disabled }: { use: MemoryUse; open: boolean; onToggle: () => void; disabled?: boolean }) {
   const t = useT()
   const n = use.items.length
-  const names = use.items.map((x) => `${x.label} ${x.text}`).join(' · ')
+  const names = use.items.map((x) => (x.forced ? `${x.label} #${x.forced}` : `${x.label} ${x.text}`)).join(' · ')
   return (
     <button
       type="button"

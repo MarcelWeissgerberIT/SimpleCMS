@@ -233,6 +233,8 @@ export async function runTask(raw?: string, opts: { noMemory?: boolean; history?
     }
   }
   const note = (text: string) => set((s) => ({ steps: [...s.steps, { id: nextId('s'), turn: n, kind: 'note', text, state: 'ok', startedAt: Date.now() }] }))
+  // "#xyz" that is no example in the memory: said, the task runs anyway
+  for (const tag of mem.use?.unknownTags ?? []) note(t('features.memory.example.unknown', { tag }))
 
   const hooks: RunHooks = {
     toolStart(tool, arg) {
@@ -372,6 +374,7 @@ export async function submitPrompt(raw?: string): Promise<void> {
     pushHistory(input)
     set({ draft: '' })
     if (withText.id === 'remember') return rememberText(input, withText.text)
+    if (withText.id === 'example') return exampleDialog(input, withText.text)
     if (get().status === 'running') return info(input, 'features.agent.echo.wait')
     return runTask(withText.text, { noMemory: true, history: false })
   }
@@ -432,6 +435,8 @@ export async function submitPrompt(raw?: string): Promise<void> {
       void proposeFor(last.n, last.task, last.answer, last.memory?.items.map((x) => x.text) ?? [], input)
       return
     }
+    case 'example':
+      return exampleDialog(input, '')
     case 'nomemory':
       if (!memoryInUse()) return info(input, 'features.memory.echo.notInUse')
       set({ memOffNext: true })
@@ -540,6 +545,14 @@ async function proposeFor(n: number, task: string, answer: string, existing: str
   } finally {
     if (proposing === ac) proposing = null
   }
+}
+
+/** /example [tag]: the open page as an example in the memory — the dialog (tag prefilled). */
+function exampleDialog(input: string, tag: string) {
+  const pageId = openPageId()
+  const page = pageId ? useWorkspace.getState().pages[pageId] : undefined
+  if (!page || page.kind === 'database') return info(input, 'features.agent.echo.noPage')
+  useUI.getState().openModal({ type: 'memoryExample', pageId: page.id, ...(tag.trim() ? { tag: tag.trim() } : {}) })
 }
 
 /** /remember <sentence>: the person's own words as a proposal (no request). */

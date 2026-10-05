@@ -95,6 +95,7 @@ import { memoryHistory } from './memory/log'
 import { confirmProposal, duplicateOf, openEntry, openMemoryDb, openMemoryLog } from './memory/open'
 import { readMemories } from './memory/read'
 import { memoryInUse } from './memory/settings'
+import { examples } from './memory/example'
 import type { MemoryProposal } from './memory/types'
 import './ai.css'
 import './runs.css'
@@ -840,6 +841,20 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo }: 
           keywords: 'remember memory keep merken gedächtnis erinnern',
           run: () => start({ kind: 'memory', label: t('features.memory.menu.rememberThis'), code: 'MEM', text: own.t.selected, from: 'selection' }),
         },
+        // … or the selected blocks as an EXAMPLE ("take #tag as the template"): the dialog asks for the tag
+        {
+          id: 'remember-example',
+          label: t('features.memory.example.menuSelection'),
+          code: 'EX',
+          icon: BookMarked,
+          group: gWs,
+          keywords: 'example template pattern beispiel vorlage muster',
+          run: () => {
+            const blocks = editor.state.doc.slice(own.t.from, own.t.to).content.toJSON() as JSONContent[] | null
+            onClose()
+            useUI.getState().openModal({ type: 'memoryExample', pageId, blocks: blocks ?? [] })
+          },
+        },
         agent,
         reads,
       ]
@@ -866,7 +881,7 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo }: 
       agent,
       reads,
     ]
-  }, [t, own.t.mode, own.t.todb, start, startPageLevel, handToAgent, pickRedo, editor, own])
+  }, [t, own.t.mode, own.t.todb, start, startPageLevel, handToAgent, pickRedo, editor, own, pageId, onClose])
 
   type Row = { id: string; label: ReactNode; code?: string; icon?: LucideIcon; group?: string; run: () => void; hint?: ReactNode; danger?: boolean; disabled?: boolean; current?: boolean }
 
@@ -895,6 +910,14 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo }: 
   /** the instructions card shows: passages marked, nothing running yet (or "Change instructions") */
   const redoCard = !!redoIds && (phase === 'idle' || redoEdit)
 
+  /** "#wo" being typed at the end of the prompt (an example's tag to complete), null: none */
+  const tagQuery = memInUse && phase !== 'streaming' && view === 'actions' ? (/(^|\s)#([a-z0-9-]{0,32})$/i.exec(query)?.[2]?.toLowerCase() ?? null) : null
+  const completeTag = (tag: string) => {
+    setQuery(query.replace(/#([a-z0-9-]{0,32})$/i, `#${tag} `))
+    setActive(0)
+    requestAnimationFrame(() => inputRef.current?.focus({ preventScroll: true }))
+  }
+
   /** "MEMORY · 3" opened: the memories (→ the entry), history, the per-request switch, the databases */
   const memoryRows = (): Row[] => {
     const out: Row[] = []
@@ -903,7 +926,15 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo }: 
     if (use?.off) out.push({ id: 'mem-none', label: t('features.memory.list.off'), group, run: () => {}, disabled: true })
     else if (!use?.items.length) out.push({ id: 'mem-none', label: t('features.memory.list.none'), group, run: () => {}, disabled: true })
     for (const it of use && !use.off ? use.items : [])
-      out.push({ id: `mem-${it.id}`, label: it.text, code: it.label, icon: BookMarked, group, run: () => openEntry(it.id), hint: <span className="ai-row__mem">{t(`features.memory.type.${it.type}`)}</span> })
+      out.push({
+        id: `mem-${it.id}`,
+        label: it.text,
+        code: it.label,
+        icon: BookMarked,
+        group,
+        run: () => openEntry(it.id),
+        hint: <span className="ai-row__mem">{it.forced ? t('features.memory.example.forced', { tag: it.forced }) : t(`features.memory.type.${it.type}`)}</span>,
+      })
     const g2 = t('features.memory.list.title')
     if (previewing) out.push({ id: 'mem-toggle', label: t('features.memory.list.useOn'), icon: SquareCheck, group: g2, current: !memOff, run: () => setMemOff((v) => !v), code: memOff ? 'OFF' : 'ON' })
     if (use?.items.length && !use.off)
@@ -1142,6 +1173,22 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo }: 
           start({ kind: 'action', action: 'translate', label: `${t('features.ai.act.translate')} → ${l.native}`, code: 'TRN', instruction: l.english }),
       }))
     }
+    // "#wo…": the examples of the One memory — Enter / Tab completes the tag
+    if (tagQuery !== null) {
+      const hits = examples()
+        .filter((m) => m.tag.startsWith(tagQuery))
+        .slice(0, 6)
+      if (hits.length)
+        return hits.map((m) => ({
+          id: `tag-${m.id}`,
+          label: `#${m.tag}`,
+          code: 'TAG',
+          icon: BookMarked,
+          group: t('features.memory.example.complete'),
+          hint: <span className="ai-row__mem">{m.text}</span>,
+          run: () => completeTag(m.tag),
+        }))
+    }
     const matched = q
       ? actions.filter((a) => a.label.toLowerCase().includes(q) || a.code.toLowerCase().startsWith(q) || a.keywords?.toLowerCase().includes(q))
       : actions.filter((a) => !a.hidden)
@@ -1209,7 +1256,7 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo }: 
         run: () => start({ kind: 'memory', label: t('features.memory.menu.label'), code: 'MEM', text: query.trim(), from: 'request' }),
       })
     return list
-  }, [query, setup, phase, wsMode, view, actions, t, start, output, target, run, error, discard, sources, handToAgent, mcpNames, onClose, table, todbInPlace, ask, marks, lang, chooseMode, pickBlocks, redoCard, isRedo, imagePanel.rows, img, lineUse, memOff, previewing, histOf, memEdit, memDup, remembering]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [query, setup, phase, wsMode, view, actions, t, start, output, target, run, error, discard, sources, handToAgent, mcpNames, onClose, table, todbInPlace, ask, marks, lang, chooseMode, pickBlocks, redoCard, isRedo, imagePanel.rows, img, lineUse, memOff, previewing, histOf, memEdit, memDup, remembering, tagQuery]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     setActive((a) => Math.min(a, Math.max(0, rows.length - 1)))
@@ -1250,6 +1297,9 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo }: 
       e.preventDefault()
       const d = e.key === 'ArrowDown' ? 1 : -1
       setActive((a) => (a + d + rows.length) % rows.length)
+    } else if (e.key === 'Tab' && !e.shiftKey && rows[active]?.id.startsWith('tag-')) {
+      e.preventDefault()
+      rows[active].run()
     } else if (e.key === 'Enter') {
       e.preventDefault()
       if (phase === 'streaming') return
@@ -1445,6 +1495,12 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo }: 
                   requestAnimationFrame(() => inputRef.current?.focus({ preventScroll: true }))
                 }}
               />
+            )}
+
+            {previewing && !!preview?.unknownTags?.length && (
+              <p className="ai-lost ai-ask" role="note" data-testid="ai-memory-unknown">
+                {preview.unknownTags.map((tag) => t('features.memory.example.unknown', { tag })).join(' ')}
+              </p>
             )}
 
             {ask && (

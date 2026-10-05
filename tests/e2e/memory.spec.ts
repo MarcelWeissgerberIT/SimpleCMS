@@ -103,6 +103,8 @@ function memoryRows(page: Page) {
         topics: (r.properties[prop('Topics')?.id] ?? []).map((id: string) => opt(prop('Topics'), id)),
         source: r.properties[prop('Source')?.id] ?? '',
         active: r.properties[prop('Active')?.id],
+        tag: r.properties[prop('Tag')?.id] ?? '',
+        content: JSON.stringify(r.content ?? null),
         usedIn: r.properties[prop('Used in')?.id] ?? [],
         citedIn: r.properties[prop('Cited in')?.id] ?? [],
       }))
@@ -551,5 +553,179 @@ test.describe('One memory', () => {
       return (Object.values(s.pages) as AnyState[]).filter((p) => p.databaseId === db.id).map((p) => p.title)
     })
     expect(titles).toEqual(['Berichte immer auf Deutsch schreiben'])
+  })
+})
+
+/** A seeded example in the memory (the memory database must exist): Type Example, its tag, Pattern + Example body. */
+function seedExample(page: Page, tag: string, name: string, lines: string[]) {
+  return wsEval(
+    page,
+    (s, a) => {
+      const db = (Object.values(s.databases) as AnyState[]).find((d) => d.system === 'memory')!
+      const prop = (name: string) => db.properties.find((p: AnyState) => p.name === name)
+      const type = prop('Type').options.find((o: AnyState) => o.name === 'Example').id
+      const id = s.createRow(db.id, { title: a.name, properties: { [prop('Type').id]: type, [prop('Tag').id]: a.tag, [prop('Active').id]: true } })
+      const h = (text: string) => ({ type: 'heading', attrs: { level: 2 }, content: [{ type: 'text', text }] })
+      const p = (text: string) => ({ type: 'paragraph', content: [{ type: 'text', text }] })
+      s.setContent(id, { type: 'doc', content: [h('Pattern'), p('Sections: Done, Next, Risks.'), h('Example'), ...a.lines.map(p)] }, 'e2e')
+      return id
+    },
+    { tag, name, lines },
+  )
+}
+
+test.describe('One memory · pages as examples', () => {
+  test('save a page as example (⋯ menu): Pattern + Example body, the database as schema + rows, an older memory gets Tag / Example; context marks limit it; a taken tag offers to replace', async ({ page, context }) => {
+    await openApp(page)
+    await setKey(page)
+    const claude = await mockClaude(context, [], (b) =>
+      b.system?.includes('EXAMPLE') ? { description: 'Weekly status report for a customer project', pattern: '## Sections\n1. Done — what shipped\n2. Projects table' } : { memories: [] },
+    )
+    // a memory database from before examples existed: no Tag column, no Example type
+    await setUpMemory(page)
+    await wsEval(page, (s) => {
+      const db = (Object.values(s.databases) as AnyState[]).find((d) => d.system === 'memory')!
+      const tag = db.properties.find((p: AnyState) => p.name === 'Tag')
+      s.deleteProperty(db.id, tag.id)
+      const type = db.properties.find((p: AnyState) => p.name === 'Type')
+      s.updateProperty(db.id, type.id, { options: type.options.filter((o: AnyState) => o.name !== 'Example') })
+    })
+    const projects = await wsEval(page, (s) => (Object.values(s.pages) as AnyState[]).find((p) => p.title === 'Projects' && p.kind === 'database')!.id)
+    const view = await wsEval(page, (s, id) => s.databases[id].views[0].id, projects)
+    const id = await createPage(page, {
+      title: 'Weekly report KW 40',
+      content: doc(
+        { type: 'heading', attrs: { level: 2 }, content: [{ type: 'text', text: 'Done' }] },
+        { type: 'bulletList', content: ['Shipped the login', 'Fixed the sync'].map((x) => ({ type: 'listItem', content: [para(x)] })) },
+        { type: 'databaseBlock', attrs: { databaseId: projects, viewId: view } },
+        para('Signed, the team'),
+      ),
+    })
+    await gotoPage(page, id)
+    await page.locator('.tb').getByRole('button', { name: 'Page options' }).click()
+    await page.getByRole('menuitem', { name: 'Save as example in memory' }).click()
+    const dialog = page.getByTestId('memory-example')
+    await expect(dialog).toContainText('Weekly report KW 40 · the whole page')
+    const tag = dialog.getByRole('textbox').first()
+    await expect(tag).toHaveValue('weekly-report-kw-40')
+    await tag.fill('Wochenbericht')
+    await expect(tag).toHaveValue('wochenbericht')
+    await tag.press('Enter')
+    await expect(page.locator('.toast', { hasText: 'Saved #wochenbericht to One memory' })).toBeVisible({ timeout: 15_000 })
+
+    // one structured request with the example as Markdown (the database as its schema + rows)
+    const req = claude.structured.find((b) => b.system?.includes('EXAMPLE'))!
+    expect(userText(req)).toContain('Shipped the login')
+    expect(userText(req)).toContain('Database “Projects”')
+    const ex = (await memoryRows(page))!.find((r) => r.tag === 'wochenbericht')!
+    expect(ex).toMatchObject({ title: 'Weekly status report for a customer project', type: 'Example', active: true })
+    expect(ex.source).toBe(`Weekly report KW 40 · #/p/${id}`)
+    expect(ex.content).toContain('"text":"Pattern"')
+    expect(ex.content).toContain('Projects table')
+    expect(ex.content).toContain('"text":"Example"')
+    expect(ex.content).toContain('Shipped the login')
+    expect(ex.content).toContain('"type":"table"')
+    expect(ex.content).toContain('Database “Projects”')
+    expect(ex.content).not.toContain('databaseBlock')
+    // the older memory got its Tag column and Example type
+    expect(await wsEval(page, (s) => (Object.values(s.databases) as AnyState[]).find((d) => d.system === 'memory')!.properties.some((p: AnyState) => p.name === 'Tag'))).toBe(true)
+
+    // a taken tag: the dialog offers to replace that example
+    await page.locator('.tb').getByRole('button', { name: 'Page options' }).click()
+    await page.getByRole('menuitem', { name: 'Save as example in memory' }).click()
+    await tag.fill('wochenbericht')
+    await expect(dialog.getByTestId('memory-example-taken')).toContainText('#wochenbericht is taken: “Weekly status report for a customer project”')
+    await expect(dialog.getByRole('button', { name: 'Save example' })).toBeDisabled()
+    await dialog.getByRole('switch', { name: 'Replace the existing example' }).click()
+    await dialog.getByRole('button', { name: 'Replace example' }).click()
+    await expect(page.locator('.toast', { hasText: 'Replaced the example #wochenbericht' })).toBeVisible({ timeout: 15_000 })
+    expect((await memoryRows(page))!.filter((r) => r.type === 'Example')).toHaveLength(1)
+
+    // context marks: only the marked block is the example; "nothing" refuses
+    const ed = editorOf(page, id)
+    await ed.locator('p', { hasText: 'Signed, the team' }).click()
+    await page.keyboard.press('End')
+    await page.keyboard.press('Enter')
+    await page.waitForTimeout(150)
+    await page.keyboard.press('Space')
+    await expect(panel(page)).toBeVisible()
+    await page.getByTestId('ai-reads').click()
+    await panel(page).getByRole('option', { name: /Mark blocks/ }).click()
+    await page.getByTestId('ctx-layer').getByRole('option').first().click()
+    await page.keyboard.press('Enter')
+    await page.keyboard.press('Escape')
+    await expect(panel(page)).toHaveCount(0)
+    await page.locator('.tb').getByRole('button', { name: 'Page options' }).click()
+    await page.getByRole('menuitem', { name: 'Save as example in memory' }).click()
+    await expect(dialog).toContainText('1 marked block')
+    await tag.fill('nur-titel')
+    await tag.press('Enter')
+    await expect(page.locator('.toast', { hasText: 'Saved #nur-titel' })).toBeVisible({ timeout: 15_000 })
+    const short = (await memoryRows(page))!.find((r) => r.tag === 'nur-titel')!
+    expect(short.content).toContain('"text":"Done"')
+    expect(short.content).not.toContain('Shipped the login')
+  })
+
+  test('"#wochenbericht" forces the example in full: terminal (# completion, bare tag, unknown tag), AI menu own request, the MEMORY list', async ({ page, context }) => {
+    await openApp(page)
+    await setKey(page)
+    const claude = await mockClaude(context, ['Report for KW 41 staged [M1].', 'Done.', 'Done.', 'Draft in the same shape.'])
+    await setUpMemory(page)
+    await seedExample(page, 'wochenbericht', 'Weekly status report for a customer project', ['Done: shipped the login.', 'Next: billing.'])
+
+    // terminal: "#wo" + Tab completes the tag
+    await openTerminal(page)
+    const input = page.locator('.term-prompt__input')
+    await input.pressSequentially('nimm #woch')
+    await expect(page.getByRole('listbox', { name: 'Examples in memory' }).getByRole('option', { name: /#wochenbericht/ })).toBeVisible()
+    await input.press('Tab')
+    await expect(input).toHaveValue('nimm #wochenbericht ')
+    await input.pressSequentially('als Vorlage für KW 41 auf einer neuen Seite')
+    await input.press('Enter')
+    await expect.poll(() => claude.stream.length).toBe(1)
+    let sent = lastUser(claude.stream[0])
+    expect(sent).toContain('[M1] Example #wochenbericht: Weekly status report for a customer project')
+    expect(sent).toContain('Create the content based on this example: same structure, sections, columns and format')
+    expect(sent).toContain('Done: shipped the login.')
+    expect(sent).toContain('Sections: Done, Next, Risks.')
+    await expect(terminal(page).getByTestId('term-memory-chip')).toHaveText('MEMORY · 1')
+    await terminal(page).getByTestId('term-memory-chip').click()
+    await expect(page.getByRole('menu').first()).toContainText('#wochenbericht')
+    await page.keyboard.press('Escape')
+
+    // the bare tag as a word works too; an unknown #tag is said (the task runs)
+    await run(page, 'Make the next one like wochenbericht')
+    await expect.poll(() => claude.stream.length).toBe(2)
+    expect(lastUser(claude.stream[1])).toContain('Example #wochenbericht')
+    await run(page, 'Use #monatsbericht for the summary')
+    await expect.poll(() => claude.stream.length).toBe(3)
+    expect(lastUser(claude.stream[2])).not.toContain('Example #')
+    await expect(terminal(page).locator('.term-step--note').last()).toContainText('No example #monatsbericht in memory')
+    await page.keyboard.press('Escape')
+
+    // AI menu: "#wo" completes; an own request with the tag carries the example in full
+    const id = await createPage(page, { title: 'KW 41', content: doc(para('Login shipped, billing next.'), para('')) })
+    await gotoPage(page, id)
+    const ed = editorOf(page, id)
+    await ed.locator('p').last().click()
+    await ed.evaluate((root) => {
+      const e = (root as unknown as { editor: AnyState }).editor
+      e.chain().focus().setTextSelection(e.state.doc.content.size - 1).run()
+    })
+    await page.waitForTimeout(150)
+    await page.keyboard.press('Space')
+    const field = panel(page).locator('.ai-cmd__input')
+    await field.fill('write this week like #wo')
+    await expect(panel(page).getByRole('option', { name: /#wochenbericht/ })).toBeVisible()
+    await field.press('Tab')
+    await expect(field).toHaveValue('write this week like #wochenbericht ')
+    await expect(panel(page).getByTestId('ai-memory')).toContainText('M1 #wochenbericht')
+    await field.press('Enter')
+    await expect(panel(page)).toContainText('Draft in the same shape.')
+    sent = lastUser(claude.stream[3])
+    expect(sent).toContain('Example #wochenbericht')
+    expect(sent).toContain('Next: billing.')
+    await panel(page).getByTestId('ai-memory').click()
+    await expect(panel(page).getByRole('option', { name: /Weekly status report/ })).toContainText('forced by #wochenbericht')
   })
 })

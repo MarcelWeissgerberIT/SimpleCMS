@@ -385,7 +385,7 @@ function MemoryChip() {
           const uses = memoryHistory(it.id, 8)
           return {
             label: `${it.label} · ${it.text}`,
-            hint: t(`features.memory.type.${it.type}`),
+            hint: it.forced ? `#${it.forced}` : t(`features.memory.type.${it.type}`),
             submenu: [
               { label: t('features.memory.list.openEntry'), onSelect: () => openEntry(it.id) },
               { kind: 'section', label: t('features.memory.list.history') },
@@ -1359,7 +1359,7 @@ function Prompt({ disabled, onReview }: { disabled: boolean; onReview: () => boo
     >
       <Chips />
       {comp && (
-        <ul className="term-complete" id={listId} role="listbox" aria-label={t(comp.kind === 'command' ? 'features.agent.complete.commands' : 'features.agent.complete.pages')}>
+        <ul className="term-complete" id={listId} role="listbox" aria-label={t(comp.kind === 'command' ? 'features.agent.complete.commands' : comp.kind === 'tag' ? 'features.memory.example.complete' : 'features.agent.complete.pages')}>
           {comp.items.map((item, i) => (
             <li
               key={item.key}
@@ -1372,7 +1372,7 @@ function Prompt({ disabled, onReview }: { disabled: boolean; onReview: () => boo
               onClick={() => accept(comp, i)}
             >
               <span className="term-complete__label">{item.mention ? `${item.mention.kind === 'database' ? '▦' : '▣'} ${item.label}` : item.label}</span>
-              <span className="term-complete__hint">{item.command ? t(`features.agent.cmd.${item.command}`) : item.mention?.where || t(`features.agent.kindOf.${item.mention?.kind ?? 'page'}`)}</span>
+              <span className="term-complete__hint">{item.command ? t(`features.agent.cmd.${item.command}`) : item.example ? item.example.text : item.mention?.where || t(`features.agent.kindOf.${item.mention?.kind ?? 'page'}`)}</span>
             </li>
           ))}
           <li className="term-complete__foot" aria-hidden>

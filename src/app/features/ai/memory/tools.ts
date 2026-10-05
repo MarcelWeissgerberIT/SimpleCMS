@@ -36,7 +36,8 @@ export const recallTool: AgentTool = {
     const hits = searchMemories(query, n)
     if (!hits.length) return { content: `No memory matches ${q(query)}.`, summary: t('features.agent.res.results', { count: 0 }), state: 'ok' }
     const lines = hits.map((m) => {
-      const head = `- id: ${m.id} · ${m.type}${m.active ? '' : ' (inactive: do not follow)'} · ${q(m.text)}${m.topics.length ? ` · topics: ${m.topics.join(', ')}` : ''}${m.source ? ` · source: ${m.source}` : ''}`
+      const tag = m.type === 'example' && m.tag ? ` · tag: #${m.tag} (name #${m.tag} in the task to get it in full)` : ''
+      const head = `- id: ${m.id} · ${m.type}${m.active ? '' : ' (inactive: do not follow)'} · ${q(m.text)}${tag}${m.topics.length ? ` · topics: ${m.topics.join(', ')}` : ''}${m.source ? ` · source: ${m.source}` : ''}`
       const body = m.type === 'procedure' ? memoryBody(m.id) : ''
       return body ? `${head}\n  Template:\n${body.replace(/^/gm, '  ')}` : head
     })
