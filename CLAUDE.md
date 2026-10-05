@@ -114,6 +114,24 @@ the public APIs stable — other areas are built against them in parallel.
   applied pages → databases → properties → rows; `TERMINAL_TOOLS` = `AGENT_TOOLS` + those two — custom agents keep
   `AGENT_TOOLS`); prompt history per device + workspace in localStorage `one.term.history:<kind>:<id>`, never synced;
   references (⌘⇧J / bubble "Add to terminal") send the selection as Markdown with page title + id.
+- AI terminal `edit_page` (features/ai/agent/edit.ts): `read_page { refs: true }` labels top-level blocks and list / to-do
+  items `⟦b3⟧` (per tab, by block id; every write tool strips refs). Ops replace / delete (from, to?) · insert_after ·
+  replace_all, ONE staged change per edit (ChangeKind 'edit'); refs of blocks the context marks exclude are refused. Apply:
+  `snapshotNow 'ai'`, then all applied edits of a page in ONE transaction, origin 'ai'; an edit whose blocks changed since
+  staging is skipped. Custom agents' edits always wait for review; server-runner agents have no `edit_page`. Terminal
+  commands: `/new` = `/clear` (`/neu`, `/leeren`); `/clear-history` (`/verlauf-leeren`) asks y / n, then removes
+  `one.term.history:<kind>:<id>`.
+- Word-level diff: features/history/docDiff.ts (pure) + `DocDiff` (history/DiffDoc.tsx) — History "Changes" and every
+  edit review use them. Row history (features/history/props.ts): a snapshot holds content + title + icon and, for a row,
+  `props` = { databaseId, stored values (never computed), defs then }; snapshots without `props` = content only. AI /
+  agent / automation / MCP / autofill writes to rows run inside `aiWrite(fn)` (one "AI" version per page per call). Restore
+  writes values with `writePropertyValue` only for properties that still exist with a compatible type.
+- Transform into … (features/ai/transform; run kind 'transform'): selected blocks → Auto (classification call, then the
+  form) · Board / Table / Timeline (todb machinery) · Diagram (`mermaid`, checked with `mermaid.parse`, one repair round) ·
+  Chart (`chart`, manual ChartSpec via `normalizeSpec`; only numbers the text states) · Columns / Tabs / Toggles / Cards
+  (TipTap JSON built by code, never HTML). Preview first (cached per form in `AIRun.transform`); applied in ONE
+  transaction after `snapshotNow`, origin 'ai'; "Keep the original" = a closed `details` below. Only the selection goes
+  out (no memory; MCP `scope: 'all'` only).
 - Context marks (editor/context; per tab, in memory, never saved or synced): an AI request reads a page's text only
   through `readableContent(pageId)` (AI menu: features/ai/reads.ts `pageRead()`; ⌘K "?"; AI terminal: `withReadLimit`)
   — never send `page.plain` for a page-level request. While picking, the editor's DOM is `inert`; never pause typing
@@ -146,11 +164,30 @@ the public APIs stable — other areas are built against them in parallel.
   orders newest first. Rows in view order come from `orderRows()` (database/model/feed.ts), used by `rowsOfView()` too.
 - Sidebar: a database expands to its entries in first-view order (shell/lib/tree.ts, computed only while open); page ⇄
   entry only via `shell/sidebar/entries.ts` (`parentId` / `databaseId` = the database, properties emptied, with Undo).
-- Mail (features/mail): Gmail → a "Mails" database with the user's own Google OAuth client ID (`settings.mail`, per
-  device, no secret). Google Identity Services token client, scope `gmail.readonly`; the access token lives in memory only.
-  Sync state per device + workspace in IndexedDB `one-mail`, never synced. Rows dedupe by the Gmail message id; re-syncs
-  write only Labels / Unread; bodies are written with origin `'mail'`. Team workspaces: the database is created private
-  (`createPrivateDatabase`); a shared one pauses the sync. Mail content reaches Anthropic only with "Organise with Claude".
+- Mail (features/mail): Gmail → a "Mails" database. Client: One's built-in Google OAuth client (`BUILTIN_CLIENT_ID` /
+  `BUILTIN_ORIGINS`, features/mail/builtin.ts; only on those origins; e2e seam `__oneMail.builtin(id)` under `?e2e` only),
+  overridden by the person's own client ID (`settings.mail.clientId`, '' = none) — read it only through `effectiveClient()`
+  / `effectiveClientId()`. Google Identity Services token client, scope `gmail.readonly`; the access token lives in memory
+  only. Sync state per device + workspace in IndexedDB `one-mail`, never synced. Rows dedupe by the Gmail message id;
+  re-syncs write only Labels / Unread; bodies are written with origin `'mail'`. Team workspaces: the database is created
+  private (`createPrivateDatabase`); a shared one pauses the sync. Mail content reaches Anthropic only with "Organise with
+  Claude".
+- Mail directories (features/mail/people.ts): Contacts / Companies / Conversations, found by `Database.system`
+  'mail-contacts' | 'mail-companies' | 'mail-conversations' (oldest live one; team: private only; a deleted one is created
+  again and every mail linked again); matched only by stored addresses / domains / thread id, never names; the Mails
+  relations by role `contact` / `company` / `conversation`, written only into empty fields; switch + freemail list in
+  `settings.mail.people` (per device); merge only with `mergeRows()` (Undo).
+- Mail attachments (features/mail/attachments.ts): Load keys write the hidden role `load`; loading uses
+  `messages.attachments.get` → `saveFile()` and replaces the list item with image / fileBlock (PDF 'viewer') / audio /
+  video, origin 'mail'; HTML / SVG / XML / message parts are stored as application/octet-stream (download only); ≤ 25 MB;
+  `settings.mail.attachments` 'off' | 'media' (PDFs + images ≤ 10 MB) | 'all' (≤ 25 MB) loads on sync.
+- Database commands (features/commands, public API commands/index.ts): every database has a command menu — the ⌘ key on
+  its sidebar row (touch: the row's ⋯ menu), a section on top of its right-click menu, the toolbar's ⌘ key, ⌘K
+  "<db>: <command>" (by typing only). Defaults (defaults.ts) are computed, never stored. `Database.commands?: DbCommand[]`
+  holds only order, switched-off defaults (`kind: 'default'`) and own commands (`kind` 'actions' | 'agent' | 'view' | a
+  registered kind). Write only with `saveDbCommands()` (refuses a locked database — running stays allowed); readers
+  sanitize with `readDbCommands()`; page backups empty webhook URLs (`withoutCommandSecrets`). New kinds only via
+  `registerCommandKind(def)` from a module loaded at boot; an unknown kind is kept and hidden.
 - Custom agents: `Workspace.agents` (`CustomAgent`, store/types.ts; `createdBy` / `updatedBy` = account ids in a team,
   null locally — `upsertAgent` stamps `updatedBy` with the saver; a team browser agent runs only while `updatedBy` is its
   creator, otherwise it waits for the creator to confirm, features/agents/confirm.ts; on the team server `updatedBy` is

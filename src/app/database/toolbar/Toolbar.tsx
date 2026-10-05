@@ -103,7 +103,8 @@ export function Toolbar({ m, onNew, setSearch, compact, selection, onView }: { m
   const view = m.view
   const filterCount = countFilters(view.filter, m.propMap)
   const automations = (m.db.automations ?? []).filter((a) => a.enabled).length
-  const isMailDb = useWorkspace((s) => s.settings.mail?.databaseId === m.db.id)
+  // the Mails database and its directories (Contacts / Companies / Conversations: LED + Merge…)
+  const isMailDb = useWorkspace((s) => s.settings.mail?.databaseId === m.db.id || /^mail-(contacts|companies|conversations)$/.test(s.databases[m.db.id]?.system ?? ''))
   const canGroup = view.type === 'table' || view.type === 'list' || view.type === 'board'
   // a form asks for answers: searching, filtering, sorting and "New" don't apply there
   const isForm = view.type === 'form'

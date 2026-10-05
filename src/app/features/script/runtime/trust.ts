@@ -35,14 +35,21 @@ export async function codeHash(code: string): Promise<string> {
 /** A team workspace (where scripts of others need a confirmation). */
 export const inTeam = () => useCloud.getState().active.kind === 'cloud'
 
+/** Saves being remembered right now (a run right after typing waits for them). */
+const pending = new Set<Promise<void>>()
+
 /** Whether this device may run the script as it is now without asking (team: a version saved or confirmed here). */
 export async function isTrusted(script: Pick<OneScript, 'code'>): Promise<boolean> {
   if (!inTeam()) return true
+  await Promise.all([...pending])
   return (await trustedHashes()).has(await codeHash(script.code))
 }
 
 /** Remember this exact code as confirmed (or saved) on this device. */
-export async function trustCode(code: string): Promise<void> {
-  if (!inTeam()) return
-  await addTrusted(await codeHash(code))
+export function trustCode(code: string): Promise<void> {
+  if (!inTeam()) return Promise.resolve()
+  const job = (async () => addTrusted(await codeHash(code)))().catch(() => {})
+  pending.add(job)
+  void job.finally(() => pending.delete(job))
+  return job
 }

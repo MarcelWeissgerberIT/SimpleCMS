@@ -389,6 +389,12 @@ Y.Map 'agents'     agentId → JSON CustomAgent   (custom agents — { id, name,
                      createdAt, updatedAt }; last writer wins per agent; every reader sanitizes it, see
                      src/app/store/agents.ts; runs are not here: per device / server table `agent_runs`;
                      updatedBy is stamped, createdBy kept by the SERVER — see Agents → Who changed an agent)
+Y.Map 'scripts'    scriptId → JSON OneScript   (One Script, src/app/features/script — { id, name, icon?,
+                     description?, code, kind: 'script' | 'query', createdBy?, updatedBy?, createdAt, updatedAt };
+                     last writer wins per script; every reader sanitizes it, see src/app/store/scripts.ts; runs
+                     and confirmed versions are per device (IndexedDB `one-scripts`), never here; updatedBy /
+                     createdBy stamped by the SERVER like agents' — the app never trusts them to skip its
+                     confirmation, which goes by the code's hash per device)
 ```
 
 *(client C1 refinements, backwards compatible on read)*: comment **replies** are entries of their
@@ -768,6 +774,10 @@ So the server, not the client, says who changed an entry of the shared meta docu
   Audit: a correction that replaces another account named by the client, or puts `createdBy` back, is
   logged as a warning (ids only).
 - **Limits**: entries stored before a server with this check keep what they say until their next change.
+- **Scripts**: the same guard watches the meta map `scripts` (One Script). There it only makes the name in
+  the app's question true ("Bob changed “Weekly mail” last"): a team script runs on a device only in a
+  version that device saved or its person confirmed (the code's SHA-256 per device and workspace, IndexedDB
+  `one-scripts` — `features/script/runtime/trust.ts`), never because of `updatedBy`.
   A member's device that sends back a change the server no longer has (a server restored from an older
   backup) is that change's writer.
 
