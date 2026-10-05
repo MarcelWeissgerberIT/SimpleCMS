@@ -106,7 +106,7 @@ export function buildCommands(t: Translate, pageId: ID | null): Command[] {
     { id: 'shortcuts', group: 'workspace', label: t('shell.cmd.shortcuts'), icon: Keyboard, shortcut: 'Mod+/', keywords: 'keyboard keys help hilfe tastatur', run: () => ui.openModal({ type: 'shortcuts' }) },
     { id: 'help', group: 'workspace', label: t('help.title'), icon: CircleHelp, shortcut: '?', keywords: 'help hilfe manual handbuch docs documentation dokumentation faq support anleitung', run: () => openHelp() },
     { id: 'ask-ai', group: 'page', label: t('shell.cmd.askAI'), icon: MessageSquareText, keywords: 'claude ai assistant question ki frage', run: () => ui.openPalette('?') },
-    { id: 'agent', group: 'workspace', label: t('features.agent.cmd'), icon: Workflow, shortcut: AGENT_SHORTCUT, keywords: 'agent claude ai automate bulk tasks rows pages ki automatisieren aufgaben', run: () => { closeMobileSidebar(); openAgent() } },
+    { id: 'agent', group: 'workspace', label: t('features.agent.cmd'), icon: Workflow, shortcut: AGENT_SHORTCUT, keywords: 'agent claude ai automate bulk tasks rows pages ki automatisieren aufgaben terminal console konsole', run: () => { closeMobileSidebar(); openAgent() } },
   ]
   if (live) {
     // only while a page is open (nothing to nest under on Home or Graph); databases hold rows, not pages

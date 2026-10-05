@@ -41,12 +41,17 @@ export { McpServers } from './ai/mcp-servers/McpServers'
 export { MeetingDeck, type MeetingDeckProps } from './ai/meeting/MeetingDeck'
 export { MeetingFoot } from './ai/meeting/MeetingFoot'
 /*
- * Workspace agent (Claude runs tools over the workspace, every write is staged for review):
- *  - AgentPanel: right-hand sheet, mount once (renders nothing while closed; owns ⌘J / Ctrl+J)
- *  - openAgent({ task?, run? }) / closeAgent() / toggleAgent(); AGENT_SHORTCUT = 'Mod+J'
+ * AI terminal = the workspace agent (Claude runs tools over the workspace, every write is staged for review):
+ *  - AgentPanel: the terminal dock (in .app-main; full screen on phones), mount once (renders nothing while
+ *    hidden; owns ⌘J / Ctrl+J, ⌘⇧J "add to terminal", ⌘. stop). A task keeps running while it is hidden.
+ *  - openAgent({ task?, run? }) / closeAgent() (hide; never stops) / toggleAgent(); AGENT_SHORTCUT = 'Mod+J'
+ *  - AgentStatusCell: the status bar's "AI" LED cell (working / changes to review; click shows / hides)
+ *  - addSelectionToTerminal(editor?): the selection (also in read-only pages) becomes a reference chip;
+ *    AGENT_REF_SHORTCUT = 'Mod+Shift+J'
  */
-export { AgentPanel, AGENT_SHORTCUT } from './ai/agent/AgentPanel'
+export { AgentPanel, AGENT_SHORTCUT, AGENT_REF_SHORTCUT, addSelectionToTerminal } from './ai/agent/AgentPanel'
 export { openAgent, closeAgent, toggleAgent } from './ai/agent/state'
+export { AgentStatusCell } from './ai/agent/StatusCell'
 /*
  * AI autofill for database properties (the database area loads this lazily and owns the UI):
  *  - requestAutofill(req, signal): one row → Claude (structured output) → raw `value`

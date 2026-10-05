@@ -76,20 +76,20 @@ async function mockAgent(ctx: BrowserContext, script: Step[]): Promise<AnyState[
 
 const setKey = (page: Page) => wsEval(page, (s) => s.updateSettings({ aiApiKey: 'sk-ant-e2e-test-key' }))
 
-/** Open the agent through the command palette. */
+/** Open the agent (the AI terminal) through the command palette. */
 async function openAgentFromPalette(page: Page) {
   await page.keyboard.press(`${MOD}+k`)
   const input = page.getByRole('combobox').or(page.locator('.pal-scrim input')).first()
   await expect(input).toBeVisible()
-  await input.fill('Ask the agent')
+  await input.fill('AI terminal')
   await page.keyboard.press('Enter')
-  const panel = page.getByRole('dialog', { name: 'Agent' })
+  const panel = page.getByRole('region', { name: 'AI terminal' })
   await expect(panel).toBeVisible()
   return panel
 }
 
 async function runTask(page: Page, task: string) {
-  const panel = page.getByRole('dialog', { name: 'Agent' })
+  const panel = page.getByRole('region', { name: 'AI terminal' })
   const field = panel.getByRole('textbox', { name: 'Task for the agent' })
   await field.fill(task)
   await field.press('Enter')
@@ -153,17 +153,17 @@ test.describe('Workspace agent (mocked Claude API)', () => {
     // the review list fills up while nothing reaches the store
     await expect(panel.getByRole('heading', { name: '2 proposed changes' })).toBeVisible({ timeout: 20_000 })
     await expect(panel.getByText('Staged 2 new projects', { exact: false })).toBeVisible()
-    await expect(panel.locator('.agent-head__status')).toContainText('Done')
+    await expect(panel.locator('.term-head__status')).toContainText('Done')
 
     // step log: one line per tool call with its readout, plus the progress note
     const log = panel.getByRole('log', { name: 'Agent steps' })
-    await expect(log.locator('.agent-step[data-tool]')).toHaveCount(4)
-    await expect(log.locator('.agent-step[data-tool="search_pages"]')).toContainText('“weekly sync notes”')
-    await expect(log.locator('.agent-step[data-tool="search_pages"]')).toContainText(/Results [1-9]/)
-    await expect(log.locator('.agent-step[data-tool="read_page"]')).toContainText('Weekly sync — notes')
-    await expect(log.locator('.agent-step[data-tool="create_row"]').nth(0)).toContainText('Staged #1')
-    await expect(log.locator('.agent-step[data-tool="create_row"]').nth(1)).toContainText('Staged #2')
-    await expect(log.locator('.agent-step--note')).toContainText('Reading its action items next.')
+    await expect(log.locator('.term-step[data-tool]')).toHaveCount(4)
+    await expect(log.locator('.term-step[data-tool="search_pages"]')).toContainText('“weekly sync notes”')
+    await expect(log.locator('.term-step[data-tool="search_pages"]')).toContainText(/Results [1-9]/)
+    await expect(log.locator('.term-step[data-tool="read_page"]')).toContainText('Weekly sync — notes')
+    await expect(log.locator('.term-step[data-tool="create_row"]').nth(0)).toContainText('Staged #1')
+    await expect(log.locator('.term-step[data-tool="create_row"]').nth(1)).toContainText('Staged #2')
+    await expect(log.locator('.term-step--note')).toContainText('Reading its action items next.')
 
     // review items: property diffs, the new option, the content preview
     const first = panel.getByRole('listitem', { name: '#1 New row' })
@@ -177,8 +177,8 @@ test.describe('Workspace agent (mocked Claude API)', () => {
 
     // usage meter: summed tokens and a cost estimate, labelled as billed by Anthropic
     await expect(panel.getByTestId('agent-cost')).toHaveText(/≈ (< )?\$\d/)
-    await expect(panel.locator('.agent-meter')).toContainText('billed by Anthropic to your API key')
-    await expect(panel.locator('.agent-meter')).toContainText('4/25')
+    await expect(panel.locator('.term-meter')).toContainText('billed by Anthropic to your API key')
+    await expect(panel.locator('.term-meter')).toContainText('4/25')
 
     // nothing written yet
     expect(await rowsTitled(page, ['Final QA on staging', 'Connect webhook to n8n'])).toEqual([])
@@ -189,7 +189,7 @@ test.describe('Workspace agent (mocked Claude API)', () => {
     const b0 = bodies[0]
     expect(b0.model).toBe('claude-opus-5-5')
     expect(b0.stream).toBe(true)
-    expect(b0.tools.map((x: AnyState) => x.name)).toEqual(['search_pages', 'read_page', 'list_databases', 'query_database', 'get_current_page', 'create_page', 'append_to_page', 'create_row', 'update_row', 'set_page_title'])
+    expect(b0.tools.map((x: AnyState) => x.name)).toEqual(['search_pages', 'read_page', 'list_databases', 'query_database', 'get_current_page', 'create_page', 'append_to_page', 'create_row', 'update_row', 'set_page_title', 'create_database', 'add_property'])
     expect(b0.tools.every((x: AnyState) => x.eager_input_streaming === true && x.input_schema?.type === 'object')).toBe(true)
     expect(b0.tools.some((x: AnyState) => 'run' in x || 'parse' in x)).toBe(false)
     expect(b0.thinking).toMatchObject({ type: 'adaptive', display: 'updates' })
@@ -206,7 +206,7 @@ test.describe('Workspace agent (mocked Claude API)', () => {
     expect(String(last.content[0].content)).toContain('Staged as change #1')
 
     // apply all → both rows exist with coerced properties
-    await panel.locator('.agent-bar').getByRole('button', { name: 'Apply all' }).click()
+    await panel.locator('.term-bar').getByRole('button', { name: 'Apply all' }).click()
     await expect.poll(() => rowsTitled(page, ['Final QA on staging', 'Connect webhook to n8n'])).toEqual(['Connect webhook to n8n', 'Final QA on staging'])
     expect(await optionName(page, 'Final QA on staging', 'Priority')).toBe('High')
     expect(await optionName(page, 'Final QA on staging', 'Status')).toBe('Backlog')
@@ -218,7 +218,7 @@ test.describe('Workspace agent (mocked Claude API)', () => {
     expect(qa).toMatchObject({ origin: 'ai' })
     expect(qa.plain).toContain('final QA pass on staging')
     await expect(first).toContainText('Applied')
-    await expect(panel.locator('.agent-bar')).toHaveCount(0)
+    await expect(panel.locator('.term-bar')).toHaveCount(0)
 
     // one Undo toast reverts the whole batch
     const toast = page.locator('.toast', { hasText: '2 changes applied' })
@@ -228,7 +228,7 @@ test.describe('Workspace agent (mocked Claude API)', () => {
     // the option created for the batch is gone again, the proposals are back for review
     expect(await wsEval(page, (s, db) => s.databases[db].properties.find((p: AnyState) => p.name === 'Tags').options.some((o: AnyState) => o.name === 'Automation'), ids.projects)).toBe(false)
     await expect(panel.getByRole('heading', { name: '2 proposed changes' })).toBeVisible()
-    await expect(panel.locator('.agent-bar')).toContainText('2 proposed changes')
+    await expect(panel.locator('.term-bar')).toContainText('2 proposed changes')
   })
 
   test('discard one proposal: "Apply all" writes only the other', async ({ page, context }) => {
@@ -237,23 +237,23 @@ test.describe('Workspace agent (mocked Claude API)', () => {
     const ids = { meeting: await pageIdByTitle(page, 'Weekly sync — notes'), projects: await pageIdByTitle(page, 'Projects') }
     await mockAgent(context, meetingScript(ids))
     await page.keyboard.press(`${MOD}+j`)
-    const panel = page.getByRole('dialog', { name: 'Agent' })
+    const panel = page.getByRole('region', { name: 'AI terminal' })
     await expect(panel).toBeVisible()
     await runTask(page, TASK)
     await expect(panel.getByRole('listitem', { name: '#2 New row' })).toBeVisible({ timeout: 20_000 })
-    await expect(panel.locator('.agent-head__status')).toContainText('Done')
+    await expect(panel.locator('.term-head__status')).toContainText('Done')
 
     await panel.getByRole('button', { name: 'Discard #2' }).click()
     await expect(panel.getByRole('listitem', { name: '#2 New row' })).toContainText('Discarded')
-    await expect(panel.locator('.agent-bar')).toContainText('1 proposed change')
-    await panel.locator('.agent-bar').getByRole('button', { name: 'Apply all' }).click()
+    await expect(panel.locator('.term-bar')).toContainText('1 proposed change')
+    await panel.locator('.term-bar').getByRole('button', { name: 'Apply all' }).click()
     await expect.poll(() => rowsTitled(page, ['Final QA on staging', 'Connect webhook to n8n'])).toEqual(['Final QA on staging'])
     await expect(panel.getByRole('listitem', { name: '#1 New row' })).toContainText('Applied')
 
     // "New task" clears the session
     await panel.getByRole('button', { name: 'New task' }).click()
-    await expect(panel.locator('.agent-turn')).toHaveCount(0)
-    await expect(panel.locator('.agent-review')).toHaveCount(0)
+    await expect(panel.locator('.term-turn')).toHaveCount(0)
+    await expect(panel.locator('.term-review')).toHaveCount(0)
     // ⌘J closes the panel again
     await page.keyboard.press(`${MOD}+j`)
     await expect(panel).toBeHidden()
@@ -277,11 +277,11 @@ test.describe('Workspace agent (mocked Claude API)', () => {
     await runTask(page, 'Add a few project ideas')
     await expect(panel.getByRole('listitem', { name: '#1 New row' })).toBeVisible({ timeout: 20_000 })
     await expect.poll(() => bodies.length).toBe(2)
-    await expect(panel.locator('.agent-head__status')).toContainText('Running')
+    await expect(panel.locator('.term-head__status')).toContainText('Running')
 
     await panel.getByRole('button', { name: 'Stop' }).click()
-    await expect(panel.locator('.agent-head__status')).toContainText('Stopped')
-    await expect(panel.locator('.agent-turn__note')).toContainText('Nothing was applied')
+    await expect(panel.locator('.term-head__status')).toContainText('Stopped')
+    await expect(panel.locator('.term-note')).toContainText('Nothing was applied')
     await expect(panel.getByRole('button', { name: 'Run' })).toBeVisible()
     release()
     await page.waitForTimeout(600)
@@ -290,8 +290,8 @@ test.describe('Workspace agent (mocked Claude API)', () => {
 
     // a follow-up task continues the conversation (append-only)
     await runTask(page, 'Never mind, just summarise')
-    await expect(panel.locator('.agent-turn')).toHaveCount(2)
-    await expect(panel.locator('.agent-head__status')).toContainText('Done', { timeout: 20_000 })
+    await expect(panel.locator('.term-turn')).toHaveCount(2)
+    await expect(panel.locator('.term-head__status')).toContainText('Done', { timeout: 20_000 })
     const follow = bodies[2]
     const userTurns = (follow.messages as AnyState[]).filter((m) => m.role === 'user')
     expect(JSON.stringify(userTurns[0].content)).toContain('Add a few project ideas')
@@ -342,9 +342,9 @@ test.describe('Workspace agent (mocked Claude API)', () => {
     await expect(menu).toBeVisible()
     await menu.locator('.ai-cmd__input').fill('tag the open tasks')
     await menu.getByRole('option', { name: /Hand to the agent/ }).click()
-    const panel = page.getByRole('dialog', { name: 'Agent' })
+    const panel = page.getByRole('region', { name: 'AI terminal' })
     await expect(panel).toBeVisible()
-    await expect(panel.locator('.agent-turn__task')).toHaveText('tag the open tasks')
+    await expect(panel.locator('.term-turn__task')).toHaveText('tag the open tasks')
     await expect(panel.getByText('Nothing to change.')).toBeVisible({ timeout: 20_000 })
     expect(String(bodies[0].messages[0].content)).toContain(`Open page: "Weekly sync — notes" (id: ${id})`)
   })
