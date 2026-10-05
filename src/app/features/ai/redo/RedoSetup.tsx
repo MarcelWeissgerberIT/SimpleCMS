@@ -107,7 +107,7 @@ export function RedoSetup({ editor, ids, draft, onDraft, onRun, onRepick, onCanc
       <textarea
         id="redo-instructions"
         ref={areaRef}
-        className="redo-setup__text"
+        className="input redo-setup__text"
         data-autofocus=""
         rows={3}
         value={text}
@@ -136,7 +136,7 @@ export function RedoSetup({ editor, ids, draft, onDraft, onRun, onRepick, onCanc
           renaming === p.id ? (
             <input
               key={p.id}
-              className="redo-preset__input"
+              className="input redo-preset__input"
               aria-label={t('features.ai.redo.presetName')}
               defaultValue={p.name}
               autoFocus

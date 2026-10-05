@@ -1,0 +1,457 @@
+/*
+ * "Redo with instructions" — INSTRUMENT. The instructions card (field, preset chips, rules page) and the
+ * review (one passage at a time: struck-through removed words, signal-underlined added ones, hairlines).
+ */
+
+/* the panel's title while the card or the review shows (the prompt gives way) */
+.ai-cmd__title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ink);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ---------------- the instructions card ---------------- */
+
+.redo-setup {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 14px 12px;
+  border-bottom: 1px solid var(--rule);
+}
+
+.redo-setup__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  color: var(--ink);
+}
+
+.redo-setup__count {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.redo-setup__repick,
+.redo-rules__pick {
+  flex: none;
+  height: 22px;
+  padding: 0 7px;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius-1);
+  background: transparent;
+  color: var(--ink-2);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  cursor: pointer;
+  transition:
+    color var(--dur-1) var(--ease-out),
+    border-color var(--dur-1) var(--ease-out);
+}
+
+.redo-setup__repick {
+  margin-left: auto;
+}
+
+.redo-setup__repick:hover,
+.redo-rules__pick:hover {
+  border-color: var(--ink-3);
+  color: var(--ink);
+}
+
+.redo-setup__repick:active,
+.redo-rules__pick:active {
+  transform: translateY(1px);
+}
+
+.redo-setup__label {
+  margin-top: 2px;
+  color: var(--ink-3);
+}
+
+.redo-setup__text {
+  min-height: 74px;
+  max-height: 40vh;
+  background: var(--bg);
+  font-size: var(--text-md);
+  caret-color: var(--signal);
+}
+
+/* presets: name chips, a "⋯" for rename / delete, "+ save" at the end */
+.redo-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.redo-preset {
+  display: inline-flex;
+  align-items: stretch;
+  max-width: 100%;
+  height: 24px;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius-1);
+  background: var(--surface);
+  color: var(--ink);
+  font-size: var(--text-xs);
+}
+
+.redo-preset__use,
+.redo-preset__more {
+  display: inline-flex;
+  align-items: center;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.redo-preset__use {
+  min-width: 0;
+  overflow: hidden;
+  padding: 0 7px 0 8px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.redo-preset__more {
+  padding: 0 5px;
+  border-left: 1px solid var(--rule);
+  color: var(--ink-3);
+}
+
+.redo-preset__use:hover,
+.redo-preset__more:hover,
+.redo-preset__more[aria-expanded='true'] {
+  background: var(--hover);
+  color: var(--ink);
+}
+
+.redo-preset__use:active {
+  transform: translateY(1px);
+}
+
+.redo-preset--add {
+  align-items: center;
+  gap: 4px;
+  padding: 0 8px;
+  border-style: dashed;
+  color: var(--ink-2);
+  cursor: pointer;
+}
+
+.redo-preset--add:hover:not(:disabled) {
+  border-color: var(--ink-3);
+  color: var(--ink);
+}
+
+.redo-preset--add:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+.redo-preset__input {
+  width: 160px;
+  height: 24px;
+  font-size: var(--text-xs);
+}
+
+/* the rules page */
+.redo-rules {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  color: var(--ink-3);
+}
+
+.redo-rules__chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 100%;
+  height: 24px;
+  padding: 0 2px 0 7px;
+  border: 1px solid var(--signal);
+  border-radius: var(--radius-1);
+  background: var(--signal-wash);
+  color: var(--ink);
+  font-size: var(--text-xs);
+}
+
+.redo-rules__title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.redo-rules__x {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border: 0;
+  border-radius: var(--radius-1);
+  background: transparent;
+  color: var(--ink-2);
+  cursor: pointer;
+}
+
+.redo-rules__x:hover {
+  background: var(--hover);
+  color: var(--ink);
+}
+
+.redo-rules__hint {
+  flex: 1 1 220px;
+  min-width: 0;
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+  line-height: 1.4;
+}
+
+.redo-setup__foot {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+  margin-top: 2px;
+}
+
+.redo-setup__foot .kbd {
+  height: 16px;
+  min-width: 16px;
+  border-color: color-mix(in srgb, currentColor 35%, transparent);
+  background: transparent;
+  color: inherit;
+  font-size: 9.5px;
+}
+
+/* ---------------- the review ---------------- */
+
+.redo-review {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  outline: none;
+}
+
+.redo-review:focus-visible .redo-review__bar {
+  box-shadow: inset 0 -1px 0 var(--signal);
+}
+
+.redo-review__bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 30px;
+  padding: 0 10px 0 6px;
+  border-bottom: 1px solid var(--rule);
+  color: var(--ink-2);
+}
+
+.redo-review__nav {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border: 0;
+  border-radius: var(--radius-1);
+  background: transparent;
+  color: var(--ink-2);
+  cursor: pointer;
+}
+
+.redo-review__nav:hover:not(:disabled) {
+  background: var(--hover);
+  color: var(--ink);
+}
+
+.redo-review__nav:disabled {
+  cursor: default;
+  opacity: 0.35;
+}
+
+.redo-review__pos {
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+
+.redo-review__state {
+  padding: 1px 5px;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius-1);
+}
+
+.redo-review__state[data-state='accept'],
+.redo-review__state[data-state='applied'] {
+  border-color: var(--ink);
+  background: var(--ink);
+  color: var(--ink-inverse);
+}
+
+.redo-review__state[data-state='reject'],
+.redo-review__state[data-state='skip'],
+.redo-review__state[data-state='changed'] {
+  border-style: dashed;
+  color: var(--ink-3);
+}
+
+.redo-review__delta {
+  color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+}
+
+/* one tick per passage: open = outline, accepted = ink, rejected / skipped = dashed */
+.redo-review__dots {
+  display: flex;
+  gap: 3px;
+  margin: 0;
+  padding: 6px 14px 0;
+  list-style: none;
+}
+
+.redo-review__dots li {
+  flex: 1;
+  max-width: 48px;
+  height: 4px;
+  border: 1px solid var(--rule-strong);
+  border-radius: 1px;
+  cursor: pointer;
+}
+
+.redo-review__dots li[data-state='accept'],
+.redo-review__dots li[data-state='applied'] {
+  border-color: var(--ink);
+  background: var(--ink);
+}
+
+.redo-review__dots li[data-state='reject'],
+.redo-review__dots li[data-state='skip'],
+.redo-review__dots li[data-state='changed'] {
+  border-style: dashed;
+  opacity: 0.6;
+}
+
+.redo-review__dots li[data-current] {
+  border-color: var(--signal);
+  box-shadow: 0 2px 0 var(--signal);
+}
+
+.redo-review__body {
+  max-height: min(300px, 40vh);
+  overflow: auto;
+  padding: 10px 16px 12px;
+  overscroll-behavior: contain;
+}
+
+.redo-review__text {
+  margin: 0;
+  font-size: var(--text-md);
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.redo-review__text--quiet {
+  color: var(--ink-3);
+}
+
+/* removed: struck through, quiet · added: underlined in signal */
+.redo-review__text del {
+  color: var(--ink-3);
+  text-decoration: line-through;
+  text-decoration-color: var(--ink-2);
+}
+
+.redo-review__text ins {
+  color: var(--ink);
+  text-decoration: underline;
+  text-decoration-color: var(--signal);
+  text-decoration-thickness: 2px;
+  text-underline-offset: 3px;
+}
+
+.redo-review__note {
+  margin: 0 0 6px;
+  color: var(--ink-2);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+}
+
+.redo-review__note--foot {
+  margin: 0;
+  padding: 0 16px 10px;
+}
+
+.redo-review__keys {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px 10px;
+  border-top: 1px solid var(--rule);
+}
+
+.redo-review__keys .btn {
+  gap: 6px;
+}
+
+.redo-review__keys .kbd {
+  height: 16px;
+  min-width: 16px;
+  font-size: 9.5px;
+}
+
+.redo-review__keys .btn--primary .kbd {
+  border-color: color-mix(in srgb, currentColor 35%, transparent);
+  background: transparent;
+  color: inherit;
+}
+
+.redo-review__sum {
+  margin-right: auto;
+  color: var(--ink-2);
+}
+
+@media (hover: none) {
+  .redo-review__keys .kbd,
+  .redo-setup__foot .kbd {
+    display: none;
+  }
+}
+
+/* phones: big keys, the hint under the rules */
+@media (max-width: 640px) {
+  .redo-review__keys .btn,
+  .redo-setup__foot .btn {
+    height: 36px;
+  }
+  .redo-review__keys > .btn {
+    flex: 1 1 auto;
+  }
+  .redo-preset,
+  .redo-rules__chip,
+  .redo-rules__pick {
+    height: 30px;
+  }
+  .redo-rules__hint {
+    flex-basis: 100%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .redo-setup__repick,
+  .redo-rules__pick {
+    transition: none;
+  }
+}
