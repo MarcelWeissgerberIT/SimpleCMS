@@ -62,7 +62,7 @@ the public APIs stable — other areas are built against them in parallel.
 - All persistent data goes through `useWorkspace` actions in `src/app/store/store.ts`. Never mutate state directly.
 - Page content is TipTap JSON. Write it ONLY with `setContent(pageId, json, origin)`; `origin` is the writer
   (editor instance id, 'history', 'ai', 'sync', 'import', 'synced' = synced-block service, 'file' = folder / GitHub
-  pick-up, 'template' = a template copy …). Editors must apply external updates when
+  pick-up, 'template' = a template copy, 'split' = blocks turned into a page …). Editors must apply external updates when
   `page.contentOrigin !== <own id>` and `contentRev` changed.
 - Database rows are pages with `databaseId` set (parentId = database page id). Title lives in `page.title`.
 - Binary files (images, attachments) go to IndexedDB via `saveFile()` → `"onefile:<id>"`; display with `useFileUrl()`.
@@ -114,6 +114,22 @@ the public APIs stable — other areas are built against them in parallel.
   applied pages → databases → properties → rows; `TERMINAL_TOOLS` = `AGENT_TOOLS` + those two — custom agents keep
   `AGENT_TOOLS`); prompt history per device + workspace in localStorage `one.term.history:<kind>:<id>`, never synced;
   references (⌘⇧J / bubble "Add to terminal") send the selection as Markdown with page title + id.
+- Context marks (editor/context; per tab, in memory, never saved or synced): an AI request reads a page's text only
+  through `readableContent(pageId)` (AI menu: features/ai/reads.ts `pageRead()`; ⌘K "?"; AI terminal: `withReadLimit`)
+  — never send `page.plain` for a page-level request. While picking, the editor's DOM is `inert`; never pause typing
+  with the `editable` prop (TipTap's useEditor copies `isEditable` into its options on re-render).
+- Redo with instructions (features/ai/redo): run kind `'redo'`; presets per device in localStorage `one.redo.presets`
+  (≤ 20); accepted passages are applied by block id in ONE transaction after `snapshotNow`; a changed passage is skipped.
+- Claude for images (features/ai/image): run kind `'image'` (describe → alt + caption, read → Markdown, table → table /
+  spreadsheet / database, ask); the picture goes to Anthropic only on these actions, as a base64 image block (≤ 1568 px,
+  ≤ 5 MB) loaded in the browser (no proxy; CORS → "Upload a copy"); AI-terminal image references `TermRef.image`.
+- Turn into page (editor/split, Mod+Alt+9): blocks of one container move into a new sub-page (content written with
+  origin `'split'`), one `pageLink` in their place; inline databases, linked sub-pages and comment threads move along;
+  private parent → `createPrivatePage`. Turn into database: `TableDraft.placement` 'inline' (default) | 'page'.
+- Block selection (editor/select + `BlockSelection` in extensions/behaviors.ts): a pinned grip with a count chip while
+  blocks are selected; the grip / right-click menu acts on the whole selection in ONE transaction.
+- What's new (src/app/help/changelog): every user-visible release adds an entry EN + DE with a real screenshot
+  (changelog/README.md, `scripts/changelog-shots.mjs`); the build fails without a twin or an image.
 - Database views: table | board | list | gallery | feed | calendar | timeline | chart | form. Feed settings live in
   `View.feed` (dateProperty — null = created time, order newest | oldest, content); without sorts of its own a feed
   orders newest first. Rows in view order come from `orderRows()` (database/model/feed.ts), used by `rowsOfView()` too.
