@@ -194,11 +194,13 @@ test.describe('help panel', () => {
     await page.getByRole('menuitem', { name: /^Help/ }).click()
     await expect(panel(page)).toBeVisible()
     // after the slide-in
-    await expect.poll(async () => (await panel(page).boundingBox())?.x ?? 99).toBeLessThanOrEqual(0.5)
-    const box = await panel(page).boundingBox()
-    expect(box).not.toBeNull()
-    expect(box!.width).toBeGreaterThanOrEqual(389)
-    expect(box!.height).toBeGreaterThanOrEqual(843)
+    // one box read for all three checks (a second read could land mid-layout and come back null)
+    await expect
+      .poll(async () => {
+        const b = await panel(page).boundingBox()
+        return !!b && b.x <= 0.5 && b.width >= 389 && b.height >= 843
+      })
+      .toBe(true)
     await searchBox(page).fill('iphone')
     await searchBox(page).press('Enter')
     await expect(articleTitle(page)).toHaveText('iPhone & home screen')
