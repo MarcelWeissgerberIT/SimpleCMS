@@ -6,8 +6,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { Editor } from '@tiptap/core'
 import type { Node as PMNode } from '@tiptap/pm/model'
 import { NodeSelection, Plugin, PluginKey, TextSelection, type Selection } from '@tiptap/pm/state'
-import type { EditorView } from '@tiptap/pm/view'
-import type { NestedOptions } from '@tiptap/extension-drag-handle'
+import { dragHandlePluginDefaultKey, type NestedOptions } from '@tiptap/extension-drag-handle'
 import { DragHandle } from '@tiptap/extension-drag-handle-react'
 import { useEditorState } from '@tiptap/react'
 import { useStore } from 'zustand'
@@ -38,17 +37,16 @@ import { splitMenuEntries } from '../split/menu'
 import { blockSplitRange, type SplitRange } from '../split/range'
 import { SelectionGrip, selectByLongPress, useLongPress } from '../select/SelectionGrip'
 import { blockSelectionAt, extendSelection, isBlockSelection, menuSelection, readBlockSel, type BlockSel } from '../select/model'
-import { gutterLeft, gutterLeftAt } from '../select/gutter'
+import { containerColumnAt, contentLeft, gutterLeftAt, pageColumn } from '../select/gutter'
 import { selectionMenuEntries } from '../select/menu'
 import { moveBlocks } from '../select/actions'
 
 const TEXTUAL = new Set(['paragraph', 'heading', 'bulletList', 'orderedList', 'taskList', 'listItem', 'taskItem', 'blockquote', 'callout', 'details', 'codeBlock'])
 const EXCLUDED = new Set(['column', 'detailsSummary', 'detailsContent', 'tab'])
-const LIST_ITEMS = new Set(['listItem', 'taskItem'])
-/** Within this many px of a block's left / top edge its container takes the hover (the library's 'left' preset). */
-const EDGE = 12
 /** This many px past the hovered block's own lines still belong to it: the handle never flickers between levels. */
 const STICKY = 3
+/** How far the gutter reaches left of the page column: the handle ("+" and grip) and some room. */
+const GUTTER = 64
 
 /** The lines a block owns: a list item's own first block (not the nested list under it), else the block. */
 function ownBox(dom: HTMLElement, node: PMNode): DOMRect {
@@ -57,15 +55,16 @@ function ownBox(dom: HTMLElement, node: PMNode): DOMRect {
 }
 
 /**
- * Which block the hover handle is for — the deepest one on the pointer's line. Never a wrapper (column,
- * toggle parts, tab) or a table cell's content; near a block's left / top edge its container wins (a
- * callout's or quote's inner line → the callout) — but not for list items: an item's marker, the gap
- * left of it and its first line belong to the item itself, so every level of a nested list is reachable
- * (the library's own edge rule handed them to the parent). Just past the hovered block's own lines, and
- * while the pointer touches the handle itself, it stays the target (hysteresis — and the handle never
- * jumps away from the pointer reaching it: a mouse event's whole-pixel position can lie on the handle's
- * edge, and the document position found under it then belongs to the parent). `pointer`: the last
- * mouse position over the editor; `hovered`: the current target; `handle`: the visible handle's box.
+ * Which block the hover handle is for: the deepest one whose own line holds the pointer — over its text,
+ * over a nested item's marker or the indent left of it, and in the gutter left of the page where the
+ * handle stands (one column for every level, select/gutter): moving left towards it never hands the line
+ * to a parent. Never a wrapper (column, toggle parts, tab) or a table cell's content. Blocks in a
+ * callout, quote, column or synced block have their grips at that container's content edge: left of it
+ * (its padding, the page gutter) the container is the target. Just past the hovered block's own lines,
+ * and while the pointer touches the handle, the target stays (hysteresis — and a mouse event's
+ * whole-pixel position on the handle's edge may find the parent's position under it). `pointer`: the
+ * last mouse position over the editor or its gutter; `hovered`: the current target; `handle`: the
+ * visible handle's box.
  */
 function nestedOptions(pointer: { current: { x: number; y: number } }, hovered: { current: BlockRef | null }, handle: () => DOMRect | null): NestedOptions {
   return {
@@ -74,12 +73,10 @@ function nestedOptions(pointer: { current: { x: number; y: number } }, hovered: 
       { id: 'noWrappers', evaluate: ({ node }) => (EXCLUDED.has(node.type.name) ? 1000 : 0) },
       { id: 'noCellContent', evaluate: ({ parent }) => (parent && (parent.type.name === 'tableCell' || parent.type.name === 'tableHeader') ? 1000 : 0) },
       {
-        id: 'edgesOutsideLists',
-        evaluate: ({ node, pos, depth, view }) => {
-          if (LIST_ITEMS.has(node.type.name)) return 0
-          const r = (view.nodeDOM(pos) as HTMLElement | null)?.getBoundingClientRect?.()
-          const { x, y } = pointer.current
-          return r && (x - r.left < EDGE || y - r.top < EDGE) ? 500 * depth : 0
+        id: 'containers',
+        evaluate: ({ pos, view }) => {
+          const column = containerColumnAt(view, pos)
+          return column !== null && pointer.current.x < column ? 1000 : 0
         },
       },
       {
@@ -97,26 +94,6 @@ function nestedOptions(pointer: { current: { x: number; y: number } }, hovered: 
       },
     ],
   }
-}
-
-/**
- * Leaving the editor on the way to the handle: the handle stands left of the text — a list item's left
- * of its marker, partly outside the editor (a "12." reaches past its edge) — so within the hovered
- * block's own lines (`lane`, from the handle to the editor's edge) the drag-handle plugin must not hide
- * it yet. Holds it until the pointer is on the handle or back in the editor; anywhere else hides it.
- */
-function holdOnTheWay(view: EditorView, wrap: HTMLElement, lane: DOMRect, hide: () => void): () => void {
-  const inLane = (x: number, y: number) => x >= lane.left && x <= lane.right && y >= lane.top && y <= lane.bottom
-  const move = (e: MouseEvent) => {
-    const t = e.target as Node | null
-    if (t && (view.dom.contains(t) || wrap.contains(t))) return release()
-    if (inLane(e.clientX, e.clientY)) return
-    release()
-    hide()
-  }
-  const release = () => document.removeEventListener('mousemove', move, true)
-  document.addEventListener('mousemove', move, true)
-  return release
 }
 
 const TYPE_LABEL: Record<string, string> = {
@@ -261,7 +238,7 @@ export function BlockHandle({ editor, bridge, pageId }: { editor: Editor; bridge
   const overSelection = !!sel && hoverPos >= sel.from && hoverPos < sel.to
   const quiet = !!sel && !sel.soft && !menu?.fromHover && !dragging && (overSelection || !shift)
 
-  // which block is hovered: the pointer over the editor feeds the edge and sticky rules (nestedOptions)
+  // which block is hovered: the pointer over the editor (and its gutter) feeds the rules (nestedOptions)
   const pointer = useRef({ x: Number.NaN, y: Number.NaN })
   const inner = useRef<HTMLDivElement>(null)
   const nested = useMemo(
@@ -280,51 +257,54 @@ export function BlockHandle({ editor, bridge, pageId }: { editor: Editor; bridge
     dom.addEventListener('mousemove', track)
     return () => dom.removeEventListener('mousemove', track)
   }, [editor])
-  // the pointer leaves the editor towards the handle: keep it (holdOnTheWay) — this plugin runs before
-  // the drag-handle plugin's own mouseleave, which would hide it
+  // The gutter: left of the page content the handle follows the pointer's height. The pointer there is
+  // handed to the drag-handle plugin as if over the editor (it clamps to the content's edge and finds
+  // the block on that line; the rules see the real x). A plugin before the drag-handle plugin keeps the
+  // handle when the pointer leaves the editor into the gutter (that one would hide it); beyond the
+  // gutter it hides.
   const locked = useRef(false)
   useEffect(() => {
-    const key = new PluginKey('blockHandleReach')
-    let release: (() => void) | null = null
+    const view = editor.view
+    const key = new PluginKey('blockHandleGutter')
+    let following = false
+    const inGutter = (x: number, y: number) => {
+      const r = view.dom.getBoundingClientRect()
+      return y >= r.top && y <= r.bottom && x < contentLeft(view) && x >= pageColumn(view) - GUTTER
+    }
+    const onMove = (e: MouseEvent) => {
+      if (editor.isDestroyed || !editor.isEditable || locked.current) return
+      const t = e.target as Node | null
+      if (t && view.dom.contains(t)) return void (following = false)
+      if (t && inner.current?.parentElement?.contains(t)) return
+      if (inGutter(e.clientX, e.clientY)) {
+        following = true
+        pointer.current = { x: e.clientX, y: e.clientY }
+        const handler = dragHandlePluginDefaultKey.get(view.state)?.props.handleDOMEvents?.mousemove
+        handler?.(view, { clientX: e.clientX, clientY: e.clientY } as MouseEvent)
+      } else if (following) {
+        following = false
+        view.dispatch(view.state.tr.setMeta('hideDragHandle', true))
+      }
+    }
     const plugin = new Plugin({
       key,
-      props: {
-        handleDOMEvents: {
-          mouseleave: (view, e) => {
-            release?.()
-            release = null
-            const ref = current.current
-            const wrap = inner.current?.parentElement
-            const dom = ref ? view.nodeDOM(ref.pos) : null
-            if (locked.current || !ref || !wrap || !(dom instanceof HTMLElement) || getComputedStyle(wrap).visibility === 'hidden') return false
-            const own = ownBox(dom, ref.node)
-            const h = wrap.getBoundingClientRect()
-            const top = Math.min(own.top, h.top)
-            const right = view.dom.getBoundingClientRect().left + 2
-            const lane = new DOMRect(h.left - 4, top, right - (h.left - 4), Math.max(own.bottom, h.bottom) - top)
-            if (e.clientX < lane.left || e.clientX > lane.right || e.clientY < lane.top || e.clientY > lane.bottom) return false
-            release = holdOnTheWay(view, wrap, lane, () => {
-              if (!editor.isDestroyed) view.dispatch(view.state.tr.setMeta('hideDragHandle', true))
-            })
-            return true
-          },
-        },
-      },
+      props: { handleDOMEvents: { mouseleave: (_view, e) => !locked.current && inGutter(e.clientX, e.clientY) } },
     })
     editor.registerPlugin(plugin, (p, plugins) => [p, ...plugins])
+    document.addEventListener('mousemove', onMove, true)
     return () => {
-      release?.()
+      document.removeEventListener('mousemove', onMove, true)
       if (!editor.isDestroyed) editor.unregisterPlugin(key)
     }
   }, [editor])
-  // where the handle stands: left of the block — of a list item's bullet / number / checkbox (select/gutter)
+  // where the handle stands: in the gutter column, on the block's first line (select/gutter)
   const reference = useCallback(() => {
     const ref = current.current
     const dom = ref && !editor.isDestroyed ? editor.view.nodeDOM(ref.pos) : null
     if (!ref || !(dom instanceof HTMLElement)) return null
     const r = dom.getBoundingClientRect()
-    const left = gutterLeft(dom, ref.node)
-    const rect = new DOMRect(left, r.top, r.right - left, r.height)
+    const left = gutterLeftAt(editor.view, ref.pos) ?? r.left
+    const rect = new DOMRect(left, r.top, Math.max(0, r.right - left), r.height)
     return { getBoundingClientRect: () => rect }
   }, [editor])
 

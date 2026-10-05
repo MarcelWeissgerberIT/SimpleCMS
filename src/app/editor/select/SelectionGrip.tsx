@@ -21,7 +21,7 @@ import type { Bridge } from '../lib/bridge'
 import { toggleHeadingLevel } from '../schema/toggle'
 import { useContextPicking } from '../context/read'
 import { blockSelectionAt, extendSelection, isBlockSelection, readBlockSel } from './model'
-import { gutterLeft, gutterLeftAt } from './gutter'
+import { gutterLeftAt } from './gutter'
 import { inTapMode, registerBlockMenuOpener, setTapMode } from './registry'
 import './select.css'
 
@@ -71,13 +71,12 @@ export function SelectionGrip({ editor, bridge, pageId, hidden, onOpen }: Select
     const host = editor.view.dom.closest('.one-editor') as HTMLElement | null
     const first = editor.view.nodeDOM(st.from) as HTMLElement | null
     const last = editor.view.nodeDOM(st.last) as HTMLElement | null
-    const node = editor.state.doc.nodeAt(st.from)
-    if (!host || !node || !(first instanceof HTMLElement) || !last?.getBoundingClientRect) return setBox(null)
+    if (!host || !(first instanceof HTMLElement) || !last?.getBoundingClientRect) return setBox(null)
     const h = host.getBoundingClientRect()
     const a = first.getBoundingClientRect()
     const z = last.getBoundingClientRect()
-    // beside a list item's bullet / number / checkbox, never on it (siblings share their marker column)
-    const left = gutterLeft(first, node)
+    // the gutter column of the hover handle (select/gutter): the same x at every level
+    const left = gutterLeftAt(editor.view, st.from) ?? a.left
     setBox({ top: a.top - h.top, left: left - h.left, bottom: Math.max(a.bottom, z.bottom) - h.top, place: left > 220 && !COARSE ? 'side' : 'badge' })
   }, [st, editor])
 

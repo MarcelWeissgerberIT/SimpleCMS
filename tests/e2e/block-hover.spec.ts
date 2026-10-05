@@ -349,7 +349,7 @@ const frames = (page: Page) => page.evaluate(() => new Promise<void>((r) => requ
 
 /**
  * Move from the item's text straight left (4px steps) at `dy` into its first line until the pointer is
- * on the hover grip: on every step the handle stays at this item's row — never its parent's.
+ * on the hover handle: on every step the handle stays at this item's row — never its parent's.
  */
 async function sweepToGrip(page: Page, ed: Locator, text: string, dy: number) {
   const row = (await line(ed, text).boundingBox())!
@@ -362,8 +362,15 @@ async function sweepToGrip(page: Page, ed: Locator, text: string, dy: number) {
     await frames(page)
     const top = await handleTop(page)
     expect(top !== null && Math.abs(top - row.y) < 10, `handle at "${text}" with the pointer at x ${Math.round(x - row.x)} (dy ${dy})`).toBe(true)
-    if (await page.evaluate(([x, y]) => !!document.elementFromPoint(x, y)?.closest('.block-handle__grip'), [x, y] as const)) return
+    if (await page.evaluate(([x, y]) => !!document.elementFromPoint(x, y)?.closest('.block-handle-wrap'), [x, y] as const)) return
   }
+}
+
+/** From the handle the pointer is on, onto its grip (same handle, nothing re-targets). */
+async function ontoGrip(page: Page) {
+  const g = (await page.locator('.block-handle-wrap .block-handle__grip').boundingBox())!
+  await page.mouse.move(g.x + g.width / 2, g.y + g.height / 2, { steps: 3 })
+  return g
 }
 
 test.describe('nested bullets inside a numbered item', () => {
@@ -396,6 +403,8 @@ test.describe('nested bullets inside a numbered item', () => {
     }
     // the grip reached from the text opens the menu of THAT bullet: Duplicate copies it, not "12."
     await sweepToGrip(page, ed, 'Multi-Dispense 3 × 250 µl, Spitze bleibt im Kanal.', 12)
+    await ontoGrip(page)
+    await expectHandleAt(page, ed, 'Multi-Dispense 3 × 250 µl, Spitze bleibt im Kanal.')
     await page.mouse.down()
     await page.mouse.up()
     await menu(page).getByRole('menuitem', { name: /^Duplicate/ }).click()
@@ -444,9 +453,9 @@ test.describe('nested bullets inside a numbered item', () => {
   test('drag a nested bullet by its grip within the list under "12."', async ({ page }) => {
     const { ed, bullets } = await protocol(page)
     await sweepToGrip(page, ed, 'Rest mit Blowout verwerfen.', 12)
-    const g = (await page.locator('.block-handle-wrap .block-handle__grip').boundingBox())!
+    const g = await ontoGrip(page)
+    await expectHandleAt(page, ed, 'Rest mit Blowout verwerfen.')
     const target = (await line(ed, '750 µl aspirieren reverse.').boundingBox())!
-    await page.mouse.move(g.x + g.width / 2, g.y + g.height / 2)
     await page.mouse.down()
     await page.mouse.move(g.x + g.width / 2, g.y - 6, { steps: 4 })
     await page.mouse.move(target.x + 30, target.y + 2, { steps: 12 })
@@ -467,13 +476,14 @@ test.describe('nested bullets inside a numbered item', () => {
     }
     await line(ed, 'Deckel drauf').click()
     await page.keyboard.press('Escape')
+    // (a to-do's text carries its checkbox label: "To-do: …")
     const selected = ed.locator('.is-block-selected')
-    await expect(selected).toHaveText(['Deckel drauf'])
+    await expect(selected).toHaveText([/Deckel drauf$/])
     const box = await markerOf(ed, 'Deckel drauf')
     const grip = (await pinned(page).boundingBox())!
     expect(grip.x + grip.width).toBeLessThanOrEqual(box.left + 0.5)
     await line(ed, 'Etikett geschrieben').click({ modifiers: ['Shift'] })
-    await expect(selected).toHaveText(['Deckel drauf', 'Etikett geschrieben'])
+    await expect(selected).toHaveText([/Deckel drauf$/, /Etikett geschrieben$/])
     await expect(page.getByTestId('selection-count')).toHaveText('2 blocks · Esc')
   })
 })
