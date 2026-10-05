@@ -1,5 +1,6 @@
 /**
- * Google sign-in for Gmail (Google Identity Services, token model) with the user's OWN OAuth client ID.
+ * Google sign-in for Gmail (Google Identity Services, token model) with the client in use — the person's
+ * own OAuth client ID, else One's built-in one (builtin.ts `effectiveClient()`; the caller passes the ID).
  *
  *  - The GIS script (accounts.google.com/gsi/client) is loaded on demand — only when someone connects.
  *  - Scope: gmail.readonly, nothing else. No client secret exists in this flow (a client ID is public).

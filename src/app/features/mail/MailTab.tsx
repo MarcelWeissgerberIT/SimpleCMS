@@ -1,11 +1,12 @@
 /**
- * Settings → Mail: three instrument panels — § A Google access (setup steps, client ID, connect),
- * § B Sync (from date, destination, labels, limits, schedule, read-out, run) and § C Organise with
- * Claude (categories, fields, related database, cost) — plus where the mail goes.
+ * Settings → Mail: three instrument panels — § A Google access (One's built-in client: one click, the own
+ * client under "advanced"; without it: setup steps, client ID, connect), § B Sync (from date, destination,
+ * labels, limits, schedule, read-out, run) and § C Organise with Claude (categories, fields, related
+ * database, cost) — plus where the mail goes.
  */
-import { useEffect, useId, useMemo, useState, type ReactNode } from 'react'
+import { useEffect, useId, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react'
 import { format } from 'date-fns'
-import { Copy, ExternalLink, Mail, Plug, RefreshCw, Send, Tags, Unplug, X, Plus, Square, ArrowUpRight, RotateCcw } from 'lucide-react'
+import { Copy, ExternalLink, Mail, Plug, RefreshCw, Send, Tags, Unplug, X, Plus, Square, ArrowUpRight, RotateCcw, KeyRound, Undo2 } from 'lucide-react'
 import { useWorkspace } from '../../store/store'
 import { inTemplate, isEffectivelyTrashed } from '../../store/selectors'
 import { useUI } from '../../store/ui'
@@ -15,7 +16,8 @@ import { Led, Switch } from '../../ui/controls'
 import { useLang, useT } from '../../i18n'
 import { CLIENT_ID_RE, EVERY_MIN, MAX_PER_RUN, PUBLIC_ORIGIN, SECRET_RE, cleanCategory, MAX_CATEGORIES, setMail, setOrganise, useMailSettings } from './settings'
 import { preloadGis } from './auth'
-import { cancelRun, connectGmail, disconnectGmail, loadLabels, organiseEarlier, resetMailSync, startNewDatabase, syncNow, useMail } from './service'
+import { builtinClientId, effectiveClient, useBuiltinClient } from './builtin'
+import { backToOneAccess, cancelRun, connectGmail, disconnectGmail, loadLabels, organiseEarlier, resetMailSync, startNewDatabase, syncNow, useMail } from './service'
 import { estimateOrganise } from './organise'
 import { fmtTime, useMailReadout, type ReadoutState } from './MailStatus'
 import './mail.css'
@@ -99,54 +101,71 @@ function Ext({ href, children }: { href: string; children: ReactNode }) {
 
 /* ------------------------------------------------------------------ § A Google access */
 
-function Setup({ open }: { open: boolean }) {
+function SetupSteps() {
   const t = useT()
   const origins = [...new Set([PUBLIC_ORIGIN, window.location.origin])]
+  return (
+    <ol className="ml-steps">
+      <li>
+        <span>{t('features.mail.setup.s1')}</span> <Ext href={LINKS.project}>{t('features.mail.setup.s1Link')}</Ext>
+      </li>
+      <li>
+        <span>{t('features.mail.setup.s2')}</span> <Ext href={LINKS.api}>{t('features.mail.setup.s2Link')}</Ext>
+      </li>
+      <li>
+        <span>{t('features.mail.setup.s3')}</span> <Ext href={LINKS.consent}>{t('features.mail.setup.s3Link')}</Ext>
+      </li>
+      <li>
+        <span>{t('features.mail.setup.s4')}</span> <Ext href={LINKS.client}>{t('features.mail.setup.s4Link')}</Ext>
+        <ul className="ml-origins" aria-label={t('features.mail.setup.origins')}>
+          {origins.map((o) => (
+            <li key={o} className="ml-origin">
+              <code className="ml-origin__url">{o}</code>
+              {o === window.location.origin && o !== PUBLIC_ORIGIN && <span className="ml-origin__tag label">{t('features.mail.setup.thisOrigin')}</span>}
+              <button type="button" className="icon-btn ml-origin__copy" onClick={() => void copy(o, t)} aria-label={t('features.mail.setup.copy', { origin: o })} title={t('features.mail.setup.copy', { origin: o })}>
+                <Copy size={13} />
+              </button>
+            </li>
+          ))}
+        </ul>
+      </li>
+      <li>
+        <span>{t('features.mail.setup.s5')}</span>
+      </li>
+    </ol>
+  )
+}
+
+function Setup({ open }: { open: boolean }) {
+  const t = useT()
   return (
     <details className="ml-setup" open={open}>
       <summary className="ml-setup__sum">
         <span className="label">{t('features.mail.setup.title')}</span>
         <span className="ml-setup__time">{t('features.mail.setup.time')}</span>
       </summary>
-      <ol className="ml-steps">
-        <li>
-          <span>{t('features.mail.setup.s1')}</span> <Ext href={LINKS.project}>{t('features.mail.setup.s1Link')}</Ext>
-        </li>
-        <li>
-          <span>{t('features.mail.setup.s2')}</span> <Ext href={LINKS.api}>{t('features.mail.setup.s2Link')}</Ext>
-        </li>
-        <li>
-          <span>{t('features.mail.setup.s3')}</span> <Ext href={LINKS.consent}>{t('features.mail.setup.s3Link')}</Ext>
-        </li>
-        <li>
-          <span>{t('features.mail.setup.s4')}</span> <Ext href={LINKS.client}>{t('features.mail.setup.s4Link')}</Ext>
-          <ul className="ml-origins" aria-label={t('features.mail.setup.origins')}>
-            {origins.map((o) => (
-              <li key={o} className="ml-origin">
-                <code className="ml-origin__url">{o}</code>
-                {o === window.location.origin && o !== PUBLIC_ORIGIN && <span className="ml-origin__tag label">{t('features.mail.setup.thisOrigin')}</span>}
-                <button type="button" className="icon-btn ml-origin__copy" onClick={() => void copy(o, t)} aria-label={t('features.mail.setup.copy', { origin: o })} title={t('features.mail.setup.copy', { origin: o })}>
-                  <Copy size={13} />
-                </button>
-              </li>
-            ))}
-          </ul>
-        </li>
-        <li>
-          <span>{t('features.mail.setup.s5')}</span>
-        </li>
-      </ol>
+      <SetupSteps />
     </details>
   )
 }
 
-function ClientIdField() {
+/** An own client ID committed with Enter switches § A to the own layout: the field there takes the focus back. */
+let refocusClientId = false
+
+/** `onCleared(byKey)`: the own client ID was removed while One's built-in client is available (back to it). */
+function ClientIdField({ onCleared }: { onCleared?: (byKey: boolean) => void }) {
   const t = useT()
   const uid = useId()
   const saved = useMailSettings().clientId
   const [draft, setDraft] = useState(saved)
   const [err, setErr] = useState<string | null>(null)
+  const input = useRef<HTMLInputElement>(null)
   useEffect(() => setDraft(saved), [saved])
+  useEffect(() => {
+    if (!refocusClientId) return
+    refocusClientId = false
+    input.current?.focus()
+  }, [])
   const commit = (raw: string) => {
     const v = raw.trim()
     if (SECRET_RE.test(v)) {
@@ -161,8 +180,13 @@ function ClientIdField() {
     }
     setErr(null)
     if (v !== saved) {
+      const byKey = document.activeElement === input.current
+      const builtin = !!builtinClientId()
+      refocusClientId = byKey && builtin && !!v
       setMail({ clientId: v })
-      if (v) disconnectGmail()
+      // another client (an own one, or back to One's): the token came from the previous one
+      if (v || builtin) disconnectGmail()
+      if (!v && builtin) onCleared?.(byKey)
     }
   }
   const id = `${uid}-client`
@@ -170,6 +194,7 @@ function ClientIdField() {
     <MlField label={t('features.mail.clientId.label')} htmlFor={id} wide hint={err ? undefined : t('features.mail.clientId.hint')}>
       <div className="ml-client">
         <input
+          ref={input}
           id={id}
           className="input ml-mono"
           value={draft}
@@ -197,50 +222,142 @@ function ClientIdField() {
   )
 }
 
+/** One's built-in client is in use: the own client (steps + client ID) waits behind "advanced". */
+function OwnClient({ open, onOpen, details }: { open: boolean; onOpen: (open: boolean) => void; details: RefObject<HTMLDetailsElement | null> }) {
+  const t = useT()
+  return (
+    <details ref={details} className="ml-setup ml-own" open={open} onToggle={(e) => onOpen(e.currentTarget.open)} data-testid="mail-own-client">
+      <summary className="ml-setup__sum">
+        <span className="label">{t('features.mail.builtin.advanced')}</span>
+        <span className="ml-setup__time">{t('features.mail.setup.time')}</span>
+      </summary>
+      <div className="ml-own__body">
+        <p className="ml-own__intro">{t('features.mail.builtin.advancedIntro')}</p>
+        <SetupSteps />
+        <ClientIdField />
+      </div>
+    </details>
+  )
+}
+
 function AccessPanel() {
   const t = useT()
   const uid = useId()
   const cfg = useMailSettings()
+  const builtin = useBuiltinClient()
   const connected = useMail((s) => s.connected)
   const account = useMail((s) => s.account)
   const phase = useMail((s) => s.phase)
   const error = useMail((s) => (s.errorAt === 'access' ? s.error : null))
+  const ownHint = useMail((s) => s.errorAt === 'access' && s.ownHint)
   const reconnect = useMail((s) => s.reconnect)
-  const ready = CLIENT_ID_RE.test(cfg.clientId)
+  const client = effectiveClient(cfg)
+  const ready = !!client
+  const viaOne = client?.source === 'builtin'
+  const [advanced, setAdvanced] = useState(false)
+  const details = useRef<HTMLDetailsElement>(null)
+  const connectBtn = useRef<HTMLButtonElement>(null)
+  const [focusConnect, setFocusConnect] = useState(false)
+  useEffect(() => {
+    if (!focusConnect) return
+    setFocusConnect(false)
+    connectBtn.current?.focus()
+  }, [focusConnect])
   const state: ReadoutState = phase === 'connecting' ? 'running' : connected ? 'ok' : reconnect ? 'reconnect' : 'off'
-  const stateText = phase === 'connecting' ? t('features.mail.access.connecting') : connected ? t('features.mail.access.connected') : reconnect ? t('features.mail.status.reconnect') : ready ? t('features.mail.access.ready') : t('features.mail.access.notSet')
+  const stateText =
+    phase === 'connecting'
+      ? t('features.mail.access.connecting')
+      : connected
+        ? t(viaOne ? 'features.mail.access.connectedBuiltin' : 'features.mail.access.connected')
+        : reconnect
+          ? t('features.mail.status.reconnect')
+          : ready
+            ? t(viaOne ? 'features.mail.access.readyBuiltin' : 'features.mail.access.ready')
+            : t('features.mail.access.notSet')
+  // "Use your own Google client": open the advanced part and bring it into view
+  const openOwn = () => {
+    setAdvanced(true)
+    requestAnimationFrame(() => {
+      const d = details.current
+      if (!d) return
+      d.open = true
+      d.scrollIntoView({ block: 'nearest' })
+      d.querySelector('summary')?.focus()
+    })
+  }
+  const back = () => {
+    backToOneAccess()
+    setAdvanced(false)
+    setFocusConnect(true)
+  }
+  const connectRow = (
+    <div className="ml-connect">
+      {connected ? (
+        <>
+          <span className="ml-account">
+            <Mail size={14} aria-hidden />
+            <span className="ml-account__addr" data-testid="mail-account">
+              {account}
+            </span>
+          </span>
+          <span className="ml-actions__gap" />
+          <button type="button" className="btn btn--ghost" onClick={disconnectGmail}>
+            <Unplug size={14} /> {t('features.mail.disconnect')}
+          </button>
+        </>
+      ) : (
+        <>
+          <button ref={connectBtn} type="button" className="btn btn--primary" disabled={!ready || phase === 'connecting'} onPointerEnter={() => ready && preloadGis()} onFocus={() => ready && preloadGis()} onClick={() => void connectGmail()}>
+            <Plug size={14} /> {account || reconnect ? t('features.mail.reconnect') : t('features.mail.connect')}
+          </button>
+          {account && <span className="ml-field__hint ml-connect__last">{t('features.mail.access.last', { account })}</span>}
+        </>
+      )}
+    </div>
+  )
+  const errorMsg = error && (
+    <div className="ml-err">
+      <p className="ml-msg ml-msg--err" role="alert">
+        {error}
+      </p>
+      {ownHint && viaOne && (
+        <button type="button" className="btn btn--sm" onClick={openOwn}>
+          <KeyRound size={13} /> {t('features.mail.builtin.useOwn')}
+        </button>
+      )}
+    </div>
+  )
   return (
     <Panel id={uid} code="§ A" title={t('features.mail.access.title')} state={state} stateText={stateText}>
-      <Setup open={!ready} />
-      <ClientIdField />
-      <div className="ml-connect">
-        {connected ? (
-          <>
-            <span className="ml-account">
-              <Mail size={14} aria-hidden />
-              <span className="ml-account__addr" data-testid="mail-account">
-                {account}
-              </span>
-            </span>
-            <span className="ml-actions__gap" />
-            <button type="button" className="btn btn--ghost" onClick={disconnectGmail}>
-              <Unplug size={14} /> {t('features.mail.disconnect')}
-            </button>
-          </>
-        ) : (
-          <>
-            <button type="button" className="btn btn--primary" disabled={!ready || phase === 'connecting'} onPointerEnter={() => ready && preloadGis()} onFocus={() => ready && preloadGis()} onClick={() => void connectGmail()}>
-              <Plug size={14} /> {account || reconnect ? t('features.mail.reconnect') : t('features.mail.connect')}
-            </button>
-            {account && <span className="ml-field__hint ml-connect__last">{t('features.mail.access.last', { account })}</span>}
-          </>
-        )}
-      </div>
-      <p className="ml-field__hint ml-scope">{t('features.mail.access.scope')}</p>
-      {error && (
-        <p className="ml-msg ml-msg--err" role="alert">
-          {error}
-        </p>
+      {viaOne ? (
+        <>
+          {!connected && !account && (
+            <div className="ml-one" data-testid="mail-one-access">
+              <p className="ml-one__lead">{t('features.mail.builtin.lead')}</p>
+              <p className="ml-field__hint ml-one__review">{t('features.mail.builtin.review')}</p>
+            </div>
+          )}
+          {connectRow}
+          <p className="ml-field__hint ml-scope">{t('features.mail.access.scope')}</p>
+          {errorMsg}
+          <OwnClient open={advanced} onOpen={setAdvanced} details={details} />
+        </>
+      ) : (
+        <>
+          <Setup open={!ready} />
+          <ClientIdField onCleared={(byKey) => (setAdvanced(false), byKey && setFocusConnect(true))} />
+          {builtin && (
+            <div className="ml-back">
+              <button type="button" className="btn btn--sm" onClick={back}>
+                <Undo2 size={13} /> {t('features.mail.builtin.back')}
+              </button>
+              <span className="ml-field__hint ml-back__hint">{t('features.mail.builtin.backHint')}</span>
+            </div>
+          )}
+          {connectRow}
+          <p className="ml-field__hint ml-scope">{t('features.mail.access.scope')}</p>
+          {errorMsg}
+        </>
       )}
     </Panel>
   )
@@ -358,7 +475,8 @@ function SyncPanel() {
   const cfg = useMailSettings()
   const m = useMail()
   const { state, text } = useMailReadout()
-  const ready = CLIENT_ID_RE.test(cfg.clientId)
+  useBuiltinClient()
+  const ready = !!effectiveClient(cfg)
   const busy = m.phase === 'running' || m.phase === 'organising'
   const today = format(new Date(), 'yyyy-MM-dd')
   const num = (n: number) => n.toLocaleString(lang === 'de' ? 'de-DE' : 'en-US')

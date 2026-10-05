@@ -14,7 +14,8 @@ import { openPage } from '../../lib/router'
 import { isApplyingCloudChange } from '../../cloud'
 import { isAIConfigured } from '../ai/client'
 import { clearToken, currentToken, onTokenChange, requestToken, revokeToken, setTokenForTests } from './auth'
-import { CLIENT_ID_RE, readMail, setMail } from './settings'
+import { effectiveClient, setBuiltinForTests } from './builtin'
+import { readMail, setMail } from './settings'
 import { clearAll, emptyState, loadState, saveState, wsKey } from './storage'
 import type { GmailCtx, GmailLabel } from './gmail'
 import type { TargetProblem } from './schema'
@@ -45,6 +46,8 @@ export interface MailState {
   errorAt: 'access' | 'sync' | null
   /** the failure needs a new Google sign-in */
   reconnect: boolean
+  /** One's built-in Google client was refused for this account: offer the own client (advanced) */
+  ownHint: boolean
   /** the Mails database can't take mails: offer a new one */
   target: TargetProblem | null
   /** Gmail labels (after connecting) */
@@ -66,6 +69,7 @@ export const useMail = create<MailState>()(() => ({
   error: null,
   errorAt: null,
   reconnect: false,
+  ownHint: false,
   target: null,
   labels: null,
 }))
@@ -77,12 +81,24 @@ const gctx = (signal?: AbortSignal): GmailCtx => ({ token: currentToken, signal 
 
 /* ------------------------------------------------------------------ errors */
 
-/** A failure → a friendly sentence (codes only — nothing from a mail ever reaches a message or a log). */
-export function errorInfo(e: unknown): { text: string; reconnect?: boolean; target?: TargetProblem } {
+/** Refusals that, with One's built-in client, most likely mean "this account is not approved (yet)". */
+const BUILTIN_REFUSALS = new Set(['denied', 'closed', 'client'])
+
+/**
+ * A failure → a friendly sentence (codes only — nothing from a mail ever reaches a message or a log).
+ * `own`: One's built-in client was refused — the own client (advanced) is the way out.
+ */
+export function errorInfo(e: unknown): { text: string; reconnect?: boolean; target?: TargetProblem; own?: boolean } {
   const err = e as { name?: string; code?: string; status?: number; message?: string }
-  if (err?.name === 'AuthError') return { text: t(`features.mail.err.auth.${err.code}`, { origin: window.location.origin }) }
+  const origin = window.location.origin
+  const builtin = effectiveClient(readMail())?.source === 'builtin'
+  if (err?.name === 'AuthError') {
+    if (builtin && BUILTIN_REFUSALS.has(err.code ?? '')) return { text: t(`features.mail.err.builtin.${err.code}`, { origin }), own: true }
+    return { text: t(`features.mail.err.auth.${err.code}`, { origin }) }
+  }
   if (err?.name === 'GmailError') {
     if (err.code === 'auth') return { text: t('features.mail.err.expired'), reconnect: true }
+    if (builtin && err.code === 'forbidden') return { text: t('features.mail.err.builtin.forbidden'), own: true }
     return { text: t(`features.mail.err.gmail.${err.code}`, { status: err.status ?? 0 }) }
   }
   if (err?.name === 'TargetError') return { text: t(`features.mail.err.target.${err.code}`), target: err.code as TargetProblem }
@@ -123,16 +139,19 @@ async function saveError(text: string | null): Promise<void> {
 
 /* ------------------------------------------------------------------ connect */
 
-/** "Connect Gmail" (call from a click: Google's window opens). Resolves true when connected. */
+/**
+ * "Connect Gmail" (call from a click: Google's window opens) with the client in use — the person's own,
+ * else One's built-in one (builtin.ts). Resolves true when connected.
+ */
 export async function connectGmail(): Promise<boolean> {
-  const cfg = readMail()
-  if (!CLIENT_ID_RE.test(cfg.clientId)) {
-    patch({ error: t('features.mail.err.clientId'), errorAt: 'access' })
+  const client = effectiveClient(readMail())
+  if (!client) {
+    patch({ error: t('features.mail.err.clientId'), errorAt: 'access', ownHint: false })
     return false
   }
-  patch({ phase: 'connecting', error: null, errorAt: null })
+  patch({ phase: 'connecting', error: null, errorAt: null, ownHint: false })
   try {
-    await requestToken(cfg.clientId, { prompt: '', hint: useMail.getState().account })
+    await requestToken(client.id, { prompt: '', hint: useMail.getState().account })
     const prof = await (await gmailApi()).profile(gctx())
     const s = await loadState()
     if (s.account !== prof.emailAddress) {
@@ -148,7 +167,7 @@ export async function connectGmail(): Promise<boolean> {
   } catch (e) {
     const info = errorInfo(e)
     if (info.reconnect) clearToken()
-    patch({ error: info.text, errorAt: 'access', reconnect: !!info.reconnect })
+    patch({ error: info.text, errorAt: 'access', reconnect: !!info.reconnect, ownHint: !!info.own })
     return false
   } finally {
     patch({ phase: 'idle' })
@@ -159,6 +178,16 @@ export async function connectGmail(): Promise<boolean> {
 export function disconnectGmail(): void {
   revokeToken()
   patch({ connected: false, labels: null, reconnect: false })
+}
+
+/**
+ * "Back to One's access": forget the own client ID — the database, its rows and the sync settings stay.
+ * The token came from the own client, so it goes too; the next "Connect Gmail" signs in with One's client.
+ */
+export function backToOneAccess(): void {
+  setMail({ clientId: '' })
+  disconnectGmail()
+  patch({ error: null, errorAt: null, ownHint: false })
 }
 
 export async function loadLabels(): Promise<void> {
@@ -311,7 +340,7 @@ let nudged = false
 
 const configured = () => {
   const cfg = readMail()
-  return CLIENT_ID_RE.test(cfg.clientId) && (!!cfg.databaseId || !!useMail.getState().account)
+  return !!effectiveClient(cfg) && (!!cfg.databaseId || !!useMail.getState().account)
 }
 
 /** Once per session: a one-click prompt to sign in again and sync (Google needs the click). */
@@ -478,5 +507,7 @@ if (typeof window !== 'undefined' && (import.meta.env.DEV || new URLSearchParams
     sync: () => syncNow(),
     organiseEarlier,
     reset: resetMailSync,
+    /** One's built-in Google client at this origin (?e2e only, kept across reloads); null = off again */
+    builtin: (id: string | null) => setBuiltinForTests(id),
   }
 }
