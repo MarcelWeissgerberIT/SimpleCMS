@@ -27,6 +27,7 @@ import './select.css'
 /** How far left of the text a press still counts as "in the margin". */
 const MARGIN = 72
 const LONG_PRESS = 450
+const COARSE = typeof window !== 'undefined' && !!window.matchMedia?.('(hover: none)').matches
 
 function kindOf(node: PMNode): string {
   const level = node.type.name === 'heading' ? node.attrs.level : node.type.name === 'details' ? toggleHeadingLevel(node) : 0
@@ -37,8 +38,8 @@ interface Box {
   top: number
   left: number
   bottom: number
-  /** the count chip beside the grip (room in the margin) or above the first block */
-  place: 'side' | 'top'
+  /** the count: a chip beside the grip (room in the margin), else a badge on the grip */
+  place: 'side' | 'badge'
 }
 
 export interface SelectionGripProps {
@@ -73,7 +74,7 @@ export function SelectionGrip({ editor, bridge, pageId, hidden, onOpen }: Select
     const h = host.getBoundingClientRect()
     const a = first.getBoundingClientRect()
     const z = last.getBoundingClientRect()
-    setBox({ top: a.top - h.top, left: a.left - h.left, bottom: Math.max(a.bottom, z.bottom) - h.top, place: a.left > 220 ? 'side' : 'top' })
+    setBox({ top: a.top - h.top, left: a.left - h.left, bottom: Math.max(a.bottom, z.bottom) - h.top, place: a.left > 220 && !COARSE ? 'side' : 'badge' })
   }, [st, editor])
 
   useLayoutEffect(measure, [measure])
@@ -176,9 +177,14 @@ export function SelectionGrip({ editor, bridge, pageId, hidden, onOpen }: Select
             onClick={() => openAtFirst(false)}
           >
             <GripVertical size={16} strokeWidth={1.8} />
+            {st.count > 1 && box.place === 'badge' && (
+              <span className="sel-grip__badge" data-testid="selection-count" aria-hidden>
+                {st.count}
+              </span>
+            )}
           </button>
         </div>
-        {st.count > 1 && (
+        {st.count > 1 && box.place === 'side' && (
           <span className="sel-grip__count label" data-testid="selection-count">
             {t('editor.select.count', { n: st.count })}
           </span>
