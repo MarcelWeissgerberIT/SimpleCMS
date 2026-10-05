@@ -14,7 +14,7 @@ import { markdownToDoc } from '../../editor'
 import { newId } from '../../lib/ids'
 import { t } from '../../i18n'
 import type { Database, ID, PropertyDef, PropertyType } from '../../store/types'
-import { snapshotNow } from '../history/snapshots'
+import { aiWrite, snapshotNow } from '../history/snapshots'
 import { AGENT_TOOLS, ToolInputError, type StageApi } from '../ai/agent/tools'
 import { applyChanges } from '../ai/agent/apply'
 import type { PropChange, StagedChange, ToolName } from '../ai/agent/types'
@@ -214,7 +214,8 @@ function planUpdatePage(args: Record<string, unknown>): WritePlan {
       }
       if (iconChanged) {
         const prev = ws().pages[page.id]?.icon ?? null
-        ws().updatePage(page.id, { icon: icon ?? null })
+        // the page as it was is kept as an "AI" version first (features/history)
+        aiWrite(() => ws().updatePage(page.id, { icon: icon ?? null }))
         undos.push(() => {
           const now = ws().pages[page.id]
           if (!now || iconText(now.icon) !== iconText(icon)) return false

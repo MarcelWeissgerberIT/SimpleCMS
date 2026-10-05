@@ -17,6 +17,8 @@ import { isDbReadOnly } from './readonly'
 export { DatabaseView, type DatabaseViewProps } from './DatabaseView'
 export { RowProperties } from './RowProperties'
 export { propertyValueToText } from './values'
+/** propertyFormulaValue(db, prop, row): a row's value as formulas see it (option / people names, related titles, Date; computed ones included) — features/script */
+export { propertyFormulaValue } from './values'
 /** writePropertyValue(dbId, prop, rowId, value): write one value the way a cell does (two-way relations kept in step) — version history's restore. */
 export { writeValue as writePropertyValue } from './model/actions'
 /** TypeIcon: the lucide glyph of a property type (features/ai/todb lists the columns it will create). */
@@ -61,8 +63,8 @@ export {
  * A database's entries outside its views (the sidebar tree, shell/lib/tree.ts):
  *  - entryOrder(dbId, rows): the rows in the order the database's FIRST view shows them (its sorts, a feed's
  *      date order), unfiltered; without sorts: manual order, then created.
- *  - createEntry(dbId, { title? }): a new row with the first view's presets (from its filters) — what the
- *      view's "New" button creates. null: view only, or no such database.
+ *  - createEntry(dbId, { title?, templateId? }): a new row with the first view's presets (from its filters) — what the
+ *      view's "New" button creates; templateId: from that row template. null: view only, or no such database.
  *  - subItemsOf(db) / parentIdOf(pages, pair, row): the sub-items hierarchy ("Parent item" ↔ "Sub-items").
  */
 export { subItemsOf, parentIdOf, type SubItemsPair } from './model/hierarchy'
@@ -79,12 +81,28 @@ export function entryOrder(dbId: ID, rows: Page[]): Page[] {
   }
 }
 
-export function createEntry(dbId: ID, input: { title?: string } = {}): ID | null {
+export function createEntry(dbId: ID, input: { title?: string; templateId?: ID } = {}): ID | null {
   const s = useWorkspace.getState()
   const db = s.databases[dbId]
   if (!db || isDbReadOnly()) return null
   const view = db.views[0]
   const ctx = workspaceCtx()
   const properties = view ? defaultsFromFilter(view, new Map(db.properties.map((p) => [p.id, p])), (p) => resolveMe(p, ctx)) : {}
-  return s.createRow(dbId, { title: input.title ?? '', properties })
+  // templateId: a row template's values, content and icon over the presets (the "New ▾" menu's templates)
+  const tpl = input.templateId ? db.templates?.find((x) => x.id === input.templateId) : undefined
+  if (!tpl) return s.createRow(dbId, { title: input.title ?? '', properties })
+  const copy = JSON.parse(JSON.stringify({ properties: tpl.properties, content: tpl.content ?? null }))
+  return s.createRow(dbId, { title: input.title ?? '', properties: { ...properties, ...copy.properties }, content: copy.content, icon: tpl.icon ?? null })
 }
+
+/**
+ * A database from outside its page (database commands, features/commands):
+ *  - openDatabaseView(dbId, viewId): its page on that view (switches it when the page is open) — false: no such view
+ *  - pageViewId(dbId): the view its page shows (the last one picked there), else the first
+ *  - exportDatabaseCsv(dbId, viewId?): a view's rows (filters + order) and shown columns as a CSV download (default:
+ *      the view its page shows) → the row count, null: no such database
+ *  - importCsvInto(dbId): pick a CSV / TSV file and import it into the database (the dialog for unknown columns is
+ *      rendered by a mounted database view — open the database page first)
+ */
+export { openDatabaseView, pageViewId, exportDatabaseCsv } from './model/outside'
+export { importCsvInto } from './create/CsvIntake'

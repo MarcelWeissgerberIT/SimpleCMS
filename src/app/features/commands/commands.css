@@ -1,0 +1,394 @@
+/* Database commands — the ⌘ keys, the menu glyphs, "Edit commands…" (features/commands). */
+
+/* ---------- keys ---------- */
+.cmd-key {
+  position: relative;
+}
+
+.cmd-key__led {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  width: 5px;
+  height: 5px;
+  pointer-events: none;
+}
+
+.cmd-key[data-busy] svg {
+  color: var(--ink);
+}
+
+/* touch: the row's ⋯ menu has the commands — no third key in every database row */
+@media (hover: none), (pointer: coarse) {
+  .cmd-key--row {
+    display: none;
+  }
+}
+
+/* ---------- menu glyph (+ the Gmail LED in its corner) ---------- */
+.cmd-glyph {
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+}
+
+.cmd-glyph__led {
+  position: absolute;
+  right: -2px;
+  bottom: -1px;
+  width: 5px;
+  height: 5px;
+  box-shadow: 0 0 0 1.5px var(--surface);
+}
+
+.cmd-glyph__led.led--on {
+  box-shadow:
+    0 0 0 1.5px var(--surface),
+    0 0 0 3px var(--signal-wash);
+}
+
+.cmd-menu .menu-section {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ---------- "Edit commands…" ---------- */
+.modal.dbc .modal__body {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.dbc-hint,
+.dbc-note {
+  margin: 0;
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+  line-height: 1.5;
+}
+
+.dbc-lock {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--rule-strong);
+  border-left: 2px solid var(--signal);
+  border-radius: var(--radius-1);
+  background: var(--surface-2);
+  color: var(--ink-2);
+  font-size: var(--text-xs);
+  line-height: 1.5;
+}
+
+.dbc-lock svg {
+  flex: none;
+  margin-top: 2px;
+  color: var(--signal-ink);
+}
+
+.dbc__head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.dbc__rule {
+  flex: 1;
+  height: 1px;
+  background: var(--rule);
+}
+
+.dbc-list {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius-2);
+  background: var(--surface);
+  list-style: none;
+}
+
+.dbc-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 4px 8px 4px 4px;
+  border-bottom: 1px solid var(--rule);
+  background: var(--surface);
+}
+
+.dbc-row:first-child {
+  border-radius: var(--radius-2) var(--radius-2) 0 0;
+}
+
+.dbc-row:last-child {
+  border-bottom: 0;
+  border-radius: 0 0 var(--radius-2) var(--radius-2);
+}
+
+.dbc-row[data-dragging] {
+  position: relative;
+  z-index: 1;
+  box-shadow: var(--shadow-pop);
+}
+
+.dbc-row[data-hidden] .dbc-row__icon,
+.dbc-row[data-hidden] .dbc-row__main {
+  opacity: 0.45;
+}
+
+.dbc-grip {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 22px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-1);
+  background: transparent;
+  color: var(--ink-3);
+  cursor: grab;
+  touch-action: none;
+}
+
+.dbc-grip:hover {
+  background: var(--hover);
+  color: var(--ink);
+}
+
+.dbc-grip:disabled {
+  cursor: default;
+  opacity: 0.4;
+}
+
+.dbc-row__num {
+  flex: none;
+  width: 18px;
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  font-weight: 600;
+  letter-spacing: var(--tracking-label);
+  color: var(--signal-ink);
+}
+
+.dbc-row__icon {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 20px;
+  color: var(--ink-2);
+}
+
+.dbc-row__main {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.dbc-row__name {
+  overflow: hidden;
+  color: var(--ink);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dbc-row__kind {
+  overflow: hidden;
+  color: var(--ink-3);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  letter-spacing: var(--tracking-label);
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.dbc-row__tools {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 2px;
+}
+
+.dbc-row__tools .switch {
+  margin-left: 6px;
+}
+
+.dbc-row__tools .icon-btn:disabled {
+  opacity: 0.3;
+  pointer-events: none;
+}
+
+/* the ↑ ↓ keys show on hover / focus (Alt+↑ / ↓ and the grip do the same); touch keeps them */
+@media (hover: hover) {
+  .dbc-row__tools .icon-btn {
+    opacity: 0;
+    transition: opacity var(--dur-1) var(--ease-out);
+  }
+
+  .dbc-row:hover .dbc-row__tools .icon-btn,
+  .dbc-row:focus-within .dbc-row__tools .icon-btn {
+    opacity: 1;
+  }
+}
+
+.dbc-add {
+  align-self: flex-start;
+}
+
+.dbc__foot-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-right: auto;
+}
+
+/* ---------- one own command ---------- */
+.dbc-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.dbc-back {
+  display: inline-flex;
+  align-self: flex-start;
+  align-items: center;
+  gap: 4px;
+  height: 26px;
+  padding: 0 8px 0 4px;
+  border: 0;
+  border-radius: var(--radius-1);
+  background: transparent;
+  color: var(--ink-2);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+}
+
+.dbc-back:hover {
+  background: var(--hover);
+  color: var(--ink);
+}
+
+.dbc-detail__top {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 12px;
+}
+
+.dbc-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.dbc-field .input {
+  height: 34px;
+  font-size: var(--text-md);
+  font-weight: 600;
+}
+
+.dbc-iconkey {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius-1);
+  background: var(--surface);
+  color: var(--ink-2);
+  transition: transform var(--dur-1) var(--ease-out);
+}
+
+.dbc-iconkey:hover {
+  background: var(--surface-2);
+}
+
+.dbc-iconkey:active {
+  transform: translateY(1px);
+}
+
+.dbc-kind {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 34px;
+  padding: 0 10px;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-1);
+  color: var(--ink-2);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.dbc-detail__body {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.dbc-pick {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-width: 0;
+  height: 32px;
+  padding: 0 8px;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius-1);
+  background: var(--surface);
+  color: var(--ink);
+  font-size: var(--text-sm);
+  text-align: left;
+}
+
+.dbc-pick:hover {
+  background: var(--surface-2);
+}
+
+.dbc-pick__value {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+@media (max-width: 560px) {
+  .dbc-detail__top {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .dbc-detail__top .dbc-field:last-child {
+    grid-column: 1 / -1;
+  }
+
+  .dbc-row__num {
+    display: none;
+  }
+}

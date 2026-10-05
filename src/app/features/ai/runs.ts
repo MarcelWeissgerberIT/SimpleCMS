@@ -41,7 +41,7 @@ import { condense } from './memory/propose'
 import { pageSource } from './memory/save'
 import type { MemoryProposal, MemoryUse } from './memory/types'
 import { runTransform, type TransformRunRequest } from './transform/run'
-import { TransformError, type TransformIssue, type TransformState } from './transform/types'
+import { shownResult, TransformError, type TransformIssue, type TransformState } from './transform/types'
 
 /* ------------------------------------------------------------------ */
 /* Types                                                               */
@@ -514,10 +514,16 @@ export function setTodbDraft(id: string, draft: TableDraft) {
   if (run?.table) patch(id, { table: { ...run.table, draft } })
 }
 
-/** "Transform into": the preview changed the state (an option, a database draft, the form shown from the cache). */
+/**
+ * "Transform into": the preview changed the state (an option, a database draft, the form shown from the cache).
+ * A failed run that now shows a form asked before (the strip after "no dates") is a finished one again.
+ */
 export function setTransform(id: string, next: (state: TransformState) => TransformState) {
   const run = S().runs[id]
-  if (run?.transform) patch(id, { transform: next(run.transform) })
+  if (!run?.transform || run.status === 'running') return
+  const transform = next(run.transform)
+  const back = run.status !== 'done' && !!shownResult(transform)
+  patch(id, back ? { transform, status: 'done', error: null, issue: null, transformIssue: null, finishedAt: run.finishedAt ?? Date.now() } : { transform })
 }
 
 /** A panel shows this run (returns the release). */

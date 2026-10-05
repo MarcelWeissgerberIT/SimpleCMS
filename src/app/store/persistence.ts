@@ -32,6 +32,7 @@ import { mergePage, samePage } from './merge'
 import { LOCAL_SCOPE, sealStoredAIKey, setStoredKeyMigration } from './secrets'
 import { sanitizeFunctions } from './functions'
 import { sanitizeAgents } from './agents'
+import { sanitizeScripts } from './scripts'
 
 /** The single-record layout before v2 (read once, then converted). */
 const LEGACY_KEY = 'one.workspace.v1'
@@ -190,6 +191,10 @@ export function migrateWithReport(raw: unknown): { ws: Workspace; repaired: bool
   const ags = sanitizeAgents(src.agents)
   ws.agents = ags.agents
   if (ags.dropped) repaired = true
+  // scripts: the same (store/scripts.ts)
+  const scs = sanitizeScripts(src.scripts)
+  ws.scripts = scs.scripts
+  if (scs.dropped) repaired = true
 
   const now = Date.now()
   ws.pages = {}
@@ -271,6 +276,7 @@ let dirtyPeople = false
 let dirtyRecent = false
 let dirtyFunctions = false
 let dirtyAgents = false
+let dirtyScripts = false
 /** Pages were added or removed: the meta record's page order is rewritten with the next save. */
 let dirtyOrder = false
 /** Being written right now (a sync must not replace them with the older stored copy). */
@@ -281,6 +287,7 @@ let inflightPeople = false
 let inflightRecent = false
 let inflightFunctions = false
 let inflightAgents = false
+let inflightScripts = false
 
 /**
  * Per page: the stored copy this tab's current (unsaved) edits descend from. Set when a page
@@ -295,7 +302,7 @@ function trackDirty<T>(next: Record<string, T>, prev: Record<string, T>, into: S
 }
 
 function hasDirty(): boolean {
-  return fullWriteNext || dirtyPages.size > 0 || dirtyDbs.size > 0 || dirtySettings.size > 0 || dirtyPeople || dirtyRecent || dirtyFunctions || dirtyAgents
+  return fullWriteNext || dirtyPages.size > 0 || dirtyDbs.size > 0 || dirtySettings.size > 0 || dirtyPeople || dirtyRecent || dirtyFunctions || dirtyAgents || dirtyScripts
 }
 
 /* ------------------------------------------------------------------ */
@@ -487,7 +494,7 @@ function readSome(pageIds: ID[], dbIds: ID[], meta: boolean): Promise<{ pages: M
  * otherwise come back sorted by id, and code that walks the page map (first match by title, ties
  * in sorted lists, graph layout) sees the order it always saw.
  */
-const metaOf = (ws: Workspace) => ({ version: ws.version, epoch: ws.epoch, settings: ws.settings, people: ws.people, recent: ws.recent, functions: ws.functions ?? {}, agents: ws.agents ?? {}, order: Object.keys(ws.pages) })
+const metaOf = (ws: Workspace) => ({ version: ws.version, epoch: ws.epoch, settings: ws.settings, people: ws.people, recent: ws.recent, functions: ws.functions ?? {}, agents: ws.agents ?? {}, scripts: ws.scripts ?? {}, order: Object.keys(ws.pages) })
 
 /** Records (id → value) in the stored page order; ids the order does not know follow by creation time. */
 function inOrder(records: Obj, order: unknown): Obj {
@@ -648,6 +655,7 @@ async function readChanged(pageIds: ID[], dbIds: ID[], meta: boolean): Promise<W
     ws.recent = m.recent
     ws.functions = m.functions
     ws.agents = m.agents
+    ws.scripts = m.scripts
   }
   const now = Date.now()
   for (const [id, v] of rec.pages) {
@@ -698,6 +706,8 @@ interface WriteSet {
   functions: boolean
   /** custom agents (kept in the meta record) */
   agents: boolean
+  /** scripts (kept in the meta record) */
+  scripts: boolean
   /** pages were added or removed (the meta record keeps their order) */
   order: boolean
   /** every record (first run, a repair, the conversion from the legacy layout) */
@@ -760,7 +770,7 @@ function writeRecords(set: WriteSet, bases: Map<ID, Page>, merged: Map<ID, [Page
         if (db) os.put(db, DB_PREFIX + id)
         else os.delete(DB_PREFIX + id)
       }
-      if (set.settingKeys.length || set.people || set.recent || set.functions || set.agents || set.order) {
+      if (set.settingKeys.length || set.people || set.recent || set.functions || set.agents || set.scripts || set.order) {
         const next: Obj = { ...(meta.result as Obj), version: snap.version }
         if (set.order) next.order = Object.keys(snap.pages)
         if (set.settingKeys.length) {
@@ -772,6 +782,7 @@ function writeRecords(set: WriteSet, bases: Map<ID, Page>, merged: Map<ID, [Page
         if (set.recent) next.recent = snap.recent
         if (set.functions) next.functions = snap.functions ?? {}
         if (set.agents) next.agents = snap.agents ?? {}
+        if (set.scripts) next.scripts = snap.scripts ?? {}
         os.put(next, META_KEY)
       }
     }
@@ -805,13 +816,14 @@ async function writeChanges(): Promise<void> {
   const recent = dirtyRecent
   const functions = dirtyFunctions
   const agents = dirtyAgents
+  const scripts = dirtyScripts
   const order = dirtyOrder
   const full = fullWriteNext
   const stash = pendingStash
   dirtyPages.clear()
   dirtyDbs.clear()
   dirtySettings.clear()
-  dirtyPeople = dirtyRecent = dirtyFunctions = dirtyAgents = dirtyOrder = fullWriteNext = false
+  dirtyPeople = dirtyRecent = dirtyFunctions = dirtyAgents = dirtyScripts = dirtyOrder = fullWriteNext = false
   pages.forEach((id) => inflightPages.add(id))
   dbs.forEach((id) => inflightDbs.add(id))
   settingKeys.forEach((k) => inflightSettings.add(k))
@@ -819,6 +831,7 @@ async function writeChanges(): Promise<void> {
   inflightRecent = recent
   inflightFunctions = functions
   inflightAgents = agents
+  inflightScripts = scripts
   // the stored copies our edits started from: a different stored copy means another tab wrote
   const bases = new Map<ID, Page>()
   for (const id of pages) {
@@ -829,7 +842,7 @@ async function writeChanges(): Promise<void> {
   try {
     setStatus('saving')
     // nothing stored yet (first run, seed), a repair or the legacy layout: every record (full)
-    const res = await writeRecords({ pages, dbs, settingKeys, people, recent, functions, agents, order, full }, bases, merged)
+    const res = await writeRecords({ pages, dbs, settingKeys, people, recent, functions, agents, scripts, order, full }, bases, merged)
     const written = res.pages
     // what is stored now is what this tab's pages descend from
     for (const id of pages) {
@@ -846,7 +859,7 @@ async function writeChanges(): Promise<void> {
       if (pendingStash === stash) pendingStash = null
     }
     // other tabs read just these records (a full write: everything)
-    const msg: ChangedMessage = { type: 'changed', from: TAB_ID, full: res.full, pages, dbs, meta: settingKeys.length > 0 || people || recent || functions || agents }
+    const msg: ChangedMessage = { type: 'changed', from: TAB_ID, full: res.full, pages, dbs, meta: settingKeys.length > 0 || people || recent || functions || agents || scripts }
     channel?.postMessage(msg)
   } catch (e) {
     console.error('[one] failed to save workspace', e)
@@ -857,6 +870,7 @@ async function writeChanges(): Promise<void> {
     dirtyRecent ||= recent
     dirtyFunctions ||= functions
     dirtyAgents ||= agents
+    dirtyScripts ||= scripts
     dirtyOrder ||= order
     fullWriteNext ||= full
     setStatus('error')
@@ -867,7 +881,7 @@ async function writeChanges(): Promise<void> {
     inflightPages.clear()
     inflightDbs.clear()
     inflightSettings.clear()
-    inflightPeople = inflightRecent = inflightFunctions = inflightAgents = false
+    inflightPeople = inflightRecent = inflightFunctions = inflightAgents = inflightScripts = false
   }
 }
 
@@ -955,7 +969,8 @@ export function startPersistence(): () => void {
       state.people === prev.people &&
       state.recent === prev.recent &&
       state.functions === prev.functions &&
-      state.agents === prev.agents
+      state.agents === prev.agents &&
+      state.scripts === prev.scripts
     )
       return
     if (state.pages !== prev.pages) {
@@ -979,6 +994,7 @@ export function startPersistence(): () => void {
     if (state.recent !== prev.recent) dirtyRecent = true
     if (state.functions !== prev.functions) dirtyFunctions = true
     if (state.agents !== prev.agents) dirtyAgents = true
+    if (state.scripts !== prev.scripts) dirtyScripts = true
     scheduleSave(SAVE_DELAY)
   })
 
@@ -1021,6 +1037,7 @@ export function startPersistence(): () => void {
     if (dirtyRecent || inflightRecent) ws.recent = local.recent
     if (dirtyFunctions || inflightFunctions) ws.functions = local.functions
     if (dirtyAgents || inflightAgents) ws.agents = local.agents
+    if (dirtyScripts || inflightScripts) ws.scripts = local.scripts
     // pages taken over from storage are in sync again (the next local change sets a new base)
     for (const id of [...syncBase.keys()]) {
       if (!dirtyPages.has(id) && !inflightPages.has(id)) syncBase.delete(id)

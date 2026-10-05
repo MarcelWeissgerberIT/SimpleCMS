@@ -40,6 +40,13 @@ export { AIRunsHost, AIRunLed, type AIRunsHostProps } from './ai/RunsHost'
 export { startImageAction, askAboutImage } from './ai/image/actions'
 export type { ImageAction } from './ai/image/request'
 /*
+ * "Transform into …" (features/ai/transform): selected blocks → Auto · Board · Table · Timeline · Diagram (mermaid) ·
+ * Chart · Columns · Tabs · Toggles · Cards, previewed first (AIMenuProps.transform opens the panel on one at once):
+ *  - transformChoicesAt(doc, from, to): the picks for a selection ([] = not offered) · TRANSFORM_ICONS[pick]
+ */
+export { transformChoicesAt, TRANSFORM_ICONS } from './ai/transform/forms'
+export type { TransformPick } from './ai/transform/types'
+/*
  * External MCP servers for Claude (Messages API MCP connector): McpServers = the section of
  * Settings → Claude AI (servers, sealed tokens, usage prompts, the MCP instructions template).
  */
@@ -277,3 +284,27 @@ export {
  *  - ServerAgentsSettings (Settings → Agents · MCP, team workspaces) · agentLabel(actor) → "Agent · <name>" | null
  */
 export { startAgents, AgentsRoute, AgentsNavBadge, useAgentsAttention, ServerAgentsSettings, agentLabel } from './agents'
+/*
+ * Database commands (a database's menu of things to run — sidebar ⌘ key / row menu, toolbar key, ⌘K; see commands/index.ts):
+ *  - DbCommandKey { dbId, variant, rowIds?, host?, onOpenChange? } · DbCommandsMenu (a row menu with the commands on top)
+ *  - CommandsEditor (modal 'dbCommands') · openCommandsEditor(dbId) · paletteDbCommands() (⌘K entries)
+ *  - registerCommandKind(def): the extension point for new kinds of own commands (e.g. "Run script")
+ */
+export {
+  DbCommandKey,
+  DbCommandsMenu,
+  CommandsEditor,
+  openCommandsEditor,
+  paletteDbCommands,
+  registerCommandKind,
+  CommandFailure,
+  readDbCommands,
+  saveDbCommands,
+  type DbCommandKeyProps,
+  type CommandKindDef,
+  type CommandPickerProps,
+  type CommandRunContext,
+  type CommandSurface,
+  type CommandHost,
+  type PaletteCommand,
+} from './commands'

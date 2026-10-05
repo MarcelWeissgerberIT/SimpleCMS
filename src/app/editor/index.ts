@@ -75,3 +75,15 @@ export { startRedo } from './context/redo'
 export { liveEditorOf } from './context/store'
 export type { ContextMode, PickPurpose } from './context/store'
 export { turnIntoPage, SPLIT_SHORTCUT, SPLIT_ORIGIN, type TurnIntoPageOptions } from './split/split'
+/**
+ * Button actions outside a button (features/commands: a database command of kind "Actions" uses the same list):
+ *  - ButtonActionsEditor { actions, update(fn), pageId, rowDb, types?, create?, notes?, payload? }: the action list of
+ *      the button's settings (cards, ↑↓, remove, "Add action"); `types` limits the kinds offered.
+ *  - normalizeButtonActions(raw) (untrusted JSON → actions) · newButtonAction(type) · ButtonAction / ButtonActionType.
+ *  - buttonPresetValues(db, presets, row | null, now) → { values } | { error } (the "@today" / "@toggle" / {{vars}} rules)
+ *  - sendButtonWebhook(url, method, payload) → { ok, unconfirmed?, message } (lib/webhook: JSON + CORS, no-cors retry)
+ *  - openButtonTarget(action) → { ok, text } (a page, or a URL in a new tab) · fillButtonVars(text): {{date}} {{time}} {{user}}
+ */
+export { ButtonActionsEditor, type ButtonActionsEditorProps } from './views/ButtonConfig'
+export { normalizeActions as normalizeButtonActions, newAction as newButtonAction, type ButtonAction, type ButtonActionType, type PropertyPreset } from './schema/button'
+export { presetValues as buttonPresetValues, sendWebhook as sendButtonWebhook, openTarget as openButtonTarget, fillVars as fillButtonVars } from './lib/buttonRun'

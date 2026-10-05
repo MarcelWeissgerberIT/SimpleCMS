@@ -28,6 +28,8 @@ export interface MailAttachment {
   name: string
   size: number
   mime: string
+  /** Gmail's attachment id at the time the message was fetched (they change between fetches) */
+  aid?: string
 }
 
 /** A body part Gmail delivered by reference (attachmentId) instead of inline data. */
@@ -166,7 +168,7 @@ export function parseMessage(m: GmailMessage): ParsedMail {
     if (name) {
       // inline images of the HTML (signatures, logos: Content-ID, no "attachment") are not listed
       const inline = !disposition.startsWith('attachment') && !!header(part, 'Content-ID') && mime.startsWith('image/')
-      if (!inline) out.attachments.push({ name, size: part.body?.size ?? 0, mime: mime || 'application/octet-stream' })
+      if (!inline) out.attachments.push({ name, size: part.body?.size ?? 0, mime: mime || 'application/octet-stream', ...(part.body?.attachmentId ? { aid: part.body.attachmentId } : {}) })
       return
     }
     if (disposition.startsWith('attachment')) return

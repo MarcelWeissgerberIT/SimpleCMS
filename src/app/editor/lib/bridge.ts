@@ -4,6 +4,7 @@
  */
 import { createStore, type StoreApi } from 'zustand/vanilla'
 import type { Range } from '@tiptap/core'
+import type { TransformPick } from '../../features'
 
 export type SuggestKind = 'slash' | 'mention' | 'emoji'
 
@@ -30,8 +31,8 @@ export interface CommentsUI {
 
 export interface OverlayState {
   suggest: SuggestState | null
-  /** the AI panel; `redo`: opened on passages marked to redo (block ids — "Redo with instructions") */
-  ai: { mode: 'selection' | 'block'; redo?: string[] } | null
+  /** the AI panel; `redo`: opened on passages marked to redo (block ids — "Redo with instructions"); `transform`: transform the selection into this form at once */
+  ai: { mode: 'selection' | 'block'; redo?: string[]; transform?: TransformPick } | null
   /** URL pasted on an empty line → offer Link / Bookmark / Embed */
   urlPaste: { url: string; from: number; to: number } | null
   /** Mod+K / link button: bubble toolbar in link-input mode */

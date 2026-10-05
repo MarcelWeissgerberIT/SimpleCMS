@@ -23,8 +23,9 @@ import * as Y from 'yjs'
 import type { JSONContent } from '@tiptap/core'
 import { useWorkspace, type CloudPatch } from '../store/store'
 import { runAsRemote } from '../store/persistence'
-import type { CustomAgent, CustomFunction, Database, ID, Page, Settings } from '../store/types'
+import type { CustomAgent, CustomFunction, Database, ID, OneScript, Page, Settings } from '../store/types'
 import { sameAgent, sanitizeAgent } from '../store/agents'
+import { sameScript, sanitizeScript } from '../store/scripts'
 import { defaultView } from '../store/store'
 import { sharedPlain } from './privacy'
 import { LOCAL, newDatabaseMap, newPageMap, readDatabase, readFunctions, readPage, readPeople, roots, writeDatabase, writeFunctions, writePage, writePeople, type YMap } from './schema'
@@ -98,6 +99,37 @@ function readAgents(source: Y.Map<unknown>, cur: Record<ID, CustomAgent> | undef
     if (prev[id] && sameAgent(prev[id], agent) && prev[id].updatedAt === agent.updatedAt) out[id] = prev[id]
     else {
       out[id] = agent
+      same = false
+    }
+  }
+  if (Object.keys(prev).some((id) => !(id in out))) same = false
+  return same && cur ? cur : out
+}
+
+/* ------------------------------------------------------------------ scripts (meta map 'scripts') */
+
+/** Scripts: one JSON entry per script (only the ones that changed are written). */
+function writeScripts(target: Y.Map<unknown>, next: Record<ID, OneScript> | undefined, before: Record<ID, OneScript> | undefined): void {
+  const prev = before ?? {}
+  const cur = next ?? {}
+  for (const [id, script] of Object.entries(cur)) {
+    if (prev[id] === script) continue
+    target.set(id, JSON.parse(JSON.stringify(script)))
+  }
+  for (const id of Object.keys(prev)) if (!(id in cur)) target.delete(id)
+}
+
+/** The store's scripts from the meta document, every entry sanitized (store/scripts.ts); `cur` itself when nothing changed. */
+function readScripts(source: Y.Map<unknown>, cur: Record<ID, OneScript> | undefined): Record<ID, OneScript> {
+  const prev = cur ?? {}
+  const out: Record<ID, OneScript> = {}
+  let same = true
+  for (const [id, v] of source.entries()) {
+    const script = sanitizeScript(id, v)
+    if (!script) continue
+    if (prev[id] && sameScript(prev[id], script) && prev[id].updatedAt === script.updatedAt) out[id] = prev[id]
+    else {
+      out[id] = script
       same = false
     }
   }
@@ -197,6 +229,8 @@ export function startBinding(o: BindingOptions): Binding {
   let dirtyFunctions = false
   const agentsMap = o.doc.getMap<unknown>('agents')
   let dirtyAgents = false
+  const scriptsMap = o.doc.getMap<unknown>('scripts')
+  let dirtyScripts = false
 
   /* ---------------------------------------------------------------- Y → store */
 
@@ -226,10 +260,14 @@ export function startBinding(o: BindingOptions): Binding {
   const onAgents = (_e: unknown, tr: Y.Transaction) => {
     if (tr.origin !== LOCAL) dirtyAgents = true
   }
+  const onScripts = (_e: unknown, tr: Y.Transaction) => {
+    if (tr.origin !== LOCAL) dirtyScripts = true
+  }
   rs.people.observe(onPeople)
   rs.workspace.observe(onWorkspace)
   rs.functions.observe(onFunctions)
   agentsMap.observe(onAgents)
+  scriptsMap.observe(onScripts)
 
   function applyRemote(all = false) {
     const s = useWorkspace.getState()
@@ -240,7 +278,7 @@ export function startBinding(o: BindingOptions): Binding {
       }
       for (const id of Object.keys(s.pages)) dirtyPages.add(id)
       for (const id of Object.keys(s.databases)) dirtyDbs.add(id)
-      dirtyPeople = dirtyWorkspace = dirtyFunctions = dirtyAgents = true
+      dirtyPeople = dirtyWorkspace = dirtyFunctions = dirtyAgents = dirtyScripts = true
     }
     const patch: CloudPatch = {}
     const created: ID[] = []
@@ -322,14 +360,24 @@ export function startBinding(o: BindingOptions): Binding {
       }
       dirtyAgents = false
     }
-    if (!patch.pages && !patch.databases && !patch.people && !patch.settings && !patch.functions && !patch.agents) return
+    if (dirtyScripts) {
+      const scripts = readScripts(scriptsMap, s.scripts)
+      if (scripts !== s.scripts) {
+        const next: Record<ID, OneScript | null> = {}
+        for (const [id, script] of Object.entries(scripts)) if (s.scripts?.[id] !== script) next[id] = script
+        for (const id of Object.keys(s.scripts ?? {})) if (!(id in scripts)) next[id] = null
+        if (Object.keys(next).length) patch.scripts = next
+      }
+      dirtyScripts = false
+    }
+    if (!patch.pages && !patch.databases && !patch.people && !patch.settings && !patch.functions && !patch.agents && !patch.scripts) return
     applyFromCloud(() => s.cloudPatch(patch))
     if (created.length || touched.length || removed.length || rescoped.length) o.onRemotePages({ created, touched, removed, rescoped })
   }
 
   const afterTx = (tr: Y.Transaction) => {
     if (tr.origin === LOCAL) return
-    if (dirtyPages.size || dirtyDbs.size || dirtyPeople || dirtyWorkspace || dirtyFunctions || dirtyAgents) {
+    if (dirtyPages.size || dirtyDbs.size || dirtyPeople || dirtyWorkspace || dirtyFunctions || dirtyAgents || dirtyScripts) {
       try {
         applyRemote()
       } catch (e) {
@@ -371,8 +419,9 @@ export function startBinding(o: BindingOptions): Binding {
     const peopleChanged = state.people !== prev.people
     const functionsChanged = state.functions !== prev.functions
     const agentsChanged = state.agents !== prev.agents
+    const scriptsChanged = state.scripts !== prev.scripts
     if (state.settings !== prev.settings) o.onSettings(state.settings, prev.settings)
-    if (!pagesChanged && !dbsChanged && !peopleChanged && !functionsChanged && !agentsChanged) return
+    if (!pagesChanged && !dbsChanged && !peopleChanged && !functionsChanged && !agentsChanged && !scriptsChanged) return
 
     if (!o.writable()) {
       if (pagesChanged) {
@@ -490,6 +539,7 @@ export function startBinding(o: BindingOptions): Binding {
       if (peopleChanged) writePeople(rs.people, state.people, prev.people)
       if (functionsChanged) writeFunctions(rs.functions, state.functions, prev.functions)
       if (agentsChanged) writeAgents(agentsMap, state.agents, prev.agents)
+      if (scriptsChanged) writeScripts(scriptsMap, state.scripts, prev.scripts)
     })
     // Follow-up store patches (the local `private` marker; created_by / last_edited_by mirror the
     // createdBy / updatedBy this client just wrote) go out after every store listener saw this change:
@@ -530,6 +580,15 @@ export function startBinding(o: BindingOptions): Binding {
       console.error('[one] could not read the agents of the cloud workspace', e)
     }
   }
+  // the scripts likewise
+  if (scriptsMap.size || Object.keys(useWorkspace.getState().scripts ?? {}).length) {
+    dirtyScripts = true
+    try {
+      applyRemote()
+    } catch (e) {
+      console.error('[one] could not read the scripts of the cloud workspace', e)
+    }
+  }
 
   return {
     stop: () => {
@@ -540,6 +599,7 @@ export function startBinding(o: BindingOptions): Binding {
       rs.workspace.unobserve(onWorkspace)
       rs.functions.unobserve(onFunctions)
       agentsMap.unobserve(onAgents)
+      scriptsMap.unobserve(onScripts)
       o.doc.off('afterTransaction', afterTx)
       o.privateDoc?.off('afterTransaction', afterTx)
     },

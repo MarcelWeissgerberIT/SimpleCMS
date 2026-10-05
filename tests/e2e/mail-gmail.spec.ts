@@ -80,8 +80,12 @@ interface MockMail {
   to: string
   html?: string
   text?: string
-  attachments?: Array<{ name: string; mime: string; size: number }>
+  attachments?: Array<{ name: string; mime: string; size: number; data?: Buffer }>
+  /** Gmail thread id (default: one thread per mail) */
+  thread?: string
 }
+
+const threadOf = (m: MockMail) => m.thread ?? `t-${m.id}`
 
 const b64url = (s: string) => Buffer.from(s, 'utf8').toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
 
@@ -137,15 +141,15 @@ class Mailbox {
 
   add(m: MockMail) {
     this.mails.push(m)
-    this.history.push({ id: ++this.historyId, messagesAdded: [{ message: { id: m.id, threadId: `t-${m.id}`, labelIds: m.labelIds } }] })
+    this.history.push({ id: ++this.historyId, messagesAdded: [{ message: { id: m.id, threadId: threadOf(m), labelIds: m.labelIds } }] })
   }
 
   relabel(id: string, add: string[], remove: string[]) {
     const m = this.mails.find((x) => x.id === id)!
     m.labelIds = [...m.labelIds.filter((l) => !remove.includes(l)), ...add.filter((l) => !m.labelIds.includes(l))]
     const rec: HistoryRecord = { id: ++this.historyId }
-    if (add.length) rec.labelsAdded = [{ message: { id, threadId: `t-${id}`, labelIds: m.labelIds }, labelIds: add }]
-    if (remove.length) rec.labelsRemoved = [{ message: { id, threadId: `t-${id}`, labelIds: m.labelIds }, labelIds: remove }]
+    if (add.length) rec.labelsAdded = [{ message: { id, threadId: threadOf(m), labelIds: m.labelIds }, labelIds: add }]
+    if (remove.length) rec.labelsRemoved = [{ message: { id, threadId: threadOf(m), labelIds: m.labelIds }, labelIds: remove }]
     this.history.push(rec)
   }
 
@@ -157,7 +161,7 @@ class Mailbox {
   }
 
   message(m: MockMail, format: string): AnyState {
-    const base = { id: m.id, threadId: `t-${m.id}`, labelIds: m.labelIds, snippet: (m.text ?? m.subject).slice(0, 80), historyId: String(this.historyId), internalDate: String(m.date), sizeEstimate: 2048 }
+    const base = { id: m.id, threadId: threadOf(m), labelIds: m.labelIds, snippet: (m.text ?? m.subject).slice(0, 80), historyId: String(this.historyId), internalDate: String(m.date), sizeEstimate: 2048 }
     return format === 'minimal' ? base : { ...base, payload: payloadOf(m) }
   }
 
@@ -187,7 +191,14 @@ class Mailbox {
         .filter((m) => m.date >= after && labelIds.every((l) => m.labelIds.includes(l)) && (spam || !m.labelIds.some((l) => l === 'SPAM' || l === 'TRASH')))
         .sort((a, b) => b.date - a.date)
       const page = hits.slice(offset, offset + max)
-      return json(200, { messages: page.map((m) => ({ id: m.id, threadId: `t-${m.id}` })), resultSizeEstimate: hits.length, ...(offset + max < hits.length ? { nextPageToken: String(offset + max) } : {}) })
+      return json(200, { messages: page.map((m) => ({ id: m.id, threadId: threadOf(m) })), resultSizeEstimate: hits.length, ...(offset + max < hits.length ? { nextPageToken: String(offset + max) } : {}) })
+    }
+    const att = path.match(/^messages\/([^/]+)\/attachments\/([^/]+)$/)
+    if (att) {
+      const a = this.mails.find((x) => x.id === att[1])?.attachments?.find((x) => `att-${x.name}` === decodeURIComponent(att[2]))
+      if (!a) return json(404, { error: { code: 404 } })
+      const data = a.data ?? Buffer.alloc(0)
+      return json(200, { size: data.length || a.size, data: data.toString('base64url') })
     }
     const one = path.match(/^messages\/([^/]+)$/)
     if (one) {
@@ -491,7 +502,7 @@ test.describe('Mail (Gmail)', () => {
       title: 'Mails',
       parentId: parent,
       private: false,
-      props: ['Subject:title', 'From:text', 'To:text', 'Date:date', 'Labels:multi_select', 'Unread:checkbox', 'Has attachments:checkbox', 'Gmail link:url', 'Thread:text', 'Message ID:text', 'Show images:checkbox'],
+      props: ['Subject:title', 'From:text', 'To:text', 'Date:date', 'Labels:multi_select', 'Unread:checkbox', 'Has attachments:checkbox', 'Gmail link:url', 'Thread:text', 'Message ID:text', 'Show images:checkbox', 'Load attachment:text', 'Contact:relation', 'Company:relation', 'Conversation:relation'],
       views: ['Inbox'],
     })
 
@@ -514,6 +525,10 @@ test.describe('Mail (Gmail)', () => {
       Thread: 't-m1',
       'Message ID': 'm1',
       'Show images': false,
+      'Load attachment': '',
+      Contact: [expect.any(String)],
+      Company: [expect.any(String)],
+      Conversation: [expect.any(String)],
     })
     const review = rowBy(rows, 'Draft review')
     expect(review.props).toMatchObject({ From: 'Bob Builder <bob@example.test>', Unread: true, 'Has attachments': false, Labels: ['Inbox'] })
@@ -1110,6 +1125,477 @@ test.describe('Mail — One’s built-in Google client', () => {
       await connect.click()
       await expect(dialog.getByTestId('mail-account')).toHaveText(ACCOUNT)
       expect(await page.evaluate(() => window.__gis.calls.map((c) => c.client_id))).toEqual([BUILTIN_ID])
+    })
+  })
+})
+
+/* ------------------------------------------------------------------ */
+/* Contacts, companies, conversations (features/mail/people.ts)         */
+/* ------------------------------------------------------------------ */
+
+/** 6 mails: Felix (firma.de) and Paul (mueller-gmbh.de) in two threads with replies, Mia from gmail.com, one sent by Ada. */
+function peopleMails(now: number): MockMail[] {
+  return [
+    { id: 'c1', labelIds: ['INBOX'], date: now - 6 * DAY, subject: 'Angebot P2', from: 'Felix Merz <felix@firma.de>', to: ACCOUNT, text: 'Hier das Angebot.', thread: 'T1' },
+    { id: 'c2', labelIds: ['SENT'], date: now - 5 * DAY, subject: 'Re: Angebot P2', from: `Ada Lovelace <${ACCOUNT}>`, to: 'Felix Merz <felix@firma.de>', text: 'Danke!', thread: 'T1' },
+    { id: 'c3', labelIds: ['INBOX'], date: now - 4 * DAY, subject: 'AW: Angebot P2', from: '"Merz, Felix" <Felix@Firma.de>', to: ACCOUNT, text: 'Gern.', thread: 'T1' },
+    { id: 'c4', labelIds: ['INBOX'], date: now - 3 * DAY, subject: 'Termin Dienstag', from: 'Paul König <paul@mail.mueller-gmbh.de>', to: ACCOUNT, text: 'Passt Dienstag?', thread: 'T2' },
+    { id: 'c5', labelIds: ['INBOX'], date: now - 2 * DAY, subject: 'Re: Termin Dienstag', from: 'Felix Merz <felix@firma.de>', to: `${ACCOUNT}, paul@mueller-gmbh.de`, text: 'Ich komme auch.', thread: 'T2' },
+    { id: 'c6', labelIds: ['INBOX'], date: now - 1 * DAY, subject: 'Fotos vom Wochenende', from: 'mia.schulz@gmail.com', to: ACCOUNT, text: 'Anbei die Fotos.' },
+  ]
+}
+
+const SYSTEM = { contacts: 'mail-contacts', companies: 'mail-companies', conversations: 'mail-conversations' } as const
+
+/** A directory (found by its marker): rows by title, values by property NAME, relations as sorted titles. */
+async function directory(page: Page, kind: keyof typeof SYSTEM): Promise<AnyState[]> {
+  return wsEval(
+    page,
+    (s, sys) => {
+      const db = (Object.values(s.databases) as AnyState[]).find((d) => d.system === sys && !s.pages[d.id]?.trashed)
+      if (!db) return []
+      const title = (id: string) => s.pages[id]?.title
+      return (Object.values(s.pages) as AnyState[])
+        .filter((p) => p.databaseId === db.id && !p.trashed)
+        .map((p) => {
+          const props: AnyState = {}
+          for (const d of db.properties) {
+            if (d.type === 'title' || d.type === 'rollup') continue
+            const v = p.properties[d.id]
+            props[d.name] = d.type === 'relation' ? (v ?? []).map(title).sort() : (v ?? null)
+          }
+          return { id: p.id, title: p.title, props }
+        })
+        .sort((a, b) => a.title.localeCompare(b.title))
+    },
+    SYSTEM[kind],
+  )
+}
+
+/** Mail title → [contact, company, conversation] names (null = not linked). */
+async function mailLinks(page: Page): Promise<Record<string, Array<string | null>>> {
+  return wsEval(page, (s) => {
+    const cfg = s.settings.mail
+    const out: Record<string, Array<string | null>> = {}
+    for (const p of Object.values(s.pages) as AnyState[]) {
+      if (p.databaseId !== cfg.databaseId || p.trashed) continue
+      out[p.title] = ['contact', 'company', 'conversation'].map((role) => {
+        const id = cfg.props?.[role] ? (p.properties[cfg.props[role]] ?? [])[0] : null
+        return id ? s.pages[id]?.title ?? null : null
+      })
+    }
+    return out
+  })
+}
+
+const counts = async (page: Page) => [(await directory(page, 'contacts')).length, (await directory(page, 'companies')).length, (await directory(page, 'conversations')).length]
+
+test.describe('Mail — contacts, companies, conversations', () => {
+  test('the sync fills Contacts (names from headers), Companies (by domain, not gmail.com), Conversations (subject without Re:) and links each mail; a re-sync adds no duplicates', async ({ page }) => {
+    const env = await setup(page, peopleMails)
+    await openApp(page)
+    await configure(page, { labels: ['INBOX', 'SENT'] })
+    await connect(page)
+    await syncAndWait(page)
+    await expect(page.getByText('6 new mails')).toBeVisible()
+
+    const contacts = await directory(page, 'contacts')
+    expect(contacts.map((c) => [c.title, c.props['E-mail'], c.props.Company])).toEqual([
+      ['Felix Merz', 'felix@firma.de', ['Firma']],
+      ['Mia Schulz', 'mia.schulz@gmail.com', []],
+      ['Paul König', 'paul@mail.mueller-gmbh.de', ['Mueller GmbH']],
+    ])
+    expect(contacts[0].props.Mails).toEqual(['AW: Angebot P2', 'Angebot P2', 'Re: Angebot P2', 'Re: Termin Dienstag'])
+    const companies = await directory(page, 'companies')
+    expect(companies.map((c) => [c.title, c.props.Domains, c.props.Contacts, c.props.Mails.length])).toEqual([
+      ['Firma', 'firma.de', ['Felix Merz'], 4],
+      ['Mueller GmbH', 'mueller-gmbh.de', ['Paul König'], 1],
+    ])
+    const conversations = await directory(page, 'conversations')
+    expect(conversations.map((c) => [c.title, c.props.People, c.props.Mails.length])).toEqual([
+      ['Angebot P2', ['Felix Merz'], 3],
+      ['Fotos vom Wochenende', ['Mia Schulz'], 1],
+      ['Termin Dienstag', ['Felix Merz', 'Paul König'], 2],
+    ])
+    expect(conversations.map((c) => c.props['Thread id']).sort()).toEqual(['T1', 'T2', 't-c6'])
+    // every mail names its contact, company, conversation — Ada's own reply names whom it went to
+    expect(await mailLinks(page)).toEqual({
+      'Angebot P2': ['Felix Merz', 'Firma', 'Angebot P2'],
+      'Re: Angebot P2': ['Felix Merz', 'Firma', 'Angebot P2'],
+      'AW: Angebot P2': ['Felix Merz', 'Firma', 'Angebot P2'],
+      'Termin Dienstag': ['Paul König', 'Mueller GmbH', 'Termin Dienstag'],
+      'Re: Termin Dienstag': ['Felix Merz', 'Firma', 'Termin Dienstag'],
+      'Fotos vom Wochenende': ['Mia Schulz', null, 'Fotos vom Wochenende'],
+    })
+    // "Last mail" is computed (a rollup over the mails' Date)
+    const rollups = await wsEval(page, (s) => (Object.values(s.databases) as AnyState[]).filter((d) => String(d.system).startsWith('mail-')).map((d) => d.properties.filter((p: AnyState) => p.type === 'rollup').map((p: AnyState) => `${p.name}:${p.rollup.fn}`)))
+    expect(rollups).toEqual([['Last mail:latest_date'], ['Last mail:latest_date'], ['Last mail:latest_date']])
+    // the Mails table shows names, the Settings tab lists the three databases
+    const dialog = await openMailTab(page)
+    await expect(dialog.getByTestId('mail-dir-contacts')).toContainText('3 entries')
+    await expect(dialog.getByTestId('mail-dir-companies')).toContainText('2 entries')
+    await expect(dialog.getByTestId('mail-dir-conversations')).toContainText('3 entries')
+    await closeSettings(page)
+    const cfg = await mailCfg(page)
+    await gotoPage(page, cfg.databaseId)
+    await expect(page.locator('#main .db').first()).toContainText('Mueller GmbH')
+    await expect(page.locator('#main .db').first()).toContainText('Termin Dienstag')
+
+    // a new reply in thread T1, then a reset (everything listed again): no duplicates
+    env.box.add({ id: 'c7', labelIds: ['INBOX'], date: Date.now() - 60_000, subject: 'Re: Angebot P2', from: 'Felix Merz <felix@firma.de>', to: ACCOUNT, text: 'Noch eine Frage.', thread: 'T1' })
+    await syncAndWait(page)
+    expect(await counts(page)).toEqual([3, 2, 3])
+    expect((await directory(page, 'conversations'))[0].props.Mails).toHaveLength(4)
+    await page.evaluate(() => window.__oneMail.reset())
+    await syncAndWait(page)
+    expect(await counts(page)).toEqual([3, 2, 3])
+    expect((await directory(page, 'contacts'))[0].props.Mails).toHaveLength(5)
+    expect((await mailRows(page)).length).toBe(7)
+  })
+
+  test('rename a company: every mail shows the new name; merge two contacts: addresses and links move, Undo restores', async ({ page }) => {
+    await setup(page, peopleMails)
+    await openApp(page)
+    await configure(page, { labels: ['INBOX', 'SENT'] })
+    await connect(page)
+    await syncAndWait(page)
+    const firma = (await directory(page, 'companies')).find((c) => c.title === 'Firma')!
+    await wsEval(page, (s, id) => s.updatePage(id, { title: 'Firma Merz & Co' }), firma.id)
+    const links = await mailLinks(page)
+    expect(['Angebot P2', 'Re: Angebot P2', 'AW: Angebot P2', 'Re: Termin Dienstag'].map((m) => links[m][1])).toEqual(Array(4).fill('Firma Merz & Co'))
+    await closeSettings(page)
+    await gotoPage(page, (await mailCfg(page)).databaseId)
+    await expect(page.locator('#main .db').first()).toContainText('Firma Merz & Co')
+
+    // Settings → Mail → Contacts → Merge… Mia into Felix
+    const dialog = await openMailTab(page)
+    await dialog.getByTestId('mail-dir-contacts').getByRole('button', { name: /^Merge…/ }).click()
+    const merge = page.getByRole('dialog', { name: 'Merge two entries' })
+    await expect(merge.getByRole('button', { name: 'Merge', exact: true })).toBeDisabled()
+    await merge.getByLabel('Merge', { exact: true }).selectOption({ label: 'Mia Schulz — mia.schulz@gmail.com' })
+    await merge.getByLabel('into', { exact: true }).selectOption({ label: 'Felix Merz — felix@firma.de' })
+    await merge.getByRole('button', { name: 'Merge', exact: true }).click()
+    await expect(merge).toHaveCount(0)
+    await expect(page.getByText('Merged “Mia Schulz” into “Felix Merz”')).toBeVisible()
+    let contacts = await directory(page, 'contacts')
+    expect(contacts.map((c) => c.title)).toEqual(['Felix Merz', 'Paul König'])
+    expect(contacts[0].props['E-mail']).toBe('felix@firma.de, mia.schulz@gmail.com')
+    expect(contacts[0].props.Mails).toContain('Fotos vom Wochenende')
+    expect((await mailLinks(page))['Fotos vom Wochenende'][0]).toBe('Felix Merz')
+    expect((await directory(page, 'conversations')).find((c) => c.title === 'Fotos vom Wochenende')!.props.People).toEqual(['Felix Merz'])
+    await expect(dialog.getByTestId('mail-dir-contacts')).toContainText('2 entries')
+
+    // Undo
+    await page.locator('.toast').getByRole('button', { name: 'Undo' }).click()
+    contacts = await directory(page, 'contacts')
+    expect(contacts.map((c) => c.title)).toEqual(['Felix Merz', 'Mia Schulz', 'Paul König'])
+    expect(contacts[0].props['E-mail']).toBe('felix@firma.de')
+    expect(contacts[0].props.Mails).not.toContain('Fotos vom Wochenende')
+    expect((await mailLinks(page))['Fotos vom Wochenende'][0]).toBe('Mia Schulz')
+    expect((await directory(page, 'conversations')).find((c) => c.title === 'Fotos vom Wochenende')!.props.People).toEqual(['Mia Schulz'])
+  })
+
+  test('switched off: no directories, no links; switched on: earlier mails are linked (backfill); freemail domains are editable; off again: new mails stay unlinked', async ({ page }) => {
+    const env = await setup(page, peopleMails)
+    await openApp(page)
+    await configure(page, { labels: ['INBOX', 'SENT'], people: { enabled: false } })
+    const dialog = await connect(page)
+    await syncAndWait(page)
+    expect(await counts(page)).toEqual([0, 0, 0])
+    expect(Object.values(await mailLinks(page)).flat().every((x) => x === null)).toBe(true)
+
+    // firma.de is no company here (edited list), a typo is refused
+    const panel = dialog.locator('.ml-panel').nth(2)
+    await expect(panel.getByRole('status')).toHaveText('Off')
+    const sw = panel.getByRole('switch', { name: 'Link mails to contacts, companies and conversations' })
+    await sw.click()
+    await expect(panel.getByRole('status')).toHaveText('On')
+    await expect.poll(() => counts(page)).toEqual([3, 2, 3])
+    await expect.poll(() => page.evaluate(() => window.__oneMail.state().phase)).toBe('idle')
+    expect((await mailLinks(page))['Angebot P2']).toEqual(['Felix Merz', 'Firma', 'Angebot P2'])
+    const free = panel.getByTestId('mail-freemail')
+    await free.locator('summary').click()
+    const add = free.getByLabel('Add domain')
+    await add.fill('not a domain')
+    await add.press('Enter')
+    await expect(free.getByRole('alert')).toHaveText('Not a domain — e.g. “gmx.de” or “yahoo.*”.')
+    await add.fill('@Neu-Mail.de')
+    await add.press('Enter')
+    await expect(free.getByText('neu-mail.de', { exact: true })).toBeVisible()
+    expect((await mailCfg(page)).people.freemail).toContain('neu-mail.de')
+
+    // off: a new mail stays unlinked
+    await sw.click()
+    await expect(panel.getByRole('status')).toHaveText('Off')
+    env.box.add({ id: 'c8', labelIds: ['INBOX'], date: Date.now() - 60_000, subject: 'Hallo', from: 'Nora Neu <nora@neu-mail.de>', to: ACCOUNT, text: 'Hallo!' })
+    await syncAndWait(page)
+    expect((await mailLinks(page)).Hallo).toEqual([null, null, null])
+    // on again: linked — a contact without a company (neu-mail.de is freemail now)
+    await sw.click()
+    await expect.poll(async () => (await mailLinks(page)).Hallo).toEqual(['Nora Neu', null, 'Hallo'])
+    expect(await counts(page)).toEqual([4, 2, 4])
+  })
+
+  test('German: Kontakte, Firmen, Konversationen; the Mails database’s Kontakt / Firma / Konversation', async ({ page }) => {
+    await setup(page, peopleMails)
+    await openApp(page)
+    await wsEval(page, (s) => s.updateSettings({ language: 'de' }))
+    await configure(page, { labels: ['INBOX', 'SENT'] })
+    const dialog = await openMailTab(page, /E-Mail$/)
+    await dialog.getByRole('button', { name: 'Gmail verbinden' }).click()
+    await expect(dialog.getByTestId('mail-account')).toHaveText(ACCOUNT)
+    await syncAndWait(page)
+    const titles = await wsEval(page, (s) => (Object.values(s.databases) as AnyState[]).filter((d) => String(d.system).startsWith('mail-')).map((d) => [s.pages[d.id].title, d.properties.map((p: AnyState) => p.name)]))
+    expect(titles).toEqual([
+      ['Kontakte', ['Name', 'E-Mail', 'Notizen', 'Firma', 'Mails', 'Letzte Mail']],
+      ['Firmen', ['Name', 'Domains', 'Kontakte', 'Mails', 'Letzte Mail']],
+      ['Konversationen', ['Name', 'Thread-ID', 'Personen', 'Mails', 'Letzte Mail']],
+    ])
+    const mailProps = await wsEval(page, (s) => s.databases[s.settings.mail.databaseId].properties.map((p: AnyState) => p.name))
+    expect(mailProps).toEqual(expect.arrayContaining(['Kontakt', 'Firma', 'Konversation', 'Thread-ID']))
+    const panel = dialog.locator('.ml-panel').nth(2)
+    await expect(panel).toContainText('Kontakte & Firmen')
+    await expect(panel.getByRole('switch', { name: 'Mails mit Kontakten, Firmen und Konversationen verknüpfen' })).toBeChecked()
+    await expect(dialog.getByTestId('mail-dir-companies')).toContainText('2 Einträge')
+    await dialog.getByTestId('mail-dir-contacts').getByRole('button', { name: /^Zusammenführen…/ }).click()
+    await expect(page.getByRole('dialog', { name: 'Zwei Einträge zusammenführen' })).toBeVisible()
+  })
+
+  test.describe('390 px', () => {
+    test.use({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, deviceScaleFactor: 2 })
+    test('§ C fits the phone; the merge dialog works there', async ({ page }) => {
+      await setup(page, peopleMails)
+      await openApp(page)
+      await configure(page, { labels: ['INBOX', 'SENT'] })
+      const dialog = await connect(page)
+      await syncAndWait(page)
+      const panel = dialog.locator('.ml-panel').nth(2)
+      await panel.scrollIntoViewIfNeeded()
+      await expect(dialog.getByTestId('mail-dir-contacts')).toContainText('3 entries')
+      expect(await panel.evaluate((el) => el.scrollWidth <= el.clientWidth + 1)).toBe(true)
+      const box = await panel.boundingBox()
+      expect(box!.x + box!.width).toBeLessThanOrEqual(390)
+      await dialog.getByTestId('mail-dir-companies').getByRole('button', { name: /^Merge…/ }).click()
+      const merge = page.getByRole('dialog', { name: 'Merge two entries' })
+      await merge.getByLabel('Merge', { exact: true }).selectOption({ label: 'Mueller GmbH — mueller-gmbh.de' })
+      await merge.getByLabel('into', { exact: true }).selectOption({ label: 'Firma — firma.de' })
+      const mbox = await merge.boundingBox()
+      expect(mbox!.x).toBeGreaterThanOrEqual(0)
+      expect(mbox!.x + mbox!.width).toBeLessThanOrEqual(390)
+      await merge.getByRole('button', { name: 'Merge', exact: true }).click()
+      await expect.poll(async () => (await directory(page, 'companies')).map((c) => [c.title, c.props.Domains, c.props.Contacts])).toEqual([['Firma', 'firma.de, mueller-gmbh.de', ['Felix Merz', 'Paul König']]])
+      expect((await mailLinks(page))['Termin Dienstag'][1]).toBe('Firma')
+    })
+  })
+})
+
+/* ------------------------------------------------------------------ */
+/* Attachments on demand (features/mail/attachments.ts)                 */
+/* ------------------------------------------------------------------ */
+
+const TINY_PDF = Buffer.from('%PDF-1.4\n1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj\n2 0 obj << /Type /Pages /Kids [] /Count 0 >> endobj\ntrailer << /Root 1 0 R >>\n%%EOF\n')
+const CSV = Buffer.from('name,amount\nBoots,89\n')
+const HTML_ATT = Buffer.from('<!doctype html><script>alert("x")</script><p>Click me</p>')
+
+/** One mail with a PDF, a PNG, a CSV, an HTML page and a 26 MB archive (never fetched). */
+function attachmentMails(now: number): MockMail[] {
+  return [
+    {
+      id: 'a1',
+      labelIds: ['INBOX'],
+      date: now - DAY,
+      subject: 'Unterlagen zum Angebot',
+      from: 'Felix Merz <felix@firma.de>',
+      to: ACCOUNT,
+      html: '<p>Anbei die Unterlagen.</p><img src="https://img.example.test/hero.png" alt="Logo" width="200" height="80">',
+      text: 'Anbei die Unterlagen.',
+      attachments: [
+        { name: 'report.pdf', mime: 'application/pdf', size: TINY_PDF.length, data: TINY_PDF },
+        { name: 'photo.png', mime: 'image/png', size: TINY_PNG.length, data: TINY_PNG },
+        { name: 'data.csv', mime: 'text/csv', size: CSV.length, data: CSV },
+        { name: 'page.html', mime: 'text/html', size: HTML_ATT.length, data: HTML_ATT },
+        { name: 'huge.zip', mime: 'application/zip', size: 26 * 1024 * 1024 },
+      ],
+    },
+  ]
+}
+
+/** The row page's blocks of interest: loaded files and the names still waiting in the list. */
+async function attachmentState(page: Page, title = 'Unterlagen zum Angebot') {
+  const row = rowBy(await mailRows(page), title)
+  const files = ['image', 'fileBlock', 'audio', 'video'].flatMap((type) => nodes(row.content, type).filter((n) => String(n.attrs.src).startsWith('onefile:')).map((n) => ({ type, name: n.attrs.name ?? n.attrs.alt, display: n.attrs.display ?? null, src: n.attrs.src })))
+  const waiting = nodes(row.content, 'listItem').map((li) => ({ text: JSON.stringify(li).match(/"text":"([^"·]+) · /)?.[1] ?? '', load: nodes(li, 'button').length > 0 }))
+  const loadAll = nodes(row.content, 'button').some((b) => b.attrs.label === 'Load all' || b.attrs.label === 'Alle laden')
+  return { row, files, waiting, loadAll }
+}
+
+/** The stored type of a local file ("onefile:<id>"). */
+const storedType = (page: Page, src: string) =>
+  page.evaluate(async (id) => {
+    const db = await new Promise<IDBDatabase>((res, rej) => {
+      const r = indexedDB.open('one-files')
+      r.onsuccess = () => res(r.result)
+      r.onerror = () => rej(r.error)
+    })
+    const rec = await new Promise<{ type: string; size: number } | undefined>((res, rej) => {
+      const r = db.transaction('files', 'readonly').objectStore('files').get(id)
+      r.onsuccess = () => res(r.result)
+      r.onerror = () => rej(r.error)
+    })
+    db.close()
+    return rec ? { type: rec.type, size: rec.size } : null
+  }, src.replace('onefile:', ''))
+
+test.describe('Mail — attachments on demand', () => {
+  test('Load keys: a PDF becomes a file block in the viewer, a PNG an image, CSV and HTML downloads (never rendered); over 25 MB only the Gmail link; re-sync and “Load images” keep them', async ({ page }) => {
+    page.on('dialog', (d) => {
+      throw new Error(`a dialog opened: ${d.message()}`)
+    })
+    const env = await setup(page, attachmentMails)
+    await openApp(page)
+    await configure(page)
+    await connect(page)
+    await syncAndWait(page)
+    let st = await attachmentState(page)
+    expect(st.files).toEqual([])
+    expect(st.waiting).toEqual([
+      { text: 'report.pdf', load: true },
+      { text: 'photo.png', load: true },
+      { text: 'data.csv', load: true },
+      { text: 'page.html', load: true },
+      { text: 'huge.zip', load: false },
+    ])
+    expect(st.loadAll).toBe(true)
+    expect(links(st.row.content)).toContain('https://mail.google.com/mail/u/0/#all/a1')
+    expect(env.box.calls.some((c) => c.includes('/attachments/'))).toBe(false)
+
+    await closeSettings(page)
+    await gotoPage(page, st.row.id)
+    const ed = editorOf(page)
+    await expect(ed.locator('li', { hasText: 'huge.zip' })).toContainText('over 25 MB — open in Gmail')
+    await expect(ed.locator('li', { hasText: 'huge.zip' }).getByRole('button', { name: 'Load', exact: true })).toHaveCount(0)
+    // the PDF
+    await ed.locator('li', { hasText: 'report.pdf' }).getByRole('button', { name: 'Load', exact: true }).click()
+    await expect(page.locator('.toast', { hasText: 'Loaded report.pdf' })).toBeVisible()
+    await expect(page.locator('.toast', { hasText: 'property updated' })).toHaveCount(0)
+    await expect.poll(async () => (await attachmentState(page)).files.map((f) => [f.type, f.name, f.display])).toEqual([['fileBlock', 'report.pdf', 'viewer']])
+    await expect(ed.locator('.pdf-view iframe')).toHaveCount(1)
+    st = await attachmentState(page)
+    expect(st.waiting.map((w) => w.text)).toEqual(['photo.png', 'data.csv', 'page.html', 'huge.zip'])
+    expect(await storedType(page, st.files[0].src)).toEqual({ type: 'application/pdf', size: TINY_PDF.length })
+    // the property the key wrote is cleared again
+    expect(await wsEval(page, (s, id) => s.pages[id].properties[s.settings.mail.props.load], st.row.id)).toBe('')
+
+    // Load all: the image, the CSV, the HTML page (a download, stored so no browser renders it)
+    await ed.getByRole('button', { name: 'Load all', exact: true }).click()
+    await expect(page.locator('.toast', { hasText: '3 attachments loaded' })).toBeVisible()
+    st = await attachmentState(page)
+    expect(st.files.map((f) => [f.type, f.name, f.display])).toEqual([
+      ['image', 'photo.png', null],
+      ['fileBlock', 'report.pdf', 'viewer'],
+      ['fileBlock', 'data.csv', 'file'],
+      ['fileBlock', 'page.html', 'file'],
+    ])
+    expect(st.waiting).toEqual([{ text: 'huge.zip', load: false }])
+    expect(st.loadAll).toBe(false)
+    const html = st.files.find((f) => f.name === 'page.html')!
+    expect(await storedType(page, html.src)).toEqual({ type: 'application/octet-stream', size: HTML_ATT.length })
+    expect((await storedType(page, st.files.find((f) => f.name === 'data.csv')!.src))!.type).toBe('text/csv')
+    await expect(ed.locator('img[alt="photo.png"]')).toBeVisible()
+    await expect(ed.locator('.pdf-view iframe')).toHaveCount(1)
+    expect(env.box.calls.filter((c) => c.includes('/attachments/')).sort()).toEqual(['messages/a1/attachments/att-data.csv', 'messages/a1/attachments/att-page.html', 'messages/a1/attachments/att-photo.png', 'messages/a1/attachments/att-report.pdf'])
+
+    // a re-sync, a reset: nothing removed, nothing twice
+    await syncAndWait(page)
+    await page.evaluate(() => window.__oneMail.reset())
+    await syncAndWait(page)
+    expect((await attachmentState(page)).files).toHaveLength(4)
+    expect((await mailRows(page)).length).toBe(1)
+    // "Load images" renders the body again: the loaded files stay where they are
+    await ed.getByRole('button', { name: 'Load images' }).click()
+    await expect(ed.locator('img[src="https://img.example.test/hero.png"]')).toBeVisible()
+    st = await attachmentState(page)
+    expect(st.files.map((f) => f.name)).toEqual(['photo.png', 'report.pdf', 'data.csv', 'page.html'])
+    expect(st.waiting).toEqual([{ text: 'huge.zip', load: false }])
+    expect(env.box.calls.filter((c) => c.includes('/attachments/'))).toHaveLength(4)
+  })
+
+  test('“PDFs + images” loads them on sync (others keep their key); after a reload a Load key signs in first, then loads', async ({ page }) => {
+    const env = await setup(page, attachmentMails)
+    await openApp(page)
+    await configure(page)
+    const dialog = await connect(page)
+    await dialog.getByRole('radio', { name: 'PDFs + images' }).click()
+    await expect.poll(async () => (await mailCfg(page)).attachments).toBe('media')
+    await expect(dialog.getByText('New mails bring their PDFs and images up to 10 MB right away')).toBeVisible()
+    await syncAndWait(page)
+    let st = await attachmentState(page)
+    expect(st.files.map((f) => [f.type, f.name])).toEqual([
+      ['image', 'photo.png'],
+      ['fileBlock', 'report.pdf'],
+    ])
+    expect(st.waiting.map((w) => w.text)).toEqual(['data.csv', 'page.html', 'huge.zip'])
+    expect(env.box.calls.filter((c) => c.includes('/attachments/')).sort()).toEqual(['messages/a1/attachments/att-photo.png', 'messages/a1/attachments/att-report.pdf'])
+
+    // no token after a reload: the key asks for a sign-in, then loads
+    await closeSettings(page)
+    await reloadApp(page)
+    await gotoPage(page, st.row.id)
+    await editorOf(page).locator('li', { hasText: 'data.csv' }).getByRole('button', { name: 'Load', exact: true }).click()
+    const ask = page.locator('.toast', { hasText: 'Sign in to Gmail to load the attachment.' })
+    await expect(ask).toBeVisible()
+    await ask.getByRole('button', { name: 'Connect Gmail' }).click()
+    await expect(page.locator('.toast', { hasText: 'Loaded data.csv' })).toBeVisible()
+    st = await attachmentState(page)
+    expect(st.files.map((f) => f.name)).toEqual(['photo.png', 'report.pdf', 'data.csv'])
+    expect(await page.evaluate(() => window.__gis.calls.map((c) => c.hint))).toEqual([ACCOUNT])
+  })
+
+  test('German: Laden, Alle laden, the toast', async ({ page }) => {
+    await setup(page, attachmentMails)
+    await openApp(page)
+    await wsEval(page, (s) => s.updateSettings({ language: 'de' }))
+    await configure(page)
+    const dialog = await openMailTab(page, /E-Mail$/)
+    await expect(dialog.getByRole('radiogroup', { name: 'Anhänge automatisch laden' })).toBeVisible()
+    await dialog.getByRole('button', { name: 'Gmail verbinden' }).click()
+    await expect(dialog.getByTestId('mail-account')).toHaveText(ACCOUNT)
+    await syncAndWait(page)
+    await closeSettings(page)
+    const st = await attachmentState(page)
+    await gotoPage(page, st.row.id)
+    const ed = editorOf(page)
+    await expect(ed).toContainText('5 Anhänge')
+    await expect(ed.locator('li', { hasText: 'huge.zip' })).toContainText('über 25 MB — in Gmail öffnen')
+    await expect(ed.getByRole('button', { name: 'Alle laden', exact: true })).toBeVisible()
+    await ed.locator('li', { hasText: 'report.pdf' }).getByRole('button', { name: 'Laden', exact: true }).click()
+    await expect(page.locator('.toast', { hasText: 'report.pdf geladen' })).toBeVisible()
+  })
+
+  test.describe('390 px', () => {
+    test.use({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, deviceScaleFactor: 2 })
+    test('the keys are reachable on a phone; a loaded image fits the page', async ({ page }) => {
+      await setup(page, attachmentMails)
+      await openApp(page)
+      await configure(page)
+      await connect(page)
+      await syncAndWait(page)
+      await closeSettings(page)
+      const st = await attachmentState(page)
+      await gotoPage(page, st.row.id)
+      const ed = editorOf(page)
+      const key = ed.locator('li', { hasText: 'photo.png' }).getByRole('button', { name: 'Load', exact: true })
+      const kb = await key.boundingBox()
+      expect(kb!.height).toBeGreaterThanOrEqual(24)
+      expect(kb!.x + kb!.width).toBeLessThanOrEqual(390)
+      await key.click()
+      await expect(page.locator('.toast', { hasText: 'Loaded photo.png' })).toBeVisible()
+      const img = ed.locator('img[alt="photo.png"]')
+      await expect(img).toBeAttached()
+      const box = await img.boundingBox()
+      expect(box!.x).toBeGreaterThanOrEqual(0)
+      expect(box!.x + box!.width).toBeLessThanOrEqual(390)
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= 390)).toBe(true)
     })
   })
 })

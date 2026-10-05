@@ -583,6 +583,33 @@ export interface Database {
    * (features/mail/people.ts) — same rules.
    */
   system?: 'memory' | 'memory-log' | 'mail-contacts' | 'mail-companies' | 'mail-conversations'
+  /**
+   * Database commands (features/commands): the order of the menu (sidebar key, toolbar, ⌘K), defaults
+   * switched off, and own commands. Absent = the defaults in their order. Write only with
+   * saveDbCommands (features/commands); every reader sanitizes (readDbCommands). `locked` blocks
+   * changing them (running stays allowed).
+   */
+  commands?: DbCommand[]
+}
+
+/**
+ * One entry of a database's command menu (features/commands). Defaults (New entry, Export CSV, Sync now,
+ * Run "<agent>" now …) are computed — an entry with kind 'default' only stores the place and `hidden`
+ * of the default whose key is `id`. Every other kind is an own command with `label`, `icon` and
+ * `config` (JSON, each kind sanitizes its own): 'actions' { actions: ButtonAction[] (editor/schema/button.ts) }
+ * · 'agent' { agentId } · 'view' { viewId } · a kind added with registerCommandKind (e.g. 'script').
+ */
+export interface DbCommand {
+  /** a default's key ('new-entry', 'mail-sync', 'agent:<agentId>' …) or the own command's id */
+  id: string
+  /** 'default' · 'actions' · 'agent' · 'view' · a registered kind ([a-z][a-z0-9-]{1,23}) */
+  kind: string
+  /** not in the menus (defaults and own commands) */
+  hidden?: boolean
+  /** own commands: 1–60 characters */
+  label?: string
+  icon?: PageIcon | null
+  config?: Record<string, unknown>
 }
 
 export type AutomationTrigger =
@@ -684,6 +711,8 @@ export type MailPropRole =
   | 'attachments'
   | 'unread'
   | 'images'
+  /** hidden text: the attachment a "Load" key asked for (features/mail/attachments.ts), cleared once loaded */
+  | 'load'
   | 'category'
   | 'priority'
   | 'needsReply'

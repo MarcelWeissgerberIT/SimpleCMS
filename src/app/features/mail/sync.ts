@@ -6,7 +6,8 @@
  *  2. new mails are fetched (format=full, a few at a time, backoff on 429 — gmail.ts) up to the per-run
  *     limit, newest first; the rest waits as the backlog for the next run;
  *  3. each becomes a row (dedupe by the Gmail message id stored in the row) with its body as content
- *     (setContent(row, doc, 'mail')); label / read changes of known mails update only Gmail's fields
+ *     (setContent(row, doc, 'mail')) and its attachments as Load keys — loaded right away when "Load
+ *     attachments automatically" says so (attachments.ts); label / read changes of known mails update only Gmail's fields
  *     (Labels, Unread) — never a property the user owns, never the body;
  *  4. optional: Claude organises the new rows (organise.ts), once per mail, filling empty fields only.
  *
@@ -21,6 +22,7 @@ import * as gmail from './gmail'
 import { GmailError, type GmailCtx } from './gmail'
 import { decodeBody, parseMessage, type ParsedMail } from './parse'
 import { MAIL_ORIGIN, mailDoc, textHash } from './body'
+import { autoFilter, loadAttachments, loadedBlocks } from './attachments'
 import { TargetError, checkTarget, createMailDatabase, ensureOptions, ensureProps, inTeam, labelName, priorityOptions, rowValues, rowsByMessageId } from './schema'
 import { useCloud } from '../../cloud'
 import { emptyState, loadBody, loadState, saveBody, saveState, type MailSyncState } from './storage'
@@ -166,6 +168,8 @@ export async function runSync(ctx: RunCtx): Promise<RunResult> {
   const created: string[] = []
   let updated = 0
   const minDate = fromMs(cfg)
+  // "Load attachments automatically": these load right with the new mail
+  const auto = autoFilter(cfg.attachments)
   let done = 0
   ctx.progress({ done, total: take.length })
 
@@ -192,11 +196,19 @@ export async function runSync(ctx: RunCtx): Promise<RunResult> {
           continue
         }
         await fetchBodies(g, m)
-        const { doc, remote } = await mailDoc(m, false, props.images ?? null)
+        const { doc, remote } = await mailDoc(m, false, props.images ?? null, { loadProp: props.load, msgId: m.id })
         const ws = useWorkspace.getState()
         if (!ws.databases[dbId]) throw new GmailError('aborted')
         const rowId = ws.createRow(dbId, { title: m.subject || t('features.mail.noSubject'), properties: rowValues(m, props, labelOptions) })
         ws.setContent(rowId, doc, MAIL_ORIGIN)
+        if (auto && props.load && m.attachments.some(auto)) {
+          try {
+            await loadAttachments(rowId, null, g, { msg: m, filter: auto, keepHash: true })
+          } catch (e) {
+            // the Load keys stay; a lost sign-in or a stop ends the run
+            if (e instanceof GmailError && (e.code === 'auth' || e.code === 'aborted')) throw e
+          }
+        }
         if (remote > 0 && m.html) await saveBody(m.id, { html: m.html, attachments: m.attachments })
         state.known[m.id] = { r: rowId, l: m.labelIds, u: m.unread, h: textHash(useWorkspace.getState().pages[rowId]?.plain ?? '') }
         existing.set(m.id, rowId)
@@ -368,7 +380,9 @@ export async function applyImages(rowId: ID, on: boolean, g: GmailCtx | null, fo
     }
   }
   if (!src) return 'missing'
-  const { doc } = await mailDoc({ html: src.html, text: null, attachments: src.attachments }, on, cfg.props?.images ?? null)
+  // attachments loaded into the page keep their blocks
+  const loaded = loadedBlocks(useWorkspace.getState().pages[rowId]?.content, src.attachments)
+  const { doc } = await mailDoc({ html: src.html, text: null, attachments: src.attachments }, on, cfg.props?.images ?? null, { loadProp: cfg.props?.load, msgId, loaded })
   if (!useWorkspace.getState().pages[rowId]) return 'none'
   useWorkspace.getState().setContent(rowId, doc, MAIL_ORIGIN)
   if (k) {

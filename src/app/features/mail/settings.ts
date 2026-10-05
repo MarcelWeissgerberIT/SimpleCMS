@@ -27,7 +27,7 @@ const DEFAULT_CATEGORIES = {
   de: ['Kunde', 'Rechnung', 'Newsletter', 'Persönlich', 'Benachrichtigung', 'Todo'],
 }
 
-const ROLES: MailPropRole[] = ['messageId', 'from', 'to', 'date', 'labels', 'thread', 'link', 'attachments', 'unread', 'images', 'category', 'priority', 'needsReply', 'summary', 'project', 'contact', 'company', 'conversation']
+const ROLES: MailPropRole[] = ['messageId', 'from', 'to', 'date', 'labels', 'thread', 'link', 'attachments', 'unread', 'images', 'load', 'category', 'priority', 'needsReply', 'summary', 'project', 'contact', 'company', 'conversation']
 
 /**
  * Freemail and personal mail domains: their senders become contacts, never companies. "yahoo.*" = any

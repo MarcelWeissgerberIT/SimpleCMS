@@ -232,7 +232,10 @@ export function writeProposal(dbId: ID, propId: ID, p: Proposal): PropertyValue 
     if (created) s.updateProperty(dbId, propId, { options: opts })
     value = prop.type === 'select' ? (ids[0] ?? null) : ids
   }
-  writeValue(dbId, prop, p.rowId, value)
+  // version history keeps the row as it was right before Claude's value (an "AI" version)
+  const write = () => writeValue(dbId, prop, p.rowId, value)
+  if (featuresApi) featuresApi.aiWrite(write)
+  else write()
   return prev
 }
 

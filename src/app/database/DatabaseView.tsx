@@ -31,6 +31,7 @@ import { CsvIntakeHost } from './create/CsvIntake'
 import { TurnOffHost } from './toolbar/StructurePanels'
 import { useDbReadOnly } from './readonly'
 import { resetSessionQuery, setViewQuery, useSessionOverlay, withOverlay } from './model/lock'
+import { VIEW_REQUEST } from './model/outside'
 import './database.css'
 
 const CalendarView = lazy(() => import('./views/CalendarView'))
@@ -62,6 +63,17 @@ function DatabaseRoot({ db, page, inline, viewId }: { db: Database; page: Page; 
   const t = useT()
   const [activeId, setActiveId] = useLocalState<ID | null>(`one.db.view.${db.id}.${viewId ?? (inline ? 'inline' : 'page')}`, viewId ?? null)
   const saved = db.views.find((v) => v.id === activeId) ?? db.views.find((v) => v.id === viewId) ?? db.views[0]
+  // the database's own page: "Open view" from outside (a database command) switches it
+  const own = !inline && !viewId
+  useEffect(() => {
+    if (!own) return
+    const on = (e: Event) => {
+      const d = (e as CustomEvent<{ dbId: ID; viewId: ID }>).detail
+      if (d?.dbId === db.id) setActiveId(d.viewId)
+    }
+    window.addEventListener(VIEW_REQUEST, on)
+    return () => window.removeEventListener(VIEW_REQUEST, on)
+  }, [own, db.id, setActiveId])
   // a locked database: this tab's own filters / sorts over the saved view (model/lock)
   const overlay = useSessionOverlay(db.id, saved?.id)
   const view = useMemo(() => (saved ? withOverlay(saved, overlay) : saved), [saved, overlay])
@@ -143,6 +155,8 @@ function DatabaseBody({
 }) {
   const t = useT()
   const m = useDbModel(db, page, view, search, inline, keep)
+  // rows selected in the table: database commands started here get them
+  const [selection, setSelection] = useState<ID[]>([])
 
   /** A new row that the view's filters / search would hide: keep it on screen and say so. */
   const keepVisible = (id: ID) => {
@@ -195,6 +209,7 @@ function DatabaseBody({
       open: (row) => openRow(row.id, view),
       contextMenu: (row, anchor) => setCtx({ row, anchor }),
       clearSearch: () => setSearch(''),
+      setSelection,
     }),
     [newRow, editTitleOf, view, setEditTitleOf, setCtx, setSearch],
   )
@@ -251,7 +266,7 @@ function DatabaseBody({
           {inline && <InlineHeader page={page} readOnly={m.readOnly} />}
           <div className="db-bar">
             <ViewTabs m={m} onSelect={setActiveId} />
-            <Toolbar m={m} onNew={onNew} setSearch={setSearch} compact={inline} />
+            <Toolbar m={m} onNew={onNew} setSearch={setSearch} compact={inline} selection={selection} onView={setActiveId} />
           </div>
           {view.type !== 'form' && <FilterChips m={m} autoOpen={autoChip} onAutoOpened={() => setAutoChip(null)} />}
           <div className="db-body">

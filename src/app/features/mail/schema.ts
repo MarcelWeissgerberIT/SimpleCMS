@@ -18,8 +18,8 @@ import { ALL_MESSAGES, t } from '../../i18n'
 import type { ColorName, Database, ID, MailPropRole, MailSettings, PropertyDef, PropertyValue, SelectOption, View } from '../../store/types'
 import type { ParsedMail } from './parse'
 
-export const GMAIL_ROLES: MailPropRole[] = ['from', 'to', 'date', 'labels', 'unread', 'attachments', 'link', 'thread', 'messageId', 'images']
-const HIDDEN_ROLES: MailPropRole[] = ['to', 'thread', 'link', 'messageId', 'images']
+export const GMAIL_ROLES: MailPropRole[] = ['from', 'to', 'date', 'labels', 'unread', 'attachments', 'link', 'thread', 'messageId', 'images', 'load']
+const HIDDEN_ROLES: MailPropRole[] = ['to', 'thread', 'link', 'messageId', 'images', 'load']
 
 const ROLE_TYPE: Record<MailPropRole, PropertyDef['type']> = {
   messageId: 'text',
@@ -32,6 +32,7 @@ const ROLE_TYPE: Record<MailPropRole, PropertyDef['type']> = {
   attachments: 'checkbox',
   unread: 'checkbox',
   images: 'checkbox',
+  load: 'text',
   category: 'select',
   priority: 'select',
   needsReply: 'checkbox',
@@ -94,6 +95,7 @@ function makeProp(role: MailPropRole, cfg: MailSettings): PropertyDef {
   const p: PropertyDef = { id: newId(), name: nameOf(role), type: ROLE_TYPE[role] }
   if (GMAIL_ROLES.includes(role)) p.description = t('features.mail.prop.gmailOwned')
   if (role === 'images') p.description = t('features.mail.prop.imagesHint')
+  if (role === 'load') p.description = t('features.mail.prop.loadHint')
   if (role === 'labels') p.options = []
   if (role === 'category') p.options = cfg.organise.categories.map((c) => ({ id: newId(), name: c, color: colorFor(c) }))
   if (role === 'priority') p.options = PRIORITIES.map((x) => ({ id: newId(), name: t(`features.mail.priority.${x}`), color: PRIORITY_COLOR[x] }))
@@ -265,6 +267,7 @@ export function rowValues(m: ParsedMail, props: Partial<Record<MailPropRole, ID>
   put('link', gmailLink(m.id))
   put('thread', m.threadId)
   put('images', false)
+  put('load', '')
   return v
 }
 

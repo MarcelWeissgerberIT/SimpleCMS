@@ -1,13 +1,15 @@
 /**
  * The block menu for SEVERAL selected blocks (one grip, one menu): Turn into (when all are text),
- * Colour, Turn into page, Turn into database… (opens the AI panel on them), Redo with instructions…,
+ * Colour, Turn into page, Turn into database… (opens the AI panel on them), Transform into → a form (the AI
+ * panel on them, transforming at once — features/ai/transform), Redo with instructions…,
  * Duplicate, Copy link (first block), Move to, Delete — each action one transaction.
  */
 import type { Editor } from '@tiptap/core'
 import { TextSelection } from '@tiptap/pm/state'
-import { ArrowRightLeft, Copy, Link, Paintbrush, ReplaceAll, Repeat2, SquareKanban, Trash2 } from 'lucide-react'
+import { ArrowRightLeft, Copy, Link, Paintbrush, ReplaceAll, Repeat2, Shapes, SquareKanban, Trash2 } from 'lucide-react'
 import type { Translate } from '@/shared/i18n'
 import type { MenuEntry } from '../../ui/Menu'
+import { transformChoicesAt, TRANSFORM_ICONS, type TransformPick } from '../../features'
 import { shortcutLabel } from '../../ui/controls'
 import { toast } from '../../store/ui'
 import { pageHref } from '../../lib/router'
@@ -32,6 +34,18 @@ export interface SelectionMenuContext {
   bridge: Bridge
   /** "Move to": the page picker (the block menu's own popover) */
   onMoveTo: () => void
+}
+
+/** The AI panel on the selected blocks, transforming them into `pick` at once. */
+function transformWith(editor: Editor, b: BlockSel, ctx: SelectionMenuContext, pick: TransformPick) {
+  const at = fresh(editor, b)
+  if (!at) return
+  requestAnimationFrame(() => {
+    if (editor.isDestroyed) return
+    const { state } = editor
+    editor.view.dispatch(state.tr.setSelection(TextSelection.between(state.doc.resolve(at.from), state.doc.resolve(at.to))))
+    ctx.bridge.setState({ ai: { mode: 'selection', transform: pick } })
+  })
 }
 
 export function selectionMenuEntries(editor: Editor, b: BlockSel, t: Translate, ctx: SelectionMenuContext): MenuEntry[] {
@@ -85,6 +99,19 @@ export function selectionMenuEntries(editor: Editor, b: BlockSel, t: Translate, 
         })
       },
     })
+    // "Transform into" (Claude): one selection → one form, the AI panel previews it first
+    const picks = transformChoicesAt(editor.state.doc, b.from, b.to)
+    if (picks.length)
+      items.push({
+        label: t('editor.select.transform'),
+        icon: <Shapes size={15} />,
+        hint: 'AI',
+        keywords: 'transform diagram chart columns tabs toggles cards timeline verwandeln schaubild diagramm spalten karten zeitleiste ai ki',
+        submenu: picks.map((pick) => {
+          const Icon = TRANSFORM_ICONS[pick]
+          return { label: t(`features.ai.transform.type.${pick}`), icon: <Icon size={15} />, onSelect: () => transformWith(editor, b, ctx, pick) }
+        }),
+      })
     items.push({
       label: t('editor.blockMenu.redo'),
       icon: <ReplaceAll size={15} />,

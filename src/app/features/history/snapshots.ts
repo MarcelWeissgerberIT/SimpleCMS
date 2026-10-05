@@ -24,7 +24,7 @@ import type { Schema } from '@tiptap/pm/model'
 import { getExtensions } from '../../editor'
 import { docKey } from './diff'
 import { t } from '../../i18n'
-import { iconKey, propsChanged, propsKey, propsOf, restoreProps, type NotRestored, type SnapshotProps } from './props'
+import { blankRow, iconKey, propsChanged, propsKey, propsOf, restoreProps, type NotRestored, type SnapshotProps } from './props'
 
 export type SnapshotReason = 'session' | 'auto' | 'ai' | 'restore' | 'manual'
 
@@ -131,8 +131,8 @@ function isEmptyDoc(content: JSONContent | null): boolean {
   return content.content.every((b) => b.type === 'paragraph' && !b.content?.length)
 }
 
-/** Nothing worth a version: an empty page (a row always is one — its properties are the content). */
-const nothingToKeep = (p: Pick<Page, 'content' | 'databaseId'>) => !p.databaseId && isEmptyDoc(p.content)
+/** Nothing worth a version: an empty page; a database entry also needs no title, icon or stored value. */
+const nothingToKeep = (p: Page) => isEmptyDoc(p.content) && (!p.databaseId || blankRow(p))
 
 /** Serialize read-modify-write cycles per page. */
 const queues = new Map<ID, Promise<unknown>>()

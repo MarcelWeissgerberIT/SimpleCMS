@@ -77,6 +77,7 @@ export const useMail = create<MailState>()(() => ({
 const patch = (p: Partial<MailState>) => useMail.setState(p)
 const engine = () => import('./sync')
 const peopleApi = () => import('./people')
+const attachmentsApi = () => import('./attachments')
 const gmailApi = () => import('./gmail')
 const gctx = (signal?: AbortSignal): GmailCtx => ({ token: currentToken, signal })
 
@@ -417,7 +418,19 @@ function schedule(): void {
 /** Rows whose next "Show images" change is ours (a revert) — not a request. */
 const ignoreNext = new Set<ID>()
 
+/**
+ * The mail page's keys are `button` blocks setting a row property; the button echoes "<label> · 1 property
+ * updated" — not news here (what happened is said by the toast that follows): that echo goes.
+ */
+function hushButtonEcho(label: string): void {
+  window.setTimeout(() => {
+    const ui = useUI.getState()
+    for (const x of ui.toasts) if (x.message.startsWith(`${label} · `)) ui.dismissToast(x.id)
+  }, 0)
+}
+
 async function onImagesToggle(rowId: ID, on: boolean, force = false): Promise<void> {
+  if (!force) hushButtonEcho(t(on ? 'features.mail.body.loadImages' : 'features.mail.body.blockImages'))
   const { applyImages } = await engine()
   const prop = readMail().props?.images
   const revert = () => {
@@ -453,6 +466,48 @@ async function replaceAnyway(rowId: ID, on: boolean): Promise<void> {
     useWorkspace.getState().setRowProperty(rowId, prop, on)
   }
   await onImagesToggle(rowId, on, true)
+}
+
+/* ------------------------------------------------------------------ attachments ("Load" keys) */
+
+/** A mail page's "Load" key (an attachment's key) or "Load all" ('*') was pressed. */
+function onLoadRequest(rowId: ID, key: string): void {
+  hushButtonEcho(t(key === '*' ? 'features.mail.att.loadAll' : 'features.mail.att.load'))
+  // the request is taken: the property is cleared, so the next press is a change again
+  window.setTimeout(() => {
+    const prop = readMail().props?.load
+    if (prop && useWorkspace.getState().pages[rowId]?.properties[prop]) useWorkspace.getState().setRowProperty(rowId, prop, '')
+  }, 0)
+  if (currentToken()) void loadNow(rowId, key)
+  else askSignIn(rowId, key)
+}
+
+/** No token (after a reload, or it expired): one click signs in, then the attachment loads. */
+function askSignIn(rowId: ID, key: string): void {
+  useUI.getState().toast({
+    message: t('features.mail.att.signIn'),
+    kind: 'info',
+    timeout: 15_000,
+    action: { label: t('features.mail.connect'), run: () => void connectGmail().then((ok) => ok && void loadNow(rowId, key)) },
+  })
+}
+
+async function loadNow(rowId: ID, key: string): Promise<void> {
+  const { loadAttachments } = await attachmentsApi()
+  const toast = useUI.getState().toast
+  try {
+    const r = await loadAttachments(rowId, key === '*' ? null : [key], gctx())
+    if (r.loaded.length) toast({ message: r.loaded.length === 1 ? t('features.mail.att.loaded', { name: r.loaded[0] }) : t('features.mail.att.loadedN', { n: r.loaded.length }), kind: 'success' })
+    for (const name of r.tooBig) toast({ message: t('features.mail.att.refused', { name }), kind: 'error' })
+    for (const name of r.missing) toast({ message: t('features.mail.att.none', { name }), kind: 'error' })
+  } catch (e) {
+    const info = errorInfo(e)
+    if (info.reconnect) {
+      clearToken()
+      patch({ reconnect: true })
+      askSignIn(rowId, key)
+    } else toast({ message: info.text, kind: 'error' })
+  }
 }
 
 /* ------------------------------------------------------------------ lifecycle */
@@ -492,11 +547,17 @@ export function startMail(): () => void {
       prevPages = s.pages
       const dbId = s.settings.mail?.databaseId
       const prop = s.settings.mail?.props?.images
-      if (!dbId || !prop || isApplyingCloudChange()) return
+      const load = s.settings.mail?.props?.load
+      if (!dbId || (!prop && !load) || isApplyingCloudChange()) return
       for (const id in s.pages) {
         const p = s.pages[id]
         const before = prev[id]
         if (p === before || !before || p.databaseId !== dbId) continue
+        if (load) {
+          const req = p.properties[load]
+          if (typeof req === 'string' && req && req !== before.properties[load]) onLoadRequest(id, req)
+        }
+        if (!prop) continue
         const on = !!p.properties[prop]
         if (on === !!before.properties[prop]) continue
         if (ignoreNext.delete(id)) continue

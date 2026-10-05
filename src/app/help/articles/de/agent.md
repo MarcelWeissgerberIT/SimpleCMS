@@ -3,7 +3,7 @@ id: agent
 title: Das KI-Terminal
 section: ai
 order: 3
-keywords: agent, ki-terminal, terminal, claude, automatisieren, massenänderung, aufgaben, einträge, seiten, datenbanken, board, übernehmen, prüfen, tastatur, befehle, referenzen, kontext, was claude liest, neu machen, workspace agent, AI terminal, context
+keywords: agent, ki-terminal, terminal, claude, automatisieren, massenänderung, aufgaben, einträge, seiten, datenbanken, board, übernehmen, prüfen, tastatur, befehle, referenzen, kontext, was claude liest, neu machen, ändern, ersetzen, umschreiben, diff, workspace agent, AI terminal, context, edit
 related: custom-agents, ai-menu, mcp-servers, mcp-bridge
 summary: Gib Claude Aufgaben per Tastatur — es liest deinen Workspace, schlägt Änderungen vor, und du übernimmst sie. Arbeitet auch ausgeblendet weiter.
 ---
@@ -12,6 +12,14 @@ Drück <kbd>Mod+J</kbd> (oder ⌘K → *KI-Terminal*, oder **KI** in der Statusl
 1. Tipp eine Aufgabe, z. B. *„Mach aus den Meeting-Notizen dieser Woche Aufgaben in Projekte“* oder *„Mach ein Board aus den offenen Punkten dieser Seite“*, und drück <kbd>Enter</kbd> (<kbd>Shift+Enter</kbd> für eine neue Zeile).
 2. Claude durchsucht und liest deine Seiten und Datenbanken; die Antwort läuft live ein, jeder Tool-Aufruf ist eine Zeile im Protokoll (`→ search_pages "Delta"`, `✓ create_row … vorgemerkt #2`).
 3. Änderungen werden **vorgeschlagen**, nicht geschrieben: neue Seiten, Einträge, Datenbanken und Eigenschaften, geänderte Werte und Titel landen in einer Prüfliste. Einzeln übernehmen, **Alle übernehmen** (<kbd>Mod+Enter</kbd> oder `/übernehmen`) oder verwerfen. Ein **Rückgängig** nimmt einen übernommenen Stapel zurück.
+
+## Bestehenden Text ändern
+Claude ergänzt eine Seite per *Anhängen*. Verlangt eine Aufgabe, Vorhandenes zu **korrigieren, umzuschreiben, zu aktualisieren oder zu entfernen**, ändert es stattdessen genau diese Blöcke: Es liest die Seite mit einer kurzen Marke je Block (`b3`) und nennt die Blöcke, die es ändert — ersetzen, löschen, danach einfügen oder die ganze Seite neu schreiben, wenn du das willst. Jede Änderung ist ein eigener Vorschlag, gezeigt als **Diff** der Seite: entfernte Wörter rot durchgestrichen, neue orange hinterlegt, unveränderte Blöcke eingeklappt (*12 unveränderte Blöcke — anzeigen*).
+
+- Jede Änderung einzeln übernehmen oder verwerfen. Was du von einer Seite zusammen übernimmst, geht in einem Schritt hinein: Vorher wird eine Version gesichert (**KI** im [Versionsverlauf](help:history)), und <kbd>Mod+Z</kbd> auf der offenen Seite nimmt die ganze Änderung zurück.
+- Einen Block, den du geändert hast, nachdem Claude den Vorschlag gemacht hat, **überspringt** One — er wird nie überschrieben, die Prüfung sagt es dir.
+- Blöcke, die du vom Lesen ausgenommen hast (siehe unten), kann Claude auch nicht ändern; die ganze Seite neu schreiben wird dann abgelehnt.
+- [Eigene Agenten](help:custom-agents) können auch Änderungen vorschlagen; selbst ein Agent, der direkt schreibt, wartet auf dein OK, bevor er Text ersetzt.
 
 ## Es arbeitet weiter
 Blende das Terminal mit <kbd>Esc</kbd> oder <kbd>Mod+J</kbd> aus und arbeite weiter — die Aufgabe läuft weiter. Die Statusleiste zeigt **KI · arbeitet** und danach **KI · 3 Änderungen zu prüfen**; eine Meldung sagt Bescheid, wenn sie fertig ist, ein Klick holt das Terminal zurück. Nur **Stopp** beendet eine Aufgabe: <kbd>Mod+.</kbd>, <kbd>Ctrl+C</kbd> (ohne Markierung), `/stopp` oder die Stopp-Taste. Die bisherigen Vorschläge bleiben.

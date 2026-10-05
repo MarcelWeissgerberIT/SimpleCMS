@@ -98,7 +98,7 @@ export interface CallCtx {
   /** waiting for the person (a dialog): the time budget doesn't run meanwhile */
   waitUser<T>(p: Promise<T>): Promise<T>
   /** print / log to the run's console */
-  print(values: Value[], kind: 'print' | 'log'): void
+  print(values: Value[], kind: 'print' | 'log'): void | Promise<void>
   /** the run's limits (natives that build lists / texts check them) */
   limits: { list: number; text: number }
   /** the runtime's services (host objects reach the One side through it) */

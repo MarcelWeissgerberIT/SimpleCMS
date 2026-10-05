@@ -19,10 +19,8 @@ import { snapshotNow } from '../../history/snapshots'
 import type { BlockRange } from '../todb/plan'
 import { convertToDatabase, originalToggle, sameBlocks, TodbError } from '../todb/run'
 import { leftBlocks, resultBlocks } from './build'
-import { shownResult, type TransformState, type TransformType } from './types'
-
-/** The form's name in the UI language ("Diagram", "Schaubild" …). */
-export const typeLabel = (type: TransformType | 'auto'): string => t(`features.ai.transform.type.${type}`)
+import { typeLabel } from './forms'
+import { shownResult, type TransformState } from './types'
 
 /** Put the shown result in place of `range` (null: at the end of the page). Throws TodbError. */
 export async function applyTransform(editor: Editor, pageId: ID, range: BlockRange | null, state: TransformState): Promise<void> {
@@ -31,7 +29,8 @@ export async function applyTransform(editor: Editor, pageId: ID, range: BlockRan
   if (!res || !type) throw new TodbError('bad')
   const original = state.opts.keepOriginal ? t('features.ai.transform.original') : null
   if (res.type === 'db') {
-    const view = type === 'timeline' ? 'timeline' : type === 'board' ? 'board' : res.table.draft.view === 'timeline' ? 'table' : res.table.draft.view
+    // the form is the view (a board without a group column / a timeline without dates opens as a table)
+    const view = type === 'timeline' ? 'timeline' : type === 'board' ? 'board' : 'table'
     await convertToDatabase(editor, pageId, range, res.table, { ...res.table.draft, view }, { original })
     return
   }

@@ -18,6 +18,8 @@ export type ModalState =
   | { type: 'export'; pageId?: ID | null }
   | { type: 'history'; pageId: ID }
   | { type: 'automations'; databaseId: ID }
+  /** "Edit commands…" of a database (features/commands) */
+  | { type: 'dbCommands'; databaseId: ID }
   /** custom functions built by clicking (features/sheets/functions), optionally on one function */
   | { type: 'functions'; id?: ID }
   | { type: 'share'; pageId: ID }

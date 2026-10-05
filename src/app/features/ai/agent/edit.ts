@@ -37,6 +37,8 @@ export interface EditTarget {
   /** normalized JSON (block ids ignored): a block whose key differs has changed */
   key: string
   block: JSONContent
+  /** a list / to-do item: the list it is in (bulletList, orderedList, taskList) — for the review */
+  list?: string
 }
 
 export interface BlockEdit {
@@ -283,7 +285,7 @@ export function planEdits(pageId: ID, raw: RawEdit[], readable: ReadonlySet<stri
     const where = `edits[${k}]`
     const op = typeof r.op === 'string' ? (r.op.trim().toLowerCase() as EditOp) : ('' as EditOp)
     if (!EDIT_OPS.includes(op)) return { error: `${where}: unknown op ${q(String(r.op ?? ''))}. Use one of: ${EDIT_OPS.join(', ')}.` }
-    const target = (loc: Located, entry: RefEntry): EditTarget => ({ id: entry.id, path: entry.id ? pathOfLoc(doc, loc) : entry.path, key: keyOfNode(loc.node), block: loc.node.toJSON() as JSONContent })
+    const target = (loc: Located, entry: RefEntry): EditTarget => ({ id: entry.id, path: entry.id ? pathOfLoc(doc, loc) : entry.path, key: keyOfNode(loc.node), block: loc.node.toJSON() as JSONContent, ...listOf(loc.parent) })
     let plan: EditPlan & { span: Span }
 
     if (op === 'replace_all') {
@@ -318,7 +320,7 @@ export function planEdits(pageId: ID, raw: RawEdit[], readable: ReadonlySet<stri
         const loc: Located = { node, pos, parent, index: i, top: parent === doc ? i : a.loc.top }
         if (readable && !readable.has(topKey(doc.child(loc.top), loc.top))) return { error: `${where}: the range ${a.ref}–${b.ref} includes blocks you may not read (context marks): refused.` }
         const entryPath = pathOfLoc(doc, loc)
-        targets.push({ id: idOf(node), path: entryPath, key: keyOfNode(node), block: node.toJSON() as JSONContent })
+        targets.push({ id: idOf(node), path: entryPath, key: keyOfNode(node), block: node.toJSON() as JSONContent, ...listOf(parent) })
         pos += node.nodeSize
       }
       let md: string | undefined
@@ -346,6 +348,9 @@ export function planEdits(pageId: ID, raw: RawEdit[], readable: ReadonlySet<stri
   return { plans: plans.map(({ span: _span, ...p }) => (void _span, p)) }
 }
 
+/** The list an item is in (for EditTarget.list). */
+const listOf = (parent: PMNode): { list?: string } => (parent.type.name in LISTS ? { list: parent.type.name } : {})
+
 /** Child indexes from the doc down to a located block. */
 function pathOfLoc(doc: PMNode, loc: Located): number[] {
   const $pos = doc.resolve(loc.pos)
@@ -361,17 +366,21 @@ function pathOfLoc(doc: PMNode, loc: Located): number[] {
 const changedNote = () => t('features.agent.edit.changed')
 const goneNote = () => t('features.agent.edit.gone')
 
+/** Blocks written into a list (`listType`): its items — Markdown lists give their items, anything else becomes one item. */
+function asItems(blocks: JSONContent[], listType: string): JSONContent[] {
+  const itemType = LISTS[listType]
+  if (!blocks.length) return []
+  const lists = blocks.every((b) => !!b.type && b.type in LISTS)
+  const items: JSONContent[] = lists
+    ? blocks.flatMap((l) => l.content ?? [])
+    : [{ type: itemType, content: blocks[0]?.type === 'paragraph' ? blocks : [{ type: 'paragraph' }, ...blocks] }]
+  return items.map((it) => ({ type: itemType, ...(itemType === 'taskItem' ? { attrs: { checked: it.type === 'taskItem' ? !!it.attrs?.checked : false } } : {}), content: it.content?.length ? it.content : [{ type: 'paragraph' }] }))
+}
+
 /** New blocks for a place: list / to-do items inside a list, blocks elsewhere; the first keeps `keepId`. */
 function fitted(schema: Schema, markdown: string, parent: PMNode, keepId: string | null): PMNode[] {
   let blocks = (markdownToDoc(markdown).content ?? []).filter(Boolean)
-  const itemType = LISTS[parent.type.name]
-  if (itemType) {
-    const lists = blocks.every((b) => !!b.type && b.type in LISTS)
-    const items: JSONContent[] = lists
-      ? blocks.flatMap((l) => l.content ?? [])
-      : [{ type: itemType, content: blocks[0]?.type === 'paragraph' ? blocks : [{ type: 'paragraph' }, ...blocks] }]
-    blocks = items.map((it) => ({ type: itemType, ...(itemType === 'taskItem' ? { attrs: { checked: it.type === 'taskItem' ? !!it.attrs?.checked : false } } : {}), content: it.content?.length ? it.content : [{ type: 'paragraph' }] }))
-  }
+  if (parent.type.name in LISTS) blocks = asItems(blocks, parent.type.name)
   if (keepId && blocks[0]) blocks[0] = { ...blocks[0], attrs: { ...(blocks[0].attrs ?? {}), id: keepId } }
   const nodes = blocks.map((b) => schema.nodeFromJSON(b))
   nodes.forEach((n) => n.check())
@@ -512,14 +521,22 @@ export async function applyPageEdits(pageId: ID, changes: StagedChange[]): Promi
 
 export type EditPreview = { state: 'ready'; items: DocItem[] } | { state: 'changed' | 'gone'; items: DocItem[] }
 
-/** What the edit's blocks become, without the rest of the page (an applied / discarded edit, a skipped one). */
+/**
+ * What the edit's blocks become, without the rest of the page (an applied / discarded edit, a skipped
+ * one). List items show inside their list, the new content as items of it.
+ */
 export function stagedItems(c: StagedChange): DocItem[] {
   const e = c.edit
   if (!e) return []
   const after = c.markdown ? (markdownToDoc(c.markdown).content ?? []) : []
   if (e.op === 'replace_all') return diffDocs(e.pageBefore ?? null, { type: 'doc', content: after })
-  if (e.op === 'insert_after') return diffDocs({ type: 'doc', content: e.targets.map((x) => x.block) }, { type: 'doc', content: [...e.targets.map((x) => x.block), ...after] })
-  return diffDocs({ type: 'doc', content: e.targets.map((x) => x.block) }, { type: 'doc', content: e.op === 'delete' ? [] : after })
+  const targets = e.targets.map((x) => x.block)
+  const first = targets[0]?.type ?? ''
+  const list = ITEMS.has(first) ? (e.targets[0].list ?? (first === 'taskItem' ? 'taskList' : 'bulletList')) : null
+  const wrap = (blocks: JSONContent[]): JSONContent[] => (list && blocks.length ? [{ type: list, content: blocks }] : blocks)
+  const added = list ? asItems(after, list) : after
+  const next = e.op === 'insert_after' ? [...targets, ...added] : e.op === 'delete' ? [] : added
+  return diffDocs({ type: 'doc', content: wrap(targets) }, { type: 'doc', content: wrap(next) })
 }
 
 /** The page with this edit applied, diffed against the page now (pending edits). */

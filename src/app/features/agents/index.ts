@@ -7,9 +7,12 @@
  *  - AgentsRoute { agentId? }: the #/agents area (lazy) · AgentsNavBadge: proposals waiting for review
  *  - ServerAgentsSettings: Settings → Agents · MCP → "Server agents" (team workspaces; renders nothing elsewhere)
  *  - agentLabel(actor): "Agent · <name>" for an `agent:<id>` createdBy / updatedBy (null for other ids)
+ *  - runAgentNow(agent): "Run now" — the agent page's run key (browser: this tab, toasts for busy / waiting for
+ *    its creator / done; server agents: started on the team server) — database commands use it
  */
 export { startAgents } from './runner'
 export { AgentsRoute } from './AgentsRoute'
 export { AgentsNavBadge, useAgentsAttention } from './NavBadge'
 export { ServerAgentsSettings } from './ServerAgentsSettings'
 export { agentLabel } from './label'
+export { runNow as runAgentNow } from './actions'

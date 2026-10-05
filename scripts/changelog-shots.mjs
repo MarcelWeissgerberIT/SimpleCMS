@@ -799,6 +799,74 @@ const shots = {
     await ctx.close()
   },
 
+  /** The AI terminal's review of edits (edit_page): a paragraph changed word by word, a removed block, a new list item; unchanged blocks folded. */
+  async 'ai-edit'(browser) {
+    const ids = {}
+    const DAY = 'We met on Monday and agreed to ship version 2.4 at the end of the month, together with the new pricing page.'
+    const LEGACY = 'Legacy note: the old CSV export stays until the migration is done.'
+    // the ref read_page put before a text ("⟦b3⟧\nWe met …" or "- ⟦b7⟧ Fix …")
+    const refOf = (read, snippet) => [...read.slice(0, read.indexOf(snippet)).matchAll(/⟦(b\d+)⟧/g)].at(-1)?.[1]
+    const turns = [
+      () =>
+        sseTurn([
+          { type: 'thinking', text: 'The notes still say Monday and 2.4. Read the page with refs, then change only those blocks.' },
+          { type: 'tool_use', id: 'toolu_read', name: 'read_page', input: { id: ids.notes, refs: true } },
+        ]),
+      (body) => {
+        const read = String(toolResult(body, 'toolu_read')?.content ?? '')
+        return sseTurn([
+          {
+            type: 'tool_use',
+            id: 'toolu_edit',
+            name: 'edit_page',
+            input: {
+              id: ids.notes,
+              edits: [
+                { op: 'replace', from: refOf(read, DAY), markdown: 'We met on Tuesday and agreed to ship version 2.5 in the second week of November, together with the new pricing page.' },
+                { op: 'delete', from: refOf(read, LEGACY) },
+                { op: 'insert_after', ref: refOf(read, 'Fix the login bug'), markdown: '- Write the release notes (Mira)' },
+              ],
+            },
+          },
+        ])
+      },
+      () => sseTurn([{ type: 'text', text: 'Staged three edits: the new day and version, the legacy note removed, the release notes added to the next steps.' }]),
+    ]
+    const { ctx, page } = await freshPage(browser, { claude: { turns } })
+    ids.notes = await createPage(
+      page,
+      'Release sync',
+      doc(
+        para('Attendees: Mara, Sam, Alex, Mira.'),
+        para(DAY),
+        para(LEGACY),
+        para('Budget stays at 40k; design review on Thursday.'),
+        h(2, 'Next steps'),
+        { type: 'bulletList', content: [li(para('Final QA on staging')), li(para('Fix the login bug')), li(para('Draft the newsletter'))] },
+        para('Notes taken by Sam.'),
+      ),
+      { icon: { type: 'asset', value: 'binder' } },
+    )
+    await openPage(page, ids.notes)
+    await page.keyboard.press('Control+j')
+    const term = page.getByRole('region', { name: 'AI terminal' })
+    await term.waitFor()
+    const prompt = term.getByRole('textbox', { name: 'Task for the agent' })
+    await prompt.fill('The release moved: Tuesday, 2.5, second week of November. Fix the notes, drop the legacy note, add the release notes to the next steps.')
+    await prompt.press('Enter')
+    await term.locator('.term-change[data-kind="edit"]').nth(2).waitFor({ timeout: 30_000 })
+    await term.locator('.term-head__status').filter({ hasText: 'Done' }).waitFor({ timeout: 30_000 })
+    // a taller dock: the first edit in full and the removed block of the second, the page's title above
+    await prompt.focus()
+    for (let i = 0; i < 3; i++) await page.keyboard.press('Alt+ArrowUp')
+    await page.waitForTimeout(400)
+    await term.locator('.term-change[data-kind="edit"]').first().evaluate((el) => el.scrollIntoView({ block: 'start' }))
+    await page.waitForTimeout(300)
+    await rest(page)
+    await save(page, 'ai-edit')
+    await ctx.close()
+  },
+
   /** Several blocks selected (text, image, table): the wash on each, the pinned grip, the count chip. */
   async 'block-select'(browser) {
     const { ctx, page } = await freshPage(browser)

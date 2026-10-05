@@ -14,7 +14,7 @@ import {
   type DragStartEvent,
   type Modifier,
 } from '@dnd-kit/core'
-import { ChevronRight, Copy, FilePlus2, FolderInput, Link2, Lock, MoreHorizontal, PanelRight, PencilLine, Plus, Star, StarOff, Trash2, PanelRightOpen, Users } from 'lucide-react'
+import { ChevronRight, Copy, FolderInput, Link2, Lock, MoreHorizontal, PanelRight, PencilLine, Plus, Star, StarOff, Trash2, PanelRightOpen, Users } from 'lucide-react'
 import { useShallow } from 'zustand/react/shallow'
 import { useWorkspace } from '../../store/store'
 import { useUI } from '../../store/ui'
@@ -28,7 +28,7 @@ import type { ID } from '../../store/types'
 import { ENTRY_LIMIT, childIds, treeKey, useChildIds, useEntryCount, useEntryIds, useTreeState } from '../lib/tree'
 import { closeMobileSidebar, copyPageLink, createPageAndOpen, duplicateAndOpen, goToPage, trashWithUndo } from '../lib/actions'
 import { canLeaveFor, createEntryAndOpen, dropOptions, nodeKind, requestLeaveDatabase, requestMakeEntry } from './entries'
-import { AIRunLed } from '../../features'
+import { AIRunLed, DbCommandKey, DbCommandsMenu, type CommandHost } from '../../features'
 import { useIsTouch } from '../lib/hooks'
 import { ALT } from '../../ui/controls'
 import { useReadOnly } from '../cloud/state'
@@ -341,6 +341,8 @@ function TreeRow({ id, depth, section, draggable, expanded }: { id: ID; depth: n
   const toggle = useTreeState((s) => s.toggle)
   const [renaming, setRenaming] = useState(false)
   const menu = useMenu()
+  // the database's command key holds the row open (like its ⋯ menu)
+  const [cmdOpen, setCmdOpen] = useState(false)
   const drag = useDraggable({ id, disabled: !draggable || renaming })
   const dropZone = useDroppable({ id, disabled: !draggable })
   const rowRef = useRef<HTMLDivElement | null>(null)
@@ -369,8 +371,14 @@ function TreeRow({ id, depth, section, draggable, expanded }: { id: ID; depth: n
     else if (page.private) createPrivatePageAndOpen(id)
     else createPageAndOpen(id)
   }
+  // a database's commands (New entry first, by default) open its menu: features/commands
+  const cmdHost: CommandHost = {
+    newEntry: (templateId) => {
+      useTreeState.getState().expand([treeKey(section, id)])
+      createEntryAndOpen(id, templateId)
+    },
+  }
   const entries: MenuEntry[] = [
-    ...(edit && isDb ? ([{ label: t('shell.sidebar.newEntry'), icon: <FilePlus2 size={15} />, onSelect: addInside }, { kind: 'separator' }] as MenuEntry[]) : []),
     ...(edit
       ? ([
           { label: t('common.rename'), icon: <PencilLine size={15} />, onSelect: () => setRenaming(true) },
@@ -428,7 +436,7 @@ function TreeRow({ id, depth, section, draggable, expanded }: { id: ID; depth: n
       data-active-within={activeWithin || undefined}
       data-drop={dropPos}
       data-dragging={isDragging || undefined}
-      data-menu-open={menu.open || undefined}
+      data-menu-open={menu.open || cmdOpen || undefined}
       style={{ '--depth': depth } as CSSProperties}
       {...(draggable ? drag.listeners : {})}
       onContextMenu={(e) => {
@@ -510,6 +518,7 @@ function TreeRow({ id, depth, section, draggable, expanded }: { id: ID; depth: n
           <button type="button" className="sb-row__btn" aria-label={t('common.more')} onClick={toggleMenu(menu)}>
             <MoreHorizontal size={15} />
           </button>
+          {isDb && <DbCommandKey dbId={id} variant="sidebar" host={cmdHost} onOpenChange={setCmdOpen} />}
           {edit && (
             <button
               type="button"
@@ -525,7 +534,7 @@ function TreeRow({ id, depth, section, draggable, expanded }: { id: ID; depth: n
           )}
         </span>
       )}
-      <Menu {...menu.props} entries={entries} width={240} />
+      {isDb && menu.open ? <DbCommandsMenu {...menu.props} dbId={id} entries={entries} width={260} host={cmdHost} exclude={['copy-link']} /> : <Menu {...menu.props} entries={entries} width={240} />}
     </div>
   )
 }

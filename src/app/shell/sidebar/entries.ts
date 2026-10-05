@@ -21,9 +21,9 @@ export type NodeKind = 'page' | 'database' | 'entry'
 /** A tree row is a normal page, a database, or an entry (a database row). */
 export const nodeKind = (p: Pick<Page, 'kind' | 'databaseId'>): NodeKind => (p.databaseId ? 'entry' : p.kind === 'database' ? 'database' : 'page')
 
-/** "+" on a database in the tree: a new entry (the first view's presets), opened with its title focused. */
-export function createEntryAndOpen(dbId: ID): ID | null {
-  const id = createEntry(dbId)
+/** "+" on a database in the tree: a new entry (the first view's presets; a row template's), opened with its title focused. */
+export function createEntryAndOpen(dbId: ID, templateId?: ID): ID | null {
+  const id = createEntry(dbId, { templateId })
   if (!id) return null
   useTreeState.getState().expand([treeKey(sectionOf(ws().pages[dbId]), dbId)])
   requestTitleFocus(id)

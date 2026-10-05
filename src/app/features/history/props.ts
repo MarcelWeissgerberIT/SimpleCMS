@@ -74,6 +74,13 @@ export function propsOf(page: Page, db: Database | undefined = useWorkspace.getS
   return { databaseId: page.databaseId, values, defs }
 }
 
+/** A fresh, untouched entry: no title, no icon, no stored value (an automatic unique ID does not count). */
+export function blankRow(page: Page): boolean {
+  if (page.title.trim() || page.icon) return false
+  const db = useWorkspace.getState().databases[page.databaseId ?? '']
+  return !db || db.properties.every((p) => !isKept(p) || NO_RESTORE.has(p.type) || isEmptyValue(page.properties[p.id]))
+}
+
 /** What a hash and the change check compare: values only (a renamed property is not an edit of the row). */
 export function propsKey(props: SnapshotProps | null | undefined): string {
   if (!props) return ''
@@ -163,6 +170,8 @@ function mergeOptions(live: SelectOption[] | undefined, then: SelectOption[] | u
 /* Restore                                                             */
 /* ------------------------------------------------------------------ */
 
+const emptyOf = (type: PropertyType): PropertyValue => (type === 'checkbox' ? false : type === 'multi_select' || type === 'relation' || type === 'person' || type === 'files' ? [] : null)
+
 export interface NotRestored {
   name: string
   reason: PropSkip
@@ -189,14 +198,14 @@ export function restoreProps(pageId: ID, props: SnapshotProps): NotRestored[] {
       skipped.push({ name: live?.name ?? then.name, reason: skip })
       continue
     }
-    let value: PropertyValue = old === undefined ? null : (structuredClone(old) as PropertyValue)
+    // an empty value goes back the way a cleared cell reads (unticked, no options, nothing)
+    let value: PropertyValue = old === undefined ? emptyOf(live!.type) : (structuredClone(old) as PropertyValue)
     // multi-select: options deleted since are left out
     if (live!.type === 'multi_select' && Array.isArray(value)) {
       const known = value.filter((id) => live!.options?.some((o) => o.id === id))
       if (known.length !== value.length) skipped.push({ name: live!.name, reason: 'option' })
       value = known
     }
-    if (live!.type === 'relation' && value === null) value = []
     writePropertyValue(db.id, live!, pageId, value)
   }
   return skipped

@@ -14,6 +14,10 @@
  * "Redo with instructions": the picker marks passages (purpose 'redo'), the panel takes the instructions
  * (presets, a rules page — redo/RedoSetup.tsx), the run rewrites them in the background, and the review
  * goes through them one by one (redo/RedoReview.tsx). Opened on passages from elsewhere: `redo`.
+ *
+ * "Transform into …" (transform/**): a submenu of forms (Auto, Board, Table, Timeline, Diagram, Chart, Columns,
+ * Tabs, Toggles, Cards) on a selection of blocks; the run's preview and keys come from transform/panel.tsx.
+ * Opened on a form from elsewhere (the grip menu of selected blocks): `transform`.
  */
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
@@ -53,6 +57,7 @@ import {
   SpellCheck,
   Square,
   SquareCheck,
+  Shapes,
   SquareKanban,
   SquareDashed,
   Trash2,
@@ -89,6 +94,9 @@ import { imageRequest } from './image/actions'
 import { imageActionRows, imageRunTarget, refineImage, useImagePanel } from './image/ImagePanel'
 import type { ImageAction } from './image/request'
 import { MemoryLine, useMemoryPreview } from './memory/MenuParts'
+import { TRANSFORM_CODES, TRANSFORM_ICONS, TRANSFORM_KEYWORDS, transformChoices, transformRequest, typeLabel } from './transform/forms'
+import { useTransformPanel } from './transform/panel'
+import type { TransformPick } from './transform/types'
 import { MemoryBodyView, MemoryEdit } from './memory/MemoryCard'
 import { isRememberRequest, stripRemember } from './memory/propose'
 import { memoryHistory } from './memory/log'
@@ -111,6 +119,8 @@ export interface AIMenuProps {
   runId?: string
   /** Open on passages to redo with instructions (block ids, marked in the picker — block menu, AI terminal). */
   redo?: string[]
+  /** Open on a selection and transform it into this form at once (the grip menu of selected blocks). */
+  transform?: TransformPick
 }
 
 /* ------------------------------------------------------------------ */
@@ -228,7 +238,7 @@ type Phase = 'idle' | 'streaming' | 'done' | 'error'
 /* Component                                                           */
 /* ------------------------------------------------------------------ */
 
-export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo }: AIMenuProps) {
+export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, transform: transformPick }: AIMenuProps) {
   const t = useT()
   const hasKey = useWorkspace((s) => !!s.settings.aiApiKey.trim())
   const model = resolveModel(useWorkspace((s) => s.settings.aiModel))
@@ -291,7 +301,7 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo }: 
   const [setup, setSetup] = useState(!hasKey && !isAIDemo() && !openRun)
   const [query, setQuery] = useState('')
   const lang = useLang()
-  const [view, setView] = useState<'actions' | 'translate' | 'reads' | 'memory' | 'memhist'>('actions')
+  const [view, setView] = useState<'actions' | 'translate' | 'reads' | 'memory' | 'memhist' | 'transform'>('actions')
   /** One memory: switched off for the next own request (the list's toggle) · the entry whose history shows */
   const [memOff, setMemOff] = useState(false)
   const [histOf, setHistOf] = useState<string | null>(null)
@@ -438,7 +448,7 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo }: 
       setMemOff(false)
       setMemDraft(null)
       setMemEdit(false)
-      if (view === 'memory' || view === 'memhist') setView('actions')
+      if (view === 'memory' || view === 'memhist' || view === 'transform') setView('actions')
       makeRoom(true)
     },
     [editor, pageId, runId, makeRoom, view],
@@ -457,7 +467,7 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo }: 
     start({ ...req, instructions: [req.instructions, extra.trim()].filter(Boolean).join('\n'), passages: capturePassages(editor, req.passages.map((p) => p.key)) })
   }
 
-  const retry = () => run && (run.req.kind === 'redo' ? redoAgain() : start(run.req))
+  const retry = () => run && (run.req.kind === 'redo' ? redoAgain() : run.req.kind === 'transform' ? transformPanel.again() : start(run.req))
 
   /* ---------------- what Claude reads ---------------- */
 
@@ -696,6 +706,45 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo }: 
     copy: (text) => void copyText(text),
   })
 
+  /* ---------------- Transform into … ---------------- */
+
+  /** a transform run: its preview (forms, options, the result, what stays) and its Transform key */
+  const transformPanel = useTransformPanel({
+    editor,
+    pageId,
+    run: run?.req.kind === 'transform' ? run : null,
+    phase,
+    target,
+    start,
+    finish: () => {
+      if (run) removeRun(run.id)
+      onClose()
+    },
+    onIssue: (i) => {
+      setConvertIssue(i)
+      refocusPrompt()
+    },
+  })
+
+  /** the forms the selection may become (Auto first; [] when it is no whole blocks) */
+  const transformPicks = useMemo(
+    () => (own.t.mode === 'selection' && !img?.only && !editor.isDestroyed ? transformChoices(editor.state.doc, own.t.range) : []),
+    [own.t.mode, own.t.range, img, editor],
+  )
+  const transformRun = useCallback((pick: TransformPick) => start(transformRequest(pick)), [start])
+
+  // opened on a form (the grip menu of selected blocks): it runs at once — or the list of forms when it can't go there
+  const transformOpened = useRef(false)
+  useEffect(() => {
+    if (!transformPick || openRun || transformOpened.current) return
+    transformOpened.current = true
+    if (!setup && transformPicks.includes(transformPick)) {
+      // the keyboard into the panel first (the prompt is off while the run works; the result's keys need it after)
+      inputRef.current?.focus({ preventScroll: true })
+      transformRun(transformPick)
+    } else if (transformPicks.length) setView('transform')
+  }, [transformPick, openRun, setup, transformPicks, transformRun])
+
   /* ---------------- lists ---------------- */
 
   const actions: ActionDef[] = useMemo(() => {
@@ -805,6 +854,37 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo }: 
           },
         ]
       : []
+    // "Transform into …": the list of forms — or, typed for ("chart", "flowchart" …), a form directly
+    const gStructure = t('features.ai.group.structure')
+    const transform: ActionDef[] = transformPicks.length
+      ? [
+          {
+            id: 'transform',
+            label: t('features.ai.transform.action'),
+            code: 'TRF',
+            icon: Shapes,
+            group: gStructure,
+            keywords: 'transform convert visualize diagram chart columns tabs toggles cards timeline verwandeln umwandeln visualisieren schaubild diagramm spalten karten zeitleiste',
+            run: () => {
+              setView('transform')
+              setQuery('')
+              setActive(0)
+            },
+          },
+          ...transformPicks.map(
+            (p): ActionDef => ({
+              id: `transform-${p}`,
+              label: t('features.ai.transform.direct', { type: typeLabel(p) }),
+              code: TRANSFORM_CODES[p],
+              icon: TRANSFORM_ICONS[p],
+              group: gStructure,
+              keywords: TRANSFORM_KEYWORDS[p],
+              hidden: true,
+              run: () => transformRun(p),
+            }),
+          ),
+        ]
+      : []
     if (own.t.mode === 'selection')
       return [
         ...imageGroup,
@@ -815,6 +895,7 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo }: 
         translate,
         redoAction,
         ...todb,
+        ...transform,
         // "Turn into page" (editor/split): no Claude — the selected blocks move into a new sub-page at once
         {
           id: 'topage',
@@ -881,7 +962,7 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo }: 
       agent,
       reads,
     ]
-  }, [t, own.t.mode, own.t.todb, start, startPageLevel, handToAgent, pickRedo, editor, own, pageId, onClose])
+  }, [t, own.t.mode, own.t.todb, start, startPageLevel, handToAgent, pickRedo, editor, own, pageId, onClose, transformPicks, transformRun])
 
   type Row = { id: string; label: ReactNode; code?: string; icon?: LucideIcon; group?: string; run: () => void; hint?: ReactNode; danger?: boolean; disabled?: boolean; current?: boolean }
 
@@ -890,7 +971,7 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo }: 
   const memInUse = useWorkspace(() => memoryInUse())
   const remembering = !!query.trim() && isRememberRequest(query) && !img?.only
   /** the typed text would go to Claude as an own request (or a revision): its memory preview shows */
-  const previewing = memInUse && !!query.trim() && !remembering && !wsMode && !img?.only && !redoIds && (view === 'actions' || view === 'memory' || view === 'memhist') && phase !== 'streaming' && run?.req.kind !== 'todb' && run?.req.kind !== 'memory'
+  const previewing = memInUse && !!query.trim() && !remembering && !wsMode && !img?.only && !redoIds && (view === 'actions' || view === 'memory' || view === 'memhist') && phase !== 'streaming' && run?.req.kind !== 'todb' && run?.req.kind !== 'memory' && run?.req.kind !== 'transform'
   const preview = useMemoryPreview(query.trim(), previewing, memOff)
   /** the line under the reads line: the preview while typing, else what the shown run took along */
   const lineUse = previewing ? preview : !query.trim() && run?.req.kind === 'action' ? (run.memory ?? null) : null
@@ -1058,6 +1139,8 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo }: 
             run: () =>
               run?.req.kind === 'image'
                 ? start(refineImage(run.req, query))
+                : run?.req.kind === 'transform'
+                ? transformPanel.again(query)
                 : run?.req.kind === 'todb'
                 ? start({ kind: 'todb', label: run.req.label, code: 'DB', instruction: query.trim() })
                 : run?.req.kind === 'redo'
@@ -1078,6 +1161,7 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo }: 
       if (imagePanel.rows) return imagePanel.rows
       const out: Row[] = []
       const todb = run?.req.kind === 'todb'
+      const transform = run?.req.kind === 'transform'
       // a redo result: the review decides passage by passage; here only "other instructions" and discard
       if (phase === 'done' && isRedo)
         return [
@@ -1094,6 +1178,9 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo }: 
             run: () => void convert(),
             hint: <Kbd>↵</Kbd>,
           })
+      } else if (transform) {
+        // "Transform into": Transform (Enter) — the forms and options are in the preview above
+        if (transformPanel.apply) out.push(transformPanel.apply)
       } else if (phase === 'done') {
         const ws = run?.req.kind === 'workspace'
         const sel = target.mode === 'selection'
@@ -1161,6 +1248,20 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo }: 
           run: () => start({ kind: 'workspace', question: query.trim(), label: t('features.ai.act.workspace'), code: 'WKS' }),
         },
       ]
+    }
+    if (view === 'transform') {
+      const group = t('features.ai.transform.title')
+      return transformPicks
+        .filter((p) => !q || typeLabel(p).toLowerCase().includes(q) || TRANSFORM_CODES[p].toLowerCase().startsWith(q) || TRANSFORM_KEYWORDS[p].includes(q))
+        .map((p) => ({
+          id: `trf-${p}`,
+          label: typeLabel(p),
+          code: TRANSFORM_CODES[p],
+          icon: TRANSFORM_ICONS[p],
+          group,
+          hint: <span className="ai-row__mem">{t(`features.ai.transform.hint.${p}`)}</span>,
+          run: () => transformRun(p),
+        }))
     }
     if (view === 'translate') {
       const langs = LANGS.filter((l) => !q || l.native.toLowerCase().includes(q) || l.english.toLowerCase().includes(q) || l.code.toLowerCase() === q)
@@ -1256,7 +1357,7 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo }: 
         run: () => start({ kind: 'memory', label: t('features.memory.menu.label'), code: 'MEM', text: query.trim(), from: 'request' }),
       })
     return list
-  }, [query, setup, phase, wsMode, view, actions, t, start, output, target, run, error, discard, sources, handToAgent, mcpNames, onClose, table, todbInPlace, ask, marks, lang, chooseMode, pickBlocks, redoCard, isRedo, imagePanel.rows, img, lineUse, memOff, previewing, histOf, memEdit, memDup, remembering, tagQuery]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [query, setup, phase, wsMode, view, actions, t, start, output, target, run, error, discard, sources, handToAgent, mcpNames, onClose, table, todbInPlace, ask, marks, lang, chooseMode, pickBlocks, redoCard, isRedo, imagePanel.rows, img, lineUse, memOff, previewing, histOf, memEdit, memDup, remembering, tagQuery, transformPicks, transformRun, transformPanel.apply]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     setActive((a) => Math.min(a, Math.max(0, rows.length - 1)))
@@ -1270,6 +1371,11 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo }: 
   useEffect(() => {
     if (imagePanel.mode) setActive(0)
   }, [imagePanel.mode])
+
+  // a transform run shows another form / finished: Transform is the key again
+  useEffect(() => {
+    if (transformPanel.mode) setActive(0)
+  }, [transformPanel.mode])
 
   // the current choice is highlighted when the reads view opens
   useEffect(() => {
@@ -1297,6 +1403,9 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo }: 
       e.preventDefault()
       const d = e.key === 'ArrowDown' ? 1 : -1
       setActive((a) => (a + d + rows.length) % rows.length)
+    } else if ((e.key === 'ArrowLeft' || e.key === 'ArrowRight') && !query && run?.req.kind === 'transform') {
+      // "Transform into": ←/→ in the empty prompt = the previous / next form
+      if (transformPanel.step(e.key === 'ArrowLeft' ? -1 : 1)) e.preventDefault()
     } else if (e.key === 'Tab' && !e.shiftKey && rows[active]?.id.startsWith('tag-')) {
       e.preventDefault()
       rows[active].run()
@@ -1309,7 +1418,7 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo }: 
       if (ask) {
         e.preventDefault()
         setAsk(null)
-      } else if (view === 'translate' || view === 'reads' || view === 'memory') {
+      } else if (view === 'translate' || view === 'reads' || view === 'memory' || view === 'transform') {
         e.preventDefault()
         setView('actions')
       } else if (view === 'memhist') {
@@ -1332,7 +1441,7 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo }: 
   }
 
   const phKey =
-    phase === 'done' || phase === 'error' ? 'refine' : wsMode ? 'workspace' : view === 'translate' ? 'language' : img && view === 'actions' ? 'image' : target.mode === 'selection' ? 'selection' : 'block'
+    phase === 'done' || phase === 'error' ? 'refine' : wsMode ? 'workspace' : view === 'translate' ? 'language' : view === 'transform' ? 'transform' : img && view === 'actions' ? 'image' : target.mode === 'selection' ? 'selection' : 'block'
   const placeholder = t(`features.ai.placeholder.${phKey}${narrow ? 'Short' : ''}`)
 
   /** Back from the key card to the panel (re-running a request that failed for lack of a key). */
@@ -1346,6 +1455,7 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo }: 
   const showOutput = phase !== 'idle' && !setup && !redoCard
   const isTodb = run?.req.kind === 'todb'
   const isMemory = run?.req.kind === 'memory'
+  const isTransform = run?.req.kind === 'transform'
   const todbBlocks = isTodb && target.todb && !editor.isDestroyed ? countBlocks(editor, target.todb) : 0
   const words = output.trim() ? output.trim().split(/\s+/).length : 0
   /** the passages the instructions card would send (they recount as the page changes) */
@@ -1394,6 +1504,11 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo }: 
                   <ArrowLeft size={11} strokeWidth={2} /> {t('features.ai.translateTo')}
                 </button>
               )}
+              {view === 'transform' && phase === 'idle' && (
+                <button className="ai-chip" onClick={() => setView('actions')}>
+                  <ArrowLeft size={11} strokeWidth={2} /> {t('features.ai.transform.title')}
+                </button>
+              )}
               {view === 'reads' && (
                 <button className="ai-chip" onClick={() => setView('actions')}>
                   <ArrowLeft size={11} strokeWidth={2} /> {t('features.ai.reads.title')}
@@ -1432,7 +1547,7 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo }: 
                 />
               )}
               {/* "kb: …" — the query goes to Claude as an own request / a revision: the addressed server shows */}
-              {!busy && !wsMode && !redoHead && view === 'actions' && run?.req.kind !== 'todb' && <CodewordChip text={query} />}
+              {!busy && !wsMode && !redoHead && view === 'actions' && run?.req.kind !== 'todb' && run?.req.kind !== 'transform' && <CodewordChip text={query} />}
               {demo ? (
                 <span className="ai-model ai-model--demo" title={t('features.ai.demo.title')}>
                   <span className="ai-model__brand">CLAUDE · </span>
@@ -1545,7 +1660,7 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo }: 
                     </>
                   )}
                   {run && <Elapsed start={run.startedAt} end={run.finishedAt ?? undefined} />}
-                  {!isTodb && !isRedo && !isMemory && !imagePanel.structured && (
+                  {!isTodb && !isRedo && !isMemory && !isTransform && !imagePanel.structured && (
                     <>
                       <span className="ai-out__sep">·</span>
                       <span>{t('features.ai.words', { count: words })}</span>
@@ -1559,6 +1674,7 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo }: 
                 </div>
                 {mcpCalls.length > 0 && <McpChips calls={mcpCalls} />}
                 {imagePanel.body}
+                {transformPanel.body}
                 {isTodb && busy && (
                   <div className="ai-out__body">
                     <div className="ai-wait label">
@@ -1608,7 +1724,7 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo }: 
                     )}
                   </div>
                 )}
-                {!isTodb && !isRedo && !isMemory && !imagePanel.structured && !run?.imageIssue && (output || busy) && (
+                {!isTodb && !isRedo && !isMemory && !isTransform && !imagePanel.structured && !run?.imageIssue && (output || busy) && (
                   <div
                     className="ai-out__body"
                     ref={outRef}
@@ -1652,7 +1768,7 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo }: 
                     ))}
                   </div>
                 )}
-                {phase === 'done' && target.lost && !isRedo && (
+                {phase === 'done' && target.lost && !isRedo && !isTransform && (
                   <p className="ai-lost" role="note" data-testid="ai-lost">
                     {isTodb ? t('features.ai.bg.lostTodb') : t('features.ai.bg.lost')}
                   </p>

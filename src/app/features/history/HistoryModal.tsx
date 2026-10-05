@@ -16,8 +16,7 @@ import { ReadOnlyDoc } from '../../editor'
 import { countWords, hashPage, listSnapshots, loadSnapshot, onHistoryChange, restoreSnapshot, snapshotNow, type SnapshotBody, type SnapshotMeta } from './snapshots'
 import { diffDocs, docDiffStats } from './docDiff'
 import { DocDiff } from './DiffDoc'
-import { PropsDiff } from './PropsDiff'
-import { diffProps } from './props'
+import { metaChangeCount, PropsDiff } from './PropsDiff'
 import './history.css'
 import '../share/readonly.css'
 
@@ -94,8 +93,8 @@ export function HistoryModal({ pageId, onClose }: { pageId: ID; onClose: () => v
 
   const diffItems = useMemo(() => (body ? diffDocs(body.content, current) : []), [body, current])
   const stats = useMemo(() => docDiffStats(diffItems), [diffItems])
-  // a database entry: how many of its properties differ (the Properties block lists them)
-  const propChanges = useMemo(() => (body?.props && page ? diffProps(body.props, page).length : 0), [body, page])
+  // title, icon and — for a database entry — its properties that differ (PropsDiff lists them)
+  const propChanges = useMemo(() => (body && page ? metaChangeCount(body, page) : 0), [body, page])
 
   const step = (d: number) => setIndex((i) => Math.max(0, Math.min(items.length - 1, (i ?? 0) + d)))
 
@@ -287,20 +286,12 @@ export function HistoryModal({ pageId, onClose }: { pageId: ID; onClose: () => v
                     {stats.changed > 0 && <span className="hist__legend hist__legend--chg">~{stats.changed} {t('features.history.changed')}</span>}
                     <span className="hist__legend hist__legend--add">+{stats.added} {t('features.history.added')}</span>
                     <span className="hist__legend hist__legend--rem">−{stats.removed} {t('features.history.removed')}</span>
-                    {propChanges > 0 && <span className="hist__legend hist__legend--chg">{t('features.history.props.count', { count: propChanges })}</span>}
+                    {propChanges > 0 && <span className="hist__legend hist__legend--chg">{t(page?.databaseId ? 'features.history.props.count' : 'features.history.props.meta', { count: propChanges })}</span>}
                   </>
                 ) : (
                   <span>{t('features.history.noChanges')}</span>
                 )}
               </div>
-              {body.title !== (page?.title ?? '') && !page?.databaseId && (
-                <div className="hist__title-diff">
-                  <span className="label">{t('features.history.titleLabel')}</span>
-                  <del className="ddiff-del">{body.title || t('common.untitled')}</del>
-                  <span aria-hidden>→</span>
-                  <ins className="ddiff-ins">{page?.title || t('common.untitled')}</ins>
-                </div>
-              )}
               {page && <PropsDiff body={body} page={page} />}
               <DocDiff items={diffItems} context={2} variant="rich" />
             </div>

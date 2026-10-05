@@ -17,8 +17,11 @@ const WORDS: Record<string, number> = {
   dozen: 12, dutzend: 12, hundred: 100, hundert: 100, thousand: 1000, tausend: 1000,
 }
 
+const SUFFIX = String.raw`(\s?(?:%|k|tsd\.?|tausend|thousand|m|mio\.?|mn|millionen|millions?|bn|b|mrd\.?|milliarden?|billions?)(?!\p{L}))?`
 /** a sign, the digits (thousands in groups of three, then decimals), a suffix that is not the start of a word */
-const NUM = /([-\u2212\u2013]?)(\d{1,3}(?:[,.\u00a0\u202f '\u2019]\d{3})+(?:[.,]\d+)?|\d+(?:[.,]\d+)?)(\s?(?:%|k|tsd\.?|tausend|thousand|m|mio\.?|mn|millionen|millions?|bn|b|mrd\.?|milliarden?|billions?)(?!\p{L}))?/giu
+const NUM = new RegExp(String.raw`([-\u2212\u2013]?)(\d{1,3}(?:[,.\u00a0\u202f '\u2019]\d{3})+(?:[.,]\d+)?|\d+(?:[.,]\d+)?)` + SUFFIX, 'giu')
+/** every run of digits on its own ("Q1 120" is read as 1 120 above — and as 1 and 120 here) */
+const PLAIN = new RegExp(String.raw`([-\u2212\u2013]?)(\d+(?:[.,]\d+)?)` + SUFFIX, 'giu')
 
 function readings(digits: string): number[] {
   const out = new Set<number>()
@@ -36,17 +39,18 @@ function readings(digits: string): number[] {
 /** Every value a number of the text can stand for. */
 export function numbersIn(text: string): number[] {
   const pool = new Set<number>()
-  for (const m of text.matchAll(NUM)) {
-    const sign = m[1] ? -1 : 1
-    const suffix = (m[3] ?? '').trim()
-    for (const base of readings(m[2])) {
-      const v = sign * base
-      pool.add(v)
-      pool.add(Math.abs(v))
-      if (suffix === '%') pool.add(v / 100)
-      for (const [re, f] of MULTIPLIERS) if (re.test(suffix)) pool.add(v * f)
+  for (const re of [NUM, PLAIN])
+    for (const m of text.matchAll(re)) {
+      const sign = m[1] ? -1 : 1
+      const suffix = (m[3] ?? '').trim()
+      for (const base of readings(m[2])) {
+        const v = sign * base
+        pool.add(v)
+        pool.add(Math.abs(v))
+        if (suffix === '%') pool.add(v / 100)
+        for (const [re2, f] of MULTIPLIERS) if (re2.test(suffix)) pool.add(v * f)
+      }
     }
-  }
   for (const w of text.toLowerCase().match(/\p{L}+/gu) ?? []) if (w in WORDS) pool.add(WORDS[w])
   return [...pool]
 }

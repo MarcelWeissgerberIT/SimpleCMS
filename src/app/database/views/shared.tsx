@@ -29,6 +29,8 @@ export interface ViewActions {
   contextMenu: (row: Page, anchor: PopoverAnchor) => void
   /** Reset the quick search of this view. */
   clearSearch: () => void
+  /** The rows selected in the view (the table's checkboxes) — database commands started from the toolbar get them. */
+  setSelection?: (ids: ID[]) => void
 }
 
 export const ViewActionsContext = createContext<ViewActions | null>(null)

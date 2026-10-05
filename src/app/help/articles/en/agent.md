@@ -3,7 +3,7 @@ id: agent
 title: The AI terminal
 section: ai
 order: 3
-keywords: agent, ai terminal, terminal, claude, automate, bulk, tasks, rows, pages, databases, board, workspace agent, apply, review, keyboard, commands, references, context, what claude reads, redo, KI-Terminal, Agent, Aufgaben, automatisieren, Kontext
+keywords: agent, ai terminal, terminal, claude, automate, bulk, tasks, rows, pages, databases, board, workspace agent, apply, review, keyboard, commands, references, context, what claude reads, redo, edit, replace, rewrite, diff, KI-Terminal, Agent, Aufgaben, automatisieren, Kontext, ändern, ersetzen
 related: custom-agents, ai-menu, mcp-servers, mcp-bridge
 summary: Give Claude tasks by keyboard — it reads your workspace, proposes changes, and you apply them. Keeps working while hidden.
 ---
@@ -12,6 +12,14 @@ Press <kbd>Mod+J</kbd> (or ⌘K → *AI terminal*, or **AI** in the status bar).
 1. Type a task, e.g. *“Turn this week's meeting notes into action items in Projects”* or *“Make a board of the open items on this page”*, and press <kbd>Enter</kbd> (<kbd>Shift+Enter</kbd> for a new line).
 2. Claude searches and reads your pages and databases; the answer streams in, and every tool call is one line in the log (`→ search_pages "Delta"`, `✓ create_row … staged #2`).
 3. Changes are **proposed**, not written: new pages, rows, databases and properties, changed values and titles land in a review list. Apply them one by one, **Apply all** (<kbd>Mod+Enter</kbd> or `/apply`) or discard them. One **Undo** reverts an applied batch.
+
+## Changing existing text
+Claude adds to a page with *append*. When a task asks to **fix, rewrite, update or remove** what is there, it changes exactly those blocks instead: it reads the page with a short label per block (`b3`) and names the blocks it changes — replace, delete, insert after, or rewrite the whole page when you ask for that. Every edit is one proposal, shown as a **diff** of the page: removed words struck through on red, new words on orange, unchanged blocks folded (*12 unchanged blocks — show*).
+
+- Apply or discard each edit on its own. The edits of one page you apply together go in as one step: a version is kept first (**AI** in the [version history](help:history)), and <kbd>Mod+Z</kbd> in the open page takes the whole edit back.
+- A block you changed after Claude proposed the edit is **skipped**, never overwritten — the review says so.
+- Blocks you left out of what Claude reads (see below) can't be changed either, and a full rewrite of such a page is refused.
+- [Custom agents](help:custom-agents) can propose edits too; even an agent that writes directly waits for your OK before it replaces text.
 
 ## It keeps working
 Hide the terminal with <kbd>Esc</kbd> or <kbd>Mod+J</kbd> and go on working — the task runs on. The status bar shows **AI · working** and then **AI · 3 changes to review**; a toast tells you when it is done, and a click brings the terminal back. Only **Stop** ends a task: <kbd>Mod+.</kbd>, <kbd>Ctrl+C</kbd> (with nothing selected), `/stop` or the Stop key. Proposals so far stay.

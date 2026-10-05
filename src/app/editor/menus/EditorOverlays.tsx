@@ -30,8 +30,9 @@ function AI({ editor, bridge, pageId }: { editor: Editor; bridge: Bridge; pageId
       if (!editor.isDestroyed && (!el || el === document.body)) editor.view.focus()
     })
   }
-  // passages to redo (block menu, AI terminal): a fresh panel on them
-  return <AIMenuSlot key={ai.redo ? `redo:${ai.redo.join(',')}` : 'ai'} editor={editor} pageId={pageId} mode={ai.mode} redo={ai.redo} onClose={close} />
+  // passages to redo (block menu, AI terminal) / a form to transform the selection into (grip menu): a fresh panel on them
+  const key = ai.redo ? `redo:${ai.redo.join(',')}` : ai.transform ? `transform:${ai.transform}` : 'ai'
+  return <AIMenuSlot key={key} editor={editor} pageId={pageId} mode={ai.mode} redo={ai.redo} transform={ai.transform} onClose={close} />
 }
 
 export const EditorOverlays = memo(function EditorOverlays({ editor, bridge, pageId }: { editor: Editor; bridge: Bridge; pageId: string }) {

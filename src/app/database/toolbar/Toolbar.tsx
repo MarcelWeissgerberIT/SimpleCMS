@@ -26,6 +26,8 @@ import { structureEntries } from './structureEntries'
 import { LockPlate } from './Lock'
 import { setDbLocked } from '../model/lock'
 import { importCsvInto } from '../create/CsvIntake'
+import { DbCommandKey } from '../../features'
+import type { ID } from '../../store/types'
 
 /** The Gmail sync LED (features/mail) — loaded only for the database the mail sync writes to. */
 const MailSyncLed = lazy(() => import('../../features').then((m) => ({ default: m.MailSyncLed })))
@@ -69,7 +71,7 @@ function exportIcs(m: DbModel, t: ReturnType<typeof useT>) {
   ui.toast({ message: t(count === 1 ? 'database.ics.done.one' : 'database.ics.done.other', { count }), kind: 'success' })
 }
 
-export function Toolbar({ m, onNew, setSearch, compact }: { m: DbModel; onNew: (tpl?: Template) => void; setSearch: (q: string) => void; compact?: boolean }) {
+export function Toolbar({ m, onNew, setSearch, compact, selection, onView }: { m: DbModel; onNew: (tpl?: Template) => void; setSearch: (q: string) => void; compact?: boolean; selection?: ID[]; onView?: (viewId: ID) => void }) {
   const t = useT()
   const [panel, setPanel] = useState<{ kind: PanelKind; el: Element } | null>(null)
   const [searchOpen, setSearchOpen] = useState(!!m.search)
@@ -169,6 +171,20 @@ export function Toolbar({ m, onNew, setSearch, compact }: { m: DbModel; onNew: (
       {!isForm && !ro && <ToolButton compact={compact} icon={<ArrowUpDown size={14} />} label={t('database.sort.title')} count={view.sorts.length} active={view.sorts.length > 0} pressed={panel?.kind === 'sort'} onClick={toggle('sort')} />}
       {canGroup && !fixed && <ToolButton compact={compact} icon={<Group size={14} />} label={t('database.group.title')} active={!!view.groupBy} pressed={panel?.kind === 'group'} onClick={toggle('group')} />}
       {!isForm && !fixed && <ToolButton compact icon={<SlidersHorizontal size={14} />} label={t('database.props.title')} pressed={panel?.kind === 'props'} onClick={toggle('props')} />}
+      <DbCommandKey
+        dbId={m.db.id}
+        variant="toolbar"
+        rowIds={selection}
+        host={{
+          // the commands' New entry / views / CSV do here what this toolbar does (its view, its search)
+          newEntry: (tplId) => onNew(tplId ? m.db.templates?.find((x) => x.id === tplId) : undefined),
+          openView: onView,
+          exportCsv: () => {
+            exportCsv(m.resolver, m.db, [m.titleProp, ...m.visibleProps], m.rows, m.dbPage.title || t('common.untitled'))
+            return m.rows.length
+          },
+        }}
+      />
       {!ro && <ToolButton compact icon={<Zap size={14} />} label={t('database.automations')} count={automations} active={automations > 0} onClick={() => useUI.getState().openModal({ type: 'automations', databaseId: m.db.id })} />}
       <ToolButton compact icon={<Ellipsis size={15} />} label={t('common.more')} pressed={panel?.kind === 'more'} onClick={toggle('more')} />
       {isMailDb && (

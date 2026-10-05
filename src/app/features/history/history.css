@@ -590,14 +590,21 @@
   box-shadow: inset 0 0 0 1px var(--c-red-text);
 }
 
+.hist__meta {
+  margin-bottom: 18px;
+}
+
 .hist__title-diff {
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
   gap: 8px;
-  margin-bottom: 18px;
   font-size: var(--text-lg);
   font-weight: 650;
+}
+
+.hist__title-diff + .hist__title-diff {
+  margin-top: 8px;
 }
 
 .hist__title-diff,
@@ -689,6 +696,23 @@
 
 .hprops__note {
   color: var(--dd-del);
+}
+
+/* option chips: a removed one struck and faded inside its red frame, an added one inside the signal frame */
+.hprops del .hprops__chip {
+  text-decoration: line-through;
+  text-decoration-color: var(--dd-del);
+  opacity: 0.78;
+}
+
+.hprops__icon {
+  display: inline-grid;
+  place-items: center;
+  vertical-align: -3px;
+}
+
+.hist__title-diff :is(del, ins):has(.hprops__icon) {
+  padding: 2px 3px 0;
 }
 
 .hist__loading {

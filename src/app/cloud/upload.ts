@@ -172,6 +172,9 @@ export async function uploadLocalWorkspaceImpl(wsId: string, onProgress?: (p: nu
       for (const person of local.people) if (person?.id) r.people.set(person.id, { id: person.id, name: person.name, color: person.color })
       // custom functions: one JSON entry each, as the binding writes them (every reader sanitizes them)
       for (const fn of Object.values(local.functions ?? {})) r.functions.set(fn.id, JSON.parse(JSON.stringify(fn)))
+      // scripts (features/script): the same; the uploader becomes their author
+      const scripts = meta.doc.getMap<unknown>('scripts')
+      for (const sc of Object.values(local.scripts ?? {})) scripts.set(sc.id, { ...JSON.parse(JSON.stringify(sc)), createdBy: userId, updatedBy: userId })
       if (r.workspace.get('name') === undefined) {
         r.workspace.set('name', target?.name ?? local.settings.workspaceName)
         r.workspace.set('icon', target?.icon ?? null)

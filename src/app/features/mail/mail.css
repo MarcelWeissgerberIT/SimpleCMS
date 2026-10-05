@@ -524,6 +524,66 @@
   flex: 1;
 }
 
+/* contacts · companies · conversations */
+.ml-dirs {
+  margin: 12px 0 14px;
+  padding: 0;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-1);
+  background: var(--bg);
+  list-style: none;
+}
+.ml-dir {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  min-height: 40px;
+  padding: 5px 8px 5px 12px;
+}
+.ml-dir + .ml-dir {
+  border-top: 1px solid var(--rule);
+}
+.ml-dir__icon {
+  flex: none;
+  color: var(--ink-2);
+}
+.ml-dir__name {
+  min-width: 0;
+  overflow: hidden;
+  font-size: 13px;
+  font-weight: 620;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ml-dir__count {
+  flex: 1;
+  min-width: 0;
+  color: var(--ink-3);
+}
+.ml-free {
+  margin-bottom: 0;
+}
+.ml-free__body {
+  padding: 0 12px 12px;
+}
+.ml-free__hint {
+  margin: 0 0 8px;
+}
+.ml-free .ml-tag {
+  font-size: 11.5px;
+}
+.ml-merge {
+  display: grid;
+  gap: 12px;
+}
+.ml-merge .input {
+  width: 100%;
+}
+.ml-merge-key {
+  margin-left: 4px;
+}
+
 /* Claude */
 .ml-warn {
   display: flex;

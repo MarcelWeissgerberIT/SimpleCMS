@@ -256,6 +256,39 @@ test.describe('edit_page: Claude changes existing content after the OK', () => {
     await expect.poll(() => blocksOf(page, id)).toEqual(['Weekly sync', `${P1} Confirmed.`, P2, 'Next steps:', 'Ship the beta|Fix the login bug'])
   })
 
+  test('list items: replace one item, add one after another → each diff inside its list, applied in place', async ({ page, context }) => {
+    await openApp(page)
+    await setKey(page)
+    const id = await setup(page)
+    await mockAgent(context, [
+      () => sseMessage([{ type: 'tool_use', id: 'tu1', name: 'read_page', input: { id, refs: true } }]),
+      (body) => {
+        const read = toolResult(body, 'tu1').text
+        return sseMessage([
+          {
+            type: 'tool_use',
+            id: 'tu2',
+            name: 'edit_page',
+            input: { id, edits: [{ op: 'replace', from: refBefore(read, 'Fix the login bug'), markdown: 'Fix the login and signup bugs' }, { op: 'insert_after', ref: refBefore(read, 'Ship the beta'), markdown: '- Write the release notes' }] },
+          },
+        ])
+      },
+      () => sseMessage([{ type: 'text', text: 'Staged two list edits.' }]),
+    ])
+    await openTerminal(page)
+    await run(page, 'Update the list')
+    await expect(terminal(page).locator('.term-change[data-kind="edit"]')).toHaveCount(2, { timeout: 20_000 })
+    await expect(change(page, 1).locator('ul li .ddiff-del')).toHaveText(['bug'])
+    await expect(change(page, 1).locator('ul li .ddiff-ins')).toHaveText(['and signup bugs'])
+    await expect(change(page, 2).locator('ul li[data-diff="add"]')).toHaveText('Write the release notes')
+    await terminal(page).locator('.term-bar').getByRole('button', { name: 'Apply all' }).click()
+    await expect(change(page, 2)).toHaveAttribute('data-status', 'applied')
+    await expect.poll(() => blocksOf(page, id)).toEqual(['Weekly sync', P1, P2, P3, 'Ship the beta|Write the release notes|Fix the login and signup bugs'])
+    // applied: what each edit did, still inside the list
+    await expect(change(page, 1).locator('ul li .ddiff-ins')).toHaveText(['and signup bugs'])
+    await expect(change(page, 2).locator('ul li[data-diff="add"]')).toHaveText('Write the release notes')
+  })
+
   test('context marks: read_page shows only the marked blocks; an edit of an unmarked block is refused', async ({ page, context }) => {
     await openApp(page)
     await setKey(page)

@@ -150,6 +150,10 @@ export function TableView({ onFilterProp }: { onFilterProp: (id: ID) => void }) 
     const ids = new Set(m.rows.map((r) => r.id))
     if ([...sel].some((id) => !ids.has(id))) setSel(new Set([...sel].filter((id) => ids.has(id))))
   }, [m.rows, sel])
+  // the selection, for database commands started from the toolbar (an empty one when this view goes)
+  const publishSel = actions.setSelection
+  useEffect(() => publishSel?.([...sel]), [sel, publishSel])
+  useEffect(() => () => publishSel?.([]), [publishSel])
 
   const cellEl = useCallback((idx: number, col: number) => rootRef.current?.querySelector<HTMLElement>(`[data-cell="${idx}:${col}"]`) ?? null, [])
 

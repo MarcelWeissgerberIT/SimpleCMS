@@ -10,6 +10,7 @@ import type { Editor } from '@tiptap/core'
 import type { Mapping } from '@tiptap/pm/transform'
 import type { Node as PMNode, ResolvedPos } from '@tiptap/pm/model'
 import { findBlockRange, type BlockRange } from './todb/plan'
+import { transformRange } from './transform/range'
 
 export interface RunTarget {
   mode: 'selection' | 'block'
@@ -29,6 +30,8 @@ export interface RunTarget {
   before: string
   /** "Turn into database": the selection as whole blocks where a database block may go (null: not offered) */
   todb: BlockRange | null
+  /** "Transform into": the selection as whole blocks of one container, or the one whole line selected (null: not offered; absent in runs saved before it) */
+  range?: BlockRange | null
   /** the plain text the target covered (selection) / of the target block (block mode) — to find it again */
   anchor: string
   /** not found again in a re-created editor: Replace is off, Insert goes to the end of the page */
@@ -80,6 +83,7 @@ function targetAt(doc: PMNode, mode: 'selection' | 'block', from: number, to: nu
     after: afterBlock(mode === 'selection' ? $to : $from),
     before: keep?.before ?? doc.textBetween(0, from, '\n\n', ' ').slice(-12000),
     todb: mode === 'selection' ? findBlockRange(doc, from, to, dbType) : null,
+    range: mode === 'selection' ? transformRange(doc, from, to) : null,
     anchor: keep?.anchor ?? (mode === 'selection' ? plainBetween(doc, from, to) : plainBetween(doc, blockFrom, blockTo)),
   }
 }
@@ -89,15 +93,15 @@ export function mapTarget(t: RunTarget, m: Mapping): RunTarget {
   const from = m.map(t.from, 1)
   const to = Math.max(from, m.map(t.to, -1))
   const blockFrom = m.map(t.blockFrom, 1)
-  let todb = t.todb
-  if (todb) {
-    const a = m.map(todb.from, 1)
-    const b = m.map(todb.to, -1)
-    todb = b > a ? { from: a, to: b } : null
+  const mapRange = (r: BlockRange | null | undefined): BlockRange | null => {
+    if (!r) return null
+    const a = m.map(r.from, 1)
+    const b = m.map(r.to, -1)
+    return b > a ? { from: a, to: b } : null
   }
   // the selected text deleted meanwhile: nothing left to replace
   const lost = t.lost || (t.mode === 'selection' && to <= from)
-  return { ...t, from, to, blockFrom, blockTo: Math.max(blockFrom, m.map(t.blockTo, -1)), after: m.map(t.after, -1), todb, lost }
+  return { ...t, from, to, blockFrom, blockTo: Math.max(blockFrom, m.map(t.blockTo, -1)), after: m.map(t.after, -1), todb: mapRange(t.todb), range: mapRange(t.range), lost }
 }
 
 /** Is the target still where it was in this doc? */

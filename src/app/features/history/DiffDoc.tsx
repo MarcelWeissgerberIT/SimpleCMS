@@ -42,9 +42,9 @@ export function DocDiff({ items, context = 2, variant = 'rich', label }: { items
             </div>
           )
         }
-        // drawn here: a changed block, or (plain) any block
+        // drawn here: a changed block, or (plain) any block — a whole removed / added one takes its look from the row
         const state = g.item.kind === 'changed' ? 'changed' : g.item.kind
-        const node = g.item.kind === 'changed' ? g.item.merged : toDiffNode(g.item.block, g.item.kind === 'removed' ? 'del' : g.item.kind === 'added' ? 'add' : undefined)
+        const node = g.item.kind === 'changed' ? g.item.merged : toDiffNode(g.item.block)
         return (
           <div key={`i${g.index}`} className="ddiff__seg" data-state={state}>
             {state !== 'same' && <SegMark state={state} />}

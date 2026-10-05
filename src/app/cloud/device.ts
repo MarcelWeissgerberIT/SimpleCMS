@@ -249,6 +249,15 @@ async function forget(flag: string[]): Promise<void> {
     })
     if (runKeys.length) await delMany(runKeys, runs).catch(() => {})
   }
+  // script runs and trusted script versions of this device (features/script/runtime/runs.ts): keys "cloud:<ws>|…"
+  if (!dbNames || dbNames.includes('one-scripts')) {
+    const store = createStore('one-scripts', 'kv')
+    const scriptKeys = (await keys(store).catch(() => [] as IDBValidKey[])).filter((k) => {
+      const m = /^cloud:([^|]+)\|/.exec(String(k))
+      return !!m && targets.has(m[1])
+    })
+    if (scriptKeys.length) await delMany(scriptKeys, store).catch(() => {})
+  }
   // folder + GitHub sync of this device (features/sync/storage.ts)
   if (!dbNames || dbNames.includes('one-sync')) {
     const syncKeys = [...targets].flatMap((ws) =>

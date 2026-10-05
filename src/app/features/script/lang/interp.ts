@@ -46,7 +46,7 @@ export interface Limits {
   text: number
 }
 
-export const DEFAULT_LIMITS: Limits = { steps: 2_000_000, ms: 60_000, depth: 200, list: 100_000, text: 2_000_000 }
+export const DEFAULT_LIMITS: Limits = { steps: 5_000_000, ms: 60_000, depth: 200, list: 100_000, text: 2_000_000 }
 
 export interface RefInput {
   kind: 'p' | 'u' | 'a' | 's' | 'name'
@@ -67,7 +67,7 @@ export interface InterpOptions {
   /** the time budget ran out: true = one more budget (asked once per run) */
   onTimeout?: () => Promise<boolean>
   /** print / log */
-  onPrint?: (values: Value[], kind: 'print' | 'log', pos: Pos) => void
+  onPrint?: (values: Value[], kind: 'print' | 'log', ctx: CallCtx) => void | Promise<void>
   /** the runtime's services, handed to natives as ctx.host */
   host?: unknown
 }
@@ -141,6 +141,11 @@ export class Interpreter {
   /** Evaluate one expression in the program's top scope (after run: its variables are there). */
   async evaluate(expr: Expr): Promise<Value> {
     return this.eval(expr, this.root)
+  }
+
+  /** A native's context at the top scope (the runtime evaluates results with it). */
+  contextFor(name: string, pos: Pos = { start: 0, end: 0, line: 1, col: 1 }): CallCtx {
+    return this.ctx(name, pos, this.root)
   }
 
   /** Time used so far (ms, waiting for the person excluded). */
@@ -646,7 +651,7 @@ export class Interpreter {
       call: (fn, args) => this.callValue(fn, args, pos, env),
       step: () => this.tick(pos),
       waitUser: (p) => this.waitUser(p),
-      print: (values, kind) => this.opts.onPrint?.(values, kind, pos),
+      print: (values, kind) => this.opts.onPrint?.(values, kind, ctx),
     }
     return ctx
   }

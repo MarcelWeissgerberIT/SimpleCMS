@@ -18,6 +18,8 @@ import { ACTION_TYPES, BUTTON_VARIANTS, newAction, type ButtonAction, type Butto
 import { cleanTemplate, SETTABLE_TYPES, VARIABLES } from '../lib/buttonRun'
 import { livePages } from '../lib/livePages'
 import { TemplateEditor } from './ButtonTemplate'
+// the action list is also shown outside a button (database commands): its styles come along
+import './button.css'
 
 export interface ButtonDraft {
   label: string
@@ -71,31 +73,9 @@ export function ButtonConfig({ initial, pageId, onDone }: { initial: ButtonDraft
     const p = pageId ? s.pages[pageId] : undefined
     return p?.databaseId ? (s.databases[p.databaseId] ?? null) : null
   })
-  const addMenu = useMenu()
   const close = () => onDone(finish(latest.current, t('editor.button.default')))
-
   const setActions = (fn: (list: ButtonAction[]) => ButtonAction[]) => setDraft((d) => ({ ...d, actions: fn(d.actions) }))
-  const move = (i: number, dir: -1 | 1) =>
-    setActions((list) => {
-      const next = [...list]
-      const [a] = next.splice(i, 1)
-      next.splice(i + dir, 0, a)
-      return next
-    })
 
-  const addEntries: MenuEntry[] = ACTION_TYPES.map((type) => {
-    const Icon = ACTION_ICON[type]
-    const unavailable = type === 'edit_properties' && !rowDb
-    return {
-      label: t(`editor.button.action.${type}`),
-      icon: <Icon size={15} strokeWidth={1.7} />,
-      disabled: unavailable,
-      hint: unavailable ? t('editor.button.onlyRows') : undefined,
-      onSelect: () => setActions((list) => [...list, newAction(type)]),
-    }
-  })
-
-  const count = draft.actions.length
   return (
     <Modal
       open
@@ -154,6 +134,56 @@ export function ButtonConfig({ initial, pageId, onDone }: { initial: ButtonDraft
         </div>
       </div>
 
+      <ButtonActionsEditor actions={draft.actions} update={setActions} pageId={pageId} rowDb={rowDb} />
+    </Modal>
+  )
+}
+
+export interface ButtonActionsEditorProps {
+  actions: ButtonAction[]
+  /** change the list (an updater: several changes in one tick never overwrite each other) */
+  update: (fn: (list: ButtonAction[]) => ButtonAction[]) => void
+  /** where the actions live (pickers list the pages near it) */
+  pageId: string | null
+  /** the database whose rows "Edit properties" sets (null: not offered) */
+  rowDb: Database | null
+  /** the action types offered (default: all) */
+  types?: ButtonActionType[]
+  /** a new action of a type (default: newAction(type)) */
+  create?: (type: ButtonActionType) => ButtonAction
+  /** a line under an action's fields, by type */
+  notes?: Partial<Record<ButtonActionType, string>>
+  /** the webhook payload shown under "Webhook" (default: the button's) */
+  payload?: string
+}
+
+/** The ordered action list of a button's settings (also the database commands' "Actions" kind, features/commands). */
+export function ButtonActionsEditor({ actions, update, pageId, rowDb, types = ACTION_TYPES, create = newAction, notes, payload }: ButtonActionsEditorProps) {
+  const t = useT()
+  const addMenu = useMenu()
+  const move = (i: number, dir: -1 | 1) =>
+    update((list) => {
+      const next = [...list]
+      const [a] = next.splice(i, 1)
+      next.splice(i + dir, 0, a)
+      return next
+    })
+
+  const addEntries: MenuEntry[] = types.map((type) => {
+    const Icon = ACTION_ICON[type]
+    const unavailable = type === 'edit_properties' && !rowDb
+    return {
+      label: t(`editor.button.action.${type}`),
+      icon: <Icon size={15} strokeWidth={1.7} />,
+      disabled: unavailable,
+      hint: unavailable ? t('editor.button.onlyRows') : undefined,
+      onSelect: () => update((list) => [...list, create(type)]),
+    }
+  })
+
+  const count = actions.length
+  return (
+    <>
       <div className="bcfg__head">
         <span className="label">{t('editor.button.actions')}</span>
         <span className="bcfg__rule" aria-hidden />
@@ -164,7 +194,7 @@ export function ButtonConfig({ initial, pageId, onDone }: { initial: ButtonDraft
         <p className="bcfg__empty">{t('editor.button.emptyHint')}</p>
       ) : (
         <ol className="bcfg__list">
-          {draft.actions.map((a, i) => (
+          {actions.map((a, i) => (
             <ActionCard
               key={a.id}
               index={i}
@@ -172,9 +202,11 @@ export function ButtonConfig({ initial, pageId, onDone }: { initial: ButtonDraft
               action={a}
               pageId={pageId}
               rowDb={rowDb}
-              onChange={(next) => setActions((list) => list.map((x, j) => (j === i ? next : x)))}
+              note={notes?.[a.type]}
+              payload={payload}
+              onChange={(next) => update((list) => list.map((x, j) => (j === i ? next : x)))}
               onMove={(dir) => move(i, dir)}
-              onRemove={() => setActions((list) => list.filter((_, j) => j !== i))}
+              onRemove={() => update((list) => list.filter((_, j) => j !== i))}
             />
           ))}
         </ol>
@@ -183,7 +215,7 @@ export function ButtonConfig({ initial, pageId, onDone }: { initial: ButtonDraft
         <Plus size={13} /> {t('editor.button.add')}
       </button>
       <Menu {...addMenu.props} entries={addEntries} className="bcfg-menu" width={280} />
-    </Modal>
+    </>
   )
 }
 
@@ -197,6 +229,8 @@ function ActionCard({
   action,
   pageId,
   rowDb,
+  note,
+  payload,
   onChange,
   onMove,
   onRemove,
@@ -206,6 +240,8 @@ function ActionCard({
   action: ButtonAction
   pageId: string | null
   rowDb: Database | null
+  note?: string
+  payload?: string
   onChange: (a: ButtonAction) => void
   onMove: (dir: -1 | 1) => void
   onRemove: () => void
@@ -225,7 +261,7 @@ function ActionCard({
       body = rowDb ? <PresetList db={rowDb} mode="edit" values={action.values} onChange={(values) => onChange({ ...action, values })} /> : <p className="bcfg__note">{t('editor.button.err.notRow')}</p>
       break
     case 'webhook':
-      body = <WebhookFields action={action} onChange={onChange} />
+      body = <WebhookFields action={action} payload={payload} onChange={onChange} />
       break
     case 'open':
       body = <OpenFields action={action} pageId={pageId} onChange={onChange} />
@@ -252,7 +288,10 @@ function ActionCard({
           </button>
         </span>
       </div>
-      <div className="bcfg-card__body">{body}</div>
+      <div className="bcfg-card__body">
+        {body}
+        {note && <p className="bcfg__note">{note}</p>}
+      </div>
     </li>
   )
 }
@@ -400,7 +439,19 @@ function AddPageFields({ action, pageId, onChange }: { action: Act<'add_page'>; 
   )
 }
 
-function WebhookFields({ action, onChange }: { action: Act<'webhook'>; onChange: (a: ButtonAction) => void }) {
+const BUTTON_PAYLOAD = `{
+  "event": "button_clicked",
+  "button": { "label": "…" },
+  "page": {
+    "id": "…", "title": "…", "url": "…",
+    "properties": { "Status": "…" },
+    "markdown": "…"
+  },
+  "timestamp": "…",
+  "source": "simplecms-one"
+}`
+
+function WebhookFields({ action, payload = BUTTON_PAYLOAD, onChange }: { action: Act<'webhook'>; payload?: string; onChange: (a: ButtonAction) => void }) {
   const t = useT()
   const id = useId()
   const invalid = !!action.url.trim() && !/^https?:\/\/\S+$/i.test(action.url.trim())
@@ -418,17 +469,7 @@ function WebhookFields({ action, onChange }: { action: Act<'webhook'>; onChange:
       </div>
       <details className="bcfg-payload">
         <summary className="label">{t('editor.button.webhook.payload')}</summary>
-        <pre>{`{
-  "event": "button_clicked",
-  "button": { "label": "…" },
-  "page": {
-    "id": "…", "title": "…", "url": "…",
-    "properties": { "Status": "…" },
-    "markdown": "…"
-  },
-  "timestamp": "…",
-  "source": "simplecms-one"
-}`}</pre>
+        <pre>{payload}</pre>
       </details>
     </>
   )

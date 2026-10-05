@@ -106,7 +106,7 @@ export function resolvePreset(prop: PropertyDef, value: PropertyValue, current: 
 }
 
 /** Apply presets of a database: returns the property values, or the reason they can't be applied. */
-function presetValues(db: Database, presets: PropertyPreset[], row: Page | null, now: Date): { values: Record<ID, PropertyValue> } | { error: string } {
+export function presetValues(db: Database, presets: PropertyPreset[], row: Page | null, now: Date): { values: Record<ID, PropertyValue> } | { error: string } {
   const values: Record<ID, PropertyValue> = {}
   for (const p of presets) {
     const prop = db.properties.find((d) => d.id === p.propertyId)
@@ -177,7 +177,7 @@ async function buildPayload(ctx: RunContext): Promise<ButtonWebhookPayload> {
  * Through the shared helper (lib/webhook.ts; the payload gets a `deliveryId`). A no-cors send is
  * "unconfirmed": not an error, but never reported as a success either.
  */
-async function sendWebhook(url: string, method: 'POST' | 'PUT', payload: object): Promise<{ ok: boolean; unconfirmed?: boolean; message: string }> {
+export async function sendWebhook(url: string, method: 'POST' | 'PUT', payload: object): Promise<{ ok: boolean; unconfirmed?: boolean; message: string }> {
   if (!isWebhookUrl(url)) return { ok: false, message: t('editor.button.err.url') }
   const res = await postWebhook(url, method, payload, { timeoutMs: 10_000 })
   switch (res.outcome) {
@@ -207,7 +207,7 @@ export interface RunContext {
   pageId: string | null
 }
 
-interface Step {
+export interface Step {
   ok: boolean
   /** sent, but delivery can't be confirmed (webhook without CORS) — no success toast */
   unconfirmed?: boolean
@@ -273,7 +273,8 @@ function editProperties(ctx: RunContext, a: Extract<ButtonAction, { type: 'edit_
   return { ok: true, text: plural('editor.button.res.edited', Object.keys(preset.values).length) }
 }
 
-function openTarget(a: Extract<ButtonAction, { type: 'open' }>): Step {
+/** Open the action's page (or URL, a new tab); `text` names what was opened (or why not). */
+export function openTarget(a: Extract<ButtonAction, { type: 'open' }>): Step {
   if (a.pageId) {
     const s = useWorkspace.getState()
     const p = s.pages[a.pageId]

@@ -494,12 +494,12 @@ function toNumber(v: Value, ctx: CallCtx): Value {
 }
 
 const G: NativeFn[] = [
-  native('print', (a, ctx) => {
-    ctx.print(a.pos, 'print')
+  native('print', async (a, ctx) => {
+    await ctx.print(a.pos, 'print')
     return null
   }),
-  native('log', (a, ctx) => {
-    ctx.print(a.pos, 'log')
+  native('log', async (a, ctx) => {
+    await ctx.print(a.pos, 'log')
     return null
   }),
   native('len', (a) => {
