@@ -1319,9 +1319,9 @@ function Foot() {
         <span>
           {shortcutLabel(AGENT_STOP_SHORTCUT)} {t('features.agent.kbd.stop')}
         </span>
-        <span>/help</span>
+        <span>{t('features.agent.kbd.help')}</span>
       </p>
-      <div className="term-meter">
+      <div className="term-meter" title={t('features.agent.meter.billed')}>
         <dl className="term-meter__vals">
           <div>
             <dt>{t('features.agent.meter.in')}</dt>

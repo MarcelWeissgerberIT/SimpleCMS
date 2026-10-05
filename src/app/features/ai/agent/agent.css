@@ -1287,14 +1287,19 @@
   letter-spacing: 0.02em;
 }
 
-@container (max-width: 1080px) {
+@container (max-width: 1240px) {
+  .term-meter__note {
+    display: none;
+  }
+}
+
+@container (max-width: 980px) {
   .term-keys {
     display: none;
   }
 }
 
 @container (max-width: 760px) {
-  .term-meter__note,
   .term-bar__hint,
   .term-head__read {
     display: none;

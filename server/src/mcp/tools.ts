@@ -74,6 +74,8 @@ function instructions(name: string, id: string, write: boolean): string {
     write
       ? 'Changes reach everyone who has the workspace open at once. one_trash_page moves a page to the trash (restorable in the app).'
       : 'This token can only read: the write tools are not available.',
+    // keep in step with MCP_INSTRUCTIONS / MCP_PROMPT of the local bridge (src/app/features/mcp/contract.ts)
+    'Codeword: a message that starts with "one:" is meant for this One workspace — use these tools for it, not web search or other connectors, even when those could answer too.',
   ].join(' ')
 }
 
@@ -117,6 +119,19 @@ export function buildMcpServer(s: Services, model: WorkspaceModel, token: ApiTok
       throw new Error('Internal error — the change was not made. Try again in a moment.')
     }
   }
+
+  // the codeword as a prompt (Claude Desktop's "+" menu, Claude Code's /mcp__one__one): "one: <task>"
+  server.registerPrompt(
+    'one',
+    {
+      title: 'One',
+      description: 'Work in your One workspace: what to look up, write or change there.',
+      argsSchema: { task: z.string().describe('What to do in One, e.g. "summarise my meeting notes from this week"') },
+    },
+    ({ task }) => ({
+      messages: [{ role: 'user' as const, content: { type: 'text' as const, text: `one: ${task.trim()}\n\nUse the One tools for this (start with one_overview or one_search).` } }],
+    }),
+  )
 
   /* ---------------------------------------------------------------- read */
 
