@@ -317,6 +317,7 @@ export const messages: Messages = {
     'footer.top': 'Back to top',
     'footer.selfhost': 'Self-hosting guide',
     'footer.help': 'Help',
+    'footer.changelog': 'What’s new',
 
     'fig.pending': 'Figure',
     'fig.views': 'views',
@@ -633,6 +634,7 @@ export const messages: Messages = {
     'footer.top': 'Nach oben',
     'footer.selfhost': 'Anleitung zum Selbst-Hosten',
     'footer.help': 'Hilfe',
+    'footer.changelog': 'Neu in One',
 
     'fig.pending': 'Abbildung',
     'fig.views': 'Ansichten',

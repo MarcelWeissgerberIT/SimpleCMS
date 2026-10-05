@@ -119,7 +119,7 @@ test.describe('Turn into page', () => {
     await ed.locator('h3, h2', { hasText: 'Launch plan' }).click()
     await selectRange(page, ed, 'Launch plan', 'by Wednesday.')
     const menu = await blockMenu(page, ed.locator('p', { hasText: 'We ship on' }))
-    await menu.getByRole('menuitem', { name: /^Turn into/ }).click()
+    await menu.getByRole('menuitem', { name: 'Turn into', exact: true }).click()
     const pageItem = page.getByRole('menuitem', { name: /^Page · 3 blocks/ })
     await expect(pageItem).toBeVisible()
     await expect(pageItem).toContainText('Ctrl+Alt+9')

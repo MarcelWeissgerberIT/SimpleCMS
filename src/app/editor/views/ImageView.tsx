@@ -6,6 +6,7 @@ import { useT } from '../../i18n'
 import { pickFiles } from '../lib/upload'
 import { isUrl } from '../lib/embeds'
 import { caretAfterNode, leaveNodeView } from '../lib/blocks'
+import { ImageAIKey } from './ImageAIKey'
 
 const MIN_W = 80
 /** Stored types that are safe to open in a tab: a blob: URL is same-origin, so an opened SVG/HTML could run script. */
@@ -149,6 +150,9 @@ export function ImageView({ node, updateAttributes, deleteNode, selected, editor
             <span className="image-view__handle image-view__handle--left" onPointerDown={startResize('left')} aria-hidden />
             <span className="image-view__handle image-view__handle--right" onPointerDown={startResize('right')} aria-hidden />
             <div className="image-view__tools" role="toolbar" aria-label={t('editor.image.tools')}>
+              {/* Claude for images: describe, read out the text, image → table, ask */}
+              <ImageAIKey editor={editor} getPos={getPos} />
+              <span className="image-view__sep" />
               {(['left', 'center', 'right'] as const).map((a) => {
                 const Icon = a === 'left' ? AlignLeft : a === 'center' ? AlignCenter : AlignRight
                 return (

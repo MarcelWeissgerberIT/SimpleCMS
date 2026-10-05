@@ -149,7 +149,7 @@ function makeAnchor(editor: Editor, get: () => RunTarget): VirtualElement {
         const picEl = pic?.type.name === 'image' && target.to === target.from + pic.nodeSize ? (view.nodeDOM(target.from) as HTMLElement | null) : null
         if (picEl?.getBoundingClientRect) {
           const r = picEl.getBoundingClientRect()
-          const bottom = Math.min(r.bottom, Math.max(r.top + 40, window.innerHeight * 0.55))
+          const bottom = Math.min(r.bottom, Math.max(r.top + 40, window.innerHeight * 0.5))
           return new DOMRect(Math.max(dom.left, r.left), r.top, 1, bottom - r.top)
         }
         if (target.mode === 'selection') {
@@ -397,6 +397,13 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo }: 
     const id = requestAnimationFrame(() => makeRoom())
     return () => cancelAnimationFrame(id)
   }, [makeRoom])
+
+  // opened on an image run (the image toolbar, the block menu): room below the picture, like a request started here
+  useEffect(() => {
+    if (!openRun || useAIRuns.getState().runs[openRun]?.req.kind !== 'image') return
+    const id = requestAnimationFrame(() => makeRoom(true))
+    return () => cancelAnimationFrame(id)
+  }, [openRun, makeRoom])
 
   /* ---------------- running ---------------- */
 
@@ -1054,6 +1061,11 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo }: 
   useEffect(() => {
     setActive(0)
   }, [query, view, wsMode])
+
+  // an image result switched its keys (the tables → "As database…" and back): the first key again
+  useEffect(() => {
+    if (imagePanel.mode) setActive(0)
+  }, [imagePanel.mode])
 
   // the current choice is highlighted when the reads view opens
   useEffect(() => {

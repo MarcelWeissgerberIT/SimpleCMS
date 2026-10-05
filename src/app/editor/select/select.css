@@ -23,6 +23,37 @@
   pointer-events: auto;
 }
 
+/* the hover handle is on the first selected block (same place, same menu): the pinned buttons step aside */
+.sel-grip[data-covered] .block-handle {
+  visibility: hidden;
+}
+
+/* own classes (not .block-handle__btn): the hover handle and this grip stay apart for scripts and tests */
+.sel-grip__btn {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-1);
+  background: transparent;
+  color: var(--ink-3);
+  cursor: pointer;
+  transition:
+    background var(--dur-1) var(--ease-out),
+    color var(--dur-1) var(--ease-out);
+}
+
+.sel-grip__btn:hover {
+  background: var(--hover);
+  color: var(--ink);
+}
+
+.sel-grip__grip {
+  cursor: grab;
+}
+
 /* the grip of a selection reads as "on": ink on the wash, not the faint hover grey */
 .sel-grip__grip {
   background: var(--signal-wash);

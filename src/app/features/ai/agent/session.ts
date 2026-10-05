@@ -20,6 +20,7 @@ import { loadHistory, pushHistory } from './history'
 import { parseCommand } from './commands'
 import type { ReadLimit, StageApi } from './tools'
 import { isContextLimited, openContextPicker, pageContextMarks, readableContent, startRedo } from '../../../editor'
+import { withRefImages } from '../image/terminal'
 import { depsOf, type AgentStatus, type AgentStep, type AgentTurn, type StagedChange, type TermMention, type TermRef, type TurnContext } from './types'
 
 const set = useAgent.setState
@@ -282,7 +283,9 @@ export async function runTask(raw?: string): Promise<void> {
 
   try {
     const mcp = setup.servers.length ? await attachMcp(setup) : null
-    const end = await runAgent({ history, user: taskMessage(history, prompt, text), stage, signal: ac.signal, hooks, mcp, readLimit: terminalReadLimit })
+    // referenced image blocks go along as images (Claude for images); one that cannot be loaded is noted
+    const user = await withRefImages(taskMessage(history, prompt, text), refs, ac.signal, (title) => note(t('features.ai.image.refFailed', { title })))
+    const end = await runAgent({ history, user, stage, signal: ac.signal, hooks, mcp, readLimit: terminalReadLimit })
     if (end === 'max_tokens') finish('error', { code: 'max_tokens', message: t('features.agent.err.maxTokens') })
     else finish(end === 'limit' ? 'limit' : 'done')
   } catch (e) {

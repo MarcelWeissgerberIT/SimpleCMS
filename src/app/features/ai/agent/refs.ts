@@ -11,6 +11,8 @@ import { newId } from '../../../lib/ids'
 import { t } from '../../../i18n'
 import { toMarkdown } from '../../share/markdown'
 import { addRef, openAgent, REF_MAX } from './state'
+import { imageOnlyIn, imageRef } from '../image/terminal'
+import { imageBytes } from '../image/load'
 import type { TermRef } from './types'
 
 /** Characters of one reference, at most (the rest is cut with a note to Claude). */
@@ -65,6 +67,9 @@ export function captureRef(editor?: Editor): TermRef | null {
   const pageId = hit.editor.view.dom.getAttribute('data-page-id')
   const page = pageId ? useWorkspace.getState().pages[pageId] : undefined
   if (!pageId || !page) return null
+  // a selected image block: the picture itself goes along (Claude for images)
+  const img = imageOnlyIn(hit.editor, hit.from, hit.to)
+  if (img) return imageRef(img, pageId, page.title.trim() || t('common.untitled'))
   const full = sliceToMarkdown(hit.editor.state, hit.from, hit.to).trim()
   if (!full) return null
   const clipped = full.length > REF_CHARS
@@ -83,8 +88,10 @@ export function captureRef(editor?: Editor): TermRef | null {
  * "Add to terminal" (bubble toolbar, Mod+Shift+J): the selection becomes a reference chip and the
  * terminal opens (or takes focus). Returns false when nothing usable was selected.
  */
-export function addSelectionRef(editor?: Editor, opts: { open?: boolean } = {}): boolean {
+export async function addSelectionRef(editor?: Editor, opts: { open?: boolean } = {}): Promise<boolean> {
   const ref = captureRef(editor)
+  // an image: its file size for the chip ("image 1.2 MB")
+  if (ref?.image) ref.image.bytes = await imageBytes(ref.image.src)
   if (!ref) {
     // ⌘J opens the terminal anyway; "Add to terminal" without a selection only explains
     if (opts.open) openAgent()

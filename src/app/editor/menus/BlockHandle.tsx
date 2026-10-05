@@ -27,6 +27,7 @@ import { TURN_INTO_ITEMS } from '../lib/catalog'
 import { BlockGlyph } from './SlashMenu'
 import { toggleHeadingLevel } from '../schema/toggle'
 import { mediaMenuEntries } from './mediaMenu'
+import { imageMenuEntries } from './imageMenu'
 import { chartMenuEntries } from './chartMenu'
 import { ColorGrid } from './BubbleToolbar'
 import { blockMenuSyncedEntries } from '../synced/menu'
@@ -159,8 +160,12 @@ export function BlockHandle({ editor, bridge, pageId }: { editor: Editor; bridge
   /** "Turn into page": the selected blocks when the menu's block is one of them (read before the block gets selected) */
   const splitFor = useRef<SplitRange | null>(null)
 
+  // the pinned grip of a block selection steps aside while the hover handle is over its block (editor/select)
+  const [hoverPos, setHoverPos] = useState(-1)
+  const pinnedAt = useEditorState({ editor, selector: ({ editor: e }) => (e ? (readBlockSel(e.state)?.from ?? -1) : -1) })
   const onNodeChange = useCallback(({ node, pos }: { node: PMNode | null; pos: number }) => {
     current.current = node && pos >= 0 ? { node, pos } : null
+    setHoverPos(node && pos >= 0 ? pos : -1)
     // toggle headings align the handle with their title line like headings do
     const level = node?.type.name === 'heading' ? node.attrs.level : node?.type.name === 'details' ? toggleHeadingLevel(node) : 0
     if (node) setKind(level ? `h${level}` : node.type.name)
@@ -300,6 +305,8 @@ export function BlockHandle({ editor, bridge, pageId }: { editor: Editor; bridge
     items.push(...redoBlockMenuEntries(editor, ref, t))
     // video / audio: replace, download, copy a web link
     items.push(...mediaMenuEntries(editor, ref, t))
+    // image: the "Claude" group — describe, read out the text, image → table, ask
+    items.push(...imageMenuEntries(editor, ref, t))
     // chart: edit, type, downloads, data, source
     items.push(...chartMenuEntries(editor, ref, t))
     items.push(
@@ -390,6 +397,7 @@ export function BlockHandle({ editor, bridge, pageId }: { editor: Editor; bridge
         bridge={bridge}
         pageId={pageId}
         hidden={!!menu || !!moveFor}
+        covered={!isTouch && hoverPos >= 0 && hoverPos === pinnedAt}
         onOpen={(el, keyboard) => {
           const b = readBlockSel(editor.state)
           if (b) openAt(el, b.from, keyboard)

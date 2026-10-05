@@ -111,6 +111,8 @@ export interface ImagePanel {
   rows: ImageRow[] | null
   /** the answer is JSON: the panel hides the raw text and the word count */
   structured: boolean
+  /** which set of keys shows ('tables' → 'db' …): the panel's highlight goes back to the first key when it changes */
+  mode: string
 }
 
 /** The image part of the panel for its run (does nothing for other runs). */
@@ -132,7 +134,7 @@ export function useImagePanel({ editor, pageId, run, phase, start, finish, disca
   const plan = useMemo(() => (tables?.length === 1 ? tablePlan(tables[0], { untitled: t('common.untitled'), column }) : null), [tables, t]) // eslint-disable-line react-hooks/exhaustive-deps
   const dbDraft = run && plan && db?.id === run.id ? db.draft : null
 
-  if (!req || !run) return { body: null, rows: null, structured: false }
+  if (!req || !run) return { body: null, rows: null, structured: false, mode: '' }
   const structured = isStructured(req.action)
 
   const once = (fn: () => Promise<unknown>) => async () => {
@@ -336,6 +338,7 @@ export function useImagePanel({ editor, pageId, run, phase, start, finish, disca
     ) : null,
     rows,
     structured,
+    mode: `${run.id}:${phase}:${dbDraft ? 'db' : 'result'}`,
   }
 }
 

@@ -894,7 +894,15 @@ kbd {
 }
 
 .news-fig figcaption {
-  margin-top: 8px;
+  margin-top: 10px;
+  color: var(--ink-3);
+  font-size: 14.5px;
+  line-height: 1.45;
+}
+
+.news-fig__n {
+  margin-right: 6px;
+  color: var(--signal-ink);
 }
 
 .news-doc {

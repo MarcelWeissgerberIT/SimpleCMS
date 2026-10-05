@@ -31,6 +31,13 @@ export { AIMenu, type AIMenuProps } from './ai/AIMenu'
  */
 export { AIRunsHost, AIRunLed, type AIRunsHostProps } from './ai/RunsHost'
 /*
+ * Claude for images (an image block → describe / read out the text / image → table / ask; background runs):
+ *  - startImageAction(editor, pos, action): 'describe' | 'read' | 'table' as a run, the page's AI panel opens on it
+ *  - askAboutImage(editor, pos): the AI panel on that image with the prompt ready for a question
+ */
+export { startImageAction, askAboutImage } from './ai/image/actions'
+export type { ImageAction } from './ai/image/request'
+/*
  * External MCP servers for Claude (Messages API MCP connector): McpServers = the section of
  * Settings → Claude AI (servers, sealed tokens, usage prompts, the MCP instructions template).
  */

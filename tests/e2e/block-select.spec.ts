@@ -183,6 +183,7 @@ test.describe('block selection', () => {
     await expect(ed.locator('.is-block-selected')).toHaveText(['Alpha line.', 'Bravo line.'])
 
     // drag them below Delta by the pinned grip
+    await page.mouse.move(5, 450)
     const g = (await grip(page).getByRole('button', { name: 'Block menu · 2 blocks' }).boundingBox())!
     const d = (await ed.locator('p', { hasText: 'Delta' }).boundingBox())!
     await page.mouse.move(g.x + g.width / 2, g.y + g.height / 2)

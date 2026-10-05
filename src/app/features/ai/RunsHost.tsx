@@ -56,8 +56,15 @@ export function AIRunsHost({ editor, pageId }: AIRunsHostProps) {
 
   const openRun = (id: string) => {
     const run = useAIRuns.getState().runs[id]
-    if (run) setOpened({ id, mode: run.target.mode })
+    if (!run) return
+    endImageAsk()
+    setOpened({ id, mode: run.target.mode })
   }
+
+  // a question about an image replaces the panel shown on a run
+  useEffect(() => {
+    if (imageAsk) setOpened(null)
+  }, [imageAsk])
 
   const close = useCallback(() => {
     setOpened(null)

@@ -230,14 +230,16 @@ export function ChangeView({ id }: { id: string }) {
             <Maximize2 size={13} strokeWidth={1.75} />
           </span>
         </button>
-        <figcaption className="label cl-fig__cap">
-          {fig} — {entry.alt}
+        <figcaption className="cl-fig__cap">
+          <span className="label cl-fig__n">{fig}</span> {entry.alt}
         </figcaption>
       </figure>
       <Doc blocks={entry.blocks} nav={nav} />
       {entry.try && (
-        <div className="cl-try">
-          <span className="label cl-try__label">{t('help.news.try')}</span>
+        <div className="cl-try" role="group" aria-label={t('help.news.try')}>
+          <span className="label cl-try__label" aria-hidden>
+            {t('help.news.try')}
+          </span>
           <button type="button" className="btn btn--primary cl-try__btn" data-try={entry.try} onClick={() => runTry(entry.try!)}>
             {t(`help.news.try.${entry.try}`)}
             {shortcut && (

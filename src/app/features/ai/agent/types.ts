@@ -156,6 +156,8 @@ export interface TermRef {
   lines: number
   /** clipped to REF_CHARS */
   clipped?: boolean
+  /** an image block (Claude for images): the picture goes along as an image; bytes = its file size (null: not known) */
+  image?: { src: string; bytes: number | null }
 }
 
 /** A page or database pointed at with @ in the prompt. */

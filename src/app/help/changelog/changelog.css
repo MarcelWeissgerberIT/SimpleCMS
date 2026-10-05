@@ -203,9 +203,15 @@
 
 .cl-fig__cap {
   display: block;
-  margin-top: 7px;
+  margin-top: 8px;
   color: var(--ink-3);
-  line-height: 1.5;
+  font-size: var(--text-sm);
+  line-height: 1.45;
+}
+
+.cl-fig__n {
+  margin-right: 4px;
+  color: var(--signal-ink);
 }
 
 .cl-entry .help-doc {
@@ -248,7 +254,8 @@
   z-index: calc(var(--z-modal) + 20);
   display: flex;
   flex-direction: column;
-  background: color-mix(in srgb, var(--bg) 96%, transparent);
+  /* a light table: the workspace's own paper (carbon in dark), solid — no blur, no see-through */
+  background: var(--bg);
   animation: cl-fade var(--dur-2) var(--ease-out);
 }
 
@@ -312,17 +319,24 @@
 .cl-lightbox__stage {
   flex: 1;
   min-height: 0;
-  display: grid;
-  place-items: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   padding: 24px;
   padding-bottom: max(24px, env(safe-area-inset-bottom));
+  overflow: hidden;
   cursor: zoom-out;
 }
 
 .cl-lightbox__img {
   display: block;
+  width: auto;
+  height: auto;
   max-width: 100%;
-  max-height: 100%;
+  /* the bar (48px) and the stage's padding */
+  max-height: calc(100vh - 100px);
+  max-height: calc(100dvh - 100px);
+  object-fit: contain;
   border: 1px solid var(--rule-strong);
   border-radius: var(--radius-2);
   background: var(--surface);
@@ -341,6 +355,11 @@
 
   .cl-lightbox__stage {
     padding: 10px;
+  }
+
+  .cl-lightbox__img {
+    max-height: calc(100vh - 72px);
+    max-height: calc(100dvh - 72px);
   }
 }
 

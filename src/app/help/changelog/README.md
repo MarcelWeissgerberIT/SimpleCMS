@@ -34,16 +34,23 @@ try: terminal
 
 ## 2. Make the screenshot
 
-Add a shot to `scripts/changelog-shots.mjs` (same name as the image), then:
+Add a shot to `scripts/changelog-shots.mjs` (a function named like the image: a fresh seeded workspace, the
+steps that show the feature, `save(page, '<name>', crop)`), then:
 
 ```sh
-npm run build && npx vite preview --port 5315 --strictPort &   # base "/"
+CHANGELOG_DRAFT=1 npx vite build --outDir node_modules/.cache/cl-shots-dist --emptyOutDir   # base "/"
+npx vite preview --host 127.0.0.1 --port 5315 --strictPort --outDir node_modules/.cache/cl-shots-dist &
 node scripts/changelog-shots.mjs http://127.0.0.1:5315 <name>
 ```
 
-It writes `public/assets/shots/changelog/<name>.webp` (light theme, 1440 wide, ≤ 150 KB) and its size into
-`sizes.json`. Look at the picture before you commit it: crisp, relevant, no debug UI. The Claude API is
-mocked in the script — it never sends a real request.
+(`CHANGELOG_DRAFT=1` lets that build pass while the new picture does not exist yet.) The script writes
+`public/assets/shots/changelog/<name>.webp` (light theme, 1440 wide, ≤ 150 KB) and its size into
+`sizes.json`. Look at the picture before you commit it: crisp, relevant, no debug UI, no console errors (the
+script fails on them). Claude, Gmail and Google sign-in are mocked in the script — it never sends a real
+request; AI features get canned answers like the e2e tests.
+
+A feature still being built gets its entry when it ships: write the twins and the shot in the same change
+as the feature (or right after it lands), with the date of the deploy.
 
 ## 3. Check
 

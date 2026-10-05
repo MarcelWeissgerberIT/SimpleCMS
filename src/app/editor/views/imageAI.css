@@ -1,0 +1,34 @@
+/* The image toolbar's AI key: a mono keycap label, the signal orange on hover / while its menu is open. */
+.doc-content .image-view__ai {
+  display: inline-flex;
+  align-items: center;
+  width: auto;
+  gap: 2px;
+  padding: 0 5px 0 6px;
+  color: var(--ink);
+}
+
+.doc-content .image-view__ai-k {
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  font-weight: 600;
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  line-height: 1;
+}
+
+.doc-content .image-view__ai:hover {
+  color: var(--signal-ink);
+}
+
+.doc-content .image-view__ai[aria-expanded='true'] {
+  color: var(--signal-ink);
+  background: var(--signal-wash);
+}
+
+/* the keys stay while their menu is open (the pointer is in the menu, not on the image) and while focused */
+.doc-content .image-view__tools:has(.image-view__ai[aria-expanded='true']),
+.doc-content .image-view:focus-within .image-view__tools {
+  opacity: 1;
+  transform: none;
+}

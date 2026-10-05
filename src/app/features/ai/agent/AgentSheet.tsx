@@ -29,6 +29,7 @@ import { COMMANDS, completionAt, type Completion } from './commands'
 import { loadHistory } from './history'
 import { PropDiff, Preview, SchemaDiff } from './ReviewParts'
 import { depsOf, type AgentStep, type AgentTurn, type StagedChange } from './types'
+import { ImageRefChip } from '../image/ImageRefChip'
 import '../ai.css'
 import './agent.css'
 
@@ -1034,6 +1035,8 @@ function Chips() {
     <ul className="term-chips" aria-label={t('features.agent.ctx.label')}>
       {pageId && <PageChip pageId={pageId} title={pageTitle} />}
       {refs.map((r) => {
+        // an image block (Claude for images): "▣ Protokoll P1 · image 1.2 MB"
+        if (r.image) return <ImageRefChip key={r.id} r={r} onRemove={() => removeRef(r.id)} />
         // "Delta report · Project Delta: open… · 18 lines": links and Markdown marks out of the gist
         const gist = r.markdown
           .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
