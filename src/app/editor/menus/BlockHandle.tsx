@@ -29,6 +29,7 @@ import { BlockGlyph } from './SlashMenu'
 import { toggleHeadingLevel } from '../schema/toggle'
 import { mediaMenuEntries } from './mediaMenu'
 import { imageMenuEntries } from './imageMenu'
+import { fileMenuEntries } from './fileMenu'
 import { chartMenuEntries } from './chartMenu'
 import { ColorGrid } from './BubbleToolbar'
 import { blockMenuSyncedEntries } from '../synced/menu'
@@ -467,6 +468,8 @@ export function BlockHandle({ editor, bridge, pageId }: { editor: Editor; bridge
     items.push(...mediaMenuEntries(editor, ref, t))
     // image: the "Claude" group — describe, read out the text, image → table, ask
     items.push(...imageMenuEntries(editor, ref, t))
+    // file: the "Claude" group — summarise, extract, tables, ask, or open as page / import as database
+    items.push(...fileMenuEntries(editor, ref, t))
     // chart: edit, type, downloads, data, source
     items.push(...chartMenuEntries(editor, ref, t))
     items.push(

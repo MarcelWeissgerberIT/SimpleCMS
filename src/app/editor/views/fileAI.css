@@ -1,0 +1,27 @@
+/* The file block's AI key: a mono keycap label, the signal orange on hover / while its menu is open. */
+.doc-content .file-ai-key {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 0 6px 0 7px;
+  color: var(--ink);
+}
+
+.doc-content .file-ai-key__k {
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  font-weight: 600;
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  line-height: 1;
+}
+
+.doc-content .file-ai-key:hover {
+  color: var(--signal-ink);
+}
+
+.doc-content .file-ai-key[aria-expanded='true'] {
+  color: var(--signal-ink);
+  background: var(--signal-wash);
+  border-color: var(--signal);
+}

@@ -1,0 +1,271 @@
+/* Claude for files inside the AI panel — a spec sheet like the image's: mono labels, hairlines, one orange. */
+
+.ai-file__meta {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 14px;
+  border-bottom: 1px solid var(--rule);
+  color: var(--ink-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ai-file__glyph {
+  color: var(--signal-ink);
+  font-size: 12px;
+  line-height: 1;
+}
+
+/* a local conversion: nothing was sent — the glyph stays ink */
+.ai-file__meta[data-local] .ai-file__glyph {
+  color: var(--ink-2);
+}
+
+.ai-file__hint {
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  color: var(--ink-3);
+  white-space: nowrap;
+}
+
+/* ---------- a converted page ---------- */
+.ai-file__page {
+  flex: 0 1 auto;
+  min-height: 0;
+  max-height: min(380px, 50vh);
+  overflow: auto;
+  display: grid;
+  gap: 8px;
+  padding: 12px 14px;
+  overscroll-behavior: contain;
+}
+
+.ai-file__field {
+  display: grid;
+  gap: 5px;
+}
+
+.ai-file__field > .label,
+.ai-file__spec {
+  color: var(--ink-3);
+}
+
+.ai-file__input {
+  width: 100%;
+  font-size: var(--text-md);
+  font-weight: 600;
+}
+
+.ai-file__outline {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border-top: 1px solid var(--rule);
+}
+
+.ai-file__outline li {
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr);
+  align-items: baseline;
+  gap: 6px;
+  padding: 4px 0;
+  border-bottom: 1px solid var(--rule);
+  font-size: var(--text-sm);
+  line-height: 1.4;
+}
+
+.ai-file__tag {
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  letter-spacing: var(--tracking-label);
+  color: var(--ink-3);
+}
+
+.ai-file__outline li[data-level] .ai-file__tag {
+  color: var(--signal-ink);
+}
+
+.ai-file__outline li[data-level] .ai-file__line {
+  font-weight: 650;
+  color: var(--ink);
+}
+
+.ai-file__line {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ink-2);
+}
+
+.ai-file__more {
+  padding-top: 5px;
+  color: var(--ink-3);
+}
+
+.ai-file__note {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--ink-3);
+}
+
+/* ---------- tables / sheets ---------- */
+.ai-file__data {
+  flex: 0 1 auto;
+  min-height: 0;
+  max-height: min(360px, 48vh);
+  overflow: auto;
+  padding: 10px 14px 12px;
+  overscroll-behavior: contain;
+}
+
+.ai-file__sheets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding-bottom: 10px;
+}
+
+.ai-file__db > .ai-file__sheets {
+  padding: 10px 14px 0;
+}
+
+.ai-file__chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 26px;
+  max-width: 220px;
+  padding: 0 8px;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-1);
+  background: var(--surface);
+  color: var(--ink-2);
+  font: inherit;
+  font-size: var(--text-sm);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+  transition: border-color var(--dur-1, 90ms) var(--ease-out), background var(--dur-1, 90ms) var(--ease-out);
+}
+
+.ai-file__chip:hover {
+  border-color: var(--ink-3);
+  color: var(--ink);
+}
+
+.ai-file__chip:active {
+  transform: translateY(1px);
+}
+
+.ai-file__chip[aria-checked='true'] {
+  border-color: var(--signal);
+  background: var(--signal-wash);
+  color: var(--ink);
+}
+
+.ai-file__chip:focus-visible {
+  outline: 2px solid var(--signal);
+  outline-offset: 1px;
+}
+
+.ai-file__no {
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  color: var(--signal-ink);
+}
+
+.ai-file__tspec {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding-bottom: 6px;
+  color: var(--ink-3);
+  min-width: 0;
+}
+
+.ai-file__title {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ink);
+}
+
+.ai-file__dims {
+  flex: none;
+}
+
+.ai-file__scroll {
+  overflow-x: auto;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-1);
+}
+
+.ai-file__scroll table {
+  border-collapse: collapse;
+  min-width: 100%;
+  font-size: var(--text-sm);
+  line-height: 1.35;
+}
+
+.ai-file__scroll th,
+.ai-file__scroll td {
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--rule);
+  border-right: 1px solid var(--rule);
+  text-align: left;
+  vertical-align: top;
+  white-space: nowrap;
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ai-file__scroll th:last-child,
+.ai-file__scroll td:last-child {
+  border-right: 0;
+}
+
+.ai-file__scroll tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.ai-file__scroll th {
+  background: var(--surface-2);
+  font-weight: 650;
+}
+
+/* ---------- as a database: the "Turn into database" preview (the file stays — no "kept" list) ---------- */
+.ai-file__db {
+  flex: 0 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.ai-file__db .todb__kept {
+  display: none;
+}
+
+/* ---------- AI menu: "file +" in front of the reads line ---------- */
+.ai-reads__file {
+  flex: none;
+  color: var(--signal-ink);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ai-file__chip {
+    transition: none;
+  }
+  .ai-file__chip:active {
+    transform: none;
+  }
+}

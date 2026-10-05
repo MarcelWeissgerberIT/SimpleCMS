@@ -31,6 +31,7 @@ import { PropDiff, Preview, SchemaDiff } from './ReviewParts'
 import { EditDiff } from './EditDiff'
 import { depsOf, type AgentStep, type AgentTurn, type StagedChange } from './types'
 import { ImageRefChip } from '../image/ImageRefChip'
+import { FileRefChip } from '../file/FileRefChip'
 import { MemoryProposals } from './MemoryProposals'
 import { memoryHistory } from '../memory/log'
 import { openEntry, openMemoryDb, openMemoryLog } from '../memory/open'
@@ -1146,6 +1147,8 @@ function Chips() {
       {refs.map((r) => {
         // an image block (Claude for images): "▣ Protokoll P1 · image 1.2 MB"
         if (r.image) return <ImageRefChip key={r.id} r={r} onRemove={() => removeRef(r.id)} />
+        // a file block (Claude for files): "▤ Acme mail · PDF 1.2 MB"
+        if (r.file) return <FileRefChip key={r.id} r={r} onRemove={() => removeRef(r.id)} />
         // "Delta report · Project Delta: open… · 18 lines": links and Markdown marks out of the gist
         const gist = r.markdown
           .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')

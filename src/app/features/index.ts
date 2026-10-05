@@ -40,6 +40,19 @@ export { AIRunsHost, AIRunLed, type AIRunsHostProps } from './ai/RunsHost'
 export { startImageAction, askAboutImage } from './ai/image/actions'
 export type { ImageAction } from './ai/image/request'
 /*
+ * Claude for files (any file block — uploads, mail attachments, web files): Claude summarises / extracts the text
+ * as a page / extracts the tables / answers a question (the file goes to Anthropic only then), or One converts it
+ * here (Word, text, Markdown, HTML, RTF → a page; CSV, TSV, Excel → a database / spreadsheet / table). Background
+ * runs, previewed in the page's AI panel first:
+ *  - fileActionsFor(name): the actions of a file by its name ([] = none) · fileActionLabel(t, action, kind, menu?)
+ *    · FILE_ACTION_ICONS[action] · fileKindOf(name) · isLocalFileAction(action) (a conversion here, nothing sent)
+ *  - startFileAction(editor, pos, action): a run, the page's AI panel opens on it · askAboutFile(editor, pos)
+ */
+export { startFileAction, askAboutFile } from './ai/file/actions'
+export { fileActionsFor, fileActionLabel, FILE_ICONS as FILE_ACTION_ICONS } from './ai/file/menu'
+export { fileKind as fileKindOf, isLocalAction as isLocalFileAction } from './ai/file/kinds'
+export type { FileAction, FileKind } from './ai/file/kinds'
+/*
  * "Transform into …" (features/ai/transform): selected blocks → Auto · Board · Table · Timeline · Diagram (mermaid) ·
  * Chart · Columns · Tabs · Toggles · Cards, previewed first (AIMenuProps.transform opens the panel on one at once):
  *  - transformChoicesAt(doc, from, to): the picks for a selection ([] = not offered) · TRANSFORM_ICONS[pick]

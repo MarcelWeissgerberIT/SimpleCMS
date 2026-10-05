@@ -83,7 +83,7 @@ export function AIRunsHost({ editor, pageId }: AIRunsHostProps) {
   const label = (r: AIRun) => {
     const s = shownOf(r)
     if (s === 'ready') return t('features.ai.bg.readyShort')
-    if (s === 'running') return r.req.kind === 'todb' || r.req.kind === 'image' || r.req.kind === 'transform' ? t('features.ai.bg.reading') : t('features.ai.bg.writing')
+    if (s === 'running') return r.req.kind === 'todb' || r.req.kind === 'image' || r.req.kind === 'transform' || r.req.kind === 'file' ? t('features.ai.bg.reading') : t('features.ai.bg.writing')
     return r.status === 'interrupted' ? t('features.ai.bg.interruptedShort') : t('features.ai.bg.failed')
   }
   const entries: MenuEntry[] = shown

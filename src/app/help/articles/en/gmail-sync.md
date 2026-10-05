@@ -37,6 +37,8 @@ Rename an entry once and every mail shows the new name — matching always uses 
 ## Attachments
 Each mail lists its attachments with a **Load** key (and **Load all**). Loading fetches the file from Gmail into One and puts it in the page as a real block: a PDF in the browser's own viewer, an image, audio or video, anything else as a file to download. HTML, SVG and XML attachments are only offered as a download, never shown. Files over 25 MB stay in Gmail — the list links to the mail.
 
+A loaded file is a block like any other: its **AI** key summarises a PDF, pulls out its text or tables, opens a Word or HTML file as a page, imports a CSV or Excel sheet as a database — see [Claude for files](help:ai-menu). The file reaches Anthropic only with the Claude actions; the conversions stay on this device.
+
 **Load attachments automatically** (Settings → Mail): *Off* (default), *PDFs + images* up to 10 MB, or *All* up to 25 MB — for new mails. Loaded files stay when the mail syncs again. When Google's sign-in has expired, the key asks you to sign in first.
 
 ## Organise with Claude
