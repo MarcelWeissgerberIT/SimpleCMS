@@ -51,11 +51,13 @@ export interface SelectionGripProps {
   pageId: string
   /** a menu of the block handle is open, or the selection is the soft one a hover-grip menu left behind */
   hidden: boolean
+  /** the one selected block is hovered: the hover handle stands in the grip's place (same spot and look) */
+  covered?: boolean
   /** open the block menu for the selection, anchored at `anchor` */
   onOpen: (anchor: PopoverAnchor, keyboard: boolean) => void
 }
 
-export function SelectionGrip({ editor, bridge, pageId, hidden, onOpen }: SelectionGripProps) {
+export function SelectionGrip({ editor, bridge, pageId, hidden, covered, onOpen }: SelectionGripProps) {
   const t = useT()
   const picking = useContextPicking() === pageId
   const st = useEditorState({
@@ -167,7 +169,7 @@ export function SelectionGrip({ editor, bridge, pageId, hidden, onOpen }: Select
   return (
     <>
       <div className="sel-rule" style={{ top: box.top, height: Math.max(8, box.bottom - box.top), left: box.left - 5 }} aria-hidden />
-      <div className="sel-grip" style={{ top: box.top, left: box.left }} data-place={box.place} data-testid="selection-grip">
+      <div className="sel-grip" style={{ top: box.top, left: box.left }} data-place={box.place} data-covered={covered || undefined} data-testid="selection-grip">
         <div className="block-handle" data-kind={st.kind}>
           <button type="button" className="sel-grip__btn sel-grip__plus" aria-label={t('editor.handle.add')} title={t('editor.handle.addHint')} onMouseDown={(e) => e.preventDefault()} onClick={plus}>
             <Plus size={16} strokeWidth={1.8} />

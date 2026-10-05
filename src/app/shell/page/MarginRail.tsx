@@ -140,9 +140,9 @@ function Outline({ items, active, onJump }: { items: OutlineItem[]; active: numb
  * outline changes) — until the editor is ready, the stored content's, so the rail never opens empty.
  */
 function useShownOutline(page: Page, editor: Editor | null): OutlineItem[] {
-  const stored = useMemo(() => (editor ? null : storedOutline(page.content)), [editor, page.content])
-  if (stored) return stored
-  return editor && !editor.isDestroyed ? outlineOf(editor.state.doc) : []
+  const live = editor && !editor.isDestroyed ? editor : null
+  const stored = useMemo(() => (live ? null : storedOutline(page.content)), [live, page.content])
+  return live ? outlineOf(live.state.doc) : (stored ?? [])
 }
 
 /** Non-empty headings of stored page content (TipTap JSON), by the editor's rules (outline.ts). */

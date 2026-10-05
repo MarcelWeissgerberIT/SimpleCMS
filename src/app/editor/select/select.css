@@ -23,6 +23,11 @@
   pointer-events: auto;
 }
 
+/* the one selected block is hovered: the hover handle stands in this grip's place (same spot, same look) */
+.sel-grip[data-covered] .block-handle {
+  visibility: hidden;
+}
+
 /* own classes (not .block-handle__btn): the hover handle and this grip stay apart for scripts and tests */
 .sel-grip__btn {
   display: grid;

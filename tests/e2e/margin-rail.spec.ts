@@ -152,7 +152,9 @@ test.describe('margin rail', () => {
     // the second heading turns the rail on (live, from the editor); removing it turns it off again
     await gotoPage(page, plain)
     await expect(article(page)).toHaveAttribute('data-rail', 'closed')
+    // the caret at the end (TipTap focuses on the next frame)
     await editorOf(page).evaluate((el) => (el as HTMLElement & { editor: { commands: { focus: (at: string) => void } } }).editor.commands.focus('end'))
+    await expect(editorOf(page)).toBeFocused()
     await page.keyboard.press('Enter')
     await page.keyboard.type('## Second heading')
     await expect(article(page)).toHaveAttribute('data-rail', 'open')

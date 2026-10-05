@@ -210,8 +210,9 @@ export function BlockHandle({ editor, bridge, pageId }: { editor: Editor; bridge
 
   // One grip at a time: while blocks are selected, their pinned grip (editor/select) is THE handle — the
   // hover handle stays away from every block (with Shift held it shows on unselected ones: Shift+click on
-  // it extends the selection). A selection the hover grip itself left behind (its menu, a drag) is
-  // "soft": no pinned grip, the hover handle goes on as usual (menu on one block, then on the next).
+  // it extends the selection). On the one selected block itself the hover handle takes the pinned grip's
+  // place (same spot, same look, same menu). A selection the hover grip itself left behind (its menu, a
+  // drag) is "soft": no pinned grip, the hover handle goes on as usual (menu on one block, then the next).
   const soft = useRef<Selection | null>(null)
   /** the hover grip drags a block right now; `drag.current`: it was no (hard) selection's block */
   const [dragging, setDragging] = useState(false)
@@ -221,7 +222,7 @@ export function BlockHandle({ editor, bridge, pageId }: { editor: Editor; bridge
     selector: ({ editor: e }) => {
       if (!e || e.isDestroyed || !e.isEditable) return null
       const b = readBlockSel(e.state)
-      return b ? { from: b.from, to: b.to, soft: !!soft.current && e.state.selection.eq(soft.current) } : null
+      return b ? { from: b.from, to: b.to, single: b.nodes.length === 1, soft: !!soft.current && e.state.selection.eq(soft.current) } : null
     },
   })
   useEffect(() => {
@@ -236,7 +237,8 @@ export function BlockHandle({ editor, bridge, pageId }: { editor: Editor; bridge
   const [hoverPos, setHoverPos] = useState(-1)
   const shift = useShiftKey(!!sel && !sel.soft)
   const overSelection = !!sel && hoverPos >= sel.from && hoverPos < sel.to
-  const quiet = !!sel && !sel.soft && !menu?.fromHover && !dragging && (overSelection || !shift)
+  const covering = !isTouch && !!sel && !sel.soft && sel.single && hoverPos === sel.from
+  const quiet = !!sel && !sel.soft && !menu?.fromHover && !dragging && !covering && (overSelection || !shift)
 
   // which block is hovered: the pointer over the editor (and its gutter) feeds the rules (nestedOptions)
   const pointer = useRef({ x: Number.NaN, y: Number.NaN })
@@ -543,7 +545,7 @@ export function BlockHandle({ editor, bridge, pageId }: { editor: Editor; bridge
           setDragging(false)
           if (!editor.isDestroyed) soft.current = drag.current && isBlockSelection(editor.state.selection) ? editor.state.selection : null
         }}
-        className={quiet ? 'block-handle-wrap is-quiet' : 'block-handle-wrap'}
+        className={quiet ? 'block-handle-wrap is-quiet' : covering ? 'block-handle-wrap is-pinned' : 'block-handle-wrap'}
       >
         <div ref={inner} className="block-handle" data-kind={kind}>
           <button type="button" className="block-handle__btn" aria-label={t('editor.handle.add')} title={t('editor.handle.addHint')} onMouseDown={(e) => e.preventDefault()} onClick={plus}>
@@ -568,6 +570,7 @@ export function BlockHandle({ editor, bridge, pageId }: { editor: Editor; bridge
         bridge={bridge}
         pageId={pageId}
         hidden={!!menu || !!moveFor || !!sel?.soft}
+        covered={covering}
         onOpen={(el, keyboard) => {
           const b = readBlockSel(editor.state)
           if (b) openAt(el, b.from, keyboard)

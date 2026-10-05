@@ -246,7 +246,7 @@ test.describe('the gutter column', () => {
 })
 
 test.describe('one grip at a time', () => {
-  test('a selected nested item: its pinned grip in the gutter column is the only grip; other blocks show none (Shift shows one to extend); a click into the text brings hover back', async ({ page }) => {
+  test('a selected nested item: its pinned grip in the gutter column is the only grip; other blocks show none (Shift shows one to extend), on the selected one the hover handle takes its place; a click into the text brings hover back', async ({ page }) => {
     const { ed } = await nestedPage(page, 'One grip')
     await line(ed, 'Child one').click()
     await page.keyboard.press('Escape')
@@ -263,24 +263,35 @@ test.describe('one grip at a time', () => {
     const rule = (await page.locator('.sel-rule').boundingBox())!
     expect(rule.x + rule.width).toBeLessThanOrEqual(intro.x)
 
-    // hovering another block, the selected one, a nested sibling: still just the pinned grip
-    for (const text of ['Intro paragraph.', 'Child one', 'Child two', 'Second parent', 'Task child']) {
+    // hovering another block, a nested sibling, the gutter elsewhere: still just the pinned grip
+    for (const text of ['Intro paragraph.', 'Child two', 'Second parent', 'Task child']) {
       const row = (await line(ed, text).boundingBox())!
       await page.mouse.move(row.x + 30, row.y + row.height / 2)
       await page.waitForTimeout(120)
       await expect(hoverWrap(page)).toBeHidden()
       expect(await visibleGrips(page), `one grip while hovering "${text}"`).toBe(1)
+      await page.mouse.move(intro.x - 30, row.y + row.height / 2)
+      await page.waitForTimeout(120)
+      expect(await visibleGrips(page), `one grip in the gutter at "${text}"`).toBe(1)
     }
+    // hovering the selected block: the hover handle takes the pinned grip's place — still one grip, same spot
+    const one = (await line(ed, 'Child one').boundingBox())!
+    await page.mouse.move(one.x + 30, one.y + one.height / 2)
+    await expectHandleAt(page, ed, 'Child one')
+    await page.waitForTimeout(80)
+    expect(await visibleGrips(page)).toBe(1)
+    const covering = (await hoverWrap(page).boundingBox())!
+    expect(Math.abs(covering.x + covering.width - (sel.x + sel.width))).toBeLessThan(0.75)
+    await expect(page.locator('.block-handle-wrap .block-handle__grip')).toHaveCSS('color', await page.locator('.sel-grip__grip').evaluate((e) => getComputedStyle(e).color))
 
-    // Shift held: an unselected block shows its grip (Shift+click extends), not the selected one
+    // Shift held: an unselected block shows its grip too (Shift+click on it extends the selection)
     const second = (await line(ed, 'Second parent').boundingBox())!
     await page.keyboard.down('Shift')
     await page.mouse.move(second.x + 30, second.y + second.height / 2 + 1)
     await expectHandleAt(page, ed, 'Second parent')
-    const one = (await line(ed, 'Child one').boundingBox())!
-    await page.mouse.move(one.x + 30, one.y + one.height / 2)
-    await expect(hoverWrap(page)).toBeHidden()
     await page.keyboard.up('Shift')
+    await page.mouse.move(second.x + 31, second.y + second.height / 2 + 1)
+    await expect(hoverWrap(page)).toBeHidden()
 
     // a click into the text ends the selection: the hover handle is back
     const closing = line(ed, 'Closing paragraph.')

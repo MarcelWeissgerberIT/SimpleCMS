@@ -101,6 +101,17 @@
   pointer-events: none !important;
 }
 
+/* … on the one selected block it stands in the pinned grip's place and looks like it (select.css) */
+.block-handle-wrap.is-pinned .block-handle__grip {
+  background: var(--signal-wash);
+  color: var(--signal-ink);
+}
+
+.block-handle-wrap.is-pinned .block-handle__grip:hover {
+  background: var(--signal-wash-strong);
+  color: var(--ink);
+}
+
 @media (hover: none) {
   .block-handle-wrap {
     display: none !important;
