@@ -215,6 +215,10 @@ export const BlockSelection = Extension.create({
             return isBlockSelection(view.state.selection)
           },
           handleDOMEvents: {
+            // a lone modifier (Shift before a Shift+click on another block's grip) must not hide the hover handle
+            keydown(view, event) {
+              return isBlockSelection(view.state.selection) && (event.key === 'Shift' || event.key === 'Meta' || event.key === 'Control' || event.key === 'Alt')
+            },
             // Shift+click on another block while blocks are selected: the selection grows to it
             mousedown(view, event) {
               if (!event.shiftKey || event.button !== 0 || !isBlockSelection(view.state.selection)) return false

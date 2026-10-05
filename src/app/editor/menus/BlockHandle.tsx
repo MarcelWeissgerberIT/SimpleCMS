@@ -386,7 +386,15 @@ export function BlockHandle({ editor, bridge, pageId }: { editor: Editor; bridge
           <button type="button" className="block-handle__btn" aria-label={t('editor.handle.add')} title={t('editor.handle.addHint')} onMouseDown={(e) => e.preventDefault()} onClick={plus}>
             <Plus size={16} strokeWidth={1.8} />
           </button>
-          <button type="button" className="block-handle__btn block-handle__grip" aria-label={t('editor.handle.menu')} title={t('editor.handle.menuHint')} onClick={openMenu}>
+          <button
+            type="button"
+            className="block-handle__btn block-handle__grip"
+            aria-label={t('editor.handle.menu')}
+            title={t('editor.handle.menuHint')}
+            // Shift+click extends the block selection: the browser must not stretch the text selection to here first
+            onMouseDown={(e) => e.shiftKey && e.preventDefault()}
+            onClick={openMenu}
+          >
             <GripVertical size={16} strokeWidth={1.8} />
           </button>
         </div>

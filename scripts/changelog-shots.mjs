@@ -8,7 +8,7 @@
  *
  * (CHANGELOG_DRAFT=1 lets the build pass while a new entry's picture does not exist yet.)
  *
- * Shots: claude-reads, redo, ai-terminal, mcp-codewords, mcp-tidy-up, slash-menu, turn-into-database,
+ * Shots: image-ai, claude-reads, redo, ai-terminal, mcp-codewords, mcp-tidy-up, slash-menu, turn-into-database,
  * custom-agents, gmail, help-centre, mcp-servers, feed-blocks — each named like its image. Every shot starts from a fresh, seeded
  * workspace in English, light theme, 1440 × 900 at device scale 2; the crop of the relevant area is scaled
  * to 1440 px wide and saved as public/assets/shots/changelog/<shot>.webp (≤ 150 KB: the quality steps down
@@ -550,6 +550,52 @@ class Bridge {
   }
 }
 
+/** The table in the "Claude for images" picture — and what Claude (mocked) reads out of it. */
+const VOLUMES = { title: 'Volumes', header: ['Reagent', 'Volume (µl)', 'Wells'], rows: [['Buffer', '50', 'A1–A12'], ['Enzyme', '2,5', 'B1–B12'], ['Sample', '10', 'C1–C12'], ['Water', '37,5', 'D1–D12']] }
+
+/** Draw the volume table as a PNG (runs in the page; returns base64): a printed sheet with hairlines. */
+function drawVolumeTable(t) {
+  const w = 960
+  const h = 520
+  const c = document.createElement('canvas')
+  c.width = w
+  c.height = h
+  const g = c.getContext('2d')
+  g.fillStyle = '#fbfaf6'
+  g.fillRect(0, 0, w, h)
+  g.fillStyle = '#1a1a18'
+  g.font = '600 30px Georgia, serif'
+  g.fillText('Protocol P1 — volumes per well', 48, 70)
+  g.font = '18px Georgia, serif'
+  g.fillStyle = '#5a5850'
+  g.fillText('Run 14 · 96-well plate · prepared on ice', 48, 104)
+  const x = [48, 360, 620, 912]
+  const top = 140
+  const rowH = 62
+  g.strokeStyle = '#2a2a28'
+  g.lineWidth = 2
+  g.strokeRect(x[0], top, x[3] - x[0], rowH * (t.rows.length + 1))
+  g.lineWidth = 1
+  for (let i = 1; i <= t.rows.length; i++) {
+    g.beginPath()
+    g.moveTo(x[0], top + i * rowH)
+    g.lineTo(x[3], top + i * rowH)
+    g.stroke()
+  }
+  for (const xi of x.slice(1, 3)) {
+    g.beginPath()
+    g.moveTo(xi, top)
+    g.lineTo(xi, top + rowH * (t.rows.length + 1))
+    g.stroke()
+  }
+  ;[t.header, ...t.rows].forEach((row, i) => {
+    g.font = i === 0 ? 'bold 22px Georgia, serif' : '22px Georgia, serif'
+    g.fillStyle = '#1a1a18'
+    row.forEach((cell, j) => g.fillText(cell, x[j] + 20, top + i * rowH + 40))
+  })
+  return c.toDataURL('image/png').split(',')[1]
+}
+
 /** The tool result Claude got back for a tool_use id. */
 const toolResult = (body, id) => (body.messages ?? []).flatMap((m) => (Array.isArray(m.content) ? m.content : [])).find((c) => c.type === 'tool_result' && c.tool_use_id === id)
 
@@ -662,6 +708,41 @@ const shots = {
     await page.mouse.move(W + 40, H + 40)
     const box = union(await boxOf(menu), await boxOf(page.locator('#main :is(h1, h2, h3)', { hasText: 'Open tickets' }).first()))
     await save(page, 'slash-menu', frameAround(box, { width: W, height: H }, 16 / 10, 32))
+    await ctx.close()
+  },
+
+  /** Claude for images: an image of a volume table → the AI key → Image → table: the rows, ready to insert. */
+  async 'image-ai'(browser) {
+    const tableAnswer = (body) => {
+      const content = body.messages?.[0]?.content
+      const text = Array.isArray(content) ? content.map((b) => (b.type === 'text' ? b.text : '')).join('\n') : String(content ?? '')
+      if (/Find every table/.test(text)) return JSON.stringify({ tables: [VOLUMES] })
+      return 'Done.'
+    }
+    const { ctx, page } = await freshPage(browser, { claude: { text: tableAnswer, json: tableAnswer }, viewport: { width: W, height: 1300 } })
+    const id = await createPage(page, 'Protocol P1', doc(para('Deck layout and volumes for run P1, photographed from the lab binder.'), { type: 'image', attrs: { src: null, width: 560 } }, para('')), { icon: { type: 'asset', value: 'notepad' } })
+    await openPage(page, id)
+    const png = await page.evaluate(drawVolumeTable, VOLUMES)
+    const chooser = page.waitForEvent('filechooser')
+    const ed = page.locator('#main .ProseMirror').first()
+    await ed.locator('.media-empty').getByRole('button', { name: /Upload/ }).click()
+    await (await chooser).setFiles({ name: 'protocol-p1.png', mimeType: 'image/png', buffer: Buffer.from(png, 'base64') })
+    const fig = ed.locator('.image-view').first()
+    await fig.locator('img').waitFor()
+    await page.waitForTimeout(600)
+    await scrollToTop(fig, 90)
+    await fig.hover()
+    await fig.getByTestId('image-ai-key').click()
+    await page.getByRole('menuitem', { name: /Image → table/ }).click()
+    const ai = page.getByRole('dialog', { name: 'Ask Claude' })
+    await ai.getByTestId('ai-image-tables').waitFor({ timeout: 20_000 })
+    await page.waitForTimeout(700)
+    await page.mouse.move(W + 40, H + 40)
+    // the page column only (no cut-off sidebar): from the picture's top to the panel's foot
+    const box = union(await boxOf(fig), await boxOf(ai))
+    const left = Math.round((await page.locator('.sb').first().boundingBox())?.width ?? 0) + 1
+    const top = Math.max(0, Math.round(box.y - 6))
+    await save(page, 'image-ai', { x: left, y: top, width: W - left, height: Math.round(box.y + box.height + 28 - top) })
     await ctx.close()
   },
 

@@ -1,7 +1,7 @@
 ---
 id: 2026-10-05-turn-into-database
 date: 2026-10-05
-order: 7
+order: 8
 title: Turn text into a database — and AI requests that keep running
 summary: Select a pasted list or report, and Claude makes it a board or a table, with a preview first. Requests now carry on in the background.
 image: assets/shots/changelog/turn-into-database.webp

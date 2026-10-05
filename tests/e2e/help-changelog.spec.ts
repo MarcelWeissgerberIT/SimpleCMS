@@ -242,7 +242,7 @@ test.describe('What’s new in the Help panel', () => {
     const item = page.getByRole('menuitem', { name: /^Help/ })
     await expect(item.getByTestId('help-news-led')).toBeVisible()
     await item.click()
-    await expect(panel(page)).toBeVisible()
+    await expect(panel(page).locator('.help-scroll')).toBeVisible()
     await expect.poll(async () => (await panel(page).boundingBox())?.x ?? 99).toBeLessThanOrEqual(0.5)
     const overflow = () => panel(page).evaluate((el) => Math.max(el.scrollWidth - el.clientWidth, el.querySelector('.help-scroll')!.scrollWidth - el.querySelector('.help-scroll')!.clientWidth))
     expect(await overflow()).toBeLessThanOrEqual(0)
