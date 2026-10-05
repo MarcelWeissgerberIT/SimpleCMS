@@ -22,7 +22,7 @@ import { MAX_TOOL_CALLS } from './tools'
 import { currentSetup, readServers, setupKey } from '../mcp-servers/config'
 import { callLabel } from '../mcp-servers/activity'
 import { AGENT_REF_SHORTCUT, AGENT_SHORTCUT, AGENT_STOP_SHORTCUT } from './AgentPanel'
-import { COMMANDS, commandName, completionAt, type Completion, type CommandId } from './commands'
+import { COMMANDS, completionAt, type Completion } from './commands'
 import { loadHistory } from './history'
 import { PropDiff, Preview, SchemaDiff } from './ReviewParts'
 import { depsOf, type AgentStep, type AgentTurn, type StagedChange } from './types'
@@ -1250,7 +1250,7 @@ function Prompt({ disabled, onReview }: { disabled: boolean; onReview: () => boo
               onClick={() => accept(comp, i)}
             >
               <span className="term-complete__label">{item.mention ? `${item.mention.kind === 'database' ? '▦' : '▣'} ${item.label}` : item.label}</span>
-              <span className="term-complete__hint">{item.command ? t(`features.agent.cmd.${item.command as CommandId}`) : item.mention?.where || t(`features.agent.kindOf.${item.mention?.kind ?? 'page'}`)}</span>
+              <span className="term-complete__hint">{item.command ? t(`features.agent.cmd.${item.command}`) : item.mention?.where || t(`features.agent.kindOf.${item.mention?.kind ?? 'page'}`)}</span>
             </li>
           ))}
           <li className="term-complete__foot" aria-hidden>

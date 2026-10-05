@@ -21,12 +21,6 @@ export const COMMANDS: Array<{ id: CommandId; en: string; de: string[] }> = [
   { id: 'cost', en: 'cost', de: ['kosten'] },
 ]
 
-/** The name shown for a command in the UI language. */
-export const commandName = (id: CommandId, lang: 'en' | 'de') => {
-  const c = COMMANDS.find((x) => x.id === id)!
-  return `/${lang === 'de' && c.de[0] ? c.de[0] : c.en}`
-}
-
 /** A prompt that is a command ("/help", "/hilfe "): its id, 'unknown' for another "/word", null for a task. */
 export function parseCommand(input: string): CommandId | 'unknown' | null {
   const m = /^\/([\p{L}\d_-]+)\s*$/u.exec(input.trim())
