@@ -4,7 +4,7 @@ import { ArrowRight, CircleHelp, Copy, CornerDownLeft, FilePlus2, KeyRound, Layo
 import { useWorkspace } from '../../store/store'
 import { useUI } from '../../store/ui'
 import { inTemplate, isEffectivelyTrashed, selectBreadcrumbs } from '../../store/selectors'
-import { isAIConfigured, runAI, templateName, templateRoots } from '../../features'
+import { CodewordChip, isAIConfigured, McpSkippedNote, runAI, templateName, templateRoots, type McpCall } from '../../features'
 import { markdownToDoc, ReadOnlyDoc } from '../../editor'
 import { PageIcon } from '../../ui/PageIcon'
 import { restoreFocus as restoreFocusTo } from '../../ui/focus'
@@ -167,6 +167,7 @@ function Palette() {
               placeholder={mode === 'find' ? t(narrow ? 'shell.palette.placeholderShort' : 'shell.palette.placeholder') : mode === 'run' ? t('shell.palette.placeholderRun') : t('shell.palette.placeholderAsk')}
               className="pal-input__field"
             />
+            {mode === 'ask' && <CodewordChip text={term} />}
             <span className="kbd">Esc</span>
           </div>
           {mode === 'ask' ? (
@@ -368,6 +369,8 @@ function AskPanel({ question, pageId, onDone }: { question: string; pageId: ID |
   const [answer, setAnswer] = useState('')
   const [state, setState] = useState<'idle' | 'running' | 'done' | 'error'>('idle')
   const [error, setError] = useState('')
+  /** MCP activity of the answer (a server addressed by codeword that stayed out is noted) */
+  const [mcpCalls, setMcpCalls] = useState<McpCall[]>([])
   const abort = useRef<AbortController | null>(null)
 
   useEffect(() => () => abort.current?.abort(), [])
@@ -378,6 +381,7 @@ function AskPanel({ question, pageId, onDone }: { question: string; pageId: ID |
     const ctrl = new AbortController()
     abort.current = ctrl
     setAnswer('')
+    setMcpCalls([])
     setError('')
     setState('running')
     try {
@@ -390,6 +394,7 @@ function AskPanel({ question, pageId, onDone }: { question: string; pageId: ID |
         signal: ctrl.signal,
         // runAI streams deltas, not the text so far
         onToken: (delta) => setAnswer((prev) => prev + delta),
+        onMcp: (calls) => !ctrl.signal.aborted && setMcpCalls(calls),
       })
       if (ctrl.signal.aborted) return
       setAnswer(final || '')
@@ -463,6 +468,7 @@ function AskPanel({ question, pageId, onDone }: { question: string; pageId: ID |
               </button>
             )}
           </div>
+          <McpSkippedNote calls={mcpCalls} />
           {state === 'error' ? <p className="ask__error">{error}</p> : <AskAnswer markdown={answer} />}
           {state === 'done' && answer && (
             <div className="ask__actions">

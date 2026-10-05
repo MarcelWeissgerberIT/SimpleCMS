@@ -115,6 +115,20 @@ function patchTurn(n: number, patch: Partial<AgentTurn>) {
   set((s) => ({ turns: s.turns.map((x) => (x.n === n ? { ...x, ...patch } : x)) }))
 }
 
+/**
+ * What a task runs with: the MCP setup and the task text Claude gets. The one place where the
+ * user's task text meets the MCP choice (client.ts / mcp-servers decide centrally) — today the
+ * setup is pinned per conversation (system prompt and tool list stay the same for every later
+ * request: prompt cache, thinking) and the text goes as typed.
+ */
+function prepareTask(task: string): { setup: McpSetup; prompt: string } {
+  if (!history.length || !mcpSetup) {
+    mcpSetup = currentSetup()
+    set({ mcp: { key: setupKey(mcpSetup), names: mcpSetup.servers.map((x) => x.name) } })
+  }
+  return { setup: mcpSetup, prompt: task }
+}
+
 /** Run the task in the prompt (or `raw`). One task at a time. */
 export async function runTask(raw?: string): Promise<void> {
   const task = (raw ?? get().draft).trim()
@@ -130,6 +144,7 @@ export async function runTask(raw?: string): Promise<void> {
   const pageId = contextPageId()
   const ctx: TurnContext = { refs: refs.length, mentions: mentions.map((m) => m.title), ...(pageId ? { page: useWorkspace.getState().pages[pageId]?.title.trim() || t('common.untitled') } : {}) }
   const text = context(refs, mentions)
+  const { setup, prompt } = prepareTask(task)
   set((s) => ({
     status: 'running',
     draft: '',
@@ -141,11 +156,6 @@ export async function runTask(raw?: string): Promise<void> {
     mentions: [],
     turns: [...s.turns, { n, task, startedAt: Date.now(), status: 'running', answer: '', context: ctx }],
   }))
-  if (!history.length || !mcpSetup) {
-    mcpSetup = currentSetup()
-    set({ mcp: { key: setupKey(mcpSetup), names: mcpSetup.servers.map((x) => x.name) } })
-  }
-  const setup = mcpSetup
 
   let answer = ''
   // streamed text is batched per frame
@@ -235,7 +245,7 @@ export async function runTask(raw?: string): Promise<void> {
 
   try {
     const mcp = setup.servers.length ? await attachMcp(setup) : null
-    const end = await runAgent({ history, user: taskMessage(history, task, text), stage, signal: ac.signal, hooks, mcp })
+    const end = await runAgent({ history, user: taskMessage(history, prompt, text), stage, signal: ac.signal, hooks, mcp })
     if (end === 'max_tokens') finish('error', { code: 'max_tokens', message: t('features.agent.err.maxTokens') })
     else finish(end === 'limit' ? 'limit' : 'done')
   } catch (e) {

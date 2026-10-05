@@ -228,6 +228,13 @@ test.describe('AI terminal (mocked Claude API)', () => {
     await page.keyboard.press('Escape')
     await expect(prompt(page)).toBeFocused()
     await expect(terminal(page)).toBeVisible()
+    // back in (the cursor is kept), o opens the applied row in the side peek
+    await prompt(page).press('Tab')
+    await expect(item(1)).toBeFocused()
+    await page.keyboard.press('j')
+    await page.keyboard.press('o')
+    await expect(page.locator('.peek')).toBeVisible()
+    await expect(page.locator('.peek .pv-title')).toContainText('Term row two')
   })
 
   test('⌘. stops the running task — also while the terminal is hidden — and aborts the request', async ({ page, context }) => {
@@ -481,6 +488,31 @@ test.describe('AI terminal (mocked Claude API)', () => {
     const term = terminal(page, 'KI-Terminal')
     await expect(term.locator('.term-chip[data-kind="ref"]')).toContainText('1 Zeile')
     await expect(term.locator('.term-turn__ctx')).toContainText('1 Referenz')
+  })
+
+  test('references from a database row page carry the row id; ⌘J with text selected opens with it', async ({ page, context }) => {
+    await openApp(page)
+    await setKey(page)
+    const bodies = await mockAgent(context, [() => sseMessage([{ type: 'text', text: 'Noted.' }])])
+    const row = await pageIdByTitle(page, 'Website relaunch')
+    expect(await wsEval(page, (s, id) => !!s.pages[id].databaseId, row)).toBe(true)
+    await gotoPage(page, row)
+    const editor = editorOf(page)
+    await editor.click()
+    await selectText(page, editor, 'ship something people actually use')
+    // ⌘J (not ⌘⇧J) while text is selected: the terminal opens with the selection as a reference
+    await page.keyboard.press(`${MOD}+j`)
+    await expect(terminal(page)).toBeVisible()
+    const chip = terminal(page).locator('.term-chip[data-kind="ref"]')
+    await expect(chip).toHaveCount(1)
+    await expect(chip).toContainText('Website relaunch · ship something')
+    await expect(prompt(page)).toBeFocused()
+    await run(page, 'Rephrase the goal')
+    await expect.poll(() => bodies.length).toBe(1)
+    expect(userText(bodies[0])).toContain(`<reference page=\\"Website relaunch\\" page_id=\\"${row}\\" lines=\\"1\\">`)
+    expect(userText(bodies[0])).toContain('ship something people actually use')
+    // the open row is the default context as well
+    expect(userText(bodies[0])).toContain(`Open page: \\"Website relaunch\\" (id: ${row})`)
   })
 })
 

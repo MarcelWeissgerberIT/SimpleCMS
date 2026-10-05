@@ -14,6 +14,16 @@ export interface McpCall {
   state: 'run' | 'ok' | 'err'
   /** an error result's text (clipped) */
   error?: string
+  /**
+   * Not a call: the request addressed this server by codeword, but it did not join — 'off' = switched
+   * off, 'token' = no token in this browser (client.ts reports it first, so the result can say so).
+   */
+  skipped?: 'off' | 'token'
+}
+
+/** The entry for a server a codeword addressed that could not join the request. */
+export function skippedCall(server: string, why: 'off' | 'token'): McpCall {
+  return { id: `skip:${server}`, server, tool: '', arg: '', state: 'err', skipped: why }
 }
 
 /** The first short string in a tool input (a query, an id …), for the readout. */

@@ -660,19 +660,22 @@
 
 .term-table {
   display: grid;
+  /* one key column for every row (rows are subgrids); long keys wrap past 40 % */
+  grid-template-columns: fit-content(40%) minmax(0, 1fr);
+  column-gap: 16px;
   margin: 0;
 }
 
 .term-table > div {
   display: grid;
-  grid-template-columns: minmax(150px, max-content) minmax(0, 1fr);
-  gap: 16px;
+  grid-column: 1 / -1;
+  grid-template-columns: subgrid;
   padding: 1px 0;
 }
 
 .term-table dt {
+  min-width: 0;
   color: var(--ink);
-  white-space: nowrap;
 }
 
 .term-table dd {
@@ -686,8 +689,8 @@
   border-top: 1px solid var(--rule);
 }
 
-.term-table--cost > div {
-  grid-template-columns: 120px auto;
+.term-table--cost {
+  grid-template-columns: max-content max-content;
 }
 
 .term-table--cost dd {

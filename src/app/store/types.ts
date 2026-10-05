@@ -728,6 +728,13 @@ export interface McpServerConfig {
    * 'all' = every AI call (also the one-click actions, autofill, meeting summaries).
    */
   scope?: 'free' | 'all'
+  /**
+   * Codeword (features/ai/mcp-servers/codeword.ts): a free-form request that starts with "<codeword>:"
+   * gets this server attached whatever its scope (unless it is switched off) and Claude is told to
+   * answer with its tools first. 1–24 characters a–z, 0–9, "_" and "-", lower case, unique in the
+   * list, never "one" (One's own MCP codeword). Absent = none. Not a secret: backups keep it.
+   */
+  codeword?: string
 }
 
 export interface Workspace {

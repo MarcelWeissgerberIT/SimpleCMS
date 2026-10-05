@@ -702,4 +702,182 @@ test.describe('MCP servers (mocked Claude API, made-up server)', () => {
     await expect(again.getByLabel('MCP instructions for Claude')).toHaveValue(/^You can use tools from external MCP servers/)
     expect(await wsEval(page, (s) => s.settings.mcpInstructions ?? '')).toBe('')
   })
+  test('codeword: "kb: …" in an own request or ⌘K "?" attaches the server first and leaves the prefix out; one-click actions stay without; a switched-off server stays off with a note; the chip shows while typing', async ({ page, context }) => {
+    const sent = await mockApi(context, (r) => (r.stream ? { sse: sseMessage([{ type: 'text', text: r.body.mcp_servers ? 'According to Atlas: launch on 2026-10-18.' : 'Short version.' }]) } : undefined))
+    await openApp(page)
+    await setKey(page)
+    // atlas: "Agent, own requests and ⌘K ask" (the default scope) with the codeword kb · wiki: switched off, codeword wiki
+    await setServers(page, [atlas({ codeword: 'kb' }), { id: 'srvwiki001', name: 'wiki', url: 'https://mcp.example.test/wiki/mcp', token: '', enabled: false, prompt: 'Use wiki_search.', checkedAt: 1, codeword: 'wiki' }])
+    const userText = (r: Sent) => JSON.stringify(r.body.messages[0].content)
+
+    // the AI menu: no chip for a plain word, "→ ATLAS" as soon as the codeword has its colon
+    const { ask, panel } = await openAIPanel(page)
+    await ask.fill('kb')
+    await expect(panel.getByTestId('mcp-codeword-chip')).toHaveCount(0)
+    await ask.pressSequentially(': What is the launch date?')
+    const chip = panel.getByTestId('mcp-codeword-chip')
+    await expect(chip).toHaveText('→ ATLAS')
+    await expect(chip).toHaveAttribute('aria-label', 'Codeword: ATLAS first')
+    await page.keyboard.press('Enter')
+    await expect(panel.locator('.ai-out__body')).toContainText('According to Atlas')
+    let last = sent[sent.length - 1]
+    expect(last.body.mcp_servers.map((x: AnyState) => x.name)).toEqual(['atlas'])
+    expect(last.body.tools).toEqual([{ type: 'mcp_toolset', mcp_server_name: 'atlas' }])
+    expect(userText(last)).toContain('Request: What is the launch date?')
+    expect(userText(last)).not.toContain('kb:')
+    const system = String(last.body.system)
+    // the usage prompt names the codeword; the request says who was addressed
+    expect(system).toContain(`<mcp_server name="atlas">\n${GUIDE}\nCodeword: "kb" — when the person starts a request with "kb:" or names "kb", they mean this server.\n</mcp_server>`)
+    expect(system).toContain('<mcp_codeword>\nThe person addressed atlas by its codeword: answer with its tools first; say when it has nothing.\n</mcp_codeword>')
+    expect(system).not.toContain('wiki')
+    await page.keyboard.press('Escape')
+
+    // a one-click action: no codeword, no server (the scope is "own requests")
+    const editor = editorOf(page)
+    await editor.locator('p').last().click()
+    await page.keyboard.press('Space')
+    const menu = page.getByRole('dialog', { name: 'Ask Claude' })
+    await menu.getByRole('option', { name: /Summarize this page/ }).click()
+    await expect(menu.locator('.ai-out__body')).toContainText('Short version.')
+    last = sent[sent.length - 1]
+    expect(last.body.mcp_servers).toBeUndefined()
+    expect(last.body.tools).toBeUndefined()
+    expect(String(last.body.system)).not.toContain('<mcp_codeword>')
+    await page.keyboard.press('Escape')
+
+    // a switched-off server stays off: "→ WIKI · OFF" while typing, a note in the result; both codewords work at once
+    await editor.locator('p').last().click()
+    await page.keyboard.press('Space')
+    await expect(page.getByPlaceholder('Ask Claude to write anything…')).toBeFocused()
+    await page.keyboard.type('KB: wiki: Anything new on the launch?')
+    await expect(menu.getByTestId('mcp-codeword-chip').locator('.mcp-cw__chip')).toHaveText(['→ ATLAS', '→ WIKI · OFF'])
+    await expect(menu.locator('.mcp-cw__chip[data-state="off"]')).toHaveText('→ WIKI · OFF')
+    await page.keyboard.press('Enter')
+    await expect(menu.locator('.ai-out__body')).toContainText('According to Atlas')
+    await expect(menu.locator('.ai-mcp__chip[data-state="skipped"]')).toHaveText('WIKI · OFF')
+    await expect(menu.getByTestId('mcp-skipped')).toHaveText('wiki is switched off — Claude answers without it. Switch it on in Settings → Claude AI.')
+    last = sent[sent.length - 1]
+    expect(last.body.mcp_servers.map((x: AnyState) => x.name)).toEqual(['atlas'])
+    expect(userText(last)).toContain('Request: Anything new on the launch?')
+    expect(userText(last)).not.toMatch(/kb:|wiki:/i)
+    expect(String(last.body.system)).toContain('The person addressed atlas by its codeword')
+    expect(String(last.body.system)).not.toContain('addressed wiki')
+    await page.keyboard.press('Escape')
+
+    // ⌘K "?": the chip next to the question, the server joins, the prefix stays out
+    await page.keyboard.press(`${MOD}+k`)
+    const pal = page.getByRole('dialog', { name: 'Command palette' })
+    const input = pal.locator('input').first()
+    await input.fill('?kb: When do we launch?')
+    await expect(pal.getByTestId('mcp-codeword-chip')).toHaveText('→ ATLAS')
+    await input.press('Enter')
+    await expect(pal).toContainText('According to Atlas')
+    last = sent[sent.length - 1]
+    expect(last.body.mcp_servers.map((x: AnyState) => x.name)).toEqual(['atlas'])
+    expect(userText(last)).toContain('When do we launch?')
+    expect(userText(last)).not.toContain('kb:')
+    expect(String(last.body.system)).toContain('The person addressed atlas by its codeword')
+    await expect(pal.getByTestId('mcp-skipped')).toHaveCount(0)
+
+    // … and a switched-off one: the note in the answer
+    await input.fill('wiki: Anything new?')
+    await expect(pal.locator('.mcp-cw__chip[data-state="off"]')).toHaveText('→ WIKI · OFF')
+    await input.press('Enter')
+    await expect(pal.getByTestId('mcp-skipped')).toHaveText('wiki is switched off — Claude answers without it. Switch it on in Settings → Claude AI.')
+    await expect.poll(() => userText(sent[sent.length - 1])).toContain('Anything new?')
+    expect(userText(sent[sent.length - 1])).not.toContain('wiki:')
+    // Escape clears the question first, then closes
+    await page.keyboard.press('Escape')
+    await page.keyboard.press('Escape')
+    await expect(pal).toHaveCount(0)
+
+    // no codeword, nothing changes: "one:" is no server's codeword
+    await expect(await askPalette(page, 'one: tidy up')).toContainText('According to Atlas')
+    last = sent[sent.length - 1]
+    expect(userText(last)).toContain('one: tidy up')
+    expect(String(last.body.system)).not.toContain('<mcp_codeword>')
+  })
+
+  test('codeword in Settings (German): suggested from the name, "use" saves it, checked (reserved one, taken, characters), shown as "kb:"; readers drop bad ones; reload keeps it; the backup has it, never the token', async ({ page, context }, testInfo) => {
+    await mockApi(context)
+    await openApp(page)
+    await wsEval(page, (s) => s.updateSettings({ aiApiKey: 'sk-ant-e2e-test-key', language: 'de' }))
+    await setServers(page, [atlas(), { id: 'srvtrack01', name: 'linear', url: 'https://mcp.example.test/linear/sse', token: '', enabled: true, prompt: 'Use list_issues.', checkedAt: 1, codeword: 'Tracker:' }])
+    await openAISettings(page)
+    // stored "Tracker:" is read as "tracker"
+    await expect(row(page, 'linear').getByTestId('mcp-card-codeword')).toHaveText('tracker:')
+    await expect(row(page, 'atlas').getByTestId('mcp-card-codeword')).toHaveCount(0)
+
+    await row(page, 'atlas').getByRole('button', { name: /ATLAS/ }).click()
+    const field = row(page, 'atlas').getByRole('textbox', { name: 'Codewort' })
+    await expect(field).toHaveValue('')
+    await expect(field).toHaveAttribute('placeholder', 'atlas')
+    // only a suggestion: nothing is stored until it is taken
+    expect(await wsEval(page, (s) => s.settings.mcpServers[0].codeword ?? null)).toBeNull()
+    await row(page, 'atlas').getByRole('button', { name: 'atlas: verwenden' }).click()
+    await expect(field).toHaveValue('atlas')
+    await expect.poll(() => wsEval(page, (s) => s.settings.mcpServers[0].codeword)).toBe('atlas')
+    await expect(row(page, 'atlas').getByTestId('mcp-card-codeword')).toHaveText('atlas:')
+
+    // checked while typing
+    const hint = row(page, 'atlas').locator('.mcps-field:has(.mcps-cw) .mcps-field__hint')
+    await field.fill('one')
+    await expect(hint).toHaveText('„one“ ist reserviert: Das ist Ones eigenes Codewort in Claude Desktop.')
+    await expect(field).toHaveAttribute('aria-invalid', 'true')
+    await field.press('Enter')
+    expect(await wsEval(page, (s) => s.settings.mcpServers[0].codeword)).toBe('atlas')
+    await field.fill('TRACKER')
+    await expect(field).toHaveValue('tracker')
+    await expect(hint).toHaveText('Ein anderer Server hat schon dieses Codewort.')
+    await field.fill('k b!')
+    await expect(hint).toHaveText('Nur a–z, 0–9, - und _ — keine Leerzeichen.')
+    await field.fill('a-very-long-codeword-for-atlas')
+    await expect(hint).toHaveText('Höchstens 24 Zeichen.')
+    // typed with its colon: normalized
+    await field.fill('KB:')
+    await expect(field).toHaveValue('kb')
+    await expect(hint).toHaveText('Beginne eine Anfrage mit kb: — dann antwortet Claude zuerst mit den Werkzeugen dieses Servers, auch wo er sonst nicht dabei ist.')
+    await row(page, 'atlas').getByRole('button', { name: 'Speichern' }).click()
+    await expect(row(page, 'atlas').getByTestId('mcp-card-codeword')).toHaveText('kb:')
+    expect(await wsEval(page, (s) => s.settings.mcpServers[0].codeword)).toBe('kb')
+
+    // readers drop what can't be used (reserved, duplicate) and keep the server
+    const raw = await wsEval(page, (s) => JSON.parse(JSON.stringify(s.settings.mcpServers)))
+    await setServers(page, [{ ...raw[0], codeword: 'one' }, { ...raw[1], codeword: 'one' }])
+    await expect(row(page, 'atlas').getByTestId('mcp-card-codeword')).toHaveCount(0)
+    await expect(row(page, 'linear').getByTestId('mcp-card-codeword')).toHaveCount(0)
+    await setServers(page, raw)
+    await expect(row(page, 'atlas').getByTestId('mcp-card-codeword')).toHaveText('kb:')
+
+    // reload keeps it (every write stores the list as read: "Tracker:" is "tracker" now)
+    await page.keyboard.press('Escape')
+    await reloadApp(page)
+    expect(await wsEval(page, (s) => s.settings.mcpServers.map((x: AnyState) => x.codeword))).toEqual(['kb', 'tracker'])
+    await openAISettings(page)
+    await expect(row(page, 'atlas').getByTestId('mcp-card-codeword')).toHaveText('kb:')
+    await expect(row(page, 'atlas').getByTestId('mcp-status')).toHaveText('Verbunden · 1 Werkzeug')
+    await page.keyboard.press('Escape')
+
+    // the full backup keeps the codeword (not a secret) and never the token or its marker
+    await wsEval(page, (s) => s.updateSettings({ language: 'en' }))
+    const marker = await wsEval(page, (s) => s.settings.mcpServers[0].token as string)
+    expect(marker).toMatch(/^vault:/)
+    await page.keyboard.press(`${MOD}+,`)
+    await page.getByRole('dialog').getByRole('tab', { name: /Data$/ }).click()
+    await page.getByRole('dialog').getByRole('button', { name: 'Export workspace' }).click()
+    const exp = page.getByRole('dialog')
+    await exp.getByRole('radio', { name: /Whole workspace/ }).click()
+    await exp.getByRole('radio', { name: /Full backup/ }).click()
+    const download = page.waitForEvent('download')
+    await exp.locator('[data-export-run]').click()
+    const file = testInfo.outputPath('backup.json')
+    await (await download).saveAs(file)
+    const text = readFileSync(file, 'utf8')
+    expect(JSON.parse(text).workspace.settings.mcpServers.map((x: AnyState) => [x.name, x.codeword, x.token])).toEqual([
+      ['atlas', 'kb', ''],
+      ['linear', 'tracker', ''],
+    ])
+    expect(text).not.toContain(TOKEN)
+    expect(text).not.toContain(marker)
+  })
 })

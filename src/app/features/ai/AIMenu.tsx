@@ -51,6 +51,7 @@ import { toMarkdown } from '../share/markdown'
 import { AI_MODELS, AIError, aiErrorText, isAIDemo, onAIDemo, resolveModel, setAIDemo, verifyKey } from './client'
 import { readServers } from './mcp-servers/config'
 import { callLabel, type McpCall } from './mcp-servers/activity'
+import { CodewordChip, McpSkippedNote, skippedLabel } from './mcp-servers/Codeword'
 import { citationsToLinks, findSource, type WorkspaceSource } from './workspace'
 import { MarkdownLite } from './MarkdownLite'
 import { snapshotNow } from '../history/snapshots'
@@ -867,6 +868,8 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun }: AIMenu
                 spellCheck={false}
                 autoComplete="off"
               />
+              {/* "kb: …" — the query goes to Claude as an own request / a revision: the addressed server shows */}
+              {!busy && !wsMode && view === 'actions' && run?.req.kind !== 'todb' && <CodewordChip text={query} />}
               {demo ? (
                 <span className="ai-model ai-model--demo" title={t('features.ai.demo.title')}>
                   <span className="ai-model__brand">CLAUDE · </span>
@@ -1109,17 +1112,26 @@ function Elapsed({ start, end }: { start: number; end?: number }) {
 /** Tool calls of external MCP servers: "ATLAS · search_records" chips with an LED; failures said politely. */
 function McpChips({ calls }: { calls: McpCall[] }) {
   const t = useT()
-  const failed = calls.filter((c) => c.state === 'err')
+  const failed = calls.filter((c) => c.state === 'err' && !c.skipped)
   return (
     <div className="ai-mcp">
       <ul className="ai-mcp__list" aria-label={t('features.ai.mcp.calls')}>
-        {calls.map((c) => (
-          <li key={c.id} className="ai-mcp__chip" data-state={c.state} title={c.arg ? `${callLabel(c)} — ${c.arg}` : callLabel(c)}>
-            <span className={`led${c.state === 'run' ? ' led--on ai-led--live' : c.state === 'err' ? ' ai-led--err' : ' led--ok'}`} aria-hidden />
-            {callLabel(c)}
-          </li>
-        ))}
+        {calls.map((c) =>
+          c.skipped ? (
+            // a server the codeword addressed that stayed out (switched off, no token here)
+            <li key={c.id} className="ai-mcp__chip" data-state="skipped">
+              <span className="led" aria-hidden />
+              {skippedLabel(t, c)}
+            </li>
+          ) : (
+            <li key={c.id} className="ai-mcp__chip" data-state={c.state} title={c.arg ? `${callLabel(c)} — ${c.arg}` : callLabel(c)}>
+              <span className={`led${c.state === 'run' ? ' led--on ai-led--live' : c.state === 'err' ? ' ai-led--err' : ' led--ok'}`} aria-hidden />
+              {callLabel(c)}
+            </li>
+          ),
+        )}
       </ul>
+      <McpSkippedNote calls={calls} />
       {failed.map((c) => (
         <p key={c.id} className="ai-mcp__err">
           {c.error ? t('features.ai.mcp.callErr', { server: c.server.toUpperCase(), tool: c.tool, error: c.error }) : t('features.ai.mcp.callErrBare', { server: c.server.toUpperCase(), tool: c.tool })}{' '}
