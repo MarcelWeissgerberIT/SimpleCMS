@@ -127,6 +127,46 @@ export async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T, i:
   return out
 }
 
+/**
+ * Send one message (users.messages.send, scope gmail.send): `raw` = the RFC 822 message, base64url.
+ * Retried only while Gmail says "slow down" (429) — a server error may have sent it already, so it is
+ * never repeated on its own.
+ */
+export async function sendMessage(c: GmailCtx, raw: string): Promise<{ id: string; threadId?: string }> {
+  for (let attempt = 0; ; attempt++) {
+    const token = c.token()
+    if (!token) throw new GmailError('auth', 401)
+    let res: Response
+    try {
+      res = await fetch(`${GMAIL_API}/messages/send`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify({ raw }),
+        signal: c.signal,
+        cache: 'no-store',
+        credentials: 'omit',
+        referrerPolicy: 'no-referrer',
+      })
+    } catch (e) {
+      if (c.signal?.aborted) throw new GmailError('aborted')
+      throw new GmailError('offline', 0, e instanceof Error ? e.message : String(e))
+    }
+    if (res.ok) return (await res.json()) as { id: string; threadId?: string }
+    const body = await res.text().catch(() => '')
+    if (res.status === 429 && attempt < 3) {
+      const wait = backoffMs(attempt + 1, res.headers.get('retry-after'))
+      c.onRetry?.(wait)
+      await sleep(wait, c.signal)
+      continue
+    }
+    if (res.status === 401) throw new GmailError('auth', 401)
+    if (res.status === 429) throw new GmailError('rate', 429)
+    if (res.status === 403) throw new GmailError('forbidden', 403, reasonOf(body))
+    if (res.status >= 500) throw new GmailError('server', res.status)
+    throw new GmailError('bad', res.status, reasonOf(body))
+  }
+}
+
 export function profile(c: GmailCtx): Promise<{ emailAddress: string; historyId: string; messagesTotal?: number }> {
   return call(c, 'profile')
 }

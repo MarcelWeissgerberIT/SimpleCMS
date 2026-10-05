@@ -1,7 +1,7 @@
 ---
 id: 2026-10-05-block-select
 date: 2026-10-05
-order: 9
+order: 10
 title: Mehrere Blöcke auswählen
 summary: Markierte Blöcke bleiben sichtbar markiert — ein angehefteter Griff, ein Zähler und ein Schleier auf jedem Block, Bilder inklusive — und ein Menü wirkt auf alle.
 image: assets/shots/changelog/block-select.webp

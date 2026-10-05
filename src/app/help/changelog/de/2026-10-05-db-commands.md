@@ -1,7 +1,7 @@
 ---
 id: 2026-10-05-db-commands
 date: 2026-10-05
-order: 5
+order: 6
 title: Datenbank-Befehle
 summary: Jede Datenbank hat ein Menü mit Befehlen — Neuer Eintrag, CSV-Export, Mails synchronisieren — an ihrer Zeile in der Seitenleiste, in ihrer Werkzeugleiste und in ⌘K. Eigene kommen dazu.
 image: assets/shots/changelog/db-commands.webp

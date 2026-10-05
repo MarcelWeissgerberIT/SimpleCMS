@@ -1,7 +1,7 @@
 ---
 id: 2026-10-05-db-commands
 date: 2026-10-05
-order: 5
+order: 6
 title: Database commands
 summary: Every database has a menu of things to run — New entry, Export CSV, Sync now for your mails — on its sidebar row, in its toolbar and in ⌘K. Add your own.
 image: assets/shots/changelog/db-commands.webp

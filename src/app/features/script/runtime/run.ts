@@ -41,6 +41,8 @@ export interface RunOptions {
   limits?: Partial<Limits>
   /** query mode: build a table of the result (default true) */
   table?: boolean
+  /** only these pages are reachable (a custom agent's scope); absent = every live page outside templates */
+  scope?: ((id: ID) => boolean) | null
 }
 
 export interface RunResult {
@@ -91,7 +93,7 @@ interface PassResult {
 
 async function pass(program: Program, code: string, mode: RunMode, o: RunOptions, ui: RunUI, signal: AbortSignal, approved: { keys: Set<string>; labels: Map<string, string> } | null, onLog?: (l: LogLine) => void): Promise<PassResult> {
   const lang = useWorkspace.getState().settings.language === 'de' ? 'de' : 'en'
-  const host = new Host({ mode, scriptId: o.scriptId ?? null, scriptName: o.name ?? '', contextPageId: o.contextPageId ?? null, ui, signal, lang, onLog, approved })
+  const host = new Host({ mode, scriptId: o.scriptId ?? null, scriptName: o.name ?? '', contextPageId: o.contextPageId ?? null, ui, signal, lang, onLog, approved, scope: o.scope ?? null })
   const interp = new Interpreter({
     globals: globalsFor(host),
     fallback: customFunction,

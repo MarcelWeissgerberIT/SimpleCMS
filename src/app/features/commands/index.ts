@@ -53,5 +53,7 @@ export { DbCommandKey, DbCommandsMenu, openCommandsEditor, type DbCommandKeyProp
 export { CommandsEditor } from './CommandsEditor'
 export { paletteDbCommands, type PaletteCommand } from './palette'
 export { readDbCommands, saveDbCommands } from './model'
+/** the field-like picker of the settings forms (for the Pickers of registered kinds) */
+export { FieldPicker } from './parts'
 export { withoutCommandSecrets } from './kinds/actions'
 export type { CommandKindDef, CommandPickerProps, CommandRunContext, CommandSurface, CommandHost } from './types'

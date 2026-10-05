@@ -1,7 +1,7 @@
 ---
 id: 2026-10-05-one-script
 date: 2026-10-05
-order: 2
+order: 3
 title: One Script — kleine Skripte und Live-Abfragen
 summary: Eine kleine, sichere Skriptsprache, die nur deinen Workspace erreicht — mit Probelauf, Live-Abfragetester und Abfrage-Baukasten.
 image: assets/shots/changelog/one-script.webp

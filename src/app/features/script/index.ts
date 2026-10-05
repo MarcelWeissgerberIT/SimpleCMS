@@ -24,11 +24,21 @@
  *  - undoRun(run) · stopScript(id) · useActiveRuns (scriptId → the run in progress in this tab)
  *  - loadScriptEngine(): the engine module for synchronous use (parse, syntaxError, tokenize, ScriptError,
  *    errorTextEn, queryFromCode / queryToCode — the builder's model, GLOBAL_FUNCTIONS / MEMBERS, summarizeRun …)
- *  - registerEffect('mail.send' | 'claude' | 'http.post', impl) → restore(): replace an effect's default
+ *  - registerEffect('mail.send' | 'claude' | 'http.post', impl, { note? }) → restore(): replace an effect's default
+ *    (`note()`: a short line the run's confirm list shows next to that effect, e.g. "via Gmail · ada@…")
  *    (mail.send: a mailto: draft · claude: the AI client with the person's key · http.post: a JSON POST).
  *    A run asks the person before any effect; dry runs and queries never call one.
  *  - appRunUI / silentRunUI: RunUI implementations (the app's dialogs · nobody is asked, defaults answer)
  *  - errorMessage(error, t): an ErrorInfo in the UI language
+ *
+ * Integrations (integrations/; registered at boot by importing this module)
+ *  - database command kind "script" ("Run script": per selected row, else for the database page)
+ *  - paletteScripts(pageId): ⌘K "Run script: <name>" entries (shell/lib/commands.ts)
+ *  - tools (model-facing English; MCP, the AI terminal, custom agents): runQueryForTool(code, { scope?,
+ *    maxRows? }) → rows as JSON (read-only) · syntaxErrorText(code) · findScript(id | name) · scriptList() ·
+ *    runReport(result, mode) · plannedItems(dryRun) + preApprovedUI(base, items) (a run whose list the
+ *    person approved elsewhere) · SCRIPT_REFERENCE (the language on one page) · workspaceSketch()
+ *  - draftWithClaude({ task, kind, code, signal }) → { code, error } (parsed; "Ask Claude" in the editor)
  */
 import type { RunOptions, RunResult } from './runtime/run'
 import type { ScriptRun } from './runtime/types'
@@ -37,13 +47,18 @@ export { ScriptsRoute } from './ScriptsRoute'
 export { ScriptDialogHost } from './ui/DialogHost'
 export { createScript, openScripts, saveScript, duplicateScript, deleteScript } from './actions'
 export { runScriptById, stopScript, useActiveRuns, type RunByIdOptions } from './runtime/active'
-export { registerEffect, mailtoUrl, type EffectName, type EffectImpl, type EffectInputs, type EffectOutputs, type EffectEnv, type MailInput, type ClaudeInput, type HttpInput } from './runtime/effects'
+export { registerEffect, effectNote, mailtoUrl, type EffectName, type EffectImpl, type EffectInputs, type EffectOutputs, type EffectEnv, type MailInput, type ClaudeInput, type HttpInput } from './runtime/effects'
 export { appRunUI, silentRunUI } from './runtime/dialogs'
 export { loadScriptRuns, useScriptRuns, MAX_RUNS } from './runtime/runs'
 export { errorMessage } from './ui/errors'
 export type { RunOptions, RunResult } from './runtime/run'
 export type { RunUI, RunMode, ScriptRun, LogLine, ChangeItem, EffectItem, ConfirmItem, ErrorInfo, ResultTable, Cell } from './runtime/types'
 export type { BQuery, BCond, BGroup, BOp, BVal } from './builder/model'
+export { SCRIPT_REFERENCE } from './reference'
+export { paletteScripts, type PaletteScript } from './integrations/palette'
+export { runQueryForTool, syntaxErrorText, errorTextOf, findScript, scriptList, runReport, plannedItems, preApprovedUI, TOOL_ROWS_MAX, TOOL_CODE_MAX, type QueryAnswer, type QueryOutcome } from './integrations/tools'
+export { draftWithClaude, workspaceSketch, codeOf as scriptCodeOf } from './integrations/ask'
+import './integrations/boot'
 
 /** The engine module (language, runner, query model, catalog) — loaded once on first use. */
 export const loadScriptEngine = () => import('./engine')

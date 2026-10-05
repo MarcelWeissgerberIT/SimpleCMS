@@ -334,6 +334,25 @@ async function applyOne(c: StagedChange, resolveRow: (id: ID) => ID, rowIds: Rec
         return true
       }
     }
+    case 'script': {
+      // One Script (write_script): saved — never run by applying; Undo puts the old version back (or removes a new one)
+      const sc = c.script
+      if (!sc) throw new Error('no script')
+      const { saveScript } = await import('../../script')
+      const prev = ws().scripts?.[sc.id] ?? null
+      if (sc.before && !prev) throw new Error('the script was deleted')
+      const now = Date.now()
+      const next = { ...(prev ?? {}), id: sc.id, name: sc.name, kind: sc.kind, code: sc.code, ...(sc.description ? { description: sc.description } : {}), createdAt: prev?.createdAt ?? now, updatedAt: now }
+      if (!saveScript(next)) throw new Error('scripts cannot be changed here')
+      return () => {
+        const cur = ws().scripts?.[sc.id]
+        // changed by hand since: kept
+        if (!cur || cur.code !== sc.code || cur.name !== sc.name) return false
+        if (prev) saveScript(prev)
+        else ws().deleteScript(sc.id)
+        return true
+      }
+    }
     case 'rename': {
       const id = resolveRow(c.pageId)
       if (!alive(id)) throw new Error('the page is gone')

@@ -8,8 +8,13 @@ import { format, subDays } from 'date-fns'
 import { useWorkspace } from '../../store/store'
 import type { MailOrganise, MailPeople, MailPropRole, MailSettings } from '../../store/types'
 
-/** Read-only Gmail access — the only scope One ever asks for. */
+/** Read-only Gmail access — the scope the sync asks for. */
 export const GMAIL_SCOPE = 'https://www.googleapis.com/auth/gmail.readonly'
+/**
+ * Sending only (no reading, no drafts, no deleting) — asked for on top of the read scope the first time a
+ * One Script sends a mail through Gmail (incremental consent, features/mail/scriptMail.ts); never by the sync.
+ */
+export const GMAIL_SEND_SCOPE = 'https://www.googleapis.com/auth/gmail.send'
 /** "123456789012-abc….apps.googleusercontent.com" */
 export const CLIENT_ID_RE = /^\d{5,}-[a-z0-9_]{8,}\.apps\.googleusercontent\.com$/i
 /** What a client SECRET looks like (pasted by mistake): refused, never stored. */

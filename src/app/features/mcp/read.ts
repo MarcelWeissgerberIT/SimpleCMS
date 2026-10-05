@@ -13,6 +13,8 @@ import { t } from '../../i18n'
 import { retrieve, workspaceDocs } from '../ai/workspace'
 import { MCP_FILTER_OPS, type McpAgentMode, type McpToolName } from './contract'
 import { workspaceInfo } from './identity'
+import { scriptList } from '../script'
+import { queryTarget, runQuery } from './script'
 import { comparable, databaseOrThrow, friendlyValue, iconText, iso, kindOf, live, McpToolError, pageUrl, pathOf, propertyJson, q, rowJson, rowProperties, rowsOf, titleOf, ws } from './values'
 
 /** Characters of page Markdown in one answer. */
@@ -85,7 +87,9 @@ function overview(mode: McpAgentMode) {
     ...(top.length > TREE_TOP ? { morePages: top.length - TREE_TOP } : {}),
     databases: dbs,
     people: people.map((p) => ({ name: p.name })),
-    hint: 'Ids come from here, one_search and one_list_databases. Rows live in databases: use one_query_database to list them.',
+    // One Script: the person's saved scripts and queries (one_run_script runs one, after their OK)
+    scripts: scriptList().slice(0, 50),
+    hint: 'Ids come from here, one_search and one_list_databases. Rows live in databases: use one_query_database to list them, or one_run_query for questions across databases.',
   }
 }
 
@@ -426,6 +430,7 @@ function ownWorkspace(mode: McpAgentMode) {
   }
 }
 
+/** The read tools (an answer may come later: one_run_query runs the script engine). */
 export const READ_TOOLS: Partial<Record<McpToolName, (args: Record<string, unknown>, mode: McpAgentMode) => unknown>> = {
   one_overview: (_args, mode) => overview(mode),
   one_list_workspaces: (_args, mode) => ownWorkspace(mode),
@@ -434,6 +439,7 @@ export const READ_TOOLS: Partial<Record<McpToolName, (args: Record<string, unkno
   one_list_databases: listDatabases,
   one_get_database: getDatabase,
   one_query_database: queryDatabase,
+  one_run_query: runQuery,
 }
 
 /** Short label of what a read call is about (activity log). */
@@ -449,6 +455,8 @@ export function readTarget(tool: McpToolName, args: Record<string, unknown>): st
       return str(args.title) || title(args.id)
     case 'one_get_database':
       return title(args.id)
+    case 'one_run_query':
+      return queryTarget(args)
     case 'one_query_database': {
       const n = Array.isArray(args.filter) ? args.filter.length : 0
       return `${title(args.databaseId)}${n ? ` · ${t(n === 1 ? 'features.mcp.log.filters.one' : 'features.mcp.log.filters.other', { n })}` : ''}`

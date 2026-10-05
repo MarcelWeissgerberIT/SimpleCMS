@@ -51,6 +51,7 @@ import {
   Smile,
   SquareKanban,
   SquareMousePointer,
+  SquareCode,
   Lightbulb,
   Table,
   Calendar,
@@ -66,6 +67,7 @@ import type { Bridge } from './bridge'
 import { insertBlock, moveIntoToggleBody, turnInto, type TurnTarget } from './blocks'
 import { dateMentionAttrs } from './dates'
 import { markFreshButton } from './buttonRun'
+import { actionId } from '../schema/button'
 import { caretIntoTabs, newTabsJson, tabsAround } from '../schema/tabs'
 import { insertSynced } from '../synced/actions'
 import { insertMeetingNotes } from '../schema/meetingNotes'
@@ -324,6 +326,20 @@ export const BLOCKS: BlockItem[] = [
       // a fresh button opens its configuration right away (see ButtonView)
       markFreshButton(ctx.editor)
       insertBlock(ctx.editor, { type: 'button', attrs: { label: t('editor.button.default'), variant: 'signal', actions: [] } }, ctx.range)
+    },
+  },
+  {
+    // a button bound to a saved One Script (features/script): its settings open on the script picker
+    id: 'script',
+    group: 'advanced',
+    icon: SquareCode,
+    keywords: 'script run code one script query automation skript ausführen code automatisierung',
+    run: (ctx) => {
+      const scripts = Object.values(useWorkspace.getState().scripts ?? {}).filter((x) => x.kind === 'script')
+      // the only script there is: picked already
+      const only = scripts.length === 1 ? scripts[0] : null
+      markFreshButton(ctx.editor)
+      insertBlock(ctx.editor, { type: 'button', attrs: { label: only?.name ?? t('editor.button.runScript'), variant: 'ink', actions: [{ id: actionId(), type: 'run_script', scriptId: only?.id ?? null }] } }, ctx.range)
     },
   },
   {

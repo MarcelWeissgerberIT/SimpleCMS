@@ -1,6 +1,7 @@
 /**
  * `button` block (schema only). A keycap in the document that runs its actions in order.
  * attrs: label (string), variant ('signal' | 'ink' | 'ghost'), actions (ButtonAction[] — JSON).
+ * `run_script` runs a saved One Script (features/script) with page.current = the page the button is on.
  * The React node view lives in ../views/ButtonView.tsx, the runtime in ../lib/buttonRun.ts.
  */
 import { Extension, Node, mergeAttributes, type JSONContent } from '@tiptap/core'
@@ -27,9 +28,10 @@ export type ButtonAction =
   | { id: string; type: 'webhook'; url: string; method: 'POST' | 'PUT' }
   | { id: string; type: 'open'; url: string; pageId: string | null }
   | { id: string; type: 'message'; text: string }
+  | { id: string; type: 'run_script'; scriptId: string | null }
 
 export type ButtonActionType = ButtonAction['type']
-export const ACTION_TYPES: ButtonActionType[] = ['insert_blocks', 'add_page', 'edit_properties', 'webhook', 'open', 'message']
+export const ACTION_TYPES: ButtonActionType[] = ['insert_blocks', 'add_page', 'edit_properties', 'webhook', 'open', 'message', 'run_script']
 
 const str = (v: unknown) => (typeof v === 'string' ? v : '')
 const strOrNull = (v: unknown) => (typeof v === 'string' && v ? v : null)
@@ -85,6 +87,9 @@ export function normalizeActions(raw: unknown, opts: { freshIds?: boolean } = {}
       case 'message':
         out.push({ id, type: 'message', text: str(a.text) })
         break
+      case 'run_script':
+        out.push({ id, type: 'run_script', scriptId: typeof a.scriptId === 'string' && /^[\w-]{1,64}$/.test(a.scriptId) ? a.scriptId : null })
+        break
     }
   }
   return out
@@ -106,6 +111,8 @@ export function newAction(type: ButtonActionType): ButtonAction {
       return { id, type, url: '', pageId: null }
     case 'message':
       return { id, type, text: '' }
+    case 'run_script':
+      return { id, type, scriptId: null }
   }
 }
 

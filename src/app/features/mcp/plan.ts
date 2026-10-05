@@ -39,6 +39,8 @@ export interface WritePlan {
   lines: PlanLine[]
   /** nothing would change: answered without asking */
   noop?: unknown
+  /** asked even when changes are applied directly (one_run_script: a script may send mail, call Claude …) */
+  alwaysAsk?: boolean
   apply(): Promise<Applied>
 }
 

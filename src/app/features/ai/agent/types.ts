@@ -25,6 +25,9 @@ export type ToolName =
   /** One memory (features/ai/memory): search it · stage a memory to save (only while the memory is in use) */
   | 'recall'
   | 'remember'
+  /** One Script (features/script): a read-only query (terminal and custom agents) · a script drafted for review (terminal) */
+  | 'run_query'
+  | 'write_script'
 
 export type StepState = 'run' | 'ok' | 'err' | 'staged'
 
@@ -82,7 +85,19 @@ export interface ColumnSpec {
   options?: string[]
 }
 
-export type ChangeKind = 'create_page' | 'append' | 'edit' | 'create_row' | 'update_row' | 'rename' | 'create_database' | 'add_property' | 'memory'
+export type ChangeKind = 'create_page' | 'append' | 'edit' | 'create_row' | 'update_row' | 'rename' | 'create_database' | 'add_property' | 'memory' | 'script'
+
+/** A One Script Claude drafted (write_script): saved when applied, never run by applying. */
+export interface StagedScript {
+  /** the saved script it changes, or the id the new one gets */
+  id: ID
+  name: string
+  kind: 'script' | 'query'
+  code: string
+  description?: string
+  /** a change: the script as it was when staged (null: a new script) */
+  before: { name: string; kind: 'script' | 'query'; code: string } | null
+}
 export type ChangeStatus = 'pending' | 'applied' | 'discarded' | 'failed'
 
 export interface StagedChange {
@@ -120,6 +135,8 @@ export interface StagedChange {
   prop?: ColumnSpec
   /** memory: the memory to save (`updates`: the near-identical memory it replaces); pageId = the row once saved */
   memory?: MemoryProposal & { updates?: ID | null }
+  /** script: the script to save (pageId = its id) */
+  script?: StagedScript
   error?: string
 }
 

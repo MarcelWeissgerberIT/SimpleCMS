@@ -43,7 +43,7 @@ import {
 import { useWorkspace } from '../../store/store'
 import { useUI } from '../../store/ui'
 import { navigate } from '../../lib/router'
-import { openTodayJournal, openAgent, AGENT_SHORTCUT, openFunctionBuilder, paletteDbCommands, createScript, openScripts } from '../../features'
+import { openTodayJournal, openAgent, AGENT_SHORTCUT, openFunctionBuilder, paletteDbCommands, createScript, openScripts, paletteScripts } from '../../features'
 import type { ID } from '../../store/types'
 import type { Translate } from '@/shared/i18n'
 import { quickNoteToInbox } from '../capture/inbox'
@@ -139,6 +139,8 @@ export function buildCommands(t: Translate, pageId: ID | null): Command[] {
     list.push({ id: 'team', group: 'workspace', label: t('shell.cloud.cmd.team'), icon: Users, keywords: 'members invite people roles mitglieder einladen rollen', run: () => openSettingsTab('team') })
   // database commands (features/commands): "Mails: Sync now", "Projects: New entry" … (viewers get only those that don't write)
   for (const c of paletteDbCommands()) list.push({ id: `db:${c.id}`, group: 'database', label: c.label, icon: c.icon, keywords: c.keywords, run: () => { closeMobileSidebar(); c.run() } })
+  // saved scripts (features/script): "Run script: <name>" for the open page — found by typing, like the database commands
+  for (const c of paletteScripts(live ? page.id : null)) list.push({ id: c.id, group: 'database', label: c.label, icon: c.icon, keywords: c.keywords, run: () => { closeMobileSidebar(); c.run() } })
   // viewers read: nothing that creates, moves or deletes pages
   if (cloud.readOnly) return list.filter((c) => !EDITING.has(c.id))
   return list

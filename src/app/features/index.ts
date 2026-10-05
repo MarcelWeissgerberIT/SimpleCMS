@@ -302,6 +302,7 @@ export { startAgents, AgentsRoute, AgentsNavBadge, useAgentsAttention, ServerAge
  *  - ScriptsRoute { scriptId? } (route #/scripts, #/scripts/<id>) · ScriptDialogHost (mount once: what a run asks)
  *  - createScript(kind?, { name?, code?, open? }) · openScripts(id?) · saveScript · runScriptById(id, { mode? })
  *  - runScript({ code, mode: 'run' | 'dry' | 'query', … }) · registerEffect(name, impl) · loadScriptEngine()
+ *  - paletteScripts(pageId): ⌘K "Run script: <name>" · runQueryForTool(code, { scope? }) (tools: rows as JSON)
  */
 export {
   ScriptsRoute,
@@ -327,6 +328,8 @@ export {
   type ScriptRun,
   type EffectName as ScriptEffectName,
   type EffectImpl as ScriptEffectImpl,
+  paletteScripts,
+  runQueryForTool as runScriptQueryForTool,
 } from './script'
 /*
  * Database commands (a database's menu of things to run — sidebar ⌘ key / row menu, toolbar key, ⌘K; see commands/index.ts):

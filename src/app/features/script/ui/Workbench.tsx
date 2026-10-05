@@ -26,6 +26,7 @@ import type { ErrorInfo, LogLine } from '../runtime/types'
 import { Console, ErrorLine, type Output } from './Console'
 import { Runs } from './Runs'
 import { Reference } from './Reference'
+import { AskClaude } from '../integrations/AskClaude'
 import { ResultTable } from './ResultTable'
 import { errorMessage } from './errors'
 import { pad2, rowsLabel } from './format'
@@ -495,7 +496,10 @@ export function Workbench({ id }: { id: ID }) {
             {tab === 'runs' && <Runs scriptId={id} onJump={onJump} />}
           </div>
         </div>
-        <aside className="sc-bench__side">{kind === 'query' ? <Builder code={code} onChange={edit} onEditAsText={() => ta.current?.focus()} /> : <Reference onInsert={insertAtCaret} />}</aside>
+        <aside className="sc-bench__side">
+          <AskClaude kind={kind} code={code} readOnly={readOnly} onAccept={edit} />
+          {kind === 'query' ? <Builder code={code} onChange={edit} onEditAsText={() => ta.current?.focus()} /> : <Reference onInsert={insertAtCaret} />}
+        </aside>
       </div>
     </div>
   )

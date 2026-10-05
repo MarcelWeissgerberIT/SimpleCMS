@@ -198,7 +198,7 @@ test.describe('Custom agents', () => {
     expect(rec.summary).toContain('6 projects')
     expect(rec.usage.usd).toBeGreaterThan(0)
     expect(bodies).toHaveLength(3)
-    expect(bodies[0].tools.map((t: AnyState) => t.name)).toEqual(['search_pages', 'read_page', 'list_databases', 'query_database'])
+    expect(bodies[0].tools.map((t: AnyState) => t.name)).toEqual(['search_pages', 'read_page', 'list_databases', 'query_database', 'run_query'])
     expect(bodies[0].system).toContain('You are a custom agent in One')
     expect(bodies[0].system).toContain('You can only read')
     expect(JSON.stringify(bodies[0].messages[0].content)).toContain('Summarise the status of all projects.')

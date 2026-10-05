@@ -42,25 +42,26 @@ export function objectFor(host: Host, page: Page): Value {
 }
 
 /** Live pages with this title (templates and the trash left out). */
-function byTitle(title: string, filter: (p: Page) => boolean = () => true): Page[] {
+function byTitle(host: Host, title: string, filter: (p: Page) => boolean = () => true): Page[] {
   const n = norm(title)
   if (!n) return []
   const out: Page[] = []
-  for (const p of Object.values(ws().pages)) if (norm(p.title) === n && filter(p) && reachable(p.id)) out.push(p)
+  for (const p of Object.values(ws().pages)) if (norm(p.title) === n && filter(p) && reachable(p.id, host)) out.push(p)
   return out
 }
 
 /** "Team wiki / Onboarding / Checklist": walk down by titles from the top level. */
-function byPath(path: string): Page[] {
+function byPath(host: Host, path: string): Page[] {
   const parts = path.split('/').map((x) => norm(x)).filter(Boolean)
   if (parts.length < 2) return []
   const { pages } = ws()
+  // the path walks through pages outside a scope, but only ends on one inside it
   let level: Page[] = Object.values(pages).filter((p) => !p.parentId && reachable(p.id) && norm(p.title) === parts[0])
   for (const part of parts.slice(1)) {
     const ids = new Set(level.map((p) => p.id))
     level = Object.values(pages).filter((p) => p.parentId && ids.has(p.parentId) && norm(p.title) === part && reachable(p.id))
   }
-  return level
+  return level.filter((p) => host.sees(p.id))
 }
 
 function one(found: Page[], what: string, name: string): Page {
@@ -70,23 +71,23 @@ function one(found: Page[], what: string, name: string): Page {
 }
 
 /** page(…) / db(…) argument → the page it means. */
-function pageArg(v: Value, what: 'page' | 'database'): Page {
+function pageArg(host: Host, v: Value, what: 'page' | 'database'): Page {
   if (v instanceof PageObj) return v.page
   if (v instanceof QueryObj) {
-    const p = reachable(v.dbId)
+    const p = reachable(v.dbId, host)
     if (!p) throw new ScriptError('not_found', { what, name: v.dbId })
     return p
   }
   if (typeof v === 'string') {
     const s = v.trim()
-    const direct = reachable(s)
+    const direct = reachable(s, host)
     if (direct) return direct
     const filter = what === 'database' ? (p: Page) => p.kind === 'database' && !!ws().databases[p.id] : () => true
     if (s.includes('/')) {
-      const path = byPath(s).filter(filter)
+      const path = byPath(host, s).filter(filter)
       if (path.length) return one(path, what, s)
     }
-    return one(byTitle(s, filter), what, s)
+    return one(byTitle(host, s, filter), what, s)
   }
   throw new ScriptError('bad_args', { name: what === 'page' ? 'page' : 'db', detail: `expected @page, a title or a path, got ${typeName(v)}` })
 }
@@ -95,7 +96,7 @@ function pageArg(v: Value, what: 'page' | 'database'): Page {
 export function resolveRef(host: Host, ref: RefInput): Value {
   const s = ws()
   if (ref.kind === 'p' && ref.id) {
-    const p = reachable(ref.id)
+    const p = reachable(ref.id, host)
     if (!p) throw new ScriptError('not_found', { what: 'page', name: `@${ref.label}` })
     return objectFor(host, p)
   }
@@ -115,7 +116,7 @@ export function resolveRef(host: Host, ref: RefInput): Value {
     return new ScriptRefObj(script)
   }
   // @Name / @"Some name": a page or database by title, then a person, an agent, a script
-  const pages = byTitle(ref.label)
+  const pages = byTitle(host, ref.label)
   if (pages.length) return objectFor(host, one(pages, 'pages', ref.label))
   const people = s.people.filter((x) => norm(x.name) === norm(ref.label))
   if (people.length === 1) return new PersonObj(people[0])
@@ -186,7 +187,7 @@ export function globalsFor(host: Host): Record<string, Value> {
   const page = native(
     'page',
     (args, ctx) => {
-      const p = pageArg(argAt(args, 0), 'page')
+      const p = pageArg(host, argAt(args, 0), 'page')
       return new PageObj(hostOf(ctx), p.id)
     },
     {
@@ -204,7 +205,7 @@ export function globalsFor(host: Host): Record<string, Value> {
   const db = native('db', (args, ctx) => {
     const v = argAt(args, 0)
     if (v instanceof QueryObj) return v
-    const p = pageArg(v, 'database')
+    const p = pageArg(host, v, 'database')
     if (p.kind !== 'database' || !ws().databases[p.id]) throw new ScriptError('not_found', { what: 'database', name: JSON.stringify(p.title) })
     return new QueryObj(hostOf(ctx), p.id)
   })
@@ -215,7 +216,7 @@ export function globalsFor(host: Host): Record<string, Value> {
       const parent = argAt(args, 1, 'parent')
       let parentId: ID | null = null
       if (parent !== null) {
-        const p = parent instanceof PageObj ? parent.page : pageArg(parent, 'page')
+        const p = parent instanceof PageObj ? parent.page : pageArg(host, parent, 'page')
         if (p.kind === 'database') throw new ScriptError('bad_args', { name: 'create.page', detail: 'a database gets entries with db(@X).add(…)' })
         parentId = p.id
       }
@@ -232,7 +233,7 @@ export function globalsFor(host: Host): Record<string, Value> {
       if (x instanceof PageObj) {
         if (await host.trash(x.page)) n++
       } else if (x instanceof QueryObj && !x.ops.length) {
-        if (await host.trash(pageArg(x, 'database'))) n++
+        if (await host.trash(pageArg(host, x, 'database'))) n++
       } else if (x instanceof QueryObj) {
         for (const row of await x.items(ctx)) if (row instanceof PageObj && (await host.trash(row.page))) n++
       } else throw new ScriptError('bad_args', { name: 'trash', detail: `expected a page or row, got ${typeName(x)}` })
@@ -297,7 +298,7 @@ export function globalsFor(host: Host): Record<string, Value> {
     const v = argAt(args, 0)
     if (v instanceof PageObj) host.open(v.id, ctx.pos)
     else if (v instanceof QueryObj) host.open(v.dbId, ctx.pos)
-    else host.open(pageArg(v, 'page').id, ctx.pos)
+    else host.open(pageArg(host, v, 'page').id, ctx.pos)
     return null
   })
 

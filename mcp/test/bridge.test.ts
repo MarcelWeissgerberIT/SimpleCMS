@@ -54,6 +54,8 @@ describe('tool list', () => {
       'one_overview',
       'one_query_database',
       'one_restore_page',
+      'one_run_query',
+      'one_run_script',
       'one_search',
       'one_trash_page',
       'one_update_database',
@@ -63,7 +65,7 @@ describe('tool list', () => {
       'one_update_view',
     ])
     // what removes something says so (clients ask before running these)
-    const destructive = ['one_delete_property', 'one_delete_view', 'one_trash_page', 'one_update_property']
+    const destructive = ['one_delete_property', 'one_delete_view', 'one_run_script', 'one_trash_page', 'one_update_property']
     for (const def of MCP_TOOLS) {
       const tool = tools.find((t) => t.name === def.name)!
       assert.deepEqual(tool.inputSchema, def.inputSchema, def.name)
@@ -84,6 +86,24 @@ describe('tool list', () => {
     assert.match(client.getInstructions() ?? '', /one_list_workspaces/)
     assert.match(client.getInstructions() ?? '', /workspace_mismatch/)
     assert.match(client.getInstructions() ?? '', /one_restore_page/)
+    assert.match(client.getInstructions() ?? '', /one_run_query/)
+    assert.match(client.getInstructions() ?? '', /one_run_script/)
+  })
+
+  test('One Script: one_run_query reads (with the language reference), one_run_script writes and is asked first', async () => {
+    const { client } = await start()
+    const { tools } = await client.listTools()
+    const query = tools.find((t) => t.name === 'one_run_query')!
+    assert.equal(query.annotations?.readOnlyHint, true)
+    assert.deepEqual(query.inputSchema.required, ['code'])
+    assert.match(query.description ?? '', /One Script/)
+    assert.match(query.description ?? '', /db\(@Tasks\)/)
+    const run = tools.find((t) => t.name === 'one_run_script')!
+    assert.equal(run.annotations?.readOnlyHint, false)
+    assert.equal(run.annotations?.destructiveHint, true)
+    assert.deepEqual(run.inputSchema.required, ['script'])
+    assert.match(run.description ?? '', /dry/)
+    assert.match(run.description ?? '', /approve/)
   })
 
   test('trash and restore take one id or up to 50 ids', async () => {
@@ -110,6 +130,7 @@ describe('the "one:" codeword', () => {
     assert.equal(got.messages[0]!.role, 'user')
     const text = (got.messages[0]!.content as { type: string; text: string }).text
     assert.match(text, /^one: tidy up my Projects database\n\nUse the One tools for this/)
+    assert.match(text, /one_run_query/)
   })
 
   test('an unknown prompt or an empty task is refused', async () => {

@@ -3,8 +3,8 @@ id: one-script
 title: One Script
 section: calculate
 order: 4
-keywords: skript, skripte, code, abfrage, abfragen, automatisieren, probelauf, abfrage-baukasten, mail.send, claude, script, query, dry run
-related: databases, custom-agents, formulas
+keywords: skript, skripte, code, abfrage, abfragen, automatisieren, probelauf, abfrage-baukasten, mail.send, claude, skript ausführen, schaltfläche, datenbankbefehl, automatisierung, gmail, mcp, one_run_query, one_run_script, ki-terminal, claude fragen, script, query, dry run
+related: databases, database-commands, buttons, automations, gmail-sync, mcp-bridge, agent, custom-agents, formulas
 summary: Kleine Skripte und Abfragen in Ones eigener, sicherer Sprache — erst als Probelauf, Abfragen per Klick gebaut.
 ---
 **Skripte** in der Seitenleiste (oder ⌘K → *Neues Skript*) enthält kleine Programme in Ones eigener Sprache. Ein Skript erreicht nur deinen Workspace — Seiten, Datenbanken, Personen — und Mail, Claude und das Web nur, wenn du es erlaubst. Sonst ist vom Browser nichts erreichbar.
@@ -52,5 +52,24 @@ let bald = db(@Aufgaben).where(`Fällig am` < today() + 3d).sort(`Fällig am`)
 Ein Skript der Art **Abfrage** zeigt sein Ergebnis live unter dem Editor, während du tippst — mit Anzahl, Zeit und „0 Ergebnisse“, wenn nichts passt. Abfragen lesen nur: Schreiben oder eine Wirkung wird abgelehnt.
 
 Der **Abfrage-Baukasten** daneben baut `db(@X).where(…).sort(…).limit(…).select(…)` per Klick: Bedingungen je Eigenschaft (die Operatoren passen zum Typ; Optionen, Personen und Datumsvorgaben wie *heute + 3 Tage*), *alle* / *eine* und eine Ebene Gruppen, Sortierung, Höchstzahl und Felder. Er schreibt den Code, und Änderungen am Code zeigt er an. Code, den er nicht darstellen kann, bleibt genau so, wie er ist — **Als Text bearbeiten**.
+
+## Skripte von überall ausführen
+- **Datenbankbefehl** — *Befehle bearbeiten… → Befehl hinzufügen → Skript ausführen* an einer Datenbank (siehe [Datenbankbefehle](help:database-commands)). Über die Befehle-Taste der Datenbankseite mit ausgewählten Zeilen läuft es einmal pro Zeile — `page.current` ist diese Zeile; sonst einmal für die Datenbankseite.
+- **Schaltfläche** — die Aktion *Skript ausführen*, oder tippe `/script`: eine Schaltfläche, die ein Skript für die Seite ausführt, auf der sie steht (siehe [Schaltflächen](help:buttons)).
+- **Automatisierung** — die Aktion *Skript ausführen* läuft für die Zeile, die sich geändert hat (siehe [Automatisierungen](help:automations)). Solange es läuft, starten seine eigenen Änderungen keine Automatisierung erneut.
+- **⌘K** — tippe *Skript ausführen: <Name>*: es läuft für die geöffnete Seite.
+
+Jeder davon ist ein normaler Lauf: Mail, Claude, Web-Anfragen und der Papierkorb werden vorher aufgelistet und bestätigt; der Hinweis nach dem Lauf hat **Rückgängig**.
+
+## Mail über Gmail
+Ist Gmail auf diesem Gerät verbunden (Einstellungen → Mail, siehe [Gmail-Sync](help:gmail-sync)), **sendet** `mail.send` von diesem Konto — die Liste vor dem Lauf sagt *über Gmail · du@…*. Beim ersten Mal fragt Google noch einmal: nach der Erlaubnis, Mails zu *senden* (Lesen bleibt, wie es war). Die Anmeldung liegt nur im Speicher dieses Tabs, nie im Speicher des Browsers. Ohne Gmail öffnet sich stattdessen ein fertiger Entwurf in deinem Mailprogramm; One selbst sendet nichts.
+
+## Claude fragen
+Über dem Abfrage-Baukasten (Abfragen) und der Referenz (Skripte): beschreibe, was du willst — *offene Aufgaben, die diese Woche fällig sind, die nächsten zuerst* — und Claude entwirft den Code. Claude bekommt deine Bitte, den Code und die Namen und Eigenschaften deiner Datenbanken, nie Seiteninhalte. Der Entwurf wird geprüft, bevor du ihn siehst (eine Abfrage wird auch lesend ausprobiert, mit ihrer Zeilenzahl); **Übernehmen** setzt ihn in den Editor (mit Rückgängig), nichts läuft von selbst.
+
+## Mit Claude und Agenten
+- **KI-Terminal** (⌘J): Claude beantwortet Fragen über Datenbanken hinweg mit einer lesenden Abfrage (`run_query`) und entwirft Skripte für dich (`write_script`) — ein entworfenes Skript landet in der Prüfliste; *Übernehmen* speichert es unter Skripte, es läuft nie von selbst.
+- **Eigene Agenten** bekommen `run_query` auch — innerhalb ihres Bereichs.
+- **One MCP** (Claude Desktop, Claude Code, siehe [MCP-Brücke](help:mcp-bridge)): `one_run_query` beantwortet eine Abfrage; `one_run_script` führt eines deiner gespeicherten Skripte aus — One zeigt auf der Freigabekarte zuerst einen Probelauf mit allem, was es ändern und senden würde, und es läuft erst, wenn du zustimmst, auch bei *Direkt anwenden*. *Nur lesen* lehnt es ab.
 
 > In einem Team-Workspace sind Skripte geteilt. Eine Version, die jemand anderes geändert hat, läuft auf deinem Gerät erst, nachdem du sie angesehen und bestätigt hast. Läufe werden pro Gerät gespeichert.

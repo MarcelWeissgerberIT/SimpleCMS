@@ -621,6 +621,8 @@ export type AutomationAction =
   | { type: 'webhook'; url: string; method: 'POST' | 'PUT'; headers?: Record<string, string> }
   | { type: 'set_property'; propertyId: ID; value: PropertyValue }
   | { type: 'notify'; message: string }
+  /** a saved One Script (features/script) for the row (page.current); null = not picked yet */
+  | { type: 'run_script'; scriptId: ID | null }
 
 export interface Automation {
   id: ID

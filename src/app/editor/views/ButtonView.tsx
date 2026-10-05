@@ -43,8 +43,8 @@ export function ButtonView({ node, editor, getPos, selected, updateAttributes }:
 
   useEffect(() => {
     alive.current = true
-    // inserted from the slash menu: straight into its settings
-    if (consumeFreshButton(editor, actions.length > 0)) setConfig(true)
+    // inserted from the slash menu: straight into its settings (/script: until its script is picked)
+    if (consumeFreshButton(editor, actions.length > 0 && !actions.some((a) => a.type === 'run_script' && !a.scriptId))) setConfig(true)
     return () => {
       alive.current = false
     }

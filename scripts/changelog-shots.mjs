@@ -8,7 +8,7 @@
  *
  * (CHANGELOG_DRAFT=1 lets the build pass while a new entry's picture does not exist yet.)
  *
- * Shots: file-ai, one-script, transform, ai-edit, db-commands, gmail-one-click, memory, grips-footer, block-select, split-to-page, image-ai, claude-reads, redo, ai-terminal, mcp-codewords, mcp-tidy-up, slash-menu, turn-into-database,
+ * Shots: one-script-everywhere, file-ai, one-script, transform, ai-edit, db-commands, gmail-one-click, memory, grips-footer, block-select, split-to-page, image-ai, claude-reads, redo, ai-terminal, mcp-codewords, mcp-tidy-up, slash-menu, turn-into-database,
  * custom-agents, gmail, help-centre, mcp-servers, feed-blocks — each named like its image. Every shot starts from a fresh, seeded
  * workspace in English, light theme, 1440 × 900 at device scale 2; the crop of the relevant area is scaled
  * to 1440 px wide and saved as public/assets/shots/changelog/<shot>.webp (≤ 150 KB: the quality steps down
@@ -1057,6 +1057,39 @@ const shots = {
     const left = Math.round((await page.locator('.sb').first().boundingBox())?.width ?? 0) + 1
     const top = Math.max(0, Math.round(box.y - 28))
     await save(page, 'file-ai', { x: left, y: top, width: W - left, height: Math.min(1200 - 30 - top, Math.round(box.y + box.height + 24 - top)) })
+    await ctx.close()
+  },
+
+  /** One Script everywhere: "Ask Claude" next to a query — the request, Claude's checked draft with its row count. */
+  async 'one-script-everywhere'(browser) {
+    let dbId = ''
+    const draft = () => `Here is the query:\n\n\`\`\`one\n# Open, high priority — soonest first\ndb(@[Projects](p:${dbId}))\n  .where(Status != "Done", Priority = "High")\n  .sort(Timeline)\n\`\`\``
+    const { ctx, page } = await freshPage(browser, { claude: { text: () => draft() } })
+    const id = await page.evaluate(() => {
+      const s = window.__one.workspace.getState()
+      const db = Object.values(s.pages).find((p) => p.kind === 'database' && p.title === 'Projects')
+      const id = 'scshot2'
+      const now = Date.now()
+      s.upsertScript({ id, name: 'Projects to chase', code: `# Every project\ndb(@[Projects](p:${db.id}))\n`, kind: 'query', createdAt: now, updatedAt: now })
+      return { id, db: db.id }
+    })
+    dbId = id.db
+    await page.evaluate((id) => (window.location.hash = `#/scripts/${id}`), id.id)
+    await page.locator('.sc-code__input').waitFor()
+    await page.getByTestId('sc-live-count').waitFor()
+    const ask = page.getByTestId('sc-ask')
+    await ask.getByRole('textbox').fill('only the open ones with high priority, soonest first')
+    await ask.getByTestId('sc-ask-go').click()
+    await ask.getByTestId('sc-ask-draft').waitFor({ timeout: 20_000 })
+    await page.waitForTimeout(500)
+    await rest(page)
+    const left = Math.round((await page.locator('.sb').first().boundingBox())?.width ?? 0) + 1
+    const head = await boxOf(page.locator('.sc-head'))
+    const side = await boxOf(page.locator('.sc-bench__side'))
+    const live = await boxOf(page.locator('.sc-live'))
+    const top = Math.max(0, Math.round(head.y - 12))
+    const bottom = Math.max(live.y + live.height, side.y + Math.min(side.height, 520))
+    await save(page, 'one-script-everywhere', { x: left, y: top, width: W - left, height: Math.min(H - 30 - top, Math.round(bottom + 16 - top)) })
     await ctx.close()
   },
 

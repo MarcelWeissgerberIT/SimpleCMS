@@ -1,7 +1,8 @@
 # SimpleCMS One — Claude Desktop extension {{version}}
 
-Lets Claude search, read and write your One workspace — pages, databases, rows and properties — and tidy
-it up (move, reshape, trash and restore) in the One tab you have open in your browser
+Lets Claude search, read and write your One workspace — pages, databases, rows and properties — tidy
+it up (move, reshape, trash and restore), answer questions across databases with One Script queries and
+run your saved scripts (after you approved their dry run) in the One tab you have open in your browser
 (https://getonecms.com/app/ or your own build).
 
 ## Use it

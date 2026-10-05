@@ -1,7 +1,7 @@
 ---
 id: 2026-10-05-ai-terminal
 date: 2026-10-05
-order: 14
+order: 15
 title: Das KI-Terminal
 summary: Gib Claude Aufgaben per Tastatur — es dockt unter der Seite an, arbeitet auch ausgeblendet weiter und wartet auf deine Prüfung.
 image: assets/shots/changelog/ai-terminal.webp

@@ -103,6 +103,21 @@
 .sc-plan__label {
   overflow-wrap: anywhere;
 }
+/* how it happens now (an effect's note: "via Gmail · ada@…") — under its line */
+.sc-plan__via {
+  grid-column: 3;
+  margin-top: -6px;
+  color: var(--signal-ink);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.02em;
+  overflow-wrap: anywhere;
+}
+.sc-dlg__text .sc-plan__via,
+p .sc-plan__via {
+  display: block;
+  margin-top: 4px;
+}
 
 .sc-choose {
   display: grid;

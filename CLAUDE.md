@@ -180,6 +180,16 @@ the public APIs stable — other areas are built against them in parallel.
   a version this device did not save or confirm asks first (code SHA-256 per device; never trust `updatedBy`). Runs in
   IndexedDB `one-scripts` (last 50), never synced, wiped with the workspace copy. Routes `#/scripts`, `#/scripts/<id>`.
   Object members answer own entries only (no prototype access).
+- One Script integrations (features/script/integrations): database command kind 'script' (rows selected → once per row,
+  else for the database page); button action `run_script` (`scriptId`) + slash `/script`; automation action `run_script`
+  (automations pause while it runs); ⌘K "Run script: <name>". Tools use `runQueryForTool` (query mode, rows as JSON,
+  optional `scope`); Claude's language reference is features/script/reference.ts (no imports — the MCP contract bundles
+  it). AI terminal `run_query` (read-only; refuses `.markdown` / `.text` while pages have context marks) and
+  `write_script` (parsed, staged as change kind 'script', saved on Apply, never run); custom agents get `run_query`
+  inside their scope. MCP `one_run_query` / `one_run_script` (local bridge only): `one_run_script` dry-runs first and is
+  always asked (`WritePlan.alwaysAsk`; Read only refuses); the card's list is pre-approved for that run. `mail.send` via
+  Gmail (features/mail/scriptMail.ts): asks for `gmail.send` once (incremental consent), RFC 822 + RFC 2047 subject,
+  token in memory only; without Gmail a mailto draft.
 - What's new (src/app/help/changelog): every user-visible release adds an entry EN + DE with a real screenshot
   (changelog/README.md, `scripts/changelog-shots.mjs`); the build fails without a twin or an image.
 - Database views: table | board | list | gallery | feed | calendar | timeline | chart | form. Feed settings live in

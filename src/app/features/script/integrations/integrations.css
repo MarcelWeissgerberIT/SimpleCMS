@@ -1,0 +1,99 @@
+/* ================================================================
+   One Script — integrations: "Ask Claude" on top of the builder /
+   reference pane (prefix sc-ask-).
+   ================================================================ */
+
+.sc-ask {
+  display: grid;
+  border-bottom: 1px solid var(--rule-strong);
+}
+.sc-ask__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.sc-ask__state {
+  margin-left: auto;
+  color: var(--ink-3);
+}
+.sc-ask__body {
+  display: grid;
+  gap: 8px;
+  padding: 10px 12px 12px;
+}
+.sc-ask__input {
+  width: 100%;
+  min-height: 52px;
+  padding: 7px 9px;
+  resize: vertical;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius-1);
+  background: var(--bg);
+  color: var(--ink);
+  font: inherit;
+  font-size: var(--text-sm);
+  line-height: 1.45;
+  caret-color: var(--signal);
+}
+.sc-ask__input:focus-visible {
+  outline: 2px solid var(--signal);
+  outline-offset: 1px;
+}
+.sc-ask__input:disabled {
+  opacity: 0.6;
+}
+.sc-ask__keys {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.sc-ask__note {
+  flex: 1 1 140px;
+  min-width: 0;
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+  line-height: 1.35;
+}
+.sc-ask__meta {
+  flex: 1 1 auto;
+  color: var(--ink-3);
+}
+.sc-ask__draft {
+  display: grid;
+  gap: 8px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--rule-strong);
+}
+.sc-ask__code {
+  max-height: 260px;
+  margin: 0;
+  padding: 9px 11px;
+  overflow: auto;
+  border: 1px solid var(--rule);
+  border-left: 2px solid var(--signal);
+  border-radius: var(--radius-1);
+  background: var(--surface-2);
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.sc-ask__draft[data-invalid] .sc-ask__code {
+  border-left-color: var(--c-red-text);
+}
+.sc-ask__err,
+.sc-ask__warn {
+  margin: 0;
+  font-size: var(--text-xs);
+  line-height: 1.4;
+}
+.sc-ask__err {
+  color: var(--c-red-text);
+}
+.sc-ask__warn {
+  color: var(--ink-2);
+}
