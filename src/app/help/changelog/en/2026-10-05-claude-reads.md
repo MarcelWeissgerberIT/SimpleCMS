@@ -1,7 +1,7 @@
 ---
 id: 2026-10-05-claude-reads
 date: 2026-10-05
-order: 6
+order: 11
 title: What Claude reads — you decide
 summary: The whole page, only the blocks you mark, or nothing — one line in the AI menu, the terminal and ⌘K “?” says what goes to Claude.
 image: assets/shots/changelog/claude-reads.webp

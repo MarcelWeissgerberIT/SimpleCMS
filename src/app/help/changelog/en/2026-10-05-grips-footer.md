@@ -1,7 +1,7 @@
 ---
 id: 2026-10-05-grips-footer
 date: 2026-10-05
-order: 2
+order: 7
 title: Grips at the start of the line, the footer on every page
 summary: Every block's grip sits in one column left of the page — nested list items included — and every page ends with its spec plate and “Linked from”.
 image: assets/shots/changelog/grips-footer.webp

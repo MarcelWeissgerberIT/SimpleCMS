@@ -1,7 +1,7 @@
 ---
 id: 2026-10-05-grips-footer
 date: 2026-10-05
-order: 2
+order: 7
 title: Griffe am Zeilenanfang, der Footer auf jeder Seite
 summary: Der Griff jedes Blocks sitzt in einer Spalte links neben der Seite — auch bei verschachtelten Listen —, und jede Seite endet mit Typenschild und „Verlinkt von“.
 image: assets/shots/changelog/grips-footer.webp

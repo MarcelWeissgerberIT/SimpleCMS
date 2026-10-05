@@ -38,11 +38,16 @@ src/app/features/**                  AI (+ workspace agent), history, graph, sha
                                      GitHub Markdown, per-device IndexedDB `one-sync`), mcp (local bridge UI), sheets
                                      (spreadsheet engine + grid; functions/ = custom functions built by clicking), charts
                                      (SVG renderer, chart builder, data sources) (public API: features/index.ts)
-src/app/help/**                      help centre: panel (?, status bar, ⌘K, workspace menu), 54 articles EN+DE twins
+src/app/help/**                      help centre: panel (?, status bar, ⌘K, workspace menu), 57 articles EN+DE twins
                                      (help/articles/{en,de}/<id>.md, `help:<id>` links), Ask (Claude over the articles);
                                      link UI to an article with `<HelpLink id="…" />` (public API: help/index.ts)
 src/help-site/**                     build-time public /help pages (prerendered from the same articles, hreflang)
 src/app/features/agents/**           custom agents (#/agents, editor, browser runner, review, server-agent settings)
+src/app/features/script/**           One Script: lang/ (lexer, Pratt parser, AST, async interpreter — no eval / new Function),
+                                     runtime/ (One objects, effects, run / dry / query, trust, run log), editor/, builder/
+                                     (visual query builder), #/scripts (public API: script/index.ts; engine lazy via
+                                     loadScriptEngine())
+src/app/features/commands/**         database commands (sidebar ⌘ key, toolbar, ⌘K; registerCommandKind)
 src/app/features/mail/**             Gmail sync → "Mails" database (own Google client ID)
 src/app/cloud/**                     team-cloud client: store ⇄ Yjs binding, page documents, private pages, files
                                      (public API: cloud/index.ts; protocol + meta-document schema: docs/CLOUD.md)
@@ -157,6 +162,16 @@ the public APIs stable — other areas are built against them in parallel.
   `memoryFor(task).block` (`<one_memory>`) along — `runAI({ memory })` or the agent's context — then `noteUse(answer, use,
   ctx)`. Examples: Type Example + Tag; `#tag` (or the bare tag as a word) forces that example in full. Switches per device
   in `settings.memory`. Team server-runner agents get no memory.
+- One Script (features/script): `Workspace.scripts` (`OneScript` { id, name, icon?, description?, code, kind 'script' |
+  'query', createdBy, updatedBy, createdAt, updatedAt }) — write only with `upsertScript` / `deleteScript` (or `saveScript`);
+  every reader sanitizes (store/scripts.ts); team: meta map `scripts` (server stamps updatedBy / createdBy like agents').
+  `@` refs in code are stable tokens `@[Label](p|u|a|s:<id>)`. Writes go through store actions with origin 'script'; a
+  version is kept before the first change of each page; "Undo run" restores. Modes: run · dry (records every write and
+  effect, executes none) · query (read-only; writes, effects and dialogs refused). Effects `mail.send` / `claude` /
+  `http.post` (replaceable with `registerScriptEffect`) and trash are asked once per run (http unticked by default). Team:
+  a version this device did not save or confirm asks first (code SHA-256 per device; never trust `updatedBy`). Runs in
+  IndexedDB `one-scripts` (last 50), never synced, wiped with the workspace copy. Routes `#/scripts`, `#/scripts/<id>`.
+  Object members answer own entries only (no prototype access).
 - What's new (src/app/help/changelog): every user-visible release adds an entry EN + DE with a real screenshot
   (changelog/README.md, `scripts/changelog-shots.mjs`); the build fails without a twin or an image.
 - Database views: table | board | list | gallery | feed | calendar | timeline | chart | form. Feed settings live in

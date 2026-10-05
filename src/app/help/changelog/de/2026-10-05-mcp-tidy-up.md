@@ -1,7 +1,7 @@
 ---
 id: 2026-10-05-mcp-tidy-up
 date: 2026-10-05
-order: 10
+order: 15
 title: Claude Desktop räumt deinen Workspace auf
 summary: Über Ones MCP kann Claude jetzt in den Papierkorb legen und wiederherstellen, Seiten und Einträge verschieben, Eigenschaften und Ansichten umbauen — endgültig gelöscht wird nichts.
 image: assets/shots/changelog/mcp-tidy-up.webp

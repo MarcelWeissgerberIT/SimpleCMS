@@ -1,7 +1,7 @@
 ---
 id: 2026-10-05-gmail-one-click
 date: 2026-10-05
-order: 1
+order: 5
 title: Gmail mit einem Klick — mit Namen und Anhängen
 summary: Gmail verbinden ohne Google-Cloud-Einrichtung; jede Mail nennt jetzt Kontakt, Firma und Konversation, und Anhänge kommen als echte Dateien in One.
 image: assets/shots/changelog/gmail-one-click.webp

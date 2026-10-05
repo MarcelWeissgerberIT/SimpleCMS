@@ -1,7 +1,7 @@
 ---
 id: 2026-10-05-block-select
 date: 2026-10-05
-order: 3
+order: 8
 title: Select several blocks
 summary: Blocks you select stay marked — a pinned grip, a count chip and a wash on each one, images included — and one menu acts on all of them.
 image: assets/shots/changelog/block-select.webp

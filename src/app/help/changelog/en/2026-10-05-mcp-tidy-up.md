@@ -1,7 +1,7 @@
 ---
 id: 2026-10-05-mcp-tidy-up
 date: 2026-10-05
-order: 10
+order: 15
 title: Claude Desktop tidies up your workspace
 summary: Through One's MCP, Claude can now trash and restore, move pages and rows, and reshape properties and views — nothing is deleted for good.
 image: assets/shots/changelog/mcp-tidy-up.webp

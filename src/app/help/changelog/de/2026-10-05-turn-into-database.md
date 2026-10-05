@@ -1,7 +1,7 @@
 ---
 id: 2026-10-05-turn-into-database
 date: 2026-10-05
-order: 12
+order: 17
 title: Text in eine Datenbank umwandeln — und KI-Anfragen, die weiterlaufen
 summary: Markiere eine eingefügte Liste oder einen Bericht, und Claude macht daraus ein Board oder eine Tabelle, mit Vorschau. Anfragen laufen jetzt im Hintergrund weiter.
 image: assets/shots/changelog/turn-into-database.webp
