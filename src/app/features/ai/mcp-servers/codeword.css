@@ -1,0 +1,86 @@
+/* ================================================================
+   MCP server codewords: the prompt chip ("→ ATLAS") and the note
+   for an addressed server that stayed out (features/ai/mcp-servers)
+   ================================================================ */
+.mcp-cw {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+  max-width: 45%;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.mcp-cw__chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  height: 20px;
+  padding: 0 6px 0 5px;
+  border: 1px solid var(--signal);
+  border-radius: var(--radius-1);
+  background: var(--signal-wash);
+  color: var(--signal-ink);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: var(--tracking-label);
+  white-space: nowrap;
+  animation: mcp-cw-in var(--dur-1) var(--ease-out);
+}
+
+.mcp-cw__arrow {
+  font-weight: 500;
+}
+
+.mcp-cw__chip[data-state='off'] {
+  border-style: dashed;
+  border-color: var(--rule-strong);
+  background: transparent;
+  color: var(--ink-3);
+}
+
+.mcp-cw__off {
+  font-weight: 500;
+}
+
+@keyframes mcp-cw-in {
+  from {
+    opacity: 0;
+    transform: translateX(-3px);
+  }
+}
+
+/* the AI menu's call chips: an addressed server that stayed out ("ATLAS · OFF") */
+.ai-mcp__chip[data-state='skipped'] {
+  border-style: dashed;
+  color: var(--ink-3);
+}
+
+.mcp-skip {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 6px 0 8px;
+  color: var(--ink-2);
+  font-size: var(--text-xs);
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.mcp-skip:last-child {
+  margin-bottom: 0;
+}
+
+.mcp-skip .led {
+  flex: none;
+  transform: translateY(-1px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mcp-cw__chip {
+    animation: none;
+  }
+}

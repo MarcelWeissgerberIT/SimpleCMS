@@ -138,6 +138,7 @@ encrypted — as is the GitHub token for sync ([docs/SECURITY.md](docs/SECURITY.
 **External tools via MCP:** add any remote MCP server — a knowledge base, a tracker, a CRM — with its URL and a token
 (sealed in the same vault); One checks it, has Claude write an editable usage guide for it, and from then on the agent,
 your own requests and `⌘K ?` can use its tools (Anthropic's MCP connector makes the calls; every call shows as a chip).
+Give a server a codeword and a request that starts with it — `kb: what do we know about the launch?` — goes to that server first.
 
 **Turn into database** — select a pasted report or list and Claude makes it a board or a table (entries, fields,
 groups; previewed before anything changes, one `⌘Z` to undo). AI-menu requests keep running in the background when
@@ -295,6 +296,7 @@ Built for the **Ninja Armory** challenge of the AI Automations community.
   Mail, Webhook), Zugriff und Budget festlegen; Vorschläge zur Prüfung oder direkt anwenden – im Browser, solange One
   offen ist, oder rund um die Uhr auf dem eigenen Team-Server
 - externe MCP-Server (z. B. eine Wissensdatenbank) für Claude in One: Adresse und Token eintragen, den Rest erledigt One
+  – mit Codewort je Server: Eine Anfrage, die mit `kb:` beginnt, geht zuerst an diesen Server
 - Gmail als Datenbank: Mails ab einem Datum, nach Labels, mit eigener Google-Client-ID; auf Wunsch sortiert Claude
   sie nach Kategorie, Priorität und „braucht Antwort“
 - eine eingebaute Hilfe (`?`) mit 54 Artikeln auf Deutsch und Englisch, „Frag die Hilfe“ und öffentlich unter

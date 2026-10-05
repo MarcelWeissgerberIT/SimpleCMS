@@ -10,8 +10,8 @@ import { useWorkspace } from '../../store/store'
 import { getAIKey } from '../../store/secrets'
 import { t } from '../../i18n'
 import { demoAnswer, streamDemo } from './demo'
-import { MCP_BETA, attachMcp, type McpAttachment, type McpRequestKind } from './mcp-servers/config'
-import { foldMcpBlock, type McpCall } from './mcp-servers/activity'
+import { MCP_BETA, attachMcp, codewordsIn, type Codewords, type McpAttachment, type McpRequestKind } from './mcp-servers/config'
+import { foldMcpBlock, skippedCall, type McpCall } from './mcp-servers/activity'
 
 export type AIAction = 'continue' | 'improve' | 'shorter' | 'longer' | 'fix' | 'summarize' | 'translate' | 'explain' | 'action_items' | 'custom' | 'autofill'
 
@@ -29,7 +29,8 @@ export interface RunAIOptions {
   /**
    * false: no MCP server at all (e.g. a key test). Otherwise 'custom' (a free-form request) gets
    * every enabled MCP server (Settings → Claude AI), the one-click actions only the servers set to
-   * "All AI calls".
+   * "All AI calls". A 'custom' instruction that starts with codewords ("kb: …") also forces those
+   * servers in; the prefix is removed (codewordsIn).
    */
   mcp?: boolean
   /** MCP tool calls of the request so far, whenever one starts or ends */
@@ -281,7 +282,19 @@ export interface StreamOptions {
    * request, every enabled server · 'fixed' (default) = only servers set to "All AI calls" · false = none.
    */
   mcp?: McpRequestKind | false
+  /**
+   * The codewords the request started with (codewordsIn; the caller removed the prefix from `prompt`):
+   * those servers join whatever their scope and Claude is told they were addressed. An addressed server
+   * that can't join (switched off, no token here) is reported through `onMcp` as a skipped entry first.
+   */
+  codewords?: Codewords | null
   onMcp?: (calls: McpCall[]) => void
+}
+
+/** Addressed servers that did not join the request (switched off, or no token in this browser). */
+function skippedOf(codewords: Codewords | null | undefined, attached: McpAttachment | null): McpCall[] {
+  if (!codewords) return []
+  return [...codewords.off.map((n) => skippedCall(n, 'off')), ...codewords.forced.filter((n) => !attached?.names.includes(n)).map((n) => skippedCall(n, 'token'))]
 }
 
 /** A paused turn (server-side tool loop) is resumed at most this often. */
@@ -291,7 +304,7 @@ const MAX_RESUMES = 3
  * Stream one completion with the configured model. Resolves with the full text — with MCP tools,
  * the answer after the last tool call (text Claude wrote before it was a progress note).
  */
-export async function streamCompletion({ system, prompt, onToken, signal, mcp, onMcp }: StreamOptions): Promise<string> {
+export async function streamCompletion({ system, prompt, onToken, signal, mcp, codewords, onMcp: report }: StreamOptions): Promise<string> {
   const apiKey = await getAIKey()
   if (!apiKey) throw new AIError('no_key')
   const settings = useWorkspace.getState().settings
@@ -311,8 +324,13 @@ export async function streamCompletion({ system, prompt, onToken, signal, mcp, o
       onToken?.(delta)
     }
 
-    attached = mcp === false ? null : await attachMcp(undefined, mcp ?? 'fixed')
+    const cw = mcp === false ? null : codewords
+    attached = mcp === false ? null : await attachMcp(undefined, mcp ?? 'fixed', { forced: cw?.forced })
     if (signal?.aborted) throw new AIError('aborted')
+    // addressed servers that stay out are listed first, before any call of the request
+    const skipped = skippedOf(cw, attached)
+    const onMcp = skipped.length && report ? (calls: McpCall[]) => report([...skipped, ...calls]) : report
+    if (skipped.length) onMcp?.([])
     let stopReason: string | null
     if (attached) {
       const final = await streamWithMcp(client, model, `${system}\n\n${attached.system}`, prompt, attached, onText, onMcp, signal)
@@ -592,12 +610,16 @@ export async function runAI(opts: RunAIOptions): Promise<string> {
     return stripFence(await streamDemoText(demoAnswer(opts, lang), opts.onToken, opts.signal))
   }
   // a free-form request gets every enabled MCP server; the one-click actions only "All AI calls" ones
+  const free = opts.action === 'custom'
+  // "kb: …": the servers addressed by codeword join, the prefix is not part of the request
+  const codewords = free && opts.mcp !== false ? codewordsIn(opts.instruction ?? '') : null
   const text = await streamCompletion({
     system: SYSTEM,
-    prompt: buildPrompt(opts),
+    prompt: buildPrompt(codewords ? { ...opts, instruction: codewords.text } : opts),
     onToken: opts.onToken,
     signal: opts.signal,
-    mcp: opts.mcp === false ? false : opts.action === 'custom' ? 'free' : 'fixed',
+    mcp: opts.mcp === false ? false : free ? 'free' : 'fixed',
+    codewords,
     onMcp: opts.onMcp,
   })
   return opts.action === 'autofill' ? text.trim().replace(/^["'`]|["'`]$/g, '') : stripFence(text)

@@ -8,13 +8,16 @@
  *    `settings.mcpInstructions` (the editable template; '' = the default in the UI language).
  *  - A request: `mcp_servers` (url, name, authorization_token) + one `mcp_toolset` per server in
  *    `tools` + the beta header, and the system prompt gets the template and each server's usage prompt.
- *  - Readers sanitize: names / URLs are checked again here, whatever the stored list says.
+ *  - Readers sanitize: names / URLs / codewords are checked again here, whatever the stored list says.
+ *  - Codewords (codeword.ts): a free-form request starting with "kb:" gets that server attached
+ *    whatever its scope (codewordsIn + attachMcp(…, { forced })); client.ts decides, every caller gets it.
  */
 import type { BetaMCPToolset, BetaRequestMCPServerURLDefinition } from '@anthropic-ai/sdk/resources/beta/messages/messages'
 import { useWorkspace } from '../../../store/store'
 import { getMcpToken } from '../../../store/secrets'
 import type { McpServerConfig, Settings } from '../../../store/types'
 import { t } from '../../../i18n'
+import { addressedLine, codewordGuideLine, codewordProblem, normalizeCodeword, parseCodewords, switchedOffLine } from './codeword'
 
 /** The MCP connector beta. */
 export const MCP_BETA = 'mcp-client-2025-11-20'
@@ -105,11 +108,16 @@ export function deriveName(url: string, others: string[]): string {
 export function readServers(settings: Pick<Settings, 'mcpServers'> = useWorkspace.getState().settings): McpServerConfig[] {
   const list = Array.isArray(settings.mcpServers) ? settings.mcpServers : []
   const seen = new Set<string>()
+  const words: string[] = []
   const out: McpServerConfig[] = []
   for (const s of list) {
     if (!s || typeof s !== 'object' || typeof s.id !== 'string' || typeof s.name !== 'string' || typeof s.url !== 'string') continue
     if (!NAME_RE.test(s.name) || seen.has(s.name) || urlProblem(s.url)) continue
     seen.add(s.name)
+    // a codeword that can't be used (format, "one", a duplicate) is left out; the server stays
+    const cw = typeof s.codeword === 'string' ? normalizeCodeword(s.codeword) : ''
+    const codeword = cw && !codewordProblem(cw, words) ? cw : undefined
+    if (codeword) words.push(codeword)
     out.push({
       id: s.id,
       name: s.name,
@@ -122,6 +130,7 @@ export function readServers(settings: Pick<Settings, 'mcpServers'> = useWorkspac
       checkedAt: typeof s.checkedAt === 'number' ? s.checkedAt : undefined,
       checkError: typeof s.checkError === 'string' && s.checkError ? s.checkError.slice(0, 300) : undefined,
       scope: s.scope === 'all' ? 'all' : undefined,
+      codeword,
     })
     if (out.length >= MAX_SERVERS) break
   }
@@ -153,13 +162,17 @@ export function instructionsText(settings: Pick<Settings, 'mcpInstructions'> = u
   return own ? own.slice(0, INSTRUCTIONS_MAX) : defaultInstructions()
 }
 
-/** The system prompt part for these servers: the template, then each server's usage prompt. */
-export function mcpSystemText(servers: McpServerConfig[], instructions: string): string {
+/**
+ * The system prompt part for these servers: the template, then each server's usage prompt (with its
+ * codeword, if it has one), then — for a request that starts with codewords — who was addressed.
+ */
+export function mcpSystemText(servers: McpServerConfig[], instructions: string, addressed: string[] = []): string {
   const parts = [`<mcp_instructions>\n${instructions.trim()}\n</mcp_instructions>`]
   for (const s of servers) {
-    const prompt = s.prompt.trim()
-    parts.push(`<mcp_server name="${s.name}">\n${prompt || 'No usage guide yet: read the tool descriptions carefully before you use them.'}\n</mcp_server>`)
+    const prompt = s.prompt.trim() || 'No usage guide yet: read the tool descriptions carefully before you use them.'
+    parts.push(`<mcp_server name="${s.name}">\n${prompt}${s.codeword ? `\n${codewordGuideLine(s.codeword)}` : ''}\n</mcp_server>`)
   }
+  if (addressed.length) parts.push(`<mcp_codeword>\n${addressed.map(addressedLine).join('\n')}\n</mcp_codeword>`)
   return parts.join('\n\n')
 }
 
@@ -196,31 +209,67 @@ export function currentSetup(settings: Pick<Settings, 'mcpServers' | 'mcpInstruc
 
 /** A stable signature of a setup (what the prompt and the tool list are made of). */
 export function setupKey(setup: McpSetup): string {
-  return JSON.stringify([setup.instructions, setup.servers.map((s) => [s.id, s.name, s.url, s.prompt, s.scope ?? 'free'])])
+  return JSON.stringify([setup.instructions, setup.servers.map((s) => [s.id, s.name, s.url, s.prompt, s.scope ?? 'free', s.codeword ?? ''])])
 }
 
 /**
  * The attachment for a request (null = no server to attach). Tokens are opened from the vault
  * for this request only; a server whose token is not available in this browser is left out.
+ * `forced`: servers the request addressed by codeword (codewordsIn) — they join whatever their
+ * scope, and the system prompt says they were addressed.
  */
-export async function attachMcp(setup: McpSetup = currentSetup(), kind: McpRequestKind = 'free'): Promise<McpAttachment | null> {
+export async function attachMcp(setup: McpSetup = currentSetup(), kind: McpRequestKind = 'free', opts: { forced?: string[] } = {}): Promise<McpAttachment | null> {
+  const forced = opts.forced ?? []
   const usable: Array<{ s: McpServerConfig; token: string }> = []
   for (const s of setup.servers) {
-    if (kind === 'fixed' && s.scope !== 'all') continue
+    if (kind === 'fixed' && s.scope !== 'all' && !forced.includes(s.name)) continue
     const token = await getMcpToken(s)
     if (token === null) continue
     usable.push({ s, token })
   }
   if (!usable.length) return null
+  const names = usable.map(({ s }) => s.name)
   return {
     servers: usable.map(({ s, token }) => ({ type: 'url', url: s.url, name: s.name, ...(token ? { authorization_token: token } : {}) })),
     toolsets: usable.map(({ s }) => ({ type: 'mcp_toolset', mcp_server_name: s.name })),
     system: mcpSystemText(
       usable.map(({ s }) => s),
       setup.instructions,
+      forced.filter((n) => names.includes(n)),
     ),
-    names: usable.map(({ s }) => s.name),
+    names,
   }
+}
+
+/* ------------------------------------------------------------------ */
+/* Codewords ("kb: …")                                                 */
+/* ------------------------------------------------------------------ */
+
+/** A free-form request's leading codewords: the text without them, the servers addressed (on / switched off). */
+export interface Codewords {
+  text: string
+  /** enabled servers addressed — attachMcp(…, { forced }) */
+  forced: string[]
+  /** addressed, but switched off: they stay off (the result says so) */
+  off: string[]
+}
+
+/** Read the codewords a request starts with (null = none). */
+export function codewordsIn(text: string, servers: McpServerConfig[] = readServers()): Codewords | null {
+  const hit = parseCodewords(text, servers)
+  if (!hit.servers.length) return null
+  return { text: hit.text, forced: hit.servers.filter((s) => s.enabled).map((s) => s.name), off: hit.servers.filter((s) => !s.enabled).map((s) => s.name) }
+}
+
+/**
+ * A task for the workspace agent with its codewords applied: the prefix removed, a line for Claude in
+ * front of it (the agent's pinned system prompt stays as it is). Without a codeword: `task` unchanged.
+ */
+export function codewordTask(task: string, servers: McpServerConfig[] = readServers()): string {
+  const hit = parseCodewords(task, servers)
+  if (!hit.servers.length) return task
+  const lines = hit.servers.map((s) => (s.enabled ? addressedLine(s.name) : switchedOffLine(s.name)))
+  return `${lines.join('\n')}\n\n${hit.text}`
 }
 
 /** Token state of a server in this browser. */

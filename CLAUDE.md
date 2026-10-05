@@ -100,7 +100,10 @@ the public APIs stable — other areas are built against them in parallel.
   `mcp-token:<serverId>`. Write the list only with `updateSettings({ mcpServers })`; open a token only via
   `getMcpToken()` (store/secrets.ts) at request time — it goes only into `mcp_servers[].authorization_token`. Free-form
   requests (agent, own AI-menu requests, ⌘K "?") get every enabled server, other requests only `scope: 'all'`
-  servers; client.ts decides centrally. No server is preset in the app.
+  servers; client.ts decides centrally. No server is preset in the app. `McpServerConfig.codeword` (1–24 `[a-z0-9_-]`,
+  unique, never `one`; sanitised in `readServers`): a free-form request starting with `<codeword>:` gets that server
+  (`codewordsIn()` + `attachMcp(…, { forced })` in client.ts; the AI terminal via `codewordTask()`), the prefix is
+  stripped and Claude told it was addressed; a switched-off server stays off and shows as a `skipped` McpCall.
 - AI-menu runs (features/ai/runs.ts) live outside the panel: closing it or leaving the page never aborts a run — only
   Stop / Discard; targets are mapped through doc changes (runsTarget.ts). Mount `AIRunsSlot` once per editable editor.
   Results are per device in IndexedDB `one-ai-runs` (key `<scope>|<runId>`, scope `local:local` / `cloud:<id>`), never

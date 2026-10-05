@@ -120,6 +120,18 @@
   letter-spacing: 0.06em;
 }
 
+/* the codeword next to the name: "kb:" */
+.mcps-card__cw {
+  margin-left: 8px;
+  color: var(--signal-ink);
+  font-weight: 600;
+  letter-spacing: 0;
+}
+
+.mcps-card[data-state='off'] .mcps-card__cw {
+  color: var(--ink-3);
+}
+
 .mcps-card__url {
   grid-area: url;
   min-width: 0;
@@ -270,6 +282,39 @@
   color: var(--ink-3);
   font-size: var(--text-xs);
   line-height: 1.4;
+}
+
+/* ---------- codeword: [ kb ] : ---------- */
+.mcps-cw {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.mcps-cw__input {
+  width: 22ch;
+  max-width: calc(100% - 20px);
+}
+
+.mcps-cw__colon {
+  margin-left: -2px;
+  color: var(--ink-2);
+  font-family: var(--font-mono);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.mcps-cw__code {
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.mcps-cw__use {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
 }
 
 /* ---------- scope ---------- */
