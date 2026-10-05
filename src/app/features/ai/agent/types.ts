@@ -4,6 +4,7 @@
  */
 import type { ID, PropertyType, PropertyValue } from '../../../store/types'
 import type { AIErrorCode } from '../client'
+import type { MemoryProposal, MemoryUse } from '../memory/types'
 
 export type ToolName =
   | 'search_pages'
@@ -18,6 +19,9 @@ export type ToolName =
   | 'set_page_title'
   | 'create_database'
   | 'add_property'
+  /** One memory (features/ai/memory): search it · stage a memory to save (only while the memory is in use) */
+  | 'recall'
+  | 'remember'
 
 export type StepState = 'run' | 'ok' | 'err' | 'staged'
 
@@ -75,7 +79,7 @@ export interface ColumnSpec {
   options?: string[]
 }
 
-export type ChangeKind = 'create_page' | 'append' | 'create_row' | 'update_row' | 'rename' | 'create_database' | 'add_property'
+export type ChangeKind = 'create_page' | 'append' | 'create_row' | 'update_row' | 'rename' | 'create_database' | 'add_property' | 'memory'
 export type ChangeStatus = 'pending' | 'applied' | 'discarded' | 'failed'
 
 export interface StagedChange {
@@ -109,6 +113,8 @@ export interface StagedChange {
   groupBy?: ID | null
   /** add_property: the new property (databaseId / pageId = the database) */
   prop?: ColumnSpec
+  /** memory: the memory to save (`updates`: the near-identical memory it replaces); pageId = the row once saved */
+  memory?: MemoryProposal & { updates?: ID | null }
   error?: string
 }
 
@@ -136,6 +142,8 @@ export interface AgentTurn {
   answer: string
   /** what went along as context (page, references, mentions) — for the log line */
   context?: TurnContext
+  /** the One memory that went along (absent: memory not in use) */
+  memory?: MemoryUse
   error?: { code: AIErrorCode | 'max_tokens'; message: string }
 }
 

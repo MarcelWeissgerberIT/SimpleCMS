@@ -35,6 +35,11 @@ export interface RunAIOptions {
   mcp?: boolean
   /** MCP tool calls of the request so far, whenever one starts or ends */
   onMcp?: (calls: McpCall[]) => void
+  /**
+   * The One memory for a free-form request: the `<one_memory>` block the caller picked for it
+   * (features/ai/memory memoryFor) — it goes into the prompt before the task. '' / absent = none.
+   */
+  memory?: string
 }
 
 /* ------------------------------------------------------------------ */
@@ -574,11 +579,13 @@ function clip(s: string, max: number): string {
 }
 
 /** Build the user prompt for an action. Exported for tests/debugging. */
-export function buildPrompt({ action, input, instruction, context }: Pick<RunAIOptions, 'action' | 'input' | 'instruction' | 'context'>): string {
+export function buildPrompt({ action, input, instruction, context, memory }: Pick<RunAIOptions, 'action' | 'input' | 'instruction' | 'context' | 'memory'>): string {
   const parts: string[] = []
   const text = input.trim()
   if (context?.trim()) parts.push(`<page>\n${clip(context.trim(), MAX_CONTEXT)}\n</page>`)
   if (text) parts.push(`<text>\n${clip(text, MAX_INPUT)}\n</text>`)
+  // the person's One memory (free-form requests only): standing knowledge and templates
+  if (action === 'custom' && memory?.trim()) parts.push(memory.trim())
 
   let task: string
   switch (action) {

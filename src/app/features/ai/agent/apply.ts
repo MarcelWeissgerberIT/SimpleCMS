@@ -12,6 +12,7 @@ import { newId } from '../../../lib/ids'
 import { snapshotNow } from '../../history/snapshots'
 import { t } from '../../../i18n'
 import { depsOf, type ColumnSpec, type PropChange, type StagedChange } from './types'
+import { saveMemory, updateMemory } from '../memory/save'
 
 const ws = () => useWorkspace.getState()
 const ORIGIN = 'ai'
@@ -283,6 +284,29 @@ async function applyOne(c: StagedChange, resolveRow: (id: ID) => ID, rowIds: Rec
         })
         if (used) return false
         ws().deleteProperty(dbId, prop.id)
+        return true
+      }
+    }
+    case 'memory': {
+      // the One memory (features/ai/memory): a new row, or the near-identical memory it updates
+      const m = c.memory
+      if (!m) throw new Error('nothing to remember')
+      if (m.updates && alive(m.updates)) {
+        const undo = updateMemory(m.updates, m)
+        return () => {
+          undo()
+          return true
+        }
+      }
+      let saved: ReturnType<typeof saveMemory>
+      try {
+        saved = saveMemory(m)
+      } catch {
+        throw new Error('the memory cannot be written here')
+      }
+      rowIds[c.pageId] = saved.id
+      return () => {
+        saved.undo()
         return true
       }
     }

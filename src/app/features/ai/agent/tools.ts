@@ -956,6 +956,10 @@ export function argLabel(name: ToolName, input: Record<string, unknown>, stage: 
       return `${title(s('database_id'))} · ${s('name')}`
     case 'set_page_title':
       return `${title(s('id'))} → ${s('title')}`
+    case 'recall':
+      return `“${s('query')}”`
+    case 'remember':
+      return s('text')
     default:
       return ''
   }

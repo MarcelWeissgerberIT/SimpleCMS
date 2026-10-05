@@ -573,6 +573,12 @@ export interface Database {
    * reordered; rows stay editable. Anyone who can edit unlocks it. See database/model/lock.ts.
    */
   locked?: boolean
+  /**
+   * A database One looks for by itself — 'memory' = the One memory (features/ai/memory: "One memory" /
+   * "One-Gedächtnis"). Only a marker: the database stays an ordinary database the person edits. Several
+   * (a duplicate, a restored backup): the oldest live one counts; in a team workspace only a private one.
+   */
+  system?: 'memory'
 }
 
 export type AutomationTrigger =
@@ -645,6 +651,19 @@ export interface Settings {
    * set up. Write it only through the mail area (features/mail/settings.ts), which normalizes it.
    */
   mail?: MailSettings
+  /**
+   * One memory (features/ai/memory): per device like every setting, never synced. Absent = the defaults
+   * (memory on; proposals after AI-terminal tasks once a memory database exists).
+   */
+  memory?: MemorySettings
+}
+
+/** Settings → Claude AI → One memory (features/ai/memory/settings.ts reads it with its defaults). */
+export interface MemorySettings {
+  /** false: no memory goes along with any request, no memory tools, no proposals (absent = on) */
+  enabled?: boolean
+  /** Claude proposes memories after AI-terminal tasks (absent = on once a memory database exists) */
+  proposals?: boolean
 }
 
 /** What a property of the Mails database is for (features/mail/schema.ts). */

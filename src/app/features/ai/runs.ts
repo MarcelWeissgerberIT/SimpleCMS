@@ -36,13 +36,20 @@ import { readableContent } from '../../editor'
 import { requestRedo } from './redo/request'
 import type { RedoPassage } from './redo/passages'
 import { ImageLoadError, runImageRequest, type ImageIssue, type ImageMeta, type ImageRunRequest } from './image/run'
+import { memoryFor, noteCited } from './memory/use'
+import { condense } from './memory/propose'
+import { pageSource } from './memory/save'
+import type { MemoryProposal, MemoryUse } from './memory/types'
 
 /* ------------------------------------------------------------------ */
 /* Types                                                               */
 /* ------------------------------------------------------------------ */
 
 export type RunRequest =
-  | { kind: 'action'; action: AIAction; label: string; code: string; instruction?: string; input?: string; refine?: boolean }
+  /** memoryOff: an own request ('custom') without the One memory (the panel's toggle) */
+  | { kind: 'action'; action: AIAction; label: string; code: string; instruction?: string; input?: string; refine?: boolean; memoryOff?: boolean }
+  /** One memory: "remember …" (a free request) or "Remember this" (the selection) → Claude condenses it into a proposal */
+  | { kind: 'memory'; label: string; code: string; text: string; from: 'request' | 'selection' }
   | { kind: 'workspace'; question: string; label: string; code: string }
   /** "Turn into database": Claude reads the selected blocks, the panel previews the table */
   | { kind: 'todb'; label: string; code: string; instruction?: string }
@@ -90,6 +97,11 @@ export interface AIRun {
   image?: ImageMeta | null
   /** an image request whose picture could not be loaded (a web image without CORS, a missing file …) */
   imageIssue?: ImageIssue | null
+  /** an own request: the One memory that went along (absent: memory not in use) */
+  memory?: MemoryUse | null
+  /** a memory request: the proposal (saved only on the person's OK) and what saving did */
+  proposals?: MemoryProposal[] | null
+  memSaved?: { id: ID; how: 'new' | 'updated' } | null
 }
 
 interface RunsState {
@@ -318,6 +330,13 @@ async function execute(id: string, editor: Editor) {
       if (ac.signal.aborted) return
       const items: RedoItem[] = req.passages.map((p) => ({ n: p.n, after: p.skip ? null : (answer.get(p.n) ?? null), decision: null }))
       patch(id, { status: 'done', redo: { items }, finishedAt: Date.now() })
+    } else if (req.kind === 'memory') {
+      // reads what it is given (the selection / the request) — the page only for its title and link
+      patch(id, { reads: { mode: 'none', selection: req.from === 'selection', blocks: 0, words: countWords(req.text) } })
+      const title = useWorkspace.getState().pages[run.pageId]?.title.trim() ?? ''
+      const proposals = await condense({ text: req.text, from: req.from, pageTitle: title, source: pageSource(run.pageId), signal: ac.signal })
+      if (ac.signal.aborted) return
+      patch(id, { status: 'done', proposals, finishedAt: Date.now() })
     } else if (req.kind === 'image') {
       // the picture + the page as its context marks allow
       const pr = pageRead(run.pageId, null)
@@ -335,7 +354,9 @@ async function execute(id: string, editor: Editor) {
         text = res.text
       } else {
         const read = actionRead(run, req)
-        patch(id, { reads: read.reads })
+        // an own request takes the One memory along (unless switched off for it)
+        const mem = req.action === 'custom' ? memoryFor(req.instruction ?? '', { off: req.memoryOff }) : null
+        patch(id, { reads: read.reads, ...(mem?.use ? { memory: mem.use } : {}) })
         text = await runAI({
           action: req.action,
           input: read.input,
@@ -344,7 +365,9 @@ async function execute(id: string, editor: Editor) {
           onToken,
           signal: ac.signal,
           onMcp: (calls) => !ac.signal.aborted && patch(id, { mcpCalls: calls }, false),
+          memory: mem?.block,
         })
+        if (!ac.signal.aborted) noteCited(text, mem?.use)
       }
       if (ac.signal.aborted) return
       buffers.delete(id)
