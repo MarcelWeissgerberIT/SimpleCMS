@@ -866,7 +866,8 @@ function withDeps(ids: string[], all: StagedChange[]): string[] {
   const out = new Set<string>()
   const todo = [...ids]
   while (todo.length) {
-    const c = all.find((x) => x.id === todo.pop())
+    const id = todo.pop()
+    const c = all.find((x) => x.id === id)
     if (!c || out.has(c.id) || !isOpen(c)) continue
     out.add(c.id)
     todo.push(...depsOf(c))
@@ -1040,15 +1041,22 @@ function Chips() {
         </li>
       )}
       {refs.map((r) => {
-        const gist = r.markdown.replace(/[#>*_`[\]|-]+/g, ' ').replace(/\s+/g, ' ').trim()
-        const text = `${r.title} · ${gist.length > 26 ? `${gist.slice(0, 25)}…` : gist} · ${tn('features.agent.ref.lines', r.lines)}`
+        // "Delta report · Project Delta: open… · 18 lines": links and Markdown marks out of the gist
+        const gist = r.markdown
+          .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
+          .replace(/[#>*_`[\]|]+|^\s*[-+]\s|\s-\s/gm, ' ')
+          .replace(/\s+/g, ' ')
+          .trim()
+        const text = `${r.title} · ${gist.length > 26 ? `${gist.slice(0, 25).trimEnd()}…` : gist}`
+        const lines = tn('features.agent.ref.lines', r.lines)
         return (
           <li key={r.id} className="term-chip" data-kind="ref" title={r.markdown.slice(0, 400)}>
             <span className="term-chip__glyph" aria-hidden>
               ¶
             </span>
             <span className="term-chip__text">{text}</span>
-            <button type="button" className="term-chip__x" onClick={() => removeRef(r.id)} aria-label={t('features.agent.ctx.remove', { title: text })}>
+            <span className="term-chip__meta">· {lines}</span>
+            <button type="button" className="term-chip__x" onClick={() => removeRef(r.id)} aria-label={t('features.agent.ctx.remove', { title: `${text} · ${lines}` })}>
               <X size={11} strokeWidth={2} aria-hidden />
             </button>
           </li>
@@ -1091,11 +1099,13 @@ function Prompt({ disabled, onReview }: { disabled: boolean; onReview: () => boo
     el.style.height = `${el.scrollHeight}px`
   }, [draft])
 
+  /** walking the history (↑ / ↓): no completion list over a recalled prompt */
+  const [browsing, setBrowsing] = useState(false)
   const comp: Completion | null = useMemo(() => {
-    if (disabled) return null
+    if (browsing) return null
     const c = completionAt(draft, caret, lang)
     return c && `${c.from}:${draft.slice(c.from, c.to)}` !== dismissed ? c : null
-  }, [draft, caret, lang, dismissed, disabled])
+  }, [draft, caret, lang, dismissed, browsing])
   useEffect(() => setActive(0), [comp?.kind, comp?.query])
   const listId = 'term-complete'
 
@@ -1122,12 +1132,14 @@ function Prompt({ disabled, onReview }: { disabled: boolean; onReview: () => boo
   }
 
   const submit = () => {
-    if (disabled || !draft.trim()) return
-    if (running && !draft.trim().startsWith('/')) return
+    const text = draft.trim()
+    // without a key (or while a task runs) only /commands go
+    if (!text || ((disabled || running) && !text.startsWith('/'))) return
     hist.current.at = null
-    void submitPrompt().then(() => {
-      hist.current.list = loadHistory()
-    })
+    setBrowsing(false)
+    // the prompt goes into the history synchronously (before the task's first request)
+    void submitPrompt()
+    hist.current.list = loadHistory()
     setCaret(0)
   }
 
@@ -1194,6 +1206,7 @@ function Prompt({ disabled, onReview }: { disabled: boolean; onReview: () => boo
       const lastLine = !draft.slice(el.selectionEnd).includes('\n')
       if (up && firstLine && h.list.length && h.at !== 0) {
         e.preventDefault()
+        setBrowsing(true)
         if (h.at === null) {
           h.saved = draft
           h.at = h.list.length - 1
@@ -1206,6 +1219,7 @@ function Prompt({ disabled, onReview }: { disabled: boolean; onReview: () => boo
           setDraft(h.list[h.at])
         } else {
           h.at = null
+          setBrowsing(false)
           setDraft(h.saved)
         }
       }
@@ -1258,9 +1272,9 @@ function Prompt({ disabled, onReview }: { disabled: boolean; onReview: () => boo
           aria-autocomplete="list"
           aria-controls={comp ? listId : undefined}
           aria-activedescendant={comp ? `${listId}-${active}` : undefined}
-          disabled={disabled}
           onChange={(e) => {
             hist.current.at = null
+            setBrowsing(false)
             setDismissed(null)
             useAgent.setState({ draft: e.target.value })
             setCaret(e.target.selectionStart)
@@ -1275,7 +1289,7 @@ function Prompt({ disabled, onReview }: { disabled: boolean; onReview: () => boo
             <Square size={8} fill="currentColor" strokeWidth={0} aria-hidden /> {t('features.agent.stop')}
           </button>
         ) : (
-          <button type="submit" className="term-run" disabled={disabled || !draft.trim()}>
+          <button type="submit" className="term-run" disabled={!draft.trim() || (disabled && !draft.trim().startsWith('/'))}>
             {t('features.agent.run')} <CornerDownLeft size={11} strokeWidth={2} aria-hidden />
           </button>
         )}

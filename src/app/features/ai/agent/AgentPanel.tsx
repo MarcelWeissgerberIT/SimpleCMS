@@ -22,8 +22,8 @@ export const AGENT_STOP_SHORTCUT = 'Mod+.'
  * "Add to terminal" (the bubble toolbar's button, ⌘⇧J): the editor's selection (or the DOM
  * selection, also in read-only pages) becomes a reference chip; the terminal opens or takes focus.
  */
-export function addSelectionToTerminal(editor?: Editor): void {
-  void import('./refs').then((m) => m.addSelectionRef(editor))
+export function addSelectionToTerminal(editor?: Editor, opts?: { open?: boolean }): void {
+  void import('./refs').then((m) => m.addSelectionRef(editor, opts))
 }
 
 /** Mod+<key>, layout-aware (e.key first, the physical key only for non-Latin layouts). */
@@ -63,7 +63,7 @@ export function AgentPanel() {
       e.stopPropagation()
       if (add) return addSelectionToTerminal()
       // opening with text selected in a page: it goes along as a reference
-      if (!useAgent.getState().open && editorSelected()) return addSelectionToTerminal()
+      if (!useAgent.getState().open && editorSelected()) return addSelectionToTerminal(undefined, { open: true })
       toggleAgent()
     }
     window.addEventListener('keydown', onKey, true)

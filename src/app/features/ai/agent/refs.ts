@@ -83,10 +83,12 @@ export function captureRef(editor?: Editor): TermRef | null {
  * "Add to terminal" (bubble toolbar, Mod+Shift+J): the selection becomes a reference chip and the
  * terminal opens (or takes focus). Returns false when nothing usable was selected.
  */
-export function addSelectionRef(editor?: Editor): boolean {
+export function addSelectionRef(editor?: Editor, opts: { open?: boolean } = {}): boolean {
   const ref = captureRef(editor)
   if (!ref) {
-    useUI.getState().toast({ message: t('features.agent.ref.none') })
+    // ⌘J opens the terminal anyway; "Add to terminal" without a selection only explains
+    if (opts.open) openAgent()
+    else useUI.getState().toast({ message: t('features.agent.ref.none') })
     return false
   }
   if (!addRef(ref)) useUI.getState().toast({ message: t('features.agent.ref.full', { max: REF_MAX }), kind: 'error' })

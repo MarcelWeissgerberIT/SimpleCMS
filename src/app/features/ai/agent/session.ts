@@ -303,9 +303,13 @@ export async function submitPrompt(raw?: string): Promise<void> {
       discardAllStaged()
       info(input, `features.agent.echo.discarded.${pending === 1 ? 'one' : 'other'}`, { count: pending })
       return
-    case 'history':
-      echo(input, 'history', { list: loadHistory().slice(0, -1).slice(-20) })
+    case 'history': {
+      // the prompts before this one
+      const list = loadHistory()
+      if (list[list.length - 1] === input) list.pop()
+      echo(input, 'history', { list: list.slice(-20) })
       return
+    }
     case 'help':
       echo(input, 'help')
       return
@@ -408,7 +412,8 @@ export function restoreStaged(id: string) {
   const back = new Set<string>()
   const todo = [id]
   while (todo.length) {
-    const cur = get().changes.find((c) => c.id === todo.pop())
+    const id = todo.pop()
+    const cur = get().changes.find((c) => c.id === id)
     if (!cur || cur.status !== 'discarded' || back.has(cur.id)) continue
     back.add(cur.id)
     todo.push(...depsOf(cur))

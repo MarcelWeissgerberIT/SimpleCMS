@@ -95,18 +95,22 @@ export function completionAt(draft: string, caret: number, lang: 'en' | 'de'): C
   if (cmd) {
     const word = cmd[1].toLowerCase()
     const from = before.length - cmd[1].length - 1
-    const items: CompletionItem[] = []
+    const items: Array<CompletionItem & { primary: boolean }> = []
     for (const c of COMMANDS) {
       const names = lang === 'de' ? [...c.de, c.en] : [c.en, ...c.de]
       const hit = names.find((n) => n.startsWith(word))
-      if (hit) items.push({ key: c.id, insert: `/${hit}`, label: `/${hit}`, command: c.id })
+      if (hit) items.push({ key: c.id, insert: `/${hit}`, label: `/${hit}`, command: c.id, primary: hit === names[0] })
     }
-    return items.length ? { kind: 'command', from, to: caret, query: word, items } : null
+    // names of the UI language first ("/hi" in German: /hilfe before /history)
+    items.sort((a, b) => Number(b.primary) - Number(a.primary))
+    return items.length ? { kind: 'command', from, to: caret, query: word, items: items.map(({ primary: _p, ...x }) => x) } : null
   }
   // a mention: "@" at a word start, up to 40 characters, no line break
   const at = /(^|\s)@([^\n@]{0,40})$/.exec(before)
   if (at) {
     const query = at[2]
+    // a space after a completed mention ends it
+    if (/\s$/.test(query)) return null
     const items = mentionCandidates(query)
     if (!items.length) return null
     return { kind: 'mention', from: before.length - query.length - 1, to: caret, query, items }

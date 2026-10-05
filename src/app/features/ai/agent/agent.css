@@ -1054,6 +1054,11 @@
   white-space: nowrap;
 }
 
+.term-chip__meta {
+  flex: none;
+  color: var(--ink-3);
+}
+
 .term-chip__x {
   display: inline-grid;
   flex: none;
