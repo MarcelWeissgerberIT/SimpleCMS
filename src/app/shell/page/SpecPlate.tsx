@@ -7,10 +7,10 @@ import { fmtNumber, fmtRelative, fmtStamp, plural, readingTime, wordCount } from
 import { useNow } from '../lib/hooks'
 
 /** "ABCD·1234": the short, readable form of a page id. */
-export const shortId = (id: string) => `${id.slice(0, 4).toUpperCase()}·${id.slice(4, 8).toUpperCase()}`
+const shortId = (id: string) => `${id.slice(0, 4).toUpperCase()}·${id.slice(4, 8).toUpperCase()}`
 
 /** "03 OCT 2026 · 14:05": narrow plates drop the time (CSS), never cut the date. */
-export function Stamp({ ts }: { ts: number }) {
+function Stamp({ ts }: { ts: number }) {
   const lang = useLang()
   const [day, time] = fmtStamp(ts, lang).split(' · ')
   return (
@@ -21,8 +21,8 @@ export function Stamp({ ts }: { ts: number }) {
   )
 }
 
-/** Words and reading time of a document page (shared by the plate and the margin rail). */
-export function usePageReadings(page: Page): { words: string; read: string; edited: string } {
+/** Words, reading time and last edit of a page. */
+function usePageReadings(page: Page): { words: string; read: string; edited: string } {
   const t = useT()
   const lang = useLang()
   useNow(30_000)
@@ -34,7 +34,7 @@ export function usePageReadings(page: Page): { words: string; read: string; edit
   }
 }
 
-/** The instrument "rating plate" at the end of every page. */
+/** The instrument "rating plate" at the end of every page (the margin rail never repeats it). */
 export function SpecPlate({ page }: { page: Page }) {
   const t = useT()
   const lang = useLang()

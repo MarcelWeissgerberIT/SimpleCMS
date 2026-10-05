@@ -279,8 +279,8 @@ export function BlockHandle({ editor, bridge, pageId }: { editor: Editor; bridge
       if (inGutter(e.clientX, e.clientY)) {
         following = true
         pointer.current = { x: e.clientX, y: e.clientY }
-        const handler = dragHandlePluginDefaultKey.get(view.state)?.props.handleDOMEvents?.mousemove
-        handler?.(view, { clientX: e.clientX, clientY: e.clientY } as MouseEvent)
+        const plugin = dragHandlePluginDefaultKey.get(view.state)
+        plugin?.props.handleDOMEvents?.mousemove?.call(plugin, view, { clientX: e.clientX, clientY: e.clientY } as MouseEvent)
       } else if (following) {
         following = false
         view.dispatch(view.state.tr.setMeta('hideDragHandle', true))

@@ -1,12 +1,18 @@
-/** Margin rail: outline (scroll-spy + jump), page readings and backlinks right of the text on wide page columns. */
+/**
+ * Margin rail: outline (scroll-spy + jump) and upcoming reminders right of the text on wide page
+ * columns — navigation only; the page's readings (spec plate) and "Linked from" stay in the footer.
+ */
 import type { Page } from '@playwright/test'
 import type { JSONContent } from '@tiptap/core'
-import { test, expect, openApp, gotoPage, createPage, doc, para, heading, pageIdByTitle, uiEval, wsEval, flush, reloadApp, MOD } from './fixtures'
+import { test, expect, openApp, gotoPage, createPage, doc, para, heading, pageIdByTitle, uiEval, wsEval, flush, reloadApp, editorOf, MOD } from './fixtures'
 
 const WIDE = { width: 1920, height: 1080 }
 
 const rail = (page: Page) => page.locator('#main .mrail')
 const outline = (page: Page) => rail(page).getByRole('navigation', { name: 'Outline' })
+const article = (page: Page) => page.locator('#main article.pv')
+const plate = (page: Page) => page.locator('#main .pv-foot .spec')
+const linkedFrom = (page: Page) => page.locator('#main .pv-foot').getByRole('region', { name: 'Linked from' })
 
 /** A long page: an intro (the first heading starts below the top quarter), then sections "Section 1…n" with enough text to scroll past each. */
 function longDoc(n: number, extra: JSONContent[] = []): JSONContent {
@@ -27,39 +33,88 @@ async function headingOffset(page: Page, text: string): Promise<number> {
   }, text)
 }
 
+/** How far the text column's centre sits left of the page column's centre (0 = centred). */
+async function columnShift(page: Page): Promise<number> {
+  return page.evaluate(() => {
+    const main = document.querySelector('#main')!.getBoundingClientRect()
+    const col = document.querySelector('#main .pv-content')!.getBoundingClientRect()
+    return Math.round(main.left + main.width / 2 - (col.left + col.width / 2))
+  })
+}
+
+/**
+ * From the next load on, record every data-rail value the page views take (mutation records keep
+ * the values between two commits too): a page that flashes the wrong layout first shows both.
+ */
+async function watchRail(page: Page): Promise<() => Promise<string[][]>> {
+  await page.addInitScript(() => {
+    const seen = new Map<Element, string[]>()
+    new MutationObserver((records) => {
+      for (const r of records) {
+        const el = r.target as Element
+        if (!el.matches('article.pv')) continue
+        const list = seen.get(el) ?? []
+        seen.set(el, list)
+        if (r.oldValue && list.at(-1) !== r.oldValue) list.push(r.oldValue)
+      }
+    }).observe(document, { subtree: true, attributes: true, attributeFilter: ['data-rail'], attributeOldValue: true })
+    ;(window as unknown as { __railSeen: () => string[][] }).__railSeen = () =>
+      [...seen].map(([el, list]) => {
+        const now = el.getAttribute('data-rail')
+        return now && list.at(-1) !== now ? [...list, now] : list
+      })
+  })
+  return () => page.evaluate(() => (window as unknown as { __railSeen: () => string[][] }).__railSeen())
+}
+
 test.describe('margin rail', () => {
-  test('wide columns only: outline, readings and backlinks move from the footer into the rail', async ({ page }) => {
+  test('wide columns: the rail is navigation; the spec plate and "Linked from" stay in the footer', async ({ page }) => {
     await page.setViewportSize(WIDE)
     await openApp(page)
     await gotoPage(page, await pageIdByTitle(page, 'Welcome to One'))
     await expect(rail(page)).toBeVisible()
-    await expect(page.locator('#main article.pv')).toHaveAttribute('data-rail', 'open')
+    await expect(article(page)).toHaveAttribute('data-rail', 'open')
     await expect(outline(page).getByRole('button')).toHaveCount(9)
     await expect(outline(page).getByRole('button').first()).toHaveText('Quick tour — tick them off')
-    const readings = rail(page).locator('.mrail-spec')
-    await expect(readings).toContainText('Words')
-    await expect(readings).toContainText('REV')
     // the text and the rail never overlap
     const text = await page.locator('#main .pv-content .ProseMirror').first().boundingBox()
     const box = await rail(page).boundingBox()
     expect(box!.x).toBeGreaterThan(text!.x + text!.width + 24)
     expect(box!.x + box!.width).toBeLessThanOrEqual(1920)
-    // no duplicate spec plate at the end of the page
-    await expect(page.locator('#main .pv-foot .spec')).toBeHidden()
+    expect(await columnShift(page)).toBeGreaterThan(60)
 
-    // fewer than two headings: no outline; backlinks in the rail instead of the footer
+    // a page with headings that others link to: outline in the rail, readings + backlinks at the end
+    const guide = await createPage(page, { title: 'Field guide', content: doc(heading(1, 'Before you start'), para('Pack light.'), heading(1, 'On the trail'), para('Walk on.')) })
+    await createPage(page, { title: 'Trip index', content: doc({ type: 'pageLink', attrs: { pageId: guide } }) })
+    await gotoPage(page, guide)
+    await expect(article(page)).toHaveAttribute('data-rail', 'open')
+    await expect(rail(page).locator('.mrail__label')).toHaveText(['Outline'])
+    await expect(rail(page)).not.toContainText('Words')
+    await expect(rail(page).getByRole('region', { name: 'Linked from' })).toHaveCount(0)
+    await expect(plate(page)).toBeVisible()
+    await expect(plate(page)).toContainText('Spec · Page')
+    await expect(plate(page)).toContainText('Words')
+    await expect(linkedFrom(page).getByRole('link', { name: 'Trip index' })).toBeVisible()
+    // the footer moves with the text column
+    const col = (await page.locator('#main .pv-content').boundingBox())!
+    const foot = (await page.locator('#main .pv-foot .pv-col').boundingBox())!
+    expect(Math.abs(foot.x - col.x)).toBeLessThan(2)
+
+    // no outline and no reminders: nothing to show — the text stays centred, only the key remains
     await gotoPage(page, await pageIdByTitle(page, 'Team wiki'))
-    await expect(rail(page)).toBeVisible()
-    await expect(outline(page)).toHaveCount(0)
-    const linked = rail(page).getByRole('region', { name: 'Linked from' })
-    await expect(linked.getByRole('link', { name: 'Welcome to One' })).toBeVisible()
-    await expect(page.locator('#main .pv-foot section.pv-links:not(.pv-um)')).toBeHidden()
+    await expect(article(page)).toHaveAttribute('data-rail', 'closed')
+    await expect(rail(page)).toHaveAttribute('data-empty', 'true')
+    await expect(rail(page).locator('.mrail__body')).toHaveCount(0)
+    await expect(rail(page).getByRole('button', { name: 'Hide margin rail' })).toBeVisible()
+    expect(Math.abs(await columnShift(page))).toBeLessThan(2)
+    await expect(plate(page)).toBeVisible()
+    await expect(linkedFrom(page).getByRole('link', { name: 'Welcome to One' })).toBeVisible()
 
-    // a narrower column (1440 with the sidebar) keeps the classic footer
+    // a narrower column (1440 with the sidebar): no rail, the same footer
     await page.setViewportSize({ width: 1440, height: 900 })
     await expect(rail(page)).toHaveCount(0)
-    await expect(page.locator('#main .pv-foot .spec')).toBeVisible()
-    await expect(page.locator('#main .pv-foot section.pv-links:not(.pv-um)')).toBeVisible()
+    await expect(plate(page)).toBeVisible()
+    await expect(linkedFrom(page)).toBeVisible()
     // … until the sidebar makes room
     await page.keyboard.press(`${MOD}+\\`)
     await expect(rail(page)).toBeVisible()
@@ -74,6 +129,49 @@ test.describe('margin rail', () => {
     await gotoPage(page, await pageIdByTitle(page, 'Projects'))
     await expect(page.locator('#main article.pv[data-db]')).toBeVisible()
     await expect(rail(page)).toHaveCount(0)
+    await expect(plate(page)).toContainText('Spec · Database')
+  })
+
+  test('an empty rail lays out as closed: no flash on load, the column moves once the second heading appears', async ({ page }) => {
+    await page.setViewportSize(WIDE)
+    await openApp(page)
+    const plain = await createPage(page, { title: 'Scratch', content: doc(heading(1, 'Only heading'), para('Some text.')) })
+    const outlined = await createPage(page, { title: 'Outlined', content: longDoc(3) })
+    const seen = await watchRail(page)
+    // boot straight into a page with an outline, then on to one without and back
+    await gotoPage(page, outlined)
+    await reloadApp(page)
+    await expect(outline(page).getByRole('button')).toHaveCount(3)
+    await gotoPage(page, plain)
+    await expect(rail(page)).toHaveAttribute('data-empty', 'true')
+    await gotoPage(page, outlined)
+    await expect(outline(page).getByRole('button')).toHaveCount(3)
+    // each page view took its layout once — never the other one first
+    expect(await seen()).toEqual([['open'], ['closed'], ['open']])
+
+    // the second heading turns the rail on (live, from the editor); removing it turns it off again
+    await gotoPage(page, plain)
+    await expect(article(page)).toHaveAttribute('data-rail', 'closed')
+    await editorOf(page).evaluate((el) => (el as HTMLElement & { editor: { commands: { focus: (at: string) => void } } }).editor.commands.focus('end'))
+    await page.keyboard.press('Enter')
+    await page.keyboard.type('## Second heading')
+    await expect(article(page)).toHaveAttribute('data-rail', 'open')
+    await expect(outline(page).getByRole('button')).toHaveText(['Only heading', 'Second heading'])
+    await expect.poll(() => columnShift(page)).toBeGreaterThan(60)
+    await page.keyboard.press(`${MOD}+z`)
+    await expect(article(page)).toHaveAttribute('data-rail', 'closed')
+    await expect.poll(() => columnShift(page)).toBeLessThan(2)
+    await expect(rail(page).locator('.mrail__body')).toHaveCount(0)
+
+    // print: neither the rail nor its column shift, the footer as on screen
+    await gotoPage(page, outlined)
+    await expect(article(page)).toHaveAttribute('data-rail', 'open')
+    await page.emulateMedia({ media: 'print' })
+    await expect(rail(page)).toBeHidden()
+    await expect.poll(async () => (await page.locator('#main .pv-content').evaluate((el) => getComputedStyle(el).left))).toBe('0px')
+    await expect(plate(page)).toBeVisible()
+    await page.emulateMedia({ media: 'screen' })
+    await expect(rail(page)).toBeVisible()
   })
 
   test('outline: scroll-spy follows the reading position; click and Enter jump; closed toggles open', async ({ page }) => {
@@ -146,8 +244,8 @@ test.describe('margin rail', () => {
     await expect(items.first()).toContainText('Go-live on')
     await expect(items.first()).toContainText(/IN \d+ DAYS/)
     await expect(items.nth(1)).toContainText('Press day on')
-    // the rail orders its sections: outline, reminders, page, linked from
-    await expect(rail(page).locator('.mrail__label')).toHaveText(['Outline', 'Reminders', 'Page'])
+    // the rail orders its sections: outline, reminders — nothing else
+    await expect(rail(page).locator('.mrail__label')).toHaveText(['Outline', 'Reminders'])
 
     await items.first().click()
     await expect(page.locator('#main > .mrail-mark')).toHaveCount(1)
@@ -157,15 +255,27 @@ test.describe('margin rail', () => {
     // no reminders, no section
     await gotoPage(page, await pageIdByTitle(page, 'Team wiki'))
     await expect(rail(page).getByRole('region', { name: 'Reminders' })).toHaveCount(0)
+
+    // reminders alone fill the rail, no outline needed
+    const solo = await createPage(page, { title: 'Dentist', content: doc(remind(day(5), 'at', 'Appointment on ')) })
+    await gotoPage(page, solo)
+    await expect(article(page)).toHaveAttribute('data-rail', 'open')
+    await expect(rail(page).locator('.mrail__label')).toHaveText(['Reminders'])
+    await expect(plate(page)).toBeVisible()
   })
 
-  test('a database entry: the rail starts beside its property list', async ({ page }) => {
+  test('a database entry: the outline starts beside its property list; its readings are on the plate', async ({ page }) => {
     await page.setViewportSize(WIDE)
     await openApp(page)
     const id = await pageIdByTitle(page, 'Website relaunch')
+    const content = doc(heading(1, 'Scope'), para('Pages, copy, images.'), heading(1, 'Risks'), para('The launch date.'))
+    await wsEval(page, (s, a) => s.setContent(a.id, a.content, 'e2e'), { id, content })
+    await flush(page)
     await gotoPage(page, id)
     await expect(rail(page)).toBeVisible()
-    await expect(rail(page).locator('.mrail__label').first()).toHaveText('Entry')
+    await expect(article(page)).toHaveAttribute('data-rail', 'open')
+    await expect(rail(page).locator('.mrail__label')).toHaveText(['Outline'])
+    await expect(plate(page)).toContainText('Spec · Entry')
     const gap = async () => Math.abs((await rail(page).locator('.mrail__inner').boundingBox())!.y - (await page.locator('#main .pv-props').boundingBox())!.y)
     expect(await gap()).toBeLessThan(12)
     // … and moves with the list when the header above it grows (an icon, a longer title)
@@ -184,8 +294,8 @@ test.describe('margin rail', () => {
     await key.click()
     await expect(page.locator('#main article.pv')).toHaveAttribute('data-rail', 'closed')
     await expect(rail(page).locator('.mrail__body')).toHaveCount(0)
-    // closed: the footer has the spec plate again; the key stays to bring it back
-    await expect(page.locator('#main .pv-foot .spec')).toBeAttached()
+    // closed: the key stays to bring it back; the footer is the same either way
+    await expect(plate(page)).toBeVisible()
     await expect(rail(page).getByRole('button', { name: 'Show margin rail' })).toHaveAttribute('aria-expanded', 'false')
 
     await reloadApp(page)
@@ -198,6 +308,18 @@ test.describe('margin rail', () => {
     await expect(page.locator('#main article.pv')).toHaveAttribute('data-rail', 'open')
     await expect(outline(page)).toBeVisible()
     expect(await page.evaluate(() => localStorage.getItem('one.marginRail'))).toBe('1')
+
+    // a page with nothing for the rail: key and Mod+. still switch it, the text stays centred
+    await gotoPage(page, await pageIdByTitle(page, 'Team wiki'))
+    await expect(article(page)).toHaveAttribute('data-rail', 'closed')
+    await expect(rail(page).getByRole('button', { name: 'Hide margin rail' })).toHaveAttribute('aria-expanded', 'true')
+    await page.keyboard.press(`${MOD}+.`)
+    await expect(rail(page).getByRole('button', { name: 'Show margin rail' })).toHaveAttribute('aria-expanded', 'false')
+    expect(await page.evaluate(() => localStorage.getItem('one.marginRail'))).toBe('0')
+    await expect(article(page)).toHaveAttribute('data-rail', 'closed')
+    await page.keyboard.press(`${MOD}+.`)
+    await expect(rail(page).getByRole('button', { name: 'Hide margin rail' })).toHaveAttribute('aria-expanded', 'true')
+    await expect(article(page)).toHaveAttribute('data-rail', 'closed')
   })
 
   test('calm places stay calm: focus mode, panes, the peek — and open comments take the margin', async ({ page }) => {

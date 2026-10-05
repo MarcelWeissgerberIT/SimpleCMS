@@ -25,10 +25,12 @@ import { gutterLeftAt } from './gutter'
 import { inTapMode, registerBlockMenuOpener, setTapMode } from './registry'
 import './select.css'
 
-/** How far left of the text a press still counts as "in the margin". */
-const MARGIN = 72
+/** How far left of the text a press still counts as "in the margin" (the hover handle takes its first 50px on the pointer's line). */
+const MARGIN = 104
 const LONG_PRESS = 450
 const COARSE = typeof window !== 'undefined' && !!window.matchMedia?.('(hover: none)').matches
+/** Room the pinned grip needs on a phone (select.css: 26px + 2px, and a little margin). */
+const PHONE_GRIP = 30
 
 function kindOf(node: PMNode): string {
   const level = node.type.name === 'heading' ? node.attrs.level : node.type.name === 'details' ? toggleHeadingLevel(node) : 0
@@ -75,8 +77,9 @@ export function SelectionGrip({ editor, bridge, pageId, hidden, onOpen }: Select
     const h = host.getBoundingClientRect()
     const a = first.getBoundingClientRect()
     const z = last.getBoundingClientRect()
-    // the gutter column of the hover handle (select/gutter): the same x at every level
-    const left = gutterLeftAt(editor.view, st.from) ?? a.left
+    // the gutter column of the hover handle (select/gutter): the same x at every level — on a phone at
+    // least the grip's width from the screen's edge (a wide "12." may leave less room)
+    const left = Math.max(gutterLeftAt(editor.view, st.from) ?? a.left, COARSE ? PHONE_GRIP : 0)
     setBox({ top: a.top - h.top, left: left - h.left, bottom: Math.max(a.bottom, z.bottom) - h.top, place: left > 220 && !COARSE ? 'side' : 'badge' })
   }, [st, editor])
 

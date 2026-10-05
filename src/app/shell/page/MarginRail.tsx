@@ -1,58 +1,63 @@
 /**
- * The margin rail: on wide page columns, a sticky column right of the text with the page's
- * outline (scroll-spy), its upcoming reminders, its spec readings and the pages linking here.
- * PageView decides when it shows (main column only, wide enough, no focus mode, no comment rail —
- * see page.css).
+ * The margin rail: on wide page columns, a sticky column right of the text for finding your way
+ * through the page — its outline (scroll-spy, from two headings) and its upcoming reminders. The
+ * page's readings and the pages linking here live in the footer (SpecPlate, Backlinks). PageView
+ * decides when it shows (main column only, wide enough, no focus mode, no comment rail — see
+ * page.css); while it has nothing to show, the page lays out as if it were closed (onFill).
  */
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, type ReactNode, type RefObject } from 'react'
-import type { Editor } from '@tiptap/core'
+import type { Editor, JSONContent } from '@tiptap/core'
 import { format, formatDistanceToNowStrict } from 'date-fns'
 import { de, enUS } from 'date-fns/locale'
 import { BellRing, PanelRightClose, PanelRightOpen } from 'lucide-react'
 import { useWorkspace } from '../../store/store'
-import { inTemplate, isEffectivelyTrashed, useBacklinks } from '../../store/selectors'
-import { agentLabel, collectReminders, type ReminderEntry } from '../../features'
-import { PageIcon } from '../../ui/PageIcon'
+import { inTemplate, isEffectivelyTrashed } from '../../store/selectors'
+import { collectReminders, type ReminderEntry } from '../../features'
 import { Tooltip } from '../../ui/Tooltip'
 import { useLang, useT } from '../../i18n'
-import type { Page } from '../../store/types'
-import { goToPage } from '../lib/actions'
+import type { Database, ID, Page } from '../../store/types'
 import { useKbdHint, useNow } from '../lib/hooks'
-import { Stamp, shortId, usePageReadings } from './SpecPlate'
-import { jumpToDate, jumpToHeading, scrollToBlock, useOutline, type OutlineItem } from './outline'
+import { jumpToDate, jumpToHeading, outlineOf, scrollToBlock, useOutline, type OutlineItem } from './outline'
 import { RAIL_SHORTCUT, toggleMarginRail, useMarginRailOpen } from './railPref'
 
-export function MarginRail({ page, editor }: { page: Page; editor: Editor | null }) {
+/** From how many headings the rail shows an outline. */
+const OUTLINE_MIN = 2
+
+export function MarginRail({ page, editor, onFill }: { page: Page; editor: Editor | null; onFill: (filled: boolean) => void }) {
   const t = useT()
   const open = useMarginRailOpen()
   const kbd = useKbdHint()
   const bodyId = useId()
-  const outline = useOutline(editor, open)
-  const links = useBacklinks(page.id)
-  const due = useUpcomingReminders(page, open)
-  const showOutline = outline.items.length >= 2
+  const spy = useOutline(editor, open)
+  const items = useShownOutline(page, editor)
+  const due = useUpcomingReminders(page)
+  const showOutline = items.length >= OUTLINE_MIN
+  // nothing to show: PageView lays the page out without the rail (before paint)
+  const filled = showOutline || due.length > 0
+  useLayoutEffect(() => onFill(filled), [onFill, filled])
+  const shown = open && filled
   const ref = useRef<HTMLElement>(null)
   useBesideProperties(ref, !!page.databaseId)
   let n = 0
   const no = () => String(++n).padStart(2, '0')
 
   return (
-    <aside ref={ref} className="mrail" data-open={open || undefined} aria-label={t('shell.rail.label')}>
+    <aside ref={ref} className="mrail" data-open={open || undefined} data-empty={!filled || undefined} aria-label={t('shell.rail.label')}>
       <div className="mrail__inner">
         <Tooltip label={t(open ? 'shell.rail.hide' : 'shell.rail.show')} shortcut={kbd(RAIL_SHORTCUT)} placement="left">
-          <button type="button" className="mrail__key" aria-expanded={open} aria-controls={open ? bodyId : undefined} onClick={toggleMarginRail}>
+          <button type="button" className="mrail__key" aria-expanded={open} aria-controls={shown ? bodyId : undefined} onClick={toggleMarginRail}>
             {open ? <PanelRightClose size={15} strokeWidth={1.7} /> : <PanelRightOpen size={15} strokeWidth={1.7} />}
           </button>
         </Tooltip>
-        {open && (
+        {shown && (
           <div id={bodyId} className="mrail__body">
             {showOutline && (
-              <RailSection n={no()} label={t('shell.rail.outline')} count={outline.items.length}>
+              <RailSection n={no()} label={t('shell.rail.outline')} count={items.length}>
                 <Outline
-                  items={outline.items}
-                  active={outline.active}
+                  items={items}
+                  active={spy.active}
                   onJump={(i) => {
-                    if (jumpToHeading(editor, i)) outline.pin(i)
+                    if (jumpToHeading(editor, i)) spy.pin(i)
                   }}
                 />
               </RailSection>
@@ -62,36 +67,24 @@ export function MarginRail({ page, editor }: { page: Page; editor: Editor | null
                 <Reminders list={due} editor={editor} />
               </RailSection>
             )}
-            <RailSection n={no()} label={t(page.databaseId ? 'shell.rail.entry' : 'shell.rail.page')}>
-              <Readings page={page} />
-            </RailSection>
-            {links.length > 0 && (
-              <RailSection n={no()} label={t('shell.page.linkedFrom')} count={links.length}>
-                <ul className="mrail-links">
-                  {links.map((p) => (
-                    <li key={p.id}>
-                      <a
-                        href={`#/p/${p.id}`}
-                        className="mrail-links__a"
-                        onClick={(e) => {
-                          if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return
-                          e.preventDefault()
-                          goToPage(p.id)
-                        }}
-                      >
-                        <PageIcon icon={p.icon} kind={p.kind} size={16} />
-                        <span className="mrail-links__title">{p.title.trim() || t('common.untitled')}</span>
-                      </a>
-                    </li>
-                  ))}
-                </ul>
-              </RailSection>
-            )}
           </div>
         )}
       </div>
     </aside>
   )
+}
+
+/**
+ * Before paint, without subscriptions: does the rail have anything to show for this page — an
+ * outline in its stored content or an upcoming reminder? (PageView's first layout; MarginRail
+ * follows the live document from then on.)
+ */
+export function railHasContent(page: Page): boolean {
+  if (storedOutline(page.content).length >= OUTLINE_MIN) return true
+  const s = useWorkspace.getState()
+  if (isSilent(s.pages, page.id)) return false
+  const now = Date.now()
+  return remindersOf(page, page.databaseId ? s.databases[page.databaseId] : undefined).some((r) => r.dueAt > now)
 }
 
 function RailSection({ n, label, count, children }: { n: string; label: string; count?: number; children: ReactNode }) {
@@ -142,20 +135,52 @@ function Outline({ items, active, onJump }: { items: OutlineItem[]; active: numb
   )
 }
 
+/**
+ * The outline the rail shows: the editor's document (useOutline re-renders the rail whenever its
+ * outline changes) — until the editor is ready, the stored content's, so the rail never opens empty.
+ */
+function useShownOutline(page: Page, editor: Editor | null): OutlineItem[] {
+  const stored = useMemo(() => (editor ? null : storedOutline(page.content)), [editor, page.content])
+  if (stored) return stored
+  return editor && !editor.isDestroyed ? outlineOf(editor.state.doc) : []
+}
+
+/** Non-empty headings of stored page content (TipTap JSON), by the editor's rules (outline.ts). */
+function storedOutline(content: JSONContent | null | undefined): OutlineItem[] {
+  const out: OutlineItem[] = []
+  const text = (n: JSONContent | undefined): string => (n?.text ?? '') + (n?.content ?? []).map(text).join('')
+  const levelOf = (n: JSONContent): number => {
+    if (n.type === 'heading') return Number(n.attrs?.level) || 0
+    const h = n.type === 'details' ? Number(n.attrs?.heading) : 0
+    return h >= 1 && h <= 3 ? h : 0
+  }
+  const walk = (nodes: JSONContent[] | undefined) => {
+    for (const n of nodes ?? []) {
+      const level = levelOf(n)
+      const title = level ? text(n.type === 'details' ? n.content?.[0] : n).trim() : ''
+      if (title) out.push({ level, text: title, id: (n.attrs?.id as string | null | undefined) ?? null })
+      if (n.type !== 'heading') walk(n.content)
+    }
+  }
+  walk(content?.content)
+  return out
+}
+
 /* ---------------- reminders ---------------- */
 
 const UPCOMING_MAX = 4
 
-/** The reminders of this page that are still to come, soonest first (none in templates or the trash). */
-function useUpcomingReminders(page: Page, enabled: boolean): ReminderEntry[] {
+/** Template dates are placeholders, trashed pages remind nobody (as in the inbox). */
+const isSilent = (pages: Record<ID, Page>, id: ID) => inTemplate(pages, id) || isEffectivelyTrashed(pages, id)
+
+const remindersOf = (page: Page, db: Database | undefined) => collectReminders({ [page.id]: page }, db ? { [db.id]: db } : {})
+
+/** The reminders of this page that are still to come, soonest first. */
+function useUpcomingReminders(page: Page): ReminderEntry[] {
   const db = useWorkspace((s) => (page.databaseId ? s.databases[page.databaseId] : undefined))
-  // template dates are placeholders, trashed pages remind nobody (as in the inbox)
-  const silent = useWorkspace((s) => inTemplate(s.pages, page.id) || isEffectivelyTrashed(s.pages, page.id))
+  const silent = useWorkspace((s) => isSilent(s.pages, page.id))
   const now = useNow(60_000)
-  const all = useMemo(
-    () => (enabled && !silent ? collectReminders({ [page.id]: page }, db ? { [db.id]: db } : {}) : []),
-    [enabled, silent, page, db],
-  )
+  const all = useMemo(() => (silent ? [] : remindersOf(page, db)), [silent, page, db])
   return useMemo(() => all.filter((r) => r.dueAt > now).slice(0, UPCOMING_MAX), [all, now])
 }
 
@@ -215,44 +240,4 @@ function useBesideProperties(ref: RefObject<HTMLElement | null>, isRow: boolean)
       rail.style.top = ''
     }
   }, [ref, isRow])
-}
-
-/** The spec plate's readings, as a compact list. */
-function Readings({ page }: { page: Page }) {
-  const t = useT()
-  const r = usePageReadings(page)
-  const by = useLastEditor(page)
-  const rows: Array<[string, ReactNode]> = [
-    [t('shell.spec.words'), r.words],
-    [t('shell.spec.read'), r.read],
-    [t('shell.spec.created'), <Stamp ts={page.createdAt} />],
-    [t('shell.spec.edited'), r.edited],
-    ...(by ? [[t('shell.rail.by'), by] as [string, ReactNode]] : []),
-    ['ID', shortId(page.id)],
-    ['REV', String(page.contentRev).padStart(2, '0')],
-  ]
-  return (
-    <dl className="mrail-spec">
-      {rows.map(([k, v]) => (
-        <div key={k} className="mrail-spec__row">
-          <dt>{k}</dt>
-          <dd>{v}</dd>
-        </div>
-      ))}
-    </dl>
-  )
-}
-
-/** Team workspaces: who changed the page last (a member, the public API or a webhook). */
-function useLastEditor(page: Page): string | null {
-  const t = useT()
-  const person = useWorkspace((s) => (page.updatedBy ? s.people.find((p) => p.id === page.updatedBy)?.name : undefined))
-  // a custom agent: "Agent · <name>" (also in the local workspace)
-  const agent = useWorkspace(() => agentLabel(page.updatedBy))
-  const id = page.updatedBy
-  if (!id) return null
-  if (agent) return agent
-  if (id.startsWith('api:')) return t('shell.rail.byApi')
-  if (id.startsWith('hook:')) return t('shell.rail.byWebhook')
-  return person?.trim() || null
 }

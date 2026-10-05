@@ -192,12 +192,13 @@ test.describe('block selection', () => {
   test('drag the pinned grip: the whole range moves; a drag in the margin selects blocks', async ({ page }) => {
     await openApp(page)
     const { id, ed } = await fourLines(page, 'Drag select')
-    // margin drag from Alpha to Bravo (left of the text)
+    // margin drag from Alpha to Bravo (left of the text — and of the hover handle, which stands in the
+    // gutter column on the pointer's line)
     const a = (await ed.locator('p', { hasText: 'Alpha' }).boundingBox())!
     const b = (await ed.locator('p', { hasText: 'Bravo' }).boundingBox())!
-    await page.mouse.move(a.x - 20, a.y + a.height / 2)
+    await page.mouse.move(a.x - 70, a.y + a.height / 2)
     await page.mouse.down()
-    await page.mouse.move(a.x - 20, b.y + b.height / 2, { steps: 6 })
+    await page.mouse.move(a.x - 70, b.y + b.height / 2, { steps: 6 })
     await page.mouse.up()
     await expect(ed.locator('.is-block-selected')).toHaveText(['Alpha line.', 'Bravo line.'])
 

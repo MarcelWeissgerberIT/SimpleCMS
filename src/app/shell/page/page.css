@@ -317,19 +317,17 @@
 }
 
 /* ---------- margin rail ---------- */
-/* text + rail are centred as one; the comment rail (comments.css) takes precedence over it */
+/* text + rail are centred as one; the comment rail (comments.css) takes precedence over it. An
+   empty rail (no outline, no reminders) lays out as closed: data-rail='closed', only its key shows */
 .pv[data-rail] .pv-col {
   position: relative;
+  left: 0;
   transition: left var(--dur-3) var(--ease-out);
 }
 .pv[data-rail='open']:not(:has(.one-editor[data-rail='margin'])) .pv-col {
   left: calc((var(--mr-w) + var(--mr-gap)) / -2);
 }
 .pv:has(.one-editor[data-rail='margin']) .mrail {
-  display: none;
-}
-/* what the rail shows is not repeated at the end of the page */
-.pv[data-rail='open']:not(:has(.one-editor[data-rail='margin'])) .pv-foot :is(.spec, .pv-links:not(.pv-um)) {
   display: none;
 }
 .mrail {
@@ -499,75 +497,6 @@
   background: var(--signal);
 }
 
-/* page readings: a compact rating plate */
-.mrail-spec {
-  margin: 4px 0 0;
-  font-family: var(--font-mono);
-}
-.mrail-spec__row {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 5px 0 4px;
-  border-bottom: 1px solid var(--rule);
-}
-.mrail-spec__row:last-child {
-  border-bottom: 0;
-}
-.mrail-spec dt {
-  flex: none;
-  color: var(--ink-3);
-  font-size: 9.5px;
-  letter-spacing: var(--tracking-label);
-  text-transform: uppercase;
-}
-.mrail-spec dd {
-  min-width: 0;
-  margin: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--ink);
-  font-size: 11px;
-  font-weight: 500;
-  font-variant-numeric: tabular-nums;
-  text-align: right;
-  text-transform: uppercase;
-}
-.mrail-spec .spec__time {
-  display: none;
-}
-
-.mrail-links {
-  margin: 4px 0 0;
-  padding: 0;
-  list-style: none;
-}
-.mrail-links__a {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-height: 30px;
-  margin: 0 -6px;
-  padding: 3px 6px;
-  border-radius: var(--radius-1);
-  color: var(--ink-2);
-  font-size: 13px;
-  font-weight: 520;
-  text-decoration: none;
-}
-.mrail-links__a:hover {
-  background: var(--hover);
-  color: var(--ink);
-}
-.mrail-links__title {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 /* upcoming reminders: when it rings (mono, signal bell), how soon, and the line it belongs to */
 .mrail-due {
   margin: 4px 0 0;
@@ -674,9 +603,6 @@
   }
   .pv[data-rail='open']:not(:has(.one-editor[data-rail='margin'])) .pv-col {
     left: 0;
-  }
-  .pv[data-rail='open']:not(:has(.one-editor[data-rail='margin'])) .pv-foot :is(.spec, .pv-links:not(.pv-um)) {
-    display: block;
   }
 }
 

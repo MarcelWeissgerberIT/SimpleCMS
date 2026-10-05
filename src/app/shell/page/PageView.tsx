@@ -20,7 +20,7 @@ import { SpecPlate } from './SpecPlate'
 import { consumeTitleFocus } from '../lib/actions'
 import { NotFound } from '../home/NotFound'
 import { useReadOnly } from '../cloud/state'
-import { MarginRail } from './MarginRail'
+import { MarginRail, railHasContent } from './MarginRail'
 import { scrollHostOf } from './outline'
 import { toggleMarginRail, useMarginRailOpen } from './railPref'
 import './page.css'
@@ -48,6 +48,9 @@ function PageViewInner({ page, variant }: { page: Page; variant: PageVariant }) 
   const [editor, setEditor] = useState<Editor | null>(null)
   const rail = useRail(articleRef, variant === 'main' && !wide)
   const railOpen = useMarginRailOpen()
+  // an empty rail (no outline, no reminders) leaves the text centred; the first layout reads the
+  // stored content, the rail reports the live document from then on
+  const [railFilled, setRailFilled] = useState(() => variant === 'main' && !wide && railHasContent(page))
   const focusEditor = (where: 'start' | 'end') => {
     let ed = editorRef.current
     if (!ed || ed.isDestroyed) {
@@ -69,7 +72,7 @@ function PageViewInner({ page, variant }: { page: Page; variant: PageVariant }) 
       data-small={page.settings.smallText || undefined}
       data-has-cover={page.cover ? true : undefined}
       data-locked={readOnly || undefined}
-      data-rail={rail ? (railOpen ? 'open' : 'closed') : undefined}
+      data-rail={rail ? (railOpen && railFilled ? 'open' : 'closed') : undefined}
     >
       {trashed && <TrashBanner page={page} canEdit={!viewer} />}
       {!trashed && <TemplateBanner pageId={page.id} />}
@@ -100,7 +103,7 @@ function PageViewInner({ page, variant }: { page: Page; variant: PageVariant }) 
             />
           )}
         </div>
-        {rail && <MarginRail page={page} editor={editor} />}
+        {rail && <MarginRail page={page} editor={editor} onFill={setRailFilled} />}
         {!isDb && (
           <div
             className="pv-filler"

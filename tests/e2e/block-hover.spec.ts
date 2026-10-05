@@ -1,11 +1,14 @@
 /**
- * Hover handle × block selection, and grips beside list markers:
+ * Hover handle × block selection, and the gutter column:
  *  - one grip at a time: while blocks are selected their pinned grip is the only handle (hovering other
  *    blocks adds none; Shift held shows it on unselected ones for Shift+click), a click into the text
  *    brings the hover handle back; the selection a hover-grip menu / drag leaves behind is soft (no pinned
  *    grip, the next block's handle works);
- *  - bullets, numbers, letters and checkboxes of every level keep their grip (hover and pinned) LEFT of
- *    the marker; hovering a nested item's marker or the gap left of it targets that item.
+ *  - the grips (hover and pinned) of every block stand in ONE column left of the page content, at any
+ *    depth — never on a bullet / number / checkbox or text; inside a callout, quote or column at that
+ *    container's edge;
+ *  - the target is the deepest block on the pointer's line: over a nested item's marker, the indent left
+ *    of it and in the gutter it is that item, never its parent — also on the way to the handle.
  */
 import type { Locator, Page } from '@playwright/test'
 import type { JSONContent } from '@tiptap/core'
@@ -121,28 +124,36 @@ async function moveAway(page: Page, ed: Locator) {
   await expectHandleAt(page, ed, 'Intro paragraph.')
 }
 
-test.describe('hover handle and list markers', () => {
-  test('nested lists: hovering each item shows exactly one handle, left of its own bullet / number / checkbox; the checkbox stays clickable', async ({ page }) => {
+/** Right edge of the hover handle while it stands at `text` (the gutter column there). */
+async function handleRightAt(page: Page, ed: Locator, text: string): Promise<number> {
+  const row = (await line(ed, text).boundingBox())!
+  await page.mouse.move(row.x + 30, row.y + Math.min(12, row.height / 2))
+  await expectHandleAt(page, ed, text)
+  await page.waitForTimeout(80)
+  const w = (await hoverWrap(page).boundingBox())!
+  return w.x + w.width
+}
+
+const overlaps = (a: Box, b: Box) => a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom
+const boxOf = (r: { x: number; y: number; width: number; height: number }): Box => ({ left: r.x, right: r.x + r.width, top: r.y, bottom: r.y + r.height })
+
+test.describe('the gutter column', () => {
+  test('every item of nested bullets, numbers and to-dos gets its handle in the same column as a paragraph — never on a marker or text; the checkbox stays clickable', async ({ page }) => {
     const { id, ed } = await nestedPage(page, 'Marker grips')
+    const column = await handleRightAt(page, ed, 'Intro paragraph.')
+    // a paragraph's handle ends at the page content (the text's left edge)
+    expect(Math.abs(column - (await line(ed, 'Intro paragraph.').boundingBox())!.x)).toBeLessThan(1.5)
     for (const [text, counter] of ITEMS) {
-      const row = (await line(ed, text).boundingBox())!
-      await page.mouse.move(row.x + 30, row.y + row.height / 2)
-      await expectHandleAt(page, ed, text)
+      const right = await handleRightAt(page, ed, text)
       expect(await visibleGrips(page), `one grip at "${text}"`).toBe(1)
+      expect(Math.abs(right - column), `the handle of "${text}" in the paragraphs' column`).toBeLessThan(0.75)
+      const wrap = boxOf((await hoverWrap(page).boundingBox())!)
       const marker = await markerOf(ed, text, counter)
-      const wrap = (await hoverWrap(page).boundingBox())!
-      const grip = (await page.locator('.block-handle-wrap .block-handle__grip').boundingBox())!
-      expect(wrap.x + wrap.width, `handle left of the marker of "${text}"`).toBeLessThanOrEqual(marker.left + 0.5)
-      // the same small gap as in front of a paragraph's text (the handle's 6px padding)
-      expect(marker.left - (grip.x + grip.width), `gap at "${text}"`).toBeGreaterThanOrEqual(5)
-      expect(marker.left - (grip.x + grip.width), `gap at "${text}"`).toBeLessThanOrEqual(8)
+      const textBox = boxOf((await line(ed, text).boundingBox())!)
+      expect(overlaps(wrap, marker), `handle clear of the marker of "${text}"`).toBe(false)
+      expect(overlaps(wrap, textBox), `handle clear of the text of "${text}"`).toBe(false)
+      expect(wrap.right).toBeLessThanOrEqual(marker.left + 0.5)
     }
-    // a paragraph keeps its place: the handle ends at the text
-    const intro = (await line(ed, 'Intro paragraph.').boundingBox())!
-    await page.mouse.move(intro.x + 30, intro.y + intro.height / 2)
-    await expectHandleAt(page, ed, 'Intro paragraph.')
-    const wrap = (await hoverWrap(page).boundingBox())!
-    expect(Math.abs(wrap.x + wrap.width - intro.x)).toBeLessThan(1.5)
 
     // the checkbox of a hovered nested to-do is not covered: a click toggles it
     const child = (await line(ed, 'Task child').boundingBox())!
@@ -158,39 +169,99 @@ test.describe('hover handle and list markers', () => {
       .toBe(true)
   })
 
-  test('the marker of a nested item and the gap left of it target that item, not its parent', async ({ page }) => {
+  test('on a nested item\'s row its marker, the indent left of it and the gutter target that item, not its parent', async ({ page }) => {
     const { ed } = await nestedPage(page, 'Nested targets')
+    const column = await handleRightAt(page, ed, 'Intro paragraph.')
+    const content = (await line(ed, 'Intro paragraph.').boundingBox())!.x
     for (const [text, counter] of [['Child two'], ['Sub b', 'b'], ['Task child']] as [string, string?][]) {
       const marker = await markerOf(ed, text, counter)
       const y = (marker.top + marker.bottom) / 2
-      for (const x of [(marker.left + marker.right) / 2, marker.left - 4, marker.left - 14]) {
+      // the marker, just left of it, the parent's indent, the content's edge, the gutter (left of the handle's place too)
+      for (const x of [(marker.left + marker.right) / 2, marker.left - 4, marker.left - 14, content + 2, column - 3, column - 30, column - 56]) {
         await moveAway(page, ed)
         await page.mouse.move(x, y)
         await expectHandleAt(page, ed, text)
       }
-      // and its first line's start, where the library used to hand over to the parent
+      // and its first line's start, where the drag-handle library used to hand over to the parent
       const row = (await line(ed, text).boundingBox())!
       await moveAway(page, ed)
       await page.mouse.move(row.x + 3, row.y + 4)
       await expectHandleAt(page, ed, text)
     }
   })
+
+  test('down the gutter the handle follows the pointer row by row — each row\'s own (deepest) item; beyond the gutter it goes', async ({ page }) => {
+    const { ed } = await nestedPage(page, 'Gutter walk')
+    const column = await handleRightAt(page, ed, 'Intro paragraph.')
+    const rows = ['Intro paragraph.', 'Parent item', 'Child one', 'Child two', 'Second parent', 'First number', 'Sub a', 'Sub b', 'Second number', 'Task parent', 'Task child', 'Task two', 'Closing paragraph.']
+    let y = (await line(ed, rows[0]).boundingBox())!.y
+    for (const text of rows) {
+      const row = (await line(ed, text).boundingBox())!
+      const to = row.y + row.height / 2
+      await page.mouse.move(column - 58, y)
+      await page.mouse.move(column - 58, to, { steps: 4 })
+      y = to
+      await expectHandleAt(page, ed, text)
+      expect(await visibleGrips(page)).toBe(1)
+    }
+    // further left than the gutter: the handle goes
+    await page.mouse.move(column - 140, y, { steps: 4 })
+    await expect(hoverWrap(page)).toBeHidden()
+  })
+
+  test('containers: a callout\'s, a quote\'s and a column\'s blocks have their grips at the container\'s edge (the gutter there is the container\'s); a toggle\'s content uses the page column', async ({ page }) => {
+    await openApp(page)
+    const id = await createPage(page, {
+      title: 'Containers',
+      content: doc(
+        para('Before the boxes.'),
+        { type: 'callout', attrs: { icon: '💡', color: 'gray' }, content: [para('Inside the callout.')] },
+        { type: 'blockquote', content: [para('A quoted line.')] },
+        { type: 'details', attrs: { open: true }, content: [{ type: 'detailsSummary', content: [{ type: 'text', text: 'Toggle title' }] }, { type: 'detailsContent', content: [para('Toggle body.')] }] },
+        { type: 'columns', content: [{ type: 'column', content: [para('Left column.')] }, { type: 'column', content: [para('Right column.')] }] },
+        para('After the boxes.'),
+      ),
+    })
+    await gotoPage(page, id)
+    const ed = editorOf(page, id)
+    await expect(ed.locator('p', { hasText: 'After the boxes.' })).toBeVisible()
+    const kind = () => page.locator('.block-handle-wrap .block-handle').getAttribute('data-kind')
+    const column = await handleRightAt(page, ed, 'Before the boxes.')
+    for (const text of ['Inside the callout.', 'A quoted line.', 'Right column.']) {
+      const right = await handleRightAt(page, ed, text)
+      expect(Math.abs(right - (await line(ed, text).boundingBox())!.x), `the handle of "${text}" at its container's edge`).toBeLessThan(1.5)
+      expect(await kind()).toBe('paragraph')
+    }
+    // the page gutter on the callout's line: the callout itself
+    const callout = (await line(ed, 'Inside the callout.').boundingBox())!
+    await page.mouse.move(column - 30, callout.y + callout.height / 2)
+    await expect.poll(kind).toBe('callout')
+    const wrap = (await hoverWrap(page).boundingBox())!
+    expect(Math.abs(wrap.x + wrap.width - column)).toBeLessThan(0.75)
+    // a toggle's content: the page column
+    const body = await handleRightAt(page, ed, 'Toggle body.')
+    expect(Math.abs(body - column)).toBeLessThan(0.75)
+    expect(await kind()).toBe('paragraph')
+  })
 })
 
 test.describe('one grip at a time', () => {
-  test('a selected nested item: its pinned grip beside the marker is the only grip; other blocks show none (Shift shows one to extend); a click into the text brings hover back', async ({ page }) => {
+  test('a selected nested item: its pinned grip in the gutter column is the only grip; other blocks show none (Shift shows one to extend); a click into the text brings hover back', async ({ page }) => {
     const { ed } = await nestedPage(page, 'One grip')
     await line(ed, 'Child one').click()
     await page.keyboard.press('Escape')
     await expect(ed.locator('.is-block-selected')).toHaveText(['Child one'])
     await expect(pinned(page)).toBeVisible()
-    const bullet = await markerOf(ed, 'Child one')
+    // the pinned grip stands in the gutter column — where a paragraph's handle is — on the item's line
+    const intro = (await line(ed, 'Intro paragraph.').boundingBox())!
     const sel = (await pinned(page).boundingBox())!
-    expect(sel.x + sel.width).toBeLessThanOrEqual(bullet.left + 0.5)
+    expect(Math.abs(sel.x + sel.width - intro.x)).toBeLessThan(0.75)
     expect(Math.abs(sel.y - (await line(ed, 'Child one').boundingBox())!.y)).toBeLessThan(10)
-    // the gutter rule runs between the grip and the bullet
+    const bullet = await markerOf(ed, 'Child one')
+    expect(overlaps(boxOf(sel), bullet)).toBe(false)
+    // the gutter rule runs between the grip and the content
     const rule = (await page.locator('.sel-rule').boundingBox())!
-    expect(rule.x + rule.width).toBeLessThanOrEqual(bullet.left)
+    expect(rule.x + rule.width).toBeLessThanOrEqual(intro.x)
 
     // hovering another block, the selected one, a nested sibling: still just the pinned grip
     for (const text of ['Intro paragraph.', 'Child one', 'Child two', 'Second parent', 'Task child']) {
@@ -222,8 +293,9 @@ test.describe('one grip at a time', () => {
     expect(await visibleGrips(page)).toBe(1)
   })
 
-  test('selected numbered and to-do items: the pinned grip sits left of the number / checkbox; Esc leaves, hover works again', async ({ page }) => {
+  test('selected numbered and to-do items: the pinned grip sits in the gutter column, clear of the number / checkbox; Esc leaves, hover works again', async ({ page }) => {
     const { id, ed } = await nestedPage(page, 'Pinned markers')
+    const column = (await line(ed, 'Intro paragraph.').boundingBox())!.x
     for (const [text, counter] of [['Sub a', 'a'], ['Second number', '2'], ['Task child'], ['Task parent']] as [string, string?][]) {
       await line(ed, text).click()
       await page.keyboard.press('Escape')
@@ -231,7 +303,8 @@ test.describe('one grip at a time', () => {
       await page.mouse.move(5, 450)
       const marker = await markerOf(ed, text, counter)
       const grip = (await pinned(page).boundingBox())!
-      expect(grip.x + grip.width, `pinned grip left of the marker of "${text}"`).toBeLessThanOrEqual(marker.left + 0.5)
+      expect(Math.abs(grip.x + grip.width - column), `pinned grip of "${text}" in the gutter column`).toBeLessThan(0.75)
+      expect(grip.x + grip.width).toBeLessThanOrEqual(marker.left + 0.5)
       expect(Math.abs(grip.y - (await line(ed, text).boundingBox())!.y)).toBeLessThan(10)
       await page.keyboard.press('Escape')
       await expect(pinned(page)).toHaveCount(0)
@@ -390,16 +463,22 @@ test.describe('nested bullets inside a numbered item', () => {
     return { id, ed, bullets }
   }
 
-  test('from the text of a nested bullet (and one level deeper) straight left to its grip: the handle never jumps to "12."; its menu acts on that bullet', async ({ page }) => {
+  test('from the text of a nested bullet (and one level deeper) straight left to its grip in the gutter: the handle never jumps to "12."; its menu acts on that bullet', async ({ page }) => {
     const { ed, bullets } = await protocol(page)
+    // the gutter column: where the first paragraph's handle ends, left of the wide "12."
+    const column = await handleRightAt(page, ed, 'Protokoll')
+    const twelve = await markerOf(ed, 'Loop über die DWP 1–4, je Platte 7 Blöcke:', '12')
+    expect(column).toBeLessThanOrEqual(twelve.left + 0.5)
     for (const text of ['Multi-Dispense 3 × 250 µl, Spitze bleibt im Kanal.', 'Spitzen nach Block 4 wechseln.', '750 µl aspirieren reverse.', 'Loop über die DWP 1–4, je Platte 7 Blöcke:']) {
       const h = (await line(ed, text).boundingBox())!.height
       for (const dy of [5, h / 2, h - 3]) await sweepToGrip(page, ed, text, dy)
-      // its handle stands left of its own marker
+      // its handle stands in the gutter column, clear of its marker and text
       const counter = text.startsWith('Loop') ? '12' : undefined
       const marker = await markerOf(ed, text, counter)
-      const wrap = (await hoverWrap(page).boundingBox())!
-      expect(wrap.x + wrap.width).toBeLessThanOrEqual(marker.left + 0.5)
+      const wrap = boxOf((await hoverWrap(page).boundingBox())!)
+      expect(Math.abs(wrap.right - column)).toBeLessThan(0.75)
+      expect(overlaps(wrap, marker)).toBe(false)
+      expect(overlaps(wrap, boxOf((await line(ed, text).boundingBox())!))).toBe(false)
     }
     // the grip reached from the text opens the menu of THAT bullet: Duplicate copies it, not "12."
     await sweepToGrip(page, ed, 'Multi-Dispense 3 × 250 µl, Spitze bleibt im Kanal.', 12)
@@ -418,17 +497,17 @@ test.describe('nested bullets inside a numbered item', () => {
       ])
   })
 
-  test('Esc in a nested bullet selects that bullet (not "12."), the pinned grip stands beside its marker, Shift+click extends among its siblings', async ({ page }) => {
+  test('Esc in a nested bullet selects that bullet (not "12."), the pinned grip stands in the gutter column, Shift+click extends among its siblings', async ({ page }) => {
     const { ed } = await protocol(page)
+    const column = await handleRightAt(page, ed, 'Protokoll')
     await line(ed, 'Multi-Dispense 3 × 250 µl, Spitze bleibt im Kanal.').click()
     await page.keyboard.press('Escape')
     const selected = ed.locator('.is-block-selected')
     await expect(selected).toHaveCount(1)
     await expect(selected).toHaveText(/^Multi-Dispense/)
     await expect(pinned(page)).toBeVisible()
-    const bullet = await markerOf(ed, 'Multi-Dispense 3 × 250 µl, Spitze bleibt im Kanal.')
     const grip = (await pinned(page).boundingBox())!
-    expect(grip.x + grip.width).toBeLessThanOrEqual(bullet.left + 0.5)
+    expect(Math.abs(grip.x + grip.width - column)).toBeLessThan(0.75)
     expect(Math.abs(grip.y - (await line(ed, 'Multi-Dispense 3 × 250 µl, Spitze bleibt im Kanal.').boundingBox())!.y)).toBeLessThan(10)
     expect(await visibleGrips(page)).toBe(1)
 
@@ -437,17 +516,19 @@ test.describe('nested bullets inside a numbered item', () => {
     await expect(selected.nth(0)).toHaveText(/^Multi-Dispense/)
     await expect(selected.nth(1)).toHaveText('Rest mit Blowout verwerfen.')
     await expect(page.getByTestId('selection-count')).toHaveText('2 blocks · Esc')
-    // the pinned grip stays at the first, beside its bullet
+    // the pinned grip stays at the first, in the column
     const again = (await pinned(page).boundingBox())!
-    expect(again.x + again.width).toBeLessThanOrEqual(bullet.left + 0.5)
+    expect(Math.abs(again.x + again.width - column)).toBeLessThan(0.75)
+    expect(Math.abs(again.y - grip.y)).toBeLessThan(1)
 
     // one level deeper: Esc there selects the deeper bullet only
     await page.keyboard.press('Escape')
     await line(ed, 'Spitzen nach Block 4 wechseln.').click()
     await page.keyboard.press('Escape')
     await expect(selected).toHaveText(['Spitzen nach Block 4 wechseln.'])
-    const deep = await markerOf(ed, 'Spitzen nach Block 4 wechseln.')
-    expect((await pinned(page).boundingBox())!.x + (await pinned(page).boundingBox())!.width).toBeLessThanOrEqual(deep.left + 0.5)
+    const deep = (await pinned(page).boundingBox())!
+    expect(Math.abs(deep.x + deep.width - column)).toBeLessThan(0.75)
+    expect(Math.abs(deep.y - (await line(ed, 'Spitzen nach Block 4 wechseln.').boundingBox())!.y)).toBeLessThan(10)
   })
 
   test('drag a nested bullet by its grip within the list under "12."', async ({ page }) => {
@@ -465,33 +546,33 @@ test.describe('nested bullets inside a numbered item', () => {
       .toEqual(['Rest mit Blowout verwerfen.', '750 µl aspirieren reverse.', 'Multi-Dispense 3 × 250 µl, Spitze bleibt im Kanal.Spitzen nach Block 4 wechseln.'])
   })
 
-  test('to-dos inside a numbered item: grip left of the checkbox and reachable, Esc selects the to-do, Shift+click extends', async ({ page }) => {
+  test('to-dos inside a numbered item: grip in the gutter column and reachable, Esc selects the to-do, Shift+click extends', async ({ page }) => {
     const { ed } = await protocol(page)
+    const column = await handleRightAt(page, ed, 'Protokoll')
     for (const text of ['Deckel drauf', 'Etikett geschrieben']) {
       const h = (await line(ed, text).boundingBox())!.height
       for (const dy of [5, h / 2]) await sweepToGrip(page, ed, text, dy)
-      const box = await markerOf(ed, text)
-      const wrap = (await hoverWrap(page).boundingBox())!
-      expect(wrap.x + wrap.width).toBeLessThanOrEqual(box.left + 0.5)
+      const wrap = boxOf((await hoverWrap(page).boundingBox())!)
+      expect(Math.abs(wrap.right - column)).toBeLessThan(0.75)
+      expect(overlaps(wrap, await markerOf(ed, text))).toBe(false)
     }
     await line(ed, 'Deckel drauf').click()
     await page.keyboard.press('Escape')
     // (a to-do's text carries its checkbox label: "To-do: …")
     const selected = ed.locator('.is-block-selected')
     await expect(selected).toHaveText([/Deckel drauf$/])
-    const box = await markerOf(ed, 'Deckel drauf')
     const grip = (await pinned(page).boundingBox())!
-    expect(grip.x + grip.width).toBeLessThanOrEqual(box.left + 0.5)
+    expect(Math.abs(grip.x + grip.width - column)).toBeLessThan(0.75)
     await line(ed, 'Etikett geschrieben').click({ modifiers: ['Shift'] })
     await expect(selected).toHaveText([/Deckel drauf$/, /Etikett geschrieben$/])
     await expect(page.getByTestId('selection-count')).toHaveText('2 blocks · Esc')
   })
 })
 
-test.describe('grips beside markers on a phone', () => {
+test.describe('the gutter column on a phone', () => {
   test.use({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true })
 
-  test('long-press selects a nested item: the pinned grip stands in the parent\'s indent, left of the bullet, on screen', async ({ page, context }) => {
+  test('long-press selects a nested item: the pinned grip stands in the phone\'s left padding, clear of the bullet, on screen', async ({ page, context }) => {
     const { ed } = await nestedPage(page, 'Phone markers')
     await line(ed, 'Child one').tap()
     const touchGrip = page.locator('.touch-grip')
@@ -507,7 +588,8 @@ test.describe('grips beside markers on a phone', () => {
     const grip = (await pinned(page).boundingBox())!
     const bullet = await markerOf(ed, 'Child one')
     expect(grip.x).toBeGreaterThanOrEqual(0)
-    expect(grip.x + grip.width).toBeLessThanOrEqual(bullet.left + 0.5)
+    expect(overlaps(boxOf(grip), bullet)).toBe(false)
+    expect(grip.x + grip.width).toBeLessThanOrEqual((await line(ed, 'Intro paragraph.').boundingBox())!.x + 0.5)
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390)
   })
 })
