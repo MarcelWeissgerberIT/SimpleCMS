@@ -888,6 +888,16 @@
   font-weight: 500;
   font-variant-numeric: tabular-nums;
 }
+/* "by Agent · Triage": who edited last, under the time (team pages, agents, API) */
+.spec__by {
+  display: block;
+  margin-top: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--ink-3);
+  font-size: 10.5px;
+  font-weight: 400;
+}
 @container (max-width: 720px) {
   .spec__grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));

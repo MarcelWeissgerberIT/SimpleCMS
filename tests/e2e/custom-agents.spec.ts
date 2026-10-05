@@ -7,7 +7,7 @@
  * refusals; budget stop; MCP server names; two tabs → one runner.
  */
 import type { BrowserContext, Page } from '@playwright/test'
-import { test, expect, openApp, pageIdByTitle, wsEval, uiEval, flush, reloadApp, waitForApp } from './fixtures'
+import { test, expect, openApp, pageIdByTitle, wsEval, uiEval, flush, reloadApp, waitForApp, gotoPage } from './fixtures'
 
 type AnyState = Record<string, any> // eslint-disable-line @typescript-eslint/no-explicit-any
 type Block = { type: 'text'; text: string } | { type: 'tool_use'; id: string; name: string; input: Record<string, unknown> }
@@ -266,6 +266,9 @@ test.describe('Custom agents', () => {
     await expect(page.locator('.agx-run').first()).toHaveAttribute('data-status', 'ok', { timeout: 20_000 })
     await expect.poll(() => wsEval(page, (s, id) => s.pages[id].plain as string, wiki)).toContain('Onboarding checklist reviewed.')
     expect(await wsEval(page, (s, id) => s.pages[id].updatedBy, wiki)).toBe(`agent:${id}`)
+    // the page's spec plate names the agent as the last editor
+    await gotoPage(page, wiki)
+    await expect(page.locator('#main .spec .spec__by')).toHaveText('by Agent · Wiki keeper')
     const [rec] = await waitRuns(page, id, 1)
     expect(rec.applied).toBe(1)
     expect(rec.staged[0].status).toBe('applied')

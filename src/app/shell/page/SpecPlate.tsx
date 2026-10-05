@@ -5,6 +5,7 @@ import type { Page } from '../../store/types'
 import { useRowCount } from '../../store/selectors'
 import { fmtNumber, fmtRelative, fmtStamp, plural, readingTime, wordCount } from '../lib/format'
 import { useNow } from '../lib/hooks'
+import { agentLabel } from '../../features'
 
 /** "ABCD·1234": the short, readable form of a page id. */
 const shortId = (id: string) => `${id.slice(0, 4).toUpperCase()}·${id.slice(4, 8).toUpperCase()}`
@@ -34,17 +35,40 @@ function usePageReadings(page: Page): { words: string; read: string; edited: str
   }
 }
 
+/**
+ * Who changed the page last: a member's name (team), "Agent · <name>", API or webhook — null locally
+ * (`page.updatedBy` is absent there) and when the person is unknown.
+ */
+function useLastEditor(page: Page): string | null {
+  const t = useT()
+  const id = page.updatedBy
+  const person = useWorkspace((s) => (id ? s.people.find((p) => p.id === id)?.name : undefined))
+  if (!id) return null
+  const agent = agentLabel(id)
+  if (agent) return agent
+  if (id.startsWith('api:')) return t('shell.spec.byApi')
+  if (id.startsWith('hook:')) return t('shell.spec.byWebhook')
+  return person?.trim() || null
+}
+
 /** The instrument "rating plate" at the end of every page (the margin rail never repeats it). */
 export function SpecPlate({ page }: { page: Page }) {
   const t = useT()
   const lang = useLang()
   const readings = usePageReadings(page)
+  const by = useLastEditor(page)
   const isDb = page.kind === 'database'
   const db = useWorkspace((s) => (isDb ? s.databases[page.id] : undefined))
   const rows = useRowCount(isDb ? page.id : null)
   const cells: Array<[string, ReactNode]> = [
     [t('shell.spec.created'), <Stamp ts={page.createdAt} />],
-    [t('shell.spec.edited'), readings.edited],
+    [
+      t('shell.spec.edited'),
+      <>
+        {readings.edited}
+        {by && <span className="spec__by">{t('shell.spec.by', { name: by })}</span>}
+      </>,
+    ],
     ...(isDb
       ? ([
           [t('shell.spec.rows'), fmtNumber(rows, lang)],
