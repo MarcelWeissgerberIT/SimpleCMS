@@ -232,6 +232,9 @@ test.describe('Notion blocks', () => {
 
     // keyboard: select the block, Tab reaches its keys
     await viewer.locator('.pdf-view__bar').click({ position: { x: 4, y: 4 } })
+    // the bar's keys in order: Claude (AI) first, then "Show as file"
+    await page.keyboard.press('Tab')
+    await expect(viewer.getByRole('button', { name: /Claude/ }).first()).toBeFocused()
     await page.keyboard.press('Tab')
     await expect(viewer.getByRole('button', { name: 'Show as file' })).toBeFocused()
     await page.keyboard.press('Enter')

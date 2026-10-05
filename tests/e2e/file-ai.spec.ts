@@ -487,7 +487,8 @@ test.describe('Claude for files', () => {
       await option(page, /Upload a copy/).click()
       await (await chooser).setFiles({ name: PDF.name, mimeType: 'application/pdf', buffer: Buffer.from(PDF.bytes) })
       await expect(ai).toContainText('To do:')
-      expect((await blocksOf(page, id)).find((b) => b.type === 'fileBlock')?.attrs?.src).toMatch(/^onefile:/)
+      // the copy's src reaches the store with the editor's next save
+      await expect.poll(async () => (await blocksOf(page, id)).find((b) => b.type === 'fileBlock')?.attrs?.src).toMatch(/^onefile:/)
       expect(claude.bodies[0].messages[0].content[0].source.data).toBe(b64(PDF.bytes))
     } finally {
       server.close()
