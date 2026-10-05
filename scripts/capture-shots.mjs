@@ -622,7 +622,7 @@ const shots = {
     ids.meeting = await openPage(page, 'Weekly sync — notes')
     ids.projects = await pageIdByTitle(page, 'Projects')
     await page.keyboard.press('Control+j')
-    const panel = page.getByRole('dialog', { name: 'Agent' })
+    const panel = page.getByRole('region', { name: 'AI terminal' })
     await panel.waitFor()
     const field = panel.getByRole('textbox', { name: 'Task for the agent' })
     await field.fill(AGENT_TASK)
