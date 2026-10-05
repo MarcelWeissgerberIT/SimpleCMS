@@ -87,6 +87,18 @@ function markerOf(ed: Locator, text: string, counter?: string): Promise<Box> {
   )
 }
 
+/**
+ * Click into the line `text` and select its block with Esc — once the caret is in it (the editor picks a
+ * click's caret up from the browser a moment later; an Esc before that would select the previous block).
+ */
+async function escSelect(page: Page, ed: Locator, text: string) {
+  await line(ed, text).click()
+  await expect
+    .poll(() => ed.evaluate((el) => (el as HTMLElement & { editor: AnyState }).editor.state.selection.$from.parent.textContent as string), { message: `caret in "${text}"` })
+    .toBe(text)
+  await page.keyboard.press('Escape')
+}
+
 /** Grips on screen: the hover handle's and the pinned one of a selection. */
 const visibleGrips = (page: Page) =>
   page.evaluate(
@@ -123,6 +135,9 @@ async function moveAway(page: Page, ed: Locator) {
   await page.mouse.move(b.x + 60, b.y + b.height / 2)
   await expectHandleAt(page, ed, 'Intro paragraph.')
 }
+
+/** Two animation frames: the drag-handle plugin resolves the pointer on the next one. */
+const frames = (page: Page) => page.evaluate(() => new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r()))))
 
 /** Right edge of the hover handle while it stands at `text` (the gutter column there). */
 async function handleRightAt(page: Page, ed: Locator, text: string): Promise<number> {
@@ -209,7 +224,7 @@ test.describe('the gutter column', () => {
     await expect(hoverWrap(page)).toBeHidden()
   })
 
-  test('containers: a callout\'s, a quote\'s and a column\'s blocks have their grips at the container\'s edge (the gutter there is the container\'s); a toggle\'s content uses the page column', async ({ page }) => {
+  test('containers: callouts, quotes and toggles use the page column (over a callout\'s icon the callout is the target, also on the way left to its grip); a later column has a grip-only handle in its gap', async ({ page }) => {
     await openApp(page)
     const id = await createPage(page, {
       title: 'Containers',
@@ -227,29 +242,41 @@ test.describe('the gutter column', () => {
     await expect(ed.locator('p', { hasText: 'After the boxes.' })).toBeVisible()
     const kind = () => page.locator('.block-handle-wrap .block-handle').getAttribute('data-kind')
     const column = await handleRightAt(page, ed, 'Before the boxes.')
-    for (const text of ['Inside the callout.', 'A quoted line.', 'Right column.']) {
+    // the blocks inside: the page column — clear of the callout's icon and the quote's bar
+    for (const [text, chrome] of [['Inside the callout.', '.callout'], ['A quoted line.', 'blockquote'], ['Toggle body.', '[data-type="details"]']]) {
       const right = await handleRightAt(page, ed, text)
-      expect(Math.abs(right - (await line(ed, text).boundingBox())!.x), `the handle of "${text}" at its container's edge`).toBeLessThan(1.5)
+      expect(Math.abs(right - column), `the handle of "${text}" in the page column`).toBeLessThan(0.75)
       expect(await kind()).toBe('paragraph')
+      const box = (await ed.locator(chrome).first().boundingBox())!
+      const grip = (await page.locator('.block-handle-wrap .block-handle__grip').boundingBox())!
+      expect(grip.x + grip.width, `the grip of "${text}" left of its ${chrome}`).toBeLessThanOrEqual(box.x)
     }
-    // the page gutter on the callout's line: the callout itself
-    const callout = (await line(ed, 'Inside the callout.').boundingBox())!
-    await page.mouse.move(column - 30, callout.y + callout.height / 2)
+    // the callout's icon: the callout — straight left onto its grip it stays the callout
+    const icon = (await ed.locator('.callout__icon').boundingBox())!
+    const y = icon.y + icon.height / 2
+    await page.mouse.move(icon.x + icon.width / 2, y)
     await expect.poll(kind).toBe('callout')
-    const wrap = (await hoverWrap(page).boundingBox())!
-    expect(Math.abs(wrap.x + wrap.width - column)).toBeLessThan(0.75)
-    // a toggle's content: the page column
-    const body = await handleRightAt(page, ed, 'Toggle body.')
-    expect(Math.abs(body - column)).toBeLessThan(0.75)
-    expect(await kind()).toBe('paragraph')
+    for (let x = icon.x + icon.width / 2; ; x -= 4) {
+      expect(x).toBeGreaterThan(column - 70)
+      await page.mouse.move(x, y)
+      await frames(page)
+      expect(await kind(), `the callout's handle with the pointer at ${Math.round(x - column)}`).toBe('callout')
+      if (await page.evaluate(([x, y]) => !!document.elementFromPoint(x, y)?.closest('.block-handle-wrap'), [x, y] as const)) break
+    }
+    // a later column: grip only, in the gap between the columns, clear of the left one
+    const right = await handleRightAt(page, ed, 'Right column.')
+    expect(Math.abs(right - (await line(ed, 'Right column.').boundingBox())!.x)).toBeLessThan(1.5)
+    await expect(page.locator('.block-handle-wrap .block-handle__grip')).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Add block below' })).toBeHidden()
+    const wrap = boxOf((await hoverWrap(page).boundingBox())!)
+    expect(overlaps(wrap, boxOf((await line(ed, 'Left column.').boundingBox())!))).toBe(false)
   })
 })
 
 test.describe('one grip at a time', () => {
   test('a selected nested item: its pinned grip in the gutter column is the only grip; other blocks show none (Shift shows one to extend), on the selected one the hover handle takes its place; a click into the text brings hover back', async ({ page }) => {
     const { ed } = await nestedPage(page, 'One grip')
-    await line(ed, 'Child one').click()
-    await page.keyboard.press('Escape')
+    await escSelect(page, ed, 'Child one')
     await expect(ed.locator('.is-block-selected')).toHaveText(['Child one'])
     await expect(pinned(page)).toBeVisible()
     // the pinned grip stands in the gutter column — where a paragraph's handle is — on the item's line
@@ -308,8 +335,7 @@ test.describe('one grip at a time', () => {
     const { id, ed } = await nestedPage(page, 'Pinned markers')
     const column = (await line(ed, 'Intro paragraph.').boundingBox())!.x
     for (const [text, counter] of [['Sub a', 'a'], ['Second number', '2'], ['Task child'], ['Task parent']] as [string, string?][]) {
-      await line(ed, text).click()
-      await page.keyboard.press('Escape')
+      await escSelect(page, ed, text)
       await expect(ed.locator('.is-block-selected').first()).toContainText(text)
       await page.mouse.move(5, 450)
       const marker = await markerOf(ed, text, counter)
@@ -321,8 +347,7 @@ test.describe('one grip at a time', () => {
       await expect(pinned(page)).toHaveCount(0)
     }
     // the checkbox of a selected to-do still toggles
-    await line(ed, 'Task child').click()
-    await page.keyboard.press('Escape')
+    await escSelect(page, ed, 'Task child')
     const box = await markerOf(ed, 'Task child')
     await page.mouse.click((box.left + box.right) / 2, (box.top + box.bottom) / 2)
     await expect
@@ -354,8 +379,7 @@ test.describe('one grip at a time', () => {
     await expect.poll(texts).toEqual(['Alpha block', 'Beta block', 'Delta block'])
 
     // a deliberate selection (Esc) is hard: the pinned grip, no hover handle elsewhere …
-    await ed.locator('p', { hasText: 'Alpha block' }).click()
-    await page.keyboard.press('Escape')
+    await escSelect(page, ed, 'Alpha block')
     await expect(pinned(page)).toBeVisible()
     const delta = (await ed.locator('p', { hasText: 'Delta block' }).boundingBox())!
     await page.mouse.move(delta.x + 30, delta.y + delta.height / 2)
@@ -427,9 +451,6 @@ const PROTOCOL = doc(
   },
   para('Ende.'),
 )
-
-/** Two animation frames: the drag-handle plugin resolves the pointer on the next one. */
-const frames = (page: Page) => page.evaluate(() => new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r()))))
 
 /**
  * Move from the item's text straight left (4px steps) at `dy` into its first line until the pointer is
@@ -511,8 +532,7 @@ test.describe('nested bullets inside a numbered item', () => {
   test('Esc in a nested bullet selects that bullet (not "12."), the pinned grip stands in the gutter column, Shift+click extends among its siblings', async ({ page }) => {
     const { ed } = await protocol(page)
     const column = await handleRightAt(page, ed, 'Protokoll')
-    await line(ed, 'Multi-Dispense 3 × 250 µl, Spitze bleibt im Kanal.').click()
-    await page.keyboard.press('Escape')
+    await escSelect(page, ed, 'Multi-Dispense 3 × 250 µl, Spitze bleibt im Kanal.')
     const selected = ed.locator('.is-block-selected')
     await expect(selected).toHaveCount(1)
     await expect(selected).toHaveText(/^Multi-Dispense/)
@@ -534,8 +554,7 @@ test.describe('nested bullets inside a numbered item', () => {
 
     // one level deeper: Esc there selects the deeper bullet only
     await page.keyboard.press('Escape')
-    await line(ed, 'Spitzen nach Block 4 wechseln.').click()
-    await page.keyboard.press('Escape')
+    await escSelect(page, ed, 'Spitzen nach Block 4 wechseln.')
     await expect(selected).toHaveText(['Spitzen nach Block 4 wechseln.'])
     const deep = (await pinned(page).boundingBox())!
     expect(Math.abs(deep.x + deep.width - column)).toBeLessThan(0.75)
@@ -567,8 +586,7 @@ test.describe('nested bullets inside a numbered item', () => {
       expect(Math.abs(wrap.right - column)).toBeLessThan(0.75)
       expect(overlaps(wrap, await markerOf(ed, text))).toBe(false)
     }
-    await line(ed, 'Deckel drauf').click()
-    await page.keyboard.press('Escape')
+    await escSelect(page, ed, 'Deckel drauf')
     // (a to-do's text carries its checkbox label: "To-do: …")
     const selected = ed.locator('.is-block-selected')
     await expect(selected).toHaveText([/Deckel drauf$/])

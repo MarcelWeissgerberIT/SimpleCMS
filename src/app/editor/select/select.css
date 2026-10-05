@@ -28,6 +28,11 @@
   visibility: hidden;
 }
 
+/* in a later column's gap (select/gutter): grip only */
+.sel-grip[data-compact] .sel-grip__plus {
+  display: none;
+}
+
 /* own classes (not .block-handle__btn): the hover handle and this grip stay apart for scripts and tests */
 .sel-grip__btn {
   display: grid;

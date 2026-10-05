@@ -21,7 +21,7 @@ import type { Bridge } from '../lib/bridge'
 import { toggleHeadingLevel } from '../schema/toggle'
 import { useContextPicking } from '../context/read'
 import { blockSelectionAt, extendSelection, isBlockSelection, readBlockSel } from './model'
-import { gutterLeftAt } from './gutter'
+import { gutterAt } from './gutter'
 import { inTapMode, registerBlockMenuOpener, setTapMode } from './registry'
 import './select.css'
 
@@ -43,6 +43,8 @@ interface Box {
   bottom: number
   /** the count: a chip beside the grip (room in the margin), else a badge on the grip */
   place: 'side' | 'badge'
+  /** in a later column's gap: grip only (select/gutter) */
+  compact: boolean
 }
 
 export interface SelectionGripProps {
@@ -81,8 +83,10 @@ export function SelectionGrip({ editor, bridge, pageId, hidden, covered, onOpen 
     const z = last.getBoundingClientRect()
     // the gutter column of the hover handle (select/gutter): the same x at every level — on a phone at
     // least the grip's width from the screen's edge (a wide "12." may leave less room)
-    const left = Math.max(gutterLeftAt(editor.view, st.from) ?? a.left, COARSE ? PHONE_GRIP : 0)
-    setBox({ top: a.top - h.top, left: left - h.left, bottom: Math.max(a.bottom, z.bottom) - h.top, place: left > 220 && !COARSE ? 'side' : 'badge' })
+    const gutter = gutterAt(editor.view, st.from)
+    const left = Math.max(gutter.x, COARSE ? PHONE_GRIP : 0)
+    const place = left > 220 && !COARSE && !gutter.compact ? 'side' : 'badge'
+    setBox({ top: a.top - h.top, left: left - h.left, bottom: Math.max(a.bottom, z.bottom) - h.top, place, compact: gutter.compact })
   }, [st, editor])
 
   useLayoutEffect(measure, [measure])
@@ -107,7 +111,7 @@ export function SelectionGrip({ editor, bridge, pageId, hidden, covered, onOpen 
         contextElement: editor.view.dom,
         getBoundingClientRect: () => {
           const r = (editor.view.nodeDOM(b.from) as HTMLElement | null)?.getBoundingClientRect?.()
-          return r ? new DOMRect((gutterLeftAt(editor.view, b.from) ?? r.left) - 4, r.top, 0, Math.min(r.height, 28)) : new DOMRect()
+          return r ? new DOMRect(gutterAt(editor.view, b.from).x - 4, r.top, 0, Math.min(r.height, 28)) : new DOMRect()
         },
       }
       onOpen(anchor, keyboard)
@@ -169,7 +173,7 @@ export function SelectionGrip({ editor, bridge, pageId, hidden, covered, onOpen 
   return (
     <>
       <div className="sel-rule" style={{ top: box.top, height: Math.max(8, box.bottom - box.top), left: box.left - 5 }} aria-hidden />
-      <div className="sel-grip" style={{ top: box.top, left: box.left }} data-place={box.place} data-covered={covered || undefined} data-testid="selection-grip">
+      <div className="sel-grip" style={{ top: box.top, left: box.left }} data-place={box.place} data-covered={covered || undefined} data-compact={box.compact || undefined} data-testid="selection-grip">
         <div className="block-handle" data-kind={st.kind}>
           <button type="button" className="sel-grip__btn sel-grip__plus" aria-label={t('editor.handle.add')} title={t('editor.handle.addHint')} onMouseDown={(e) => e.preventDefault()} onClick={plus}>
             <Plus size={16} strokeWidth={1.8} />

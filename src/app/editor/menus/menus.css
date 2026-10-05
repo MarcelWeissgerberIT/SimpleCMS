@@ -59,6 +59,11 @@
   margin-top: 6px;
 }
 
+/* in a later column's gap (select/gutter): grip only, no "+" */
+.block-handle[data-compact] .block-handle__btn:not(.block-handle__grip) {
+  display: none;
+}
+
 /* the hover handle's box spans its block's first line (the buttons keep their place at its top): moving
    straight left along that line always lands on it */
 .block-handle-wrap > .block-handle {

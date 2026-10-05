@@ -1,19 +1,19 @@
 /**
  * The gutter column: where the grips of blocks stand (hover handle, pinned grip, gutter rule, menu
  * anchors). ONE column in front of the page content, the same x for every block at any depth —
- * paragraphs, headings, nested list / to-do / numbered items, toggles and their content, tabs, tables —
- * so a grip never sits between a marker and its text, on a marker or on content. Its right edge is the
- * left edge of the page content, less what a wide top-level number ("12.") reaches past it.
+ * paragraphs, headings, nested list / to-do / numbered items, toggles and their content, callouts,
+ * quotes, tabs, tables — so a grip never sits between a marker and its text, on a marker, an icon, a
+ * quote's bar or on content. Its right edge is the left edge of the page content, less what a wide
+ * top-level number ("12.") reaches past it.
  *
- * Inside a callout, a quote, a column or a synced block the grips stand at that container's own content
- * edge instead: those share their first line with their first block (or stand side by side), so a grip
- * in the page column could not tell them apart — the page column there is the container's.
+ * Only a column right of the first one has its own: its grips stand at that column's left edge, in the
+ * gap between the columns — grip only, the gap has no room for "+" (`compact`).
  */
 import type { Node as PMNode } from '@tiptap/pm/model'
 import type { EditorView } from '@tiptap/pm/view'
 
-/** Containers whose blocks keep their grips at the container's own content edge. */
-const EDGE_CONTAINERS = new Set(['callout', 'blockquote', 'column', 'syncedBlock'])
+/** Containers with chrome around their blocks (padding, an icon, a bar): left of / above / below their blocks they are the target. */
+const CHROME = new Set(['callout', 'blockquote', 'syncedBlock'])
 
 let measureCtx: CanvasRenderingContext2D | null | undefined
 
@@ -97,32 +97,73 @@ export function pageColumn(view: EditorView): number {
   return column
 }
 
-/** Position of the innermost callout / quote / column / synced block holding the block at `pos`, or -1. */
-function edgeContainerAt(doc: PMNode, pos: number): number {
+/** Position of the innermost ancestor of the block at `pos` whose type is in `types`, or -1. */
+function ancestorAt(doc: PMNode, pos: number, types: Set<string>): number {
   const $pos = doc.resolve(pos)
-  for (let d = $pos.depth; d > 0; d--) if (EDGE_CONTAINERS.has($pos.node(d).type.name)) return $pos.before(d)
+  for (let d = $pos.depth; d > 0; d--) if (types.has($pos.node(d).type.name)) return $pos.before(d)
   return -1
 }
 
-/** The content edge of such a container (its first block's left), or null. */
-function containerColumn(view: EditorView, container: number): number | null {
-  const first = view.nodeDOM(container + 1)
-  if (first instanceof HTMLElement) return first.getBoundingClientRect().left
-  const dom = view.nodeDOM(container)
-  return dom instanceof HTMLElement ? dom.getBoundingClientRect().left : null
+const COLUMN = new Set(['column'])
+
+/** Left edge of the column (right of the first one) the block at `pos` sits in, or null. */
+export function columnLeftAt(view: EditorView, pos: number): number | null {
+  const column = ancestorAt(view.state.doc, pos, COLUMN)
+  const dom = column < 0 ? null : view.nodeDOM(column)
+  if (!(dom instanceof HTMLElement)) return null
+  const left = dom.getBoundingClientRect().left
+  return left > contentLeft(view) + 1 ? left : null
+}
+
+export interface Gutter {
+  /** the x of the grips' right edge */
+  x: number
+  /** grip only, no "+" (a column's gap) */
+  compact: boolean
+}
+
+/** Where the grips of the block at `pos` stand: the page column, or (grip only) a later column's edge. */
+export function gutterAt(view: EditorView, pos: number): Gutter {
+  const column = columnLeftAt(view, pos)
+  return column === null ? { x: pageColumn(view), compact: false } : { x: column, compact: true }
+}
+
+export const gutterLeftAt = (view: EditorView, pos: number): number => gutterAt(view, pos).x
+
+/**
+ * The blocks' box inside the innermost callout / quote / synced block around the block at `pos` (its
+ * first block's left and top, its last block's bottom), or null outside one.
+ */
+export function chromeBoxAt(view: EditorView, pos: number): { left: number; top: number; bottom: number } | null {
+  const doc = view.state.doc
+  const at = ancestorAt(doc, pos, CHROME)
+  const node = at < 0 ? null : doc.nodeAt(at)
+  if (!node?.firstChild || !node.lastChild) return null
+  const first = view.nodeDOM(at + 1)
+  const last = view.nodeDOM(at + 1 + node.content.size - node.lastChild.nodeSize)
+  if (!(first instanceof HTMLElement) || !(last instanceof HTMLElement)) return null
+  const a = first.getBoundingClientRect()
+  return { left: a.left, top: a.top, bottom: last.getBoundingClientRect().bottom }
 }
 
 /**
- * The column the grips of the block at `pos` stand in (the x of their right edge): the page column, or
- * the content edge of the callout / quote / column / synced block it sits in.
+ * The line a block owns, the row its grip belongs to: a text block's or a leaf's own box; a block of
+ * blocks from its top to the bottom of its first text (a list item's first line, a toggle's title, a
+ * callout's padding and first line) — not the blocks nested under it.
  */
-export function gutterLeftAt(view: EditorView, pos: number): number | null {
-  const container = edgeContainerAt(view.state.doc, pos)
-  return container < 0 ? pageColumn(view) : containerColumn(view, container)
-}
-
-/** The container column of a block inside a callout / quote / column / synced block (null elsewhere). */
-export function containerColumnAt(view: EditorView, pos: number): number | null {
-  const container = edgeContainerAt(view.state.doc, pos)
-  return container < 0 ? null : containerColumn(view, container)
+export function ownBox(view: EditorView, pos: number): DOMRect | null {
+  const node = view.state.doc.nodeAt(pos)
+  const dom = view.nodeDOM(pos)
+  if (!node || !(dom instanceof HTMLElement)) return null
+  const r = dom.getBoundingClientRect()
+  if (node.isTextblock || node.isLeaf) return r
+  let first = -1
+  node.descendants((child, offset) => {
+    if (first >= 0) return false
+    if (child.isTextblock || child.isLeaf) first = pos + 1 + offset
+    return first < 0
+  })
+  const inner = first >= 0 ? view.nodeDOM(first) : null
+  if (!(inner instanceof HTMLElement)) return r
+  return new DOMRect(r.left, r.top, r.width, Math.max(0, inner.getBoundingClientRect().bottom - r.top))
 }

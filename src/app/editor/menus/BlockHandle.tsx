@@ -37,7 +37,7 @@ import { splitMenuEntries } from '../split/menu'
 import { blockSplitRange, type SplitRange } from '../split/range'
 import { SelectionGrip, selectByLongPress, useLongPress } from '../select/SelectionGrip'
 import { blockSelectionAt, extendSelection, isBlockSelection, menuSelection, readBlockSel, type BlockSel } from '../select/model'
-import { containerColumnAt, contentLeft, gutterLeftAt, pageColumn } from '../select/gutter'
+import { chromeBoxAt, columnLeftAt, contentLeft, gutterAt, gutterLeftAt, ownBox, pageColumn } from '../select/gutter'
 import { selectionMenuEntries } from '../select/menu'
 import { moveBlocks } from '../select/actions'
 
@@ -48,23 +48,17 @@ const STICKY = 3
 /** How far the gutter reaches left of the page column: the handle ("+" and grip) and some room. */
 const GUTTER = 64
 
-/** The lines a block owns: a list item's own first block (not the nested list under it), else the block. */
-function ownBox(dom: HTMLElement, node: PMNode): DOMRect {
-  const own = node.type.name === 'taskItem' ? dom.querySelector(':scope > div > *') : node.type.name === 'listItem' ? dom.firstElementChild : null
-  return (own ?? dom).getBoundingClientRect()
-}
-
 /**
  * Which block the hover handle is for: the deepest one whose own line holds the pointer — over its text,
  * over a nested item's marker or the indent left of it, and in the gutter left of the page where the
  * handle stands (one column for every level, select/gutter): moving left towards it never hands the line
- * to a parent. Never a wrapper (column, toggle parts, tab) or a table cell's content. Blocks in a
- * callout, quote, column or synced block have their grips at that container's content edge: left of it
- * (its padding, the page gutter) the container is the target. Just past the hovered block's own lines,
- * and while the pointer touches the handle, the target stays (hysteresis — and a mouse event's
- * whole-pixel position on the handle's edge may find the parent's position under it). `pointer`: the
- * last mouse position over the editor or its gutter; `hovered`: the current target; `handle`: the
- * visible handle's box.
+ * to a parent. Never a wrapper (column, toggle parts, tab) or a table cell's content. Over a callout's,
+ * quote's or synced block's chrome (padding, icon, bar — left of, above or below its blocks) that
+ * container is the target; left of a later column's blocks (the gap, where their grip stands) not they.
+ * Just past the hovered block's own line, and while the pointer touches the handle, the target stays
+ * (hysteresis — and a mouse event's whole-pixel position on the handle's edge may find the parent's
+ * position under it). `pointer`: the last mouse position over the editor or its gutter; `hovered`: the
+ * current target; `handle`: the visible handle's box.
  */
 function nestedOptions(pointer: { current: { x: number; y: number } }, hovered: { current: BlockRef | null }, handle: () => DOMRect | null): NestedOptions {
   return {
@@ -73,23 +67,32 @@ function nestedOptions(pointer: { current: { x: number; y: number } }, hovered: 
       { id: 'noWrappers', evaluate: ({ node }) => (EXCLUDED.has(node.type.name) ? 1000 : 0) },
       { id: 'noCellContent', evaluate: ({ parent }) => (parent && (parent.type.name === 'tableCell' || parent.type.name === 'tableHeader') ? 1000 : 0) },
       {
-        id: 'containers',
+        id: 'columns',
         evaluate: ({ pos, view }) => {
-          const column = containerColumnAt(view, pos)
-          return column !== null && pointer.current.x < column ? 1000 : 0
+          const left = columnLeftAt(view, pos)
+          return left !== null && pointer.current.x < left ? 1000 : 0
+        },
+      },
+      {
+        id: 'chrome',
+        evaluate: ({ pos, view }) => {
+          const { x, y } = pointer.current
+          // (in the gutter: the deepest block on the line)
+          if (x < contentLeft(view)) return 0
+          const box = chromeBoxAt(view, pos)
+          return box && (x < box.left || y < box.top || y > box.bottom) ? 1000 : 0
         },
       },
       {
         id: 'sticky',
         evaluate: ({ pos, view }) => {
           const cur = hovered.current
-          const dom = cur && cur.pos !== pos ? view.nodeDOM(cur.pos) : null
-          if (!cur || !(dom instanceof HTMLElement)) return 0
+          if (!cur || cur.pos === pos) return 0
           const { x, y } = pointer.current
           const h = handle()
           if (h && x >= h.left - 1 && x <= h.right + 1 && y >= h.top - 1 && y <= h.bottom + 1) return 1000
-          const r = ownBox(dom, cur.node)
-          return (y < r.top && y >= r.top - STICKY) || (y > r.bottom && y <= r.bottom + STICKY) ? 1000 : 0
+          const r = ownBox(view, cur.pos)
+          return r && ((y < r.top && y >= r.top - STICKY) || (y > r.bottom && y <= r.bottom + STICKY)) ? 1000 : 0
         },
       },
     ],
@@ -184,7 +187,7 @@ function blockAnchor(editor: Editor, pos: number): PopoverAnchor {
     getBoundingClientRect: () => {
       const dom = editor.isDestroyed ? null : (editor.view.nodeDOM(pos) as HTMLElement | null)
       const r = dom?.getBoundingClientRect?.()
-      return r ? new DOMRect((gutterLeftAt(editor.view, pos) ?? r.left) - 4, r.top, 0, Math.min(r.height, 28)) : new DOMRect()
+      return r ? new DOMRect(gutterLeftAt(editor.view, pos) - 4, r.top, 0, Math.min(r.height, 28)) : new DOMRect()
     },
   }
 }
@@ -280,6 +283,10 @@ export function BlockHandle({ editor, bridge, pageId }: { editor: Editor; bridge
       if (t && inner.current?.parentElement?.contains(t)) return
       if (inGutter(e.clientX, e.clientY)) {
         following = true
+        // still on the hovered block's own line (entered from its text, its marker, a callout's icon …):
+        // it keeps the handle; on another line the deepest block there takes it
+        const own = current.current ? ownBox(view, current.current.pos) : null
+        if (own && e.clientY >= own.top && e.clientY <= own.bottom) return
         pointer.current = { x: e.clientX, y: e.clientY }
         const plugin = dragHandlePluginDefaultKey.get(view.state)
         plugin?.props.handleDOMEvents?.mousemove?.call(plugin, view, { clientX: e.clientX, clientY: e.clientY } as MouseEvent)
@@ -299,14 +306,16 @@ export function BlockHandle({ editor, bridge, pageId }: { editor: Editor; bridge
       if (!editor.isDestroyed) editor.unregisterPlugin(key)
     }
   }, [editor])
-  // where the handle stands: in the gutter column, on the block's first line (select/gutter)
+  // where the handle stands: in the gutter column, on the block's first line (select/gutter); in a later
+  // column's gap grip only (set before the plugin measures the handle)
   const reference = useCallback(() => {
     const ref = current.current
     const dom = ref && !editor.isDestroyed ? editor.view.nodeDOM(ref.pos) : null
     if (!ref || !(dom instanceof HTMLElement)) return null
     const r = dom.getBoundingClientRect()
-    const left = gutterLeftAt(editor.view, ref.pos) ?? r.left
-    const rect = new DOMRect(left, r.top, Math.max(0, r.right - left), r.height)
+    const gutter = gutterAt(editor.view, ref.pos)
+    inner.current?.toggleAttribute('data-compact', gutter.compact)
+    const rect = new DOMRect(gutter.x, r.top, Math.max(0, r.right - gutter.x), r.height)
     return { getBoundingClientRect: () => rect }
   }, [editor])
 
