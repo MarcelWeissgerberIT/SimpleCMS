@@ -42,7 +42,8 @@ async function listFolder(page: Page): Promise<Record<string, { text: string; mt
     try {
       return await readFolder(page)
     } catch (e) {
-      if (i > 5 || !/NotFoundError/.test(String(e))) throw e
+      // a file the app is writing right now can't be read (NotReadableError) — like a moved one: read again
+      if (i > 5 || !/NotFoundError|NotReadableError/.test(String(e))) throw e
       await page.waitForTimeout(100)
     }
   }
