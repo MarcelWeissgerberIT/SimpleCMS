@@ -574,11 +574,13 @@ export interface Database {
    */
   locked?: boolean
   /**
-   * A database One looks for by itself — 'memory' = the One memory (features/ai/memory: "One memory" /
-   * "One-Gedächtnis"). Only a marker: the database stays an ordinary database the person edits. Several
-   * (a duplicate, a restored backup): the oldest live one counts; in a team workspace only a private one.
+   * A database One looks for by itself (features/ai/memory): 'memory' = the One memory ("One memory" /
+   * "One-Gedächtnis") · 'memory-log' = its usage log ("Memory log" / "Gedächtnis-Verlauf", two-way
+   * relations to the memory). Only a marker: the database stays an ordinary database the person edits.
+   * Several (a duplicate, a restored backup): the oldest live one counts; in a team workspace only a
+   * private one; a deleted one is simply created again on next use.
    */
-  system?: 'memory'
+  system?: 'memory' | 'memory-log'
 }
 
 export type AutomationTrigger =
@@ -664,6 +666,8 @@ export interface MemorySettings {
   enabled?: boolean
   /** Claude proposes memories after AI-terminal tasks (absent = on once a memory database exists) */
   proposals?: boolean
+  /** a row in the memory log per request that took memories along (absent = on); off = no new rows */
+  log?: boolean
 }
 
 /** What a property of the Mails database is for (features/mail/schema.ts). */

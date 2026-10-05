@@ -69,7 +69,7 @@ export const rememberTool: AgentTool = {
     const topics = Array.isArray(input.topics) ? [...new Set(input.topics.filter((x): x is string => typeof x === 'string').map((x) => x.trim().slice(0, 40)).filter(Boolean))].slice(0, 5) : []
     const body = type === 'procedure' && typeof input.body === 'string' ? input.body.trim().slice(0, 4000) : ''
     const dup = findDuplicate(text)
-    const c = stage.add({ kind: 'memory', pageId: dup?.id ?? newId(), title: text, memory: { type, text, topics, body, source: terminalSource(), updates: dup?.id ?? null } })
+    const c = stage.add({ kind: 'memory', pageId: dup?.id ?? newId(), title: text, ...(body ? { markdown: body } : {}), memory: { type, text, topics, body, source: terminalSource(), updates: dup?.id ?? null } })
     return {
       content: `Staged as change #${c.n}: ${dup ? `an update of the near-identical memory ${q(dup.text)} (id: ${dup.id})` : 'a new memory'}. Nothing is saved until the person confirms it.`,
       summary: t('features.agent.res.staged', { n: c.n }),

@@ -50,6 +50,14 @@ export { McpServers } from './ai/mcp-servers/McpServers'
 export { CodewordChip, McpSkippedNote } from './ai/mcp-servers/Codeword'
 export type { McpCall } from './ai/mcp-servers/activity'
 /*
+ * One memory (features/ai/memory): Claude remembers what the person confirms (a database "One memory" +
+ * its usage log) and takes the matching memories along with free-form requests:
+ *  - memoryFor(task, { off? }) → { use, block } — pass `block` as runAI({ memory }); noteUse(answer, use,
+ *    { task, where, pageId?, result? }) after the request (the memory log); MemoryNote { use }: "MEMORY · 2"
+ *  - MemorySettings: the section of Settings → Claude AI
+ */
+export { memoryFor, noteUse, MemoryNote, MemorySettings, type MemoryUse } from './ai/memory'
+/*
  * AI meeting notes (the editor's `meetingNotes` node view renders these around the notes):
  *  - MeetingDeck: bar, title, record / pause / stop, live transcript, paste, Claude errors
  *  - MeetingFoot: privacy line + "Send action items to a database"

@@ -13,6 +13,7 @@ import type { ThemePref } from '../../store/types'
 import { ShortcutList } from '../modals/ShortcutsModal'
 import { runAI, SyncTab, consumeSyncSettingsRequest, McpTab, consumeMcpSettingsRequest, McpServers, MailTab, consumeMailSettingsRequest } from '../../features'
 import { ServerAgentsSettings } from '../../features'
+import { MemorySettings } from '../../features'
 import { fmtBytes, plural } from '../lib/format'
 import { requestReset } from '../lib/reset'
 import { WebClipper } from '../capture/WebClipper'
@@ -408,6 +409,7 @@ function AITab() {
         </div>
       </div>
       <McpServers />
+      <MemorySettings />
     </>
   )
 }

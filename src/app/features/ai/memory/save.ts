@@ -1,24 +1,22 @@
 /**
- * One memory — writing (store actions only; page bodies with origin 'ai'). Nothing is written without
- * the person's OK: callers are the confirm keys of a proposal (terminal card, AI-menu card), the
+ * One memory — writing memories (store actions only; page bodies with origin 'ai'). Nothing is written
+ * without the person's OK: callers are the confirm keys of a proposal (terminal card, AI-menu card), the
  * terminal's review (the `remember` tool's staged change) and Settings → "Set up memory".
- *  - saveMemory: a new row (the database is created on first use)
+ *  - saveMemory: a new row (the database and its log are created on first use)
  *  - updateMemory: "Update existing" for a near-identical memory (findDuplicate)
- *  - bumpUses: Uses + 1 and Last used = today for the memories Claude cited — once per entry per day
+ * What a request used is written by log.ts (the memory log; Uses / Last used are rollups over it).
  */
-import { format } from 'date-fns'
 import type { JSONContent } from '@tiptap/core'
 import { useWorkspace } from '../../../store/store'
 import type { ID, PropertyValue } from '../../../store/types'
 import { markdownToDoc } from '../../../editor'
 import { t } from '../../../i18n'
-import { ensureMemoryDb, memoryDbId, memoryProps, topicOptions, typeOption } from './schema'
+import { ensureMemoryDb, memoryDbId, memoryProps, optionIds, typeOption } from './schema'
 import { readMemories } from './read'
-import type { Memory, MemoryProposal, PickedMemory } from './types'
+import type { Memory, MemoryProposal } from './types'
 
 const ORIGIN = 'ai'
 const ws = () => useWorkspace.getState()
-const today = () => format(new Date(), 'yyyy-MM-dd')
 
 const words = (s: string) => new Set(s.toLowerCase().replace(/[^\p{L}\p{N}\s]+/gu, ' ').split(/\s+/).filter((w) => w.length > 2))
 
@@ -59,7 +57,7 @@ function values(dbId: ID, p: MemoryProposal, keepSource?: string): Record<ID, Pr
     const opt = typeOption(dbId, roles.type, p.type)
     if (opt) out[roles.type] = opt
   }
-  if (roles.topics) out[roles.topics] = topicOptions(dbId, roles.topics, p.topics)
+  if (roles.topics) out[roles.topics] = optionIds(dbId, roles.topics, p.topics)
   if (roles.source) out[roles.source] = keepSource ?? p.source
   if (roles.active) out[roles.active] = true
   return out
@@ -68,10 +66,7 @@ function values(dbId: ID, p: MemoryProposal, keepSource?: string): Record<ID, Pr
 /** Save a confirmed memory as a new row: its id and the undo. Throws when the memory cannot be written (read-only). */
 export function saveMemory(p: MemoryProposal): { id: ID; undo: () => void } {
   const dbId = ensureMemoryDb()
-  const db = ws().databases[dbId]
-  const roles = db ? memoryProps(db) : {}
   const properties = values(dbId, p)
-  if (roles.uses) properties[roles.uses] = 0
   const id = ws().createRow(dbId, { title: p.text.trim(), properties })
   const doc = bodyDoc(p.body)
   if (doc) ws().setContent(id, doc, ORIGIN)
@@ -111,24 +106,6 @@ export function updateMemory(id: ID, p: MemoryProposal): () => void {
     ws().updatePage(id, { title: before.title })
     for (const [propId, v] of Object.entries(before.properties)) ws().setRowProperty(id, propId, v)
     if (doc) ws().setContent(id, before.content, ORIGIN)
-  }
-}
-
-/** Uses + 1 and Last used = today for memories Claude cited — at most once per entry per day. */
-export function bumpUses(items: PickedMemory[]): void {
-  if (!items.length) return
-  const dbId = memoryDbId()
-  const db = dbId ? ws().databases[dbId] : undefined
-  if (!db) return
-  const roles = memoryProps(db)
-  if (!roles.uses && !roles.lastUsed) return
-  const day = today()
-  const all = new Map(readMemories(dbId).map((m) => [m.id, m]))
-  for (const it of items) {
-    const m = all.get(it.id)
-    if (!m || m.lastUsed === day) continue
-    if (roles.uses) ws().setRowProperty(m.id, roles.uses, m.uses + 1)
-    if (roles.lastUsed) ws().setRowProperty(m.id, roles.lastUsed, { start: day })
   }
 }
 

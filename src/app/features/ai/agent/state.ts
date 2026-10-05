@@ -5,6 +5,30 @@
  */
 import { create } from 'zustand'
 import { EMPTY_USAGE, type AgentStatus, type AgentStep, type AgentTurn, type AgentUsage, type StagedChange, type TermMention, type TermRef } from './types'
+import type { MemoryProposal } from '../memory/types'
+import type { ID } from '../../../store/types'
+
+/** One memory: a proposal in the log ("MERKEN? · 2"), saved only on the person's OK. */
+export interface MemItem {
+  id: string
+  p: MemoryProposal
+  status: 'pending' | 'saved' | 'updated' | 'dismissed'
+  /** a near-identical active memory: y updates it instead */
+  dup: ID | null
+  /** the memory row once saved / updated */
+  rowId?: ID
+}
+
+/** A card of proposals after `after` tasks: after a task (Claude proposed) or from /remember. */
+export interface MemCard {
+  id: string
+  after: number
+  origin: 'task' | 'command'
+  state: 'loading' | 'ready'
+  items: MemItem[]
+  /** the command that made it (/remember …), shown like command output */
+  input?: string
+}
 
 /** Output of a local command (/help, /cost …), shown in the log after `after` tasks. */
 export interface EchoEntry {
@@ -48,9 +72,13 @@ export interface AgentState {
   max: boolean
   /** bumped to move focus to the prompt (Mod+Shift+J while open) */
   focusTick: number
+  /** One memory: proposal cards in the log */
+  memCards: MemCard[]
+  /** /no-memory: the next task goes without the One memory */
+  memOffNext: boolean
 }
 
-export const initialAgentState = (): Pick<AgentState, 'status' | 'turns' | 'steps' | 'changes' | 'usage' | 'live' | 'calls' | 'mcp' | 'echo' | 'unseen'> => ({
+export const initialAgentState = (): Pick<AgentState, 'status' | 'turns' | 'steps' | 'changes' | 'usage' | 'live' | 'calls' | 'mcp' | 'echo' | 'unseen' | 'memCards' | 'memOffNext'> => ({
   status: 'idle',
   turns: [],
   steps: [],
@@ -61,6 +89,8 @@ export const initialAgentState = (): Pick<AgentState, 'status' | 'turns' | 'step
   mcp: null,
   echo: [],
   unseen: null,
+  memCards: [],
+  memOffNext: false,
 })
 
 /* ---------- dock height (a per-device convenience: localStorage, may be unavailable) ---------- */

@@ -18,8 +18,9 @@ export interface Memory {
   topics: string[]
   source: string
   active: boolean
+  /** requests in the log that cited it (live rows of "Cited in") */
   uses: number
-  /** "yyyy-MM-dd" (null: never) */
+  /** "yyyy-MM-dd" of the latest of those (null: never) */
   lastUsed: string | null
   /** the row's page text (plain, for the search) */
   plain: string
@@ -52,5 +53,5 @@ export interface MemoryProposal {
   source: string
 }
 
-/** Property roles of the memory database. */
-export type MemoryRole = 'type' | 'topics' | 'source' | 'active' | 'uses' | 'lastUsed'
+/** Stored property roles of the memory database (Uses / Last used are rollups over "Cited in", schema.ts). */
+export type MemoryRole = 'type' | 'topics' | 'source' | 'active'

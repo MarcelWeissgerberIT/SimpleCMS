@@ -31,6 +31,8 @@ import { exclusive } from './locks'
 import { awaitsConfirm } from './confirm'
 import { withoutWebImages } from './images'
 import type { AgentRun, AgentRunStep } from './types'
+import { memoryFor, noteUse } from '../ai/memory/use'
+import { recallTool } from '../ai/memory/tools'
 
 /* ------------------------------------------------------------------ */
 /* Prompt                                                              */
@@ -228,6 +230,7 @@ async function runOnce(agent: CustomAgent, req: RunRequest): Promise<AgentRun> {
   const toolSteps = new Map<string, number>()
   let toolSeq = 0
   const mcpSteps = new Map<string, number>()
+  let memory: ReturnType<typeof memoryFor> | null = null
 
   const hooks: RunHooks = {
     toolStart(name, arg) {
@@ -284,14 +287,17 @@ async function runOnce(agent: CustomAgent, req: RunRequest): Promise<AgentRun> {
     const mcp = configured.length ? await attachMcp({ servers: configured, instructions: instructionsText() }, 'free') : null
     for (const s of configured) if (!mcp?.names.includes(s.name)) step({ kind: 'note', label: t('features.agents.run.mcpNoToken', { name: s.name.toUpperCase() }), state: 'err' })
 
+    // the One memory (features/ai/memory): the memories that fit the job go along, plus `recall`
+    memory = memoryFor(agent.instructions)
+    const ctx = context(agent, run, req.rows ?? [])
     const end = await runAgent({
       history: [],
-      user: taskMessage([], agent.instructions, context(agent, run, req.rows ?? [])),
+      user: taskMessage([], agent.instructions, memory.block ? `${ctx}\n\n${memory.block}` : ctx),
       stage,
       signal: ac.signal,
       hooks,
       mcp,
-      tools: agentTools(agent),
+      tools: memory.use ? [...agentTools(agent), recallTool] : agentTools(agent),
       system: agentSystem(agent.write),
       model: agent.model,
       effort: agent.effort,
@@ -343,6 +349,19 @@ async function runOnce(agent: CustomAgent, req: RunRequest): Promise<AgentRun> {
       run.steps.push({ kind: 'note', label: t('features.agents.run.reportFailed'), state: 'err' })
       console.warn('[one] agents: could not write the report', e)
     }
+  }
+  // the One memory's log: this run, what went along, what the report cited
+  if (memory?.use) {
+    const staged = (run.staged ?? []).filter((c) => c.status === 'pending').length
+    const result =
+      run.status === 'error' || run.status === 'budget'
+        ? t('features.memory.result.failed')
+        : run.applied
+          ? t(`features.memory.result.applied.${run.applied === 1 ? 'one' : 'other'}`, { count: run.applied })
+          : staged
+            ? t(`features.memory.result.staged.${staged === 1 ? 'one' : 'other'}`, { count: staged })
+            : t('features.memory.result.report')
+    noteUse(run.summary, memory.use, { task: agent.instructions, where: { kind: 'agent', name: agent.name }, result })
   }
   run.usage = { input: usage.input, output: usage.output, cacheRead: usage.cacheRead, usd: Math.round(usage.usd * 10_000) / 10_000 }
   run.endedAt = Date.now()

@@ -5,6 +5,7 @@ import { useWorkspace } from '../../store/store'
 import { useUI } from '../../store/ui'
 import { inTemplate, isEffectivelyTrashed, selectBreadcrumbs } from '../../store/selectors'
 import { CodewordChip, isAIConfigured, McpSkippedNote, runAI, templateName, templateRoots, type McpCall } from '../../features'
+import { memoryFor, MemoryNote, noteUse, type MemoryUse } from '../../features'
 import { markdownToDoc, readableContent, ReadOnlyDoc } from '../../editor'
 import { PageIcon } from '../../ui/PageIcon'
 import { restoreFocus as restoreFocusTo } from '../../ui/focus'
@@ -371,6 +372,8 @@ function AskPanel({ question, pageId, onDone }: { question: string; pageId: ID |
   const [error, setError] = useState('')
   /** MCP activity of the answer (a server addressed by codeword that stayed out is noted) */
   const [mcpCalls, setMcpCalls] = useState<McpCall[]>([])
+  /** the One memory that went along with the question (null: not in use) */
+  const [memory, setMemory] = useState<MemoryUse | null>(null)
   const abort = useRef<AbortController | null>(null)
 
   useEffect(() => () => abort.current?.abort(), [])
@@ -384,6 +387,10 @@ function AskPanel({ question, pageId, onDone }: { question: string; pageId: ID |
     setMcpCalls([])
     setError('')
     setState('running')
+    // the One memory: the memories that fit the question go along
+    const mem = memoryFor(question)
+    setMemory(mem.use)
+    let answered = ''
     try {
       // only what the page's context marks allow ("Reads: …" — whole page, marked blocks or nothing)
       const read = page ? readableContent(page.id) : null
@@ -398,7 +405,9 @@ function AskPanel({ question, pageId, onDone }: { question: string; pageId: ID |
         // runAI streams deltas, not the text so far
         onToken: (delta) => setAnswer((prev) => prev + delta),
         onMcp: (calls) => !ctrl.signal.aborted && setMcpCalls(calls),
+        memory: mem.block,
       })
+      answered = final || ''
       if (ctrl.signal.aborted) return
       setAnswer(final || '')
       setState('done')
@@ -406,6 +415,8 @@ function AskPanel({ question, pageId, onDone }: { question: string; pageId: ID |
       if (ctrl.signal.aborted) return
       setError(e instanceof Error ? e.message : String(e))
       setState('error')
+    } finally {
+      noteUse(answered, mem.use, { task: question, where: { kind: 'palette' }, pageId: page?.id ?? null, result: t(answered ? 'features.memory.result.answer' : ctrl.signal.aborted ? 'features.memory.result.stopped' : 'features.memory.result.failed') })
     }
   }
 
@@ -465,6 +476,7 @@ function AskPanel({ question, pageId, onDone }: { question: string; pageId: ID |
           <div className="ask__head label">
             <span className={`led${state === 'running' ? ' led--on ask__blink' : state === 'error' ? '' : ' led--ok'}`} />
             CLAUDE · {model.replace('claude-', '').replace(/-(\d)-(\d)/, ' $1.$2').toUpperCase()}
+            {memory && <MemoryNote use={memory} onOpen={onDone} />}
             {state === 'running' && (
               <button type="button" className="ask__stop" onClick={() => (abort.current?.abort(), setState('done'))}>
                 <Square size={10} /> {t('shell.ask.stop')}

@@ -14,11 +14,17 @@ import { AIError, resolveModel } from '../client'
 import { useCloud } from '../../../cloud'
 import { attachMcp, codewordTask, currentSetup, setupKey, type McpSetup } from '../mcp-servers/config'
 import { applyChanges, type ApplyResult } from './apply'
-import { runAgent, taskMessage, type RunHooks } from './run'
-import { initialAgentState, openAgent, setStopHandler, useAgent, type EchoEntry } from './state'
+import { AGENT_SYSTEM, runAgent, taskMessage, type RunHooks } from './run'
+import { initialAgentState, openAgent, setStopHandler, useAgent, type EchoEntry, type MemCard, type MemItem } from './state'
 import { loadHistory, pushHistory } from './history'
-import { parseCommand } from './commands'
-import type { ReadLimit, StageApi } from './tools'
+import { parseCommand, parseCommandText } from './commands'
+import { TERMINAL_TOOLS, type ReadLimit, type StageApi } from './tools'
+import { memoryFor, noteUse } from '../memory/use'
+import { memoryInUse, proposalsOn } from '../memory/settings'
+import { localProposal, proposeAfterTask, terminalSource, trivialTask } from '../memory/propose'
+import { confirmProposal, duplicateOf } from '../memory/open'
+import { recallTool, rememberTool } from '../memory/tools'
+import type { MemoryProposal } from '../memory/types'
 import { isContextLimited, openContextPicker, pageContextMarks, readableContent, startRedo } from '../../../editor'
 import { withRefImages } from '../image/terminal'
 import { depsOf, type AgentStatus, type AgentStep, type AgentTurn, type StagedChange, type TermMention, type TermRef, type TurnContext } from './types'
@@ -39,6 +45,17 @@ let seq = 0
  * list stay the same for every later request (prompt cache, thinking). "New task" picks up changes.
  */
 let mcpSetup: McpSetup | null = null
+/** One memory: its tools (recall, remember) and rules join this conversation — pinned at its first task like the MCP setup */
+let memTools: boolean | null = null
+/** the running proposal request (after a task) */
+let proposing: AbortController | null = null
+/** undo of a saved / updated proposal, by item id */
+const memUndo = new Map<string, () => void>()
+
+/** The agent's rules for the One memory (added to the system prompt while its tools are offered). */
+const MEMORY_RULES = `One memory
+- The person keeps standing knowledge for you in their One memory: facts, preferences, decisions and procedures (templates). The matching ones come with each task in <one_memory>; search for more with recall.
+- When they ask you to remember something, or state a lasting preference, decision or way of working, stage it with remember (one plain sentence; a procedure with its template in body). Never one-off details of a task.`
 
 const nextId = (p: string) => `${p}${(++seq).toString(36)}`
 
@@ -154,23 +171,27 @@ function patchTurn(n: number, patch: Partial<AgentTurn>) {
  * setup is pinned per conversation (system prompt and tool list stay the same for every later
  * request: prompt cache, thinking) and the text goes as typed.
  */
-function prepareTask(task: string): { setup: McpSetup; prompt: string } {
+function prepareTask(task: string): { setup: McpSetup; prompt: string; memTools: boolean } {
   if (!history.length || !mcpSetup) {
     mcpSetup = currentSetup()
     set({ mcp: { key: setupKey(mcpSetup), names: mcpSetup.servers.map((x) => x.name) } })
   }
-  return { setup: mcpSetup, prompt: codewordTask(task) }
+  if (!history.length || memTools === null) memTools = memoryInUse()
+  return { setup: mcpSetup, prompt: codewordTask(task), memTools }
 }
 
-/** Run the task in the prompt (or `raw`). One task at a time. */
-export async function runTask(raw?: string): Promise<void> {
+/**
+ * Run the task in the prompt (or `raw`). One task at a time. `noMemory`: without the One memory
+ * (/no-memory <task>); `history: false` when the prompt went into the history already.
+ */
+export async function runTask(raw?: string, opts: { noMemory?: boolean; history?: boolean } = {}): Promise<void> {
   const task = (raw ?? get().draft).trim()
   if (!task || get().status === 'running') return
   const n = get().turns.length + 1
   const ac = new AbortController()
   controller = ac
   setStopHandler(() => ac.abort())
-  pushHistory(task)
+  if (opts.history !== false) pushHistory(task)
   // the chips go along with this task: references, the mentions still in the text, the open page
   const refs = get().refs
   const mentions = get().mentions.filter((m) => task.includes(`@${m.title}`))
@@ -181,8 +202,10 @@ export async function runTask(raw?: string): Promise<void> {
     mentions: mentions.map((m) => m.title),
     ...(pageId ? { page: `${useWorkspace.getState().pages[pageId]?.title.trim() || t('common.untitled')}${suffix ? ` · ${suffix}` : ''}` } : {}),
   }
-  const text = context(refs, mentions)
-  const { setup, prompt } = prepareTask(task)
+  // the One memory: the memories that fit this task go along (/no-memory: none)
+  const mem = memoryFor(task, { off: opts.noMemory || get().memOffNext })
+  const text = mem.block ? `${context(refs, mentions)}\n\n${mem.block}` : context(refs, mentions)
+  const { setup, prompt, memTools: withMemTools } = prepareTask(task)
   set((s) => ({
     status: 'running',
     draft: '',
@@ -192,7 +215,8 @@ export async function runTask(raw?: string): Promise<void> {
     unseen: null,
     refs: [],
     mentions: [],
-    turns: [...s.turns, { n, task, startedAt: Date.now(), status: 'running', answer: '', context: ctx }],
+    memOffNext: false,
+    turns: [...s.turns, { n, task, startedAt: Date.now(), status: 'running', answer: '', context: ctx, ...(mem.use ? { memory: mem.use } : {}) }],
   }))
 
   let answer = ''
@@ -279,13 +303,28 @@ export async function runTask(raw?: string): Promise<void> {
     }))
     patchTurn(n, { status, endedAt: Date.now(), answer, ...(error ? { error } : {}) })
     if (!get().open && status !== 'stopped') notifyHidden(status)
+    // the One memory: the request goes into the memory log; proposals for what is worth keeping
+    const staged = turnChanges(n)
+    const result = status === 'done' || status === 'limit' ? (staged.length ? tn('features.memory.result.changes', staged.length) : t('features.memory.result.answer')) : t(status === 'stopped' ? 'features.memory.result.stopped' : 'features.memory.result.failed')
+    noteUse(answer, mem.use, { task, where: { kind: 'terminal' }, pageId, result })
+    if (status === 'done' && proposalsOn() && !trivialTask(task, staged.length)) void proposeFor(n, task, answer, mem.use?.items.map((x) => x.text) ?? [])
   }
 
   try {
     const mcp = setup.servers.length ? await attachMcp(setup) : null
     // referenced image blocks go along as images (Claude for images); one that cannot be loaded is noted
     const user = await withRefImages(taskMessage(history, prompt, text), refs, ac.signal, (title) => note(t('features.ai.image.refFailed', { title })))
-    const end = await runAgent({ history, user, stage, signal: ac.signal, hooks, mcp, readLimit: terminalReadLimit })
+    const end = await runAgent({
+      history,
+      user,
+      stage,
+      signal: ac.signal,
+      hooks,
+      mcp,
+      readLimit: terminalReadLimit,
+      // the One memory's tools and rules (pinned per conversation: the prompt prefix stays the same)
+      ...(withMemTools ? { tools: [...TERMINAL_TOOLS, recallTool, rememberTool], system: `${AGENT_SYSTEM}\n\n${MEMORY_RULES}` } : {}),
+    })
     if (end === 'max_tokens') finish('error', { code: 'max_tokens', message: t('features.agent.err.maxTokens') })
     else finish(end === 'limit' ? 'limit' : 'done')
   } catch (e) {
@@ -327,6 +366,15 @@ const info = (input: string, key: string, vars?: Record<string, string | number>
 export async function submitPrompt(raw?: string): Promise<void> {
   const input = (raw ?? get().draft).trim()
   if (!input) return
+  // /remember <sentence> · /no-memory <task>
+  const withText = parseCommandText(input)
+  if (withText) {
+    pushHistory(input)
+    set({ draft: '' })
+    if (withText.id === 'remember') return rememberText(input, withText.text)
+    if (get().status === 'running') return info(input, 'features.agent.echo.wait')
+    return runTask(withText.text, { noMemory: true, history: false })
+  }
   const cmd = parseCommand(input)
   if (!cmd) return runTask(input)
   pushHistory(input)
@@ -377,6 +425,17 @@ export async function submitPrompt(raw?: string): Promise<void> {
     case 'redo':
       pickRedo(input)
       return
+    case 'remember': {
+      // alone: proposals for the last task that finished
+      const last = [...get().turns].reverse().find((x) => x.status === 'done')
+      if (!last || running) return info(input, 'features.memory.echo.nothingToPropose')
+      void proposeFor(last.n, last.task, last.answer, last.memory?.items.map((x) => x.text) ?? [], input)
+      return
+    }
+    case 'nomemory':
+      if (!memoryInUse()) return info(input, 'features.memory.echo.notInUse')
+      set({ memOffNext: true })
+      return info(input, 'features.memory.echo.offNext')
     default:
       info(input, 'features.agent.echo.unknown', { cmd: input.split(/\s/)[0] })
   }
@@ -439,7 +498,90 @@ export function newTask() {
   reported = {}
   lastBatch = null
   mcpSetup = null
+  memTools = null
+  proposing?.abort()
+  proposing = null
+  memUndo.clear()
   set({ ...initialAgentState(), draft: '', autorun: false })
+}
+
+/* ------------------------------------------------------------------ */
+/* One memory: proposals ("REMEMBER? · 2"), saved only on the OK       */
+/* ------------------------------------------------------------------ */
+
+/** The changes a task proposed: "New row · Final QA" (kinds + titles, never content). */
+function turnChanges(n: number): string[] {
+  const ids = new Set(get().steps.filter((x) => x.turn === n && x.changeId).map((x) => x.changeId!))
+  return get()
+    .changes.filter((c) => ids.has(c.id))
+    .map((c) => `${c.kind}${c.title ? ` · ${c.title}` : ''} · ${c.status}`)
+}
+
+const patchCard = (id: string, fn: (c: MemCard) => MemCard) => set((s) => ({ memCards: s.memCards.map((c) => (c.id === id ? fn(c) : c)) }))
+const patchItem = (cardId: string, itemId: string, patch: Partial<MemItem>) => patchCard(cardId, (c) => ({ ...c, items: c.items.map((x) => (x.id === itemId ? { ...x, ...patch } : x)) }))
+const itemOf = (p: MemoryProposal): MemItem => ({ id: nextId('m'), p, status: 'pending', dup: duplicateOf(p) })
+
+/** Ask Claude what is worth remembering from task `n` (one small structured request). */
+async function proposeFor(n: number, task: string, answer: string, existing: string[], input?: string): Promise<void> {
+  proposing?.abort()
+  const ac = new AbortController()
+  proposing = ac
+  const card: MemCard = { id: nextId('k'), after: n, origin: 'task', state: 'loading', items: [], ...(input ? { input } : {}) }
+  set((s) => ({ memCards: [...s.memCards, card] }))
+  try {
+    const list = await proposeAfterTask({ task, answer, changes: turnChanges(n), existing, signal: ac.signal })
+    if (ac.signal.aborted) return
+    if (!list.length) set((s) => ({ memCards: s.memCards.filter((c) => c.id !== card.id) }))
+    else patchCard(card.id, (c) => ({ ...c, state: 'ready', items: list.map(itemOf) }))
+  } catch (e) {
+    // quiet: proposals are a convenience — the task itself is done
+    if (!ac.signal.aborted) console.warn('[one] memory: no proposals', e)
+    set((s) => ({ memCards: s.memCards.filter((c) => c.id !== card.id) }))
+  } finally {
+    if (proposing === ac) proposing = null
+  }
+}
+
+/** /remember <sentence>: the person's own words as a proposal (no request). */
+function rememberText(input: string, text: string) {
+  const p = localProposal(text, terminalSource())
+  if (!p.text) return info(input, 'features.memory.echo.nothingToPropose')
+  const card: MemCard = { id: nextId('k'), after: get().turns.length, origin: 'command', state: 'ready', items: [itemOf(p)], input }
+  set((s) => ({ memCards: [...s.memCards, card] }))
+}
+
+/** y / Enter: save (or update the near-identical memory); asNew: a new memory even then. */
+export function saveProposal(cardId: string, itemId: string, asNew = false): boolean {
+  const item = get().memCards.find((c) => c.id === cardId)?.items.find((x) => x.id === itemId)
+  if (!item || item.status !== 'pending') return false
+  const done = confirmProposal(item.p, asNew ? null : item.dup, { toast: false })
+  if (!done) return false
+  memUndo.set(itemId, done.undo)
+  patchItem(cardId, itemId, { status: done.how === 'updated' ? 'updated' : 'saved', rowId: done.id })
+  return true
+}
+
+/** a: every pending proposal of the card. */
+export function saveAllProposals(cardId: string) {
+  for (const x of get().memCards.find((c) => c.id === cardId)?.items ?? []) if (x.status === 'pending') saveProposal(cardId, x.id)
+}
+
+export function dismissProposal(cardId: string, itemId: string) {
+  patchItem(cardId, itemId, { status: 'dismissed' })
+}
+
+/** e: the edited proposal (its near-identical memory found again). */
+export function editProposal(cardId: string, itemId: string, p: MemoryProposal) {
+  patchItem(cardId, itemId, { p, dup: duplicateOf(p) })
+}
+
+/** Undo a saved / updated proposal (or bring a dismissed one back): pending again. */
+export function undoProposal(cardId: string, itemId: string) {
+  const undo = memUndo.get(itemId)
+  memUndo.delete(itemId)
+  undo?.()
+  const item = get().memCards.find((c) => c.id === cardId)?.items.find((x) => x.id === itemId)
+  patchItem(cardId, itemId, { status: 'pending', rowId: undefined, dup: item ? duplicateOf(item.p) : null })
 }
 
 /* ------------------------------------------------------------------ */

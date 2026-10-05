@@ -7,7 +7,7 @@ import { inTemplate, isEffectivelyTrashed, selectBreadcrumbs } from '../../../st
 import type { Page } from '../../../store/types'
 import type { TermMention } from './types'
 
-export type CommandId = 'new' | 'stop' | 'apply' | 'discard' | 'history' | 'help' | 'mcp' | 'cost' | 'context' | 'redo'
+export type CommandId = 'new' | 'stop' | 'apply' | 'discard' | 'history' | 'help' | 'mcp' | 'cost' | 'context' | 'redo' | 'remember' | 'nomemory'
 
 /** Names per command: English first, then the German aliases. */
 export const COMMANDS: Array<{ id: CommandId; en: string; de: string[] }> = [
@@ -21,7 +21,22 @@ export const COMMANDS: Array<{ id: CommandId; en: string; de: string[] }> = [
   { id: 'cost', en: 'cost', de: ['kosten'] },
   { id: 'context', en: 'context', de: ['kontext'] },
   { id: 'redo', en: 'redo', de: ['neu-machen'] },
+  // One memory (features/ai/memory): these two also take text after the name
+  { id: 'remember', en: 'remember', de: ['merken'] },
+  { id: 'nomemory', en: 'no-memory', de: ['ohne-gedächtnis', 'ohne-gedaechtnis'] },
 ]
+
+/** Commands that take text after their name ("/remember Reports go out on Fridays"). */
+const WITH_TEXT: CommandId[] = ['remember', 'nomemory']
+
+/** A command with text after its name ("/merken Berichte auf Deutsch"): its id and the text; null for anything else. */
+export function parseCommandText(input: string): { id: CommandId; text: string } | null {
+  const m = /^\/([\p{L}\d_-]+)\s+([\s\S]+)$/u.exec(input.trim())
+  if (!m) return null
+  const word = m[1].toLowerCase()
+  const cmd = COMMANDS.find((c) => (c.en === word || c.de.includes(word)) && WITH_TEXT.includes(c.id))
+  return cmd ? { id: cmd.id, text: m[2].trim() } : null
+}
 
 /** A prompt that is a command ("/help", "/hilfe "): its id, 'unknown' for another "/word", null for a task. */
 export function parseCommand(input: string): CommandId | 'unknown' | null {

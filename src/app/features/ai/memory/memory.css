@@ -1,0 +1,481 @@
+/* ================================================================
+   One memory (features/ai/memory) — INSTRUMENT: mono readouts, one
+   signal colour, hairlines. Tokens only: the AI terminal re-maps them
+   to its ink palette, so the same parts render there and in the menu.
+   ================================================================ */
+
+/* ---------- the "MEMORY · 3" line (AI menu, under the reads line) ---------- */
+.mem-line-btn {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  min-height: 26px;
+  padding: 3px 10px 3px 14px;
+  border: 0;
+  border-bottom: 1px solid var(--rule);
+  background: var(--surface-2);
+  color: var(--ink-2);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--dur-1) var(--ease-out);
+}
+
+.mem-line-btn:hover,
+.mem-line-btn[data-open] {
+  background: var(--surface-3);
+  color: var(--ink);
+}
+
+.mem-line-btn:disabled {
+  cursor: default;
+  opacity: 0.7;
+}
+
+.mem-line-btn__k {
+  flex: none;
+  color: var(--ink-3);
+}
+
+.mem-line-btn[data-off] .mem-line-btn__k {
+  color: var(--signal-ink);
+}
+
+.mem-line-btn__sep {
+  flex: none;
+  opacity: 0.6;
+}
+
+.mem-line-btn__v {
+  overflow: hidden;
+  color: var(--ink);
+  letter-spacing: 0.02em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mem-line-btn__chev {
+  flex: none;
+  margin-left: auto;
+  color: var(--ink-3);
+  transition: transform var(--dur-1) var(--ease-out);
+}
+
+.mem-line-btn[data-open] .mem-line-btn__chev {
+  transform: rotate(180deg);
+}
+
+.ai-row__mem {
+  flex: none;
+  max-width: 38%;
+  overflow: hidden;
+  color: var(--ink-3);
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  letter-spacing: 0.06em;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+/* ---------- a proposal ---------- */
+.mem-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 8px;
+  min-width: 0;
+}
+
+.mem-type {
+  flex: none;
+  padding: 1px 5px;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius-1);
+  color: var(--ink-2);
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: var(--tracking-label);
+  line-height: 1.5;
+  text-transform: uppercase;
+}
+
+.mem-type[data-type='preference'] {
+  border-color: var(--signal);
+  color: var(--signal-ink);
+}
+
+.mem-type[data-type='procedure'] {
+  border-color: var(--ink-3);
+  color: var(--ink);
+}
+
+.mem-text {
+  min-width: 0;
+  color: var(--ink);
+  font-size: var(--text-sm);
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.mem-topics {
+  color: var(--ink-3);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+}
+
+.mem-tpl {
+  margin: 6px 0 0;
+  padding: 6px 8px;
+  border-left: 2px solid var(--rule-strong);
+  background: var(--surface-2);
+}
+
+.mem-tpl__k {
+  display: block;
+  margin-bottom: 2px;
+  color: var(--ink-3);
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+}
+
+.mem-tpl__body {
+  max-height: 7.5em;
+  margin: 0;
+  overflow: hidden;
+  color: var(--ink-2);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
+.mem-dup {
+  margin: 6px 0 0;
+  color: var(--signal-ink);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.02em;
+}
+
+.ai-out__body--mem {
+  padding: 10px 14px 12px;
+}
+
+/* ---------- edit form ---------- */
+.mem-edit {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.mem-edit__types {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.mem-edit__type {
+  min-height: 26px;
+  padding: 2px 8px;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius-1);
+  background: transparent;
+  color: var(--ink-2);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.mem-edit__type:hover {
+  background: var(--hover);
+}
+
+.mem-edit__type[aria-checked='true'] {
+  border-color: var(--ink);
+  background: var(--ink);
+  color: var(--ink-inverse);
+}
+
+.mem-edit__type:active {
+  transform: translateY(1px);
+}
+
+.mem-edit__field {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.mem-edit__k {
+  color: var(--ink-3);
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+}
+
+.mem-edit__input,
+.mem-edit__body {
+  width: 100%;
+  font-size: var(--text-sm);
+}
+
+.mem-edit__body {
+  min-height: 72px;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  resize: vertical;
+}
+
+.mem-edit__keys {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+/* ---------- AI terminal: the proposals card ("REMEMBER? · 2") ---------- */
+.term-mem {
+  padding-top: 10px;
+}
+
+.term-mem__wait {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--ink-3);
+  font-size: 11px;
+}
+
+.term-mem .term-change[data-status='saved'],
+.term-mem .term-change[data-status='updated'] {
+  background: transparent;
+}
+
+.term-mem .term-change[data-status='dismissed'] {
+  border-style: dashed;
+  background: transparent;
+}
+
+.term-mem .term-change[data-status='dismissed'] .mem-text {
+  color: var(--ink-3);
+  text-decoration: line-through;
+}
+
+.term-mem__item-body {
+  margin: 4px 0 0 26px;
+}
+
+.term-mem .mem-edit {
+  margin: 6px 0 2px 26px;
+}
+
+/* the head chip: MEMORY · 3 */
+.term-head__mem {
+  min-height: 22px;
+  padding: 0 6px;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius-1);
+  background: transparent;
+  color: var(--ink-2);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: var(--tracking-label);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.term-head__mem:hover,
+.term-head__mem[aria-expanded='true'] {
+  border-color: var(--ink-3);
+  color: var(--ink);
+}
+
+.term-head__mem[data-off] {
+  color: var(--signal-ink);
+}
+
+@media (max-width: 640px) {
+  .term-mem__item-body,
+  .term-mem .mem-edit {
+    margin-left: 0;
+  }
+}
+
+/* ---------- Settings → Claude AI → One memory ---------- */
+.mems {
+  margin-top: 28px;
+  padding-top: 18px;
+  border-top: 1px solid var(--rule-strong);
+}
+
+.mems__head {
+  display: flex;
+  align-items: flex-end;
+  gap: 12px;
+  margin-bottom: 6px;
+}
+
+.mems__heading {
+  flex: 1;
+  min-width: 0;
+}
+
+.mems__code {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--ink-3);
+}
+
+.mems__title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  font-size: 19px;
+  font-weight: 800;
+  font-stretch: var(--display-stretch);
+  font-variation-settings: 'wdth' 125;
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+}
+
+.mems__lead {
+  max-width: 62ch;
+  margin: 0 0 14px;
+  color: var(--ink-2);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+}
+
+.mems__status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 10px;
+  margin-bottom: 12px;
+  padding: 8px 10px;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius-2);
+  background: var(--surface);
+}
+
+.mems__status .label {
+  flex: 1;
+  min-width: 12ch;
+}
+
+.mems__rows {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.mems__row {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 10px 0;
+  border-top: 1px solid var(--rule);
+}
+
+.mems__row-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.mems__row-k {
+  display: block;
+  color: var(--ink);
+  font-size: var(--text-md);
+  font-weight: 560;
+}
+
+.mems__row-hint {
+  display: block;
+  margin-top: 2px;
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+  line-height: 1.45;
+}
+
+.mems__note {
+  margin: 8px 0 0;
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+}
+
+/* ---------- ⌘K "?": MEMORY · 2 next to the answer's head ---------- */
+.mem-note {
+  position: relative;
+  display: inline-flex;
+  text-transform: none;
+}
+
+.mem-note__list {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 2;
+  width: min(340px, 80vw);
+  margin: 0;
+  padding: 4px;
+  border-radius: var(--radius-2);
+  background: var(--surface);
+  box-shadow: var(--shadow-pop);
+  list-style: none;
+}
+
+.mem-note__item {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  width: 100%;
+  min-height: 30px;
+  padding: 5px 8px;
+  border: 0;
+  border-radius: var(--radius-1);
+  background: transparent;
+  color: var(--ink);
+  font-size: var(--text-sm);
+  text-align: left;
+  cursor: pointer;
+}
+
+.mem-note__item:hover,
+.mem-note__item:focus-visible {
+  background: var(--hover);
+}
+
+.mem-note__label {
+  flex: none;
+  color: var(--signal-ink);
+  font-family: var(--font-mono);
+  font-size: 10px;
+}
+
+.mem-note__text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mem-note__none {
+  padding: 6px 8px;
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+}

@@ -36,7 +36,7 @@ import { readableContent } from '../../editor'
 import { requestRedo } from './redo/request'
 import type { RedoPassage } from './redo/passages'
 import { ImageLoadError, runImageRequest, type ImageIssue, type ImageMeta, type ImageRunRequest } from './image/run'
-import { memoryFor, noteCited } from './memory/use'
+import { memoryFor, noteUse } from './memory/use'
 import { condense } from './memory/propose'
 import { pageSource } from './memory/save'
 import type { MemoryProposal, MemoryUse } from './memory/types'
@@ -312,6 +312,9 @@ async function execute(id: string, editor: Editor) {
     raf ||= requestAnimationFrame(flushTokens)
   }
   const { req, target } = run
+  /** an own request that took the One memory along: logged once it ends (answered, stopped or failed) */
+  let memLog: { use: MemoryUse; task: string } | null = null
+  let outcome = ''
   try {
     if (req.kind === 'todb') {
       // reads the selected blocks only (and the page title)
@@ -356,6 +359,7 @@ async function execute(id: string, editor: Editor) {
         const read = actionRead(run, req)
         // an own request takes the One memory along (unless switched off for it)
         const mem = req.action === 'custom' ? memoryFor(req.instruction ?? '', { off: req.memoryOff }) : null
+        if (mem?.use) memLog = { use: mem.use, task: req.instruction ?? '' }
         patch(id, { reads: read.reads, ...(mem?.use ? { memory: mem.use } : {}) })
         text = await runAI({
           action: req.action,
@@ -367,7 +371,7 @@ async function execute(id: string, editor: Editor) {
           onMcp: (calls) => !ac.signal.aborted && patch(id, { mcpCalls: calls }, false),
           memory: mem?.block,
         })
-        if (!ac.signal.aborted) noteCited(text, mem?.use)
+        outcome = text
       }
       if (ac.signal.aborted) return
       buffers.delete(id)
@@ -385,6 +389,11 @@ async function execute(id: string, editor: Editor) {
     patch(id, { status: 'error', output: partial, error: { code: err.code, detail: err.detail, server: err.server }, finishedAt: Date.now() })
   } finally {
     if (controllers.get(id) === ac) controllers.delete(id)
+    if (memLog) {
+      const done = S().runs[id]?.status === 'done'
+      const result = done ? t('features.memory.result.answer') : t(ac.signal.aborted ? 'features.memory.result.stopped' : 'features.memory.result.failed')
+      noteUse(outcome || S().runs[id]?.output || '', memLog.use, { task: memLog.task, where: { kind: 'menu' }, pageId: run.pageId, result })
+    }
   }
 }
 

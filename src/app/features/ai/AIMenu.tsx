@@ -25,6 +25,7 @@ import {
   ArrowDownToLine,
   ArrowLeft,
   ArrowRightToLine,
+  BookMarked,
   BookOpenText,
   Check,
   Copy,
@@ -32,8 +33,10 @@ import {
   CornerDownLeft,
   EyeOff,
   FileText,
+  History,
   KeyRound,
   Languages,
+  Library,
   Lightbulb,
   ListChecks,
   ListTree,
@@ -85,6 +88,14 @@ import { findImage, imageInSelection, imageTarget } from './image/locate'
 import { imageRequest } from './image/actions'
 import { imageActionRows, imageRunTarget, refineImage, useImagePanel } from './image/ImagePanel'
 import type { ImageAction } from './image/request'
+import { MemoryLine, useMemoryPreview } from './memory/MenuParts'
+import { MemoryBodyView, MemoryEdit } from './memory/MemoryCard'
+import { isRememberRequest, stripRemember } from './memory/propose'
+import { memoryHistory } from './memory/log'
+import { confirmProposal, duplicateOf, openEntry, openMemoryDb, openMemoryLog } from './memory/open'
+import { readMemories } from './memory/read'
+import { memoryInUse } from './memory/settings'
+import type { MemoryProposal } from './memory/types'
 import './ai.css'
 import './runs.css'
 import './reads.css'
@@ -279,7 +290,13 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo }: 
   const [setup, setSetup] = useState(!hasKey && !isAIDemo() && !openRun)
   const [query, setQuery] = useState('')
   const lang = useLang()
-  const [view, setView] = useState<'actions' | 'translate' | 'reads'>('actions')
+  const [view, setView] = useState<'actions' | 'translate' | 'reads' | 'memory' | 'memhist'>('actions')
+  /** One memory: switched off for the next own request (the list's toggle) · the entry whose history shows */
+  const [memOff, setMemOff] = useState(false)
+  const [histOf, setHistOf] = useState<string | null>(null)
+  /** a memory run's proposal as edited here (null: as Claude proposed it) · the edit form is open */
+  const [memDraft, setMemDraft] = useState<MemoryProposal | null>(null)
+  const [memEdit, setMemEdit] = useState(false)
   /** the context picker is open on the page: the panel steps aside until Done / Esc */
   const [picking, setPicking] = useState(false)
   /** a page-level request that needs page text while Claude may read nothing of it: asked first */
@@ -417,9 +434,13 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo }: 
       setRunId(id)
       setQuery('')
       setActive(0)
+      setMemOff(false)
+      setMemDraft(null)
+      setMemEdit(false)
+      if (view === 'memory' || view === 'memhist') setView('actions')
       makeRoom(true)
     },
-    [editor, pageId, runId, makeRoom],
+    [editor, pageId, runId, makeRoom, view],
   )
 
   /** Stop: the request ends; text that arrived stays as the result. */
@@ -809,6 +830,16 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo }: 
         A('explain', t('features.ai.act.explain'), 'EXP', MessageCircleQuestion, gRead, 'explain erklären'),
         A('summarize', t('features.ai.act.summarize'), 'SUM', AlignLeft, gRead, 'summary zusammenfassen tldr'),
         A('action_items', t('features.ai.act.actionItems'), 'ACT', ListChecks, gRead, 'todo tasks aufgaben'),
+        // One memory: Claude condenses the selection into one proposal (saved only on OK)
+        {
+          id: 'remember',
+          label: t('features.memory.menu.rememberThis'),
+          code: 'MEM',
+          icon: BookMarked,
+          group: gWs,
+          keywords: 'remember memory keep merken gedächtnis erinnern',
+          run: () => start({ kind: 'memory', label: t('features.memory.menu.rememberThis'), code: 'MEM', text: own.t.selected, from: 'selection' }),
+        },
         agent,
         reads,
       ]
@@ -839,9 +870,91 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo }: 
 
   type Row = { id: string; label: ReactNode; code?: string; icon?: LucideIcon; group?: string; run: () => void; hint?: ReactNode; danger?: boolean; disabled?: boolean; current?: boolean }
 
+  /* ---------------- One memory ---------------- */
+
+  const memInUse = useWorkspace(() => memoryInUse())
+  const remembering = !!query.trim() && isRememberRequest(query) && !img?.only
+  /** the typed text would go to Claude as an own request (or a revision): its memory preview shows */
+  const previewing = memInUse && !!query.trim() && !remembering && !wsMode && !img?.only && !redoIds && (view === 'actions' || view === 'memory' || view === 'memhist') && phase !== 'streaming' && run?.req.kind !== 'todb' && run?.req.kind !== 'memory'
+  const preview = useMemoryPreview(query.trim(), previewing, memOff)
+  /** the line under the reads line: the preview while typing, else what the shown run took along */
+  const lineUse = previewing ? preview : !query.trim() && run?.req.kind === 'action' ? (run.memory ?? null) : null
+
+  /** a memory run: its proposal (as edited here) and a near-identical memory it would repeat */
+  const memProposal: MemoryProposal | null = run?.req.kind === 'memory' && phase === 'done' ? (memDraft ?? run.proposals?.[0] ?? null) : null
+  const memDup = useMemo(() => (memProposal ? duplicateOf(memProposal) : null), [memProposal])
+  const memDupText = useMemo(() => (memDup ? (readMemories().find((m) => m.id === memDup)?.text ?? null) : null), [memDup])
+  const saveMem = (asNew: boolean) => {
+    if (!run || !memProposal) return
+    if (!confirmProposal(memProposal, asNew ? null : memDup)) return
+    removeRun(run.id)
+    onClose()
+  }
+
   const isRedo = run?.req.kind === 'redo'
   /** the instructions card shows: passages marked, nothing running yet (or "Change instructions") */
   const redoCard = !!redoIds && (phase === 'idle' || redoEdit)
+
+  /** "MEMORY · 3" opened: the memories (→ the entry), history, the per-request switch, the databases */
+  const memoryRows = (): Row[] => {
+    const out: Row[] = []
+    const use = lineUse
+    const group = previewing ? t('features.memory.list.forRequest') : t('features.memory.list.usedBy')
+    if (use?.off) out.push({ id: 'mem-none', label: t('features.memory.list.off'), group, run: () => {}, disabled: true })
+    else if (!use?.items.length) out.push({ id: 'mem-none', label: t('features.memory.list.none'), group, run: () => {}, disabled: true })
+    for (const it of use && !use.off ? use.items : [])
+      out.push({ id: `mem-${it.id}`, label: it.text, code: it.label, icon: BookMarked, group, run: () => openEntry(it.id), hint: <span className="ai-row__mem">{t(`features.memory.type.${it.type}`)}</span> })
+    const g2 = t('features.memory.list.title')
+    if (previewing) out.push({ id: 'mem-toggle', label: t('features.memory.list.useOn'), icon: SquareCheck, group: g2, current: !memOff, run: () => setMemOff((v) => !v), code: memOff ? 'OFF' : 'ON' })
+    if (use?.items.length && !use.off)
+      out.push({
+        id: 'mem-history',
+        label: t('features.memory.list.history'),
+        icon: History,
+        group: g2,
+        run: () => {
+          setHistOf(null)
+          setView('memhist')
+          setActive(0)
+        },
+      })
+    out.push({ id: 'mem-open', label: t('features.memory.list.open'), icon: Library, group: g2, run: openMemoryDb })
+    out.push({ id: 'mem-log', label: t('features.memory.list.log'), icon: History, group: g2, run: openMemoryLog })
+    return out
+  }
+
+  /** "History": every use of the listed memories (the memory log, newest first) → the log row */
+  const historyRows = (): Row[] => {
+    const items = lineUse && !lineUse.off ? lineUse.items.filter((x) => !histOf || x.id === histOf) : []
+    const out: Row[] = [
+      {
+        id: 'memh-back',
+        label: t('features.memory.history.back'),
+        icon: ArrowLeft,
+        run: () => {
+          setView('memory')
+          setActive(0)
+        },
+      },
+    ]
+    const fmt = (ms: number) => new Date(ms).toLocaleString(lang === 'de' ? 'de-DE' : 'en-US', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
+    for (const it of items) {
+      const group = t('features.memory.list.historyOf', { label: `${it.label} · ${it.text}` })
+      const uses = memoryHistory(it.id, 8)
+      if (!uses.length) out.push({ id: `memh-none-${it.id}`, label: t('features.memory.history.none'), group, run: () => {}, disabled: true })
+      for (const u of uses)
+        out.push({
+          id: `memh-${it.id}-${u.id}`,
+          label: u.task || u.where,
+          code: fmt(u.at),
+          icon: u.cited ? BookMarked : History,
+          group,
+          run: () => openEntry(u.id),
+          hint: <span className="ai-row__mem">{u.cited ? `${u.where} · ${t('features.memory.list.cited')}` : u.where}</span>,
+        })
+    }
+    return out
+  }
 
   const rows: Row[] = useMemo(() => {
     const q = query.trim().toLowerCase()
@@ -867,8 +980,38 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo }: 
         { id: 'reads-none', label: t('features.ai.reads.opt.none'), icon: EyeOff, group, current: m === 'none', run: () => chooseMode('none'), code: 'NONE' },
       ]
     }
+    if (view === 'memory') return memoryRows()
+    if (view === 'memhist') return historyRows()
     // "Redo with instructions": the instructions card has its own keys
     if (redoCard) return []
+    // a memory proposal (One memory): save · update the near-identical one · edit · discard
+    if (phase === 'done' && run?.req.kind === 'memory') {
+      const req = run.req
+      if (memEdit) return []
+      if (q)
+        return [
+          {
+            id: 'refine',
+            label: (
+              <>
+                {t('features.ai.refine')} <span className="ai-quote">“{query.trim()}”</span>
+              </>
+            ),
+            code: 'REF',
+            icon: CornerDownLeft,
+            run: () => start({ ...req, text: `${req.text}\n\n${query.trim()}` }),
+          },
+        ]
+      const out: Row[] = memDup
+        ? [
+            { id: 'mem-update', label: t('features.memory.menu.update'), icon: Check, run: () => saveMem(false), hint: <Kbd>↵</Kbd> },
+            { id: 'mem-new', label: t('features.memory.menu.saveNew'), icon: BookMarked, run: () => saveMem(true) },
+          ]
+        : [{ id: 'mem-save', label: t('features.memory.menu.save'), icon: Check, run: () => saveMem(false), hint: <Kbd>↵</Kbd> }]
+      out.push({ id: 'mem-edit', label: t('features.memory.menu.edit'), icon: PenLine, run: () => setMemEdit(true) })
+      out.push({ id: 'discard', label: t('features.memory.menu.discard'), icon: Trash2, run: discard, hint: <Kbd>esc</Kbd>, danger: true })
+      return out
+    }
     if (phase === 'done' || phase === 'error') {
       if (q)
         return [
@@ -896,6 +1039,7 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo }: 
                       instruction: query.trim(),
                       input: output || target.selected,
                       refine: true,
+                      ...(memOff ? { memoryOff: true } : {}),
                     }),
           },
         ]
@@ -1026,7 +1170,7 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo }: 
           ),
           code: 'ASK',
           icon: CornerDownLeft,
-          run: () => start({ kind: 'action', action: 'custom', label: t('features.ai.custom'), code: 'ASK', instruction: query.trim() }),
+          run: () => start({ kind: 'action', action: 'custom', label: t('features.ai.custom'), code: 'ASK', instruction: query.trim(), ...(memOff ? { memoryOff: true } : {}) }),
           hint: mcpNames ? (
             <span className="ai-row__mcp" title={t('features.ai.mcp.uses', { names: mcpNames })}>
               + {mcpNames}
@@ -1051,8 +1195,21 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo }: 
       })
     }
     if (imageAsk) list.unshift(imageAsk)
+    // "remember …" / "merk dir …": a memory proposal, not an answer
+    if (remembering)
+      list.unshift({
+        id: 'remember-req',
+        label: (
+          <>
+            {t('features.memory.menu.remember')} <span className="ai-quote">“{stripRemember(query)}”</span>
+          </>
+        ),
+        code: 'MEM',
+        icon: BookMarked,
+        run: () => start({ kind: 'memory', label: t('features.memory.menu.label'), code: 'MEM', text: query.trim(), from: 'request' }),
+      })
     return list
-  }, [query, setup, phase, wsMode, view, actions, t, start, output, target, run, error, discard, sources, handToAgent, mcpNames, onClose, table, todbInPlace, ask, marks, lang, chooseMode, pickBlocks, redoCard, isRedo, imagePanel.rows, img]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [query, setup, phase, wsMode, view, actions, t, start, output, target, run, error, discard, sources, handToAgent, mcpNames, onClose, table, todbInPlace, ask, marks, lang, chooseMode, pickBlocks, redoCard, isRedo, imagePanel.rows, img, lineUse, memOff, previewing, histOf, memEdit, memDup, remembering]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     setActive((a) => Math.min(a, Math.max(0, rows.length - 1)))
@@ -1102,9 +1259,12 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo }: 
       if (ask) {
         e.preventDefault()
         setAsk(null)
-      } else if (view === 'translate' || view === 'reads') {
+      } else if (view === 'translate' || view === 'reads' || view === 'memory') {
         e.preventDefault()
         setView('actions')
+      } else if (view === 'memhist') {
+        e.preventDefault()
+        setView('memory')
       } else if (wsMode && phase === 'idle') {
         e.preventDefault()
         setWsMode(false)
@@ -1135,6 +1295,7 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo }: 
   const busy = phase === 'streaming'
   const showOutput = phase !== 'idle' && !setup && !redoCard
   const isTodb = run?.req.kind === 'todb'
+  const isMemory = run?.req.kind === 'memory'
   const todbBlocks = isTodb && target.todb && !editor.isDestroyed ? countBlocks(editor, target.todb) : 0
   const words = output.trim() ? output.trim().split(/\s+/).length : 0
   /** the passages the instructions card would send (they recount as the page changes) */
@@ -1186,6 +1347,11 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo }: 
               {view === 'reads' && (
                 <button className="ai-chip" onClick={() => setView('actions')}>
                   <ArrowLeft size={11} strokeWidth={2} /> {t('features.ai.reads.title')}
+                </button>
+              )}
+              {(view === 'memory' || view === 'memhist') && (
+                <button className="ai-chip" onClick={() => setView(view === 'memhist' ? 'memory' : 'actions')}>
+                  <ArrowLeft size={11} strokeWidth={2} /> {t('features.memory.list.title')}
                 </button>
               )}
               {redoHead ? (
@@ -1267,6 +1433,20 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo }: 
               </button>
             )}
 
+            {lineUse && !reviewing && view !== 'reads' && (
+              <MemoryLine
+                use={lineUse}
+                open={view === 'memory' || view === 'memhist'}
+                disabled={busy}
+                onToggle={() => {
+                  setAsk(null)
+                  setView((v) => (v === 'memory' || v === 'memhist' ? 'actions' : 'memory'))
+                  setActive(0)
+                  requestAnimationFrame(() => inputRef.current?.focus({ preventScroll: true }))
+                }}
+              />
+            )}
+
             {ask && (
               <p className="ai-lost ai-ask" role="note" data-testid="ai-reads-ask">
                 {t('features.ai.reads.needs', { action: ask.label })}
@@ -1309,7 +1489,7 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo }: 
                     </>
                   )}
                   {run && <Elapsed start={run.startedAt} end={run.finishedAt ?? undefined} />}
-                  {!isTodb && !isRedo && !imagePanel.structured && (
+                  {!isTodb && !isRedo && !isMemory && !imagePanel.structured && (
                     <>
                       <span className="ai-out__sep">·</span>
                       <span>{t('features.ai.words', { count: words })}</span>
@@ -1343,7 +1523,36 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo }: 
                   </div>
                 )}
                 {reviewing && run?.redo && <RedoReview run={run} editor={editor} pageId={pageId} onDone={onClose} />}
-                {!isTodb && !isRedo && !imagePanel.structured && !run?.imageIssue && (output || busy) && (
+                {isMemory && busy && (
+                  <div className="ai-out__body">
+                    <div className="ai-wait label">
+                      {t('features.memory.menu.working')}
+                      <span className="ai-wait__dots" aria-hidden />
+                    </div>
+                  </div>
+                )}
+                {memProposal && (
+                  <div className="ai-out__body ai-out__body--mem" data-testid="ai-memory-card">
+                    {memEdit ? (
+                      <MemoryEdit
+                        p={memProposal}
+                        onSave={(next) => {
+                          setMemDraft(next)
+                          setMemEdit(false)
+                          requestAnimationFrame(() => inputRef.current?.focus({ preventScroll: true }))
+                        }}
+                        onCancel={() => {
+                          setMemEdit(false)
+                          requestAnimationFrame(() => inputRef.current?.focus({ preventScroll: true }))
+                        }}
+                        saveLabel={t('features.memory.edit.save')}
+                      />
+                    ) : (
+                      <MemoryBodyView p={memProposal} dup={memDupText ? { text: memDupText } : null} />
+                    )}
+                  </div>
+                )}
+                {!isTodb && !isRedo && !isMemory && !imagePanel.structured && !run?.imageIssue && (output || busy) && (
                   <div
                     className="ai-out__body"
                     ref={outRef}

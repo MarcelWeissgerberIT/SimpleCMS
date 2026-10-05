@@ -8,8 +8,9 @@
  * within ~12 items / ~3,000 characters. Each gets a label (M1 …) for that request; Claude cites it.
  */
 import Fuse from 'fuse.js'
+import { format } from 'date-fns'
 import { useWorkspace } from '../../../store/store'
-import type { DateValue, ID, PropertyValue } from '../../../store/types'
+import type { ID, PropertyValue } from '../../../store/types'
 import { readableContent } from '../../../editor'
 import { memoryDbId, memoryProps, typeOfName } from './schema'
 import type { Memory, MemoryType, PickedMemory } from './types'
@@ -20,7 +21,7 @@ const MAX_PREFS = 6
 const BODY_CHARS = 1200
 
 const str = (v: PropertyValue | undefined): string => (typeof v === 'string' ? v : '')
-const isDate = (v: unknown): v is DateValue => !!v && typeof v === 'object' && !Array.isArray(v) && typeof (v as DateValue).start === 'string'
+const ids = (v: PropertyValue | undefined): ID[] => (Array.isArray(v) ? v.filter((x): x is ID => typeof x === 'string') : [])
 
 /** Every memory in the memory database (sanitised; trashed rows left out). Empty without a database. */
 export function readMemories(dbId: ID | null = memoryDbId()): Memory[] {
@@ -37,20 +38,20 @@ export function readMemories(dbId: ID | null = memoryDbId()): Memory[] {
     if (!text) continue
     const p = row.properties ?? {}
     const typeVal = roles.type ? p[roles.type] : undefined
-    const topicsVal = roles.topics ? p[roles.topics] : undefined
     const activeVal = roles.active ? p[roles.active] : undefined
-    const usesVal = roles.uses ? p[roles.uses] : undefined
-    const lastVal = roles.lastUsed ? p[roles.lastUsed] : undefined
+    // Uses / Last used: the live log rows that cited it (the rollups show the same)
+    const cited = (roles.citedIn ? ids(p[roles.citedIn]) : []).map((id) => pages[id]).filter((r) => !!r && !r.trashed)
+    const last = cited.reduce((mx, r) => Math.max(mx, r!.createdAt), 0)
     out.push({
       id: row.id,
       text: text.slice(0, 400),
       type: (typeof typeVal === 'string' ? typeOfName(optName(roles.type, typeVal)) : null) ?? 'fact',
-      topics: Array.isArray(topicsVal) ? topicsVal.map((id) => optName(roles.topics, String(id))).filter(Boolean).slice(0, 12) : [],
+      topics: (roles.topics ? ids(p[roles.topics]) : []).map((id) => optName(roles.topics, id)).filter(Boolean).slice(0, 12),
       source: str(roles.source ? p[roles.source] : undefined).slice(0, 300),
       // a row added by hand has no value yet: it counts as active until its box is unticked
       active: activeVal !== false,
-      uses: typeof usesVal === 'number' && Number.isFinite(usesVal) ? Math.max(0, Math.floor(usesVal)) : 0,
-      lastUsed: isDate(lastVal) ? lastVal.start.slice(0, 10) : null,
+      uses: cited.length,
+      lastUsed: last ? format(new Date(last), 'yyyy-MM-dd') : null,
       plain: (row.plain ?? '').slice(0, 2000),
       createdAt: row.createdAt,
     })

@@ -30,6 +30,12 @@ import { loadHistory } from './history'
 import { PropDiff, Preview, SchemaDiff } from './ReviewParts'
 import { depsOf, type AgentStep, type AgentTurn, type StagedChange } from './types'
 import { ImageRefChip } from '../image/ImageRefChip'
+import { MemoryProposals } from './MemoryProposals'
+import { memoryHistory } from '../memory/log'
+import { openEntry, openMemoryDb, openMemoryLog } from '../memory/open'
+import { readMemories } from '../memory/read'
+import { memoryDbId } from '../memory/schema'
+import { memorySettings } from '../memory/settings'
 import '../ai.css'
 import './agent.css'
 
@@ -129,7 +135,9 @@ export default function AgentSheet() {
   }, [steps, live, turns.length, status, changes.length, echo.length])
 
   const focusReview = useCallback(() => {
-    const el = listRef.current?.querySelector<HTMLElement>('[data-cursor]') ?? listRef.current?.querySelector<HTMLElement>('li')
+    // open memory proposals first ("REMEMBER? · 2"), then the review list
+    const mem = rootRef.current?.querySelector<HTMLElement>('.term-mem .term-change[data-status="pending"]')
+    const el = mem ?? listRef.current?.querySelector<HTMLElement>('[data-cursor]') ?? listRef.current?.querySelector<HTMLElement>('li')
     if (!el) return false
     el.scrollIntoView({ block: 'nearest', behavior: reducedMotion() ? 'auto' : 'smooth' })
     el.focus({ preventScroll: true })
@@ -327,6 +335,7 @@ function Head() {
           {t('features.agent.head.mcp', { count: mcp })}
         </span>
       )}
+      <MemoryChip />
       {usage.requests > 0 && (
         <span className="term-head__read">
           <span aria-hidden>· </span>≈ {fmtUsd(usage.usd)}
@@ -354,6 +363,59 @@ function Head() {
         <X size={15} strokeWidth={1.75} className="term-key__x" aria-hidden />
       </button>
     </header>
+  )
+}
+
+/**
+ * "MEMORY · 3": what the last task took along from the One memory — each entry (→ open it, its
+ * history in the memory log), the memory itself and its log.
+ */
+function MemoryChip() {
+  const t = useT()
+  const lang = useLang()
+  const use = useAgent((s) => s.turns[s.turns.length - 1]?.memory)
+  const menu = useMenu()
+  if (!use) return null
+  const fmt = (ms: number) => new Date(ms).toLocaleString(lang === 'de' ? 'de-DE' : 'en-US', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
+  const entries: MenuEntry[] = menu.open
+    ? [
+        { kind: 'section', label: use.off ? t('features.memory.list.off') : t('features.memory.list.usedBy') },
+        ...(!use.off && !use.items.length ? [{ label: t('features.memory.list.none'), disabled: true }] : []),
+        ...use.items.map((it): MenuEntry => {
+          const uses = memoryHistory(it.id, 8)
+          return {
+            label: `${it.label} · ${it.text}`,
+            hint: t(`features.memory.type.${it.type}`),
+            submenu: [
+              { label: t('features.memory.list.openEntry'), onSelect: () => openEntry(it.id) },
+              { kind: 'section', label: t('features.memory.list.history') },
+              ...(uses.length
+                ? uses.map((u): MenuEntry => ({ label: `${fmt(u.at)} · ${u.task || u.where}`, hint: u.cited ? t('features.memory.list.cited') : u.where, onSelect: () => openEntry(u.id) }))
+                : [{ label: t('features.memory.history.none'), disabled: true }]),
+            ],
+          }
+        }),
+        { kind: 'separator' },
+        { label: t('features.memory.list.open'), onSelect: openMemoryDb },
+        { label: t('features.memory.list.log'), onSelect: openMemoryLog },
+      ]
+    : []
+  return (
+    <>
+      <button
+        type="button"
+        className="term-head__mem"
+        data-off={use.off || undefined}
+        onClick={menu.toggle}
+        aria-haspopup="menu"
+        aria-expanded={menu.open}
+        title={t('features.memory.chipTitle')}
+        data-testid="term-memory-chip"
+      >
+        {use.off ? t('features.memory.chipOff') : t('features.memory.chip', { count: use.items.length })}
+      </button>
+      <Menu {...menu.props} entries={entries} width={340} placement="bottom-start" />
+    </>
   )
 }
 
@@ -387,6 +449,10 @@ function Standby({ disabled }: { disabled: boolean }) {
       .join(' · '),
   )
   const examples = [t('features.agent.ex.1'), t('features.agent.ex.2'), t('features.agent.ex.3')]
+  // the One memory: how many memories go along ("12 memories · /remember")
+  const memOn = useWorkspace((s) => memorySettings(s.settings).enabled)
+  const memCount = useWorkspace(() => (memoryDbId() ? readMemories().filter((m) => m.active).length : null))
+  const memory = !memOn ? t('features.memory.standby.off') : memCount === null ? t('features.memory.standby.none') : tn('features.memory.standby.count', memCount)
   return (
     <div className="term-standby">
       <p className="term-standby__lead">{t('features.agent.lead')}</p>
@@ -409,6 +475,10 @@ function Standby({ disabled }: { disabled: boolean }) {
             <dd>{mcp}</dd>
           </div>
         )}
+        <div>
+          <dt>{t('features.memory.standby.k')}</dt>
+          <dd data-testid="term-memory-standby">{memory}</dd>
+        </div>
       </dl>
       <div className="term-examples" role="group" aria-label={t('features.agent.examples')}>
         {examples.map((ex, i) => (
@@ -440,8 +510,13 @@ function Standby({ disabled }: { disabled: boolean }) {
 function Timeline() {
   const turns = useAgent((s) => s.turns)
   const echo = useAgent((s) => s.echo)
+  const cards = useAgent((s) => s.memCards)
   const out: ReactNode[] = []
-  const echoAfter = (n: number) => echo.filter((e) => e.after === n).forEach((e) => out.push(<Echo key={e.id} entry={e} />))
+  const echoAfter = (n: number) => {
+    echo.filter((e) => e.after === n).forEach((e) => out.push(<Echo key={e.id} entry={e} />))
+    // One memory: proposals after the task / from /remember
+    cards.filter((c) => c.after === n).forEach((c) => out.push(<MemoryProposals key={c.id} card={c} />))
+  }
   echoAfter(0)
   turns.forEach((turn) => {
     out.push(<TurnView key={turn.n} turn={turn} last={turn.n === turns.length} />)
@@ -883,7 +958,7 @@ function withDeps(ids: string[], all: StagedChange[]): string[] {
 function openChange(c: StagedChange) {
   const target = changeTarget(c)
   if (!target) return
-  if (c.kind === 'create_row' || c.kind === 'update_row') useUI.getState().openPeek(target)
+  if (c.kind === 'create_row' || c.kind === 'update_row' || c.kind === 'memory') useUI.getState().openPeek(target)
   else openPage(target)
   if (isPhone()) closeAgent()
 }
@@ -933,6 +1008,7 @@ function ChangeItem({
   let where = ''
   if (c.kind === 'create_page' || c.kind === 'create_database') where = c.parentId ? t('features.agent.review.under', { title: titleOf(c.parentId, all) }) : t('features.agent.review.topLevel')
   else if (c.kind === 'create_row' || c.kind === 'update_row' || c.kind === 'add_property') where = t('features.agent.review.in', { title: titleOf(c.databaseId, all) })
+  else if (c.kind === 'memory' && c.memory) where = t(c.memory.updates ? 'features.memory.review.update' : 'features.memory.review.where', { type: t(`features.memory.type.${c.memory.type}`) })
   const label = `#${c.n}`
   const target = c.status === 'applied' ? changeTarget(c) : null
 
@@ -945,6 +1021,7 @@ function ChangeItem({
     )
   else if (c.kind === 'append' || c.kind === 'update_row') title = titleOf(c.pageId, all) || c.title
   else if (c.kind === 'add_property') title = c.prop?.name
+  else if (c.kind === 'memory') title = c.memory?.text ?? c.title
 
   const name = `${label} ${t(`features.agent.kind.${c.kind}`)}${marked ? `, ${t('features.agent.review.marked')}` : ''}`
   return (
