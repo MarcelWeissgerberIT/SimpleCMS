@@ -125,7 +125,7 @@ if (scenario === 'toolbar') {
   }, id)
   await page.waitForTimeout(600)
   await toolbar(/Describe the image/)
-  await page.waitForSelector('[data-testid="ai-image-error"]')
+  await page.waitForTimeout(3000)
 } else if (scenario === 'terminal') {
   await fig.locator('img').click()
   await page.keyboard.press('Control+Shift+J')
