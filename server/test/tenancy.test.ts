@@ -272,6 +272,16 @@ const MCP_TOOLS: Record<string, (x: Foreign) => Record<string, unknown>> = {
   one_create_property: (x) => ({ databaseId: x.db, name: 'Injected', type: 'text' }),
   one_create_database: (x) => ({ title: 'injected', parentId: x.page }),
   one_trash_page: (x) => ({ id: x.row }),
+  one_restore_page: (x) => ({ id: x.page }),
+  one_update_database: (x) => ({ id: x.db, title: 'changed' }),
+  one_update_property: (x) => ({ databaseId: x.db, property: 'Name', name: 'Changed' }),
+  one_delete_property: (x) => ({ databaseId: x.db, property: 'Name' }),
+  one_create_view: (x) => ({ databaseId: x.db, type: 'list' }),
+  one_update_view: (x) => ({ databaseId: x.db, view: 'Table', name: 'changed' }),
+  one_delete_view: (x) => ({ databaseId: x.db, view: 'Table' }),
+  // A's own page under B's page, A's own row into B's database
+  one_move_page: (x) => ({ id: 'page-alpha', parentId: x.page }),
+  one_move_row: (x) => ({ id: 'row-alpha', databaseId: x.db }),
 }
 
 const MARKER = 'bravo-only-7f3c'

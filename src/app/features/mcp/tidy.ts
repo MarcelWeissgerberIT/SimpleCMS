@@ -30,22 +30,21 @@ function within(pages: Record<ID, Page>, id: ID, ancestor: ID): boolean {
   return false
 }
 
-/** Pages below `id` that are not in the trash themselves (sub-pages, rows of databases …). */
-function liveBelow(id: ID): number {
-  const pages = Object.values(ws().pages)
-  const seen = new Set<ID>([id])
-  const stack = [id]
-  let n = 0
-  while (stack.length) {
-    const cur = stack.pop()!
-    for (const p of pages)
-      if (p.parentId === cur && !p.trashed && !seen.has(p.id)) {
-        seen.add(p.id)
-        n++
-        stack.push(p.id)
-      }
+/** Counts the pages below a page that are not in the trash themselves (sub-pages, rows of databases …). */
+function belowCounter(): (id: ID) => number {
+  const byParent = new Map<ID, ID[]>()
+  for (const p of Object.values(ws().pages)) if (p.parentId && !p.trashed) byParent.set(p.parentId, [...(byParent.get(p.parentId) ?? []), p.id])
+  return (id) => {
+    const seen = new Set<ID>([id])
+    const stack = [id]
+    while (stack.length)
+      for (const kid of byParent.get(stack.pop()!) ?? [])
+        if (!seen.has(kid)) {
+          seen.add(kid)
+          stack.push(kid)
+        }
+    return seen.size - 1
   }
-  return n
 }
 
 const kindLabel = (p: Page) => t(`features.mcp.kind.${kindOf(p)}`)
@@ -86,9 +85,10 @@ function planTrash(args: Record<string, unknown>): WritePlan {
   }
   if (problems.length) throw new McpToolError(`Nothing was moved to the trash: ${problems.join('; ')}. Use one_search to find page ids.`)
   // a listed page below another listed one goes along with it
+  const below = belowCounter()
   const items: TrashItem[] = found
     .filter((p) => !found.some((o) => o.id !== p.id && within(pages, p.id, o.id)))
-    .map((page) => ({ page, below: liveBelow(page.id), ...(page.kind === 'database' ? { rows: rowsOf(page.id).length } : {}) }))
+    .map((page) => ({ page, below: below(page.id), ...(page.kind === 'database' ? { rows: rowsOf(page.id).length } : {}) }))
   const single = !Array.isArray(args.ids)
   const total = items.reduce((n, x) => n + x.below, 0)
   const lines: PlanLine[] = []
@@ -202,7 +202,11 @@ function planRestore(args: Record<string, unknown>): WritePlan {
       const before = items.map((x) => ({ id: x.page.id, parentId: ws().pages[x.page.id]?.parentId ?? null }))
       const moved = items.filter((x) => !ws().pages[x.page.id]?.trashed)
       if (moved.length) throw new McpToolError(`${moved.map((x) => q(titleOf(x.page))).join(', ')} is no longer in the trash. Nothing was changed.`)
-      for (const x of items) ws().restorePage(x.page.id)
+      for (const x of items) {
+        ws().restorePage(x.page.id)
+        // the store looks at the parent only; under a trashed grandparent it would stay out of sight
+        if (x.top && ws().pages[x.page.id]?.parentId) ws().updatePage(x.page.id, { parentId: null })
+      }
       return {
         result: single ? out(items[0].page.id) : { restored: items.map((x) => out(x.page.id)), count: items.length },
         undo: () => {

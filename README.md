@@ -197,7 +197,9 @@ into One ([docs/API.md](docs/API.md)). Setup in [docs/SELF_HOSTING.md](docs/SELF
 [docs/CLOUD.md](docs/CLOUD.md). The local workspace keeps working without any of it.
 
 **Agents & MCP** — One speaks the Model Context Protocol, so Claude Desktop, Claude Code or any MCP client can search,
-read and write your workspace: pages, databases, rows and properties, with 14 tools. Locally, a small bridge
+read, write and tidy up your workspace — pages, databases, rows, properties and views: move, reshape, trash (a
+database with its rows, up to 50 items at once) and restore, never deleted for good — with 23 tools. Start a message
+with the codeword `one:` and Claude uses One for it. Locally, a small bridge
 (`one-mcp.mjs`, one file — or **one click** as a Claude Desktop extension, `one.mcpb`) drives the One tabs you have
 open — nothing leaves your computer, and changes wait for your one-click approval unless you switch that off. Several
 workspaces can be connected at once (each in its tab); agents name the one they mean, and a call meant for one
@@ -297,9 +299,11 @@ Built for the **Ninja Armory** challenge of the AI Automations community.
   sie nach Kategorie, Priorität und „braucht Antwort“
 - eine eingebaute Hilfe (`?`) mit 54 Artikeln auf Deutsch und Englisch, „Frag die Hilfe“ und öffentlich unter
   [getonecms.com/help](https://getonecms.com/help/de/)
-- MCP für KI-Agenten: Claude Desktop, Claude Code & Co. suchen, lesen und schreiben im Workspace – lokal über eine
-  Brücke zu deinem offenen Tab (Änderungen nach deiner Freigabe; für Claude Desktop mit einem Klick als Erweiterung
-  `one.mcpb`), im Team über den `/mcp`-Endpunkt des Servers
+- MCP für KI-Agenten: Claude Desktop, Claude Code & Co. suchen, lesen, schreiben und räumen auf im Workspace –
+  verschieben, Eigenschaften und Ansichten umbauen, in den Papierkorb legen und wiederherstellen (nichts wird
+  endgültig gelöscht); das Codewort `one:` am Anfang einer Nachricht schickt Claude in deinen Workspace – lokal über
+  eine Brücke zu deinem offenen Tab (Änderungen nach deiner Freigabe; für Claude Desktop mit einem Klick als
+  Erweiterung `one.mcpb`), im Team über den `/mcp`-Endpunkt des Servers
   ([docs/MCP.md](docs/MCP.md))
 - wiederkehrende Datenbank-Vorlagen, z. B. jeden Montag um 09:00 ein neuer Meeting-Eintrag
 - Präsentationsmodus und Offline-Betrieb

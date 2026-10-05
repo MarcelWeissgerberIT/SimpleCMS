@@ -102,7 +102,24 @@ async function fails(client: McpClient, name: string, args: Record<string, unkno
 }
 
 const READ_TOOLS = ['one_get_database', 'one_get_page', 'one_list_databases', 'one_list_workspaces', 'one_overview', 'one_query_database', 'one_search']
-const WRITE_TOOLS = ['one_create_database', 'one_create_page', 'one_create_property', 'one_create_row', 'one_trash_page', 'one_update_page', 'one_update_row']
+const WRITE_TOOLS = [
+  'one_create_database',
+  'one_create_page',
+  'one_create_property',
+  'one_create_row',
+  'one_create_view',
+  'one_delete_property',
+  'one_delete_view',
+  'one_move_page',
+  'one_move_row',
+  'one_restore_page',
+  'one_trash_page',
+  'one_update_database',
+  'one_update_page',
+  'one_update_property',
+  'one_update_row',
+  'one_update_view',
+]
 
 /* ------------------------------------------------------------------ suite */
 
@@ -201,9 +218,31 @@ describe('remote MCP', () => {
     const query = all.find((t) => t.name === 'one_query_database')!
     assert.deepEqual(query.inputSchema.required, ['databaseId'])
     assert.equal(query.annotations?.readOnlyHint, true)
-    assert.equal(all.find((t) => t.name === 'one_trash_page')!.annotations?.destructiveHint, true)
+    for (const name of ['one_trash_page', 'one_delete_property', 'one_delete_view', 'one_update_property']) assert.equal(all.find((t) => t.name === name)!.annotations?.destructiveHint, true, name)
+    for (const name of ['one_move_page', 'one_move_row', 'one_restore_page', 'one_create_view']) assert.equal(all.find((t) => t.name === name)!.annotations?.destructiveHint, false, name)
+    const trash = all.find((t) => t.name === 'one_trash_page')!.inputSchema.properties as Record<string, { type?: string; maxItems?: number }>
+    assert.deepEqual([trash.ids?.type, trash.ids?.maxItems], ['array', 50])
     // a read token can't call a write tool even when it knows the name
     await fails(reader, 'one_create_row', { databaseId: 'db-tasks', title: 'nope' }, /one_create_row/)
+    await fails(reader, 'one_trash_page', { id: 'doc-1' }, /one_trash_page/)
+    await fails(reader, 'one_delete_property', { databaseId: 'db-tasks', property: 'Status' }, /one_delete_property/)
+  })
+
+  test('the "one:" codeword: named in the instructions, offered as the prompt "one" — for read tokens too', async () => {
+    for (const c of [writer, reader]) {
+      assert.match(c.getInstructions() ?? '', /Codeword: a message that starts with "one:"/)
+      assert.ok(c.getServerCapabilities()?.prompts, 'prompts capability')
+      const { prompts } = await c.listPrompts()
+      assert.deepEqual(prompts.map((p) => p.name), ['one'])
+      assert.equal(prompts[0]!.arguments?.[0]?.name, 'task')
+      assert.equal(prompts[0]!.arguments?.[0]?.required, true)
+    }
+    const got = await writer.getPrompt({ name: 'one', arguments: { task: '  tidy up the Tasks database ' } })
+    assert.equal(got.messages[0]!.role, 'user')
+    assert.match((got.messages[0]!.content as { text: string }).text, /^one: tidy up the Tasks database\n\nUse the One tools for this/)
+    assert.match(writer.getInstructions() ?? '', /one_restore_page brings things back/)
+    await assert.rejects(writer.getPrompt({ name: 'two', arguments: { task: 'x' } }), /two/)
+    await assert.rejects(writer.getPrompt({ name: 'one', arguments: { task: '   ' } }), /task/)
   })
 
   test('auth: bearer only — missing, unknown and cookie-only requests are 401; GET is 405; foreign origins 403', async () => {
@@ -570,6 +609,173 @@ describe('remote MCP', () => {
     })
     await flushed(meta)
     assert.equal((await call(reader, 'one_get_page', { id: 'row-3' })).title, 'Ship it')
+  })
+
+  /* ---------------------------------------------------------------- tidying up */
+
+  const yp = (id: string) => meta.doc.getMap('pages').get(id) as Y.Map<unknown> | undefined
+  const ydb = (id: string) => meta.doc.getMap('databases').get(id) as Y.Map<unknown> | undefined
+
+  test('tidy up: a database goes to the trash with its rows, many at once; restore lists the trash; api: attribution', async () => {
+    const db = await call(writer, 'one_create_database', { title: 'Scratch', properties: [{ name: 'Name', type: 'title' }, { name: 'N', type: 'number' }] })
+    for (const n of [1, 2]) await call(writer, 'one_create_row', { databaseId: db.id, title: `Row ${n}`, properties: { N: n } })
+    const res = await call(writer, 'one_trash_page', { id: db.id })
+    assert.deepEqual([res.id, res.kind, res.rows, res.alsoTrashed, res.trashed], [db.id, 'database', 2, 2, true])
+    await waitFor(() => yp(db.id)?.get('trashed') === true, 5000, 'trashed live')
+    assert.match(String(yp(db.id)!.get('updatedBy')), /^api:/)
+    await fails(reader, 'one_query_database', { databaseId: db.id }, /No database/)
+
+    const back = await call(writer, 'one_restore_page', { id: db.id })
+    assert.deepEqual([back.id, back.kind, back.restored, back.rows, back.parentId], [db.id, 'database', true, 2, null])
+    assert.equal((await call(reader, 'one_query_database', { databaseId: db.id })).total, 2)
+    await waitFor(() => yp(db.id)?.get('trashed') === false && yp(db.id)?.get('trashedAt') === null, 5000, 'restored live')
+
+    const a = await call(writer, 'one_create_page', { title: 'Old A' })
+    const b = await call(writer, 'one_create_page', { title: 'Old B', parentId: a.id })
+    const c = await call(writer, 'one_create_page', { title: 'Old C' })
+    await fails(writer, 'one_trash_page', { ids: [a.id, 'nope'] }, /^Nothing was moved to the trash: no page with id "nope"/)
+    assert.equal((await call(reader, 'one_get_page', { id: a.id })).title, 'Old A', 'all or nothing')
+    await fails(writer, 'one_trash_page', {}, /Missing required parameter "id"/)
+    const bulk = await call(writer, 'one_trash_page', { ids: [a.id, b.id, c.id] })
+    assert.deepEqual([bulk.count, bulk.alsoTrashed, bulk.trashed.map((x: { title: string }) => x.title)], [2, 1, ['Old A', 'Old C']])
+    await fails(writer, 'one_trash_page', { id: a.id }, /is already in the trash/)
+    await fails(writer, 'one_restore_page', { id: 'nope' }, /^Nothing was restored: nothing in the trash has id "nope"\. Recently trashed: "Old (A|C)"/)
+    await fails(writer, 'one_restore_page', { id: b.id }, new RegExp(`is inside "Old A" \\(${a.id}\\), which is in the trash — restore that instead`))
+    await fails(writer, 'one_restore_page', { id: 'doc-1' }, /is not in the trash/)
+    const both = await call(writer, 'one_restore_page', { ids: [a.id, c.id] })
+    assert.equal(both.count, 2)
+    assert.equal((await call(reader, 'one_get_page', { id: b.id })).path, 'Old A / Old B')
+
+    // private pages and templates: untouchable, as if they did not exist
+    await fails(writer, 'one_trash_page', { id: 'secret-1' }, /no page with id "secret-1"/)
+    await fails(writer, 'one_restore_page', { id: 'secret-1' }, /nothing in the trash has id "secret-1"/)
+    await fails(writer, 'one_trash_page', { ids: ['tpl-1'] }, /no page with id "tpl-1"/)
+  })
+
+  test('one_move_page: under another page, before / after / index, to the top level; cycles, databases, rows and private pages refused', async () => {
+    const shelf = await call(writer, 'one_create_page', { title: 'Shelf' })
+    const b1 = await call(writer, 'one_create_page', { title: 'Box 1', parentId: shelf.id })
+    const b2 = await call(writer, 'one_create_page', { title: 'Box 2', parentId: shelf.id })
+    const loose = await call(writer, 'one_create_page', { title: 'Loose box' })
+    const kids = async () => ((await call(reader, 'one_get_page', { id: shelf.id })).children as Array<{ title: string }>).map((k) => k.title)
+
+    const moved = await call(writer, 'one_move_page', { id: loose.id, parentId: shelf.id, before: b1.id })
+    assert.deepEqual([moved.parentId, moved.index, moved.path, moved.kind], [shelf.id, 0, 'Shelf', 'page'])
+    assert.deepEqual(await kids(), ['Loose box', 'Box 1', 'Box 2'])
+    await call(writer, 'one_move_page', { id: loose.id, after: b2.id })
+    assert.deepEqual(await kids(), ['Box 1', 'Box 2', 'Loose box'])
+    await call(writer, 'one_move_page', { id: b2.id, index: 0 })
+    assert.deepEqual(await kids(), ['Box 2', 'Box 1', 'Loose box'])
+    assert.match((await call(writer, 'one_move_page', { id: b2.id })).note, /No change/)
+    await waitFor(() => yp(loose.id)?.get('parentId') === shelf.id, 5000, 'moved live')
+    assert.match(String(yp(loose.id)!.get('updatedBy')), /^api:/)
+
+    await fails(writer, 'one_move_page', { id: shelf.id, parentId: b1.id }, /cannot move into itself or its own sub-pages/)
+    await fails(writer, 'one_move_page', { id: b1.id, parentId: 'db-tasks' }, /"Tasks" is a database/)
+    await fails(writer, 'one_move_page', { id: 'row-1', parentId: shelf.id }, /rows stay in their database\. one_move_row/)
+    await fails(writer, 'one_move_page', { id: b1.id, before: 'doc-1' }, /is not a page next to it/)
+    await fails(writer, 'one_move_page', { id: b1.id, before: b2.id, index: 0 }, /at most one of/)
+    await fails(writer, 'one_move_page', { id: 'secret-1', parentId: null }, /No page with id "secret-1"/)
+    await fails(writer, 'one_move_page', { id: b1.id, parentId: 'secret-1' }, /No page with id "secret-1"/)
+    await fails(writer, 'one_move_page', { id: 'tpl-2', parentId: null }, /No page with id "tpl-2"/)
+
+    const db = await call(writer, 'one_create_database', { title: 'Shelf DB' })
+    assert.equal((await call(writer, 'one_move_page', { id: db.id, parentId: b1.id })).path, 'Shelf / Box 1')
+    const top = await call(writer, 'one_move_page', { id: b1.id, parentId: null })
+    assert.equal(top.parentId, null)
+    assert.deepEqual(await kids(), ['Box 2', 'Loose box'])
+  })
+
+  test('one_move_row: into a database whose properties fit by name and type; refused with the reasons otherwise', async () => {
+    const a = await call(writer, 'one_create_database', { title: 'Leads A', properties: [{ name: 'Name', type: 'title' }, { name: 'Stage', type: 'select', options: ['New'] }, { name: 'Due', type: 'date' }] })
+    const b = await call(writer, 'one_create_database', { title: 'Leads B', properties: [{ name: 'Name', type: 'title' }, { name: 'stage', type: 'select', options: ['Old'] }, { name: 'Due', type: 'date' }, { name: 'Extra', type: 'text' }] })
+    const c = await call(writer, 'one_create_database', { title: 'Leads C', properties: [{ name: 'Name', type: 'title' }, { name: 'Stage', type: 'status', options: ['Todo', 'Done'] }] })
+    const row = await call(writer, 'one_create_row', { databaseId: a.id, title: 'Call Ada', properties: { Stage: 'New', Due: '2026-10-09' }, markdown: 'Her number is in the CRM.' })
+
+    const msg = await fails(writer, 'one_move_row', { id: row.id, databaseId: c.id }, /cannot move from "Leads A" to "Leads C" without losing something, so nothing was changed/)
+    assert.ok(msg.includes('"Stage" is select here but status in "Leads C"'), msg)
+    assert.ok(msg.includes('"Due" (date): "Leads C" has no property of that name'), msg)
+    await fails(writer, 'one_move_row', { id: a.id, databaseId: b.id }, /not a database row\. one_move_page/)
+    // a row with two-way links (and rows linking to it) stays
+    await fails(writer, 'one_move_row', { id: 'row-1', databaseId: 'db-proj' }, /two-way relation|other rows link to it/)
+
+    const moved = await call(writer, 'one_move_row', { id: row.id, databaseId: b.id })
+    assert.deepEqual([moved.id, moved.databaseId, moved.from.title, moved.properties.stage, moved.addedOptions], [row.id, b.id, 'Leads A', 'New', ['New']])
+    assert.deepEqual(moved.properties.Due, { start: '2026-10-09', end: null })
+    await waitFor(() => yp(row.id)?.get('databaseId') === b.id && yp(row.id)?.get('parentId') === b.id, 5000, 'moved live')
+    assert.match(String(yp(row.id)!.get('updatedBy')), /^api:/)
+    const got = await call(reader, 'one_get_page', { id: row.id })
+    assert.equal(got.markdown, 'Her number is in the CRM.')
+    assert.equal(got.database.id, b.id)
+    assert.equal((await call(reader, 'one_query_database', { databaseId: a.id })).total, 0)
+    assert.deepEqual((await call(reader, 'one_get_database', { id: b.id })).properties.find((p: { name: string }) => p.name === 'stage').options.map((o: { name: string }) => o.name), ['Old', 'New'])
+    assert.match((await call(writer, 'one_move_row', { id: row.id, databaseId: b.id })).note, /No change/)
+  })
+
+  test('database structure: rename, properties (options, safe types, delete), views; locked databases refuse; lock is the person\'s call', async () => {
+    const db = await call(writer, 'one_create_database', { title: 'Gear', properties: [{ name: 'Item', type: 'title' }, { name: 'Kind', type: 'select', options: ['Tool', 'Part'] }, { name: 'Count', type: 'number' }, { name: 'Notes', type: 'text' }] })
+    for (const [t, kind, count] of [['Hammer', 'Tool', 2], ['Bolt', 'Part', 40], ['Saw', 'Tool', 1]] as const) await call(writer, 'one_create_row', { databaseId: db.id, title: t, properties: { Kind: kind, Count: count, Notes: `${t} notes` } })
+    const q = async (prop: string) => ((await call(reader, 'one_query_database', { databaseId: db.id, sort: 'title' })).rows as Array<{ properties: Record<string, unknown> }>).map((r) => r.properties[prop] ?? null)
+
+    // views: a board with a filter and a sort, stored like the app stores views
+    const made = await call(writer, 'one_create_view', { databaseId: db.id, type: 'board', name: 'By kind', groupBy: 'Kind', filter: [{ property: 'Count', op: 'gt', value: 1 }], sort: '-Count', properties: ['Count', 'Notes'] })
+    assert.deepEqual(made.view, { id: made.view.id, name: 'By kind', type: 'board', groupBy: 'Kind', filter: [{ property: 'Count', op: 'gt', value: 1 }], sorts: [{ property: 'Count', direction: 'desc' }], properties: ['Count', 'Notes'] })
+    await waitFor(() => !!(ydb(db.id)?.get('views') as Y.Map<unknown> | undefined)?.get(made.view.id), 5000, 'view live')
+    const stored = (ydb(db.id)!.get('views') as Y.Map<unknown>).get(made.view.id) as { order: number; filter: { op: string; items: Array<{ operator: string; value: unknown }> }; groupBy: string }
+    assert.equal(stored.order, 1)
+    assert.deepEqual([stored.filter.op, stored.filter.items[0]!.operator, stored.filter.items[0]!.value], ['and', 'gt', 1])
+    assert.deepEqual((await call(reader, 'one_get_database', { id: db.id })).views.map((v: { name: string; type: string }) => `${v.name}:${v.type}`), ['Table:table', 'By kind:board'])
+    const changed = await call(writer, 'one_update_view', { databaseId: db.id, view: 'by kind', name: 'Kinds', type: 'list', groupBy: null, filter: null })
+    assert.deepEqual(changed.view, { id: made.view.id, name: 'Kinds', type: 'list', sorts: [{ property: 'Count', direction: 'desc' }], properties: ['Count', 'Notes'] })
+    assert.match((await call(writer, 'one_update_view', { databaseId: db.id, view: 'Kinds', name: 'Kinds' })).note, /No change/)
+    await fails(writer, 'one_create_view', { databaseId: db.id, type: 'calendar' }, /a calendar needs a date property/)
+    await fails(writer, 'one_update_view', { databaseId: db.id, view: 'Kinds', filter: [{ property: 'Kind', op: 'equals', value: 'Gadget' }] }, /has no option "Gadget"/)
+    await fails(writer, 'one_update_view', { databaseId: db.id, view: 'Kinds', groupBy: 'Nope' }, /groupBy: no property "Nope"/)
+    await fails(writer, 'one_update_view', { databaseId: db.id, view: 'Nope', name: 'x' }, /has no view "Nope"/)
+
+    // delete a property: its values go, the view forgets it
+    const del = await call(writer, 'one_delete_property', { databaseId: db.id, property: 'count' })
+    assert.deepEqual([del.deleted.name, del.deleted.type, del.rowsWithValue], ['Count', 'number', 3])
+    const view = (ydb(db.id)!.get('views') as Y.Map<unknown>).get(made.view.id) as { sorts: unknown[]; visibleProperties: string[] }
+    await waitFor(() => !((ydb(db.id)!.get('properties') as Y.Map<unknown>).has(del.deleted.id)), 5000, 'property gone live')
+    assert.deepEqual(((ydb(db.id)!.get('views') as Y.Map<unknown>).get(made.view.id) as { sorts: unknown[] }).sorts, [])
+    assert.ok(view)
+    assert.deepEqual(await q('Count'), [null, null, null])
+    await fails(writer, 'one_delete_property', { databaseId: db.id, property: 'Item' }, /is the title property/)
+
+    // options: add, rename + recolour, remove (rows cleared); then safe type changes only
+    const up = await call(writer, 'one_update_property', { databaseId: db.id, property: 'Kind', name: 'Type', options: { add: ['Kit'], update: [{ name: 'tool', newName: 'Tools', color: 'red' }], remove: ['Part'] } })
+    assert.deepEqual([up.changed, up.cleared, up.property.name], [['name', 'options'], 1, 'Type'])
+    assert.deepEqual(up.property.options.map((o: { name: string }) => o.name), ['Tools', 'Kit'])
+    assert.equal(up.property.options[0].color, 'red')
+    assert.deepEqual(await q('Type'), [null, 'Tools', 'Tools'])
+    const multi = await call(writer, 'one_update_property', { databaseId: db.id, property: 'Type', type: 'multi_select' })
+    assert.deepEqual([multi.converted, multi.property.type], [2, 'multi_select'])
+    assert.deepEqual(await q('Type'), [[], ['Tools'], ['Tools']])
+    await fails(writer, 'one_update_property', { databaseId: db.id, property: 'Notes', type: 'date' }, /From text an agent may change it to: url, email, phone, select, multi_select/)
+    await fails(writer, 'one_update_property', { databaseId: db.id, property: 'Type', options: { remove: ['Nope'] } }, /has no option "Nope"/)
+    const sel = await call(writer, 'one_update_property', { databaseId: db.id, property: 'Notes', type: 'select' })
+    assert.deepEqual(sel.property.options.map((o: { name: string }) => o.name).sort(), ['Bolt notes', 'Hammer notes', 'Saw notes'])
+    assert.deepEqual(await q('Notes'), ['Bolt notes', 'Hammer notes', 'Saw notes'])
+
+    // the database itself; the lock stays the person's
+    const ren = await call(writer, 'one_update_database', { id: db.id, title: 'Gear box', icon: '🧰' })
+    assert.deepEqual([ren.title, ren.icon, ren.changed], ['Gear box', '🧰', ['title', 'icon']])
+    await fails(writer, 'one_update_database', { id: db.id, locked: true }, /the person's decision/)
+
+    const gone = await call(writer, 'one_delete_view', { databaseId: db.id, view: 'Kinds' })
+    assert.deepEqual(gone.views.map((v: { name: string }) => v.name), ['Table'])
+    await fails(writer, 'one_delete_view', { databaseId: db.id, view: 'Table' }, /is the only view of "Gear box"/)
+
+    // a locked database: no structure changes at all (rows stay editable elsewhere)
+    for (const [name, args] of [
+      ['one_update_property', { databaseId: 'db-locked', property: 'Name', name: 'x' }],
+      ['one_delete_property', { databaseId: 'db-locked', property: 'Name' }],
+      ['one_create_view', { databaseId: 'db-locked', type: 'list' }],
+      ['one_update_view', { databaseId: 'db-locked', view: 'Board', name: 'x' }],
+      ['one_delete_view', { databaseId: 'db-locked', view: 'Board' }],
+    ] as const)
+      await fails(writer, name, args, /"Archive" is locked in the app/)
   })
 
   test('the token’s last use is recorded and nothing secret reaches the log', async () => {

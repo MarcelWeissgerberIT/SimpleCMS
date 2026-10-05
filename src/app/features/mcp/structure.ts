@@ -331,10 +331,11 @@ function optionPlan(prop: PropertyDef, raw: unknown): OptionPlan {
     options = options.map((x) => (x.id === hit.id ? next : x))
   }
   const added = optionsOf(prop.type, list('add').length ? list('add') : undefined, 'options.add', options.length) ?? []
+  // a status option added without a group starts as "to do"
+  const grouped = new Set(list('add').flatMap((x) => (x && typeof x === 'object' && (x as { group?: unknown }).group ? [norm(String((x as { name?: unknown }).name ?? ''))] : [])))
   for (const a of added) {
     if (options.some((x) => norm(x.name) === norm(a.name))) throw new McpToolError(`options.add: ${q(prop.name)} has an option ${q(a.name)} already.`)
-    // a status option added without a group starts as "to do"
-    if (prop.type === 'status' && !list('add').some((x) => typeof x === 'object' && x && (x as { group?: unknown }).group)) a.group = 'todo'
+    if (prop.type === 'status' && !grouped.has(norm(a.name))) a.group = 'todo'
   }
   options = [...options, ...added]
   if (added.length) lines.unshift({ k: 'fact', label: t('features.mcp.plan.newOptions'), value: added.map((x) => x.name).join(', ') })
@@ -674,7 +675,7 @@ function viewChange(db: Database, args: Record<string, unknown>, base: View): Vi
     else {
       type = args.type as ViewType
       patch.type = type
-      lines.push({ k: 'prop', name: t('features.mcp.plan.layout'), before: base.type, after: type })
+      lines.push({ k: 'prop', name: t('features.mcp.plan.layout'), before: layoutName(base.type), after: layoutName(type) })
       // like switching the layout in the app: a board needs a group, a calendar a date
       const d = defaultView(type, db)
       if (type === 'board' && !(base.groupBy && BOARD_GROUP.includes(db.properties.find((p) => p.id === base.groupBy)?.type ?? ''))) patch.groupBy = d.groupBy
@@ -731,7 +732,7 @@ function viewChange(db: Database, args: Record<string, unknown>, base: View): Vi
       const filter: FilterGroup | null = items.length ? { id: newId(), op: 'and', items } : null
       if (!same(filter ? flatKey(filter) : null, base.filter?.items.length ? flatKey(base.filter) : null)) {
         patch.filter = filter
-        lines.push({ k: 'fact', label: t('features.mcp.plan.filter'), value: filter ? viewJson(db, { ...base, filter }).filter!.map((f) => `${f.property} ${f.op}${f.value !== undefined ? ` ${String(f.value)}` : ''}`).join(' · ') : none })
+        lines.push({ k: 'fact', label: t('features.mcp.plan.filter'), value: filter ? viewJson(db, { ...base, filter }).filter!.map((f) => `${f.property} ${opLabel(String(f.op))}${f.value !== undefined ? ` ${String(f.value)}` : ''}`).join(' · ') : none })
       }
     }
   }
@@ -760,6 +761,13 @@ function viewChange(db: Database, args: Record<string, unknown>, base: View): Vi
   return { patch, lines }
 }
 
+/** A layout as the card names it. */
+const layoutName = (type: string) => ((MCP_VIEW_TYPES as readonly string[]).includes(type) ? t(`features.mcp.viewName.${type}`) : type)
+
+/** A filter operator on the card: comparisons as signs, the rest in words. */
+const OP_SIGNS: Record<string, string> = { is: '=', eq: '=', is_not: '≠', neq: '≠', gt: '>', after: '>', gte: '≥', on_or_after: '≥', lt: '<', before: '<', lte: '≤', on_or_before: '≤' }
+const opLabel = (op: string) => OP_SIGNS[op] ?? t(`features.mcp.op.${op}`)
+
 /** A filter without its generated ids (to tell whether it changes). */
 const flatKey = (g: FilterGroup): unknown => g.items.map((it) => ('items' in it ? flatKey(it) : [it.propertyId, it.operator, it.value ?? null]))
 
@@ -770,7 +778,9 @@ function planCreateView(args: Record<string, unknown>): WritePlan {
   const base = defaultView(type as ViewType, db, t(`features.mcp.viewName.${type}`))
   const { patch, lines } = viewChange(db, { ...args, type: undefined }, base)
   const view: View = { ...base, ...patch, id: newId() }
-  lines.unshift({ k: 'fact', label: t('features.mcp.plan.layout'), value: type })
+  // a new view has no "before": its settings are plain facts
+  const facts: PlanLine[] = lines.map((l) => (l.k === 'prop' ? { k: 'fact', label: l.name, value: l.after } : l))
+  lines.splice(0, lines.length, { k: 'fact', label: t('features.mcp.plan.layout'), value: layoutName(type) }, ...facts)
   if (view.groupBy && patch.groupBy === undefined) lines.push({ k: 'fact', label: t('features.mcp.plan.groupBy'), value: db.properties.find((p) => p.id === view.groupBy)?.name ?? '—' })
   if (view.dateProperty && patch.dateProperty === undefined && type !== 'feed') lines.push({ k: 'fact', label: t('features.mcp.plan.dateProperty'), value: db.properties.find((p) => p.id === view.dateProperty)?.name ?? '—' })
   return {
@@ -847,7 +857,7 @@ function planDeleteView(args: Record<string, unknown>): WritePlan {
     summary: t('features.mcp.sum.deleteView', { name: view.name, db: title }),
     target: `${title} / ${view.name}`,
     lines: [
-      { k: 'fact', label: t('features.mcp.plan.layout'), value: view.type },
+      { k: 'fact', label: t('features.mcp.plan.layout'), value: layoutName(view.type) },
       { k: 'note', value: t('features.mcp.plan.viewGoneNote') },
     ],
     async apply() {
