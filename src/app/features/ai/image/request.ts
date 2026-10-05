@@ -16,7 +16,6 @@ import { AIError, claudeClient, toAIError, usesDemo } from '../client'
 import type { LoadedImage } from './load'
 
 export type ImageAction = 'describe' | 'read' | 'table' | 'ask'
-export const IMAGE_ACTIONS: readonly ImageAction[] = ['describe', 'read', 'table', 'ask']
 
 /** Answers that are JSON (the panel shows fields / a preview instead of the raw text). */
 export const isStructured = (a: ImageAction): boolean => a === 'describe' || a === 'table'

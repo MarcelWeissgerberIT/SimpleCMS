@@ -141,13 +141,19 @@ your own requests and `⌘K ?` can use its tools (Anthropic's MCP connector make
 Give a server a codeword and a request that starts with it — `kb: what do we know about the launch?` — goes to that server first.
 
 **Turn into database** — select a pasted report or list and Claude makes it a board or a table (entries, fields,
-groups; previewed before anything changes, one `⌘Z` to undo). AI-menu requests keep running in the background when
+groups; previewed before anything changes, one `⌘Z` to undo) — inline, or as its own page linked in its place.
+**Turn into page** (`⌘⌥9`, no AI) moves marked blocks into a new sub-page and links it right there; several selected
+blocks keep a pinned grip, a count chip and one menu for all of them. AI-menu requests keep running in the background when
 you close the panel or open another page — the page tells you when the result is ready.
 
 **What Claude reads, what it redoes** — mark the blocks of a page Claude may read, or leave the page out entirely: the
 AI menu and the AI terminal show it ("Reads · 3 marked blocks · 412 words") and keep to it; unmarked text is never sent.
 Mark passages anywhere on a page and have Claude redo them with your instructions — saved presets, a style-guide page as
 rules —, then accept or reject each one in a word-level review; everything accepted lands in one step, one `⌘Z` to undo.
+
+**Claude for images** — the AI key on any image: alt text + caption written for it, the text in it read out as
+Markdown, every table in the picture turned into a real table, a spreadsheet (numbers as numbers) or a database, or any
+question answered about it — background runs like every AI-menu request; the picture goes out only on these actions.
 
 **Custom agents** — saved AI helpers for recurring work, like Notion's: a job in plain words, a trigger (a schedule, a
 new or changed row — which covers form answers and synced mails —, by hand, or a webhook), what they may read and

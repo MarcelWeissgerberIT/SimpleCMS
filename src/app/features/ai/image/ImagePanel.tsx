@@ -32,7 +32,7 @@ import type { AIRun, RunRequest } from '../runs'
 import { headerNames, parseDescription, parseTables, spreadsheetJson, tableBlocks, tablePlan, tablesMarkdown, type ImageTable } from './answers'
 import { applyDescription, createImageDatabase, imageRequest, insertBelowImage, insertMarkdownBelow, runImage, uploadImageCopy } from './actions'
 import { formatBytes } from './load'
-import { imageTarget, type ImageHit } from './locate'
+import { imageTarget } from './locate'
 import { isStructured, type ImageAction } from './request'
 import type { RunTarget } from '../runsTarget'
 import './image.css'
@@ -397,4 +397,3 @@ function TablesPreview({ tables, column }: { tables: ImageTable[]; column: (n: n
   )
 }
 
-export type { ImageHit }

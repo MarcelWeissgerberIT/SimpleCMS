@@ -194,6 +194,24 @@ test.describe('block selection', () => {
     await expect.poll(async () => (await blocks(page, id)).map((x) => x[1])).toEqual(['Charlie line.', 'Delta line.', 'Alpha line.', 'Bravo line.'])
   })
 
+  test('inside a column: Shift+↓ stays in the column; deleting all its blocks leaves an empty line there', async ({ page }) => {
+    await openApp(page)
+    const column = (...content: AnyState[]) => ({ type: 'column', content })
+    const id = await createPage(page, { title: 'Column select', content: doc({ type: 'columns', content: [column(para('Left one.'), para('Left two.')), column(para('Right one.'))] }, para('After the columns.')) })
+    await gotoPage(page, id)
+    const ed = editorOf(page, id)
+    await selectBlockOf(page, ed.locator('p', { hasText: 'Left one.' }))
+    await page.keyboard.press('Shift+ArrowDown')
+    await page.keyboard.press('Shift+ArrowDown')
+    await expect(ed.locator('.is-block-selected')).toHaveText(['Left one.', 'Left two.'])
+    await page.keyboard.press('Alt+Enter')
+    await page.keyboard.type('delete')
+    await page.keyboard.press('Enter')
+    await expect
+      .poll(() => wsEval(page, (s, id) => (s.pages[id].content.content[0].content as AnyState[]).map((c) => (c.content as AnyState[]).map((n) => n.type + ':' + ((n.content ?? []).map((x: AnyState) => x.text).join('')))), id))
+      .toEqual([['paragraph:'], ['paragraph:Right one.']])
+  })
+
   test('German: chip, menu heading and actions', async ({ page }) => {
     await openApp(page)
     await wsEval(page, (s) => s.updateSettings({ language: 'de' }))

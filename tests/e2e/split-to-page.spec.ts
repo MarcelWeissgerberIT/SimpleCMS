@@ -48,6 +48,8 @@ async function selectBlocks(ed: Locator, a: string, b: string = a): Promise<void
     },
     [a, b] as const,
   )
+  // TipTap focuses in the next frame: keys pressed before that would go nowhere
+  await expect(ed).toBeFocused()
 }
 
 /** Select from the start of `from` to the end of `to` with a DOM range (ProseMirror picks it up). */

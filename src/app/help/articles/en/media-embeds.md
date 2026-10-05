@@ -8,7 +8,7 @@ related: blocks, block-handle, share-links
 summary: Pictures, files and PDFs on the page, live embeds of other services — and blocks that link pages.
 ---
 ## Images, files, video, audio
-Drop or paste an image straight into the page, or use `/image`: **Upload**, paste a link, add a **Caption**, drag the edges to resize. `/file`, `/video` and `/audio` work the same way. Uploaded files are stored on this device (in a team workspace: in the workspace).
+Drop or paste an image straight into the page, or use `/image`: **Upload**, paste a link, add a **Caption**, drag the edges to resize. `/file`, `/video` and `/audio` work the same way. Uploaded files are stored on this device (in a team workspace: in the workspace). The **AI** key in an image's toolbar has Claude describe it (alt text + caption), read out its text, turn its tables into a table, spreadsheet or database, or answer a question about it — see [Claude for images](help:ai-menu).
 
 ## PDF
 `/pdf` → **Choose PDF**: the document is shown in a viewer right on the page. **Show as file** turns it into a plain file block; **Show in the viewer** turns it back.

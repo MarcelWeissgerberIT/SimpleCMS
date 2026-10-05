@@ -79,6 +79,12 @@ export function askAboutImage(editor: Editor, pos: number): boolean {
   // the image is what the panel is about: select it (the panel reads the selection when it opens)
   editor.view.dispatch(editor.state.tr.setSelection(NodeSelection.create(editor.state.doc, pos)).setMeta('addToHistory', false))
   useImageAsk.setState({ req: { editor, pos, n: ++asks } })
+  // the page was left before the panel closed: the request goes with its editor
+  const drop = () => {
+    editor.off('destroy', drop)
+    if (useImageAsk.getState().req?.editor === editor) endImageAsk()
+  }
+  editor.on('destroy', drop)
   return true
 }
 

@@ -8,7 +8,7 @@ related: blocks, block-handle, share-links
 summary: Bilder, Dateien und PDFs auf der Seite, Live-Einbettungen anderer Dienste — und Blöcke, die Seiten verlinken.
 ---
 ## Bilder, Dateien, Video, Audio
-Leg ein Bild direkt in der Seite ab oder füge es ein, oder nimm `/bild`: **Hochladen**, einen Link einfügen, eine **Bildunterschrift** ergänzen, an den Rändern die Größe ziehen. `/datei`, `/video` und `/audio` funktionieren genauso. Hochgeladene Dateien liegen auf diesem Gerät (im Team-Workspace: im Workspace).
+Leg ein Bild direkt in der Seite ab oder füge es ein, oder nimm `/bild`: **Hochladen**, einen Link einfügen, eine **Bildunterschrift** ergänzen, an den Rändern die Größe ziehen. `/datei`, `/video` und `/audio` funktionieren genauso. Hochgeladene Dateien liegen auf diesem Gerät (im Team-Workspace: im Workspace). Die Taste **KI** in der Leiste eines Bildes lässt Claude es beschreiben (Alternativtext + Bildunterschrift), seinen Text auslesen, seine Tabellen zu Tabelle, Tabellenkalkulation oder Datenbank machen oder eine Frage dazu beantworten — siehe [Claude für Bilder](help:ai-menu).
 
 ## PDF
 `/pdf` → **PDF wählen**: Das Dokument erscheint in einem Betrachter direkt auf der Seite. **Als Datei zeigen** macht daraus einen einfachen Dateiblock; **Im Betrachter zeigen** wieder zurück.

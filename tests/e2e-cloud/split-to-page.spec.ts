@@ -63,6 +63,7 @@ async function selectBlocks(ed: Locator, a: string, b: string): Promise<void> {
     },
     [a, b] as const,
   )
+  await expect(ed).toBeFocused()
 }
 
 const body = (title: string) => ({
