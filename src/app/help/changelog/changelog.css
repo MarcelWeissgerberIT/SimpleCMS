@@ -1,0 +1,351 @@
+/* "What's new" in the Help panel — a log of plates: mono date, figure number, a framed screenshot. */
+
+.cl-date {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--signal-ink);
+}
+
+.cl-new {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  font-weight: 600;
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  color: var(--signal-ink);
+}
+
+/* a framed screenshot cropped from its top-left corner (thumbnails) */
+.cl-feature__img,
+.cl-row__img {
+  display: block;
+  flex: none;
+  aspect-ratio: 16 / 10;
+  overflow: hidden;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius-1);
+  background: var(--surface-2);
+}
+
+.cl-feature__img img,
+.cl-row__img img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: left top;
+}
+
+/* ---------- home: the strip above the chapters ---------- */
+.cl-strip {
+  margin-top: 6px;
+}
+
+.cl-feature {
+  display: grid;
+  grid-template-columns: 128px minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
+  padding: 10px 6px;
+  border-bottom: 1px solid var(--rule);
+  border-radius: var(--radius-1);
+  color: var(--ink);
+  text-decoration: none;
+  transition: background var(--dur-1) var(--ease-out);
+}
+
+.cl-feature:hover,
+.cl-line:hover,
+.cl-row:hover {
+  background: var(--hover);
+}
+
+.cl-feature__main,
+.cl-row__main {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.cl-feature__title,
+.cl-row__title {
+  font-size: var(--text-md);
+  font-weight: 650;
+  line-height: 1.3;
+}
+
+.cl-feature__summary,
+.cl-row__summary {
+  color: var(--ink-2);
+  font-size: var(--text-sm);
+  line-height: 1.45;
+}
+
+.cl-feature__summary {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.cl-line {
+  display: grid;
+  grid-template-columns: 86px minmax(0, 1fr) 14px;
+  align-items: baseline;
+  gap: 8px;
+  min-height: 34px;
+  padding: 8px 6px;
+  border-bottom: 1px solid var(--rule);
+  border-radius: var(--radius-1);
+  color: var(--ink);
+  text-decoration: none;
+  transition: background var(--dur-1) var(--ease-out);
+}
+
+.cl-line__title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 550;
+}
+
+.cl-line--all {
+  border-bottom-color: transparent;
+}
+
+.cl-line--all .label:first-child {
+  color: var(--ink-2);
+}
+
+.cl-line__count {
+  justify-self: end;
+}
+
+.cl-line:hover .help-row__go,
+.cl-line:focus-visible .help-row__go {
+  color: var(--signal-ink);
+  transform: translateX(2px);
+}
+
+/* ---------- the list ---------- */
+.cl-list {
+  list-style: none;
+  margin: 16px 0 0;
+  padding: 0;
+  border-top: 1px solid var(--rule);
+}
+
+.cl-row {
+  display: grid;
+  grid-template-columns: 120px minmax(0, 1fr);
+  gap: 14px;
+  align-items: start;
+  padding: 12px 6px;
+  border-bottom: 1px solid var(--rule);
+  border-radius: var(--radius-1);
+  color: var(--ink);
+  text-decoration: none;
+  transition: background var(--dur-1) var(--ease-out);
+}
+
+.cl-row__fig {
+  color: var(--ink-3);
+}
+
+/* ---------- one entry ---------- */
+.cl-fig {
+  margin: 16px 0 0;
+}
+
+.cl-fig__btn {
+  position: relative;
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius-2);
+  overflow: hidden;
+  background: var(--surface-2);
+  cursor: zoom-in;
+}
+
+.cl-fig__img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.cl-fig__zoom {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius-1);
+  background: var(--surface);
+  color: var(--ink-2);
+  transition: color var(--dur-1), border-color var(--dur-1);
+}
+
+.cl-fig__btn:hover .cl-fig__zoom,
+.cl-fig__btn:focus-visible .cl-fig__zoom {
+  color: var(--signal-ink);
+  border-color: var(--signal);
+}
+
+.cl-fig__cap {
+  display: block;
+  margin-top: 7px;
+  color: var(--ink-3);
+  line-height: 1.5;
+}
+
+.cl-entry .help-doc {
+  margin-top: 14px;
+}
+
+.cl-try {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  margin: 4px 0 0;
+  padding: 10px 12px;
+  border: 1px solid var(--rule-strong);
+  border-left: 2px solid var(--signal);
+  border-radius: 0 var(--radius-2) var(--radius-2) 0;
+  background: var(--surface-2);
+}
+
+.cl-try__label {
+  color: var(--ink-2);
+}
+
+.cl-try__btn {
+  gap: 8px;
+}
+
+.cl-try__kbd {
+  height: 18px;
+  border-color: currentColor;
+  background: transparent;
+  color: inherit;
+  opacity: 0.75;
+}
+
+/* ---------- the large picture ---------- */
+.cl-lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: calc(var(--z-modal) + 20);
+  display: flex;
+  flex-direction: column;
+  background: color-mix(in srgb, var(--bg) 96%, transparent);
+  animation: cl-fade var(--dur-2) var(--ease-out);
+}
+
+@keyframes cl-fade {
+  from {
+    opacity: 0;
+  }
+}
+
+.cl-lightbox__bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 48px;
+  padding: 8px 12px 8px 18px;
+  padding-top: max(8px, env(safe-area-inset-top));
+  border-bottom: 1px solid var(--rule-strong);
+  background: var(--surface);
+}
+
+.cl-lightbox__cap {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ink-2);
+}
+
+.cl-lightbox__size {
+  color: var(--ink-3);
+}
+
+.cl-lightbox__close {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+  height: 32px;
+  padding: 0 8px;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius-1);
+  background: var(--surface);
+  color: var(--ink);
+  transition: background var(--dur-1), transform var(--dur-1) var(--ease-out);
+}
+
+.cl-lightbox__close:hover {
+  background: var(--hover);
+}
+
+.cl-lightbox__close:active {
+  transform: translateY(1px);
+}
+
+.cl-lightbox__close:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.cl-lightbox__stage {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  padding-bottom: max(24px, env(safe-area-inset-bottom));
+  cursor: zoom-out;
+}
+
+.cl-lightbox__img {
+  display: block;
+  max-width: 100%;
+  max-height: 100%;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius-2);
+  background: var(--surface);
+  box-shadow: var(--shadow-modal);
+}
+
+@media (max-width: 640px) {
+  .cl-row {
+    grid-template-columns: 96px minmax(0, 1fr);
+    gap: 12px;
+  }
+
+  .cl-feature {
+    grid-template-columns: 104px minmax(0, 1fr);
+  }
+
+  .cl-lightbox__stage {
+    padding: 10px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cl-lightbox {
+    animation: none;
+  }
+}

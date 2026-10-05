@@ -121,6 +121,20 @@
   overflow: hidden;
 }
 
+.todb__seg--fill {
+  display: flex;
+  width: 100%;
+}
+
+.todb__seg--fill .todb__seg-btn {
+  flex: 1 1 0;
+  min-width: 0;
+  padding: 0 8px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .todb__seg-btn {
   min-width: 64px;
   padding: 0 12px;

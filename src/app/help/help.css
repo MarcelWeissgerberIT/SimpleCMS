@@ -873,3 +873,10 @@
     inset: -12px;
   }
 }
+
+/* ---------- "What's new": the LED on the help entry (status bar, workspace menu) ---------- */
+.help-news-led {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+}

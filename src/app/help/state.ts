@@ -1,6 +1,7 @@
 /**
  * Help panel state (this tab only, never persisted): open or not, and a small browser-like history of
- * places — the manual's index, search results, a chapter, an article, the keyboard sheet or "Ask the help".
+ * places — the manual's index, search results, a chapter, an article, "What's new" (list or entry), the
+ * keyboard sheet or "Ask the help".
  */
 import { create } from 'zustand'
 
@@ -11,6 +12,9 @@ export type HelpLoc =
   | { kind: 'article'; id: string }
   | { kind: 'keys' }
   | { kind: 'ask' }
+  /** "What's new": the list, or one entry (changelog/entries.ts) */
+  | { kind: 'changelog' }
+  | { kind: 'change'; id: string }
 
 export type HelpTab = 'manual' | 'ask' | 'keys'
 
@@ -56,6 +60,11 @@ export function openHelp(target?: HelpTarget): void {
     return goHelp({ kind: 'ask' })
   }
   goHelp(target.tab === 'keys' ? { kind: 'keys' } : HOME)
+}
+
+/** Open "What's new": the list, or one entry by id ("2026-10-05-ai-terminal"). */
+export function openChangelog(id?: string): void {
+  goHelp(id ? { kind: 'change', id } : { kind: 'changelog' })
 }
 
 export function closeHelp(): void {

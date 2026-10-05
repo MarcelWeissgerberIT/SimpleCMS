@@ -31,6 +31,8 @@ import { chartMenuEntries } from './chartMenu'
 import { ColorGrid } from './BubbleToolbar'
 import { blockMenuSyncedEntries } from '../synced/menu'
 import { redoBlockMenuEntries } from '../context/menu'
+import { splitMenuEntries } from '../split/menu'
+import { blockSplitRange, type SplitRange } from '../split/range'
 
 const TEXTUAL = new Set(['paragraph', 'heading', 'bulletList', 'orderedList', 'taskList', 'listItem', 'taskItem', 'blockquote', 'callout', 'details', 'codeBlock'])
 const EXCLUDED = new Set(['column', 'detailsSummary', 'detailsContent', 'tab'])
@@ -149,6 +151,8 @@ export function BlockHandle({ editor, bridge, pageId }: { editor: Editor; bridge
   const [menu, setMenu] = useState<{ el: PopoverAnchor; ref: BlockRef; keyboard?: boolean } | null>(null)
   const [moveFor, setMoveFor] = useState<{ el: PopoverAnchor; ref: BlockRef } | null>(null)
   const requested = useStore(bridge, (s) => s.blockMenu)
+  /** "Turn into page": the selected blocks when the menu's block is one of them (read before the block gets selected) */
+  const splitFor = useRef<SplitRange | null>(null)
 
   const onNodeChange = useCallback(({ node, pos }: { node: PMNode | null; pos: number }) => {
     current.current = node && pos >= 0 ? { node, pos } : null
@@ -185,6 +189,7 @@ export function BlockHandle({ editor, bridge, pageId }: { editor: Editor; bridge
     (el: PopoverAnchor, pos: number, keyboard = false) => {
       const node = editor.state.doc.nodeAt(pos)
       if (!node) return
+      splitFor.current = blockSplitRange(editor.state, pos)
       editor.view.dispatch(editor.state.tr.setSelection(NodeSelection.create(editor.state.doc, pos)))
       editor.view.dispatch(editor.state.tr.setMeta('lockDragHandle', true))
       setMenu({ el, ref: { node, pos }, keyboard })
@@ -229,14 +234,20 @@ export function BlockHandle({ editor, bridge, pageId }: { editor: Editor; bridge
       items.push({
         label: t('editor.blockMenu.turnInto'),
         icon: <Repeat2 size={15} />,
-        submenu: TURN_INTO_ITEMS.map((b) => ({
-          label: t(`editor.block.${b.id}`),
-          icon: <BlockGlyph item={b} size={15} />,
-          hint: b.md,
-          checked: b.turnInto === currentTurn,
-          onSelect: () => turnBlockInto(editor, ref, b.turnInto!),
-        })),
+        submenu: [
+          ...TURN_INTO_ITEMS.map((b) => ({
+            label: t(`editor.block.${b.id}`),
+            icon: <BlockGlyph item={b} size={15} />,
+            hint: b.md,
+            checked: b.turnInto === currentTurn,
+            onSelect: () => turnBlockInto(editor, ref, b.turnInto!),
+          })),
+          // → Page: the block (or the selected blocks it belongs to) becomes a sub-page, linked here
+          ...splitMenuEntries(editor, t, { range: splitFor.current, pageId, inTurnInto: true }),
+        ],
       })
+    // blocks without a Turn into list (image, table, columns …) still become a page
+    else items.push(...splitMenuEntries(editor, t, { range: splitFor.current, pageId }))
     if (textual && node.type.name !== 'codeBlock')
       items.push({
         label: t('editor.blockMenu.color'),

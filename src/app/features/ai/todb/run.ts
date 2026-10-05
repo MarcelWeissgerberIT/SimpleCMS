@@ -4,11 +4,12 @@
  *  requestTable(): one structured-output request (no MCP server: the selection is the data). The answer
  *  comes back as plain data (the plan + the blocks it was read from as JSON), so a run can keep it in the
  *  background and across a reload (features/ai/runs.ts).
- *  convertToDatabase(): a version snapshot, the inline database with its rows (row bodies via the
- *  Markdown converter, origin 'ai'), then ONE editor transaction that puts the database block where the
- *  first consumed block was — kept blocks stay as they were. ⌘Z brings the text back in one step; the
- *  toast's Undo also removes the database again. Without a range (the text changed meanwhile), the
- *  database goes to the end of the page and every block stays.
+ *  convertToDatabase(): a version snapshot, the database with its rows (row bodies via the Markdown
+ *  converter, origin 'ai'), then ONE editor transaction that puts the database block where the first
+ *  consumed block was — kept blocks stay as they were. Placement 'page' (draft.placement): a full-page
+ *  database, a child of this page, and a `pageLink` to it in that place instead. ⌘Z brings the text back
+ *  in one step; the toast's Undo also removes the database again. Without a range (the text changed
+ *  meanwhile), the database (or its link) goes to the end of the page and every block stays.
  */
 import type { Editor, JSONContent } from '@tiptap/core'
 import { Fragment, type Node as PMNode } from '@tiptap/pm/model'
@@ -21,7 +22,7 @@ import type { ID } from '../../../store/types'
 import { t } from '../../../i18n'
 import { snapshotNow } from '../../history/snapshots'
 import { completeStructured } from '../client'
-import { blockGist, buildDatabase, buildTodbPrompt, initialDraft, parseTodbAnswer, rangeNodes, readBlocks, type BlockRange, type RangeNodes, type TableDraft, type TablePlan } from './plan'
+import { blockGist, buildDatabase, buildTodbPrompt, initialDraft, parseTodbAnswer, placementOf, rangeNodes, readBlocks, type BlockRange, type RangeNodes, type TableDraft, type TablePlan } from './plan'
 
 /** Why a request or a conversion did not happen (an i18n key under features.ai.todb.err). */
 export type TodbIssue = 'none' | 'bad' | 'changed' | 'gone'
@@ -81,17 +82,19 @@ export async function convertToDatabase(editor: Editor, pageId: ID, range: Block
   if (range && !at) throw new TodbError('changed')
   const ws = useWorkspace.getState()
   if (!ws.pages[pageId] || ws.pages[pageId].trashed) throw new TodbError('gone')
-  const dbType = editor.schema.nodes.databaseBlock
+  const asPage = placementOf(draft) === 'page'
+  const dbType = asPage ? editor.schema.nodes.pageLink : editor.schema.nodes.databaseBlock
   if (!dbType) throw new TodbError('gone')
 
   const spec = buildDatabase(answer.plan, draft, { board: t('features.ai.todb.view.board'), table: t('features.ai.todb.view.table'), untitled: t('common.untitled') })
-  const dbId = ws.createDatabase({ parentId: pageId, inline: true, title: spec.title, properties: spec.properties, views: spec.views })
+  // its own page: a full-page database below this page (private exactly when this page is — the cloud binding follows the parent)
+  const dbId = ws.createDatabase({ parentId: pageId, inline: !asPage, title: spec.title, properties: spec.properties, views: spec.views })
   for (const row of spec.rows) {
     const rowId = useWorkspace.getState().createRow(dbId, { title: row.title, properties: row.properties })
     if (row.body) useWorkspace.getState().setContent(rowId, markdownToDoc(row.body), 'ai')
   }
 
-  const dbNode = dbType.create({ databaseId: dbId, viewId: null })
+  const dbNode = asPage ? dbType.create({ pageId: dbId }) : dbType.create({ databaseId: dbId, viewId: null })
   const consumed: PMNode[] = []
   let tr = closeHistory(editor.state.tr)
   let dbPos: number
@@ -143,7 +146,7 @@ function undoConversion(editor: Editor, dbId: ID, after: PMNode, consumed: PMNod
       let pos = -1
       editor.state.doc.descendants((n, p) => {
         if (pos >= 0) return false
-        if (n.type.name === 'databaseBlock' && n.attrs.databaseId === dbId) pos = p
+        if ((n.type.name === 'databaseBlock' && n.attrs.databaseId === dbId) || (n.type.name === 'pageLink' && n.attrs.pageId === dbId)) pos = p
         return pos < 0
       })
       const node = pos >= 0 ? editor.state.doc.nodeAt(pos) : null

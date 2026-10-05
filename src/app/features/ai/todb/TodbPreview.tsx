@@ -1,6 +1,7 @@
 /**
- * The preview of "Turn into database" inside the AI panel: a spec line, the title, the columns (each
- * with a switch to drop it), Group by + Board | Table, the first entries and what stays as text.
+ * The preview of "Turn into database" inside the AI panel: a spec line, the title, where it goes (here
+ * inline | as its own page, linked here), the columns (each with a switch to drop it), Group by + Board |
+ * Table, the first entries and what stays as text.
  * Everything here only changes the draft; nothing is written before Convert.
  */
 import { useId } from 'react'
@@ -8,7 +9,7 @@ import { Check } from 'lucide-react'
 import { Switch } from '../../../ui/controls'
 import { useT } from '../../../i18n'
 import { TypeIcon } from '../../../database'
-import { effectiveView, liveColumns, liveGroup, TITLE_NAME, type CellValue, type PlanColumn, type TableDraft, type TablePlan, type TodbView } from './plan'
+import { effectiveView, liveColumns, liveGroup, placementOf, TITLE_NAME, type CellValue, type PlanColumn, type TableDraft, type TablePlan, type TodbView } from './plan'
 import './todb.css'
 
 const SAMPLE = 5
@@ -42,6 +43,7 @@ export function TodbPreview({ plan, draft, onDraft, gists, onConvert }: TodbPrev
   const selects = cols.filter((c) => c.type === 'select')
   const group = liveGroup(plan, draft)
   const view: TodbView = effectiveView(plan, draft)
+  const placement = placementOf(draft)
   const set = (patch: Partial<TableDraft>) => onDraft({ ...draft, ...patch })
 
   const toggle = (col: PlanColumn, on: boolean) => {
@@ -77,6 +79,19 @@ export function TodbPreview({ plan, draft, onDraft, gists, onConvert }: TodbPrev
             onConvert()
           }}
         />
+      </div>
+
+      <div className="todb__field">
+        <span className="todb__label label" id={`${ids}-place`}>
+          {t('features.ai.todb.placeLabel')}
+        </span>
+        <div className="todb__seg todb__seg--fill" role="group" aria-labelledby={`${ids}-place`} data-testid="todb-place">
+          {(['inline', 'page'] as const).map((p) => (
+            <button key={p} type="button" className="todb__seg-btn" aria-pressed={placement === p} onClick={() => set({ placement: p })}>
+              {t(`features.ai.todb.place.${p}`)}
+            </button>
+          ))}
+        </div>
       </div>
 
       <div className="todb__label label" id={`${ids}-cols`}>

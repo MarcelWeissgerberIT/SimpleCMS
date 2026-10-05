@@ -55,8 +55,10 @@ test.describe('context marks: what Claude reads', () => {
     await expect(reads(page)).toHaveText(/Reads\s*·\s*whole page · 2\d words/i)
     await panel(page).locator('.ai-cmd__input').fill('draft a tagline')
     await openPicker(page)
-    // typing is paused while picking
-    await expect(editorOf(page, id)).toHaveAttribute('contenteditable', 'false')
+    // typing is paused while picking (the page is inert; the picker has the keyboard)
+    await expect(editorOf(page, id)).toHaveAttribute('inert', '')
+    await page.keyboard.type('zz')
+    await expect(editorOf(page, id)).not.toContainText('zz')
     await expect(bar(page)).toContainText(/Context · Nothing marked/i)
 
     // a: all, n: none
@@ -86,6 +88,7 @@ test.describe('context marks: what Claude reads', () => {
     await expect(panel(page)).toBeVisible()
     await expect(panel(page).locator('.ai-cmd__input')).toHaveValue('draft a tagline')
     await expect(reads(page)).toHaveText(/2 marked blocks · 12 words/i)
+    await expect(editorOf(page, id)).not.toHaveAttribute('inert')
     await expect(editorOf(page, id)).toHaveAttribute('contenteditable', 'true')
 
     // Esc cancels: the marks from before stay

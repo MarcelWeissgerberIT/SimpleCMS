@@ -1,5 +1,5 @@
 /** The Manual tab of the Help panel: search field, index of chapters, a chapter, an article, results. */
-import { useMemo, type KeyboardEvent, type MouseEvent, type RefObject } from 'react'
+import { useMemo, type KeyboardEvent, type MouseEvent, type ReactNode, type RefObject } from 'react'
 import { ArrowLeft, ArrowRight, CornerDownLeft, MessageSquareText, Search, X } from 'lucide-react'
 import { useLang, useT } from '../i18n'
 import { LIBRARY, searchHelp } from './content'
@@ -132,13 +132,15 @@ export function ArticleRow({ a, summary }: { a: HelpArticle; summary?: boolean }
 /* Index                                                               */
 /* ------------------------------------------------------------------ */
 
-export function IndexView() {
+/** `lead`: shown under the spec line, above the chapters ("What's new"). */
+export function IndexView({ lead }: { lead?: ReactNode } = {}) {
   const t = useT()
   const lang = useLang()
   const total = LIBRARY[lang].length
   return (
     <div className="help-index">
       <p className="label help-spec">{t('help.spec', { sections: HELP_SECTIONS.length, articles: total })}</p>
+      {lead}
       {HELP_SECTIONS.map((s) => {
         const list = sectionArticles(LIBRARY, lang, s.id)
         if (!list.length) return null

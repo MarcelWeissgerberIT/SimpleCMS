@@ -1,7 +1,11 @@
 /**
  * Context marks in the editor: registers the live editor of its page (store.ts) and, while the picker
- * is open on it, pauses typing (editable → false) and dims the unmarked top-level blocks through a
- * DecorationSet. The marks themselves are block ids in the store, so they follow every edit.
+ * is open on it, pauses typing and dims the unmarked top-level blocks through a DecorationSet. The
+ * marks themselves are block ids in the store, so they follow every edit.
+ *
+ * Typing pauses through `inert` on the editor's DOM (plus swallowed input), not through the `editable`
+ * prop: TipTap's useEditor copies `isEditable` into its options on every re-render, so a page that
+ * re-rendered while picking would stay read-only afterwards.
  */
 import { Extension, type Editor } from '@tiptap/core'
 import { Plugin, PluginKey } from '@tiptap/pm/state'
@@ -56,10 +60,18 @@ export const ContextMarks = Extension.create<Record<string, never>, { pageId: st
         },
         props: {
           decorations: (state) => contextKey.getState(state)?.deco ?? null,
-          // the picker reads the page: no typing until Done
-          editable: (state) => !contextKey.getState(state)?.picking,
+          // the picker reads the page: no typing until Done (inert does the rest, see view below)
+          handleKeyDown: (view) => !!contextKey.getState(view.state)?.picking,
+          handleTextInput: (view) => !!contextKey.getState(view.state)?.picking,
+          handlePaste: (view) => !!contextKey.getState(view.state)?.picking,
+          handleDrop: (view) => !!contextKey.getState(view.state)?.picking,
         },
         view: (view) => {
+          // while picking the page is inert: no caret, no typing, no focus — the picker has the keyboard
+          const syncInert = () => {
+            const picking = !!contextKey.getState(view.state)?.picking
+            if (view.dom.hasAttribute('inert') !== picking) view.dom.toggleAttribute('inert', picking)
+          }
           // marks or the picker changed: redraw (the decorations read the store)
           let last = contextStore.getState()
           const unsub = contextStore.subscribe((s) => {
@@ -72,8 +84,12 @@ export const ContextMarks = Extension.create<Record<string, never>, { pageId: st
             // words / blocks readouts follow typing
             update: (v, prevState) => {
               if (v.state.doc !== prevState.doc) bumpRev()
+              syncInert()
             },
-            destroy: unsub,
+            destroy: () => {
+              unsub()
+              view.dom.removeAttribute('inert')
+            },
           }
         },
       }),

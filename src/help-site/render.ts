@@ -2,12 +2,14 @@
  * The public help pages (/help/, /help/<id>/, /help/de/, /help/de/<id>/), rendered at build time from the
  * same article files as the in-app Help panel. Pure string rendering — no DOM, no Node APIs; the Vite plugin
  * (plugin.ts) reads the files and writes the pages. No client framework: one small script (help.js) adds
- * the search on the index, platform keycaps and the stored theme.
+ * the search on the index, platform keycaps and the stored theme. "What's new" (src/app/help/changelog) is
+ * one page per language, /help/changelog/ and /help/de/changelog/, plus an Atom feed /help/changelog.xml.
  */
 import { helpLinkId, type Block, type Inline } from '../app/help/markdown.js'
 import { HELP_SECTIONS, sectionNum } from '../app/help/sections.js'
 import { HELP_LANGS, helpPath, neighbours, relatedArticles, sectionArticles, type HelpArticle, type HelpLang, type HelpLibrary } from '../app/help/library.js'
 import { messages } from '../app/help/messages.js'
+import { CHANGELOG_PATH_ID, entryDateLabel, type Changelog, type ChangelogEntry } from '../app/help/changelog/entries.js'
 
 export interface SiteOptions {
   /** the Vite base: "/" (getonecms.com) or "/SimpleCMS/" (a project page) */
@@ -23,6 +25,12 @@ export interface HelpPage {
   /** output path relative to the out dir, e.g. "help/de/formulas/index.html" */
   file: string
   html: string
+}
+
+/** "What's new" for the site: the entries and the pixel size of each screenshot (by path under public/). */
+export interface SiteNews {
+  log: Changelog
+  sizes: Record<string, [number, number]>
 }
 
 const ESC: Record<string, string> = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }
@@ -112,9 +120,11 @@ interface FrameInput {
   opts: SiteOptions
   /** the other language has this page */
   twin: boolean
+  /** extra <head> lines (the changelog's feed link) */
+  head?: string
 }
 
-function frame({ lang, id, title, description, main, opts, twin }: FrameInput): string {
+function frame({ lang, id, title, description, main, opts, twin, head }: FrameInput): string {
   const t = tr(lang)
   const { base, origin } = opts
   const url = (l: HelpLang) => `${origin}${base}${helpPath(l, id)}`
@@ -141,7 +151,7 @@ function frame({ lang, id, title, description, main, opts, twin }: FrameInput): 
     <meta property="og:image" content="${esc(`${origin}${base}assets/og.png`)}" />
     <meta name="theme-color" content="#121210" />
     <link rel="icon" type="image/svg+xml" href="${esc(base)}favicon.svg" />
-    <link rel="stylesheet" href="${esc(base + opts.css)}" />
+    <link rel="stylesheet" href="${esc(base + opts.css)}" />${head ? `\n    ${head}` : ''}
     <script>${THEME}</script>
   </head>
   <body>
@@ -184,7 +194,7 @@ function searchForm(lang: HelpLang, opts: SiteOptions, compact = false): string 
         </form>`
 }
 
-function indexPage(lib: HelpLibrary, lang: HelpLang, opts: SiteOptions): string {
+function indexPage(lib: HelpLibrary, lang: HelpLang, opts: SiteOptions, newest?: ChangelogEntry): string {
   const t = tr(lang)
   const href = (id: string) => `${opts.base}${helpPath(lang, id)}`
   const chapters = HELP_SECTIONS.map((s) => {
@@ -209,6 +219,7 @@ function indexPage(lib: HelpLibrary, lang: HelpLang, opts: SiteOptions): string 
           <p class="hero-lede">${esc(t('help.site.lede'))}</p>
           ${searchForm(lang, opts)}
           <p class="lbl hero-spec">${esc(t('help.spec', { sections: HELP_SECTIONS.length, articles: lib[lang].length }))}</p>
+          ${newest ? newsLink(lang, opts, newest) : ''}
         </section>
         <section class="results" id="results" aria-live="polite" hidden>
           <p class="lbl results-count" data-count data-one="${esc(t('help.search.results.one'))}" data-other="${esc(t('help.search.results.other'))}" data-none="${esc(t('help.site.noResults'))}"></p>
@@ -266,12 +277,134 @@ ${blocksHtml(a.blocks, href)}
   return frame({ lang, id: a.id, title: `${a.title} — ${t('help.site.title')}`, description: a.summary || t('help.site.description'), main, opts, twin })
 }
 
-/** Every page of the public help: the index and each article, in both languages. */
-export function renderHelpSite(lib: HelpLibrary, opts: SiteOptions): HelpPage[] {
+/* ------------------------------------------------------------------ */
+/* What's new                                                          */
+/* ------------------------------------------------------------------ */
+
+/** Where the changelog lives: help/changelog/, help/de/changelog/ (relative to the base) and the feed. */
+export const changelogPath = (lang: HelpLang): string => helpPath(lang, CHANGELOG_PATH_ID)
+export const CHANGELOG_FEED = 'help/changelog.xml'
+
+/** The index's pointer to the newest entry. */
+function newsLink(lang: HelpLang, opts: SiteOptions, e: ChangelogEntry): string {
+  const t = tr(lang)
+  return `<a class="news-link" href="${esc(`${opts.base}${changelogPath(lang)}`)}"><span class="lbl news-link__k">§ 00 — ${esc(t('help.site.news.link'))}</span><span class="news-link__t"><span class="lbl news-link__d">${esc(t('help.site.news.latest'))} · ${esc(entryDateLabel(e.date, lang))}</span> ${esc(e.title)}</span><span class="row-go" aria-hidden="true">→</span></a>`
+}
+
+const figNum = (i: number, total: number) => String(total - i).padStart(2, '0')
+
+function changelogPage(news: SiteNews, lib: HelpLibrary, lang: HelpLang, opts: SiteOptions): string {
+  const t = tr(lang)
+  const entries = news.log[lang]
+  const href = (id: string) => `${opts.base}${helpPath(lang, id)}`
+  const feed = `${opts.origin}${opts.base}${CHANGELOG_FEED}`
+  const count = t(entries.length === 1 ? 'help.news.count.one' : 'help.news.count.other', { count: entries.length })
+  const fig = (i: number) => t('help.news.figure', { n: figNum(i, entries.length) })
+  const items = entries
+    .map((e, i) => {
+      const size = news.sizes[e.image]
+      const dims = size ? ` width="${size[0]}" height="${size[1]}"` : ''
+      const src = `${opts.base}${e.image}`
+      const related = relatedOf(lib, lang, e)
+      const tryLine = e.try ? `<p class="news-try"><span class="lbl">${esc(t('help.site.news.inApp'))}</span> ${esc(t(`help.news.try.${e.try}`))}${e.try === 'terminal' ? ` <kbd data-keys="Mod+J">Ctrl+J</kbd>` : ''}</p>` : ''
+      return `
+          <article class="news" id="${esc(e.id)}" aria-labelledby="${esc(e.id)}-h">
+            <p class="lbl news-meta"><time datetime="${esc(e.date)}">${esc(entryDateLabel(e.date, lang))}</time><span aria-hidden="true">·</span><span>${esc(fig(i))}</span><a class="news-anchor" href="#${esc(e.id)}" aria-label="${esc(t('help.site.news.permalink'))}: ${esc(e.title)}">#</a></p>
+            <h2 id="${esc(e.id)}-h" class="news-title">${esc(e.title)}</h2>
+            ${e.summary ? `<p class="news-sum">${esc(e.summary)}</p>` : ''}
+            <figure class="news-fig"><a href="${esc(src)}"><img src="${esc(src)}"${dims} alt="${esc(e.alt)}" loading="lazy" decoding="async" /></a><figcaption class="lbl">${esc(fig(i))} — ${esc(e.alt)}</figcaption></figure>
+            <div class="doc news-doc">
+${blocksHtml(e.blocks, href)}
+            </div>
+            ${tryLine}
+            ${
+              related.length
+                ? `<ul class="rows news-rel">${related.map((r) => `<li><a class="row" href="${esc(href(r.id))}"><span class="row-num">${r.num}</span><span class="row-main"><span class="row-title">${esc(r.title)}</span></span><span class="row-go" aria-hidden="true">→</span></a></li>`).join('')}</ul>`
+                : ''
+            }
+          </article>`
+    })
+    .join('')
+  const toc = entries
+    .map((e) => `<li><a href="#${esc(e.id)}"><span class="row-num">${esc(entryDateLabel(e.date, lang).slice(0, 6))}</span>${esc(e.title)}</a></li>`)
+    .join('')
+  const main = `
+      <div class="wrap">
+        <section class="hero hero--news" aria-labelledby="hero-h">
+          <p class="lbl hero-kicker">${esc(t('help.site.news.kicker'))}</p>
+          <h1 id="hero-h" class="disp">${esc(t('help.site.news.heading'))}</h1>
+          <p class="hero-lede">${esc(t('help.site.news.lede'))}</p>
+          <p class="lbl hero-spec">${esc(t('help.news.spec', { count }))} · <a href="${esc(feed)}" type="application/atom+xml">${esc(t('help.site.news.feed'))}</a></p>
+        </section>
+      </div>
+      <div class="wrap art-grid news-grid">
+        <div class="news-list">${items}
+        </div>
+        <aside class="side" aria-label="${esc(t('help.site.news.contents'))}">
+          <p class="lbl side-head">${esc(t('help.site.news.contents'))}</p>
+          <ol class="side-list">${toc}</ol>
+          <a class="lbl side-all" href="${esc(`${opts.base}${helpPath(lang)}`)}">← ${esc(t('help.site.all'))}</a>
+        </aside>
+      </div>`
+  const head = `<link rel="alternate" type="application/atom+xml" title="${esc(tr('en')('help.site.news.title'))}" href="${esc(feed)}" />`
+  return frame({ lang, id: CHANGELOG_PATH_ID, title: t('help.site.news.title'), description: t('help.site.news.description'), main, opts, twin: true, head })
+}
+
+function relatedOf(lib: HelpLibrary, lang: HelpLang, e: ChangelogEntry): HelpArticle[] {
+  return e.help.map((id) => lib[lang].find((a) => a.id === id)).filter((a): a is HelpArticle => !!a)
+}
+
+const XML_ESC: Record<string, string> = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&apos;' }
+const xml = (s: string): string => s.replace(/[&<>"']/g, (c) => XML_ESC[c])
+
+/** The English entries as an Atom feed; same-day entries are a minute apart, in their order. */
+export function changelogFeed(news: SiteNews, lib: HelpLibrary, opts: SiteOptions): string {
+  const t = tr('en')
+  const abs = (path: string) => `${opts.origin}${opts.base}${path}`
+  const page = abs(changelogPath('en'))
+  const stamp = (e: ChangelogEntry) => `${e.date}T12:${String(Math.max(0, 59 - (e.order - 1))).padStart(2, '0')}:00Z`
+  const entries = news.log.en
+  const items = entries
+    .map((e) => {
+      const size = news.sizes[e.image]
+      const dims = size ? ` width="${size[0]}" height="${size[1]}"` : ''
+      const html = `<p><img src="${esc(abs(e.image))}"${dims} alt="${esc(e.alt)}" /></p>
+${blocksHtml(e.blocks, (id) => abs(helpPath('en', id)))}`
+      return `  <entry>
+    <id>${xml(`${page}#${e.id}`)}</id>
+    <title>${xml(e.title)}</title>
+    <link rel="alternate" type="text/html" href="${xml(`${page}#${e.id}`)}" />
+    <published>${stamp(e)}</published>
+    <updated>${stamp(e)}</updated>
+    <summary>${xml(e.summary)}</summary>
+    <content type="html">${xml(html)}</content>
+  </entry>`
+    })
+    .join('\n')
+  const updated = entries[0] ? stamp(entries[0]) : '1970-01-01T00:00:00Z'
+  return `<?xml version="1.0" encoding="utf-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xml:lang="en">
+  <title>${xml(t('help.site.news.title'))}</title>
+  <subtitle>${xml(t('help.site.news.description'))}</subtitle>
+  <link rel="self" type="application/atom+xml" href="${xml(abs(CHANGELOG_FEED))}" />
+  <link rel="alternate" type="text/html" href="${xml(page)}" />
+  <id>${xml(page)}</id>
+  <updated>${updated}</updated>
+  <author><name>SimpleCMS One</name></author>
+  <icon>${xml(abs('favicon.svg'))}</icon>
+${items}
+</feed>
+`
+}
+
+/** Every page of the public help: the index and each article, in both languages — and "What's new". */
+export function renderHelpSite(lib: HelpLibrary, opts: SiteOptions, news?: SiteNews): HelpPage[] {
   const pages: HelpPage[] = []
   for (const lang of HELP_LANGS) {
-    pages.push({ file: `${helpPath(lang)}index.html`, html: indexPage(lib, lang, opts) })
+    pages.push({ file: `${helpPath(lang)}index.html`, html: indexPage(lib, lang, opts, news?.log[lang][0]) })
     for (const a of lib[lang]) pages.push({ file: `${helpPath(lang, a.id)}index.html`, html: articlePage(lib, lang, a, opts) })
+    if (news?.log[lang].length) pages.push({ file: `${changelogPath(lang)}index.html`, html: changelogPage(news, lib, lang, opts) })
   }
+  if (news?.log.en.length) pages.push({ file: CHANGELOG_FEED, html: changelogFeed(news, lib, opts) })
   return pages
 }

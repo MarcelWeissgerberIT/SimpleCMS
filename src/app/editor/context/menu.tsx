@@ -3,6 +3,7 @@
  * pre-marked (more passages can be marked there); on Done the AI panel opens on the passages.
  */
 import type { Editor } from '@tiptap/core'
+import { TextSelection } from '@tiptap/pm/state'
 import { ReplaceAll } from 'lucide-react'
 import type { Translate } from '@/shared/i18n'
 import type { MenuEntry } from '../../ui/Menu'
@@ -21,8 +22,15 @@ export function redoBlockMenuEntries(editor: Editor, ref: BlockRef, t: Translate
       icon: <ReplaceAll size={15} />,
       onSelect: () => {
         const ids = topBlockKeys(editor, ref.pos, ref.pos + ref.node.nodeSize)
-        // after the menu closed and handed the caret back: the picker takes the keyboard
-        requestAnimationFrame(() => startRedo(editor, { ids }))
+        // after the menu closed and handed the caret back: the picker takes the keyboard (the block's
+        // selection gives way to a caret in it — the picker's marks show the passages)
+        requestAnimationFrame(() => {
+          if (editor.isDestroyed) return
+          const { state } = editor
+          const at = Math.min(ref.pos + 1, state.doc.content.size)
+          editor.view.dispatch(state.tr.setSelection(TextSelection.near(state.doc.resolve(at))).setMeta('addToHistory', false))
+          startRedo(editor, { ids })
+        })
       },
     },
   ]

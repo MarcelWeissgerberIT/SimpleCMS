@@ -37,6 +37,7 @@ import {
   Workflow,
   SquareFunction,
   CircleHelp,
+  Newspaper,
 } from 'lucide-react'
 import { useWorkspace } from '../../store/store'
 import { useUI } from '../../store/ui'
@@ -45,7 +46,7 @@ import { openTodayJournal, openAgent, AGENT_SHORTCUT, openFunctionBuilder } from
 import type { ID } from '../../store/types'
 import type { Translate } from '@/shared/i18n'
 import { quickNoteToInbox } from '../capture/inbox'
-import { openHelp } from '../../help'
+import { openHelp, openChangelog } from '../../help'
 import { useCloud } from '../../cloud'
 import { openCloudDialog, openSettingsTab } from '../cloud/state'
 import {
@@ -105,6 +106,7 @@ export function buildCommands(t: Translate, pageId: ID | null): Command[] {
     { id: 'functions', group: 'workspace', label: t('features.fn.cmd'), icon: SquareFunction, keywords: 'custom functions formula spreadsheet build own eigene funktionen formel tabelle bauen fx', run: () => { closeMobileSidebar(); openFunctionBuilder() } },
     { id: 'shortcuts', group: 'workspace', label: t('shell.cmd.shortcuts'), icon: Keyboard, shortcut: 'Mod+/', keywords: 'keyboard keys help hilfe tastatur', run: () => ui.openModal({ type: 'shortcuts' }) },
     { id: 'help', group: 'workspace', label: t('help.title'), icon: CircleHelp, shortcut: '?', keywords: 'help hilfe manual handbuch docs documentation dokumentation faq support anleitung', run: () => openHelp() },
+    { id: 'whats-new', group: 'workspace', label: t('help.news.cmd'), icon: Newspaper, keywords: "what's new whats new changelog updates release notes neuigkeiten neu in one änderungen versionshinweise", run: () => { closeMobileSidebar(); openChangelog() } },
     { id: 'ask-ai', group: 'page', label: t('shell.cmd.askAI'), icon: MessageSquareText, keywords: 'claude ai assistant question ki frage', run: () => ui.openPalette('?') },
     { id: 'agent', group: 'workspace', label: t('features.agent.cmd'), icon: Workflow, shortcut: AGENT_SHORTCUT, keywords: 'agent claude ai automate bulk tasks rows pages ki automatisieren aufgaben terminal console konsole', run: () => { closeMobileSidebar(); openAgent() } },
   ]

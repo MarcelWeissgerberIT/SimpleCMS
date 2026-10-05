@@ -26,7 +26,7 @@ import { WorkspaceRename } from './WorkspaceRename'
 import { useInboxUnread } from '../inbox/model'
 import { INBOX_KEYS, useInboxShortcut } from '../inbox/keys'
 import './sidebar.css'
-import { openHelp } from '../../help'
+import { openHelp, HelpNewsLed, useChangelogUnseen } from '../../help'
 
 const MIN_W = 220
 const MAX_W = 480
@@ -164,6 +164,7 @@ function SidebarHeader() {
   const menu = useMenu()
   const mobile = useIsMobile()
   const kbd = useKbdHint()
+  const newsUnseen = useChangelogUnseen()
   const set = useWorkspace.getState().updateSettings
   // the name: renamed in place (local workspace; team workspaces: admins), read-only for everyone else
   const renameMode = useRenameMode()
@@ -212,7 +213,7 @@ function SidebarHeader() {
       ],
     },
     { label: t('shell.cmd.shortcuts'), hint: kbd('Mod+/'), onSelect: () => useUI.getState().openModal({ type: 'shortcuts' }) },
-    { label: t('help.title'), hint: kbd('?'), onSelect: () => openHelp() },
+    { label: t('help.title'), hint: kbd('?'), onSelect: () => openHelp(), ...(newsUnseen ? { icon: <HelpNewsLed quiet /> } : {}) },
     { kind: 'separator' },
     { label: t('shell.menu.website'), onSelect: () => window.open(BRAND.homeHref, '_self') },
     { label: 'GitHub', onSelect: () => window.open(BRAND.repoUrl, '_blank', 'noopener') },

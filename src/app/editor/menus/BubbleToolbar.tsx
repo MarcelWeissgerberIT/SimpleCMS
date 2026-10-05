@@ -26,6 +26,7 @@ import { BlockGlyph } from './SlashMenu'
 import { posAnchor } from './common'
 import { startComment } from '../comments/plugin'
 import { addSelectionToTerminal, AGENT_REF_SHORTCUT } from '../../features'
+import { splitMenuEntries } from '../split/menu'
 
 const isTouch = typeof window !== 'undefined' && window.matchMedia?.('(hover: none)').matches
 
@@ -396,6 +397,8 @@ export function BubbleToolbar({ editor, bridge }: { editor: Editor; bridge: Brid
             checked: st.turn === b.turnInto,
             onSelect: () => turnInto(editor, b.turnInto!),
           })),
+          // → Page: the blocks the selection touches become a sub-page, linked here
+          ...(turnMenu.open ? splitMenuEntries(editor, t, { inTurnInto: true }) : []),
         ]}
       />
       <Popover open={sub === 'color'} anchor={colorBtn.current} onClose={() => setSub(null)} placement="bottom-start" autoFocus={false}>

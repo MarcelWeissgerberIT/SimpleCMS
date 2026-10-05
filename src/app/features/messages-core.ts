@@ -106,6 +106,9 @@ export const messages: Messages = {
     'features.ai.todb.err.changed': 'The selected text changed while Claude was reading it. Nothing was changed — try again.',
     'features.ai.todb.err.gone': 'This page is no longer open. Nothing was changed.',
     'features.ai.todb.convertEnd': 'Insert the database at the end',
+    'features.ai.todb.placeLabel': 'Place',
+    'features.ai.todb.place.inline': 'Here (inline)',
+    'features.ai.todb.place.page': 'As its own page (linked)',
     /* AI-menu runs in the background (features/ai/runs.ts) */
     'features.ai.bg.ready': 'AI result ready · {title}',
     'features.ai.bg.open': 'Open',
@@ -470,6 +473,9 @@ export const messages: Messages = {
     'features.ai.todb.err.changed': 'Der ausgewählte Text hat sich geändert, während Claude ihn gelesen hat. Nichts wurde geändert — versuch es nochmal.',
     'features.ai.todb.err.gone': 'Diese Seite ist nicht mehr geöffnet. Nichts wurde geändert.',
     'features.ai.todb.convertEnd': 'Datenbank am Ende einfügen',
+    'features.ai.todb.placeLabel': 'Platzierung',
+    'features.ai.todb.place.inline': 'Hier (inline)',
+    'features.ai.todb.place.page': 'Als eigene Seite (verlinkt)',
     /* KI-Menü im Hintergrund (features/ai/runs.ts) */
     'features.ai.bg.ready': 'KI-Ergebnis fertig · {title}',
     'features.ai.bg.open': 'Öffnen',

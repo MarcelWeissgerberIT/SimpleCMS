@@ -11,9 +11,10 @@ import { shortcutLabel } from '../ui/controls'
 import { LIBRARY } from './content'
 import { findArticle } from './library'
 import { closeHelp, currentLoc, goHelp, helpBack, helpForward, tabOf, useHelp, type HelpLoc, type HelpTab } from './state'
-import { helpPublicUrl } from './urls'
+import { changelogPublicUrl, helpPublicUrl } from './urls'
 import { ArticleView, IndexView, ResultsView, SearchField, SectionView } from './views'
 import { AskView } from './AskView'
+import { ChangelogView, ChangeView, NewsStrip } from './changelog/views'
 
 export default function HelpPanel({ shortcuts }: { shortcuts?: ReactNode }) {
   const t = useT()
@@ -91,7 +92,8 @@ export default function HelpPanel({ shortcuts }: { shortcuts?: ReactNode }) {
   }
 
   const article = loc.kind === 'article' ? findArticle(LIBRARY, lang, loc.id) : undefined
-  const publicUrl = helpPublicUrl(lang, article?.id)
+  const publicUrl =
+    loc.kind === 'changelog' ? changelogPublicUrl(lang) : loc.kind === 'change' ? changelogPublicUrl(lang, loc.id) : helpPublicUrl(lang, article?.id)
 
   return (
     <aside ref={panelRef} className="help" role="dialog" aria-modal="false" aria-labelledby="help-title" data-layer={overModal ? 'modal' : undefined} data-tab={tab} tabIndex={-1} onKeyDown={onKeyDown}>
@@ -135,7 +137,9 @@ function Manual({ loc }: { loc: HelpLoc }) {
   if (loc.kind === 'search' && query.trim()) return <ResultsView query={query} />
   if (loc.kind === 'article') return <ArticleView id={loc.id} />
   if (loc.kind === 'section') return <SectionView id={loc.id} />
-  return <IndexView />
+  if (loc.kind === 'changelog') return <ChangelogView />
+  if (loc.kind === 'change') return <ChangeView key={loc.id} id={loc.id} />
+  return <IndexView lead={<NewsStrip />} />
 }
 
 /** The Manual tab returns to the last place in the manual (or its index). */

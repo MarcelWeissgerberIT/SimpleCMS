@@ -18,7 +18,7 @@
  */
 import { Extension, type Editor, type JSONContent } from '@tiptap/core'
 import { Fragment, type Node as PMNode } from '@tiptap/pm/model'
-import { NodeSelection, TextSelection, type Transaction } from '@tiptap/pm/state'
+import { NodeSelection, TextSelection, Transaction } from '@tiptap/pm/state'
 import { Transform } from '@tiptap/pm/transform'
 import { closeHistory } from '@tiptap/pm/history'
 import { yUndoPluginKey } from '@tiptap/y-tiptap'

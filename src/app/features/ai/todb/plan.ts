@@ -459,6 +459,8 @@ function optionNames(type: 'select' | 'multi_select', v: CellValue): string[] {
 /* ------------------------------------------------------------------ */
 
 export type TodbView = 'board' | 'table'
+/** Where the database goes: here as an inline block, or as its own page (a child of this page) linked here. */
+export type TodbPlacement = 'inline' | 'page'
 
 export interface TableDraft {
   title: string
@@ -466,11 +468,15 @@ export interface TableDraft {
   dropped: string[]
   groupBy: string | null
   view: TodbView
+  /** absent in drafts kept from before (runs survive a reload): inline */
+  placement?: TodbPlacement
 }
 
 export function initialDraft(plan: TablePlan): TableDraft {
-  return { title: plan.title, dropped: [], groupBy: plan.groupBy, view: plan.groupBy ? 'board' : 'table' }
+  return { title: plan.title, dropped: [], groupBy: plan.groupBy, view: plan.groupBy ? 'board' : 'table', placement: 'inline' }
 }
+
+export const placementOf = (draft: TableDraft): TodbPlacement => (draft.placement === 'page' ? 'page' : 'inline')
 
 /** Columns that stay (switched on). */
 export function liveColumns(plan: TablePlan, draft: TableDraft): PlanColumn[] {

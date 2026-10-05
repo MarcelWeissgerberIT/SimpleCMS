@@ -13,6 +13,22 @@
   white-space: nowrap;
 }
 
+/* the review: what was asked */
+.ai-cmd__title--quote {
+  color: var(--ink-2);
+  font-size: var(--text-sm);
+}
+
+/* under the review the keys belong to the review: the list shows no "current" row until hovered */
+.ai-list[data-quiet] .ai-row[data-active='true'] {
+  background: transparent;
+  box-shadow: none;
+}
+
+.ai-list[data-quiet] .ai-row:hover {
+  background: var(--hover);
+}
+
 /* ---------------- the instructions card ---------------- */
 
 .redo-setup {
@@ -364,7 +380,12 @@
   color: var(--ink-3);
 }
 
-/* removed: struck through, quiet · added: underlined in signal */
+/* removed: struck through, quiet · added: underlined in signal (a hair apart where one replaces the other) */
+.redo-review__text del + ins,
+.redo-review__text ins + del {
+  margin-left: 0.3em;
+}
+
 .redo-review__text del {
   color: var(--ink-3);
   text-decoration: line-through;
@@ -446,6 +467,13 @@
   }
   .redo-rules__hint {
     flex-basis: 100%;
+  }
+  /* the readout wraps instead of hiding the skipped count */
+  .redo-setup__head {
+    flex-wrap: wrap;
+  }
+  .redo-setup__count {
+    white-space: normal;
   }
 }
 

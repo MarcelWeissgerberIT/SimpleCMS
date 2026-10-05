@@ -126,7 +126,7 @@ export function RedoReview({ run, editor, pageId, onDone }: RedoReviewProps) {
   const plural = (n: number) => (n === 1 ? 'one' : 'other')
 
   return (
-    <div ref={rootRef} className="redo-review" tabIndex={0} onKeyDown={onKeyDown} role="group" aria-label={t('features.ai.redo.passage', { n: at + 1, total: rows.length })} data-testid="redo-review">
+    <div ref={rootRef} className="redo-review" tabIndex={0} data-autofocus="" onKeyDown={onKeyDown} role="group" aria-label={t('features.ai.redo.passage', { n: at + 1, total: rows.length })} data-testid="redo-review">
       <div className="redo-review__bar label">
         <button type="button" className="redo-review__nav" onClick={() => setAt((a) => Math.max(0, a - 1))} disabled={at === 0} aria-label={t('features.ai.redo.prev')}>
           <ChevronLeft size={13} strokeWidth={1.8} aria-hidden />

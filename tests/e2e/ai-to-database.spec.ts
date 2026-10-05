@@ -364,6 +364,46 @@ test.describe('Turn into database (AI menu)', () => {
     await expect.poll(() => wsEval(page, (s, dbId) => !!s.pages[dbId] || !!s.databases[dbId], got.id)).toBe(false)
   })
 
+  test('"As its own page (linked)" → a full-page database below this page with the rows, a page link where the entries were; Undo removes both', async ({ page, context }) => {
+    await mockClaude(context)
+    await openApp(page)
+    await setKey(page)
+    const { id, ai } = await openOnReport(page, 'Delta pages')
+    await ai.getByRole('option', { name: /Turn into database/ }).click()
+    const pv = preview(page)
+    await expect(pv).toBeVisible()
+
+    // placement: inline by default, "As its own page" on click
+    const place = page.getByTestId('todb-place')
+    await expect(place.getByRole('button', { name: 'Here (inline)' })).toHaveAttribute('aria-pressed', 'true')
+    await place.getByRole('button', { name: 'As its own page (linked)' }).click()
+    await expect(place.getByRole('button', { name: 'As its own page (linked)' })).toHaveAttribute('aria-pressed', 'true')
+    await ai.getByRole('option', { name: /Convert/ }).click()
+    await expect(panel(page)).toHaveCount(0)
+    await expect(page.locator('.toast').filter({ hasText: 'Converted to database · 16 entries' })).toBeVisible()
+
+    // a page link where the title heading was, the kept blocks around it — no inline database block
+    await expect.poll(() => topTypes(page, id)).toEqual(['paragraph', 'pageLink', 'paragraph', 'heading', 'bulletList', 'paragraph'])
+    const dbId = await wsEval(page, (s, id) => (s.pages[id].content.content as AnyState[]).find((n) => n.type === 'pageLink')?.attrs.pageId, id)
+    const got = await wsEval(
+      page,
+      (s, dbId) => JSON.parse(JSON.stringify({ page: s.pages[dbId], db: s.databases[dbId], rows: (Object.values(s.pages) as AnyState[]).filter((p) => p.databaseId === dbId).length })),
+      dbId,
+    )
+    expect(got.page).toMatchObject({ kind: 'database', parentId: id, title: TITLE })
+    expect(got.db.inline).toBe(false)
+    expect(got.rows).toBe(16)
+    expect(got.db.views.map((v: AnyState) => v.type)).toEqual(['board', 'table'])
+    await expect(editorOf(page, id).locator('section.db')).toHaveCount(0)
+
+    await expect(editorOf(page, id).locator('.page-link, [data-type="page-link"]').first()).toContainText(TITLE)
+
+    // the toast's Undo: text back, database gone
+    await page.locator('.toast').filter({ hasText: 'Converted to database' }).getByRole('button', { name: 'Undo' }).click()
+    await expect.poll(() => topTypes(page, id)).toEqual(['paragraph', 'heading', 'paragraph', 'orderedList', 'heading', 'bulletList', 'paragraph'])
+    await expect.poll(() => wsEval(page, (s, dbId) => !!s.pages[dbId] || !!s.databases[dbId], dbId)).toBe(false)
+  })
+
   test('no entries in the answer → an error note, nothing changes; Retry asks again', async ({ page, context }) => {
     const reqs = await mockClaude(context, () => ({ title: 'Nothing', columns: [], entries: [], groupBy: null, keep: [1, 2] }))
     await openApp(page)

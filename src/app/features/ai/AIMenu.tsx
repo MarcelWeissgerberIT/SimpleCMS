@@ -62,6 +62,7 @@ import { useWorkspace } from '../../store/store'
 import { useUI } from '../../store/ui'
 import { markdownToDoc, openContextPicker, pageContextMarks, setContextMode, topBlockKeys, useContextMarks, type ContextMode } from '../../editor'
 import { toMarkdown } from '../share/markdown'
+import { turnIntoPage } from '../../editor'
 import { AI_MODELS, AIError, aiErrorText, isAIDemo, onAIDemo, resolveModel, setAIDemo, verifyKey } from './client'
 import { readServers } from './mcp-servers/config'
 import { callLabel, type McpCall } from './mcp-servers/activity'
@@ -723,6 +724,19 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo }: 
         translate,
         redoAction,
         ...todb,
+        // "Turn into page" (editor/split): no Claude — the selected blocks move into a new sub-page at once
+        {
+          id: 'topage',
+          label: t('editor.split.toPage'),
+          code: 'PG',
+          icon: FileText,
+          group: t('features.ai.group.structure'),
+          keywords: 'page subpage new page extract seite unterseite neue seite auslagern',
+          run: () => {
+            onClose()
+            turnIntoPage(editor, { pageId, range: { from: own.t.from, to: own.t.to } })
+          },
+        },
         A('explain', t('features.ai.act.explain'), 'EXP', MessageCircleQuestion, gRead, 'explain erklären'),
         A('summarize', t('features.ai.act.summarize'), 'SUM', AlignLeft, gRead, 'summary zusammenfassen tldr'),
         A('action_items', t('features.ai.act.actionItems'), 'ACT', ListChecks, gRead, 'todo tasks aufgaben'),
@@ -804,14 +818,14 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo }: 
                 : run?.req.kind === 'redo'
                   ? redoAgain(query)
                   : start({
-                    kind: 'action',
-                    action: 'custom',
-                    label: t('features.ai.refineLabel'),
-                    code: 'REF',
-                    instruction: query.trim(),
-                    input: output || target.selected,
-                    refine: true,
-                  }),
+                      kind: 'action',
+                      action: 'custom',
+                      label: t('features.ai.refineLabel'),
+                      code: 'REF',
+                      instruction: query.trim(),
+                      input: output || target.selected,
+                      refine: true,
+                    }),
           },
         ]
       const out: Row[] = []
@@ -1081,9 +1095,16 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo }: 
                 </button>
               )}
               {redoHead ? (
-                <span className="ai-cmd__title label" data-testid="ai-redo-title">
-                  {t('features.ai.redo.label')}
-                </span>
+                // the review quotes what was asked
+                reviewing && run?.req.kind === 'redo' && run.req.instructions ? (
+                  <span className="ai-cmd__title ai-cmd__title--quote" data-testid="ai-redo-title" title={run.req.instructions}>
+                    “{run.req.instructions.replace(/\s+/g, ' ')}”
+                  </span>
+                ) : (
+                  <span className="ai-cmd__title label" data-testid="ai-redo-title">
+                    {t('features.ai.redo.label')}
+                  </span>
+                )
               ) : (
                 <input
                   ref={inputRef}
@@ -1296,7 +1317,7 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo }: 
             )}
 
             {rows.length > 0 && (
-              <div className="ai-list" ref={listRef} role="listbox" data-keys={phase === 'done' || phase === 'error' ? '' : undefined}>
+              <div className="ai-list" ref={listRef} role="listbox" data-keys={phase === 'done' || phase === 'error' ? '' : undefined} data-quiet={reviewing || undefined}>
                 {rows.map((r, i) => {
                   const header = r.group && r.group !== lastGroup ? r.group : null
                   lastGroup = r.group

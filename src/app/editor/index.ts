@@ -40,7 +40,13 @@
  *      useContextPicking() (the page being picked, or null). The picker has a second purpose, 'redo' (passages to
  *      redo with instructions): openContextPicker(…, { purpose: 'redo', ids, onEnd(done, ids) }) — the marks go to
  *      onEnd only; topBlockKeys(editor, from, to) pre-marks a selection / the cursor block. startRedo(editor | pageId,
- *      { ids }) — the redo picker from anywhere; on Done the page's AI panel opens on the passages (AIMenuProps.redo).
+ *      { ids, onEnd }) — the redo picker from anywhere; on Done the page's AI panel opens on the passages
+ *      (AIMenuProps.redo). While picking, the page's editor DOM is `inert` (typing paused); isEditable is untouched.
+ *  - Turn into page: turnIntoPage(editor, { range?, pageId?, quiet? }) — the blocks a selection (or `range`, expanded to
+ *      whole blocks of one container; list items split their list) covers become a new sub-page (private exactly when
+ *      the page is) with ONE `pageLink` in their place; inline databases / linked sub-pages / comment threads go along;
+ *      content written with origin 'split'; toast Undo + ⌘Z keep the store in step. Returns the new page id or null.
+ *      SPLIT_SHORTCUT = 'Mod+Alt+9'.
  */
 export { PageEditor, type PageEditorProps } from './PageEditor'
 export { ReadOnlyDoc } from './ReadOnlyDoc'
@@ -66,3 +72,4 @@ export { contextMarksOf, pageContextMarks, readableContent, isContextLimited, us
 export { setContextMode, openContextPicker, closeContextPicker, contextPickingPage, topBlockKeys } from './context/api'
 export { startRedo } from './context/redo'
 export type { ContextMode, PickPurpose } from './context/store'
+export { turnIntoPage, SPLIT_SHORTCUT, SPLIT_ORIGIN, type TurnIntoPageOptions } from './split/split'

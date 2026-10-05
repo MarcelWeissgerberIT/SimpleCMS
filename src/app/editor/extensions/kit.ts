@@ -18,6 +18,7 @@ import { IconKeys } from '../views/InlineIconView'
 import type { ContentDocHandle } from '../../cloud'
 import { collabExtensions } from '../collab'
 import { ContextMarks } from '../context/plugin'
+import { SplitKeys } from '../split/split'
 
 const typography = () =>
   Typography.configure({ oneHalf: false, oneQuarter: false, threeQuarters: false, superscriptTwo: false, superscriptThree: false, laquo: false, raquo: false })
@@ -59,6 +60,8 @@ export function editorExtensions({
     MediaKeys,
     BlockToolKeys,
     IconKeys,
+    // Mod+Alt+9: the selected blocks become a sub-page (editor/split)
+    SplitKeys,
     commentsExtension(bridge),
     // what Claude may read of the page (context marks + the picker's paused typing)
     ContextMarks,
