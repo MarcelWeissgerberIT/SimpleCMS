@@ -127,7 +127,10 @@ the public APIs stable — other areas are built against them in parallel.
   origin `'split'`), one `pageLink` in their place; inline databases, linked sub-pages and comment threads move along;
   private parent → `createPrivatePage`. Turn into database: `TableDraft.placement` 'inline' (default) | 'page'.
 - Block selection (editor/select + `BlockSelection` in extensions/behaviors.ts): a pinned grip with a count chip while
-  blocks are selected; the grip / right-click menu acts on the whole selection in ONE transaction.
+  blocks are selected; the grip / right-click menu acts on the whole selection in ONE transaction. One grip at a time:
+  while blocks are selected the hover handle stays hidden for other blocks (Shift shows it for extending). Handles sit in
+  one gutter column left of the page content for every block at any depth (editor/select/gutter.ts) — never on a list
+  marker; the target is the deepest block whose own line holds the pointer; columns get a grip-only handle at their edge.
 - What's new (src/app/help/changelog): every user-visible release adds an entry EN + DE with a real screenshot
   (changelog/README.md, `scripts/changelog-shots.mjs`); the build fails without a twin or an image.
 - Database views: table | board | list | gallery | feed | calendar | timeline | chart | form. Feed settings live in
