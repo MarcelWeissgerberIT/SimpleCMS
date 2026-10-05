@@ -131,6 +131,14 @@ the public APIs stable — other areas are built against them in parallel.
   while blocks are selected the hover handle stays hidden for other blocks (Shift shows it for extending). Handles sit in
   one gutter column left of the page content for every block at any depth (editor/select/gutter.ts) — never on a list
   marker; the target is the deepest block whose own line holds the pointer; columns get a grip-only handle at their edge.
+- One memory (features/ai/memory): `Database.system` 'memory' / 'memory-log' marks the memory database and its usage
+  log (private in teams via `createPrivateDatabase`; the oldest live one counts; dormant until one exists). Memories are
+  saved only after the person confirms (proposal cards, `/remember`, "remember …", the `remember` tool → staged change
+  kind 'memory'); write them only through memory/save.ts / example.ts and log rows through memory/log.ts (origin 'ai'; the
+  log keeps 500 rows, older ones go to the trash, never page content or answers). Free-form requests take
+  `memoryFor(task).block` (`<one_memory>`) along — `runAI({ memory })` or the agent's context — then `noteUse(answer, use,
+  ctx)`. Examples: Type Example + Tag; `#tag` (or the bare tag as a word) forces that example in full. Switches per device
+  in `settings.memory`. Team server-runner agents get no memory.
 - What's new (src/app/help/changelog): every user-visible release adds an entry EN + DE with a real screenshot
   (changelog/README.md, `scripts/changelog-shots.mjs`); the build fails without a twin or an image.
 - Database views: table | board | list | gallery | feed | calendar | timeline | chart | form. Feed settings live in

@@ -1,7 +1,7 @@
 ---
 id: 2026-10-05-claude-reads
 date: 2026-10-05
-order: 4
+order: 6
 title: Was Claude liest — du entscheidest
 summary: Die ganze Seite, nur die Blöcke, die du markierst, oder nichts — eine Zeile im KI-Menü, im Terminal und bei ⌘K „?“ sagt, was an Claude geht.
 image: assets/shots/changelog/claude-reads.webp

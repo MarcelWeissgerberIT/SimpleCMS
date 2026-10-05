@@ -1,7 +1,7 @@
 ---
 id: 2026-10-05-slash-menu
 date: 2026-10-05
-order: 9
+order: 11
 title: Das „/“-Menü öffnet nur, wenn du es tippst
 summary: Referenzen wie /r/24772 bleiben normaler Text — mit dem Cursor hineinzugehen, öffnet kein Menü mehr.
 image: assets/shots/changelog/slash-menu.webp

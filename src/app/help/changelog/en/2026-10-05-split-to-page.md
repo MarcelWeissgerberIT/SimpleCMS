@@ -1,7 +1,7 @@
 ---
 id: 2026-10-05-split-to-page
 date: 2026-10-05
-order: 2
+order: 4
 title: Turn blocks into a page
 summary: Mark blocks and move them into a new sub-page in one step — a link stays where they were.
 image: assets/shots/changelog/split-to-page.webp

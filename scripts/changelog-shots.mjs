@@ -8,7 +8,7 @@
  *
  * (CHANGELOG_DRAFT=1 lets the build pass while a new entry's picture does not exist yet.)
  *
- * Shots: memory, block-select, split-to-page, image-ai, claude-reads, redo, ai-terminal, mcp-codewords, mcp-tidy-up, slash-menu, turn-into-database,
+ * Shots: memory, grips-footer, block-select, split-to-page, image-ai, claude-reads, redo, ai-terminal, mcp-codewords, mcp-tidy-up, slash-menu, turn-into-database,
  * custom-agents, gmail, help-centre, mcp-servers, feed-blocks — each named like its image. Every shot starts from a fresh, seeded
  * workspace in English, light theme, 1440 × 900 at device scale 2; the crop of the relevant area is scaled
  * to 1440 px wide and saved as public/assets/shots/changelog/<shot>.webp (≤ 150 KB: the quality steps down
@@ -753,6 +753,49 @@ const shots = {
     await page.mouse.move(W + 40, H + 40)
     const box = union(await boxOf(menu), await boxOf(page.locator('#main :is(h1, h2, h3)', { hasText: 'Open tickets' }).first()))
     await save(page, 'slash-menu', frameAround(box, { width: W, height: H }, 16 / 10, 32))
+    await ctx.close()
+  },
+
+  /** A nested list item hovered: its grip in the gutter column left of the page, off the marker; the footer under the page. */
+  async 'grips-footer'(browser) {
+    const VH = H
+    const { ctx, page } = await freshPage(browser)
+    const ul = (...items) => ({ type: 'bulletList', content: items })
+    const id = await createPage(
+      page,
+      'Plate prep',
+      doc(
+        para('Steps for the dilution run. Each step is one line — drag a line by its grip to reorder.'),
+        { type: 'orderedList', attrs: { start: 1 }, content: [
+          li(para('Check the deck layout'), ul(li(para('Tips 200 µl in slot 1')), li(para('Reservoir in slot 3')))),
+          li(para('Mount the 5-channel adapter'), ul(li(para('Mix ½ well volume, start at column 10')), li(para('Dispense with blowout')))),
+          li(para('Unload the adapter')),
+        ] },
+        h(2, 'After the run'),
+        para('Photograph the plate and attach the picture to the run log. Note any well that looks off — colour, volume or bubbles.'),
+        para('Tips go back into the tip box from column 1; leave three columns free between used and unused tips.'),
+      ),
+      { icon: { type: 'asset', value: 'binder' } },
+    )
+    // a page that links here: "Linked from" in the footer
+    await createPage(page, 'Lab week 41', doc(para('This week: '), { type: 'pageLink', attrs: { pageId: id } }))
+    await openPage(page, id)
+    const ed = page.locator('#main .ProseMirror').first()
+    const item = ed.locator('li li p', { hasText: 'Mix ½ well volume' }).first()
+    await item.waitFor()
+    // the footer under the page: scrolled to the end, the list above it stays in view
+    const foot = page.locator('#main .spec').first()
+    await foot.waitFor()
+    await page.mouse.move(W / 2, VH / 2)
+    await page.mouse.wheel(0, 1200)
+    await page.waitForTimeout(600)
+    const ib = await item.boundingBox()
+    await page.mouse.move(ib.x + 40, ib.y + ib.height / 2)
+    await page.waitForTimeout(500)
+    const box = union(await boxOf(ed.locator('li', { hasText: 'Mount the 5-channel adapter' }).first()), await boxOf(page.locator('#main .pv-links').first()), await boxOf(foot))
+    const left = Math.round((await page.locator('.sb').first().boundingBox())?.width ?? 0) + 1
+    const top = Math.max(6, Math.round(box.y - 24))
+    await save(page, 'grips-footer', { x: left, y: top, width: W - left, height: Math.min(VH - top, Math.round(box.y + box.height + 24 - top)) })
     await ctx.close()
   },
 
