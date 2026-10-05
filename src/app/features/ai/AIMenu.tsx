@@ -54,7 +54,7 @@ import { snapshotNow } from '../history/snapshots'
 import { openAgent } from './agent/state'
 import { effectiveView, findBlockRange, initialDraft, type BlockRange, type TableDraft } from './todb/plan'
 import { convertToDatabase, requestTable, TodbError, type TableRequest, type TodbIssue } from './todb/run'
-import { TodbPreview, specLine } from './todb/TodbPreview'
+import { TodbPreview } from './todb/TodbPreview'
 import './ai.css'
 
 export interface AIMenuProps {
@@ -737,14 +737,14 @@ export function AIMenu({ editor, pageId, mode, onClose }: AIMenuProps) {
               run?.req.kind === 'todb'
                 ? start({ kind: 'todb', label: run.req.label, code: 'DB', instruction: query.trim() })
                 : start({
-                kind: 'action',
-                action: 'custom',
-                label: t('features.ai.refineLabel'),
-                code: 'REF',
-                instruction: query.trim(),
-                input: output || target.selected,
-                refine: true,
-              }),
+                    kind: 'action',
+                    action: 'custom',
+                    label: t('features.ai.refineLabel'),
+                    code: 'REF',
+                    instruction: query.trim(),
+                    input: output || target.selected,
+                    refine: true,
+                  }),
           },
         ]
       const out: Row[] = []
