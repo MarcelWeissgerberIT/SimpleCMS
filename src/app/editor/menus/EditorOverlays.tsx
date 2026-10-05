@@ -3,7 +3,7 @@ import { memo } from 'react'
 import type { Editor } from '@tiptap/core'
 import { useStore } from 'zustand'
 import type { Bridge } from '../lib/bridge'
-import { AIMenuSlot } from '../lib/lazyAreas'
+import { AIMenuSlot, AIRunsSlot } from '../lib/lazyAreas'
 import { BlockHandle } from './BlockHandle'
 import { SlashMenu } from './SlashMenu'
 import { MentionMenu } from './MentionMenu'
@@ -46,6 +46,7 @@ export const EditorOverlays = memo(function EditorOverlays({ editor, bridge, pag
       <TableToolbar editor={editor} />
       <LinkHover editor={editor} bridge={bridge} />
       <AI editor={editor} bridge={bridge} pageId={pageId} />
+      <AIRunsSlot editor={editor} pageId={pageId} />
     </>
   )
 })

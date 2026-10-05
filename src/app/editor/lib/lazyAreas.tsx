@@ -4,10 +4,11 @@
  */
 import { Component, lazy, Suspense, type ReactNode } from 'react'
 import type { DatabaseViewProps } from '../../database'
-import type { AIMenuProps } from '../../features'
+import type { AIMenuProps, AIRunsHostProps } from '../../features'
 
 const LazyDatabaseView = lazy(() => import('../../database').then((m) => ({ default: m.DatabaseView })))
 const LazyAIMenu = lazy(() => import('../../features').then((m) => ({ default: m.AIMenu })))
+const LazyAIRuns = lazy(() => import('../../features').then((m) => ({ default: m.AIRunsHost })))
 
 class Boundary extends Component<{ fallback: ReactNode; children: ReactNode }, { failed: boolean }> {
   state = { failed: false }
@@ -38,6 +39,17 @@ export function AIMenuSlot(props: AIMenuProps) {
     <Boundary fallback={null}>
       <Suspense fallback={null}>
         <LazyAIMenu {...props} />
+      </Suspense>
+    </Boundary>
+  )
+}
+
+/** Background AI runs of the page (features/ai/runs.ts): their plate at the foot of the page and the panel on one. */
+export function AIRunsSlot(props: AIRunsHostProps) {
+  return (
+    <Boundary fallback={null}>
+      <Suspense fallback={null}>
+        <LazyAIRuns {...props} />
       </Suspense>
     </Boundary>
   )

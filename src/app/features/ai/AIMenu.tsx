@@ -2,12 +2,15 @@
  * AIMenu — the Claude panel the editor opens for a selection ("Ask AI") or at the cursor
  * block (space on an empty line / slash command). One input line on top (prompt or filter),
  * a keyboard-driven list below (actions → live output → result actions).
+ *
+ * The request itself is a background run (runs.ts): closing the panel — Esc, a click elsewhere, another
+ * page — leaves it running; only Stop and Discard end it. The page shows its runs (RunsHost) and reopens
+ * the panel on one of them (`runId`).
  */
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import type { Editor, JSONContent } from '@tiptap/core'
 import { TextSelection, type EditorState, type Transaction } from '@tiptap/pm/state'
-import type { ResolvedPos } from '@tiptap/pm/model'
 import type { VirtualElement } from '@floating-ui/react'
 import {
   AlignLeft,
@@ -45,17 +48,20 @@ import { useWorkspace } from '../../store/store'
 import { useUI } from '../../store/ui'
 import { markdownToDoc } from '../../editor'
 import { toMarkdown } from '../share/markdown'
-import { AI_MODELS, AIError, aiErrorText, isAIDemo, onAIDemo, resolveModel, runAI, setAIDemo, stripFence, verifyKey, type AIAction } from './client'
+import { AI_MODELS, AIError, aiErrorText, isAIDemo, onAIDemo, resolveModel, setAIDemo, verifyKey } from './client'
 import { readServers } from './mcp-servers/config'
 import { callLabel, type McpCall } from './mcp-servers/activity'
-import { askWorkspace, citationsToLinks, findSource, type WorkspaceSource } from './workspace'
+import { citationsToLinks, findSource, type WorkspaceSource } from './workspace'
 import { MarkdownLite } from './MarkdownLite'
 import { snapshotNow } from '../history/snapshots'
 import { openAgent } from './agent/state'
-import { effectiveView, findBlockRange, initialDraft, type BlockRange, type TableDraft } from './todb/plan'
-import { convertToDatabase, requestTable, TodbError, type TableRequest, type TodbIssue } from './todb/run'
+import { afterBlock, captureTarget, mapTarget, type RunTarget } from './runsTarget'
+import { markSeen, removeRun, setTodbDraft, startRun, stopRun, useAIRuns, viewRun, type RunRequest } from './runs'
+import { effectiveView, type BlockRange } from './todb/plan'
+import { convertToDatabase, sameBlocks, TodbError, type TodbIssue } from './todb/run'
 import { TodbPreview } from './todb/TodbPreview'
 import './ai.css'
+import './runs.css'
 
 export interface AIMenuProps {
   editor: Editor
@@ -63,31 +69,13 @@ export interface AIMenuProps {
   /** 'selection' = act on selected text; 'block' = free prompt at cursor ("Ask AI" / space on empty line) */
   mode: 'selection' | 'block'
   onClose: () => void
+  /** Open on a run that goes on (or finished) in the background — the page's run indicator does this. */
+  runId?: string
 }
 
 /* ------------------------------------------------------------------ */
-/* Target capture                                                      */
+/* Target                                                              */
 /* ------------------------------------------------------------------ */
-
-interface Target {
-  mode: 'selection' | 'block'
-  from: number
-  to: number
-  /** selection as Markdown (selection mode) */
-  selected: string
-  /** selection lies inside one textblock → inline replace */
-  inlineOnly: boolean
-  /** the cursor's own textblock (an empty one gets filled with the result) */
-  blockFrom: number
-  blockTo: number
-  blockEmpty: boolean
-  /** "Insert below": right after the target block, inside the callout / column / toggle it sits in */
-  after: number
-  /** document text before the cursor (for "continue") */
-  before: string
-  /** "Turn into database": the selection as whole blocks where a database block may go (null: not offered) */
-  todb: BlockRange | null
-}
 
 function sliceToMarkdown(state: EditorState, from: number, to: number): string {
   try {
@@ -104,42 +92,6 @@ function sliceToMarkdown(state: EditorState, from: number, to: number): string {
   return state.doc.textBetween(from, to, '\n\n', ' ')
 }
 
-/**
- * Nodes whose children are free-standing blocks — where a result may land as its own block.
- * Mirrors where the editor offers "Space for AI"; lists, quotes and tables count as one block.
- */
-const BLOCK_CONTAINERS = new Set(['doc', 'column', 'callout', 'detailsContent'])
-
-/** The position right after the block holding `$pos`, inside the nearest block container. */
-function afterBlock($pos: ResolvedPos): number {
-  if (BLOCK_CONTAINERS.has($pos.parent.type.name)) return $pos.pos
-  for (let d = $pos.depth; d >= 1; d--) if (BLOCK_CONTAINERS.has($pos.node(d - 1).type.name)) return $pos.after(d)
-  return $pos.pos
-}
-
-function captureTarget(editor: Editor, wanted: 'selection' | 'block'): Target {
-  const { state } = editor
-  const { from, to, empty } = state.selection
-  const mode = wanted === 'selection' && !empty ? 'selection' : 'block'
-  const $from = state.doc.resolve(from)
-  const $to = state.doc.resolve(to)
-  // the textblock the cursor is in — possibly deep inside a callout, column or toggle
-  const inText = $from.depth >= 1 && $from.parent.isTextblock
-  return {
-    mode,
-    from,
-    to,
-    selected: mode === 'selection' ? sliceToMarkdown(state, from, to) : '',
-    inlineOnly: $from.sameParent($to) && $from.parent.isTextblock,
-    blockFrom: inText ? $from.before() : from,
-    blockTo: inText ? $from.after() : from,
-    blockEmpty: inText && $from.parent.content.size === 0,
-    after: afterBlock(mode === 'selection' ? $to : $from),
-    before: state.doc.textBetween(0, from, '\n\n', ' ').slice(-12000),
-    todb: mode === 'selection' ? findBlockRange(state.doc, from, to, state.schema.nodes.databaseBlock) : null,
-  }
-}
-
 /** Scrollable ancestor of an element (or the document scroller). */
 function scrollParent(el: HTMLElement | null): HTMLElement {
   for (let n = el?.parentElement; n; n = n.parentElement) {
@@ -149,18 +101,27 @@ function scrollParent(el: HTMLElement | null): HTMLElement {
   return (document.scrollingElement as HTMLElement) ?? document.documentElement
 }
 
-function makeAnchor(editor: Editor, target: Target): VirtualElement {
+/** Anchor at the target as it is now (`get` reads the latest one). */
+function makeAnchor(editor: Editor, get: () => RunTarget): VirtualElement {
   return {
     contextElement: editor.view.dom,
     getBoundingClientRect() {
       const view = editor.view
       if (editor.isDestroyed) return new DOMRect(0, 0, 0, 0)
       const dom = view.dom.getBoundingClientRect()
+      const target = get()
       try {
+        if (target.lost) {
+          // not found again: below the last block, where "Insert below" puts it
+          const end = view.coordsAtPos(view.state.doc.content.size)
+          return new DOMRect(dom.left, end.top, 1, end.bottom - end.top)
+        }
         if (target.mode === 'selection') {
           const a = view.coordsAtPos(target.from, 1)
           const b = view.coordsAtPos(target.to, -1)
           const left = a.top === b.top ? a.left : dom.left
+          // a selection taller than the screen allows (a whole report): the panel goes under its first line
+          if (b.bottom - a.top > window.innerHeight * 0.4) return new DOMRect(dom.left, a.top, 1, a.bottom - a.top)
           return new DOMRect(Math.max(dom.left, left), a.top, 1, b.bottom - a.top)
         }
         const node = view.nodeDOM(target.blockFrom) as HTMLElement | null
@@ -211,19 +172,13 @@ const LANGS: LangDef[] = [
   { code: 'KO', native: '한국어', english: 'Korean' },
 ]
 
-type Request =
-  | { kind: 'action'; action: AIAction; label: string; code: string; instruction?: string; input?: string; refine?: boolean }
-  | { kind: 'workspace'; question: string; label: string; code: string }
-  /** "Turn into database": Claude reads the selected blocks, the panel previews the table */
-  | { kind: 'todb'; label: string; code: string; instruction?: string }
-
 type Phase = 'idle' | 'streaming' | 'done' | 'error'
 
 /* ------------------------------------------------------------------ */
 /* Component                                                           */
 /* ------------------------------------------------------------------ */
 
-export function AIMenu({ editor, pageId, mode, onClose }: AIMenuProps) {
+export function AIMenu({ editor, pageId, mode, onClose, runId: openRun }: AIMenuProps) {
   const t = useT()
   const hasKey = useWorkspace((s) => !!s.settings.aiApiKey.trim())
   const model = resolveModel(useWorkspace((s) => s.settings.aiModel))
@@ -231,62 +186,73 @@ export function AIMenu({ editor, pageId, mode, onClose }: AIMenuProps) {
   // no key, demo switched on: canned answers, clearly labelled
   const demo = useSyncExternalStore(onAIDemo, isAIDemo) && !hasKey
 
-  // The target range is captured once and then mapped through every later edit, so the
-  // result always lands where the user asked for it — even if they keep typing meanwhile.
-  const [target] = useState(() => captureTarget(editor, mode))
-  const [targetRev, setTargetRev] = useState(0)
-  const anchor = useMemo(() => makeAnchor(editor, target), [editor, target])
+  // The panel's own target: captured once and mapped through every later edit while no run holds it.
+  // Once a request runs, the run's target (runs.ts, mapped by the run store) is the one that counts.
+  const [own] = useState(() => ({ t: captureTarget(editor, mode, (from, to) => sliceToMarkdown(editor.state, from, to)) }))
+  const [, setOwnRev] = useState(0)
   useEffect(() => {
     const onTx = ({ transaction }: { transaction: Transaction }) => {
       if (!transaction.docChanged) return
-      const m = transaction.mapping
-      const from = m.map(target.from, 1)
-      const to = Math.max(from, m.map(target.to, -1))
-      target.from = from
-      target.to = to
-      target.blockFrom = m.map(target.blockFrom, 1)
-      target.blockTo = Math.max(target.blockFrom, m.map(target.blockTo, -1))
-      target.after = m.map(target.after, -1)
-      if (target.todb) {
-        // the blocks only: content typed right before or after the range stays out of it
-        const a = m.map(target.todb.from, 1)
-        const b = m.map(target.todb.to, -1)
-        target.todb = b > a ? { from: a, to: b } : null
-      }
-      setTargetRev((r) => r + 1)
+      own.t = mapTarget(own.t, transaction.mapping)
+      setOwnRev((r) => r + 1)
     }
     editor.on('transaction', onTx)
     return () => {
       editor.off('transaction', onTx)
     }
-  }, [editor, target])
+  }, [editor, own])
+
+  const [runId, setRunId] = useState<string | null>(openRun ?? null)
+  const run = useAIRuns((s) => (runId ? (s.runs[runId] ?? null) : null))
+  const target: RunTarget = run?.target ?? own.t
+  const targetRef = useRef(target)
+  targetRef.current = target
+  const anchor = useMemo(() => makeAnchor(editor, () => targetRef.current), [editor])
+
+  // the page's plate leaves out the run this panel shows
+  useEffect(() => (runId ? viewRun(runId) : undefined), [runId])
+
+  // the run went away elsewhere (discarded from another panel, accepted): back to the actions
+  useEffect(() => {
+    if (!runId || run) return
+    if (openRun) onClose()
+    else setRunId(null)
+  }, [runId, run, openRun, onClose])
 
   // Selection mode: the range is painted by <SelectionShade>, so the editor keeps only a caret.
   // A blurred editor holding a range would write it back when it is clicked again, and the next
   // keystroke would overwrite the selected text instead of typing where the user clicked.
   useEffect(() => {
-    if (target.mode !== 'selection' || editor.isDestroyed) return
+    if (openRun || own.t.mode !== 'selection' || editor.isDestroyed) return
     const { state } = editor
     if (state.selection.empty) return
     try {
-      const pos = Math.max(0, Math.min(target.to, state.doc.content.size))
+      const pos = Math.max(0, Math.min(own.t.to, state.doc.content.size))
       editor.view.dispatch(state.tr.setSelection(TextSelection.near(state.doc.resolve(pos), -1)).setMeta('addToHistory', false))
     } catch {
       /* keep the selection */
     }
-  }, [editor, target])
+  }, [editor, own, openRun])
 
   const narrow = useNarrow()
-  const [setup, setSetup] = useState(!hasKey && !isAIDemo())
+  const [setup, setSetup] = useState(!hasKey && !isAIDemo() && !openRun)
   const [query, setQuery] = useState('')
   const [view, setView] = useState<'actions' | 'translate'>('actions')
   const [wsMode, setWsMode] = useState(false)
-  const [phase, setPhase] = useState<Phase>('idle')
-  const [output, setOutput] = useState('')
-  const [error, setError] = useState<AIError | null>(null)
-  const [sources, setSources] = useState<WorkspaceSource[]>([])
-  /** tool calls of external MCP servers in the running / last request */
-  const [mcpCalls, setMcpCalls] = useState<McpCall[]>([])
+  /** a conversion that failed ("Turn into database") */
+  const [convertIssue, setConvertIssue] = useState<TodbIssue | null>(null)
+  const convertingRef = useRef(false)
+
+  const phase: Phase = !run ? 'idle' : run.status === 'running' ? 'streaming' : run.status === 'done' ? 'done' : 'error'
+  const output = run?.output ?? ''
+  const sources: WorkspaceSource[] = run?.sources ?? []
+  const mcpCalls: McpCall[] = run?.mcpCalls ?? []
+  const runError = run?.error ?? null
+  const error = useMemo(() => (runError ? new AIError(runError.code, runError.detail, runError.server) : null), [runError])
+  const table = phase === 'done' ? (run?.table ?? null) : null
+  const issue = convertIssue ?? run?.issue ?? null
+  const interrupted = run?.status === 'interrupted'
+
   /** the MCP servers a free-form request would use ("ATLAS · GITHUB", '' = none) */
   const mcpNames = useWorkspace((s) =>
     readServers(s.settings)
@@ -294,28 +260,12 @@ export function AIMenu({ editor, pageId, mode, onClose }: AIMenuProps) {
       .map((x) => x.name.toUpperCase())
       .join(' · '),
   )
-  const [run, setRun] = useState<{ req: Request; started: number; ended?: number } | null>(null)
   const [active, setActive] = useState(0)
-  /** "Turn into database": Claude's table and what the preview changed of it */
-  const [table, setTable] = useState<{ req: TableRequest; draft: TableDraft } | null>(null)
-  const [issue, setIssue] = useState<TodbIssue | null>(null)
-  const convertingRef = useRef(false)
 
   const inputRef = useRef<HTMLInputElement>(null)
   const outRef = useRef<HTMLDivElement>(null)
   const listRef = useRef<HTMLDivElement>(null)
-  const abortRef = useRef<AbortController | null>(null)
-  const bufRef = useRef('')
-  const rafRef = useRef(0)
   const stickRef = useRef(true)
-
-  useEffect(
-    () => () => {
-      abortRef.current?.abort()
-      cancelAnimationFrame(rafRef.current)
-    },
-    [],
-  )
 
   /**
    * Put the keyboard back into the prompt — but only if it is not somewhere else already.
@@ -329,6 +279,19 @@ export function AIMenu({ editor, pageId, mode, onClose }: AIMenuProps) {
       if (!active || active === document.body || input.closest('.ai-panel')?.contains(active)) input.focus({ preventScroll: true })
     })
   }, [])
+
+  // a finished run: the prompt gets the keyboard back, the result counts as seen, a missing key opens the key card
+  const prevPhase = useRef(phase)
+  useEffect(() => {
+    const was = prevPhase.current
+    prevPhase.current = phase
+    if (!run || phase === 'streaming') return
+    markSeen(run.id)
+    if (was === 'streaming') {
+      refocusPrompt()
+      if (run.error?.code === 'no_key') setSetup(true)
+    }
+  }, [phase, run, refocusPrompt])
 
   /** Temporary spacer under the editor (see makeRoom), removed when the panel closes. */
   const roomRef = useRef<HTMLDivElement | null>(null)
@@ -381,108 +344,26 @@ export function AIMenu({ editor, pageId, mode, onClose }: AIMenuProps) {
     return () => cancelAnimationFrame(id)
   }, [makeRoom])
 
-  const pageContext = useCallback(() => {
-    const p = useWorkspace.getState().pages[pageId]
-    return p ? `${p.title.trim() ? `# ${p.title.trim()}\n\n` : ''}${p.plain ?? ''}` : ''
-  }, [pageId])
-
   /* ---------------- running ---------------- */
 
+  /** A request becomes a background run (it replaces the panel's current run: Retry, Revise). */
   const start = useCallback(
-    async (req: Request) => {
-      abortRef.current?.abort()
-      const ac = new AbortController()
-      abortRef.current = ac
-      bufRef.current = ''
+    (req: RunRequest) => {
       stickRef.current = true
-      setRun({ req, started: performance.now() })
-      setPhase('streaming')
-      setOutput('')
-      setError(null)
-      setSources([])
-      setMcpCalls([])
-      setTable(null)
-      setIssue(null)
+      setConvertIssue(null)
+      convertingRef.current = false
+      const id = startRun({ editor, pageId, req, target: targetRef.current, replaces: runId })
+      setRunId(id)
       setQuery('')
       setActive(0)
       makeRoom(true)
-      const onToken = (delta: string) => {
-        bufRef.current += delta
-        if (!rafRef.current)
-          rafRef.current = requestAnimationFrame(() => {
-            rafRef.current = 0
-            if (!ac.signal.aborted) setOutput(bufRef.current)
-          })
-      }
-      try {
-        if (req.kind === 'todb') {
-          if (!target.todb) throw new TodbError('changed')
-          const title = useWorkspace.getState().pages[pageId]?.title ?? ''
-          const res = await requestTable(editor, target.todb, { pageTitle: title, instruction: req.instruction, signal: ac.signal })
-          if (ac.signal.aborted) return
-          setTable({ req: res, draft: initialDraft(res.plan) })
-          setPhase('done')
-          setRun((r) => (r ? { ...r, ended: performance.now() } : r))
-          refocusPrompt()
-          return
-        }
-        let text: string
-        if (req.kind === 'workspace') {
-          const res = await askWorkspace({ question: req.question, onToken, signal: ac.signal, onSources: setSources })
-          text = res.text
-        } else {
-          const p = useWorkspace.getState().pages[pageId]
-          const isContinue = req.action === 'continue'
-          text = await runAI({
-            action: req.action,
-            input: req.input ?? (isContinue ? target.before : target.selected),
-            instruction: req.instruction,
-            context: isContinue ? (p?.title ? `# ${p.title}` : '') : pageContext(),
-            onToken,
-            signal: ac.signal,
-            onMcp: (calls) => {
-              if (!ac.signal.aborted) setMcpCalls(calls)
-            },
-          })
-        }
-        if (ac.signal.aborted) return
-        cancelAnimationFrame(rafRef.current)
-        rafRef.current = 0
-        setOutput(stripFence(text))
-        setPhase('done')
-        setRun((r) => (r ? { ...r, ended: performance.now() } : r))
-      } catch (e) {
-        if (ac.signal.aborted) return
-        if (e instanceof TodbError) {
-          setIssue(e.issue)
-          setPhase('error')
-          setRun((r) => (r ? { ...r, ended: performance.now() } : r))
-          refocusPrompt()
-          return
-        }
-        const err = e instanceof AIError ? e : new AIError('unknown', String(e))
-        if (err.code === 'aborted') return
-        cancelAnimationFrame(rafRef.current)
-        rafRef.current = 0
-        setOutput(bufRef.current)
-        setError(err)
-        setPhase('error')
-        setRun((r) => (r ? { ...r, ended: performance.now() } : r))
-        if (err.code === 'no_key') setSetup(true)
-      }
-      refocusPrompt()
     },
-    [editor, pageId, pageContext, target, makeRoom, refocusPrompt],
+    [editor, pageId, runId, makeRoom],
   )
 
+  /** Stop: the request ends; text that arrived stays as the result. */
   const stop = () => {
-    abortRef.current?.abort()
-    cancelAnimationFrame(rafRef.current)
-    rafRef.current = 0
-    const partial = bufRef.current
-    setOutput(stripFence(partial))
-    setPhase(partial.trim() ? 'done' : 'idle')
-    setRun((r) => (r ? { ...r, ended: performance.now() } : r))
+    if (runId && !stopRun(runId)) setRunId(null)
     refocusPrompt()
   }
 
@@ -498,63 +379,63 @@ export function AIMenu({ editor, pageId, mode, onClose }: AIMenuProps) {
   }
 
   /** The cursor block may have been typed into meanwhile: it is only filled while still empty. */
-  const targetBlockEmpty = () => {
-    if (!target.blockEmpty || editor.isDestroyed) return false
+  const targetBlockEmpty = (tg: RunTarget = target) => {
+    if (!tg.blockEmpty || tg.lost || editor.isDestroyed) return false
     const { doc } = editor.state
-    const block = target.blockFrom <= doc.content.size ? doc.nodeAt(target.blockFrom) : null
-    return !!block && block.isTextblock && block.content.size === 0 && target.blockTo - target.blockFrom === block.nodeSize
+    const block = tg.blockFrom <= doc.content.size ? doc.nodeAt(tg.blockFrom) : null
+    return !!block && block.isTextblock && block.content.size === 0 && tg.blockTo - tg.blockFrom === block.nodeSize
   }
 
-  /** Where "Insert below" lands now: after the target block, in the container it sits in. */
-  const insertionPoint = () => {
+  /** Where "Insert below" lands now: after the target block, in the container it sits in (lost: the end of the page). */
+  const insertionPoint = (tg: RunTarget) => {
     const { doc } = editor.state
-    const $pos = doc.resolve(Math.max(0, Math.min(target.after, doc.content.size)))
+    if (tg.lost) return doc.content.size
+    const $pos = doc.resolve(Math.max(0, Math.min(tg.after, doc.content.size)))
     // the boundary can end up inside text when blocks were joined meanwhile
     return $pos.parent.isTextblock ? afterBlock($pos) : $pos.pos
   }
 
   /**
    * replace: the selection · fill: the empty cursor line (else below it) · below: after the block.
+   * The run is done with once its result is in the page.
    */
   const apply = async (how: 'replace' | 'fill' | 'below') => {
-    if (editor.isDestroyed || !output.trim()) return
+    if (editor.isDestroyed || !run || !output.trim()) return
     const blocks = resultBlocks()
     if (!blocks.length) return
     await snapshotNow(pageId, 'ai')
     if (editor.isDestroyed) return
+    const tg = useAIRuns.getState().runs[run.id]?.target ?? targetRef.current
     const size = editor.state.doc.content.size
     const clamp = (n: number) => Math.max(0, Math.min(n, size))
     const chain = editor.chain().focus()
-    if (how === 'replace' && target.mode === 'selection' && target.to > target.from) {
-      const range = { from: clamp(target.from), to: clamp(target.to) }
+    if (how === 'replace' && tg.mode === 'selection' && !tg.lost && tg.to > tg.from) {
+      const range = { from: clamp(tg.from), to: clamp(tg.to) }
       const single = blocks.length === 1 && blocks[0].type === 'paragraph'
-      chain.insertContentAt(range, single && target.inlineOnly ? (blocks[0].content ?? []) : blocks).run()
-    } else if (how === 'fill' && targetBlockEmpty()) {
-      chain.insertContentAt({ from: clamp(target.blockFrom), to: clamp(target.blockTo) }, blocks).run()
+      chain.insertContentAt(range, single && tg.inlineOnly ? (blocks[0].content ?? []) : blocks).run()
+    } else if (how === 'fill' && targetBlockEmpty(tg)) {
+      chain.insertContentAt({ from: clamp(tg.blockFrom), to: clamp(tg.blockTo) }, blocks).run()
     } else {
-      chain.insertContentAt(insertionPoint(), blocks).run()
+      chain.insertContentAt(insertionPoint(tg), blocks).run()
     }
+    removeRun(run.id)
     onClose()
   }
 
-  /** "Turn into database": create the database from the preview's draft and swap the blocks for it (one undo step). */
+  /** "Turn into database": in place of the blocks Claude read (one undo step) — or at the end when they changed. */
+  const todbInPlace = !!table && !target.lost && !!target.todb && !editor.isDestroyed && !!sameBlocks(editor.state.doc, target.todb, table.blocks)
   const convert = async () => {
-    if (!table || convertingRef.current) return
-    if (!target.todb) {
-      setTable(null)
-      setIssue('changed')
-      setPhase('error')
-      return
-    }
+    if (!run?.table || convertingRef.current || editor.isDestroyed) return
+    const tg = useAIRuns.getState().runs[run.id]?.target ?? targetRef.current
+    const range: BlockRange | null = !tg.lost && tg.todb && sameBlocks(editor.state.doc, tg.todb, run.table.blocks) ? tg.todb : null
     convertingRef.current = true
     try {
-      await convertToDatabase(editor, pageId, target.todb, table.req, table.draft)
+      await convertToDatabase(editor, pageId, range, run.table, run.table.draft)
+      removeRun(run.id)
       onClose()
     } catch (e) {
       convertingRef.current = false
-      setTable(null)
-      setIssue(e instanceof TodbError ? e.issue : 'bad')
-      setPhase('error')
+      setConvertIssue(e instanceof TodbError ? e.issue : 'bad')
       refocusPrompt()
     }
   }
@@ -568,11 +449,14 @@ export function AIMenu({ editor, pageId, mode, onClose }: AIMenuProps) {
       const fromPanel = !active || active === document.body || !!panel?.contains(active)
       if (editor.isDestroyed || !fromPanel || useUI.getState().paletteOpen) return
       try {
+        const tg = targetRef.current
         const size = editor.state.doc.content.size
-        const from = Math.max(0, Math.min(target.from, size))
-        const to = Math.max(from, Math.min(target.mode === 'selection' ? target.to : target.from, size))
-        const tr = editor.state.tr.setSelection(TextSelection.create(editor.state.doc, from, to))
-        editor.view.dispatch(tr.setMeta('addToHistory', false))
+        if (!tg.lost) {
+          const from = Math.max(0, Math.min(tg.from, size))
+          const to = Math.max(from, Math.min(tg.mode === 'selection' ? tg.to : tg.from, size))
+          const tr = editor.state.tr.setSelection(TextSelection.create(editor.state.doc, from, to))
+          editor.view.dispatch(tr.setMeta('addToHistory', false))
+        }
       } catch {
         /* keep whatever selection the editor has */
       }
@@ -586,9 +470,16 @@ export function AIMenu({ editor, pageId, mode, onClose }: AIMenuProps) {
     }
     handBack()
     onClose()
-  }, [editor, target, onClose])
+  }, [editor, onClose])
+
+  /** Discard: the run ends (aborted when it still runs) and is gone. */
+  const discard = useCallback(() => {
+    if (runId) removeRun(runId)
+    dismiss()
+  }, [runId, dismiss])
 
   // Esc closes with focus back in the editor; a click elsewhere closes and leaves focus where it went.
+  // Either way a run goes on in the background — the page shows it.
   const pointerAt = useRef(0)
   useEffect(() => {
     const mark = () => (pointerAt.current = performance.now())
@@ -618,7 +509,7 @@ export function AIMenu({ editor, pageId, mode, onClose }: AIMenuProps) {
   /* ---------------- lists ---------------- */
 
   const actions: ActionDef[] = useMemo(() => {
-    const A = (id: AIAction, label: string, code: string, icon: LucideIcon, group: string, keywords = ''): ActionDef => ({
+    const A = (id: Extract<RunRequest, { kind: 'action' }>['action'], label: string, code: string, icon: LucideIcon, group: string, keywords = ''): ActionDef => ({
       id,
       label,
       code,
@@ -666,7 +557,7 @@ export function AIMenu({ editor, pageId, mode, onClose }: AIMenuProps) {
       run: () => handToAgent(''),
     }
     // spans blocks (or holds a list / table) where a database block may go
-    const todb: ActionDef[] = target.todb
+    const todb: ActionDef[] = own.t.todb
       ? [
           {
             id: 'todb',
@@ -679,7 +570,7 @@ export function AIMenu({ editor, pageId, mode, onClose }: AIMenuProps) {
           },
         ]
       : []
-    if (target.mode === 'selection')
+    if (own.t.mode === 'selection')
       return [
         A('improve', t('features.ai.act.improve'), 'IMP', PenLine, gEdit, 'better rewrite verbessern'),
         A('fix', t('features.ai.act.fix'), 'FIX', SpellCheck, gEdit, 'spelling grammar rechtschreibung grammatik'),
@@ -713,9 +604,9 @@ export function AIMenu({ editor, pageId, mode, onClose }: AIMenuProps) {
       },
       agent,
     ]
-  }, [t, target.mode, target.todb, start, handToAgent])
+  }, [t, own.t.mode, own.t.todb, start, handToAgent])
 
-  type Row = { id: string; label: ReactNode; code?: string; icon?: LucideIcon; group?: string; run: () => void; hint?: ReactNode; danger?: boolean }
+  type Row = { id: string; label: ReactNode; code?: string; icon?: LucideIcon; group?: string; run: () => void; hint?: ReactNode; danger?: boolean; disabled?: boolean }
 
   const rows: Row[] = useMemo(() => {
     const q = query.trim().toLowerCase()
@@ -753,23 +644,28 @@ export function AIMenu({ editor, pageId, mode, onClose }: AIMenuProps) {
         if (table)
           out.push({
             id: 'convert',
-            label: t('features.ai.todb.convert'),
-            code: t(`features.ai.todb.view.${effectiveView(table.req.plan, table.draft)}`).toUpperCase(),
+            label: todbInPlace ? t('features.ai.todb.convert') : t('features.ai.todb.convertEnd'),
+            code: t(`features.ai.todb.view.${effectiveView(table.plan, table.draft)}`).toUpperCase(),
             icon: SquareKanban,
             run: () => void convert(),
             hint: <Kbd>↵</Kbd>,
           })
       } else if (phase === 'done') {
         const ws = run?.req.kind === 'workspace'
-        if (target.mode === 'selection' && !ws) out.push({ id: 'replace', label: t('features.ai.res.replace'), icon: Check, run: () => void apply('replace'), hint: <Kbd>↵</Kbd> })
         const sel = target.mode === 'selection'
-        out.push({
+        const replace: Row | null =
+          sel && !ws ? { id: 'replace', label: t('features.ai.res.replace'), icon: Check, run: () => void apply('replace'), hint: target.lost ? undefined : <Kbd>↵</Kbd>, disabled: !!target.lost } : null
+        const insert: Row = {
           id: 'insert',
           label: sel || !targetBlockEmpty() ? t('features.ai.res.below') : t('features.ai.res.insert'),
           icon: ArrowDownToLine,
           run: () => void apply(sel ? 'below' : 'fill'),
-          hint: sel && !ws ? undefined : <Kbd>↵</Kbd>,
-        })
+          hint: (sel && !ws && !target.lost) ? undefined : <Kbd>↵</Kbd>,
+        }
+        // the selected text is gone: Insert goes first (to the end of the page), Replace stays visible but off
+        if (replace && !target.lost) out.push(replace, insert)
+        else if (replace) out.push(insert, replace)
+        else out.push(insert)
         out.push({ id: 'copy', label: t('features.ai.res.copy'), icon: Copy, run: () => void copy() })
       }
       out.push({ id: 'retry', label: t('features.ai.res.retry'), icon: RotateCcw, run: retry })
@@ -785,7 +681,7 @@ export function AIMenu({ editor, pageId, mode, onClose }: AIMenuProps) {
             useUI.getState().openModal({ type: 'settings', tab: 'ai' })
           },
         })
-      out.push({ id: 'discard', label: todb ? t('common.cancel') : t('features.ai.res.discard'), icon: Trash2, run: dismiss, hint: <Kbd>esc</Kbd>, danger: true })
+      out.push({ id: 'discard', label: todb ? t('common.cancel') : t('features.ai.res.discard'), icon: Trash2, run: discard, hint: <Kbd>esc</Kbd>, danger: true })
       return out
     }
     if (wsMode) {
@@ -853,7 +749,7 @@ export function AIMenu({ editor, pageId, mode, onClose }: AIMenuProps) {
       })
     }
     return list
-  }, [query, setup, phase, wsMode, view, actions, t, start, output, target, targetRev, run, error, dismiss, sources, handToAgent, mcpNames, onClose, table]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [query, setup, phase, wsMode, view, actions, t, start, output, target, run, error, discard, sources, handToAgent, mcpNames, onClose, table, todbInPlace]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     setActive((a) => Math.min(a, Math.max(0, rows.length - 1)))
@@ -885,7 +781,8 @@ export function AIMenu({ editor, pageId, mode, onClose }: AIMenuProps) {
     } else if (e.key === 'Enter') {
       e.preventDefault()
       if (phase === 'streaming') return
-      rows[active]?.run()
+      const row = rows[active]
+      if (row && !row.disabled) row.run()
     } else if (e.key === 'Backspace' && !query) {
       if (view === 'translate') {
         e.preventDefault()
@@ -913,9 +810,7 @@ export function AIMenu({ editor, pageId, mode, onClose }: AIMenuProps) {
   /** Back from the key card to the panel (re-running a request that failed for lack of a key). */
   function leaveSetup() {
     setSetup(false)
-    setError(null)
-    if (phase === 'error' && run) void start(run.req)
-    else setPhase('idle')
+    if (phase === 'error' && run) start(run.req)
     requestAnimationFrame(() => inputRef.current?.focus())
   }
 
@@ -928,19 +823,8 @@ export function AIMenu({ editor, pageId, mode, onClose }: AIMenuProps) {
   let lastGroup: string | undefined
   return (
     <>
-      {target.mode === 'selection' && <SelectionShade editor={editor} from={target.from} to={target.to} />}
-      <Popover
-        open
-        anchor={anchor}
-        onClose={onPopoverClose}
-        placement="bottom-start"
-        offset={8}
-        bare
-        className="ai-panel"
-        closeOnOutside={phase === 'idle' || setup}
-        role="dialog"
-        aria-label={t('features.ai.title')}
-      >
+      {target.mode === 'selection' && !target.lost && <SelectionShade editor={editor} from={target.from} to={target.to} />}
+      <Popover open anchor={anchor} onClose={onPopoverClose} placement="bottom-start" offset={8} bare className="ai-panel" role="dialog" aria-label={t('features.ai.title')}>
         {setup ? (
           <KeySetup
             reason={error?.code === 'invalid_key' ? 'invalid' : hasKey ? 'change' : 'missing'}
@@ -1012,7 +896,7 @@ export function AIMenu({ editor, pageId, mode, onClose }: AIMenuProps) {
                   <span className="ai-out__code">{run?.req.code}</span>
                   <span className="ai-out__title">{run?.req.label}</span>
                   <span className="ai-out__spacer" />
-                  {run && <Elapsed start={run.started} end={run.ended} />}
+                  {run && <Elapsed start={run.startedAt} end={run.finishedAt ?? undefined} />}
                   {!isTodb && (
                     <>
                       <span className="ai-out__sep">·</span>
@@ -1034,14 +918,8 @@ export function AIMenu({ editor, pageId, mode, onClose }: AIMenuProps) {
                     </div>
                   </div>
                 )}
-                {isTodb && table && phase === 'done' && (
-                  <TodbPreview
-                    plan={table.req.plan}
-                    draft={table.draft}
-                    onDraft={(draft) => setTable((cur) => (cur ? { ...cur, draft } : cur))}
-                    blocks={table.req.source.blocks.map((b) => b.node)}
-                    onConvert={() => void convert()}
-                  />
+                {isTodb && table && run && (
+                  <TodbPreview plan={table.plan} draft={table.draft} onDraft={(draft) => setTodbDraft(run.id, draft)} gists={table.gists} onConvert={() => void convert()} />
                 )}
                 {!isTodb && (output || busy) && (
                   <div
@@ -1087,7 +965,23 @@ export function AIMenu({ editor, pageId, mode, onClose }: AIMenuProps) {
                     ))}
                   </div>
                 )}
+                {phase === 'done' && target.lost && (
+                  <p className="ai-lost" role="note" data-testid="ai-lost">
+                    {isTodb ? t('features.ai.bg.lostTodb') : t('features.ai.bg.lost')}
+                  </p>
+                )}
+                {phase === 'done' && isTodb && !target.lost && table && !todbInPlace && (
+                  <p className="ai-lost" role="note" data-testid="ai-lost">
+                    {t('features.ai.bg.lostTodb')}
+                  </p>
+                )}
                 {error && <ErrorNote error={error} model={model.name} />}
+                {interrupted && (
+                  <div className="ai-error" role="alert">
+                    <span className="ai-error__code label">ERR · INTERRUPTED</span>
+                    <p>{t('features.ai.bg.interrupted')}</p>
+                  </div>
+                )}
                 {issue && (
                   <div className="ai-error" role="alert">
                     <span className="ai-error__code label">ERR · {ISSUE_CODES[issue]}</span>
@@ -1111,11 +1005,12 @@ export function AIMenu({ editor, pageId, mode, onClose }: AIMenuProps) {
                         type="button"
                         role="option"
                         aria-selected={i === active}
+                        aria-disabled={r.disabled || undefined}
                         data-index={i}
                         data-active={i === active}
                         className={`ai-row${r.danger ? ' ai-row--danger' : ''}`}
                         onMouseMove={() => i !== active && setActive(i)}
-                        onClick={() => r.run()}
+                        onClick={() => !r.disabled && r.run()}
                       >
                         <span className="ai-row__icon">{Icon ? <Icon size={15} strokeWidth={1.7} /> : null}</span>
                         <span className="ai-row__label">{r.label}</span>
@@ -1194,11 +1089,12 @@ function escapeRe(s: string) {
 /* Pieces                                                              */
 /* ------------------------------------------------------------------ */
 
+/** mm:ss.t since `start` (epoch ms), frozen at `end`. */
 function Elapsed({ start, end }: { start: number; end?: number }) {
-  const [now, setNow] = useState(() => performance.now())
+  const [now, setNow] = useState(() => Date.now())
   useEffect(() => {
     if (end) return
-    const id = window.setInterval(() => setNow(performance.now()), 100)
+    const id = window.setInterval(() => setNow(Date.now()), 100)
     return () => window.clearInterval(id)
   }, [end])
   const ms = Math.max(0, (end ?? now) - start)

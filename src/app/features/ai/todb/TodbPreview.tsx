@@ -4,12 +4,11 @@
  * Everything here only changes the draft; nothing is written before Convert.
  */
 import { useId } from 'react'
-import type { Node as PMNode } from '@tiptap/pm/model'
 import { Check } from 'lucide-react'
 import { Switch } from '../../../ui/controls'
 import { useT } from '../../../i18n'
 import { TypeIcon } from '../../../database'
-import { blockGist, effectiveView, liveColumns, liveGroup, TITLE_NAME, type CellValue, type PlanColumn, type TableDraft, type TablePlan, type TodbView } from './plan'
+import { effectiveView, liveColumns, liveGroup, TITLE_NAME, type CellValue, type PlanColumn, type TableDraft, type TablePlan, type TodbView } from './plan'
 import './todb.css'
 
 const SAMPLE = 5
@@ -18,8 +17,8 @@ export interface TodbPreviewProps {
   plan: TablePlan
   draft: TableDraft
   onDraft: (draft: TableDraft) => void
-  /** the blocks Claude read (for "Kept as text") */
-  blocks: PMNode[]
+  /** first words of every block Claude read (for "Kept as text") */
+  gists: string[]
   /** Enter in the title field */
   onConvert: () => void
 }
@@ -36,7 +35,7 @@ export function specLine(t: ReturnType<typeof useT>, plan: TablePlan, draft: Tab
   ].join(' · ')
 }
 
-export function TodbPreview({ plan, draft, onDraft, blocks, onConvert }: TodbPreviewProps) {
+export function TodbPreview({ plan, draft, onDraft, gists, onConvert }: TodbPreviewProps) {
   const t = useT()
   const ids = useId()
   const cols = liveColumns(plan, draft)
@@ -52,7 +51,7 @@ export function TodbPreview({ plan, draft, onDraft, blocks, onConvert }: TodbPre
     set({ dropped, groupBy })
   }
 
-  const kept = plan.keep.map((i) => blocks[i]).filter((b): b is PMNode => !!b)
+  const kept = plan.keep.filter((i) => i < gists.length).map((i) => gists[i])
   const rest = plan.entries.length - SAMPLE
 
   return (
@@ -193,7 +192,7 @@ export function TodbPreview({ plan, draft, onDraft, blocks, onConvert }: TodbPre
                 <span className="todb__pilcrow" aria-hidden>
                   ¶
                 </span>
-                {blockGist(b) || t('features.ai.todb.nonText')}
+                {b || t('features.ai.todb.nonText')}
               </li>
             ))}
           </ul>

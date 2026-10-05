@@ -1,0 +1,117 @@
+/* Background AI runs on a page: a calm plate at the foot of the content — LED, mono label, nothing floating. */
+
+.ai-runs {
+  position: sticky;
+  bottom: 14px;
+  z-index: var(--z-sticky);
+  display: flex;
+  margin-top: -40px;
+  pointer-events: none;
+}
+
+.ai-runs__plate {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 100%;
+  min-height: 30px;
+  padding: 0 10px 0 11px;
+  overflow: hidden;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius-1);
+  background: var(--surface);
+  box-shadow: var(--shadow-1);
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  white-space: nowrap;
+  pointer-events: auto;
+  transition:
+    border-color var(--dur-1) var(--ease-out),
+    transform var(--dur-1) var(--ease-out);
+  animation: ai-runs-in var(--dur-2) var(--ease-out);
+}
+
+.ai-runs__plate:hover {
+  border-color: var(--ink-3);
+}
+
+.ai-runs__plate:active {
+  transform: translateY(1px);
+}
+
+.ai-runs__plate[data-state='ready'] {
+  border-color: var(--signal);
+}
+
+.ai-runs__label {
+  flex: none;
+}
+
+.ai-runs__what {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ink-3);
+  text-overflow: ellipsis;
+}
+
+.ai-runs__what::before {
+  content: '·';
+  margin-right: 8px;
+  color: var(--ink-faint);
+}
+
+.ai-runs__view {
+  flex: none;
+  color: var(--signal-ink);
+}
+
+.ai-runs__view::before {
+  content: '·';
+  margin-right: 8px;
+  color: var(--ink-faint);
+}
+
+.ai-runs__count {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 4px;
+  border-radius: var(--radius-1);
+  background: var(--ink);
+  color: var(--ink-inverse);
+  letter-spacing: 0;
+}
+
+@keyframes ai-runs-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ai-runs__plate {
+    animation: none;
+  }
+}
+
+/* the sidebar's LED: a ready result nobody has looked at */
+.ai-run-led {
+  flex: none;
+  margin-left: 6px;
+}
+
+/* the result's place is gone (panel note) */
+.ai-lost {
+  margin: 0;
+  padding: 8px 14px 9px;
+  border-top: 1px dashed var(--rule-strong);
+  color: var(--ink-2);
+  font-size: var(--text-xs);
+  line-height: 1.45;
+}

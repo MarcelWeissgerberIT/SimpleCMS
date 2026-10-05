@@ -28,6 +28,7 @@ import type { ID } from '../../store/types'
 import { ENTRY_LIMIT, childIds, treeKey, useChildIds, useEntryCount, useEntryIds, useTreeState } from '../lib/tree'
 import { closeMobileSidebar, copyPageLink, createPageAndOpen, duplicateAndOpen, goToPage, trashWithUndo } from '../lib/actions'
 import { canLeaveFor, createEntryAndOpen, dropOptions, nodeKind, requestLeaveDatabase, requestMakeEntry } from './entries'
+import { AIRunLed } from '../../features'
 import { useIsTouch } from '../lib/hooks'
 import { ALT } from '../../ui/controls'
 import { useReadOnly } from '../cloud/state'
@@ -501,6 +502,7 @@ function TreeRow({ id, depth, section, draggable, expanded }: { id: ID; depth: n
             </span>
           )}
           {peer && <span className="sb-row__peer" style={{ '--peer': peer } as CSSProperties} title={t('shell.cloud.presence.viewing', { names: peerNamesOn(id) })} data-testid="tree-peer" />}
+          <AIRunLed pageId={id} />
         </a>
       )}
       {!renaming && (

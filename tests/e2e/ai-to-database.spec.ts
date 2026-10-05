@@ -313,11 +313,12 @@ test.describe('Turn into database (AI menu)', () => {
     expect(optName(props.Assignee, r104.properties[props.Assignee.id])).toBe('Tom Weber')
     expect(got.rows[9].properties[props.Assignee.id]).toBeUndefined()
 
-    // on the page: a board with 6 groups and 16 cards
+    // on the page: a board with 6 groups and 16 cards (plus the board's own empty "No value" drop column)
     const board = page.locator('#main section.db').first()
-    await expect(board.locator('.dbb-col')).toHaveCount(6)
+    const groups = board.locator('.dbb-col').filter({ has: page.locator('.dbc') })
+    await expect(groups).toHaveCount(6)
+    await expect(groups.locator('.dbb-col__head')).toContainText([...TOPICS.map((t) => t.name)])
     await expect(board.locator('.dbb-col .dbc')).toHaveCount(16)
-    await expect(board.locator('.dbb-col').first()).toContainText('API v1 and migration')
 
     // ⌘Z: the text is back in one step
     await editorOf(page, id).locator('p', { hasText: AFTER }).click()
@@ -349,8 +350,8 @@ test.describe('Turn into database (AI menu)', () => {
     await ai.getByRole('option', { name: /Convert/ }).click()
     await expect(panel(page)).toHaveCount(0)
 
+    await expect.poll(async () => (await dbOn(page, id))?.page.title).toBe('Delta backlog')
     const got = await dbOn(page, id)
-    expect(got.page.title).toBe('Delta backlog')
     expect((got.db.properties as AnyState[]).map((p) => p.name)).toEqual(['Name', 'Topic', 'Type', 'Ref', 'Status', 'Assignee'])
     expect(got.db.views.map((v: AnyState) => v.type)).toEqual(['table', 'board'])
     await expect(page.locator('#main section.db').first().locator('.dbb-col')).toHaveCount(0)
@@ -459,8 +460,7 @@ test.describe('Turn into database (AI menu)', () => {
     await expect(ai.getByRole('option', { name: /Abbrechen/ })).toBeVisible()
     await ai.getByRole('option', { name: /Umwandeln/ }).click()
     await expect(page.locator('.toast').filter({ hasText: 'In Datenbank umgewandelt · 16 Einträge' })).toBeVisible()
-    const got = await dbOn(page, id)
-    expect(got.db.views.map((v: AnyState) => v.name)).toEqual(['Board', 'Tabelle'])
+    await expect.poll(async () => (await dbOn(page, id))?.db.views.map((v: AnyState) => v.name)).toEqual(['Board', 'Tabelle'])
   })
 
   test('390 px: the preview fits (no horizontal overflow), works with the keyboard', async ({ page, context }) => {

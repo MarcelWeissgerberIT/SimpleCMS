@@ -133,8 +133,18 @@ export interface ResolvedBlocks {
   blocks: SourceBlock[]
 }
 
-/** The blocks of a (mapped) range — null when it no longer sits between the blocks of one container. */
-export function readBlocks(doc: PMNode, range: BlockRange): ResolvedBlocks | null {
+export interface RangeNodes {
+  from: number
+  to: number
+  /** the container node and the child indexes [start, end) of the range */
+  parent: PMNode
+  start: number
+  end: number
+  nodes: PMNode[]
+}
+
+/** The block nodes of a (mapped) range — null when it no longer sits between the blocks of one container. */
+export function rangeNodes(doc: PMNode, range: BlockRange): RangeNodes | null {
   if (range.from < 0 || range.to > doc.content.size || range.from >= range.to) return null
   const $a = doc.resolve(range.from)
   const $b = doc.resolve(range.to)
@@ -142,7 +152,16 @@ export function readBlocks(doc: PMNode, range: BlockRange): ResolvedBlocks | nul
   const start = $a.index()
   const end = $b.index()
   if (start >= end || $a.posAtIndex(start) !== range.from || $b.posAtIndex(end) !== range.to) return null
-  const parent = $a.parent
+  const nodes: PMNode[] = []
+  for (let i = start; i < end; i++) nodes.push($a.parent.child(i))
+  return { from: range.from, to: range.to, parent: $a.parent, start, end, nodes }
+}
+
+/** The blocks of a (mapped) range, numbered for the prompt — null when the range is no longer one. */
+export function readBlocks(doc: PMNode, range: BlockRange): ResolvedBlocks | null {
+  const at = rangeNodes(doc, range)
+  if (!at) return null
+  const { parent, start, end } = at
   const blocks: SourceBlock[] = []
   let budget = TODB_MAX_INPUT
   for (let i = start; i < end; i++) {
@@ -513,8 +532,6 @@ export function buildDatabase(plan: TablePlan, draft: TableDraft, names: { board
   if (groupDef) {
     const board = defaultView('board', { properties }, names.board)
     board.groupBy = groupDef.id
-    // the column a card sits in says the group already
-    board.visibleProperties = board.visibleProperties.filter((id) => id !== groupDef.id)
     if (effectiveView(plan, draft) === 'board') views.unshift(board)
     else views.push(board)
   }

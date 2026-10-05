@@ -136,6 +136,10 @@ encrypted — as is the GitHub token for sync ([docs/SECURITY.md](docs/SECURITY.
 (sealed in the same vault); One checks it, has Claude write an editable usage guide for it, and from then on the agent,
 your own requests and `⌘K ?` can use its tools (Anthropic's MCP connector makes the calls; every call shows as a chip).
 
+**Turn into database** — select a pasted report or list and Claude makes it a board or a table (entries, fields,
+groups; previewed before anything changes, one `⌘Z` to undo). AI-menu requests keep running in the background when
+you close the panel or open another page — the page tells you when the result is ready.
+
 **Custom agents** — saved AI helpers for recurring work, like Notion's: a job in plain words, a trigger (a schedule, a
 new or changed row — which covers form answers and synced mails —, by hand, or a webhook), what they may read and
 write, external MCP tools, and a budget per run. They report back and, by default, stage their changes for your
@@ -269,6 +273,8 @@ Built for the **Ninja Armory** challenge of the AI Automations community.
 - Diagramme in drei Klicks aus Tabellen, Datenbanken oder den Zahlen des Workspaces – live, als PNG/SVG
 - eigene Vorlagen und anpassbare eingebaute Vorlagen
 - Claude-KI mit deinem eigenen API-Key (verschlüsselt im Browser gespeichert), auch als KI-Autofill für Datenbank-Spalten
+- „In Datenbank umwandeln“: markierten Text (z. B. einen eingefügten Bericht) macht Claude zum Board oder zur Tabelle,
+  mit Vorschau; KI-Anfragen laufen im Hintergrund weiter, auch wenn du die Seite wechselst
 - Webhook-Automationen für n8n, Make und Zapier – auch aus Buttons und geteilten Formularen
 - Import aus Notion, Obsidian, Evernote, Trello und HTML
 - Veröffentlichen als statische Website, Teilen-Links ohne Server (optional mit Passwort)

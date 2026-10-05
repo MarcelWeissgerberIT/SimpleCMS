@@ -23,6 +23,12 @@ export { isAIConfigured, runAI, type AIAction, type RunAIOptions } from './ai/cl
 export { streamCompletion, type StreamOptions } from './ai/client'
 export { AIMenu, type AIMenuProps } from './ai/AIMenu'
 /*
+ * AI-menu runs in the background (runs keep going when the panel closes; only Stop / Discard end them):
+ *  - AIRunsHost { editor, pageId }: mount once per editable editor — the page's run plate, the panel on a run
+ *  - AIRunLed { pageId }: the sidebar's LED for a page with a ready, unseen result (renders nothing otherwise)
+ */
+export { AIRunsHost, AIRunLed, type AIRunsHostProps } from './ai/RunsHost'
+/*
  * External MCP servers for Claude (Messages API MCP connector): McpServers = the section of
  * Settings → Claude AI (servers, sealed tokens, usage prompts, the MCP instructions template).
  */
