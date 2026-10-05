@@ -1,0 +1,277 @@
+/* "Turn into database" preview inside the AI panel — a spec sheet: mono labels, hairlines, one orange. */
+
+.todb {
+  flex: 0 1 auto;
+  min-height: 0;
+  max-height: min(420px, 56vh);
+  overflow: auto;
+  padding: 10px 14px 12px;
+  overscroll-behavior: contain;
+}
+
+.todb__spec {
+  padding: 0 0 9px;
+  margin-bottom: 10px;
+  border-bottom: 1px dashed var(--rule-strong);
+  color: var(--ink);
+  white-space: normal;
+}
+
+.todb__label {
+  display: block;
+  margin: 0 0 5px;
+  color: var(--ink-3);
+}
+
+.todb__field {
+  margin-bottom: 12px;
+}
+
+.todb__title {
+  height: 32px;
+  font-size: var(--text-md);
+  font-weight: 650;
+}
+
+/* ---------- columns ---------- */
+.todb__cols {
+  margin: 0 0 12px;
+  padding: 0;
+  border-top: 1px solid var(--rule);
+  list-style: none;
+}
+
+.todb__col {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 32px;
+  padding: 3px 2px;
+  border-bottom: 1px solid var(--rule);
+}
+
+.todb__col[data-off] .todb__name,
+.todb__col[data-off] .todb__ico {
+  color: var(--ink-faint);
+  text-decoration: line-through;
+  text-decoration-thickness: 1px;
+}
+
+.todb__ico {
+  display: grid;
+  place-items: center;
+  width: 18px;
+  flex: none;
+  color: var(--ink-2);
+}
+
+.todb__name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ink);
+  font-size: var(--text-sm);
+  font-weight: 550;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.todb__type {
+  flex: none;
+  color: var(--ink-3);
+  font-size: 10px;
+}
+
+.todb__lock {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  flex: none;
+  color: var(--ink-3);
+}
+
+/* ---------- group by / view ---------- */
+.todb__opts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 10px 14px;
+  margin-bottom: 12px;
+}
+
+.todb__opt {
+  min-width: 0;
+}
+
+.todb__opt:first-child {
+  flex: 1 1 180px;
+}
+
+.todb__select {
+  height: 30px;
+  padding-right: 6px;
+  cursor: pointer;
+}
+
+.todb__seg {
+  display: inline-flex;
+  height: 30px;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius-1);
+  overflow: hidden;
+}
+
+.todb__seg-btn {
+  min-width: 64px;
+  padding: 0 12px;
+  border: 0;
+  background: var(--surface);
+  color: var(--ink-2);
+  font-size: var(--text-sm);
+  font-weight: 550;
+  transition:
+    background var(--dur-1) var(--ease-out),
+    color var(--dur-1) var(--ease-out);
+}
+
+.todb__seg-btn + .todb__seg-btn {
+  border-left: 1px solid var(--rule-strong);
+}
+
+.todb__seg-btn:hover:not(:disabled) {
+  background: var(--hover);
+  color: var(--ink);
+}
+
+.todb__seg-btn[aria-pressed='true'] {
+  background: var(--ink);
+  color: var(--ink-inverse);
+  box-shadow: inset 0 -2px 0 var(--signal);
+}
+
+.todb__seg-btn:disabled {
+  color: var(--ink-faint);
+  cursor: not-allowed;
+}
+
+.todb__seg-btn:focus-visible {
+  position: relative;
+  z-index: 1;
+}
+
+/* ---------- sample ---------- */
+.todb__sample {
+  max-width: 100%;
+  overflow-x: auto;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius-1);
+  background: var(--surface);
+}
+
+.todb__table {
+  min-width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-xs);
+}
+
+.todb__table th,
+.todb__table td {
+  max-width: 180px;
+  padding: 5px 8px;
+  overflow: hidden;
+  border-bottom: 1px solid var(--rule);
+  text-align: left;
+  text-overflow: ellipsis;
+  vertical-align: top;
+  white-space: nowrap;
+}
+
+.todb__table th + th,
+.todb__table td + td {
+  border-left: 1px solid var(--rule);
+}
+
+.todb__table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.todb__table th {
+  background: var(--surface-2);
+  color: var(--ink-3);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+}
+
+.todb__cell--title {
+  color: var(--ink);
+  font-weight: 550;
+}
+
+.todb__empty {
+  color: var(--ink-faint);
+}
+
+.todb__tags {
+  display: inline-flex;
+  gap: 3px;
+}
+
+.todb__tag {
+  padding: 0 5px;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius-1);
+  color: var(--ink-2);
+  line-height: 16px;
+}
+
+.todb__more {
+  padding: 6px 2px 0;
+  color: var(--ink-3);
+}
+
+/* ---------- kept ---------- */
+.todb__kept {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--rule-strong);
+}
+
+.todb__kept-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.todb__kept-list li {
+  padding: 2px 0;
+  overflow: hidden;
+  color: var(--ink-2);
+  font-size: var(--text-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.todb__pilcrow {
+  margin-right: 7px;
+  color: var(--signal-ink);
+  font-family: var(--font-mono);
+}
+
+.todb__none {
+  margin: 0;
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+}
+
+@media (max-width: 520px) {
+  .todb {
+    max-height: 50vh;
+  }
+
+  .todb__col {
+    min-height: 40px;
+  }
+}

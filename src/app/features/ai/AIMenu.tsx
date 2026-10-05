@@ -33,6 +33,7 @@ import {
   ShieldCheck,
   SpellCheck,
   Square,
+  SquareKanban,
   Trash2,
   Workflow,
   type LucideIcon,
@@ -51,6 +52,9 @@ import { askWorkspace, citationsToLinks, findSource, type WorkspaceSource } from
 import { MarkdownLite } from './MarkdownLite'
 import { snapshotNow } from '../history/snapshots'
 import { openAgent } from './agent/state'
+import { effectiveView, findBlockRange, initialDraft, type BlockRange, type TableDraft } from './todb/plan'
+import { convertToDatabase, requestTable, TodbError, type TableRequest, type TodbIssue } from './todb/run'
+import { TodbPreview, specLine } from './todb/TodbPreview'
 import './ai.css'
 
 export interface AIMenuProps {
@@ -81,6 +85,8 @@ interface Target {
   after: number
   /** document text before the cursor (for "continue") */
   before: string
+  /** "Turn into database": the selection as whole blocks where a database block may go (null: not offered) */
+  todb: BlockRange | null
 }
 
 function sliceToMarkdown(state: EditorState, from: number, to: number): string {
@@ -130,6 +136,7 @@ function captureTarget(editor: Editor, wanted: 'selection' | 'block'): Target {
     blockEmpty: inText && $from.parent.content.size === 0,
     after: afterBlock(mode === 'selection' ? $to : $from),
     before: state.doc.textBetween(0, from, '\n\n', ' ').slice(-12000),
+    todb: mode === 'selection' ? findBlockRange(state.doc, from, to, state.schema.nodes.databaseBlock) : null,
   }
 }
 
@@ -207,6 +214,8 @@ const LANGS: LangDef[] = [
 type Request =
   | { kind: 'action'; action: AIAction; label: string; code: string; instruction?: string; input?: string; refine?: boolean }
   | { kind: 'workspace'; question: string; label: string; code: string }
+  /** "Turn into database": Claude reads the selected blocks, the panel previews the table */
+  | { kind: 'todb'; label: string; code: string; instruction?: string }
 
 type Phase = 'idle' | 'streaming' | 'done' | 'error'
 
@@ -238,6 +247,12 @@ export function AIMenu({ editor, pageId, mode, onClose }: AIMenuProps) {
       target.blockFrom = m.map(target.blockFrom, 1)
       target.blockTo = Math.max(target.blockFrom, m.map(target.blockTo, -1))
       target.after = m.map(target.after, -1)
+      if (target.todb) {
+        // the blocks only: content typed right before or after the range stays out of it
+        const a = m.map(target.todb.from, 1)
+        const b = m.map(target.todb.to, -1)
+        target.todb = b > a ? { from: a, to: b } : null
+      }
       setTargetRev((r) => r + 1)
     }
     editor.on('transaction', onTx)
@@ -281,6 +296,10 @@ export function AIMenu({ editor, pageId, mode, onClose }: AIMenuProps) {
   )
   const [run, setRun] = useState<{ req: Request; started: number; ended?: number } | null>(null)
   const [active, setActive] = useState(0)
+  /** "Turn into database": Claude's table and what the preview changed of it */
+  const [table, setTable] = useState<{ req: TableRequest; draft: TableDraft } | null>(null)
+  const [issue, setIssue] = useState<TodbIssue | null>(null)
+  const convertingRef = useRef(false)
 
   const inputRef = useRef<HTMLInputElement>(null)
   const outRef = useRef<HTMLDivElement>(null)
@@ -382,6 +401,8 @@ export function AIMenu({ editor, pageId, mode, onClose }: AIMenuProps) {
       setError(null)
       setSources([])
       setMcpCalls([])
+      setTable(null)
+      setIssue(null)
       setQuery('')
       setActive(0)
       makeRoom(true)
@@ -394,6 +415,17 @@ export function AIMenu({ editor, pageId, mode, onClose }: AIMenuProps) {
           })
       }
       try {
+        if (req.kind === 'todb') {
+          if (!target.todb) throw new TodbError('changed')
+          const title = useWorkspace.getState().pages[pageId]?.title ?? ''
+          const res = await requestTable(editor, target.todb, { pageTitle: title, instruction: req.instruction, signal: ac.signal })
+          if (ac.signal.aborted) return
+          setTable({ req: res, draft: initialDraft(res.plan) })
+          setPhase('done')
+          setRun((r) => (r ? { ...r, ended: performance.now() } : r))
+          refocusPrompt()
+          return
+        }
         let text: string
         if (req.kind === 'workspace') {
           const res = await askWorkspace({ question: req.question, onToken, signal: ac.signal, onSources: setSources })
@@ -421,6 +453,13 @@ export function AIMenu({ editor, pageId, mode, onClose }: AIMenuProps) {
         setRun((r) => (r ? { ...r, ended: performance.now() } : r))
       } catch (e) {
         if (ac.signal.aborted) return
+        if (e instanceof TodbError) {
+          setIssue(e.issue)
+          setPhase('error')
+          setRun((r) => (r ? { ...r, ended: performance.now() } : r))
+          refocusPrompt()
+          return
+        }
         const err = e instanceof AIError ? e : new AIError('unknown', String(e))
         if (err.code === 'aborted') return
         cancelAnimationFrame(rafRef.current)
@@ -433,7 +472,7 @@ export function AIMenu({ editor, pageId, mode, onClose }: AIMenuProps) {
       }
       refocusPrompt()
     },
-    [pageId, pageContext, target, makeRoom, refocusPrompt],
+    [editor, pageId, pageContext, target, makeRoom, refocusPrompt],
   )
 
   const stop = () => {
@@ -496,6 +535,28 @@ export function AIMenu({ editor, pageId, mode, onClose }: AIMenuProps) {
       chain.insertContentAt(insertionPoint(), blocks).run()
     }
     onClose()
+  }
+
+  /** "Turn into database": create the database from the preview's draft and swap the blocks for it (one undo step). */
+  const convert = async () => {
+    if (!table || convertingRef.current) return
+    if (!target.todb) {
+      setTable(null)
+      setIssue('changed')
+      setPhase('error')
+      return
+    }
+    convertingRef.current = true
+    try {
+      await convertToDatabase(editor, pageId, target.todb, table.req, table.draft)
+      onClose()
+    } catch (e) {
+      convertingRef.current = false
+      setTable(null)
+      setIssue(e instanceof TodbError ? e.issue : 'bad')
+      setPhase('error')
+      refocusPrompt()
+    }
   }
 
   /** Close and hand the caret (or the original selection) back to the editor, so typing continues. */
@@ -604,6 +665,20 @@ export function AIMenu({ editor, pageId, mode, onClose }: AIMenuProps) {
       keywords: 'agent automate bulk rows pages database automatisieren datenbank zeilen',
       run: () => handToAgent(''),
     }
+    // spans blocks (or holds a list / table) where a database block may go
+    const todb: ActionDef[] = target.todb
+      ? [
+          {
+            id: 'todb',
+            label: t('features.ai.todb.action'),
+            code: 'DB',
+            icon: SquareKanban,
+            group: t('features.ai.group.structure'),
+            keywords: 'board kanban table database tabelle datenbank umwandeln liste list convert',
+            run: () => start({ kind: 'todb', label: t('features.ai.todb.action'), code: 'DB' }),
+          },
+        ]
+      : []
     if (target.mode === 'selection')
       return [
         A('improve', t('features.ai.act.improve'), 'IMP', PenLine, gEdit, 'better rewrite verbessern'),
@@ -611,6 +686,7 @@ export function AIMenu({ editor, pageId, mode, onClose }: AIMenuProps) {
         A('shorter', t('features.ai.act.shorter'), 'SHR', Minimize2, gEdit, 'short kürzer'),
         A('longer', t('features.ai.act.longer'), 'LNG', Maximize2, gEdit, 'long länger expand'),
         translate,
+        ...todb,
         A('explain', t('features.ai.act.explain'), 'EXP', MessageCircleQuestion, gRead, 'explain erklären'),
         A('summarize', t('features.ai.act.summarize'), 'SUM', AlignLeft, gRead, 'summary zusammenfassen tldr'),
         A('action_items', t('features.ai.act.actionItems'), 'ACT', ListChecks, gRead, 'todo tasks aufgaben'),
@@ -637,7 +713,7 @@ export function AIMenu({ editor, pageId, mode, onClose }: AIMenuProps) {
       },
       agent,
     ]
-  }, [t, target.mode, start, handToAgent])
+  }, [t, target.mode, target.todb, start, handToAgent])
 
   type Row = { id: string; label: ReactNode; code?: string; icon?: LucideIcon; group?: string; run: () => void; hint?: ReactNode; danger?: boolean }
 
@@ -658,7 +734,9 @@ export function AIMenu({ editor, pageId, mode, onClose }: AIMenuProps) {
             code: 'REF',
             icon: CornerDownLeft,
             run: () =>
-              start({
+              run?.req.kind === 'todb'
+                ? start({ kind: 'todb', label: run.req.label, code: 'DB', instruction: query.trim() })
+                : start({
                 kind: 'action',
                 action: 'custom',
                 label: t('features.ai.refineLabel'),
@@ -670,7 +748,18 @@ export function AIMenu({ editor, pageId, mode, onClose }: AIMenuProps) {
           },
         ]
       const out: Row[] = []
-      if (phase === 'done') {
+      const todb = run?.req.kind === 'todb'
+      if (phase === 'done' && todb) {
+        if (table)
+          out.push({
+            id: 'convert',
+            label: t('features.ai.todb.convert'),
+            code: t(`features.ai.todb.view.${effectiveView(table.req.plan, table.draft)}`).toUpperCase(),
+            icon: SquareKanban,
+            run: () => void convert(),
+            hint: <Kbd>↵</Kbd>,
+          })
+      } else if (phase === 'done') {
         const ws = run?.req.kind === 'workspace'
         if (target.mode === 'selection' && !ws) out.push({ id: 'replace', label: t('features.ai.res.replace'), icon: Check, run: () => void apply('replace'), hint: <Kbd>↵</Kbd> })
         const sel = target.mode === 'selection'
@@ -696,7 +785,7 @@ export function AIMenu({ editor, pageId, mode, onClose }: AIMenuProps) {
             useUI.getState().openModal({ type: 'settings', tab: 'ai' })
           },
         })
-      out.push({ id: 'discard', label: t('features.ai.res.discard'), icon: Trash2, run: dismiss, hint: <Kbd>esc</Kbd>, danger: true })
+      out.push({ id: 'discard', label: todb ? t('common.cancel') : t('features.ai.res.discard'), icon: Trash2, run: dismiss, hint: <Kbd>esc</Kbd>, danger: true })
       return out
     }
     if (wsMode) {
@@ -764,7 +853,7 @@ export function AIMenu({ editor, pageId, mode, onClose }: AIMenuProps) {
       })
     }
     return list
-  }, [query, setup, phase, wsMode, view, actions, t, start, output, target, targetRev, run, error, dismiss, sources, handToAgent, mcpNames, onClose]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [query, setup, phase, wsMode, view, actions, t, start, output, target, targetRev, run, error, dismiss, sources, handToAgent, mcpNames, onClose, table]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     setActive((a) => Math.min(a, Math.max(0, rows.length - 1)))
@@ -832,6 +921,8 @@ export function AIMenu({ editor, pageId, mode, onClose }: AIMenuProps) {
 
   const busy = phase === 'streaming'
   const showOutput = phase !== 'idle' && !setup
+  const isTodb = run?.req.kind === 'todb'
+  const todbBlocks = isTodb && target.todb && !editor.isDestroyed ? countBlocks(editor, target.todb) : 0
   const words = output.trim() ? output.trim().split(/\s+/).length : 0
 
   let lastGroup: string | undefined
@@ -922,8 +1013,12 @@ export function AIMenu({ editor, pageId, mode, onClose }: AIMenuProps) {
                   <span className="ai-out__title">{run?.req.label}</span>
                   <span className="ai-out__spacer" />
                   {run && <Elapsed start={run.started} end={run.ended} />}
-                  <span className="ai-out__sep">·</span>
-                  <span>{t('features.ai.words', { count: words })}</span>
+                  {!isTodb && (
+                    <>
+                      <span className="ai-out__sep">·</span>
+                      <span>{t('features.ai.words', { count: words })}</span>
+                    </>
+                  )}
                   {busy && (
                     <button className="ai-stop" onClick={stop}>
                       <Square size={9} fill="currentColor" strokeWidth={0} /> {t('features.ai.stop')}
@@ -931,7 +1026,24 @@ export function AIMenu({ editor, pageId, mode, onClose }: AIMenuProps) {
                   )}
                 </div>
                 {mcpCalls.length > 0 && <McpChips calls={mcpCalls} />}
-                {(output || busy) && (
+                {isTodb && busy && (
+                  <div className="ai-out__body">
+                    <div className="ai-wait label">
+                      {todbBlocks === 1 ? t('features.ai.todb.readingOne') : t('features.ai.todb.reading', { n: todbBlocks })}
+                      <span className="ai-wait__dots" aria-hidden />
+                    </div>
+                  </div>
+                )}
+                {isTodb && table && phase === 'done' && (
+                  <TodbPreview
+                    plan={table.req.plan}
+                    draft={table.draft}
+                    onDraft={(draft) => setTable((cur) => (cur ? { ...cur, draft } : cur))}
+                    blocks={table.req.source.blocks.map((b) => b.node)}
+                    onConvert={() => void convert()}
+                  />
+                )}
+                {!isTodb && (output || busy) && (
                   <div
                     className="ai-out__body"
                     ref={outRef}
@@ -976,6 +1088,12 @@ export function AIMenu({ editor, pageId, mode, onClose }: AIMenuProps) {
                   </div>
                 )}
                 {error && <ErrorNote error={error} model={model.name} />}
+                {issue && (
+                  <div className="ai-error" role="alert">
+                    <span className="ai-error__code label">ERR · {ISSUE_CODES[issue]}</span>
+                    <p>{t(`features.ai.todb.err.${issue}`)}</p>
+                  </div>
+                )}
               </div>
             )}
 
@@ -1047,6 +1165,19 @@ function useNarrow(): boolean {
     return () => mq.removeEventListener('change', on)
   }, [])
   return narrow
+}
+
+const ISSUE_CODES: Record<TodbIssue, string> = { none: 'NO_ENTRIES', bad: 'BAD_ANSWER', changed: 'CHANGED', gone: 'GONE' }
+
+/** Blocks in a "Turn into database" range (the wait line counts them). */
+function countBlocks(editor: Editor, range: BlockRange): number {
+  try {
+    const $a = editor.state.doc.resolve(range.from)
+    const $b = editor.state.doc.resolve(range.to)
+    return $a.sameParent($b) ? Math.max(0, $b.index() - $a.index()) : 0
+  } catch {
+    return 0
+  }
 }
 
 function findPageByTitle(title: string): WorkspaceSource | undefined {
