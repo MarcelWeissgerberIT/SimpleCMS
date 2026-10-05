@@ -1,7 +1,7 @@
 ---
 id: 2026-10-05-mcp-codewords
 date: 2026-10-05
-order: 2
+order: 4
 title: Codewörter für MCP-Server
 summary: Beginne eine Anfrage mit „atlas:“, und Claude fragt zuerst diesen Server — im KI-Menü, in ⌘K und im Terminal.
 image: assets/shots/changelog/mcp-codewords.webp

@@ -1,7 +1,7 @@
 ---
 id: 2026-10-05-slash-menu
 date: 2026-10-05
-order: 4
+order: 6
 title: The “/” menu opens only when you type it
 summary: References like /r/24772 stay plain text — moving the caret into them no longer opens a menu.
 image: assets/shots/changelog/slash-menu.webp

@@ -16,6 +16,7 @@ import { messages as mail } from './mail/messages'
 import { messages as agents } from './agents/messages'
 import { messages as mcpServers } from './ai/mcp-servers/messages'
 import { messages as aiContext } from './ai/contextMessages'
+import { messages as aiImage } from './ai/image/messages'
 
-/** features-core: ai, history, share, present, journal · features-data: io, automations, templates, graph · features-publish: website export, protected share links · features-import: import sources · features-agent: workspace agent · inbox: reminders + inbox engine · sync: folder + GitHub sync · meeting: AI meeting notes · mcp: One MCP (local bridge) · templates: own templates (gallery, save as template, banner) · mail: Gmail → Mails database · agents: custom agents · mcpServers: MCP server codewords · aiContext: what Claude reads (context marks) */
-export const messages = mergeMessages(core, data, publish, importSources, agent, inbox, sync, meeting, mcp, templates, functions, charts, sheets, mail, agents, mcpServers, aiContext)
+/** features-core: ai, history, share, present, journal · features-data: io, automations, templates, graph · features-publish: website export, protected share links · features-import: import sources · features-agent: workspace agent · inbox: reminders + inbox engine · sync: folder + GitHub sync · meeting: AI meeting notes · mcp: One MCP (local bridge) · templates: own templates (gallery, save as template, banner) · mail: Gmail → Mails database · agents: custom agents · mcpServers: MCP server codewords · aiContext: what Claude reads (context marks) · aiImage: Claude for images */
+export const messages = mergeMessages(core, data, publish, importSources, agent, inbox, sync, meeting, mcp, templates, functions, charts, sheets, mail, agents, mcpServers, aiContext, aiImage)

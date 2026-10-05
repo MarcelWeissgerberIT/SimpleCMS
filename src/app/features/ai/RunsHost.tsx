@@ -15,6 +15,7 @@ import { useUI } from '../../store/ui'
 import type { ID } from '../../store/types'
 import { AIMenu } from './AIMenu'
 import { adoptRuns, currentScope, ensureRunsLoaded, runsOf, takeOpenRequest, useAIRuns, type AIRun } from './runs'
+import { endImageAsk, useImageAsk } from './image/actions'
 import './runs.css'
 
 export interface AIRunsHostProps {
@@ -34,6 +35,8 @@ export function AIRunsHost({ editor, pageId }: AIRunsHostProps) {
   /** the panel opened on a run (it follows its run itself: Retry and Revise start new ones) */
   const [opened, setOpened] = useState<{ id: string; mode: 'selection' | 'block' } | null>(null)
   const menu = useMenu()
+  /** "Ask about the image" (image toolbar, block menu): the panel on that image, the prompt ready */
+  const imageAsk = useImageAsk((s) => (s.req?.editor === editor ? s.req : null))
 
   useEffect(() => {
     void ensureRunsLoaded()
@@ -73,7 +76,7 @@ export function AIRunsHost({ editor, pageId }: AIRunsHostProps) {
   const label = (r: AIRun) => {
     const s = shownOf(r)
     if (s === 'ready') return t('features.ai.bg.readyShort')
-    if (s === 'running') return r.req.kind === 'todb' ? t('features.ai.bg.reading') : t('features.ai.bg.writing')
+    if (s === 'running') return r.req.kind === 'todb' || r.req.kind === 'image' ? t('features.ai.bg.reading') : t('features.ai.bg.writing')
     return r.status === 'interrupted' ? t('features.ai.bg.interruptedShort') : t('features.ai.bg.failed')
   }
   const entries: MenuEntry[] = shown
@@ -103,6 +106,18 @@ export function AIRunsHost({ editor, pageId }: AIRunsHostProps) {
         </div>
       )}
       {opened && <AIMenu key={opened.id} editor={editor} pageId={pageId} mode={opened.mode} runId={opened.id} onClose={close} />}
+      {imageAsk && !opened && (
+        <AIMenu
+          key={`image-ask:${imageAsk.n}`}
+          editor={editor}
+          pageId={pageId}
+          mode="selection"
+          onClose={() => {
+            endImageAsk()
+            close()
+          }}
+        />
+      )}
     </>
   )
 }

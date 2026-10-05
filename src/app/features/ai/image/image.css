@@ -1,0 +1,142 @@
+/* Claude for images inside the AI panel — a spec sheet: mono labels, hairlines, one orange. */
+
+.ai-img__meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 14px;
+  border-bottom: 1px solid var(--rule);
+  color: var(--ink-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ai-img__glyph {
+  color: var(--signal-ink);
+  font-size: 12px;
+  line-height: 1;
+}
+
+/* ---------- describe: alt text + caption ---------- */
+.ai-img__desc {
+  display: grid;
+  gap: 10px;
+  padding: 12px 14px 12px;
+}
+
+.ai-img__field {
+  display: grid;
+  gap: 5px;
+}
+
+.ai-img__field > .label {
+  color: var(--ink-3);
+}
+
+.ai-img__input {
+  width: 100%;
+  font-size: var(--text-md);
+  line-height: 1.45;
+}
+
+textarea.ai-img__input {
+  min-height: 52px;
+  padding-top: 6px;
+  padding-bottom: 6px;
+  resize: vertical;
+}
+
+/* ---------- tables found ---------- */
+.ai-img__tables {
+  max-height: min(340px, 46vh);
+  overflow: auto;
+  padding: 10px 14px 12px;
+  overscroll-behavior: contain;
+}
+
+.ai-img__table + .ai-img__table {
+  margin-top: 14px;
+}
+
+.ai-img__spec {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding-bottom: 6px;
+  color: var(--ink-3);
+  min-width: 0;
+}
+
+.ai-img__no {
+  color: var(--signal-ink);
+}
+
+.ai-img__title {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ink);
+}
+
+.ai-img__dims {
+  flex: none;
+}
+
+.ai-img__scroll {
+  overflow-x: auto;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-1);
+}
+
+.ai-img__scroll table {
+  border-collapse: collapse;
+  min-width: 100%;
+  font-size: var(--text-sm);
+  line-height: 1.35;
+}
+
+.ai-img__scroll th,
+.ai-img__scroll td {
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--rule);
+  border-right: 1px solid var(--rule);
+  text-align: left;
+  vertical-align: top;
+  white-space: nowrap;
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ai-img__scroll th:last-child,
+.ai-img__scroll td:last-child {
+  border-right: 0;
+}
+
+.ai-img__scroll tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.ai-img__scroll th {
+  background: var(--surface-2);
+  font-weight: 650;
+}
+
+.ai-img__more {
+  padding-top: 5px;
+  color: var(--ink-3);
+}
+
+/* ---------- as a database: the "Turn into database" preview (the image stays — no "kept" list) ---------- */
+.ai-img__db .todb__kept {
+  display: none;
+}
+
+/* ---------- AI menu: "image +" in front of the reads line ---------- */
+.ai-reads__img {
+  flex: none;
+  color: var(--signal-ink);
+}

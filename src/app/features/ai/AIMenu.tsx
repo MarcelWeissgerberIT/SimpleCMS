@@ -39,6 +39,7 @@ import {
   ListTree,
   Maximize2,
   MessageCircleQuestion,
+  MessageSquareText,
   Minimize2,
   PenLine,
   Play,
@@ -80,6 +81,10 @@ import { capturePassages } from './redo/passages'
 import { effectiveView, type BlockRange } from './todb/plan'
 import { convertToDatabase, sameBlocks, TodbError, type TodbIssue } from './todb/run'
 import { TodbPreview } from './todb/TodbPreview'
+import { findImage, imageInSelection, imageTarget } from './image/locate'
+import { imageRequest } from './image/actions'
+import { imageActionRows, imageRunTarget, refineImage, useImagePanel } from './image/ImagePanel'
+import type { ImageAction } from './image/request'
 import './ai.css'
 import './runs.css'
 import './reads.css'
@@ -138,6 +143,14 @@ function makeAnchor(editor: Editor, get: () => RunTarget): VirtualElement {
           // not found again: below the last block, where "Insert below" puts it
           const end = view.coordsAtPos(view.state.doc.content.size)
           return new DOMRect(dom.left, end.top, 1, end.bottom - end.top)
+        }
+        // an image (Claude for images): below the picture — a tall one only down to the middle of the screen
+        const pic = target.mode === 'selection' ? view.state.doc.nodeAt(target.from) : null
+        const picEl = pic?.type.name === 'image' && target.to === target.from + pic.nodeSize ? (view.nodeDOM(target.from) as HTMLElement | null) : null
+        if (picEl?.getBoundingClientRect) {
+          const r = picEl.getBoundingClientRect()
+          const bottom = Math.min(r.bottom, Math.max(r.top + 40, window.innerHeight * 0.55))
+          return new DOMRect(Math.max(dom.left, r.left), r.top, 1, bottom - r.top)
         }
         if (target.mode === 'selection') {
           const a = view.coordsAtPos(target.from, 1)
@@ -214,6 +227,8 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo }: 
   // The panel's own target: captured once and mapped through every later edit while no run holds it.
   // Once a request runs, the run's target (runs.ts, mapped by the run store) is the one that counts.
   const [own] = useState(() => ({ t: captureTarget(editor, mode, (from, to) => sliceToMarkdown(editor.state, from, to)) }))
+  /** the image the panel was opened on (node-selected, or the one image of the selection): Claude for images */
+  const [img] = useState(() => (openRun ? null : imageInSelection(editor.state)))
   const [, setOwnRev] = useState(0)
   useEffect(() => {
     const onTx = ({ transaction }: { transaction: Transaction }) => {
@@ -229,7 +244,8 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo }: 
 
   const [runId, setRunId] = useState<string | null>(openRun ?? null)
   const run = useAIRuns((s) => (runId ? (s.runs[runId] ?? null) : null))
-  const target: RunTarget = run?.target ?? own.t
+  // an image run: its image found again (the picture is the target, not text)
+  const target: RunTarget = run?.req.kind === 'image' && !editor.isDestroyed ? imageRunTarget(editor, run, run.target) : (run?.target ?? own.t)
   const targetRef = useRef(target)
   targetRef.current = target
   const anchor = useMemo(() => makeAnchor(editor, () => targetRef.current), [editor])
@@ -386,11 +402,11 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo }: 
 
   /** A request becomes a background run (it replaces the panel's current run: Retry, Revise). */
   const start = useCallback(
-    (req: RunRequest) => {
+    (req: RunRequest, tg?: RunTarget) => {
       stickRef.current = true
       setConvertIssue(null)
       convertingRef.current = false
-      const id = startRun({ editor, pageId, req, target: targetRef.current, replaces: runId })
+      const id = startRun({ editor, pageId, req, target: tg ?? targetRef.current, replaces: runId })
       setRunId(id)
       setQuery('')
       setActive(0)
@@ -618,6 +634,39 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo }: 
     [onClose],
   )
 
+  /* ---------------- Claude for images ---------------- */
+
+  /** An image action on the image the panel is about (found again — the page may have changed meanwhile). */
+  const startImage = (action: ImageAction, question?: string) => {
+    if (!img || editor.isDestroyed) return
+    const hit = findImage(editor.state.doc, { src: String(img.hit.node.attrs.src), blockId: (img.hit.node.attrs.id as string | null) ?? null }, img.hit.pos)
+    if (hit) start(imageRequest(action, hit, { question }), imageTarget(editor.state.doc, hit.pos))
+  }
+
+  const copyText = async (text: string) => {
+    try {
+      await navigator.clipboard.writeText(text)
+      useUI.getState().toast({ message: t('common.copied'), kind: 'success' })
+    } catch {
+      useUI.getState().toast({ message: t('features.ai.copyFailed'), kind: 'error' })
+    }
+  }
+
+  /** an image run: its result body and keys (alt text + caption, tables, Upload a copy …) */
+  const imagePanel = useImagePanel({
+    editor,
+    pageId,
+    run: run?.req.kind === 'image' ? run : null,
+    phase,
+    start,
+    finish: () => {
+      if (run) removeRun(run.id)
+      onClose()
+    },
+    discard,
+    copy: (text) => void copyText(text),
+  })
+
   /* ---------------- lists ---------------- */
 
   const actions: ActionDef[] = useMemo(() => {
@@ -701,6 +750,18 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo }: 
         pickRedo(tg.blockEmpty || tg.lost ? [] : topBlockKeys(editor, tg.blockFrom, tg.blockTo))
       },
     }
+    // an image in the selection: Claude looks at it ("Ask about the image…" puts the keyboard into the prompt)
+    const imageGroup: ActionDef[] = img
+      ? imageActionRows(
+          t,
+          (a) => startImage(a),
+          () => {
+            setQuery('')
+            requestAnimationFrame(() => inputRef.current?.focus())
+          },
+        )
+      : []
+    if (img?.only) return [...imageGroup, agent, reads]
     // spans blocks (or holds a list / table) where a database block may go
     const todb: ActionDef[] = own.t.todb
       ? [
@@ -717,6 +778,7 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo }: 
       : []
     if (own.t.mode === 'selection')
       return [
+        ...imageGroup,
         A('improve', t('features.ai.act.improve'), 'IMP', PenLine, gEdit, 'better rewrite verbessern'),
         A('fix', t('features.ai.act.fix'), 'FIX', SpellCheck, gEdit, 'spelling grammar rechtschreibung grammatik'),
         A('shorter', t('features.ai.act.shorter'), 'SHR', Minimize2, gEdit, 'short kürzer'),
@@ -813,7 +875,9 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo }: 
             code: 'REF',
             icon: CornerDownLeft,
             run: () =>
-              run?.req.kind === 'todb'
+              run?.req.kind === 'image'
+                ? start(refineImage(run.req, query))
+                : run?.req.kind === 'todb'
                 ? start({ kind: 'todb', label: run.req.label, code: 'DB', instruction: query.trim() })
                 : run?.req.kind === 'redo'
                   ? redoAgain(query)
@@ -828,6 +892,8 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo }: 
                     }),
           },
         ]
+      // an image result: its own keys (Apply / Insert below / as table · spreadsheet · database / Upload a copy)
+      if (imagePanel.rows) return imagePanel.rows
       const out: Row[] = []
       const todb = run?.req.kind === 'todb'
       // a redo result: the review decides passage by passage; here only "other instructions" and discard
@@ -928,7 +994,22 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo }: 
     const matched = q
       ? actions.filter((a) => a.label.toLowerCase().includes(q) || a.code.toLowerCase().startsWith(q) || a.keywords?.toLowerCase().includes(q))
       : actions.filter((a) => !a.hidden)
-    const custom: Row | null = q
+    // the image alone is selected: a typed request is a question about it
+    const imageAsk: Row | null =
+      q && img
+        ? {
+            id: 'ask-image',
+            label: (
+              <>
+                {t('features.ai.image.act.ask')} <span className="ai-quote">“{query.trim()}”</span>
+              </>
+            ),
+            code: 'ASK',
+            icon: MessageSquareText,
+            run: () => startImage('ask', query.trim()),
+          }
+        : null
+    const custom: Row | null = q && !img?.only
       ? {
           id: 'custom',
           label: (
@@ -962,8 +1043,9 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo }: 
         run: () => handToAgent(query.trim()),
       })
     }
+    if (imageAsk) list.unshift(imageAsk)
     return list
-  }, [query, setup, phase, wsMode, view, actions, t, start, output, target, run, error, discard, sources, handToAgent, mcpNames, onClose, table, todbInPlace, ask, marks, lang, chooseMode, pickBlocks, redoCard, isRedo]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [query, setup, phase, wsMode, view, actions, t, start, output, target, run, error, discard, sources, handToAgent, mcpNames, onClose, table, todbInPlace, ask, marks, lang, chooseMode, pickBlocks, redoCard, isRedo, imagePanel.rows, img]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     setActive((a) => Math.min(a, Math.max(0, rows.length - 1)))
@@ -1028,7 +1110,7 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo }: 
   }
 
   const phKey =
-    phase === 'done' || phase === 'error' ? 'refine' : wsMode ? 'workspace' : view === 'translate' ? 'language' : target.mode === 'selection' ? 'selection' : 'block'
+    phase === 'done' || phase === 'error' ? 'refine' : wsMode ? 'workspace' : view === 'translate' ? 'language' : img && view === 'actions' ? 'image' : target.mode === 'selection' ? 'selection' : 'block'
   const placeholder = t(`features.ai.placeholder.${phKey}${narrow ? 'Short' : ''}`)
 
   /** Back from the key card to the panel (re-running a request that failed for lack of a key). */
@@ -1050,7 +1132,7 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo }: 
     ? redoReads(readsFor(marks, null), redoSent.length, redoSent.reduce((n, p) => n + countWords(p.anchor), 0))
     : wsMode && phase === 'idle'
       ? { ...readsFor(marks, null), workspace: true }
-      : readsFor(marks, target.mode === 'selection' ? target.selected : null)
+      : readsFor(marks, target.mode === 'selection' && !img?.only ? target.selected : null)
   /** a redo result is under review: the review has the keyboard (no prompt, no reads line) */
   const reviewing = isRedo && phase === 'done' && !redoEdit
   /** the prompt gives way to a title while the instructions card or the review shows */
@@ -1059,7 +1141,7 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo }: 
   let lastGroup: string | undefined
   return (
     <>
-      {target.mode === 'selection' && !target.lost && !picking && !redoIds && !isRedo && <SelectionShade editor={editor} from={target.from} to={target.to} />}
+      {target.mode === 'selection' && !target.lost && !picking && !redoIds && !isRedo && !img?.only && run?.req.kind !== 'image' && <SelectionShade editor={editor} from={target.from} to={target.to} />}
       <Popover open={!picking} anchor={anchor} onClose={onPopoverClose} placement="bottom-start" offset={8} bare className="ai-panel" role="dialog" aria-label={t('features.ai.title')}>
         {setup ? (
           <KeySetup
@@ -1167,6 +1249,7 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo }: 
                 <span className="ai-reads__sep" aria-hidden>
                   ·
                 </span>
+                {(img || run?.req.kind === 'image') && <span className="ai-reads__img">{t('features.ai.image.readsImage')}</span>}
                 <span className="ai-reads__v">{readsText(t, lang, readsNow, marks ?? undefined)}</span>
                 <ChevronDown className="ai-reads__chev" size={12} strokeWidth={1.8} aria-hidden />
               </button>
@@ -1207,13 +1290,14 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo }: 
                   {run?.reads && (
                     <>
                       <span className="ai-out__reads" title={t('features.ai.reads.spec', { what: readsText(t, lang, run.reads) })} data-testid="ai-run-reads">
+                        {run.req.kind === 'image' ? `${t('features.ai.image.readsImage')} ` : ''}
                         {readsShort(t, lang, run.reads)}
                       </span>
                       <span className="ai-out__sep">·</span>
                     </>
                   )}
                   {run && <Elapsed start={run.startedAt} end={run.finishedAt ?? undefined} />}
-                  {!isTodb && !isRedo && (
+                  {!isTodb && !isRedo && !imagePanel.structured && (
                     <>
                       <span className="ai-out__sep">·</span>
                       <span>{t('features.ai.words', { count: words })}</span>
@@ -1226,6 +1310,7 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo }: 
                   )}
                 </div>
                 {mcpCalls.length > 0 && <McpChips calls={mcpCalls} />}
+                {imagePanel.body}
                 {isTodb && busy && (
                   <div className="ai-out__body">
                     <div className="ai-wait label">
@@ -1246,7 +1331,7 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo }: 
                   </div>
                 )}
                 {reviewing && run?.redo && <RedoReview run={run} editor={editor} pageId={pageId} onDone={onClose} />}
-                {!isTodb && !isRedo && (output || busy) && (
+                {!isTodb && !isRedo && !imagePanel.structured && !run?.imageIssue && (output || busy) && (
                   <div
                     className="ai-out__body"
                     ref={outRef}

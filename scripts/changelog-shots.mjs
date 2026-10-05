@@ -8,8 +8,8 @@
  *
  * (CHANGELOG_DRAFT=1 lets the build pass while a new entry's picture does not exist yet.)
  *
- * Shots: ai-terminal, mcp-codewords, mcp-tidy-up, slash-menu, turn-into-database, custom-agents, gmail,
- * help-centre, mcp-servers, feed-blocks — each named like its image. Every shot starts from a fresh, seeded
+ * Shots: claude-reads, redo, ai-terminal, mcp-codewords, mcp-tidy-up, slash-menu, turn-into-database,
+ * custom-agents, gmail, help-centre, mcp-servers, feed-blocks — each named like its image. Every shot starts from a fresh, seeded
  * workspace in English, light theme, 1440 × 900 at device scale 2; the crop of the relevant area is scaled
  * to 1440 px wide and saved as public/assets/shots/changelog/<shot>.webp (≤ 150 KB: the quality steps down
  * until it fits), its pixel size goes into sizes.json next to it (the public /help/changelog/ page reads it).
@@ -490,6 +490,66 @@ class Mailbox {
   }
 }
 
+/** Bodies for three posts of the seeded "Content calendar" (the feed shows them). */
+const FEED_POSTS = [
+  ['Why we left Notion (and saved €2,880)', doc(para('We moved 14 people, 1,900 pages and six databases in one afternoon. The import kept every relation; the only thing we rebuilt by hand was one formula.'), { type: 'bulletList', content: [li(para('Pages open in under 100 ms, offline too.')), li(para('Claude works with our own key — no seat add-on.')), li(para('Webhooks go straight to n8n.'))] }, para('What we miss: nothing so far. What surprised us: the keyboard.'))],
+  ['5 n8n automations for your workspace', doc(para('Five recipes we run every day — each one a database webhook and a few n8n nodes.'), { type: 'orderedList', attrs: { start: 1 }, content: [li(para('New lead → owner by region')), li(para('Project done → invoice draft')), li(para('Form answer → Slack thread'))] })],
+  ['Local-first explained in 90 seconds', doc(para('Your workspace lives on your device first. Sync is a copy, not the source — so the app opens instantly and keeps working on a train.'), para('The script for the video is ready; recording on Thursday.'))],
+]
+
+/* The local MCP bridge (public/mcp/one-mcp.mjs) as Claude Desktop runs it: a stdio JSON-RPC child process. */
+const BRIDGE = fileURLToPath(new URL('../public/mcp/one-mcp.mjs', import.meta.url))
+const BRIDGE_PORT = 47398
+
+class Bridge {
+  constructor(port) {
+    if (!existsSync(BRIDGE)) throw new Error('public/mcp/one-mcp.mjs is missing (npm run build:mcp)')
+    this.proc = spawn(process.execPath, [BRIDGE], { env: { PATH: process.env.PATH ?? '', ONE_MCP_PORT: String(port), ONE_MCP_WAIT_MS: '8000' }, stdio: ['pipe', 'pipe', 'pipe'] })
+    this.seq = 0
+    this.waiting = new Map()
+    let buf = ''
+    this.proc.stdout.on('data', (d) => {
+      buf += d.toString()
+      let i
+      while ((i = buf.indexOf('\n')) >= 0) {
+        const line = buf.slice(0, i).trim()
+        buf = buf.slice(i + 1)
+        if (!line) continue
+        try {
+          const msg = JSON.parse(line)
+          const done = this.waiting.get(msg.id)
+          if (done) {
+            this.waiting.delete(msg.id)
+            done(msg)
+          }
+        } catch {}
+      }
+    })
+    this.proc.stderr.on('data', () => {})
+  }
+  call(method, params) {
+    const id = ++this.seq
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error(`bridge: no answer to ${method}`)), 60_000)
+      this.waiting.set(id, (msg) => {
+        clearTimeout(timer)
+        if (msg.error) reject(new Error(`bridge: ${msg.error.message}`))
+        else resolve(msg.result)
+      })
+      this.proc.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', id, method, params })}\n`)
+    })
+  }
+  notify(method, params = {}) {
+    this.proc.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', method, params })}\n`)
+  }
+  text(result) {
+    return (result?.content ?? []).map((c) => c.text ?? '').join('')
+  }
+  close() {
+    this.proc.kill()
+  }
+}
+
 /** The tool result Claude got back for a tool_use id. */
 const toolResult = (body, id) => (body.messages ?? []).flatMap((m) => (Array.isArray(m.content) ? m.content : [])).find((c) => c.type === 'tool_result' && c.tool_use_id === id)
 
@@ -764,6 +824,77 @@ const shots = {
     await ctx.close()
   },
 
+  /** A database open in the sidebar (its entries), its feed view: posts with their content. */
+  async 'feed-blocks'(browser) {
+    const { ctx, page } = await freshPage(browser)
+    const dbId = await page.evaluate((posts) => {
+      const s = window.__one.workspace.getState()
+      const pages = Object.values(s.pages).filter((p) => !p.trashed)
+      const cal = pages.find((p) => p.title === 'Content calendar' && p.kind === 'database')
+      const db = s.databases[cal.id]
+      const date = db.properties.find((p) => p.type === 'date')
+      const channel = db.properties.find((p) => p.name === 'Channel')
+      for (const [title, content] of posts) {
+        const row = pages.find((p) => p.title === title && p.databaseId === cal.id)
+        if (row) s.setContent(row.id, content, 'seed')
+      }
+      const viewId = s.addView(cal.id, { type: 'feed', name: 'Feed', feed: { dateProperty: date.id, order: 'oldest', content: true }, visibleProperties: [channel.id, db.properties.find((p) => p.name === 'Status').id] })
+      // the feed first: the view the database opens on
+      const views = window.__one.workspace.getState().databases[cal.id].views
+      s.updateDatabase(cal.id, { views: [views.find((v) => v.id === viewId), ...views.filter((v) => v.id !== viewId)] })
+      return cal.id
+    }, FEED_POSTS)
+    await openPage(page, dbId)
+    const row = page.locator('.sb section[aria-label="Pages"] .sb-row', { has: page.locator('.sb-row__title', { hasText: /^Content calendar$/ }) }).first()
+    const toggle = row.locator('.sb-row__toggle')
+    if ((await toggle.getAttribute('aria-label')) === 'Expand') await toggle.click()
+    await page.waitForTimeout(600)
+    await scrollToTop(page.locator('#main section.db').first(), 12)
+    await rest(page)
+    await save(page, 'feed-blocks')
+    await ctx.close()
+  },
+
+  /** Claude Desktop (the repository's own MCP bridge, driven over stdio) asks to trash "Projects" with its rows. */
+  async 'mcp-tidy-up'(browser) {
+    const bridge = new Bridge(BRIDGE_PORT)
+    try {
+      await bridge.call('initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'claude-ai', version: '1.0.0' } })
+      bridge.notify('notifications/initialized')
+      const { ctx, page } = await freshPage(browser)
+      const projects = await pageIdByTitle(page, 'Projects')
+      await openPage(page, projects)
+      await page.evaluate(() => window.__one.ui.getState().openModal({ type: 'settings' }))
+      await page.getByRole('tab', { name: /Agents · MCP/ }).click()
+      const port = page.getByLabel('Port', { exact: true })
+      await port.fill(String(BRIDGE_PORT))
+      await port.press('Enter')
+      await page.getByRole('switch', { name: 'Allow AI agents on this computer' }).click()
+      await page.getByTestId('mcp-state').filter({ hasText: 'Connected' }).waitFor({ timeout: 20_000 })
+      await page.keyboard.press('Escape')
+      await page.getByRole('dialog').waitFor({ state: 'detached' })
+      // the workspace this tab offers, then the change that waits for approval
+      let workspace = null
+      for (let i = 0; i < 20 && !workspace; i++) {
+        const listed = JSON.parse(bridge.text(await bridge.call('tools/call', { name: 'one_list_workspaces', arguments: {} })) || '{}')
+        workspace = listed.workspaces?.[0]?.id ?? null
+        if (!workspace) await sleep(300)
+      }
+      const pending = bridge.call('tools/call', { name: 'one_trash_page', arguments: { id: projects, workspace } })
+      const card = page.getByRole('alertdialog')
+      await card.waitFor({ timeout: 20_000 })
+      await page.waitForTimeout(600)
+      await page.mouse.move(W + 40, H + 40)
+      await save(page, 'mcp-tidy-up', frameAround(await boxOf(card), { width: W, height: H }, 16 / 10, 120))
+      // nothing is written: rejected
+      await page.keyboard.press('Escape')
+      await pending
+      await ctx.close()
+    } finally {
+      bridge.close()
+    }
+  },
+
   /** A pasted report selected → Ask AI → Turn into database: the preview (columns, group by, board). */
   async 'turn-into-database'(browser) {
     const { ctx, page } = await freshPage(browser, { claude: { json: reportAnswer } })
@@ -828,7 +959,7 @@ for (const [name, run] of Object.entries(shots)) {
     try {
       await run(browser)
     } catch (e) {
-      problem = `FAILED ${name}: ${String(e?.stack ?? e).slice(0, 600)}`
+      problem = `FAILED ${name}: ${String(e?.stack ?? e).slice(0, 600)}${errors.length ? `\n  browser errors:\n  ${errors.join('\n  ')}` : ''}`
     }
     if (!problem && errors.length) problem = `ERRORS in ${name}:\n  ${errors.join('\n  ')}`
     if (!problem) break
