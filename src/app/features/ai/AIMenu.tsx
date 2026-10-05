@@ -10,6 +10,10 @@
  * The reads line under the prompt says what goes to Claude from this page (the page's context marks:
  * whole page / only the marked blocks / nothing — plus the selection for selection actions); it opens
  * the choice, and "Mark blocks…" opens the picker on the page (the panel waits and comes back on Done).
+ *
+ * "Redo with instructions": the picker marks passages (purpose 'redo'), the panel takes the instructions
+ * (presets, a rules page — redo/RedoSetup.tsx), the run rewrites them in the background, and the review
+ * goes through them one by one (redo/RedoReview.tsx). Opened on passages from elsewhere: `redo`.
  */
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
@@ -38,6 +42,7 @@ import {
   Minimize2,
   PenLine,
   Play,
+  ReplaceAll,
   RotateCcw,
   Settings2,
   ShieldCheck,
@@ -55,7 +60,7 @@ import { Kbd } from '../../ui/controls'
 import { useLang, useT } from '../../i18n'
 import { useWorkspace } from '../../store/store'
 import { useUI } from '../../store/ui'
-import { markdownToDoc, openContextPicker, pageContextMarks, setContextMode, useContextMarks, type ContextMode } from '../../editor'
+import { markdownToDoc, openContextPicker, pageContextMarks, setContextMode, topBlockKeys, useContextMarks, type ContextMode } from '../../editor'
 import { toMarkdown } from '../share/markdown'
 import { AI_MODELS, AIError, aiErrorText, isAIDemo, onAIDemo, resolveModel, setAIDemo, verifyKey } from './client'
 import { readServers } from './mcp-servers/config'
@@ -67,7 +72,10 @@ import { snapshotNow } from '../history/snapshots'
 import { openAgent } from './agent/state'
 import { afterBlock, captureTarget, mapTarget, type RunTarget } from './runsTarget'
 import { markSeen, removeRun, setTodbDraft, startRun, stopRun, useAIRuns, viewRun, type RunRequest } from './runs'
-import { effectiveMode, readsFor, readsShort, readsText } from './reads'
+import { countWords, effectiveMode, readsFor, readsShort, readsText, type RunReads } from './reads'
+import { RedoSetup, type RedoDraft } from './redo/RedoSetup'
+import { RedoReview } from './redo/RedoReview'
+import { capturePassages } from './redo/passages'
 import { effectiveView, type BlockRange } from './todb/plan'
 import { convertToDatabase, sameBlocks, TodbError, type TodbIssue } from './todb/run'
 import { TodbPreview } from './todb/TodbPreview'
@@ -83,6 +91,8 @@ export interface AIMenuProps {
   onClose: () => void
   /** Open on a run that goes on (or finished) in the background — the page's run indicator does this. */
   runId?: string
+  /** Open on passages to redo with instructions (block ids, marked in the picker — block menu, AI terminal). */
+  redo?: string[]
 }
 
 /* ------------------------------------------------------------------ */
@@ -192,7 +202,7 @@ type Phase = 'idle' | 'streaming' | 'done' | 'error'
 /* Component                                                           */
 /* ------------------------------------------------------------------ */
 
-export function AIMenu({ editor, pageId, mode, onClose, runId: openRun }: AIMenuProps) {
+export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo }: AIMenuProps) {
   const t = useT()
   const hasKey = useWorkspace((s) => !!s.settings.aiApiKey.trim())
   const model = resolveModel(useWorkspace((s) => s.settings.aiModel))
@@ -258,6 +268,12 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun }: AIMenu
   /** a page-level request that needs page text while Claude may read nothing of it: asked first */
   const [ask, setAsk] = useState<{ req: RunRequest; label: string } | null>(null)
   const marks = useContextMarks(pageId)
+  /** "Redo with instructions": the marked passages (block ids) — the panel shows the instructions card */
+  const [redoIds, setRedoIds] = useState<string[] | null>(redo?.length ? redo : null)
+  /** the instructions card's text + rules page (kept while the picker or the reads choice is open) */
+  const [redoDraft, setRedoDraft] = useState<RedoDraft>({ text: '', rules: null })
+  /** the review's "Change instructions": the card again, a new run replaces this one */
+  const [redoEdit, setRedoEdit] = useState(false)
   const [wsMode, setWsMode] = useState(false)
   /** a conversion that failed ("Turn into database") */
   const [convertIssue, setConvertIssue] = useState<TodbIssue | null>(null)
@@ -308,7 +324,8 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun }: AIMenu
     if (!run || phase === 'streaming') return
     markSeen(run.id)
     if (was === 'streaming') {
-      refocusPrompt()
+      // a redo result: the review takes the keyboard
+      if (run.req.kind !== 'redo' || phase === 'error') refocusPrompt()
       if (run.error?.code === 'no_key') setSetup(true)
     }
   }, [phase, run, refocusPrompt])
@@ -387,7 +404,14 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun }: AIMenu
     refocusPrompt()
   }
 
-  const retry = () => run && start(run.req)
+  /** A redo request again, with its passages read anew (and the instructions extended by a revision). */
+  const redoAgain = (extra = '') => {
+    if (run?.req.kind !== 'redo') return
+    const req = run.req
+    start({ ...req, instructions: [req.instructions, extra.trim()].filter(Boolean).join('\n'), passages: capturePassages(editor, req.passages.map((p) => p.key)) })
+  }
+
+  const retry = () => run && (run.req.kind === 'redo' ? redoAgain() : start(run.req))
 
   /* ---------------- what Claude reads ---------------- */
 
@@ -413,6 +437,35 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun }: AIMenu
     },
     [editor, pageId, pickBlocks],
   )
+
+  /**
+   * "Redo with instructions": the picker marks the passages (pre-marked: `ids`); Done with passages
+   * shows the instructions card, Esc goes back to where the panel was.
+   */
+  const pickRedo = useCallback(
+    (ids: string[]) => {
+      const ok = openContextPicker(editor, {
+        purpose: 'redo',
+        ids,
+        onEnd: (done, marked) => {
+          setPicking(false)
+          setView('actions')
+          setActive(0)
+          if (done && marked.length) setRedoIds(marked)
+        },
+      })
+      if (ok) setPicking(true)
+    },
+    [editor],
+  )
+
+  /** The review's "Change instructions": the card with the run's instructions; Redo replaces the run. */
+  const editRedo = () => {
+    if (run?.req.kind !== 'redo') return
+    setRedoDraft({ text: run.req.instructions, rules: run.req.rulesPageId })
+    setRedoIds(run.req.passages.map((p) => p.key))
+    setRedoEdit(true)
+  }
 
   /** Continue / summarize / action items of the page need its text: with nothing to read, ask first. */
   const startPageLevel = useCallback(
@@ -633,6 +686,20 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun }: AIMenu
       keywords: 'agent automate bulk rows pages database automatisieren datenbank zeilen',
       run: () => handToAgent(''),
     }
+    // the passages to redo: pre-marked by the selection's blocks / the cursor block (not an empty line)
+    const redoAction: ActionDef = {
+      id: 'redo',
+      label: t('features.ai.redo.action'),
+      code: 'REDO',
+      icon: ReplaceAll,
+      group: own.t.mode === 'selection' ? gEdit : gPage,
+      keywords: 'redo rewrite instructions neu machen umschreiben überarbeiten vorgaben passagen stellen',
+      run: () => {
+        const tg = own.t
+        if (tg.mode === 'selection') return pickRedo(topBlockKeys(editor, tg.from, tg.to))
+        pickRedo(tg.blockEmpty || tg.lost ? [] : topBlockKeys(editor, tg.blockFrom, tg.blockTo))
+      },
+    }
     // spans blocks (or holds a list / table) where a database block may go
     const todb: ActionDef[] = own.t.todb
       ? [
@@ -654,6 +721,7 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun }: AIMenu
         A('shorter', t('features.ai.act.shorter'), 'SHR', Minimize2, gEdit, 'short kürzer'),
         A('longer', t('features.ai.act.longer'), 'LNG', Maximize2, gEdit, 'long länger expand'),
         translate,
+        redoAction,
         ...todb,
         A('explain', t('features.ai.act.explain'), 'EXP', MessageCircleQuestion, gRead, 'explain erklären'),
         A('summarize', t('features.ai.act.summarize'), 'SUM', AlignLeft, gRead, 'summary zusammenfassen tldr'),
@@ -667,6 +735,7 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun }: AIMenu
       prefill('brainstorm', t('features.ai.act.brainstorm'), 'IDEA', Lightbulb, gWrite, t('features.ai.prefill.brainstorm')),
       A('summarize', t('features.ai.act.summarizePage'), 'SUM', AlignLeft, gPage, 'summary zusammenfassen tldr'),
       A('action_items', t('features.ai.act.actionItemsPage'), 'ACT', ListChecks, gPage, 'todo tasks aufgaben'),
+      redoAction,
       {
         id: 'workspace',
         label: t('features.ai.act.workspace'),
@@ -683,14 +752,40 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun }: AIMenu
       agent,
       reads,
     ]
-  }, [t, own.t.mode, own.t.todb, start, startPageLevel, handToAgent])
+  }, [t, own.t.mode, own.t.todb, start, startPageLevel, handToAgent, pickRedo, editor, own])
 
   type Row = { id: string; label: ReactNode; code?: string; icon?: LucideIcon; group?: string; run: () => void; hint?: ReactNode; danger?: boolean; disabled?: boolean; current?: boolean }
+
+  const isRedo = run?.req.kind === 'redo'
+  /** the instructions card shows: passages marked, nothing running yet (or "Change instructions") */
+  const redoCard = !!redoIds && (phase === 'idle' || redoEdit)
 
   const rows: Row[] = useMemo(() => {
     const q = query.trim().toLowerCase()
     if (setup) return []
     if (phase === 'streaming') return []
+    if (view === 'reads') {
+      const m = marks ? effectiveMode(marks) : 'page'
+      const group = t('features.ai.reads.title')
+      const blocks = marks?.marked ?? 0
+      const n = (x: number) => x.toLocaleString(lang === 'de' ? 'de-DE' : 'en-US')
+      return [
+        { id: 'reads-page', label: t('features.ai.reads.opt.page'), icon: FileText, group, current: m === 'page', run: () => chooseMode('page'), code: 'ALL' },
+        {
+          id: 'reads-marked',
+          label: blocks ? t('features.ai.reads.opt.marked') : t('features.ai.reads.opt.markedFirst'),
+          icon: SquareCheck,
+          group,
+          current: m === 'marked',
+          run: () => chooseMode('marked'),
+          code: blocks ? t(`features.ai.reads.blocks.${blocks === 1 ? 'one' : 'other'}`, { count: n(blocks) }).toUpperCase() : 'MRK',
+        },
+        { id: 'reads-pick', label: t('features.ai.reads.opt.mark'), icon: SquareDashed, group, run: pickBlocks, code: 'PICK' },
+        { id: 'reads-none', label: t('features.ai.reads.opt.none'), icon: EyeOff, group, current: m === 'none', run: () => chooseMode('none'), code: 'NONE' },
+      ]
+    }
+    // "Redo with instructions": the instructions card has its own keys
+    if (redoCard) return []
     if (phase === 'done' || phase === 'error') {
       if (q)
         return [
@@ -706,7 +801,9 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun }: AIMenu
             run: () =>
               run?.req.kind === 'todb'
                 ? start({ kind: 'todb', label: run.req.label, code: 'DB', instruction: query.trim() })
-                : start({
+                : run?.req.kind === 'redo'
+                  ? redoAgain(query)
+                  : start({
                     kind: 'action',
                     action: 'custom',
                     label: t('features.ai.refineLabel'),
@@ -719,6 +816,12 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun }: AIMenu
         ]
       const out: Row[] = []
       const todb = run?.req.kind === 'todb'
+      // a redo result: the review decides passage by passage; here only "other instructions" and discard
+      if (phase === 'done' && isRedo)
+        return [
+          { id: 'redo-edit', label: t('features.ai.redo.edit'), icon: PenLine, run: editRedo },
+          { id: 'discard', label: t('features.ai.res.discard'), icon: Trash2, run: discard, hint: <Kbd>esc</Kbd>, danger: true },
+        ]
       if (phase === 'done' && todb) {
         if (table)
           out.push({
@@ -779,26 +882,6 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun }: AIMenu
           setAsk(null)
           requestAnimationFrame(() => inputRef.current?.focus())
         } },
-      ]
-    }
-    if (view === 'reads') {
-      const m = marks ? effectiveMode(marks) : 'page'
-      const group = t('features.ai.reads.title')
-      const blocks = marks?.marked ?? 0
-      const n = (x: number) => x.toLocaleString(lang === 'de' ? 'de-DE' : 'en-US')
-      return [
-        { id: 'reads-page', label: t('features.ai.reads.opt.page'), icon: FileText, group, current: m === 'page', run: () => chooseMode('page'), code: 'ALL' },
-        {
-          id: 'reads-marked',
-          label: blocks ? t('features.ai.reads.opt.marked') : t('features.ai.reads.opt.markedFirst'),
-          icon: SquareCheck,
-          group,
-          current: m === 'marked',
-          run: () => chooseMode('marked'),
-          code: blocks ? t(`features.ai.reads.blocks.${blocks === 1 ? 'one' : 'other'}`, { count: n(blocks) }).toUpperCase() : 'MRK',
-        },
-        { id: 'reads-pick', label: t('features.ai.reads.opt.mark'), icon: SquareDashed, group, run: pickBlocks, code: 'PICK' },
-        { id: 'reads-none', label: t('features.ai.reads.opt.none'), icon: EyeOff, group, current: m === 'none', run: () => chooseMode('none'), code: 'NONE' },
       ]
     }
     if (wsMode) {
@@ -866,7 +949,7 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun }: AIMenu
       })
     }
     return list
-  }, [query, setup, phase, wsMode, view, actions, t, start, output, target, run, error, discard, sources, handToAgent, mcpNames, onClose, table, todbInPlace, ask, marks, lang, chooseMode, pickBlocks]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [query, setup, phase, wsMode, view, actions, t, start, output, target, run, error, discard, sources, handToAgent, mcpNames, onClose, table, todbInPlace, ask, marks, lang, chooseMode, pickBlocks, redoCard, isRedo]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     setActive((a) => Math.min(a, Math.max(0, rows.length - 1)))
@@ -942,17 +1025,27 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun }: AIMenu
   }
 
   const busy = phase === 'streaming'
-  const showOutput = phase !== 'idle' && !setup
+  const showOutput = phase !== 'idle' && !setup && !redoCard
   const isTodb = run?.req.kind === 'todb'
   const todbBlocks = isTodb && target.todb && !editor.isDestroyed ? countBlocks(editor, target.todb) : 0
   const words = output.trim() ? output.trim().split(/\s+/).length : 0
+  /** the passages the instructions card would send (they recount as the page changes) */
+  const redoSent = useMemo(() => (redoCard && redoIds && !editor.isDestroyed ? capturePassages(editor, redoIds).filter((p) => !p.skip) : []), [redoCard, redoIds, editor, marks])
   /** what the next request reads (the line under the prompt) */
-  const readsNow = wsMode && phase === 'idle' ? { ...readsFor(marks, null), workspace: true } : readsFor(marks, target.mode === 'selection' ? target.selected : null)
+  const readsNow: RunReads = redoCard
+    ? redoReads(readsFor(marks, null), redoSent.length, redoSent.reduce((n, p) => n + countWords(p.anchor), 0))
+    : wsMode && phase === 'idle'
+      ? { ...readsFor(marks, null), workspace: true }
+      : readsFor(marks, target.mode === 'selection' ? target.selected : null)
+  /** a redo result is under review: the review has the keyboard (no prompt, no reads line) */
+  const reviewing = isRedo && phase === 'done' && !redoEdit
+  /** the prompt gives way to a title while the instructions card or the review shows */
+  const redoHead = (redoCard || reviewing) && view !== 'reads'
 
   let lastGroup: string | undefined
   return (
     <>
-      {target.mode === 'selection' && !target.lost && !picking && <SelectionShade editor={editor} from={target.from} to={target.to} />}
+      {target.mode === 'selection' && !target.lost && !picking && !redoIds && !isRedo && <SelectionShade editor={editor} from={target.from} to={target.to} />}
       <Popover open={!picking} anchor={anchor} onClose={onPopoverClose} placement="bottom-start" offset={8} bare className="ai-panel" role="dialog" aria-label={t('features.ai.title')}>
         {setup ? (
           <KeySetup
@@ -987,22 +1080,28 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun }: AIMenu
                   <ArrowLeft size={11} strokeWidth={2} /> {t('features.ai.reads.title')}
                 </button>
               )}
-              <input
-                ref={inputRef}
-                className="ai-cmd__input"
-                data-autofocus=""
-                value={query}
-                disabled={busy}
-                placeholder={busy ? t('features.ai.placeholder.busy') : placeholder}
-                onChange={(e) => setQuery(e.target.value)}
-                onKeyDown={onKeyDown}
-                aria-label={placeholder}
-                aria-activedescendant={rows[active] ? `ai-row-${rows[active].id}` : undefined}
-                spellCheck={false}
-                autoComplete="off"
-              />
+              {redoHead ? (
+                <span className="ai-cmd__title label" data-testid="ai-redo-title">
+                  {t('features.ai.redo.label')}
+                </span>
+              ) : (
+                <input
+                  ref={inputRef}
+                  className="ai-cmd__input"
+                  data-autofocus=""
+                  value={query}
+                  disabled={busy}
+                  placeholder={busy ? t('features.ai.placeholder.busy') : placeholder}
+                  onChange={(e) => setQuery(e.target.value)}
+                  onKeyDown={onKeyDown}
+                  aria-label={placeholder}
+                  aria-activedescendant={rows[active] ? `ai-row-${rows[active].id}` : undefined}
+                  spellCheck={false}
+                  autoComplete="off"
+                />
+              )}
               {/* "kb: …" — the query goes to Claude as an own request / a revision: the addressed server shows */}
-              {!busy && !wsMode && view === 'actions' && run?.req.kind !== 'todb' && <CodewordChip text={query} />}
+              {!busy && !wsMode && !redoHead && view === 'actions' && run?.req.kind !== 'todb' && <CodewordChip text={query} />}
               {demo ? (
                 <span className="ai-model ai-model--demo" title={t('features.ai.demo.title')}>
                   <span className="ai-model__brand">CLAUDE · </span>
@@ -1026,34 +1125,56 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun }: AIMenu
               </div>
             )}
 
-            <button
-              type="button"
-              className="ai-reads"
-              data-mode={readsNow.workspace ? 'workspace' : readsNow.mode}
-              data-open={view === 'reads' || undefined}
-              data-testid="ai-reads"
-              disabled={busy}
-              aria-expanded={view === 'reads'}
-              title={t('features.ai.reads.change')}
-              onClick={() => {
-                setAsk(null)
-                setView((v) => (v === 'reads' ? 'actions' : 'reads'))
-                requestAnimationFrame(() => inputRef.current?.focus({ preventScroll: true }))
-              }}
-            >
-              <span className={`led${readsNow.mode === 'none' && !readsNow.selection && !readsNow.workspace ? '' : ' led--on'}`} aria-hidden />
-              <span className="ai-reads__k">{t('features.ai.reads.label')}</span>
-              <span className="ai-reads__sep" aria-hidden>
-                ·
-              </span>
-              <span className="ai-reads__v">{readsText(t, lang, readsNow, marks ?? undefined)}</span>
-              <ChevronDown className="ai-reads__chev" size={12} strokeWidth={1.8} aria-hidden />
-            </button>
+            {!reviewing && (
+              <button
+                type="button"
+                className="ai-reads"
+                data-mode={readsNow.workspace ? 'workspace' : readsNow.mode}
+                data-open={view === 'reads' || undefined}
+                data-testid="ai-reads"
+                disabled={busy}
+                aria-expanded={view === 'reads'}
+                title={t('features.ai.reads.change')}
+                onClick={() => {
+                  setAsk(null)
+                  setView((v) => (v === 'reads' ? 'actions' : 'reads'))
+                  requestAnimationFrame(() => inputRef.current?.focus({ preventScroll: true }))
+                }}
+              >
+                <span className={`led${readsNow.mode === 'none' && !readsNow.selection && !readsNow.workspace ? '' : ' led--on'}`} aria-hidden />
+                <span className="ai-reads__k">{t('features.ai.reads.label')}</span>
+                <span className="ai-reads__sep" aria-hidden>
+                  ·
+                </span>
+                <span className="ai-reads__v">{readsText(t, lang, readsNow, marks ?? undefined)}</span>
+                <ChevronDown className="ai-reads__chev" size={12} strokeWidth={1.8} aria-hidden />
+              </button>
+            )}
 
             {ask && (
               <p className="ai-lost ai-ask" role="note" data-testid="ai-reads-ask">
                 {t('features.ai.reads.needs', { action: ask.label })}
               </p>
+            )}
+
+            {redoCard && redoIds && view !== 'reads' && (
+              <RedoSetup
+                editor={editor}
+                ids={redoIds}
+                draft={redoDraft}
+                onDraft={setRedoDraft}
+                onRun={(req) => {
+                  setRedoEdit(false)
+                  start(req)
+                }}
+                onRepick={() => pickRedo(redoIds)}
+                onCancel={() => {
+                  if (redoEdit) return setRedoEdit(false)
+                  if (redo?.length) return dismiss()
+                  setRedoIds(null)
+                  requestAnimationFrame(() => inputRef.current?.focus({ preventScroll: true }))
+                }}
+              />
             )}
 
             {showOutput && (
@@ -1071,7 +1192,7 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun }: AIMenu
                     </>
                   )}
                   {run && <Elapsed start={run.startedAt} end={run.finishedAt ?? undefined} />}
-                  {!isTodb && (
+                  {!isTodb && !isRedo && (
                     <>
                       <span className="ai-out__sep">·</span>
                       <span>{t('features.ai.words', { count: words })}</span>
@@ -1095,7 +1216,16 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun }: AIMenu
                 {isTodb && table && run && (
                   <TodbPreview plan={table.plan} draft={table.draft} onDraft={(draft) => setTodbDraft(run.id, draft)} gists={table.gists} onConvert={() => void convert()} />
                 )}
-                {!isTodb && (output || busy) && (
+                {isRedo && busy && run?.req.kind === 'redo' && (
+                  <div className="ai-out__body">
+                    <div className="ai-wait label" data-testid="ai-redo-wait">
+                      {t(`features.ai.redo.working.${run.req.passages.filter((p) => !p.skip).length === 1 ? 'one' : 'other'}`, { count: run.req.passages.filter((p) => !p.skip).length })}
+                      <span className="ai-wait__dots" aria-hidden />
+                    </div>
+                  </div>
+                )}
+                {reviewing && run?.redo && <RedoReview run={run} editor={editor} pageId={pageId} onDone={onClose} />}
+                {!isTodb && !isRedo && (output || busy) && (
                   <div
                     className="ai-out__body"
                     ref={outRef}
@@ -1139,7 +1269,7 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun }: AIMenu
                     ))}
                   </div>
                 )}
-                {phase === 'done' && target.lost && (
+                {phase === 'done' && target.lost && !isRedo && (
                   <p className="ai-lost" role="note" data-testid="ai-lost">
                     {isTodb ? t('features.ai.bg.lostTodb') : t('features.ai.bg.lost')}
                   </p>
@@ -1201,27 +1331,34 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun }: AIMenu
 
             {phase === 'idle' && wsMode && !query.trim() && <div className="ai-hint">{t('features.ai.wsHint')}</div>}
 
-            <div className="ai-foot">
-              <span>
-                <Kbd>↑</Kbd>
-                <Kbd>↓</Kbd> {t('features.ai.kbd.nav')}
-              </span>
-              <span>
-                <Kbd>↵</Kbd> {phase === 'done' && !query ? t('features.ai.kbd.apply') : t('features.ai.kbd.run')}
-              </span>
-              <span>
-                <Kbd>esc</Kbd> {t('features.ai.kbd.close')}
-              </span>
-              <span className="ai-foot__spacer" />
-              <button className="ai-foot__key" onClick={() => setSetup(true)} title={t('features.ai.res.changeKey')}>
-                <Settings2 size={12} strokeWidth={1.7} /> BYOK
-              </button>
-            </div>
+            {!redoHead && (
+              <div className="ai-foot">
+                <span>
+                  <Kbd>↑</Kbd>
+                  <Kbd>↓</Kbd> {t('features.ai.kbd.nav')}
+                </span>
+                <span>
+                  <Kbd>↵</Kbd> {phase === 'done' && !query ? t('features.ai.kbd.apply') : t('features.ai.kbd.run')}
+                </span>
+                <span>
+                  <Kbd>esc</Kbd> {t('features.ai.kbd.close')}
+                </span>
+                <span className="ai-foot__spacer" />
+                <button className="ai-foot__key" onClick={() => setSetup(true)} title={t('features.ai.res.changeKey')}>
+                  <Settings2 size={12} strokeWidth={1.7} /> BYOK
+                </button>
+              </div>
+            )}
           </>
         )}
       </Popover>
     </>
   )
+}
+
+/** What a redo request reads: the passages + this page as its context marks allow (marked words come on top). */
+function redoReads(base: RunReads, passages: number, words: number): RunReads {
+  return { ...base, passages, words: base.words + (base.mode === 'page' ? 0 : words) }
 }
 
 /** Phone-width layout (short placeholders, function-key result row). */

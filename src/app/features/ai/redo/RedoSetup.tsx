@@ -20,20 +20,31 @@ import { addPreset, deletePreset, PRESETS_MAX, renamePreset, useRedoPresets, typ
 import { countWords } from '../reads'
 import './redo.css'
 
+/** What the card holds — kept by the panel while the picker or the reads choice is open. */
+export interface RedoDraft {
+  text: string
+  /** the rules page (null: none) */
+  rules: ID | null
+}
+
 export interface RedoSetupProps {
   editor: Editor
+  /** the marked passages (block ids) */
   ids: string[]
+  draft: RedoDraft
+  onDraft: (draft: RedoDraft) => void
   onRun: (req: RunRequest) => void
   onRepick: () => void
   onCancel: () => void
 }
 
-export function RedoSetup({ editor, ids, onRun, onRepick, onCancel }: RedoSetupProps) {
+export function RedoSetup({ editor, ids, draft, onDraft, onRun, onRepick, onCancel }: RedoSetupProps) {
   const t = useT()
   const lang = useLang()
   const presets = useRedoPresets((s) => s.list)
-  const [text, setText] = useState('')
-  const [rules, setRules] = useState<ID | null>(null)
+  const { text, rules } = draft
+  const setText = (next: string | ((cur: string) => string)) => onDraft({ ...draft, text: typeof next === 'function' ? next(text) : next })
+  const setRules = (id: ID | null) => onDraft({ ...draft, rules: id })
   const [renaming, setRenaming] = useState<string | null>(null)
   const [pickRules, setPickRules] = useState(false)
   const areaRef = useRef<HTMLTextAreaElement>(null)
@@ -46,7 +57,14 @@ export function RedoSetup({ editor, ids, onRun, onRepick, onCancel }: RedoSetupP
     setRenaming(null)
   })
 
-  const passages: RedoPassage[] = useMemo(() => (editor.isDestroyed ? [] : capturePassages(editor, ids)), [editor, ids])
+  const doc = editor.isDestroyed ? null : editor.state.doc
+  const passages: RedoPassage[] = useMemo(() => (doc ? capturePassages(editor, ids) : []), [editor, ids, doc])
+
+  // the keyboard comes to the instructions (also when the card comes back from the reads choice)
+  useEffect(() => {
+    const id = requestAnimationFrame(() => areaRef.current?.focus({ preventScroll: true }))
+    return () => cancelAnimationFrame(id)
+  }, [])
   const sent = passages.filter((p) => !p.skip)
   const skipped = passages.length - sent.length
   const words = sent.reduce((n, p) => n + countWords(p.anchor), 0)
@@ -54,8 +72,9 @@ export function RedoSetup({ editor, ids, onRun, onRepick, onCancel }: RedoSetupP
   const plural = (n: number) => (n === 1 ? 'one' : 'other')
 
   const run = () => {
-    if (!sent.length) return
-    onRun({ kind: 'redo', label: t('features.ai.redo.label'), code: 'REDO', instructions: text.trim(), rulesPageId: rules, passages })
+    if (!sent.length || editor.isDestroyed) return
+    // read anew: the page may have changed while the card was open
+    onRun({ kind: 'redo', label: t('features.ai.redo.label'), code: 'REDO', instructions: text.trim(), rulesPageId: rules, passages: capturePassages(editor, ids) })
   }
 
   const usePreset = (p: RedoPreset) => {
