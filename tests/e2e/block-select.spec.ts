@@ -94,6 +94,15 @@ test.describe('block selection', () => {
       ['paragraph', 'Charlie line.'],
       ['paragraph', 'Delta line.'],
     ])
+
+    // Shift+click on another block's grip grows the selection too
+    await selectBlockOf(page, ed.locator('p', { hasText: 'Charlie' }))
+    await ed.locator('p', { hasText: 'Alpha' }).hover()
+    const hoverGrip = page.locator('.block-handle-wrap .block-handle__grip')
+    await expect(hoverGrip).toBeVisible()
+    await hoverGrip.click({ modifiers: ['Shift'] })
+    await expect(ed.locator('.is-block-selected')).toHaveText(['Alpha line.', 'Bravo line.', 'Charlie line.'])
+    await expect(menu(page)).toHaveCount(0)
   })
 
   test('keyboard: Esc selects, Shift+↓ / ↑ grow and shrink from the anchor, Alt+Enter → Duplicate all, Esc leaves, ⌘A twice selects every block', async ({ page }) => {

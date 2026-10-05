@@ -214,7 +214,7 @@ export function BlockHandle({ editor, bridge, pageId }: { editor: Editor; bridge
     const ref = current.current
     if (!ref) return
     // Shift+click on another block's grip while blocks are selected: the selection grows to it
-    const grown = e.shiftKey ? extendSelection(editor.state, ref.pos + 1) : null
+    const grown = e.shiftKey ? extendSelection(editor.state, ref.node.isLeaf ? ref.pos : ref.pos + 1) : null
     if (grown) return void editor.view.dispatch(editor.state.tr.setSelection(grown))
     openAt(e.currentTarget, ref.pos)
   }
