@@ -1,6 +1,6 @@
 /**
- * The MCP write tools that go beyond /api/v1: page content and title changes, databases and
- * properties, the trash. They write the workspace's documents the way the app does
+ * The MCP write tools that go beyond /api/v1: page content and title changes, new databases and
+ * properties (the tidy-up tools: tidy.ts — trash, restore, moves — and structure.ts). They write the workspace's documents the way the app does
  * (docs/CLOUD.md § Server writes; store.ts createDatabase / addProperty / trashPage,
  * database/model/actions.ts enableTwoWay) — validation first, then one transaction per document.
  */
@@ -38,7 +38,7 @@ export const CREATABLE_TYPES = [
 
 export type CreatableType = (typeof CREATABLE_TYPES)[number]
 
-const COLORS = ['gray', 'brown', 'orange', 'yellow', 'green', 'blue', 'purple', 'pink', 'red'] as const
+export const COLORS = ['gray', 'brown', 'orange', 'yellow', 'green', 'blue', 'purple', 'pink', 'red'] as const
 const COLOR_SET = new Set<string>(['default', ...COLORS])
 const GROUPS = new Set(['todo', 'in_progress', 'done'])
 
@@ -58,7 +58,7 @@ interface Option {
   group?: string
 }
 
-const unprocessable = (code: string, message: string) => new ApiError(422, code, message)
+export const unprocessable = (code: string, message: string) => new ApiError(422, code, message)
 
 /** PageIcon JSON from the tools' icon string: an emoji, `asset:<name>` or `lucide:<Name>`; '' clears. */
 export function iconIn(raw: string | null | undefined): unknown {
@@ -115,14 +115,14 @@ function definition(r: Roots, input: PropertyInput, selfId: string | null): Prop
   return def
 }
 
-const nextPropOrder = (ydb: Y.Map<unknown>) => {
+export const nextPropOrder = (ydb: Y.Map<unknown>) => {
   const m = ydb.get('properties')
   let max = -1
   if (m instanceof Y.Map) for (const v of (m as Y.Map<unknown>).values()) if (v && typeof (v as { order?: unknown }).order === 'number') max = Math.max(max, (v as { order: number }).order)
   return max + 1
 }
 
-const propsMapOf = (ydb: Y.Map<unknown>): Y.Map<unknown> => {
+export const propsMapOf = (ydb: Y.Map<unknown>): Y.Map<unknown> => {
   const cur = ydb.get('properties')
   if (cur instanceof Y.Map) return cur as Y.Map<unknown>
   // an older entry kept the list as one JSON value: from now on it is keyed (like the app's writeDatabase)
@@ -195,26 +195,6 @@ export class McpWrites {
     )
     this.s.log.info('mcp page updated', { workspace: wsId, page: input.id, content: input.markdown !== undefined ? input.mode : undefined, by: actor })
     return { ...page, url: this.model.url(wsId, input.id), ...(input.markdown !== undefined ? { content: input.mode } : {}) }
-  }
-
-  async trashPage(wsId: string, id: string, actor: string) {
-    const out = await this.s.collab.write(
-      metaDoc(wsId),
-      (doc) => {
-        const r = roots(doc)
-        const page = livePage(r, id)
-        if (!page) throw notFound('page_not_found', `No page with id "${id}" in this workspace (or it is already in the trash)`)
-        const yp = pageMap(r, id)!
-        const at = Date.now()
-        yp.set('trashed', true)
-        yp.set('trashedAt', at)
-        yp.set('updatedBy', actor)
-        return { id, title: page.title, kind: page.kind === 'database' ? 'database' : page.databaseId ? 'row' : 'page', trashed: true }
-      },
-      actor,
-    )
-    this.s.log.info('mcp page trashed', { workspace: wsId, page: id, by: actor })
-    return { ...out, note: 'Moved to the trash: restore it in the app (Trash) within the usual period.' }
   }
 
   /* ---------------------------------------------------------------- rows */

@@ -1,8 +1,9 @@
 # One MCP — agents in your workspace
 
 One speaks the [Model Context Protocol](https://modelcontextprotocol.io). Claude Desktop, Claude Code or any other
-MCP client can search, read and write your workspace: pages, databases, rows and properties. There are two ways
-in, with **one tool set** — the same names, arguments and result shapes:
+MCP client can search, read and write your workspace — pages, databases, rows and properties — and tidy it up:
+move, reshape, trash and restore. There are two ways in, with **one tool set** — the same names, arguments and
+result shapes:
 
 | | Local bridge | Team server |
 |---|---|---|
@@ -12,7 +13,8 @@ in, with **one tool set** — the same names, arguments and result shapes:
 | Data path | MCP client ⇄ `one-mcp` (localhost) ⇄ your One tab ⇄ IndexedDB — nothing leaves your computer | MCP client ⇄ your server ⇄ the workspace's live documents |
 | Changes | wait for your approval in the app (*Ask first*, the default) or apply directly; *read only* switch | apply at once; a **read** token only gets the read tools |
 
-Contents: [Tools](#tools) · [Workspaces](#workspaces) · [Local bridge](#local-bridge) · [Team server](#team-server)
+Contents: [Tools](#tools) · [Tidying up](#tidying-up) · [The codeword "one:"](#the-codeword-one) · [Workspaces](#workspaces) ·
+[Local bridge](#local-bridge) · [Team server](#team-server)
 
 ## Tools
 
@@ -30,8 +32,17 @@ Contents: [Tools](#tools) · [Workspaces](#workspaces) · [Local bridge](#local-
 | `one_create_row` | write | `{ databaseId, title, properties?, markdown? }` |
 | `one_update_row` | write | `{ id, properties }` — only what you pass changes, `null` clears |
 | `one_create_property` | write | `{ databaseId, name, type, options?, relation?: { databaseId, twoWay?, reverseName? } }` |
+| `one_update_property` | write · destructive | `{ databaseId, property, name?, description?, type?, options?: { add?, update?: [{ name, newName?, color?, group? }], remove? } }` — removing an option clears it from rows (`cleared`); only [safe type changes](#tidying-up) |
+| `one_delete_property` | write · destructive | `{ databaseId, property }` — the property and its values; not the title (`rowsWithValue`) |
 | `one_create_database` | write | `{ title, parentId?, properties? }` — a database with a table view |
-| `one_trash_page` | write | `{ id }` — to the trash, restorable in the app |
+| `one_update_database` | write | `{ id, title?, icon? }` — `locked` is refused (the person's decision) |
+| `one_create_view` | write | `{ databaseId, type, name?, groupBy?, dateProperty?, filter?, sort?, properties? }` — `table`, `board`, `list`, `gallery`, `calendar`, `timeline`, `feed` |
+| `one_update_view` | write | `{ databaseId, view, …the same }` — only what you pass changes; `null` clears grouping, filter, sorts |
+| `one_delete_view` | write · destructive | `{ databaseId, view }` — not the last one; the rows stay |
+| `one_move_page` | write | `{ id, parentId?, before? \| after? \| index? }` — pages and databases; `parentId: null` = top level |
+| `one_move_row` | write | `{ id, databaseId }` — a row into another database whose properties fit |
+| `one_trash_page` | write · destructive | `{ id }` or `{ ids: [≤ 50] }` — to the trash (a database with its rows: `rows`), never for good |
+| `one_restore_page` | write | `{ id }` or `{ ids: [≤ 50] }` — back from the trash |
 
 Every tool but `one_list_workspaces` also takes **`workspace`** (optional): the id (`"local:…"`, `"team:…"`) or the
 exact name of the workspace the call is meant for. Every result names the workspace it came from:
@@ -46,6 +57,57 @@ exist yet is added to the property; everything else that doesn't fit fails the w
 dates). **Sort** is a property name, `createdAt`, `updatedAt` or `order` (the table's order, the default); `-` in
 front sorts descending (`"-Due"`). Results are JSON; failures are MCP tool errors (`isError: true`) with a message an
 agent can act on.
+
+## Tidying up
+
+The tools that delete, adjust, create and reorganise follow the same rules on both ways in:
+
+- **Nothing is deleted for good.** `one_trash_page` moves pages, rows and whole databases to the trash — a database
+  with all its rows (the answer says how many: `rows`), a page with its sub-pages (`alsoTrashed`). `ids` takes up to
+  50 at once; a listed page below another listed one simply goes along. `one_restore_page` brings things back (a page
+  whose parent is gone comes back at the top level); an id that is not in the trash fails with the most recently
+  trashed items listed, so the agent can find what to restore. Emptying the trash stays in the app.
+- **All or nothing.** Every call is validated first; one id, property, option or value that does not fit fails the
+  whole call, names every problem, and nothing changes.
+- **Databases.** `one_update_property` renames a property or its description, adds / renames / recolours / removes
+  select, multi_select and status options (removing one clears it from the rows that had it — `cleared`), and changes
+  the type only where the values carry over: text ⇄ url / email / phone, text → select / multi_select (an option per
+  distinct value), select → multi_select / status / text, status → select / multi_select / text, multi_select → text,
+  number → text. Anything else is refused with that list. `one_delete_property` removes a property with its values
+  (not the title); views forget it the way the app's delete does (filters, sorts, grouping, calculations, chart axes,
+  colour rules). Views take the friendly names: `groupBy` (a board needs a status, select, multi_select, person or
+  checkbox property), `dateProperty` (calendar and timeline need one; a feed orders by it), `filter` in the shape of
+  `one_query_database` (ANDed; dates also `today`, `tomorrow`, `yesterday`, `one_week_ago`, `one_week_from_now`;
+  people by name or `me`), `sort`, `properties` (the visible ones, in order). Chart and form views are set up in the
+  app.
+- **Locked databases** take rows and values but no structure change (properties, options, views). Locking and
+  unlocking is the person's decision: `one_update_database` refuses `locked`.
+- **Reorganising.** `one_move_page` moves pages and databases under another page or to the top level and places them
+  `before` / `after` a sibling or at an `index` (0 = first) among the siblings people see. Refused: into itself or its
+  own sub-pages, into a database (a page does not become a row here), template pages. Rows stay in their database:
+  `one_move_row` moves a row (with its content) into another database only when every value it has fits a property
+  of the same name and type there — select / multi_select options are matched by name and missing ones added, status
+  options must exist, relations must point to the same database and not be two-way, and no other row may link to it.
+  Otherwise the answer lists what does not fit. Unique ids are numbered anew in the target.
+- **Not offered:** turning a page into a database entry or back (the sidebar's drops — they ask the person on the
+  way), and, in a team workspace, moving between *Private* and the workspace. Both stay in the app.
+- **Safety.** The destructive tools (`one_trash_page`, `one_delete_property`, `one_update_property`, `one_delete_view`)
+  carry `destructiveHint`, so clients ask before running them. Local bridge: *Ask first* shows a card for each —
+  *Database “Projects” with 8 rows → trash*, *Delete property “Budget” from Projects* with *Values · 8 rows lose their
+  value*, the options a change removes with the rows that lose them; *Apply directly* logs every change with an
+  **Undo** (a trashed database comes back with its rows, a moved page goes back, a deleted property comes back with
+  its values and view settings, view changes are reverted — parts edited since are kept); *Read only* refuses them.
+  Team server: a **write** token is needed; changes carry `api:<tokenId>` as `updatedBy`.
+
+## The codeword "one:"
+
+A message to Claude that starts with **`one:`** is meant for the One workspace — *“one: tidy up my Projects
+database”*. The server instructions of both ways in say so: the agent uses the One tools for it, not web search or
+other connectors. Without the codeword it uses them when the person clearly talks about their One pages.
+
+Both also offer it as an MCP **prompt** named `one` (argument `task`, required): Claude Desktop lists it in the
+prompt menu (**+** → *One*), Claude Code as `/mcp__one__one <task>`. It expands to `one: <task>` plus the hint to
+start with `one_overview` or `one_search`; an empty task or another prompt name is refused.
 
 ## Workspaces
 
@@ -181,7 +243,8 @@ MCP." (a call waits up to 10 s for the tab first). The switch is **per browser**
   "47400" }`, `claude mcp add one -e ONE_MCP_PORT=47400 -- node ~/one-mcp.mjs`).
 - **Updates.** Extension: download `one.mcpb` again (same button) and open it — Claude Desktop updates the installed
   extension in place when the new version is higher. File: download `one-mcp.mjs` again and restart the client.
-  `--version` (or the extension's page in Claude Desktop) shows the version you run.
+  `--version` (or the extension's page in Claude Desktop) shows the version you run. The tidy-up tools and the `one`
+  prompt need bridge **1.2.0** or newer — an older bridge lists only the tools it was built with.
 - **Two MCP clients** (say Claude Desktop *and* Claude Code) each start a bridge; only the first gets the port. The
   second answers every call with *Another One MCP bridge is already using port 47321 …* and takes the port over when
   the first one quits. Use one client at a time, or give the second one another port (and switch the tab to it).
@@ -271,7 +334,7 @@ with the API tokens of the [public API](API.md#tokens) — no extra setup on the
 ### Connect
 
 1. An owner or admin creates a token in **Settings → Team → API tokens**: scope **write** lets the agent change
-   things, **read** gives it only the seven read tools (the write tools are not even listed).
+   things, **read** gives it only the seven read tools (the write tools are not even listed) — and the `one` prompt.
 2. Add the server to your MCP client with the token as a bearer header.
 
 **Claude Code**
@@ -334,9 +397,11 @@ curl -s https://team.example.com/mcp \
   with `mode: "replace"`, replaces everything — editors open on that page follow along live.
 - **Beyond the REST API**: `one_update_page` (content, title, icon), `one_create_database`, `one_create_property`
   (options, two-way relations, unique ids numbered for the existing rows, the property shown in every view), new
-  select options from `one_create_row` / `one_update_row`, and `one_trash_page` — a **soft delete** exactly like the
-  app's (`trashed: true`, `trashedAt`): the page (with everything below it) is in the app's trash and can be restored.
-  A **locked** database takes rows and values but no new properties or options.
+  select options from `one_create_row` / `one_update_row`, the [tidy-up tools](#tidying-up) (properties, options,
+  views, moves) and `one_trash_page` — a **soft delete** exactly like the app's (`trashed: true`, `trashedAt`): the
+  page (with everything below it) is in the app's trash and `one_restore_page` (or the app) brings it back. A
+  **locked** database takes rows and values but no new properties, options or views. There is no undo log on the
+  server: give an agent a read token, or the local bridge with *Ask first*, when every change should be checked.
 - **Backlinks** in `one_get_page` come from the stored content of every page (page links, @-mentions, `#/p/` links,
   database blocks). Content is stored a few seconds after typing stops (at most 10 s), so a link made in that moment
   may be missing.

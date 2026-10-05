@@ -130,6 +130,11 @@ the public APIs stable — other areas are built against them in parallel.
 - Team-cloud agents (server/src/agents): agents with `runner: 'server'` run on the server (scheduler, row triggers,
   webhooks) with a per-workspace Claude key + MCP tokens encrypted at rest; their writes carry `agent:<agentId>` as
   createdBy / updatedBy; `AGENTS=off` disables them; the server needs outbound HTTPS to api.anthropic.com.
+- MCP tidy-up tools (trash / restore ≤ 50 ids, move page / row, update database / property, delete property, view
+  create / update / delete) live in `features/mcp/{tidy,structure}.ts` and `server/src/mcp/{tidy,structure}.ts` with
+  the same rules: never delete for good, locked databases refuse structure changes, no page ⇄ entry or Private ⇄ shared
+  moves; keep `MCP_TYPE_CHANGES` / `MCP_VIEW_TYPES` (contract.ts) in step with the server's `TYPE_CHANGES` /
+  `VIEW_TYPES`. The codeword `one:` (instructions line) and the prompt `one` are served by the bridge and by `/mcp`.
 - MCP addresses workspaces by id (`local:<hash>` / `team:<id>`, features/mcp/identity.ts; per-browser localStorage
   `one.mcp.device`); every bridge call is bound to that id and refused on a mismatch — never act in another workspace.
 

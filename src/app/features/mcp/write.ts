@@ -6,54 +6,25 @@
  * Pages, rows, appends and renames reuse the workspace agent: its tools validate and coerce the
  * input into a StagedChange (on a private, per-call stage) and its applyChanges() writes it —
  * one implementation of property coercion, option creation, content origin 'ai' and undo. Icons,
- * content replacement, properties, databases and the trash are applied here.
+ * content replacement, new properties and databases are applied here; the tidy-up tools live in
+ * tidy.ts (trash, restore, moves) and structure.ts (database, property and view changes).
  */
 import type { JSONContent } from '@tiptap/core'
 import { markdownToDoc } from '../../editor'
 import { newId } from '../../lib/ids'
 import { t } from '../../i18n'
-import type { ColorName, Database, ID, Page, PageIcon, PropertyDef, PropertyType, SelectOption, StatusGroup } from '../../store/types'
-import { COLOR_NAMES } from '../../store/types'
+import type { Database, ID, PropertyDef, PropertyType } from '../../store/types'
 import { snapshotNow } from '../history/snapshots'
 import { AGENT_TOOLS, ToolInputError, type StageApi } from '../ai/agent/tools'
 import { applyChanges } from '../ai/agent/apply'
 import type { PropChange, StagedChange, ToolName } from '../ai/agent/types'
 import { MCP_PROPERTY_TYPES, type McpToolName } from './contract'
 import { databaseOrThrow, iconText, kindOf, live, McpToolError, pageUrl, pathOf, propertyJson, q, rowProperties, titleOf, TWO_WAY_SUFFIX, ws } from './values'
+import { chars, optionsOf, pageOrThrow, parseIcon, preview, str, type PlanLine, type WritePlan } from './plan'
+import { TIDY_PLANNERS } from './tidy'
+import { STRUCTURE_PLANNERS } from './structure'
 
-/* ------------------------------------------------------------------ */
-/* Plans                                                               */
-/* ------------------------------------------------------------------ */
-
-/** One line of the approval card. */
-export type PlanLine =
-  /** a property value: before → after (before absent for new rows) */
-  | { k: 'prop'; name: string; before?: string; after: string; fresh?: string[] }
-  /** a labelled fact: "In · Team wiki", "Type · number" */
-  | { k: 'fact'; label: string; value: string }
-  /** Markdown that gets written (first lines shown) */
-  | { k: 'md'; label: string; value: string }
-  | { k: 'note'; value: string }
-
-export interface Applied {
-  result: unknown
-  /** revert (false = left alone because it was changed since) */
-  undo?: () => boolean
-}
-
-export interface WritePlan {
-  tool: McpToolName
-  /** what the card calls the action: "New row", "Update" … */
-  verb: string
-  /** one sentence: Create row “Q4 launch” in Projects */
-  summary: string
-  /** page / database the change is about (activity log) */
-  target: string
-  lines: PlanLine[]
-  /** nothing would change: answered without asking */
-  noop?: unknown
-  apply(): Promise<Applied>
-}
+export type { Applied, PlanLine, WritePlan } from './plan'
 
 /* ------------------------------------------------------------------ */
 /* Helpers                                                             */
@@ -122,47 +93,6 @@ async function applyStaged(changes: StagedChange[]): Promise<{ rowIds: Record<st
   }
   return { rowIds: res.rowIds, undo: () => res.undo() === 0 }
 }
-
-const str = (v: unknown, key: string, opts: { required?: boolean; max?: number } = {}): string => {
-  if (v === undefined || v === null || (typeof v === 'string' && !v.trim())) {
-    if (opts.required) throw new McpToolError(`Missing required parameter "${key}".`)
-    return ''
-  }
-  if (typeof v !== 'string') throw new McpToolError(`"${key}" must be a string.`)
-  if (opts.max && v.length > opts.max) throw new McpToolError(`"${key}" is too long (${v.length} characters, at most ${opts.max}).`)
-  return v
-}
-
-const pageOrThrow = (id: unknown, key = 'id'): Page => {
-  const raw = str(id, key, { required: true, max: 80 }).trim()
-  const p = live(raw)
-  if (!p) throw new McpToolError(`No page with id ${q(raw)}. Use one_search to find page ids.`)
-  return p
-}
-
-/** An emoji, "asset:<name>" or "lucide:<Name>" → icon; '' / null → remove; undefined → leave as is. */
-function parseIcon(raw: unknown): PageIcon | null | undefined {
-  if (raw === undefined) return undefined
-  if (raw === null || raw === '') return null
-  const hint = 'an emoji (e.g. "🚀"), "asset:<name>" or "lucide:<IconName>" ("" removes the icon)'
-  if (typeof raw !== 'string') throw new McpToolError(`"icon" must be ${hint}.`)
-  const s = raw.trim()
-  if (!s) return null
-  const named = /^(asset|lucide):([A-Za-z0-9_-]{1,64})$/.exec(s)
-  if (named) return named[1] === 'asset' ? { type: 'asset', value: named[2] } : { type: 'lucide', value: named[2] }
-  const emoji = s.length <= 16 && !/[A-Za-z\s<>]/.test(s) && /\p{Extended_Pictographic}|\p{Regional_Indicator}|\u{20E3}/u.test(s)
-  if (!emoji) throw new McpToolError(`"icon" must be ${hint} — got ${q(s.slice(0, 40))}.`)
-  return { type: 'emoji', value: s }
-}
-
-/** The first lines of Markdown for the card. */
-function preview(md: string): string {
-  const lines = md.trim().split('\n')
-  const head = lines.slice(0, 6).join('\n')
-  return head.length > 420 ? `${head.slice(0, 420)}…` : lines.length > 6 ? `${head}\n…` : head
-}
-
-const chars = (n: number) => n.toLocaleString(ws().settings.language === 'de' ? 'de-DE' : 'en-US')
 
 function propLines(props: PropChange[] | undefined, withBefore: boolean): PlanLine[] {
   return (props ?? []).map((p) => ({ k: 'prop', name: p.name, ...(withBefore ? { before: p.before } : {}), after: p.after, ...(p.newOptions?.length ? { fresh: p.newOptions } : {}) }))
@@ -380,29 +310,6 @@ interface PropSpec {
   lines: PlanLine[]
 }
 
-const palette = COLOR_NAMES.filter((c) => c !== 'default')
-
-function optionsOf(type: PropertyType, raw: unknown, key: string): SelectOption[] | undefined {
-  if (raw === undefined || raw === null) return undefined
-  if (type !== 'select' && type !== 'multi_select' && type !== 'status') throw new McpToolError(`${key}: options only apply to select, multi_select and status.`)
-  if (!Array.isArray(raw)) throw new McpToolError(`${key}: "options" must be a list of option names (or {name, color, group}).`)
-  const opts: Array<{ name: string; color?: ColorName; group?: StatusGroup }> = []
-  for (const item of raw as unknown[]) {
-    const o = typeof item === 'string' ? { name: item } : item && typeof item === 'object' && !Array.isArray(item) ? (item as Record<string, unknown>) : null
-    if (!o || typeof o.name !== 'string') throw new McpToolError(`${key}: every option is a name or {name, color, group}.`)
-    const name = o.name.replace(/\s+/g, ' ').trim().slice(0, 60)
-    if (!name || opts.some((x) => x.name.toLowerCase() === name.toLowerCase())) continue
-    const color = typeof o.color === 'string' && (palette as string[]).includes(o.color.toLowerCase()) ? (o.color.toLowerCase() as ColorName) : undefined
-    const group = o.group === 'todo' || o.group === 'in_progress' || o.group === 'done' ? o.group : undefined
-    opts.push({ name, ...(color ? { color } : {}), ...(group ? { group } : {}) })
-  }
-  if (opts.length > 100) throw new McpToolError(`${key}: at most 100 options.`)
-  if (type === 'status' && !opts.length) return undefined
-  // status without groups: first = to do, last = done, the rest in progress
-  const groupAt = (i: number): StatusGroup => (opts.length === 1 || i === 0 ? 'todo' : i === opts.length - 1 ? 'done' : 'in_progress')
-  return opts.map((o, i) => ({ id: newId(), name: o.name, color: o.color ?? palette[i % palette.length], ...(type === 'status' ? { group: o.group ?? groupAt(i) } : {}) }))
-}
-
 /** Validate one property spec (create_property, create_database) for a database (existing or new). */
 function propertySpec(raw: unknown, ctx: { dbId: ID; dbTitle: string; taken: string[] }, key = 'property'): PropSpec {
   const o = (raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : null) as Record<string, unknown> | null
@@ -546,49 +453,6 @@ function planCreateDatabase(args: Record<string, unknown>): WritePlan {
 }
 
 /* ------------------------------------------------------------------ */
-/* Trash                                                               */
-/* ------------------------------------------------------------------ */
-
-function planTrash(args: Record<string, unknown>): WritePlan {
-  const page = pageOrThrow(args.id)
-  const { pages } = ws()
-  // everything below it goes along (sub-pages, rows of databases …)
-  const below = new Set<ID>()
-  const stack = [page.id]
-  while (stack.length) {
-    const cur = stack.pop()!
-    for (const p of Object.values(pages)) if (p.parentId === cur && !p.trashed && !below.has(p.id)) {
-      below.add(p.id)
-      stack.push(p.id)
-    }
-  }
-  const name = titleOf(page)
-  const lines: PlanLine[] = [{ k: 'fact', label: t('features.mcp.plan.kind'), value: t(`features.mcp.kind.${kindOf(page)}`) }]
-  if (pathOf(page.id)) lines.push({ k: 'fact', label: t('features.mcp.plan.in'), value: pathOf(page.id) })
-  if (below.size) lines.push({ k: 'fact', label: t('features.mcp.plan.below'), value: t('features.mcp.plan.belowN', { n: chars(below.size) }) })
-  lines.push({ k: 'note', value: t('features.mcp.plan.trashNote') })
-  return {
-    tool: 'one_trash_page',
-    verb: t('features.mcp.verb.trash'),
-    summary: t('features.mcp.sum.trash', { title: name }),
-    target: name,
-    lines,
-    async apply() {
-      if (!live(page.id)) throw new McpToolError(`${q(name)} is already gone. Nothing was changed.`)
-      ws().trashPage(page.id)
-      return {
-        result: { id: page.id, title: page.title, kind: kindOf(page), trashed: true, alsoTrashed: below.size, note: 'Moved to the trash: it can be restored from the trash in One.' },
-        undo: () => {
-          if (!ws().pages[page.id]?.trashed) return false
-          ws().restorePage(page.id)
-          return true
-        },
-      }
-    },
-  }
-}
-
-/* ------------------------------------------------------------------ */
 
 const PLANNERS: Partial<Record<McpToolName, (args: Record<string, unknown>) => WritePlan>> = {
   one_create_page: planCreatePage,
@@ -597,7 +461,8 @@ const PLANNERS: Partial<Record<McpToolName, (args: Record<string, unknown>) => W
   one_update_row: planUpdateRow,
   one_create_property: planCreateProperty,
   one_create_database: planCreateDatabase,
-  one_trash_page: planTrash,
+  ...STRUCTURE_PLANNERS,
+  ...TIDY_PLANNERS,
 }
 
 /** Validate a write call and describe it. Throws McpToolError (nothing written). */

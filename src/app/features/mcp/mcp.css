@@ -280,6 +280,11 @@
 .mcp-install__spec {
   white-space: nowrap;
 }
+.mcp-codeword .kbd {
+  margin: 0 2px;
+  color: var(--signal-ink);
+  text-transform: none;
+}
 .mcp-steps .mcp-hint--port {
   color: var(--signal-ink);
 }

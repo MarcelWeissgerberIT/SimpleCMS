@@ -5,8 +5,18 @@
  * tool errors (isError) with the tab's or the bridge's human-readable message.
  */
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
-import { CallToolRequestSchema, ListToolsRequestSchema, type CallToolResult, type Tool } from '@modelcontextprotocol/sdk/types.js'
-import { MCP_INSTRUCTIONS, MCP_TOOLS, type McpToolDef, type McpToolName } from '../../src/app/features/mcp/contract.ts'
+import {
+  CallToolRequestSchema,
+  GetPromptRequestSchema,
+  ListPromptsRequestSchema,
+  ListToolsRequestSchema,
+  McpError,
+  ErrorCode,
+  type CallToolResult,
+  type GetPromptResult,
+  type Tool,
+} from '@modelcontextprotocol/sdk/types.js'
+import { MCP_INSTRUCTIONS, MCP_PROMPT, MCP_TOOLS, mcpPromptText, type McpToolDef, type McpToolName } from '../../src/app/features/mcp/contract.ts'
 import type { Bridge } from './bridge.ts'
 
 /** How often a call waiting for approval reports progress (clients that reset timeouts on it keep waiting). */
@@ -32,7 +42,7 @@ export function toMcpTool(def: McpToolDef): Tool {
 const text = (s: string, isError = false): CallToolResult => ({ content: [{ type: 'text', text: s }], ...(isError ? { isError: true } : {}) })
 
 export function createMcpServer(bridge: Bridge, version: string): McpServer {
-  const mcp = new McpServer({ name: 'one', title: 'SimpleCMS One', version }, { capabilities: { tools: { listChanged: false } }, instructions: MCP_INSTRUCTIONS })
+  const mcp = new McpServer({ name: 'one', title: 'SimpleCMS One', version }, { capabilities: { tools: { listChanged: false }, prompts: { listChanged: false } }, instructions: MCP_INSTRUCTIONS })
   const server = mcp.server
 
   server.oninitialized = () => {
@@ -41,6 +51,15 @@ export function createMcpServer(bridge: Bridge, version: string): McpServer {
   }
 
   server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: MCP_TOOLS.map(toMcpTool) }))
+
+  // the codeword as a prompt: "one: <task>"
+  server.setRequestHandler(ListPromptsRequestSchema, async () => ({ prompts: [{ ...MCP_PROMPT, arguments: [...MCP_PROMPT.arguments] }] }))
+  server.setRequestHandler(GetPromptRequestSchema, async (req): Promise<GetPromptResult> => {
+    if (req.params.name !== MCP_PROMPT.name) throw new McpError(ErrorCode.InvalidParams, `Unknown prompt ${JSON.stringify(req.params.name)}. Prompts: ${MCP_PROMPT.name}.`)
+    const task = String(req.params.arguments?.task ?? '').trim()
+    if (!task) throw new McpError(ErrorCode.InvalidParams, 'Say what to do in One (argument "task").')
+    return { description: MCP_PROMPT.description, messages: [{ role: 'user', content: { type: 'text', text: mcpPromptText(task) } }] }
+  })
 
   server.setRequestHandler(CallToolRequestSchema, async (req, extra): Promise<CallToolResult> => {
     const name = req.params.name

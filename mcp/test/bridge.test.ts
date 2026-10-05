@@ -42,22 +42,33 @@ describe('tool list', () => {
       'one_create_page',
       'one_create_property',
       'one_create_row',
+      'one_create_view',
+      'one_delete_property',
+      'one_delete_view',
       'one_get_database',
       'one_get_page',
       'one_list_databases',
       'one_list_workspaces',
+      'one_move_page',
+      'one_move_row',
       'one_overview',
       'one_query_database',
+      'one_restore_page',
       'one_search',
       'one_trash_page',
+      'one_update_database',
       'one_update_page',
+      'one_update_property',
       'one_update_row',
+      'one_update_view',
     ])
+    // what removes something says so (clients ask before running these)
+    const destructive = ['one_delete_property', 'one_delete_view', 'one_trash_page', 'one_update_property']
     for (const def of MCP_TOOLS) {
       const tool = tools.find((t) => t.name === def.name)!
       assert.deepEqual(tool.inputSchema, def.inputSchema, def.name)
       assert.equal(tool.annotations?.readOnlyHint, !def.write, `${def.name} readOnlyHint`)
-      assert.equal(tool.annotations?.destructiveHint, def.name === 'one_trash_page', `${def.name} destructiveHint`)
+      assert.equal(tool.annotations?.destructiveHint, destructive.includes(def.name), `${def.name} destructiveHint`)
       assert.ok(tool.description && tool.description.length > 40, `${def.name} has a description`)
       // every tool but the list itself takes the workspace it is meant for (optional)
       const props = (tool.inputSchema.properties ?? {}) as Record<string, { type?: string }>
@@ -72,6 +83,40 @@ describe('tool list', () => {
     assert.match(client.getInstructions() ?? '', /one_overview/)
     assert.match(client.getInstructions() ?? '', /one_list_workspaces/)
     assert.match(client.getInstructions() ?? '', /workspace_mismatch/)
+    assert.match(client.getInstructions() ?? '', /one_restore_page/)
+  })
+
+  test('trash and restore take one id or up to 50 ids', async () => {
+    const { client } = await start()
+    const { tools } = await client.listTools()
+    for (const name of ['one_trash_page', 'one_restore_page']) {
+      const props = tools.find((t) => t.name === name)!.inputSchema.properties as Record<string, { type?: string; maxItems?: number }>
+      assert.equal(props.id?.type, 'string', name)
+      assert.deepEqual([props.ids?.type, props.ids?.maxItems], ['array', 50], name)
+    }
+  })
+})
+
+describe('the "one:" codeword', () => {
+  test('the instructions name it; prompts/list offers "one"; prompts/get renders the task', async () => {
+    const { client } = await start()
+    assert.match(client.getInstructions() ?? '', /Codeword: a message that starts with "one:"/)
+    assert.ok(client.getServerCapabilities()?.prompts, 'prompts capability')
+    const { prompts } = await client.listPrompts()
+    assert.deepEqual(prompts.map((p) => p.name), ['one'])
+    assert.deepEqual(prompts[0]!.arguments, [{ name: 'task', description: 'What to do in One, e.g. "summarise my meeting notes from this week"', required: true }])
+    const got = await client.getPrompt({ name: 'one', arguments: { task: '  tidy up my Projects database ' } })
+    assert.equal(got.messages.length, 1)
+    assert.equal(got.messages[0]!.role, 'user')
+    const text = (got.messages[0]!.content as { type: string; text: string }).text
+    assert.match(text, /^one: tidy up my Projects database\n\nUse the One tools for this/)
+  })
+
+  test('an unknown prompt or an empty task is refused', async () => {
+    const { client } = await start()
+    await assert.rejects(client.getPrompt({ name: 'two', arguments: { task: 'x' } }), /Unknown prompt "two"/)
+    await assert.rejects(client.getPrompt({ name: 'one', arguments: { task: '   ' } }), /argument "task"/)
+    await assert.rejects(client.getPrompt({ name: 'one', arguments: {} }), /argument "task"/)
   })
 })
 

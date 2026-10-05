@@ -157,6 +157,10 @@ test('connects and reads: overview, search, page Markdown, schema, filtered rows
   await expect(log.first()).toContainText('Error')
   await expect(page.locator('.mcp-log__row', { hasText: 'one_query_database' }).first()).toContainText('OK')
   await expect(page.getByTestId('mcp-state')).toContainText('Connected · Claude Code · 8 calls')
+  // the codeword, set as a key in the setup steps
+  const codeword = page.getByTestId('mcp-codeword')
+  await expect(codeword).toHaveText('Codeword: start a message in Claude with one: — e.g. “one: tidy up my Projects database”.')
+  await expect(codeword.locator('kbd')).toHaveText('one:')
   await closeSettings(page)
   await expect(page.locator('.status .mcp-status')).toHaveText('Agent')
 })
@@ -282,6 +286,7 @@ test('German UI, Reject button, and the newest tab wins', async ({ page, context
   await adopt()
   await expect(page.getByRole('radio', { name: 'Erst fragen' })).toHaveAttribute('aria-checked', 'true')
   await expect(page.getByText('Agenten-Protokoll')).toBeVisible()
+  await expect(page.getByTestId('mcp-codeword')).toContainText('Codewort: Beginne eine Nachricht an Claude mit one: — z. B.')
   await closeSettings(page)
 
   // the demo was seeded in English: the database keeps its name
@@ -500,5 +505,370 @@ test.describe('workspaces', () => {
       await page.getByRole('switch', { name: 'Allow AI agents on this computer' }).click()
       await new Promise<void>((r) => wss.close(() => r()))
     }
+  })
+})
+
+/* ------------------------------------------------------------------ */
+/* Tidying up: trash & restore, moves, database structure              */
+/* ------------------------------------------------------------------ */
+
+test.describe('tidy up', () => {
+  type Json = Record<string, any> // eslint-disable-line @typescript-eslint/no-explicit-any
+
+  /** Connected, in Apply directly, settings closed. */
+  async function applying(page: Page) {
+    await openApp(page)
+    await connect(page)
+    await page.getByRole('radio', { name: 'Apply directly' }).click()
+    await closeSettings(page)
+  }
+
+  /** The newest applied call of a tool: Undo it in the log (Settings → Agents · MCP). */
+  async function undoLast(page: Page, tool: string) {
+    await openAgentsTab(page)
+    const undone = page.locator('.mcp-log__row', { hasText: tool }).filter({ hasText: 'Undone' })
+    const before = await undone.count()
+    await page.locator('.mcp-log__row').getByRole('button', { name: `Undo ${tool}` }).first().click()
+    await expect(undone).toHaveCount(before + 1)
+    await closeSettings(page)
+  }
+
+  const fails = async (name: string, args: Json, pattern: RegExp | string) => {
+    const res = await call(name, args)
+    expect(res.isError, `${name} should fail`).toBe(true)
+    if (typeof pattern === 'string') expect(text(res)).toContain(pattern)
+    else expect(text(res)).toMatch(pattern)
+    return text(res)
+  }
+
+  /** A small database of our own: Item (title), Kind (select), Count (number), Notes (text) + three rows. */
+  async function inventory(title = 'Inventory') {
+    const db = json(await call('one_create_database', { title, properties: [{ name: 'Item', type: 'title' }, { name: 'Kind', type: 'select', options: ['Tool', 'Part'] }, { name: 'Count', type: 'number' }, { name: 'Notes', type: 'text' }] }))
+    const rows: Json[] = []
+    for (const [t, kind, count] of [['Hammer', 'Tool', 2], ['Bolt', 'Part', 40], ['Saw', 'Tool', 1]] as const) rows.push(json(await call('one_create_row', { databaseId: db.id, title: t, properties: { Kind: kind, Count: count, Notes: `${t} notes` } })))
+    return { db, rows }
+  }
+
+  test('Ask first: a database goes to the trash with its rows — the card says how many; Undo brings it all back', async ({ page }) => {
+    await openApp(page)
+    await connect(page)
+    await closeSettings(page)
+    const dbId = await pageIdByTitle(page, 'Projects')
+    const rows = await wsEval(page, (s, id) => Object.values(s.pages).filter((p: any) => p.databaseId === id && !p.trashed).length, dbId) // eslint-disable-line @typescript-eslint/no-explicit-any
+
+    const pending = call('one_trash_page', { id: dbId })
+    const card = page.getByRole('alertdialog')
+    await expect(card).toContainText('Trash')
+    await expect(card).toContainText(`Database “Projects” with ${rows} rows → trash`)
+    await expect(card.locator('.mcp-line', { hasText: 'Rows' })).toContainText(`${rows} rows`)
+    await expect(card).toContainText('It can be restored from the trash.')
+    expect(await wsEval(page, (s, id) => s.pages[id].trashed, dbId)).toBe(false)
+    await page.keyboard.press('Enter')
+    expect(json(await pending)).toMatchObject({ id: dbId, kind: 'database', trashed: true, rows, alsoTrashed: rows })
+    expect(await wsEval(page, (s, id) => s.pages[id].trashed, dbId)).toBe(true)
+    await expect(page.locator('.toast', { hasText: `Done: Database “Projects” with ${rows} rows → trash` })).toBeVisible()
+
+    // restoring waits for approval too — rejected here
+    const restore = call('one_restore_page', { id: dbId })
+    await expect(card).toContainText(`Restore database “Projects” with ${rows} rows`)
+    await expect(card.locator('.mcp-line', { hasText: 'Back in' })).toContainText('the sidebar (top level)')
+    await page.keyboard.press('Escape')
+    expect(text(await restore)).toContain('The person rejected this change')
+
+    // Undo in the log: the database is back, every row with it
+    await undoLast(page, 'one_trash_page')
+    expect(await wsEval(page, (s, id) => s.pages[id].trashed, dbId)).toBe(false)
+    expect(json(await call('one_query_database', { databaseId: dbId })).total).toBe(rows)
+  })
+
+  test('Apply: trash several at once (all or nothing) and restore them; the trash is listed when an id is not in it', async ({ page }) => {
+    await applying(page)
+    const a = json(await call('one_create_page', { title: 'Old A' }))
+    const b = json(await call('one_create_page', { title: 'Old B', parentId: a.id }))
+    const c = json(await call('one_create_page', { title: 'Old C' }))
+    const trashed = (id: string) => wsEval(page, (s, id) => s.pages[id].trashed, id)
+
+    await fails('one_trash_page', { ids: [a.id, 'nope'] }, 'Nothing was moved to the trash: no page with id "nope"')
+    expect(await trashed(a.id)).toBe(false)
+    await fails('one_trash_page', { ids: Array.from({ length: 51 }, (_, i) => `x${i}`) }, 'At most 50 ids')
+    await fails('one_trash_page', {}, 'Missing required parameter "id"')
+
+    const res = json(await call('one_trash_page', { ids: [a.id, b.id, c.id] }))
+    // B is inside A: it goes along with it
+    expect(res.count).toBe(2)
+    expect(res.trashed.map((x: Json) => x.title)).toEqual(['Old A', 'Old C'])
+    expect(res.alsoTrashed).toBe(1)
+    expect([await trashed(a.id), await trashed(c.id)]).toEqual([true, true])
+    await fails('one_trash_page', { id: a.id }, 'is already in the trash')
+
+    await fails('one_restore_page', { id: 'nope' }, /^Nothing was restored: nothing in the trash has id "nope"\. Recently trashed: .*"Old (A|C)"/)
+    await fails('one_restore_page', { id: b.id }, `is inside "Old A" (${a.id}), which is in the trash — restore that instead`)
+    const back = json(await call('one_restore_page', { ids: [a.id, c.id] }))
+    expect(back.count).toBe(2)
+    expect(back.restored[0]).toMatchObject({ id: a.id, restored: true, parentId: null })
+    expect([await trashed(a.id), await trashed(c.id)]).toEqual([false, false])
+    expect(json(await call('one_get_page', { id: b.id })).path).toBe('Old A')
+    await fails('one_restore_page', { id: a.id }, 'is not in the trash')
+
+    // Undo of the restore: both go back to the trash
+    await undoLast(page, 'one_restore_page')
+    expect([await trashed(a.id), await trashed(c.id)]).toEqual([true, true])
+  })
+
+  test('one_move_page: into a page, before / after a sibling, to the top level; cycles, databases and rows refused; Undo', async ({ page }) => {
+    await applying(page)
+    const home = json(await call('one_create_page', { title: 'Home base' }))
+    const x = json(await call('one_create_page', { title: 'X page', parentId: home.id }))
+    const y = json(await call('one_create_page', { title: 'Y page', parentId: home.id }))
+    const z = json(await call('one_create_page', { title: 'Z page' }))
+    const kids = async () => (json(await call('one_get_page', { id: home.id })).children as Json[]).map((k) => k.title)
+
+    const moved = json(await call('one_move_page', { id: z.id, parentId: home.id, before: x.id }))
+    expect(moved).toMatchObject({ id: z.id, parentId: home.id, path: 'Home base', index: 0 })
+    expect(await kids()).toEqual(['Z page', 'X page', 'Y page'])
+    json(await call('one_move_page', { id: z.id, after: y.id }))
+    expect(await kids()).toEqual(['X page', 'Y page', 'Z page'])
+    json(await call('one_move_page', { id: y.id, index: 0 }))
+    expect(await kids()).toEqual(['Y page', 'X page', 'Z page'])
+    expect(json(await call('one_move_page', { id: y.id })).note).toMatch(/No change/)
+
+    await fails('one_move_page', { id: home.id, parentId: y.id }, 'cannot move into itself or its own sub-pages')
+    await fails('one_move_page', { id: home.id, parentId: home.id }, 'cannot move into itself')
+    const projects = await pageIdByTitle(page, 'Projects')
+    await fails('one_move_page', { id: x.id, parentId: projects }, '"Projects" is a database')
+    const row = json(await call('one_query_database', { databaseId: projects, limit: 1 })).rows[0]
+    await fails('one_move_page', { id: row.id, parentId: home.id }, 'rows stay in their database. one_move_row')
+    await fails('one_move_page', { id: x.id, before: z.id, index: 1 }, 'at most one of')
+    await fails('one_move_page', { id: x.id, parentId: null, before: z.id }, 'is not a page next to it')
+
+    // a database moves like a page
+    const db = json(await call('one_create_database', { title: 'Moving DB' }))
+    expect(json(await call('one_move_page', { id: db.id, parentId: x.id }))).toMatchObject({ kind: 'database', path: 'Home base / X page' })
+
+    const top = json(await call('one_move_page', { id: x.id, parentId: null }))
+    expect(top.parentId).toBeNull()
+    expect(await kids()).toEqual(['Y page', 'Z page'])
+    await undoLast(page, 'one_move_page')
+    expect(await kids()).toEqual(['Y page', 'X page', 'Z page'])
+  })
+
+  test('one_delete_property: values and view settings go — Undo puts them back; the title and locked databases are refused', async ({ page }) => {
+    await applying(page)
+    const { db, rows } = await inventory()
+    const view = json(await call('one_create_view', { databaseId: db.id, type: 'board', name: 'By kind', groupBy: 'Kind', filter: [{ property: 'Count', op: 'gt', value: 1 }], sort: '-Count', properties: ['Count', 'Notes'] }))
+    expect(view.view).toMatchObject({ name: 'By kind', type: 'board', groupBy: 'Kind', filter: [{ property: 'Count', op: 'gt', value: 1 }], sorts: [{ property: 'Count', direction: 'desc' }], properties: ['Count', 'Notes'] })
+
+    const del = json(await call('one_delete_property', { databaseId: db.id, property: 'count' }))
+    expect(del).toMatchObject({ databaseId: db.id, deleted: { name: 'Count', type: 'number' }, rowsWithValue: 3 })
+    const schema = json(await call('one_get_database', { id: db.id }))
+    expect(schema.properties.map((p: Json) => p.name)).toEqual(['Item', 'Kind', 'Notes'])
+    const board = schema.views.find((v: Json) => v.name === 'By kind')
+    expect(board.filtered).toBe(false)
+    expect(board.sorts).toBeUndefined()
+    expect(await wsEval(page, (s, id) => Object.keys(s.pages[id].properties).length, rows[0].id)).toBe(2)
+
+    await fails('one_delete_property', { databaseId: db.id, property: 'Item' }, 'is the title property')
+    await fails('one_delete_property', { databaseId: db.id, property: 'Nope' }, 'has no property "Nope"')
+
+    await undoLast(page, 'one_delete_property')
+    const again = json(await call('one_get_database', { id: db.id }))
+    expect(again.properties.map((p: Json) => p.name)).toEqual(['Item', 'Kind', 'Count', 'Notes'])
+    const restored = again.views.find((v: Json) => v.name === 'By kind')
+    expect(restored).toMatchObject({ filtered: true, sorts: [{ property: 'Count', direction: 'desc' }] })
+    const counts = (json(await call('one_query_database', { databaseId: db.id, sort: 'title' })).rows as Json[]).map((r) => r.properties.Count)
+    expect(counts).toEqual([40, 2, 1])
+    expect(await wsEval(page, (s, id) => s.databases[id].views.find((v: any) => v.name === 'By kind').visibleProperties.length, db.id)).toBe(2) // eslint-disable-line @typescript-eslint/no-explicit-any
+
+    // locked: structure refused, rows still fine; locking is not the agent's call
+    await wsEval(page, (s, id) => s.updateDatabase(id, { locked: true }), db.id)
+    await fails('one_delete_property', { databaseId: db.id, property: 'Notes' }, /"Inventory" is locked in One: its properties and views cannot change/)
+    await fails('one_update_property', { databaseId: db.id, property: 'Notes', name: 'Remarks' }, 'is locked in One')
+    await fails('one_create_view', { databaseId: db.id, type: 'list' }, 'is locked in One')
+    await fails('one_update_database', { id: db.id, locked: false }, "the person's decision in One")
+    expect(json(await call('one_update_row', { id: rows[0].id, properties: { Notes: 'still editable' } })).properties.Notes).toBe('still editable')
+    expect(json(await call('one_update_database', { id: db.id, title: 'Stock', icon: '📦' }))).toMatchObject({ title: 'Stock', icon: '📦', changed: ['title', 'icon'] })
+    await undoLast(page, 'one_update_database')
+    expect(await wsEval(page, (s, id) => [s.pages[id].title, s.pages[id].icon], db.id)).toEqual(['Inventory', null])
+  })
+
+  test('one_update_property: rename, options added / renamed / recoloured / removed (rows cleared), safe type changes only; Undo', async ({ page }) => {
+    await applying(page)
+    const { db } = await inventory('Parts list')
+    const res = json(await call('one_update_property', { databaseId: db.id, property: 'Kind', name: 'Type', options: { add: ['Kit'], update: [{ name: 'tool', newName: 'Tools', color: 'red' }], remove: ['Part'] } }))
+    expect(res).toMatchObject({ changed: ['name', 'options'], cleared: 1 })
+    expect(res.property.name).toBe('Type')
+    expect(res.property.options.map((o: Json) => [o.name, o.color])).toEqual([['Tools', 'red'], ['Kit', expect.any(String)]])
+    const types = async () => (json(await call('one_query_database', { databaseId: db.id, sort: 'title' })).rows as Json[]).map((r) => r.properties.Type)
+    expect(await types()).toEqual([null, 'Tools', 'Tools'])
+
+    await fails('one_update_property', { databaseId: db.id, property: 'Type', options: { remove: ['Nope'] } }, 'has no option "Nope"')
+    await fails('one_update_property', { databaseId: db.id, property: 'Count', type: 'date' }, 'From number an agent may change it to: text')
+    await fails('one_update_property', { databaseId: db.id, property: 'Item', type: 'text' }, 'its type stays')
+    await fails('one_update_property', { databaseId: db.id, property: 'Notes', name: 'type' }, 'already has a property named "type"')
+    expect(json(await call('one_update_property', { databaseId: db.id, property: 'Notes', name: 'Notes' })).note).toMatch(/No change/)
+
+    const multi = json(await call('one_update_property', { databaseId: db.id, property: 'Type', type: 'multi_select' }))
+    expect(multi).toMatchObject({ converted: 2, property: { type: 'multi_select' } })
+    expect(await types()).toEqual([[], ['Tools'], ['Tools']])
+    // text → select: an option per distinct value
+    json(await call('one_update_property', { databaseId: db.id, property: 'Notes', type: 'select' }))
+    const notes = json(await call('one_get_database', { id: db.id })).properties.find((p: Json) => p.name === 'Notes')
+    expect(notes.options.map((o: Json) => o.name).sort()).toEqual(['Bolt notes', 'Hammer notes', 'Saw notes'])
+
+    await undoLast(page, 'one_update_property')
+    const plain = json(await call('one_get_database', { id: db.id })).properties.find((p: Json) => p.name === 'Notes')
+    expect(plain.type).toBe('text')
+    expect(plain.options).toBeUndefined()
+    expect((json(await call('one_query_database', { databaseId: db.id, sort: 'title' })).rows as Json[]).map((r) => r.properties.Notes)).toEqual(['Bolt notes', 'Hammer notes', 'Saw notes'])
+  })
+
+  test('views: create, change and delete — validated against the schema; Undo of each', async ({ page }) => {
+    await applying(page)
+    const { db } = await inventory('Workshop')
+    const made = json(await call('one_create_view', { databaseId: db.id, type: 'board', groupBy: 'Kind', filter: [{ property: 'Notes', op: 'contains', value: 'a' }], properties: ['Notes'] }))
+    expect(made.view).toMatchObject({ name: 'Board', type: 'board', groupBy: 'Kind', filter: [{ property: 'Notes', op: 'contains', value: 'a' }], properties: ['Notes'] })
+    const ids = await wsEval(page, (s, id) => s.databases[id].views.map((v: any) => v.name), db.id) // eslint-disable-line @typescript-eslint/no-explicit-any
+    expect(ids).toEqual(['Table', 'Board'])
+
+    const changed = json(await call('one_update_view', { databaseId: db.id, view: 'board', name: 'Kinds', type: 'list', groupBy: null, filter: null, sort: [{ property: 'Count', direction: 'desc' }] }))
+    expect(changed.view).toMatchObject({ name: 'Kinds', type: 'list', sorts: [{ property: 'Count', direction: 'desc' }] })
+    expect(changed.view.groupBy).toBeUndefined()
+    expect(changed.view.filter).toBeUndefined()
+    expect(json(await call('one_update_view', { databaseId: db.id, view: 'Kinds', name: 'Kinds' })).note).toMatch(/No change/)
+
+    await fails('one_create_view', { databaseId: db.id, type: 'calendar' }, 'a calendar needs a date property')
+    await fails('one_create_view', { databaseId: db.id, type: 'chart' }, '"type" must be one of table, board, list, gallery, calendar, timeline, feed')
+    await fails('one_update_view', { databaseId: db.id, view: 'Kinds', groupBy: 'Nope' }, 'groupBy: no property "Nope"')
+    await fails('one_update_view', { databaseId: db.id, view: 'Kinds', filter: [{ property: 'Kind', op: 'equals', value: 'Gadget' }] }, 'has no option "Gadget"')
+    await fails('one_update_view', { databaseId: db.id, view: 'Nope', name: 'x' }, 'has no view "Nope"')
+
+    // a feed by a date; then the change is undone
+    json(await call('one_create_property', { databaseId: db.id, name: 'Bought', type: 'date' }))
+    const cal = json(await call('one_create_view', { databaseId: db.id, type: 'calendar', name: 'When' }))
+    expect(cal.view).toMatchObject({ type: 'calendar', dateProperty: 'Bought' })
+    await undoLast(page, 'one_create_view')
+    await undoLast(page, 'one_update_view')
+    expect(await wsEval(page, (s, id) => s.databases[id].views.map((v: any) => `${v.name}:${v.type}:${v.groupBy ? 'g' : '-'}`), db.id)).toEqual(['Table:table:-', 'Board:board:g']) // eslint-disable-line @typescript-eslint/no-explicit-any
+
+    const gone = json(await call('one_delete_view', { databaseId: db.id, view: 'Board' }))
+    expect(gone.views.map((v: Json) => v.name)).toEqual(['Table'])
+    await fails('one_delete_view', { databaseId: db.id, view: 'Table' }, 'is the only view of "Workshop"')
+    await undoLast(page, 'one_delete_view')
+    expect(await wsEval(page, (s, id) => s.databases[id].views.map((v: any) => v.name), db.id)).toEqual(['Table', 'Board']) // eslint-disable-line @typescript-eslint/no-explicit-any
+  })
+
+  test('one_move_row: only into a database whose properties fit by name and type; options follow; Undo', async ({ page }) => {
+    await applying(page)
+    const a = json(await call('one_create_database', { title: 'Leads A', properties: [{ name: 'Name', type: 'title' }, { name: 'Stage', type: 'select', options: ['New'] }, { name: 'Due', type: 'date' }] }))
+    const b = json(await call('one_create_database', { title: 'Leads B', properties: [{ name: 'Name', type: 'title' }, { name: 'stage', type: 'select', options: ['Old'] }, { name: 'Due', type: 'date' }, { name: 'Extra', type: 'text' }] }))
+    const c = json(await call('one_create_database', { title: 'Leads C', properties: [{ name: 'Name', type: 'title' }, { name: 'Stage', type: 'status', options: ['Todo', 'Done'] }] }))
+    const r = json(await call('one_create_row', { databaseId: a.id, title: 'Call Ada', properties: { Stage: 'New', Due: '2026-10-09' }, markdown: 'Her number is in the CRM.' }))
+
+    const msg = await fails('one_move_row', { id: r.id, databaseId: c.id }, 'cannot move from "Leads A" to "Leads C" without losing something, so nothing was changed')
+    expect(msg).toContain('"Stage" is select here but status in "Leads C"')
+    expect(msg).toContain('"Due" (date): "Leads C" has no property of that name')
+    expect(await wsEval(page, (s, id) => s.pages[id].databaseId, r.id)).toBe(a.id)
+    await fails('one_move_row', { id: a.id, databaseId: b.id }, 'not a database row. one_move_page')
+
+    const moved = json(await call('one_move_row', { id: r.id, databaseId: b.id }))
+    expect(moved).toMatchObject({ id: r.id, from: { id: a.id, title: 'Leads A' }, databaseId: b.id, properties: { stage: 'New', Due: { start: '2026-10-09', end: null }, Extra: null }, addedOptions: ['New'] })
+    expect(json(await call('one_get_page', { id: r.id }))).toMatchObject({ markdown: 'Her number is in the CRM.', database: { id: b.id } })
+    expect(json(await call('one_query_database', { databaseId: a.id })).total).toBe(0)
+    expect(json(await call('one_move_row', { id: r.id, databaseId: b.id })).note).toMatch(/No change/)
+
+    await undoLast(page, 'one_move_row')
+    expect(json(await call('one_get_page', { id: r.id })).properties).toMatchObject({ Stage: 'New', Due: { start: '2026-10-09', end: null } })
+    const stage = json(await call('one_get_database', { id: b.id })).properties.find((p: Json) => p.name === 'stage')
+    expect(stage.options.map((o: Json) => o.name)).toEqual(['Old'])
+  })
+
+  test('Ask first shows a card for each tidy-up tool; Read only refuses them all', async ({ page }) => {
+    await openApp(page)
+    await connect(page)
+    await page.getByRole('radio', { name: 'Apply directly' }).click()
+    const { db, rows } = await inventory('Garage')
+    const shed = json(await call('one_create_database', { title: 'Shed', properties: [{ name: 'Item', type: 'title' }, { name: 'Kind', type: 'select', options: ['Tool'] }, { name: 'Count', type: 'number' }, { name: 'Notes', type: 'text' }] }))
+    const spare = json(await call('one_create_page', { title: 'Spare A' }))
+    const spare2 = json(await call('one_create_page', { title: 'Spare B' }))
+    await page.getByRole('radio', { name: 'Ask first' }).click()
+    await closeSettings(page)
+    const card = page.getByRole('alertdialog')
+
+    const bulk = call('one_trash_page', { ids: [spare.id, spare2.id] })
+    await expect(card).toContainText('Move 2 items to the trash')
+    await expect(card.locator('.mcp-line', { hasText: 'Spare A' })).toContainText('Page')
+    await page.keyboard.press('Enter')
+    expect(json(await bulk).count).toBe(2)
+
+    const row = call('one_move_row', { id: rows[0].id, databaseId: shed.id })
+    await expect(card).toContainText('Move row')
+    await expect(card).toContainText('Move row “Hammer” from Garage to Shed')
+    await expect(card.locator('.mcp-line', { hasText: 'Properties' })).toContainText('Kind, Count, Notes')
+    await page.keyboard.press('Escape')
+    expect(text(await row)).toContain('The person rejected this change')
+    expect(await wsEval(page, (s, id) => s.pages[id].databaseId, rows[0].id)).toBe(db.id)
+
+    const ren = call('one_update_database', { id: db.id, icon: '🧰' })
+    await expect(card).toContainText('Change database “Garage”')
+    await expect(card.locator('.mcp-line', { hasText: 'Icon' })).toContainText('🧰')
+    await page.keyboard.press('Enter')
+    expect(json(await ren).changed).toEqual(['icon'])
+
+    const tableView = call('one_update_view', { databaseId: db.id, view: 'Table', name: 'Everything', sort: 'Item' })
+    await expect(card).toContainText('Change view “Table” of Garage')
+    await expect(card.locator('.mcp-line', { hasText: 'Name' })).toContainText('Everything')
+    await expect(card.locator('.mcp-line', { hasText: 'Sort' })).toContainText('Item ↑')
+    await page.keyboard.press('Enter')
+    expect(json(await tableView).view.name).toBe('Everything')
+
+    const del = call('one_delete_property', { databaseId: db.id, property: 'Count' })
+    await expect(card).toContainText('Delete property')
+    await expect(card).toContainText('Delete property “Count” from Garage')
+    await expect(card.locator('.mcp-line', { hasText: 'Values' })).toContainText('3 rows lose their value')
+    await page.keyboard.press('Escape')
+    expect((await del).isError).toBe(true)
+
+    const upd = call('one_update_property', { databaseId: db.id, property: 'Kind', options: { remove: ['Tool'] } })
+    await expect(card).toContainText('Change property “Kind” in Garage')
+    await expect(card.locator('.mcp-line', { hasText: 'Remove option' })).toContainText('Tool · 2 rows lose their value')
+    await page.keyboard.press('Escape')
+    expect((await upd).isError).toBe(true)
+
+    const view = call('one_create_view', { databaseId: db.id, type: 'board', name: 'Kanban' })
+    await expect(card).toContainText('Add view “Kanban” to Garage')
+    await expect(card.locator('.mcp-line', { hasText: 'Group by' })).toContainText('Kind')
+    await page.keyboard.press('Enter')
+    expect(json(await view).view.groupBy).toBe('Kind')
+
+    const dropView = call('one_delete_view', { databaseId: db.id, view: 'Kanban' })
+    await expect(card).toContainText('Delete view “Kanban” of Garage')
+    await expect(card).toContainText('The rows stay; only this view goes.')
+    await page.keyboard.press('Escape')
+    expect((await dropView).isError).toBe(true)
+
+    const home = await pageIdByTitle(page, 'Team wiki')
+    const move = call('one_move_page', { id: db.id, parentId: home })
+    await expect(card).toContainText('Move “Garage” to Team wiki')
+    await expect(card.locator('.mcp-line', { hasText: /^To/ })).toContainText('Team wiki')
+    await page.keyboard.press('Enter')
+    expect(json(await move).parentId).toBe(home)
+
+    await openAgentsTab(page)
+    await page.getByRole('radio', { name: 'Read only' }).click()
+    const tries: Array<[string, Json]> = [
+      ['one_trash_page', { ids: [db.id] }],
+      ['one_restore_page', { id: db.id }],
+      ['one_move_page', { id: db.id, parentId: null }],
+      ['one_move_row', { id: db.id, databaseId: db.id }],
+      ['one_update_database', { id: db.id, title: 'x' }],
+      ['one_update_property', { databaseId: db.id, property: 'Kind', name: 'x' }],
+      ['one_delete_property', { databaseId: db.id, property: 'Kind' }],
+      ['one_create_view', { databaseId: db.id, type: 'list' }],
+      ['one_update_view', { databaseId: db.id, view: 'Table', name: 'x' }],
+      ['one_delete_view', { databaseId: db.id, view: 'Kanban' }],
+    ]
+    for (const [name, args] of tries) await fails(name, args, 'Agents can only read')
+    await expect(page.locator('.mcp-log__row').first()).toContainText('Refused')
+    expect(await wsEval(page, (s, id) => [s.pages[id].trashed, s.databases[id].views.length, s.databases[id].properties.length], db.id)).toEqual([false, 2, 4])
   })
 })
