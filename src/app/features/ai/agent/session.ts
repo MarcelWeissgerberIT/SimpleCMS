@@ -19,7 +19,7 @@ import { initialAgentState, openAgent, setStopHandler, useAgent, type EchoEntry 
 import { loadHistory, pushHistory } from './history'
 import { parseCommand } from './commands'
 import type { ReadLimit, StageApi } from './tools'
-import { isContextLimited, openContextPicker, pageContextMarks, readableContent } from '../../../editor'
+import { isContextLimited, openContextPicker, pageContextMarks, readableContent, startRedo } from '../../../editor'
 import { depsOf, type AgentStatus, type AgentStep, type AgentTurn, type StagedChange, type TermMention, type TermRef, type TurnContext } from './types'
 
 const set = useAgent.setState
@@ -371,6 +371,9 @@ export async function submitPrompt(raw?: string): Promise<void> {
     case 'context':
       pickContext(input)
       return
+    case 'redo':
+      pickRedo(input)
+      return
     default:
       info(input, 'features.agent.echo.unknown', { cmd: input.split(/\s/)[0] })
   }
@@ -397,6 +400,29 @@ export function pickContext(input: string | null) {
     },
   })
   if (!ok) return say('features.agent.echo.noBlocks')
+  if (phone) useAgent.setState({ open: false })
+}
+
+/**
+ * /redo (/neu-machen): the redo picker on the open page (the caret's block pre-marked); on Done the
+ * page's AI panel takes over — instructions, the run, the review. Phones: the terminal steps aside
+ * (and comes back when the picker is cancelled).
+ */
+export function pickRedo(input: string) {
+  const pageId = openPageId()
+  if (!pageId) return info(input, 'features.agent.echo.redoLocked')
+  const phone = window.matchMedia?.('(max-width: 640px)').matches ?? false
+  const ok = startRedo(pageId, {
+    onEnd: (done, ids) => {
+      if (!done || !ids.length) {
+        if (phone) openAgent()
+        return info(input, 'features.agent.echo.redoKept')
+      }
+      const title = useWorkspace.getState().pages[pageId]?.title.trim() || t('common.untitled')
+      info(input, 'features.agent.echo.redo', { title, what: tn('features.ai.redo.passages', ids.length) })
+    },
+  })
+  if (!ok) return info(input, 'features.agent.echo.redoLocked')
   if (phone) useAgent.setState({ open: false })
 }
 

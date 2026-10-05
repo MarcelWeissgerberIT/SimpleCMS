@@ -144,6 +144,11 @@ Give a server a codeword and a request that starts with it — `kb: what do we k
 groups; previewed before anything changes, one `⌘Z` to undo). AI-menu requests keep running in the background when
 you close the panel or open another page — the page tells you when the result is ready.
 
+**What Claude reads, what it redoes** — mark the blocks of a page Claude may read, or leave the page out entirely: the
+AI menu and the AI terminal show it ("Reads · 3 marked blocks · 412 words") and keep to it; unmarked text is never sent.
+Mark passages anywhere on a page and have Claude redo them with your instructions — saved presets, a style-guide page as
+rules —, then accept or reject each one in a word-level review; everything accepted lands in one step, one `⌘Z` to undo.
+
 **Custom agents** — saved AI helpers for recurring work, like Notion's: a job in plain words, a trigger (a schedule, a
 new or changed row — which covers form answers and synced mails —, by hand, or a webhook), what they may read and
 write, external MCP tools, and a budget per run. They report back and, by default, stage their changes for your
@@ -281,6 +286,9 @@ Built for the **Ninja Armory** challenge of the AI Automations community.
 - Claude-KI mit deinem eigenen API-Key (verschlüsselt im Browser gespeichert), auch als KI-Autofill für Datenbank-Spalten
 - „In Datenbank umwandeln“: markierten Text (z. B. einen eingefügten Bericht) macht Claude zum Board oder zur Tabelle,
   mit Vorschau; KI-Anfragen laufen im Hintergrund weiter, auch wenn du die Seite wechselst
+- Kontext-Auswahl: markieren, welche Blöcke einer Seite Claude lesen darf (oder gar nichts) – KI-Menü und KI-Terminal
+  halten sich daran; „Neu machen mit Vorgaben“: Stellen markieren, Vorgaben als Vorlage speichern, auf Wunsch eine
+  Styleguide-Seite als Regeln – dann jede Stelle mit Wort-Vergleich annehmen oder ablehnen, ein `⌘Z` nimmt alles zurück
 - Webhook-Automationen für n8n, Make und Zapier – auch aus Buttons und geteilten Formularen
 - Import aus Notion, Obsidian, Evernote, Trello und HTML
 - Veröffentlichen als statische Website, Teilen-Links ohne Server (optional mit Passwort)

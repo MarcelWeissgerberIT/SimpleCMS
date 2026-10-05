@@ -42,9 +42,10 @@ export function openRedoPanel(editor: Editor, ids: string[]): boolean {
 
 /**
  * The picker to mark passages to redo — pre-marked: `ids`, else the blocks the selection touches.
- * On Done (with passages) the AI panel opens on them. False: no editable editor for the page.
+ * On Done (with passages) the AI panel opens on them; `onEnd` hears how it ended (the AI terminal's
+ * log). False: no editable editor for the page.
  */
-export function startRedo(target: Editor | ID, opts: { ids?: string[] } = {}): boolean {
+export function startRedo(target: Editor | ID, opts: { ids?: string[]; onEnd?: (done: boolean, ids: string[]) => void } = {}): boolean {
   const editor = typeof target === 'string' ? liveEditorOf(target) : target
   if (!editor || editor.isDestroyed || !editor.isEditable || !bridges.has(editor)) return false
   const { from, to } = editor.state.selection
@@ -54,6 +55,7 @@ export function startRedo(target: Editor | ID, opts: { ids?: string[] } = {}): b
     ids,
     onEnd: (done, marked) => {
       if (done && marked.length) requestAnimationFrame(() => openRedoPanel(editor, marked))
+      opts.onEnd?.(done, marked)
     },
   })
 }

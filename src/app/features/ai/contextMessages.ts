@@ -116,6 +116,8 @@ export const messages: Messages = {
     'features.ai.redo.after': 'Added',
     'features.agent.cmd.redo': 'redo marked passages of the open page with instructions',
     'features.agent.echo.redoLocked': 'Passages can be redone only on a page you can edit here — open it first.',
+    'features.agent.echo.redo': 'Redo · {title}: {what} — the AI panel on the page takes it from here.',
+    'features.agent.echo.redoKept': 'Nothing marked to redo.',
   },
   de: {
     'features.ai.reads.label': 'Liest',
@@ -227,5 +229,7 @@ export const messages: Messages = {
     'features.ai.redo.after': 'Neu',
     'features.agent.cmd.redo': 'markierte Stellen der offenen Seite mit Vorgaben neu machen',
     'features.agent.echo.redoLocked': 'Stellen lassen sich nur auf einer Seite neu machen, die du hier bearbeiten kannst — öffne sie zuerst.',
+    'features.agent.echo.redo': 'Neu machen · {title}: {what} — das KI-Panel auf der Seite übernimmt.',
+    'features.agent.echo.redoKept': 'Nichts zum Neu-Machen markiert.',
   },
 }

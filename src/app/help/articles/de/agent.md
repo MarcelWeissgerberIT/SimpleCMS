@@ -3,7 +3,7 @@ id: agent
 title: Das KI-Terminal
 section: ai
 order: 3
-keywords: agent, ki-terminal, terminal, claude, automatisieren, massenänderung, aufgaben, einträge, seiten, datenbanken, board, übernehmen, prüfen, tastatur, befehle, referenzen, workspace agent, AI terminal
+keywords: agent, ki-terminal, terminal, claude, automatisieren, massenänderung, aufgaben, einträge, seiten, datenbanken, board, übernehmen, prüfen, tastatur, befehle, referenzen, kontext, was claude liest, neu machen, workspace agent, AI terminal, context
 related: custom-agents, ai-menu, mcp-servers, mcp-bridge
 summary: Gib Claude Aufgaben per Tastatur — es liest deinen Workspace, schlägt Änderungen vor, und du übernimmst sie. Arbeitet auch ausgeblendet weiter.
 ---
@@ -21,12 +21,15 @@ Blende das Terminal mit <kbd>Esc</kbd> oder <kbd>Mod+J</kbd> aus und arbeite wei
 - **Referenzen:** Markiere Text auf einer Seite und drück **Zum Terminal** in der Werkzeugleiste oder <kbd>Mod+Shift+J</kbd> (auch auf schreibgeschützten Seiten und in Datenbank-Einträgen). Die Stelle wird zum Chip; bis zu 10 gehen mit der nächsten Aufgabe als Markdown samt Seite mit und wandern dann in deren Protokollzeile. <kbd>Rücktaste</kbd> am Anfang der Eingabe entfernt den letzten Chip.
 - **Erwähnungen:** Tipp `@` und einen Teil eines Titels, dann <kbd>Tab</kbd>: Die Seite oder Datenbank geht als Kontext mit.
 
+## Was Claude liest
+Der Chip der offenen Seite sagt, wie viel Claude davon lesen darf: nur der Titel bei der ganzen Seite, *· 3 Blöcke* bei markierten Blöcken, *· nichts*, wenn du sie ausgenommen hast. Ein Klick auf den Chip bietet **Ganze Seite**, **Nur markierte Blöcke**, **Blöcke markieren…** (oder `/kontext`) und **Nichts von dieser Seite** — dieselben Markierungen wie im [KI-Menü](help:ai-menu). Dann liefern `read_page` (und die Suche) von dieser Seite nur die markierten Blöcke oder halten sie zurück, und Claude erfährt das; Schreiben auf die Seite geht wie gewohnt, mit deiner Prüfung. Andere Seiten sind nicht betroffen; Referenzen schicken weiter genau den markierten Text. `/neu-machen` markiert Stellen der offenen Seite, die Claude mit Vorgaben neu macht.
+
 ## Tasten und Befehle
 - <kbd>↑</kbd> / <kbd>↓</kbd> in der ersten / letzten Zeile: frühere Eingaben (die letzten 50 auf diesem Gerät und in diesem Workspace, nie synchronisiert).
 - <kbd>Tab</kbd> ergänzt `/Befehle` und `@`-Erwähnungen; bei leerer Eingabe springt es in die Prüfliste.
 - In der Prüfliste: <kbd>j</kbd> / <kbd>k</kbd> (oder Pfeile) bewegen, <kbd>Leertaste</kbd> markiert, <kbd>Enter</kbd> übernimmt die markierten (oder den aktuellen) Einträge, <kbd>a</kbd> übernimmt alle, <kbd>d</kbd> verwirft, <kbd>o</kbd> öffnet die Seite, <kbd>u</kbd> macht das letzte Übernehmen rückgängig, <kbd>Esc</kbd> führt zurück zur Eingabe.
 - <kbd>Alt+↑</kbd> / <kbd>Alt+↓</kbd> oder Ziehen an der Oberkante ändern die Höhe; Maximieren füllt den Inhaltsbereich.
-- `/neu` beginnt neu · `/stopp` · `/übernehmen` · `/verwerfen` · `/verlauf` · `/mcp` (verwendete Server) · `/kosten` (Tokens und geschätzte Kosten) · `/hilfe`. Die englischen Namen gehen auch: `/new`, `/stop`, `/apply`, `/discard`, `/history`, `/cost`, `/help`.
+- `/neu` beginnt neu · `/stopp` · `/übernehmen` · `/verwerfen` · `/verlauf` · `/mcp` (verwendete Server) · `/kosten` (Tokens und geschätzte Kosten) · `/kontext` (was Claude auf der offenen Seite liest) · `/neu-machen` (Stellen mit Vorgaben neu machen) · `/hilfe`. Die englischen Namen gehen auch: `/new`, `/stop`, `/apply`, `/discard`, `/history`, `/cost`, `/context`, `/redo`, `/help`.
 
 ## Gut zu wissen
 - Claude kann Datenbanken anlegen (eine Tabelle oder ein Board, gruppiert nach einer Spalte) und Eigenschaften ergänzen und sie in derselben Aufgabe mit Einträgen füllen. Gesperrte Datenbanken lehnen neue Eigenschaften ab.

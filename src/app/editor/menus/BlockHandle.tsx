@@ -30,6 +30,7 @@ import { mediaMenuEntries } from './mediaMenu'
 import { chartMenuEntries } from './chartMenu'
 import { ColorGrid } from './BubbleToolbar'
 import { blockMenuSyncedEntries } from '../synced/menu'
+import { redoBlockMenuEntries } from '../context/menu'
 
 const TEXTUAL = new Set(['paragraph', 'heading', 'bulletList', 'orderedList', 'taskList', 'listItem', 'taskItem', 'blockquote', 'callout', 'details', 'codeBlock'])
 const EXCLUDED = new Set(['column', 'detailsSummary', 'detailsContent', 'tab'])
@@ -261,6 +262,8 @@ export function BlockHandle({ editor, bridge, pageId }: { editor: Editor; bridge
           },
         ],
       })
+    // "Redo with instructions…": the redo picker, this block pre-marked
+    items.push(...redoBlockMenuEntries(editor, ref, t))
     // video / audio: replace, download, copy a web link
     items.push(...mediaMenuEntries(editor, ref, t))
     // chart: edit, type, downloads, data, source
