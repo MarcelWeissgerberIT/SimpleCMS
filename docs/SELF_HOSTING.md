@@ -19,6 +19,23 @@ Time needed: about 30 minutes, most of it waiting for DNS.
 
 ---
 
+## Quick start: the guided setup
+
+On a fresh Ubuntu 24.04 / Debian 12 server, as root, after the DNS record (step 3) is in place or while it
+propagates:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/MarcelWeissgerberIT/SimpleCMS/main/server/setup.sh -o setup.sh
+bash setup.sh
+```
+
+It asks for the domain, your admin email, who may sign up and (optionally) the SMTP mailbox, then installs
+Docker, writes `server/.env` with a fresh `SECRET` and `DATA_KEY` (shown once — store it in your password
+manager), checks DNS, adds swap on small servers and starts everything with HTTPS. Run it again later to
+update; an existing `.env` keeps its keys. The steps below do the same by hand.
+
+---
+
 ## 1. What you need
 
 - **A small Linux server** with a public IP. Any VPS works; for a team of up to a few dozen people the
