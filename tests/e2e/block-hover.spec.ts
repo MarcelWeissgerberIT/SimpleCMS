@@ -253,19 +253,21 @@ test.describe('one grip at a time', () => {
     const ed = editorOf(page, id)
     const texts = () => wsEval(page, (s, id) => (s.pages[id].content.content as AnyState[]).map((n) => n.content?.[0]?.text ?? '').filter(Boolean), id)
 
+    // the menu of Beta's grip, closed with Esc: Beta stays selected (washed) but gets no pinned grip —
+    // the hover handle stays the handle
     await ed.locator('p', { hasText: 'Beta block' }).hover()
     await page.locator('.block-handle-wrap .block-handle__grip').click()
-    await menu(page).getByRole('menuitem', { name: /^Duplicate/ }).click()
-    await expect.poll(texts).toEqual(['Alpha block', 'Beta block', 'Beta block', 'Gamma block', 'Delta block'])
-    // the copy is selected (washed), but no pinned grip: the hover handle stays the handle
-    await expect(ed.locator('.is-block-selected')).toHaveCount(1)
+    await expect(menu(page)).toBeVisible()
+    await page.keyboard.press('Escape')
+    await expect(menu(page)).toHaveCount(0)
+    await expect(ed.locator('.is-block-selected')).toHaveText(['Beta block'])
     await expect(pinned(page)).toHaveCount(0)
     await ed.locator('p', { hasText: 'Gamma block' }).hover()
     await expectHandleAt(page, ed, 'Gamma block')
     expect(await visibleGrips(page)).toBe(1)
     await page.locator('.block-handle-wrap .block-handle__grip').click()
     await menu(page).getByRole('menuitem', { name: /^Delete/ }).click()
-    await expect.poll(texts).toEqual(['Alpha block', 'Beta block', 'Beta block', 'Delta block'])
+    await expect.poll(texts).toEqual(['Alpha block', 'Beta block', 'Delta block'])
 
     // a deliberate selection (Esc) is hard: the pinned grip, no hover handle elsewhere …
     await ed.locator('p', { hasText: 'Alpha block' }).click()
@@ -284,8 +286,8 @@ test.describe('one grip at a time', () => {
     await page.mouse.down()
     await page.mouse.up()
     await page.keyboard.up('Shift')
-    await expect(ed.locator('.is-block-selected')).toHaveCount(4)
-    await expect(page.getByTestId('selection-count')).toHaveText('4 blocks · Esc')
+    await expect(ed.locator('.is-block-selected')).toHaveCount(3)
+    await expect(page.getByTestId('selection-count')).toHaveText('3 blocks · Esc')
     await expect(menu(page)).toHaveCount(0)
   })
 
@@ -313,6 +315,166 @@ test.describe('one grip at a time', () => {
     await page.mouse.move(intro.x + 40, intro.y + intro.height / 2)
     await expectHandleAt(page, ed, 'Intro paragraph.')
     expect(await visibleGrips(page)).toBe(1)
+  })
+})
+
+/* ------------------------------------------------------------------ */
+/* Reported: nested bullets under "12." could not be grabbed / selected */
+/* ------------------------------------------------------------------ */
+
+const PROTOCOL = doc(
+  para('Protokoll'),
+  {
+    type: 'orderedList',
+    attrs: { start: 11 },
+    content: [
+      item('Platten vorbereiten.'),
+      item(
+        'Loop über die DWP 1–4, je Platte 7 Blöcke:',
+        list(
+          'bulletList',
+          item('750 µl aspirieren reverse.'),
+          item('Multi-Dispense 3 × 250 µl, Spitze bleibt im Kanal.', list('bulletList', item('Spitzen nach Block 4 wechseln.'))),
+          item('Rest mit Blowout verwerfen.'),
+        ),
+      ),
+      item('Abschluss prüfen:', list('taskList', todo('Deckel drauf'), todo('Etikett geschrieben'))),
+    ],
+  },
+  para('Ende.'),
+)
+
+/** Two animation frames: the drag-handle plugin resolves the pointer on the next one. */
+const frames = (page: Page) => page.evaluate(() => new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r()))))
+
+/**
+ * Move from the item's text straight left (4px steps) at `dy` into its first line until the pointer is
+ * on the hover grip: on every step the handle stays at this item's row — never its parent's.
+ */
+async function sweepToGrip(page: Page, ed: Locator, text: string, dy: number) {
+  const row = (await line(ed, text).boundingBox())!
+  const y = row.y + dy
+  await page.mouse.move(row.x + 40, y)
+  await expectHandleAt(page, ed, text)
+  for (let x = row.x + 40; ; x -= 4) {
+    expect(x, `the grip of "${text}" is reachable (dy ${dy})`).toBeGreaterThan(row.x - 120)
+    await page.mouse.move(x, y)
+    await frames(page)
+    const top = await handleTop(page)
+    expect(top !== null && Math.abs(top - row.y) < 10, `handle at "${text}" with the pointer at x ${Math.round(x - row.x)} (dy ${dy})`).toBe(true)
+    if (await page.evaluate(([x, y]) => !!document.elementFromPoint(x, y)?.closest('.block-handle__grip'), [x, y] as const)) return
+  }
+}
+
+test.describe('nested bullets inside a numbered item', () => {
+  async function protocol(page: Page) {
+    await openApp(page)
+    const id = await createPage(page, { title: 'Pipettierprotokoll', content: PROTOCOL })
+    await gotoPage(page, id)
+    const ed = editorOf(page, id)
+    await expect(ed.locator('p', { hasText: 'Ende.' })).toBeVisible()
+    /** The items of the bullet list under "12." (each with its nested text). */
+    const bullets = () =>
+      wsEval(page, (s, id) => {
+        const t = (n: AnyState): string => (n.text ?? '') + (n.content ?? []).map(t).join('')
+        const loop = (s.pages[id].content.content as AnyState[])[1].content[1]
+        return (loop.content[1].content as AnyState[]).map(t)
+      }, id)
+    return { id, ed, bullets }
+  }
+
+  test('from the text of a nested bullet (and one level deeper) straight left to its grip: the handle never jumps to "12."; its menu acts on that bullet', async ({ page }) => {
+    const { ed, bullets } = await protocol(page)
+    for (const text of ['Multi-Dispense 3 × 250 µl, Spitze bleibt im Kanal.', 'Spitzen nach Block 4 wechseln.', '750 µl aspirieren reverse.', 'Loop über die DWP 1–4, je Platte 7 Blöcke:']) {
+      const h = (await line(ed, text).boundingBox())!.height
+      for (const dy of [5, h / 2, h - 3]) await sweepToGrip(page, ed, text, dy)
+      // its handle stands left of its own marker
+      const counter = text.startsWith('Loop') ? '12' : undefined
+      const marker = await markerOf(ed, text, counter)
+      const wrap = (await hoverWrap(page).boundingBox())!
+      expect(wrap.x + wrap.width).toBeLessThanOrEqual(marker.left + 0.5)
+    }
+    // the grip reached from the text opens the menu of THAT bullet: Duplicate copies it, not "12."
+    await sweepToGrip(page, ed, 'Multi-Dispense 3 × 250 µl, Spitze bleibt im Kanal.', 12)
+    await page.mouse.down()
+    await page.mouse.up()
+    await menu(page).getByRole('menuitem', { name: /^Duplicate/ }).click()
+    await expect
+      .poll(bullets)
+      .toEqual([
+        '750 µl aspirieren reverse.',
+        'Multi-Dispense 3 × 250 µl, Spitze bleibt im Kanal.Spitzen nach Block 4 wechseln.',
+        'Multi-Dispense 3 × 250 µl, Spitze bleibt im Kanal.Spitzen nach Block 4 wechseln.',
+        'Rest mit Blowout verwerfen.',
+      ])
+  })
+
+  test('Esc in a nested bullet selects that bullet (not "12."), the pinned grip stands beside its marker, Shift+click extends among its siblings', async ({ page }) => {
+    const { ed } = await protocol(page)
+    await line(ed, 'Multi-Dispense 3 × 250 µl, Spitze bleibt im Kanal.').click()
+    await page.keyboard.press('Escape')
+    const selected = ed.locator('.is-block-selected')
+    await expect(selected).toHaveCount(1)
+    await expect(selected).toHaveText(/^Multi-Dispense/)
+    await expect(pinned(page)).toBeVisible()
+    const bullet = await markerOf(ed, 'Multi-Dispense 3 × 250 µl, Spitze bleibt im Kanal.')
+    const grip = (await pinned(page).boundingBox())!
+    expect(grip.x + grip.width).toBeLessThanOrEqual(bullet.left + 0.5)
+    expect(Math.abs(grip.y - (await line(ed, 'Multi-Dispense 3 × 250 µl, Spitze bleibt im Kanal.').boundingBox())!.y)).toBeLessThan(10)
+    expect(await visibleGrips(page)).toBe(1)
+
+    await line(ed, 'Rest mit Blowout verwerfen.').click({ modifiers: ['Shift'] })
+    await expect(selected).toHaveCount(2)
+    await expect(selected.nth(0)).toHaveText(/^Multi-Dispense/)
+    await expect(selected.nth(1)).toHaveText('Rest mit Blowout verwerfen.')
+    await expect(page.getByTestId('selection-count')).toHaveText('2 blocks · Esc')
+    // the pinned grip stays at the first, beside its bullet
+    const again = (await pinned(page).boundingBox())!
+    expect(again.x + again.width).toBeLessThanOrEqual(bullet.left + 0.5)
+
+    // one level deeper: Esc there selects the deeper bullet only
+    await page.keyboard.press('Escape')
+    await line(ed, 'Spitzen nach Block 4 wechseln.').click()
+    await page.keyboard.press('Escape')
+    await expect(selected).toHaveText(['Spitzen nach Block 4 wechseln.'])
+    const deep = await markerOf(ed, 'Spitzen nach Block 4 wechseln.')
+    expect((await pinned(page).boundingBox())!.x + (await pinned(page).boundingBox())!.width).toBeLessThanOrEqual(deep.left + 0.5)
+  })
+
+  test('drag a nested bullet by its grip within the list under "12."', async ({ page }) => {
+    const { ed, bullets } = await protocol(page)
+    await sweepToGrip(page, ed, 'Rest mit Blowout verwerfen.', 12)
+    const g = (await page.locator('.block-handle-wrap .block-handle__grip').boundingBox())!
+    const target = (await line(ed, '750 µl aspirieren reverse.').boundingBox())!
+    await page.mouse.move(g.x + g.width / 2, g.y + g.height / 2)
+    await page.mouse.down()
+    await page.mouse.move(g.x + g.width / 2, g.y - 6, { steps: 4 })
+    await page.mouse.move(target.x + 30, target.y + 2, { steps: 12 })
+    await page.mouse.up()
+    await expect
+      .poll(bullets)
+      .toEqual(['Rest mit Blowout verwerfen.', '750 µl aspirieren reverse.', 'Multi-Dispense 3 × 250 µl, Spitze bleibt im Kanal.Spitzen nach Block 4 wechseln.'])
+  })
+
+  test('to-dos inside a numbered item: grip left of the checkbox and reachable, Esc selects the to-do, Shift+click extends', async ({ page }) => {
+    const { ed } = await protocol(page)
+    for (const text of ['Deckel drauf', 'Etikett geschrieben']) {
+      const h = (await line(ed, text).boundingBox())!.height
+      for (const dy of [5, h / 2]) await sweepToGrip(page, ed, text, dy)
+      const box = await markerOf(ed, text)
+      const wrap = (await hoverWrap(page).boundingBox())!
+      expect(wrap.x + wrap.width).toBeLessThanOrEqual(box.left + 0.5)
+    }
+    await line(ed, 'Deckel drauf').click()
+    await page.keyboard.press('Escape')
+    const selected = ed.locator('.is-block-selected')
+    await expect(selected).toHaveText(['Deckel drauf'])
+    const box = await markerOf(ed, 'Deckel drauf')
+    const grip = (await pinned(page).boundingBox())!
+    expect(grip.x + grip.width).toBeLessThanOrEqual(box.left + 0.5)
+    await line(ed, 'Etikett geschrieben').click({ modifiers: ['Shift'] })
+    await expect(selected).toHaveText(['Deckel drauf', 'Etikett geschrieben'])
+    await expect(page.getByTestId('selection-count')).toHaveText('2 blocks · Esc')
   })
 })
 
