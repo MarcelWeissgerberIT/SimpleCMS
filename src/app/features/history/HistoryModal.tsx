@@ -92,8 +92,8 @@ export function HistoryModal({ pageId, onClose }: { pageId: ID; onClose: () => v
   const body = selMeta ? bodies[selMeta.id] : undefined
   const current = page?.content ?? null
 
-  const items = useMemo(() => (body ? diffDocs(body.content, current) : []), [body, current])
-  const stats = useMemo(() => docDiffStats(items), [items])
+  const diffItems = useMemo(() => (body ? diffDocs(body.content, current) : []), [body, current])
+  const stats = useMemo(() => docDiffStats(diffItems), [diffItems])
   // a database entry: how many of its properties differ (the Properties block lists them)
   const propChanges = useMemo(() => (body?.props && page ? diffProps(body.props, page).length : 0), [body, page])
 
@@ -302,7 +302,7 @@ export function HistoryModal({ pageId, onClose }: { pageId: ID; onClose: () => v
                 </div>
               )}
               {page && <PropsDiff body={body} page={page} />}
-              <DocDiff items={items} context={2} variant="rich" />
+              <DocDiff items={diffItems} context={2} variant="rich" />
             </div>
           )}
         </section>

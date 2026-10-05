@@ -44,7 +44,7 @@ export function valueKey(v: PropertyValue | undefined, type?: PropertyType): str
   if (isEmptyValue(v)) return ''
   if (Array.isArray(v) && (type === 'multi_select' || type === 'relation' || type === 'person')) return JSON.stringify([...v].sort())
   if (v && typeof v === 'object' && !Array.isArray(v)) {
-    const d = v as Record<string, unknown>
+    const d = v as unknown as Record<string, unknown>
     return JSON.stringify(Object.keys(d).sort().filter((k) => d[k] !== null && d[k] !== undefined && d[k] !== false).map((k) => [k, d[k]]))
   }
   return JSON.stringify(v)
