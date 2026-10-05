@@ -5,7 +5,7 @@ import { useWorkspace } from '../../store/store'
 import { useUI } from '../../store/ui'
 import { inTemplate, isEffectivelyTrashed, selectBreadcrumbs } from '../../store/selectors'
 import { CodewordChip, isAIConfigured, McpSkippedNote, runAI, templateName, templateRoots, type McpCall } from '../../features'
-import { markdownToDoc, ReadOnlyDoc } from '../../editor'
+import { markdownToDoc, readableContent, ReadOnlyDoc } from '../../editor'
 import { PageIcon } from '../../ui/PageIcon'
 import { restoreFocus as restoreFocusTo } from '../../ui/focus'
 import { shortcutLabel, ALT } from '../../ui/controls'
@@ -385,10 +385,13 @@ function AskPanel({ question, pageId, onDone }: { question: string; pageId: ID |
     setError('')
     setState('running')
     try {
-      const context = page ? `${page.title}\n\n${(page.plain ?? '').slice(0, 12000)}` : undefined
+      // only what the page's context marks allow ("Reads: …" — whole page, marked blocks or nothing)
+      const read = page ? readableContent(page.id) : null
+      const text = read && read.mode !== 'none' ? read.markdown.slice(0, 12000) : ''
+      const context = page ? (text ? `${page.title}\n\n${text}` : page.title) : undefined
       const final = await runAI({
         action: 'custom',
-        input: page?.plain?.slice(0, 12000) ?? '',
+        input: text,
         instruction: question,
         context,
         signal: ctrl.signal,

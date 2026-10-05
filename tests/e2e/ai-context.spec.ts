@@ -190,6 +190,49 @@ test.describe('context marks: what Claude reads', () => {
     for (const s of ['Alpha line', 'SECRETBRAVO', 'SECRETECHO']) expect(bodies[3]).not.toContain(s)
   })
 
+  test('⌘K "?" follows the page\'s marks: only marked blocks go out, nothing in "none"', async ({ page, context }) => {
+    const bodies = await mockClaude(context, () => 'Palette answer.')
+    await openApp(page)
+    await setKey(page)
+    const id = await setup(page)
+    // mark Alpha + Charlie through the AI menu's picker, then leave the panel
+    await openPanel(page, id)
+    await openPicker(page)
+    await rows(page).nth(0).click()
+    await rows(page).nth(2).click()
+    await page.keyboard.press('Enter')
+    await page.keyboard.press('Escape')
+    await expect(panel(page)).toHaveCount(0)
+
+    const ask = async (q: string) => {
+      await page.keyboard.press(`${MOD}+k`)
+      const pal = page.getByRole('dialog', { name: 'Command palette' })
+      const input = pal.getByRole('combobox').or(pal.locator('input')).first()
+      await expect(input).toBeFocused()
+      await input.fill(`?${q}`)
+      await input.press('Enter')
+      await expect(pal).toContainText('Palette answer.')
+      // Esc leaves the answer, a second Esc closes the palette
+      await page.keyboard.press('Escape')
+      if (await pal.count()) await page.keyboard.press('Escape')
+      await expect(pal).toHaveCount(0)
+    }
+    await ask('what is planned?')
+    expect(bodies).toHaveLength(1)
+    expect(bodies[0]).toContain('Alpha line about the launch plan.')
+    expect(bodies[0]).toContain('Charlie line about the beta testers.')
+    for (const s of ['SECRETBRAVO', 'SECRETECHO', 'Delta line']) expect(bodies[0]).not.toContain(s)
+
+    // nothing from this page
+    await openPanel(page, id)
+    await reads(page).click()
+    await panel(page).getByRole('option', { name: /Nothing from this page/ }).click()
+    await page.keyboard.press('Escape')
+    await ask('anything new?')
+    expect(bodies).toHaveLength(2)
+    for (const s of ['Alpha line', 'Charlie line', 'SECRETBRAVO', 'SECRETECHO']) expect(bodies[1]).not.toContain(s)
+  })
+
   test('DE · 390 px: the picker by touch, German readouts', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 })
     await openApp(page)
