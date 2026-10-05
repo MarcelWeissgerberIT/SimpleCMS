@@ -142,7 +142,7 @@ export function SelectionGrip({ editor, bridge, pageId, hidden, onOpen }: Select
     const sel = editor.state.selection
     if (!isBlockSelection(sel) || !e.dataTransfer) return e.preventDefault()
     const slice = sel.content()
-    editor.view.dragging = { slice, move: true, node: sel instanceof NodeSelection ? sel : undefined }
+    editor.view.dragging = { slice, move: true }
     e.dataTransfer.effectAllowed = 'copyMove'
     e.dataTransfer.setData('text/plain', slice.content.textBetween(0, slice.content.size, '\n\n', ' '))
     const first = st ? (editor.view.nodeDOM(st.from) as HTMLElement | null) : null
