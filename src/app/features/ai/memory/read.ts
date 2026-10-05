@@ -48,6 +48,7 @@ export function readMemories(dbId: ID | null = memoryDbId()): Memory[] {
       type: (typeof typeVal === 'string' ? typeOfName(optName(roles.type, typeVal)) : null) ?? 'fact',
       topics: (roles.topics ? ids(p[roles.topics]) : []).map((id) => optName(roles.topics, id)).filter(Boolean).slice(0, 12),
       source: str(roles.source ? p[roles.source] : undefined).slice(0, 300),
+      tag: str(roles.tag ? p[roles.tag] : undefined).trim().toLowerCase().slice(0, 32),
       // a row added by hand has no value yet: it counts as active until its box is unticked
       active: activeVal !== false,
       uses: cited.length,
@@ -76,10 +77,14 @@ const STOP = new Set(
 )
 const keywords = (q: string) => [...new Set(q.toLowerCase().split(/[^\p{L}\p{N}]+/u).filter((w) => w.length > 2 && !STOP.has(w)))].slice(0, 10)
 
-/** The memories that go along with a task (active only): preferences, then the most relevant others. */
-export function pickMemories(task: string, all: Memory[] = readMemories()): PickedMemory[] {
-  const active = all.filter((m) => m.active)
-  if (!active.length) return []
+/**
+ * The memories that go along with a task (active only): the examples it names (`forced`, in full), every
+ * preference, then the most relevant facts / decisions / procedures. Examples go along only when named.
+ */
+export function pickMemories(task: string, all: Memory[] = readMemories(), forced: Memory[] = []): PickedMemory[] {
+  const named = forced.filter((m) => m.active).slice(0, 4)
+  const active = all.filter((m) => m.active && m.type !== 'example')
+  if (!active.length && !named.length) return []
   const prefs = active
     .filter((m) => m.type === 'preference')
     .sort((a, b) => (b.lastUsed ?? '').localeCompare(a.lastUsed ?? '') || b.uses - a.uses || b.createdAt - a.createdAt)
@@ -117,11 +122,11 @@ export function pickMemories(task: string, all: Memory[] = readMemories()): Pick
         .map(([id]) => byId.get(id)!),
     )
   }
-  // the caps: ~12 items, ~3,000 characters (a Procedure's template counts)
-  const out: PickedMemory[] = []
+  // the caps: ~12 items, ~3,000 characters (a Procedure's template counts); named examples come first, outside the cap
+  const out: PickedMemory[] = named.map((m, i) => ({ id: m.id, label: `M${i + 1}`, type: m.type, text: m.text, forced: m.tag }))
   let chars = 0
   for (const m of picked) {
-    if (out.length >= MAX_ITEMS) break
+    if (out.length >= MAX_ITEMS + named.length) break
     const size = m.text.length + (m.type === 'procedure' ? Math.min(BODY_CHARS, m.plain.length) : 0) + 40
     if (out.length && chars + size > MAX_CHARS) continue
     chars += size
@@ -134,7 +139,24 @@ function escapeRe(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
-const TYPE_EN: Record<MemoryType, string> = { fact: 'Fact', preference: 'Preference', decision: 'Decision', procedure: 'Procedure' }
+const TYPE_EN: Record<MemoryType, string> = { fact: 'Fact', preference: 'Preference', decision: 'Decision', procedure: 'Procedure', example: 'Example' }
+
+export const EXAMPLE_INSTRUCTION =
+  "Create the content based on this example: same structure, sections, columns and format, same tone and length. The facts come from the task, the current page or the person's input — never copy the example's facts unless asked."
+
+/** An example in full for a request (its entry's body as its context marks allow), cut at `max` with a note. */
+export function exampleText(id: ID, max = 10_000): string {
+  let md = ''
+  try {
+    const r = readableContent(id)
+    md = r.mode === 'none' ? '' : r.markdown.trim()
+  } catch {
+    md = ''
+  }
+  if (md.length <= max) return md
+  const cut = md.lastIndexOf('\n', max)
+  return `${md.slice(0, cut > max * 0.7 ? cut : max).trimEnd()}\n[Cut: the example is longer than ${max.toLocaleString('en')} characters — follow the part shown.]`
+}
 
 export const MEMORY_INSTRUCTION =
   "This is the person's One memory — standing knowledge and templates they asked you to keep. Follow a matching Procedure as the template for the task; say [M3] (the memory's label) when you use one; if the task contradicts a memory, say so instead of silently choosing."
@@ -148,6 +170,11 @@ export function memoryBlock(items: PickedMemory[], all: Memory[] = readMemories(
     const m = byId.get(it.id)
     const topics = m?.topics.length ? ` · topics: ${m.topics.join(', ')}` : ''
     const source = m?.source ? ` · source: ${clean(m.source)}` : ''
+    if (it.forced) {
+      // an example the request named: in full, with "same structure, new facts"
+      const body = exampleText(it.id).replace(/<\/?example>/gi, '')
+      return `[${it.label}] Example #${it.forced}: ${clean(it.text)}${source}\n${EXAMPLE_INSTRUCTION}\n<example tag="${it.forced}">\n${clean(body)}\n</example>`
+    }
     let line = `[${it.label}] ${TYPE_EN[it.type]}: ${clean(it.text)}${topics}${source}`
     if (it.type !== 'preference') {
       const body = memoryBody(it.id)

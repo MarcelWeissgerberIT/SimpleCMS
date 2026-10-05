@@ -1,5 +1,6 @@
 import { useUI, type ModalState } from '../../store/ui'
 import { HistoryModal, ShareModal, ImportModal, ExportModal, AutomationsModal, TemplatesModal, SaveTemplateModal, AgentPanel, FunctionsModal } from '../../features'
+import { ExampleDialog } from '../../features'
 import { SettingsModal } from '../settings/SettingsModal'
 import { ConfirmModal } from './ConfirmModal'
 import { MoveModal } from './MoveModal'
@@ -46,6 +47,8 @@ function ModalSwitch({ modal, onClose }: { modal: ModalState; onClose: () => voi
       return <SaveTemplateModal pageId={modal.pageId} onClose={onClose} />
     case 'functions':
       return <FunctionsModal initialId={modal.id} onClose={onClose} />
+    case 'memoryExample':
+      return <ExampleDialog pageId={modal.pageId} tag={modal.tag} blocks={modal.blocks} onClose={onClose} />
     default:
       return null
   }

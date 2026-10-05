@@ -8,4 +8,5 @@
 export { memoryFor, noteUse, type MemoryFor } from './use'
 export { MemoryNote } from './MemoryNote'
 export { MemorySettings } from './MemorySettings'
+export { ExampleDialog } from './ExampleDialog'
 export type { MemoryUse, PickedMemory } from './types'

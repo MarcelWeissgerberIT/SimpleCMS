@@ -11,7 +11,7 @@ import { ToolInputError, type AgentTool } from '../agent/tools'
 import { memoryBody, searchMemories } from './read'
 import { findDuplicate } from './save'
 import { terminalSource } from './propose'
-import { MEMORY_TYPES, type MemoryType } from './types'
+import { SENTENCE_TYPES, type MemoryType } from './types'
 
 const q = (s: string) => JSON.stringify(s)
 
@@ -52,7 +52,7 @@ export const rememberTool: AgentTool = {
   input_schema: {
     type: 'object',
     properties: {
-      type: { type: 'string', enum: [...MEMORY_TYPES] },
+      type: { type: 'string', enum: [...SENTENCE_TYPES] },
       text: { type: 'string', description: 'The memory as one plain sentence.' },
       topics: { type: 'array', items: { type: 'string' }, description: 'Up to 3 short project / customer / area names, e.g. ["CNSX"].' },
       body: { type: 'string', description: 'Procedures only: the template in Markdown.' },
@@ -64,8 +64,8 @@ export const rememberTool: AgentTool = {
     const text = typeof input.text === 'string' ? input.text.replace(/\s+/g, ' ').trim() : ''
     if (!text) throw new ToolInputError('Missing required parameter "text".')
     if (text.length > 300) throw new ToolInputError(`"text" is too long (${text.length} characters, at most 300): one plain sentence.`)
-    const type = (MEMORY_TYPES as readonly string[]).includes(String(input.type)) ? (input.type as MemoryType) : null
-    if (!type) throw new ToolInputError(`"type" must be one of ${MEMORY_TYPES.join(', ')}.`)
+    const type = (SENTENCE_TYPES as readonly string[]).includes(String(input.type)) ? (input.type as MemoryType) : null
+    if (!type) throw new ToolInputError(`"type" must be one of ${SENTENCE_TYPES.join(', ')}.`)
     const topics = Array.isArray(input.topics) ? [...new Set(input.topics.filter((x): x is string => typeof x === 'string').map((x) => x.trim().slice(0, 40)).filter(Boolean))].slice(0, 5) : []
     const body = type === 'procedure' && typeof input.body === 'string' ? input.body.trim().slice(0, 4000) : ''
     const dup = findDuplicate(text)

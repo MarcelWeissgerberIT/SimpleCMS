@@ -55,8 +55,12 @@ export type { McpCall } from './ai/mcp-servers/activity'
  *  - memoryFor(task, { off? }) → { use, block } — pass `block` as runAI({ memory }); noteUse(answer, use,
  *    { task, where, pageId?, result? }) after the request (the memory log); MemoryNote { use }: "MEMORY · 2"
  *  - MemorySettings: the section of Settings → Claude AI
+ *  - ExampleDialog { pageId, tag?, blocks?, onClose }: "Save as example in memory" (open it with
+ *    useUI.openModal({ type: 'memoryExample', pageId }) — page ⋯ menu, /example in the AI terminal)
  */
 export { memoryFor, noteUse, MemoryNote, MemorySettings, type MemoryUse } from './ai/memory'
+/* a page (or a selection's blocks) as an example in the One memory — modal 'memoryExample' renders it */
+export { ExampleDialog } from './ai/memory'
 /*
  * AI meeting notes (the editor's `meetingNotes` node view renders these around the notes):
  *  - MeetingDeck: bar, title, record / pause / stop, live transcript, paste, Claude errors

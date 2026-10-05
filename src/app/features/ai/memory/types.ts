@@ -6,8 +6,11 @@
  */
 import type { ID } from '../../../store/types'
 
-export const MEMORY_TYPES = ['fact', 'preference', 'decision', 'procedure'] as const
+export const MEMORY_TYPES = ['fact', 'preference', 'decision', 'procedure', 'example'] as const
 export type MemoryType = (typeof MEMORY_TYPES)[number]
+
+/** The types a sentence can have (proposals, /remember, the remember tool) — an Example is a saved page (example.ts). */
+export const SENTENCE_TYPES = ['fact', 'preference', 'decision', 'procedure'] as const satisfies readonly MemoryType[]
 
 /** A memory as read from the database. */
 export interface Memory {
@@ -17,6 +20,8 @@ export interface Memory {
   type: MemoryType
   topics: string[]
   source: string
+  /** an Example's tag ("wochenbericht" — `#wochenbericht` forces it into a request), '' for others */
+  tag: string
   active: boolean
   /** requests in the log that cited it (live rows of "Cited in") */
   uses: number
@@ -33,6 +38,8 @@ export interface PickedMemory {
   label: string
   type: MemoryType
   text: string
+  /** an Example the request named (`#tag`): it went along in full */
+  forced?: string
 }
 
 /** What a request carried: the picked memories, or memory switched off for it. */
@@ -40,6 +47,8 @@ export interface MemoryUse {
   items: PickedMemory[]
   /** switched off for this request (/no-memory, the AI menu's toggle) */
   off?: boolean
+  /** `#tags` the request named that are no active example ("No example #xyz in memory") */
+  unknownTags?: string[]
 }
 
 /** A memory Claude (or the person) proposes; saved only after the person confirms. */
@@ -54,4 +63,4 @@ export interface MemoryProposal {
 }
 
 /** Stored property roles of the memory database (Uses / Last used are rollups over "Cited in", schema.ts). */
-export type MemoryRole = 'type' | 'topics' | 'source' | 'active'
+export type MemoryRole = 'type' | 'topics' | 'source' | 'active' | 'tag'

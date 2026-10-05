@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import { BookmarkPlus, Copy, Download, FolderInput, LayoutTemplate, Link2, Trash2, Upload, Share2, Clock3, Presentation, Zap } from 'lucide-react'
+import { BookMarked, BookmarkPlus, Copy, Download, FolderInput, LayoutTemplate, Link2, Trash2, Upload, Share2, Clock3, Presentation, Zap } from 'lucide-react'
 import { useWorkspace } from '../../store/store'
 import { useUI } from '../../store/ui'
 import { inTemplate } from '../../store/selectors'
@@ -93,6 +93,10 @@ export function PageMenu({ page, anchor, onClose, mobile }: { page: Page; anchor
       // a page (with everything below it) becomes a template; rows have row templates, templates are templates already
       ...only(!page.databaseId && !inTemplate(ws.pages, page.id), [
         { label: t('features.tpl.save.menu'), icon: <BookmarkPlus size={15} />, onSelect: () => ui.openModal({ type: 'saveTemplate', pageId: page.id }) },
+      ]),
+      // the One memory: this page as an example ("take #tag as the template")
+      ...only(!isDb && !inTemplate(ws.pages, page.id), [
+        { label: t('features.memory.example.menu'), icon: <BookMarked size={15} />, onSelect: () => ui.openModal({ type: 'memoryExample', pageId: page.id }) },
       ]),
       { kind: 'separator' },
       { label: t('common.delete'), icon: <Trash2 size={15} />, danger: true, onSelect: () => trashWithUndo(page.id) },

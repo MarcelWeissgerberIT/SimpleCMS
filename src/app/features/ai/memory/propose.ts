@@ -9,7 +9,7 @@
 import { format } from 'date-fns'
 import { useWorkspace } from '../../../store/store'
 import { completeStructured, usesDemo } from '../client'
-import { MEMORY_TYPES, type MemoryProposal, type MemoryType } from './types'
+import { SENTENCE_TYPES, type MemoryProposal, type MemoryType } from './types'
 
 const MAX_TEXT = 300
 const MAX_BODY = 4000
@@ -22,7 +22,7 @@ const SCHEMA = {
       items: {
         type: 'object',
         properties: {
-          type: { type: 'string', enum: [...MEMORY_TYPES] },
+          type: { type: 'string', enum: [...SENTENCE_TYPES] },
           text: { type: 'string' },
           topics: { type: 'array', items: { type: 'string' } },
           body: { type: 'string' },
@@ -63,7 +63,7 @@ function parse(raw: string, max: number, source: string): MemoryProposal[] {
     const r = x as Record<string, unknown>
     const text = typeof r.text === 'string' ? r.text.replace(/\s+/g, ' ').trim().slice(0, MAX_TEXT) : ''
     if (!text || out.some((p) => p.text.toLowerCase() === text.toLowerCase())) continue
-    const type: MemoryType = MEMORY_TYPES.includes(r.type as MemoryType) ? (r.type as MemoryType) : 'fact'
+    const type: MemoryType = (SENTENCE_TYPES as readonly string[]).includes(r.type as string) ? (r.type as MemoryType) : 'fact'
     const topics = Array.isArray(r.topics) ? [...new Set(r.topics.filter((t): t is string => typeof t === 'string').map((t) => t.trim().slice(0, 40)).filter(Boolean))].slice(0, 5) : []
     const body = typeof r.body === 'string' ? r.body.trim().slice(0, MAX_BODY) : ''
     out.push({ type, text, topics, body: type === 'procedure' ? body : '', source })

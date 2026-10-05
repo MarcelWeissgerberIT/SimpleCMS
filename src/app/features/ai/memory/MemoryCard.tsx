@@ -6,7 +6,7 @@
 import { useEffect, useId, useRef, useState } from 'react'
 import { useT } from '../../../i18n'
 import type { Memory, MemoryProposal, MemoryType } from './types'
-import { MEMORY_TYPES } from './types'
+import { SENTENCE_TYPES } from './types'
 import './memory.css'
 
 export function TypeTag({ type }: { type: MemoryType }) {
@@ -79,7 +79,7 @@ export function MemoryEdit({ p, onSave, onCancel, saveLabel }: { p: MemoryPropos
   return (
     <div className="mem-edit" onKeyDown={keys} data-testid="memory-edit">
       <div className="mem-edit__types" role="radiogroup" aria-label={t('features.memory.edit.type')}>
-        {MEMORY_TYPES.map((x) => (
+        {SENTENCE_TYPES.map((x) => (
           <button key={x} type="button" role="radio" aria-checked={type === x} className="mem-edit__type" data-type={x} onClick={() => setType(x)}>
             {t(`features.memory.type.${x}`)}
           </button>

@@ -4,6 +4,7 @@
  * history modal) go through openModal() so areas don't import each other's UI.
  */
 import { create } from 'zustand'
+import type { JSONContent } from '@tiptap/core'
 import type { ID } from './types'
 import { newId } from '../lib/ids'
 
@@ -23,6 +24,8 @@ export type ModalState =
   | { type: 'shortcuts' }
   | { type: 'move'; pageId: ID }
   | { type: 'confirm'; title: string; body?: string; danger?: boolean; confirmLabel?: string; onConfirm: () => void }
+  /** "Save as example in memory" (features/ai/memory): a page — or `blocks` of it (a selection) — with an optional tag */
+  | { type: 'memoryExample'; pageId: ID; tag?: string; blocks?: JSONContent[] | null }
 
 export interface Toast {
   id: ID

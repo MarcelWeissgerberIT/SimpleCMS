@@ -31,12 +31,13 @@ const ROLE_TYPE: Record<MemoryRole, PropertyDef['type']> = {
   topics: 'multi_select',
   source: 'text',
   active: 'checkbox',
+  tag: 'text',
 }
 const ROLES = Object.keys(ROLE_TYPE) as MemoryRole[]
 
 export type LogRole = 'when' | 'where' | 'page' | 'memories' | 'used' | 'result'
 
-export const TYPE_COLOR: Record<MemoryType, ColorName> = { fact: 'gray', preference: 'blue', decision: 'orange', procedure: 'green' }
+export const TYPE_COLOR: Record<MemoryType, ColorName> = { fact: 'gray', preference: 'blue', decision: 'orange', procedure: 'green', example: 'brown' }
 
 const ws = () => useWorkspace.getState()
 
@@ -151,6 +152,7 @@ function memoryBaseProps(): PropertyDef[] {
     { id: newId(), name: t('features.memory.prop.topics'), type: 'multi_select', options: [] },
     { id: newId(), name: t('features.memory.prop.active'), type: 'checkbox' },
     { id: newId(), name: t('features.memory.prop.source'), type: 'text' },
+    { id: newId(), name: t('features.memory.prop.tag'), type: 'text' },
   ]
 }
 
@@ -160,7 +162,7 @@ function memoryViews(db: Database): View[] {
   const uses = db.properties.find((p) => p.type === 'rollup' && p.rollup?.fn === 'count')?.id
   const last = db.properties.find((p) => p.type === 'rollup' && p.rollup?.fn === 'latest_date')?.id
   const table = defaultView('table', db, t('features.memory.view.all'))
-  table.visibleProperties = [r.type, r.topics, uses, last, r.active].filter((x): x is ID => !!x)
+  table.visibleProperties = [r.type, r.tag, r.topics, uses, last, r.active].filter((x): x is ID => !!x)
   const board = defaultView('board', db, t('features.memory.view.byType'))
   board.groupBy = r.type ?? null
   board.visibleProperties = [r.topics, uses].filter((x): x is ID => !!x)
@@ -250,6 +252,30 @@ export function ensureMemoryDb(): ID {
   const db = ws().databases[id]
   if (db) ws().updateDatabase(id, { views: memoryViews(db) })
   return id
+}
+
+/**
+ * Examples (example.ts) need the Type option "Example" and the property "Tag" — added to a memory database
+ * made before them. Throws 'locked' when a locked database lacks them.
+ */
+export function ensureExampleSchema(dbId: ID): { typeId: ID; tagId: ID } {
+  const s = ws()
+  let db = s.databases[dbId]
+  if (!db) throw new Error('gone')
+  let r = memoryProps(db)
+  if (!r.tag) {
+    if (db.locked) throw new Error('locked')
+    s.addProperty(dbId, { type: 'text', name: t('features.memory.prop.tag') })
+    db = ws().databases[dbId]!
+    r = memoryProps(db)
+  }
+  if (!r.type) {
+    if (db.locked) throw new Error('locked')
+    s.addProperty(dbId, { type: 'select', name: t('features.memory.prop.type'), options: [] })
+    r = memoryProps(ws().databases[dbId]!)
+  }
+  if (!r.type || !r.tag || !typeOption(dbId, r.type, 'example')) throw new Error('locked')
+  return { typeId: r.type, tagId: r.tag }
 }
 
 /** The option id for a memory type in the Type property (added when missing, never in a locked database). */

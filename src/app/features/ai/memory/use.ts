@@ -6,6 +6,7 @@
 import type { ID } from '../../../store/types'
 import { codewordsIn } from '../mcp-servers/config'
 import { citedIn, memoryBlock, pickMemories, readMemories } from './read'
+import { tagsIn } from './example'
 import { logUse, type LogWhere } from './log'
 import { memoryInUse } from './settings'
 import type { MemoryUse, PickedMemory } from './types'
@@ -23,8 +24,11 @@ export function memoryFor(task: string, opts: { off?: boolean } = {}): MemoryFor
   if (opts.off) return { use: { items: [], off: true }, block: '' }
   const all = readMemories()
   // "kb: …" — the codewords are not part of the task
-  const items = pickMemories(codewordsIn(task)?.text ?? task, all)
-  return { use: { items }, block: memoryBlock(items, all) }
+  const text = codewordsIn(task)?.text ?? task
+  // examples the task names (#tag, or the bare tag as a word) go along in full
+  const tags = tagsIn(text, all)
+  const items = pickMemories(text, all, tags.known)
+  return { use: { items, ...(tags.unknown.length ? { unknownTags: tags.unknown } : {}) }, block: memoryBlock(items, all) }
 }
 
 /**
