@@ -5,11 +5,13 @@
 import type { JSONContent } from '@tiptap/core'
 import { useWorkspace } from '../../../store/store'
 import { isEffectivelyTrashed } from '../../../store/selectors'
-import { COLOR_NAMES, type DateValue, type ID, type PropertyDef, type PropertyValue, type SelectOption } from '../../../store/types'
+import { COLOR_NAMES, type DateValue, type ID, type PropertyDef, type PropertyValue, type SelectOption, type View } from '../../../store/types'
+import { defaultView } from '../../../store/store'
 import { markdownToDoc } from '../../../editor'
 import { newId } from '../../../lib/ids'
 import { snapshotNow } from '../../history/snapshots'
-import type { PropChange, StagedChange } from './types'
+import { t } from '../../../i18n'
+import { depsOf, type ColumnSpec, type PropChange, type StagedChange } from './types'
 
 const ws = () => useWorkspace.getState()
 const ORIGIN = 'ai'
@@ -100,9 +102,14 @@ export interface ApplyResult {
   undo: () => number
 }
 
+/** Apply order: pages → databases → properties → everything else (rows), each in review order. */
+const RANK: Partial<Record<StagedChange['kind'], number>> = { create_page: 0, create_database: 1, add_property: 2 }
+const rank = (c: StagedChange) => RANK[c.kind] ?? 3
+
 /**
- * Apply pending changes in review order. A change whose staged parent page is not applied
- * (in this batch or before) fails instead of landing somewhere unexpected.
+ * Apply pending changes: pages, then databases, then properties, then rows and the rest, each in
+ * review order. A change whose staged parent (or database, or property) is not applied — in this
+ * batch or before — fails instead of landing somewhere unexpected.
  */
 export async function applyChanges(changes: StagedChange[], all: StagedChange[], resolveRow: (id: ID) => ID): Promise<ApplyResult> {
   const applied: string[] = []
@@ -110,12 +117,13 @@ export async function applyChanges(changes: StagedChange[], all: StagedChange[],
   const rowIds: Record<string, ID> = {}
   const undos: Array<() => boolean> = []
   const done = new Set(all.filter((c) => c.status === 'applied').map((c) => c.id))
-  const ordered = [...changes].filter((c) => c.status === 'pending' || c.status === 'failed').sort((a, b) => a.n - b.n)
+  const ordered = [...changes].filter((c) => c.status === 'pending' || c.status === 'failed').sort((a, b) => rank(a) - rank(b) || a.n - b.n)
 
   for (const c of ordered) {
     try {
-      if (c.dependsOn && !done.has(c.dependsOn)) {
-        const parent = all.find((x) => x.id === c.dependsOn)
+      const missing = depsOf(c).find((id) => !done.has(id))
+      if (missing) {
+        const parent = all.find((x) => x.id === missing)
         throw new Error(`needs change #${parent?.n ?? '?'} first`)
       }
       undos.push(await applyOne(c, resolveRow, rowIds))
@@ -149,6 +157,28 @@ function removeCreated(id: ID): () => boolean {
     else ws().deletePagePermanently(id)
     return true
   }
+}
+
+const PALETTE = COLOR_NAMES.filter((c) => c !== 'default')
+
+/** A staged column as a property definition (options get ids and colours). */
+function columnDef(col: ColumnSpec): PropertyDef {
+  const def: PropertyDef = { id: col.id, name: col.name, type: col.type }
+  if (col.type === 'select' || col.type === 'multi_select') def.options = (col.options ?? []).map((name, i): SelectOption => ({ id: newId(), name, color: PALETTE[i % PALETTE.length] }))
+  return def
+}
+
+/** The views of a staged database: a table (grouped when asked), a board first when it is the view. */
+function viewsOf(c: StagedChange, properties: PropertyDef[]): View[] {
+  const table = defaultView('table', { properties }, t('features.agent.view.table'))
+  const group = c.groupBy && properties.some((p) => p.id === c.groupBy) ? c.groupBy : null
+  if (c.view !== 'board' || !group) {
+    if (group) table.groupBy = group
+    return [table]
+  }
+  const board = defaultView('board', { properties }, t('features.agent.view.board'))
+  board.groupBy = group
+  return [board, table]
 }
 
 /** Write one change. Returns its undo (false = left alone because it was edited since). */
@@ -222,6 +252,37 @@ async function applyOne(c: StagedChange, resolveRow: (id: ID) => ID, rowIds: Rec
         const now = ws().pages[id]
         if (!now || now.contentRev !== rev) return false
         ws().setContent(id, prev, ORIGIN)
+        return true
+      }
+    }
+    case 'create_database': {
+      if (c.parentId && !alive(c.parentId)) throw new Error('the parent page is gone')
+      if (s.pages[c.pageId]) throw new Error('already exists')
+      const properties: PropertyDef[] = [{ id: c.titlePropId ?? newId(), name: 'Name', type: 'title' }, ...(c.columns ?? []).map(columnDef)]
+      const id = s.createDatabase({ id: c.pageId, parentId: c.parentId ?? null, title: c.title ?? '', properties, views: viewsOf(c, properties) })
+      return removeCreated(id)
+    }
+    case 'add_property': {
+      const dbId = c.databaseId!
+      const db = s.databases[dbId]
+      const prop = c.prop!
+      if (!alive(dbId) || !db) throw new Error('the database is gone')
+      // locked since it was staged: the schema stays as it is (database/model/lock.ts)
+      if (db.locked) throw new Error('the database is locked')
+      if (db.properties.some((p) => p.id === prop.id)) throw new Error('already exists')
+      if (db.properties.some((p) => p.name.trim().toLowerCase() === prop.name.toLowerCase())) throw new Error(`there is already a property "${prop.name}"`)
+      s.addProperty(dbId, columnDef(prop))
+      return () => {
+        const now = ws().databases[dbId]
+        if (!now?.properties.some((p) => p.id === prop.id)) return true
+        // values set since (by hand) keep the property
+        const used = Object.values(ws().pages).some((r) => {
+          if (r.databaseId !== dbId) return false
+          const v = r.properties[prop.id]
+          return v !== undefined && v !== null && v !== '' && v !== false && !(Array.isArray(v) && !v.length)
+        })
+        if (used) return false
+        ws().deleteProperty(dbId, prop.id)
         return true
       }
     }

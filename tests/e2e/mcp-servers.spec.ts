@@ -160,13 +160,13 @@ async function closeSettings(page: Page) {
 
 async function openAgent(page: Page) {
   await page.keyboard.press(`${MOD}+j`)
-  const panel = page.getByRole('dialog', { name: 'Agent' })
+  const panel = page.getByRole('region', { name: 'AI terminal' })
   await expect(panel).toBeVisible()
   return panel
 }
 
 async function runAgentTask(page: Page, task: string) {
-  const field = page.getByRole('dialog', { name: 'Agent' }).getByRole('textbox', { name: 'Task for the agent' })
+  const field = page.getByRole('region', { name: 'AI terminal' }).getByRole('textbox', { name: 'Task for the agent' })
   await field.fill(task)
   await field.press('Enter')
 }
@@ -311,10 +311,10 @@ test.describe('MCP servers (mocked Claude API, made-up server)', () => {
     // the agent: the server joins the request, its call shows as a chip, the answer cites it
     const panel = await openAgent(page)
     await runAgentTask(page, 'When is the launch? Check Atlas.')
-    await expect(panel.locator('.agent-answer')).toContainText('According to Atlas, the launch is on 2026-10-18')
-    const chip = panel.locator('.agent-step--mcp')
+    await expect(panel.locator('.term-answer')).toContainText('According to Atlas, the launch is on 2026-10-18')
+    const chip = panel.locator('.term-step--mcp')
     await expect(chip).toHaveCount(1)
-    await expect(chip.locator('.agent-mcp')).toHaveText('ATLAS · atlas_search')
+    await expect(chip.locator('.term-step__chip')).toHaveText('ATLAS · atlas_search')
     await expect(chip).toContainText('launch date')
     await expect(chip).toHaveAttribute('data-state', 'ok')
 
@@ -336,7 +336,7 @@ test.describe('MCP servers (mocked Claude API, made-up server)', () => {
 
     // the next task continues the conversation: the MCP blocks (and the thinking) go back unchanged
     await runAgentTask(page, 'Anything else?')
-    await expect(panel.locator('.agent-answer').nth(1)).toContainText('Nothing else to stage.')
+    await expect(panel.locator('.term-answer').nth(1)).toContainText('Nothing else to stage.')
     const a2 = sent[2]
     expect(a2.body.messages[1]).toEqual({ role: 'assistant', content: asContent(turn1) })
     expect(a2.body.system).toBe(a1.body.system)
@@ -648,7 +648,7 @@ test.describe('MCP servers (mocked Claude API, made-up server)', () => {
     // the agent: the same friendly error, with a way to the settings
     const agent = await openAgent(page)
     await runAgentTask(page, 'Look it up in Atlas')
-    const turnErr = agent.locator('.agent-error')
+    const turnErr = agent.locator('.term-error')
     await expect(turnErr).toContainText('ERR · MCP')
     await expect(turnErr).toContainText('Claude could not use the MCP server “atlas”')
     await turnErr.getByRole('button', { name: 'MCP settings' }).click()

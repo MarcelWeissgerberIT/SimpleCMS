@@ -127,9 +127,12 @@ answer from those articles only, and the same manual as public pages at [getonec
 
 **AI, your key** — select text and ask Claude to improve, shorten, extend, fix, translate, explain, summarise or pull
 out action items; press `Space` on an empty line to write, or ask questions about your whole workspace with cited
-pages. The **workspace agent** (`⌘J` / `Ctrl+J`) takes a task in plain words — "tag every open task in the meeting
-notes", "make a project row for each item on this page" — plans the steps across pages and databases and applies
-them only after you have reviewed the changes. Requests go straight from your browser to `api.anthropic.com` with your key (default model Claude Opus 5.5;
+pages. The **AI terminal** (`⌘J` / `Ctrl+J`) — the workspace agent as a keyboard-first dock under the page — takes a
+task in plain words — "tag every open task in the meeting notes", "make a board of the open items on this page" —
+plans the steps across pages and databases (it can create databases and properties too) and applies them only after
+you have reviewed the changes, by mouse or keyboard (`j`/`k`, `Space`, `Enter`). It keeps working while hidden (a
+status-bar LED and a toast report back), takes selected text along as references (`⌘⇧J`), `@` mentions, prompt
+history and `/commands` (`/apply`, `/cost`, `/help` …). Requests go straight from your browser to `api.anthropic.com` with your key (default model Claude Opus 5.5;
 Sonnet 5.5 and Haiku 4.5 selectable). The key never leaves this browser in any other way, and is stored there
 encrypted — as is the GitHub token for sync ([docs/SECURITY.md](docs/SECURITY.md): how, and what that does and does not protect against).
 **External tools via MCP:** add any remote MCP server — a knowledge base, a tracker, a CRM — with its URL and a token
@@ -285,7 +288,9 @@ Built for the **Ninja Armory** challenge of the AI Automations community.
 - KI-Besprechungsnotizen: Live-Transkript, danach Zusammenfassung, Entscheidungen und Aufgaben per Claude
 - Formulare mit bedingten Fragen, mehreren Seiten und Antwort-Übersicht
 - Sync als Markdown in einen Ordner auf deinem Rechner oder dein eigenes GitHub-Repository – in beide Richtungen
-- einen Workspace-Agenten (`⌘J`), der Aufgaben über Seiten und Datenbanken plant und erst nach deiner Prüfung ausführt
+- ein KI-Terminal (`⌘J`): der Workspace-Agent als Tastatur-Dock unter der Seite – plant Aufgaben über Seiten und
+  Datenbanken (legt auch Datenbanken und Eigenschaften an) und führt sie erst nach deiner Prüfung aus; arbeitet
+  ausgeblendet weiter, nimmt markierten Text als Referenz mit (`⌘⇧J`), kennt `@`-Erwähnungen, Verlauf und `/Befehle`
 - eigene Agenten für wiederkehrende Arbeit: Auftrag in eigenen Worten, Zeitplan oder Auslöser (neue Zeile, Formular,
   Mail, Webhook), Zugriff und Budget festlegen; Vorschläge zur Prüfung oder direkt anwenden – im Browser, solange One
   offen ist, oder rund um die Uhr auf dem eigenen Team-Server

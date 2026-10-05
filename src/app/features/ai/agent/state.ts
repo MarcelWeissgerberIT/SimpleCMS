@@ -1,15 +1,26 @@
 /**
- * Workspace agent — session state (this tab only, never persisted). Kept light: the panel
- * body, the loop and the tools load lazily when the panel opens (AgentPanel.tsx).
+ * AI terminal (the workspace agent) — session state (this tab only, never persisted). Kept light:
+ * the terminal body, the loop and the tools load lazily when it opens (AgentPanel.tsx). A task
+ * keeps running while the terminal is hidden; only Stop ends it.
  */
 import { create } from 'zustand'
-import { EMPTY_USAGE, type AgentStatus, type AgentStep, type AgentTurn, type AgentUsage, type StagedChange } from './types'
+import { EMPTY_USAGE, type AgentStatus, type AgentStep, type AgentTurn, type AgentUsage, type StagedChange, type TermMention, type TermRef } from './types'
+
+/** Output of a local command (/help, /cost …), shown in the log after `after` tasks. */
+export interface EchoEntry {
+  id: string
+  after: number
+  input: string
+  kind: 'help' | 'history' | 'mcp' | 'cost' | 'unknown' | 'info'
+  /** kind 'info': message key + vars · 'history': the prompts · 'mcp': server names · 'cost': usage snapshot */
+  data?: { key?: string; vars?: Record<string, string | number>; list?: string[]; usage?: AgentUsage; requests?: number }
+}
 
 export interface AgentState {
   open: boolean
-  /** text in the task field */
+  /** text in the prompt */
   draft: string
-  /** run the draft as soon as the panel is ready (opened with a task from the AI menu) */
+  /** run the draft as soon as the terminal is ready (opened with a task from the AI menu) */
   autorun: boolean
   status: AgentStatus
   turns: AgentTurn[]
@@ -22,9 +33,24 @@ export interface AgentState {
   calls: number
   /** the MCP setup this conversation runs with (pinned at its first task; null = none yet) */
   mcp: { key: string; names: string[] } | null
+  /** local command output */
+  echo: EchoEntry[]
+  /** selections sent along with the next task (chips) */
+  refs: TermRef[]
+  /** @ mentions in the prompt */
+  mentions: TermMention[]
+  /** the open page's chip was removed (for this page id) */
+  pageOff: string | null
+  /** a task ended while the terminal was hidden (the status bar shows it until it is opened) */
+  unseen: 'done' | 'error' | null
+  /** dock height as a share of the content area (per device) · maximised */
+  height: number
+  max: boolean
+  /** bumped to move focus to the prompt (Mod+Shift+J while open) */
+  focusTick: number
 }
 
-export const initialAgentState = (): Omit<AgentState, 'open' | 'draft' | 'autorun'> => ({
+export const initialAgentState = (): Pick<AgentState, 'status' | 'turns' | 'steps' | 'changes' | 'usage' | 'live' | 'calls' | 'mcp' | 'echo' | 'unseen'> => ({
   status: 'idle',
   turns: [],
   steps: [],
@@ -33,33 +59,100 @@ export const initialAgentState = (): Omit<AgentState, 'open' | 'draft' | 'autoru
   live: '',
   calls: 0,
   mcp: null,
+  echo: [],
+  unseen: null,
 })
 
-export const useAgent = create<AgentState>()(() => ({ open: false, draft: '', autorun: false, ...initialAgentState() }))
+/* ---------- dock height (a per-device convenience: localStorage, may be unavailable) ---------- */
 
-/** Set by the session while a task runs (closing the panel stops it). */
+const HEIGHT_KEY = 'one.term.height'
+export const HEIGHT_MIN = 0.2
+export const HEIGHT_MAX = 0.92
+export const HEIGHT_DEFAULT = 0.4
+
+export const clampHeight = (h: number) => Math.min(HEIGHT_MAX, Math.max(HEIGHT_MIN, h))
+
+function storedHeight(): number {
+  try {
+    const v = Number(window.localStorage.getItem(HEIGHT_KEY))
+    return Number.isFinite(v) && v > 0 ? clampHeight(v) : HEIGHT_DEFAULT
+  } catch {
+    return HEIGHT_DEFAULT
+  }
+}
+
+export function setTermHeight(h: number) {
+  const height = clampHeight(h)
+  useAgent.setState({ height, max: false })
+  try {
+    window.localStorage.setItem(HEIGHT_KEY, height.toFixed(3))
+  } catch {
+    /* private mode: this session only */
+  }
+}
+
+export const useAgent = create<AgentState>()(() => ({
+  open: false,
+  draft: '',
+  autorun: false,
+  refs: [],
+  mentions: [],
+  pageOff: null,
+  height: typeof window === 'undefined' ? HEIGHT_DEFAULT : storedHeight(),
+  max: false,
+  focusTick: 0,
+  ...initialAgentState(),
+}))
+
+/** Set by the session while a task runs (Stop, ⌘. / Ctrl+. and /stop end it). */
 let stopRunning: (() => void) | null = null
 export function setStopHandler(fn: (() => void) | null) {
   stopRunning = fn
 }
 
-/** Open the agent panel, optionally with a task (run: start it right away). */
+/** Stop the running task (if any). Hiding the terminal never does this. */
+export function stopAgent(): boolean {
+  if (!stopRunning) return false
+  stopRunning()
+  return true
+}
+
+/** Open the terminal, optionally with a task (run: start it right away). */
 export function openAgent(opts: { task?: string; run?: boolean } = {}) {
   const task = opts.task?.trim()
   useAgent.setState((s) => ({
     open: true,
+    unseen: null,
     draft: task && s.status !== 'running' ? task : s.draft,
     autorun: !!task && !!opts.run && s.status !== 'running',
+    focusTick: s.focusTick + 1,
   }))
 }
 
-/** Close the panel. A running task is stopped (it spends tokens); the session stays until "New task". */
+/** Hide the terminal. A running task goes on in the background (the status bar shows it). */
 export function closeAgent() {
-  stopRunning?.()
   useAgent.setState({ open: false, autorun: false })
 }
 
 export function toggleAgent() {
   if (useAgent.getState().open) closeAgent()
   else openAgent()
+}
+
+/* ---------- references ---------- */
+
+/** References per task, at most. */
+export const REF_MAX = 10
+
+/** Add a reference chip (the same passage twice counts once). Returns false when the list is full. */
+export function addRef(ref: TermRef): boolean {
+  const refs = useAgent.getState().refs
+  if (refs.some((r) => r.pageId === ref.pageId && r.markdown === ref.markdown)) return true
+  if (refs.length >= REF_MAX) return false
+  useAgent.setState({ refs: [...refs, ref] })
+  return true
+}
+
+export function removeRef(id: string) {
+  useAgent.setState((s) => ({ refs: s.refs.filter((r) => r.id !== id) }))
 }

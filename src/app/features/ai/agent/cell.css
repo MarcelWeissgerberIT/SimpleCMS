@@ -1,0 +1,47 @@
+/* Status bar cell of the AI terminal ("AI ⌘J" / "AI · working" …) */
+.term-cell {
+  border: 0;
+  border-right: 1px solid var(--rule);
+  background: transparent;
+  color: var(--ink-3);
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  cursor: pointer;
+}
+
+.term-cell:hover {
+  background: var(--hover);
+  color: var(--ink);
+}
+
+.term-cell[data-state='lit'],
+.term-cell[aria-expanded='true'] {
+  color: var(--ink);
+}
+
+.term-cell:focus-visible {
+  outline: 2px solid var(--signal);
+  outline-offset: -2px;
+  box-shadow: none;
+}
+
+.term-cell__blink {
+  animation: term-cell-blink 0.5s steps(2, jump-none) infinite;
+}
+
+.term-cell__err {
+  background: var(--c-red-text);
+}
+
+@keyframes term-cell-blink {
+  50% {
+    opacity: 0.25;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .term-cell__blink {
+    animation: none;
+  }
+}

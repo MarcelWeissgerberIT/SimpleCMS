@@ -16,6 +16,8 @@ export type ToolName =
   | 'create_row'
   | 'update_row'
   | 'set_page_title'
+  | 'create_database'
+  | 'add_property'
 
 export type StepState = 'run' | 'ok' | 'err' | 'staged'
 
@@ -61,7 +63,19 @@ export interface PropChange {
   newOptions?: string[]
 }
 
-export type ChangeKind = 'create_page' | 'append' | 'create_row' | 'update_row' | 'rename'
+/** Column types the agent may create (create_database / add_property). */
+export type ColumnType = 'text' | 'number' | 'select' | 'multi_select' | 'date' | 'url' | 'checkbox'
+
+/** A property the agent proposes: its id is assigned when staged, so staged rows can use it. */
+export interface ColumnSpec {
+  id: ID
+  name: string
+  type: ColumnType
+  /** select / multi_select: option names */
+  options?: string[]
+}
+
+export type ChangeKind = 'create_page' | 'append' | 'create_row' | 'update_row' | 'rename' | 'create_database' | 'add_property'
 export type ChangeStatus = 'pending' | 'applied' | 'discarded' | 'failed'
 
 export interface StagedChange {
@@ -83,10 +97,23 @@ export interface StagedChange {
   /** create_page / create_row: content · append: what gets added */
   markdown?: string
   props?: PropChange[]
-  /** id of the staged change that creates this change's parent page */
+  /** id of the staged change that creates this change's parent page (or its database) */
   dependsOn?: string
+  /** further staged changes this one needs first (add_property changes whose properties a row uses) */
+  needs?: string[]
+  /** create_database: the columns besides the title column, its title property id, the first view */
+  columns?: ColumnSpec[]
+  titlePropId?: ID
+  view?: 'table' | 'board'
+  /** create_database: column id the view groups by */
+  groupBy?: ID | null
+  /** add_property: the new property (databaseId / pageId = the database) */
+  prop?: ColumnSpec
   error?: string
 }
+
+/** Every staged change `c` needs applied first. */
+export const depsOf = (c: Pick<StagedChange, 'dependsOn' | 'needs'>): string[] => [...(c.dependsOn ? [c.dependsOn] : []), ...(c.needs ?? [])]
 
 export interface AgentUsage {
   requests: number
@@ -107,7 +134,35 @@ export interface AgentTurn {
   status: AgentStatus
   /** Claude's closing summary (Markdown) */
   answer: string
+  /** what went along as context (page, references, mentions) — for the log line */
+  context?: TurnContext
   error?: { code: AIErrorCode | 'max_tokens'; message: string }
+}
+
+export interface TurnContext {
+  page?: string
+  refs: number
+  mentions: string[]
+}
+
+/** A selection sent along as context ("Add to terminal" / Mod+Shift+J). */
+export interface TermRef {
+  id: string
+  pageId: ID
+  /** page title when it was added */
+  title: string
+  markdown: string
+  /** lines of the selection */
+  lines: number
+  /** clipped to REF_CHARS */
+  clipped?: boolean
+}
+
+/** A page or database pointed at with @ in the prompt. */
+export interface TermMention {
+  id: ID
+  title: string
+  kind: 'page' | 'database'
 }
 
 export const EMPTY_USAGE: AgentUsage = { requests: 0, input: 0, output: 0, cacheRead: 0, cacheWrite: 0, usd: 0 }

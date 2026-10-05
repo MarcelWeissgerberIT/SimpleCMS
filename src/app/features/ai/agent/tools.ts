@@ -7,7 +7,7 @@ import type { JSONContent } from '@tiptap/core'
 import { useWorkspace } from '../../../store/store'
 import { useUI } from '../../../store/ui'
 import { inTemplate, isEffectivelyTrashed, selectBreadcrumbs } from '../../../store/selectors'
-import type { Database, ID, Page } from '../../../store/types'
+import type { Database, ID, Page, PropertyDef } from '../../../store/types'
 import { propertyValueToText } from '../../../database'
 import { docToMarkdown } from '../../../editor'
 import { parseHash } from '../../../lib/router'
@@ -15,7 +15,7 @@ import { newId } from '../../../lib/ids'
 import { t } from '../../../i18n'
 import { retrieve, workspaceDocs } from '../workspace'
 import { coerceProperties, isSettable, mergeProps } from './props'
-import type { ChangeKind, PropChange, StagedChange, ToolName } from './types'
+import type { ChangeKind, ColumnSpec, ColumnType, PropChange, StagedChange, ToolName } from './types'
 
 /* ------------------------------------------------------------------ */
 /* Contracts                                                           */
@@ -195,10 +195,66 @@ function snippet(text: string, query: string): string {
   return `${start > 0 ? '…' : ''}${s}${start + 220 < flat.length ? '…' : ''}`
 }
 
-/** The pending staged change that creates a page or row with this id, if any. */
+/** The pending staged change that creates a page, row or database with this id, if any. */
 function stagedCreate(stage: StageApi, id: ID): StagedChange | undefined {
-  return stage.list().find((c) => (c.kind === 'create_page' || c.kind === 'create_row') && c.pageId === id && c.status !== 'applied')
+  return stage.list().find((c) => (c.kind === 'create_page' || c.kind === 'create_row' || c.kind === 'create_database') && c.pageId === id && c.status !== 'applied')
 }
+
+/** A staged database that is not applied yet (pending or failed; discarded ones throw). */
+function stagedDatabase(stage: StageApi, id: ID): StagedChange | undefined {
+  const c = stagedCreate(stage, id)
+  if (c?.kind !== 'create_database') return undefined
+  if (c.status === 'discarded') throw new ToolInputError(`The user discarded staged change #${c.n} (the database ${q(c.title ?? '')}); it will not exist.`)
+  return c
+}
+
+/* ---------- schemas: live databases plus what is staged for them ---------- */
+
+const TITLE_NAME = 'Name'
+
+function propDef(col: ColumnSpec): PropertyDef {
+  return { id: col.id, name: col.name, type: col.type, ...(col.options ? { options: col.options.map((name) => ({ id: `${col.id}:${name}`, name, color: 'default' as const })) } : {}) }
+}
+
+/** The database a staged create_database will make (rows can be staged against it). */
+function virtualDatabase(c: StagedChange): Database {
+  return { id: c.pageId, properties: [{ id: c.titlePropId ?? `${c.pageId}:title`, name: TITLE_NAME, type: 'title' }, ...(c.columns ?? []).map(propDef)], views: [], nextUniqueId: 1 }
+}
+
+/** Pending add_property changes of a database. */
+function stagedProps(stage: StageApi, dbId: ID): StagedChange[] {
+  return stage.list().filter((c) => c.kind === 'add_property' && c.databaseId === dbId && (c.status === 'pending' || c.status === 'failed'))
+}
+
+interface Schema {
+  db: Database
+  /** the staged create_database (rows depend on it) */
+  staged?: StagedChange
+  /** property id → the add_property change that creates it */
+  propNeeds: Map<ID, string>
+}
+
+/** A database to stage rows against: a live one (with the properties staged for it) or a staged one. */
+function schemaOf(stage: StageApi, rawId: ID): Schema {
+  const staged = stagedDatabase(stage, rawId)
+  if (staged) return { db: virtualDatabase(staged), staged, propNeeds: new Map() }
+  const db = databaseOf(rawId)
+  const extra = stagedProps(stage, db.id)
+  if (!extra.length) return { db, propNeeds: new Map() }
+  return { db: { ...db, properties: [...db.properties, ...extra.map((c) => propDef(c.prop!))] }, propNeeds: new Map(extra.map((c) => [c.prop!.id, c.id])) }
+}
+
+/** The add_property changes a set of property values needs. */
+function needsOf(schema: Schema, props: PropChange[], prev: string[] = []): string[] {
+  const out = new Set(prev)
+  for (const p of props) {
+    const id = schema.propNeeds.get(p.propId)
+    if (id) out.add(id)
+  }
+  return [...out]
+}
+
+const dbTitle = (schema: Schema) => (schema.staged ? (schema.staged.title ?? '') : titleOf(ws().pages[schema.db.id]))
 
 /** An existing page, or throws a message Claude can act on. Staged pages are handled by the callers. */
 function pageOrThrow(stage: StageApi, rawId: ID): Page {
@@ -276,6 +332,12 @@ const readPage: AgentTool = {
     const rawId = str(input, 'id', { required: true, max: 80 }).trim()
     const offset = int(input, 'offset', 0, 0, 10_000_000)
     const staged = stagedCreate(stage, rawId)
+    if (staged?.kind === 'create_database' && staged.status !== 'discarded')
+      return {
+        content: `Staged database #${staged.n} (not applied yet, no rows) · id: ${rawId}\n# ${staged.title ?? ''}\nproperties: ${schemaLine(virtualDatabase(staged))}`,
+        summary: t('features.agent.res.stagedPage', { n: staged.n }),
+        state: 'ok',
+      }
     if (staged?.status === 'pending' || staged?.status === 'failed')
       return {
         content: `Staged page #${staged.n} (not applied yet) · id: ${rawId}\n# ${staged.title ?? ''}\n\n${clipResult(staged.markdown ?? '', PAGE_PART_CHARS, '')}`,
@@ -316,18 +378,23 @@ const listDatabases: AgentTool = {
   description:
     'List every database with its id, number of rows, location and property schema (property names, types and allowed options). Call this before query_database, create_row or update_row so you use exact property and option names.',
   input_schema: { type: 'object', properties: {}, additionalProperties: false },
-  run() {
+  run(_input, stage) {
     const { databases, pages } = ws()
     // template databases (features/templates) are not the workspace's data
     const dbs = Object.values(databases).filter((d) => live(d.id) && !inTemplate(pages, d.id))
-    if (!dbs.length) return { content: 'This workspace has no databases.', summary: t('features.agent.res.dbs', { count: 0 }), state: 'ok' }
+    // what this conversation staged and the user has not applied yet (only the terminal's tools stage these)
+    const staged = stage.list().filter((c) => c.kind === 'create_database' && (c.status === 'pending' || c.status === 'failed'))
+    const extra = staged.length ? `\nStaged, not applied yet:\n${staged.map((c) => `- ${q(c.title ?? '')} (id: ${c.pageId}) · change #${c.n}\n  properties: ${schemaLine(virtualDatabase(c))}`).join('\n')}` : ''
+    if (!dbs.length) return { content: `This workspace has no databases.${extra}`, summary: t('features.agent.res.dbs', { count: 0 }), state: 'ok' }
     const lines = dbs.map((d) => {
       const page = ws().pages[d.id]
       const where = pathOf(d.id)
-      const locked = d.locked ? ' · locked (rows can be added and changed; no new options)' : ''
-      return `- ${q(titleOf(page))} (id: ${d.id}) · ${rowsOf(d.id).length} rows${where ? ` · in ${q(where)}` : ''}${locked}\n  properties: ${schemaLine(d)}`
+      const locked = d.locked ? ' · locked (rows can be added and changed; no new options or properties)' : ''
+      const props = stagedProps(stage, d.id)
+      const more = props.length ? `\n  staged properties (not applied yet): ${props.map((c) => `${c.prop!.name} (${c.prop!.type})`).join('; ')}` : ''
+      return `- ${q(titleOf(page))} (id: ${d.id}) · ${rowsOf(d.id).length} rows${where ? ` · in ${q(where)}` : ''}${locked}\n  properties: ${schemaLine(d)}${more}`
     })
-    return { content: clipResult(`${dbs.length} databases:\n${lines.join('\n')}`), summary: t('features.agent.res.dbs', { count: dbs.length }), state: 'ok' }
+    return { content: clipResult(`${dbs.length} databases:\n${lines.join('\n')}${extra}`), summary: t('features.agent.res.dbs', { count: dbs.length }), state: 'ok' }
   },
 }
 
@@ -363,8 +430,17 @@ const queryDatabase: AgentTool = {
     required: ['database_id'],
     additionalProperties: false,
   },
-  run(input) {
+  run(input, stage) {
     const id = str(input, 'database_id', { required: true, max: 80 }).trim()
+    const staged = stagedDatabase(stage, id)
+    if (staged) {
+      const rows = stage.list().filter((c) => c.kind === 'create_row' && c.databaseId === id && c.status !== 'discarded')
+      return {
+        content: `Database ${q(staged.title ?? '')} (id: ${id}) is staged as change #${staged.n} and not applied yet, so it has no rows. Rows staged for it so far: ${rows.length}${rows.length ? ` (${rows.map((r) => q(r.title ?? '')).join(', ')})` : ''}.\nproperties: ${schemaLine(virtualDatabase(staged))}`,
+        summary: t('features.agent.res.rows', { count: 0 }),
+        state: 'ok',
+      }
+    }
     const db = databaseOf(id)
     const limit = int(input, 'limit', 50, 1, 100)
     const offset = int(input, 'offset', 0, 0, 1_000_000)
@@ -434,6 +510,16 @@ const currentPage: AgentTool = {
 
 /* ---------- writing (staged) ---------- */
 
+/** A parent page for create_page / create_database: a live page or a page staged earlier. */
+function parentOf(stage: StageApi, raw: ID): { id: ID; title: string; dependsOn?: string } {
+  const staged = stagedCreate(stage, raw)
+  if (staged && staged.kind === 'create_page' && staged.status !== 'discarded') return { id: staged.pageId, title: staged.title ?? '', dependsOn: staged.id }
+  if (staged?.kind === 'create_database' && staged.status !== 'discarded') throw new ToolInputError(`${q(staged.title ?? '')} is a staged database. Use create_row to add rows to it.`)
+  const parent = pageOrThrow(stage, raw)
+  if (parent.kind === 'database') throw new ToolInputError(`${q(titleOf(parent))} is a database. Use create_row to add rows to it.`)
+  return { id: parent.id, title: titleOf(parent) }
+}
+
 const createPage: AgentTool = {
   name: 'create_page',
   write: true,
@@ -457,17 +543,10 @@ const createPage: AgentTool = {
     let dependsOn: string | undefined
     let parentTitle = ''
     if (parentRaw) {
-      const stagedParent = stagedCreate(stage, parentRaw)
-      if (stagedParent && stagedParent.kind === 'create_page' && stagedParent.status !== 'discarded') {
-        parentId = stagedParent.pageId
-        dependsOn = stagedParent.id
-        parentTitle = stagedParent.title ?? ''
-      } else {
-        const parent = pageOrThrow(stage, parentRaw)
-        if (parent.kind === 'database') throw new ToolInputError(`${q(titleOf(parent))} is a database. Use create_row to add rows to it.`)
-        parentId = parent.id
-        parentTitle = titleOf(parent)
-      }
+      const parent = parentOf(stage, parentRaw)
+      parentId = parent.id
+      dependsOn = parent.dependsOn
+      parentTitle = parent.title
     }
     const change = stage.add({ kind: 'create_page', pageId: newId(), parentId, title, markdown, ...(dependsOn ? { dependsOn } : {}) })
     return {
@@ -497,6 +576,7 @@ const appendToPage: AgentTool = {
     const rawId = str(input, 'id', { required: true, max: 80 }).trim()
     const markdown = str(input, 'markdown', { required: true, max: 200_000 }).trim()
     const staged = stagedCreate(stage, rawId)
+    if (staged?.kind === 'create_database') throw new ToolInputError(`${q(staged.title ?? '')} is a staged database. Use create_row to add rows to it.`)
     if (staged && staged.status === 'pending') {
       const c = stage.update(staged.id, { markdown: [staged.markdown?.trim(), markdown].filter(Boolean).join('\n\n') })
       return { content: `Added to staged change #${c.n} (the new page ${q(c.title ?? '')}).`, summary: t('features.agent.res.staged', { n: c.n }), state: 'staged', changeId: c.id }
@@ -529,14 +609,24 @@ const createRow: AgentTool = {
   },
   run(input, stage) {
     const dbId = str(input, 'database_id', { required: true, max: 80 }).trim()
-    const db = databaseOf(dbId)
+    const schema = schemaOf(stage, dbId)
     const title = str(input, 'title', { required: true, max: 300 }).trim()
     const markdown = str(input, 'markdown', { max: 200_000 })
-    const res = coerceProperties(db, input.properties, null)
+    const res = coerceProperties(schema.db, input.properties, null)
     if (!res.ok) throw new ToolInputError(res.error)
-    const change = stage.add({ kind: 'create_row', pageId: newId(), databaseId: dbId, title, props: res.changes, ...(markdown.trim() ? { markdown } : {}) })
+    const needs = needsOf(schema, res.changes)
+    const change = stage.add({
+      kind: 'create_row',
+      pageId: newId(),
+      databaseId: schema.db.id,
+      title,
+      props: res.changes,
+      ...(markdown.trim() ? { markdown } : {}),
+      ...(schema.staged ? { dependsOn: schema.staged.id } : {}),
+      ...(needs.length ? { needs } : {}),
+    })
     return {
-      content: `${stagedNote(change)} New row id: ${change.pageId} in ${q(titleOf(ws().pages[dbId]))}${res.changes.length ? ` with ${res.changes.map((c) => `${c.name} = ${q(c.after)}`).join(', ')}` : ''}.${newOptionsNote(res.changes)}`,
+      content: `${stagedNote(change)} New row id: ${change.pageId} in ${q(dbTitle(schema))}${res.changes.length ? ` with ${res.changes.map((c) => `${c.name} = ${q(c.after)}`).join(', ')}` : ''}.${newOptionsNote(res.changes)}`,
       summary: t('features.agent.res.staged', { n: change.n }),
       state: 'staged',
       changeId: change.id,
@@ -568,21 +658,26 @@ const updateRow: AgentTool = {
     if (!input.properties || typeof input.properties !== 'object' || !Object.keys(input.properties).length) throw new ToolInputError('"properties" must name at least one property to change.')
     const staged = stagedCreate(stage, rawId)
     if (staged && staged.kind === 'create_row' && staged.status === 'pending') {
-      const db = databaseOf(staged.databaseId!)
-      const res = coerceProperties(db, input.properties, null)
+      const schema = schemaOf(stage, staged.databaseId!)
+      const res = coerceProperties(schema.db, input.properties, null)
       if (!res.ok) throw new ToolInputError(res.error)
-      const c = stage.update(staged.id, { props: mergeProps(staged.props, res.changes) })
+      const needs = needsOf(schema, res.changes, staged.needs)
+      const c = stage.update(staged.id, { props: mergeProps(staged.props, res.changes), ...(needs.length ? { needs } : {}) })
       return { content: `Updated staged row #${c.n} (${q(c.title ?? '')}).${newOptionsNote(res.changes)}`, summary: t('features.agent.res.staged', { n: c.n }), state: 'staged', changeId: c.id }
     }
     const row = pageOrThrow(stage, rawId)
     if (!row.databaseId) throw new ToolInputError(`${q(titleOf(row))} is not a database row. Only rows have properties; use set_page_title or append_to_page for pages.`)
-    const db = databaseOf(row.databaseId)
+    const schema = schemaOf(stage, row.databaseId)
+    const db = schema.db
     const res = coerceProperties(db, input.properties, row)
     if (!res.ok) throw new ToolInputError(res.error)
     const changed = res.changes.filter((c) => c.before !== c.after || c.newOptions?.length)
     if (!changed.length) return { content: `No change: ${q(titleOf(row))} already has these values.`, summary: t('features.agent.res.same'), state: 'ok' }
     const pending = pendingFor(stage, 'update_row', row.id)
-    const c = pending ? stage.update(pending.id, { props: mergeProps(pending.props, changed) }) : stage.add({ kind: 'update_row', pageId: row.id, databaseId: db.id, title: titleOf(row), props: changed })
+    const needs = needsOf(schema, changed, pending?.needs)
+    const c = pending
+      ? stage.update(pending.id, { props: mergeProps(pending.props, changed), ...(needs.length ? { needs } : {}) })
+      : stage.add({ kind: 'update_row', pageId: row.id, databaseId: db.id, title: titleOf(row), props: changed, ...(needs.length ? { needs } : {}) })
     return {
       content: `${stagedNote(c)} ${q(titleOf(row))}: ${changed.map((x) => `${x.name} ${q(x.before)} → ${q(x.after)}`).join(', ')}.${newOptionsNote(changed)}`,
       summary: t('features.agent.res.staged', { n: c.n }),
@@ -622,8 +717,169 @@ const setPageTitle: AgentTool = {
   },
 }
 
+/* ---------- databases (the terminal's agent only: not part of AGENT_TOOLS) ---------- */
+
+const COLUMN_TYPES: ColumnType[] = ['text', 'number', 'select', 'multi_select', 'date', 'url', 'checkbox']
+/** Column types a board can group by. */
+const GROUPABLE: ColumnType[] = ['select', 'multi_select', 'checkbox']
+export const MAX_COLUMNS = 20
+const MAX_OPTIONS = 50
+
+const TYPE_ALIASES: Record<string, ColumnType> = { string: 'text', multiselect: 'multi_select', boolean: 'checkbox', bool: 'checkbox', link: 'url' }
+
+/** One column Claude asked for, validated. `taken`: names in use (lower case). */
+function columnOf(raw: unknown, taken: string[], where: string): ColumnSpec {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new ToolInputError(`${where} must be an object with "name" and "type".`)
+  const o = raw as Record<string, unknown>
+  const name = typeof o.name === 'string' ? o.name.replace(/\s+/g, ' ').trim() : ''
+  if (!name) throw new ToolInputError(`${where}: "name" is missing.`)
+  if (name.length > 60) throw new ToolInputError(`${where}: the name ${q(name)} is too long (at most 60 characters).`)
+  if (taken.includes(name.toLowerCase())) throw new ToolInputError(`${where}: there is already a property named ${q(name)}${name.toLowerCase() === TITLE_NAME.toLowerCase() ? ' (the title column: set it with the row title)' : ''}.`)
+  const rawType = typeof o.type === 'string' ? o.type.trim().toLowerCase().replace(/[\s-]+/g, '_') : ''
+  const type = (COLUMN_TYPES as string[]).includes(rawType) ? (rawType as ColumnType) : TYPE_ALIASES[rawType.replace(/_/g, '')]
+  if (!type) throw new ToolInputError(`${where}: unknown type ${q(String(o.type ?? ''))}. Use one of: ${COLUMN_TYPES.join(', ')}.`)
+  const col: ColumnSpec = { id: newId(), name, type }
+  if (type === 'select' || type === 'multi_select') {
+    const list = Array.isArray(o.options) ? o.options : typeof o.options === 'string' ? o.options.split(',') : []
+    const names: string[] = []
+    for (const x of list) {
+      const n = typeof x === 'string' ? x.replace(/\s+/g, ' ').trim().slice(0, 60) : ''
+      if (n && !names.some((m) => m.toLowerCase() === n.toLowerCase())) names.push(n)
+    }
+    if (names.length > MAX_OPTIONS) throw new ToolInputError(`${where}: too many options (${names.length}, at most ${MAX_OPTIONS}).`)
+    col.options = names
+  }
+  return col
+}
+
+const colLine = (c: ColumnSpec) => `${c.name} (${c.type}${c.options?.length ? `: ${c.options.join(' | ')}` : ''})`
+
+const createDatabase: AgentTool = {
+  name: 'create_database',
+  write: true,
+  description:
+    'Stage a new database (a table of rows with typed columns), at the top level or under a page. Use this when the task asks for a new table, board or tracker. The title column "Name" always exists; list the other columns. view "board" shows cards grouped by group_by (a select, multi_select or checkbox column). The returned database id works right away: stage rows with create_row and more columns with add_property. Nothing is created until the user applies it.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      title: { type: 'string', description: 'Database title, e.g. "Open items".' },
+      parent_id: { type: 'string', description: 'Id of the page to put the database under. Omit for a top-level database.' },
+      columns: {
+        type: 'array',
+        description: `Columns besides the title column "Name" (at most ${MAX_COLUMNS}).`,
+        items: {
+          type: 'object',
+          properties: {
+            name: { type: 'string' },
+            type: { type: 'string', enum: COLUMN_TYPES },
+            options: { type: 'array', items: { type: 'string' }, description: 'select / multi_select: the option names.' },
+          },
+          required: ['name', 'type'],
+          additionalProperties: false,
+        },
+      },
+      view: { type: 'string', enum: ['table', 'board'], description: 'The first view (default table).' },
+      group_by: { type: 'string', description: 'Column name to group by: required for a board (a select, multi_select or checkbox column), optional for a table.' },
+    },
+    required: ['title', 'columns'],
+    additionalProperties: false,
+  },
+  run(input, stage) {
+    const title = str(input, 'title', { required: true, max: 200 }).replace(/\s+/g, ' ').trim()
+    if (!title) throw new ToolInputError('"title" must not be empty.')
+    const parentRaw = str(input, 'parent_id', { max: 80 }).trim()
+    const parent = parentRaw ? parentOf(stage, parentRaw) : null
+    const raw = input.columns ?? []
+    if (!Array.isArray(raw)) throw new ToolInputError('"columns" must be a list of {"name", "type"} objects.')
+    if (raw.length > MAX_COLUMNS) throw new ToolInputError(`Too many columns (${raw.length}, at most ${MAX_COLUMNS}).`)
+    const taken = [TITLE_NAME.toLowerCase()]
+    const columns = raw.map((c, i) => {
+      const col = columnOf(c, taken, `columns[${i}]`)
+      taken.push(col.name.toLowerCase())
+      return col
+    })
+    const viewRaw = str(input, 'view', { max: 20 }).trim().toLowerCase() || 'table'
+    if (viewRaw !== 'table' && viewRaw !== 'board') throw new ToolInputError(`Unknown view ${q(viewRaw)}. Use "table" or "board".`)
+    const view = viewRaw as 'table' | 'board'
+    const groupRaw = str(input, 'group_by', { max: 60 }).trim()
+    let group: ColumnSpec | undefined
+    if (groupRaw) {
+      group = columns.find((c) => c.name.toLowerCase() === groupRaw.toLowerCase())
+      if (!group) throw new ToolInputError(`group_by: no column named ${q(groupRaw)}. Columns: ${columns.map((c) => q(c.name)).join(', ') || '(none)'}.`)
+      if (!GROUPABLE.includes(group.type)) throw new ToolInputError(`group_by: ${q(group.name)} is a ${group.type} column. Group by a select, multi_select or checkbox column.`)
+    } else if (view === 'board') {
+      group = columns.find((c) => GROUPABLE.includes(c.type))
+      if (!group) throw new ToolInputError('A board groups its cards by a select, multi_select or checkbox column: add one (e.g. "Status" as select with its options) or use view "table".')
+    }
+    const change = stage.add({
+      kind: 'create_database',
+      pageId: newId(),
+      parentId: parent?.id ?? null,
+      title,
+      columns,
+      titlePropId: newId(),
+      view,
+      groupBy: group?.id ?? null,
+      ...(parent?.dependsOn ? { dependsOn: parent.dependsOn } : {}),
+    })
+    const shown = group ? `${view} grouped by ${q(group.name)}` : view
+    return {
+      content: `${stagedNote(change)} New database id: ${change.pageId} (${q(title)}, ${parent ? `under ${q(parent.title)}` : 'top level'}). Properties: ${TITLE_NAME} (title)${columns.length ? `; ${columns.map(colLine).join('; ')}` : ''}. View: ${shown}. Stage its rows with create_row (database_id ${change.pageId}).`,
+      summary: t('features.agent.res.staged', { n: change.n }),
+      state: 'staged',
+      changeId: change.id,
+    }
+  },
+}
+
+const addProperty: AgentTool = {
+  name: 'add_property',
+  write: true,
+  description:
+    'Stage a new property (column) for a database — an existing one or one staged with create_database. Types: text, number, select, multi_select, date, url, checkbox; select and multi_select take option names. Locked databases refuse new properties. Staged rows can use the property right away.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      database_id: { type: 'string', description: 'Database id (from list_databases or create_database).' },
+      name: { type: 'string', description: 'Property name.' },
+      type: { type: 'string', enum: COLUMN_TYPES },
+      options: { type: 'array', items: { type: 'string' }, description: 'select / multi_select: the option names.' },
+    },
+    required: ['database_id', 'name', 'type'],
+    additionalProperties: false,
+  },
+  run(input, stage) {
+    const dbRaw = str(input, 'database_id', { required: true, max: 80 }).trim()
+    const spec = { name: input.name, type: input.type, options: input.options }
+    const staged = stagedDatabase(stage, dbRaw)
+    if (staged) {
+      const col = columnOf(spec, [TITLE_NAME.toLowerCase(), ...(staged.columns ?? []).map((c) => c.name.toLowerCase())], 'add_property')
+      const c = stage.update(staged.id, { columns: [...(staged.columns ?? []), col] })
+      return { content: `Added the property ${colLine(col)} to staged database #${c.n} (${q(c.title ?? '')}).`, summary: t('features.agent.res.staged', { n: c.n }), state: 'staged', changeId: c.id }
+    }
+    const db = databaseOf(dbRaw)
+    const title = titleOf(ws().pages[db.id])
+    if (db.locked) throw new ToolInputError(`${q(title)} is locked: its properties cannot be changed (rows stay editable). Use its existing properties: ${db.properties.filter(isSettable).map((p) => q(p.name)).join(', ')}.`)
+    const taken = [...db.properties.map((p) => p.name.toLowerCase()), ...stagedProps(stage, db.id).map((c) => c.prop!.name.toLowerCase())]
+    const col = columnOf(spec, taken, 'add_property')
+    const c = stage.add({ kind: 'add_property', pageId: db.id, databaseId: db.id, title, prop: col })
+    return {
+      content: `${stagedNote(c)} New property ${colLine(col)} for ${q(title)}; rows you stage can set it already.`,
+      summary: t('features.agent.res.staged', { n: c.n }),
+      state: 'staged',
+      changeId: c.id,
+    }
+  },
+}
+
 /** Stable order: the tool list is part of the cached prompt prefix. */
 export const AGENT_TOOLS: AgentTool[] = [searchPages, readPage, listDatabases, queryDatabase, currentPage, createPage, appendToPage, createRow, updateRow, setPageTitle]
+
+/**
+ * The workspace agent's (the AI terminal's) tools: AGENT_TOOLS plus the database tools. Custom
+ * agents and the MCP bridge build on AGENT_TOOLS (their scope rules do not cover new databases).
+ */
+export const TERMINAL_TOOLS: AgentTool[] = [...AGENT_TOOLS, createDatabase, addProperty]
 
 /** Short argument readout for the step log (titles instead of ids). */
 export function argLabel(name: ToolName, input: Record<string, unknown>, stage: StageApi): string {
@@ -648,7 +904,10 @@ export function argLabel(name: ToolName, input: Record<string, unknown>, stage: 
     }
     case 'create_page':
     case 'create_row':
+    case 'create_database':
       return s('title')
+    case 'add_property':
+      return `${title(s('database_id'))} · ${s('name')}`
     case 'set_page_title':
       return `${title(s('id'))} → ${s('title')}`
     default:
