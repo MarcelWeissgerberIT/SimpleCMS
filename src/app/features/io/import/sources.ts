@@ -13,7 +13,7 @@ import { buildTrelloPlan, isTrelloBoard, type TrelloBoard, type TrelloLabels } f
 import type { ReportItem } from './report'
 
 /** What the person picked in the dialog ('auto' = dropped / "Choose files"). */
-export type SourceMode = 'auto' | 'notion' | 'obsidian' | 'evernote' | 'trello' | 'html' | 'markdown' | 'csv' | 'backup'
+export type SourceMode = 'auto' | 'notion' | 'obsidian' | 'evernote' | 'trello' | 'html' | 'markdown' | 'csv' | 'backup' | 'pptx' | 'design'
 
 export interface SourceOptions {
   mode: SourceMode

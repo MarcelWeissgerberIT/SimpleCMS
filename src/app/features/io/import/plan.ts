@@ -13,6 +13,7 @@
  * Other sources (Obsidian, Evernote, Trello) produce the same ImportPlan — see sources.ts.
  */
 import { unzip } from 'fflate'
+import type { JSONContent } from '@tiptap/core'
 import type { Person, PropertyDef, PropertyValue } from '../../../store/types'
 import { inferColumns, parseCSV, sniffDelimiter, splitList, unguardCell, type ColumnSpec } from './csv'
 import { extractDataImages, htmlTargets, htmlTitle } from './htmltext'
@@ -34,9 +35,15 @@ export interface PlanNode {
   parentKey: string | null
   /** Directory against which relative links in this node are resolved */
   dir: string
-  /** Body (Markdown, plain text when format = 'text', an HTML document when format = 'html') */
+  /** Body (Markdown, plain text when format = 'text', an HTML document when format = 'html', TipTap blocks as JSON when format = 'doc') */
   body: string
-  format: 'markdown' | 'text' | 'html'
+  format: 'markdown' | 'text' | 'html' | 'doc'
+  /**
+   * Blocks around the body (TipTap JSON; PowerPoint / Claude Design): image / video / audio sources and link
+   * targets relative to `dir` become the saved files, a pageLink's `pageId` "@key:<node key>" that node's page.
+   */
+  before?: JSONContent[]
+  after?: JSONContent[]
   /** database rows: raw cells by column name */
   cells?: Record<string, string>
   /** databases: inferred columns (index 0 = title) */
@@ -61,7 +68,10 @@ export interface PlanNode {
   values?: Record<string, PropertyValue>
 }
 
-export type ImportSource = 'notion' | 'markdown' | 'csv' | 'html' | 'obsidian' | 'evernote' | 'trello' | 'mixed'
+/** A pageLink's `pageId` in a node's before / after blocks: "@key:<node key>" → that node's page. */
+export const KEY_REF = '@key:'
+
+export type ImportSource = 'notion' | 'markdown' | 'csv' | 'html' | 'obsidian' | 'evernote' | 'trello' | 'pptx' | 'design' | 'mixed'
 
 export interface ImportPlan {
   nodes: PlanNode[]

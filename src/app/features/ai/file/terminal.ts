@@ -12,6 +12,7 @@ import type { TermRef } from '../agent/types'
 import { AIError } from '../client'
 import { clipText, fileData, FILE_READ_MAX, loadPdfForClaude } from './load'
 import { fileText } from './convert'
+import { PPTX_MAX_BYTES } from '../../io/import/pptx'
 import { fileKind } from './kinds'
 import { maxPdfPages } from './run'
 
@@ -56,7 +57,7 @@ async function documentOf(ref: NonNullable<TermRef['file']>, signal: AbortSignal
     return { type: 'document', title: ref.name, source: { type: 'base64', media_type: 'application/pdf', data: pdf.data } }
   }
   if (!kind) throw new AIError('bad_request', 'unknown file type')
-  const { bytes } = await fileData(ref.src, FILE_READ_MAX, signal)
+  const { bytes } = await fileData(ref.src, kind === 'pptx' ? PPTX_MAX_BYTES : FILE_READ_MAX, signal)
   const { text } = clipText((await fileText(kind, bytes, ref.name)).text)
   return { type: 'document', title: ref.name, source: { type: 'text', media_type: 'text/plain', data: text } }
 }

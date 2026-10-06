@@ -6,6 +6,7 @@ import { toast } from '../../store/ui'
 import { t } from '../../i18n'
 import { insertBlock } from './blocks'
 import { insertMediaFile } from './mediaSave'
+import { startFileAction } from '../../features'
 
 const MAX_BYTES = 25 * 1024 * 1024
 
@@ -17,6 +18,26 @@ function blockDropPos(editor: Editor, pos: number, json: JSONContent): number {
   } catch {
     return pos
   }
+}
+
+/** A PowerPoint deck dropped onto the page: open it as a page right away (Claude for files' local "Open as page"). */
+function offerDeck(editor: Editor, ref: string, name: string) {
+  toast({
+    message: t('editor.upload.deck', { name }),
+    timeout: 9000,
+    action: {
+      label: t('editor.upload.deckOpen'),
+      run: () => {
+        if (editor.isDestroyed) return
+        let at = -1
+        editor.state.doc.descendants((n, p) => {
+          if (at < 0 && n.type.name === 'fileBlock' && n.attrs.src === ref) at = p
+          return at < 0
+        })
+        if (at >= 0) startFileAction(editor, at, 'page')
+      },
+    },
+  })
 }
 
 /** Store files locally (IndexedDB) and insert image / video / audio / file blocks. */
@@ -45,6 +66,7 @@ export async function uploadFiles(editor: Editor, files: File[], pos?: number | 
         editor.chain().focus().insertContentAt(pos, node).run()
         pos = undefined
       } else insertBlock(editor, node)
+      if (node.type === 'fileBlock' && /\.pptx$/i.test(file.name)) offerDeck(editor, ref, file.name)
     } catch (err) {
       console.warn('[editor] upload failed', err)
       toast({ message: t('editor.upload.failed'), kind: 'error' })

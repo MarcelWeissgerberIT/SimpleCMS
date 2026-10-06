@@ -10,7 +10,7 @@ import { AudioLines, Bookmark, Film, Link2, MonitorPlay } from 'lucide-react'
 import { Popover } from '../../ui/Popover'
 import { useT } from '../../i18n'
 import type { Bridge } from '../lib/bridge'
-import { detectProvider, embedSrc, PROVIDER_LABEL } from '../lib/embeds'
+import { detectProvider, embedSrc, isClaudeDesignUrl, PROVIDER_LABEL } from '../lib/embeds'
 import { posAnchor } from './common'
 import { mediaKindOfUrl, mediaNameFromUrl, safeMediaSrc } from '../schema/media'
 
@@ -56,7 +56,19 @@ export function UrlPasteMenu({ editor, bridge }: { editor: Editor; bridge: Bridg
       editor.chain().focus().insertContentAt(range, node).run()
     }
     const provider = detectProvider(url)
-    const out: Option[] = [{ id: 'link', label: t('editor.paste.link'), icon: <Link2 size={15} />, run: close }]
+    const link: Option = { id: 'link', label: t('editor.paste.link'), icon: <Link2 size={15} />, run: close }
+    // a Claude Design link: the site cannot be embedded — a bookmark card first (↵), the plain link second
+    if (isClaudeDesignUrl(url))
+      return [
+        {
+          id: 'bookmark',
+          label: t('editor.paste.bookmark'),
+          icon: <Bookmark size={15} />,
+          run: () => replace({ type: 'bookmark', attrs: { url, title: t('editor.paste.designTitle'), description: t('editor.paste.designDesc') } }),
+        },
+        link,
+      ]
+    const out: Option[] = [link]
     // a direct link to a media file plays in a video / audio block
     const media = mediaKindOfUrl(url)
     const src = safeMediaSrc(url)

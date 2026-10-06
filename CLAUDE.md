@@ -38,7 +38,7 @@ src/app/features/**                  AI (+ workspace agent), history, graph, sha
                                      GitHub Markdown, per-device IndexedDB `one-sync`), mcp (local bridge UI), sheets
                                      (spreadsheet engine + grid; functions/ = custom functions built by clicking), charts
                                      (SVG renderer, chart builder, data sources) (public API: features/index.ts)
-src/app/help/**                      help centre: panel (?, status bar, ⌘K, workspace menu), 58 articles EN+DE twins
+src/app/help/**                      help centre: panel (?, status bar, ⌘K, workspace menu), 59 articles EN+DE twins
                                      (help/articles/{en,de}/<id>.md, `help:<id>` links), Ask (Claude over the articles);
                                      link UI to an article with `<HelpLink id="…" />` (public API: help/index.ts)
 src/help-site/**                     build-time public /help pages (prerendered from the same articles, hreflang)
@@ -165,6 +165,13 @@ the public APIs stable — other areas are built against them in parallel.
   transaction after `snapshotNow`; origin 'ai' / 'import'; private parent → `createPrivatePage` / `createPrivateDatabase`;
   web images in converted pages and in every Claude answer about a file or image become links (`withoutWebImages`).
   AI-terminal file references `TermRef.file`; runs keep `AIRun.file` (meta, never content).
+- PowerPoint import (features/io/import/pptx.ts → deck.ts, pure; `ImportSource` 'pptx'): layout 'page' (one presentable
+  page: an H2 per slide, notes as a closed toggle, dividers; a clean title slide → page title + lede) or 'pages' (parent +
+  a sub-page per slide); pictures saved by apply.ts, one store update = one Undo. File kind `pptx` in Claude for files.
+- "Take over from Claude Design" (import/design.ts, `ImportSource` 'design'; Claude Design has no API / MCP): its HTML
+  export (or ZIP) + deck + screenshots → one page with a style note (import/style.ts: palette, fonts, type scale, radii,
+  spacing); screenshots reach Claude only after asking; "keep as pattern" → `savePatternExample()` (memory/example.ts).
+  Shared Claude Design links (`isClaudeDesignUrl`, editor/lib/embeds.ts) are never framed — a bookmark card.
 - Turn into page (editor/split, Mod+Alt+9): blocks of one container move into a new sub-page (content written with
   origin `'split'`), one `pageLink` in their place; inline databases, linked sub-pages and comment threads move along;
   private parent → `createPrivatePage`. Turn into database: `TableDraft.placement` 'inline' (default) | 'page'.

@@ -16,6 +16,9 @@ export interface ParsedPage {
   title: string
   doc: JSONContent
   images: number
+  /** PowerPoint: slides · pictures that come along */
+  slides?: number
+  media?: number
 }
 
 function json(raw: string): Record<string, unknown> | null {
@@ -31,7 +34,12 @@ export function parsePage(raw: string): ParsedPage | null {
   const d = json(raw)
   const doc = d?.doc as JSONContent | undefined
   if (!d || !doc || doc.type !== 'doc' || !Array.isArray(doc.content)) return null
-  return { title: typeof d.title === 'string' ? d.title : '', doc, images: typeof d.images === 'number' ? d.images : 0 }
+  return {
+    title: typeof d.title === 'string' ? d.title : '',
+    doc,
+    images: typeof d.images === 'number' ? d.images : 0,
+    ...(typeof d.slides === 'number' ? { slides: d.slides, media: typeof d.media === 'number' ? d.media : 0 } : {}),
+  }
 }
 
 const strings = (v: unknown): string[] => (Array.isArray(v) ? v.map((x) => (typeof x === 'string' ? x : x == null ? '' : String(x))) : [])

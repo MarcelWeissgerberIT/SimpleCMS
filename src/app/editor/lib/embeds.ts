@@ -117,6 +117,18 @@ export function fileNameOfUrl(raw: string): string {
   return last ? safeDecode(last) : domainOf(raw)
 }
 
+/**
+ * A shared Claude Design link (claude.ai/design/…, design.claude.ai/…). The site does not allow being
+ * embedded: such a link becomes a bookmark card (the paste menu offers it first).
+ */
+export function isClaudeDesignUrl(raw: string): boolean {
+  const u = parseUrl(raw)
+  if (!u || !/^https?:$/.test(u.protocol)) return false
+  const host = u.hostname.toLowerCase()
+  if (host === 'design.claude.ai') return true
+  return (host === 'claude.ai' || host === 'www.claude.ai') && /^\/(public\/)?design(\/|$)/i.test(u.pathname)
+}
+
 /** Detect a known embeddable provider. Returns null for URLs we would only show generically. */
 export function detectProvider(raw: string): EmbedProvider | null {
   const u = parseUrl(raw)

@@ -280,6 +280,8 @@ export const messages: Messages = {
     'editor.paste.video': 'Video player',
     'editor.paste.audio': 'Audio player',
     'editor.paste.dismiss': 'Dismiss',
+    'editor.paste.designTitle': 'Claude Design',
+    'editor.paste.designDesc': 'A design in Claude Design — opens in Claude.',
     // accessibility labels for built-in controls
     'editor.a11y.todo': 'To-do: {text}',
     'editor.a11y.todoEmpty': 'empty to-do',
@@ -301,6 +303,8 @@ export const messages: Messages = {
     // upload
     'editor.upload.tooLarge': '“{name}” is larger than 25 MB',
     'editor.upload.failed': 'Upload failed',
+    'editor.upload.deck': '“{name}” added — open the slides as a page?',
+    'editor.upload.deckOpen': 'Open as page',
     // button block
     'editor.block.button': 'Button',
     'editor.block.button.desc': 'Runs actions on click: insert blocks, add database pages, edit properties, call a webhook.',
@@ -764,6 +768,8 @@ export const messages: Messages = {
     'editor.paste.video': 'Videoplayer',
     'editor.paste.audio': 'Audioplayer',
     'editor.paste.dismiss': 'Verwerfen',
+    'editor.paste.designTitle': 'Claude Design',
+    'editor.paste.designDesc': 'Ein Design in Claude Design — öffnet sich in Claude.',
     'editor.a11y.todo': 'Aufgabe: {text}',
     'editor.a11y.todoEmpty': 'leere Aufgabe',
     'editor.a11y.expand': 'Umschalter aufklappen',
@@ -782,6 +788,8 @@ export const messages: Messages = {
 
     'editor.upload.tooLarge': '„{name}“ ist größer als 25 MB',
     'editor.upload.failed': 'Hochladen fehlgeschlagen',
+    'editor.upload.deck': '„{name}“ hinzugefügt — die Folien als Seite öffnen?',
+    'editor.upload.deckOpen': 'Als Seite öffnen',
     // button block
     'editor.block.button': 'Schaltfläche',
     'editor.block.button.desc': 'Führt beim Klick Aktionen aus: Blöcke einfügen, Datenbankseiten anlegen, Eigenschaften setzen, Webhook senden.',

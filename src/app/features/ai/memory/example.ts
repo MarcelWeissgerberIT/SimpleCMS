@@ -284,3 +284,70 @@ export function suggestTag(pageId: ID): string {
   return base.length >= 2 ? base : `${base}-1`
 }
 
+export interface SavePatternExample {
+  tag: string
+  /** the entry's name (one sentence) */
+  title: string
+  /** blocks under "Pattern" (kept as they are) and under "Example" ([] = none) */
+  pattern: JSONContent[]
+  example: JSONContent[]
+  topics?: string[]
+  /** the page it came from (Source) */
+  sourcePageId?: ID | null
+}
+
+/**
+ * A pattern the person brought along — the style of a Claude Design export (features/io/import): saved as an
+ * Example as it is, without a request to describe it. An active example with the same tag is replaced. The
+ * memory database is created on this explicit action when there is none. Throws ExampleError.
+ */
+export function savePatternExample(o: SavePatternExample): { id: ID; how: 'new' | 'replaced'; undo: () => void } {
+  const tag = slugTag(o.tag)
+  if (!TAG_RE.test(tag)) throw new ExampleError('tag')
+  if (!o.pattern.length) throw new ExampleError('empty')
+  let dbId: ID
+  try {
+    dbId = ensureMemoryDb()
+  } catch {
+    throw new ExampleError('readonly')
+  }
+  let roles: { typeId: ID; tagId: ID }
+  try {
+    roles = ensureExampleSchema(dbId)
+  } catch {
+    throw new ExampleError('locked')
+  }
+  const db = ws().databases[dbId]!
+  const r = memoryProps(db)
+  const props: Record<ID, PropertyValue> = {}
+  const typeId = typeOption(dbId, roles.typeId, 'example')
+  if (typeId) props[roles.typeId] = typeId
+  props[roles.tagId] = tag
+  if (r.topics && o.topics?.length) props[r.topics] = optionIds(dbId, r.topics, o.topics)
+  if (r.source) props[r.source] = pageSource(o.sourcePageId)
+  if (r.active) props[r.active] = true
+  const body: JSONContent = {
+    type: 'doc',
+    content: [heading(t('features.memory.example.pattern')), ...below(o.pattern), ...(o.example.length ? [heading(t('features.memory.example.example')), ...below(o.example)] : [])],
+  }
+  const title = o.title.replace(/\s+/g, ' ').trim().slice(0, 300) || tag
+  const taken = exampleByTag(tag)
+  if (taken) {
+    const row = ws().pages[taken.id]!
+    const before = { title: row.title, properties: { ...row.properties }, content: row.content }
+    ws().updatePage(taken.id, { title })
+    for (const [propId, v] of Object.entries(props)) ws().setRowProperty(taken.id, propId, v)
+    ws().setContent(taken.id, body, ORIGIN)
+    const undo = () => {
+      if (!ws().pages[taken.id]) return
+      ws().updatePage(taken.id, { title: before.title })
+      for (const [propId, v] of Object.entries(before.properties)) ws().setRowProperty(taken.id, propId, v)
+      ws().setContent(taken.id, before.content, ORIGIN)
+    }
+    return { id: taken.id, how: 'replaced', undo }
+  }
+  const id = ws().createRow(dbId, { title, properties: props })
+  ws().setContent(id, body, ORIGIN)
+  return { id, how: 'new', undo: () => ws().pages[id] && ws().deletePagePermanently(id) }
+}
+
