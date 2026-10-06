@@ -37,6 +37,12 @@ export interface Config {
   version: string
   /** Custom agents on the server (docs/CLOUD.md § Agents). */
   agents: AgentConfig
+  /**
+   * DEV_MODE test servers only (MEDIA_FETCH_HOSTS="media.e2e.test=127.0.0.1:4601,…"): made-up names that
+   * POST …/files/fetch reaches on this machine over plain HTTP — every other address goes through the SSRF
+   * guard (http/ssrf.ts). Empty in every deployment.
+   */
+  mediaFetchHosts: Record<string, string>
 }
 
 export interface AgentConfig {
@@ -80,6 +86,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   if (env.AUTH_IP_LIMIT && !devMode) throw new ConfigError('AUTH_IP_LIMIT is only honoured with DEV_MODE=1 (test servers); deployments keep 20 sign-in requests per IP per 15 minutes')
   const authIpLimit = devMode ? int(env.AUTH_IP_LIMIT, AUTH_IP_LIMIT, 1, 100_000, 'AUTH_IP_LIMIT') : AUTH_IP_LIMIT
 
+  if (env.MEDIA_FETCH_HOSTS && !devMode) throw new ConfigError('MEDIA_FETCH_HOSTS is only honoured with DEV_MODE=1 (test servers); deployments fetch media through the SSRF guard only')
   for (const name of ['AGENT_TICK_MS', 'AGENT_COALESCE_MS']) {
     if (env[name] && !devMode) throw new ConfigError(`${name} is only honoured with DEV_MODE=1 (test servers); deployments check schedules every 30 s and collect row changes for 60 s`)
   }
@@ -117,7 +124,19 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
       tickMs: devMode ? int(env.AGENT_TICK_MS, 30_000, 50, 3_600_000, 'AGENT_TICK_MS') : 30_000,
       coalesceMs: devMode ? int(env.AGENT_COALESCE_MS, 60_000, 0, 3_600_000, 'AGENT_COALESCE_MS') : 60_000,
     },
+    mediaFetchHosts: devMode ? parseFetchHosts(env.MEDIA_FETCH_HOSTS) : {},
   }
+}
+
+/** MEDIA_FETCH_HOSTS (DEV_MODE): "name=ip:port,…" — made-up test names mapped to local fixtures. */
+function parseFetchHosts(raw: string | undefined): Record<string, string> {
+  const out: Record<string, string> = {}
+  for (const part of (raw ?? '').split(',').map((x) => x.trim()).filter(Boolean)) {
+    const m = /^([a-z0-9.-]+)=(\d{1,3}(?:\.\d{1,3}){3}):(\d{1,5})$/i.exec(part)
+    if (!m) throw new ConfigError(`MEDIA_FETCH_HOSTS entries look like name=127.0.0.1:4601 (got "${part}")`)
+    out[(m[1] ?? '').toLowerCase()] = `${m[2]}:${m[3]}`
+  }
+  return out
 }
 
 /** ANTHROPIC_BASE_URL: the Messages API origin (a proxy in front of it, or a fake one in tests). */

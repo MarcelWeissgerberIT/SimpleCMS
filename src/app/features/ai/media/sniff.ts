@@ -52,7 +52,7 @@ function isSvg(b: Uint8Array): boolean {
   } catch {
     return false
   }
-  const head = s.replace(/^﻿/, '').trimStart()
+  const head = s.replace(/^\uFEFF/, '').trimStart()
   if (!head.startsWith('<')) return false
   const rest = head.replace(/^(<\?xml[\s\S]*?\?>\s*|<!--[\s\S]*?-->\s*|<!DOCTYPE[\s\S]*?>\s*)*/i, '')
   return /^<svg[\s>]/i.test(rest)
