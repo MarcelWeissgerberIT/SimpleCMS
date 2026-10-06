@@ -1,6 +1,6 @@
 # Skool post — Ninja Armory submission
 
-**Attach:** `public/media/simplecms-one.mp4` (70 s video, also online at
+**Attach:** `public/media/simplecms-one.mp4` (60 s video, also online at
 https://getonecms.com/media/simplecms-one.mp4) and the three images in `docs/media/post/`
 (`01-ugly-1997.png`, `02-the-bill.png`, `03-spec-sheet.png`). Don't post a screenshot of the new landing
 site: people should see it for themselves after 15 seconds.
@@ -48,4 +48,4 @@ Code: https://github.com/MarcelWeissgerberIT/SimpleCMS
 
 I'd love your feedback, especially on what you'd automate first with the webhooks. 🙏
 
-*(The 70-second tour is in the video. The images show the "before", the bill and the spec sheet.)*
+*(The 60-second tour is in the video. The images show the "before", the bill and the spec sheet.)*
