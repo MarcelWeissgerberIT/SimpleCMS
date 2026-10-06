@@ -10,8 +10,10 @@ import { useWorkspace } from '../../store/store'
 import { getAIKey } from '../../store/secrets'
 import { t } from '../../i18n'
 import { demoAnswer, streamDemo } from './demo'
-import { MCP_BETA, attachMcp, codewordsIn, type Codewords, type McpAttachment, type McpRequestKind } from './mcp-servers/config'
+import { MCP_BETA, attachMcp, codewordsIn, type Codewords, type McpAttachment, type McpRequestKind, type McpSetup } from './mcp-servers/config'
 import { foldMcpBlock, skippedCall, type McpCall } from './mcp-servers/activity'
+import { createMediaCollector } from './media/collect'
+import type { MediaItem } from './media/types'
 
 export type AIAction = 'continue' | 'improve' | 'shorter' | 'longer' | 'fix' | 'summarize' | 'translate' | 'explain' | 'action_items' | 'custom' | 'autofill'
 
@@ -35,6 +37,8 @@ export interface RunAIOptions {
   mcp?: boolean
   /** MCP tool calls of the request so far, whenever one starts or ends */
   onMcp?: (calls: McpCall[]) => void
+  /** media the MCP results returned (and Claude's links to them), whenever the list grows — shown as cards, never loaded (features/ai/media) */
+  onMedia?: (items: MediaItem[]) => void
   /**
    * The One memory for a free-form request: the `<one_memory>` block the caller picked for it
    * (features/ai/memory memoryFor) — it goes into the prompt before the task. '' / absent = none.
@@ -294,6 +298,12 @@ export interface StreamOptions {
    */
   codewords?: Codewords | null
   onMcp?: (calls: McpCall[]) => void
+  /** media in the MCP results (features/ai/media collect.ts), whenever the list grows */
+  onMedia?: (items: MediaItem[]) => void
+  /** exactly these MCP servers (generate from the editor: the one picked) instead of the current setup */
+  setup?: McpSetup
+  /** how often a paused turn (the server-side tool loop) is resumed — default MAX_RESUMES */
+  maxResumes?: number
 }
 
 /** Addressed servers that did not join the request (switched off, or no token in this browser). */
@@ -309,7 +319,7 @@ const MAX_RESUMES = 3
  * Stream one completion with the configured model. Resolves with the full text — with MCP tools,
  * the answer after the last tool call (text Claude wrote before it was a progress note).
  */
-export async function streamCompletion({ system, prompt, onToken, signal, mcp, codewords, onMcp: report }: StreamOptions): Promise<string> {
+export async function streamCompletion({ system, prompt, onToken, signal, mcp, codewords, onMcp: report, onMedia, setup, maxResumes }: StreamOptions): Promise<string> {
   const apiKey = await getAIKey()
   if (!apiKey) throw new AIError('no_key')
   const settings = useWorkspace.getState().settings
@@ -330,7 +340,7 @@ export async function streamCompletion({ system, prompt, onToken, signal, mcp, c
     }
 
     const cw = mcp === false ? null : codewords
-    attached = mcp === false ? null : await attachMcp(undefined, mcp ?? 'fixed', { forced: cw?.forced })
+    attached = mcp === false ? null : await attachMcp(setup, mcp ?? 'fixed', { forced: cw?.forced })
     if (signal?.aborted) throw new AIError('aborted')
     // addressed servers that stay out are listed first, before any call of the request
     const skipped = skippedOf(cw, attached)
@@ -338,7 +348,7 @@ export async function streamCompletion({ system, prompt, onToken, signal, mcp, c
     if (skipped.length) onMcp?.([])
     let stopReason: string | null
     if (attached) {
-      const final = await streamWithMcp(client, model, `${system}\n\n${attached.system}`, prompt, attached, onText, onMcp, signal)
+      const final = await streamWithMcp(client, model, `${system}\n\n${attached.system}`, prompt, attached, onText, onMcp, signal, { onMedia, maxResumes })
       stopReason = final.stop_reason
       text = answerText(final.content) || text
     } else if (model === 'claude-haiku-4-5') {
@@ -395,10 +405,14 @@ async function streamWithMcp(
   onText: (delta: string) => void,
   onMcp: ((calls: McpCall[]) => void) | undefined,
   signal: AbortSignal | undefined,
+  more: { onMedia?: (items: MediaItem[]) => void; maxResumes?: number } = {},
 ): Promise<BetaMessage> {
   const opus = model !== 'claude-haiku-4-5'
   const messages: BetaMessageParam[] = [{ role: 'user', content: prompt }]
   let calls: McpCall[] = []
+  // media in the results: cards for the person, nothing is fetched (features/ai/media)
+  const media = more.onMedia ? createMediaCollector() : null
+  const maxResumes = more.maxResumes ?? MAX_RESUMES
   for (let resumes = 0; ; resumes++) {
     const params: BetaMessageStreamParams = {
       model,
@@ -414,6 +428,7 @@ async function streamWithMcp(
     signal?.addEventListener('abort', abort, { once: true })
     stream.on('text', onText)
     stream.on('contentBlock', (block: BetaContentBlock) => {
+      if (media?.block(block)) more.onMedia?.(media.items)
       const next = foldMcpBlock(calls, block)
       if (next === calls) return
       calls = next
@@ -425,7 +440,11 @@ async function streamWithMcp(
     } finally {
       signal?.removeEventListener('abort', abort)
     }
-    if (final.stop_reason !== 'pause_turn' || resumes >= MAX_RESUMES) return final
+    if (final.stop_reason !== 'pause_turn' || resumes >= maxResumes) {
+      // links Claude wrote to a host a result used count too
+      if (media?.answer(answerText(final.content))) more.onMedia?.(media.items)
+      return final
+    }
     messages.push({ role: 'assistant', content: final.content })
   }
 }
@@ -629,6 +648,7 @@ export async function runAI(opts: RunAIOptions): Promise<string> {
     mcp: opts.mcp === false ? false : free ? 'free' : 'fixed',
     codewords,
     onMcp: opts.onMcp,
+    onMedia: opts.onMedia,
   })
   return opts.action === 'autofill' ? text.trim().replace(/^["'`]|["'`]$/g, '') : stripFence(text)
 }
