@@ -39,6 +39,10 @@
     1440,
     881
   ],
+  "free-board.webp": [
+    1440,
+    694
+  ],
   "gmail-one-click.webp": [
     1440,
     1072
@@ -83,6 +87,10 @@
     1440,
     743
   ],
+  "pages-per-item.webp": [
+    1440,
+    900
+  ],
   "quick-capture.webp": [
     1440,
     900
@@ -114,9 +122,5 @@
   "turn-into-database.webp": [
     1440,
     1368
-  ],
-  "pages-per-item.webp": [
-    1440,
-    900
   ]
 }

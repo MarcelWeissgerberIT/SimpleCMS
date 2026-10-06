@@ -11,7 +11,7 @@ import type { Schema } from '@tiptap/pm/model'
 import { useWorkspace } from '../../store/store'
 import type { ColorName, ID, Page, PageCover, PageIcon } from '../../store/types'
 import { FILE_PREFIX, getFile, readAsDataUrl } from '../../lib/files'
-import { propertyValueToText } from '../../database'
+import { propertyValueToText, withTypeColumn } from '../../database'
 import { detectEmbedProvider, getExtensions, stripButtonActions } from '../../editor'
 import { t } from '../../i18n'
 
@@ -445,10 +445,11 @@ export function databaseTable(dbId: ID, pages: Record<ID, Page> = useWorkspace.g
     .map((id) => db.properties.find((p) => p.id === id))
     .filter((p): p is NonNullable<typeof p> => !!p && p.type !== 'title')
     .slice(0, 5)
-  const cols = titleProp ? [titleProp, ...visible] : visible
   const rows = Object.values(pages)
     .filter((p) => p.databaseId === dbId && !p.trashed)
     .sort((a, b) => a.order - b.order || a.createdAt - b.createdAt)
+  // record types: each card / row shows its type (database/model/recordTypes)
+  const cols = withTypeColumn(db, titleProp ? [titleProp, ...visible] : visible, rows)
   const shown = rows.slice(0, 50)
   const cell = (type: 'tableHeader' | 'tableCell', s: string): JSONContent => ({ type, content: [s ? para(text(s)) : { type: 'paragraph' }] })
   const out: JSONContent[] = opts.caption === false ? [] : [para(text(title, [{ type: 'bold' }]))]
@@ -482,7 +483,7 @@ function rowProperties(row: Page): JSONContent[] {
   if (!db) return []
   const cell = (type: 'tableHeader' | 'tableCell', s: string): JSONContent => ({ type, content: [s ? para(text(s)) : { type: 'paragraph' }] })
   const rows: JSONContent[] = []
-  for (const prop of db.properties) {
+  for (const prop of withTypeColumn(db, db.properties, [row])) {
     if (prop.type === 'title') continue
     let v = ''
     try {

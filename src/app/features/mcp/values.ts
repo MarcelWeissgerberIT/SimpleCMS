@@ -6,7 +6,7 @@
 import { useWorkspace } from '../../store/store'
 import { isEffectivelyTrashed, selectBreadcrumbs } from '../../store/selectors'
 import type { Database, ID, Page, PageIcon, PropertyDef } from '../../store/types'
-import { propertyValueToText } from '../../database'
+import { propertyValueToText, typeOfRow } from '../../database'
 import { isSettable } from '../ai/agent/props'
 
 export const ws = () => useWorkspace.getState()
@@ -139,7 +139,9 @@ export function rowProperties(db: Database, row: Page): Record<string, unknown> 
 }
 
 export function rowJson(db: Database, row: Page) {
-  return { id: row.id, title: row.title, url: pageUrl(row.id), createdAt: iso(row.createdAt), updatedAt: iso(row.updatedAt), properties: rowProperties(db, row) }
+  // its record type by name (database/model/recordTypes), only when it has one
+  const rt = typeOfRow(row, useWorkspace.getState().kit)
+  return { id: row.id, title: row.title, url: pageUrl(row.id), ...(rt ? { recordType: rt.name } : {}), createdAt: iso(row.createdAt), updatedAt: iso(row.updatedAt), properties: rowProperties(db, row) }
 }
 
 /** A property definition in the shape of the API's schema (docs/API.md, server schemaOut) + what the app knows. */

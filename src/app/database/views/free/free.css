@@ -146,3 +146,12 @@ button.fb-addlane:active {
     scroll-snap-align: start;
   }
 }
+
+.fb-cfgname {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  font-size: 13px;
+  color: var(--ink-2);
+}

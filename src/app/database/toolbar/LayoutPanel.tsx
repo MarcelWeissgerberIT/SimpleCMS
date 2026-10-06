@@ -16,6 +16,7 @@ import { SubItemsDisplayRow } from './StructurePanels'
 import { subItemsOf } from '../model/hierarchy'
 import { FEED_CREATED, feedDateProp } from '../model/feed'
 import { HelpLink } from '../../help'
+import { FreeOptions } from '../views/free/FreeOptions'
 
 export function LayoutPanel({ m, anchor, onClose }: { m: DbModel; anchor: Element; onClose: () => void }) {
   const t = useT()
@@ -104,6 +105,7 @@ export function LayoutPanel({ m, anchor, onClose }: { m: DbModel; anchor: Elemen
           </div>
         )}
         {view.type === 'feed' && <FeedOptions m={m} />}
+        {view.type === 'board' && view.free && <FreeOptions m={m} />}
         {view.type === 'table' && (
           <label className="db-cfg__row db-cfg__row--switch">
             <span>{t('database.layout.wrap')}</span>

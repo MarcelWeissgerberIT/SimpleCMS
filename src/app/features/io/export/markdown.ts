@@ -80,7 +80,7 @@ export function rewriteExportLinks(md: string, from: string, pageTarget: (id: ID
 }
 
 export async function buildMarkdownZip(tree: ExportTree, opts: { untitled: string; onProgress?: (done: number, total: number) => void }): Promise<Blob> {
-  const [{ docToMarkdown }, { propertyValueToText }] = await Promise.all([import('../../../editor'), import('../../../database')])
+  const [{ docToMarkdown }, { propertyValueToText, withTypeColumn }] = await Promise.all([import('../../../editor'), import('../../../database')])
   const out: Record<string, Uint8Array> = {}
   const pathOf = new Map<ID, string>()
 
@@ -148,17 +148,19 @@ export async function buildMarkdownZip(tree: ExportTree, opts: { untitled: strin
     const db = tree.databases[p.id]
     if (p.kind === 'database' && db) {
       const rows = tree.rows(p.id)
-      const lines = [db.properties.map((d) => csvCell(d.name)).join(',')]
+      // record types: each row's type as a "Type" column (database/model/recordTypes)
+      const cols = withTypeColumn(db, db.properties, rows)
+      const lines = [cols.map((d) => csvCell(d.name)).join(',')]
       const rel = relationRef(path)
       const fref = fileRef(path)
-      for (const r of rows) lines.push(db.properties.map((d) => csvCell(exportValue(db, d, r, propertyValueToText, rel, fref))).join(','))
+      for (const r of rows) lines.push(cols.map((d) => csvCell(exportValue(db, d, r, propertyValueToText, rel, fref))).join(','))
       out[path] = strToU8('﻿' + lines.join('\r\n') + '\r\n')
     } else {
       const parts = [`# ${p.title.trim() || opts.untitled}`, '']
       const rowDb = p.databaseId ? tree.databases[p.databaseId] : undefined
       if (rowDb) {
         const props: string[] = []
-        for (const d of rowDb.properties) {
+        for (const d of withTypeColumn(rowDb, rowDb.properties, [p])) {
           if (d.type === 'title') continue
           const v = exportValue(rowDb, d, p, propertyValueToText, relationRef(path), fileRef(path))
           if (v.trim()) props.push(`${d.name}: ${v.replace(/\n/g, ' ')}`)

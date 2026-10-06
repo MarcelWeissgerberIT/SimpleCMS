@@ -8,7 +8,7 @@
  *
  * (CHANGELOG_DRAFT=1 lets the build pass while a new entry's picture does not exist yet.)
  *
- * Shots: coding-pipeline, pages-per-item, design-import, tour, quick-capture, script-templates, one-script-everywhere, file-ai, one-script, transform, ai-edit, db-commands, gmail-one-click, memory, grips-footer, block-select, split-to-page, image-ai, claude-reads, redo, ai-terminal, mcp-codewords, mcp-tidy-up, slash-menu, turn-into-database,
+ * Shots: free-board, coding-pipeline, pages-per-item, design-import, tour, quick-capture, script-templates, one-script-everywhere, file-ai, one-script, transform, ai-edit, db-commands, gmail-one-click, memory, grips-footer, block-select, split-to-page, image-ai, claude-reads, redo, ai-terminal, mcp-codewords, mcp-tidy-up, slash-menu, turn-into-database,
  * custom-agents, gmail, help-centre, mcp-servers, feed-blocks — each named like its image. Every shot starts from a fresh, seeded
  * workspace in English, light theme, 1440 × 900 at device scale 2; the crop of the relevant area is scaled
  * to 1440 px wide and saved as public/assets/shots/changelog/<shot>.webp (≤ 150 KB: the quality steps down
@@ -1467,6 +1467,49 @@ const shots = {
       await ctx.close()
       rmSync(work.root, { recursive: true, force: true })
     }
+  },
+
+  /** A free board: lanes with cards of three record types (Lead, Bug, Idea) and a plain card — each with its own fields. */
+  async 'free-board'(browser) {
+    const { ctx, page } = await freshPage(browser)
+    const dbId = await page.evaluate(() => {
+      const W = window.__one.workspace
+      const s = W.getState()
+      s.upsertRecordType({ id: 'lead', name: 'Lead', color: 'orange', properties: [{ id: 'mail', name: 'Email', type: 'email' }, { id: 'value', name: 'Deal value', type: 'number', numberFormat: 'euro' }, { id: 'stage', name: 'Stage', type: 'select', options: [{ id: 'warm', name: 'Warm', color: 'orange' }, { id: 'cold', name: 'Cold', color: 'blue' }] }], createdAt: 0, updatedAt: 0 })
+      s.upsertRecordType({ id: 'bug', name: 'Bug', color: 'red', properties: [{ id: 'sev', name: 'Severity', type: 'select', options: [{ id: 'p1', name: 'P1', color: 'red' }, { id: 'p2', name: 'P2', color: 'yellow' }] }, { id: 'area', name: 'Area', type: 'text' }], createdAt: 0, updatedAt: 0 })
+      s.upsertRecordType({ id: 'idea', name: 'Idea', color: 'green', properties: [{ id: 'votes', name: 'Votes', type: 'number' }], createdAt: 0, updatedAt: 0 })
+      const lane = { id: 'fbl', name: 'Lane', type: 'select', options: [{ id: 'l1', name: 'Inbox', color: 'gray' }, { id: 'l2', name: 'Doing', color: 'orange' }, { id: 'l3', name: 'Done', color: 'green' }] }
+      const view = { id: 'fbv', name: 'Free board', type: 'board', free: true, groupBy: 'fbl', filter: null, sorts: [], visibleProperties: [], openIn: 'peek', hiddenGroups: [] }
+      const dbId = s.createDatabase({ title: 'Launch board', parentId: null, icon: { type: 'asset', value: 'binder' }, properties: [{ id: 'fbt', name: 'Name', type: 'title' }, lane], views: [view] })
+      const st = () => W.getState()
+      for (const t of ['lead', 'bug', 'idea']) st().attachRecordType(dbId, t)
+      const prop = (name) => st().databases[dbId].properties.find((x) => x.name === name).id
+      const add = (title, laneId, type, vals) => {
+        const id = st().createRow(dbId, { title, properties: { fbl: laneId } })
+        if (type) st().setRecordType(id, type)
+        for (const [k, v] of Object.entries(vals)) st().setRowProperty(id, prop(k), v)
+      }
+      add('ACME Corp.', 'l1', 'lead', { Email: 'buy@acme.example', 'Deal value': 12000, Stage: 'warm' })
+      add('Login loops on Safari', 'l1', 'bug', { Severity: 'p1', Area: 'Auth' })
+      add('Dark mode for exports', 'l1', 'idea', { Votes: 14 })
+      add('Globex', 'l2', 'lead', { Email: 'ops@globex.example', 'Deal value': 4800, Stage: 'cold' })
+      add('Slow table scroll', 'l2', 'bug', { Severity: 'p2', Area: 'Tables' })
+      add('Write the launch post', 'l2', null, {})
+      add('Initech', 'l3', 'lead', { Email: 'hi@initech.example', 'Deal value': 900 })
+      add('Keyboard moves for cards', 'l3', 'idea', { Votes: 9 })
+      return dbId
+    })
+    await openPage(page, dbId)
+    const board = page.locator('#main .dbb-wrap')
+    await board.locator('.fb-card__type').first().waitFor()
+    await rest(page)
+    const tabs = await boxOf(page.locator('#main .db-bar'))
+    const b = await boxOf(board)
+    const left = Math.round((await page.locator('.sb').first().boundingBox())?.width ?? 0) + 1
+    const top = Math.max(0, Math.round(tabs.y - 24))
+    // above the status bar
+    await save(page, 'free-board', { x: left, y: top, width: W - left, height: Math.min(H - 34 - top, Math.round(b.y + b.height + 16 - top)) })
+    await ctx.close()
   },
 
   /** Several blocks selected (text, image, table): the wash on each, the pinned grip, the count chip. */

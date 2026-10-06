@@ -3,7 +3,7 @@
  * Mermaid as SVG) and PDF via the browser print dialog (same document in a hidden iframe).
  */
 import { COLOR_NAMES, type Database, type ID, type Page } from '../../../store/types'
-import type { propertyValueToText as PropertyValueToText } from '../../../database'
+import type { propertyValueToText as PropertyValueToText, withTypeColumn as WithTypeColumn } from '../../../database'
 import { getFile, readAsDataUrl, resolveAssetUrl } from '../../../lib/files'
 import { collectRefs, type ExportTree } from './collect'
 
@@ -391,9 +391,10 @@ interface MermaidLike {
 }
 
 let propertyValueToText: typeof PropertyValueToText = () => ''
+let withTypeColumn: typeof WithTypeColumn = (_db, props) => props
 
 function propsTable(db: Database, row: Page): string {
-  const cells = db.properties
+  const cells = withTypeColumn(db, db.properties, [row])
     .filter((d) => d.type !== 'title')
     .map((d) => [d.name, propertyValueToText(db, d, row)] as const)
     .filter(([, v]) => v.trim())
@@ -402,7 +403,7 @@ function propsTable(db: Database, row: Page): string {
 }
 
 function dbTable(db: Database, rows: Page[], ids: Set<ID>, untitled: string, rowsLabel: (n: number) => string): string {
-  const props = db.properties.filter((p) => p.type !== 'files')
+  const props = withTypeColumn(db, db.properties, rows).filter((p) => p.type !== 'files')
   const head = props.map((p) => `<th>${esc(p.name)}</th>`).join('')
   const body = rows
     .map((r) => {
@@ -423,6 +424,7 @@ export async function buildHTML(tree: ExportTree, opts: HtmlOptions): Promise<st
   // editor + database renderers are loaded on demand
   const [{ docToHTML }, database] = await Promise.all([import('../../../editor'), import('../../../database')])
   propertyValueToText = database.propertyValueToText
+  withTypeColumn = database.withTypeColumn
   const files = await fileUrlMap(tree)
   const usesMath = tree.all.some((p) => p.content && /"(block|inline)Math"/.test(JSON.stringify(p.content)))
   const usesMermaid = tree.all.some((p) => p.content && /"mermaid"/.test(JSON.stringify(p.content)))
