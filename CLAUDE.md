@@ -230,6 +230,16 @@ the public APIs stable — other areas are built against them in parallel.
   `ai-row-<id>` stay stable; `openAIPanel()` is the only way to open the AI menu from outside the editor.
 - What's new (src/app/help/changelog): every user-visible release adds an entry EN + DE with a real screenshot
   (changelog/README.md, `scripts/changelog-shots.mjs`); the build fails without a twin or an image.
+- Building blocks (store/kit.ts, features/kit): `Workspace.kit` = { lists, propTypes, recordTypes } — write only with
+  upsertList / deleteList / upsertPropType / deletePropType / upsertRecordType / deleteRecordType / attachRecordType /
+  setRecordType; every reader sanitizes (`sanitizeKit`); team: meta maps `lists`, `propTypes`, `recordTypes`.
+  `PropertyDef.listId` = options copied from a shared list (upsertList keeps every bound property in step, locked
+  databases too); `PropertyDef.custom` = an own property type (`type` = its base, 'free' → 'text'; the base is fixed once
+  created); `PropertyDef.fromType` = from a record type (upsertRecordType adds / renames in every database holding it,
+  never in a locked one, never deletes — a removed record property becomes a plain property, values stay);
+  `Database.recordTypes`; a row's `Page.recordType` (cloud page field). Own types' scripts (value / validate / options /
+  format / onChange) are One Script code run only by features/kit — in teams only a version this device saved or
+  confirmed. `View.free` = a free board (lanes = its groupBy select, cards of any record type).
 - Database views: table | board | list | gallery | feed | calendar | timeline | chart | form. Feed settings live in
   `View.feed` (dateProperty — null = created time, order newest | oldest, content); without sorts of its own a feed
   orders newest first. Rows in view order come from `orderRows()` (database/model/feed.ts), used by `rowsOfView()` too.

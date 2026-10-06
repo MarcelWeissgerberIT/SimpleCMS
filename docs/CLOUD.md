@@ -395,6 +395,17 @@ Y.Map 'scripts'    scriptId → JSON OneScript   (One Script, src/app/features/s
                      and confirmed versions are per device (IndexedDB `one-scripts`), never here; updatedBy /
                      createdBy stamped by the SERVER like agents' — the app never trusts them to skip its
                      confirmation, which goes by the code's hash per device)
+Y.Map 'lists'        listId → JSON OptionList   (building blocks, src/app/features/kit — { id, name, icon?,
+                     description?, items: SelectOption[], createdBy?, updatedBy?, createdAt, updatedAt }; bound
+                     select properties carry a copy of the items as their options (PropertyDef.listId), written
+                     by the saving client in the same transaction)
+Y.Map 'propTypes'    typeId → JSON CustomPropType   ({ …, base, listId?, numberFormat?, numberDisplay?, ratingMax?,
+                     display?, scripts? { value, validate, options, format, onChange } — One Script code, run
+                     only after this device saved or confirmed that version, like scripts })
+Y.Map 'recordTypes'  typeId → JSON RecordType   ({ …, color?, properties: RecordTypeProp[], content? }; databases
+                     holding one list it in `recordTypes`, their linked properties carry `fromType`; a row's
+                     type is the page field `recordType`)
+                     — all three: last writer wins per entry; every reader sanitizes them (src/app/store/kit.ts)
 ```
 
 *(client C1 refinements, backwards compatible on read)*: comment **replies** are entries of their

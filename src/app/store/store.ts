@@ -16,10 +16,15 @@ import { aiKeyValue, attachSecrets, checkAIKey, mcpServersValue, withSealedKey }
 import { isSafeFunctionId } from './functions'
 import { agentEditor, sanitizeAgent } from './agents'
 import { sanitizeScript } from './scripts'
+import { emptyKit, optionsOfList, sanitizeList, sanitizePropType, sanitizeRecordType, storedTypeOf, syncRecordTypeInto } from './kit'
 import type {
   CustomAgent,
   CustomFunction,
+  CustomPropType,
+  Kit,
   OneScript,
+  OptionList,
+  RecordType,
   Database,
   ID,
   Page,
@@ -207,6 +212,21 @@ export interface WorkspaceState extends Workspace {
   upsertScript: (script: OneScript) => void
   deleteScript: (id: ID) => void
 
+  // building blocks (features/kit): insert or replace by id (sanitized; updatedAt / updatedBy are set here) · remove.
+  // upsertList copies the items into every property bound to the list (PropertyDef.listId); upsertPropType binds
+  // the properties of that type to its list; upsertRecordType brings every database holding the type in step
+  // (locked databases are left as they are). Removing never drops values: linked properties are only unlinked.
+  upsertList: (list: OptionList) => void
+  deleteList: (id: ID) => void
+  upsertPropType: (type: CustomPropType) => void
+  deletePropType: (id: ID) => void
+  upsertRecordType: (type: RecordType) => void
+  deleteRecordType: (id: ID) => void
+  /** Add a record type's properties to a database. False when refused (locked, unknown). */
+  attachRecordType: (dbId: ID, typeId: ID) => boolean
+  /** A row's record type (null = none); the type is attached to the row's database first. False when refused. */
+  setRecordType: (pageId: ID, typeId: ID | null) => boolean
+
   // comments (margin notes): threads live on the page, their anchors are `comment` marks in its content
   addComment: (pageId: ID, input: { id?: ID; quote: string; body: string }) => ID
   updateComment: (pageId: ID, commentId: ID, patch: Partial<Pick<PageComment, 'body' | 'resolved' | 'quote'>>) => void
@@ -233,9 +253,17 @@ export interface CloudPatch {
   agents?: Record<ID, CustomAgent | null>
   /** scripts by id (`null` removes one) */
   scripts?: Record<ID, OneScript | null>
+  /** building blocks by part and id (`null` removes one) */
+  kit?: { lists?: Record<ID, OptionList | null>; propTypes?: Record<ID, CustomPropType | null>; recordTypes?: Record<ID, RecordType | null> }
 }
 
 const now = () => Date.now()
+
+/** A building block's copy with the times and authors a save sets (createdBy kept, updatedBy = the saver). */
+function stamped<T extends { createdAt?: number; createdBy?: string | null }>(entry: T, cur: { createdAt: number; createdBy?: string | null } | undefined): T {
+  const t = now()
+  return { ...(JSON.parse(JSON.stringify(entry)) as T), createdAt: cur?.createdAt ?? entry.createdAt ?? t, createdBy: cur ? (cur.createdBy ?? null) : (entry.createdBy ?? agentEditor()), updatedBy: agentEditor(), updatedAt: t }
+}
 
 function nextOrder(pages: Record<ID, Page>, parentId: ID | null): number {
   let max = 0
@@ -447,7 +475,7 @@ export const useWorkspace = create<WorkspaceState>()(
       // the Claude API key: a vault marker, never the key (secrets.ts)
       const settings = withSealedKey(ws.settings, get().settings.aiApiKey, ws.epoch)
       set((s) => {
-        Object.assign(s, ws, { pages: freezePages(ws.pages), settings, functions: ws.functions ?? {}, agents: ws.agents ?? {}, scripts: ws.scripts ?? {} })
+        Object.assign(s, ws, { pages: freezePages(ws.pages), settings, functions: ws.functions ?? {}, agents: ws.agents ?? {}, scripts: ws.scripts ?? {}, kit: ws.kit ?? emptyKit() })
         s.ready = true
       })
       void checkAIKey()
@@ -465,6 +493,7 @@ export const useWorkspace = create<WorkspaceState>()(
         s.functions = ws.functions ?? {}
         s.agents = ws.agents ?? {}
         s.scripts = ws.scripts ?? {}
+        s.kit = ws.kit ?? emptyKit()
       }),
 
     createPage: (input = {}) => {
@@ -863,6 +892,116 @@ export const useWorkspace = create<WorkspaceState>()(
         if (s.scripts?.[id]) delete s.scripts[id]
       }),
 
+    upsertList: (list) => {
+      const clean = sanitizeList(list.id, stamped(list, get().kit?.lists[list.id]))
+      if (!clean) return
+      set((s) => {
+        const kit = (s.kit ??= emptyKit())
+        kit.lists[clean.id] = clean
+        for (const db of Object.values(s.databases)) {
+          for (const def of db.properties) if (def.listId === clean.id && (def.type === 'select' || def.type === 'multi_select')) def.options = optionsOfList(clean)
+        }
+      })
+    },
+
+    deleteList: (id) =>
+      set((s) => {
+        if (!s.kit?.lists[id]) return
+        delete s.kit.lists[id]
+        // bound properties keep their options and become ordinary ones
+        for (const db of Object.values(s.databases)) for (const def of db.properties) if (def.listId === id) delete def.listId
+      }),
+
+    upsertPropType: (type) => {
+      const cur = get().kit?.propTypes[type.id]
+      // the base is fixed once created (it is the stored shape of every value)
+      const clean = sanitizePropType(type.id, stamped({ ...type, base: cur?.base ?? type.base }, cur))
+      if (!clean) return
+      set((s) => {
+        const kit = (s.kit ??= emptyKit())
+        kit.propTypes[clean.id] = clean
+        const list = clean.listId ? kit.lists[clean.listId] : undefined
+        for (const db of Object.values(s.databases)) {
+          for (const def of db.properties) {
+            if (def.custom !== clean.id || def.type !== storedTypeOf(clean.base)) continue
+            if (list && (def.type === 'select' || def.type === 'multi_select') && (!def.listId || def.listId === cur?.listId)) {
+              def.listId = list.id
+              def.options = optionsOfList(list)
+            }
+          }
+        }
+      })
+    },
+
+    deletePropType: (id) =>
+      set((s) => {
+        if (!s.kit?.propTypes[id]) return
+        delete s.kit.propTypes[id]
+        // its properties stay as plain properties of the base type
+        for (const db of Object.values(s.databases)) for (const def of db.properties) if (def.custom === id) delete def.custom
+      }),
+
+    upsertRecordType: (type) => {
+      const clean = sanitizeRecordType(type.id, stamped(type, get().kit?.recordTypes[type.id]))
+      if (!clean) return
+      set((s) => {
+        const kit = (s.kit ??= emptyKit())
+        kit.recordTypes[clean.id] = clean
+        for (const db of Object.values(s.databases)) {
+          if (!db.locked && (db.recordTypes ?? []).includes(clean.id)) syncRecordTypeInto(db, clean, kit as Kit, newId)
+        }
+      })
+    },
+
+    deleteRecordType: (id) =>
+      set((s) => {
+        if (!s.kit?.recordTypes[id]) return
+        delete s.kit.recordTypes[id]
+        const t = now()
+        for (const db of Object.values(s.databases)) {
+          if (db.recordTypes?.includes(id)) db.recordTypes = db.recordTypes.filter((x) => x !== id)
+          for (const def of db.properties) if (def.fromType?.id === id) delete def.fromType
+        }
+        // rows keep their values; they only lose the type
+        for (const p of Object.values(s.pages)) {
+          if (p.recordType !== id) continue
+          delete p.recordType
+          p.updatedAt = t
+        }
+      }),
+
+    attachRecordType: (dbId, typeId) => {
+      const st = get()
+      const db = st.databases[dbId]
+      const rt = st.kit?.recordTypes[typeId]
+      if (!db || !rt || db.locked) return false
+      set((s) => {
+        const d = s.databases[dbId]
+        const kit = s.kit
+        if (d && kit) syncRecordTypeInto(d, kit.recordTypes[typeId], kit as Kit, newId)
+      })
+      return true
+    },
+
+    setRecordType: (pageId, typeId) => {
+      const st = get()
+      const page = st.pages[pageId]
+      if (!page?.databaseId || !st.databases[page.databaseId]) return false
+      if ((page.recordType ?? null) === typeId) return true
+      if (typeId !== null) {
+        if (!st.kit?.recordTypes[typeId]) return false
+        if (!(st.databases[page.databaseId].recordTypes ?? []).includes(typeId) && !get().attachRecordType(page.databaseId, typeId)) return false
+      }
+      set((s) => {
+        const p = s.pages[pageId]
+        if (!p) return
+        if (typeId === null) delete p.recordType
+        else p.recordType = typeId
+        p.updatedAt = now()
+      })
+      return true
+    },
+
     // comments bump the page's updatedAt: cross-tab sync compares pages by it (merge.ts samePage)
     addComment: (pageId, input) => {
       const id = input.id ?? newId()
@@ -960,6 +1099,16 @@ export const useWorkspace = create<WorkspaceState>()(
           if (script) s.scripts[id] = script
           else delete s.scripts[id]
         }
+        if (patch.kit) {
+          const kit = (s.kit ??= emptyKit())
+          for (const part of ['lists', 'propTypes', 'recordTypes'] as const) {
+            const target = kit[part] as Record<ID, unknown>
+            for (const [id, entry] of Object.entries(patch.kit[part] ?? {})) {
+              if (entry) target[id] = entry
+              else delete target[id]
+            }
+          }
+        }
         if (patch.settings) Object.assign(s.settings, withSealedKey({ ...s.settings, ...patch.settings }, s.settings.aiApiKey, s.epoch))
         if (removed && s.recent.some((r) => !s.pages[r])) s.recent = s.recent.filter((r) => !!s.pages[r])
       }),
@@ -1031,5 +1180,6 @@ export function getWorkspaceSnapshot(): Workspace {
     functions: s.functions ?? {},
     agents: s.agents ?? {},
     scripts: s.scripts ?? {},
+    kit: s.kit ?? emptyKit(),
   }
 }

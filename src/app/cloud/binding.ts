@@ -23,9 +23,10 @@ import * as Y from 'yjs'
 import type { JSONContent } from '@tiptap/core'
 import { useWorkspace, type CloudPatch } from '../store/store'
 import { runAsRemote } from '../store/persistence'
-import type { CustomAgent, CustomFunction, Database, ID, OneScript, Page, Settings } from '../store/types'
+import type { CustomAgent, CustomFunction, Database, ID, KitEntry, OneScript, Page, Settings } from '../store/types'
 import { sameAgent, sanitizeAgent } from '../store/agents'
 import { sameScript, sanitizeScript } from '../store/scripts'
+import { emptyKit, KIT_SANITIZERS, sameKitEntry, type KitPart } from '../store/kit'
 import { defaultView } from '../store/store'
 import { sharedPlain } from './privacy'
 import { LOCAL, newDatabaseMap, newPageMap, readDatabase, readFunctions, readPage, readPeople, roots, writeDatabase, writeFunctions, writePage, writePeople, type YMap } from './schema'
@@ -137,6 +138,39 @@ function readScripts(source: Y.Map<unknown>, cur: Record<ID, OneScript> | undefi
   return same && cur ? cur : out
 }
 
+/* ------------------------------------------------------------------ building blocks (meta maps 'lists', 'propTypes', 'recordTypes') */
+
+const KIT_PARTS: readonly KitPart[] = ['lists', 'propTypes', 'recordTypes']
+
+/** One JSON entry per building block (only the ones that changed are written). */
+function writeKitPart(target: Y.Map<unknown>, next: Record<ID, KitEntry> | undefined, before: Record<ID, KitEntry> | undefined): void {
+  const prev = before ?? {}
+  const cur = next ?? {}
+  for (const [id, entry] of Object.entries(cur)) {
+    if (prev[id] === entry) continue
+    target.set(id, JSON.parse(JSON.stringify(entry)))
+  }
+  for (const id of Object.keys(prev)) if (!(id in cur)) target.delete(id)
+}
+
+/** One part of the store's kit from its meta map, every entry sanitized (store/kit.ts); `cur` itself when nothing changed. */
+function readKitPart(source: Y.Map<unknown>, cur: Record<ID, KitEntry> | undefined, clean: (id: unknown, raw: unknown) => KitEntry | null): Record<ID, KitEntry> {
+  const prev = cur ?? {}
+  const out: Record<ID, KitEntry> = {}
+  let same = true
+  for (const [id, v] of source.entries()) {
+    const entry = clean(id, v)
+    if (!entry) continue
+    if (prev[id] && sameKitEntry(prev[id], entry) && prev[id].updatedAt === entry.updatedAt) out[id] = prev[id]
+    else {
+      out[id] = entry
+      same = false
+    }
+  }
+  if (Object.keys(prev).some((id) => !(id in out))) same = false
+  return same && cur ? cur : out
+}
+
 /** New pages with these ids are created in the private meta document (createPrivatePage). */
 const privateIntents = new Set<ID>()
 export function intendPrivate(id: ID): void {
@@ -231,6 +265,9 @@ export function startBinding(o: BindingOptions): Binding {
   let dirtyAgents = false
   const scriptsMap = o.doc.getMap<unknown>('scripts')
   let dirtyScripts = false
+  // building blocks: shared by the whole team (never in the private document)
+  const kitMaps: Record<KitPart, Y.Map<unknown>> = { lists: o.doc.getMap<unknown>('lists'), propTypes: o.doc.getMap<unknown>('propTypes'), recordTypes: o.doc.getMap<unknown>('recordTypes') }
+  let dirtyKit = false
 
   /* ---------------------------------------------------------------- Y → store */
 
@@ -263,11 +300,15 @@ export function startBinding(o: BindingOptions): Binding {
   const onScripts = (_e: unknown, tr: Y.Transaction) => {
     if (tr.origin !== LOCAL) dirtyScripts = true
   }
+  const onKit = (_e: unknown, tr: Y.Transaction) => {
+    if (tr.origin !== LOCAL) dirtyKit = true
+  }
   rs.people.observe(onPeople)
   rs.workspace.observe(onWorkspace)
   rs.functions.observe(onFunctions)
   agentsMap.observe(onAgents)
   scriptsMap.observe(onScripts)
+  for (const part of KIT_PARTS) kitMaps[part].observe(onKit)
 
   function applyRemote(all = false) {
     const s = useWorkspace.getState()
@@ -278,7 +319,7 @@ export function startBinding(o: BindingOptions): Binding {
       }
       for (const id of Object.keys(s.pages)) dirtyPages.add(id)
       for (const id of Object.keys(s.databases)) dirtyDbs.add(id)
-      dirtyPeople = dirtyWorkspace = dirtyFunctions = dirtyAgents = dirtyScripts = true
+      dirtyPeople = dirtyWorkspace = dirtyFunctions = dirtyAgents = dirtyScripts = dirtyKit = true
     }
     const patch: CloudPatch = {}
     const created: ID[] = []
@@ -370,14 +411,29 @@ export function startBinding(o: BindingOptions): Binding {
       }
       dirtyScripts = false
     }
-    if (!patch.pages && !patch.databases && !patch.people && !patch.settings && !patch.functions && !patch.agents && !patch.scripts) return
+    if (dirtyKit) {
+      const kit = s.kit ?? emptyKit()
+      const next: Record<string, Record<ID, KitEntry | null>> = {}
+      for (const part of KIT_PARTS) {
+        const have = kit[part] as Record<ID, KitEntry>
+        const read = readKitPart(kitMaps[part], have, KIT_SANITIZERS[part])
+        if (read === have) continue
+        const changes: Record<ID, KitEntry | null> = {}
+        for (const [id, entry] of Object.entries(read)) if (have[id] !== entry) changes[id] = entry
+        for (const id of Object.keys(have)) if (!(id in read)) changes[id] = null
+        if (Object.keys(changes).length) next[part] = changes
+      }
+      if (Object.keys(next).length) patch.kit = next as CloudPatch['kit']
+      dirtyKit = false
+    }
+    if (!patch.pages && !patch.databases && !patch.people && !patch.settings && !patch.functions && !patch.agents && !patch.scripts && !patch.kit) return
     applyFromCloud(() => s.cloudPatch(patch))
     if (created.length || touched.length || removed.length || rescoped.length) o.onRemotePages({ created, touched, removed, rescoped })
   }
 
   const afterTx = (tr: Y.Transaction) => {
     if (tr.origin === LOCAL) return
-    if (dirtyPages.size || dirtyDbs.size || dirtyPeople || dirtyWorkspace || dirtyFunctions || dirtyAgents || dirtyScripts) {
+    if (dirtyPages.size || dirtyDbs.size || dirtyPeople || dirtyWorkspace || dirtyFunctions || dirtyAgents || dirtyScripts || dirtyKit) {
       try {
         applyRemote()
       } catch (e) {
@@ -420,8 +476,9 @@ export function startBinding(o: BindingOptions): Binding {
     const functionsChanged = state.functions !== prev.functions
     const agentsChanged = state.agents !== prev.agents
     const scriptsChanged = state.scripts !== prev.scripts
+    const kitChanged = state.kit !== prev.kit
     if (state.settings !== prev.settings) o.onSettings(state.settings, prev.settings)
-    if (!pagesChanged && !dbsChanged && !peopleChanged && !functionsChanged && !agentsChanged && !scriptsChanged) return
+    if (!pagesChanged && !dbsChanged && !peopleChanged && !functionsChanged && !agentsChanged && !scriptsChanged && !kitChanged) return
 
     if (!o.writable()) {
       if (pagesChanged) {
@@ -540,6 +597,13 @@ export function startBinding(o: BindingOptions): Binding {
       if (functionsChanged) writeFunctions(rs.functions, state.functions, prev.functions)
       if (agentsChanged) writeAgents(agentsMap, state.agents, prev.agents)
       if (scriptsChanged) writeScripts(scriptsMap, state.scripts, prev.scripts)
+      if (kitChanged) {
+        for (const part of KIT_PARTS) {
+          const next = state.kit?.[part] as Record<ID, KitEntry> | undefined
+          const before = prev.kit?.[part] as Record<ID, KitEntry> | undefined
+          if (next !== before) writeKitPart(kitMaps[part], next, before)
+        }
+      }
     })
     // Follow-up store patches (the local `private` marker; created_by / last_edited_by mirror the
     // createdBy / updatedBy this client just wrote) go out after every store listener saw this change:
@@ -589,6 +653,16 @@ export function startBinding(o: BindingOptions): Binding {
       console.error('[one] could not read the scripts of the cloud workspace', e)
     }
   }
+  // and the building blocks
+  const kitNow = useWorkspace.getState().kit
+  if (KIT_PARTS.some((part) => kitMaps[part].size || Object.keys(kitNow?.[part] ?? {}).length)) {
+    dirtyKit = true
+    try {
+      applyRemote()
+    } catch (e) {
+      console.error('[one] could not read the building blocks of the cloud workspace', e)
+    }
+  }
 
   return {
     stop: () => {
@@ -600,6 +674,7 @@ export function startBinding(o: BindingOptions): Binding {
       rs.functions.unobserve(onFunctions)
       agentsMap.unobserve(onAgents)
       scriptsMap.unobserve(onScripts)
+      for (const part of KIT_PARTS) kitMaps[part].unobserve(onKit)
       o.doc.off('afterTransaction', afterTx)
       o.privateDoc?.off('afterTransaction', afterTx)
     },

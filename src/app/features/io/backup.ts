@@ -6,7 +6,8 @@
 import type { JSONContent } from '@tiptap/core'
 import { useWorkspace, getWorkspaceSnapshot, descendantIds, defaultSettings } from '../../store/store'
 import { migrate } from '../../store/persistence'
-import { COLOR_NAMES, type Database, type ID, type Page, type Settings, type Workspace } from '../../store/types'
+import { COLOR_NAMES, type Database, type ID, type Kit, type KitEntry, type Page, type Settings, type Workspace } from '../../store/types'
+import { emptyKit } from '../../store/kit'
 import { FILE_PREFIX, getFile, readAsDataUrl, saveFile } from '../../lib/files'
 import { newId } from '../../lib/ids'
 import { useCloud } from '../../cloud'
@@ -360,7 +361,7 @@ export async function applyBackup(b: Backup, mode: 'merge' | 'replace', onProgre
 
   const people = [...snap.people]
   for (const person of source.people) if (!people.some((x) => x.id === person.id)) people.push(person)
-  store.replaceAll({ ...snap, pages, databases, people, functions: mergeFunctions(snap.functions, source.functions) })
+  store.replaceAll({ ...snap, pages, databases, people, functions: mergeFunctions(snap.functions, source.functions), kit: mergeKit(snap.kit, source.kit) })
   const target = rootId && pages[rootId] ? rootId : firstRoot(incoming.pages) ?? firstRoot(source.pages)
   return { target, mode, added, updated, unchanged, files }
 }
@@ -376,6 +377,20 @@ function mergeFunctions(local: Workspace['functions'], incoming: Workspace['func
     if (cur && cur.updatedAt >= fn.updatedAt) continue
     if (Object.values(out).some((f) => f.id !== fn.id && f.name === fn.name)) continue
     out[fn.id] = fn
+  }
+  return out
+}
+
+/** Building blocks of a merge (already checked by migrate): new ones are added, a newer copy of one we have replaces it. */
+function mergeKit(local: Workspace['kit'], incoming: Workspace['kit']): Kit {
+  const out = emptyKit()
+  for (const part of ['lists', 'propTypes', 'recordTypes'] as const) {
+    const merged: Record<ID, KitEntry> = { ...(local?.[part] ?? {}) }
+    for (const entry of Object.values(incoming?.[part] ?? {}) as KitEntry[]) {
+      const cur = merged[entry.id]
+      if (!cur || cur.updatedAt < entry.updatedAt) merged[entry.id] = entry
+    }
+    ;(out as unknown as Record<string, Record<ID, KitEntry>>)[part] = merged
   }
   return out
 }

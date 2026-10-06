@@ -6,6 +6,7 @@
  *   'databases'  dbId → Y.Map { properties: Y.Map (id → def + order), views: Y.Map (id → view + order), other keys as JSON }
  *   'people'     personId → Person
  *   'functions'  functionId → CustomFunction (features/sheets/functions; JSON, last writer wins per function)
+ *   'lists' / 'propTypes' / 'recordTypes'  building blocks (features/kit; JSON per entry, written by binding.ts)
  *
  * Writers only touch what changed (field / cell / thread / property / view level), so concurrent
  * edits of different fields of one page all survive. Readers build store objects and reuse the
@@ -31,7 +32,7 @@ export const roots = (doc: Y.Doc) => ({
 })
 
 /** Synced page fields stored as plain values (everything else is per device or nested). */
-const PAGE_FIELDS = ['kind', 'title', 'icon', 'cover', 'parentId', 'databaseId', 'order', 'trashed', 'trashedAt', 'createdAt', 'updatedAt', 'settings', 'hidden', 'plain', 'template'] as const
+const PAGE_FIELDS = ['kind', 'title', 'icon', 'cover', 'parentId', 'databaseId', 'order', 'trashed', 'trashedAt', 'createdAt', 'updatedAt', 'settings', 'hidden', 'plain', 'template', 'recordType'] as const
 type PageField = (typeof PAGE_FIELDS)[number]
 
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v)
@@ -219,6 +220,9 @@ export function readPage(id: ID, yp: YMap, cur: Page | undefined, favorite: bool
   // a template's root (features/templates): gallery metadata, shared by the whole team
   const template = g('template')
   if (isObj(template) && typeof template.name === 'string') next.template = clone(template) as unknown as Page['template']
+  // a row's record type (features/kit)
+  const recordType = g('recordType')
+  if (typeof recordType === 'string' && recordType) next.recordType = recordType
   // who made / last changed it (created_by / last_edited_by): read only, the writing client sets them
   const createdBy = g('createdBy')
   if (typeof createdBy === 'string' && createdBy) next.createdBy = createdBy

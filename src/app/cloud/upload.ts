@@ -175,6 +175,11 @@ export async function uploadLocalWorkspaceImpl(wsId: string, onProgress?: (p: nu
       // scripts (features/script): the same; the uploader becomes their author
       const scripts = meta.doc.getMap<unknown>('scripts')
       for (const sc of Object.values(local.scripts ?? {})) scripts.set(sc.id, { ...JSON.parse(JSON.stringify(sc)), createdBy: userId, updatedBy: userId })
+      // building blocks (features/kit): the same, one meta map per part
+      for (const part of ['lists', 'propTypes', 'recordTypes'] as const) {
+        const map = meta.doc.getMap<unknown>(part)
+        for (const entry of Object.values(local.kit?.[part] ?? {})) map.set(entry.id, { ...JSON.parse(JSON.stringify(entry)), createdBy: userId, updatedBy: userId })
+      }
       if (r.workspace.get('name') === undefined) {
         r.workspace.set('name', target?.name ?? local.settings.workspaceName)
         r.workspace.set('icon', target?.icon ?? null)

@@ -100,6 +100,12 @@ export interface Page {
   /** Comment threads (margin notes), anchored by `comment` marks (attrs: id) in `content`. */
   comments?: PageComment[]
   /**
+   * A database row's record type (Workspace.kit.recordTypes, features/kit): the row shows that type's
+   * properties (PropertyDef.fromType) plus the database's own ones. Absent / null = none. Write only with
+   * setRecordType.
+   */
+  recordType?: ID | null
+  /**
    * Team workspaces: account ids (= person ids of members) of who created / last changed the page,
    * from the meta document (`api:<id>` / `hook:<id>` for the public API). Absent in the local workspace.
    */
@@ -253,6 +259,15 @@ export interface PropertyDef {
   description?: string
   /** AI autofill (text, number, select, multi_select, checkbox, url). Absent = off. Managed by database/autofill. */
   autofill?: AutofillConfig
+  /**
+   * An own property type (Workspace.kit.propTypes, features/kit): `type` is that type's base (base 'free'
+   * → 'text'); display, check, options and computed value come from the own type. Unknown id = plain base.
+   */
+  custom?: ID
+  /** select / multi_select: a shared list (Workspace.kit.lists) — `options` is its copy, kept in step by upsertList. */
+  listId?: ID
+  /** Comes from a record type (Workspace.kit.recordTypes): kept in step by upsertRecordType (never deleted by it). */
+  fromType?: { id: ID; prop: ID }
 }
 
 /** What Claude fills a property with. */
@@ -493,6 +508,12 @@ export interface View {
   subItems?: SubItemsDisplay
   /** Conditional colours, evaluated top to bottom; the first matching rule wins. */
   colorRules?: ColorRule[]
+  /**
+   * board: a FREE board (features/kit) — lanes are the options of the `groupBy` select created with the board
+   * (adding a lane adds an option), cards carry any record type and show that type's fields, "+" offers the
+   * record types. Absent = an ordinary board.
+   */
+  free?: boolean
 }
 
 export type SubItemsDisplay = 'nested' | 'flattened' | 'parents'
@@ -590,6 +611,11 @@ export interface Database {
    * changing them (running stays allowed).
    */
   commands?: DbCommand[]
+  /**
+   * Record types this database holds (Workspace.kit.recordTypes, features/kit): their properties are in
+   * `properties` with `fromType`. Write only with attachRecordType / setRecordType / upsertRecordType.
+   */
+  recordTypes?: ID[]
 }
 
 /**
@@ -846,6 +872,12 @@ export interface Workspace {
    * `one-scripts`), never here.
    */
   scripts?: Record<ID, OneScript>
+  /**
+   * Building blocks (features/kit, route #/kit): shared lists, own property types, record types. Write only
+   * with the kit actions (upsertList / upsertPropType / upsertRecordType …); every reader sanitizes
+   * (store/kit.ts). Synced in team workspaces (meta maps `lists`, `propTypes`, `recordTypes`).
+   */
+  kit?: Kit
 }
 
 /* ------------------------------------------------------------------ */
@@ -868,6 +900,113 @@ export interface OneScript {
   updatedBy?: string | null
   createdAt: number
   updatedAt: number
+}
+
+/* ------------------------------------------------------------------ */
+/* Building blocks (features/kit)                                      */
+/* ------------------------------------------------------------------ */
+
+export interface Kit {
+  /** Shared option lists ("Lists" / "Listen") */
+  lists: Record<ID, OptionList>
+  /** Own property types ("Property types" / "Eigenschaftstypen") */
+  propTypes: Record<ID, CustomPropType>
+  /** Record types ("Record types" / "Datensatz-Typen") */
+  recordTypes: Record<ID, RecordType>
+}
+
+/** What every building block has. `createdBy` / `updatedBy`: account id (team) / null (local). */
+export interface KitEntry {
+  id: ID
+  /** 1–80 characters */
+  name: string
+  icon?: PageIcon | null
+  description?: string
+  createdBy?: string | null
+  updatedBy?: string | null
+  createdAt: number
+  updatedAt: number
+}
+
+/**
+ * A shared option list: select / multi_select properties bound to it (PropertyDef.listId) get its items as
+ * their options. Item ids never change (stored values are item ids); ≤ 2000 items, no status groups.
+ */
+export interface OptionList extends KitEntry {
+  items: SelectOption[]
+}
+
+/** The stored shape of an own property type's values: like this standard type ('free' = text). */
+export type CustomPropBase = 'text' | 'number' | 'select' | 'multi_select' | 'date' | 'checkbox' | 'url' | 'email' | 'phone' | 'person' | 'rating' | 'free'
+
+/**
+ * An own property type: a base (fixed once created) + how values look + optional One Script bindings.
+ * A property of this type is a PropertyDef with `custom` = this id and `type` = the base.
+ */
+export interface CustomPropType extends KitEntry {
+  base: CustomPropBase
+  /** select / multi_select: the options come from this shared list */
+  listId?: ID | null
+  /** copied into new properties of this type */
+  numberFormat?: NumberFormat
+  numberDisplay?: NumberDisplay
+  ratingMax?: number
+  /** how a value is shown */
+  display?: CustomPropDisplay
+  /** One Script code (≤ 20,000 characters each) — run only by features/kit, never by a reader */
+  scripts?: CustomPropScripts
+}
+
+export interface CustomPropDisplay {
+  prefix?: string
+  suffix?: string
+  color?: ColorName
+  style?: 'plain' | 'badge' | 'led' | 'bar'
+}
+
+/**
+ * Script bindings of an own property type (features/kit runs them; team workspaces: a version this device
+ * did not save or confirm does not run until confirmed — like One Script's trust rule).
+ */
+export interface CustomPropScripts {
+  /** computed value (query mode; `row`): written into the property when it differs (origin 'kit'); the cell is read-only */
+  value?: string
+  /** input check (query mode; `value`, `row`): true / null = fine, a text = refused with that message */
+  validate?: string
+  /** options (query mode; `row`): a list of texts or { name, color } — select / multi_select */
+  options?: string
+  /** the shown text (query mode; `value`, `row`) */
+  format?: string
+  /** after a change (run mode; `value`, `old`, `row`; effects asked once per run like any script) */
+  onChange?: string
+}
+
+/** A record type ("Bug", "Lead", "Invoice"): a named set of properties a row can carry (Page.recordType). */
+export interface RecordType extends KitEntry {
+  color?: ColorName
+  /** ≤ 50 */
+  properties: RecordTypeProp[]
+  /** content of a new record of this type (TipTap JSON) */
+  content?: JSONContent | null
+}
+
+/** One property of a record type; becomes a PropertyDef with `fromType` in every database holding the type. */
+export interface RecordTypeProp {
+  /** stable within the record type */
+  id: ID
+  name: string
+  /** a stored standard type (never title / formula / rollup / created_* / last_edited_* / unique_id); an own type: its base */
+  type: PropertyType
+  /** an own property type */
+  custom?: ID | null
+  /** select / multi_select: a shared list */
+  listId?: ID | null
+  options?: SelectOption[]
+  numberFormat?: NumberFormat
+  ratingMax?: number
+  /** relation: the target database */
+  relationDatabaseId?: ID
+  description?: string
 }
 
 /* ------------------------------------------------------------------ */
