@@ -38,7 +38,7 @@ src/app/features/**                  AI (+ workspace agent), history, graph, sha
                                      GitHub Markdown, per-device IndexedDB `one-sync`), mcp (local bridge UI), sheets
                                      (spreadsheet engine + grid; functions/ = custom functions built by clicking), charts
                                      (SVG renderer, chart builder, data sources) (public API: features/index.ts)
-src/app/help/**                      help centre: panel (?, status bar, ⌘K, workspace menu), 60 articles EN+DE twins
+src/app/help/**                      help centre: panel (?, status bar, ⌘K, workspace menu), 61 articles EN+DE twins
                                      (help/articles/{en,de}/<id>.md, `help:<id>` links), Ask (Claude over the articles);
                                      link UI to an article with `<HelpLink id="…" />` (public API: help/index.ts)
 src/help-site/**                     build-time public /help pages (prerendered from the same articles, hreflang)
@@ -237,6 +237,12 @@ the public APIs stable — other areas are built against them in parallel.
   for the canvas). Never opened from a presentation or a popover (`VIEWER_OFF` / `useViewerAllowed`).
 - What's new (src/app/help/changelog): every user-visible release adds an entry EN + DE with a real screenshot
   (changelog/README.md, `scripts/changelog-shots.mjs`); the build fails without a twin or an image.
+- Workspace settings (shell/workspace, `#/workspace[/overview|people|blocks|automation|data|danger]`): what belongs to the
+  workspace; Settings (the modal) = this device + account. Open with `openWorkspaceSettings(section?)`; team members,
+  invites, API and Leave / Delete live there (parts in shell/cloud/Team.tsx). People: write only with `addPerson` /
+  `updatePerson` / `removePerson` / `restorePerson`; merge and rename through shell/workspace/people.ts (person values +
+  `mention` nodes via `setContent(…, 'people')`, a version first, one Undo); remove only someone unused; team members
+  (account ids) are never merged, renamed or removed there. Last full backup per device: localStorage `one.backup.last`.
 - Building blocks (store/kit.ts, features/kit): `Workspace.kit` = { lists, propTypes, recordTypes } — write only with
   upsertList / deleteList / upsertPropType / deletePropType / upsertRecordType / deleteRecordType / attachRecordType /
   setRecordType; every reader sanitizes (`sanitizeKit`); team: meta maps `lists`, `propTypes`, `recordTypes`.
