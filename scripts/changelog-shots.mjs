@@ -8,7 +8,7 @@
  *
  * (CHANGELOG_DRAFT=1 lets the build pass while a new entry's picture does not exist yet.)
  *
- * Shots: coding-pipeline, pages-per-item, design-import, tour, quick-capture, script-templates, one-script-everywhere, file-ai, one-script, transform, ai-edit, db-commands, gmail-one-click, memory, grips-footer, block-select, split-to-page, image-ai, claude-reads, redo, ai-terminal, mcp-codewords, mcp-tidy-up, slash-menu, turn-into-database,
+ * Shots: building-blocks, coding-pipeline, pages-per-item, design-import, tour, quick-capture, script-templates, one-script-everywhere, file-ai, one-script, transform, ai-edit, db-commands, gmail-one-click, memory, grips-footer, block-select, split-to-page, image-ai, claude-reads, redo, ai-terminal, mcp-codewords, mcp-tidy-up, slash-menu, turn-into-database,
  * custom-agents, gmail, help-centre, mcp-servers, feed-blocks — each named like its image. Every shot starts from a fresh, seeded
  * workspace in English, light theme, 1440 × 900 at device scale 2; the crop of the relevant area is scaled
  * to 1440 px wide and saved as public/assets/shots/changelog/<shot>.webp (≤ 150 KB: the quality steps down
@@ -1467,6 +1467,66 @@ const shots = {
       await ctx.close()
       rmSync(work.root, { recursive: true, force: true })
     }
+  },
+
+  /**
+   * Building blocks: the own type "IBAN" in #/kit — the index of types, its display with preview, its validate
+   * script in the One Script editor tried on a row (refused). Everything through the store.
+   */
+  async 'building-blocks'(browser) {
+    const { ctx, page } = await freshPage(browser)
+    const dbId = await page.evaluate(() => {
+      const s = window.__one.workspace.getState()
+      const st = () => window.__one.workspace.getState()
+      s.upsertList({ id: 'lights', name: 'Traffic light', items: [{ id: 'g', name: 'Green', color: 'green' }, { id: 'y', name: 'Yellow', color: 'yellow' }, { id: 'r', name: 'Red', color: 'red' }], createdAt: 1, updatedAt: 1 })
+      s.upsertList({ id: 'states', name: 'Federal states', items: ['Bayern', 'Berlin', 'Hamburg', 'Hessen', 'Sachsen'].map((name, i) => ({ id: `s${i}`, name, color: ['blue', 'red', 'pink', 'yellow', 'green'][i] })), createdAt: 2, updatedAt: 2 })
+      s.upsertPropType({
+        id: 'iban',
+        name: 'IBAN',
+        base: 'text',
+        icon: { type: 'lucide', value: 'landmark', color: 'blue' },
+        description: 'A bank account — checked when typed, shown in groups of four.',
+        display: { prefix: '', style: 'plain' },
+        scripts: {
+          validate: '# A valid IBAN: 15–34 characters, check digits mod 97 = 1\nlet s = upper(replace(value, " ", ""))\nlet answer = true\nif value and (len(s) < 15 or len(s) > 34) {\n  answer = "Not a valid IBAN"\n}\nanswer',
+          format: '# Upper case in groups of four\nlet s = upper(replace(text(value), " ", ""))\nlet out = ""\nlet i = 0\nwhile i < len(s) {\n  out = out + slice(s, i, i + 4) + " "\n  i = i + 4\n}\ntrim(out)',
+        },
+        createdAt: 1,
+        updatedAt: 1,
+      })
+      s.upsertPropType({ id: 'health', name: 'Health', base: 'select', listId: 'lights', display: { style: 'led', color: 'green' }, scripts: { value: 'let n = row.Score\nlet light = null\nif n != null {\n  light = "Green"\n  if n < 70 { light = "Yellow" }\n  if n < 40 { light = "Red" }\n}\nlight' }, createdAt: 2, updatedAt: 2 })
+      s.upsertPropType({ id: 'eur', name: 'Revenue', base: 'number', numberFormat: 'comma', display: { suffix: '€', style: 'badge', color: 'green' }, createdAt: 3, updatedAt: 3 })
+      const db = s.createDatabase({ title: 'Accounts', parentId: null })
+      const iban = s.addProperty(db, { type: 'text', name: 'IBAN', custom: 'iban' })
+      const health = s.addProperty(db, { type: 'select', name: 'Health', custom: 'health', listId: 'lights', options: st().kit.lists.lights.items })
+      const score = s.addProperty(db, { type: 'number', name: 'Score' })
+      const state = s.addProperty(db, { type: 'select', name: 'State', listId: 'states', options: st().kit.lists.states.items })
+      const eur = s.addProperty(db, { type: 'number', name: 'Revenue', custom: 'eur', numberFormat: 'comma' })
+      const d = st().databases[db]
+      const title = d.properties.find((p) => p.type === 'title').id
+      s.updateView(db, d.views[0].id, { visibleProperties: [title, iban, health, score, state, eur] })
+      const rows = [['ACME GmbH', 82, 'de89370400440532013000', 's0', 12500], ['Nordwind AG', 55, 'DE02120300000000202051', 's2', 4800], ['Bergbau KG', 31, 'de44500105175407324931', 's4', 990], ['Kontor 7', 91, 'DE75512108001245126199', 's1', 22000], ['Lindenhof eG', 64, 'de12500105170648489890', 's3', 7300]]
+      for (const [t, sc, ib, stv, a] of rows) s.createRow(db, { title: t, properties: { [score]: sc, [iban]: ib, [state]: stv, [eur]: a } })
+      return db
+    })
+    // the database first: the value script fills Health (the cells show the formatted IBANs)
+    await openPage(page, dbId)
+    await page.locator('.kt-val__led').nth(4).waitFor({ timeout: 20_000 })
+    // the type: its display and its validate script, tried on a row
+    await page.evaluate(() => (window.location.hash = '#/kit/types/iban'))
+    const editor = page.getByTestId('kt-type-editor')
+    await editor.waitFor()
+    await page.getByTestId('kt-binding-validate').click()
+    await page.getByTestId('kt-test-value').fill('DE00 1234')
+    await page.getByTestId('kt-test-run').click()
+    await page.getByTestId('kt-test-result').waitFor()
+    await scrollToTop(page.locator('.kt-detail .kt-sec').nth(1), 16)
+    await rest(page)
+    const detail = await boxOf(page.locator('.kt-detail'))
+    const result = await boxOf(page.getByTestId('kt-test-result'))
+    const top = (await boxOf(page.locator('.kt-detail .kt-sec').nth(1))).y - 20
+    await save(page, 'building-blocks', { x: detail.x - 28, y: top, width: detail.width + 56, height: result.y + result.height + 24 - top })
+    await ctx.close()
   },
 
   /** Several blocks selected (text, image, table): the wash on each, the pinned grip, the count chip. */

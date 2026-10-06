@@ -23,6 +23,7 @@ import { ListEditor } from './ListEditor'
 import { TypeEditor, baseLabel } from './TypeEditor'
 import { RecordEditor } from './RecordEditor'
 import { pad2 } from './ui'
+import '../script/script.css'
 import './kit.css'
 
 const TABS: Array<{ id: KitTab; icon: typeof ListIcon; code: string }> = [

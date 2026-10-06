@@ -28,6 +28,7 @@ import {
   type SelectOption,
 } from '../../store/types'
 import type { JSONContent } from '@tiptap/core'
+import { trustType } from './scripts'
 
 const ws = () => useWorkspace.getState()
 export const kitReadOnly = () => useCloud.getState().readOnly
@@ -105,7 +106,10 @@ export function createPropType(input: PropTypeInput): ID | null {
   if (kitReadOnly() || !CUSTOM_BASES.includes(input.base)) return null
   const id = newId()
   ws().upsertPropType({ ...input, id, createdAt: Date.now(), updatedAt: Date.now() })
-  return ws().kit?.propTypes[id] ? id : null
+  const saved = ws().kit?.propTypes[id]
+  // made on this device: its scripts may run here (team trust)
+  if (saved) void trustType(saved)
+  return saved ? id : null
 }
 
 export interface RecordTypeInput {

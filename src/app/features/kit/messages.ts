@@ -254,7 +254,6 @@ export const messages: Messages = {
     'features.kit.toList.created': 'List “{name}” with {n} items created',
     'features.kit.toList.open': 'Open',
     'features.kit.toList.none': 'No items in the selection',
-    'help.news.try.kit': 'Open Building blocks',
   },
   de: {
     'features.kit.title': 'Bausteine',
@@ -499,6 +498,5 @@ export const messages: Messages = {
     'features.kit.toList.created': 'Liste „{name}“ mit {n} Einträgen angelegt',
     'features.kit.toList.open': 'Öffnen',
     'features.kit.toList.none': 'Keine Einträge in der Auswahl',
-    'help.news.try.kit': 'Bausteine öffnen',
   },
 }

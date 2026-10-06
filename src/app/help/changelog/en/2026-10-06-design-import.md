@@ -1,7 +1,7 @@
 ---
 id: 2026-10-06-design-import
 date: 2026-10-06
-order: 3
+order: 4
 title: PowerPoint import and “Take over from Claude Design”
 summary: Bring a .pptx deck in as a page you can present, and a Claude Design export with its colours, fonts and sizes kept as a note — and in One memory.
 image: assets/shots/changelog/design-import.webp
