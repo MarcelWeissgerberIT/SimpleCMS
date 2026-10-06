@@ -4,10 +4,10 @@
  *
  *  - Claude actions (the file goes to Anthropic, only on these): summarize · extract (a PDF's text as a page)
  *    · tables (a PDF's tables) · ask
- *  - local actions (nothing leaves the device): page (Word / text / Markdown / HTML / RTF → a page) ·
- *    database / sheet (CSV / TSV / Excel → a database, a spreadsheet block or a table)
+ *  - local actions (nothing leaves the device): page (Word / text / Markdown / HTML / RTF / PowerPoint → a
+ *    page) · database / sheet (CSV / TSV / Excel → a database, a spreadsheet block or a table)
  */
-export type FileKind = 'pdf' | 'docx' | 'text' | 'markdown' | 'html' | 'rtf' | 'csv' | 'xlsx'
+export type FileKind = 'pdf' | 'docx' | 'text' | 'markdown' | 'html' | 'rtf' | 'csv' | 'xlsx' | 'pptx'
 
 export type FileAction = 'summarize' | 'extract' | 'tables' | 'ask' | 'page' | 'database' | 'sheet'
 
@@ -27,6 +27,7 @@ export const FILE_ACTIONS: Record<FileKind, FileAction[]> = {
   rtf: ['page', 'summarize', 'ask'],
   csv: ['database', 'sheet', 'ask'],
   xlsx: ['database', 'sheet', 'ask'],
+  pptx: ['page', 'summarize', 'ask'],
 }
 
 /** The mono code each action shows in the panel. */
@@ -51,12 +52,15 @@ const EXT: Record<string, FileKind> = {
   tab: 'csv',
   xlsx: 'xlsx',
   xlsm: 'xlsx',
+  pptx: 'pptx',
+  pptm: 'pptx',
 }
 
 const MIME: Array<[RegExp, FileKind]> = [
   [/^application\/pdf$/, 'pdf'],
   [/^application\/vnd\.openxmlformats-officedocument\.wordprocessingml\.document$/, 'docx'],
   [/^application\/vnd\.openxmlformats-officedocument\.spreadsheetml\.sheet$/, 'xlsx'],
+  [/^application\/vnd\.openxmlformats-officedocument\.presentationml\.presentation$/, 'pptx'],
   [/^text\/(csv|tab-separated-values)$/, 'csv'],
   [/^text\/markdown$/, 'markdown'],
   [/^text\/html$/, 'html'],

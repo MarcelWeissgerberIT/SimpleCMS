@@ -12,7 +12,7 @@ import { newId } from '../../../lib/ids'
 import { useCloud } from '../../../cloud'
 import { t } from '../../../i18n'
 import { cellValue, RELATION_TOKEN, splitList, type ColumnSpec } from './csv'
-import { basename, extname, hexOf, resolveTarget, rewriteLinks, type ImportPlan, type PlanNode } from './plan'
+import { basename, extname, hexOf, KEY_REF, resolveTarget, rewriteLinks, type ImportPlan, type PlanNode } from './plan'
 import { FRAG, calloutBlocks, hasCalloutMarker } from './obsidian'
 import { isMentionHref, mentionFromLink } from './mentions'
 import { warningsToReport, type ReportItem } from './report'
@@ -32,6 +32,8 @@ export interface ImportResult {
   files: number
   /** what could not be carried over 1:1 (unresolved links, skipped files …) */
   report: ReportItem[]
+  /** plan node key → its page id */
+  ids: Record<string, ID>
 }
 
 const MIME: Record<string, string> = {
@@ -130,7 +132,7 @@ export async function applyPlan(
   if (useCloud.getState().readOnly) throw new Error(t('features.io.err.viewOnly'))
   const progress = opts.onProgress ?? (() => {})
   // the editor's converters (and the HTML sanitizer) are loaded on demand
-  const { markdownToDoc } = await import('../../../editor')
+  const { markdownToDoc, docSchema } = await import('../../../editor')
   const htmlToDoc: HtmlToDoc | null = plan.nodes.some((n) => n.format === 'html' && n.body.trim()) ? await (await import('./htmldoc')).htmlConverter() : null
   const viewName = opts.viewNames ?? { table: 'Table', board: 'Board', calendar: 'Calendar' }
   const ids = new Map<string, ID>()
@@ -271,11 +273,62 @@ export async function applyPlan(
   /** pages whose content links to headings of other pages (resolved once every page exists) */
   const anchored: ID[] = []
 
+  /** TipTap blocks of a plan (PowerPoint, Claude Design): files and pages they point to → placeholders / ids. */
+  const refs = (n: PlanNode, nodes: JSONContent[]): JSONContent[] =>
+    nodes.flatMap((b): JSONContent[] => {
+      if (b.type === 'pageLink') {
+        const ref = String(b.attrs?.pageId ?? '')
+        if (!ref.startsWith(KEY_REF)) return [b]
+        const target = ids.get(ref.slice(KEY_REF.length))
+        return target ? [{ ...b, attrs: { ...b.attrs, pageId: target } }] : []
+      }
+      const next: JSONContent = { ...b }
+      const src = b.attrs?.src
+      if ((b.type === 'image' || b.type === 'video' || b.type === 'audio') && typeof src === 'string' && !/^([a-z][a-z0-9+.-]*:|\/\/)/i.test(src)) {
+        // a picture of the file that is not in it: left out
+        const ph = placeholder(n, src)
+        if (!ph?.startsWith(F_URL)) return []
+        next.attrs = { ...b.attrs, src: ph }
+      }
+      if (b.marks)
+        next.marks = b.marks.map((m) => {
+          const href = m.type === 'link' ? m.attrs?.href : undefined
+          if (typeof href !== 'string' || /^([a-z][a-z0-9+.-]*:|#|\/\/)/i.test(href)) return m
+          const ph = placeholder(n, href)
+          return ph ? { ...m, attrs: { ...m.attrs, href: ph } } : m
+        })
+      if (b.content) next.content = refs(n, b.content)
+      return [next]
+    })
+  /** Blocks built from data: checked against the editor's schema (one that does not fit becomes its text). */
+  const schema = plan.nodes.some((n) => n.format === 'doc' || n.before?.length || n.after?.length) ? docSchema() : null
+  const valid = (nodes: JSONContent[]): JSONContent[] =>
+    nodes.flatMap((b) => {
+      try {
+        const node = schema!.nodeFromJSON(b)
+        node.check()
+        return [node.toJSON() as JSONContent]
+      } catch {
+        const text = plainText({ type: 'doc', content: [b] }).replace(/\s+/g, ' ').trim()
+        return text ? [{ type: 'paragraph', content: [{ type: 'text', text }] }] : []
+      }
+    })
+  const dataBlocks = (n: PlanNode, nodes: JSONContent[]) => valid(fixBlocks(refs(n, nodes)))
+
   const contentFor = (n: PlanNode, id: ID): JSONContent | null => {
     const blocks: JSONContent[] = []
     if (n.meta?.length) blocks.push(metaCallout(n.meta))
+    if (n.before?.length) blocks.push(...dataBlocks(n, n.before))
     if (n.body.trim()) {
-      if (n.format === 'text') {
+      if (n.format === 'doc') {
+        let parsed: unknown = null
+        try {
+          parsed = JSON.parse(n.body)
+        } catch {
+          parsed = null
+        }
+        if (Array.isArray(parsed)) blocks.push(...dataBlocks(n, parsed as JSONContent[]))
+      } else if (n.format === 'text') {
         for (const para of n.body.replace(/\s+$/, '').replace(/^\n+/, '').split(/\n{2,}/)) {
           const lines = para.split('\n')
           const content: JSONContent[] = []
@@ -319,6 +372,7 @@ export async function applyPlan(
       const f = saved.get(path)
       if (f) blocks.push(fileNode(f))
     }
+    if (n.after?.length) blocks.push(...dataBlocks(n, n.after))
     const meaningful = blocks.filter((b) => !(b.type === 'paragraph' && !b.content?.length))
     if (!meaningful.length) return null
     const doc: JSONContent = { type: 'doc', content: blocks }
@@ -583,7 +637,7 @@ export async function applyPlan(
   }
   const rootId = containerId ?? (plan.roots[0] ? ids.get(plan.roots[0])! : null)
   // the container page is not counted: the numbers match the note inside it
-  return { rootId, pages: nPages, databases: nDbs, rows: nRows, files: saved.size, report: [...(plan.report ?? []), ...warningsToReport(plan.warnings)] }
+  return { rootId, pages: nPages, databases: nDbs, rows: nRows, files: saved.size, report: [...(plan.report ?? []), ...warningsToReport(plan.warnings)], ids: Object.fromEntries(ids) }
 }
 
 /** YAML front matter → a quiet properties callout ("tags: a, b" per line). */

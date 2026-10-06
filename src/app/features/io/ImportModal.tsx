@@ -1,21 +1,29 @@
 /**
  * Import: Notion export ZIP (Markdown & CSV, nested part zips), Obsidian vaults, Evernote .enex,
- * Trello board JSON, HTML pages, Markdown/text files, CSV, One JSON backup.
+ * Trello board JSON, HTML pages, Markdown/text files, CSV, One JSON backup, PowerPoint decks and
+ * "Take over from Claude Design" (HTML / PPTX exports + screenshots, DeckImport.tsx).
  * Drag & drop (files or folders), the file pickers or a source tile → staged progress meter →
  * summary + import report → opens the imported root. The source is detected (sources.ts); a tile
- * only preselects it (e.g. the Obsidian tile forces vault handling and opens a folder picker).
+ * only preselects it (e.g. the Obsidian tile forces vault handling and opens a folder picker). A
+ * PowerPoint deck and a Claude Design take-over show a preview first; their done step offers Present
+ * (a deck) and Undo import.
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { AlertTriangle, ChevronRight, Eye, FileUp, FolderUp, RotateCcw } from 'lucide-react'
+import { AlertTriangle, ChevronRight, Eye, FileUp, FolderUp, Presentation, RotateCcw, Undo2 } from 'lucide-react'
 import { useCloud } from '../../cloud'
 import { Modal } from '../../ui/Modal'
 import { Led } from '../../ui/controls'
 import { useLang, useT } from '../../i18n'
 import { resolveAssetUrl } from '../../lib/files'
-import { openPage } from '../../lib/router'
+import { navigate, openPage } from '../../lib/router'
 import { flushSave } from '../../store/persistence'
+import { useWorkspace } from '../../store/store'
+import { useUI } from '../../store/ui'
 import { pauseAutomations } from '../automations/engine'
 import { ArchiveTooLargeError, ZIP_MAX_BYTES, ZIP_MAX_ENTRIES, basename, expandZip, extname, isZip, planStats, zipBudget, type ImportEntry, type ImportPlan } from './import/plan'
+import type { PptxDeck } from './import/pptx'
+import { pptxErrorText, readDeck } from './import/labels'
+import { DeckStep, DesignStep, type ImportExtra, type OnPlan } from './DeckImport'
 import { applyPlan, type ImportResult } from './import/apply'
 import { groupReport, type ReportItem } from './import/report'
 import type { SourceMode } from './import/sources'
@@ -37,15 +45,18 @@ type Phase =
   | { name: 'idle' }
   | { name: 'running'; stages: Record<StageId, { done: number; total: number }>; current: StageId; source: string }
   | { name: 'backup'; backup: Backup; fileName: string }
-  | { name: 'done'; result: ImportResult; ms: number; skipped: string[]; source: string }
+  | { name: 'deck'; deck: PptxDeck; fileName: string }
+  | { name: 'design' }
+  | { name: 'done'; result: ImportResult; ms: number; skipped: string[]; source: string; extra?: ImportExtra; before?: string }
   | { name: 'restored'; result: RestoreResult; ms: number; fileName: string }
   | { name: 'error'; message: string }
 
 const STAGES: StageId[] = ['read', 'unpack', 'files', 'pages', 'commit']
-const ACCEPT = '.zip,.md,.markdown,.txt,.csv,.tsv,.json,.enex,.html,.htm,image/*,.pdf'
+const ACCEPT = '.zip,.md,.markdown,.txt,.csv,.tsv,.json,.enex,.html,.htm,.pptx,image/*,.pdf'
 
 type SourceId = Exclude<SourceMode, 'auto'>
-/** The source tiles: code plate, picker (accept / folder) — names and how-tos are in messages-import.ts */
+type StageUpdate = (stage: StageId, done: number, total: number) => void
+/** The source tiles: code plate, picker (accept / folder; none: a step of its own) — names and how-tos are in messages-import.ts / import/messages.ts */
 const SOURCES: Array<{ id: SourceId; code: string; accept: string; folder?: boolean }> = [
   { id: 'notion', code: 'ZIP', accept: '.zip' },
   { id: 'obsidian', code: 'VAULT', accept: '.zip,.md,.markdown', folder: true },
@@ -54,6 +65,8 @@ const SOURCES: Array<{ id: SourceId; code: string; accept: string; folder?: bool
   { id: 'html', code: 'HTML', accept: '.html,.htm,.zip' },
   { id: 'markdown', code: 'MD · TXT', accept: '.md,.markdown,.txt,.zip' },
   { id: 'csv', code: 'CSV · TSV', accept: '.csv,.tsv' },
+  { id: 'pptx', code: 'PPTX', accept: '.pptx' },
+  { id: 'design', code: 'HTML · PPTX · PNG', accept: '' },
   { id: 'backup', code: 'JSON', accept: '.json' },
 ]
 /** Folder pickers exist on desktop browsers; touch devices get the ZIP picker instead. */
@@ -103,9 +116,98 @@ export function ImportModal({ onClose }: { onClose: () => void }) {
 
   const dateLabel = new Intl.DateTimeFormat(lang === 'de' ? 'de-DE' : 'en-GB', { day: 'numeric', month: 'short', year: 'numeric' }).format(new Date())
 
+  /** The staged progress meter of one import. */
+  const meter = (source: string): StageUpdate => {
+    const stages = freshStages()
+    return (stage, done, total) => {
+      stages[stage] = { done, total }
+      setPhase({ name: 'running', stages: { ...stages }, current: stage, source })
+    }
+  }
+
+  /** A failed import → the error step. */
+  const fail = (err: unknown) => {
+    if (err instanceof ArchiveTooLargeError) {
+      const nf = new Intl.NumberFormat(lang === 'de' ? 'de-DE' : 'en-GB')
+      setPhase({ name: 'error', message: t('features.io.err.tooLarge', { mb: nf.format(ZIP_MAX_BYTES / 1048576), files: nf.format(ZIP_MAX_ENTRIES) }) })
+      return
+    }
+    console.error('[import] failed', err)
+    setPhase({ name: 'error', message: t('features.io.err.generic', { msg: (err as Error)?.message ?? String(err) }) })
+  }
+
+  /** Write a plan (one store update), open its root → the done step. `after`: what the source adds (Present, the memory example). */
+  const commit = async (plan: ImportPlan, update: StageUpdate, o: { started: number; label: string; skipped?: string[]; after?: (result: ImportResult) => ImportExtra }) => {
+    const stats = planStats(plan)
+    const containerTitle =
+      plan.source === 'obsidian'
+        ? t('features.imp.container.obsidian', { name: plan.name || dateLabel })
+        : plan.source === 'evernote' || plan.source === 'trello' || plan.source === 'html'
+          ? t(`features.imp.container.${plan.source}`, { date: dateLabel })
+          : plan.isNotion
+            ? t('features.io.containerNotion', { date: dateLabel })
+            : t('features.io.container', { date: dateLabel })
+    update('files', 0, stats.files)
+    update('pages', 0, plan.nodes.length)
+    if (!stats.files) update('files', 1, 1)
+    const before = window.location.hash
+    const result = await applyPlan(plan, {
+      containerTitle,
+      containerNote: t('features.io.containerNote', {
+        list: countList(t, [
+          ['page', stats.pages],
+          ['db', stats.databases],
+          ['row', stats.rows],
+          ['file', stats.files],
+        ]),
+        source: o.label,
+      }),
+      untitled: t('common.untitled'),
+      viewNames: { table: t('features.io.view.table'), board: t('features.io.view.board'), calendar: t('features.io.view.calendar') },
+      onProgress: (p) => update(p.stage, p.done, p.total),
+    })
+    update('commit', 1, 1)
+    const extra = o.after?.(result)
+    await flushSave()
+    if (result.rootId) openPage(result.rootId)
+    setPhase({ name: 'done', result, ms: performance.now() - o.started, skipped: o.skipped ?? [], source: plan.source ?? (plan.isNotion ? 'notion' : 'markdown'), extra, before })
+  }
+
+  /** A plan a step built (PowerPoint, Claude Design) → written like any other import. */
+  const importPlan: OnPlan = (plan, label, after) => {
+    const started = performance.now()
+    const update = meter(label)
+    update('read', 1, 1)
+    update('unpack', 1, 1)
+    const resume = pauseAutomations()
+    void commit(plan, update, { started, label, after })
+      .catch(fail)
+      .finally(resume)
+  }
+
+  /** Undo of a finished import: its pages (and what the source added) gone, back where the person was. */
+  const undoImport = (result: ImportResult, extra: ImportExtra | undefined, before: string | undefined) => {
+    extra?.undo?.()
+    if (result.rootId && useWorkspace.getState().pages[result.rootId]) useWorkspace.getState().deletePagePermanently(result.rootId)
+    navigate(before || '#/', { replace: true })
+    useUI.getState().toast({ message: t('features.imp.done.undone'), kind: 'success' })
+    setPhase({ name: 'idle' })
+  }
+
   const run = useCallback(
     async (picked: Picked[], mode: SourceMode = 'auto') => {
       if (!picked.length) return
+      // a PowerPoint deck: read here, previewed first (one at a time)
+      const decks = picked.filter((p) => extname(p.path) === 'pptx')
+      if (decks.length) {
+        if (picked.length > 1) return setPhase({ name: 'error', message: t('features.imp.pptx.err.one') })
+        try {
+          const deck = readDeck(new Uint8Array(await decks[0].file.arrayBuffer()))
+          return setPhase({ name: 'deck', deck, fileName: decks[0].file.name })
+        } catch (e) {
+          return setPhase({ name: 'error', message: pptxErrorText(e, lang) })
+        }
+      }
       const sources = await import('./import/sources')
       // 1) JSON: a One backup (merge / replace flow) or a Trello board export; backups mixed with
       //    other files are skipped (and reported)
@@ -131,13 +233,8 @@ export function ImportModal({ onClose }: { onClose: () => void }) {
       }
       const skipped = backups.map(({ p }) => basename(p.path))
       const started = performance.now()
-      const stages = freshStages()
-      let current: StageId = 'read'
-      const update = (stage: StageId, done: number, total: number) => {
-        current = stage
-        stages[stage] = { done, total }
-        setPhase({ name: 'running', stages: { ...stages }, current, source: picked.length === 1 ? picked[0].file.name : t('features.io.nFiles', { n: picked.length }) })
-      }
+      const label = picked.length === 1 ? picked[0].file.name : t('features.io.nFiles', { n: picked.length })
+      const update = meter(label)
       const resume = pauseAutomations()
       try {
         // 2) read files
@@ -199,50 +296,14 @@ export function ImportModal({ onClose }: { onClose: () => void }) {
           setPhase({ name: 'error', message: t('features.imp.err.nothing') })
           return
         }
-        const stats = planStats(plan)
-        const containerTitle =
-          plan.source === 'obsidian'
-            ? t('features.imp.container.obsidian', { name: plan.name || dateLabel })
-            : plan.source === 'evernote' || plan.source === 'trello' || plan.source === 'html'
-              ? t(`features.imp.container.${plan.source}`, { date: dateLabel })
-              : plan.isNotion
-                ? t('features.io.containerNotion', { date: dateLabel })
-                : t('features.io.container', { date: dateLabel })
-        update('files', 0, stats.files)
-        update('pages', 0, plan.nodes.length)
-        if (!stats.files) update('files', 1, 1)
-        const result = await applyPlan(plan, {
-          containerTitle,
-          containerNote: t('features.io.containerNote', {
-            list: countList(t, [
-              ['page', stats.pages],
-              ['db', stats.databases],
-              ['row', stats.rows],
-              ['file', stats.files],
-            ]),
-            source: picked.length === 1 ? picked[0].file.name : t('features.io.nFiles', { n: picked.length }),
-          }),
-          untitled: t('common.untitled'),
-          viewNames: { table: t('features.io.view.table'), board: t('features.io.view.board'), calendar: t('features.io.view.calendar') },
-          onProgress: (p) => update(p.stage, p.done, p.total),
-        })
-        update('commit', 1, 1)
-        await flushSave()
-        if (result.rootId) openPage(result.rootId)
-        setPhase({ name: 'done', result, ms: performance.now() - started, skipped, source: plan.source ?? (plan.isNotion ? 'notion' : 'markdown') })
+        await commit(plan, update, { started, label, skipped })
       } catch (err) {
-        if (err instanceof ArchiveTooLargeError) {
-          const nf = new Intl.NumberFormat(lang === 'de' ? 'de-DE' : 'en-GB')
-          setPhase({ name: 'error', message: t('features.io.err.tooLarge', { mb: nf.format(ZIP_MAX_BYTES / 1048576), files: nf.format(ZIP_MAX_ENTRIES) }) })
-          return
-        }
-        console.error('[import] failed', err)
-        setPhase({ name: 'error', message: t('features.io.err.generic', { msg: (err as Error)?.message ?? String(err) }) })
+        fail(err)
       } finally {
         resume()
       }
     },
-    [t, dateLabel, lang],
+    [t, dateLabel, lang], // eslint-disable-line react-hooks/exhaustive-deps
   )
 
   const onPick = (list: FileList | null, folder = false, mode: SourceMode = 'auto') => {
@@ -253,6 +314,8 @@ export function ImportModal({ onClose }: { onClose: () => void }) {
 
   // a source tile: the matching picker (a folder picker for a vault), and the source preselected
   const pickSource = (id: SourceId) => {
+    // Claude Design: a step of its own (three exports)
+    if (id === 'design') return setPhase({ name: 'design' })
     const input = sourceRef.current
     const src = SOURCES.find((x) => x.id === id)
     if (!input || !src) return
@@ -263,18 +326,21 @@ export function ImportModal({ onClose }: { onClose: () => void }) {
     input.click()
   }
 
+  // the PowerPoint preview and the Claude Design step take their files themselves
+  const stepOpen = phase.name === 'deck' || phase.name === 'design'
+
   // drag & drop anywhere on the dialog
   const onDrop = async (e: React.DragEvent) => {
     e.preventDefault()
     setOver(false)
-    if (busy) return
+    if (busy || stepOpen) return
     void run(await readDrop(e.dataTransfer))
   }
 
   // paste files (⌘V) while the dialog is open
   useEffect(() => {
     const onPaste = (e: ClipboardEvent) => {
-      if (busy || !e.clipboardData?.files.length) return
+      if (busy || stepOpen || !e.clipboardData?.files.length) return
       e.preventDefault()
       onPick(e.clipboardData.files)
     }
@@ -331,7 +397,7 @@ export function ImportModal({ onClose }: { onClose: () => void }) {
                   <FolderUp size={15} /> {t('features.io.pickFolder')}
                 </button>
               </div>
-              <div className="io-drop__formats label">ZIP · VAULT · ENEX · JSON · HTML · MD · CSV</div>
+              <div className="io-drop__formats label">ZIP · VAULT · ENEX · JSON · HTML · MD · CSV · PPTX</div>
               <input ref={filesRef} type="file" multiple accept={ACCEPT} hidden onChange={(e) => (onPick(e.target.files), (e.target.value = ''))} />
               <input
                 ref={folderRef}
@@ -425,17 +491,46 @@ export function ImportModal({ onClose }: { onClose: () => void }) {
                 <p>{t('features.io.skippedBackup', { names: phase.skipped.join(', ') })}</p>
               </div>
             )}
+            {phase.extra?.memory && (
+              <p className="io-done__memory" role="status" data-testid="import-memory" data-failed={'failed' in phase.extra.memory || undefined}>
+                {'failed' in phase.extra.memory
+                  ? t('features.imp.done.memoryFailed')
+                  : t(phase.extra.memory.how === 'replaced' ? 'features.imp.done.memoryReplaced' : 'features.imp.done.memory', { tag: phase.extra.memory.tag })}
+              </p>
+            )}
             {phase.result.report.length > 0 && <ImportReport items={phase.result.report} />}
             <div className="io-actions">
+              {(phase.source === 'pptx' || phase.source === 'design') && (
+                <button type="button" className="btn btn--ghost io-done__undo" onClick={() => undoImport(phase.result, phase.extra, phase.before)}>
+                  <Undo2 size={14} /> {t('features.imp.done.undo')}
+                </button>
+              )}
               <button type="button" className="btn" onClick={() => setPhase({ name: 'idle' })}>
                 <RotateCcw size={14} /> {t('features.io.again')}
               </button>
+              {phase.extra?.present && (
+                <button
+                  type="button"
+                  className="btn"
+                  onClick={() => {
+                    const id = phase.extra!.present!
+                    onClose()
+                    useUI.getState().present(id)
+                  }}
+                >
+                  <Presentation size={14} /> {t('features.imp.done.present')}
+                </button>
+              )}
               <button type="button" className="btn btn--primary" onClick={onClose} data-autofocus="">
                 {t('features.io.done.open')}
               </button>
             </div>
           </div>
         )}
+
+        {phase.name === 'deck' && <DeckStep deck={phase.deck} fileName={phase.fileName} onCancel={() => setPhase({ name: 'idle' })} onImport={importPlan} />}
+
+        {phase.name === 'design' && <DesignStep onCancel={() => setPhase({ name: 'idle' })} onImport={importPlan} />}
 
         {phase.name === 'backup' && (
           <BackupStep

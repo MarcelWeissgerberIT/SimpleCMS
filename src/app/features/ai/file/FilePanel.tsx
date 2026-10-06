@@ -21,7 +21,8 @@ import type { AIRun, RunRequest } from '../runs'
 import type { RunTarget } from '../runsTarget'
 import { createFileDatabase, createFilePage, fileRequest, insertBelowFile, insertMarkdownBelowFile, runFile, uploadFileCopy } from './actions'
 import { dataPlan, parsePage, parseSheets, sheetTable, tablesOf, type ParsedPage } from './answers'
-import { baseName, docStats, markdownPage } from './convert'
+import { baseName, docStats, markdownPage, withoutImages } from './convert'
+import { withDeckMedia } from './deckMedia'
 import { FILE_ACTIONS, FILE_CODES, isLocalAction, isStructuredAction, kindLabel, type FileAction, type FileKind } from './kinds'
 import { formatBytes, PDF_MAX_PAGES, TEXT_MAX_CHARS } from './load'
 import { fileTarget } from './locate'
@@ -47,7 +48,7 @@ const KEYWORDS: Record<FileAction, string> = {
   extract: 'file pdf text page extract transcribe ocr datei text seite auslesen abschreiben',
   tables: 'file pdf table tables spreadsheet database datei tabelle tabellen datenbank',
   ask: 'file pdf document question ask datei dokument frage fragen',
-  page: 'file word docx text markdown html rtf page open convert datei seite öffnen umwandeln',
+  page: 'file word docx text markdown html rtf powerpoint pptx slides deck page open convert datei seite öffnen umwandeln folien präsentation',
   database: 'file csv excel xlsx tsv import database datei datenbank importieren',
   sheet: 'file csv excel xlsx tsv spreadsheet sheet datei tabellenkalkulation',
 }
@@ -224,6 +225,9 @@ export function useFilePanel({ editor, pageId, run, phase, start, finish, discar
       })
     rows.push(retry, drop)
   } else if (done && req.action === 'page') {
+    // a deck's pictures are stored when it goes into the page (deckMedia.ts); Copy leaves them out
+    const deck = req.fileKind === 'pptx'
+    const pageDoc = () => (page && deck ? withDeckMedia(page.doc, req.src) : Promise.resolve(page!.doc))
     rows = page
       ? [
           {
@@ -231,18 +235,18 @@ export function useFilePanel({ editor, pageId, run, phase, start, finish, discar
             label: t('features.ai.file.res.createPage'),
             icon: FilePlus2,
             hint: <Kbd>↵</Kbd>,
-            run: once(async () => ((await createFilePage(editor, pageId, run, { title: pageTitle, doc: page.doc, origin })) ? finish() : gone())),
+            run: once(async () => ((await createFilePage(editor, pageId, run, { title: pageTitle, doc: await pageDoc(), origin })) ? finish() : gone())),
           },
           {
             id: 'file-below',
             label: t('features.ai.file.res.below'),
             icon: ArrowDownToLine,
             run: once(async () => {
-              await insertBelowFile(editor, pageId, run, page.doc.content ?? [])
+              await insertBelowFile(editor, pageId, run, (await pageDoc()).content ?? [])
               finish()
             }),
           },
-          { id: 'copy', label: t('features.ai.file.res.copyMd'), icon: Copy, run: () => copy(docToMarkdown(page.doc)) },
+          { id: 'copy', label: t('features.ai.file.res.copyMd'), icon: Copy, run: () => copy(docToMarkdown(deck ? { ...page.doc, content: withoutImages(page.doc.content ?? []) } : page.doc)) },
           drop,
         ]
       : [retry, drop]
@@ -347,7 +351,7 @@ export function useFilePanel({ editor, pageId, run, phase, start, finish, discar
         <p>
           {t(`features.ai.file.err.${p.issue === 'pages' && (p.max ?? 0) < PDF_MAX_PAGES ? 'pagesSmall' : p.issue}`, {
             bytes: p.bytes ? formatBytes(p.bytes, lang) : '',
-            max: p.issue === 'pages' ? (p.max ?? 0).toLocaleString(lang) : p.max ? formatBytes(p.max, lang) : '',
+            max: p.issue === 'pages' || p.issue === 'slides' ? (p.max ?? 0).toLocaleString(lang) : p.max ? formatBytes(p.max, lang) : '',
             pages: (p.pages ?? 0).toLocaleString(lang),
           })}
         </p>
@@ -456,6 +460,11 @@ function PagePreview({ page, title, onTitle, onEnter }: { page: ParsedPage; titl
         ))}
       </ol>
       {more > 0 && <div className="ai-file__more label">{t('features.ai.file.moreBlocks', { n: more })}</div>}
+      {page.slides !== undefined && (
+        <p className="ai-file__note" role="note" data-testid="ai-file-deck">
+          {t('features.ai.file.deck', { slides: page.slides.toLocaleString(lang), pictures: (page.media ?? 0).toLocaleString(lang) })}
+        </p>
+      )}
       {page.images > 0 && (
         <p className="ai-file__note" role="note">
           {page.images === 1 ? t('features.ai.file.imagesOne') : t('features.ai.file.images', { n: page.images })}

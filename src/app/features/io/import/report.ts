@@ -18,6 +18,16 @@ export type ReportCode =
   | 'emptyCsv'
   /** a Notion HTML export: pages yes, but databases come in as tables */
   | 'notionHtml'
+  /** PowerPoint: a chart (→ a table of its data), SmartArt (→ a list of its text), video / audio, an embedded object, a picture format browsers cannot show */
+  | 'pptx-chart'
+  | 'pptx-smartart'
+  | 'pptx-media'
+  | 'pptx-ole'
+  | 'pptx-picture'
+  /** HTML (Claude Design): inline SVG graphics are left out */
+  | 'svg'
+  /** Claude could not describe a screenshot */
+  | 'describe'
 
 export interface ReportItem {
   code: ReportCode
@@ -38,7 +48,7 @@ export function warningsToReport(warnings: string[]): ReportItem[] {
 
 /** Items grouped by code, in a stable order. */
 export function groupReport(items: ReportItem[]): Array<{ code: ReportCode; items: ReportItem[] }> {
-  const order: ReportCode[] = ['link', 'embed', 'crypt', 'archived', 'skipped', 'emptyCsv', 'notionHtml']
+  const order: ReportCode[] = ['link', 'embed', 'crypt', 'archived', 'skipped', 'emptyCsv', 'notionHtml', 'pptx-chart', 'pptx-smartart', 'pptx-media', 'pptx-ole', 'pptx-picture', 'svg', 'describe']
   const map = new Map<ReportCode, ReportItem[]>()
   for (const it of items) {
     const list = map.get(it.code)

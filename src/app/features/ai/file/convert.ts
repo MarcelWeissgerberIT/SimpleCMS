@@ -13,6 +13,9 @@ import { docToMarkdown, markdownToDoc } from '../../../editor'
 import { decodeText } from '../../io/import/plan'
 import { htmlTitle } from '../../io/import/htmltext'
 import { guardCell } from '../../io/import/csv'
+import { PPTX_MAX_BYTES, PPTX_MAX_SLIDES, PptxError } from '../../io/import/pptx'
+import { deckDoc, deckTitle } from '../../io/import/deck'
+import { deckLabels, readDeck } from '../../io/import/labels'
 import { docxToDoc } from './docx'
 import { csvSheet, xlsxSheets, type DataSheet } from './xlsx'
 import { FileLoadError } from './load'
@@ -23,7 +26,29 @@ export interface PageResult {
   doc: JSONContent
   /** pictures left out (Word) */
   images?: number
+  /** PowerPoint: its slides and the pictures that come along (their src = the path inside the file until stored, deckMedia.ts) */
+  slides?: number
+  media?: number
 }
+
+/** A deck read here (a refusal as the file panel's issue). */
+function readDeckFile(bytes: Uint8Array) {
+  try {
+    return readDeck(bytes)
+  } catch (e) {
+    if (!(e instanceof PptxError)) throw new FileLoadError('unreadable', String(e))
+    if (e.issue === 'too_large') throw new FileLoadError({ issue: 'too_large', bytes: e.count, max: PPTX_MAX_BYTES })
+    if (e.issue === 'slides') throw new FileLoadError({ issue: 'slides', pages: e.count, max: PPTX_MAX_SLIDES })
+    throw new FileLoadError(e.issue === 'empty' ? 'empty' : 'unreadable')
+  }
+}
+
+/** Image blocks out (a deck's pictures are not text). */
+export function withoutImages(nodes: JSONContent[]): JSONContent[] {
+  return nodes.filter((n) => n.type !== 'image').map((n) => (n.content ? { ...n, content: withoutImages(n.content) } : n))
+}
+
+const countImages = (nodes: JSONContent[] | undefined): number => (nodes ?? []).reduce((s, n) => s + (n.type === 'image' ? 1 : 0) + countImages(n.content), 0)
 
 /** "report.final.docx" → "report.final" */
 export const baseName = (name: string) => (name.trim().replace(/\.[a-z0-9]{1,8}$/i, '') || name.trim()).slice(0, 200)
@@ -209,6 +234,11 @@ export async function filePage(kind: FileKind, bytes: Uint8Array, name: string):
     }
     case 'text':
       return { title: fallback, doc: textDoc(decodeText(bytes)) }
+    case 'pptx': {
+      const deck = readDeckFile(bytes)
+      const doc = deckDoc(deck, deckLabels())
+      return { title: deckTitle(deck, fallback), doc, slides: deck.slides.length, media: countImages(doc.content) }
+    }
     default:
       throw new FileLoadError('unreadable', `no page from ${kind}`)
   }
@@ -251,7 +281,8 @@ export async function fileText(kind: FileKind, bytes: Uint8Array, name: string):
     }
     default: {
       const page = await filePage(kind, bytes, name)
-      const body = docToMarkdown(page.doc).trim()
+      // a deck's pictures stay here (their src is a path inside the file)
+      const body = docToMarkdown(kind === 'pptx' ? { ...page.doc, content: withoutImages(page.doc.content ?? []) } : page.doc).trim()
       return { text: page.title ? `# ${page.title}\n\n${body}` : body, format: 'markdown' }
     }
   }

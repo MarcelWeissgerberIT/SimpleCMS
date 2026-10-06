@@ -24,15 +24,15 @@ export const FILE_READ_MAX = 25 * 1024 * 1024
 /** Characters of a text file sent to Claude at most (about 100k tokens). */
 export const TEXT_MAX_CHARS = 400_000
 
-/** Why a file could not be used. */
-export type FileIssue = 'missing' | 'cors' | 'offline' | 'too_large' | 'pages' | 'unreadable' | 'empty'
+/** Why a file could not be used ('slides': a PowerPoint deck with more slides than One reads). */
+export type FileIssue = 'missing' | 'cors' | 'offline' | 'too_large' | 'pages' | 'slides' | 'unreadable' | 'empty'
 
 /** A refusal with the numbers the message needs. */
 export interface FileProblem {
   issue: FileIssue
   /** the file's size (too_large) */
   bytes?: number
-  /** its pages (pages) */
+  /** its pages (pages) / slides (slides) */
   pages?: number
   /** the limit (bytes for too_large, pages for pages) */
   max?: number

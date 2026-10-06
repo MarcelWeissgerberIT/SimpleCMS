@@ -10,6 +10,7 @@ import { resolveModel, stripFence } from '../client'
 import { withoutWebImages } from '../../agents/images'
 import { clipText, fileData, FILE_READ_MAX, loadPdfForClaude, PDF_MAX_PAGES, PDF_MAX_PAGES_SMALL } from './load'
 import { filePage, fileSheets, fileText } from './convert'
+import { PPTX_MAX_BYTES } from '../../io/import/pptx'
 import { isLocalAction, type FileAction, type FileKind } from './kinds'
 import { requestFile, type ClaudeFileAction, type FileMaterial } from './request'
 
@@ -55,8 +56,10 @@ export async function runFileRequest(
   opts: { onToken?: (delta: string) => void; signal: AbortSignal; onFile?: (meta: FileMeta) => void },
 ): Promise<string> {
   const { signal } = opts
+  // a deck is mostly pictures: it may be larger (its unpacked size is checked while reading it)
+  const readMax = req.fileKind === 'pptx' ? PPTX_MAX_BYTES : FILE_READ_MAX
   if (isLocalAction(req.action)) {
-    const { bytes } = await fileData(req.src, FILE_READ_MAX, signal)
+    const { bytes } = await fileData(req.src, readMax, signal)
     opts.onFile?.({ kind: req.fileKind, bytes: bytes.byteLength, sent: false })
     if (req.action === 'page') return JSON.stringify(await filePage(req.fileKind, bytes, req.name))
     return JSON.stringify({ sheets: fileSheets(req.fileKind, bytes, req.name) })
@@ -67,7 +70,7 @@ export async function runFileRequest(
     opts.onFile?.({ kind: 'pdf', bytes: pdf.bytes, pages: pdf.pages, sent: true })
     material = { type: 'pdf', name: req.name, data: pdf.data }
   } else {
-    const { bytes } = await fileData(req.src, FILE_READ_MAX, signal)
+    const { bytes } = await fileData(req.src, readMax, signal)
     const got = await fileText(req.fileKind, bytes, req.name)
     const { text, clipped } = clipText(got.text)
     opts.onFile?.({ kind: req.fileKind, bytes: bytes.byteLength, chars: text.length, clipped, sent: true })

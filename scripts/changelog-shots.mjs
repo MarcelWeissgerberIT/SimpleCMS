@@ -8,7 +8,7 @@
  *
  * (CHANGELOG_DRAFT=1 lets the build pass while a new entry's picture does not exist yet.)
  *
- * Shots: one-script-everywhere, file-ai, one-script, transform, ai-edit, db-commands, gmail-one-click, memory, grips-footer, block-select, split-to-page, image-ai, claude-reads, redo, ai-terminal, mcp-codewords, mcp-tidy-up, slash-menu, turn-into-database,
+ * Shots: design-import, one-script-everywhere, file-ai, one-script, transform, ai-edit, db-commands, gmail-one-click, memory, grips-footer, block-select, split-to-page, image-ai, claude-reads, redo, ai-terminal, mcp-codewords, mcp-tidy-up, slash-menu, turn-into-database,
  * custom-agents, gmail, help-centre, mcp-servers, feed-blocks — each named like its image. Every shot starts from a fresh, seeded
  * workspace in English, light theme, 1440 × 900 at device scale 2; the crop of the relevant area is scaled
  * to 1440 px wide and saved as public/assets/shots/changelog/<shot>.webp (≤ 150 KB: the quality steps down
@@ -24,6 +24,7 @@ import { chromium } from 'playwright'
 import { execFileSync, spawn } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
+import { strToU8, zipSync } from 'fflate'
 
 const LOCAL = (process.argv[2] || 'http://127.0.0.1:5315').replace(/\/$/, '')
 const ONLY = process.argv.slice(3)
@@ -566,6 +567,45 @@ function shotPdf(pages) {
   return new TextEncoder().encode(out)
 }
 
+/** A small PowerPoint deck for the "Claude Design" picture: slides with titles and a theme (colours, fonts). */
+function shotDeck() {
+  const P = 'xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"'
+  const REL = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships'
+  const xml = (s) => strToU8(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n${s}`)
+  const rels = (list) => xml(`<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${list.map(([id, type, target]) => `<Relationship Id="${id}" Type="${REL}/${type}" Target="${target}"/>`).join('')}</Relationships>`)
+  const titles = ['Northwind launch', 'Why now', 'What ships on day one', 'Pricing', 'Next steps']
+  const slide = (t, i) =>
+    xml(`<p:sld ${P}><p:cSld><p:spTree><p:sp><p:nvSpPr><p:cNvPr id="2" name="Title"/><p:cNvSpPr/><p:nvPr><p:ph type="${i ? 'title' : 'ctrTitle'}"/></p:nvPr></p:nvSpPr><p:spPr/><p:txBody><a:bodyPr/><a:p><a:r><a:t>${t}</a:t></a:r></a:p></p:txBody></p:sp></p:spTree></p:cSld></p:sld>`)
+  const colors = ['14213D', 'F6F1E7', '1D3557', 'EDE6D6', 'FC5130', '2A9D8F', 'E9C46A', '6C757D', '8E7DBE', 'D1495B', '2A9D8F', '8E7DBE']
+  const slots = ['dk1', 'lt1', 'dk2', 'lt2', 'accent1', 'accent2', 'accent3', 'accent4', 'accent5', 'accent6', 'hlink', 'folHlink']
+  const files = {
+    'ppt/presentation.xml': xml(`<p:presentation ${P}><p:sldIdLst>${titles.map((_, i) => `<p:sldId id="${256 + i}" r:id="rId${i + 2}"/>`).join('')}</p:sldIdLst></p:presentation>`),
+    'ppt/_rels/presentation.xml.rels': rels([['rId1', 'theme', 'theme/theme1.xml'], ...titles.map((_, i) => [`rId${i + 2}`, 'slide', `slides/slide${i + 1}.xml`])]),
+    'ppt/theme/theme1.xml': xml(
+      `<a:theme xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" name="Northwind"><a:themeElements><a:clrScheme name="Northwind">${slots.map((s, i) => `<a:${s}><a:srgbClr val="${colors[i]}"/></a:${s}>`).join('')}</a:clrScheme><a:fontScheme name="Northwind"><a:majorFont><a:latin typeface="Fraunces"/></a:majorFont><a:minorFont><a:latin typeface="IBM Plex Sans"/></a:minorFont></a:fontScheme></a:themeElements></a:theme>`,
+    ),
+  }
+  titles.forEach((t, i) => (files[`ppt/slides/slide${i + 1}.xml`] = slide(t, i)))
+  return zipSync(files)
+}
+
+/** The HTML export of the "Claude Design" picture: tokens as CSS custom properties, Google Fonts, a type scale. */
+const SHOT_DESIGN_HTML = `<!doctype html><html><head><title>Northwind launch</title>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:wght@600&family=IBM+Plex+Sans:wght@400;600&family=IBM+Plex+Mono&display=swap" rel="stylesheet">
+<style>
+:root { --paper: #F6F1E7; --ink: #14213D; --brand: #FC5130; --teal: #2A9D8F; --sand: #E9C46A; --muted: #6C757D; --line: #DDD5C4; --radius-sm: 6px; --radius-lg: 14px; --space-1: 4px; --space-2: 8px; --space-4: 16px; --space-6: 24px; --space-10: 40px; }
+body { font-family: 'IBM Plex Sans', sans-serif; font-size: 17px; background: var(--paper); color: var(--ink); padding: 40px; }
+h1 { font-family: 'Fraunces', serif; font-size: 56px; }
+h2 { font-family: 'Fraunces', serif; font-size: 36px; }
+h3 { font-size: 24px; }
+.card { border: 1px solid var(--line); border-radius: var(--radius-lg); padding: 24px; gap: 16px; }
+.pill { background: var(--brand); color: #fff; border-radius: 999px; padding: 8px 16px; }
+small { font-size: 14px; color: var(--muted); }
+code { font-family: 'IBM Plex Mono', monospace; font-size: 14px; }
+</style></head>
+<body><h1>Northwind launch</h1><p>Ship faster with Northwind — the new planner for small teams, out on <strong>November 3</strong>.</p>
+<div class="card"><h2>What's new</h2><ul><li>Plans that follow your calendar</li><li>Offline mode</li><li>One-click handover</li></ul></div></body></html>`
+
 /** The table in the "Claude for images" picture — and what Claude (mocked) reads out of it. */
 const VOLUMES = { title: 'Volumes', header: ['Reagent', 'Volume (µl)', 'Wells'], rows: [['Buffer', '50', 'A1–A12'], ['Enzyme', '2,5', 'B1–B12'], ['Sample', '10', 'C1–C12'], ['Water', '37,5', 'D1–D12']] }
 
@@ -1090,6 +1130,34 @@ const shots = {
     const top = Math.max(0, Math.round(head.y - 12))
     const bottom = Math.max(live.y + live.height, side.y + Math.min(side.height, 520))
     await save(page, 'one-script-everywhere', { x: left, y: top, width: W - left, height: Math.min(H - 30 - top, Math.round(bottom + 16 - top)) })
+    await ctx.close()
+  },
+
+  /** "Take over from Claude Design": the HTML export, the deck and two screenshots added; the tokens read from them; the options. */
+  async 'design-import'(browser) {
+    const { ctx, page } = await freshPage(browser, { viewport: { width: W, height: 1240 } })
+    await page.evaluate(() => window.__one.ui.getState().openModal({ type: 'import' }))
+    const dialog = page.getByRole('dialog')
+    await page.locator('.io-src[data-source="design"]').click()
+    const step = dialog.getByTestId('design-import')
+    const add = async (slot, files) => {
+      const chooser = page.waitForEvent('filechooser')
+      await step.locator(`.io-slot[data-slot="${slot}"] .btn`).click()
+      await (await chooser).setFiles(files)
+      await page.waitForTimeout(300)
+    }
+    await add('html', { name: 'northwind-launch.html', mimeType: 'text/html', buffer: Buffer.from(SHOT_DESIGN_HTML) })
+    await add('pptx', { name: 'Northwind launch deck.pptx', mimeType: 'application/vnd.openxmlformats-officedocument.presentationml.presentation', buffer: Buffer.from(shotDeck()) })
+    await add('shots', [
+      { name: 'home.webp', mimeType: 'image/webp', buffer: readFileSync('public/assets/shots/changelog/file-ai.webp') },
+      { name: 'settings.webp', mimeType: 'image/webp', buffer: readFileSync('public/assets/shots/changelog/memory.webp') },
+    ])
+    await step.getByRole('switch', { name: 'Describe the screenshots with Claude' }).click()
+    await step.getByRole('switch', { name: 'Save the style to One memory' }).click()
+    await step.getByTestId('design-tokens').locator('.io-tokens__swatches li').first().waitFor()
+    await rest(page)
+    const box = await boxOf(page.locator('.modal').first(), 20)
+    await save(page, 'design-import', box)
     await ctx.close()
   },
 
