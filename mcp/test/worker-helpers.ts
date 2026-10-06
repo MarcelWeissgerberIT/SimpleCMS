@@ -4,7 +4,7 @@
  * the worker protocol over a plain WebSocket client.
  */
 import { execFileSync, spawn, type ChildProcess } from 'node:child_process'
-import { chmodSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -89,19 +89,35 @@ export interface StartedWorker {
 }
 
 export async function startWorker(configFile: string, env: Record<string, string> = {}): Promise<StartedWorker> {
+  return spawnWorker({ bundle: WORKER_BUNDLE, args: ['--config', configFile], env })
+}
+
+export interface SpawnedWorker extends StartedWorker {
+  stdout: () => string
+  write: (text: string) => void
+}
+
+/** Start a worker file (the bundle, or a download with a preset) — never opens a real browser. */
+export async function spawnWorker(opts: { bundle: string; args?: string[]; env?: Record<string, string>; home?: string; stdin?: boolean }): Promise<SpawnedWorker> {
   chmodSync(FAKE_CLAUDE, 0o755)
-  const child = spawn(process.execPath, [WORKER_BUNDLE, '--config', configFile], {
-    env: { PATH: process.env.PATH ?? '', HOME: process.env.HOME ?? '', ...GIT_ENV, CLAUDE_BIN: FAKE_CLAUDE, ONE_WORKER_HEARTBEAT_MS: '400', ...env },
-    stdio: ['ignore', 'ignore', 'pipe'],
+  const child = spawn(process.execPath, [opts.bundle, ...(opts.args ?? [])], {
+    env: { PATH: process.env.PATH ?? '', HOME: opts.home ?? process.env.HOME ?? '', ...GIT_ENV, CLAUDE_BIN: FAKE_CLAUDE, ONE_WORKER_HEARTBEAT_MS: '400', ONE_WORKER_BROWSER: 'none', ...opts.env },
+    stdio: [opts.stdin ? 'pipe' : 'ignore', 'pipe', 'pipe'],
   })
   let err = ''
+  let out = ''
   child.stderr?.on('data', (d: Buffer) => {
     err += d.toString()
+  })
+  child.stdout?.on('data', (d: Buffer) => {
+    out += d.toString()
   })
   await waitFor(() => /ready on ws:|in use|cannot listen/.test(err) || child.exitCode !== null, 8000, () => err)
   return {
     child,
     stderr: () => err,
+    stdout: () => out,
+    write: (text) => void child.stdin?.write(text),
     stop: () =>
       new Promise((resolve) => {
         if (child.exitCode !== null) return resolve()
@@ -109,6 +125,36 @@ export async function startWorker(configFile: string, env: Record<string, string
         child.kill('SIGTERM')
       }),
   }
+}
+
+/** A copy of the bundle as One's download makes it: the preset line right after the shebang. */
+export function presetBundle(preset: Record<string, unknown>): string {
+  const src = readFileSync(WORKER_BUNDLE, 'utf8')
+  const nl = src.indexOf('\n')
+  const file = join(tempDir('download'), 'one-worker.mjs')
+  writeFileSync(file, `${src.slice(0, nl + 1)}globalThis.ONE_WORKER_PRESET = ${JSON.stringify(preset)}\n${src.slice(nl + 1)}`)
+  return file
+}
+
+/** A program that "opens" the setup page: it appends the address to a file (ONE_WORKER_BROWSER). */
+export function fakeOpener(): { program: string; urls: () => string[] } {
+  const dir = tempDir('opener')
+  const log = join(dir, 'opened.txt')
+  const program = join(dir, 'open.mjs')
+  writeFileSync(program, `#!${process.execPath}\nimport { appendFileSync } from 'node:fs'\nappendFileSync(${JSON.stringify(log)}, process.argv[2] + '\\n')\n`)
+  chmodSync(program, 0o755)
+  return { program, urls: () => (existsSync(log) ? readFileSync(log, 'utf8').split('\n').filter(Boolean) : []) }
+}
+
+/** A git repo at `dir` with one commit (and optionally a remote URL — never contacted). */
+export function plainRepo(dir: string, files: Record<string, string> = { 'README.md': '# x\n' }, remoteUrl?: string): string {
+  mkdirSync(dir, { recursive: true })
+  execFileSync('git', ['init', '--quiet', '-b', 'main', dir], { env: { ...process.env, ...GIT_ENV } })
+  for (const [name, text] of Object.entries(files)) writeFileSync(join(dir, name), text)
+  sh(dir, 'add', '-A')
+  sh(dir, 'commit', '--quiet', '-m', 'initial')
+  if (remoteUrl) sh(dir, 'remote', 'add', 'origin', remoteUrl)
+  return dir
 }
 
 export const WS_LOCAL: WorkspaceRef = { id: 'local:test-ws-1', name: 'Test', kind: 'local', readOnly: false }
@@ -156,8 +202,8 @@ export class FakeTab {
     this.ws.send(JSON.stringify(msg))
   }
 
-  hello(workspace: WorkspaceRef = WS_LOCAL) {
-    this.send({ type: 'hello', app: 'one', version: 'test', workspace })
+  hello(workspace: WorkspaceRef = WS_LOCAL, pair?: string) {
+    this.send({ type: 'hello', app: 'one', version: 'test', workspace, ...(pair !== undefined ? { pair } : {}) })
   }
 
   private answer(msg: Req) {

@@ -9,6 +9,7 @@
  * no message that carries a command, a path or a git argument.
  */
 import { randomBytes } from 'node:crypto'
+import type { IncomingMessage, ServerResponse } from 'node:http'
 import {
   GIT_VERBS,
   HEARTBEAT_MS,
@@ -20,6 +21,7 @@ import {
   type GitVerb,
   type LogLine,
   type NextResult,
+  type OpenSetupResult,
   type StageOutcome,
   type TabMessage,
   type TaskPayload,
@@ -31,9 +33,10 @@ import { WorkerState } from './state.ts'
 import { detectClaude, type ClaudeCaps } from './claude.ts'
 import { checkRepo, cleanup, commitAll, discard, info, openPr, prune, push, updateFromBase, worktreeOf, GitError } from './git.ts'
 import { WorkerLink } from './link.ts'
-import { allowedOrigins } from '../policy.ts'
+import { workerOrigins } from './preset.ts'
 import { dataBlock, markerCode, runStage } from './run.ts'
 import { repoScrubber, type Scrubber } from './scrub.ts'
+import type { SetupLive } from './setup.ts'
 
 export interface WorkerOptions {
   config: WorkerConfig
@@ -43,6 +46,13 @@ export interface WorkerOptions {
   /** this program's file (task-mcp is started from it) */
   self: string
   log: (msg: string) => void
+  /** the local setup page (null: started with --no-browser — `open-setup` opens nothing) */
+  setup?: {
+    handle: (req: IncomingMessage, res: ServerResponse) => Promise<boolean>
+    open: () => Promise<OpenSetupResult>
+  } | null
+  /** the worker's last log lines (the setup page shows them) */
+  recent?: () => string[]
 }
 
 interface Run {
@@ -94,7 +104,8 @@ export function sanitizeTask(raw: unknown): TaskPayload | null {
 }
 
 export class Worker {
-  readonly config: WorkerConfig
+  /** replaced by reload() when the setup page saves (the connection settings stay) */
+  config: WorkerConfig
   readonly state: WorkerState
   private opts: WorkerOptions
   private link: WorkerLink
@@ -116,8 +127,10 @@ export class Worker {
     this.state = new WorkerState(opts.config.file)
     this.link = new WorkerLink({
       port: opts.config.port,
-      origins: allowedOrigins([process.env.ONE_ORIGINS ?? '', ...opts.config.origins].filter(Boolean).join(','), opts.log),
+      origins: workerOrigins(opts.config.preset, [process.env.ONE_ORIGINS ?? '', ...opts.config.origins], opts.log),
       workspace: opts.config.workspace,
+      pair: opts.config.preset?.pair ?? null,
+      http: opts.setup ? (req, res) => opts.setup!.handle(req, res) : undefined,
       log: opts.log,
       info: () => this.info(),
       onConnect: (ws) => {
@@ -144,7 +157,41 @@ export class Worker {
       spentToday: this.state.spentToday(),
       dayLimit: limits.length ? Math.min(...limits) : null,
       claude: { found: this.caps.found, version: this.caps.version },
+      setup: !!this.opts.setup,
+      paired: !!this.config.preset,
     }
+  }
+
+  /** What the setup page shows live (local only: titles and the log are fine there). */
+  live(): SetupLive {
+    const ws = this.link.connected
+    return {
+      workspace: this.config.workspace,
+      connected: ws ? { name: ws.name } : null,
+      busy: [...this.runs.values()].map((r) => ({ repo: r.repo.name, title: r.task.title, stage: r.task.stage.name, since: r.since })),
+      log: (this.opts.recent?.() ?? []).slice(-40),
+      claude: { found: this.caps.found, version: this.caps.version },
+    }
+  }
+
+  /**
+   * Use a new config (the setup page saved worker.json): new repos are checked, a repo that is gone takes no
+   * new task (a running one finishes — or the person stops it in One). The connection stays as it is.
+   */
+  async reload(next: WorkerConfig): Promise<void> {
+    const known = new Set(this.config.repos.map((r) => r.path))
+    this.config = { ...next, workspace: this.config.workspace, port: this.config.port, preset: this.config.preset, origins: this.config.origins }
+    for (const repo of this.config.repos.filter((r) => !known.has(r.path))) {
+      try {
+        await checkRepo(repo)
+        await prune(repo)
+      } catch (e) {
+        this.opts.log(`repo "${repo.name}": ${e instanceof Error ? e.message : String(e)}`)
+      }
+    }
+    this.opts.log(`repos: ${this.config.repos.map((r) => r.name).join(', ') || 'none'}`)
+    this.link.announce()
+    this.tick()
   }
 
   private busy(): BusyTask[] {
@@ -164,7 +211,7 @@ export class Worker {
     }
     const up = await this.link.start()
     if (up === 'listening') {
-      this.opts.log(`ready on ws://127.0.0.1:${this.config.port} · ${this.config.repos.length} repo(s): ${this.config.repos.map((r) => r.name).join(', ') || 'none'} · ${this.config.workspace ? `workspace ${this.config.workspace}` : 'NOT BOUND to a workspace (set "workspace" in worker.json)'}`)
+      this.opts.log(`ready on ws://127.0.0.1:${this.config.port} · ${this.config.repos.length} repo(s): ${this.config.repos.map((r) => r.name).join(', ') || 'none'} · ${this.config.workspace ? `workspace ${this.config.workspace}${this.config.preset ? ` ("${this.config.preset.name}", paired download)` : ''}` : 'NOT BOUND to a workspace (set "workspace" in worker.json)'}`)
       this.poller = setInterval(() => this.tick(), this.config.pollSec * 1000)
       this.beater = setInterval(() => void this.heartbeat(), Number(process.env.ONE_WORKER_HEARTBEAT_MS) || HEARTBEAT_MS)
     }
@@ -223,7 +270,7 @@ export class Worker {
       this.opts.log(`refused task ${task.id}: ${error}`)
       void this.finish(task.id, task.stage.id, { status: 'refused', error })
     }
-    if (!repo) return refuse(`the repo "${task.repo}" is not in this worker's config — One cannot add repos; add it to worker.json on the computer that should work on it`)
+    if (!repo) return refuse(`the repo "${task.repo}" is not in this worker's config (not ticked) — One cannot add repos; tick it in the worker's setup page ("Change repositories") or add it to worker.json on the computer that should work on it`)
     if ([...this.runs.values()].some((r) => r.repo.name === repo.name)) return refuse(`another task runs in "${repo.name}" right now`)
     if (this.workspace?.kind === 'team' && !task.trusted) return refuse('the task is not confirmed on this device (team workspace)')
     const token = randomBytes(24).toString('hex')
@@ -309,7 +356,9 @@ export class Worker {
       return { stopped: true }
     }
     if (msg.op === 'git') return this.gitVerb(msg)
-    throw new Error(`unknown request ${JSON.stringify((msg as { op?: unknown }).op)} — the worker only knows stop and the git actions`)
+    // "Change repositories": the page opens HERE; One gets only whether it opened — never its address or key
+    if (msg.op === 'open-setup') return this.opts.setup ? this.opts.setup.open() : ({ opened: false, reason: 'off' } satisfies OpenSetupResult)
+    throw new Error(`unknown request ${JSON.stringify((msg as { op?: unknown }).op)} — the worker only knows stop, open-setup and the git actions`)
   }
 
   private async gitVerb(msg: Extract<TabMessage, { op: 'git' }>): Promise<GitResult> {

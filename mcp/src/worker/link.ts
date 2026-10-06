@@ -5,8 +5,12 @@
  * "workspace"): a tab of any other workspace — or any tab while none is set — is refused (4003). The
  * newest tab of that workspace wins (the older one is closed with 4001).
  *
+ * A worker downloaded from One (a preset, preset.ts) also needs the download's pairing secret in the hello —
+ * compared in constant time; none or another one is refused (4003, reason "pair").
+ *
  * The same port answers POST /task for the task tools Claude Code calls during a run (task-mcp): no
- * Origin allowed (browsers always send one), a bearer token that only that run's MCP config holds.
+ * Origin allowed (browsers always send one), a bearer token that only that run's MCP config holds — and,
+ * through `http`, the local setup page under /setup (setup.ts, with its own door).
  */
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
 import type { Duplex } from 'node:stream'
@@ -16,12 +20,14 @@ import {
   WORKER_CLOSE_REPLACED,
   WORKER_SUBPROTOCOL,
   WORKSPACE_ID,
+  type RefusedReason,
   type TabMessage,
   type WorkerInfo,
   type WorkerMessage,
   type WorkspaceRef,
 } from '../../../src/app/features/coding/protocol.ts'
 import { isAllowedHost, isAllowedOrigin } from '../policy.ts'
+import { sameSecret } from './preset.ts'
 
 export interface LinkOptions {
   port: number
@@ -29,6 +35,10 @@ export interface LinkOptions {
   origins: string[]
   /** the workspace this worker serves (null = none yet: every tab is refused) */
   workspace: string | null
+  /** a downloaded worker's pairing secret: a tab must say hello with it (null = a worker.json worker: not asked) */
+  pair?: string | null
+  /** other HTTP requests (the setup page); resolves true when answered */
+  http?: (req: IncomingMessage, res: ServerResponse) => Promise<boolean>
   log: (msg: string) => void
   info: () => WorkerInfo
   onConnect: (ws: WorkspaceRef) => void
@@ -132,6 +142,11 @@ export class WorkerLink {
     }
   }
 
+  /** Tell the connected tab what the worker is now (a fresh `welcome`: the repos changed in the setup page). */
+  announce(): void {
+    if (this.tab?.workspace && this.tab.ws.readyState === WebSocket.OPEN) this.tab.ws.send(JSON.stringify({ type: 'welcome', ...this.opts.info() } satisfies WorkerMessage))
+  }
+
   /** Ask the tab; rejects when no tab is connected, on its error, or after the timeout. */
   request(body: ReqBody, timeoutMs = this.opts.timeoutMs ?? 30_000): Promise<unknown> {
     const tab = this.tab
@@ -199,15 +214,17 @@ export class WorkerLink {
     })
   }
 
-  private refuseTab(conn: Conn, reason: 'workspace' | 'unbound', offered: WorkspaceRef) {
+  private refuseTab(conn: Conn, reason: RefusedReason, offered: WorkspaceRef) {
     if (this.refusals++ < 20)
       this.opts.log(
         reason === 'unbound'
           ? `refused the tab of ${JSON.stringify(offered.name)}: this worker is not bound to a workspace yet — set "workspace": ${JSON.stringify(offered.id)} in worker.json if it should serve that one`
-          : `refused the tab of ${JSON.stringify(offered.name)} (${offered.id}): this worker serves ${this.opts.workspace}`,
+          : reason === 'pair'
+            ? `refused a tab of ${JSON.stringify(offered.name)}: it did not bring this download's pairing key — start the file One downloaded last, or download the worker again (One → Settings → Coding worker)`
+            : `refused the tab of ${JSON.stringify(offered.name)} (${offered.id}): this worker serves ${this.opts.workspace}`,
       )
-    if (conn.ws.readyState === WebSocket.OPEN) conn.ws.send(JSON.stringify({ type: 'refused', reason } satisfies WorkerMessage))
-    conn.ws.close(WORKER_CLOSE_REFUSED, reason === 'unbound' ? 'worker not bound' : 'another workspace')
+    if (conn.ws.readyState === WebSocket.OPEN) conn.ws.send(JSON.stringify({ type: 'refused', reason, ...(this.opts.pair ? { paired: true } : {}) } satisfies WorkerMessage))
+    conn.ws.close(WORKER_CLOSE_REFUSED, reason === 'unbound' ? 'worker not bound' : reason === 'pair' ? 'not paired' : 'another workspace')
   }
 
   private receive(conn: Conn, msg: TabMessage, hello: ReturnType<typeof setTimeout>) {
@@ -218,6 +235,8 @@ export class WorkerLink {
         clearTimeout(hello)
         if (!this.opts.workspace) return this.refuseTab(conn, 'unbound', ws)
         if (ws.id !== this.opts.workspace) return this.refuseTab(conn, 'workspace', ws)
+        // a downloaded worker: only the browser that downloaded it (its pairing secret, constant-time)
+        if (this.opts.pair && !sameSecret(this.opts.pair, (msg as { pair?: unknown }).pair)) return this.refuseTab(conn, 'pair', ws)
         if (conn.workspace) return
         conn.workspace = ws
         const old = this.tab
@@ -292,6 +311,7 @@ export class WorkerLink {
       res.end(JSON.stringify(body))
     }
     if (req.method !== 'POST' || req.url !== '/task') {
+      if (this.opts.http && (await this.opts.http(req, res).catch(() => false))) return
       res.writeHead(426, { 'content-type': 'text/plain; charset=utf-8', connection: 'close', upgrade: 'websocket' })
       return void res.end('one-worker: WebSocket only.\n')
     }

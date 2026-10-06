@@ -2282,7 +2282,7 @@ var require_websocket = __commonJS({
     var http = __require("http");
     var net = __require("net");
     var tls = __require("tls");
-    var { randomBytes: randomBytes3, createHash } = __require("crypto");
+    var { randomBytes: randomBytes4, createHash: createHash2 } = __require("crypto");
     var { Duplex, Readable } = __require("stream");
     var { URL: URL2 } = __require("url");
     var PerMessageDeflate2 = require_permessage_deflate();
@@ -2833,7 +2833,7 @@ var require_websocket = __commonJS({
         }
       }
       const defaultPort = isSecure ? 443 : 80;
-      const key = randomBytes3(16).toString("base64");
+      const key = randomBytes4(16).toString("base64");
       const request = isSecure ? https.request : http.request;
       const protocolSet = /* @__PURE__ */ new Set();
       let perMessageDeflate;
@@ -2963,7 +2963,7 @@ var require_websocket = __commonJS({
           abortHandshake(websocket, socket, "Invalid Upgrade header");
           return;
         }
-        const digest = createHash("sha1").update(key + GUID).digest("base64");
+        const digest = createHash2("sha1").update(key + GUID).digest("base64");
         if (res.headers["sec-websocket-accept"] !== digest) {
           abortHandshake(websocket, socket, "Invalid Sec-WebSocket-Accept header");
           return;
@@ -3332,7 +3332,7 @@ var require_websocket_server = __commonJS({
     var EventEmitter = __require("events");
     var http = __require("http");
     var { Duplex } = __require("stream");
-    var { createHash } = __require("crypto");
+    var { createHash: createHash2 } = __require("crypto");
     var extension2 = require_extension();
     var PerMessageDeflate2 = require_permessage_deflate();
     var subprotocol2 = require_subprotocol();
@@ -3639,7 +3639,7 @@ var require_websocket_server = __commonJS({
           );
         }
         if (this._state > RUNNING) return abortHandshake(socket, 503);
-        const digest = createHash("sha1").update(key + GUID).digest("base64");
+        const digest = createHash2("sha1").update(key + GUID).digest("base64");
         const headers = [
           "HTTP/1.1 101 Switching Protocols",
           "Upgrade: websocket",
@@ -6677,7 +6677,7 @@ var require_compile = __commonJS({
       const schOrFunc = root.refs[ref];
       if (schOrFunc)
         return schOrFunc;
-      let _sch = resolve4.call(this, root, ref);
+      let _sch = resolve5.call(this, root, ref);
       if (_sch === void 0) {
         const schema = (_a3 = root.localRefs) === null || _a3 === void 0 ? void 0 : _a3[ref];
         const { schemaId } = this.opts;
@@ -6704,7 +6704,7 @@ var require_compile = __commonJS({
     function sameSchemaEnv(s1, s2) {
       return s1.schema === s2.schema && s1.root === s2.root && s1.baseId === s2.baseId;
     }
-    function resolve4(root, ref) {
+    function resolve5(root, ref) {
       let sch;
       while (typeof (sch = this.refs[ref]) == "string")
         ref = sch;
@@ -7534,7 +7534,7 @@ var require_fast_uri = __commonJS({
       }
       return uri;
     }
-    function resolve4(baseURI, relativeURI, options) {
+    function resolve5(baseURI, relativeURI, options) {
       const schemelessOptions = options ? Object.assign({ scheme: "null" }, options) : { scheme: "null" };
       const {
         parsed: baseParsed,
@@ -7903,7 +7903,7 @@ var require_fast_uri = __commonJS({
     var fastUri = {
       SCHEMES,
       normalize,
-      resolve: resolve4,
+      resolve: resolve5,
       resolveComponent,
       equal,
       serialize,
@@ -10894,7 +10894,9 @@ var require_dist = __commonJS({
 
 // src/worker/index.ts
 import { fileURLToPath } from "node:url";
-import { resolve as resolve3 } from "node:path";
+import { existsSync as existsSync4 } from "node:fs";
+import { homedir as homedir5 } from "node:os";
+import { resolve as resolve4 } from "node:path";
 
 // ../src/app/features/coding/protocol.ts
 var WORKER_DEFAULT_PORT = 47322;
@@ -10910,11 +10912,13 @@ var GIT_ACTIONS = ["commit", "push", "pr", "update-base"];
 var GIT_VERBS = ["refresh", "commit", "push", "force-push", "pr", "update-base", "discard", "cleanup", "reveal"];
 var REPO_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 var WORKSPACE_ID = /^(local|team):[A-Za-z0-9_-]{1,64}$/;
+var PRESET_GLOBAL = "ONE_WORKER_PRESET";
+var PAIR_SECRET = /^[A-Za-z0-9_-]{43}$/;
 
 // src/worker/config.ts
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { homedir, hostname } from "node:os";
-import { dirname, isAbsolute, join, resolve } from "node:path";
+import { dirname, isAbsolute, join, resolve, sep } from "node:path";
 function defaultConfigFile() {
   return join(homedir(), ".config", "one", "worker.json");
 }
@@ -11093,7 +11097,8 @@ function sanitizeConfig(raw, file, env = process.env) {
       parallel: Math.floor(num(r.parallel, PARALLEL_MAX, 1, PARALLEL_MAX)),
       pollSec: Math.floor(num(r.pollSec, 15, 2, 600)),
       origins: strings(r.origins, 20),
-      repos
+      repos,
+      preset: null
     },
     problems
   };
@@ -11167,6 +11172,105 @@ function initConfig(file, workspace, force = false) {
   mkdirSync(dirname(file), { recursive: true, mode: 448 });
   writeFileSync(file, exampleConfig(workspace), { mode: 384 });
   return file;
+}
+function withPreset(config2, preset2, env = process.env) {
+  if (!preset2) return config2;
+  const envPort = Number(env.ONE_WORKER_PORT);
+  const port = Number.isInteger(envPort) && envPort >= 1024 && envPort <= 65535 ? envPort : preset2.port;
+  return { ...config2, workspace: preset2.workspace, port, preset: preset2 };
+}
+function emptyConfig(file, env = process.env) {
+  return sanitizeConfig({ repos: [] }, file, env).config;
+}
+function splitArgs(line) {
+  const out = [];
+  let cur = "";
+  let has2 = false;
+  let quote = null;
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i];
+    if (quote === "'") {
+      if (c === "'") quote = null;
+      else cur += c;
+    } else if (quote === '"') {
+      if (c === '"') quote = null;
+      else if (c === "\\" && i + 1 < line.length && (line[i + 1] === '"' || line[i + 1] === "\\")) cur += line[++i];
+      else cur += c;
+    } else if (c === '"' || c === "'") {
+      quote = c;
+      has2 = true;
+    } else if (c === "\\" && i + 1 < line.length) {
+      cur += line[++i];
+      has2 = true;
+    } else if (/\s/.test(c)) {
+      if (has2 || cur) out.push(cur);
+      cur = "";
+      has2 = false;
+    } else {
+      cur += c;
+      has2 = true;
+    }
+  }
+  if (has2 || cur) out.push(cur);
+  return out.filter((a) => a.length <= 300).slice(0, 50);
+}
+var HEADER = "// one-worker \u2014 written by its setup page";
+function homeRelative(path) {
+  const home = homedir();
+  if (path.startsWith(home + sep)) return `~/${path.slice(home.length + 1).replace(/\\/g, "/")}`;
+  return path;
+}
+function saveRepos(file, choices, workspace, env = process.env) {
+  const configDir = dirname(file);
+  let text2 = null;
+  let raw = {};
+  if (existsSync(file)) {
+    text2 = readFileSync(file, "utf8");
+    try {
+      const parsed = parseJsonc(text2);
+      if (isObj(parsed)) raw = parsed;
+    } catch {
+      return [`${file} is not valid JSON \u2014 fix or remove it first`];
+    }
+  }
+  const before = Array.isArray(raw.repos) ? raw.repos.filter(isObj) : [];
+  const pathOf = (r) => typeof r.path === "string" && r.path.trim() ? resolve(configDir, expandHome(r.path.trim())) : null;
+  const repos = choices.map((c) => {
+    const old = before.find((r) => pathOf(r) === resolve(c.path)) ?? {};
+    const entry = { ...old, name: c.name, path: homeRelative(resolve(c.path)), baseBranch: c.baseBranch };
+    if (c.remote && c.remote !== "origin") entry.remote = c.remote;
+    if (c.testCommand?.length) entry.testCommand = c.testCommand;
+    else delete entry.testCommand;
+    entry.push = c.push;
+    entry.pr = c.pr;
+    if (c.maxUsdPerTask) entry.maxUsdPerTask = c.maxUsdPerTask;
+    else delete entry.maxUsdPerTask;
+    return entry;
+  });
+  const next = { ...raw };
+  if (workspace) next.workspace = workspace;
+  next.repos = repos;
+  const check = sanitizeConfig(next, file, env);
+  const dropped = check.problems.filter((p) => p.startsWith("repos["));
+  if (dropped.length || check.config.repos.length !== choices.length) return dropped.length ? dropped : ["a repository could not be saved"];
+  mkdirSync(configDir, { recursive: true, mode: 448 });
+  if (text2 !== null && !text2.startsWith(HEADER) && /\/\/|\/\*/.test(text2.replace(/"(?:[^"\\]|\\.)*"/g, '""'))) {
+    const bak = `${file}.bak`;
+    if (!existsSync(bak)) {
+      copyFileSync(file, bak);
+      chmodSync(bak, 384);
+    }
+  }
+  const body = `${HEADER} (node one-worker.mjs setup) \u2014 edit it by hand if you like.
+// Paths and commands in this file never leave this computer: One only learns repo names.
+// Every key: https://github.com/MarcelWeissgerberIT/SimpleCMS/blob/main/docs/CODING.md#workerjson
+${JSON.stringify(next, null, 2)}
+`;
+  const tmp = `${file}.${process.pid}.tmp`;
+  writeFileSync(tmp, body, { mode: 384 });
+  chmodSync(tmp, 384);
+  renameSync(tmp, file);
+  return [];
 }
 
 // src/worker/claude.ts
@@ -11332,7 +11436,7 @@ ${e.message}`;
 // src/worker/git.ts
 import { execFile as execFile2 } from "node:child_process";
 import { existsSync as existsSync2, lstatSync, mkdirSync as mkdirSync2, readFileSync as readFileSync2, readlinkSync } from "node:fs";
-import { dirname as dirname2, join as join2, resolve as resolve2, sep } from "node:path";
+import { dirname as dirname2, join as join2, resolve as resolve2, sep as sep2 } from "node:path";
 var GitError = class extends Error {
 };
 var DIFF_FILE_MAX = 12e4;
@@ -11749,7 +11853,7 @@ async function cleanup(repo, state, branch) {
 import { randomBytes as randomBytes2 } from "node:crypto";
 
 // src/worker/state.ts
-import { existsSync as existsSync3, readFileSync as readFileSync3, renameSync, writeFileSync as writeFileSync2 } from "node:fs";
+import { existsSync as existsSync3, readFileSync as readFileSync3, renameSync as renameSync2, writeFileSync as writeFileSync2 } from "node:fs";
 import { dirname as dirname3, join as join3 } from "node:path";
 var empty = () => ({ v: 1, created: {}, tasks: {}, spent: {}, taskSpent: {} });
 var today = (d = /* @__PURE__ */ new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
@@ -11779,7 +11883,7 @@ var WorkerState = class {
   save() {
     const tmp = `${this.file}.tmp`;
     writeFileSync2(tmp, JSON.stringify(this.data, null, 2), { mode: 384 });
-    renameSync(tmp, this.file);
+    renameSync2(tmp, this.file);
   }
   created(repo, branch) {
     return this.data.created[repo]?.[branch] ?? null;
@@ -11876,13 +11980,54 @@ function isAllowedHost(host, port) {
   return LOOPBACK.has(m[1]) && Number(m[2] ?? 80) === port;
 }
 
+// src/worker/preset.ts
+import { timingSafeEqual, createHash } from "node:crypto";
+var isObj3 = (v) => !!v && typeof v === "object" && !Array.isArray(v);
+var DEV_ORIGINS = ["http://localhost:*", "http://127.0.0.1:*"];
+function readPreset(raw) {
+  if (raw === void 0 || raw === null) return { preset: null, problem: null };
+  if (!isObj3(raw)) return { preset: null, problem: "the preset is not an object" };
+  const workspace = typeof raw.workspace === "string" ? raw.workspace.trim() : "";
+  if (!WORKSPACE_ID.test(workspace)) return { preset: null, problem: `the preset's workspace ${JSON.stringify(raw.workspace)} is not a workspace id` };
+  const origin = typeof raw.origin === "string" ? normalizeOrigin(raw.origin) : null;
+  if (!origin || origin.endsWith(":*")) return { preset: null, problem: `the preset's origin ${JSON.stringify(raw.origin)} is not a site origin` };
+  const port = typeof raw.port === "number" && Number.isInteger(raw.port) && raw.port >= 1024 && raw.port <= 65535 ? raw.port : null;
+  if (port === null) return { preset: null, problem: `the preset's port ${JSON.stringify(raw.port)} is not a port (1024\u201365535)` };
+  const pair = typeof raw.pair === "string" && PAIR_SECRET.test(raw.pair) ? raw.pair : null;
+  if (!pair) return { preset: null, problem: "the preset has no pairing secret" };
+  const name = (typeof raw.name === "string" ? raw.name : "").replace(/[\u0000-\u001f\u007f\u2028\u2029]/g, "").trim().slice(0, 120) || "One";
+  return { preset: { workspace, origin, port, pair, name, ...raw.dev === true ? { dev: true } : {} }, problem: null };
+}
+function filePreset() {
+  return readPreset(globalThis[PRESET_GLOBAL]);
+}
+function workerOrigins(preset2, extra, warn = () => {
+}) {
+  const added = extra.filter(Boolean).join(",");
+  if (!preset2) return allowedOrigins(added, warn);
+  const out = [preset2.origin, ...preset2.dev ? DEV_ORIGINS : []];
+  for (const raw of added.split(",")) {
+    if (!raw.trim()) continue;
+    const o = normalizeOrigin(raw);
+    if (!o) warn(`ignoring the origin ${JSON.stringify(raw.trim())} (expected e.g. https://one.example.com or http://localhost:*)`);
+    else if (!out.includes(o)) out.push(o);
+  }
+  return out;
+}
+function sameSecret(expected, given) {
+  if (typeof given !== "string" || given.length > 200) return false;
+  const a = createHash("sha256").update(expected).digest();
+  const b = createHash("sha256").update(given).digest();
+  return timingSafeEqual(a, b);
+}
+
 // src/worker/link.ts
 var MAX_PAYLOAD = 8 * 1024 * 1024;
 var HELLO_MS = 5e3;
 var OUTBOX_MAX = 4e3;
-var isObj3 = (v) => !!v && typeof v === "object" && !Array.isArray(v);
+var isObj4 = (v) => !!v && typeof v === "object" && !Array.isArray(v);
 function workspaceOf(v) {
-  if (!isObj3(v) || typeof v.id !== "string" || !WORKSPACE_ID.test(v.id)) return null;
+  if (!isObj4(v) || typeof v.id !== "string" || !WORKSPACE_ID.test(v.id)) return null;
   const kind = v.kind === "team" ? "team" : "local";
   if (!v.id.startsWith(`${kind}:`)) return null;
   const name = (typeof v.name === "string" ? v.name : "").replace(/[\u0000-\u001f\u007f]/g, "").trim().slice(0, 120) || "Workspace";
@@ -11912,18 +12057,18 @@ var WorkerLink = class {
     return this.tab?.workspace ?? null;
   }
   start() {
-    return new Promise((resolve4) => {
+    return new Promise((resolve5) => {
       const onError = (e) => {
         this.state = "in-use";
         this.opts.log(e.code === "EADDRINUSE" ? `port ${this.opts.port} is in use \u2014 is another one-worker running? (set "port" in worker.json and the same port in One)` : `cannot listen on 127.0.0.1:${this.opts.port}: ${e.message}`);
-        resolve4("in-use");
+        resolve5("in-use");
       };
       this.http.once("error", onError);
       this.http.listen(this.opts.port, this.opts.host ?? "127.0.0.1", () => {
         this.http.off("error", onError);
         this.state = "listening";
         this.pinger = setInterval(() => this.ping(), this.opts.pingMs ?? 15e3);
-        resolve4("listening");
+        resolve5("listening");
       });
     });
   }
@@ -11949,17 +12094,21 @@ var WorkerLink = class {
       if (this.outbox.length > OUTBOX_MAX) this.outbox.splice(0, this.outbox.length - OUTBOX_MAX);
     }
   }
+  /** Tell the connected tab what the worker is now (a fresh `welcome`: the repos changed in the setup page). */
+  announce() {
+    if (this.tab?.workspace && this.tab.ws.readyState === import_websocket.default.OPEN) this.tab.ws.send(JSON.stringify({ type: "welcome", ...this.opts.info() }));
+  }
   /** Ask the tab; rejects when no tab is connected, on its error, or after the timeout. */
   request(body, timeoutMs = this.opts.timeoutMs ?? 3e4) {
     const tab = this.tab;
     if (!tab?.workspace || tab.ws.readyState !== import_websocket.default.OPEN) return Promise.reject(new Error("One is not connected"));
     const id = `w${++this.seq}`;
-    return new Promise((resolve4, reject) => {
+    return new Promise((resolve5, reject) => {
       const timer = setTimeout(() => {
         this.pending.delete(id);
         reject(new Error("One did not answer in time"));
       }, timeoutMs);
-      this.pending.set(id, { resolve: resolve4, reject, timer });
+      this.pending.set(id, { resolve: resolve5, reject, timer });
       tab.ws.send(JSON.stringify({ type: "req", id, ...body }));
     });
   }
@@ -11996,7 +12145,7 @@ ${text2}`);
       } catch {
         return;
       }
-      if (isObj3(msg)) this.receive(conn, msg, hello);
+      if (isObj4(msg)) this.receive(conn, msg, hello);
     });
     ws.on("pong", () => {
       conn.alive = true;
@@ -12019,10 +12168,10 @@ ${text2}`);
   refuseTab(conn, reason, offered) {
     if (this.refusals++ < 20)
       this.opts.log(
-        reason === "unbound" ? `refused the tab of ${JSON.stringify(offered.name)}: this worker is not bound to a workspace yet \u2014 set "workspace": ${JSON.stringify(offered.id)} in worker.json if it should serve that one` : `refused the tab of ${JSON.stringify(offered.name)} (${offered.id}): this worker serves ${this.opts.workspace}`
+        reason === "unbound" ? `refused the tab of ${JSON.stringify(offered.name)}: this worker is not bound to a workspace yet \u2014 set "workspace": ${JSON.stringify(offered.id)} in worker.json if it should serve that one` : reason === "pair" ? `refused a tab of ${JSON.stringify(offered.name)}: it did not bring this download's pairing key \u2014 start the file One downloaded last, or download the worker again (One \u2192 Settings \u2192 Coding worker)` : `refused the tab of ${JSON.stringify(offered.name)} (${offered.id}): this worker serves ${this.opts.workspace}`
       );
-    if (conn.ws.readyState === import_websocket.default.OPEN) conn.ws.send(JSON.stringify({ type: "refused", reason }));
-    conn.ws.close(WORKER_CLOSE_REFUSED, reason === "unbound" ? "worker not bound" : "another workspace");
+    if (conn.ws.readyState === import_websocket.default.OPEN) conn.ws.send(JSON.stringify({ type: "refused", reason, ...this.opts.pair ? { paired: true } : {} }));
+    conn.ws.close(WORKER_CLOSE_REFUSED, reason === "unbound" ? "worker not bound" : reason === "pair" ? "not paired" : "another workspace");
   }
   receive(conn, msg, hello) {
     switch (msg.type) {
@@ -12032,6 +12181,7 @@ ${text2}`);
         clearTimeout(hello);
         if (!this.opts.workspace) return this.refuseTab(conn, "unbound", ws);
         if (ws.id !== this.opts.workspace) return this.refuseTab(conn, "workspace", ws);
+        if (this.opts.pair && !sameSecret(this.opts.pair, msg.pair)) return this.refuseTab(conn, "pair", ws);
         if (conn.workspace) return;
         conn.workspace = ws;
         const old = this.tab;
@@ -12098,6 +12248,7 @@ ${text2}`);
       res.end(JSON.stringify(body2));
     };
     if (req.method !== "POST" || req.url !== "/task") {
+      if (this.opts.http && await this.opts.http(req, res).catch(() => false)) return;
       res.writeHead(426, { "content-type": "text/plain; charset=utf-8", connection: "close", upgrade: "websocket" });
       return void res.end("one-worker: WebSocket only.\n");
     }
@@ -12117,8 +12268,8 @@ ${text2}`);
     } catch {
       return reply(400, { ok: false, error: "bad json" });
     }
-    if (!isObj3(body) || typeof body.tool !== "string") return reply(400, { ok: false, error: "bad request" });
-    const out = await this.opts.onTask(token, body.tool, isObj3(body.args) ? body.args : {});
+    if (!isObj4(body) || typeof body.tool !== "string") return reply(400, { ok: false, error: "bad request" });
+    const out = await this.opts.onTask(token, body.tool, isObj4(body.args) ? body.args : {});
     if (out.ok) reply(200, out);
     else reply(out.status, { ok: false, error: out.error });
   }
@@ -12429,16 +12580,16 @@ async function gitStage(ctx, wt, scrub, log2) {
 }
 
 // src/worker/worker.ts
-var isObj4 = (v) => !!v && typeof v === "object" && !Array.isArray(v);
+var isObj5 = (v) => !!v && typeof v === "object" && !Array.isArray(v);
 var str = (v, max) => typeof v === "string" ? v.slice(0, max) : "";
 var oneLine2 = (s) => s.replace(/[\u0000-\u001f\u007f\u2028\u2029]/g, " ").trim();
 function sanitizeTask(raw) {
-  if (!isObj4(raw) || !isObj4(raw.stage)) return null;
+  if (!isObj5(raw) || !isObj5(raw.stage)) return null;
   const s = raw.stage;
   const kind = STAGE_KINDS.includes(String(s.kind)) ? s.kind : null;
   const id = str(raw.id, 64);
   if (!kind || !id || !/^[A-Za-z0-9_-]+$/.test(id) || typeof raw.repo !== "string") return null;
-  const answers = Array.isArray(raw.answers) ? raw.answers.filter(isObj4).slice(-20).map((a) => ({ q: str(a.q, 4e3), a: str(a.a, 4e3) })) : [];
+  const answers = Array.isArray(raw.answers) ? raw.answers.filter(isObj5).slice(-20).map((a) => ({ q: str(a.q, 4e3), a: str(a.a, 4e3) })) : [];
   const turns = Number(s.maxTurns);
   return {
     id,
@@ -12464,6 +12615,7 @@ function sanitizeTask(raw) {
   };
 }
 var Worker = class {
+  /** replaced by reload() when the setup page saves (the connection settings stay) */
   config;
   state;
   opts;
@@ -12485,8 +12637,10 @@ var Worker = class {
     this.state = new WorkerState(opts.config.file);
     this.link = new WorkerLink({
       port: opts.config.port,
-      origins: allowedOrigins([process.env.ONE_ORIGINS ?? "", ...opts.config.origins].filter(Boolean).join(","), opts.log),
+      origins: workerOrigins(opts.config.preset, [process.env.ONE_ORIGINS ?? "", ...opts.config.origins], opts.log),
       workspace: opts.config.workspace,
+      pair: opts.config.preset?.pair ?? null,
+      http: opts.setup ? (req, res) => opts.setup.handle(req, res) : void 0,
       log: opts.log,
       info: () => this.info(),
       onConnect: (ws) => {
@@ -12511,8 +12665,40 @@ var Worker = class {
       busy: this.busy(),
       spentToday: this.state.spentToday(),
       dayLimit: limits2.length ? Math.min(...limits2) : null,
+      claude: { found: this.caps.found, version: this.caps.version },
+      setup: !!this.opts.setup,
+      paired: !!this.config.preset
+    };
+  }
+  /** What the setup page shows live (local only: titles and the log are fine there). */
+  live() {
+    const ws = this.link.connected;
+    return {
+      workspace: this.config.workspace,
+      connected: ws ? { name: ws.name } : null,
+      busy: [...this.runs.values()].map((r) => ({ repo: r.repo.name, title: r.task.title, stage: r.task.stage.name, since: r.since })),
+      log: (this.opts.recent?.() ?? []).slice(-40),
       claude: { found: this.caps.found, version: this.caps.version }
     };
+  }
+  /**
+   * Use a new config (the setup page saved worker.json): new repos are checked, a repo that is gone takes no
+   * new task (a running one finishes — or the person stops it in One). The connection stays as it is.
+   */
+  async reload(next) {
+    const known = new Set(this.config.repos.map((r) => r.path));
+    this.config = { ...next, workspace: this.config.workspace, port: this.config.port, preset: this.config.preset, origins: this.config.origins };
+    for (const repo of this.config.repos.filter((r) => !known.has(r.path))) {
+      try {
+        await checkRepo(repo);
+        await prune(repo);
+      } catch (e) {
+        this.opts.log(`repo "${repo.name}": ${e instanceof Error ? e.message : String(e)}`);
+      }
+    }
+    this.opts.log(`repos: ${this.config.repos.map((r) => r.name).join(", ") || "none"}`);
+    this.link.announce();
+    this.tick();
   }
   busy() {
     return [...this.runs.values()].map((r) => ({ taskId: r.task.id, repo: r.repo.name, stageId: r.task.stage.id, since: r.since }));
@@ -12530,7 +12716,7 @@ var Worker = class {
     }
     const up = await this.link.start();
     if (up === "listening") {
-      this.opts.log(`ready on ws://127.0.0.1:${this.config.port} \xB7 ${this.config.repos.length} repo(s): ${this.config.repos.map((r) => r.name).join(", ") || "none"} \xB7 ${this.config.workspace ? `workspace ${this.config.workspace}` : 'NOT BOUND to a workspace (set "workspace" in worker.json)'}`);
+      this.opts.log(`ready on ws://127.0.0.1:${this.config.port} \xB7 ${this.config.repos.length} repo(s): ${this.config.repos.map((r) => r.name).join(", ") || "none"} \xB7 ${this.config.workspace ? `workspace ${this.config.workspace}${this.config.preset ? ` ("${this.config.preset.name}", paired download)` : ""}` : 'NOT BOUND to a workspace (set "workspace" in worker.json)'}`);
       this.poller = setInterval(() => this.tick(), this.config.pollSec * 1e3);
       this.beater = setInterval(() => void this.heartbeat(), Number(process.env.ONE_WORKER_HEARTBEAT_MS) || HEARTBEAT_MS);
     }
@@ -12579,7 +12765,7 @@ var Worker = class {
       this.opts.log(`refused task ${task.id}: ${error2}`);
       void this.finish(task.id, task.stage.id, { status: "refused", error: error2 });
     };
-    if (!repo) return refuse(`the repo "${task.repo}" is not in this worker's config \u2014 One cannot add repos; add it to worker.json on the computer that should work on it`);
+    if (!repo) return refuse(`the repo "${task.repo}" is not in this worker's config (not ticked) \u2014 One cannot add repos; tick it in the worker's setup page ("Change repositories") or add it to worker.json on the computer that should work on it`);
     if ([...this.runs.values()].some((r) => r.repo.name === repo.name)) return refuse(`another task runs in "${repo.name}" right now`);
     if (this.workspace?.kind === "team" && !task.trusted) return refuse("the task is not confirmed on this device (team workspace)");
     const token = randomBytes2(24).toString("hex");
@@ -12654,7 +12840,8 @@ var Worker = class {
       return { stopped: true };
     }
     if (msg.op === "git") return this.gitVerb(msg);
-    throw new Error(`unknown request ${JSON.stringify(msg.op)} \u2014 the worker only knows stop and the git actions`);
+    if (msg.op === "open-setup") return this.opts.setup ? this.opts.setup.open() : { opened: false, reason: "off" };
+    throw new Error(`unknown request ${JSON.stringify(msg.op)} \u2014 the worker only knows stop, open-setup and the git actions`);
   }
   async gitVerb(msg) {
     const verb = msg.verb;
@@ -19978,7 +20165,7 @@ var recursive = /* @__PURE__ */ new WeakMap();
 var NONE = 0;
 var ASSUMED = 1;
 var PROVEN = 2;
-function isRecursive(inst, stack, resolve4) {
+function isRecursive(inst, stack, resolve5) {
   const cached2 = recursive.get(inst);
   if (cached2 !== void 0)
     return cached2 ? PROVEN : NONE;
@@ -19988,7 +20175,7 @@ function isRecursive(inst, stack, resolve4) {
   let result = NONE;
   const check = (child) => {
     if (result !== PROVEN && child?._zod) {
-      const answer = isRecursive(child, stack, resolve4);
+      const answer = isRecursive(child, stack, resolve5);
       if (answer > result)
         result = answer;
     }
@@ -19999,7 +20186,7 @@ function isRecursive(inst, stack, resolve4) {
       const desc = Object.getOwnPropertyDescriptor(sh, key);
       if (spread && !desc.enumerable)
         continue;
-      const child = desc.get ? ASSUMED : desc.value?._zod ? isRecursive(desc.value, stack, resolve4) : NONE;
+      const child = desc.get ? ASSUMED : desc.value?._zod ? isRecursive(desc.value, stack, resolve5) : NONE;
       if (child > answer)
         answer = child;
     }
@@ -20063,7 +20250,7 @@ function isRecursive(inst, stack, resolve4) {
       break;
     // `$ZodLazy` caches its inner on the def, so a resolved edge is followed exactly
     case "lazy": {
-      const inner = def._cachedInner ?? (resolve4 ? inst._zod.innerType : void 0);
+      const inner = def._cachedInner ?? (resolve5 ? inst._zod.innerType : void 0);
       merge2(inner ? isRecursive(inner, stack, false) : ASSUMED);
       break;
     }
@@ -26849,7 +27036,7 @@ var Protocol = class {
           return;
         }
         const pollInterval = task2.pollInterval ?? this._options?.defaultTaskPollInterval ?? 1e3;
-        await new Promise((resolve4) => setTimeout(resolve4, pollInterval));
+        await new Promise((resolve5) => setTimeout(resolve5, pollInterval));
         options?.signal?.throwIfAborted();
       }
     } catch (error2) {
@@ -26866,7 +27053,7 @@ var Protocol = class {
    */
   request(request, resultSchema, options) {
     const { relatedRequestId, resumptionToken, onresumptiontoken, task, relatedTask } = options ?? {};
-    return new Promise((resolve4, reject) => {
+    return new Promise((resolve5, reject) => {
       const earlyReject = (error2) => {
         reject(error2);
       };
@@ -26944,7 +27131,7 @@ var Protocol = class {
           if (!parseResult.success) {
             reject(parseResult.error);
           } else {
-            resolve4(parseResult.data);
+            resolve5(parseResult.data);
           }
         } catch (error2) {
           reject(error2);
@@ -27206,12 +27393,12 @@ var Protocol = class {
       }
     } catch {
     }
-    return new Promise((resolve4, reject) => {
+    return new Promise((resolve5, reject) => {
       if (signal.aborted) {
         reject(new McpError(ErrorCode.InvalidRequest, "Request cancelled"));
         return;
       }
-      const timeoutId = setTimeout(resolve4, interval);
+      const timeoutId = setTimeout(resolve5, interval);
       signal.addEventListener("abort", () => {
         clearTimeout(timeoutId);
         reject(new McpError(ErrorCode.InvalidRequest, "Request cancelled"));
@@ -28342,7 +28529,7 @@ var McpServer = class {
     let task = createTaskResult.task;
     const pollInterval = task.pollInterval ?? 5e3;
     while (task.status !== "completed" && task.status !== "failed" && task.status !== "cancelled") {
-      await new Promise((resolve4) => setTimeout(resolve4, pollInterval));
+      await new Promise((resolve5) => setTimeout(resolve5, pollInterval));
       const updatedTask = await extra.taskStore.getTask(taskId);
       if (!updatedTask) {
         throw new McpError(ErrorCode.InternalError, `Task ${taskId} not found during polling`);
@@ -29006,12 +29193,12 @@ var StdioServerTransport = class {
     this.onclose?.();
   }
   send(message) {
-    return new Promise((resolve4) => {
+    return new Promise((resolve5) => {
       const json = serializeMessage(message);
       if (this._stdout.write(json)) {
-        resolve4();
+        resolve5();
       } else {
-        this._stdout.once("drain", resolve4);
+        this._stdout.once("drain", resolve5);
       }
     });
   }
@@ -29646,10 +29833,1090 @@ async function serveTaskMcp(version2) {
   process.stdin.on("end", () => process.exit(0));
 }
 
+// src/worker/setup.ts
+import { randomBytes as randomBytes3 } from "node:crypto";
+import { execFile as execFile3 } from "node:child_process";
+import { realpathSync as realpathSync2 } from "node:fs";
+import { homedir as homedir4 } from "node:os";
+import { isAbsolute as isAbsolute2, join as join6, resolve as resolve3, sep as sep4 } from "node:path";
+
+// src/worker/scan.ts
+import { lstatSync as lstatSync2, readFileSync as readFileSync4 } from "node:fs";
+import { lstat, readdir } from "node:fs/promises";
+import { homedir as homedir3 } from "node:os";
+import { basename, join as join5, sep as sep3 } from "node:path";
+var USUAL_PLACES = ["code", "projects", "dev", "src", "repos", "git", "GitHub", "Documents/GitHub", "Developer", "workspace", "Desktop"];
+var SKIP_DIRS = /* @__PURE__ */ new Set([
+  "node_modules",
+  "bower_components",
+  "Library",
+  "AppData",
+  "Application Data",
+  "vendor",
+  "venv",
+  "site-packages",
+  "__pycache__",
+  "dist",
+  "build",
+  "out",
+  "target",
+  "coverage",
+  "Pods",
+  "DerivedData"
+]);
+async function findRepos(opts = {}) {
+  const home = opts.home ?? homedir3();
+  const maxDepth = opts.maxDepth ?? 4;
+  const maxRepos = opts.maxRepos ?? 300;
+  const maxDirs = opts.maxDirs ?? 5e4;
+  const start = Date.now();
+  const deadline = start + (opts.timeMs ?? 5e3);
+  const seen = /* @__PURE__ */ new Set();
+  const paths = [];
+  let capped = null;
+  let dirs = 0;
+  const key = async (p) => {
+    try {
+      const st = await lstat(p);
+      return st.isDirectory() ? `${st.dev}:${st.ino}` : null;
+    } catch {
+      return null;
+    }
+  };
+  const queue = [];
+  for (const place of USUAL_PLACES) queue.push({ path: join5(home, ...place.split("/")), depth: place.split("/").length });
+  queue.push({ path: home, depth: 0 });
+  while (queue.length) {
+    if (Date.now() > deadline) {
+      capped = "time";
+      break;
+    }
+    if (dirs >= maxDirs) {
+      capped = "dirs";
+      break;
+    }
+    const { path, depth } = queue.shift();
+    const k = await key(path);
+    if (!k || seen.has(k)) continue;
+    seen.add(k);
+    dirs++;
+    let entries;
+    try {
+      entries = await readdir(path, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    const dotGit = entries.find((e) => e.name === ".git");
+    if (dotGit && depth > 0) {
+      if (dotGit.isDirectory()) {
+        paths.push(path);
+        if (paths.length >= maxRepos) {
+          capped = "count";
+          break;
+        }
+      }
+      continue;
+    }
+    if (depth >= maxDepth) continue;
+    for (const e of entries) {
+      if (!e.isDirectory() || e.name.startsWith(".") || SKIP_DIRS.has(e.name)) continue;
+      queue.push({ path: join5(path, e.name), depth: depth + 1 });
+    }
+  }
+  return { paths, capped, dirs, ms: Date.now() - start };
+}
+var GIT_MS = 3e3;
+function shortPath(path, home = homedir3()) {
+  const h = home.replace(/[\\/]+$/, "");
+  if (path === h) return "~";
+  if (path.startsWith(h + sep3) || path.startsWith(`${h}/`)) return `~/${path.slice(h.length + 1).replace(/\\/g, "/")}`;
+  return path.replace(/\\/g, "/");
+}
+function suggestName(path, taken) {
+  const raw = basename(path).normalize("NFKD").replace(/[\u0300-\u036f]/g, "");
+  let base = raw.replace(/[^A-Za-z0-9._-]+/g, "-").replace(/^[^A-Za-z0-9]+/, "").replace(/-+$/, "").slice(0, 58);
+  if (!REPO_NAME.test(base)) base = "repo";
+  let name = base;
+  for (let n = 2; taken.has(name.toLowerCase()); n++) name = `${base}-${n}`;
+  taken.add(name.toLowerCase());
+  return name;
+}
+function remoteHost(url) {
+  const u = url.trim();
+  if (!u) return null;
+  let host = null;
+  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(u)) {
+    try {
+      const parsed = new URL(u);
+      if (parsed.protocol === "file:") return "local";
+      host = parsed.hostname;
+    } catch {
+      return null;
+    }
+  } else {
+    const scp = /^(?:[^@/\\\s]+@)?([^:/\\\s]+):(?!\/\/)/.exec(u);
+    if (scp && !/^[A-Za-z]$/.test(scp[1])) host = scp[1];
+    else return "local";
+  }
+  host = (host ?? "").toLowerCase();
+  return /^[a-z0-9.\-[\]:]{1,253}$/.test(host) ? host : null;
+}
+function topFile(dir, name, max = 256 * 1024) {
+  try {
+    const p = join5(dir, name);
+    const st = lstatSync2(p);
+    if (!st.isFile() || st.size > max) return null;
+    return readFileSync4(p, "utf8");
+  } catch {
+    return null;
+  }
+}
+var has = (dir, name) => {
+  try {
+    return lstatSync2(join5(dir, name)).isFile();
+  } catch {
+    return false;
+  }
+};
+function guessTest(dir) {
+  const pkg = topFile(dir, "package.json");
+  if (pkg) {
+    try {
+      const json = JSON.parse(pkg);
+      const script = json.scripts?.test;
+      if (typeof script === "string" && script.trim() && !/no test specified/.test(script)) {
+        if (has(dir, "pnpm-lock.yaml")) return ["pnpm", "test"];
+        if (has(dir, "yarn.lock")) return ["yarn", "test"];
+        return ["npm", "test"];
+      }
+    } catch {
+    }
+  }
+  if (has(dir, "Cargo.toml")) return ["cargo", "test"];
+  if (has(dir, "go.mod")) return ["go", "test", "./..."];
+  if (has(dir, "pyproject.toml") || has(dir, "pytest.ini")) return ["pytest"];
+  for (const name of ["Makefile", "makefile", "GNUmakefile"]) {
+    const mk = topFile(dir, name);
+    if (mk !== null) {
+      if (/^test\s*:(?!=)/m.test(mk)) return ["make", "test"];
+      break;
+    }
+  }
+  return null;
+}
+async function repoFacts(path, taken, home = homedir3()) {
+  const name = suggestName(path, taken);
+  const out = async (args) => {
+    const r = await git(path, args, GIT_MS);
+    return r.code === 0 ? r.stdout.trim() : null;
+  };
+  const [head, heads, remotes, last, status] = await Promise.all([
+    out(["symbolic-ref", "--quiet", "--short", "HEAD"]),
+    out(["for-each-ref", "--count=200", "--format=%(refname:short)", "refs/heads"]),
+    out(["remote"]),
+    out(["log", "-1", "--format=%ct"]),
+    // fsmonitor off: a repo's own config never starts a program here
+    out(["-c", "core.fsmonitor=false", "status", "--porcelain", "--untracked-files=normal"])
+  ]);
+  const branches = (heads ?? "").split("\n").map((s) => s.trim()).filter(Boolean);
+  const remoteNames = (remotes ?? "").split("\n").map((s) => s.trim()).filter(Boolean);
+  const remote = remoteNames.includes("origin") ? "origin" : remoteNames[0] ?? null;
+  let base = null;
+  let host = null;
+  if (remote) {
+    const [originHead, url] = await Promise.all([out(["symbolic-ref", "--quiet", "--short", `refs/remotes/${remote}/HEAD`]), out(["remote", "get-url", remote])]);
+    if (originHead?.startsWith(`${remote}/`)) base = originHead.slice(remote.length + 1);
+    host = url ? remoteHost(url) : null;
+    if (!base) {
+      const remoteHeads = await out(["for-each-ref", "--format=%(refname:short)", `refs/remotes/${remote}/main`, `refs/remotes/${remote}/master`]);
+      const list = (remoteHeads ?? "").split("\n");
+      base = list.includes(`${remote}/main`) ? "main" : list.includes(`${remote}/master`) ? "master" : null;
+    }
+  }
+  base ??= branches.includes("main") ? "main" : branches.includes("master") ? "master" : head ?? "main";
+  const at = last && /^\d+$/.test(last) ? Number(last) * 1e3 : null;
+  return {
+    path,
+    short: shortPath(path, home),
+    name,
+    branch: head,
+    base,
+    branches: branches.includes(base) ? branches : [base, ...branches],
+    remote,
+    host,
+    dirty: status === null ? null : status.split("\n").filter(Boolean).length,
+    lastCommit: at,
+    test: guessTest(path)
+  };
+}
+async function factsOf(paths, taken, home = homedir3(), parallel = 6) {
+  const out = new Array(paths.length);
+  let next = 0;
+  const worker = async () => {
+    while (next < paths.length) {
+      const i = next++;
+      out[i] = await repoFacts(paths[i], taken, home);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(parallel, paths.length) }, worker));
+  return out;
+}
+function isMainCheckout(dir) {
+  try {
+    if (!lstatSync2(dir).isDirectory()) return false;
+    return lstatSync2(join5(dir, ".git")).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
+// src/worker/opener.ts
+import { spawn as spawn3 } from "node:child_process";
+function browserCommand(url, env = process.env, platform = process.platform) {
+  const custom2 = (env.ONE_WORKER_BROWSER ?? "").trim();
+  const base = { stdio: "ignore", windowsHide: true };
+  if (custom2 === "none") return null;
+  if (custom2) return { cmd: custom2, args: [url], opts: base };
+  if (platform === "darwin") return { cmd: "open", args: [url], opts: base };
+  if (platform === "win32") return { cmd: "cmd", args: ["/c", "start", '""', url], opts: { ...base, windowsVerbatimArguments: true } };
+  if (!env.DISPLAY && !env.WAYLAND_DISPLAY) return null;
+  return { cmd: "xdg-open", args: [url], opts: base };
+}
+function openUrl(url, env = process.env) {
+  if (!/^http:\/\/127\.0\.0\.1:\d{4,5}\/setup#k=[A-Za-z0-9_-]{43}$/.test(url)) return Promise.resolve(false);
+  const how = browserCommand(url, env);
+  if (!how) return Promise.resolve(false);
+  return new Promise((resolve5) => {
+    let done = false;
+    const finish = (ok) => {
+      if (done) return;
+      done = true;
+      resolve5(ok);
+    };
+    try {
+      const child = spawn3(how.cmd, how.args, { ...how.opts, detached: process.platform !== "win32" });
+      child.once("error", () => finish(false));
+      child.once("exit", (code) => finish(code === 0));
+      setTimeout(() => {
+        child.unref();
+        finish(true);
+      }, 4e3).unref();
+    } catch {
+      finish(false);
+    }
+  });
+}
+
+// src/worker/setup-page.ts
+var SETUP_HTML = String.raw`<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<meta name="referrer" content="no-referrer">
+<title>One worker · setup</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="/setup/app.css">
+<script src="/setup/app.js" defer></script>
+</head>
+<body>
+<div class="wrap">
+<header class="top">
+<span class="label top__kicker" id="kicker">§ ONE WORKER</span>
+<span class="state" role="status"><span class="led" id="led" data-s="off"></span><span class="label" id="state">…</span></span>
+</header>
+<main id="app"><p class="lead">…</p></main>
+</div>
+<footer class="bar" id="bar" hidden></footer>
+</body>
+</html>
+`;
+var SETUP_CSS = String.raw`:root {
+  --bg: #f2f0ea; --surface: #faf9f5; --surface-2: #eae7df; --ink: #121210; --ink-2: #55524b; --ink-3: #67635b;
+  --faint: #8d897f; --rule: rgba(18, 18, 16, 0.1); --rule-strong: rgba(18, 18, 16, 0.2); --signal: #ff4f00;
+  --signal-hover: #e84700; --signal-ink: #b83800; --on-signal: #121210; --wash: rgba(255, 79, 0, 0.1);
+  --ok: #2f9e44; --off: #b8b3a8; --hover: rgba(18, 18, 16, 0.055);
+  --sans: 'Archivo', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace;
+  --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #111110; --surface: #181816; --surface-2: #151513; --ink: #ece9e2; --ink-2: #a9a59c; --ink-3: #8f8b83;
+    --faint: #6f6b63; --rule: rgba(236, 233, 226, 0.09); --rule-strong: rgba(236, 233, 226, 0.18); --signal: #ff5c1a;
+    --signal-hover: #ff7036; --signal-ink: #ff7a3d; --wash: rgba(255, 92, 26, 0.12); --off: #4a4740;
+    --hover: rgba(236, 233, 226, 0.06);
+    color-scheme: dark;
+  }
+}
+* { box-sizing: border-box; }
+html { background: var(--bg); }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.5 var(--sans); -webkit-font-smoothing: antialiased; caret-color: var(--signal); }
+::selection { background: var(--wash); }
+.wrap { max-width: 960px; margin: 0 auto; padding: 22px 24px 120px; }
+.label { font: 500 10.5px/1.4 var(--mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-2); }
+.top { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; padding-bottom: 10px; border-bottom: 1px solid var(--ink); }
+.top__kicker { color: var(--ink); }
+.state { display: inline-flex; align-items: center; gap: 7px; min-width: 0; padding: 3px 8px; border: 1px solid var(--rule-strong); border-radius: 2px; background: var(--surface); }
+.state .label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.led { flex: none; width: 7px; height: 7px; border-radius: 999px; background: var(--off); box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.15); }
+.led[data-s='ok'] { background: var(--ok); }
+.led[data-s='on'] { background: var(--signal); }
+h1 { margin: 26px 0 0; font-size: clamp(24px, 4vw, 34px); font-weight: 800; font-stretch: 125%; letter-spacing: -0.02em; line-height: 1.08; }
+.lead { max-width: 66ch; margin: 10px 0 0; color: var(--ink-2); }
+.msg { margin: 14px 0 0; padding: 9px 12px; border-left: 2px solid var(--signal); background: var(--surface-2); color: var(--ink-2); font-size: 13px; }
+.msg--ok { border-left-color: var(--ok); }
+.tools { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 22px 0 8px; }
+.tools__meta { flex: 1 1 auto; min-width: 180px; }
+.btn { display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 12px; border: 1px solid var(--rule-strong); border-radius: 2px; background: var(--surface); color: var(--ink); font: 500 13px/1 var(--sans); cursor: pointer; transition: background 90ms var(--ease), transform 90ms var(--ease); }
+.btn:hover { background: var(--surface-2); }
+.btn:active { transform: translateY(1px); }
+.btn:disabled { color: var(--faint); cursor: default; transform: none; }
+.btn--primary { border-color: var(--signal); background: var(--signal); color: var(--on-signal); font-weight: 650; }
+.btn--primary:hover { border-color: var(--signal-hover); background: var(--signal-hover); }
+.btn--ghost { border-color: transparent; background: transparent; }
+:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; }
+.add { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 8px; margin: 0 0 10px; padding: 10px; border: 1px solid var(--rule-strong); border-radius: 4px; background: var(--surface); }
+.add .label { grid-column: 1 / -1; }
+.add__err { grid-column: 1 / -1; margin: 0; color: var(--signal-ink); font-size: 12.5px; }
+input[type='text'], input[type='number'], select { width: 100%; height: 30px; padding: 0 8px; border: 1px solid var(--rule-strong); border-radius: 2px; background: var(--bg); color: var(--ink); font: 13px var(--mono); }
+input[type='text']:focus, input[type='number']:focus, select:focus { border-color: var(--signal); outline: none; }
+.list { margin: 0; padding: 0; list-style: none; border: 1px solid var(--rule-strong); border-radius: 4px; background: var(--surface); }
+.repo { border-top: 1px solid var(--rule); }
+.repo:first-child { border-top: 0; }
+.repo[data-on] { box-shadow: inset 2px 0 0 var(--signal); }
+.repo__body { min-width: 0; }
+.repo__main { display: grid; grid-template-columns: 22px minmax(0, 1fr) auto; gap: 2px 12px; align-items: start; padding: 11px 14px 11px 12px; cursor: pointer; }
+.repo__main:hover { background: var(--hover); }
+.check { appearance: none; -webkit-appearance: none; display: grid; place-content: center; width: 16px; height: 16px; margin: 2px 0 0; border: 1.5px solid var(--ink-2); border-radius: 2px; background: var(--surface); cursor: pointer; }
+.check::after { content: ''; width: 8px; height: 4px; margin-top: -2px; border: 2px solid var(--on-signal); border-top: 0; border-right: 0; transform: rotate(-45deg) scale(0); transition: transform 90ms var(--ease); }
+.check:checked { border-color: var(--signal); background: var(--signal); }
+.check:checked::after { transform: rotate(-45deg) scale(1); }
+.repo__name { overflow: hidden; font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
+.repo__path { overflow: hidden; color: var(--ink-2); font: 12px var(--mono); text-overflow: ellipsis; white-space: nowrap; }
+.repo__facts { display: flex; flex-wrap: wrap; gap: 4px 12px; margin-top: 5px; }
+.repo__facts .label { color: var(--ink-3); }
+.repo__facts b { color: var(--ink); font-weight: 500; }
+.repo__side { display: grid; justify-items: end; gap: 4px; text-align: right; }
+.dirty { display: inline-flex; align-items: center; gap: 6px; }
+.detail { display: grid; grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.2fr) minmax(0, 1.6fr); gap: 12px 14px; margin: 0 14px 0 46px; padding: 2px 0 14px; }
+.field { display: grid; gap: 4px; align-content: start; min-width: 0; }
+.field--wide { grid-column: span 2; }
+.keys { display: flex; flex-wrap: wrap; gap: 4px; min-height: 20px; }
+.kbd { display: inline-block; padding: 1px 6px; border: 1px solid var(--rule-strong); border-bottom-width: 2px; border-radius: 2px; background: var(--surface); color: var(--ink); font: 11px/1.5 var(--mono); }
+.hint { color: var(--ink-3); font-size: 12px; }
+.toggles { display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: center; }
+.sw { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; cursor: pointer; }
+.sw input { appearance: none; -webkit-appearance: none; position: relative; width: 28px; height: 16px; margin: 0; border: 1px solid var(--faint); border-radius: 999px; background: var(--surface-2); cursor: pointer; transition: background 90ms var(--ease); }
+.sw input::after { content: ''; position: absolute; top: 2px; left: 2px; width: 10px; height: 10px; border-radius: 999px; background: var(--ink-2); transition: transform 90ms var(--ease); }
+.sw input:checked { border-color: var(--signal); background: var(--signal); }
+.sw input:checked::after { background: var(--on-signal); transform: translateX(12px); }
+.limit { display: grid; grid-template-columns: auto 90px; gap: 6px; align-items: center; }
+.empty { padding: 22px 14px; color: var(--ink-2); }
+.panel { margin: 26px 0 0; border: 1px solid var(--rule-strong); border-radius: 4px; background: var(--surface); }
+.panel__head { display: flex; justify-content: space-between; gap: 10px; padding: 8px 12px; border-bottom: 1px solid var(--rule); background: var(--surface-2); border-radius: 4px 4px 0 0; }
+.ro { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); margin: 0; }
+.ro > div { min-width: 0; padding: 9px 12px; border-left: 1px solid var(--rule); }
+.ro > div:first-child { border-left: 0; }
+.ro dd { margin: 3px 0 0; overflow: hidden; font: 12.5px var(--mono); text-overflow: ellipsis; }
+.log { max-height: 220px; margin: 0; padding: 10px 12px; overflow: auto; border-top: 1px solid var(--rule); color: var(--ink-2); font: 11.5px/1.6 var(--mono); white-space: pre-wrap; word-break: break-word; }
+.bar { position: fixed; right: 0; bottom: 0; left: 0; z-index: 10; border-top: 1px solid var(--ink); background: var(--surface); }
+.bar__in { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; max-width: 960px; margin: 0 auto; padding: 10px 24px; }
+.bar__note { min-width: 0; }
+.bar__note .label { display: block; }
+.bar__file { color: var(--ink-3); font: 11.5px var(--mono); }
+.saved { color: var(--ok); }
+@media (max-width: 720px) {
+  .wrap { padding: 16px 16px 140px; }
+  .repo__main { grid-template-columns: 22px minmax(0, 1fr); }
+  .repo__side { grid-column: 2; justify-items: start; text-align: left; grid-auto-flow: column; justify-content: start; gap: 12px; }
+  .detail { grid-template-columns: minmax(0, 1fr); margin: 0 14px 0 46px; }
+  .field--wide { grid-column: auto; }
+  .ro { grid-template-columns: minmax(0, 1fr); }
+  .ro > div { border-left: 0; border-top: 1px solid var(--rule); }
+  .ro > div:first-child { border-top: 0; }
+  .bar__in { padding: 10px 16px; }
+  .add { grid-template-columns: minmax(0, 1fr) auto; }
+}
+@media (max-width: 420px) {
+  .detail { margin-left: 14px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; }
+}
+`;
+var SETUP_JS = String.raw`(function () {
+  'use strict'
+  var token = (/[#&]k=([A-Za-z0-9_-]{43})/.exec(location.hash) || [])[1] || ''
+  var de = /^de\b/i.test(navigator.language || '')
+  var EN = {
+    kicker: '§ ONE WORKER — {ws}',
+    title: 'Pick the repositories One may work in',
+    lead: 'Tick a repository and One can hand it coding tasks: Claude Code works on a branch in its own worktree, your checkout stays as it is. Paths and commands stay on this computer — One only learns the names.',
+    loading: 'Looking for git repositories…',
+    noKey: 'This page needs its key. Open it at the address the worker printed in its terminal.',
+    unbound: 'This worker is not bound to a workspace. Download it from One (Settings → Coding worker) — that file comes ready-paired.',
+    noClaude: 'Claude Code was not found. Install it, sign in once (claude), then restart the worker.',
+    found: 'Found {n} repositories in {s} s',
+    foundOne: 'Found 1 repository in {s} s',
+    capTime: 'stopped after {s} s — add a folder if one is missing',
+    capCount: 'showing the first {n}',
+    capDirs: 'stopped after many folders — add a folder if one is missing',
+    rescan: 'Rescan',
+    scanning: 'Scanning…',
+    add: 'Add a folder…',
+    addLabel: 'The folder of a git repository (~/… or a full path)',
+    addGo: 'Add',
+    cancel: 'Cancel',
+    none: 'No git repositories found below your home folder. Add a folder.',
+    branch: 'Branch',
+    base: 'Base',
+    noRemote: 'no remote',
+    clean: 'Clean',
+    changed: '{n} changed',
+    unknown: '—',
+    nameLabel: 'Name in One',
+    baseLabel: 'Base branch',
+    testLabel: 'Test command',
+    testHint: 'Runs without a shell — && | > are plain words. Empty: no test stage.',
+    noTests: 'No test stage',
+    push: 'Push branches',
+    pr: 'Pull requests (gh)',
+    limit: 'Cost limit per task (USD)',
+    ticked: '{n} ticked',
+    tickedOne: '1 ticked',
+    save: 'Save & start',
+    saving: 'Saving…',
+    saved: 'Saved — One sees {n} repositories now.',
+    savedOne: 'Saved — One sees 1 repository now.',
+    savedNone: 'Saved — no repositories: One hands this worker no tasks.',
+    writes: 'writes {file}',
+    status: '§ STATUS',
+    one: 'One',
+    oneOn: 'Connected · {ws}',
+    oneOff: 'Not connected — open One → Settings → Coding worker',
+    claude: 'Claude Code',
+    claudeOff: 'not found',
+    running: 'Running',
+    idle: 'Idle',
+    log: 'Log',
+    stateOn: 'Connected to One',
+    stateOff: 'Waiting for One',
+    stateBusy: '{n} running',
+    failed: 'That did not work: {e}'
+  }
+  var DE = {
+    kicker: '§ ONE WORKER — {ws}',
+    title: 'Wähle die Repositories, in denen One arbeiten darf',
+    lead: 'Hak ein Repository an, und One kann ihm Coding-Aufgaben geben: Claude Code arbeitet auf einem Branch in einem eigenen Worktree, dein Checkout bleibt, wie er ist. Pfade und Befehle bleiben auf diesem Rechner – One erfährt nur die Namen.',
+    loading: 'Suche Git-Repositories…',
+    noKey: 'Diese Seite braucht ihren Schlüssel. Öffne sie unter der Adresse, die der Worker in seinem Terminal zeigt.',
+    unbound: 'Dieser Worker ist an keinen Arbeitsbereich gebunden. Lade ihn in One herunter (Einstellungen → Coding-Worker) – diese Datei ist schon gekoppelt.',
+    noClaude: 'Claude Code wurde nicht gefunden. Installiere es, melde dich einmal an (claude) und starte den Worker neu.',
+    found: '{n} Repositories gefunden in {s} s',
+    foundOne: '1 Repository gefunden in {s} s',
+    capTime: 'nach {s} s angehalten – füge einen Ordner hinzu, falls eines fehlt',
+    capCount: 'die ersten {n}',
+    capDirs: 'nach sehr vielen Ordnern angehalten – füge einen Ordner hinzu, falls eines fehlt',
+    rescan: 'Neu suchen',
+    scanning: 'Suche…',
+    add: 'Ordner hinzufügen…',
+    addLabel: 'Der Ordner eines Git-Repositorys (~/… oder ein vollständiger Pfad)',
+    addGo: 'Hinzufügen',
+    cancel: 'Abbrechen',
+    none: 'Unter deinem Home-Ordner wurden keine Git-Repositories gefunden. Füge einen Ordner hinzu.',
+    branch: 'Branch',
+    base: 'Basis',
+    noRemote: 'kein Remote',
+    clean: 'Sauber',
+    changed: '{n} geändert',
+    unknown: '—',
+    nameLabel: 'Name in One',
+    baseLabel: 'Basis-Branch',
+    testLabel: 'Testbefehl',
+    testHint: 'Läuft ohne Shell – && | > sind normale Wörter. Leer: keine Test-Stufe.',
+    noTests: 'Keine Test-Stufe',
+    push: 'Branches pushen',
+    pr: 'Pull Requests (gh)',
+    limit: 'Kostengrenze pro Aufgabe (USD)',
+    ticked: '{n} angehakt',
+    tickedOne: '1 angehakt',
+    save: 'Speichern & starten',
+    saving: 'Speichere…',
+    saved: 'Gespeichert – One sieht jetzt {n} Repositories.',
+    savedOne: 'Gespeichert – One sieht jetzt 1 Repository.',
+    savedNone: 'Gespeichert – keine Repositories: One gibt diesem Worker keine Aufgaben.',
+    writes: 'schreibt {file}',
+    status: '§ STATUS',
+    one: 'One',
+    oneOn: 'Verbunden · {ws}',
+    oneOff: 'Nicht verbunden – öffne One → Einstellungen → Coding-Worker',
+    claude: 'Claude Code',
+    claudeOff: 'nicht gefunden',
+    running: 'Läuft',
+    idle: 'Bereit',
+    log: 'Log',
+    stateOn: 'Mit One verbunden',
+    stateOff: 'Warte auf One',
+    stateBusy: '{n} läuft',
+    failed: 'Das hat nicht geklappt: {e}'
+  }
+  var L = de ? DE : EN
+  document.documentElement.lang = de ? 'de' : 'en'
+  function t(key, vars) {
+    var s = L[key] || EN[key] || key
+    if (vars) Object.keys(vars).forEach(function (k) { s = s.split('{' + k + '}').join(String(vars[k])) })
+    return s
+  }
+  function el(tag, props, kids) {
+    var node = document.createElement(tag)
+    if (props) Object.keys(props).forEach(function (k) {
+      var v = props[k]
+      if (v === null || v === undefined || v === false) return
+      if (k === 'text') node.textContent = v
+      else if (k === 'className') node.className = v
+      else if (k.slice(0, 2) === 'on') node.addEventListener(k.slice(2), v)
+      else if (k === 'value') node.value = v
+      else if (k === 'checked') node.checked = !!v
+      else node.setAttribute(k, v === true ? '' : String(v))
+    })
+    ;(kids || []).forEach(function (c) { if (c) node.appendChild(typeof c === 'string' ? document.createTextNode(c) : c) })
+    return node
+  }
+  function $(id) { return document.getElementById(id) }
+
+  function api(method, op, body) {
+    var headers = { 'x-one-setup': token }
+    if (method === 'POST') headers['content-type'] = 'application/json'
+    return fetch('/setup/api/' + op, { method: method, headers: headers, body: method === 'POST' ? JSON.stringify(body || {}) : undefined, cache: 'no-store', credentials: 'omit' }).then(function (r) {
+      return r.json().catch(function () { return {} }).then(function (j) {
+        if (!r.ok) throw new Error(j.error || 'HTTP ' + r.status)
+        return j
+      })
+    })
+  }
+
+  /* -------------------------------------------------- argv like the worker splits it */
+  function split(line) {
+    var out = [], cur = '', has = false, q = null
+    for (var i = 0; i < line.length; i++) {
+      var c = line[i]
+      if (q === "'") { if (c === "'") q = null; else cur += c }
+      else if (q === '"') {
+        if (c === '"') q = null
+        else if (c === '\\' && (line[i + 1] === '"' || line[i + 1] === '\\')) cur += line[++i]
+        else cur += c
+      } else if (c === '"' || c === "'") { q = c; has = true }
+      else if (c === '\\' && i + 1 < line.length) { cur += line[++i]; has = true }
+      else if (/\s/.test(c)) { if (has || cur) out.push(cur); cur = ''; has = false }
+      else { cur += c; has = true }
+    }
+    if (has || cur) out.push(cur)
+    return out
+  }
+
+  var state = null
+  var edits = {}
+  var adding = false
+  var addError = ''
+  var busy = ''
+  var note = null
+
+  function ago(ms) {
+    if (!ms) return t('unknown')
+    var rtf = new Intl.RelativeTimeFormat(de ? 'de' : 'en', { numeric: 'auto' })
+    var s = (ms - Date.now()) / 1000
+    var steps = [[60, 'second'], [3600, 'minute', 60], [86400, 'hour', 3600], [604800, 'day', 86400], [2629800, 'week', 604800], [31557600, 'month', 2629800], [Infinity, 'year', 31557600]]
+    for (var i = 0; i < steps.length; i++) {
+      if (Math.abs(s) < steps[i][0]) return rtf.format(Math.round(s / (steps[i][2] || 1)), steps[i][1])
+    }
+    return ''
+  }
+
+  function editOf(r) {
+    if (!edits[r.path]) edits[r.path] = { ticked: r.ticked, name: r.name, base: r.base, test: r.testLine, push: r.push, pr: r.pr, limit: r.maxUsdPerTask === null ? '' : String(r.maxUsdPerTask) }
+    return edits[r.path]
+  }
+
+  function adopt(next) {
+    state = next
+    var ws = state.workspace && state.workspace.name
+    $('kicker').textContent = ws ? t('kicker', { ws: ws }) : '§ ONE WORKER'
+    document.title = (ws ? ws + ' · ' : '') + 'One worker'
+    render()
+    live(state.live)
+  }
+
+  function tickedCount() {
+    return state.repos.filter(function (r) { return editOf(r).ticked }).length
+  }
+
+  function row(r, i) {
+    var e = editOf(r)
+    var li = el('li', { className: 'repo', 'data-on': e.ticked || null, 'data-path': r.path })
+    var box = el('input', { type: 'checkbox', className: 'check', id: 'c' + i, checked: e.ticked, 'aria-label': r.name, onchange: function () { e.ticked = box.checked; note = null; render() } })
+    var facts = el('div', { className: 'repo__facts' }, [
+      el('span', { className: 'label' }, [t('branch') + ' ', el('b', { text: r.branch || t('unknown') })]),
+      el('span', { className: 'label' }, [t('base') + ' ', el('b', { text: r.base })]),
+      el('span', { className: 'label', text: r.host || t('noRemote') }),
+      el('span', { className: 'label', text: r.test ? r.test.join(' ') : t('noTests') })
+    ])
+    var dirty = r.dirty === null ? el('span', { className: 'label dirty' }, [el('span', { className: 'led', 'data-s': 'off' }), t('unknown')])
+      : r.dirty ? el('span', { className: 'label dirty' }, [el('span', { className: 'led', 'data-s': 'on' }), t('changed', { n: r.dirty })])
+      : el('span', { className: 'label dirty' }, [el('span', { className: 'led', 'data-s': 'ok' }), t('clean')])
+    var main = el('div', { className: 'repo__main', onclick: function (ev) { if (ev.target !== box) { box.checked = !box.checked; box.dispatchEvent(new Event('change')) } } }, [
+      box,
+      el('div', { className: 'repo__body' }, [el('div', { className: 'repo__name', text: r.name }), el('div', { className: 'repo__path', text: r.short, title: r.path }), facts]),
+      el('div', { className: 'repo__side' }, [dirty, el('span', { className: 'label', text: ago(r.lastCommit) })])
+    ])
+    li.appendChild(main)
+    if (e.ticked) li.appendChild(detail(r, e, i))
+    return li
+  }
+
+  function detail(r, e, i) {
+    var id = 'r' + i
+    var keys = el('div', { className: 'keys' })
+    function drawKeys() {
+      keys.textContent = ''
+      var argv = split(e.test)
+      if (!argv.length) keys.appendChild(el('span', { className: 'hint', text: t('noTests') }))
+      argv.forEach(function (a) { keys.appendChild(el('span', { className: 'kbd', text: a })) })
+    }
+    drawKeys()
+    var base = el('select', { id: id + 'b', onchange: function () { e.base = base.value } })
+    var branches = r.branches.indexOf(e.base) >= 0 ? r.branches : [e.base].concat(r.branches)
+    branches.forEach(function (b) { base.appendChild(el('option', { value: b, text: b })) })
+    base.value = e.base
+    var toggles = [el('label', { className: 'sw' }, [el('input', { type: 'checkbox', role: 'switch', checked: e.push, onchange: function (ev) { e.push = ev.target.checked } }), t('push')])]
+    if (state.gh) toggles.push(el('label', { className: 'sw' }, [el('input', { type: 'checkbox', role: 'switch', checked: e.pr === 'gh', onchange: function (ev) { e.pr = ev.target.checked ? 'gh' : 'none' } }), t('pr')]))
+    return el('div', { className: 'detail' }, [
+      el('div', { className: 'field' }, [el('label', { className: 'label', for: id + 'n', text: t('nameLabel') }), el('input', { type: 'text', id: id + 'n', value: e.name, maxlength: 64, spellcheck: 'false', oninput: function (ev) { e.name = ev.target.value } })]),
+      el('div', { className: 'field' }, [el('label', { className: 'label', for: id + 'b', text: t('baseLabel') }), base]),
+      el('div', { className: 'field' }, [el('label', { className: 'label', for: id + 't', text: t('testLabel') }), el('input', { type: 'text', id: id + 't', value: e.test, spellcheck: 'false', autocomplete: 'off', oninput: function (ev) { e.test = ev.target.value; drawKeys() } }), keys, el('span', { className: 'hint', text: t('testHint') })]),
+      el('div', { className: 'field field--wide' }, [el('div', { className: 'toggles' }, toggles)]),
+      el('div', { className: 'field' }, [el('div', { className: 'limit' }, [el('label', { className: 'label', for: id + 'l', text: t('limit') }), el('input', { type: 'number', id: id + 'l', min: '0', step: '0.5', value: e.limit, inputmode: 'decimal', oninput: function (ev) { e.limit = ev.target.value } })])])
+    ])
+  }
+
+  function render() {
+    var app = $('app')
+    var focus = document.activeElement && document.activeElement.id
+    app.textContent = ''
+    app.appendChild(el('h1', { text: t('title') }))
+    app.appendChild(el('p', { className: 'lead', text: t('lead') }))
+    if (!state) {
+      app.appendChild(el('p', { className: 'msg', text: token ? t('loading') : t('noKey') }))
+      return
+    }
+    if (!state.workspace.id) app.appendChild(el('p', { className: 'msg', text: t('unbound') }))
+    if (state.live && state.live.claude && !state.live.claude.found) app.appendChild(el('p', { className: 'msg', text: t('noClaude') }))
+    var sc = state.scan
+    var meta = ''
+    if (sc) {
+      var secs = (sc.ms / 1000).toFixed(1)
+      var n = state.repos.length
+      meta = n === 1 ? t('foundOne', { s: secs }) : t('found', { n: n, s: secs })
+      if (sc.capped === 'time') meta += ' · ' + t('capTime', { s: Math.round(sc.ms / 1000) })
+      if (sc.capped === 'count') meta += ' · ' + t('capCount', { n: n })
+      if (sc.capped === 'dirs') meta += ' · ' + t('capDirs')
+    }
+    app.appendChild(el('div', { className: 'tools' }, [
+      el('span', { className: 'label tools__meta', text: meta }),
+      el('button', { type: 'button', className: 'btn', id: 'rescan', disabled: !!busy, onclick: rescan, text: busy === 'scan' ? t('scanning') : t('rescan') }),
+      el('button', { type: 'button', className: 'btn', id: 'add', 'aria-expanded': adding ? 'true' : 'false', onclick: function () { adding = !adding; addError = ''; render(); var i = $('addpath'); if (i) i.focus() }, text: t('add') })
+    ]))
+    if (adding) {
+      var input = el('input', { type: 'text', id: 'addpath', placeholder: '~/code/my-app', spellcheck: 'false', autocomplete: 'off', onkeydown: function (ev) { if (ev.key === 'Enter') addFolder(input.value); if (ev.key === 'Escape') { adding = false; render() } } })
+      app.appendChild(el('div', { className: 'add' }, [
+        el('label', { className: 'label', for: 'addpath', text: t('addLabel') }),
+        input,
+        el('button', { type: 'button', className: 'btn', onclick: function () { addFolder(input.value) }, text: t('addGo') }),
+        el('button', { type: 'button', className: 'btn btn--ghost', onclick: function () { adding = false; render() }, text: t('cancel') }),
+        addError ? el('p', { className: 'add__err', role: 'alert', text: addError }) : null
+      ]))
+    }
+    var list = el('ul', { className: 'list', id: 'repos' })
+    if (!state.repos.length) list.appendChild(el('li', { className: 'empty', text: t('none') }))
+    state.repos.forEach(function (r, i) { list.appendChild(row(r, i)) })
+    app.appendChild(list)
+    app.appendChild(statusPanel())
+    var bar = $('bar')
+    bar.hidden = false
+    bar.textContent = ''
+    var c = tickedCount()
+    bar.appendChild(el('div', { className: 'bar__in' }, [
+      el('div', { className: 'bar__note' }, [
+        el('span', { className: 'label' + (note && note.ok ? ' saved' : ''), id: 'note', role: 'status', text: note ? note.text : c === 1 ? t('tickedOne') : t('ticked', { n: c }) }),
+        el('span', { className: 'bar__file', text: t('writes', { file: state.worker.config }) })
+      ]),
+      el('button', { type: 'button', className: 'btn btn--primary', id: 'save', disabled: !!busy, onclick: save, text: busy === 'save' ? t('saving') : t('save') })
+    ]))
+    if (focus && $(focus)) $(focus).focus()
+  }
+
+  function statusPanel() {
+    return el('section', { className: 'panel', 'aria-label': t('status') }, [
+      el('div', { className: 'panel__head' }, [el('span', { className: 'label', text: t('status') }), el('span', { className: 'label', text: state.worker.name + ' · ' + state.worker.version })]),
+      el('dl', { className: 'ro' }, [
+        el('div', null, [el('dt', { className: 'label', text: t('one') }), el('dd', { id: 'st-one', text: '—' })]),
+        el('div', null, [el('dt', { className: 'label', text: t('claude') }), el('dd', { id: 'st-claude', text: '—' })]),
+        el('div', null, [el('dt', { className: 'label', text: t('running') }), el('dd', { id: 'st-run', text: '—' })])
+      ]),
+      el('pre', { className: 'log', id: 'st-log', 'aria-label': t('log') })
+    ])
+  }
+
+  function live(l) {
+    if (!l) return
+    var on = !!l.connected
+    $('led').setAttribute('data-s', on ? (l.busy.length ? 'on' : 'ok') : 'off')
+    $('state').textContent = on ? (l.busy.length ? t('stateOn') + ' · ' + t('stateBusy', { n: l.busy.length }) : t('stateOn')) : t('stateOff')
+    var one = $('st-one'), cl = $('st-claude'), run = $('st-run'), log = $('st-log')
+    if (one) one.textContent = on ? t('oneOn', { ws: l.connected.name }) : t('oneOff')
+    if (cl) cl.textContent = l.claude.found ? (l.claude.version || 'ok') : t('claudeOff')
+    if (run) run.textContent = l.busy.length ? l.busy.map(function (b) { return b.title + ' · ' + b.repo + ' · ' + b.stage }).join('\n') : t('idle')
+    if (log) {
+      var stick = log.scrollTop + log.clientHeight >= log.scrollHeight - 4
+      log.textContent = l.log.join('\n')
+      if (stick) log.scrollTop = log.scrollHeight
+    }
+  }
+
+  function fail(e) {
+    note = { ok: false, text: t('failed', { e: e.message }) }
+    busy = ''
+    render()
+  }
+
+  function rescan() {
+    busy = 'scan'
+    render()
+    api('POST', 'scan').then(function (s) { busy = ''; adopt(s) }, fail)
+  }
+
+  function addFolder(path) {
+    api('POST', 'add', { path: path }).then(function (res) {
+      adding = false
+      addError = ''
+      delete edits[res.added]
+      adopt(res.state)
+      var r = state.repos.filter(function (x) { return x.path === res.added })[0]
+      if (r) { editOf(r).ticked = true; render() }
+      var node = document.querySelector('[data-path="' + CSS.escape(res.added) + '"]')
+      if (node) node.scrollIntoView({ block: 'nearest' })
+    }, function (e) { addError = e.message; render(); var i = $('addpath'); if (i) { i.value = path; i.focus() } })
+  }
+
+  function save() {
+    var repos = state.repos.filter(function (r) { return editOf(r).ticked }).map(function (r) {
+      var e = editOf(r)
+      var limit = parseFloat(String(e.limit).replace(',', '.'))
+      return { path: r.path, name: e.name.trim(), baseBranch: e.base, test: e.test, push: e.push, pr: e.pr, maxUsdPerTask: isFinite(limit) && limit > 0 ? limit : null }
+    })
+    busy = 'save'
+    note = null
+    render()
+    api('POST', 'save', { repos: repos }).then(function (s) {
+      busy = ''
+      edits = {}
+      var n = s.repos.filter(function (r) { return r.ticked }).length
+      note = { ok: true, text: n === 0 ? t('savedNone') : n === 1 ? t('savedOne') : t('saved', { n: n }) }
+      adopt(s)
+    }, fail)
+  }
+
+  function poll() {
+    if (!token || !state) return
+    api('GET', 'status').then(function (s) { live(s.live) }, function () {})
+  }
+
+  render()
+  if (token) api('GET', 'state').then(adopt, fail)
+  setInterval(poll, 2000)
+})()
+`;
+
+// src/worker/setup.ts
+var MAX_BODY = 256 * 1024;
+var HEADERS = { "cache-control": "no-store", "x-content-type-options": "nosniff", "referrer-policy": "no-referrer", "x-frame-options": "DENY", "cross-origin-resource-policy": "same-origin" };
+var CSP = "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
+var isObj6 = (v) => !!v && typeof v === "object" && !Array.isArray(v);
+function joinArgs(argv2) {
+  return (argv2 ?? []).map((a) => a === "" ? "''" : /[\s'"\\]/.test(a) ? `"${a.replace(/(["\\])/g, "\\$1")}"` : a).join(" ");
+}
+function ghInstalled() {
+  return new Promise((done) => {
+    try {
+      execFile3("gh", ["--version"], { timeout: 5e3, windowsHide: true }, (err) => done(!err));
+    } catch {
+      done(false);
+    }
+  });
+}
+var SetupServer = class {
+  token = randomBytes3(32).toString("base64url");
+  host;
+  home;
+  found = /* @__PURE__ */ new Map();
+  scanned = null;
+  scanning = null;
+  gh = null;
+  constructor(host) {
+    this.host = host;
+    this.home = host.home ?? homedir4();
+  }
+  url() {
+    return `http://127.0.0.1:${this.host.port}/setup#k=${this.token}`;
+  }
+  /** Open the page in this computer's browser (the address goes to the terminal too). */
+  async open() {
+    const url = this.url();
+    const ok = await (this.host.opener ?? openUrl)(url);
+    this.host.log(ok ? `opened the setup page: ${url}` : `open the setup page in a browser on this computer: ${url}`);
+    return ok ? { opened: true } : { opened: false, reason: "no-browser" };
+  }
+  /* ------------------------------------------------------------------ the repos */
+  /** Search again (one search at a time). */
+  scan() {
+    this.scanning ??= (async () => {
+      try {
+        const found = await findRepos({ home: this.home, ...this.host.scan });
+        const configured = this.host.config().repos;
+        const taken = new Set(configured.map((r) => r.name.toLowerCase()));
+        const paths = [.../* @__PURE__ */ new Set([...configured.map((r) => r.path), ...found.paths])];
+        const facts = await factsOf(paths, taken, this.home);
+        const added = [...this.found.values()].filter((r) => !paths.includes(r.path));
+        this.found = new Map([...facts, ...added].map((r) => [r.path, r]));
+        this.scanned = { capped: found.capped, dirs: found.dirs, ms: found.ms, at: Date.now() };
+      } finally {
+        this.scanning = null;
+      }
+    })();
+    return this.scanning;
+  }
+  /** The repos the page lists: worker.json's first (in its order), then the rest, most recently active first. */
+  repos() {
+    const config2 = this.host.config();
+    const out = [];
+    const seen = /* @__PURE__ */ new Set();
+    for (const r of config2.repos) {
+      const f = this.found.get(r.path);
+      seen.add(r.path);
+      out.push({
+        ...f ?? { path: r.path, short: shortPath(r.path, this.home), branch: null, branches: [r.baseBranch], remote: r.remote, host: null, dirty: null, lastCommit: null, test: null },
+        name: r.name,
+        base: r.baseBranch,
+        branches: f ? f.branches.includes(r.baseBranch) ? f.branches : [r.baseBranch, ...f.branches] : [r.baseBranch],
+        ticked: true,
+        configured: true,
+        push: r.push,
+        pr: r.pr,
+        maxUsdPerTask: r.maxUsdPerTask,
+        test: r.testCommand,
+        testLine: joinArgs(r.testCommand)
+      });
+    }
+    const rest = [...this.found.values()].filter((f) => !seen.has(f.path)).sort((a, b) => (b.lastCommit ?? 0) - (a.lastCommit ?? 0));
+    for (const f of rest) out.push({ ...f, ticked: false, configured: false, push: !!f.remote, pr: "gh", maxUsdPerTask: null, testLine: joinArgs(f.test) });
+    return out;
+  }
+  async state() {
+    if (!this.scanned) await this.scan();
+    this.gh ??= ghInstalled();
+    const config2 = this.host.config();
+    return {
+      v: 1,
+      workspace: { name: this.host.preset?.name ?? null, id: config2.workspace, paired: !!this.host.preset },
+      worker: { name: config2.name, version: this.host.version, port: config2.port, config: shortPath(this.host.configFile, this.home) },
+      gh: await this.gh,
+      scan: this.scanned ? { ...this.scanned, running: !!this.scanning } : null,
+      repos: this.repos(),
+      live: this.host.live()
+    };
+  }
+  /** "Add a folder…": a main checkout inside the home folder (relative or ~/…), or an absolute path typed here. */
+  async add(typed) {
+    const raw = typeof typed === "string" ? typed.trim() : "";
+    if (!raw || raw.length > 1e3 || /[\u0000-\u001f]/.test(raw)) return { ok: false, error: "Type the folder of a git repository." };
+    let dir;
+    if (raw === "~" || raw.startsWith("~/") || raw.startsWith("~\\")) dir = join6(this.home, raw.slice(2));
+    else if (isAbsolute2(raw)) dir = resolve3(raw);
+    else {
+      dir = resolve3(this.home, raw);
+      if (dir !== this.home && !dir.startsWith(this.home + sep4)) return { ok: false, error: "A relative folder must stay inside your home folder." };
+    }
+    try {
+      dir = realpathSync2(dir);
+    } catch {
+      return { ok: false, error: "That folder does not exist." };
+    }
+    if (!isMainCheckout(dir)) return { ok: false, error: "That folder is not the main checkout of a git repository (no .git folder in it)." };
+    if (!this.found.has(dir)) {
+      const taken = /* @__PURE__ */ new Set([...this.host.config().repos.map((r) => r.name.toLowerCase()), ...[...this.found.values()].map((r) => r.name.toLowerCase())]);
+      this.found.set(dir, await repoFacts(dir, taken, this.home));
+    }
+    return { ok: true, path: dir };
+  }
+  /** "Save & start": write the ticked repos, reload. Returns the problems (empty: saved). */
+  async save(body) {
+    const list = isObj6(body) && Array.isArray(body.repos) ? body.repos : null;
+    if (!list || list.length > 100) return ["Nothing to save."];
+    const known = new Map(this.repos().map((r) => [r.path, r]));
+    const choices = [];
+    const names = /* @__PURE__ */ new Set();
+    for (const item of list) {
+      if (!isObj6(item) || typeof item.path !== "string") return ["A repository could not be read."];
+      const repo = known.get(item.path);
+      if (!repo) return [`${item.path} is not on the list \u2014 rescan, or add the folder first.`];
+      const name = typeof item.name === "string" ? item.name.trim() : repo.name;
+      if (!REPO_NAME.test(name)) return [`"${name}": a name needs letters, digits, ".", "_" or "-" (at most 64).`];
+      if (names.has(name.toLowerCase())) return [`The name "${name}" is used twice.`];
+      names.add(name.toLowerCase());
+      const baseBranch = typeof item.baseBranch === "string" && item.baseBranch.trim() ? item.baseBranch.trim() : repo.base;
+      const test = typeof item.test === "string" ? splitArgs(item.test) : repo.test;
+      const limit = typeof item.maxUsdPerTask === "number" && Number.isFinite(item.maxUsdPerTask) && item.maxUsdPerTask > 0 ? Math.min(1e4, Math.round(item.maxUsdPerTask * 100) / 100) : null;
+      choices.push({ path: repo.path, name, baseBranch, remote: repo.remote, testCommand: test?.length ? test : null, push: item.push === true, pr: item.pr === "none" ? "none" : "gh", maxUsdPerTask: limit });
+    }
+    const problems = saveRepos(this.host.configFile, choices, this.host.preset?.workspace ?? this.host.config().workspace);
+    if (problems.length) return problems;
+    this.host.log(`setup page: saved ${choices.length} repo(s) \u2014 ${choices.map((c) => c.name).join(", ") || "none"}`);
+    await this.host.reload();
+    return [];
+  }
+  /* ------------------------------------------------------------------ HTTP */
+  /** Answer a request under /setup (false: not ours). */
+  async handle(req, res) {
+    const path = (req.url ?? "/").split(/[?#]/)[0];
+    if (path !== "/setup" && !path.startsWith("/setup/")) return false;
+    const send = (status, type, body2, extra = {}) => {
+      res.writeHead(status, { ...HEADERS, "content-type": type, ...extra });
+      res.end(body2);
+    };
+    const json = (status, body2) => send(status, "application/json; charset=utf-8", JSON.stringify(body2));
+    if (req.headers.host !== `127.0.0.1:${this.host.port}`) {
+      send(403, "text/plain; charset=utf-8", "one-worker: open the setup page at the address the worker printed.\n");
+      return true;
+    }
+    if (req.method === "GET" && path === "/setup") return send(200, "text/html; charset=utf-8", SETUP_HTML, { "content-security-policy": CSP }), true;
+    if (req.method === "GET" && path === "/setup/app.css") return send(200, "text/css; charset=utf-8", SETUP_CSS), true;
+    if (req.method === "GET" && path === "/setup/app.js") return send(200, "text/javascript; charset=utf-8", SETUP_JS), true;
+    if (!path.startsWith("/setup/api/")) return send(404, "text/plain; charset=utf-8", "not found\n"), true;
+    const token = req.headers["x-one-setup"];
+    if (typeof token !== "string" || !token) return json(401, { error: "The setup page needs its key \u2014 open it at the address the worker printed." }), true;
+    if (!sameSecret(this.token, token)) return json(403, { error: "This key does not open the setup page (the worker was restarted?) \u2014 open the address it printed last." }), true;
+    const op = path.slice("/setup/api/".length);
+    if (req.method === "GET") {
+      if (op === "state") return json(200, await this.state()), true;
+      if (op === "status") return json(200, { live: this.host.live(), repos: this.host.config().repos.map((r) => r.name), scanning: !!this.scanning }), true;
+      return json(404, { error: "unknown" }), true;
+    }
+    if (req.method !== "POST") return json(405, { error: "method" }), true;
+    if (req.headers.origin !== `http://127.0.0.1:${this.host.port}`) return json(403, { error: "forbidden" }), true;
+    if (!/^application\/json\b/.test(String(req.headers["content-type"] ?? ""))) return json(415, { error: "JSON only" }), true;
+    let raw = "";
+    let size = 0;
+    for await (const chunk of req) {
+      size += chunk.length;
+      if (size > MAX_BODY) return json(413, { error: "too large" }), true;
+      raw += String(chunk);
+    }
+    let body;
+    try {
+      body = raw ? JSON.parse(raw) : {};
+    } catch {
+      return json(400, { error: "bad JSON" }), true;
+    }
+    if (op === "scan") {
+      await this.scan();
+      return json(200, await this.state()), true;
+    }
+    if (op === "add") {
+      const r = await this.add(isObj6(body) ? body.path : null);
+      if (!r.ok) return json(400, { error: r.error }), true;
+      return json(200, { added: r.path, state: await this.state() }), true;
+    }
+    if (op === "save") {
+      const problems = await this.save(body);
+      if (problems.length) return json(400, { error: problems.join("\n"), problems }), true;
+      return json(200, await this.state()), true;
+    }
+    return json(404, { error: "unknown" }), true;
+  }
+};
+
+// src/worker/checklist.ts
+import { createInterface as createInterface2 } from "node:readline";
+var pad = (s, n) => s.length >= n ? s : s + " ".repeat(n - s.length);
+function checklistText(repos, ticked) {
+  if (!repos.length) return "  (no git repositories found)\n";
+  const w = Math.min(28, Math.max(...repos.map((r) => r.name.length)));
+  const pw = Math.min(40, Math.max(...repos.map((r) => r.short.length)));
+  return repos.map((r, i) => {
+    const facts = [r.base, r.host ?? "no remote", r.dirty === null ? null : r.dirty ? `${r.dirty} changed` : "clean", r.test ? r.test.join(" ") : "no tests"].filter(Boolean).join(" \xB7 ");
+    return `${String(i + 1).padStart(3)} [${ticked.has(r.path) ? "x" : " "}] ${pad(r.name, w)}  ${pad(r.short, pw)}  ${facts}`;
+  }).join("\n").concat("\n");
+}
+function terminalChecklist(opts) {
+  const { output, repos } = opts;
+  const ticked = new Set(opts.ticked);
+  const write = (s) => void output.write(s);
+  const prompt = "Numbers tick or untick (e.g. 1 3) \xB7 a = all \xB7 n = none \xB7 Enter = save \xB7 q = skip\n> ";
+  write(`
+\xA7 ONE WORKER \u2014 ${opts.title}
+Pick the repositories One may hand coding tasks to. Paths stay on this computer.
+
+`);
+  write(checklistText(repos, ticked));
+  write(`
+${prompt}`);
+  return new Promise((resolve5) => {
+    const rl = createInterface2({ input: opts.input, terminal: false });
+    let settled = false;
+    const end = (v) => {
+      if (settled) return;
+      settled = true;
+      rl.close();
+      resolve5(v);
+    };
+    rl.on("line", (raw) => {
+      const line = raw.trim().toLowerCase();
+      if (!line) return end(ticked);
+      if (line === "q" || line === "quit") return end(null);
+      if (line === "a" || line === "all") repos.forEach((r) => ticked.add(r.path));
+      else if (line === "n" || line === "none") ticked.clear();
+      else {
+        const nums = line.split(/[\s,]+/).filter(Boolean);
+        const bad = nums.filter((n) => !/^\d+$/.test(n) || Number(n) < 1 || Number(n) > repos.length);
+        if (bad.length) {
+          write(`Not on the list: ${bad.join(", ")}
+> `);
+          return;
+        }
+        for (const n of nums) {
+          const r = repos[Number(n) - 1];
+          if (ticked.has(r.path)) ticked.delete(r.path);
+          else ticked.add(r.path);
+        }
+      }
+      write(`
+${checklistText(repos, ticked)}
+${prompt}`);
+    });
+    rl.on("close", () => end(null));
+  });
+}
+
 // src/worker/index.ts
 var VERSION = true ? "1.3.1" : "dev";
 var quiet = process.env.ONE_WORKER_QUIET === "1";
+var recent = [];
 var log = (msg) => {
+  const line = `${(/* @__PURE__ */ new Date()).toTimeString().slice(0, 8)} ${msg}`;
+  recent.push(line);
+  if (recent.length > 200) recent.splice(0, recent.length - 200);
   if (!quiet) process.stderr.write(`[one-worker] ${msg}
 `);
 };
@@ -29660,7 +30927,8 @@ var value = (name) => {
   return i >= 0 && argv[i + 1] && !argv[i + 1].startsWith("--") ? argv[i + 1] : null;
 };
 var command = argv.find((a) => !a.startsWith("-") && argv[argv.indexOf(a) - 1] !== "--config" && argv[argv.indexOf(a) - 1] !== "--workspace") ?? "run";
-var configFile = resolve3(value("--config") ?? process.env.ONE_WORKER_CONFIG ?? defaultConfigFile());
+var configFile = resolve4(value("--config") ?? process.env.ONE_WORKER_CONFIG ?? defaultConfigFile());
+var { preset, problem: presetProblem } = filePreset();
 if (flag("--version") || flag("-v")) {
   process.stdout.write(`${VERSION}
 `);
@@ -29668,14 +30936,18 @@ if (flag("--version") || flag("-v")) {
 }
 if (flag("--help") || flag("-h")) {
   process.stdout.write(`one-worker ${VERSION} \u2014 coding tasks from One, run by Claude Code on this computer
-
-  node one-worker.mjs init --workspace <id>   write ${defaultConfigFile()} (One shows the id in
-                                              Settings \u2192 Coding worker), then add your repos to it
+${preset ? `
+This file was downloaded for the workspace "${preset.name}" (${preset.workspace}) and is paired with that browser.
+` : ""}
+  node one-worker.mjs                         run \u2014 keep it running while One should hand out work. The first
+                                              start finds your git repos and opens a page to tick them.
+  node one-worker.mjs setup                   run and open that page again (change the repos)
   node one-worker.mjs check                   check the config, the repos and Claude Code
-  node one-worker.mjs                         run \u2014 keep it running while One should hand out work
+  node one-worker.mjs init --workspace <id>   (by hand) write ${defaultConfigFile()}
 
-Options: --config <file> (or ONE_WORKER_CONFIG), --force (init: replace the file), --help, --version
-Environment: CLAUDE_BIN (default "claude"), ONE_WORKER_PORT (default ${WORKER_DEFAULT_PORT}), ONE_ORIGINS, ONE_WORKER_QUIET=1
+Options: --config <file> (or ONE_WORKER_CONFIG), --no-browser (no setup page: pick the repos in this
+terminal), --force (init: replace the file), --help, --version
+Environment: CLAUDE_BIN (default "claude"), ONE_WORKER_PORT (default ${preset?.port ?? WORKER_DEFAULT_PORT}), ONE_ORIGINS, ONE_WORKER_BROWSER, ONE_WORKER_QUIET=1
 Needs: Node.js 20+, git, the Claude Code CLI (signed in). Docs: docs/CODING.md
 `);
   process.exit(0);
@@ -29696,20 +30968,28 @@ Next: add your repositories to "repos", then run: node ${self} check
       process.exit(1);
     }
   }
+  if (presetProblem) log(`the preset in this file is ignored (${presetProblem}) \u2014 download the worker from One again`);
   let loaded;
   try {
-    loaded = loadConfig(configFile);
+    loaded = existsSync4(configFile) || !preset ? loadConfig(configFile) : { config: emptyConfig(configFile), problems: [] };
   } catch (e) {
     process.stderr.write(`${e instanceof Error ? e.message : String(e)}
+Or download the worker from One (Settings \u2192 Coding worker): that file comes ready-paired and asks for your repos itself.
 `);
     process.exit(1);
   }
-  const { config: config2, problems } = loaded;
-  for (const p of problems) log(`config: ${p}`);
+  const config2 = withPreset(loaded.config, preset);
+  for (const p of loaded.problems) log(`config: ${p}`);
   if (command === "check") {
     const bin = claudeBin();
     const caps = await detectClaude(bin);
-    const lines = [`config     ${configFile}`, `workspace  ${config2.workspace ?? "not set \u2014 every One tab is refused"}`, `port       ${config2.port}`, `claude     ${caps.found ? `${caps.version ?? "found"}${caps.budget ? "" : " (no --max-budget-usd: limits are checked between stages)"}` : `NOT FOUND ("${bin}")`}`];
+    const lines = [
+      `config     ${configFile}${existsSync4(configFile) ? "" : " (not written yet)"}`,
+      ...preset ? [`download   paired with a browser for "${preset.name}" \xB7 accepts ${preset.origin}${preset.dev ? " (+ localhost)" : ""}`] : [],
+      `workspace  ${config2.workspace ?? "not set \u2014 every One tab is refused"}`,
+      `port       ${config2.port}`,
+      `claude     ${caps.found ? `${caps.version ?? "found"}${caps.budget ? "" : " (no --max-budget-usd: limits are checked between stages)"}` : `NOT FOUND ("${bin}")`}`
+    ];
     let ok = caps.found && !!config2.workspace && config2.repos.length > 0;
     for (const repo of config2.repos) {
       try {
@@ -29721,21 +31001,36 @@ Next: add your repositories to "repos", then run: node ${self} check
         lines.push(`repo       ${repo.name}: ${e instanceof Error ? e.message : String(e)}`);
       }
     }
-    if (!config2.repos.length) lines.push('repos      none \u2014 add at least one to "repos"');
-    if (problems.length) ok = false;
+    if (!config2.repos.length) lines.push(preset ? "repos      none yet \u2014 run the worker: it opens a page to tick them (node one-worker.mjs setup)" : 'repos      none \u2014 add at least one to "repos" (or run: node one-worker.mjs setup)');
+    if (loaded.problems.length) ok = false;
     process.stdout.write(`${lines.join("\n")}
 ${ok ? "All good." : "Fix the lines above."}
 `);
     process.exit(ok ? 0 : 1);
   }
-  if (command !== "run") {
+  if (command !== "run" && command !== "setup") {
     process.stderr.write(`Unknown command "${command}". Run with --help.
 `);
     process.exit(1);
   }
-  const worker = new Worker({ config: config2, version: VERSION, bin: claudeBin(), self, log });
+  let worker = null;
+  const setup = flag("--no-browser") ? null : new SetupServer({
+    configFile,
+    port: config2.port,
+    preset,
+    version: VERSION,
+    log,
+    config: () => worker.config,
+    reload: () => reload(worker),
+    live: () => worker.live()
+  });
+  worker = new Worker({ config: config2, version: VERSION, bin: claudeBin(), self, log, setup, recent: () => recent });
   const up = await worker.start();
-  if (up !== "listening") process.exit(1);
+  if (up !== "listening") {
+    if (command === "setup") process.stderr.write(`Another one-worker seems to run on port ${config2.port}. Use "Change repositories" in One (Settings \u2192 Coding worker) to open its setup page \u2014 or stop it first.
+`);
+    process.exit(1);
+  }
   let stopping = false;
   const shutdown = async () => {
     if (stopping) return;
@@ -29749,5 +31044,54 @@ ${ok ? "All good." : "Fix the lines above."}
   process.on("SIGINT", () => void shutdown());
   process.on("SIGTERM", () => void shutdown());
   process.on("SIGHUP", () => void shutdown());
+  if (command === "setup" || !config2.repos.length) await pickRepos(worker, setup);
+}
+async function reload(worker) {
+  const next = loadConfig(configFile);
+  for (const p of next.problems) log(`config: ${p}`);
+  await worker.reload(withPreset(next.config, preset));
+}
+async function pickRepos(worker, setup) {
+  if (setup) {
+    void setup.scan();
+    const r = await setup.open();
+    process.stdout.write(`
+Tick your repositories: ${setup.url()}
+${r.opened ? "(opened in your browser)" : "(open it in a browser on this computer)"}
+`);
+    if (r.opened || !process.stdin.isTTY) return;
+  }
+  const home = homedir5();
+  process.stdout.write(`
+Looking for git repositories below ${home} \u2026
+`);
+  const found = await findRepos({ home });
+  const configured = worker.config.repos;
+  const taken = new Set(configured.map((r) => r.name.toLowerCase()));
+  const paths = [.../* @__PURE__ */ new Set([...configured.map((r) => r.path), ...found.paths])];
+  const facts = (await factsOf(paths, taken, home)).map((f) => {
+    const c = configured.find((r) => r.path === f.path);
+    return c ? { ...f, name: c.name, base: c.baseBranch, test: c.testCommand } : f;
+  });
+  const picked = await terminalChecklist({ input: process.stdin, output: process.stdout, title: preset?.name ?? worker.config.name, repos: facts, ticked: new Set(configured.map((r) => r.path)) });
+  if (!picked) {
+    process.stdout.write(`Nothing saved. ${configured.length ? "" : "One hands this worker no tasks until repos are ticked \u2014 "}run "node ${self} setup" to pick them.
+`);
+    return;
+  }
+  const choices = facts.filter((f) => picked.has(f.path)).map((f) => {
+    const c = configured.find((r) => r.path === f.path);
+    return c ? { path: f.path, name: c.name, baseBranch: c.baseBranch, remote: c.remote, testCommand: c.testCommand, push: c.push, pr: c.pr, maxUsdPerTask: c.maxUsdPerTask } : { path: f.path, name: f.name, baseBranch: f.base, remote: f.remote, testCommand: f.test, push: !!f.remote, pr: "gh", maxUsdPerTask: null };
+  });
+  const problems = saveRepos(configFile, choices, preset?.workspace ?? worker.config.workspace);
+  if (problems.length) {
+    process.stdout.write(`Not saved:
+${problems.map((p) => `  ${p}`).join("\n")}
+`);
+    return;
+  }
+  process.stdout.write(`Saved ${choices.length} repo(s) to ${shortPath(configFile, home)}: ${choices.map((c) => c.name).join(", ") || "none"}
+`);
+  await reload(worker);
 }
 void main();

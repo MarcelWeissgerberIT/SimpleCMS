@@ -5,10 +5,10 @@
  * tools and limits. One learns repo NAMES (and base branches) — never a path or a command. A repo that is
  * not in this file does not exist for the worker; One cannot add one.
  */
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { homedir, hostname } from 'node:os'
-import { dirname, isAbsolute, join, resolve } from 'node:path'
-import { PARALLEL_MAX, PERMISSION_MODES, REPO_NAME, WORKER_DEFAULT_PORT, WORKSPACE_ID, type PermissionMode } from '../../../src/app/features/coding/protocol.ts'
+import { dirname, isAbsolute, join, resolve, sep } from 'node:path'
+import { PARALLEL_MAX, PERMISSION_MODES, REPO_NAME, WORKER_DEFAULT_PORT, WORKSPACE_ID, type PermissionMode, type WorkerPreset } from '../../../src/app/features/coding/protocol.ts'
 
 export interface ClaudeConfig {
   /** a model name Claude Code accepts (null = its default) */
@@ -54,6 +54,8 @@ export interface WorkerConfig {
   /** extra allowed page origins (like ONE_ORIGINS) */
   origins: string[]
   repos: RepoConfig[]
+  /** the download's preset (workspace, origin, port and pairing secret come from it; null: worker.json only) */
+  preset: WorkerPreset | null
 }
 
 export interface Loaded {
@@ -256,6 +258,7 @@ export function sanitizeConfig(raw: unknown, file: string, env: NodeJS.ProcessEn
       pollSec: Math.floor(num(r.pollSec, 15, 2, 600)),
       origins: strings(r.origins, 20),
       repos,
+      preset: null,
     },
     problems,
   }
@@ -335,4 +338,144 @@ export function initConfig(file: string, workspace: string | null, force = false
   mkdirSync(dirname(file), { recursive: true, mode: 0o700 })
   writeFileSync(file, exampleConfig(workspace), { mode: 0o600 })
   return file
+}
+
+/* ------------------------------------------------------------------ a download's preset */
+
+/**
+ * The connection from the preset: its workspace and port (ONE_WORKER_PORT still overrides the port). The
+ * file's "workspace" and "port" are ignored then — the download is bound to the workspace it came from.
+ */
+export function withPreset(config: WorkerConfig, preset: WorkerPreset | null, env: NodeJS.ProcessEnv = process.env): WorkerConfig {
+  if (!preset) return config
+  const envPort = Number(env.ONE_WORKER_PORT)
+  const port = Number.isInteger(envPort) && envPort >= 1024 && envPort <= 65535 ? envPort : preset.port
+  return { ...config, workspace: preset.workspace, port, preset }
+}
+
+/** The config a preset worker starts with when there is no worker.json yet: no repos (the setup page picks them). */
+export function emptyConfig(file: string, env: NodeJS.ProcessEnv = process.env): WorkerConfig {
+  return sanitizeConfig({ repos: [] }, file, env).config
+}
+
+/* ------------------------------------------------------------------ the setup page's writes */
+
+/**
+ * "npm run test -- --ci" → ["npm", "run", "test", "--", "--ci"]. Quotes group ('a b', "a b"), a backslash
+ * escapes inside double quotes and outside quotes. Nothing else is special: no variables, no globs, no
+ * pipes — the result runs without a shell, so "&&" or "|" are plain arguments.
+ */
+export function splitArgs(line: string): string[] {
+  const out: string[] = []
+  let cur = ''
+  let has = false
+  let quote: '"' | "'" | null = null
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i]!
+    if (quote === "'") {
+      if (c === "'") quote = null
+      else cur += c
+    } else if (quote === '"') {
+      if (c === '"') quote = null
+      else if (c === '\\' && i + 1 < line.length && (line[i + 1] === '"' || line[i + 1] === '\\')) cur += line[++i]
+      else cur += c
+    } else if (c === '"' || c === "'") {
+      quote = c
+      has = true
+    } else if (c === '\\' && i + 1 < line.length) {
+      cur += line[++i]
+      has = true
+    } else if (/\s/.test(c)) {
+      if (has || cur) out.push(cur)
+      cur = ''
+      has = false
+    } else {
+      cur += c
+      has = true
+    }
+  }
+  if (has || cur) out.push(cur)
+  return out.filter((a) => a.length <= 300).slice(0, 50)
+}
+
+/** What the setup page (or the terminal checklist) saves per ticked repo. */
+export interface RepoChoice {
+  path: string
+  name: string
+  baseBranch: string
+  remote: string | null
+  testCommand: string[] | null
+  push: boolean
+  pr: 'gh' | 'none'
+  maxUsdPerTask: number | null
+}
+
+const HEADER = '// one-worker — written by its setup page'
+
+/** "~/code/x" for a path inside the home folder (worker.json reads ~ back), else the path. */
+function homeRelative(path: string): string {
+  const home = homedir()
+  if (path.startsWith(home + sep)) return `~/${path.slice(home.length + 1).replace(/\\/g, '/')}`
+  return path
+}
+
+/**
+ * Write the ticked repos into worker.json (mode 0600, the folder 0700), keeping everything else the file
+ * says: other top-level keys and, for a repo that stays ticked (same folder), its own keys (claude,
+ * branchPrefix, worktreeDir, limits …). A hand-written file (with comments) is copied to worker.json.bak
+ * once before it is rewritten. Checked like a load first: nothing is written when a repo would be dropped.
+ * Returns the problems (empty: written).
+ */
+export function saveRepos(file: string, choices: RepoChoice[], workspace: string | null, env: NodeJS.ProcessEnv = process.env): string[] {
+  const configDir = dirname(file)
+  let text: string | null = null
+  let raw: Record<string, unknown> = {}
+  if (existsSync(file)) {
+    text = readFileSync(file, 'utf8')
+    try {
+      const parsed = parseJsonc(text)
+      if (isObj(parsed)) raw = parsed
+    } catch {
+      return [`${file} is not valid JSON — fix or remove it first`]
+    }
+  }
+  const before = Array.isArray(raw.repos) ? raw.repos.filter(isObj) : []
+  const pathOf = (r: Record<string, unknown>) => (typeof r.path === 'string' && r.path.trim() ? resolve(configDir, expandHome(r.path.trim())) : null)
+  const repos = choices.map((c) => {
+    const old = before.find((r) => pathOf(r) === resolve(c.path)) ?? {}
+    const entry: Record<string, unknown> = { ...old, name: c.name, path: homeRelative(resolve(c.path)), baseBranch: c.baseBranch }
+    if (c.remote && c.remote !== 'origin') entry.remote = c.remote
+    if (c.testCommand?.length) entry.testCommand = c.testCommand
+    else delete entry.testCommand
+    entry.push = c.push
+    entry.pr = c.pr
+    if (c.maxUsdPerTask) entry.maxUsdPerTask = c.maxUsdPerTask
+    else delete entry.maxUsdPerTask
+    return entry
+  })
+  const next: Record<string, unknown> = { ...raw }
+  if (workspace) next.workspace = workspace
+  next.repos = repos
+  // the same checks as loading: a repo the worker would drop is not written
+  const check = sanitizeConfig(next, file, env)
+  const dropped = check.problems.filter((p) => p.startsWith('repos['))
+  if (dropped.length || check.config.repos.length !== choices.length) return dropped.length ? dropped : ['a repository could not be saved']
+  mkdirSync(configDir, { recursive: true, mode: 0o700 })
+  if (text !== null && !text.startsWith(HEADER) && /\/\/|\/\*/.test(text.replace(/"(?:[^"\\]|\\.)*"/g, '""'))) {
+    const bak = `${file}.bak`
+    if (!existsSync(bak)) {
+      copyFileSync(file, bak)
+      chmodSync(bak, 0o600)
+    }
+  }
+  const body = `${HEADER} (node one-worker.mjs setup) — edit it by hand if you like.
+// Paths and commands in this file never leave this computer: One only learns repo names.
+// Every key: https://github.com/MarcelWeissgerberIT/SimpleCMS/blob/main/docs/CODING.md#workerjson
+${JSON.stringify(next, null, 2)}
+`
+  const tmp = `${file}.${process.pid}.tmp`
+  writeFileSync(tmp, body, { mode: 0o600 })
+  chmodSync(tmp, 0o600)
+  renameSync(tmp, file)
+  return []
 }

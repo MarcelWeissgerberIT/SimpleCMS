@@ -50,6 +50,29 @@ export const REPO_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/
 /** A workspace id ('local:…' / 'team:…', the same ids as the MCP bridge). */
 export const WORKSPACE_ID = /^(local|team):[A-Za-z0-9_-]{1,64}$/
 
+/**
+ * A worker downloaded from One comes ready-paired: One writes this line right after the shebang of
+ * one-worker.mjs (`globalThis.ONE_WORKER_PRESET = {…}`). With it the worker needs no config for the
+ * connection — workspace, the page origin it accepts and the port come from here — and it takes only a
+ * tab that says hello with `pair` (created per download, kept per device in One; a new download
+ * replaces it). Without a preset the worker reads worker.json as before.
+ */
+export const PRESET_GLOBAL = 'ONE_WORKER_PRESET'
+/** The pairing secret: 32 random bytes, base64url. */
+export const PAIR_SECRET = /^[A-Za-z0-9_-]{43}$/
+
+export interface WorkerPreset {
+  workspace: string
+  /** the One site the download came from (the only page origin the worker accepts) */
+  origin: string
+  port: number
+  pair: string
+  /** the workspace's name (the setup page's heading) */
+  name: string
+  /** One runs on a loopback origin (development): any http://localhost / 127.0.0.1 port is accepted too */
+  dev?: boolean
+}
+
 export interface WorkspaceRef {
   id: string
   name: string
@@ -200,11 +223,23 @@ export interface WorkerInfo {
   /** the strictest day limit of its repos (null = none) */
   dayLimit: number | null
   claude: { found: boolean; version: string | null }
+  /** it has a local setup page (One shows "Change repositories", which sends `open-setup`) */
+  setup?: boolean
+  /** it came ready-paired from a download in One */
+  paired?: boolean
+}
+
+/** The answer to `open-setup`: the worker opened its setup page on its own screen (One never learns its address). */
+export interface OpenSetupResult {
+  opened: boolean
+  /** off: the worker runs without its setup page (--no-browser) · no-browser: no browser could be opened (the address is in its terminal) */
+  reason?: 'off' | 'no-browser'
 }
 
 /** tab → worker */
 export type TabMessage =
-  | { type: 'hello'; app: 'one'; version: string; workspace: WorkspaceRef }
+  /** `pair`: this device's pairing secret for the workspace (a downloaded worker requires it) */
+  | { type: 'hello'; app: 'one'; version: string; workspace: WorkspaceRef; pair?: string }
   | { type: 'status'; workspace: WorkspaceRef }
   /** tasks changed: ask for work now */
   | { type: 'nudge' }
@@ -212,11 +247,17 @@ export type TabMessage =
   | { type: 'res'; id: string; ok: false; error: string }
   | { type: 'req'; id: string; op: 'stop'; taskId: string }
   | { type: 'req'; id: string; op: 'git'; taskId: string; verb: GitVerb; repo: string; branch: string | null; title: string; message?: string }
+  /** "Change repositories": the worker opens its setup page locally (a fixed verb — One can never tick or add a repo) */
+  | { type: 'req'; id: string; op: 'open-setup' }
+
+/** Why a worker refused a tab: another workspace · not bound to one · a paired worker got no / another pairing secret. */
+export type RefusedReason = 'workspace' | 'unbound' | 'pair'
 
 /** worker → tab */
 export type WorkerMessage =
   | ({ type: 'welcome' } & WorkerInfo)
-  | { type: 'refused'; reason: 'workspace' | 'unbound' }
+  /** `paired`: the worker came ready-paired from a download (its workspace and secret are fixed in the file) */
+  | { type: 'refused'; reason: RefusedReason; paired?: boolean }
   | { type: 'status'; busy: BusyTask[]; spentToday: number }
   | { type: 'req'; id: string; op: 'next'; repos: string[]; worker: string }
   | { type: 'req'; id: string; op: 'heartbeat'; taskIds: string[] }
