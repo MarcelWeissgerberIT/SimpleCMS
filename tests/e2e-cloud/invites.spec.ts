@@ -112,8 +112,8 @@ test.describe('invite people by link', () => {
     // the workspace menu's "Invite people…" lands on the invite form
     await page.locator('aside.sb .sb-head__ws').click()
     await page.getByRole('menuitem', { name: 'Invite people…' }).click()
-    const dialog = page.getByRole('dialog', { name: 'Settings' })
-    await expect(dialog.getByRole('tab', { name: /Team/ })).toHaveAttribute('aria-selected', 'true')
+    const dialog = page.getByTestId('workspace-page')
+    await expect(dialog).toHaveAttribute('data-section', 'people')
     const form = dialog.getByTestId('invite-form')
     await expect(form.getByRole('radio', { name: 'Link' })).toBeFocused()
     // reusable links never make admins
@@ -135,7 +135,8 @@ test.describe('invite people by link', () => {
     const first = await joinThroughLink(context, link, 'linus', 'Reuse Studio')
     await joinThroughLink(context, link, 'grace', 'Reuse Studio')
 
-    // the list counts them; the admin's own look at the link shows the places left
+    // the list counts them; the admin's own look at the link shows the places left (from Home: a fresh list)
+    await page.evaluate(() => (location.hash = '#/'))
     await page.locator('aside.sb .sb-head__ws').click()
     await page.getByRole('menuitem', { name: 'Invite people…' }).click()
     const row = dialog.getByTestId('invite').filter({ hasText: 'Anyone with the link' })
@@ -185,8 +186,8 @@ test.describe('invite people by link', () => {
     await expect(share.getByTestId('share-invite')).toContainText('Personen in Atelier Nord einladen')
     await share.getByTestId('share-invite').click()
 
-    const dialog = page.getByRole('dialog', { name: 'Einstellungen' })
-    await expect(dialog.getByRole('tab', { name: /Team/ })).toHaveAttribute('aria-selected', 'true')
+    const dialog = page.getByTestId('workspace-page')
+    await expect(dialog).toHaveAttribute('data-section', 'people')
     const form = dialog.getByTestId('invite-form')
     await expect(form).toBeInViewport()
     await form.getByRole('radio', { name: 'E-Mail' }).click()

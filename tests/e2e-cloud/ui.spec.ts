@@ -35,13 +35,14 @@ async function openWorkspace(page: Page, wsId: string, name: string): Promise<vo
   await expect(page.locator('.status__save')).toContainText(/Synced · Team/i, { timeout: 20_000 })
 }
 
-/** Settings → Team through the workspace menu. */
+/** Workspace settings → People through the workspace menu (from Home: the members load fresh). */
 async function openTeam(page: Page) {
+  await page.evaluate(() => (location.hash = '#/'))
   await page.locator('aside.sb .sb-head__ws').click()
-  await page.getByRole('menuitem', { name: 'Team settings' }).click()
-  const dialog = page.getByRole('dialog', { name: 'Settings' })
-  await expect(dialog.getByRole('tab', { name: /Team/ })).toHaveAttribute('aria-selected', 'true')
-  return dialog
+  await page.getByRole('menuitem', { name: 'Members & people' }).click()
+  const ws = page.getByTestId('workspace-page')
+  await expect(ws).toHaveAttribute('data-section', 'people')
+  return ws
 }
 
 /** Accept an invite link as an already signed-in person (API) — setup, not the subject. */
@@ -117,7 +118,7 @@ test.describe('team cloud UI', () => {
     const { wsId } = await ownerWithWorkspace(page, 'ada', 'Acme Team')
     await openWorkspace(page, wsId, 'Acme Team')
 
-    // Ada creates a link in Settings → Team
+    // Ada creates a link in Workspace settings → People
     let team = await openTeam(page)
     await team.getByLabel('Role', { exact: true }).selectOption('member')
     await team.getByRole('button', { name: /Create invite link/ }).click()

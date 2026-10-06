@@ -1,19 +1,21 @@
 /**
- * Public API + incoming webhooks against the real server: an admin creates a token in Settings →
- * Team, a script writes rows with it and the open table shows them live; the row's content (built by
+ * Public API + incoming webhooks against the real server: an admin creates a token in Workspace
+ * settings → Automation, a script writes rows with it and the open table shows them live; the row's content (built by
  * the server from markdown) opens in the editor and stays editable; an incoming webhook made in the UI
  * creates exactly one row per delivery; members can't manage tokens; read tokens can't write.
  */
 import type { Page } from '@playwright/test'
 import { test, expect, api, email, signIn, newPerson, openApp, waitOnline, wsEval, createWorkspace, join, editorOf } from './fixtures'
 
-/** Settings → Team through the workspace menu, scrolled to "API tokens". */
+/** Workspace settings → Automation (API tokens and webhooks) through the workspace menu, from Home. */
 async function openTeam(page: Page) {
+  await page.evaluate(() => (location.hash = '#/'))
   await page.locator('aside.sb .sb-head__ws').click()
-  await page.getByRole('menuitem', { name: 'Team settings' }).click()
-  const dialog = page.getByRole('dialog', { name: 'Settings' })
-  await expect(dialog.getByRole('tab', { name: /Team/ })).toHaveAttribute('aria-selected', 'true')
-  return dialog
+  await page.getByRole('menuitem', { name: 'Workspace settings' }).click()
+  const ws = page.getByTestId('workspace-page')
+  await ws.getByRole('link', { name: /Automation/ }).click()
+  await expect(ws).toHaveAttribute('data-section', 'automation')
+  return ws
 }
 
 const bearer = (token: string) => ({ authorization: `Bearer ${token}` })
