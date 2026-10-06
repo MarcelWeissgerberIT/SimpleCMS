@@ -185,7 +185,7 @@ async function reload(worker: Worker): Promise<void> {
 /** First start (or `setup`): the page in the browser — or, without one, the checklist in this terminal. */
 async function pickRepos(worker: Worker, setup: SetupServer | null): Promise<void> {
   if (setup) {
-    void setup.scan()
+    void setup.scan().catch((e: unknown) => log(`could not look for repositories: ${e instanceof Error ? e.message : String(e)}`))
     const r = await setup.open()
     process.stdout.write(`\nTick your repositories: ${setup.url()}\n${r.opened ? '(opened in your browser)' : '(open it in a browser on this computer)'}\n`)
     // no browser could be opened: ask here too (when someone can answer)

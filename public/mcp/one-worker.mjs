@@ -31058,7 +31058,7 @@ async function reload(worker) {
 }
 async function pickRepos(worker, setup) {
   if (setup) {
-    void setup.scan();
+    void setup.scan().catch((e) => log(`could not look for repositories: ${e instanceof Error ? e.message : String(e)}`));
     const r = await setup.open();
     process.stdout.write(`
 Tick your repositories: ${setup.url()}

@@ -282,6 +282,10 @@ JSON text frames, subprotocol `one-worker.v1`, defined in
   open it in a browser on that computer, or run with `--no-browser` and pick the repos in the terminal.
 - **A repo is missing from the list** — deeper than 4 levels, behind a symbolic link, or in a skipped folder:
   **Add a folder…** on the setup page.
+- **Two workspaces on one computer** — a worker serves one workspace. A download for another workspace uses the
+  same `~/.config/one/worker.json` (the repos ticked there show ticked on its page — untick what does not belong).
+  To run two at once, give the second its own port (Settings → Coding worker, *before* downloading) and its own
+  folder: `node one-worker.mjs --config ~/.config/one-team/worker.json` (`worker-state.json` lives next to it).
 - **Refused: the worker serves another workspace / is not bound** — a downloaded worker belongs to the workspace
   it was downloaded for: download it in this one. A hand-made one: run the init command *Settings → Coding worker
   → Manual setup* shows (it carries this workspace's id; `--force` replaces the file — or edit `"workspace"`),
