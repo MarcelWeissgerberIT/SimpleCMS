@@ -203,6 +203,7 @@ test.describe('media from MCP servers (mocked Claude API, made-up hosts)', () =>
     // SVG: kept for download only (application/octet-stream), a file block
     await card(panel, 'mark.svg').getByTestId('media-save').click()
     await expect(card(panel, 'mark.svg').getByTestId('media-saved')).toBeVisible()
+    await expect.poll(() => blocksOf(page, id, 'fileBlock').then((x) => x.length)).toBe(1)
     const [file] = await blocksOf(page, id, 'fileBlock')
     expect(file.name).toBe('mark.svg')
     expect(file.display).toBe('file')
@@ -339,12 +340,22 @@ test.describe('media from MCP servers (mocked Claude API, made-up hosts)', () =>
     // the choice is remembered on this device
     expect(await page.evaluate(() => localStorage.getItem('one.generate.server'))).toContain('srvstudio1')
 
-    // pick two → Insert selected (2): saved and inserted where the slash command was
+    // "Preview" (a click) fetches that one picture and shows it from memory — nothing stored
+    await expect(card(panel, 'v1.png')).toContainText('Result 1')
+    await card(panel, 'v1.png').getByTestId('media-preview').click()
+    await expect(card(panel, 'v1.png')).toHaveAttribute('data-preview', '')
+    await expect(card(panel, 'v1.png').locator('img')).toHaveAttribute('src', /^blob:/)
+    expect(hits).toEqual(['/gen/v1.png'])
+    expect(await blocksOf(page, id, 'image')).toEqual([])
+
+    // pick two → Insert selected (2): saved (the previewed one is not fetched again) and inserted where the
+    // slash command was; the panel closes
     await card(panel, 'v1.png').getByRole('checkbox').check()
     await card(panel, 'v3.png').getByRole('checkbox').check()
     await panel.getByRole('option', { name: /Insert selected \(2\)/ }).click()
     await expect.poll(() => blocksOf(page, id, 'image').then((x) => x.length)).toBe(2)
     expect(hits.sort()).toEqual(['/gen/v1.png', '/gen/v3.png'])
+    await expect(panel).toBeHidden()
     const imgs = await blocksOf(page, id, 'image')
     for (const im of imgs) expect(im.src).toMatch(/^onefile:/)
     expect(imgs[0].caption).toBe('a red paper lantern — STUDIO')

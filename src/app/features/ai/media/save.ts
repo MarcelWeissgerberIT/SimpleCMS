@@ -130,8 +130,8 @@ export function checked(bytes: Uint8Array, declared: string, cap: number): { blo
   return { blob: new Blob([copy.buffer], { type: mime }), mime, kind: family }
 }
 
-/** Save one card's media to One (this browser fetches it). Throws MediaSaveError. */
-export async function saveMediaItem(item: MediaItem, opts: { signal?: AbortSignal; n?: number } = {}): Promise<SavedMedia> {
+/** The card's bytes, checked: inline ones decoded, else fetched by this browser. Throws MediaSaveError. */
+async function bytesOf(item: MediaItem, signal?: AbortSignal): Promise<Checked> {
   let bytes: Uint8Array
   let declared: string
   if (item.data) {
@@ -142,12 +142,34 @@ export async function saveMediaItem(item: MediaItem, opts: { signal?: AbortSigna
     }
     declared = (item.mime ?? '').toLowerCase()
   } else {
-    const got = await download(item, opts.signal)
+    const got = await download(item, signal)
     bytes = got.bytes
     // the host's type counts; a result that declared one and a host that sends none (rare) — the result's
     declared = got.type || (item.mime ?? '')
   }
-  const out = checked(bytes, declared, capOf(item.kind))
+  return checked(bytes, declared, capOf(item.kind))
+}
+
+type Checked = ReturnType<typeof checked>
+
+/** Bytes fetched for a preview in this tab (by card): saving takes them instead of fetching again. */
+const fetched = new Map<string, Checked>()
+
+/**
+ * "Preview" (a click, generated results): the picture is fetched and checked like for saving, shown from
+ * this tab's memory (a blob: address) — not stored. Images only; resolves with the address. Throws MediaSaveError.
+ */
+export async function previewMediaItem(item: MediaItem, signal?: AbortSignal): Promise<string> {
+  const out = fetched.get(item.id) ?? (await bytesOf(item, signal))
+  if (out.kind !== 'image') throw new MediaSaveError('type', 'no preview')
+  fetched.set(item.id, out)
+  return URL.createObjectURL(out.blob)
+}
+
+/** Save one card's media to One (this browser fetches it, unless a preview did). Throws MediaSaveError. */
+export async function saveMediaItem(item: MediaItem, opts: { signal?: AbortSignal; n?: number } = {}): Promise<SavedMedia> {
+  const out = fetched.get(item.id) ?? (await bytesOf(item, opts.signal))
+  fetched.delete(item.id)
   const name = nameOf(item, out.mime, opts.n)
   const src = await saveFile(out.blob, name)
   return { src, kind: out.kind, name, size: out.blob.size, mime: out.mime, ...captionOf(item), itemId: item.id }

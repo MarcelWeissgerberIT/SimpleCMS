@@ -2,8 +2,8 @@
  * Saving a card, whichever way: this browser fetches it, a copy the person picks, or the team server
  * fetches it. The card's state follows (state.ts); a failure is shown on the card, never thrown.
  */
-import { MediaSaveError, fetchThroughTeam, pickMediaFile, saveMediaItem, saveUploadedCopy } from './save'
-import { cardOf, setCard } from './state'
+import { MediaSaveError, fetchThroughTeam, pickMediaFile, previewMediaItem, saveMediaItem, saveUploadedCopy } from './save'
+import { cardOf, setCard, setPreview, useMediaCards } from './state'
 import type { MediaItem, SavedMedia } from './types'
 
 export type SaveWay = 'browser' | 'upload' | 'team'
@@ -39,4 +39,23 @@ export async function saveCards(items: MediaItem[], opts: { privateTarget?: bool
     if (saved) out.push(saved)
   }
   return out
+}
+
+/** "Preview" a generated picture (a click): fetched and checked now, shown from memory; a refusal shows on the card like a failed save. */
+export async function previewCard(item: MediaItem): Promise<void> {
+  const now = useMediaCards.getState().previews[item.id]
+  if (now || cardOf(item.id).state === 'saved') return
+  setPreview(item.id, { state: 'loading' })
+  try {
+    const url = await previewMediaItem(item)
+    setPreview(item.id, { state: 'ready', url })
+  } catch (e) {
+    setPreview(item.id, null)
+    setCard(item.id, { state: 'failed', issue: e instanceof MediaSaveError ? e.issue : 'server', via: 'browser' })
+  }
+}
+
+/** Preview every picture of a list that has none yet, one after the other. */
+export async function previewCards(items: MediaItem[]): Promise<void> {
+  for (const item of items) if (item.kind === 'image') await previewCard(item)
 }

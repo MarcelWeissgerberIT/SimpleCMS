@@ -880,6 +880,7 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
       if (run) removeRun(run.id)
       onClose()
     },
+    close: onClose,
     edit: (req) => {
       setGenDraft(draftOf(req.media, req))
       setGenEdit(true)
@@ -1905,7 +1906,7 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
               </div>
             )}
 
-            {!reviewing && !genCard && (
+            {!reviewing && !genCard && !isGen && (
               <button
                 type="button"
                 className="ai-reads"

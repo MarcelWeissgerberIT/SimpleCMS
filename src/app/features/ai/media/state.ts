@@ -14,12 +14,30 @@ export interface CardState {
   via?: 'browser' | 'upload' | 'team'
 }
 
+/** A preview of a generated picture (fetched on a click, kept in this tab's memory as a blob: address). */
+export interface PreviewState {
+  state: 'loading' | 'ready'
+  url?: string
+}
+
 interface MediaCardsState {
   cards: Record<string, CardState>
   picked: Record<string, boolean>
+  previews: Record<string, PreviewState>
 }
 
-export const useMediaCards = create<MediaCardsState>()(() => ({ cards: {}, picked: {} }))
+export const useMediaCards = create<MediaCardsState>()(() => ({ cards: {}, picked: {}, previews: {} }))
+
+export function setPreview(id: string, next: PreviewState | null): void {
+  useMediaCards.setState((s) => {
+    const previews = { ...s.previews }
+    const old = previews[id]?.url
+    if (old && old !== next?.url) URL.revokeObjectURL(old)
+    if (next) previews[id] = next
+    else delete previews[id]
+    return { previews }
+  })
+}
 
 export function setCard(id: string, next: CardState): void {
   useMediaCards.setState((s) => ({ cards: { ...s.cards, [id]: next } }))

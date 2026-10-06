@@ -94,6 +94,21 @@
   object-fit: cover;
 }
 
+/* generated results: one line each, a wider plate for the preview */
+.media-cards[data-pick] .media-card {
+  padding: 6px 10px 6px 6px;
+  gap: var(--sp-2) 10px;
+}
+
+.media-cards[data-pick] .media-card__plate {
+  width: 72px;
+  height: 48px;
+}
+
+.media-cards[data-pick] .media-card__body {
+  flex-basis: 140px;
+}
+
 .media-card__body {
   flex: 1 1 200px;
   min-width: 0;

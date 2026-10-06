@@ -13,7 +13,7 @@ import { useWorkspace } from '../../../store/store'
 import { useUI } from '../../../store/ui'
 import { readServers } from '../mcp-servers/config'
 import { MarkdownLite } from '../MarkdownLite'
-import type { AIRun, RunRequest } from '../runs'
+import { useAIRuns, type AIRun, type RunRequest } from '../runs'
 import { MediaCards } from './MediaCards'
 import { saveCards } from './actions'
 import { mediaNode, pagePrivate } from './blocks'
@@ -111,6 +111,18 @@ export function GenerateSetup({ draft, onDraft, onRun, onCancel, hasKey }: Gener
               ))}
             </select>
           </div>
+          <div className="gen-field">
+            <span className="gen-field__label label" id={`${uid}-count`}>
+              {t('features.ai.gen.count')}
+            </span>
+            <div className="gen-seg" role="radiogroup" aria-labelledby={`${uid}-count`}>
+              {Array.from({ length: MAX_COUNT }, (_, i) => i + 1).map((n) => (
+                <button key={n} type="button" role="radio" aria-checked={draft.count === n} className="gen-seg__opt gen-seg__opt--num" onClick={() => set({ count: n })}>
+                  {n}
+                </button>
+              ))}
+            </div>
+          </div>
           <div className="gen-field gen-field--wide">
             <label className="gen-field__label label" htmlFor={`${uid}-prompt`}>
               {t('features.ai.gen.prompt')}
@@ -133,7 +145,7 @@ export function GenerateSetup({ draft, onDraft, onRun, onCancel, hasKey }: Gener
               data-testid="gen-prompt"
             />
           </div>
-          <div className="gen-field">
+          <div className="gen-field gen-field--wide">
             <span className="gen-field__label label" id={`${uid}-aspect`}>
               {t('features.ai.gen.aspect')}
             </span>
@@ -141,18 +153,6 @@ export function GenerateSetup({ draft, onDraft, onRun, onCancel, hasKey }: Gener
               {['', ...ASPECTS].map((a) => (
                 <button key={a || 'auto'} type="button" role="radio" aria-checked={draft.aspect === a} className="gen-seg__opt" onClick={() => set({ aspect: a })}>
                   {a || t('features.ai.gen.auto')}
-                </button>
-              ))}
-            </div>
-          </div>
-          <div className="gen-field">
-            <span className="gen-field__label label" id={`${uid}-count`}>
-              {t('features.ai.gen.count')}
-            </span>
-            <div className="gen-seg" role="radiogroup" aria-labelledby={`${uid}-count`}>
-              {Array.from({ length: MAX_COUNT }, (_, i) => i + 1).map((n) => (
-                <button key={n} type="button" role="radio" aria-checked={draft.count === n} className="gen-seg__opt gen-seg__opt--num" onClick={() => set({ count: n })}>
-                  {n}
                 </button>
               ))}
             </div>
@@ -201,6 +201,8 @@ export interface GeneratePanelOptions {
   insert: (nodes: JSONContent[]) => Promise<void>
   /** every result is in the page: the run is done with, the panel closes */
   finish: () => void
+  /** the picked results are in the page: the panel closes (the run stays — the page's plate brings it back) */
+  close: () => void
   /** the setup card again, with this run's values */
   edit: (req: GenerateRunRequest) => void
   discard: () => void
@@ -212,7 +214,7 @@ export interface GeneratePanel {
 }
 
 /** The generation part of the panel for its run (nothing for other runs). */
-export function useGeneratePanel({ pageId, run, phase, start, insert, finish, edit, discard }: GeneratePanelOptions): GeneratePanel {
+export function useGeneratePanel({ pageId, run, phase, start, insert, finish, close, edit, discard }: GeneratePanelOptions): GeneratePanel {
   const t = useT()
   const picked = useMediaCards((s) => s.picked)
   const cards = useMediaCards((s) => s.cards)
@@ -228,6 +230,8 @@ export function useGeneratePanel({ pageId, run, phase, start, insert, finish, ed
 
   if (!req || !run) return { body: null, rows: null }
 
+  /** the run is still there (finish() removed it once every result was in the page) */
+  const runAlive = () => !!useAIRuns.getState().runs[run.id]
   const onSaved = async (saved: SavedMedia[]) => {
     await insert(saved.map(mediaNode))
     // all results are in the page now: nothing left to pick
@@ -238,7 +242,10 @@ export function useGeneratePanel({ pageId, run, phase, start, insert, finish, ed
   const insertPicked = async () => {
     const saved = await saveCards(chosen, { privateTarget: priv, all: media })
     for (const s of saved) setPicked(s.itemId, false)
-    if (saved.length) await onSaved(saved)
+    if (!saved.length) return
+    await onSaved(saved)
+    // what was picked is in the page; a result that could not be saved keeps the panel open (its card says why)
+    if (saved.length === chosen.length && runAlive()) close()
   }
 
   const waiting = phase === 'streaming'
