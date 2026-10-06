@@ -5,7 +5,7 @@ order: 1
 title: Building blocks — shared lists, your own property types, record types
 summary: Make the parts your databases are built from: lists every select can share (paste them, or let Claude fill them), own property types with a look and small scripts that check, compute and format values, and record types.
 image: assets/shots/changelog/building-blocks.webp
-alt: The Building blocks page with the own type “IBAN” — its base, display settings with a live preview, and its validate script in the One Script editor — beside a database whose IBAN column shows the values in groups of four and a Health column computed as a traffic light
+alt: The own type “IBAN” on the Building blocks page — its display (a blue badge) with a live preview, its validate script in the One Script editor, and “Test on a row” refusing “DE00 1234” with “Not a valid IBAN”
 help: building-blocks, one-script
 try: kit
 ---

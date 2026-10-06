@@ -1486,7 +1486,7 @@ const shots = {
         base: 'text',
         icon: { type: 'lucide', value: 'landmark', color: 'blue' },
         description: 'A bank account — checked when typed, shown in groups of four.',
-        display: { prefix: '', style: 'plain' },
+        display: { style: 'badge', color: 'blue' },
         scripts: {
           validate: '# A valid IBAN: 15–34 characters, check digits mod 97 = 1\nlet s = upper(replace(value, " ", ""))\nlet answer = true\nif value and (len(s) < 15 or len(s) > 34) {\n  answer = "Not a valid IBAN"\n}\nanswer',
           format: '# Upper case in groups of four\nlet s = upper(replace(text(value), " ", ""))\nlet out = ""\nlet i = 0\nwhile i < len(s) {\n  out = out + slice(s, i, i + 4) + " "\n  i = i + 4\n}\ntrim(out)',
@@ -1524,7 +1524,7 @@ const shots = {
     await rest(page)
     const detail = await boxOf(page.locator('.kt-detail'))
     const result = await boxOf(page.getByTestId('kt-test-result'))
-    const top = (await boxOf(page.locator('.kt-detail .kt-sec').nth(1))).y - 20
+    const top = (await boxOf(page.locator('.kt-detail .kt-sec').nth(1))).y - 10
     await save(page, 'building-blocks', { x: detail.x - 28, y: top, width: detail.width + 56, height: result.y + result.height + 24 - top })
     await ctx.close()
   },

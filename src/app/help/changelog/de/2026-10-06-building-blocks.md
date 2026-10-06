@@ -5,7 +5,7 @@ order: 1
 title: Bausteine — gemeinsame Listen, eigene Eigenschaftstypen, Datensatz-Typen
 summary: Baue die Teile, aus denen deine Datenbanken bestehen: Listen, die jede Auswahl teilen kann (einfügen oder von Claude füllen lassen), eigene Eigenschaftstypen mit Aussehen und kleinen Skripten, die Werte prüfen, berechnen und formatieren, und Datensatz-Typen.
 image: assets/shots/changelog/building-blocks.webp
-alt: Die Seite Bausteine mit dem eigenen Typ „IBAN“ — Basis, Anzeige mit Live-Vorschau und das Prüf-Skript im One-Script-Editor — neben einer Datenbank, deren IBAN-Spalte die Werte in Vierergruppen zeigt und deren Spalte Health als Ampel berechnet wird
+alt: Der eigene Typ „IBAN“ auf der Seite Bausteine — seine Anzeige (eine blaue Plakette) mit Live-Vorschau, sein Prüf-Skript im One-Script-Editor und „An einer Zeile testen“, das „DE00 1234“ mit „Not a valid IBAN“ ablehnt
 help: building-blocks, one-script
 try: kit
 ---
