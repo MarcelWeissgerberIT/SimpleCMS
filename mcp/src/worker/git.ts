@@ -11,7 +11,7 @@
  *    else merge; conflicts reported per file, left for a stage to resolve) · discard · cleanup
  */
 import { execFile } from 'node:child_process'
-import { existsSync, mkdirSync, readFileSync, statSync } from 'node:fs'
+import { existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync } from 'node:fs'
 import { dirname, join, resolve, sep } from 'node:path'
 import type { GitCommit, GitFile, GitInfo } from '../../../src/app/features/coding/protocol.ts'
 import type { RepoConfig } from './config.ts'
@@ -175,8 +175,10 @@ async function reuse(repo: RepoConfig, state: WorkerState, task: { id: string },
   if (!(await validBranch(repo, branch))) throw new GitError(`"${branch}" is not a valid branch name`)
   const own = state.created(repo.name, branch)
   const tree = trees.find((w) => w.branch === branch)
+  if (tree && same(tree.path, top)) throw new GitError(`the branch "${branch}" is checked out in the main checkout — the worker never works there. Switch the main checkout to another branch, or let the task make its own branch (clear the Branch field).`)
+  // a task never works on (and Ship never pushes to) the base branch itself
+  if (branch === repo.baseBranch) throw new GitError(`"${branch}" is the base branch of ${repo.name} — the worker never works on it. Let the task make its own branch (clear the Branch field).`)
   if (tree) {
-    if (same(tree.path, top)) throw new GitError(`the branch "${branch}" is checked out in the main checkout — the worker never works there. Switch the main checkout to another branch, or let the task make its own branch (clear the Branch field).`)
     state.setTask(task.id, { repo: repo.name, branch, worktree: tree.path })
     return { dir: tree.path, branch, created: !!own?.branchCreated }
   }
@@ -264,6 +266,15 @@ function binaryFile(path: string): boolean {
   }
 }
 
+/** A symbolic link's target as git shows it — never what it points at (that may be anywhere on this machine). */
+function linkTarget(path: string): string {
+  try {
+    return readlinkSync(path)
+  } catch {
+    return ''
+  }
+}
+
 /** The branch's state, its commits and its diff against the base (working tree included). */
 export async function info(repo: RepoConfig, state: WorkerState, dir: string, branch: string): Promise<GitInfo> {
   const base = await baseRef(repo).catch(() => repo.baseBranch)
@@ -346,7 +357,16 @@ async function diffFiles(dir: string, base: string, status: StatusEntry[]): Prom
     const abs = join(dir, e.path)
     let size = 0
     try {
-      size = statSync(abs).size
+      const st = lstatSync(abs)
+      // a link shows as its target (like git shows it): the file it points at is never read — a link to
+      // ~/.ssh/… would otherwise send that file's text to One
+      if (st.isSymbolicLink()) {
+        const piece = take(`diff --git a/${e.path} b/${e.path}\nnew file mode 120000\n--- /dev/null\n+++ b/${e.path}\n@@ -0,0 +1 @@\n+${linkTarget(abs)}\n\\ No newline at end of file\n`)
+        files.push({ path: e.path, status: '?', add: 1, del: 0, binary: false, ...piece })
+        continue
+      }
+      if (!st.isFile()) continue
+      size = st.size
     } catch {
       continue
     }

@@ -120,6 +120,7 @@ export const messages: Messages = {
     'features.coding.rework.placeholder': 'e.g. Keep the old API, add a test for the empty case.',
     'features.coding.rework.send': 'Send back',
     'features.coding.trust.body': 'This task was written or changed on another device. Your worker runs it only after you checked it here.',
+    'features.coding.trust.agent': 'A custom agent wrote or changed this task. Your worker runs it only after you checked it here.',
     'features.coding.trust.confirm': 'Confirm on this device',
 
     'features.coding.tab.log': 'Log',
@@ -429,6 +430,7 @@ export const messages: Messages = {
     'features.coding.rework.placeholder': 'z. B. Die alte API behalten, einen Test für den leeren Fall ergänzen.',
     'features.coding.rework.send': 'Zurückschicken',
     'features.coding.trust.body': 'Diese Aufgabe wurde auf einem anderen Gerät geschrieben oder geändert. Dein Worker führt sie erst aus, wenn du sie hier geprüft hast.',
+    'features.coding.trust.agent': 'Ein eigener Agent hat diese Aufgabe geschrieben oder geändert. Dein Worker führt sie erst aus, wenn du sie hier geprüft hast.',
     'features.coding.trust.confirm': 'Auf diesem Gerät bestätigen',
 
     'features.coding.tab.log': 'Log',

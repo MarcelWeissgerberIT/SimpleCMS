@@ -4,14 +4,14 @@
  * conflicts), cleanup and discard of the worker's own branches only, dirty checks.
  */
 import assert from 'node:assert/strict'
-import { existsSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { after, describe, test } from 'node:test'
 import { loadConfig, type RepoConfig } from '../src/worker/config.ts'
 import { WorkerState } from '../src/worker/state.ts'
 import { branchExists, cleanup, commitAll, compareUrl, discard, ensureWorktree, info, push, remoteBranchExists, slug, updateFromBase, webBase } from '../src/worker/git.ts'
 import { Scrubber, repoScrubber } from '../src/worker/scrub.ts'
-import { cleanupAll, makeRepo, repoEntry, sh, writeConfig, type TempRepo } from './worker-helpers.ts'
+import { cleanupAll, makeRepo, repoEntry, sh, tempDir, writeConfig, type TempRepo } from './worker-helpers.ts'
 
 after(cleanupAll)
 
@@ -63,6 +63,10 @@ describe('branches and worktrees', () => {
     const tracked = await ensureWorktree(repo, state, { id: 'reuse5', title: 'Remote' }, 'remote-only')
     assert.equal(tracked.created, false)
     assert.ok(existsSync(join(tracked.dir, 'x.txt')))
+    // the base branch is never a task's branch — also while the main checkout is elsewhere (Ship would push to it)
+    sh(r.path, 'checkout', '--quiet', '-b', 'person-work')
+    await assert.rejects(ensureWorktree(repo, state, { id: 'reuse6', title: 'Base' }, 'main'), /base branch/)
+    assert.equal(sh(r.path, 'worktree', 'list', '--porcelain').includes('branch refs/heads/main'), false)
   })
 })
 
@@ -86,6 +90,14 @@ describe('diff, commit, push', () => {
     const bin = g.files.find((f) => f.path === 'logo.bin')!
     assert.equal(bin.binary, true)
     assert.equal(bin.diff, null)
+    // an untracked link to a file outside the repo: shown as its target, the file is never read
+    const outside = join(tempDir('outside'), 'id_rsa')
+    writeFileSync(outside, 'PRIVATE KEY MATERIAL\n')
+    symlinkSync(outside, join(wt.dir, 'leak.txt'))
+    const linked = (await info(repo, state, wt.dir, wt.branch)).files.find((f) => f.path === 'leak.txt')!
+    assert.ok(linked.diff?.includes(`+${outside}`), linked.diff ?? '')
+    assert.ok(!linked.diff?.includes('PRIVATE KEY'), linked.diff ?? '')
+    rmSync(join(wt.dir, 'leak.txt'))
     assert.equal(g.pushed, false)
     assert.equal(g.created, true)
 

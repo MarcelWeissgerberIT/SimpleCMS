@@ -15,7 +15,8 @@ import { useWorkspace } from '../../store/store'
 import { selectRows } from '../../store/selectors'
 import { useUI } from '../../store/ui'
 import type { Database, DateValue, ID, Page, PropertyValue } from '../../store/types'
-import { markdownToDoc, readableContent } from '../../editor'
+import { readableContent } from '../../editor'
+import { claudeDoc } from '../ai/claudeDoc'
 import { navigate, parseHash } from '../../lib/router'
 import { aiWrite } from '../history/snapshots'
 import { t } from '../../i18n'
@@ -73,7 +74,8 @@ export function gitSummary(g: GitInfo): string {
 /* ------------------------------------------------------------------ page content (origin 'coding') */
 
 const para = (s: string): JSONContent => (s ? { type: 'paragraph', content: [{ type: 'text', text: s }] } : { type: 'paragraph' })
-const blocksOf = (md: string): JSONContent[] => (markdownToDoc(md).content ?? []).filter((b) => b.type !== 'paragraph' || (b.content?.length ?? 0) > 0)
+// what Claude Code wrote (it read the repo — anyone's text): nothing in it loads by itself, web images become links
+const blocksOf = (md: string): JSONContent[] => (claudeDoc(md).content ?? []).filter((b) => b.type !== 'paragraph' || (b.content?.length ?? 0) > 0)
 const docOf = (p: Page): JSONContent[] => [...((p.content?.content as JSONContent[] | undefined) ?? [])]
 const headingText = (b: JSONContent) => (b.content ?? []).map((c) => c.text ?? '').join('').trim().toLowerCase()
 const PLAN_NAMES = () => [t('features.coding.page.plan')].map((s) => s.toLowerCase())
@@ -156,18 +158,26 @@ export async function pickNext(repos: string[], workerName: string): Promise<Tas
     if (!stage) continue
     const go = (st: ResolvedStage) => st.auto || !!local.runNow
     if ((local.state === 'failed' || local.state === 'stopped' || local.state === 'question') && !local.runNow) continue
-    // queue stages the worker takes: on to the next stage
-    for (let hops = 0; stage.kind === 'queue' && go(stage) && hops < pipeline.length; hops++) {
-      const n = nextStage(pipeline, stage)
+    // nothing is written for a task this device may not run (not even the queue hop below)
+    if (!(await isTrusted(row.id))) continue
+    // queue stages the worker takes: on to the next stage (a move of this device: the trust stays)
+    let target = stage
+    for (let hops = 0; target.kind === 'queue' && go(target) && hops < pipeline.length; hops++) {
+      const n = nextStage(pipeline, target)
       if (!n) break
-      moveRow(row.id, props, n.id)
-      stage = n
+      target = n
+    }
+    if (target !== stage) {
+      const to = target.id
+      await keepTrust([row.id], () => moveRow(row.id, props, to))
+      stage = target
     }
     if (stage.kind === 'queue' || stage.kind === 'gate' || stage.kind === 'done' || !go(stage)) continue
-    if (!(await isTrusted(row.id))) continue
-    // claim it
+    // the worker gets exactly the version that was checked (row and pipeline): anything that changed
+    // meanwhile waits a round
     const fresh = ws().pages[row.id]
-    if (!fresh || fresh.trashed) continue
+    if (!fresh || fresh.trashed || ws().databases[dbId] !== db || !(await isTrusted(row.id)) || ws().pages[row.id] !== fresh || ws().databases[dbId] !== db) continue
+    // claim it
     // bookkeeping, not content: no "AI" version for a claim
     set(row.id, props.worker, workerName)
     set(row.id, props.claimed, nowValue())

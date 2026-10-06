@@ -1,0 +1,92 @@
+/**
+ * Coding pipeline in a team workspace: the worker on a device runs only task versions written or confirmed
+ * on THAT device. A task's version covers its repo, branch and stage too — a stage moved past a gate on
+ * another device (here: the same person's second browser, the Coding database is private) waits for
+ * "Confirm on this device"; a move made here keeps the trust. No worker runs: the panel shows the rule.
+ */
+import type { Page } from '@playwright/test'
+import { test, expect, email, signIn, newPerson, openApp, wsEval, waitOnline, createWorkspace } from './fixtures'
+
+const errors: string[] = []
+function watch(p: Page, who: string) {
+  p.on('pageerror', (e) => errors.push(`${who} pageerror: ${e.message}`))
+  p.on('console', (m) => {
+    if (m.type() === 'error') errors.push(`${who} console.error: ${m.text()}`)
+  })
+}
+test.beforeEach(() => {
+  errors.length = 0
+})
+test.afterEach(() => {
+  expect.soft(errors, 'browser errors').toEqual([])
+})
+
+/** Move a task to a stage by its option name (a plain row write, like a board drag). */
+const moveTo = (p: Page, id: string, name: string) =>
+  wsEval(p, (s, a) => {
+    const db = s.databases[s.pages[a.id].databaseId]
+    const stage = db.properties.find((x: { name: string }) => x.name === 'Stage')
+    s.setRowProperty(a.id, stage.id, stage.options.find((o: { name: string }) => o.name === a.name).id)
+  }, { id, name })
+
+const stageOf = (p: Page, id: string) =>
+  wsEval(p, (s, id) => {
+    const page = s.pages[id]
+    if (!page) return null
+    const stage = s.databases[page.databaseId].properties.find((x: { name: string }) => x.name === 'Stage')
+    return (stage.options.find((o: { id: string }) => o.id === page.properties[stage.id])?.name ?? null) as string | null
+  }, id)
+
+test.describe('team cloud — coding tasks', () => {
+  test('a stage moved on another device waits for "Confirm on this device"; a move made here stays trusted', async ({ page: a, context }) => {
+    watch(a, 'ada')
+    const ada = email('ada')
+    await signIn(a, ada)
+    const wsId = await createWorkspace(a, 'Coding team')
+    await openApp(a, wsId)
+    await waitOnline(a)
+
+    // a task made here with New task: trusted on this device
+    await a.evaluate(() => (window.location.hash = '#/coding'))
+    await a.getByTestId('coding-new').click()
+    await a.getByTestId('coding-new-title').fill('Ship the footer')
+    await a.getByTestId('coding-new-repo').fill('website')
+    await a.getByTestId('coding-new-goal').fill('Write footer.txt.')
+    await a.getByTestId('coding-create').click()
+    await expect(a.getByTestId('coding-panel')).toBeVisible()
+    const id = await a.evaluate(() => window.location.hash.replace('#/p/', ''))
+    const box = a.locator('.ctk-box--trust')
+    const panel = a.getByTestId('coding-panel')
+    await expect(a.locator('.ctk-code')).toContainText(/website · Ready/i)
+    await expect(panel).toHaveAttribute('data-trust', 'yes')
+    await expect(box).toHaveCount(0)
+
+    // a move made here (like a board drag): still trusted
+    await moveTo(a, id, 'Approve plan')
+    await expect(a.locator('.ctk-code')).toContainText(/· Approve plan/i)
+    await expect(a.getByTestId('coding-approve')).toBeVisible()
+    await expect(panel).toHaveAttribute('data-trust', 'yes')
+    await expect(box).toHaveCount(0)
+
+    // the same person's second browser moves it past the gate, straight to Ship
+    const b = await newPerson(context)
+    watch(b, 'ada-2')
+    await signIn(b, ada)
+    await openApp(b, wsId)
+    await waitOnline(b)
+    await expect.poll(() => stageOf(b, id), { timeout: 20_000 }).toBe('Approve plan')
+    await moveTo(b, id, 'Ship')
+
+    // here: the change came from the server — the worker on this device would not take it
+    await expect.poll(() => stageOf(a, id), { timeout: 20_000 }).toBe('Ship')
+    await expect(panel).toHaveAttribute('data-trust', 'no')
+    await expect(box).toContainText('written or changed on another device')
+    await box.getByRole('button', { name: 'Confirm on this device' }).click()
+    await expect(box).toHaveCount(0)
+    // confirmed versions stay confirmed after a reload
+    await a.reload()
+    await expect(a.locator('.ctk-code')).toContainText(/· Ship/i)
+    await expect(panel).toHaveAttribute('data-trust', 'yes')
+    await expect(box).toHaveCount(0)
+  })
+})

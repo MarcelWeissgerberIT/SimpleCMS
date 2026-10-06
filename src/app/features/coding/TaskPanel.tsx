@@ -55,7 +55,8 @@ export default function TaskPanel({ pageId }: { pageId: ID }) {
   const [tab, setTab] = useState<Tab | null>(null)
   const [rework, setRework] = useState<string | null>(null)
   const [answer, setAnswer] = useState('')
-  const [trusted, setTrusted] = useState(true)
+  /** null while checking */
+  const [trusted, setTrusted] = useState<boolean | null>(null)
   const elapsed = useElapsed(busy?.since ?? null)
   const line = useRef<HTMLOListElement>(null)
   const stageId = ctx?.stage?.id
@@ -70,9 +71,10 @@ export default function TaskPanel({ pageId }: { pageId: ID }) {
     void loadTask(pageId)
   }, [pageId])
 
+  // team: every task; local: a task a custom agent wrote (trust.ts)
   useEffect(() => {
     let live = true
-    if (!team) return setTrusted(true)
+    setTrusted(null)
     void isTrusted(pageId).then((v) => live && setTrusted(v))
     return () => {
       live = false
@@ -106,7 +108,7 @@ export default function TaskPanel({ pageId }: { pageId: ID }) {
   const money = (n: number) => n.toLocaleString(lang === 'de' ? 'de-DE' : 'en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2 })
   const ledState = state === 'running' ? 'on' : state === 'failed' || state === 'stopped' ? 'off' : state === 'done' ? 'ok' : state === 'question' || state === 'gate' ? 'on' : 'ok'
   const canAct = !viewer
-  const needsTrust = team && !trusted
+  const needsTrust = trusted === false
   const runnable = !!stage && stage.kind !== 'gate' && stage.kind !== 'done'
 
   const act = (fn: () => Promise<void>) => () => {
@@ -122,7 +124,7 @@ export default function TaskPanel({ pageId }: { pageId: ID }) {
   ]
 
   return (
-    <section className="ctk" aria-label={t('features.coding.panel.label')} data-state={state} data-testid="coding-panel">
+    <section className="ctk" aria-label={t('features.coding.panel.label')} data-state={state} data-trust={trusted === null ? 'checking' : trusted ? 'yes' : 'no'} data-testid="coding-panel">
       <header className="ctk-head">
         <span className="label ctk-code">
           § {t('features.coding.panel.code')} — {repo ?? t('features.coding.panel.noRepo')} · {stage?.name ?? '—'}
@@ -165,7 +167,7 @@ export default function TaskPanel({ pageId }: { pageId: ID }) {
         {needsTrust && canAct && (
           <div className="ctk-box ctk-box--trust" role="alert">
             <ShieldCheck size={16} strokeWidth={1.75} aria-hidden />
-            <p>{t('features.coding.trust.body')}</p>
+            <p>{t(team ? 'features.coding.trust.body' : 'features.coding.trust.agent')}</p>
             <button type="button" className="btn btn--sm btn--primary" onClick={act(async () => {
               await confirmTask(pageId)
               setTrusted(true)

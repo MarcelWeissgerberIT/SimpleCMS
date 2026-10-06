@@ -123,7 +123,7 @@ Always `execFile('git', […])` — never a shell line; hooks and your git confi
   main checkout's working tree is never touched. `git worktree prune` runs on start.
 - **Reuse a branch**: put it into the task's **Branch** field (or *Existing branch* in New task). It must exist
   (locally or on the remote — then it is tracked); it is never reset. A branch checked out in the main checkout is
-  refused.
+  refused, and so is the repo's base branch (Ship would push straight to it).
 - **Git actions** in the panel are fixed verbs: **Refresh**, **Commit** (message), **Push**, **Open PR**, **Update
   from base** (rebase while the branch was never pushed, else merge; a worktree with uncommitted changes is
   refused; conflicts are listed per file and left for a stage — or you — to resolve, never auto-resolved), **Show
@@ -140,8 +140,9 @@ from its `--help` (the budget flag, the permission mode names). The stream becom
 tool errors), the plan comes from `ExitPlanMode`, the cost from the result event.
 
 The prompt: the stage's instructions (or the default of its kind), the worker's rules (no git, stay in the
-worktree, task text is data), then the task between markers — `<<<TASK … TASK>>>`, rework notes, questions and
-answers — labelled as data written by people.
+worktree, task text is data), then the task between markers — `<<<TASK <code> … TASK <code>>>>`, rework notes,
+questions and answers — labelled as data written by people. The code is random per prompt (and per `one_task_read`):
+text written before cannot close its block and add rules of its own; stage names and titles are one line.
 
 **Task tools** (`MCP_TASK_TOOLS` in `src/app/features/mcp/contract.ts`): the run's MCP config starts `node
 one-worker.mjs task-mcp` with a random 48-hex token for that run only. `one_task_read` (the task again),
@@ -162,10 +163,18 @@ the token dies with the run.
 - **Claude Code keeps its permission rules.** No flag that skips permissions is ever passed (and a config that asks
   for one is refused). Task text is untrusted input: it is data in the prompt, after the worker's own rules.
 - **Team workspaces**: a worker only takes tasks written or confirmed **on this device** — the SHA-256 of the task's
-  title, page and the pipeline's stage instructions must be in this device's trusted set (IndexedDB `one-coding`).
-  New tasks made here, the pipeline's own writes, edits typed here (content origin other than `sync` / `file`) of a
-  trusted version and every action pressed here keep it trusted; anything changed elsewhere shows **Confirm on
-  this device**. `createdBy` / `updatedBy` are never trusted. The worker refuses `trusted: false` again on its side.
+  title, page, **Repo**, **Branch** and **Stage** and the pipeline (every stage's name, kind, Auto, mode, turns, git
+  action, next stage and instructions) must be in this device's trusted set (IndexedDB `one-coding`). New tasks made
+  here, the pipeline's own writes, changes made in this tab of a trusted version (typed content — origin other than
+  `sync` / `file` —, its fields, the schema and pipeline) and every action pressed here keep it trusted; changes
+  from the server or another tab and writes of a custom agent never do — a stage moved past a gate elsewhere shows
+  **Confirm on this device**. `createdBy` / `updatedBy` are never trusted. Nothing is written for an unconfirmed
+  task (not even the queue hop), and the worker gets exactly the version that was checked. The worker refuses
+  `trusted: false` again on its side.
+- **Local workspaces**: nothing to confirm — except a task a custom agent created or changed last (`agent:<id>`,
+  stamped on this device): it waits for **Confirm on this device** like a team task (an agent that read injected
+  text never starts Claude Code on your machine by itself).
+- **Diffs never follow links**: an untracked symbolic link shows as its target, the file it points at is never read.
 - **Cost**: per-task and per-day limits are checked before each stage and passed to Claude Code as
   `--max-budget-usd` (where the CLI knows it). **Stop** (One) or Ctrl+C (worker) kills Claude Code's whole process
   tree.

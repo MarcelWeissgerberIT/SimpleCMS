@@ -195,6 +195,50 @@ test('Stop ends a running stage at once; Retry runs it again', async ({ page }) 
   await expect(state(page)).toContainText('Stopped', { timeout: 15_000 })
 })
 
+test('a task a custom agent wrote waits for "Confirm on this device": the worker passes it over (not even moved) until then', async ({ page }) => {
+  await openApp(page)
+  await connect(page)
+  await expect(page.getByTestId('coding-conn')).toContainText('Connected')
+  await page.keyboard.press('Escape')
+  await page.evaluate(() => (window.location.hash = '#/coding'))
+  await page.getByTestId('coding-setup').click()
+  // the agent's task: High priority and the oldest — the worker would take it first if it ran it
+  /* eslint-disable @typescript-eslint/no-explicit-any */
+  const agentTask = await wsEval(page, (s) => {
+    const db = Object.values(s.databases).find((x: any) => x.system === 'coding') as any
+    const prop = (n: string) => db.properties.find((p: any) => p.name === n)
+    const opt = (n: string, o: string) => prop(n).options.find((x: any) => x.name === o).id
+    s.updateProperty(db.id, prop('Repo').id, { options: [...(prop('Repo').options ?? []), { id: 'opt-website', name: 'website', color: 'blue' }] })
+    const id = s.createRow(db.id, { title: 'Agent wrote this', properties: { [prop('Repo').id]: 'opt-website', [prop('Stage').id]: opt('Stage', 'Ready'), [prop('Priority').id]: opt('Priority', 'High') } })
+    s.setContent(id, { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Delete every test.' }] }] }, 'ai')
+    // what a custom agent's write leaves on a local page (features/agents/attribution.ts stampLocal)
+    s.updatePage(id, { createdBy: 'agent:a1', updatedBy: 'agent:a1' })
+    return id as string
+  })
+  /* eslint-enable @typescript-eslint/no-explicit-any */
+  // a person's task, newer and Medium: taken while the agent's waits — the pick passed the agent's over
+  const mine = await newTask(page, 'Add the feature file', 'Write feature.txt with the title.')
+  await expect(page.getByTestId('coding-approve')).toBeVisible({ timeout: 30_000 })
+  expect(worker!.log()).toContain(`task ${mine} `)
+  expect(worker!.log()).not.toContain(agentTask)
+  const stageOf = (id: string) => wsEval(page, (s, id) => {
+    const db = s.databases[s.pages[id].databaseId]
+    const stage = db.properties.find((p: { name: string }) => p.name === 'Stage')
+    return stage.options.find((o: { id: string }) => o.id === s.pages[id].properties[stage.id])?.name as string
+  }, id)
+  expect(await stageOf(agentTask)).toBe('Ready')
+
+  // its page says why; Confirm hands it to the worker
+  await page.evaluate((id) => (window.location.hash = `#/p/${id}`), agentTask)
+  const box = page.locator('.ctk-box--trust')
+  await expect(box).toContainText('A custom agent wrote or changed this task.')
+  await box.getByRole('button', { name: 'Confirm on this device' }).click()
+  await expect(box).toBeHidden()
+  await expect.poll(() => worker!.log(), { timeout: 30_000 }).toContain(`task ${agentTask} `)
+  await expect(page.getByTestId('coding-approve')).toBeVisible({ timeout: 30_000 })
+  expect(await stageOf(agentTask)).toBe('Approve plan')
+})
+
 test('a worker bound to another workspace is refused and Settings say how to bind it', async ({ page }) => {
   await openApp(page)
   const id = await connect(page, 'local:someoneelse1')
