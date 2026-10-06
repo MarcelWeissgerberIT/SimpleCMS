@@ -125,6 +125,7 @@ export function startTrustWatch(): void {
   if (watching) return
   watching = true
   useWorkspace.subscribe((next, prev) => {
+    if (next.pages === prev.pages && next.databases === prev.databases) return
     const dbId = codingDbId()
     if (!dbId) return
     const dbNow = next.databases[dbId]
