@@ -537,6 +537,10 @@ test.describe('grip menu and ⌘K', () => {
     await expect(panel(page).locator('.ai-chip', { hasText: 'More' })).toBeVisible()
     await expect(panel(page).locator('#ai-row-todb')).toHaveAttribute('aria-selected', 'true')
     await page.keyboard.press('Escape')
+    // Esc hands the caret back to the editor — a frame later when the panel had no focus yet (busy machine):
+    // wait for it, or the blur below comes first and the hand-back puts ⌘K into the editor (a link)
+    await expect(panel(page)).toBeHidden()
+    await expect(ed).toBeFocused()
 
     // ⌘K without a query: commands in groups, no duplicates (from outside the editor: there ⌘K edits a link)
     await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur?.())

@@ -730,8 +730,13 @@ export function SheetBlock({ attrs: raw, update, editable, editor, pageId, inser
 
   const style = (fn: (c: SheetCell) => SheetCell) => {
     op(styleCells(a, sheet.id, areas, fn))
-    // toolbar / menu actions hand the keyboard back to the grid
-    if (!editRef.current) requestAnimationFrame(focusGrid)
+    // toolbar / menu actions hand the keyboard back to the grid — at once (⌘B pressed right after a menu
+    // pick on a busy machine came before the next frame and went nowhere), and again a frame later in case
+    // the closing menu took it
+    if (!editRef.current) {
+      focusGrid()
+      requestAnimationFrame(focusGrid)
+    }
   }
   const toggle = (key: 'b' | 'i') => {
     const on = !activeCell?.[key]
