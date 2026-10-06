@@ -263,6 +263,7 @@ export {
  *  - tableToChartData(values, spec?) · openChartBuilder({ initial?, source?, allowedSources?, onSave, inline? … })
  *  - chartToSvg(spec, data, { width, theme }) · chartDomSpec · chartMarkdown · freezeCharts(doc) (exports, shares)
  *  - normalizeSpec(raw) (untrusted JSON → ChartSpec | null) · downloads (PNG / SVG) · copyChartTsv · demoCharts()
+ *  - openChartViewer(spec, data?, { from? }): the chart large in the diagram viewer (zoom, pan, minimap, SVG)
  */
 export {
   ChartRenderer,
@@ -288,6 +289,7 @@ export {
   downloadChartSvg,
   copyChartTsv,
   demoCharts,
+  openChartViewer,
   CHART_KINDS,
   CHART_NODE,
   type ChartKind,

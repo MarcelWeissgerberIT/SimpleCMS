@@ -3,7 +3,7 @@ id: charts
 title: Charts
 section: calculate
 order: 3
-keywords: chart, graph, bar, line, donut, kpi, sparkline, scatter, visualize, plot, Diagramm, Grafik, Balken, Linie
+keywords: chart, graph, bar, line, donut, kpi, sparkline, scatter, visualize, plot, Diagramm, Grafik, Balken, Linie, zoom, minimap, open large, viewer
 related: spreadsheets, views, databases, ai-menu
 summary: Bar, line, donut, KPI and more — from a spreadsheet, a database or your workspace.
 ---
@@ -23,6 +23,15 @@ Numbers already written in the text? Select them → **Ask AI** → **Transform 
 
 ## Inside a spreadsheet
 Select a range and click **Chart** in the spreadsheet toolbar. A sheet's chart can be **Placed as block below**.
+
+## Open large, zoom, minimap
+**Open large** — the ↗ key on a chart or a Mermaid diagram, its block menu or a double-click on the drawing — shows it across the screen, sharp at every size:
+- **Zoom:** <kbd>+</kbd> <kbd>−</kbd>, <kbd>Ctrl</kbd> / <kbd>⌘</kbd> + wheel or a pinch (around the pointer), a double-click (<kbd>Shift</kbd> = out). <kbd>0</kbd> fits it into the window, <kbd>1</kbd> shows it at 100 %.
+- **Move:** drag, the wheel or the arrow keys (<kbd>Shift</kbd> = bigger steps).
+- **Minimap:** bottom right while the drawing is larger than the window — click a spot or drag the orange frame to go there; <kbd>M</kbd> hides and shows it.
+- **Download SVG** saves the drawing; <kbd>Esc</kbd> closes.
+
+A diagram the page column shrinks says so in its corner — **Scaled 45 % · Open**. A database's **Chart** view and a spreadsheet's charts open large too.
 
 ## Out
 The chart menu: **Download PNG**, **Download SVG**, **Copy data as TSV**, **Open the source**. A database also has a **Chart** view.

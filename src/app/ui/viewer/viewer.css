@@ -1,0 +1,386 @@
+/* ---------- Diagram viewer (ui/viewer): a drafting table under the diagram, keys on top, minimap ---------- */
+.modal-scrim:has(> .modal.dv-modal) {
+  place-items: center;
+  padding: 16px;
+}
+
+.modal.dv-modal {
+  width: calc(100vw - 32px);
+  height: calc(100vh - 32px);
+  height: calc(100dvh - 32px);
+  max-height: none;
+}
+
+.dv {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  height: 100%;
+  min-height: 0;
+}
+
+/* ---------- head: spec plate · title · keys · close ---------- */
+.dv__head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 48px;
+  padding: 8px 8px 8px 16px;
+  border-bottom: 1px solid var(--rule);
+}
+
+.dv__id {
+  display: flex;
+  flex: 1;
+  align-items: baseline;
+  gap: 12px;
+  min-width: 0;
+}
+
+.dv__plate {
+  flex: none;
+  white-space: nowrap;
+}
+
+.dv__title {
+  overflow: hidden;
+  min-width: 0;
+  font-size: var(--text-md);
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dv__tools {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.dv__zoom {
+  display: inline-flex;
+  align-items: center;
+  height: 30px;
+  margin-right: 4px;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius-1);
+}
+
+.dv__readout {
+  display: inline-flex;
+  white-space: nowrap;
+  align-items: center;
+  justify-content: center;
+  align-self: stretch;
+  min-width: 96px;
+  padding: 0 8px;
+  border-right: 1px solid var(--rule);
+  border-left: 1px solid var(--rule);
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+
+.dv__key {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-width: 28px;
+  height: 28px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: var(--radius-1);
+  background: transparent;
+  color: var(--ink-2);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  white-space: nowrap;
+  transition:
+    background var(--dur-1) var(--ease-out),
+    color var(--dur-1) var(--ease-out),
+    transform var(--dur-1) var(--ease-out);
+}
+
+.dv__zoom .dv__key {
+  height: 28px;
+  padding: 0;
+}
+
+.dv__key svg {
+  flex: none;
+}
+
+.dv__key:hover {
+  background: var(--hover);
+  color: var(--ink);
+}
+
+.dv__key:active {
+  transform: translateY(1px);
+}
+
+.dv__key[aria-pressed='true'] {
+  background: var(--signal-wash);
+  color: var(--signal-ink);
+}
+
+.dv__key:disabled {
+  opacity: 0.4;
+  pointer-events: none;
+}
+
+.dv__key--text {
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+}
+
+.dv__close {
+  margin-left: 4px;
+}
+
+/* ---------- the canvas: a sheet on a dotted drafting table, the dots move with the drawing ---------- */
+.dv__stage {
+  position: relative;
+  overflow: hidden;
+  background-color: var(--bg);
+  background-image: radial-gradient(circle, var(--rule-strong) 1px, transparent 1.5px);
+  background-size: 24px 24px;
+  cursor: grab;
+  overscroll-behavior: contain;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.dv__stage:focus-visible {
+  box-shadow: none;
+}
+
+/* the focus ring above the drawing (an inset shadow would sit under it) */
+.dv__stage:focus-visible::after {
+  content: '';
+  position: absolute;
+  z-index: 2;
+  inset: 0;
+  box-shadow: inset 0 0 0 2px var(--signal);
+  pointer-events: none;
+}
+
+.dv__stage.is-dragging,
+.dv__stage.is-space.is-dragging {
+  cursor: grabbing;
+}
+
+.dv__content {
+  position: absolute;
+  top: 0;
+  left: 0;
+  background: var(--surface);
+  box-shadow: 0 0 0 1px var(--rule-strong);
+  transform-origin: 0 0;
+}
+
+.dv__content[hidden] {
+  display: none;
+}
+
+.dv__state {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+}
+
+.dv__error {
+  display: grid;
+  gap: 8px;
+  max-width: min(560px, calc(100% - 32px));
+  padding: 12px 14px;
+  border: 1px solid var(--c-red-bg);
+  border-radius: var(--radius-2);
+  background: var(--surface);
+  cursor: default;
+}
+
+.dv__error .label {
+  color: var(--c-red-text);
+}
+
+.dv__error pre {
+  margin: 0;
+  color: var(--ink-2);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  white-space: pre-wrap;
+}
+
+/* ---------- the SVG (Mermaid's labels need the metrics they were measured with) ---------- */
+.dv-svg {
+  color: var(--ink);
+  font-size: var(--text-md);
+  line-height: 1.5;
+  white-space: normal;
+  overflow-wrap: normal;
+}
+
+.dv-svg :is(p, div, span) {
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+}
+
+.dv-svg foreignObject :is(p, div, span) {
+  line-height: 1.125;
+}
+
+.dv-svg foreignObject {
+  overflow: visible;
+}
+
+/* Mermaid uses class="label" internally — not the app's micro-type */
+.dv-svg .label {
+  color: inherit;
+  font-family: inherit;
+  font-size: inherit;
+  font-weight: inherit;
+  letter-spacing: normal;
+  text-transform: none;
+}
+
+.dv-svg--mermaid svg :is(rect, polygon, path, circle, ellipse, g) {
+  filter: none !important;
+}
+
+/* ---------- minimap ---------- */
+.dv-mini {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  display: grid;
+  place-items: center;
+  min-width: 64px;
+  min-height: 48px;
+  padding: 6px;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius-2);
+  background: var(--surface);
+  box-shadow: var(--shadow-1);
+  cursor: pointer;
+  touch-action: none;
+}
+
+.dv-mini[hidden] {
+  display: none;
+}
+
+.dv-mini__map {
+  position: relative;
+}
+
+.dv-mini__svg {
+  pointer-events: none;
+}
+
+.dv-mini__view {
+  position: absolute;
+  box-sizing: border-box;
+  border: 1.5px solid var(--signal);
+  border-radius: 1px;
+  background: var(--signal-wash);
+  cursor: grab;
+}
+
+/* ---------- foot: the keys ---------- */
+.dv__foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 18px;
+  padding: 8px 16px;
+  border-top: 1px solid var(--rule);
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+}
+
+.dv__foot .kbd {
+  margin-right: 2px;
+}
+
+.dv__hint {
+  margin-left: auto;
+}
+
+@media (hover: none) {
+  .dv__foot {
+    display: none;
+  }
+}
+
+/* ---------- phone: the whole screen, keys in a row of their own, big targets ---------- */
+@media (max-width: 640px) {
+  .modal-scrim:has(> .modal.dv-modal) {
+    padding: 0;
+  }
+
+  .modal.dv-modal {
+    width: 100vw;
+    height: 100vh;
+    height: 100dvh;
+    border-radius: 0;
+  }
+
+  .dv__head {
+    flex-wrap: wrap;
+    gap: 6px;
+    padding: 6px 6px 6px 12px;
+  }
+
+  .dv__id {
+    flex-direction: column;
+    gap: 0;
+  }
+
+  .dv__tools {
+    order: 3;
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .dv__key {
+    min-width: 40px;
+    height: 40px;
+  }
+
+  .dv__zoom {
+    height: 42px;
+  }
+
+  .dv__zoom .dv__key {
+    width: 40px;
+    height: 40px;
+  }
+
+  .dv__readout {
+    min-width: 0;
+    padding: 0 6px;
+  }
+
+  .dv__key--text {
+    padding: 0 6px;
+  }
+
+  /* icons only — the tooltips and accessible names keep the words */
+  .dv__key-word {
+    display: none;
+  }
+
+  .dv-mini {
+    right: 8px;
+    bottom: 8px;
+  }
+
+  .dv__foot {
+    display: none;
+  }
+}

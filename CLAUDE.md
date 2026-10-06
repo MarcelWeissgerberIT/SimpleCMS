@@ -231,6 +231,10 @@ the public APIs stable — other areas are built against them in parallel.
   Discover (`#/discover`, shell/discover/cards.ts): "Try it" keys go through help `runTry` + the `CHANGELOG_TRIES`
   allow-list; shell actions register with `registerTry`. AI menu: `TOP_ACTIONS` per selection type + "More …"; row ids
   `ai-row-<id>` stay stable; `openAIPanel()` is the only way to open the AI menu from outside the editor.
+- Diagram viewer (ui/viewer): `openDiagramViewer(source, { from })` with a `ViewerSource` { kind 'diagram' | 'chart', type,
+  title, render(stage) → SVG markup, themed, fileName } — vector SVG, zoom / pan / minimap / Download SVG; Mermaid via
+  `openMermaidViewer(code)` (editor/lib/mermaid.ts), charts via `openChartViewer(spec, data?)` (features/charts, drawn again
+  for the canvas). Never opened from a presentation or a popover (`VIEWER_OFF` / `useViewerAllowed`).
 - What's new (src/app/help/changelog): every user-visible release adds an entry EN + DE with a real screenshot
   (changelog/README.md, `scripts/changelog-shots.mjs`); the build fails without a twin or an image.
 - Building blocks (store/kit.ts, features/kit): `Workspace.kit` = { lists, propTypes, recordTypes } — write only with

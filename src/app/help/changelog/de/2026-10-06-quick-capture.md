@@ -1,7 +1,7 @@
 ---
 id: 2026-10-06-quick-capture
 date: 2026-10-06
-order: 6
+order: 7
 title: Schnell erfassen, an One teilen, One installieren
 summary: Ein Gedanke, eine Sprachnotiz, ein Foto oder eine geteilte Datei — in Sekunden in One, am Handy und am Computer.
 image: assets/shots/changelog/quick-capture.webp
