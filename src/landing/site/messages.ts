@@ -11,6 +11,7 @@ export const messages: Messages = {
     'skip': 'Skip to content',
 
     'nav.label': 'Sections',
+    'nav.review': 'Claude',
     'nav.savings': 'Savings',
     'nav.features': 'Features',
     'nav.mcp': 'MCP',
@@ -27,6 +28,7 @@ export const messages: Messages = {
     'dial.label': 'Section dial — jump to a section',
 
     'sec.hero': 'Notion, rebuilt',
+    'sec.review': 'Claude · Review',
     'sec.savings': 'Savings',
     'sec.features': 'Features',
     'sec.mcp': 'Agents · MCP',
@@ -41,7 +43,12 @@ export const messages: Messages = {
     'hero.h1': 'Notion, rebuilt.',
     'hero.h2': 'Minus the bill.',
     'hero.sub':
-      'Block editor, databases with nine views, spreadsheets and charts, forms, Claude on your own key, agents that work on a schedule, automations into n8n — and one export to a website. Free, local-first, no account: it all runs in this browser tab.',
+      'Block editor, databases with nine views, spreadsheets, scripts and charts, Gmail as a database, Claude on your own key that asks before it changes, agents on a schedule, automations into n8n — and one export to a website. Free, local-first, no account: it all runs in this browser tab.',
+    'hero.tour': 'Watch the tour',
+    'hero.tourMeta': '60 s · sound on',
+    'tour.title': 'SimpleCMS One — the 60-second tour',
+    'tour.close': 'Close',
+    'tour.note': 'Recorded in the real app · Claude’s answers are scripted for the recording',
     'hero.cta': 'Open the workspace',
     'hero.import': 'Import from Notion',
     'hero.fine': 'No sign-up · No card · No catch',
@@ -64,7 +71,25 @@ export const messages: Messages = {
     'readout.trackers': 'Trackers',
     'readout.pages': 'Pages',
 
-    'savings.label': '§ 01 — Savings',
+    'review.label': '§ 01 — Claude · Review',
+    'review.title': 'Claude asks\nbefore it changes.',
+    'review.lead':
+      'Claude drafts, you decide. Edits, memories and script runs land on a review plate first — word by word, with the numbers. Nothing is written until you say yes, and a version is kept before anything is.',
+    'review.gate': 'Review gate',
+    'review.checks': '{n} checks',
+    'review.keys': 'Review gate — the four checks',
+    'review.chain': 'Signal path of a change',
+    'review.s1': 'Proposed',
+    'review.s2': 'Reviewed',
+    'review.s3': 'Applied',
+    'review.s4': 'Versioned',
+    'review.manual': 'Manual',
+    'review.help.edit': 'AI terminal',
+    'review.help.memory': 'One memory',
+    'review.help.dryrun': 'One Script',
+    'review.help.history': 'Version history',
+
+    'savings.label': '§ 02 — Savings',
     'savings.title': 'Do the math.',
     'savings.lead': 'Pick a team size and a Notion plan. The printer does the rest.',
     'savings.team': 'Team size',
@@ -107,8 +132,8 @@ export const messages: Messages = {
     'r.thanks': 'Thank you for not subscribing',
     'r.paid': 'Nothing to pay',
 
-    'features.label': '§ 02 — Features',
-    'features.title': 'Twenty‑four things it does.\nZero add‑ons.',
+    'features.label': '§ 03 — Features',
+    'features.title': 'Thirty things it does.\nZero add‑ons.',
     'features.lead': 'Everything below ships in the free workspace — no plan, no add-on, no upsell.',
     'features.g.write': 'Write',
     'features.g.organise': 'Organise',
@@ -118,11 +143,11 @@ export const messages: Messages = {
     'features.g.delegate': 'Delegate',
     'features.extras': 'Also in the box',
 
-    'mcp.label': '§ 03 — Agents · MCP',
+    'mcp.label': '§ 04 — Agents · MCP',
     'mcp.title': 'One speaks MCP.\nBoth ways.',
     'mcp.lead':
       'Claude Desktop, Claude Code or any MCP client can search, read and write your workspace — changes wait for your approval if you want. And Claude inside One uses your MCP servers: a knowledge base, a tracker, a CRM.',
-    'mcp.ports': 'Plate 3.1 — Two ports',
+    'mcp.ports': 'Plate 4.1 — Two ports',
     'mcp.portsMeta': 'MCP · in + out',
     'mcp.in': 'In',
     'mcp.out': 'Out',
@@ -171,7 +196,7 @@ export const messages: Messages = {
     'mcp.liveNote': 'Everyone sees it at once',
     'mcp.alt':
       'Diagram, lane A: Claude Desktop talks to the one-mcp bridge over stdio; the bridge talks to the One tab over a WebSocket on localhost; the tab asks you to approve a change and writes IndexedDB. Lane B: any MCP client calls POST /mcp on your team server over HTTPS with an API token; the server writes the live workspace.',
-    'mcp.fig': 'Schematic 3.2 — Port in, wired',
+    'mcp.fig': 'Schematic 4.2 — Port in, wired',
     'mcp.figMeta': 'Tools: {n}',
     'mcp.modes': 'Agent changes · local bridge',
     'mcp.mode.ask': 'Ask first',
@@ -207,7 +232,7 @@ export const messages: Messages = {
     'mcp.copiedLive': '{what} copied to the clipboard',
     'mcp.guide': 'MCP guide',
 
-    'agents.label': '3.3 — Custom agents',
+    'agents.label': '4.3 — Custom agents',
     'agents.title': 'Agents that work on their own.',
     'agents.text':
       'A job in plain words, a trigger and a budget. An agent runs on a schedule or when a row arrives — a form answer, a synced mail — uses your workspace and your MCP servers, and reports back. Its changes wait for your review.',
@@ -231,12 +256,12 @@ export const messages: Messages = {
     'agents.v.budget': '$0.50 per run',
     'agents.k.runs': 'Runs where',
     'agents.v.runs': 'Browser · or the team server, 24/7',
-    'agents.fig': 'Fig. 3.3 — A real run: two proposals wait for review',
+    'agents.fig': 'Fig. 4.3 — A real run: two proposals wait for review',
 
-    'deep.label': '§ 04 — Up close',
-    'deep.title': 'Five closer looks.',
+    'deep.label': '§ 05 — Up close',
+    'deep.title': 'Seven closer looks.',
 
-    'compare.label': '§ 05 — Compare',
+    'compare.label': '§ 06 — Compare',
     'compare.title': 'Notion vs. One.\nThe spec sheet.',
     'compare.lead':
       'Notion is excellent at real-time teamwork — ours is still in development. One is for people who would rather own their work. We marked our own gaps, too.',
@@ -248,7 +273,7 @@ export const messages: Messages = {
     'compare.partial': 'Partial',
     'compare.asOf': 'Facts as of {asOf}. Sources: notion.com/pricing, notion.com/help.',
 
-    'privacy.label': '§ 06 — Data flow',
+    'privacy.label': '§ 07 — Data flow',
     'privacy.title': 'Where your data goes.',
     'privacy.lead': 'Short answer: nowhere. Long answer: see the schematic.',
     'privacy.browser': 'Your browser',
@@ -272,7 +297,7 @@ export const messages: Messages = {
     'privacy.p3': 'Automations, forms and buttons post only to endpoints you enter yourself. Gmail is read straight from Google.',
     'privacy.p4': 'No analytics, no cookies banner — because there are no cookies.',
 
-    'own.label': '§ 07 — Own it · Cloud',
+    'own.label': '§ 08 — Own it · Cloud',
     'own.title': 'Own the whole thing.',
     'own.lead':
       'Local stays free, forever. The team cloud is in development — and its server already runs on hardware you control.',
@@ -302,7 +327,7 @@ export const messages: Messages = {
     'own.source': 'Read the source',
     'own.guide': 'Self-hosting guide',
 
-    'faq.label': '§ 08 — FAQ',
+    'faq.label': '§ 09 — FAQ',
     'faq.title': 'The fine print, in large type.',
 
     'footer.end': 'End of document',
@@ -329,6 +354,7 @@ export const messages: Messages = {
     'skip': 'Zum Inhalt springen',
 
     'nav.label': 'Abschnitte',
+    'nav.review': 'Claude',
     'nav.savings': 'Ersparnis',
     'nav.features': 'Funktionen',
     'nav.mcp': 'MCP',
@@ -345,6 +371,7 @@ export const messages: Messages = {
     'dial.label': 'Abschnittsskala — zu einem Abschnitt springen',
 
     'sec.hero': 'Notion, neu gebaut',
+    'sec.review': 'Claude · Prüfung',
     'sec.savings': 'Ersparnis',
     'sec.features': 'Funktionen',
     'sec.mcp': 'Agenten · MCP',
@@ -359,7 +386,12 @@ export const messages: Messages = {
     'hero.h1': 'Notion, neu gebaut.',
     'hero.h2': 'Ohne Abo.',
     'hero.sub':
-      'Block-Editor, Datenbanken mit neun Ansichten, Tabellenkalkulation und Diagramme, Formulare, Claude mit eigenem Schlüssel, Agenten, die nach Zeitplan arbeiten, Automationen nach n8n — und ein Export zur fertigen Website. Kostenlos, local-first, ohne Konto: Alles läuft in diesem Browser-Tab.',
+      'Block-Editor, Datenbanken mit neun Ansichten, Tabellenkalkulation, Skripte und Diagramme, Gmail als Datenbank, Claude mit eigenem Schlüssel, das fragt, bevor es ändert, Agenten nach Zeitplan, Automationen nach n8n — und ein Export zur fertigen Website. Kostenlos, local-first, ohne Konto: Alles läuft in diesem Browser-Tab.',
+    'hero.tour': 'Die Tour ansehen',
+    'hero.tourMeta': '60 s · mit Ton (Englisch)',
+    'tour.title': 'SimpleCMS One — die 60-Sekunden-Tour',
+    'tour.close': 'Schließen',
+    'tour.note': 'Aufgenommen in der echten App · Claudes Antworten sind für die Aufnahme vorbereitet',
     'hero.cta': 'Workspace öffnen',
     'hero.import': 'Aus Notion importieren',
     'hero.fine': 'Keine Anmeldung · Keine Karte · Kein Haken',
@@ -382,7 +414,25 @@ export const messages: Messages = {
     'readout.trackers': 'Tracker',
     'readout.pages': 'Seiten',
 
-    'savings.label': '§ 01 — Ersparnis',
+    'review.label': '§ 01 — Claude · Prüfung',
+    'review.title': 'Claude fragt,\nbevor es ändert.',
+    'review.lead':
+      'Claude entwirft, du entscheidest. Änderungen, Erinnerungen und Skript-Läufe landen erst auf einer Prüfplatte — Wort für Wort, mit den Zahlen. Geschrieben wird erst nach deinem Ja, und vorher wird eine Version gesichert.',
+    'review.gate': 'Prüfstelle',
+    'review.checks': '{n} Prüfungen',
+    'review.keys': 'Prüfstelle — die vier Prüfungen',
+    'review.chain': 'Signalweg einer Änderung',
+    'review.s1': 'Vorgeschlagen',
+    'review.s2': 'Geprüft',
+    'review.s3': 'Übernommen',
+    'review.s4': 'Versioniert',
+    'review.manual': 'Handbuch',
+    'review.help.edit': 'KI-Terminal',
+    'review.help.memory': 'One-Gedächtnis',
+    'review.help.dryrun': 'One Script',
+    'review.help.history': 'Versionsverlauf',
+
+    'savings.label': '§ 02 — Ersparnis',
     'savings.title': 'Rechne nach.',
     'savings.lead': 'Teamgröße und Notion-Tarif wählen. Den Rest erledigt der Drucker.',
     'savings.team': 'Teamgröße',
@@ -424,8 +474,8 @@ export const messages: Messages = {
     'r.thanks': 'Danke, dass du nicht abonnierst',
     'r.paid': 'Nichts zu zahlen',
 
-    'features.label': '§ 02 — Funktionen',
-    'features.title': 'Vierund\u00adzwanzig Funktionen.\nNull Add‑ons.',
+    'features.label': '§ 03 — Funktionen',
+    'features.title': 'Dreißig Funktionen.\nNull Add‑ons.',
     'features.lead': 'Alles hier steckt im kostenlosen Workspace — kein Tarif, kein Add-on, kein Upsell.',
     'features.g.write': 'Schreiben',
     'features.g.organise': 'Ordnen',
@@ -435,11 +485,11 @@ export const messages: Messages = {
     'features.g.delegate': 'Delegieren',
     'features.extras': 'Außerdem dabei',
 
-    'mcp.label': '§ 03 — Agenten · MCP',
+    'mcp.label': '§ 04 — Agenten · MCP',
     'mcp.title': 'One spricht MCP.\nIn beide Richtungen.',
     'mcp.lead':
       'Claude Desktop, Claude Code oder jeder andere MCP-Client kann deinen Workspace durchsuchen, lesen und beschreiben — Änderungen warten auf deine Freigabe, wenn du willst. Und Claude in One nutzt deine MCP-Server: eine Wissensdatenbank, einen Tracker, ein CRM.',
-    'mcp.ports': 'Tafel 3.1 — Zwei Anschlüsse',
+    'mcp.ports': 'Tafel 4.1 — Zwei Anschlüsse',
     'mcp.portsMeta': 'MCP · rein + raus',
     'mcp.in': 'Eingang',
     'mcp.out': 'Ausgang',
@@ -488,7 +538,7 @@ export const messages: Messages = {
     'mcp.liveNote': 'Alle sehen es sofort',
     'mcp.alt':
       'Diagramm, Spur A: Claude Desktop spricht über stdio mit der Brücke one-mcp; die Brücke spricht über einen WebSocket auf localhost mit dem One-Tab; der Tab fragt dich nach der Freigabe einer Änderung und schreibt in die IndexedDB. Spur B: ein beliebiger MCP-Client ruft über HTTPS mit einem API-Token POST /mcp auf deinem Team-Server auf; der Server schreibt in den Live-Workspace.',
-    'mcp.fig': 'Schaltplan 3.2 — Eingang, verdrahtet',
+    'mcp.fig': 'Schaltplan 4.2 — Eingang, verdrahtet',
     'mcp.figMeta': 'Werkzeuge: {n}',
     'mcp.modes': 'Agenten-Änderungen · lokale Brücke',
     'mcp.mode.ask': 'Erst fragen',
@@ -524,7 +574,7 @@ export const messages: Messages = {
     'mcp.copiedLive': '{what} in die Zwischenablage kopiert',
     'mcp.guide': 'MCP-Anleitung',
 
-    'agents.label': '3.3 — Eigene Agenten',
+    'agents.label': '4.3 — Eigene Agenten',
     'agents.title': 'Agenten, die von selbst arbeiten.',
     'agents.text':
       'Ein Auftrag in Worten, ein Auslöser und ein Budget. Ein Agent läuft nach Zeitplan oder wenn eine Zeile ankommt — eine Formularantwort, eine synchronisierte Mail —, nutzt deinen Workspace und deine MCP-Server und berichtet. Seine Änderungen warten auf deine Prüfung.',
@@ -548,12 +598,12 @@ export const messages: Messages = {
     'agents.v.budget': '0,50 $ pro Lauf',
     'agents.k.runs': 'Läuft wo',
     'agents.v.runs': 'Browser · oder Team-Server, rund um die Uhr',
-    'agents.fig': 'Abb. 3.3 — Ein echter Lauf: zwei Vorschläge warten auf Prüfung',
+    'agents.fig': 'Abb. 4.3 — Ein echter Lauf: zwei Vorschläge warten auf Prüfung',
 
-    'deep.label': '§ 04 — Im Detail',
-    'deep.title': 'Fünf genauere Blicke.',
+    'deep.label': '§ 05 — Im Detail',
+    'deep.title': 'Sieben genauere Blicke.',
 
-    'compare.label': '§ 05 — Vergleich',
+    'compare.label': '§ 06 — Vergleich',
     'compare.title': 'Notion vs. One.\nDas Datenblatt.',
     'compare.lead':
       'Notion ist stark bei Teamarbeit in Echtzeit — unsere ist noch in Entwicklung. One ist für alle, die ihre Arbeit lieber selbst besitzen. Unsere eigenen Lücken haben wir auch markiert.',
@@ -565,7 +615,7 @@ export const messages: Messages = {
     'compare.partial': 'Teilweise',
     'compare.asOf': 'Stand {asOf}. Quellen: notion.com/pricing, notion.com/help.',
 
-    'privacy.label': '§ 06 — Datenfluss',
+    'privacy.label': '§ 07 — Datenfluss',
     'privacy.title': 'Wohin deine Daten gehen.',
     'privacy.lead': 'Kurze Antwort: nirgendwohin. Lange Antwort: siehe Schaltplan.',
     'privacy.browser': 'Dein Browser',
@@ -589,7 +639,7 @@ export const messages: Messages = {
     'privacy.p3': 'Automationen, Formulare und Buttons senden nur an Endpunkte, die du selbst einträgst. Gmail wird direkt bei Google gelesen.',
     'privacy.p4': 'Keine Analytics, kein Cookie-Banner — weil es keine Cookies gibt.',
 
-    'own.label': '§ 07 — Selbst hosten · Cloud',
+    'own.label': '§ 08 — Selbst hosten · Cloud',
     'own.title': 'Gehört komplett dir.',
     'own.lead':
       'Lokal bleibt kostenlos, für immer. Die Team-Cloud ist in Entwicklung — und ihr Server läuft schon heute auf Hardware, die du kontrollierst.',
@@ -619,7 +669,7 @@ export const messages: Messages = {
     'own.source': 'Quellcode lesen',
     'own.guide': 'Anleitung zum Selbst-Hosten',
 
-    'faq.label': '§ 08 — FAQ',
+    'faq.label': '§ 09 — FAQ',
     'faq.title': 'Das Klein\u00adgedruckte, ganz groß.',
 
     'footer.end': 'Ende des Dokuments',
@@ -672,6 +722,12 @@ export type FeatureKey =
   | 'agent'
   | 'mcpTools'
   | 'mail'
+  | 'transform'
+  | 'meeting'
+  | 'script'
+  | 'commands'
+  | 'files'
+  | 'memory'
 
 export type FeatureGroup = 'write' | 'organise' | 'calculate' | 'automate' | 'publish' | 'delegate'
 
@@ -694,8 +750,21 @@ export interface DeepShot {
   fig: string
 }
 
+/** § 01: one check of the review gate — a key on the left, its screenshot in the frame. */
+export interface ReviewStep {
+  key: 'edit' | 'memory' | 'dryrun' | 'history'
+  title: string
+  text: string
+  /** Mono spec line under the text ("AI terminal · ⌘J"). */
+  spec: string
+  /** File in public/assets/shots (without extension). */
+  shot: string
+  /** Figure caption, doubles as the image's alt text. */
+  fig: string
+}
+
 export interface DeepDive {
-  key: 'database' | 'ai' | 'automations' | 'website' | 'import'
+  key: 'database' | 'ai' | 'script' | 'mail' | 'automations' | 'website' | 'import'
   title: string
   text: string
   specs: string[]
@@ -724,10 +793,12 @@ export interface McpTool {
 }
 
 export interface SiteContent {
+  /** § 01: the four checks between Claude and your workspace. */
+  review: ReviewStep[]
   features: Feature[]
   /** Smaller things, listed as one line of tags under the placards. */
   extras: string[]
-  /** § 03: the MCP tool table. */
+  /** § 04: the MCP tool table. */
   mcpTools: McpTool[]
   deep: DeepDive[]
   compare: CompareRow[]
@@ -736,31 +807,71 @@ export interface SiteContent {
 
 export const content: Record<Lang, SiteContent> = {
   en: {
+    review: [
+      {
+        key: 'edit',
+        title: 'Edits, word by word',
+        text: 'Give the AI terminal a task. Every change to a page waits as a proposal: struck words, new words, removed blocks. Apply one, apply all, or discard.',
+        spec: 'AI terminal · ⌘J',
+        shot: 'review-edit',
+        fig: 'Fig. 1.1a — Three edits staged; the first one word by word',
+      },
+      {
+        key: 'memory',
+        title: 'Memory, only with your yes',
+        text: 'After a task Claude proposes what is worth keeping. y saves, n dismisses. The memory is a database in your workspace — read it, edit it, switch it off.',
+        spec: 'One memory · y / n',
+        shot: 'review-memory',
+        fig: 'Fig. 1.1b — “Remember? · 2”: two proposals after a task',
+      },
+      {
+        key: 'dryrun',
+        title: 'Scripts, dry run first',
+        text: 'One Script lists every entry a run would change and every mail it would send — and changes nothing. The real run asks once more.',
+        spec: 'One Script · dry run',
+        shot: 'review-dryrun',
+        fig: 'Fig. 1.1c — Dry run: two entries and one mail, nothing written',
+      },
+      {
+        key: 'history',
+        title: 'A version before every write',
+        text: 'Before Claude, an agent or a script changes a page, One keeps it as it was — text and properties. Old struck, new marked, one click restores.',
+        spec: 'History · no day limit',
+        shot: 'review-history',
+        fig: 'Fig. 1.1d — An entry’s history: status, priority, progress and text',
+      },
+    ],
     features: [
-      { key: 'editor', group: 'write', code: 'Ed', title: 'Block editor', text: 'Slash menu, drag handles, 2–5 columns, tabs, toggles, synced blocks, PDFs, 20+ embeds, math, Mermaid — and margin comments.' },
-      { key: 'ai', group: 'write', code: 'Ai', title: 'Claude AI, your key', text: 'Write, rewrite, summarise, take meeting notes, ask your whole workspace with cited pages. Your own Anthropic key, paid per use.' },
-      { key: 'history', group: 'write', code: 'Hi', title: 'Version history', text: 'Snapshots of every page with a block-level diff and no day limit. Scroll back, restore, carry on.' },
-      { key: 'graph', group: 'write', code: 'Gr', title: 'Graph & backlinks', text: 'A live map of every link between pages, plus backlinks and unlinked mentions on each one.' },
+      { key: 'editor', group: 'write', code: 'Ed', title: 'Block editor', text: 'Slash menu, one column of grips for every block at any depth, many blocks selected at once, 2–5 columns, tabs, toggles, synced blocks, PDFs, embeds, math, Mermaid.' },
+      { key: 'ai', group: 'write', code: 'Ai', title: 'Claude AI, your key', text: 'Write, rewrite, redo marked passages by your rules, ask your whole workspace with cited pages. Your own Anthropic key, paid per use.' },
+      { key: 'transform', group: 'write', code: 'Tf', title: 'Transform into …', text: 'Select a list or a few paragraphs: Claude turns them into a diagram, a chart, a board, a table, columns or tabs. Preview first, then one step.' },
+      { key: 'meeting', group: 'write', code: 'Mt', title: 'Meeting notes', text: 'A live transcript from the browser’s speech recognition, then summary, decisions and action items by Claude — the items go straight into a database.' },
+      { key: 'history', group: 'write', code: 'Hi', title: 'Version history', text: 'Every page and every database entry, no day limit: words and property values compared side by side. Restore with one click.' },
       { key: 'databases', group: 'organise', code: 'Db', title: 'Databases, 9 views', text: 'Table, board, list, gallery, feed, calendar, timeline, chart and form over the same rows. 22 property types.' },
       { key: 'structure', group: 'organise', code: 'Sb', title: 'Sub-items & dependencies', text: 'Nest tasks, chain them on the timeline and let the dates shift together. Colour rules flag what matters.' },
       { key: 'agenda', group: 'organise', code: 'Ag', title: 'Agenda & inbox', text: 'Every date from every database in one month, week or list view — and reminders that land in your inbox.' },
       { key: 'palette', group: 'organise', code: '⌘K', title: 'Search & ⌘K', text: 'One shortcut finds every page and row and runs every command. Hands stay on the keys.' },
+      { key: 'graph', group: 'organise', code: 'Gr', title: 'Graph & backlinks', text: 'A live map of every link between pages, plus backlinks and unlinked mentions on each one.' },
       { key: 'sheets', group: 'calculate', code: 'Sp', title: 'Spreadsheets in pages', text: 'Several sheets, 75+ functions, cross-sheet references and coloured datasets like DS(A1:A10; C2:C7). Paste from Excel, take it out as CSV.' },
       { key: 'functions', group: 'calculate', code: 'Fx', title: 'Your own functions', text: 'Build MARGIN or SPREAD by clicking a formula tree and test it on sample values. No code — nothing to exploit.' },
       { key: 'charts', group: 'calculate', code: 'Ch', title: 'Charts in three clicks', text: 'Bar, line, area, donut, KPI and more — live from a sheet, a database or the workspace’s own numbers.' },
       { key: 'formulas', group: 'calculate', code: 'Σ', title: 'Formulas & rollups', text: 'Database formulas that can call your functions, rollups across relations — and properties created as you type.' },
-      { key: 'automations', group: 'automate', code: 'Au', title: 'Webhook automations', text: 'When a row is created, changed or deleted: fire a webhook, set a property, notify. Free on every database.' },
+      { key: 'script', group: 'calculate', code: 'Os', title: 'One Script', text: 'A small language for your workspace: queries with a live result, a visual builder, scripts that show a dry run first. No eval anywhere.' },
+      { key: 'automations', group: 'automate', code: 'Au', title: 'Webhook automations', text: 'When a row is created, changed or deleted: fire a webhook, set a property, run a script, notify. Free on every database.' },
       { key: 'forms', group: 'automate', code: 'Fm', title: 'Forms', text: 'Type /form, or turn any database into one — with conditional questions and pages. Shared forms post every answer to your webhook.' },
-      { key: 'buttons', group: 'automate', code: 'Bt', title: 'Buttons', text: 'One click inserts blocks, adds rows, edits properties, opens links or fires a webhook.' },
+      { key: 'buttons', group: 'automate', code: 'Bt', title: 'Buttons', text: 'One click inserts blocks, adds rows, edits properties, opens links, runs a script or fires a webhook.' },
+      { key: 'commands', group: 'automate', code: '⌘', title: 'Database commands', text: 'Every database has a ⌘ key: new entry, a view, CSV, Sync now — and your own commands that run a script, an agent or a set of actions.' },
       { key: 'autofill', group: 'automate', code: 'Af', title: 'AI autofill', text: 'Claude fills a column — summaries, key facts, translations, categories. You review before anything is written.' },
       { key: 'website', group: 'publish', code: 'Ws', title: 'Publish as a website', text: 'Any page becomes a static site with sitemap, RSS and llms.txt. Host it anywhere, own every file.' },
       { key: 'share', group: 'publish', code: 'Sh', title: 'Links with a password', text: 'The page travels inside the link — no server. Add a password and it is encrypted in your browser.' },
       { key: 'import', group: 'publish', code: 'Im', title: 'Import from anywhere', text: 'Notion, Obsidian, Evernote, Trello, HTML, Markdown, CSV. Out again losslessly — or live, as Markdown in a folder or your GitHub repo.' },
+      { key: 'files', group: 'publish', code: 'Fi', title: 'Files into structure', text: 'A PDF invoice becomes a table, a Word file a page, an Excel sheet a database. Word, Excel and CSV are converted right here — nothing sent.' },
       { key: 'clipper', group: 'publish', code: 'Cl', title: 'Web clipper', text: 'Save any web page to your Clippings with a bookmarklet or Android’s share sheet.' },
+      { key: 'agent', group: 'delegate', code: '⌘J', title: 'AI terminal', text: 'Hand it a task in plain words. It plans across pages and databases, edits blocks word by word and waits for your review before anything changes.' },
+      { key: 'memory', group: 'delegate', code: 'Me', title: 'One memory', text: 'Claude keeps what you confirm — facts, preferences, procedures, whole pages as examples — in a database you can read, edit and switch off.' },
       { key: 'customAgents', group: 'delegate', code: 'Ca', title: 'Custom agents', text: 'A job in plain words, a schedule or a trigger, a budget per run. Changes wait for your review — in your browser or 24/7 on your server.' },
-      { key: 'agent', group: 'delegate', code: '⌘J', title: 'Workspace agent', text: 'Hand it a task in plain words. It plans the steps across pages and databases and applies them once you have reviewed them.' },
       { key: 'mcpTools', group: 'delegate', code: 'Mc', title: 'Your MCP servers', text: 'Plug a knowledge base, tracker or CRM into One’s Claude with a URL and a token. Every tool call shows as a chip.' },
-      { key: 'mail', group: 'delegate', code: 'Ml', title: 'Mail as a database', text: 'Gmail, read-only, connected in one click. Each mail becomes a row, linked to its contact, company and conversation; Claude adds category, priority and “needs reply”.' },
+      { key: 'mail', group: 'delegate', code: 'Ml', title: 'Mail as a database', text: 'Gmail in one click, read-only. Every mail becomes a row linked to its contact, company and conversation; attachments load as real blocks.' },
     ],
     mcpTools: [
       { name: 'one_overview', text: 'Workspace at a glance: tree, databases, today' },
@@ -778,31 +889,56 @@ export const content: Record<Lang, SiteContent> = {
       { name: 'one_create_database', write: true, text: 'A new database with a schema' },
       { name: 'one_trash_page', write: true, text: 'To the trash, restorable' },
     ],
-    extras: ['Built-in help · 54 articles', 'Breadcrumbs', 'Databases as sidebar folders', 'Presentation mode', 'Stacked panes', 'Focus mode', '11 templates', 'Daily journal', '@-mentions', 'Block links', 'Offline after the first visit', 'Light & dark', 'English & German'],
+    extras: ['Built-in help · 57 articles', 'Breadcrumbs', 'Databases as sidebar folders', 'Turn blocks into a page', 'Mark what Claude may read', 'Presentation mode', 'Stacked panes', 'Focus mode', '11 templates', 'Daily journal', '@-mentions', 'Block links', 'Offline after the first visit', 'Light & dark', 'English & German'],
     deep: [
       {
         key: 'database',
         title: 'Databases that keep up.',
-        text: 'Rows are real pages. Flip between nine views (a feed among them), nest sub-items and chain tasks on the timeline — move one and everything that waits for it moves too. The Agenda gathers every date in the workspace.',
-        specs: ['9 views · 22 property types', 'Sub-items · dependencies · colour rules', 'Agenda across all databases · .ics'],
-        fig: 'Fig. 4.1 — Databases',
+        text: 'Rows are real pages. Flip between nine views (a feed among them), nest sub-items and chain tasks on the timeline — move one and everything that waits for it moves too. Each database has a ⌘ key with its commands; the Agenda gathers every date in the workspace.',
+        specs: ['9 views · 22 property types', 'Sub-items · dependencies · colour rules', '⌘ commands · Agenda · .ics'],
+        fig: 'Fig. 5.1 — Databases',
         shots: [
-          { shot: 'database', tab: 'Board', fig: 'Fig. 4.1a — Board view, a row in the side peek' },
-          { shot: 'timeline', tab: 'Timeline', fig: 'Fig. 4.1b — Timeline with dependency arrows' },
-          { shot: 'agenda', tab: 'Agenda', fig: 'Fig. 4.1c — Agenda, month view' },
+          { shot: 'database', tab: 'Board', fig: 'Fig. 5.1a — Board view, a row in the side peek' },
+          { shot: 'timeline', tab: 'Timeline', fig: 'Fig. 5.1b — Timeline with dependency arrows' },
+          { shot: 'agenda', tab: 'Agenda', fig: 'Fig. 5.1c — Agenda, month view' },
+          { shot: 'db-commands', tab: 'Commands', fig: 'Fig. 5.1d — The ⌘ key: a database’s commands, one runs a script' },
         ],
       },
       {
         key: 'ai',
         title: 'Claude, on your key.',
-        text: 'Take meeting notes from a live transcript, hand a whole task to the agent (⌘J), rewrite a selection, ask the workspace with cited pages, or let Claude fill a database column. Every change is shown first — nothing is written until you accept it.',
-        specs: ['Key stays on this device', 'Autofill: summaries · key info · translations', 'Pay Anthropic per use — no AI seat'],
-        fig: 'Fig. 4.2 — Claude',
+        text: 'Turn a list into a diagram or a board, take meeting notes from a live transcript, hand a whole task to the AI terminal (⌘J), rewrite a selection or let Claude fill a database column. Every change is shown first — nothing is written until you accept it.',
+        specs: ['Key stays on this device', 'Transform: diagram · chart · board · table', 'Pay Anthropic per use — no AI seat'],
+        fig: 'Fig. 5.2 — Claude',
         shots: [
-          { shot: 'meeting', tab: 'Meetings', fig: 'Fig. 4.2a — Meeting notes from a live transcript' },
-          { shot: 'agent', tab: 'Agent', fig: 'Fig. 4.2b — Agent: every change staged for review' },
-          { shot: 'autofill', tab: 'Autofill', fig: 'Fig. 4.2c — AI autofill, review before writing' },
-          { shot: 'ai', tab: 'Write', fig: 'Fig. 4.2d — AI menu on a selection' },
+          { shot: 'transform', tab: 'Transform', fig: 'Fig. 5.2a — A list → a diagram, previewed before it lands' },
+          { shot: 'meeting', tab: 'Meetings', fig: 'Fig. 5.2b — Meeting notes from a live transcript' },
+          { shot: 'agent', tab: 'Agent', fig: 'Fig. 5.2c — AI terminal: every change staged for review' },
+          { shot: 'autofill', tab: 'Autofill', fig: 'Fig. 5.2d — AI autofill, review before writing' },
+          { shot: 'ai', tab: 'Write', fig: 'Fig. 5.2e — AI menu on a selection' },
+        ],
+      },
+      {
+        key: 'script',
+        title: 'Ask your workspace\nin one line.',
+        text: 'One Script is a small language of its own. A query shows its result while you type; the builder writes it for you by clicking; Claude drafts one from plain words, checked before you use it. Scripts that write show a dry run first.',
+        specs: ['Live result · queries only read', 'Builder ⇄ code, both ways', 'No eval · dry run · Undo run'],
+        fig: 'Fig. 5.3 — One Script',
+        shots: [
+          { shot: 'script', tab: 'Query', fig: 'Fig. 5.3a — A query, its builder and the live result' },
+          { shot: 'script-ask', tab: 'Ask Claude', fig: 'Fig. 5.3b — Claude drafts a query; One checks it: 3 rows now' },
+        ],
+      },
+      {
+        key: 'mail',
+        title: 'Your inbox,\nas a database.',
+        text: 'Gmail syncs into a Mails database — read-only, the token only in memory. Senders fill Contacts, their domains Companies, threads Conversations. Attachments load on demand, and Claude turns a PDF invoice into a table, a sheet or a database.',
+        specs: ['Gmail read-only · token in memory only', 'Contacts · companies · conversations', 'PDF → table · Word → page · Excel → database'],
+        fig: 'Fig. 5.4 — Mail',
+        shots: [
+          { shot: 'mail', tab: 'Mails', fig: 'Fig. 5.4a — Mails, each linked to its contact, company and conversation' },
+          { shot: 'contacts', tab: 'Contacts', fig: 'Fig. 5.4b — Contacts the sync filled in, a contact in the side peek' },
+          { shot: 'file-table', tab: 'PDF → table', fig: 'Fig. 5.4c — A PDF attachment → its line items as a table' },
         ],
       },
       {
@@ -810,11 +946,11 @@ export const content: Record<Lang, SiteContent> = {
         title: 'Built for automators.',
         text: 'Databases fire webhooks when rows are created, changed or deleted; shared forms and buttons post to the same place. Point them at n8n, Make, Zapier or your own endpoint. This is what arrives:',
         specs: ['Triggers: created · changed · deleted', 'Forms and buttons post too', 'deliveryId on every request'],
-        fig: 'Fig. 4.3 — Automations',
+        fig: 'Fig. 5.5 — Automations',
         shots: [
-          { shot: 'automations', tab: 'Automation', fig: 'Fig. 4.3a — Automation with a webhook action' },
-          { shot: 'form', tab: 'Form', fig: 'Fig. 4.3b — Form view, answers go to n8n' },
-          { shot: 'forms', tab: 'Logic', fig: 'Fig. 4.3c — Form builder: conditional questions, pages' },
+          { shot: 'automations', tab: 'Automation', fig: 'Fig. 5.5a — Automation with a webhook action' },
+          { shot: 'form', tab: 'Form', fig: 'Fig. 5.5b — Form view, answers go to n8n' },
+          { shot: 'forms', tab: 'Logic', fig: 'Fig. 5.5c — Form builder: conditional questions, pages' },
         ],
       },
       {
@@ -822,15 +958,15 @@ export const content: Record<Lang, SiteContent> = {
         title: 'From page to website.',
         text: 'Export a page with its sub-pages — or the whole workspace — as a static site: navigation, sitemap, RSS, llms.txt and a Markdown twin of every page. Upload the folder to GitHub Pages or Netlify. For private pages, share a link with a password.',
         specs: ['Static HTML · no server, no lock-in', 'sitemap.xml · rss.xml · llms.txt', 'Password links: AES-256 in your browser'],
-        fig: 'Fig. 4.4 — Website export',
-        shots: [{ shot: 'website', tab: 'Export', fig: 'Fig. 4.4 — Export as a website' }],
+        fig: 'Fig. 5.6 — Website export',
+        shots: [{ shot: 'website', tab: 'Export', fig: 'Fig. 5.6 — Export as a website' }],
       },
       {
         key: 'import',
         title: 'Move in.\nMove out.',
         text: 'Bring your notes from Notion, Obsidian, Evernote or Trello — or plain HTML, Markdown and CSV. Leaving is just as easy: Markdown, HTML, PDF or a lossless backup.',
         specs: ['Notion → Settings → Export → drop the .zip', 'Obsidian · Evernote · Trello · HTML', 'Out: Markdown · HTML · PDF · JSON'],
-        fig: 'Fig. 4.5 — Migration, timed',
+        fig: 'Fig. 5.7 — Migration, timed',
         shots: [],
       },
     ],
@@ -846,7 +982,7 @@ export const content: Record<Lang, SiteContent> = {
       { param: 'Publish as a website', notion: ['yes', 'Notion Sites; custom domain extra'], one: ['yes', 'A static site you own: sitemap, RSS, llms.txt'] },
       { param: 'Calendar across all databases', notion: ['partial', 'Separate app (Notion Calendar)'], one: ['yes', 'Agenda built in, plus .ics export'] },
       { param: 'Move in, move out', notion: ['partial', 'Many importers; export flattens views and formulas'], one: ['yes', 'Notion, Obsidian, Evernote, Trello, HTML · lossless backup'] },
-      { param: 'Version history', notion: ['partial', '7 / 30 / 90 days by plan'], one: ['yes', 'No day limit, block-level diff'] },
+      { param: 'Version history', notion: ['partial', '7 / 30 / 90 days by plan'], one: ['yes', 'No day limit; word by word, entries with their properties'] },
       { param: 'Share without a server', notion: ['no'], one: ['yes', 'The page travels inside the link; optional password'] },
       { param: 'Graph view of linked pages', notion: ['no'], one: ['yes'] },
       { param: 'Self-host the whole app', notion: ['no'], one: ['yes', 'GitHub Pages in ~2 min; team server via Docker'] },
@@ -867,6 +1003,10 @@ export const content: Record<Lang, SiteContent> = {
       {
         q: 'What does the AI cost?',
         a: 'Nothing from us. Paste your own Anthropic API key and pay Anthropic per use, at their rates. No key, no AI, no cost.',
+      },
+      {
+        q: 'Does Claude change things on its own?',
+        a: 'Not unless you let it. The AI menu, Transform and the AI terminal show every change before it lands; memories are kept only after your yes; scripts show a dry run. Custom agents and MCP clients wait for your review by default — you can let them apply directly, and the version history keeps what was there before.',
       },
       {
         q: 'Can Claude work in my workspace?',
@@ -899,31 +1039,71 @@ export const content: Record<Lang, SiteContent> = {
     ],
   },
   de: {
+    review: [
+      {
+        key: 'edit',
+        title: 'Änderungen, Wort für Wort',
+        text: 'Gib dem KI-Terminal eine Aufgabe. Jede Änderung an einer Seite wartet als Vorschlag: gestrichene Wörter, neue Wörter, entfernte Blöcke. Einzeln übernehmen, alle übernehmen oder verwerfen.',
+        spec: 'KI-Terminal · ⌘J',
+        shot: 'review-edit',
+        fig: 'Abb. 1.1a — Drei Änderungen zur Prüfung, die erste Wort für Wort',
+      },
+      {
+        key: 'memory',
+        title: 'Gedächtnis nur mit deinem Ja',
+        text: 'Nach einer Aufgabe schlägt Claude vor, was sich zu merken lohnt. y merkt, n verwirft. Das Gedächtnis ist eine Datenbank in deinem Workspace — lesen, ändern, abschalten.',
+        spec: 'One-Gedächtnis · y / n',
+        shot: 'review-memory',
+        fig: 'Abb. 1.1b — „Remember? · 2“: zwei Vorschläge nach einer Aufgabe',
+      },
+      {
+        key: 'dryrun',
+        title: 'Skripte, erst der Probelauf',
+        text: 'One Script listet jeden Eintrag, den ein Lauf ändern würde, und jede Mail, die er senden würde — und ändert nichts. Vor dem echten Lauf fragt One noch einmal.',
+        spec: 'One Script · Probelauf',
+        shot: 'review-dryrun',
+        fig: 'Abb. 1.1c — Probelauf: zwei Einträge und eine Mail, nichts geschrieben',
+      },
+      {
+        key: 'history',
+        title: 'Eine Version vor jedem Schreiben',
+        text: 'Bevor Claude, ein Agent oder ein Skript eine Seite ändert, sichert One sie, wie sie war — Text und Eigenschaften. Alt gestrichen, neu markiert, ein Klick stellt sie wieder her.',
+        spec: 'Verlauf · ohne Tageslimit',
+        shot: 'review-history',
+        fig: 'Abb. 1.1d — Verlauf eines Eintrags: Status, Priorität, Fortschritt und Text',
+      },
+    ],
     features: [
-      { key: 'editor', group: 'write', code: 'Ed', title: 'Block-Editor', text: 'Slash-Menü, Ziehgriffe, 2–5 Spalten, Tabs, Aufklappblöcke, synchronisierte Blöcke, PDFs, 20+ Einbettungen, Formeln, Mermaid — und Randkommentare.' },
-      { key: 'ai', group: 'write', code: 'Ai', title: 'Claude-KI, dein Key', text: 'Schreiben, umschreiben, zusammenfassen, Besprechungen protokollieren, den ganzen Workspace mit Quellen befragen. Dein eigener Anthropic-Key, bezahlt nach Nutzung.' },
-      { key: 'history', group: 'write', code: 'Hi', title: 'Versionsverlauf', text: 'Schnappschüsse jeder Seite mit Vergleich auf Block-Ebene, ohne Tageslimit. Zurückblättern, wiederherstellen, weitermachen.' },
-      { key: 'graph', group: 'write', code: 'Gr', title: 'Graph & Backlinks', text: 'Eine lebendige Karte aller Links zwischen Seiten, dazu Backlinks und unverlinkte Erwähnungen auf jeder Seite.' },
+      { key: 'editor', group: 'write', code: 'Ed', title: 'Block-Editor', text: 'Slash-Menü, eine Spalte mit Griffen für jeden Block in jeder Tiefe, viele Blöcke auf einmal markieren, 2–5 Spalten, Tabs, Aufklappblöcke, synchronisierte Blöcke, PDFs, Einbettungen, Formeln, Mermaid.' },
+      { key: 'ai', group: 'write', code: 'Ai', title: 'Claude-KI, dein Key', text: 'Schreiben, umschreiben, markierte Stellen nach deinen Regeln neu machen, den ganzen Workspace mit Quellen befragen. Dein eigener Anthropic-Key, bezahlt nach Nutzung.' },
+      { key: 'transform', group: 'write', code: 'Uw', title: 'Umwandeln in …', text: 'Eine Liste oder ein paar Absätze markieren: Claude macht daraus ein Diagramm, einen Chart, ein Board, eine Tabelle, Spalten oder Tabs. Erst die Vorschau, dann ein Schritt.' },
+      { key: 'meeting', group: 'write', code: 'Bn', title: 'Besprechungsnotizen', text: 'Ein Live-Transkript aus der Spracherkennung des Browsers, dann Zusammenfassung, Entscheidungen und Aufgaben per Claude — die Aufgaben gehen direkt in eine Datenbank.' },
+      { key: 'history', group: 'write', code: 'Hi', title: 'Versionsverlauf', text: 'Jede Seite und jeder Datenbank-Eintrag, ohne Tageslimit: Wörter und Eigenschaftswerte im Vergleich. Wiederherstellen mit einem Klick.' },
       { key: 'databases', group: 'organise', code: 'Db', title: 'Datenbanken, 9 Ansichten', text: 'Tabelle, Board, Liste, Galerie, Feed, Kalender, Zeitleiste, Diagramm und Formular auf dieselben Zeilen. 22 Eigenschaftstypen.' },
       { key: 'structure', group: 'organise', code: 'Ue', title: 'Unterelemente & Abhängigkeiten', text: 'Aufgaben verschachteln, auf der Zeitleiste verketten, Termine gemeinsam verschieben. Farbregeln zeigen, was zählt.' },
       { key: 'agenda', group: 'organise', code: 'Ag', title: 'Agenda & Posteingang', text: 'Jeder Termin aus jeder Datenbank in Monat, Woche oder Liste — und Erinnerungen, die im Posteingang landen.' },
       { key: 'palette', group: 'organise', code: '⌘K', title: 'Suche & ⌘K', text: 'Ein Kürzel findet jede Seite und Zeile und führt jeden Befehl aus. Die Hände bleiben auf der Tastatur.' },
+      { key: 'graph', group: 'organise', code: 'Gr', title: 'Graph & Backlinks', text: 'Eine lebendige Karte aller Links zwischen Seiten, dazu Backlinks und unverlinkte Erwähnungen auf jeder Seite.' },
       { key: 'sheets', group: 'calculate', code: 'Tk', title: 'Tabellenkalkulation', text: 'Mehrere Blätter, 75+ Funktionen, Bezüge zwischen Blättern und farbige Datenbereiche wie DS(A1:A10; C2:C7). Aus Excel einfügen, als CSV wieder hinaus.' },
       { key: 'functions', group: 'calculate', code: 'Fx', title: 'Eigene Funktionen', text: 'MARGE oder SPANNE per Klick aus einem Formelbaum bauen und mit Beispielwerten testen. Kein Code — nichts zum Ausnutzen.' },
       { key: 'charts', group: 'calculate', code: 'Dg', title: 'Diagramme in drei Klicks', text: 'Balken, Linie, Fläche, Torte, KPI und mehr — live aus einer Tabelle, einer Datenbank oder den Zahlen deines Workspaces.' },
       { key: 'formulas', group: 'calculate', code: 'Σ', title: 'Formeln & Rollups', text: 'Datenbank-Formeln, die deine Funktionen aufrufen, Rollups über Relationen — und Eigenschaften, die beim Tippen entstehen.' },
-      { key: 'automations', group: 'automate', code: 'Au', title: 'Webhook-Automationen', text: 'Zeile angelegt, geändert oder gelöscht: Webhook feuern, Eigenschaft setzen, Hinweis zeigen. Kostenlos in jeder Datenbank.' },
+      { key: 'script', group: 'calculate', code: 'Os', title: 'One Script', text: 'Eine kleine Sprache für deinen Workspace: Abfragen mit Live-Ergebnis, ein Baukasten zum Klicken, Skripte, die erst einen Probelauf zeigen. Nirgends eval.' },
+      { key: 'automations', group: 'automate', code: 'Au', title: 'Webhook-Automationen', text: 'Zeile angelegt, geändert oder gelöscht: Webhook feuern, Eigenschaft setzen, Skript starten, Hinweis zeigen. Kostenlos in jeder Datenbank.' },
       { key: 'forms', group: 'automate', code: 'Fo', title: 'Formulare', text: '/formular tippen oder eine Datenbank zum Formular machen — mit bedingten Fragen und Seiten. Geteilte Formulare senden jede Antwort an deinen Webhook.' },
-      { key: 'buttons', group: 'automate', code: 'Bt', title: 'Buttons', text: 'Ein Klick fügt Blöcke ein, legt Zeilen an, ändert Eigenschaften, öffnet Links oder feuert einen Webhook.' },
+      { key: 'buttons', group: 'automate', code: 'Bt', title: 'Buttons', text: 'Ein Klick fügt Blöcke ein, legt Zeilen an, ändert Eigenschaften, öffnet Links, startet ein Skript oder feuert einen Webhook.' },
+      { key: 'commands', group: 'automate', code: '⌘', title: 'Datenbank-Befehle', text: 'Jede Datenbank hat eine ⌘-Taste: neuer Eintrag, eine Ansicht, CSV, Jetzt synchronisieren — und eigene Befehle, die ein Skript, einen Agenten oder Aktionen starten.' },
       { key: 'autofill', group: 'automate', code: 'Af', title: 'KI-Autofill', text: 'Claude füllt eine Spalte — Zusammenfassungen, Kerninfos, Übersetzungen, Kategorien. Du prüfst, bevor etwas geschrieben wird.' },
       { key: 'website', group: 'publish', code: 'Ws', title: 'Als Website veröffentlichen', text: 'Jede Seite wird zur statischen Website mit Sitemap, RSS und llms.txt. Hosten, wo du willst — jede Datei gehört dir.' },
       { key: 'share', group: 'publish', code: 'Sh', title: 'Links mit Passwort', text: 'Die Seite steckt im Link — kein Server. Mit Passwort wird sie in deinem Browser verschlüsselt.' },
       { key: 'import', group: 'publish', code: 'Im', title: 'Import von überall', text: 'Notion, Obsidian, Evernote, Trello, HTML, Markdown, CSV. Verlustfrei wieder hinaus — oder live als Markdown in einen Ordner oder dein GitHub-Repo.' },
+      { key: 'files', group: 'publish', code: 'Da', title: 'Aus Dateien wird Struktur', text: 'Eine PDF-Rechnung wird zur Tabelle, ein Word-Dokument zur Seite, eine Excel-Datei zur Datenbank. Word, Excel und CSV werden hier umgewandelt — nichts wird gesendet.' },
       { key: 'clipper', group: 'publish', code: 'Cl', title: 'Web-Clipper', text: 'Jede Webseite per Bookmarklet oder Android-Teilen-Menü in deine Ablage legen.' },
+      { key: 'agent', group: 'delegate', code: '⌘J', title: 'KI-Terminal', text: 'Gib ihm eine Aufgabe in Worten. Es plant über Seiten und Datenbanken, ändert Blöcke Wort für Wort und wartet auf deine Prüfung, bevor sich etwas ändert.' },
+      { key: 'memory', group: 'delegate', code: 'Gd', title: 'One-Gedächtnis', text: 'Claude merkt sich, was du bestätigst — Fakten, Vorlieben, Vorgehensweisen, ganze Seiten als Beispiel — in einer Datenbank, die du lesen, ändern und abschalten kannst.' },
       { key: 'customAgents', group: 'delegate', code: 'Ea', title: 'Eigene Agenten', text: 'Ein Auftrag in Worten, ein Zeitplan oder Auslöser, ein Budget pro Lauf. Änderungen warten auf deine Prüfung — im Browser oder rund um die Uhr auf deinem Server.' },
-      { key: 'agent', group: 'delegate', code: '⌘J', title: 'Workspace-Agent', text: 'Gib ihm eine Aufgabe in Worten. Er plant die Schritte über Seiten und Datenbanken und setzt sie um, sobald du sie geprüft hast.' },
       { key: 'mcpTools', group: 'delegate', code: 'Mc', title: 'Deine MCP-Server', text: 'Wissensdatenbank, Tracker oder CRM per URL und Token an Ones Claude anschließen. Jeder Werkzeugaufruf ist als Chip sichtbar.' },
-      { key: 'mail', group: 'delegate', code: 'Ml', title: 'Mails als Datenbank', text: 'Gmail, nur lesend, mit einem Klick verbunden. Jede Mail wird eine Zeile, verknüpft mit Kontakt, Firma und Konversation; Claude ergänzt Kategorie, Priorität und „Antwort nötig“.' },
+      { key: 'mail', group: 'delegate', code: 'Ml', title: 'Mails als Datenbank', text: 'Gmail mit einem Klick, nur lesend. Jede Mail wird eine Zeile, verknüpft mit Kontakt, Firma und Konversation; Anhänge kommen als echte Blöcke dazu.' },
     ],
     mcpTools: [
       { name: 'one_overview', text: 'Workspace auf einen Blick: Baum, Datenbanken, Datum' },
@@ -941,31 +1121,56 @@ export const content: Record<Lang, SiteContent> = {
       { name: 'one_create_database', write: true, text: 'Neue Datenbank mit Schema' },
       { name: 'one_trash_page', write: true, text: 'In den Papierkorb, wiederherstellbar' },
     ],
-    extras: ['Eingebaute Hilfe · 54 Artikel', 'Brotkrumen', 'Datenbanken als Ordner in der Seitenleiste', 'Präsentationsmodus', 'Gestapelte Panels', 'Fokusmodus', '11 Vorlagen', 'Tagesjournal', '@-Erwähnungen', 'Block-Links', 'Offline ab dem ersten Besuch', 'Hell & dunkel', 'Deutsch & Englisch'],
+    extras: ['Eingebaute Hilfe · 57 Artikel', 'Brotkrumen', 'Datenbanken als Ordner in der Seitenleiste', 'Blöcke zur Seite machen', 'Markieren, was Claude lesen darf', 'Präsentationsmodus', 'Gestapelte Panels', 'Fokusmodus', '11 Vorlagen', 'Tagesjournal', '@-Erwähnungen', 'Block-Links', 'Offline ab dem ersten Besuch', 'Hell & dunkel', 'Deutsch & Englisch'],
     deep: [
       {
         key: 'database',
         title: 'Datenbanken, die mithalten.',
-        text: 'Zeilen sind echte Seiten. Zwischen neun Ansichten wechseln (darunter ein Feed), Unterelemente verschachteln, Aufgaben auf der Zeitleiste verketten — verschiebst du eine, rückt alles nach, was auf sie wartet. Die Agenda sammelt jeden Termin im Workspace.',
-        specs: ['9 Ansichten · 22 Eigenschaftstypen', 'Unterelemente · Abhängigkeiten · Farbregeln', 'Agenda über alle Datenbanken · .ics'],
-        fig: 'Abb. 4.1 — Datenbanken',
+        text: 'Zeilen sind echte Seiten. Zwischen neun Ansichten wechseln (darunter ein Feed), Unterelemente verschachteln, Aufgaben auf der Zeitleiste verketten — verschiebst du eine, rückt alles nach, was auf sie wartet. Jede Datenbank hat eine ⌘-Taste mit ihren Befehlen; die Agenda sammelt jeden Termin im Workspace.',
+        specs: ['9 Ansichten · 22 Eigenschaftstypen', 'Unterelemente · Abhängigkeiten · Farbregeln', '⌘-Befehle · Agenda · .ics'],
+        fig: 'Abb. 5.1 — Datenbanken',
         shots: [
-          { shot: 'database', tab: 'Board', fig: 'Abb. 4.1a — Board-Ansicht, eine Zeile in der Seitenvorschau' },
-          { shot: 'timeline', tab: 'Zeitleiste', fig: 'Abb. 4.1b — Zeitleiste mit Abhängigkeitspfeilen' },
-          { shot: 'agenda', tab: 'Agenda', fig: 'Abb. 4.1c — Agenda, Monatsansicht' },
+          { shot: 'database', tab: 'Board', fig: 'Abb. 5.1a — Board-Ansicht, eine Zeile in der Seitenvorschau' },
+          { shot: 'timeline', tab: 'Zeitleiste', fig: 'Abb. 5.1b — Zeitleiste mit Abhängigkeitspfeilen' },
+          { shot: 'agenda', tab: 'Agenda', fig: 'Abb. 5.1c — Agenda, Monatsansicht' },
+          { shot: 'db-commands', tab: 'Befehle', fig: 'Abb. 5.1d — Die ⌘-Taste: die Befehle einer Datenbank, einer startet ein Skript' },
         ],
       },
       {
         key: 'ai',
         title: 'Claude, mit deinem Key.',
-        text: 'Besprechungen aus einem Live-Transkript protokollieren, dem Agenten (⌘J) eine ganze Aufgabe geben, eine Auswahl umschreiben, den Workspace mit Quellenangaben befragen oder Claude eine Datenbank-Spalte füllen lassen. Jede Änderung siehst du zuerst — geschrieben wird erst, wenn du zustimmst.',
-        specs: ['Key bleibt auf diesem Gerät', 'Autofill: Zusammenfassungen · Kerninfos · Übersetzungen', 'Bezahlung nach Nutzung bei Anthropic — kein KI-Abo'],
-        fig: 'Abb. 4.2 — Claude',
+        text: 'Eine Liste in ein Diagramm oder Board umwandeln, Besprechungen aus einem Live-Transkript protokollieren, dem KI-Terminal (⌘J) eine ganze Aufgabe geben, eine Auswahl umschreiben oder Claude eine Datenbank-Spalte füllen lassen. Jede Änderung siehst du zuerst — geschrieben wird erst, wenn du zustimmst.',
+        specs: ['Key bleibt auf diesem Gerät', 'Umwandeln: Diagramm · Chart · Board · Tabelle', 'Bezahlung nach Nutzung bei Anthropic — kein KI-Abo'],
+        fig: 'Abb. 5.2 — Claude',
         shots: [
-          { shot: 'meeting', tab: 'Meetings', fig: 'Abb. 4.2a — Besprechungsnotizen aus dem Live-Transkript' },
-          { shot: 'agent', tab: 'Agent', fig: 'Abb. 4.2b — Agent: jede Änderung erst zur Prüfung' },
-          { shot: 'autofill', tab: 'Autofill', fig: 'Abb. 4.2c — KI-Autofill, Prüfung vor dem Schreiben' },
-          { shot: 'ai', tab: 'Schreiben', fig: 'Abb. 4.2d — KI-Menü auf einer Auswahl' },
+          { shot: 'transform', tab: 'Umwandeln', fig: 'Abb. 5.2a — Eine Liste → ein Diagramm, mit Vorschau, bevor es landet' },
+          { shot: 'meeting', tab: 'Meetings', fig: 'Abb. 5.2b — Besprechungsnotizen aus dem Live-Transkript' },
+          { shot: 'agent', tab: 'Agent', fig: 'Abb. 5.2c — KI-Terminal: jede Änderung erst zur Prüfung' },
+          { shot: 'autofill', tab: 'Autofill', fig: 'Abb. 5.2d — KI-Autofill, Prüfung vor dem Schreiben' },
+          { shot: 'ai', tab: 'Schreiben', fig: 'Abb. 5.2e — KI-Menü auf einer Auswahl' },
+        ],
+      },
+      {
+        key: 'script',
+        title: 'Frag deinen Workspace\nin einer Zeile.',
+        text: 'One Script ist eine kleine eigene Sprache. Eine Abfrage zeigt ihr Ergebnis, während du tippst; der Baukasten schreibt sie per Klick; Claude entwirft eine aus deinen Worten, geprüft, bevor du sie nimmst. Skripte, die schreiben, zeigen erst einen Probelauf.',
+        specs: ['Live-Ergebnis · Abfragen lesen nur', 'Baukasten ⇄ Code, in beide Richtungen', 'Kein eval · Probelauf · Lauf rückgängig'],
+        fig: 'Abb. 5.3 — One Script',
+        shots: [
+          { shot: 'script', tab: 'Abfrage', fig: 'Abb. 5.3a — Eine Abfrage, ihr Baukasten und das Live-Ergebnis' },
+          { shot: 'script-ask', tab: 'Claude fragen', fig: 'Abb. 5.3b — Claude entwirft eine Abfrage; One prüft sie: jetzt 3 Zeilen' },
+        ],
+      },
+      {
+        key: 'mail',
+        title: 'Dein Posteingang\nals Datenbank.',
+        text: 'Gmail landet in einer Datenbank „Mails“ — nur lesend, der Token nur im Speicher. Absender füllen Kontakte, ihre Domains Firmen, Threads Konversationen. Anhänge kommen auf Wunsch, und Claude macht aus einer PDF-Rechnung eine Tabelle, ein Tabellenblatt oder eine Datenbank.',
+        specs: ['Gmail nur lesend · Token nur im Speicher', 'Kontakte · Firmen · Konversationen', 'PDF → Tabelle · Word → Seite · Excel → Datenbank'],
+        fig: 'Abb. 5.4 — Mail',
+        shots: [
+          { shot: 'mail', tab: 'Mails', fig: 'Abb. 5.4a — Mails, jede verknüpft mit Kontakt, Firma und Konversation' },
+          { shot: 'contacts', tab: 'Kontakte', fig: 'Abb. 5.4b — Kontakte, die der Sync angelegt hat, einer in der Seitenvorschau' },
+          { shot: 'file-table', tab: 'PDF → Tabelle', fig: 'Abb. 5.4c — Ein PDF-Anhang → seine Positionen als Tabelle' },
         ],
       },
       {
@@ -973,11 +1178,11 @@ export const content: Record<Lang, SiteContent> = {
         title: 'Gebaut für Automatisierer.',
         text: 'Datenbanken feuern Webhooks, wenn Zeilen angelegt, geändert oder gelöscht werden; geteilte Formulare und Buttons senden an dieselbe Stelle. Ziel: n8n, Make, Zapier oder dein eigener Endpunkt. So kommt es an:',
         specs: ['Auslöser: angelegt · geändert · gelöscht', 'Formulare und Buttons senden auch', 'deliveryId in jeder Anfrage'],
-        fig: 'Abb. 4.3 — Automationen',
+        fig: 'Abb. 5.5 — Automationen',
         shots: [
-          { shot: 'automations', tab: 'Automation', fig: 'Abb. 4.3a — Automation mit Webhook-Aktion' },
-          { shot: 'form', tab: 'Formular', fig: 'Abb. 4.3b — Formular-Ansicht, Antworten gehen an n8n' },
-          { shot: 'forms', tab: 'Logik', fig: 'Abb. 4.3c — Formular-Editor: bedingte Fragen, Seiten' },
+          { shot: 'automations', tab: 'Automation', fig: 'Abb. 5.5a — Automation mit Webhook-Aktion' },
+          { shot: 'form', tab: 'Formular', fig: 'Abb. 5.5b — Formular-Ansicht, Antworten gehen an n8n' },
+          { shot: 'forms', tab: 'Logik', fig: 'Abb. 5.5c — Formular-Editor: bedingte Fragen, Seiten' },
         ],
       },
       {
@@ -985,15 +1190,15 @@ export const content: Record<Lang, SiteContent> = {
         title: 'Von der Seite zur Website.',
         text: 'Eine Seite mit Unterseiten — oder den ganzen Workspace — als statische Website exportieren: Navigation, Sitemap, RSS, llms.txt und ein Markdown-Zwilling jeder Seite. Den Ordner auf GitHub Pages oder Netlify hochladen. Für private Seiten: ein Link mit Passwort.',
         specs: ['Statisches HTML · kein Server, kein Lock-in', 'sitemap.xml · rss.xml · llms.txt', 'Passwort-Links: AES-256 im Browser'],
-        fig: 'Abb. 4.4 — Website-Export',
-        shots: [{ shot: 'website', tab: 'Export', fig: 'Abb. 4.4 — Export als Website' }],
+        fig: 'Abb. 5.6 — Website-Export',
+        shots: [{ shot: 'website', tab: 'Export', fig: 'Abb. 5.6 — Export als Website' }],
       },
       {
         key: 'import',
         title: 'Einziehen.\nAusziehen.',
         text: 'Bring deine Notizen aus Notion, Obsidian, Evernote oder Trello mit — oder einfaches HTML, Markdown und CSV. Gehen ist genauso leicht: Markdown, HTML, PDF oder ein verlustfreies Backup.',
         specs: ['Notion → Einstellungen → Export → .zip hineinziehen', 'Obsidian · Evernote · Trello · HTML', 'Raus: Markdown · HTML · PDF · JSON'],
-        fig: 'Abb. 4.5 — Umzug, gestoppt',
+        fig: 'Abb. 5.7 — Umzug, gestoppt',
         shots: [],
       },
     ],
@@ -1009,7 +1214,7 @@ export const content: Record<Lang, SiteContent> = {
       { param: 'Als Website veröffentlichen', notion: ['yes', 'Notion Sites; eigene Domain kostet extra'], one: ['yes', 'Statische Website, die dir gehört: Sitemap, RSS, llms.txt'] },
       { param: 'Kalender über alle Datenbanken', notion: ['partial', 'Eigene App (Notion Calendar)'], one: ['yes', 'Agenda eingebaut, dazu .ics-Export'] },
       { param: 'Einziehen, ausziehen', notion: ['partial', 'Viele Importe; Export verflacht Ansichten und Formeln'], one: ['yes', 'Notion, Obsidian, Evernote, Trello, HTML · verlustfreies Backup'] },
-      { param: 'Versionsverlauf', notion: ['partial', '7 / 30 / 90 Tage je Tarif'], one: ['yes', 'Ohne Tageslimit, Vergleich auf Block-Ebene'] },
+      { param: 'Versionsverlauf', notion: ['partial', '7 / 30 / 90 Tage je Tarif'], one: ['yes', 'Ohne Tageslimit; Wort für Wort, Einträge mit ihren Eigenschaften'] },
       { param: 'Teilen ohne Server', notion: ['no'], one: ['yes', 'Die Seite steckt im Link; optional mit Passwort'] },
       { param: 'Graph verlinkter Seiten', notion: ['no'], one: ['yes'] },
       { param: 'Komplette App selbst hosten', notion: ['no'], one: ['yes', 'GitHub Pages in ca. 2 Min.; Team-Server per Docker'] },
@@ -1030,6 +1235,10 @@ export const content: Record<Lang, SiteContent> = {
       {
         q: 'Was kostet die KI?',
         a: 'Von uns: nichts. Du hinterlegst deinen eigenen Anthropic-API-Key und zahlst Anthropic nach Nutzung, zu deren Preisen. Kein Key, keine KI, keine Kosten.',
+      },
+      {
+        q: 'Ändert Claude etwas von selbst?',
+        a: 'Nur, wenn du es erlaubst. KI-Menü, Umwandeln und KI-Terminal zeigen jede Änderung, bevor sie landet; Erinnerungen werden erst nach deinem Ja gespeichert; Skripte zeigen einen Probelauf. Eigene Agenten und MCP-Clients warten standardmäßig auf deine Prüfung — du kannst sie direkt anwenden lassen, und der Versionsverlauf behält, was vorher da war.',
       },
       {
         q: 'Kann Claude in meinem Workspace arbeiten?',

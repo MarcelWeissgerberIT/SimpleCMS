@@ -6,9 +6,10 @@
 
 **Notion, rebuilt. Minus the bill.**
 
-A local-first workspace that does what Notion does — block editor, databases with eight views, forms,
-Claude AI with your own key, webhook automations, import from Notion, Obsidian, Evernote and Trello,
-publishing as a website — for **$0**, with **no account** and **no server**. Everything lives in your browser.
+A local-first workspace that does what Notion does — block editor, databases with nine views, forms,
+spreadsheets, One Script, Gmail as a database, Claude AI with your own key (and it asks before it changes anything),
+webhook automations, import from Notion, Obsidian, Evernote and Trello, publishing as a website — for **$0**, with
+**no account** and **no server**. Everything lives in your browser.
 
 **[Live demo → getonecms.com](https://getonecms.com/)** ·
 [Open the workspace](https://getonecms.com/app/) ·
@@ -18,7 +19,7 @@ publishing as a website — for **$0**, with **no account** and **no server**. E
 
 <sub>First visit only: sit still for 15 seconds on the 1997 spreadsheet homepage. Replay any time with <code>?intro</code>.</sub>
 
-**[▶ 70-second tour (video)](https://getonecms.com/media/simplecms-one.mp4)**
+**[▶ 60-second tour (video)](https://getonecms.com/media/simplecms-one.mp4)**
 
 </div>
 
@@ -48,7 +49,7 @@ AI on every workspace with your own Claude key, and an honest export.
 | Import & export | many importers; export flattens views, relations and formulas | **Notion, Obsidian, Evernote, Trello, HTML, Markdown, CSV in — lossless JSON, Markdown, HTML, website out** |
 | Calendar across all databases | separate app (Notion Calendar) | **Agenda** built in, plus `.ics` export |
 | Graph view of linked pages | no | **yes** |
-| Version history | 7 / 30 / 90 days by plan | **no limit**, block-level diff |
+| Version history | 7 / 30 / 90 days by plan | **no limit**, word-level diff — database entries with their property values |
 | Share without a server | no | **yes** — the page travels inside the link |
 | Pages side by side | peek / second window | **stacked panes** |
 | Real-time multiplayer | **yes** | **yes** in a team workspace on your own server (open source) — the local workspace stays single-user, synced across tabs |
@@ -58,32 +59,55 @@ AI on every workspace with your own Claude key, and an honest export.
 
 <sub>Full research with sources: [docs/RESEARCH.md](docs/RESEARCH.md).</sub>
 
+## Claude asks before it changes
+
+Every change Claude proposes lands on a review plate first: the AI terminal shows its edits word by word (struck
+words, new words, removed blocks — apply one, apply all, discard), memories are kept only after your `y`, scripts show
+a dry run of every write and every mail, and before Claude, an agent or a script writes, the version history keeps the
+page as it was — text and property values.
+
+<table>
+<tr>
+<td width="50%"><img src="public/assets/shots/review-edit.webp" alt="AI terminal: three edits of a page staged for review, the first one word by word — Monday struck, Tuesday added" /></td>
+<td width="50%"><img src="public/assets/shots/review-memory.webp" alt="One memory: after a task the AI terminal asks “Remember? · 2” — y saves, n dismisses; the memory database above" /></td>
+</tr>
+<tr>
+<td><img src="public/assets/shots/review-dryrun.webp" alt="One Script dry run: the script would change 2 entries in Projects and send one mail — nothing written" /></td>
+<td><img src="public/assets/shots/review-history.webp" alt="Version history of a database entry: status, priority and progress old struck, new marked, and the changed goal line" /></td>
+</tr>
+</table>
+
 ## What's inside
 
 <table>
 <tr>
-<td width="50%"><img src="public/assets/shots/database.webp" alt="Projects database as a board with a row open in the side peek" /></td>
-<td width="50%"><img src="public/assets/shots/ai.webp" alt="Claude rewriting a selection inside a page" /></td>
+<td width="50%"><img src="public/assets/shots/transform.webp" alt="Transform into: a selected list drawn as a flowchart in the preview, before it replaces the list" /></td>
+<td width="50%"><img src="public/assets/shots/script.webp" alt="One Script: a query with a database chip, the visual query builder and the live result table" /></td>
+</tr>
+<tr>
+<td><img src="public/assets/shots/mail.webp" alt="Gmail as a database: each mail linked to its contact, company and conversation" /></td>
+<td><img src="public/assets/shots/file-table.webp" alt="Claude for files: a mail's PDF invoice, its line items extracted as a table — insert as table, spreadsheet or database" /></td>
+</tr>
+<tr>
+<td><img src="public/assets/shots/db-commands.webp" alt="Database commands: the ⌘ key of the Projects database — new entry, views, CSV and an own command that runs a script" /></td>
+<td><img src="public/assets/shots/database.webp" alt="Projects database as a board with a row open in the side peek" /></td>
+</tr>
+<tr>
+<td><img src="public/assets/shots/meeting.webp" alt="AI meeting notes: the transcript of a meeting and the summary, decisions and action items Claude wrote from it" /></td>
+<td><img src="public/assets/shots/agents.webp" alt="Custom agent: a weekly project check — its trigger, scope and budget, a run's report and two proposed changes waiting for review" /></td>
 </tr>
 <tr>
 <td><img src="public/assets/shots/graph.webp" alt="Graph view of all pages and their links" /></td>
 <td><img src="public/assets/shots/automations.webp" alt="Automation: when a project is done, notify and send a webhook to n8n" /></td>
 </tr>
 <tr>
-<td><img src="public/assets/shots/meeting.webp" alt="AI meeting notes: the transcript of a meeting and the summary, decisions and action items Claude wrote from it" /></td>
-<td><img src="public/assets/shots/agent.webp" alt="Workspace agent: a task, its step log and two new database rows staged for review" /></td>
-</tr>
-<tr>
 <td><img src="public/assets/shots/synced.webp" alt="Synced block: the same principles on two pages side by side, edited in either place" /></td>
-<td><img src="public/assets/shots/inbox.webp" alt="Inbox: reminders from date mentions and date properties, and the ones still scheduled" /></td>
-</tr>
-<tr>
-<td><img src="public/assets/shots/agents.webp" alt="Custom agent: a weekly project check — its trigger, scope and budget, a run's report and two proposed changes waiting for review" /></td>
 <td><img src="public/assets/shots/forms.webp" alt="Form builder: a question shown only if Status is not Backlog, and a second page" /></td>
 </tr>
 </table>
 
-**Block editor** — slash menu (with the Markdown shortcut shown next to every command), drag handles, turn-into,
+**Block editor** — slash menu (with the Markdown shortcut shown next to every command), drag handles in one gutter
+column for every block at any depth (never on a list marker), many blocks selected at once and acted on in one step, turn-into,
 toggles and toggle headings, callouts, 2–5 columns, tables, tabs, to-dos, code with highlighting, KaTeX math, Mermaid
 diagrams, images, video & audio, files, PDFs shown inline, embeds (YouTube, Figma, Loom, Google Docs / Sheets / Slides /
 Drive, Miro, Excalidraw, GitHub Gist, Spotify, Typeform, Calendly, Airtable, CodeSandbox, X and more — all in sandboxed
@@ -92,7 +116,7 @@ reminders) / people, emoji shortcodes, Markdown paste, block links, margin comme
 **synced blocks** (the same content on several pages — edit it anywhere, it changes everywhere), **AI meeting notes**
 (a live transcript from the browser's speech recognition, then summary, decisions and action items by Claude — action
 items go straight into a database), and **buttons** that
-insert blocks, add rows, edit properties, open links or fire a webhook in one click.
+insert blocks, add rows, edit properties, open links, run a script or fire a webhook in one click.
 
 **Databases** — table, board, list, gallery, **feed** (a stream of posts with their content), calendar, timeline,
 chart and form views over the same rows; 22 property
@@ -105,7 +129,10 @@ have conditional questions, several pages, scales and checkbox lists, a closing 
 Missing properties are created on the fly — when you link a row of another database, type an unknown name into a
 filter, sort or formula, or take in a CSV. Own templates sit next to the built-in ones (which you can customise too).
 In the sidebar a database opens like a folder: its entries (in the order of its first view), their sub-items and
-sub-pages; `+` adds an entry, and dragging a page onto a database makes it one.
+sub-pages; `+` adds an entry, and dragging a page onto a database makes it one. **Database commands:** every database
+has a `⌘` key (on its sidebar row, in its toolbar, in `⌘K` as "Projects: …") with its commands — new entry, from a
+template, open a view, CSV in and out, copy the link, Mails' "Sync now", "Run <agent> now" — and your own commands that
+run a set of actions on the selected rows, an agent, a view or a One Script.
 
 **Spreadsheets, functions, charts** — a spreadsheet block with several sheets, 75+ functions (SUM, VLOOKUP/XLOOKUP,
 SUMIFS, dates, text, finance …), cross-sheet references, copy & paste with Excel / Sheets / Numbers, and **datasets**:
@@ -116,13 +143,22 @@ can't be talked into running any. **Charts** take three clicks: data from a shee
 numbers (pages written, to-dos done, storage, reminders …) or typed in; bar, line, area, donut, scatter, KPI and
 sparkline, live as the data changes, as PNG/SVG, and frozen into numbers when a page is shared.
 
+**One Script** — a small language of its own for the workspace (`#/scripts`), interpreted by One itself — no `eval`,
+no `new Function`, objects answer only their own members. A **query** shows its result as a live table while you type
+(`db(@Projects).where(Status != "Done", Priority = "High").sort(Timeline)`), and a visual query builder writes the same
+code by clicking (and follows the code you type); "Ask Claude" drafts a query from plain words, and One checks it before
+you use it. **Scripts** change entries, create pages, send a mail or ask Claude — a **dry run** lists every write and
+every mail and changes nothing, a real run asks once for its effects, keeps a version of every page before its first
+change, and "Undo run" puts everything back. Scripts run from a database's `⌘` key, a button, an automation or `⌘K`;
+the AI terminal can query with them and draft new ones (staged for review, never run by itself).
+
 **Workspace** — page tree with drag & drop, favourites, trash, breadcrumbs, `⌘K` palette for search *and* commands,
 home dashboard, today's journal, an **Inbox** with reminders (and, in team workspaces, mentions, assignments and
 replies), an **Agenda** with everything dated in the workspace (month, week, list), backlinks
 and unlinked mentions, a web clipper (bookmarklet and Android share target) that saves to a Clippings page, stacked panes
 (`Alt`-click any link), focus mode, presentation mode (any page becomes slides), 11 templates (meeting notes, project tracker, roadmap, content calendar, reading list, CRM, bug tracker,
 OKRs, weekly planner, wiki, habits), light "Paper" and dark "Carbon" themes, English and German — and a built-in
-**help centre** (`?`): 54 short articles in both languages, searchable from `⌘K`, an "Ask the help" box that has Claude
+**help centre** (`?`): 57 short articles in both languages, searchable from `⌘K`, an "Ask the help" box that has Claude
 answer from those articles only, and the same manual as public pages at [getonecms.com/help](https://getonecms.com/help/).
 
 **AI, your key** — select text and ask Claude to improve, shorten, extend, fix, translate, explain, summarise or pull
@@ -130,7 +166,9 @@ out action items; press `Space` on an empty line to write, or ask questions abou
 pages. The **AI terminal** (`⌘J` / `Ctrl+J`) — the workspace agent as a keyboard-first dock under the page — takes a
 task in plain words — "tag every open task in the meeting notes", "make a board of the open items on this page" —
 plans the steps across pages and databases (it can create databases and properties too) and applies them only after
-you have reviewed the changes, by mouse or keyboard (`j`/`k`, `Space`, `Enter`). It keeps working while hidden (a
+you have reviewed the changes, by mouse or keyboard (`j`/`k`, `Space`, `Enter`). Edits to a page are shown **word by
+word** — struck words, new words, removed and inserted blocks, unchanged blocks folded — and a version of the page is
+kept before they land. It keeps working while hidden (a
 status-bar LED and a toast report back), takes selected text along as references (`⌘⇧J`), `@` mentions, prompt
 history and `/commands` (`/apply`, `/cost`, `/help` …). Requests go straight from your browser to `api.anthropic.com` with your key (default model Claude Opus 5.5;
 Sonnet 5.5 and Haiku 4.5 selectable). The key never leaves this browser in any other way, and is stored there
@@ -140,6 +178,9 @@ encrypted — as is the GitHub token for sync ([docs/SECURITY.md](docs/SECURITY.
 your own requests and `⌘K ?` can use its tools (Anthropic's MCP connector makes the calls; every call shows as a chip).
 Give a server a codeword and a request that starts with it — `kb: what do we know about the launch?` — goes to that server first.
 
+**Transform into …** — select a list or a few paragraphs and Claude turns them into a **diagram** (Mermaid, checked
+before it is shown), a **chart** (only numbers the text states), a board, a table or a timeline, or columns, tabs,
+toggles and cards (built by code, not HTML) — previewed first, applied in one step, the original kept below on request.
 **Turn into database** — select a pasted report or list and Claude makes it a board or a table (entries, fields,
 groups; previewed before anything changes, one `⌘Z` to undo) — inline, or as its own page linked in its place.
 **Turn into page** (`⌘⌥9`, no AI) moves marked blocks into a new sub-page and links it right there; several selected
@@ -160,6 +201,10 @@ go along with every free-form request as the template for the task; a usage log 
 **Claude for images** — the AI key on any image: alt text + caption written for it, the text in it read out as
 Markdown, every table in the picture turned into a real table, a spreadsheet (numbers as numbers) or a database, or any
 question answered about it — background runs like every AI-menu request; the picture goes out only on these actions.
+**Claude for files** — the same key on any file block (an upload, a mail attachment): a PDF summarised, its text as a
+page, its tables as a table, a spreadsheet or a database (a PDF goes to Claude as a document, counted and checked
+before it is sent); Word, HTML, RTF and text files open as a page, CSV / TSV / Excel import as a database or a
+spreadsheet — those conversions run right here, nothing is sent.
 
 **Custom agents** — saved AI helpers for recurring work, like Notion's: a job in plain words, a trigger (a schedule, a
 new or changed row — which covers form answers and synced mails —, by hand, or a webhook), what they may read and
@@ -287,13 +332,27 @@ Built for the **Ninja Armory** challenge of the AI Automations community.
 
 ## Auf Deutsch
 
-**SimpleCMS One** ist ein Workspace wie Notion, nur lokal, kostenlos und ohne Konto. Er bietet:
+**SimpleCMS One** ist ein Workspace wie Notion, nur lokal, kostenlos und ohne Konto. Claude fragt, bevor es etwas
+ändert: Änderungen des KI-Terminals siehst du Wort für Wort, Erinnerungen werden erst nach deinem `y` gespeichert,
+Skripte zeigen einen Probelauf, und vor jedem Schreiben sichert der Verlauf die Seite mit ihren Eigenschaften. Er bietet:
 
-- einen Block-Editor mit Slash-Menü, Tabs, Randkommentaren, Buttons mit Aktionen, Brotkrumen, 2–5 Spalten,
-  PDF-Anzeige, einem `/Formular`-Block und vielen Einbettungen (Google Docs, Miro, Excalidraw, Spotify, Typeform …)
+- einen Block-Editor mit Slash-Menü, Ziehgriffen in einer Spalte für jeden Block in jeder Tiefe, Mehrfachauswahl von
+  Blöcken, Tabs, Randkommentaren, Buttons mit Aktionen, Brotkrumen, 2–5 Spalten, PDF-Anzeige, einem `/Formular`-Block
+  und vielen Einbettungen (Google Docs, Miro, Excalidraw, Spotify, Typeform …)
 - Datenbanken mit neun Ansichten inklusive Feed (Beiträge mit Inhalt) und Formularen, Unterelementen, Abhängigkeiten
   und Farbregeln; fehlende Eigenschaften entstehen beim Verlinken, Filtern oder CSV-Import gleich mit; in der
   Seitenleiste lassen sich Datenbanken wie Ordner aufklappen
+- Datenbank-Befehle: jede Datenbank hat eine `⌘`-Taste (Seitenleiste, Werkzeugleiste, `⌘K`) – neuer Eintrag, Ansicht,
+  CSV, „Jetzt synchronisieren“ – und eigene Befehle, die Aktionen, einen Agenten oder ein Skript starten
+- One Script: eine kleine eigene Sprache für den Workspace (ohne `eval`) – Abfragen mit Live-Ergebnis beim Tippen, ein
+  Abfrage-Baukasten zum Klicken, „Claude fragen“ entwirft Abfragen; Skripte ändern Einträge, legen Seiten an, senden
+  Mails – mit Probelauf, der alles auflistet und nichts ändert, Version vor jeder Änderung und „Lauf rückgängig“
+- „Umwandeln in …“: eine markierte Liste macht Claude zum Diagramm (Mermaid), Chart, Board, zur Tabelle oder zu
+  Spalten, Tabs und Aufklappblöcken – erst die Vorschau, dann ein Schritt
+- Claude für Dateien: aus einer PDF-Rechnung wird eine Tabelle, ein Tabellenblatt oder eine Datenbank; Word, HTML und
+  Text werden zur Seite, CSV und Excel zur Datenbank – diese Umwandlungen laufen lokal, gesendet wird nichts
+- Versionsverlauf ohne Zeitlimit, Wort für Wort – Datenbank-Einträge mit ihren Eigenschaftswerten (alt gestrichen,
+  neu markiert), Wiederherstellen mit einem Klick
 - Tabellenkalkulation in der Seite: mehrere Blätter, 75+ Funktionen, farbige Datenbereiche `DS(A1:A10; C2:C7)`
 - eigene Funktionen per Klick aus einem Formelbaum (kein Code), nutzbar in Tabellen und Datenbank-Formeln
 - Diagramme in drei Klicks aus Tabellen, Datenbanken oder den Zahlen des Workspaces – live, als PNG/SVG
@@ -307,7 +366,7 @@ Built for the **Ninja Armory** challenge of the AI Automations community.
 - Webhook-Automationen für n8n, Make und Zapier – auch aus Buttons und geteilten Formularen
 - Import aus Notion, Obsidian, Evernote, Trello und HTML
 - Veröffentlichen als statische Website, Teilen-Links ohne Server (optional mit Passwort)
-- Agenda über alle Datenbanken, Web-Clipper, Graph-Ansicht und Versionsverlauf ohne Zeitlimit
+- Agenda über alle Datenbanken, Web-Clipper und Graph-Ansicht
 - Posteingang mit Erinnerungen, synchronisierte Blöcke, Aufklapp-Überschriften, Video und Audio
 - KI-Besprechungsnotizen: Live-Transkript, danach Zusammenfassung, Entscheidungen und Aufgaben per Claude
 - Formulare mit bedingten Fragen, mehreren Seiten und Antwort-Übersicht
@@ -328,7 +387,7 @@ Built for the **Ninja Armory** challenge of the AI Automations community.
   Labels; Absender, Firmen und Threads landen verknüpft in Kontakten, Firmen und Konversationen, Anhänge kommen auf
   Wunsch als echte Blöcke dazu (PDF im Viewer, Bilder, Dateien); auf Wunsch sortiert Claude sie nach Kategorie,
   Priorität und „braucht Antwort“
-- eine eingebaute Hilfe (`?`) mit 54 Artikeln auf Deutsch und Englisch, „Frag die Hilfe“ und öffentlich unter
+- eine eingebaute Hilfe (`?`) mit 57 Artikeln auf Deutsch und Englisch, „Frag die Hilfe“ und öffentlich unter
   [getonecms.com/help](https://getonecms.com/help/de/)
 - MCP für KI-Agenten: Claude Desktop, Claude Code & Co. suchen, lesen, schreiben und räumen auf im Workspace –
   verschieben, Eigenschaften und Ansichten umbauen, in den Papierkorb legen und wiederherstellen (nichts wird

@@ -8,6 +8,7 @@ export function renderTopbar({ t, lang }: Ctx): string {
   // Plain words here: five of eight section numbers would read like missing items.
   // The § numbers live on the dial and in the section labels.
   const anchors = [
+    ['review', 'nav.review'],
     ['savings', 'nav.savings'],
     ['features', 'nav.features'],
     ['mcp', 'nav.mcp'],

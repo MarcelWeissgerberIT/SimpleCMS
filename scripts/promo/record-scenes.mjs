@@ -16,9 +16,14 @@
  * public URL and routed to that preview, so links show the real address.
  *
  * A fake cursor (with click ripple) is injected so viewers can follow the interactions. Nothing
- * leaves the machine: Claude (api.anthropic.com), the webhook endpoint and GitHub (api.github.com) are
- * mocked, the MCP scene drives the real bridge (public/mcp/one-mcp.mjs) from a local MCP client, and
- * speech recognition is a stand-in.
+ * leaves the machine: Claude (api.anthropic.com), the webhook endpoint, GitHub (api.github.com), Gmail
+ * (gmail.googleapis.com) and Google's sign-in script are mocked, the MCP scene drives the real bridge
+ * (public/mcp/one-mcp.mjs) from a local MCP client, and speech recognition is a stand-in.
+ *
+ * Without scene names it records the v3 cut (V3: write, transform, terminal, memory, script → script-live +
+ * script-dry, mail, commands); the v3 cut reuses the v2 takes of `team` and `mcp`. The recording runs in
+ * real time: on a busy machine the screencast delivers few frames — a WARNING line names the scene to
+ * record again.
  */
 import { chromium } from 'playwright'
 import { execFileSync } from 'node:child_process'
@@ -138,20 +143,187 @@ const MEETING = {
 }
 const CORS = { 'access-control-allow-origin': '*', 'access-control-allow-headers': '*', 'access-control-allow-methods': 'GET, POST, PATCH, PUT, DELETE, OPTIONS' }
 
-async function mockClaude(ctx) {
+const ev = (type, data) => `event: ${type}\ndata: ${JSON.stringify({ type, ...data })}\n\n`
+let msgSeq = 0
+/** One streamed agent turn (AI terminal): text, thinking and tool calls (input as input_json_delta). */
+function sseTurn(blocks) {
+  const stop = blocks.some((b) => b.type === 'tool_use') ? 'tool_use' : 'end_turn'
+  let body = ev('message_start', { message: { id: `msg_promo_${++msgSeq}`, type: 'message', role: 'assistant', model: 'claude-opus-5-5', content: [], stop_reason: null, stop_sequence: null, usage: { input_tokens: 1800, output_tokens: 1, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 } } })
+  blocks.forEach((b, index) => {
+    if (b.type === 'text') {
+      body += ev('content_block_start', { index, content_block: { type: 'text', text: '' } })
+      for (const chunk of b.text.match(/.{1,18}/gs)) body += ev('content_block_delta', { index, delta: { type: 'text_delta', text: chunk } })
+    } else if (b.type === 'thinking') {
+      body += ev('content_block_start', { index, content_block: { type: 'thinking', thinking: '', signature: '' } })
+      body += ev('content_block_delta', { index, delta: { type: 'thinking_delta', thinking: b.text } })
+      body += ev('content_block_delta', { index, delta: { type: 'signature_delta', signature: 'sig-promo' } })
+    } else {
+      body += ev('content_block_start', { index, content_block: { type: 'tool_use', id: b.id, name: b.name, input: {} } })
+      for (const chunk of JSON.stringify(b.input).match(/.{1,24}/gs)) body += ev('content_block_delta', { index, delta: { type: 'input_json_delta', partial_json: chunk } })
+    }
+    body += ev('content_block_stop', { index })
+  })
+  body += ev('message_delta', { delta: { stop_reason: stop, stop_sequence: null }, usage: { output_tokens: 160 } })
+  body += ev('message_stop', {})
+  return body
+}
+/** The tool result Claude got back for a tool_use id. */
+const toolResult = (body, id) => (body.messages ?? []).flatMap((m) => (Array.isArray(m.content) ? m.content : [])).find((c) => c.type === 'tool_result' && c.tool_use_id === id)
+
+/**
+ * api.anthropic.com → canned answers, never a real request. `agent`: tool-use runs (AI terminal), one
+ * step per request, each step gets the request body; `json(body)` / `text(body)`: a scene's own
+ * structured / streamed answer (undefined → the defaults: an improved sentence, the meeting notes).
+ */
+async function mockClaude(ctx, { agent, json: jsonFor, text: textFor, delay = 650 } = {}) {
+  let step = 0
   await ctx.route('https://api.anthropic.com/**', async (route) => {
     const req = route.request()
     if (req.method() === 'OPTIONS') return route.fulfill({ status: 204, headers: CORS })
+    if (req.method() === 'GET')
+      return route.fulfill({ status: 200, headers: { ...CORS, 'content-type': 'application/json' }, body: JSON.stringify({ data: [{ type: 'model', id: 'claude-opus-5-5', display_name: 'Claude Opus 5.5', created_at: '2026-01-01T00:00:00Z' }], has_more: false }) })
     const body = JSON.parse(req.postData() ?? '{}')
-    await new Promise((r) => setTimeout(r, 650))
-    if (body.stream) return route.fulfill({ status: 200, headers: { ...CORS, 'content-type': 'text/event-stream' }, body: sse(IMPROVED) })
-    return route.fulfill({
-      status: 200,
-      headers: { ...CORS, 'content-type': 'application/json' },
-      body: JSON.stringify({ id: 'msg_demo', type: 'message', role: 'assistant', model: body.model, content: [{ type: 'text', text: JSON.stringify(MEETING) }], stop_reason: 'end_turn', stop_sequence: null, usage: { input_tokens: 600, output_tokens: 120 } }),
-    })
+    await new Promise((r) => setTimeout(r, delay))
+    const stream = { status: 200, headers: { ...CORS, 'content-type': 'text/event-stream' } }
+    try {
+      if (body.tools?.some((t) => t.name) && agent) {
+        const next = agent[step++] ?? (() => sseTurn([{ type: 'text', text: 'Done.' }]))
+        return await route.fulfill({ ...stream, body: next(body) })
+      }
+      const own = body.stream ? textFor?.(body) : jsonFor?.(body)
+      if (own !== undefined) {
+        if (body.stream) return await route.fulfill({ ...stream, body: sse(own) })
+        const text = typeof own === 'string' ? own : JSON.stringify(own)
+        return await route.fulfill({ status: 200, headers: { ...CORS, 'content-type': 'application/json' }, body: JSON.stringify({ id: 'msg_demo', type: 'message', role: 'assistant', model: body.model, content: [{ type: 'text', text }], stop_reason: 'end_turn', stop_sequence: null, usage: { input_tokens: 900, output_tokens: 300 } }) })
+      }
+      if (body.stream) return await route.fulfill({ ...stream, body: sse(IMPROVED) })
+      return await route.fulfill({
+        status: 200,
+        headers: { ...CORS, 'content-type': 'application/json' },
+        body: JSON.stringify({ id: 'msg_demo', type: 'message', role: 'assistant', model: body.model, content: [{ type: 'text', text: JSON.stringify(MEETING) }], stop_reason: 'end_turn', stop_sequence: null, usage: { input_tokens: 600, output_tokens: 120 } }),
+      })
+    } catch {
+      /* the page went away mid-request */
+    }
   })
 }
+
+/* Gmail: Google's sign-in script and an in-memory mailbox with a PDF attachment (as tests/e2e/mail-gmail.spec.ts) */
+const GIS_JS = `(() => {
+  let n = 0
+  window.google = { accounts: { oauth2: {
+    initTokenClient(cfg) {
+      return { requestAccessToken() { setTimeout(() => cfg.callback({ access_token: 'ya29.promo-token-' + (++n), expires_in: 3599, scope: cfg.scope, token_type: 'Bearer' }), 40) } }
+    },
+    hasGrantedAllScopes(r, ...scopes) { return scopes.every((s) => String(r.scope || '').split(' ').includes(s)) },
+    revoke(token, done) { done && done() },
+  } } }
+})()`
+const ACCOUNT = 'marcel@acme.studio'
+const HOUR = 3_600_000
+const b64url = (s) => Buffer.from(s, 'utf8').toString('base64url')
+/** A minimal, valid PDF with `pages` pages (Claude for files counts them before sending). */
+function promoPdf(pages) {
+  const objs = ['<< /Type /Catalog /Pages 2 0 R >>', `<< /Type /Pages /Kids [${Array.from({ length: pages }, (_, i) => `${3 + i} 0 R`).join(' ')}] /Count ${pages} >>`]
+  for (let i = 0; i < pages; i++) objs.push('<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] >>')
+  let out = '%PDF-1.4\n'
+  const offsets = []
+  objs.forEach((o, i) => {
+    offsets.push(out.length)
+    out += `${i + 1} 0 obj\n${o}\nendobj\n`
+  })
+  const xref = out.length
+  out += `xref\n0 ${objs.length + 1}\n0000000000 65535 f \n${offsets.map((o) => `${String(o).padStart(10, '0')} 00000 n \n`).join('')}`
+  out += `trailer\n<< /Size ${objs.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`
+  return Buffer.from(out, 'latin1')
+}
+const MAILS = (now) => [
+  { id: 'm1', thread: 't-qa', labelIds: ['INBOX', 'UNREAD'], date: now - 1 * HOUR, subject: 'Re: Relaunch QA — staging access', from: 'Sam Okafor <sam@acme.studio>', text: 'Hi Marcel,\n\nstaging works now — I start the QA pass on the checkout pages today.\n\nThanks, Sam' },
+  { id: 'm2', labelIds: ['INBOX', 'UNREAD'], date: now - 4 * HOUR, subject: 'Invoice 2026-117 for September', from: 'Lena Hoffmann <lena@northwind.example>', text: 'Hello Marcel,\n\nattached is our invoice for September — design, hosting and support. Payment within 14 days.\n\nBest, Lena', attachments: [{ name: 'invoice-2026-117.pdf', mime: 'application/pdf', data: promoPdf(2) }] },
+  { id: 'm3', thread: 't-qa', labelIds: ['INBOX'], date: now - 26 * HOUR, subject: 'Relaunch QA — staging access', from: 'Sam Okafor <sam@acme.studio>', text: 'Could you give me access to staging? I want to run the QA pass before Thursday.' },
+  { id: 'm4', labelIds: ['INBOX'], date: now - 30 * HOUR, subject: 'Contract renewal — please sign by Friday', from: 'Lena Hoffmann <lena@northwind.example>', text: 'Attached is the renewal for next year, unchanged terms. Could you sign it by Friday?' },
+  { id: 'm5', labelIds: ['INBOX', 'UNREAD'], date: now - 50 * HOUR, subject: 'Quote for the onboarding video', from: 'Jonas Weber <jonas@studiolumen.example>', text: 'Our quote: a five-minute video with two revision rounds. Can we talk next week?' },
+  { id: 'm6', labelIds: ['INBOX'], date: now - 74 * HOUR, subject: 'Lunch on Thursday?', from: 'Mira Jensen <mira@acme.studio>', text: 'Lunch on Thursday at the usual place? 12:30?' },
+]
+class Mailbox {
+  constructor(mails) {
+    this.mails = mails
+  }
+  payload(m) {
+    const headers = [
+      { name: 'Subject', value: m.subject },
+      { name: 'From', value: m.from },
+      { name: 'To', value: `Marcel <${ACCOUNT}>` },
+      { name: 'Date', value: new Date(m.date).toUTCString() },
+    ]
+    const body = { mimeType: 'text/plain', filename: '', headers: [{ name: 'Content-Type', value: 'text/plain; charset="UTF-8"' }], body: { size: m.text.length, data: b64url(m.text) } }
+    if (!m.attachments?.length) return { ...body, headers: [...headers, ...body.headers] }
+    const parts = m.attachments.map((a) => ({ mimeType: a.mime, filename: a.name, headers: [{ name: 'Content-Disposition', value: `attachment; filename="${a.name}"` }], body: { size: a.data.length, attachmentId: `att-${a.name}` } }))
+    return { mimeType: 'multipart/mixed', filename: '', headers, body: { size: 0 }, parts: [body, ...parts] }
+  }
+  async handle(route) {
+    const req = route.request()
+    const cors = { 'access-control-allow-origin': '*', 'access-control-expose-headers': 'retry-after' }
+    if (req.method() === 'OPTIONS') return route.fulfill({ status: 204, headers: { ...cors, 'access-control-allow-headers': 'authorization, accept', 'access-control-allow-methods': 'GET' } })
+    const url = new URL(req.url())
+    const path = url.pathname.replace('/gmail/v1/users/me/', '')
+    const json = (status, body) => route.fulfill({ status, headers: { ...cors, 'content-type': 'application/json' }, body: JSON.stringify(body) }).catch(() => {})
+    const thread = (m) => m.thread ?? `t-${m.id}`
+    if (path === 'profile') return json(200, { emailAddress: ACCOUNT, messagesTotal: this.mails.length, historyId: '1000' })
+    if (path === 'labels') return json(200, { labels: ['INBOX', 'UNREAD', 'STARRED', 'SPAM', 'TRASH'].map((id) => ({ id, name: id, type: 'system' })) })
+    if (path === 'messages') {
+      const after = Number((url.searchParams.get('q') ?? '').match(/after:(\d+)/)?.[1] ?? 0) * 1000
+      const labelIds = url.searchParams.getAll('labelIds')
+      const hits = this.mails.filter((m) => m.date >= after && labelIds.every((l) => m.labelIds.includes(l)))
+      return json(200, { messages: hits.map((m) => ({ id: m.id, threadId: thread(m) })), resultSizeEstimate: hits.length })
+    }
+    const att = path.match(/^messages\/([^/]+)\/attachments\/([^/]+)$/)
+    if (att) {
+      const a = this.mails.find((x) => x.id === att[1])?.attachments?.find((x) => `att-${x.name}` === decodeURIComponent(att[2]))
+      return a ? json(200, { size: a.data.length, data: a.data.toString('base64url') }) : json(404, { error: { code: 404 } })
+    }
+    const one = path.match(/^messages\/([^/]+)$/)
+    if (one) {
+      const m = this.mails.find((x) => x.id === one[1])
+      return m ? json(200, { id: m.id, threadId: thread(m), labelIds: m.labelIds, snippet: m.text.slice(0, 80), historyId: '1000', internalDate: String(m.date), sizeEstimate: 2048, payload: this.payload(m) }) : json(404, { error: { code: 404 } })
+    }
+    if (path === 'history') return json(200, { history: [], historyId: '1000' })
+    return json(400, { error: { code: 400 } })
+  }
+}
+const mockGmail = (box) => async (ctx) => {
+  await ctx.route('https://accounts.google.com/**', (route) => route.fulfill({ status: 200, contentType: 'application/javascript', body: GIS_JS }))
+  await ctx.route('https://gmail.googleapis.com/**', (route) => box.handle(route))
+}
+/** Connect Gmail with a token (the mail test hook, ?e2e) and run the first sync; returns the Mails database id. */
+async function syncMail(page) {
+  const from = new Date(Date.now() - 10 * 86_400_000).toISOString().slice(0, 10)
+  await page.evaluate((from) => window.__one.workspace.getState().updateSettings({ mail: { clientId: '123456789012-promoclientid0001.apps.googleusercontent.com', from } }), from)
+  await page.evaluate((account) => window.__oneMail.setToken('ya29.promo-token-sync', account), ACCOUNT)
+  await page.evaluate(() => window.__oneMail.sync())
+  await page.waitForFunction(() => window.__oneMail?.state().phase === 'idle' && !!window.__one.workspace.getState().settings.mail?.databaseId, null, { timeout: 30_000 })
+  await page.waitForTimeout(400)
+  for (const close of await page.locator('.toast button[aria-label]').all()) await close.click().catch(() => {})
+  return page.evaluate(() => window.__one.workspace.getState().settings.mail.databaseId)
+}
+
+/** Tiny TipTap JSON builders. */
+const txt = (t) => ({ type: 'text', text: t })
+const doc = (...content) => ({ type: 'doc', content })
+const para = (t) => (t ? { type: 'paragraph', content: [txt(t)] } : { type: 'paragraph' })
+const heading = (level, t) => ({ type: 'heading', attrs: { level }, content: [txt(t)] })
+const li = (...content) => ({ type: 'listItem', content })
+/** Create a page from TipTap JSON (through the store) and return its id. */
+const createPage = (page, title, content, extra = {}) =>
+  page.evaluate(
+    ({ title, content, extra }) => {
+      const s = window.__one.workspace.getState()
+      const id = s.createPage({ title, parentId: null, ...extra })
+      if (content) s.setContent(id, content, 'seed')
+      return id
+    },
+    { title, content, extra },
+  )
 
 /* GitHub: an in-memory repository behind api.github.com (as tests/e2e/sync.spec.ts) */
 const gitSha = (data) => createHash('sha1').update(Buffer.concat([Buffer.from(`blob ${data.length}\0`), data])).digest('hex')
@@ -219,22 +391,24 @@ function watch(page, who = '') {
   page.on('console', (m) => m.type() === 'error' && console.log(`  ${who}console.error:`, m.text().slice(0, 200)))
 }
 
-async function newContext(browser, { theme = 'light', viewport = { width: W, height: H }, dpr = DPR, baseURL } = {}) {
+async function newContext(browser, { theme = 'light', viewport = { width: W, height: H }, dpr = DPR, baseURL, claude } = {}) {
   const ctx = await browser.newContext({ viewport, deviceScaleFactor: dpr, colorScheme: theme, locale: 'en-US', timezoneId: 'Europe/Berlin', serviceWorkers: 'block', baseURL })
   await ctx.addInitScript(CURSOR_SCRIPT)
+  // the help's "What's new" LED stays off in the recordings
+  await ctx.addInitScript(() => localStorage.setItem('one.help.seen-changelog', '9999-12-31-promo'))
   if (LOCAL && !baseURL)
     await ctx.route(`${PUBLIC}/**`, async (route) => route.fulfill({ response: await route.fetch({ url: route.request().url().replace(PUBLIC, LOCAL) }) }))
   // a static host has no team server: answer the app's probe like one (an HTML fallback), not with a 404
   if (!baseURL) await ctx.route('**/api/config', (route) => route.fulfill({ status: 200, headers: { 'content-type': 'text/html' }, body: '<!doctype html>' }))
-  await mockClaude(ctx)
+  await mockClaude(ctx, claude)
   await ctx.route('https://n8n.acme.studio/**', (route) =>
     route.fulfill({ status: 200, headers: { 'content-type': 'application/json', 'access-control-allow-origin': '*', 'access-control-allow-headers': '*' }, body: '{"ok":true}' }),
   )
   return ctx
 }
 
-async function newPage(browser, { theme = 'light', init } = {}) {
-  const ctx = await newContext(browser, { theme })
+async function newPage(browser, { theme = 'light', init, claude } = {}) {
+  const ctx = await newContext(browser, { theme, claude })
   if (init) await init(ctx)
   const page = await ctx.newPage()
   page.setDefaultTimeout(8000)
@@ -283,6 +457,8 @@ async function centerOf(locator) {
   return { x: b.x + b.width / 2, y: b.y + b.height / 2, box: b }
 }
 async function clickOn(page, locator, { ms = 450, pause = 120, modifiers, dx = 0, dy = 0 } = {}) {
+  // an option further down a scrolling list: into view first, or the click lands beside it
+  await locator.evaluate((el) => el.scrollIntoView({ block: 'nearest', inline: 'nearest' })).catch(() => {})
   const c = await centerOf(locator)
   await moveTo(page, c.x + dx, c.y + dy, ms)
   await page.waitForTimeout(pause)
@@ -307,7 +483,7 @@ async function wheelTo(page, locator, top = 90, step = 120, pause = 16) {
 const scrollTop = (locator, top) =>
   locator.evaluate((el, top) => {
     let p = el.parentElement
-    while (p && !(p.scrollHeight > p.clientHeight && /auto|scroll/.test(getComputedStyle(p).overflowY))) p = p.parentElement
+    while (p && !(p.scrollHeight > p.clientHeight + 4 && /auto|scroll/.test(getComputedStyle(p).overflowY))) p = p.parentElement
     ;(p || document.scrollingElement).scrollTop += el.getBoundingClientRect().top - top
   }, top)
 /** Drag-select from the start of `from` to the end of `to` inside the editor (real mouse drag). */
@@ -385,17 +561,410 @@ async function record(page, name, run) {
   await page.mouse.move(c.x, c.y)
   const t0 = Date.now() / 1000
   const marks = {}
-  await run((label) => (marks[label] = +(Date.now() / 1000 - t0).toFixed(2)))
+  try {
+    await run((label) => (marks[label] = +(Date.now() / 1000 - t0).toFixed(2)))
+  } catch (e) {
+    await page.screenshot({ path: `${OUT}/${name}-error.png` }).catch(() => {})
+    await stop().catch(() => {})
+    throw e
+  }
   await page.waitForTimeout(150)
   const tEnd = Date.now() / 1000
   const frames = await stop()
   encode(frames, t0, tEnd, `${OUT}/${name}-frames`, `${OUT}/${name}.mp4`, OUT_W, OUT_H)
   writeFileSync(`${OUT}/${name}.json`, JSON.stringify({ length: +(tEnd - t0).toFixed(2), marks }, null, 1))
   console.log(`scene ${name}: ${frames.length} frames, ${(tEnd - t0).toFixed(1)}s wall → ${durOf(`${OUT}/${name}.mp4`)}s clip`, marks)
+  // a busy machine delivers few frames (choppy motion): say so, the scene is worth another take
+  const gaps = frames.slice(1).map((f, i) => f.t - frames[i].t).sort((a, b) => a - b)
+  const median = gaps[Math.floor(gaps.length / 2)] ?? 0
+  if (median > 0.07) console.log(`  WARNING ${name}: median frame gap ${(median * 1000).toFixed(0)} ms — the machine was busy, record it again`)
 }
 
-/* ------------------------------------------------------------------ scenes */
+/* ------------------------------------------------------------------ scenes (v3: Claude asks before it changes) */
+/** The cut of public/media/simplecms-one.mp4 (v3); the others are kept for the earlier cuts. */
+const V3 = ['write', 'transform', 'terminal', 'memory', 'script', 'mail', 'commands']
+
+const RELEASE_DAY = 'We met on Monday and agreed to ship version 2.4 at the end of the month, together with the new pricing page.'
+const RELEASE_LEGACY = 'Legacy note: the old CSV export stays until the migration is done.'
+const refBefore = (read, snippet) => [...read.slice(0, read.indexOf(snippet)).matchAll(/⟦(b\d+)⟧/g)].at(-1)?.[1]
+
+const v3 = {
+  // Meet SimpleCMS One. Type, hit slash, and every block is right there.
+  async write(browser) {
+    const { ctx, page } = await newPage(browser)
+    const id = await page.evaluate(() => window.__one.workspace.getState().createPage({ title: 'Launch plan', icon: { type: 'asset', value: 'kanban' } }))
+    await go(page, `#/p/${id}`, 1500)
+    const editor = page.locator('.ProseMirror').first()
+    const box = (await editor.boundingBox()) ?? { x: 700, y: 420, width: 600, height: 40 }
+    await park(page, box.x + 40, box.y + 14)
+    await page.mouse.down()
+    await page.mouse.up()
+    await page.waitForTimeout(300)
+    await record(page, 'write', async (mark) => {
+      await page.waitForTimeout(200)
+      await type(page, 'Everything for the October launch.', 30)
+      await page.keyboard.press('Enter')
+      await page.waitForTimeout(200)
+      await type(page, '/', 0)
+      mark('slash')
+      await page.waitForTimeout(1100)
+      await type(page, 'to-do', 80)
+      await page.waitForTimeout(300)
+      await page.keyboard.press('Enter')
+      mark('todo')
+      await type(page, 'Record the demo video', 30)
+      await page.keyboard.press('Enter')
+      await type(page, 'Post it to the Ninja Armory', 30)
+      await page.waitForTimeout(200)
+      const first = page.locator('.ProseMirror li[data-checked] input, .ProseMirror [data-type="taskItem"] input').first()
+      if (await first.count()) await clickOn(page, first, { ms: 380 })
+      mark('checked')
+      await page.waitForTimeout(700)
+    })
+    await ctx.close()
+  },
+
+  // Select a list, and Claude turns it into a diagram.
+  async transform(browser) {
+    const intro = 'How we onboard a new client:'
+    const note = 'Usually done within two weeks.'
+    const steps = ['Sign the contract', 'Send the welcome pack', 'Kick-off call within five days', 'Is the data export ready? If not, chase their IT team', 'Import the data', 'Go live and hand over to support']
+    const flow = [
+      'flowchart LR',
+      '  s1["Sign the contract"] --> s2["Send welcome pack"]',
+      '  s2 --> s3["Kick-off call"]',
+      '  s3 --> s4{"Data export ready?"}',
+      '  s4 -->|no| s5["Chase their IT team"]',
+      '  s5 --> s4',
+      '  s4 -->|yes| s6["Import the data"]',
+      '  s6 --> s7["Go live, hand over"]',
+    ].join('\n')
+    const json = (body) => (JSON.stringify(body.system ?? '').includes('Mermaid diagram') ? { diagram: 'flowchart', code: flow, keep: [1], left: [note] } : undefined)
+    const { ctx, page } = await newPage(browser, { claude: { json, delay: 900 } })
+    const id = await createPage(page, 'Client onboarding', doc(para(intro), { type: 'orderedList', attrs: { start: 1 }, content: steps.map((x) => li(para(x))) }, para(note), para('')), { icon: { type: 'asset', value: 'binder' } })
+    await go(page, `#/p/${id}`, 1500)
+    await park(page, 900, 600)
+    await record(page, 'transform', async (mark) => {
+      await page.waitForTimeout(200)
+      await dragSelect(page, intro, note)
+      mark('selected')
+      await page.waitForTimeout(350)
+      await clickOn(page, page.locator('[aria-label="Formatting"]').first().getByRole('button', { name: /^Ask AI$/ }), { ms: 380 })
+      const ai = page.locator('.ai-panel').first()
+      await ai.waitFor()
+      await page.waitForTimeout(300)
+      await clickOn(page, ai.getByRole('option', { name: /^Transform into…/ }), { ms: 360 })
+      await page.waitForTimeout(350)
+      await clickOn(page, ai.getByRole('option', { name: /^Diagram/ }), { ms: 360 })
+      mark('diagram')
+      const plate = page.getByTestId('transform-plate')
+      await plate.locator('svg').first().waitFor({ timeout: 20_000 })
+      // the panel's preview up under its strip of forms (the wheel over the panel)
+      const forms = await page.getByTestId('transform-forms').boundingBox()
+      const pb = await plate.boundingBox()
+      if (forms && pb) {
+        await moveTo(page, pb.x + pb.width * 0.7, Math.min(H - 40, pb.y + 20), 350)
+        await wheelTo(page, plate, forms.y + forms.height + 6, 40, 18)
+      }
+      mark('preview')
+      await page.waitForTimeout(1200)
+      await clickOn(page, ai.getByRole('option', { name: /^Transform/ }).last(), { ms: 420 })
+      mark('applied')
+      await page.locator('.toast', { hasText: 'Transformed' }).first().waitFor({ timeout: 15_000 }).catch(() => {})
+      mark('landed')
+      await page.waitForTimeout(2600)
+    })
+    await ctx.close()
+  },
+
+  // Hand the AI terminal a task. Every edit waits for your review, word by word.
+  async terminal(browser) {
+    const ids = {}
+    const agent = [
+      () =>
+        sseTurn([
+          { type: 'thinking', text: 'The notes still say Monday and 2.4. Read the page with refs, then change only those blocks.' },
+          { type: 'tool_use', id: 'toolu_read', name: 'read_page', input: { id: ids.notes, refs: true } },
+        ]),
+      (body) => {
+        const read = String(toolResult(body, 'toolu_read')?.content ?? '')
+        return sseTurn([
+          {
+            type: 'tool_use',
+            id: 'toolu_edit',
+            name: 'edit_page',
+            input: {
+              id: ids.notes,
+              edits: [
+                { op: 'replace', from: refBefore(read, RELEASE_DAY), markdown: 'We met on Tuesday and agreed to ship version 2.5 in the second week of November, together with the new pricing page.' },
+                { op: 'delete', from: refBefore(read, RELEASE_LEGACY) },
+                { op: 'insert_after', ref: refBefore(read, 'Fix the login bug'), markdown: '- Write the release notes (Mira)' },
+              ],
+            },
+          },
+        ])
+      },
+      () => sseTurn([{ type: 'text', text: 'Staged three edits: the new day and version, the legacy note removed, the release notes added.' }]),
+    ]
+    const { ctx, page } = await newPage(browser, { claude: { agent, delay: 450 } })
+    ids.notes = await createPage(
+      page,
+      'Release sync',
+      doc(
+        para('Attendees: Mara, Sam, Alex, Mira.'),
+        para(RELEASE_DAY),
+        para(RELEASE_LEGACY),
+        para('Budget stays at 40k; design review on Thursday.'),
+        heading(2, 'Next steps'),
+        { type: 'bulletList', content: [li(para('Final QA on staging')), li(para('Fix the login bug')), li(para('Draft the newsletter'))] },
+        para('Notes taken by Sam.'),
+      ),
+      { icon: { type: 'asset', value: 'binder' } },
+    )
+    await go(page, `#/p/${ids.notes}`, 1500)
+    await park(page, 900, 420)
+    await record(page, 'terminal', async (mark) => {
+      await page.waitForTimeout(250)
+      await page.keyboard.press('Control+j')
+      const term = page.getByRole('region', { name: 'AI terminal' })
+      await term.waitFor()
+      const prompt = term.getByRole('textbox', { name: 'Task for the agent' })
+      await prompt.focus()
+      mark('open')
+      await type(page, 'Release moved: Tuesday, 2.5, second week of November. Fix the notes.', 24)
+      await page.keyboard.press('Enter')
+      mark('run')
+      await term.locator('.term-change[data-kind="edit"]').nth(2).waitFor({ timeout: 30_000 })
+      await term.locator('.term-head__status').filter({ hasText: 'Done' }).waitFor({ timeout: 30_000 })
+      // a taller dock: the first edit, word by word
+      for (let i = 0; i < 3; i++) await page.keyboard.press('Alt+ArrowUp')
+      await page.waitForTimeout(150)
+      await term.locator('.term-change[data-kind="edit"]').first().evaluate((el) => el.scrollIntoView({ block: 'start' }))
+      mark('staged')
+      const word = term.locator('.term-change[data-kind="edit"]').first().locator('ins').first()
+      if (await word.count()) await moveTo(page, ...Object.values(await centerOf(word)).slice(0, 2), 500)
+      await page.waitForTimeout(1800)
+      await clickOn(page, term.getByRole('button', { name: /^Apply all/i }).first(), { ms: 450 })
+      mark('applied')
+      await page.waitForTimeout(400)
+      // the dock down again: the page with its new text
+      for (let i = 0; i < 3; i++) await page.keyboard.press('Alt+ArrowDown')
+      await page.waitForTimeout(1300)
+    })
+    await ctx.close()
+  },
+
+  // And it only remembers what you confirm.
+  async memory(browser) {
+    const proposals = {
+      memories: [
+        { type: 'preference', text: 'Weekly reports: numbers first, one line per item, owner in brackets.', topics: ['Reports'], body: '' },
+        { type: 'procedure', text: 'Weekly report: done, next steps, risks — from the Projects database.', topics: ['Reports'], body: '1. Pull the numbers from Projects\n2. Three sections: done, next steps, risks' },
+      ],
+    }
+    const agent = [() => sseTurn([{ type: 'text', text: 'Drafted the weekly report outline: **Done**, **Next steps**, **Risks** — numbers first, as last week.' }])]
+    const { ctx, page } = await newPage(browser, { claude: { agent, json: (body) => (String(body.system ?? '').includes('remember') ? proposals : undefined), delay: 450 } })
+    await page.evaluate(() => window.__one.ui.getState().openModal({ type: 'settings', tab: 'ai' }))
+    await page.getByTestId('memory-settings').getByRole('button', { name: 'Set up memory' }).click()
+    await page.keyboard.press('Escape')
+    const memId = await page.evaluate(() => {
+      const s = window.__one.workspace.getState()
+      const db = Object.values(s.databases).find((d) => d.system === 'memory')
+      const prop = (n) => db.properties.find((p) => p.name === n)
+      const type = (n) => prop('Type').options.find((o) => o.name === n).id
+      const topics = prop('Topics')
+      s.updateProperty(db.id, topics.id, { options: [{ id: 'tp-launch', name: 'Launch', color: 'green' }, { id: 'tp-brand', name: 'Brand', color: 'orange' }] })
+      const add = (title, t, tps) => s.createRow(db.id, { title, properties: { [prop('Type').id]: type(t), [prop('Active').id]: true, [topics.id]: tps } })
+      add('We launch on Tuesdays, never on Fridays.', 'Decision', ['tp-launch'])
+      add('Brand voice: plain words, numbers over adjectives.', 'Fact', ['tp-brand'])
+      return db.id
+    })
+    await go(page, `#/p/${memId}`, 1500)
+    await page.keyboard.press('Control+j')
+    const term = page.getByRole('region', { name: 'AI terminal' })
+    await term.waitFor()
+    const prompt = term.getByRole('textbox', { name: 'Task for the agent' })
+    await prompt.fill('Draft the weekly report outline')
+    // a taller dock; the memory's rows stay in view above it (a saved proposal appears there)
+    await prompt.focus()
+    await page.keyboard.press('Alt+ArrowUp')
+    await page.waitForTimeout(300)
+    await scrollTop(page.locator('#main section.db').first(), 40)
+    await park(page, 900, 120)
+    await page.waitForTimeout(400)
+    await record(page, 'memory', async (mark) => {
+      await page.waitForTimeout(200)
+      await prompt.press('Enter')
+      mark('run')
+      await term.getByTestId('term-memory').getByRole('list').waitFor({ timeout: 30_000 })
+      await term.getByTestId('term-memory').evaluate((el) => el.scrollIntoView({ block: 'end' }))
+      mark('proposals')
+      await page.waitForTimeout(1100)
+      await prompt.focus()
+      await page.keyboard.press('Tab')
+      await page.waitForTimeout(800)
+      await page.keyboard.press('y')
+      mark('saved')
+      await page.waitForTimeout(1800)
+    })
+    await ctx.close()
+  },
+
+  // One Script queries your workspace live, and every script shows a dry run first.
+  async script(browser) {
+    const { ctx, page } = await newPage(browser)
+    const ids = await page.evaluate(() => {
+      const s = window.__one.workspace.getState()
+      const db = Object.values(s.pages).find((p) => p.kind === 'database' && p.title === 'Projects' && !p.trashed)
+      const now = Date.now()
+      s.upsertScript({ id: 'scpromoq', name: 'Urgent projects', code: `# Every project — narrowed down while you type\ndb(@[Projects](p:${db.id}))\n`, kind: 'query', createdAt: now, updatedAt: now })
+      const code = [
+        '# Open projects due within two weeks get priority "High" — and the team a note.',
+        `let due = db(@[Projects](p:${db.id})).where(Status != "Done", Priority != "High", Timeline < today() + 14d)`,
+        'for t in due {',
+        '  t.set(Priority: "High")',
+        '}',
+        'mail.send(to: "team@acme.studio", subject: "Raised: {due.count} projects", body: "See Projects.")',
+        '',
+      ].join('\n')
+      s.upsertScript({ id: 'scpromod', name: 'Raise due projects', code, kind: 'script', createdAt: now + 1, updatedAt: now + 1 })
+      return { query: 'scpromoq', dry: 'scpromod' }
+    })
+    await go(page, `#/scripts/${ids.query}`, 1500)
+    await page.getByTestId('sc-live-count').waitFor()
+    const ta = page.locator('.sc-code__input')
+    // the caret at the end of the code
+    await ta.focus()
+    await page.keyboard.press('Control+End')
+    await park(page, 1000, 560)
+    await record(page, 'script-live', async (mark) => {
+      await page.waitForTimeout(500)
+      await type(page, '  .where(Priority = "High")', 40)
+      await page.keyboard.press('Escape')
+      mark('typed')
+      // the narrowed result stays a moment: the cut needs it
+      await page.waitForTimeout(1800)
+      await page.keyboard.press('Enter')
+      await type(page, '  .sort(Timeline)', 40)
+      await page.keyboard.press('Escape')
+      mark('sorted')
+      await page.waitForTimeout(1300)
+    })
+    await go(page, `#/scripts/${ids.dry}`, 1400)
+    await page.locator('.sc-code__input').waitFor()
+    await park(page, 900, 500)
+    await record(page, 'script-dry', async (mark) => {
+      await page.waitForTimeout(250)
+      await clickOn(page, page.getByTestId('sc-dry'), { ms: 450 })
+      mark('dry')
+      const sum = page.locator('.sc-summary--dry')
+      await sum.waitFor({ timeout: 15_000 })
+      // the summary below the editor: scrolled into view with the wheel
+      await moveTo(page, 560, 500, 250)
+      await wheelTo(page, sum, 260, 60, 16)
+      await page.waitForTimeout(300)
+      await clickOn(page, sum.getByRole('button', { name: /change \d+ entr/ }).first(), { ms: 420 }).catch(() => {})
+      mark('changes')
+      await page.waitForTimeout(1700)
+    })
+    await ctx.close()
+  },
+
+  // Gmail becomes a database, with contacts and companies. And a PDF invoice becomes a table.
+  async mail(browser) {
+    const tables = { tables: [{ title: 'Invoice 2026-117 · line items', header: ['Item', 'Hours', 'Rate', 'Amount'], rows: [['Design and prototyping', '18', '95.00', '1,710.00'], ['Front-end build', '24', '90.00', '2,160.00'], ['Hosting, October–December', '1', '300.50', '300.50'], ['Support and QA', '6', '80.00', '480.00']] }] }
+    const answer = (body) => (/Find every table/.test(JSON.stringify(body.messages ?? '')) ? JSON.stringify(tables) : undefined)
+    const box = new Mailbox(MAILS(Date.now()))
+    const { ctx, page } = await newPage(browser, { init: mockGmail(box), claude: { text: answer, json: answer, delay: 900 } })
+    const dbId = await syncMail(page)
+    // the invoice's PDF loaded beforehand, shown as a file card (a headless browser has no PDF viewer)
+    const row = await idOf(page, 'Invoice 2026-117 for September')
+    await go(page, `#/p/${row}`, 1400)
+    const ed = page.locator('#main .ProseMirror').first()
+    await ed.locator('li', { hasText: 'invoice-2026-117.pdf' }).getByRole('button', { name: 'Load', exact: true }).click()
+    const viewer = ed.locator('.pdf-view', { hasText: 'invoice-2026-117.pdf' }).first()
+    await viewer.waitFor({ timeout: 15_000 })
+    await viewer.getByRole('button', { name: 'Show as file' }).evaluate((b) => b.click())
+    await ed.locator('.file-view', { hasText: 'invoice-2026-117.pdf' }).first().waitFor()
+    await page.waitForTimeout(600)
+    for (const close of await page.locator('.toast button[aria-label]').all()) await close.click().catch(() => {})
+    await go(page, `#/p/${dbId}`, 1600)
+    await wheelTo(page, page.locator('#main section.db').first(), 70, 120, 20)
+    await park(page, 640, 560)
+    await page.waitForTimeout(600)
+    await record(page, 'mail', async (mark) => {
+      await page.waitForTimeout(300)
+      // the contact, the company, the conversation of each mail
+      await moveTo(page, ...Object.values(await centerOf(page.locator('#main .dbt-cell, #main [role="gridcell"]', { hasText: 'Lena Hoffmann' }).first())).slice(0, 2), 650)
+      mark('contacts')
+      await page.waitForTimeout(500)
+      await moveTo(page, ...Object.values(await centerOf(page.locator('#main .dbt-cell, #main [role="gridcell"]', { hasText: 'Northwind' }).first())).slice(0, 2), 450)
+      await page.waitForTimeout(500)
+      // the invoice mail, its PDF → Extract the tables
+      await go(page, `#/p/${row}`, 1200)
+      mark('invoice')
+      const card = ed.locator('.file-view', { hasText: 'invoice-2026-117.pdf' }).first()
+      await card.waitFor()
+      await moveTo(page, 900, 420, 300)
+      await wheelTo(page, card, 300, 60, 16)
+      await page.waitForTimeout(250)
+      const c = await centerOf(card)
+      await moveTo(page, c.x, c.y, 450)
+      await clickOn(page, card.getByTestId('file-ai-key'), { ms: 350 })
+      await page.waitForTimeout(250)
+      await clickOn(page, page.getByRole('menuitem', { name: /^Extract the tables/ }), { ms: 350 })
+      mark('extract')
+      const ai = page.getByRole('dialog', { name: 'Ask Claude' })
+      await ai.getByTestId('ai-file-tables').locator('tbody tr').first().waitFor({ timeout: 20_000 })
+      mark('table')
+      await page.waitForTimeout(1300)
+      await clickOn(page, ai.getByRole('option', { name: /^Insert as table/ }), { ms: 420 })
+      await page.waitForTimeout(500)
+      if (await ai.isVisible()) await page.keyboard.press('Enter')
+      await ai.waitFor({ state: 'hidden', timeout: 5000 }).catch(() => {})
+      mark('inserted')
+      await page.waitForTimeout(1500)
+    })
+    await ctx.close()
+  },
+
+  // Every database has its own commands, one key away.
+  async commands(browser) {
+    const { ctx, page } = await newPage(browser)
+    const dbId = await page.evaluate(() => {
+      const s = window.__one.workspace.getState()
+      const db = Object.values(s.pages).find((p) => p.kind === 'database' && p.title === 'Projects' && !p.trashed)
+      const now = Date.now()
+      const code = `# Open projects due within two weeks get priority "High".\nlet due = db(@[Projects](p:${db.id})).where(Status != "Done", Priority != "High", Timeline < today() + 14d)\nfor t in due {\n  t.set(Priority: "High")\n}\nnotify("{due.count} projects raised")\n`
+      s.upsertScript({ id: 'scpromocmd', name: 'Raise priority of due projects', code, kind: 'script', createdAt: now, updatedAt: now })
+      s.updateDatabase(db.id, { commands: [{ id: 'cmdraise01', kind: 'script', label: 'Raise priority of due projects', config: { scriptId: 'scpromocmd' } }] })
+      return db.id
+    })
+    await go(page, `#/p/${dbId}`, 1800)
+    await scrollTop(page.locator('#main section.db').first(), 70)
+    await page.waitForTimeout(500)
+    const row = page.locator('.sb section[aria-label="Pages"] .sb-row').filter({ has: page.locator(`a[href="#/p/${dbId}"]`) })
+    await park(page, 700, 520)
+    await record(page, 'commands', async (mark) => {
+      await page.waitForTimeout(250)
+      const r = await centerOf(row)
+      await moveTo(page, r.x, r.y, 500)
+      await page.waitForTimeout(250)
+      await clickOn(page, row.getByTestId('tree-commands'), { ms: 300 })
+      mark('menu')
+      const menu = page.locator('.popover.cmd-menu')
+      await menu.waitFor()
+      await page.waitForTimeout(700)
+      await clickOn(page, menu.getByRole('menuitem', { name: /Raise priority/ }), { ms: 450 })
+      mark('ran')
+      await page.waitForTimeout(1800)
+    })
+    await ctx.close()
+  },
+}
+
 const scenes = {
+  ...v3,
   // Meet SimpleCMS One: Notion, rebuilt — minus the bill.
   async home(browser) {
     const { ctx, page } = await newPage(browser)
@@ -990,7 +1559,7 @@ async function openCloud(page, wsId, hash = '') {
 /** The dark frame around the two windows: a label over each one. */
 async function teamFrame(browser, file) {
   const font = (p) => `file://${resolve('node_modules', p)}`
-  const html = `<!doctype html><html><head><style>
+  const html = `<!doctype html><html><head><meta charset="utf-8"><style>
 @font-face { font-family: Mono; src: url('${font('@fontsource-variable/jetbrains-mono/files/jetbrains-mono-latin-wght-normal.woff2')}') format('woff2'); font-weight: 100 800; }
 * { box-sizing: border-box; margin: 0; }
 html, body { width: ${OUT_W}px; height: ${OUT_H}px; background: #111110; overflow: hidden; }
@@ -1132,7 +1701,7 @@ async function recordTeam(browser) {
 
 const browser = await chromium.launch({ env: { ...process.env, LANG: 'C.UTF-8', LC_ALL: 'C.UTF-8' } })
 for (const [name, run] of Object.entries(scenes)) {
-  if (ONLY.length ? !ONLY.includes(name) : ['command', 'importshare'].includes(name)) continue
+  if (ONLY.length ? !ONLY.includes(name) : !V3.includes(name)) continue
   try {
     await run(browser)
   } catch (e) {

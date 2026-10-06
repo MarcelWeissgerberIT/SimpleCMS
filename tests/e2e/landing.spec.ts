@@ -11,8 +11,10 @@ test.describe('landing page', () => {
     await expect(page.locator('html')).toHaveClass(/intro-active/)
     expect(await seen(page)).toBeNull()
 
-    // still standing well before the 15 s idle mark (no input from the test)
-    await page.waitForTimeout(10_000)
+    // still standing well before the 15 s idle mark (no input from the test); counted from the page's
+    // own start, so a slow load on a busy machine does not eat into the margin
+    const since = await page.evaluate(() => performance.now())
+    await page.waitForTimeout(Math.max(0, 10_000 - since))
     await expect(sheet).toBeVisible()
     expect(await seen(page)).toBeNull()
 
@@ -80,10 +82,10 @@ test.describe('landing page', () => {
       await expect(page.getByRole('tablist', { name: /Datenbanken/ }).getByRole('tab', { name: /Zeitleiste/ })).toBeAttached()
       await expect(page.locator('#own-it .plate-cloud')).toContainText('In Entwicklung')
       const features = page.locator('#features')
-      await expect(features.getByRole('heading', { level: 2 })).toHaveText(/Vierund­?zwanzig Funktionen\./)
-      await expect(features.locator('.plac')).toHaveCount(24)
+      await expect(features.getByRole('heading', { level: 2 })).toHaveText(/Dreißig Funktionen\./)
+      await expect(features.locator('.plac')).toHaveCount(30)
       const delegate = features.getByRole('group', { name: 'Delegieren' })
-      for (const item of ['Eigene Agenten', 'Workspace-Agent', 'Deine MCP-Server', 'Mails als Datenbank']) {
+      for (const item of ['KI-Terminal', 'One-Gedächtnis', 'Eigene Agenten', 'Deine MCP-Server', 'Mails als Datenbank']) {
         await expect(delegate.getByRole('heading', { name: item, exact: true })).toBeVisible()
       }
       await expect(features.getByRole('heading', { name: 'Datenbanken, 9 Ansichten', exact: true })).toBeVisible()
@@ -94,31 +96,35 @@ test.describe('landing page', () => {
 })
 
 test.describe('landing sections', () => {
-  test('features: twenty-four placards in six groups, the rest as one line of tags', async ({ page }) => {
+  test('features: thirty placards in six groups of five, the rest as one line of tags', async ({ page }) => {
     await page.goto('./?skip')
     const features = page.locator('#features')
-    await expect(features.getByRole('heading', { level: 2 })).toHaveText(/Twenty.four things it does\./)
-    await expect(features.locator('.plac')).toHaveCount(24)
+    await expect(features.getByRole('heading', { level: 2 })).toHaveText(/Thirty things it does\./)
+    await expect(features.locator('.plac')).toHaveCount(30)
     for (const [group, range, items] of [
-      ['Write', 'F-01 — F-04', ['Block editor', 'Version history']],
-      ['Organise', 'F-05 — F-08', ['Databases, 9 views', 'Sub-items & dependencies', 'Agenda & inbox']],
-      ['Calculate', 'F-09 — F-12', ['Spreadsheets in pages', 'Your own functions', 'Charts in three clicks', 'Formulas & rollups']],
-      ['Automate', 'F-13 — F-16', ['Webhook automations', 'Forms', 'Buttons', 'AI autofill']],
-      ['Publish & move', 'F-17 — F-20', ['Publish as a website', 'Links with a password', 'Import from anywhere', 'Web clipper']],
-      ['Delegate', 'F-21 — F-24', ['Custom agents', 'Workspace agent', 'Your MCP servers', 'Mail as a database']],
+      ['Write', 'F-01 — F-05', ['Block editor', 'Transform into …', 'Meeting notes', 'Version history']],
+      ['Organise', 'F-06 — F-10', ['Databases, 9 views', 'Sub-items & dependencies', 'Agenda & inbox', 'Graph & backlinks']],
+      ['Calculate', 'F-11 — F-15', ['Spreadsheets in pages', 'Your own functions', 'Charts in three clicks', 'Formulas & rollups', 'One Script']],
+      ['Automate', 'F-16 — F-20', ['Webhook automations', 'Forms', 'Buttons', 'Database commands', 'AI autofill']],
+      ['Publish & move', 'F-21 — F-25', ['Publish as a website', 'Links with a password', 'Import from anywhere', 'Files into structure', 'Web clipper']],
+      ['Delegate', 'F-26 — F-30', ['AI terminal', 'One memory', 'Custom agents', 'Your MCP servers', 'Mail as a database']],
     ] as const) {
       const g = features.getByRole('group', { name: group })
-      await expect(g.locator('.plac')).toHaveCount(4)
+      await expect(g.locator('.plac')).toHaveCount(5)
       await expect(g.locator('.pgroup-range')).toHaveText(range)
       for (const item of items) await expect(g.getByRole('heading', { name: item, exact: true })).toBeVisible()
     }
     await expect(features.locator('.plac', { hasText: 'Databases, 9 views' })).toContainText('feed')
     await expect(features.locator('.plac', { hasText: 'Forms' })).toContainText('/form')
-    await expect(features.locator('.extras-list li')).toContainText(['Built-in help · 54 articles', 'Breadcrumbs', 'Presentation mode', 'Stacked panes'])
-    // the art comes from the generated icons; the new four get a picture of their own each
+    await expect(features.locator('.plac', { hasText: 'AI terminal' })).toContainText('word by word')
+    await expect(features.locator('.extras-list li')).toContainText(['Built-in help · 57 articles', 'Breadcrumbs', 'Turn blocks into a page', 'Mark what Claude may read', 'Presentation mode', 'Stacked panes'])
+    // the art comes from the generated icons; each placard gets a picture of its own
     const icon = (key: string) => features.locator(`.plac[data-feature="${key}"] img.plac-icon`)
-    for (const [key, file] of [['customAgents', 'clock'], ['agent', 'focus'], ['mcpTools', 'sync'], ['mail', 'import']] as const) {
-      await icon(key).scrollIntoViewIfNeeded()
+    for (const [key, file] of [
+      ['customAgents', 'clock'], ['agent', 'focus'], ['mcpTools', 'sync'], ['mail', 'import'],
+      ['transform', 'split'], ['meeting', 'microphone'], ['script', 'notepad'], ['commands', 'command'], ['buttons', 'counter'], ['files', 'book'], ['memory', 'rolodex'],
+    ] as const) {
+      // no scrolling: the source is set as soon as the manifest is in (the placards' reveal can keep an icon moving)
       await expect(icon(key)).toHaveAttribute('src', new RegExp(`assets/icons/${file}\\.webp$`))
     }
     const srcs = await features.locator('img.plac-icon').evaluateAll((imgs) => (imgs as HTMLImageElement[]).map((i) => i.getAttribute('src')))
@@ -260,11 +266,11 @@ test.describe('landing: agents · MCP', () => {
     expect(await page.evaluate(() => navigator.clipboard.readText())).toBe('claude mcp add --transport http one https://team.example.com/mcp --header "Authorization: Bearer one_…"')
   })
 
-  test('plate 3.1: both directions — Claude Desktop uses One, Claude in One uses your MCP servers', async ({ page }) => {
+  test('plate 4.1: both directions — Claude Desktop uses One, Claude in One uses your MCP servers', async ({ page }) => {
     await page.goto('./?skip#mcp')
     const sec = page.locator('#mcp')
     const plate = sec.locator('figure.mcp-ports')
-    await expect(plate.locator('figcaption')).toContainText('Plate 3.1 — Two ports')
+    await expect(plate.locator('figcaption')).toContainText('Plate 4.1 — Two ports')
 
     const portIn = plate.locator('.mcp-port.is-in')
     await expect(portIn.getByRole('heading', { name: 'Claude Desktop uses One' })).toBeVisible()
@@ -282,14 +288,14 @@ test.describe('landing: agents · MCP', () => {
 
     // the schematic below wires up the way in; its caption counts the tools
     const cap = sec.locator('.mcp-schematic figcaption')
-    await expect(cap).toContainText('Schematic 3.2 — Port in, wired')
+    await expect(cap).toContainText('Schematic 4.2 — Port in, wired')
     await expect(cap).toContainText('Tools: 14')
     await portIn.getByRole('link', { name: /Set it up/ }).click()
     await expect(page).toHaveURL(/#mcp-setup$/)
     await expect(sec.getByRole('link', { name: /Add to Claude Desktop/ })).toBeInViewport()
   })
 
-  test('3.3 custom agents: a nameplate of an example agent, a real run, links into the app and the help', async ({ page }) => {
+  test('4.3 custom agents: a nameplate of an example agent, a real run, links into the app and the help', async ({ page }) => {
     await page.goto('./?skip#mcp')
     const block = page.locator('#mcp').getByRole('group', { name: 'Agents that work on their own.' })
     await block.scrollIntoViewIfNeeded()

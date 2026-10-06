@@ -314,12 +314,14 @@ def render(cues, path):
         tr.add(x, t_hit, 0.62)
         hit_fx.add(x, t_hit, 0.35)
 
-    # C — the "classified" card: a ticking clock and a reversed swell into the drop
+    # C — the "classified" card (v1/v2 cuts): a ticking clock and a reversed swell into the drop;
+    #     without a card (v3: the groove drops with the last hit's white-out) there is nothing to bridge
     t_c = hits[2] + 0.55
     while t_c < drop - 0.3:
         tr.add(tick(), t_c, 0.55, pan=0.2)
         t_c += 0.5
-    tr.add(riser(drop - hits[2] - 0.2)[::1], hits[2] + 0.2, 0.35)
+    if drop - hits[2] > 0.6:
+        tr.add(riser(drop - hits[2] - 0.2)[::1], hits[2] + 0.2, 0.35)
 
     # D — the groove (120 BPM, bars start at the drop)
     beat = 0.5

@@ -470,7 +470,7 @@
   margin: 0;
   padding: 0;
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   border-top: 1px solid var(--rule-strong);
   border-left: 1px solid var(--rule-strong);
 }
@@ -563,7 +563,7 @@
   color: var(--ink-2);
 }
 
-/* Six groups of four, each under a mono rule: [A] WRITE ——— F-01 — F-04 */
+/* Six groups of five, each under a mono rule: [A] WRITE ——— F-01 — F-05 */
 .pgroups {
   display: grid;
   gap: clamp(24px, 2.4vw, 36px);
@@ -1391,9 +1391,13 @@ td[data-col='One.'] .mk-yes {
 }
 
 /* ================= Responsive ================= */
-@media (max-width: 1180px) {
+@media (max-width: 1320px) {
   .placards {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  /* five to a group: the last one runs across both columns */
+  .plac:last-child:nth-child(odd) {
+    grid-column: 1 / -1;
   }
   /* Two wide columns: art beside the text, not above it. */
   .plac {

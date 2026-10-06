@@ -130,7 +130,7 @@ export function renderPrivacy(ctx: Ctx): string {
     <figure class="schematic" data-reveal>
       ${wide(t, motion)}
       ${tall(t, motion)}
-      <figcaption class="lbl schematic-cap"><span>${ctx.lang === 'de' ? 'Schaltplan 6.1 — Datenfluss' : 'Schematic 6.1 — Data flow'}</span><span>${ctx.lang === 'de' ? 'Server: 0' : 'Servers: 0'}</span></figcaption>
+      <figcaption class="lbl schematic-cap"><span>${ctx.lang === 'de' ? 'Schaltplan 7.1 — Datenfluss' : 'Schematic 7.1 — Data flow'}</span><span>${ctx.lang === 'de' ? 'Server: 0' : 'Servers: 0'}</span></figcaption>
     </figure>
     <ol class="pv-points">${points}</ol>
   </div>
