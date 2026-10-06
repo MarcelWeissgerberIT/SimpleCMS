@@ -13,7 +13,7 @@ import type { ColorName, CustomPropBase, CustomPropDisplay, CustomPropType, Data
 import { COLOR_NAMES } from '../../store/types'
 import { colorText, tagStyle } from '../../lib/colors'
 import { useT } from '../../i18n'
-import { formatOf, optionsOf, runBinding, untrustedOf, useKitTrust, editorName, type BindingKey } from './scripts'
+import { formatOf, mayRun, optionsOf, runBinding, untrustedOf, useKitTrust, editorName, type BindingKey } from './scripts'
 import { scheduleValue, setCellError, useKitErrors } from './recompute'
 import { openReview } from './review'
 import { itemColor } from './model'
@@ -97,7 +97,7 @@ interface Shown {
 
 const FORMAT_MAX = 3000
 const formatted = new Map<string, Shown>()
-const inflight = new Map<string, Promise<Shown>>()
+const inflight = new Map<string, Promise<Shown | null>>()
 
 function formatKey(code: string, row: Page, raw: PropertyValue): string {
   return `${code}\u0000${row.id}\u0000${row.updatedAt}\u0000${JSON.stringify(raw)}`
@@ -112,14 +112,16 @@ function useFormatted(type: CustomPropType, prop: PropertyDef, row: Page, raw: P
     let alive = true
     let job = inflight.get(key)
     if (!job) {
-      job = runBinding(type, 'format', { row, prop, value: raw }, { mode: 'query' }).then((r): Shown => {
-        if (!r || r === 'untrusted') return {}
+      job = runBinding(type, 'format', { row, prop, value: raw }, { mode: 'query' }).then((r): Shown | null => {
+        // not confirmed (yet): nothing is remembered — a confirmation shows the text
+        if (!r || r === 'untrusted') return null
         return r.ok ? { text: formatOf(r) } : { error: r.error ?? '' }
       })
       inflight.set(key, job)
     }
     void job.then((s) => {
       inflight.delete(key)
+      if (!s) return
       if (formatted.size > FORMAT_MAX) formatted.delete(formatted.keys().next().value as string)
       formatted.set(key, s)
       if (alive) bump((n) => n + 1)
@@ -150,10 +152,10 @@ export function KitValue({ db, prop, row, variant = 'cell', children }: KitValue
   const type = useOwnType(prop)
   const untrusted = useUntrusted(type)
   const raw = (row.properties[prop.id] ?? null) as PropertyValue
-  const shown = useFormatted(type ?? (FALLBACK as CustomPropType), prop, row, raw, !type || untrusted.includes('format'))
+  const shown = useFormatted(type ?? (FALLBACK as CustomPropType), prop, row, raw, !type || !mayRun(type, 'format'))
   const cellError = useKitErrors((s) => s.errors[`${row.id}|${prop.id}`])
   const valueCode = type?.scripts?.value
-  const computing = !!valueCode && !untrusted.includes('value')
+  const computing = !!valueCode && mayRun(type, 'value')
   useEffect(() => {
     if (computing) scheduleValue(db.id, prop.id, row.id)
   }, [computing, db.id, prop.id, row.id, valueCode])
@@ -221,8 +223,8 @@ const optionCache = new Map<string, SelectOption[]>()
  */
 export function useKitOptions(db: Database, prop: PropertyDef, rowId: ID | undefined): SelectOption[] | null {
   const type = useOwnType(prop)
-  const untrusted = useUntrusted(type)
-  const code = type?.scripts?.options && !untrusted.includes('options') ? type.scripts.options : null
+  useUntrusted(type)
+  const code = type?.scripts?.options && mayRun(type, 'options') ? type.scripts.options : null
   const key = code && rowId ? `${code}\u0000${rowId}` : null
   const [opts, setOpts] = useState<SelectOption[] | null>(() => (key ? (optionCache.get(key) ?? null) : null))
   useEffect(() => {

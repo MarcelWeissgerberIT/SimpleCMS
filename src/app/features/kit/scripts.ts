@@ -59,6 +59,12 @@ export function untrustedOf(type: CustomPropType | null | undefined): BindingKey
   })
 }
 
+/** A binding may run on this device right now (team: its trust is known and given). */
+export function mayRun(type: CustomPropType | null | undefined, key: BindingKey): boolean {
+  const code = type?.scripts?.[key]
+  return !!code && trustNow(code) === true
+}
+
 /** Remember every binding of the type as saved / confirmed here (saving in the editor, Confirm). */
 export async function trustType(type: Pick<CustomPropType, 'scripts'>): Promise<void> {
   const codes = BINDING_KEYS.map((k) => type.scripts?.[k]).filter((c): c is string => !!c)

@@ -4,7 +4,7 @@
  * reads the code and confirms it; a changed version needs his confirmation again.
  */
 import type { Page } from '@playwright/test'
-import { test, expect, email, signIn, newPerson, openApp, wsEval, waitOnline, createWorkspace, join as joinWorkspace, gotoPage } from './fixtures'
+import { test, expect, email, signIn, newPerson, openApp, wsEval, waitOnline, createWorkspace, join as joinWorkspace } from './fixtures'
 
 const errors: string[] = []
 function watch(p: Page, who: string) {
@@ -26,6 +26,12 @@ const fresh = (p: Page) =>
     w.st = () => w.__one.workspace.getState()
   })
 declare const st: () => any // eslint-disable-line @typescript-eslint/no-explicit-any
+
+/** A database page (no editor to wait for: its table). */
+async function gotoPage(p: Page, id: string): Promise<void> {
+  await p.evaluate((id) => (window.location.hash = `#/p/${id}`), id)
+  await expect(p.locator('#main section.db').first()).toBeVisible()
+}
 
 const firstCell = (p: Page) => p.locator('#main section.db [role="gridcell"][data-cell="0:1"]')
 
