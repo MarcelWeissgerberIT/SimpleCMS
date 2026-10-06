@@ -157,6 +157,8 @@ export const SETUP_JS = String.raw`(function () {
     title: 'Pick the repositories One may work in',
     lead: 'Tick a repository and One can hand it coding tasks: Claude Code works on a branch in its own worktree, your checkout stays as it is. Paths and commands stay on this computer — One only learns the names.',
     loading: 'Looking for git repositories…',
+    searching: 'Searching… {d} folders · {n} found',
+    reading: 'Reading the repositories… {f} of {n}',
     noKey: 'This page needs its key. Open it at the address the worker printed in its terminal.',
     unbound: 'This worker is not bound to a workspace. Download it from One (Settings → Coding worker) — that file comes ready-paired.',
     noClaude: 'Claude Code was not found. Install it, sign in once (claude), then restart the worker.',
@@ -165,6 +167,7 @@ export const SETUP_JS = String.raw`(function () {
     capTime: 'stopped after {s} s — add a folder if one is missing',
     capCount: 'showing the first {n}',
     capDirs: 'stopped after many folders — add a folder if one is missing',
+    blocked: 'macOS did not let the worker look into {list} — a permission dialog may be waiting (allow it, then Rescan), or add the folder.',
     rescan: 'Rescan',
     scanning: 'Scanning…',
     add: 'Add a folder…',
@@ -214,6 +217,8 @@ export const SETUP_JS = String.raw`(function () {
     title: 'Wähle die Repositories, in denen One arbeiten darf',
     lead: 'Hak ein Repository an, und One kann ihm Coding-Aufgaben geben: Claude Code arbeitet auf einem Branch in einem eigenen Worktree, dein Checkout bleibt, wie er ist. Pfade und Befehle bleiben auf diesem Rechner – One erfährt nur die Namen.',
     loading: 'Suche Git-Repositories…',
+    searching: 'Suche läuft … {d} Ordner · {n} gefunden',
+    reading: 'Lese die Repositories … {f} von {n}',
     noKey: 'Diese Seite braucht ihren Schlüssel. Öffne sie unter der Adresse, die der Worker in seinem Terminal zeigt.',
     unbound: 'Dieser Worker ist an keinen Arbeitsbereich gebunden. Lade ihn in One herunter (Einstellungen → Coding-Worker) – diese Datei ist schon gekoppelt.',
     noClaude: 'Claude Code wurde nicht gefunden. Installiere es, melde dich einmal an (claude) und starte den Worker neu.',
@@ -222,6 +227,7 @@ export const SETUP_JS = String.raw`(function () {
     capTime: 'nach {s} s angehalten – füge einen Ordner hinzu, falls eines fehlt',
     capCount: 'die ersten {n}',
     capDirs: 'nach sehr vielen Ordnern angehalten – füge einen Ordner hinzu, falls eines fehlt',
+    blocked: 'macOS hat dem Worker den Blick in {list} nicht erlaubt – vielleicht wartet ein Erlaubnis-Dialog (erlauben, dann Neu suchen), oder füge den Ordner hinzu.',
     rescan: 'Neu suchen',
     scanning: 'Suche…',
     add: 'Ordner hinzufügen…',
@@ -343,8 +349,12 @@ export const SETUP_JS = String.raw`(function () {
     return edits[r.path]
   }
 
+  var again = 0
   function adopt(next) {
     state = next
+    // while the search runs, ask again every second (the list grows as repos are found)
+    clearTimeout(again)
+    if (state.scan && state.scan.running) again = setTimeout(function () { api('GET', 'state').then(adopt, function () {}) }, 1000)
     var ws = state.workspace && state.workspace.name
     $('kicker').textContent = ws ? t('kicker', { ws: ws }) : '§ ONE WORKER'
     document.title = (ws ? ws + ' · ' : '') + 'One worker'
@@ -418,13 +428,17 @@ export const SETUP_JS = String.raw`(function () {
     if (state.live && state.live.claude && !state.live.claude.found) app.appendChild(el('p', { className: 'msg', text: t('noClaude') }))
     var sc = state.scan
     var meta = ''
-    if (sc) {
+    if (sc && sc.running) {
+      var pr = sc.progress || { dirs: 0, found: 0, facts: 0, phase: 'search' }
+      meta = pr.phase === 'facts' ? t('reading', { f: pr.facts, n: pr.found }) : t('searching', { d: pr.dirs, n: pr.found })
+    } else if (sc) {
       var secs = (sc.ms / 1000).toFixed(1)
       var n = state.repos.length
       meta = n === 1 ? t('foundOne', { s: secs }) : t('found', { n: n, s: secs })
       if (sc.capped === 'time') meta += ' · ' + t('capTime', { s: Math.round(sc.ms / 1000) })
       if (sc.capped === 'count') meta += ' · ' + t('capCount', { n: n })
       if (sc.capped === 'dirs') meta += ' · ' + t('capDirs')
+      if (sc.blocked && sc.blocked.length) app.appendChild(el('p', { className: 'msg', text: t('blocked', { list: sc.blocked.slice(0, 4).join(', ') }) }))
     }
     app.appendChild(el('div', { className: 'tools' }, [
       el('span', { className: 'label tools__meta', text: meta }),
@@ -442,7 +456,7 @@ export const SETUP_JS = String.raw`(function () {
       ]))
     }
     var list = el('ul', { className: 'list', id: 'repos' })
-    if (!state.repos.length) list.appendChild(el('li', { className: 'empty', text: t('none') }))
+    if (!state.repos.length) list.appendChild(el('li', { className: 'empty', text: state.scan && state.scan.running ? t('loading') : t('none') }))
     state.repos.forEach(function (r, i) { list.appendChild(row(r, i)) })
     app.appendChild(list)
     app.appendChild(statusPanel())
@@ -501,6 +515,12 @@ export const SETUP_JS = String.raw`(function () {
     busy = 'scan'
     render()
     api('POST', 'scan').then(function (s) { busy = ''; adopt(s) }, fail)
+    // the answer comes when the search is done — show its progress meanwhile
+    var tick = function () {
+      if (busy !== 'scan') return
+      api('GET', 'state').then(function (s) { if (busy === 'scan') { state = s; render(); setTimeout(tick, 1000) } }, function () {})
+    }
+    setTimeout(tick, 600)
   }
 
   function addFolder(path) {

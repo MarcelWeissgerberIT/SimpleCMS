@@ -22,7 +22,7 @@ import { isAbsolute, join, resolve, sep } from 'node:path'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { REPO_NAME, type OpenSetupResult, type WorkerPreset } from '../../../src/app/features/coding/protocol.ts'
 import { saveRepos, splitArgs, type RepoChoice, type WorkerConfig } from './config.ts'
-import { factsOf, findRepos, isMainCheckout, repoFacts, shortPath, type FindResult, type FoundRepo, type ScanOptions } from './scan.ts'
+import { bareRepo, factsOf, findRepos, isMainCheckout, repoFacts, shortPath, type FindResult, type FoundRepo, type ScanOptions } from './scan.ts'
 import { sameSecret } from './preset.ts'
 import { openUrl } from './opener.ts'
 import { SETUP_CSS, SETUP_HTML, SETUP_JS } from './setup-page.ts'
@@ -86,6 +86,9 @@ function ghInstalled(): Promise<boolean> {
   })
 }
 
+/** How long the facts of the found repos may take before the rest are listed without them. */
+const FACTS_MS = 15_000
+
 export class SetupServer {
   readonly token = randomBytes(32).toString('base64url')
   private host: SetupHost
@@ -93,6 +96,8 @@ export class SetupServer {
   private found = new Map<string, FoundRepo>()
   private scanned: (Omit<FindResult, 'paths'> & { at: number }) | null = null
   private scanning: Promise<void> | null = null
+  /** while a search runs: folders looked into, repos found, facts read */
+  private progress = { dirs: 0, found: 0, facts: 0, phase: 'search' as 'search' | 'facts' }
   private gh: Promise<boolean> | null = null
 
   constructor(host: SetupHost) {
@@ -117,16 +122,33 @@ export class SetupServer {
   /** Search again (one search at a time). */
   scan(): Promise<void> {
     this.scanning ??= (async () => {
+      this.progress = { dirs: 0, found: 0, facts: 0, phase: 'search' }
+      const configured = this.host.config().repos
+      // the page lists repos the moment they are found (bare), their facts follow
+      const bareNames = new Set(configured.map((r) => r.name.toLowerCase()))
       try {
-        const found = await findRepos({ home: this.home, ...this.host.scan })
-        const configured = this.host.config().repos
+        const found = await findRepos({
+          home: this.home,
+          ...this.host.scan,
+          onProgress: (dirs, path) => {
+            this.progress.dirs = dirs
+            if (path) {
+              this.progress.found++
+              if (!this.found.has(path)) this.found.set(path, bareRepo(path, bareNames, this.home))
+            }
+          },
+        })
         const taken = new Set(configured.map((r) => r.name.toLowerCase()))
         const paths = [...new Set([...configured.map((r) => r.path), ...found.paths])]
-        const facts = await factsOf(paths, taken, this.home)
+        this.progress.phase = 'facts'
+        const facts = await factsOf(paths, taken, this.home, 6, FACTS_MS, (r) => {
+          this.progress.facts++
+          this.found.set(r.path, r)
+        })
         // what was added by hand stays on the list
         const added = [...this.found.values()].filter((r) => !paths.includes(r.path))
         this.found = new Map([...facts, ...added].map((r) => [r.path, r]))
-        this.scanned = { capped: found.capped, dirs: found.dirs, ms: found.ms, at: Date.now() }
+        this.scanned = { capped: found.capped, blocked: found.blocked, dirs: found.dirs, ms: found.ms, at: Date.now() }
       } finally {
         this.scanning = null
       }
@@ -162,7 +184,8 @@ export class SetupServer {
   }
 
   async state(): Promise<unknown> {
-    if (!this.scanned) await this.scan()
+    // the first search starts here; the page gets its answer at once and asks again while it runs
+    if (!this.scanned && !this.scanning) void this.scan().catch((e) => this.host.log(`the search for repositories failed: ${(e as Error).message}`))
     this.gh ??= ghInstalled()
     const config = this.host.config()
     return {
@@ -170,7 +193,7 @@ export class SetupServer {
       workspace: { name: this.host.preset?.name ?? null, id: config.workspace, paired: !!this.host.preset },
       worker: { name: config.name, version: this.host.version, port: config.port, config: shortPath(this.host.configFile, this.home) },
       gh: await this.gh,
-      scan: this.scanned ? { ...this.scanned, running: !!this.scanning } : null,
+      scan: this.scanning ? { ...(this.scanned ?? {}), running: true, progress: { ...this.progress } } : this.scanned ? { ...this.scanned, running: false } : null,
       repos: this.repos(),
       live: this.host.live(),
     }

@@ -6,7 +6,9 @@
  * below it. Never: symbolic links (not followed), hidden folders, node_modules, caches, Library / AppData,
  * the trash, vendor folders, virtual envs, build outputs. A folder whose `.git` is a folder is a repo (its
  * inside is not searched further); a `.git` FILE is a linked worktree or a submodule — skipped. Caps: ~5 s,
- * 300 repos, 50 000 folders.
+ * 300 repos, 50 000 folders. Every folder read has a short time limit: a folder that does not answer (macOS holds
+ * the call while it asks whether Terminal may open Documents / Desktop / Downloads) is skipped and reported in
+ * `blocked`, so the search always ends.
  *
  * What is read of a repo — nothing of its content except: the current branch, the base branch
  * (origin/HEAD, else main / master), the remote's HOST (never its URL: no user names, no tokens), the last
@@ -54,6 +56,12 @@ export interface ScanOptions {
   maxRepos?: number
   /** most folders looked into (default 50 000) */
   maxDirs?: number
+  /** longest wait for one folder in ms (default 1500) */
+  folderMs?: number
+  /** tests: replaces the folder read */
+  readdir?: (path: string) => Promise<Dirent[]>
+  /** after each folder: how many were looked into, and each repo the moment it is found */
+  onProgress?: (dirs: number, found: string | null) => void
 }
 
 export interface FindResult {
@@ -61,8 +69,22 @@ export interface FindResult {
   paths: string[]
   /** why the search stopped early (null: it looked everywhere it may) */
   capped: 'time' | 'count' | 'dirs' | null
+  /** folders that did not answer in time (macOS permission dialogs), short paths (~/…) */
+  blocked: string[]
   dirs: number
   ms: number
+}
+
+const TIMEOUT = Symbol('timeout')
+
+/** `p`, or TIMEOUT when it has not settled after `ms` (a rejection still rejects). */
+function timed<T>(p: Promise<T>, ms: number): Promise<T | typeof TIMEOUT> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const late = new Promise<typeof TIMEOUT>((resolve) => {
+    timer = setTimeout(() => resolve(TIMEOUT), ms)
+  })
+  p.catch(() => {}) // an answer that comes after the limit is dropped quietly
+  return Promise.race([p, late]).finally(() => clearTimeout(timer))
 }
 
 /** Walk the usual places, then the home folder; collect folders that hold a `.git` folder. */
@@ -73,14 +95,23 @@ export async function findRepos(opts: ScanOptions = {}): Promise<FindResult> {
   const maxDirs = opts.maxDirs ?? 50_000
   const start = Date.now()
   const deadline = start + (opts.timeMs ?? 5000)
+  const folderMs = opts.folderMs ?? 1500
+  const read = opts.readdir ?? ((p: string) => readdir(p, { withFileTypes: true }))
   const seen = new Set<string>()
   const paths: string[] = []
+  const blocked: string[] = []
   let capped: FindResult['capped'] = null
   let dirs = 0
+  // a call that does not answer in time is given up (it may finish later; its answer is ignored)
+  const limit = () => Math.max(50, Math.min(folderMs, deadline - Date.now()))
 
   const key = async (p: string): Promise<string | null> => {
     try {
-      const st = await lstat(p)
+      const st = await timed(lstat(p), limit())
+      if (st === TIMEOUT) {
+        blocked.push(shortPath(p, home))
+        return null
+      }
       // a symbolic link (or anything but a folder) is never entered
       return st.isDirectory() ? `${st.dev}:${st.ino}` : null
     } catch {
@@ -106,9 +137,15 @@ export async function findRepos(opts: ScanOptions = {}): Promise<FindResult> {
     if (!k || seen.has(k)) continue
     seen.add(k)
     dirs++
+    opts.onProgress?.(dirs, null)
     let entries: Dirent[]
     try {
-      entries = await readdir(path, { withFileTypes: true })
+      const got = await timed(read(path), limit())
+      if (got === TIMEOUT) {
+        blocked.push(shortPath(path, home))
+        continue
+      }
+      entries = got
     } catch {
       continue
     }
@@ -118,6 +155,7 @@ export async function findRepos(opts: ScanOptions = {}): Promise<FindResult> {
       // a .git folder: a main checkout · a .git file: a linked worktree or a submodule — neither is searched further
       if (dotGit.isDirectory()) {
         paths.push(path)
+        opts.onProgress?.(dirs, path)
         if (paths.length >= maxRepos) {
           capped = 'count'
           break
@@ -132,7 +170,7 @@ export async function findRepos(opts: ScanOptions = {}): Promise<FindResult> {
       queue.push({ path: join(path, e.name), depth: depth + 1 })
     }
   }
-  return { paths, capped, dirs, ms: Date.now() - start }
+  return { paths, capped, blocked, dirs, ms: Date.now() - start }
 }
 
 /* ------------------------------------------------------------------ facts of one repo */
@@ -301,14 +339,24 @@ export async function repoFacts(path: string, taken: Set<string>, home = homedir
   }
 }
 
-/** Facts for many repos, a few at a time. */
-export async function factsOf(paths: string[], taken: Set<string>, home = homedir(), parallel = 6): Promise<FoundRepo[]> {
+/** A repo the search just found, before its facts are read (what the page shows meanwhile). */
+export function bareRepo(path: string, taken: Set<string>, home = homedir()): FoundRepo {
+  return { path, short: shortPath(path, home), name: suggestName(path, taken), branch: null, base: 'main', branches: ['main'], remote: null, host: null, dirty: null, lastCommit: null, test: guessTest(path) }
+}
+
+/**
+ * Facts for many repos, a few at a time. `deadlineMs`: repos not started by then keep their bare entry (the page
+ * shows "—" and they can still be ticked); `onRepo` hears each repo as soon as its facts are in.
+ */
+export async function factsOf(paths: string[], taken: Set<string>, home = homedir(), parallel = 6, deadlineMs = Infinity, onRepo?: (r: FoundRepo) => void): Promise<FoundRepo[]> {
   const out: FoundRepo[] = new Array(paths.length)
+  const until = Date.now() + deadlineMs
   let next = 0
   const worker = async () => {
     while (next < paths.length) {
       const i = next++
-      out[i] = await repoFacts(paths[i]!, taken, home)
+      out[i] = Date.now() < until ? await repoFacts(paths[i]!, taken, home) : bareRepo(paths[i]!, taken, home)
+      onRepo?.(out[i]!)
     }
   }
   await Promise.all(Array.from({ length: Math.min(parallel, paths.length) }, worker))

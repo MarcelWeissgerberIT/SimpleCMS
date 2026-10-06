@@ -14,6 +14,7 @@ import { after, afterEach, describe, test } from 'node:test'
 import { WORKER_CLOSE_REFUSED, type OpenSetupResult, type WorkerMessage, type WorkspaceRef } from '../../src/app/features/coding/protocol.ts'
 import { readPreset, workerOrigins, sameSecret } from '../src/worker/preset.ts'
 import { splitArgs, withPreset, sanitizeConfig } from '../src/worker/config.ts'
+import { readdir } from 'node:fs/promises'
 import { findRepos, guessTest, remoteHost, repoFacts, factsOf, suggestName, shortPath } from '../src/worker/scan.ts'
 import { checklistText } from '../src/worker/checklist.ts'
 import { browserCommand } from '../src/worker/opener.ts'
@@ -57,6 +58,16 @@ function makeHome(): { home: string; outside: string } {
   symlinkSync(join(home, 'code', 'alpha'), join(home, 'links', 'alias'))
   symlinkSync(outside, join(home, 'links', 'zeta'))
   return { home, outside }
+}
+
+/** The setup page's state once its search is done (it answers at once and reports `scan.running` meanwhile). */
+async function doneState(token: string): Promise<any> { // eslint-disable-line @typescript-eslint/no-explicit-any
+  for (let i = 0; i < 100; i++) {
+    const st = (await call('/setup/api/state', { token })).json()
+    if (st.scan && !st.scan.running) return st
+    await new Promise((r) => setTimeout(r, 100))
+  }
+  throw new Error('the search did not end')
 }
 
 function call(path: string, opts: { method?: string; host?: string; origin?: string; token?: string; body?: unknown; type?: string; port?: number } = {}): Promise<{ status: number; headers: Record<string, string | string[] | undefined>; text: string; json: () => any }> { // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -188,6 +199,21 @@ describe('finding the repos', () => {
     assert.equal(time.paths.length, 0)
   })
 
+  test('a folder that never answers (a macOS permission dialog) is skipped and reported; the search still ends', async () => {
+    const { home } = makeHome()
+    const stuck = join(home, 'projects')
+    const t0 = Date.now()
+    const r = await findRepos({
+      home,
+      folderMs: 200,
+      readdir: (p) => (p === stuck ? new Promise<never>(() => {}) : readdir(p, { withFileTypes: true })),
+    })
+    assert.ok(Date.now() - t0 < 4000, 'the search ended')
+    assert.deepEqual(r.blocked, ['~/projects'])
+    const found = r.paths.map((p) => shortPath(p, home)).sort()
+    assert.ok(found.includes('~/code/alpha') && !found.includes('~/projects/gamma'))
+  })
+
   test('facts: branch, base, the remote HOST only (never the URL), dirty, last commit, test guess', async () => {
     const { home } = makeHome()
     const alpha = join(home, 'code', 'alpha')
@@ -304,7 +330,9 @@ describe('the setup page', () => {
     assert.equal((await call('/setup/api/state')).status, 401)
     assert.equal((await call('/setup/api/state', { token: token.replace(/^./, (c) => (c === 'a' ? 'b' : 'a')) })).status, 403)
     assert.equal((await call('/setup/api/state', { token, host: `localhost:${PORT}` })).status, 403)
-    const state = (await call('/setup/api/state', { token })).json()
+    const first = (await call('/setup/api/state', { token })).json()
+    assert.equal(first.workspace.name, 'Studio')
+    const state = await doneState(token)
     assert.equal(state.workspace.name, 'Studio')
     assert.equal(state.workspace.paired, true)
     assert.deepEqual(state.repos.map((r: { short: string }) => r.short).sort(), ['~/a/b/c/delta', '~/code/alpha', '~/code/group/beta', '~/projects/gamma'])
@@ -397,7 +425,7 @@ describe('the setup page', () => {
     worker = await spawnWorker({ bundle: presetBundle(PRESET), home, args: ['setup'], env: { ONE_WORKER_BROWSER: opener.program } })
     await waitFor(() => opener.urls().length === 1, 8000, () => worker!.stderr())
     const token = tokenOf(opener.urls()[0]!)
-    const state = (await call('/setup/api/state', { token })).json()
+    const state = await doneState(token)
     const names = state.repos.map((r: { name: string; ticked: boolean }) => `${r.name}:${r.ticked}`)
     assert.deepEqual(names, ['site:true', 'docs:false'])
     const docs = state.repos[1]

@@ -29864,6 +29864,16 @@ var SKIP_DIRS = /* @__PURE__ */ new Set([
   "Pods",
   "DerivedData"
 ]);
+var TIMEOUT = /* @__PURE__ */ Symbol("timeout");
+function timed(p, ms) {
+  let timer;
+  const late2 = new Promise((resolve5) => {
+    timer = setTimeout(() => resolve5(TIMEOUT), ms);
+  });
+  p.catch(() => {
+  });
+  return Promise.race([p, late2]).finally(() => clearTimeout(timer));
+}
 async function findRepos(opts = {}) {
   const home = opts.home ?? homedir3();
   const maxDepth = opts.maxDepth ?? 4;
@@ -29871,13 +29881,21 @@ async function findRepos(opts = {}) {
   const maxDirs = opts.maxDirs ?? 5e4;
   const start = Date.now();
   const deadline = start + (opts.timeMs ?? 5e3);
+  const folderMs = opts.folderMs ?? 1500;
+  const read = opts.readdir ?? ((p) => readdir(p, { withFileTypes: true }));
   const seen = /* @__PURE__ */ new Set();
   const paths = [];
+  const blocked = [];
   let capped = null;
   let dirs = 0;
+  const limit = () => Math.max(50, Math.min(folderMs, deadline - Date.now()));
   const key = async (p) => {
     try {
-      const st = await lstat(p);
+      const st = await timed(lstat(p), limit());
+      if (st === TIMEOUT) {
+        blocked.push(shortPath(p, home));
+        return null;
+      }
       return st.isDirectory() ? `${st.dev}:${st.ino}` : null;
     } catch {
       return null;
@@ -29900,9 +29918,15 @@ async function findRepos(opts = {}) {
     if (!k || seen.has(k)) continue;
     seen.add(k);
     dirs++;
+    opts.onProgress?.(dirs, null);
     let entries;
     try {
-      entries = await readdir(path, { withFileTypes: true });
+      const got = await timed(read(path), limit());
+      if (got === TIMEOUT) {
+        blocked.push(shortPath(path, home));
+        continue;
+      }
+      entries = got;
     } catch {
       continue;
     }
@@ -29910,6 +29934,7 @@ async function findRepos(opts = {}) {
     if (dotGit && depth > 0) {
       if (dotGit.isDirectory()) {
         paths.push(path);
+        opts.onProgress?.(dirs, path);
         if (paths.length >= maxRepos) {
           capped = "count";
           break;
@@ -29923,7 +29948,7 @@ async function findRepos(opts = {}) {
       queue.push({ path: join5(path, e.name), depth: depth + 1 });
     }
   }
-  return { paths, capped, dirs, ms: Date.now() - start };
+  return { paths, capped, blocked, dirs, ms: Date.now() - start };
 }
 var GIT_MS = 3e3;
 function shortPath(path, home = homedir3()) {
@@ -30049,13 +30074,18 @@ async function repoFacts(path, taken, home = homedir3()) {
     test: guessTest(path)
   };
 }
-async function factsOf(paths, taken, home = homedir3(), parallel = 6) {
+function bareRepo(path, taken, home = homedir3()) {
+  return { path, short: shortPath(path, home), name: suggestName(path, taken), branch: null, base: "main", branches: ["main"], remote: null, host: null, dirty: null, lastCommit: null, test: guessTest(path) };
+}
+async function factsOf(paths, taken, home = homedir3(), parallel = 6, deadlineMs = Infinity, onRepo) {
   const out = new Array(paths.length);
+  const until = Date.now() + deadlineMs;
   let next = 0;
   const worker = async () => {
     while (next < paths.length) {
       const i = next++;
-      out[i] = await repoFacts(paths[i], taken, home);
+      out[i] = Date.now() < until ? await repoFacts(paths[i], taken, home) : bareRepo(paths[i], taken, home);
+      onRepo?.(out[i]);
     }
   };
   await Promise.all(Array.from({ length: Math.min(parallel, paths.length) }, worker));
@@ -30256,6 +30286,8 @@ var SETUP_JS = String.raw`(function () {
     title: 'Pick the repositories One may work in',
     lead: 'Tick a repository and One can hand it coding tasks: Claude Code works on a branch in its own worktree, your checkout stays as it is. Paths and commands stay on this computer — One only learns the names.',
     loading: 'Looking for git repositories…',
+    searching: 'Searching… {d} folders · {n} found',
+    reading: 'Reading the repositories… {f} of {n}',
     noKey: 'This page needs its key. Open it at the address the worker printed in its terminal.',
     unbound: 'This worker is not bound to a workspace. Download it from One (Settings → Coding worker) — that file comes ready-paired.',
     noClaude: 'Claude Code was not found. Install it, sign in once (claude), then restart the worker.',
@@ -30264,6 +30296,7 @@ var SETUP_JS = String.raw`(function () {
     capTime: 'stopped after {s} s — add a folder if one is missing',
     capCount: 'showing the first {n}',
     capDirs: 'stopped after many folders — add a folder if one is missing',
+    blocked: 'macOS did not let the worker look into {list} — a permission dialog may be waiting (allow it, then Rescan), or add the folder.',
     rescan: 'Rescan',
     scanning: 'Scanning…',
     add: 'Add a folder…',
@@ -30313,6 +30346,8 @@ var SETUP_JS = String.raw`(function () {
     title: 'Wähle die Repositories, in denen One arbeiten darf',
     lead: 'Hak ein Repository an, und One kann ihm Coding-Aufgaben geben: Claude Code arbeitet auf einem Branch in einem eigenen Worktree, dein Checkout bleibt, wie er ist. Pfade und Befehle bleiben auf diesem Rechner – One erfährt nur die Namen.',
     loading: 'Suche Git-Repositories…',
+    searching: 'Suche läuft … {d} Ordner · {n} gefunden',
+    reading: 'Lese die Repositories … {f} von {n}',
     noKey: 'Diese Seite braucht ihren Schlüssel. Öffne sie unter der Adresse, die der Worker in seinem Terminal zeigt.',
     unbound: 'Dieser Worker ist an keinen Arbeitsbereich gebunden. Lade ihn in One herunter (Einstellungen → Coding-Worker) – diese Datei ist schon gekoppelt.',
     noClaude: 'Claude Code wurde nicht gefunden. Installiere es, melde dich einmal an (claude) und starte den Worker neu.',
@@ -30321,6 +30356,7 @@ var SETUP_JS = String.raw`(function () {
     capTime: 'nach {s} s angehalten – füge einen Ordner hinzu, falls eines fehlt',
     capCount: 'die ersten {n}',
     capDirs: 'nach sehr vielen Ordnern angehalten – füge einen Ordner hinzu, falls eines fehlt',
+    blocked: 'macOS hat dem Worker den Blick in {list} nicht erlaubt – vielleicht wartet ein Erlaubnis-Dialog (erlauben, dann Neu suchen), oder füge den Ordner hinzu.',
     rescan: 'Neu suchen',
     scanning: 'Suche…',
     add: 'Ordner hinzufügen…',
@@ -30442,8 +30478,12 @@ var SETUP_JS = String.raw`(function () {
     return edits[r.path]
   }
 
+  var again = 0
   function adopt(next) {
     state = next
+    // while the search runs, ask again every second (the list grows as repos are found)
+    clearTimeout(again)
+    if (state.scan && state.scan.running) again = setTimeout(function () { api('GET', 'state').then(adopt, function () {}) }, 1000)
     var ws = state.workspace && state.workspace.name
     $('kicker').textContent = ws ? t('kicker', { ws: ws }) : '§ ONE WORKER'
     document.title = (ws ? ws + ' · ' : '') + 'One worker'
@@ -30517,13 +30557,17 @@ var SETUP_JS = String.raw`(function () {
     if (state.live && state.live.claude && !state.live.claude.found) app.appendChild(el('p', { className: 'msg', text: t('noClaude') }))
     var sc = state.scan
     var meta = ''
-    if (sc) {
+    if (sc && sc.running) {
+      var pr = sc.progress || { dirs: 0, found: 0, facts: 0, phase: 'search' }
+      meta = pr.phase === 'facts' ? t('reading', { f: pr.facts, n: pr.found }) : t('searching', { d: pr.dirs, n: pr.found })
+    } else if (sc) {
       var secs = (sc.ms / 1000).toFixed(1)
       var n = state.repos.length
       meta = n === 1 ? t('foundOne', { s: secs }) : t('found', { n: n, s: secs })
       if (sc.capped === 'time') meta += ' · ' + t('capTime', { s: Math.round(sc.ms / 1000) })
       if (sc.capped === 'count') meta += ' · ' + t('capCount', { n: n })
       if (sc.capped === 'dirs') meta += ' · ' + t('capDirs')
+      if (sc.blocked && sc.blocked.length) app.appendChild(el('p', { className: 'msg', text: t('blocked', { list: sc.blocked.slice(0, 4).join(', ') }) }))
     }
     app.appendChild(el('div', { className: 'tools' }, [
       el('span', { className: 'label tools__meta', text: meta }),
@@ -30541,7 +30585,7 @@ var SETUP_JS = String.raw`(function () {
       ]))
     }
     var list = el('ul', { className: 'list', id: 'repos' })
-    if (!state.repos.length) list.appendChild(el('li', { className: 'empty', text: t('none') }))
+    if (!state.repos.length) list.appendChild(el('li', { className: 'empty', text: state.scan && state.scan.running ? t('loading') : t('none') }))
     state.repos.forEach(function (r, i) { list.appendChild(row(r, i)) })
     app.appendChild(list)
     app.appendChild(statusPanel())
@@ -30600,6 +30644,12 @@ var SETUP_JS = String.raw`(function () {
     busy = 'scan'
     render()
     api('POST', 'scan').then(function (s) { busy = ''; adopt(s) }, fail)
+    // the answer comes when the search is done — show its progress meanwhile
+    var tick = function () {
+      if (busy !== 'scan') return
+      api('GET', 'state').then(function (s) { if (busy === 'scan') { state = s; render(); setTimeout(tick, 1000) } }, function () {})
+    }
+    setTimeout(tick, 600)
   }
 
   function addFolder(path) {
@@ -30661,6 +30711,7 @@ function ghInstalled() {
     }
   });
 }
+var FACTS_MS = 15e3;
 var SetupServer = class {
   token = randomBytes3(32).toString("base64url");
   host;
@@ -30668,6 +30719,8 @@ var SetupServer = class {
   found = /* @__PURE__ */ new Map();
   scanned = null;
   scanning = null;
+  /** while a search runs: folders looked into, repos found, facts read */
+  progress = { dirs: 0, found: 0, facts: 0, phase: "search" };
   gh = null;
   constructor(host) {
     this.host = host;
@@ -30687,15 +30740,31 @@ var SetupServer = class {
   /** Search again (one search at a time). */
   scan() {
     this.scanning ??= (async () => {
+      this.progress = { dirs: 0, found: 0, facts: 0, phase: "search" };
+      const configured = this.host.config().repos;
+      const bareNames = new Set(configured.map((r) => r.name.toLowerCase()));
       try {
-        const found = await findRepos({ home: this.home, ...this.host.scan });
-        const configured = this.host.config().repos;
+        const found = await findRepos({
+          home: this.home,
+          ...this.host.scan,
+          onProgress: (dirs, path) => {
+            this.progress.dirs = dirs;
+            if (path) {
+              this.progress.found++;
+              if (!this.found.has(path)) this.found.set(path, bareRepo(path, bareNames, this.home));
+            }
+          }
+        });
         const taken = new Set(configured.map((r) => r.name.toLowerCase()));
         const paths = [.../* @__PURE__ */ new Set([...configured.map((r) => r.path), ...found.paths])];
-        const facts = await factsOf(paths, taken, this.home);
+        this.progress.phase = "facts";
+        const facts = await factsOf(paths, taken, this.home, 6, FACTS_MS, (r) => {
+          this.progress.facts++;
+          this.found.set(r.path, r);
+        });
         const added = [...this.found.values()].filter((r) => !paths.includes(r.path));
         this.found = new Map([...facts, ...added].map((r) => [r.path, r]));
-        this.scanned = { capped: found.capped, dirs: found.dirs, ms: found.ms, at: Date.now() };
+        this.scanned = { capped: found.capped, blocked: found.blocked, dirs: found.dirs, ms: found.ms, at: Date.now() };
       } finally {
         this.scanning = null;
       }
@@ -30729,7 +30798,7 @@ var SetupServer = class {
     return out;
   }
   async state() {
-    if (!this.scanned) await this.scan();
+    if (!this.scanned && !this.scanning) void this.scan().catch((e) => this.host.log(`the search for repositories failed: ${e.message}`));
     this.gh ??= ghInstalled();
     const config2 = this.host.config();
     return {
@@ -30737,7 +30806,7 @@ var SetupServer = class {
       workspace: { name: this.host.preset?.name ?? null, id: config2.workspace, paired: !!this.host.preset },
       worker: { name: config2.name, version: this.host.version, port: config2.port, config: shortPath(this.host.configFile, this.home) },
       gh: await this.gh,
-      scan: this.scanned ? { ...this.scanned, running: !!this.scanning } : null,
+      scan: this.scanning ? { ...this.scanned ?? {}, running: true, progress: { ...this.progress } } : this.scanned ? { ...this.scanned, running: false } : null,
       repos: this.repos(),
       live: this.host.live()
     };
