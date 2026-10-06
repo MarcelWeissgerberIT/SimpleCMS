@@ -265,7 +265,8 @@ export function newOption(name: string, existing: SelectOption[], group?: Select
 
 /** Change a property's type, converting stored values where it makes sense; the toast can undo it. */
 export function changePropertyType(r: Resolver, db: Database, prop: PropertyDef, type: PropertyType): void {
-  if (prop.type === type || prop.type === 'title' || !schemaEditable(db.id)) return
+  // the same type: only an own type / a list binding goes (features/kit) — the values stay
+  if ((prop.type === type && !prop.custom && !prop.listId) || prop.type === 'title' || !schemaEditable(db.id)) return
   const cur = ws().databases[db.id]?.properties.find((p) => p.id === prop.id)
   if (!cur) return
   const def: PropertyDef = JSON.parse(JSON.stringify(cur))
@@ -299,7 +300,8 @@ function convertPropertyType(r: Resolver, db: Database, prop: PropertyDef, type:
     texts.set(row.id, prop.type === 'date' && isDateValue(v) ? dateValueText(v, r.ctx.lang) : r.textOf(db, prop, v))
     if (prop.type === 'multi_select') lists.set(row.id, ((v as string[]) ?? []).map((id) => prop.options?.find((o) => o.id === id)?.name ?? '').filter(Boolean))
   }
-  const patch: Partial<PropertyDef> = { type }
+  // a plain type: no own type (features/kit) and no shared list any more
+  const patch: Partial<PropertyDef> = { type, custom: undefined, listId: undefined }
   let options: SelectOption[] = []
   if (type === 'select' || type === 'multi_select' || type === 'status') {
     if (prop.options && (prop.type === 'select' || prop.type === 'multi_select' || prop.type === 'status')) {
@@ -377,6 +379,53 @@ function convertPropertyType(r: Resolver, db: Database, prop: PropertyDef, type:
     }
     s.setRowProperty(row.id, prop.id, v)
   }
+}
+
+/**
+ * Turn a property into an own type / a list-bound select (features/kit: `def` from the type picker): the
+ * values are converted to the type's base first; a shared list's items replace the options — values are
+ * matched by option name (others are cleared). The toast can undo it.
+ */
+export function changePropertyToOwn(r: Resolver, db: Database, prop: PropertyDef, def: Partial<PropertyDef> & Pick<PropertyDef, 'type'>): void {
+  if (prop.type === 'title' || !schemaEditable(db.id)) return
+  const cur = ws().databases[db.id]?.properties.find((p) => p.id === prop.id)
+  if (!cur) return
+  const before: PropertyDef = JSON.parse(JSON.stringify(cur))
+  const values = rowsOf(db.id).map((row) => [row.id, JSON.parse(JSON.stringify(row.properties[prop.id] ?? null))] as const)
+  if (cur.type !== def.type) convertPropertyType(r, db, cur, def.type)
+  const now = ws().databases[db.id]?.properties.find((p) => p.id === prop.id)
+  if (!now) return
+  const patch: Partial<PropertyDef> = { custom: def.custom, listId: def.listId }
+  if (def.numberFormat) patch.numberFormat = def.numberFormat
+  if (def.numberDisplay) patch.numberDisplay = def.numberDisplay
+  if (def.ratingMax) patch.ratingMax = def.ratingMax
+  if (def.listId && def.options && (now.type === 'select' || now.type === 'multi_select')) {
+    // option ids change to the list's items: carry each value over by its name
+    const nameOf = new Map((now.options ?? []).map((o) => [o.id, o.name.trim().toLowerCase()]))
+    const idOf = new Map(def.options.map((o) => [o.name.trim().toLowerCase(), o.id]))
+    patch.options = def.options
+    ws().updateProperty(db.id, prop.id, patch)
+    for (const row of rowsOf(db.id)) {
+      const v = row.properties[prop.id]
+      const map = (id: unknown) => (typeof id === 'string' ? (idOf.get(nameOf.get(id) ?? '') ?? (def.options!.some((o) => o.id === id) ? id : null)) : null)
+      if (Array.isArray(v)) ws().setRowProperty(row.id, prop.id, [...new Set(v.map(map).filter((x): x is string => !!x))])
+      else if (v !== undefined && v !== null) ws().setRowProperty(row.id, prop.id, map(v))
+    }
+  } else ws().updateProperty(db.id, prop.id, patch)
+  useUI.getState().toast({
+    message: t('database.prop.typeChanged', { name: before.name, type: def.name ?? t(`database.type.${def.type}`) }),
+    action: {
+      label: t('common.undo'),
+      run: () => {
+        const live = ws().databases[db.id]?.properties.find((p) => p.id === prop.id)
+        if (!live) return
+        const back: Record<string, unknown> = { ...before }
+        for (const k of Object.keys(live)) if (!(k in before)) back[k] = undefined
+        ws().updateProperty(db.id, prop.id, back as Partial<PropertyDef>)
+        for (const [rowId, v] of values) if (ws().pages[rowId]) ws().setRowProperty(rowId, prop.id, v)
+      },
+    },
+  })
 }
 
 /** Add a property and place it in the given view at a position (relative to visible props). */

@@ -1,7 +1,7 @@
 ---
 id: 2026-10-06-coding-pipeline
 date: 2026-10-06
-order: 3
+order: 4
 title: Coding-Pipeline — Claude Code auf deinem Rechner, gesteuert aus One
 summary: Gib Programmieraufgaben an einen kleinen Worker auf deinem Rechner: Er plant, setzt um, testet und liefert sie mit Claude Code aus — pro Aufgabe in einem eigenen Git-Worktree. Du gibst an den Toren frei.
 image: assets/shots/changelog/coding-pipeline.webp

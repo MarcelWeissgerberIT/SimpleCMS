@@ -7,7 +7,7 @@ import { useEffect, useRef } from 'react'
 import { useWorkspace } from '../../store/store'
 import type { Database, DateValue, Page, PropertyDef, PropertyValue } from '../../store/types'
 import { Popover } from '../../ui/Popover'
-import { writeValue } from '../model/actions'
+import { writeUserValue } from '../../features'
 import { isReadOnly } from '../model/schema'
 import { TextEditor, useEscapeFlag, type DoneReason } from './TextEditor'
 import { OptionPicker } from './OptionPicker'
@@ -59,7 +59,7 @@ export function ValueEditorBase({ db, prop, value, onChange, anchor, onClose, in
     case 'select':
     case 'status':
     case 'multi_select':
-      body = <OptionPicker db={db} prop={prop} value={value as string | string[] | null} onChange={onChange} onClose={() => onClose('enter')} initialQuery={initialText} />
+      body = <OptionPicker db={db} prop={prop} value={value as string | string[] | null} onChange={onChange} onClose={() => onClose('enter')} initialQuery={initialText} rowId={rowId} />
       break
     case 'date':
       body = <DatePicker value={(value as DateValue | null) ?? null} onChange={onChange} />
@@ -136,7 +136,8 @@ export function ValueEditor({ db, prop, rows, anchor, onClose, initialText, minW
       minWidth={minWidth}
       rowId={rows.length === 1 ? first.id : undefined}
       onChange={(v) => {
-        for (const r of rows) writeValue(db.id, prop, r.id, v)
+        // own types (features/kit): validate first (a refusal shows at the cell), onChange after
+        void writeUserValue(db, prop, rows.map((r) => r.id), v, anchor)
       }}
     />
   )

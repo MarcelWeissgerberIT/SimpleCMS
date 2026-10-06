@@ -225,6 +225,7 @@ export function useRouteEffects(route: Route) {
     else if (route.name === 'agents') name = t('features.agents.title')
     else if (route.name === 'scripts') name = t('features.script.title')
     else if (route.name === 'coding') name = t('features.coding.title')
+    else if (route.name === 'kit') name = t('features.kit.title')
     else if (route.name === 'discover') name = t('shell.discover.title')
     else if (route.name === 'workspace') name = t('shell.ws.title')
     else if (route.name === 'clip') name = t('shell.capture.crumb')

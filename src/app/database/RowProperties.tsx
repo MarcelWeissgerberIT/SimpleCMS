@@ -12,7 +12,8 @@ import { ValueView } from './cells/display'
 import { ValueEditorBase, canEdit } from './cells/ValueEditor'
 import { Menu, TypeIcon, typeEntries } from './parts'
 import { PropertyMenu } from './properties/PropertyMenu'
-import { writeValue, insertProperty } from './model/actions'
+import { insertProperty } from './model/actions'
+import { writeUserValue } from '../features'
 import { isEmptyValue, type Resolver } from './model/resolve'
 import { AutofillHost, AutofillRowControl, AutofillTag, autofillOf } from './autofill'
 import { useDbReadOnly } from './readonly'
@@ -42,7 +43,7 @@ function RowPropertiesInner({ row, db }: { row: Page; db: Database }) {
         resolver={resolver}
         props={db.properties.filter((p) => p.type !== 'title')}
         getValue={(p) => row.properties[p.id] ?? null}
-        onChange={(p, v) => writeValue(db.id, p, row.id, v)}
+        onChange={(p, v) => void writeUserValue(db, p, [row.id], v, document.querySelector(`[data-prow="${p.id}"]`))}
         hideEmpty={hideEmpty}
         setHideEmpty={setHideEmpty}
         allowAdd={!readOnly && !locked}
@@ -105,7 +106,7 @@ export function PropertyRows({ db, row, resolver, props, getValue, onChange, hid
         const empty = isEmptyValue(p, v) && p.type !== 'checkbox'
         const ai = !!autofill && !!autofillOf(p) && !readOnly
         return (
-          <div key={p.id} className="db-prow" data-type={p.type} data-ai={ai || undefined}>
+          <div key={p.id} className="db-prow" data-prow={p.id} data-type={p.type} data-ai={ai || undefined}>
             <button
               type="button"
               className="db-prow__name"
@@ -192,15 +193,21 @@ export function PropertyRows({ db, row, resolver, props, getValue, onChange, hid
         onClose={() => setAddAnchor(null)}
         searchable
         create={allowAdd ? (q) => createEntry(q, () => {}) : undefined}
-        entries={typeEntries(t, (type) => {
-          const id = insertProperty(db, null, { type, name: t(`database.type.${type}`) })
-          requestAnimationFrame(() => {
-            const all = listRef.current?.querySelectorAll<HTMLElement>('.db-prow__name')
-            const el = all?.[all.length - 1]
-            const prop = { id, type, name: t(`database.type.${type}`) } as PropertyDef
-            if (el) setMenu({ prop, el })
-          })
-        })}
+        entries={typeEntries(
+          t,
+          (type, def) => {
+            const id = insertProperty(db, null, def ?? { type, name: t(`database.type.${type}`) })
+            requestAnimationFrame(() => {
+              const all = listRef.current?.querySelectorAll<HTMLElement>('.db-prow__name')
+              const el = all?.[all.length - 1]
+              const prop = { id, type, name: def?.name ?? t(`database.type.${type}`) } as PropertyDef
+              if (el) setMenu({ prop, el })
+            })
+          },
+          undefined,
+          undefined,
+          {},
+        )}
       />
     </div>
   )

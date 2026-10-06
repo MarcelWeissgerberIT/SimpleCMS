@@ -10,6 +10,7 @@
  *   #/agents        → custom agents (features/agents) · #/agents/<id> → one agent: its runs and review
  *   #/scripts       → One Script (features/script) · #/scripts/<id> → one script's workbench
  *   #/coding        → the coding pipeline (features/coding): the worker, the tasks waiting for you, the board
+ *   #/kit           → Building blocks (features/kit) · #/kit/<lists|types|records> · #/kit/<tab>/<id> → one block
  *   #/discover      → "What can One do?" — the feature cards (shell/discover)
  *   #/workspace     → workspace settings (shell/workspace) · #/workspace/<section> → overview | people | blocks |
  *                     automation | data | danger
@@ -36,6 +37,8 @@ export type Route =
   | { name: 'scripts'; id?: string }
   /** #/coding → the coding pipeline (see features/coding) */
   | { name: 'coding' }
+  /** #/kit → Building blocks: lists · own property types · record types (see features/kit) */
+  | { name: 'kit'; tab?: 'lists' | 'types' | 'records'; id?: string }
   /** #/discover → "What can One do?" (see shell/discover) */
   | { name: 'discover' }
   /** #/workspace → workspace settings · #/workspace/<section> → one section (see shell/workspace) */
@@ -68,6 +71,10 @@ export function parseHash(hash: string): Route {
   if (parts[0] === 'agents') return parts[1] ? { name: 'agents', id: parts[1] } : { name: 'agents' }
   if (parts[0] === 'scripts') return parts[1] ? { name: 'scripts', id: parts[1] } : { name: 'scripts' }
   if (parts[0] === 'coding') return { name: 'coding' }
+  if (parts[0] === 'kit') {
+    const tab = parts[1] === 'lists' || parts[1] === 'types' || parts[1] === 'records' ? parts[1] : undefined
+    return tab ? (parts[2] ? { name: 'kit', tab, id: parts[2] } : { name: 'kit', tab }) : { name: 'kit' }
+  }
   if (parts[0] === 'discover') return { name: 'discover' }
   if (parts[0] === 'workspace') return parts[1] ? { name: 'workspace', section: parts[1] } : { name: 'workspace' }
   if (parts[0] === 's' && parts[1]) return { name: 'share', payload: parts.slice(1).join('/') }
@@ -103,6 +110,8 @@ export function routeHref(r: Route): string {
       return r.id ? `#/scripts/${r.id}` : '#/scripts'
     case 'coding':
       return '#/coding'
+    case 'kit':
+      return r.tab ? `#/kit/${r.tab}${r.id ? `/${r.id}` : ''}` : '#/kit'
     case 'discover':
       return '#/discover'
     case 'workspace':

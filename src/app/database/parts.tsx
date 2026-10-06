@@ -13,6 +13,7 @@ import { CREATABLE_TYPES, TYPE_ICON } from './model/schema'
 import { useT } from '../i18n'
 import { Tooltip } from '../ui/Tooltip'
 import type { Translate } from '@/shared/i18n'
+import { kitTypeEntries, type OwnPropertyDef } from '../features'
 
 /** An extra entry for what was typed into a searchable menu (e.g. "Create property “X”"), or null. */
 export type QueryEntry = (query: string) => MenuEntry | null
@@ -154,8 +155,18 @@ export function PropIcon({ prop, size = 14 }: { prop: Pick<PropertyDef, 'type'>;
   return <TypeIcon type={prop.type} size={size} />
 }
 
-/** Menu entries for choosing a property type (`only`: just these types, in the usual groups). */
-export function typeEntries(t: Translate, onPick: (type: PropertyType) => void, current?: PropertyType, only?: PropertyType[]): MenuEntry[] {
+/**
+ * Menu entries for choosing a property type (`only`: just these types, in the usual groups). `kit`: also
+ * the building blocks (features/kit: own types, "Bind to a list…", "New own type…") — a pick of one hands
+ * `onPick` its property definition as `def` (custom / listId / options …); `kit.current` = the property changed.
+ */
+export function typeEntries(
+  t: Translate,
+  onPick: (type: PropertyType, def?: OwnPropertyDef) => void,
+  current?: PropertyType,
+  only?: PropertyType[],
+  kit?: { current?: Pick<PropertyDef, 'custom' | 'listId' | 'type'> },
+): MenuEntry[] {
   const out: MenuEntry[] = []
   const groups = CREATABLE_TYPES.map((g) => (only ? g.filter((type) => only.includes(type)) : g)).filter((g) => g.length)
   groups.forEach((group, gi) => {
@@ -164,11 +175,13 @@ export function typeEntries(t: Translate, onPick: (type: PropertyType) => void, 
       out.push({
         label: t(`database.type.${type}`),
         icon: <TypeIcon type={type} />,
-        checked: current === type,
         keywords: type,
+        // an own type / list-bound property of this type is "changed" into the plain one
+        checked: current === type && !kit?.current?.custom && !kit?.current?.listId,
         onSelect: () => onPick(type),
       })
   })
+  if (kit) out.push(...kitTypeEntries(t, (def) => onPick(def.type, def), kit.current))
   return out
 }
 

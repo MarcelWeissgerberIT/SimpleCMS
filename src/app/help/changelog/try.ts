@@ -67,6 +67,8 @@ export function runTry(action: ChangelogTry): void {
       return navigate('#/discover')
     case 'coding':
       return navigate({ name: 'coding' })
+    case 'kit':
+      return navigate({ name: 'kit' })
     case 'history':
     case 'share': {
       const id = pageInView()

@@ -16,7 +16,7 @@ import { refreshDemoIcons } from './store/demoIcons'
 import { offerTour } from './shell/tour/state'
 import { applyTheme } from './lib/theme'
 import { ALL_MESSAGES, t } from './i18n'
-import { startHistory, startAutomations, startRecurringTemplates, startInbox, startSync, startMcp, startCustomFunctions, startMail, startAgents, startCoding, seedDemoHistory, demoFunctions } from './features'
+import { startHistory, startAutomations, startRecurringTemplates, startInbox, startSync, startMcp, startCustomFunctions, startMail, startAgents, startCoding, startKit, seedDemoHistory, demoFunctions } from './features'
 import { startSyncedBlocks } from './editor'
 import { detectLang, makeTranslator } from '@/shared/i18n'
 import { STORAGE_KEYS, safeLocalGet } from '@/shared/brand'
@@ -88,6 +88,7 @@ async function boot() {
     startService('agents', startAgents)
     // coding pipeline (Settings → Coding worker): idle until switched on for this device
     startService('coding', startCoding)
+    startService('building blocks', startKit)
   }
 
   // PWA share target (/app/?title=…&text=…&url=…) → the #/clip route, before the first render

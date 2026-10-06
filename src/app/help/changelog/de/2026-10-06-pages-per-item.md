@@ -1,7 +1,7 @@
 ---
 id: 2026-10-06-pages-per-item
 date: 2026-10-06
-order: 4
+order: 5
 title: Eine Unterseite für jeden Eintrag
 summary: Eine Seite pro Ticket, verlinkt in einer Tabelle auf der Hauptseite — aus dem KI-Terminal in einem Schritt oder aus einer Liste, Überschriften oder einer Tabelle ganz ohne KI.
 image: assets/shots/changelog/pages-per-item.webp

@@ -84,7 +84,8 @@ import { markdownToDoc, openContextPicker, pageContextMarks, setContextMode, top
 import { toMarkdown } from '../share/markdown'
 import { turnIntoPage } from '../../editor'
 // own requests that are really structure actions or terminal tasks (intent.ts) · Sub-page per item (editor/split/items.ts)
-import { FileStack } from 'lucide-react'
+import { FileStack, ListPlus } from 'lucide-react'
+import { listItemsIn, openTurnIntoList } from '../kit'
 import { itemCount, pagesPerItem } from '../../editor'
 import { requestIntent } from './intent'
 import { AI_MODELS, AIError, aiErrorText, isAIDemo, onAIDemo, resolveModel, setAIDemo, verifyKey } from './client'
@@ -1037,6 +1038,21 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
           run: () => {
             onClose()
             pagesPerItem(editor, { pageId, range: { from: own.t.from, to: own.t.to } })
+          },
+        },
+        // "Turn into list" (features/kit): no Claude — one item per line / list item becomes a shared list (previewed first)
+        {
+          id: 'tolist',
+          label: t('features.kit.toList.action'),
+          code: 'LST',
+          icon: ListPlus,
+          group: t('features.ai.group.structure'),
+          keywords: 'list shared list options items select building blocks liste gemeinsame einträge auswahl bausteine',
+          run: () => {
+            const items = listItemsIn(editor.state.doc, own.t.from, own.t.to)
+            onClose()
+            if (items.length) openTurnIntoList(items)
+            else useUI.getState().toast(t('features.kit.toList.none'))
           },
         },
         A('explain', t('features.ai.act.explain'), 'EXP', MessageCircleQuestion, gRead, 'explain erklären'),

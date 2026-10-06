@@ -38,7 +38,7 @@ src/app/features/**                  AI (+ workspace agent), history, graph, sha
                                      GitHub Markdown, per-device IndexedDB `one-sync`), mcp (local bridge UI), sheets
                                      (spreadsheet engine + grid; functions/ = custom functions built by clicking), charts
                                      (SVG renderer, chart builder, data sources) (public API: features/index.ts)
-src/app/help/**                      help centre: panel (?, status bar, ⌘K, workspace menu), 61 articles EN+DE twins
+src/app/help/**                      help centre: panel (?, status bar, ⌘K, workspace menu), 62 articles EN+DE twins
                                      (help/articles/{en,de}/<id>.md, `help:<id>` links), Ask (Claude over the articles);
                                      link UI to an article with `<HelpLink id="…" />` (public API: help/index.ts)
 src/help-site/**                     build-time public /help pages (prerendered from the same articles, hreflang)
@@ -253,6 +253,13 @@ the public APIs stable — other areas are built against them in parallel.
   `Database.recordTypes`; a row's `Page.recordType` (cloud page field). Own types' scripts (value / validate / options /
   format / onChange) are One Script code run only by features/kit — in teams only a version this device saved or
   confirmed. `View.free` = a free board (lanes = its groupBy select, cards of any record type).
+- Building blocks UI (features/kit, `#/kit`, `#/kit/<lists|types|records>/<id>`): own types' bindings run only through
+  `runScript` with `vars` (`value` / `old` read like `row.<Prop>`, plus `row`); query mode, onChange in run mode. A value a
+  person enters goes through `writeUserValue()` (validate → write → onChange). Value scripts write with `setRowProperty`
+  only when the value differs, never because of their own writes, ≤ 500 rows per pass; `isKitComputed()` makes the cell
+  read-only. Team: a binding runs only once this device trusts that exact code (saved in the editor, `createPropType`, or
+  Confirm); value / onChange scripts on shared rows see shared pages only. A list-bound select's new option goes into the
+  list. `typeEntries(…, kit)` appends the kit's entries; `changePropertyToOwn()` binds a property (values by option name).
 - Coding pipeline (features/coding + mcp/src/worker): `Database.system: 'coding'` + `Database.pipeline` (one stage per
   Stage option; write only with savePipeline, read with readPipeline; `locked` blocks it). Worker outcomes go into the
   page with origin 'coding'; logs, diffs and trust per device in IndexedDB `one-coding`, never synced. One sends the worker
