@@ -70,6 +70,13 @@ export function useTeam(): TeamData {
     void reload()
   }, [reload])
 
+  // the page stays open while people join elsewhere: coming back to the tab reads the lists again
+  useEffect(() => {
+    const onFocus = () => void reload()
+    window.addEventListener('focus', onFocus)
+    return () => window.removeEventListener('focus', onFocus)
+  }, [reload])
+
   return { wsId, admin, members, setMembers: (m) => setMembers(sortMembers(m)), invites, setInvites, loadError, reload }
 }
 
