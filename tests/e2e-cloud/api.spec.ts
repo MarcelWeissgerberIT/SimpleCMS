@@ -63,8 +63,10 @@ test.describe('public API & incoming webhooks', () => {
     await expect(team.getByTestId('api-token')).toHaveCount(1)
     await expect(team.getByTestId('api-token')).toContainText('Zapier — CRM sync')
     await expect(team.getByTestId('api-token')).toContainText('Write')
-    await page.keyboard.press('Escape')
+    // back to the open table (the workspace page is a page, not a dialog)
+    await page.evaluate((id) => (window.location.hash = `#/p/${id}`), db.dbId)
     await expect(team).toBeHidden()
+    await expect(table).toBeVisible()
 
     // a script writes a row: it appears in the open table without a reload
     await expect.poll(async () => (await page.request.get(`/api/v1/databases/${db.dbId}`, { headers: bearer(token) })).status()).toBe(200)
@@ -108,14 +110,15 @@ test.describe('public API & incoming webhooks', () => {
 
     // an incoming webhook from the UI; the same delivery twice → one row
     team = await openTeam(page)
-    await team.getByLabel('Database').selectOption({ label: 'Leads' })
+    await team.getByLabel('Database', { exact: true }).selectOption({ label: 'Leads' })
     await team.getByRole('button', { name: 'Create webhook' }).click()
     const hookBox = team.getByTestId('api-hook-url')
     await expect(hookBox).toBeVisible()
     const url = await hookBox.locator('input').inputValue()
     expect(url).toMatch(/\/api\/v1\/hooks\/[A-Za-z0-9_-]{43}$/)
     await expect(team.getByTestId('api-hook')).toContainText('Leads')
-    await page.keyboard.press('Escape')
+    await page.evaluate((id) => (window.location.hash = `#/p/${id}`), db.dbId)
+    await expect(table).toBeVisible()
     const payload = { name: 'Grace Hopper', status: 'Not started', company: 'Navy', deliveryId: 'dlv-42' }
     const first = await page.request.post(url, { data: payload })
     const second = await page.request.post(url, { data: payload })

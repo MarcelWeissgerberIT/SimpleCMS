@@ -33,7 +33,7 @@ test.describe('workspace settings (team)', () => {
     await expect(page.getByTestId('ws-spec')).toContainText('TEAM · 2 MEMBERS · OWNER')
     const members = wsPage(page).getByTestId('member')
     await expect(members).toHaveCount(2)
-    await expect(members.filter({ hasText: 'Owner' })).toHaveCount(1)
+    await expect(members.locator('.cl-role[data-role="owner"]')).toHaveCount(1)
     // the owner changes roles here
     await expect(wsPage(page).getByLabel(/^Role of /)).toHaveCount(1)
     await expect(wsPage(page).getByTestId('invite')).toHaveCount(1)
