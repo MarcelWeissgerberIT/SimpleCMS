@@ -35,7 +35,7 @@ import {
 import { cancelCheck, checkServer, useMcpChecks, type CheckMode } from './checks'
 import { codewordProblem, normalizeCodeword, suggestCodeword } from './codeword'
 import { linkBaseOf } from '../../../lib/foreignLinks'
-import { signIn, signOut, signedIn, useMcpSignIn } from './oauth'
+import { cancelSignIn, signIn, signOut, signedIn, useMcpSignIn } from './oauth'
 import { HelpLink } from '../../../help'
 import './mcp-servers.css'
 
@@ -493,8 +493,13 @@ function SignInKey({ server }: { server: McpServerConfig }) {
     <div className="mcps-signin" data-testid="mcp-signin-row">
       <span className="mcps-signin__text">{t('features.ai.mcp.oauth.wants')}</span>
       <button type="button" className="btn btn--sm btn--ink" disabled={busy} onClick={() => void signIn(server.id).catch(() => {})} data-testid="mcp-signin">
-        <LogIn size={13} strokeWidth={1.75} aria-hidden /> {busy ? t('features.ai.mcp.oauth.busy') : signedIn(server) ? t('features.ai.mcp.oauth.again') : t('features.ai.mcp.oauth.signIn')}
+        <LogIn size={13} strokeWidth={1.75} aria-hidden /> {st?.phase === 'waiting' ? t('features.ai.mcp.oauth.waiting') : busy ? t('features.ai.mcp.oauth.busy') : signedIn(server) ? t('features.ai.mcp.oauth.again') : t('features.ai.mcp.oauth.signIn')}
       </button>
+      {st?.phase === 'waiting' && (
+        <button type="button" className="btn btn--sm btn--ghost" onClick={() => cancelSignIn(server.id)}>
+          {t('common.cancel')}
+        </button>
+      )}
       {st?.phase === 'error' && st.issue && (
         <p className="mcps-signin__err" role="alert">
           {t(`features.ai.mcp.oauth.err.${st.issue}`, { detail: st.detail ?? '' })}
@@ -540,8 +545,13 @@ function OAuthSignIn({ server }: { server: McpServerConfig }) {
       ) : (
         <div className="mcps-oauth__row">
           <button type="button" className="btn btn--sm btn--ink" disabled={busy} onClick={() => void signIn(server.id).catch(() => {})} aria-describedby={`${id}-hint`} data-testid="mcp-oauth-signin">
-            <LogIn size={13} strokeWidth={1.75} aria-hidden /> {busy ? t('features.ai.mcp.oauth.busy') : t('features.ai.mcp.oauth.signIn')}
+            <LogIn size={13} strokeWidth={1.75} aria-hidden /> {st?.phase === 'waiting' ? t('features.ai.mcp.oauth.waiting') : busy ? t('features.ai.mcp.oauth.busy') : t('features.ai.mcp.oauth.signIn')}
           </button>
+          {st?.phase === 'waiting' && (
+            <button type="button" className="btn btn--sm btn--ghost" onClick={() => cancelSignIn(server.id)}>
+              {t('common.cancel')}
+            </button>
+          )}
         </div>
       )}
       {st?.phase === 'error' && st.issue && (

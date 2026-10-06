@@ -300,6 +300,17 @@ function authorizeUrl(cfg: McpOAuthConfig, state: string, challenge: string): st
 
 /** Codes coming back while a sign-in waits. */
 const waiting = new Map<string, (msg: OAuthReturn) => void>()
+/** the waits, by server: Cancel ends one */
+const cancels = new Map<string, () => void>()
+/** the latest sign-in attempt per server (an older one that ends late leaves the state alone) */
+const attempts = new Map<string, number>()
+/** A sign-in window is waited for at most this long. */
+const WAIT_MAX = 10 * 60 * 1000
+
+/** Stop waiting for a sign-in (the person closed the window, or wants to start over). */
+export function cancelSignIn(serverId: string): void {
+  cancels.get(serverId)?.()
+}
 
 function listen() {
   listenForMcpOAuth((msg) => {
@@ -317,6 +328,10 @@ function listen() {
 export async function signIn(serverId: string): Promise<void> {
   const server = readServers().find((s) => s.id === serverId)
   if (!server) return
+  // a sign-in of this server still waiting: it gives way to this one
+  cancelSignIn(serverId)
+  const attempt = (attempts.get(serverId) ?? 0) + 1
+  attempts.set(serverId, attempt)
   // synchronously, inside the click: a blank window the sign-in page goes into
   let popup: Window | null = null
   try {
@@ -354,20 +369,23 @@ export async function signIn(serverId: string): Promise<void> {
     }
     listen()
     setPhase(serverId, { phase: 'waiting' })
+    // the code comes back over BroadcastChannel (oauthReturn.ts). Whether the window was closed can't be told
+    // reliably (a sign-in page with COOP cuts the link to it), so the wait ends with the code, Cancel or a timeout.
     const msg = await new Promise<OAuthReturn>((resolve, reject) => {
       popup!.location.href = url
-      const timer = window.setInterval(() => {
-        if (!popup || popup.closed) {
-          window.clearInterval(timer)
-          // closed without a code (a code that just arrived wins)
-          window.setTimeout(() => (waiting.has(state) ? reject(new OAuthError('cancelled')) : undefined), 1200)
-        }
-      }, 400)
+      const timer = window.setTimeout(() => reject(new OAuthError('cancelled')), WAIT_MAX)
       waiting.set(state, (m) => {
-        window.clearInterval(timer)
+        window.clearTimeout(timer)
         resolve(m)
       })
-    }).finally(() => waiting.delete(state))
+      cancels.set(serverId, () => {
+        window.clearTimeout(timer)
+        reject(new OAuthError('cancelled'))
+      })
+    }).finally(() => {
+      waiting.delete(state)
+      cancels.delete(serverId)
+    })
     await finishSignIn(msg)
   } catch (e) {
     try {
@@ -376,7 +394,8 @@ export async function signIn(serverId: string): Promise<void> {
       /* gone */
     }
     const err = e instanceof OAuthError ? e : new OAuthError('token', e instanceof Error ? e.message : String(e))
-    setPhase(serverId, err.issue === 'cancelled' ? null : { phase: 'error', issue: err.issue, detail: err.detail })
+    // a newer attempt of this server owns the state now
+    if (attempts.get(serverId) === attempt) setPhase(serverId, err.issue === 'cancelled' ? null : { phase: 'error', issue: err.issue, detail: err.detail })
     throw err
   }
 }
