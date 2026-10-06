@@ -390,6 +390,12 @@ bad token), `409 runtime_not_ready`, `409 agent_unavailable` (switched off, not 
 | Agent webhook deliveries | 10 per agent per minute, body ≤ 16 KB, ≤ 20 runs waiting per agent |
 | Agent runs | 25 rounds of tool calls, the agent's `maxRunUsd` (0.01–50 $), 2 at a time per workspace |
 
+**Fetch media (members in the app, not the public API).** `POST /api/workspaces/:id/files/fetch { url, kind?,
+private? }` lets a signed-in member's app have the server download one https image / video / audio file (an MCP
+server's result the browser may not load) into the workspace's files. It takes the session cookie, never an API
+token; the SSRF guard, type / magic-number checks and limits (20 per minute, 300 per day per member) are in
+[`CLOUD.md`](CLOUD.md#security-notes).
+
 ## Recipes (n8n, Make, Zapier)
 
 **curl — list databases, then add a row**

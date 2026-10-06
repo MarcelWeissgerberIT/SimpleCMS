@@ -17,6 +17,7 @@ import { offerTour } from './shell/tour/state'
 import { applyTheme } from './lib/theme'
 import { ALL_MESSAGES, t } from './i18n'
 import { startHistory, startAutomations, startRecurringTemplates, startInbox, startSync, startMcp, startCustomFunctions, startMail, startAgents, startCoding, startKit, seedDemoHistory, demoFunctions } from './features'
+import { consumeMcpOAuthReturn } from './features'
 import { startSyncedBlocks } from './editor'
 import { detectLang, makeTranslator } from '@/shared/i18n'
 import { STORAGE_KEYS, safeLocalGet } from '@/shared/brand'
@@ -56,6 +57,8 @@ function startService(name: string, start: () => unknown) {
 }
 
 async function boot() {
+  // an MCP server's sign-in window (OAuth): the tab that started the sign-in takes the code, this window closes
+  if (await consumeMcpOAuthReturn(bootT('features.ai.mcp.oauth.closing')).catch(() => false)) return
   bootStatus(bootT('shell.boot.loading'))
 
   // Team cloud first: which workspace does this tab show? 'cloud' → the store is already filled

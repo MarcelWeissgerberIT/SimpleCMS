@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type PointerEvent as RPointerEvent } from 'react'
 import { NodeViewWrapper, type ReactNodeViewProps } from '@tiptap/react'
-import { AlignCenter, AlignLeft, AlignRight, Captions, Download, ExternalLink, ImagePlus, RefreshCw, Trash2, Upload } from 'lucide-react'
+import { AlignCenter, AlignLeft, AlignRight, Captions, Download, ExternalLink, ImagePlus, RefreshCw, Trash2, Upload, Aperture } from 'lucide-react'
+import { NodeSelection } from '@tiptap/pm/state'
 import { FILE_PREFIX, getFile, saveFile, useFileUrl } from '../../lib/files'
 import { useT } from '../../i18n'
 import { pickFiles } from '../lib/upload'
@@ -8,6 +9,7 @@ import { isUrl } from '../lib/embeds'
 import { caretAfterNode, leaveNodeView } from '../lib/blocks'
 import { ImageAIKey } from './ImageAIKey'
 import { useFocusWhenShown } from '../../ui/focus'
+import { openAIPanel } from '../context/redo'
 
 const MIN_W = 80
 /** Stored types that are safe to open in a tab: a blob: URL is same-origin, so an opened SVG/HTML could run script. */
@@ -62,6 +64,14 @@ export function ImageView({ node, updateAttributes, deleteNode, selected, editor
     if (fresh) leaveNodeView(editor, getPos(), 'escape')
   }
 
+  /** "Generate…": the AI panel's generate card on this block — the picked result fills it (features/ai/media) */
+  const generate = () => {
+    const pos = getPos()
+    if (typeof pos !== 'number' || editor.isDestroyed) return
+    editor.view.dispatch(editor.state.tr.setSelection(NodeSelection.create(editor.state.doc, pos)))
+    openAIPanel(editor, { mode: 'block', generate: 'image' })
+  }
+
   if (!src) {
     return (
       <NodeViewWrapper className={`media-empty${selected ? ' is-selected' : ''}`} data-type="image" contentEditable={false}>
@@ -73,6 +83,9 @@ export function ImageView({ node, updateAttributes, deleteNode, selected, editor
           <div className="media-empty__body">
             <button type="button" className="btn btn--sm" onClick={upload}>
               <Upload size={13} /> {t('editor.image.upload')}
+            </button>
+            <button type="button" className="btn btn--sm" onClick={generate} title={t('editor.image.generateTitle')} data-testid="image-generate">
+              <Aperture size={13} /> {t('editor.image.generate')}
             </button>
             <span className="media-empty__or label">{t('editor.or')}</span>
             <form

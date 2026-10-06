@@ -17,7 +17,7 @@ import { shortcutLabel } from '../../../ui/controls'
 import { AI_MODELS, resolveModel } from '../client'
 import { MarkdownLite } from '../MarkdownLite'
 import { closeAgent, clampHeight, removeRef, setTermHeight, stopAgent, useAgent, HEIGHT_DEFAULT, type EchoEntry } from './state'
-import { answerAsk, applyStaged, changeTarget, continuable, continueTask, contextPageId, discardAllStaged, discardStaged, newTask, pickContext, restoreStaged, runTask, submitPrompt, tn, undoLastBatch } from './session'
+import { answerAsk, applyStaged, changeTarget, continuable, continueTask, contextPageId, discardAllStaged, discardStaged, newTask, pickContext, restoreStaged, runTask, stageMedia, submitPrompt, tn, undoLastBatch } from './session'
 import { Menu, useMenu, type MenuEntry } from '../../../ui/Menu'
 import { setContextMode, useContextMarks, type ContextMode } from '../../../editor'
 import { effectiveMode } from '../reads'
@@ -39,6 +39,9 @@ import { openEntry, openMemoryDb, openMemoryLog } from '../memory/open'
 import { readMemories } from '../memory/read'
 import { memoryDbId } from '../memory/schema'
 import { memorySettings } from '../memory/settings'
+import { MediaCards } from '../media/MediaCards'
+import { MediaPreview } from '../media/MediaPreview'
+import { pagePrivate } from '../media/blocks'
 import '../ai.css'
 import './agent.css'
 
@@ -576,10 +579,31 @@ function TurnView({ turn, last }: { turn: AgentTurn; last: boolean }) {
           <MarkdownLite source={turn.answer} />
         </div>
       )}
+      <TurnMedia n={turn.n} />
       {turn.status === 'stopped' && <p className="term-note">■ {t('features.agent.stoppedNote')}</p>}
       {turn.status === 'limit' && <LimitNote last={last} />}
       {turn.status === 'error' && turn.error && <TurnError error={turn.error} />}
     </section>
+  )
+}
+
+/** Media an MCP result of this task returned: cards — "Save to One" stages "insert media" for review. */
+function TurnMedia({ n }: { n: number }) {
+  const t = useT()
+  const entry = useAgent((s) => s.media.find((m) => m.turn === n) ?? null)
+  const title = useWorkspace((s) => (entry?.pageId ? s.pages[entry.pageId]?.title.trim() || t('common.untitled') : ''))
+  const readOnly = useCloud((s) => s.readOnly)
+  if (!entry?.items.length) return null
+  return (
+    <div className="term-media">
+      <MediaCards
+        items={entry.items}
+        onSaved={(saved) => stageMedia(saved, entry.pageId)}
+        privateTarget={pagePrivate(entry.pageId)}
+        disabled={readOnly}
+        where={title ? t('features.ai.media.whereTerm', { title }) : t('features.ai.media.whereTermNew')}
+      />
+    </div>
   )
 }
 
@@ -1078,6 +1102,7 @@ function ChangeItem({
   else if (c.kind === 'create_row' || c.kind === 'update_row' || c.kind === 'add_property') where = t('features.agent.review.in', { title: titleOf(c.databaseId, all) })
   else if (c.kind === 'memory' && c.memory) where = t(c.memory.updates ? 'features.memory.review.update' : 'features.memory.review.where', { type: t(`features.memory.type.${c.memory.type}`) })
   else if (c.kind === 'script' && c.script) where = t(c.script.before ? 'features.script.int.review.change' : 'features.script.int.review.new')
+  else if (c.kind === 'media') where = t(`features.ai.media.review.where.${(c.media?.length ?? 0) === 1 ? 'one' : 'other'}`, { count: c.media?.length ?? 0 })
   const label = `#${c.n}`
   const target = c.status === 'applied' ? (c.kind === 'script' ? savedScript(c) : changeTarget(c)) : null
 
@@ -1088,7 +1113,7 @@ function ChangeItem({
         <s className="agent-diff__before">{c.beforeTitle}</s> <span className="agent-diff__arrow">→</span> {c.title}
       </>
     )
-  else if (c.kind === 'append' || c.kind === 'update_row' || c.kind === 'edit') title = titleOf(c.pageId, all) || c.title
+  else if (c.kind === 'append' || c.kind === 'update_row' || c.kind === 'edit' || c.kind === 'media') title = titleOf(c.pageId, all) || c.title
   else if (c.kind === 'add_property') title = c.prop?.name
   else if (c.kind === 'memory') title = c.memory?.text ?? c.title
   else if (c.kind === 'script') title = c.script?.name ?? c.title
@@ -1155,6 +1180,7 @@ function ChangeItem({
       {!compact && c.props && c.props.length > 0 && <PropDiff props={c.props} />}
       {!compact && c.kind === 'edit' && <EditDiff change={c} />}
       {!compact && c.kind === 'script' && <ScriptDiff change={c} />}
+      {!compact && c.kind === 'media' && c.media && <MediaPreview media={c.media} />}
       {!compact && c.markdown?.trim() && c.kind !== 'rename' && c.kind !== 'edit' && <Preview markdown={c.markdown} append={c.kind === 'append'} />}
       {c.status === 'failed' && c.error && <p className="term-change__error">{t(c.kind === 'edit' ? 'features.agent.review.skipped' : 'features.agent.review.failed', { error: c.error })}</p>}
       {blocked && missing && c.status === 'pending' && <p className="term-change__hint">{t('features.agent.review.needs', { n: missing.n })}</p>}

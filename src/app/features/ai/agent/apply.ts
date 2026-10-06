@@ -19,6 +19,7 @@ import { depsOf, type ColumnSpec, type PropChange, type StagedChange } from './t
 import { saveMemory, updateMemory } from '../memory/save'
 import { applyPageEdits } from './edit'
 import { livePage, withPageNodes, type LinkTarget } from './links'
+import { mediaNode } from '../media/blocks'
 
 const ws = () => useWorkspace.getState()
 const ORIGIN = 'ai'
@@ -293,6 +294,25 @@ async function applyOne(c: StagedChange, resolveRow: (id: ID) => ID, rowIds: Rec
       const add = blocksOf(c.markdown ?? '', toDoc, prev)
       const next: JSONContent = { type: 'doc', content: isEmptyDoc(prev) ? add : [...(prev?.content ?? []), ...add] }
       ws().setContent(id, next, ORIGIN)
+      const rev = ws().pages[id]?.contentRev
+      return () => {
+        const now = ws().pages[id]
+        if (!now || now.contentRev !== rev) return false
+        ws().setContent(id, prev, ORIGIN)
+        return true
+      }
+    }
+    case 'media': {
+      // media saved from an MCP result (the files are in One already): their blocks at the end of the page
+      const id = resolveRow(c.pageId)
+      if (!alive(id)) throw new Error('the page is gone')
+      const add = (c.media ?? []).map(mediaNode)
+      if (!add.length) throw new Error('nothing to insert')
+      await snapshotNow(id, 'ai')
+      const page = ws().pages[id]
+      if (!page) throw new Error('the page is gone')
+      const prev = page.content
+      ws().setContent(id, { type: 'doc', content: isEmptyDoc(prev) ? add : [...(prev?.content ?? []), ...add] }, ORIGIN)
       const rev = ws().pages[id]?.contentRev
       return () => {
         const now = ws().pages[id]
