@@ -15,7 +15,7 @@ import { fileURLToPath } from 'node:url'
 import type { Page } from '@playwright/test'
 import { Client } from '../../mcp/node_modules/@modelcontextprotocol/sdk/dist/esm/client/index.js'
 import { StdioClientTransport } from '../../mcp/node_modules/@modelcontextprotocol/sdk/dist/esm/client/stdio.js'
-import { test, expect, openApp, waitForApp, wsEval, pageIdByTitle, flush } from './fixtures'
+import { test, expect, openApp, waitForApp, reloadApp, wsEval, pageIdByTitle, flush } from './fixtures'
 
 const BRIDGE = fileURLToPath(new URL('../../public/mcp/one-mcp.mjs', import.meta.url))
 const PORT = 47399
@@ -163,6 +163,14 @@ test('connects and reads: overview, search, page Markdown, schema, filtered rows
   await expect(codeword.locator('kbd')).toHaveText('one:')
   await closeSettings(page)
   await expect(page.locator('.status .mcp-status')).toHaveText('Agent')
+
+  // a reload while connected: the tab closes its link without a page error and connects again
+  const pageErrors: string[] = []
+  page.on('pageerror', (e) => pageErrors.push(e.message))
+  await reloadApp(page)
+  await expect(page.locator('.status .mcp-status')).toHaveText('Agent')
+  expect(json(await call('one_overview')).workspace.id).toBe(overview.workspace.id)
+  expect(pageErrors).toEqual([])
 })
 
 test('Ask first: the card shows the change; Approve writes it, Reject tells the agent', async ({ page }) => {
