@@ -283,6 +283,13 @@ the public APIs stable — other areas are built against them in parallel.
   created or changed last (`agent:`) waits for Confirm too; nothing is written for an unconfirmed task. Prompt data blocks
   end only at markers with a random code; the worker never uses the base branch and never reads through untracked
   symlinks; Claude Code's output goes into the page through `claudeDoc`.
+  Worker download (features/coding/download.ts): the site's mcp/one-worker.mjs plus ONE preset line after the shebang
+  (`globalThis.ONE_WORKER_PRESET`, protocol.ts `WorkerPreset`); the pairing secret is per download, kept per device and
+  workspace in localStorage `one.coding` → `pairs` (never synced or backed up; a new download replaces it); the hello
+  carries `pair`, a preset worker refuses without it (`reason: 'pair'`). Repos are ticked ONLY on the worker's local setup
+  page (mcp/src/worker/setup.ts: 127.0.0.1, token in the fragment sent as a header, Host + Origin checks, CSP); One only
+  sends `open-setup` and never learns the page's address or key; scan.ts reads nothing beyond branch, base, remote host,
+  last commit date, dirty / clean and the test-command guess.
 - Claude's Markdown goes into or is shown in a page only through `claudeDoc` / `claudeBlocks` (features/ai/claudeDoc.ts):
   web images become links, frames / media / web files never load. In shared pages Claude's change is its own undo step
   (`startUndoStep(view)` / `endUndoStep(view)`, editor/index.ts). History `SnapshotReason 'script'` ('Script · <name>').

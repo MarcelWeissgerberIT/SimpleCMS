@@ -496,6 +496,6 @@ export function startMcp() {
   window.addEventListener('focus', onWake)
   window.addEventListener('online', onWake)
   window.addEventListener('pagehide', () => {
-    if (socket) socket.close(1001, 'tab closed')
+    if (socket) socket.close(1000, 'tab closed')
   })
 }
