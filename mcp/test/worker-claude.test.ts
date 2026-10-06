@@ -3,18 +3,19 @@
  * stream-json reader (log lines, plan, cost), Stop killing the process — all with the fake CLI.
  */
 import assert from 'node:assert/strict'
-import { chmodSync, mkdtempSync, writeFileSync } from 'node:fs'
+import { chmodSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { describe, test } from 'node:test'
+import { after, describe, test } from 'node:test'
 import type { LogLine } from '../../src/app/features/coding/protocol.ts'
 import { claudeArgs, cliMode, detectClaude, runClaude, toolLine, type ClaudeCaps } from '../src/worker/claude.ts'
 import { buildPrompt, commitMessage } from '../src/worker/run.ts'
 import { sanitizeConfig } from '../src/worker/config.ts'
 import { sanitizeTask } from '../src/worker/worker.ts'
-import { FAKE_CLAUDE, task } from './worker-helpers.ts'
+import { FAKE_CLAUDE, cleanupAll, task, tempDir } from './worker-helpers.ts'
 
 chmodSync(FAKE_CLAUDE, 0o755)
+after(cleanupAll)
 
 describe('Claude Code CLI', () => {
   test('capabilities come from --version / --help; a missing CLI is reported, not thrown', async () => {
@@ -47,7 +48,7 @@ describe('Claude Code CLI', () => {
   })
 
   test('stream-json: log lines, the plan from ExitPlanMode, cost and turns', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'one-claude-'))
+    const dir = tempDir('claude')
     writeFileSync(join(dir, 'README.md'), '# x\n')
     const lines: LogLine[] = []
     const caps = await detectClaude(FAKE_CLAUDE)
@@ -60,7 +61,7 @@ describe('Claude Code CLI', () => {
   })
 
   test('Stop ends the process tree at once', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'one-claude-'))
+    const dir = tempDir('claude')
     const ac = new AbortController()
     const caps = await detectClaude(FAKE_CLAUDE)
     const started = Date.now()

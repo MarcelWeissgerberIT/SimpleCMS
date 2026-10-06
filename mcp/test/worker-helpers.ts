@@ -24,6 +24,9 @@ Object.assign(process.env, GIT_ENV)
 
 export const cleanupAll = () => rmSync(root, { recursive: true, force: true })
 
+/** A fresh empty folder inside this run's temp root (removed by cleanupAll). */
+export const tempDir = (prefix = 'tmp') => mkdtempSync(join(root, `${prefix}-`))
+
 export function sh(cwd: string, ...args: string[]): string {
   return execFileSync('git', args, { cwd, env: { ...process.env, ...GIT_ENV }, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
 }
