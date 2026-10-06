@@ -1,7 +1,7 @@
 ---
 id: 2026-10-06-building-blocks
 date: 2026-10-06
-order: 2
+order: 3
 title: Bausteine — gemeinsame Listen, eigene Eigenschaftstypen, Datensatz-Typen
 summary: Baue die Teile, aus denen deine Datenbanken bestehen: Listen, die jede Auswahl teilen kann (einfügen oder von Claude füllen lassen), eigene Eigenschaftstypen mit Aussehen und kleinen Skripten, die Werte prüfen, berechnen und formatieren, und Datensatz-Typen.
 image: assets/shots/changelog/building-blocks.webp

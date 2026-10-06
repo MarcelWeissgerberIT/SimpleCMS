@@ -1,7 +1,7 @@
 ---
 id: 2026-10-06-free-board
 date: 2026-10-06
-order: 1
+order: 2
 title: Free board — cards of any record type, each with its own fields
 summary: A board whose properties come from what you put in: a lead, a bug and an idea in one lane, each showing the fields of its own record type.
 image: assets/shots/changelog/free-board.webp

@@ -1,7 +1,7 @@
 ---
 id: 2026-10-06-workspace-settings
 date: 2026-10-06
-order: 3
+order: 4
 title: Workspace-Einstellungen — Personen, Zahlen, Automatisierung und Daten an einem Ort
 summary: Eine Seite für alles, was zum Workspace gehört, und endlich die Personen eines lokalen Workspace — wo jede genutzt wird, Doppelte zusammenführen, umbenennen, entfernen.
 image: assets/shots/changelog/workspace-settings.webp

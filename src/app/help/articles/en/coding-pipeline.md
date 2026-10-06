@@ -3,20 +3,25 @@ id: coding-pipeline
 title: Coding pipeline (Claude Code on your machine)
 section: ai
 order: 9
-keywords: coding, pipeline, claude code, worker, one-worker, git, branch, worktree, pull request, pr, diff, tests, repo, repository, code review, programmieren, aufgaben
+keywords: coding, pipeline, claude code, worker, one-worker, download, setup, pairing, tick repositories, git, branch, worktree, pull request, pr, diff, tests, repo, repository, code review, programmieren, aufgaben
 related: mcp-bridge, custom-agents, agent
 summary: Hand coding tasks to Claude Code on your computer — plan, approve, implement, test, ship — and follow every step in One.
 ---
 **#/coding** (⌘K *Coding pipeline*). One keeps the tasks, the approvals, the log and the diff; a small worker on **your** computer runs git and Claude Code. Your code never leaves your machine.
 
-## Set up once
-1. You need Node.js 20+, git and the **Claude Code** CLI, signed in (`claude`).
-2. **Settings → Coding worker → Setup**: save `one-worker.mjs`, then run the init command shown there — it binds the worker to this workspace:
+## Set up in three steps
+You need Node.js 20+, git and the **Claude Code** CLI, signed in once (`claude`). Then **Settings → Coding worker** (or **#/coding**):
+
+1. **Download the worker for this workspace.** The file comes ready-paired with this browser and this workspace — nothing to configure. One switches the link on by itself.
+2. **Start it** in a terminal and keep it running:
 ```
-node ~/one-worker.mjs init --workspace local:…
+node ~/Downloads/one-worker.mjs
 ```
-3. Add your repositories to `~/.config/one/worker.json`: a name, the path, the base branch and — for the Test stage — a test command as a list, e.g. `["npm", "test"]`. Then `node ~/one-worker.mjs check` and keep `node ~/one-worker.mjs` running.
-4. Switch on **Connect to a coding worker on this computer**. The **WORKER** LED in the status bar turns green.
+3. **Tick your repositories in the page that opens.** The worker finds the git repositories on your computer and opens a page in your browser: tick the ones One may work in, check the base branch and the test command (e.g. `npm test`), then **Save & start**. The card shows *Connected · laptop · 2 repos* and the **WORKER** LED in the status bar turns green.
+
+To change them later, press **Change repositories** — the worker opens its page again on your computer. One only ever learns the repos' names; paths and commands stay in `~/.config/one/worker.json` on your machine.
+
+> Tip: a new download replaces the pairing — start the file you downloaded last. On a computer without a browser, `node one-worker.mjs --no-browser` asks in the terminal instead (numbers tick, Enter saves).
 
 ## A task from start to finish
 1. **New task**: title, repo, goal, acceptance criteria. Leave *The worker may start right away* ticked.
@@ -35,6 +40,6 @@ Each task works on its own branch (`one/<title>-<id>`) in its own worktree — y
 - **Pipeline** (on #/coding) changes the stages: names, which ones run by themselves, Claude Code's mode, turns and instructions.
 
 ## Safety
-The worker touches only the repos in its own config; One can send it task text and fixed git actions — never a command. Claude Code keeps its permission rules, and task text goes to it as data, not as instructions. Cost limits per task and per day live in `worker.json`. In a team workspace your worker only takes tasks you wrote or confirmed on this device (**Confirm on this device**) — a stage, repo or branch changed on another device asks again. A task one of your custom agents wrote waits for the same confirmation, also in your local workspace.
+The worker touches only the repos you ticked; One can send it task text and fixed git actions — never a command, and it can never tick a repo itself. A downloaded worker only accepts this browser and this workspace. Claude Code keeps its permission rules, and task text goes to it as data, not as instructions. A cost limit per task is set on the worker's page, one per day in `worker.json`. In a team workspace your worker only takes tasks you wrote or confirmed on this device (**Confirm on this device**) — a stage, repo or branch changed on another device asks again. A task one of your custom agents wrote waits for the same confirmation, also in your local workspace.
 
 > Tip: the full reference — config keys, protocol, troubleshooting — is `docs/CODING.md` in the repository.

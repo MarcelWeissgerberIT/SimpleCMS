@@ -3,20 +3,25 @@ id: coding-pipeline
 title: Coding-Pipeline (Claude Code auf deinem Rechner)
 section: ai
 order: 9
-keywords: coding, pipeline, claude code, worker, one-worker, git, branch, worktree, pull request, pr, diff, tests, repo, repository, code-review, programmieren, aufgaben
+keywords: coding, pipeline, claude code, worker, one-worker, download, einrichten, koppeln, repositories anhaken, git, branch, worktree, pull request, pr, diff, tests, repo, repository, code-review, programmieren, aufgaben
 related: mcp-bridge, custom-agents, agent
 summary: Gib Programmieraufgaben an Claude Code auf deinem Rechner — planen, freigeben, umsetzen, testen, ausliefern — und verfolge jeden Schritt in One.
 ---
 **#/coding** (⌘K *Coding-Pipeline*). One verwaltet die Aufgaben, die Freigaben, das Log und den Diff; ein kleiner Worker auf **deinem** Rechner führt Git und Claude Code aus. Dein Code verlässt deinen Rechner nie.
 
-## Einmal einrichten
-1. Du brauchst Node.js 20+, Git und die **Claude-Code**-CLI, angemeldet (`claude`).
-2. **Einstellungen → Coding-Worker → Einrichtung**: `one-worker.mjs` speichern, dann den dort gezeigten Init-Befehl ausführen — er bindet den Worker an diesen Arbeitsbereich:
+## In drei Schritten einrichten
+Du brauchst Node.js 20+, Git und die **Claude-Code**-CLI, einmal angemeldet (`claude`). Dann **Einstellungen → Coding-Worker** (oder **#/coding**):
+
+1. **Lade den Worker für diesen Arbeitsbereich herunter.** Die Datei ist schon mit diesem Browser und diesem Arbeitsbereich gekoppelt — nichts einzustellen. One schaltet die Verbindung selbst ein.
+2. **Starte ihn** in einem Terminal und lass ihn laufen:
 ```
-node ~/one-worker.mjs init --workspace local:…
+node ~/Downloads/one-worker.mjs
 ```
-3. Trag deine Repositories in `~/.config/one/worker.json` ein: Name, Pfad, Basis-Branch und — für die Test-Stufe — einen Testbefehl als Liste, z. B. `["npm", "test"]`. Dann `node ~/one-worker.mjs check` und `node ~/one-worker.mjs` laufen lassen.
-4. **Mit einem Coding-Worker auf diesem Rechner verbinden** einschalten. Die **WORKER**-LED in der Statusleiste wird grün.
+3. **Hak deine Repositories auf der Seite an, die sich öffnet.** Der Worker findet die Git-Repositories auf deinem Rechner und öffnet eine Seite in deinem Browser: Hak die an, in denen One arbeiten darf, prüf Basis-Branch und Testbefehl (z. B. `npm test`), dann **Speichern & starten**. Die Karte zeigt *Verbunden · laptop · 2 Repos*, und die **WORKER**-LED in der Statusleiste wird grün.
+
+Später ändern: **Repositories ändern** — der Worker öffnet seine Seite wieder auf deinem Rechner. One erfährt immer nur die Namen der Repos; Pfade und Befehle bleiben in `~/.config/one/worker.json` auf deinem Rechner.
+
+> Tipp: Ein neuer Download ersetzt die Kopplung — starte die zuletzt heruntergeladene Datei. Auf einem Rechner ohne Browser fragt `node one-worker.mjs --no-browser` stattdessen im Terminal (Zahlen haken an, Enter speichert).
 
 ## Eine Aufgabe von Anfang bis Ende
 1. **Neue Aufgabe**: Titel, Repo, Ziel, Abnahmekriterien. *Der Worker darf gleich anfangen* angehakt lassen.
@@ -35,6 +40,6 @@ Jede Aufgabe arbeitet auf einem eigenen Branch (`one/<titel>-<id>`) in einem eig
 - **Pipeline** (auf #/coding) ändert die Stufen: Namen, welche von selbst laufen, Modus, Züge und Anweisungen für Claude Code.
 
 ## Sicherheit
-Der Worker fasst nur die Repos aus seiner eigenen Konfiguration an; One kann ihm Aufgabentext und feste Git-Aktionen schicken — nie einen Befehl. Claude Code behält seine Berechtigungsregeln, und Aufgabentext geht als Daten mit, nicht als Anweisung. Kostengrenzen pro Aufgabe und pro Tag stehen in der `worker.json`. In einem Team-Arbeitsbereich nimmt dein Worker nur Aufgaben, die du auf diesem Gerät geschrieben oder bestätigt hast (**Auf diesem Gerät bestätigen**) — eine Stufe, ein Repo oder ein Branch, auf einem anderen Gerät geändert, fragt erneut. Eine Aufgabe, die einer deiner eigenen Agenten geschrieben hat, wartet auf dieselbe Bestätigung, auch in deinem lokalen Arbeitsbereich.
+Der Worker fasst nur die Repos an, die du angehakt hast; One kann ihm Aufgabentext und feste Git-Aktionen schicken — nie einen Befehl, und selbst nie ein Repo anhaken. Ein heruntergeladener Worker nimmt nur diesen Browser und diesen Arbeitsbereich an. Claude Code behält seine Berechtigungsregeln, und Aufgabentext geht als Daten mit, nicht als Anweisung. Eine Kostengrenze pro Aufgabe stellst du auf der Seite des Workers ein, eine pro Tag in der `worker.json`. In einem Team-Arbeitsbereich nimmt dein Worker nur Aufgaben, die du auf diesem Gerät geschrieben oder bestätigt hast (**Auf diesem Gerät bestätigen**) — eine Stufe, ein Repo oder ein Branch, auf einem anderen Gerät geändert, fragt erneut. Eine Aufgabe, die einer deiner eigenen Agenten geschrieben hat, wartet auf dieselbe Bestätigung, auch in deinem lokalen Arbeitsbereich.
 
 > Tipp: Die vollständige Referenz — Konfiguration, Protokoll, Fehlersuche — steht in `docs/CODING.md` im Repository.

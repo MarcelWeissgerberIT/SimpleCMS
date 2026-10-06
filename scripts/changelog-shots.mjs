@@ -8,7 +8,7 @@
  *
  * (CHANGELOG_DRAFT=1 lets the build pass while a new entry's picture does not exist yet.)
  *
- * Shots: free-board, building-blocks, workspace-settings, diagram-viewer, coding-pipeline, pages-per-item, design-import, tour, quick-capture, script-templates, one-script-everywhere, file-ai, one-script, transform, ai-edit, db-commands, gmail-one-click, memory, grips-footer, block-select, split-to-page, image-ai, claude-reads, redo, ai-terminal, mcp-codewords, mcp-tidy-up, slash-menu, turn-into-database,
+ * Shots: coding-setup, free-board, building-blocks, workspace-settings, diagram-viewer, coding-pipeline, pages-per-item, design-import, tour, quick-capture, script-templates, one-script-everywhere, file-ai, one-script, transform, ai-edit, db-commands, gmail-one-click, memory, grips-footer, block-select, split-to-page, image-ai, claude-reads, redo, ai-terminal, mcp-codewords, mcp-tidy-up, slash-menu, turn-into-database,
  * custom-agents, gmail, help-centre, mcp-servers, feed-blocks — each named like its image. Every shot starts from a fresh, seeded
  * workspace in English, light theme, 1440 × 900 at device scale 2; the crop of the relevant area is scaled
  * to 1440 px wide and saved as public/assets/shots/changelog/<shot>.webp (≤ 150 KB: the quality steps down
@@ -23,7 +23,7 @@
  */
 import { chromium } from 'playwright'
 import { execFileSync, spawn } from 'node:child_process'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -1651,6 +1651,69 @@ const shots = {
     // above the status bar
     await save(page, 'free-board', { x: left, y: top, width: W - left, height: Math.min(H - 34 - top, Math.round(b.y + b.height + 16 - top)) })
     await ctx.close()
+  },
+
+  /**
+   * Settings → Coding worker, the three steps done: the worker downloaded for this workspace (built in the
+   * browser with its preset), started from a temp home with three repos (fake Claude Code, a fake browser that
+   * only notes the setup page's address), two repos ticked on that page — and the card's live state.
+   */
+  async 'coding-setup'(browser) {
+    const work = codingRepo()
+    const home = join(work.root, 'home')
+    const repo = (name, files) => {
+      const dir = join(home, 'code', name)
+      mkdirSync(dir, { recursive: true })
+      for (const [n, t] of Object.entries(files)) writeFileSync(join(dir, n), t)
+      for (const args of [['init', '-q', '-b', 'main'], ['add', '-A'], ['commit', '-qm', 'initial'], ['remote', 'add', 'origin', `git@github.com:studio/${name}.git`]]) execFileSync('git', args, { cwd: dir, env: work.env, stdio: 'ignore' })
+    }
+    repo('website', { 'package.json': '{"scripts":{"test":"vitest run"}}', 'pnpm-lock.yaml': '' })
+    repo('api', { 'go.mod': 'module api\n' })
+    repo('docs', { 'README.md': '# Docs\n' })
+    // how One shows this worker (the setup page keeps it when it writes the file)
+    mkdirSync(join(home, '.config', 'one'), { recursive: true })
+    writeFileSync(join(home, '.config', 'one', 'worker.json'), JSON.stringify({ name: 'studio-mac', repos: [] }))
+    const opened = join(work.root, 'opened.txt')
+    const opener = join(work.root, 'open.mjs')
+    writeFileSync(opener, `#!${process.execPath}\nimport { appendFileSync } from 'node:fs'\nappendFileSync(${JSON.stringify(opened)}, process.argv[2] + '\\n')\n`)
+    chmodSync(opener, 0o755)
+    const { ctx, page } = await freshPage(browser)
+    let worker = null
+    try {
+      await page.evaluate(() => window.__one.ui.getState().openModal({ type: 'settings' }))
+      await page.getByRole('tab', { name: 'Coding worker' }).click()
+      const settings = page.getByTestId('coding-settings')
+      const port = page.getByLabel('Port', { exact: true })
+      await port.fill(String(WORKER_PORT))
+      await port.press('Enter')
+      const [download] = await Promise.all([page.waitForEvent('download'), settings.getByTestId('coding-download').click()])
+      const file = join(work.root, 'one-worker.mjs')
+      await download.saveAs(file)
+      worker = spawn(process.execPath, [file], { env: { ...work.env, HOME: home, CLAUDE_BIN: FAKE_CLAUDE, ONE_WORKER_BROWSER: opener }, stdio: ['ignore', 'ignore', 'ignore'] })
+      await settings.getByTestId('coding-card-live').filter({ hasText: 'Connected' }).waitFor({ timeout: 20_000 })
+      for (let i = 0; i < 100 && !existsSync(opened); i++) await sleep(100)
+      const setup = await ctx.newPage()
+      setup.on('pageerror', (e) => errors.push(`setup pageerror: ${String(e).slice(0, 200)}`))
+      setup.on('console', (m) => m.type() === 'error' && errors.push(`setup console.error: ${m.text().slice(0, 200)}`))
+      await setup.goto(readFileSync(opened, 'utf8').split('\n')[0])
+      await setup.getByRole('checkbox', { name: 'website' }).check()
+      await setup.getByRole('checkbox', { name: 'api' }).check()
+      await setup.locator('#save').click()
+      await setup.locator('#note.saved').waitFor()
+      await setup.close()
+      await page.bringToFront()
+      await settings.getByTestId('coding-card-live').filter({ hasText: '2 repos' }).waitFor({ timeout: 10_000 })
+      // the tab from its top: the lead, then the card
+      await scrollToTop(settings, 0)
+      await rest(page)
+      await save(page, 'coding-setup', await boxOf(page.getByRole('dialog', { name: 'Settings' })))
+      // the link looked for the worker between the download and its start: expected, not an error
+      errors = errors.filter((e) => !/WebSocket connection to 'ws:\/\/127\.0\.0\.1/.test(e))
+    } finally {
+      worker?.kill('SIGTERM')
+      await ctx.close()
+      rmSync(work.root, { recursive: true, force: true })
+    }
   },
 
   /** Several blocks selected (text, image, table): the wash on each, the pinned grip, the count chip. */

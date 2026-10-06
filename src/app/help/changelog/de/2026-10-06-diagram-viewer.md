@@ -1,7 +1,7 @@
 ---
 id: 2026-10-06-diagram-viewer
 date: 2026-10-06
-order: 4
+order: 5
 title: Schaubilder groß öffnen — mit Zoom und Minikarte
 summary: Ein Mermaid-Schaubild oder ein Diagramm über den ganzen Bildschirm, scharf in jeder Zoomstufe, mit einer Minikarte, die zeigt, wo du gerade bist.
 image: assets/shots/changelog/diagram-viewer.webp

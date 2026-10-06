@@ -1,7 +1,7 @@
 ---
 id: 2026-10-06-quick-capture
 date: 2026-10-06
-order: 9
+order: 10
 title: Quick capture, sharing into One, Install One
 summary: Get a thought, a voice note, a photo or a shared file into One in seconds — on the phone and on the computer.
 image: assets/shots/changelog/quick-capture.webp
