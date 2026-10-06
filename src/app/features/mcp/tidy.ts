@@ -13,6 +13,7 @@ import { newId } from '../../lib/ids'
 import { MCP_BULK_MAX, type McpToolName } from './contract'
 import { chars, clone, idList, itemLines, palette, same, str, tidyPageOrThrow, type PlanLine, type WritePlan } from './plan'
 import { databaseOrThrow, kindOf, live, McpToolError, pageUrl, pathOf, q, rowProperties, rowsOf, titleOf, TWO_WAY_SUFFIX, ws } from './values'
+import { adoptRowType } from '../../database'
 
 /* ------------------------------------------------------------------ */
 /* Helpers                                                             */
@@ -470,6 +471,8 @@ function planMoveRow(args: Record<string, unknown>): WritePlan {
       }
       const order = Math.max(0, ...Object.values(ws().pages).filter((p) => p.parentId === to.id).map((p) => p.order)) + 1
       ws().updatePage(row.id, { databaseId: to.id, parentId: to.id, properties: values, order })
+      // a row of a record type the target does not hold yet: the type comes along (database/model/recordTypes)
+      adoptRowType(row.id)
       const moved = ws().pages[row.id]
       const d = ws().databases[to.id]
       return {

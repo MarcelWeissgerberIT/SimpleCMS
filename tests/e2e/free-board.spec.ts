@@ -277,6 +277,40 @@ test.describe('free board', () => {
     await flush(page)
   })
 
+  test('a page of a record type dropped onto a database (sidebar) brings its type along', async ({ page }) => {
+    await boot(page)
+    await page.setViewportSize({ width: 1440, height: 1400 })
+    const { dbId } = await seedBoard(page)
+    // a page that was a Lead row once (it left its database and kept its type); a database without Lead
+    const ids = await wsEval(page, (s) => {
+      s.upsertRecordType({ id: 'idea', name: 'Idea', color: 'green', properties: [{ id: 'votes', name: 'Votes', type: 'number' }], createdAt: 0, updatedAt: 0 })
+      const other = st().createDatabase({ title: 'Ideas box', parentId: null })
+      const pageId = st().createPage({ title: 'Loose idea', parentId: null })
+      st().updatePage(pageId, { recordType: 'idea' })
+      return { other, pageId }
+    })
+    const tree = page.locator('aside.sb')
+    const row = (title: string) => tree.locator('.sb-row', { has: page.locator('.sb-row__title', { hasText: new RegExp(`^${title}$`) }) })
+    const src = row('Loose idea')
+    const dst = row('Ideas box')
+    await src.scrollIntoViewIfNeeded()
+    const a = (await src.boundingBox())!
+    await page.mouse.move(a.x + 60, a.y + a.height / 2)
+    await page.mouse.down()
+    await page.mouse.move(a.x + 60, a.y + a.height / 2 - 8, { steps: 3 })
+    const b = (await dst.boundingBox())!
+    await page.mouse.move(b.x + 60, b.y + b.height / 2, { steps: 15 })
+    await expect(dst).toHaveAttribute('data-drop', 'inside')
+    await page.mouse.up()
+    await expect.poll(() => wsEval(page, (s, id) => st().pages[id].databaseId, ids.pageId)).toBe(ids.other)
+    const r = await wsEval(page, (s, a) => {
+      const db = st().databases[a.other]
+      return { held: db.recordTypes ?? [], fields: db.properties.filter((p: { fromType?: { id: string } }) => p.fromType?.id === 'idea').map((p: { name: string }) => p.name), type: st().pages[a.pageId].recordType }
+    }, ids)
+    expect(r).toEqual({ held: ['idea'], fields: ['Votes'], type: 'idea' })
+    expect(dbId).toBeTruthy()
+  })
+
   test('Turn into free board (mocked Claude): preview → apply in one step → Undo removes it again', async ({ page, context }) => {
     const asked: string[] = []
     await mockFreeBoard(context, asked)
