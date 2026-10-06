@@ -17,6 +17,8 @@ import { isDbReadOnly } from './readonly'
 export { DatabaseView, type DatabaseViewProps } from './DatabaseView'
 export { RowProperties } from './RowProperties'
 export { propertyValueToText } from './values'
+/** localPerson({ me, people, labels }): the local user's own person (named like settings.userName, or the demo's "You") — the workspace page marks them */
+export { localPerson } from './model/actors'
 /** propertyFormulaValue(db, prop, row): a row's value as formulas see it (option / people names, related titles, Date; computed ones included) — features/script */
 export { propertyFormulaValue } from './values'
 /** writePropertyValue(dbId, prop, rowId, value): write one value the way a cell does (two-way relations kept in step) — version history's restore. */

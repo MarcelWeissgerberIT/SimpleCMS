@@ -32,6 +32,7 @@ import { CloudDialogs } from './cloud/Dialogs'
 import { CloudBanner } from './cloud/Sync'
 import { CaptureHost } from './capture/QuickCapture'
 import { Discover } from './discover/Discover'
+import { WorkspacePage } from './workspace/WorkspacePage'
 import { TourSlot } from './tour/TourOffer'
 import './tour/register'
 import './stage/stage.css'
@@ -170,6 +171,8 @@ function RouteView({ route }: { route: Route }) {
       return <CodingRoute />
     case 'discover':
       return <Discover />
+    case 'workspace':
+      return <WorkspacePage section={route.section} />
     case 'journal':
       return <JournalPending />
     case 'clip':
@@ -189,5 +192,5 @@ function RouteTitle({ route }: { route: Route }) {
         <span>{page.title.trim() || t('common.untitled')}</span>
       </>
     )
-  return <span>{route.name === 'graph' ? t('shell.nav.graph') : route.name === 'agenda' ? t('shell.nav.agenda') : route.name === 'inbox' ? t('shell.nav.inbox') : route.name === 'agents' ? t('features.agents.title') : route.name === 'scripts' ? t('features.script.title') : route.name === 'coding' ? t('features.coding.title') : route.name === 'discover' ? t('shell.discover.title') : t('shell.nav.home')}</span>
+  return <span>{route.name === 'graph' ? t('shell.nav.graph') : route.name === 'agenda' ? t('shell.nav.agenda') : route.name === 'inbox' ? t('shell.nav.inbox') : route.name === 'agents' ? t('features.agents.title') : route.name === 'scripts' ? t('features.script.title') : route.name === 'coding' ? t('features.coding.title') : route.name === 'discover' ? t('shell.discover.title') : route.name === 'workspace' ? t('shell.ws.title') : t('shell.nav.home')}</span>
 }

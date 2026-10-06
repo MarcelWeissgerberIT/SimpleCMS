@@ -11,6 +11,8 @@
  *   #/scripts       → One Script (features/script) · #/scripts/<id> → one script's workbench
  *   #/coding        → the coding pipeline (features/coding): the worker, the tasks waiting for you, the board
  *   #/discover      → "What can One do?" — the feature cards (shell/discover)
+ *   #/workspace     → workspace settings (shell/workspace) · #/workspace/<section> → overview | people | blocks |
+ *                     automation | data | danger
  *   #/s/<payload>   → read-only shared page (payload = compressed page, see features/share)
  *   #/clip?url=…&title=…&text=… → clip a web page into the Inbox, then replaced by #/p/<new page>
  *   #/clip?share=<id> → files shared into the installed app (the service worker kept them, see public/sw.js)
@@ -36,6 +38,8 @@ export type Route =
   | { name: 'coding' }
   /** #/discover → "What can One do?" (see shell/discover) */
   | { name: 'discover' }
+  /** #/workspace → workspace settings · #/workspace/<section> → one section (see shell/workspace) */
+  | { name: 'workspace'; section?: string }
   | { name: 'share'; payload: string }
   /** #/f/<payload> → public form (payload = compressed form schema, see database/form/codec) */
   | { name: 'form'; payload: string }
@@ -65,6 +69,7 @@ export function parseHash(hash: string): Route {
   if (parts[0] === 'scripts') return parts[1] ? { name: 'scripts', id: parts[1] } : { name: 'scripts' }
   if (parts[0] === 'coding') return { name: 'coding' }
   if (parts[0] === 'discover') return { name: 'discover' }
+  if (parts[0] === 'workspace') return parts[1] ? { name: 'workspace', section: parts[1] } : { name: 'workspace' }
   if (parts[0] === 's' && parts[1]) return { name: 'share', payload: parts.slice(1).join('/') }
   if (parts[0] === 'f' && parts[1]) return { name: 'form', payload: parts.slice(1).join('/') }
   if (parts[0] === 'invite' && parts[1]) return { name: 'invite', token: parts[1] }
@@ -100,6 +105,8 @@ export function routeHref(r: Route): string {
       return '#/coding'
     case 'discover':
       return '#/discover'
+    case 'workspace':
+      return r.section ? `#/workspace/${r.section}` : '#/workspace'
     case 'share':
       return `#/s/${r.payload}`
     case 'form':

@@ -14,6 +14,7 @@ import { collectRefs, collectTree, downloadBlob, formatBytes, slugify, todayStam
 import { buildMarkdownZip } from './export/markdown'
 import { buildHTML, printHTML } from './export/html'
 import { backupFileRefs, buildBackup } from './backup'
+import { noteBackup } from './lastBackup'
 import { normalizeBaseUrl, planSite, siteCounts } from './export/site/plan'
 import { Meter } from './parts'
 import { countOf, unitOf } from './count'
@@ -111,6 +112,8 @@ export function ExportModal({ pageId, onClose }: { pageId?: ID | null; onClose: 
         const backup = await buildBackup(rootId, onProgress)
         const blob = new Blob([JSON.stringify(backup)], { type: 'application/json' })
         downloadBlob(blob, fileName)
+        // the workspace page shows when this device last saved a full backup
+        if (!rootId) noteBackup(blob.size)
         setResult({ name: fileName, size: blob.size })
       } else {
         const html = await buildHTML(tree, {

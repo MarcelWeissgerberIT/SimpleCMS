@@ -1,6 +1,7 @@
 /**
- * Shell-side state of the team cloud UI: which cloud dialog is open, the settings tab to open,
- * and small selectors over useCloud() the shell shares.
+ * Shell-side state of the team cloud UI: which cloud dialog is open and small selectors over
+ * useCloud() the shell shares. (Members, invites and the rest of "Team" are on the workspace page,
+ * shell/workspace — openWorkspaceSettings('people').)
  */
 import { create } from 'zustand'
 import { useCloud, type Role } from '../../cloud'
@@ -21,22 +22,6 @@ export function openCloudDialog(dialog: CloudDialog): void {
 
 export function closeCloudDialog(): void {
   useCloudUI.setState({ dialog: null })
-}
-
-/* ------------------------------------------------------------------ settings tab hand-off */
-
-let pendingTab: string | null = null
-
-/** Open settings on a shell-only tab (e.g. 'team') — ModalState only knows the core tabs. */
-export function openSettingsTab(tab: 'team'): void {
-  pendingTab = tab
-  useUI.getState().openModal({ type: 'settings' })
-}
-
-export function consumeSettingsTab(): string | null {
-  const tab = pendingTab
-  pendingTab = null
-  return tab
 }
 
 /* ------------------------------------------------------------------ selectors */

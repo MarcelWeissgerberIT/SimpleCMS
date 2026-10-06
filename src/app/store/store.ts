@@ -198,6 +198,12 @@ export interface WorkspaceState extends Workspace {
 
   // people & settings
   addPerson: (name: string) => ID
+  /** rename / recolour a person (workspace people tools, shell/workspace) */
+  updatePerson: (id: ID, patch: Partial<Pick<Person, 'name' | 'color'>>) => void
+  /** take a person off the list → its index (-1: none). Values and mentions stay — merge them first (shell/workspace/people.ts) */
+  removePerson: (id: ID) => number
+  /** put a removed person back (same id) at `index` — the Undo of a merge / removal */
+  restorePerson: (person: Person, index: number) => void
   updateSettings: (patch: Partial<Settings>) => void
 
   // custom functions (features/sheets/functions): insert or replace by id (updatedAt is set here) · remove
@@ -832,6 +838,29 @@ export const useWorkspace = create<WorkspaceState>()(
       })
       return person.id
     },
+
+    updatePerson: (id, patch) =>
+      set((s) => {
+        const p = s.people.find((x) => x.id === id)
+        if (!p) return
+        if (typeof patch.name === 'string' && patch.name.trim()) p.name = patch.name.trim()
+        if (patch.color) p.color = patch.color
+      }),
+
+    removePerson: (id) => {
+      const index = get().people.findIndex((p) => p.id === id)
+      if (index >= 0)
+        set((s) => {
+          s.people.splice(index, 1)
+        })
+      return index
+    },
+
+    restorePerson: (person, index) =>
+      set((s) => {
+        if (s.people.some((p) => p.id === person.id)) return
+        s.people.splice(Math.max(0, Math.min(index, s.people.length)), 0, { ...person })
+      }),
 
     updateSettings: (patch) => {
       // a key goes into the vault; the store keeps its marker ('' removes it, secrets.ts)

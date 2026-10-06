@@ -6,6 +6,7 @@ import { treeMessages } from './sidebar/messages'
 import { captureMessages } from './capture/messages'
 import { tourMessages } from './tour/messages'
 import { discoverMessages } from './discover/messages'
+import { workspaceMessages } from './workspace/messages'
 
 /** Strings for the shell area. Keys MUST be prefixed with "shell." — always add both en and de. */
 export const messages: Messages = {
@@ -17,6 +18,7 @@ export const messages: Messages = {
     ...captureMessages.en,
     ...tourMessages.en,
     ...discoverMessages.en,
+    ...workspaceMessages.en,
     'shell.a11y.skip': 'Skip to content',
 
     // navigation
@@ -470,6 +472,7 @@ export const messages: Messages = {
     ...captureMessages.de,
     ...tourMessages.de,
     ...discoverMessages.de,
+    ...workspaceMessages.de,
     'shell.a11y.skip': 'Zum Inhalt springen',
 
     'shell.nav.search': 'Suchen',

@@ -1,5 +1,5 @@
 import { cloneElement, isValidElement, useEffect, useId, useRef, useState, type ReactNode } from 'react'
-import { ExternalLink, X, Download, Upload, AlertTriangle, GitBranch, HardDrive } from 'lucide-react'
+import { ArrowRight, ExternalLink, X, GitBranch, HardDrive } from 'lucide-react'
 import { useWorkspace } from '../../store/store'
 import { isEffectivelyTrashed } from '../../store/selectors'
 import { useUI } from '../../store/ui'
@@ -14,30 +14,30 @@ import { ShortcutList } from '../modals/ShortcutsModal'
 import { runAI, SyncTab, consumeSyncSettingsRequest, McpTab, consumeMcpSettingsRequest, McpServers, MailTab, consumeMailSettingsRequest, CodingWorkerTab, consumeCodingSettingsRequest } from '../../features'
 import { ServerAgentsSettings } from '../../features'
 import { MemorySettings } from '../../features'
-import { fmtBytes, plural } from '../lib/format'
-import { requestReset } from '../lib/reset'
+import { plural } from '../lib/format'
 import { WebClipper } from '../capture/WebClipper'
 import { InstallSection } from '../capture/Install'
-import { TeamTab } from '../cloud/TeamTab'
+import { AccountNameField } from '../cloud/Team'
 import { ServerTab } from '../cloud/ServerTab'
-import { consumeSettingsTab, useInCloud, useReadOnly, useWorkspaceTitle } from '../cloud/state'
-import { cleanWorkspaceName, WORKSPACE_NAME_MAX } from '../lib/workspaceName'
+import { useInCloud, useWorkspaceTitle } from '../cloud/state'
+import { openWorkspaceSettings } from '../workspace/open'
+import { StorageGauge, useStorageEstimate } from './data'
 import { cloudApi } from '../cloud/api'
 import { errorText } from '../cloud/errors'
 import { useCloud, useCloudSync } from '../../cloud'
 import { HelpLink } from '../../help'
 import './settings.css'
 
-export type SettingsTab = 'general' | 'team' | 'server' | 'appearance' | 'ai' | 'data' | 'sync' | 'mail' | 'mcp' | 'coding' | 'shortcuts' | 'about'
-const LOCAL_TABS: SettingsTab[] = ['general', 'appearance', 'ai', 'data', 'sync', 'mail', 'mcp', 'coding', 'shortcuts', 'about']
-/** In a team workspace, "Team" follows "General". */
-const CLOUD_TABS: SettingsTab[] = ['general', 'team', 'appearance', 'ai', 'data', 'sync', 'mail', 'mcp', 'coding', 'shortcuts', 'about']
-/** Server admins (ADMIN_EMAILS) also get "Server" (registration links) — after Team, or after General. */
-const withServer = (tabs: SettingsTab[], admin: boolean): SettingsTab[] => {
-  if (!admin) return tabs
-  const at = tabs.indexOf('team') >= 0 ? tabs.indexOf('team') + 1 : 1
-  return [...tabs.slice(0, at), 'server', ...tabs.slice(at)]
-}
+/**
+ * Settings = this device and your account (language, theme, Claude key, sync, mail, MCP, the coding worker,
+ * shortcuts). What belongs to the workspace — its name, people and members, invites, building blocks,
+ * automation, backup / export / import, leaving or deleting it — is on the workspace page (#/workspace,
+ * shell/workspace), linked at the top of the rail.
+ */
+export type SettingsTab = 'general' | 'server' | 'appearance' | 'ai' | 'data' | 'sync' | 'mail' | 'mcp' | 'coding' | 'shortcuts' | 'about'
+const BASE_TABS: SettingsTab[] = ['general', 'appearance', 'ai', 'data', 'sync', 'mail', 'mcp', 'coding', 'shortcuts', 'about']
+/** Server admins (ADMIN_EMAILS) also get "Server" (registration links) — after General. */
+const withServer = (tabs: SettingsTab[], admin: boolean): SettingsTab[] => (admin ? [tabs[0], 'server', ...tabs.slice(1)] : tabs)
 
 export const AI_MODELS = [
   { id: 'claude-opus-5-5', key: 'shell.ai.opus' },
@@ -45,12 +45,24 @@ export const AI_MODELS = [
   { id: 'claude-haiku-4-5', key: 'shell.ai.haiku' },
 ]
 
-export function SettingsModal({ initialTab, onClose }: { initialTab?: SettingsTab; onClose: () => void }) {
+export function SettingsModal({ initialTab, onClose }: { initialTab?: SettingsTab | 'team'; onClose: () => void }) {
+  // "Team" moved to the workspace page: an old entry point (a link, a hand-off) lands on its People section
+  const team = initialTab === 'team'
+  useEffect(() => {
+    if (!team) return
+    onClose()
+    openWorkspaceSettings('people')
+  }, [team, onClose])
+  if (team) return null
+  return <Settings initialTab={initialTab} onClose={onClose} />
+}
+
+function Settings({ initialTab, onClose }: { initialTab?: SettingsTab; onClose: () => void }) {
   const t = useT()
   const serverAdmin = useCloud((c) => !!c.user && !!c.serverAdmin)
-  const TABS = withServer(useInCloud() ? CLOUD_TABS : LOCAL_TABS, serverAdmin)
+  const TABS = withServer(BASE_TABS, serverAdmin)
   const [tab, setTab] = useState<SettingsTab>(() => {
-    const asked = initialTab ?? (consumeSettingsTab() as SettingsTab | null) ?? (consumeSyncSettingsRequest() ? 'sync' : null) ?? (consumeMcpSettingsRequest() ? 'mcp' : null) ?? (consumeMailSettingsRequest() ? 'mail' : null) ?? (consumeCodingSettingsRequest() ? 'coding' : null)
+    const asked = initialTab ?? (consumeSyncSettingsRequest() ? 'sync' : null) ?? (consumeMcpSettingsRequest() ? 'mcp' : null) ?? (consumeMailSettingsRequest() ? 'mail' : null) ?? (consumeCodingSettingsRequest() ? 'coding' : null)
     return asked && TABS.includes(asked) ? asked : 'general'
   })
   const idx = TABS.indexOf(tab)
@@ -78,7 +90,8 @@ export function SettingsModal({ initialTab, onClose }: { initialTab?: SettingsTa
     <Modal open onClose={onClose} width={860} bare className="st" ariaLabel={t('common.settings')}>
       <div className="st__layout">
         <nav className="st__rail" aria-label={t('common.settings')}>
-          <div className="st__rail-head label">{t('common.settings')}</div>
+          <div className="st__rail-head label">{t('shell.ws.settings.head')}</div>
+          <WorkspaceLink onClose={onClose} />
           <div ref={stripRef} role="tablist" aria-orientation="vertical" className="st__tabs">
             {TABS.map((id, i) => (
               <button
@@ -138,7 +151,6 @@ export function SettingsModal({ initialTab, onClose }: { initialTab?: SettingsTa
           </header>
           <div className="st__body">
             {tab === 'general' && <GeneralTab />}
-            {tab === 'team' && <TeamTab onClose={onClose} />}
             {tab === 'server' && <ServerTab />}
             {tab === 'appearance' && <AppearanceTab />}
             {tab === 'ai' && <AITab />}
@@ -159,6 +171,31 @@ export function SettingsModal({ initialTab, onClose }: { initialTab?: SettingsTa
 
 const TABBABLE = 'a[href], button:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), [tabindex]'
 
+/** "WORKSPACE · <name> →": the workspace's own settings live on the workspace page (#/workspace). */
+function WorkspaceLink({ onClose }: { onClose: () => void }) {
+  const t = useT()
+  const name = useWorkspaceTitle()
+  return (
+    <a
+      className="st__ws"
+      href="#/workspace"
+      data-testid="settings-workspace-link"
+      onClick={(e) => {
+        e.preventDefault()
+        onClose()
+        openWorkspaceSettings()
+      }}
+    >
+      <span className="st__ws-text">
+        <span className="label">{t('shell.ws.settings.wsLabel')}</span>
+        <span className="st__ws-name">{t('shell.ws.settings.link')}</span>
+        <span className="st__ws-sub">{name}</span>
+      </span>
+      <ArrowRight size={14} aria-hidden />
+    </a>
+  )
+}
+
 type ControlProps = { id?: string; 'aria-describedby'?: string; 'aria-labelledby'?: string; role?: string }
 
 /**
@@ -167,7 +204,7 @@ type ControlProps = { id?: string; 'aria-describedby'?: string; 'aria-labelledby
  * and sets that id (and aria-describedby `${htmlFor}-hint`) itself; a radiogroup child is
  * named via aria-labelledby.
  */
-function Field({ label, hint, children, inline, htmlFor }: { label: string; hint?: ReactNode; children: ReactNode; inline?: boolean; htmlFor?: string }) {
+export function Field({ label, hint, children, inline, htmlFor }: { label: string; hint?: ReactNode; children: ReactNode; inline?: boolean; htmlFor?: string }) {
   const uid = useId()
   const id = htmlFor ?? `${uid}-control`
   // a nested control (htmlFor) references its hint as `${htmlFor}-hint`
@@ -209,7 +246,7 @@ function Field({ label, hint, children, inline, htmlFor }: { label: string; hint
 
 function GeneralTab() {
   const t = useT()
-  // a team workspace's name lives on the server (Settings → Team)
+  // the workspace's name lives on the workspace page (#/workspace); a team workspace's account name here
   const inCloud = useInCloud()
   const s = useWorkspace((x) => x.settings)
   const pages = useWorkspace((x) => x.pages)
@@ -219,21 +256,14 @@ function GeneralTab() {
     .sort((a, b) => (a.title || '').localeCompare(b.title || ''))
   return (
     <>
-      <h3 className="st-h">{t('shell.settings.general.title')}</h3>
-      {!inCloud && (
-        <Field label={t('shell.settings.workspaceName')} hint={t('shell.settings.workspaceNameHint')}>
-          <input
-            className="input"
-            value={s.workspaceName}
-            maxLength={WORKSPACE_NAME_MAX}
-            onChange={(e) => set({ workspaceName: e.target.value.replace(/[\u0000-\u001f\u007f-\u009f]/g, ' ') })}
-            onBlur={(e) => set({ workspaceName: cleanWorkspaceName(e.target.value) || 'One' })}
-          />
+      <h3 className="st-h">{t('shell.ws.settings.generalTitle')}</h3>
+      {inCloud ? (
+        <AccountNameField />
+      ) : (
+        <Field label={t('shell.settings.userName')} hint={t('shell.settings.userNameHint')}>
+          <input className="input" value={s.userName} maxLength={40} placeholder={t('shell.settings.userNamePh')} onChange={(e) => set({ userName: e.target.value })} />
         </Field>
       )}
-      <Field label={t('shell.settings.userName')} hint={t('shell.settings.userNameHint')}>
-        <input className="input" value={s.userName} maxLength={40} placeholder={t('shell.settings.userNamePh')} onChange={(e) => set({ userName: e.target.value })} />
-      </Field>
       <Field label={t('shell.settings.language')} hint={t('shell.settings.languageHint')}>
         <div className="seg" role="radiogroup">
           {(['en', 'de'] as const).map((l) => (
@@ -419,56 +449,34 @@ function AITab() {
 
 function DataTab({ onClose }: { onClose: () => void }) {
   const t = useT()
-  const lang = useLang()
   const interval = useWorkspace((x) => x.settings.historyIntervalMin)
   const set = useWorkspace.getState().updateSettings
-  const [est, setEst] = useState<{ usage: number; quota: number } | null>(null)
-  useEffect(() => {
-    navigator.storage
-      ?.estimate?.()
-      .then((e) => setEst({ usage: e.usage ?? 0, quota: e.quota ?? 0 }))
-      .catch(() => setEst(null))
-  }, [])
-  const pct = est && est.quota ? Math.min(100, (est.usage / est.quota) * 100) : 0
-  const ui = useUI.getState()
-  const readOnly = useReadOnly()
+  const est = useStorageEstimate()
   const inCloud = useInCloud()
   return (
     <>
       <h3 className="st-h">
-        {t('shell.settings.data.title')} <HelpLink id="export" />
+        {t('shell.ws.settings.dataTitle')} <HelpLink id="export" />
       </h3>
-      <p className="st-p">{t('shell.settings.data.body')}</p>
-      <div className="st-actions">
-        <button type="button" className="btn" onClick={() => ui.openModal({ type: 'export', pageId: null })}>
-          <Download size={14} />
-          {t('shell.settings.data.export')}
-        </button>
-        {!readOnly && (
-          <button type="button" className="btn" onClick={() => ui.openModal({ type: 'import' })}>
-            <Upload size={14} />
-            {t('shell.settings.data.import')}
-          </button>
-        )}
-      </div>
-      <WebClipper />
-      <div className="gauge">
-        <div className="gauge__head">
-          <span className="label">{t('shell.settings.data.storage')}</span>
-          <span className="gauge__val">{est ? `${fmtBytes(est.usage, lang)} / ${fmtBytes(est.quota, lang)}` : '—'}</span>
-        </div>
-        <div className="gauge__track" role="meter" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(pct)}>
-          <div className="gauge__fill" style={{ width: `${Math.max(pct, est ? 0.6 : 0)}%` }} />
-          <div className="gauge__ticks" />
-        </div>
-        <div className="gauge__scale">
-          <span>0</span>
-          <span>25</span>
-          <span>50</span>
-          <span>75</span>
-          <span>100%</span>
-        </div>
-      </div>
+      <p className="st-p">{inCloud ? t('shell.ws.settings.dataBodyTeam') : t('shell.ws.settings.dataBody')}</p>
+      <a
+        className="st-moved"
+        href="#/workspace/data"
+        data-testid="settings-data-moved"
+        onClick={(e) => {
+          e.preventDefault()
+          onClose()
+          openWorkspaceSettings('data')
+        }}
+      >
+        <span className="st-note__mark" aria-hidden />
+        <span className="st-moved__text">
+          <strong>{t('shell.ws.settings.movedTitle')}</strong>
+          <span>{t('shell.ws.settings.movedBody')}</span>
+        </span>
+        <ArrowRight size={14} aria-hidden />
+      </a>
+      <StorageGauge est={est} label={t('shell.ws.settings.deviceStorage')} />
       <Field label={t('shell.settings.data.snapshots')} hint={t('shell.settings.data.snapshotsHint')}>
         <select className="input" value={interval} onChange={(e) => set({ historyIntervalMin: Number(e.target.value) })}>
           {[1, 2, 5, 10, 15, 30, 60].map((m) => (
@@ -478,38 +486,9 @@ function DataTab({ onClose }: { onClose: () => void }) {
           ))}
         </select>
       </Field>
-      {/* a team workspace is not this browser's to erase: only its copy here can go */}
-      {inCloud ? (
-        <RemoveCopy onClose={onClose} />
-      ) : (
-        <div className="danger">
-          <div className="danger__stripes" aria-hidden />
-          <div className="danger__text">
-            <div className="label danger__label">
-              <AlertTriangle size={12} /> {t('shell.settings.data.danger')}
-            </div>
-            <strong>{t('shell.settings.data.reset')}</strong>
-            <p>{t('shell.settings.data.resetBody')}</p>
-          </div>
-          <button
-            type="button"
-            className="btn btn--danger-solid"
-            onClick={() => {
-              onClose()
-              ui.openModal({
-                type: 'confirm',
-                title: t('shell.settings.data.resetConfirmTitle'),
-                body: t('shell.settings.data.resetConfirmBody'),
-                danger: true,
-                confirmLabel: t('shell.settings.data.resetConfirm'),
-                onConfirm: requestReset,
-              })
-            }}
-          >
-            {t('shell.settings.data.reset')}
-          </button>
-        </div>
-      )}
+      <WebClipper />
+      {/* a team workspace is not this browser's to erase: only its copy here can go (the local reset is on the workspace page) */}
+      {inCloud && <RemoveCopy onClose={onClose} />}
     </>
   )
 }

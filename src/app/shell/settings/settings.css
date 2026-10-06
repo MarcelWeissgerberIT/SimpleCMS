@@ -382,6 +382,85 @@ select.input {
   text-decoration: none;
 }
 
+/* the workspace's own settings (#/workspace): a plate at the top of the rail */
+.st__ws {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 2px 4px;
+  padding: 8px 10px;
+  border: 1px solid var(--rule-strong);
+  border-bottom-width: 2px;
+  border-radius: var(--radius-1);
+  background: var(--surface);
+  color: var(--ink);
+  text-decoration: none;
+  transition: border-color var(--dur-1) var(--ease-out);
+}
+.st__ws:hover {
+  border-color: var(--ink-3);
+}
+.st__ws:active {
+  transform: translateY(1px);
+}
+.st__ws:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+.st__ws-text {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  line-height: 1.25;
+}
+.st__ws-name {
+  font-size: 13px;
+  font-weight: 650;
+}
+.st__ws-sub {
+  overflow: hidden;
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.st-moved {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin: 0 0 18px;
+  padding: 12px 14px;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-2);
+  background: var(--surface-2);
+  color: var(--ink);
+  text-decoration: none;
+}
+.st-moved:hover {
+  border-color: var(--ink-3);
+}
+.st-moved:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+.st-moved .st-note__mark {
+  align-self: stretch;
+}
+.st-moved__text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  font-size: var(--text-sm);
+}
+.st-moved__text strong {
+  font-size: 13.5px;
+}
+.st-moved__text span {
+  color: var(--ink-2);
+}
+
 /* storage gauge */
 .gauge {
   margin: 4px 0 18px;
@@ -524,6 +603,10 @@ select.input {
   }
   .st__rail-head {
     display: none;
+  }
+  .st__ws {
+    margin: 0 0 8px;
+    padding: 6px 10px;
   }
   .st__tabs {
     flex-direction: row;

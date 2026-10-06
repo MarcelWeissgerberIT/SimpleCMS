@@ -33,6 +33,7 @@ import {
   Home,
   Inbox,
   Users,
+  Building2,
   CloudUpload,
   Workflow,
   SquareFunction,
@@ -53,7 +54,8 @@ import { quickNoteToInbox } from '../capture/inbox'
 import { openQuickCapture, QUICK_CAPTURE_SHORTCUT } from '../capture/state'
 import { openHelp, openChangelog } from '../../help'
 import { useCloud } from '../../cloud'
-import { openCloudDialog, openSettingsTab } from '../cloud/state'
+import { openCloudDialog } from '../cloud/state'
+import { openWorkspaceSettings } from '../workspace/open'
 import { startTour } from '../tour/state'
 import {
   copyPageLink,
@@ -147,8 +149,18 @@ export function buildCommands(t: Translate, pageId: ID | null): Command[] {
   const cloud = useCloud.getState()
   if (cloud.available)
     list.push({ id: 'cloud-new', group: 'workspace', label: t('shell.cloud.cmd.newWorkspace'), icon: CloudUpload, keywords: 'team cloud workspace sync share invite neu', run: () => openCloudDialog(cloud.user ? 'new-workspace' : 'sign-in') })
-  if (cloud.active.kind === 'cloud')
-    list.push({ id: 'team', group: 'workspace', label: t('shell.cloud.cmd.team'), icon: Users, keywords: 'members invite people roles mitglieder einladen rollen', run: () => openSettingsTab('team') })
+  // the workspace page (#/workspace): its settings, and People (team: the members, invites and roles)
+  list.push(
+    { id: 'workspace', group: 'workspace', label: t('shell.ws.cmd.open'), icon: Building2, keywords: 'workspace settings overview name icon storage backup trash automation building blocks danger arbeitsbereich einstellungen überblick speicher sicherung papierkorb automatisierung bausteine', run: () => openWorkspaceSettings() },
+    {
+      id: 'people',
+      group: 'workspace',
+      label: cloud.active.kind === 'cloud' ? t('shell.ws.cmd.members') : t('shell.ws.cmd.people'),
+      icon: Users,
+      keywords: 'people persons members team invite roles merge rename personen mitglieder einladen rollen zusammenführen umbenennen',
+      run: () => openWorkspaceSettings('people'),
+    },
+  )
   // database commands (features/commands): "Mails: Sync now", "Projects: New entry" … (viewers get only those that don't write)
   for (const c of paletteDbCommands()) list.push({ id: `db:${c.id}`, group: 'database', label: c.label, icon: c.icon, keywords: c.keywords, run: () => { closeMobileSidebar(); c.run() } })
   // saved scripts (features/script): "Run script: <name>" for the open page — found by typing, like the database commands

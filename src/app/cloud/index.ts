@@ -45,6 +45,7 @@ import { createPrivateDatabaseImpl, createPrivatePageImpl, isPrivate, movePagePr
 import type { NewDatabaseInput, NewPageInput } from '../store/store'
 import type { ID } from '../store/types'
 import { useUI } from '../store/ui'
+import { navigate } from '../lib/router'
 import {
   useCloud,
   type ContentDocHandle,
@@ -203,15 +204,18 @@ export async function acceptInvite(token: string): Promise<{ workspaceId: string
 }
 
 /**
- * Open Settings → Team at the invite form (the Share dialog, the workspace menu). Admins of a team
- * workspace only — elsewhere it just opens the settings.
+ * Open the workspace page's People section (#/workspace/people, shell/workspace) at the invite form (the
+ * Share dialog, the workspace menu). Admins of a team workspace only — elsewhere it just opens People.
  */
 export function openInviteSettings(): void {
   wantInviteForm = true
-  useUI.getState().openModal({ type: 'settings', tab: 'team' })
+  const ui = useUI.getState()
+  if (ui.modal) ui.closeModal()
+  if (ui.mobileSidebarOpen) ui.setMobileSidebar(false)
+  navigate({ name: 'workspace', section: 'people' })
 }
 let wantInviteForm = false
-/** The Team tab asks when it opens (holds for this tick: StrictMode runs effects twice). */
+/** The invites block asks when it opens (holds for this tick: StrictMode runs effects twice). */
 export function consumeInviteSettingsRequest(): boolean {
   if (!wantInviteForm) return false
   window.setTimeout(() => (wantInviteForm = false), 0)

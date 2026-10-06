@@ -25,17 +25,33 @@ function sortMembers(list: Member[]): Member[] {
 
 type Pending = { kind: 'remove' | 'transfer' | 'leave'; userId: string } | null
 
-/** Settings → Team (only in a cloud workspace): you, the workspace, members, invites, danger zone. */
-export function TeamTab({ onClose }: { onClose: () => void }) {
+/**
+ * The team parts of a team workspace, shown on the workspace page (#/workspace, shell/workspace):
+ *  - useTeam(): members (+ invites for admins) of the open team workspace, loaded once per page
+ *  - TeamMembers / TeamInvites: the members list (roles, transfer, remove, leave) and invites (admins)
+ *  - WorkspaceNameField: the team workspace's name (admins rename it on the server; others read it)
+ *  - AccountNameField: your account's name (Settings → General in a team workspace)
+ *  - TeamDanger: leave the workspace / delete it (owner)
+ */
+export interface TeamData {
+  wsId: string | null
+  admin: boolean
+  members: Member[] | null
+  setMembers: (m: Member[]) => void
+  invites: Invite[]
+  setInvites: (i: Invite[]) => void
+  loadError: string | null
+  reload: () => Promise<void>
+}
+
+export function useTeam(): TeamData {
   const t = useT()
-  const { active, role, user } = useCloud(useShallow((s) => ({ active: s.active, role: s.role, user: s.user })))
+  const { active, role } = useCloud(useShallow((s) => ({ active: s.active, role: s.role })))
   const wsId = active.kind === 'cloud' ? active.id : null
   const admin = canAdmin(role)
   const [members, setMembers] = useState<Member[] | null>(null)
   const [invites, setInvites] = useState<Invite[]>([])
   const [loadError, setLoadError] = useState<string | null>(null)
-  // opened from the Share dialog / the workspace menu: go straight to the invite form
-  const [wantInviteForm] = useState(() => consumeInviteSettingsRequest())
 
   const reload = useCallback(async () => {
     if (!wsId) return
@@ -50,46 +66,53 @@ export function TeamTab({ onClose }: { onClose: () => void }) {
   }, [wsId, admin, t])
 
   useEffect(() => {
+    setMembers(null)
     void reload()
   }, [reload])
 
-  if (!wsId) return null
-  return (
-    <>
-      <h3 className="st-h">{t('shell.cloud.team.title')}</h3>
-      <p className="st-p">{t('shell.cloud.team.body')}</p>
-      <ProfileAndName wsId={wsId} admin={admin} />
-      <Sect n="03" label={t('shell.cloud.team.members')} count={members?.length} />
-      {loadError ? (
-        <div className="tm-status" role="alert">
-          <AlertTriangle size={14} className="faint" aria-hidden />
-          <span>{loadError}</span>
-          <button type="button" className="btn btn--sm" onClick={() => void reload()}>
-            <RotateCw size={12} aria-hidden />
-            {t('shell.cloud.team.retry')}
-          </button>
-        </div>
-      ) : !members ? (
-        <div className="tm-status" role="status">
-          <Led state="on" />
-          {t('shell.cloud.team.loading')}
-        </div>
-      ) : (
-        <Members wsId={wsId} members={members} myId={user?.id ?? null} myRole={role} setMembers={setMembers} onLeft={onClose} />
-      )}
-      <Sect n="04" label={t('shell.cloud.team.invites')} count={admin ? invites.length : undefined} />
-      {admin ? (
-        <Invites wsId={wsId} invites={invites} setInvites={setInvites} reload={reload} focusForm={wantInviteForm && (members !== null || loadError !== null)} />
-      ) : (
-        <p className="tm-empty">{t('shell.cloud.team.adminOnly')}</p>
-      )}
-      <ApiSection wsId={wsId} admin={admin} />
-      <Danger wsId={wsId} owner={role === 'owner'} myId={user?.id ?? null} onDone={onClose} />
-    </>
-  )
+  return { wsId, admin, members, setMembers: (m) => setMembers(sortMembers(m)), invites, setInvites, loadError, reload }
 }
 
-function Sect({ n, label, count, children }: { n: string; label: string; count?: number; children?: ReactNode }) {
+/** Members of the open team workspace: loading, an error with Retry, or the list. */
+export function TeamMembers({ team, onLeft, aside }: { team: TeamData; onLeft: () => void; aside?: (userId: string) => ReactNode }) {
+  const t = useT()
+  const { role, user } = useCloud(useShallow((s) => ({ role: s.role, user: s.user })))
+  if (!team.wsId) return null
+  if (team.loadError)
+    return (
+      <div className="tm-status" role="alert">
+        <AlertTriangle size={14} className="faint" aria-hidden />
+        <span>{team.loadError}</span>
+        <button type="button" className="btn btn--sm" onClick={() => void team.reload()}>
+          <RotateCw size={12} aria-hidden />
+          {t('shell.cloud.team.retry')}
+        </button>
+      </div>
+    )
+  if (!team.members)
+    return (
+      <div className="tm-status" role="status">
+        <Led state="on" />
+        {t('shell.cloud.team.loading')}
+      </div>
+    )
+  return <Members wsId={team.wsId} members={team.members} myId={user?.id ?? null} myRole={role} setMembers={team.setMembers} onLeft={onLeft} aside={aside} />
+}
+
+/** Invites of the open team workspace (owners and admins); everyone else reads why not. */
+export function TeamInvites({ team }: { team: TeamData }) {
+  const t = useT()
+  // opened from the Share dialog / the workspace menu: go straight to the invite form
+  const [wantInviteForm] = useState(() => consumeInviteSettingsRequest())
+  if (!team.wsId) return null
+  if (!team.admin) return <p className="tm-empty">{t('shell.cloud.team.adminOnly')}</p>
+  return <Invites wsId={team.wsId} invites={team.invites} setInvites={team.setInvites} reload={team.reload} focusForm={wantInviteForm && (team.members !== null || team.loadError !== null)} />
+}
+
+export { ApiSection as TeamApi }
+
+/** "§ 03 — MEMBERS ---- 04": a numbered section head with an optional count. */
+export function Sect({ n, label, count, children }: { n: string; label: string; count?: number; children?: ReactNode }) {
   return (
     <div className="tm-sect">
       <span className="tm-sect__n">{n}</span>
@@ -176,26 +199,27 @@ function SavedField({ label, hint, value, disabled, onSave, maxLength }: { label
   )
 }
 
-function ProfileAndName({ wsId, admin }: { wsId: string; admin: boolean }) {
+/** Your account's name (team cloud): saved on the server, shown to the other members. */
+export function AccountNameField() {
   const t = useT()
   const user = useCloud((s) => s.user)
+  if (!user) return null
+  return <SavedField label={t('shell.cloud.team.yourName')} hint={t('shell.cloud.team.yourNameHint')} value={user.name ?? ''} maxLength={60} onSave={(v) => cloudApi.updateProfile(v)} />
+}
+
+/** The open team workspace's name: owners and admins rename it on the server, everyone else reads it. */
+export function WorkspaceNameField({ wsId, admin }: { wsId: string; admin: boolean }) {
+  const t = useT()
   const title = useWorkspaceTitle()
   return (
-    <>
-      <Sect n="01" label={t('shell.cloud.team.you')}>
-        {user && <span className="tm-row__meta">{user.email}</span>}
-      </Sect>
-      <SavedField label={t('shell.cloud.team.yourName')} hint={t('shell.cloud.team.yourNameHint')} value={user?.name ?? ''} maxLength={60} onSave={(v) => cloudApi.updateProfile(v)} />
-      <Sect n="02" label={t('shell.cloud.invite.workspace')} />
-      <SavedField
-        label={t('shell.cloud.team.wsName')}
-        hint={admin ? t('shell.cloud.team.wsNameHint') : t('shell.cloud.team.wsNameRO')}
-        value={title}
-        disabled={!admin}
-        maxLength={60}
-        onSave={(v) => cloudApi.renameWorkspace(wsId, v)}
-      />
-    </>
+    <SavedField
+      label={t('shell.cloud.team.wsName')}
+      hint={admin ? t('shell.cloud.team.wsNameHint') : t('shell.cloud.team.wsNameRO')}
+      value={title}
+      disabled={!admin}
+      maxLength={60}
+      onSave={(v) => cloudApi.renameWorkspace(wsId, v)}
+    />
   )
 }
 
@@ -208,6 +232,7 @@ function Members({
   myRole,
   setMembers,
   onLeft,
+  aside,
 }: {
   wsId: string
   members: Member[]
@@ -215,9 +240,12 @@ function Members({
   myRole: Role | null
   setMembers: (m: Member[]) => void
   onLeft: () => void
+  aside?: (userId: string) => ReactNode
 }) {
   const t = useT()
   const lang = useLang()
+  // presence: who has the workspace open right now (the server keeps no "last active")
+  const here = useCloud(useShallow((s) => [...new Set(s.peers.map((p) => p.userId))].sort()))
   const [pending, setPending] = useState<Pending>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<{ userId: string; text: string } | null>(null)
@@ -282,7 +310,15 @@ function Members({
               </span>
               <span className="tm-row__meta">
                 {m.user.email} · {t('shell.cloud.team.since', { date: format(toMs(m.created_at), 'dd MMM yyyy', { locale: lang === 'de' ? de : enUS }).toUpperCase() })}
+                {(me || here.includes(m.user.id)) && (
+                  <span className="tm-here" data-testid="member-here">
+                    {' · '}
+                    <Led state="ok" />
+                    {t('shell.ws.people.here')}
+                  </span>
+                )}
               </span>
+              {aside?.(m.user.id)}
             </div>
             <div className="tm-row__ctl">
               {editable ? (
@@ -357,7 +393,7 @@ function Members({
 
 /* ------------------------------------------------------------------ danger zone */
 
-function Danger({ wsId, owner, myId, onDone }: { wsId: string; owner: boolean; myId: string | null; onDone: () => void }) {
+export function TeamDanger({ wsId, owner, myId, onDone }: { wsId: string; owner: boolean; myId: string | null; onDone: () => void }) {
   const t = useT()
   const uid = useId()
   const name = useWorkspaceTitle()

@@ -129,6 +129,8 @@ export { ImportModal } from './io/ImportModal'
 /* CSV into an existing database (pure; the database area owns the dialog): plan + converted rows */
 export { planCsvIntake, csvIntakeRows, CSV_INTAKE_MAX_ROWS, type CsvIntakePlan, type CsvIntakeColumn } from './io/import/intake'
 export { ExportModal } from './io/ExportModal'
+/* when this device last downloaded a full backup of the open workspace (per device, localStorage): useLastBackup() / lastBackup() → { at, size } | null */
+export { useLastBackup, lastBackup, type LastBackup } from './io/lastBackup'
 export { Presentation } from './present/Presentation'
 export { TemplatesModal } from './templates/TemplatesModal'
 /*
@@ -305,6 +307,8 @@ export {
  *  - ServerAgentsSettings (Settings → Agents · MCP, team workspaces) · agentLabel(actor) → "Agent · <name>" | null
  */
 export { startAgents, AgentsRoute, AgentsNavBadge, useAgentsAttention, ServerAgentsSettings, agentLabel } from './agents'
+/* overviews (the workspace page, shell/workspace): agentTriggerText(t, trigger, { pages, databases, lang }) · loadAgentRuns(id) → this device's runs into useAgentRuns */
+export { agentTriggerText, loadAgentRuns, useAgentRuns } from './agents'
 /*
  * One Script (features/script — a small, safe script language that only reaches One; see script/index.ts):
  *  - ScriptsRoute { scriptId? } (route #/scripts, #/scripts/<id>) · ScriptDialogHost (mount once: what a run asks)
@@ -338,6 +342,9 @@ export {
   type EffectImpl as ScriptEffectImpl,
   paletteScripts,
   runQueryForTool as runScriptQueryForTool,
+  /* overviews (the workspace page): loadScriptRuns(id) → this device's runs of a script into useScriptRuns (key `<scope>|<id>`) */
+  loadScriptRuns,
+  useScriptRuns,
 } from './script'
 /*
  * Database commands (a database's menu of things to run — sidebar ⌘ key / row menu, toolbar key, ⌘K; see commands/index.ts):
@@ -370,3 +377,5 @@ export {
  *  - CodingWorkerTab (Settings → Coding worker) · CodingStatusCell (status bar "WORKER") · openCodingSettings()
  */
 export { startCoding, CodingRoute, CodingTaskSlot, CodingWorkerTab, CodingStatusCell, openCodingSettings, consumeCodingSettingsRequest, codingDbId, useCoding } from './coding'
+/* the worker link's state in words — the workspace page's Automation section */
+export { codingWorkerStateText } from './coding'

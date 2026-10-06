@@ -16,3 +16,6 @@ export { AgentsNavBadge, useAgentsAttention } from './NavBadge'
 export { ServerAgentsSettings } from './ServerAgentsSettings'
 export { agentLabel } from './label'
 export { runNow as runAgentNow } from './actions'
+/** Read-outs for overviews (the workspace page's Automation section): a trigger in words · this device's runs of an agent */
+export { triggerText as agentTriggerText } from './format'
+export { loadRuns as loadAgentRuns, useAgentRuns } from './runs'

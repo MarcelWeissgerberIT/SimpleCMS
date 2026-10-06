@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
-import { ArrowRight, Bell, Bot, CalendarDays, CalendarRange, ChevronsLeft, ChevronDown, Compass, Home, LayoutTemplate, Lock, PenLine, Plus, Search, Trash2, Upload, Waypoints, Settings, Table2, FilePlus2, Users, SquareCode } from 'lucide-react'
+import { ArrowRight, Bell, Bot, Building2, CalendarDays, CalendarRange, ChevronsLeft, ChevronDown, Compass, Home, LayoutTemplate, Lock, PenLine, Plus, Search, Trash2, Upload, Waypoints, Settings, Table2, FilePlus2, Users, SquareCode } from 'lucide-react'
 import { useWorkspace } from '../../store/store'
 import { useUI } from '../../store/ui'
 import { useFavorites, useTrash, useTreeCount, useHasFavorites } from '../../store/selectors'
@@ -20,7 +20,8 @@ import { usePrivateMode } from '../../cloud'
 import { closeMobileSidebar, createDatabaseAndOpen, createPageAndOpen, goHome, toggleSidebar } from '../lib/actions'
 import { useIsMobile, useKbdHint } from '../lib/hooks'
 import { HeaderSub, useWorkspaceEntries } from '../cloud/Switcher'
-import { openSettingsTab, useInCloud, useReadOnly, useWorkspaceTitle } from '../cloud/state'
+import { useInCloud, useReadOnly, useWorkspaceTitle } from '../cloud/state'
+import { openWorkspaceSettings } from '../workspace/open'
 import { useRenameMode } from '../lib/workspaceName'
 import { WorkspaceRename } from './WorkspaceRename'
 import { useInboxUnread } from '../inbox/model'
@@ -200,8 +201,10 @@ function SidebarHeader() {
       disabled: !renameMode,
       onSelect: startRename,
     },
+    // the workspace's own settings (#/workspace: name, people, members, automation, data) · this device's
+    { id: 'ws-settings', label: t('shell.ws.cmd.open'), icon: <Building2 size={15} />, keywords: 'workspace settings people members team overview arbeitsbereich einstellungen personen mitglieder', onSelect: () => openWorkspaceSettings() },
+    ...(inCloud ? ([{ id: 'ws-people', label: t('shell.ws.cmd.members'), icon: <Users size={15} />, keywords: 'people members team invite personen mitglieder einladen', onSelect: () => openWorkspaceSettings('people') }] as MenuEntry[]) : []),
     { label: t('common.settings'), icon: <Settings size={15} />, hint: kbd('Mod+,'), onSelect: () => useUI.getState().openModal({ type: 'settings' }) },
-    ...(inCloud ? ([{ label: t('shell.cloud.cmd.team'), icon: <Users size={15} />, onSelect: () => openSettingsTab('team') }] as MenuEntry[]) : []),
     {
       label: t('shell.menu.theme'),
       submenu: [

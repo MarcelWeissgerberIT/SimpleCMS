@@ -40,6 +40,11 @@ export function fmtStamp(ts: number, lang: Lang): string {
   return format(ts, 'dd MMM yyyy · HH:mm', { locale: locale(lang) }).toUpperCase()
 }
 
+/** "02 OCT 2026" — a day in spec-plate style. */
+export function fmtDate(ts: number, lang: Lang): string {
+  return format(ts, 'dd MMM yyyy', { locale: locale(lang) }).toUpperCase()
+}
+
 export function fmtDay(ts: number, lang: Lang): string {
   return format(ts, lang === 'de' ? 'EEE · dd. MMM yyyy' : 'EEE · dd MMM yyyy', { locale: locale(lang) }).toUpperCase()
 }
