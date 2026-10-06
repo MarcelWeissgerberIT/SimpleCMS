@@ -23,4 +23,4 @@ Neu hier? **Die 3-Minuten-Tour** führt in acht Schritten durch die echte Oberfl
 ## Einstellungen
 <kbd>Mod+,</kbd> öffnet die **Einstellungen** (auch im Workspace-Menü oben in der Seitenleiste): dein Name, die Sprache (English oder Deutsch), das Design — hell (Paper), dunkel (Carbon) oder System —, dein Claude-Schlüssel und deine Daten.
 
-> Dein Workspace liegt nur in diesem Browser. Exportiere ab und zu ein Backup: **Einstellungen → Daten → Workspace exportieren**.
+> Dein Workspace liegt nur in diesem Browser. Exportiere ab und zu ein Backup: **Workspace-Einstellungen → Daten → Workspace exportieren**.

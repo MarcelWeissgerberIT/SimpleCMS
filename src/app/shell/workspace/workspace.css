@@ -798,6 +798,16 @@
   }
 }
 
+/* phones: a person's ⋯ key stays on its row (members keep the team layout: role select below) */
+@media (max-width: 767px) {
+  .tm-row.wsp-person {
+    grid-template-columns: 30px minmax(0, 1fr) auto;
+  }
+  .tm-row.wsp-person .tm-row__ctl {
+    grid-column: auto;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .wsp-use__chev,
   .wsp-tab {

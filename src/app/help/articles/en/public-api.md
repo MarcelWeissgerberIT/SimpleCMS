@@ -7,7 +7,7 @@ keywords: api, rest, token, webhook, incoming webhook, n8n, make, zapier, curl, 
 related: automations, team-cloud, mcp-bridge
 summary: Team workspaces can be read and written by your scripts and automations — with tokens and webhooks.
 ---
-Only for team workspaces on a One server. **Settings → Team → API & webhooks** (owners and admins).
+Only for team workspaces on a One server. **Workspace settings → Automation → API & webhooks** (owners and admins).
 
 ## API tokens
 1. **Token name** (e.g. *Zapier — CRM sync*) and **Access**: **Read only** or **Read & write**.

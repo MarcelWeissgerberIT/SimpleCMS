@@ -7,7 +7,7 @@ keywords: einladen, einladung, link, e-mail, beitreten, registrieren, registrier
 related: members-roles, team-cloud, self-hosting
 summary: Lade per Link oder per E-Mail ein — Server-Admins vergeben außerdem Registrierungslinks.
 ---
-**Einstellungen → Team → Personen einladen** (Inhaber und Admins). Wähle die **Rolle** und **Wie einladen**:
+**Workspace-Einstellungen → Personen → Personen einladen** (Inhaber und Admins). Wähle die **Rolle** und **Wie einladen**:
 
 ## Link
 - **Gültig** für eine Anzahl Tage; **Nutzungen**: einmalig oder eine Anzahl Personen; optional **Nur Adressen bei** bestimmten Domains (z. B. `firma.de`).

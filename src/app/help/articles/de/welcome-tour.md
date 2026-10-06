@@ -26,4 +26,4 @@ Die Willkommensseite hat außerdem eine **Kurze Tour** — eine To-do-Liste zum 
 Es sind normale Seiten: lösche sie wie jede Seite (sie wandern in den **Papierkorb**).
 
 ## Neu anfangen
-**Einstellungen → Daten → Workspace zurücksetzen** löscht alle Seiten, Datenbanken, Dateien und Verläufe auf diesem Gerät und beginnt neu — wieder mit der Willkommensseite. Exportiere vorher ein Backup, wenn du etwas behalten willst.
+**Workspace-Einstellungen → Gefahrenzone → Workspace zurücksetzen** löscht alle Seiten, Datenbanken, Dateien und Verläufe auf diesem Gerät und beginnt neu — wieder mit der Willkommensseite. Exportiere vorher ein Backup, wenn du etwas behalten willst.

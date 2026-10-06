@@ -1,6 +1,6 @@
 /**
  * The workspace name — named once, shown everywhere: renamed in place from the sidebar header (menu
- * "Rename workspace", a double click on the name, F2 on the header) or in Settings → General; the
+ * "Rename workspace", a double click on the name, F2 on the header) or in Workspace settings → Overview; the
  * sidebar, the switcher and the window title follow. 1–60 characters, trimmed, no control
  * characters. Team workspaces (cloud state through the ?e2e hook, calls mocked): admins rename on the
  * server, everyone else sees the name read-only. The MCP side (agents see the new name) is in
@@ -79,9 +79,9 @@ test.describe('workspace name', () => {
     await reloadApp(page)
     await expect(name).toHaveText('North Star Labs')
 
-    // Settings → General: the same name, max 60, an emptied field falls back to "One" when left
-    await page.evaluate(() => (window as unknown as { __one: { ui: { getState: () => { openModal: (m: unknown) => void } } } }).__one.ui.getState().openModal({ type: 'settings' }))
-    const setting = page.getByLabel('Workspace name')
+    // Workspace settings → Overview: the same name, max 60, an emptied field falls back to "One" when left
+    await page.evaluate(() => (window.location.hash = '#/workspace'))
+    const setting = page.getByTestId('workspace-page').getByLabel('Workspace name')
     await expect(setting).toHaveValue('North Star Labs')
     await expect(setting).toHaveAttribute('maxlength', '60')
     await setting.fill('  Polar   ')

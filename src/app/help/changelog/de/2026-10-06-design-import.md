@@ -1,7 +1,7 @@
 ---
 id: 2026-10-06-design-import
 date: 2026-10-06
-order: 3
+order: 4
 title: PowerPoint-Import und „Aus Claude Design übernehmen“
 summary: Hol eine .pptx-Präsentation als Seite herein, die du präsentieren kannst, und einen Claude-Design-Export mit Farben, Schriften und Größen als Notiz — und im One-Gedächtnis.
 image: assets/shots/changelog/design-import.webp

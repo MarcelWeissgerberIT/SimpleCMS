@@ -2,11 +2,13 @@ import { readFileSync } from 'node:fs'
 import type { Page } from '@playwright/test'
 import { test, expect, openApp, waitForApp, createPage, doc, para, heading, wsEval, gotoPage, editorOf, MOD } from './fixtures'
 
-async function openSettingsData(page: Page) {
-  await page.keyboard.press(`${MOD}+,`)
-  const dialog = page.getByRole('dialog')
-  await dialog.getByRole('tab', { name: /Data$/ }).click()
-  return dialog
+/** Workspace settings → Data (backup / export / import) or → Danger zone (reset). */
+async function openWorkspaceSection(page: Page, section: 'data' | 'danger') {
+  await page.keyboard.press('Escape')
+  await page.evaluate((s) => (window.location.hash = `#/workspace/${s}`), section)
+  const ws = page.getByTestId('workspace-page')
+  await expect(ws).toHaveAttribute('data-section', section)
+  return ws
 }
 
 async function pickFiles(page: Page, files: Array<{ name: string; mimeType: string; buffer: Buffer }>) {
@@ -21,10 +23,10 @@ test.describe('import / export', () => {
     await openApp(page)
     const canary = await createPage(page, { title: 'Backup canary', content: doc(heading(2, 'Canary heading'), para('canary content 4711')) })
 
-    // export (Settings → Data → Export workspace → Full backup)
-    let dialog = await openSettingsData(page)
-    await dialog.getByRole('button', { name: 'Export workspace' }).click()
-    dialog = page.getByRole('dialog')
+    // export (Workspace settings → Data → Export workspace → Full backup)
+    let section = await openWorkspaceSection(page, 'data')
+    await section.getByRole('button', { name: 'Export workspace' }).click()
+    let dialog = page.getByRole('dialog')
     await dialog.getByRole('radio', { name: /Whole workspace/ }).click()
     await dialog.getByRole('radio', { name: /Full backup/ }).click()
     const download = page.waitForEvent('download')
@@ -35,9 +37,9 @@ test.describe('import / export', () => {
     expect(JSON.stringify(backup)).toContain('canary content 4711')
     await page.keyboard.press('Escape')
 
-    // reset (Settings → Data → Reset workspace → confirm)
-    dialog = await openSettingsData(page)
-    await dialog.getByRole('button', { name: 'Reset workspace' }).click()
+    // reset (Workspace settings → Danger zone → Reset workspace → confirm)
+    section = await openWorkspaceSection(page, 'danger')
+    await section.getByRole('button', { name: 'Reset workspace' }).click()
     const confirm = page.getByRole('dialog').filter({ hasText: 'Reset the entire workspace?' })
     await expect(confirm).toBeVisible()
     await Promise.all([page.waitForEvent('load'), confirm.getByRole('button', { name: 'Erase & restart' }).click()])

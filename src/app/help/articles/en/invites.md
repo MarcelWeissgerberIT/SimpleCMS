@@ -7,7 +7,7 @@ keywords: invite, invitation, link, email, join, register, registration link, si
 related: members-roles, team-cloud, self-hosting
 summary: Invite people by link or by email — server admins can also hand out registration links.
 ---
-**Settings → Team → Invite people** (owners and admins). Choose the **Role** and **How to invite**:
+**Workspace settings → People → Invite people** (owners and admins). Choose the **Role** and **How to invite**:
 
 ## Link
 - **Valid** for a number of days; **Uses**: single use or a number of people; optionally **Only addresses at** certain domains (e.g. `acme.com`).

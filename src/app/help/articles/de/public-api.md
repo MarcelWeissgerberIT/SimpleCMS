@@ -7,7 +7,7 @@ keywords: api, rest, token, webhook, eingehender webhook, n8n, make, zapier, cur
 related: automations, team-cloud, mcp-bridge
 summary: Team-Workspaces lassen sich von deinen Skripten und Automationen lesen und schreiben — mit Tokens und Webhooks.
 ---
-Nur für Team-Workspaces auf einem One-Server. **Einstellungen → Team → API & Webhooks** (Inhaber und Admins).
+Nur für Team-Workspaces auf einem One-Server. **Workspace-Einstellungen → Automatisierung → API & Webhooks** (Inhaber und Admins).
 
 ## API-Tokens
 1. **Name des Tokens** (z. B. *Zapier – CRM-Sync*) und **Zugriff**: **Nur lesen** oder **Lesen & schreiben**.

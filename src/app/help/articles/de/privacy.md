@@ -22,4 +22,4 @@ Seiten, Datenbanken, Dateien, Verläufe, Kommentare und Einstellungen des lokale
 ## Deine Schlüssel — der Tresor
 Claude-Schlüssel, MCP-Tokens und das GitHub-Token sind mit einem Schlüssel versiegelt, den dieser Browser erzeugt hat und nicht exportieren kann. Die Einstellungen enthalten nur eine Markierung („•••• 1a2B“). Schlüssel stehen nie in Backups, Exporten, Freigabe-Links, Sync oder Team-Dokumenten. Ohne https (oder localhost) gilt ein Schlüssel nur für die Sitzung.
 
-> **Workspace zurücksetzen** (Einstellungen → Daten) löscht alles auf diesem Gerät — den Tresor eingeschlossen.
+> **Workspace zurücksetzen** (Workspace-Einstellungen → Gefahrenzone) löscht alles auf diesem Gerät — den Tresor eingeschlossen.

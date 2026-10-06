@@ -13,7 +13,7 @@ summary: Vier Rollen legen fest, wer was darf. Private Seiten gehören nur dir �
 - **Mitglied** — liest und bearbeitet Seiten und Datenbanken.
 - **Leser** — liest alles, ändert nichts.
 
-**Einstellungen → Team → Mitglieder**: Rolle ändern, Inhaberschaft übertragen (*Inhaber (übertragen)*), jemanden **Entfernen**. **Verlassen** nimmt dich selbst heraus. Entfernen oder Verlassen löscht die privaten Seiten dieser Person in diesem Workspace.
+**Workspace-Einstellungen → Personen** ([mehr](help:workspace)): Rolle ändern, Inhaberschaft übertragen (*Inhaber (übertragen)*), jemanden **Entfernen**. **Verlassen** nimmt dich selbst heraus. Entfernen oder Verlassen löscht die privaten Seiten dieser Person in diesem Workspace.
 
 ## Private Seiten
 Der Bereich **Privat** in der Seitenleiste hält Seiten, die nur du siehst — nicht einmal Inhaber oder Admins können sie öffnen; der Server verweigert es.

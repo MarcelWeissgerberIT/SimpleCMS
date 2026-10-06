@@ -23,4 +23,4 @@ New here? **Take the 3-minute tour**: eight steps on the real interface — the 
 ## Settings
 <kbd>Mod+,</kbd> opens **Settings** (also in the workspace menu at the top of the sidebar): your name, the language (English or Deutsch), the theme — light (Paper), dark (Carbon) or System — your Claude key and your data.
 
-> Your workspace lives in this browser only. Export a backup now and then: **Settings → Data → Export workspace**.
+> Your workspace lives in this browser only. Export a backup now and then: **Workspace settings → Data → Export workspace**.

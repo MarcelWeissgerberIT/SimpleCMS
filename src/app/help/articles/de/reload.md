@@ -23,4 +23,4 @@ One lädt manche Teile erst, wenn du sie zum ersten Mal brauchst (Datenbankansic
 3. Offline? Manche Teile brauchen nach einem Update einen Besuch mit Verbindung — verbinden und neu laden.
 
 ## Wenn ein Fehler bleibt
-Probier **Erneut versuchen** am Bereich. Exportiere sicherheitshalber ein **Komplett-Backup** (**Einstellungen → Daten → Workspace exportieren**) und melde das Problem mit dem Fehlertext auf [GitHub](https://github.com/MarcelWeissgerberIT/SimpleCMS/issues).
+Probier **Erneut versuchen** am Bereich. Exportiere sicherheitshalber ein **Komplett-Backup** (**Workspace-Einstellungen → Daten → Workspace exportieren**) und melde das Problem mit dem Fehlertext auf [GitHub](https://github.com/MarcelWeissgerberIT/SimpleCMS/issues).

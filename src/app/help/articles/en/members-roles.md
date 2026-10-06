@@ -13,7 +13,7 @@ summary: Four roles decide who may do what. Private pages are yours alone — en
 - **Member** — reads and edits pages and databases.
 - **Viewer** — reads everything, changes nothing.
 
-**Settings → Team → Members**: change a role, transfer ownership (*Owner (transfer)*), **Remove** someone. **Leave** takes you out yourself. Removing or leaving deletes that person's private pages in this workspace.
+**Workspace settings → People** ([more](help:workspace)): change a role, transfer ownership (*Owner (transfer)*), **Remove** someone. **Leave** takes you out yourself. Removing or leaving deletes that person's private pages in this workspace.
 
 ## Private pages
 The sidebar's **Private** section holds pages only you can see — not even the owner or admins can open them; the server refuses.

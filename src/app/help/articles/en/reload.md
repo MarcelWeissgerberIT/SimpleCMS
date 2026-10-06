@@ -23,4 +23,4 @@ One loads some parts only when you first need them (database views, charts, diag
 3. Offline? Some parts need one online visit after an update — connect and reload.
 
 ## If an error stays
-Try **Try again** on the panel. Export a **Full backup** (**Settings → Data → Export workspace**) to be safe, then report the problem with the error text on [GitHub](https://github.com/MarcelWeissgerberIT/SimpleCMS/issues).
+Try **Try again** on the panel. Export a **Full backup** (**Workspace settings → Data → Export workspace**) to be safe, then report the problem with the error text on [GitHub](https://github.com/MarcelWeissgerberIT/SimpleCMS/issues).

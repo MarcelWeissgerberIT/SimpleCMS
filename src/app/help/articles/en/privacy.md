@@ -22,4 +22,4 @@ Pages, databases, files, history, comments and settings of the local workspace l
 ## Your keys — the vault
 The Claude key, MCP tokens and the GitHub token are sealed with a key this browser created and cannot export. Settings only hold a marker (“•••• 1a2B”). Keys never appear in backups, exports, share links, sync or team documents. Without https (or localhost) a key works for the session only.
 
-> **Reset workspace** (Settings → Data) deletes everything on this device — the vault included.
+> **Reset workspace** (Workspace settings → Danger zone) deletes everything on this device — the vault included.

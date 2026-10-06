@@ -26,4 +26,4 @@ The Welcome page also has a **Quick tour** — a to-do list you can tick off: th
 They are ordinary pages: delete them like any page (they go to **Trash**).
 
 ## Starting over
-**Settings → Data → Reset workspace** deletes all pages, databases, files and history on this device and starts fresh — with the Welcome page again. Export a backup first if you want to keep anything.
+**Workspace settings → Danger zone → Reset workspace** deletes all pages, databases, files and history on this device and starts fresh — with the Welcome page again. Export a backup first if you want to keep anything.

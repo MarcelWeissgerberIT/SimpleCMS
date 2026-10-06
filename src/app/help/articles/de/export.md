@@ -7,7 +7,7 @@ keywords: export, exportieren, backup, sicherung, herunterladen, markdown, html,
 related: import, publish-site, privacy, sync
 summary: Markdown, eine Webseite, ein Druckdokument, ein Komplett-Backup — oder eine ganze Website.
 ---
-**Exportieren** in den Seitenoptionen **•••**, ⌘K → *Exportieren*, oder **Einstellungen → Daten → Workspace exportieren**. Wähle den **Umfang** (diese Seite oder der ganze Workspace) und ein **Format**:
+**Exportieren** in den Seitenoptionen **•••**, ⌘K → *Exportieren*, oder **Workspace-Einstellungen → Daten → Workspace exportieren**. Wähle den **Umfang** (diese Seite oder der ganze Workspace) und ein **Format**:
 
 - **Markdown-Ordner** — Ordner, Seiten als `.md`, Datenbanken als CSV. Wieder importierbar — hier und in Notion.
 - **Webseite** — eine gestaltete, eigenständige HTML-Datei mit eingebetteten Bildern.
