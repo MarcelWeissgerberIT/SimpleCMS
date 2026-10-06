@@ -496,6 +496,7 @@ export function startMcp() {
   window.addEventListener('focus', onWake)
   window.addEventListener('online', onWake)
   window.addEventListener('pagehide', () => {
+    // a page may only close with 1000 or 3000–4999 (1001 throws)
     if (socket) socket.close(1000, 'tab closed')
   })
 }
