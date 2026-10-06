@@ -1,7 +1,7 @@
 ---
 id: 2026-10-06-pages-per-item
 date: 2026-10-06
-order: 2
+order: 3
 title: A sub-page for every item
 summary: One page per ticket, linked in a table on the main page — from the AI terminal in one step, or from a list, headings or a table without AI.
 image: assets/shots/changelog/pages-per-item.webp

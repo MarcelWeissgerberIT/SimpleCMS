@@ -21,6 +21,8 @@
  *  - freezeCharts(doc): live sources → the numbers they show (share links, exports — editor stripPrivate()).
  *  - chartMarkdown(spec, data): title + data table · downloadChartPng / downloadChartSvg · copyChartTsv.
  *  - demoCharts(): sample chart specs (manual data) for seed content.
+ *  - openChartViewer(spec, data?, { from? }): the chart large in the diagram viewer (ui/viewer) — drawn again for
+ *    its canvas, zoom / pan / minimap, Download SVG in the current theme.
  */
 // window.__oneCharts (dev / ?e2e only): pure helpers for unit-level checks
 import './testHook'
@@ -37,3 +39,4 @@ export { openChartBuilder, closeChartBuilder, isChartBuilderOpen, type ChartBuil
 export { freezeCharts, frozenSpec, CHART_NODE } from './freeze'
 export { chartMarkdown, downloadChartPng, downloadChartSvg, copyChartTsv, chartSvgFile, chartPngBlob, chartFileName } from './export'
 export { demoCharts } from './demo'
+export { openChartViewer, chartViewerSize } from './viewer'

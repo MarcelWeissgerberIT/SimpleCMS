@@ -31,6 +31,7 @@ import { mediaMenuEntries } from './mediaMenu'
 import { imageMenuEntries } from './imageMenu'
 import { fileMenuEntries } from './fileMenu'
 import { chartMenuEntries } from './chartMenu'
+import { diagramMenuEntries } from './diagramMenu'
 import { ColorGrid } from './BubbleToolbar'
 import { blockMenuSyncedEntries } from '../synced/menu'
 import { redoBlockMenuEntries } from '../context/menu'
@@ -496,8 +497,10 @@ export function BlockHandle({ editor, bridge, pageId }: { editor: Editor; bridge
     items.push(...imageMenuEntries(editor, ref, t))
     // file: the "Claude" group — summarise, extract, tables, ask, or open as page / import as database
     items.push(...fileMenuEntries(editor, ref, t))
-    // chart: edit, type, downloads, data, source
+    // chart: open large, edit, type, downloads, data, source
     items.push(...chartMenuEntries(editor, ref, t))
+    // Mermaid diagram: open large (the diagram viewer)
+    items.push(...diagramMenuEntries(editor, ref, t))
     // most used first: Duplicate · Move to · Copy link (· Copy and sync) — Delete apart at the end
     items.push(
       { kind: 'separator' },

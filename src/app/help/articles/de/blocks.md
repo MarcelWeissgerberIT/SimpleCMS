@@ -13,6 +13,8 @@ Das Menü ist gruppiert: **Basis** (Text, Überschriften, Seite, Link zur Seite,
 
 Ein Mermaid-Diagramm musst du nicht tippen: Markiere eine Liste von Schritten → **KI fragen** → **Verwandeln in …** → **Schaubild** ([KI-Menü & Fragen](help:ai-menu)).
 
+Zu breit für die Seite? **Groß öffnen** — die ↗-Taste am Schaubild, sein Blockmenü oder ein Doppelklick — zeigt es über den ganzen Bildschirm, mit Zoom, Verschieben und Minikarte ([Diagramme](help:charts)).
+
 ## Markdown-Kürzel
 Am Zeilenanfang tippen:
 - `# `, `## `, `### ` — Überschriften

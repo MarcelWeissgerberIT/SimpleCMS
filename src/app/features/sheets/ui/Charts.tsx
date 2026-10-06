@@ -1,11 +1,11 @@
 /**
  * The active sheet's charts, as cards under its grid (2-up on wide blocks): live with the cells.
- * Card menu: edit, duplicate, delete, place as a `chart` block below the spreadsheet (source: this
+ * Card menu: open large (the diagram viewer), edit, duplicate, delete, place as a `chart` block below the spreadsheet (source: this
  * block's cells, by page + block id).
  */
 import { useMemo } from 'react'
 import { Ellipsis } from 'lucide-react'
-import { ChartRenderer } from '../../charts'
+import { ChartRenderer, openChartViewer } from '../../charts'
 import { Menu, useMenu, type MenuEntry } from '../../../ui/Menu'
 import { chartSpec, sheetChartData } from '../charts'
 import type { SheetChart, SpreadsheetAttrs } from '../model'
@@ -30,6 +30,9 @@ function Card({ chart, p }: { chart: SheetChart; p: ChartsProps }) {
   const data = useMemo(() => sheetChartData(p.attrs, chart, p.lang), [p.attrs, chart, p.lang, p.version]) // eslint-disable-line react-hooks/exhaustive-deps
   if (!spec) return null
   const entries: MenuEntry[] = [
+    // after the menu closed and handed focus back: the viewer returns it there
+    { label: p.t('ui.viewer.open'), onSelect: () => requestAnimationFrame(() => openChartViewer(spec, data)) },
+    { kind: 'separator' },
     { label: p.t('features.sheets.chart.edit'), disabled: !p.editable, onSelect: () => p.onEdit(chart) },
     { label: p.t('features.sheets.chart.duplicate'), disabled: !p.editable, onSelect: () => p.onDuplicate(chart) },
     { label: p.t('features.sheets.chart.place'), disabled: !p.editable, onSelect: () => p.onPlace(chart) },
