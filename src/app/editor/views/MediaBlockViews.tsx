@@ -16,6 +16,7 @@ import { copyMediaLink, pickMediaFile, usePendingSave, type PendingSave } from '
 import { mediaNameFromUrl, safeMediaSrc, type MediaKind } from '../schema/media'
 import { formatBytes } from './MediaViews'
 import './media.css'
+import { useFocusWhenShown } from '../../ui/focus'
 
 const MIN_W = 200
 const ICON: Record<MediaKind, LucideIcon> = { video: Film, audio: AudioLines }
@@ -335,6 +336,7 @@ function MediaBlock({ kind, props }: { kind: MediaKind; props: ReactNodeViewProp
   const state = useMediaState(el, url)
   const figRef = useRef<HTMLElement>(null)
   const captionRef = useRef<HTMLInputElement>(null)
+  const focusCaption = useFocusWhenShown(captionRef)
   const caption = String(node.attrs.caption ?? '')
   const [showCaption, setShowCaption] = useState(!!caption)
   const [liveWidth, setLiveWidth] = useState<number | null>(null)
@@ -405,7 +407,7 @@ function MediaBlock({ kind, props }: { kind: MediaKind; props: ReactNodeViewProp
           showCaption={hasCaption}
           onCaption={() => {
             setShowCaption(true)
-            requestAnimationFrame(() => captionRef.current?.focus())
+            focusCaption()
           }}
           onReplace={upload}
         />

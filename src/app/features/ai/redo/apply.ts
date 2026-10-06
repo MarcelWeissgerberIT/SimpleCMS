@@ -7,6 +7,7 @@
 import type { Editor, JSONContent } from '@tiptap/core'
 import { Fragment, type Node as PMNode } from '@tiptap/pm/model'
 import { closeHistory } from '@tiptap/pm/history'
+import { endUndoStep, startUndoStep } from '../../../editor'
 import { snapshotNow } from '../../history/snapshots'
 import type { ID } from '../../../store/types'
 import { passageBlocks, type RedoPassage } from './passages'
@@ -65,7 +66,9 @@ export async function applyRedo(editor: Editor, pageId: ID, items: RedoApplyItem
   spots.sort((a, b) => b.pos - a.pos)
   const tr = closeHistory(state.tr)
   for (const s of spots) tr.replaceWith(s.pos, s.pos + s.node.nodeSize, Fragment.fromArray(s.nodes))
+  startUndoStep(editor.view)
   editor.view.dispatch(tr.scrollIntoView())
+  endUndoStep(editor.view)
   res.applied = spots.map((s) => s.n).sort((a, b) => a - b)
   return res
 }

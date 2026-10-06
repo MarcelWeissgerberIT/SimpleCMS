@@ -81,6 +81,46 @@ export function checkList(list: Value[], ctx: CallCtx): Value[] {
   return list
 }
 
+/** A text of `length` characters would be too big: refuse it before building it. */
+function sized(length: number, ctx: CallCtx): void {
+  if (length > ctx.limits.text) throw new ScriptError('too_big', { what: 'text', max: ctx.limits.text }, ctx.pos)
+}
+
+/**
+ * The list without repeats, in order. Texts, numbers, yes/no and null by a key (one pass); other values
+ * (lists, records, dates, One objects) compared one by one — every item counts against the step budget.
+ */
+async function uniqueOf(list: Value[], ctx: CallCtx): Promise<Value[]> {
+  const seen = new Set<string>()
+  const others: Value[] = []
+  const out: Value[] = []
+  for (const x of list) {
+    await ctx.step()
+    const nothing = x === null || x === '' || (Array.isArray(x) && !x.length)
+    // a text that reads as a date equals that date: compared one by one like dates
+    if (nothing || typeof x === 'number' || typeof x === 'boolean' || (typeof x === 'string' && !parseDate(x))) {
+      // `=` of the language: the same text, number, yes/no; "", [] and null are the same nothing
+      const key = nothing ? 'n' : `${typeof x}:${x}`
+      if (seen.has(key)) continue
+      seen.add(key)
+      out.push(x)
+      continue
+    }
+    let dup = false
+    for (const y of others) {
+      await ctx.step()
+      if (equals(x, y)) {
+        dup = true
+        break
+      }
+    }
+    if (dup) continue
+    others.push(x)
+    out.push(x)
+  }
+  return out
+}
+
 export function checkText(s: string, ctx: CallCtx): string {
   if (s.length > ctx.limits.text) throw new ScriptError('too_big', { what: 'text', max: ctx.limits.text }, ctx.pos)
   return s
@@ -256,16 +296,26 @@ const TEXT_METHODS: Record<string, MethodDef> = {
   startswith: m((s: string, a, ctx) => s.toLowerCase().startsWith(needText(argAt(a, 0), ctx).toLowerCase())),
   endswith: m((s: string, a, ctx) => s.toLowerCase().endsWith(needText(argAt(a, 0), ctx).toLowerCase())),
   split: m((s: string, a, ctx) => checkList(argAt(a, 0) === null ? s.split(/\s+/).filter(Boolean) : s.split(needText(argAt(a, 0), ctx)), ctx)),
-  replace: m((s: string, a, ctx) => checkText(s.split(needText(argAt(a, 0), ctx)).join(needText(argAt(a, 1), ctx)), ctx)),
+  replace: m((s: string, a, ctx) => {
+    const parts = s.split(needText(argAt(a, 0), ctx))
+    const by = needText(argAt(a, 1), ctx)
+    // the size first: "a".repeat(n).replace("a", long) must not build gigabytes before it is refused
+    sized(s.length - (parts.length - 1) * needText(argAt(a, 0), ctx).length + (parts.length - 1) * by.length, ctx)
+    return parts.join(by)
+  }),
   slice: m((s: string, a, ctx) => [...s].slice(needNumber(argAt(a, 0) ?? 0, ctx), argAt(a, 1) === null ? undefined : needNumber(argAt(a, 1), ctx)).join('')),
-  lines: m((s: string) => s.split(/\r?\n/)),
+  lines: m((s: string, _a, ctx) => checkList(s.split(/\r?\n/), ctx)),
   number: m((s: string) => {
     const t = s.trim().replace(/\s/g, '')
     const n = Number(/^-?\d{1,3}(\.\d{3})*(,\d+)?$/.test(t) || /^-?\d+,\d+$/.test(t) ? t.replace(/\./g, '').replace(',', '.') : t.replace(/,/g, ''))
     return t && Number.isFinite(n) ? n : null
   }),
   date: m((s: string) => parseDate(s)),
-  repeat: m((s: string, a, ctx) => checkText(s.repeat(Math.max(0, Math.min(100_000, needNumber(argAt(a, 0), ctx)))), ctx)),
+  repeat: m((s: string, a, ctx) => {
+    const n = Math.floor(Math.max(0, Math.min(100_000, needNumber(argAt(a, 0), ctx))))
+    sized(s.length * n, ctx)
+    return s.repeat(n)
+  }),
 }
 
 const NUMBER_METHODS: Record<string, MethodDef> = {
@@ -321,7 +371,7 @@ const LIST_METHODS: Record<string, MethodDef> = {
   contains: m((list: Value[], a) => list.some((x) => matches(x, argAt(a, 0)))),
   indexof: m((list: Value[], a) => list.findIndex((x) => equals(x, argAt(a, 0)))),
   reverse: m((list: Value[]) => [...list].reverse()),
-  unique: m((list: Value[]) => list.filter((x, i) => list.findIndex((y) => equals(x, y)) === i)),
+  unique: m((list: Value[], _a, ctx) => uniqueOf(list, ctx)),
   flat: m((list: Value[], _a, ctx) => checkList(list.flatMap((x) => (Array.isArray(x) ? x : [x])), ctx)),
   push: m((list: Value[], a, ctx) => {
     list.push(...a.pos)

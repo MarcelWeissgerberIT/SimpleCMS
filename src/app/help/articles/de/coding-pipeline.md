@@ -35,6 +35,6 @@ Jede Aufgabe arbeitet auf einem eigenen Branch (`one/<titel>-<id>`) in einem eig
 - **Pipeline** (auf #/coding) ändert die Stufen: Namen, welche von selbst laufen, Modus, Züge und Anweisungen für Claude Code.
 
 ## Sicherheit
-Der Worker fasst nur die Repos aus seiner eigenen Konfiguration an; One kann ihm Aufgabentext und feste Git-Aktionen schicken — nie einen Befehl. Claude Code behält seine Berechtigungsregeln, und Aufgabentext geht als Daten mit, nicht als Anweisung. Kostengrenzen pro Aufgabe und pro Tag stehen in der `worker.json`. In einem Team-Arbeitsbereich nimmt dein Worker nur Aufgaben, die du auf diesem Gerät geschrieben oder bestätigt hast (**Auf diesem Gerät bestätigen**).
+Der Worker fasst nur die Repos aus seiner eigenen Konfiguration an; One kann ihm Aufgabentext und feste Git-Aktionen schicken — nie einen Befehl. Claude Code behält seine Berechtigungsregeln, und Aufgabentext geht als Daten mit, nicht als Anweisung. Kostengrenzen pro Aufgabe und pro Tag stehen in der `worker.json`. In einem Team-Arbeitsbereich nimmt dein Worker nur Aufgaben, die du auf diesem Gerät geschrieben oder bestätigt hast (**Auf diesem Gerät bestätigen**) — eine Stufe, ein Repo oder ein Branch, auf einem anderen Gerät geändert, fragt erneut. Eine Aufgabe, die einer deiner eigenen Agenten geschrieben hat, wartet auf dieselbe Bestätigung, auch in deinem lokalen Arbeitsbereich.
 
 > Tipp: Die vollständige Referenz — Konfiguration, Protokoll, Fehlersuche — steht in `docs/CODING.md` im Repository.

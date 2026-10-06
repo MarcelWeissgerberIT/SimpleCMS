@@ -18,7 +18,9 @@ import { closeHistory } from '@tiptap/pm/history'
 import { useWorkspace } from '../../../store/store'
 import { useCloud } from '../../../cloud'
 import type { ID } from '../../../store/types'
-import { docSchema, docToMarkdown, liveEditorOf, markdownToDoc } from '../../../editor'
+import { docSchema, docToMarkdown, endUndoStep, liveEditorOf, startUndoStep } from '../../../editor'
+import { claudeBlocks, claudeDoc } from '../claudeDoc'
+import { webImagesOf } from '../../agents/images'
 import { t } from '../../../i18n'
 import { blockKey } from '../../history/diff'
 import { contentKey, snapshotNow } from '../../history/snapshots'
@@ -378,10 +380,21 @@ function asItems(blocks: JSONContent[], listType: string): JSONContent[] {
   return items.map((it) => ({ type: itemType, ...(itemType === 'taskItem' ? { attrs: { checked: it.type === 'taskItem' ? !!it.attrs?.checked : false } } : {}), content: it.content?.length ? it.content : [{ type: 'paragraph' }] }))
 }
 
+/** The web images / video / audio a page shows (an edit may keep those as they are). */
+function shownMedia(doc: PMNode): Set<string> {
+  const out = new Set<string>()
+  doc.descendants((n) => {
+    const src = n.attrs?.src
+    if ((n.type.name === 'image' || n.type.name === 'video' || n.type.name === 'audio') && typeof src === 'string') out.add(src)
+  })
+  return out
+}
+
 /** New blocks for a place: list / to-do items inside a list, blocks elsewhere; the first keeps `keepId`. */
-function fitted(schema: Schema, markdown: string, parent: PMNode, keepId: string | null): PMNode[] {
+function fitted(schema: Schema, markdown: string, parent: PMNode, keepId: string | null, shown?: ReadonlySet<string>): PMNode[] {
+  // Claude's Markdown: nothing in it loads by itself — only what the page shows already may stay;
   // `[Title](#/p/<id>)` links to pages become page mentions (page link blocks outside lists) — links.ts
-  let blocks = (withPageNodes(markdownToDoc(markdown), livePage, { blocks: !(parent.type.name in LISTS) }).content ?? []).filter(Boolean)
+  let blocks = (withPageNodes(claudeDoc(markdown, shown), livePage, { blocks: !(parent.type.name in LISTS) }).content ?? []).filter(Boolean)
   if (parent.type.name in LISTS) blocks = asItems(blocks, parent.type.name)
   if (keepId && blocks[0]) blocks[0] = { ...blocks[0], attrs: { ...(blocks[0].attrs ?? {}), id: keepId } }
   const nodes = blocks.map((b) => schema.nodeFromJSON(b))
@@ -406,14 +419,14 @@ function spotOf(doc: PMNode, c: StagedChange): Spot | { error: string } {
   try {
     if (e.op === 'replace_all') {
       if (contentKey(doc.toJSON() as JSONContent) !== e.pageKey) return { error: changedNote() }
-      return { id: c.id, n: c.n, from: 0, to: doc.content.size, nodes: fitted(schema, c.markdown ?? '', doc, null) }
+      return { id: c.id, n: c.n, from: 0, to: doc.content.size, nodes: fitted(schema, c.markdown ?? '', doc, null, shownMedia(doc)) }
     }
     const locs = e.targets.map((x) => locate(doc, x))
     if (!locs.length || locs.some((l) => !l)) return { error: goneNote() }
     const first = locs[0]!
     if (e.op === 'insert_after') {
       const p = first.pos + first.node.nodeSize
-      return { id: c.id, n: c.n, from: p, to: p, nodes: fitted(schema, c.markdown ?? '', first.parent, null) }
+      return { id: c.id, n: c.n, from: p, to: p, nodes: fitted(schema, c.markdown ?? '', first.parent, null, shownMedia(doc)) }
     }
     // the range: still side by side, in order, and reading as when it was staged
     for (let i = 0; i < locs.length; i++) {
@@ -432,7 +445,7 @@ function spotOf(doc: PMNode, c: StagedChange): Spot | { error: string } {
       }
       return { id: c.id, n: c.n, from, to, nodes: [] }
     }
-    return { id: c.id, n: c.n, from, to, nodes: fitted(schema, c.markdown ?? '', first.parent, idOf(first.node)) }
+    return { id: c.id, n: c.n, from, to, nodes: fitted(schema, c.markdown ?? '', first.parent, idOf(first.node), shownMedia(doc)) }
   } catch {
     return { error: t('features.agent.edit.invalid') }
   }
@@ -490,7 +503,9 @@ export async function applyPageEdits(pageId: ID, changes: StagedChange[]): Promi
     } catch {
       return invalid()
     }
+    startUndoStep(editor.view)
     editor.view.dispatch(tr)
+    endUndoStep(editor.view)
     next = editor.getJSON()
     // local: written right away, as Claude's; team: the editor's document carries it (Yjs)
     if (useCloud.getState().active.kind !== 'cloud') useWorkspace.getState().setContent(pageId, next, 'ai')
@@ -530,7 +545,7 @@ export type EditPreview = { state: 'ready'; items: DocItem[] } | { state: 'chang
 export function stagedItems(c: StagedChange): DocItem[] {
   const e = c.edit
   if (!e) return []
-  const after = c.markdown ? (markdownToDoc(c.markdown).content ?? []) : []
+  const after = c.markdown ? claudeBlocks(c.markdown, webImagesOf(useWorkspace.getState().pages[c.pageId]?.content)) : []
   if (e.op === 'replace_all') return diffDocs(e.pageBefore ?? null, { type: 'doc', content: after })
   const targets = e.targets.map((x) => x.block)
   const first = targets[0]?.type ?? ''

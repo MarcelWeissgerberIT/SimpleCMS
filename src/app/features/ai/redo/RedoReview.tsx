@@ -4,7 +4,7 @@
  * Enter / y accept, n / d reject, j / k next / previous, a accept all, Esc closes (the run stays).
  * Once every passage is decided, Enter applies the accepted ones in one step (apply.ts).
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { Editor } from '@tiptap/core'
 import { Check, ChevronLeft, ChevronRight, X } from 'lucide-react'
 import { Kbd } from '../../../ui/controls'
@@ -45,9 +45,14 @@ export function RedoReview({ run, editor, pageId, onDone }: RedoReviewProps) {
   const rejected = rows.filter((r) => r.item.decision === 'reject').length
   const cur = rows[Math.min(at, rows.length - 1)]
 
-  // the keyboard comes here when the result is in
-  useEffect(() => {
-    const id = requestAnimationFrame(() => rootRef.current?.focus({ preventScroll: true }))
+  // the keyboard comes here when the result is in — at once (y / n right away), and once more a frame
+  // later when something else took the focus in between
+  useLayoutEffect(() => {
+    rootRef.current?.focus({ preventScroll: true })
+    const id = requestAnimationFrame(() => {
+      const root = rootRef.current
+      if (root && !root.contains(document.activeElement)) root.focus({ preventScroll: true })
+    })
     return () => cancelAnimationFrame(id)
   }, [])
 

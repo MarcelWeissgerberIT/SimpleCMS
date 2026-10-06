@@ -35,6 +35,6 @@ Each task works on its own branch (`one/<title>-<id>`) in its own worktree — y
 - **Pipeline** (on #/coding) changes the stages: names, which ones run by themselves, Claude Code's mode, turns and instructions.
 
 ## Safety
-The worker touches only the repos in its own config; One can send it task text and fixed git actions — never a command. Claude Code keeps its permission rules, and task text goes to it as data, not as instructions. Cost limits per task and per day live in `worker.json`. In a team workspace your worker only takes tasks you wrote or confirmed on this device (**Confirm on this device**).
+The worker touches only the repos in its own config; One can send it task text and fixed git actions — never a command. Claude Code keeps its permission rules, and task text goes to it as data, not as instructions. Cost limits per task and per day live in `worker.json`. In a team workspace your worker only takes tasks you wrote or confirmed on this device (**Confirm on this device**) — a stage, repo or branch changed on another device asks again. A task one of your custom agents wrote waits for the same confirmation, also in your local workspace.
 
 > Tip: the full reference — config keys, protocol, troubleshooting — is `docs/CODING.md` in the repository.

@@ -270,6 +270,8 @@ test.describe('Transform into (AI menu)', () => {
     await expect(pv.getByTestId('transform-spec')).toHaveText('Flowchart · Top-down · 2 lines stay as text')
     await expect(pv.getByTestId('transform-plate').locator('svg').first()).toBeVisible({ timeout: 15_000 })
     await expect(pv.getByTestId('transform-plate')).toContainText('Part missing?')
+    // a static preview of a lone diagram: nothing in it is selected
+    await expect(pv.getByTestId('transform-plate').locator('.ProseMirror-selectednode, .is-selected')).toHaveCount(0)
     await expect(pv.getByTestId('transform-left').locator('li')).toHaveText([/Setting up the kit:.*stays where it is/, /Allow about 20 minutes\..*stays as text below/])
     await expect(ai.getByRole('option', { name: /^Transform/ })).toContainText('DIAGRAM')
     // a short page scrolls (a spacer below it) so the panel opens at its full height under the selection
@@ -316,6 +318,7 @@ test.describe('Transform into (AI menu)', () => {
     const pv = preview(page)
     await expect(pv.getByTestId('transform-spec')).toHaveText('Bar · 4 categories · 2 series · 1 line stays as text')
     await expect(pv.getByTestId('transform-plate').locator('svg').first()).toBeVisible()
+    await expect(pv.getByTestId('transform-plate').locator('.ProseMirror-selectednode, .is-selected')).toHaveCount(0)
     await expect(pv.getByTestId('transform-left').locator('li')).toHaveText([/Visitors per quarter:.*stays where it is/, /Q4 · Signups: 120.*not in the text — left out/])
     expect(claude.of('chart')[0].prompt).toContain('Q2: 1,850 visitors, 95 signups')
 

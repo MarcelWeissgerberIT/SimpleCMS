@@ -187,7 +187,8 @@ export function PropertyRows({ db, row, resolver, props, getValue, onChange, hid
           onClose={(reason) => {
             const el = editing.el
             setEditing(null)
-            if (reason !== 'outside') requestAnimationFrame(() => el.focus())
+            // at once: the next key goes to the property row, not to a page without focus for a frame
+            if (reason !== 'outside') el.focus({ preventScroll: true })
           }}
         />
       )}

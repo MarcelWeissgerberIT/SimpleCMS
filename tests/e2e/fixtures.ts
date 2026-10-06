@@ -179,10 +179,17 @@ export async function uiEval<R, A = undefined>(page: Page, fn: (s: AnyState, arg
   ) as Promise<R>
 }
 
-/** Wait out the editor's write debounce, then force the IndexedDB save. */
+/**
+ * Wait out the editor's write debounce, then force the IndexedDB save. Open editors put their text
+ * into the store first (their debounce timer can run late on a busy machine).
+ */
 export async function flush(page: Page): Promise<void> {
   await page.waitForTimeout(450)
-  await page.evaluate(() => (window as unknown as { __one: { flushSave: () => Promise<void> } }).__one.flushSave())
+  await page.evaluate(() => {
+    const w = window as unknown as { __oneEditorUnload?: () => void; __one: { flushSave: () => Promise<void> } }
+    w.__oneEditorUnload?.()
+    return w.__one.flushSave()
+  })
 }
 
 export async function pageIdByTitle(page: Page, title: string): Promise<string> {

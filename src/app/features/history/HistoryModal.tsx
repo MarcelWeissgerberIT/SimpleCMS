@@ -156,6 +156,7 @@ export function HistoryModal({ pageId, onClose }: { pageId: ID; onClose: () => v
 
   const snapCount = metas?.length ?? 0
   const sinceLabel = (ts: number) => relTime(ts, lang)
+  const reasonLabel = (m: SnapshotMeta) => (m.reason === 'script' && m.by ? t('features.history.reason.scriptBy', { name: m.by }) : t(`features.history.reason.${m.reason}`))
 
   return (
     <Modal open onClose={onClose} bare width={1120} className="hist">
@@ -204,7 +205,7 @@ export function HistoryModal({ pageId, onClose }: { pageId: ID; onClose: () => v
           {sel && (
             <>
               <span className="hist__when">{sel.kind === 'now' ? t('features.history.current') : fmtLong.format(sel.meta.at)}</span>
-              <span className="label">{sel.kind === 'now' ? t('features.history.liveNow') : `${t(`features.history.reason.${sel.meta.reason}`)} · ${sinceLabel(sel.meta.at)}`}</span>
+              <span className="label">{sel.kind === 'now' ? t('features.history.liveNow') : `${reasonLabel(sel.meta)} · ${sinceLabel(sel.meta.at)}`}</span>
             </>
           )}
         </div>

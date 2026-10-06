@@ -31,22 +31,28 @@ const MANY = 50
 const bare = (target: string) => target.replace(/^<|>$/g, '').trim()
 const label = (s: string) => s.trim().replace(/\s+/g, ' ').toLowerCase()
 
+/** Images that may stay (addresses the page shows already). */
+type Keep = ReadonlySet<string> | undefined
+
+/** A web address that would be loaded as a new image. */
+const loads = (url: string, keep: Keep) => WEB.test(url) && !keep?.has(url)
+
 /** Reference labels whose definition points to the web. */
-function webDefinitions(lines: string[]): Set<string> {
+function webDefinitions(lines: string[], keep: Keep): Set<string> {
   const out = new Set<string>()
   for (const line of lines) {
     const m = DEF.exec(line)
-    if (m && WEB.test(bare(m[2]))) out.add(label(m[1]))
+    if (m && loads(bare(m[2]), keep)) out.add(label(m[1]))
   }
   return out
 }
 
 /** One stretch of text outside code: web images → links. */
-function plain(text: string, defs: Set<string>): string {
+function plain(text: string, defs: Set<string>, keep: Keep): string {
   if (text.split('![').length - 1 > MANY) return text.replace(/!\[/g, '[')
   const inline = text.replace(INLINE, (all, alt: string, target: string, title: string) => {
     const url = bare(target)
-    if (!WEB.test(url)) return all
+    if (!loads(url, keep)) return all
     return `[${alt.trim() ? alt : url.replace(/[[\]]/g, '')}](${target}${title})`
   })
   if (!defs.size) return inline
@@ -57,11 +63,14 @@ function plain(text: string, defs: Set<string>): string {
   })
 }
 
-/** Markdown with every web image (inline or by reference) turned into a link to it. */
-export function withoutWebImages(markdown: string): string {
+/**
+ * Markdown with every web image (inline or by reference) turned into a link to it. `keep`: addresses
+ * the page already shows as images — a rewrite of the page may keep those (they carry nothing new).
+ */
+export function withoutWebImages(markdown: string, keep?: ReadonlySet<string>): string {
   if (!markdown.includes('![')) return markdown
   const lines = markdown.split('\n')
-  const defs = webDefinitions(lines)
+  const defs = webDefinitions(lines, keep)
   let fence: string | null = null
   return lines
     .map((line) => {
@@ -77,8 +86,70 @@ export function withoutWebImages(markdown: string): string {
       // inline code spans are kept as they are
       return line
         .split(/(`+[^`]*`+)/)
-        .map((part, i) => (i % 2 ? part : plain(part, defs)))
+        .map((part, i) => (i % 2 ? part : plain(part, defs, keep)))
         .join('')
     })
     .join('\n')
+}
+
+interface DocNode {
+  type?: string
+  attrs?: Record<string, unknown>
+  content?: DocNode[]
+  marks?: Array<{ type: string; attrs?: Record<string, unknown> }>
+  text?: string
+}
+
+/** Blocks that show something from an address: their src (image, video, audio). */
+const MEDIA = new Set(['image', 'video', 'audio'])
+
+/** The web images / video / audio a document shows (their src), for `withoutWebImages(…, keep)`. */
+export function webImagesOf(doc: DocNode | null | undefined): Set<string> {
+  const out = new Set<string>()
+  const walk = (n: DocNode | null | undefined) => {
+    if (!n) return
+    const src = n.type && MEDIA.has(n.type) ? n.attrs?.src : null
+    if (typeof src === 'string' && WEB.test(src.trim())) out.add(src)
+    for (const c of n.content ?? []) walk(c)
+  }
+  walk(doc)
+  return out
+}
+
+const str = (v: unknown) => (typeof v === 'string' ? v : '')
+
+/** A paragraph with one link (a block that would have loaded `href` by itself). */
+function linkLine(label: string, address: string): DocNode {
+  const href = address.replace(/^\/\//, 'https://')
+  return { type: 'paragraph', content: [{ type: 'text', text: label.trim() || href, marks: [{ type: 'link', attrs: { href } }] }] }
+}
+
+/**
+ * The document made of Claude's Markdown, without anything that loads by itself or reaches into the
+ * workspace. Markdown is not the only way in: raw HTML in it (`<img>`, `<video>`, `<div data-type="embed">`
+ * …) becomes editor blocks too, and entities or escapes hide an address from a text filter. So the
+ * finished document is checked: web images, video and audio become links (addresses in `keep` — the ones
+ * the page shows already — stay), files from the web and embeds (frames) become links, bookmarks become
+ * links (no preview image), synced-block references and meeting blocks become their plain blocks.
+ * Legitimate Markdown never makes those blocks (they are written out as links), so nothing real is lost.
+ */
+export function withoutWebLoads<T extends DocNode>(doc: T, keep?: ReadonlySet<string>): T {
+  const fix = (n: DocNode): DocNode[] => {
+    const a = n.attrs ?? {}
+    if (n.type && MEDIA.has(n.type)) {
+      const src = str(a.src).trim()
+      if (WEB.test(src) && !keep?.has(str(a.src))) return [linkLine(str(a.alt) || str(a.name) || str(a.caption), src)]
+    }
+    if (n.type === 'fileBlock' && WEB.test(str(a.src).trim())) return [linkLine(`📎 ${str(a.name)}`, str(a.src).trim())]
+    if (n.type === 'embed' || n.type === 'bookmark') {
+      const url = str(a.url).trim()
+      return url && /^https?:\/\//i.test(url) ? [linkLine(str(a.title) || url, url)] : []
+    }
+    if (n.type === 'syncedBlock' || n.type === 'meetingNotes') return (n.content ?? []).flatMap(fix)
+    if (!n.content) return [n]
+    const kids = n.content.flatMap(fix)
+    return kids.length === n.content.length && kids.every((k, i) => k === n.content![i]) ? [n] : [{ ...n, content: kids }]
+  }
+  const [out] = fix(doc)
+  return (out ?? doc) as T
 }

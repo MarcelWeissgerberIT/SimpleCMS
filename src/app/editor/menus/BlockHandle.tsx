@@ -242,7 +242,10 @@ export function BlockHandle({ editor, bridge, pageId }: { editor: Editor; bridge
   const [hoverPos, setHoverPos] = useState(-1)
   const shift = useShiftKey(!!sel && !sel.soft)
   const overSelection = !!sel && hoverPos >= sel.from && hoverPos < sel.to
-  const covering = !isTouch && !!sel && !sel.soft && sel.single && hoverPos === sel.from
+  const coversNow = !isTouch && !!sel && !sel.soft && sel.single && hoverPos === sel.from
+  // A press keeps the grip it began on: the hover handle taking the pinned grip's place between mousedown
+  // and mouseup (the pointer just arrived) put the release on another element — no click, no menu.
+  const covering = usePressHold(coversNow, !isTouch && !!sel && !sel.soft && sel.single)
   const quiet = !!sel && !sel.soft && !menu?.fromHover && !dragging && !covering && (overSelection || !shift)
 
   // which block is hovered: the pointer over the editor (and its gutter) feeds the rules (nestedOptions)
@@ -624,6 +627,28 @@ export function BlockHandle({ editor, bridge, pageId }: { editor: Editor; bridge
       </Popover>
     </>
   )
+}
+
+/** `value`, held as it was shown while a mouse button is down (pointerdown → pointerup / cancel); only while `on`. */
+function usePressHold(value: boolean, on: boolean): boolean {
+  const shown = useRef(value)
+  const [held, setHeld] = useState<boolean | null>(null)
+  useEffect(() => {
+    if (!on) return setHeld(null)
+    const down = (e: PointerEvent) => e.pointerType === 'mouse' && setHeld(shown.current)
+    const up = () => setHeld(null)
+    document.addEventListener('pointerdown', down, true)
+    document.addEventListener('pointerup', up, true)
+    document.addEventListener('pointercancel', up, true)
+    return () => {
+      document.removeEventListener('pointerdown', down, true)
+      document.removeEventListener('pointerup', up, true)
+      document.removeEventListener('pointercancel', up, true)
+    }
+  }, [on])
+  const out = held ?? value
+  shown.current = out
+  return out
 }
 
 /** Whether Shift is held — tracked only while `on`. */

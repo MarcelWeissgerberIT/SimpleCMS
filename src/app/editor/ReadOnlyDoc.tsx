@@ -35,7 +35,7 @@ export function ReadOnlyDoc({ content, className, headingOffset = 0 }: { content
     if (editor && !editor.isDestroyed) {
       editor.commands.setContent(content ? sanitize(content) : EMPTY, { emitUpdate: false })
       // the new doc may start with an atom: nothing looks selected in a static render
-      quietSelection(editor.view)
+      quietSelection(editor.view, { still: true })
     }
   }, [editor, key]) // eslint-disable-line react-hooks/exhaustive-deps
   return (

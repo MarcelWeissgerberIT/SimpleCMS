@@ -1,22 +1,32 @@
 /**
- * Coding pipeline — who decides what the worker runs in a team workspace. A task runs Claude Code on the
- * machine of the person whose worker takes it, with their repos and their Claude account — so a task
- * written or changed by someone else must be seen and confirmed on THIS device first. A task version is
- * the SHA-256 of its title, its page (Markdown) and the pipeline's stage instructions; the versions this
- * device wrote or confirmed are kept per device and workspace (local.ts "<scope>|trust"). The check never
- * relies on `createdBy` / `updatedBy` (clients write those).
+ * Coding pipeline — who decides what the worker runs. A task runs Claude Code on the machine of the person
+ * whose worker takes it, with their repos and their Claude account — so a task written or changed by
+ * someone else must be seen and confirmed on THIS device first. A task version is the SHA-256 of what
+ * decides the run: its title, its page (Markdown), its Repo, Branch and Stage, and the pipeline (every
+ * stage's name, kind, mode, turns, git action, next stage and instructions — they go into the prompt or
+ * decide what runs next); the versions this device wrote or confirmed are kept per device and workspace
+ * (local.ts "<scope>|trust"). In a team the check never relies on `createdBy` / `updatedBy` (clients
+ * write those).
  *
- * Trusted automatically: a task made with "New task" here, the pipeline's own writes (plan, summaries),
- * edits typed in this tab (content origin other than 'sync' / 'file') of a version that was trusted, and
- * every task action pressed here (Approve, Rework, Answer, Run now, Retry, Confirm). Local workspaces:
- * nothing to confirm.
+ * Trusted automatically: a task made with "New task" here, the pipeline's own writes (plan, summaries,
+ * stage moves), changes made in this tab of a version that was trusted (typed content — origin other
+ * than 'sync' / 'file' —, its fields, the Coding database's schema and pipeline), and every task action
+ * pressed here (Approve, Rework, Answer, Run now, Retry, Confirm). Never carried over: changes that came
+ * from the server or another tab (isApplyingRemote) and writes of a custom agent (isAgentWriting) — a
+ * teammate moving a task past a gate, or an agent reading injected text, waits for Confirm.
+ *
+ * Local workspaces: nothing to confirm — except a task a custom agent created or changed last
+ * (`createdBy` / `updatedBy` = `agent:<id>`, stamped on this device), which waits for Confirm like a
+ * team task until a version of it is trusted.
  */
 import { useWorkspace, pageChanges } from '../../store/store'
+import { isApplyingRemote } from '../../store/persistence'
 import type { Database, ID, Page } from '../../store/types'
 import { docToMarkdown } from '../../editor'
 import { useCloud } from '../../cloud'
+import { agentIdOf, isAgentWriting } from '../agents/attribution'
 import { addTrusted, trustedHashes } from './local'
-import { codingDbId } from './schema'
+import { codingDbId, codingProps, optionName, readPipeline } from './schema'
 
 const inTeam = () => useCloud.getState().active.kind === 'cloud'
 
@@ -41,37 +51,56 @@ async function sha256(text: string): Promise<string> {
   return `f${fnv(text, 0x811c9dc5)}${fnv(text, 0x01234567)}${text.length.toString(16)}`
 }
 
-/** The pipeline's part of a task version: every stage's kind and instructions. */
-const pipelineKey = (db: Database | undefined) => JSON.stringify((db?.pipeline ?? []).map((s) => [s.id, s.kind, s.instructions ?? '']))
+/** The pipeline's part of a task version: what each stage sends to the worker or decides next. */
+const pipelineKey = (db: Database | undefined) =>
+  JSON.stringify(readPipeline(db).map((s) => [s.id, s.name, s.kind, !!s.auto, s.permissionMode ?? null, s.maxTurns ?? null, s.gitAction ?? null, s.next ?? null, s.instructions ?? '']))
 
-/** The version of a task (title + page + stage instructions). */
-export function versionOf(page: Page, db: Database | undefined): Promise<string> {
-  return sha256(`${page.title}\n\u0000${docToMarkdown(page.content)}\n\u0000${pipelineKey(db)}`)
+/** The row's fields that decide where the worker works: the repo (by name), the branch, the stage. */
+function fieldsKey(page: Page, db: Database | undefined): string {
+  if (!db) return '[]'
+  const props = codingProps(db)
+  const branch = props.branch ? page.properties[props.branch] : null
+  return JSON.stringify([optionName(db, props.repo, props.repo ? page.properties[props.repo] : null), typeof branch === 'string' ? branch.trim() : '', props.stage ? (page.properties[props.stage] ?? null) : null])
 }
+
+/** The version of a task (title + page + repo / branch / stage + pipeline). */
+export function versionOf(page: Page, db: Database | undefined): Promise<string> {
+  return sha256(`${page.title}\n\u0000${docToMarkdown(page.content)}\n\u0000${fieldsKey(page, db)}\n\u0000${pipelineKey(db)}`)
+}
+
+/** Local workspaces: a custom agent created the task or changed it last (stamped on this device). */
+const agentTouched = (page: Page) => !!agentIdOf(page.createdBy) || !!agentIdOf(page.updatedBy)
+
+/** Does a task need a trusted version (team: always; local: only one an agent wrote)? */
+export function needsConfirm(page: Page): boolean {
+  return inTeam() || agentTouched(page)
+}
+
+/** Trust the watch is still carrying over (changes made here a moment ago). */
+let settling: Promise<void> = Promise.resolve()
 
 /** May the worker on this device run the task as it is now? */
 export async function isTrusted(taskId: ID): Promise<boolean> {
-  if (!inTeam()) return true
+  await settling
   const s = useWorkspace.getState()
   const page = s.pages[taskId]
   if (!page?.databaseId) return false
+  if (!needsConfirm(page)) return true
   return (await trustedHashes()).has(await versionOf(page, s.databases[page.databaseId]))
 }
 
 /** The person saw this version here (an action on the task, "Confirm on this device"). */
 export async function trustTask(taskId: ID): Promise<void> {
-  if (!inTeam()) return
   const s = useWorkspace.getState()
   const page = s.pages[taskId]
   if (page?.databaseId) await addTrusted(await versionOf(page, s.databases[page.databaseId]))
 }
 
 /**
- * Run a write of this device (the pipeline's plan / summary, a pipeline edit): tasks whose version was
- * trusted before stay trusted after it.
+ * Run a write of this device (the pipeline's plan / summary, a stage move, a pipeline edit): tasks whose
+ * version was trusted before stay trusted after it.
  */
 export async function keepTrust(taskIds: ID[], write: () => void): Promise<void> {
-  if (!inTeam()) return write()
   const s0 = useWorkspace.getState()
   const set = await trustedHashes()
   const before = await Promise.all(taskIds.map(async (id) => {
@@ -88,26 +117,36 @@ export async function keepTrust(taskIds: ID[], write: () => void): Promise<void>
 
 let watching = false
 
-/** Team workspaces: edits typed here keep a trusted task trusted (sync and file pick-ups never do). */
+/**
+ * Changes made in this tab keep a trusted task trusted: typed content (sync and file pick-ups never do),
+ * its fields, the Coding database's schema and pipeline. Server / other-tab changes and agent writes don't.
+ */
 export function startTrustWatch(): void {
   if (watching) return
   watching = true
   useWorkspace.subscribe((next, prev) => {
-    if (!inTeam() || next.pages === prev.pages) return
+    if (next.pages === prev.pages && next.databases === prev.databases) return
     const dbId = codingDbId()
     if (!dbId) return
-    const changed = pageChanges(next.pages, prev.pages).changed
-    if (!changed.length) return
-    for (const id of changed) {
+    const dbNow = next.databases[dbId]
+    const dbBefore = prev.databases[dbId]
+    if (next.pages === prev.pages && dbNow === dbBefore) return
+    if (isApplyingRemote() || isAgentWriting()) return
+    // the schema / pipeline changed: every task's version did; else only the changed rows'
+    const ids = dbNow !== dbBefore ? Object.keys(next.pages).filter((id) => next.pages[id]?.databaseId === dbId) : pageChanges(next.pages, prev.pages).changed
+    const pairs: Array<[Page, Page]> = []
+    for (const id of ids) {
       const now = next.pages[id]
       const before = prev.pages[id]
-      if (!now || !before || now.databaseId !== dbId || now.contentRev === before.contentRev) continue
-      if (now.contentOrigin === 'sync' || now.contentOrigin === 'file') continue
-      const db = next.databases[dbId]
-      void (async () => {
-        const set = await trustedHashes()
-        if (set.has(await versionOf(before, db))) await addTrusted(await versionOf(now, db))
-      })()
+      if (!now || !before || now.databaseId !== dbId || before.databaseId !== dbId || now.trashed || !needsConfirm(now)) continue
+      if (now.contentRev !== before.contentRev && (now.contentOrigin === 'sync' || now.contentOrigin === 'file')) continue
+      pairs.push([before, now])
     }
+    if (!pairs.length) return
+    // isTrusted waits for this: a panel or a worker asking right after a stage drag sees the carried trust
+    settling = settling.then(async () => {
+      const set = await trustedHashes()
+      for (const [before, now] of pairs) if (set.has(await versionOf(before, dbBefore))) await addTrusted(await versionOf(now, dbNow))
+    }).catch(() => {})
   })
 }
