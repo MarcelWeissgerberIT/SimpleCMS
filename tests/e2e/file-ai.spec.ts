@@ -10,7 +10,7 @@ import type { AddressInfo } from 'node:net'
 import type { BrowserContext, Page } from '@playwright/test'
 import type { JSONContent } from '@tiptap/core'
 import { test, expect, openApp, gotoPage, wsEval, editorOf, sidebarRow, flush, sse, MOD } from './fixtures'
-import { CSV_TEXT, HTML_TEXT, RTF_TEXT, docxBytes, pdfBytes, xlsxBytes } from './helpers/files'
+import { CSV_TEXT, HTML_TEXT, RTF_TEXT, bombXlsxBytes, docxBytes, pdfBytes, stallPdfBytes, xlsxBytes } from './helpers/files'
 
 type AnyState = Record<string, any> // eslint-disable-line @typescript-eslint/no-explicit-any
 
@@ -457,6 +457,38 @@ test.describe('Claude for files', () => {
     await viaKey(page, id, 'manual-150.pdf', /^Summarise/)
     await expect(ai).toContainText('To do:')
     await expect(ai.getByTestId('ai-file-meta')).toContainText('150 pages')
+    expect(claude.bodies).toHaveLength(1)
+  })
+
+  test('a zip bomb (an Excel sheet that claims 1 KB and inflates to 130 MB): refused as too large, quickly — the size counted, not believed', async ({ page, context }) => {
+    const claude = await mockClaude(context)
+    await openApp(page)
+    await setKey(page)
+    const bomb = bombXlsxBytes()
+    expect(bomb.length).toBeLessThan(1024 * 1024)
+    const { id } = await setup(page, [{ name: 'bomb.xlsx', type: XLSX.type, bytes: bomb }])
+    const t0 = Date.now()
+    await viaKey(page, id, 'bomb.xlsx', /Open as spreadsheet/)
+    await expect(panel(page).getByTestId('ai-file-error')).toContainText(/at most 120 MB works here/)
+    expect(Date.now() - t0).toBeLessThan(15_000)
+    // the page still answers
+    await page.keyboard.press('Escape')
+    await expect(editorOf(page, id)).toContainText('Notes follow below.')
+    expect(claude.bodies).toHaveLength(0)
+  })
+
+  test('a PDF made to stall the page count (an object stream that inflates without end, objects that never end) is counted quickly', async ({ page, context }) => {
+    const claude = await mockClaude(context)
+    await openApp(page)
+    await setKey(page)
+    const { id } = await setup(page, [{ name: 'stall.pdf', type: 'application/pdf', bytes: stallPdfBytes() }])
+    const t0 = Date.now()
+    await viaKey(page, id, 'stall.pdf', /^Summarise/)
+    const ai = panel(page)
+    // the root page tree says 2 pages: that is what counts, and the request goes out
+    await expect(ai.getByTestId('ai-file-meta')).toContainText(/2 pages/i)
+    await expect(ai).toContainText('To do:')
+    expect(Date.now() - t0).toBeLessThan(15_000)
     expect(claude.bodies).toHaveLength(1)
   })
 

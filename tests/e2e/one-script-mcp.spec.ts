@@ -219,3 +219,22 @@ test('one_run_script with a mail: the card lists it; once approved there, the ru
   expect(await page.evaluate(() => (window as unknown as { __opened: string[] }).__opened)).toEqual([expect.stringMatching(/^mailto:bob@example\.com\?subject=Welcome%20to%20One/)])
   expect(await wsEval(page, (s, id) => s.pages[id].plain, welcome)).toContain('weitergeleitet')
 })
+
+test('one_run_script: a script edited while the card is open does not run — the approval was for the code the dry run showed', async ({ page }) => {
+  await openApp(page)
+  await connect(page)
+  await page.keyboard.press('Escape')
+  const { ids } = await makeTasks(page)
+  await addScript(page, { id: 'sc-swap', name: 'Harmlos', code: 'print("nothing to do")\n' })
+  const pending = call('one_run_script', { script: 'Harmlos' })
+  const card = page.getByRole('alertdialog')
+  await expect(card).toBeVisible()
+  await expect(card).toContainText('The dry run changes nothing and sends nothing.')
+  // meanwhile the code becomes something else
+  await addScript(page, { id: 'sc-swap', name: 'Harmlos', code: RAISE })
+  await card.getByRole('button', { name: /Approve/ }).click()
+  const r = await pending
+  expect(r.isError).toBe(true)
+  expect(text(r)).toContain('was changed after its dry run')
+  expect(await prioOf(page, ids)).toEqual(['o_low', 'o_low', 'o_low'])
+})

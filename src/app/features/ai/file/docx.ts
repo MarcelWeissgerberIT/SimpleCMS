@@ -12,7 +12,7 @@
  *
  * Every block is checked against the editor schema; one that does not fit becomes a plain paragraph.
  */
-import { unzipSync } from 'fflate'
+import { InflateBudgetError, unzipBounded } from './zip'
 import type { JSONContent } from '@tiptap/core'
 import { docSchema } from '../../../editor'
 import { FileLoadError } from './load'
@@ -341,17 +341,10 @@ function checked(block: JSONContent): JSONContent | null {
 export function docxToDoc(bytes: Uint8Array): DocxResult {
   let files: Record<string, Uint8Array>
   try {
-    let total = 0
-    files = unzipSync(bytes, {
-      filter: (f) => {
-        if (!WANT.has(f.name)) return false
-        total += f.originalSize
-        if (total > XML_MAX) throw new FileLoadError({ issue: 'too_large', bytes: total, max: XML_MAX })
-        return true
-      },
-    })
+    // counted as they inflate: the sizes in the zip's headers are the file maker's word
+    files = unzipBounded(bytes, (name) => WANT.has(name), XML_MAX)
   } catch (e) {
-    if (e instanceof FileLoadError) throw e
+    if (e instanceof InflateBudgetError) throw new FileLoadError({ issue: 'too_large', bytes: e.bytes, max: XML_MAX })
     throw new FileLoadError('unreadable', 'not a zip')
   }
   const main = parseXml(files['word/document.xml'])
