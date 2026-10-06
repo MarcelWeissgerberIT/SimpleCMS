@@ -83,7 +83,7 @@ export { MediaToPage } from './ai/media/MediaToPage'
 export type { MediaItem } from './ai/media/types'
 /*
  * MCP sign-in (OAuth) — the way back: consumeMcpOAuthReturn(closingNote) runs first in main.tsx (a sign-in window
- * hands the code to the tab that started it and closes) · McpOAuthScreen { state, code, error, errorDescription } =
+ * hands the code to the tab that started it and closes) · McpOAuthScreen (no props; the code stays in memory) =
  * the route #/oauth/mcp (the shell renders it; this tab finishes the sign-in itself)
  */
 export { consumeMcpOAuthReturn } from './ai/mcp-servers/oauthReturn'

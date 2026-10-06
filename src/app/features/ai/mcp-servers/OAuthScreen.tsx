@@ -8,19 +8,19 @@ import { useT } from '../../../i18n'
 import { useUI } from '../../../store/ui'
 import { navigate } from '../../../lib/router'
 import { finishSignIn, OAuthError, type OAuthIssue } from './oauth'
+import { oauthReturned } from './oauthReturn'
 import './mcp-servers.css'
-
-export interface McpOAuthScreenProps {
-  state: string
-  code: string
-  error: string
-  errorDescription: string
-}
 
 /** codes finished in this tab (StrictMode runs effects twice; a code is used once) */
 const handled = new Map<string, Promise<string>>()
 
-export function McpOAuthScreen({ state, code, error, errorDescription }: McpOAuthScreenProps) {
+/** `#/oauth/mcp`: what came back to this page load (oauthReturned) — nothing (a reload, a bookmark): the "can't be finished here" error. */
+export function McpOAuthScreen() {
+  const back = oauthReturned()
+  const state = back?.state ?? ''
+  const code = back?.code ?? ''
+  const error = back?.error ?? ''
+  const errorDescription = back?.errorDescription ?? ''
   const t = useT()
   const [st, setSt] = useState<{ phase: 'working' | 'done' | 'error'; name?: string; issue?: OAuthIssue; detail?: string }>({ phase: 'working' })
   const headRef = useRef<HTMLHeadingElement>(null)
@@ -46,7 +46,7 @@ export function McpOAuthScreen({ state, code, error, errorDescription }: McpOAut
     if (st.phase !== 'working') headRef.current?.focus()
   }, [st.phase])
 
-  const back = () => {
+  const toSettings = () => {
     navigate({ name: 'home' })
     useUI.getState().openModal({ type: 'settings', tab: 'ai' })
   }
@@ -68,7 +68,7 @@ export function McpOAuthScreen({ state, code, error, errorDescription }: McpOAut
               : t('features.ai.mcp.oauth.screen.workingText')}
         </p>
         {st.phase !== 'working' && (
-          <button type="button" className="btn btn--primary" onClick={inWindow ? () => window.close() : back}>
+          <button type="button" className="btn btn--primary" onClick={inWindow ? () => window.close() : toSettings}>
             {inWindow ? t('features.ai.mcp.oauth.screen.close') : t('features.ai.mcp.oauth.screen.back')}
           </button>
         )}

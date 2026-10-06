@@ -85,7 +85,7 @@ export function App() {
   if (route.name === 'oauth')
     return (
       <ErrorBoundary>
-        <McpOAuthScreen key={route.state} state={route.state} code={route.code} error={route.error} errorDescription={route.errorDescription} />
+        <McpOAuthScreen />
         <Toasts />
       </ErrorBoundary>
     )

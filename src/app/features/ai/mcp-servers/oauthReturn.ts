@@ -3,7 +3,8 @@
  * main.tsx calls consumeMcpOAuthReturn() before anything else boots.
  *
  *  - The authorization server sends the browser to One's own page: `<app>/?oauth=mcp&code=…&state=…` (a
- *    redirect URI can't carry a "#"). The address becomes `#/oauth/mcp?state=…&code=…` (hash routing) at once.
+ *    redirect URI can't carry a "#"). The address becomes `#/oauth/mcp` (hash routing) at once — the code is
+ *    kept in this page's memory only (oauthReturned()), never in the address or the history.
  *  - In a sign-in window: the code goes to the tab that started the sign-in (BroadcastChannel "one-mcp-oauth"):
  *    only the tab holding that attempt's state + PKCE verifier (sessionStorage, per attempt) answers, then
  *    finishes it; the window closes. No answer (that tab is gone): the page boots and finishes it itself.
@@ -93,6 +94,14 @@ export function listenForMcpOAuth(fn: (msg: OAuthReturn) => void): void {
 
 const str = (v: unknown) => (typeof v === 'string' ? v.slice(0, 2000) : '')
 
+/** what came back to this page load (the #/oauth/mcp screen finishes it), null: nothing */
+let returned: OAuthReturn | null = null
+
+/** The code (or error) that came back to this page load — for the #/oauth/mcp screen. */
+export function oauthReturned(): OAuthReturn | null {
+  return returned
+}
+
 /** "Signed in — this window closes" in the boot screen of a sign-in window. */
 function bootNote(text: string) {
   const el = document.getElementById('boot')
@@ -116,16 +125,12 @@ export async function consumeMcpOAuthReturn(closingNote = ''): Promise<boolean> 
     return false
   }
   const msg: OAuthReturn = { type: 'one-mcp-oauth', state: str(q.get('state')), code: str(q.get('code')), error: str(q.get('error')), errorDescription: str(q.get('error_description')) }
-  // the route the page shows if it finishes the sign-in itself; the code leaves the query at once
-  const hash = new URLSearchParams()
-  hash.set('state', msg.state)
-  if (msg.code) hash.set('code', msg.code)
-  if (msg.error) hash.set('error', msg.error)
-  if (msg.errorDescription) hash.set('error_description', msg.errorDescription)
+  // the code leaves the address at once; the route the page shows if it finishes the sign-in itself
+  returned = msg
   q.delete(RETURN_PARAM)
   for (const k of ['code', 'state', 'error', 'error_description', 'error_uri', 'iss', 'session_state']) q.delete(k)
   const rest = q.toString()
-  history.replaceState(null, '', `${window.location.pathname}${rest ? `?${rest}` : ''}#/oauth/mcp?${hash.toString()}`)
+  history.replaceState(null, '', `${window.location.pathname}${rest ? `?${rest}` : ''}#/oauth/mcp`)
   // this tab started it (no sign-in window): finish here
   if (hasPending(msg.state) || typeof BroadcastChannel === 'undefined') return false
   const bc = new BroadcastChannel(OAUTH_CHANNEL)
