@@ -8,6 +8,7 @@ import { navigate, openPage, parseHash } from '../../lib/router'
 import { t } from '../../i18n'
 import type { ID, Page } from '../../store/types'
 import { revealMain, useStageView } from './stage'
+import { freeBoardSpec } from '../../database'
 
 const ws = () => useWorkspace.getState()
 const ui = () => useUI.getState()
@@ -61,6 +62,14 @@ export function createPageAndOpen(parentId: ID | null = null, title = '') {
 
 export function createDatabaseAndOpen(parentId: ID | null = null) {
   const id = ws().createDatabase({ parentId, title: '' })
+  requestTitleFocus(id)
+  goToPage(id)
+  return id
+}
+
+/** "New free board": a full-page database whose first view is a free board (lanes + cards of any record type). */
+export function createFreeBoardAndOpen(parentId: ID | null = null) {
+  const id = ws().createDatabase({ parentId, title: '', ...freeBoardSpec() })
   requestTitleFocus(id)
   goToPage(id)
   return id

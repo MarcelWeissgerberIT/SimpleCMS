@@ -108,3 +108,12 @@ export function createEntry(dbId: ID, input: { title?: string; templateId?: ID }
  */
 export { openDatabaseView, pageViewId, exportDatabaseCsv } from './model/outside'
 export { importCsvInto } from './create/CsvIntake'
+/**
+ * Record types in databases + the free board (model/recordTypes):
+ *  - freeBoardSpec(): title + lane properties and a free board view for createDatabase (slash "/free board", "New free board")
+ *  - addFreeBoard(dbId): a lane property + a free board view on an existing database → the view id ('' refused)
+ *  - adoptRowType(rowId): a row whose record type its database does not hold yet (a page dropped in from elsewhere) → attached
+ *  - TYPE_PROP_ID: the computed Type column's id (views' visibleProperties / filters / sorts / groupBy)
+ *  - withTypeColumn(db, props, rows): export columns with "Type" after the title when the database uses record types
+ */
+export { freeBoardSpec, addFreeBoard, adoptRowType, TYPE_PROP_ID, withTypeColumn, typeOfRow } from './model/recordTypes'

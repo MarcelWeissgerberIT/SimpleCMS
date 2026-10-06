@@ -3,14 +3,15 @@
  * group labels, collapsed-group state.
  */
 import { createContext, useContext } from 'react'
-import { ArrowUpRight, Copy, FilePlus2, Link, Maximize2, Trash } from 'lucide-react'
+import { ArrowUpRight, Copy, FilePlus2, Link, Maximize2, MoveRight, Trash } from 'lucide-react'
 import type { ID, Page, PropertyValue } from '../../store/types'
 import { useUI } from '../../store/ui'
 import { Kbd } from '../../ui/controls'
 import { useT } from '../../i18n'
 import { openPage, pageHref } from '../../lib/router'
 import { setViewQuery } from '../model/lock'
-import { deleteRows, duplicateRows, openRow } from '../model/actions'
+import { deleteRows, duplicateRows, openRow, writeValue } from '../model/actions'
+import { laneOf } from './free/lanes'
 import { countFilters, type RowGroup } from '../model/query'
 import { OptionTag, StatusTag, Avatar, ActorChip } from '../cells/display'
 import { saveRowAsTemplate } from '../toolbar/Templates'
@@ -106,7 +107,20 @@ export function RowContextMenu({ row, anchor, onClose }: { row: Page; anchor: Po
       },
     },
   ]
+  // a free board: "Move to" a lane (the touch / keyboard way besides dragging)
+  const lane = m.view.free ? laneOf(m.db, m.view) : null
+  const moveTo: MenuEntry[] = lane
+    ? [
+        { kind: 'separator' },
+        {
+          label: t('database.free.moveTo'),
+          icon: <MoveRight size={14} />,
+          submenu: (lane.options ?? []).map((o) => ({ label: o.name, checked: row.properties[lane.id] === o.id, onSelect: () => writeValue(m.db.id, lane, row.id, o.id) })),
+        },
+      ]
+    : []
   const write: MenuEntry[] = [
+    ...moveTo,
     { kind: 'separator' },
     { label: t('common.duplicate'), icon: <Copy size={14} />, hint: '', onSelect: () => duplicateRows(m.db.id, [row.id]) },
     { label: t('database.templates.saveRow'), icon: <FilePlus2 size={14} />, onSelect: () => saveRowAsTemplate(m.db, row) },

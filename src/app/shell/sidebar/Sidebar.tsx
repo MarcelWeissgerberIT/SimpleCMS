@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
-import { ArrowRight, Bell, Bot, CalendarDays, CalendarRange, ChevronsLeft, ChevronDown, Compass, Home, LayoutTemplate, Lock, PenLine, Plus, Search, Trash2, Upload, Waypoints, Settings, Table2, FilePlus2, Users, SquareCode } from 'lucide-react'
+import { ArrowRight, Bell, Bot, CalendarDays, CalendarRange, ChevronsLeft, ChevronDown, Compass, Home, LayoutTemplate, Lock, PenLine, Plus, Search, Trash2, Upload, Waypoints, Settings, Table2, FilePlus2, Users, SquareCode, SquareKanban } from 'lucide-react'
 import { useWorkspace } from '../../store/store'
 import { useUI } from '../../store/ui'
 import { useFavorites, useTrash, useTreeCount, useHasFavorites } from '../../store/selectors'
@@ -17,7 +17,7 @@ import { TrashPopover } from './TrashPopover'
 import { createPrivateDatabaseAndOpen, createPrivatePageAndOpen } from './private'
 import { treeAncestors, treeKey, useTreeState } from '../lib/tree'
 import { usePrivateMode } from '../../cloud'
-import { closeMobileSidebar, createDatabaseAndOpen, createPageAndOpen, goHome, toggleSidebar } from '../lib/actions'
+import { closeMobileSidebar, createDatabaseAndOpen, createFreeBoardAndOpen, createPageAndOpen, goHome, toggleSidebar } from '../lib/actions'
 import { useIsMobile, useKbdHint } from '../lib/hooks'
 import { HeaderSub, useWorkspaceEntries } from '../cloud/Switcher'
 import { openSettingsTab, useInCloud, useReadOnly, useWorkspaceTitle } from '../cloud/state'
@@ -361,6 +361,7 @@ function PagesSection() {
         entries={[
           { label: t('common.newPage'), icon: <FilePlus2 size={15} />, hint: kbd('Mod+Alt+N'), onSelect: () => createPageAndOpen(null) },
           { label: t('shell.cmd.newDatabase'), icon: <Table2 size={15} />, onSelect: () => createDatabaseAndOpen(null) },
+          { label: t('shell.cmd.newFreeBoard'), icon: <SquareKanban size={15} />, onSelect: () => createFreeBoardAndOpen(null) },
           { label: t('shell.nav.templates'), icon: <LayoutTemplate size={15} />, onSelect: () => useUI.getState().openModal({ type: 'templates', parentId: null }) },
         ]}
       />

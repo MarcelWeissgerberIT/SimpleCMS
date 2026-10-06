@@ -35,6 +35,11 @@ import { Menu, Select, TypeIcon } from '../parts'
 import { useRowColor } from './tree'
 import { ruleStyle } from '../model/colors'
 import type { ColorRule } from '../../store/types'
+import { laneOf } from './free/lanes'
+import { LaneHead } from './free/LaneHead'
+import { AddLane, FreeCardBody, cardColor } from './free/FreeCard'
+import { typeEntries as rtypeEntries } from '../rtype/TypeTag'
+import { NewTypeDialog } from '../rtype/NewTypeDialog'
 import './views.css'
 
 const SEP = '::'
@@ -53,7 +58,13 @@ export function BoardView() {
   const [collapsed, toggleCollapsed] = useCollapsed(view.id)
   const [setScrollEl, overflow, scrollEl] = useEdgeOverflow<HTMLDivElement>()
   const hiddenKey = (view.hiddenGroups ?? []).join('|')
-  const keepEmptyNone = m.groupProp?.type === 'select' || m.groupProp?.type === 'multi_select' || m.groupProp?.type === 'person'
+  // a free board (View.free): lanes are the options of its lane select, cards carry any record type
+  const free = !!view.free
+  const lane = free ? laneOf(db, view) : null
+  const [newMenu, setNewMenu] = useState<{ group: RowGroup; el: HTMLElement } | null>(null)
+  const [newType, setNewType] = useState<RowGroup | null>(null)
+  // a free board's "No lane" column shows only while cards sit there
+  const keepEmptyNone = !free && (m.groupProp?.type === 'select' || m.groupProp?.type === 'multi_select' || m.groupProp?.type === 'person')
   const { visibleGroups, hiddenGroups } = useMemo(() => {
     const hidden = new Set(hiddenKey ? hiddenKey.split('|') : [])
     const groups = m.groups ?? []
@@ -147,13 +158,15 @@ export function BoardView() {
     setItems((cur) => ({ ...cur, [to]: list }))
   }
 
-  const addCard = (g: RowGroup) => {
+  const addCard = (g: RowGroup, typeId?: ID | null) => {
     if (m.readOnly) return
     const gp = m.groupProp
     const v = gp ? valueForGroupMove(gp, undefined, null, g.key) : undefined
-    const id = actions.newRow({ properties: gp && v !== undefined && g.key !== NONE_KEY ? { [gp.id]: v } : {} })
+    const id = actions.newRow({ properties: gp && v !== undefined && g.key !== NONE_KEY ? { [gp.id]: v } : {}, typeId: typeId ?? null })
     setEditing(id)
   }
+  // "+" on a free board: which record type (or a plain card, or a new type)
+  const onAdd = (g: RowGroup, el?: HTMLElement) => (free && el ? setNewMenu({ group: g, el }) : addCard(g))
 
   if (!m.groupProp) return <ChooseGroup m={m} />
 
@@ -190,6 +203,22 @@ export function BoardView() {
                   m={m}
                   group={g}
                   index={gi}
+                  free={free}
+                  head={
+                    free && lane ? (
+                      <LaneHead
+                        m={m}
+                        group={g}
+                        index={gi}
+                        count={(items[g.key] ?? []).length}
+                        laneId={lane.id}
+                        lanes={m.groups ?? []}
+                        onAdd={(el) => onAdd(g, el)}
+                        onCollapse={() => toggleCollapsed(g.key)}
+                        onHide={() => setHidden(g.key, true)}
+                      />
+                    ) : undefined
+                  }
                   ids={items[g.key] ?? []}
                   rowsById={rowsById}
                   cardProps={cardProps}
@@ -197,7 +226,7 @@ export function BoardView() {
                   editing={editing}
                   // like the table (and Notion): Esc on a fresh card keeps it, untitled
                   onEditDone={() => setEditing(null)}
-                  onAdd={() => addCard(g)}
+                  onAdd={(el) => onAdd(g, el)}
                   onMenu={(el) => setMenu({ group: g, el })}
                   onOpen={(row) => actions.open(row)}
                   onContext={(row, e) => {
@@ -207,6 +236,7 @@ export function BoardView() {
                 />
               )
             })}
+            {free && lane && !m.fixed && <AddLane m={m} laneId={lane.id} />}
             {hiddenGroups.length > 0 && (
               <div className="dbb-hidden">
                 <div className="label dbb-hidden__head">{t('database.group.hidden')}</div>
@@ -222,13 +252,31 @@ export function BoardView() {
           </div>
           <DragOverlay dropAnimation={{ duration: 160, easing: 'cubic-bezier(0.2, 0.8, 0.2, 1)' }}>
             {activeRow ? (
-              <div className="dbc dbc--overlay">
+              <div className="dbc dbc--overlay" data-typed={free && !!cardColor(m, activeRow) ? true : undefined} style={free ? ({ ['--rt' as string]: cardColor(m, activeRow) ?? undefined } as React.CSSProperties) : undefined}>
                 <CardPreview m={m} row={activeRow} preview={view.cardPreview} />
-                <CardBody m={m} row={activeRow} props={cardProps} />
+                {free ? <FreeCardBody m={m} row={activeRow} props={cardProps} /> : <CardBody m={m} row={activeRow} props={cardProps} />}
               </div>
             ) : null}
           </DragOverlay>
         </DndContext>
+        {newMenu && (
+          <Menu
+            open
+            anchor={newMenu.el}
+            onClose={() => setNewMenu(null)}
+            width={250}
+            entries={rtypeEntries(t, {
+              db,
+              kit: m.kit,
+              current: '',
+              noneLabel: t('database.free.plainCard'),
+              labelOf: (rt) => rt.name,
+              onPick: (typeId) => addCard(newMenu.group, typeId),
+              onNew: () => setNewType(newMenu.group),
+            })}
+          />
+        )}
+        {newType && <NewTypeDialog dbId={db.id} onClose={() => setNewType(null)} onCreated={(id) => addCard(newType, id)} />}
         {menu && (
           <Menu
             open
@@ -259,6 +307,8 @@ function Column({
   m,
   group,
   index,
+  free,
+  head,
   ids,
   rowsById,
   cardProps,
@@ -273,13 +323,16 @@ function Column({
   m: DbModel
   group: RowGroup
   index: number
+  free: boolean
+  /** the column's own header (a free board's lane) */
+  head?: React.ReactNode
   ids: string[]
   rowsById: Map<ID, Page>
   cardProps: PropertyDef[]
   colorOf: (row: Page) => ColorRule | null
   editing: ID | null
   onEditDone: (id: ID, cancelled: boolean) => void
-  onAdd: () => void
+  onAdd: (el?: HTMLElement) => void
   onMenu: (el: HTMLElement) => void
   onOpen: (row: Page) => void
   onContext: (row: Page, e: React.MouseEvent) => void
@@ -290,6 +343,7 @@ function Column({
   const shown = ids.length > limit ? ids.slice(0, limit) : ids
   return (
     <section className="dbb-col" data-over={isOver} aria-label={group.label}>
+      {head ?? (
       <header className="dbb-col__head">
         <span className="dbb-col__idx">{String.fromCharCode(65 + (index % 26))}</span>
         <GroupLabel group={group} />
@@ -299,17 +353,18 @@ function Column({
           <Ellipsis size={14} />
         </button>
         {!m.readOnly && (
-          <button type="button" className="icon-btn icon-btn--sm" aria-label={t('database.new.inGroup')} onClick={onAdd}>
+          <button type="button" className="icon-btn icon-btn--sm" aria-label={t('database.new.inGroup')} onClick={(e) => onAdd(e.currentTarget)}>
             <Plus size={14} />
           </button>
         )}
       </header>
+      )}
       <div ref={setNodeRef} className="dbb-col__body">
         <SortableContext id={group.key} items={shown} strategy={verticalListSortingStrategy}>
           {shown.map((id) => {
             const row = rowsById.get(id.slice(id.lastIndexOf(SEP) + SEP.length))
             if (!row) return null
-            return <Card key={id} id={id} m={m} row={row} rc={colorOf(row)} props={cardProps} editing={editing === row.id} onEditDone={(c) => onEditDone(row.id, c)} onOpen={() => onOpen(row)} onContext={(e) => onContext(row, e)} />
+            return <Card key={id} id={id} m={m} row={row} free={free} rc={colorOf(row)} props={cardProps} editing={editing === row.id} onEditDone={(c) => onEditDone(row.id, c)} onOpen={() => onOpen(row)} onContext={(e) => onContext(row, e)} />
           })}
         </SortableContext>
         {ids.length > shown.length && (
@@ -318,7 +373,7 @@ function Column({
           </button>
         )}
         {!m.readOnly && (
-          <button type="button" className="dbb-add" onClick={onAdd}>
+          <button type="button" className="dbb-add" onClick={(e) => onAdd(e.currentTarget)}>
             <Plus size={13} /> {t('common.new')}
           </button>
         )}
@@ -327,7 +382,7 @@ function Column({
   )
 }
 
-function Card({ id, m, row, rc, props, editing, onEditDone, onOpen, onContext }: { id: string; m: DbModel; row: Page; rc: ColorRule | null; props: PropertyDef[]; editing: boolean; onEditDone: (cancelled: boolean) => void; onOpen: () => void; onContext: (e: React.MouseEvent) => void }) {
+function Card({ id, m, row, free, rc, props, editing, onEditDone, onOpen, onContext }: { id: string; m: DbModel; row: Page; free?: boolean; rc: ColorRule | null; props: PropertyDef[]; editing: boolean; onEditDone: (cancelled: boolean) => void; onOpen: () => void; onContext: (e: React.MouseEvent) => void }) {
   // view only: cards open, they don't move
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id, disabled: editing || m.readOnly })
   return (
@@ -337,7 +392,9 @@ function Card({ id, m, row, rc, props, editing, onEditDone, onOpen, onContext }:
       data-dragging={isDragging}
       data-rc={rc?.target}
       data-rc-color={rc?.color}
-      style={{ transform: CSS.Translate.toString(transform), transition, ...(rc ? ruleStyle(rc.color) : null) }}
+      data-typed={(free && !!row.recordType && !!cardColor(m, row)) || undefined}
+      data-rtype={free ? (row.recordType ?? undefined) : undefined}
+      style={{ transform: CSS.Translate.toString(transform), transition, ...(rc ? ruleStyle(rc.color) : null), ...(free ? { ['--rt' as string]: cardColor(m, row) ?? undefined } : null) }}
       {...attributes}
       {...listeners}
       // view only: the card still opens (Enter / click) — not "disabled", not "sortable"
@@ -350,7 +407,7 @@ function Card({ id, m, row, rc, props, editing, onEditDone, onOpen, onContext }:
       onContextMenu={onContext}
     >
       <CardPreview m={m} row={row} preview={m.view.cardPreview} />
-      <CardBody m={m} row={row} props={props} editing={editing} onEditDone={onEditDone} />
+      {free ? <FreeCardBody m={m} row={row} props={props} editing={editing} onEditDone={onEditDone} /> : <CardBody m={m} row={row} props={props} editing={editing} onEditDone={onEditDone} />}
     </article>
   )
 }

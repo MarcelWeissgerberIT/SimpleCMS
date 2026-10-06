@@ -25,6 +25,7 @@ import {
   Share2,
   SunMoon,
   Table2,
+  SquareKanban,
   Trash2,
   Upload,
   Waypoints,
@@ -58,6 +59,7 @@ import { startTour } from '../tour/state'
 import {
   copyPageLink,
   createDatabaseAndOpen,
+  createFreeBoardAndOpen,
   createPageAndOpen,
   duplicateAndOpen,
   toggleFocusMode,
@@ -91,6 +93,7 @@ export function buildCommands(t: Translate, pageId: ID | null): Command[] {
   const list: Command[] = [
     { id: 'new-page', group: 'create', label: t('shell.cmd.newPage'), icon: FilePlus2, shortcut: 'Mod+Alt+N', keywords: 'create add document neu seite', run: () => createPageAndOpen(null) },
     { id: 'new-database', group: 'create', label: t('shell.cmd.newDatabase'), icon: Table2, keywords: 'table board kanban datenbank tabelle', run: () => createDatabaseAndOpen(null) },
+    { id: 'new-free-board', group: 'create', label: t('shell.cmd.newFreeBoard'), icon: SquareKanban, keywords: 'free board record types lanes freies board datensatz typen spalten', run: () => createFreeBoardAndOpen(null) },
     { id: 'quick-note', group: 'create', label: t('shell.cmd.quickNote'), icon: Inbox, keywords: 'inbox capture jot memo eingang notiz schnell', run: () => { closeMobileSidebar(); quickNoteToInbox() } },
     { id: 'quick-capture', group: 'create', label: t('shell.qcap.cmd'), icon: Inbox, shortcut: QUICK_CAPTURE_SHORTCUT, keywords: 'capture voice photo camera dictate inbox clippings erfassen sprache foto kamera diktieren ablage', run: () => { closeMobileSidebar(); openQuickCapture() } },
     { id: 'templates', group: 'create', label: t('shell.cmd.templates'), icon: LayoutTemplate, keywords: 'vorlagen gallery', run: () => ui.openModal({ type: 'templates', parentId: null }) },
