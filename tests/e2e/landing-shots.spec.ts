@@ -40,13 +40,16 @@ test.describe('landing screenshots', () => {
     })
   }
 
-  test('AI deep dive: meeting notes first, then agent, autofill and writing; forms logic under automations', async ({ page }) => {
+  test('AI deep dive: Transform first, then meetings, agent, autofill and writing; forms logic under automations', async ({ page }) => {
     await page.goto('./?skip')
     const ai = page.getByRole('tablist', { name: /Claude/ })
     await ai.scrollIntoViewIfNeeded()
     const fig = page.locator('[data-frame-tabs]', { has: ai })
     const shown = fig.locator('img.frame-img.is-on')
-    await expect(ai.getByRole('tab')).toHaveText([/Meetings/, /Agent/, /Autofill/, /Write/])
+    await expect(ai.getByRole('tab')).toHaveText([/Transform/, /Meetings/, /Agent/, /Autofill/, /Write/])
+    await expect(shown).toHaveAttribute('src', /shots\/transform\.webp$/)
+    await expect(fig.locator('figcaption')).toContainText('A list → a diagram')
+    await ai.getByRole('tab', { name: /Meetings/ }).click()
     await expect(shown).toHaveAttribute('src', /shots\/meeting\.webp$/)
     await expect(fig.locator('figcaption')).toContainText('Meeting notes from a live transcript')
     await ai.getByRole('tab', { name: /Agent/ }).click()
@@ -60,6 +63,25 @@ test.describe('landing screenshots', () => {
     await auto.getByRole('tab', { name: /Logic/ }).click()
     await expect(autoFig.locator('img.frame-img.is-on')).toHaveAttribute('src', /shots\/forms\.webp$/)
     await expect(autoFig.locator('figcaption')).toContainText('conditional questions')
+  })
+
+  test('new deep dives: One Script (query, Ask Claude) and mail (mails, contacts, PDF → table); the ⌘ commands under databases', async ({ page }) => {
+    await page.goto('./?skip')
+    for (const [list, tabs, files] of [
+      [/One Script/, [/Query/, /Ask Claude/], ['script', 'script-ask']],
+      [/Mail/, [/Mails/, /Contacts/, /PDF → table/], ['mail', 'contacts', 'file-table']],
+      [/Databases/, [/Board/, /Timeline/, /Agenda/, /Commands/], ['database', 'timeline', 'agenda', 'db-commands']],
+    ] as const) {
+      const tl = page.getByRole('tablist', { name: list })
+      await tl.scrollIntoViewIfNeeded()
+      await expect(tl.getByRole('tab')).toHaveText([...tabs])
+      const shown = page.locator('[data-frame-tabs]', { has: tl }).locator('img.frame-img.is-on')
+      for (const [i, file] of files.entries()) {
+        await tl.getByRole('tab').nth(i).click()
+        await expect(shown).toHaveAttribute('src', new RegExp(`shots/${file}\\.webp$`))
+        await expect.poll(() => shown.evaluate((img: HTMLImageElement) => img.naturalWidth)).toBe(1600)
+      }
+    }
   })
 
   test('README: every screenshot it shows exists', () => {

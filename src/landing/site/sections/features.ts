@@ -82,6 +82,12 @@ const KEYWORDS: Record<FeatureKey, string[]> = {
   agent: ['focus', 'target', 'task', 'agent'],
   mcpTools: ['sync', 'link', 'chain', 'connect'],
   mail: ['import', 'inbox', 'tray', 'mail'],
+  transform: ['split', 'columns', 'layout'],
+  meeting: ['microphone', 'mic', 'voice', 'meeting'],
+  script: ['notepad', 'script', 'code', 'note'],
+  commands: ['command', 'keycap', 'key'],
+  files: ['book', 'file', 'document', 'pdf'],
+  memory: ['rolodex', 'card', 'memory'],
 }
 
 /** Hand-picked art per feature (manifest `name`); keyword matching is only the fallback. */
@@ -96,7 +102,7 @@ const PREFERRED: Partial<Record<FeatureKey, string>> = {
   palette: 'search',
   automations: 'automation',
   forms: 'templates', // a sheet with an orange field: a form
-  buttons: 'command', // a keycap: one press
+  buttons: 'counter', // a tally counter: one press, one action
   autofill: 'code', // a calculator: it fills in the numbers
   website: 'publish', // a paper plane: send it out
   share: 'lock',
@@ -110,6 +116,12 @@ const PREFERRED: Partial<Record<FeatureKey, string>> = {
   agent: 'focus', // a target: the task you hand over
   mcpTools: 'sync', // two chain links: another system, connected
   mail: 'import', // an in-tray: mail arriving
+  transform: 'split', // one panel turning into another form
+  meeting: 'microphone', // the live transcript
+  script: 'notepad', // a few lines written down
+  commands: 'command', // the ⌘ keycap of every database
+  files: 'book', // a document that becomes structure
+  memory: 'rolodex', // a card file of what you confirmed
 }
 
 interface IconRef {

@@ -18,6 +18,8 @@ import { loadFeatureIcons, renderFeatures } from './sections/features'
 import { bindHero, renderHero } from './sections/hero'
 import { bindMcp, renderMcp } from './sections/mcp'
 import { renderPrivacy } from './sections/privacy'
+import { renderReview } from './sections/review'
+import { bindTour, renderTour } from './sections/tour'
 import { bindSavings, renderSavings } from './sections/savings'
 import { renderTopbar } from './sections/topbar'
 import { esc, prefersReducedMotion } from './util'
@@ -69,6 +71,7 @@ export function mountSite(root: HTMLElement, opts: { lang: Lang; underIntro: boo
       ${renderTopbar(c)}
       <main id="main" tabindex="-1">
         ${renderHero(c)}
+        ${renderReview(c)}
         ${renderSavings(c)}
         ${renderFeatures(c)}
         ${renderMcp(c)}
@@ -79,10 +82,12 @@ export function mountSite(root: HTMLElement, opts: { lang: Lang; underIntro: boo
         ${renderFaq(c)}
       </main>
       ${renderFooter(c)}
-      ${lightboxHtml(c.t('fig.close'))}`
+      ${lightboxHtml(c.t('fig.close'))}
+      ${renderTour(c)}`
     bindFrames(root)
     bindFrameTabs(root)
     cleanups.push(bindLightbox(root))
+    cleanups.push(bindTour(root))
     bindSavings(root, c, { onReprint: reprint, rollNumber })
     void loadFeatureIcons(root)
     bindChrome()
@@ -206,7 +211,7 @@ export function mountSite(root: HTMLElement, opts: { lang: Lang; underIntro: boo
   function switchLang(next: Lang): void {
     // Anchor: the innermost block crossing the line under the top bar, and our offset into it.
     // Same DOM order in both languages → the index finds the twin after the re-render.
-    const ANCHORS = 'main > section, .deep-row, .pgroup, .plac, .spec tr, .faq-item, .calc, .schematic, .plate, .mcp-port, .mcp-tools, .mcp-steps > li, .agent-plate, .mcp-agents-fig, footer'
+    const ANCHORS = 'main > section, .rv-gate, .rv-fig, .deep-row, .pgroup, .plac, .spec tr, .faq-item, .calc, .schematic, .plate, .mcp-port, .mcp-tools, .mcp-steps > li, .agent-plate, .mcp-agents-fig, footer'
     const probe = 90
     const before = Array.from(root.querySelectorAll<HTMLElement>(ANCHORS))
     let idx = -1

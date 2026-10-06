@@ -24,20 +24,21 @@ body { font-family: Archivo, sans-serif; -webkit-font-smoothing: antialiased; }
 `
 
 // One line per voice-over line (the narration says more; the caption carries it for muted autoplay).
-// Kept to one line so the lower third covers as little of the app as possible.
+// Kept to one line so the lower third covers as little of the app as possible. v3 — "Claude asks
+// before it changes"; the end card (line 10) has no caption.
 export const CAPTIONS = [
-  { label: '§ 00 — The problem', text: 'Notion is brilliant. For a team of ten, it also costs nearly $3,000 a year.' },
-  { label: '§ 00 — The fix', text: 'So we took a hammer to it.' },
-  { label: '§ 01 — SimpleCMS One', text: 'Notion, rebuilt — minus the bill.' },
-  { label: '§ 02 — Block editor', text: 'Slash commands, toggles, math, diagrams — and forms with logic.' },
-  { label: '§ 03 — Databases · charts', text: 'Eight views, relations, rollups, formulas — charts in three clicks.' },
-  { label: '§ 04 — Spreadsheets', text: 'Sheets, formulas, coloured datasets — and functions you build by clicking.' },
-  { label: '§ 05 — Teams', text: 'Live editing, private pages, every workspace encrypted with its own key.' },
-  { label: '§ 06 — Claude · MCP', text: 'Claude built in — and Claude Desktop runs your workspace over MCP.' },
-  { label: '§ 07 — Automations', text: 'Meeting notes, GitHub sync, webhooks into n8n.' },
+  { label: '§ 00 — The fix', text: 'We took a hammer to Notion.' },
+  { label: '§ 01 — SimpleCMS One', text: 'Type, hit /, and every block is right there.' },
+  { label: '§ 02 — Transform into', text: 'Select a list — Claude turns it into a diagram.' },
+  { label: '§ 03 — AI terminal', text: 'Every edit waits for your review, word by word.' },
+  { label: '§ 04 — One memory', text: 'It only remembers what you confirm.' },
+  { label: '§ 05 — One Script', text: 'Live queries — and every script shows a dry run first.' },
+  { label: '§ 06 — Mail · files', text: 'Gmail as a database — and a PDF invoice becomes a table.' },
+  { label: '§ 07 — Database commands', text: 'Every database has its own commands, one key away.' },
+  { label: '§ 08 — Team · MCP', text: 'Your team on your own server — or Claude Desktop over MCP.' },
 ]
 
-const captionHtml = ({ label, text }) => `<!doctype html><html><head><style>${BASE_CSS}
+const captionHtml = ({ label, text }) => `<!doctype html><html><head><meta charset="utf-8"><style>${BASE_CSS}
 .cap { position: absolute; left: 64px; bottom: 44px; max-width: 1560px; padding: 16px 28px 19px 32px; background: rgba(18,18,16,.94); color: #f2f0ea; border-radius: 6px; box-shadow: 0 18px 50px -12px rgba(0,0,0,.45); }
 .cap::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 6px; background: #ff4f00; border-radius: 6px 0 0 6px; }
 .lbl { font-size: 16px; font-weight: 600; margin-bottom: 6px; }
@@ -58,7 +59,7 @@ html, body { background: #111110; color: #ece9e2; }
 .foot { position: absolute; left: 140px; right: 140px; bottom: 70px; display: flex; justify-content: space-between; font-size: 20px; color: #8a867e; }
 `
 
-const hookHtml = `<!doctype html><html><head><style>${cardCss}</style></head><body><div class="grid"></div>
+const hookHtml = `<!doctype html><html><head><meta charset="utf-8"><style>${cardCss}</style></head><body><div class="grid"></div>
 <div class="wrap">
   <div class="lbl mono sig"><span class="led"></span>§ ?? — Classified</div>
   <div class="big">What happens next<span class="dot">?</span></div>
@@ -68,8 +69,8 @@ const hookHtml = `<!doctype html><html><head><style>${cardCss}</style></head><bo
 </body></html>`
 
 const LOGO = `<svg width="96" height="96" viewBox="0 0 32 32"><rect x="1" y="1" width="30" height="30" rx="3" fill="#FF4F00"/><circle cx="7" cy="7" r="2" fill="#121210"/><path d="M13 9.5 18.5 7H21v18h-4.2V12.2L13 13.8z" fill="#121210"/></svg>`
-// end card states, switched on the voice-over: 1 "No subscription." · 2 "Your data stays yours." · 3 the brand
-const endHtml = (state) => `<!doctype html><html><head><style>${cardCss}
+// end card states, switched on the voice-over: 1 "Your data stays yours." · 2 "Claude asks first." · 3 the brand
+const endHtml = (state) => `<!doctype html><html><head><meta charset="utf-8"><style>${cardCss}
 .lines { font-size: 104px; line-height: 1.06; font-weight: 820; font-stretch: 125%; letter-spacing: -.025em; }
 .lines div { opacity: 1; }
 .lines .off { opacity: .14; }
@@ -81,8 +82,8 @@ const endHtml = (state) => `<!doctype html><html><head><style>${cardCss}
 </style></head><body><div class="grid"></div>
 <div class="wrap">
   <div class="lines">
-    <div class="${state >= 1 ? '' : 'off'}">No subscription<span class="dot">.</span></div>
-    <div class="${state >= 2 ? '' : 'off'}">Your data stays yours<span class="dot">.</span></div>
+    <div class="${state >= 1 ? '' : 'off'}">Your data stays yours<span class="dot">.</span></div>
+    <div class="${state >= 2 ? '' : 'off'}">Claude asks first<span class="dot">.</span></div>
   </div>
   <div class="brand" style="opacity:${state >= 3 ? 1 : 0}">
     ${LOGO}

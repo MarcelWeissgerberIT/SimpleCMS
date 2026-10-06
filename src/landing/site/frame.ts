@@ -50,7 +50,7 @@ export const CROPS =
 const ZOOM_ICON =
   '<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M9.5 2.5h4v4M13.5 2.5 9 7M6.5 13.5h-4v-4M2.5 13.5 7 9" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="square"/></svg>'
 
-const zoomButton = (label: string) => `<button type="button" class="frame-zoom" data-zoom aria-label="${esc(label)}">${ZOOM_ICON}</button>`
+export const zoomButton = (label: string) => `<button type="button" class="frame-zoom" data-zoom aria-label="${esc(label)}">${ZOOM_ICON}</button>`
 
 const img = (shot: string, alt: string, extra: string, on = false) =>
   `<img class="frame-img${on ? ' is-on' : ''}" src="${asset(shot)}" alt="${esc(alt)}" width="1600" height="1000" decoding="async" ${extra} />`
@@ -120,10 +120,14 @@ export function bindFrames(root: HTMLElement): void {
 /** Selected screenshot per tabbed frame (panel id) — survives the language re-render. */
 const selected = new Map<string, number>()
 
-/** Mode keys of tabbed frames: click, arrows / Home / End (roving tabindex, automatic activation). */
+/**
+ * Mode keys of tabbed frames: click, arrows / Home / End (roving tabindex, automatic activation).
+ * A vertical tab list (aria-orientation) takes ↑ / ↓ as well.
+ */
 export function bindFrameTabs(root: HTMLElement): void {
   root.querySelectorAll<HTMLElement>('[data-frame-tabs]').forEach((fig) => {
     const tabs = Array.from(fig.querySelectorAll<HTMLButtonElement>('[role="tab"]'))
+    const vertical = fig.querySelector('[role="tablist"]')?.getAttribute('aria-orientation') === 'vertical'
     const panel = fig.querySelector<HTMLElement>('[role="tabpanel"]')
     const cap = fig.querySelector<HTMLElement>('[data-cap]')
     const select = (i: number, focus: boolean) => {
@@ -152,7 +156,9 @@ export function bindFrameTabs(root: HTMLElement): void {
       tab.addEventListener('click', () => select(i, false))
       tab.addEventListener('keydown', (e) => {
         const n = tabs.length
-        const to = e.key === 'ArrowRight' ? (i + 1) % n : e.key === 'ArrowLeft' ? (i - 1 + n) % n : e.key === 'Home' ? 0 : e.key === 'End' ? n - 1 : -1
+        const next = e.key === 'ArrowRight' || (vertical && e.key === 'ArrowDown')
+        const prev = e.key === 'ArrowLeft' || (vertical && e.key === 'ArrowUp')
+        const to = next ? (i + 1) % n : prev ? (i - 1 + n) % n : e.key === 'Home' ? 0 : e.key === 'End' ? n - 1 : -1
         if (to < 0) return
         e.preventDefault()
         select(to, true)

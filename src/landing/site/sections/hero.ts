@@ -53,6 +53,7 @@ export function renderHero(ctx: Ctx): string {
         <div class="hero-ctas">
           <a class="btn btn-sig btn-lg" href="${BRAND.appHref}">${esc(t('hero.cta'))}<span class="arr" aria-hidden="true">→</span></a>
           <a class="btn btn-ghost btn-lg" href="${BRAND.appHref}?import">${esc(t('hero.import'))}</a>
+          <button type="button" class="btn btn-ghost hero-tour" data-tour aria-haspopup="dialog"><span class="hero-tour-l"><span class="hero-tour-play" aria-hidden="true"></span>${esc(t('hero.tour'))}</span><span class="lbl hero-tour-meta">${esc(t('hero.tourMeta'))}</span></button>
         </div>
         <p class="lbl hero-fine">${esc(t('hero.fine'))}</p>
         <div class="bom">

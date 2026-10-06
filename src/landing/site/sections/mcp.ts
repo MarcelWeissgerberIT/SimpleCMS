@@ -8,12 +8,12 @@ import { dotted } from './hero'
 import { sectionHead } from './head'
 
 /**
- * § 03 — Agents · MCP: One as an instrument with two ports. Plate 3.1 shows both directions
+ * § 04 — Agents · MCP: One as an instrument with two ports. Plate 4.1 shows both directions
  * (Claude Desktop → One; One's Claude → your MCP servers). Then the port "in" up close: a schematic
  * of both ways in (local bridge → your tab; remote → your team server), the mode selector of the
  * local bridge (it re-labels the approval gate in the drawing and darkens the write tools), the
  * tool table and the setup: first the one-click Claude Desktop extension (mcp/one.mcpb), then —
- * folded — the bridge file and the snippets for other clients, with copy keys. Last, 3.3: custom
+ * folded — the bridge file and the snippets for other clients, with copy keys. Last, 4.3: custom
  * agents — a nameplate of an example agent and a real screenshot of a run.
  */
 
@@ -292,7 +292,7 @@ function port(dir: 'in' | 'out', t: T, tools: number, help: string): string {
       </div>`
 }
 
-/** Plate 3.1: Claude Desktop → One (the schematic below wires it up) and One's Claude → your MCP servers. */
+/** Plate 4.1: Claude Desktop → One (the schematic below wires it up) and One's Claude → your MCP servers. */
 function ports(ctx: Ctx): string {
   const { t, c, lang } = ctx
   const help = `${BRAND.homeHref}help/${lang === 'de' ? 'de/' : ''}mcp-servers/`
@@ -305,7 +305,7 @@ function ports(ctx: Ctx): string {
 
 const AGENT_SPEC = ['job', 'trigger', 'scope', 'mcp', 'changes', 'budget', 'runs'] as const
 
-/** 3.3: custom agents — a riveted nameplate of an example agent next to a real screenshot. */
+/** 4.3: custom agents — a riveted nameplate of an example agent next to a real screenshot. */
 function agents(ctx: Ctx): string {
   const { t, lang } = ctx
   const help = `${BRAND.homeHref}help/${lang === 'de' ? 'de/' : ''}custom-agents/`

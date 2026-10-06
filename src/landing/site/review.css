@@ -1,0 +1,339 @@
+/* § 01 Claude · Review: the review gate (four checks as vertical mode keys) + its frame,
+   and the hero's tour key with its video dialog. */
+
+.rv {
+  display: grid;
+  grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
+  column-gap: clamp(28px, 3.6vw, 60px);
+  align-items: start;
+}
+.rv-gate {
+  display: grid;
+  gap: 18px;
+}
+.rv-gate-h {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin: 0;
+  padding-bottom: 10px;
+  border-bottom: 2px solid var(--ink);
+  color: var(--ink);
+}
+.rv-gate-h > span:first-child {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+.rv-gate-h > span:last-child {
+  color: var(--ink-3);
+}
+
+/* The keys: a panel of four, the selected one lit (signal bar, inverted letter, LED on). */
+.rv-keys {
+  display: grid;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius-1);
+  background: var(--surface);
+  overflow: hidden;
+}
+.rv-key {
+  position: relative;
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr) 9px;
+  column-gap: 14px;
+  align-items: start;
+  width: 100%;
+  margin: 0;
+  padding: 15px 18px 15px 14px;
+  border: 0;
+  border-top: 1px solid var(--rule);
+  border-radius: 0;
+  background: transparent;
+  text-align: left;
+  transition: background-color var(--dur-2) var(--ease-out);
+}
+.rv-key:first-child {
+  border-top: 0;
+}
+.rv-key:hover {
+  background: var(--bg);
+}
+.rv-key[aria-selected='true'] {
+  background: var(--bg);
+  box-shadow: inset 3px 0 0 var(--signal);
+}
+.rv-key:active {
+  transform: translateY(1px);
+}
+.site .rv-key:focus-visible {
+  outline-offset: -3px;
+}
+.rv-key-n {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius-1);
+  box-shadow: inset 0 -2px 0 var(--rule);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink-2);
+  transition:
+    background-color var(--dur-2) var(--ease-out),
+    color var(--dur-2) var(--ease-out);
+}
+.rv-key[aria-selected='true'] .rv-key-n {
+  border-color: var(--ink);
+  background: var(--ink);
+  box-shadow: none;
+  color: var(--bg);
+}
+.rv-key-body {
+  display: grid;
+  min-width: 0;
+}
+.rv-key-h {
+  font-size: 17px;
+  font-weight: 750;
+  font-stretch: 112%;
+  letter-spacing: -0.01em;
+  line-height: 1.25;
+  color: var(--ink);
+}
+.rv-key-spec {
+  margin-top: 5px;
+  color: var(--ink-3);
+}
+.rv-key[aria-selected='true'] .rv-key-spec {
+  color: var(--signal-ink);
+}
+/* The text of the selected check unfolds (grid rows 0fr → 1fr). */
+.rv-key-more {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows var(--dur-3) var(--ease-out);
+}
+.rv-key-p {
+  min-height: 0;
+  overflow: hidden;
+  font-size: 14.5px;
+  line-height: 1.5;
+  color: var(--ink-2);
+}
+.rv-key[aria-selected='true'] .rv-key-more {
+  grid-template-rows: 1fr;
+}
+.rv-key[aria-selected='true'] .rv-key-p {
+  padding-top: 8px;
+}
+.rv-key-led {
+  width: 9px;
+  height: 9px;
+  margin-top: 9px;
+  border-radius: var(--radius-led);
+  background: var(--led-off);
+  transition: background-color var(--dur-2) var(--ease-out);
+}
+.rv-key[aria-selected='true'] .rv-key-led {
+  background: var(--led-on);
+  box-shadow: 0 0 0 2px var(--signal-wash);
+}
+
+/* The signal path of a change: four stations on one wire. */
+.rv-chain {
+  display: flex;
+  align-items: center;
+  margin: 4px 0 0;
+  padding: 0;
+  list-style: none;
+  color: var(--ink-2);
+}
+.rv-chain li {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  white-space: nowrap;
+}
+.rv-chain li:last-child {
+  flex: none;
+}
+.rv-chain li:not(:last-child)::after {
+  content: '';
+  flex: 1;
+  min-width: 10px;
+  height: 1px;
+  margin-right: 8px;
+  background: var(--rule-strong);
+}
+.rv-chain-dot {
+  width: 7px;
+  height: 7px;
+  flex: none;
+  border: 1.5px solid var(--ink-2);
+  border-radius: var(--radius-led);
+}
+.rv-chain .is-you {
+  color: var(--ink);
+}
+.rv-chain .is-you .rv-chain-dot {
+  border-color: var(--signal);
+  background: var(--signal);
+}
+.rv-help {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px 10px;
+  margin: 0;
+  padding-top: 12px;
+  border-top: 1px solid var(--rule);
+}
+.rv-help > span:first-child {
+  color: var(--ink-3);
+  margin-right: 4px;
+}
+.rv-help a {
+  color: var(--ink);
+  text-decoration: none;
+  border-bottom: 1px solid var(--rule-strong);
+}
+.rv-help a:hover {
+  border-bottom-color: var(--signal);
+}
+
+@media (max-width: 1000px) {
+  .rv {
+    grid-template-columns: minmax(0, 1fr);
+    row-gap: 28px;
+  }
+  /* the screenshot first: a key below switches it in view */
+  .rv-fig {
+    order: -1;
+  }
+}
+@media (max-width: 600px) {
+  .rv-key {
+    grid-template-columns: 26px minmax(0, 1fr) 9px;
+    column-gap: 12px;
+    padding: 13px 14px 13px 12px;
+  }
+  .rv-key-n {
+    width: 24px;
+    height: 24px;
+    font-size: 11px;
+  }
+  .rv-key-h {
+    font-size: 16px;
+  }
+  .rv-key-p {
+    font-size: 14px;
+  }
+  .rv-chain {
+    flex-wrap: wrap;
+    row-gap: 8px;
+  }
+  .rv-chain li {
+    flex: none;
+  }
+  .rv-chain li:not(:last-child)::after {
+    flex: none;
+    width: 14px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .rv-key-more,
+  .rv-key-n,
+  .rv-key-led {
+    transition: none;
+  }
+}
+
+/* ---------- The tour: a key under the hero's CTAs, the video in a dialog ---------- */
+.hero-tour {
+  justify-content: space-between;
+  height: 40px;
+  padding: 0 14px;
+}
+.hero-tour-l {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+.hero-tour-play {
+  width: 0;
+  height: 0;
+  border-left: 8px solid var(--signal);
+  border-top: 5px solid transparent;
+  border-bottom: 5px solid transparent;
+}
+.hero-tour-meta {
+  color: var(--ink-3);
+}
+.tour {
+  width: 100vw;
+  height: 100dvh;
+  max-width: none;
+  max-height: none;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: color-mix(in srgb, var(--bg) 96%, transparent);
+  color: var(--ink);
+}
+.tour[open] {
+  display: grid;
+  place-items: center;
+}
+.tour::backdrop {
+  background: transparent;
+}
+.tour-fig {
+  display: grid;
+  gap: 12px;
+  width: min(calc(100vw - 32px), calc((100dvh - 140px) * 16 / 9), 1440px);
+  margin: 0;
+}
+.tour[open] .tour-fig {
+  animation: lb-in var(--dur-3) var(--ease-out);
+}
+.tour-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin: 0;
+  color: var(--ink-2);
+}
+.tour-head > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.tour-media {
+  aspect-ratio: 16 / 9;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius-2);
+  overflow: hidden;
+  background: var(--surface-3);
+}
+.tour-video {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.tour-note {
+  margin: 0;
+  color: var(--ink-3);
+}
+@media (prefers-reduced-motion: reduce) {
+  .tour[open] .tour-fig {
+    animation: none;
+  }
+}
