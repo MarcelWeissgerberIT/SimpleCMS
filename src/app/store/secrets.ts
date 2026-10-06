@@ -200,13 +200,20 @@ export function mcpServersValue(value: unknown, current: McpServerConfig[] | und
   }
   const list = Array.isArray(value) ? value.filter((s): s is McpServerConfig => !!s && typeof s === 'object' && typeof s.id === 'string' && !!s.id) : undefined
   const kept = new Set(list?.map((s) => s.id))
-  for (const old of before.values()) if (!kept.has(old.id) && isSecretMarker(old.token)) drop(old.id, old.token)
+  for (const old of before.values()) {
+    if (kept.has(old.id)) continue
+    if (isSecretMarker(old.token)) drop(old.id, old.token)
+    // an OAuth sign-in's refresh token and client secret go with the server
+    if (old.oauth) dropOAuth(old.id, scope, true)
+  }
   if (!list) return undefined
   return list.map((s) => {
     const v = typeof s.token === 'string' ? s.token.trim() : ''
     const old = before.get(s.id)?.token ?? ''
     if (!v) {
       if (isSecretMarker(old)) drop(s.id, old)
+      // signed out (or the token removed): the refresh token goes too
+      if (isSecretMarker(old) && before.get(s.id)?.oauth?.refresh) dropOAuth(s.id, scope, false)
       return { ...s, token: '' }
     }
     if (isSecretMarker(v)) return v === s.token ? s : { ...s, token: v }
@@ -227,4 +234,38 @@ export async function getMcpToken(server: Pick<McpServerConfig, 'id' | 'token'>)
   // the list never holds a plaintext (mcpServersValue): anything else is unusable
   if (!isSecretMarker(v)) return null
   return resolve(v, scopeOf(store?.getState().epoch), mcpTokenSecret(server.id)).catch(() => null)
+}
+
+/* ------------------------------------------------------------------ */
+/* MCP OAuth sign-in: refresh token + client secret                    */
+/* ------------------------------------------------------------------ */
+
+/*
+ * An MCP server signed in with OAuth (features/ai/mcp-servers/oauth.ts): the access token is the server's
+ * `token` (above); the refresh token is sealed as "mcp-refresh:<id>" and a client secret the registration
+ * returned as "mcp-client:<id>" — in the vault only, never in the settings, a backup, an export or a log.
+ * Signing out (token '') drops the refresh token, removing the server drops both.
+ */
+export const mcpRefreshSecret = (serverId: string) => `mcp-refresh:${serverId}`
+export const mcpClientSecret = (serverId: string) => `mcp-client:${serverId}`
+
+function dropOAuth(serverId: string, scope: string, all: boolean): void {
+  void clearSecret(mcpRefreshSecret(serverId), scope).catch(warn('an MCP refresh token could not be removed from the vault'))
+  if (all) void clearSecret(mcpClientSecret(serverId), scope).catch(warn('an MCP client secret could not be removed from the vault'))
+}
+
+const currentScope = () => scopeOf(store?.getState().epoch)
+
+/** Seal (or, with null, remove) an MCP server's refresh token / client secret. */
+export async function setMcpOAuthSecret(kind: 'refresh' | 'client', serverId: string, value: string | null): Promise<void> {
+  const name = kind === 'refresh' ? mcpRefreshSecret(serverId) : mcpClientSecret(serverId)
+  if (!value) return clearSecret(name, currentScope())
+  if (!vaultAvailable()) throw new Error('the vault is not available in this browser')
+  await sealSecret(name, value, currentScope())
+}
+
+/** An MCP server's refresh token / client secret (null: none, or not in this browser). Only oauth.ts calls this. */
+export async function getMcpOAuthSecret(kind: 'refresh' | 'client', serverId: string): Promise<string | null> {
+  if (!vaultAvailable()) return null
+  return openSecret(kind === 'refresh' ? mcpRefreshSecret(serverId) : mcpClientSecret(serverId), currentScope()).catch(() => null)
 }

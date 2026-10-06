@@ -7,6 +7,7 @@ import { inTemplate, isEffectivelyTrashed, selectBreadcrumbs } from '../../store
 import { CodewordChip, isAIConfigured, McpSkippedNote, runAI, templateName, templateRoots, type McpCall } from '../../features'
 import { memoryFor, MemoryNote, noteUse, type MemoryUse } from '../../features'
 import { claudeDoc, webImagesOf } from '../../features'
+import { MediaToPage, type MediaItem } from '../../features'
 import { readableContent, ReadOnlyDoc } from '../../editor'
 import { PageIcon } from '../../ui/PageIcon'
 import { restoreFocus as restoreFocusTo } from '../../ui/focus'
@@ -405,6 +406,8 @@ function AskPanel({ question, pageId, onDone }: { question: string; pageId: ID |
   const [error, setError] = useState('')
   /** MCP activity of the answer (a server addressed by codeword that stayed out is noted) */
   const [mcpCalls, setMcpCalls] = useState<McpCall[]>([])
+  /** media the MCP results returned: cards, saved into this page on a click (features/ai/media) */
+  const [media, setMedia] = useState<MediaItem[]>([])
   /** the One memory that went along with the question (null: not in use) */
   const [memory, setMemory] = useState<MemoryUse | null>(null)
   const abort = useRef<AbortController | null>(null)
@@ -418,6 +421,7 @@ function AskPanel({ question, pageId, onDone }: { question: string; pageId: ID |
     abort.current = ctrl
     setAnswer('')
     setMcpCalls([])
+    setMedia([])
     setError('')
     setState('running')
     // the One memory: the memories that fit the question go along
@@ -438,6 +442,7 @@ function AskPanel({ question, pageId, onDone }: { question: string; pageId: ID |
         // runAI streams deltas, not the text so far
         onToken: (delta) => setAnswer((prev) => prev + delta),
         onMcp: (calls) => !ctrl.signal.aborted && setMcpCalls(calls),
+        onMedia: (items) => !ctrl.signal.aborted && setMedia(items),
         memory: mem.block,
       })
       answered = final || ''
@@ -518,6 +523,7 @@ function AskPanel({ question, pageId, onDone }: { question: string; pageId: ID |
           </div>
           <McpSkippedNote calls={mcpCalls} />
           {state === 'error' ? <p className="ask__error">{error}</p> : <AskAnswer markdown={answer} />}
+          {media.length > 0 && <MediaToPage items={media} pageId={page && page.kind === 'page' && !page.settings.locked ? page.id : null} disabled={readOnly} />}
           {state === 'done' && answer && (
             <div className="ask__actions">
               {page && !page.settings.locked && page.kind === 'page' && !readOnly && (

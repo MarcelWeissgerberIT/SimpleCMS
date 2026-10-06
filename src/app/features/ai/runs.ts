@@ -44,6 +44,8 @@ import { runTransform, type TransformRunRequest } from './transform/run'
 import { FileLoadError, runFileRequest, type FileMeta, type FileProblem, type FileRunRequest } from './file/run'
 import { isLocalAction, isStructuredAction } from './file/kinds'
 import { shownResult, TransformError, type TransformIssue, type TransformState } from './transform/types'
+import { runGenerate, type GenerateRunRequest } from './media/generate'
+import type { MediaItem } from './media/types'
 
 /* ------------------------------------------------------------------ */
 /* Types                                                               */
@@ -65,6 +67,8 @@ export type RunRequest =
   | TransformRunRequest
   /** Claude for files: a file block → summarise / extract / tables / ask, or a local conversion (file/run.ts) */
   | FileRunRequest
+  /** Generate an image / video with one connected MCP server (media/generate.ts): the results come back as cards to pick */
+  | GenerateRunRequest
 
 export type RunStatus = 'running' | 'done' | 'error' | 'interrupted'
 
@@ -118,6 +122,8 @@ export interface AIRun {
   file?: FileMeta | null
   /** a file request whose file could not be used (too large, too many pages, a web file without CORS …) */
   fileIssue?: FileProblem | null
+  /** media the MCP results returned (an own request, a generation): cards, nothing loaded until "Save to One" */
+  media?: MediaItem[] | null
 }
 
 interface RunsState {
@@ -379,6 +385,19 @@ async function execute(id: string, editor: Editor) {
       if (ac.signal.aborted) return
       buffers.delete(id)
       patch(id, { status: 'done', output: text, finishedAt: Date.now() })
+    } else if (req.kind === 'generate') {
+      // one MCP server, the prompt — the page only when the person ticked it (its context marks apply)
+      const pr = req.context ? pageRead(run.pageId, null) : null
+      patch(id, { reads: pr ? pr.reads : { mode: 'none', selection: false, blocks: 0, words: 0 } })
+      const text = await runGenerate(req, pr?.context ?? '', {
+        onToken,
+        signal: ac.signal,
+        onMcp: (calls) => !ac.signal.aborted && patch(id, { mcpCalls: calls }, false),
+        onMedia: (media) => !ac.signal.aborted && patch(id, { media }, false),
+      })
+      if (ac.signal.aborted) return
+      buffers.delete(id)
+      patch(id, { status: 'done', output: text, finishedAt: Date.now() })
     } else if (req.kind === 'file') {
       // the file + the page as its context marks allow — a local conversion reads (and sends) nothing
       const pr = isLocalAction(req.action) ? null : pageRead(run.pageId, null)
@@ -408,6 +427,7 @@ async function execute(id: string, editor: Editor) {
           onToken,
           signal: ac.signal,
           onMcp: (calls) => !ac.signal.aborted && patch(id, { mcpCalls: calls }, false),
+          onMedia: (media) => !ac.signal.aborted && patch(id, { media }, false),
           memory: mem?.block,
         })
         outcome = text
@@ -480,6 +500,15 @@ export function stopRun(id: string): boolean {
   if (run.req.kind === 'file' && isStructuredAction(run.req.action)) {
     removeRun(id)
     return false
+  }
+  // a generation stopped early: the results that came so far are the result
+  if (run.req.kind === 'generate') {
+    if (!run.media?.length) {
+      removeRun(id)
+      return false
+    }
+    patch(id, { status: 'done', output: partial, finishedAt: Date.now(), seen: true })
+    return true
   }
   if (!partial.trim()) {
     removeRun(id)

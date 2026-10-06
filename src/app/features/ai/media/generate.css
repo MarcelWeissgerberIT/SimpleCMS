@@ -1,0 +1,186 @@
+/* Generate an image / video (features/ai/media/GeneratePanel.tsx): the setup card in the AI panel and its results. */
+
+.gen-card {
+  padding: var(--sp-3) var(--sp-3) var(--sp-2);
+  border-top: var(--hairline) solid var(--rule);
+}
+
+.gen-card__head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+  margin-bottom: var(--sp-3);
+}
+
+.gen-card__code {
+  color: var(--ink-2);
+  margin-right: auto;
+}
+
+.gen-card__form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: var(--sp-3) var(--sp-4);
+  align-items: start;
+}
+
+.gen-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.gen-field--wide {
+  grid-column: 1 / -1;
+}
+
+.gen-field__label {
+  color: var(--ink-3);
+}
+
+.gen-select {
+  min-height: 32px;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  letter-spacing: 0.04em;
+}
+
+.gen-prompt {
+  min-height: 72px;
+  resize: vertical;
+  font-size: var(--text-md);
+  line-height: 1.45;
+  caret-color: var(--signal);
+}
+
+.gen-seg {
+  display: inline-flex;
+  border: var(--hairline) solid var(--rule-strong);
+  border-radius: var(--radius-1);
+  overflow: hidden;
+  max-width: 100%;
+}
+
+.gen-seg--wrap {
+  flex-wrap: wrap;
+}
+
+.gen-seg__opt {
+  min-height: 28px;
+  padding: 0 10px;
+  border: 0;
+  border-right: var(--hairline) solid var(--rule);
+  background: var(--surface);
+  color: var(--ink-2);
+  font: inherit;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  transition: background var(--dur-1) var(--ease-out), color var(--dur-1) var(--ease-out);
+}
+
+.gen-seg__opt:last-child {
+  border-right: 0;
+}
+
+.gen-seg__opt--num {
+  min-width: 32px;
+  padding: 0 8px;
+}
+
+.gen-seg__opt:hover {
+  background: var(--hover);
+  color: var(--ink);
+}
+
+.gen-seg__opt[aria-checked='true'] {
+  background: var(--ink);
+  color: var(--ink-inverse);
+}
+
+.gen-seg__opt:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 2px var(--signal);
+}
+
+.gen-check {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  font-size: var(--text-sm);
+  color: var(--ink-2);
+  cursor: pointer;
+}
+
+.gen-check input {
+  width: 15px;
+  height: 15px;
+  margin: 0;
+  accent-color: var(--signal);
+}
+
+.gen-cost {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 0;
+  font-size: var(--text-xs);
+  line-height: 1.45;
+  color: var(--ink-3);
+}
+
+.gen-cost svg {
+  flex: none;
+  margin-top: 1px;
+  color: var(--signal-ink);
+}
+
+.gen-card__keys {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--sp-2);
+}
+
+.gen-card__empty {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--sp-2);
+  font-size: var(--text-sm);
+  color: var(--ink-2);
+}
+
+.gen-card__empty p {
+  margin: 0;
+  line-height: 1.5;
+}
+
+.gen-out__prompt {
+  margin: 0 0 var(--sp-1);
+  overflow: hidden;
+  font-size: var(--text-sm);
+  color: var(--ink-2);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.gen-out__none p {
+  margin: 0 0 var(--sp-2);
+  font-size: var(--text-sm);
+  color: var(--ink-2);
+}
+
+@media (max-width: 640px) {
+  .gen-card__form {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .gen-seg__opt {
+    transition: none;
+  }
+}
