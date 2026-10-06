@@ -10,7 +10,7 @@
  */
 import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react'
 import { format } from 'date-fns'
-import { ChevronDown, ChevronRight, Info, Plus, Trash2 } from 'lucide-react'
+import { ChevronDown, ChevronRight, Info, LogIn, LogOut, Plus, Trash2 } from 'lucide-react'
 import { useT } from '../../../i18n'
 import { useWorkspace } from '../../../store/store'
 import type { McpServerConfig } from '../../../store/types'
@@ -35,6 +35,7 @@ import {
 import { cancelCheck, checkServer, useMcpChecks, type CheckMode } from './checks'
 import { codewordProblem, normalizeCodeword, suggestCodeword } from './codeword'
 import { linkBaseOf } from '../../../lib/foreignLinks'
+import { signIn, signOut, signedIn, useMcpSignIn } from './oauth'
 import { HelpLink } from '../../../help'
 import './mcp-servers.css'
 
@@ -240,6 +241,7 @@ function ServerRow({ server, others, words, open, onOpen, hasKey }: { server: Mc
   const bodyId = useId()
   const state: RowState = running ? 'checking' : !server.enabled ? 'off' : token === 'missing' ? 'missing' : server.checkError ? 'error' : server.checkedAt ? 'ok' : 'unchecked'
   const meta = [t(`features.ai.mcp.status.${state}`)]
+  if (signedIn(server)) meta.push(t('features.ai.mcp.oauth.signedInShort'))
   if (server.tools && (state === 'ok' || state === 'off')) meta.push(tn(t, 'features.ai.mcp.meta.tools', server.tools.length))
   if (server.scope === 'all') meta.push(t('features.ai.mcp.scope.allShort'))
   const reason =
@@ -282,10 +284,13 @@ function ServerRow({ server, others, words, open, onOpen, hasKey }: { server: Mc
           {reason}
         </p>
       )}
+      {/* the server turned the request down (401 / 403): a sign-in instead of a token, right under the address */}
+      {server.enabled && server.checkAuth && state === 'error' && <SignInKey server={server} />}
       {open && (
         <div className="mcps-card__body" id={bodyId}>
           <Connection server={server} others={others} words={words} />
           <Scope server={server} />
+          <OAuthSignIn server={server} />
           <Token server={server} state={token} />
           <Prompt server={server} hasKey={hasKey} blocked={token === 'missing'} running={running} />
           <Remove server={server} />
@@ -474,6 +479,78 @@ function Scope({ server }: { server: McpServerConfig }) {
       </div>
       <div className="mcps-field__hint" id={`${id}-hint`}>
         {t('features.ai.mcp.scope.hint')}
+      </div>
+    </div>
+  )
+}
+
+/** "Sign in" under a server that wants one (it answered 401): starts the sign-in, says how it went. */
+function SignInKey({ server }: { server: McpServerConfig }) {
+  const t = useT()
+  const st = useMcpSignIn((s) => s.byServer[server.id])
+  const busy = st?.phase === 'working' || st?.phase === 'waiting'
+  return (
+    <div className="mcps-signin" data-testid="mcp-signin-row">
+      <span className="mcps-signin__text">{t('features.ai.mcp.oauth.wants')}</span>
+      <button type="button" className="btn btn--sm btn--ink" disabled={busy} onClick={() => void signIn(server.id).catch(() => {})} data-testid="mcp-signin">
+        <LogIn size={13} strokeWidth={1.75} aria-hidden /> {busy ? t('features.ai.mcp.oauth.busy') : signedIn(server) ? t('features.ai.mcp.oauth.again') : t('features.ai.mcp.oauth.signIn')}
+      </button>
+      {st?.phase === 'error' && st.issue && (
+        <p className="mcps-signin__err" role="alert">
+          {t(`features.ai.mcp.oauth.err.${st.issue}`, { detail: st.detail ?? '' })}
+        </p>
+      )}
+    </div>
+  )
+}
+
+const hostOf = (url: string) => {
+  try {
+    return new URL(url).host
+  } catch {
+    return url
+  }
+}
+
+/** Sign in with OAuth (the server's own sign-in page) instead of pasting a token — or the state of a sign-in and Sign out. */
+function OAuthSignIn({ server }: { server: McpServerConfig }) {
+  const t = useT()
+  const id = useId()
+  const st = useMcpSignIn((s) => s.byServer[server.id])
+  const busy = st?.phase === 'working' || st?.phase === 'waiting'
+  const on = signedIn(server)
+  const o = server.oauth
+  return (
+    <div className="mcps-field mcps-oauth" role="group" aria-labelledby={`${id}-label`} data-testid="mcp-oauth" data-signed-in={on || undefined}>
+      <div className="mcps-field__label" id={`${id}-label`}>
+        {t('features.ai.mcp.oauth.label')}
+      </div>
+      {on && o ? (
+        <div className="mcps-oauth__row">
+          <span className="led led--ok" aria-hidden />
+          <span className="mcps-oauth__state" data-testid="mcp-oauth-state">
+            {t('features.ai.mcp.oauth.signedIn', { host: hostOf(o.issuer) })}
+          </span>
+          {o.expiresAt && <span className="label mcps-oauth__when">{t(o.refresh ? 'features.ai.mcp.oauth.renews' : 'features.ai.mcp.oauth.expires', { time: format(o.expiresAt, 'yyyy-MM-dd HH:mm') })}</span>}
+          <span className="mcps-spacer" />
+          <button type="button" className="btn btn--sm btn--ghost" onClick={() => signOut(server.id)} data-testid="mcp-signout">
+            <LogOut size={13} strokeWidth={1.75} aria-hidden /> {t('features.ai.mcp.oauth.signOut')}
+          </button>
+        </div>
+      ) : (
+        <div className="mcps-oauth__row">
+          <button type="button" className="btn btn--sm btn--ink" disabled={busy} onClick={() => void signIn(server.id).catch(() => {})} aria-describedby={`${id}-hint`} data-testid="mcp-oauth-signin">
+            <LogIn size={13} strokeWidth={1.75} aria-hidden /> {busy ? t('features.ai.mcp.oauth.busy') : t('features.ai.mcp.oauth.signIn')}
+          </button>
+        </div>
+      )}
+      {st?.phase === 'error' && st.issue && (
+        <p className="mcps-warn" role="alert" data-testid="mcp-oauth-error">
+          <span className="led mcps-led--warn" aria-hidden /> {t(`features.ai.mcp.oauth.err.${st.issue}`, { detail: st.detail ?? '' })}
+        </p>
+      )}
+      <div className="mcps-field__hint" id={`${id}-hint`}>
+        {t('features.ai.mcp.oauth.hint')}
       </div>
     </div>
   )

@@ -29,3 +29,14 @@ export async function saveCard(item: MediaItem, way: SaveWay = 'browser', opts: 
     return null
   }
 }
+
+/** Save several cards one after the other (this browser fetches each); the ones that worked, in order. */
+export async function saveCards(items: MediaItem[], opts: { privateTarget?: boolean; all?: MediaItem[] } = {}): Promise<SavedMedia[]> {
+  const out: SavedMedia[] = []
+  for (const item of items) {
+    if (cardOf(item.id).state === 'saved') continue
+    const saved = await saveCard(item, 'browser', { privateTarget: opts.privateTarget, n: (opts.all ?? items).indexOf(item) + 1 })
+    if (saved) out.push(saved)
+  }
+  return out
+}

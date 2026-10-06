@@ -161,3 +161,65 @@
     transition: none;
   }
 }
+
+/* inside the AI terminal (an ink panel): its own green for "saved" */
+.term__panel .media-card__done {
+  color: color-mix(in srgb, var(--led-ok) 78%, var(--ink));
+}
+
+.term-media {
+  margin: 6px 0 0 18px;
+}
+
+/* a staged "insert media" change: the files that go into the page */
+.media-preview {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.media-preview__item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  font-size: 12px;
+}
+
+.media-preview__plate {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  overflow: hidden;
+  border: var(--hairline) solid var(--rule);
+  border-radius: var(--radius-1);
+  background: var(--surface-2);
+  color: var(--ink-2);
+}
+
+.media-preview__plate img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.media-preview__name {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ink);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.media-preview__meta {
+  flex: none;
+  color: var(--ink-3);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+}

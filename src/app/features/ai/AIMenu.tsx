@@ -128,6 +128,11 @@ import { readMemories } from './memory/read'
 import { memoryInUse } from './memory/settings'
 import { examples } from './memory/example'
 import type { MemoryProposal } from './memory/types'
+// media from MCP servers (features/ai/media): cards under an answer, the generate card and its results
+import { MediaCards } from './media/MediaCards'
+import { mediaNode, pagePrivate } from './media/blocks'
+import { GenerateSetup, draftOf, useGeneratePanel, type GenerateDraft } from './media/GeneratePanel'
+import type { GenerateKind } from './media/generate'
 import './ai.css'
 import './runs.css'
 import './reads.css'
@@ -149,6 +154,8 @@ export interface AIMenuProps {
    * database…") · 'transform' — the forms of "Transform into …" (the tour, "What can One do?").
    */
   open?: 'todb' | 'transform'
+  /** Open on the generate card (`/generate image` · `/generate video` · an empty image block's "Generate…"). */
+  generate?: GenerateKind
 }
 
 /* ------------------------------------------------------------------ */
@@ -284,7 +291,7 @@ type Phase = 'idle' | 'streaming' | 'done' | 'error'
 /* Component                                                           */
 /* ------------------------------------------------------------------ */
 
-export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, transform: transformPick, open: openOn }: AIMenuProps) {
+export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, transform: transformPick, open: openOn, generate }: AIMenuProps) {
   const t = useT()
   const hasKey = useWorkspace((s) => !!s.settings.aiApiKey.trim())
   const model = resolveModel(useWorkspace((s) => s.settings.aiModel))
@@ -373,6 +380,9 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
   /** the review's "Change instructions": the card again, a new run replaces this one */
   const [redoEdit, setRedoEdit] = useState(false)
   const [wsMode, setWsMode] = useState(false)
+  /** "Generate image / video": the card's values (null: not generating) · the card again over a finished run ("Change prompt") */
+  const [genDraft, setGenDraft] = useState<GenerateDraft | null>(() => (generate && !openRun ? draftOf(generate) : null))
+  const [genEdit, setGenEdit] = useState(false)
   /** a conversion that failed ("Turn into database") */
   const [convertIssue, setConvertIssue] = useState<TodbIssue | null>(null)
   const convertingRef = useRef(false)
@@ -664,6 +674,28 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
     onClose()
   }
 
+  /**
+   * Media saved from a run (an MCP result's cards, generated results): one undo step at the target — 'fill': an
+   * empty image block or empty line there takes them, else below it · 'below': after the target block.
+   */
+  const insertMedia = async (nodes: JSONContent[], how: 'fill' | 'below') => {
+    if (editor.isDestroyed || !nodes.length) return
+    await snapshotNow(pageId, 'ai')
+    if (editor.isDestroyed) return
+    const tg = (runId ? useAIRuns.getState().runs[runId]?.target : null) ?? targetRef.current
+    const { doc } = editor.state
+    const at = !tg.lost && tg.from <= doc.content.size ? doc.nodeAt(tg.from) : null
+    startUndoStep(editor.view)
+    const chain = editor
+      .chain()
+      .focus()
+      .command(({ tr }) => (closeHistory(tr), true))
+    if (how === 'fill' && at?.type.name === 'image' && !at.attrs.src) chain.insertContentAt({ from: tg.from, to: tg.from + at.nodeSize }, nodes).run()
+    else if (how === 'fill' && targetBlockEmpty(tg)) chain.insertContentAt({ from: tg.blockFrom, to: tg.blockTo }, nodes).run()
+    else chain.insertContentAt(insertionPoint(tg), nodes).run()
+    endUndoStep(editor.view)
+  }
+
   /** "Turn into database": in place of the blocks Claude read (one undo step) — or at the end when they changed. */
   const todbInPlace = !!table && !target.lost && !!target.todb && !editor.isDestroyed && !!sameBlocks(editor.state.doc, target.todb, table.blocks)
   const convert = async () => {
@@ -833,6 +865,26 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
       setConvertIssue(i)
       refocusPrompt()
     },
+  })
+
+  /* ---------------- Generate image / video ---------------- */
+
+  /** a generation run: its results as cards to pick, its keys (Insert selected, Try again, Change prompt) */
+  const generatePanel = useGeneratePanel({
+    pageId,
+    run: run?.req.kind === 'generate' ? run : null,
+    phase,
+    start,
+    insert: (nodes) => insertMedia(nodes, 'fill'),
+    finish: () => {
+      if (run) removeRun(run.id)
+      onClose()
+    },
+    edit: (req) => {
+      setGenDraft(draftOf(req.media, req))
+      setGenEdit(true)
+    },
+    discard,
   })
 
   /** the forms the selection may become (Auto first; [] when it is no whole blocks) */
@@ -1170,6 +1222,8 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
   const isRedo = run?.req.kind === 'redo'
   /** the instructions card shows: passages marked, nothing running yet (or "Change instructions") */
   const redoCard = !!redoIds && (phase === 'idle' || redoEdit)
+  /** the generate card shows: opened to generate, nothing running yet (or "Change prompt") */
+  const genCard = !!genDraft && !redoCard && (phase === 'idle' || genEdit)
 
   /** "#wo" being typed at the end of the prompt (an example's tag to complete), null: none */
   const tagQuery = memInUse && phase !== 'streaming' && view === 'actions' ? (/(^|\s)#([a-z0-9-]{0,32})$/i.exec(query)?.[2]?.toLowerCase() ?? null) : null
@@ -1276,6 +1330,8 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
     if (view === 'memhist') return historyRows()
     // "Redo with instructions": the instructions card has its own keys
     if (redoCard) return []
+    // "Generate image / video": the card has its own keys
+    if (genCard) return []
     // a memory proposal (One memory): save · update the near-identical one · edit · discard
     if (phase === 'done' && run?.req.kind === 'memory') {
       const req = run.req
@@ -1318,7 +1374,9 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
             code: fileLocal ? 'ASK' : 'REF',
             icon: CornerDownLeft,
             run: () =>
-              run?.req.kind === 'image'
+              run?.req.kind === 'generate'
+                ? start({ ...run.req, prompt: [run.req.prompt, query.trim()].join('\n') })
+                : run?.req.kind === 'image'
                 ? start(refineImage(run.req, query))
                 : run?.req.kind === 'file'
                 ? start(refineFile(t, run.req, query))
@@ -1340,6 +1398,8 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
                     }),
           },
         ]
+      // a generation: Insert selected / Try again / Change prompt / Discard
+      if (generatePanel.rows) return generatePanel.rows
       // an image result: its own keys (Apply / Insert below / as table · spreadsheet · database / Upload a copy)
       if (imagePanel.rows) return imagePanel.rows
       // a file result: its own keys (Create the page / Insert below / as spreadsheet · table · database / Upload a copy)
@@ -1592,7 +1652,7 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
         run: () => start({ kind: 'memory', label: t('features.memory.menu.label'), code: 'MEM', text: query.trim(), from: 'request' }),
       })
     return list
-  }, [query, setup, phase, wsMode, view, actions, t, start, output, target, run, error, discard, sources, handToAgent, handToTerminal, mcpNames, onClose, table, todbInPlace, ask, marks, lang, chooseMode, pickBlocks, redoCard, isRedo, imagePanel.rows, img, filePanel.rows, file, lineUse, memOff, previewing, histOf, memEdit, memDup, remembering, tagQuery, transformPicks, transformRun, transformPanel.apply, isTop, moreActions]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [query, setup, phase, wsMode, view, actions, t, start, output, target, run, error, discard, sources, handToAgent, handToTerminal, mcpNames, onClose, table, todbInPlace, ask, marks, lang, chooseMode, pickBlocks, redoCard, genCard, generatePanel.rows, isRedo, imagePanel.rows, img, filePanel.rows, file, lineUse, memOff, previewing, histOf, memEdit, memDup, remembering, tagQuery, transformPicks, transformRun, transformPanel.apply, isTop, moreActions]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     setActive((a) => Math.min(a, Math.max(0, rows.length - 1)))
@@ -1711,12 +1771,13 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
   }
 
   const busy = phase === 'streaming'
-  const showOutput = phase !== 'idle' && !setup && !redoCard
+  const showOutput = phase !== 'idle' && !setup && !redoCard && !genCard
   /** the line under the prompt on the top level: ask in your own words, or pick */
-  const leadShown = phase === 'idle' && view === 'actions' && !query && !wsMode && !ask && !redoCard && !openRun && rows.length > 0
+  const leadShown = phase === 'idle' && view === 'actions' && !query && !wsMode && !ask && !redoCard && !genCard && !openRun && rows.length > 0
   const isTodb = run?.req.kind === 'todb'
   const isMemory = run?.req.kind === 'memory'
   const isTransform = run?.req.kind === 'transform'
+  const isGen = run?.req.kind === 'generate'
   const todbBlocks = isTodb && target.todb && !editor.isDestroyed ? countBlocks(editor, target.todb) : 0
   const words = output.trim() ? output.trim().split(/\s+/).length : 0
   /** the passages the instructions card would send (they recount as the page changes) */
@@ -1732,7 +1793,7 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
   /** a redo result is under review: the review has the keyboard (no prompt, no reads line) */
   const reviewing = isRedo && phase === 'done' && !redoEdit
   /** the prompt gives way to a title while the instructions card or the review shows */
-  const redoHead = (redoCard || reviewing) && view !== 'reads'
+  const redoHead = (redoCard || reviewing || genCard) && view !== 'reads'
 
   let lastGroup: string | undefined
   return (
@@ -1788,7 +1849,11 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
                 </button>
               )}
               {redoHead ? (
-                // the review quotes what was asked
+                genCard ? (
+                  <span className="ai-cmd__title label" data-testid="ai-gen-title">
+                    {t('features.ai.gen.title')}
+                  </span>
+                ) : // the review quotes what was asked
                 reviewing && run?.req.kind === 'redo' && run.req.instructions ? (
                   <span className="ai-cmd__title ai-cmd__title--quote" data-testid="ai-redo-title" title={run.req.instructions}>
                     “{run.req.instructions.replace(/\s+/g, ' ')}”
@@ -1840,7 +1905,7 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
               </div>
             )}
 
-            {!reviewing && (
+            {!reviewing && !genCard && (
               <button
                 type="button"
                 className="ai-reads"
@@ -1914,6 +1979,22 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
               />
             )}
 
+            {genCard && genDraft && view !== 'reads' && (
+              <GenerateSetup
+                draft={genDraft}
+                onDraft={setGenDraft}
+                hasKey={hasKey}
+                onRun={(req) => {
+                  setGenEdit(false)
+                  start(req)
+                }}
+                onCancel={() => {
+                  if (genEdit) return setGenEdit(false)
+                  dismiss()
+                }}
+              />
+            )}
+
             {showOutput && (
               <div className="ai-out" data-phase={phase}>
                 <div className="ai-out__bar label">
@@ -1930,7 +2011,7 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
                     </>
                   )}
                   {run && <Elapsed start={run.startedAt} end={run.finishedAt ?? undefined} />}
-                  {!isTodb && !isRedo && !isMemory && !isTransform && !imagePanel.structured && !filePanel.structured && (
+                  {!isTodb && !isRedo && !isMemory && !isTransform && !isGen && !imagePanel.structured && !filePanel.structured && (
                     <>
                       <span className="ai-out__sep">·</span>
                       <span>{t('features.ai.words', { count: words })}</span>
@@ -1943,6 +2024,7 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
                   )}
                 </div>
                 {mcpCalls.length > 0 && <McpChips calls={mcpCalls} />}
+                {generatePanel.body}
                 {imagePanel.body}
                 {filePanel.body}
                 {transformPanel.body}
@@ -1995,7 +2077,7 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
                     )}
                   </div>
                 )}
-                {!isTodb && !isRedo && !isMemory && !isTransform && !imagePanel.structured && !filePanel.structured && !run?.imageIssue && !run?.fileIssue && (output || busy) && (
+                {!isTodb && !isRedo && !isMemory && !isTransform && !isGen && !imagePanel.structured && !filePanel.structured && !run?.imageIssue && !run?.fileIssue && (output || busy) && (
                   <div
                     className="ai-out__body"
                     ref={outRef}
@@ -2023,6 +2105,10 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
                       </div>
                     )}
                   </div>
+                )}
+                {/* media an MCP server returned with an own request: cards, saved below the target on a click */}
+                {run?.req.kind === 'action' && !!run.media?.length && (
+                  <MediaCards items={run.media} onSaved={(saved) => insertMedia(saved.map(mediaNode), 'below')} privateTarget={pagePrivate(pageId)} where={t('features.ai.media.whereMenu')} />
                 )}
                 {run?.req.kind === 'workspace' && sources.length > 0 && (
                   <div className="ai-sources">

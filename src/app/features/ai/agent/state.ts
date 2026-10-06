@@ -5,6 +5,7 @@
  */
 import { create } from 'zustand'
 import { EMPTY_USAGE, type AgentStatus, type AgentStep, type AgentTurn, type AgentUsage, type StagedChange, type TermMention, type TermRef } from './types'
+import type { MediaItem } from '../media/types'
 import type { MemoryProposal } from '../memory/types'
 import type { ID } from '../../../store/types'
 
@@ -28,6 +29,13 @@ export interface MemCard {
   items: MemItem[]
   /** the command that made it (/remember …), shown like command output */
   input?: string
+}
+
+/** Media an MCP result of task `turn` returned: cards under the task; saving stages "insert media" on `pageId` (null: a new page). */
+export interface TermMedia {
+  turn: number
+  pageId: ID | null
+  items: MediaItem[]
 }
 
 /** Output of a local command (/help, /cost …), shown in the log after `after` tasks. */
@@ -87,9 +95,11 @@ export interface AgentState {
   memCards: MemCard[]
   /** /no-memory: the next task goes without the One memory */
   memOffNext: boolean
+  /** media from MCP results, per task (features/ai/media) */
+  media: TermMedia[]
 }
 
-export const initialAgentState = (): Pick<AgentState, 'status' | 'turns' | 'steps' | 'changes' | 'usage' | 'live' | 'calls' | 'mcp' | 'echo' | 'unseen' | 'memCards' | 'memOffNext'> => ({
+export const initialAgentState = (): Pick<AgentState, 'status' | 'turns' | 'steps' | 'changes' | 'usage' | 'live' | 'calls' | 'mcp' | 'echo' | 'unseen' | 'memCards' | 'memOffNext' | 'media'> => ({
   status: 'idle',
   turns: [],
   steps: [],
@@ -102,6 +112,7 @@ export const initialAgentState = (): Pick<AgentState, 'status' | 'turns' | 'step
   unseen: null,
   memCards: [],
   memOffNext: false,
+  media: [],
 })
 
 /* ---------- dock height (a per-device convenience: localStorage, may be unavailable) ---------- */

@@ -19,6 +19,7 @@
  *   #/clip?share=<id> → files shared into the installed app (the service worker kept them, see public/sw.js)
  *   #/invite/<token> → join a team workspace (preview, sign in if needed, accept; see shell/cloud)
  *   #/signup/<token> → create an account with a registration link (team cloud; see shell/cloud)
+ *   #/oauth/mcp?state=…&code=… → an MCP server's sign-in came back to this tab (features/ai/mcp-servers/oauth.ts)
  */
 import { useSyncExternalStore } from 'react'
 
@@ -55,6 +56,8 @@ export type Route =
   | { name: 'invite'; token: string }
   /** #/signup/<token> → team-cloud registration link (from POST /api/server/signup-links) */
   | { name: 'signup'; token: string }
+  /** #/oauth/mcp?state=…&code=… → an MCP server's sign-in (OAuth) came back here: this tab finishes it */
+  | { name: 'oauth'; state: string; code: string; error: string; errorDescription: string }
   | { name: 'notfound'; path: string }
 
 export function parseHash(hash: string): Route {
@@ -81,6 +84,8 @@ export function parseHash(hash: string): Route {
   if (parts[0] === 'f' && parts[1]) return { name: 'form', payload: parts.slice(1).join('/') }
   if (parts[0] === 'invite' && parts[1]) return { name: 'invite', token: parts[1] }
   if (parts[0] === 'signup' && parts[1]) return { name: 'signup', token: parts[1] }
+  if (parts[0] === 'oauth' && parts[1] === 'mcp')
+    return { name: 'oauth', state: params.get('state') ?? '', code: params.get('code') ?? '', error: params.get('error') ?? '', errorDescription: params.get('error_description') ?? '' }
   if (parts[0] === 'clip') {
     // the whole query (a stray unencoded "?" in a shared URL must not cut it short)
     const q = new URLSearchParams(raw.includes('?') ? raw.slice(raw.indexOf('?') + 1) : '')
@@ -124,6 +129,8 @@ export function routeHref(r: Route): string {
       return `#/invite/${r.token}`
     case 'signup':
       return `#/signup/${r.token}`
+    case 'oauth':
+      return '#/oauth/mcp'
     case 'clip': {
       const q = new URLSearchParams()
       for (const k of ['url', 'title', 'text', 'desc', 'share'] as const) if (r[k]) q.set(k, r[k]!)

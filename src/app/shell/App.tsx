@@ -4,6 +4,7 @@ import { useUI } from '../store/ui'
 import { usePage } from '../store/selectors'
 import { useThemeAndLanguage } from '../lib/theme'
 import { GraphView, SharedPageView, Presentation, AgentsRoute, ScriptsRoute, ScriptDialogHost, CodingRoute, KitRoute, KitHost } from '../features'
+import { McpOAuthScreen } from '../features'
 import { SharedFormView } from '../database'
 import { PageIcon } from '../ui/PageIcon'
 import { useT } from '../i18n'
@@ -77,6 +78,14 @@ export function App() {
     return (
       <ErrorBoundary>
         <SignInScreen />
+        <Toasts />
+      </ErrorBoundary>
+    )
+  // an MCP server's sign-in came back to this tab: it finishes here, then back to Settings
+  if (route.name === 'oauth')
+    return (
+      <ErrorBoundary>
+        <McpOAuthScreen key={route.state} state={route.state} code={route.code} error={route.error} errorDescription={route.errorDescription} />
         <Toasts />
       </ErrorBoundary>
     )

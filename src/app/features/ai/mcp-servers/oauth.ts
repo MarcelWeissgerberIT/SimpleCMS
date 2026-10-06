@@ -298,12 +298,11 @@ function authorizeUrl(cfg: McpOAuthConfig, state: string, challenge: string): st
   return u.href
 }
 
-/** Codes coming back while a sign-in waits (one listener per tab). */
+/** Codes coming back while a sign-in waits. */
 const waiting = new Map<string, (msg: OAuthReturn) => void>()
-let unlisten: (() => void) | null = null
 
 function listen() {
-  unlisten ??= listenForMcpOAuth((msg) => {
+  listenForMcpOAuth((msg) => {
     const fn = waiting.get(msg.state)
     if (fn) fn(msg)
     // an attempt this tab started before a reload: finish it all the same

@@ -56,6 +56,8 @@ import {
   Lightbulb,
   Table,
   Calendar,
+  Clapperboard,
+  ImagePlus,
   Rows3,
   Type,
   type LucideIcon,
@@ -477,6 +479,27 @@ export const BLOCKS: BlockItem[] = [
     run: (ctx) => {
       del(ctx)
       ctx.bridge.setState({ ai: { mode: 'block' } })
+    },
+  },
+  {
+    // an image / a video from a connected MCP server (features/ai/media): the AI panel opens on the generate card
+    id: 'generateImage',
+    group: 'ai',
+    icon: ImagePlus,
+    keywords: 'generate image picture photo illustration render create mcp ai bild generieren erzeugen foto illustration grafik ki',
+    run: (ctx) => {
+      del(ctx)
+      ctx.bridge.setState({ ai: { mode: 'block', generate: 'image' } })
+    },
+  },
+  {
+    id: 'generateVideo',
+    group: 'ai',
+    icon: Clapperboard,
+    keywords: 'generate video clip movie animation render create mcp ai video generieren erzeugen film clip animation ki',
+    run: (ctx) => {
+      del(ctx)
+      ctx.bridge.setState({ ai: { mode: 'block', generate: 'video' } })
     },
   },
   {

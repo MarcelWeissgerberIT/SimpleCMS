@@ -13,7 +13,7 @@ import { AudioLines, Check, CloudDownload, Download, ExternalLink, Film, ImageIc
 import { useLang, useT } from '../../../i18n'
 import { useFileUrl } from '../../../lib/files'
 import { useCloud } from '../../../cloud'
-import { saveCard, type SaveWay } from './actions'
+import { saveCard, saveCards, type SaveWay } from './actions'
 import { setPicked, useMediaCards, type CardState } from './state'
 import { teamFetchAvailable } from './save'
 import type { MediaItem, SavedMedia } from './types'
@@ -79,9 +79,8 @@ export function MediaCards({ items, onSaved, pick, privateTarget, disabled, wher
     if (busy || !chosen.length) return
     setBusy(true)
     try {
-      const out: Array<SavedMedia | null> = []
-      for (const item of chosen) out.push(await saveCard(item, 'browser', { privateTarget, n: items.indexOf(item) + 1 }))
-      for (const s of out) if (s && pick) setPicked(s.itemId, false)
+      const out = await saveCards(chosen, { privateTarget, all: items })
+      for (const s of out) if (pick) setPicked(s.itemId, false)
       await deliver(out)
     } finally {
       setBusy(false)

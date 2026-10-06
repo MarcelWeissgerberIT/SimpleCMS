@@ -11,6 +11,7 @@ import { openPage } from '../../lib/router'
 import { useCloud } from '../../cloud'
 import { useLang, useT } from '../../i18n'
 import { MarkdownLite } from '../ai/MarkdownLite'
+import { MediaToPage } from '../ai/media/MediaToPage'
 import { PropDiff, Preview } from '../ai/agent/AgentSheet'
 import { EditDiff } from '../ai/agent/EditDiff'
 import type { StagedChange } from '../ai/agent/types'
@@ -79,6 +80,7 @@ function RunItem({ run, n, first }: { run: AgentRun; n: number; first: boolean }
               <span className="led led--on agx-led--live" aria-hidden /> {t('features.agents.runs.working')}
             </p>
           ) : null}
+          {!!run.media?.length && <RunMedia run={run} />}
           {run.steps.length > 0 && <Steps run={run} />}
           {(run.staged?.length ?? 0) > 0 && <Review run={run} />}
           {run.usage && (
@@ -90,6 +92,13 @@ function RunItem({ run, n, first }: { run: AgentRun; n: number; first: boolean }
       )}
     </li>
   )
+}
+
+/** Media the run's MCP servers returned: "Save to One" puts them into the agent's report page (else a new page). */
+function RunMedia({ run }: { run: AgentRun }) {
+  const reportPage = useWorkspace((s) => s.agents?.[run.agentId]?.output?.pageId ?? null)
+  const readOnly = useCloud((s) => s.readOnly)
+  return <MediaToPage items={run.media ?? []} pageId={reportPage} disabled={readOnly} />
 }
 
 function Steps({ run }: { run: AgentRun }) {

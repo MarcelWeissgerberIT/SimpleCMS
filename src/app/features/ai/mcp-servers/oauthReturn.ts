@@ -67,32 +67,27 @@ export function redirectUri(): string {
   return u.href
 }
 
-let listeners: Array<(msg: OAuthReturn) => void> = []
+let handler: ((msg: OAuthReturn) => void) | null = null
 let channel: BroadcastChannel | null = null
+/** states answered already (a code is handed on once) */
+const answered = new Set<string>()
 
 /**
- * Listen for codes that come back for an attempt of this tab; `fn` gets each one (already answered, so the
- * sign-in window closes). Returns the unsubscribe.
+ * Take the codes that come back for an attempt of this tab: `fn` gets each one once (already answered, so the
+ * sign-in window closes). One handler per tab — the latest wins (oauth.ts's covers the boot-time one).
  */
-export function listenForMcpOAuth(fn: (msg: OAuthReturn) => void): () => void {
-  listeners.push(fn)
-  if (!channel && typeof BroadcastChannel !== 'undefined') {
-    channel = new BroadcastChannel(OAUTH_CHANNEL)
-    channel.onmessage = (e: MessageEvent) => {
-      const m = e.data as Partial<OAuthReturn> | null
-      if (!m || m.type !== 'one-mcp-oauth' || typeof m.state !== 'string' || !hasPending(m.state)) return
-      const ack: Ack = { type: 'one-mcp-oauth-ack', state: m.state }
-      channel?.postMessage(ack)
-      const msg: OAuthReturn = { type: 'one-mcp-oauth', state: m.state, code: str(m.code), error: str(m.error), errorDescription: str(m.errorDescription) }
-      for (const l of [...listeners]) l(msg)
-    }
-  }
-  return () => {
-    listeners = listeners.filter((l) => l !== fn)
-    if (!listeners.length && channel) {
-      channel.close()
-      channel = null
-    }
+export function listenForMcpOAuth(fn: (msg: OAuthReturn) => void): void {
+  handler = fn
+  if (channel || typeof BroadcastChannel === 'undefined') return
+  channel = new BroadcastChannel(OAUTH_CHANNEL)
+  channel.onmessage = (e: MessageEvent) => {
+    const m = e.data as Partial<OAuthReturn> | null
+    if (!m || m.type !== 'one-mcp-oauth' || typeof m.state !== 'string' || !hasPending(m.state)) return
+    const ack: Ack = { type: 'one-mcp-oauth-ack', state: m.state }
+    channel?.postMessage(ack)
+    if (answered.has(m.state)) return
+    answered.add(m.state)
+    handler?.({ type: 'one-mcp-oauth', state: m.state, code: str(m.code), error: str(m.error), errorDescription: str(m.errorDescription) })
   }
 }
 
@@ -115,7 +110,11 @@ function bootNote(text: string) {
  */
 export async function consumeMcpOAuthReturn(closingNote = ''): Promise<boolean> {
   const q = new URLSearchParams(window.location.search)
-  if (q.get(RETURN_PARAM) !== 'mcp') return false
+  if (q.get(RETURN_PARAM) !== 'mcp') {
+    // this tab started a sign-in before a reload: the code coming back is still taken here
+    if (anyPending()) listenForMcpOAuth((m) => void import('./oauth').then((o) => o.finishSignIn(m)).catch(() => {}))
+    return false
+  }
   const msg: OAuthReturn = { type: 'one-mcp-oauth', state: str(q.get('state')), code: str(q.get('code')), error: str(q.get('error')), errorDescription: str(q.get('error_description')) }
   // the route the page shows if it finishes the sign-in itself; the code leaves the query at once
   const hash = new URLSearchParams()
