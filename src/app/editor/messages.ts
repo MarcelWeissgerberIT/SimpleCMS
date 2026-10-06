@@ -172,6 +172,7 @@ export const messages: Messages = {
     'editor.link.placeholder': 'Paste a link or search pages',
     'editor.link.apply': 'Apply',
     'editor.link.remove': 'Remove link',
+    'editor.link.foreignUnknown': '“{href}” is a link of another site. Set its address in Settings → Claude AI → MCP servers (Link address).',
     'editor.link.pages': 'Link to page',
 
     // mentions & dates
@@ -658,6 +659,7 @@ export const messages: Messages = {
     'editor.link.placeholder': 'Link einfügen oder Seiten suchen',
     'editor.link.apply': 'Übernehmen',
     'editor.link.remove': 'Link entfernen',
+    'editor.link.foreignUnknown': '„{href}“ ist ein Link einer anderen Seite. Trag ihre Adresse ein unter Einstellungen → Claude KI → MCP-Server (Link-Adresse).',
     'editor.link.pages': 'Auf Seite verlinken',
 
     'editor.mention.pages': 'Seiten',

@@ -22,6 +22,7 @@ import { STORAGE_KEYS, safeLocalGet } from '@/shared/brand'
 import { registerServiceWorker, watchForUpdates } from '@/shared/sw'
 import * as cloud from './cloud'
 import { getFile, saveFile } from './lib/files'
+import { installForeignLinks } from './lib/foreignLinks'
 
 // Apply the remembered theme before first paint to avoid a flash.
 const storedTheme = safeLocalGet(STORAGE_KEYS.theme)
@@ -87,6 +88,7 @@ async function boot() {
   }
 
   // PWA share target (/app/?title=…&text=…&url=…) → the #/clip route, before the first render
+  startService('foreign links', installForeignLinks)
   if (mode !== 'signed-out') startService('share target', consumeShareTarget)
   // "#/" → the start page before the first render (the home screen is not built for nothing)
   if (mode !== 'signed-out') startService('start page', bootRedirect)

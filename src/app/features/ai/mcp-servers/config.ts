@@ -17,6 +17,7 @@ import { useWorkspace } from '../../../store/store'
 import { getMcpToken } from '../../../store/secrets'
 import type { McpServerConfig, Settings } from '../../../store/types'
 import { t } from '../../../i18n'
+import { linkBaseOf } from '../../../lib/foreignLinks'
 import { addressedLine, codewordGuideLine, codewordProblem, normalizeCodeword, parseCodewords, switchedOffLine } from './codeword'
 
 /** The MCP connector beta. */
@@ -131,6 +132,7 @@ export function readServers(settings: Pick<Settings, 'mcpServers'> = useWorkspac
       checkError: typeof s.checkError === 'string' && s.checkError ? s.checkError.slice(0, 300) : undefined,
       scope: s.scope === 'all' ? 'all' : undefined,
       codeword,
+      linkBase: linkBaseOf(s.linkBase) ?? undefined,
     })
     if (out.length >= MAX_SERVERS) break
   }
@@ -162,6 +164,21 @@ export function instructionsText(settings: Pick<Settings, 'mcpInstructions'> = u
   return own ? own.slice(0, INSTRUCTIONS_MAX) : defaultInstructions()
 }
 
+/** How Claude links this server's records: absolute URLs only (a relative "/r/1" would open One's own site). */
+function linkLine(s: McpServerConfig): string {
+  let base = linkBaseOf(s.linkBase)
+  if (!base) {
+    try {
+      base = `${new URL(s.url).origin}/`
+    } catch {
+      base = null
+    }
+  }
+  return base
+    ? `When you link one of its records in your answer or in a page, write an absolute URL: put ${base} in front of a relative path (e.g. ${base}r/123), never a link that starts with "/".`
+    : 'When you link one of its records, write an absolute URL (https://…), never a link that starts with "/".'
+}
+
 /**
  * The system prompt part for these servers: the template, then each server's usage prompt (with its
  * codeword, if it has one), then — for a request that starts with codewords — who was addressed.
@@ -170,7 +187,7 @@ export function mcpSystemText(servers: McpServerConfig[], instructions: string, 
   const parts = [`<mcp_instructions>\n${instructions.trim()}\n</mcp_instructions>`]
   for (const s of servers) {
     const prompt = s.prompt.trim() || 'No usage guide yet: read the tool descriptions carefully before you use them.'
-    parts.push(`<mcp_server name="${s.name}">\n${prompt}${s.codeword ? `\n${codewordGuideLine(s.codeword)}` : ''}\n</mcp_server>`)
+    parts.push(`<mcp_server name="${s.name}">\n${prompt}${s.codeword ? `\n${codewordGuideLine(s.codeword)}` : ''}\n${linkLine(s)}\n</mcp_server>`)
   }
   if (addressed.length) parts.push(`<mcp_codeword>\n${addressed.map(addressedLine).join('\n')}\n</mcp_codeword>`)
   return parts.join('\n\n')
@@ -209,7 +226,7 @@ export function currentSetup(settings: Pick<Settings, 'mcpServers' | 'mcpInstruc
 
 /** A stable signature of a setup (what the prompt and the tool list are made of). */
 export function setupKey(setup: McpSetup): string {
-  return JSON.stringify([setup.instructions, setup.servers.map((s) => [s.id, s.name, s.url, s.prompt, s.scope ?? 'free', s.codeword ?? ''])])
+  return JSON.stringify([setup.instructions, setup.servers.map((s) => [s.id, s.name, s.url, s.prompt, s.scope ?? 'free', s.codeword ?? '', s.linkBase ?? ''])])
 }
 
 /**

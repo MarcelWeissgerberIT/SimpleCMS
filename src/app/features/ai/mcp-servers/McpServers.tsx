@@ -34,6 +34,7 @@ import {
 } from './config'
 import { cancelCheck, checkServer, useMcpChecks, type CheckMode } from './checks'
 import { codewordProblem, normalizeCodeword, suggestCodeword } from './codeword'
+import { linkBaseOf } from '../../../lib/foreignLinks'
 import { HelpLink } from '../../../help'
 import './mcp-servers.css'
 
@@ -301,19 +302,23 @@ function Connection({ server, others, words }: { server: McpServerConfig; others
   const [name, setName] = useState(server.name)
   const [url, setUrl] = useState(server.url)
   const [codeword, setCodeword] = useState(server.codeword ?? '')
+  const [linkBase, setLinkBase] = useState(server.linkBase ?? '')
   const [touched, setTouched] = useState(false)
   // saved elsewhere (another tab): show what is stored
   useEffect(() => {
     setName(server.name)
     setUrl(server.url)
     setCodeword(server.codeword ?? '')
-  }, [server.name, server.url, server.codeword])
+    setLinkBase(server.linkBase ?? '')
+  }, [server.name, server.url, server.codeword, server.linkBase])
   const cleanName = name.replace(/[-_]+$/, '')
   const nameErr = nameProblem(cleanName, others)
   const urlErr = urlProblem(url)
   const cw = normalizeCodeword(codeword)
   const cwErr = codewordProblem(cw, words)
-  const dirty = cleanName !== server.name || url.trim() !== server.url || cw !== (server.codeword ?? '')
+  const base = linkBase.trim() ? linkBaseOf(linkBase) : ''
+  const baseErr = base === null
+  const dirty = cleanName !== server.name || url.trim() !== server.url || cw !== (server.codeword ?? '') || (base ?? linkBase.trim()) !== (server.linkBase ?? '')
   const nameError = nameErr && (touched || nameErr !== 'empty') ? t(`features.ai.mcp.err.name.${nameErr}`) : ''
   const urlError = urlErr && (touched || urlErr !== 'empty') ? t(`features.ai.mcp.err.url.${urlErr}`) : ''
   const cwError = cwErr ? t(`features.ai.mcp.cw.err.${cwErr}`) : ''
@@ -324,9 +329,9 @@ function Connection({ server, others, words }: { server: McpServerConfig; others
       onSubmit={(e) => {
         e.preventDefault()
         setTouched(true)
-        if (!dirty || nameErr || urlErr || cwErr) return
+        if (!dirty || nameErr || urlErr || cwErr || baseErr) return
         const moved = url.trim() !== server.url
-        patchServer(server.id, { name: cleanName, url: url.trim(), codeword: cw || undefined, ...(moved ? { checkedAt: undefined, checkError: undefined, tools: undefined } : {}) })
+        patchServer(server.id, { name: cleanName, url: url.trim(), codeword: cw || undefined, linkBase: base || undefined, ...(moved ? { checkedAt: undefined, checkError: undefined, tools: undefined } : {}) })
         if (moved) void checkServer(server.id, server.prompt.trim() ? 'test' : 'guide')
       }}
     >
@@ -347,6 +352,28 @@ function Connection({ server, others, words }: { server: McpServerConfig; others
         <UrlInput id={`${uid}-url`} value={url} error={urlError} onChange={setUrl} onBlur={() => setTouched(true)} />
       </Field>
       <Codeword server={server} value={codeword} onChange={setCodeword} error={cwError} suggestion={suggestCodeword(nameErr ? server.name : cleanName, words)} />
+      <Field id={`${uid}-link`} label={t('features.ai.mcp.linkBase')} hint={t('features.ai.mcp.linkBaseHint')} error={baseErr ? t('features.ai.mcp.err.linkBase') : ''} wide>
+        <input
+          id={`${uid}-link`}
+          className="input mcps-input--mono"
+          type="url"
+          inputMode="url"
+          value={linkBase}
+          placeholder={(() => {
+            try {
+              return new URL(url).origin
+            } catch {
+              return 'https://'
+            }
+          })()}
+          autoComplete="off"
+          spellCheck={false}
+          aria-invalid={baseErr ? true : undefined}
+          aria-describedby={`${uid}-link-hint`}
+          data-testid="mcp-link-base"
+          onChange={(e) => setLinkBase(e.target.value)}
+        />
+      </Field>
       {dirty && (
         <div className="mcps-actions mcps-grid__wide">
           <button
@@ -356,6 +383,7 @@ function Connection({ server, others, words }: { server: McpServerConfig; others
               setName(server.name)
               setUrl(server.url)
               setCodeword(server.codeword ?? '')
+              setLinkBase(server.linkBase ?? '')
               setTouched(false)
             }}
           >

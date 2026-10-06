@@ -10,6 +10,7 @@ import { toast } from '../../store/ui'
 import { useT } from '../../i18n'
 import type { Bridge } from '../lib/bridge'
 import { domainOf } from '../lib/embeds'
+import { isForeignRelative, resolveForeign } from '../../lib/foreignLinks'
 
 const SHOW_DELAY = 450
 const HIDE_DELAY = 250
@@ -54,8 +55,11 @@ export function LinkHover({ editor, bridge }: { editor: Editor; bridge: Bridge }
   }, [editor])
 
   if (!anchor || !anchor.isConnected) return null
-  const href = anchor.getAttribute('href') ?? ''
-  const pageId = href.match(/^#\/p\/([\w-]+)/)?.[1]
+  const raw = anchor.getAttribute('href') ?? ''
+  const pageId = raw.match(/^#\/p\/([\w-]+)/)?.[1]
+  // a relative link Claude copied from an MCP server ("/r/11900") belongs to that server, not to One
+  const foreign = !pageId && isForeignRelative(raw)
+  const href = foreign ? (resolveForeign(raw) ?? raw) : raw
   const page = pageId ? useWorkspace.getState().pages[pageId] : undefined
 
   const selectLink = () => {
