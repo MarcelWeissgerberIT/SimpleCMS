@@ -17,6 +17,7 @@ import { defaultView } from '../../../store/store'
 import { newId } from '../../../lib/ids'
 import { NONE_KEY } from '../../../database'
 import { toMarkdown } from '../../share/markdown'
+import { withoutWebImages } from '../../agents/images'
 import { parseDateValue, parseNumber, splitList } from '../../io/import/csv'
 
 /* ------------------------------------------------------------------ */
@@ -549,7 +550,8 @@ export function buildDatabase(plan: TablePlan, draft: TableDraft, names: { board
       const out = convert(def, v, plan)
       if (out !== null && out !== undefined) values[def.id] = out
     }
-    return { title: e.title || names.untitled, properties: values, body: e.body }
+    // a row's page comes from Claude's answer (about a page, an image, a file): no web image loads by itself
+    return { title: e.title || names.untitled, properties: values, body: e.body ? withoutWebImages(e.body) : e.body }
   })
 
   const group = liveGroup(plan, draft)

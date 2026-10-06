@@ -7,6 +7,7 @@ import { pickFiles } from '../lib/upload'
 import { isUrl } from '../lib/embeds'
 import { caretAfterNode, leaveNodeView } from '../lib/blocks'
 import { ImageAIKey } from './ImageAIKey'
+import { useFocusWhenShown } from '../../ui/focus'
 
 const MIN_W = 80
 /** Stored types that are safe to open in a tab: a blob: URL is same-origin, so an opened SVG/HTML could run script. */
@@ -46,6 +47,7 @@ export function ImageView({ node, updateAttributes, deleteNode, selected, editor
   const [linkValue, setLinkValue] = useState('')
   const [error, setError] = useState(false)
   const captionRef = useRef<HTMLInputElement>(null)
+  const focusCaption = useFocusWhenShown(captionRef)
   const editable = editor.isEditable
 
   useEffect(() => setShowCaption(!!caption || showCaption), [caption]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -169,7 +171,7 @@ export function ImageView({ node, updateAttributes, deleteNode, selected, editor
                 title={t('editor.image.caption')}
                 onClick={() => {
                   setShowCaption(true)
-                  requestAnimationFrame(() => captionRef.current?.focus())
+                  focusCaption()
                 }}
               >
                 <Captions size={13} />

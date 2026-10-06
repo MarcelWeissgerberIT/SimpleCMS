@@ -1,3 +1,5 @@
+import { useCallback, useLayoutEffect, useRef, type RefObject } from 'react'
+
 /**
  * Focus going back to where it was (a dialog, the palette … closing).
  *
@@ -15,4 +17,22 @@ export function restoreFocus(el: Element | null | undefined): void {
   const editor = (el as EditorRoot).editor
   if (editor && !editor.isDestroyed && editor.isEditable && editor.view.dom === el) editor.view.focus()
   else el.focus({ preventScroll: true })
+}
+
+/**
+ * Focus a field that a click is about to show — in the same commit, not a frame later: the first letters
+ * typed right after the click (on a busy machine a frame can take long) would go elsewhere. Call the
+ * returned function together with the state change that mounts the field (already shown: focused at once).
+ */
+export function useFocusWhenShown<T extends HTMLElement>(ref: RefObject<T | null>): () => void {
+  const want = useRef(false)
+  useLayoutEffect(() => {
+    if (!want.current || !ref.current) return
+    want.current = false
+    ref.current.focus({ preventScroll: true })
+  })
+  return useCallback(() => {
+    if (ref.current) ref.current.focus({ preventScroll: true })
+    else want.current = true
+  }, [ref])
 }

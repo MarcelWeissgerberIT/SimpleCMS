@@ -10,6 +10,7 @@ import type { JSONContent } from '@tiptap/core'
 import { useWorkspace } from '../../../store/store'
 import type { ID, PropertyValue } from '../../../store/types'
 import { markdownToDoc } from '../../../editor'
+import { withoutWebImages } from '../../agents/images'
 import { t } from '../../../i18n'
 import { ensureMemoryDb, memoryDbId, memoryProps, optionIds, typeOption } from './schema'
 import { readMemories } from './read'
@@ -44,7 +45,8 @@ export function findDuplicate(text: string, all: Memory[] = readMemories()): Mem
 function bodyDoc(markdown: string): JSONContent | null {
   const md = markdown.trim()
   if (!md) return null
-  const doc = markdownToDoc(md)
+  // a memory's body comes from Claude (a proposal after a task that may have read a mail or a file)
+  const doc = markdownToDoc(withoutWebImages(md))
   return doc.content?.length ? doc : null
 }
 

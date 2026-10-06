@@ -31,22 +31,28 @@ const MANY = 50
 const bare = (target: string) => target.replace(/^<|>$/g, '').trim()
 const label = (s: string) => s.trim().replace(/\s+/g, ' ').toLowerCase()
 
+/** Images that may stay (addresses the page shows already). */
+type Keep = ReadonlySet<string> | undefined
+
+/** A web address that would be loaded as a new image. */
+const loads = (url: string, keep: Keep) => WEB.test(url) && !keep?.has(url)
+
 /** Reference labels whose definition points to the web. */
-function webDefinitions(lines: string[]): Set<string> {
+function webDefinitions(lines: string[], keep: Keep): Set<string> {
   const out = new Set<string>()
   for (const line of lines) {
     const m = DEF.exec(line)
-    if (m && WEB.test(bare(m[2]))) out.add(label(m[1]))
+    if (m && loads(bare(m[2]), keep)) out.add(label(m[1]))
   }
   return out
 }
 
 /** One stretch of text outside code: web images → links. */
-function plain(text: string, defs: Set<string>): string {
+function plain(text: string, defs: Set<string>, keep: Keep): string {
   if (text.split('![').length - 1 > MANY) return text.replace(/!\[/g, '[')
   const inline = text.replace(INLINE, (all, alt: string, target: string, title: string) => {
     const url = bare(target)
-    if (!WEB.test(url)) return all
+    if (!loads(url, keep)) return all
     return `[${alt.trim() ? alt : url.replace(/[[\]]/g, '')}](${target}${title})`
   })
   if (!defs.size) return inline
@@ -57,11 +63,14 @@ function plain(text: string, defs: Set<string>): string {
   })
 }
 
-/** Markdown with every web image (inline or by reference) turned into a link to it. */
-export function withoutWebImages(markdown: string): string {
+/**
+ * Markdown with every web image (inline or by reference) turned into a link to it. `keep`: addresses
+ * the page already shows as images — a rewrite of the page may keep those (they carry nothing new).
+ */
+export function withoutWebImages(markdown: string, keep?: ReadonlySet<string>): string {
   if (!markdown.includes('![')) return markdown
   const lines = markdown.split('\n')
-  const defs = webDefinitions(lines)
+  const defs = webDefinitions(lines, keep)
   let fence: string | null = null
   return lines
     .map((line) => {
@@ -77,8 +86,21 @@ export function withoutWebImages(markdown: string): string {
       // inline code spans are kept as they are
       return line
         .split(/(`+[^`]*`+)/)
-        .map((part, i) => (i % 2 ? part : plain(part, defs)))
+        .map((part, i) => (i % 2 ? part : plain(part, defs, keep)))
         .join('')
     })
     .join('\n')
+}
+
+/** The web images a document shows (src of image nodes), for `withoutWebImages(…, keep)`. */
+export function webImagesOf(doc: { type?: string; attrs?: Record<string, unknown>; content?: unknown[] } | null | undefined): Set<string> {
+  const out = new Set<string>()
+  const walk = (n: { type?: string; attrs?: Record<string, unknown>; content?: unknown[] } | null | undefined) => {
+    if (!n) return
+    const src = n.type === 'image' ? n.attrs?.src : null
+    if (typeof src === 'string' && WEB.test(src)) out.add(src)
+    for (const c of n.content ?? []) walk(c as typeof n)
+  }
+  walk(doc)
+  return out
 }

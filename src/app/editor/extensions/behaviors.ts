@@ -310,6 +310,8 @@ export function shortcutsExtension(bridge: Bridge) {
         Escape: () => {
           const s = bridge.getState()
           if (s.suggest || s.ai || s.urlPaste || s.linkEdit) return false
+          // the block the caret is in now: Esc right after a click can beat the selectionchange event
+          syncDomSelection(editor.view)
           const sel = editor.state.selection
           if (sel instanceof NodeSelection) {
             editor.commands.blur()
@@ -491,6 +493,15 @@ export function findBlockById(editor: import('@tiptap/core').Editor, id: string)
   return found
 }
 
+/**
+ * Take over the caret the browser shows right now. A click moves the DOM selection at once, but
+ * ProseMirror reads it with the next selectionchange event — a key pressed right after the click
+ * (Esc to select the block) can be handled first and would act on the previous caret.
+ */
+export function syncDomSelection(view: EditorView): void {
+  ;(view as unknown as { domObserver?: { flush?: () => void } }).domObserver?.flush?.()
+}
+
 /* ------------------------------------------------------------------ */
 /* Nothing selected until the user does something                      */
 /* ------------------------------------------------------------------ */
@@ -501,22 +512,29 @@ export function findBlockById(editor: import('@tiptap/core').Editor, id: string)
  * empty media block even focuses its URL field) although nobody touched the page. An unfocused
  * view with a node selection gets a plain caret at the first text position instead.
  */
-export function quietSelection(view: EditorView): void {
+export function quietSelection(view: EditorView, { still = false }: { still?: boolean } = {}): void {
   if (view.isDestroyed || view.hasFocus()) return
   const { selection, doc } = view.state
   if (!(selection instanceof NodeSelection)) return
   const caret = Selection.findFrom(doc.resolve(0), 1, true)
-  if (caret) view.dispatch(view.state.tr.setSelection(caret).setMeta('addToHistory', false))
+  // a static render (ReadOnlyDoc) holding only atoms — a lone diagram or chart — has no text
+  // position: it selects "everything" instead, which no node view draws as selected
+  const quiet = caret ?? (still ? new AllSelection(doc) : null)
+  if (quiet) view.dispatch(view.state.tr.setSelection(quiet).setMeta('addToHistory', false))
 }
 
-export const QuietStart = Extension.create({
+export const QuietStart = Extension.create<{ still: boolean }>({
   name: 'quietStart',
+  addOptions() {
+    return { still: false }
+  },
   onBeforeCreate() {
     const editor = this.editor
+    const still = this.options.still
     // 'mount' fires right after the view exists — before any React node view has rendered
     // (an empty bookmark would otherwise autofocus its URL field on a node selection)
     editor.on('mount', () => {
-      if (!editor.isDestroyed) quietSelection(editor.view)
+      if (!editor.isDestroyed) quietSelection(editor.view, { still })
     })
   },
 })

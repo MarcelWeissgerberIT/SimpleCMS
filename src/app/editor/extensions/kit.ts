@@ -40,7 +40,7 @@ export function editorExtensions({
   collab?: ContentDocHandle
 }): AnyExtension[] {
   const exts = baseExtensions({ readOnly, wrap: nodeViewWraps({ readOnly }), headingOffset, collab: !!collab })
-  if (readOnly || !bridge) return [...exts, pasteExtension(null), BlockFlash, QuietStart, ...(collab ? collabExtensions(collab) : [])]
+  if (readOnly || !bridge) return [...exts, pasteExtension(null), BlockFlash, QuietStart.configure({ still: readOnly }), ...(collab ? collabExtensions(collab) : [])]
   return [
     ...(collab ? collabExtensions(collab) : []),
     ...exts,

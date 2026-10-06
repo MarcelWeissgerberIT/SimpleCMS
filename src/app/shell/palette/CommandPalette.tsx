@@ -6,6 +6,7 @@ import { useUI } from '../../store/ui'
 import { inTemplate, isEffectivelyTrashed, selectBreadcrumbs } from '../../store/selectors'
 import { CodewordChip, isAIConfigured, McpSkippedNote, runAI, templateName, templateRoots, type McpCall } from '../../features'
 import { memoryFor, MemoryNote, noteUse, type MemoryUse } from '../../features'
+import { webImagesOf, withoutWebImages } from '../../features'
 import { markdownToDoc, readableContent, ReadOnlyDoc } from '../../editor'
 import { PageIcon } from '../../ui/PageIcon'
 import { restoreFocus as restoreFocusTo } from '../../ui/focus'
@@ -80,7 +81,13 @@ function Palette() {
 
   const finish = (restoreFocus = false) => {
     close()
-    if (restoreFocus) requestAnimationFrame(() => restoreFocusTo(prevFocus.current))
+    if (!restoreFocus) return
+    requestAnimationFrame(() => {
+      // quick hands (Esc, ⌘K) open the palette again before this frame: its field keeps the focus
+      const now = document.activeElement
+      if (now && now !== document.body && now.isConnected) return
+      restoreFocusTo(prevFocus.current)
+    })
   }
   const openPageItem = (id: ID, pane = false) => {
     finish()
@@ -424,7 +431,7 @@ function AskPanel({ question, pageId, onDone }: { question: string; pageId: ID |
 
   const append = () => {
     if (!page || !answer) return
-    const doc = markdownToDoc(answer)
+    const doc = markdownToDoc(withoutWebImages(answer, webImagesOf(page.content)))
     const cur = page.content?.content ?? []
     useWorkspace.getState().setContent(page.id, { type: 'doc', content: [...cur, ...(doc.content ?? [])] }, 'ai')
     useUI.getState().toast({ message: t('shell.ask.appended'), kind: 'success' })
@@ -432,7 +439,7 @@ function AskPanel({ question, pageId, onDone }: { question: string; pageId: ID |
   }
 
   const toNewPage = () => {
-    const id = useWorkspace.getState().createPage({ title: question.slice(0, 80), content: markdownToDoc(answer) })
+    const id = useWorkspace.getState().createPage({ title: question.slice(0, 80), content: markdownToDoc(withoutWebImages(answer)) })
     onDone()
     goToPage(id)
   }
@@ -517,10 +524,13 @@ function AskPanel({ question, pageId, onDone }: { question: string; pageId: ID |
   )
 }
 
-/** Claude answers in Markdown — render it like a page (throttled while it streams). */
+/**
+ * Claude answers in Markdown — render it like a page (throttled while it streams). The answer follows
+ * the open page and MCP results: a web image in it would load the moment it shows, so it is a link.
+ */
 function AskAnswer({ markdown }: { markdown: string }) {
   const shown = useThrottled(markdown, 140)
-  const doc = useMemo(() => (shown.trim() ? markdownToDoc(shown) : null), [shown])
+  const doc = useMemo(() => (shown.trim() ? markdownToDoc(withoutWebImages(shown)) : null), [shown])
   if (!doc) return <div className="ask__answer ask__answer--wait">…</div>
   return (
     <div className="ask__answer">

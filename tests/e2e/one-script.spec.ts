@@ -232,6 +232,8 @@ test.describe('One Script', () => {
       })
     }, ids[0])
     expect(versions.length).toBeGreaterThan(0)
+    // … as a script version, named after the script
+    expect(versions.at(-1)).toMatchObject({ reason: 'script', by: 'Hochstufen' })
     // Undo run (the run log)
     await page.getByRole('tab', { name: 'Run log' }).click()
     const runs = page.getByTestId('sc-runs').locator('.sc-run')

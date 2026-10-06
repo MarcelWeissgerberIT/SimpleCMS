@@ -217,7 +217,8 @@ export function TableView({ onFilterProp }: { onFilterProp: (id: ID) => void }) 
     const cur = editing
     setEditing(null)
     if (reason === 'outside') return
-    requestAnimationFrame(focusGrid)
+    // at once, while the editor still holds the focus: the next key (→ right after Esc) goes to the grid
+    focusGrid()
     if (cur?.idx !== undefined && cur.col !== undefined) {
       if (reason === 'tab') move(cur.col + 1 >= cols.length ? cur.idx + 1 : cur.idx, cur.col + 1 >= cols.length ? 0 : cur.col + 1)
       if (reason === 'shiftTab') move(cur.idx, cur.col - 1)

@@ -7,6 +7,7 @@
 import type { Editor, JSONContent } from '@tiptap/core'
 import type { Node as PMNode } from '@tiptap/pm/model'
 import { docToMarkdown, markdownToDoc } from '../../../editor'
+import { withoutWebImages } from '../../agents/images'
 
 /** Block types a rewrite can replace (a Markdown round trip keeps their shape). */
 const TEXT_TYPES = new Set(['paragraph', 'heading', 'blockquote', 'bulletList', 'orderedList', 'taskList', 'codeBlock', 'callout', 'details', 'table'])
@@ -84,7 +85,8 @@ export function capturePassages(editor: Editor, ids: string[]): RedoPassage[] {
 
 /** Claude's Markdown for a passage → blocks, the atoms put back, the original block's attrs kept where the type stayed. */
 export function passageBlocks(after: string, p: Pick<RedoPassage, 'atoms' | 'type'>, original?: JSONContent): JSONContent[] {
-  const doc = markdownToDoc(after)
+  // a passage is text: an image Claude adds (asked to by text in it) stays a link
+  const doc = markdownToDoc(withoutWebImages(after))
   const restore = (n: JSONContent): JSONContent[] => {
     if (n.type === 'text' && typeof n.text === 'string' && HAS_TOKEN.test(n.text)) {
       const parts: JSONContent[] = []

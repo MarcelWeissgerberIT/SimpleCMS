@@ -16,6 +16,7 @@ import { useCloud } from '../../../cloud'
 import { propertyValueToText, writePropertyValue } from '../../../database'
 import { markdownToDoc } from '../../../editor'
 import { snapshotNow } from '../../history/snapshots'
+import { withoutWebImages } from '../../agents/images'
 import { ScriptError, type Pos, type Value } from '../lang'
 import { coerceProp, propByName, type Coerced } from './props'
 import { effectImpl, type EffectInputs, type EffectName, type EffectOutputs } from './effects'
@@ -136,7 +137,7 @@ export class Host {
     this.before.set(id, p ?? null)
     if (p) {
       try {
-        await snapshotNow(id, 'manual')
+        await snapshotNow(id, 'script', this.scriptName)
       } catch {
         /* history is best effort */
       }
@@ -381,7 +382,10 @@ export class Host {
       return null
     }
     try {
-      const out = await effectImpl(name)(input, { signal: this.signal, scriptName: this.scriptName, lang: this.lang })
+      let out = await effectImpl(name)(input, { signal: this.signal, scriptName: this.scriptName, lang: this.lang })
+      // Claude may have read a mail or a file in the context: a web image in its answer becomes a link
+      // (written into a page it would load by itself the moment the page opens)
+      if (name === 'claude' && typeof out === 'string') out = withoutWebImages(out) as EffectOutputs[K]
       this.effects.push({ kind, key, label, status: 'done' })
       this.write('effect', `${name}: ${label}`, pos)
       return out

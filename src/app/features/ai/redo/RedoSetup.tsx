@@ -79,7 +79,7 @@ export function RedoSetup({ editor, ids, draft, onDraft, onRun, onRepick, onCanc
 
   const usePreset = (p: RedoPreset) => {
     setText((cur) => (!cur.trim() ? p.text : cur.includes(p.text) ? cur : `${cur.trimEnd()}\n${p.text}`))
-    requestAnimationFrame(() => areaRef.current?.focus())
+    areaRef.current?.focus()
   }
 
   const save = () => {
@@ -186,11 +186,11 @@ export function RedoSetup({ editor, ids, draft, onDraft, onRun, onRepick, onCanc
         onPick={(id) => {
           setRules(id)
           setPickRules(false)
-          requestAnimationFrame(() => areaRef.current?.focus())
+          areaRef.current?.focus()
         }}
         onClose={() => {
           setPickRules(false)
-          requestAnimationFrame(() => areaRef.current?.focus())
+          areaRef.current?.focus()
         }}
       />
 

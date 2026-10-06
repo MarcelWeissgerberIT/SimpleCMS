@@ -83,6 +83,7 @@ import { CodewordChip, McpSkippedNote, skippedLabel } from './mcp-servers/Codewo
 import { citationsToLinks, findSource, type WorkspaceSource } from './workspace'
 import { MarkdownLite } from './MarkdownLite'
 import { snapshotNow } from '../history/snapshots'
+import { webImagesOf, withoutWebImages } from '../agents/images'
 import { openAgent } from './agent/state'
 import { afterBlock, captureTarget, mapTarget, type RunTarget } from './runsTarget'
 import { markSeen, removeRun, setTodbDraft, startRun, stopRun, useAIRuns, viewRun, type RunRequest } from './runs'
@@ -572,7 +573,10 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
   const resultMarkdown = () => (run?.req.kind === 'workspace' ? citationsToLinks(output, sources) : output)
 
   const resultBlocks = (): JSONContent[] => {
-    const doc = markdownToDoc(resultMarkdown())
+    // the answer may follow text nobody vouches for (a mail, a file, an MCP result): a web image in it
+    // becomes a link — only the images this page shows already stay images
+    const shown = webImagesOf(useWorkspace.getState().pages[pageId]?.content)
+    const doc = markdownToDoc(withoutWebImages(resultMarkdown(), shown))
     return (doc.content ?? []).filter(Boolean)
   }
 

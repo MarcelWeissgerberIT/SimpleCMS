@@ -204,15 +204,6 @@
   margin: 0;
 }
 
-/* a static preview: nothing in it looks selected (a lone diagram / chart starts as a node selection) */
-.trf__doc .doc-content .ProseMirror-selectednode:not(.is-block-selected) {
-  outline: none;
-}
-
-.trf__doc .doc-content :is(.chart-block, .mermaid-view).is-selected {
-  border-color: var(--rule);
-}
-
 /* a tall diagram is drawn smaller, so most of it shows at once */
 .trf__doc .doc-content .mermaid-view__svg svg {
   max-height: 320px;
