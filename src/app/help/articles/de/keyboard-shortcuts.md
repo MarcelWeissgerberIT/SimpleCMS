@@ -12,6 +12,7 @@ Die Tasten erscheinen passend zu deinem System — ⌘ auf dem Mac, sonst Strg/C
 ## Überall
 - <kbd>Mod+K</kbd> — Suche & Befehle
 - <kbd>Mod+Alt+N</kbd> — neue Seite
+- <kbd>Mod+Shift+K</kbd> — schnell erfassen (Text, Sprache, Foto — siehe [Erfassen](help:capture))
 - <kbd>Mod+\</kbd> — Seitenleiste ein/aus
 - <kbd>Mod+Shift+F</kbd> — Fokusmodus
 - <kbd>Mod+Shift+L</kbd> — hell / dunkel
@@ -21,7 +22,7 @@ Die Tasten erscheinen passend zu deinem System — ⌘ auf dem Mac, sonst Strg/C
 
 ## Schreiben
 - `/` — Block einfügen, <kbd>Leertaste</kbd> in einer leeren Zeile — Claude fragen
-- <kbd>Mod+B</kbd>, <kbd>Mod+I</kbd>, <kbd>Mod+Shift+K</kbd> — fett, kursiv, Link
+- <kbd>Mod+B</kbd>, <kbd>Mod+I</kbd> — fett, kursiv; <kbd>Mod+K</kbd> auf markiertem Text — Link
 - <kbd>Mod+D</kbd> — Block duplizieren
 - <kbd>Mod+Shift+↑</kbd> / <kbd>Mod+Shift+↓</kbd> — Block verschieben
 - <kbd>Alt+Enter</kbd> — Blockmenü (umwandeln, Farbe, verschieben, löschen)

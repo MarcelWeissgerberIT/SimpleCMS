@@ -11,6 +11,7 @@
  *   #/scripts       → One Script (features/script) · #/scripts/<id> → one script's workbench
  *   #/s/<payload>   → read-only shared page (payload = compressed page, see features/share)
  *   #/clip?url=…&title=…&text=… → clip a web page into the Inbox, then replaced by #/p/<new page>
+ *   #/clip?share=<id> → files shared into the installed app (the service worker kept them, see public/sw.js)
  *   #/invite/<token> → join a team workspace (preview, sign in if needed, accept; see shell/cloud)
  *   #/signup/<token> → create an account with a registration link (team cloud; see shell/cloud)
  */
@@ -32,8 +33,11 @@ export type Route =
   | { name: 'share'; payload: string }
   /** #/f/<payload> → public form (payload = compressed form schema, see database/form/codec) */
   | { name: 'form'; payload: string }
-  /** #/clip?url=…&title=…&text=…&desc=… → save a web page to the Inbox (bookmarklet, share target; see shell/capture) */
-  | { name: 'clip'; url: string; title: string; text: string; desc: string }
+  /**
+   * #/clip?url=…&title=…&text=…&desc=… → save a web page to the Inbox (bookmarklet, share target; see shell/capture)
+   * · share = the id of what the share target's service worker stored (files + texts, IndexedDB `one-share`)
+   */
+  | { name: 'clip'; url: string; title: string; text: string; desc: string; share?: string }
   /** #/invite/<token> → team-cloud invitation (link from POST /api/workspaces/:id/invites) */
   | { name: 'invite'; token: string }
   /** #/signup/<token> → team-cloud registration link (from POST /api/server/signup-links) */
@@ -60,7 +64,8 @@ export function parseHash(hash: string): Route {
   if (parts[0] === 'clip') {
     // the whole query (a stray unencoded "?" in a shared URL must not cut it short)
     const q = new URLSearchParams(raw.includes('?') ? raw.slice(raw.indexOf('?') + 1) : '')
-    return { name: 'clip', url: q.get('url') ?? '', title: q.get('title') ?? '', text: q.get('text') ?? '', desc: q.get('desc') ?? '' }
+    const share = q.get('share')
+    return { name: 'clip', url: q.get('url') ?? '', title: q.get('title') ?? '', text: q.get('text') ?? '', desc: q.get('desc') ?? '', ...(share ? { share } : {}) }
   }
   return { name: 'notfound', path }
 }
@@ -93,7 +98,7 @@ export function routeHref(r: Route): string {
       return `#/signup/${r.token}`
     case 'clip': {
       const q = new URLSearchParams()
-      for (const k of ['url', 'title', 'text', 'desc'] as const) if (r[k]) q.set(k, r[k])
+      for (const k of ['url', 'title', 'text', 'desc', 'share'] as const) if (r[k]) q.set(k, r[k]!)
       const qs = q.toString()
       return `#/clip${qs ? `?${qs}` : ''}`
     }

@@ -3,6 +3,7 @@ import { agendaMessages } from './agenda/messages'
 import { cloudMessages } from './cloud/messages'
 import { inboxMessages } from './inbox/messages'
 import { treeMessages } from './sidebar/messages'
+import { captureMessages } from './capture/messages'
 
 /** Strings for the shell area. Keys MUST be prefixed with "shell." — always add both en and de. */
 export const messages: Messages = {
@@ -11,6 +12,7 @@ export const messages: Messages = {
     ...inboxMessages.en,
     ...cloudMessages.en,
     ...treeMessages.en,
+    ...captureMessages.en,
     'shell.a11y.skip': 'Skip to content',
 
     // navigation
@@ -455,6 +457,7 @@ export const messages: Messages = {
     ...inboxMessages.de,
     ...cloudMessages.de,
     ...treeMessages.de,
+    ...captureMessages.de,
     'shell.a11y.skip': 'Zum Inhalt springen',
 
     'shell.nav.search': 'Suchen',

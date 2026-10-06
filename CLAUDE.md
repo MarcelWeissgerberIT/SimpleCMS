@@ -38,7 +38,7 @@ src/app/features/**                  AI (+ workspace agent), history, graph, sha
                                      GitHub Markdown, per-device IndexedDB `one-sync`), mcp (local bridge UI), sheets
                                      (spreadsheet engine + grid; functions/ = custom functions built by clicking), charts
                                      (SVG renderer, chart builder, data sources) (public API: features/index.ts)
-src/app/help/**                      help centre: panel (?, status bar, ⌘K, workspace menu), 57 articles EN+DE twins
+src/app/help/**                      help centre: panel (?, status bar, ⌘K, workspace menu), 58 articles EN+DE twins
                                      (help/articles/{en,de}/<id>.md, `help:<id>` links), Ask (Claude over the articles);
                                      link UI to an article with `<HelpLink id="…" />` (public API: help/index.ts)
 src/help-site/**                     build-time public /help pages (prerendered from the same articles, hreflang)
@@ -190,6 +190,20 @@ the public APIs stable — other areas are built against them in parallel.
   always asked (`WritePlan.alwaysAsk`; Read only refuses); the card's list is pre-approved for that run. `mail.send` via
   Gmail (features/mail/scriptMail.ts): asks for `gmail.send` once (incremental consent), RFC 822 + RFC 2047 subject,
   token in memory only; without Gmail a mailto draft.
+- Capture (shell/capture): share target POST → service worker → IndexedDB `one-share` → `#/clip?share=<id>`, always asked
+  (ClipConfirm), a Clippings page via `saveFile()`, origin 'clip' (the old GET share flow stays for older installs); quick
+  capture (Mod+Shift+K, phone floating key, ⌘K, `?launch=capture`) writes only through quick.ts (draft per device in
+  localStorage `one.capture.draft`); "Install One" via install.ts; manifest shortcuts `?launch=capture|new-page|search|
+  terminal`; `Toast.more` = extra toast keys.
+- Foreign links (lib/foreignLinks.ts): a relative href in page content ("/r/11900", copied by Claude from an MCP result)
+  never opens One's own site — it resolves against the first enabled MCP server's `linkBase`, else the only enabled
+  server's origin (hover card, Mod+click, read-only copies); unknown → a toast pointing to the setting. Every MCP server's
+  guide tells Claude to write absolute record links.
+- One Script editor + templates: completion in features/script/editor/complete.ts (pure; workspace via `WsInfo`), member
+  result types / args in catalog.ts (`ret` / `args` / `named`), snippets in snippets.ts; templates in
+  features/script/templates (`TEMPLATES`, each `build()` adapts via pick.ts or returns a ⚠ stub with `ready: false`;
+  every template must dry-run on the seeded workspace — one-script-templates.spec lists the ids); library `md_table` /
+  `md_chart` (a ```chart fence becomes a `chart` node only when a script writes it), `page.here`.
 - What's new (src/app/help/changelog): every user-visible release adds an entry EN + DE with a real screenshot
   (changelog/README.md, `scripts/changelog-shots.mjs`); the build fails without a twin or an image.
 - Database views: table | board | list | gallery | feed | calendar | timeline | chart | form. Feed settings live in

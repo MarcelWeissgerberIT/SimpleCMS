@@ -47,6 +47,7 @@ import { openTodayJournal, openAgent, AGENT_SHORTCUT, openFunctionBuilder, palet
 import type { ID } from '../../store/types'
 import type { Translate } from '@/shared/i18n'
 import { quickNoteToInbox } from '../capture/inbox'
+import { openQuickCapture, QUICK_CAPTURE_SHORTCUT } from '../capture/state'
 import { openHelp, openChangelog } from '../../help'
 import { useCloud } from '../../cloud'
 import { openCloudDialog, openSettingsTab } from '../cloud/state'
@@ -84,6 +85,7 @@ export function buildCommands(t: Translate, pageId: ID | null): Command[] {
     { id: 'new-page', group: 'create', label: t('shell.cmd.newPage'), icon: FilePlus2, shortcut: 'Mod+Alt+N', keywords: 'create add document neu seite', run: () => createPageAndOpen(null) },
     { id: 'new-database', group: 'create', label: t('shell.cmd.newDatabase'), icon: Table2, keywords: 'table board kanban datenbank tabelle', run: () => createDatabaseAndOpen(null) },
     { id: 'quick-note', group: 'create', label: t('shell.cmd.quickNote'), icon: Inbox, keywords: 'inbox capture jot memo eingang notiz schnell', run: () => { closeMobileSidebar(); quickNoteToInbox() } },
+    { id: 'quick-capture', group: 'create', label: t('shell.qcap.cmd'), icon: Inbox, shortcut: QUICK_CAPTURE_SHORTCUT, keywords: 'capture voice photo camera dictate inbox clippings erfassen sprache foto kamera diktieren ablage', run: () => { closeMobileSidebar(); openQuickCapture() } },
     { id: 'templates', group: 'create', label: t('shell.cmd.templates'), icon: LayoutTemplate, keywords: 'vorlagen gallery', run: () => ui.openModal({ type: 'templates', parentId: null }) },
     { id: 'new-script', group: 'create', label: t('features.script.cmd.new'), icon: SquareCode, keywords: 'script code automate query abfrage skript programm one script code automatisieren', run: () => { closeMobileSidebar(); createScript('script') } },
     { id: 'journal', group: 'navigate', label: t('shell.cmd.journal'), icon: CalendarDays, keywords: 'today daily note tagebuch heute', run: () => { closeMobileSidebar(); openTodayJournal() } },

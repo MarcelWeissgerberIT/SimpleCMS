@@ -30,6 +30,7 @@ import { InviteScreen } from './cloud/InviteScreen'
 import { SignupScreen } from './cloud/SignupScreen'
 import { CloudDialogs } from './cloud/Dialogs'
 import { CloudBanner } from './cloud/Sync'
+import { CaptureHost } from './capture/QuickCapture'
 import './stage/stage.css'
 
 installCloudDevHook()
@@ -134,6 +135,9 @@ function Workspace({ route }: { route: Route }) {
         <ModalHost />
         <CloudDialogs />
         <ScriptDialogHost />
+      </ErrorBoundary>
+      <ErrorBoundary inline>
+        <CaptureHost />
       </ErrorBoundary>
       <Toasts />
       {presentId && <Presentation pageId={presentId} onClose={() => useUI.getState().present(null)} />}

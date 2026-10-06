@@ -288,14 +288,16 @@ test.describe('web clipper', () => {
     expect(await inboxIds(page)).toEqual([])
   })
 
-  test('PWA share target: the manifest points at the app; a shared URL is shown first and saved on "Save to Clippings"', async ({ page }) => {
+  test('share target (GET, older installs): a shared URL is shown first and saved on "Save to Clippings"', async ({ page }) => {
     await openApp(page)
+    // the manifest now POSTs (files too — tests/e2e/quick-capture.spec.ts); an app installed before still opens /app/?title=…
     const res = await page.request.get('manifest.webmanifest')
     expect(res.ok()).toBe(true)
     const manifest = await res.json()
-    expect(manifest.share_target).toMatchObject({ method: 'GET', params: { title: 'title', text: 'text', url: 'url' } })
+    expect(manifest.share_target).toMatchObject({ method: 'POST', params: { title: 'title', text: 'text', url: 'url' } })
     const action = new URL(manifest.share_target.action, res.url())
     expect(action.pathname).toBe('/SimpleCMS/app/')
+    action.search = ''
 
     // Android apps often put the link into "text" and leave "url" empty
     const share = new URL(action)

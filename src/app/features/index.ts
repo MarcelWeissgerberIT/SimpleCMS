@@ -90,6 +90,8 @@ export { ExampleDialog } from './ai/memory'
  */
 export { MeetingDeck, type MeetingDeckProps } from './ai/meeting/MeetingDeck'
 export { MeetingFoot } from './ai/meeting/MeetingFoot'
+/* the browser's speech recognition meeting notes listen with (restarts, error codes) — quick capture's voice notes too */
+export { Recognizer as SpeechRecognizer, speechSupported, type SpeechErrorCode } from './ai/meeting/recognition'
 /*
  * AI terminal = the workspace agent (Claude runs tools over the workspace, every write is staged for review):
  *  - AgentPanel: the terminal dock (in .app-main; full screen on phones), mount once (renders nothing while
@@ -207,6 +209,12 @@ export { startSync, stopSync, openSyncSettings, consumeSyncSettingsRequest, useS
  *  - openMailSettings(): open Settings on the Mail tab · consumeMailSettingsRequest(): SettingsModal asks on open
  */
 export { startMail, stopMail, openMailSettings, consumeMailSettingsRequest, useMail, MailTab, MailSyncLed } from './mail'
+/*
+ * classifyFile(name, mime) → { kind: 'image' | 'pdf' | 'audio' | 'video' | 'file', type }: what a file from outside becomes
+ * (mail attachments, files shared into the app) and the type to store it with — HTML / SVG / XML / scripts as
+ * application/octet-stream (download only, never rendered)
+ */
+export { classify as classifyFile, type AttachmentKind as FileBlockKind } from './mail/attachments'
 /*
  * One MCP, local bridge (Claude Desktop / Claude Code drive this tab through mcp/one-mcp.mjs):
  *  - startMcp(): background service (start once from main.tsx after hydrate; idle until switched on)

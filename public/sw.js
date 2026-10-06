@@ -8,6 +8,9 @@
  *  - Hashed build assets (/assets/*-<hash>.*): cache first (immutable).
  *  - Other same-origin GETs (icons, covers, emoji data): stale-while-revalidate.
  *  - Cross-origin requests (Anthropic API, your webhooks) are never touched.
+ *  - Share target (manifest share_target, POST multipart to app/?share-target): the shared files
+ *    + title / text / url go into IndexedDB `one-share` (never the workspace), then a redirect to
+ *    app/#/clip?share=<id> — the app shows what arrived and saves it only when asked (shell/capture).
  * The page posts the list of resources it already loaded so the very first visit
  * (which the worker did not control yet) ends up in the cache too.
  */
@@ -73,11 +76,105 @@ self.addEventListener('message', (event) => {
 
 const isHashedAsset = (url) => /\/assets\/.+-[A-Za-z0-9_-]{8,}\.(js|css|woff2?|png|webp|svg|jpg)$/.test(url.pathname)
 
+/* ------------------------------------------------------------------ */
+/* Share target: files from other apps                                 */
+/* ------------------------------------------------------------------ */
+
+const SHARE_DB = 'one-share'
+const SHARE_STORE = 'shares'
+const SHARE_FILE_MAX = 25 * 1024 * 1024
+const SHARE_TOTAL_MAX = 50 * 1024 * 1024
+const SHARE_FILES_MAX = 20
+/** a share nobody picked up is dropped after a day */
+const SHARE_KEEP_MS = 24 * 3600_000
+
+/** The same database idb-keyval's createStore('one-share', 'shares') opens in the page (out-of-line keys). */
+function openShares() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(SHARE_DB)
+    req.onupgradeneeded = () => req.result.createObjectStore(SHARE_STORE)
+    req.onsuccess = () => resolve(req.result)
+    req.onerror = () => reject(req.error)
+  })
+}
+
+function storeShare(entry) {
+  return openShares().then(
+    (db) =>
+      new Promise((resolve, reject) => {
+        const tx = db.transaction(SHARE_STORE, 'readwrite')
+        const store = tx.objectStore(SHARE_STORE)
+        // shares older than a day were never picked up: gone
+        const cursor = store.openCursor()
+        cursor.onsuccess = () => {
+          const c = cursor.result
+          if (!c) return
+          if (!c.value || typeof c.value.at !== 'number' || c.value.at < Date.now() - SHARE_KEEP_MS) c.delete()
+          c.continue()
+        }
+        store.put(entry, entry.id)
+        tx.oncomplete = () => {
+          db.close()
+          resolve()
+        }
+        tx.onerror = tx.onabort = () => {
+          db.close()
+          reject(tx.error)
+        }
+      }),
+  )
+}
+
+const field = (form, key, max) => {
+  const v = form.get(key)
+  return typeof v === 'string' ? v.slice(0, max) : ''
+}
+
+/** What arrived: texts (cut), files within the limits (≤ 25 MB each, ≤ 50 MB together), the rest listed as skipped. */
+async function readShare(req) {
+  const form = await req.formData()
+  const files = []
+  const skipped = []
+  let total = 0
+  for (const f of form.getAll('files')) {
+    if (!(f instanceof File) || (!f.size && !f.name)) continue
+    const name = (f.name || 'file').slice(0, 200)
+    if (f.size > SHARE_FILE_MAX) skipped.push({ name, size: f.size, reason: 'size' })
+    else if (total + f.size > SHARE_TOTAL_MAX || files.length >= SHARE_FILES_MAX) skipped.push({ name, size: f.size, reason: 'total' })
+    else {
+      total += f.size
+      files.push({ name, type: f.type || '', size: f.size, blob: f })
+    }
+  }
+  const id = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`
+  return { v: 1, id, at: Date.now(), title: field(form, 'title', 400), text: field(form, 'text', 20_000), url: field(form, 'url', 4_000), files, skipped }
+}
+
+/** POST app/?share-target → store, then 303 to app/#/clip?share=<id> (other query parameters stay, e.g. ?e2e). */
+async function receiveShare(req) {
+  const url = new URL(req.url)
+  url.searchParams.delete('share-target')
+  const app = `${url.origin}${url.pathname}${url.search}`
+  try {
+    const entry = await readShare(req)
+    await storeShare(entry)
+    return Response.redirect(`${app}#/clip?share=${entry.id}`, 303)
+  } catch {
+    return Response.redirect(`${app}#/clip?share=failed`, 303)
+  }
+}
+
+const isShareTarget = (req, url) => req.method === 'POST' && url.searchParams.has('share-target') && url.pathname === new URL('app/', self.registration.scope).pathname
+
 self.addEventListener('fetch', (event) => {
   const req = event.request
-  if (req.method !== 'GET') return
   const url = new URL(req.url)
   if (url.origin !== self.location.origin) return
+  if (isShareTarget(req, url)) {
+    event.respondWith(receiveShare(req))
+    return
+  }
+  if (req.method !== 'GET') return
   // video streams use Range requests, and the Cache API cannot store partial responses
   if (req.headers.has('range') || /\.(mp4|webm|mov)$/i.test(url.pathname)) return
   // team cloud (served from the same origin): API answers and the live channel are never cached

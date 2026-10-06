@@ -12,6 +12,7 @@ Keys are shown for your system — ⌘ on a Mac, Ctrl elsewhere. The complete li
 ## Everywhere
 - <kbd>Mod+K</kbd> — search & commands
 - <kbd>Mod+Alt+N</kbd> — new page
+- <kbd>Mod+Shift+K</kbd> — quick capture (text, voice, photo — see [Capture](help:capture))
 - <kbd>Mod+\</kbd> — show or hide the sidebar
 - <kbd>Mod+Shift+F</kbd> — focus mode
 - <kbd>Mod+Shift+L</kbd> — light / dark
@@ -21,7 +22,7 @@ Keys are shown for your system — ⌘ on a Mac, Ctrl elsewhere. The complete li
 
 ## Writing
 - `/` — insert a block, <kbd>Space</kbd> on an empty line — ask Claude
-- <kbd>Mod+B</kbd>, <kbd>Mod+I</kbd>, <kbd>Mod+Shift+K</kbd> — bold, italic, link
+- <kbd>Mod+B</kbd>, <kbd>Mod+I</kbd> — bold, italic; <kbd>Mod+K</kbd> on selected text — link
 - <kbd>Mod+D</kbd> — duplicate the block
 - <kbd>Mod+Shift+↑</kbd> / <kbd>Mod+Shift+↓</kbd> — move the block
 - <kbd>Alt+Enter</kbd> — block menu (turn into, colour, move, delete)

@@ -9,7 +9,7 @@ export function Toasts() {
   return (
     <div className="toasts" role="region" aria-live="polite" aria-label={t('shell.toast.region')}>
       {toasts.map((toast) => (
-        <div key={toast.id} className="toast" data-kind={toast.kind ?? 'info'} role={toast.kind === 'error' ? 'alert' : 'status'}>
+        <div key={toast.id} className="toast" data-kind={toast.kind ?? 'info'} data-more={toast.more?.length ? '' : undefined} role={toast.kind === 'error' ? 'alert' : 'status'}>
           <span className="toast__led" aria-hidden />
           <span className="toast__msg">{toast.message}</span>
           {toast.action && (
@@ -24,6 +24,19 @@ export function Toasts() {
               {toast.action.label}
             </button>
           )}
+          {toast.more?.map((m, i) => (
+            <button
+              key={i}
+              type="button"
+              className="toast__action"
+              onClick={() => {
+                m.run()
+                dismiss(toast.id)
+              }}
+            >
+              {m.label}
+            </button>
+          ))}
           <button type="button" className="toast__close" aria-label={t('common.close')} onClick={() => dismiss(toast.id)}>
             <X size={13} />
           </button>

@@ -8,6 +8,9 @@
  *    With this device's clip token (k) it becomes a page in the Inbox right away; without it
  *    One shows what it would save and asks first (ClipConfirm). Either way the route is
  *    REPLACED, so a reload or "back" never clips (or asks) twice. Never inside a frame.
+ *  - Files shared into the installed app arrive as #/clip?share=<id> (the service worker kept them,
+ *    see share.ts): always asked first — a share never carries the clip token.
+ *  - Quick capture (QuickCapture.tsx, quick.ts) files its notes here too.
  */
 import type { JSONContent } from '@tiptap/core'
 import { format } from 'date-fns'
@@ -59,7 +62,7 @@ export function ensureInbox(): ID {
  * List a captured page in the Inbox: a page-link block, newest first (above the first
  * existing page link; appended when there is none yet). Everything else stays as it is.
  */
-function fileInInbox(inbox: ID, id: ID): void {
+export function fileInInbox(inbox: ID, id: ID): void {
   const page = ws().pages[inbox]
   if (!page) return
   const blocks = [...(page.content?.content ?? [])]
@@ -78,7 +81,7 @@ const text = (s: string): JSONContent => ({ type: 'text', text: s })
 const para = (s: string): JSONContent => (s ? { type: 'paragraph', content: [text(s)] } : { type: 'paragraph' })
 
 /** Today as an inline date mention (same shape the editor's "@today" inserts). */
-function dateMention(d: Date): JSONContent {
+export function dateMention(d: Date): JSONContent {
   const de = isDe()
   return {
     type: 'mention',
@@ -156,15 +159,24 @@ export function normalizeClip(input: ClipInput): Clip {
   return { url, rawTitle, title, text: body, desc: clean(input.desc, 300).replace(/\s+/g, ' ') }
 }
 
+export interface ClipExtras {
+  /** blocks after the quote (shared files: image / fileBlock / audio / video) */
+  blocks?: JSONContent[]
+  /** the dateline's verb: "Clipped" (default) or "Shared" (from another app) */
+  shared?: boolean
+}
+
 /**
- * "Clipped <date>" dateline, bookmark card, the selection as a quote, an empty line for notes.
+ * "Clipped <date>" dateline, bookmark card, the selection as a quote, shared files, an empty line for notes.
  * (The dateline leads: a page opening on an atom block would show that block as selected.)
  */
-export function clipDoc(c: Clip, now = new Date()): JSONContent {
-  const content: JSONContent[] = [{ type: 'paragraph', content: [text(`${t('shell.capture.clipped')} `), dateMention(now)] }]
+export function clipDoc(c: Clip, now = new Date(), extras: ClipExtras = {}): JSONContent {
+  const verb = t(extras.shared ? 'shell.capture.shared' : 'shell.capture.clipped')
+  const content: JSONContent[] = [{ type: 'paragraph', content: [text(`${verb} `), dateMention(now)] }]
   if (c.url) content.push({ type: 'bookmark', attrs: { url: c.url, title: c.rawTitle || null, description: c.desc || null, image: null } })
   const quote = c.text ? quoteParagraphs(c.text) : []
   if (quote.length) content.push({ type: 'blockquote', content: quote })
+  if (extras.blocks?.length) content.push(...extras.blocks)
   content.push({ type: 'paragraph' })
   return { type: 'doc', content }
 }
@@ -181,14 +193,18 @@ function recentDuplicate(inbox: ID, c: Clip): ID | null {
   return dup?.id ?? null
 }
 
-/** Save a clip as a new page in the Inbox (or reuse an identical one from the last minute). Returns its id. */
-export function clipToInbox(input: ClipInput): ID {
+/**
+ * Save a clip as a new page in the Inbox (or reuse an identical one from the last minute — never for
+ * shared files: each share is its own). `title` overrides the clip's own (shared files). Returns its id.
+ */
+export function clipToInbox(input: ClipInput, extras: ClipExtras & { title?: string } = {}): ID {
   const c = normalizeClip(input)
+  if (extras.title) c.title = extras.title
   const inbox = ensureInbox()
-  const dup = recentDuplicate(inbox, c)
+  const dup = extras.blocks?.length ? null : recentDuplicate(inbox, c)
   if (dup) return dup
   const id = ws().createPage({ parentId: inbox, title: c.title })
-  ws().setContent(id, clipDoc(c), CLIP_ORIGIN)
+  ws().setContent(id, clipDoc(c, new Date(), extras), CLIP_ORIGIN)
   fileInInbox(inbox, id)
   return id
 }
@@ -227,7 +243,7 @@ function hasClipToken(hash: string): boolean {
   return !!k && !!own && TOKEN_RE.test(k) && k === own
 }
 
-const isFramed = (): boolean => {
+export const isFramed = (): boolean => {
   try {
     return window.top !== window.self
   } catch {
@@ -247,6 +263,18 @@ export function runClipRoute(route: Extract<Route, { name: 'clip' }>): void {
   if (isFramed()) {
     navigate({ name: 'home' }, { replace: true })
     toast({ message: t('shell.capture.framed'), kind: 'error' })
+    return
+  }
+  if (route.share) {
+    // files shared into the installed app: what arrived is shown first, saved only on "Save to Clippings"
+    navigate({ name: 'home' }, { replace: true })
+    const id = route.share
+    void import('./share')
+      .then((m) => m.receiveShare(id))
+      .catch((e) => {
+        console.error('[one] shared files could not be read', e)
+        toast({ message: t('shell.capture.share.failed'), kind: 'error' })
+      })
     return
   }
   const c = normalizeClip(route)
