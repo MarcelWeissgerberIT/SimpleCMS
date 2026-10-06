@@ -3,7 +3,7 @@ id: ai-menu
 title: The AI menu & asking
 section: ai
 order: 2
-keywords: ai, claude, space, ask ai, improve, summarize, translate, explain, continue writing, action items, ask workspace, turn into database, board, table, transform into, diagram, flowchart, mind map, mermaid, chart, timeline, columns, tabs, toggles, cards, visualize, background, context, what claude reads, mark blocks, redo, rewrite, instructions, presets, style guide, image, picture, alt text, caption, ocr, read text, image to table, screenshot, photo, file, pdf, attachment, summarize pdf, word, docx, excel, xlsx, csv, html, open as page, import as database, KI, Leertaste, verbessern, zusammenfassen, übersetzen, Datenbank, verwandeln, Schaubild, Diagramm, Spalten, Karten, Kontext, neu machen, Vorgaben, Bild, Alternativtext
+keywords: ai, claude, space, ask ai, improve, summarize, translate, explain, continue writing, action items, ask workspace, turn into database, board, table, transform into, diagram, flowchart, mind map, mermaid, chart, timeline, columns, tabs, toggles, cards, visualize, background, context, what claude reads, mark blocks, redo, rewrite, instructions, presets, style guide, sub-page per item, pages + table, make a subpage, one page per item, image, picture, alt text, caption, ocr, read text, image to table, screenshot, photo, file, pdf, attachment, summarize pdf, word, docx, excel, xlsx, csv, html, open as page, import as database, KI, Leertaste, verbessern, zusammenfassen, übersetzen, Datenbank, verwandeln, Schaubild, Diagramm, Spalten, Karten, Kontext, neu machen, Vorgaben, Bild, Alternativtext
 related: claude-key, agent, command-palette, history
 summary: Space on an empty line, or Ask AI on a selection — Claude writes, edits and answers right in the page.
 ---
@@ -43,6 +43,17 @@ Nothing is invented: names, numbers, dates and steps come only from the text. A 
 
 ## Turn into page
 **Ask AI** → **Structure** → **Turn into page** moves the selected blocks into a new sub-page at once — no Claude involved — and leaves a link in their place. The same in the block menu ⋮⋮ (**Turn into → Page**) and with <kbd>Mod+Alt+9</kbd>; see [Drag, turn into, colour](help:block-handle).
+
+**Sub-page per item** (also **Structure**, and **Transform into → Pages + table**) makes every item of the selection its own sub-page — list items, heading sections or table rows — and puts one table in their place: a link to each page plus up to three fields the items share (*Status: open* lines, a to-do's checkbox, the table's columns). No Claude, one step: the toast's **Undo** or <kbd>Mod+Z</kbd> brings the items back.
+
+## Typed requests that are actions
+Some requests are really actions, and the AI menu runs them instead of sending text to Claude — the key comes first, <kbd>Enter</kbd> runs it:
+- *“make a sub-page out of this”*, *“mach daraus eine Unterseite”*, *“auslagern”* → **Turn into page**;
+- *“one page per item”*, *“für jeden Punkt eine Unterseite”*, *“pro Ticket eine Seite”* → **Sub-page per item**;
+- *“as a board”*, *“als Tabelle”* → **Turn into database** with your words as its instruction;
+- anything that works beyond the selection — *“create pages for every ticket in Atlas”*, *“update the database …”* → **This needs the AI terminal — run it there**: the [AI terminal](help:agent) opens with your request and the selection as a reference, and starts.
+
+Writing requests (*shorter*, *translate*, *explain …*) go to Claude as before; **Ask Claude** stays in the list for any request.
 
 ## Redo with instructions
 Mark passages and have Claude rework them your way: **Ask AI** → **Redo with instructions…** (also in the block menu ⋮⋮, or `/redo` in the AI terminal). The picker opens with the selected blocks marked — mark more, even far apart (whole blocks), then <kbd>Enter</kbd>. Write what should change — *shorter, informal, explain the jargon* — and keep it as a preset chip for next time (up to 20, on this device; **⋯** renames or deletes). Optionally add a **rules page** (`@` in the field): a style guide or glossary whose content goes along. **Redo** (<kbd>Mod+Enter</kbd>) runs in the background like any request; the page goes along as **What Claude reads** allows.

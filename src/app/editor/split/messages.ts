@@ -1,6 +1,6 @@
 import type { Messages } from '@/shared/i18n'
 
-/** "Turn into page" strings (merged into the editor area's messages). Keys: "editor.split.*". */
+/** "Turn into page" and "Sub-page per item" strings (merged into the editor area's messages). Keys: "editor.split.*". */
 export const splitMessages: Messages = {
   en: {
     'editor.split.toPage': 'Turn into page',
@@ -10,6 +10,18 @@ export const splitMessages: Messages = {
     'editor.split.err.none': 'Nothing here can become a page — select whole blocks of one page, column, callout, toggle or tab',
     'editor.split.err.busy': 'Meeting notes that are recording stay here — stop the recording first',
     'editor.split.err.failed': 'The new page could not be created',
+    'editor.split.items.action': 'Sub-page per item',
+    'editor.split.items.actionN': 'Sub-page per item · {n} items',
+    'editor.split.items.transform': 'Pages + table',
+    'editor.split.items.hint': 'each item a sub-page, linked in a table — no AI',
+    'editor.split.items.made.one': 'Made 1 sub-page, linked in a table',
+    'editor.split.items.made.other': 'Made {count} sub-pages, linked in a table',
+    'editor.split.items.kept.one': 'The items are back — 1 page was changed meanwhile and stays as it is',
+    'editor.split.items.kept.other': 'The items are back — {count} pages were changed meanwhile and stay as they are',
+    'editor.split.items.err.none': 'No items here — select a list, headings with text below them, or a table',
+    'editor.split.items.page': 'Page',
+    'editor.split.items.done': 'Done',
+    'editor.split.items.column': 'Column {n}',
   },
   de: {
     'editor.split.toPage': 'In Seite umwandeln',
@@ -19,5 +31,17 @@ export const splitMessages: Messages = {
     'editor.split.err.none': 'Hier wird nichts zur Seite — markiere ganze Blöcke einer Seite, Spalte, Hinweisbox, Aufklappliste oder eines Tabs',
     'editor.split.err.busy': 'Besprechungsnotizen, die gerade aufnehmen, bleiben hier — beende zuerst die Aufnahme',
     'editor.split.err.failed': 'Die neue Seite konnte nicht angelegt werden',
+    'editor.split.items.action': 'Unterseite pro Eintrag',
+    'editor.split.items.actionN': 'Unterseite pro Eintrag · {n} Einträge',
+    'editor.split.items.transform': 'Seiten + Tabelle',
+    'editor.split.items.hint': 'jeder Eintrag eine Unterseite, verlinkt in einer Tabelle — ohne KI',
+    'editor.split.items.made.one': '1 Unterseite angelegt, verlinkt in einer Tabelle',
+    'editor.split.items.made.other': '{count} Unterseiten angelegt, verlinkt in einer Tabelle',
+    'editor.split.items.kept.one': 'Die Einträge sind zurück — 1 Seite wurde inzwischen geändert und bleibt, wie sie ist',
+    'editor.split.items.kept.other': 'Die Einträge sind zurück — {count} Seiten wurden inzwischen geändert und bleiben, wie sie sind',
+    'editor.split.items.err.none': 'Hier gibt es keine Einträge — markiere eine Liste, Überschriften mit Text darunter oder eine Tabelle',
+    'editor.split.items.page': 'Seite',
+    'editor.split.items.done': 'Erledigt',
+    'editor.split.items.column': 'Spalte {n}',
   },
 }

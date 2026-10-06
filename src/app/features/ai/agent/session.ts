@@ -18,7 +18,7 @@ import { AGENT_SYSTEM, runAgent, taskMessage, type RunHooks } from './run'
 import { initialAgentState, openAgent, setStopHandler, useAgent, type EchoAsk, type EchoEntry, type MemCard, type MemItem } from './state'
 import { clearHistory, loadHistory, pushHistory } from './history'
 import { parseCommand, parseCommandText } from './commands'
-import { TERMINAL_TOOLS, type ReadLimit, type StageApi } from './tools'
+import { MAX_TOOL_CALLS, TERMINAL_TOOLS, type ReadLimit, type StageApi } from './tools'
 import { memoryFor, noteUse } from '../memory/use'
 import { memoryInUse, proposalsOn } from '../memory/settings'
 import { localProposal, proposeAfterTask, terminalSource, trivialTask } from '../memory/propose'
@@ -183,21 +183,58 @@ function prepareTask(task: string): { setup: McpSetup; prompt: string; memTools:
   return { setup: mcpSetup, prompt: codewordTask(task), memTools }
 }
 
+/** Staged changes listed in a continuation, at most (the rest as a count). */
+const CONTINUE_LIST = 80
+
+/** What Claude gets for "Continue": the task again, a fresh budget, and what is staged already. */
+function continuation(prev: AgentTurn): string {
+  const open = get().changes.filter((c) => c.status === 'pending' || c.status === 'failed')
+  const line = (c: StagedChange) => `- #${c.n} ${c.kind}${c.title ? ` ${q(c.title)}` : ''} (id: ${c.pageId})`
+  const list = open.slice(0, CONTINUE_LIST).map(line)
+  if (open.length > CONTINUE_LIST) list.push(`- … and ${open.length - CONTINUE_LIST} more`)
+  return [
+    `Continue the task where you stopped at the tool-call limit. You have a fresh budget of ${MAX_TOOL_CALLS} tool calls.`,
+    `The task: ${q(prev.task)}`,
+    open.length
+      ? `${open.length} change${open.length === 1 ? ' is' : 's are'} staged so far and stay staged — don't redo or stage them again; their ids work as before:\n${list.join('\n')}`
+      : 'Nothing is staged yet.',
+    'Do what is left, then reply with the short summary.',
+  ].join('\n')
+}
+
+/** The last task, when it stopped at the tool-call limit (Continue picks it up). */
+export function continuable(): AgentTurn | null {
+  const last = get().turns[get().turns.length - 1]
+  return last?.status === 'limit' ? last : null
+}
+
+/**
+ * "Continue" (the key under a task that stopped at the limit, /continue, /weiter): the same task, a fresh
+ * tool budget, the same conversation and staged changes — Claude is told what is staged already.
+ */
+export function continueTask(): Promise<void> {
+  const prev = continuable()
+  if (!prev || get().status === 'running') return Promise.resolve()
+  return runTask(prev.task, { history: false, continues: prev.continues ?? prev.n })
+}
+
 /**
  * Run the task in the prompt (or `raw`). One task at a time. `noMemory`: without the One memory
- * (/no-memory <task>); `history: false` when the prompt went into the history already.
+ * (/no-memory <task>); `history: false` when the prompt went into the history already; `continues`:
+ * Continue — task n goes on (raw = its text; Claude gets the continuation, no memory or chips again).
  */
-export async function runTask(raw?: string, opts: { noMemory?: boolean; history?: boolean } = {}): Promise<void> {
+export async function runTask(raw?: string, opts: { noMemory?: boolean; history?: boolean; continues?: number } = {}): Promise<void> {
   const task = (raw ?? get().draft).trim()
   if (!task || get().status === 'running') return
   const n = get().turns.length + 1
+  const prevTurn = opts.continues ? get().turns[get().turns.length - 1] : undefined
   const ac = new AbortController()
   controller = ac
   setStopHandler(() => ac.abort())
   if (opts.history !== false) pushHistory(task)
-  // the chips go along with this task: references, the mentions still in the text, the open page
-  const refs = get().refs
-  const mentions = get().mentions.filter((m) => task.includes(`@${m.title}`))
+  // the chips go along with this task: references, the mentions still in the text, the open page (a continuation: none again)
+  const refs = prevTurn ? [] : get().refs
+  const mentions = prevTurn ? [] : get().mentions.filter((m) => task.includes(`@${m.title}`))
   const pageId = contextPageId()
   const suffix = pageId ? contextSuffix(pageId) : ''
   const ctx: TurnContext = {
@@ -205,21 +242,25 @@ export async function runTask(raw?: string, opts: { noMemory?: boolean; history?
     mentions: mentions.map((m) => m.title),
     ...(pageId ? { page: `${useWorkspace.getState().pages[pageId]?.title.trim() || t('common.untitled')}${suffix ? ` · ${suffix}` : ''}` } : {}),
   }
-  // the One memory: the memories that fit this task go along (/no-memory: none)
-  const mem = memoryFor(task, { off: opts.noMemory || get().memOffNext })
+  // the One memory: the memories that fit this task go along (/no-memory: none; a continuation: they went along already)
+  const mem = prevTurn ? { use: null, block: '' } : memoryFor(task, { off: opts.noMemory || get().memOffNext })
+  const memShown = prevTurn ? prevTurn.memory : (mem.use ?? undefined)
   const text = mem.block ? `${context(refs, mentions)}\n\n${mem.block}` : context(refs, mentions)
-  const { setup, prompt, memTools: withMemTools } = prepareTask(task)
+  const prepared = prepareTask(task)
+  const { setup, memTools: withMemTools } = prepared
+  const prompt = prevTurn ? continuation(prevTurn) : prepared.prompt
   set((s) => ({
     status: 'running',
-    draft: '',
+    // Continue leaves what the person is typing (and the chips for their next task) alone
+    draft: prevTurn ? s.draft : '',
     autorun: false,
     live: '',
     calls: 0,
     unseen: null,
-    refs: [],
-    mentions: [],
-    memOffNext: false,
-    turns: [...s.turns, { n, task, startedAt: Date.now(), status: 'running', answer: '', context: ctx, ...(mem.use ? { memory: mem.use } : {}) }],
+    refs: prevTurn ? s.refs : [],
+    mentions: prevTurn ? s.mentions : [],
+    memOffNext: prevTurn ? s.memOffNext : false,
+    turns: [...s.turns, { n, task, startedAt: Date.now(), status: 'running', answer: '', context: ctx, ...(memShown ? { memory: memShown } : {}), ...(opts.continues ? { continues: opts.continues } : {}) }],
   }))
 
   let answer = ''
@@ -351,7 +392,14 @@ function notifyHidden(status: AgentStatus) {
   const failed = status === 'error'
   set({ unseen: failed ? 'error' : 'done' })
   const pending = get().changes.filter((c) => c.status === 'pending').length
-  const message = failed ? t('features.agent.toast.hiddenError') : pending ? tn('features.agent.toast.hiddenReview', pending) : t('features.agent.toast.hiddenDone')
+  // stopped at the tool-call limit: the toast says so (Continue is in the terminal)
+  const message = failed
+    ? t('features.agent.toast.hiddenError')
+    : status === 'limit'
+      ? tn('features.agent.toast.hiddenLimit', pending)
+      : pending
+        ? tn('features.agent.toast.hiddenReview', pending)
+        : t('features.agent.toast.hiddenDone')
   useUI.getState().toast({ message, kind: failed ? 'error' : 'success', action: { label: t('features.agent.toast.show'), run: () => openAgent() }, timeout: 10_000 })
 }
 
@@ -429,6 +477,11 @@ export async function submitPrompt(raw?: string): Promise<void> {
     case 'stop':
       if (running) stopTask()
       else info(input, 'features.agent.echo.notRunning')
+      return
+    case 'continue':
+      if (running) return info(input, 'features.agent.echo.wait')
+      if (!continuable()) return info(input, 'features.agent.echo.nothingToContinue')
+      await continueTask()
       return
     case 'apply':
       if (running) return info(input, 'features.agent.echo.wait')

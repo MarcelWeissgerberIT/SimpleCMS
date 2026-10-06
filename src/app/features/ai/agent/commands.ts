@@ -9,7 +9,7 @@ import type { TermMention } from './types'
 import { examples } from '../memory/example'
 import { memoryInUse } from '../memory/settings'
 
-export type CommandId = 'new' | 'stop' | 'apply' | 'discard' | 'history' | 'clearhistory' | 'help' | 'mcp' | 'cost' | 'context' | 'redo' | 'remember' | 'nomemory' | 'example'
+export type CommandId = 'new' | 'stop' | 'continue' | 'apply' | 'discard' | 'history' | 'clearhistory' | 'help' | 'mcp' | 'cost' | 'context' | 'redo' | 'remember' | 'nomemory' | 'example'
 
 export interface Command {
   id: CommandId
@@ -23,6 +23,8 @@ export interface Command {
 export const COMMANDS: Command[] = [
   { id: 'new', en: ['new', 'clear'], de: ['neu', 'leeren'] },
   { id: 'stop', en: ['stop'], de: ['stopp'] },
+  // a task that stopped at the tool-call limit goes on with a fresh budget (session.ts continueTask)
+  { id: 'continue', en: ['continue'], de: ['weiter'] },
   { id: 'apply', en: ['apply'], de: ['übernehmen', 'uebernehmen'] },
   { id: 'discard', en: ['discard'], de: ['verwerfen'] },
   { id: 'history', en: ['history'], de: ['verlauf'] },

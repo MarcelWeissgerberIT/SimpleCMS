@@ -7,7 +7,9 @@
  * - Opus / Sonnet 5.5: adaptive thinking with `display: "updates"`, so the short progress notes
  *   Claude writes between tool calls reach the step log; refusal fallbacks as in client.ts.
  * - Limits: MAX_TOOL_CALLS per task (then Claude is told to wrap up, and the run ends if it keeps
- *   calling tools), tool results clipped with a note (tools.ts), max_iterations as a backstop.
+ *   calling tools), tool results clipped with a note (tools.ts), max_iterations as a backstop. A run
+ *   that reached either ends as 'limit' (also when Claude wrapped up), so the terminal can offer
+ *   Continue: the same conversation, a fresh budget (session.ts).
  * - External MCP servers (Settings → Claude AI): attached as `mcp_servers` + `mcp_toolset`s; their
  *   calls run inside a response (mcp_tool_use / mcp_tool_result, kept in the history unchanged) and
  *   only reach the step log. The session pins the setup per conversation (system + tools stay put).
@@ -29,14 +31,16 @@ Where you are
 - When asked which MCP servers, connections or tools you have: name One first (direct access to this workspace through your built-in tools), then any connected MCP servers listed in <mcp_server>, or say that none are connected.
 
 How changes work
-- The writing tools (create_page, append_to_page, edit_page, create_row, update_row, set_page_title, create_database, add_property, write_script) never change the workspace directly. Each call stages one proposed change (edit_page: one per edit); the user reviews the list and applies or discards each item. So don't ask for permission or confirmation: stage what the task needs, then finish.
+- The writing tools (create_page, create_pages, append_to_page, edit_page, create_row, update_row, set_page_title, create_database, add_property, write_script) never change the workspace directly. Each call stages one proposed change (edit_page: one per edit, create_pages: one per page); the user reviews the list and applies or discards each item. So don't ask for permission or confirmation: stage what the task needs, then finish.
 - Ids returned for staged pages, rows, databases and properties work right away: you can append to, update, rename or create pages under something you staged earlier in the task, and stage rows in a database you staged (create_database, then create_row with its id). Changes are applied in a safe order: pages, databases, properties, then rows.
 
 How to work
 - Look before you write. Find things with search_pages, list_databases and get_current_page, read them with read_page and query_database. Use only ids that tools returned; never make one up.
 - For a new table, board or tracker use create_database (a board groups its cards by a select, multi_select or checkbox column), then one create_row per item. Add a missing column to an existing database with add_property instead of a new database.
+- One page per item (tickets, people, meetings, chapters …): stage all of them with ONE create_pages call (up to 50 pages per call — a second call for more), never one create_page per item. Each page gets the item's title and its details as Markdown. When the task also asks for an overview, link the pages in a Markdown table on the main page — the open page when the person says "this page", "the main page" or "Hauptseite" — with append_to_page (edit_page only when it replaces something there): the first column [Title](#/p/<id>) with the ids create_pages returned, then the item's key fields (status, owner, date …) as columns.
+- When the items share fields and the person asks for a table, tracker, board or database rather than pages, use create_database and one create_row per item (the details as the row's markdown) instead. Do what the person asked for.
 - Questions across databases (counts, sums, filters, groups, look-ups) are one run_query call: a read-only One Script query. When the task asks for a script, a reusable automation or a saved query, draft it with write_script — the person saves it and runs it themselves (a dry run first); it never runs on its own.
-- Prefer one query_database call over reading rows one by one. You have at most ${MAX_TOOL_CALLS} tool calls per task; independent calls can go in parallel.
+- Prefer one query_database call over reading rows one by one. You have at most ${MAX_TOOL_CALLS} tool calls per task (create_pages counts once); independent calls can go in parallel. When you reach the limit, the person can let you continue with a fresh budget: then pick up where you stopped and never stage anything twice.
 - Set database properties by their exact names with plain JSON values: text, numbers, true/false, option names for select and status (a list of names for multi-select), dates as "YYYY-MM-DD" or {"start": …, "end": …}, people by name, relations by row title or id. Computed properties (formulas, rollups, created/edited times, IDs) cannot be set. If a value does not fit, the tool says why: fix it and call again.
 - Adding versus changing: to add a section, notes or items to a page, use append_to_page. Change existing text with edit_page only when the task asks to fix, rewrite, update, shorten or remove it: read the page with read_page and refs: true, then cite the refs of exactly the blocks the task is about. Never rewrite, reorder or "improve" blocks the task does not touch, and keep their wording, links and formatting. Use replace_all only when the task asks for the whole page to be rewritten.
 - Write page content in Markdown: headings, lists, task lists ("- [ ] …"), tables, quotes, code. Link to a page with [Title](#/p/<page id>). Refs (⟦b3⟧) are labels for edit_page, never part of the text you write.
@@ -122,6 +126,8 @@ export async function runAgent(opts: {
     const system = opts.system ?? AGENT_SYSTEM
     let calls = 0
     let warned = false
+    /** a call was refused at the limit: Claude was told to wrap up, the run ends as 'limit' */
+    let refused = false
 
     const tools: BetaRunnableTool<Record<string, unknown>>[] = (opts.tools ?? TERMINAL_TOOLS).map((tool) => ({
       type: 'custom',
@@ -135,7 +141,11 @@ export async function runAgent(opts: {
         if (signal.aborted) throw new Error('Stopped by the user.')
         calls += 1
         if (calls > MAX_TOOL_CALLS) {
-          throw new Error(`Tool-call limit (${MAX_TOOL_CALLS}) reached for this task. Do not call any more tools. Reply now with a short summary of what you staged and what is left to do.`)
+          if (!refused) {
+            refused = true
+            hooks.limit()
+          }
+          throw new Error(`Tool-call limit (${MAX_TOOL_CALLS}) reached for this task. Do not call any more tools. Reply now with a short summary of what you staged and what is left to do — the person can let you continue with a fresh budget.`)
         }
         const started = performance.now()
         let arg = ''
@@ -163,8 +173,8 @@ export async function runAgent(opts: {
       model,
       max_tokens: 64000,
       stream: true as const,
-      // backstop: the tool-call limit normally ends the run first
-      max_iterations: MAX_TOOL_CALLS + 6,
+      // backstop: the tool-call limit normally ends the run first (room for MCP turns the server pauses)
+      max_iterations: MAX_TOOL_CALLS + 12,
       // automatic prompt caching: system + tools + the growing history are re-read every step
       cache_control: { type: 'ephemeral' as const },
       system: mcp ? `${system}\n\n${mcp.system}` : system,
@@ -185,6 +195,8 @@ export async function runAgent(opts: {
 
     let end: RunEnd = 'done'
     let jsonRetries = 0
+    /** how the last response ended: tool_use / pause_turn here means the runner stopped at max_iterations */
+    let lastStop: string | null = null
     let runner = client.beta.messages.toolRunner({ ...params, messages }, { signal })
     try {
       outer: for (;;) {
@@ -202,6 +214,7 @@ export async function runAgent(opts: {
             })
             const msg = await stream.finalMessage()
             jsonRetries = 0
+            lastStop = msg.stop_reason
             hooks.usage(msg.usage)
             const toolUse = msg.content.some((b) => b.type === 'tool_use')
             hooks.textDone(toolUse ? 'note' : 'answer')
@@ -218,9 +231,10 @@ export async function runAgent(opts: {
                 break outer
               }
               warned = true
-              hooks.limit()
             }
           }
+          // the limit was reached (Claude wrapped up), or the backstop ended the loop mid-task
+          if (refused || lastStop === 'tool_use' || lastStop === 'pause_turn') end = 'limit'
           break
         } catch (e) {
           if (signal.aborted) throw e

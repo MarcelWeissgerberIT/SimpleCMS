@@ -76,6 +76,10 @@ import { useUI } from '../../store/ui'
 import { markdownToDoc, openContextPicker, pageContextMarks, setContextMode, topBlockKeys, useContextMarks, type ContextMode } from '../../editor'
 import { toMarkdown } from '../share/markdown'
 import { turnIntoPage } from '../../editor'
+// own requests that are really structure actions or terminal tasks (intent.ts) · Sub-page per item (editor/split/items.ts)
+import { FileStack } from 'lucide-react'
+import { itemCount, pagesPerItem } from '../../editor'
+import { requestIntent } from './intent'
 import { AI_MODELS, AIError, aiErrorText, isAIDemo, onAIDemo, resolveModel, setAIDemo, verifyKey } from './client'
 import { readServers } from './mcp-servers/config'
 import { callLabel, type McpCall } from './mcp-servers/activity'
@@ -704,6 +708,16 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
     [onClose],
   )
 
+  /** "This needs the AI terminal — run it there": the request runs there, the selection goes along as a reference. */
+  const handToTerminal = useCallback(
+    (task: string) => {
+      const at = own.t.mode === 'selection' ? { from: own.t.from, to: own.t.to } : null
+      onClose()
+      void import('./agent/refs').then((m) => m.runInTerminal(task, editor, at))
+    },
+    [onClose, own, editor],
+  )
+
   /* ---------------- Claude for images ---------------- */
 
   /** An image action on the image the panel is about (found again — the page may have changed meanwhile). */
@@ -976,6 +990,20 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
           run: () => {
             onClose()
             turnIntoPage(editor, { pageId, range: { from: own.t.from, to: own.t.to } })
+          },
+        },
+        // "Sub-page per item" (editor/split/items.ts): no Claude — each item a sub-page, one table of links in their place
+        {
+          id: 'pagesPerItem',
+          label: t('editor.split.items.action'),
+          code: 'PGS',
+          icon: FileStack,
+          group: t('features.ai.group.structure'),
+          keywords: 'sub-page per item pages each item ticket table unterseite pro eintrag seiten jeder tabelle',
+          hidden: itemCount(editor.state.doc, { from: own.t.from, to: own.t.to }) < 2,
+          run: () => {
+            onClose()
+            pagesPerItem(editor, { pageId, range: { from: own.t.from, to: own.t.to } })
           },
         },
         A('explain', t('features.ai.act.explain'), 'EXP', MessageCircleQuestion, gRead, 'explain erklären'),
@@ -1325,7 +1353,7 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
     }
     if (view === 'transform') {
       const group = t('features.ai.transform.title')
-      return transformPicks
+      const picks: Row[] = transformPicks
         .filter((p) => !q || typeLabel(p).toLowerCase().includes(q) || TRANSFORM_CODES[p].toLowerCase().startsWith(q) || TRANSFORM_KEYWORDS[p].includes(q))
         .map((p) => ({
           id: `trf-${p}`,
@@ -1336,6 +1364,11 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
           hint: <span className="trf-hint">{t(`features.ai.transform.hint.${p}`)}</span>,
           run: () => transformRun(p),
         }))
+      // "Pages + table": Sub-page per item, no Claude (editor/split/items.ts)
+      const pages = actions.find((a) => a.id === 'pagesPerItem' && !a.hidden)
+      const label = t('editor.split.items.transform')
+      if (!pages || (q && !label.toLowerCase().includes(q) && !pages.keywords?.includes(q))) return picks
+      return [...picks, { id: 'trf-pages', label, code: pages.code, icon: pages.icon, group, hint: <span className="trf-hint">{t('editor.split.items.hint')}</span>, run: pages.run }]
     }
     if (view === 'translate') {
       const langs = LANGS.filter((l) => !q || l.native.toLowerCase().includes(q) || l.english.toLowerCase().includes(q) || l.code.toLowerCase() === q)
@@ -1431,6 +1464,19 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
         run: () => handToAgent(query.trim()),
       })
     }
+    // an own request that is really a structure action, or work for the AI terminal (intent.ts): that key first, Enter runs it
+    const intent = q && !img?.only && !file?.only && !remembering ? requestIntent(query, { selection: own.t.mode === 'selection', servers: mcpNames ? mcpNames.split(' · ') : [] }) : null
+    const routed = intent && intent !== 'terminal' ? actions.find((a) => a.id === (intent === 'todb' ? 'todb' : intent)) : null
+    if (routed || intent === 'terminal') {
+      const at = list.findIndex((r) => r.id === routed?.id)
+      if (at >= 0) list.splice(at, 1)
+      const quote = <span className="ai-quote">“{query.trim()}”</span>
+      list.unshift(
+        routed
+          ? { id: `intent-${routed.id}`, label: <>{routed.label} {quote}</>, code: routed.code, icon: routed.icon, run: routed.id === 'todb' ? () => start({ kind: 'todb', label: routed.label, code: 'DB', instruction: query.trim() }) : routed.run }
+          : { id: 'intent-terminal', label: <>{t('features.agent.intent.terminal')} {quote}</>, code: 'AGT', icon: Workflow, run: () => handToTerminal(query.trim()) },
+      )
+    }
     if (imageAsk) list.unshift(imageAsk)
     if (fileAsk) list.unshift(fileAsk)
     // "remember …" / "merk dir …": a memory proposal, not an answer
@@ -1447,7 +1493,7 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
         run: () => start({ kind: 'memory', label: t('features.memory.menu.label'), code: 'MEM', text: query.trim(), from: 'request' }),
       })
     return list
-  }, [query, setup, phase, wsMode, view, actions, t, start, output, target, run, error, discard, sources, handToAgent, mcpNames, onClose, table, todbInPlace, ask, marks, lang, chooseMode, pickBlocks, redoCard, isRedo, imagePanel.rows, img, filePanel.rows, file, lineUse, memOff, previewing, histOf, memEdit, memDup, remembering, tagQuery, transformPicks, transformRun, transformPanel.apply]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [query, setup, phase, wsMode, view, actions, t, start, output, target, run, error, discard, sources, handToAgent, handToTerminal, mcpNames, onClose, table, todbInPlace, ask, marks, lang, chooseMode, pickBlocks, redoCard, isRedo, imagePanel.rows, img, filePanel.rows, file, lineUse, memOff, previewing, histOf, memEdit, memDup, remembering, tagQuery, transformPicks, transformRun, transformPanel.apply]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     setActive((a) => Math.min(a, Math.max(0, rows.length - 1)))

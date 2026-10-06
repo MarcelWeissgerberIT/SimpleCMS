@@ -24,6 +24,7 @@ import { blockKey } from '../../history/diff'
 import { contentKey, snapshotNow } from '../../history/snapshots'
 import { diffDocs, type DocItem } from '../../history/docDiff'
 import type { StagedChange } from './types'
+import { livePage, withPageNodes } from './links'
 
 export type EditOp = 'replace' | 'delete' | 'insert_after' | 'replace_all'
 export const EDIT_OPS: EditOp[] = ['replace', 'delete', 'insert_after', 'replace_all']
@@ -379,7 +380,8 @@ function asItems(blocks: JSONContent[], listType: string): JSONContent[] {
 
 /** New blocks for a place: list / to-do items inside a list, blocks elsewhere; the first keeps `keepId`. */
 function fitted(schema: Schema, markdown: string, parent: PMNode, keepId: string | null): PMNode[] {
-  let blocks = (markdownToDoc(markdown).content ?? []).filter(Boolean)
+  // `[Title](#/p/<id>)` links to pages become page mentions (page link blocks outside lists) — links.ts
+  let blocks = (withPageNodes(markdownToDoc(markdown), livePage, { blocks: !(parent.type.name in LISTS) }).content ?? []).filter(Boolean)
   if (parent.type.name in LISTS) blocks = asItems(blocks, parent.type.name)
   if (keepId && blocks[0]) blocks[0] = { ...blocks[0], attrs: { ...(blocks[0].attrs ?? {}), id: keepId } }
   const nodes = blocks.map((b) => schema.nodeFromJSON(b))

@@ -126,6 +126,17 @@ the public APIs stable — other areas are built against them in parallel.
   staging is skipped. Custom agents' edits always wait for review; server-runner agents have no `edit_page`. Terminal
   commands: `/new` = `/clear` (`/neu`, `/leeren`); `/clear-history` (`/verlauf-leeren`) asks y / n, then removes
   `one.term.history:<kind>:<id>`.
+- AI terminal `create_pages`: one page per item in ONE call (≤ 50, each its own staged `create_page`, ids back in order;
+  a pending page with the same parent + title is updated). `TERMINAL_TOOLS` = `AGENT_TOOLS` + create_database / add_property /
+  write_script / create_pages. `MAX_TOOL_CALLS` = 40 per task (MCP calls don't count; backstop +12); hitting it ends as
+  'limit' with Continue (key, ↵ on the empty prompt, `/continue` = `/weiter`, `continueTask()`: same conversation + staged
+  changes, fresh budget). Applied content (agent/links.ts `withPageNodes`): `[Title](#/p/<id>)` whose text is the page
+  title → a page `mention`; a paragraph holding only one → `pageLink`.
+- AI-menu intent routing (features/ai/intent.ts `requestIntent`, EN + DE, no Claude call): 'topage' → Turn into page,
+  'pagesPerItem' → Sub-page per item, 'todb' → Turn into database first, 'terminal' → "This needs the AI terminal — run
+  it there" (`runInTerminal`, agent/refs.ts). Sub-page per item (editor/split/items.ts `pagesPerItem` / `itemCount`): list
+  items / heading sections / table rows → sub-pages (origin 'split', private when the page is) + ONE table of page
+  mentions with ≤ 3 fields, one transaction; grip Turn into, AI menu 'pagesPerItem', Transform into → "Pages + table".
 - Word-level diff: features/history/docDiff.ts (pure) + `DocDiff` (history/DiffDoc.tsx) — History "Changes" and every
   edit review use them. Row history (features/history/props.ts): a snapshot holds content + title + icon and, for a row,
   `props` = { databaseId, stored values (never computed), defs then }; snapshots without `props` = content only. AI /

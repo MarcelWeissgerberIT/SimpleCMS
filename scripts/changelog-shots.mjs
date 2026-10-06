@@ -8,7 +8,7 @@
  *
  * (CHANGELOG_DRAFT=1 lets the build pass while a new entry's picture does not exist yet.)
  *
- * Shots: quick-capture, script-templates, one-script-everywhere, file-ai, one-script, transform, ai-edit, db-commands, gmail-one-click, memory, grips-footer, block-select, split-to-page, image-ai, claude-reads, redo, ai-terminal, mcp-codewords, mcp-tidy-up, slash-menu, turn-into-database,
+ * Shots: pages-per-item, quick-capture, script-templates, one-script-everywhere, file-ai, one-script, transform, ai-edit, db-commands, gmail-one-click, memory, grips-footer, block-select, split-to-page, image-ai, claude-reads, redo, ai-terminal, mcp-codewords, mcp-tidy-up, slash-menu, turn-into-database,
  * custom-agents, gmail, help-centre, mcp-servers, feed-blocks — each named like its image. Every shot starts from a fresh, seeded
  * workspace in English, light theme, 1440 × 900 at device scale 2; the crop of the relevant area is scaled
  * to 1440 px wide and saved as public/assets/shots/changelog/<shot>.webp (≤ 150 KB: the quality steps down
@@ -1220,6 +1220,75 @@ const shots = {
     await out.waitForFunction(() => [...document.images].every((i) => i.complete))
     await save(out, 'quick-capture')
     await board.close()
+  },
+
+  /** "A sub-page for every ticket": Atlas (MCP, mocked) → create_pages (one call) → the table; applied: the page with its links, the sub-pages in the sidebar, the terminal's log below. */
+  async 'pages-per-item'(browser) {
+    const tickets = [
+      ['CHK-101', 'Card declined', 'In progress', 'Lea'],
+      ['CHK-102', 'Coupon on mobile', 'Open', 'Tom'],
+      ['CHK-103', 'Tax rounds twice', 'Open', 'Mia'],
+      ['CHK-104', 'Address timeout', 'Done', 'Jan'],
+      ['CHK-105', 'Guest cart lost', 'In progress', 'Lea'],
+      ['CHK-106', 'PayPal flicker', 'Open', 'Tom'],
+      ['CHK-107', 'Invoice VAT ID', 'Done', 'Mia'],
+      ['CHK-108', 'Late shipping costs', 'Open', 'Jan'],
+    ]
+    const title = (t) => `${t[0]} ${t[1]}`
+    const ids = {}
+    const turns = [
+      () =>
+        sseTurn([
+          { type: 'thinking', text: 'Find the checkout tickets in Atlas, then one page per ticket under the open page.' },
+          { type: 'mcp_tool_use', id: 'mcptoolu_1', server: 'atlas', name: 'atlas_search', input: { query: 'checkout', project: 'shop' } },
+          { type: 'mcp_tool_result', id: 'mcptoolu_1', text: tickets.map((t) => t.join(' | ')).join('\n') },
+          { type: 'tool_use', id: 'toolu_cur', name: 'get_current_page', input: {} },
+        ]),
+      () =>
+        sseTurn([
+          {
+            type: 'tool_use',
+            id: 'toolu_pages',
+            name: 'create_pages',
+            input: { parent_id: ids.main, pages: tickets.map((t) => ({ title: title(t), markdown: `**Status:** ${t[2]}\n\n**Owner:** ${t[3]}\n\nFrom Atlas, ${t[0]}.` })) },
+          },
+        ]),
+      (body) => {
+        const got = [...String(toolResult(body, 'toolu_pages')?.content ?? '').matchAll(/→ id: ([\w-]+)/g)].map((m) => m[1])
+        const rows = tickets.map((t, i) => `| [${title(t)}](#/p/${got[i]}) | ${t[2]} | ${t[3]} |`)
+        return sseTurn([{ type: 'tool_use', id: 'toolu_table', name: 'append_to_page', input: { id: ids.main, markdown: `| Ticket | Status | Owner |\n|---|---|---|\n${rows.join('\n')}` } }])
+      },
+      () => sseTurn([{ type: 'text', text: 'Staged **8 sub-pages** under Checkout review — one per Atlas ticket — and a table on this page that links them with status and owner.' }]),
+    ]
+    const { ctx, page } = await freshPage(browser, { claude: { turns } })
+    await page.evaluate((guide) => window.__one.workspace.getState().updateSettings({ mcpServers: [{ id: 'srvkb00001', name: 'atlas', url: 'https://kb.acme.studio/mcp', token: '', enabled: true, prompt: guide, promptSource: 'auto', tools: ['atlas_search', 'atlas_get'], checkedAt: Date.now() - 3 * 60_000 }] }), ATLAS_GUIDE)
+    ids.main = await createPage(page, 'Checkout review', doc(para('Everything Atlas knows about the checkout, one page per ticket.')), { icon: { type: 'asset', value: 'binder' } })
+    await openPage(page, ids.main)
+    await page.keyboard.press('Control+j')
+    const term = page.getByRole('region', { name: 'AI terminal' })
+    await term.waitFor()
+    const prompt = term.getByRole('textbox', { name: 'Task for the agent' })
+    await prompt.fill('Analyse the checkout topic in Atlas and create a sub-page for every ticket, linked in a table on this page')
+    await prompt.press('Enter')
+    await term.locator('.term-head__status').filter({ hasText: 'Done' }).waitFor({ timeout: 30_000 })
+    await term.getByRole('button', { name: 'Apply all' }).click()
+    await page.locator('.toast', { hasText: /changes applied/ }).waitFor({ timeout: 10_000 })
+    await page.locator('#main .ProseMirror table .mention__page').first().waitFor()
+    // the sub-pages in the sidebar, under the page
+    const row = page.locator('.sb section[aria-label="Pages"] .sb-row', { has: page.locator('.sb-row__title', { hasText: /^Checkout review$/ }) }).first()
+    const toggle = row.locator('.sb-row__toggle')
+    if ((await toggle.getAttribute('aria-label')) === 'Expand') await toggle.click()
+    // the toast steps aside; the page shows its table above the dock
+    await page.locator('.toast', { hasText: /changes applied/ }).getByRole('button', { name: /close|dismiss/i }).click().catch(() => {})
+    await scrollToTop(page.locator('#main .ProseMirror p', { hasText: 'Everything Atlas knows' }).first(), 28)
+    // the log from the task down: the Atlas call, one call for all pages, the table
+    const box = await term.boundingBox()
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
+    await page.mouse.wheel(0, -6000)
+    await page.waitForTimeout(500)
+    await rest(page)
+    await save(page, 'pages-per-item')
+    await ctx.close()
   },
 
   /** Several blocks selected (text, image, table): the wash on each, the pinned grip, the count chip. */

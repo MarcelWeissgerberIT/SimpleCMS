@@ -3,7 +3,7 @@ id: block-handle
 title: Ziehen, umwandeln, färben
 section: writing
 order: 2
-keywords: ziehen, griff, block verschieben, umwandeln in, farbe, hintergrund, duplizieren, blockmenü, blöcke markieren, mehrere blöcke, shift-klick, in seite umwandeln, unterseite, auslagern, drag, handle, turn into, colour, turn into page
+keywords: ziehen, griff, block verschieben, umwandeln in, farbe, hintergrund, duplizieren, blockmenü, blöcke markieren, mehrere blöcke, shift-klick, in seite umwandeln, unterseite, auslagern, unterseite pro eintrag, seiten + tabelle, seite pro listenpunkt, drag, handle, turn into, colour, turn into page, sub-page per item
 related: blocks, layout-blocks, synced-blocks
 summary: Der Griff ⋮⋮ neben jedem Block verschiebt ihn und öffnet sein Menü.
 ---
@@ -25,6 +25,9 @@ Der Griff — Klick, <kbd>Alt+Enter</kbd> oder Rechtsklick auf einen markierten 
 
 ## In Seite umwandeln
 **Umwandeln in → Seite** (oder <kbd>Mod+Alt+9</kbd>) verschiebt den Block — oder die markierten Blöcke — in eine neue Unterseite und lässt an ihrer Stelle einen Link. Eine Überschrift am Anfang wird zum Titel der Seite, sonst die erste Zeile. Inline-Datenbanken, Unterseiten und Kommentare darin ziehen mit um; in einem Team-Workspace ist die neue Seite genau dann privat, wenn diese Seite es ist. **Rückgängig** im Hinweis holt die Blöcke zurück und legt die neue Seite in den Papierkorb; <kbd>Mod+Z</kbd> tut dasselbe, solange die neue Seite unverändert ist.
+
+## Unterseite pro Eintrag
+Eine Liste, ein paar Überschriften mit Text darunter oder eine Tabelle: **Umwandeln in → Unterseite pro Eintrag · 5 Einträge** (bei mehreren markierten Blöcken auch **Verwandeln in → Seiten + Tabelle**) macht jeden Eintrag zu einer eigenen Unterseite und setzt eine Tabelle an ihre Stelle. Die erste Zeile eines Listenpunkts wird zum Titel, seine weiteren Zeilen und eingerückten Punkte sind die Seite; ein Abschnitt unter einer Überschrift wird zur Seite mit der Überschrift als Titel (Text vor der ersten Überschrift bleibt); eine Tabellenzeile wird zur Seite mit der ersten Zelle als Titel, die anderen Zellen als *Spalte: Wert*. Die Tabelle verlinkt jede Seite, dazu bis zu drei Felder, die die Einträge gemeinsam haben — Zeilen wie *Status: offen* (Status, Zuständig, Datum und Priorität zuerst), das Häkchen einer Aufgabe als **Erledigt** oder die nächsten Spalten der Tabelle. Inline-Datenbanken, Unterseiten und Kommentare darin ziehen mit um; in einem Team-Workspace sind die Seiten genau dann privat, wenn diese Seite es ist. **Rückgängig** im Hinweis oder <kbd>Mod+Z</kbd> holt die Einträge zurück und legt die unveränderten Seiten in den Papierkorb.
 
 ## Per Tastatur
 - <kbd>Alt+Enter</kbd> öffnet das Blockmenü des Blocks, in dem du bist.

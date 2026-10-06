@@ -3,7 +3,7 @@ id: ai-menu
 title: KI-Menü & Fragen
 section: ai
 order: 2
-keywords: ki, claude, leertaste, ki fragen, verbessern, zusammenfassen, übersetzen, erklären, weiterschreiben, aufgaben, workspace fragen, in datenbank umwandeln, board, tabelle, verwandeln in, schaubild, flussdiagramm, mindmap, mermaid, diagramm, zeitleiste, spalten, tabs, aufklappliste, karten, visualisieren, hintergrund, kontext, was claude liest, blöcke markieren, neu machen, umschreiben, vorgaben, styleguide, bild, foto, alternativtext, bildunterschrift, text auslesen, ocr, bild in tabelle, screenshot, datei, pdf, anhang, pdf zusammenfassen, word, docx, excel, xlsx, csv, html, als seite öffnen, als datenbank importieren, ai, ask, database, transform, diagram, chart, context, redo, image
+keywords: ki, claude, leertaste, ki fragen, verbessern, zusammenfassen, übersetzen, erklären, weiterschreiben, aufgaben, workspace fragen, in datenbank umwandeln, board, tabelle, verwandeln in, schaubild, flussdiagramm, mindmap, mermaid, diagramm, zeitleiste, spalten, tabs, aufklappliste, karten, visualisieren, hintergrund, kontext, was claude liest, blöcke markieren, neu machen, umschreiben, vorgaben, styleguide, unterseite pro eintrag, seiten + tabelle, unterseite daraus, eine seite pro ticket, bild, foto, alternativtext, bildunterschrift, text auslesen, ocr, bild in tabelle, screenshot, datei, pdf, anhang, pdf zusammenfassen, word, docx, excel, xlsx, csv, html, als seite öffnen, als datenbank importieren, ai, ask, database, transform, diagram, chart, context, redo, image
 related: claude-key, agent, command-palette, history
 summary: Leertaste in einer leeren Zeile, oder „KI fragen“ an einer Auswahl — Claude schreibt, bearbeitet und antwortet direkt in der Seite.
 ---
@@ -43,6 +43,17 @@ Nichts wird erfunden: Namen, Zahlen, Daten und Schritte kommen nur aus dem Text.
 
 ## In Seite umwandeln
 **KI fragen** → **Strukturieren** → **In Seite umwandeln** verschiebt die markierten Blöcke sofort in eine neue Unterseite — ohne Claude — und lässt an ihrer Stelle einen Link. Dasselbe im Blockmenü ⋮⋮ (**Umwandeln in → Seite**) und mit <kbd>Mod+Alt+9</kbd>; siehe [Ziehen, umwandeln, färben](help:block-handle).
+
+**Unterseite pro Eintrag** (ebenfalls unter **Strukturieren**, und **Verwandeln in → Seiten + Tabelle**) macht jeden Eintrag der Auswahl zu einer eigenen Unterseite — Listenpunkte, Abschnitte unter Überschriften oder Tabellenzeilen — und setzt eine Tabelle an ihre Stelle: ein Link auf jede Seite und bis zu drei Felder, die die Einträge gemeinsam haben (Zeilen wie *Status: offen*, das Häkchen einer Aufgabe, die Spalten der Tabelle). Ohne Claude, ein Schritt: **Rückgängig** im Hinweis oder <kbd>Mod+Z</kbd> holt die Einträge zurück.
+
+## Getippte Wünsche, die Aktionen sind
+Manche Wünsche sind eigentlich Aktionen — das KI-Menü führt sie aus, statt Text an Claude zu schicken. Die Taste steht oben, <kbd>Enter</kbd> führt sie aus:
+- *„mach daraus eine Unterseite“*, *„auslagern“*, *„make a sub-page out of this“* → **In Seite umwandeln**;
+- *„für jeden Punkt eine Unterseite“*, *„pro Ticket eine Seite“*, *„one page per item“* → **Unterseite pro Eintrag**;
+- *„als Tabelle“*, *„als Board“* → **In Datenbank umwandeln**, mit deinen Worten als Anweisung;
+- alles, was über die Auswahl hinausgeht — *„lege für jedes Ticket in Atlas eine Unterseite an“*, *„aktualisiere die Datenbank …“* → **Das braucht das KI-Terminal — dort ausführen**: Das [KI-Terminal](help:agent) öffnet sich mit deinem Wunsch und der Auswahl als Referenz und legt los.
+
+Schreibwünsche (*kürzer*, *übersetzen*, *erklär …*) gehen wie bisher an Claude; **Claude fragen** bleibt für jeden Wunsch in der Liste.
 
 ## Neu machen mit Vorgaben
 Markiere Stellen und lass Claude sie nach deinen Vorgaben neu machen: **KI fragen** → **Neu machen mit Vorgaben…** (auch im Blockmenü ⋮⋮ oder mit `/neu-machen` im KI-Terminal). Die Auswahl öffnet sich mit den markierten Blöcken — markiere weitere, auch weit auseinander (ganze Blöcke), dann <kbd>Enter</kbd>. Schreib, was anders werden soll — *kürzer, Du-Form, Fachbegriffe erklären* — und behalte es als Vorgabe-Chip fürs nächste Mal (bis zu 20, auf diesem Gerät; **⋯** benennt um oder löscht). Auf Wunsch kommt eine **Regeln-Seite** dazu (`@` im Feld): ein Styleguide oder Glossar, dessen Inhalt mitgeht. **Neu machen** (<kbd>Mod+Enter</kbd>) läuft wie jede Anfrage im Hintergrund; die Seite geht so mit, wie **Was Claude liest** es erlaubt.

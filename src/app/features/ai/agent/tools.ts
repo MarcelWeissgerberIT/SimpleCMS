@@ -65,8 +65,14 @@ export class ToolInputError extends Error {
 /* Limits                                                              */
 /* ------------------------------------------------------------------ */
 
-/** Tool calls per task (one run of the loop). */
-export const MAX_TOOL_CALLS = 25
+/**
+ * Tool calls per task (one run of the loop). Calls of external MCP servers run inside a response
+ * (Anthropic runs them) and do not count; a task that reaches the limit can go on with a fresh
+ * budget ("Continue", /continue — session.ts).
+ */
+export const MAX_TOOL_CALLS = 40
+/** Pages one create_pages call may stage. */
+export const MAX_BATCH_PAGES = 50
 /** Characters of one page part (read_page) and of any other tool result. */
 export const PAGE_PART_CHARS = 12_000
 export const RESULT_CHARS = 16_000
@@ -618,6 +624,100 @@ const createPage: AgentTool = {
   },
 }
 
+/** A pending page staged before this call (not one of `now`) under the same parent with the same title: a repeated item. */
+function samePage(stage: StageApi, parentId: ID | null, title: string, now: ReadonlySet<string>): StagedChange | undefined {
+  const key = title.toLowerCase()
+  return stage.list().find((c) => c.kind === 'create_page' && c.status === 'pending' && !now.has(c.id) && (c.parentId ?? null) === parentId && (c.title ?? '').trim().toLowerCase() === key)
+}
+
+/** A create_pages entry, checked ("pages[3]: …" in front of what is wrong). */
+function batchPage(item: unknown, where: string): { title: string; markdown: string; parent: string } {
+  if (!item || typeof item !== 'object' || Array.isArray(item)) throw new ToolInputError(`${where} must be an object with "title" and "markdown".`)
+  const o = item as Record<string, unknown>
+  try {
+    const title = str(o, 'title', { required: true, max: 300 }).replace(/\s+/g, ' ').trim()
+    if (!title) throw new ToolInputError('"title" must not be empty.')
+    return { title, markdown: stripRefs(str(o, 'markdown', { max: 200_000 })), parent: str(o, 'parent_id', { max: 80 }).trim() }
+  } catch (e) {
+    throw new ToolInputError(`${where}: ${e instanceof Error ? e.message : String(e)}`)
+  }
+}
+
+const createPages: AgentTool = {
+  name: 'create_pages',
+  write: true,
+  description: `Stage several new pages in ONE call — at most ${MAX_BATCH_PAGES} — when the task wants one page per item (per ticket, person, meeting, chapter …). Every page has a title and Markdown content; parent_id at the top puts every page under that page (a page may name its own parent_id instead). Each page becomes its own proposed change, and the new ids come back in the same order: they work right away, e.g. to link the pages as [Title](#/p/<id>) in a table on the main page with append_to_page. A page already staged under the same parent with the same title is updated, not staged twice.`,
+  input_schema: {
+    type: 'object',
+    properties: {
+      parent_id: { type: 'string', description: 'Parent page of every page that names no parent_id of its own (e.g. the open page). Omit for top-level pages.' },
+      pages: {
+        type: 'array',
+        description: `The pages, in order (1–${MAX_BATCH_PAGES}).`,
+        items: {
+          type: 'object',
+          properties: {
+            title: { type: 'string', description: 'Page title.' },
+            markdown: { type: 'string', description: 'Page content as Markdown.' },
+            parent_id: { type: 'string', description: "This page's parent, when it differs from the top-level parent_id." },
+          },
+          required: ['title'],
+          additionalProperties: false,
+        },
+      },
+    },
+    required: ['pages'],
+    additionalProperties: false,
+  },
+  run(input, stage) {
+    const raw = input.pages
+    if (!Array.isArray(raw) || !raw.length) throw new ToolInputError('"pages" must list at least one page ({"title", "markdown"}).')
+    if (raw.length > MAX_BATCH_PAGES) throw new ToolInputError(`Too many pages (${raw.length}, at most ${MAX_BATCH_PAGES} per call). Stage the first ${MAX_BATCH_PAGES}, then the rest with a second create_pages call.`)
+    const shared = str(input, 'parent_id', { max: 80 }).trim()
+    const parents = new Map<string, { id: ID; title: string; dependsOn?: string }>()
+    // everything is checked before anything is staged: one bad page stages none
+    const plans = raw.map((item, i) => {
+      const p = batchPage(item, `pages[${i}]`)
+      const parentRaw = p.parent || shared
+      if (parentRaw && !parents.has(parentRaw)) {
+        try {
+          parents.set(parentRaw, parentOf(stage, parentRaw))
+        } catch (e) {
+          throw new ToolInputError(`pages[${i}]: ${e instanceof Error ? e.message : String(e)}`)
+        }
+      }
+      return { title: p.title, markdown: p.markdown, parent: parentRaw ? parents.get(parentRaw)! : null }
+    })
+    const total = plans.reduce((n, p) => n + p.markdown.length, 0)
+    if (total > 600_000) throw new ToolInputError(`The pages hold ${total.toLocaleString('en')} characters in all (at most 600,000 per call). Split them over two calls.`)
+    const lines: string[] = []
+    const ns: number[] = []
+    let first: StagedChange | null = null
+    let updated = 0
+    const now = new Set<string>()
+    plans.forEach((p, i) => {
+      const parentId = p.parent?.id ?? null
+      const again = samePage(stage, parentId, p.title, now)
+      const c = again
+        ? stage.update(again.id, { markdown: p.markdown })
+        : stage.add({ kind: 'create_page', pageId: newId(), parentId, title: p.title, markdown: p.markdown, ...(p.parent?.dependsOn ? { dependsOn: p.parent.dependsOn } : {}) })
+      now.add(c.id)
+      if (again) updated += 1
+      first ??= c
+      ns.push(c.n)
+      lines.push(`${i + 1}. ${q(p.title)} → id: ${c.pageId} · change #${c.n}${again ? ' (staged before: updated)' : ''} · ${p.parent ? `under ${q(p.parent.title)}` : 'top level'}`)
+    })
+    const sorted = [...ns].sort((a, b) => a - b)
+    const range = sorted.length > 1 && sorted[sorted.length - 1] - sorted[0] === sorted.length - 1 ? `${sorted[0]}–${sorted[sorted.length - 1]}` : sorted.join(' #')
+    return {
+      content: `Staged ${plans.length} page${plans.length === 1 ? '' : 's'}${updated ? ` (${updated} of them were staged before and are updated)` : ''}. Nothing is written until the user applies them. The new ids, in order — link a page with [Title](#/p/<id>):\n${lines.join('\n')}`,
+      summary: t('features.agent.res.staged', { n: range }),
+      state: 'staged',
+      changeId: first!.id,
+    }
+  },
+}
+
 const appendToPage: AgentTool = {
   name: 'append_to_page',
   write: true,
@@ -1091,11 +1191,12 @@ const writeScript: AgentTool = {
 export const AGENT_TOOLS: AgentTool[] = [searchPages, readPage, listDatabases, queryDatabase, currentPage, createPage, appendToPage, editPage, createRow, updateRow, setPageTitle, runQuery]
 
 /**
- * The workspace agent's (the AI terminal's) tools: AGENT_TOOLS plus the database tools and
- * write_script. Custom agents and the MCP bridge build on AGENT_TOOLS (their scope rules do not cover
- * new databases; custom agents get run_query — inside their scope — but no write_script).
+ * The workspace agent's (the AI terminal's) tools: AGENT_TOOLS plus the database tools, write_script
+ * and create_pages (one page per item, in one call). Custom agents and the MCP bridge build on
+ * AGENT_TOOLS (their scope rules do not cover new databases; custom agents get run_query — inside
+ * their scope — but no write_script or create_pages).
  */
-export const TERMINAL_TOOLS: AgentTool[] = [...AGENT_TOOLS, createDatabase, addProperty, writeScript]
+export const TERMINAL_TOOLS: AgentTool[] = [...AGENT_TOOLS, createDatabase, addProperty, writeScript, createPages]
 
 /** Short argument readout for the step log (titles instead of ids). */
 export function argLabel(name: ToolName, input: Record<string, unknown>, stage: StageApi): string {
@@ -1126,6 +1227,11 @@ export function argLabel(name: ToolName, input: Record<string, unknown>, stage: 
     case 'create_row':
     case 'create_database':
       return s('title')
+    case 'create_pages': {
+      const n = Array.isArray(input.pages) ? input.pages.length : 0
+      const parent = title(s('parent_id'))
+      return `${parent ? `${parent} · ` : ''}${t('features.agent.pagesN', { count: n })}`
+    }
     case 'add_property':
       return `${title(s('database_id'))} · ${s('name')}`
     case 'set_page_title':

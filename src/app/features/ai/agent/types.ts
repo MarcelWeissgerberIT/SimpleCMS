@@ -14,6 +14,8 @@ export type ToolName =
   | 'query_database'
   | 'get_current_page'
   | 'create_page'
+  /** several pages in one call (one page per item): one staged change per page, the ids back in order */
+  | 'create_pages'
   | 'append_to_page'
   /** changes existing content, block by block (staged one change per edit, kind 'edit') */
   | 'edit_page'
@@ -166,6 +168,8 @@ export interface AgentTurn {
   context?: TurnContext
   /** the One memory that went along (absent: memory not in use) */
   memory?: MemoryUse
+  /** "Continue" (/continue): this task picks up task n where it stopped at the tool-call limit (task = that task's text) */
+  continues?: number
   error?: { code: AIErrorCode | 'max_tokens'; message: string }
 }
 

@@ -17,6 +17,7 @@ import { t } from '../../../i18n'
 import { depsOf, type ColumnSpec, type PropChange, type StagedChange } from './types'
 import { saveMemory, updateMemory } from '../memory/save'
 import { applyPageEdits } from './edit'
+import { livePage, withPageNodes, type LinkTarget } from './links'
 
 const ws = () => useWorkspace.getState()
 const ORIGIN = 'ai'
@@ -32,8 +33,21 @@ function isEmptyDoc(doc: JSONContent | null | undefined): boolean {
   return blocks.every((b) => b.type === 'paragraph' && !(b.content ?? []).length)
 }
 
-function blocksOf(markdown: string): JSONContent[] {
-  return (markdownToDoc(markdown).content ?? []).filter(Boolean)
+/** Markdown Claude wrote → a doc, its `[Title](#/p/<id>)` links as page mentions / page link blocks (links.ts). */
+type ToDoc = (markdown: string) => JSONContent
+
+function blocksOf(markdown: string, toDoc: ToDoc): JSONContent[] {
+  return (toDoc(markdown).content ?? []).filter(Boolean)
+}
+
+/** The pages links may point at while a batch is applied: live pages, pages and databases staged in it, rows created from staged rows. */
+function linkTargets(all: StagedChange[], resolveRow: (id: ID) => ID, rowIds: Record<string, ID>): (id: ID) => LinkTarget | null {
+  // pages and databases keep their staged id; rows get theirs on apply (rowIds)
+  const staged = new Map(all.filter((c) => (c.kind === 'create_page' || c.kind === 'create_database') && c.status !== 'discarded').map((c) => [c.pageId, c.title ?? '']))
+  return (id) => {
+    const real = rowIds[id] ?? resolveRow(id)
+    return livePage(real) ?? (real === id && staged.has(id) ? { id, title: staged.get(id)! } : null)
+  }
 }
 
 /** Option names → ids; missing names become new options (select / multi_select). */
@@ -123,6 +137,8 @@ export async function applyChanges(changes: StagedChange[], all: StagedChange[],
   const undos: Array<() => boolean> = []
   const done = new Set(all.filter((c) => c.status === 'applied').map((c) => c.id))
   const ordered = [...changes].filter((c) => c.status === 'pending' || c.status === 'failed').sort((a, b) => rank(a) - rank(b) || a.n - b.n)
+  const targets = linkTargets(all, resolveRow, rowIds)
+  const toDoc: ToDoc = (markdown) => withPageNodes(markdownToDoc(markdown), targets)
 
   const editedPages = new Set<ID>()
   for (const c of ordered) {
@@ -145,7 +161,7 @@ export async function applyChanges(changes: StagedChange[], all: StagedChange[],
         const parent = all.find((x) => x.id === missing)
         throw new Error(`needs change #${parent?.n ?? '?'} first`)
       }
-      undos.push(await applyOne(c, resolveRow, rowIds))
+      undos.push(await applyOne(c, resolveRow, rowIds, toDoc))
       applied.push(c.id)
       done.add(c.id)
     } catch (e) {
@@ -201,14 +217,14 @@ function viewsOf(c: StagedChange, properties: PropertyDef[]): View[] {
 }
 
 /** Write one change. Returns its undo (false = left alone because it was edited since). */
-async function applyOne(c: StagedChange, resolveRow: (id: ID) => ID, rowIds: Record<string, ID>): Promise<() => boolean> {
+async function applyOne(c: StagedChange, resolveRow: (id: ID) => ID, rowIds: Record<string, ID>, toDoc: ToDoc): Promise<() => boolean> {
   const s = ws()
   switch (c.kind) {
     case 'create_page': {
       if (c.parentId && !alive(c.parentId)) throw new Error('the parent page is gone')
       if (s.pages[c.pageId]) throw new Error('already exists')
       const id = s.createPage({ id: c.pageId, parentId: c.parentId ?? null, title: c.title ?? '' })
-      if (c.markdown?.trim()) ws().setContent(id, markdownToDoc(c.markdown), ORIGIN)
+      if (c.markdown?.trim()) ws().setContent(id, toDoc(c.markdown), ORIGIN)
       return removeCreated(id)
     }
     case 'create_row': {
@@ -218,7 +234,7 @@ async function applyOne(c: StagedChange, resolveRow: (id: ID) => ID, rowIds: Rec
       const properties: Record<ID, PropertyValue> = {}
       for (const pc of c.props ?? []) properties[pc.propId] = resolveValue(dbId, pc, created)
       const id = ws().createRow(dbId, { title: c.title ?? '', properties })
-      if (c.markdown?.trim()) ws().setContent(id, markdownToDoc(c.markdown), ORIGIN)
+      if (c.markdown?.trim()) ws().setContent(id, toDoc(c.markdown), ORIGIN)
       rowIds[c.pageId] = id
       const remove = removeCreated(id)
       return () => {
@@ -269,7 +285,7 @@ async function applyOne(c: StagedChange, resolveRow: (id: ID) => ID, rowIds: Rec
       const page = ws().pages[id]
       if (!page) throw new Error('the page is gone')
       const prev = page.content
-      const add = blocksOf(c.markdown ?? '')
+      const add = blocksOf(c.markdown ?? '', toDoc)
       const next: JSONContent = { type: 'doc', content: isEmptyDoc(prev) ? add : [...(prev?.content ?? []), ...add] }
       ws().setContent(id, next, ORIGIN)
       const rev = ws().pages[id]?.contentRev
