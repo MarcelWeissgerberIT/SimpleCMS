@@ -215,6 +215,12 @@ the public APIs stable — other areas are built against them in parallel.
   features/script/templates (`TEMPLATES`, each `build()` adapts via pick.ts or returns a ⚠ stub with `ready: false`;
   every template must dry-run on the seeded workspace — one-script-templates.spec lists the ids); library `md_table` /
   `md_chart` (a ```chart fence becomes a `chart` node only when a script writes it), `page.here`.
+- Guided tour (shell/tour): per-device `one.tour` in localStorage (offer / off / done / page), never synced; `offerTour()`
+  only from main.tsx after seeding; it writes only on its practice page ("Tour — try things here"; private in teams);
+  steps in steps.ts (`TOUR_STEP_COUNT` in state.ts must match). Screenshot / recording scripts set `one.tour={"off":true}`.
+  Discover (`#/discover`, shell/discover/cards.ts): "Try it" keys go through help `runTry` + the `CHANGELOG_TRIES`
+  allow-list; shell actions register with `registerTry`. AI menu: `TOP_ACTIONS` per selection type + "More …"; row ids
+  `ai-row-<id>` stay stable; `openAIPanel()` is the only way to open the AI menu from outside the editor.
 - What's new (src/app/help/changelog): every user-visible release adds an entry EN + DE with a real screenshot
   (changelog/README.md, `scripts/changelog-shots.mjs`); the build fails without a twin or an image.
 - Database views: table | board | list | gallery | feed | calendar | timeline | chart | form. Feed settings live in

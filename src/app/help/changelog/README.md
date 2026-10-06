@@ -26,9 +26,12 @@ try: terminal
 
 - `order`: the rank within its day, `1` = newest. The list is newest first.
 - `help`: related article ids (`src/app/help/articles/en/<id>.md`); `[text](help:<id>)` links work in the body.
-- `try` (optional): one of `terminal`, `settings-ai`, `settings-mcp`, `settings-mail`, `agents`, `ask` — the
-  "Try it" key. New actions go into the allow-list in `entries.ts` (`CHANGELOG_TRIES`), `try.ts` and the
-  `help.news.try.<id>` strings; never code in Markdown.
+- `try` (optional): one of `CHANGELOG_TRIES` in `entries.ts` — `terminal`, `settings-ai`, `settings-mcp`,
+  `settings-mail`, `settings-sync`, `agents`, `ask`, `palette`, `scripts`, `import`, `inbox`, `history`, `share`,
+  `discover`, `tour`, `slash`, `ai-menu`, `transform`, `database`, `commands`, `sheet`, `automations` — the "Try it"
+  key (the cards of "What can One do?" use the same list). New actions go into that allow-list, `try.ts` (or an
+  area registers it with `registerTry`, like the shell's tour actions) and the `help.news.try.<id>` strings; never
+  code in Markdown.
 - Body: the help articles' Markdown subset (`../markdown.ts`). German natural, English plain; no prices,
   no marketing words.
 

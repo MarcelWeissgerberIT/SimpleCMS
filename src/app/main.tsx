@@ -13,6 +13,7 @@ import { useUI } from './store/ui'
 import { flushSave, loadWorkspace, startPersistence } from './store/persistence'
 import { seedWorkspace } from './store/seed'
 import { refreshDemoIcons } from './store/demoIcons'
+import { offerTour } from './shell/tour/state'
 import { applyTheme } from './lib/theme'
 import { ALL_MESSAGES, t } from './i18n'
 import { startHistory, startAutomations, startRecurringTemplates, startInbox, startSync, startMcp, startCustomFunctions, startMail, startAgents, seedDemoHistory, demoFunctions } from './features'
@@ -141,6 +142,8 @@ async function bootLocal() {
       // give the start page a short back-dated version history, so the tape has something to scrub
       const start = useWorkspace.getState().settings.startPageId
       if (start) seedDemoHistory(start).catch((e) => console.warn('[one] demo history failed', e))
+      // the guided tour is offered once on the fresh workspace's Welcome page (shell/tour)
+      if (start) offerTour(start)
     }
   })
 

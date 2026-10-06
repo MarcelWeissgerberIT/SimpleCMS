@@ -95,6 +95,8 @@ test.describe('redo with instructions', () => {
     // a selection → Ask AI → Redo with instructions…: its block comes pre-marked
     await selectText(page, ed, 'draft about the launch')
     await page.locator('[aria-label="Formatting"]').first().getByRole('button', { name: /^Ask AI$/ }).click()
+    // under "More …" (the AI menu's top level is short)
+    await panel(page).locator('#ai-row-more').click()
     await panel(page).getByRole('option', { name: /Redo with instructions/ }).click()
     await expect(layer(page)).toBeVisible()
     await expect(layer(page)).toHaveAttribute('data-purpose', 'redo')

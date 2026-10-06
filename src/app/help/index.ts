@@ -11,6 +11,9 @@
  *  - "What's new" (changelog/): openChangelog(id?) opens the list or one entry; HelpNewsLed — the signal LED
  *    for the help entry while an entry is newer than the last one this device opened; useChangelogUnseen();
  *    changelogPublicUrl(lang, id?) — /help/changelog/ (an entry as its #anchor)
+ *  - "Try it" keys (changelog entries, the cards of "What can One do?"): runTry(action) for an action of the
+ *    allow-list CHANGELOG_TRIES · registerTry(action, run): an area provides one the help cannot do itself (the
+ *    shell: tour, slash, ai-menu, transform, database, commands, sheet, automations) · TRY_SHORTCUT[action]
  *
  * Articles: src/app/help/articles/{en,de}/<id>.md (front matter + a small Markdown subset, see markdown.ts);
  * the same files build the static pages at /help/ (src/help-site, vite.config.ts). Changelog entries:
@@ -23,3 +26,5 @@ export { useHelpHits, type HelpPaletteHit } from './palette'
 export { helpPublicUrl, changelogPublicUrl } from './urls'
 export { HelpNewsLed } from './changelog/NewsLed'
 export { useChangelogUnseen } from './changelog/seen'
+export { runTry, registerTry, TRY_SHORTCUT } from './changelog/try'
+export { CHANGELOG_TRIES, type ChangelogTry } from './changelog/entries'

@@ -536,6 +536,45 @@
   color: var(--ink-2);
 }
 
+/* the top level: "More …" closes the list off with a hairline; submenu rows carry a chevron */
+.ai-row--more {
+  margin-top: 3px;
+}
+.ai-row--more::before {
+  content: '';
+  position: absolute;
+  left: 10px;
+  right: 8px;
+  top: -2px;
+  height: 1px;
+  background: var(--rule);
+}
+.ai-row__sub {
+  flex: none;
+  margin-left: -4px;
+  color: var(--ink-3);
+}
+.ai-row[data-active='true'] .ai-row__sub {
+  color: var(--ink-2);
+}
+
+/* the line under the prompt: ask in your own words — or pick */
+.ai-lead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  margin: 0;
+  padding: 7px 14px 1px;
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+  line-height: 1.4;
+}
+.ai-lead .kbd {
+  height: 16px;
+  min-width: 16px;
+}
+
 .ai-hint {
   padding: 10px 14px 12px;
   color: var(--ink-3);

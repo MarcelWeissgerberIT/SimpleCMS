@@ -163,6 +163,12 @@ const setKey = (page: Page, language?: 'de') => wsEval(page, (s, lang) => s.upda
 const panel = (page: Page) => page.locator('.ai-panel')
 const preview = (page: Page) => page.getByTestId('todb-preview')
 
+/** "More …" in the AI menu: the actions off its short top level ("Turn into database", "Turn into page" …). */
+async function openMore(ai: Locator): Promise<void> {
+  await ai.locator('#ai-row-more').click()
+  await expect(ai.locator('.ai-chip', { hasText: /(More|Mehr)$/ })).toBeVisible()
+}
+
 /** Select from the start of `from` to the end of `to` (DOM range — ProseMirror picks it up). */
 async function selectRange(page: Page, editor: Locator, from: string, to: string): Promise<void> {
   const select = () =>
@@ -335,6 +341,7 @@ test.describe('Turn into database (AI menu)', () => {
     await openApp(page)
     await setKey(page)
     const { id, ai } = await openOnReport(page, 'Delta table')
+    await openMore(ai)
     await ai.getByRole('option', { name: /Turn into database/ }).click()
     const pv = preview(page)
     await expect(pv).toBeVisible()
@@ -369,6 +376,7 @@ test.describe('Turn into database (AI menu)', () => {
     await openApp(page)
     await setKey(page)
     const { id, ai } = await openOnReport(page, 'Delta pages')
+    await openMore(ai)
     await ai.getByRole('option', { name: /Turn into database/ }).click()
     const pv = preview(page)
     await expect(pv).toBeVisible()
@@ -411,6 +419,7 @@ test.describe('Turn into database (AI menu)', () => {
     const { id, ai } = await openOnReport(page, 'Delta empty')
     const before = await contentOf(page, id)
     const dbCount = await wsEval(page, (s) => Object.keys(s.databases).length)
+    await openMore(ai)
     await ai.getByRole('option', { name: /Turn into database/ }).click()
     await expect(ai.getByRole('alert')).toContainText('No entries found in the selection')
     await expect(ai.getByRole('alert')).toContainText('ERR · NO_ENTRIES')
@@ -431,6 +440,7 @@ test.describe('Turn into database (AI menu)', () => {
     await setKey(page)
     const { id, ai } = await openOnReport(page, 'Delta broken')
     const before = await contentOf(page, id)
+    await openMore(ai)
     await ai.getByRole('option', { name: /Turn into database/ }).click()
     await expect(ai.getByRole('alert')).toContainText('could not be read')
     await page.keyboard.press('Escape')
@@ -458,6 +468,9 @@ test.describe('Turn into database (AI menu)', () => {
     await selectRange(page, ed, 'beta', 'gamma')
     let ai = await askAI(page)
     await expect(ai.getByRole('option', { name: /Improve writing/ })).toBeVisible()
+    // (the top level never shows it: under More, where it is not offered either)
+    await openMore(ai)
+    await expect(ai.getByRole('option', { name: /Turn into page/ })).toBeVisible()
     await expect(ai.getByRole('option', { name: /Turn into database/ })).toHaveCount(0)
     await page.keyboard.press('Escape')
     await expect(panel(page)).toHaveCount(0)
@@ -467,6 +480,8 @@ test.describe('Turn into database (AI menu)', () => {
     await selectRange(page, ed, 'Cell one first', 'Cell one second')
     ai = await askAI(page)
     await expect(ai.getByRole('option', { name: /Improve writing/ })).toBeVisible()
+    await openMore(ai)
+    await expect(ai.getByRole('option', { name: /Make longer/ })).toBeVisible()
     await expect(ai.getByRole('option', { name: /Turn into database/ })).toHaveCount(0)
     await page.keyboard.press('Escape')
     await expect(panel(page)).toHaveCount(0)
@@ -475,6 +490,7 @@ test.describe('Turn into database (AI menu)', () => {
     await ed.locator('p', { hasText: 'Alpha beta' }).click()
     await selectRange(page, ed, 'Alpha', 'Second line here.')
     ai = await askAI(page)
+    await openMore(ai)
     await expect(ai.getByRole('option', { name: /Turn into database/ })).toBeVisible()
   })
 
@@ -488,6 +504,8 @@ test.describe('Turn into database (AI menu)', () => {
     await ed.locator('p', { hasText: INTRO }).click()
     await selectRange(page, ed, INTRO, 'Next review on Friday.')
     const ai = await askAI(page)
+    await expect(ai.locator('.ai-list__group', { hasText: 'Strukturieren' })).toBeVisible()
+    await openMore(ai)
     await expect(ai.locator('.ai-list__group', { hasText: 'Strukturieren' })).toBeVisible()
     await ai.getByRole('option', { name: /In Datenbank umwandeln/ }).click()
     const pv = preview(page)

@@ -1,8 +1,8 @@
 /**
- * The block menu for SEVERAL selected blocks (one grip, one menu): Turn into (when all are text),
- * Colour, Turn into page, Turn into database… (opens the AI panel on them), Transform into → a form (the AI
- * panel on them, transforming at once — features/ai/transform), Redo with instructions…,
- * Duplicate, Copy link (first block), Move to, Delete — each action one transaction.
+ * The block menu for SEVERAL selected blocks (one grip, one menu): Turn into (when all are text), Colour,
+ * Turn into page; then Claude — Transform into → a form (the AI panel on them, transforming at once —
+ * features/ai/transform), Turn into database… (opens the AI panel on them), Redo with instructions…; then
+ * Duplicate, Move to, Copy link (first block); Delete — each action one transaction.
  */
 import type { Editor } from '@tiptap/core'
 import { TextSelection } from '@tiptap/pm/state'
@@ -82,24 +82,8 @@ export function selectionMenuEntries(editor: Editor, b: BlockSel, t: Translate, 
       ],
     })
   if (someText) {
-    items.push({
-      label: t('editor.select.todb'),
-      icon: <SquareKanban size={15} />,
-      hint: 'AI',
-      keywords: 'database board table datenbank tabelle ai ki',
-      // the AI panel on these blocks: "Turn into database" (Claude) is its Structure action
-      onSelect: () => {
-        const at = fresh(editor, b)
-        if (!at) return
-        requestAnimationFrame(() => {
-          if (editor.isDestroyed) return
-          const { state } = editor
-          editor.view.dispatch(state.tr.setSelection(TextSelection.between(state.doc.resolve(at.from), state.doc.resolve(at.to))))
-          ctx.bridge.setState({ ai: { mode: 'selection' } })
-        })
-      },
-    })
-    // "Transform into" (Claude): one selection → one form, the AI panel previews it first; "Pages + table" needs no AI (split/items.ts)
+    // Claude: the three that hand the blocks to the AI panel, under one label (Transform into first — the most used)
+    items.push({ kind: 'separator' }, { kind: 'section', label: t('editor.select.claude') })
     const picks = transformChoicesAt(editor.state.doc, b.from, b.to)
     const pages = itemsMenuEntries(editor, t, { range: { from: b.from, to: b.to }, pageId: ctx.pageId, label: t('editor.split.items.transform') })
     if (picks.length || pages.length)
@@ -117,6 +101,23 @@ export function selectionMenuEntries(editor: Editor, b: BlockSel, t: Translate, 
         ],
       })
     items.push({
+      label: t('editor.select.todb'),
+      icon: <SquareKanban size={15} />,
+      hint: 'AI',
+      keywords: 'database board table datenbank tabelle ai ki',
+      // the AI panel on these blocks, on "More …" with "Turn into database" (Claude) highlighted
+      onSelect: () => {
+        const at = fresh(editor, b)
+        if (!at) return
+        requestAnimationFrame(() => {
+          if (editor.isDestroyed) return
+          const { state } = editor
+          editor.view.dispatch(state.tr.setSelection(TextSelection.between(state.doc.resolve(at.from), state.doc.resolve(at.to))))
+          ctx.bridge.setState({ ai: { mode: 'selection', open: 'todb' } })
+        })
+      },
+    })
+    items.push({
       label: t('editor.blockMenu.redo'),
       icon: <ReplaceAll size={15} />,
       onSelect: () => {
@@ -133,6 +134,7 @@ export function selectionMenuEntries(editor: Editor, b: BlockSel, t: Translate, 
   items.push(
     { kind: 'separator' },
     { label: t('common.duplicate'), icon: <Copy size={15} />, hint: isTouch ? undefined : shortcutLabel('Mod+D'), onSelect: () => void duplicateBlocks(editor, b) },
+    { label: t('editor.blockMenu.moveTo'), icon: <ArrowRightLeft size={15} />, keepOpen: true, onSelect: ctx.onMoveTo },
     {
       label: t('editor.blockMenu.copyLink'),
       icon: <Link size={15} />,
@@ -147,7 +149,6 @@ export function selectionMenuEntries(editor: Editor, b: BlockSel, t: Translate, 
         }
       },
     },
-    { label: t('editor.blockMenu.moveTo'), icon: <ArrowRightLeft size={15} />, keepOpen: true, onSelect: ctx.onMoveTo },
     { kind: 'separator' },
     { label: t('common.delete'), icon: <Trash2 size={15} />, hint: isTouch ? undefined : 'Del', danger: true, onSelect: () => void deleteBlocks(editor, b) },
   )

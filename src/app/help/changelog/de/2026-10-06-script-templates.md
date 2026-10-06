@@ -1,7 +1,7 @@
 ---
 id: 2026-10-06-script-templates
 date: 2026-10-06
-order: 3
+order: 4
 title: One Script — Autovervollständigung, die deine Datenbanken kennt, und 20 Vorlagen
 summary: Der Skript-Editor schlägt jetzt vor wie eine IDE — Eigenschaften, Optionen, Mitglieder nach Typ, Bausteine — und eine Galerie fertiger Vorlagen passt sich deinem Workspace an.
 image: assets/shots/changelog/script-templates.webp

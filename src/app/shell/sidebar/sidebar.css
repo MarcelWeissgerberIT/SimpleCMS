@@ -738,6 +738,36 @@ body[data-dragging] {
   background: var(--hover);
   color: var(--ink-2);
 }
+/* "What can One do?" under the trash: the same mono row */
+.sb-discover {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  height: 28px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: var(--radius-1);
+  background: transparent;
+  color: var(--ink-3);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  font-weight: 500;
+  letter-spacing: var(--tracking-label);
+  text-align: left;
+  text-transform: uppercase;
+}
+.sb-discover:hover {
+  background: var(--hover);
+  color: var(--ink-2);
+}
+.sb-discover[data-active] {
+  background: var(--active);
+  color: var(--ink);
+}
+.sb-discover svg:first-child {
+  color: var(--signal-ink);
+}
 
 /* ---------- resize ---------- */
 .sb-resize {

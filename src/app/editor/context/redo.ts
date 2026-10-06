@@ -7,6 +7,7 @@ import type { Editor } from '@tiptap/core'
 import { TextSelection } from '@tiptap/pm/state'
 import type { ID } from '../../store/types'
 import type { Bridge } from '../lib/bridge'
+import type { TransformPick } from '../../features'
 import { blockKey } from './read'
 import { liveEditorOf } from './store'
 import { openContextPicker, topBlockKeys } from './api'
@@ -58,4 +59,16 @@ export function startRedo(target: Editor | ID, opts: { ids?: string[]; onEnd?: (
       opts.onEnd?.(done, marked)
     },
   })
+}
+
+/**
+ * Open an editor's AI panel from outside the editor (the guided tour, "What can One do?"): on its selection
+ * (`mode: 'selection'`) or at the caret (`'block'`); `transform` runs that form at once, like the grip menu;
+ * `open` shows a submenu ('transform': the forms · 'todb': "More …" with "Turn into database" highlighted).
+ */
+export function openAIPanel(editor: Editor, ai: { mode: 'selection' | 'block'; transform?: TransformPick; open?: 'todb' | 'transform' }): boolean {
+  const bridge = bridges.get(editor)
+  if (!bridge || editor.isDestroyed || !editor.isEditable) return false
+  bridge.setState({ ai: { mode: ai.mode, ...(ai.transform ? { transform: ai.transform } : {}), ...(ai.open ? { open: ai.open } : {}) } })
+  return true
 }

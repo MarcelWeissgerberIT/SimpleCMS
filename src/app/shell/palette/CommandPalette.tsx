@@ -18,6 +18,7 @@ import { useMediaQuery } from '../lib/hooks'
 import { buildIndex, search, type Range, type SearchHit } from './search'
 import { useReadOnly } from '../cloud/state'
 import { openHelp, useHelpHits } from '../../help'
+import { useTour } from '../tour/state'
 import './palette.css'
 
 export function CommandPalette() {
@@ -48,12 +49,13 @@ function Palette() {
   const hits = useMemo(() => (mode === 'find' && term ? search(fuse, term) : []), [fuse, mode, term])
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const commands = useMemo(() => buildCommands(t, pageId), [t, pageId, pages, lang, readOnly])
+  const tourDone = useTour((s) => !!s.memory.done)
   const cmdHits = useMemo(() => {
     if (mode === 'ask') return []
     // database commands ("Mails: Sync now") only by typing: the empty lists stay short
-    if (!term) return mode === 'run' ? commands.filter((c) => c.group !== 'database') : commands.filter((c) => CORE.includes(c.id))
+    if (!term) return mode === 'run' ? commands.filter((c) => c.group !== 'database') : rootCommands(commands, tourDone)
     return rankCommands(commands, term)
-  }, [commands, mode, term])
+  }, [commands, mode, term, tourDone])
   const titleHits = useMemo(() => hits.filter((h) => h.field === 'title'), [hits])
   const contentHits = useMemo(() => hits.filter((h) => h.field === 'content'), [hits])
   /*
@@ -120,21 +122,33 @@ function Palette() {
       .map((x) => x.title.trim() || t('common.untitled'))
       .join(' / ')
 
-  const commandGroup = cmdHits.length > 0 && (
-    <Command.Group heading={<GroupHead label={t('shell.palette.commands')} n={cmdHits.length} />}>
-      {cmdHits.map((c) => (
-        <Command.Item key={c.id} value={`cmd:${c.id}`} className="pal-item" onSelect={() => runCmd(c)}>
-          <span className="pal-item__icon">
-            <c.icon size={16} strokeWidth={1.7} />
-          </span>
-          <span className="pal-item__main">
-            <span className="pal-item__title">{c.label}</span>
-          </span>
-          {c.shortcut && <span className="kbd pal-item__kbd">{shortcutLabel(c.shortcut)}</span>}
-        </Command.Item>
-      ))}
-    </Command.Group>
+  const cmdItem = (c: Cmd) => (
+    <Command.Item key={c.id} value={`cmd:${c.id}`} className="pal-item" onSelect={() => runCmd(c)}>
+      <span className="pal-item__icon">
+        <c.icon size={16} strokeWidth={1.7} />
+      </span>
+      <span className="pal-item__main">
+        <span className="pal-item__title">{c.label}</span>
+      </span>
+      {c.shortcut && <span className="kbd pal-item__kbd">{shortcutLabel(c.shortcut)}</span>}
+    </Command.Item>
   )
+  // the lists without a query come in groups (create · go to · Claude · this page · workspace · getting started);
+  // a query ranks every match in one list
+  const commandGroup =
+    cmdHits.length > 0 &&
+    (term ? (
+      <Command.Group heading={<GroupHead label={t('shell.palette.commands')} n={cmdHits.length} />}>{cmdHits.map(cmdItem)}</Command.Group>
+    ) : (
+      GROUP_ORDER.map((g) => {
+        const list = cmdHits.filter((c) => c.group === g)
+        return list.length ? (
+          <Command.Group key={g} heading={<GroupHead label={t(`shell.palette.group.${g}`)} n={list.length} />}>
+            {list.map(cmdItem)}
+          </Command.Group>
+        ) : null
+      })
+    ))
   const pageHit = (h: SearchHit) => (
     <PageItem key={h.page.id} page={h.page} path={path(h.page)} titleRanges={h.titleRanges} snippet={h.snippet} onSelect={() => openPageItem(h.page.id)} />
   )
@@ -311,7 +325,17 @@ function rankCommands(commands: Cmd[], term: string): Cmd[] {
 const wordStarts = (text: string, n: string) => text.split(/[\s()&,/…-]+/).some((w) => w.startsWith(n))
 const labelStarts = (label: string, term: string) => label.toLowerCase().startsWith(term.toLowerCase())
 
-const CORE = ['new-page', 'new-database', 'quick-note', 'journal', 'agenda', 'templates', 'import', 'ask-ai', 'graph', 'theme', 'focus', 'present', 'settings']
+/** The commands of the list without a query, most used first within their groups. */
+const CORE = ['new-page', 'new-database', 'quick-note', 'templates', 'journal', 'agenda', 'graph', 'ask-ai', 'agent', 'present', 'history', 'import', 'settings', 'theme', 'focus', 'discover', 'tour']
+const GROUP_ORDER: Cmd['group'][] = ['create', 'navigate', 'claude', 'page', 'workspace', 'start']
+
+/** The list without a query: CORE in its order (the tour only until it was finished once). */
+function rootCommands(commands: Cmd[], tourDone: boolean): Cmd[] {
+  const byId = new Map(commands.map((c) => [c.id, c]))
+  return CORE.filter((id) => !(id === 'tour' && tourDone))
+    .map((id) => byId.get(id))
+    .filter((c): c is Cmd => !!c)
+}
 
 function GroupHead({ label, n }: { label: string; n: number }) {
   return (

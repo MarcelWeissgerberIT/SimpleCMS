@@ -1,0 +1,60 @@
+/* "Getting started" keys on top of the manual's index (help/StartStrip.tsx) */
+.help-start {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin: 10px 0 4px;
+}
+.help-start__key {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  min-height: 56px;
+  padding: 9px 10px;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius-2);
+  background: var(--surface);
+  color: var(--ink);
+  text-align: left;
+  transition:
+    border-color var(--dur-1) var(--ease-out),
+    transform var(--dur-1) var(--ease-out);
+}
+.help-start__key:hover {
+  border-color: var(--ink-3);
+}
+.help-start__key:active {
+  transform: translateY(1px);
+}
+.help-start__icon {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--rule-strong);
+  border-bottom-width: 2px;
+  border-radius: var(--radius-1);
+  color: var(--signal-ink);
+}
+.help-start__main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.help-start__title {
+  font-size: var(--text-sm);
+  font-weight: 650;
+  line-height: 1.25;
+}
+.help-start__sub {
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+  line-height: 1.35;
+}
+@media (max-width: 420px) {
+  .help-start {
+    grid-template-columns: 1fr;
+  }
+}

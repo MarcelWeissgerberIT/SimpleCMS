@@ -23,6 +23,7 @@ import { useReadOnly } from '../cloud/state'
 import { MarginRail, railHasContent } from './MarginRail'
 import { scrollHostOf } from './outline'
 import { toggleMarginRail, useMarginRailOpen } from './railPref'
+import { TourOffer } from '../tour/TourOffer'
 import './page.css'
 
 export type PageVariant = 'main' | 'pane' | 'peek'
@@ -81,6 +82,8 @@ function PageViewInner({ page, variant }: { page: Page; variant: PageVariant }) 
         <div className="pv-col">
           <PageHeaderControls page={page} readOnly={readOnly} />
           <PageTitle page={page} readOnly={readOnly} variant={variant} onEnter={() => focusEditor('start')} />
+          {/* a freshly seeded workspace: "Take the 3-minute tour" on its Welcome page (shell/tour) */}
+          {variant === 'main' && !readOnly && <TourOffer pageId={page.id} />}
           {isRow && (
             <div className="pv-props">
               <RowProperties pageId={page.id} />

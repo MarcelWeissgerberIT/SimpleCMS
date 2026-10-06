@@ -384,6 +384,8 @@ test.describe('One memory', () => {
     await selectText(page, ed, 'Beta testers get access one week before the launch.')
     await page.locator('[aria-label="Formatting"]').first().getByRole('button', { name: /^Ask AI$/ }).click()
     await expect(panel(page)).toBeVisible()
+    // under "More …" (the AI menu's top level is short)
+    await panel(page).locator('#ai-row-more').click()
     await panel(page).getByRole('option', { name: /Remember this/ }).click()
     await expect(panel(page).getByTestId('ai-memory-card')).toContainText('Beta testers get access one week before the launch.')
     expect(userText(claude.structured[1])).toContain('Beta testers get access')

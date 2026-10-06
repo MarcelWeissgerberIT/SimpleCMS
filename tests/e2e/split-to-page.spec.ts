@@ -349,6 +349,8 @@ test.describe('Turn into page', () => {
     await bubble.getByRole('button', { name: 'KI fragen' }).click()
     const ai = page.locator('.ai-panel')
     await expect(ai).toBeVisible()
+    // under "Mehr…" (the AI menu's top level is short), in its Strukturieren group
+    await ai.locator('#ai-row-more').click()
     await expect(ai.locator('.ai-list__group', { hasText: 'Strukturieren' })).toBeVisible()
     await ai.getByRole('option', { name: /In Seite umwandeln/ }).click()
     await expect(ai).toHaveCount(0)

@@ -7,14 +7,17 @@ keywords: ai, claude, space, ask ai, improve, summarize, translate, explain, con
 related: claude-key, agent, command-palette, history
 summary: Space on an empty line, or Ask AI on a selection — Claude writes, edits and answers right in the page.
 ---
+The menu starts with the prompt: ask in your own words and press <kbd>Enter</kbd>. Below it, the actions used most for what you opened it on — text, several blocks, an image, a file or an empty line; **Translate**, **Transform into…** and **More…** open a submenu (<kbd>→</kbd>, back with <kbd>←</kbd> or <kbd>Backspace</kbd>). **More…** holds everything else. Typing searches every action, wherever it sits.
+
 ## On an empty line: Space
 Press <kbd>Space</kbd> on an empty line (or `/ai`). Type any request, or pick:
 - **Write** — **Continue writing**, **Draft an outline…**, **Brainstorm ideas…**
 - **This page** — **Summarize this page**, **Find action items on this page**
 - **Workspace** — **Ask your workspace**: Claude reads the most relevant pages of this workspace and cites them; only those excerpts are sent.
+- **More…** — **Redo with instructions…**, **Hand to the agent…**, **What Claude reads…**
 
 ## On a selection: Ask AI
-Select text → **Ask AI** in the toolbar. **Edit selection**: **Improve writing**, **Fix spelling & grammar**, **Make shorter**, **Make longer**, **Translate**. **Understand**: **Explain this**, **Summarize**, **Find action items**.
+Select text → **Ask AI** in the toolbar (or **Ask AI** in the block menu ⋮⋮ of a text block). Within a line: **Improve writing**, **Fix spelling & grammar**, **Make shorter**, **Translate**, **Explain this**. Several blocks: **Improve writing**, **Fix spelling & grammar**, **Translate**, **Transform into…**, **Summarize**. **More…** has the rest: **Make longer**, **Find action items**, **Redo with instructions…**, **Turn into database**, **Turn into page**, **Remember this**, **Hand to the agent…**
 
 The answer streams in. Then **Replace selection** (or **Insert below**), **Revise** with a follow-up instruction, **Try again**, **Copy** or **Discard**. Before Claude changes a page, a version is saved — see [Version history](help:history).
 
@@ -27,7 +30,7 @@ Under the prompt one line says what goes to Claude from this page: **Reads · wh
 Your own requests take the [One memory](help:memory) along: **MEMORY · 3** under *Reads* shows which memories go with the request — click it for the list, **History** and a switch for this request. Start a request with *remember …* (or *merk dir …*) and Claude turns it into a memory proposal instead of an answer; on a selection, **Remember this** does the same and **Remember as example…** keeps the blocks as an example. Name an example — `#wochenbericht` — and Claude builds on it.
 
 ## Turn into database
-Select a list, a table or a report of several blocks → **Ask AI** → **Turn into database**. Claude reads the blocks and proposes a table: the entries with their fields (status, assignee, tags, reference codes …), grouped by the headings they were listed under. The preview shows the counts, the columns (switch off what you don't want), **Group by**, **Board** or **Table**, the first entries and what stays as text — introductions and notes keep their original formatting and links. **Convert** (<kbd>Enter</kbd>) puts the database where the list was; <kbd>Mod+Z</kbd> brings the text back in one step (the toast's **Undo** also removes the database). Nothing is invented: a value the text doesn't state stays empty. **Place**: **Here (inline)** (the default) or **As its own page (linked)** — a full-page database below this page, with a link to it where the list was.
+Select a list, a table or a report of several blocks → **Ask AI** → **More…** → **Turn into database** (or type *database*). Claude reads the blocks and proposes a table: the entries with their fields (status, assignee, tags, reference codes …), grouped by the headings they were listed under. The preview shows the counts, the columns (switch off what you don't want), **Group by**, **Board** or **Table**, the first entries and what stays as text — introductions and notes keep their original formatting and links. **Convert** (<kbd>Enter</kbd>) puts the database where the list was; <kbd>Mod+Z</kbd> brings the text back in one step (the toast's **Undo** also removes the database). Nothing is invented: a value the text doesn't state stays empty. **Place**: **Here (inline)** (the default) or **As its own page (linked)** — a full-page database below this page, with a link to it where the list was.
 
 ## Transform into
 Select a few blocks — steps, numbers, a comparison, questions and answers — → **Ask AI** → **Transform into…** (also in the block menu ⋮⋮ of several selected blocks). Pick the form:
@@ -42,7 +45,7 @@ The preview shows the real result — the diagram drawn, the chart rendered, col
 Nothing is invented: names, numbers, dates and steps come only from the text. A diagram Mermaid can't read gets one automatic repair, then an error — nothing changes. Only the selected blocks go to Claude, never the One memory; the request keeps running in the background like any other.
 
 ## Turn into page
-**Ask AI** → **Structure** → **Turn into page** moves the selected blocks into a new sub-page at once — no Claude involved — and leaves a link in their place. The same in the block menu ⋮⋮ (**Turn into → Page**) and with <kbd>Mod+Alt+9</kbd>; see [Drag, turn into, colour](help:block-handle).
+**Ask AI** → **More…** → **Turn into page** moves the selected blocks into a new sub-page at once — no Claude involved — and leaves a link in their place. The same in the block menu ⋮⋮ (**Turn into → Page**) and with <kbd>Mod+Alt+9</kbd>; see [Drag, turn into, colour](help:block-handle).
 
 **Sub-page per item** (also **Structure**, and **Transform into → Pages + table**) makes every item of the selection its own sub-page — list items, heading sections or table rows — and puts one table in their place: a link to each page plus up to three fields the items share (*Status: open* lines, a to-do's checkbox, the table's columns). No Claude, one step: the toast's **Undo** or <kbd>Mod+Z</kbd> brings the items back.
 
@@ -56,7 +59,7 @@ Some requests are really actions, and the AI menu runs them instead of sending t
 Writing requests (*shorter*, *translate*, *explain …*) go to Claude as before; **Ask Claude** stays in the list for any request.
 
 ## Redo with instructions
-Mark passages and have Claude rework them your way: **Ask AI** → **Redo with instructions…** (also in the block menu ⋮⋮, or `/redo` in the AI terminal). The picker opens with the selected blocks marked — mark more, even far apart (whole blocks), then <kbd>Enter</kbd>. Write what should change — *shorter, informal, explain the jargon* — and keep it as a preset chip for next time (up to 20, on this device; **⋯** renames or deletes). Optionally add a **rules page** (`@` in the field): a style guide or glossary whose content goes along. **Redo** (<kbd>Mod+Enter</kbd>) runs in the background like any request; the page goes along as **What Claude reads** allows.
+Mark passages and have Claude rework them your way: **Ask AI** → **More…** → **Redo with instructions…** (also in the block menu ⋮⋮, or `/redo` in the AI terminal). The picker opens with the selected blocks marked — mark more, even far apart (whole blocks), then <kbd>Enter</kbd>. Write what should change — *shorter, informal, explain the jargon* — and keep it as a preset chip for next time (up to 20, on this device; **⋯** renames or deletes). Optionally add a **rules page** (`@` in the field): a style guide or glossary whose content goes along. **Redo** (<kbd>Mod+Enter</kbd>) runs in the background like any request; the page goes along as **What Claude reads** allows.
 
 The review shows one passage at a time — removed words struck through, new ones underlined: <kbd>y</kbd> or <kbd>Enter</kbd> accepts, <kbd>n</kbd> rejects, <kbd>j</kbd> / <kbd>k</kbd> move, <kbd>a</kbd> accepts all, <kbd>Esc</kbd> closes (the result waits). Applying writes every accepted passage in one step — one <kbd>Mod+Z</kbd> takes it back, and a version is saved first. Formatting, links and mentions stay. A passage you changed meanwhile is skipped, not overwritten; images, databases, embeds and other blocks without text are skipped too.
 

@@ -71,6 +71,8 @@ export {
 export { contextMarksOf, pageContextMarks, readableContent, readableBlocks, isContextLimited, useContextMarks, useContextPicking, type ContextMarks, type ReadableContent } from './context/read'
 export { setContextMode, openContextPicker, closeContextPicker, contextPickingPage, topBlockKeys } from './context/api'
 export { startRedo } from './context/redo'
+/** openAIPanel(editor, { mode, transform?, open? }): the editor's AI panel from outside it (the guided tour, "What can One do?"). */
+export { openAIPanel } from './context/redo'
 /** liveEditorOf(pageId): the page's mounted editor (the main column's first, else a pane or the peek), null when it is not open — for writes that must be one undo step there (the AI terminal's edit_page). */
 export { liveEditorOf } from './context/store'
 export type { ContextMode, PickPurpose } from './context/store'

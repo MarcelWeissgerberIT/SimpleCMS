@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
-import { Bell, Bot, CalendarDays, CalendarRange, ChevronsLeft, ChevronDown, Home, LayoutTemplate, Lock, PenLine, Plus, Search, Trash2, Upload, Waypoints, Settings, Table2, FilePlus2, Users, SquareCode } from 'lucide-react'
+import { ArrowRight, Bell, Bot, CalendarDays, CalendarRange, ChevronsLeft, ChevronDown, Compass, Home, LayoutTemplate, Lock, PenLine, Plus, Search, Trash2, Upload, Waypoints, Settings, Table2, FilePlus2, Users, SquareCode } from 'lucide-react'
 import { useWorkspace } from '../../store/store'
 import { useUI } from '../../store/ui'
 import { useFavorites, useTrash, useTreeCount, useHasFavorites } from '../../store/selectors'
@@ -28,6 +28,7 @@ import { INBOX_KEYS, useInboxShortcut } from '../inbox/keys'
 import { useInstallMenuEntries } from '../capture/Install'
 import './sidebar.css'
 import { openHelp, HelpNewsLed, useChangelogUnseen } from '../../help'
+import { startTour } from '../tour/state'
 
 const MIN_W = 220
 const MAX_W = 480
@@ -168,6 +169,7 @@ function SidebarHeader() {
   const kbd = useKbdHint()
   const newsUnseen = useChangelogUnseen()
   const installEntries = useInstallMenuEntries()
+  const readOnly = useReadOnly()
   const set = useWorkspace.getState().updateSettings
   // the name: renamed in place (local workspace; team workspaces: admins), read-only for everyone else
   const renameMode = useRenameMode()
@@ -218,6 +220,9 @@ function SidebarHeader() {
     { label: t('shell.cmd.shortcuts'), hint: kbd('Mod+/'), onSelect: () => useUI.getState().openModal({ type: 'shortcuts' }) },
     { label: t('help.title'), hint: kbd('?'), onSelect: () => openHelp(), ...(newsUnseen ? { icon: <HelpNewsLed quiet /> } : {}) },
     ...installEntries,
+    // getting started: "What can One do?" (#/discover) and the guided tour (shell/tour)
+    { id: 'ws-discover', label: t('shell.discover.nav'), icon: <Compass size={15} />, onSelect: () => (closeMobileSidebar(), navigate('#/discover')) },
+    ...(readOnly ? [] : ([{ id: 'ws-tour', label: t('shell.tour.cmd'), onSelect: () => (closeMobileSidebar(), startTour()) }] as MenuEntry[])),
     { kind: 'separator' },
     { label: t('shell.menu.website'), onSelect: () => window.open(BRAND.homeHref, '_self') },
     { label: 'GitHub', onSelect: () => window.open(BRAND.repoUrl, '_blank', 'noopener') },
@@ -429,6 +434,7 @@ function SidebarFooter() {
   const [anchor, setAnchor] = useState<HTMLElement | null>(null)
   const mobile = useIsMobile()
   const btn = useRef<HTMLButtonElement>(null)
+  const discover = useRoute().name === 'discover'
   return (
     <div className="sb-foot">
       <button
@@ -446,6 +452,13 @@ function SidebarFooter() {
         <span className="sb-sect__count">{String(trash.length).padStart(2, '0')}</span>
       </button>
       <TrashPopover anchor={anchor} onClose={() => setAnchor(null)} placement={mobile ? 'top' : 'right-end'} />
+      {/* getting started: every feature on one page (shell/discover) */}
+      <button type="button" className="sb-discover" data-active={discover || undefined} onClick={() => (closeMobileSidebar(), navigate('#/discover'))}>
+        <Compass size={14} />
+        <span className="sb-discover__label">{t('shell.discover.nav')}</span>
+        <span className="sb-sect__leader" aria-hidden />
+        <ArrowRight size={13} aria-hidden />
+      </button>
     </div>
   )
 }

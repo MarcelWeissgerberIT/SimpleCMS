@@ -1,0 +1,184 @@
+/* ================================================================
+   "What can One do?" (#/discover)
+   ================================================================ */
+.disc {
+  min-height: 100%;
+  padding: clamp(28px, 7vh, 72px) clamp(16px, 5cqi, 56px) 72px;
+}
+.disc__inner {
+  max-width: 1060px;
+  margin: 0 auto;
+}
+.disc__meta {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  white-space: nowrap;
+}
+.disc__rule {
+  flex: 1;
+  height: 1px;
+  min-width: 16px;
+  background: var(--rule);
+}
+.disc__title {
+  margin: 22px 0 14px;
+  font-size: clamp(36px, 6.4cqi, 64px);
+  font-weight: 850;
+  line-height: 0.98;
+  letter-spacing: -0.035em;
+  text-wrap: balance;
+}
+.disc__lead {
+  max-width: 62ch;
+  margin: 0 0 22px;
+  color: var(--ink-2);
+  font-size: var(--text-lg);
+  line-height: 1.5;
+}
+.disc__keys {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding-bottom: 8px;
+}
+.disc__keys-n {
+  margin-left: 4px;
+  color: inherit;
+  opacity: 0.72;
+}
+
+.disc__group {
+  margin-top: 40px;
+}
+.disc__head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 14px;
+  padding-top: 10px;
+  border-top: 1px solid var(--ink);
+  font-size: var(--text-md);
+  font-weight: 700;
+}
+.disc__num {
+  color: var(--signal-ink);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  font-weight: 500;
+  letter-spacing: var(--tracking-label);
+}
+.disc__name {
+  font-stretch: 112%;
+  letter-spacing: -0.005em;
+  text-transform: none;
+}
+.disc__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* ---------- card ---------- */
+.disc-card {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  padding: 14px 14px 12px;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius-2);
+  background: var(--surface);
+  transition: border-color var(--dur-1) var(--ease-out);
+}
+.disc-card:hover,
+.disc-card:focus-within {
+  border-color: var(--ink-3);
+}
+.disc-card__top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+.disc-card__icon {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border: 1px solid var(--rule-strong);
+  border-bottom-width: 2px;
+  border-radius: var(--radius-1);
+  background: var(--bg);
+  color: var(--ink);
+}
+.disc-card:hover .disc-card__icon {
+  color: var(--signal-ink);
+}
+.disc-card__title {
+  margin: 0 0 4px;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: -0.005em;
+  line-height: 1.25;
+}
+.disc-card__what {
+  margin: 0 0 10px;
+  color: var(--ink-2);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+}
+.disc-card__how {
+  display: flex;
+  gap: 8px;
+  margin: auto 0 12px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--rule-strong);
+  color: var(--ink);
+  font-size: var(--text-xs);
+  line-height: 1.5;
+}
+.disc-card__how-l {
+  flex: none;
+  padding-top: 1px;
+}
+.disc-card__how-t .kbd {
+  margin-right: 2px;
+  vertical-align: 1px;
+}
+.disc-card__keys {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.disc-card__try:hover {
+  border-color: var(--signal);
+}
+.disc-card__help {
+  margin-left: auto;
+}
+.disc-card__q {
+  display: inline-grid;
+  place-items: center;
+  width: 15px;
+  height: 15px;
+  border: 1px solid var(--rule-strong);
+  border-bottom-width: 2px;
+  border-radius: 3px;
+  font-family: var(--font-mono);
+  font-size: 9px;
+}
+
+@media (max-width: 767px) {
+  .disc__lead {
+    font-size: var(--text-md);
+  }
+  .disc__keys .btn {
+    flex: 1 1 auto;
+  }
+  .disc-card__keys .btn {
+    height: 34px;
+  }
+}

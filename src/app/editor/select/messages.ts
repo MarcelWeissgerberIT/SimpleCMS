@@ -8,6 +8,7 @@ export const selectMessages: Messages = {
     'editor.select.menuN': 'Block menu · {n} blocks',
     'editor.select.todb': 'Turn into database…',
     'editor.select.transform': 'Transform into',
+    'editor.select.claude': 'Claude',
   },
   de: {
     'editor.select.count': '{n} Blöcke · Esc',
@@ -15,5 +16,6 @@ export const selectMessages: Messages = {
     'editor.select.menuN': 'Blockmenü · {n} Blöcke',
     'editor.select.todb': 'In Datenbank umwandeln…',
     'editor.select.transform': 'Verwandeln in',
+    'editor.select.claude': 'Claude',
   },
 }

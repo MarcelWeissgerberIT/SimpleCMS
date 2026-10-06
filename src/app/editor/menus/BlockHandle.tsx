@@ -10,7 +10,7 @@ import { dragHandlePluginDefaultKey, type NestedOptions } from '@tiptap/extensio
 import { DragHandle } from '@tiptap/extension-drag-handle-react'
 import { useEditorState } from '@tiptap/react'
 import { useStore } from 'zustand'
-import { ArrowRightLeft, Copy, GripVertical, Link, Paintbrush, Plus, Repeat2, Trash2 } from 'lucide-react'
+import { ArrowRightLeft, Copy, GripVertical, Link, MessageSquareText, Paintbrush, Plus, Repeat2, Trash2 } from 'lucide-react'
 import { Menu, MenuList, type MenuEntry } from '../../ui/Menu'
 import { Popover, type PopoverAnchor } from '../../ui/Popover'
 import { PageIcon } from '../../ui/PageIcon'
@@ -462,8 +462,34 @@ export function BlockHandle({ editor, bridge, pageId }: { editor: Editor; bridge
           },
         ],
       })
-    // "Redo with instructions…": the redo picker, this block pre-marked
-    items.push(...redoBlockMenuEntries(editor, ref, t))
+    // Claude on a text block: Ask AI (the AI panel on its text) · Redo with instructions… (the redo picker, this
+    // block pre-marked) — together under one label, like the image and file groups below
+    const redo = redoBlockMenuEntries(editor, ref, t)
+    if (textual && editor.isEditable)
+      items.push(
+        { kind: 'separator' },
+        { kind: 'section', label: t('editor.select.claude') },
+        {
+          id: 'block-ask-ai',
+          label: t('editor.bubble.askAI'),
+          icon: <MessageSquareText size={15} />,
+          hint: 'AI',
+          keywords: 'ai claude ki ask fragen rewrite translate summarize umschreiben übersetzen zusammenfassen',
+          onSelect: () =>
+            // after the menu closed and handed the caret back: the block's text selected, the panel on it
+            requestAnimationFrame(() => {
+              if (editor.isDestroyed) return
+              const node = editor.state.doc.nodeAt(ref.pos)
+              const r = node ? { from: ref.pos + 1, to: ref.pos + node.nodeSize - 1 } : null
+              const hasText = !!node?.textContent.trim()
+              if (r && hasText) editor.chain().focus().setTextSelection(r).run()
+              else editor.chain().focus().setTextSelection(Math.min(ref.pos + 1, editor.state.doc.content.size)).run()
+              bridge.setState({ ai: { mode: hasText ? 'selection' : 'block' } })
+            }),
+        },
+        ...redo,
+      )
+    else items.push(...redo)
     // video / audio: replace, download, copy a web link
     items.push(...mediaMenuEntries(editor, ref, t))
     // image: the "Claude" group — describe, read out the text, image → table, ask
@@ -472,9 +498,20 @@ export function BlockHandle({ editor, bridge, pageId }: { editor: Editor; bridge
     items.push(...fileMenuEntries(editor, ref, t))
     // chart: edit, type, downloads, data, source
     items.push(...chartMenuEntries(editor, ref, t))
+    // most used first: Duplicate · Move to · Copy link (· Copy and sync) — Delete apart at the end
     items.push(
       { kind: 'separator' },
       { label: t('common.duplicate'), icon: <Copy size={15} />, hint: isTouch ? undefined : shortcutLabel('Mod+D'), onSelect: () => duplicateBlock(editor, ref) },
+      {
+        label: t('editor.blockMenu.moveTo'),
+        icon: <ArrowRightLeft size={15} />,
+        keepOpen: true,
+        onSelect: () => {
+          const m = menu
+          closeMenu()
+          setMoveFor(m)
+        },
+      },
       {
         label: t('editor.blockMenu.copyLink'),
         icon: <Link size={15} />,
@@ -491,16 +528,6 @@ export function BlockHandle({ editor, bridge, pageId }: { editor: Editor; bridge
       },
       // Copy and sync (+ the synced block's own menu when the block is / sits in one)
       ...blockMenuSyncedEntries(editor, ref.pos, t),
-      {
-        label: t('editor.blockMenu.moveTo'),
-        icon: <ArrowRightLeft size={15} />,
-        keepOpen: true,
-        onSelect: () => {
-          const m = menu
-          closeMenu()
-          setMoveFor(m)
-        },
-      },
       { kind: 'separator' },
       { label: t('common.delete'), icon: <Trash2 size={15} />, hint: isTouch ? undefined : 'Del', danger: true, onSelect: () => deleteBlock(editor, ref) },
     )

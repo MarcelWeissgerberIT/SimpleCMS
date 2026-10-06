@@ -4,6 +4,8 @@ import { cloudMessages } from './cloud/messages'
 import { inboxMessages } from './inbox/messages'
 import { treeMessages } from './sidebar/messages'
 import { captureMessages } from './capture/messages'
+import { tourMessages } from './tour/messages'
+import { discoverMessages } from './discover/messages'
 
 /** Strings for the shell area. Keys MUST be prefixed with "shell." — always add both en and de. */
 export const messages: Messages = {
@@ -13,6 +15,8 @@ export const messages: Messages = {
     ...cloudMessages.en,
     ...treeMessages.en,
     ...captureMessages.en,
+    ...tourMessages.en,
+    ...discoverMessages.en,
     'shell.a11y.skip': 'Skip to content',
 
     // navigation
@@ -276,6 +280,12 @@ export const messages: Messages = {
     'shell.palette.pages': 'Pages',
     'shell.palette.inContent': 'In content',
     'shell.palette.commands': 'Commands',
+    'shell.palette.group.create': 'Create',
+    'shell.palette.group.navigate': 'Go to',
+    'shell.palette.group.claude': 'Claude',
+    'shell.palette.group.page': 'This page',
+    'shell.palette.group.workspace': 'Workspace',
+    'shell.palette.group.start': 'Getting started',
     'shell.palette.createPage': 'Create page “{q}”',
     'shell.palette.noSignal': 'No signal',
     'shell.palette.empty': 'Nothing matches “{q}”.',
@@ -458,6 +468,8 @@ export const messages: Messages = {
     ...cloudMessages.de,
     ...treeMessages.de,
     ...captureMessages.de,
+    ...tourMessages.de,
+    ...discoverMessages.de,
     'shell.a11y.skip': 'Zum Inhalt springen',
 
     'shell.nav.search': 'Suchen',
@@ -704,6 +716,12 @@ export const messages: Messages = {
     'shell.palette.pages': 'Seiten',
     'shell.palette.inContent': 'Im Inhalt',
     'shell.palette.commands': 'Befehle',
+    'shell.palette.group.create': 'Erstellen',
+    'shell.palette.group.navigate': 'Gehe zu',
+    'shell.palette.group.claude': 'Claude',
+    'shell.palette.group.page': 'Diese Seite',
+    'shell.palette.group.workspace': 'Workspace',
+    'shell.palette.group.start': 'Erste Schritte',
     'shell.palette.createPage': 'Seite „{q}“ anlegen',
     'shell.palette.noSignal': 'Kein Signal',
     'shell.palette.empty': 'Nichts passt zu „{q}“.',
