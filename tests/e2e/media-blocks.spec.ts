@@ -20,10 +20,15 @@ async function blocksOf(page: Page, id: string): Promise<JSONContent[]> {
   return wsEval(page, (s, id) => JSON.parse(JSON.stringify(s.pages[id]?.content?.content ?? [])), id)
 }
 
-/** Wait until the editor wrote a video block with a stored file into the page. */
+/**
+ * Wait until the editor wrote a video block with a stored file into the page: the file goes to IndexedDB
+ * first (slow on a busy machine), then the block's src changes in the editor — open editors are flushed on
+ * every look, so only the file write is waited for (not the editor's write debounce on top).
+ */
 async function storedVideo(page: Page, id: string) {
+  const flushEditors = () => page.evaluate(() => (window as unknown as { __oneEditorUnload?: () => void }).__oneEditorUnload?.())
   await expect
-    .poll(async () => (await blocksOf(page, id)).some((b) => b.type === 'video' && String(b.attrs?.src ?? '').startsWith('onefile:')), { message: 'stored video block' })
+    .poll(async () => (await flushEditors(), await blocksOf(page, id)).some((b) => b.type === 'video' && String(b.attrs?.src ?? '').startsWith('onefile:')), { message: 'stored video block', timeout: 20_000 })
     .toBe(true)
 }
 
