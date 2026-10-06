@@ -27,7 +27,7 @@ async function imageHosts(ctx: BrowserContext): Promise<string[]> {
 /** One streamed assistant message (text or tool calls) in the Messages API SSE shape. */
 function sseMessage(blocks: Array<{ type: 'text'; text: string } | { type: 'tool_use'; id: string; name: string; input: Record<string, unknown> }>): string {
   const ev = (type: string, data: object) => `event: ${type}\ndata: ${JSON.stringify({ type, ...data })}\n\n`
-  let body = ev('message_start', { message: { id: 'msg_img', type: 'message', role: 'assistant', model: 'claude-opus-5-5', content: [], stop_reason: null, stop_sequence: null, usage: { input_tokens: 10, output_tokens: 1 } } })
+  let body = ev('message_start', { message: { id: 'msg_img', type: 'message', role: 'assistant', model: 'e2e-mock', content: [], stop_reason: null, stop_sequence: null, usage: { input_tokens: 10, output_tokens: 1 } } })
   blocks.forEach((b, index) => {
     if (b.type === 'text') {
       body += ev('content_block_start', { index, content_block: { type: 'text', text: '' } })
