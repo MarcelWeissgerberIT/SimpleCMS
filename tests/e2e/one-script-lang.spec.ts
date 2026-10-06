@@ -5,7 +5,7 @@
  * Stop, depth, sizes), the query builder's code ⇄ model round trip and the editor's analysis.
  */
 import { test, expect } from '@playwright/test'
-import { Interpreter, ScriptError, SDate, SDuration, errorTextEn, inspect, parse, parseExpression, syntaxError, tokenize, toPlain, type Value } from '../../src/app/features/script/lang'
+import { Interpreter, ScriptError, SDate, SDuration, addDuration, dateText, errorTextEn, inspect, parse, parseExpression, syntaxError, tokenize, toPlain, type Value } from '../../src/app/features/script/lang'
 import { fromCode, toCode, type BQuery } from '../../src/app/features/script/builder/model'
 import { analyze, completionAt } from '../../src/app/features/script/editor/analyze'
 
@@ -159,6 +159,14 @@ test.describe('interpreter', () => {
     expect(await val(`${rows}rows.select(Status, double: n * 2).first`)).toEqual({ Status: 'Open', double: 6 })
     expect(await val('[1, 2, 3].find(it > 1)')).toBe(2)
     expect(await val('[1, [2, 3]].flat().reverse()')).toEqual([3, 2, 1])
+  })
+
+  test('a date range moves as a whole (start and end)', () => {
+    const range = new SDate(new Date(2026, 2, 2).getTime(), false, SDate.day(new Date(2026, 2, 4)))
+    const moved = addDuration(range, new SDuration(2, 0))
+    expect(dateText(moved)).toBe('2026-03-04 → 2026-03-06')
+    expect(addDuration(range, new SDuration(1, 0), -1).end?.date.getDate()).toBe(3)
+    expect(addDuration(SDate.day(new Date(2026, 2, 2)), new SDuration(1, 0)).end).toBeNull()
   })
 
   test('truth, null and equality rules', async () => {

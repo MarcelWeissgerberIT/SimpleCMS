@@ -5,7 +5,8 @@
  * saveScript below); runs and trusted versions are per device (IndexedDB "one-scripts").
  *
  * UI (rendered by the shell)
- *  - ScriptsRoute { scriptId? }: #/scripts (list) and #/scripts/<id> (workbench), lazy
+ *  - ScriptsRoute { scriptId? }: #/scripts (list + template gallery) and #/scripts/<id> (workbench: the editor
+ *    with type-aware completion, snippets, signature help — editor/complete.ts), lazy
  *  - ScriptDialogHost: what a running script asks (modal / confirm / ask / choose, the list of effects
  *    before a run, one more effect, more time, a team version to confirm) — mount once
  *  - createScript(kind?, { name?, code?, open? }) → id | null · openScripts(id?) · saveScript(script) ·
@@ -33,7 +34,8 @@
  *
  * Integrations (integrations/; registered at boot by importing this module)
  *  - database command kind "script" ("Run script": per selected row, else for the database page)
- *  - paletteScripts(pageId): ⌘K "Run script: <name>" entries (shell/lib/commands.ts)
+ *  - paletteScripts(pageId): ⌘K "Run script: <name>" entries and "New script from template…" (the template
+ *    gallery under #/scripts, templates/: 20 scripts that adapt to the workspace) (shell/lib/commands.ts)
  *  - tools (model-facing English; MCP, the AI terminal, custom agents): runQueryForTool(code, { scope?,
  *    maxRows? }) → rows as JSON (read-only) · syntaxErrorText(code) · findScript(id | name) · scriptList() ·
  *    runReport(result, mode) · plannedItems(dryRun) + preApprovedUI(base, items) (a run whose list the

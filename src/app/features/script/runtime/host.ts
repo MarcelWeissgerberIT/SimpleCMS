@@ -18,6 +18,7 @@ import { markdownToDoc } from '../../../editor'
 import { snapshotNow } from '../../history/snapshots'
 import { ScriptError, type Pos, type Value } from '../lang'
 import { coerceProp, propByName, type Coerced } from './props'
+import { chartBlocks } from './markdown'
 import { effectImpl, type EffectInputs, type EffectName, type EffectOutputs } from './effects'
 import type { ChangeItem, ConfirmItem, EffectItem, EffectKind, LogLine, PropDiff, ResultTable, RunMode, RunUI } from './types'
 
@@ -238,14 +239,14 @@ export class Host {
     if (!this.real) {
       if (this.isDraft(page.id)) {
         const d = this.drafts.get(page.id)!
-        this.drafts.set(page.id, { ...d, content: joinDocs(d.content, markdownToDoc(md), how) })
+        this.drafts.set(page.id, { ...d, content: joinDocs(d.content, toDoc(md), how) })
       }
       return
     }
     await this.touch(page.id)
     const cur = useWorkspace.getState().pages[page.id]
     if (!cur) return
-    useWorkspace.getState().setContent(page.id, joinDocs(cur.content, markdownToDoc(md), how), SCRIPT_ORIGIN)
+    useWorkspace.getState().setContent(page.id, joinDocs(cur.content, toDoc(md), how), SCRIPT_ORIGIN)
   }
 
   /* ---------------------------------------------------------------- create */
@@ -257,7 +258,7 @@ export class Host {
     if (!this.real) {
       const id = `draft-${++this.draftSeq}`
       const now = Date.now()
-      const draft = { id, kind: 'page', title, icon: null, cover: null, parentId: input.parentId, databaseId: null, properties: {}, content: input.markdown ? markdownToDoc(input.markdown) : null, contentRev: 0, contentOrigin: null, favorite: false, trashed: false, trashedAt: null, createdAt: now, updatedAt: now, order: 0, settings: { fullWidth: false, smallText: false, font: 'sans', locked: false } } satisfies Page
+      const draft = { id, kind: 'page', title, icon: null, cover: null, parentId: input.parentId, databaseId: null, properties: {}, content: input.markdown ? toDoc(input.markdown) : null, contentRev: 0, contentOrigin: null, favorite: false, trashed: false, trashedAt: null, createdAt: now, updatedAt: now, order: 0, settings: { fullWidth: false, smallText: false, font: 'sans', locked: false } } satisfies Page
       this.drafts.set(id, draft)
       this.changes.push({ kind: 'create', pageId: id, title, dbId: null, parentId: input.parentId })
       return id
@@ -265,7 +266,7 @@ export class Host {
     const s = useWorkspace.getState()
     const id = s.createPage({ parentId: input.parentId, title })
     this.before.set(id, null)
-    if (input.markdown) s.setContent(id, markdownToDoc(input.markdown.slice(0, 500_000)), SCRIPT_ORIGIN)
+    if (input.markdown) s.setContent(id, toDoc(input.markdown.slice(0, 500_000)), SCRIPT_ORIGIN)
     this.changes.push({ kind: 'create', pageId: id, title, dbId: null, parentId: input.parentId })
     return id
   }
@@ -426,6 +427,9 @@ export class Host {
     navigate({ name: 'page', id })
   }
 }
+
+/** A script's Markdown as page content (md_chart's fences become chart blocks). */
+const toDoc = (md: string): JSONContent => chartBlocks(markdownToDoc(md))
 
 function safeText(db: Database, prop: PropertyDef, row: Page): string {
   try {

@@ -2,6 +2,7 @@
  * The reference pane next to a script: One's library and the built-ins by group, each with its
  * signature and one line; a click inserts the call at the caret.
  */
+import { memo } from 'react'
 import { useT } from '../../../i18n'
 import { GLOBAL_FUNCTIONS, type FnGroup, type FnInfo } from '../catalog'
 import { fnDesc } from './format'
@@ -15,7 +16,7 @@ export function insertionOf(f: FnInfo): string {
   return m ? `${m[1]}(` : f.name
 }
 
-export function Reference({ onInsert }: { onInsert: (text: string) => void }) {
+export const Reference = memo(function Reference({ onInsert }: { onInsert: (text: string) => void }) {
   const t = useT()
   return (
     <section className="sc-ref" aria-label={t('features.script.tab.reference')}>
@@ -42,4 +43,4 @@ export function Reference({ onInsert }: { onInsert: (text: string) => void }) {
       })}
     </section>
   )
-}
+})

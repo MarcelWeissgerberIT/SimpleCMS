@@ -1,10 +1,11 @@
 /**
  * #/scripts — the workspace's scripts and queries as instrument rows: code (SC-01), name, kind, the
  * last run on this device (LED, when, what), and keys to dry-run / run a script right from the list.
- * Empty: three examples that point at a real database of the workspace.
+ * Below: a few templates to start from (they point at a real database of the workspace) and the key to
+ * the whole template gallery ("From template", ⌘K "New script from template…").
  */
 import { useEffect, useMemo } from 'react'
-import { FlaskConical, Play, Plus, Square } from 'lucide-react'
+import { ArrowRight, FlaskConical, LayoutTemplate, Play, Plus, Square } from 'lucide-react'
 import { useWorkspace } from '../../../store/store'
 import type { OneScript } from '../../../store/types'
 import { useCloud } from '../../../cloud'
@@ -12,10 +13,17 @@ import { PageIcon } from '../../../ui/PageIcon'
 import { useLang, useT } from '../../../i18n'
 import { HelpLink } from '../../../help'
 import { createScript } from '../actions'
-import { EXAMPLES, exampleCode, type ExampleId } from '../examples'
+import { TEMPLATES } from '../templates/catalog'
+import { openTemplateGallery } from '../templates/open'
+import { TemplateGallery, createFromTemplate } from './Gallery'
 import { runScriptById, stopScript, useActiveRuns } from '../runtime/active'
 import { loadScriptRuns, scriptScope, useScriptRuns } from '../runtime/runs'
 import { pad2 } from './format'
+
+/** The templates the list offers right away (the gallery has them all). */
+const FEATURED = ['query', 'overdue', 'raise', 'counts']
+
+const TEMPLATE_CAT_LINE = (t: ReturnType<typeof useT>) => (['tasks', 'mail', 'reports', 'cleanup', 'claude'] as const).map((c) => t(`features.script.tpl.cat.${c}`)).join(' · ')
 
 function useScripts(): OneScript[] {
   const scripts = useWorkspace((s) => s.scripts)
@@ -89,7 +97,7 @@ export function ScriptList() {
   const scripts = useScripts()
   const readOnly = useCloud((s) => s.readOnly)
   const nQuery = scripts.filter((s) => s.kind === 'query').length
-  const fromExample = (id: ExampleId, kind: 'script' | 'query') => createScript(kind, { name: t(`features.script.example.${id}.name`), code: exampleCode(id, lang) })
+  const featured = FEATURED.map((id) => ({ id, n: TEMPLATES.findIndex((x) => x.id === id) + 1, kind: TEMPLATES.find((x) => x.id === id)?.kind ?? 'script' }))
   return (
     <div className="sc">
       <header className="sc-head">
@@ -106,6 +114,9 @@ export function ScriptList() {
           <h1 className="sc-title">{t('features.script.title')}</h1>
           {!readOnly && (
             <div className="sc-keys">
+              <button type="button" className="btn" onClick={() => openTemplateGallery()} data-testid="sc-new-template">
+                <LayoutTemplate size={14} strokeWidth={1.8} aria-hidden /> {t('features.script.tpl.button')}
+              </button>
               <button type="button" className="btn" onClick={() => createScript('query')} data-testid="sc-new-query">
                 <Plus size={14} strokeWidth={1.9} aria-hidden /> {t('features.script.newQuery')}
               </button>
@@ -131,21 +142,32 @@ export function ScriptList() {
             {t('features.script.startTitle')}
           </h2>
           <ul className="sc-examples">
-            {EXAMPLES.map((ex, i) => (
+            {featured.map((ex) => (
               <li key={ex.id}>
-                <button type="button" className="sc-example" onClick={() => fromExample(ex.id, ex.kind)} data-example={ex.id}>
-                  <span className="sc-example__code label">EX-{pad2(i + 1)}</span>
+                <button type="button" className="sc-example" onClick={() => createFromTemplate(ex.id, lang, t(`features.script.tpl.${ex.id}.name`))} data-example={ex.id}>
+                  <span className="sc-example__code label">TP-{pad2(ex.n)}</span>
                   <span className="sc-example__text">
-                    <span className="sc-example__name">{t(`features.script.example.${ex.id}.name`)}</span>
-                    <span className="sc-example__desc">{t(`features.script.example.${ex.id}.desc`)}</span>
+                    <span className="sc-example__name">{t(`features.script.tpl.${ex.id}.name`)}</span>
+                    <span className="sc-example__desc">{t(`features.script.tpl.${ex.id}.desc`)}</span>
                   </span>
                   <span className={`sc-chip-kind label sc-chip-kind--${ex.kind}`}>{t(`features.script.kind.${ex.kind}`)}</span>
                 </button>
               </li>
             ))}
+            <li>
+              <button type="button" className="sc-example sc-example--all" onClick={() => openTemplateGallery()} data-testid="sc-templates-all">
+                <span className="sc-example__code label">TP</span>
+                <span className="sc-example__text">
+                  <span className="sc-example__name">{t('features.script.tpl.allButton', { n: TEMPLATES.length })}</span>
+                  <span className="sc-example__desc">{TEMPLATE_CAT_LINE(t)}</span>
+                </span>
+                <ArrowRight size={14} strokeWidth={1.8} aria-hidden />
+              </button>
+            </li>
           </ul>
         </section>
       )}
+      <TemplateGallery />
     </div>
   )
 }

@@ -1,7 +1,8 @@
 /**
  * One Script runtime — One's standard library (the global names a script sees besides the built-ins):
- *   page(ref | "A / B" | title) · page.current · db(ref | name) · create.page(…) · trash(x) ·
+ *   page(ref | "A / B" | title) · page.current · page.here · db(ref | name) · create.page(…) · trash(x) ·
  *   person(name) · people() · me() · modal / confirm / ask / choose / notify / open ·
+ *   md_table(rows, columns?) · md_chart(data, kind?, title?) (Markdown for pages, runtime/markdown.ts) ·
  *   mail.send(…) · claude(prompt, context?) · http.post(url, data)
  * plus @ references and the workspace's custom functions (built by clicking, lib/formulaFunctions).
  * Nothing here reaches the browser, storage, keys or the network except through the effects.
@@ -32,6 +33,7 @@ import {
 } from '../lang'
 import type { Host } from './host'
 import { AgentObj, PageObj, PersonObj, QueryObj, ScriptRefObj, hostOf, reachable } from './objects'
+import { mdChart, mdTable } from './markdown'
 
 const ws = () => useWorkspace.getState()
 const norm = (s: string) => s.trim().replace(/\s+/g, ' ').toLowerCase()
@@ -198,6 +200,12 @@ export function globalsFor(host: Host): Record<string, Value> {
           if (!p) throw new ScriptError('no_context')
           return objectFor(host, p)
         },
+        // the same, or null when the script runs for no page (from the editor): `if page.here { … }`
+        here: () => {
+          const id = host.contextPageId
+          const p = id ? host.page(id) : null
+          return p ? objectFor(host, p) : null
+        },
       },
     },
   )
@@ -345,7 +353,10 @@ export function globalsFor(host: Host): Record<string, Value> {
     }),
   })
 
-  return { page, db, create, trash, person, people, me, modal, confirm, ask, choose, notify, open, mail, claude, http }
+  const md_table = native('md_table', (args, ctx) => mdTable(args, ctx))
+  const md_chart = native('md_chart', (args, ctx) => mdChart(args, ctx))
+
+  return { page, db, create, trash, person, people, me, modal, confirm, ask, choose, notify, open, mail, claude, http, md_table, md_chart }
 }
 
 /** JSON (an http answer) as script values. */

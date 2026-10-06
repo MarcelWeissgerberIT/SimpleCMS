@@ -3,7 +3,7 @@ id: one-script
 title: One Script
 section: calculate
 order: 4
-keywords: script, scripting, code, query, queries, automate, dry run, query builder, mail.send, claude, run script, button, database command, automation, gmail, mcp, one_run_query, one_run_script, ai terminal, ask claude, Skript, Abfrage, Probelauf
+keywords: script, scripting, code, query, queries, automate, dry run, query builder, autocomplete, completion, snippets, templates, template gallery, md_table, md_chart, mail.send, claude, run script, button, database command, automation, gmail, mcp, one_run_query, one_run_script, ai terminal, ask claude, Skript, Abfrage, Probelauf
 related: databases, database-commands, buttons, automations, gmail-sync, mcp-bridge, agent, custom-agents, formulas
 summary: Small scripts and queries in One's own safe language — try them as a dry run, build queries by clicking.
 ---
@@ -18,6 +18,24 @@ notify("{due.count} tasks raised")
 ```
 
 Type `@` and pick a page, database or person: it becomes a chip. The chip keeps pointing at the same page when it is renamed.
+
+## Templates
+**From template** on the Scripts page (or ⌘K → *New script from template…*) opens the gallery: ready-to-run scripts in five groups — *Tasks & projects*, *Mail & contacts*, *Reports*, *Clean-up*, *With Claude*. Each card says what the script does, what it touches (reads, writes, creates pages, trash, sends mail, uses Claude, asks you) and which of your databases it will use.
+
+- A template adapts to your workspace when you use it: it picks a fitting database by its properties (a status, a date, people, a relation; the Mails and Contacts databases of the [Gmail sync](help:gmail-sync)) and writes their real names and options into the code, with comments in your language.
+- When nothing fits, the card says what is missing (*Needs a database with a date*) and the script only says so when it runs.
+- Among them: overdue entries → a report page, due this week by day, shift open dates by N days, project progress as a table and a chart, mails that need a reply → tasks (no duplicates when it runs again), contacts to follow up, entries per status with a donut chart, a weekly review, duplicate titles → the trash after your OK, summaries with Claude, a weekly update mail drafted by Claude.
+- Try the **dry run** first: it shows what the script would change without changing anything.
+
+## Autocomplete
+The editor suggests while you type — after one letter, after `.` and `@`, and inside a text where an option fits; <kbd>Ctrl+Space</kbd> (<kbd>⌥Esc</kbd> on a Mac) asks for suggestions anywhere. <kbd>↑</kbd> <kbd>↓</kbd> choose, <kbd>Enter</kbd> or <kbd>Tab</kbd> take, <kbd>Esc</kbd> closes; with the list closed, Enter is a new line.
+
+- It knows what a value is: after `db(@Tasks).` the query methods, after `.rows.` the list methods, on an entry its properties first (with their type and options), on a page, a text or a date their members — each with its signature and one line about it.
+- Inside `.where(`, `.sort(`, `.group(` … the database's properties come as names (in backticks when they need them); inside `t.set(` and `.add(` as `Property: `.
+- After `Status = `, `Status != ` or `set(Status: ` come the option names as texts, for a checkbox `true` / `false`, for a date `today()`, `today() + 7d` …, for people `me()` and their names.
+- `@` finds pages, databases, entries, people, agents and scripts — typos too — the most recently edited first.
+- **Snippets** at the start of a line: `for`, `if`, `ifelse`, `fn`, `let`, `query`, `each`, `mail`, `confirm`, `choose`, `ask`, `notify`, `claude`. <kbd>Tab</kbd> jumps to the next place to fill, <kbd>Shift+Tab</kbd> back, <kbd>Esc</kbd> leaves them.
+- The bar below the code shows the call you are in, its current argument marked. <kbd>F1</kbd> or <kbd>Mod+I</kbd> — or <kbd>Ctrl</kbd> / <kbd>⌘</kbd> + hover — explains the name at the caret.
 
 ## Run, dry run, stop
 - <kbd>Mod+Shift+Enter</kbd> — **Dry run**: reads for real, changes nothing, sends nothing, and lists what the script *would* do ("change 2 entries in Tasks, send a mail to …").
@@ -44,6 +62,8 @@ let soon = db(@Tasks).where(`Due date` < today() + 3d).sort(`Due date`)
 - `db(@Tasks)` → `.where(…)`, `.sort(Due desc)`, `.limit(n)`, `.select(Name, Status)`, `.count`, `.sum(Budget)`, `.avg`, `.min`, `.max`, `.group(Status)`, `.first`, `.rows`, `.add("Title", Status: "Open")`, `.schema`. Entries are pages with their properties: `t.Status`, `t.set(Status: "Done")`.
 - Values follow the database: options by name, dates, people by name, relations by title.
 - `create.page(title: …, parent: @Page, markdown: …)`, `trash(row)`.
+- Markdown for pages: `md_table(rows, ["Name", "Due"])` writes a query, rows or records as a table (titles link to their pages); `md_chart(db(@Tasks).group(Status), "donut")` becomes a real chart block when the script writes it into a page. `page.here` is `page.current` — or `null` instead of an error when the script runs for no page.
+- A date range moves as a whole: `t.Timeline + 7d`.
 - Text, lists, numbers, dates: `upper`, `split`, `join`, `replace`, `contains`, `len`, `round`, `format(date, "dd.MM.yyyy")`, `days_between` … — the **Reference** next to a script lists them all.
 - Asking: `modal(text, buttons: ["OK"])`, `confirm(text)`, `ask(text, default: "")`, `choose(text, options)`, `notify(text)`, `print(…)`.
 - Effects: `mail.send(to:, subject:, body:, cc:)` — sent through Gmail when it is connected, else a ready draft in your mail program (see *Mail through Gmail*); `claude(prompt, context)` — your own Claude key; `http.post(url, data)` — only when you allow it.

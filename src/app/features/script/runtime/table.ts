@@ -3,7 +3,7 @@
  * list of rows → title + properties, a list of records → their fields, a list of plain values → one
  * column. Cells of rows and pages link to them.
  */
-import { HostObject, SRecord, toText, type CallCtx, type Value } from '../lang'
+import { HostObject, SRecord, normName, toText, type CallCtx, type Value } from '../lang'
 import { PageObj, QueryObj } from './objects'
 import type { Cell, ResultTable } from './types'
 import { propByName } from './props'
@@ -12,7 +12,7 @@ import { propertyValueToText } from '../../../database'
 export const TABLE_MAX = 200
 const COLS_MAX = 12
 
-function cell(v: Value): Cell {
+export function cell(v: Value): Cell {
   if (v instanceof PageObj) return { text: v.display(), pageId: v.id }
   if (v instanceof QueryObj) return { text: v.display(), pageId: v.dbId }
   if (Array.isArray(v) && v.length && v.every((x) => x instanceof PageObj)) return v.map((x) => (x as PageObj).display()).join(', ')
@@ -29,11 +29,13 @@ function rowColumns(rows: PageObj[]): string[] {
   return [title?.name ?? 'title', ...visible.slice(0, 5).map((p) => p.name)]
 }
 
-function rowCells(row: PageObj, columns: string[]): Cell[] {
+function rowCells(row: PageObj, columns: string[], picked = false): Cell[] {
   const db = row.db
   const page = row.host.page(row.id)
+  const titleName = db?.properties.find((p) => p.type === 'title')?.name
   return columns.map((c, i) => {
-    if (i === 0) return { text: row.display(), pageId: row.id }
+    // the title links to the row (the first column, or a picked "title" / title property)
+    if (picked ? c === titleName || normName(c) === 'title' : i === 0) return { text: row.display(), pageId: row.id }
     try {
       // a property as the database shows it (number formats, dates, options); else the script's value
       const prop = db && page && !row.host.isDraft(row.id) ? propByName(db, c) : undefined
@@ -45,8 +47,16 @@ function rowCells(row: PageObj, columns: string[]): Cell[] {
   })
 }
 
+export interface TableOptions {
+  /** the columns to show (rows: property names; records: field names) */
+  columns?: string[] | null
+  /** at most this many rows (default TABLE_MAX) */
+  max?: number
+}
+
 /** A table for the value, or null when it is a single plain value. */
-export async function tabulate(v: Value, ctx: CallCtx): Promise<ResultTable | null> {
+export async function tabulate(v: Value, ctx: CallCtx, opts: TableOptions = {}): Promise<ResultTable | null> {
+  const picked = opts.columns?.length ? opts.columns : null
   let items: Value[]
   let columns: string[] | null = null
   if (v instanceof QueryObj) {
@@ -58,15 +68,15 @@ export async function tabulate(v: Value, ctx: CallCtx): Promise<ResultTable | nu
   else return null
 
   const total = items.length
-  const shown = items.slice(0, TABLE_MAX)
+  const shown = items.slice(0, opts.max ?? TABLE_MAX)
   if (shown.length && shown.every((x) => x instanceof PageObj)) {
     const rows = shown as PageObj[]
-    const cols = columns && !(v instanceof QueryObj && v.selected) ? columns : rowColumns(rows)
-    return { columns: cols, rows: rows.map((r) => ({ pageId: r.id, cells: rowCells(r, cols) })), total }
+    const cols = picked ?? (columns && !(v instanceof QueryObj && v.selected) ? columns : rowColumns(rows))
+    return { columns: cols, rows: rows.map((r) => ({ pageId: r.id, cells: rowCells(r, cols, !!picked) })), total }
   }
   if (shown.length && shown.every((x) => x instanceof SRecord)) {
-    const cols: string[] = columns ? [...columns] : []
-    for (const r of shown as SRecord[]) for (const k of r.fields.keys()) if (!cols.includes(k) && cols.length < COLS_MAX) cols.push(k)
+    const cols: string[] = picked ? [...picked] : columns ? [...columns] : []
+    if (!picked) for (const r of shown as SRecord[]) for (const k of r.fields.keys()) if (!cols.includes(k) && cols.length < COLS_MAX) cols.push(k)
     return {
       columns: cols,
       rows: (shown as SRecord[]).map((r) => {
@@ -77,7 +87,7 @@ export async function tabulate(v: Value, ctx: CallCtx): Promise<ResultTable | nu
       total,
     }
   }
-  if (!shown.length && v instanceof QueryObj) return { columns: columns ?? ['title'], rows: [], total: 0 }
+  if (!shown.length && v instanceof QueryObj) return { columns: picked ?? columns ?? ['title'], rows: [], total: 0 }
   if (!shown.length) return { columns: ['value'], rows: [], total: 0 }
   return {
     columns: ['value'],
