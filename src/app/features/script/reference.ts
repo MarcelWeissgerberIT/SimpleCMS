@@ -15,8 +15,9 @@ References
 - A page, database or person is referenced as a stable token @[Title](p:<page id>) (u:<person id>), or by title: db("Tasks"), page("Parent / Page").
 Library
 - db(@Tasks) → .where(cond, …) .sort(Due desc, Name) .limit(n) .select(id, Name, Status) (records; keep id to know the rows) .count .rows .first .sum(Budget) .avg(x) .min(x) .max(x) .group(Status) .add("Title", Status: "Open") .schema
-- rows / pages: t.Status, t.title, t.markdown, t.text, t.url, t.id, t.set(Status: "Done"), t.append(markdown), t.prepend(markdown), t.replace(markdown), t.open(), trash(t); page(@P).children, .parent; page.current = the page / row the script runs for
+- rows / pages: t.Status, t.title, t.markdown, t.text, t.url, t.id, t.set(Status: "Done"), t.append(markdown), t.prepend(markdown), t.replace(markdown), t.open(), trash(t); page(@P).children, .parent; page.current = the page / row the script runs for (page.here: the same, or null when it runs for no page)
 - create.page(title: "…", parent: @page, markdown: "…") · person("Name") · people() · me()
+- Markdown for pages (create.page markdown: / .append): md_table(rows, columns?) = a Markdown table of a query, rows or records (titles link to their pages) · md_chart(data, kind?, title?) = a chart block from .group(Status), a record {Open: 3, Done: 5} or records; kind bar | barH | stacked | line | area | donut | kpi | sparkline
 - Values follow the database: options by name, dates, people by name, relations by title.
 - Text: upper lower trim split join replace contains starts_with ends_with slice len text format(date, "dd.MM.yyyy") · numbers: round floor ceil abs min max sum avg number · dates: days_between add_days add_months weekday · lists: range sort unique reverse first last keys; list methods .where .map .sort .select .group .sum .find .any .all .join .count .first .last — inside them a row's properties / a record's fields are plain names, \`it\` is the item, or pass a function: .map(x => x.Name)
 - Asking: modal(text, buttons: ["OK"]), confirm(text), ask(text, default: ""), choose(text, options), notify(text), print(…), log(…)
