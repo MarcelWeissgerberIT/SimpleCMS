@@ -14,13 +14,14 @@
 import type { Editor, JSONContent } from '@tiptap/core'
 import { NodeSelection, TextSelection } from '@tiptap/pm/state'
 import { closeHistory } from '@tiptap/pm/history'
+import { endUndoStep, startUndoStep } from '../../../editor'
 import { useWorkspace } from '../../../store/store'
 import { useUI } from '../../../store/ui'
 import type { ID } from '../../../store/types'
 import { saveFile } from '../../../lib/files'
 import { createPrivateDatabase, createPrivatePage, isPrivatePage } from '../../../cloud'
 import { t } from '../../../i18n'
-import { markdownToDoc } from '../../../editor'
+import { claudeBlocks, claudeDoc } from '../claudeDoc'
 import { snapshotNow } from '../../history/snapshots'
 import { startRun, useAIRuns, type AIRun } from '../runs'
 import { buildDatabase, placementOf, type TableDraft, type TablePlan } from '../todb/plan'
@@ -104,12 +105,19 @@ export async function insertBelowFile(editor: Editor, pageId: ID, run: AIRun, bl
   if (!blocks.length) return
   await snapshotNow(pageId, 'ai')
   if (editor.isDestroyed) return
-  editor.chain().focus().insertContentAt(belowFile(editor, run), blocks).run()
+  startUndoStep(editor.view)
+  editor
+    .chain()
+    .focus()
+    .command(({ tr }) => (closeHistory(tr), true))
+    .insertContentAt(belowFile(editor, run), blocks)
+    .run()
+  endUndoStep(editor.view)
 }
 
 /** Markdown below the file. */
 export function insertMarkdownBelowFile(editor: Editor, pageId: ID, run: AIRun, markdown: string): Promise<void> {
-  return insertBelowFile(editor, pageId, run, (markdownToDoc(markdown).content ?? []).filter(Boolean))
+  return insertBelowFile(editor, pageId, run, claudeBlocks(markdown))
 }
 
 /** A link block below the file, selected after it (one transaction). */
@@ -117,7 +125,9 @@ function linkBelow(editor: Editor, run: AIRun, node: ReturnType<Editor['schema']
   const at = belowFile(editor, run)
   const tr = closeHistory(editor.state.tr).insert(at, node)
   tr.setSelection(TextSelection.near(tr.doc.resolve(Math.min(at + node.nodeSize, tr.doc.content.size)))).scrollIntoView()
+  startUndoStep(editor.view)
   editor.view.dispatch(tr)
+  endUndoStep(editor.view)
   editor.view.focus()
 }
 
@@ -183,7 +193,7 @@ export async function createFileDatabase(
   const dbId = isPrivatePage(pageId) ? createPrivateDatabase(input) : ws.createDatabase(input)
   for (const row of spec.rows) {
     const rowId = useWorkspace.getState().createRow(dbId, { title: row.title, properties: row.properties })
-    if (row.body) useWorkspace.getState().setContent(rowId, markdownToDoc(row.body), origin)
+    if (row.body) useWorkspace.getState().setContent(rowId, claudeDoc(row.body), origin)
   }
   if (editor.isDestroyed) return dbId
   linkBelow(editor, run, asPage ? editor.schema.nodes.pageLink.create({ pageId: dbId }) : editor.schema.nodes.databaseBlock.create({ databaseId: dbId, viewId: null }))

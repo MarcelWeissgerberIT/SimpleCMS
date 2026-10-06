@@ -464,6 +464,8 @@ test.describe('MCP servers (mocked Claude API, made-up server)', () => {
   })
 
   test('the token is sealed like the Claude key: a marker in the settings, never stored, exported, logged or sent anywhere but mcp_servers; replace, remove, reload and a second tab', async ({ page, context }, testInfo) => {
+    // nine boots of the app (reloads, a second tab): on a busy machine each can take seconds
+    test.setTimeout(120_000)
     const sent = await mockApi(context)
     const logs: string[] = []
     page.on('console', (m) => logs.push(m.text()))

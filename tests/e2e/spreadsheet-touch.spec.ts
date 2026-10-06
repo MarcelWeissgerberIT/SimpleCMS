@@ -1019,6 +1019,34 @@ function iosFinger(page: Page, pressed: string) {
     )
 }
 
+/**
+ * The long-press threshold measured where it runs: the page notes when the press began and when the cell
+ * menu appeared (performance.now). A check from the test runner ("no menu after a 250 ms wait") fails on
+ * a busy machine, where the wait itself can outlast the threshold.
+ */
+async function watchPress(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    const w = window as unknown as { __press: { down: number | null; shown: number | null } }
+    w.__press = { down: null, shown: null }
+    const note = () => {
+      if (w.__press.down === null) w.__press.down = performance.now()
+    }
+    document.addEventListener('pointerdown', note, { capture: true, once: true })
+    document.addEventListener('touchstart', note, { capture: true, once: true })
+    new MutationObserver((_r, obs) => {
+      if (!document.querySelector('.sh-cmenu')) return
+      w.__press.shown = performance.now()
+      obs.disconnect()
+    }).observe(document.body, { childList: true, subtree: true })
+  })
+}
+/** How long after the press the cell menu appeared (ms). */
+const pressToMenu = (page: Page) =>
+  page.evaluate(() => {
+    const p = (window as unknown as { __press: { down: number; shown: number } }).__press
+    return p.shown - p.down
+  })
+
 /** iOS's compatibility mouse events at a point (no pointer events with them). */
 async function mouseAt(page: Page, addr: string, types: string[]) {
   const p = await mid(cell(page, addr))
@@ -1237,13 +1265,11 @@ test.describe('spreadsheet block by touch — iOS Safari sequences', () => {
     await openApp(page)
     await touchSheet(page, TASKS)
     const one = iosFinger(page, 'B3')
-    const t0 = await page.evaluate(() => performance.now())
+    await watchPress(page)
     await one('touchstart', 'B3')
-    await page.waitForTimeout(250)
-    await expect(menu(page)).toHaveCount(0)
     await expect(page.getByRole('dialog', { name: 'Cell menu B3' })).toBeVisible()
-    const t1 = await page.evaluate(() => performance.now())
-    expect(t1 - t0).toBeGreaterThanOrEqual(440)
+    // not before the threshold
+    expect(await pressToMenu(page)).toBeGreaterThanOrEqual(440)
     await expect(armed(page)).toBeVisible()
     await expect(nameBox(page)).toHaveText('B3')
     await one('touchcancel', 'B3')
@@ -1286,10 +1312,10 @@ test.describe('spreadsheet block by touch — iOS Safari sequences', () => {
     await touchSheet(page, TASKS)
     const buzzes = () => page.evaluate(() => (window as unknown as { __buzz: number }).__buzz)
     const one = iosFinger(page, 'B4')
+    await watchPress(page)
     await one('pointerdown', 'B4')
-    await page.waitForTimeout(250)
-    await expect(menu(page)).toHaveCount(0)
     await expect(page.getByRole('dialog', { name: 'Cell menu B4' })).toBeVisible()
+    expect(await pressToMenu(page)).toBeGreaterThanOrEqual(440)
     await one('pointerup', 'B4')
     await expect(page.getByRole('dialog', { name: 'Cell menu B4' })).toBeVisible()
     expect(await buzzes()).toBe(1)

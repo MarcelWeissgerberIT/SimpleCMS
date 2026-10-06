@@ -73,7 +73,8 @@ import { Kbd } from '../../ui/controls'
 import { useLang, useT } from '../../i18n'
 import { useWorkspace } from '../../store/store'
 import { useUI } from '../../store/ui'
-import { markdownToDoc, openContextPicker, pageContextMarks, setContextMode, topBlockKeys, useContextMarks, type ContextMode } from '../../editor'
+import { endUndoStep, openContextPicker, pageContextMarks, setContextMode, startUndoStep, topBlockKeys, useContextMarks, type ContextMode } from '../../editor'
+import { closeHistory } from '@tiptap/pm/history'
 import { toMarkdown } from '../share/markdown'
 import { turnIntoPage } from '../../editor'
 import { AI_MODELS, AIError, aiErrorText, isAIDemo, onAIDemo, resolveModel, setAIDemo, verifyKey } from './client'
@@ -83,7 +84,8 @@ import { CodewordChip, McpSkippedNote, skippedLabel } from './mcp-servers/Codewo
 import { citationsToLinks, findSource, type WorkspaceSource } from './workspace'
 import { MarkdownLite } from './MarkdownLite'
 import { snapshotNow } from '../history/snapshots'
-import { webImagesOf, withoutWebImages } from '../agents/images'
+import { webImagesOf } from '../agents/images'
+import { claudeBlocks } from './claudeDoc'
 import { openAgent } from './agent/state'
 import { afterBlock, captureTarget, mapTarget, type RunTarget } from './runsTarget'
 import { markSeen, removeRun, setTodbDraft, startRun, stopRun, useAIRuns, viewRun, type RunRequest } from './runs'
@@ -575,9 +577,7 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
   const resultBlocks = (): JSONContent[] => {
     // the answer may follow text nobody vouches for (a mail, a file, an MCP result): a web image in it
     // becomes a link — only the images this page shows already stay images
-    const shown = webImagesOf(useWorkspace.getState().pages[pageId]?.content)
-    const doc = markdownToDoc(withoutWebImages(resultMarkdown(), shown))
-    return (doc.content ?? []).filter(Boolean)
+    return claudeBlocks(resultMarkdown(), webImagesOf(useWorkspace.getState().pages[pageId]?.content))
   }
 
   /** The cursor block may have been typed into meanwhile: it is only filled while still empty. */
@@ -610,7 +610,12 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
     const tg = useAIRuns.getState().runs[run.id]?.target ?? targetRef.current
     const size = editor.state.doc.content.size
     const clamp = (n: number) => Math.max(0, Math.min(n, size))
-    const chain = editor.chain().focus()
+    // Claude's result is its own undo step (also in a shared page, where Y undo merges by time)
+    startUndoStep(editor.view)
+    const chain = editor
+      .chain()
+      .focus()
+      .command(({ tr }) => (closeHistory(tr), true))
     if (how === 'replace' && tg.mode === 'selection' && !tg.lost && tg.to > tg.from) {
       const range = { from: clamp(tg.from), to: clamp(tg.to) }
       const single = blocks.length === 1 && blocks[0].type === 'paragraph'
@@ -620,6 +625,7 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
     } else {
       chain.insertContentAt(insertionPoint(tg), blocks).run()
     }
+    endUndoStep(editor.view)
     removeRun(run.id)
     onClose()
   }

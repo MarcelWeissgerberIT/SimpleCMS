@@ -92,15 +92,64 @@ export function withoutWebImages(markdown: string, keep?: ReadonlySet<string>): 
     .join('\n')
 }
 
-/** The web images a document shows (src of image nodes), for `withoutWebImages(…, keep)`. */
-export function webImagesOf(doc: { type?: string; attrs?: Record<string, unknown>; content?: unknown[] } | null | undefined): Set<string> {
+interface DocNode {
+  type?: string
+  attrs?: Record<string, unknown>
+  content?: DocNode[]
+  marks?: Array<{ type: string; attrs?: Record<string, unknown> }>
+  text?: string
+}
+
+/** Blocks that show something from an address: their src (image, video, audio). */
+const MEDIA = new Set(['image', 'video', 'audio'])
+
+/** The web images / video / audio a document shows (their src), for `withoutWebImages(…, keep)`. */
+export function webImagesOf(doc: DocNode | null | undefined): Set<string> {
   const out = new Set<string>()
-  const walk = (n: { type?: string; attrs?: Record<string, unknown>; content?: unknown[] } | null | undefined) => {
+  const walk = (n: DocNode | null | undefined) => {
     if (!n) return
-    const src = n.type === 'image' ? n.attrs?.src : null
-    if (typeof src === 'string' && WEB.test(src)) out.add(src)
-    for (const c of n.content ?? []) walk(c as typeof n)
+    const src = n.type && MEDIA.has(n.type) ? n.attrs?.src : null
+    if (typeof src === 'string' && WEB.test(src.trim())) out.add(src)
+    for (const c of n.content ?? []) walk(c)
   }
   walk(doc)
   return out
+}
+
+const str = (v: unknown) => (typeof v === 'string' ? v : '')
+
+/** A paragraph with one link (a block that would have loaded `href` by itself). */
+function linkLine(label: string, address: string): DocNode {
+  const href = address.replace(/^\/\//, 'https://')
+  return { type: 'paragraph', content: [{ type: 'text', text: label.trim() || href, marks: [{ type: 'link', attrs: { href } }] }] }
+}
+
+/**
+ * The document made of Claude's Markdown, without anything that loads by itself or reaches into the
+ * workspace. Markdown is not the only way in: raw HTML in it (`<img>`, `<video>`, `<div data-type="embed">`
+ * …) becomes editor blocks too, and entities or escapes hide an address from a text filter. So the
+ * finished document is checked: web images, video and audio become links (addresses in `keep` — the ones
+ * the page shows already — stay), files from the web and embeds (frames) become links, bookmarks become
+ * links (no preview image), synced-block references and meeting blocks become their plain blocks.
+ * Legitimate Markdown never makes those blocks (they are written out as links), so nothing real is lost.
+ */
+export function withoutWebLoads<T extends DocNode>(doc: T, keep?: ReadonlySet<string>): T {
+  const fix = (n: DocNode): DocNode[] => {
+    const a = n.attrs ?? {}
+    if (n.type && MEDIA.has(n.type)) {
+      const src = str(a.src).trim()
+      if (WEB.test(src) && !keep?.has(str(a.src))) return [linkLine(str(a.alt) || str(a.name) || str(a.caption), src)]
+    }
+    if (n.type === 'fileBlock' && WEB.test(str(a.src).trim())) return [linkLine(`📎 ${str(a.name)}`, str(a.src).trim())]
+    if (n.type === 'embed' || n.type === 'bookmark') {
+      const url = str(a.url).trim()
+      return url && /^https?:\/\//i.test(url) ? [linkLine(str(a.title) || url, url)] : []
+    }
+    if (n.type === 'syncedBlock' || n.type === 'meetingNotes') return (n.content ?? []).flatMap(fix)
+    if (!n.content) return [n]
+    const kids = n.content.flatMap(fix)
+    return kids.length === n.content.length && kids.every((k, i) => k === n.content![i]) ? [n] : [{ ...n, content: kids }]
+  }
+  const [out] = fix(doc)
+  return (out ?? doc) as T
 }

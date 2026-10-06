@@ -6,8 +6,8 @@ import { useUI } from '../../store/ui'
 import { inTemplate, isEffectivelyTrashed, selectBreadcrumbs } from '../../store/selectors'
 import { CodewordChip, isAIConfigured, McpSkippedNote, runAI, templateName, templateRoots, type McpCall } from '../../features'
 import { memoryFor, MemoryNote, noteUse, type MemoryUse } from '../../features'
-import { webImagesOf, withoutWebImages } from '../../features'
-import { markdownToDoc, readableContent, ReadOnlyDoc } from '../../editor'
+import { claudeDoc, webImagesOf } from '../../features'
+import { readableContent, ReadOnlyDoc } from '../../editor'
 import { PageIcon } from '../../ui/PageIcon'
 import { restoreFocus as restoreFocusTo } from '../../ui/focus'
 import { shortcutLabel, ALT } from '../../ui/controls'
@@ -431,7 +431,7 @@ function AskPanel({ question, pageId, onDone }: { question: string; pageId: ID |
 
   const append = () => {
     if (!page || !answer) return
-    const doc = markdownToDoc(withoutWebImages(answer, webImagesOf(page.content)))
+    const doc = claudeDoc(answer, webImagesOf(page.content))
     const cur = page.content?.content ?? []
     useWorkspace.getState().setContent(page.id, { type: 'doc', content: [...cur, ...(doc.content ?? [])] }, 'ai')
     useUI.getState().toast({ message: t('shell.ask.appended'), kind: 'success' })
@@ -439,7 +439,7 @@ function AskPanel({ question, pageId, onDone }: { question: string; pageId: ID |
   }
 
   const toNewPage = () => {
-    const id = useWorkspace.getState().createPage({ title: question.slice(0, 80), content: markdownToDoc(withoutWebImages(answer)) })
+    const id = useWorkspace.getState().createPage({ title: question.slice(0, 80), content: claudeDoc(answer) })
     onDone()
     goToPage(id)
   }
@@ -530,7 +530,7 @@ function AskPanel({ question, pageId, onDone }: { question: string; pageId: ID |
  */
 function AskAnswer({ markdown }: { markdown: string }) {
   const shown = useThrottled(markdown, 140)
-  const doc = useMemo(() => (shown.trim() ? markdownToDoc(withoutWebImages(shown)) : null), [shown])
+  const doc = useMemo(() => (shown.trim() ? claudeDoc(shown) : null), [shown])
   if (!doc) return <div className="ask__answer ask__answer--wait">…</div>
   return (
     <div className="ask__answer">

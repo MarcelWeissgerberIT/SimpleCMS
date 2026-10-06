@@ -10,7 +10,8 @@ import { useWorkspace } from '../../../store/store'
 import { isEffectivelyTrashed } from '../../../store/selectors'
 import { COLOR_NAMES, type DateValue, type ID, type PropertyDef, type PropertyValue, type SelectOption, type View } from '../../../store/types'
 import { defaultView } from '../../../store/store'
-import { markdownToDoc } from '../../../editor'
+import { claudeBlocks, claudeDoc } from '../claudeDoc'
+import { webImagesOf } from '../../agents/images'
 import { newId } from '../../../lib/ids'
 import { aiWrite, snapshotNow } from '../../history/snapshots'
 import { t } from '../../../i18n'
@@ -32,8 +33,9 @@ function isEmptyDoc(doc: JSONContent | null | undefined): boolean {
   return blocks.every((b) => b.type === 'paragraph' && !(b.content ?? []).length)
 }
 
-function blocksOf(markdown: string): JSONContent[] {
-  return (markdownToDoc(markdown).content ?? []).filter(Boolean)
+/** Claude's Markdown as blocks: nothing in them loads by itself (claudeDoc); `page`'s own images may stay. */
+function blocksOf(markdown: string, page?: JSONContent | null): JSONContent[] {
+  return claudeBlocks(markdown, page ? webImagesOf(page) : undefined)
 }
 
 /** Option names → ids; missing names become new options (select / multi_select). */
@@ -208,7 +210,7 @@ async function applyOne(c: StagedChange, resolveRow: (id: ID) => ID, rowIds: Rec
       if (c.parentId && !alive(c.parentId)) throw new Error('the parent page is gone')
       if (s.pages[c.pageId]) throw new Error('already exists')
       const id = s.createPage({ id: c.pageId, parentId: c.parentId ?? null, title: c.title ?? '' })
-      if (c.markdown?.trim()) ws().setContent(id, markdownToDoc(c.markdown), ORIGIN)
+      if (c.markdown?.trim()) ws().setContent(id, claudeDoc(c.markdown), ORIGIN)
       return removeCreated(id)
     }
     case 'create_row': {
@@ -218,7 +220,7 @@ async function applyOne(c: StagedChange, resolveRow: (id: ID) => ID, rowIds: Rec
       const properties: Record<ID, PropertyValue> = {}
       for (const pc of c.props ?? []) properties[pc.propId] = resolveValue(dbId, pc, created)
       const id = ws().createRow(dbId, { title: c.title ?? '', properties })
-      if (c.markdown?.trim()) ws().setContent(id, markdownToDoc(c.markdown), ORIGIN)
+      if (c.markdown?.trim()) ws().setContent(id, claudeDoc(c.markdown), ORIGIN)
       rowIds[c.pageId] = id
       const remove = removeCreated(id)
       return () => {
@@ -269,7 +271,7 @@ async function applyOne(c: StagedChange, resolveRow: (id: ID) => ID, rowIds: Rec
       const page = ws().pages[id]
       if (!page) throw new Error('the page is gone')
       const prev = page.content
-      const add = blocksOf(c.markdown ?? '')
+      const add = blocksOf(c.markdown ?? '', prev)
       const next: JSONContent = { type: 'doc', content: isEmptyDoc(prev) ? add : [...(prev?.content ?? []), ...add] }
       ws().setContent(id, next, ORIGIN)
       const rev = ws().pages[id]?.contentRev

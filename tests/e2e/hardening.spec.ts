@@ -2,7 +2,7 @@
  * Hardening round: the small bugs found in the newest features, each with the test that shows it.
  */
 import type { Locator } from '@playwright/test'
-import { test, expect, openApp, gotoPage, pageIdByTitle, createPage, doc, para, plainOf, wsEval, editorOf, MOD } from './fixtures'
+import { test, expect, openApp, gotoPage, pageIdByTitle, createPage, doc, para, plainOf, wsEval, editorOf, mockClaude, MOD } from './fixtures'
 
 /** A popover placed by floating-ui and done with its entrance animation. */
 async function settled(pop: Locator): Promise<void> {
@@ -179,6 +179,69 @@ test.describe('block selection', () => {
     // Shift+click grows it from there
     await ed.locator('p', { hasText: 'Delta' }).click({ modifiers: ['Shift'] })
     await expect(ed.locator('.is-block-selected')).toHaveText(['Charlie line.', 'Delta line.'])
+  })
+
+  test('copy right after selecting copies what is selected now, and Enter splits where the caret is now', async ({ page }) => {
+    await openApp(page)
+    const id = await createPage(page, { title: 'Quick copy', content: doc(para('Alpha line.'), para('Bravo line.'), para('Charlie line.')) })
+    await gotoPage(page, id)
+    const ed = editorOf(page, id)
+    await ed.locator('p', { hasText: 'Alpha' }).click()
+    // the browser selected "Charlie line." (Shift+Home, a drag …) and ⌘C comes before its selectionchange event
+    const copied = await ed.evaluate((root) => {
+      const p = [...root.querySelectorAll('p')].find((x) => x.textContent === 'Charlie line.')!
+      getSelection()!.setBaseAndExtent(p.firstChild!, 0, p.firstChild!, p.textContent!.length)
+      const data = new DataTransfer()
+      root.dispatchEvent(new ClipboardEvent('copy', { clipboardData: data, bubbles: true, cancelable: true }))
+      return data.getData('text/plain')
+    })
+    expect(copied).toBe('Charlie line.')
+    // a click puts the caret after "Bravo", Enter comes first: the split happens there
+    await ed.evaluate((root) => {
+      const p = [...root.querySelectorAll('p')].find((x) => x.textContent === 'Bravo line.')!
+      getSelection()!.collapse(p.firstChild!, 5)
+      root.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, bubbles: true, cancelable: true }))
+    })
+    await expect.poll(() => plainOf(page, id)).toMatch(/Alpha line\.\s+Bravo\s+line\.\s+Charlie line\./)
+    await expect(ed.locator('p')).toHaveText(['Alpha line.', 'Bravo', /^\s*line\.$/, 'Charlie line.'])
+  })
+})
+
+test.describe('undo steps', () => {
+  test("Claude's inserted answer is its own undo step: typing right after it is undone on its own", async ({ page, context }) => {
+    await mockClaude(context, () => 'Inserted by Claude.')
+    await openApp(page)
+    await wsEval(page, (s) => s.updateSettings({ aiApiKey: 'sk-ant-e2e-test-key' }))
+    const id = await createPage(page, { title: 'Undo steps', content: doc(para('First line.'), para('')) })
+    await gotoPage(page, id)
+    const ed = editorOf(page, id)
+    const ask = page.getByPlaceholder('Ask Claude to write anything…')
+    await expect(async () => {
+      await ed.locator('p').last().click()
+      await page.keyboard.press('End')
+      await page.keyboard.press('Space')
+      try {
+        await expect(ask).toBeFocused({ timeout: 2000 })
+      } catch (e) {
+        if (!(await ask.count())) await page.keyboard.press('Backspace')
+        throw e
+      }
+    }).toPass({ timeout: 15_000 })
+    await ask.fill('Write one line')
+    await ask.press('Enter')
+    const panel = page.getByRole('dialog', { name: 'Ask Claude' })
+    await expect(panel.locator('.ai-out__body')).toContainText('Inserted by Claude.')
+    await panel.getByRole('option', { name: /^Insert/ }).first().click()
+    await expect(ed).toContainText('Inserted by Claude.')
+    // at once, in the same place
+    await page.keyboard.type(' More')
+    await expect(ed).toContainText('Inserted by Claude. More')
+    await page.keyboard.press(`${MOD}+z`)
+    await expect(ed).toContainText('Inserted by Claude.')
+    await expect(ed).not.toContainText('More')
+    await page.keyboard.press(`${MOD}+z`)
+    await expect(ed).not.toContainText('Inserted by Claude.')
+    await expect(ed).toContainText('First line.')
   })
 })
 

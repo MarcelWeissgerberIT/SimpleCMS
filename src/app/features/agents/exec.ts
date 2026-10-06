@@ -16,7 +16,6 @@ import { useUI } from '../../store/ui'
 import { newId } from '../../lib/ids'
 import { navigate } from '../../lib/router'
 import { t } from '../../i18n'
-import { markdownToDoc } from '../../editor'
 import { AIError, resolveModel } from '../ai/client'
 import { attachMcp, instructionsText, readServers } from '../ai/mcp-servers/config'
 import { callLabel } from '../ai/mcp-servers/activity'
@@ -31,6 +30,7 @@ import { putRun } from './runs'
 import { exclusive } from './locks'
 import { awaitsConfirm } from './confirm'
 import { withoutWebImages } from './images'
+import { claudeBlocks } from '../ai/claudeDoc'
 import type { AgentRun, AgentRunStep } from './types'
 import { memoryFor, noteUse } from '../ai/memory/use'
 import { recallTool } from '../ai/memory/tools'
@@ -167,7 +167,7 @@ async function writeReport(agent: CustomAgent, run: AgentRun): Promise<boolean> 
   const page = useWorkspace.getState().pages[pageId]
   if (!page) return false
   const heading: JSONContent = { type: 'heading', attrs: { level: 3 }, content: [{ type: 'text', text: `${agent.name} · ${format(new Date(run.startedAt), 'yyyy-MM-dd HH:mm')}` }] }
-  const body = (markdownToDoc(withoutWebImages(run.summary)).content ?? []).filter(Boolean)
+  const body = claudeBlocks(run.summary)
   const prev = page.content?.content ?? []
   const empty = prev.every((b) => b.type === 'paragraph' && !(b.content ?? []).length)
   const content: JSONContent = { type: 'doc', content: out.mode === 'replace' || empty ? [heading, ...body] : [...prev, heading, ...body] }

@@ -16,6 +16,7 @@ import { guardCell } from '../../io/import/csv'
 import { docxToDoc } from './docx'
 import { csvSheet, xlsxSheets, type DataSheet } from './xlsx'
 import { FileLoadError } from './load'
+import { withoutWebLoads } from '../../agents/images'
 import type { FileKind } from './kinds'
 
 export interface PageResult {
@@ -157,15 +158,22 @@ export function rtfToText(rtf: string): string {
 
 const WEB = /^(https?:)?\/\//i
 
-/** Web images → a link line ("Image: alt"): a converted file never loads anything by itself. */
+/**
+ * Web images → a link line ("Image: alt"): a converted file never loads anything by itself — web video,
+ * audio, files and frames (a Markdown file's raw HTML makes those too) become links as well.
+ */
 export function webImagesToLinks(nodes: JSONContent[]): JSONContent[] {
+  return withoutWebLoads({ type: 'doc', content: imagesToLinks(nodes) }).content ?? []
+}
+
+function imagesToLinks(nodes: JSONContent[]): JSONContent[] {
   return nodes.map((n) => {
     if (n.type === 'image' && typeof n.attrs?.src === 'string' && WEB.test(n.attrs.src.trim())) {
       const alt = String(n.attrs.alt ?? '').trim()
       const href = n.attrs.src.trim().replace(/^\/\//, 'https://')
       return { type: 'paragraph', content: [{ type: 'text', text: alt ? `Image: ${alt}` : href, marks: [{ type: 'link', attrs: { href } }] }] }
     }
-    return n.content ? { ...n, content: webImagesToLinks(n.content) } : n
+    return n.content ? { ...n, content: imagesToLinks(n.content) } : n
   })
 }
 

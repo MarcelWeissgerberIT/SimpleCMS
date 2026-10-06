@@ -502,6 +502,34 @@ export function syncDomSelection(view: EditorView): void {
   ;(view as unknown as { domObserver?: { flush?: () => void } }).domObserver?.flush?.()
 }
 
+/**
+ * Every key and every copy / cut acts on the caret the browser shows NOW. After a click (or Shift+Home
+ * handled by the browser itself) ProseMirror learns the new selection from the next selectionchange
+ * event — a key pressed right away (Enter, Esc, ⌘C) was handled first and acted on the old caret.
+ * Runs before every other key handler (highest priority); IME composition is left alone.
+ */
+export const FreshSelection = Extension.create({
+  name: 'freshSelection',
+  priority: 10_000,
+  addProseMirrorPlugins() {
+    return [
+      new Plugin({
+        key: new PluginKey('freshSelection'),
+        props: {
+          handleKeyDown(view, event) {
+            if (!event.isComposing && event.keyCode !== 229) syncDomSelection(view)
+            return false
+          },
+          handleDOMEvents: {
+            copy: (view) => (syncDomSelection(view), false),
+            cut: (view) => (syncDomSelection(view), false),
+          },
+        },
+      }),
+    ]
+  },
+})
+
 /* ------------------------------------------------------------------ */
 /* Nothing selected until the user does something                      */
 /* ------------------------------------------------------------------ */

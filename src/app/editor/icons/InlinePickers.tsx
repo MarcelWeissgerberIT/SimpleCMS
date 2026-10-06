@@ -51,8 +51,9 @@ function PickerPopover({ editor, bridge, picker }: { editor: Editor; bridge: Bri
 
   const close = (refocus: boolean) => {
     bridge.setState({ inlinePicker: null })
-    // focus() restores the selection the editor kept: the caret (or the icon) where it was
-    if (refocus && !editor.isDestroyed) editor.commands.focus()
+    // the caret (or the icon) where it was — at once: commands.focus() waits a frame, and a letter typed
+    // right after Esc would land nowhere
+    if (refocus && !editor.isDestroyed) editor.view.focus()
   }
   useEscapeFirst(() => close(true))
   // the icon went away underneath (undo, a collaborator): nothing left to edit
@@ -67,7 +68,9 @@ function PickerPopover({ editor, bridge, picker }: { editor: Editor; bridge: Bri
 
   const insert = (content: JSONContent | string) => {
     close(false)
-    editor.chain().focus().insertContent(content).run()
+    editor.chain().insertContent(content).run()
+    // typing goes on right after the icon — also a space typed the moment Enter picked it
+    if (!editor.isDestroyed) editor.view.focus()
   }
   /** Edit mode: new attrs for the icon; it stays selected. */
   const change = (attrs: IconAttrs, keepOpen = false) => {

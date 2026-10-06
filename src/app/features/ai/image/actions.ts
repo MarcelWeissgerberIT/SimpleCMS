@@ -12,6 +12,7 @@
 import type { Editor, JSONContent } from '@tiptap/core'
 import { TextSelection, NodeSelection } from '@tiptap/pm/state'
 import { closeHistory } from '@tiptap/pm/history'
+import { endUndoStep, startUndoStep } from '../../../editor'
 import { create } from 'zustand'
 import { useWorkspace } from '../../../store/store'
 import { useUI } from '../../../store/ui'
@@ -20,8 +21,7 @@ import { saveFile } from '../../../lib/files'
 import { t } from '../../../i18n'
 import { snapshotNow } from '../../history/snapshots'
 import { startRun, useAIRuns, type AIRun } from '../runs'
-import { markdownToDoc } from '../../../editor'
-import { withoutWebImages } from '../../agents/images'
+import { claudeBlocks, claudeDoc } from '../claudeDoc'
 import { buildDatabase, placementOf, type TableDraft, type TablePlan } from '../todb/plan'
 import { afterBlock } from '../runsTarget'
 import { findImage, imageAt, imageTarget, type ImageHit } from './locate'
@@ -116,7 +116,9 @@ export async function applyDescription(editor: Editor, pageId: ID, run: AIRun, d
   if (!hit) return false
   const tr = closeHistory(editor.state.tr).setNodeMarkup(hit.pos, undefined, { ...hit.node.attrs, alt: desc.alt.trim() || null, caption: desc.caption.trim() })
   tr.setSelection(NodeSelection.create(tr.doc, hit.pos))
+  startUndoStep(editor.view)
   editor.view.dispatch(tr)
+  endUndoStep(editor.view)
   editor.view.focus()
   return true
 }
@@ -128,12 +130,19 @@ export async function insertBelowImage(editor: Editor, pageId: ID, run: AIRun, b
   if (editor.isDestroyed) return
   const hit = runImage(editor, run)
   const at = hit ? belowImage(editor, hit) : editor.state.doc.content.size
-  editor.chain().focus().insertContentAt(at, blocks).run()
+  startUndoStep(editor.view)
+  editor
+    .chain()
+    .focus()
+    .command(({ tr }) => (closeHistory(tr), true))
+    .insertContentAt(at, blocks)
+    .run()
+  endUndoStep(editor.view)
 }
 
 /** Markdown below the image (web images in Claude's answer become links: no auto-loading pixels from text in a picture). */
 export function insertMarkdownBelow(editor: Editor, pageId: ID, run: AIRun, markdown: string): Promise<void> {
-  return insertBelowImage(editor, pageId, run, (markdownToDoc(withoutWebImages(markdown)).content ?? []).filter(Boolean))
+  return insertBelowImage(editor, pageId, run, claudeBlocks(markdown))
 }
 
 /**
@@ -151,7 +160,7 @@ export async function createImageDatabase(editor: Editor, pageId: ID, run: AIRun
   const dbId = ws.createDatabase({ parentId: pageId, inline: !asPage, title: spec.title, properties, views: spec.views })
   for (const row of spec.rows) {
     const rowId = useWorkspace.getState().createRow(dbId, { title: row.title, properties: row.properties })
-    if (row.body) useWorkspace.getState().setContent(rowId, markdownToDoc(withoutWebImages(row.body)), 'ai')
+    if (row.body) useWorkspace.getState().setContent(rowId, claudeDoc(row.body), 'ai')
   }
   if (editor.isDestroyed) return dbId
   const node = asPage ? editor.schema.nodes.pageLink.create({ pageId: dbId }) : editor.schema.nodes.databaseBlock.create({ databaseId: dbId, viewId: null })
@@ -159,7 +168,9 @@ export async function createImageDatabase(editor: Editor, pageId: ID, run: AIRun
   const at = hit ? belowImage(editor, hit) : editor.state.doc.content.size
   const tr = closeHistory(editor.state.tr).insert(at, node)
   tr.setSelection(TextSelection.near(tr.doc.resolve(Math.min(at + node.nodeSize, tr.doc.content.size)))).scrollIntoView()
+  startUndoStep(editor.view)
   editor.view.dispatch(tr)
+  endUndoStep(editor.view)
   editor.view.focus()
   useUI.getState().toast({ message: spec.rows.length === 1 ? t('features.ai.todb.doneOne') : t('features.ai.todb.done', { n: spec.rows.length }), kind: 'success' })
   return dbId

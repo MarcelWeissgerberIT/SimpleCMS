@@ -120,6 +120,36 @@ test('one_run_query: rows as JSON, read-only; one_overview lists the scripts', a
   expect(refused.isError).toBe(true)
   expect(text(refused)).toContain('This run only reads')
   expect(await prioOf(page, ids)).toEqual(['o_low', 'o_low', 'o_low'])
+  // every way to write, send, ask or move is refused in a query — nothing changes, nothing is sent
+  const before = await wsEval(page, (s) => JSON.stringify(Object.values(s.pages).map((p: AnyState) => [p.id, p.title, p.trashed, p.contentRev, p.properties])))
+  const writes = [
+    't.set(Priorität: "Hoch")',
+    't.Priorität = "Hoch"',
+    't["Priorität"] = "Hoch"',
+    't.append("x")',
+    't.prepend("x")',
+    't.replace("x")',
+    'trash(t)',
+    't.open()',
+    'db("Aufgaben").add("Neu")',
+    'create.page(title: "Neu")',
+    'mail.send(to: "a@example.com", subject: "x", body: "y")',
+    'claude("hi")',
+    'http.post("https://example.com", {a: 1})',
+    'notify("x")',
+    'confirm("x")',
+    'ask("x")',
+    'modal("x")',
+    'choose("x", ["a"])',
+    'db("Aufgaben").rows.map(r => r.set(Priorität: "Hoch"))',
+    'fn w(r) { r.set(Priorität: "Hoch") }\nw(t)',
+  ]
+  for (const w of writes) {
+    const r = await call('one_run_query', { code: `let t = db("Aufgaben").first\n${w}` })
+    expect(r.isError, w).toBe(true)
+    expect(text(r), w).toContain('This run only reads')
+  }
+  expect(await wsEval(page, (s) => JSON.stringify(Object.values(s.pages).map((p: AnyState) => [p.id, p.title, p.trashed, p.contentRev, p.properties])))).toBe(before)
   // a syntax error says where
   expect(text(await call('one_run_query', { code: 'db("Aufgaben").where(' }))).toMatch(/Syntax error: 1:\d+/)
 

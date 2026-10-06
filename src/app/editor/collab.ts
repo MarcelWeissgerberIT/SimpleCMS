@@ -10,6 +10,7 @@
 import { Extension, type AnyExtension } from '@tiptap/core'
 import { Plugin, PluginKey, TextSelection, type EditorState, type StateField, type Transaction } from '@tiptap/pm/state'
 import type { DecorationAttrs, EditorView } from '@tiptap/pm/view'
+import { closeHistory } from '@tiptap/pm/history'
 import Collaboration from '@tiptap/extension-collaboration'
 import CollaborationCaret from '@tiptap/extension-collaboration-caret'
 import { ProsemirrorBinding, relativePositionToAbsolutePosition, ySyncPluginKey, yUndoPluginKey } from '@tiptap/y-tiptap'
@@ -148,6 +149,23 @@ const CARET_KEYS = new Set(['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', '
 function closeUndoStep(view: EditorView) {
   const undo = yUndoPluginKey.getState(view.state) as { undoManager?: Y.UndoManager } | undefined
   undo?.undoManager?.stopCapturing()
+}
+
+/*
+ * A change that must be its own undo step (Claude's result put in): `startUndoStep` right before its
+ * transaction is built (that transaction also carries closeHistory for local pages), `endUndoStep` right
+ * after it is dispatched. Shared pages use Y undo, which knows only time: without these, typing within
+ * 500 ms before or after joined Claude's step, and ⌘Z took the person's own letters away with it.
+ */
+export function startUndoStep(view: EditorView): void {
+  if (!view.isDestroyed) closeUndoStep(view)
+}
+
+export function endUndoStep(view: EditorView): void {
+  if (view.isDestroyed) return
+  // a step-less transaction that closes ProseMirror's history group (local pages; nothing in a shared one)
+  view.dispatch(closeHistory(view.state.tr).setMeta('addToHistory', false))
+  closeUndoStep(view)
 }
 
 /** Placing the caret (a press in the editor, a caret key) closes the current undo step. */

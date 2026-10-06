@@ -6,7 +6,7 @@
  * Never a real network request: Anthropic and the image hosts are routed.
  */
 import type { BrowserContext, Page } from '@playwright/test'
-import { test, expect, openApp, gotoPage, createPage, doc, para, editorOf, mockClaude, wsEval, MOD } from './fixtures'
+import { test, expect, openApp, gotoPage, createPage, doc, para, editorOf, flush, mockClaude, reloadApp, wsEval, MOD } from './fixtures'
 
 type AnyState = Record<string, any> // eslint-disable-line @typescript-eslint/no-explicit-any
 
@@ -130,6 +130,70 @@ test.describe('web images in Claude answers become links', () => {
     await expect.poll(async () => (await media(page, id)).links).toContain(LEAK)
     expect((await media(page, id)).images).toEqual([KEPT, KEPT])
     expect(hits.filter((u) => u.startsWith('https://attacker.example'))).toEqual([])
+  })
+
+  test('raw HTML in an answer loads nothing either: images, video, audio, frames, web files and bookmarks become links', async ({ page, context }) => {
+    const hits = await imageHosts(context)
+    await context.route(/^https:\/\/attacker\.example\//, (route) => {
+      hits.push(route.request().url())
+      return route.fulfill({ status: 200, body: '' })
+    })
+    const answer = [
+      'Here you go.',
+      '<img src="https://attacker.example/raw.png">',
+      '<video src="https://attacker.example/v.mp4"></video>',
+      '<audio controls>\n<source src="https://attacker.example/a.mp3">\n</audio>',
+      '<div data-type="embed" data-url="https://attacker.example/frame"></div>',
+      '<div data-type="file" data-src="https://attacker.example/x.pdf" data-name="x.pdf" data-display="viewer"></div>',
+      '<div data-type="bookmark" data-url="https://example.com" data-image="https://attacker.example/i.png"></div>',
+      'The end.',
+    ].join('\n\n')
+    await mockClaude(context, () => answer)
+    await openApp(page)
+    await setKey(page)
+    const id = await createPage(page, { title: 'Smuggled', content: doc(para('Some text.'), para('')) })
+    await gotoPage(page, id)
+    const ed = editorOf(page, id)
+    const ask = page.getByPlaceholder('Ask Claude to write anything…')
+    await expect(async () => {
+      await ed.locator('p').last().click()
+      await page.keyboard.press('End')
+      await page.keyboard.press('Space')
+      try {
+        await expect(ask).toBeFocused({ timeout: 2000 })
+      } catch (e) {
+        if (!(await ask.count())) await page.keyboard.press('Backspace')
+        throw e
+      }
+    }).toPass({ timeout: 15_000 })
+    await ask.fill('Summarize the mail')
+    await ask.press('Enter')
+    const panel = page.getByRole('dialog', { name: 'Ask Claude' })
+    await expect(panel.locator('.ai-out__body')).toContainText('The end.')
+    await panel.getByRole('option', { name: /^Insert/ }).first().click()
+    await expect(ed).toContainText('The end.')
+    // the editor's text into the store
+    await flush(page)
+    const types = await wsEval(
+      page,
+      (s, id) => {
+        const out: string[] = []
+        const walk = (n: AnyState) => {
+          if (['image', 'video', 'audio', 'embed', 'fileBlock', 'bookmark'].includes(n.type)) out.push(`${n.type}:${n.attrs?.src ?? n.attrs?.url ?? ''}`)
+          for (const c of n.content ?? []) walk(c)
+        }
+        walk(s.pages[id]?.content ?? {})
+        return out
+      },
+      id,
+    )
+    expect(types).toEqual([])
+    const { links } = await media(page, id)
+    for (const url of ['https://attacker.example/raw.png', 'https://attacker.example/v.mp4', 'https://attacker.example/a.mp3', 'https://attacker.example/frame', 'https://attacker.example/x.pdf', 'https://example.com']) expect(links).toContain(url)
+    // reload: the page as stored loads nothing either
+    await reloadApp(page)
+    await expect(editorOf(page, id)).toContainText('The end.')
+    expect(hits).toEqual([])
   })
 
   test('AI terminal: a staged append shows the link form in the review; applied, the new image is a link, the one the page shows stays', async ({ page, context }) => {
