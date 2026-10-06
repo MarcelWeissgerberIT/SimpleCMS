@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { ArrowLeft, ChevronsRight, Clock3, Lock, Menu as MenuIcon, MessageSquare, MoreHorizontal, Presentation, Star, Waypoints, Home, CalendarDays, CalendarRange, CircleSlash, Inbox, Bell, Bot, SquareCode, Compass, type LucideIcon } from 'lucide-react'
+import { ArrowLeft, ChevronsRight, Clock3, Lock, Menu as MenuIcon, MessageSquare, MoreHorizontal, Presentation, Star, Waypoints, Home, CalendarDays, CalendarRange, CircleSlash, Inbox, Bell, Bot, SquareCode, Compass, GitBranch, type LucideIcon } from 'lucide-react'
 import { useWorkspace } from '../../store/store'
 import { useUI } from '../../store/ui'
 import { useBreadcrumbs, usePage } from '../../store/selectors'
@@ -84,6 +84,7 @@ function RouteCrumb({ route }: { route: Route }) {
     inbox: [Bell, t('shell.nav.inbox')],
     agents: [Bot, t('features.agents.title')],
     scripts: [SquareCode, t('features.script.title')],
+    coding: [GitBranch, t('features.coding.title')],
     discover: [Compass, t('shell.discover.title')],
     clip: [Inbox, t('shell.capture.crumb')],
     notfound: [CircleSlash, t('shell.notFound.title')],

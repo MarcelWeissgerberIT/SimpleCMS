@@ -8,7 +8,7 @@
  *
  * (CHANGELOG_DRAFT=1 lets the build pass while a new entry's picture does not exist yet.)
  *
- * Shots: pages-per-item, design-import, tour, quick-capture, script-templates, one-script-everywhere, file-ai, one-script, transform, ai-edit, db-commands, gmail-one-click, memory, grips-footer, block-select, split-to-page, image-ai, claude-reads, redo, ai-terminal, mcp-codewords, mcp-tidy-up, slash-menu, turn-into-database,
+ * Shots: coding-pipeline, pages-per-item, design-import, tour, quick-capture, script-templates, one-script-everywhere, file-ai, one-script, transform, ai-edit, db-commands, gmail-one-click, memory, grips-footer, block-select, split-to-page, image-ai, claude-reads, redo, ai-terminal, mcp-codewords, mcp-tidy-up, slash-menu, turn-into-database,
  * custom-agents, gmail, help-centre, mcp-servers, feed-blocks — each named like its image. Every shot starts from a fresh, seeded
  * workspace in English, light theme, 1440 × 900 at device scale 2; the crop of the relevant area is scaled
  * to 1440 px wide and saved as public/assets/shots/changelog/<shot>.webp (≤ 150 KB: the quality steps down
@@ -16,13 +16,16 @@
  *
  * Nothing leaves the machine: api.anthropic.com is mocked (streamed answers, structured JSON, scripted
  * tool-use runs — never a real request), Gmail and Google's sign-in script are in-memory stand-ins, the MCP
- * bridge for the tidy-up shot is the repository's own public/mcp/one-mcp.mjs on a local port. Browser errors
+ * bridge for the tidy-up shot is the repository's own public/mcp/one-mcp.mjs on a local port, the coding shot runs
+ * public/mcp/one-worker.mjs with the fake Claude Code CLI against a temp repo and a local bare remote. Browser errors
  * are printed; a shot that fails or logs errors makes the script exit with code 1. KEEP=1 keeps the PNGs in
  * .shots/changelog. Needs python3 with Pillow (WebP encoding), like scripts/capture-shots.mjs.
  */
 import { chromium } from 'playwright'
 import { execFileSync, spawn } from 'node:child_process'
-import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { strToU8, zipSync } from 'fflate'
 
@@ -536,6 +539,45 @@ const FEED_POSTS = [
   ['5 n8n automations for your workspace', doc(para('Five recipes we run every day — each one a database webhook and a few n8n nodes.'), { type: 'orderedList', attrs: { start: 1 }, content: [li(para('New lead → owner by region')), li(para('Project done → invoice draft')), li(para('Form answer → Slack thread'))] })],
   ['Local-first explained in 90 seconds', doc(para('Your workspace lives on your device first. Sync is a copy, not the source — so the app opens instantly and keeps working on a train.'), para('The script for the video is ready; recording on Thursday.'))],
 ]
+
+/*
+ * The coding worker (public/mcp/one-worker.mjs) with the fake Claude Code CLI (mcp/test/fixtures/fake-claude.mjs):
+ * a temp repo "website" with a local bare remote, git without the machine's global config.
+ */
+const WORKER = fileURLToPath(new URL('../public/mcp/one-worker.mjs', import.meta.url))
+const FAKE_CLAUDE = fileURLToPath(new URL('../mcp/test/fixtures/fake-claude.mjs', import.meta.url))
+const WORKER_PORT = 47388
+
+function codingRepo() {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'one-shot-coding-')))
+  writeFileSync(join(root, 'gitconfig'), '')
+  const env = { ...process.env, GIT_CONFIG_GLOBAL: join(root, 'gitconfig'), GIT_CONFIG_NOSYSTEM: '1', GIT_AUTHOR_NAME: 'Marcel', GIT_AUTHOR_EMAIL: 'marcel@example.invalid', GIT_COMMITTER_NAME: 'Marcel', GIT_COMMITTER_EMAIL: 'marcel@example.invalid' }
+  const run = (cwd, ...args) => execFileSync('git', args, { cwd, env, stdio: 'ignore' })
+  const remote = join(root, 'remote.git')
+  const path = join(root, 'website')
+  run(root, 'init', '-q', '--bare', '-b', 'main', remote)
+  run(root, 'init', '-q', '-b', 'main', path)
+  mkdirSync(join(path, 'src'))
+  writeFileSync(join(path, 'README.md'), '# Website\n')
+  writeFileSync(join(path, 'src', 'login.ts'), "export interface LoginResult {\n  ok: boolean\n}\n\nexport function login(user: string, password: string): LoginResult {\n  if (!user || !password) return { ok: false }\n  return { ok: true }\n}\n")
+  writeFileSync(join(path, 'check.mjs'), "console.log('✓ 12 checks passed')\n")
+  run(path, 'add', '-A')
+  run(path, 'commit', '-qm', 'initial')
+  run(path, 'remote', 'add', 'origin', remote)
+  run(path, 'push', '-q', '-u', 'origin', 'main')
+  return { root, path, env }
+}
+
+async function startCodingWorker(work, workspace) {
+  const file = join(work.root, 'worker.json')
+  writeFileSync(file, JSON.stringify({ workspace, name: 'studio-mac', port: WORKER_PORT, pollSec: 2, repos: [{ name: 'website', path: work.path, baseBranch: 'main', testCommand: [process.execPath, 'check.mjs'], pr: 'none', maxUsdPerTask: 5, maxUsdPerDay: 25 }] }))
+  const child = spawn(process.execPath, [WORKER, '--config', file], { env: { ...work.env, CLAUDE_BIN: FAKE_CLAUDE }, stdio: ['ignore', 'ignore', 'pipe'] })
+  let log = ''
+  child.stderr.on('data', (d) => (log += d))
+  for (let i = 0; i < 100 && !/ready on ws:/.test(log); i++) await sleep(50)
+  if (!/ready on ws:/.test(log)) throw new Error(`worker did not start: ${log}`)
+  return child
+}
 
 /* The local MCP bridge (public/mcp/one-mcp.mjs) as Claude Desktop runs it: a stdio JSON-RPC child process. */
 const BRIDGE = fileURLToPath(new URL('../public/mcp/one-mcp.mjs', import.meta.url))
@@ -1381,6 +1423,50 @@ const shots = {
     const box = await boxOf(page.locator('.modal').first(), 20)
     await save(page, 'design-import', box)
     await ctx.close()
+  },
+
+  /**
+   * The coding pipeline: a task waiting at Review — the stage timeline, Approve / Rework, the diff of the change.
+   * The repository's own worker (public/mcp/one-worker.mjs) with the fake Claude Code CLI against a temp repo and a
+   * local bare remote — no API, no real host.
+   */
+  async 'coding-pipeline'(browser) {
+    const work = codingRepo()
+    const { ctx, page } = await freshPage(browser)
+    let worker = null
+    try {
+      await page.evaluate(() => window.__one.ui.getState().openModal({ type: 'settings' }))
+      await page.getByRole('tab', { name: 'Coding worker' }).click()
+      const init = await page.locator('.cw-code pre').filter({ hasText: 'init --workspace' }).first().textContent()
+      worker = await startCodingWorker(work, /--workspace (\S+)/.exec(init)[1])
+      const port = page.getByLabel('Port', { exact: true })
+      await port.fill(String(WORKER_PORT))
+      await port.press('Enter')
+      await page.getByRole('switch', { name: 'Connect to a coding worker on this computer' }).click()
+      await page.getByTestId('coding-conn').filter({ hasText: 'Connected' }).waitFor({ timeout: 20_000 })
+      await page.keyboard.press('Escape')
+      await page.getByRole('dialog').waitFor({ state: 'detached' })
+      await page.evaluate(() => (window.location.hash = '#/coding'))
+      await page.getByTestId('coding-new').click()
+      await page.getByTestId('coding-new-title').fill('Show the login error under the field')
+      await page.getByTestId('coding-new-repo').fill('website')
+      await page.getByTestId('coding-new-goal').fill('A wrong password fails silently. Name the field and say what is wrong. FAKE:DEMO')
+      await page.getByTestId('coding-new-criteria').fill('The message names the field\nShort passwords are explained')
+      await page.getByTestId('coding-create').click()
+      const panel = page.getByTestId('coding-panel')
+      await panel.waitFor()
+      await page.getByTestId('coding-approve').click({ timeout: 30_000 })
+      await panel.locator('.ctk-code', { hasText: /Review$/ }).waitFor({ timeout: 60_000 })
+      await page.getByTestId('coding-tab-diff').click()
+      await page.locator('.cd-row--add').first().waitFor()
+      await scrollToTop(panel, 28)
+      await rest(page)
+      await save(page, 'coding-pipeline', await boxOf(panel, 20))
+    } finally {
+      worker?.kill('SIGTERM')
+      await ctx.close()
+      rmSync(work.root, { recursive: true, force: true })
+    }
   },
 
   /** Several blocks selected (text, image, table): the wash on each, the pinned grip, the count chip. */

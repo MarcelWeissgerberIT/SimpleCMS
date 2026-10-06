@@ -1,7 +1,7 @@
 ---
 id: 2026-10-06-script-templates
 date: 2026-10-06
-order: 5
+order: 6
 title: One Script — autocomplete that knows your databases, and 20 templates
 summary: The script editor now suggests like an IDE — properties, options, members by type, snippets — and a gallery of ready-to-run templates adapts to your workspace.
 image: assets/shots/changelog/script-templates.webp

@@ -120,6 +120,15 @@ team server does not have these two tools — its workspace model would need the
   printed lines and the result; the activity log has **Undo** (the script's own undo of the run). `dryRun: true`
   answers the dry run without asking; a saved *query* answers at once.
 
+## Coding tasks (one-worker)
+
+The [coding pipeline](CODING.md) hands tasks to Claude Code on the person's machine through **`one-worker.mjs`**
+(next to the bridge in `public/mcp/`, same door: loopback, Host check, Origin allow-list, a workspace id per
+connection — on its own port, 47322, subprotocol `one-worker.v1`). While it runs a task, Claude Code gets three
+**task tools** from `node one-worker.mjs task-mcp` (`MCP_TASK_TOOLS` in the contract; not offered by this bridge):
+`one_task_read`, `one_task_note`, `one_task_ask` — scoped to that one task by a token of that run; nothing else in
+One is reachable through them.
+
 ## The codeword "one:"
 
 A message to Claude that starts with **`one:`** is meant for the One workspace — *“one: tidy up my Projects

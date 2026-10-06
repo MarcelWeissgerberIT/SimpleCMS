@@ -602,8 +602,15 @@ export interface Database {
    * private one; a deleted one is simply created again on next use.
    * 'mail-contacts' / 'mail-companies' / 'mail-conversations' = the directories the Gmail sync fills
    * (features/mail/people.ts) — same rules.
+   * 'coding' = the coding pipeline's tasks (features/coding: rows = tasks for one-worker) — same rules.
    */
-  system?: 'memory' | 'memory-log' | 'mail-contacts' | 'mail-companies' | 'mail-conversations'
+  system?: 'memory' | 'memory-log' | 'mail-contacts' | 'mail-companies' | 'mail-conversations' | 'coding'
+  /**
+   * The coding pipeline (features/coding, only on the 'coding' database): one entry per option of its
+   * Stage select, in the options' order. Absent = every stage is a plain queue. Write only with
+   * savePipeline (features/coding); every reader sanitizes (readPipeline). `locked` blocks changing it.
+   */
+  pipeline?: PipelineStage[]
   /**
    * Database commands (features/commands): the order of the menu (sidebar key, toolbar, ⌘K), defaults
    * switched off, and own commands. Absent = the defaults in their order. Write only with
@@ -616,6 +623,30 @@ export interface Database {
    * `properties` with `fromType`. Write only with attachRecordType / setRecordType / upsertRecordType.
    */
   recordTypes?: ID[]
+}
+
+/**
+ * A stage of the coding pipeline (Database.pipeline, features/coding). `id` = the id of its option in the
+ * Stage select. queue: tasks wait (auto: the worker takes them on to the next stage) · plan: Claude Code in
+ * plan mode writes the plan into the task page · gate: waits for the person (Approve / Rework) · implement:
+ * Claude Code edits the worktree · test: the repo's test command (worker.json) · git: commit / push / pull
+ * request / update from base · done.
+ */
+export interface PipelineStage {
+  id: ID
+  kind: 'queue' | 'plan' | 'gate' | 'implement' | 'test' | 'git' | 'done'
+  /** what Claude Code is told in this stage (absent / '' = the default of its kind) */
+  instructions?: string
+  /** the worker takes tasks in this stage by itself (otherwise: "Run now" in the task) */
+  auto: boolean
+  /** the stage after this one (absent / null = the next option) */
+  next?: ID | null
+  /** Claude Code's permission mode (plan stages always run in plan mode) */
+  permissionMode?: 'plan' | 'acceptEdits' | 'default'
+  /** 1–200 (the worker's config may lower it) */
+  maxTurns?: number
+  /** git stages */
+  gitAction?: 'commit' | 'push' | 'pr' | 'update-base'
 }
 
 /**

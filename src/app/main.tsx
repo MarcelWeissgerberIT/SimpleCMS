@@ -16,7 +16,7 @@ import { refreshDemoIcons } from './store/demoIcons'
 import { offerTour } from './shell/tour/state'
 import { applyTheme } from './lib/theme'
 import { ALL_MESSAGES, t } from './i18n'
-import { startHistory, startAutomations, startRecurringTemplates, startInbox, startSync, startMcp, startCustomFunctions, startMail, startAgents, seedDemoHistory, demoFunctions } from './features'
+import { startHistory, startAutomations, startRecurringTemplates, startInbox, startSync, startMcp, startCustomFunctions, startMail, startAgents, startCoding, seedDemoHistory, demoFunctions } from './features'
 import { startSyncedBlocks } from './editor'
 import { detectLang, makeTranslator } from '@/shared/i18n'
 import { STORAGE_KEYS, safeLocalGet } from '@/shared/brand'
@@ -86,6 +86,8 @@ async function boot() {
     startService('mail', startMail)
     // custom agents (#/agents): the browser runner — schedules and row triggers in the leader tab
     startService('agents', startAgents)
+    // coding pipeline (Settings → Coding worker): idle until switched on for this device
+    startService('coding', startCoding)
   }
 
   // PWA share target (/app/?title=…&text=…&url=…) → the #/clip route, before the first render

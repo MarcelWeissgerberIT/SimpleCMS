@@ -363,3 +363,10 @@ export {
   type CommandHost,
   type PaletteCommand,
 } from './commands'
+/*
+ * Coding pipeline (tasks for Claude Code on the person's machine, run by `one-worker`; see coding/index.ts, docs/CODING.md):
+ *  - startCoding(): background service (main.tsx) — idle until Settings → Coding worker is switched on
+ *  - CodingRoute (route #/coding) · CodingTaskSlot { pageId } (the task panel on a coding task's page)
+ *  - CodingWorkerTab (Settings → Coding worker) · CodingStatusCell (status bar "WORKER") · openCodingSettings()
+ */
+export { startCoding, CodingRoute, CodingTaskSlot, CodingWorkerTab, CodingStatusCell, openCodingSettings, consumeCodingSettingsRequest, codingDbId, useCoding } from './coding'

@@ -9,6 +9,7 @@
  *   #/inbox         → inbox: reminders, mentions, assignments, comment replies (see shell/inbox)
  *   #/agents        → custom agents (features/agents) · #/agents/<id> → one agent: its runs and review
  *   #/scripts       → One Script (features/script) · #/scripts/<id> → one script's workbench
+ *   #/coding        → the coding pipeline (features/coding): the worker, the tasks waiting for you, the board
  *   #/discover      → "What can One do?" — the feature cards (shell/discover)
  *   #/s/<payload>   → read-only shared page (payload = compressed page, see features/share)
  *   #/clip?url=…&title=…&text=… → clip a web page into the Inbox, then replaced by #/p/<new page>
@@ -31,6 +32,8 @@ export type Route =
   | { name: 'agents'; id?: string }
   /** #/scripts → scripts and queries · #/scripts/<id> → one script (see features/script) */
   | { name: 'scripts'; id?: string }
+  /** #/coding → the coding pipeline (see features/coding) */
+  | { name: 'coding' }
   /** #/discover → "What can One do?" (see shell/discover) */
   | { name: 'discover' }
   | { name: 'share'; payload: string }
@@ -60,6 +63,7 @@ export function parseHash(hash: string): Route {
   if (parts[0] === 'inbox') return { name: 'inbox' }
   if (parts[0] === 'agents') return parts[1] ? { name: 'agents', id: parts[1] } : { name: 'agents' }
   if (parts[0] === 'scripts') return parts[1] ? { name: 'scripts', id: parts[1] } : { name: 'scripts' }
+  if (parts[0] === 'coding') return { name: 'coding' }
   if (parts[0] === 'discover') return { name: 'discover' }
   if (parts[0] === 's' && parts[1]) return { name: 'share', payload: parts.slice(1).join('/') }
   if (parts[0] === 'f' && parts[1]) return { name: 'form', payload: parts.slice(1).join('/') }
@@ -92,6 +96,8 @@ export function routeHref(r: Route): string {
       return r.id ? `#/agents/${r.id}` : '#/agents'
     case 'scripts':
       return r.id ? `#/scripts/${r.id}` : '#/scripts'
+    case 'coding':
+      return '#/coding'
     case 'discover':
       return '#/discover'
     case 'share':
