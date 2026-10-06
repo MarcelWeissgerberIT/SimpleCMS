@@ -193,6 +193,8 @@ export function restoreProps(pageId: ID, props: SnapshotProps): NotRestored[] {
     const old = props.values[then.id]
     const cur = useWorkspace.getState().pages[pageId]?.properties[then.id]
     if (live && valueKey(old, live.type) === valueKey(cur, live.type)) continue
+    // a property deleted since that was empty then: nothing is lost, nothing to report
+    if (!live && isEmptyValue(old)) continue
     const skip = skipOf(then, live, old)
     if (skip === 'deleted' || skip === 'type' || skip === 'option') {
       skipped.push({ name: live?.name ?? then.name, reason: skip })

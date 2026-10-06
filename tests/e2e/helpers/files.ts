@@ -3,6 +3,7 @@
  * document (styles, numbering, a table, a link), an Excel workbook (two sheets, shared strings, a date
  * format, a hidden sheet), PDFs with any number of pages, CSV, HTML with a script, RTF.
  */
+import { deflateRawSync, deflateSync } from 'node:zlib'
 import { strToU8, zipSync } from 'fflate'
 
 const W = 'xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"'
@@ -147,3 +148,65 @@ export const HTML_TEXT = `<!doctype html><html><head><title>Newsletter October</
 
 /** A short RTF letter (Word / TextEdit). */
 export const RTF_TEXT = '{\\rtf1\\ansi\\deff0{\\fonttbl{\\f0 Helvetica;}}{\\colortbl;\\red0\\green0\\blue0;}\\f0\\fs24 Dear Ms. M\\u252?ller,\\par\\par thank you for the offer \\b No. 17\\b0 .\\par Best regards\\par}'
+
+/**
+ * "bomb.xlsx": a workbook whose sheet claims 1 KB in the zip's headers but inflates to `inflated` bytes
+ * (130 MB by default — more than any Office file One converts). Built by hand: the sizes are lies.
+ */
+export function bombXlsxBytes(inflated = 130 * 1024 * 1024): Uint8Array {
+  const head = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet ${X}><sheetData>`
+  const body = Buffer.alloc(inflated, '<row r="1"/>')
+  body.write(head, 0)
+  const entries: Array<{ name: string; data: Uint8Array; method: 0 | 8; size: number }> = [
+    { name: '[Content_Types].xml', data: strToU8('<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"/>'), method: 0, size: 0 },
+    { name: 'xl/workbook.xml', data: strToU8(`<?xml version="1.0"?><workbook ${X}><sheets><sheet name="Big" sheetId="1" r:id="rId1"/></sheets></workbook>`), method: 0, size: 0 },
+    { name: 'xl/_rels/workbook.xml.rels', data: strToU8('<?xml version="1.0"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="worksheet" Target="worksheets/sheet1.xml"/></Relationships>'), method: 0, size: 0 },
+    { name: 'xl/worksheets/sheet1.xml', data: new Uint8Array(deflateRawSync(body, { level: 9 })), method: 8, size: 1024 },
+  ]
+  const parts: Uint8Array[] = []
+  const central: Uint8Array[] = []
+  let offset = 0
+  for (const e of entries) {
+    const name = strToU8(e.name)
+    const usize = e.method === 0 ? e.data.length : e.size
+    const local = Buffer.alloc(30)
+    local.writeUInt32LE(0x04034b50, 0)
+    local.writeUInt16LE(20, 4)
+    local.writeUInt16LE(e.method, 8)
+    local.writeUInt32LE(e.data.length, 18)
+    local.writeUInt32LE(usize, 22)
+    local.writeUInt16LE(name.length, 26)
+    const cd = Buffer.alloc(46)
+    cd.writeUInt32LE(0x02014b50, 0)
+    cd.writeUInt16LE(20, 4)
+    cd.writeUInt16LE(20, 6)
+    cd.writeUInt16LE(e.method, 10)
+    cd.writeUInt32LE(e.data.length, 20)
+    cd.writeUInt32LE(usize, 24)
+    cd.writeUInt16LE(name.length, 28)
+    cd.writeUInt32LE(offset, 42)
+    parts.push(local, name, e.data)
+    central.push(cd, name)
+    offset += 30 + name.length + e.data.length
+  }
+  const cdSize = central.reduce((n, c) => n + c.length, 0)
+  const end = Buffer.alloc(22)
+  end.writeUInt32LE(0x06054b50, 0)
+  end.writeUInt16LE(entries.length, 8)
+  end.writeUInt16LE(entries.length, 10)
+  end.writeUInt32LE(cdSize, 12)
+  end.writeUInt32LE(offset, 16)
+  return new Uint8Array(Buffer.concat([...parts, ...central, end]))
+}
+
+/**
+ * A 2-page PDF made to stall a page counter: a compressed object stream that inflates to `inflated`
+ * bytes, and after the last "endobj" thousands of objects that never end.
+ */
+export function stallPdfBytes(inflated = 64 * 1024 * 1024, open = 150_000): Uint8Array {
+  const base = Buffer.from(pdfBytes(2))
+  const bomb = deflateSync(Buffer.alloc(inflated, '/Type /Page '), { level: 9 })
+  const objStm = Buffer.concat([Buffer.from('90 0 obj\n<< /Type /ObjStm /N 1 /First 4 /Filter /FlateDecode >>\nstream\n'), bomb, Buffer.from('\nendstream\nendobj\n')])
+  const tail = Buffer.from('91 0 obj\n'.repeat(open))
+  return new Uint8Array(Buffer.concat([base, objStm, tail]))
+}

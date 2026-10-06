@@ -3,6 +3,7 @@ import { Check, ChevronLeft, ChevronRight } from 'lucide-react'
 import { Popover, type PopoverAnchor } from './Popover'
 import type { Placement } from '@floating-ui/react'
 import { useT } from '../i18n'
+import { usePointerIntent } from './pointer'
 
 const NARROW = '(max-width: 640px)'
 
@@ -78,6 +79,8 @@ function MenuListInner({ entries, onClose, searchable, searchPlaceholder = 'Sear
   const [returnTo, setReturnTo] = useState<number | null>(null)
   const listRef = useRef<HTMLDivElement>(null)
   const rootRef = useRef<HTMLDivElement>(null)
+  // a menu opening under a resting pointer must not highlight (or open) the item that lands below it
+  const pointer = usePointerIntent()
 
   const visible = useMemo(() => {
     if (!query.trim()) return entries
@@ -110,6 +113,16 @@ function MenuListInner({ entries, onClose, searchable, searchPlaceholder = 'Sear
     }
     e.onSelect?.()
     if (!e.keepOpen) onClose()
+  }
+
+  /** The pointer really moved onto item i. */
+  const hover = (i: number, e: Item, el: HTMLElement) => {
+    setActive(i)
+    // phones open submenus by tap (in place), never on the synthetic hover of a tap
+    if (narrow) return
+    if (e.submenu) {
+      if (sub?.index !== i) setSub({ index: i, el })
+    } else if (sub) setSub(null)
   }
 
   const onKeyDown = (ev: React.KeyboardEvent) => {
@@ -167,6 +180,7 @@ function MenuListInner({ entries, onClose, searchable, searchPlaceholder = 'Sear
       onKeyDown={onKeyDown}
       searchable={searchable}
       initialFocus={returnTo !== null}
+      still={!pointer.moved}
     >
       {back && (
         <>
@@ -212,13 +226,8 @@ function MenuListInner({ entries, onClose, searchable, searchPlaceholder = 'Sear
               aria-haspopup={e.submenu ? 'menu' : undefined}
               aria-expanded={e.submenu ? sub?.index === i : undefined}
               className={`menu-item${e.danger ? ' menu-item--danger' : ''}`}
-              onMouseEnter={(ev) => {
-                setActive(i)
-                // phones open submenus by tap (in place), never on the synthetic hover of a tap
-                if (narrow) return
-                if (e.submenu) setSub({ index: i, el: ev.currentTarget })
-                else setSub(null)
-              }}
+              onMouseEnter={(ev) => pointer.check(ev) && hover(i, e, ev.currentTarget)}
+              onMouseMove={(ev) => (i !== active || (!!e.submenu && sub?.index !== i)) && pointer.check(ev) && hover(i, e, ev.currentTarget)}
               onClick={(ev) => select(e, ev.currentTarget)}
             >
               {e.icon !== undefined && <span className="menu-item__icon">{e.icon}</span>}
@@ -251,19 +260,29 @@ function MenuRoot({
   onKeyDown,
   searchable,
   initialFocus,
+  still,
   children,
 }: {
   rootRef: React.RefObject<HTMLDivElement | null>
   onKeyDown: (ev: React.KeyboardEvent) => void
   searchable?: boolean
   initialFocus: boolean
+  /** the pointer has not moved since the menu opened (no :hover highlight yet) */
+  still: boolean
   children: ReactNode
 }) {
   useEffect(() => {
     if (initialFocus) rootRef.current?.focus({ preventScroll: true })
   }, [initialFocus, rootRef])
   return (
-    <div ref={rootRef} onKeyDown={onKeyDown} tabIndex={searchable ? undefined : 0} data-autofocus={searchable ? undefined : ''} style={{ outline: 'none' }}>
+    <div
+      ref={rootRef}
+      onKeyDown={onKeyDown}
+      tabIndex={searchable ? undefined : 0}
+      data-autofocus={searchable ? undefined : ''}
+      data-pointer={still ? 'still' : undefined}
+      style={{ outline: 'none' }}
+    >
       {children}
     </div>
   )

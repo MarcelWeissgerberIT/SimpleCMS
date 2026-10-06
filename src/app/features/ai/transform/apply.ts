@@ -11,6 +11,7 @@ import type { Editor, JSONContent } from '@tiptap/core'
 import { Fragment, type Node as PMNode } from '@tiptap/pm/model'
 import { TextSelection } from '@tiptap/pm/state'
 import { closeHistory } from '@tiptap/pm/history'
+import { endUndoStep, startUndoStep } from '../../../editor'
 import { useWorkspace } from '../../../store/store'
 import { useUI } from '../../../store/ui'
 import type { ID } from '../../../store/types'
@@ -80,7 +81,9 @@ export async function applyTransform(editor: Editor, pageId: ID, range: BlockRan
   const end = pos + made.reduce((n, x) => n + x.nodeSize, 0)
   // the caret right after the new block (never a node selection: typing would replace it)
   tr.setSelection(TextSelection.near(tr.doc.resolve(Math.min(end, tr.doc.content.size)))).scrollIntoView()
+  startUndoStep(editor.view)
   editor.view.dispatch(tr)
+  endUndoStep(editor.view)
   editor.view.focus()
   const after = editor.state.doc
 

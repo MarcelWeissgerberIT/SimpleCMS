@@ -38,9 +38,13 @@ const span = (a: Pos, b: Pos): Pos => ({ start: a.start, end: b.end, line: a.lin
 
 const describe = (t: Token): string => (t.type === 'eof' ? 'the end' : t.type === 'nl' ? 'a line break' : JSON.stringify(t.text.length > 24 ? `${t.text.slice(0, 24)}…` : t.text))
 
+/** Brackets, blocks and operands nested deeper than this are a syntax error (no stack overflow). */
+export const MAX_NESTING = 200
+
 class Parser {
   private toks: Token[]
   private i = 0
+  private depth = 0
   readonly source: string
 
   constructor(source: string, toks: Token[]) {
@@ -100,7 +104,21 @@ class Parser {
     this.skipSeparators()
   }
 
+  /** One level deeper (a block, an operand): too deep is an error at that token. */
+  private nest<T>(fn: () => T): T {
+    if (++this.depth > MAX_NESTING) throw new ScriptError('too_deep', { max: MAX_NESTING }, this.cur.pos)
+    try {
+      return fn()
+    } finally {
+      this.depth--
+    }
+  }
+
   private block(): Block {
+    return this.nest(() => this.blockInner())
+  }
+
+  private blockInner(): Block {
     const open = this.expectOp('{')
     const body: Stmt[] = []
     this.skipSeparators()
@@ -241,7 +259,7 @@ class Parser {
    * passed on to the right operands of that statement's operators, reset inside brackets).
    */
   expr(minBp = 0, eq = true): Expr {
-    return this.continueExpr(this.prefix(), minBp, eq)
+    return this.nest(() => this.continueExpr(this.prefix(), minBp, eq))
   }
 
   /** The Pratt loop from an already parsed left operand. */

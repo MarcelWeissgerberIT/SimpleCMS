@@ -25,6 +25,9 @@ export { AutomationsModal } from './automations/AutomationsModal'
 export { isAIConfigured, runAI, type AIAction, type RunAIOptions } from './ai/client'
 /* one streamed completion with your own system prompt (help/ask.ts: "Ask the help", mcp: false = no MCP server) */
 export { streamCompletion, type StreamOptions } from './ai/client'
+/** Claude's Markdown → a safe document: web images / media / frames as links (addresses a page shows already stay). */
+export { webImagesOf } from './agents/images'
+export { claudeDoc } from './ai/claudeDoc'
 export { AIMenu, type AIMenuProps } from './ai/AIMenu'
 /*
  * AI-menu runs in the background (runs keep going when the panel closes; only Stop / Discard end them):

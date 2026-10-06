@@ -15,7 +15,8 @@ import type { Editor, JSONContent } from '@tiptap/core'
 import { Fragment, type Node as PMNode } from '@tiptap/pm/model'
 import { TextSelection } from '@tiptap/pm/state'
 import { closeHistory } from '@tiptap/pm/history'
-import { markdownToDoc } from '../../../editor'
+import { endUndoStep, startUndoStep } from '../../../editor'
+import { claudeDoc } from '../claudeDoc'
 import { useWorkspace } from '../../../store/store'
 import { useUI } from '../../../store/ui'
 import type { ID } from '../../../store/types'
@@ -96,7 +97,7 @@ export async function convertToDatabase(editor: Editor, pageId: ID, range: Block
   const dbId = ws.createDatabase({ parentId: pageId, inline: !asPage, title: spec.title, properties: spec.properties, views: spec.views })
   for (const row of spec.rows) {
     const rowId = useWorkspace.getState().createRow(dbId, { title: row.title, properties: row.properties })
-    if (row.body) useWorkspace.getState().setContent(rowId, markdownToDoc(row.body), 'ai')
+    if (row.body) useWorkspace.getState().setContent(rowId, claudeDoc(row.body), 'ai')
   }
 
   const dbNode = asPage ? dbType.create({ pageId: dbId }) : dbType.create({ databaseId: dbId, viewId: null })
@@ -132,7 +133,9 @@ export async function convertToDatabase(editor: Editor, pageId: ID, range: Block
   }
   // the caret just after the database block (never a node selection: typing would replace it)
   tr.setSelection(TextSelection.near(tr.doc.resolve(Math.min(dbPos + dbNode.nodeSize, tr.doc.content.size)))).scrollIntoView()
+  startUndoStep(editor.view)
   editor.view.dispatch(tr)
+  endUndoStep(editor.view)
   editor.view.focus()
   const after = editor.state.doc
 

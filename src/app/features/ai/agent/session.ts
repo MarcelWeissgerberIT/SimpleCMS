@@ -28,6 +28,7 @@ import type { MemoryProposal } from '../memory/types'
 import { isContextLimited, openContextPicker, pageContextMarks, readableBlocks, readableContent, startRedo } from '../../../editor'
 import { withRefImages } from '../image/terminal'
 import { withRefFiles } from '../file/terminal'
+import { webImagesOf, withoutWebImages } from '../../agents/images'
 import { depsOf, type AgentStatus, type AgentStep, type AgentTurn, type StagedChange, type TermMention, type TermRef, type TurnContext } from './types'
 
 const set = useAgent.setState
@@ -63,17 +64,29 @@ const nextId = (p: string) => `${p}${(++seq).toString(36)}`
 /** Singular / plural message ("<key>.one" / "<key>.other"). */
 export const tn = (key: string, count: number) => t(`${key}.${count === 1 ? 'one' : 'other'}`, { count })
 
+/**
+ * What Claude writes never loads a web image by itself: the terminal reads mails, files and MCP results,
+ * and an image address in its Markdown is how an instruction hidden there would send data away the
+ * moment the page opens. Such images become links (the review shows that form); images the page
+ * shows already stay (an edit that keeps them sends nothing new).
+ */
+function safeMarkdown<T extends { markdown?: string }>(c: T, kind: StagedChange['kind'], pageId: ID): T {
+  if (typeof c.markdown !== 'string') return c
+  const keep = kind === 'edit' || kind === 'append' ? webImagesOf(useWorkspace.getState().pages[pageId]?.content) : undefined
+  return { ...c, markdown: withoutWebImages(c.markdown, keep) }
+}
+
 export const stage: StageApi = {
   list: () => get().changes,
   add(change) {
     const changes = get().changes
-    const c: StagedChange = { ...change, id: nextId('c'), n: changes.length + 1, status: 'pending' }
+    const c: StagedChange = { ...safeMarkdown(change, change.kind, change.pageId), id: nextId('c'), n: changes.length + 1, status: 'pending' }
     set({ changes: [...changes, c] })
     return c
   },
   update(id, patch) {
     let out: StagedChange | undefined
-    set({ changes: get().changes.map((c) => (c.id === id ? (out = { ...c, ...patch }) : c)) })
+    set({ changes: get().changes.map((c) => (c.id === id ? (out = { ...c, ...safeMarkdown(patch, c.kind, c.pageId) }) : c)) })
     if (!out) throw new Error(`no staged change ${id}`)
     return out
   },

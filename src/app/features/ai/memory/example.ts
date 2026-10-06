@@ -12,7 +12,8 @@
 import type { JSONContent } from '@tiptap/core'
 import { useWorkspace } from '../../../store/store'
 import type { ID, PropertyValue } from '../../../store/types'
-import { docToMarkdown, markdownToDoc, readableBlocks, readableContent, stripPrivate } from '../../../editor'
+import { docToMarkdown, readableBlocks, readableContent, stripPrivate } from '../../../editor'
+import { claudeDoc } from '../claudeDoc'
 import { propertyValueToText } from '../../../database'
 import { t } from '../../../i18n'
 import { completeStructured, isAIConfigured, usesDemo } from '../client'
@@ -261,7 +262,7 @@ export async function saveExample(o: SaveExample): Promise<{ id: ID; how: 'new' 
     content: [
       ...(o.note.trim() ? [para(o.note.trim())] : []),
       heading(t('features.memory.example.pattern')),
-      ...below(markdownToDoc(described.pattern).content ?? [para('')]),
+      ...below(claudeDoc(described.pattern).content ?? [para('')]),
       heading(t('features.memory.example.example')),
       ...ex.blocks,
     ],

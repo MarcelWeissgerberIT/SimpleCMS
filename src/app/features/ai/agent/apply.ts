@@ -10,7 +10,8 @@ import { useWorkspace } from '../../../store/store'
 import { isEffectivelyTrashed } from '../../../store/selectors'
 import { COLOR_NAMES, type DateValue, type ID, type PropertyDef, type PropertyValue, type SelectOption, type View } from '../../../store/types'
 import { defaultView } from '../../../store/store'
-import { markdownToDoc } from '../../../editor'
+import { claudeDoc } from '../claudeDoc'
+import { webImagesOf } from '../../agents/images'
 import { newId } from '../../../lib/ids'
 import { aiWrite, snapshotNow } from '../../history/snapshots'
 import { t } from '../../../i18n'
@@ -33,11 +34,15 @@ function isEmptyDoc(doc: JSONContent | null | undefined): boolean {
   return blocks.every((b) => b.type === 'paragraph' && !(b.content ?? []).length)
 }
 
-/** Markdown Claude wrote → a doc, its `[Title](#/p/<id>)` links as page mentions / page link blocks (links.ts). */
-type ToDoc = (markdown: string) => JSONContent
+/**
+ * Markdown Claude wrote → a doc: nothing in it loads by itself (claudeDoc; addresses in `keep` stay), its
+ * `[Title](#/p/<id>)` links as page mentions / page link blocks (links.ts).
+ */
+type ToDoc = (markdown: string, keep?: ReadonlySet<string>) => JSONContent
 
-function blocksOf(markdown: string, toDoc: ToDoc): JSONContent[] {
-  return (toDoc(markdown).content ?? []).filter(Boolean)
+/** Claude's Markdown as blocks; `page`'s own images may stay. */
+function blocksOf(markdown: string, toDoc: ToDoc, page?: JSONContent | null): JSONContent[] {
+  return (toDoc(markdown, page ? webImagesOf(page) : undefined).content ?? []).filter(Boolean)
 }
 
 /** The pages links may point at while a batch is applied: live pages, pages and databases staged in it, rows created from staged rows. */
@@ -138,7 +143,7 @@ export async function applyChanges(changes: StagedChange[], all: StagedChange[],
   const done = new Set(all.filter((c) => c.status === 'applied').map((c) => c.id))
   const ordered = [...changes].filter((c) => c.status === 'pending' || c.status === 'failed').sort((a, b) => rank(a) - rank(b) || a.n - b.n)
   const targets = linkTargets(all, resolveRow, rowIds)
-  const toDoc: ToDoc = (markdown) => withPageNodes(markdownToDoc(markdown), targets)
+  const toDoc: ToDoc = (markdown, keep) => withPageNodes(claudeDoc(markdown, keep), targets)
 
   const editedPages = new Set<ID>()
   for (const c of ordered) {
@@ -285,7 +290,7 @@ async function applyOne(c: StagedChange, resolveRow: (id: ID) => ID, rowIds: Rec
       const page = ws().pages[id]
       if (!page) throw new Error('the page is gone')
       const prev = page.content
-      const add = blocksOf(c.markdown ?? '', toDoc)
+      const add = blocksOf(c.markdown ?? '', toDoc, prev)
       const next: JSONContent = { type: 'doc', content: isEmptyDoc(prev) ? add : [...(prev?.content ?? []), ...add] }
       ws().setContent(id, next, ORIGIN)
       const rev = ws().pages[id]?.contentRev

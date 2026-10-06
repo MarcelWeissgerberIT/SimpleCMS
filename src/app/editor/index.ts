@@ -50,6 +50,8 @@
  */
 export { PageEditor, type PageEditorProps } from './PageEditor'
 export { ReadOnlyDoc } from './ReadOnlyDoc'
+/* Claude's change as its own undo step, also in a shared page (Y undo): startUndoStep(view) before building the transaction, endUndoStep(view) after dispatching it */
+export { startUndoStep, endUndoStep } from './collab'
 export { getExtensions, markdownToDoc, docToMarkdown, docToHTML, stripPrivate, stripPrivate as stripButtonActions, docSchema, prepareCollabContent } from './convert'
 export { stripComments, commentIdsIn } from './schema/comment'
 export { startSyncedBlocks, stopSyncedBlocks } from './synced/service'

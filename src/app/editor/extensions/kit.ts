@@ -8,7 +8,7 @@ import type { Bridge } from '../lib/bridge'
 import { uploadFiles } from '../lib/upload'
 import { nodeViewWraps } from '../views'
 import { suggestExtension } from './suggest'
-import { BlockFlash, BlockSelection, ExtraInputRules, OnePlaceholder, QuietStart, shortcutsExtension, TabTrap } from './behaviors'
+import { BlockFlash, BlockSelection, ExtraInputRules, FreshSelection, OnePlaceholder, QuietStart, shortcutsExtension, TabTrap } from './behaviors'
 import { commentsExtension } from '../comments/plugin'
 import { pasteExtension } from './paste'
 import { ButtonKeys } from '../schema/button'
@@ -40,13 +40,14 @@ export function editorExtensions({
   collab?: ContentDocHandle
 }): AnyExtension[] {
   const exts = baseExtensions({ readOnly, wrap: nodeViewWraps({ readOnly }), headingOffset, collab: !!collab })
-  if (readOnly || !bridge) return [...exts, pasteExtension(null), BlockFlash, QuietStart, ...(collab ? collabExtensions(collab) : [])]
+  if (readOnly || !bridge) return [...exts, pasteExtension(null), BlockFlash, QuietStart.configure({ still: readOnly }), ...(collab ? collabExtensions(collab) : [])]
   return [
     ...(collab ? collabExtensions(collab) : []),
     ...exts,
     typography(),
     OnePlaceholder,
     Selection.configure({ className: 'selection' }),
+    FreshSelection,
     BlockSelection,
     BlockFlash,
     ExtraInputRules,

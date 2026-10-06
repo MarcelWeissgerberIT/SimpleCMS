@@ -6,7 +6,7 @@
  * A sheet is its first non-empty row as the header and the rows below it (empty rows and trailing empty
  * columns dropped), at most DATA_MAX_ROWS × DATA_MAX_COLS; `total` keeps the row count before the cap.
  */
-import { unzipSync } from 'fflate'
+import { InflateBudgetError, unzipBounded } from './zip'
 import { parseCSV } from '../../io/import/csv'
 import { FileLoadError } from './load'
 
@@ -162,17 +162,10 @@ function sheetGrid(doc: Document, strings: string[], styles: NumKind[], date1904
 export function xlsxSheets(bytes: Uint8Array): DataSheet[] {
   let files: Record<string, Uint8Array>
   try {
-    let total = 0
-    files = unzipSync(bytes, {
-      filter: (f) => {
-        if (!/^xl\/(workbook\.xml|sharedStrings\.xml|styles\.xml|_rels\/workbook\.xml\.rels|worksheets\/[^/]+\.xml)$/.test(f.name)) return false
-        total += f.originalSize
-        if (total > XML_MAX) throw new FileLoadError({ issue: 'too_large', bytes: total, max: XML_MAX })
-        return true
-      },
-    })
+    // counted as they inflate: the sizes in the zip's headers are the file maker's word
+    files = unzipBounded(bytes, (name) => /^xl\/(workbook\.xml|sharedStrings\.xml|styles\.xml|_rels\/workbook\.xml\.rels|worksheets\/[^/]+\.xml)$/.test(name), XML_MAX)
   } catch (e) {
-    if (e instanceof FileLoadError) throw e
+    if (e instanceof InflateBudgetError) throw new FileLoadError({ issue: 'too_large', bytes: e.bytes, max: XML_MAX })
     throw new FileLoadError('unreadable', 'not a zip')
   }
   const book = parseXml(files['xl/workbook.xml'])

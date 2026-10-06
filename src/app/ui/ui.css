@@ -390,6 +390,11 @@ textarea.input {
   background: var(--hover);
 }
 
+/* a menu that opened under a resting pointer: the item below it is not "pointed at" yet */
+[data-pointer='still'] .menu-item:hover:not([data-active='true']) {
+  background: transparent;
+}
+
 .menu-item[aria-disabled='true'] {
   opacity: 0.45;
   pointer-events: none;

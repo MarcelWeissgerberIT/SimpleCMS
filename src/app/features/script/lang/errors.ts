@@ -24,6 +24,7 @@ export type ScriptErrorCode =
   | 'bad_assign'
   | 'bad_interpolation'
   | 'too_long'
+  | 'too_deep'
   // runtime
   | 'unknown_name'
   | 'not_callable'
@@ -89,6 +90,7 @@ export const ERROR_TEXT_EN: Record<ScriptErrorCode, string> = {
   bad_assign: 'You can only assign to a name, a field or a list item.',
   bad_interpolation: 'The {…} inside this text is not a complete expression.',
   too_long: 'The script is too long ({max} characters at most).',
+  too_deep: 'Nested too deeply ({max} levels at most).',
   unknown_name: 'Unknown name {name}.',
   not_callable: '{name} is not a function.',
   no_member: '{type} has no {name}.',

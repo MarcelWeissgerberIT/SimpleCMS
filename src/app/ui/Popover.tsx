@@ -31,6 +31,16 @@ export interface PopoverProps {
   'aria-label'?: string
 }
 
+const UNPLACED: CSSProperties = { opacity: 0, pointerEvents: 'none' }
+
+/** Focus a panel's field: an explicit [data-autofocus] wins over any earlier field or button. */
+export function focusFirst(root: HTMLElement | null | undefined): boolean {
+  const el = root?.querySelector<HTMLElement>('[data-autofocus]') ?? root?.querySelector<HTMLElement>('input, textarea, [tabindex="0"], button')
+  if (!el) return false
+  el.focus({ preventScroll: true })
+  return true
+}
+
 /** Anchored floating panel in a portal. Escape and outside-click close it. */
 export function Popover({
   open,
@@ -49,7 +59,7 @@ export function Popover({
   role,
   ...rest
 }: PopoverProps) {
-  const { refs, floatingStyles } = useFloating({
+  const { refs, floatingStyles, isPositioned } = useFloating({
     open,
     placement,
     strategy: 'fixed',
@@ -100,16 +110,19 @@ export function Popover({
     }
   }, [open, anchor, closeOnOutside])
 
-  useEffect(() => {
-    if (!open || !autoFocus) return
+  // Keys typed right after the panel opened belong to it: focus at once (before the next key event is
+  // handled — a frame later the first letters would have gone to the page), and once more a frame later
+  // when nothing inside has it then (content that mounted late, a mousedown that took the focus back).
+  const shown = open && !!anchor
+  useLayoutEffect(() => {
+    if (!shown || !autoFocus) return
+    focusFirst(floatingRef.current)
     const id = requestAnimationFrame(() => {
       const root = floatingRef.current
-      // an explicit [data-autofocus] wins over any earlier field or button
-      const el = root?.querySelector<HTMLElement>('[data-autofocus]') ?? root?.querySelector<HTMLElement>('input, textarea, [tabindex="0"], button')
-      el?.focus({ preventScroll: true })
+      if (root && !root.contains(document.activeElement)) focusFirst(root)
     })
     return () => cancelAnimationFrame(id)
-  }, [open, autoFocus])
+  }, [shown, autoFocus])
 
   if (!open || !anchor) return null
   return createPortal(
@@ -122,7 +135,8 @@ export function Popover({
       role={role}
       aria-label={rest['aria-label']}
       className={bare ? className : `popover ${className ?? ''}`}
-      style={{ ...floatingStyles, ...style }}
+      // until floating-ui has placed it, the panel sits at (0, 0): not seen, not under the pointer
+      style={{ ...floatingStyles, ...style, ...(isPositioned ? null : UNPLACED) }}
       onMouseDown={(e) => e.stopPropagation()}
     >
       {children}

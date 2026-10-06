@@ -11,7 +11,7 @@
  *    inside compressed object streams) — a larger one is refused before anything is sent, with the numbers.
  *  - text sent to Claude is at most TEXT_MAX_CHARS characters; a longer file is cut, and the panel says so.
  */
-import { unzlibSync } from 'fflate'
+import { unzlibUpTo } from './zip'
 import { FILE_PREFIX, getFile, readAsDataUrl, resolveAssetUrl } from '../../../lib/files'
 
 /** PDF bytes at most: base64 (× 4 / 3) + page context + prompt stay below the API's 32 MB per request. */
@@ -98,13 +98,18 @@ export const isPdfBytes = (b: Uint8Array): boolean => b.length > 4 && b[0] === 0
 
 const latin1 = (b: Uint8Array) => new TextDecoder('latin1').decode(b)
 const PAGE = /\/Type\s*\/Page(?![A-Za-z])/g
+/** Bytes of one compressed object stream read for page counting at most. */
+const OBJSTM_MAX = 8 * 1024 * 1024
 
 /**
  * The pages of a PDF: the root page tree's /Count, else its page objects (also those inside compressed
  * object streams, PDF 1.5+). Null when neither can be found (Claude then checks it itself).
  */
 export function pdfPageCount(bytes: Uint8Array): number | null {
-  const text = latin1(bytes)
+  const all = latin1(bytes)
+  // up to the last "endobj": an object that never ends would make every later start scan to the end
+  const stop = all.lastIndexOf('endobj')
+  const text = stop < 0 ? '' : all.slice(0, stop + 6)
   let count = 0
   let objects = 0
   const OBJ = /\d+\s+\d+\s+obj\b([\s\S]*?)\bendobj\b/g
@@ -129,7 +134,8 @@ function pagesInObjStm(raw: string): number {
   const bytes = new Uint8Array(data.length)
   for (let i = 0; i < data.length; i++) bytes[i] = data.charCodeAt(i) & 0xff
   try {
-    return latin1(unzlibSync(bytes)).match(PAGE)?.length ?? 0
+    // a stream that inflates without end (a crafted PDF) is read only so far: enough to count pages
+    return latin1(unzlibUpTo(bytes, OBJSTM_MAX)).match(PAGE)?.length ?? 0
   } catch {
     return 0
   }

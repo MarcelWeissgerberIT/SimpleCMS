@@ -485,6 +485,11 @@
   color: var(--c-green-text);
 }
 
+.hist__tag--script {
+  border-color: var(--ink-2);
+  color: var(--ink);
+}
+
 .hist__tag--now {
   border-color: var(--ink);
   background: var(--ink);

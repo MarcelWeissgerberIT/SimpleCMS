@@ -3,7 +3,7 @@
  *  - ValueEditorBase: value + onChange (templates, bulk edit, filters)
  *  - ValueEditor: bound to one or many rows (writes through writeValue)
  */
-import { useEffect, useRef } from 'react'
+import { useLayoutEffect, useRef } from 'react'
 import { useWorkspace } from '../../store/store'
 import type { Database, DateValue, Page, PropertyDef, PropertyValue } from '../../store/types'
 import { Popover } from '../../ui/Popover'
@@ -99,11 +99,18 @@ export function ValueEditorBase({ db, prop, value, onChange, anchor, onClose, in
  */
 function FocusPrimary() {
   const ref = useRef<HTMLSpanElement>(null)
-  useEffect(() => {
-    const id = requestAnimationFrame(() => {
+  // at once: a letter typed right after Enter opened the picker belongs in its search field
+  useLayoutEffect(() => {
+    const focus = () => {
       const root = ref.current?.parentElement
       const el = root?.querySelector<HTMLElement>('[data-autofocus]') ?? root?.querySelector<HTMLElement>('input, textarea, [tabindex="0"]')
       el?.focus({ preventScroll: true })
+    }
+    focus()
+    // once more a frame later when the field mounted late or the focus went elsewhere
+    const id = requestAnimationFrame(() => {
+      const root = ref.current?.parentElement
+      if (root && !root.contains(document.activeElement)) focus()
     })
     return () => cancelAnimationFrame(id)
   }, [])

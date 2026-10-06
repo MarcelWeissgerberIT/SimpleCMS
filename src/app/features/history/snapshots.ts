@@ -26,13 +26,15 @@ import { docKey } from './diff'
 import { t } from '../../i18n'
 import { blankRow, iconKey, propsChanged, propsKey, propsOf, restoreProps, type NotRestored, type SnapshotProps } from './props'
 
-export type SnapshotReason = 'session' | 'auto' | 'ai' | 'restore' | 'manual'
+export type SnapshotReason = 'session' | 'auto' | 'ai' | 'restore' | 'manual' | 'script'
 
 export interface SnapshotMeta {
   id: ID
   pageId: ID
   at: number
   reason: SnapshotReason
+  /** who wrote next, shown with the reason ('script': the script's name) */
+  by?: string
   title: string
   words: number
   blocks: number
@@ -202,7 +204,7 @@ export async function loadSnapshot(id: ID): Promise<SnapshotBody | undefined> {
   return get<SnapshotBody>(bodyKey(id), s)
 }
 
-async function writeSnapshot(pageId: ID, body: SnapshotBody, reason: SnapshotReason, at = Date.now()): Promise<SnapshotMeta | null> {
+async function writeSnapshot(pageId: ID, body: SnapshotBody, reason: SnapshotReason, at = Date.now(), by?: string): Promise<SnapshotMeta | null> {
   const s = db()
   if (!s) return null
   return enqueue(pageId, async () => {
@@ -215,6 +217,7 @@ async function writeSnapshot(pageId: ID, body: SnapshotBody, reason: SnapshotRea
       pageId,
       at,
       reason,
+      ...(by ? { by: by.slice(0, 120) } : {}),
       title: body.title,
       words: countWords(body.content),
       blocks: body.content?.content?.length ?? 0,
@@ -240,8 +243,9 @@ async function writeSnapshot(pageId: ID, body: SnapshotBody, reason: SnapshotRea
 /**
  * Save the page's current state as a version right now (e.g. before an AI replace or a
  * restore). Resolves with the new snapshot, or null when nothing changed since the last one.
+ * `by` names the writer that follows (a script's name for 'script').
  */
-export async function snapshotNow(pageId: ID, reason: SnapshotReason = 'manual'): Promise<SnapshotMeta | null> {
+export async function snapshotNow(pageId: ID, reason: SnapshotReason = 'manual', by?: string): Promise<SnapshotMeta | null> {
   const p = useWorkspace.getState().pages[pageId]
   if (!p || nothingToKeep(p)) return null
   const s = session.get(pageId)
@@ -249,7 +253,7 @@ export async function snapshotNow(pageId: ID, reason: SnapshotReason = 'manual')
     s.last = Date.now()
     s.dirty = false
   }
-  return writeSnapshot(pageId, bodyOf(p), reason)
+  return writeSnapshot(pageId, bodyOf(p), reason, Date.now(), by)
 }
 
 export interface RestoreResult {
