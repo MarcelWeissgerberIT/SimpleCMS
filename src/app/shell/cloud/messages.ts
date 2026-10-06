@@ -101,7 +101,7 @@ export const cloudMessages: Messages = {
     'shell.cloud.signout.doneForget': 'Signed out. The team workspace copies are gone from this browser.',
     'shell.cloud.copy.label': 'This browser',
     'shell.cloud.copy.title': 'Remove this workspace’s copy from this browser',
-    'shell.cloud.copy.body': 'Deletes what this browser keeps of “{workspace}”: pages, cached files, history and your settings here (incl. the AI key). The team workspace on the server stays as it is — open it again any time. To delete it for everyone, the owner uses Settings → Team.',
+    'shell.cloud.copy.body': 'Deletes what this browser keeps of “{workspace}”: pages, cached files, history and your settings here (incl. the AI key). The team workspace on the server stays as it is — open it again any time. To delete it for everyone, the owner uses Workspace settings → Danger zone.',
     'shell.cloud.copy.button': 'Remove copy',
     'shell.cloud.copy.confirmTitle': 'Remove the copy of “{workspace}”?',
     'shell.cloud.copy.confirmBody': 'This browser forgets the workspace and switches to your local workspace. Nothing changes on the server or for your team.',
@@ -335,7 +335,7 @@ export const cloudMessages: Messages = {
     'shell.private.blocked': 'Pages move between Private and the workspace with “Move to” — the page stayed where it was.',
     'shell.private.badge': 'Private',
 
-    // invites: reusable links, several addresses at once (Settings → Team), entry points
+    // invites: reusable links, several addresses at once (Workspace settings → People), entry points
     'shell.cloud.inv.mode': 'How to invite',
     'shell.cloud.inv.mode.link': 'Link',
     'shell.cloud.inv.mode.email': 'Email',
@@ -528,7 +528,7 @@ export const cloudMessages: Messages = {
     'shell.cloud.signout.doneForget': 'Abgemeldet. Die Kopien der Team-Workspaces sind aus diesem Browser entfernt.',
     'shell.cloud.copy.label': 'Dieser Browser',
     'shell.cloud.copy.title': 'Kopie dieses Workspaces aus diesem Browser entfernen',
-    'shell.cloud.copy.body': 'Löscht, was dieser Browser von „{workspace}“ aufbewahrt: Seiten, zwischengespeicherte Dateien, Verlauf und deine Einstellungen hier (inkl. KI-Schlüssel). Der Team-Workspace auf dem Server bleibt, wie er ist – du kannst ihn jederzeit wieder öffnen. Für alle löschen kann ihn der Owner unter Einstellungen → Team.',
+    'shell.cloud.copy.body': 'Löscht, was dieser Browser von „{workspace}“ aufbewahrt: Seiten, zwischengespeicherte Dateien, Verlauf und deine Einstellungen hier (inkl. KI-Schlüssel). Der Team-Workspace auf dem Server bleibt, wie er ist – du kannst ihn jederzeit wieder öffnen. Für alle löschen kann ihn der Owner unter Workspace-Einstellungen → Gefahrenzone.',
     'shell.cloud.copy.button': 'Kopie entfernen',
     'shell.cloud.copy.confirmTitle': 'Kopie von „{workspace}“ entfernen?',
     'shell.cloud.copy.confirmBody': 'Dieser Browser vergisst den Workspace und wechselt zu deinem lokalen Workspace. Auf dem Server und für dein Team ändert sich nichts.',

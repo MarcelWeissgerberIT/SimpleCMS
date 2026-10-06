@@ -264,7 +264,7 @@ Two ways in, both a link whose token is the credential (32 random bytes, stored 
 
 | | Workspace invite | Registration link |
 |---|---|---|
-| Made by | the workspace's owner and admins (Settings → Team) | server admins = `ADMIN_EMAILS` (Settings → Server) |
+| Made by | the workspace's owner and admins (Workspace settings → People) | server admins = `ADMIN_EMAILS` (Settings → Server) |
 | Link | `/app/#/invite/<token>` | `/app/#/signup/<token>` |
 | Gives | membership in that workspace (role admin / member / viewer) | an account — with its own space, no membership |
 | On an invite-only server | lets a new address create its account too | that is all it does |
@@ -489,7 +489,7 @@ kept in IndexedDB (`one-inbox`); removing a workspace's copy from a device remov
   Unconfirmed changes in a removed copy are lost — the UI warns when `useCloudSync()` reports any.
 - **Writes a team workspace refuses in the UI**: "Erase workspace" (`requestReset`) is for the local
   workspace only — in a cloud workspace Settings → Data offers *Remove this workspace's copy from this
-  browser* instead, and only the owner deletes the team workspace (Settings → Team). A JSON backup
+  browser* instead, and only the owner deletes the team workspace (Workspace settings → Danger zone). A JSON backup
   merges into a team workspace but never replaces it (the option is shown disabled, with the reason;
   `applyBackup(…, 'replace')` throws there). Viewers can't import at all (the import dialog says so;
   `applyBackup` / `applyPlan` throw). Signing out asks first: *Also remove the team workspace copies
@@ -551,7 +551,7 @@ is; a top-level page where it was created (sidebar "PRIVATE → New page" = `cre
 - A removed member's private documents are refused at store time (a document still open when the
   membership ends cannot come back).
 - **Leaving / removal** (`DELETE …/members/:userId`): the member's private documents (+ their
-  tombstones) and private files are **deleted** — the confirmations in Settings → Team say so. Invited
+  tombstones) and private files are **deleted** — the confirmations in Workspace settings say so. Invited
   again, they start with an empty Private section (an old offline copy on one of their devices may sync
   back into it — it is their own data). **Workspace deletion** removes everything (cascade).
 - **Files**: `PUT …/files/:id` with `x-file-scope: private` (the app sends it for files saved while a

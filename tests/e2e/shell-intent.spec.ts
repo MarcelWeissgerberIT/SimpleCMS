@@ -111,7 +111,8 @@ test.describe('settings and headings', () => {
     await expect(dialog.getByRole('combobox', { name: 'Model' })).toBeVisible()
     await expect(dialog.getByText('database autofill')).toHaveCount(0)
     await dialog.getByRole('tab', { name: /General/ }).click()
-    await expect(dialog.getByRole('textbox', { name: 'Workspace name' })).toBeVisible()
+    // the workspace name lives in Workspace settings (#/workspace) — General is you and this device
+    await expect(dialog.getByRole('textbox', { name: 'Workspace name' })).toHaveCount(0)
     await expect(dialog.getByRole('textbox', { name: 'Your name' })).toBeVisible()
     await expect(dialog.getByRole('combobox', { name: 'Start page' })).toBeVisible()
     await expect(dialog.getByRole('radiogroup', { name: 'Language' })).toBeVisible()

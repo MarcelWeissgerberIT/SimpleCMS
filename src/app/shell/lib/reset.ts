@@ -27,7 +27,7 @@ function broadcast(msg: { type: 'reset' }) {
  * Only for the local workspace: in a team workspace this would erase the browser's local
  * workspace behind the person's back (the flag runs at the next local boot). There, Settings offers
  * "remove this workspace's copy" instead (cloud API removeDeviceCopy), and the owner deletes the
- * team workspace itself under Settings → Team.
+ * team workspace itself under Workspace settings → Danger zone.
  */
 export function requestReset() {
   if (useCloud.getState().active.kind === 'cloud') {

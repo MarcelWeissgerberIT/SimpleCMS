@@ -9,7 +9,7 @@ result shapes:
 |---|---|---|
 | Workspace | the local workspace and any team workspace **open in your browser tabs** — several at once, each by its id | the token's team workspace on your own server — only that one |
 | Transport | stdio — your MCP client starts `one-mcp.mjs` on your computer | Streamable HTTP — `https://<your server>/mcp` |
-| Needs | One open in a tab, *Settings → Agents · MCP* switched on | an API token (*Settings → Team → API tokens*) |
+| Needs | One open in a tab, *Settings → Agents · MCP* switched on | an API token (*Workspace settings → Automation → API tokens*) |
 | Data path | MCP client ⇄ `one-mcp` (localhost) ⇄ your One tab ⇄ IndexedDB — nothing leaves your computer | MCP client ⇄ your server ⇄ the workspace's live documents |
 | Changes | wait for your approval in the app (*Ask first*, the default) or apply directly; *read only* switch | apply at once; a **read** token only gets the read tools |
 
@@ -143,7 +143,7 @@ start with `one_overview` or `one_search`; an empty task or another prompt name 
 
 A **name** is for people; an **id** routes. You name your workspace once — click the workspace name at the top of
 the sidebar → *Rename workspace* (or double-click the name, or <kbd>F2</kbd> on it), ↵ saves, Esc cancels; or
-*Settings → General → Workspace name*. 1–60 characters, trimmed, no control characters. The same name shows in the
+*Workspace settings → Overview → Workspace name*. 1–60 characters, trimmed, no control characters. The same name shows in the
 sidebar, the workspace switcher, the window title (*Page — Workspace*), export and site-title defaults and to agents.
 A **team** workspace's name is the server's: its owners and admins rename it (everyone sees the new name at once);
 for everyone else it is read-only. Two workspaces may share a name, so the MCP tools address them by id:
@@ -363,7 +363,7 @@ with the API tokens of the [public API](API.md#tokens) — no extra setup on the
 
 ### Connect
 
-1. An owner or admin creates a token in **Settings → Team → API tokens**: scope **write** lets the agent change
+1. An owner or admin creates a token in **Workspace settings → Automation → API tokens**: scope **write** lets the agent change
    things, **read** gives it only the seven read tools (the write tools are not even listed) — and the `one` prompt.
 2. Add the server to your MCP client with the token as a bearer header.
 

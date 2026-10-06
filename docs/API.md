@@ -19,7 +19,7 @@ Contents: [Tokens](#tokens) · [Conventions](#conventions) · [Endpoints](#endpo
 
 ## Tokens
 
-Owners and admins create tokens in **Settings → Team → API tokens** (members and viewers see a note
+Owners and admins create tokens in **Workspace settings → Automation → API tokens** (members and viewers see a note
 instead). A token belongs to **one workspace** and has a scope:
 
 | Scope | May |
@@ -277,7 +277,7 @@ Failed requests (4xx/5xx) are not remembered, so a retry after a fix goes throug
 
 ## Incoming webhooks
 
-**Settings → Team → Incoming webhooks**: pick a database, *Create webhook*, copy the URL. The URL
+**Workspace settings → Automation → Incoming webhooks**: pick a database, *Create webhook*, copy the URL. The URL
 holds the secret (`https://cloud.example.com/api/v1/hooks/<43 characters>`), so a tool can post to
 it without any headers. Like a token it is shown **once**; *New URL* makes a new one (the old one
 stops at once), *Delete* removes it. Treat the URL like a password: whoever has it can add rows to that

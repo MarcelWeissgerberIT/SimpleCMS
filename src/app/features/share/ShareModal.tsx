@@ -291,7 +291,7 @@ export function ShareModal({ pageId, onClose }: { pageId: ID; onClose: () => voi
   )
 }
 
-/** In a team workspace, its admins can invite people instead of sending a copy (Settings → Team). */
+/** In a team workspace, its admins can invite people instead of sending a copy (Workspace settings → People). */
 function TeamInvite() {
   const t = useT()
   const ws = useCloud(

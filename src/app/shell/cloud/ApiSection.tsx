@@ -1,5 +1,5 @@
 /**
- * Settings → Team → API & webhooks (docs/API.md): API tokens and incoming webhooks of the open team
+ * Workspace settings → Automation → API & webhooks (docs/API.md): API tokens and incoming webhooks of the open team
  * workspace. Owners and admins manage them; everyone else reads why they can't. Secrets (a token,
  * a webhook URL) come from the server once and are shown once, with a curl example.
  */

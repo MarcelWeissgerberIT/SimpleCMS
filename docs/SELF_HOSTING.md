@@ -122,7 +122,7 @@ MAX_UPLOAD_MB=25
   reusable for 1–100 people, valid 1–30 days, optionally only for addresses at certain domains, shown
   once, and can be revoked. Leave it empty for no server admins.
 - **`API_RATE_LIMIT`** (optional, default `120`) — requests per minute for each API token and each
-  incoming webhook. Admins create tokens and webhook URLs under Settings → Team → API & webhooks;
+  incoming webhook. Admins create tokens and webhook URLs under Workspace settings → Automation → API & webhooks;
   the endpoints are described in [`API.md`](API.md).
 - **Custom agents** run on the server around the clock once a workspace admin sets up the agent runtime
   (a Claude API key of the workspace, optional MCP servers) — nothing to configure here. They need
@@ -193,7 +193,7 @@ docker compose exec one node dist/cli.js create-user you@yourcompany.com "Your N
    a team workspace (workspace menu → *New team workspace…*), then invite your team (workspace menu →
    *Invite people…*, or *Share* on any page): with a **link** — single use or for up to 100 people, valid
    1, 7 or 30 days, optionally only for addresses at your domain — or **by email**, up to 20 addresses at
-   once (each gets a single-use link). Links are shown once; Settings → Team lists the open ones with how
+   once (each gets a single-use link). Links are shown once; Workspace settings → People lists the open ones with how
    many places are used, and revokes them.
 4. People who should only get an account (and their own space), not a workspace yet: *Settings → Server →
    Registration links* (server admins only). Send them the link; whoever opens it creates an account.
@@ -334,7 +334,7 @@ want after a deletion that must reach the backups too (next section).
 
 ### Deleting a workspace for good
 
-Deleting a workspace (owner: Settings → Team → *Delete workspace*) deletes its key first, then its
+Deleting a workspace (owner: Workspace settings → Danger zone → *Delete workspace*) deletes its key first, then its
 documents and files. Leftovers of it — on the disk, in later backups, in copies of `files/` — cannot be
 decrypted any more. Backups made **before** the deletion still contain the key; they age out with your
 backup rotation (14 days in option A). If an erasure must reach them sooner, rotate `DATA_KEY` after the

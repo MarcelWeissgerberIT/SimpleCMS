@@ -62,7 +62,7 @@ export function useWorkspaceEntries(): MenuEntry[] {
     return entries
   }
 
-  // the open team workspace's admins: straight to Settings → Team → Invite people
+  // the open team workspace's admins: straight to Workspace settings → People → Invite people
   if (user && active.kind === 'cloud' && canAdmin(role)) {
     entries.push({ id: 'cloud-invite', label: t('shell.cloud.inv.entry'), icon: <UserPlus size={15} />, keywords: 'invite link members einladen', onSelect: () => openInviteSettings() })
   }

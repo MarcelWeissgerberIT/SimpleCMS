@@ -1,5 +1,5 @@
 /**
- * Settings → Team → Invite people (admins): a link for one or many people (role, validity, uses, an
+ * Workspace settings → People → Invite people (admins): a link for one or many people (role, validity, uses, an
  * optional domain restriction) or invitations to several addresses at once, and the open invites with
  * how many places are used. docs/CLOUD.md § Invites & registration links.
  */
