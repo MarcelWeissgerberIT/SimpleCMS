@@ -20,6 +20,7 @@ import { AddSubButton, TreeCount, TreeLead } from './treeParts'
 import { ruleStyle } from '../model/colors'
 import { writeValue } from '../model/actions'
 import './views.css'
+import { rowProps } from '../model/recordTypes'
 
 const LIST_ROW_H = 41
 
@@ -161,7 +162,7 @@ function ListRow({
   onAddSub: () => void
 }) {
   const t = useT()
-  const values = m.visibleProps.map((p) => ({ p, v: m.resolver.value(m.db, p, row) })).filter(({ p, v }) => !isEmptyValue(p, v))
+  const values = rowProps(m.visibleProps, row).map((p) => ({ p, v: m.resolver.value(m.db, p, row) })).filter(({ p, v }) => !isEmptyValue(p, v))
   return (
     <div
       className={`dbl-row${rc ? ' db-rc' : ''}`}

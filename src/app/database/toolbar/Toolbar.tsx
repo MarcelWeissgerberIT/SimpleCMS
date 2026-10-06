@@ -3,7 +3,7 @@
  * counter and the "New" split button.
  */
 import { lazy, Suspense, useEffect, useRef, useState } from 'react'
-import { ArrowUpDown, CalendarArrowDown, Download, Ellipsis, FileUp, Funnel, Group, LayoutTemplate, Link, ListTree, Lock, LockOpen, Maximize2, Paintbrush, Search, SlidersHorizontal, Waypoints, X, Zap } from 'lucide-react'
+import { ArrowUpDown, CalendarArrowDown, Download, Ellipsis, FileUp, Funnel, Group, LayoutTemplate, Link, ListTree, Lock, LockOpen, Maximize2, Paintbrush, Search, Shapes, SlidersHorizontal, Waypoints, X, Zap } from 'lucide-react'
 import { useUI } from '../../store/ui'
 import { useWorkspace } from '../../store/store'
 import { Menu, ViewOnlyTag } from '../parts'
@@ -27,12 +27,13 @@ import { LockPlate } from './Lock'
 import { setDbLocked } from '../model/lock'
 import { importCsvInto } from '../create/CsvIntake'
 import { DbCommandKey } from '../../features'
+import { RecordTypesPanel } from '../rtype/RecordTypesPanel'
 import type { ID } from '../../store/types'
 
 /** The Gmail sync LED (features/mail) — loaded only for the database the mail sync writes to. */
 const MailSyncLed = lazy(() => import('../../features').then((m) => ({ default: m.MailSyncLed })))
 
-type PanelKind = 'filter' | 'sort' | 'group' | 'props' | 'layout' | 'more' | 'sub' | 'dep' | 'rc'
+type PanelKind = 'filter' | 'sort' | 'group' | 'props' | 'layout' | 'more' | 'sub' | 'dep' | 'rc' | 'rtypes'
 
 function ToolButton({ icon, label, count, active, onClick, compact, pressed }: { icon: React.ReactNode; label: string; count?: number; active?: boolean; onClick: (e: React.MouseEvent<HTMLButtonElement>) => void; compact?: boolean; pressed?: boolean }) {
   const btn = (
@@ -71,7 +72,7 @@ function exportIcs(m: DbModel, t: ReturnType<typeof useT>) {
   ui.toast({ message: t(count === 1 ? 'database.ics.done.one' : 'database.ics.done.other', { count }), kind: 'success' })
 }
 
-export function Toolbar({ m, onNew, setSearch, compact, selection, onView }: { m: DbModel; onNew: (tpl?: Template) => void; setSearch: (q: string) => void; compact?: boolean; selection?: ID[]; onView?: (viewId: ID) => void }) {
+export function Toolbar({ m, onNew, setSearch, compact, selection, onView }: { m: DbModel; onNew: (tpl?: Template, typeId?: ID) => void; setSearch: (q: string) => void; compact?: boolean; selection?: ID[]; onView?: (viewId: ID) => void }) {
   const t = useT()
   const [panel, setPanel] = useState<{ kind: PanelKind; el: Element } | null>(null)
   const [searchOpen, setSearchOpen] = useState(!!m.search)
@@ -208,6 +209,7 @@ export function Toolbar({ m, onNew, setSearch, compact, selection, onView }: { m
       {panel?.kind === 'sub' && <SubItemsPanel m={m} anchor={panel.el} onClose={close} />}
       {panel?.kind === 'dep' && <DependenciesPanel m={m} anchor={panel.el} onClose={close} />}
       {panel?.kind === 'rc' && <ColorRulesPanel m={m} anchor={panel.el} onClose={close} />}
+      {panel?.kind === 'rtypes' && <RecordTypesPanel m={m} anchor={panel.el} onClose={close} />}
       <Menu
         open={panel?.kind === 'more'}
         anchor={panel?.kind === 'more' ? panel.el : null}
@@ -225,6 +227,19 @@ export function Toolbar({ m, onNew, setSearch, compact, selection, onView }: { m
                 },
                 ...structureEntries(t, m, (kind) => setPanel((p) => (p ? { kind, el: p.el } : p)), { sub: <ListTree size={14} />, dep: <Waypoints size={14} />, rc: <Paintbrush size={14} /> }),
                 { kind: 'separator' },
+              ] satisfies MenuEntry[])),
+          // record types this database holds (read only while locked)
+          ...(ro
+            ? []
+            : ([
+                {
+                  label: t('database.rtype.panel'),
+                  icon: <Shapes size={14} />,
+                  hint: m.db.recordTypes?.length ? String(m.db.recordTypes.length) : undefined,
+                  keywords: 'record types datensatz typen kit',
+                  keepOpen: true,
+                  onSelect: () => setPanel((p) => (p ? { kind: 'rtypes', el: p.el } : p)),
+                },
               ] satisfies MenuEntry[])),
           ...(ro
             ? []

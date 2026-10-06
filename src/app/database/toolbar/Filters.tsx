@@ -8,7 +8,8 @@ import type { Database, DateValue, Filter, FilterGroup, FilterOperator, ID, Prop
 import { Popover } from '../../ui/Popover'
 import { useT } from '../../i18n'
 import { newId } from '../../lib/ids'
-import { Menu, Select, TypeIcon } from '../parts'
+import { Menu, Select } from '../parts'
+import { PropGlyph } from '../rtype/TypeTag'
 import { DatePicker } from '../cells/DatePicker'
 import { ActorAvatar, Avatar, MeAvatar } from '../cells/display'
 import { tagStyle } from '../../lib/colors'
@@ -165,7 +166,7 @@ function FilterRule({ m, filter, onChange, onRemove, onDialog }: { m: DbModel; f
         value={filter.propertyId}
         searchable
         className="db-frule__prop"
-        items={m.db.properties.map((p) => ({ value: p.id, label: p.name, icon: <TypeIcon type={p.type} /> }))}
+        items={m.allProps.map((p) => ({ value: p.id, label: p.name, icon: <PropGlyph prop={p} /> }))}
         onChange={(id) => {
           const p = m.propMap.get(id)
           if (p) onChange({ ...newFilterFor(m, p), id: filter.id })
@@ -268,7 +269,7 @@ export function GroupEditor({
         onClose={() => setAddAnchor(null)}
         searchable
         searchPlaceholder={t('database.filter.searchProps')}
-        entries={m.db.properties.map((p) => ({ label: p.name, icon: <TypeIcon type={p.type} />, onSelect: () => onChange({ ...group, items: [...group.items, newFilterFor(m, p)] }) }))}
+        entries={m.allProps.map((p) => ({ label: p.name, icon: <PropGlyph prop={p} />, onSelect: () => onChange({ ...group, items: [...group.items, newFilterFor(m, p)] }) }))}
         create={(q) => createEntry(q, (p) => onChange({ ...group, items: [...group.items, newFilterFor(m, p)] }))}
       />
     </div>
@@ -421,7 +422,7 @@ export function FilterChips({ m, autoOpen, onAutoOpened }: { m: DbModel; autoOpe
         return (
           <span key={it.id} className="db-fchip" data-incomplete={!VALUELESS_OPS.includes(it.operator) && !val}>
             <button type="button" data-chip-id={it.id} className="db-fchip__main" disabled={ro} onClick={(e) => setOpen({ id: it.id, el: e.currentTarget })}>
-              <TypeIcon type={prop.type} size={12} />
+              <PropGlyph prop={prop} size={12} />
               <span className="db-fchip__prop">{prop.name}</span>
               <span className="db-fchip__op">{t(`database.op.${it.operator}`)}</span>
               {val && <span className="db-fchip__val">{val}</span>}
@@ -445,7 +446,7 @@ export function FilterChips({ m, autoOpen, onAutoOpened }: { m: DbModel; autoOpe
         onClose={() => setAddAnchor(null)}
         searchable
         searchPlaceholder={t('database.filter.searchProps')}
-        entries={m.db.properties.map((p) => ({ label: p.name, icon: <TypeIcon type={p.type} />, onSelect: () => addFilter(p) }))}
+        entries={m.allProps.map((p) => ({ label: p.name, icon: <PropGlyph prop={p} />, onSelect: () => addFilter(p) }))}
         create={(q) => createEntry(q, addFilter)}
       />
       {builder && <FilterPopover m={m} anchor={builder} onClose={() => setBuilder(null)} />}

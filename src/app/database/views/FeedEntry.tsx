@@ -22,6 +22,7 @@ import { ruleStyle } from '../model/colors'
 import { dfLocale, formatDay, formatTime, formatTimestamp } from '../model/format'
 import { plural } from '../parts'
 import { entryDate, feedDoc, openComments } from './feedDoc'
+import { rowProps } from '../model/recordTypes'
 
 const CREATED_BY: PropertyDef = { id: '__feed_by', name: '', type: 'created_by' }
 const UPDATED_BY: PropertyDef = { id: '__feed_edit', name: '', type: 'last_edited_by' }
@@ -179,7 +180,7 @@ function EntryStamp({ m, row, stamp }: { m: DbModel; row: Page; stamp: ReturnTyp
 
 /** The view's visible properties as spec labels (empty values left out, like on cards). */
 function EntrySpecs({ m, row }: { m: DbModel; row: Page }) {
-  const values = m.visibleProps.map((p) => ({ p, v: m.resolver.value(m.db, p, row) })).filter(({ p, v }) => !isEmptyValue(p, v) || p.type === 'checkbox')
+  const values = rowProps(m.visibleProps, row).map((p) => ({ p, v: m.resolver.value(m.db, p, row) })).filter(({ p, v }) => !isEmptyValue(p, v) || p.type === 'checkbox')
   if (!values.length) return null
   return (
     <dl className="dbf-specs">
