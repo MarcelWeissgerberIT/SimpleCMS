@@ -12,7 +12,8 @@ import { FormulaError, isDate, toText, type FValue } from '../formula'
 import { formatDateValue, formatNumber, formatTimestamp, isDateValue, numberRatio } from '../model/format'
 import { fileLabel, type Resolver, type Resolved } from '../model/resolve'
 import { guessIsImage, useFileMeta } from '../model/files'
-import { openRow, writeValue } from '../model/actions'
+import { openRow } from '../model/actions'
+import { KitValue, writeUserValue } from '../../features'
 import { actorKind, localPerson, type ActorKind } from '../model/actors'
 import { useUI } from '../../store/ui'
 
@@ -300,7 +301,14 @@ export const PropertyValueView = memo(function PropertyValueView({ db, prop, row
   return <ValueView db={db} prop={prop} row={row} r={r} v={v} variant={variant} interactive={interactive} />
 })
 
-export function ValueView({ db, prop, row, r, v, variant = 'cell', interactive }: ValueProps & { v: Resolved }) {
+export function ValueView({ db, prop, row, r, v, variant = 'cell', interactive, bare }: ValueProps & { v: Resolved; bare?: boolean }) {
+  // an own property type (features/kit): its display, format script, ƒ / ⚠ marks around the base rendering
+  if (prop.custom && !bare)
+    return (
+      <KitValue db={db} prop={prop} row={row} variant={variant}>
+        <ValueView db={db} prop={prop} row={row} r={r} v={v} variant={variant} interactive={interactive} bare />
+      </KitValue>
+    )
   const { lang, labels } = r.ctx
   if (v instanceof FormulaError) return <FormulaErrorBadge error={v} />
   switch (prop.type) {
@@ -348,7 +356,7 @@ export function ValueView({ db, prop, row, r, v, variant = 'cell', interactive }
     case 'last_edited_by':
       return typeof v === 'string' ? <ActorChip id={v} r={r} /> : null
     case 'checkbox':
-      return <Checkbox checked={v === true} readOnly={!interactive} onToggle={() => writeValue(db.id, prop, row.id, !(v === true))} label={prop.name} />
+      return <Checkbox checked={v === true} readOnly={!interactive} onToggle={() => void writeUserValue(db, prop, [row.id], !(v === true))} label={prop.name} />
     case 'url':
     case 'email':
     case 'phone': {
@@ -391,7 +399,7 @@ export function ValueView({ db, prop, row, r, v, variant = 'cell', interactive }
         <Rating
           value={typeof v === 'number' ? v : 0}
           max={prop.ratingMax ?? 5}
-          onChange={interactive ? (n) => writeValue(db.id, prop, row.id, n || null) : undefined}
+          onChange={interactive ? (n) => void writeUserValue(db, prop, [row.id], n || null) : undefined}
           size={variant === 'card' ? 12 : 13}
         />
       )

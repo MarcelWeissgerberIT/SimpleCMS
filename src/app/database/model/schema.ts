@@ -36,6 +36,8 @@ import {
   type LucideIcon,
 } from 'lucide-react'
 import type { CalcFn, FilterOperator, PropertyDef, PropertyType, RollupFn, ViewType } from '../../store/types'
+import { useWorkspace } from '../../store/store'
+import { storedTypeOf } from '../../store/kit'
 
 export const TYPE_ICON: Record<PropertyType, LucideIcon> = {
   title: Type,
@@ -86,8 +88,14 @@ export const CREATABLE_TYPES: PropertyType[][] = [
 
 export const COMPUTED_TYPES: PropertyType[] = ['formula', 'rollup', 'created_time', 'last_edited_time', 'unique_id', 'created_by', 'last_edited_by']
 export const isComputed = (p: PropertyDef) => COMPUTED_TYPES.includes(p.type)
+/** An own property type (features/kit) whose `value` script computes the value (stored, but not typed into). */
+export function isKitComputed(p: PropertyDef): boolean {
+  if (!p.custom) return false
+  const own = useWorkspace.getState().kit?.propTypes[p.custom]
+  return !!own?.scripts?.value && storedTypeOf(own.base) === p.type
+}
 /** Values the user can't type into. */
-export const isReadOnly = (p: PropertyDef) => isComputed(p)
+export const isReadOnly = (p: PropertyDef) => isComputed(p) || isKitComputed(p)
 
 export const isOptionType = (t: PropertyType) => t === 'select' || t === 'multi_select' || t === 'status'
 export const isTextType = (t: PropertyType) => t === 'title' || t === 'text' || t === 'url' || t === 'email' || t === 'phone'

@@ -859,9 +859,9 @@ export function TableView({ onFilterProp }: { onFilterProp: (id: ID) => void }) 
             requestAnimationFrame(() => revealInStrip(headScrollRef.current, rootRef.current?.querySelector(`[data-hcol="${p.id}"]`) ?? null)),
           )
         }
-        entries={typeEntries(t, (type) => {
+        entries={typeEntries(t, (type, def) => {
           const last = cols[cols.length - 1]
-          const id = insertProperty(db, view, { type, name: t(`database.type.${type}`) }, { anchorId: last.id, side: 'right' })
+          const id = insertProperty(db, view, def ?? { type, name: t(`database.type.${type}`) }, { anchorId: last.id, side: 'right' })
           requestAnimationFrame(() => {
             const el = rootRef.current?.querySelector<HTMLElement>(`[data-hcol="${id}"] .dbt-hcell__btn`)
             const prop = useWorkspace.getState().databases[db.id]?.properties.find((p) => p.id === id)
@@ -870,7 +870,7 @@ export function TableView({ onFilterProp }: { onFilterProp: (id: ID) => void }) 
               setHeadMenu({ prop, el })
             }
           })
-        })}
+        }, undefined, undefined, {})}
       />
       <Menu
         open={!!bulkAnchor}

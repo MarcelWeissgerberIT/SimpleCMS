@@ -16,6 +16,8 @@ import {
   SquareFunction,
   Repeat,
   Lock,
+  Blocks,
+  RefreshCw,
 } from 'lucide-react'
 import type { Database, NumberDisplay, NumberFormat, PropertyDef, PropertyType, RollupFn, View } from '../../store/types'
 import { useWorkspace } from '../../store/store'
@@ -29,11 +31,13 @@ import { PageIcon } from '../../ui/PageIcon'
 import { OptionsConfig } from './OptionsConfig'
 import { FormulaEditor } from './FormulaEditor'
 import { Segmented, Select, TypeIcon, typeEntries } from '../parts'
-import { changePropertyType, deletePropertyWithUndo, disableTwoWay, duplicateProperty, enableTwoWay, insertProperty, pairedRelation, rowsOf, twoWayBlocker } from '../model/actions'
+import { changePropertyToOwn, changePropertyType, deletePropertyWithUndo, disableTwoWay, duplicateProperty, enableTwoWay, insertProperty, pairedRelation, rowsOf, twoWayBlocker } from '../model/actions'
 import { ROLLUP_FNS, isOptionType, operatorsFor, valueKind } from '../model/schema'
 import type { Resolver } from '../model/resolve'
 import { AiGlyph, autofillOf, canAutofill, openAutofillPanel } from '../autofill'
 import { setViewQuery } from '../model/lock'
+import { openKit, ownTypeOf, recomputeProperty } from '../../features'
+import { toast } from '../../store/ui'
 
 export interface PropertyMenuProps {
   db: Database
@@ -77,9 +81,20 @@ export function PropertyMenu({ db, view, prop, anchor, resolver, onClose, tableM
       label: t('database.prop.type'),
       icon: <Repeat size={14} />,
       hint: t(`database.type.${prop.type}`),
-      submenu: typeEntries(t, (type: PropertyType) => changePropertyType(resolver, db, prop, type), prop.type),
+      submenu: typeEntries(t, (type: PropertyType, def) => (def ? changePropertyToOwn(resolver, db, prop, def) : changePropertyType(resolver, db, prop, type)), prop.type, undefined, { current: prop }),
     })
   }
+  // building blocks (features/kit): the own type / shared list behind the property, a value script's recompute
+  const own = ownTypeOf(prop)
+  const list = prop.listId ? s.kit?.lists[prop.listId] : undefined
+  if (own) entries.push({ label: t('features.kit.menu.openType', { name: own.name }), icon: <Blocks size={14} />, onSelect: () => openKit('types', own.id) })
+  if (list) entries.push({ label: t('features.kit.menu.editList', { name: list.name }), icon: <Blocks size={14} />, onSelect: () => openKit('lists', list.id) })
+  if (own?.scripts?.value)
+    entries.push({
+      label: t('features.kit.menu.recompute'),
+      icon: <RefreshCw size={14} />,
+      onSelect: () => void recomputeProperty(db.id, prop.id).then((n) => toast(t('features.kit.menu.recomputed', { n }))),
+    })
   if (prop.type === 'formula' && !locked)
     entries.push({ label: t('database.formula.edit'), icon: <SquareFunction size={14} />, onSelect: () => setFormulaOpen(true), keepOpen: true })
   if (canAutofill(prop) && !locked) {
@@ -202,6 +217,13 @@ export function PropertyConfig({ db, prop, onEditFormula }: { db: Database; prop
   // two-way off removes a property on the other database: ask first
   const [confirmOff, setConfirmOff] = useState(false)
 
+  const list = live.listId ? useWorkspace.getState().kit?.lists[live.listId] : undefined
+  if (list && (live.type === 'select' || live.type === 'multi_select'))
+    return (
+      <div className="db-cfg">
+        <div className="db-cfg__note">{t('features.kit.menu.fromList', { name: list.name })}</div>
+      </div>
+    )
   if (isOptionType(live.type)) return <OptionsConfig db={db} prop={live} />
 
   if (live.type === 'number') {

@@ -14,6 +14,7 @@ import { caretToEnd } from './TextEditor'
 import { tagStyle } from '../../lib/colors'
 import { OptionTag, StatusTag } from './display'
 import { newOption, rowsOf } from '../model/actions'
+import { ensureKitOption, useKitOptions } from '../../features'
 
 export const STATUS_GROUPS: StatusGroup[] = ['todo', 'in_progress', 'done']
 
@@ -24,6 +25,7 @@ export function OptionPicker({
   onChange,
   onClose,
   initialQuery,
+  rowId,
 }: {
   db: Database
   prop: PropertyDef
@@ -31,11 +33,16 @@ export function OptionPicker({
   onChange: (v: string | string[] | null) => void
   onClose: () => void
   initialQuery?: string
+  /** the row being edited: an own type's options script (features/kit) offers its choices for it */
+  rowId?: string
 }) {
   const t = useT()
   const multi = prop.type === 'multi_select'
   const isStatus = prop.type === 'status'
-  const options = prop.options ?? []
+  const scripted = useKitOptions(db, prop, rowId)
+  const options = scripted ?? prop.options ?? []
+  // a shared list (features/kit) owns the options: a new one goes into the list
+  const list = useWorkspace((s) => (prop.listId ? s.kit?.lists[prop.listId] : undefined))
   const selected = multi ? ((value as string[] | null) ?? []) : value ? [value as string] : []
   const [query, setQuery] = useState(initialQuery ?? '')
   const [active, setActive] = useState(0)
@@ -47,11 +54,14 @@ export function OptionPicker({
   const exact = options.some((o) => o.name.toLowerCase() === q)
   // locked database: pick from the options there are; creating or editing one changes the property
   const locked = db.locked === true
-  const canCreate = !!q && !exact && !locked
+  const canCreate = !!q && !exact && !locked && !scripted
   const ordered = isStatus ? STATUS_GROUPS.flatMap((g) => filtered.filter((o) => (o.group ?? 'todo') === g)) : filtered
   const itemCount = ordered.length + (canCreate ? 1 : 0)
 
-  const pick = (o: SelectOption) => {
+  const pick = (picked: SelectOption) => {
+    const id = ensureKitOption(db, prop, picked)
+    if (!id) return
+    const o = { ...picked, id }
     if (multi) {
       onChange(selected.includes(o.id) ? selected.filter((x) => x !== o.id) : [...selected, o.id])
       setQuery('')
@@ -65,7 +75,8 @@ export function OptionPicker({
     const name = query.trim()
     if (!name) return
     const opt = newOption(name, options, isStatus ? 'todo' : undefined)
-    useWorkspace.getState().updateProperty(db.id, prop.id, { options: [...options, opt] })
+    if (list) useWorkspace.getState().upsertList({ ...list, items: [...list.items, { id: opt.id, name: opt.name, color: opt.color }] })
+    else useWorkspace.getState().updateProperty(db.id, prop.id, { options: [...options, opt] })
     if (multi) onChange([...selected, opt.id])
     else {
       onChange(opt.id)
@@ -115,7 +126,7 @@ export function OptionPicker({
           <Tag option={o} />
         </span>
         {selected.includes(o.id) && <Check size={14} className="db-opt__check" />}
-        {!locked && (
+        {!locked && !list && !scripted && (
           <button
             type="button"
             className="icon-btn icon-btn--sm db-opt__more"

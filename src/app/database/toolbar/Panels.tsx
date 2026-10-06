@@ -241,10 +241,16 @@ export function PropertiesPanel({ m, anchor, onClose, onCreated }: { m: DbModel;
         onClose={() => setTypeAnchor(null)}
         searchable
         create={(q) => createEntry(q, (p) => onCreated?.(p.id))}
-        entries={typeEntries(t, (type) => {
-          const id = insertProperty(m.db, m.view, { type, name: t(`database.type.${type}`) })
-          onCreated?.(id)
-        })}
+        entries={typeEntries(
+          t,
+          (type, def) => {
+            const id = insertProperty(m.db, m.view, def ?? { type, name: t(`database.type.${type}`) })
+            onCreated?.(id)
+          },
+          undefined,
+          undefined,
+          {},
+        )}
       />
     </Popover>
   )

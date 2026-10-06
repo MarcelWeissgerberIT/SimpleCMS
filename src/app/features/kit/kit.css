@@ -836,7 +836,7 @@
   gap: 8px 10px;
   padding: 10px 0;
   border-top: 1px solid var(--rule-strong);
-  background: var(--bg);
+  background: var(--surface);
 }
 .kt-savebar__state {
   display: inline-flex;
