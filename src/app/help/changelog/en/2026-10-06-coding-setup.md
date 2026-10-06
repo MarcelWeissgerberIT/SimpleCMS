@@ -1,7 +1,7 @@
 ---
 id: 2026-10-06-coding-setup
 date: 2026-10-06
-order: 1
+order: 2
 title: The coding worker in three steps — download, start, tick your repos
 summary: The worker now comes ready-paired from One, finds the git repositories on your computer and lets you tick the ones One may work in — no config file to write.
 image: assets/shots/changelog/coding-setup.webp
