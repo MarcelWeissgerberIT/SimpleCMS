@@ -1,7 +1,7 @@
 ---
 id: 2026-10-06-diagram-viewer
 date: 2026-10-06
-order: 3
+order: 4
 title: Diagrams open large — zoom and a minimap
 summary: A Mermaid diagram or a chart across the whole screen, sharp at every zoom, with a minimap that shows where you are.
 image: assets/shots/changelog/diagram-viewer.webp

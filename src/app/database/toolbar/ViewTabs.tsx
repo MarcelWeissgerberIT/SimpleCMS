@@ -5,7 +5,7 @@ import { useEffect, useRef, useState } from 'react'
 import { DndContext, PointerSensor, closestCenter, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core'
 import { SortableContext, arrayMove, horizontalListSortingStrategy, useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import { Copy, LayoutTemplate, ListTree, PanelRight, Paintbrush, Pencil, Plus, Trash, SquareSplitHorizontal, Maximize2, Waypoints } from 'lucide-react'
+import { Copy, LayoutDashboard, LayoutTemplate, ListTree, PanelRight, Paintbrush, Pencil, Plus, Trash, SquareSplitHorizontal, Maximize2, Waypoints } from 'lucide-react'
 import type { ID, View, ViewType } from '../../store/types'
 import { useWorkspace } from '../../store/store'
 import { useUI } from '../../store/ui'
@@ -21,6 +21,7 @@ import { isFormable } from '../form/fields'
 import { structureEntries, type StructurePanel } from './structureEntries'
 import { DependenciesPanel, SubItemsPanel } from './StructurePanels'
 import { ColorRulesPanel } from './ColorRules'
+import { addFreeBoard } from '../model/recordTypes'
 
 export function ViewTypeIcon({ type, size = 14 }: { type: ViewType; size?: number }) {
   const I = VIEW_ICON[type]
@@ -303,7 +304,24 @@ export function ViewTabs({ m, onSelect }: { m: DbModel; onSelect: (id: ID) => vo
         open={!!addAnchor}
         anchor={addAnchor}
         onClose={() => setAddAnchor(null)}
-        entries={[{ kind: 'section', label: t('database.view.addTitle') }, ...VIEW_TYPES.map((type) => ({ label: t(`database.view.${type}`), icon: <ViewTypeIcon type={type} />, hint: t(`database.view.hint.${type}`), onSelect: () => addView(type) }))]}
+        entries={[
+          { kind: 'section', label: t('database.view.addTitle') },
+          ...VIEW_TYPES.map((type) => ({ label: t(`database.view.${type}`), icon: <ViewTypeIcon type={type} />, hint: t(`database.view.hint.${type}`), onSelect: () => addView(type) })),
+          // a free board: its own lane property, cards of any record type (model/recordTypes)
+          {
+            id: 'view-free',
+            label: t('database.view.free'),
+            icon: <LayoutDashboard size={14} strokeWidth={1.7} />,
+            hint: t('database.view.hint.free'),
+            keywords: 'free board freies record types lanes',
+            onSelect: () => {
+              const id = addFreeBoard(m.db.id)
+              if (!id) return
+              onSelect(id)
+              requestAnimationFrame(revealActive)
+            },
+          },
+        ]}
         width={280}
       />
       {menu && !layout && !extra && (

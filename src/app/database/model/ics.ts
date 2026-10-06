@@ -13,6 +13,7 @@ import { testGroup } from './query'
 import { orderRows } from './feed'
 import { parentIdOf, subItemsOf } from './hierarchy'
 import { workspaceCtx } from './ctx'
+import { propMapOf } from './recordTypes'
 
 const CRLF = '\r\n'
 
@@ -95,7 +96,7 @@ function spanOf(r: Resolver, db: Database, prop: PropertyDef, row: Page): Span |
 
 /** Rows of a view as it shows them: its filters, then its order (search is a momentary lens and is ignored). */
 export function viewRows(r: Resolver, db: Database, view: View, rows: Page[]): Page[] {
-  const props = new Map(db.properties.map((p) => [p.id, p]))
+  const props = propMapOf(db)
   // "Parents only" hides sub-items everywhere the view is shown (calendar export, published sites)
   const pair = view.subItems === 'parents' ? subItemsOf(db) : null
   const visible = pair ? rows.filter((row) => !parentIdOf(r.ctx.pages, pair, row)) : rows

@@ -4,7 +4,7 @@
  * where pages live leaves its database (it loses its properties: asks first). Entries never reorder in
  * the tree — a database's order comes from its first view.
  */
-import { createEntry } from '../../database'
+import { adoptRowType, createEntry } from '../../database'
 import { t } from '../../i18n'
 import { useWorkspace } from '../../store/store'
 import { useUI } from '../../store/ui'
@@ -124,6 +124,8 @@ function makeEntry(pageId: ID, dbId: ID) {
   for (const p of numbered) properties[p.id] = db.nextUniqueId
   s.updatePage(pageId, { parentId: dbId, databaseId: dbId, properties, order: orderAt(s.pages, dbId, undefined, pageId, !!page.private) })
   if (numbered.length) s.updateDatabase(dbId, { nextUniqueId: db.nextUniqueId + 1 })
+  // a page of a record type the database does not hold yet: the type is attached first (database/model/recordTypes)
+  adoptRowType(pageId)
   useTreeState.getState().expand([treeKey(sectionOf(page), dbId)])
   useUI.getState().toast({
     message: t('shell.entry.made', { title: titleOf(page), db: titleOf(s.pages[dbId]) }),

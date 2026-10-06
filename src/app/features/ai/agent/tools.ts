@@ -8,7 +8,7 @@ import { useWorkspace } from '../../../store/store'
 import { useUI } from '../../../store/ui'
 import { inTemplate, isEffectivelyTrashed, selectBreadcrumbs } from '../../../store/selectors'
 import type { Database, ID, Page, PropertyDef } from '../../../store/types'
-import { propertyValueToText } from '../../../database'
+import { propertyValueToText, typeOfRow } from '../../../database'
 import { docToMarkdown } from '../../../editor'
 import { parseHash } from '../../../lib/router'
 import { newId } from '../../../lib/ids'
@@ -205,6 +205,9 @@ function schemaLine(db: Database): string {
 
 function rowFacts(db: Database, row: Page): Record<string, string> {
   const out: Record<string, string> = { id: row.id, title: row.title.trim() }
+  // its record type (database/model/recordTypes) — just the name
+  const rt = typeOfRow(row, useWorkspace.getState().kit)
+  if (rt) out.recordType = rt.name
   for (const prop of db.properties) {
     if (prop.type === 'title') continue
     let v = ''

@@ -9,6 +9,7 @@ import { aggregate } from './calc'
 import { formatDateValue, formatNumber, formatTimestamp, isDateValue, parseLocal } from './format'
 import { cachedFileName } from './files'
 import { actorName, actorOf, type ActorLabels, type MeCtx } from './actors'
+import { TYPE_PROP_ID } from './typeId'
 
 export interface Ctx {
   pages: Record<ID, Page>
@@ -38,6 +39,8 @@ export class Resolver {
 
   /** Raw stored value or computed value for a property of a row. */
   value(db: Database, prop: PropertyDef, row: Page, depth = 0): Resolved {
+    // the computed Type column (model/recordTypes): the row's record type
+    if (prop.id === TYPE_PROP_ID) return row.recordType ?? null
     switch (prop.type) {
       case 'title':
         return row.title

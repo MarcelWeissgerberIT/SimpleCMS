@@ -32,6 +32,7 @@ import { TurnOffHost } from './toolbar/StructurePanels'
 import { useDbReadOnly } from './readonly'
 import { resetSessionQuery, setViewQuery, useSessionOverlay, withOverlay } from './model/lock'
 import { VIEW_REQUEST } from './model/outside'
+import { createTypedRow } from './model/recordTypes'
 import './database.css'
 
 const CalendarView = lazy(() => import('./views/CalendarView'))
@@ -181,7 +182,8 @@ function DatabaseBody({
           .sort((a, b) => a.order - b.order)
         index = sibs.findIndex((p) => p.id === opts.after!.id) + 1
       }
-      const id = s.createRow(db.id, { properties: { ...m.newRowDefaults(), ...(opts.properties ?? {}) }, index })
+      // a Type preset (a filter / group on the Type column, "+" of a free-board lane) becomes the row's record type
+      const id = createTypedRow(db.id, { properties: { ...m.newRowDefaults(), ...(opts.properties ?? {}) }, index }, opts.typeId)
       keepVisible(id)
       if (opts.editTitle) setEditTitleOf(id)
       if (opts.open) openRow(id, view)
@@ -191,11 +193,11 @@ function DatabaseBody({
     [db.id, m, view, setEditTitleOf],
   )
 
-  const onNew = (tpl?: Template) => {
+  const onNew = (tpl?: Template, typeId?: ID) => {
     if (m.readOnly) return
-    const s = useWorkspace.getState()
     const props: Record<ID, PropertyValue> = { ...m.newRowDefaults(), ...(tpl ? JSON.parse(JSON.stringify(tpl.properties)) : {}) }
-    const id = s.createRow(db.id, { title: '', properties: props, content: tpl?.content ? JSON.parse(JSON.stringify(tpl.content)) : null, icon: tpl?.icon ?? null })
+    // "New ▾ → New Lead": the row gets that record type and its content (model/recordTypes)
+    const id = createTypedRow(db.id, { title: '', properties: props, content: tpl?.content ? JSON.parse(JSON.stringify(tpl.content)) : null, icon: tpl?.icon ?? null }, typeId)
     keepVisible(id)
     if (view.type === 'table' || view.type === 'list') {
       if (tpl) openRow(id, view)

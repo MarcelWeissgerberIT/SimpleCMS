@@ -4,7 +4,7 @@
  * collapsible groups, footer calculations, row virtualization.
  */
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { ChevronRight, Copy, GripVertical, PencilLine, Plus, Trash, X } from 'lucide-react'
+import { ChevronRight, Copy, GripVertical, PencilLine, Plus, Shapes, Trash, X } from 'lucide-react'
 import type { ColorRule, ID, Page, PropertyDef, PropertyValue } from '../../store/types'
 import { useWorkspace } from '../../store/store'
 import { Tooltip } from '../../ui/Tooltip'
@@ -29,6 +29,9 @@ import { useRowColor, useTree } from './tree'
 import { AddSubButton, TreeCount, TreeLead } from './treeParts'
 import { ruleStyle } from '../model/colors'
 import { usePropertyCreate } from '../create/entry'
+import { TYPE_PROP_ID, foreignLabel, foreignTo, isTypeProp, setRowType } from '../model/recordTypes'
+import { TypeCell, TypeColumnMenu } from '../rtype/TypeColumn'
+import { typeEntries as rtypeEntries } from '../rtype/TypeTag'
 import './table/table.css'
 
 function useNarrow(): boolean {
@@ -141,6 +144,7 @@ export function TableView({ onFilterProp }: { onFilterProp: (id: ID) => void }) 
   const [active, setActive] = useState<Active | null>(null)
   const [editing, setEditing] = useState<{ rows: Page[]; prop: PropertyDef; el: HTMLElement; text?: string; idx?: number; col?: number } | null>(null)
   const [headMenu, setHeadMenu] = useState<{ prop: PropertyDef; el: HTMLElement } | null>(null)
+  const [typeMenu, setTypeMenu] = useState<{ row: Page; el: HTMLElement } | null>(null)
   const [addColAnchor, setAddColAnchor] = useState<HTMLElement | null>(null)
   const [bulkAnchor, setBulkAnchor] = useState<HTMLElement | null>(null)
   const createEntry = usePropertyCreate(db)
@@ -195,6 +199,13 @@ export function TableView({ onFilterProp }: { onFilterProp: (id: ID) => void }) 
       const ri = rowItems[idx]
       const prop = cols[col]
       if (!ri || !prop || !canEdit(prop) || ro) return
+      // another record type's property: not part of this row (model/recordTypes)
+      if (foreignTo(prop, ri.it.row)) return
+      if (prop.id === TYPE_PROP_ID) {
+        const el = cellEl(idx, col)
+        if (el) setTypeMenu({ row: ri.it.row, el })
+        return
+      }
       if (prop.type === 'checkbox') {
         writeValue(db.id, prop, ri.it.row.id, !(ri.it.row.properties[prop.id] === true))
         return
@@ -340,7 +351,7 @@ export function TableView({ onFilterProp }: { onFilterProp: (id: ID) => void }) 
         e.preventDefault()
         const ri = rowItems[idx]
         const p = cols[col]
-        if (ri && canEdit(p) && !ro) writeValue(db.id, p, ri.it.row.id, clearValueFor(p))
+        if (ri && canEdit(p) && !ro && !foreignTo(p, ri.it.row)) writeValue(db.id, p, ri.it.row.id, clearValueFor(p))
         return
       }
     }
@@ -350,13 +361,13 @@ export function TableView({ onFilterProp }: { onFilterProp: (id: ID) => void }) 
       e.preventDefault()
       const text = m.resolver.text(db, cols[col], ri.it.row)
       void navigator.clipboard?.writeText(text)
-      if (e.key.toLowerCase() === 'x' && canEdit(cols[col]) && !ro) writeValue(db.id, cols[col], ri.it.row.id, clearValueFor(cols[col]))
+      if (e.key.toLowerCase() === 'x' && canEdit(cols[col]) && !ro && !foreignTo(cols[col], ri.it.row)) writeValue(db.id, cols[col], ri.it.row.id, clearValueFor(cols[col]))
       return
     }
     if (mod && e.key.toLowerCase() === 'v') {
       const ri = rowItems[idx]
       const p = cols[col]
-      if (!ri || !canEdit(p) || ro || !navigator.clipboard?.readText) return
+      if (!ri || !canEdit(p) || ro || foreignTo(p, ri.it.row) || !navigator.clipboard?.readText) return
       e.preventDefault()
       void navigator.clipboard.readText().then((text) => {
         const v = valueFromText(p, text)
@@ -791,7 +802,7 @@ export function TableView({ onFilterProp }: { onFilterProp: (id: ID) => void }) 
                       }
                     }}
                   >
-                    <TypeIcon type={p.type} size={13} />
+                    {isTypeProp(p) ? <Shapes size={13} strokeWidth={1.7} aria-hidden /> : <TypeIcon type={p.type} size={13} />}
                     <span className="dbt-hcell__name">{p.name}</span>
                     {autofillOf(p) && <AutofillTag dbId={db.id} prop={p} />}
                     {sort && <span className="dbt-hcell__sort">{sort.direction === 'asc' ? '↑' : '↓'}</span>}
@@ -824,7 +835,30 @@ export function TableView({ onFilterProp }: { onFilterProp: (id: ID) => void }) 
       {colDrag && <div className="dbt-colline" style={{ left: colDrag.x, top: colDrag.top }} aria-hidden />}
 
       {editing && !ro && <ValueEditor db={db} prop={editing.prop} rows={editing.rows} anchor={editing.el} initialText={editing.text} onClose={onEditorClose} />}
-      {headMenu && !ro && (
+      {headMenu && !ro && isTypeProp(headMenu.prop) && (
+        <TypeColumnMenu
+          m={m}
+          anchor={headMenu.el}
+          onClose={() => setHeadMenu(null)}
+          onFilter={(id) => {
+            setHeadMenu(null)
+            onFilterProp(id)
+          }}
+        />
+      )}
+      {typeMenu && !ro && (
+        <Menu
+          open
+          anchor={typeMenu.el}
+          onClose={() => {
+            setTypeMenu(null)
+            requestAnimationFrame(focusGrid)
+          }}
+          width={240}
+          entries={rtypeEntries(t, { db, kit: m.kit, current: typeMenu.row.recordType ?? null, onPick: (id) => setRowType(typeMenu.row.id, id) })}
+        />
+      )}
+      {headMenu && !ro && !isTypeProp(headMenu.prop) && (
         <PropertyMenu
           db={db}
           view={view}
@@ -937,7 +971,7 @@ interface RowProps {
 function rowPropsEqual(a: RowProps, b: RowProps): boolean {
   for (const k of Object.keys(a) as Array<keyof RowProps>) if (k !== 'm' && a[k] !== b[k]) return false
   if (a.m === b.m) return true
-  if (a.m.db !== b.m.db || a.m.view !== b.m.view || a.m.readOnly !== b.m.readOnly) return false
+  if (a.m.db !== b.m.db || a.m.view !== b.m.view || a.m.readOnly !== b.m.readOnly || a.m.kit !== b.m.kit) return false
   const ca = a.m.resolver.ctx
   const cb = b.m.resolver.ctx
   if (ca.people !== cb.people || ca.lang !== cb.lang || ca.databases !== cb.databases || ca.me !== cb.me) return false
@@ -981,7 +1015,10 @@ const TableRow = memo(function TableRow({ m, row, idx, cols, gutter, height, sel
         </span>
         )}
       </div>
-      {cols.map((p, c) => (
+      {cols.map((p, c) => {
+        // another record type's property: a dim "—", not editable on this row
+        const foreign = c > 0 && foreignTo(p, row)
+        return (
         <div
           key={p.id}
           role="gridcell"
@@ -989,7 +1026,9 @@ const TableRow = memo(function TableRow({ m, row, idx, cols, gutter, height, sel
           data-type={p.type}
           data-active={activeCol === c}
           data-editing={editingCol === c}
-          data-readonly={!canEdit(p) || m.readOnly}
+          data-foreign={foreign || undefined}
+          title={foreign ? foreignLabel(p, row, m.kit) : undefined}
+          data-readonly={!canEdit(p) || m.readOnly || foreign}
           className={`dbt-cell${c === 0 ? ' dbt-cell--title dbt-sticky1' : ''}`}
           style={c === 0 ? { left: gutter } : undefined}
           onMouseDown={(e) => {
@@ -1007,12 +1046,19 @@ const TableRow = memo(function TableRow({ m, row, idx, cols, gutter, height, sel
                 <OpenButton row={row} view={m.view} label={openLabel} />
               </RowTitle>
             </>
+          ) : foreign ? (
+            <span className="rtype-foreign" aria-label={foreignLabel(p, row, m.kit)}>
+              —
+            </span>
+          ) : isTypeProp(p) ? (
+            <TypeCell row={row} kit={m.kit} />
           ) : (
             <ValueView db={m.db} prop={p} row={row} r={m.resolver} v={m.resolver.value(m.db, p, row)} interactive={!m.readOnly} />
           )}
-          {c > 0 && autofillOf(p) && !m.readOnly && <AutofillCellMark dbId={m.db.id} prop={p} rowId={row.id} />}
+          {c > 0 && !foreign && autofillOf(p) && !m.readOnly && <AutofillCellMark dbId={m.db.id} prop={p} rowId={row.id} />}
         </div>
-      ))}
+        )
+      })}
       <div className="dbt-cell dbt-cell--pad" />
       <div className="dbt-cell dbt-cell--fill" />
     </div>

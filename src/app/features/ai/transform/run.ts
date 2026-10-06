@@ -18,6 +18,7 @@ import type { Node as PMNode } from '@tiptap/pm/model'
 import { completeStructured } from '../client'
 import { blockGist, readBlocks, type BlockRange, type ResolvedBlocks, type SourceBlock } from '../todb/plan'
 import { requestTable, TodbError } from '../todb/run'
+import { requestFreeBoard } from '../freeboard/apply'
 import { fitsAt, fittingTypes } from './range'
 import { mermaidError, kindOfCode } from './mermaid'
 import { numbersIn } from './numbers'
@@ -91,6 +92,12 @@ async function requestResult(doc: PMNode, range: BlockRange, source: ResolvedBlo
     const date = table.plan.columns.find((c) => c.type === 'date' && table.plan.entries.some((e) => e.values[c.name] !== undefined))
     if (!date) throw new TransformError('nodates')
     return { type: 'db', table: { ...table, draft: { ...table.draft, view: 'timeline', groupBy: null } } }
+  }
+  if (type === 'freeboard') {
+    // record types, lanes and cards (features/ai/freeboard)
+    const got = await requestFreeBoard(doc, range, ask)
+    if (!got) throw new TransformError('bad')
+    return got
   }
   const base = { blocks: source.blocks.map((b) => b.node.toJSON() as JSONContent), gists: source.blocks.map((b) => blockGist(b.node)) }
   if (type === 'diagram') return diagram(source.blocks, state, ask, base)

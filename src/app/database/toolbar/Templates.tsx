@@ -21,10 +21,12 @@ import { scheduleChanged } from '../../features'
 import { RepeatSettings } from '../templates/RepeatSettings'
 import { NextRun } from '../templates/NextRun'
 import { isDbReadOnly, useDbReadOnly } from '../readonly'
+import { heldTypes } from '../model/recordTypes'
+import { TypeMark } from '../rtype/TypeTag'
 
 export type Template = NonNullable<Database['templates']>[number]
 
-export function NewButton({ m, onNew }: { m: DbModel; onNew: (tpl?: Template) => void }) {
+export function NewButton({ m, onNew }: { m: DbModel; onNew: (tpl?: Template, typeId?: ID) => void }) {
   const t = useT()
   const [anchor, setAnchor] = useState<HTMLElement | null>(null)
   const [editing, setEditing] = useState<Template | null>(null)
@@ -57,6 +59,31 @@ export function NewButton({ m, onNew }: { m: DbModel; onNew: (tpl?: Template) =>
             <span className="menu-item__label">{t('database.templates.empty')}</span>
             <Kbd>⏎</Kbd>
           </button>
+          {/* the record types this database holds: "New Lead" (the type's content as the body) */}
+          {heldTypes(m.db, m.kit).length > 0 && (
+            <>
+              <div className="menu-sep" />
+              <div className="menu-section label">{t('database.rtype.section')}</div>
+              {heldTypes(m.db, m.kit).map((rt) => (
+                <button
+                  key={rt.id}
+                  type="button"
+                  className="menu-item"
+                  data-nav=""
+                  data-testid={`new-of-type-${rt.id}`}
+                  onClick={() => {
+                    setAnchor(null)
+                    onNew(undefined, rt.id)
+                  }}
+                >
+                  <span className="menu-item__icon">
+                    <TypeMark rt={rt} />
+                  </span>
+                  <span className="menu-item__label">{t('database.rtype.newOf', { type: rt.name })}</span>
+                </button>
+              ))}
+            </>
+          )}
           <div className="menu-sep" />
           <div className="menu-section label">{t('database.templates.title')}</div>
           {templates.length === 0 && <div className="db-tplmenu__empty">{t('database.templates.none')}</div>}

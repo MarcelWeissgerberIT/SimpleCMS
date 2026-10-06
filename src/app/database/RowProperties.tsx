@@ -20,6 +20,8 @@ import { useDbReadOnly } from './readonly'
 import { usePropertyCreate } from './create/entry'
 import { CreatePropertyHost } from './create/CreatePropertyDialog'
 import { RelationOffer } from './create/RelationOffer'
+import { rowProps } from './model/recordTypes'
+import { RowTypeChip } from './rtype/TypeTag'
 import './database.css'
 
 export function RowProperties({ pageId }: { pageId: ID }) {
@@ -35,13 +37,16 @@ function RowPropertiesInner({ row, db }: { row: Page; db: Database }) {
   const readOnly = useDbReadOnly()
   // locked database: values stay editable, the properties themselves don't change
   const locked = db.locked === true
+  // record types: the database's own properties + the row's own type's (model/recordTypes)
+  const props = useMemo(() => rowProps(db.properties.filter((p) => p.type !== 'title'), row), [db.properties, row])
   return (
     <>
+      <RowTypeChip row={row} db={db} readOnly={readOnly} />
       <PropertyRows
         db={db}
         row={row}
         resolver={resolver}
-        props={db.properties.filter((p) => p.type !== 'title')}
+        props={props}
         getValue={(p) => row.properties[p.id] ?? null}
         onChange={(p, v) => void writeUserValue(db, p, [row.id], v, document.querySelector(`[data-prow="${p.id}"]`))}
         hideEmpty={hideEmpty}

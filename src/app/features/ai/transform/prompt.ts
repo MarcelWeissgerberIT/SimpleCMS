@@ -84,6 +84,7 @@ function leftOf(d: Record<string, unknown>): string[] {
 
 const FORMS: Record<TransformType, string> = {
   board: 'items that move through a status or stage (tasks, tickets, a pipeline)',
+  freeboard: 'mixed kinds of items (ideas, bugs, people …) each with their own few fields, in lanes',
   table: 'items that each have several fields (people, products, references)',
   timeline: 'items with dates or periods (milestones, events, a schedule)',
   diagram: 'steps of a process, a hierarchy, messages between parties, ideas around one theme',

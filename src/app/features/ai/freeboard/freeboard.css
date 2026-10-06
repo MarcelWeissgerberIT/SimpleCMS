@@ -1,0 +1,124 @@
+/* "Turn into free board" — the preview in the Transform panel. */
+
+.fbp {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.fbp__types {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.fbp__type {
+  display: grid;
+  grid-template-columns: auto auto auto minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  min-height: 26px;
+  font-size: 12.5px;
+}
+
+.fbp__led {
+  width: 7px;
+  height: 7px;
+  border-radius: var(--radius-led);
+  background: var(--rt);
+  box-shadow: 0 0 0 1px var(--rule-strong);
+}
+
+.fbp__name {
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.fbp__tag {
+  padding: 1px 5px;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius-1);
+}
+
+.fbp__fields {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ink-3);
+}
+
+.fbp__lanes {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+  scroll-snap-type: x proximity;
+}
+
+.fbp__lane {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 190px;
+  scroll-snap-align: start;
+}
+
+.fbp__lanehead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  padding-bottom: 4px;
+  border-bottom: 2px solid var(--ink);
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.fbp__card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 6px 8px;
+  border-radius: var(--radius-2);
+  background: var(--surface);
+  box-shadow: 0 0 0 1px var(--rule-strong);
+  overflow: hidden;
+  font-size: 12.5px;
+}
+
+.fbp__card[data-typed] {
+  padding-left: 11px;
+}
+
+.fbp__card[data-typed]::before {
+  content: '';
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 3px;
+  background: var(--rt);
+}
+
+.fbp__cardtype {
+  font-size: 9.5px;
+}
+
+.fbp__title {
+  font-weight: 560;
+  color: var(--ink);
+}
+
+.fbp__val {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ink-2);
+}
+
+.fbp__val .label {
+  font-size: 9px;
+}

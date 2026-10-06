@@ -50,6 +50,7 @@ import {
   Sigma,
   Smile,
   SquareKanban,
+  LayoutDashboard,
   SquareMousePointer,
   SquareCode,
   Lightbulb,
@@ -75,6 +76,7 @@ import { insertSpreadsheet } from '../schema/spreadsheet'
 import { insertChart } from '../schema/chart'
 import { Columns5, ToggleHeading1, ToggleHeading2, ToggleHeading3 } from './blockGlyphs'
 import { toast } from '../../store/ui'
+import { freeBoardSpec } from '../../database'
 import { t } from '../../i18n'
 
 export type BlockGroup = 'basic' | 'lists' | 'media' | 'database' | 'advanced' | 'ai' | 'inline'
@@ -286,6 +288,8 @@ export const BLOCKS: BlockItem[] = [
   // ---------------- database
   dbItem('dbTable', 'table', Sheet, 'table view database spreadsheet tabelle datenbank'),
   dbItem('dbBoard', 'board', SquareKanban, 'board kanban view database tafel'),
+  // a FREE board: lanes + cards of any record type (database/model/recordTypes)
+  { id: 'freeBoard', group: 'database', icon: LayoutDashboard, keywords: 'free board freies board record types datensatz typen lanes spalten kanban cards karten', run: (ctx) => createInlineDatabase(ctx, 'board', { title: t('editor.block.freeBoard.title'), ...freeBoardSpec() }) },
   dbItem('dbList', 'list', Rows3, 'list view database liste'),
   dbItem('dbGallery', 'gallery', LayoutGrid, 'gallery cards view database galerie karten'),
   dbItem('dbCalendar', 'calendar', Calendar, 'calendar view database kalender'),

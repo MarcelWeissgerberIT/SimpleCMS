@@ -38,7 +38,7 @@ src/app/features/**                  AI (+ workspace agent), history, graph, sha
                                      GitHub Markdown, per-device IndexedDB `one-sync`), mcp (local bridge UI), sheets
                                      (spreadsheet engine + grid; functions/ = custom functions built by clicking), charts
                                      (SVG renderer, chart builder, data sources) (public API: features/index.ts)
-src/app/help/**                      help centre: panel (?, status bar, ⌘K, workspace menu), 62 articles EN+DE twins
+src/app/help/**                      help centre: panel (?, status bar, ⌘K, workspace menu), 63 articles EN+DE twins
                                      (help/articles/{en,de}/<id>.md, `help:<id>` links), Ask (Claude over the articles);
                                      link UI to an article with `<HelpLink id="…" />` (public API: help/index.ts)
 src/help-site/**                     build-time public /help pages (prerendered from the same articles, hreflang)
@@ -260,6 +260,18 @@ the public APIs stable — other areas are built against them in parallel.
   read-only. Team: a binding runs only once this device trusts that exact code (saved in the editor, `createPropType`, or
   Confirm); value / onChange scripts on shared rows see shared pages only. A list-bound select's new option goes into the
   list. `typeEntries(…, kit)` appends the kit's entries; `changePropertyToOwn()` binds a property (values by option name).
+- Record types in databases (database/model/recordTypes.ts): a row shows the database's own properties plus its own type's
+  (`rowProps` / `foreignTo`); another type's field is hidden on that row and a dim, non-editable "—" in tables. The Type
+  column is computed and view-level (`TYPE_PROP_ID = '__type__'` in visibleProperties / filters / sorts / groupBy, never
+  stored; the resolver reads `page.recordType`, `writeValue` routes to `setRecordType`). Typed rows via `createTypedRow()`
+  (the type's content, origin 'template'); `detachRecordType` (properties stay, rows lose the type); rows arriving from
+  elsewhere (sidebar drop, MCP `one_move_row`) go through `adoptRowType()`; exports add "Type" via `withTypeColumn()`.
+- Free board (`View.free`, database/views/free): lanes = the options of its `groupBy` select (lanes.ts; a shared list via
+  `upsertList`); cards show their type's colour bar + fields (`View.typeFields[typeId | '__plain__']`, default the first 3
+  filled). Slash `freeBoard`, `createFreeBoardAndOpen`, "+ Add view → Free board" (`addFreeBoard`). Turn into free board
+  (features/ai/freeboard, transform form 'freeboard'): only the selection + existing record type names go out (no memory);
+  new types via `upsertRecordType`, then ONE store update (origin 'ai'), then one editor transaction; Undo removes the board
+  and the types it added.
 - Coding pipeline (features/coding + mcp/src/worker): `Database.system: 'coding'` + `Database.pipeline` (one stage per
   Stage option; write only with savePipeline, read with readPipeline; `locked` blocks it). Worker outcomes go into the
   page with origin 'coding'; logs, diffs and trust per device in IndexedDB `one-coding`, never synced. One sends the worker

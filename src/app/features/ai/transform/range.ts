@@ -51,6 +51,7 @@ export function fitsAt(doc: PMNode, range: BlockRange | null): Record<TransformT
   const cols = can('columns') && !inside('column')
   return {
     board: db,
+    freeboard: db,
     table: db,
     timeline: db,
     diagram: can('mermaid'),
