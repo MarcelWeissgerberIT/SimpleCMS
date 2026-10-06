@@ -8,7 +8,7 @@
  *
  * (CHANGELOG_DRAFT=1 lets the build pass while a new entry's picture does not exist yet.)
  *
- * Shots: coding-pipeline, pages-per-item, design-import, tour, quick-capture, script-templates, one-script-everywhere, file-ai, one-script, transform, ai-edit, db-commands, gmail-one-click, memory, grips-footer, block-select, split-to-page, image-ai, claude-reads, redo, ai-terminal, mcp-codewords, mcp-tidy-up, slash-menu, turn-into-database,
+ * Shots: workspace-settings, coding-pipeline, pages-per-item, design-import, tour, quick-capture, script-templates, one-script-everywhere, file-ai, one-script, transform, ai-edit, db-commands, gmail-one-click, memory, grips-footer, block-select, split-to-page, image-ai, claude-reads, redo, ai-terminal, mcp-codewords, mcp-tidy-up, slash-menu, turn-into-database,
  * custom-agents, gmail, help-centre, mcp-servers, feed-blocks — each named like its image. Every shot starts from a fresh, seeded
  * workspace in English, light theme, 1440 × 900 at device scale 2; the crop of the relevant area is scaled
  * to 1440 px wide and saved as public/assets/shots/changelog/<shot>.webp (≤ 150 KB: the quality steps down
@@ -1467,6 +1467,34 @@ const shots = {
       await ctx.close()
       rmSync(work.root, { recursive: true, force: true })
     }
+  },
+
+  /** Workspace settings → People: the plate, the rail, everyone with where they are used, Sam about to merge into Sam Rivera. */
+  async 'workspace-settings'(browser) {
+    const { ctx, page } = await freshPage(browser)
+    // a page that @mentions Sam, so the merge has rows and a mention to carry over
+    const sam = await page.evaluate(() => window.__one.workspace.getState().people.find((p) => p.name === 'Sam')?.id)
+    await createPage(page, 'Launch checklist', doc({ type: 'paragraph', content: [{ type: 'text', text: 'Ask ' }, { type: 'mention', attrs: { id: sam, label: 'Sam', kind: 'person' } }, { type: 'text', text: ' for the release notes.' }] }))
+    await page.evaluate(() => {
+      const s = window.__one.workspace.getState()
+      s.updateSettings({ workspaceName: 'North Star' })
+      s.addPerson('Grace Hopper')
+      s.addPerson('Sam Rivera')
+    })
+    await page.evaluate(() => (window.location.hash = '#/workspace/people'))
+    const main = page.getByTestId('workspace-page')
+    await main.waitFor()
+    const row = (name) => page.getByTestId('ws-person').filter({ has: page.locator('.tm-row__name > span:first-child', { hasText: new RegExp(`^${name}$`) }) })
+    await row('Alex').getByTestId('ws-use').click()
+    await row('Sam').getByRole('button', { name: 'Actions for Sam' }).click()
+    await page.getByRole('menuitem', { name: 'Merge into' }).click()
+    await page.getByRole('menuitem', { name: 'Sam Rivera', exact: true }).click()
+    await row('Sam').locator('.tm-confirm').waitFor()
+    await rest(page)
+    const left = Math.round((await page.locator('.sb').first().boundingBox())?.width ?? 0) + 1
+    const end = await boxOf(row('Mira'))
+    await save(page, 'workspace-settings', { x: left, y: 60, width: W - left, height: Math.round(end.y + end.height + 1 - 60) })
+    await ctx.close()
   },
 
   /** Several blocks selected (text, image, table): the wash on each, the pinned grip, the count chip. */

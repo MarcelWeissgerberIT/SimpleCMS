@@ -14,7 +14,7 @@ import { localPerson } from '../../database'
 import { navigate } from '../../lib/router'
 import { Menu, useMenu, type MenuEntry } from '../../ui/Menu'
 import { useLang, useT } from '../../i18n'
-import type { Translate } from '@/shared/i18n'
+import type { Lang, Translate } from '@/shared/i18n'
 import { fmtNumber } from '../lib/format'
 import { toggleMenu } from '../lib/menu'
 import { goToPage } from '../lib/actions'
@@ -143,6 +143,7 @@ function PeopleList({ people, all, usage, you, editable, empty }: { people: Pers
 
 function PersonRow({ person, all, use, you, editable }: { person: Person; all: Person[]; use: PersonUse | undefined; you: boolean; editable: boolean }) {
   const t = useT()
+  const lang = useLang()
   const menu = useMenu()
   const [renaming, setRenaming] = useState(false)
   const [merging, setMerging] = useState<ID | null>(null)
@@ -205,7 +206,7 @@ function PersonRow({ person, all, use, you, editable }: { person: Person; all: P
       {into && (
         <div className="tm-confirm" data-tone="signal" role="group" aria-label={t('shell.ws.people.mergeTitle', { from: person.name, into: into.name })}>
           <p className="tm-confirm__q">
-            <strong>{t('shell.ws.people.mergeTitle', { from: person.name, into: into.name })}</strong> {t('shell.ws.people.mergeBody', { from: person.name, into: into.name, rows: use?.rows.length ?? 0, mentions: use?.mentions.length ?? 0 })}
+            <strong>{t('shell.ws.people.mergeTitle', { from: person.name, into: into.name })}</strong> {used ? t('shell.ws.people.mergeBody', { from: person.name, into: into.name, what: useText(t, lang, use) }) : t('shell.ws.people.mergeBodyUnused', { from: person.name })}
           </p>
           <div className="tm-confirm__actions">
             <button type="button" className="btn btn--sm btn--ghost" onClick={() => setMerging(null)} autoFocus>
@@ -279,16 +280,23 @@ function RenameField({ person, onDone }: { person: Person; onDone: () => void })
 
 /* ------------------------------------------------------------------ where they are used */
 
+/** "12 rows · 3 mentions" (+ "5 created or edited" in a team workspace). */
+function useParts(t: Translate, lang: Lang, use: PersonUse | undefined, team = false): string[] {
+  return [
+    use?.rows.length ? t(use.rows.length === 1 ? 'shell.ws.people.row' : 'shell.ws.people.rows', { n: fmtNumber(use.rows.length, lang) }) : null,
+    use?.mentions.length ? t(use.mentions.length === 1 ? 'shell.ws.people.mention' : 'shell.ws.people.mentions', { n: fmtNumber(use.mentions.length, lang) }) : null,
+    team && use?.authored ? t('shell.ws.people.authored', { n: fmtNumber(use.authored, lang) }) : null,
+  ].filter((x): x is string => !!x)
+}
+
+const useText = (t: Translate, lang: Lang, use: PersonUse | undefined) => useParts(t, lang, use).join(' · ')
+
 /** "12 ROWS · 3 MENTIONS ▾" — opens the list of rows and pages; "NOT USED" when nobody points at them. */
 function UseLine({ use, name, team, open, onToggle, listId }: { use: PersonUse | undefined; name: string; team?: boolean; open: boolean; onToggle: () => void; listId: string }) {
   const t = useT()
   const lang = useLang()
   const n = usedCount(use)
-  const parts = [
-    use?.rows.length ? t(use.rows.length === 1 ? 'shell.ws.people.row' : 'shell.ws.people.rows', { n: fmtNumber(use.rows.length, lang) }) : null,
-    use?.mentions.length ? t(use.mentions.length === 1 ? 'shell.ws.people.mention' : 'shell.ws.people.mentions', { n: fmtNumber(use.mentions.length, lang) }) : null,
-    team && use?.authored ? t('shell.ws.people.authored', { n: fmtNumber(use.authored, lang) }) : null,
-  ].filter(Boolean)
+  const parts = useParts(t, lang, use, team)
   if (!n)
     return (
       <span className="wsp-use" data-testid="ws-use" data-used="0">

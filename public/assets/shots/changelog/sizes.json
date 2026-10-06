@@ -83,6 +83,10 @@
     1440,
     743
   ],
+  "pages-per-item.webp": [
+    1440,
+    900
+  ],
   "quick-capture.webp": [
     1440,
     900
@@ -115,8 +119,8 @@
     1440,
     1368
   ],
-  "pages-per-item.webp": [
+  "workspace-settings.webp": [
     1440,
-    900
+    985
   ]
 }
