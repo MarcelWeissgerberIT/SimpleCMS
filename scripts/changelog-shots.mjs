@@ -8,7 +8,7 @@
  *
  * (CHANGELOG_DRAFT=1 lets the build pass while a new entry's picture does not exist yet.)
  *
- * Shots: one-script-everywhere, file-ai, one-script, transform, ai-edit, db-commands, gmail-one-click, memory, grips-footer, block-select, split-to-page, image-ai, claude-reads, redo, ai-terminal, mcp-codewords, mcp-tidy-up, slash-menu, turn-into-database,
+ * Shots: tour, one-script-everywhere, file-ai, one-script, transform, ai-edit, db-commands, gmail-one-click, memory, grips-footer, block-select, split-to-page, image-ai, claude-reads, redo, ai-terminal, mcp-codewords, mcp-tidy-up, slash-menu, turn-into-database,
  * custom-agents, gmail, help-centre, mcp-servers, feed-blocks — each named like its image. Every shot starts from a fresh, seeded
  * workspace in English, light theme, 1440 × 900 at device scale 2; the crop of the relevant area is scaled
  * to 1440 px wide and saved as public/assets/shots/changelog/<shot>.webp (≤ 150 KB: the quality steps down
@@ -159,6 +159,8 @@ async function freshPage(browser, { claude, setup, viewport } = {}) {
     await Promise.all(dbs.map((d) => new Promise((r) => { const q = indexedDB.deleteDatabase(d.name); q.onsuccess = q.onerror = q.onblocked = r })))
     // the help's "What's new" LED stays off in these pictures
     localStorage.setItem('one.help.seen-changelog', '9999-12-31-shots')
+    // no "Take the 3-minute tour" card on the Welcome page of these pictures (the tour shot starts it itself)
+    localStorage.setItem('one.tour', '{"off":true}')
   })
   await page.goto(`${LOCAL}/app/?e2e`, { waitUntil: 'networkidle' })
   await page.waitForFunction(() => !!window.__one)
@@ -1090,6 +1092,30 @@ const shots = {
     const top = Math.max(0, Math.round(head.y - 12))
     const bottom = Math.max(live.y + live.height, side.y + Math.min(side.height, 520))
     await save(page, 'one-script-everywhere', { x: left, y: top, width: W - left, height: Math.min(H - 30 - top, Math.round(bottom + 16 - top)) })
+    await ctx.close()
+  },
+
+  /** The guided tour, step 4 of 8: the hairline frame around a database's view tabs, the placard under it. */
+  async tour(browser) {
+    const { ctx, page } = await freshPage(browser)
+    // started like anyone would after "Not now": ⌘K → Start the tour
+    await page.keyboard.press('Control+k')
+    await page.locator('.pal-input input').fill('Start the tour')
+    await page.waitForTimeout(300)
+    await page.keyboard.press('Enter')
+    await page.locator('.tour-placard').waitFor()
+    for (let i = 0; i < 3; i++) {
+      await page.waitForTimeout(700)
+      await page.locator('.tour-placard__next').click()
+    }
+    await page.locator('#main .db-tabs').waitFor()
+    await page.locator('.tour-placard__label', { hasText: 'Step 04 / 08' }).waitFor()
+    await page.waitForTimeout(1200)
+    await rest(page)
+    const left = Math.round((await page.locator('.sb').first().boundingBox())?.width ?? 0) + 1
+    const box = union(await boxOf(page.locator('.tour-frame')), await boxOf(page.locator('.tour-placard')), await boxOf(page.locator('#main .pv-title')))
+    const top = Math.max(0, Math.round(box.y - 28))
+    await save(page, 'tour', { x: left, y: top, width: W - left, height: Math.min(H - 30 - top, Math.round(box.y + box.height + 36 - top)) })
     await ctx.close()
   },
 

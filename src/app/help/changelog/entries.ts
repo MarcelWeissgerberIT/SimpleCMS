@@ -25,10 +25,36 @@ export type ChangelogLang = 'en' | 'de'
 export const CHANGELOG_LANGS: ChangelogLang[] = ['en', 'de']
 
 /**
- * What an entry's "Try it" key may do — a fixed allow-list, never code from the Markdown:
- * terminal (⌘J), Settings → Claude AI / Agents · MCP / Mail, the Agents page, "Ask the help".
+ * What an entry's "Try it" key may do — a fixed allow-list, never code from the Markdown (the keys of
+ * "What can One do?" use the same list): terminal (⌘J), Settings → Claude AI / Agents · MCP / Mail / Sync,
+ * the Agents page, "Ask the help", ⌘K, Scripts, Import, the Inbox, the open page's history / Share,
+ * "What can One do?", the guided tour, and — on the tour's practice page — the slash menu, the AI menu,
+ * Transform into; a database, its commands, a spreadsheet, a database's automations.
  */
-export const CHANGELOG_TRIES = ['terminal', 'settings-ai', 'settings-mcp', 'settings-mail', 'agents', 'ask'] as const
+export const CHANGELOG_TRIES = [
+  'terminal',
+  'settings-ai',
+  'settings-mcp',
+  'settings-mail',
+  'settings-sync',
+  'agents',
+  'ask',
+  'palette',
+  'scripts',
+  'import',
+  'inbox',
+  'history',
+  'share',
+  'discover',
+  'tour',
+  'slash',
+  'ai-menu',
+  'transform',
+  'database',
+  'commands',
+  'sheet',
+  'automations',
+] as const
 export type ChangelogTry = (typeof CHANGELOG_TRIES)[number]
 
 /** Where the screenshots live, under public/. */

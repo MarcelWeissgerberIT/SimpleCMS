@@ -1,0 +1,287 @@
+/* ================================================================
+   Guided tour — hairline frame + dim (no blur), the placard
+   ================================================================ */
+.tour {
+  position: fixed;
+  inset: 0;
+  z-index: calc(var(--z-toast) - 6);
+  pointer-events: none;
+}
+
+/* the frame: a hairline in signal orange, crop marks at its corners; the dim is its shadow */
+.tour-frame {
+  position: fixed;
+  left: var(--tx);
+  top: var(--ty);
+  width: var(--tw);
+  height: var(--th);
+  border: 1px solid var(--signal);
+  border-radius: var(--radius-2);
+  box-shadow: 0 0 0 200vmax color-mix(in srgb, var(--scrim) 58%, transparent);
+  pointer-events: none;
+  transition:
+    left var(--dur-3) var(--ease-out),
+    top var(--dur-3) var(--ease-out),
+    width var(--dur-3) var(--ease-out),
+    height var(--dur-3) var(--ease-out);
+}
+.tour-frame__mark {
+  position: absolute;
+  width: 9px;
+  height: 9px;
+  border: 0 solid var(--signal);
+}
+.tour-frame__mark--tl {
+  left: -6px;
+  top: -6px;
+  border-left-width: 2px;
+  border-top-width: 2px;
+}
+.tour-frame__mark--tr {
+  right: -6px;
+  top: -6px;
+  border-right-width: 2px;
+  border-top-width: 2px;
+}
+.tour-frame__mark--bl {
+  left: -6px;
+  bottom: -6px;
+  border-left-width: 2px;
+  border-bottom-width: 2px;
+}
+.tour-frame__mark--br {
+  right: -6px;
+  bottom: -6px;
+  border-right-width: 2px;
+  border-bottom-width: 2px;
+}
+
+/* ---------- placard ---------- */
+.tour-placard {
+  position: fixed;
+  left: -9999px;
+  top: 0;
+  width: min(352px, calc(100vw - 24px));
+  padding: 10px 14px 10px;
+  border: 1px solid var(--ink);
+  border-radius: var(--radius-2);
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: var(--shadow-pop);
+  pointer-events: auto;
+  transition:
+    left var(--dur-3) var(--ease-out),
+    top var(--dur-3) var(--ease-out);
+}
+.tour-placard:focus {
+  outline: none;
+}
+.tour-placard:focus-visible {
+  box-shadow: var(--shadow-pop), var(--focus-ring);
+}
+.tour-placard__bar {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 0 -6px 6px 0;
+}
+.tour-placard__mark {
+  color: var(--signal-ink);
+}
+.tour-placard__label {
+  color: var(--ink-2);
+}
+.tour-placard__spacer {
+  flex: 1;
+}
+.tour-placard__title {
+  margin: 0 0 5px;
+  font-size: 16px;
+  font-weight: 750;
+  font-stretch: 112%;
+  letter-spacing: -0.01em;
+  line-height: 1.2;
+}
+.tour-placard__body {
+  margin: 0 0 10px;
+  color: var(--ink-2);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+}
+.tour-placard__keyline {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 6px;
+  margin: 0 0 10px;
+  padding: 7px 9px;
+  border: 1px dashed var(--rule-strong);
+  border-radius: var(--radius-1);
+  color: var(--ink-2);
+  font-size: var(--text-xs);
+  line-height: 1.45;
+}
+.tour-placard__keyline svg {
+  color: var(--signal-ink);
+  flex: none;
+}
+.tour-placard__keyline span {
+  flex: 1 1 180px;
+}
+.tour-placard__link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--signal-ink);
+  font: inherit;
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+.tour-placard__note {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 0 0 10px;
+  color: var(--ink);
+}
+.tour-placard__keys {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding-top: 10px;
+  border-top: 1px solid var(--rule);
+}
+.tour-placard__do[data-done] {
+  color: var(--ink-2);
+}
+.tour-placard__do[data-done] svg {
+  color: var(--led-ok);
+}
+.tour-placard__foot {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 9px;
+}
+.tour-placard__hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  margin-left: auto;
+  white-space: nowrap;
+}
+.tour-placard__hint .kbd {
+  min-width: 15px;
+  height: 15px;
+  font-size: 9px;
+}
+.tour-placard__finish {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0 0 10px;
+}
+
+/* progress: one tick per step, the current one orange */
+.tour-ticks {
+  display: flex;
+  gap: 3px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.tour-ticks li {
+  width: 12px;
+  height: 4px;
+  border-radius: 1px;
+  background: var(--rule-strong);
+}
+.tour-ticks li[data-state='done'] {
+  background: var(--ink-3);
+}
+.tour-ticks li[data-state='now'] {
+  background: var(--signal);
+}
+
+/* without a key: what Transform into → Diagram would draw */
+.tour-would {
+  display: grid;
+  grid-template-columns: auto auto 1fr;
+  align-items: center;
+  gap: 6px 10px;
+  margin: 0 0 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-1);
+  background: var(--bg);
+}
+.tour-would figcaption {
+  grid-column: 1 / -1;
+}
+.tour-would__list {
+  display: grid;
+  gap: 3px;
+}
+.tour-would__list i {
+  display: block;
+  width: 34px;
+  height: 3px;
+  border-radius: 1px;
+  background: var(--ink-3);
+}
+.tour-would__list i::before {
+  content: '';
+}
+.tour-would__arrow {
+  color: var(--signal-ink);
+  font-family: var(--font-mono);
+}
+.tour-would__chart {
+  display: flex;
+  align-items: center;
+  gap: 0;
+}
+.tour-would__chart b {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 16px;
+  border: 1px solid var(--ink-2);
+  border-radius: 2px;
+  background: var(--surface);
+  color: var(--ink-2);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 500;
+}
+.tour-would__chart em {
+  display: block;
+  width: 10px;
+  height: 1px;
+  background: var(--ink-3);
+}
+
+/* ---------- phones: docked at the bottom ---------- */
+.tour-placard[data-docked] {
+  top: auto;
+  left: 8px;
+  right: 8px;
+  bottom: calc(8px + env(safe-area-inset-bottom, 0px));
+  width: auto;
+  transition: none;
+}
+.tour-placard[data-docked] .tour-placard__keys .btn {
+  height: 34px;
+}
+.tour-placard[data-docked] .tour-placard__hint {
+  display: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tour-frame,
+  .tour-placard {
+    transition: none;
+  }
+}

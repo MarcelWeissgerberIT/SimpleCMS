@@ -39,6 +39,8 @@ import {
   CircleHelp,
   Newspaper,
   SquareCode,
+  Compass,
+  Route,
 } from 'lucide-react'
 import { useWorkspace } from '../../store/store'
 import { useUI } from '../../store/ui'
@@ -50,6 +52,7 @@ import { quickNoteToInbox } from '../capture/inbox'
 import { openHelp, openChangelog } from '../../help'
 import { useCloud } from '../../cloud'
 import { openCloudDialog, openSettingsTab } from '../cloud/state'
+import { startTour } from '../tour/state'
 import {
   copyPageLink,
   createDatabaseAndOpen,
@@ -69,8 +72,11 @@ export interface Command {
   /** "Mod+Shift+L" style; rendered with shortcutLabel() */
   shortcut?: string
   keywords?: string
-  /** group for the palette ('database': a database's command, "<database>: <command>" — found by typing only) */
-  group: 'create' | 'page' | 'navigate' | 'workspace' | 'database'
+  /**
+   * group for the palette ('database': a database's command, "<database>: <command>" — found by typing only;
+   * 'claude': Ask AI, the AI terminal; 'start': getting started — What can One do?, the tour, Help)
+   */
+  group: 'create' | 'page' | 'navigate' | 'claude' | 'workspace' | 'start' | 'database'
   run: () => void
 }
 
@@ -108,10 +114,12 @@ export function buildCommands(t: Translate, pageId: ID | null): Command[] {
     { id: 'settings', group: 'workspace', label: t('shell.cmd.settings'), icon: Settings, shortcut: 'Mod+,', keywords: 'preferences einstellungen api key', run: () => ui.openModal({ type: 'settings' }) },
     { id: 'functions', group: 'workspace', label: t('features.fn.cmd'), icon: SquareFunction, keywords: 'custom functions formula spreadsheet build own eigene funktionen formel tabelle bauen fx', run: () => { closeMobileSidebar(); openFunctionBuilder() } },
     { id: 'shortcuts', group: 'workspace', label: t('shell.cmd.shortcuts'), icon: Keyboard, shortcut: 'Mod+/', keywords: 'keyboard keys help hilfe tastatur', run: () => ui.openModal({ type: 'shortcuts' }) },
-    { id: 'help', group: 'workspace', label: t('help.title'), icon: CircleHelp, shortcut: '?', keywords: 'help hilfe manual handbuch docs documentation dokumentation faq support anleitung', run: () => openHelp() },
+    { id: 'help', group: 'start', label: t('help.title'), icon: CircleHelp, shortcut: '?', keywords: 'help hilfe manual handbuch docs documentation dokumentation faq support anleitung', run: () => openHelp() },
     { id: 'whats-new', group: 'workspace', label: t('help.news.cmd'), icon: Newspaper, keywords: "what's new whats new changelog updates release notes neuigkeiten neu in one änderungen versionshinweise", run: () => { closeMobileSidebar(); openChangelog() } },
-    { id: 'ask-ai', group: 'page', label: t('shell.cmd.askAI'), icon: MessageSquareText, keywords: 'claude ai assistant question ki frage', run: () => ui.openPalette('?') },
-    { id: 'agent', group: 'workspace', label: t('features.agent.cmd'), icon: Workflow, shortcut: AGENT_SHORTCUT, keywords: 'agent claude ai automate bulk tasks rows pages ki automatisieren aufgaben terminal console konsole', run: () => { closeMobileSidebar(); openAgent() } },
+    { id: 'ask-ai', group: 'claude', label: t('shell.cmd.askAI'), icon: MessageSquareText, keywords: 'claude ai assistant question ki frage', run: () => ui.openPalette('?') },
+    { id: 'agent', group: 'claude', label: t('features.agent.cmd'), icon: Workflow, shortcut: AGENT_SHORTCUT, keywords: 'agent claude ai automate bulk tasks rows pages ki automatisieren aufgaben terminal console konsole', run: () => { closeMobileSidebar(); openAgent() } },
+    { id: 'discover', group: 'start', label: t('shell.discover.cmd'), icon: Compass, keywords: 'discover features overview what can one do capabilities getting started entdecken funktionen überblick was kann einstieg', run: () => { closeMobileSidebar(); navigate('#/discover') } },
+    { id: 'tour', group: 'start', label: t('shell.tour.cmd'), icon: Route, keywords: 'tour guide guided onboarding getting started intro walkthrough first steps einführung rundgang erste schritte anleitung', run: () => { closeMobileSidebar(); startTour() } },
   ]
   if (live) {
     // only while a page is open (nothing to nest under on Home or Graph); databases hold rows, not pages

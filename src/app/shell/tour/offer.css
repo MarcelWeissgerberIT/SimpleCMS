@@ -1,0 +1,91 @@
+/* ================================================================
+   The offer card on the Welcome page
+   ================================================================ */
+.tour-offer {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: start;
+  gap: 4px 14px;
+  margin: 18px 0 2px;
+  padding: 12px 14px;
+  border: 1px solid var(--rule-strong);
+  border-left: 3px solid var(--signal);
+  border-radius: var(--radius-2);
+  background: var(--surface);
+}
+.tour-offer__icon {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  margin-top: 2px;
+  border: 1px solid var(--rule-strong);
+  border-bottom-width: 2px;
+  border-radius: var(--radius-1);
+  color: var(--signal-ink);
+}
+.tour-offer__main {
+  min-width: 0;
+}
+.tour-offer__label {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-bottom: 3px;
+}
+.tour-offer__title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: -0.005em;
+}
+.tour-offer__body {
+  margin: 2px 0 0;
+  color: var(--ink-2);
+  font-size: var(--text-sm);
+  line-height: 1.45;
+}
+.tour-offer__keys {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  align-self: center;
+}
+.tour-offer__more {
+  grid-column: 2 / -1;
+  justify-self: start;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--ink-2);
+  font-size: var(--text-xs);
+  text-decoration: underline;
+  text-decoration-color: var(--rule-strong);
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+.tour-offer__more:hover {
+  color: var(--ink);
+}
+@container (max-width: 560px) {
+  .tour-offer {
+    grid-template-columns: auto 1fr;
+  }
+  .tour-offer__keys {
+    grid-column: 1 / -1;
+    justify-content: flex-start;
+    margin-top: 6px;
+  }
+}
+@media (max-width: 767px) {
+  .tour-offer {
+    grid-template-columns: auto 1fr;
+  }
+  .tour-offer__keys {
+    grid-column: 1 / -1;
+    margin-top: 6px;
+  }
+  .tour-offer__keys .btn {
+    height: 34px;
+  }
+}

@@ -30,6 +30,9 @@ import { InviteScreen } from './cloud/InviteScreen'
 import { SignupScreen } from './cloud/SignupScreen'
 import { CloudDialogs } from './cloud/Dialogs'
 import { CloudBanner } from './cloud/Sync'
+import { Discover } from './discover/Discover'
+import { TourSlot } from './tour/TourOffer'
+import './tour/register'
 import './stage/stage.css'
 
 installCloudDevHook()
@@ -136,6 +139,7 @@ function Workspace({ route }: { route: Route }) {
         <ScriptDialogHost />
       </ErrorBoundary>
       <Toasts />
+      <TourSlot />
       {presentId && <Presentation pageId={presentId} onClose={() => useUI.getState().present(null)} />}
     </div>
   )
@@ -158,6 +162,8 @@ function RouteView({ route }: { route: Route }) {
       return <AgentsRoute agentId={route.id} />
     case 'scripts':
       return <ScriptsRoute scriptId={route.id} />
+    case 'discover':
+      return <Discover />
     case 'journal':
       return <JournalPending />
     case 'clip':
@@ -177,5 +183,5 @@ function RouteTitle({ route }: { route: Route }) {
         <span>{page.title.trim() || t('common.untitled')}</span>
       </>
     )
-  return <span>{route.name === 'graph' ? t('shell.nav.graph') : route.name === 'agenda' ? t('shell.nav.agenda') : route.name === 'inbox' ? t('shell.nav.inbox') : route.name === 'agents' ? t('features.agents.title') : route.name === 'scripts' ? t('features.script.title') : t('shell.nav.home')}</span>
+  return <span>{route.name === 'graph' ? t('shell.nav.graph') : route.name === 'agenda' ? t('shell.nav.agenda') : route.name === 'inbox' ? t('shell.nav.inbox') : route.name === 'agents' ? t('features.agents.title') : route.name === 'scripts' ? t('features.script.title') : route.name === 'discover' ? t('shell.discover.title') : t('shell.nav.home')}</span>
 }

@@ -348,6 +348,8 @@ test.describe('AI-menu runs in the background', () => {
     })
     await page.waitForTimeout(200)
     await page.locator('[aria-label="Formatting"]').getByRole('button', { name: 'Ask AI' }).click()
+    // under "More …" (the AI menu's top level is short)
+    await panel(page).locator('#ai-row-more').click()
     await panel(page).getByRole('option', { name: /Turn into database/ }).click()
     await expect.poll(() => claude.waiting()).toBe(1)
     await goSidebar(page, 'Elsewhere')

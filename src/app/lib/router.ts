@@ -9,6 +9,7 @@
  *   #/inbox         → inbox: reminders, mentions, assignments, comment replies (see shell/inbox)
  *   #/agents        → custom agents (features/agents) · #/agents/<id> → one agent: its runs and review
  *   #/scripts       → One Script (features/script) · #/scripts/<id> → one script's workbench
+ *   #/discover      → "What can One do?" — the feature cards (shell/discover)
  *   #/s/<payload>   → read-only shared page (payload = compressed page, see features/share)
  *   #/clip?url=…&title=…&text=… → clip a web page into the Inbox, then replaced by #/p/<new page>
  *   #/invite/<token> → join a team workspace (preview, sign in if needed, accept; see shell/cloud)
@@ -29,6 +30,8 @@ export type Route =
   | { name: 'agents'; id?: string }
   /** #/scripts → scripts and queries · #/scripts/<id> → one script (see features/script) */
   | { name: 'scripts'; id?: string }
+  /** #/discover → "What can One do?" (see shell/discover) */
+  | { name: 'discover' }
   | { name: 'share'; payload: string }
   /** #/f/<payload> → public form (payload = compressed form schema, see database/form/codec) */
   | { name: 'form'; payload: string }
@@ -53,6 +56,7 @@ export function parseHash(hash: string): Route {
   if (parts[0] === 'inbox') return { name: 'inbox' }
   if (parts[0] === 'agents') return parts[1] ? { name: 'agents', id: parts[1] } : { name: 'agents' }
   if (parts[0] === 'scripts') return parts[1] ? { name: 'scripts', id: parts[1] } : { name: 'scripts' }
+  if (parts[0] === 'discover') return { name: 'discover' }
   if (parts[0] === 's' && parts[1]) return { name: 'share', payload: parts.slice(1).join('/') }
   if (parts[0] === 'f' && parts[1]) return { name: 'form', payload: parts.slice(1).join('/') }
   if (parts[0] === 'invite' && parts[1]) return { name: 'invite', token: parts[1] }
@@ -83,6 +87,8 @@ export function routeHref(r: Route): string {
       return r.id ? `#/agents/${r.id}` : '#/agents'
     case 'scripts':
       return r.id ? `#/scripts/${r.id}` : '#/scripts'
+    case 'discover':
+      return '#/discover'
     case 'share':
       return `#/s/${r.payload}`
     case 'form':

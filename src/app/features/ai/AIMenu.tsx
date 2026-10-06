@@ -22,6 +22,11 @@
  * Claude for files (file/**): a file block (node-selected, or the one file of a selection) lists its actions
  * (summarise, extract, tables, ask — or the local conversions: open as page, import as database, open as
  * spreadsheet); the run's body and keys come from file/FilePanel.tsx.
+ *
+ * The list for a first-time reader: the prompt first (a line under it says so), then a short top level — the
+ * most used actions for what the panel is about (TOP_ACTIONS: text · several blocks · an image · a file · the
+ * cursor) — with "Translate …", "Transform into …" and "More …" as submenus (→ opens, ← / Backspace goes
+ * back). Typing searches every action, wherever it lives.
  */
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
@@ -38,6 +43,7 @@ import {
   Check,
   Copy,
   ChevronDown,
+  ChevronRight,
   CornerDownLeft,
   EyeOff,
   FileText,
@@ -52,6 +58,7 @@ import {
   MessageCircleQuestion,
   MessageSquareText,
   Minimize2,
+  MoreHorizontal,
   PenLine,
   Play,
   ReplaceAll,
@@ -129,6 +136,11 @@ export interface AIMenuProps {
   redo?: string[]
   /** Open on a selection and transform it into this form at once (the grip menu of selected blocks). */
   transform?: TransformPick
+  /**
+   * Open on a submenu: 'todb' — "More …" with "Turn into database" highlighted (the grip menu's "Turn into
+   * database…") · 'transform' — the forms of "Transform into …" (the tour, "What can One do?").
+   */
+  open?: 'todb' | 'transform'
 }
 
 /* ------------------------------------------------------------------ */
@@ -217,6 +229,23 @@ interface ActionDef {
   keywords?: string
   /** only listed when the query matches */
   hidden?: boolean
+  /** opens a submenu (Translate, Transform into, More) */
+  sub?: boolean
+}
+
+/** What the panel is opened on — its top level offers the most used actions for that. */
+type MenuKind = 'block' | 'text' | 'blocks' | 'image' | 'file'
+
+/**
+ * The top level per selection type (ids of ActionDef; image / file: their own actions first). Everything else
+ * sits under "More …"; typing finds every action.
+ */
+const TOP_ACTIONS: Record<MenuKind, readonly string[]> = {
+  block: ['continue', 'outline', 'brainstorm', 'summarize', 'action_items', 'workspace'],
+  text: ['improve', 'fix', 'shorter', 'translate', 'explain'],
+  blocks: ['improve', 'fix', 'translate', 'transform', 'summarize'],
+  image: ['improve'],
+  file: ['improve'],
 }
 
 interface LangDef {
@@ -247,7 +276,7 @@ type Phase = 'idle' | 'streaming' | 'done' | 'error'
 /* Component                                                           */
 /* ------------------------------------------------------------------ */
 
-export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, transform: transformPick }: AIMenuProps) {
+export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, transform: transformPick, open: openOn }: AIMenuProps) {
   const t = useT()
   const hasKey = useWorkspace((s) => !!s.settings.aiApiKey.trim())
   const model = resolveModel(useWorkspace((s) => s.settings.aiModel))
@@ -317,7 +346,7 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
   const [setup, setSetup] = useState(!hasKey && !isAIDemo() && !openRun)
   const [query, setQuery] = useState('')
   const lang = useLang()
-  const [view, setView] = useState<'actions' | 'translate' | 'reads' | 'memory' | 'memhist' | 'transform'>('actions')
+  const [view, setView] = useState<'actions' | 'translate' | 'reads' | 'memory' | 'memhist' | 'transform' | 'more'>('actions')
   /** One memory: switched off for the next own request (the list's toggle) · the entry whose history shows */
   const [memOff, setMemOff] = useState(false)
   const [histOf, setHistOf] = useState<string | null>(null)
@@ -479,7 +508,7 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
       setMemOff(false)
       setMemDraft(null)
       setMemEdit(false)
-      if (view === 'memory' || view === 'memhist' || view === 'transform') setView('actions')
+      if (view === 'memory' || view === 'memhist' || view === 'transform' || view === 'more') setView('actions')
       makeRoom(req.kind === 'transform' ? TRANSFORM_ROOM : req.kind === 'file' && isStructuredAction(req.action) ? FILE_ROOM : true)
     },
     [editor, pageId, runId, makeRoom, view],
@@ -849,10 +878,12 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
       icon: Languages,
       group: t('features.ai.group.edit'),
       keywords: 'translate übersetzen language sprache',
+      sub: true,
       run: () => {
         setView('translate')
         setQuery('')
         setActive(0)
+        requestAnimationFrame(() => inputRef.current?.focus({ preventScroll: true }))
       },
     }
     const gEdit = t('features.ai.group.edit')
@@ -933,10 +964,12 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
             icon: Shapes,
             group: gStructure,
             keywords: 'transform convert visualize diagram chart columns tabs toggles cards timeline verwandeln umwandeln visualisieren schaubild diagramm spalten karten zeitleiste',
+            sub: true,
             run: () => {
               setView('transform')
               setQuery('')
               setActive(0)
+              requestAnimationFrame(() => inputRef.current?.focus({ preventScroll: true }))
             },
           },
           ...transformPicks.map(
@@ -1033,7 +1066,17 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
     ]
   }, [t, own.t.mode, own.t.todb, start, startPageLevel, handToAgent, pickRedo, editor, own, pageId, onClose, transformPicks, transformRun])
 
-  type Row = { id: string; label: ReactNode; code?: string; icon?: LucideIcon; group?: string; run: () => void; hint?: ReactNode; danger?: boolean; disabled?: boolean; current?: boolean }
+  /** text · several blocks (two or more, or a list / table) · an image · a file · the cursor (no selection) */
+  const menuKind: MenuKind =
+    own.t.mode !== 'selection' ? 'block' : img ? 'image' : file ? 'file' : transformPicks.length && !editor.isDestroyed && severalBlocks(editor, own.t.range) ? 'blocks' : 'text'
+  const isTop = useCallback(
+    (a: ActionDef) => TOP_ACTIONS[menuKind].includes(a.id) || (menuKind === 'image' && a.id.startsWith('img-')) || (menuKind === 'file' && a.id.startsWith('file-')),
+    [menuKind],
+  )
+  /** "More …": everything off the top level, in its groups ("What Claude reads…" included — elsewhere typed for only) */
+  const moreActions = useMemo(() => actions.filter((a) => !isTop(a) && (!a.hidden || a.id === 'reads')), [actions, isTop])
+
+  type Row = { id: string; label: ReactNode; code?: string; icon?: LucideIcon; group?: string; run: () => void; hint?: ReactNode; danger?: boolean; disabled?: boolean; current?: boolean; sub?: boolean }
 
   /* ---------------- One memory ---------------- */
 
@@ -1364,9 +1407,11 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
           run: () => completeTag(m.tag),
         }))
     }
+    // "More …": the rest, in their groups (typing searches everything again, as on the top level)
+    if (view === 'more' && !q) return moreActions.map(({ hidden: _hidden, keywords: _keywords, ...a }) => ({ ...a }))
     const matched = q
       ? actions.filter((a) => a.label.toLowerCase().includes(q) || a.code.toLowerCase().startsWith(q) || a.keywords?.toLowerCase().includes(q))
-      : actions.filter((a) => !a.hidden)
+      : actions.filter((a) => !a.hidden && isTop(a))
     // the image alone is selected: a typed request is a question about it
     const imageAsk: Row | null =
       q && img
@@ -1416,6 +1461,20 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
         }
       : null
     const list: Row[] = matched.map(({ hidden: _hidden, keywords: _keywords, ...a }) => ({ ...a }))
+    if (!q && moreActions.length)
+      list.push({
+        id: 'more',
+        label: t('features.ai.menu.more'),
+        code: `+${moreActions.length}`,
+        icon: MoreHorizontal,
+        sub: true,
+        run: () => {
+          setView('more')
+          setQuery('')
+          setActive(0)
+          requestAnimationFrame(() => inputRef.current?.focus({ preventScroll: true }))
+        },
+      })
     if (custom) {
       if (matched.length) list.push(custom)
       else list.unshift(custom)
@@ -1447,11 +1506,23 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
         run: () => start({ kind: 'memory', label: t('features.memory.menu.label'), code: 'MEM', text: query.trim(), from: 'request' }),
       })
     return list
-  }, [query, setup, phase, wsMode, view, actions, t, start, output, target, run, error, discard, sources, handToAgent, mcpNames, onClose, table, todbInPlace, ask, marks, lang, chooseMode, pickBlocks, redoCard, isRedo, imagePanel.rows, img, filePanel.rows, file, lineUse, memOff, previewing, histOf, memEdit, memDup, remembering, tagQuery, transformPicks, transformRun, transformPanel.apply]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [query, setup, phase, wsMode, view, actions, t, start, output, target, run, error, discard, sources, handToAgent, mcpNames, onClose, table, todbInPlace, ask, marks, lang, chooseMode, pickBlocks, redoCard, isRedo, imagePanel.rows, img, filePanel.rows, file, lineUse, memOff, previewing, histOf, memEdit, memDup, remembering, tagQuery, transformPicks, transformRun, transformPanel.apply, isTop, moreActions]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     setActive((a) => Math.min(a, Math.max(0, rows.length - 1)))
   }, [rows.length])
+
+  // opened on a submenu (the grip menu's "Turn into database…", the tour): there, the asked row highlighted
+  const openedOn = useRef(false)
+  useEffect(() => {
+    if (!openOn || openRun || setup || openedOn.current) return
+    openedOn.current = true
+    if (openOn === 'transform' && transformPicks.length) return setView('transform')
+    if (openOn === 'todb' && moreActions.some((a) => a.id === 'todb')) {
+      setView('more')
+      requestAnimationFrame(() => setActive(Math.max(0, moreActions.findIndex((a) => a.id === 'todb'))))
+    }
+  }, [openOn, openRun, setup, transformPicks, moreActions])
 
   useEffect(() => {
     setActive(0)
@@ -1501,6 +1572,13 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
     } else if ((e.key === 'ArrowLeft' || e.key === 'ArrowRight') && !query && run?.req.kind === 'transform') {
       // "Transform into": ←/→ in the empty prompt = the previous / next form
       if (transformPanel.step(e.key === 'ArrowLeft' ? -1 : 1)) e.preventDefault()
+    } else if (e.key === 'ArrowRight' && !query && phase === 'idle' && rows[active]?.sub) {
+      // a submenu row (Translate, Transform into, More): → opens it
+      e.preventDefault()
+      rows[active].run()
+    } else if (e.key === 'ArrowLeft' && !query && phase === 'idle' && (view === 'more' || view === 'translate' || view === 'transform')) {
+      e.preventDefault()
+      setView('actions')
     } else if (e.key === 'Tab' && !e.shiftKey && rows[active]?.id.startsWith('tag-')) {
       e.preventDefault()
       rows[active].run()
@@ -1513,7 +1591,7 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
       if (ask) {
         e.preventDefault()
         setAsk(null)
-      } else if (view === 'translate' || view === 'reads' || view === 'memory' || view === 'transform') {
+      } else if (view === 'translate' || view === 'reads' || view === 'memory' || view === 'transform' || view === 'more') {
         e.preventDefault()
         setView('actions')
       } else if (view === 'memhist') {
@@ -1548,6 +1626,8 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
 
   const busy = phase === 'streaming'
   const showOutput = phase !== 'idle' && !setup && !redoCard
+  /** the line under the prompt on the top level: ask in your own words, or pick */
+  const leadShown = phase === 'idle' && view === 'actions' && !query && !wsMode && !ask && !redoCard && !openRun && rows.length > 0
   const isTodb = run?.req.kind === 'todb'
   const isMemory = run?.req.kind === 'memory'
   const isTransform = run?.req.kind === 'transform'
@@ -1606,6 +1686,11 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
                   <ArrowLeft size={11} strokeWidth={2} /> {t('features.ai.transform.title')}
                 </button>
               )}
+              {view === 'more' && phase === 'idle' && (
+                <button className="ai-chip" onClick={() => setView('actions')}>
+                  <ArrowLeft size={11} strokeWidth={2} /> {t('features.ai.menu.moreTitle')}
+                </button>
+              )}
               {view === 'reads' && (
                 <button className="ai-chip" onClick={() => setView('actions')}>
                   <ArrowLeft size={11} strokeWidth={2} /> {t('features.ai.reads.title')}
@@ -1638,6 +1723,7 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
                   onChange={(e) => setQuery(e.target.value)}
                   onKeyDown={onKeyDown}
                   aria-label={placeholder}
+                  aria-describedby={leadShown ? 'ai-lead' : undefined}
                   aria-activedescendant={rows[active] ? `ai-row-${rows[active].id}` : undefined}
                   spellCheck={false}
                   autoComplete="off"
@@ -1893,6 +1979,12 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
               </div>
             )}
 
+            {leadShown && (
+              <p className="ai-lead" id="ai-lead">
+                {t('features.ai.menu.leadA')} <Kbd>↵</Kbd> {t('features.ai.menu.leadB')}
+              </p>
+            )}
+
             {rows.length > 0 && (
               <div className="ai-list" ref={listRef} role="listbox" data-keys={phase === 'done' || phase === 'error' ? '' : undefined} data-quiet={reviewing || undefined}>
                 {rows.map((r, i) => {
@@ -1911,7 +2003,7 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
                         aria-current={r.current || undefined}
                         data-index={i}
                         data-active={i === active}
-                        className={`ai-row${r.danger ? ' ai-row--danger' : ''}`}
+                        className={`ai-row${r.danger ? ' ai-row--danger' : ''}${r.id === 'more' ? ' ai-row--more' : ''}`}
                         onMouseMove={() => i !== active && setActive(i)}
                         onClick={() => !r.disabled && r.run()}
                       >
@@ -1920,6 +2012,7 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
                         {r.current && <span className="led led--on ai-row__cur" aria-hidden />}
                         {r.hint}
                         {r.code && <span className="ai-row__code">{r.code}</span>}
+                        {r.sub && <ChevronRight className="ai-row__sub" size={13} strokeWidth={1.8} aria-hidden />}
                       </button>
                     </div>
                   )
@@ -1974,6 +2067,22 @@ function useNarrow(): boolean {
 }
 
 const ISSUE_CODES: Record<TodbIssue, string> = { none: 'NO_ENTRIES', bad: 'BAD_ANSWER', changed: 'CHANGED', gone: 'GONE' }
+
+/** A selection that is "several blocks" for the menu: two or more whole blocks, or a whole list / table. */
+function severalBlocks(editor: Editor, range: BlockRange | null | undefined): boolean {
+  if (!range) return false
+  try {
+    const $a = editor.state.doc.resolve(range.from)
+    const $b = editor.state.doc.resolve(range.to)
+    if (!$a.sameParent($b)) return true
+    const n = $b.index() - $a.index()
+    if (n >= 2) return true
+    const only = n === 1 ? $a.parent.child($a.index()) : null
+    return !!only && /^(bulletList|orderedList|taskList|table)$/.test(only.type.name)
+  } catch {
+    return false
+  }
+}
 
 /** Blocks in a "Turn into database" range (the wait line counts them). */
 function countBlocks(editor: Editor, range: BlockRange): number {

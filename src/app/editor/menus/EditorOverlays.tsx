@@ -31,8 +31,8 @@ function AI({ editor, bridge, pageId }: { editor: Editor; bridge: Bridge; pageId
     })
   }
   // passages to redo (block menu, AI terminal) / a form to transform the selection into (grip menu): a fresh panel on them
-  const key = ai.redo ? `redo:${ai.redo.join(',')}` : ai.transform ? `transform:${ai.transform}` : 'ai'
-  return <AIMenuSlot key={key} editor={editor} pageId={pageId} mode={ai.mode} redo={ai.redo} transform={ai.transform} onClose={close} />
+  const key = ai.redo ? `redo:${ai.redo.join(',')}` : ai.transform ? `transform:${ai.transform}` : ai.open ? `open:${ai.open}` : 'ai'
+  return <AIMenuSlot key={key} editor={editor} pageId={pageId} mode={ai.mode} redo={ai.redo} transform={ai.transform} open={ai.open} onClose={close} />
 }
 
 export const EditorOverlays = memo(function EditorOverlays({ editor, bridge, pageId }: { editor: Editor; bridge: Bridge; pageId: string }) {

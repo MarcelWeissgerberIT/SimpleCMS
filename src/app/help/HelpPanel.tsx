@@ -15,6 +15,7 @@ import { changelogPublicUrl, helpPublicUrl } from './urls'
 import { ArticleView, IndexView, ResultsView, SearchField, SectionView } from './views'
 import { AskView } from './AskView'
 import { ChangelogView, ChangeView, NewsStrip } from './changelog/views'
+import { StartStrip } from './StartStrip'
 
 export default function HelpPanel({ shortcuts }: { shortcuts?: ReactNode }) {
   const t = useT()
@@ -139,7 +140,16 @@ function Manual({ loc }: { loc: HelpLoc }) {
   if (loc.kind === 'section') return <SectionView id={loc.id} />
   if (loc.kind === 'changelog') return <ChangelogView />
   if (loc.kind === 'change') return <ChangeView key={loc.id} id={loc.id} />
-  return <IndexView lead={<NewsStrip />} />
+  return (
+    <IndexView
+      lead={
+        <>
+          <StartStrip />
+          <NewsStrip />
+        </>
+      }
+    />
+  )
 }
 
 /** The Manual tab returns to the last place in the manual (or its index). */

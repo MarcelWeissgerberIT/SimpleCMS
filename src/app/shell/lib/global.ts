@@ -224,6 +224,7 @@ export function useRouteEffects(route: Route) {
     else if (route.name === 'inbox') name = t('shell.nav.inbox')
     else if (route.name === 'agents') name = t('features.agents.title')
     else if (route.name === 'scripts') name = t('features.script.title')
+    else if (route.name === 'discover') name = t('shell.discover.title')
     else if (route.name === 'clip') name = t('shell.capture.crumb')
     else if (route.name === 'notfound') name = t('shell.notFound.title')
     else name = t('shell.nav.home')
