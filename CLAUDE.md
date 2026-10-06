@@ -277,7 +277,17 @@ the public APIs stable — other areas are built against them in parallel.
   page with origin 'coding'; logs, diffs and trust per device in IndexedDB `one-coding`, never synced. One sends the worker
   only task data and the fixed verbs in GIT_VERBS — never a path or a command; the worker runs git as argument lists,
   only on repos in its own config, creates / cleans only its own branches + worktrees, never skips Claude Code's
-  permissions. Team: the worker takes only tasks whose version (SHA-256) was written or confirmed on this device.
+  permissions. Team: the worker takes only tasks whose version (SHA-256) was written or confirmed on this device. Version =
+  title + page + Repo / Branch / Stage + the pipeline (names, kinds, Auto, mode, turns, git action, next, instructions);
+  trust carries only for changes made in this tab (never `isApplyingRemote` / `isAgentWriting`); locally a task an agent
+  created or changed last (`agent:`) waits for Confirm too; nothing is written for an unconfirmed task. Prompt data blocks
+  end only at markers with a random code; the worker never uses the base branch and never reads through untracked
+  symlinks; Claude Code's output goes into the page through `claudeDoc`.
+- Claude's Markdown goes into or is shown in a page only through `claudeDoc` / `claudeBlocks` (features/ai/claudeDoc.ts):
+  web images become links, frames / media / web files never load. In shared pages Claude's change is its own undo step
+  (`startUndoStep(view)` / `endUndoStep(view)`, editor/index.ts). History `SnapshotReason 'script'` ('Script · <name>').
+  UI: Popover is hidden until placed and focuses at once; Menu activates only on real pointer movement
+  (ui/pointer.ts `usePointerIntent`); use ui/focus.ts `restoreFocus` / `useFocusWhenShown`.
 - Database views: table | board | list | gallery | feed | calendar | timeline | chart | form. Feed settings live in
   `View.feed` (dateProperty — null = created time, order newest | oldest, content); without sorts of its own a feed
   orders newest first. Rows in view order come from `orderRows()` (database/model/feed.ts), used by `rowsOfView()` too.
