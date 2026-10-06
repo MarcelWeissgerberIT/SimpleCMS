@@ -17,6 +17,7 @@ import { MemorySettings } from '../../features'
 import { fmtBytes, plural } from '../lib/format'
 import { requestReset } from '../lib/reset'
 import { WebClipper } from '../capture/WebClipper'
+import { InstallSection } from '../capture/Install'
 import { TeamTab } from '../cloud/TeamTab'
 import { ServerTab } from '../cloud/ServerTab'
 import { consumeSettingsTab, useInCloud, useReadOnly, useWorkspaceTitle } from '../cloud/state'
@@ -256,6 +257,7 @@ function GeneralTab() {
       <Field label={t('shell.settings.spellcheck')} hint={t('shell.settings.spellcheckHint')} inline>
         <Switch checked={s.spellcheck} onChange={(v) => set({ spellcheck: v })} label={t('shell.settings.spellcheck')} />
       </Field>
+      <InstallSection />
     </>
   )
 }

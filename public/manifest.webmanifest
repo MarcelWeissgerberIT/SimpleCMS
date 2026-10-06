@@ -9,13 +9,70 @@
   "background_color": "#f2f0ea",
   "theme_color": "#f2f0ea",
   "lang": "en",
+  "categories": ["productivity", "utilities"],
   "share_target": {
-    "action": "./app/",
-    "method": "GET",
-    "params": { "title": "title", "text": "text", "url": "url" }
+    "action": "./app/?share-target",
+    "method": "POST",
+    "enctype": "multipart/form-data",
+    "params": {
+      "title": "title",
+      "text": "text",
+      "url": "url",
+      "files": [
+        {
+          "name": "files",
+          "accept": ["image/*", "application/pdf", "audio/*", "video/*", "text/*", ".csv", ".tsv", ".md", ".txt", ".docx", ".xlsx", "*/*"]
+        }
+      ]
+    }
   },
+  "shortcuts": [
+    {
+      "name": "Quick note",
+      "short_name": "Note",
+      "description": "Capture a thought, a photo or a voice note",
+      "url": "./app/?launch=capture",
+      "icons": [{ "src": "assets/icons/shortcut-capture.png", "sizes": "192x192", "type": "image/png" }]
+    },
+    {
+      "name": "New page",
+      "short_name": "Page",
+      "url": "./app/?launch=new-page",
+      "icons": [{ "src": "assets/icons/shortcut-page.png", "sizes": "192x192", "type": "image/png" }]
+    },
+    {
+      "name": "Search",
+      "short_name": "Search",
+      "url": "./app/?launch=search",
+      "icons": [{ "src": "assets/icons/shortcut-search.png", "sizes": "192x192", "type": "image/png" }]
+    },
+    {
+      "name": "AI terminal",
+      "short_name": "Terminal",
+      "url": "./app/?launch=terminal",
+      "icons": [{ "src": "assets/icons/shortcut-terminal.png", "sizes": "192x192", "type": "image/png" }]
+    }
+  ],
   "icons": [
     { "src": "assets/icons/app-icon.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
-    { "src": "assets/icons/app-icon.webp", "sizes": "512x512", "type": "image/webp", "purpose": "any" }
+    { "src": "assets/icons/app-icon.webp", "sizes": "512x512", "type": "image/webp", "purpose": "any" },
+    { "src": "assets/icons/app-icon-maskable.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" },
+    { "src": "assets/icons/app-icon-maskable-192.png", "sizes": "192x192", "type": "image/png", "purpose": "maskable" }
+  ],
+  "screenshots": [
+    {
+      "src": "assets/shots/install/one-wide.webp",
+      "sizes": "1440x900",
+      "type": "image/webp",
+      "form_factor": "wide",
+      "label": "A page with a database in the One workspace"
+    },
+    {
+      "src": "assets/shots/install/one-narrow.webp",
+      "sizes": "780x1688",
+      "type": "image/webp",
+      "form_factor": "narrow",
+      "label": "Quick capture on a phone: text, voice and photos into Clippings"
+    }
   ]
 }

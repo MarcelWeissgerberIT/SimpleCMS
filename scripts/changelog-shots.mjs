@@ -8,7 +8,7 @@
  *
  * (CHANGELOG_DRAFT=1 lets the build pass while a new entry's picture does not exist yet.)
  *
- * Shots: one-script-everywhere, file-ai, one-script, transform, ai-edit, db-commands, gmail-one-click, memory, grips-footer, block-select, split-to-page, image-ai, claude-reads, redo, ai-terminal, mcp-codewords, mcp-tidy-up, slash-menu, turn-into-database,
+ * Shots: quick-capture, one-script-everywhere, file-ai, one-script, transform, ai-edit, db-commands, gmail-one-click, memory, grips-footer, block-select, split-to-page, image-ai, claude-reads, redo, ai-terminal, mcp-codewords, mcp-tidy-up, slash-menu, turn-into-database,
  * custom-agents, gmail, help-centre, mcp-servers, feed-blocks — each named like its image. Every shot starts from a fresh, seeded
  * workspace in English, light theme, 1440 × 900 at device scale 2; the crop of the relevant area is scaled
  * to 1440 px wide and saved as public/assets/shots/changelog/<shot>.webp (≤ 150 KB: the quality steps down
@@ -1091,6 +1091,47 @@ const shots = {
     const bottom = Math.max(live.y + live.height, side.y + Math.min(side.height, 520))
     await save(page, 'one-script-everywhere', { x: left, y: top, width: W - left, height: Math.min(H - 30 - top, Math.round(bottom + 16 - top)) })
     await ctx.close()
+  },
+
+  /**
+   * Quick capture at phone width, three screens side by side: a page with the capture key, the sheet with a
+   * note, a photo and its target, the saved Clippings page. Composed on paper at 1440 × 900.
+   */
+  async 'quick-capture'(browser) {
+    const PHONE = { width: 390, height: 844 }
+    const { ctx, page } = await freshPage(browser, { viewport: PHONE })
+    const shots = []
+    const snap = async () => shots.push((await page.screenshot()).toString('base64'))
+    await openPage(page, 'Team wiki')
+    await rest(page)
+    await page.getByTestId('capture-fab').waitFor()
+    await snap()
+    await page.getByTestId('capture-fab').click()
+    const sheet = page.getByRole('dialog', { name: 'Quick capture' })
+    await sheet.waitFor()
+    await sheet.getByRole('textbox').fill('Call the venue about Friday\n- ask for the projector\n- confirm **40** seats')
+    await sheet.getByTestId('capture-photo').setInputFiles({ name: 'venue.webp', mimeType: 'image/webp', buffer: readFileSync('public/assets/covers/concrete.webp') })
+    await sheet.locator('.qcap__thumb').waitFor()
+    await page.waitForTimeout(500)
+    await snap()
+    await sheet.getByRole('button', { name: /^Save/ }).click()
+    await page.locator('.toast', { hasText: 'Saved to Clippings' }).getByRole('button', { name: 'Open' }).click()
+    await page.locator('#main .pv-title').waitFor()
+    await page.locator('#main .ProseMirror img').first().waitFor()
+    await page.waitForTimeout(900)
+    await rest(page)
+    await snap()
+    await ctx.close()
+
+    const board = await browser.newContext({ viewport: { width: W, height: H }, deviceScaleFactor: SCALE, colorScheme: 'light' })
+    const out = await board.newPage()
+    const labels = ['01 · The key', '02 · Quick capture · Mod+Shift+K', '03 · Saved to Clippings']
+    await out.setContent(`<!doctype html><html><body style="margin:0;width:${W}px;height:${H}px;background:#f2f0ea;display:flex;align-items:center;justify-content:center;gap:56px;font:500 10.5px/1 ui-monospace,'DejaVu Sans Mono',monospace;letter-spacing:.08em;text-transform:uppercase;color:#55524b">${shots
+      .map((b64, i) => `<figure style="margin:0;display:flex;flex-direction:column;gap:12px"><figcaption>${labels[i]}</figcaption><img src="data:image/png;base64,${b64}" style="display:block;width:${Math.round((780 * PHONE.width) / PHONE.height)}px;height:780px;border-radius:8px;box-shadow:0 0 0 1px rgba(18,18,16,.2),0 24px 48px -24px rgba(18,18,16,.35)"></figure>`)
+      .join('')}</body></html>`)
+    await out.waitForFunction(() => [...document.images].every((i) => i.complete))
+    await save(out, 'quick-capture')
+    await board.close()
   },
 
   /** Several blocks selected (text, image, table): the wash on each, the pinned grip, the count chip. */

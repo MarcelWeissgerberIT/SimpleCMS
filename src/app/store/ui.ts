@@ -34,6 +34,8 @@ export interface Toast {
   message: string
   kind?: 'info' | 'success' | 'error'
   action?: { label: string; run: () => void }
+  /** further keys after `action` (e.g. "Describe" · "Read out text") */
+  more?: Array<{ label: string; run: () => void }>
   timeout?: number
 }
 

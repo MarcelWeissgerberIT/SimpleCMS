@@ -536,6 +536,26 @@
   .toasts {
     bottom: calc(16px + env(safe-area-inset-bottom));
   }
+  /* several keys: the message on its own line, the keys below it */
+  .toast[data-more] {
+    flex-wrap: wrap;
+    width: min(560px, calc(100vw - 32px));
+    padding-bottom: 8px;
+  }
+  .toast[data-more] .toast__msg {
+    flex: 1 1 0;
+    min-width: calc(100% - 60px);
+  }
+  .toast[data-more] .toast__close {
+    order: 1;
+  }
+  .toast[data-more] .toast__action {
+    order: 2;
+    height: 32px;
+  }
+  .toast[data-more] .toast__action:first-of-type {
+    margin-left: 16px;
+  }
 }
 
 /* ---------- boot / error ---------- */

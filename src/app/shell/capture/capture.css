@@ -283,3 +283,473 @@
   }
 }
 
+
+/* shared files in the "Save to Clippings?" card */
+.clipq__files {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.clipq__file {
+  display: grid;
+  grid-template-columns: 14px minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  font-size: var(--text-sm);
+}
+.clipq__file svg {
+  color: var(--ink-3);
+}
+.clipq__fname {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.clipq__fsize {
+  color: var(--ink-3);
+  font-size: var(--text-2xs);
+  letter-spacing: 0.02em;
+}
+.clipq__file[data-skipped] .clipq__fname {
+  color: var(--ink-3);
+  text-decoration: line-through;
+}
+.clipq__file[data-skipped] .clipq__fsize {
+  color: var(--c-red-text);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-label);
+}
+@media (max-width: 560px) {
+  .clipq__actions .btn {
+    height: 44px;
+  }
+}
+
+/* ---------- Quick capture: the sheet ---------- */
+.qcap__body {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  padding: 0 16px 14px;
+  border-top: 3px solid var(--signal);
+  overflow: auto;
+}
+.qcap__head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 -16px;
+  padding: 4px 6px 4px 16px;
+  border-bottom: 1px solid var(--rule);
+}
+.qcap__code,
+.qcap__offline {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+.qcap__code {
+  color: var(--ink);
+}
+.qcap__offline {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ink-3);
+  text-overflow: ellipsis;
+}
+.qcap__kbd {
+  margin-left: auto;
+}
+.qcap__close {
+  flex: none;
+  width: 36px;
+  height: 36px;
+  margin-left: auto;
+}
+.qcap__kbd + .qcap__close {
+  margin-left: 0;
+}
+.qcap__rec {
+  animation: qcap-rec 0.8s steps(2, jump-none) infinite alternate;
+}
+@keyframes qcap-rec {
+  to {
+    opacity: 0.25;
+  }
+}
+.qcap__text {
+  width: 100%;
+  min-height: 84px;
+  max-height: 40vh;
+  max-height: 40dvh;
+  margin: 12px 0 0;
+  padding: 10px 12px;
+  resize: none;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius-1);
+  background: var(--bg);
+  color: var(--ink);
+  font: inherit;
+  font-size: var(--text-lg);
+  line-height: 1.45;
+  caret-color: var(--signal);
+}
+.qcap__text::placeholder {
+  color: var(--ink-faint);
+}
+.qcap__text:focus {
+  border-color: var(--ink-3);
+  outline: none;
+}
+.qcap__text:focus-visible {
+  box-shadow: var(--focus-ring);
+}
+.qcap__interim {
+  margin: 6px 2px 0;
+  color: var(--ink-3);
+  font-size: var(--text-sm);
+  font-style: italic;
+  overflow-wrap: anywhere;
+}
+.qcap__files {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 10px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.qcap__file {
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr) auto auto;
+  gap: 8px;
+  align-items: center;
+  max-width: 100%;
+  height: 44px;
+  padding: 0 4px 0 6px;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-2);
+  background: var(--surface-2);
+  font-size: var(--text-sm);
+}
+.qcap__thumb {
+  display: block;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-1);
+  object-fit: cover;
+}
+.qcap__fglyph {
+  justify-self: center;
+  color: var(--ink-3);
+}
+.qcap__fname {
+  min-width: 0;
+  max-width: 22ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.qcap__fsize {
+  color: var(--ink-3);
+  font-size: var(--text-2xs);
+}
+.qcap__fdel {
+  width: 32px;
+  height: 32px;
+}
+.qcap__target {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  margin-top: 12px;
+}
+.qcap__pick {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  max-width: 100%;
+  height: 32px;
+  padding: 0 8px;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius-1);
+  background: var(--surface);
+  color: var(--ink);
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+.qcap__pick:hover {
+  background: var(--surface-2);
+}
+.qcap__pick:active {
+  transform: translateY(1px);
+}
+.qcap__pickicon {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  color: var(--ink-2);
+}
+.qcap__picklabel {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.qcap__hint {
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+}
+.qcap__msg {
+  margin: 10px 0 0;
+  color: var(--c-red-text);
+  font-size: var(--text-sm);
+}
+.qcap__bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--rule);
+}
+.qcap__tool {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius-1);
+  background: var(--surface);
+  color: var(--ink);
+  transition:
+    background var(--dur-1) var(--ease-out),
+    transform var(--dur-1) var(--ease-out);
+}
+.qcap__tool:hover {
+  background: var(--surface-2);
+}
+.qcap__tool:active {
+  transform: translateY(1px);
+}
+.qcap__tool:disabled {
+  opacity: 0.4;
+}
+.qcap__tool[data-on] {
+  border-color: var(--signal);
+  background: var(--signal);
+  color: var(--on-signal);
+}
+.qcap__listening {
+  color: var(--signal-ink);
+}
+.qcap__spacer {
+  flex: 1;
+}
+.qcap__save {
+  height: 36px;
+  padding: 0 14px;
+  font-size: var(--text-md);
+}
+.qcap__savekbd {
+  margin-left: 2px;
+  border-color: color-mix(in srgb, currentColor 40%, transparent);
+  background: transparent;
+  color: inherit;
+}
+
+/* phones: a sheet from the bottom edge, above the on-screen keyboard (--qcap-kb), clear of the home indicator */
+@media (max-width: 767px) {
+  .modal-scrim:has(> .qcap) {
+    place-items: end stretch;
+    padding: 12px 0 var(--qcap-kb, 0px);
+  }
+  .modal.qcap {
+    width: 100% !important;
+    max-height: calc(100% - 12px);
+    border-radius: var(--radius-3) var(--radius-3) 0 0;
+  }
+  .qcap__body {
+    padding: 0 max(16px, env(safe-area-inset-right)) max(12px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
+  }
+  .qcap__head {
+    margin: 0 calc(-1 * max(16px, env(safe-area-inset-right))) 0 calc(-1 * max(16px, env(safe-area-inset-left)));
+  }
+  .qcap__close,
+  .qcap__tool,
+  .qcap__save {
+    width: 44px;
+    height: 44px;
+  }
+  .qcap__save {
+    width: auto;
+    min-width: 96px;
+  }
+  .qcap__pick {
+    height: 44px;
+    flex: 1;
+  }
+  .qcap__hint {
+    flex-basis: 100%;
+  }
+  .qcap__fdel {
+    width: 40px;
+    height: 40px;
+  }
+}
+
+/* ---------- Quick capture: the floating key (phones) ---------- */
+.qcap-fab {
+  position: fixed;
+  right: calc(16px + env(safe-area-inset-right));
+  bottom: calc(16px + env(safe-area-inset-bottom));
+  z-index: 40;
+  display: grid;
+  place-items: center;
+  width: 56px;
+  height: 56px;
+  padding: 0;
+  border: 1px solid var(--ink);
+  border-radius: var(--radius-2);
+  background: var(--ink);
+  box-shadow:
+    inset 0 -3px 0 rgba(0, 0, 0, 0.35),
+    var(--shadow-pop);
+  color: var(--ink-inverse);
+  transition:
+    transform var(--dur-2) var(--ease-out),
+    opacity var(--dur-2) var(--ease-out),
+    bottom var(--dur-2) var(--ease-out);
+}
+.qcap-fab:active {
+  transform: translateY(1px);
+  box-shadow:
+    inset 0 -1px 0 rgba(0, 0, 0, 0.35),
+    var(--shadow-pop);
+}
+.qcap-fab__led {
+  position: absolute;
+  top: 7px;
+  right: 7px;
+  width: 6px;
+  height: 6px;
+  border-radius: var(--radius-led);
+  background: var(--signal);
+}
+/* a toast sits at the bottom edge: the key steps up */
+.qcap-fab[data-lifted] {
+  bottom: calc(72px + env(safe-area-inset-bottom));
+}
+/* typing, or the keyboard is up: out of the way */
+.qcap-fab[data-hidden] {
+  visibility: hidden;
+  opacity: 0;
+  transform: translateY(12px);
+  pointer-events: none;
+}
+
+/* ---------- Install One ---------- */
+.install-key {
+  white-space: nowrap;
+}
+.installq__body {
+  padding: 0 24px 18px;
+  border-top: 3px solid var(--signal);
+}
+.installq__head {
+  margin: 0 -24px;
+  padding: 10px 24px 9px;
+  border-bottom: 1px solid var(--rule);
+}
+.installq__head .label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--ink);
+}
+.installq__title {
+  margin: 18px 0 6px;
+  font-size: 22px;
+  font-stretch: var(--display-stretch);
+  font-weight: 800;
+  letter-spacing: var(--tracking-tight);
+  line-height: 1.15;
+}
+.installq__why {
+  margin: 0;
+  color: var(--ink-2);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+}
+.installq__steps {
+  margin: 16px 0 0;
+  padding: 0;
+  border-top: 1px solid var(--rule-strong);
+  list-style: none;
+}
+.installq__step {
+  display: grid;
+  grid-template-columns: 26px minmax(0, 1fr) 36px;
+  gap: 10px;
+  align-items: center;
+  min-height: 48px;
+  border-bottom: 1px solid var(--rule);
+  font-size: var(--text-md);
+}
+.installq__num {
+  color: var(--signal-ink);
+  font-size: var(--text-2xs);
+  font-weight: 600;
+  letter-spacing: var(--tracking-label);
+}
+.installq__glyph {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius-2);
+  background: var(--surface-2);
+  color: var(--ink);
+}
+.installq__note {
+  margin: 12px 0 0;
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+  line-height: 1.5;
+}
+.installq__actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 18px;
+}
+@media (max-width: 560px) {
+  .installq__body {
+    padding: 0 16px 16px;
+  }
+  .installq__head {
+    margin: 0 -16px;
+    padding: 10px 16px 9px;
+  }
+  .installq__actions .btn {
+    flex: 1;
+    height: 44px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .qcap__rec {
+    animation: none;
+  }
+  .qcap-fab {
+    transition: none;
+  }
+}
