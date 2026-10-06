@@ -1,10 +1,11 @@
 /**
- * Settings → Coding worker: the switch (per device), the link's LED and read-out (worker, repos, running,
- * today's cost, port), what a refusal means (another workspace / not bound yet) — and the setup: Node,
- * git and the Claude Code CLI, the worker file, `init --workspace <this id>`, the repos in worker.json, run.
+ * Settings → Coding worker: the 3-step card (SetupCard: download the worker ready-paired, start it, tick the
+ * repos in its page), this device's link (switch — a download switches it on —, LED, read-out, port, what a
+ * refusal means), the manual setup for a worker.json of one's own (download, `init --workspace <this id>`,
+ * check, run) and the safety notes.
  */
 import { useId, useState, type ReactNode } from 'react'
-import { Copy, Download } from 'lucide-react'
+import { ChevronRight, Download } from 'lucide-react'
 import { useUI } from '../../store/ui'
 import { useWorkspace } from '../../store/store'
 import { useCloud } from '../../cloud'
@@ -16,57 +17,17 @@ import { workspaceInfo } from '../mcp/identity'
 import { WORKER_DEFAULT_PORT } from './protocol'
 import { reconnect, setCodingEnabled, setCodingPort } from './service'
 import { useCoding, validPort, type CodingState } from './state'
+import { CodeBlock } from './CodeBlock'
+import { SetupCard } from './SetupCard'
+import { workerStateText } from './stateText'
 import './coding.css'
-
-type T = ReturnType<typeof useT>
 
 /** Where the site serves the worker (respects the app's base). */
 export function workerUrl(): string {
   return new URL(`${import.meta.env.BASE_URL}mcp/one-worker.mjs`, window.location.origin).href
 }
 
-export function workerStateText(t: T, s: Pick<CodingState, 'enabled' | 'conn' | 'worker' | 'busy' | 'refused'>): string {
-  if (!s.enabled) return t('features.coding.conn.off')
-  switch (s.conn) {
-    case 'connected': {
-      const repos = s.worker?.repos.length ?? 0
-      const base = t(repos === 1 ? 'features.coding.conn.connected.one' : 'features.coding.conn.connected.other', { name: s.worker?.name ?? '', n: repos })
-      return s.busy.length ? `${base} · ${t('features.coding.conn.busy', { n: s.busy.length })}` : base
-    }
-    case 'connecting':
-      return t('features.coding.conn.connecting')
-    case 'waiting':
-      return t('features.coding.conn.waiting')
-    case 'replaced':
-      return t('features.coding.conn.replaced')
-    case 'refused':
-      return s.refused === 'unbound' ? t('features.coding.conn.unbound') : t('features.coding.conn.refused')
-    case 'blocked':
-      return t('features.coding.conn.blocked')
-    default:
-      return t('features.coding.conn.off')
-  }
-}
-
-function CodeBlock({ code, label }: { code: string; label: string }) {
-  const t = useT()
-  const copy = async () => {
-    try {
-      await navigator.clipboard.writeText(code)
-      useUI.getState().toast({ message: t('features.coding.copied'), kind: 'success' })
-    } catch {
-      useUI.getState().toast({ message: t('features.coding.copyFailed'), kind: 'error' })
-    }
-  }
-  return (
-    <div className="cw-code">
-      <pre aria-label={label}>{code}</pre>
-      <button type="button" className="icon-btn icon-btn--sm cw-code__copy" onClick={() => void copy()} aria-label={t('features.coding.copy', { what: label })} title={t('features.coding.copy', { what: label })}>
-        <Copy size={13} strokeWidth={1.75} />
-      </button>
-    </div>
-  )
-}
+export { workerStateText }
 
 function Panel({ code, title, children, state }: { code: string; title: string; children: ReactNode; state?: ReactNode }) {
   const id = useId()
@@ -80,6 +41,22 @@ function Panel({ code, title, children, state }: { code: string; title: string; 
       </header>
       <div className="cw-panel__body">{children}</div>
     </section>
+  )
+}
+
+/** What a refusal means and what to do — by why the worker said no. */
+function Refused({ s, wsId }: { s: CodingState; wsId: string }) {
+  const t = useT()
+  const legacy = s.refused !== 'pair' && !s.refusedPaired
+  const text = s.refused === 'pair' ? t('features.coding.settings.pair') : s.refusedPaired ? t('features.coding.settings.refusedPaired') : s.refused === 'unbound' ? t('features.coding.settings.unbound') : t('features.coding.settings.refused')
+  return (
+    <div className="cw-msg cw-msg--warn" data-testid="coding-refused">
+      <p>{text}</p>
+      {legacy && <CodeBlock code={`node ~/one-worker.mjs init --workspace ${wsId}${s.refused === 'unbound' ? '' : ' --force'}`} label={t('features.coding.settings.initLabel')} />}
+      <button type="button" className="btn btn--sm" onClick={reconnect}>
+        {t('features.coding.settings.retry')}
+      </button>
+    </div>
   )
 }
 
@@ -108,8 +85,11 @@ export function WorkerTab() {
       <p className="cw-lead">
         {t('features.coding.settings.lead')} <HelpLink id="coding-pipeline" />
       </p>
+
+      <SetupCard code="§ A" />
+
       <Panel
-        code="§ A"
+        code="§ B"
         title={t('features.coding.settings.worker')}
         state={
           <span className="cw-state" role="status" data-testid="coding-conn">
@@ -148,15 +128,7 @@ export function WorkerTab() {
           </div>
         </dl>
         {connected && s.worker && !s.worker.claude.found && <div className="cw-msg cw-msg--warn">{t('features.coding.settings.noClaude')}</div>}
-        {s.enabled && s.conn === 'refused' && (
-          <div className="cw-msg cw-msg--warn" data-testid="coding-refused">
-            <p>{s.refused === 'unbound' ? t('features.coding.settings.unbound') : t('features.coding.settings.refused')}</p>
-            <CodeBlock code={`node ~/one-worker.mjs init --workspace ${ws.id}${s.refused === 'unbound' ? '' : ' --force'}`} label={t('features.coding.settings.initLabel')} />
-            <button type="button" className="btn btn--sm" onClick={reconnect}>
-              {t('features.coding.settings.retry')}
-            </button>
-          </div>
-        )}
+        {s.enabled && s.conn === 'refused' && <Refused s={s} wsId={ws.id} />}
         {s.enabled && s.conn === 'replaced' && (
           <div className="cw-msg">
             <p>{t('features.coding.settings.replaced')}</p>
@@ -176,37 +148,47 @@ export function WorkerTab() {
         )}
       </Panel>
 
-      <Panel code="§ B" title={t('features.coding.settings.setup')}>
-        <ol className="cw-steps">
-          <li>
-            <p>{t('features.coding.settings.step1')}</p>
-          </li>
-          <li>
-            <p>{t('features.coding.settings.step2')}</p>
-            <div className="cw-row">
-              <a className="btn btn--sm" href={`${import.meta.env.BASE_URL}mcp/one-worker.mjs`} download="one-worker.mjs">
-                <Download size={13} strokeWidth={1.75} aria-hidden /> one-worker.mjs
-              </a>
-            </div>
-            <CodeBlock code={`curl -fsSL ${workerUrl()} -o ~/one-worker.mjs`} label={t('features.coding.settings.download')} />
-          </li>
-          <li>
-            <p>{t('features.coding.settings.step3')}</p>
-            <CodeBlock code={`node ~/one-worker.mjs init --workspace ${ws.id}`} label={t('features.coding.settings.initLabel')} />
-          </li>
-          <li>
-            <p>{t('features.coding.settings.step4')}</p>
-            <CodeBlock code={`node ~/one-worker.mjs check\n${portFlag}node ~/one-worker.mjs`} label={t('features.coding.settings.runLabel')} />
-          </li>
-        </ol>
-      </Panel>
+      <details className="cw-panel cw-manual">
+        <summary className="cw-panel__head">
+          <span className="label cw-panel__code">
+            § C — {t('features.coding.settings.setup')}
+          </span>
+          <ChevronRight size={14} strokeWidth={1.75} aria-hidden className="cw-manual__chev" />
+        </summary>
+        <div className="cw-panel__body">
+          <p className="cw-switch__hint cw-manual__lead">{t('features.coding.settings.manualHint')}</p>
+          <ol className="cw-steps">
+            <li>
+              <p>{t('features.coding.settings.step1')}</p>
+            </li>
+            <li>
+              <p>{t('features.coding.settings.step2')}</p>
+              <div className="cw-row">
+                <a className="btn btn--sm" href={`${import.meta.env.BASE_URL}mcp/one-worker.mjs`} download="one-worker.mjs">
+                  <Download size={13} strokeWidth={1.75} aria-hidden /> one-worker.mjs
+                </a>
+              </div>
+              <CodeBlock code={`curl -fsSL ${workerUrl()} -o ~/one-worker.mjs`} label={t('features.coding.settings.download')} />
+            </li>
+            <li>
+              <p>{t('features.coding.settings.step3')}</p>
+              <CodeBlock code={`node ~/one-worker.mjs init --workspace ${ws.id}`} label={t('features.coding.settings.initLabel')} />
+            </li>
+            <li>
+              <p>{t('features.coding.settings.step4')}</p>
+              <CodeBlock code={`node ~/one-worker.mjs check\n${portFlag}node ~/one-worker.mjs`} label={t('features.coding.settings.runLabel')} />
+            </li>
+          </ol>
+        </div>
+      </details>
 
-      <Panel code="§ C" title={t('features.coding.settings.safety')}>
+      <Panel code="§ D" title={t('features.coding.settings.safety')}>
         <ul className="cw-safety">
           <li>{t('features.coding.settings.safe1')}</li>
           <li>{t('features.coding.settings.safe2')}</li>
           <li>{t('features.coding.settings.safe3')}</li>
           <li>{t('features.coding.settings.safe4')}</li>
+          <li>{t('features.coding.settings.safePair')}</li>
           {ws.kind === 'team' && <li>{t('features.coding.settings.safeTeam')}</li>}
         </ul>
       </Panel>

@@ -6,7 +6,7 @@ import { Led } from '../../ui/controls'
 import { useT } from '../../i18n'
 import { navigate } from '../../lib/router'
 import { useCoding } from './state'
-import { workerStateText } from './WorkerTab'
+import { workerStateText } from './stateText'
 import './coding.css'
 
 export function CodingStatusCell() {

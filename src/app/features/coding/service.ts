@@ -1,10 +1,12 @@
 /**
  * Coding pipeline — the tab side of the worker link (features/coding/protocol.ts).
  *
- *  - Switched on per device (Settings → Coding worker): connect to ws://127.0.0.1:<port> (subprotocol
- *    one-worker.v1), say hello with this workspace's id (the same ids as the MCP bridge), retry with backoff
- *    while no worker runs. A worker bound to another workspace (or none) refuses: no retry until the person
- *    asks. A newer tab of the same workspace takes over (4001).
+ *  - Switched on per device (a download of the worker switches it on; Settings → Coding worker): connect to
+ *    ws://127.0.0.1:<port> (subprotocol one-worker.v1), say hello with this workspace's id (the same ids as
+ *    the MCP bridge) and this device's pairing secret for it (download.ts), retry with backoff while no
+ *    worker runs. A worker bound to another workspace (or none, or a download paired with another browser)
+ *    refuses: no retry until the person asks. A newer tab of the same workspace takes over (4001).
+ *  - "Change repositories" sends `open-setup`: the worker opens its local setup page; One never sees it.
  *  - The worker asks: `next` (tasks.ts picks and claims one), `heartbeat`, `finish` (the outcome into the
  *    row and the page); it streams `event`s (log lines, git state, notes, questions) into this device's log.
  *  - The person acts: Stop and the fixed git verbs go to the worker as requests; everything else is a store
@@ -22,6 +24,7 @@ import {
   WORKER_SUBPROTOCOL,
   type GitResult,
   type GitVerb,
+  type OpenSetupResult,
   type TabMessage,
   type WorkerMessage,
   type WorkspaceRef,
@@ -40,9 +43,26 @@ const get = useCoding.getState
 
 function patchSettings(patch: Partial<CodingSettings>) {
   const s = get()
-  const next: CodingSettings = { enabled: s.enabled, port: s.port, ...patch }
+  const next: CodingSettings = { enabled: s.enabled, port: s.port, pairs: s.pairs, ...patch }
   saveCodingSettings(next)
   set(next)
+}
+
+/** Look for the worker every 1.5 s until then (after a download: the person is about to start it). */
+let fastUntil = 0
+
+/**
+ * A worker was downloaded for `workspaceId` (download.ts): keep its pairing secret (replacing the last one),
+ * switch the link on and look for it often for ten minutes. A connected worker stays connected.
+ */
+export function pairDownloaded(workspaceId: string, secret: string) {
+  patchSettings({ enabled: true, pairs: { ...get().pairs, [workspaceId]: { secret, at: Date.now() } } })
+  fastUntil = Date.now() + 10 * 60_000
+  if (get().conn === 'connected') return
+  disconnect(false)
+  attempt = 0
+  failingSince = 0
+  connect()
 }
 
 /** "Connect to a coding worker on this computer". */
@@ -81,7 +101,7 @@ const pending = new Map<string, { resolve: (v: unknown) => void; reject: (e: Err
 let helloAs: string | null = null
 
 const BACKOFF = [600, 1200, 2500, 5000, 8000, 12_000]
-const delay = () => (failingSince && Date.now() - failingSince > 120_000 ? 30_000 : BACKOFF[Math.min(attempt, BACKOFF.length - 1)])
+const delay = () => (Date.now() < fastUntil ? 1500 : failingSince && Date.now() - failingSince > 120_000 ? 30_000 : BACKOFF[Math.min(attempt, BACKOFF.length - 1)])
 
 function me(): WorkspaceRef {
   const { role: _role, ...info } = workspaceInfo()
@@ -119,7 +139,9 @@ function connect() {
   ws.onopen = () => {
     const self = me()
     helloAs = self.id
-    ws.send(JSON.stringify({ type: 'hello', app: 'one', version: BRAND.version, workspace: self } satisfies TabMessage))
+    // this device's pairing with the worker downloaded for this workspace (a worker.json worker ignores it)
+    const pair = get().pairs[self.id]?.secret
+    ws.send(JSON.stringify({ type: 'hello', app: 'one', version: BRAND.version, workspace: self, ...(pair ? { pair } : {}) } satisfies TabMessage))
   }
   ws.onmessage = (e) => {
     let msg: WorkerMessage
@@ -130,7 +152,7 @@ function connect() {
     }
     if (msg.type === 'refused') {
       refused = true
-      set({ refused: msg.reason === 'unbound' ? 'unbound' : 'workspace' })
+      set({ refused: msg.reason === 'unbound' || msg.reason === 'pair' ? msg.reason : 'workspace', refusedPaired: msg.paired === true })
       return
     }
     void receive(msg)
@@ -167,7 +189,7 @@ function disconnect(off = true) {
   socket = null
   helloAs = null
   if (ws && ws.readyState <= WebSocket.OPEN) ws.close(1000, off ? 'switched off' : 'reconnecting')
-  set({ conn: off ? 'off' : 'connecting', worker: null, busy: [], refused: null })
+  set({ conn: off ? 'off' : 'connecting', worker: null, busy: [], refused: null, refusedPaired: false })
 }
 
 /* ------------------------------------------------------------------ messages */
@@ -279,6 +301,15 @@ function request(body: Omit<Extract<TabMessage, { type: 'req' }>, 'id' | 'type'>
   })
 }
 
+/**
+ * "Change repositories": the worker opens its setup page on its own screen. One never learns the page's
+ * address or key — it only hears whether a browser opened.
+ */
+export async function openWorkerSetup(): Promise<OpenSetupResult> {
+  const res = (await request({ op: 'open-setup' } as never, 20_000)) as OpenSetupResult | null
+  return { opened: res?.opened === true, ...(res?.reason === 'off' || res?.reason === 'no-browser' ? { reason: res.reason } : {}) }
+}
+
 /** Ask the worker for work now (debounced). */
 let nudgeTimer = 0
 export function nudgeWorker() {
@@ -367,6 +398,8 @@ export function startCoding() {
       disconnect()
     }
     if (next.port !== get().port) set({ port: next.port })
+    // a download in another tab: its pairing is this device's now (used on the next hello)
+    set({ pairs: next.pairs })
   })
   const wake = () => {
     if (document.visibilityState !== 'visible' || !get().enabled || socket) return

@@ -21,7 +21,8 @@ import { loadTask, useCodingLocal, scope } from './local'
 import { openCodingSettings } from './open'
 import { NewTaskDialog } from './NewTaskDialog'
 import { PipelineEditor } from './PipelineEditor'
-import { workerStateText } from './WorkerTab'
+import { workerStateText } from './stateText'
+import { ChangeReposButton, SetupCard } from './SetupCard'
 import './coding.css'
 
 function WorkerPlate() {
@@ -31,56 +32,57 @@ function WorkerPlate() {
   const pages = useWorkspace((x) => x.pages)
   const money = (n: number) => n.toLocaleString(lang === 'de' ? 'de-DE' : 'en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2 })
   const connected = s.enabled && s.conn === 'connected'
+  // not connected, or no repos ticked yet: the three steps instead
+  if (!connected || !s.worker?.repos.length)
+    return (
+      <div className="cv-setup" data-testid="coding-worker">
+        <SetupCard code="§ W" />
+      </div>
+    )
   return (
     <section className="cv-plate" aria-label={t('features.coding.worker.label')} data-testid="coding-worker">
-      <div className="cv-plate__state">
-        <Led state={connected ? (s.busy.length ? 'on' : 'ok') : s.enabled && (s.conn === 'waiting' || s.conn === 'connecting') ? 'on' : 'off'} />
-        <span className="label">{workerStateText(t, s)}</span>
+      <div className="cv-plate__lead">
+        <div className="cv-plate__state">
+          <Led state={s.busy.length ? 'on' : 'ok'} />
+          <span className="label">{workerStateText(t, s)}</span>
+        </div>
+        <ChangeReposButton className="btn btn--ghost btn--sm cv-plate__change" />
       </div>
-      {connected && s.worker ? (
-        <dl className="cv-plate__ro">
-          <div>
-            <dt className="label">{t('features.coding.ro.worker')}</dt>
-            <dd>{s.worker.name}</dd>
-          </div>
-          <div>
-            <dt className="label">{t('features.coding.ro.repos')}</dt>
-            <dd className="cv-repos">
-              {s.worker.repos.map((r) => (
-                <code key={r.name} title={t('features.coding.ro.base', { base: r.baseBranch })}>
-                  {r.name}
-                </code>
-              ))}
-            </dd>
-          </div>
-          <div>
-            <dt className="label">{t('features.coding.ro.today')}</dt>
-            <dd>
-              {money(s.spentToday)}
-              {s.worker.dayLimit !== null && <span className="faint"> / {money(s.worker.dayLimit)}</span>}
-            </dd>
-          </div>
-          <div>
-            <dt className="label">{t('features.coding.ro.running')}</dt>
-            <dd>
-              {s.busy.length
-                ? s.busy.map((b) => (
-                    <a key={b.taskId} href={`#/p/${b.taskId}`} className="cv-run">
-                      {pages[b.taskId]?.title.trim() || t('common.untitled')}
-                    </a>
-                  ))
-                : t('features.coding.ro.idle')}
-            </dd>
-          </div>
-        </dl>
-      ) : (
-        <p className="cv-plate__hint">
-          {s.enabled ? t('features.coding.worker.startHint') : t('features.coding.worker.offHint')}{' '}
-          <button type="button" className="ctk-link" onClick={openCodingSettings}>
-            {t('features.coding.worker.settings')}
-          </button>
-        </p>
-      )}
+      <dl className="cv-plate__ro">
+        <div>
+          <dt className="label">{t('features.coding.ro.worker')}</dt>
+          <dd>{s.worker.name}</dd>
+        </div>
+        <div>
+          <dt className="label">{t('features.coding.ro.repos')}</dt>
+          <dd className="cv-repos">
+            {s.worker.repos.map((r) => (
+              <code key={r.name} title={t('features.coding.ro.base', { base: r.baseBranch })}>
+                {r.name}
+              </code>
+            ))}
+          </dd>
+        </div>
+        <div>
+          <dt className="label">{t('features.coding.ro.today')}</dt>
+          <dd>
+            {money(s.spentToday)}
+            {s.worker.dayLimit !== null && <span className="faint"> / {money(s.worker.dayLimit)}</span>}
+          </dd>
+        </div>
+        <div>
+          <dt className="label">{t('features.coding.ro.running')}</dt>
+          <dd>
+            {s.busy.length
+              ? s.busy.map((b) => (
+                  <a key={b.taskId} href={`#/p/${b.taskId}`} className="cv-run">
+                    {pages[b.taskId]?.title.trim() || t('common.untitled')}
+                  </a>
+                ))
+              : t('features.coding.ro.idle')}
+          </dd>
+        </div>
+      </dl>
     </section>
   )
 }

@@ -30285,6 +30285,7 @@ var SETUP_JS = String.raw`(function () {
     push: 'Push branches',
     pr: 'Pull requests (gh)',
     limit: 'Cost limit per task (USD)',
+    noLimit: 'none',
     ticked: '{n} ticked',
     tickedOne: '1 ticked',
     save: 'Save & start',
@@ -30341,6 +30342,7 @@ var SETUP_JS = String.raw`(function () {
     push: 'Branches pushen',
     pr: 'Pull Requests (gh)',
     limit: 'Kostengrenze pro Aufgabe (USD)',
+    noLimit: 'keine',
     ticked: '{n} angehakt',
     tickedOne: '1 angehakt',
     save: 'Speichern & starten',
@@ -30497,7 +30499,7 @@ var SETUP_JS = String.raw`(function () {
       el('div', { className: 'field' }, [el('label', { className: 'label', for: id + 'b', text: t('baseLabel') }), base]),
       el('div', { className: 'field' }, [el('label', { className: 'label', for: id + 't', text: t('testLabel') }), el('input', { type: 'text', id: id + 't', value: e.test, spellcheck: 'false', autocomplete: 'off', oninput: function (ev) { e.test = ev.target.value; drawKeys() } }), keys, el('span', { className: 'hint', text: t('testHint') })]),
       el('div', { className: 'field field--wide' }, [el('div', { className: 'toggles' }, toggles)]),
-      el('div', { className: 'field' }, [el('div', { className: 'limit' }, [el('label', { className: 'label', for: id + 'l', text: t('limit') }), el('input', { type: 'number', id: id + 'l', min: '0', step: '0.5', value: e.limit, inputmode: 'decimal', oninput: function (ev) { e.limit = ev.target.value } })])])
+      el('div', { className: 'field' }, [el('div', { className: 'limit' }, [el('label', { className: 'label', for: id + 'l', text: t('limit') }), el('input', { type: 'number', id: id + 'l', min: '0', step: '0.5', value: e.limit, placeholder: t('noLimit'), inputmode: 'decimal', oninput: function (ev) { e.limit = ev.target.value } })])])
     ])
   }
 
@@ -30555,6 +30557,7 @@ var SETUP_JS = String.raw`(function () {
       el('button', { type: 'button', className: 'btn btn--primary', id: 'save', disabled: !!busy, onclick: save, text: busy === 'save' ? t('saving') : t('save') })
     ]))
     if (focus && $(focus)) $(focus).focus()
+    live(lastLive)
   }
 
   function statusPanel() {
@@ -30569,8 +30572,10 @@ var SETUP_JS = String.raw`(function () {
     ])
   }
 
+  var lastLive = null
   function live(l) {
     if (!l) return
+    lastLive = l
     var on = !!l.connected
     $('led').setAttribute('data-s', on ? (l.busy.length ? 'on' : 'ok') : 'off')
     $('state').textContent = on ? (l.busy.length ? t('stateOn') + ' · ' + t('stateBusy', { n: l.busy.length }) : t('stateOn')) : t('stateOff')

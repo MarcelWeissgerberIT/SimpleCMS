@@ -1316,6 +1316,167 @@
   font-size: var(--text-sm);
   line-height: 1.5;
 }
+/* the manual setup: folded */
+.cw-manual > summary {
+  cursor: pointer;
+  list-style: none;
+}
+.cw-manual > summary::-webkit-details-marker {
+  display: none;
+}
+.cw-manual:not([open]) > summary {
+  border-bottom: 0;
+  border-radius: var(--radius-2);
+}
+.cw-manual > summary:hover {
+  background: var(--surface-3);
+}
+.cw-manual > summary:focus-visible {
+  outline: 2px solid var(--signal);
+  outline-offset: -2px;
+}
+.cw-manual__chev {
+  color: var(--ink-3);
+  transition: transform var(--dur-1) var(--ease-out);
+}
+.cw-manual[open] .cw-manual__chev {
+  transform: rotate(90deg);
+}
+.cw-manual__lead {
+  margin: 0 0 12px;
+}
+
+/* ---------------------------------------------------------------- the 3-step card (Settings, #/coding) */
+.cs {
+  margin: 0 0 16px;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius-2);
+  background: var(--surface);
+}
+.cs .cw-panel__head {
+  border-radius: var(--radius-2) var(--radius-2) 0 0;
+}
+.cs-ws {
+  overflow: hidden;
+  max-width: 50%;
+  color: var(--ink-3);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cs-steps {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.cs-step {
+  display: grid;
+  grid-template-columns: 26px minmax(0, 1fr) auto;
+  gap: 4px 14px;
+  align-items: start;
+  padding: 14px;
+  border-top: 1px solid var(--rule);
+}
+.cs-step:first-child {
+  border-top: 0;
+}
+.cs-n {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius-1);
+  color: var(--ink-3);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+.cs-step[data-state='current'] .cs-n {
+  border-color: var(--signal);
+  background: var(--signal);
+  color: var(--on-signal);
+}
+.cs-step[data-state='done'] .cs-n {
+  border-color: var(--ink);
+  background: var(--ink);
+  color: var(--surface);
+}
+.cs-body {
+  min-width: 0;
+  padding-top: 3px;
+}
+.cs-title {
+  margin: 0;
+  color: var(--ink);
+  font-size: var(--text-md);
+  font-weight: 650;
+  line-height: 1.3;
+}
+.cs-step[data-state='todo'] .cs-title {
+  color: var(--ink-2);
+}
+.cs-hint {
+  margin: 4px 0 0;
+  color: var(--ink-2);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+}
+.cs-body .cw-code {
+  margin: 8px 0 0;
+}
+.cs-needs a {
+  color: var(--ink);
+  text-decoration: underline;
+  text-decoration-color: var(--rule-strong);
+  text-underline-offset: 2px;
+}
+.cs-needs a:hover {
+  text-decoration-color: var(--signal);
+}
+.cs-act {
+  display: flex;
+  justify-content: flex-end;
+  padding-top: 1px;
+}
+.cs-act .btn {
+  white-space: nowrap;
+}
+.cs-live {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  padding: 7px 14px;
+  border-top: 1px solid var(--rule-strong);
+  border-radius: 0 0 var(--radius-2) var(--radius-2);
+  background: var(--bg);
+}
+.cs-live__k {
+  color: var(--ink-3);
+}
+.cs-live__v {
+  overflow: hidden;
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cv-setup {
+  margin: 22px 0 0;
+}
+.cv-setup .cs {
+  margin: 0;
+}
+.cv-plate__lead {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+.cv-plate__change {
+  justify-self: start;
+}
 
 /* ---------------------------------------------------------------- phones */
 @container (max-width: 560px) {
@@ -1383,6 +1544,13 @@
   }
   .cw-ro__cell:nth-child(n + 3) {
     border-top: 1px solid var(--rule);
+  }
+  .cs-step {
+    grid-template-columns: 26px minmax(0, 1fr);
+  }
+  .cs-act {
+    grid-column: 2;
+    justify-content: flex-start;
   }
   .cpe-main {
     grid-template-columns: 40px minmax(0, 1fr) auto;
