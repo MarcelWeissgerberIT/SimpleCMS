@@ -760,7 +760,7 @@ export const content: Record<Lang, SiteContent> = {
       { key: 'customAgents', group: 'delegate', code: 'Ca', title: 'Custom agents', text: 'A job in plain words, a schedule or a trigger, a budget per run. Changes wait for your review — in your browser or 24/7 on your server.' },
       { key: 'agent', group: 'delegate', code: '⌘J', title: 'Workspace agent', text: 'Hand it a task in plain words. It plans the steps across pages and databases and applies them once you have reviewed them.' },
       { key: 'mcpTools', group: 'delegate', code: 'Mc', title: 'Your MCP servers', text: 'Plug a knowledge base, tracker or CRM into One’s Claude with a URL and a token. Every tool call shows as a chip.' },
-      { key: 'mail', group: 'delegate', code: 'Ml', title: 'Mail as a database', text: 'Gmail, read-only, with your own Google client ID. Each mail becomes a row; Claude adds category, priority and “needs reply”.' },
+      { key: 'mail', group: 'delegate', code: 'Ml', title: 'Mail as a database', text: 'Gmail, read-only, connected in one click. Each mail becomes a row, linked to its contact, company and conversation; Claude adds category, priority and “needs reply”.' },
     ],
     mcpTools: [
       { name: 'one_overview', text: 'Workspace at a glance: tree, databases, today' },
@@ -923,7 +923,7 @@ export const content: Record<Lang, SiteContent> = {
       { key: 'customAgents', group: 'delegate', code: 'Ea', title: 'Eigene Agenten', text: 'Ein Auftrag in Worten, ein Zeitplan oder Auslöser, ein Budget pro Lauf. Änderungen warten auf deine Prüfung — im Browser oder rund um die Uhr auf deinem Server.' },
       { key: 'agent', group: 'delegate', code: '⌘J', title: 'Workspace-Agent', text: 'Gib ihm eine Aufgabe in Worten. Er plant die Schritte über Seiten und Datenbanken und setzt sie um, sobald du sie geprüft hast.' },
       { key: 'mcpTools', group: 'delegate', code: 'Mc', title: 'Deine MCP-Server', text: 'Wissensdatenbank, Tracker oder CRM per URL und Token an Ones Claude anschließen. Jeder Werkzeugaufruf ist als Chip sichtbar.' },
-      { key: 'mail', group: 'delegate', code: 'Ml', title: 'Mails als Datenbank', text: 'Gmail, nur lesend, mit deiner eigenen Google-Client-ID. Jede Mail wird eine Zeile; Claude ergänzt Kategorie, Priorität und „Antwort nötig“.' },
+      { key: 'mail', group: 'delegate', code: 'Ml', title: 'Mails als Datenbank', text: 'Gmail, nur lesend, mit einem Klick verbunden. Jede Mail wird eine Zeile, verknüpft mit Kontakt, Firma und Konversation; Claude ergänzt Kategorie, Priorität und „Antwort nötig“.' },
     ],
     mcpTools: [
       { name: 'one_overview', text: 'Workspace auf einen Blick: Baum, Datenbanken, Datum' },

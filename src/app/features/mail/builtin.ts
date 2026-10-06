@@ -14,7 +14,7 @@ import { CLIENT_ID_RE } from './settings'
 import type { MailSettings } from '../../store/types'
 
 /** The operator's OAuth client ID ("123…-abc….apps.googleusercontent.com"). Empty = no built-in client. */
-export const BUILTIN_CLIENT_ID: string = ''
+export const BUILTIN_CLIENT_ID: string = '55010046846-6tq060enbmfqjp5vv3f12tq2qgcp4vvn.apps.googleusercontent.com'
 /** The origins registered with it in Google's console ("Authorized JavaScript origins"). */
 export const BUILTIN_ORIGINS: readonly string[] = ['https://getonecms.com']
 
