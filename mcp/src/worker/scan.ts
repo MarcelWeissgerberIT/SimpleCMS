@@ -18,7 +18,7 @@
  */
 import type { Dirent } from 'node:fs'
 import { lstatSync, readFileSync } from 'node:fs'
-import { lstat, readdir } from 'node:fs/promises'
+import { lstat, readFile, readdir, realpath } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { basename, join, sep } from 'node:path'
 import { REPO_NAME } from '../../../src/app/features/coding/protocol.ts'
@@ -261,33 +261,77 @@ const has = (dir: string, name: string) => {
   }
 }
 
+/** How long one top-level file may take to read (an iCloud file that lives only in the cloud is downloaded first). */
+const FILE_MS = 1500
+
+/** topFile without blocking: null when the file is missing, too big, a link, or does not answer in time. */
+async function topFileAsync(dir: string, name: string, max = 256 * 1024): Promise<string | null> {
+  try {
+    const p = join(dir, name)
+    const st = await timed(lstat(p), FILE_MS)
+    if (st === TIMEOUT || !st.isFile() || st.size > max) return null
+    const text = await timed(readFile(p, 'utf8'), FILE_MS)
+    return text === TIMEOUT ? null : text
+  } catch {
+    return null
+  }
+}
+
+const hasAsync = async (dir: string, name: string): Promise<boolean> => {
+  try {
+    const st = await timed(lstat(join(dir, name)), FILE_MS)
+    return st !== TIMEOUT && st.isFile()
+  } catch {
+    return false
+  }
+}
+
+const GUESS_FILES = ['pnpm-lock.yaml', 'yarn.lock', 'Cargo.toml', 'go.mod', 'pyproject.toml', 'pytest.ini'] as const
+const MAKEFILES = ['Makefile', 'makefile', 'GNUmakefile'] as const
+
+/**
+ * guessTest for the worker's own use: never blocks the process (every file has a time limit — a repo in an
+ * iCloud-synced folder whose files live only in the cloud must not stall the setup page).
+ */
+export async function guessTestAsync(dir: string): Promise<string[] | null> {
+  const [pkg, makefiles, present] = await Promise.all([
+    topFileAsync(dir, 'package.json'),
+    Promise.all(MAKEFILES.map((n) => topFileAsync(dir, n))),
+    Promise.all(GUESS_FILES.map((n) => hasAsync(dir, n))),
+  ])
+  const here = new Set(GUESS_FILES.filter((_, i) => present[i]))
+  return guessFrom(pkg, makefiles.find((m) => m !== null) ?? null, (name) => here.has(name as (typeof GUESS_FILES)[number]))
+}
+
 /** The test command from the repo's top-level files — an argv list, never a shell line (null: no guess). */
 export function guessTest(dir: string): string[] | null {
-  const pkg = topFile(dir, 'package.json')
+  let mk: string | null = null
+  for (const name of MAKEFILES) {
+    mk = topFile(dir, name)
+    if (mk !== null) break
+  }
+  return guessFrom(topFile(dir, 'package.json'), mk, (name) => has(dir, name))
+}
+
+function guessFrom(pkg: string | null, mk: string | null, present: (name: string) => boolean): string[] | null {
   if (pkg) {
     try {
       const json = JSON.parse(pkg) as { scripts?: Record<string, unknown> }
       const script = json.scripts?.test
       // npm init's placeholder is not a test
       if (typeof script === 'string' && script.trim() && !/no test specified/.test(script)) {
-        if (has(dir, 'pnpm-lock.yaml')) return ['pnpm', 'test']
-        if (has(dir, 'yarn.lock')) return ['yarn', 'test']
+        if (present('pnpm-lock.yaml')) return ['pnpm', 'test']
+        if (present('yarn.lock')) return ['yarn', 'test']
         return ['npm', 'test']
       }
     } catch {
       /* not JSON: no guess from it */
     }
   }
-  if (has(dir, 'Cargo.toml')) return ['cargo', 'test']
-  if (has(dir, 'go.mod')) return ['go', 'test', './...']
-  if (has(dir, 'pyproject.toml') || has(dir, 'pytest.ini')) return ['pytest']
-  for (const name of ['Makefile', 'makefile', 'GNUmakefile']) {
-    const mk = topFile(dir, name)
-    if (mk !== null) {
-      if (/^test\s*:(?!=)/m.test(mk)) return ['make', 'test']
-      break
-    }
-  }
+  if (present('Cargo.toml')) return ['cargo', 'test']
+  if (present('go.mod')) return ['go', 'test', './...']
+  if (present('pyproject.toml') || present('pytest.ini')) return ['pytest']
+  if (mk !== null && /^test\s*:(?!=)/m.test(mk)) return ['make', 'test']
   return null
 }
 
@@ -335,13 +379,13 @@ export async function repoFacts(path: string, taken: Set<string>, home = homedir
     host,
     dirty: status === null ? null : status.split('\n').filter(Boolean).length,
     lastCommit: at,
-    test: guessTest(path),
+    test: await guessTestAsync(path),
   }
 }
 
 /** A repo the search just found, before its facts are read (what the page shows meanwhile). */
 export function bareRepo(path: string, taken: Set<string>, home = homedir()): FoundRepo {
-  return { path, short: shortPath(path, home), name: suggestName(path, taken), branch: null, base: 'main', branches: ['main'], remote: null, host: null, dirty: null, lastCommit: null, test: guessTest(path) }
+  return { path, short: shortPath(path, home), name: suggestName(path, taken), branch: null, base: 'main', branches: ['main'], remote: null, host: null, dirty: null, lastCommit: null, test: null }
 }
 
 /**
@@ -361,6 +405,28 @@ export async function factsOf(paths: string[], taken: Set<string>, home = homedi
   }
   await Promise.all(Array.from({ length: Math.min(parallel, paths.length) }, worker))
   return out
+}
+
+/** isMainCheckout without blocking (false when the folder does not answer in time). */
+export async function isMainCheckoutAsync(dir: string): Promise<boolean> {
+  try {
+    const st = await timed(lstat(dir), FILE_MS * 2)
+    if (st === TIMEOUT || !st.isDirectory()) return false
+    const git = await timed(lstat(join(dir, '.git')), FILE_MS * 2)
+    return git !== TIMEOUT && git.isDirectory()
+  } catch {
+    return false
+  }
+}
+
+/** realpath with a time limit (null: missing or no answer). */
+export async function realpathTimed(p: string): Promise<string | null> {
+  try {
+    const r = await timed(realpath(p), FILE_MS * 2)
+    return r === TIMEOUT ? null : r
+  } catch {
+    return null
+  }
 }
 
 /** Is `dir` the main checkout of a git repo (a `.git` FOLDER right there, not reached through a link)? */

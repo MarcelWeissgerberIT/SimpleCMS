@@ -16,13 +16,12 @@
  */
 import { randomBytes } from 'node:crypto'
 import { execFile } from 'node:child_process'
-import { realpathSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { isAbsolute, join, resolve, sep } from 'node:path'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { REPO_NAME, type OpenSetupResult, type WorkerPreset } from '../../../src/app/features/coding/protocol.ts'
 import { saveRepos, splitArgs, type RepoChoice, type WorkerConfig } from './config.ts'
-import { bareRepo, factsOf, findRepos, isMainCheckout, repoFacts, shortPath, type FindResult, type FoundRepo, type ScanOptions } from './scan.ts'
+import { bareRepo, factsOf, findRepos, isMainCheckoutAsync, realpathTimed, repoFacts, shortPath, type FindResult, type FoundRepo, type ScanOptions } from './scan.ts'
 import { pickFolder, type PickResult } from './picker.ts'
 import { sameSecret } from './preset.ts'
 import { openUrl } from './opener.ts'
@@ -214,12 +213,10 @@ export class SetupServer {
       dir = resolve(this.home, raw)
       if (dir !== this.home && !dir.startsWith(this.home + sep)) return { ok: false, error: 'A relative folder must stay inside your home folder.' }
     }
-    try {
-      dir = realpathSync(dir)
-    } catch {
-      return { ok: false, error: 'That folder does not exist.' }
-    }
-    if (!isMainCheckout(dir)) return { ok: false, error: 'That folder is not the main checkout of a git repository (no .git folder in it).' }
+    const real = await realpathTimed(dir)
+    if (!real) return { ok: false, error: 'That folder does not exist (or did not answer — an iCloud folder may still be downloading).' }
+    dir = real
+    if (!(await isMainCheckoutAsync(dir))) return { ok: false, error: 'That folder is not the main checkout of a git repository (no .git folder in it).' }
     if (!this.found.has(dir)) {
       const taken = new Set([...this.host.config().repos.map((r) => r.name.toLowerCase()), ...[...this.found.values()].map((r) => r.name.toLowerCase())])
       this.found.set(dir, await repoFacts(dir, taken, this.home))

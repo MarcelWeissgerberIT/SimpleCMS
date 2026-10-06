@@ -11185,7 +11185,7 @@ function emptyConfig(file, env = process.env) {
 function splitArgs(line) {
   const out = [];
   let cur = "";
-  let has2 = false;
+  let has = false;
   let quote = null;
   for (let i = 0; i < line.length; i++) {
     const c = line[i];
@@ -11198,20 +11198,20 @@ function splitArgs(line) {
       else cur += c;
     } else if (c === '"' || c === "'") {
       quote = c;
-      has2 = true;
+      has = true;
     } else if (c === "\\" && i + 1 < line.length) {
       cur += line[++i];
-      has2 = true;
+      has = true;
     } else if (/\s/.test(c)) {
-      if (has2 || cur) out.push(cur);
+      if (has || cur) out.push(cur);
       cur = "";
-      has2 = false;
+      has = false;
     } else {
       cur += c;
-      has2 = true;
+      has = true;
     }
   }
-  if (has2 || cur) out.push(cur);
+  if (has || cur) out.push(cur);
   return out.filter((a) => a.length <= 300).slice(0, 50);
 }
 var HEADER = "// one-worker \u2014 written by its setup page";
@@ -29836,13 +29836,11 @@ async function serveTaskMcp(version2) {
 // src/worker/setup.ts
 import { randomBytes as randomBytes3 } from "node:crypto";
 import { execFile as execFile4 } from "node:child_process";
-import { realpathSync as realpathSync2 } from "node:fs";
 import { homedir as homedir4 } from "node:os";
 import { isAbsolute as isAbsolute2, join as join6, resolve as resolve3, sep as sep4 } from "node:path";
 
 // src/worker/scan.ts
-import { lstatSync as lstatSync2, readFileSync as readFileSync4 } from "node:fs";
-import { lstat, readdir } from "node:fs/promises";
+import { lstat, readFile, readdir, realpath } from "node:fs/promises";
 import { homedir as homedir3 } from "node:os";
 import { basename, join as join5, sep as sep3 } from "node:path";
 var USUAL_PLACES = ["code", "projects", "dev", "src", "repos", "git", "GitHub", "Documents/GitHub", "Developer", "workspace", "Documents", "Desktop"];
@@ -29986,47 +29984,54 @@ function remoteHost(url) {
   host = (host ?? "").toLowerCase();
   return /^[a-z0-9.\-[\]:]{1,253}$/.test(host) ? host : null;
 }
-function topFile(dir, name, max = 256 * 1024) {
+var FILE_MS = 1500;
+async function topFileAsync(dir, name, max = 256 * 1024) {
   try {
     const p = join5(dir, name);
-    const st = lstatSync2(p);
-    if (!st.isFile() || st.size > max) return null;
-    return readFileSync4(p, "utf8");
+    const st = await timed(lstat(p), FILE_MS);
+    if (st === TIMEOUT || !st.isFile() || st.size > max) return null;
+    const text2 = await timed(readFile(p, "utf8"), FILE_MS);
+    return text2 === TIMEOUT ? null : text2;
   } catch {
     return null;
   }
 }
-var has = (dir, name) => {
+var hasAsync = async (dir, name) => {
   try {
-    return lstatSync2(join5(dir, name)).isFile();
+    const st = await timed(lstat(join5(dir, name)), FILE_MS);
+    return st !== TIMEOUT && st.isFile();
   } catch {
     return false;
   }
 };
-function guessTest(dir) {
-  const pkg = topFile(dir, "package.json");
+var GUESS_FILES = ["pnpm-lock.yaml", "yarn.lock", "Cargo.toml", "go.mod", "pyproject.toml", "pytest.ini"];
+var MAKEFILES = ["Makefile", "makefile", "GNUmakefile"];
+async function guessTestAsync(dir) {
+  const [pkg, makefiles, present] = await Promise.all([
+    topFileAsync(dir, "package.json"),
+    Promise.all(MAKEFILES.map((n) => topFileAsync(dir, n))),
+    Promise.all(GUESS_FILES.map((n) => hasAsync(dir, n)))
+  ]);
+  const here = new Set(GUESS_FILES.filter((_, i) => present[i]));
+  return guessFrom(pkg, makefiles.find((m) => m !== null) ?? null, (name) => here.has(name));
+}
+function guessFrom(pkg, mk, present) {
   if (pkg) {
     try {
       const json = JSON.parse(pkg);
       const script = json.scripts?.test;
       if (typeof script === "string" && script.trim() && !/no test specified/.test(script)) {
-        if (has(dir, "pnpm-lock.yaml")) return ["pnpm", "test"];
-        if (has(dir, "yarn.lock")) return ["yarn", "test"];
+        if (present("pnpm-lock.yaml")) return ["pnpm", "test"];
+        if (present("yarn.lock")) return ["yarn", "test"];
         return ["npm", "test"];
       }
     } catch {
     }
   }
-  if (has(dir, "Cargo.toml")) return ["cargo", "test"];
-  if (has(dir, "go.mod")) return ["go", "test", "./..."];
-  if (has(dir, "pyproject.toml") || has(dir, "pytest.ini")) return ["pytest"];
-  for (const name of ["Makefile", "makefile", "GNUmakefile"]) {
-    const mk = topFile(dir, name);
-    if (mk !== null) {
-      if (/^test\s*:(?!=)/m.test(mk)) return ["make", "test"];
-      break;
-    }
-  }
+  if (present("Cargo.toml")) return ["cargo", "test"];
+  if (present("go.mod")) return ["go", "test", "./..."];
+  if (present("pyproject.toml") || present("pytest.ini")) return ["pytest"];
+  if (mk !== null && /^test\s*:(?!=)/m.test(mk)) return ["make", "test"];
   return null;
 }
 async function repoFacts(path, taken, home = homedir3()) {
@@ -30071,11 +30076,11 @@ async function repoFacts(path, taken, home = homedir3()) {
     host,
     dirty: status === null ? null : status.split("\n").filter(Boolean).length,
     lastCommit: at,
-    test: guessTest(path)
+    test: await guessTestAsync(path)
   };
 }
 function bareRepo(path, taken, home = homedir3()) {
-  return { path, short: shortPath(path, home), name: suggestName(path, taken), branch: null, base: "main", branches: ["main"], remote: null, host: null, dirty: null, lastCommit: null, test: guessTest(path) };
+  return { path, short: shortPath(path, home), name: suggestName(path, taken), branch: null, base: "main", branches: ["main"], remote: null, host: null, dirty: null, lastCommit: null, test: null };
 }
 async function factsOf(paths, taken, home = homedir3(), parallel = 6, deadlineMs = Infinity, onRepo) {
   const out = new Array(paths.length);
@@ -30091,12 +30096,22 @@ async function factsOf(paths, taken, home = homedir3(), parallel = 6, deadlineMs
   await Promise.all(Array.from({ length: Math.min(parallel, paths.length) }, worker));
   return out;
 }
-function isMainCheckout(dir) {
+async function isMainCheckoutAsync(dir) {
   try {
-    if (!lstatSync2(dir).isDirectory()) return false;
-    return lstatSync2(join5(dir, ".git")).isDirectory();
+    const st = await timed(lstat(dir), FILE_MS * 2);
+    if (st === TIMEOUT || !st.isDirectory()) return false;
+    const git2 = await timed(lstat(join5(dir, ".git")), FILE_MS * 2);
+    return git2 !== TIMEOUT && git2.isDirectory();
   } catch {
     return false;
+  }
+}
+async function realpathTimed(p) {
+  try {
+    const r = await timed(realpath(p), FILE_MS * 2);
+    return r === TIMEOUT ? null : r;
+  } catch {
+    return null;
   }
 }
 
@@ -30883,12 +30898,10 @@ var SetupServer = class {
       dir = resolve3(this.home, raw);
       if (dir !== this.home && !dir.startsWith(this.home + sep4)) return { ok: false, error: "A relative folder must stay inside your home folder." };
     }
-    try {
-      dir = realpathSync2(dir);
-    } catch {
-      return { ok: false, error: "That folder does not exist." };
-    }
-    if (!isMainCheckout(dir)) return { ok: false, error: "That folder is not the main checkout of a git repository (no .git folder in it)." };
+    const real = await realpathTimed(dir);
+    if (!real) return { ok: false, error: "That folder does not exist (or did not answer \u2014 an iCloud folder may still be downloading)." };
+    dir = real;
+    if (!await isMainCheckoutAsync(dir)) return { ok: false, error: "That folder is not the main checkout of a git repository (no .git folder in it)." };
     if (!this.found.has(dir)) {
       const taken = /* @__PURE__ */ new Set([...this.host.config().repos.map((r) => r.name.toLowerCase()), ...[...this.found.values()].map((r) => r.name.toLowerCase())]);
       this.found.set(dir, await repoFacts(dir, taken, this.home));
