@@ -261,7 +261,12 @@
   font-size: var(--text-sm);
   line-height: 1.5;
 }
-.kt-detail {
+.kt-detail,
+.kt-index {
+  min-width: 0;
+}
+.kt-editor > *,
+.kt-sec {
   min-width: 0;
 }
 .kt-pick-hint {
@@ -286,6 +291,21 @@
   .kt-body {
     grid-template-columns: minmax(0, 1fr);
   }
+  /* the phone's floating capture key sits at the bottom right */
+  .kt-savebar {
+    padding-right: 84px;
+  }
+  .kt-savebar .kbd {
+    display: none;
+  }
+  .kt-head__meta > .mono {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .kt-head__meta > .kt-rule {
+    display: none;
+  }
   .kt[data-open] .kt-index {
     display: none;
   }
@@ -303,6 +323,7 @@
 /* ---------- an editor ---------- */
 .kt-editor {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 26px;
   padding-bottom: 8px;
   border-top: 1px solid var(--rule-strong);
