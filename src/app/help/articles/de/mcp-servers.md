@@ -45,7 +45,7 @@ Tippe `/bild generieren` (oder `/video generieren`) in eine Zeile, oder klicke *
 1. Wähle den **Dienst** — Server, deren Werkzeuge Bilder (oder Videos) erzeugen. One merkt sich die Wahl auf diesem Gerät.
 2. Schreib den **Prompt**, wähle Seitenverhältnis und Anzahl der Ergebnisse, und hake **Diese Seite als Kontext mitgeben** nur an, wenn die Seite mitgehen soll. Aus deinem One-Gedächtnis geht nichts mit.
 3. **Generieren**. Claude ruft nur diesen Server auf und wartet auf den Auftrag. Das Schließen des Panels hält ihn nicht an — die Seite zeigt, wenn die Ergebnisse da sind.
-4. Wähle ein oder mehrere Ergebnisse und **Auswahl einfügen** — sie werden in One gespeichert und kommen in die Seite.
+4. **Ansehen** zeigt ein Ergebnis vorab (erst dann wird es geladen, gespeichert wird es nicht). Wähle ein oder mehrere Ergebnisse und **Auswahl einfügen** — sie werden in One gespeichert, kommen in die Seite und das Fenster schließt sich.
 
 > Das Generieren kann Guthaben bei diesem Dienst verbrauchen.
 

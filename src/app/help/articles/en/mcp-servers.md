@@ -45,7 +45,7 @@ Type `/generate image` (or `/generate video`) on a line, or click **Generate…*
 1. Pick the **Service** — servers whose tools make images (or videos). One remembers your choice on this device.
 2. Write the **Prompt**, choose the aspect ratio and how many results, and tick **Use this page as context** only if the page should go along. Nothing from your One memory is sent.
 3. **Generate**. Claude calls only that server and waits for the job. Closing the panel does not stop it — the page shows when the results are ready.
-4. Pick one or more results and **Insert selected** — they are saved to One and go into the page.
+4. **Preview** shows a result first (it is loaded only then, and not kept). Pick one or more results and **Insert selected** — they are saved to One, go into the page and the panel closes.
 
 > Generating may use credits on that service.
 
