@@ -166,7 +166,10 @@ test.describe('free board', () => {
     // keyboard: Space lifts, → moves to the next lane, Space drops
     await card(page, 'ACME').focus()
     await page.keyboard.press('Space')
+    // the lift lands, then the move, then the drop (dnd-kit's keyboard sensor works frame by frame)
+    await expect(card(page, 'ACME').first()).toHaveAttribute('data-dragging', 'true')
     await page.keyboard.press('ArrowRight')
+    await page.waitForTimeout(300)
     await page.keyboard.press('Space')
     await expect.poll(() => laneOfRow(page, acme)).toBe('l2')
     // the card's menu

@@ -31,7 +31,8 @@ export function NewTypeDialog({ dbId, onClose, onCreated, fromProps }: { dbId: I
   const [color, setColor] = useState<ColorName>('orange')
   const [picked, setPicked] = useState<Set<ID>>(() => new Set())
   const [fields, setFields] = useState<Field[]>(() => (fromProps ? [] : [{ key: 1, name: '', type: 'text' }]))
-  const eligible = useMemo(() => (db ? db.properties.filter(canTypeProp) : []), [db])
+  // a free board's lanes are the board's own, never a type's field
+  const eligible = useMemo(() => (db ? db.properties.filter((p) => canTypeProp(p) && !db.views.some((v) => v.free && v.groupBy === p.id)) : []), [db])
   const clean = name.trim()
   const taken = !!clean && Object.values(kit?.recordTypes ?? {}).some((rt) => rt.name.toLowerCase() === clean.toLowerCase())
   const ready = !!clean && !taken

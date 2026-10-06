@@ -273,3 +273,24 @@
     width: min(380px, calc(100vw - 24px));
   }
 }
+
+/* Properties panel: the fields per record type */
+.db-propsgroup__head {
+  padding-left: 8px;
+}
+
+.db-propsgroup__name {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--ink-2);
+}
+
+.db-propsrow__type {
+  display: inline-flex;
+  margin-left: auto;
+  padding-right: 4px;
+}
