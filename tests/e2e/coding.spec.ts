@@ -3,13 +3,20 @@
  * remote and the fake Claude Code CLI (mcp/test/fixtures/fake-claude.mjs — no API call, no real host),
  * connected to the app tab over ws://127.0.0.1. Task → plan → approve → implement → test (fails once, goes
  * back to implement with the output) → review (diff, tests) → ship (pushed to the bare remote) → done;
- * rework with instructions; a question and its answer; Stop; a worker of another workspace; German at 390 px.
+ * rework with instructions; a question and its answer; Stop; a worker of another workspace; the 3 steps (the
+ * download with its preset, started with a temp home: it connects by itself, its setup page — opened by a fake
+ * browser — lists the repos, a tick shows in One, Change repositories, a newer download retires the old file);
+ * German at 390 px.
  */
+import { readFileSync, statSync } from 'node:fs'
+import { join } from 'node:path'
 import type { Page } from '@playwright/test'
-import { test, expect, openApp, wsEval } from './fixtures'
-import { makeCodingRepo, startCodingWorker, type CodingRepo, type RunningWorker } from './helpers/coding'
+import { test, expect, openApp, reloadApp, wsEval } from './fixtures'
+import { WORKER, fakeOpener, makeCodingHome, makeCodingRepo, startCodingWorker, startDownloadedWorker, type CodingRepo, type RunningWorker } from './helpers/coding'
 
 const PORT = 47383
+/** the downloaded worker's port (set in Settings before the download: the preset carries it) */
+const SETUP_PORT = 47384
 
 test.describe.configure({ mode: 'serial' })
 
@@ -247,13 +254,109 @@ test('a worker bound to another workspace is refused and Settings say how to bin
   await expect.poll(() => worker!.log()).toContain('refused the tab')
 })
 
+test('the 3 steps: a download comes ready-paired, connects without any switch, its setup page lists the repos, a tick makes One show 1 repo; Change repositories sends open-setup; a newer download retires the old file', async ({ page, errors }) => {
+  // the link looks for the worker before it is started: Chrome logs those attempts
+  errors.allow(/WebSocket connection to 'ws:\/\/127\.0\.0\.1/)
+  await openApp(page)
+  await openWorkerSettings(page)
+  const id = await workspaceId(page)
+  const S = page.getByTestId('coding-settings')
+  await expect(S.getByTestId('coding-step-1')).toHaveAttribute('data-state', 'current')
+  await expect(S.getByTestId('coding-card-live')).toContainText('Not started yet')
+  // the device profile says Windows: PowerShell's spelling of the home folder
+  await expect(S.getByTestId('coding-start-command')).toContainText(/^node (~\/|\$HOME\\)Downloads[/\\]one-worker\.mjs$/)
+  const port = page.getByLabel('Port', { exact: true })
+  await port.fill(String(SETUP_PORT))
+  await port.press('Enter')
+
+  // 1 — the download: the site's own worker with ONE line after the shebang
+  const [download] = await Promise.all([page.waitForEvent('download'), S.getByTestId('coding-download').click()])
+  expect(download.suggestedFilename()).toBe('one-worker.mjs')
+  const file = join(repo.root, 'Downloads', 'one-worker.mjs')
+  await download.saveAs(file)
+  const text = readFileSync(file, 'utf8')
+  const [shebang, line] = text.split('\n')
+  expect(shebang).toBe('#!/usr/bin/env node')
+  const preset = JSON.parse(/^globalThis\.ONE_WORKER_PRESET = (\{.*\})$/.exec(line!)![1]!)
+  expect(preset).toMatchObject({ workspace: id, origin: new URL(page.url()).origin, port: SETUP_PORT, name: 'One', dev: true })
+  expect(preset.pair).toMatch(/^[A-Za-z0-9_-]{43}$/)
+  expect(text.replace(`${line}\n`, '')).toBe(readFileSync(WORKER, 'utf8'))
+  // the secret stays on this device; the link switched itself on
+  const stored = await page.evaluate(() => JSON.parse(localStorage.getItem('one.coding') ?? 'null'))
+  expect(stored.enabled).toBe(true)
+  expect(stored.pairs[id].secret).toBe(preset.pair)
+  await expect(S.getByTestId('coding-step-1')).toHaveAttribute('data-state', 'done')
+  await expect(page.getByRole('switch', { name: 'Connect to a coding worker on this computer' })).toBeChecked()
+
+  // 2 — start it: a temp home with two repos, no config file, no flag
+  const home = makeCodingHome(repo, ['shop', 'notes'])
+  const opener = fakeOpener(repo)
+  worker = await startDownloadedWorker(file, home, repo, opener.program)
+  await expect(S.getByTestId('coding-card-live')).toContainText(/Connected · .+ · no repos yet/, { timeout: 20_000 })
+  await expect(S.getByTestId('coding-step-3')).toHaveAttribute('data-state', 'current')
+
+  // 3 — the worker opened its setup page by itself; tick one repo there
+  await expect.poll(() => opener.urls().length, { timeout: 10_000 }).toBe(1)
+  const url = opener.urls()[0]!
+  expect(url).toMatch(new RegExp(`^http://127\\.0\\.0\\.1:${SETUP_PORT}/setup#k=[A-Za-z0-9_-]{43}$`))
+  const setup = await page.context().newPage()
+  errors.watch(setup)
+  await setup.goto(url)
+  await expect(setup.locator('#repos')).toContainText('shop')
+  await expect(setup.locator('#repos')).toContainText('notes')
+  await expect(setup.locator('#repos')).toContainText('~/code/shop')
+  await setup.getByRole('checkbox', { name: 'shop' }).check()
+  await expect(setup.locator('.kbd').first()).toHaveText('npm')
+  await setup.locator('#save').click()
+  await expect(setup.locator('#note')).toHaveText('Saved — One sees 1 repository now.')
+  await expect(setup.locator('#st-one')).toContainText('Connected · One')
+  await setup.close()
+  await expect(S.getByTestId('coding-card-live')).toContainText(/Connected · .+ · 1 repo$/)
+  await expect(S.getByTestId('coding-step-3')).toHaveAttribute('data-state', 'done')
+  await expect(page.getByTestId('coding-conn')).toContainText('1 repo')
+  // worker.json: only the ticked repo, mode 0600, bound to this workspace
+  const cfg = join(home, '.config', 'one', 'worker.json')
+  expect(statSync(cfg).mode & 0o777).toBe(0o600)
+  const saved = JSON.parse(readFileSync(cfg, 'utf8').replace(/^\/\/.*$/gm, ''))
+  expect(saved.workspace).toBe(id)
+  expect(saved.repos.map((r: { name: string; testCommand: string[] }) => [r.name, r.testCommand])).toEqual([['shop', ['npm', 'test']]])
+
+  // Change repositories: the worker opens the page again — One never sees its address
+  await S.getByTestId('coding-change-repos').click()
+  await expect(page.locator('.toast').filter({ hasText: 'The worker opened its setup page on your computer.' })).toBeVisible()
+  await expect.poll(() => opener.urls().length).toBe(2)
+  expect(worker.log()).toContain('opened the setup page')
+
+  // #/coding: the plate with the repo and the same key
+  await page.keyboard.press('Escape')
+  await page.evaluate(() => (window.location.hash = '#/coding'))
+  await expect(page.getByTestId('coding-worker')).toContainText('shop')
+  await expect(page.getByTestId('coding-worker').getByTestId('coding-change-repos')).toBeVisible()
+
+  // a newer download replaces the pairing: after a reload the old file refuses this tab and Settings say why
+  await openWorkerSettings(page)
+  await Promise.all([page.waitForEvent('download'), S.getByTestId('coding-download').click()])
+  await reloadApp(page)
+  await openWorkerSettings(page)
+  await expect(page.getByTestId('coding-refused')).toContainText('a newer download replaced it', { timeout: 15_000 })
+  await expect(page.getByTestId('coding-conn')).toContainText('Refused: this worker belongs to another download')
+  await expect.poll(() => worker!.log()).toContain("did not bring this download's pairing key")
+})
+
 test('German at 390 px: #/coding, the new task dialog, the task panel and Settings fit the screen', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 })
   await openApp(page)
   await page.evaluate(() => (window as unknown as { __one: { workspace: { getState: () => { updateSettings: (p: unknown) => void } } } }).__one.workspace.getState().updateSettings({ language: 'de' }))
   await page.evaluate(() => (window.location.hash = '#/coding'))
   await expect(page.getByRole('heading', { name: 'Coding' })).toBeVisible()
-  await expect(page.getByTestId('coding-worker')).toContainText('Die Verbindung zum Worker ist auf diesem Gerät aus.')
+  // the 3 steps while no worker is connected
+  await expect(page.getByTestId('coding-worker')).toContainText('Einrichten in 3 Schritten')
+  await expect(page.getByTestId('coding-worker')).toContainText('Lade den Worker für diesen Arbeitsbereich herunter')
+  await expect(page.getByTestId('coding-worker')).toContainText('Hak deine Repositories auf der Seite an, die sich öffnet')
+  await expect(page.getByTestId('coding-worker').getByTestId('coding-card-live')).toContainText('Noch nicht gestartet')
+  expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(0)
+  const download = await page.getByTestId('coding-worker').getByTestId('coding-download').boundingBox()
+  expect(download!.x + download!.width).toBeLessThanOrEqual(390)
   await page.getByTestId('coding-new').click()
   await expect(page.getByRole('dialog')).toContainText('Neue Coding-Aufgabe')
   await page.getByTestId('coding-new-title').fill('Fehler anzeigen')
@@ -269,5 +372,6 @@ test('German at 390 px: #/coding, the new task dialog, the task panel and Settin
   expect(await overflow()).toBeLessThanOrEqual(0)
   await openWorkerSettings(page)
   await expect(page.getByTestId('coding-settings')).toContainText('Mit einem Coding-Worker auf diesem Rechner verbinden')
+  await expect(page.getByTestId('coding-settings').getByTestId('coding-download')).toHaveText('one-worker.mjs herunterladen')
   expect(await overflow()).toBeLessThanOrEqual(0)
 })

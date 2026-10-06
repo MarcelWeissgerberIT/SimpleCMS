@@ -412,6 +412,7 @@ export function startCoding() {
   window.addEventListener('focus', wake)
   window.addEventListener('pagehide', () => {
     void flushLogs()
-    if (socket) socket.close(1001, 'tab closed')
+    // a page may only close with 1000 or 3000–4999 (1001 throws)
+    if (socket) socket.close(1000, 'tab closed')
   })
 }
