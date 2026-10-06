@@ -38,7 +38,7 @@ src/app/features/**                  AI (+ workspace agent), history, graph, sha
                                      GitHub Markdown, per-device IndexedDB `one-sync`), mcp (local bridge UI), sheets
                                      (spreadsheet engine + grid; functions/ = custom functions built by clicking), charts
                                      (SVG renderer, chart builder, data sources) (public API: features/index.ts)
-src/app/help/**                      help centre: panel (?, status bar, ⌘K, workspace menu), 59 articles EN+DE twins
+src/app/help/**                      help centre: panel (?, status bar, ⌘K, workspace menu), 60 articles EN+DE twins
                                      (help/articles/{en,de}/<id>.md, `help:<id>` links), Ask (Claude over the articles);
                                      link UI to an article with `<HelpLink id="…" />` (public API: help/index.ts)
 src/help-site/**                     build-time public /help pages (prerendered from the same articles, hreflang)
@@ -55,6 +55,9 @@ server/**                            team-cloud server (Node, Hono, Hocuspocus, 
                                      + team MCP at /mcp (docs/MCP.md); content encrypted at rest (docs/CLOUD.md § Tenancy)
 mcp/**                               local MCP bridge (Claude Desktop / Code ⇄ the open tab), bundled to public/mcp/
                                      one-mcp.mjs + the Claude Desktop extension one.mcpb (`npm --prefix mcp test`)
+mcp/src/worker/**                    one-worker (coding pipeline, Claude Code + git on the person's machine), bundled to
+                                     public/mcp/one-worker.mjs; src/app/features/coding/** = #/coding, task panel, Settings →
+                                     Coding worker (public API coding/index.ts; protocol.ts shared with the worker; docs/CODING.md)
 public/assets/icons|covers           generated art (OpenArt) + manifest.json
 ```
 
@@ -240,6 +243,12 @@ the public APIs stable — other areas are built against them in parallel.
   `Database.recordTypes`; a row's `Page.recordType` (cloud page field). Own types' scripts (value / validate / options /
   format / onChange) are One Script code run only by features/kit — in teams only a version this device saved or
   confirmed. `View.free` = a free board (lanes = its groupBy select, cards of any record type).
+- Coding pipeline (features/coding + mcp/src/worker): `Database.system: 'coding'` + `Database.pipeline` (one stage per
+  Stage option; write only with savePipeline, read with readPipeline; `locked` blocks it). Worker outcomes go into the
+  page with origin 'coding'; logs, diffs and trust per device in IndexedDB `one-coding`, never synced. One sends the worker
+  only task data and the fixed verbs in GIT_VERBS — never a path or a command; the worker runs git as argument lists,
+  only on repos in its own config, creates / cleans only its own branches + worktrees, never skips Claude Code's
+  permissions. Team: the worker takes only tasks whose version (SHA-256) was written or confirmed on this device.
 - Database views: table | board | list | gallery | feed | calendar | timeline | chart | form. Feed settings live in
   `View.feed` (dateProperty — null = created time, order newest | oldest, content); without sorts of its own a feed
   orders newest first. Rows in view order come from `orderRows()` (database/model/feed.ts), used by `rowsOfView()` too.
