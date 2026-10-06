@@ -390,8 +390,15 @@ test.describe('Pages per item', () => {
     expect(bodies).toHaveLength(0)
 
     // on the list: Structure offers Sub-page per item, Transform into lists "Pages + table"
+    // (Sub-page per item sits under "More …" of the short top level)
     ai = await askAI(page, ed, 'ATL-1 Login', 'Coupon field missing')
+    await ai.locator('#ai-row-more').click()
     await expect(ai.getByRole('option', { name: /Sub-page per item/ })).toBeVisible()
+    await expect(async () => {
+      await page.keyboard.press('Escape')
+      await expect(ai).toHaveCount(0, { timeout: 1000 })
+    }).toPass()
+    ai = await askAI(page, ed, 'ATL-1 Login', 'Coupon field missing')
     await ai.getByRole('option', { name: /Transform into/ }).first().click()
     await expect(ai.getByRole('option', { name: /Pages \+ table/ })).toBeVisible()
     // Esc: back to the list, then closed
