@@ -2,10 +2,10 @@
  * one-worker — finds the git repositories on this computer for the setup page (and the terminal checklist).
  *
  * Where: the usual places first (~/code, ~/projects, ~/dev, ~/src, ~/repos, ~/git, ~/GitHub,
- * ~/Documents/GitHub, ~/Developer, ~/workspace, ~/Desktop), then the whole home folder — at most 4 levels
+ * ~/Documents/GitHub, ~/Developer, ~/workspace, ~/Documents, ~/Desktop), then the whole home folder — at most 4 levels
  * below it. Never: symbolic links (not followed), hidden folders, node_modules, caches, Library / AppData,
  * the trash, vendor folders, virtual envs, build outputs. A folder whose `.git` is a folder is a repo (its
- * inside is not searched further); a `.git` FILE is a linked worktree or a submodule — skipped. Caps: ~5 s,
+ * inside is not searched further); a `.git` FILE is a linked worktree or a submodule — skipped. Caps: ~30 s,
  * 300 repos, 50 000 folders. Every folder read has a short time limit: a folder that does not answer (macOS holds
  * the call while it asks whether Terminal may open Documents / Desktop / Downloads) is skipped and reported in
  * `blocked`, so the search always ends.
@@ -24,7 +24,7 @@ import { basename, join, sep } from 'node:path'
 import { REPO_NAME } from '../../../src/app/features/coding/protocol.ts'
 import { git } from './git.ts'
 
-export const USUAL_PLACES = ['code', 'projects', 'dev', 'src', 'repos', 'git', 'GitHub', 'Documents/GitHub', 'Developer', 'workspace', 'Desktop']
+export const USUAL_PLACES = ['code', 'projects', 'dev', 'src', 'repos', 'git', 'GitHub', 'Documents/GitHub', 'Developer', 'workspace', 'Documents', 'Desktop']
 
 /** Folder names never searched (hidden folders — a leading dot — are skipped as well). */
 export const SKIP_DIRS = new Set([
@@ -50,13 +50,13 @@ export interface ScanOptions {
   home?: string
   /** levels below the home folder a repo may sit (default 4) */
   maxDepth?: number
-  /** time cap in ms (default 5000) */
+  /** time cap in ms (default 30 000 — iCloud-synced folders read slowly; the page lists repos as they are found) */
   timeMs?: number
   /** most repos (default 300) */
   maxRepos?: number
   /** most folders looked into (default 50 000) */
   maxDirs?: number
-  /** longest wait for one folder in ms (default 1500) */
+  /** longest wait for one folder in ms (default 4000) */
   folderMs?: number
   /** tests: replaces the folder read */
   readdir?: (path: string) => Promise<Dirent[]>
@@ -94,8 +94,8 @@ export async function findRepos(opts: ScanOptions = {}): Promise<FindResult> {
   const maxRepos = opts.maxRepos ?? 300
   const maxDirs = opts.maxDirs ?? 50_000
   const start = Date.now()
-  const deadline = start + (opts.timeMs ?? 5000)
-  const folderMs = opts.folderMs ?? 1500
+  const deadline = start + (opts.timeMs ?? 30_000)
+  const folderMs = opts.folderMs ?? 4000
   const read = opts.readdir ?? ((p: string) => readdir(p, { withFileTypes: true }))
   const seen = new Set<string>()
   const paths: string[] = []

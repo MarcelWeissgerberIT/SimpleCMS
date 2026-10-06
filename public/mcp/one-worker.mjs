@@ -29845,7 +29845,7 @@ import { lstatSync as lstatSync2, readFileSync as readFileSync4 } from "node:fs"
 import { lstat, readdir } from "node:fs/promises";
 import { homedir as homedir3 } from "node:os";
 import { basename, join as join5, sep as sep3 } from "node:path";
-var USUAL_PLACES = ["code", "projects", "dev", "src", "repos", "git", "GitHub", "Documents/GitHub", "Developer", "workspace", "Desktop"];
+var USUAL_PLACES = ["code", "projects", "dev", "src", "repos", "git", "GitHub", "Documents/GitHub", "Developer", "workspace", "Documents", "Desktop"];
 var SKIP_DIRS = /* @__PURE__ */ new Set([
   "node_modules",
   "bower_components",
@@ -29880,8 +29880,8 @@ async function findRepos(opts = {}) {
   const maxRepos = opts.maxRepos ?? 300;
   const maxDirs = opts.maxDirs ?? 5e4;
   const start = Date.now();
-  const deadline = start + (opts.timeMs ?? 5e3);
-  const folderMs = opts.folderMs ?? 1500;
+  const deadline = start + (opts.timeMs ?? 3e4);
+  const folderMs = opts.folderMs ?? 4e3;
   const read = opts.readdir ?? ((p) => readdir(p, { withFileTypes: true }));
   const seen = /* @__PURE__ */ new Set();
   const paths = [];

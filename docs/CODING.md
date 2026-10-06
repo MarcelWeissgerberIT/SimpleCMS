@@ -58,7 +58,7 @@ The usual places first — `~/code`, `~/projects`, `~/dev`, `~/src`, `~/repos`, 
 deep. Symbolic links are never followed; hidden folders, `node_modules`, caches, `Library` / `AppData`, the trash,
 `vendor`, virtual envs and build outputs (`dist`, `build`, `out`, `target`, `coverage` …) are skipped. A folder
 with a `.git` **folder** is a repo (its inside is not searched further); a `.git` file (a linked worktree or a
-submodule) is skipped, and so is the home folder itself. It stops after about 5 s, 300 repos or 50 000 folders
+submodule) is skipped, and so is the home folder itself. It stops after about 30 s (the page lists repos as they are found; a folder that does not answer within 4 s is skipped and named), 300 repos or 50 000 folders
 (**Add a folder…** takes any other repo: a path inside the home folder, or an absolute path you type).
 
 Nothing of a repo's content is read except: the current branch, the base branch (`origin/HEAD`, else `main` /
