@@ -29,7 +29,10 @@ import { isContextLimited, openContextPicker, pageContextMarks, readableBlocks, 
 import { withRefImages } from '../image/terminal'
 import { withRefFiles } from '../file/terminal'
 import { webImagesOf, withoutWebImages } from '../../agents/images'
-import { depsOf, type AgentStatus, type AgentStep, type AgentTurn, type StagedChange, type TermMention, type TermRef, type TurnContext } from './types'
+import { depsOf, type AgentStatus, type AgentStep, type AgentTurn, type StagedChange, type StagedMedia, type TermMention, type TermRef, type TurnContext } from './types'
+import { newId } from '../../../lib/ids'
+import { isEffectivelyTrashed } from '../../../store/selectors'
+import type { SavedMedia } from '../media/types'
 
 const set = useAgent.setState
 const get = useAgent.getState
@@ -342,6 +345,10 @@ export async function runTask(raw?: string, opts: { noMemory?: boolean; history?
     limit() {
       note(t('features.agent.limitNote'))
     },
+    media(items) {
+      // the cards under this task: saving stages "insert media" on the page it worked on
+      set((s) => ({ media: [...s.media.filter((m) => m.turn !== n), { turn: n, pageId, items }] }))
+    },
     mcp(call) {
       const step = get().steps.find((x) => x.mcp?.id === call.id)
       const mcp = { id: call.id, server: call.server, tool: call.tool, error: call.error }
@@ -619,7 +626,43 @@ export function newTask() {
   proposing?.abort()
   proposing = null
   memUndo.clear()
+  mediaPage = null
   set({ ...initialAgentState(), draft: '', autorun: false })
+}
+
+/* ------------------------------------------------------------------ */
+/* Media from MCP results: "Save to One" → a staged "insert media"     */
+/* ------------------------------------------------------------------ */
+
+/** The staged page "Generated media" of this conversation (for media of tasks without a page). */
+let mediaPage: string | null = null
+
+/**
+ * A media card of a task was saved (the file is in One already): its block is staged as "insert media" — on
+ * the page the task worked on, else on a new page "Generated media" (staged once per conversation). Saves
+ * for the same page while that change waits for review join it.
+ */
+export function stageMedia(saved: SavedMedia[], pageId: ID | null): void {
+  if (!saved.length) return
+  const add: StagedMedia[] = saved.map((m) => ({ src: m.src, kind: m.kind, name: m.name, size: m.size, caption: m.caption, alt: m.alt }))
+  const pages = useWorkspace.getState().pages
+  let target = pageId && pages[pageId] && !pages[pageId].trashed && !isEffectivelyTrashed(pages, pageId) ? pageId : null
+  let dependsOn: string | undefined
+  if (!target) {
+    const page = mediaPage ? get().changes.find((c) => c.id === mediaPage && c.status !== 'discarded') : undefined
+    const made = page && page.status === 'applied' && pages[page.pageId] && !pages[page.pageId].trashed ? page : null
+    const staged = page && page.status !== 'applied' ? page : null
+    const c = made ?? staged ?? stage.add({ kind: 'create_page', pageId: newId(), parentId: null, title: t('features.ai.media.newPage'), markdown: '' })
+    mediaPage = c.id
+    target = c.pageId
+    if (c.status !== 'applied') dependsOn = c.id
+  }
+  const open = get().changes.find((c) => c.kind === 'media' && c.pageId === target && c.status === 'pending')
+  if (open) {
+    stage.update(open.id, { media: [...(open.media ?? []), ...add] })
+    return
+  }
+  stage.add({ kind: 'media', pageId: target, title: pages[target]?.title ?? t('features.ai.media.newPage'), media: add, ...(dependsOn ? { dependsOn } : {}) })
 }
 
 /* ------------------------------------------------------------------ */

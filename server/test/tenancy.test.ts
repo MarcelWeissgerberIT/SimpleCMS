@@ -226,6 +226,7 @@ const ROUTES: Record<string, Entry> = {
   'PUT /api/workspaces/:id/files/:fileId': { scope: 'workspace', req: (ws, x) => ({ method: 'PUT', path: `${W(ws)}/files/${x.file}`, body: 'overwrite', headers: { 'content-type': 'text/plain' } }) },
   'GET /api/workspaces/:id/files/:fileId': { scope: 'workspace', req: (ws, x) => ({ method: 'GET', path: `${W(ws)}/files/${x.file}` }), own: 404 },
   'POST /api/workspaces/:id/files/publish': { scope: 'workspace', req: (ws, x) => ({ method: 'POST', path: `${W(ws)}/files/publish`, json: { ids: [x.file] } }), own: 200 },
+  'POST /api/workspaces/:id/files/fetch': { scope: 'workspace', req: (ws) => ({ method: 'POST', path: `${W(ws)}/files/fetch`, json: { url: 'https://127.0.0.1/sweep.png' } }) },
   'DELETE /api/workspaces/:id/documents/:pageId': { scope: 'workspace', req: (ws, x) => ({ method: 'DELETE', path: `${W(ws)}/documents/${x.page}` }), own: 204 },
   'GET /api/workspaces/:id/tokens': { scope: 'workspace', req: (ws) => ({ method: 'GET', path: `${W(ws)}/tokens` }) },
   'POST /api/workspaces/:id/tokens': { scope: 'workspace', req: (ws) => ({ method: 'POST', path: `${W(ws)}/tokens`, json: { name: 'stolen', scope: 'write' } }) },

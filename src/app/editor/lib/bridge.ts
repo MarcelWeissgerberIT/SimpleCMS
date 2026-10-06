@@ -34,9 +34,10 @@ export interface OverlayState {
   /**
    * the AI panel; `redo`: opened on passages marked to redo (block ids — "Redo with instructions"); `transform`:
    * transform the selection into this form at once; `open`: on a submenu ('todb': "More …" with "Turn into database"
-   * highlighted — the grip menu's "Turn into database…"; 'transform': the forms of "Transform into …")
+   * highlighted — the grip menu's "Turn into database…"; 'transform': the forms of "Transform into …"); `generate`: the
+   * generate card (`/generate image` · `/generate video` · an empty image block's "Generate…", features/ai/media)
    */
-  ai: { mode: 'selection' | 'block'; redo?: string[]; transform?: TransformPick; open?: 'todb' | 'transform' } | null
+  ai: { mode: 'selection' | 'block'; redo?: string[]; transform?: TransformPick; open?: 'todb' | 'transform'; generate?: 'image' | 'video' } | null
   /** URL pasted on an empty line → offer Link / Bookmark / Embed */
   urlPaste: { url: string; from: number; to: number } | null
   /** Mod+K / link button: bubble toolbar in link-input mode */

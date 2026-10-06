@@ -3,7 +3,7 @@ id: mcp-servers
 title: MCP-Server (Wissensdatenbanken & Co.)
 section: ai
 order: 6
-keywords: mcp, mcp-server, werkzeuge, connector, wissensdatenbank, token, externe werkzeuge, integration, codewort, kb:, tools, knowledge base, codeword
+keywords: mcp, mcp-server, werkzeuge, connector, wissensdatenbank, token, externe werkzeuge, integration, codewort, kb:, oauth, anmelden, bild, video, generieren, medien, in one speichern, tools, knowledge base, codeword, sign in, generate image
 related: agent, ai-menu, mcp-token-rejected, mcp-bridge, claude-key
 summary: Lass Ones Claude die Werkzeuge anderer Systeme nutzen — eine Wissensdatenbank, einen Tracker, ein CRM.
 ---
@@ -26,7 +26,30 @@ Unter **Erweitert** stehen außerdem Name, Codewort (unten), Token, Nutzungs-Pro
 - Beim Tippen zeigt ein Chip den Server: `→ ATLAS`. Ein ausgeschalteter Server bleibt aus — die Antwort sagt das.
 - a–z, 0–9, `-` und `_`, bis 24 Zeichen, eines je Server. `one` ist reserviert: Das ist Ones eigenes Codewort in Claude Desktop ([Claude Desktop & lokales MCP](help:mcp-bridge)).
 
-## Wie es funktioniert — und das Token
-Anfragen gehen an `api.anthropic.com`; Anthropic verbindet sich mit dem Server, während Claude antwortet. Deshalb gehen nur entfernte Server, die per HTTPS erreichbar sind (Streamable HTTP oder SSE) — keine lokalen und keine, die nur eine interaktive Anmeldung (OAuth) anbieten.
+## Anmelden statt Token
+Manche Server haben eine eigene Anmeldeseite (OAuth) statt eines Tokens zum Einfügen. Lehnt ein Server den Verbindungstest ab, sagt seine Zeile das und bietet **Anmelden** an; du findest es auch unter **Erweitert** → **Anmeldung**.
+1. **Anmelden** öffnet ein kleines Fenster mit der Anmeldeseite des Servers (One registriert sich dort selbst, wenn der Server das erlaubt).
+2. Anmelden und Zugriff erlauben — das Fenster schließt sich, die Zeile zeigt **Angemeldet**, und die Verbindung wird erneut getestet.
+3. **Abmelden** entfernt die Tokens aus diesem Browser.
 
-> Das Token geht mit jeder Anfrage, die den Server nutzt, an Anthropic und liegt versiegelt in diesem Browser — nie in Backups, Exporten oder Sync. Nimm ein eigenes Token für One, möglichst nur lesend. Auf einem anderen Gerät trägst du das Token erneut ein.
+One erneuert das Zugriffstoken kurz bevor es abläuft. Blockiert der Browser das Fenster, geht der Tab zur Anmeldeseite und kommt zurück. Lässt sich eine Anmeldung im Browser nicht abschließen (die Anmeldung des Servers verweigert es, CORS), steht das da — dann fügst du wie bisher ein Token ein.
+
+## Medien in One speichern
+Bild- und Videodienste (und andere) liefern Bilder, Clips oder Audio. One zeigt jedes als **Karte** — Dateityp, Host, Größe, wenn bekannt — unter der Antwort im KI-Menü, bei `⌘K ?`, im [KI-Terminal](help:agent) und in den Läufen [eigener Agenten](help:custom-agents). Geladen wird erst, wenn du klickst.
+- **In One speichern** (oder **Alle speichern**) holt die Datei in diesem Browser, prüft, ob sie wirklich ein Bild, Video oder Audio ist (Typ und Inhalt), speichert sie in diesem Browser und setzt den Block dorthin, wo du gefragt hast: unter die Auswahl im KI-Menü, ans Ende der aktuellen Seite bei `⌘K ?`. Im Terminal legt das Speichern **Medien einfügen** zur Prüfung vor — auf der Seite, an der die Aufgabe gearbeitet hat, oder auf einer neuen Seite „Generierte Medien“.
+- Ein Host, der Browser seine Dateien nicht laden lässt: Die Karte bietet **Öffnen** (neuer Tab) und **Kopie hochladen**. In einem Team-Arbeitsbereich holt **Über den Team-Server holen** die Datei dort (nur https, nie private Adressen).
+- SVG-Dateien werden nur zum Herunterladen gespeichert — sie können Skripte enthalten.
+
+## Bilder und Videos generieren
+Tippe `/bild generieren` (oder `/video generieren`) in eine Zeile, oder klicke **Generieren…** in einem leeren Bildblock.
+1. Wähle den **Dienst** — Server, deren Werkzeuge Bilder (oder Videos) erzeugen. One merkt sich die Wahl auf diesem Gerät.
+2. Schreib den **Prompt**, wähle Seitenverhältnis und Anzahl der Ergebnisse, und hake **Diese Seite als Kontext mitgeben** nur an, wenn die Seite mitgehen soll. Aus deinem One-Gedächtnis geht nichts mit.
+3. **Generieren**. Claude ruft nur diesen Server auf und wartet auf den Auftrag. Das Schließen des Panels hält ihn nicht an — die Seite zeigt, wenn die Ergebnisse da sind.
+4. **Ansehen** zeigt ein Ergebnis vorab (erst dann wird es geladen, gespeichert wird es nicht). Wähle ein oder mehrere Ergebnisse und **Auswahl einfügen** — sie werden in One gespeichert, kommen in die Seite und das Fenster schließt sich.
+
+> Das Generieren kann Guthaben bei diesem Dienst verbrauchen.
+
+## Wie es funktioniert — und das Token
+Anfragen gehen an `api.anthropic.com`; Anthropic verbindet sich mit dem Server, während Claude antwortet. Deshalb gehen nur entfernte Server, die per HTTPS erreichbar sind (Streamable HTTP oder SSE) — keine lokalen.
+
+> Das Token geht mit jeder Anfrage, die den Server nutzt, an Anthropic und liegt versiegelt in diesem Browser — nie in Backups, Exporten oder Sync (auch die Tokens einer Anmeldung nicht). Nimm ein eigenes Token für One, möglichst nur lesend. Auf einem anderen Gerät trägst du das Token erneut ein oder meldest dich dort an.

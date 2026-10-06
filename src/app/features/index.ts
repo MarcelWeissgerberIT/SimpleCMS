@@ -75,6 +75,20 @@ export { McpServers } from './ai/mcp-servers/McpServers'
 export { CodewordChip, McpSkippedNote } from './ai/mcp-servers/Codeword'
 export type { McpCall } from './ai/mcp-servers/activity'
 /*
+ * Media from MCP servers (features/ai/media): runAI({ onMedia }) reports what the results returned (images,
+ * videos, audio — never loaded); MediaToPage { items, pageId, disabled?, privateNew? } = the cards whose "Save to
+ * One" puts the files into that page (null: a new page "Generated media") — ⌘K "?" answers use it.
+ */
+export { MediaToPage } from './ai/media/MediaToPage'
+export type { MediaItem } from './ai/media/types'
+/*
+ * MCP sign-in (OAuth) — the way back: consumeMcpOAuthReturn(closingNote) runs first in main.tsx (a sign-in window
+ * hands the code to the tab that started it and closes) · McpOAuthScreen (no props; the code stays in memory) =
+ * the route #/oauth/mcp (the shell renders it; this tab finishes the sign-in itself)
+ */
+export { consumeMcpOAuthReturn } from './ai/mcp-servers/oauthReturn'
+export { McpOAuthScreen } from './ai/mcp-servers/OAuthScreen'
+/*
  * One memory (features/ai/memory): Claude remembers what the person confirms (a database "One memory" +
  * its usage log) and takes the matching memories along with free-form requests:
  *  - memoryFor(task, { off? }) → { use, block } — pass `block` as runAI({ memory }); noteUse(answer, use,

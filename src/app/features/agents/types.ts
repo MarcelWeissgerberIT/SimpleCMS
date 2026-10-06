@@ -2,6 +2,7 @@
  * Custom agents — run records (shared contract with the server runner: the browser keeps them per
  * device in IndexedDB "one-agents", the server in its table `agent_runs`; same JSON shape).
  */
+import type { MediaItem } from '../ai/media/types'
 import type { AgentTrigger, CustomAgent, ID } from '../../store/types'
 import type { StagedChange } from '../ai/agent/types'
 
@@ -43,4 +44,6 @@ export interface AgentRun {
   error?: string | null
   /** browser runs (local only): staged row id → the id the row got when it was applied */
   rowIds?: Record<string, ID>
+  /** media the agent's MCP servers returned (features/ai/media): cards in the run, saved only on a click */
+  media?: MediaItem[]
 }

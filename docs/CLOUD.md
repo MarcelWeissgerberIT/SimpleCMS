@@ -64,6 +64,7 @@ The GitHub Pages build stays local-only.
 | `ANTHROPIC_BASE_URL` | the Messages API the agents call (default `https://api.anthropic.com`; a proxy in front of it — or a fake one in tests) *(server addition)* |
 | `AGENT_CONCURRENCY` | agent runs at the same time over all workspaces (default 4, 1–32; per workspace at most 2) *(server addition)* |
 | `AGENT_TICK_MS` / `AGENT_COALESCE_MS` | schedule check interval (30 s) and the row-trigger collecting window (60 s). **Only with `DEV_MODE=1`** (test servers); otherwise exit 78 *(server addition)* |
+| `MEDIA_FETCH_HOSTS` | `name=127.0.0.1:4601,…`: made-up names `POST …/files/fetch` reaches on this machine over plain HTTP (the e2e suite's media fixture). **Only with `DEV_MODE=1`**; otherwise exit 78 — deployments fetch through the SSRF guard only *(server addition)* |
 
 In development (`NODE_ENV` ≠ `production`) `DATA_DIR` defaults to `server/.data`, `PUBLIC_URL` to
 `http://localhost:$PORT`, and a `SECRET` and a `DATA_KEY` are generated once into `DATA_DIR/dev-secret` and
@@ -163,6 +164,7 @@ All mutating requests require `Content-Type: application/json` (CSRF guard toget
 | `PUT /api/workspaces/:id/files/:fileId` | member | raw body (≤ MAX_UPLOAD_MB), headers `x-file-name`, `content-type`, `x-file-scope: private`? → `{ id }` |
 | `GET /api/workspaces/:id/files/:fileId` | viewer | bytes, `Cache-Control: private, max-age=31536000, immutable` (someone else's private file: `404 file_not_found`) |
 | `POST /api/workspaces/:id/files/publish` | member | *(private pages)* `{ ids: string[] (1–500) }` → `{ published }` — the caller's private files among them become workspace files |
+| `POST /api/workspaces/:id/files/fetch` | member | *(server addition)* `{ url, kind?: 'image'\|'video'\|'audio', private?: boolean }` → `201 { id, name, mime, size, kind }` — "Fetch through the team server" for media an MCP server returned that the browser may not load (CORS). The server downloads that one https address (SSRF guard, see *Security notes*), checks the type and the bytes, and stores it like an upload (`private`: served to the caller only). Errors `400 url_blocked`, `413 file_too_large`, `415 media_type` / `media_mismatch`, `429 rate_limited`, `502 fetch_failed` |
 | `DELETE /api/workspaces/:id/documents/:pageId` | member | *(server addition)* drop the content document of a page deleted for good → `204` (`409 page_exists` while the meta document still lists the page); `?scope=private`: the caller's own private content document of that page |
 | `GET /api/health` | – | `{ ok: true, version }` |
 | `GET /api/dev/mailbox` | DEV_MODE only | last 50 mails `{ to, subject, text, link }` |
@@ -873,6 +875,15 @@ called by Anthropic, not by this server); `AGENTS=off` switches the runner off.
   invite's / registration link's admission of a new account is checked again when the magic link is opened.
 - Uploads: size limit, stored outside any served path, served with `Content-Disposition: attachment`
   for non-image types and `X-Content-Type-Options: nosniff`.
+- Media fetch (`POST …/files/fetch`, `server/src/routes/mediaFetch.ts` + `http/ssrf.ts`): members only; https
+  only, no credentials in the URL, port 443 / 8443; every address the name resolves to must be public — no
+  loopback, private (RFC 1918), CGNAT, link-local (`169.254/16`, cloud metadata), multicast, reserved,
+  documentation, unique-local / link-local IPv6, NAT64 / 6to4 or IPv4-mapped forms of those — and the
+  connection goes to the checked address (no DNS rebinding); redirects (at most 3) are checked again; local
+  names (`localhost`, `*.local`, `*.internal` …) are refused. Only `image/*`, `video/*`, `audio/*` whose magic
+  numbers agree (SVG stored as `application/octet-stream`), ≤ 50 MB images / 200 MB video and audio and ≤
+  `MAX_UPLOAD_MB`, 2 minutes per download, 20 per minute and 300 per day per member (refused addresses count
+  too). The log names the host, never the address (signed links carry secrets).
 - Every query is scoped by workspace membership; viewers can never write (REST or Yjs). The isolation
   sweep (`server/test/tenancy.test.ts`) fails for a new route or MCP tool that does not say how it is scoped.
 - Workspace content is encrypted at rest with a key per workspace, wrapped by `DATA_KEY`; deleting a

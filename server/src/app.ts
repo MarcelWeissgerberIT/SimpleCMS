@@ -14,6 +14,7 @@ import { MCP_PATH, mcpRoutes } from './mcp/index.ts'
 import { authRoutes } from './routes/auth.ts'
 import { documentRoutes } from './routes/documents.ts'
 import { fileRoutes } from './routes/files.ts'
+import { mediaFetchRoutes } from './routes/mediaFetch.ts'
 import { integrationRoutes } from './routes/integrations.ts'
 import { inviteRoutes } from './routes/invites.ts'
 import { meRoutes, sessionRoutes } from './routes/me.ts'
@@ -65,6 +66,7 @@ export function buildApp(s: Services, extra: { model?: WorkspaceModel; agents?: 
   app.route('/api/session', sessionRoutes(s))
   app.route('/api/workspaces', workspaceRoutes(s))
   app.route('/api/workspaces', fileRoutes(s))
+  app.route('/api/workspaces', mediaFetchRoutes(s))
   app.route('/api/workspaces', documentRoutes(s))
   app.route('/api/workspaces', integrationRoutes(s, model))
   app.route('/api/workspaces', agentRoutes(s, model, agents))

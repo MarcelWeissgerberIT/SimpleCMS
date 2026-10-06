@@ -874,6 +874,43 @@ export interface McpServerConfig {
    * when it is the only enabled server. Not a secret.
    */
   linkBase?: string
+  /** the last check failed because the server turned the request down (401 / 403): it wants a token or a sign-in */
+  checkAuth?: boolean
+  /**
+   * Signed in with OAuth (features/ai/mcp-servers/oauth.ts) instead of a pasted token: where the server's
+   * sign-in lives and the client One registered there — never a token. The access token is `token` (a vault
+   * marker as always), a refresh token is sealed as "mcp-refresh:<id>". Absent = a pasted token (or none).
+   */
+  oauth?: McpOAuthConfig
+}
+
+/** An MCP server's OAuth sign-in (authorization code + PKCE, MCP authorization spec). Not a secret. */
+export interface McpOAuthConfig {
+  /** the authorization server (issuer) */
+  issuer: string
+  authorizationEndpoint: string
+  tokenEndpoint: string
+  /** the client One registered (dynamic client registration) and the redirect URI it was registered with */
+  clientId: string
+  redirectUri: string
+  /** the protected resource (the MCP server's URL, RFC 8707 `resource`) */
+  resource: string
+  /** requested scope ('' = none) */
+  scope?: string
+  /** the access token expires (ms since epoch; absent = not said) — refreshed shortly before */
+  expiresAt?: number
+  /** a refresh token is sealed for this server (mcp-refresh:<id>) */
+  refresh?: boolean
+  /** a client secret came with the registration (sealed as mcp-client:<id>) */
+  secret?: boolean
+  /** when the person signed in (ms since epoch) */
+  at?: number
+  /** the authorization server's device authorization endpoint (RFC 8628) — "Sign in with a code" when the redirect can't come back */
+  deviceEndpoint?: string
+  /** the registration includes the device code grant */
+  device?: boolean
+  /** registered for the device code grant alone, without a redirect URI (a code sign-in registers again) */
+  deviceOnly?: boolean
 }
 
 export interface Workspace {

@@ -19,6 +19,8 @@ import type { McpServerConfig, Settings } from '../../../store/types'
 import { t } from '../../../i18n'
 import { linkBaseOf } from '../../../lib/foreignLinks'
 import { addressedLine, codewordGuideLine, codewordProblem, normalizeCodeword, parseCodewords, switchedOffLine } from './codeword'
+import { readOAuth } from './oauthConfig'
+import { tokenFor } from './oauth'
 
 /** The MCP connector beta. */
 export const MCP_BETA = 'mcp-client-2025-11-20'
@@ -133,6 +135,8 @@ export function readServers(settings: Pick<Settings, 'mcpServers'> = useWorkspac
       scope: s.scope === 'all' ? 'all' : undefined,
       codeword,
       linkBase: linkBaseOf(s.linkBase) ?? undefined,
+      checkAuth: s.checkAuth === true ? true : undefined,
+      oauth: readOAuth(s.oauth),
     })
     if (out.length >= MAX_SERVERS) break
   }
@@ -240,7 +244,8 @@ export async function attachMcp(setup: McpSetup = currentSetup(), kind: McpReque
   const usable: Array<{ s: McpServerConfig; token: string }> = []
   for (const s of setup.servers) {
     if (kind === 'fixed' && s.scope !== 'all' && !forced.includes(s.name)) continue
-    const token = await getMcpToken(s)
+    // a signed-in server's access token is refreshed shortly before it expires (oauth.ts)
+    const token = await tokenFor(s)
     if (token === null) continue
     usable.push({ s, token })
   }

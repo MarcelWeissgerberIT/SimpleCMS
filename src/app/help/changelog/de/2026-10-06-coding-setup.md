@@ -1,7 +1,7 @@
 ---
 id: 2026-10-06-coding-setup
 date: 2026-10-06
-order: 1
+order: 2
 title: Der Coding-Worker in drei Schritten — herunterladen, starten, Repos anhaken
 summary: Der Worker kommt jetzt schon gekoppelt aus One, findet die Git-Repositories auf deinem Rechner und lässt dich die anhaken, in denen One arbeiten darf — ohne Konfigurationsdatei.
 image: assets/shots/changelog/coding-setup.webp

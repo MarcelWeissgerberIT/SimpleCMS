@@ -279,6 +279,12 @@ async function runOnce(agent: CustomAgent, req: RunRequest): Promise<AgentRun> {
     limit() {
       step({ kind: 'note', label: t('features.agent.limitNote'), state: 'ok' })
     },
+    media(items) {
+      // what the MCP results returned: cards in the run, never loaded (features/ai/media); runs are kept per
+      // device (the last 100 per agent): large inline pictures are not kept with them
+      run.media = items.map(({ data, ...rest }) => (data && data.length <= 2_000_000 ? { ...rest, data } : rest))
+      void save()
+    },
     mcp(call) {
       const label = `${callLabel(call)}${call.arg ? ` · ${call.arg}` : ''}`
       const i = mcpSteps.get(call.id)
