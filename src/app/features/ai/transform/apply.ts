@@ -19,6 +19,7 @@ import { snapshotNow } from '../../history/snapshots'
 import type { BlockRange } from '../todb/plan'
 import { convertToDatabase, originalToggle, sameBlocks, TodbError } from '../todb/run'
 import { leftBlocks, resultBlocks } from './build'
+import { applyFreeBoard } from '../freeboard/apply'
 import { typeLabel } from './forms'
 import { shownResult, type TransformState } from './types'
 
@@ -32,6 +33,11 @@ export async function applyTransform(editor: Editor, pageId: ID, range: BlockRan
     // the form is the view (a board without a group column / a timeline without dates opens as a table)
     const view = type === 'timeline' ? 'timeline' : type === 'board' ? 'board' : 'table'
     await convertToDatabase(editor, pageId, range, res.table, { ...res.table.draft, view }, { original })
+    return
+  }
+
+  if (res.type === 'freeboard') {
+    await applyFreeBoard(editor, pageId, range, res, { original })
     return
   }
 

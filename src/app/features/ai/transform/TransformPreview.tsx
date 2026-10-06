@@ -28,6 +28,7 @@ import {
   type TransformState,
   type TransformType,
 } from './types'
+import { FreeBoardPreview } from '../freeboard/Preview'
 import './transform.css'
 
 export interface TransformPreviewProps {
@@ -118,6 +119,8 @@ export function TransformPreview({ state, forms, asking, busy, wait, issue, onPi
             <div className="trf__db">
               <TodbPreview plan={res.table.plan} draft={res.table.draft} onDraft={onDraft} gists={res.table.gists} onConvert={onApply} views={[]} />
             </div>
+          ) : res.type === 'freeboard' ? (
+            <FreeBoardPreview res={res} />
           ) : (
             <BlockPreview res={res} state={state} onOpts={onOpts} />
           )}

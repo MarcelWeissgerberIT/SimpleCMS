@@ -4,7 +4,8 @@
  * offering the types, moving cards (keyboard drag + Move to), "New record type…", the Type column (filter),
  * the row page's type chip hiding other types' fields, a locked database, 390 px and German.
  */
-import type { Page } from '@playwright/test'
+import type { BrowserContext, Page } from '@playwright/test'
+import type { JSONContent } from '@tiptap/core'
 import { test, expect, openApp, gotoPage, editorOf, createPage, doc, para, wsEval, flush } from './fixtures'
 
 // inside wsEval: `s` is the state when the call started — read fresh state after actions with `st()`
@@ -272,4 +273,123 @@ test.describe('free board', () => {
     await expect(page.getByRole('menuitem', { name: 'Neuer Datensatz-Typ …' })).toBeVisible()
     await flush(page)
   })
+
+  test('Turn into free board (mocked Claude): preview → apply in one step → Undo removes it again', async ({ page, context }) => {
+    const asked: string[] = []
+    await mockFreeBoard(context, asked)
+    await boot(page)
+    // an existing record type: Claude is told about it and reuses it by name
+    await wsEval(page, (s) => s.upsertRecordType({ id: 'person', name: 'Person', color: 'blue', properties: [{ id: 'role', name: 'Role', type: 'text' }], createdAt: 0, updatedAt: 0 }))
+    await wsEval(page, (s) => s.updateSettings({ aiApiKey: 'sk-ant-e2e-test-key' }))
+    const li = (t: string): JSONContent => ({ type: 'listItem', content: [{ type: 'paragraph', content: [{ type: 'text', text: t }] }] })
+    const id = await createPage(page, { title: 'Retro', content: doc(para('From the retro:'), { type: 'bulletList', content: [li('Idea: dark mode for exports (12 votes)'), li('Bug: login loops on Safari, P1'), li('Lea — design lead')] }, para('Thanks all.')) })
+    await gotoPage(page, id)
+    const ed = editorOf(page, id)
+    await ed.locator('p', { hasText: 'From the retro:' }).click()
+    await selectRange(page, ed, 'From the retro:', 'Thanks all.')
+    const bubble = page.locator('[aria-label="Formatting"]').first()
+    await expect(bubble).toBeVisible()
+    await bubble.getByRole('button', { name: /^Ask AI$/ }).click()
+    const ai = page.locator('.ai-panel')
+    await ai.locator('.ai-cmd__input').fill('free board')
+    await ai.getByRole('option', { name: /^Turn into free board/ }).click()
+    const pv = page.getByTestId('freeboard-preview')
+    await expect(pv).toBeVisible()
+    await expect(pv.getByTestId('transform-spec')).toContainText('3 lanes · 3 cards · 3 record types')
+    await expect(pv.getByTestId('freeboard-type')).toHaveCount(3)
+    await expect(pv.getByTestId('freeboard-type').filter({ hasText: 'Person' })).toContainText('Reused')
+    // only the selection went out, with the existing types by name; no memory
+    expect(asked).toHaveLength(1)
+    expect(asked[0]).toContain('Person: Role (text)')
+    expect(asked[0]).toContain('login loops')
+    expect(asked[0]).not.toContain('<one_memory>')
+    await page.keyboard.press('Enter')
+    await expect(ai).toHaveCount(0)
+    await expect(page.locator('.toast', { hasText: 'Free board — 3 cards in 3 lanes' })).toBeVisible()
+    const made = await wsEval(page, (s, id) => {
+      const db = (Object.values(st().databases) as any[]).find((d) => st().pages[d.id]?.parentId === id) // eslint-disable-line @typescript-eslint/no-explicit-any
+      const rows = (Object.values(st().pages) as any[]).filter((p) => p.databaseId === db.id) // eslint-disable-line @typescript-eslint/no-explicit-any
+      const types = st().kit.recordTypes
+      return {
+        free: db.views[0].free,
+        held: db.recordTypes.map((x: string) => types[x].name).sort(),
+        cards: rows.map((r) => `${r.title}|${r.recordType ? types[r.recordType].name : '-'}`).sort(),
+        origin: rows[0].contentOrigin ?? null,
+        dbId: db.id,
+      }
+    }, id)
+    expect(made).toMatchObject({ free: true, held: ['Bug', 'Idea', 'Person'], cards: ['Dark mode for exports|Idea', 'Lea|Person', 'Login loops on Safari|Bug'] })
+    // the editor writes the page after its short pause
+    await expect.poll(() => wsEval(page, (s, id) => (st().pages[id].content.content as Array<{ type: string }>).map((n) => n.type).slice(0, 3), id)).toEqual(['paragraph', 'databaseBlock', 'paragraph'])
+    await expect(page.locator('#main .db--inline .fb-card__type', { hasText: 'Bug' })).toBeVisible()
+    // one Undo: text back, board gone, the record types it added gone (the reused one stays)
+    await page.locator('.toast', { hasText: 'Free board' }).getByRole('button', { name: 'Undo' }).click()
+    await expect.poll(() => wsEval(page, (s, dbId) => !!st().pages[dbId], made.dbId)).toBe(false)
+    expect(await wsEval(page, () => (Object.values(st().kit.recordTypes) as Array<{ name: string }>).map((x) => x.name).sort())).toEqual(['Person'])
+    await expect.poll(() => wsEval(page, (s, id) => (st().pages[id].content.content as Array<{ type: string }>).map((n) => n.type), id)).toContain('bulletList')
+  })
 })
+
+/** api.anthropic.com → the free board answer (structured output); `asked` collects the prompts. */
+async function mockFreeBoard(ctx: BrowserContext, asked: string[]) {
+  await ctx.route('https://api.anthropic.com/**', async (route) => {
+    const req = route.request()
+    const cors = { 'access-control-allow-origin': '*', 'access-control-allow-headers': '*', 'access-control-allow-methods': 'POST, GET' }
+    if (req.method() === 'OPTIONS') return route.fulfill({ status: 204, headers: cors })
+    const body = JSON.parse(req.postData() ?? '{}')
+    asked.push(String(body.messages?.[0]?.content ?? '') + JSON.stringify(body.system ?? ''))
+    const answer = {
+      title: 'Retro',
+      lanes: ['Inbox', 'Now', 'Later'],
+      types: [
+        { name: 'Idea', color: 'green', fields: [{ name: 'Votes', type: 'number' }] },
+        { name: 'Bug', color: 'red', fields: [{ name: 'Severity', type: 'select' }] },
+        { name: 'person', color: 'blue', fields: [] },
+      ],
+      cards: [
+        { title: 'Dark mode for exports', lane: 'Later', type: 'Idea', values: [{ field: 'Votes', value: '12' }] },
+        { title: 'Login loops on Safari', lane: 'Now', type: 'Bug', values: [{ field: 'Severity', value: 'P1' }] },
+        { title: 'Lea', lane: 'Inbox', type: 'Person', values: [{ field: 'Role', value: 'Design lead' }] },
+      ],
+      keep: [1, 3],
+      left: [],
+    }
+    await route.fulfill({
+      status: 200,
+      headers: { ...cors, 'content-type': 'application/json' },
+      body: JSON.stringify({ id: 'msg_e2e', type: 'message', role: 'assistant', model: body.model, content: [{ type: 'text', text: JSON.stringify(answer) }], stop_reason: 'end_turn', stop_sequence: null, usage: { input_tokens: 600, output_tokens: 300 } }),
+    })
+  })
+}
+
+/** Select from the start of `from` to the end of `to` (DOM range — ProseMirror picks it up). */
+async function selectRange(page: Page, editor: import('@playwright/test').Locator, from: string, to: string): Promise<void> {
+  for (let attempt = 0; attempt < 5; attempt++) {
+    await editor.evaluate(
+      (root, [a, b]) => {
+        const find = (needle: string) => {
+          const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT)
+          let node: Node | null
+          while ((node = walker.nextNode())) {
+            const i = (node as Text).data.indexOf(needle)
+            if (i >= 0) return { node, i }
+          }
+          throw new Error(`text not found: ${needle}`)
+        }
+        const s = find(a)
+        const e = find(b)
+        const r = document.createRange()
+        r.setStart(s.node, s.i)
+        r.setEnd(e.node, e.i + b.length)
+        const sel = window.getSelection()!
+        sel.removeAllRanges()
+        sel.addRange(r)
+      },
+      [from, to] as const,
+    )
+    await page.waitForTimeout(150)
+    const got = await page.evaluate(() => window.getSelection()?.toString() ?? '')
+    if (got.startsWith(from) && got.trimEnd().endsWith(to)) return
+  }
+  throw new Error('selection did not hold')
+}

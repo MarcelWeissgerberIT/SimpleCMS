@@ -3,7 +3,7 @@
  * a mono code and an icon per pick, the picks a selection allows, and the run request of a pick.
  */
 import type { Node as PMNode } from '@tiptap/pm/model'
-import { ChartColumn, ChartGantt, Columns2, LayoutGrid, ListCollapse, Network, PanelsTopLeft, Shapes, SquareKanban, Table2, type LucideIcon } from 'lucide-react'
+import { ChartColumn, LayoutDashboard, ChartGantt, Columns2, LayoutGrid, ListCollapse, Network, PanelsTopLeft, Shapes, SquareKanban, Table2, type LucideIcon } from 'lucide-react'
 import { t } from '../../../i18n'
 import { fitsAt, fittingTypes, transformRange } from './range'
 import type { BlockRange } from '../todb/plan'
@@ -13,6 +13,7 @@ import type { TransformPick } from './types'
 export const TRANSFORM_CODES: Record<TransformPick, string> = {
   auto: 'AUTO',
   board: 'BRD',
+  freeboard: 'FRB',
   table: 'TBL',
   timeline: 'TML',
   diagram: 'DGM',
@@ -26,6 +27,7 @@ export const TRANSFORM_CODES: Record<TransformPick, string> = {
 export const TRANSFORM_ICONS: Record<TransformPick, LucideIcon> = {
   auto: Shapes,
   board: SquareKanban,
+  freeboard: LayoutDashboard,
   table: Table2,
   timeline: ChartGantt,
   diagram: Network,
@@ -40,6 +42,7 @@ export const TRANSFORM_ICONS: Record<TransformPick, LucideIcon> = {
 export const TRANSFORM_KEYWORDS: Record<TransformPick, string> = {
   auto: 'transform auto verwandeln automatisch',
   board: 'board kanban status',
+  freeboard: 'free board record types mixed ideas bugs people lanes freies board datensatz typen gemischt ideen fehler personen spalten',
   table: 'table database tabelle datenbank',
   timeline: 'timeline dates milestones schedule zeitleiste termine meilensteine zeitplan',
   diagram: 'diagram flowchart mermaid mindmap mind map sequence org chart process schaubild flussdiagramm ablauf organigramm prozess',

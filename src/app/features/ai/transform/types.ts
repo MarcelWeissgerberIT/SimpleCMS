@@ -8,8 +8,9 @@
  */
 import type { JSONContent } from '@tiptap/core'
 import type { TableAnswer } from '../todb/run'
+import type { FreeBoardResult } from '../freeboard/apply'
 
-export const TRANSFORM_TYPES = ['board', 'table', 'timeline', 'diagram', 'chart', 'columns', 'tabs', 'toggles', 'cards'] as const
+export const TRANSFORM_TYPES = ['board', 'freeboard', 'table', 'timeline', 'diagram', 'chart', 'columns', 'tabs', 'toggles', 'cards'] as const
 export type TransformType = (typeof TRANSFORM_TYPES)[number]
 /** what the person picked: a form, or Auto (Claude picks the form and says why) */
 export type TransformPick = TransformType | 'auto'
@@ -73,7 +74,8 @@ export type BlockResult =
   | (ResultSource & { type: 'chart'; chart: ChartPlan; dropped: string[] })
   | (ResultSource & { type: 'sections'; of: SectionsOf; sections: Section[] })
 
-export type TransformResult = { type: 'db'; table: TableAnswer } | BlockResult
+/** freeboard: record types, lanes and cards (features/ai/freeboard) */
+export type TransformResult = { type: 'db'; table: TableAnswer } | BlockResult | FreeBoardResult
 
 export interface TransformOpts {
   /** request options: the diagram kind and the number of columns (null: Claude decides) */

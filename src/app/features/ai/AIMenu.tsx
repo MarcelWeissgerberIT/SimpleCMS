@@ -986,6 +986,20 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
               requestAnimationFrame(() => inputRef.current?.focus({ preventScroll: true }))
             },
           },
+          // "Turn into free board": record types, lanes and cards from mixed text (features/ai/freeboard)
+          ...(transformPicks.includes('freeboard')
+            ? [
+                {
+                  id: 'freeboard',
+                  label: t('features.ai.freeboard.action'),
+                  code: TRANSFORM_CODES.freeboard,
+                  icon: TRANSFORM_ICONS.freeboard,
+                  group: gStructure,
+                  keywords: TRANSFORM_KEYWORDS.freeboard,
+                  run: () => transformRun('freeboard'),
+                } satisfies ActionDef,
+              ]
+            : []),
           ...transformPicks.map(
             (p): ActionDef => ({
               id: `transform-${p}`,
