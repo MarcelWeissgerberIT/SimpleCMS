@@ -1,7 +1,9 @@
-import type { Messages } from '@/shared/i18n'
+import { mergeMessages, type Messages } from '@/shared/i18n'
+import { messages as editor } from './editor/messages'
+import { messages as templates } from './templates/messages'
 
 /** One Script (features/script): the #/scripts area, the editor, console, run log, query builder, dialogs, errors. */
-export const messages: Messages = {
+const base: Messages = {
   en: {
     'features.script.title': 'Scripts',
     'features.script.kicker': 'One Script',
@@ -16,7 +18,7 @@ export const messages: Messages = {
     'features.script.deleted': 'Deleted “{name}”.',
     'features.script.missing': 'This script does not exist any more.',
     'features.script.readOnly': 'You can view this workspace but not change it: queries and dry runs work, runs that change something do not.',
-    'features.script.startTitle': 'Start from an example',
+    'features.script.startTitle': 'Start from a template',
     'features.script.back': 'Scripts',
     'features.script.name': 'Name',
     'features.script.kind': 'Kind',
@@ -44,12 +46,6 @@ export const messages: Messages = {
     'features.script.failedToast': '“{name}” stopped with an error: {message}',
     'features.script.cmd.new': 'New script',
     'features.script.cmd.open': 'Scripts',
-    'features.script.example.raise.name': 'Raise priority of due tasks',
-    'features.script.example.raise.desc': 'Every open task due within 3 days gets priority High.',
-    'features.script.example.mail.name': 'Mail a page',
-    'features.script.example.mail.desc': 'Sends a page as text — after you confirmed it.',
-    'features.script.example.query.name': 'Open tasks',
-    'features.script.example.query.desc': 'A live query: open entries, soonest first.',
     'features.script.starter.script':
       '# One Script — Run, or Dry run first (it changes nothing)\n# Type @ to pick a page or database.\n\nlet name = ask("Who are you?", default: "Ada")\nnotify("Hello {name}!")\n',
     'features.script.starter.query': '# A query: its result shows live below.\n# Type @ and pick a database, e.g. db(@Tasks).where(Status = "Open")\n',
@@ -73,7 +69,7 @@ export const messages: Messages = {
     'features.script.keys.stop': 'Stop',
     'features.script.keys.eval': 'Evaluate',
 
-    'features.script.ed.hint': 'Type @ for a page, database or person · Tab completes',
+    'features.script.ed.hint': 'Type @ for a page, database or person · Ctrl+Space suggests · F1 explains',
     'features.script.ed.pos': 'Ln {line}, Col {col}',
     'features.script.ed.property': 'property',
     'features.script.ed.suggestions': 'Suggestions',
@@ -373,7 +369,7 @@ export const messages: Messages = {
     'features.script.deleted': '„{name}“ gelöscht.',
     'features.script.missing': 'Dieses Skript gibt es nicht mehr.',
     'features.script.readOnly': 'Du kannst diesen Workspace ansehen, aber nicht ändern: Abfragen und Probeläufe funktionieren, Läufe, die etwas ändern, nicht.',
-    'features.script.startTitle': 'Mit einem Beispiel beginnen',
+    'features.script.startTitle': 'Mit einer Vorlage beginnen',
     'features.script.back': 'Skripte',
     'features.script.name': 'Name',
     'features.script.kind': 'Art',
@@ -401,12 +397,6 @@ export const messages: Messages = {
     'features.script.failedToast': '„{name}“ wurde mit einem Fehler beendet: {message}',
     'features.script.cmd.new': 'Neues Skript',
     'features.script.cmd.open': 'Skripte',
-    'features.script.example.raise.name': 'Fällige Aufgaben hochstufen',
-    'features.script.example.raise.desc': 'Jede offene Aufgabe, die in 3 Tagen fällig ist, bekommt Priorität Hoch.',
-    'features.script.example.mail.name': 'Seite mailen',
-    'features.script.example.mail.desc': 'Schickt eine Seite als Text — nachdem du es bestätigt hast.',
-    'features.script.example.query.name': 'Offene Aufgaben',
-    'features.script.example.query.desc': 'Eine Live-Abfrage: offene Einträge, die nächsten zuerst.',
     'features.script.starter.script':
       '# One Script — Ausführen, oder erst der Probelauf (ändert nichts)\n# Tippe @, um eine Seite oder Datenbank zu wählen.\n\nlet name = ask("Wie heißt du?", default: "Ada")\nnotify("Hallo {name}!")\n',
     'features.script.starter.query': '# Eine Abfrage: ihr Ergebnis steht live darunter.\n# Tippe @ und wähle eine Datenbank, z. B. db(@Aufgaben).where(Status = "Offen")\n',
@@ -430,7 +420,7 @@ export const messages: Messages = {
     'features.script.keys.stop': 'Stopp',
     'features.script.keys.eval': 'Auswerten',
 
-    'features.script.ed.hint': '@ für Seite, Datenbank oder Person · Tab vervollständigt',
+    'features.script.ed.hint': '@ für Seite, Datenbank oder Person · Strg+Leertaste schlägt vor · F1 erklärt',
     'features.script.ed.pos': 'Z {line}, Sp {col}',
     'features.script.ed.property': 'Eigenschaft',
     'features.script.ed.suggestions': 'Vorschläge',
@@ -717,3 +707,6 @@ export const messages: Messages = {
     'features.script.fn.page.create': 'Legt eine Seite an: title, parent, markdown.',
   },
 }
+
+/** + the editor's completion and docs (editor/messages.ts) and the templates (templates/messages.ts). */
+export const messages: Messages = mergeMessages(base, editor, templates)

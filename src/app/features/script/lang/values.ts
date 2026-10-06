@@ -258,11 +258,12 @@ export function parseDate(s: string): SDate | null {
   return new SDate(date.getTime(), !!h)
 }
 
+/** A date moved by a duration; a range moves as a whole (start and end). */
 export function addDuration(d: SDate, dur: SDuration, sign = 1): SDate {
   let t = d.t
   if (dur.days) t = addDays(new Date(t), sign * dur.days).getTime()
   t += sign * dur.ms
-  return new SDate(t, d.time || dur.ms % 86_400_000 !== 0, null)
+  return new SDate(t, d.time || dur.ms % 86_400_000 !== 0, d.end ? addDuration(d.end, dur, sign) : null)
 }
 
 /* ------------------------------------------------------------------ equality and order */

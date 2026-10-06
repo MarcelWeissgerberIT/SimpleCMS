@@ -8,7 +8,7 @@
  *
  * (CHANGELOG_DRAFT=1 lets the build pass while a new entry's picture does not exist yet.)
  *
- * Shots: one-script-everywhere, file-ai, one-script, transform, ai-edit, db-commands, gmail-one-click, memory, grips-footer, block-select, split-to-page, image-ai, claude-reads, redo, ai-terminal, mcp-codewords, mcp-tidy-up, slash-menu, turn-into-database,
+ * Shots: script-templates, one-script-everywhere, file-ai, one-script, transform, ai-edit, db-commands, gmail-one-click, memory, grips-footer, block-select, split-to-page, image-ai, claude-reads, redo, ai-terminal, mcp-codewords, mcp-tidy-up, slash-menu, turn-into-database,
  * custom-agents, gmail, help-centre, mcp-servers, feed-blocks — each named like its image. Every shot starts from a fresh, seeded
  * workspace in English, light theme, 1440 × 900 at device scale 2; the crop of the relevant area is scaled
  * to 1440 px wide and saved as public/assets/shots/changelog/<shot>.webp (≤ 150 KB: the quality steps down
@@ -304,6 +304,43 @@ for q in (86, 82, 78, 74, 70, 66, 62, 58):
         break
 `
   const info = execFileSync('python3', ['-c', py, png, out, String(OUT_W), String(MAX_BYTES)]).toString().trim()
+  const [w, h] = info.split(' ')[0].split('x').map(Number)
+  const sizes = readSizes()
+  sizes[`${name}.webp`] = [w, h]
+  const sorted = Object.fromEntries(Object.entries(sizes).sort(([a], [b]) => a.localeCompare(b)))
+  writeFileSync(SIZES, `${JSON.stringify(sorted, null, 2)}\n`)
+  console.log('saved', out, info, `(${Math.round(statSync(out).size / 1024)} KB)`)
+}
+
+/**
+ * Two crops of the same workspace in two states, side by side on the paper background (scaled to the
+ * same height), saved like save(): 1440 wide, WebP <= 150 KB, its size into sizes.json.
+ */
+async function saveSideBySide(name, pngs) {
+  const out = `${OUT}/${name}.webp`
+  const py = `
+import sys, io
+from PIL import Image
+out, width, limit = sys.argv[1], int(sys.argv[2]), int(sys.argv[3])
+parts = [Image.open(p).convert('RGB') for p in sys.argv[4:]]
+h = max(p.height for p in parts)
+parts = [p if p.height == h else p.resize((round(p.width * h / p.height), h), Image.LANCZOS) for p in parts]
+pad, gap = 40, 40
+canvas = Image.new('RGB', (sum(p.width for p in parts) + gap * (len(parts) - 1) + 2 * pad, h + 2 * pad), (242, 240, 234))
+x = pad
+for p in parts:
+    canvas.paste(p, (x, pad))
+    x += p.width + gap
+im = canvas.resize((width, round(canvas.height * width / canvas.width)), Image.LANCZOS)
+for q in (86, 82, 78, 74, 70, 66, 62, 58):
+    buf = io.BytesIO()
+    im.save(buf, 'WEBP', quality=q, method=6)
+    if buf.tell() <= limit or q == 58:
+        open(out, 'wb').write(buf.getvalue())
+        print(f'{im.width}x{im.height} q{q} {buf.tell() // 1024} KB')
+        break
+`
+  const info = execFileSync('python3', ['-c', py, out, String(OUT_W), String(MAX_BYTES), ...pngs]).toString().trim()
   const [w, h] = info.split(' ')[0].split('x').map(Number)
   const sizes = readSizes()
   sizes[`${name}.webp`] = [w, h]
@@ -1090,6 +1127,57 @@ const shots = {
     const top = Math.max(0, Math.round(head.y - 12))
     const bottom = Math.max(live.y + live.height, side.y + Math.min(side.height, 520))
     await save(page, 'one-script-everywhere', { x: left, y: top, width: W - left, height: Math.min(H - 30 - top, Math.round(bottom + 16 - top)) })
+    await ctx.close()
+  },
+
+  /** One Script templates + autocomplete: the template gallery, next to the editor suggesting a Status's options. */
+  async 'script-templates'(browser) {
+    const { ctx, page } = await freshPage(browser)
+    const id = await page.evaluate(() => {
+      const s = window.__one.workspace.getState()
+      const db = Object.values(s.pages).find((p) => p.kind === 'database' && p.title === 'Projects')
+      const now = Date.now()
+      const code = [
+        '# Open projects with high priority, soonest first',
+        `let open = db(@[Projects](p:${db.id}))`,
+        '  .where(Priority = "High", Status != "Done")',
+        '  .sort(Timeline)',
+        '',
+        '# Ready for a look: move each one to review',
+        'for p in open.rows {',
+        '  p.set(Status:',
+      ].join('\n')
+      s.upsertScript({ id: 'scshot3', name: 'Projects to review', code, kind: 'script', createdAt: now, updatedAt: now })
+      return 'scshot3'
+    })
+    // the editor: after "set(Status:" the options of the status, as texts
+    await page.evaluate((id) => (window.location.hash = `#/scripts/${id}`), id)
+    const ta = page.locator('.sc-code__input')
+    await ta.waitFor()
+    await ta.click()
+    await page.keyboard.press('Control+End')
+    await page.keyboard.type(' ', { delay: 40 })
+    await page.locator('.sc-complete').waitFor()
+    for (let i = 0; i < 2; i++) await page.keyboard.press('ArrowDown')
+    await page.mouse.move(W + 40, H + 40)
+    await page.waitForTimeout(500)
+    const code = await boxOf(page.locator('.sc-code'))
+    const editor = { x: code.x, y: code.y, width: code.width, height: code.height }
+    const a = `${TMP}/script-templates-editor.png`
+    await page.screenshot({ path: a, clip: editor })
+    // the gallery: categories and cards (each says what it touches and which database it uses)
+    await page.evaluate(() => (window.location.hash = '#/scripts'))
+    await page.getByTestId('sc-new-template').click()
+    await page.getByTestId('sc-gallery').waitFor()
+    await rest(page)
+    await page.locator('.sc-gal__cards').evaluate((el) => (el.scrollTop = 0))
+    // a cut-out of the dialog: square corners (no scrim showing in them)
+    await page.locator('.sc-gal-modal').evaluate((el) => (el.style.borderRadius = '0'))
+    const modal = await boxOf(page.locator('.sc-gal-modal'))
+    const preview = await boxOf(page.getByTestId('sc-gallery-preview'))
+    const b = `${TMP}/script-templates-gallery.png`
+    await page.screenshot({ path: b, clip: { x: modal.x, y: modal.y, width: preview.x - modal.x + 1, height: Math.min(modal.height, editor.height) } })
+    await saveSideBySide('script-templates', [b, a])
     await ctx.close()
   },
 

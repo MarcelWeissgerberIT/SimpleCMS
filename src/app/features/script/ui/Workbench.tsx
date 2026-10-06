@@ -8,7 +8,6 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, typ
 import { create } from 'zustand'
 import { ArrowLeft, Copy, FlaskConical, MoreHorizontal, Play, Square, Trash2 } from 'lucide-react'
 import { useWorkspace } from '../../../store/store'
-import { inTemplate, isEffectivelyTrashed } from '../../../store/selectors'
 import type { ID } from '../../../store/types'
 import { useCloud } from '../../../cloud'
 import { Menu, useMenu } from '../../../ui/Menu'
@@ -16,8 +15,9 @@ import { shortcutLabel } from '../../../ui/controls'
 import { useT } from '../../../i18n'
 import { HelpLink } from '../../../help'
 import { syntaxError } from '../lang'
-import { CodeEditor, type EditorError, type RefCandidate } from '../editor/CodeEditor'
+import { CodeEditor, type EditorError } from '../editor/CodeEditor'
 import { analyze } from '../editor/analyze'
+import { propNamesOf, refCandidates, workspaceInfo } from '../editor/workspace'
 import { Builder } from '../builder/Builder'
 import { errorInfo, evaluateSelection, runScript, type RunResult } from '../runtime/run'
 import { beginRun, endRun, notifyResult, stopScript, useActiveRuns } from '../runtime/active'
@@ -36,60 +36,6 @@ const useOutputs = create<{ byId: Record<ID, Output> }>()(() => ({ byId: {} }))
 const setOutput = (id: ID, out: Output) => useOutputs.setState((s) => ({ byId: { ...s.byId, [id]: out } }))
 
 type Tab = 'result' | 'console' | 'runs'
-
-/* ------------------------------------------------------------------ @ candidates, property names */
-
-function refCandidates(query: string, selfId: ID, t: ReturnType<typeof useT>): RefCandidate[] {
-  const s = useWorkspace.getState()
-  const q = query.trim().toLowerCase()
-  const score = (name: string) => {
-    const n = name.toLowerCase()
-    if (!q) return 1
-    if (n.startsWith(q)) return 3
-    if (n.split(/[\s/–-]+/).some((w) => w.startsWith(q))) return 2
-    return n.includes(q) ? 1 : 0
-  }
-  const out: Array<RefCandidate & { score: number; rank: number }> = []
-  for (const p of Object.values(s.pages)) {
-    if (p.trashed || isEffectivelyTrashed(s.pages, p.id) || inTemplate(s.pages, p.id)) continue
-    const title = p.title.trim()
-    if (!title) continue
-    const sc = score(title)
-    if (!sc) continue
-    const isDb = p.kind === 'database' && !!s.databases[p.id]
-    const detail = isDb ? t('features.script.ed.ref.database') : p.databaseId ? t('features.script.ed.ref.row') : t('features.script.ed.ref.page')
-    out.push({ label: title, kind: 'p', id: p.id, detail, score: sc, rank: isDb ? 0 : p.databaseId ? 2 : 1 })
-  }
-  for (const p of s.people) {
-    const sc = score(p.name)
-    if (sc) out.push({ label: p.name, kind: 'u', id: p.id, detail: t('features.script.ed.ref.person'), score: sc, rank: 1 })
-  }
-  for (const a of Object.values(s.agents ?? {})) {
-    const sc = score(a.name)
-    if (sc) out.push({ label: a.name, kind: 'a', id: a.id, detail: t('features.script.ed.ref.agent'), score: sc, rank: 3 })
-  }
-  for (const sc0 of Object.values(s.scripts ?? {})) {
-    if (sc0.id === selfId) continue
-    const sc = score(sc0.name)
-    if (sc) out.push({ label: sc0.name, kind: 's', id: sc0.id, detail: t('features.script.ed.ref.script'), score: sc, rank: 3 })
-  }
-  return out
-    .sort((a, b) => b.score - a.score || a.rank - b.rank || a.label.localeCompare(b.label))
-    .slice(0, 12)
-    .map(({ label, kind, id, detail }) => ({ label, kind, id, detail }))
-}
-
-/** A database by id, else by title (the code's db("…") / @Name). */
-function dbByRef(dbId: string | null, dbName: string | null) {
-  const s = useWorkspace.getState()
-  if (dbId && s.databases[dbId]) return s.databases[dbId]
-  if (!dbName) return null
-  const n = dbName.trim().toLowerCase()
-  const hit = Object.values(s.databases).find((d) => s.pages[d.id]?.title.trim().toLowerCase() === n && !s.pages[d.id]?.trashed)
-  return hit ?? null
-}
-
-const propsOf = (dbId: string | null, dbName: string | null): string[] => dbByRef(dbId, dbName)?.properties.map((p) => p.name) ?? []
 
 /* ------------------------------------------------------------------ the live result of a query */
 
@@ -279,7 +225,7 @@ export function Workbench({ id }: { id: ID }) {
   const editorError: EditorError | null = shownErr && shownErr.line !== null ? { start: shownErr.start, end: shownErr.end, line: shownErr.line, message: errorMessage(shownErr, t) } : null
 
   const analysis = useMemo(() => analyze(code), [code])
-  const propNames = useMemo(() => new Set(analysis.dbRefs.flatMap((r) => propsOf(r.id, r.name))), [analysis])
+  const propNames = useMemo(() => propNamesOf(analysis.dbRefs), [analysis])
 
   /* -------------------------------------------------------------- running */
 
@@ -373,6 +319,11 @@ export function Workbench({ id }: { id: ID }) {
     }
   }
 
+  // the reference pane does not render again on every key
+  const insertRef = useRef(insertAtCaret)
+  insertRef.current = insertAtCaret
+  const onInsert = useCallback((text: string) => insertRef.current(text), [])
+
   const onJump = (line: number, col: number) => setJump((j) => ({ line, col, n: (j?.n ?? 0) + 1 }))
 
   const commitName = () => {
@@ -463,8 +414,8 @@ export function Workbench({ id }: { id: ID }) {
             onChange={edit}
             error={editorError}
             readOnly={readOnly}
-            refs={(q) => refCandidates(q, id, t)}
-            propsOf={propsOf}
+            refs={(q) => refCandidates(q, id)}
+            ws={workspaceInfo}
             propNames={propNames}
             ariaLabel={t('features.script.code')}
             textareaRef={ta}
@@ -498,7 +449,7 @@ export function Workbench({ id }: { id: ID }) {
         </div>
         <aside className="sc-bench__side">
           <AskClaude kind={kind} code={code} readOnly={readOnly} onAccept={edit} />
-          {kind === 'query' ? <Builder code={code} onChange={edit} onEditAsText={() => ta.current?.focus()} /> : <Reference onInsert={insertAtCaret} />}
+          {kind === 'query' ? <Builder code={code} onChange={edit} onEditAsText={() => ta.current?.focus()} /> : <Reference onInsert={onInsert} />}
         </aside>
       </div>
     </div>
