@@ -29835,7 +29835,7 @@ async function serveTaskMcp(version2) {
 
 // src/worker/setup.ts
 import { randomBytes as randomBytes3 } from "node:crypto";
-import { execFile as execFile3 } from "node:child_process";
+import { execFile as execFile4 } from "node:child_process";
 import { realpathSync as realpathSync2 } from "node:fs";
 import { homedir as homedir4 } from "node:os";
 import { isAbsolute as isAbsolute2, join as join6, resolve as resolve3, sep as sep4 } from "node:path";
@@ -30100,6 +30100,37 @@ function isMainCheckout(dir) {
   }
 }
 
+// src/worker/picker.ts
+import { execFile as execFile3 } from "node:child_process";
+var PROMPT = "One worker \u2014 pick the folder of a git repository";
+function pickerCommand(env = process.env, platform = process.platform) {
+  const custom2 = (env.ONE_WORKER_PICKER ?? "").trim();
+  if (custom2 === "none") return null;
+  if (custom2) return { cmd: custom2, args: [] };
+  if (platform === "darwin") {
+    return { cmd: "osascript", args: ["-e", "tell me to activate", "-e", `POSIX path of (choose folder with prompt "${PROMPT}" default location (path to documents folder))`] };
+  }
+  if (platform === "win32") {
+    const script = `Add-Type -AssemblyName System.Windows.Forms; $d = New-Object System.Windows.Forms.FolderBrowserDialog; $d.Description = '${PROMPT.replace("\u2014", "-")}'; if ($d.ShowDialog() -eq 'OK') { [Console]::Out.Write($d.SelectedPath) }`;
+    return { cmd: "powershell", args: ["-NoProfile", "-STA", "-Command", script] };
+  }
+  if (!env.DISPLAY && !env.WAYLAND_DISPLAY) return null;
+  return { cmd: "zenity", args: ["--file-selection", "--directory", `--title=${PROMPT}`] };
+}
+function pickFolder(env = process.env) {
+  const how = pickerCommand(env);
+  if (!how) return Promise.resolve({ none: true });
+  return new Promise((resolve5) => {
+    execFile3(how.cmd, how.args, { timeout: 5 * 6e4, maxBuffer: 64 * 1024, windowsHide: false }, (err, stdout) => {
+      const out = String(stdout ?? "").trim();
+      const path = out.length > 1 ? out.replace(/[\\/]+$/, "") : out;
+      if (path) return resolve5({ path });
+      if (err && err.code === "ENOENT") return resolve5({ none: true });
+      resolve5({ cancelled: true });
+    });
+  });
+}
+
 // src/worker/opener.ts
 import { spawn as spawn3 } from "node:child_process";
 function browserCommand(url, env = process.env, platform = process.platform) {
@@ -30302,6 +30333,9 @@ var SETUP_JS = String.raw`(function () {
     add: 'Add a folder…',
     addLabel: 'The folder of a git repository (~/… or a full path)',
     addGo: 'Add',
+    pick: 'Choose a folder…',
+    picking: 'A folder dialog opened on your computer — it may be behind this window.',
+    noPicker: 'This computer has no folder dialog the worker can open — type the folder instead.',
     cancel: 'Cancel',
     none: 'No git repositories found below your home folder. Add a folder.',
     branch: 'Branch',
@@ -30362,6 +30396,9 @@ var SETUP_JS = String.raw`(function () {
     add: 'Ordner hinzufügen…',
     addLabel: 'Der Ordner eines Git-Repositorys (~/… oder ein vollständiger Pfad)',
     addGo: 'Hinzufügen',
+    pick: 'Ordner wählen …',
+    picking: 'Auf deinem Computer ist ein Ordner-Dialog aufgegangen – er liegt vielleicht hinter diesem Fenster.',
+    noPicker: 'Auf diesem Computer kann der Worker keinen Ordner-Dialog öffnen – gib den Ordner stattdessen ein.',
     cancel: 'Abbrechen',
     none: 'Unter deinem Home-Ordner wurden keine Git-Repositories gefunden. Füge einen Ordner hinzu.',
     branch: 'Branch',
@@ -30572,6 +30609,7 @@ var SETUP_JS = String.raw`(function () {
     app.appendChild(el('div', { className: 'tools' }, [
       el('span', { className: 'label tools__meta', text: meta }),
       el('button', { type: 'button', className: 'btn', id: 'rescan', disabled: !!busy, onclick: rescan, text: busy === 'scan' ? t('scanning') : t('rescan') }),
+      el('button', { type: 'button', className: 'btn', id: 'pick', disabled: busy === 'pick', onclick: pickFolder, text: t('pick') }),
       el('button', { type: 'button', className: 'btn', id: 'add', 'aria-expanded': adding ? 'true' : 'false', onclick: function () { adding = !adding; addError = ''; render(); var i = $('addpath'); if (i) i.focus() }, text: t('add') })
     ]))
     if (adding) {
@@ -30652,17 +30690,39 @@ var SETUP_JS = String.raw`(function () {
     setTimeout(tick, 600)
   }
 
+  function pickFolder() {
+    busy = 'pick'
+    note = { ok: true, text: t('picking') }
+    render()
+    api('POST', 'pick', {}).then(function (res) {
+      busy = ''
+      note = null
+      if (res.none) { adding = true; addError = t('noPicker'); render(); var i = $('addpath'); if (i) i.focus(); return }
+      if (res.cancelled) { render(); return }
+      adopted(res)
+    }, function (e) {
+      busy = ''
+      note = null
+      adding = true
+      addError = e.message
+      render()
+    })
+  }
+
+  /** A folder was added (typed or picked): tick it and show it. */
+  function adopted(res) {
+    adding = false
+    addError = ''
+    delete edits[res.added]
+    adopt(res.state)
+    var r = state.repos.filter(function (x) { return x.path === res.added })[0]
+    if (r) { editOf(r).ticked = true; render() }
+    var node = document.querySelector('[data-path="' + CSS.escape(res.added) + '"]')
+    if (node) node.scrollIntoView({ block: 'nearest' })
+  }
+
   function addFolder(path) {
-    api('POST', 'add', { path: path }).then(function (res) {
-      adding = false
-      addError = ''
-      delete edits[res.added]
-      adopt(res.state)
-      var r = state.repos.filter(function (x) { return x.path === res.added })[0]
-      if (r) { editOf(r).ticked = true; render() }
-      var node = document.querySelector('[data-path="' + CSS.escape(res.added) + '"]')
-      if (node) node.scrollIntoView({ block: 'nearest' })
-    }, function (e) { addError = e.message; render(); var i = $('addpath'); if (i) { i.value = path; i.focus() } })
+    api('POST', 'add', { path: path }).then(adopted, function (e) { addError = e.message; render(); var i = $('addpath'); if (i) { i.value = path; i.focus() } })
   }
 
   function save() {
@@ -30705,7 +30765,7 @@ function joinArgs(argv2) {
 function ghInstalled() {
   return new Promise((done) => {
     try {
-      execFile3("gh", ["--version"], { timeout: 5e3, windowsHide: true }, (err) => done(!err));
+      execFile4("gh", ["--version"], { timeout: 5e3, windowsHide: true }, (err) => done(!err));
     } catch {
       done(false);
     }
@@ -30722,6 +30782,7 @@ var SetupServer = class {
   /** while a search runs: folders looked into, repos found, facts read */
   progress = { dirs: 0, found: 0, facts: 0, phase: "search" };
   gh = null;
+  picking = false;
   constructor(host) {
     this.host = host;
     this.home = host.home ?? homedir4();
@@ -30906,6 +30967,21 @@ var SetupServer = class {
     if (op === "scan") {
       await this.scan();
       return json(200, await this.state()), true;
+    }
+    if (op === "pick") {
+      if (this.picking) return json(409, { error: "A folder dialog is already open on this computer." }), true;
+      this.picking = true;
+      let picked;
+      try {
+        picked = await (this.host.picker ?? pickFolder)();
+      } finally {
+        this.picking = false;
+      }
+      if ("none" in picked) return json(200, { none: true }), true;
+      if ("cancelled" in picked) return json(200, { cancelled: true }), true;
+      const r = await this.add(picked.path);
+      if (!r.ok) return json(400, { error: `${shortPath(picked.path, this.home)} \u2014 ${r.error}` }), true;
+      return json(200, { added: r.path, state: await this.state() }), true;
     }
     if (op === "add") {
       const r = await this.add(isObj6(body) ? body.path : null);

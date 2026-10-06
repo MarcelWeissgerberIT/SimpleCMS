@@ -7,7 +7,7 @@
  * the terminal checklist. A fake browser opener and a fake Claude Code CLI — nothing leaves the machine.
  */
 import assert from 'node:assert/strict'
-import { mkdirSync, readFileSync, statSync, symlinkSync, writeFileSync, existsSync } from 'node:fs'
+import { chmodSync, mkdirSync, readFileSync, statSync, symlinkSync, writeFileSync, existsSync } from 'node:fs'
 import { request } from 'node:http'
 import { join } from 'node:path'
 import { after, afterEach, describe, test } from 'node:test'
@@ -16,6 +16,7 @@ import { readPreset, workerOrigins, sameSecret } from '../src/worker/preset.ts'
 import { splitArgs, withPreset, sanitizeConfig } from '../src/worker/config.ts'
 import { readdir } from 'node:fs/promises'
 import { findRepos, guessTest, remoteHost, repoFacts, factsOf, suggestName, shortPath } from '../src/worker/scan.ts'
+import { pickerCommand } from '../src/worker/picker.ts'
 import { checklistText } from '../src/worker/checklist.ts'
 import { browserCommand } from '../src/worker/opener.ts'
 import { waitFor } from './helpers.ts'
@@ -302,6 +303,45 @@ describe('test command guesses', () => {
 })
 
 describe('the setup page', () => {
+  test('Choose a folder…: the computer\'s own dialog (fixed arguments) — a picked repo is added, a plain folder refused, cancel and no dialog said so', async () => {
+    assert.equal(pickerCommand({}, 'darwin')!.cmd, 'osascript')
+    assert.ok(pickerCommand({}, 'darwin')!.args.join(' ').includes('choose folder'))
+    assert.equal(pickerCommand({}, 'win32')!.cmd, 'powershell')
+    assert.equal(pickerCommand({}, 'linux'), null)
+    assert.equal(pickerCommand({ DISPLAY: ':0' }, 'linux')!.cmd, 'zenity')
+    assert.equal(pickerCommand({ ONE_WORKER_PICKER: 'none' }, 'darwin'), null)
+
+    const { home, outside } = makeHome()
+    const plain = join(home, 'Documents', 'zip-download-main')
+    mkdirSync(plain, { recursive: true })
+    // a fake dialog: prints whatever the test put into its answer file (empty = cancelled)
+    const dir = tempDir('picker')
+    const answer = join(dir, 'answer.txt')
+    const program = join(dir, 'pick.mjs')
+    writeFileSync(program, `#!${process.execPath}\nimport { readFileSync } from 'node:fs'\nconst a = readFileSync(${JSON.stringify(answer)}, 'utf8')\nif (!a) process.exit(1)\nprocess.stdout.write(a + '/\\n')\n`)
+    chmodSync(program, 0o755)
+    const opener = fakeOpener()
+    worker = await spawnWorker({ bundle: presetBundle(PRESET), home, env: { ONE_WORKER_BROWSER: opener.program, ONE_WORKER_PICKER: program } })
+    await waitFor(() => opener.urls().length === 1, 8000, () => worker!.stderr())
+    const token = tokenOf(opener.urls()[0]!)
+    const pick = () => call('/setup/api/pick', { token, origin: SELF, body: {} })
+    assert.equal((await call('/setup/api/pick', { token, body: {} })).status, 403, 'POST needs the page origin')
+
+    writeFileSync(answer, outside)
+    const added = await pick()
+    assert.equal(added.status, 200, added.text)
+    assert.equal(added.json().added, outside)
+    assert.ok(added.json().state.repos.some((r: { path: string }) => r.path === outside))
+
+    writeFileSync(answer, plain)
+    const refused = await pick()
+    assert.equal(refused.status, 400)
+    assert.match(refused.json().error, /zip-download-main — .*no \.git folder/)
+
+    writeFileSync(answer, '')
+    assert.deepEqual((await pick()).json(), { cancelled: true })
+  })
+
   test('key, Host and Origin checks; it lists the repos; Add a folder; Rescan; Save writes worker.json 0600 with only the ticked repos and One sees them', async () => {
     const { home, outside } = makeHome()
     const opener = fakeOpener()

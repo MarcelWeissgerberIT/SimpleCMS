@@ -173,6 +173,9 @@ export const SETUP_JS = String.raw`(function () {
     add: 'Add a folder…',
     addLabel: 'The folder of a git repository (~/… or a full path)',
     addGo: 'Add',
+    pick: 'Choose a folder…',
+    picking: 'A folder dialog opened on your computer — it may be behind this window.',
+    noPicker: 'This computer has no folder dialog the worker can open — type the folder instead.',
     cancel: 'Cancel',
     none: 'No git repositories found below your home folder. Add a folder.',
     branch: 'Branch',
@@ -233,6 +236,9 @@ export const SETUP_JS = String.raw`(function () {
     add: 'Ordner hinzufügen…',
     addLabel: 'Der Ordner eines Git-Repositorys (~/… oder ein vollständiger Pfad)',
     addGo: 'Hinzufügen',
+    pick: 'Ordner wählen …',
+    picking: 'Auf deinem Computer ist ein Ordner-Dialog aufgegangen – er liegt vielleicht hinter diesem Fenster.',
+    noPicker: 'Auf diesem Computer kann der Worker keinen Ordner-Dialog öffnen – gib den Ordner stattdessen ein.',
     cancel: 'Abbrechen',
     none: 'Unter deinem Home-Ordner wurden keine Git-Repositories gefunden. Füge einen Ordner hinzu.',
     branch: 'Branch',
@@ -443,6 +449,7 @@ export const SETUP_JS = String.raw`(function () {
     app.appendChild(el('div', { className: 'tools' }, [
       el('span', { className: 'label tools__meta', text: meta }),
       el('button', { type: 'button', className: 'btn', id: 'rescan', disabled: !!busy, onclick: rescan, text: busy === 'scan' ? t('scanning') : t('rescan') }),
+      el('button', { type: 'button', className: 'btn', id: 'pick', disabled: busy === 'pick', onclick: pickFolder, text: t('pick') }),
       el('button', { type: 'button', className: 'btn', id: 'add', 'aria-expanded': adding ? 'true' : 'false', onclick: function () { adding = !adding; addError = ''; render(); var i = $('addpath'); if (i) i.focus() }, text: t('add') })
     ]))
     if (adding) {
@@ -523,17 +530,39 @@ export const SETUP_JS = String.raw`(function () {
     setTimeout(tick, 600)
   }
 
+  function pickFolder() {
+    busy = 'pick'
+    note = { ok: true, text: t('picking') }
+    render()
+    api('POST', 'pick', {}).then(function (res) {
+      busy = ''
+      note = null
+      if (res.none) { adding = true; addError = t('noPicker'); render(); var i = $('addpath'); if (i) i.focus(); return }
+      if (res.cancelled) { render(); return }
+      adopted(res)
+    }, function (e) {
+      busy = ''
+      note = null
+      adding = true
+      addError = e.message
+      render()
+    })
+  }
+
+  /** A folder was added (typed or picked): tick it and show it. */
+  function adopted(res) {
+    adding = false
+    addError = ''
+    delete edits[res.added]
+    adopt(res.state)
+    var r = state.repos.filter(function (x) { return x.path === res.added })[0]
+    if (r) { editOf(r).ticked = true; render() }
+    var node = document.querySelector('[data-path="' + CSS.escape(res.added) + '"]')
+    if (node) node.scrollIntoView({ block: 'nearest' })
+  }
+
   function addFolder(path) {
-    api('POST', 'add', { path: path }).then(function (res) {
-      adding = false
-      addError = ''
-      delete edits[res.added]
-      adopt(res.state)
-      var r = state.repos.filter(function (x) { return x.path === res.added })[0]
-      if (r) { editOf(r).ticked = true; render() }
-      var node = document.querySelector('[data-path="' + CSS.escape(res.added) + '"]')
-      if (node) node.scrollIntoView({ block: 'nearest' })
-    }, function (e) { addError = e.message; render(); var i = $('addpath'); if (i) { i.value = path; i.focus() } })
+    api('POST', 'add', { path: path }).then(adopted, function (e) { addError = e.message; render(); var i = $('addpath'); if (i) { i.value = path; i.focus() } })
   }
 
   function save() {

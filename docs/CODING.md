@@ -59,7 +59,9 @@ deep. Symbolic links are never followed; hidden folders, `node_modules`, caches,
 `vendor`, virtual envs and build outputs (`dist`, `build`, `out`, `target`, `coverage` …) are skipped. A folder
 with a `.git` **folder** is a repo (its inside is not searched further); a `.git` file (a linked worktree or a
 submodule) is skipped, and so is the home folder itself. It stops after about 30 s (the page lists repos as they are found; a folder that does not answer within 4 s is skipped and named), 300 repos or 50 000 folders
-(**Add a folder…** takes any other repo: a path inside the home folder, or an absolute path you type).
+(**Choose a folder…** opens this computer's own folder dialog — macOS `osascript` choose folder, Windows PowerShell,
+Linux `zenity`, a fixed command the page cannot change; **Add a folder…** takes a path you type: inside the home folder,
+or an absolute path).
 
 Nothing of a repo's content is read except: the current branch, the base branch (`origin/HEAD`, else `main` /
 `master`), the remote's **host** (never its URL — no user names, no tokens), the last commit's date, dirty or

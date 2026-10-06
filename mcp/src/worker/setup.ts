@@ -23,6 +23,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import { REPO_NAME, type OpenSetupResult, type WorkerPreset } from '../../../src/app/features/coding/protocol.ts'
 import { saveRepos, splitArgs, type RepoChoice, type WorkerConfig } from './config.ts'
 import { bareRepo, factsOf, findRepos, isMainCheckout, repoFacts, shortPath, type FindResult, type FoundRepo, type ScanOptions } from './scan.ts'
+import { pickFolder, type PickResult } from './picker.ts'
 import { sameSecret } from './preset.ts'
 import { openUrl } from './opener.ts'
 import { SETUP_CSS, SETUP_HTML, SETUP_JS } from './setup-page.ts'
@@ -50,6 +51,8 @@ export interface SetupHost {
   live: () => SetupLive
   /** how the page is opened (default: the browser, opener.ts) */
   opener?: (url: string) => Promise<boolean>
+  /** the computer's folder dialog (default: picker.ts) */
+  picker?: () => Promise<PickResult>
   scan?: ScanOptions
   home?: string
 }
@@ -99,6 +102,7 @@ export class SetupServer {
   /** while a search runs: folders looked into, repos found, facts read */
   private progress = { dirs: 0, found: 0, facts: 0, phase: 'search' as 'search' | 'facts' }
   private gh: Promise<boolean> | null = null
+  private picking = false
 
   constructor(host: SetupHost) {
     this.host = host
@@ -301,6 +305,22 @@ export class SetupServer {
     if (op === 'scan') {
       await this.scan()
       return json(200, await this.state()), true
+    }
+    if (op === 'pick') {
+      // one dialog at a time; the dialog runs on this computer, the page only asked for it
+      if (this.picking) return json(409, { error: 'A folder dialog is already open on this computer.' }), true
+      this.picking = true
+      let picked: PickResult
+      try {
+        picked = await (this.host.picker ?? pickFolder)()
+      } finally {
+        this.picking = false
+      }
+      if ('none' in picked) return json(200, { none: true }), true
+      if ('cancelled' in picked) return json(200, { cancelled: true }), true
+      const r = await this.add(picked.path)
+      if (!r.ok) return json(400, { error: `${shortPath(picked.path, this.home)} — ${r.error}` }), true
+      return json(200, { added: r.path, state: await this.state() }), true
     }
     if (op === 'add') {
       const r = await this.add(isObj(body) ? body.path : null)
