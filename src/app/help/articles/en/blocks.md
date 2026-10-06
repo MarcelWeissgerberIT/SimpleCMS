@@ -13,6 +13,8 @@ The menu is grouped: **Basic** (text, headings, page, link to page, callout, quo
 
 A Mermaid diagram doesn't have to be typed: select a list of steps → **Ask AI** → **Transform into…** → **Diagram** ([The AI menu](help:ai-menu)).
 
+Too wide for the page? **Open large** — the ↗ key on the diagram, its block menu or a double-click — shows it across the screen with zoom, pan and a minimap ([Charts](help:charts)).
+
 ## Markdown shortcuts
 Type these at the start of a line:
 - `# `, `## `, `### ` — headings

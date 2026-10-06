@@ -548,11 +548,61 @@
 }
 
 .doc-content .mermaid-view__canvas {
+  position: relative;
   display: grid;
   place-items: center;
   min-height: 80px;
   padding: 16px;
   overflow-x: auto;
+}
+
+.doc-content .mermaid-view__tools {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+/* the column shrinks the drawing: a mono chip says how far, and opens the viewer */
+.doc-content .mermaid-view__scaled {
+  position: absolute;
+  right: 6px;
+  bottom: 6px;
+  height: 20px;
+  padding: 0 6px;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius-1);
+  background: var(--surface);
+  color: var(--ink-2);
+  cursor: pointer;
+  transition:
+    color var(--dur-1) var(--ease-out),
+    border-color var(--dur-1) var(--ease-out);
+}
+
+.doc-content .mermaid-view__scaled:hover {
+  border-color: var(--signal);
+  color: var(--signal-ink);
+}
+
+.doc-content .mermaid-view__scaled:active {
+  transform: translateY(1px);
+}
+
+.doc-content .mermaid-view__svg {
+  cursor: zoom-in;
+}
+
+.doc-content .mermaid-view.is-editing .mermaid-view__svg {
+  cursor: default;
+}
+
+/* no viewer from a slide (the deck owns the keys) or a popover's preview (ui/viewer VIEWER_OFF) */
+:is(.pres, [data-popover]) .doc-content :is(.mermaid-view__open, .mermaid-view__scaled) {
+  display: none;
+}
+
+:is(.pres, [data-popover]) .doc-content .mermaid-view__svg {
+  cursor: inherit;
 }
 
 .doc-content .mermaid-view__svg {

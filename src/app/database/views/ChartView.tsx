@@ -5,11 +5,11 @@
  * and keyboard readouts, and a data table under the plot (legend + accessible values).
  */
 import { useMemo, useState } from 'react'
-import { ChartArea, ChartColumn, ChartColumnStacked, ChartLine, ChartPie, Gauge } from 'lucide-react'
+import { ChartArea, ChartColumn, ChartColumnStacked, ChartLine, ChartPie, Gauge, Maximize2 } from 'lucide-react'
 import type { ChartConfig, PropertyDef, PropertyType } from '../../store/types'
 import { useWorkspace } from '../../store/store'
 import { useT } from '../../i18n'
-import { ChartRenderer, formatChartValue, type ChartData, type ChartSpec } from '../../features'
+import { ChartRenderer, formatChartValue, openChartViewer, type ChartData, type ChartSpec } from '../../features'
 import { useModel } from '../hooks'
 import { Segmented, Select, TypeIcon } from '../parts'
 import { formatCount, formatNumber } from '../model/format'
@@ -145,6 +145,19 @@ export default function ChartView() {
         <span className="label">{cfg.aggregate === 'count' ? t('database.chart.records') : t(`database.chart.agg.${cfg.aggregate}`)}</span>
         <span className="dbch-total__num">{fmt(overall)}</span>
       </span>
+      {xProp && data.labels.length > 0 && (
+        <button
+          type="button"
+          className="icon-btn"
+          aria-label={t('ui.viewer.open')}
+          title={t('ui.viewer.open')}
+          aria-haspopup="dialog"
+          data-testid="dbchart-open"
+          onClick={(e) => openChartViewer({ ...spec, title: [m.dbPage.title, m.view.name].filter(Boolean).join(' · ') }, data, { from: e.currentTarget })}
+        >
+          <Maximize2 size={15} strokeWidth={1.75} aria-hidden />
+        </button>
+      )}
     </div>
   )
 

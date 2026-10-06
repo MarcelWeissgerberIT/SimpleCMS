@@ -1,7 +1,7 @@
 ---
 id: 2026-10-06-coding-pipeline
 date: 2026-10-06
-order: 2
+order: 3
 title: Coding pipeline — Claude Code on your machine, steered from One
 summary: Hand coding tasks to a small worker on your computer: it plans, implements, tests and ships them with Claude Code in a git worktree per task — you approve at the gates.
 image: assets/shots/changelog/coding-pipeline.webp

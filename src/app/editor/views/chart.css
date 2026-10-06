@@ -47,6 +47,11 @@
   }
 }
 
+/* no viewer from a slide (the deck owns the keys) or a popover's preview (ui/viewer VIEWER_OFF) */
+:is(.pres, [data-popover]) .doc-content .chart-block__open {
+  display: none;
+}
+
 .doc-content .chart-block__title {
   margin: 2px 0 8px;
   font-size: 15.5px;

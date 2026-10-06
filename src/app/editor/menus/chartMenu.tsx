@@ -1,15 +1,16 @@
 /**
  * Chart block menu entries — shared by the block handle menu and the chart's own "⋯" key:
- * edit, change type, download PNG / SVG, copy the data as TSV, open the source.
+ * open large (the diagram viewer), edit, change type, download PNG / SVG, copy the data as TSV,
+ * open the source.
  */
 import type { Editor } from '@tiptap/core'
 import type { Node as PMNode } from '@tiptap/pm/model'
-import { ChartColumn, ClipboardCopy, Download, ExternalLink, Settings2 } from 'lucide-react'
+import { ChartColumn, ClipboardCopy, Download, ExternalLink, Maximize2, Settings2 } from 'lucide-react'
 import type { Translate } from '@/shared/i18n'
 import type { MenuEntry } from '../../ui/Menu'
 import { toast } from '../../store/ui'
 import { openPage } from '../../lib/router'
-import { CHART_KINDS, copyChartTsv, currentTheme, downloadChartPng, downloadChartSvg, openChartBuilder, resolveChartData, type ChartSpec, type BuilderStep } from '../../features/charts'
+import { CHART_KINDS, copyChartTsv, currentTheme, downloadChartPng, downloadChartSvg, openChartBuilder, openChartViewer, resolveChartData, type ChartSpec, type BuilderStep } from '../../features/charts'
 import { CHART, chartSpecOf } from '../schema/chart'
 
 /** Write a new spec into the chart at `pos` (the node there must still be a chart). */
@@ -58,6 +59,15 @@ export function chartMenuEntries(editor: Editor, ref: { pos: number; node: PMNod
     return n && n.type.name === CHART ? ref.pos : undefined
   }
   const out: MenuEntry[] = []
+  if (spec)
+    out.push({
+      id: 'chart-open-large',
+      label: t('ui.viewer.open'),
+      icon: <Maximize2 size={15} />,
+      keywords: 'zoom viewer minimap groß vergrößern',
+      // after the menu closed and handed focus back: the viewer returns it there
+      onSelect: () => requestAnimationFrame(() => openChartViewer(spec)),
+    })
   if (editable) out.push({ label: t('charts.block.editChart'), icon: <Settings2 size={15} />, onSelect: () => editChart(editor, getPos) })
   if (!spec) return out
   if (editable)

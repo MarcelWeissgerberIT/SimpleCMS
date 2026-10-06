@@ -8,7 +8,7 @@
  *
  * (CHANGELOG_DRAFT=1 lets the build pass while a new entry's picture does not exist yet.)
  *
- * Shots: building-blocks, coding-pipeline, pages-per-item, design-import, tour, quick-capture, script-templates, one-script-everywhere, file-ai, one-script, transform, ai-edit, db-commands, gmail-one-click, memory, grips-footer, block-select, split-to-page, image-ai, claude-reads, redo, ai-terminal, mcp-codewords, mcp-tidy-up, slash-menu, turn-into-database,
+ * Shots: building-blocks, diagram-viewer, coding-pipeline, pages-per-item, design-import, tour, quick-capture, script-templates, one-script-everywhere, file-ai, one-script, transform, ai-edit, db-commands, gmail-one-click, memory, grips-footer, block-select, split-to-page, image-ai, claude-reads, redo, ai-terminal, mcp-codewords, mcp-tidy-up, slash-menu, turn-into-database,
  * custom-agents, gmail, help-centre, mcp-servers, feed-blocks — each named like its image. Every shot starts from a fresh, seeded
  * workspace in English, light theme, 1440 × 900 at device scale 2; the crop of the relevant area is scaled
  * to 1440 px wide and saved as public/assets/shots/changelog/<shot>.webp (≤ 150 KB: the quality steps down
@@ -1526,6 +1526,61 @@ const shots = {
     const result = await boxOf(page.getByTestId('kt-test-result'))
     const top = (await boxOf(page.locator('.kt-detail .kt-sec').nth(1))).y - 10
     await save(page, 'building-blocks', { x: detail.x - 28, y: top, width: detail.width + 56, height: result.y + result.height + 24 - top })
+    await ctx.close()
+  },
+
+  /** A wide Mermaid flowchart open large at 125 %: the zoom keys and Download SVG on top, the minimap with its frame. */
+  async 'diagram-viewer'(browser) {
+    const flow = [
+      'flowchart LR',
+      '  A[Request in] --> B{Triage}',
+      '  B -->|Bug| C[Reproduce]',
+      '  B -->|Feature| D[Scope]',
+      '  B -->|Question| E[Answer in thread]',
+      '  C --> F[Write failing test]',
+      '  F --> G[Fix]',
+      '  G --> H[Code review]',
+      '  D --> I[Design spec]',
+      '  I --> J[Estimate]',
+      '  J --> K{Fits the sprint?}',
+      '  K -->|Yes| L[Build]',
+      '  K -->|No| M[Backlog]',
+      '  L --> H',
+      '  H --> N{Approved?}',
+      '  N -->|Changes| G',
+      '  N -->|Yes| O[Merge]',
+      '  O --> P[CI pipeline]',
+      '  P --> Q{Green?}',
+      '  Q -->|No| R[Fix the build]',
+      '  R --> P',
+      '  Q -->|Yes| S[Staging deploy]',
+      '  S --> T[Smoke tests]',
+      '  T --> U[QA sign-off]',
+      '  U --> V[Release notes]',
+      '  V --> W[Production deploy]',
+      '  W --> X[Monitor 24 h]',
+      '  X --> Y{Incidents?}',
+      '  Y -->|Yes| Z[Rollback]',
+      '  Y -->|No| AA[Close ticket]',
+      '  Z --> C',
+      '  E --> AA',
+    ].join('\n')
+    const { ctx, page } = await freshPage(browser)
+    const id = await createPage(page, 'Release process', doc(para('How a request becomes a release — from triage to the closed ticket.'), { type: 'mermaid', attrs: { code: flow } }), { icon: { type: 'asset', value: 'binder' } })
+    await openPage(page, id)
+    await page.locator('#main .mermaid-view__svg svg').waitFor({ timeout: 20_000 })
+    await page.getByTestId('mermaid-open').click()
+    await page.locator('.dv__content svg').waitFor({ timeout: 20_000 })
+    await page.waitForTimeout(400)
+    // 100 %, one step in (125 %), then a click on the minimap brings the review loop into view
+    await page.getByTestId('viewer-stage').focus()
+    await page.keyboard.press('1')
+    await page.keyboard.press('+')
+    await page.waitForTimeout(400)
+    const map = await boxOf(page.locator('.dv-mini__map'))
+    await page.mouse.click(map.x + map.width * 0.36, map.y + map.height * 0.5)
+    await rest(page)
+    await save(page, 'diagram-viewer', await boxOf(page.locator('.modal.dv-modal'), 16))
     await ctx.close()
   },
 
