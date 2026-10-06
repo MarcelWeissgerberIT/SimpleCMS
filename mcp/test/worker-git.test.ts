@@ -9,7 +9,7 @@ import { join } from 'node:path'
 import { after, describe, test } from 'node:test'
 import { loadConfig, type RepoConfig } from '../src/worker/config.ts'
 import { WorkerState } from '../src/worker/state.ts'
-import { branchExists, cleanup, commitAll, compareUrl, discard, ensureWorktree, info, push, remoteBranchExists, slug, updateFromBase, webBase } from '../src/worker/git.ts'
+import { branchExists, cleanup, localBranches, commitAll, compareUrl, discard, ensureWorktree, info, push, remoteBranchExists, slug, updateFromBase, webBase } from '../src/worker/git.ts'
 import { Scrubber, repoScrubber } from '../src/worker/scrub.ts'
 import { cleanupAll, makeRepo, repoEntry, sh, tempDir, writeConfig, type TempRepo } from './worker-helpers.ts'
 
@@ -67,6 +67,21 @@ describe('branches and worktrees', () => {
     sh(r.path, 'checkout', '--quiet', '-b', 'person-work')
     await assert.rejects(ensureWorktree(repo, state, { id: 'reuse6', title: 'Base' }, 'main'), /base branch/)
     assert.equal(sh(r.path, 'worktree', 'list', '--porcelain').includes('branch refs/heads/main'), false)
+  })
+})
+
+describe('branch list', () => {
+  test('local branch names, newest commit first (what One offers in the Branch picker)', async () => {
+    const { r, repo } = setup()
+    sh(r.path, 'branch', 'feature/older')
+    sh(r.path, 'checkout', '--quiet', '-b', 'feature/newer')
+    writeFileSync(join(r.path, 'n.txt'), 'n\n')
+    sh(r.path, 'add', '-A')
+    sh(r.path, '-c', 'user.name=T', '-c', 'user.email=t@example.com', 'commit', '--quiet', '-m', 'newer')
+    sh(r.path, 'checkout', '--quiet', 'main')
+    const list = await localBranches(repo)
+    assert.equal(list[0], 'feature/newer')
+    assert.deepEqual([...list].sort(), ['feature/newer', 'feature/older', 'main'])
   })
 })
 

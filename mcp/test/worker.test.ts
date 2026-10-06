@@ -62,15 +62,18 @@ describe('handshake', () => {
     const tab = await connect()
     const welcome = await tab.next('welcome')
     assert.equal(welcome.name, 'test-box')
-    assert.deepEqual(welcome.repos, [{ name: 'demo', baseBranch: 'main' }])
+    assert.deepEqual(welcome.repos, [{ name: 'demo', baseBranch: 'main', branches: ['main'] }])
     assert.equal(welcome.claude.found, true)
     assertNoPaths(tab, r)
 
-    // a newer tab of the same workspace takes over
+    // a newer tab of the same workspace takes over — and hears about a branch made since (names only)
+    sh(r.path, 'branch', 'feature/picker')
     const newer = await connect()
     await newer.next('welcome')
     await waitFor(() => tab.closed !== null)
     assert.equal(tab.closed!.code, WORKER_CLOSE_REPLACED)
+    await waitFor(() => newer.messages.some((m) => m.type === 'welcome' && m.repos[0]?.branches?.includes('feature/picker')))
+    assertNoPaths(newer, r)
   })
 
   test('a worker without a workspace refuses every tab and says how to bind it', async () => {

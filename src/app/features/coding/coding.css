@@ -219,6 +219,44 @@
 .ctk-box--err strong {
   color: var(--c-red-text);
 }
+.ctk-setup {
+  display: grid;
+  gap: 8px;
+}
+.ctk-setup__row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 8px;
+}
+.ctk-setup__field {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+.ctk-setup__field .input {
+  width: 100%;
+  min-width: 0;
+}
+.ctk-setup .ctk-hint {
+  margin: 0;
+}
+.ctk-box--spec {
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  color: var(--signal-ink);
+}
+.ctk-box--spec strong {
+  color: var(--ink);
+}
+@media (max-width: 560px) {
+  .ctk-box--spec {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+  .ctk-box--spec .btn {
+    grid-column: 2;
+    justify-self: start;
+  }
+}
 .ctk-question {
   color: var(--ink) !important;
   font-size: var(--text-md) !important;

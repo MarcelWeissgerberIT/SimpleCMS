@@ -31,7 +31,7 @@ import {
 import type { RepoConfig, WorkerConfig } from './config.ts'
 import { WorkerState } from './state.ts'
 import { detectClaude, type ClaudeCaps } from './claude.ts'
-import { checkRepo, cleanup, commitAll, discard, info, openPr, prune, push, updateFromBase, worktreeOf, GitError } from './git.ts'
+import { checkRepo, cleanup, commitAll, discard, info, localBranches, openPr, prune, push, updateFromBase, worktreeOf, GitError } from './git.ts'
 import { WorkerLink } from './link.ts'
 import { workerOrigins } from './preset.ts'
 import { dataBlock, markerCode, runStage } from './run.ts'
@@ -120,6 +120,8 @@ export class Worker {
   /** outcomes One has not confirmed yet (retried on every connect) */
   private unsent = new Map<string, { taskId: string; stageId: string; outcome: StageOutcome }>()
   private stopped = false
+  /** local branch names per repo name (announced to One for the Branch picker; names only) */
+  private branches = new Map<string, string[]>()
 
   constructor(opts: WorkerOptions) {
     this.opts = opts
@@ -136,6 +138,7 @@ export class Worker {
       onConnect: (ws) => {
         this.workspace = ws
         void this.flushUnsent().then(() => this.tick())
+        void this.refreshBranches()
       },
       onDisconnect: () => {
         this.workspace = null
@@ -151,7 +154,7 @@ export class Worker {
     return {
       worker: this.opts.version,
       name: this.config.name,
-      repos: this.config.repos.map((r) => ({ name: r.name, baseBranch: r.baseBranch })),
+      repos: this.config.repos.map((r) => ({ name: r.name, baseBranch: r.baseBranch, branches: this.branches.get(r.name) ?? [] })),
       parallel: this.config.parallel,
       busy: this.busy(),
       spentToday: this.state.spentToday(),
@@ -190,8 +193,25 @@ export class Worker {
       }
     }
     this.opts.log(`repos: ${this.config.repos.map((r) => r.name).join(', ') || 'none'}`)
+    await this.refreshBranches(false)
     this.link.announce()
     this.tick()
+  }
+
+  /** Read every repo's local branches again; tell One when they changed (announce = false: the caller does). */
+  async refreshBranches(announce = true): Promise<void> {
+    let changed = false
+    const names = new Set(this.config.repos.map((r) => r.name))
+    for (const name of [...this.branches.keys()]) if (!names.has(name)) this.branches.delete(name)
+    for (const repo of this.config.repos) {
+      const list = await localBranches(repo).catch(() => [])
+      const before = this.branches.get(repo.name)
+      if (!before || before.join('\n') !== list.join('\n')) {
+        this.branches.set(repo.name, list)
+        changed = true
+      }
+    }
+    if (changed && announce) this.link.announce()
   }
 
   private busy(): BusyTask[] {
@@ -209,6 +229,7 @@ export class Worker {
         this.opts.log(`repo "${repo.name}": ${e instanceof Error ? e.message : String(e)}`)
       }
     }
+    await this.refreshBranches(false)
     const up = await this.link.start()
     if (up === 'listening') {
       this.opts.log(`ready on ws://127.0.0.1:${this.config.port} · ${this.config.repos.length} repo(s): ${this.config.repos.map((r) => r.name).join(', ') || 'none'} · ${this.config.workspace ? `workspace ${this.config.workspace}${this.config.preset ? ` ("${this.config.preset.name}", paired download)` : ''}` : 'NOT BOUND to a workspace (set "workspace" in worker.json)'}`)
@@ -302,6 +323,7 @@ export class Worker {
         this.opts.log(`task ${task.id}: ${outcome.status}${outcome.error ? ` — ${outcome.error}` : ''}`)
         await this.finish(task.id, task.stage.id, outcome)
         this.sendStatus()
+        void this.refreshBranches()
         this.tick()
       })
   }

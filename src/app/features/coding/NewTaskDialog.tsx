@@ -10,7 +10,7 @@ import { useUI } from '../../store/ui'
 import { useT } from '../../i18n'
 import { useCoding } from './state'
 import { codingDbId, codingProps } from './schema'
-import { createTask, type NewTask } from './tasks'
+import { createTask, workerBranches, type NewTask } from './tasks'
 
 export function NewTaskDialog({ onClose, onCreated }: { onClose: () => void; onCreated: (id: string) => void }) {
   const t = useT()
@@ -34,6 +34,8 @@ export function NewTaskDialog({ onClose, onCreated }: { onClose: () => void; onC
   const [priority, setPriority] = useState<NewTask['priority']>('medium')
   const [branch, setBranch] = useState('')
   const [start, setStart] = useState(true)
+  // the worker's local branches of the chosen repo (names only) — picked or typed
+  const branches = useMemo(() => workerBranches(repo.trim() || null).list, [worker, repo]) // eslint-disable-line react-hooks/exhaustive-deps
   const [saving, setSaving] = useState(false)
   const ok = title.trim().length > 0 && repo.trim().length > 0 && /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(repo.trim()) && (!branch.trim() || /^[A-Za-z0-9._/-]{1,200}$/.test(branch.trim()))
 
@@ -110,7 +112,12 @@ export function NewTaskDialog({ onClose, onCreated }: { onClose: () => void; onC
         </label>
         <label className="cn-field">
           <span className="label">{t('features.coding.new.branch')}</span>
-          <input className="input" value={branch} onChange={(e) => setBranch(e.target.value)} placeholder={t('features.coding.new.branchPh')} maxLength={200} />
+          <input className="input" list={`${uid}-branches`} value={branch} onChange={(e) => setBranch(e.target.value)} placeholder={t('features.coding.new.branchPh')} maxLength={200} data-testid="coding-new-branch" />
+          <datalist id={`${uid}-branches`}>
+            {branches.map((b) => (
+              <option key={b} value={b} />
+            ))}
+          </datalist>
         </label>
         <label className="cn-check">
           <input type="checkbox" checked={start} onChange={(e) => setStart(e.target.checked)} />

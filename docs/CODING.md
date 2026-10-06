@@ -189,7 +189,9 @@ Always `execFile('git', […])` — never a shell line; hooks and your git confi
 
 - **A branch and a worktree per task**: `git fetch`, then `git worktree add -b <branch> <dir> <remote>/<base>`. The
   main checkout's working tree is never touched. `git worktree prune` runs on start.
-- **Reuse a branch**: put it into the task's **Branch** field (or *Existing branch* in New task). It must exist
+- **Reuse a branch**: pick it in the task panel's Branch picker (the worker announces each repo's local branch
+  names, newest first, ≤ 100 — names only, never the base branch), type it into the task's **Branch** field, or use
+  *Existing branch* in New task. It must exist
   (locally or on the remote — then it is tracked); it is never reset. A branch checked out in the main checkout is
   refused, and so is the repo's base branch (Ship would push straight to it).
 - **Git actions** in the panel are fixed verbs: **Refresh**, **Commit** (message), **Push**, **Open PR**, **Update

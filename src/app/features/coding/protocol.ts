@@ -208,6 +208,8 @@ export interface BusyTask {
 export interface WorkerRepo {
   name: string
   baseBranch: string
+  /** local branch names, newest first (≤ 100; older workers send none) — the task's Branch picker */
+  branches?: string[]
 }
 
 export interface WorkerInfo {

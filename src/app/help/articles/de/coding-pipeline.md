@@ -24,14 +24,14 @@ Später ändern: **Repositories ändern** — der Worker öffnet seine Seite wie
 > Tipp: Ein neuer Download ersetzt die Kopplung — starte die zuletzt heruntergeladene Datei. Auf einem Rechner ohne Browser fragt `node one-worker.mjs --no-browser` stattdessen im Terminal (Zahlen haken an, Enter speichert).
 
 ## Eine Aufgabe von Anfang bis Ende
-1. **Neue Aufgabe**: Titel, Repo, Ziel, Abnahmekriterien. *Der Worker darf gleich anfangen* angehakt lassen.
+1. **Neue Aufgabe**: Titel, Repo, Ziel, Abnahmekriterien. *Der Worker darf gleich anfangen* angehakt lassen. Die Aufgabe selbst steht im **Seiteninhalt** der Aufgabe (unter dem Coding-Panel) — mit diesem Text arbeitet Claude Code. Ist die Seite leer, fügt **Gliederung einfügen** Ziel, Abnahmekriterien und Hinweise zum Ausfüllen ein.
 2. **Plan** — Claude Code liest den Code im Plan-Modus (ändert nichts) und schreibt den Plan in die Aufgabe. Die Aufgabe wartet bei **Plan freigeben**.
 3. **Freigeben** — oder **Nacharbeit…** mit Anweisungen: Sie geht mit deiner Notiz zurück zum Plan.
 4. **Umsetzen** — Claude Code ändert den Code in einem eigenen Git-Worktree; **Testen** führt deinen Testbefehl aus. Schlagen die Tests fehl, bekommt „Umsetzen“ mit deren Ausgabe noch einen Versuch.
 5. **Review** — die Tabs **Diff** und **Tests** zeigen, was sich geändert hat. Freigeben oder zurückschicken.
 6. **Ausliefern** — committen, pushen, Pull Request (mit der GitHub-CLI) oder ein Vergleichslink. **Fertig**.
 
-Jede Aufgabe arbeitet auf einem eigenen Branch (`one/<titel>-<id>`) in einem eigenen Worktree — dein Haupt-Checkout bleibt, wie er ist. Um auf einem vorhandenen Branch weiterzuarbeiten, trag seinen Namen ins Feld **Branch** der Aufgabe ein.
+Jede Aufgabe arbeitet auf einem eigenen Branch (`one/<titel>-<id>`) in einem eigenen Worktree — dein Haupt-Checkout bleibt, wie er ist. Bevor eine Aufgabe läuft, wählst du im Coding-Panel das **Repo** (die Repos, die dein Worker meldet) und den **Branch**: *Neuer Branch (automatisch)* oder einen vorhandenen Branch des Repos auf deinem Rechner, um darauf weiterzuarbeiten (der Basis-Branch wird nie angeboten). Eintippen geht auch im Feld **Branch**.
 
 ## Während sie läuft
 - **Log** zeigt live, was Claude Code tut. Braucht Claude eine Entscheidung, zeigt die Aufgabe **Claude fragt** — deine **Antwort** startet die Stufe neu.

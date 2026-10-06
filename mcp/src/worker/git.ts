@@ -90,6 +90,18 @@ export async function listWorktrees(repo: RepoConfig): Promise<Worktree[]> {
   return list
 }
 
+/** Branch names only — the newest first, at most BRANCHES_MAX (what One offers in a task's Branch field). */
+export const BRANCHES_MAX = 100
+
+export async function localBranches(repo: RepoConfig, timeoutMs = 5000): Promise<string[]> {
+  const r = await git(repo.path, ['for-each-ref', '--sort=-committerdate', `--count=${BRANCHES_MAX}`, '--format=%(refname:short)', 'refs/heads'], timeoutMs)
+  if (r.code !== 0) return []
+  return r.stdout
+    .split('\n')
+    .map((b) => b.trim())
+    .filter((b) => b && b.length <= 200)
+}
+
 export async function prune(repo: RepoConfig): Promise<void> {
   await git(repo.path, ['worktree', 'prune'])
 }

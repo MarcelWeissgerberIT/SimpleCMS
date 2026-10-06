@@ -18,6 +18,7 @@ import { createPrivateDatabase, useCloud } from '../../cloud'
 import { NONE_KEY } from '../../database'
 import { ALL_MESSAGES, t } from '../../i18n'
 import { GIT_ACTIONS, PERMISSION_MODES, STAGE_KINDS, type StageKind } from './protocol'
+import { useCoding } from './state'
 
 export type CodingRole = 'repo' | 'stage' | 'priority' | 'branch' | 'git' | 'pr' | 'cost' | 'worker' | 'claimed'
 
@@ -239,6 +240,8 @@ export function ensureCodingDb(): ID {
   const data = { id: newId(), parentId: null, title: t('features.coding.dbTitle'), icon: { type: 'asset' as const, value: 'code' }, properties, views: views(properties) }
   const id = inTeam() ? createPrivateDatabase(data) : ws().createDatabase(data)
   ws().updateDatabase(id, { system: 'coding', pipeline })
+  // a worker that connected before the database existed: its repos are the Repo options
+  addRepoOptions(id, (useCoding.getState().worker?.repos ?? []).map((r) => r.name))
   return id
 }
 

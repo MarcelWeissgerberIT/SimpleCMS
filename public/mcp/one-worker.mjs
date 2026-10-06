@@ -11483,6 +11483,12 @@ async function listWorktrees(repo) {
   }
   return list;
 }
+var BRANCHES_MAX = 100;
+async function localBranches(repo, timeoutMs = 5e3) {
+  const r = await git(repo.path, ["for-each-ref", "--sort=-committerdate", `--count=${BRANCHES_MAX}`, "--format=%(refname:short)", "refs/heads"], timeoutMs);
+  if (r.code !== 0) return [];
+  return r.stdout.split("\n").map((b) => b.trim()).filter((b) => b && b.length <= 200);
+}
 async function prune(repo) {
   await git(repo.path, ["worktree", "prune"]);
 }
@@ -12631,6 +12637,8 @@ var Worker = class {
   /** outcomes One has not confirmed yet (retried on every connect) */
   unsent = /* @__PURE__ */ new Map();
   stopped = false;
+  /** local branch names per repo name (announced to One for the Branch picker; names only) */
+  branches = /* @__PURE__ */ new Map();
   constructor(opts) {
     this.opts = opts;
     this.config = opts.config;
@@ -12646,6 +12654,7 @@ var Worker = class {
       onConnect: (ws) => {
         this.workspace = ws;
         void this.flushUnsent().then(() => this.tick());
+        void this.refreshBranches();
       },
       onDisconnect: () => {
         this.workspace = null;
@@ -12660,7 +12669,7 @@ var Worker = class {
     return {
       worker: this.opts.version,
       name: this.config.name,
-      repos: this.config.repos.map((r) => ({ name: r.name, baseBranch: r.baseBranch })),
+      repos: this.config.repos.map((r) => ({ name: r.name, baseBranch: r.baseBranch, branches: this.branches.get(r.name) ?? [] })),
       parallel: this.config.parallel,
       busy: this.busy(),
       spentToday: this.state.spentToday(),
@@ -12697,8 +12706,24 @@ var Worker = class {
       }
     }
     this.opts.log(`repos: ${this.config.repos.map((r) => r.name).join(", ") || "none"}`);
+    await this.refreshBranches(false);
     this.link.announce();
     this.tick();
+  }
+  /** Read every repo's local branches again; tell One when they changed (announce = false: the caller does). */
+  async refreshBranches(announce = true) {
+    let changed = false;
+    const names = new Set(this.config.repos.map((r) => r.name));
+    for (const name of [...this.branches.keys()]) if (!names.has(name)) this.branches.delete(name);
+    for (const repo of this.config.repos) {
+      const list = await localBranches(repo).catch(() => []);
+      const before = this.branches.get(repo.name);
+      if (!before || before.join("\n") !== list.join("\n")) {
+        this.branches.set(repo.name, list);
+        changed = true;
+      }
+    }
+    if (changed && announce) this.link.announce();
   }
   busy() {
     return [...this.runs.values()].map((r) => ({ taskId: r.task.id, repo: r.repo.name, stageId: r.task.stage.id, since: r.since }));
@@ -12714,6 +12739,7 @@ var Worker = class {
         this.opts.log(`repo "${repo.name}": ${e instanceof Error ? e.message : String(e)}`);
       }
     }
+    await this.refreshBranches(false);
     const up = await this.link.start();
     if (up === "listening") {
       this.opts.log(`ready on ws://127.0.0.1:${this.config.port} \xB7 ${this.config.repos.length} repo(s): ${this.config.repos.map((r) => r.name).join(", ") || "none"} \xB7 ${this.config.workspace ? `workspace ${this.config.workspace}${this.config.preset ? ` ("${this.config.preset.name}", paired download)` : ""}` : 'NOT BOUND to a workspace (set "workspace" in worker.json)'}`);
@@ -12795,6 +12821,7 @@ var Worker = class {
       this.opts.log(`task ${task.id}: ${outcome.status}${outcome.error ? ` \u2014 ${outcome.error}` : ""}`);
       await this.finish(task.id, task.stage.id, outcome);
       this.sendStatus();
+      void this.refreshBranches();
       this.tick();
     });
   }

@@ -15,13 +15,14 @@ import type { ID } from '../../store/types'
 import { HelpLink } from '../../help'
 import { clearLog, loadTask, useTaskLocal, useTaskLog } from './local'
 import { useCoding } from './state'
-import { approveTask, answerTask, confirmTask, reworkTask, runTaskNow, taskContext } from './tasks'
+import { approveTask, answerTask, confirmTask, reworkTask, runTaskNow, taskContext, taskHasText } from './tasks'
 import { isTrusted } from './trust'
 import { stopTask } from './service'
 import { LogView } from './LogView'
 import { PlanView } from './PlanView'
 import { DiffView } from './DiffView'
 import { GitBox } from './GitBox'
+import { TaskSetup } from './TaskSetup'
 import './coding.css'
 
 type Tab = 'log' | 'plan' | 'diff' | 'tests' | 'git'
@@ -110,6 +111,8 @@ export default function TaskPanel({ pageId }: { pageId: ID }) {
   const canAct = !viewer
   const needsTrust = trusted === false
   const runnable = !!stage && stage.kind !== 'gate' && stage.kind !== 'done'
+  // before the task runs: where it works (Repo, Branch) and where it is written (the page)
+  const setup = canAct && !running && (!stage || stage.kind === 'queue' || !repo)
 
   const act = (fn: () => Promise<void>) => () => {
     void fn().catch((e: unknown) => useUI.getState().toast({ message: e instanceof Error ? e.message : String(e), kind: 'error' }))
@@ -163,6 +166,8 @@ export default function TaskPanel({ pageId }: { pageId: ID }) {
             </button>
           </p>
         ) : null}
+
+        {setup && <TaskSetup taskId={pageId} repo={repo} branch={branch} described={taskHasText(task)} />}
 
         {needsTrust && canAct && (
           <div className="ctk-box ctk-box--trust" role="alert">

@@ -343,6 +343,67 @@ test('the 3 steps: a download comes ready-paired, connects without any switch, i
   await expect.poll(() => worker!.log()).toContain("did not bring this download's pairing key")
 })
 
+test('the task panel before a run: Repo from the worker, Branch from its branches (default a new one), and where the task is written', async ({ page }) => {
+  repo.git(repo.path, 'branch', 'feature/picker')
+  await openApp(page)
+  await connect(page)
+  await expect(page.getByTestId('coding-conn')).toContainText('Connected · e2e-box · 1 repo')
+  await page.keyboard.press('Escape')
+  // a task without text, in the backlog (the worker leaves it alone)
+  await page.evaluate(() => (window.location.hash = '#/coding'))
+  await page.getByTestId('coding-new').click()
+  await page.getByTestId('coding-new-title').fill('Pick a branch')
+  await page.getByTestId('coding-new-repo').fill('website')
+  await expect(page.locator('datalist option[value="feature/picker"]')).toHaveCount(1)
+  await page.getByRole('checkbox', { name: /start right away|sofort/i }).uncheck()
+  await page.getByTestId('coding-create').click()
+  const setup = page.getByTestId('coding-setup')
+  await expect(setup).toBeVisible()
+  const id = await page.evaluate(() => window.location.hash.replace('#/p/', ''))
+  const fields = () =>
+    wsEval(page, (s, id) => {
+      const d = Object.values(s.databases).find((x: any) => x.system === 'coding') as any // eslint-disable-line @typescript-eslint/no-explicit-any
+      const p = (n: string) => d.properties.find((x: { name: string }) => x.name === n)
+      const row = s.pages[id]
+      const repo = p('Repo').options.find((o: { id: string }) => o.id === row.properties[p('Repo').id])?.name ?? null
+      return { repo, branch: row.properties[p('Branch').id] ?? null }
+    }, id)
+
+  // Repo: the worker's repos; clearing it says what is missing
+  const repoSel = page.getByTestId('coding-setup-repo')
+  await expect(repoSel).toHaveValue('website')
+  await repoSel.selectOption('')
+  await expect(page.getByTestId('coding-setup-hint')).toContainText('Choose the repo the worker should work in.')
+  await expect(page.getByTestId('coding-setup-branch')).toBeDisabled()
+  expect((await fields()).repo).toBeNull()
+  await repoSel.selectOption('website')
+  expect((await fields()).repo).toBe('website')
+
+  // Branch: "New branch (automatic)" first, then the worker's local branches — never the base branch
+  const branchSel = page.getByTestId('coding-setup-branch')
+  await expect(branchSel).toHaveValue('')
+  await expect(page.getByTestId('coding-setup-hint')).toContainText('new branch one/… from main')
+  const offered = await branchSel.locator('option').allTextContents()
+  expect(offered[0]).toBe('New branch (automatic)')
+  expect(offered).toContain('feature/picker')
+  expect(offered).not.toContain('main')
+  await branchSel.selectOption('feature/picker')
+  await expect(page.getByTestId('coding-setup-hint')).toContainText('continues on “feature/picker”')
+  expect((await fields()).branch).toBe('feature/picker')
+  await branchSel.selectOption('')
+  expect((await fields()).branch).toBeNull()
+
+  // the page is empty: where the task goes, and an outline to fill in
+  await expect(page.getByTestId('coding-setup-spec')).toContainText('Describe the task in the page below.')
+  await page.getByTestId('coding-setup-outline').click()
+  await expect(page.getByTestId('coding-setup-spec')).toHaveCount(0)
+  await expect(page.getByRole('heading', { name: 'Goal', exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Acceptance criteria', exact: true })).toBeVisible()
+  // still trusted: the run button is there, nothing to confirm
+  await expect(page.getByTestId('coding-run')).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Confirm on this device' })).toHaveCount(0)
+})
+
 test('German at 390 px: #/coding, the new task dialog, the task panel and Settings fit the screen', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 })
   await openApp(page)

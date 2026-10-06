@@ -290,6 +290,9 @@ the public APIs stable — other areas are built against them in parallel.
   page (mcp/src/worker/setup.ts: 127.0.0.1, token in the fragment sent as a header, Host + Origin checks, CSP); One only
   sends `open-setup` and never learns the page's address or key; scan.ts reads nothing beyond branch, base, remote host,
   last commit date, dirty / clean and the test-command guess.
+  The worker announces each ticked repo's local branch NAMES (`WorkerRepo.branches`, newest first, ≤ 100); the task
+  panel's setup strip (coding/TaskSetup.tsx) picks Repo + Branch before a run (default "new branch", never the base
+  branch) and offers "Insert outline" on an empty task page (origin 'template').
 - Claude's Markdown goes into or is shown in a page only through `claudeDoc` / `claudeBlocks` (features/ai/claudeDoc.ts):
   web images become links, frames / media / web files never load. In shared pages Claude's change is its own undo step
   (`startUndoStep(view)` / `endUndoStep(view)`, editor/index.ts). History `SnapshotReason 'script'` ('Script · <name>').

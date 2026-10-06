@@ -162,7 +162,7 @@ describe('pairing (the built bundle with a preset line)', () => {
 
     const tab = await connect()
     const welcome = await tab.next('welcome')
-    assert.deepEqual(welcome.repos, [{ name: 'site', baseBranch: 'main' }])
+    assert.deepEqual(welcome.repos, [{ name: 'site', baseBranch: 'main', branches: ['main'] }])
     assert.equal(welcome.paired, true)
     assert.equal(welcome.setup, true)
     assert.match(worker.stderr(), /did not bring this download's pairing key/)
@@ -418,7 +418,7 @@ describe('the setup page', () => {
     assert.match(readFileSync(file, 'utf8'), /"path": "~\/code\/alpha"/)
     await waitFor(() => tab.messages.filter((m) => m.type === 'welcome').length === 2)
     const again = tab.messages.filter((m): m is Extract<WorkerMessage, { type: 'welcome' }> => m.type === 'welcome')[1]!
-    assert.deepEqual(again.repos, [{ name: 'alpha', baseBranch: 'main' }])
+    assert.deepEqual(again.repos, [{ name: 'alpha', baseBranch: 'main', branches: ['main'] }])
     const after = saved.json()
     assert.equal(after.repos[0].ticked, true)
     assert.equal(after.live.connected.name, 'Studio')

@@ -424,3 +424,72 @@ export function allTasks(): Array<{ row: Page; stage: ResolvedStage | null; repo
   const pipeline = readPipeline(db)
   return codingRows(dbId).map((row) => ({ row, stage: stageOfRow(pipeline, props, row), repo: optionName(db, props.repo, row.properties[props.repo ?? '']) }))
 }
+
+/* ------------------------------------------------------------------ setup in the task panel */
+
+/** A branch name the Branch field takes (the worker checks it again with git's own rules). */
+export const BRANCH_NAME = /^[A-Za-z0-9._/-]{1,200}$/
+
+/** Repo names to offer: the connected worker's and those already in the Repo select. */
+export function knownRepos(): string[] {
+  const names = new Set((useCoding.getState().worker?.repos ?? []).map((r) => r.name))
+  const dbId = codingDbId()
+  const db = dbId ? ws().databases[dbId] : undefined
+  if (db) for (const o of db.properties.find((p) => p.id === codingProps(db).repo)?.options ?? []) names.add(o.name)
+  return [...names]
+}
+
+/** The connected worker's local branches of a repo — names only, never its base branch (the worker refuses it). */
+export function workerBranches(repo: string | null): { base: string | null; list: string[] } {
+  const r = repo ? useCoding.getState().worker?.repos.find((x) => x.name === repo) : undefined
+  if (!r) return { base: null, list: [] }
+  const list = (Array.isArray(r.branches) ? r.branches : []).filter((b): b is string => typeof b === 'string' && BRANCH_NAME.test(b) && b !== r.baseBranch).slice(0, 100)
+  return { base: typeof r.baseBranch === 'string' ? r.baseBranch : null, list }
+}
+
+/** A task's repo by name (a new name becomes an option first); null clears it. */
+export function setTaskRepo(taskId: ID, name: string | null): void {
+  const ctx = taskContext(taskId)
+  if (!ctx?.props.repo) return
+  if (!name) return set(taskId, ctx.props.repo, null)
+  addRepoOptions(ctx.db.id, [name])
+  const id = optionByName(ws().databases[ctx.db.id]!, ctx.props.repo, name)
+  if (id) set(taskId, ctx.props.repo, id)
+}
+
+/** A task's branch: an existing one to reuse, or null — the worker makes its own (one/…). */
+export function setTaskBranch(taskId: ID, branch: string | null): void {
+  const ctx = taskContext(taskId)
+  const b = branch?.trim() ?? ''
+  if (!ctx?.props.branch || (b && !BRANCH_NAME.test(b))) return
+  set(taskId, ctx.props.branch, b || null)
+}
+
+const hasText = (n: JSONContent | undefined): boolean => !!n && ((typeof n.text === 'string' && n.text.trim() !== '') || (n.type !== undefined && n.type !== 'paragraph' && n.type !== 'doc' && n.type !== 'text' && n.type !== 'hardBreak') || (n.content ?? []).some(hasText))
+
+/** Does the task's page say anything yet (what goes to Claude Code as the goal)? */
+export function taskHasText(page: Page): boolean {
+  return hasText(page.content as JSONContent | undefined)
+}
+
+/** An empty task page gets the outline to fill in: Goal, Acceptance criteria (a to-do list), Notes. */
+export function insertTaskOutline(taskId: ID): void {
+  const page = ws().pages[taskId]
+  if (!page || taskHasText(page)) return
+  const h = (key: string): JSONContent => ({ type: 'heading', attrs: { level: 2 }, content: [{ type: 'text', text: t(key) }] })
+  ws().setContent(
+    taskId,
+    {
+      type: 'doc',
+      content: [
+        h('features.coding.new.goal'),
+        para(''),
+        h('features.coding.page.criteria'),
+        { type: 'taskList', content: [{ type: 'taskItem', attrs: { checked: false }, content: [para('')] }] },
+        h('features.coding.task.notes'),
+        para(''),
+      ],
+    },
+    'template',
+  )
+}

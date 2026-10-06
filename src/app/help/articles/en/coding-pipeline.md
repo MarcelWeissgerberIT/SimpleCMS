@@ -24,14 +24,14 @@ To change them later, press **Change repositories** — the worker opens its pag
 > Tip: a new download replaces the pairing — start the file you downloaded last. On a computer without a browser, `node one-worker.mjs --no-browser` asks in the terminal instead (numbers tick, Enter saves).
 
 ## A task from start to finish
-1. **New task**: title, repo, goal, acceptance criteria. Leave *The worker may start right away* ticked.
+1. **New task**: title, repo, goal, acceptance criteria. Leave *The worker may start right away* ticked. The task itself is the task's **page** (below the coding panel) — that text is what Claude Code works from. When the page is empty, **Insert outline** adds Goal, Acceptance criteria and Notes to fill in.
 2. **Plan** — Claude Code reads the code in plan mode (it changes nothing) and writes the plan into the task. The task waits at **Approve plan**.
 3. **Approve**, or **Rework…** with instructions: it goes back to Plan with your note.
 4. **Implement** — Claude Code changes the code in its own git worktree; **Test** runs your test command. If the tests fail, Implement gets one more try with their output.
 5. **Review** — the **Diff** and **Tests** tabs show what changed. Approve, or send it back.
 6. **Ship** — commit, push, pull request (with the GitHub CLI) or a compare link. **Done**.
 
-Each task works on its own branch (`one/<title>-<id>`) in its own worktree — your main checkout stays as it is. To continue on an existing branch, put its name into the task's **Branch** field.
+Each task works on its own branch (`one/<title>-<id>`) in its own worktree — your main checkout stays as it is. Before a task runs, the coding panel lets you pick the **Repo** (the repos your worker announces) and the **Branch**: *New branch (automatic)* or an existing branch of that repo on your computer to continue on (the base branch is never offered). You can also type one into the **Branch** field.
 
 ## While it runs
 - **Log** streams what Claude Code does. If Claude needs a decision, the task shows **Claude asks** — your **Answer** starts the stage again.
