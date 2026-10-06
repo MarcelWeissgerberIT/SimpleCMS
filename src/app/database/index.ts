@@ -14,6 +14,7 @@ import { orderRows } from './model/feed'
 import { defaultsFromFilter } from './model/query'
 import { resolveMe } from './model/actors'
 import { isDbReadOnly } from './readonly'
+import { createTypedRow, typeColumn } from './model/recordTypes'
 export { DatabaseView, type DatabaseViewProps } from './DatabaseView'
 export { RowProperties } from './RowProperties'
 export { propertyValueToText } from './values'
@@ -75,7 +76,7 @@ export function entryOrder(dbId: ID, rows: Page[]): Page[] {
   const view = db?.views[0]
   if (!db || !view) return base
   try {
-    return orderRows(new Resolver(workspaceCtx()), db, view, base, new Map(db.properties.map((p) => [p.id, p])))
+    return orderRows(new Resolver(workspaceCtx()), db, view, base, new Map([...db.properties, typeColumn(db, useWorkspace.getState().kit)].map((p) => [p.id, p])))
   } catch {
     return base
   }
@@ -87,12 +88,13 @@ export function createEntry(dbId: ID, input: { title?: string; templateId?: ID }
   if (!db || isDbReadOnly()) return null
   const view = db.views[0]
   const ctx = workspaceCtx()
-  const properties = view ? defaultsFromFilter(view, new Map(db.properties.map((p) => [p.id, p])), (p) => resolveMe(p, ctx)) : {}
+  const properties = view ? defaultsFromFilter(view, new Map([...db.properties, typeColumn(db, s.kit)].map((p) => [p.id, p])), (p) => resolveMe(p, ctx)) : {}
   // templateId: a row template's values, content and icon over the presets (the "New ▾" menu's templates)
   const tpl = input.templateId ? db.templates?.find((x) => x.id === input.templateId) : undefined
-  if (!tpl) return s.createRow(dbId, { title: input.title ?? '', properties })
+  // a Type preset (a filter on the Type column) becomes the row's record type (model/recordTypes)
+  if (!tpl) return createTypedRow(dbId, { title: input.title ?? '', properties })
   const copy = JSON.parse(JSON.stringify({ properties: tpl.properties, content: tpl.content ?? null }))
-  return s.createRow(dbId, { title: input.title ?? '', properties: { ...properties, ...copy.properties }, content: copy.content, icon: tpl.icon ?? null })
+  return createTypedRow(dbId, { title: input.title ?? '', properties: { ...properties, ...copy.properties }, content: copy.content, icon: tpl.icon ?? null })
 }
 
 /**

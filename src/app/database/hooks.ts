@@ -5,7 +5,7 @@ import { createContext, useContext, useMemo, useState, useEffect, useCallback } 
 import { useShallow } from 'zustand/react/shallow'
 import { pageChanges, useWorkspace } from '../store/store'
 import { useLang, useT } from '../i18n'
-import type { Database, ID, Page, PropertyDef, PropertyValue, View } from '../store/types'
+import type { Database, ID, Kit, Page, PropertyDef, PropertyValue, View } from '../store/types'
 import { Resolver, type Ctx } from './model/resolve'
 import { defaultsFromFilter, groupRows, searchRows, testGroup, type RowGroup } from './model/query'
 import { orderRows, type ViewOrder } from './model/feed'
@@ -15,6 +15,7 @@ import { useDbReadOnly } from './readonly'
 import { useCloud } from '../cloud'
 import { resolverLabels } from './model/ctx'
 import { resolveMe, type MeCtx } from './model/actors'
+import { typeColumn, usesTypes } from './model/recordTypes'
 
 /** Database ids whose rows matter for this database (relations, rollups — 3 levels). */
 function relevantDbIds(databases: Record<ID, Database>, dbId: ID): Set<ID> {
@@ -137,7 +138,12 @@ export interface DbModel {
   dbPage: Page
   view: View
   resolver: Resolver
+  /** The database's properties and the computed Type column (model/recordTypes: TYPE_PROP_ID). */
   propMap: Map<ID, PropertyDef>
+  /** Properties pickers offer (filter, sort, group, show): the database's own + the Type column while it holds record types. */
+  allProps: PropertyDef[]
+  /** The workspace's building blocks (record types …). */
+  kit: Kit | undefined
   titleProp: PropertyDef
   /** Visible non-title properties in view order. */
   visibleProps: PropertyDef[]
@@ -163,7 +169,11 @@ export interface DbModel {
 export function useDbModel(db: Database, dbPage: Page, view: View, search: string, inline: boolean, keep: ID[] = []): DbModel {
   const resolver = useResolver(db.id)
   const labels = useLabels()
-  const propMap = useMemo(() => new Map(db.properties.map((p) => [p.id, p])), [db.properties])
+  const kit = useWorkspace((s) => s.kit)
+  const t = useT()
+  const typeCol = useMemo(() => typeColumn(db, kit, t('database.rtype.column')), [db, kit, t])
+  const propMap = useMemo(() => new Map([...db.properties, typeCol].map((p) => [p.id, p])), [db.properties, typeCol])
+  const allProps = useMemo(() => (usesTypes(db) ? [...db.properties, typeCol] : db.properties), [db, typeCol])
   const titleProp = useMemo(() => db.properties.find((p) => p.type === 'title') ?? { id: '__title__', name: 'Name', type: 'title' as const }, [db.properties])
   const visibleProps = useMemo(
     () => view.visibleProperties.map((id) => propMap.get(id)).filter((p): p is PropertyDef => !!p && p.type !== 'title'),
@@ -198,7 +208,7 @@ export function useDbModel(db: Database, dbPage: Page, view: View, search: strin
   const newRowDefaults = useCallback(() => defaultsFromFilter(view, propMap, (p) => resolveMe(p, resolver.ctx)), [view, propMap, resolver])
   const readOnly = useDbReadOnly()
   const locked = db.locked === true
-  return { db, dbPage, view, resolver, propMap, titleProp, visibleProps, allRows, rows, groups, groupProp, search, inline, newRowDefaults, readOnly, locked, fixed: readOnly || locked }
+  return { db, dbPage, view, resolver, propMap, allProps, kit, titleProp, visibleProps, allRows, rows, groups, groupProp, search, inline, newRowDefaults, readOnly, locked, fixed: readOnly || locked }
 }
 
 export const DbModelContext = createContext<DbModel | null>(null)

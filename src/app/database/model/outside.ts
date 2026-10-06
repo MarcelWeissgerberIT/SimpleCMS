@@ -11,6 +11,7 @@ import { Resolver } from './resolve'
 import { workspaceCtx } from './ctx'
 import { viewRows } from './ics'
 import { exportCsv } from './actions'
+import { propMapOf } from './recordTypes'
 
 /** The localStorage key of the view a database's own page shows (DatabaseView, useLocalState). */
 export const pageViewKey = (dbId: ID) => `one.db.view.${dbId}.page`
@@ -57,7 +58,7 @@ export function exportDatabaseCsv(dbId: ID, viewId: ID | null = null): number | 
     .filter((p): p is Page => p.databaseId === dbId && !p.trashed)
     .sort((a, b) => a.order - b.order || a.createdAt - b.createdAt)
   const rows = view ? viewRows(r, db, view, all) : all
-  const byId = new Map(db.properties.map((p) => [p.id, p]))
+  const byId = propMapOf(db)
   const title = db.properties.find((p) => p.type === 'title')
   const shown = view ? view.visibleProperties.map((pid) => byId.get(pid)).filter((p) => !!p && p.type !== 'title') : db.properties.filter((p) => p.type !== 'title')
   const props = [...(title ? [title] : []), ...shown.filter((p): p is NonNullable<typeof p> => !!p)]

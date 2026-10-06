@@ -514,6 +514,11 @@ export interface View {
    * record types. Absent = an ordinary board.
    */
   free?: boolean
+  /**
+   * free board: the fields a card shows per record type (key: the type id, `__plain__` = cards without a
+   * type), in order. Absent for a type = the first 3 non-empty of its fields (database/views/free).
+   */
+  typeFields?: Record<ID, ID[]>
 }
 
 export type SubItemsDisplay = 'nested' | 'flattened' | 'parents'

@@ -21,7 +21,7 @@ import type { MenuEntry } from '../../ui/Menu'
 
 export interface ViewActions {
   /** Create a row (with filter defaults + extra presets); returns its id. */
-  newRow: (opts?: { properties?: Record<ID, PropertyValue>; index?: number; open?: boolean; editTitle?: boolean; after?: Page }) => ID
+  newRow: (opts?: { properties?: Record<ID, PropertyValue>; index?: number; open?: boolean; editTitle?: boolean; after?: Page; typeId?: ID | null }) => ID
   /** Row whose title should go into edit mode once rendered. */
   editTitleOf: ID | null
   clearEditTitle: () => void

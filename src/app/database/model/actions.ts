@@ -15,6 +15,8 @@ import { constrainRelationWrite, dependenciesOf, subItemsOf } from './hierarchy'
 import { dateValueText, isDateValue, isoWithTime, parseDateText, parseNumberText } from './format'
 import { isDbReadOnly } from '../readonly'
 import { isDbLocked } from './lock'
+import { TYPE_PROP_ID } from './typeId'
+import { withTypeColumn } from './recordTypes'
 
 /** Properties of this database may change (not view only, not locked). */
 const schemaEditable = (dbId: ID | undefined) => !isDbReadOnly() && !isDbLocked(dbId)
@@ -53,6 +55,11 @@ export function twoWayBlocker(dbId: ID, prop: PropertyDef): PropertyDef | null {
 export function writeValue(dbId: ID, prop: PropertyDef, rowId: ID, value: PropertyValue): void {
   if (isDbReadOnly()) return
   const s = ws()
+  if (prop.id === TYPE_PROP_ID) {
+    // the computed Type column: the row's record type (model/recordTypes)
+    s.setRecordType(rowId, typeof value === 'string' && value ? value : null)
+    return
+  }
   if (prop.type === 'title') {
     s.updatePage(rowId, { title: String(value ?? '') })
     return
@@ -505,7 +512,9 @@ function csvValue(r: Resolver, db: Database, p: PropertyDef, row: Page): string 
   return guardCell(r.text(db, p, row))
 }
 
-export function exportCsv(r: Resolver, db: Database, props: PropertyDef[], rows: Page[], filename: string): void {
+export function exportCsv(r: Resolver, db: Database, propsIn: PropertyDef[], rows: Page[], filename: string): void {
+  // a database with record types: every row's type as a "Type" column (after the title) even where no view shows it
+  const props = withTypeColumn(db, propsIn, rows)
   const header = props.map((p) => csvCell(guardCell(p.name))).join(',')
   const lines = rows.map((row) => props.map((p) => csvCell(csvValue(r, db, p, row))).join(','))
   const blob = new Blob(['﻿' + [header, ...lines].join('\r\n')], { type: 'text/csv;charset=utf-8' })

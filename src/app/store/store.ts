@@ -224,6 +224,11 @@ export interface WorkspaceState extends Workspace {
   deleteRecordType: (id: ID) => void
   /** Add a record type's properties to a database. False when refused (locked, unknown). */
   attachRecordType: (dbId: ID, typeId: ID) => boolean
+  /**
+   * Take a record type out of a database: its properties stay as plain ones (fromType removed, values kept),
+   * the database's rows of that type lose the type. False when refused (locked, not held).
+   */
+  detachRecordType: (dbId: ID, typeId: ID) => boolean
   /** A row's record type (null = none); the type is attached to the row's database first. False when refused. */
   setRecordType: (pageId: ID, typeId: ID | null) => boolean
 
@@ -979,6 +984,24 @@ export const useWorkspace = create<WorkspaceState>()(
         const d = s.databases[dbId]
         const kit = s.kit
         if (d && kit) syncRecordTypeInto(d, kit.recordTypes[typeId], kit as Kit, newId)
+      })
+      return true
+    },
+
+    detachRecordType: (dbId, typeId) => {
+      const db = get().databases[dbId]
+      if (!db || db.locked || !(db.recordTypes ?? []).includes(typeId)) return false
+      set((s) => {
+        const d = s.databases[dbId]
+        if (!d) return
+        d.recordTypes = (d.recordTypes ?? []).filter((x) => x !== typeId)
+        for (const def of d.properties) if (def.fromType?.id === typeId) delete def.fromType
+        const t = now()
+        for (const p of Object.values(s.pages)) {
+          if (p.databaseId !== dbId || p.recordType !== typeId) continue
+          delete p.recordType
+          p.updatedAt = t
+        }
       })
       return true
     },
