@@ -22,7 +22,10 @@
  *    tools) · 'dry' = reads for real, records every write and effect, executes none ("Probelauf") ·
  *    'run' = team: an unconfirmed version asks first; effects / trash are listed and confirmed once;
  *    writes with origin 'script', a version before the first change of each page; undoRun(run) restores
+ *    `vars`: extra names the code sees ({ page } · { prop, row, raw } read like row.<Prop> · { plain }) — features/kit
  *  - undoRun(run) · stopScript(id) · useActiveRuns (scriptId → the run in progress in this tab)
+ *  - isScriptTrusted({ code }) · trustScriptCode(code) · scriptCodeHash(code) · scriptsInTeam(): the team trust rule for
+ *    code that is not a saved script (an own property type's bindings, features/kit)
  *  - loadScriptEngine(): the engine module for synchronous use (parse, syntaxError, tokenize, ScriptError,
  *    errorTextEn, queryFromCode / queryToCode — the builder's model, GLOBAL_FUNCTIONS / MEMBERS, summarizeRun …)
  *  - registerEffect('mail.send' | 'claude' | 'http.post', impl, { note? }) → restore(): replace an effect's default
@@ -53,7 +56,9 @@ export { registerEffect, effectNote, mailtoUrl, type EffectName, type EffectImpl
 export { appRunUI, silentRunUI } from './runtime/dialogs'
 export { loadScriptRuns, useScriptRuns, MAX_RUNS } from './runtime/runs'
 export { errorMessage } from './ui/errors'
-export type { RunOptions, RunResult } from './runtime/run'
+export type { RunOptions, RunResult, RunVar } from './runtime/run'
+/* team trust of code outside saved scripts (features/kit: an own property type's scripts): a version this device saved or confirmed */
+export { codeHash as scriptCodeHash, isTrusted as isScriptTrusted, trustCode as trustScriptCode, inTeam as scriptsInTeam } from './runtime/trust'
 export type { RunUI, RunMode, ScriptRun, LogLine, ChangeItem, EffectItem, ConfirmItem, ErrorInfo, ResultTable, Cell } from './runtime/types'
 export type { BQuery, BCond, BGroup, BOp, BVal } from './builder/model'
 export { SCRIPT_REFERENCE } from './reference'

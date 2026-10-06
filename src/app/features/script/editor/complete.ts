@@ -271,6 +271,7 @@ class Engine {
       return b === undefined || match[b] < 0 ? INF : match[b]
     }
     const bind = (name: string, ty: Ty | null, from: number, to: number) => this.binds.push({ name, ty, from, to })
+    for (const [name, ty] of this.ws.globals?.() ?? []) bind(name, ty, 0, INF)
     for (let k = 0; k < upTo && k < toks.length; k++) {
       const t = toks[k]
       if (t.type === 'op') {

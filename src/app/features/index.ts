@@ -370,3 +370,31 @@ export {
  *  - CodingWorkerTab (Settings → Coding worker) · CodingStatusCell (status bar "WORKER") · openCodingSettings()
  */
 export { startCoding, CodingRoute, CodingTaskSlot, CodingWorkerTab, CodingStatusCell, openCodingSettings, consumeCodingSettingsRequest, codingDbId, useCoding } from './coding'
+/*
+ * Building blocks (shared lists, own property types with One Script bindings, record types; see kit/index.ts):
+ *  - KitRoute (#/kit …) · KitHost (mount once) · openKit(tab?, id?) · startKit(): background service (main.tsx)
+ *  - databases: kitTypeEntries · KitValue · writeUserValue · isKitComputed · useKitOptions / ensureKitOption · recomputeProperty · ownTypeOf
+ *  - AI menu: listItemsIn(doc, from, to) + openTurnIntoList(items, name?) · tools: createList / createPropType / createRecordType
+ */
+export {
+  KitRoute,
+  KitHost,
+  openKit,
+  startKit,
+  kitTypeEntries,
+  KitValue,
+  writeUserValue,
+  isKitComputed,
+  kitChecksWrite,
+  useKitOptions,
+  ensureKitOption,
+  recomputeProperty,
+  ownTypeOf,
+  listItemsIn,
+  openTurnIntoList,
+  createList,
+  createPropType,
+  createRecordType,
+  type KitTab,
+  type OwnPropertyDef,
+} from './kit'

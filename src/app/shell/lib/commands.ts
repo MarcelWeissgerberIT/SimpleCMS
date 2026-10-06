@@ -40,6 +40,7 @@ import {
   Newspaper,
   SquareCode,
   GitBranch,
+  Blocks,
   Compass,
   Route,
 } from 'lucide-react'
@@ -101,6 +102,7 @@ export function buildCommands(t: Translate, pageId: ID | null): Command[] {
     { id: 'home', group: 'navigate', label: t('shell.cmd.home'), icon: Home, keywords: 'dashboard start', run: () => navigate({ name: 'home' }) },
     { id: 'graph', group: 'navigate', label: t('shell.cmd.graph'), icon: Waypoints, keywords: 'map network links karte', run: () => navigate({ name: 'graph' }) },
     { id: 'scripts', group: 'navigate', label: t('features.script.cmd.open'), icon: SquareCode, keywords: 'scripts queries code one script skripte abfragen', run: () => { closeMobileSidebar(); openScripts() } },
+    { id: 'kit', group: 'navigate', label: t('features.kit.cmd.open'), icon: Blocks, keywords: 'building blocks kit lists own property types record types shared list bausteine listen eigene typen datensatz', run: () => { closeMobileSidebar(); navigate({ name: 'kit' }) } },
     { id: 'coding', group: 'navigate', label: t('features.coding.cmd.open'), icon: GitBranch, keywords: 'coding pipeline claude code worker branch worktree tasks repo programmieren aufgaben', run: () => { closeMobileSidebar(); navigate({ name: 'coding' }) } },
     { id: 'import', group: 'workspace', label: t('shell.cmd.import'), icon: Upload, keywords: 'notion markdown csv zip importieren', run: () => ui.openModal({ type: 'import' }) },
     { id: 'export', group: 'workspace', label: t('shell.cmd.export'), icon: Download, keywords: 'markdown html pdf backup exportieren', run: () => ui.openModal({ type: 'export', pageId: live ? page.id : null }) },

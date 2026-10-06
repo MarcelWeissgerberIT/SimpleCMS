@@ -11,11 +11,13 @@
  *  Every run / dry run of a saved script is kept in this device's run log (runs.ts).
  */
 import { useWorkspace } from '../../../store/store'
-import type { ID, Page } from '../../../store/types'
+import type { ID, Page, PropertyValue } from '../../../store/types'
 import { newId } from '../../../lib/ids'
-import { Interpreter, ScriptError, inspect, parse, toPlain, walk, type Limits, type Program, type Value } from '../lang'
+import { Interpreter, SDate, SRecord, ScriptError, inspect, parse, toPlain, walk, type Limits, type Program, type Value } from '../lang'
 import { Host, SCRIPT_ORIGIN } from './host'
-import { customFunction, globalsFor, resolveRef } from './globals'
+import { customFunction, globalsFor, objectFor, resolveRef } from './globals'
+import { makers, reachable } from './objects'
+import { readProp } from './props'
 import { isTabular, tabulate } from './table'
 import { appRunUI, silentRunUI } from './dialogs'
 import { putScriptRun, scriptScope } from './runs'
@@ -43,7 +45,21 @@ export interface RunOptions {
   table?: boolean
   /** only these pages are reachable (a custom agent's scope); absent = every live page outside templates */
   scope?: ((id: ID) => boolean) | null
+  /**
+   * Extra names the code sees (features/kit: `value`, `old`, `row` of an own property type's scripts):
+   * a page / row object, a stored value of a row's property read like `row.<Prop>`, or plain JSON.
+   */
+  vars?: Record<string, RunVar>
 }
+
+/** An extra name of a run (RunOptions.vars). */
+export type RunVar =
+  /** the page / row object (null when it is not reachable) */
+  | { page: ID }
+  /** `raw` as row `row`'s property `prop` would read it (option names, dates, people, related rows) */
+  | { prop: ID; row: ID; raw: PropertyValue }
+  /** JSON: texts, numbers, true / false, null, lists, records */
+  | { plain: unknown }
 
 export interface RunResult {
   status: 'ok' | 'error' | 'stopped' | 'cancelled'
@@ -84,6 +100,35 @@ function needsCheck(program: Program): boolean {
   return hit
 }
 
+/** JSON as script values (records for objects, nothing deeper than 20 levels). */
+function plainValue(v: unknown, depth = 0): Value {
+  if (depth > 20 || v === null || v === undefined) return null
+  if (typeof v === 'string' || typeof v === 'boolean') return v
+  if (typeof v === 'number') return Number.isFinite(v) ? v : null
+  if (Array.isArray(v)) return v.slice(0, 10_000).map((x) => plainValue(x, depth + 1))
+  if (typeof v === 'object') return new SRecord(Object.entries(v as Record<string, unknown>).map(([k, x]) => [k, plainValue(x, depth + 1)]))
+  return null
+}
+
+/** The extra names of a run as script values. */
+function varsFor(host: Host, vars: RunOptions['vars']): Record<string, Value> {
+  const out: Record<string, Value> = {}
+  for (const [name, v] of Object.entries(vars ?? {})) {
+    if (!/^[A-Za-z_][\w]{0,40}$/.test(name)) continue
+    if ('page' in v) {
+      const p = reachable(v.page, host)
+      out[name] = p ? objectFor(host, p) : null
+    } else if ('prop' in v) {
+      const s = useWorkspace.getState()
+      const row = s.pages[v.row]
+      const db = row?.databaseId ? s.databases[row.databaseId] : undefined
+      const prop = db?.properties.find((d) => d.id === v.prop)
+      out[name] = row && db && prop ? readProp(db, prop, { ...row, properties: { ...row.properties, [prop.id]: v.raw } }, makers(host)) : null
+    } else out[name] = v.plain instanceof Date ? SDate.at(v.plain) : plainValue(v.plain)
+  }
+  return out
+}
+
 interface PassResult {
   host: Host
   value: Value
@@ -95,7 +140,7 @@ async function pass(program: Program, code: string, mode: RunMode, o: RunOptions
   const lang = useWorkspace.getState().settings.language === 'de' ? 'de' : 'en'
   const host = new Host({ mode, scriptId: o.scriptId ?? null, scriptName: o.name ?? '', contextPageId: o.contextPageId ?? null, ui, signal, lang, onLog, approved, scope: o.scope ?? null })
   const interp = new Interpreter({
-    globals: globalsFor(host),
+    globals: { ...globalsFor(host), ...varsFor(host, o.vars) },
     fallback: customFunction,
     resolveRef: (ref) => resolveRef(host, ref),
     limits: o.limits,

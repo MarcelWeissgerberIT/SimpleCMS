@@ -38,6 +38,8 @@ export interface WsInfo {
   people(): string[]
   /** titles of a database's entries (values of a relation to it) */
   titles(dbId: string): string[]
+  /** names the code sees without declaring them (features/kit: `value`, `old`, `row`) */
+  globals?(): Array<[string, Ty | null]>
 }
 
 export const NO_WS: WsInfo = { db: () => null, ref: () => null, people: () => [], titles: () => [] }
