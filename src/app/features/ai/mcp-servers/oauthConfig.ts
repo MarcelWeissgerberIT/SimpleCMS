@@ -36,5 +36,8 @@ export function readOAuth(raw: unknown): McpOAuthConfig | undefined {
     ...(o.refresh === true ? { refresh: true } : {}),
     ...(o.secret === true ? { secret: true } : {}),
     ...(n(o.at) ? { at: n(o.at) } : {}),
+    ...(endpointOk(o.deviceEndpoint) ? { deviceEndpoint: o.deviceEndpoint } : {}),
+    ...(o.device === true ? { device: true } : {}),
+    ...(o.deviceOnly === true ? { deviceOnly: true } : {}),
   }
 }

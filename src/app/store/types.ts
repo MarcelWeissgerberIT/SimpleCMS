@@ -905,6 +905,12 @@ export interface McpOAuthConfig {
   secret?: boolean
   /** when the person signed in (ms since epoch) */
   at?: number
+  /** the authorization server's device authorization endpoint (RFC 8628) — "Sign in with a code" when the redirect can't come back */
+  deviceEndpoint?: string
+  /** the registration includes the device code grant */
+  device?: boolean
+  /** registered for the device code grant alone, without a redirect URI (a code sign-in registers again) */
+  deviceOnly?: boolean
 }
 
 export interface Workspace {

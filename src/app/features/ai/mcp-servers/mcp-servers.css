@@ -701,9 +701,70 @@
   color: var(--ink-3);
 }
 
+/* a sign-in with a code (device flow): the code to enter on the server's page */
+.mcps-code {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 6px;
+  flex-basis: 100%;
+  margin-top: 4px;
+  padding: 10px 12px 12px;
+  border: var(--hairline) solid var(--rule-strong);
+  border-left: 2px solid var(--signal);
+  border-radius: var(--radius-2);
+  background: var(--surface-2);
+}
+
+.mcps-code__label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--ink-2);
+}
+
+.mcps-code__value {
+  font-family: var(--font-mono);
+  font-size: var(--text-2xl);
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  line-height: 1.15;
+  color: var(--ink);
+  user-select: all;
+  overflow-wrap: anywhere;
+}
+
+.mcps-code__text {
+  margin: 0;
+  color: var(--ink-2);
+  font-size: var(--text-xs);
+  line-height: 1.45;
+}
+
+.mcps-code__keys {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+  margin-top: 2px;
+}
+
+.mcps-code__keys a.btn {
+  text-decoration: none;
+}
+
+.mcps-code__until {
+  margin-left: auto;
+  color: var(--ink-3);
+}
+
 @media (max-width: 640px) {
   .mcps-signin {
     margin-left: 34px;
+  }
+
+  .mcps-code__until {
+    flex-basis: 100%;
+    margin-left: 0;
   }
 }
 
