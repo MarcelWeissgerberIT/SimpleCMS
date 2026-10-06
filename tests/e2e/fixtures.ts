@@ -308,3 +308,13 @@ export function escapeRe(s: string): string {
 
 /** Mod key for shortcuts (tests run on Linux Chromium → Control). */
 export const MOD = process.platform === 'darwin' ? 'Meta' : 'Control'
+
+/** The export dialog, opened where it lives: Workspace settings → Data → Export workspace. */
+export async function openExportDialog(page: Page): Promise<Locator> {
+  await page.keyboard.press('Escape')
+  await page.evaluate(() => (window.location.hash = '#/workspace/data'))
+  const ws = page.getByTestId('workspace-page')
+  await expect(ws).toHaveAttribute('data-section', 'data')
+  await ws.getByRole('button', { name: 'Export workspace' }).click()
+  return page.getByRole('dialog')
+}

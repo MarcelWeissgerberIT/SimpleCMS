@@ -9,7 +9,7 @@
  */
 import { readFileSync } from 'node:fs'
 import type { Page } from '@playwright/test'
-import { test, expect, openApp, reloadApp, flush, wsEval, mockClaude, pageIdByTitle, MOD } from './fixtures'
+import { test, expect, openApp, reloadApp, flush, wsEval, mockClaude, pageIdByTitle, MOD, openExportDialog } from './fixtures'
 
 declare global {
   interface Window {
@@ -242,9 +242,8 @@ test.describe('the Claude API key', () => {
     const marker = await wsEval(page, (s) => s.settings.aiApiKey)
     expect(marker).toMatch(markerOf(KEY))
 
-    // full JSON backup (Settings → Data → Export workspace)
-    const dialog = await openSettings(page, /Data$/)
-    await dialog.getByRole('button', { name: 'Export workspace' }).click()
+    // full JSON backup (Workspace settings → Data → Export workspace)
+    await openExportDialog(page)
     const exp = page.getByRole('dialog')
     await exp.getByRole('radio', { name: /Whole workspace/ }).click()
     await exp.getByRole('radio', { name: /Full backup/ }).click()

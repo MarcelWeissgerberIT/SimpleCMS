@@ -10,7 +10,7 @@
  */
 import { readFileSync } from 'node:fs'
 import type { BrowserContext, Page } from '@playwright/test'
-import { test, expect, openApp, reloadApp, waitForApp, flush, wsEval, uiEval, createPage, gotoPage, editorOf, doc, para, MOD } from './fixtures'
+import { test, expect, openApp, reloadApp, waitForApp, flush, wsEval, uiEval, createPage, gotoPage, editorOf, doc, para, MOD, openExportDialog } from './fixtures'
 
 type AnyState = Record<string, any> // eslint-disable-line @typescript-eslint/no-explicit-any
 
@@ -496,9 +496,7 @@ test.describe('MCP servers (mocked Claude API, made-up server)', () => {
 
     // exports: the full JSON backup and a share link never carry the token
     await page.keyboard.press('Escape')
-    await page.keyboard.press(`${MOD}+,`)
-    await page.getByRole('dialog').getByRole('tab', { name: /Data$/ }).click()
-    await page.getByRole('dialog').getByRole('button', { name: 'Export workspace' }).click()
+    await openExportDialog(page)
     const exp = page.getByRole('dialog')
     await exp.getByRole('radio', { name: /Whole workspace/ }).click()
     await exp.getByRole('radio', { name: /Full backup/ }).click()
@@ -883,9 +881,7 @@ test.describe('MCP servers (mocked Claude API, made-up server)', () => {
     await wsEval(page, (s) => s.updateSettings({ language: 'en' }))
     const marker = await wsEval(page, (s) => s.settings.mcpServers[0].token as string)
     expect(marker).toMatch(/^vault:/)
-    await page.keyboard.press(`${MOD}+,`)
-    await page.getByRole('dialog').getByRole('tab', { name: /Data$/ }).click()
-    await page.getByRole('dialog').getByRole('button', { name: 'Export workspace' }).click()
+    await openExportDialog(page)
     const exp = page.getByRole('dialog')
     await exp.getByRole('radio', { name: /Whole workspace/ }).click()
     await exp.getByRole('radio', { name: /Full backup/ }).click()

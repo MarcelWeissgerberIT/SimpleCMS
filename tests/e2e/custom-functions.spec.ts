@@ -5,7 +5,7 @@
  */
 import { readFileSync, writeFileSync } from 'node:fs'
 import type { Locator, Page } from '@playwright/test'
-import { test, expect, openApp, gotoPage, wsEval, flush, reloadApp, MOD } from './fixtures'
+import { test, expect, openApp, gotoPage, wsEval, flush, reloadApp, MOD, openExportDialog } from './fixtures'
 
 /* ------------------------------------------------------------------ helpers */
 
@@ -575,11 +575,7 @@ test.describe('custom functions', () => {
       }),
     )
     // export a full backup
-    await page.keyboard.press(`${MOD}+,`)
-    let dialog = page.getByRole('dialog')
-    await dialog.getByRole('tab', { name: /Data$/ }).click()
-    await dialog.getByRole('button', { name: 'Export workspace' }).click()
-    dialog = page.getByRole('dialog')
+    let dialog = await openExportDialog(page)
     await dialog.getByRole('radio', { name: /Whole workspace/ }).click()
     await dialog.getByRole('radio', { name: /Full backup/ }).click()
     const download = page.waitForEvent('download')

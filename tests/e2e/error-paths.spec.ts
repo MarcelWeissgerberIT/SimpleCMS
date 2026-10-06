@@ -1,6 +1,6 @@
 /** What the user sees when something outside the app fails. */
 import { readFileSync } from 'node:fs'
-import { test, expect, openApp, gotoPage, createPage, doc, para, wsEval, editorOf, selectText, flush } from './fixtures'
+import { test, expect, openApp, gotoPage, createPage, doc, para, wsEval, editorOf, selectText, flush, openExportDialog } from './fixtures'
 
 test.describe('AI failures', () => {
   test('a rejected API key shows a clear message and a way to change the key', async ({ page, context, errors }) => {
@@ -82,11 +82,7 @@ test.describe('backup merge', () => {
     await openApp(page)
     const a = await createPage(page, { title: 'Only in backup', content: doc(para('from the backup')) })
     // export just the workspace JSON through the UI
-    await page.keyboard.press('Control+,')
-    let dialog = page.getByRole('dialog')
-    await dialog.getByRole('tab', { name: /Data$/ }).click()
-    await dialog.getByRole('button', { name: 'Export workspace' }).click()
-    dialog = page.getByRole('dialog')
+    let dialog = await openExportDialog(page)
     await dialog.getByRole('radio', { name: /Whole workspace/ }).click()
     await dialog.getByRole('radio', { name: /Full backup/ }).click()
     const download = page.waitForEvent('download')

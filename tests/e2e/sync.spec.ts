@@ -8,7 +8,7 @@
 import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import type { Page, Route } from '@playwright/test'
-import { test, expect, openApp, wsEval, pageIdByTitle, MOD } from './fixtures'
+import { test, expect, openApp, wsEval, pageIdByTitle, MOD, openExportDialog } from './fixtures'
 
 declare global {
   interface Window {
@@ -572,11 +572,7 @@ test.describe('sync to GitHub', () => {
     expect(await page.evaluate(() => JSON.stringify({ ...localStorage }))).not.toContain(TOKEN)
 
     // full JSON backup
-    await page.keyboard.press(`${MOD}+,`)
-    let dialog = page.getByRole('dialog')
-    await dialog.getByRole('tab', { name: /Data$/ }).click()
-    await dialog.getByRole('button', { name: 'Export workspace' }).click()
-    dialog = page.getByRole('dialog')
+    let dialog = await openExportDialog(page)
     await dialog.getByRole('radio', { name: /Whole workspace/ }).click()
     await dialog.getByRole('radio', { name: /Full backup/ }).click()
     const download = page.waitForEvent('download')
