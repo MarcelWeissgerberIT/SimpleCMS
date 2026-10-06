@@ -94,7 +94,10 @@ export function MediaCards({ items, onSaved, pick, privateTarget, disabled, wher
         <span className="label media-cards__title" id={headId}>
           {t(pick ? 'features.ai.media.variants' : 'features.ai.media.title', { count: items.length })}
         </span>
-        <span className="media-cards__note">{where ?? t('features.ai.media.notLoaded')}</span>
+        <span className="media-cards__note">
+          {t('features.ai.media.notLoaded')}
+          {where ? ` ${where}` : ''}
+        </span>
         {(pick ? true : items.length > 1) && (
           <button type="button" className="btn btn--sm btn--ink media-cards__all" disabled={disabled || busy || !chosen.length} onClick={() => void saveMany()} data-testid={pick ? 'media-save-picked' : 'media-save-all'}>
             <Download size={13} strokeWidth={1.75} aria-hidden />

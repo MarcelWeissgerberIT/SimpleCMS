@@ -302,11 +302,16 @@ export interface MediaCollector {
 /** A collector for one request (or one terminal task). */
 export function createMediaCollector(): MediaCollector {
   const calls = new Map<string, Ctx>()
+  /** the last prompt per server: a job's status check ({ job_id }) delivers what the job was started with */
+  const lastPrompt = new Map<string, string>()
   let items: MediaItem[] = []
   return {
     block(b) {
       if (b.type === 'mcp_tool_use' && b.id) {
-        calls.set(b.id, { server: b.server_name ?? '', tool: b.name ?? '', prompt: promptOf(b.input) })
+        const server = b.server_name ?? ''
+        const own = promptOf(b.input)
+        if (own) lastPrompt.set(server, own)
+        calls.set(b.id, { server, tool: b.name ?? '', prompt: own || lastPrompt.get(server) || '' })
         return false
       }
       if (b.type !== 'mcp_tool_result' || b.is_error) return false

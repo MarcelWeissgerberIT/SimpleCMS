@@ -84,13 +84,15 @@ async function mockApi(ctx: BrowserContext, stream: (body: AnyState, n: number) 
 /* The media host                                                      */
 /* ------------------------------------------------------------------ */
 
-/** https://media.e2e.test/<path> — every request is counted; `/nocors/…` sends no CORS header. */
+/** https://media.e2e.test/<path> — every request is counted; `/nocors/…` fails like a CORS refusal. */
 async function mockMediaHost(ctx: BrowserContext): Promise<string[]> {
   const hits: string[] = []
   await ctx.route(`${HOST}/**`, (route: Route) => {
     const url = new URL(route.request().url())
     hits.push(url.pathname)
-    const cors = url.pathname.startsWith('/nocors/') ? {} : { 'access-control-allow-origin': '*' }
+    // a host that does not let a browser read its files: the fetch fails like a CORS refusal
+    if (url.pathname.startsWith('/nocors/')) return route.abort('failed')
+    const cors = { 'access-control-allow-origin': '*' }
     const send = (type: string, body: Buffer) => route.fulfill({ status: 200, headers: { ...cors, 'content-type': type }, body })
     if (url.pathname.endsWith('.png') && url.pathname.includes('fake')) return send('image/png', HTML)
     if (url.pathname.endsWith('.png')) return send('image/png', PNG)
@@ -346,8 +348,8 @@ test.describe('media from MCP servers (mocked Claude API, made-up hosts)', () =>
     const imgs = await blocksOf(page, id, 'image')
     for (const im of imgs) expect(im.src).toMatch(/^onefile:/)
     expect(imgs[0].caption).toBe('a red paper lantern — STUDIO')
-    // in place of the empty line: text first, then the two pictures
-    expect(await wsEval(page, (s, id) => s.pages[id].content.content.map((b: AnyState) => b.type), id)).toEqual(['paragraph', 'image', 'image'])
+    // in place of the empty line: text first, then the two pictures (the editor keeps a free line after them)
+    expect(await wsEval(page, (s, id) => s.pages[id].content.content.map((b: AnyState) => b.type).slice(0, 3), id)).toEqual(['paragraph', 'image', 'image'])
   })
 
   test('an empty image block offers Generate…; without an image service the card says how to connect one', async ({ page }) => {
