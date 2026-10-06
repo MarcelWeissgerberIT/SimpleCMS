@@ -257,7 +257,7 @@ test.describe('Transform into (AI menu)', () => {
     // only the selected blocks go to Claude: the reads line says so
     await expect(ai.getByTestId('ai-reads')).toContainText(/selection · \d+ words/)
     await expect(ai.getByTestId('ai-reads')).not.toContainText('page')
-    await expect(ai.getByRole('option')).toHaveText([/^Auto/, /^Board/, /^Table/, /^Timeline/, /^Diagram/, /^Chart/, /^Columns/, /^Tabs/, /^Toggles/, /^Cards/])
+    await expect(ai.getByRole('option')).toHaveText([/^Auto/, /^Board/, /^Table/, /^Timeline/, /^Diagram/, /^Chart/, /^Columns/, /^Tabs/, /^Toggles/, /^Cards/, /^Pages \+ table/])
     // typing filters
     await ai.locator('.ai-cmd__input').fill('flow')
     await expect(ai.getByRole('option')).toHaveText([/^Diagram/])

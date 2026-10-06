@@ -166,7 +166,7 @@ function listCopy(list: PMNode, items: readonly PMNode[]): PMNode {
 }
 
 /** What takes the range's place: the link — inside a list, between the two halves of the list. */
-function replacement(at: SplitAt, link: PMNode): { from: number; to: number; nodes: Fragment; linkOffset: number } | null {
+export function replacement(at: SplitAt, link: PMNode): { from: number; to: number; nodes: Fragment; linkOffset: number } | null {
   if (!at.list) {
     const nodes = Fragment.from(link)
     return at.parent.canReplace(at.start, at.end, nodes) ? { from: at.from, to: at.to, nodes, linkOffset: 0 } : null
@@ -186,7 +186,7 @@ function replacement(at: SplitAt, link: PMNode): { from: number; to: number; nod
 }
 
 /** Inline databases of this page and its sub-pages linked by `pageLink` blocks among the nodes. */
-function childrenIn(nodes: readonly PMNode[], pageId: ID): ID[] {
+export function childrenIn(nodes: readonly PMNode[], pageId: ID): ID[] {
   const { pages, databases } = useWorkspace.getState()
   const out = new Set<ID>()
   const visit = (n: PMNode) => {
@@ -204,7 +204,7 @@ function childrenIn(nodes: readonly PMNode[], pageId: ID): ID[] {
 }
 
 /** Comment threads anchored in the moved text go with it (replies and state included). */
-function moveThreads(from: ID, to: ID, ids: Set<ID>) {
+export function moveThreads(from: ID, to: ID, ids: Set<ID>) {
   if (!ids.size) return
   const ws = useWorkspace.getState()
   const a = ws.pages[from]
@@ -217,7 +217,7 @@ function moveThreads(from: ID, to: ID, ids: Set<ID>) {
 }
 
 /** Team cloud: Y undo merges changes within 500 ms — the split is a step of its own. */
-function closeUndoStep(editor: Editor) {
+export function closeUndoStep(editor: Editor) {
   const undo = yUndoPluginKey.getState(editor.state) as { undoManager?: { stopCapturing: () => void } } | undefined
   undo?.undoManager?.stopCapturing()
 }
@@ -228,7 +228,7 @@ function closeUndoStep(editor: Editor) {
 
 const splits = new WeakMap<Editor, Split[]>()
 
-function hasNode(doc: PMNode, test: (n: PMNode) => boolean): boolean {
+export function hasNode(doc: PMNode, test: (n: PMNode) => boolean): boolean {
   let found = false
   doc.descendants((n) => {
     if (found) return false

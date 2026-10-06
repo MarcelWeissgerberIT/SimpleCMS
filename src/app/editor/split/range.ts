@@ -115,17 +115,17 @@ export function holdsBusyMeeting(nodes: readonly PMNode[]): boolean {
 /* ------------------------------------------------------------------ */
 
 /** Inline atoms as the reader sees them: a line break, a mention's label, TeX. */
-function leafText(leaf: PMNode): string {
+export function leafText(leaf: PMNode): string {
   if (leaf.type.name === 'hardBreak') return '\n'
   if (leaf.type.name === 'mention') return String(leaf.attrs.label ?? '')
   if (leaf.type.name === 'inlineMath') return String(leaf.attrs.latex ?? '')
   return ''
 }
 
-const squash = (s: string) => s.replace(/\s+/g, ' ').trim()
+export const squash = (s: string) => s.replace(/\s+/g, ' ').trim()
 
 /** The first line of text in a node with any ('' when it holds none). */
-function firstLine(node: PMNode): string {
+export function firstLine(node: PMNode): string {
   const text = node.isTextblock ? node.textBetween(0, node.content.size, '\n', leafText) : node.isLeaf ? '' : node.textBetween(0, node.content.size, '\n', leafText)
   for (const line of text.split('\n')) if (squash(line)) return squash(line)
   return ''

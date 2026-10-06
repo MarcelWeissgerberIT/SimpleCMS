@@ -76,6 +76,14 @@ export { liveEditorOf } from './context/store'
 export type { ContextMode, PickPurpose } from './context/store'
 export { turnIntoPage, SPLIT_SHORTCUT, SPLIT_ORIGIN, type TurnIntoPageOptions } from './split/split'
 /**
+ * Sub-page per item: pagesPerItem(editor, { range?, pageId?, quiet? }) — the items of a selection (list items, heading
+ * sections or table rows) each become a sub-page (title = the first line, content = the rest; private exactly when
+ * the page is), ONE table with a page mention per item and up to 3 fields ("Status: …" lines, a to-do's Done, the
+ * table's columns) takes their place; one transaction, toast Undo + ⌘Z. Returns the new page ids or null.
+ * itemCount(doc, { from, to }) — how many items a range holds (0: not offered).
+ */
+export { pagesPerItem, itemCount, type PagesPerItemOptions } from './split/items'
+/**
  * Button actions outside a button (features/commands: a database command of kind "Actions" uses the same list):
  *  - ButtonActionsEditor { actions, update(fn), pageId, rowDb, types?, create?, notes?, payload? }: the action list of
  *      the button's settings (cards, ↑↓, remove, "Add action"); `types` limits the kinds offered.

@@ -7,7 +7,7 @@
  */
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
-import { ArrowRight, ChevronDown, CornerDownLeft, ExternalLink, KeyRound, Maximize2, Minimize2, RotateCcw, Settings2, Square, Undo2, X } from 'lucide-react'
+import { ArrowRight, ChevronDown, CornerDownLeft, ExternalLink, KeyRound, Maximize2, Minimize2, RotateCcw, RotateCw, Settings2, Square, Undo2, X } from 'lucide-react'
 import { useLang, useT } from '../../../i18n'
 import { useWorkspace } from '../../../store/store'
 import { useUI } from '../../../store/ui'
@@ -17,7 +17,7 @@ import { shortcutLabel } from '../../../ui/controls'
 import { AI_MODELS, resolveModel } from '../client'
 import { MarkdownLite } from '../MarkdownLite'
 import { closeAgent, clampHeight, removeRef, setTermHeight, stopAgent, useAgent, HEIGHT_DEFAULT, type EchoEntry } from './state'
-import { answerAsk, applyStaged, changeTarget, contextPageId, discardAllStaged, discardStaged, newTask, pickContext, restoreStaged, runTask, submitPrompt, tn, undoLastBatch } from './session'
+import { answerAsk, applyStaged, changeTarget, continuable, continueTask, contextPageId, discardAllStaged, discardStaged, newTask, pickContext, restoreStaged, runTask, submitPrompt, tn, undoLastBatch } from './session'
 import { Menu, useMenu, type MenuEntry } from '../../../ui/Menu'
 import { setContextMode, useContextMarks, type ContextMode } from '../../../editor'
 import { effectiveMode } from '../reads'
@@ -540,9 +540,12 @@ function TurnView({ turn, last }: { turn: AgentTurn; last: boolean }) {
     <section className="term-turn" data-status={turn.status} aria-label={`${t('features.agent.task')} ${pad(turn.n)}`}>
       <div className="term-turn__head">
         <span className="term-mark" aria-hidden>
-          ›
+          {turn.continues ? '↻' : '›'}
         </span>
-        <p className="term-turn__task">{turn.task}</p>
+        <p className="term-turn__task">
+          {turn.continues ? <span className="term-turn__cont">{t('features.agent.continue.turn', { n: pad(turn.continues) })} · </span> : null}
+          {turn.task}
+        </p>
         <span className="term-turn__meta">
           {pad(turn.n)} · <Elapsed start={turn.startedAt} end={turn.endedAt} />
         </span>
@@ -574,9 +577,32 @@ function TurnView({ turn, last }: { turn: AgentTurn; last: boolean }) {
         </div>
       )}
       {turn.status === 'stopped' && <p className="term-note">■ {t('features.agent.stoppedNote')}</p>}
-      {turn.status === 'limit' && <p className="term-note">■ {t('features.agent.limitEnd')}</p>}
+      {turn.status === 'limit' && <LimitNote last={last} />}
       {turn.status === 'error' && turn.error && <TurnError error={turn.error} />}
     </section>
+  )
+}
+
+/** A task that stopped at the tool-call limit: what happened, and (the last task) Continue with a fresh budget. */
+function LimitNote({ last }: { last: boolean }) {
+  const t = useT()
+  const running = useAgent((s) => s.status === 'running')
+  const hasKey = useWorkspace((s) => !!s.settings.aiApiKey.trim())
+  const staged = useAgent((s) => s.changes.filter((c) => c.status === 'pending' || c.status === 'failed').length)
+  return (
+    <div className="term-limit" role="status">
+      <p className="term-note">■ {t('features.agent.limitEnd', { max: MAX_TOOL_CALLS })}</p>
+      {last && !running && (
+        <div className="term-limit__keys">
+          <button type="button" className="btn btn--sm term-limit__go" onClick={() => void continueTask()} disabled={!hasKey} data-testid="term-continue">
+            <RotateCw size={12} strokeWidth={1.75} aria-hidden /> {t('features.agent.continue.key')}
+          </button>
+          <span className="term-limit__hint">
+            {tn('features.agent.continue.hint', staged)} <span className="kbd">/continue</span>
+          </span>
+        </div>
+      )}
+    </div>
   )
 }
 
@@ -1305,6 +1331,8 @@ function Prompt({ disabled, onReview }: { disabled: boolean; onReview: () => boo
 
   const submit = () => {
     const text = draft.trim()
+    // ↵ on an empty prompt under a task that stopped at the limit: Continue
+    if (!text && !disabled && !running && !asking && continuable()) return void continueTask()
     // without a key (or while a task runs) only /commands and answers go
     if (!text || ((disabled || running) && !text.startsWith('/') && !asking)) return
     hist.current.at = null
@@ -1400,7 +1428,16 @@ function Prompt({ disabled, onReview }: { disabled: boolean; onReview: () => boo
     }
   }
 
-  const placeholder = asking ? t('features.agent.placeholderAsk') : disabled ? t('features.agent.placeholderNoKey') : hasTurns ? t('features.agent.placeholderNext') : t('features.agent.placeholder')
+  const limited = useAgent((s) => s.turns[s.turns.length - 1]?.status === 'limit')
+  const placeholder = asking
+    ? t('features.agent.placeholderAsk')
+    : disabled
+      ? t('features.agent.placeholderNoKey')
+      : limited
+        ? t('features.agent.placeholderContinue')
+        : hasTurns
+          ? t('features.agent.placeholderNext')
+          : t('features.agent.placeholder')
   return (
     <form
       className="term-prompt"

@@ -19,7 +19,7 @@ import { BlockGlyph } from '../menus/SlashMenu'
 import { ColorGrid } from '../menus/BubbleToolbar'
 import { topBlockKeys } from '../context/api'
 import { startRedo } from '../context/redo'
-import { splitMenuEntries } from '../split/menu'
+import { itemsMenuEntries, splitMenuEntries } from '../split/menu'
 import { colorBlocks, colorsOf, deleteBlocks, duplicateBlocks, fresh, turnBlocksInto } from './actions'
 import type { BlockSel } from './model'
 
@@ -99,18 +99,22 @@ export function selectionMenuEntries(editor: Editor, b: BlockSel, t: Translate, 
         })
       },
     })
-    // "Transform into" (Claude): one selection → one form, the AI panel previews it first
+    // "Transform into" (Claude): one selection → one form, the AI panel previews it first; "Pages + table" needs no AI (split/items.ts)
     const picks = transformChoicesAt(editor.state.doc, b.from, b.to)
-    if (picks.length)
+    const pages = itemsMenuEntries(editor, t, { range: { from: b.from, to: b.to }, pageId: ctx.pageId, label: t('editor.split.items.transform') })
+    if (picks.length || pages.length)
       items.push({
         label: t('editor.select.transform'),
         icon: <Shapes size={15} />,
         hint: 'AI',
         keywords: 'transform diagram chart columns tabs toggles cards timeline verwandeln schaubild diagramm spalten karten zeitleiste ai ki',
-        submenu: picks.map((pick) => {
-          const Icon = TRANSFORM_ICONS[pick]
-          return { label: t(`features.ai.transform.type.${pick}`), icon: <Icon size={15} />, onSelect: () => transformWith(editor, b, ctx, pick) }
-        }),
+        submenu: [
+          ...picks.map((pick) => {
+            const Icon = TRANSFORM_ICONS[pick]
+            return { label: t(`features.ai.transform.type.${pick}`), icon: <Icon size={15} />, onSelect: () => transformWith(editor, b, ctx, pick) }
+          }),
+          ...pages,
+        ],
       })
     items.push({
       label: t('editor.blockMenu.redo'),

@@ -60,10 +60,11 @@ function domSelection(): { editor: Editor; from: number; to: number } | null {
   }
 }
 
-/** A reference from an editor's selection (or the DOM selection); null when nothing is selected. */
-export function captureRef(editor?: Editor): TermRef | null {
+/** A reference from an editor's selection (or the DOM selection, or the range `at`); null when nothing is selected. */
+export function captureRef(editor?: Editor, at?: { from: number; to: number }): TermRef | null {
   let hit: { editor: Editor; from: number; to: number } | null = null
-  if (editor && !editor.isDestroyed && !editor.state.selection.empty) hit = { editor, from: editor.state.selection.from, to: editor.state.selection.to }
+  if (editor && !editor.isDestroyed && at && at.from < at.to) hit = { editor, from: Math.max(0, at.from), to: Math.min(at.to, editor.state.doc.content.size) }
+  else if (editor && !editor.isDestroyed && !editor.state.selection.empty) hit = { editor, from: editor.state.selection.from, to: editor.state.selection.to }
   else hit = domSelection()
   if (!hit) return null
   const pageId = hit.editor.view.dom.getAttribute('data-page-id')
@@ -108,4 +109,16 @@ export async function addSelectionRef(editor?: Editor, opts: { open?: boolean } 
   if (!addRef(ref)) useUI.getState().toast({ message: t('features.agent.ref.full', { max: REF_MAX }), kind: 'error' })
   openAgent()
   return true
+}
+
+/**
+ * The AI menu's "This needs the AI terminal — run it there": the passage the menu was opened on goes along as
+ * a reference (none in block mode), then the terminal opens with the request and runs it.
+ */
+export async function runInTerminal(task: string, editor?: Editor, at?: { from: number; to: number } | null): Promise<void> {
+  const ref = editor && at ? captureRef(editor, at) : null
+  if (ref?.image) ref.image.bytes = await imageBytes(ref.image.src)
+  if (ref?.file) ref.file.bytes = await fileBytes(ref.file.src)
+  if (ref && !addRef(ref)) useUI.getState().toast({ message: t('features.agent.ref.full', { max: REF_MAX }), kind: 'error' })
+  openAgent({ task, run: true })
 }

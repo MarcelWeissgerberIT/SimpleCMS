@@ -505,6 +505,41 @@
   overflow-wrap: anywhere;
 }
 
+/* ---------- stopped at the tool-call limit: Continue ---------- */
+.term-limit__keys {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  margin: 6px 0 0 18px;
+}
+
+.term-limit .btn--sm {
+  height: 24px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.term-limit__go svg {
+  color: var(--signal);
+}
+
+.term-limit__hint {
+  color: var(--ink-3);
+  font-size: 11px;
+}
+
+.term-limit__hint .kbd {
+  margin-left: 2px;
+}
+
+.term-turn__cont {
+  color: var(--signal-ink);
+  font-weight: 650;
+}
+
 /* ---------- standby ---------- */
 .term-standby {
   display: grid;
