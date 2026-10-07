@@ -65,8 +65,10 @@ export function git(cwd: string, args: string[], timeoutMs = 120_000): Promise<G
       }
     }
     const timer = setTimeout(() => {
-      why = `git ${args[0]} did not finish within ${Math.round(timeoutMs / 1000)} s — no network, or it waits for a password or an SSH key passphrase (the worker cannot type one: use an SSH agent or a credential helper)`
+      why = `git ${args[0]} did not finish within ${Math.round(timeoutMs / 1000)} s — no network, files still coming from iCloud Drive, or it waits for a password or an SSH key passphrase (the worker cannot type one: use an SSH agent or a credential helper)`
       stop()
+      // a git stuck in the file system (an iCloud file being fetched) may not die at once: give up on it now, never wait
+      finish(1)
     }, timeoutMs)
     const take = (into: Buffer[]) => (d: Buffer) => {
       size += d.length
@@ -101,7 +103,7 @@ const same = (a: string, b: string) => {
 /** The repo's main checkout (toplevel); throws when `path` is not a git checkout. */
 export async function checkRepo(repo: RepoConfig): Promise<string> {
   if (!existsSync(repo.path)) throw new GitError(`the folder does not exist`)
-  const top = (await gitOk(repo.path, ['rev-parse', '--show-toplevel'])).trim()
+  const top = (await gitOk(repo.path, ['rev-parse', '--show-toplevel'], 30_000)).trim()
   if (!top) throw new GitError('not a git checkout')
   return top
 }
@@ -145,7 +147,7 @@ export async function localBranches(repo: RepoConfig, timeoutMs = 5000): Promise
 }
 
 export async function prune(repo: RepoConfig): Promise<void> {
-  await git(repo.path, ['worktree', 'prune'])
+  await git(repo.path, ['worktree', 'prune'], 30_000)
 }
 
 const refExists = async (cwd: string, ref: string) => (await git(cwd, ['rev-parse', '--verify', '--quiet', `${ref}^{commit}`])).code === 0

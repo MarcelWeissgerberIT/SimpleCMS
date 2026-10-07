@@ -198,6 +198,22 @@ export class Worker {
     this.tick()
   }
 
+  /** After the start: each repo checked, its stale worktrees pruned, its branches read — a slow one is named. */
+  private async checkRepos(): Promise<void> {
+    for (const repo of this.config.repos) {
+      const slow = setTimeout(() => this.opts.log(`repo "${repo.name}": git is slow here — is the folder in iCloud Drive with files still in the cloud? (Finder → right-click → Keep Downloaded, or clone it to ~/one-repos)`), 8000)
+      try {
+        await checkRepo(repo)
+        await prune(repo)
+      } catch (e) {
+        this.opts.log(`repo "${repo.name}": ${e instanceof Error ? e.message : String(e)}`)
+      } finally {
+        clearTimeout(slow)
+      }
+    }
+    await this.refreshBranches()
+  }
+
   /** Read every repo's local branches again; tell One when they changed (announce = false: the caller does). */
   async refreshBranches(announce = true): Promise<void> {
     let changed = false
@@ -221,16 +237,9 @@ export class Worker {
   async start(): Promise<'listening' | 'in-use'> {
     this.caps = await detectClaude(this.opts.bin)
     if (!this.caps.found) this.opts.log(`Claude Code was not found ("${this.opts.bin}") — plan and implement stages will fail until it is installed (or CLAUDE_BIN is set)`)
-    for (const repo of this.config.repos) {
-      try {
-        await checkRepo(repo)
-        await prune(repo)
-      } catch (e) {
-        this.opts.log(`repo "${repo.name}": ${e instanceof Error ? e.message : String(e)}`)
-      }
-    }
-    await this.refreshBranches(false)
+    // ready first: a repo whose git is slow (iCloud Drive fetching files) must not keep One waiting
     const up = await this.link.start()
+    if (up === 'listening') void this.checkRepos()
     if (up === 'listening') {
       this.opts.log(`ready on ws://127.0.0.1:${this.config.port} · ${this.config.repos.length} repo(s): ${this.config.repos.map((r) => r.name).join(', ') || 'none'} · ${this.config.workspace ? `workspace ${this.config.workspace}${this.config.preset ? ` ("${this.config.preset.name}", paired download)` : ''}` : 'NOT BOUND to a workspace (set "workspace" in worker.json)'}`)
       this.poller = setInterval(() => this.tick(), this.config.pollSec * 1000)

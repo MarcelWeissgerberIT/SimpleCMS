@@ -5,14 +5,16 @@
  * unconfirmed team tasks and free commands — and no path or command of this machine ever reaching the tab.
  */
 import assert from 'node:assert/strict'
-import { readFileSync, writeFileSync, existsSync } from 'node:fs'
+import { chmodSync, readFileSync, writeFileSync, existsSync } from 'node:fs'
+import { execFileSync } from 'node:child_process'
+import { git } from '../src/worker/git.ts'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { request } from 'node:http'
 import { after, afterEach, describe, test } from 'node:test'
 import { WORKER_CLOSE_REFUSED, WORKER_CLOSE_REPLACED, type GitInfo, type WorkerMessage } from '../../src/app/features/coding/protocol.ts'
 import { waitFor } from './helpers.ts'
-import { FakeTab, WS_LOCAL, cleanupAll, makeRepo, repoEntry, sh, startWorker, task, writeConfig, type StartedWorker, type TempRepo } from './worker-helpers.ts'
+import { FakeTab, WS_LOCAL, cleanupAll, makeRepo, repoEntry, sh, startWorker, task, tempDir, writeConfig, type StartedWorker, type TempRepo } from './worker-helpers.ts'
 
 const PORT = 47381
 let worker: StartedWorker | null = null
@@ -74,6 +76,39 @@ describe('handshake', () => {
     assert.equal(tab.closed!.code, WORKER_CLOSE_REPLACED)
     await waitFor(() => newer.messages.some((m) => m.type === 'welcome' && m.repos[0]?.branches?.includes('feature/picker')))
     assertNoPaths(newer, r)
+  })
+
+  test('a repo whose git hangs (iCloud Drive) does not hold the start back: ready at once, the slow repo named', async () => {
+    const r = makeRepo()
+    const bin = tempDir('slowgit')
+    const real = execFileSync('which', ['git'], { encoding: 'utf8' }).trim()
+    writeFileSync(join(bin, 'git'), `#!/bin/sh\nif [ "$1" = "rev-parse" ] && [ "$2" = "--show-toplevel" ]; then sleep 30; fi\nexec ${real} "$@"\n`)
+    chmodSync(join(bin, 'git'), 0o755)
+    const started = Date.now()
+    await boot(r, {}, {}, { PATH: `${bin}:${process.env.PATH}` })
+    assert.ok(Date.now() - started < 6000, `ready after ${Date.now() - started} ms`)
+    const tab = await connect()
+    const welcome = await tab.next('welcome')
+    assert.deepEqual(welcome.repos.map((x) => x.name), ['demo'])
+    await waitFor(() => /repo "demo": git is slow here/.test(worker!.stderr()), 12_000, () => worker!.stderr())
+  })
+
+  test('git gives up at its time limit even when the process does not end', async () => {
+    const bin = tempDir('stuckgit')
+    // a git that ignores the kill of its group: it keeps running, the worker must not wait for it
+    writeFileSync(join(bin, 'git'), '#!/bin/sh\ntrap "" TERM HUP INT\nsleep 5\n')
+    chmodSync(join(bin, 'git'), 0o755)
+    const path = process.env.PATH
+    process.env.PATH = `${bin}:${path}`
+    try {
+      const t0 = Date.now()
+      const res = await git(tempDir('cwd'), ['rev-parse', '--show-toplevel'], 300)
+      assert.ok(Date.now() - t0 < 2000, `waited ${Date.now() - t0} ms`)
+      assert.equal(res.code, 1)
+      assert.match(res.stderr, /did not finish within 0 s|did not finish within/)
+    } finally {
+      process.env.PATH = path
+    }
   })
 
   test('a worker without a workspace refuses every tab and says how to bind it', async () => {

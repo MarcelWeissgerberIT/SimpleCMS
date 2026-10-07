@@ -11,7 +11,7 @@ One, der [Coding-Worker](help:coding-pipeline) und Claude Code nehmen alte Softw
 
 ## 1. Den Code zum Worker bringen
 Öffne die Setup-Seite des Workers (**Einstellungen → Coding-Worker → Repositories ändern**):
-- **ZIP importieren …** – eine ZIP mit dem Quellcode wird ein neues Repository in `~/one-repos`: ein Commit *Import <Datei>*, kein Remote. Die eigenen `.git`-Ordner der ZIP bleiben draußen; ein Pfad, der aus ihrem Ordner herausführt, lehnt die ganze ZIP ab.
+- **ZIP importieren …** – eine ZIP mit dem Quellcode wird ein neues Repository in `~/one-repos`: ein Commit *Import <Datei>*. Die eigenen `.git`-Ordner der ZIP bleiben draußen; ein Pfad, der aus ihrem Ordner herausführt, lehnt die ganze ZIP ab. Direkt danach legt **Auch auf GitLab / GitHub anlegen** (mit angemeldetem `glab` oder `gh`) das Projekt an – der Name wird aus dem Code (package.json, pom.xml, README …) oder der ZIP vorgeschlagen –, setzt es als Remote und pusht, damit **Ausliefern** Merge Requests öffnen kann.
 - **Von GitLab / GitHub klonen …** – die Klon-Adresse einfügen (HTTPS oder SSH) oder eines deiner Projekte wählen (wenn `glab` oder `gh` installiert und angemeldet ist). git meldet sich mit deinem SSH-Schlüssel oder Credential-Helper an; der Worker kann kein Passwort eintippen.
 
 Hak das Repository an, trag seinen **Testbefehl** ein, falls es einen gibt, und **Speichern & starten**. `~/one-repos` wird nicht synchronisiert – halte Repositories aus iCloud Drive und Dropbox heraus, sonst wartet git auf Dateien aus der Cloud.

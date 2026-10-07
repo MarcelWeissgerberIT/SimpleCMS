@@ -6,7 +6,8 @@
  * the clone folder and own MCP servers written by Save, GitLab merge requests with glab. Nothing leaves the machine.
  */
 import assert from 'node:assert/strict'
-import { chmodSync, existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
+import { execFileSync } from 'node:child_process'
 import { request } from 'node:http'
 import { join } from 'node:path'
 import { after, afterEach, describe, test } from 'node:test'
@@ -17,8 +18,9 @@ import { entryPath, isUnsafe } from '../src/worker/zipimport.ts'
 import { openPr } from '../src/worker/git.ts'
 import { sanitizeConfig, type RepoConfig } from '../src/worker/config.ts'
 import { buildPrompt } from '../src/worker/run.ts'
+import { checkPublish, slugName, suggestName } from '../src/worker/publish.ts'
 import { waitFor } from './helpers.ts'
-import { FakeTab, cleanupAll, makeRepo, plainRepo, presetBundle, sh, spawnWorker, task, tempDir, type SpawnedWorker } from './worker-helpers.ts'
+import { FakeTab, GIT_ENV, cleanupAll, makeRepo, plainRepo, presetBundle, sh, spawnWorker, task, tempDir, type SpawnedWorker } from './worker-helpers.ts'
 
 const PORT = 47387
 const SELF = `http://127.0.0.1:${PORT}`
@@ -41,6 +43,11 @@ after(cleanupAll)
 function fakeTools(): string {
   const bin = tempDir('bin')
   const glab = `#!/bin/sh
+case "$1 $2 $3" in
+  "api -X POST") echo "{\\"web_url\\":\\"https://gitlab.example.com/acme/billing-core\\",\\"ssh_url_to_repo\\":\\"$FAKE_REMOTE\\",\\"http_url_to_repo\\":\\"$FAKE_REMOTE\\",\\"args\\":\\"$*\\"}"; echo "$*" >> "$FAKE_LOG"; exit 0 ;;
+  "api groups/acme ") echo '{"id":7}'; exit 0 ;;
+  "config get git_protocol") echo ssh; exit 0 ;;
+esac
 case "$1" in
   --version) echo "glab 1.99"; exit 0 ;;
   api) echo '[{"path_with_namespace":"acme/legacy-billing","http_url_to_repo":"https://gitlab.example.com/acme/legacy-billing.git","ssh_url_to_repo":"git@gitlab.example.com:acme/legacy-billing.git","last_activity_at":"2026-10-01T10:00:00Z"},{"path_with_namespace":"acme/bad","http_url_to_repo":"https://user:tok@gitlab.example.com/acme/bad.git","ssh_url_to_repo":"-oProxyCommand=x","last_activity_at":"2026-10-02T10:00:00Z"}]'; exit 0 ;;
@@ -129,12 +136,41 @@ describe('clone addresses', () => {
   })
 })
 
+describe('a new project for an imported repository', () => {
+  test('the name comes from the code (package.json, pom.xml, pyproject, README …), else the ZIP\'s', () => {
+    const at = (files: Record<string, string>) => {
+      const d = tempDir('suggest')
+      for (const [f, text] of Object.entries(files)) writeFileSync(join(d, f), text)
+      return d
+    }
+    assert.equal(suggestName(at({ 'package.json': '{"name":"@acme/Billing Core"}' }), 'x.zip'), 'billing-core')
+    assert.equal(suggestName(at({ 'pom.xml': '<project><parent><artifactId>spring-parent</artifactId></parent><artifactId>invoice-service</artifactId></project>' }), 'x'), 'invoice-service')
+    assert.equal(suggestName(at({ 'pyproject.toml': '[project]\nname = "Lager Verwaltung"\n' }), 'x'), 'lager-verwaltung')
+    assert.equal(suggestName(at({ 'Legacy.Shop.sln': '' }), 'x'), 'legacy.shop')
+    assert.equal(suggestName(at({ 'README.md': 'intro\n# Warenwirtschaft 1999\n' }), 'x'), 'warenwirtschaft-1999')
+    assert.equal(suggestName(at({ 'package.json': 'not json' }), 'Old Billing.zip'), 'old-billing.zip')
+    assert.equal(slugName('Ünïcödé Shop'), 'unicode-shop')
+  })
+
+  test('host, group / owner, name and visibility are checked', () => {
+    assert.deepEqual(checkPublish({ host: 'gitlab', owner: 'acme/platform', name: 'billing', visibility: 'internal' }), { host: 'gitlab', owner: 'acme/platform', name: 'billing', visibility: 'internal' })
+    assert.deepEqual(checkPublish({ host: 'github', name: 'billing', visibility: 'internal' }), { host: 'github', owner: null, name: 'billing', visibility: 'private' })
+    for (const bad of [{ host: 'bitbucket', name: 'a' }, { host: 'gitlab', name: '-x' }, { host: 'gitlab', name: 'a b' }, { host: 'gitlab', name: 'ok', owner: '../x' }, { host: 'github', name: 'ok', owner: 'a/b' }, { host: 'gitlab', name: 'ok', owner: '--help' }])
+      assert.ok('error' in checkPublish(bad), JSON.stringify(bad))
+  })
+})
+
 describe('the setup page: clone, projects, ZIP import, own MCP servers', () => {
   test('clone a repository, pick from glab / gh projects, import a ZIP as a new repository, refuse a ZIP that escapes; Save keeps the clone folder and the MCP servers', async () => {
     const home = tempDir('home')
     const bin = fakeTools()
     const remote = makeRepo().remote
-    worker = await spawnWorker({ bundle: presetBundle(PRESET), home, env: { PATH: `${bin}:${process.env.PATH}`, ONE_WORKER_CLONE_LOCAL: '1' } })
+    // the "GitLab" project a publish creates: a local bare repository the fake glab hands out as its address
+    const created = join(tempDir('gitlab'), 'billing-core.git')
+    mkdirSync(created, { recursive: true })
+    execFileSync('git', ['init', '--quiet', '--bare', '-b', 'main', created], { env: { ...process.env, ...GIT_ENV } })
+    const glabLog = join(tempDir('glablog'), 'calls.txt')
+    worker = await spawnWorker({ bundle: presetBundle(PRESET), home, env: { PATH: `${bin}:${process.env.PATH}`, ONE_WORKER_CLONE_LOCAL: '1', FAKE_REMOTE: created, FAKE_LOG: glabLog } })
     await waitFor(() => /setup#k=([A-Za-z0-9_-]{43})/.test(worker!.stdout()), 8000, () => worker!.stderr())
     const token = /setup#k=([A-Za-z0-9_-]{43})/.exec(worker.stdout())![1]!
     const tab = await FakeTab.connect(PORT, { origin: ORIGIN })
@@ -174,6 +210,7 @@ describe('the setup page: clone, projects, ZIP import, own MCP servers', () => {
     // a ZIP of legacy code: one folder at the top, its own .git and Mac leftovers left out
     const zip = Buffer.from(zipSync({
       'legacy-app/README.md': strToU8('# Billing 1998\n'),
+      'legacy-app/package.json': strToU8('{"name":"@acme/billing-core","version":"0.9.0"}'),
       'legacy-app/src/billing.js': strToU8('module.exports = (a, b) => a + b\n'),
       'legacy-app/.git/config': strToU8('[core]\n\tfsmonitor = touch pwned\n'),
       'legacy-app/.git/hooks/post-commit': strToU8('#!/bin/sh\ntouch pwned\n'),
@@ -187,13 +224,29 @@ describe('the setup page: clone, projects, ZIP import, own MCP servers', () => {
     assert.equal(imported.clone.error, null)
     const app = join(home, 'work', 'clones', 'legacy-app')
     assert.equal(imported.clone.done, app)
-    assert.deepEqual(readdirSync(app).sort(), ['.git', 'README.md', 'src'])
+    assert.deepEqual(readdirSync(app).sort(), ['.git', 'README.md', 'package.json', 'src'])
+    assert.equal(imported.clone.suggest, 'billing-core')
     assert.ok(!readFileSync(join(app, '.git', 'config'), 'utf8').includes('fsmonitor'))
     assert.ok(!existsSync(join(app, '.git', 'hooks', 'post-commit')))
     assert.equal(sh(app, 'log', '-1', '--format=%s').trim(), 'Import legacy-app.zip')
     assert.equal(sh(app, 'branch', '--show-current').trim(), 'main')
     assert.equal(sh(app, 'status', '--porcelain').trim(), '')
     assert.ok(!existsSync(join(home, 'pwned')) && !existsSync(join(app, 'pwned')))
+
+    // Create it on GitLab: the person's glab makes the project (in the group acme), origin added, main pushed
+    assert.equal((await call('/setup/api/publish', { token, body: { path: app, host: 'gitlab', name: 'bad name' } })).status, 400)
+    assert.equal((await call('/setup/api/publish', { token, body: { path: '/etc', host: 'gitlab', name: 'x' } })).status, 400)
+    const pub = await call('/setup/api/publish', { token, body: { path: app, host: 'gitlab', owner: 'acme', name: 'billing-core', visibility: 'private' } })
+    assert.equal(pub.status, 200, pub.text)
+    const published = await jobDone(token)
+    assert.equal(published.clone.error, null)
+    assert.equal(published.clone.web, 'https://gitlab.example.com/acme/billing-core')
+    assert.equal(sh(created, 'log', '-1', '--format=%s', 'main').trim(), 'Import legacy-app.zip')
+    assert.equal(sh(app, 'remote', 'get-url', 'origin').trim(), created)
+    assert.match(readFileSync(glabLog, 'utf8'), /api -X POST projects -f name=billing-core -f path=billing-core -f visibility=private -F namespace_id=7/)
+    assert.ok(published.repos.some((r: { path: string; remote: string | null }) => r.path === app && r.remote === 'origin'))
+    // a repository with a remote is not published again
+    assert.equal((await call('/setup/api/publish', { token, body: { path: app, host: 'gitlab', name: 'again' } })).status, 400)
 
     // a ZIP that reaches outside its folder: refused as a whole, nothing written, no temp folder left
     const evil = Buffer.from(zipSync({ 'ok.txt': strToU8('fine'), '../evil.txt': strToU8('escaped') }))

@@ -83,7 +83,7 @@ h1 { margin: 26px 0 0; font-size: clamp(24px, 4vw, 34px); font-weight: 800; font
 .add__err { grid-column: 1 / -1; margin: 0; color: var(--signal-ink); font-size: 12.5px; }
 .clone { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); gap: 10px 12px; margin: 0 0 10px; padding: 12px; border: 1px solid var(--rule-strong); border-left: 2px solid var(--signal); border-radius: 4px; background: var(--surface); }
 .clone__keys { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; grid-column: 1 / -1; }
-.clone .msg, .clone .add__err, .clone > .hint { grid-column: 1 / -1; margin: 0; }
+.clone .msg, .clone .add__err, .clone > .hint, .clone > .label { grid-column: 1 / -1; margin: 0; }
 .clone__bar { height: 3px; background: var(--rule); grid-column: 1 / -1; }
 .clone__bar > span { display: block; height: 100%; background: var(--signal); transition: width 260ms var(--ease); }
 .projects { grid-column: 1 / -1; display: grid; gap: 6px; padding-top: 10px; border-top: 1px solid var(--rule); }
@@ -230,6 +230,21 @@ export const SETUP_JS = String.raw`(function () {
     importing: 'Unpacking {name}… {line}',
     imported: 'Imported {name} as a new repository (one commit, no remote) — ticked below. Save & start to hand it tasks.',
     importFailed: 'The import failed: {e}',
+    pubTitle: 'Also create it on GitLab / GitHub — then Ship can push and open merge requests',
+    pubHost: 'Where',
+    pubOwner: 'Group / owner',
+    pubOwnerHint: 'Empty: your own account. A GitLab group can be nested (acme/platform).',
+    pubName: 'Project name',
+    pubNameHint: 'Suggested from the code (package.json, pom.xml, README …) or the ZIP\'s name.',
+    pubVis: 'Visibility',
+    visPrivate: 'Private',
+    visInternal: 'Internal',
+    visPublic: 'Public',
+    pubGo: 'Create & push',
+    pubSkip: 'Not now',
+    publishing: 'Creating {name}… {line}',
+    published: 'Created {web} and pushed main — push and merge requests are on for this repository.',
+    pubFailed: 'That did not work: {e}',
     noLimit: 'none',
     ticked: '{n} ticked',
     tickedOne: '1 ticked',
@@ -315,6 +330,21 @@ export const SETUP_JS = String.raw`(function () {
     importing: 'Entpacke {name} … {line}',
     imported: '{name} als neues Repository importiert (ein Commit, kein Remote) – unten angehakt. „Speichern & starten“, damit One ihm Aufgaben gibt.',
     importFailed: 'Der Import hat nicht geklappt: {e}',
+    pubTitle: 'Auch auf GitLab / GitHub anlegen – dann kann Ausliefern pushen und Merge Requests öffnen',
+    pubHost: 'Wo',
+    pubOwner: 'Gruppe / Besitzer',
+    pubOwnerHint: 'Leer: dein eigenes Konto. Eine GitLab-Gruppe darf verschachtelt sein (acme/platform).',
+    pubName: 'Projektname',
+    pubNameHint: 'Vorgeschlagen aus dem Code (package.json, pom.xml, README …) oder dem Namen der ZIP.',
+    pubVis: 'Sichtbarkeit',
+    visPrivate: 'Privat',
+    visInternal: 'Intern',
+    visPublic: 'Öffentlich',
+    pubGo: 'Anlegen & pushen',
+    pubSkip: 'Nicht jetzt',
+    publishing: 'Lege {name} an … {line}',
+    published: '{web} angelegt und main gepusht – Push und Merge Requests sind für dieses Repository an.',
+    pubFailed: 'Das hat nicht geklappt: {e}',
     noLimit: 'keine',
     ticked: '{n} angehakt',
     tickedOne: '1 angehakt',
@@ -406,6 +436,8 @@ export const SETUP_JS = String.raw`(function () {
   var projects = null
   var projFilter = ''
   var handledClone = 0
+  /** after an import: { path, name, host, owner, vis } for "Create it on GitLab / GitHub" */
+  var publishFor = null
 
   function ago(ms) {
     if (!ms) return t('unknown')
@@ -435,7 +467,14 @@ export const SETUP_JS = String.raw`(function () {
       if (r) editOf(r).ticked = true
       cloneOpen = false
       cloneUrl = ''
-      note = { ok: true, text: t(job.kind === 'import' ? 'imported' : 'cloned', { name: job.name }) }
+      if (job.kind === 'publish') {
+        if (r) { editOf(r).push = true; editOf(r).pr = 'gh' }
+        publishFor = null
+        note = { ok: true, text: t('published', { web: job.web || job.line }) }
+      } else {
+        note = { ok: true, text: t(job.kind === 'import' ? 'imported' : 'cloned', { name: job.name }) }
+        if (job.kind === 'import' && (state.glab || state.gh)) publishFor = { path: job.done, name: job.suggest || job.name, host: state.glab ? 'gitlab' : 'github', owner: '', vis: 'private' }
+      }
     }
     // while the search runs, ask again every second (the list grows as repos are found)
     clearTimeout(again)
@@ -546,6 +585,7 @@ export const SETUP_JS = String.raw`(function () {
         addError ? el('p', { className: 'add__err', role: 'alert', text: addError }) : null
       ]))
     }
+    if (publishFor) app.appendChild(publishPanel())
     var list = el('ul', { className: 'list', id: 'repos' })
     if (!state.repos.length) list.appendChild(el('li', { className: 'empty', text: state.scan && state.scan.running ? t('loading') : t('none') }))
     state.repos.forEach(function (r, i) { list.appendChild(row(r, i)) })
@@ -696,7 +736,7 @@ export const SETUP_JS = String.raw`(function () {
   }
 
   function clonePanel() {
-    var job = state.clone && state.clone.id >= handledClone ? state.clone : null
+    var job = state.clone && state.clone.kind !== 'publish' && state.clone.id >= handledClone ? state.clone : null
     var running = !!(job && job.running)
     var url = el('input', { type: 'text', id: 'cloneurl', value: cloneUrl, placeholder: 'git@gitlab.com:group/project.git', spellcheck: 'false', autocomplete: 'off', oninput: function (ev) { cloneUrl = ev.target.value }, onkeydown: function (ev) { if (ev.key === 'Enter' && !running) startClone(); if (ev.key === 'Escape') { cloneOpen = false; render() } } })
     var dir = el('input', { type: 'text', id: 'clonedir', value: cloneDirText === null ? state.cloneDir : cloneDirText, spellcheck: 'false', autocomplete: 'off', oninput: function (ev) { cloneDirText = ev.target.value } })
@@ -742,6 +782,42 @@ export const SETUP_JS = String.raw`(function () {
     })
     box.appendChild(list)
     return box
+  }
+
+  function publishPanel() {
+    var p = publishFor
+    var job = state.clone && state.clone.kind === 'publish' && state.clone.id > handledClone ? state.clone : null
+    var running = !!(job && job.running)
+    var host = el('select', { id: 'pubhost', onchange: function (ev) { p.host = ev.target.value; if (p.host === 'github' && p.vis === 'internal') p.vis = 'private'; render() } })
+    if (state.glab) host.appendChild(el('option', { value: 'gitlab', text: 'GitLab (glab)' }))
+    if (state.gh) host.appendChild(el('option', { value: 'github', text: 'GitHub (gh)' }))
+    host.value = p.host
+    var vis = el('select', { id: 'pubvis', onchange: function (ev) { p.vis = ev.target.value } })
+    vis.appendChild(el('option', { value: 'private', text: t('visPrivate') }))
+    if (p.host === 'gitlab') vis.appendChild(el('option', { value: 'internal', text: t('visInternal') }))
+    vis.appendChild(el('option', { value: 'public', text: t('visPublic') }))
+    vis.value = p.vis
+    var kids = [
+      el('p', { className: 'label', text: t('pubTitle') }),
+      el('div', { className: 'field' }, [el('label', { className: 'label', for: 'pubhost', text: t('pubHost') }), host]),
+      el('div', { className: 'field' }, [el('label', { className: 'label', for: 'pubvis', text: t('pubVis') }), vis]),
+      el('div', { className: 'field' }, [el('label', { className: 'label', for: 'pubowner', text: t('pubOwner') }), el('input', { type: 'text', id: 'pubowner', value: p.owner, spellcheck: 'false', autocomplete: 'off', oninput: function (ev) { p.owner = ev.target.value } }), el('span', { className: 'hint', text: t('pubOwnerHint') })]),
+      el('div', { className: 'field' }, [el('label', { className: 'label', for: 'pubname', text: t('pubName') }), el('input', { type: 'text', id: 'pubname', value: p.name, maxlength: 100, spellcheck: 'false', autocomplete: 'off', oninput: function (ev) { p.name = ev.target.value } }), el('span', { className: 'hint', text: t('pubNameHint') })]),
+      el('div', { className: 'clone__keys' }, [
+        el('button', { type: 'button', className: 'btn btn--primary', id: 'pubgo', disabled: running, onclick: publish, text: t('pubGo') }),
+        el('button', { type: 'button', className: 'btn btn--ghost', disabled: running, onclick: function () { publishFor = null; render() }, text: t('pubSkip') })
+      ])
+    ]
+    if (running) kids.push(el('p', { className: 'msg', role: 'status', id: 'pubstate', text: t('publishing', { name: job.name, line: job.line }) }))
+    else if (job && job.error) kids.push(el('p', { className: 'add__err', role: 'alert', id: 'pubstate', text: t('pubFailed', { e: job.error }) }))
+    if (p.err) kids.push(el('p', { className: 'add__err', role: 'alert', text: p.err }))
+    return el('div', { className: 'clone', id: 'publishbox' }, kids)
+  }
+
+  function publish() {
+    var p = publishFor
+    p.err = ''
+    api('POST', 'publish', { path: p.path, host: p.host, owner: p.owner, name: p.name, visibility: p.vis }).then(function (s) { adopt(s); followClone() }, function (e) { p.err = e.message; render() })
   }
 
   function save() {

@@ -339,7 +339,7 @@ test('the 3 steps: a download comes ready-paired, connects without any switch, i
   await reloadApp(page)
   await openWorkerSettings(page)
   await expect(page.getByTestId('coding-refused')).toContainText('a newer download replaced it', { timeout: 15_000 })
-  await expect(page.getByTestId('coding-conn')).toContainText('Refused: this worker belongs to another download')
+  await expect(page.getByTestId('coding-conn')).toContainText('Refused: an older download is running')
   await expect.poll(() => worker!.log()).toContain("did not bring this download's pairing key")
 })
 

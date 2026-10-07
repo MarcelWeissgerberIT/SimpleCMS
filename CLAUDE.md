@@ -325,7 +325,9 @@ the public APIs stable — other areas are built against them in parallel.
   https addresses, ext::/file::, option-like and `..`; `git -c protocol.ext.allow=never … clone -- <url> <dir>`; projects
   from glab / gh) and ZIP import (zipimport.ts — fflate streaming, every `.git` folder left out, a path outside refuses
   the ZIP, `git init` + one commit) into `cloneDir` (default ~/one-repos, never iCloud). `claude.mcpServers` per repo =
-  the person's own Claude Code MCP servers (tools allowed, no --strict-mcp-config). GitLab: `glab mr create`. Pipeline
+  the person's own Claude Code MCP servers (tools allowed, no --strict-mcp-config). GitLab: `glab mr create`. After an
+  import the page offers "Create it on GitLab / GitHub" (publish.ts: name from the code, the person's glab / gh api,
+  origin + push; only for a repo without a remote). Pipeline
   templates (schema.ts `templatePipeline`: standard | modernise); with several plan stages each writes its own section.
 - Claude's Markdown goes into or is shown in a page only through `claudeDoc` / `claudeBlocks` (features/ai/claudeDoc.ts):
   web images become links, frames / media / web files never load. In shared pages Claude's change is its own undo step

@@ -101,6 +101,12 @@ clean, and a test-command guess from top-level files — `package.json` with a `
   folder (hooks, config) and `__MACOSX` / `.DS_Store` are left out, ≤ 2 GB unpacked and 100,000 files; one folder at
   the top becomes the repository; then `git init`, branch `main`, one commit *Import <file>* (identity: the person's
   git config, else "One worker"). No remote — push is off until one is added.
+- **Create it on GitLab / GitHub** (offered after an import while `glab` / `gh` is signed in; mcp/src/worker/publish.ts):
+  a project name suggested from the code (package.json, composer.json, pom.xml, pyproject.toml / setup.py, Cargo.toml,
+  go.mod, *.sln / *.csproj, the README's first heading — else the ZIP's name), an optional GitLab group (nested) or
+  GitHub organisation, private / internal / public. The person's own tool creates it through the host's API (`glab api
+  -X POST projects …` / `gh api -X POST user/repos | orgs/<owner>/repos …`, argv only); the worker adds `origin` in the
+  tool's git protocol and pushes `main` without a terminal. Only for a listed repository without a remote.
 - The new repo is ticked on the page like an added folder; **Save & start** writes it (and a changed clone folder
   as `cloneDir`).
 - **Own MCP servers for Claude Code** (per repo, `claude.mcpServers`): names as `claude mcp list` shows them (e.g.
@@ -222,6 +228,9 @@ Always `execFile('git', […])` — never a shell line; hooks and your git confi
   the log — git waits whenever a file is only in the cloud. Its worktrees go to `~/.one-worktrees/<name>` (outside
   iCloud) unless `worktreeDir` is set. A checkout (`git worktree add`) may take up to 10 min (`ONE_WORKER_CHECKOUT_MS`)
   with a line every 30 s; one that fails or runs out of time removes its folder, worktree entry and new branch.
+- **Start**: the worker listens first (One connects at once), then checks each repo (`rev-parse`, `worktree prune`,
+  branches — 30 s each) in the background and names a repo whose git takes over 8 s (iCloud Drive). A git that
+  passes its time limit is given up at once, even when its process does not end yet.
 - **Progress**: every step goes to the task's log; while Claude Code is quiet the worker adds a *still working* line per
   minute (`ONE_WORKER_QUIET_MS`). The worker's own lines carry a message code + values (`LogLine.c` / `v`, e.g.
   `stage`, `fetchFailed`, `testsPass`): One shows them in the person's language (`features.coding.log.c.<code>`,

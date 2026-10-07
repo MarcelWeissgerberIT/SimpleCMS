@@ -28,6 +28,7 @@ import { openUrl } from './opener.ts'
 import { SETUP_CSS, SETUP_HTML, SETUP_JS } from './setup-page.ts'
 import { cloneBase, cloneInto, folderName, listProjects, parseCloneUrl, runCli, type CliRun, type RemoteProject } from './clone.ts'
 import { ZIP_MAX, importZip } from './zipimport.ts'
+import { checkPublish, publishRepo, suggestName } from './publish.ts'
 import { createWriteStream, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 
@@ -65,8 +66,12 @@ export interface SetupHost {
 /** A clone the person started on this page (one at a time). */
 interface CloneJob {
   id: number
-  kind: 'clone' | 'import'
+  kind: 'clone' | 'import' | 'publish'
   url: string
+  /** an import: the project name its code suggests (for "Create it on GitLab / GitHub") */
+  suggest?: string
+  /** a publish: the new project's page */
+  web?: string
   name: string
   running: boolean
   line: string
@@ -329,6 +334,7 @@ export class SetupServer {
       .then(async ({ dir, files }) => {
         const taken = new Set([...this.host.config().repos.map((r) => r.name.toLowerCase()), ...[...this.found.values()].map((r) => r.name.toLowerCase())])
         this.found.set(dir, await repoFacts(dir, taken, this.home))
+        job.suggest = suggestName(dir, name)
         job.done = dir
         job.line = `${files} files`
         job.percent = 100
@@ -341,6 +347,41 @@ export class SetupServer {
       .finally(() => {
         job.running = false
         rmSync(tmp, { force: true })
+      })
+    return { ok: true }
+  }
+
+  /**
+   * "Create it on GitLab / GitHub": a listed repository without a remote becomes a project of the person's account
+   * (or a group / organisation) through their own glab / gh, added as origin and pushed — followed like a clone.
+   */
+  startPublish(body: unknown): { ok: true } | { ok: false; status: number; error: string } {
+    if (this.clone?.running) return { ok: false, status: 409, error: 'A clone, import or publish is running — wait until it is done.' }
+    const b = isObj(body) ? body : {}
+    const repo = typeof b.path === 'string' ? this.repos().find((r) => r.path === b.path) : undefined
+    if (!repo) return { ok: false, status: 400, error: 'That repository is not on the list.' }
+    if (repo.remote) return { ok: false, status: 400, error: 'This repository has a remote already.' }
+    const target = checkPublish(b)
+    if ('error' in target) return { ok: false, status: 400, error: target.error }
+    const job: CloneJob = { id: ++this.cloneSeq, kind: 'publish', url: `${target.host}:${target.owner ? `${target.owner}/` : ''}${target.name}`, name: target.name, running: true, line: '', percent: null, done: null, error: null }
+    this.clone = job
+    this.host.log(`setup page: creating ${job.url} for ${repo.path}`)
+    void publishRepo(repo.path, target, this.host.cli ?? runCli, (line) => (job.line = line), process.env.ONE_WORKER_CLONE_LOCAL === '1')
+      .then(async ({ web }) => {
+        const taken = new Set([...this.host.config().repos.map((r) => r.name.toLowerCase()), ...[...this.found.values()].filter((r) => r.path !== repo.path).map((r) => r.name.toLowerCase())])
+        this.found.set(repo.path, await repoFacts(repo.path, taken, this.home))
+        job.web = web
+        job.done = repo.path
+        job.line = web
+        job.percent = 100
+        this.host.log(`setup page: created ${web} and pushed main`)
+      })
+      .catch((e: unknown) => {
+        job.error = e instanceof Error ? e.message : String(e)
+        this.host.log(`setup page: creating ${job.url} failed — ${job.error}`)
+      })
+      .finally(() => {
+        job.running = false
       })
     return { ok: true }
   }
@@ -468,6 +509,11 @@ export class SetupServer {
     }
     if (op === 'clone') {
       const r = this.startClone(body)
+      if (!r.ok) return json(r.status, { error: r.error }), true
+      return json(200, await this.state()), true
+    }
+    if (op === 'publish') {
+      const r = this.startPublish(body)
       if (!r.ok) return json(r.status, { error: r.error }), true
       return json(200, await this.state()), true
     }

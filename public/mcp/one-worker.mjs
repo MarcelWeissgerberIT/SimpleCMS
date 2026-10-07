@@ -2129,7 +2129,7 @@ var require_extension = __commonJS({
       if (dest[name] === void 0) dest[name] = [elem];
       else dest[name].push(elem);
     }
-    function parse3(header) {
+    function parse4(header) {
       const offers = /* @__PURE__ */ Object.create(null);
       let params = /* @__PURE__ */ Object.create(null);
       let mustUnescape = false;
@@ -2269,7 +2269,7 @@ var require_extension = __commonJS({
         }).join(", ");
       }).join(", ");
     }
-    module.exports = { format, parse: parse3 };
+    module.exports = { format, parse: parse4 };
   }
 });
 
@@ -2303,7 +2303,7 @@ var require_websocket = __commonJS({
     var {
       EventTarget: { addEventListener, removeEventListener }
     } = require_event_target();
-    var { format, parse: parse3 } = require_extension();
+    var { format, parse: parse4 } = require_extension();
     var { toBuffer } = require_buffer_util();
     var kAborted = /* @__PURE__ */ Symbol("kAborted");
     var protocolVersions = [8, 13];
@@ -2993,7 +2993,7 @@ var require_websocket = __commonJS({
           }
           let extensions;
           try {
-            extensions = parse3(secWebSocketExtensions);
+            extensions = parse4(secWebSocketExtensions);
           } catch (err2) {
             const message = "Invalid Sec-WebSocket-Extensions header";
             abortHandshake(websocket, socket, message);
@@ -3285,7 +3285,7 @@ var require_subprotocol = __commonJS({
   "node_modules/ws/lib/subprotocol.js"(exports, module) {
     "use strict";
     var { tokenChars } = require_validation();
-    function parse3(header) {
+    function parse4(header) {
       const protocols = /* @__PURE__ */ new Set();
       let start = -1;
       let end = -1;
@@ -3321,7 +3321,7 @@ var require_subprotocol = __commonJS({
       protocols.add(protocol);
       return protocols;
     }
-    module.exports = { parse: parse3 };
+    module.exports = { parse: parse4 };
   }
 });
 
@@ -3794,7 +3794,7 @@ var require_code = __commonJS({
     }
     exports._ = _;
     var plus = new _Code("+");
-    function str3(strs, ...args) {
+    function str4(strs, ...args) {
       const expr = [safeStringify(strs[0])];
       let i2 = 0;
       while (i2 < args.length) {
@@ -3805,7 +3805,7 @@ var require_code = __commonJS({
       optimize(expr);
       return new _Code(expr);
     }
-    exports.str = str3;
+    exports.str = str4;
     function addCodeArg(code, arg) {
       if (arg instanceof _Code)
         code.push(...arg._items);
@@ -3848,7 +3848,7 @@ var require_code = __commonJS({
       return;
     }
     function strConcat(c1, c2) {
-      return c2.emptyStr() ? c1 : c1.emptyStr() ? c2 : str3`${c1}${c2}`;
+      return c2.emptyStr() ? c1 : c1.emptyStr() ? c2 : str4`${c1}${c2}`;
     }
     exports.strConcat = strConcat;
     function interpolate(x2) {
@@ -4810,22 +4810,22 @@ var require_util = __commonJS({
       return (0, codegen_1._)`${topSchemaRef}${schemaPath}${(0, codegen_1.getProperty)(keyword)}`;
     }
     exports.schemaRefOrVal = schemaRefOrVal;
-    function unescapeFragment(str3) {
-      return unescapeJsonPointer(decodeURIComponent(str3));
+    function unescapeFragment(str4) {
+      return unescapeJsonPointer(decodeURIComponent(str4));
     }
     exports.unescapeFragment = unescapeFragment;
-    function escapeFragment(str3) {
-      return encodeURIComponent(escapeJsonPointer(str3));
+    function escapeFragment(str4) {
+      return encodeURIComponent(escapeJsonPointer(str4));
     }
     exports.escapeFragment = escapeFragment;
-    function escapeJsonPointer(str3) {
-      if (typeof str3 == "number")
-        return `${str3}`;
-      return str3.replace(/~/g, "~0").replace(/\//g, "~1");
+    function escapeJsonPointer(str4) {
+      if (typeof str4 == "number")
+        return `${str4}`;
+      return str4.replace(/~/g, "~0").replace(/\//g, "~1");
     }
     exports.escapeJsonPointer = escapeJsonPointer;
-    function unescapeJsonPointer(str3) {
-      return str3.replace(/~1/g, "/").replace(/~0/g, "~");
+    function unescapeJsonPointer(str4) {
+      return str4.replace(/~1/g, "/").replace(/~0/g, "~");
     }
     exports.unescapeJsonPointer = unescapeJsonPointer;
     function eachItem(xs, f) {
@@ -5850,8 +5850,8 @@ var require_json_schema_traverse = __commonJS({
         post(schema, jsonPtr, rootSchema, parentJsonPtr, parentKeyword, parentSchema, keyIndex);
       }
     }
-    function escapeJsonPtr(str3) {
-      return str3.replace(/~/g, "~0").replace(/\//g, "~1");
+    function escapeJsonPtr(str4) {
+      return str4.replace(/~/g, "~0").replace(/\//g, "~1");
     }
   }
 });
@@ -6948,10 +6948,10 @@ var require_utils = __commonJS({
         isIPV6: true
       };
     }
-    function findToken(str3, token) {
+    function findToken(str4, token) {
       let ind = 0;
-      for (let i2 = 0; i2 < str3.length; i2++) {
-        if (str3[i2] === token) ind++;
+      for (let i2 = 0; i2 < str4.length; i2++) {
+        if (str4[i2] === token) ind++;
       }
       return ind;
     }
@@ -7530,7 +7530,7 @@ var require_fast_uri = __commonJS({
         normalizeString(uri, options);
       } else if (typeof uri === "object") {
         uri = /** @type {T} */
-        parse3(serialize(uri, options), options);
+        parse4(serialize(uri, options), options);
       }
       return uri;
     }
@@ -7570,8 +7570,8 @@ var require_fast_uri = __commonJS({
     function resolveComponent(base, relative, options, skipNormalization) {
       const target = {};
       if (!skipNormalization) {
-        base = parse3(serialize(base, options), options);
-        relative = parse3(serialize(relative, options), options);
+        base = parse4(serialize(base, options), options);
+        relative = parse4(serialize(relative, options), options);
       }
       options = options || {};
       if (!options.tolerant && relative.scheme) {
@@ -7870,7 +7870,7 @@ var require_fast_uri = __commonJS({
       }
       return { parsed, malformedAuthorityOrPort, malformedPercentEncoding, malformedSchemeSpecific, malformedHost, malformedScheme };
     }
-    function parse3(uri, opts) {
+    function parse4(uri, opts) {
       return parseWithStatus(uri, opts).parsed;
     }
     function normalizeString(uri, opts) {
@@ -7907,7 +7907,7 @@ var require_fast_uri = __commonJS({
       resolveComponent,
       equal,
       serialize,
-      parse: parse3
+      parse: parse4
     };
     module.exports = fastUri;
     module.exports.default = fastUri;
@@ -7965,7 +7965,7 @@ var require_core = __commonJS({
     var util_1 = require_util();
     var $dataRefSchema = require_data();
     var uri_1 = require_uri();
-    var defaultRegExp = (str3, flags) => new RegExp(str3, flags);
+    var defaultRegExp = (str4, flags) => new RegExp(str4, flags);
     defaultRegExp.code = "new RegExp";
     var META_IGNORE_OPTIONS = ["removeAdditional", "useDefaults", "coerceTypes"];
     var EXT_SCOPE_NAMES = /* @__PURE__ */ new Set([
@@ -8760,16 +8760,16 @@ var require_ucs2length = __commonJS({
   "node_modules/ajv/dist/runtime/ucs2length.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
-    function ucs2length(str3) {
-      const len = str3.length;
+    function ucs2length(str4) {
+      const len = str4.length;
       let length = 0;
       let pos = 0;
       let value2;
       while (pos < len) {
         length++;
-        value2 = str3.charCodeAt(pos++);
+        value2 = str4.charCodeAt(pos++);
         if (value2 >= 55296 && value2 <= 56319 && pos < len) {
-          value2 = str3.charCodeAt(pos);
+          value2 = str4.charCodeAt(pos);
           if ((value2 & 64512) === 56320)
             pos++;
         }
@@ -10652,8 +10652,8 @@ var require_formats = __commonJS({
     }
     var DATE = /^(\d\d\d\d)-(\d\d)-(\d\d)$/;
     var DAYS = [0, 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
-    function date3(str3) {
-      const matches = DATE.exec(str3);
+    function date3(str4) {
+      const matches = DATE.exec(str4);
       if (!matches)
         return false;
       const year = +matches[1];
@@ -10672,8 +10672,8 @@ var require_formats = __commonJS({
     }
     var TIME = /^(\d\d):(\d\d):(\d\d(?:\.\d+)?)(z|([+-])(\d\d)(?::?(\d\d))?)?$/i;
     function getTime(strictTimeZone) {
-      return function time4(str3) {
-        const matches = TIME.exec(str3);
+      return function time4(str4) {
+        const matches = TIME.exec(str4);
         if (!matches)
           return false;
         const hr = +matches[1];
@@ -10719,8 +10719,8 @@ var require_formats = __commonJS({
     var DATE_TIME_SEPARATOR = /t|\s/i;
     function getDateTime(strictTimeZone) {
       const time4 = getTime(strictTimeZone);
-      return function date_time(str3) {
-        const dateTime = str3.split(DATE_TIME_SEPARATOR);
+      return function date_time(str4) {
+        const dateTime = str4.split(DATE_TIME_SEPARATOR);
         return dateTime.length === 2 && date3(dateTime[0]) && time4(dateTime[1]);
       };
     }
@@ -10745,13 +10745,13 @@ var require_formats = __commonJS({
     }
     var NOT_URI_FRAGMENT = /\/|:/;
     var URI = /^(?:[a-z][a-z0-9+\-.]*:)(?:\/?\/(?:(?:[a-z0-9\-._~!$&'()*+,;=:]|%[0-9a-f]{2})*@)?(?:\[(?:(?:(?:(?:[0-9a-f]{1,4}:){6}|::(?:[0-9a-f]{1,4}:){5}|(?:[0-9a-f]{1,4})?::(?:[0-9a-f]{1,4}:){4}|(?:(?:[0-9a-f]{1,4}:){0,1}[0-9a-f]{1,4})?::(?:[0-9a-f]{1,4}:){3}|(?:(?:[0-9a-f]{1,4}:){0,2}[0-9a-f]{1,4})?::(?:[0-9a-f]{1,4}:){2}|(?:(?:[0-9a-f]{1,4}:){0,3}[0-9a-f]{1,4})?::[0-9a-f]{1,4}:|(?:(?:[0-9a-f]{1,4}:){0,4}[0-9a-f]{1,4})?::)(?:[0-9a-f]{1,4}:[0-9a-f]{1,4}|(?:(?:25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(?:25[0-5]|2[0-4]\d|[01]?\d\d?))|(?:(?:[0-9a-f]{1,4}:){0,5}[0-9a-f]{1,4})?::[0-9a-f]{1,4}|(?:(?:[0-9a-f]{1,4}:){0,6}[0-9a-f]{1,4})?::)|[Vv][0-9a-f]+\.[a-z0-9\-._~!$&'()*+,;=:]+)\]|(?:(?:25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(?:25[0-5]|2[0-4]\d|[01]?\d\d?)|(?:[a-z0-9\-._~!$&'()*+,;=]|%[0-9a-f]{2})*)(?::\d*)?(?:\/(?:[a-z0-9\-._~!$&'()*+,;=:@]|%[0-9a-f]{2})*)*|\/(?:(?:[a-z0-9\-._~!$&'()*+,;=:@]|%[0-9a-f]{2})+(?:\/(?:[a-z0-9\-._~!$&'()*+,;=:@]|%[0-9a-f]{2})*)*)?|(?:[a-z0-9\-._~!$&'()*+,;=:@]|%[0-9a-f]{2})+(?:\/(?:[a-z0-9\-._~!$&'()*+,;=:@]|%[0-9a-f]{2})*)*)(?:\?(?:[a-z0-9\-._~!$&'()*+,;=:@/?]|%[0-9a-f]{2})*)?(?:#(?:[a-z0-9\-._~!$&'()*+,;=:@/?]|%[0-9a-f]{2})*)?$/i;
-    function uri(str3) {
-      return NOT_URI_FRAGMENT.test(str3) && URI.test(str3);
+    function uri(str4) {
+      return NOT_URI_FRAGMENT.test(str4) && URI.test(str4);
     }
     var BYTE = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/gm;
-    function byte(str3) {
+    function byte(str4) {
       BYTE.lastIndex = 0;
-      return BYTE.test(str3);
+      return BYTE.test(str4);
     }
     var MIN_INT32 = -(2 ** 31);
     var MAX_INT32 = 2 ** 31 - 1;
@@ -10765,11 +10765,11 @@ var require_formats = __commonJS({
       return true;
     }
     var Z_ANCHOR = /[^\\]\\Z/;
-    function regex(str3) {
-      if (Z_ANCHOR.test(str3))
+    function regex(str4) {
+      if (Z_ANCHOR.test(str4))
         return false;
       try {
-        new RegExp(str3);
+        new RegExp(str4);
         return true;
       } catch (e) {
         return false;
@@ -10894,7 +10894,7 @@ var require_dist = __commonJS({
 
 // src/worker/index.ts
 import { fileURLToPath } from "node:url";
-import { existsSync as existsSync6 } from "node:fs";
+import { existsSync as existsSync7 } from "node:fs";
 import { homedir as homedir6 } from "node:os";
 import { resolve as resolve6 } from "node:path";
 
@@ -11326,9 +11326,9 @@ var PRICES = [
 function estimateCost(model, usages) {
   const row = model ? PRICES.find(([re]) => re.test(model)) : void 0;
   if (!row) return null;
-  const [, inp, out, read] = row;
+  const [, inp, out, read2] = row;
   let usd2 = 0;
-  for (const u of usages) usd2 += (u.input * inp + u.cacheWrite * inp * 1.25 + u.cacheRead * inp * read + u.output * out) / 1e6;
+  for (const u of usages) usd2 += (u.input * inp + u.cacheWrite * inp * 1.25 + u.cacheRead * inp * read2 + u.output * out) / 1e6;
   return usd2;
 }
 function usageOf(raw) {
@@ -11545,14 +11545,14 @@ function git(cwd, args, timeoutMs = 12e4) {
     const out = [];
     const err2 = [];
     let size = 0;
-    let why = null;
+    let why2 = null;
     let settled = false;
     const finish = (code, extra = "") => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
       const stderr = Buffer.concat(err2).toString();
-      done({ code, stdout: Buffer.concat(out).toString(), stderr: why ?? (stderr || extra), timedOut: why !== null && why.includes("did not finish") });
+      done({ code, stdout: Buffer.concat(out).toString(), stderr: why2 ?? (stderr || extra), timedOut: why2 !== null && why2.includes("did not finish") });
     };
     const child = spawn2("git", args, { cwd, env: { ...process.env, ...ENV }, stdio: ["ignore", "pipe", "pipe"], detached: process.platform !== "win32", windowsHide: true });
     const stop = () => {
@@ -11563,13 +11563,14 @@ function git(cwd, args, timeoutMs = 12e4) {
       }
     };
     const timer = setTimeout(() => {
-      why = `git ${args[0]} did not finish within ${Math.round(timeoutMs / 1e3)} s \u2014 no network, or it waits for a password or an SSH key passphrase (the worker cannot type one: use an SSH agent or a credential helper)`;
+      why2 = `git ${args[0]} did not finish within ${Math.round(timeoutMs / 1e3)} s \u2014 no network, files still coming from iCloud Drive, or it waits for a password or an SSH key passphrase (the worker cannot type one: use an SSH agent or a credential helper)`;
       stop();
+      finish(1);
     }, timeoutMs);
     const take = (into) => (d) => {
       size += d.length;
       if (size > OUT_MAX) {
-        why = `git ${args[0]}: output too large`;
+        why2 = `git ${args[0]}: output too large`;
         stop();
         return;
       }
@@ -11578,7 +11579,7 @@ function git(cwd, args, timeoutMs = 12e4) {
     child.stdout.on("data", take(out));
     child.stderr.on("data", take(err2));
     child.on("error", (e) => finish(127, e.message));
-    child.on("close", (code) => finish(why ? 1 : code ?? 1));
+    child.on("close", (code) => finish(why2 ? 1 : code ?? 1));
   });
 }
 async function gitOk(cwd, args, timeoutMs) {
@@ -11592,7 +11593,7 @@ var same = (a, b) => {
 };
 async function checkRepo(repo) {
   if (!existsSync2(repo.path)) throw new GitError(`the folder does not exist`);
-  const top = (await gitOk(repo.path, ["rev-parse", "--show-toplevel"])).trim();
+  const top = (await gitOk(repo.path, ["rev-parse", "--show-toplevel"], 3e4)).trim();
   if (!top) throw new GitError("not a git checkout");
   return top;
 }
@@ -11620,7 +11621,7 @@ async function localBranches(repo, timeoutMs = 5e3) {
   return r.stdout.split("\n").map((b) => b.trim()).filter((b) => b && b.length <= 200);
 }
 async function prune(repo) {
-  await git(repo.path, ["worktree", "prune"]);
+  await git(repo.path, ["worktree", "prune"], 3e4);
 }
 var refExists = async (cwd, ref) => (await git(cwd, ["rev-parse", "--verify", "--quiet", `${ref}^{commit}`])).code === 0;
 var branchExists = (repo, b) => refExists(repo.path, `refs/heads/${b}`);
@@ -11641,8 +11642,8 @@ async function tryFetch(repo, note) {
   try {
     return await fetchRemote(repo);
   } catch (e) {
-    const why = (e instanceof Error ? e.message : String(e)).replace(/\s+/g, " ").trim().slice(0, 300);
-    note?.("warn", `Could not fetch ${repo.remote} (${why}) \u2014 going on with what this computer has.`, "fetchFailed", { remote: repo.remote, why });
+    const why2 = (e instanceof Error ? e.message : String(e)).replace(/\s+/g, " ").trim().slice(0, 300);
+    note?.("warn", `Could not fetch ${repo.remote} (${why2}) \u2014 going on with what this computer has.`, "fetchFailed", { remote: repo.remote, why: why2 });
     return false;
   }
 }
@@ -12298,8 +12299,8 @@ var WorkerLink = class {
     });
   }
   /* ------------------------------------------------------------------ handshake */
-  refuse(socket, status, text2, why) {
-    if (this.refusals++ < 20) this.opts.log(`refused a connection: ${why}`);
+  refuse(socket, status, text2, why2) {
+    if (this.refusals++ < 20) this.opts.log(`refused a connection: ${why2}`);
     socket.end(`HTTP/1.1 ${status} ${text2}\r
 Connection: close\r
 Content-Type: text/plain\r
@@ -12918,6 +12919,21 @@ var Worker = class {
     this.link.announce();
     this.tick();
   }
+  /** After the start: each repo checked, its stale worktrees pruned, its branches read — a slow one is named. */
+  async checkRepos() {
+    for (const repo of this.config.repos) {
+      const slow = setTimeout(() => this.opts.log(`repo "${repo.name}": git is slow here \u2014 is the folder in iCloud Drive with files still in the cloud? (Finder \u2192 right-click \u2192 Keep Downloaded, or clone it to ~/one-repos)`), 8e3);
+      try {
+        await checkRepo(repo);
+        await prune(repo);
+      } catch (e) {
+        this.opts.log(`repo "${repo.name}": ${e instanceof Error ? e.message : String(e)}`);
+      } finally {
+        clearTimeout(slow);
+      }
+    }
+    await this.refreshBranches();
+  }
   /** Read every repo's local branches again; tell One when they changed (announce = false: the caller does). */
   async refreshBranches(announce = true) {
     let changed = false;
@@ -12939,16 +12955,8 @@ var Worker = class {
   async start() {
     this.caps = await detectClaude(this.opts.bin);
     if (!this.caps.found) this.opts.log(`Claude Code was not found ("${this.opts.bin}") \u2014 plan and implement stages will fail until it is installed (or CLAUDE_BIN is set)`);
-    for (const repo of this.config.repos) {
-      try {
-        await checkRepo(repo);
-        await prune(repo);
-      } catch (e) {
-        this.opts.log(`repo "${repo.name}": ${e instanceof Error ? e.message : String(e)}`);
-      }
-    }
-    await this.refreshBranches(false);
     const up = await this.link.start();
+    if (up === "listening") void this.checkRepos();
     if (up === "listening") {
       this.opts.log(`ready on ws://127.0.0.1:${this.config.port} \xB7 ${this.config.repos.length} repo(s): ${this.config.repos.map((r) => r.name).join(", ") || "none"} \xB7 ${this.config.workspace ? `workspace ${this.config.workspace}${this.config.preset ? ` ("${this.config.preset.name}", paired download)` : ""}` : 'NOT BOUND to a workspace (set "workspace" in worker.json)'}`);
       this.poller = setInterval(() => this.tick(), this.config.pollSec * 1e3);
@@ -17338,14 +17346,14 @@ function promiseAllObject(promisesObj) {
 }
 function randomString(length = 10) {
   const chars = "abcdefghijklmnopqrstuvwxyz";
-  let str3 = "";
+  let str4 = "";
   for (let i2 = 0; i2 < length; i2++) {
-    str3 += chars[Math.floor(Math.random() * chars.length)];
+    str4 += chars[Math.floor(Math.random() * chars.length)];
   }
-  return str3;
+  return str4;
 }
-function esc(str3) {
-  return JSON.stringify(str3);
+function esc(str4) {
+  return JSON.stringify(str4);
 }
 function slugify(input) {
   return input.toLowerCase().trim().replace(/[^\w\s-]/g, "").replace(/[\s_-]+/g, "-").replace(/^-+|-+$/g, "");
@@ -17459,8 +17467,8 @@ var primitiveTypes = /* @__PURE__ */ new Set([
   "symbol",
   "undefined"
 ]);
-function escapeRegex(str3) {
-  return str3.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+function escapeRegex(str4) {
+  return str4.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 function clone(inst, def, params) {
   const cl = new inst._zod.constr(def ?? inst._zod.def);
@@ -17714,13 +17722,13 @@ function getSizableOrigin(input) {
   return "unknown";
 }
 var highSurrogate = /[\uD800-\uDBFF]/;
-function codePointLength(str3) {
-  const units = str3.length;
-  if (!highSurrogate.test(str3))
+function codePointLength(str4) {
+  const units = str4.length;
+  if (!highSurrogate.test(str4))
     return units;
   let count2 = units;
   for (let i2 = 0; i2 < units - 1; i2++) {
-    if ((str3.charCodeAt(i2) & 64512) === 55296 && (str3.charCodeAt(i2 + 1) & 64512) === 56320) {
+    if ((str4.charCodeAt(i2) & 64512) === 55296 && (str4.charCodeAt(i2 + 1) & 64512) === 56320) {
       count2--;
       i2++;
     }
@@ -18268,17 +18276,17 @@ var validateAsync = async (schema, value2, _ctx) => {
   return result.issues.length === 0;
 };
 var _encode = (_Err) => {
-  const parse3 = _parse(_Err);
+  const parse4 = _parse(_Err);
   const fn = (schema, value2, _ctx, _params) => {
     const ctx = _ctx ? { ..._ctx, direction: "backward" } : { direction: "backward" };
-    return parse3(schema, value2, ctx, finalizeParams(fn, _params));
+    return parse4(schema, value2, ctx, finalizeParams(fn, _params));
   };
   return fn;
 };
 var _decode = (_Err) => {
-  const parse3 = _parse(_Err);
+  const parse4 = _parse(_Err);
   const fn = (schema, value2, _ctx, _params) => {
-    return parse3(schema, value2, _ctx, finalizeParams(fn, _params));
+    return parse4(schema, value2, _ctx, finalizeParams(fn, _params));
   };
   return fn;
 };
@@ -30073,7 +30081,7 @@ async function serveTaskMcp(version2) {
 import { randomBytes as randomBytes4 } from "node:crypto";
 import { execFile as execFile5 } from "node:child_process";
 import { homedir as homedir5 } from "node:os";
-import { isAbsolute as isAbsolute3, join as join8, resolve as resolve5, sep as sep6 } from "node:path";
+import { isAbsolute as isAbsolute3, join as join9, resolve as resolve5, sep as sep6 } from "node:path";
 
 // src/worker/scan.ts
 import { lstat, readFile, readdir, realpath } from "node:fs/promises";
@@ -30116,7 +30124,7 @@ async function findRepos(opts = {}) {
   const start = Date.now();
   const deadline = start + (opts.timeMs ?? 3e4);
   const folderMs = opts.folderMs ?? 4e3;
-  const read = opts.readdir ?? ((p) => readdir(p, { withFileTypes: true }));
+  const read2 = opts.readdir ?? ((p) => readdir(p, { withFileTypes: true }));
   const seen = /* @__PURE__ */ new Set();
   const paths = [];
   const blocked = [];
@@ -30155,7 +30163,7 @@ async function findRepos(opts = {}) {
     opts.onProgress?.(dirs, null);
     let entries;
     try {
-      const got = await timed(read(path), limit());
+      const got = await timed(read2(path), limit());
       if (got === TIMEOUT) {
         blocked.push(shortPath(path, home));
         continue;
@@ -30495,7 +30503,7 @@ h1 { margin: 26px 0 0; font-size: clamp(24px, 4vw, 34px); font-weight: 800; font
 .add__err { grid-column: 1 / -1; margin: 0; color: var(--signal-ink); font-size: 12.5px; }
 .clone { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); gap: 10px 12px; margin: 0 0 10px; padding: 12px; border: 1px solid var(--rule-strong); border-left: 2px solid var(--signal); border-radius: 4px; background: var(--surface); }
 .clone__keys { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; grid-column: 1 / -1; }
-.clone .msg, .clone .add__err, .clone > .hint { grid-column: 1 / -1; margin: 0; }
+.clone .msg, .clone .add__err, .clone > .hint, .clone > .label { grid-column: 1 / -1; margin: 0; }
 .clone__bar { height: 3px; background: var(--rule); grid-column: 1 / -1; }
 .clone__bar > span { display: block; height: 100%; background: var(--signal); transition: width 260ms var(--ease); }
 .projects { grid-column: 1 / -1; display: grid; gap: 6px; padding-top: 10px; border-top: 1px solid var(--rule); }
@@ -30641,6 +30649,21 @@ var SETUP_JS = String.raw`(function () {
     importing: 'Unpacking {name}… {line}',
     imported: 'Imported {name} as a new repository (one commit, no remote) — ticked below. Save & start to hand it tasks.',
     importFailed: 'The import failed: {e}',
+    pubTitle: 'Also create it on GitLab / GitHub — then Ship can push and open merge requests',
+    pubHost: 'Where',
+    pubOwner: 'Group / owner',
+    pubOwnerHint: 'Empty: your own account. A GitLab group can be nested (acme/platform).',
+    pubName: 'Project name',
+    pubNameHint: 'Suggested from the code (package.json, pom.xml, README …) or the ZIP\'s name.',
+    pubVis: 'Visibility',
+    visPrivate: 'Private',
+    visInternal: 'Internal',
+    visPublic: 'Public',
+    pubGo: 'Create & push',
+    pubSkip: 'Not now',
+    publishing: 'Creating {name}… {line}',
+    published: 'Created {web} and pushed main — push and merge requests are on for this repository.',
+    pubFailed: 'That did not work: {e}',
     noLimit: 'none',
     ticked: '{n} ticked',
     tickedOne: '1 ticked',
@@ -30726,6 +30749,21 @@ var SETUP_JS = String.raw`(function () {
     importing: 'Entpacke {name} … {line}',
     imported: '{name} als neues Repository importiert (ein Commit, kein Remote) – unten angehakt. „Speichern & starten“, damit One ihm Aufgaben gibt.',
     importFailed: 'Der Import hat nicht geklappt: {e}',
+    pubTitle: 'Auch auf GitLab / GitHub anlegen – dann kann Ausliefern pushen und Merge Requests öffnen',
+    pubHost: 'Wo',
+    pubOwner: 'Gruppe / Besitzer',
+    pubOwnerHint: 'Leer: dein eigenes Konto. Eine GitLab-Gruppe darf verschachtelt sein (acme/platform).',
+    pubName: 'Projektname',
+    pubNameHint: 'Vorgeschlagen aus dem Code (package.json, pom.xml, README …) oder dem Namen der ZIP.',
+    pubVis: 'Sichtbarkeit',
+    visPrivate: 'Privat',
+    visInternal: 'Intern',
+    visPublic: 'Öffentlich',
+    pubGo: 'Anlegen & pushen',
+    pubSkip: 'Nicht jetzt',
+    publishing: 'Lege {name} an … {line}',
+    published: '{web} angelegt und main gepusht – Push und Merge Requests sind für dieses Repository an.',
+    pubFailed: 'Das hat nicht geklappt: {e}',
     noLimit: 'keine',
     ticked: '{n} angehakt',
     tickedOne: '1 angehakt',
@@ -30817,6 +30855,8 @@ var SETUP_JS = String.raw`(function () {
   var projects = null
   var projFilter = ''
   var handledClone = 0
+  /** after an import: { path, name, host, owner, vis } for "Create it on GitLab / GitHub" */
+  var publishFor = null
 
   function ago(ms) {
     if (!ms) return t('unknown')
@@ -30846,7 +30886,14 @@ var SETUP_JS = String.raw`(function () {
       if (r) editOf(r).ticked = true
       cloneOpen = false
       cloneUrl = ''
-      note = { ok: true, text: t(job.kind === 'import' ? 'imported' : 'cloned', { name: job.name }) }
+      if (job.kind === 'publish') {
+        if (r) { editOf(r).push = true; editOf(r).pr = 'gh' }
+        publishFor = null
+        note = { ok: true, text: t('published', { web: job.web || job.line }) }
+      } else {
+        note = { ok: true, text: t(job.kind === 'import' ? 'imported' : 'cloned', { name: job.name }) }
+        if (job.kind === 'import' && (state.glab || state.gh)) publishFor = { path: job.done, name: job.suggest || job.name, host: state.glab ? 'gitlab' : 'github', owner: '', vis: 'private' }
+      }
     }
     // while the search runs, ask again every second (the list grows as repos are found)
     clearTimeout(again)
@@ -30957,6 +31004,7 @@ var SETUP_JS = String.raw`(function () {
         addError ? el('p', { className: 'add__err', role: 'alert', text: addError }) : null
       ]))
     }
+    if (publishFor) app.appendChild(publishPanel())
     var list = el('ul', { className: 'list', id: 'repos' })
     if (!state.repos.length) list.appendChild(el('li', { className: 'empty', text: state.scan && state.scan.running ? t('loading') : t('none') }))
     state.repos.forEach(function (r, i) { list.appendChild(row(r, i)) })
@@ -31107,7 +31155,7 @@ var SETUP_JS = String.raw`(function () {
   }
 
   function clonePanel() {
-    var job = state.clone && state.clone.id >= handledClone ? state.clone : null
+    var job = state.clone && state.clone.kind !== 'publish' && state.clone.id >= handledClone ? state.clone : null
     var running = !!(job && job.running)
     var url = el('input', { type: 'text', id: 'cloneurl', value: cloneUrl, placeholder: 'git@gitlab.com:group/project.git', spellcheck: 'false', autocomplete: 'off', oninput: function (ev) { cloneUrl = ev.target.value }, onkeydown: function (ev) { if (ev.key === 'Enter' && !running) startClone(); if (ev.key === 'Escape') { cloneOpen = false; render() } } })
     var dir = el('input', { type: 'text', id: 'clonedir', value: cloneDirText === null ? state.cloneDir : cloneDirText, spellcheck: 'false', autocomplete: 'off', oninput: function (ev) { cloneDirText = ev.target.value } })
@@ -31153,6 +31201,42 @@ var SETUP_JS = String.raw`(function () {
     })
     box.appendChild(list)
     return box
+  }
+
+  function publishPanel() {
+    var p = publishFor
+    var job = state.clone && state.clone.kind === 'publish' && state.clone.id > handledClone ? state.clone : null
+    var running = !!(job && job.running)
+    var host = el('select', { id: 'pubhost', onchange: function (ev) { p.host = ev.target.value; if (p.host === 'github' && p.vis === 'internal') p.vis = 'private'; render() } })
+    if (state.glab) host.appendChild(el('option', { value: 'gitlab', text: 'GitLab (glab)' }))
+    if (state.gh) host.appendChild(el('option', { value: 'github', text: 'GitHub (gh)' }))
+    host.value = p.host
+    var vis = el('select', { id: 'pubvis', onchange: function (ev) { p.vis = ev.target.value } })
+    vis.appendChild(el('option', { value: 'private', text: t('visPrivate') }))
+    if (p.host === 'gitlab') vis.appendChild(el('option', { value: 'internal', text: t('visInternal') }))
+    vis.appendChild(el('option', { value: 'public', text: t('visPublic') }))
+    vis.value = p.vis
+    var kids = [
+      el('p', { className: 'label', text: t('pubTitle') }),
+      el('div', { className: 'field' }, [el('label', { className: 'label', for: 'pubhost', text: t('pubHost') }), host]),
+      el('div', { className: 'field' }, [el('label', { className: 'label', for: 'pubvis', text: t('pubVis') }), vis]),
+      el('div', { className: 'field' }, [el('label', { className: 'label', for: 'pubowner', text: t('pubOwner') }), el('input', { type: 'text', id: 'pubowner', value: p.owner, spellcheck: 'false', autocomplete: 'off', oninput: function (ev) { p.owner = ev.target.value } }), el('span', { className: 'hint', text: t('pubOwnerHint') })]),
+      el('div', { className: 'field' }, [el('label', { className: 'label', for: 'pubname', text: t('pubName') }), el('input', { type: 'text', id: 'pubname', value: p.name, maxlength: 100, spellcheck: 'false', autocomplete: 'off', oninput: function (ev) { p.name = ev.target.value } }), el('span', { className: 'hint', text: t('pubNameHint') })]),
+      el('div', { className: 'clone__keys' }, [
+        el('button', { type: 'button', className: 'btn btn--primary', id: 'pubgo', disabled: running, onclick: publish, text: t('pubGo') }),
+        el('button', { type: 'button', className: 'btn btn--ghost', disabled: running, onclick: function () { publishFor = null; render() }, text: t('pubSkip') })
+      ])
+    ]
+    if (running) kids.push(el('p', { className: 'msg', role: 'status', id: 'pubstate', text: t('publishing', { name: job.name, line: job.line }) }))
+    else if (job && job.error) kids.push(el('p', { className: 'add__err', role: 'alert', id: 'pubstate', text: t('pubFailed', { e: job.error }) }))
+    if (p.err) kids.push(el('p', { className: 'add__err', role: 'alert', text: p.err }))
+    return el('div', { className: 'clone', id: 'publishbox' }, kids)
+  }
+
+  function publish() {
+    var p = publishFor
+    p.err = ''
+    api('POST', 'publish', { path: p.path, host: p.host, owner: p.owner, name: p.name, visibility: p.vis }).then(function (s) { adopt(s); followClone() }, function (e) { p.err = e.message; render() })
   }
 
   function save() {
@@ -32099,6 +32183,122 @@ async function gitOk2(dir, args, timeoutMs = 12e4) {
   if (r.code !== 0) throw new Error(`git ${args.filter((a) => !a.startsWith("user.")).join(" ")} failed: ${(r.stderr || r.stdout).trim().split("\n").slice(-2).join(" ")}`);
 }
 
+// src/worker/publish.ts
+import { existsSync as existsSync6, readFileSync as readFileSync4, readdirSync as readdirSync3 } from "node:fs";
+import { join as join8 } from "node:path";
+var NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/;
+var OWNER = /^[A-Za-z0-9][A-Za-z0-9._-]{0,99}(\/[A-Za-z0-9][A-Za-z0-9._-]{0,99}){0,5}$/;
+function read(dir, file, max2 = 256 * 1024) {
+  try {
+    const p = join8(dir, file);
+    if (!existsSync6(p)) return null;
+    const text2 = readFileSync4(p, "utf8");
+    return text2.length > max2 ? text2.slice(0, max2) : text2;
+  } catch {
+    return null;
+  }
+}
+function slugName(raw) {
+  return raw.replace(/^@[^/]+\//, "").split("/").pop().normalize("NFKD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/[^a-z0-9._-]+/g, "-").replace(/^[-._]+|[-._]+$/g, "").slice(0, 60);
+}
+function suggestName2(dir, fallback) {
+  const tries = [
+    () => JSON.parse(read(dir, "package.json") ?? "null")?.name,
+    () => JSON.parse(read(dir, "composer.json") ?? "null")?.name,
+    () => /<artifactId>\s*([^<\s]+)\s*<\/artifactId>/.exec((read(dir, "pom.xml") ?? "").replace(/<parent>[\s\S]*?<\/parent>/, ""))?.[1],
+    () => /^\s*name\s*=\s*["']([^"']+)["']/m.exec(read(dir, "pyproject.toml") ?? "")?.[1],
+    () => /name\s*=\s*["']([^"']+)["']/.exec(read(dir, "setup.py") ?? "")?.[1],
+    () => /^\s*name\s*=\s*"([^"]+)"/m.exec(read(dir, "Cargo.toml") ?? "")?.[1],
+    () => /^module\s+(\S+)/m.exec(read(dir, "go.mod") ?? "")?.[1],
+    () => {
+      try {
+        return readdirSync3(dir).find((f) => /\.(sln|csproj|vbproj)$/i.test(f))?.replace(/\.[^.]+$/, "");
+      } catch {
+        return null;
+      }
+    },
+    () => /^#\s+(.+)$/m.exec(read(dir, "README.md") ?? read(dir, "readme.md") ?? "")?.[1]?.slice(0, 60)
+  ];
+  for (const t of tries) {
+    try {
+      const v = t();
+      const s = v ? slugName(v) : "";
+      if (s && NAME.test(s)) return s;
+    } catch {
+    }
+  }
+  return slugName(fallback) || folderName(fallback);
+}
+function checkPublish(raw) {
+  const b = raw && typeof raw === "object" ? raw : {};
+  const host = b.host === "github" ? "github" : b.host === "gitlab" ? "gitlab" : null;
+  if (!host) return { error: "Pick GitLab or GitHub." };
+  const name = typeof b.name === "string" ? b.name.trim() : "";
+  if (!NAME.test(name)) return { error: 'A project name has letters, digits, ".", "_" or "-" (at most 100).' };
+  const ownerRaw = typeof b.owner === "string" ? b.owner.trim().replace(/^\/+|\/+$/g, "") : "";
+  if (ownerRaw && !OWNER.test(ownerRaw)) return { error: "The group / owner looks wrong (e.g. acme or acme/platform)." };
+  if (host === "github" && ownerRaw.includes("/")) return { error: "A GitHub owner is one name (an organisation)." };
+  const visibility = b.visibility === "public" ? "public" : b.visibility === "internal" && host === "gitlab" ? "internal" : "private";
+  return { host, owner: ownerRaw || null, name, visibility };
+}
+var parse3 = (s) => {
+  try {
+    const v = JSON.parse(s);
+    return v && typeof v === "object" && !Array.isArray(v) ? v : {};
+  } catch {
+    return {};
+  }
+};
+var str3 = (v) => typeof v === "string" ? v : "";
+var why = (r) => {
+  const msg = str3(parse3(r.stdout).message) || r.stderr || r.stdout;
+  return (typeof msg === "string" ? msg : JSON.stringify(msg)).replace(/\s+/g, " ").trim().slice(0, 300);
+};
+async function publishRepo(dir, t, run2, onLine = () => {
+}, local = false) {
+  const has = (await git(dir, ["remote"], 1e4)).stdout.split("\n").map((s) => s.trim());
+  if (has.includes("origin")) throw new Error("This repository has a remote already.");
+  let web = "";
+  let ssh = "";
+  let https = "";
+  if (t.host === "gitlab") {
+    const fields = ["-f", `name=${t.name}`, "-f", `path=${t.name}`, "-f", `visibility=${t.visibility}`];
+    if (t.owner) {
+      onLine(`Looking up the group ${t.owner}\u2026`);
+      const g = await run2("glab", ["api", `groups/${encodeURIComponent(t.owner)}`]);
+      const id = parse3(g.stdout).id;
+      if (g.code !== 0 || typeof id !== "number") throw new Error(`GitLab does not show the group ${t.owner} to you: ${why(g)}`);
+      fields.push("-F", `namespace_id=${id}`);
+    }
+    onLine(`Creating ${t.owner ? `${t.owner}/` : ""}${t.name} on GitLab\u2026`);
+    const made = await run2("glab", ["api", "-X", "POST", "projects", ...fields]);
+    const p = parse3(made.stdout);
+    if (made.code !== 0 || !str3(p.web_url)) throw new Error(`GitLab did not create the project: ${why(made)}`);
+    web = str3(p.web_url);
+    ssh = str3(p.ssh_url_to_repo);
+    https = str3(p.http_url_to_repo);
+  } else {
+    onLine(`Creating ${t.owner ? `${t.owner}/` : ""}${t.name} on GitHub\u2026`);
+    const made = await run2("gh", ["api", "-X", "POST", t.owner ? `orgs/${t.owner}/repos` : "user/repos", "-f", `name=${t.name}`, "-F", `private=${t.visibility !== "public"}`]);
+    const p = parse3(made.stdout);
+    if (made.code !== 0 || !str3(p.html_url)) throw new Error(`GitHub did not create the repository: ${why(made)}`);
+    web = str3(p.html_url);
+    ssh = str3(p.ssh_url);
+    https = str3(p.clone_url);
+  }
+  const proto = (await run2(t.host === "gitlab" ? "glab" : "gh", ["config", "get", "git_protocol"])).stdout.trim();
+  const preferSsh = proto ? proto === "ssh" : t.host === "gitlab";
+  const remote = (preferSsh ? ssh : https) || https || ssh;
+  const checked = parseCloneUrl(remote, local);
+  if ("error" in checked) throw new Error(`The new project's address looks wrong (${remote.slice(0, 120)}).`);
+  const add = await git(dir, ["remote", "add", "origin", checked.url], 1e4);
+  if (add.code !== 0) throw new Error(`git remote add failed: ${add.stderr.trim()}`);
+  onLine("Pushing main\u2026");
+  const pushed = await git(dir, ["push", "-u", "origin", "HEAD:refs/heads/main"], 10 * 6e4);
+  if (pushed.code !== 0) throw new Error(`The project is there (${web}), but the push failed: ${cloneHint(pushed.stderr)}`);
+  return { web, remote: checked.url };
+}
+
 // src/worker/setup.ts
 import { createWriteStream, rmSync as rmSync5 } from "node:fs";
 import { tmpdir as tmpdir3 } from "node:os";
@@ -32235,7 +32435,7 @@ var SetupServer = class {
     const raw = typeof typed === "string" ? typed.trim() : "";
     if (!raw || raw.length > 1e3 || /[\u0000-\u001f]/.test(raw)) return { ok: false, error: "Type the folder of a git repository." };
     let dir;
-    if (raw === "~" || raw.startsWith("~/") || raw.startsWith("~\\")) dir = join8(this.home, raw.slice(2));
+    if (raw === "~" || raw.startsWith("~/") || raw.startsWith("~\\")) dir = join9(this.home, raw.slice(2));
     else if (isAbsolute3(raw)) dir = resolve5(raw);
     else {
       dir = resolve5(this.home, raw);
@@ -32293,7 +32493,7 @@ var SetupServer = class {
     if (typeof base !== "string") return { ok: false, status: 400, error: base.error };
     const max2 = ZIP_MAX();
     if (Number(req.headers["content-length"] ?? 0) > max2) return { ok: false, status: 413, error: `The ZIP is larger than ${Math.round(max2 / 1024 / 1024)} MB.` };
-    const tmp = join8(tmpdir3(), `one-import-${randomBytes4(8).toString("hex")}.zip`);
+    const tmp = join9(tmpdir3(), `one-import-${randomBytes4(8).toString("hex")}.zip`);
     let size = 0;
     const out = createWriteStream(tmp, { mode: 384 });
     try {
@@ -32318,6 +32518,7 @@ var SetupServer = class {
     }).then(async ({ dir, files }) => {
       const taken = /* @__PURE__ */ new Set([...this.host.config().repos.map((r) => r.name.toLowerCase()), ...[...this.found.values()].map((r) => r.name.toLowerCase())]);
       this.found.set(dir, await repoFacts(dir, taken, this.home));
+      job.suggest = suggestName2(dir, name);
       job.done = dir;
       job.line = `${files} files`;
       job.percent = 100;
@@ -32328,6 +32529,37 @@ var SetupServer = class {
     }).finally(() => {
       job.running = false;
       rmSync5(tmp, { force: true });
+    });
+    return { ok: true };
+  }
+  /**
+   * "Create it on GitLab / GitHub": a listed repository without a remote becomes a project of the person's account
+   * (or a group / organisation) through their own glab / gh, added as origin and pushed — followed like a clone.
+   */
+  startPublish(body) {
+    if (this.clone?.running) return { ok: false, status: 409, error: "A clone, import or publish is running \u2014 wait until it is done." };
+    const b = isObj6(body) ? body : {};
+    const repo = typeof b.path === "string" ? this.repos().find((r) => r.path === b.path) : void 0;
+    if (!repo) return { ok: false, status: 400, error: "That repository is not on the list." };
+    if (repo.remote) return { ok: false, status: 400, error: "This repository has a remote already." };
+    const target = checkPublish(b);
+    if ("error" in target) return { ok: false, status: 400, error: target.error };
+    const job = { id: ++this.cloneSeq, kind: "publish", url: `${target.host}:${target.owner ? `${target.owner}/` : ""}${target.name}`, name: target.name, running: true, line: "", percent: null, done: null, error: null };
+    this.clone = job;
+    this.host.log(`setup page: creating ${job.url} for ${repo.path}`);
+    void publishRepo(repo.path, target, this.host.cli ?? runCli, (line) => job.line = line, process.env.ONE_WORKER_CLONE_LOCAL === "1").then(async ({ web }) => {
+      const taken = /* @__PURE__ */ new Set([...this.host.config().repos.map((r) => r.name.toLowerCase()), ...[...this.found.values()].filter((r) => r.path !== repo.path).map((r) => r.name.toLowerCase())]);
+      this.found.set(repo.path, await repoFacts(repo.path, taken, this.home));
+      job.web = web;
+      job.done = repo.path;
+      job.line = web;
+      job.percent = 100;
+      this.host.log(`setup page: created ${web} and pushed main`);
+    }).catch((e) => {
+      job.error = e instanceof Error ? e.message : String(e);
+      this.host.log(`setup page: creating ${job.url} failed \u2014 ${job.error}`);
+    }).finally(() => {
+      job.running = false;
     });
     return { ok: true };
   }
@@ -32446,6 +32678,11 @@ var SetupServer = class {
     }
     if (op === "clone") {
       const r = this.startClone(body);
+      if (!r.ok) return json(r.status, { error: r.error }), true;
+      return json(200, await this.state()), true;
+    }
+    if (op === "publish") {
+      const r = this.startPublish(body);
       if (!r.ok) return json(r.status, { error: r.error }), true;
       return json(200, await this.state()), true;
     }
@@ -32582,7 +32819,7 @@ Next: add your repositories to "repos", then run: node ${self} check
   if (presetProblem) log(`the preset in this file is ignored (${presetProblem}) \u2014 download the worker from One again`);
   let loaded;
   try {
-    loaded = existsSync6(configFile) || !preset ? loadConfig(configFile) : { config: emptyConfig(configFile), problems: [] };
+    loaded = existsSync7(configFile) || !preset ? loadConfig(configFile) : { config: emptyConfig(configFile), problems: [] };
   } catch (e) {
     process.stderr.write(`${e instanceof Error ? e.message : String(e)}
 Or download the worker from One (Settings \u2192 Coding worker): that file comes ready-paired and asks for your repos itself.
@@ -32595,7 +32832,7 @@ Or download the worker from One (Settings \u2192 Coding worker): that file comes
     const bin = claudeBin();
     const caps = await detectClaude(bin);
     const lines = [
-      `config     ${configFile}${existsSync6(configFile) ? "" : " (not written yet)"}`,
+      `config     ${configFile}${existsSync7(configFile) ? "" : " (not written yet)"}`,
       ...preset ? [`download   paired with a browser for "${preset.name}" \xB7 accepts ${preset.origin}${preset.dev ? " (+ localhost)" : ""}`] : [],
       `workspace  ${config2.workspace ?? "not set \u2014 every One tab is refused"}`,
       `port       ${config2.port}`,
