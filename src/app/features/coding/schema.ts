@@ -6,7 +6,8 @@
  *    Git (status text), PR / commit (url), Cost ($), Worker, Claimed at. The page body = goal + acceptance
  *    criteria (plus what the pipeline writes: the plan, summaries, rework notes, answers — origin 'coding').
  *  - Local workspace: top level. Team workspace: in the member's PRIVATE section (createPrivateDatabase), and
- *    only private ones count. Several marked databases: the oldest live one counts.
+ *    only private ones count. Several marked databases of a kind are its projects (oldest first; #/coding shows the
+ *    one this device picked — currentProjectId); the worker takes tasks from all of them.
  *  - Properties are found by name (EN / DE) and type, then by type — renamed columns keep working; a locked
  *    database gets no new options or pipeline changes (rows stay editable).
  */
@@ -57,30 +58,61 @@ const named = (p: PropertyDef, key: string) => both(key).includes(p.name.trim().
 
 /* ------------------------------------------------------------------ finding */
 
-/** A pipeline database of a kind: the oldest live marked one (team: a private one only). */
-export function pipelineDbId(kind: PipelineKind | 'testcases'): ID | null {
+/** Every live pipeline database of a kind ("projects"), oldest first (team: private ones only). */
+export function pipelineDbIdsOf(kind: PipelineKind | 'testcases'): ID[] {
   const { pages, databases } = ws()
   const team = inTeam()
-  let best: { id: ID; at: number } | null = null
+  const found: Array<{ id: ID; at: number }> = []
   for (const db of Object.values(databases)) {
     if (db.system !== kind) continue
     const p = pages[db.id]
     if (!p || p.kind !== 'database' || p.trashed || isEffectivelyTrashed(pages, db.id) || inTemplate(pages, db.id)) continue
     if (team && !p.private) continue
-    if (!best || p.createdAt < best.at || (p.createdAt === best.at && db.id < best.id)) best = { id: db.id, at: p.createdAt }
+    found.push({ id: db.id, at: p.createdAt })
   }
-  return best?.id ?? null
+  return found.sort((a, b) => a.at - b.at || (a.id < b.id ? -1 : 1)).map((x) => x.id)
 }
 
-/** The Coding database (the coding pipeline's). */
+/** A pipeline database of a kind: the oldest live marked one (team: a private one only). */
+export const pipelineDbId = (kind: PipelineKind | 'testcases'): ID | null => pipelineDbIdsOf(kind)[0] ?? null
+
+/** The Coding database (the coding pipeline's first project). */
 export const codingDbId = (): ID | null => pipelineDbId('coding')
-/** Every pipeline database there is. */
-export const pipelineDbIds = (): ID[] => PIPELINE_KINDS.map((k) => pipelineDbId(k)).filter((x): x is ID => !!x)
-/** The kind of a pipeline database (null: not one, or not the one that counts). */
+/** Every pipeline database there is — every project of every kind (the worker takes tasks from all of them). */
+export const pipelineDbIds = (): ID[] => PIPELINE_KINDS.flatMap((k) => pipelineDbIdsOf(k))
+/** The kind of a pipeline database (null: not a live one). */
 export function kindOfDb(dbId: ID | null | undefined): PipelineKind | null {
   if (!dbId) return null
   const k = ws().databases[dbId]?.system
-  return isPipelineKind(k) && pipelineDbId(k) === dbId ? k : null
+  return isPipelineKind(k) && pipelineDbIdsOf(k).includes(dbId) ? k : null
+}
+
+/* ------------------------------------------------------------------ projects */
+
+const PROJECT_KEY = (kind: PipelineKind) => `one.coding.project.${kind}`
+
+/** The project #/coding shows for a kind on this device (localStorage), else the first one. */
+export function currentProjectId(kind: PipelineKind): ID | null {
+  const all = pipelineDbIdsOf(kind)
+  let stored: string | null = null
+  try {
+    stored = localStorage.getItem(PROJECT_KEY(kind))
+  } catch {
+    stored = null
+  }
+  return stored && all.includes(stored) ? stored : (all[0] ?? null)
+}
+
+/** Show this project of its kind on #/coding (per device). */
+export function chooseProject(dbId: ID): void {
+  const kind = kindOfDb(dbId)
+  if (!kind) return
+  try {
+    localStorage.setItem(PROJECT_KEY(kind), dbId)
+  } catch {
+    /* private window: the first project shows */
+  }
+  useCoding.setState((s) => ({ projectRev: s.projectRev + 1 }))
 }
 
 /** The property ids of the Coding database by role (by name in either language + type, then by type). */
@@ -115,7 +147,7 @@ export interface ResolvedStage extends PipelineStage {
   index: number
 }
 
-const STAGE_COLOR: Record<StageKind, ColorName> = { queue: 'gray', import: 'red', plan: 'blue', doc: 'pink', gate: 'orange', implement: 'purple', test: 'yellow', git: 'brown', done: 'green' }
+const STAGE_COLOR: Record<StageKind, ColorName> = { queue: 'gray', import: 'red', analyze: 'yellow', plan: 'blue', doc: 'pink', gate: 'orange', implement: 'purple', test: 'yellow', git: 'brown', done: 'green' }
 
 /** The default pipeline: [stage key, kind, auto, extra]. */
 const DEFAULTS: Array<[string, StageKind, boolean, Partial<PipelineStage>]> = [
@@ -150,6 +182,8 @@ const MODERNISE: Array<[string, StageKind, boolean, Partial<PipelineStage>, stri
   // the old code arrives here: a ZIP or a clone address in the task panel → a new repo for the task
   ['import', 'import', false, {}],
   ['ready', 'queue', true, {}],
+  // the repo's linter / compiler first: the analysis reads its findings
+  ['staticAnalysis', 'analyze', true, {}],
   ['analyse', 'plan', true, { permissionMode: 'plan', maxTurns: 40 }, 'analyse'],
   ['design', 'plan', true, { permissionMode: 'plan', maxTurns: 30 }, 'design'],
   ['testplan', 'plan', true, { permissionMode: 'plan', maxTurns: 30 }, 'testplan'],
@@ -184,9 +218,58 @@ const QA: Array<[string, StageKind, boolean, Partial<PipelineStage>, string?]> =
   ['done', 'done', false, {}],
 ]
 
-export const PIPELINE_TEMPLATES = ['standard', 'modernise', 'spec', 'qa'] as const
+/**
+ * "Explain the code": legacy code becomes One documents — an overview, the static analysis, a page per component (a
+ * page tree), a documentation check. Nothing in the repository changes.
+ */
+const EXPLAIN: Array<[string, StageKind, boolean, Partial<PipelineStage>, string?]> = [
+  ['backlog', 'queue', false, {}],
+  ['import', 'import', false, {}],
+  ['ready', 'queue', true, {}],
+  ['overview', 'doc', true, { maxTurns: 40 }, 'explainOverview'],
+  ['staticAnalysis', 'analyze', true, {}],
+  ['components', 'doc', true, { maxTurns: 80, output: 'pages' }, 'explainComponents'],
+  ['docCheck', 'doc', true, { maxTurns: 40 }, 'docCheck'],
+  ['approveDocs', 'gate', false, {}],
+  ['done', 'done', false, {}],
+]
+
+/**
+ * "Review & merge": the standard pipeline, then Claude reviews the merge request's diff; at the gate the person reads
+ * the review (Rework → Claude reviews again) — then the review is posted to the request and the worker merges it (the
+ * person's glab / gh).
+ */
+const REVIEW_MERGE: Array<[string, StageKind, boolean, Partial<PipelineStage>, string?]> = [
+  ['backlog', 'queue', false, {}],
+  ['ready', 'queue', true, {}],
+  ['plan', 'plan', true, { permissionMode: 'plan', maxTurns: 20 }],
+  ['approve', 'gate', false, {}],
+  ['implement', 'implement', true, { permissionMode: 'acceptEdits', maxTurns: 40 }],
+  ['test', 'test', true, {}],
+  ['ship', 'git', true, { gitAction: 'pr' }],
+  ['aiReview', 'doc', true, { maxTurns: 40, output: 'review' }, 'aiReview'],
+  // the person reads the review first: nothing is posted or merged before this gate
+  ['approveMerge', 'gate', false, {}],
+  ['postReview', 'git', true, { gitAction: 'comment' }],
+  ['merge', 'git', true, { gitAction: 'merge' }],
+  ['done', 'done', false, {}],
+]
+
+/** Business analysis → stories: the specification, approved, split into stories — a new coding project with a task each. */
+const STORIES: Array<[string, StageKind, boolean, Partial<PipelineStage>, string?]> = [
+  ['backlog', 'queue', false, {}],
+  ['ready', 'queue', true, {}],
+  ['analyse', 'doc', true, { maxTurns: 40 }, 'specAnalyse'],
+  ['specWrite', 'doc', true, { maxTurns: 40 }, 'specWrite'],
+  ['approveSpec', 'gate', false, {}],
+  ['stories', 'doc', true, { maxTurns: 40, output: 'stories' }, 'stories'],
+  ['done', 'done', false, {}],
+]
+
+export const PIPELINE_TEMPLATES = ['standard', 'modernise', 'explain', 'reviewmerge', 'spec', 'stories', 'qa'] as const
 /** the templates a kind offers in the pipeline editor (the first is its default) */
-export const KIND_TEMPLATES: Record<PipelineKind, PipelineTemplate[]> = { coding: ['standard', 'modernise'], spec: ['spec'], qa: ['qa'] }
+export const KIND_TEMPLATES: Record<PipelineKind, PipelineTemplate[]> = { coding: ['standard', 'modernise', 'explain', 'reviewmerge'], spec: ['spec', 'stories'], qa: ['qa'] }
+const TEMPLATE_ROWS: Partial<Record<PipelineTemplate, Array<[string, StageKind, boolean, Partial<PipelineStage>, string?]>>> = { modernise: MODERNISE, explain: EXPLAIN, reviewmerge: REVIEW_MERGE, spec: SPEC, stories: STORIES, qa: QA }
 export type PipelineTemplate = (typeof PIPELINE_TEMPLATES)[number]
 
 /**
@@ -194,7 +277,7 @@ export type PipelineTemplate = (typeof PIPELINE_TEMPLATES)[number]
  * tasks standing there stay in a stage.
  */
 export function templatePipeline(which: PipelineTemplate, keep: Array<{ id: ID; kind: StageKind }> = []): Array<{ option: SelectOption; stage: PipelineStage }> {
-  const rows = which === 'modernise' ? MODERNISE : which === 'spec' ? SPEC : which === 'qa' ? QA : DEFAULTS.map(([k, kind, auto, extra]) => [k, kind, auto, extra] as [string, StageKind, boolean, Partial<PipelineStage>, string?])
+  const rows = TEMPLATE_ROWS[which] ?? DEFAULTS.map(([k, kind, auto, extra]) => [k, kind, auto, extra] as [string, StageKind, boolean, Partial<PipelineStage>, string?])
   const used = new Set<ID>()
   return rows.map(([key, kind, auto, extra, how]) => {
     const id = keep.find((s) => s.kind === kind && !used.has(s.id))?.id ?? newId()
@@ -203,6 +286,9 @@ export function templatePipeline(which: PipelineTemplate, keep: Array<{ id: ID; 
     return { option: { id, name: t(`features.coding.stage.${key}`), color: STAGE_COLOR[kind] }, stage: { id, kind, auto, ...extra, ...(instructions ? { instructions } : {}) } }
   })
 }
+
+/** What a document stage's text becomes besides its section (types.ts PipelineStage.output). */
+export const DOC_OUTPUTS = ['testcases', 'pages', 'review', 'stories'] as const
 
 const clampTurns = (n: unknown) => (typeof n === 'number' && Number.isFinite(n) ? Math.max(1, Math.min(200, Math.floor(n))) : undefined)
 
@@ -217,7 +303,7 @@ export function sanitizeStage(raw: unknown, id: ID): PipelineStage {
   const turns = clampTurns(r.maxTurns)
   if (turns) out.maxTurns = turns
   if (kind === 'git') out.gitAction = (GIT_ACTIONS as readonly string[]).includes(String(r.gitAction)) ? (r.gitAction as PipelineStage['gitAction']) : 'pr'
-  if (kind === 'doc' && r.output === 'testcases') out.output = 'testcases'
+  if (kind === 'doc' && (DOC_OUTPUTS as readonly unknown[]).includes(r.output)) out.output = r.output as PipelineStage['output']
   return out
 }
 
@@ -329,12 +415,12 @@ const KIND_ICON: Record<PipelineKind, string> = { coding: 'code', spec: 'notepad
  * A pipeline database — created when there is none (top level; private in a team), its stages from `template` (one
  * of the kind's, e.g. Coding: standard | modernise — the latter starts with an Import stage). Throws for a viewer.
  */
-export function ensurePipelineDb(kind: PipelineKind, template?: PipelineTemplate): ID {
-  const found = pipelineDbId(kind)
+export function ensurePipelineDb(kind: PipelineKind, template?: PipelineTemplate, project?: { title: string }): ID {
+  const found = project ? null : pipelineDbId(kind)
   if (found) return found
   if (codingReadOnly()) throw new Error('read-only')
   const { properties, pipeline } = baseProps(kind, template)
-  const title = kind === 'coding' ? t('features.coding.dbTitle') : t(`features.coding.pipe.${kind}.db`)
+  const title = project?.title.trim().slice(0, 200) || (kind === 'coding' ? t('features.coding.dbTitle') : t(`features.coding.pipe.${kind}.db`))
   const data = { id: newId(), parentId: null, title, icon: { type: 'asset' as const, value: KIND_ICON[kind] }, properties, views: views(properties, kind) }
   const id = inTeam() ? createPrivateDatabase(data) : ws().createDatabase(data)
   ws().updateDatabase(id, { system: kind, pipeline })
@@ -345,6 +431,39 @@ export function ensurePipelineDb(kind: PipelineKind, template?: PipelineTemplate
 
 /** The Coding database — created when there is none. */
 export const ensureCodingDb = (): ID => ensurePipelineDb('coding')
+
+/**
+ * A new project of a kind: its own pipeline database (e.g. the stories of one epic), shown on #/coding at once. Its
+ * pipeline is a copy of the current project's (or the template's when given / there is none).
+ */
+export function createProject(kind: PipelineKind, title: string, template?: PipelineTemplate, opts: { show?: boolean } = {}): ID {
+  const from = template ? null : currentProjectId(kind)
+  const id = ensurePipelineDb(kind, template ?? KIND_TEMPLATES[kind][0], { title })
+  const src = from ? ws().databases[from] : undefined
+  const stages = src && !template ? readPipeline(src) : []
+  if (stages.length) {
+    // the same stages under new option ids (each database's Stage select has its own)
+    const ids = new Map(stages.map((st) => [st.id, newId()]))
+    savePipeline(
+      id,
+      stages.map(({ name, color, index: _i, ...st }) => {
+        const nid = ids.get(st.id)!
+        return { option: { id: nid, name, color }, stage: { ...st, id: nid, ...(st.next ? { next: ids.get(st.next) ?? null } : {}) } }
+      }),
+    )
+  }
+  if (opts.show !== false) chooseProject(id)
+  return id
+}
+
+/** Move a project (database + its tasks) to the trash; Undo / the trash bring it back. Refuses a locked one. */
+export function trashProject(dbId: ID): boolean {
+  const db = ws().databases[dbId]
+  if (!db || db.locked || !kindOfDb(dbId) || codingReadOnly()) return false
+  ws().trashPage(dbId)
+  useCoding.setState((s) => ({ projectRev: s.projectRev + 1 }))
+  return true
+}
 
 /* ------------------------------------------------------------------ test cases (QA) */
 

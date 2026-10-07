@@ -38,7 +38,7 @@ src/app/features/**                  AI (+ workspace agent), history, graph, sha
                                      GitHub Markdown, per-device IndexedDB `one-sync`), mcp (local bridge UI), sheets
                                      (spreadsheet engine + grid; functions/ = custom functions built by clicking), charts
                                      (SVG renderer, chart builder, data sources) (public API: features/index.ts)
-src/app/help/**                      help centre: panel (?, status bar, ⌘K, workspace menu), 63 articles EN+DE twins
+src/app/help/**                      help centre: panel (?, status bar, ⌘K, workspace menu), 67 articles EN+DE twins
                                      (help/articles/{en,de}/<id>.md, `help:<id>` links), Ask (Claude over the articles);
                                      link UI to an article with `<HelpLink id="…" />` (public API: help/index.ts)
 src/help-site/**                     build-time public /help pages (prerendered from the same articles, hreflang)
@@ -333,7 +333,15 @@ the public APIs stable — other areas are built against them in parallel.
   the person's own Claude Code MCP servers (tools allowed, no --strict-mcp-config). GitLab: `glab mr create`. After an
   import the page offers "Create it on GitLab / GitHub" (publish.ts: name from the code, the person's glab / gh api,
   origin + push; only for a repo without a remote). Pipeline
-  templates (schema.ts `templatePipeline`: standard | modernise | spec | qa); with several plan stages each writes its own section.
+  templates (schema.ts `templatePipeline`: standard | modernise | explain | reviewmerge · spec | stories · qa); with
+  several plan stages each writes its own section. Stage kind 'analyze' runs the repo's `analyzeCommand` (argv) in the
+  task's worktree or main checkout — its output is the section, findings never fail. Doc outputs (outputs.ts / tasks.ts):
+  'testcases' · 'pages' (## sections → a page tree under "<task> · <stage>", inside aiWrite) · 'review' (TaskLocal.review
+  → payload `review`, git action 'comment', verb 'comment-pr') · 'stories' (a NEW coding project via `createProject`).
+  Doc stages on a task's branch run in its worktree with the branch diff as a DIFF data block. Git action / verb 'merge' /
+  'merge-pr' merge the request with the person's glab / gh (confirmed; never dirty or unpushed work). Projects: several
+  pipeline databases per kind (`pipelineDbIdsOf`, `currentProjectId` per device localStorage `one.coding.project.<kind>`,
+  `createProject` / `trashProject` with Undo); the worker takes tasks from every project.
   Pipelines (docs/CODING.md § Pipelines): `Database.system` 'coding' | 'spec' (Business analysis) | 'qa', each its own
   board (#/coding, #/coding/spec, #/coding/qa), each usable alone; find them only with `pipelineDbId(kind)` /
   `kindOfDb()`; "Then" (`followUps` multi-select) spawns follow-ups when a task is done (`spawnFollowUp`). Stage kind

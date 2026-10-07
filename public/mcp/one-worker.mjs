@@ -10906,10 +10906,10 @@ var WORKER_CLOSE_REFUSED = 4003;
 var CLAIM_STALE_MS = 10 * 6e4;
 var HEARTBEAT_MS = 6e4;
 var PARALLEL_MAX = 2;
-var STAGE_KINDS = ["queue", "import", "plan", "doc", "gate", "implement", "test", "git", "done"];
+var STAGE_KINDS = ["queue", "import", "analyze", "plan", "doc", "gate", "implement", "test", "git", "done"];
 var PERMISSION_MODES = ["plan", "acceptEdits", "default"];
-var GIT_ACTIONS = ["commit", "push", "pr", "update-base"];
-var GIT_VERBS = ["refresh", "commit", "push", "force-push", "pr", "update-base", "discard", "cleanup", "reveal"];
+var GIT_ACTIONS = ["commit", "push", "pr", "update-base", "comment", "merge"];
+var GIT_VERBS = ["refresh", "commit", "push", "force-push", "pr", "update-base", "discard", "cleanup", "reveal", "comment-pr", "merge-pr"];
 var REPO_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 var WORKSPACE_ID = /^(local|team):[A-Za-z0-9_-]{1,64}$/;
 var PRESET_GLOBAL = "ONE_WORKER_PRESET";
@@ -11061,6 +11061,15 @@ function repoConfig(raw, index, configDir, problems) {
       else problems.push(`${at}: "testCommand" is empty`);
     }
   }
+  let analyzeCommand = null;
+  if (raw.analyzeCommand !== void 0 && raw.analyzeCommand !== null) {
+    if (typeof raw.analyzeCommand === "string") problems.push(`${at}: "analyzeCommand" must be a list (argv), e.g. ["npx", "eslint", "."] \u2014 a command line is never run through a shell`);
+    else {
+      const argv2 = strings(raw.analyzeCommand, 50);
+      if (argv2.length) analyzeCommand = argv2;
+      else problems.push(`${at}: "analyzeCommand" is empty`);
+    }
+  }
   const pr = raw.pr === "none" ? "none" : "gh";
   return {
     name,
@@ -11071,6 +11080,8 @@ function repoConfig(raw, index, configDir, problems) {
     worktreeDir,
     testCommand,
     testTimeoutSec: Math.floor(num(raw.testTimeoutSec, 600, 5, 7200)),
+    analyzeCommand,
+    analyzeTimeoutSec: Math.floor(num(raw.analyzeTimeoutSec, 900, 5, 7200)),
     push: raw.push !== false,
     pr,
     claude: claudeConfig(raw.claude, at, problems),
@@ -11147,6 +11158,8 @@ function scratchRepo(config2, taskId) {
     worktreeDir: dir,
     testCommand: null,
     testTimeoutSec: 600,
+    analyzeCommand: null,
+    analyzeTimeoutSec: 900,
     push: false,
     pr: "none",
     claude: { model: null, maxTurns: 40, permissionMode: {}, allowedTools: [], disallowedTools: [], strictMcp: true, mcpServers: config2.mcpServers },
@@ -11189,6 +11202,8 @@ function exampleConfig(workspace) {
       // The Test stage runs this in the worktree \u2014 an argv list, never a shell line. Leave it out: no tests.
       "testCommand": ["npm", "test"],
       "testTimeoutSec": 600,
+      // The Static analysis stage runs this (a report: its findings go into the task page). Leave it out: none.
+      // "analyzeCommand": ["npx", "eslint", "."],
 
       // Push task branches to the remote (Ship stage, Push key in One).
       "push": true,
@@ -11292,6 +11307,10 @@ function saveRepos(file, choices, workspace, env = process.env, extra = {}) {
     if (c.remote && c.remote !== "origin") entry.remote = c.remote;
     if (c.testCommand?.length) entry.testCommand = c.testCommand;
     else delete entry.testCommand;
+    if (c.analyzeCommand !== void 0) {
+      if (c.analyzeCommand?.length) entry.analyzeCommand = c.analyzeCommand;
+      else delete entry.analyzeCommand;
+    }
     entry.push = c.push;
     entry.pr = c.pr;
     if (c.maxUsdPerTask) entry.maxUsdPerTask = c.maxUsdPerTask;
@@ -11813,6 +11832,32 @@ async function worktreeOf(repo, branch) {
   const tree = (await listWorktrees(repo)).find((w) => w.branch === branch);
   return tree && !same(tree.path, top) && existsSync2(tree.path) ? tree.path : null;
 }
+async function branchDiff(repo, branch, dir, max2 = 8e4) {
+  if (!dir && !await branchExists(repo, branch)) return null;
+  let base;
+  try {
+    base = await baseRef(repo);
+  } catch {
+    return null;
+  }
+  const cwd = dir ?? repo.path;
+  const mb = (await git(cwd, ["merge-base", base, dir ? "HEAD" : branch])).stdout.trim();
+  if (!mb) return null;
+  const range = dir ? [mb] : [mb, branch];
+  const stat = (await git(cwd, ["diff", "--stat=120", "-M", ...range])).stdout.trimEnd();
+  const files = (await git(cwd, ["diff", "--name-only", "-M", ...range])).stdout.split("\n").filter(Boolean).length;
+  const fresh = dir ? (await git(cwd, ["ls-files", "--others", "--exclude-standard"])).stdout.split("\n").filter(Boolean).slice(0, 100) : [];
+  let diff = (await git(cwd, ["diff", "-M", ...range], 12e4)).stdout;
+  if (!diff.trim() && !fresh.length) return null;
+  let clipped = false;
+  if (diff.length > max2) {
+    diff = diff.slice(0, max2);
+    diff = diff.slice(0, diff.lastIndexOf("\n") + 1);
+    clipped = true;
+  }
+  const text2 = [stat, fresh.length ? `New files (not in git yet): ${fresh.join(", ")}` : "", "", diff, clipped ? "[\u2026 the diff goes on \u2014 read the files for the rest]" : ""].filter((x2, i2) => x2 || i2 === 2).join("\n");
+  return { text: text2, files: files + fresh.length, clipped };
+}
 async function statusOf(dir) {
   const out = await gitOk(dir, ["status", "--porcelain=v1", "-z", "--untracked-files=all"]);
   const parts = out.split("\0");
@@ -12050,6 +12095,57 @@ ${made.stderr}`)?.[0];
   }
   const url = compareUrl(remoteUrl, repo.baseBranch, branch);
   return { url, via: url ? "link" : "none" };
+}
+async function hostCli(repo, dir) {
+  if (repo.pr !== "gh") throw new GitError('pull / merge requests are off for this repo (worker.json "pr": "none")');
+  const remoteUrl = (await git(repo.path, ["remote", "get-url", repo.remote])).stdout.trim();
+  const web = webBase(remoteUrl);
+  if (!web) throw new GitError(`the remote "${repo.remote}" is neither a GitHub nor a GitLab address`);
+  const tool = web.kind === "github" ? "gh" : "glab";
+  if ((await run(tool, ["--version"], dir, 1e4)).code !== 0) throw new GitError(`${tool} is not installed on this computer \u2014 install it and sign in (${tool} auth login)`);
+  return { tool, url: `https://${web.host}/${web.path}` };
+}
+var lastLines = (r, n = 3) => (r.stderr || r.stdout).trim().split("\n").slice(-n).join(" ");
+async function requestUrl(tool, dir, branch) {
+  if (tool === "gh") {
+    const view2 = await run("gh", ["pr", "view", branch, "--json", "url", "--jq", ".url"], dir, 3e4);
+    return view2.code === 0 && /^https?:\/\//.test(view2.stdout.trim()) ? view2.stdout.trim() : null;
+  }
+  const view = await run("glab", ["mr", "view", branch, "--output", "json"], dir, 3e4);
+  if (view.code !== 0) return null;
+  try {
+    const url = JSON.parse(view.stdout).web_url;
+    return typeof url === "string" && /^https?:\/\//.test(url) ? url : null;
+  } catch {
+    return /https?:\/\/\S+\/-\/merge_requests\/\d+/.exec(view.stdout)?.[0] ?? null;
+  }
+}
+async function commentPr(repo, dir, branch, body) {
+  const text2 = body.trim().slice(0, 6e4);
+  if (!text2) throw new GitError("there is nothing to post");
+  const { tool } = await hostCli(repo, dir);
+  const made = tool === "gh" ? await run("gh", ["pr", "comment", branch, "--body", text2], dir) : await run("glab", ["mr", "note", branch, "--message", text2], dir);
+  if (made.code !== 0) throw new GitError(`${tool === "gh" ? "gh pr comment" : "glab mr note"} failed: ${lastLines(made)}`);
+  return { via: tool, url: await requestUrl(tool, dir, branch) ?? /https?:\/\/\S+/.exec(made.stdout)?.[0] ?? null };
+}
+async function mergePr(repo, dir, branch) {
+  const { tool } = await hostCli(repo, dir);
+  const url = await requestUrl(tool, dir, branch);
+  if (!url) throw new GitError(`"${branch}" has no open ${tool === "gh" ? "pull" : "merge"} request \u2014 open one first (Ship / Pull request)`);
+  if (tool === "gh") {
+    let last = null;
+    for (const how of ["--merge", "--squash", "--rebase"]) {
+      last = await run("gh", ["pr", "merge", branch, how], dir, 3e5);
+      if (last.code === 0) break;
+      if (!/not allowed|not enabled|merge method/i.test(`${last.stderr}${last.stdout}`)) break;
+    }
+    if (!last || last.code !== 0) throw new GitError(`gh pr merge failed: ${last ? lastLines(last) : ""}`);
+  } else {
+    const made = await run("glab", ["mr", "merge", branch, "--yes"], dir, 3e5);
+    if (made.code !== 0) throw new GitError(`glab mr merge failed: ${lastLines(made)}`);
+  }
+  await tryFetch(repo);
+  return { via: tool, url };
 }
 async function updateFromBase(repo, dir, branch) {
   if (await isDirty(dir)) {
@@ -13401,6 +13497,35 @@ async function guessTestAsync(dir) {
   const here = new Set(GUESS_FILES.filter((_, i2) => present[i2]));
   return guessFrom(pkg, makefiles.find((m) => m !== null) ?? null, (name) => here.has(name));
 }
+async function guessAnalyzeAsync(dir) {
+  const pkg = await topFileAsync(dir, "package.json");
+  if (pkg) {
+    try {
+      const lint = JSON.parse(pkg).scripts?.lint;
+      if (typeof lint === "string" && lint.trim()) {
+        if (await hasAsync(dir, "pnpm-lock.yaml")) return ["pnpm", "run", "lint"];
+        if (await hasAsync(dir, "yarn.lock")) return ["yarn", "lint"];
+        return ["npm", "run", "lint"];
+      }
+    } catch {
+    }
+  }
+  let names = [];
+  try {
+    const list = await timed(readdir(dir), FILE_MS);
+    if (list !== TIMEOUT) names = list;
+  } catch {
+    names = [];
+  }
+  if (names.some((n) => /^(eslint\.config\.(js|mjs|cjs|ts)|\.eslintrc(\.(js|cjs|json|yml|yaml))?)$/.test(n))) return ["npx", "eslint", "."];
+  if (names.some((n) => /\.(sln|csproj|vbproj)$/i.test(n))) return ["dotnet", "build", "-nologo", "-clp:Summary"];
+  if (names.includes("go.mod")) return ["go", "vet", "./..."];
+  if (names.includes("Cargo.toml")) return ["cargo", "clippy"];
+  const py = names.includes("pyproject.toml") ? await topFileAsync(dir, "pyproject.toml") : null;
+  if (py && /\[tool\.ruff/.test(py)) return ["ruff", "check", "."];
+  if (names.includes(".flake8") || names.includes("setup.cfg")) return ["flake8"];
+  return null;
+}
 function guessFrom(pkg, mk, present) {
   if (pkg) {
     try {
@@ -13462,7 +13587,8 @@ async function repoFacts(path, taken, home = homedir4()) {
     host,
     dirty: status === null ? null : status.split("\n").filter(Boolean).length,
     lastCommit: at,
-    test: await guessTestAsync(path)
+    test: await guessTestAsync(path),
+    analyze: await guessAnalyzeAsync(path)
   };
 }
 function bareRepo(path, taken, home = homedir4()) {
@@ -13985,7 +14111,7 @@ ${text2}`);
 import { randomBytes as randomBytes3 } from "node:crypto";
 import { mkdtempSync, rmSync as rmSync5, writeFileSync as writeFileSync3 } from "node:fs";
 import { tmpdir as tmpdir3 } from "node:os";
-import { join as join10 } from "node:path";
+import { basename as basename2, join as join10 } from "node:path";
 
 // src/worker/scrub.ts
 import { homedir as homedir6, tmpdir as tmpdir2 } from "node:os";
@@ -14032,7 +14158,12 @@ function repoScrubber(repo, worktree) {
 import { spawn as spawn4 } from "node:child_process";
 var TEST_OUTPUT_MAX = 64e3;
 function runTests(repo, cwd, signal, onLine) {
-  const argv2 = repo.testCommand;
+  return runCommand(repo.testCommand, repo.testTimeoutSec, "tests", cwd, signal, onLine);
+}
+function runAnalysis(repo, cwd, signal, onLine) {
+  return runCommand(repo.analyzeCommand, repo.analyzeTimeoutSec, "analysis", cwd, signal, onLine);
+}
+function runCommand(argv2, timeoutSec, what, cwd, signal, onLine) {
   if (!argv2?.length) return Promise.resolve({ ok: true, output: "", ms: 0, code: null, skipped: true });
   const started = Date.now();
   return new Promise((done) => {
@@ -14051,7 +14182,7 @@ function runTests(repo, cwd, signal, onLine) {
     const timer = setTimeout(() => {
       timedOut = true;
       killTree(child);
-    }, repo.testTimeoutSec * 1e3);
+    }, timeoutSec * 1e3);
     const onAbort = () => killTree(child);
     signal.addEventListener("abort", onAbort, { once: true });
     child.on("error", (e) => {
@@ -14065,7 +14196,7 @@ ${e.message}`;
       if (output.length > TEST_OUTPUT_MAX) output = `\u2026
 ${output.slice(-TEST_OUTPUT_MAX)}`;
       if (timedOut) output += `
-[one-worker] the tests ran longer than ${repo.testTimeoutSec} s and were stopped`;
+[one-worker] the ${what} ran longer than ${timeoutSec} s and were stopped`;
       done({ ok: code === 0 && !timedOut && !signal.aborted, output, ms: Date.now() - started, code });
     });
   });
@@ -14093,10 +14224,10 @@ var DEFAULTS = {
     "(a few bullet points) as your last message."
   ].join(" ")
 };
-function buildPrompt(task, repo, branch, code = markerCode()) {
+function buildPrompt(task, repo, branch, code = markerCode(), diff) {
   const kind = task.stage.kind === "plan" ? "plan" : task.stage.kind === "doc" ? "doc" : "implement";
   const own2 = task.stage.instructions.trim();
-  const where = kind !== "doc" ? `You work on a coding task from One (the person's workspace) in a git worktree of the repository "${repo.name}", on the branch "${branch}" (base: ${repo.remote}/${repo.baseBranch}).` : task.repo ? `You work on a task from One (the person's workspace) in the repository "${repo.name}" \u2014 read only: you can read its files, not change them.` : "You work on a task from One (the person's workspace) without a repository: the task data and your knowledge-base tools are what you have.";
+  const where = kind !== "doc" ? `You work on a coding task from One (the person's workspace) in a git worktree of the repository "${repo.name}", on the branch "${branch}" (base: ${repo.remote}/${repo.baseBranch}).` : task.repo ? `You work on a task from One (the person's workspace) in the repository "${repo.name}" \u2014 read only: you can read its files, not change them.${diff && branch ? diff.worktree ? ` You are in the worktree of the task's branch "${branch}"; what it changes against ${repo.remote}/${repo.baseBranch} is below ("Changes on the branch").` : ` The task's branch is "${branch}" \u2014 the files you read are the main checkout's; what the branch changes against ${repo.remote}/${repo.baseBranch} is below ("Changes on the branch").` : ""}` : "You work on a task from One (the person's workspace) without a repository: the task data and your knowledge-base tools are what you have.";
   const parts = [
     where,
     "",
@@ -14122,6 +14253,7 @@ ${task.text.trim() || "(no description)"}`, code)
 A: ${a.a.trim()}
 `).join("\n"), code));
   }
+  if (diff) parts.push("", "## Changes on the branch (data)", ...dataBlock("DIFF", diff.text, code));
   return parts.join("\n");
 }
 var markerCode = () => randomBytes3(6).toString("hex");
@@ -14163,10 +14295,13 @@ async function runStage(ctx) {
   if (ctx.team && !task.trusted) return { status: "refused", error: "This task was written or changed on another device and is not confirmed on this one. Confirm it in One (task panel) first." };
   const kind = task.stage.kind;
   if (kind === "queue" || kind === "gate" || kind === "done" || kind === "import") return { status: "refused", error: `A ${kind} stage is not run by the worker.` };
-  if (kind === "doc") {
+  if (kind === "doc" || kind === "analyze") {
     log2("info", `Stage "${task.stage.name}" (${kind}) on ${repo.name}`, "stage", { stage: task.stage.name, kind, repo: repo.name });
     try {
-      return await docStage(ctx, scrub, log2);
+      const branch = task.repo ? task.branch ?? ctx.state.taskAt(task.id)?.branch ?? null : null;
+      const dir = branch ? await worktreeOf(repo, branch).catch(() => null) : null;
+      if (dir) scrub = repoScrubber(repo, dir);
+      return kind === "doc" ? await docStage(ctx, scrub, log2, branch, dir) : await analyzeStage(ctx, scrub, log2, dir);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       log2("error", msg);
@@ -14244,7 +14379,7 @@ async function claudeStage(ctx, wt, scrub, log2) {
 }
 var DOC_TOOLS = ["Read", "Grep", "Glob", "LS"];
 var DOC_DENIED = ["Edit", "MultiEdit", "Write", "NotebookEdit", "Bash"];
-async function docStage(ctx, scrub, log2) {
+async function docStage(ctx, scrub, log2, branch, dir) {
   const { repo, task, caps } = ctx;
   if (!caps.found) return { status: "failed", error: `Claude Code was not found on this computer ("${ctx.bin}"). Install it and sign in, or set CLAUDE_BIN.` };
   const lim = limits(ctx);
@@ -14252,13 +14387,15 @@ async function docStage(ctx, scrub, log2) {
     log2("warn", lim.refuse);
     return { status: "limit", error: lim.refuse };
   }
+  const changes = branch ? await branchDiff(repo, branch, dir).catch(() => null) : null;
+  if (changes) log2("git", `The branch ${branch} changes ${changes.files} file(s) \u2014 the diff goes along${changes.clipped ? " (clipped)" : ""}`, "docDiff", { branch, n: changes.files });
   const mcp = ctx.taskMcp ? writeMcpConfig(ctx.taskMcp) : null;
   log2("info", "Starting Claude Code (read only)\u2026", "starting", { mode: "read only" });
   try {
     const res = await runClaude({
       bin: ctx.bin,
-      cwd: repo.path,
-      prompt: buildPrompt(task, repo, ""),
+      cwd: dir ?? repo.path,
+      prompt: buildPrompt(task, repo, branch ?? "", markerCode(), changes ? { text: changes.text, worktree: !!dir } : null),
       // headless "default" mode: whatever is not allowed below is refused, nothing can ask
       mode: "default",
       maxTurns: Math.max(1, Math.min(task.stage.maxTurns || repo.claude.maxTurns, repo.claude.maxTurns)),
@@ -14286,6 +14423,41 @@ async function docStage(ctx, scrub, log2) {
   } finally {
     mcp?.dispose();
   }
+}
+var ANALYSIS_HEAD = 16e3;
+var ANALYSIS_TAIL = 4e3;
+var fenceFor = (text2) => "`".repeat(Math.max(3, ...[...text2.matchAll(/`+/g)].map((m) => m[0].length + 1)));
+async function analyzeStage(ctx, scrub, log2, dir) {
+  const { repo, task } = ctx;
+  if (!task.repo) return { status: "refused", error: "A static analysis needs a repository \u2014 pick the task's Repo first." };
+  const argv2 = repo.analyzeCommand;
+  if (!argv2?.length) {
+    log2("info", `No analysis command for ${repo.name} \u2014 the stage passes. Set one on the worker's setup page (Change repositories \u2192 the repo \u2192 Static analysis).`, "analyzeNone", { repo: repo.name });
+    return { status: "ok", summary: "No static analysis configured.", plan: "_No static analysis command is set for this repository \u2014 the worker's setup page (Change repositories \u2192 the repository \u2192 Static analysis) takes one, e.g. `npx eslint .`, `dotnet build`, `go vet ./...`._" };
+  }
+  const shown = clip2(scrub.text([basename2(argv2[0]), ...argv2.slice(1)].join(" ")), 160);
+  log2("test", `Running the static analysis: ${shown}`, "analyzeRun", { cmd: shown });
+  let lines = 0;
+  const res = await runAnalysis(repo, dir ?? repo.path, ctx.signal, (line) => {
+    if (lines++ < 200) log2("test", line);
+  });
+  if (ctx.signal.aborted) return { status: "stopped", error: "Stopped in One." };
+  const output = scrub.text(res.output).trim();
+  if (res.code === null || res.code < 0) {
+    const why2 = res.code !== null && res.code < 0 ? `the command could not start (${argv2[0]} \u2014 is it installed?)` : "it ran too long and was stopped";
+    log2("warn", `Static analysis failed: ${why2}`);
+    return { status: "failed", error: `Static analysis failed: ${why2}.`, summary: clip2(output, 2e3) || void 0 };
+  }
+  const n = output ? output.split("\n").length : 0;
+  const body = output.length > ANALYSIS_HEAD + ANALYSIS_TAIL ? `${output.slice(0, ANALYSIS_HEAD)}
+\u2026 ${output.slice(ANALYSIS_HEAD, -ANALYSIS_TAIL).split("\n").length} lines left out \u2026
+${output.slice(-ANALYSIS_TAIL)}` : output;
+  const s = Math.round(res.ms / 100) / 10;
+  const verdict = res.code === 0 ? "no findings (exit code 0)" : `findings (exit code ${res.code})`;
+  log2(res.code === 0 ? "test" : "warn", `Static analysis: ${verdict} \xB7 ${s} s`, res.code === 0 ? "analyzeClean" : "analyzeFound", { code: res.code, s });
+  const fence = fenceFor(body);
+  const plan = [`\`${shown.replace(/`/g, "'")}\` \xB7 ${verdict} \xB7 ${s} s \xB7 ${n} line(s) of output`, "", ...body ? [`${fence}text`, body, fence] : ["_No output._"]].join("\n");
+  return { status: "ok", plan, summary: `Static analysis: ${verdict}.` };
 }
 function liveDiff(ctx, wt, scrub) {
   let last = "";
@@ -14348,6 +14520,23 @@ async function gitStage(ctx, wt, scrub, log2) {
     const summary = r.how === "up-to-date" ? `Already up to date with ${repo.remote}/${repo.baseBranch}.` : `${r.how === "rebased" ? "Rebased onto" : "Merged"} ${repo.remote}/${repo.baseBranch}.`;
     log2("git", summary);
     return { status: "ok", branch: wt.branch, git: git3, summary };
+  }
+  if (action === "comment") {
+    const review = (task.review ?? "").trim();
+    if (!review) return { status: "failed", branch: wt.branch, error: 'There is no review to post yet \u2014 a document stage with the output "Review" writes it.' };
+    const r = await commentPr(repo, wt.dir, wt.branch, `${review}
+
+\u2014 Review from One (coding pipeline).`);
+    log2("git", `Review posted to the ${r.via === "gh" ? "pull" : "merge"} request${r.url ? `: ${r.url}` : ""}`, "reviewPosted", { url: r.url ?? "" });
+    return { status: "ok", branch: wt.branch, url: r.url ?? void 0, git: await gitSnapshot(ctx, wt, scrub), summary: `Review posted to the ${r.via === "gh" ? "pull" : "merge"} request.` };
+  }
+  if (action === "merge") {
+    if (await isDirty(wt.dir)) return { status: "failed", branch: wt.branch, git: await gitSnapshot(ctx, wt, scrub), error: "The worktree has uncommitted changes that would not be merged \u2014 commit and push them first (a Ship stage, or Commit \xB7 Push)." };
+    const before = await gitSnapshot(ctx, wt, scrub);
+    if (before && before.unpushed > 0) return { status: "failed", branch: wt.branch, git: before, error: `${before.unpushed} commit(s) are not pushed yet and would not be merged \u2014 push first.` };
+    const r = await mergePr(repo, wt.dir, wt.branch);
+    log2("git", `Merged the ${r.via === "gh" ? "pull" : "merge"} request${r.url ? `: ${r.url}` : ""}`, "requestMerged", { url: r.url ?? "" });
+    return { status: "ok", branch: wt.branch, url: r.url ?? void 0, git: await gitSnapshot(ctx, wt, scrub), summary: `Merged the ${r.via === "gh" ? "pull" : "merge"} request into ${repo.baseBranch}.` };
   }
   const sha = await commitAll(wt.dir, commitMessage(task));
   log2("git", sha ? `Committed ${sha.slice(0, 8)}` : "Nothing new to commit", sha ? "committed" : "nothingToCommit", { sha: (sha ?? "").slice(0, 8) });
@@ -14747,6 +14936,19 @@ var Worker2 = class {
           const r = await discard(repo, this.state, branch);
           this.logLine(taskId, { t: Date.now(), k: "git", s: `Discarded: ${r.worktree ? "worktree removed" : "no worktree"}, ${r.branch ? "branch deleted" : "branch kept"}.` });
           return { message: `Discarded${r.branch ? ` \u2014 branch ${branch} deleted` : ""}.`, branchGone: r.branch };
+        }
+        case "comment-pr": {
+          const review = typeof msg.message === "string" ? msg.message.trim() : "";
+          if (!review) throw new GitError("there is no review to post");
+          const r = await commentPr(repo, dir ?? repo.path, branch, `${review}
+
+\u2014 Review from One (coding pipeline).`);
+          return await snap(`Review posted to the ${r.via === "gh" ? "pull" : "merge"} request.`, r.url ?? void 0);
+        }
+        case "merge-pr": {
+          if (dir && await isDirty(dir)) throw new GitError("the worktree has uncommitted changes that would not be merged \u2014 commit and push them first");
+          const r = await mergePr(repo, dir ?? repo.path, branch);
+          return await snap(`Merged the ${r.via === "gh" ? "pull" : "merge"} request into ${repo.baseBranch}.`, r.url ?? void 0);
         }
         case "cleanup": {
           const r = await cleanup(repo, this.state, branch);
@@ -31955,6 +32157,8 @@ var SETUP_JS = String.raw`(function () {
     baseLabel: 'Base branch',
     testLabel: 'Test command',
     testHint: 'Runs without a shell — && | > are plain words. Empty: no test stage.',
+    analyzeLabel: 'Static analysis',
+    analyzeHint: 'The Static analysis stage runs this (a linter, dotnet build, go vet …) — its findings go into the task page. Empty: none.',
     noTests: 'No test stage',
     push: 'Push branches',
     pr: 'Pull / merge requests (gh · glab)',
@@ -32057,6 +32261,8 @@ var SETUP_JS = String.raw`(function () {
     baseLabel: 'Basis-Branch',
     testLabel: 'Testbefehl',
     testHint: 'Läuft ohne Shell – && | > sind normale Wörter. Leer: keine Test-Stufe.',
+    analyzeLabel: 'Statische Analyse',
+    analyzeHint: 'Die Stufe „Statische Analyse“ führt das aus (ein Linter, dotnet build, go vet …) – die Befunde kommen in die Aufgabenseite. Leer: keine.',
     noTests: 'Keine Test-Stufe',
     push: 'Branches pushen',
     pr: 'Pull / Merge Requests (gh · glab)',
@@ -32207,7 +32413,7 @@ var SETUP_JS = String.raw`(function () {
   }
 
   function editOf(r) {
-    if (!edits[r.path]) edits[r.path] = { ticked: r.ticked, name: r.name, base: r.base, test: r.testLine, push: r.push, pr: r.pr, limit: r.maxUsdPerTask === null ? '' : String(r.maxUsdPerTask), mcp: r.mcp || '' }
+    if (!edits[r.path]) edits[r.path] = { ticked: r.ticked, name: r.name, base: r.base, test: r.testLine, push: r.push, pr: r.pr, limit: r.maxUsdPerTask === null ? '' : String(r.maxUsdPerTask), mcp: r.mcp || '', analyze: r.analyzeLine || '' }
     return edits[r.path]
   }
 
@@ -32289,6 +32495,7 @@ var SETUP_JS = String.raw`(function () {
       el('div', { className: 'field' }, [el('label', { className: 'label', for: id + 'n', text: t('nameLabel') }), el('input', { type: 'text', id: id + 'n', value: e.name, maxlength: 64, spellcheck: 'false', oninput: function (ev) { e.name = ev.target.value } })]),
       el('div', { className: 'field' }, [el('label', { className: 'label', for: id + 'b', text: t('baseLabel') }), base]),
       el('div', { className: 'field' }, [el('label', { className: 'label', for: id + 't', text: t('testLabel') }), el('input', { type: 'text', id: id + 't', value: e.test, spellcheck: 'false', autocomplete: 'off', oninput: function (ev) { e.test = ev.target.value; drawKeys() } }), keys, el('span', { className: 'hint', text: t('testHint') })]),
+      el('div', { className: 'field' }, [el('label', { className: 'label', for: id + 'a', text: t('analyzeLabel') }), el('input', { type: 'text', id: id + 'a', value: e.analyze, spellcheck: 'false', autocomplete: 'off', oninput: function (ev) { e.analyze = ev.target.value } }), el('span', { className: 'hint', text: t('analyzeHint') })]),
       el('div', { className: 'field field--wide' }, [el('div', { className: 'toggles' }, toggles)]),
       el('div', { className: 'field' }, [el('div', { className: 'limit' }, [el('label', { className: 'label', for: id + 'l', text: t('limit') }), el('input', { type: 'number', id: id + 'l', min: '0', step: '0.5', value: e.limit, placeholder: t('noLimit'), inputmode: 'decimal', oninput: function (ev) { e.limit = ev.target.value } })])]),
       el('div', { className: 'field field--wide' }, [el('label', { className: 'label', for: id + 'm', text: t('mcpLabel') }), el('input', { type: 'text', id: id + 'm', value: e.mcp, placeholder: 'atlas', spellcheck: 'false', autocomplete: 'off', oninput: function (ev) { e.mcp = ev.target.value } }), el('span', { className: 'hint', text: t('mcpHint') })])
@@ -32585,7 +32792,7 @@ var SETUP_JS = String.raw`(function () {
     var repos = state.repos.filter(function (r) { return editOf(r).ticked }).map(function (r) {
       var e = editOf(r)
       var limit = parseFloat(String(e.limit).replace(',', '.'))
-      return { path: r.path, name: e.name.trim(), baseBranch: e.base, test: e.test, push: e.push, pr: e.pr, maxUsdPerTask: isFinite(limit) && limit > 0 ? limit : null, mcp: e.mcp }
+      return { path: r.path, name: e.name.trim(), baseBranch: e.base, test: e.test, analyze: e.analyze, push: e.push, pr: e.pr, maxUsdPerTask: isFinite(limit) && limit > 0 ? limit : null, mcp: e.mcp }
     })
     busy = 'save'
     note = null
@@ -32719,11 +32926,12 @@ var SetupServer = class {
         maxUsdPerTask: r.maxUsdPerTask,
         test: r.testCommand,
         testLine: joinArgs(r.testCommand),
-        mcp: r.claude.mcpServers.join(", ")
+        mcp: r.claude.mcpServers.join(", "),
+        analyzeLine: joinArgs(r.analyzeCommand)
       });
     }
     const rest = [...this.found.values()].filter((f) => !seen.has(f.path)).sort((a, b) => (b.lastCommit ?? 0) - (a.lastCommit ?? 0));
-    for (const f of rest) out.push({ ...f, ticked: false, configured: false, push: !!f.remote, pr: "gh", maxUsdPerTask: null, testLine: joinArgs(f.test), mcp: "" });
+    for (const f of rest) out.push({ ...f, ticked: false, configured: false, push: !!f.remote, pr: "gh", maxUsdPerTask: null, testLine: joinArgs(f.test), mcp: "", analyzeLine: joinArgs(f.analyze ?? null) });
     return out;
   }
   async state() {
@@ -32909,7 +33117,8 @@ var SetupServer = class {
         if (bad) return [`"${bad}": an MCP server name has letters, digits, "_" or "-" \u2014 as \`claude mcp list\` shows it.`];
         if (mcpServers.length > 20) return ["At most 20 MCP servers per repository."];
       }
-      choices.push({ path: repo.path, name, baseBranch, remote: repo.remote, testCommand: test?.length ? test : null, push: item.push === true, pr: item.pr === "none" ? "none" : "gh", maxUsdPerTask: limit, mcpServers });
+      const analyze = typeof item.analyze === "string" ? splitArgs(item.analyze) : void 0;
+      choices.push({ path: repo.path, name, baseBranch, remote: repo.remote, testCommand: test?.length ? test : null, ...analyze !== void 0 ? { analyzeCommand: analyze?.length ? analyze : null } : {}, push: item.push === true, pr: item.pr === "none" ? "none" : "gh", maxUsdPerTask: limit, mcpServers });
     }
     let workerMcp;
     if (isObj6(body) && typeof body.mcpServers === "string") {

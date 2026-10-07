@@ -37,6 +37,12 @@ export interface TaskLocal {
   approvals?: 'all' | 'review' | 'none'
   /** the follow-up tasks this device created from this one (Business analysis → Coding / QA, QA → Coding) */
   spawned?: Partial<Record<'coding' | 'qa', ID>>
+  /** the newest review document (a doc stage with output 'review') — Post review / a git 'comment' stage sends it */
+  review?: { text: string; at: number } | null
+  /** output 'pages': stage id → the documentation page this device made (a re-run updates its pages) */
+  docPages?: Record<ID, ID>
+  /** output 'stories': the coding project this device made from the task's stories */
+  storiesDb?: ID | null
   at?: number
 }
 

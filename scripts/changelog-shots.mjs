@@ -568,9 +568,9 @@ function codingRepo() {
   return { root, path, env }
 }
 
-async function startCodingWorker(work, workspace, env = {}) {
+async function startCodingWorker(work, workspace, env = {}, repo = {}) {
   const file = join(work.root, 'worker.json')
-  writeFileSync(file, JSON.stringify({ workspace, name: 'studio-mac', port: WORKER_PORT, pollSec: 2, repos: [{ name: 'website', path: work.path, baseBranch: 'main', testCommand: [process.execPath, 'check.mjs'], pr: 'none', maxUsdPerTask: 5, maxUsdPerDay: 25 }] }))
+  writeFileSync(file, JSON.stringify({ workspace, name: 'studio-mac', port: WORKER_PORT, pollSec: 2, repos: [{ name: 'website', path: work.path, baseBranch: 'main', testCommand: [process.execPath, 'check.mjs'], pr: 'none', maxUsdPerTask: 5, maxUsdPerDay: 25, ...repo }] }))
   const child = spawn(process.execPath, [WORKER, '--config', file], { env: { ...work.env, CLAUDE_BIN: FAKE_CLAUDE, ...env }, stdio: ['ignore', 'ignore', 'pipe'] })
   let log = ''
   child.stderr.on('data', (d) => (log += d))
@@ -1459,6 +1459,51 @@ const shots = {
    * Coding · Business analysis · QA, the panel waiting at "Approve spec", "Then: Coding" ticked, the page it
    * mentions under "Goes along". The repository's worker with the fake Claude Code CLI — no API, no real host.
    */
+  /**
+   * "Explain the code": the task ran Overview · Static analysis · Components · Documentation check (the worker with the
+   * fake Claude Code CLI, FAKE:DEMOEXPLAIN — no API); a component's page, the documentation tree in the sidebar.
+   */
+  async 'explain-code'(browser) {
+    const work = codingRepo()
+    const { ctx, page } = await freshPage(browser, { viewport: { width: W, height: H } })
+    let worker = null
+    try {
+      await page.evaluate(() => window.__one.ui.getState().openModal({ type: 'settings' }))
+      await page.getByRole('tab', { name: 'Coding worker' }).click()
+      const init = await page.locator('.cw-code pre').filter({ hasText: 'init --workspace' }).first().textContent()
+      const lint = [process.execPath, '-e', "console.log('src/InvoiceRun.cs(212,9): warning CA1305: The behavior of ToString could vary'); console.log('src/TaxTable.cs(48,5): warning CS0618: TaxRate.Old is obsolete'); process.exit(1)"]
+      worker = await startCodingWorker(work, /--workspace (\S+)/.exec(init)[1], {}, { analyzeCommand: lint })
+      const port = page.getByLabel('Port', { exact: true })
+      await port.fill(String(WORKER_PORT))
+      await port.press('Enter')
+      await page.getByRole('switch', { name: 'Connect to a coding worker on this computer' }).click()
+      await page.getByTestId('coding-conn').filter({ hasText: 'Connected' }).waitFor({ timeout: 20_000 })
+      await page.keyboard.press('Escape')
+      await page.getByRole('dialog').waitFor({ state: 'detached' })
+      await page.evaluate(() => (window.location.hash = '#/coding'))
+      await page.getByTestId('coding-setup-explain').click()
+      await page.getByText('Coding database created.').waitFor({ state: 'detached', timeout: 20_000 })
+      await page.getByTestId('coding-new').click()
+      await page.getByTestId('coding-new-title').fill('Billing service')
+      await page.getByTestId('coding-new-repo').fill('website')
+      await page.getByTestId('coding-new-goal').fill('How does invoicing work, and where does the money get rounded? FAKE:DEMOEXPLAIN')
+      await page.getByTestId('coding-create').click()
+      await page.getByTestId('coding-panel').waitFor()
+      await page.locator('.ctk-code').filter({ hasText: /· Approve documentation$/i }).waitFor({ timeout: 90_000 })
+      // the documentation page: written by the pipeline, the intro, a page per component
+      const root = await page.evaluate(() => Object.values(window.__one.workspace.getState().pages).find((p) => p.title === 'Billing service · Components' && !p.trashed)?.id)
+      await page.evaluate((id) => (window.location.hash = `#/p/${id}`), root)
+      await page.getByText('Payment import').last().waitFor()
+      await rest(page)
+      const last = await page.getByText('Payment import').last().boundingBox()
+      await save(page, 'explain-code', { x: 0, y: 0, width: W, height: Math.min(H, Math.round(last.y + last.height + 60)) })
+    } finally {
+      worker?.kill('SIGTERM')
+      await ctx.close()
+      rmSync(work.root, { recursive: true, force: true })
+    }
+  },
+
   async pipelines(browser) {
     const work = codingRepo()
     const { ctx, page } = await freshPage(browser, { viewport: { width: W, height: H + 200 } })

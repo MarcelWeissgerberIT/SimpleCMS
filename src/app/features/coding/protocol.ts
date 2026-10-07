@@ -36,21 +36,29 @@ export const PARALLEL_MAX = 2
  * 'import' = the task's code arrives here (an "Import" stage, e.g. legacy code): in the task panel the person hands
  * the worker a ZIP or a clone address, the worker makes it a new repository (intake.ts) and the task takes it as its
  * Repo, then moves on. The worker never takes a task standing there.
+ * 'analyze' = static analysis: the repo's analyzeCommand (worker.json / setup page; a linter, a compiler, a vet …) runs in
+ * the task's worktree (or the main checkout when the task has none — it creates no branch); its output becomes a section
+ * of the page, so the stages after it read the findings. A non-zero exit is a finding, not a failure.
  */
-export const STAGE_KINDS = ['queue', 'import', 'plan', 'doc', 'gate', 'implement', 'test', 'git', 'done'] as const
+export const STAGE_KINDS = ['queue', 'import', 'analyze', 'plan', 'doc', 'gate', 'implement', 'test', 'git', 'done'] as const
 export type StageKind = (typeof STAGE_KINDS)[number]
 /** Claude Code permission modes a stage may ask for — never one that skips permissions. */
 export const PERMISSION_MODES = ['plan', 'acceptEdits', 'default'] as const
 export type PermissionMode = (typeof PERMISSION_MODES)[number]
-/** What a git stage does: commit · commit + push · commit + push + pull request · merge the base in. */
-export const GIT_ACTIONS = ['commit', 'push', 'pr', 'update-base'] as const
+/**
+ * What a git stage does: commit · commit + push · commit + push + pull request · merge the base in · post the newest
+ * review document to the branch's merge / pull request · merge that request on the host (gh / glab).
+ */
+export const GIT_ACTIONS = ['commit', 'push', 'pr', 'update-base', 'comment', 'merge'] as const
 export type GitAction = (typeof GIT_ACTIONS)[number]
 /**
  * The person's git actions in One — fixed verbs the worker maps to its own commands. "reveal" only prints
- * the worktree's path in the worker's terminal (it never comes to One); "discard" and "force-push" are
- * double-confirmed in One; "discard" / "cleanup" touch only branches and worktrees the worker created.
+ * the worktree's path in the worker's terminal (it never comes to One); "discard", "force-push" and "merge-pr"
+ * are confirmed in One; "discard" / "cleanup" touch only branches and worktrees the worker created; "comment-pr"
+ * posts `message` (the review) to the branch's merge / pull request, "merge-pr" merges it — both with the person's
+ * own glab / gh.
  */
-export const GIT_VERBS = ['refresh', 'commit', 'push', 'force-push', 'pr', 'update-base', 'discard', 'cleanup', 'reveal'] as const
+export const GIT_VERBS = ['refresh', 'commit', 'push', 'force-push', 'pr', 'update-base', 'discard', 'cleanup', 'reveal', 'comment-pr', 'merge-pr'] as const
 export type GitVerb = (typeof GIT_VERBS)[number]
 
 /** A repo name as worker.json may name it (One shows and stores only names). */
@@ -121,6 +129,8 @@ export interface TaskPayload {
   spent: number
   /** the newest summary of an implement stage (the commit message's body) */
   summary: string | null
+  /** the newest review document (a doc stage with output 'review') — what a git 'comment' stage posts; older tabs send none */
+  review?: string | null
   /** team workspaces: written / confirmed on this device (local workspaces: always) */
   trusted: boolean
 }

@@ -33,7 +33,7 @@ import { WorkerState } from './state.ts'
 import { detectClaude, type ClaudeCaps } from './claude.ts'
 import { scratchRepo } from './config.ts'
 import { Intake } from './intake.ts'
-import { checkRepo, cleanup, commitAll, discard, info, localBranches, openPr, prune, push, updateFromBase, worktreeOf, GitError } from './git.ts'
+import { checkRepo, cleanup, commentPr, commitAll, discard, info, isDirty, localBranches, mergePr, openPr, prune, push, updateFromBase, worktreeOf, GitError } from './git.ts'
 import { WorkerLink } from './link.ts'
 import { workerOrigins } from './preset.ts'
 import { dataBlock, markerCode, runStage } from './run.ts'
@@ -476,6 +476,17 @@ export class Worker {
           const r = await discard(repo, this.state, branch)
           this.logLine(taskId, { t: Date.now(), k: 'git', s: `Discarded: ${r.worktree ? 'worktree removed' : 'no worktree'}, ${r.branch ? 'branch deleted' : 'branch kept'}.` })
           return { message: `Discarded${r.branch ? ` — branch ${branch} deleted` : ''}.`, branchGone: r.branch }
+        }
+        case 'comment-pr': {
+          const review = typeof msg.message === 'string' ? msg.message.trim() : ''
+          if (!review) throw new GitError('there is no review to post')
+          const r = await commentPr(repo, dir ?? repo.path, branch, `${review}\n\n— Review from One (coding pipeline).`)
+          return await snap(`Review posted to the ${r.via === 'gh' ? 'pull' : 'merge'} request.`, r.url ?? undefined)
+        }
+        case 'merge-pr': {
+          if (dir && (await isDirty(dir))) throw new GitError('the worktree has uncommitted changes that would not be merged — commit and push them first')
+          const r = await mergePr(repo, dir ?? repo.path, branch)
+          return await snap(`Merged the ${r.via === 'gh' ? 'pull' : 'merge'} request into ${repo.baseBranch}.`, r.url ?? undefined)
         }
         case 'cleanup': {
           const r = await cleanup(repo, this.state, branch)

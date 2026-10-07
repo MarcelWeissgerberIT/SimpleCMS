@@ -28,6 +28,13 @@ export const LOG_CODES = new Set([
   'committed',
   'nothingToCommit',
   'pushed',
+  'docDiff',
+  'analyzeNone',
+  'analyzeRun',
+  'analyzeClean',
+  'analyzeFound',
+  'reviewPosted',
+  'requestMerged',
 ])
 
 const CODE = /^[a-zA-Z][a-zA-Z.]{0,40}$/

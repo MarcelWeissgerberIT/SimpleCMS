@@ -229,3 +229,166 @@ test('a One address pasted as plain text goes along too; "Copy for AI context" p
   expect(copied).toContain('Finding 1: the list has no paging.')
   await expect(page.getByText(/Copied for AI — \d+ words/)).toBeVisible()
 })
+
+/** The worker's repo "website" with extra fields (e.g. an analysis command). */
+const website = (extra: Record<string, unknown> = {}) => ({ repos: [{ name: 'website', path: repo.path, baseBranch: 'main', testCommand: [process.execPath, 'check.mjs'], pr: 'none', maxUsdPerTask: 5, ...extra }] })
+/** A linter that finds something (exit 1). */
+const LINT = [process.execPath, '-e', "console.log('src/app.js:3:1 warning Unexpected var'); process.exit(1)"]
+
+test('Explain the code: overview, static analysis, a One page per component, documentation check — the task links the pages', async ({ page }) => {
+  await openApp(page)
+  await connect(page, website({ analyzeCommand: LINT }))
+  await page.evaluate(() => (window.location.hash = '#/coding'))
+  await page.getByTestId('coding-setup-explain').click()
+  await page.getByTestId('coding-new').click()
+  await page.getByTestId('coding-new-title').fill('Explain the website')
+  await page.getByTestId('coding-new-repo').fill('website')
+  await page.getByTestId('coding-new-goal').fill('How does the website work? FAKE:PAGES')
+  await page.getByTestId('coding-create').click()
+  const id = await taskId(page)
+  await expect(stageOf(page)).toContainText(/· Approve documentation$/i, { timeout: 90_000 })
+  const headings = await h2s(page, id)
+  for (const h of ['Overview', 'Static analysis', 'Components', 'Documentation check']) expect(headings).toContain(h)
+  const plain = await wsEval(page, (s, id) => s.pages[id].plain as string, id)
+  // the analysis section: the program by name, its findings; the stage after it read them
+  expect(plain).toContain('findings (exit code 1)')
+  expect(plain).toContain('src/app.js:3:1 warning Unexpected var')
+  expect(plain).toContain('Static analysis: exit code 1.')
+  expect(plain).toContain('2 pages in')
+  type P = { id: string; title: string; parentId: string | null; trashed?: boolean; content?: { content?: Array<{ type: string; attrs?: { level?: number }; content?: Array<{ text?: string }> }> } }
+  const tree = await wsEval(page, (s, id) => {
+    const pages = Object.values(s.pages as Record<string, P>)
+    const root = pages.find((p) => p.title === 'Explain the website · Components' && !p.trashed)
+    const kids = pages.filter((p) => root && p.parentId === root.id && !p.trashed)
+    const task = JSON.stringify(s.pages[id].content)
+    return {
+      top: root ? root.parentId === null : false,
+      links: (root?.content?.content ?? []).filter((b) => b.type === 'pageLink').length,
+      kids: kids.map((k) => ({
+        title: k.title,
+        h2: (k.content?.content ?? []).filter((b) => b.type === 'heading' && b.attrs?.level === 2).map((b) => (b.content ?? []).map((c) => c.text ?? '').join('')),
+        fenced: JSON.stringify(k.content).includes('## not a heading'),
+        mentioned: task.includes(k.id),
+      })),
+    }
+  }, id)
+  expect(tree.top).toBe(true)
+  expect(tree.links).toBe(2)
+  expect(tree.kids).toEqual([
+    { title: 'Billing', h2: ['How it works'], fenced: true, mentioned: true },
+    { title: 'Reports', h2: [], fenced: false, mentioned: true },
+  ])
+})
+
+test('Projects: a second Coding project with its own tasks; delete puts it and its tasks in the trash — Undo brings it back', async ({ page }) => {
+  await openApp(page)
+  await page.evaluate(() => (window.location.hash = '#/coding'))
+  await page.getByTestId('coding-setup').click()
+  await expect(page.getByTestId('coding-projects')).toContainText('Coding')
+  await expect(page.getByTestId('coding-project-select')).toHaveCount(0)
+  await page.getByTestId('coding-project-new').click()
+  await page.getByTestId('coding-project-name').fill('Checkout redesign')
+  await page.getByTestId('coding-project-create').click()
+  await expect(page.getByText('Project “Checkout redesign” created.')).toBeVisible()
+  const select = page.getByTestId('coding-project-select')
+  await expect(select.locator('option:checked')).toHaveText('Checkout redesign')
+  await expect(page.getByTestId('coding-count')).toContainText('00 tasks')
+  await page.getByTestId('coding-new').click()
+  await page.getByTestId('coding-new-title').fill('Pay by card')
+  await page.getByTestId('coding-new-repo').fill('website')
+  await page.getByTestId('coding-create').click()
+  const id = await taskId(page)
+  type Db = { id: string; system?: string; pipeline?: Array<{ kind: string }>; properties: Array<{ name: string; options?: Array<{ name: string }> }> }
+  const where = await wsEval(page, (s, id) => {
+    const dbs = Object.values(s.databases as Record<string, Db>).filter((d) => d.system === 'coding')
+    const stages = (d: Db) => d.properties.find((p) => p.name === 'Stage')!.options!.map((o) => o.name)
+    return { db: s.pages[s.pages[id].databaseId].title, same: dbs.length === 2 && JSON.stringify(stages(dbs[0]!)) === JSON.stringify(stages(dbs[1]!)) }
+  }, id)
+  expect(where).toEqual({ db: 'Checkout redesign', same: true })
+  await page.evaluate(() => (window.location.hash = '#/coding'))
+  await expect(select.locator('option:checked')).toHaveText('Checkout redesign')
+  await expect(page.getByTestId('coding-count')).toContainText('01 task')
+  // the first project is still there, with none of these tasks
+  await select.selectOption({ label: 'Coding' })
+  await expect(page.getByTestId('coding-count')).toContainText('00 tasks')
+  await select.selectOption({ label: 'Checkout redesign' })
+  await page.getByTestId('coding-project-delete').click()
+  await page.getByTestId('coding-project-delete-confirm').click()
+  await expect(page.getByText('“Checkout redesign” and its tasks are in the trash.')).toBeVisible()
+  await expect(page.getByTestId('coding-project-select')).toHaveCount(0)
+  await expect(page.getByTestId('coding-projects')).toContainText('Coding')
+  const trashed = () => wsEval(page, (s, id) => !!s.pages[s.pages[id].databaseId]?.trashed, id)
+  expect(await trashed()).toBe(true)
+  await page.getByRole('button', { name: 'Undo' }).click()
+  await expect.poll(trashed).toBe(false)
+  await expect(select.locator('option:checked')).toHaveText('Checkout redesign')
+})
+
+test('Spec → stories: the approved specification\'s stories become tasks of a new coding project (in its backlog)', async ({ page }) => {
+  await openApp(page)
+  await connect(page)
+  await page.evaluate(() => (window.location.hash = '#/coding/spec'))
+  await page.getByTestId('coding-setup-stories').click()
+  await page.getByTestId('coding-new').click()
+  await page.getByTestId('coding-new-title').fill('Checkout epic')
+  await page.getByTestId('coding-new-goal').fill('Buyers pay and see their orders. FAKE:STORIES')
+  await page.getByTestId('coding-create').click()
+  const id = await taskId(page)
+  await expect(stageOf(page)).toContainText(/· Approve spec$/i, { timeout: 60_000 })
+  await page.getByTestId('coding-approve').click()
+  await expect(stageOf(page)).toContainText(/· Done$/i, { timeout: 60_000 })
+  const plain = await wsEval(page, (s, id) => s.pages[id].plain as string, id)
+  expect(plain).toContain('3 of 3 stories are tasks in')
+  expect(plain).not.toContain('"stories"')
+  type Row = { id: string; databaseId?: string; title: string; trashed?: boolean; content?: unknown; properties: Record<string, unknown> }
+  const made = await wsEval(page, (s, id) => {
+    const db = Object.values(s.databases as Record<string, { id: string; system?: string; properties: Array<{ id: string; name: string; options?: Array<{ id: string; name: string }> }> }>).find((d) => d.system === 'coding')!
+    const stage = db.properties.find((p) => p.name === 'Stage')!
+    const prio = db.properties.find((p) => p.name === 'Priority')!
+    const rows = Object.values(s.pages as Record<string, Row>).filter((p) => p.databaseId === db.id && !p.trashed)
+    return {
+      title: s.pages[db.id].title,
+      rows: rows
+        .map((r) => ({ title: r.title, stage: stage.options!.find((o) => o.id === r.properties[stage.id])?.name, priority: prio.options!.find((o) => o.id === r.properties[prio.id])?.name, source: JSON.stringify(r.content).includes(id) }))
+        .sort((a, b) => a.title.localeCompare(b.title)),
+    }
+  }, id)
+  expect(made.title).toBe('Checkout — Stories')
+  expect(made.rows).toEqual([
+    { title: 'Order history', stage: 'Backlog', priority: 'Low', source: true },
+    { title: 'Pay by card', stage: 'Backlog', priority: 'High', source: true },
+    { title: 'Save the address', stage: 'Backlog', priority: 'Medium', source: true },
+  ])
+})
+
+test('Review & merge: Claude reviews the branch\'s diff, the review waits at the gate; Post review and Merge go to the worker', async ({ page }) => {
+  await openApp(page)
+  await connect(page)
+  await page.evaluate(() => (window.location.hash = '#/coding'))
+  await page.getByTestId('coding-setup-reviewmerge').click()
+  await page.getByTestId('coding-new').click()
+  await page.getByTestId('coding-new-title').fill('Add the feature file')
+  await page.getByTestId('coding-new-repo').fill('website')
+  await page.getByTestId('coding-new-goal').fill('A feature file.')
+  await page.getByTestId('coding-create').click()
+  const id = await taskId(page)
+  await expect(stageOf(page)).toContainText(/· Approve plan$/i, { timeout: 60_000 })
+  await page.getByTestId('coding-approve').click()
+  await expect(stageOf(page)).toContainText(/· Approve review & merge$/i, { timeout: 90_000 })
+  expect(await h2s(page, id)).toContain('AI review')
+  const plain = await wsEval(page, (s, id) => s.pages[id].plain as string, id)
+  expect(plain).toContain('Branch diff: feature.txt')
+  // nothing was posted or merged before the gate
+  expect(worker!.log()).not.toMatch(/glab|gh pr/)
+  await page.getByTestId('coding-tab-git').click()
+  await expect(page.getByTestId('coding-post-review')).toBeEnabled()
+  await page.getByTestId('coding-post-review').click()
+  await expect(page.getByRole('dialog')).toContainText('Post the review to the merge request of')
+  await page.getByRole('dialog').getByRole('button', { name: 'Post review' }).click()
+  // this repo has merge requests switched off ("pr": "none"): the worker says so
+  await expect(page.getByText(/requests are off for this repo/).first()).toBeVisible({ timeout: 20_000 })
+  await page.getByTestId('coding-merge-pr').click()
+  await expect(page.getByRole('dialog')).toContainText('Merge the merge request of')
+  await page.getByRole('dialog').getByRole('button', { name: 'Merge' }).click()
+  await expect(page.getByText(/requests are off for this repo/).nth(1)).toBeVisible({ timeout: 20_000 })
+})

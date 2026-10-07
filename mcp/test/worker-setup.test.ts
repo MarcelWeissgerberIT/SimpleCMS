@@ -15,7 +15,7 @@ import { WORKER_CLOSE_REFUSED, type OpenSetupResult, type WorkerMessage, type Wo
 import { readPreset, workerOrigins, sameSecret } from '../src/worker/preset.ts'
 import { splitArgs, withPreset, sanitizeConfig } from '../src/worker/config.ts'
 import { readdir } from 'node:fs/promises'
-import { findRepos, guessTest, remoteHost, repoFacts, factsOf, suggestName, shortPath } from '../src/worker/scan.ts'
+import { findRepos, guessAnalyzeAsync, guessTest, remoteHost, repoFacts, factsOf, suggestName, shortPath } from '../src/worker/scan.ts'
 import { pickerCommand } from '../src/worker/picker.ts'
 import { checklistText } from '../src/worker/checklist.ts'
 import { browserCommand } from '../src/worker/opener.ts'
@@ -284,6 +284,19 @@ describe('test command guesses', () => {
     assert.equal(guessTest(linked), null)
   })
 
+  test('static analysis guesses: the lint script by lockfile, ESLint, dotnet, go vet, clippy, ruff, flake8 — argv; nothing known gives nothing', async () => {
+    const lint = '{"scripts":{"lint":"eslint src"}}'
+    assert.deepEqual(await guessAnalyzeAsync(dir({ 'package.json': lint })), ['npm', 'run', 'lint'])
+    assert.deepEqual(await guessAnalyzeAsync(dir({ 'package.json': lint, 'pnpm-lock.yaml': '' })), ['pnpm', 'run', 'lint'])
+    assert.deepEqual(await guessAnalyzeAsync(dir({ 'package.json': '{"scripts":{}}', 'eslint.config.js': '' })), ['npx', 'eslint', '.'])
+    assert.deepEqual(await guessAnalyzeAsync(dir({ 'Billing.sln': '' })), ['dotnet', 'build', '-nologo', '-clp:Summary'])
+    assert.deepEqual(await guessAnalyzeAsync(dir({ 'go.mod': '' })), ['go', 'vet', './...'])
+    assert.deepEqual(await guessAnalyzeAsync(dir({ 'Cargo.toml': '' })), ['cargo', 'clippy'])
+    assert.deepEqual(await guessAnalyzeAsync(dir({ 'pyproject.toml': '[tool.ruff]\nline-length = 100\n' })), ['ruff', 'check', '.'])
+    assert.deepEqual(await guessAnalyzeAsync(dir({ '.flake8': '' })), ['flake8'])
+    assert.equal(await guessAnalyzeAsync(dir({ 'README.md': '' })), null)
+  })
+
   test('a command line becomes argv without a shell', () => {
     assert.deepEqual(splitArgs('npm run test -- --ci'), ['npm', 'run', 'test', '--', '--ci'])
     assert.deepEqual(splitArgs(`pytest -k "slow and not db" 'a b' c\\ d`), ['pytest', '-k', 'slow and not db', 'a b', 'c d'])
@@ -379,11 +392,12 @@ describe('the setup page', () => {
     const alpha = state.repos.find((r: { name: string }) => r.name === 'alpha')
     assert.equal(alpha.ticked, false)
     assert.equal(alpha.testLine, 'pnpm test')
+    assert.equal(alpha.analyzeLine, '')
     assert.equal(alpha.host, 'github.com')
 
     // POSTs: same Origin, JSON, key
     const save = (body: unknown, extra: Parameters<typeof call>[1] = {}) => call('/setup/api/save', { token, origin: SELF, body, ...extra })
-    const pick = { repos: [{ path: alpha.path, name: 'alpha', baseBranch: 'main', test: 'npm run test -- --ci', push: true, pr: 'gh', maxUsdPerTask: 4 }] }
+    const pick = { repos: [{ path: alpha.path, name: 'alpha', baseBranch: 'main', test: 'npm run test -- --ci', analyze: 'npx eslint src --max-warnings 0', push: true, pr: 'gh', maxUsdPerTask: 4 }] }
     assert.equal((await save(pick, { origin: undefined })).status, 403)
     assert.equal((await save(pick, { origin: 'https://evil.example' })).status, 403)
     assert.equal((await save(pick, { origin: `http://localhost:${PORT}` })).status, 403)
@@ -415,6 +429,7 @@ describe('the setup page', () => {
     assert.deepEqual(written.problems, [])
     assert.equal(written.config.workspace, WS.id)
     assert.deepEqual(written.config.repos.map((r) => [r.name, r.testCommand, r.maxUsdPerTask, r.pr]), [['alpha', ['npm', 'run', 'test', '--', '--ci'], 4, 'gh']])
+    assert.deepEqual(written.config.repos[0]!.analyzeCommand, ['npx', 'eslint', 'src', '--max-warnings', '0'])
     assert.match(readFileSync(file, 'utf8'), /"path": "~\/code\/alpha"/)
     await waitFor(() => tab.messages.filter((m) => m.type === 'welcome').length === 2)
     const again = tab.messages.filter((m): m is Extract<WorkerMessage, { type: 'welcome' }> => m.type === 'welcome')[1]!

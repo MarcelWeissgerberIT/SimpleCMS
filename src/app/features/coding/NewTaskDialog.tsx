@@ -11,7 +11,7 @@ import { useWorkspace } from '../../store/store'
 import { useUI } from '../../store/ui'
 import { useT } from '../../i18n'
 import { useCoding } from './state'
-import { FOLLOW_UPS, codingProps, pipelineDbId, readPipeline, type PipelineKind } from './schema'
+import { FOLLOW_UPS, codingProps, currentProjectId, readPipeline, type PipelineKind } from './schema'
 import { createTask, workerBranches, type NewTask } from './tasks'
 
 export function NewTaskDialog({ onClose, onCreated, kind = 'coding' }: { onClose: () => void; onCreated: (id: string) => void; kind?: PipelineKind }) {
@@ -19,21 +19,20 @@ export function NewTaskDialog({ onClose, onCreated, kind = 'coding' }: { onClose
   const uid = useId()
   const worker = useCoding((s) => s.worker)
   const dbs = useWorkspace((s) => s.databases)
+  // the project #/coding shows on this device: the new task goes there
+  const [project] = useState(() => currentProjectId(kind))
   const known = useMemo(() => {
     const names = new Set((worker?.repos ?? []).map((r) => r.name))
-    const dbId = pipelineDbId(kind)
+    const dbId = project
     const db = dbId ? dbs[dbId] : undefined
     if (db) {
       const props = codingProps(db)
       for (const o of db.properties.find((p) => p.id === props.repo)?.options ?? []) names.add(o.name)
     }
     return [...names]
-  }, [worker, dbs, kind])
+  }, [worker, dbs, project])
   // the code arrives in the task (an Import stage), or the pipeline writes documents: no repo needed
-  const intake = useMemo(() => {
-    const dbId = pipelineDbId(kind)
-    return readPipeline(dbId ? dbs[dbId] : undefined).some((s) => s.kind === 'import')
-  }, [dbs, kind])
+  const intake = useMemo(() => readPipeline(project ? dbs[project] : undefined).some((s) => s.kind === 'import'), [dbs, project])
   const repoOptional = kind !== 'coding' || intake
   const [then, setThen] = useState<PipelineKind[]>([])
   const [title, setTitle] = useState('')
@@ -53,7 +52,7 @@ export function NewTaskDialog({ onClose, onCreated, kind = 'coding' }: { onClose
     if (!ok || saving) return
     setSaving(true)
     try {
-      const id = await createTask({ kind, title, repo: repo.trim() || null, goal, criteria: criteria.split('\n'), priority, branch: kind === 'coding' ? branch : '', start, followUps: then })
+      const id = await createTask({ kind, ...(project ? { dbId: project } : {}), title, repo: repo.trim() || null, goal, criteria: criteria.split('\n'), priority, branch: kind === 'coding' ? branch : '', start, followUps: then })
       onCreated(id)
     } catch (e) {
       useUI.getState().toast({ message: e instanceof Error && e.message === 'read-only' ? t('features.coding.setup.readOnly') : String(e), kind: 'error' })

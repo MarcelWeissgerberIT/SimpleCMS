@@ -312,6 +312,38 @@ export async function worktreeOf(repo: RepoConfig, branch: string): Promise<stri
   return tree && !same(tree.path, top) && existsSync(tree.path) ? tree.path : null
 }
 
+/**
+ * What a branch changes against the base, as unified diff text for a prompt (document stages, e.g. an AI review): in the
+ * task's worktree its committed and uncommitted changes (+ the names of new files), else the branch's commits. Clipped at
+ * `max` characters on a line end; null when the branch is unknown or changes nothing.
+ */
+export async function branchDiff(repo: RepoConfig, branch: string, dir: string | null, max = 80_000): Promise<{ text: string; files: number; clipped: boolean } | null> {
+  if (!dir && !(await branchExists(repo, branch))) return null
+  let base: string
+  try {
+    base = await baseRef(repo)
+  } catch {
+    return null
+  }
+  const cwd = dir ?? repo.path
+  const mb = (await git(cwd, ['merge-base', base, dir ? 'HEAD' : branch])).stdout.trim()
+  if (!mb) return null
+  const range = dir ? [mb] : [mb, branch]
+  const stat = (await git(cwd, ['diff', '--stat=120', '-M', ...range])).stdout.trimEnd()
+  const files = (await git(cwd, ['diff', '--name-only', '-M', ...range])).stdout.split('\n').filter(Boolean).length
+  const fresh = dir ? (await git(cwd, ['ls-files', '--others', '--exclude-standard'])).stdout.split('\n').filter(Boolean).slice(0, 100) : []
+  let diff = (await git(cwd, ['diff', '-M', ...range], 120_000)).stdout
+  if (!diff.trim() && !fresh.length) return null
+  let clipped = false
+  if (diff.length > max) {
+    diff = diff.slice(0, max)
+    diff = diff.slice(0, diff.lastIndexOf('\n') + 1)
+    clipped = true
+  }
+  const text = [stat, fresh.length ? `New files (not in git yet): ${fresh.join(', ')}` : '', '', diff, clipped ? '[… the diff goes on — read the files for the rest]' : ''].filter((x, i) => x || i === 2).join('\n')
+  return { text, files: files + fresh.length, clipped }
+}
+
 /* ------------------------------------------------------------------ status, diff */
 
 interface StatusEntry {
@@ -587,6 +619,71 @@ export async function openPr(repo: RepoConfig, dir: string, branch: string, titl
   }
   const url = compareUrl(remoteUrl, repo.baseBranch, branch)
   return { url, via: url ? 'link' : 'none' }
+}
+
+/** The host CLI for this repo's merge / pull requests: gh on a GitHub remote, glab on a GitLab one (installed, `pr: "gh"`). */
+async function hostCli(repo: RepoConfig, dir: string): Promise<{ tool: 'gh' | 'glab'; url: string }> {
+  if (repo.pr !== 'gh') throw new GitError('pull / merge requests are off for this repo (worker.json "pr": "none")')
+  const remoteUrl = (await git(repo.path, ['remote', 'get-url', repo.remote])).stdout.trim()
+  const web = webBase(remoteUrl)
+  if (!web) throw new GitError(`the remote "${repo.remote}" is neither a GitHub nor a GitLab address`)
+  const tool = web.kind === 'github' ? 'gh' : 'glab'
+  if ((await run(tool, ['--version'], dir, 10_000)).code !== 0) throw new GitError(`${tool} is not installed on this computer — install it and sign in (${tool} auth login)`)
+  return { tool, url: `https://${web.host}/${web.path}` }
+}
+
+const lastLines = (r: GitRun, n = 3) => (r.stderr || r.stdout).trim().split('\n').slice(-n).join(' ')
+
+/** The address of the branch's open merge / pull request (null when there is none). */
+async function requestUrl(tool: 'gh' | 'glab', dir: string, branch: string): Promise<string | null> {
+  if (tool === 'gh') {
+    const view = await run('gh', ['pr', 'view', branch, '--json', 'url', '--jq', '.url'], dir, 30_000)
+    return view.code === 0 && /^https?:\/\//.test(view.stdout.trim()) ? view.stdout.trim() : null
+  }
+  const view = await run('glab', ['mr', 'view', branch, '--output', 'json'], dir, 30_000)
+  if (view.code !== 0) return null
+  try {
+    const url = (JSON.parse(view.stdout) as { web_url?: unknown }).web_url
+    return typeof url === 'string' && /^https?:\/\//.test(url) ? url : null
+  } catch {
+    return /https?:\/\/\S+\/-\/merge_requests\/\d+/.exec(view.stdout)?.[0] ?? null
+  }
+}
+
+/** Post a comment (the review) to the branch's merge / pull request — the person's own gh / glab. */
+export async function commentPr(repo: RepoConfig, dir: string, branch: string, body: string): Promise<{ via: 'gh' | 'glab'; url: string | null }> {
+  const text = body.trim().slice(0, 60_000)
+  if (!text) throw new GitError('there is nothing to post')
+  const { tool } = await hostCli(repo, dir)
+  const made = tool === 'gh' ? await run('gh', ['pr', 'comment', branch, '--body', text], dir) : await run('glab', ['mr', 'note', branch, '--message', text], dir)
+  if (made.code !== 0) throw new GitError(`${tool === 'gh' ? 'gh pr comment' : 'glab mr note'} failed: ${lastLines(made)}`)
+  return { via: tool, url: (await requestUrl(tool, dir, branch)) ?? /https?:\/\/\S+/.exec(made.stdout)?.[0] ?? null }
+}
+
+/**
+ * Merge the branch's merge / pull request on the host (confirmed in One, or a git stage after a gate): gh with a merge
+ * commit (squash, then rebase when the repository allows only those), glab with the project's own merge method. The
+ * branch is not deleted (Clean up does that); the base is fetched afterwards so the task shows "merged".
+ */
+export async function mergePr(repo: RepoConfig, dir: string, branch: string): Promise<{ via: 'gh' | 'glab'; url: string | null }> {
+  const { tool } = await hostCli(repo, dir)
+  const url = await requestUrl(tool, dir, branch)
+  if (!url) throw new GitError(`"${branch}" has no open ${tool === 'gh' ? 'pull' : 'merge'} request — open one first (Ship / Pull request)`)
+  if (tool === 'gh') {
+    let last: GitRun | null = null
+    for (const how of ['--merge', '--squash', '--rebase']) {
+      last = await run('gh', ['pr', 'merge', branch, how], dir, 300_000)
+      if (last.code === 0) break
+      if (!/not allowed|not enabled|merge method/i.test(`${last.stderr}${last.stdout}`)) break
+    }
+    if (!last || last.code !== 0) throw new GitError(`gh pr merge failed: ${last ? lastLines(last) : ''}`)
+  } else {
+    const made = await run('glab', ['mr', 'merge', branch, '--yes'], dir, 300_000)
+    if (made.code !== 0) throw new GitError(`glab mr merge failed: ${lastLines(made)}`)
+  }
+  // merged on the host: a fetch that fails now changes nothing about that
+  await tryFetch(repo)
+  return { via: tool, url }
 }
 
 /* ------------------------------------------------------------------ update from base */

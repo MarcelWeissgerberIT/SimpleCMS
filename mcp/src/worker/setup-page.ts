@@ -205,6 +205,8 @@ export const SETUP_JS = String.raw`(function () {
     baseLabel: 'Base branch',
     testLabel: 'Test command',
     testHint: 'Runs without a shell — && | > are plain words. Empty: no test stage.',
+    analyzeLabel: 'Static analysis',
+    analyzeHint: 'The Static analysis stage runs this (a linter, dotnet build, go vet …) — its findings go into the task page. Empty: none.',
     noTests: 'No test stage',
     push: 'Push branches',
     pr: 'Pull / merge requests (gh · glab)',
@@ -307,6 +309,8 @@ export const SETUP_JS = String.raw`(function () {
     baseLabel: 'Basis-Branch',
     testLabel: 'Testbefehl',
     testHint: 'Läuft ohne Shell – && | > sind normale Wörter. Leer: keine Test-Stufe.',
+    analyzeLabel: 'Statische Analyse',
+    analyzeHint: 'Die Stufe „Statische Analyse“ führt das aus (ein Linter, dotnet build, go vet …) – die Befunde kommen in die Aufgabenseite. Leer: keine.',
     noTests: 'Keine Test-Stufe',
     push: 'Branches pushen',
     pr: 'Pull / Merge Requests (gh · glab)',
@@ -457,7 +461,7 @@ export const SETUP_JS = String.raw`(function () {
   }
 
   function editOf(r) {
-    if (!edits[r.path]) edits[r.path] = { ticked: r.ticked, name: r.name, base: r.base, test: r.testLine, push: r.push, pr: r.pr, limit: r.maxUsdPerTask === null ? '' : String(r.maxUsdPerTask), mcp: r.mcp || '' }
+    if (!edits[r.path]) edits[r.path] = { ticked: r.ticked, name: r.name, base: r.base, test: r.testLine, push: r.push, pr: r.pr, limit: r.maxUsdPerTask === null ? '' : String(r.maxUsdPerTask), mcp: r.mcp || '', analyze: r.analyzeLine || '' }
     return edits[r.path]
   }
 
@@ -539,6 +543,7 @@ export const SETUP_JS = String.raw`(function () {
       el('div', { className: 'field' }, [el('label', { className: 'label', for: id + 'n', text: t('nameLabel') }), el('input', { type: 'text', id: id + 'n', value: e.name, maxlength: 64, spellcheck: 'false', oninput: function (ev) { e.name = ev.target.value } })]),
       el('div', { className: 'field' }, [el('label', { className: 'label', for: id + 'b', text: t('baseLabel') }), base]),
       el('div', { className: 'field' }, [el('label', { className: 'label', for: id + 't', text: t('testLabel') }), el('input', { type: 'text', id: id + 't', value: e.test, spellcheck: 'false', autocomplete: 'off', oninput: function (ev) { e.test = ev.target.value; drawKeys() } }), keys, el('span', { className: 'hint', text: t('testHint') })]),
+      el('div', { className: 'field' }, [el('label', { className: 'label', for: id + 'a', text: t('analyzeLabel') }), el('input', { type: 'text', id: id + 'a', value: e.analyze, spellcheck: 'false', autocomplete: 'off', oninput: function (ev) { e.analyze = ev.target.value } }), el('span', { className: 'hint', text: t('analyzeHint') })]),
       el('div', { className: 'field field--wide' }, [el('div', { className: 'toggles' }, toggles)]),
       el('div', { className: 'field' }, [el('div', { className: 'limit' }, [el('label', { className: 'label', for: id + 'l', text: t('limit') }), el('input', { type: 'number', id: id + 'l', min: '0', step: '0.5', value: e.limit, placeholder: t('noLimit'), inputmode: 'decimal', oninput: function (ev) { e.limit = ev.target.value } })])]),
       el('div', { className: 'field field--wide' }, [el('label', { className: 'label', for: id + 'm', text: t('mcpLabel') }), el('input', { type: 'text', id: id + 'm', value: e.mcp, placeholder: 'atlas', spellcheck: 'false', autocomplete: 'off', oninput: function (ev) { e.mcp = ev.target.value } }), el('span', { className: 'hint', text: t('mcpHint') })])
@@ -835,7 +840,7 @@ export const SETUP_JS = String.raw`(function () {
     var repos = state.repos.filter(function (r) { return editOf(r).ticked }).map(function (r) {
       var e = editOf(r)
       var limit = parseFloat(String(e.limit).replace(',', '.'))
-      return { path: r.path, name: e.name.trim(), baseBranch: e.base, test: e.test, push: e.push, pr: e.pr, maxUsdPerTask: isFinite(limit) && limit > 0 ? limit : null, mcp: e.mcp }
+      return { path: r.path, name: e.name.trim(), baseBranch: e.base, test: e.test, analyze: e.analyze, push: e.push, pr: e.pr, maxUsdPerTask: isFinite(limit) && limit > 0 ? limit : null, mcp: e.mcp }
     })
     busy = 'save'
     note = null

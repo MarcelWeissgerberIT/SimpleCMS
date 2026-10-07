@@ -4,7 +4,7 @@ title: Altsoftware modernisieren
 section: ai
 order: 10
 keywords: altsoftware, legacy, alter code, modernisieren, neu bauen, neubau, migration, zip, import, klonen, gitlab, github, glab, gh, code-analyse, architektur, design, testentwurf, charakterisierungstests, atlas, wissensbasis, mcp
-related: coding-pipeline, pipelines, mcp-servers, agent
+related: explain-code, coding-pipeline, pipelines, review-merge, mcp-servers, agent
 summary: Von einer ZIP oder einem GitLab-Projekt zur neu gebauten Version — Analyse, Design und Testentwurf als Abschnitte einer Seite in One, Tests, die das heutige Verhalten festhalten, dann der Neubau.
 ---
 One, der [Coding-Worker](help:coding-pipeline) und Claude Code nehmen alte Software auseinander und bauen sie neu. Jeder Schritt landet in der Seite der Aufgabe – dort liest du ihn, besprichst ihn und gibst ihn frei. Dein Code bleibt auf deinem Rechner.
@@ -21,12 +21,13 @@ Hak das Repository an, trag seinen **Testbefehl** ein, falls es einen gibt, und 
 ## 2. Die Pipeline
 Unter **#/coding → Pipeline** die Vorlage **Altsoftware modernisieren** wählen und speichern:
 0. **Import**: der Code der Aufgabe – ZIP, Klon-Adresse oder ein vorhandenes Repo (siehe oben).
-1. **Analyse** (Plan-Modus – nichts wird geändert): Überblick, Architektur mit Diagramm, Datenmodell, Abhängigkeiten, Qualitäts-Brennpunkte, Risiken, das Verhalten, das bleiben muss.
-2. **Design**: Zielarchitektur, UI und Design, Migration, was besser wird.
-3. **Testentwurf**: Charakterisierungstests – eine Tabelle von Fällen, die das heutige Verhalten festhalten.
-4. **Konzept freigeben**: die drei Abschnitte in der Seite lesen; bei Bedarf **Nacharbeit…** mit einer Notiz.
-5. **Tests schreiben** gegen den alten Code, dann **Tests am Altcode** – sie müssen bestehen.
-6. **Neubau**, **Test** (dieselben Tests am neuen Code), **Review**, **Ausliefern**.
+1. **Statische Analyse**: Linter / Compiler des Repositorys (das Feld *Statische Analyse* der Einrichtungsseite) – die Befunde landen in der Seite, und die Analyse liest sie.
+2. **Analyse** (Plan-Modus – nichts wird geändert): Überblick, Architektur mit Diagramm, Datenmodell, Abhängigkeiten, Qualitäts-Brennpunkte, Risiken, das Verhalten, das bleiben muss.
+3. **Design**: Zielarchitektur, UI und Design, Migration, was besser wird.
+4. **Testentwurf**: Charakterisierungstests – eine Tabelle von Fällen, die das heutige Verhalten festhalten.
+5. **Konzept freigeben**: die drei Abschnitte in der Seite lesen; bei Bedarf **Nacharbeit…** mit einer Notiz.
+6. **Tests schreiben** gegen den alten Code, dann **Tests am Altcode** – sie müssen bestehen.
+7. **Neubau**, **Test** (dieselben Tests am neuen Code), **Review**, **Ausliefern**.
 
 Jede Plan-Stufe schreibt ihren eigenen Abschnitt in die Seite (*Analyse*, *Design*, *Testentwurf*) – so lesen die späteren Stufen, was die früheren gefunden haben. Schlagen Tests fehl, geht die Aufgabe einmal mit der Ausgabe zur Stufe davor zurück.
 
@@ -36,6 +37,9 @@ Jede Plan-Stufe schreibt ihren eigenen Abschnitt in die Seite (*Analyse*, *Desig
 ## 4. Deine Wissensbasis (z. B. Atlas)
 - **Claude Code auf dem Worker**: auf der Setup-Seite den Server unter *Eigene MCP-Server für Claude Code* eintragen (der Name aus `claude mcp list`, z. B. `atlas`). Die Stufen dürfen dann lesen, was über den Code bekannt ist, und Erkenntnisse und Entscheidungen festhalten.
 - **In One**: das KI-Terminal (<kbd>Mod+J</kbd>) mit dem Codewort des Servers – z. B. `atlas: halte die Risiken dieser Analyse fest` – siehe [MCP-Server](help:mcp-servers).
+
+## Nur verstehen?
+Um den Code zu erklären, ohne ihn neu zu bauen – eine One-Seite je Komponente, ein Doku-Check – nimm die Vorlage **Code erklären**: [Altsoftware in One-Dokumenten erklären](help:explain-code).
 
 ## Tipps
 - Großer Altcode: mit einem Modul anfangen – die Analyse bleibt lesbar.

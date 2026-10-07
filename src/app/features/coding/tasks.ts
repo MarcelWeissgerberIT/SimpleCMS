@@ -21,7 +21,9 @@ import { navigate, parseHash } from '../../lib/router'
 import { aiWrite } from '../history/snapshots'
 import { t } from '../../i18n'
 import { CLAIM_STALE_MS, type GitInfo, type StageOutcome, type TaskPayload } from './protocol'
-import { CASE_TYPES, FOLLOW_UPS, PIPELINE_KINDS, caseProps, codingProps, ensureCaseDb, ensurePipelineDb, addRepoOptions, kindOfDb, nextStage, optionByName, optionName, pipelineDbIds, priorityRank, readPipeline, stageNear, stageOfRow, type CodingProps, type PipelineKind, type ResolvedStage } from './schema'
+import { CASE_TYPES, FOLLOW_UPS, PIPELINE_KINDS, caseProps, codingProps, createProject, currentProjectId, ensureCaseDb, ensurePipelineDb, addRepoOptions, inTeam, kindOfDb, nextStage, optionByName, optionName, pipelineDbIds, priorityRank, readPipeline, stageNear, stageOfRow, type CodingProps, type PipelineKind, type ResolvedStage } from './schema'
+import { parseStories, splitSections, type DocSection, type Story } from './outputs'
+import { createPrivatePage } from '../../cloud'
 import { appendLog, loadTask, patchTask, taskLocal, type TaskLocal } from './local'
 import { isTrusted, keepTrust, trustTask } from './trust'
 import { taskText } from './refs'
@@ -87,14 +89,14 @@ const PLAN_NAMES = () => [t('features.coding.page.plan')].map((s) => s.toLowerCa
  * Replace the page's "Plan" section (its H2 up to the next H1 / H2 or note) — or add it at the end. With more
  * than one plan stage (e.g. Analysis · Design · Test design) each writes its own section, named like the stage.
  */
-export function writePlan(pageId: ID, md: string, title?: string) {
+export function writePlan(pageId: ID, md: string, title?: string, extra: JSONContent[] = []) {
   const p = ws().pages[pageId]
   if (!p) return
   const blocks = docOf(p)
   const names = title ? [title.toLowerCase()] : PLAN_NAMES()
   const at = blocks.findIndex((b) => b.type === 'heading' && (b.attrs?.level ?? 1) <= 2 && names.includes(headingText(b)))
   // the plan's own headings sit below "Plan" (H3), so the section ends at the next H1 / H2 or note (callout)
-  const body = blocksOf(md).map((b) => (b.type === 'heading' && (b.attrs?.level ?? 1) < 3 ? { ...b, attrs: { ...b.attrs, level: 3 } } : b))
+  const body = [...blocksOf(md).map((b) => (b.type === 'heading' && (b.attrs?.level ?? 1) < 3 ? { ...b, attrs: { ...b.attrs, level: 3 } } : b)), ...extra]
   const section: JSONContent[] = [{ type: 'heading', attrs: { level: 2 }, content: [{ type: 'text', text: title ?? t('features.coding.page.plan') }] }, ...body]
   if (at < 0) blocks.push(...section)
   else {
@@ -211,6 +213,7 @@ export async function pickNext(repos: string[], workerName: string, docs = false
       branch: text(fresh.properties[props.branch ?? '']).trim() || null,
       spent: typeof fresh.properties[props.cost ?? ''] === 'number' ? (fresh.properties[props.cost!] as number) : 0,
       summary: local.summary ?? null,
+      review: local.review?.text ?? null,
       trusted: true,
     }
   }
@@ -250,12 +253,28 @@ export async function finishStage(taskId: ID, stageId: ID, outcome: StageOutcome
   // QA: the test cases of a document stage become rows of the Test cases database (the JSON leaves the page)
   let doc = outcome.plan ?? null
   let cases: TestCase[] = []
-  if (doc && stage?.kind === 'doc' && stage.output === 'testcases') {
+  const output = stage?.kind === 'doc' ? stage.output : undefined
+  if (doc && output === 'testcases') {
     const parsed = parseCases(doc)
     cases = parsed.cases
     doc = parsed.rest
   }
+  // Business analysis → stories: a NEW coding project with a task per story (backlog — the person starts them)
+  const extra: JSONContent[] = []
+  if (doc && output === 'stories' && stillThere) {
+    const parsed = parseStories(doc)
+    if (parsed.stories.length) {
+      doc = parsed.rest
+      const made = await createStories(taskId, parsed.stories, parsed.project, local.storiesDb ?? null).catch(() => null)
+      if (made) {
+        patch.storiesDb = made.dbId
+        extra.push(storiesNote(made.dbId, made.created, parsed.stories.length))
+      }
+    }
+  }
+  const tree = doc && output === 'pages' ? splitSections(doc) : null
   if (outcome.plan) patch.plan = doc ?? outcome.plan
+  if (doc && output === 'review') patch.review = { text: doc.slice(0, 60_000), at: Date.now() }
   if (outcome.summary && stage?.kind === 'implement') patch.summary = outcome.summary
 
   const passed: string[] = []
@@ -324,8 +343,15 @@ export async function finishStage(taskId: ID, stageId: ID, outcome: StageOutcome
         const caseDb = createCases(taskId, row.title.trim() || t('common.untitled'), cases)
         doc = `${doc ?? ''}\n\n${t('features.coding.case.made', { n: cases.length, db: ws().pages[caseDb]?.title ?? t('features.coding.case.db') })}`
       }
-      // a document stage writes its own section (headed like the stage); plan stages too when there are several
-      if (doc) writePlan(taskId, doc, stage && (stage.kind === 'doc' || pipeline.filter((x) => x.kind === 'plan').length > 1) ? stage.name : undefined)
+      // output 'pages': the sections become a page tree; the task's section keeps the intro and links to the pages
+      if (doc && tree?.sections.length && stage) {
+        const pages = writeDocPages(taskId, stage, row.title.trim() || t('common.untitled'), tree, local.docPages?.[stage.id] ?? null)
+        patch.docPages = { ...(local.docPages ?? {}), [stage.id]: pages.rootId }
+        doc = tree.intro
+        extra.push(...pagesNote(pages.rootId, pages.children))
+      }
+      // a document / analysis stage writes its own section (headed like the stage); plan stages too when there are several
+      if (doc !== null && (doc || extra.length)) writePlan(taskId, doc, stage && (stage.kind === 'doc' || stage.kind === 'analyze' || pipeline.filter((x) => x.kind === 'plan').length > 1) ? stage.name : undefined, extra)
       if (outcome.status === 'ok' && outcome.summary && stage && (stage.kind === 'implement' || stage.kind === 'git'))
         appendNote(taskId, KIND_ICON[stage.kind] ?? 'asset:code', 'gray', `${stage.name} · ${stamp()}`, outcome.summary)
       if (moveTo) moveRow(taskId, props, moveTo.id)
@@ -437,6 +463,103 @@ function createCases(taskId: ID, taskTitle: string, cases: TestCase[]): ID {
     ws().createRow(dbId, { title: c.title, properties, content: { type: 'doc', content } })
   }
   return dbId
+}
+
+/* ------------------------------------------------------------------ document outputs: pages, stories */
+
+const mentionOf = (id: ID, label: string): JSONContent => ({ type: 'mention', attrs: { id, label, kind: 'page' } })
+
+/** A heading level less inside a page of its own (the section's ### become ##). */
+const lifted = (blocks: JSONContent[]): JSONContent[] => blocks.map((b) => (b.type === 'heading' && (b.attrs?.level ?? 1) === 3 ? { ...b, attrs: { ...b.attrs, level: 2 } } : b))
+
+/**
+ * Output 'pages': one documentation page ("<task> · <stage>", top level; private in a team) holding the intro and a
+ * link per page, a page per section under it. A re-run (same device) updates the pages of the same titles, adds new
+ * ones and leaves the others (someone may have written in them). Inside aiWrite: a changed page keeps a version first.
+ */
+function writeDocPages(taskId: ID, stage: ResolvedStage, taskTitle: string, tree: { intro: string; sections: DocSection[] }, known: ID | null): { rootId: ID; children: Array<{ id: ID; title: string }> } {
+  const s = ws()
+  const live = (id: ID | null | undefined) => !!id && !!s.pages[id] && !s.pages[id]!.trashed
+  const make = (input: Parameters<typeof s.createPage>[0]) => (inTeam() ? createPrivatePage(input) : ws().createPage(input))
+  const rootTitle = `${taskTitle} · ${stage.name}`
+  const rootId = live(known) ? known! : make({ parentId: null, title: rootTitle, icon: { type: 'asset', value: 'notepad' }, content: { type: 'doc', content: [para('')] } })
+  const children: Array<{ id: ID; title: string }> = []
+  const existing = Object.values(ws().pages).filter((p) => p.parentId === rootId && !p.trashed && !p.databaseId)
+  for (const sec of tree.sections) {
+    const content = { type: 'doc', content: (() => {
+      const b = lifted(blocksOf(sec.body))
+      return b.length ? b : [para('')]
+    })() }
+    const same = existing.find((p) => p.title.trim().toLowerCase() === sec.title.toLowerCase())
+    if (same) {
+      ws().setContent(same.id, content, 'coding')
+      children.push({ id: same.id, title: same.title })
+    } else children.push({ id: make({ parentId: rootId, title: sec.title, content }), title: sec.title })
+  }
+  const intro = blocksOf(tree.intro)
+  ws().setContent(
+    rootId,
+    {
+      type: 'doc',
+      content: [
+        { type: 'paragraph', content: [{ type: 'text', text: `${t('features.coding.out.pagesFrom')} ` }, mentionOf(taskId, taskTitle)] },
+        ...intro,
+        ...children.map((c) => ({ type: 'pageLink', attrs: { pageId: c.id } })),
+      ],
+    },
+    'coding',
+  )
+  return { rootId, children }
+}
+
+/** In the task's section: the documentation page and a list of its pages (mentions — later stages read them along). */
+function pagesNote(rootId: ID, children: Array<{ id: ID; title: string }>): JSONContent[] {
+  const root = ws().pages[rootId]?.title ?? ''
+  return [
+    { type: 'paragraph', content: [{ type: 'text', text: `${t('features.coding.out.pagesMade', { n: children.length })} `, marks: [{ type: 'bold' }] }, mentionOf(rootId, root)] },
+    { type: 'bulletList', content: children.map((c) => ({ type: 'listItem', content: [{ type: 'paragraph', content: [mentionOf(c.id, c.title)] }] })) },
+  ]
+}
+
+/**
+ * Output 'stories': a new coding project ("<project or task> — Stories", its pipeline copied from the coding project
+ * shown here) and a task per story — same repo and priority rules, a mention of the source, in the backlog. A re-run
+ * adds only stories whose title is not there yet.
+ */
+async function createStories(taskId: ID, stories: Story[], project: string, known: ID | null): Promise<{ dbId: ID; created: number }> {
+  const ctx = taskContext(taskId)
+  if (!ctx) throw new Error('gone')
+  const title = ctx.row.title.trim() || t('common.untitled')
+  const dbId = known && kindOfDb(known) === 'coding' ? known : createProject('coding', t('features.coding.out.storiesDb', { name: project || title }), undefined, { show: false })
+  const have = new Set(Object.values(ws().pages).filter((p) => p.databaseId === dbId && !p.trashed).map((p) => p.title.trim().toLowerCase()))
+  const repo = optionName(ctx.db, ctx.props.repo, ctx.row.properties[ctx.props.repo ?? ''])
+  let created = 0
+  for (const st of stories) {
+    if (have.has(st.title.toLowerCase())) continue
+    have.add(st.title.toLowerCase())
+    await createTask({
+      kind: 'coding',
+      dbId,
+      title: st.title,
+      repo,
+      goal: st.text,
+      criteria: st.criteria,
+      priority: st.priority,
+      branch: '',
+      start: false,
+      extra: [{ type: 'paragraph', content: [{ type: 'text', text: `${t('features.coding.out.storyFrom')} ` }, mentionOf(taskId, title)] }],
+    })
+    created++
+  }
+  return { dbId, created }
+}
+
+function storiesNote(dbId: ID, created: number, total: number): JSONContent {
+  return {
+    type: 'callout',
+    attrs: { icon: 'asset:publish', color: 'green' },
+    content: [{ type: 'paragraph', content: [{ type: 'text', text: `${t('features.coding.out.storiesMade', { n: created, total })} `, marks: [{ type: 'bold' }] }, mentionOf(dbId, ws().pages[dbId]?.title ?? '')] }],
+  }
 }
 
 /* ------------------------------------------------------------------ follow-ups (one chain hands on to another) */
@@ -581,11 +704,14 @@ export interface NewTask {
   extra?: JSONContent[]
   /** "Then": the kinds this task hands on to when it is done */
   followUps?: PipelineKind[]
+  /** the project (pipeline database) — default: the one #/coding shows for the kind on this device */
+  dbId?: ID
 }
 
 /** A new task (the Coding database is created on first use). Trusted on this device. */
 export async function createTask(input: NewTask): Promise<ID> {
-  const dbId = ensurePipelineDb(input.kind ?? 'coding')
+  const kind = input.kind ?? 'coding'
+  const dbId = input.dbId && kindOfDb(input.dbId) === kind ? input.dbId : (currentProjectId(kind) ?? ensurePipelineDb(kind))
   if (input.repo) addRepoOptions(dbId, [input.repo])
   const db = ws().databases[dbId]!
   const props = codingProps(db)

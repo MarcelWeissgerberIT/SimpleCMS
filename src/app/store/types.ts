@@ -640,7 +640,7 @@ export interface Database {
  */
 export interface PipelineStage {
   id: ID
-  kind: 'queue' | 'import' | 'plan' | 'doc' | 'gate' | 'implement' | 'test' | 'git' | 'done'
+  kind: 'queue' | 'import' | 'analyze' | 'plan' | 'doc' | 'gate' | 'implement' | 'test' | 'git' | 'done'
   /** what Claude Code is told in this stage (absent / '' = the default of its kind) */
   instructions?: string
   /** the worker takes tasks in this stage by itself (otherwise: "Run now" in the task) */
@@ -652,9 +652,14 @@ export interface PipelineStage {
   /** 1–200 (the worker's config may lower it) */
   maxTurns?: number
   /** git stages */
-  gitAction?: 'commit' | 'push' | 'pr' | 'update-base'
-  /** document stages: 'testcases' = the document's test cases also become rows of the Test cases database */
-  output?: 'testcases'
+  gitAction?: 'commit' | 'push' | 'pr' | 'update-base' | 'comment' | 'merge'
+  /**
+   * document stages: 'testcases' = the document's test cases also become rows of the Test cases database ·
+   * 'pages' = every `##` section becomes a page under one documentation page (a page tree, updated on a re-run) ·
+   * 'review' = the document is the task's review (a git 'comment' stage posts it; "Post review" in the task) ·
+   * 'stories' = the document's stories become tasks of a NEW coding project (its own database)
+   */
+  output?: 'testcases' | 'pages' | 'review' | 'stories'
 }
 
 /**

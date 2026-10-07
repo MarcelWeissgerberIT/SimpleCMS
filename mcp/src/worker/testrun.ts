@@ -11,7 +11,15 @@ import { killTree } from './claude.ts'
 export const TEST_OUTPUT_MAX = 64_000
 
 export function runTests(repo: RepoConfig, cwd: string, signal: AbortSignal, onLine?: (s: string) => void): Promise<TestResult> {
-  const argv = repo.testCommand
+  return runCommand(repo.testCommand, repo.testTimeoutSec, 'tests', cwd, signal, onLine)
+}
+
+/** The Static analysis stage: the repo's analyzeCommand, like the tests (a non-zero exit is a finding, not a failure). */
+export function runAnalysis(repo: RepoConfig, cwd: string, signal: AbortSignal, onLine?: (s: string) => void): Promise<TestResult> {
+  return runCommand(repo.analyzeCommand, repo.analyzeTimeoutSec, 'analysis', cwd, signal, onLine)
+}
+
+function runCommand(argv: string[] | null, timeoutSec: number, what: string, cwd: string, signal: AbortSignal, onLine?: (s: string) => void): Promise<TestResult> {
   if (!argv?.length) return Promise.resolve({ ok: true, output: '', ms: 0, code: null, skipped: true })
   const started = Date.now()
   return new Promise((done) => {
@@ -28,7 +36,7 @@ export function runTests(repo: RepoConfig, cwd: string, signal: AbortSignal, onL
     const timer = setTimeout(() => {
       timedOut = true
       killTree(child)
-    }, repo.testTimeoutSec * 1000)
+    }, timeoutSec * 1000)
     const onAbort = () => killTree(child)
     signal.addEventListener('abort', onAbort, { once: true })
     child.on('error', (e) => {
@@ -40,7 +48,7 @@ export function runTests(repo: RepoConfig, cwd: string, signal: AbortSignal, onL
       // strip ANSI colours, keep the tail
       let output = out.replace(/\x1b\[[0-9;]*[A-Za-z]/g, '')
       if (output.length > TEST_OUTPUT_MAX) output = `…\n${output.slice(-TEST_OUTPUT_MAX)}`
-      if (timedOut) output += `\n[one-worker] the tests ran longer than ${repo.testTimeoutSec} s and were stopped`
+      if (timedOut) output += `\n[one-worker] the ${what} ran longer than ${timeoutSec} s and were stopped`
       done({ ok: code === 0 && !timedOut && !signal.aborted, output, ms: Date.now() - started, code })
     })
   })

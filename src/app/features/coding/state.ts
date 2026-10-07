@@ -83,6 +83,8 @@ export interface CodingState extends CodingSettings {
   progress: Record<string, TaskProgress & { at: number }>
   /** Import stages: the code a task's panel handed the worker (memory only) */
   intake: Record<string, IntakeState & { at: number }>
+  /** bumped when this device picks another project (#/coding re-reads its choice) */
+  projectRev: number
 }
 
 export const useCoding = create<CodingState>()(() => ({
@@ -95,4 +97,5 @@ export const useCoding = create<CodingState>()(() => ({
   spentToday: 0,
   progress: {},
   intake: {},
+  projectRev: 0,
 }))

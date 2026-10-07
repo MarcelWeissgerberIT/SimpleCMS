@@ -2,10 +2,12 @@
  * The git box of a task: branch, base, ahead / behind, pushed, uncommitted files, the branch's commits,
  * conflicts — and the person's git actions, fixed verbs the worker maps to its own commands (Commit · Push ·
  * Open PR · Update from base · Show folder; Force push and Discard are confirmed twice; Clean up only after
- * the merge). The folder's path stays on the computer: "Show folder" prints it in the worker's terminal.
+ * the merge) and the merge / pull request: Post review (the task's newest review document) and Merge (confirmed),
+ * both with the person's own glab / gh. The folder's path stays on the computer: "Show folder" prints it in the
+ * worker's terminal.
  */
 import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { ArrowUpFromLine, FolderSearch, GitCommitHorizontal, GitMerge, GitPullRequestArrow, RefreshCw, Trash2, TriangleAlert } from 'lucide-react'
+import { ArrowUpFromLine, FolderSearch, GitCommitHorizontal, GitMerge, GitPullRequestArrow, GitPullRequestClosed, MessageSquareText, RefreshCw, Trash2, TriangleAlert } from 'lucide-react'
 import { format } from 'date-fns'
 import { useT } from '../../i18n'
 import { Modal } from '../../ui/Modal'
@@ -69,11 +71,11 @@ function ArmedKey({ label, armedLabel, icon, onConfirmed, disabled, testId }: { 
   )
 }
 
-export function GitBox({ taskId, git, branch, connected, running, title }: { taskId: string; git: GitInfo | null; branch: string | null; connected: boolean; running: boolean; title: string }) {
+export function GitBox({ taskId, git, branch, connected, running, title, review, url }: { taskId: string; git: GitInfo | null; branch: string | null; connected: boolean; running: boolean; title: string; review: string | null; url: string | null }) {
   const t = useT()
   const [busy, setBusy] = useState<GitVerb | null>(null)
   const [commitMsg, setCommitMsg] = useState<string | null>(null)
-  const [confirm, setConfirm] = useState<'force-push' | 'discard' | null>(null)
+  const [confirm, setConfirm] = useState<'force-push' | 'discard' | 'merge-pr' | 'comment-pr' | null>(null)
 
   const run = async (verb: GitVerb, message?: string) => {
     setBusy(verb)
@@ -185,6 +187,22 @@ export function GitBox({ taskId, git, branch, connected, running, title }: { tas
           {t('features.coding.git.reveal')}
         </button>
       </div>
+      <div className="cg-keys" role="group" aria-label={t('features.coding.git.request')} data-testid="coding-git-request">
+        <span className="label">{t('features.coding.git.request')}</span>
+        <button type="button" className="btn btn--sm" disabled={off || !review} title={review ? undefined : t('features.coding.git.noReview')} onClick={() => setConfirm('comment-pr')} data-testid="coding-post-review">
+          <MessageSquareText size={13} strokeWidth={1.75} aria-hidden />
+          {t('features.coding.git.postReview')}
+        </button>
+        <button type="button" className="btn btn--sm" disabled={off || !!git?.merged} onClick={() => setConfirm('merge-pr')} data-testid="coding-merge-pr">
+          <GitPullRequestClosed size={13} strokeWidth={1.75} aria-hidden />
+          {t('features.coding.git.mergePr')}
+        </button>
+        {url && (
+          <a className="ctk-link" href={url} target="_blank" rel="noopener noreferrer">
+            {t('features.coding.git.openLink')}
+          </a>
+        )}
+      </div>
       <div className="cg-keys cg-keys--danger" role="group" aria-label={t('features.coding.git.danger')}>
         <span className="label">{t('features.coding.git.danger')}</span>
         <ArmedKey label={t('features.coding.git.forcePush')} armedLabel={t('features.coding.git.again')} icon={<ArrowUpFromLine size={13} strokeWidth={1.75} aria-hidden />} disabled={off || !git?.pushed} onConfirmed={() => setConfirm('force-push')} />
@@ -210,6 +228,30 @@ export function GitBox({ taskId, git, branch, connected, running, title }: { tas
           onConfirm={() => {
             setConfirm(null)
             void run('force-push')
+          }}
+        />
+      )}
+      {confirm === 'comment-pr' && review && (
+        <Confirm
+          title={t('features.coding.git.postTitle', { branch: branch ?? '' })}
+          body={t('features.coding.git.postBody', { n: review.length.toLocaleString() })}
+          action={t('features.coding.git.postReview')}
+          onClose={() => setConfirm(null)}
+          onConfirm={() => {
+            setConfirm(null)
+            void run('comment-pr', review)
+          }}
+        />
+      )}
+      {confirm === 'merge-pr' && (
+        <Confirm
+          title={t('features.coding.git.mergeTitle', { branch: branch ?? '' })}
+          body={t('features.coding.git.mergeBody', { base: git?.base ?? '' })}
+          action={t('features.coding.git.mergePr')}
+          onClose={() => setConfirm(null)}
+          onConfirm={() => {
+            setConfirm(null)
+            void run('merge-pr')
           }}
         />
       )}

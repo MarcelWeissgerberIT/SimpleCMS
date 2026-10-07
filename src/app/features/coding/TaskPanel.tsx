@@ -113,7 +113,7 @@ export default function TaskPanel({ pageId }: { pageId: ID }) {
               : 'idle'
   // the tab that fits the moment, until the person picks one
   const before = stage && stage.index > 0 ? pipeline[stage.index - 1]?.kind : undefined
-  const auto: Tab = state === 'running' ? 'log' : !coding && local.plan && stage?.kind !== 'queue' ? 'plan' : stage?.kind === 'gate' && (before === 'plan' || before === 'doc') ? 'plan' : stage?.kind === 'gate' || stage?.kind === 'git' || stage?.kind === 'done' ? (files.length ? 'diff' : 'log') : local.test && stage?.kind === 'test' ? 'tests' : 'log'
+  const auto: Tab = state === 'running' ? 'log' : !coding && local.plan && stage?.kind !== 'queue' ? 'plan' : stage?.kind === 'gate' && (before === 'plan' || before === 'doc' || before === 'analyze') ? 'plan' : stage?.kind === 'gate' || stage?.kind === 'git' || stage?.kind === 'done' ? (files.length ? 'diff' : 'log') : local.test && stage?.kind === 'test' ? 'tests' : 'log'
   const shown = tab ?? auto
   const money = (n: number) => n.toLocaleString(lang === 'de' ? 'de-DE' : 'en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2 })
   const ledState = state === 'running' ? 'on' : state === 'failed' || state === 'stopped' ? 'off' : state === 'done' ? 'ok' : state === 'question' || state === 'gate' || state === 'intake' ? 'on' : 'ok'
@@ -342,7 +342,18 @@ export default function TaskPanel({ pageId }: { pageId: ID }) {
           ) : (
             <p className="ctk-empty">{t('features.coding.tests.none')}</p>
           ))}
-        {shown === 'git' && <GitBox taskId={pageId} git={local.git ?? null} branch={branch} connected={connected && canAct} running={running} title={task.title.trim() || t('common.untitled')} />}
+        {shown === 'git' && (
+          <GitBox
+            taskId={pageId}
+            git={local.git ?? null}
+            branch={branch}
+            connected={connected && canAct}
+            running={running}
+            title={task.title.trim() || t('common.untitled')}
+            review={local.review?.text ?? null}
+            url={(props.pr && typeof task.properties[props.pr] === 'string' ? (task.properties[props.pr] as string) : null) || local.url || null}
+          />
+        )}
       </div>
     </section>
   )

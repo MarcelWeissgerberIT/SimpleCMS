@@ -168,8 +168,10 @@ Per repo:
 | `worktreeDir` | `<path>/../.one-worktrees/<name>` | Where task worktrees go. |
 | `testCommand` | none | The Test stage — an **argv list** (`["npm", "test"]`), never a shell line; run in the worktree. A string is refused. |
 | `testTimeoutSec` | `600` | |
+| `analyzeCommand` | none | The **Static analysis** stage — an argv list like `testCommand` (`["npx", "eslint", "."]`, `["dotnet", "build", "-nologo"]`); the setup page guesses one (the `lint` script by lockfile, ESLint config, `.sln` / `.csproj`, `go vet`, `cargo clippy`, ruff, flake8). |
+| `analyzeTimeoutSec` | `900` | |
 | `push` | `true` | `false`: Ship commits only. |
-| `pr` | `"gh"` | `"gh"`: `gh pr create` on a GitHub host, `glab mr create` on a GitLab host (when the tool is installed and signed in); otherwise (and with `"none"`) a compare / new-merge-request link for GitHub / GitLab remotes. |
+| `pr` | `"gh"` | `"gh"`: `gh pr create` on a GitHub host, `glab mr create` on a GitLab host (when the tool is installed and signed in); otherwise (and with `"none"`) a compare / new-merge-request link for GitHub / GitLab remotes. Posting a review and merging need `"gh"` and the host's tool. |
 | `claude.model` | Claude Code's default | A model name Claude Code accepts. |
 | `claude.maxTurns` | `30` | Upper bound per stage (a stage may ask for fewer). |
 | `claude.permissionMode.implement` | the stage's | `acceptEdits` or `default` — overrides what the pipeline asks for. Plan stages always run in `plan` mode. A mode that skips permissions is refused. |
@@ -263,6 +265,12 @@ Always `execFile('git', […])` — never a shell line; hooks and your git confi
   folder** (the path is printed in the worker's terminal only). **Force push** (`--force-with-lease`) and **Discard
   worktree** are confirmed twice. Discard removes the worktree the worker made (with its uncommitted changes) and
   deletes the branch only if the worker created it. **Clean up** does the same only after the merge and never forced.
+- **Merge request** (`comment-pr`, `merge-pr`, git.ts `commentPr` / `mergePr`; confirmed in One): **Post review** sends
+  the task's newest review (`TaskLocal.review`, from a doc stage with `output: 'review'`) as the tab's `message` —
+  `glab mr note <branch> --message …` / `gh pr comment <branch> --body …`; **Merge** finds the branch's open request
+  (`glab mr view` / `gh pr view`) and merges it — `glab mr merge <branch> --yes` (the project's merge method) / `gh pr
+  merge <branch> --merge` (then `--squash`, `--rebase` when the repository allows only those). Both need `pr: "gh"`
+  and the host's tool signed in; a dirty worktree is not merged; the branch stays (Clean up); a fetch follows.
 
 ### Claude Code
 
@@ -294,15 +302,35 @@ Three pipeline databases, each found by its `Database.system` (`coding` · `spec
 each picked pipeline (BA → Coding / QA, QA → Coding) with the page's content under a mention of the source, and
 notes the link in the source page (per device `TaskLocal.spawned`; **Hand on to …** does it later).
 
-Two more stage kinds:
+Three more stage kinds:
 
 - **doc** — a document stage. Claude Code runs in `default` mode with only `Read`, `Grep`, `Glob`, `LS`, the task
   tools and the repo's / worker's own MCP servers allowed; `Edit`, `MultiEdit`, `Write`, `NotebookEdit` and `Bash`
   are denied. It runs in the main checkout (read only; no worktree, no branch) — or, for a task without a
-  repository, in `<config dir>/scratch/<task id>`. Its last message is the document: a page section headed like
-  the stage. `output: 'testcases'`: the last fenced `json` block (an array of `{ id, title, area, type, priority,
-  preconditions, steps[], expected }`) becomes rows of the **Test cases** database (`system: 'testcases'`) and leaves
-  the page. Only document stages run without a repository (`next` carries `docs: true`).
+  repository, in `<config dir>/scratch/<task id>`. When the task has a branch, it runs in that branch's worktree (if
+  there is one) and the prompt carries what the branch changes against the base — `git diff --stat` + the diff (≤ 80k
+  characters, clipped on a line) + new untracked files — as a `DIFF` data block (git.ts `branchDiff`). Its last
+  message is the document: a page section headed like the stage. Outputs (`PipelineStage.output`, coding/outputs.ts +
+  tasks.ts):
+  - `testcases`: the last fenced `json` block (an array of `{ id, title, area, type, priority, preconditions, steps[],
+    expected }`) becomes rows of the **Test cases** database (`system: 'testcases'`) and leaves the page.
+  - `pages`: the document's `##` sections (fences respected) become pages under one documentation page "<task> ·
+    <stage>" (top level; private in a team), the root holding the intro and a `pageLink` per page; `###` become `##`. The
+    task's section keeps the intro and mentions the pages (so later stages read them, refs.ts). A re-run on the same
+    device (`TaskLocal.docPages[stageId]`) updates pages of the same title (inside `aiWrite`: a version first), adds
+    new ones, leaves the rest.
+  - `review`: the document is also the task's review (`TaskLocal.review`): payload `review` for a git `comment`
+    stage, **Post review** in the Git tab.
+  - `stories`: the last fenced `json` block `{ project?, stories: [{ title, story, criteria[], priority }] }` (≤ 100)
+    becomes a NEW coding project "<project> — Stories" (schema.ts `createProject`, the pipeline copied from the
+    coding project shown on this device, not switched to) with a task per story in its first stage, each mentioning
+    the source; a re-run adds only titles not there yet (`TaskLocal.storiesDb`).
+  Only document stages run without a repository (`next` carries `docs: true`).
+- **analyze** — static analysis: the repo's `analyzeCommand` (argv, no shell) in the task's worktree, or the main
+  checkout when the task has none (no branch is made). The output (scrubbed; head 16k + tail 4k characters) becomes
+  the stage's section — the program's name (never its path), the verdict, a fenced block; a non-zero exit is a finding
+  (status ok), only a program that cannot start or runs past `analyzeTimeoutSec` fails. Without a command the stage
+  passes with a note.
 - **import** — the task's code arrives here; the worker never takes a task standing there. The task panel sends a
   ZIP (`intake-begin` → `intake-chunk` … → `intake-end`, base64 pieces of ≤ 4 MB, the declared size must match, one
   intake at a time, ≤ `ONE_WORKER_ZIP_MAX`) or a clone address (`intake-clone`, `parseCloneUrl`'s checks); the worker
@@ -316,6 +344,13 @@ titles; coding/refs.ts). Their id, title, fields and content are part of the tas
 
 ### Templates
 
+**Projects.** A kind may have several pipeline databases ("projects"): `pipelineDbIdsOf(kind)` (oldest first),
+`pipelineDbId(kind)` = the first, `pipelineDbIds()` = every project of every kind (the worker takes tasks from all).
+#/coding shows `currentProjectId(kind)` — per device, localStorage `one.coding.project.<kind>`, set with
+`chooseProject()`; New task creates there (`NewTask.dbId`). **New project** (`createProject`: a copy of the shown
+project's pipeline under new option ids, or a template); **Delete project** (`trashProject`: the database page and its
+rows to the trash, refused when locked; Undo = `restorePage`).
+
 **Pipeline → Template** replaces the draft (nothing is saved until Save; a stage of the same kind keeps its id, so
 tasks standing there stay in a stage): **Standard** (Backlog · Ready · Plan · Approve plan · Implement · Test · Review ·
 Ship · Done), **Business analysis** (Backlog · Ready · Analysis · Specification — doc · Approve spec · Record — doc ·
@@ -324,7 +359,16 @@ Done), **QA** (Backlog · Ready · Test cases — doc, output test cases · Appr
 their own instructions — · Approve concept · Write tests (characterisation tests against the old code) · Tests on the
 old code · Rebuild · Test · Review · Ship · Done; schema.ts `templatePipeline`). With more than one plan stage each
 writes its own section into the task page, headed like the stage; the page's Markdown (with those sections) is the
-task text of every later stage. Help: *Modernise legacy code* (`help:legacy-modernisation`).
+task text of every later stage. Help: *Modernise legacy code* (`help:legacy-modernisation`). Modernise now runs a
+**Static analysis** stage after Ready. More templates: **Explain the code** (Backlog · Import · Ready · Overview —
+doc · Static analysis · Components — doc, output pages · Documentation check — doc · Approve documentation · Done;
+`help:explain-code`), **Review & merge** (Standard up to Ship, then AI review — doc, output review · Approve review &
+merge — gate · Post review — git `comment` · Merge — git `merge` · Done; nothing is posted or merged before the gate;
+`help:review-merge`) and, for Business analysis, **Spec → stories** (… Approve spec · Stories — doc, output stories ·
+Done). Git actions `comment` (needs a review; fails without one) and `merge` (refuses uncommitted or unpushed work).
+A browser for reviews: the person's own Claude Code MCP server (e.g. `claude mcp add playwright npx
+@playwright/mcp@latest`, then `playwright` under the repo's MCP servers on the setup page) — One never reads the
+person's browser tabs.
 
 ## Safety
 

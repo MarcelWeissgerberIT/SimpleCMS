@@ -1,7 +1,7 @@
 ---
 id: 2026-10-07-one-picker
 date: 2026-10-07
-order: 1
+order: 2
 title: "one: – verlinken, was in der Nähe ist, ein MCP-Werkzeug wählen"
 summary: Tippe one: in einer Seite oder im KI-Terminal, um eine Seite oder einen Eintrag zu verlinken – die auf gleicher Ebene und in der Seite zuerst, eine Titelsuche findet den Rest; das Codewort eines Servers zeigt seine Werkzeuge.
 image: assets/shots/changelog/one-picker.webp

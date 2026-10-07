@@ -196,6 +196,8 @@ export interface FoundRepo {
   lastCommit: number | null
   /** the test command guess (argv) */
   test: string[] | null
+  /** a static analysis command for this kind of project (null: no guess) */
+  analyze?: string[] | null
 }
 
 const GIT_MS = 3000
@@ -303,6 +305,41 @@ export async function guessTestAsync(dir: string): Promise<string[] | null> {
   return guessFrom(pkg, makefiles.find((m) => m !== null) ?? null, (name) => here.has(name as (typeof GUESS_FILES)[number]))
 }
 
+/**
+ * A static analysis command from the repo's top-level files (argv, never a shell line; null: no guess): the
+ * project's own lint script, ESLint, dotnet build (its analyzers), go vet, cargo clippy, ruff / flake8.
+ */
+export async function guessAnalyzeAsync(dir: string): Promise<string[] | null> {
+  const pkg = await topFileAsync(dir, 'package.json')
+  if (pkg) {
+    try {
+      const lint = (JSON.parse(pkg) as { scripts?: Record<string, unknown> }).scripts?.lint
+      if (typeof lint === 'string' && lint.trim()) {
+        if (await hasAsync(dir, 'pnpm-lock.yaml')) return ['pnpm', 'run', 'lint']
+        if (await hasAsync(dir, 'yarn.lock')) return ['yarn', 'lint']
+        return ['npm', 'run', 'lint']
+      }
+    } catch {
+      /* not JSON */
+    }
+  }
+  let names: string[] = []
+  try {
+    const list = await timed(readdir(dir), FILE_MS)
+    if (list !== TIMEOUT) names = list
+  } catch {
+    names = []
+  }
+  if (names.some((n) => /^(eslint\.config\.(js|mjs|cjs|ts)|\.eslintrc(\.(js|cjs|json|yml|yaml))?)$/.test(n))) return ['npx', 'eslint', '.']
+  if (names.some((n) => /\.(sln|csproj|vbproj)$/i.test(n))) return ['dotnet', 'build', '-nologo', '-clp:Summary']
+  if (names.includes('go.mod')) return ['go', 'vet', './...']
+  if (names.includes('Cargo.toml')) return ['cargo', 'clippy']
+  const py = names.includes('pyproject.toml') ? await topFileAsync(dir, 'pyproject.toml') : null
+  if (py && /\[tool\.ruff/.test(py)) return ['ruff', 'check', '.']
+  if (names.includes('.flake8') || names.includes('setup.cfg')) return ['flake8']
+  return null
+}
+
 /** The test command from the repo's top-level files — an argv list, never a shell line (null: no guess). */
 export function guessTest(dir: string): string[] | null {
   let mk: string | null = null
@@ -380,6 +417,7 @@ export async function repoFacts(path: string, taken: Set<string>, home = homedir
     dirty: status === null ? null : status.split('\n').filter(Boolean).length,
     lastCommit: at,
     test: await guessTestAsync(path),
+    analyze: await guessAnalyzeAsync(path),
   }
 }
 

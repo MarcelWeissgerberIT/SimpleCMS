@@ -92,6 +92,8 @@ export interface PageRepo extends FoundRepo {
   testLine: string
   /** the person's own Claude Code MCP servers this repo may use, comma-separated */
   mcp: string
+  /** the Static analysis stage's command as one line (configured, else the guess) */
+  analyzeLine: string
 }
 
 const MAX_BODY = 256 * 1024
@@ -213,10 +215,11 @@ export class SetupServer {
         test: r.testCommand,
         testLine: joinArgs(r.testCommand),
         mcp: r.claude.mcpServers.join(', '),
+        analyzeLine: joinArgs(r.analyzeCommand),
       })
     }
     const rest = [...this.found.values()].filter((f) => !seen.has(f.path)).sort((a, b) => (b.lastCommit ?? 0) - (a.lastCommit ?? 0))
-    for (const f of rest) out.push({ ...f, ticked: false, configured: false, push: !!f.remote, pr: 'gh', maxUsdPerTask: null, testLine: joinArgs(f.test), mcp: '' })
+    for (const f of rest) out.push({ ...f, ticked: false, configured: false, push: !!f.remote, pr: 'gh', maxUsdPerTask: null, testLine: joinArgs(f.test), mcp: '', analyzeLine: joinArgs(f.analyze ?? null) })
     return out
   }
 
@@ -419,7 +422,8 @@ export class SetupServer {
         if (bad) return [`"${bad}": an MCP server name has letters, digits, "_" or "-" — as \`claude mcp list\` shows it.`]
         if (mcpServers.length > 20) return ['At most 20 MCP servers per repository.']
       }
-      choices.push({ path: repo.path, name, baseBranch, remote: repo.remote, testCommand: test?.length ? test : null, push: item.push === true, pr: item.pr === 'none' ? 'none' : 'gh', maxUsdPerTask: limit, mcpServers })
+      const analyze = typeof item.analyze === 'string' ? splitArgs(item.analyze) : undefined
+      choices.push({ path: repo.path, name, baseBranch, remote: repo.remote, testCommand: test?.length ? test : null, ...(analyze !== undefined ? { analyzeCommand: analyze?.length ? analyze : null } : {}), push: item.push === true, pr: item.pr === 'none' ? 'none' : 'gh', maxUsdPerTask: limit, mcpServers })
     }
     let workerMcp: string[] | undefined
     if (isObj(body) && typeof body.mcpServers === 'string') {

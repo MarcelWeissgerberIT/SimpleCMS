@@ -14,7 +14,7 @@ import type { ColorName, PipelineStage, SelectOption } from '../../store/types'
 import { newId } from '../../lib/ids'
 import { useT } from '../../i18n'
 import { GIT_ACTIONS, PERMISSION_MODES, STAGE_KINDS, type StageKind } from './protocol'
-import { KIND_TEMPLATES, kindOfDb, readPipeline, savePipeline, templatePipeline, type PipelineTemplate } from './schema'
+import { DOC_OUTPUTS, KIND_TEMPLATES, kindOfDb, readPipeline, savePipeline, templatePipeline, type PipelineTemplate } from './schema'
 import { keepTrust } from './trust'
 import { allTasks } from './tasks'
 
@@ -23,7 +23,7 @@ interface Draft {
   stage: PipelineStage
 }
 
-const COLOR: Record<StageKind, ColorName> = { queue: 'gray', import: 'red', plan: 'blue', doc: 'pink', gate: 'orange', implement: 'purple', test: 'yellow', git: 'brown', done: 'green' }
+const COLOR: Record<StageKind, ColorName> = { queue: 'gray', import: 'red', analyze: 'yellow', plan: 'blue', doc: 'pink', gate: 'orange', implement: 'purple', test: 'yellow', git: 'brown', done: 'green' }
 
 export function PipelineEditor({ dbId, locked, onClose }: { dbId: string; locked: boolean; onClose: () => void }) {
   const t = useT()
@@ -160,9 +160,13 @@ export function PipelineEditor({ dbId, locked, onClose }: { dbId: string; locked
                       {s.kind === 'doc' ? (
                         <label>
                           <span className="label">{t('features.coding.pipeline.output')}</span>
-                          <select className="input" value={s.output ?? ''} disabled={ro} onChange={(e) => patch(i, { output: e.target.value === 'testcases' ? 'testcases' : undefined })} data-testid="coding-pipeline-output">
+                          <select className="input" value={s.output ?? ''} disabled={ro} onChange={(e) => patch(i, { output: (DOC_OUTPUTS as readonly string[]).includes(e.target.value) ? (e.target.value as PipelineStage['output']) : undefined })} data-testid="coding-pipeline-output">
                             <option value="">{t('features.coding.pipeline.output.page')}</option>
-                            <option value="testcases">{t('features.coding.pipeline.output.testcases')}</option>
+                            {DOC_OUTPUTS.map((o) => (
+                              <option key={o} value={o}>
+                                {t(`features.coding.pipeline.output.${o}`)}
+                              </option>
+                            ))}
                           </select>
                         </label>
                       ) : (

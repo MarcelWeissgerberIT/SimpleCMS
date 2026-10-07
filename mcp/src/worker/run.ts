@@ -1,7 +1,8 @@
 /**
- * one-worker — one stage of one task: plan / implement (Claude Code in the task's worktree), test (the
- * repo's testCommand), git (commit · push · pull request · update from base). Returns the outcome One
- * writes into the task; everything that goes to One passes the path scrubber first.
+ * one-worker — one stage of one task: plan / implement (Claude Code in the task's worktree), document (Claude Code
+ * reads only; with the branch's diff when the task has one), static analysis + test (the repo's analyzeCommand /
+ * testCommand), git (commit · push · pull request · update from base · post the review · merge the request). Returns
+ * the outcome One writes into the task; everything that goes to One passes the path scrubber first.
  *
  * Task text is untrusted input: it goes into the prompt between markers, labelled as data, after the
  * worker's own instructions; Claude Code's permission rules stay on (no bypassing flag, ever).
@@ -9,14 +10,14 @@
 import { randomBytes } from 'node:crypto'
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { basename, join } from 'node:path'
 import type { GitInfo, LogLine, StageOutcome, TaskPayload, TaskProgress, TestResult, ToolEdit } from '../../../src/app/features/coding/protocol.ts'
 import { inICloud, type RepoConfig } from './config.ts'
 import type { WorkerState } from './state.ts'
 import { runClaude, type ClaudeCaps } from './claude.ts'
-import { GitError, commitAll, ensureWorktree, git, info, openPr, push, updateFromBase, type TaskWorktree } from './git.ts'
+import { GitError, branchDiff, commentPr, commitAll, ensureWorktree, git, info, isDirty, mergePr, openPr, push, updateFromBase, worktreeOf, type TaskWorktree } from './git.ts'
 import { repoScrubber, type Scrubber } from './scrub.ts'
-import { runTests } from './testrun.ts'
+import { runAnalysis, runTests } from './testrun.ts'
 
 export interface StageContext {
   repo: RepoConfig
@@ -72,14 +73,20 @@ const DEFAULTS: Record<'plan' | 'implement' | 'doc', string> = {
  * The prompt: the worker's instructions first, the task as marked data after them. The markers carry a
  * code made for this prompt: task text (written before) cannot close its block and add "rules" of its own.
  */
-export function buildPrompt(task: TaskPayload, repo: RepoConfig, branch: string, code = markerCode()): string {
+export function buildPrompt(task: TaskPayload, repo: RepoConfig, branch: string, code = markerCode(), diff?: { text: string; worktree: boolean } | null): string {
   const kind = task.stage.kind === 'plan' ? 'plan' : task.stage.kind === 'doc' ? 'doc' : 'implement'
   const own = task.stage.instructions.trim()
   const where =
     kind !== 'doc'
       ? `You work on a coding task from One (the person's workspace) in a git worktree of the repository "${repo.name}", on the branch "${branch}" (base: ${repo.remote}/${repo.baseBranch}).`
       : task.repo
-        ? `You work on a task from One (the person's workspace) in the repository "${repo.name}" — read only: you can read its files, not change them.`
+        ? `You work on a task from One (the person's workspace) in the repository "${repo.name}" — read only: you can read its files, not change them.${
+            diff && branch
+              ? diff.worktree
+                ? ` You are in the worktree of the task's branch "${branch}"; what it changes against ${repo.remote}/${repo.baseBranch} is below ("Changes on the branch").`
+                : ` The task's branch is "${branch}" — the files you read are the main checkout's; what the branch changes against ${repo.remote}/${repo.baseBranch} is below ("Changes on the branch").`
+              : ''
+          }`
         : "You work on a task from One (the person's workspace) without a repository: the task data and your knowledge-base tools are what you have."
   const parts = [
     where,
@@ -104,6 +111,7 @@ export function buildPrompt(task: TaskPayload, repo: RepoConfig, branch: string,
   if (task.answers.length) {
     parts.push('', '## Your questions and the person\'s answers (data)', ...dataBlock('ANSWERS', task.answers.map((a) => `Q: ${a.q.trim()}\nA: ${a.a.trim()}\n`).join('\n'), code))
   }
+  if (diff) parts.push('', '## Changes on the branch (data)', ...dataBlock('DIFF', diff.text, code))
   return parts.join('\n')
 }
 
@@ -157,11 +165,15 @@ export async function runStage(ctx: StageContext): Promise<StageOutcome> {
   if (ctx.team && !task.trusted) return { status: 'refused', error: 'This task was written or changed on another device and is not confirmed on this one. Confirm it in One (task panel) first.' }
   const kind = task.stage.kind
   if (kind === 'queue' || kind === 'gate' || kind === 'done' || kind === 'import') return { status: 'refused', error: `A ${kind} stage is not run by the worker.` }
-  // a document stage reads only: no worktree, no branch (in the main checkout, or the scratch folder)
-  if (kind === 'doc') {
+  // a document stage reads only, a static analysis runs a command: neither creates a worktree or a branch (the task's
+  // worktree when it has one, else the main checkout — or the scratch folder for a document without a repository)
+  if (kind === 'doc' || kind === 'analyze') {
     log('info', `Stage "${task.stage.name}" (${kind}) on ${repo.name}`, 'stage', { stage: task.stage.name, kind, repo: repo.name })
     try {
-      return await docStage(ctx, scrub, log)
+      const branch = task.repo ? (task.branch ?? ctx.state.taskAt(task.id)?.branch ?? null) : null
+      const dir = branch ? await worktreeOf(repo, branch).catch(() => null) : null
+      if (dir) scrub = repoScrubber(repo, dir)
+      return kind === 'doc' ? await docStage(ctx, scrub, log, branch, dir) : await analyzeStage(ctx, scrub, log, dir)
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e)
       log('error', msg)
@@ -244,8 +256,11 @@ async function claudeStage(ctx: StageContext, wt: TaskWorktree, scrub: Scrubber,
 export const DOC_TOOLS = ['Read', 'Grep', 'Glob', 'LS']
 export const DOC_DENIED = ['Edit', 'MultiEdit', 'Write', 'NotebookEdit', 'Bash']
 
-/** A document stage: Claude Code reads (repo, knowledge base) and its last message is the document. */
-async function docStage(ctx: StageContext, scrub: Scrubber, log: Log): Promise<StageOutcome> {
+/**
+ * A document stage: Claude Code reads (repo, knowledge base) and its last message is the document. When the task has a
+ * branch, it runs in that branch's worktree (if there is one) and the prompt carries what the branch changes (a review).
+ */
+async function docStage(ctx: StageContext, scrub: Scrubber, log: Log, branch: string | null, dir: string | null): Promise<StageOutcome> {
   const { repo, task, caps } = ctx
   if (!caps.found) return { status: 'failed', error: `Claude Code was not found on this computer ("${ctx.bin}"). Install it and sign in, or set CLAUDE_BIN.` }
   const lim = limits(ctx)
@@ -253,13 +268,15 @@ async function docStage(ctx: StageContext, scrub: Scrubber, log: Log): Promise<S
     log('warn', lim.refuse)
     return { status: 'limit', error: lim.refuse }
   }
+  const changes = branch ? await branchDiff(repo, branch, dir).catch(() => null) : null
+  if (changes) log('git', `The branch ${branch} changes ${changes.files} file(s) — the diff goes along${changes.clipped ? ' (clipped)' : ''}`, 'docDiff', { branch: branch!, n: changes.files })
   const mcp = ctx.taskMcp ? writeMcpConfig(ctx.taskMcp) : null
   log('info', 'Starting Claude Code (read only)…', 'starting', { mode: 'read only' })
   try {
     const res = await runClaude({
       bin: ctx.bin,
-      cwd: repo.path,
-      prompt: buildPrompt(task, repo, ''),
+      cwd: dir ?? repo.path,
+      prompt: buildPrompt(task, repo, branch ?? '', markerCode(), changes ? { text: changes.text, worktree: !!dir } : null),
       // headless "default" mode: whatever is not allowed below is refused, nothing can ask
       mode: 'default',
       maxTurns: Math.max(1, Math.min(task.stage.maxTurns || repo.claude.maxTurns, repo.claude.maxTurns)),
@@ -287,6 +304,54 @@ async function docStage(ctx: StageContext, scrub: Scrubber, log: Log): Promise<S
   } finally {
     mcp?.dispose()
   }
+}
+
+/** The analysis output in the page: the head (where the findings start) and the tail (the totals). */
+export const ANALYSIS_HEAD = 16_000
+export const ANALYSIS_TAIL = 4_000
+
+/** A code fence longer than any run of backticks in `text`. */
+const fenceFor = (text: string) => '`'.repeat(Math.max(3, ...[...text.matchAll(/`+/g)].map((m) => m[0].length + 1)))
+
+/**
+ * Static analysis: the repo's analyzeCommand in the task's worktree (or the main checkout — no branch is made). Its
+ * output becomes the stage's section in the page (the stages after it read the findings); a non-zero exit is a
+ * finding, only a command that cannot start or runs too long fails the stage.
+ */
+async function analyzeStage(ctx: StageContext, scrub: Scrubber, log: Log, dir: string | null): Promise<StageOutcome> {
+  const { repo, task } = ctx
+  if (!task.repo) return { status: 'refused', error: 'A static analysis needs a repository — pick the task\'s Repo first.' }
+  const argv = repo.analyzeCommand
+  if (!argv?.length) {
+    log('info', `No analysis command for ${repo.name} — the stage passes. Set one on the worker's setup page (Change repositories → the repo → Static analysis).`, 'analyzeNone', { repo: repo.name })
+    return { status: 'ok', summary: 'No static analysis configured.', plan: '_No static analysis command is set for this repository — the worker\'s setup page (Change repositories → the repository → Static analysis) takes one, e.g. `npx eslint .`, `dotnet build`, `go vet ./...`._' }
+  }
+  // the program's name, not where it lives on this machine
+  const shown = clip(scrub.text([basename(argv[0]!), ...argv.slice(1)].join(' ')), 160)
+  log('test', `Running the static analysis: ${shown}`, 'analyzeRun', { cmd: shown })
+  let lines = 0
+  const res = await runAnalysis(repo, dir ?? repo.path, ctx.signal, (line) => {
+    if (lines++ < 200) log('test', line)
+  })
+  if (ctx.signal.aborted) return { status: 'stopped', error: 'Stopped in One.' }
+  const output = scrub.text(res.output).trim()
+  if (res.code === null || res.code < 0) {
+    const why = res.code !== null && res.code < 0 ? `the command could not start (${argv[0]} — is it installed?)` : 'it ran too long and was stopped'
+    log('warn', `Static analysis failed: ${why}`)
+    return { status: 'failed', error: `Static analysis failed: ${why}.`, summary: clip(output, 2000) || undefined }
+  }
+  const n = output ? output.split('\n').length : 0
+  const body =
+    output.length > ANALYSIS_HEAD + ANALYSIS_TAIL
+      ? `${output.slice(0, ANALYSIS_HEAD)}\n… ${output.slice(ANALYSIS_HEAD, -ANALYSIS_TAIL).split('\n').length} lines left out …\n${output.slice(-ANALYSIS_TAIL)}`
+      : output
+  const s = Math.round(res.ms / 100) / 10
+  const verdict = res.code === 0 ? 'no findings (exit code 0)' : `findings (exit code ${res.code})`
+  log(res.code === 0 ? 'test' : 'warn', `Static analysis: ${verdict} · ${s} s`, res.code === 0 ? 'analyzeClean' : 'analyzeFound', { code: res.code, s })
+  const fence = fenceFor(body)
+  // code without bold: One's editor keeps no other mark on code
+  const plan = [`\`${shown.replace(/`/g, "'")}\` · ${verdict} · ${s} s · ${n} line(s) of output`, '', ...(body ? [`${fence}text`, body, fence] : ['_No output._'])].join('\n')
+  return { status: 'ok', plan, summary: `Static analysis: ${verdict}.` }
 }
 
 /** Every 30 s (ONE_WORKER_LIVE_GIT_MS): has the worktree changed? Then a git snapshot goes to One. */
@@ -356,6 +421,22 @@ async function gitStage(ctx: StageContext, wt: TaskWorktree, scrub: Scrubber, lo
     const summary = r.how === 'up-to-date' ? `Already up to date with ${repo.remote}/${repo.baseBranch}.` : `${r.how === 'rebased' ? 'Rebased onto' : 'Merged'} ${repo.remote}/${repo.baseBranch}.`
     log('git', summary)
     return { status: 'ok', branch: wt.branch, git, summary }
+  }
+  if (action === 'comment') {
+    const review = (task.review ?? '').trim()
+    if (!review) return { status: 'failed', branch: wt.branch, error: 'There is no review to post yet — a document stage with the output "Review" writes it.' }
+    const r = await commentPr(repo, wt.dir, wt.branch, `${review}\n\n— Review from One (coding pipeline).`)
+    log('git', `Review posted to the ${r.via === 'gh' ? 'pull' : 'merge'} request${r.url ? `: ${r.url}` : ''}`, 'reviewPosted', { url: r.url ?? '' })
+    return { status: 'ok', branch: wt.branch, url: r.url ?? undefined, git: await gitSnapshot(ctx, wt, scrub), summary: `Review posted to the ${r.via === 'gh' ? 'pull' : 'merge'} request.` }
+  }
+  if (action === 'merge') {
+    // what is not pushed would not be merged: refuse instead of merging half of it
+    if (await isDirty(wt.dir)) return { status: 'failed', branch: wt.branch, git: await gitSnapshot(ctx, wt, scrub), error: 'The worktree has uncommitted changes that would not be merged — commit and push them first (a Ship stage, or Commit · Push).' }
+    const before = await gitSnapshot(ctx, wt, scrub)
+    if (before && before.unpushed > 0) return { status: 'failed', branch: wt.branch, git: before, error: `${before.unpushed} commit(s) are not pushed yet and would not be merged — push first.` }
+    const r = await mergePr(repo, wt.dir, wt.branch)
+    log('git', `Merged the ${r.via === 'gh' ? 'pull' : 'merge'} request${r.url ? `: ${r.url}` : ''}`, 'requestMerged', { url: r.url ?? '' })
+    return { status: 'ok', branch: wt.branch, url: r.url ?? undefined, git: await gitSnapshot(ctx, wt, scrub), summary: `Merged the ${r.via === 'gh' ? 'pull' : 'merge'} request into ${repo.baseBranch}.` }
   }
   const sha = await commitAll(wt.dir, commitMessage(task))
   log('git', sha ? `Committed ${sha.slice(0, 8)}` : 'Nothing new to commit', sha ? 'committed' : 'nothingToCommit', { sha: (sha ?? '').slice(0, 8) })

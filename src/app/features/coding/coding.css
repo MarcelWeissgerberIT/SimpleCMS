@@ -2099,3 +2099,44 @@ dd:has(> .cw-port) {
   outline: none;
   box-shadow: var(--focus-ring);
 }
+
+/* projects of a pipeline kind (Projects.tsx): pick · new · delete */
+.cv-board__head {
+  align-items: center;
+  flex-wrap: wrap;
+}
+.cv-projects {
+  display: flex;
+  flex: 1 1 auto;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+  min-width: 0;
+}
+.cv-projects .cv-projects__pick {
+  max-width: min(280px, 60vw);
+  height: 26px;
+  padding: 0 6px;
+  font-size: var(--text-sm);
+}
+.cv-projects__name {
+  font-weight: 600;
+  font-size: var(--text-sm);
+  max-width: min(280px, 60vw);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cv-projform {
+  display: grid;
+  gap: 12px;
+}
+.cv-projform label {
+  display: grid;
+  gap: 4px;
+}
+.cv-projform__hint {
+  margin: 0;
+  color: var(--ink-3);
+  font-size: var(--text-sm);
+}

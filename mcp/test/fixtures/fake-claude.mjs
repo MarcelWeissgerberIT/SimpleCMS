@@ -18,7 +18,9 @@
  *   FAKE:TOOLS           → lists the task tools' read-only hints (in the plan / document)
  *   document stage       → "## Stage: … (doc)": a document from the task (the working folder's name in it);
  *                          FAKE:CASES adds a json block of two test cases; FAKE:DEMODOC writes a realistic
- *                          analysis / specification (the changelog screenshot)
+ *                          analysis / specification (the changelog screenshot); FAKE:PAGES a document with two
+ *                          ## sections (+ a fenced "## " that is no heading); FAKE:STORIES (in a stage named
+ *                          "Stories") a json block of three stories; with "Changes on the branch" in the prompt it names the files the diff touches
  * The task tools are reached like Claude Code does: the MCP server from --mcp-config, over stdio.
  * FAKE_CLAUDE_LOG=<file> appends {args, cwd} per run.
  */
@@ -128,6 +130,21 @@ const DEMO_DOCS = {
   Record: 'Recorded the decision and FR-1 – FR-2 / NFR-1 in the knowledge base, linked to the existing record "Invoice process".',
 }
 
+const DEMO_EXPLAIN = {
+  Overview: 'The billing service turns delivered orders into invoices, books the payments that come in and sends reminders.\n\n## Architecture\n```mermaid\nflowchart LR\n  Orders --> Engine[Invoice engine] --> PDF[PDF export]\n  Engine --> Tax[Tax rules]\n  Bank[Payment import] --> Engine\n```\n\n## How to run it\n`dotnet run --project Billing.Api` — needs the database `billing` and the folder `\\\\fs01\\invoices`.',
+  Components: 'Four components; the invoice engine is the centre — everything else feeds it or reads from it.\n\n## Invoice engine\nCreates an invoice per delivered order (`InvoiceRun.cs`), numbers it and stores it.\n\n### How it works\n1. Reads the delivered orders of the day.\n2. Applies the tax rules.\n3. Rounds per line, then the total.\n\n## Tax rules\nVAT rates per country and the reverse-charge cases (`TaxTable.cs`).\n\n## PDF export\nRenders the invoice with the 2014 template (`InvoicePdf.cs`).\n\n## Payment import\nReads the bank\'s CAMT file every night and matches payments to invoices.',
+  'Documentation check': '## Verdict\nA newcomer gets the service running from the README, but not how invoices are rounded.\n\n## Findings\n| Document | Finding | Evidence | Fix |\n|---|---|---|---|\n| README | No word on rounding | `InvoiceRun.cs:212` rounds per line | Add a section |\n| docs/tax.md | Rates from 2019 | `TaxTable.cs` has 2024 rates | Update the table |',
+}
+
+if (/^## Stage: .* \(doc\)$/m.test(prompt) && prompt.includes('FAKE:DEMOEXPLAIN')) {
+  const stage = /^## Stage: (.*) \(doc\)$/m.exec(prompt)?.[1] ?? 'Overview'
+  say('Reading the code and what is known about it.')
+  tool('Read', { file_path: join(process.cwd(), 'README.md') })
+  await sleep(400)
+  result(DEMO_EXPLAIN[stage] ?? DEMO_EXPLAIN.Overview, 0.11)
+  process.exit(0)
+}
+
 if (/^## Stage: .* \(doc\)$/m.test(prompt) && prompt.includes('FAKE:DEMODOC')) {
   const stage = /^## Stage: (.*) \(doc\)$/m.exec(prompt)?.[1] ?? 'Analysis'
   say('Reading the task and the pages it mentions.')
@@ -150,7 +167,23 @@ if (/^## Stage: .* \(doc\)$/m.test(prompt)) {
   // the pages the task refers to (One sends their text along): how many, and their first finding
   const refs = (prompt.match(/^### .+ \((?:page|Seite) [A-Za-z0-9_-]+\)$/gm) ?? []).length
   const finding = /Finding 1: ([^\n]+)/.exec(prompt)?.[1]
-  result(`## Analysis\n\nThe document for “${title}”.\n\nWorking folder: ${basename(process.cwd())}\n\nReferences: ${refs}${finding ? `\n\nFirst finding: ${finding}` : ''}${tools}${cases}`, 0.07)
+  // a review: the branch's diff came along — which files it touches
+  const diff = prompt.includes('## Changes on the branch (data)') ? `\n\nBranch diff: ${[...new Set([...prompt.matchAll(/^\+\+\+ b\/(\S+)$/gm)].map((m) => m[1]))].join(', ') || 'new files only'}` : ''
+  const analysis = /Static analysis[^\n]*\n[\s\S]*?(exit code \d+)/.exec(prompt)?.[1]
+  if (prompt.includes('FAKE:PAGES')) {
+    result(`The system has two parts.${analysis ? ` Static analysis: ${analysis}.` : ''}\n\n## Billing\n\nCreates invoices.\n\n### How it works\n\n\`\`\`text\n## not a heading\n\`\`\`\n\n## Reports\n\nMonthly totals.`, 0.08)
+    process.exit(0)
+  }
+  if (prompt.includes('FAKE:STORIES') && /^## Stage: Stories \(doc\)$/m.test(prompt)) {
+    const stories = { project: 'Checkout', stories: [
+      { title: 'Pay by card', story: 'As a buyer I want to pay by card so that I finish quickly.', criteria: ['Card form validates', 'Receipt shows'], priority: 'high' },
+      { title: 'Save the address', story: 'As a buyer I want my address kept.', criteria: ['Address prefilled next time'], priority: 'medium' },
+      { title: 'Order history', story: 'As a buyer I want to see my orders.', criteria: [], priority: 'low' },
+    ] }
+    result(`Three slices, card payment first.\n\n\`\`\`json\n${JSON.stringify(stories, null, 2)}\n\`\`\``, 0.06)
+    process.exit(0)
+  }
+  result(`## Analysis\n\nThe document for “${title}”.\n\nWorking folder: ${basename(process.cwd())}\n\nReferences: ${refs}${finding ? `\n\nFirst finding: ${finding}` : ''}${diff}${tools}${cases}`, 0.07)
   process.exit(0)
 }
 

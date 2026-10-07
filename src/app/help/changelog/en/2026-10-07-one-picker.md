@@ -1,7 +1,7 @@
 ---
 id: 2026-10-07-one-picker
 date: 2026-10-07
-order: 1
+order: 2
 title: "one: — link what is close by, pick an MCP tool"
 summary: Type one: in a page or in the AI terminal to link a page or entry — the ones on the same level and inside the page come first, a title search finds the rest; a server's codeword lists its tools.
 image: assets/shots/changelog/one-picker.webp

@@ -15,7 +15,7 @@ import { Led } from '../../ui/controls'
 import { useLang, useT } from '../../i18n'
 import { HelpLink } from '../../help'
 import { navigate } from '../../lib/router'
-import { PIPELINE_KINDS, ensurePipelineDb, pipelineDbId, type PipelineKind, type PipelineTemplate } from './schema'
+import { KIND_TEMPLATES, PIPELINE_KINDS, currentProjectId, ensurePipelineDb, pipelineDbId, type PipelineKind, type PipelineTemplate } from './schema'
 import { useCoding } from './state'
 import { allTasks } from './tasks'
 import { loadTask, useCodingLocal, scope } from './local'
@@ -25,6 +25,7 @@ import { PipelineEditor } from './PipelineEditor'
 import { workerStateText } from './stateText'
 import { ChangeReposButton, SetupCard } from './SetupCard'
 import { NowLine } from './NowLine'
+import { ProjectBar } from './Projects'
 import './coding.css'
 
 function WorkerPlate() {
@@ -154,7 +155,9 @@ function KindSwitch({ kind }: { kind: PipelineKind }) {
 
 export default function CodingView({ kind = 'coding' }: { kind?: PipelineKind }) {
   const t = useT()
-  const dbId = useWorkspace(() => pipelineDbId(kind))
+  // the project this device shows (several per kind: Projects.tsx); a new choice re-renders
+  useCoding((s) => s.projectRev)
+  const dbId = useWorkspace(() => currentProjectId(kind))
   const caseDb = useWorkspace(() => (kind === 'qa' ? pipelineDbId('testcases') : null))
   const readOnly = useCloud((s) => s.readOnly)
   const count = useRowCount(dbId)
@@ -214,7 +217,7 @@ export default function CodingView({ kind = 'coding' }: { kind?: PipelineKind })
       {dbId ? (
         <section className="cv-board" aria-label={t('features.coding.board')}>
           <div className="cv-board__head">
-            <span className="label">{t('features.coding.board')}</span>
+            <ProjectBar kind={kind} dbId={dbId} readOnly={readOnly} />
             <span className="cv-board__links">
               {caseDb && (
                 <a className="ctk-link" href={`#/p/${caseDb}`} data-testid="coding-cases-open">
@@ -236,11 +239,11 @@ export default function CodingView({ kind = 'coding' }: { kind?: PipelineKind })
               <button type="button" className="btn" onClick={() => setUp()} data-testid="coding-setup">
                 {t(`features.coding.setup.button${sfx}`)}
               </button>
-              {kind === 'coding' && (
-                <button type="button" className="btn btn--ghost" onClick={() => setUp('modernise')} title={t('features.coding.template.moderniseHint')} data-testid="coding-setup-modernise">
-                  {t('features.coding.setup.modernise')}
+              {KIND_TEMPLATES[kind].slice(1).map((w) => (
+                <button key={w} type="button" className="btn btn--ghost" onClick={() => setUp(w)} title={t(`features.coding.template.${w}Hint`)} data-testid={`coding-setup-${w}`}>
+                  {t(`features.coding.setup.${w}`)}
                 </button>
-              )}
+              ))}
             </div>
           )}
         </section>

@@ -40,6 +40,9 @@ export interface RepoConfig {
   /** argv, run in the worktree (null = no test stage on this repo) */
   testCommand: string[] | null
   testTimeoutSec: number
+  /** the Static analysis stage: argv run in the task's worktree (or the main checkout) — a report, never a gate (null: none) */
+  analyzeCommand: string[] | null
+  analyzeTimeoutSec: number
   push: boolean
   pr: 'gh' | 'none'
   claude: ClaudeConfig
@@ -240,6 +243,15 @@ function repoConfig(raw: unknown, index: number, configDir: string, problems: st
       else problems.push(`${at}: "testCommand" is empty`)
     }
   }
+  let analyzeCommand: string[] | null = null
+  if (raw.analyzeCommand !== undefined && raw.analyzeCommand !== null) {
+    if (typeof raw.analyzeCommand === 'string') problems.push(`${at}: "analyzeCommand" must be a list (argv), e.g. ["npx", "eslint", "."] — a command line is never run through a shell`)
+    else {
+      const argv = strings(raw.analyzeCommand, 50)
+      if (argv.length) analyzeCommand = argv
+      else problems.push(`${at}: "analyzeCommand" is empty`)
+    }
+  }
   const pr = raw.pr === 'none' ? 'none' : 'gh'
   return {
     name,
@@ -250,6 +262,8 @@ function repoConfig(raw: unknown, index: number, configDir: string, problems: st
     worktreeDir,
     testCommand,
     testTimeoutSec: Math.floor(num(raw.testTimeoutSec, 600, 5, 7200)),
+    analyzeCommand,
+    analyzeTimeoutSec: Math.floor(num(raw.analyzeTimeoutSec, 900, 5, 7200)),
     push: raw.push !== false,
     pr,
     claude: claudeConfig(raw.claude, at, problems),
@@ -333,6 +347,8 @@ export function scratchRepo(config: WorkerConfig, taskId: string): RepoConfig {
     worktreeDir: dir,
     testCommand: null,
     testTimeoutSec: 600,
+    analyzeCommand: null,
+    analyzeTimeoutSec: 900,
     push: false,
     pr: 'none',
     claude: { model: null, maxTurns: 40, permissionMode: {}, allowedTools: [], disallowedTools: [], strictMcp: true, mcpServers: config.mcpServers },
@@ -379,6 +395,8 @@ export function exampleConfig(workspace: string | null): string {
       // The Test stage runs this in the worktree — an argv list, never a shell line. Leave it out: no tests.
       "testCommand": ["npm", "test"],
       "testTimeoutSec": 600,
+      // The Static analysis stage runs this (a report: its findings go into the task page). Leave it out: none.
+      // "analyzeCommand": ["npx", "eslint", "."],
 
       // Push task branches to the remote (Ship stage, Push key in One).
       "push": true,
@@ -482,6 +500,8 @@ export interface RepoChoice {
   baseBranch: string
   remote: string | null
   testCommand: string[] | null
+  /** undefined: leave as it is */
+  analyzeCommand?: string[] | null
   push: boolean
   pr: 'gh' | 'none'
   maxUsdPerTask: number | null
@@ -526,6 +546,10 @@ export function saveRepos(file: string, choices: RepoChoice[], workspace: string
     if (c.remote && c.remote !== 'origin') entry.remote = c.remote
     if (c.testCommand?.length) entry.testCommand = c.testCommand
     else delete entry.testCommand
+    if (c.analyzeCommand !== undefined) {
+      if (c.analyzeCommand?.length) entry.analyzeCommand = c.analyzeCommand
+      else delete entry.analyzeCommand
+    }
     entry.push = c.push
     entry.pr = c.pr
     if (c.maxUsdPerTask) entry.maxUsdPerTask = c.maxUsdPerTask

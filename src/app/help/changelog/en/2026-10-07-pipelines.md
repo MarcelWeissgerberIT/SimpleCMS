@@ -1,7 +1,7 @@
 ---
 id: 2026-10-07-pipelines
 date: 2026-10-07
-order: 2
+order: 3
 title: Business analysis and QA next to Coding — and the Import stage
 summary: Two more pipelines on the coding worker — Business analysis writes analyses and specifications (no repository needed), QA designs test cases into a database — each on its own or chained; legacy code arrives in the task itself.
 image: assets/shots/changelog/pipelines.webp
