@@ -341,7 +341,8 @@ the public APIs stable — other areas are built against them in parallel.
   Doc stages on a task's branch run in its worktree with the branch diff as a DIFF data block. Git action / verb 'merge' /
   'merge-pr' merge the request with the person's glab / gh (confirmed; never dirty or unpushed work). Projects: several
   pipeline databases per kind (`pipelineDbIdsOf`, `currentProjectId` per device localStorage `one.coding.project.<kind>`,
-  `createProject` / `trashProject` with Undo); the worker takes tasks from every project.
+  `createProject` / `trashProject` with Undo); the worker takes tasks from every project. Stages that need a newer worker
+  (`stageNeeds` → `WORKER_CAN`, sent with every `next` as `can`) go only to a worker that names them — never to an older one.
   Pipelines (docs/CODING.md § Pipelines): `Database.system` 'coding' | 'spec' (Business analysis) | 'qa', each its own
   board (#/coding, #/coding/spec, #/coding/qa), each usable alone; find them only with `pipelineDbId(kind)` /
   `kindOfDb()`; "Then" (`followUps` multi-select) spawns follow-ups when a task is done (`spawnFollowUp`). Stage kind

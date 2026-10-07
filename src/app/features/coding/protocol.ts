@@ -52,6 +52,18 @@ export type PermissionMode = (typeof PERMISSION_MODES)[number]
 export const GIT_ACTIONS = ['commit', 'push', 'pr', 'update-base', 'comment', 'merge'] as const
 export type GitAction = (typeof GIT_ACTIONS)[number]
 /**
+ * What a worker runs beyond the first protocol, sent with every `next`: 'analyze' (the Static analysis stage) and the
+ * git actions 'git:comment' / 'git:merge'. One hands a stage that needs one of them only to a worker that says so — an
+ * older worker would run an unknown stage kind as a git stage.
+ */
+export const WORKER_CAN = ['analyze', 'git:comment', 'git:merge'] as const
+/** The capability a stage needs (null: every worker runs it). */
+export function stageNeeds(stage: { kind: string; gitAction?: string | null }): string | null {
+  if (stage.kind === 'analyze') return 'analyze'
+  if (stage.kind === 'git' && (stage.gitAction === 'comment' || stage.gitAction === 'merge')) return `git:${stage.gitAction}`
+  return null
+}
+/**
  * The person's git actions in One — fixed verbs the worker maps to its own commands. "reveal" only prints
  * the worktree's path in the worker's terminal (it never comes to One); "discard", "force-push" and "merge-pr"
  * are confirmed in One; "discard" / "cleanup" touch only branches and worktrees the worker created; "comment-pr"
@@ -331,7 +343,17 @@ export type WorkerMessage =
   /** `paired`: the worker came ready-paired from a download (its workspace and secret are fixed in the file) */
   | { type: 'refused'; reason: RefusedReason; paired?: boolean }
   | { type: 'status'; busy: BusyTask[]; spentToday: number }
-  | { type: 'req'; id: string; op: 'next'; repos: string[]; worker: string; /** it runs document stages of tasks without a repository too */ docs?: boolean }
+  | {
+      type: 'req'
+      id: string
+      op: 'next'
+      repos: string[]
+      worker: string
+      /** it runs document stages of tasks without a repository too */
+      docs?: boolean
+      /** what it runs beyond the first protocol (WORKER_CAN) — One never hands an older worker a stage it would misread */
+      can?: string[]
+    }
   | { type: 'req'; id: string; op: 'heartbeat'; taskIds: string[] }
   | { type: 'req'; id: string; op: 'finish'; taskId: string; stageId: string; outcome: StageOutcome }
   | { type: 'event'; taskId: string; kind: 'log'; lines: LogLine[] }

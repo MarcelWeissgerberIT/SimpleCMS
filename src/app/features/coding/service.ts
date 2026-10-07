@@ -302,7 +302,7 @@ async function onRequest(msg: Extract<WorkerMessage, { type: 'req' }>) {
     switch (msg.op) {
       case 'next': {
         const name = get().worker?.name ?? String(msg.worker ?? '')
-        const task = await pickNext(Array.isArray(msg.repos) ? msg.repos.map(String) : [], name, msg.docs === true)
+        const task = await pickNext(Array.isArray(msg.repos) ? msg.repos.map(String) : [], name, msg.docs === true, Array.isArray(msg.can) ? msg.can.filter((c): c is string => typeof c === 'string').slice(0, 32) : [])
         return reply(id, { task })
       }
       case 'heartbeat':

@@ -16,6 +16,7 @@ import {
   PERMISSION_MODES,
   STAGE_KINDS,
   GIT_ACTIONS,
+  WORKER_CAN,
   type BusyTask,
   type GitResult,
   type GitVerb,
@@ -281,7 +282,7 @@ export class Worker {
     this.polling = true
     this.again = false
     void this.link
-      .request({ op: 'next', repos: free, worker: this.config.name, docs: true })
+      .request({ op: 'next', repos: free, worker: this.config.name, docs: true, can: [...WORKER_CAN] })
       .then((res) => {
         const task = sanitizeTask((res as NextResult | null)?.task)
         if (task) this.begin(task)

@@ -20,7 +20,7 @@ import { claudeDoc } from '../ai/claudeDoc'
 import { navigate, parseHash } from '../../lib/router'
 import { aiWrite } from '../history/snapshots'
 import { t } from '../../i18n'
-import { CLAIM_STALE_MS, type GitInfo, type StageOutcome, type TaskPayload } from './protocol'
+import { CLAIM_STALE_MS, stageNeeds, type GitInfo, type StageOutcome, type TaskPayload } from './protocol'
 import { CASE_TYPES, FOLLOW_UPS, PIPELINE_KINDS, caseProps, codingProps, createProject, currentProjectId, ensureCaseDb, ensurePipelineDb, addRepoOptions, inTeam, kindOfDb, nextStage, optionByName, optionName, pipelineDbIds, priorityRank, readPipeline, stageNear, stageOfRow, type CodingProps, type PipelineKind, type ResolvedStage } from './schema'
 import { parseStories, splitSections, type DocSection, type Story } from './outputs'
 import { createPrivatePage } from '../../cloud'
@@ -145,7 +145,7 @@ function moveRow(taskId: ID, props: CodingProps, stageId: ID) {
  * confirmed on this device (team) — highest priority first, then the oldest. It is claimed (Worker +
  * Claimed at) before it is handed out. Queue stages the worker takes are passed on to the next stage.
  */
-export async function pickNext(repos: string[], workerName: string, docs = false): Promise<TaskPayload | null> {
+export async function pickNext(repos: string[], workerName: string, docs = false, can: string[] = []): Promise<TaskPayload | null> {
   if (useCoding.getState().refused) return null
   const s = ws()
   const wanted = new Set(repos)
@@ -190,6 +190,12 @@ export async function pickNext(repos: string[], workerName: string, docs = false
       stage = target
     }
     if (stage.kind === 'queue' || stage.kind === 'gate' || stage.kind === 'done' || stage.kind === 'import' || !go(stage)) continue
+    // a stage an older worker would misread (it ran unknown kinds as git stages): not for this worker — the task says why
+    const needs = stageNeeds(stage)
+    if (needs && !can.includes(needs)) {
+      if (local.error !== OLD_WORKER()) await patchTask(row.id, { state: 'failed', error: OLD_WORKER(), runNow: false })
+      continue
+    }
     if (!optionName(db, props.repo, row.properties[props.repo!]) && stage.kind !== 'doc') continue
     // the worker gets exactly the version that was checked (row and pipeline): anything that changed
     // meanwhile waits a round
@@ -263,13 +269,12 @@ export async function finishStage(taskId: ID, stageId: ID, outcome: StageOutcome
   const extra: JSONContent[] = []
   if (doc && output === 'stories' && stillThere) {
     const parsed = parseStories(doc)
-    if (parsed.stories.length) {
+    // the json leaves the page only once its stories are tasks (a viewer / a failure keeps it there)
+    const made = parsed.stories.length ? await createStories(taskId, parsed.stories, parsed.project, local.storiesDb ?? null).catch(() => null) : null
+    if (made) {
       doc = parsed.rest
-      const made = await createStories(taskId, parsed.stories, parsed.project, local.storiesDb ?? null).catch(() => null)
-      if (made) {
-        patch.storiesDb = made.dbId
-        extra.push(storiesNote(made.dbId, made.created, parsed.stories.length))
-      }
+      patch.storiesDb = made.dbId
+      extra.push(storiesNote(made.dbId, made.created, parsed.stories.length))
     }
   }
   const tree = doc && output === 'pages' ? splitSections(doc) : null
@@ -395,6 +400,9 @@ export interface TestCase {
   expected: string
 }
 
+/** A stage needs a newer worker than the connected one. */
+const OLD_WORKER = () => t('features.coding.err.oldWorker')
+
 const clipStr = (v: unknown, n: number) => (typeof v === 'string' ? v.trim().slice(0, n) : typeof v === 'number' ? String(v) : '')
 
 /**
@@ -480,9 +488,11 @@ const lifted = (blocks: JSONContent[]): JSONContent[] => blocks.map((b) => (b.ty
 function writeDocPages(taskId: ID, stage: ResolvedStage, taskTitle: string, tree: { intro: string; sections: DocSection[] }, known: ID | null): { rootId: ID; children: Array<{ id: ID; title: string }> } {
   const s = ws()
   const live = (id: ID | null | undefined) => !!id && !!s.pages[id] && !s.pages[id]!.trashed
-  const make = (input: Parameters<typeof s.createPage>[0]) => (inTeam() ? createPrivatePage(input) : ws().createPage(input))
   const rootTitle = `${taskTitle} · ${stage.name}`
-  const rootId = live(known) ? known! : make({ parentId: null, title: rootTitle, icon: { type: 'asset', value: 'notepad' }, content: { type: 'doc', content: [para('')] } })
+  const rootInput = { parentId: null, title: rootTitle, icon: { type: 'asset' as const, value: 'notepad' }, content: { type: 'doc', content: [para('')] } }
+  // a team: the root in my Private section; pages below a private page go there with it (the binding)
+  const rootId = live(known) ? known! : inTeam() ? createPrivatePage(rootInput) : ws().createPage(rootInput)
+  const make = (input: Parameters<typeof s.createPage>[0]) => ws().createPage(input)
   const children: Array<{ id: ID; title: string }> = []
   const existing = Object.values(ws().pages).filter((p) => p.parentId === rootId && !p.trashed && !p.databaseId)
   for (const sec of tree.sections) {

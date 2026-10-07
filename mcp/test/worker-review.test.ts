@@ -44,6 +44,17 @@ function assertNoPaths(tab: FakeTab, r: TempRepo) {
 /** A linter that names files by their full path (scrubbed on the way to One) and finds something (exit 1). */
 const LINT = "console.log(process.cwd() + '/src/a.js:1:1 warning Unexpected var')\nconsole.log('1 problem')\nprocess.exit(1)\n"
 
+describe('capabilities', () => {
+  test('every `next` names what this worker runs beyond the first protocol (One gives older workers none of it)', async () => {
+    const r = makeRepo()
+    const tab = await boot(r)
+    tab.send({ type: 'nudge' })
+    const next = await tab.next('req')
+    assert.equal(next.op, 'next')
+    assert.deepEqual((next as Extract<typeof next, { op: 'next' }>).can, ['analyze', 'git:comment', 'git:merge'])
+  })
+})
+
 describe('static analysis', () => {
   test('the repo\'s command in the main checkout (no branch made): the output is the section, findings do not fail the stage', async () => {
     const r = makeRepo()

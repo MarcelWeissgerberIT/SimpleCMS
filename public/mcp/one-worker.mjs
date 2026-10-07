@@ -10909,6 +10909,7 @@ var PARALLEL_MAX = 2;
 var STAGE_KINDS = ["queue", "import", "analyze", "plan", "doc", "gate", "implement", "test", "git", "done"];
 var PERMISSION_MODES = ["plan", "acceptEdits", "default"];
 var GIT_ACTIONS = ["commit", "push", "pr", "update-base", "comment", "merge"];
+var WORKER_CAN = ["analyze", "git:comment", "git:merge"];
 var GIT_VERBS = ["refresh", "commit", "push", "force-push", "pr", "update-base", "discard", "cleanup", "reveal", "comment-pr", "merge-pr"];
 var REPO_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 var WORKSPACE_ID = /^(local|team):[A-Za-z0-9_-]{1,64}$/;
@@ -14760,7 +14761,7 @@ var Worker2 = class {
     if (this.runs.size >= this.config.parallel) return;
     this.polling = true;
     this.again = false;
-    void this.link.request({ op: "next", repos: free, worker: this.config.name, docs: true }).then((res) => {
+    void this.link.request({ op: "next", repos: free, worker: this.config.name, docs: true, can: [...WORKER_CAN] }).then((res) => {
       const task = sanitizeTask(res?.task);
       if (task) this.begin(task);
       else if (res?.task) this.opts.log("One sent a task the worker cannot read \u2014 ignored");
