@@ -6,7 +6,7 @@ import { createStore, type StoreApi } from 'zustand/vanilla'
 import type { Range } from '@tiptap/core'
 import type { TransformPick } from '../../features'
 
-export type SuggestKind = 'slash' | 'mention' | 'emoji'
+export type SuggestKind = 'slash' | 'mention' | 'emoji' | 'ref'
 
 export interface SuggestState {
   kind: SuggestKind

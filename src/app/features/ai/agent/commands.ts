@@ -1,10 +1,14 @@
 /**
  * AI terminal — the prompt's /commands (EN and DE names, all of them always work) and Tab
- * completion of /commands and @page / @database mentions (title search).
+ * completion of /commands, @page / @database mentions (title search), "one:" (pages and entries on the level of
+ * the open page first, then a title search — any page or entry) and "<codeword>:" at the start (the tools of that
+ * MCP server, from its connection test).
  */
 import { useWorkspace } from '../../../store/store'
 import { inTemplate, isEffectivelyTrashed, selectBreadcrumbs } from '../../../store/selectors'
-import type { Page } from '../../../store/types'
+import type { ID, Page } from '../../../store/types'
+import { t } from '../../../i18n'
+import { readServers } from '../mcp-servers/config'
 import type { TermMention } from './types'
 import { examples } from '../memory/example'
 import { memoryInUse } from '../memory/settings'
@@ -84,10 +88,12 @@ export interface CompletionItem {
   mention?: TermMention & { where: string }
   /** an example of the One memory: "#wochenbericht" → its name */
   example?: { tag: string; text: string }
+  /** a tool of an MCP server ("kb: search_records") */
+  tool?: { server: string; name: string }
 }
 
 export interface Completion {
-  kind: 'command' | 'mention' | 'tag'
+  kind: 'command' | 'mention' | 'tag' | 'tool'
   /** the token's range in the draft */
   from: number
   to: number
@@ -128,8 +134,61 @@ function mentionCandidates(query: string): CompletionItem[] {
   })
 }
 
-/** What Tab would complete at the caret (null = nothing to complete). */
-export function completionAt(draft: string, caret: number, lang: 'en' | 'de'): Completion | null {
+const REF_MAX = 8
+
+/** "one:" — pages and entries next to `here` (same parent or database) and inside it first, then by title. */
+function refCandidates(query: string, here: ID | null): CompletionItem[] {
+  const { pages } = useWorkspace.getState()
+  const q = query.trim().toLowerCase()
+  const at = here ? pages[here] : undefined
+  const scored: Array<{ p: Page; score: number; where: string }> = []
+  for (const p of Object.values(pages)) {
+    if (p.id === here || p.trashed || p.hidden) continue
+    const title = p.title.trim()
+    if (!title) continue
+    const lower = title.toLowerCase()
+    const level = !!at && p.parentId === at.parentId ? 0 : !!at && p.parentId === at.id ? 1 : 2
+    let match: number
+    if (!q) match = level < 2 ? 0 : -1
+    else if (lower.startsWith(q)) match = 0
+    else if (lower.includes(` ${q}`)) match = 1
+    else if (lower.includes(q)) match = 2
+    else match = -1
+    if (match < 0) continue
+    if (isEffectivelyTrashed(pages, p.id) || inTemplate(pages, p.id)) continue
+    const where =
+      level === 0
+        ? t('features.agent.complete.sameLevel')
+        : level === 1
+          ? t('features.agent.complete.inside')
+          : selectBreadcrumbs(pages, p.id)
+              .slice(0, -1)
+              .map((x) => x.title.trim())
+              .filter(Boolean)
+              .join(' / ')
+    scored.push({ p, score: level * 3 + match, where })
+  }
+  scored.sort((a, b) => a.score - b.score || b.p.updatedAt - a.p.updatedAt)
+  return scored.slice(0, REF_MAX).map(({ p, where }) => {
+    const title = p.title.trim()
+    return { key: p.id, insert: `@${title} `, label: title, mention: { id: p.id, title, kind: p.kind === 'database' ? 'database' : 'page', where } }
+  })
+}
+
+/** "<codeword>:" at the start — the tools of that server (from its connection test), by name. */
+function toolCandidates(word: string, query: string): CompletionItem[] | null {
+  const server = readServers().find((s) => s.codeword === word.toLowerCase())
+  if (!server) return null
+  const q = query.toLowerCase()
+  return (server.tools ?? [])
+    .filter((name) => !q || name.toLowerCase().includes(q))
+    .sort((a, b) => Number(!a.toLowerCase().startsWith(q)) - Number(!b.toLowerCase().startsWith(q)))
+    .slice(0, REF_MAX)
+    .map((name) => ({ key: `${server.id}:${name}`, insert: `${server.codeword}: ${name} `, label: name, tool: { server: server.name, name } }))
+}
+
+/** What Tab would complete at the caret (null = nothing to complete). `here`: the page open in One (for "one:"). */
+export function completionAt(draft: string, caret: number, lang: 'en' | 'de', here: ID | null = null): Completion | null {
   const before = draft.slice(0, caret)
   // a command: "/wor" at the very start of the prompt
   const cmd = /^\s*\/([\p{L}\d_-]*)$/u.exec(before)
@@ -156,6 +215,20 @@ export function completionAt(draft: string, caret: number, lang: 'en' | 'de'): C
       .slice(0, MENTION_MAX)
       .map((m) => ({ key: m.id, insert: `#${m.tag} `, label: `#${m.tag}`, example: { tag: m.tag, text: m.text } }))
     if (items.length) return { kind: 'tag', from: before.length - query.length - 1, to: caret, query, items }
+  }
+  // "one:" at a word start: a page or entry, next to the open page first
+  const one = /(^|\s)one:([^\n]{0,40})$/i.exec(before)
+  if (one) {
+    const query = one[2]
+    if (/\s$/.test(query) && query.trim()) return null
+    const items = refCandidates(query, here)
+    return items.length ? { kind: 'mention', from: before.length - query.length - 4, to: caret, query, items } : null
+  }
+  // "<codeword>:" at the start of the prompt: that server's tools
+  const cw = /^(\s*)([a-z0-9_-]{1,24}):([\w.-]{0,40})$/i.exec(before)
+  if (cw && cw[2].toLowerCase() !== 'one') {
+    const items = toolCandidates(cw[2], cw[3])
+    if (items?.length) return { kind: 'tool', from: cw[1].length, to: caret, query: cw[3], items }
   }
   // a mention: "@" at a word start, up to 40 characters, no line break
   const at = /(^|\s)@([^\n@]{0,40})$/.exec(before)

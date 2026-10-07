@@ -18,7 +18,7 @@ import { getMcpToken } from '../../../store/secrets'
 import type { McpServerConfig, Settings } from '../../../store/types'
 import { t } from '../../../i18n'
 import { linkBaseOf } from '../../../lib/foreignLinks'
-import { addressedLine, codewordGuideLine, codewordProblem, normalizeCodeword, parseCodewords, switchedOffLine } from './codeword'
+import { addressedLine, codewordGuideLine, codewordProblem, normalizeCodeword, parseCodewords, switchedOffLine, pickedTool, pickedToolLine } from './codeword'
 import { readOAuth } from './oauthConfig'
 import { tokenFor } from './oauth'
 
@@ -187,13 +187,14 @@ function linkLine(s: McpServerConfig): string {
  * The system prompt part for these servers: the template, then each server's usage prompt (with its
  * codeword, if it has one), then — for a request that starts with codewords — who was addressed.
  */
-export function mcpSystemText(servers: McpServerConfig[], instructions: string, addressed: string[] = []): string {
+export function mcpSystemText(servers: McpServerConfig[], instructions: string, addressed: string[] = [], picked: { server: string; tool: string } | null = null): string {
   const parts = [`<mcp_instructions>\n${instructions.trim()}\n</mcp_instructions>`]
   for (const s of servers) {
     const prompt = s.prompt.trim() || 'No usage guide yet: read the tool descriptions carefully before you use them.'
     parts.push(`<mcp_server name="${s.name}">\n${prompt}${s.codeword ? `\n${codewordGuideLine(s.codeword)}` : ''}\n${linkLine(s)}\n</mcp_server>`)
   }
-  if (addressed.length) parts.push(`<mcp_codeword>\n${addressed.map(addressedLine).join('\n')}\n</mcp_codeword>`)
+  const pickedLine = picked && addressed.includes(picked.server) ? [pickedToolLine(picked.server, picked.tool)] : []
+  if (addressed.length) parts.push(`<mcp_codeword>\n${[...addressed.map(addressedLine), ...pickedLine].join('\n')}\n</mcp_codeword>`)
   return parts.join('\n\n')
 }
 
@@ -264,7 +265,7 @@ export function refusedNames(setup: McpSetup = currentSetup(), kind: McpRequestK
   return setup.servers.filter((s) => !(kind === 'fixed' && s.scope !== 'all' && !forced.includes(s.name)) && !forced.includes(s.name) && isRefused(s)).map((s) => s.name)
 }
 
-export async function attachMcp(setup: McpSetup = currentSetup(), kind: McpRequestKind = 'free', opts: { forced?: string[] } = {}): Promise<McpAttachment | null> {
+export async function attachMcp(setup: McpSetup = currentSetup(), kind: McpRequestKind = 'free', opts: { forced?: string[]; picked?: { server: string; tool: string } | null } = {}): Promise<McpAttachment | null> {
   const forced = opts.forced ?? []
   const usable: Array<{ s: McpServerConfig; token: string }> = []
   for (const s of setup.servers) {
@@ -284,6 +285,7 @@ export async function attachMcp(setup: McpSetup = currentSetup(), kind: McpReque
       usable.map(({ s }) => s),
       setup.instructions,
       forced.filter((n) => names.includes(n)),
+      opts.picked ?? null,
     ),
     names,
   }
@@ -300,13 +302,15 @@ export interface Codewords {
   forced: string[]
   /** addressed, but switched off: they stay off (the result says so) */
   off: string[]
+  /** a tool picked right after the codeword (the terminal's tool list, or typed) */
+  picked?: { server: string; tool: string } | null
 }
 
 /** Read the codewords a request starts with (null = none). */
 export function codewordsIn(text: string, servers: McpServerConfig[] = readServers()): Codewords | null {
   const hit = parseCodewords(text, servers)
   if (!hit.servers.length) return null
-  return { text: hit.text, forced: hit.servers.filter((s) => s.enabled).map((s) => s.name), off: hit.servers.filter((s) => !s.enabled).map((s) => s.name) }
+  return { text: hit.text, forced: hit.servers.filter((s) => s.enabled).map((s) => s.name), off: hit.servers.filter((s) => !s.enabled).map((s) => s.name), picked: pickedTool(hit.text, hit.servers) }
 }
 
 /**
@@ -317,6 +321,8 @@ export function codewordTask(task: string, servers: McpServerConfig[] = readServ
   const hit = parseCodewords(task, servers)
   if (!hit.servers.length) return task
   const lines = hit.servers.map((s) => (s.enabled ? addressedLine(s.name) : switchedOffLine(s.name)))
+  const picked = pickedTool(hit.text, hit.servers)
+  if (picked) lines.push(pickedToolLine(picked.server, picked.tool))
   return `${lines.join('\n')}\n\n${hit.text}`
 }
 

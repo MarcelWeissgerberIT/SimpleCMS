@@ -1,4 +1,4 @@
-/** Suggestion plugins ("/", "@", ":") bridged to React menus via the overlay store. */
+/** Suggestion plugins ("/", "@", ":", "one:") bridged to React menus via the overlay store. */
 import { Extension, type Range } from '@tiptap/core'
 import { Plugin, PluginKey, Selection, type EditorState, type Transaction } from '@tiptap/pm/state'
 import { ReplaceStep } from '@tiptap/pm/transform'
@@ -10,6 +10,7 @@ export const SUGGEST_KEYS: Record<SuggestKind, PluginKey> = {
   slash: new PluginKey('suggest-slash'),
   mention: new PluginKey('suggest-mention'),
   emoji: new PluginKey('suggest-emoji'),
+  ref: new PluginKey('suggest-ref'),
 }
 
 export type SuggestRun = (range: Range) => void
@@ -36,9 +37,11 @@ function armPlugin(key: PluginKey<number | null>, suggestKey: PluginKey, char: s
           tr.steps.forEach((step, i) => {
             if (!(step instanceof ReplaceStep) || step.slice.size < 1) return
             const text = step.slice.content.textBetween(0, step.slice.content.size)
-            if (!text.endsWith(char)) return
+            if (!text.endsWith(char.slice(-1))) return
             const end = tr.mapping.slice(i + 1).map(step.from + step.slice.size)
-            if (tr.selection.empty && tr.selection.head === end) armed = end - 1
+            // a trigger of several characters ("one:") is armed by its last one, typed right after the rest
+            if (char.length > 1 && tr.doc.textBetween(Math.max(0, end - char.length), end) !== char) return
+            if (tr.selection.empty && tr.selection.head === end) armed = end - char.length
           })
         } else if (armed !== null && tr.selectionSet && !tr.docChanged) {
           const $head = tr.selection.$head

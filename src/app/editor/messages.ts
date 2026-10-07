@@ -186,6 +186,10 @@ export const messages: Messages = {
 
     // mentions & dates
     'editor.mention.pages': 'Pages',
+    'editor.ref.level': 'Same level',
+    'editor.ref.inside': 'Inside this page',
+    'editor.ref.search': 'Everywhere',
+    'editor.ref.type': 'Type a title to search every page',
     'editor.mention.dates': 'Dates',
     'editor.mention.people': 'People',
     'editor.mention.newPage': 'New page “{title}”',
@@ -709,6 +713,10 @@ export const messages: Messages = {
     'editor.link.pages': 'Auf Seite verlinken',
 
     'editor.mention.pages': 'Seiten',
+    'editor.ref.level': 'Gleiche Ebene',
+    'editor.ref.inside': 'In dieser Seite',
+    'editor.ref.search': 'Überall',
+    'editor.ref.type': 'Titel tippen, um alle Seiten zu durchsuchen',
     'editor.mention.dates': 'Daten',
     'editor.mention.people': 'Personen',
     'editor.mention.newPage': 'Neue Seite „{title}“',

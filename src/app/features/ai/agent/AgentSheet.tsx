@@ -1327,7 +1327,7 @@ function Prompt({ disabled, onReview }: { disabled: boolean; onReview: () => boo
   const [browsing, setBrowsing] = useState(false)
   const comp: Completion | null = useMemo(() => {
     if (browsing) return null
-    const c = completionAt(draft, caret, lang)
+    const c = completionAt(draft, caret, lang, contextPageId())
     return c && `${c.from}:${draft.slice(c.from, c.to)}` !== dismissed ? c : null
   }, [draft, caret, lang, dismissed, browsing])
   useEffect(() => setActive(0), [comp?.kind, comp?.query])
@@ -1474,7 +1474,7 @@ function Prompt({ disabled, onReview }: { disabled: boolean; onReview: () => boo
     >
       <Chips />
       {comp && (
-        <ul className="term-complete" id={listId} role="listbox" aria-label={t(comp.kind === 'command' ? 'features.agent.complete.commands' : comp.kind === 'tag' ? 'features.memory.example.complete' : 'features.agent.complete.pages')}>
+        <ul className="term-complete" id={listId} role="listbox" aria-label={t(comp.kind === 'command' ? 'features.agent.complete.commands' : comp.kind === 'tag' ? 'features.memory.example.complete' : comp.kind === 'tool' ? 'features.agent.complete.tools' : 'features.agent.complete.pages')}>
           {comp.items.map((item, i) => (
             <li
               key={item.key}
@@ -1487,7 +1487,7 @@ function Prompt({ disabled, onReview }: { disabled: boolean; onReview: () => boo
               onClick={() => accept(comp, i)}
             >
               <span className="term-complete__label">{item.mention ? `${item.mention.kind === 'database' ? '▦' : '▣'} ${item.label}` : item.label}</span>
-              <span className="term-complete__hint">{item.command ? t(`features.agent.cmd.${item.command}`) : item.example ? item.example.text : item.mention?.where || t(`features.agent.kindOf.${item.mention?.kind ?? 'page'}`)}</span>
+              <span className="term-complete__hint">{item.command ? t(`features.agent.cmd.${item.command}`) : item.example ? item.example.text : item.tool ? t('features.agent.complete.toolOf', { server: item.tool.server }) : item.mention?.where || t(`features.agent.kindOf.${item.mention?.kind ?? 'page'}`)}</span>
             </li>
           ))}
           <li className="term-complete__foot" aria-hidden>

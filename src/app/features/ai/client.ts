@@ -349,7 +349,7 @@ export async function streamCompletion(opts: StreamOptions, again = false): Prom
     }
 
     const cw = mcp === false ? null : codewords
-    attached = mcp === false ? null : await attachMcp(setup, mcp ?? 'fixed', { forced: cw?.forced })
+    attached = mcp === false ? null : await attachMcp(setup, mcp ?? 'fixed', { forced: cw?.forced, picked: cw?.picked })
     if (signal?.aborted) throw new AIError('aborted')
     // servers that stay out are listed first, before any call of the request
     const skipped = skippedOf(cw, attached, mcp === false ? [] : refusedNames(setup ?? currentSetup(), mcp ?? 'fixed', cw?.forced))

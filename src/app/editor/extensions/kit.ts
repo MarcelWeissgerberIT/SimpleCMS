@@ -56,6 +56,8 @@ export function editorExtensions({
     pasteExtension(bridge),
     suggestExtension('slash', '/', bridge, { allowSpaces: true }),
     suggestExtension('mention', '@', bridge, { allowSpaces: true }),
+    // "one:" — a page or entry next to this page first, then a search (menus/RefMenu.tsx)
+    suggestExtension('ref', 'one:', bridge, { allowSpaces: true }),
     suggestExtension('emoji', ':', bridge, { shouldShow: emojiQuery }),
     ButtonKeys,
     MediaKeys,

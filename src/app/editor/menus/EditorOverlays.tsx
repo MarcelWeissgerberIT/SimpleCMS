@@ -7,6 +7,7 @@ import { AIMenuSlot, AIRunsSlot } from '../lib/lazyAreas'
 import { BlockHandle } from './BlockHandle'
 import { SlashMenu } from './SlashMenu'
 import { MentionMenu } from './MentionMenu'
+import { RefMenu } from './RefMenu'
 import { EmojiMenu } from './EmojiMenu'
 import { BubbleToolbar } from './BubbleToolbar'
 import { UrlPasteMenu } from './UrlPasteMenu'
@@ -41,6 +42,7 @@ export const EditorOverlays = memo(function EditorOverlays({ editor, bridge, pag
       <BlockHandle editor={editor} bridge={bridge} pageId={pageId} />
       <SlashMenu editor={editor} bridge={bridge} pageId={pageId} />
       <MentionMenu editor={editor} bridge={bridge} pageId={pageId} />
+      <RefMenu editor={editor} bridge={bridge} pageId={pageId} />
       <EmojiMenu editor={editor} bridge={bridge} />
       <InlinePickers editor={editor} bridge={bridge} />
       <BubbleToolbar editor={editor} bridge={bridge} />

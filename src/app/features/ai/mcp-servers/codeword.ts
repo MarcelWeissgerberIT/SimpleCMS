@@ -64,6 +64,20 @@ export function parseCodewords(text: string, servers: McpServerConfig[]): Codewo
   return hit.length ? { text: rest, servers: hit } : { text, servers: [] }
 }
 
+/**
+ * A tool picked after the codeword ("kb: search_records …", the terminal's tool list): the text starts with one of
+ * the addressed servers' tool names (from their connection test). null: no such tool.
+ */
+export function pickedTool(text: string, servers: McpServerConfig[]): { server: string; tool: string } | null {
+  const word = /^\s*([A-Za-z0-9_.-]{1,80})(?=\s|$)/.exec(text)?.[1]
+  if (!word) return null
+  const s = servers.find((x) => x.enabled && (x.tools ?? []).includes(word))
+  return s ? { server: s.name, tool: word } : null
+}
+
+/** What Claude is told about a tool the person picked. */
+export const pickedToolLine = (server: string, tool: string) => `The person picked the tool ${tool} of ${server}: use it for this request (with the rest of the request as what it is about).`
+
 /** What Claude is told about a server the person addressed by its codeword. */
 export const addressedLine = (name: string) => `The person addressed ${name} by its codeword: answer with its tools first; say when it has nothing.`
 
