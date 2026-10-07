@@ -22,7 +22,7 @@ import { LogView } from './LogView'
 import { PlanView } from './PlanView'
 import { DiffView } from './DiffView'
 import { GitBox } from './GitBox'
-import { TaskSetup } from './TaskSetup'
+import { ApprovalsPick, TaskSetup } from './TaskSetup'
 import './coding.css'
 
 type Tab = 'log' | 'plan' | 'diff' | 'tests' | 'git'
@@ -168,6 +168,7 @@ export default function TaskPanel({ pageId }: { pageId: ID }) {
         ) : null}
 
         {setup && <TaskSetup taskId={pageId} repo={repo} branch={branch} described={taskHasText(task)} />}
+        {canAct && stage?.kind !== 'done' && <ApprovalsPick taskId={pageId} />}
 
         {needsTrust && canAct && (
           <div className="ctk-box ctk-box--trust" role="alert">

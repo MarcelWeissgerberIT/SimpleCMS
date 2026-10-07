@@ -22,7 +22,7 @@ import { aiWrite } from '../history/snapshots'
 import { t } from '../../i18n'
 import { CLAIM_STALE_MS, type GitInfo, type StageOutcome, type TaskPayload } from './protocol'
 import { codingDbId, codingProps, ensureCodingDb, addRepoOptions, nextStage, optionByName, optionName, priorityRank, readPipeline, stageNear, stageOfRow, type CodingProps, type ResolvedStage } from './schema'
-import { loadTask, patchTask, taskLocal, type TaskLocal } from './local'
+import { appendLog, loadTask, patchTask, taskLocal, type TaskLocal } from './local'
 import { isTrusted, keepTrust, trustTask } from './trust'
 import { useCoding } from './state'
 
@@ -233,10 +233,16 @@ export async function finishStage(taskId: ID, stageId: ID, outcome: StageOutcome
   if (outcome.plan) patch.plan = outcome.plan
   if (outcome.summary && stage?.kind === 'implement') patch.summary = outcome.summary
 
+  const passed: string[] = []
   switch (outcome.status) {
     case 'ok':
       if (stage?.kind === 'test') patch.testFailures = 0
       if (stillThere) moveTo = nextStage(pipeline, stage!)
+      // gates this task does not stop at (Approvals): straight on, noted in the log
+      for (let hops = 0; moveTo?.kind === 'gate' && skipsGate(approvalsOf(local), pipeline, moveTo) && hops < pipeline.length; hops++) {
+        passed.push(moveTo.name)
+        moveTo = nextStage(pipeline, moveTo)
+      }
       // answers and rework notes belong to the stage they were given in
       patch.answers = (local.answers ?? []).filter((a) => a.stageId !== stageId)
       if (local.rework?.stageId === stageId) patch.rework = null
@@ -296,6 +302,10 @@ export async function finishStage(taskId: ID, stageId: ID, outcome: StageOutcome
     }),
   )
   await patchTask(taskId, patch)
+  if (passed.length) {
+    appendLog(taskId, passed.map((name) => ({ t: Date.now(), k: 'info' as const, s: t('features.coding.approvals.passed', { stage: name }) })))
+    if (moveTo?.auto) nudge()
+  }
   // no toast for the task the person is looking at: its panel shows it
   const here = parseHash(window.location.hash)
   if (toast && !(here.name === 'page' && here.id === taskId)) {
@@ -492,4 +502,48 @@ export function insertTaskOutline(taskId: ID): void {
     },
     'template',
   )
+}
+
+/* ------------------------------------------------------------------ approvals */
+
+/** Which gates a task stops at: 'all' (plan + review) · 'review' (the plan runs on) · 'none' (no stop — "just do it"). */
+export type Approvals = NonNullable<TaskLocal['approvals']>
+export const APPROVALS: Approvals[] = ['all', 'review', 'none']
+const APPROVALS_KEY = 'one.coding.approvals'
+
+/** This device's choice for tasks that have none of their own (the last one picked). */
+export function defaultApprovals(): Approvals {
+  try {
+    const v = localStorage.getItem(APPROVALS_KEY)
+    return v === 'review' || v === 'none' ? v : 'all'
+  } catch {
+    return 'all'
+  }
+}
+
+export function approvalsOf(local: TaskLocal): Approvals {
+  return local.approvals && APPROVALS.includes(local.approvals) ? local.approvals : defaultApprovals()
+}
+
+/** A gate right after a plan stage approves the plan; every other gate is a review. */
+function skipsGate(level: Approvals, pipeline: ResolvedStage[], gate: ResolvedStage): boolean {
+  if (level === 'none') return true
+  return level === 'review' && pipeline[gate.index - 1]?.kind === 'plan'
+}
+
+/** A task's approvals (and this device's default from now on); a task waiting at a gate it now skips goes on. */
+export async function setTaskApprovals(taskId: ID, level: Approvals): Promise<void> {
+  await loadTask(taskId)
+  await patchTask(taskId, { approvals: level })
+  try {
+    localStorage.setItem(APPROVALS_KEY, level)
+  } catch {
+    /* private mode: only this task */
+  }
+  const ctx = taskContext(taskId)
+  const local = taskLocal(taskId)
+  if (ctx?.stage?.kind === 'gate' && local.state === 'idle' && skipsGate(level, ctx.pipeline, ctx.stage)) {
+    appendLog(taskId, [{ t: Date.now(), k: 'info', s: t('features.coding.approvals.passed', { stage: ctx.stage.name }) }])
+    await approveTask(taskId)
+  }
 }

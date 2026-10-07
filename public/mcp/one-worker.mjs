@@ -11341,6 +11341,10 @@ function killTree(child) {
   }, 3e3);
   hard.unref();
 }
+var clock = (ms) => {
+  const sec = Math.max(0, Math.round(ms / 1e3));
+  return `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, "0")}`;
+};
 function runClaude(r) {
   return new Promise((done) => {
     const result = { ok: false, stopped: false, text: "", plan: null, cost: 0, turns: 0, sessionId: null, subtype: null };
@@ -11354,6 +11358,14 @@ function runClaude(r) {
     let stderr = "";
     let gotResult = false;
     const log2 = (k, s) => r.onLog({ t: Date.now(), k, s });
+    const started = Date.now();
+    let heard = started;
+    const quietMs = Number(process.env.ONE_WORKER_QUIET_MS) || 6e4;
+    const beat = setInterval(() => {
+      if (Date.now() - heard < quietMs) return;
+      log2("info", `Claude Code is still working \xB7 ${clock(Date.now() - started)} so far \xB7 last output ${clock(Date.now() - heard)} ago`);
+    }, quietMs);
+    beat.unref();
     const onAbort = () => {
       result.stopped = true;
       log2("warn", "Stopped \u2014 Claude Code was ended.");
@@ -11375,6 +11387,7 @@ ${e.message}`;
     lines.on("line", (line) => {
       const s = line.trim();
       if (!s) return;
+      heard = Date.now();
       let ev;
       try {
         ev = JSON.parse(s);
@@ -11422,6 +11435,7 @@ ${e.message}`;
       }
     });
     child.on("close", (code) => {
+      clearInterval(beat);
       r.signal.removeEventListener("abort", onAbort);
       if (!gotResult && !result.stopped) {
         result.ok = false;
@@ -11434,7 +11448,7 @@ ${e.message}`;
 }
 
 // src/worker/git.ts
-import { execFile as execFile2 } from "node:child_process";
+import { execFile as execFile2, spawn as spawn2 } from "node:child_process";
 import { existsSync as existsSync2, lstatSync, mkdirSync as mkdirSync2, readFileSync as readFileSync2, readlinkSync } from "node:fs";
 import { dirname as dirname2, join as join2, resolve as resolve2, sep as sep2 } from "node:path";
 var GitError = class extends Error {
@@ -11442,13 +11456,47 @@ var GitError = class extends Error {
 var DIFF_FILE_MAX = 12e4;
 var DIFF_TOTAL_MAX = 15e5;
 var DIFF_FILES_MAX = 200;
-var ENV = { GIT_TERMINAL_PROMPT: "0", GIT_OPTIONAL_LOCKS: "0", LC_ALL: "C" };
+var ENV = { GIT_TERMINAL_PROMPT: "0", GIT_OPTIONAL_LOCKS: "0", LC_ALL: "C", GCM_INTERACTIVE: "never" };
+var OUT_MAX = 32 * 1024 * 1024;
 function git(cwd, args, timeoutMs = 12e4) {
   return new Promise((done) => {
-    execFile2("git", args, { cwd, timeout: timeoutMs, maxBuffer: 32 * 1024 * 1024, env: { ...process.env, ...ENV }, windowsHide: true }, (err, stdout, stderr) => {
-      const code = err ? typeof err.code === "number" ? err.code : 1 : 0;
-      done({ code, stdout: String(stdout), stderr: String(stderr || (err && !(typeof err.code === "number") ? err.message : "")) });
-    });
+    const out = [];
+    const err = [];
+    let size = 0;
+    let why = null;
+    let settled = false;
+    const finish = (code, extra = "") => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      const stderr = Buffer.concat(err).toString();
+      done({ code, stdout: Buffer.concat(out).toString(), stderr: why ?? (stderr || extra), timedOut: why !== null && why.includes("did not finish") });
+    };
+    const child = spawn2("git", args, { cwd, env: { ...process.env, ...ENV }, stdio: ["ignore", "pipe", "pipe"], detached: process.platform !== "win32", windowsHide: true });
+    const stop = () => {
+      try {
+        if (process.platform !== "win32" && child.pid) process.kill(-child.pid, "SIGKILL");
+        else child.kill("SIGKILL");
+      } catch {
+      }
+    };
+    const timer = setTimeout(() => {
+      why = `git ${args[0]} did not finish within ${Math.round(timeoutMs / 1e3)} s \u2014 no network, or it waits for a password or an SSH key passphrase (the worker cannot type one: use an SSH agent or a credential helper)`;
+      stop();
+    }, timeoutMs);
+    const take = (into) => (d) => {
+      size += d.length;
+      if (size > OUT_MAX) {
+        why = `git ${args[0]}: output too large`;
+        stop();
+        return;
+      }
+      into.push(d);
+    };
+    child.stdout.on("data", take(out));
+    child.stderr.on("data", take(err));
+    child.on("error", (e) => finish(127, e.message));
+    child.on("close", (code) => finish(why ? 1 : code ?? 1));
   });
 }
 async function gitOk(cwd, args, timeoutMs) {
@@ -11499,10 +11547,22 @@ async function validBranch(repo, b) {
   if (!b || b.length > 200 || b.startsWith("-")) return false;
   return (await git(repo.path, ["check-ref-format", "--branch", b])).code === 0;
 }
+var fetchMs = () => Number(process.env.ONE_WORKER_FETCH_MS) || 6e4;
 async function fetchRemote(repo) {
   if (!await hasRemote(repo)) return false;
-  await gitOk(repo.path, ["fetch", "--quiet", "--prune", repo.remote], 3e5);
+  await gitOk(repo.path, ["fetch", "--quiet", "--prune", repo.remote], fetchMs());
   return true;
+}
+async function tryFetch(repo, note) {
+  if (!await hasRemote(repo)) return false;
+  note?.("git", `Fetching ${repo.remote}\u2026`);
+  try {
+    return await fetchRemote(repo);
+  } catch (e) {
+    const why = (e instanceof Error ? e.message : String(e)).replace(/\s+/g, " ").trim().slice(0, 300);
+    note?.("warn", `Could not fetch ${repo.remote} (${why}) \u2014 going on with what this computer has.`);
+    return false;
+  }
 }
 async function baseRef(repo) {
   if (await refExists(repo.path, `refs/remotes/${repo.remote}/${repo.baseBranch}`)) return `${repo.remote}/${repo.baseBranch}`;
@@ -11514,7 +11574,7 @@ function slug(title, max = 40) {
   return s || "task";
 }
 var shortId = (taskId) => taskId.toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 6) || "task";
-async function ensureWorktree(repo, state, task, wanted) {
+async function ensureWorktree(repo, state, task, wanted, note) {
   const top = await checkRepo(repo);
   const known = state.taskAt(task.id);
   const trees = await listWorktrees(repo);
@@ -11522,8 +11582,8 @@ async function ensureWorktree(repo, state, task, wanted) {
     const tree = trees.find((w) => w.branch === known.branch && same(w.path, known.worktree));
     if (tree && existsSync2(tree.path)) return { dir: tree.path, branch: known.branch, created: !!state.created(repo.name, known.branch)?.branchCreated };
   }
-  if (wanted) return reuse(repo, state, task, wanted, top, trees);
-  await fetchRemote(repo);
+  if (wanted) return reuse(repo, state, task, wanted, top, trees, note);
+  await tryFetch(repo, note);
   const base = await baseRef(repo);
   const fork = (await gitOk(repo.path, ["rev-parse", `${base}^{commit}`])).trim();
   let branch = `${repo.branchPrefix}${slug(task.title)}-${shortId(task.id)}`;
@@ -11532,12 +11592,13 @@ async function ensureWorktree(repo, state, task, wanted) {
   const dir = join2(repo.worktreeDir, branch.replace(/[\\/]+/g, "-"));
   if (existsSync2(dir)) throw new GitError(`the worktree folder for ${branch} already exists and is not a worktree of this repo \u2014 move it away first`);
   mkdirSync2(dirname2(dir), { recursive: true });
+  note?.("git", `New branch ${branch} from ${base} in its own worktree\u2026`);
   await gitOk(repo.path, ["worktree", "add", "-b", branch, dir, base]);
   state.remember(repo.name, branch, { task: task.id, worktree: dir, branchCreated: true, fork, at: Date.now() });
   state.setTask(task.id, { repo: repo.name, branch, worktree: dir });
   return { dir, branch, created: true };
 }
-async function reuse(repo, state, task, branch, top, trees) {
+async function reuse(repo, state, task, branch, top, trees, note) {
   if (!await validBranch(repo, branch)) throw new GitError(`"${branch}" is not a valid branch name`);
   const own2 = state.created(repo.name, branch);
   const tree = trees.find((w) => w.branch === branch);
@@ -11553,7 +11614,7 @@ async function reuse(repo, state, task, branch, top, trees) {
   if (await branchExists(repo, branch)) {
     await gitOk(repo.path, ["worktree", "add", dir, branch]);
   } else {
-    await fetchRemote(repo);
+    await tryFetch(repo, note);
     if (!await remoteBranchExists(repo, branch)) throw new GitError(`the branch "${branch}" does not exist (locally or on ${repo.remote}) \u2014 check the task's Branch field`);
     await gitOk(repo.path, ["worktree", "add", "--track", "-b", branch, dir, `${repo.remote}/${branch}`]);
   }
@@ -12329,7 +12390,7 @@ function repoScrubber(repo, worktree) {
 }
 
 // src/worker/testrun.ts
-import { spawn as spawn2 } from "node:child_process";
+import { spawn as spawn3 } from "node:child_process";
 var TEST_OUTPUT_MAX = 64e3;
 function runTests(repo, cwd, signal, onLine) {
   const argv2 = repo.testCommand;
@@ -12338,7 +12399,7 @@ function runTests(repo, cwd, signal, onLine) {
   return new Promise((done) => {
     let out = "";
     let timedOut = false;
-    const child = spawn2(argv2[0], argv2.slice(1), { cwd, env: { ...process.env, CI: process.env.CI ?? "1", FORCE_COLOR: "0", NO_COLOR: "1" }, stdio: ["ignore", "pipe", "pipe"], detached: process.platform !== "win32", windowsHide: true, shell: false });
+    const child = spawn3(argv2[0], argv2.slice(1), { cwd, env: { ...process.env, CI: process.env.CI ?? "1", FORCE_COLOR: "0", NO_COLOR: "1" }, stdio: ["ignore", "pipe", "pipe"], detached: process.platform !== "win32", windowsHide: true, shell: false });
     const add = (d) => {
       const s = d.toString();
       out = (out + s).slice(-TEST_OUTPUT_MAX * 2);
@@ -12455,7 +12516,7 @@ async function runStage(ctx) {
   if (kind === "queue" || kind === "gate" || kind === "done") return { status: "refused", error: `A ${kind} stage is not run by the worker.` };
   try {
     log2("info", `Stage "${task.stage.name}" (${kind}) on ${repo.name}`);
-    const wt = await ensureWorktree(repo, ctx.state, task, task.branch);
+    const wt = await ensureWorktree(repo, ctx.state, task, task.branch, (k, s) => log2(k, s));
     scrub = repoScrubber(repo, wt.dir);
     ctx.onWorktree?.(wt, scrub);
     log2("git", `${wt.created ? "Branch" : "Reusing branch"} ${wt.branch}`);
@@ -12480,6 +12541,7 @@ async function claudeStage(ctx, wt, scrub, log2) {
   const plan = task.stage.kind === "plan";
   const mode = plan ? "plan" : repo.claude.permissionMode.implement ?? task.stage.permissionMode;
   const mcp = ctx.taskMcp ? writeMcpConfig(ctx.taskMcp) : null;
+  log2("info", `Starting Claude Code (${mode} mode)\u2026`);
   try {
     const res = await runClaude({
       bin: ctx.bin,
@@ -30174,7 +30236,7 @@ function pickFolder(env = process.env) {
 }
 
 // src/worker/opener.ts
-import { spawn as spawn3 } from "node:child_process";
+import { spawn as spawn4 } from "node:child_process";
 function browserCommand(url, env = process.env, platform = process.platform) {
   const custom2 = (env.ONE_WORKER_BROWSER ?? "").trim();
   const base = { stdio: "ignore", windowsHide: true };
@@ -30197,7 +30259,7 @@ function openUrl(url, env = process.env) {
       resolve5(ok);
     };
     try {
-      const child = spawn3(how.cmd, how.args, { ...how.opts, detached: process.platform !== "win32" });
+      const child = spawn4(how.cmd, how.args, { ...how.opts, detached: process.platform !== "win32" });
       child.once("error", () => finish(false));
       child.once("exit", (code) => finish(code === 0));
       setTimeout(() => {

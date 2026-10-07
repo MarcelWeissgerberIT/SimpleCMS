@@ -23,6 +23,11 @@ To change them later, press **Change repositories** — the worker opens its pag
 
 > Tip: a new download replaces the pairing — start the file you downloaded last. On a computer without a browser, `node one-worker.mjs --no-browser` asks in the terminal instead (numbers tick, Enter saves).
 
+## Approvals — or just do it
+In the coding panel, **Approvals** sets where the task waits for you: **Approve the plan and the review** (default), **Review only — the plan runs on**, or **None — just do it**: plan, work, tests and shipping then run through without a stop; tests that fail twice still stop at the review. The choice is per device and becomes the default for new tasks. A task already waiting at an approval you just switched off goes on at once.
+
+The **Log** tab shows every step: *Fetching origin…*, the new branch, *Starting Claude Code…*, every tool Claude Code uses — and, while it works quietly, *still working* once a minute. When the worker can't fetch the remote (no network, or git would need a password or an SSH key passphrase), the log says so within 60 seconds and the task goes on with what your computer has. For push and pull requests git needs an SSH agent or a credential helper — the worker can't type anything.
+
 ## A task from start to finish
 1. **New task**: title, repo, goal, acceptance criteria. Leave *The worker may start right away* ticked. The task itself is the task's **page** (below the coding panel) — that text is what Claude Code works from. When the page is empty, **Insert outline** adds Goal, Acceptance criteria and Notes to fill in.
 2. **Plan** — Claude Code reads the code in plan mode (it changes nothing) and writes the plan into the task. The task waits at **Approve plan**.

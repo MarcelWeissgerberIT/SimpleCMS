@@ -404,6 +404,30 @@ test('the task panel before a run: Repo from the worker, Branch from its branche
   await expect(page.getByRole('button', { name: 'Confirm on this device' })).toHaveCount(0)
 })
 
+test('Approvals: "review only" runs past the plan gate on its own; switched to "none" at the review, it ships by itself', async ({ page }) => {
+  await openApp(page)
+  // this device's default for new tasks: review only
+  await page.evaluate(() => localStorage.setItem('one.coding.approvals', 'review'))
+  await connect(page)
+  await expect(page.getByTestId('coding-conn')).toContainText('Connected · e2e-box · 1 repo')
+  await page.keyboard.press('Escape')
+  await newTask(page, 'Ship it alone', 'Write feature.txt with the title.')
+  await expect(page.getByTestId('coding-approvals-select')).toHaveValue('review')
+  // plan → (Approve plan passed) → implement → test → waits at Review
+  await expect(page.locator('.ctk-code')).toContainText(/· Review$/i, { timeout: 60_000 })
+  await page.getByTestId('coding-tab-log').click()
+  await expect(page.getByTestId('coding-log')).toContainText('No approval needed: on past “Approve plan”.')
+  await expect(page.getByTestId('coding-log')).toContainText('Fetching origin…')
+  await expect(page.getByTestId('coding-log')).toContainText('Starting Claude Code (plan mode)…')
+  await expect(page.getByTestId('coding-approve')).toBeVisible()
+  // "none": the waiting review goes on at once → Ship → Done
+  await page.getByTestId('coding-approvals-select').selectOption('none')
+  await expect(state(page)).toContainText('Done', { timeout: 30_000 })
+  await page.getByTestId('coding-tab-log').click()
+  await expect(page.getByTestId('coding-log')).toContainText('No approval needed: on past “Review”.')
+  expect(await page.evaluate(() => localStorage.getItem('one.coding.approvals'))).toBe('none')
+})
+
 test('German at 390 px: #/coding, the new task dialog, the task panel and Settings fit the screen', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 })
   await openApp(page)

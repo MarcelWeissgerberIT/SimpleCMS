@@ -2,7 +2,7 @@
  * The task panel's setup strip (before the task runs): pick the Repo from the connected worker's repos, a
  * Branch from that repo's local branches (default: a new one the worker makes), and — while the page is
  * empty — where the task itself is written (the page below: goal + acceptance criteria) with an outline to
- * fill in.
+ * fill in. ApprovalsPick: which gates the task stops at (plan + review · review only · none — "just do it").
  */
 import { useMemo } from 'react'
 import { FileText } from 'lucide-react'
@@ -10,7 +10,8 @@ import { useWorkspace } from '../../store/store'
 import { useT } from '../../i18n'
 import type { ID } from '../../store/types'
 import { useCoding } from './state'
-import { insertTaskOutline, knownRepos, setTaskBranch, setTaskRepo, workerBranches } from './tasks'
+import { useTaskLocal } from './local'
+import { APPROVALS, approvalsOf, insertTaskOutline, knownRepos, setTaskApprovals, setTaskBranch, setTaskRepo, workerBranches } from './tasks'
 
 export function TaskSetup({ taskId, repo, branch, described }: { taskId: ID; repo: string | null; branch: string | null; described: boolean }) {
   const t = useT()
@@ -76,6 +77,27 @@ export function TaskSetup({ taskId, repo, branch, described }: { taskId: ID; rep
           </button>
         </div>
       )}
+    </div>
+  )
+}
+
+/** Which gates this task stops at — on this device; the last pick is the default for new tasks. */
+export function ApprovalsPick({ taskId }: { taskId: ID }) {
+  const t = useT()
+  const level = approvalsOf(useTaskLocal(taskId))
+  return (
+    <div className="ctk-appr" data-testid="coding-approvals">
+      <label className="ctk-appr__field">
+        <span className="label">{t('features.coding.approvals.label')}</span>
+        <select className="input" value={level} onChange={(e) => void setTaskApprovals(taskId, e.target.value as typeof level)} data-testid="coding-approvals-select">
+          {APPROVALS.map((a) => (
+            <option key={a} value={a}>
+              {t(`features.coding.approvals.${a}`)}
+            </option>
+          ))}
+        </select>
+      </label>
+      <span className="ctk-hint">{t(`features.coding.approvals.${level}Hint`)}</span>
     </div>
   )
 }

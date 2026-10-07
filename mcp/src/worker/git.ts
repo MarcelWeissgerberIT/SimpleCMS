@@ -1,16 +1,17 @@
 /**
- * one-worker — git, always as `execFile('git', [args…])` (never a shell line; hooks and the person's git
- * config apply as usual). The main checkout's working tree is never touched: every task works in its own
+ * one-worker — git, always as `spawn('git', [args…])` (never a shell line; hooks and the person's git
+ * config apply as usual; no terminal, so git never waits for a typed password). The main checkout's working tree is never touched: every task works in its own
  * worktree. Nothing here deletes work the worker did not create, and nothing is force-pushed unless the
  * person picked "Force push" in One (then --force-with-lease).
  *
- *  - ensureWorktree: a new branch <prefix><slug>-<shortid> from <remote>/<base> (after fetch) in its own
+ *  - ensureWorktree: a new branch <prefix><slug>-<shortid> from <remote>/<base> (after a fetch — one that fails
+ *    or takes over 60 s is noted and the local state is used) in its own
  *    worktree, or the branch the task names (must exist; never reset)
  *  - info: ahead / behind, pushed, commits, per-file diff (size-capped, binary skipped), conflicts
  *  - commit · push · openPr (gh, else a compare link) · updateFromBase (rebase only if never pushed,
  *    else merge; conflicts reported per file, left for a stage to resolve) · discard · cleanup
  */
-import { execFile } from 'node:child_process'
+import { execFile, spawn } from 'node:child_process'
 import { existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync } from 'node:fs'
 import { dirname, join, resolve, sep } from 'node:path'
 import type { GitCommit, GitFile, GitInfo } from '../../../src/app/features/coding/protocol.ts'
@@ -21,6 +22,8 @@ export interface GitRun {
   code: number
   stdout: string
   stderr: string
+  /** killed at the time limit */
+  timedOut?: boolean
 }
 
 export class GitError extends Error {}
@@ -30,15 +33,54 @@ export const DIFF_FILE_MAX = 120_000
 export const DIFF_TOTAL_MAX = 1_500_000
 export const DIFF_FILES_MAX = 200
 
-const ENV = { GIT_TERMINAL_PROMPT: '0', GIT_OPTIONAL_LOCKS: '0', LC_ALL: 'C' }
+const ENV = { GIT_TERMINAL_PROMPT: '0', GIT_OPTIONAL_LOCKS: '0', LC_ALL: 'C', GCM_INTERACTIVE: 'never' }
+const OUT_MAX = 32 * 1024 * 1024
 
-/** Run git. Resolves with the exit code — never throws for a non-zero exit. */
+/**
+ * Run git. Resolves with the exit code — never throws for a non-zero exit. On macOS / Linux git runs in its own
+ * session without a terminal: a password, SSH passphrase or host-key question fails at once (git says why)
+ * instead of waiting for someone to type into the worker's terminal. An SSH agent or a credential helper still works.
+ */
 export function git(cwd: string, args: string[], timeoutMs = 120_000): Promise<GitRun> {
   return new Promise((done) => {
-    execFile('git', args, { cwd, timeout: timeoutMs, maxBuffer: 32 * 1024 * 1024, env: { ...process.env, ...ENV }, windowsHide: true }, (err, stdout, stderr) => {
-      const code = err ? (typeof (err as { code?: unknown }).code === 'number' ? ((err as { code: number }).code) : 1) : 0
-      done({ code, stdout: String(stdout), stderr: String(stderr || (err && !(typeof (err as { code?: unknown }).code === 'number') ? err.message : '')) })
-    })
+    const out: Buffer[] = []
+    const err: Buffer[] = []
+    let size = 0
+    let why: string | null = null
+    let settled = false
+    const finish = (code: number, extra = '') => {
+      if (settled) return
+      settled = true
+      clearTimeout(timer)
+      const stderr = Buffer.concat(err).toString()
+      done({ code, stdout: Buffer.concat(out).toString(), stderr: why ?? (stderr || extra), timedOut: why !== null && why.includes('did not finish') })
+    }
+    const child = spawn('git', args, { cwd, env: { ...process.env, ...ENV }, stdio: ['ignore', 'pipe', 'pipe'], detached: process.platform !== 'win32', windowsHide: true })
+    const stop = () => {
+      try {
+        if (process.platform !== 'win32' && child.pid) process.kill(-child.pid, 'SIGKILL')
+        else child.kill('SIGKILL')
+      } catch {
+        /* gone */
+      }
+    }
+    const timer = setTimeout(() => {
+      why = `git ${args[0]} did not finish within ${Math.round(timeoutMs / 1000)} s — no network, or it waits for a password or an SSH key passphrase (the worker cannot type one: use an SSH agent or a credential helper)`
+      stop()
+    }, timeoutMs)
+    const take = (into: Buffer[]) => (d: Buffer) => {
+      size += d.length
+      if (size > OUT_MAX) {
+        why = `git ${args[0]}: output too large`
+        stop()
+        return
+      }
+      into.push(d)
+    }
+    child.stdout!.on('data', take(out))
+    child.stderr!.on('data', take(err))
+    child.on('error', (e) => finish(127, e.message))
+    child.on('close', (code) => finish(why ? 1 : (code ?? 1)))
   })
 }
 
@@ -116,11 +158,30 @@ export async function validBranch(repo: RepoConfig, b: string): Promise<boolean>
   return (await git(repo.path, ['check-ref-format', '--branch', b])).code === 0
 }
 
-/** Fetch the remote (quietly; a repo without that remote is fine). */
+/** How long a fetch may take (ONE_WORKER_FETCH_MS for tests). */
+const fetchMs = () => Number(process.env.ONE_WORKER_FETCH_MS) || 60_000
+
+/** Fetch the remote (quietly; a repo without that remote is fine). Throws when it fails or takes too long. */
 export async function fetchRemote(repo: RepoConfig): Promise<boolean> {
   if (!(await hasRemote(repo))) return false
-  await gitOk(repo.path, ['fetch', '--quiet', '--prune', repo.remote], 300_000)
+  await gitOk(repo.path, ['fetch', '--quiet', '--prune', repo.remote], fetchMs())
   return true
+}
+
+/** What a task's preparation tells the log. */
+export type GitNote = (kind: 'git' | 'warn', text: string) => void
+
+/** Fetch for a new task: a failure is noted and the task goes on from what this computer has. */
+export async function tryFetch(repo: RepoConfig, note?: GitNote): Promise<boolean> {
+  if (!(await hasRemote(repo))) return false
+  note?.('git', `Fetching ${repo.remote}…`)
+  try {
+    return await fetchRemote(repo)
+  } catch (e) {
+    const why = (e instanceof Error ? e.message : String(e)).replace(/\s+/g, ' ').trim().slice(0, 300)
+    note?.('warn', `Could not fetch ${repo.remote} (${why}) — going on with what this computer has.`)
+    return false
+  }
 }
 
 /** "<remote>/<base>" when the remote has it, else the local base branch. */
@@ -158,7 +219,7 @@ export interface TaskWorktree {
  * The worktree a task works in. `wanted` = the task's Branch field: reuse that branch (its worktree when
  * it has one) — it must exist, it is never reset. Without one: a new branch from the base in a new worktree.
  */
-export async function ensureWorktree(repo: RepoConfig, state: WorkerState, task: { id: string; title: string }, wanted: string | null): Promise<TaskWorktree> {
+export async function ensureWorktree(repo: RepoConfig, state: WorkerState, task: { id: string; title: string }, wanted: string | null, note?: GitNote): Promise<TaskWorktree> {
   const top = await checkRepo(repo)
   const known = state.taskAt(task.id)
   const trees = await listWorktrees(repo)
@@ -167,8 +228,8 @@ export async function ensureWorktree(repo: RepoConfig, state: WorkerState, task:
     const tree = trees.find((w) => w.branch === known.branch && same(w.path, known.worktree))
     if (tree && existsSync(tree.path)) return { dir: tree.path, branch: known.branch, created: !!state.created(repo.name, known.branch)?.branchCreated }
   }
-  if (wanted) return reuse(repo, state, task, wanted, top, trees)
-  await fetchRemote(repo)
+  if (wanted) return reuse(repo, state, task, wanted, top, trees, note)
+  await tryFetch(repo, note)
   const base = await baseRef(repo)
   const fork = (await gitOk(repo.path, ['rev-parse', `${base}^{commit}`])).trim()
   let branch = `${repo.branchPrefix}${slug(task.title)}-${shortId(task.id)}`
@@ -177,13 +238,14 @@ export async function ensureWorktree(repo: RepoConfig, state: WorkerState, task:
   const dir = join(repo.worktreeDir, branch.replace(/[\\/]+/g, '-'))
   if (existsSync(dir)) throw new GitError(`the worktree folder for ${branch} already exists and is not a worktree of this repo — move it away first`)
   mkdirSync(dirname(dir), { recursive: true })
+  note?.('git', `New branch ${branch} from ${base} in its own worktree…`)
   await gitOk(repo.path, ['worktree', 'add', '-b', branch, dir, base])
   state.remember(repo.name, branch, { task: task.id, worktree: dir, branchCreated: true, fork, at: Date.now() })
   state.setTask(task.id, { repo: repo.name, branch, worktree: dir })
   return { dir, branch, created: true }
 }
 
-async function reuse(repo: RepoConfig, state: WorkerState, task: { id: string }, branch: string, top: string, trees: Worktree[]): Promise<TaskWorktree> {
+async function reuse(repo: RepoConfig, state: WorkerState, task: { id: string }, branch: string, top: string, trees: Worktree[], note?: GitNote): Promise<TaskWorktree> {
   if (!(await validBranch(repo, branch))) throw new GitError(`"${branch}" is not a valid branch name`)
   const own = state.created(repo.name, branch)
   const tree = trees.find((w) => w.branch === branch)
@@ -200,7 +262,7 @@ async function reuse(repo: RepoConfig, state: WorkerState, task: { id: string },
   if (await branchExists(repo, branch)) {
     await gitOk(repo.path, ['worktree', 'add', dir, branch])
   } else {
-    await fetchRemote(repo)
+    await tryFetch(repo, note)
     if (!(await remoteBranchExists(repo, branch))) throw new GitError(`the branch "${branch}" does not exist (locally or on ${repo.remote}) — check the task's Branch field`)
     await gitOk(repo.path, ['worktree', 'add', '--track', '-b', branch, dir, `${repo.remote}/${branch}`])
   }

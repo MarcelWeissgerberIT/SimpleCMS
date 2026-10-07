@@ -240,6 +240,22 @@
 .ctk-setup .ctk-hint {
   margin: 0;
 }
+.ctk-appr {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+}
+.ctk-appr__field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.ctk-appr__field .input {
+  min-width: 0;
+  max-width: 100%;
+}
 .ctk-box--spec {
   grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;

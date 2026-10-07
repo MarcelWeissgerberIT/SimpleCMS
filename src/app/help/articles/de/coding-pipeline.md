@@ -23,6 +23,11 @@ Später ändern: **Repositories ändern** — der Worker öffnet seine Seite wie
 
 > Tipp: Ein neuer Download ersetzt die Kopplung — starte die zuletzt heruntergeladene Datei. Auf einem Rechner ohne Browser fragt `node one-worker.mjs --no-browser` stattdessen im Terminal (Zahlen haken an, Enter speichert).
 
+## Freigaben – oder einfach machen
+Im Coding-Panel wählst du bei **Freigaben**, wo die Aufgabe auf dich wartet: **Plan und Review freigeben** (Standard), **Nur Review – der Plan läuft durch** oder **Keine – einfach machen**: Dann laufen Plan, Umsetzung, Tests und Ausliefern ohne Halt durch; schlagen die Tests zweimal fehl, hält sie trotzdem beim Review. Die Wahl gilt auf diesem Gerät und ist die Vorgabe für neue Aufgaben. Wartet eine Aufgabe schon an einer Freigabe, die du gerade abwählst, geht sie sofort weiter.
+
+Im Tab **Log** siehst du jeden Schritt: *Fetching origin…*, den neuen Branch, *Starting Claude Code…*, jedes Werkzeug, das Claude Code benutzt – und solange es still arbeitet, einmal pro Minute *still working*. Kann der Worker das Remote nicht holen (kein Netz, oder git bräuchte ein Passwort bzw. die Passphrase des SSH-Schlüssels), steht das nach höchstens 60 Sekunden im Log, und die Aufgabe arbeitet mit dem Stand auf deinem Rechner weiter. Für Push und Pull Request braucht git einen SSH-Agent oder einen Credential Helper – tippen kann der Worker nichts.
+
 ## Eine Aufgabe von Anfang bis Ende
 1. **Neue Aufgabe**: Titel, Repo, Ziel, Abnahmekriterien. *Der Worker darf gleich anfangen* angehakt lassen. Die Aufgabe selbst steht im **Seiteninhalt** der Aufgabe (unter dem Coding-Panel) — mit diesem Text arbeitet Claude Code. Ist die Seite leer, fügt **Gliederung einfügen** Ziel, Abnahmekriterien und Hinweise zum Ausfüllen ein.
 2. **Plan** — Claude Code liest den Code im Plan-Modus (ändert nichts) und schreibt den Plan in die Aufgabe. Die Aufgabe wartet bei **Plan freigeben**.

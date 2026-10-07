@@ -133,6 +133,12 @@ export function killTree(child: ChildProcess): void {
   hard.unref()
 }
 
+/** 75_000 → "1:15" */
+const clock = (ms: number) => {
+  const sec = Math.max(0, Math.round(ms / 1000))
+  return `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}`
+}
+
 /** Run Claude Code once; streams log lines; resolves when it exits (or was stopped). */
 export function runClaude(r: ClaudeRun): Promise<ClaudeResult> {
   return new Promise((done) => {
@@ -147,6 +153,15 @@ export function runClaude(r: ClaudeRun): Promise<ClaudeResult> {
     let stderr = ''
     let gotResult = false
     const log = (k: LogLine['k'], s: string) => r.onLog({ t: Date.now(), k, s })
+    // a sign of life while Claude Code works quietly (reading, thinking): one line per quiet minute
+    const started = Date.now()
+    let heard = started
+    const quietMs = Number(process.env.ONE_WORKER_QUIET_MS) || 60_000
+    const beat = setInterval(() => {
+      if (Date.now() - heard < quietMs) return
+      log('info', `Claude Code is still working · ${clock(Date.now() - started)} so far · last output ${clock(Date.now() - heard)} ago`)
+    }, quietMs)
+    beat.unref()
     const onAbort = () => {
       result.stopped = true
       log('warn', 'Stopped — Claude Code was ended.')
@@ -166,6 +181,7 @@ export function runClaude(r: ClaudeRun): Promise<ClaudeResult> {
     lines.on('line', (line) => {
       const s = line.trim()
       if (!s) return
+      heard = Date.now()
       let ev: Record<string, unknown>
       try {
         ev = JSON.parse(s) as Record<string, unknown>
@@ -213,6 +229,7 @@ export function runClaude(r: ClaudeRun): Promise<ClaudeResult> {
       }
     })
     child.on('close', (code) => {
+      clearInterval(beat)
       r.signal.removeEventListener('abort', onAbort)
       if (!gotResult && !result.stopped) {
         result.ok = false

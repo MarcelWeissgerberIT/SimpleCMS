@@ -8,6 +8,7 @@
  *                          note exists), reports progress through the task tools (one_task_note)
  *   FAKE:ASK             → asks a question (one_task_ask) until the prompt carries answers
  *   FAKE:SLOW            → keeps "working" until it is killed (Stop)
+ *   FAKE:QUIET           → says nothing for 20 s (the worker's sign of life), then ends
  *   FAKE:EXPENSIVE       → costs $4.00
  *   FAKE:DEMO            → a realistic TypeScript change to src/login.ts (the changelog screenshot)
  * The task tools are reached like Claude Code does: the MCP server from --mcp-config, over stdio.
@@ -88,6 +89,12 @@ if (prompt.includes('FAKE:ASK') && !hasAnswers) {
   const answer = await taskTool('one_task_ask', { question: 'Which colour should the button have?' })
   say(answer ?? '')
   result('Waiting for the answer about the colour.', 0.02)
+  process.exit(0)
+}
+
+if (prompt.includes('FAKE:QUIET')) {
+  await sleep(20_000)
+  result('quiet done', 0.01)
   process.exit(0)
 }
 

@@ -33,6 +33,8 @@ export interface TaskLocal {
   url?: string | null
   /** failed test runs since the last pass (the second one goes to the review gate) */
   testFailures?: number
+  /** which gates this task stops at on this device (absent = this device's default, tasks.ts approvalsOf) */
+  approvals?: 'all' | 'review' | 'none'
   at?: number
 }
 

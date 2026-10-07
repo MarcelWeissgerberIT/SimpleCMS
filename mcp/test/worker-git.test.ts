@@ -9,7 +9,7 @@ import { join } from 'node:path'
 import { after, describe, test } from 'node:test'
 import { loadConfig, type RepoConfig } from '../src/worker/config.ts'
 import { WorkerState } from '../src/worker/state.ts'
-import { branchExists, cleanup, localBranches, commitAll, compareUrl, discard, ensureWorktree, info, push, remoteBranchExists, slug, updateFromBase, webBase } from '../src/worker/git.ts'
+import { branchExists, cleanup, git, localBranches, commitAll, compareUrl, discard, ensureWorktree, info, push, remoteBranchExists, slug, updateFromBase, webBase } from '../src/worker/git.ts'
 import { Scrubber, repoScrubber } from '../src/worker/scrub.ts'
 import { cleanupAll, makeRepo, repoEntry, sh, tempDir, writeConfig, type TempRepo } from './worker-helpers.ts'
 
@@ -67,6 +67,30 @@ describe('branches and worktrees', () => {
     sh(r.path, 'checkout', '--quiet', '-b', 'person-work')
     await assert.rejects(ensureWorktree(repo, state, { id: 'reuse6', title: 'Base' }, 'main'), /base branch/)
     assert.equal(sh(r.path, 'worktree', 'list', '--porcelain').includes('branch refs/heads/main'), false)
+  })
+})
+
+describe('fetch and time limits', () => {
+  test('a fetch that fails does not stop a new task: it is noted and the worktree comes from what this computer has', async () => {
+    const { r, repo, state } = setup()
+    sh(r.path, 'remote', 'set-url', 'origin', join(r.path, '..', 'gone-remote.git'))
+    const notes: Array<[string, string]> = []
+    const wt = await ensureWorktree(repo, state, { id: 'offline1', title: 'Offline' }, null, (k, s) => notes.push([k, s]))
+    assert.equal(wt.created, true)
+    assert.ok(existsSync(join(wt.dir, 'README.md')))
+    assert.ok(notes.some(([k, s]) => k === 'git' && s === 'Fetching origin…'), JSON.stringify(notes))
+    assert.ok(notes.some(([k, s]) => k === 'warn' && /^Could not fetch origin \(.+\) — going on with what this computer has\.$/.test(s)), JSON.stringify(notes))
+    assert.ok(notes.some(([k, s]) => k === 'git' && s.startsWith(`New branch ${wt.branch} from origin/main`)), JSON.stringify(notes))
+  })
+
+  test('git gives up at its time limit and says why (never waits for a typed password)', async () => {
+    const { r } = setup()
+    const started = Date.now()
+    const run = await git(r.path, ['-c', 'alias.hang=!sleep 10', 'hang'], 1000)
+    assert.ok(Date.now() - started < 5000)
+    assert.equal(run.timedOut, true)
+    assert.notEqual(run.code, 0)
+    assert.match(run.stderr, /did not finish within 1 s — no network, or it waits for a password or an SSH key passphrase/)
   })
 })
 

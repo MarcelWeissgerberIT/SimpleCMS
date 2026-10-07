@@ -135,7 +135,7 @@ export async function runStage(ctx: StageContext): Promise<StageOutcome> {
   if (kind === 'queue' || kind === 'gate' || kind === 'done') return { status: 'refused', error: `A ${kind} stage is not run by the worker.` }
   try {
     log('info', `Stage "${task.stage.name}" (${kind}) on ${repo.name}`)
-    const wt = await ensureWorktree(repo, ctx.state, task, task.branch)
+    const wt = await ensureWorktree(repo, ctx.state, task, task.branch, (k, s) => log(k, s))
     scrub = repoScrubber(repo, wt.dir)
     ctx.onWorktree?.(wt, scrub)
     log('git', `${wt.created ? 'Branch' : 'Reusing branch'} ${wt.branch}`)
@@ -161,6 +161,7 @@ async function claudeStage(ctx: StageContext, wt: TaskWorktree, scrub: Scrubber,
   const plan = task.stage.kind === 'plan'
   const mode = plan ? 'plan' : (repo.claude.permissionMode.implement ?? task.stage.permissionMode)
   const mcp = ctx.taskMcp ? writeMcpConfig(ctx.taskMcp) : null
+  log('info', `Starting Claude Code (${mode} mode)…`)
   try {
     const res = await runClaude({
       bin: ctx.bin,

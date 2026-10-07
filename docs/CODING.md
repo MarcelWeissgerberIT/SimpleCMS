@@ -189,6 +189,15 @@ Always `execFile('git', […])` — never a shell line; hooks and your git confi
 
 - **A branch and a worktree per task**: `git fetch`, then `git worktree add -b <branch> <dir> <remote>/<base>`. The
   main checkout's working tree is never touched. `git worktree prune` runs on start.
+- **No terminal for git**: git runs in its own session without a terminal (`GIT_TERMINAL_PROMPT=0`,
+  `GCM_INTERACTIVE=never`), so a password, SSH passphrase or host-key question fails at once with git's message instead
+  of waiting. Use an SSH agent / keychain or a credential helper. A fetch for a new task that fails or takes over 60 s
+  (`ONE_WORKER_FETCH_MS`) is logged and the task goes on from the local refs.
+- **Progress**: every step goes to the task's log; while Claude Code is quiet the worker adds a *still working* line per
+  minute (`ONE_WORKER_QUIET_MS`).
+- **Approvals** (One, per device): *all* (plan gate + review), *review* (the gate after a plan stage passes by itself),
+  *none* (every gate passes; tests failing twice still stop at the review gate). Kept in the task's local state
+  (`TaskLocal.approvals`); the last pick is this device's default (localStorage `one.coding.approvals`).
 - **Reuse a branch**: pick it in the task panel's Branch picker (the worker announces each repo's local branch
   names, newest first, ≤ 100 — names only, never the base branch), type it into the task's **Branch** field, or use
   *Existing branch* in New task. It must exist
