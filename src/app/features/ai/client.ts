@@ -10,7 +10,7 @@ import { useWorkspace } from '../../store/store'
 import { getAIKey } from '../../store/secrets'
 import { t } from '../../i18n'
 import { demoAnswer, streamDemo } from './demo'
-import { MCP_BETA, attachMcp, codewordsIn, type Codewords, type McpAttachment, type McpRequestKind, type McpSetup } from './mcp-servers/config'
+import { MCP_BETA, attachMcp, codewordsIn, currentSetup, noteRefused, refusedNames, type Codewords, type McpAttachment, type McpRequestKind, type McpSetup } from './mcp-servers/config'
 import { foldMcpBlock, skippedCall, type McpCall } from './mcp-servers/activity'
 import { createMediaCollector } from './media/collect'
 import type { MediaItem } from './media/types'
@@ -226,7 +226,11 @@ function mapError(e: unknown, sdk: SDKModule | null, mcp?: Pick<McpAttachment, '
       const server = mcpServerOf(e.message, mcp.names)
       if (server !== null) {
         const detail = cleanMessage(e.message)
-        if (MCP_AUTH_RE.test(detail)) return new AIError('mcp_auth', undefined, server)
+        if (MCP_AUTH_RE.test(detail)) {
+          // left out of later requests that don't address it, until its token changes (config.ts)
+          if (server) noteRefused(server)
+          return new AIError('mcp_auth', undefined, server)
+        }
         return new AIError('mcp', detail.length > 240 ? `${detail.slice(0, 239)}…` : detail, server)
       }
     }
@@ -306,11 +310,15 @@ export interface StreamOptions {
   maxResumes?: number
 }
 
-/** Addressed servers that did not join the request (switched off, or no token in this browser). */
-function skippedOf(codewords: Codewords | null | undefined, attached: McpAttachment | null): McpCall[] {
-  if (!codewords) return []
-  return [...codewords.off.map((n) => skippedCall(n, 'off')), ...codewords.forced.filter((n) => !attached?.names.includes(n)).map((n) => skippedCall(n, 'token'))]
+/** Servers that did not join the request: addressed but switched off or without a token here, and those left out because they rejected their token. */
+function skippedOf(codewords: Codewords | null | undefined, attached: McpAttachment | null, refusedOut: string[] = []): McpCall[] {
+  const out = refusedOut.filter((n) => !attached?.names.includes(n)).map((n) => skippedCall(n, 'refused'))
+  if (!codewords) return out
+  return [...codewords.off.map((n) => skippedCall(n, 'off')), ...codewords.forced.filter((n) => !attached?.names.includes(n)).map((n) => skippedCall(n, 'token')), ...out]
 }
+
+/** A server the request did not address rejected its token: try once more without it (it is then skipped). */
+const retryWithout = (err: AIError, forced: string[] | undefined) => err.code === 'mcp_auth' && !!err.server && !(forced ?? []).includes(err.server)
 
 /** A paused turn (server-side tool loop) is resumed at most this often. */
 const MAX_RESUMES = 3
@@ -319,7 +327,8 @@ const MAX_RESUMES = 3
  * Stream one completion with the configured model. Resolves with the full text — with MCP tools,
  * the answer after the last tool call (text Claude wrote before it was a progress note).
  */
-export async function streamCompletion({ system, prompt, onToken, signal, mcp, codewords, onMcp: report, onMedia, setup, maxResumes }: StreamOptions): Promise<string> {
+export async function streamCompletion(opts: StreamOptions, again = false): Promise<string> {
+  const { system, prompt, onToken, signal, mcp, codewords, onMcp: report, onMedia, setup, maxResumes } = opts
   const apiKey = await getAIKey()
   if (!apiKey) throw new AIError('no_key')
   const settings = useWorkspace.getState().settings
@@ -342,8 +351,8 @@ export async function streamCompletion({ system, prompt, onToken, signal, mcp, c
     const cw = mcp === false ? null : codewords
     attached = mcp === false ? null : await attachMcp(setup, mcp ?? 'fixed', { forced: cw?.forced })
     if (signal?.aborted) throw new AIError('aborted')
-    // addressed servers that stay out are listed first, before any call of the request
-    const skipped = skippedOf(cw, attached)
+    // servers that stay out are listed first, before any call of the request
+    const skipped = skippedOf(cw, attached, mcp === false ? [] : refusedNames(setup ?? currentSetup(), mcp ?? 'fixed', cw?.forced))
     const onMcp = skipped.length && report ? (calls: McpCall[]) => report([...skipped, ...calls]) : report
     if (skipped.length) onMcp?.([])
     let stopReason: string | null
@@ -388,7 +397,9 @@ export async function streamCompletion({ system, prompt, onToken, signal, mcp, c
     return text
   } catch (e) {
     if (signal?.aborted) throw new AIError('aborted')
-    throw toAIError(e, sdk, attached)
+    const err = toAIError(e, sdk, attached)
+    if (!again && retryWithout(err, codewords?.forced)) return streamCompletion(opts, true)
+    throw err
   }
 }
 
@@ -492,7 +503,8 @@ export interface StructuredOptions {
  * `output_config.format`). Resolves with the raw answer text; parsing and validation are the
  * caller's job, so a malformed answer can become a per-item error instead of an exception here.
  */
-export async function completeStructured({ system, prompt, schema, maxTokens = 4096, signal, maxRetries = 4, mcp }: StructuredOptions): Promise<string> {
+export async function completeStructured(opts: StructuredOptions, again = false): Promise<string> {
+  const { system, prompt, schema, maxTokens = 4096, signal, maxRetries = 4, mcp } = opts
   const apiKey = await getAIKey()
   if (!apiKey) throw new AIError('no_key')
   const settings = useWorkspace.getState().settings
@@ -556,7 +568,9 @@ export async function completeStructured({ system, prompt, schema, maxTokens = 4
     return text
   } catch (e) {
     if (signal?.aborted) throw new AIError('aborted')
-    throw toAIError(e, sdk, attached)
+    const err = toAIError(e, sdk, attached)
+    if (!again && retryWithout(err, undefined)) return completeStructured(opts, true)
+    throw err
   }
 }
 

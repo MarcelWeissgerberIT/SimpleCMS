@@ -22,6 +22,8 @@ export const messages: Messages = {
     'features.ai.mcp.cw.tag.token': 'NO TOKEN',
     'features.ai.mcp.cw.note.off': '{server} is switched off — Claude answers without it. Switch it on in Settings → Claude AI.',
     'features.ai.mcp.cw.note.token': 'This browser has no token for {server} — Claude answers without it.',
+    'features.ai.mcp.cw.tag.refused': 'TOKEN REJECTED',
+    'features.ai.mcp.cw.note.refused': '{server} rejected its token — Claude answers without it. Sign in again or replace the token in Settings → Claude AI → MCP servers.',
   },
   de: {
     'features.ai.mcp.cw.label': 'Codewort',
@@ -38,5 +40,7 @@ export const messages: Messages = {
     'features.ai.mcp.cw.tag.token': 'KEIN TOKEN',
     'features.ai.mcp.cw.note.off': '{server} ist ausgeschaltet — Claude antwortet ohne ihn. Einschalten unter Einstellungen → Claude KI.',
     'features.ai.mcp.cw.note.token': 'Dieser Browser hat kein Token für {server} — Claude antwortet ohne ihn.',
+    'features.ai.mcp.cw.tag.refused': 'TOKEN ABGELEHNT',
+    'features.ai.mcp.cw.note.refused': '{server} hat sein Token abgelehnt — Claude antwortet ohne ihn. Melde dich neu an oder ersetze das Token unter Einstellungen → Claude KI → MCP-Server.',
   },
 }

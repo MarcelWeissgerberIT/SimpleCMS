@@ -18,11 +18,11 @@ export interface McpCall {
    * Not a call: the request addressed this server by codeword, but it did not join — 'off' = switched
    * off, 'token' = no token in this browser (client.ts reports it first, so the result can say so).
    */
-  skipped?: 'off' | 'token'
+  skipped?: 'off' | 'token' | 'refused'
 }
 
 /** The entry for a server a codeword addressed that could not join the request. */
-export function skippedCall(server: string, why: 'off' | 'token'): McpCall {
+export function skippedCall(server: string, why: 'off' | 'token' | 'refused'): McpCall {
   return { id: `skip:${server}`, server, tool: '', arg: '', state: 'err', skipped: why }
 }
 

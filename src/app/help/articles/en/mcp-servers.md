@@ -21,6 +21,8 @@ summary: Let One's Claude use the tools of other systems — a knowledge base, a
 
 **Details** also holds the name, the codeword (below), the token, the usage prompt (**Generate** / **Regenerate**, or write your own), **Test connection** and **Remove server**. While Claude works, MCP calls show as small chips, e.g. `KB · search`.
 
+A server that rejects its token (expired, or not signed in yet) no longer stops your requests: Claude answers without it and a note says *“… rejected its token — Claude answers without it”*. It stays left out in this tab until you sign in again or replace the token — or address it by its codeword, which shows the error instead.
+
 ## Codeword
 **Details** → **Codeword**: a short word like `kb` — One suggests the server's name, **Use** takes it. Start a request with it — *“kb: what do we know about the launch?”* — in the AI menu, in `⌘K ?` or in the agent, and Claude answers with this server's tools first (the `kb:` itself is not sent). Several work at once: `kb: wiki: …`.
 - While you type, a chip shows the server: `→ ATLAS`. A switched-off server stays off — the answer says so.

@@ -611,13 +611,16 @@ test.describe('MCP servers (mocked Claude API, made-up server)', () => {
     expect(sent[sent.length - 1].body.mcp_servers).toBeUndefined()
   })
 
-  test('errors: a rejected token and an unreachable server become friendly messages naming the server — never the token', async ({ page, context, errors }) => {
+  test('errors: a rejected token and an unreachable server become friendly messages naming the server — never the token; a server that rejected its token is left out of requests that did not address it', async ({ page, context, errors }) => {
     errors.allow(/status of 400/)
     let mode: 'auth' | 'down' = 'auth'
-    const sent = await mockApi(context, () =>
-      mode === 'auth'
-        ? mcpError(`MCP server 'atlas' returned 401 Unauthorized: token ${TOKEN} is expired`)
-        : mcpError("Connection error while communicating with MCP server 'atlas': connect ETIMEDOUT"),
+    // like the API: only a request that attaches atlas can fail because of it
+    const sent = await mockApi(context, (r) =>
+      !r.body.mcp_servers
+        ? undefined
+        : mode === 'auth'
+          ? mcpError(`MCP server 'atlas' returned 401 Unauthorized: token ${TOKEN} is expired`)
+          : mcpError("Connection error while communicating with MCP server 'atlas': connect ETIMEDOUT"),
     )
     await openApp(page)
     await setKey(page)
@@ -630,32 +633,51 @@ test.describe('MCP servers (mocked Claude API, made-up server)', () => {
     expect(await wsEval(page, (s) => JSON.stringify(s.settings.mcpServers))).not.toContain(TOKEN)
     await closeSettings(page)
 
-    // a free-form request: ERR · MCP_AUTH, the server named, the token nowhere
+    // a free-form request that did not address atlas: answered without it, a note says why
     const { ask, panel } = await openAIPanel(page)
-    await ask.fill('Ask Atlas about the launch')
+    await ask.fill('Ask about the launch')
     await page.keyboard.press('Enter')
-    const err = panel.locator('.ai-error')
+    await expect(panel.locator('.ai-out__body')).toContainText('Done.')
+    await expect(panel.getByTestId('mcp-skipped')).toHaveText('atlas rejected its token — Claude answers without it. Sign in again or replace the token in Settings → Claude AI → MCP servers.')
+    expect(sent[sent.length - 1].body.mcp_servers).toBeUndefined()
+    await expect(page.locator('body')).not.toContainText(TOKEN)
+    await page.keyboard.press('Escape')
+    await page.keyboard.press('Escape')
+
+    // addressed by its codeword: it joins, and the rejection is the answer — ERR · MCP_AUTH, the server named
+    await setServers(page, [atlas({ codeword: 'kb' })])
+    const second = await openAIPanel(page)
+    await second.ask.fill('kb: Ask Atlas about the launch')
+    await page.keyboard.press('Enter')
+    const err = second.panel.locator('.ai-error')
     await expect(err.locator('.ai-error__code')).toHaveText('ERR · MCP_AUTH')
     await expect(err).toContainText('The MCP server “atlas” rejected the token — it may be wrong or expired.')
-    await expect(panel.getByRole('option', { name: /MCP settings/ })).toBeVisible()
+    await expect(second.panel.getByRole('option', { name: /MCP settings/ })).toBeVisible()
     await expect(page.locator('body')).not.toContainText(TOKEN)
 
-    // unreachable: ERR · MCP with the reason
+    // unreachable: ERR · MCP with the reason (no second try — only a rejected token is left out)
     mode = 'down'
-    await panel.getByRole('option', { name: /Try again/ }).click()
+    await second.panel.getByRole('option', { name: /Try again/ }).click()
     await expect(err.locator('.ai-error__code')).toHaveText('ERR · MCP')
     await expect(err).toContainText('Claude could not use the MCP server “atlas” (Connection error while communicating with MCP server')
     await page.keyboard.press('Escape')
 
-    // the agent: the same friendly error, with a way to the settings
+    // the agent: a fresh token (not rejected yet), the server unreachable — the same friendly error, with a way to the settings
+    await setServers(page, [atlas({ token: 'atlas-new-token-5678' })])
     const agent = await openAgent(page)
     await runAgentTask(page, 'Look it up in Atlas')
     const turnErr = agent.locator('.term-error')
     await expect(turnErr).toContainText('ERR · MCP')
     await expect(turnErr).toContainText('Claude could not use the MCP server “atlas”')
-    await turnErr.getByRole('button', { name: 'MCP settings' }).click()
+    // a rejected token in the terminal: the task runs again without atlas and says so
+    mode = 'auth'
+    await runAgentTask(page, 'What is new?')
+    await expect(agent).toContainText('atlas rejected its token — Claude answers without it.')
+    await expect(agent.locator('.term-error')).toHaveCount(1)
+    expect(sent[sent.length - 1].body.mcp_servers).toBeUndefined()
+    await agent.locator('.term-error').getByRole('button', { name: 'MCP settings' }).click()
     await expect(page.getByTestId('mcp-servers')).toBeVisible()
-    expect(sent.length).toBeGreaterThanOrEqual(4)
+    expect(sent.length).toBeGreaterThanOrEqual(6)
   })
 
   test('usage prompt and instructions: edits are kept, "Regenerate" asks before replacing them, the template is editable and resettable', async ({ page, context }) => {

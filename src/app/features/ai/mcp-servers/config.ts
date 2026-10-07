@@ -239,11 +239,37 @@ export function setupKey(setup: McpSetup): string {
  * `forced`: servers the request addressed by codeword (codewordsIn) — they join whatever their
  * scope, and the system prompt says they were addressed.
  */
+/*
+ * Servers that turned their token down in this tab (an API error named them): left out of requests that do not
+ * address them — one server that needs a new token or a sign-in no longer breaks every request — until their
+ * token changes (a new token or sign-in = a new vault marker) or a connection test passes. In memory only.
+ */
+const refused = new Map<string, string>()
+const isRefused = (s: McpServerConfig) => refused.has(s.id) && refused.get(s.id) === (s.token ?? '')
+
+/** An API error said this server rejected its token. */
+export function noteRefused(name: string): void {
+  const s = readServers().find((x) => x.name === name)
+  if (s) refused.set(s.id, s.token ?? '')
+}
+
+/** The server works again (a connection test passed). */
+export function clearRefused(name: string): void {
+  const s = readServers().find((x) => x.name === name)
+  if (s) refused.delete(s.id)
+}
+
+/** Servers a request of this kind would take but leaves out because they rejected their token here. */
+export function refusedNames(setup: McpSetup = currentSetup(), kind: McpRequestKind = 'free', forced: string[] = []): string[] {
+  return setup.servers.filter((s) => !(kind === 'fixed' && s.scope !== 'all' && !forced.includes(s.name)) && !forced.includes(s.name) && isRefused(s)).map((s) => s.name)
+}
+
 export async function attachMcp(setup: McpSetup = currentSetup(), kind: McpRequestKind = 'free', opts: { forced?: string[] } = {}): Promise<McpAttachment | null> {
   const forced = opts.forced ?? []
   const usable: Array<{ s: McpServerConfig; token: string }> = []
   for (const s of setup.servers) {
     if (kind === 'fixed' && s.scope !== 'all' && !forced.includes(s.name)) continue
+    if (isRefused(s) && !forced.includes(s.name)) continue
     // a signed-in server's access token is refreshed shortly before it expires (oauth.ts)
     const token = await tokenFor(s)
     if (token === null) continue

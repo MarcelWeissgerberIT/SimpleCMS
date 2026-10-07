@@ -7,7 +7,7 @@ import type { BetaContentBlock, MessageCreateParamsNonStreaming } from '@anthrop
 import { useWorkspace } from '../../../store/store'
 import type { McpServerConfig } from '../../../store/types'
 import { AIError, claudeClient, toAIError, type SDKModule } from '../client'
-import { MCP_BETA, attachMcp } from './config'
+import { MCP_BETA, attachMcp, clearRefused } from './config'
 
 export interface InspectResult {
   /** tool names Claude saw ([] = none) */
@@ -56,7 +56,7 @@ export function parseInspect(text: string): InspectResult {
 
 /** Run one check against `server`. Throws AIError ('mcp' when the server could not be used). */
 export async function inspectServer(server: McpServerConfig, mode: 'test' | 'guide', signal?: AbortSignal): Promise<InspectResult> {
-  const mcp = await attachMcp({ servers: [{ ...server, enabled: true }], instructions: '' })
+  const mcp = await attachMcp({ servers: [{ ...server, enabled: true }], instructions: '' }, 'free', { forced: [server.name] })
   if (!mcp) throw new AIError('mcp', 'the token is not available in this browser', server.name)
   let sdk: SDKModule | null = null
   try {
@@ -82,6 +82,7 @@ export async function inspectServer(server: McpServerConfig, mode: 'test' | 'gui
     const listed = msg.content.flatMap((b: BetaContentBlock) => (b.type === 'mcp_tool_listing' && b.mcp_server_name === server.name ? b.tools.map((x) => x.name) : []))
     if (listed.length) out.tools = [...new Set(listed)]
     if (mode === 'guide' && !out.guide && out.tools.length) throw new AIError('empty')
+    clearRefused(server.name)
     return out
   } catch (e) {
     if (signal?.aborted) throw new AIError('aborted')

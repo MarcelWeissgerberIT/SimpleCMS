@@ -112,6 +112,10 @@ the public APIs stable — other areas are built against them in parallel.
   unique, never `one`; sanitised in `readServers`): a free-form request starting with `<codeword>:` gets that server
   (`codewordsIn()` + `attachMcp(…, { forced })` in client.ts; the AI terminal via `codewordTask()`), the prefix is
   stripped and Claude told it was addressed; a switched-off server stays off and shows as a `skipped` McpCall.
+  A server whose token an API error said was rejected (`noteRefused`, config.ts; in memory, per tab, until its token
+  marker changes or a connection test passes) is left out of requests that did not address it (skipped 'refused', a
+  note); a request that fails with `mcp_auth` for an unaddressed server runs once more without it (client.ts
+  `retryWithout`, the terminal's `attempt()`). Codeword-addressed servers, custom agents' servers and tests are forced.
 - MCP media (features/ai/media): cards for media in `mcp_tool_result` blocks and the links Claude wrote to the same
   hosts — never loaded by themselves. Save to One / Preview fetch only on a click (credentials 'omit', ≤ 50 MB images /
   200 MB video + audio, type and magic numbers must agree, SVG kept as a download), then `saveFile()` and a block with

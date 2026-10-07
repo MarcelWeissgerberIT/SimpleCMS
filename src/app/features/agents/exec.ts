@@ -297,7 +297,7 @@ async function runOnce(agent: CustomAgent, req: RunRequest): Promise<AgentRun> {
     // the agent's MCP servers, by name, as set up in this browser (Settings → Claude AI)
     const configured = readServers().filter((s) => agent.mcpServers.includes(s.name))
     for (const name of agent.mcpServers) if (!configured.some((s) => s.name === name)) step({ kind: 'note', label: t('features.agents.run.mcpMissing', { name: name.toUpperCase() }), state: 'err' })
-    const mcp = configured.length ? await attachMcp({ servers: configured, instructions: instructionsText() }, 'free') : null
+    const mcp = configured.length ? await attachMcp({ servers: configured, instructions: instructionsText() }, 'free', { forced: agent.mcpServers }) : null
     for (const s of configured) if (!mcp?.names.includes(s.name)) step({ kind: 'note', label: t('features.agents.run.mcpNoToken', { name: s.name.toUpperCase() }), state: 'err' })
 
     // the One memory (features/ai/memory): the memories that fit the job go along, plus `recall`

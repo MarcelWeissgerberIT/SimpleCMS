@@ -12,7 +12,7 @@ import type { ID } from '../../../store/types'
 import { t } from '../../../i18n'
 import { AIError, resolveModel } from '../client'
 import { useCloud } from '../../../cloud'
-import { attachMcp, codewordTask, currentSetup, setupKey, type McpSetup } from '../mcp-servers/config'
+import { attachMcp, codewordTask, codewordsIn, currentSetup, refusedNames, setupKey, type McpSetup } from '../mcp-servers/config'
 import { applyChanges, type ApplyResult } from './apply'
 import { AGENT_SYSTEM, runAgent, taskMessage, type RunHooks } from './run'
 import { initialAgentState, openAgent, setStopHandler, useAgent, type EchoAsk, type EchoEntry, type MemCard, type MemItem } from './state'
@@ -376,13 +376,17 @@ export async function runTask(raw?: string, opts: { noMemory?: boolean; history?
     if (status === 'done' && proposalsOn() && !trivialTask(task, staged.length)) void proposeFor(n, task, answer, mem.use?.items.map((x) => x.text) ?? [])
   }
 
-  try {
-    const mcp = setup.servers.length ? await attachMcp(setup) : null
+  // servers addressed by a codeword always join; the others are left out while they reject their token here
+  const forced = codewordsIn(task, setup.servers)?.forced ?? []
+  const before = history
+  const attempt = async () => {
+    const mcp = setup.servers.length ? await attachMcp(setup, 'free', { forced }) : null
+    for (const name of refusedNames(setup, 'free', forced)) note(t('features.ai.mcp.cw.note.refused', { server: name }))
     // referenced image blocks go along as images (Claude for images); one that cannot be loaded is noted
     const withImages = await withRefImages(taskMessage(history, prompt, text), refs, ac.signal, (title) => note(t('features.ai.image.refFailed', { title })))
     // referenced file blocks go along as documents (Claude for files); one that cannot be read is noted
     const user = await withRefFiles(withImages, refs, ac.signal, (title) => note(t('features.ai.file.refFailed', { title })))
-    const end = await runAgent({
+    return runAgent({
       history,
       user,
       stage,
@@ -393,6 +397,17 @@ export async function runTask(raw?: string, opts: { noMemory?: boolean; history?
       // the One memory's tools and rules (pinned per conversation: the prompt prefix stays the same)
       ...(withMemTools ? { tools: [...TERMINAL_TOOLS, recallTool, rememberTool], system: `${AGENT_SYSTEM}\n\n${MEMORY_RULES}` } : {}),
     })
+  }
+  try {
+    let end: Awaited<ReturnType<typeof attempt>>
+    try {
+      end = await attempt()
+    } catch (e) {
+      // a server this task did not address rejected its token: once more without it (the conversation as before)
+      if (!(e instanceof AIError && e.code === 'mcp_auth' && e.server && !forced.includes(e.server)) || ac.signal.aborted) throw e
+      history = before
+      end = await attempt()
+    }
     if (end === 'max_tokens') finish('error', { code: 'max_tokens', message: t('features.agent.err.maxTokens') })
     else finish(end === 'limit' ? 'limit' : 'done')
   } catch (e) {
