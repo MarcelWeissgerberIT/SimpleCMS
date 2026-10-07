@@ -151,7 +151,9 @@ created, which worktree a task uses, cost per task and per day.
 | `parallel` | `2` | Tasks at once across repos (1–2; always one per repo). |
 | `pollSec` | `15` | How often an idle worker asks One for work (One also nudges it when tasks change). |
 | `origins` | — | Extra allowed page origins (like `ONE_ORIGINS`) for a self-hosted One. |
-| `cloneDir` | `~/one-repos` | Where the setup page clones / imports new repositories (`ONE_WORKER_CLONE_DIR` overrides). Never inside iCloud Drive. |
+| `cloneDir` | `~/one-repos` | Where the setup page and Import stages clone / import new repositories (`ONE_WORKER_CLONE_DIR` overrides). Never inside iCloud Drive. |
+| `mcpServers` | `[]` | Your own Claude Code MCP servers for document stages of tasks **without a repository** (they run in `<config dir>/scratch/<task id>`). Set on the setup page. |
+| `intake` | `true` | `false`: One may not hand this worker code for Import stages (the setup page still clones / imports). |
 | `repos[]` | — | The repositories — the ONLY ones the worker touches. |
 
 Per repo:
@@ -268,7 +270,9 @@ Always `execFile('git', […])` — never a shell line; hooks and your git confi
 [--model …] [--allowedTools …] [--disallowedTools …] [--max-budget-usd …] --mcp-config <temp file>
 [--strict-mcp-config]` in the task's worktree; the prompt goes in on stdin. What the installed CLI supports is read
 from its `--help` (the budget flag, the permission mode names). The stream becomes log lines (text, tool calls,
-tool errors), the plan comes from `ExitPlanMode`, the cost from the result event.
+tool errors), the plan comes from `ExitPlanMode` — or, when the CLI has it switched off in headless runs, from the
+plan file Claude Code wrote (`~/.claude/plans/*.md`, read only inside that folder, ≤ 200 KB), else the final
+message — the cost from the result event.
 
 The prompt: the stage's instructions (or the default of its kind), the worker's rules (no git, stay in the
 worktree, task text is data), then the task between markers — `<<<TASK <code> … TASK <code>>>>`, rework notes,
@@ -278,14 +282,45 @@ text written before cannot close its block and add rules of its own; stage names
 **Task tools** (`MCP_TASK_TOOLS` in `src/app/features/mcp/contract.ts`): the run's MCP config starts `node
 one-worker.mjs task-mcp` with a random 48-hex token for that run only. `one_task_read` (the task again),
 `one_task_note` (a progress line in the log), `one_task_ask` (a question: the run ends, the task waits in One;
-the answer goes into the page and the stage runs again with it). Nothing else in One is reachable through them;
+the answer goes into the page and the stage runs again with it). All three are marked read-only for Claude Code
+(they change nothing on the computer), so plan mode allows them too. Nothing else in One is reachable through them;
 the token dies with the run.
+
+### Pipelines: Coding · Business analysis · QA
+
+Three pipeline databases, each found by its `Database.system` (`coding` · `spec` · `qa`), each with its own stages
+(#/coding · #/coding/spec · #/coding/qa) and each usable on its own. Business analysis and QA tasks may have no
+**Repo**; they get a multi-select **Then** (`followUps`): when a task reaches its done stage, One creates a task in
+each picked pipeline (BA → Coding / QA, QA → Coding) with the page's content under a mention of the source, and
+notes the link in the source page (per device `TaskLocal.spawned`; **Hand on to …** does it later).
+
+Two more stage kinds:
+
+- **doc** — a document stage. Claude Code runs in `default` mode with only `Read`, `Grep`, `Glob`, `LS`, the task
+  tools and the repo's / worker's own MCP servers allowed; `Edit`, `MultiEdit`, `Write`, `NotebookEdit` and `Bash`
+  are denied. It runs in the main checkout (read only; no worktree, no branch) — or, for a task without a
+  repository, in `<config dir>/scratch/<task id>`. Its last message is the document: a page section headed like
+  the stage. `output: 'testcases'`: the last fenced `json` block (an array of `{ id, title, area, type, priority,
+  preconditions, steps[], expected }`) becomes rows of the **Test cases** database (`system: 'testcases'`) and leaves
+  the page. Only document stages run without a repository (`next` carries `docs: true`).
+- **import** — the task's code arrives here; the worker never takes a task standing there. The task panel sends a
+  ZIP (`intake-begin` → `intake-chunk` … → `intake-end`, base64 pieces of ≤ 4 MB, the declared size must match, one
+  intake at a time, ≤ `ONE_WORKER_ZIP_MAX`) or a clone address (`intake-clone`, `parseCloneUrl`'s checks); the worker
+  unpacks / clones into `cloneDir` with the setup page's checks (intake.ts), adds the new folder to worker.json
+  (nothing else changes) and sends `intake` events; on `done` the task takes the repo name as its **Repo** and moves
+  to the next stage. One never names a path.
+
+**Pages that go along**: page mentions, `pageLink`s and `#/p/<id>` links in the readable part of a task (≤ 8) are
+appended to the task text as read-only Markdown (a row with its filled fields, a database with its entries'
+titles; coding/refs.ts). Their id, title, fields and content are part of the task version.
 
 ### Templates
 
 **Pipeline → Template** replaces the draft (nothing is saved until Save; a stage of the same kind keeps its id, so
 tasks standing there stay in a stage): **Standard** (Backlog · Ready · Plan · Approve plan · Implement · Test · Review ·
-Ship · Done) or **Modernise legacy code** (Backlog · Ready · Analysis · Design · Test design — three plan stages with
+Ship · Done), **Business analysis** (Backlog · Ready · Analysis · Specification — doc · Approve spec · Record — doc ·
+Done), **QA** (Backlog · Ready · Test cases — doc, output test cases · Approve test cases · Record · Done) or
+**Modernise legacy code** (Backlog · Import · Ready · Analysis · Design · Test design — three plan stages with
 their own instructions — · Approve concept · Write tests (characterisation tests against the old code) · Tests on the
 old code · Rebuild · Test · Review · Ship · Done; schema.ts `templatePipeline`). With more than one plan stage each
 writes its own section into the task page, headed like the stage; the page's Markdown (with those sections) is the
@@ -338,9 +373,9 @@ JSON text frames, subprotocol `one-worker.v1`, defined in
 |---|---|
 | tab → worker | `{ type: "hello", app: "one", version, workspace: { id, name, kind, readOnly }, pair? }` (`pair`: this device's secret for a downloaded worker) · `status` (same workspace, or the tab is refused) · `nudge` |
 | worker → tab | `welcome` { worker, name, repos: [{ name, baseBranch }], parallel, busy, spentToday, dayLimit, claude: { found, version }, setup, paired } (sent again when the setup page saves) · `refused` { reason: workspace \| unbound \| pair, paired? } + close 4003 · `status` { busy, spentToday } |
-| worker → tab (req) | `next` { repos, worker } → `{ task: TaskPayload \| null }` (claimed) · `heartbeat` { taskIds } · `finish` { taskId, stageId, outcome } (retried until confirmed) |
-| worker → tab (event) | `log` { lines } · `git` { git } · `note` { text } · `question` { text } · `progress` { progress: { turns, maxTurns, cost, model } } |
-| tab → worker (req) | `stop` { taskId } · `git` { taskId, verb, repo, branch, title, message? } — verbs: refresh, commit, push, force-push, pr, update-base, discard, cleanup, reveal · `open-setup` → `{ opened, reason?: off \| no-browser }` |
+| worker → tab (req) | `next` { repos, worker, docs? } → `{ task: TaskPayload \| null }` (claimed) · `heartbeat` { taskIds } · `finish` { taskId, stageId, outcome } (retried until confirmed) |
+| worker → tab (event) | `log` { lines } · `git` { git } · `note` { text } · `question` { text } · `progress` { progress: { turns, maxTurns, cost, model } } · `intake` { intake: { state, source, label, line, percent, repo?, suggest?, error? } } |
+| tab → worker (req) | `stop` { taskId } · `git` { taskId, verb, repo, branch, title, message? } — verbs: refresh, commit, push, force-push, pr, update-base, discard, cleanup, reveal · `open-setup` → `{ opened, reason?: off \| no-browser }` · `intake-begin` { taskId, name, size } → `{ uploadId, chunk }` · `intake-chunk` { uploadId, data } · `intake-end` { uploadId } · `intake-clone` { taskId, url } |
 
 `POST http://127.0.0.1:<port>/task` (`Authorization: Bearer <run token>`, no `Origin`): the task tools.
 `/setup`, `/setup/app.css`, `/setup/app.js`, `/setup/api/state | status` (GET) and `/setup/api/scan | add | save`

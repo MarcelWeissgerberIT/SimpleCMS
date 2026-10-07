@@ -90,10 +90,29 @@ export function TaskSetup({ taskId, repo, branch, described, kind = 'coding' }: 
   )
 }
 
-/** Which gates this task stops at — on this device; the last pick is the default for new tasks. */
-export function ApprovalsPick({ taskId }: { taskId: ID }) {
+/**
+ * Which gates this task stops at — on this device; the last pick is the default for new tasks. Business analysis
+ * / QA (no plan stage): wait at every approval, or none ("review" works like "all" there).
+ */
+export function ApprovalsPick({ taskId, kind = 'coding' }: { taskId: ID; kind?: PipelineKind }) {
   const t = useT()
-  const level = approvalsOf(useTaskLocal(taskId))
+  const stored = approvalsOf(useTaskLocal(taskId))
+  if (kind !== 'coding') {
+    const level = stored === 'none' ? 'none' : 'all'
+    return (
+      <div className="ctk-appr" data-testid="coding-approvals">
+        <label className="ctk-appr__field">
+          <span className="label">{t('features.coding.approvals.label')}</span>
+          <select className="input" value={level} onChange={(e) => void setTaskApprovals(taskId, e.target.value === 'none' ? 'none' : 'all')} data-testid="coding-approvals-select">
+            <option value="all">{t('features.coding.approvals.doc.all')}</option>
+            <option value="none">{t('features.coding.approvals.doc.none')}</option>
+          </select>
+        </label>
+        <span className="ctk-hint">{t(`features.coding.approvals.doc.${level}Hint`)}</span>
+      </div>
+    )
+  }
+  const level = stored
   return (
     <div className="ctk-appr" data-testid="coding-approvals">
       <label className="ctk-appr__field">

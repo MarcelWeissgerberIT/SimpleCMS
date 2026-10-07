@@ -17,7 +17,8 @@
  *   FAKE:PLANFILE        → plan mode without ExitPlanMode: the plan goes to ~/.claude/plans/fake-plan.md
  *   FAKE:TOOLS           → lists the task tools' read-only hints (in the plan / document)
  *   document stage       → "## Stage: … (doc)": a document from the task (the working folder's name in it);
- *                          FAKE:CASES adds a json block of two test cases
+ *                          FAKE:CASES adds a json block of two test cases; FAKE:DEMODOC writes a realistic
+ *                          analysis / specification (the changelog screenshot)
  * The task tools are reached like Claude Code does: the MCP server from --mcp-config, over stdio.
  * FAKE_CLAUDE_LOG=<file> appends {args, cwd} per run.
  */
@@ -118,6 +119,21 @@ if (mode === 'plan' && prompt.includes('FAKE:PLANFILE')) {
   writeFileSync(file, plan)
   tool('Write', { file_path: file, content: plan })
   result('I wrote the plan to ~/.claude/plans/fake-plan.md.', 0.05)
+  process.exit(0)
+}
+
+const DEMO_DOCS = {
+  Analysis: '## Context\nInvoices above 5,000 EUR wait for a manual sign-off; today this runs by e-mail and takes 6 days on average.\n\n## Requirements\n- **FR-1** An invoice above the limit goes to the cost-centre owner for approval.\n- **FR-2** The owner approves or rejects with a reason; the requester sees it at once.\n- **NFR-1** A decision is possible within 2 working days (reminder after 1).\n\n## Open questions\n- Who approves when the owner is absent?',
+  Specification: '## User stories\n**As a** cost-centre owner **I want** to approve invoices in one list **so that** nothing waits in my inbox.\n- Given an invoice above 5,000 EUR, when it is booked, then it appears in the owner\'s list.\n- Given a rejection, when it is saved, then the requester gets the reason.\n\n## Data model\n| Entity | Fields |\n|---|---|\n| Approval | invoice, owner, state, reason, decided at |',
+  Record: 'Recorded the decision and FR-1 – FR-2 / NFR-1 in the knowledge base, linked to the existing record "Invoice process".',
+}
+
+if (/^## Stage: .* \(doc\)$/m.test(prompt) && prompt.includes('FAKE:DEMODOC')) {
+  const stage = /^## Stage: (.*) \(doc\)$/m.exec(prompt)?.[1] ?? 'Analysis'
+  say('Reading the task and the pages it mentions.')
+  tool('mcp__kb__search', { query: 'invoice approval' })
+  await sleep(600)
+  result(DEMO_DOCS[stage] ?? DEMO_DOCS.Analysis, 0.09)
   process.exit(0)
 }
 

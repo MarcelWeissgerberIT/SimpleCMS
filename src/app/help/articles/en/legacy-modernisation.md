@@ -4,13 +4,15 @@ title: Modernise legacy code
 section: ai
 order: 10
 keywords: legacy, old software, modernise, modernize, rewrite, rebuild, migration, zip, import, clone, gitlab, github, glab, gh, code analysis, architecture, design, test design, characterisation tests, atlas, knowledge base, mcp, altsoftware
-related: coding-pipeline, mcp-servers, agent
+related: coding-pipeline, pipelines, mcp-servers, agent
 summary: From a ZIP or a GitLab project to a rebuilt version — analysis, design and test design as sections of a page in One, tests that pin today's behaviour, then the rebuild.
 ---
 One, the [coding worker](help:coding-pipeline) and Claude Code take old software apart and build it again. Every step lands in the task's page, where you read it, discuss it and approve it. Your code stays on your computer.
 
 ## 1. Bring the code to the worker
-Open the worker's setup page (**Settings → Coding worker → Change repositories**):
+Quickest **in the task itself**: the template *Modernise legacy code* (or **Create it for legacy code** on an empty #/coding) starts with an **Import** stage. A new task without a repo waits there, and its panel shows a box: drop or choose a **ZIP**, paste a **GitLab / GitHub address** to clone, or take a repo the worker has. The worker makes the new repository in `~/one-repos`, the task takes it as its **Repo** and moves on to the analysis.
+
+Or on the worker's setup page (**Settings → Coding worker → Change repositories**):
 - **Import a ZIP…** — a ZIP of the source becomes a new repository in `~/one-repos`: one commit *Import <file>*. The ZIP's own `.git` folders are left out; a path that leads outside its folder refuses the whole ZIP. Right after, **Also create it on GitLab / GitHub** (with `glab` or `gh` signed in) makes the project — its name suggested from the code (package.json, pom.xml, README …) or the ZIP — adds it as the remote and pushes, so **Ship** can open merge requests.
 - **Clone from GitLab / GitHub…** — paste the clone address (HTTPS or SSH) or pick one of your projects (with `glab` or `gh` installed and signed in). git signs in with your SSH key or credential helper; the worker cannot type a password.
 
@@ -18,6 +20,7 @@ Tick the repository, set its **test command** if it has one, and **Save & start*
 
 ## 2. The pipeline
 On **#/coding → Pipeline**, pick the template **Modernise legacy code** and save:
+0. **Import**: the task's code — a ZIP, a clone address or an existing repo (see above).
 1. **Analysis** (plan mode — nothing changes): overview, architecture with a diagram, data model, dependencies, quality hot spots, risks, the behaviour to keep.
 2. **Design**: target architecture, UI and design, migration, what gets better.
 3. **Test design**: characterisation tests — a table of cases that pin today's behaviour down.

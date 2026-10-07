@@ -4,13 +4,15 @@ title: Altsoftware modernisieren
 section: ai
 order: 10
 keywords: altsoftware, legacy, alter code, modernisieren, neu bauen, neubau, migration, zip, import, klonen, gitlab, github, glab, gh, code-analyse, architektur, design, testentwurf, charakterisierungstests, atlas, wissensbasis, mcp
-related: coding-pipeline, mcp-servers, agent
+related: coding-pipeline, pipelines, mcp-servers, agent
 summary: Von einer ZIP oder einem GitLab-Projekt zur neu gebauten Version — Analyse, Design und Testentwurf als Abschnitte einer Seite in One, Tests, die das heutige Verhalten festhalten, dann der Neubau.
 ---
 One, der [Coding-Worker](help:coding-pipeline) und Claude Code nehmen alte Software auseinander und bauen sie neu. Jeder Schritt landet in der Seite der Aufgabe – dort liest du ihn, besprichst ihn und gibst ihn frei. Dein Code bleibt auf deinem Rechner.
 
 ## 1. Den Code zum Worker bringen
-Öffne die Setup-Seite des Workers (**Einstellungen → Coding-Worker → Repositories ändern**):
+Am schnellsten **in der Aufgabe selbst**: Die Vorlage *Altsoftware modernisieren* (oder **Für Altsoftware anlegen** auf einer leeren #/coding-Seite) beginnt mit der Stufe **Import**. Eine neue Aufgabe ohne Repo wartet dort, und ihr Panel zeigt ein Feld: **ZIP** ablegen oder wählen, eine **GitLab-/GitHub-Adresse** zum Klonen einfügen oder ein Repo des Workers nehmen. Der Worker legt das neue Repository in `~/one-repos` an, die Aufgabe übernimmt es als **Repo** und geht zur Analyse weiter.
+
+Oder auf der Setup-Seite des Workers (**Einstellungen → Coding-Worker → Repositories ändern**):
 - **ZIP importieren …** – eine ZIP mit dem Quellcode wird ein neues Repository in `~/one-repos`: ein Commit *Import <Datei>*. Die eigenen `.git`-Ordner der ZIP bleiben draußen; ein Pfad, der aus ihrem Ordner herausführt, lehnt die ganze ZIP ab. Direkt danach legt **Auch auf GitLab / GitHub anlegen** (mit angemeldetem `glab` oder `gh`) das Projekt an – der Name wird aus dem Code (package.json, pom.xml, README …) oder der ZIP vorgeschlagen –, setzt es als Remote und pusht, damit **Ausliefern** Merge Requests öffnen kann.
 - **Von GitLab / GitHub klonen …** – die Klon-Adresse einfügen (HTTPS oder SSH) oder eines deiner Projekte wählen (wenn `glab` oder `gh` installiert und angemeldet ist). git meldet sich mit deinem SSH-Schlüssel oder Credential-Helper an; der Worker kann kein Passwort eintippen.
 
@@ -18,6 +20,7 @@ Hak das Repository an, trag seinen **Testbefehl** ein, falls es einen gibt, und 
 
 ## 2. Die Pipeline
 Unter **#/coding → Pipeline** die Vorlage **Altsoftware modernisieren** wählen und speichern:
+0. **Import**: der Code der Aufgabe – ZIP, Klon-Adresse oder ein vorhandenes Repo (siehe oben).
 1. **Analyse** (Plan-Modus – nichts wird geändert): Überblick, Architektur mit Diagramm, Datenmodell, Abhängigkeiten, Qualitäts-Brennpunkte, Risiken, das Verhalten, das bleiben muss.
 2. **Design**: Zielarchitektur, UI und Design, Migration, was besser wird.
 3. **Testentwurf**: Charakterisierungstests – eine Tabelle von Fällen, die das heutige Verhalten festhalten.

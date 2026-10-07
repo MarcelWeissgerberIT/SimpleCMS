@@ -184,7 +184,7 @@ export default function CodingView({ kind = 'coding' }: { kind?: PipelineKind })
           <span className="mono" data-testid="coding-count">
             {t(count === 1 ? 'features.coding.count.one' : 'features.coding.count.other', { n: String(count).padStart(2, '0') })}
           </span>
-          <HelpLink id="coding-pipeline" />
+          <HelpLink id={kind === 'coding' ? 'coding-pipeline' : 'pipelines'} />
         </div>
         <div className="cv-head__row">
           <h1 className="cv-title">{t(`features.coding.pipe.${kind}`)}</h1>

@@ -4,7 +4,7 @@ title: Coding pipeline (Claude Code on your machine)
 section: ai
 order: 9
 keywords: coding, pipeline, claude code, worker, one-worker, download, setup, pairing, tick repositories, git, branch, worktree, pull request, pr, diff, tests, repo, repository, code review, programmieren, aufgaben
-related: mcp-bridge, custom-agents, agent
+related: pipelines, legacy-modernisation, mcp-bridge, custom-agents, agent
 summary: Hand coding tasks to Claude Code on your computer — plan, approve, implement, test, ship — and follow every step in One.
 ---
 **#/coding** (⌘K *Coding pipeline*). One keeps the tasks, the approvals, the log and the diff; a small worker on **your** computer runs git and Claude Code. Your code never leaves your machine.
@@ -18,6 +18,8 @@ You need Node.js 20+, git and the **Claude Code** CLI, signed in once (`claude`)
 node ~/Downloads/one-worker.mjs
 ```
 3. **Tick your repositories in the page that opens.** The worker finds the git repositories on your computer and opens a page in your browser: tick the ones One may work in, check the base branch and the test command (e.g. `npm test`), then **Save & start**. The card shows *Connected · laptop · 2 repos* and the **WORKER** LED in the status bar turns green.
+
+Business analysis and QA have pipelines of their own — see [Business analysis and QA pipelines](help:pipelines). Mention pages with **@** in a task: their text goes to Claude Code with it.
 
 New code? The same page clones from **GitLab / GitHub** (an address, or a pick from your projects with `glab` / `gh`) or imports a **ZIP** as a new repository into `~/one-repos` — see [Modernise legacy code](help:legacy-modernisation). Per repository it can also give Claude Code your own MCP servers (e.g. a knowledge base).
 

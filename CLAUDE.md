@@ -328,7 +328,17 @@ the public APIs stable — other areas are built against them in parallel.
   the person's own Claude Code MCP servers (tools allowed, no --strict-mcp-config). GitLab: `glab mr create`. After an
   import the page offers "Create it on GitLab / GitHub" (publish.ts: name from the code, the person's glab / gh api,
   origin + push; only for a repo without a remote). Pipeline
-  templates (schema.ts `templatePipeline`: standard | modernise); with several plan stages each writes its own section.
+  templates (schema.ts `templatePipeline`: standard | modernise | spec | qa); with several plan stages each writes its own section.
+  Pipelines (docs/CODING.md § Pipelines): `Database.system` 'coding' | 'spec' (Business analysis) | 'qa', each its own
+  board (#/coding, #/coding/spec, #/coding/qa), each usable alone; find them only with `pipelineDbId(kind)` /
+  `kindOfDb()`; "Then" (`followUps` multi-select) spawns follow-ups when a task is done (`spawnFollowUp`). Stage kind
+  'doc': Claude Code reads only (main checkout, or `<config dir>/scratch/<task>` without a repo; Edit/Write/Bash denied;
+  worker-level `mcpServers`), its last message = a page section; `output: 'testcases'` → rows of the Test cases
+  database (`system: 'testcases'`). Stage kind 'import': the task panel hands the worker a ZIP (chunked `intake-*`) or a
+  clone address → a new repo in `cloneDir` added to worker.json (intake.ts; `"intake": false` refuses), then the task
+  takes it as Repo (`intakeDone`). Pages a task mentions (@ / links, ≤ 8, coding/refs.ts) go to the worker as
+  read-only text and are part of the task version. The task tools are read-only for Claude Code (plan mode may ask);
+  without ExitPlanMode the plan file (`~/.claude/plans`) is the plan.
 - Claude's Markdown goes into or is shown in a page only through `claudeDoc` / `claudeBlocks` (features/ai/claudeDoc.ts):
   web images become links, frames / media / web files never load. In shared pages Claude's change is its own undo step
   (`startUndoStep(view)` / `endUndoStep(view)`, editor/index.ts). History `SnapshotReason 'script'` ('Script · <name>').

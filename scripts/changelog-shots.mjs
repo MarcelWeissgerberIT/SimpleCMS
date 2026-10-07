@@ -8,7 +8,7 @@
  *
  * (CHANGELOG_DRAFT=1 lets the build pass while a new entry's picture does not exist yet.)
  *
- * Shots: legacy-modernise, coding-live, text-size, mcp-media, coding-setup, free-board, building-blocks, workspace-settings, diagram-viewer, coding-pipeline, pages-per-item, design-import, tour, quick-capture, script-templates, one-script-everywhere, file-ai, one-script, transform, ai-edit, db-commands, gmail-one-click, memory, grips-footer, block-select, split-to-page, image-ai, claude-reads, redo, ai-terminal, mcp-codewords, mcp-tidy-up, slash-menu, turn-into-database,
+ * Shots: pipelines, legacy-modernise, coding-live, text-size, mcp-media, coding-setup, free-board, building-blocks, workspace-settings, diagram-viewer, coding-pipeline, pages-per-item, design-import, tour, quick-capture, script-templates, one-script-everywhere, file-ai, one-script, transform, ai-edit, db-commands, gmail-one-click, memory, grips-footer, block-select, split-to-page, image-ai, claude-reads, redo, ai-terminal, mcp-codewords, mcp-tidy-up, slash-menu, turn-into-database,
  * custom-agents, gmail, help-centre, mcp-servers, feed-blocks — each named like its image. Every shot starts from a fresh, seeded
  * workspace in English, light theme, 1440 × 900 at device scale 2; the crop of the relevant area is scaled
  * to 1440 px wide and saved as public/assets/shots/changelog/<shot>.webp (≤ 150 KB: the quality steps down
@@ -1423,6 +1423,65 @@ const shots = {
     const box = await boxOf(page.locator('.modal').first(), 20)
     await save(page, 'design-import', box)
     await ctx.close()
+  },
+
+  /**
+   * Business analysis: a task without a repo after the worker wrote Analysis and Specification — the switch
+   * Coding · Business analysis · QA, the panel waiting at "Approve spec", "Then: Coding" ticked, the page it
+   * mentions under "Goes along". The repository's worker with the fake Claude Code CLI — no API, no real host.
+   */
+  async pipelines(browser) {
+    const work = codingRepo()
+    const { ctx, page } = await freshPage(browser, { viewport: { width: W, height: H + 200 } })
+    let worker = null
+    try {
+      await page.evaluate(() => window.__one.ui.getState().openModal({ type: 'settings' }))
+      await page.getByRole('tab', { name: 'Coding worker' }).click()
+      const init = await page.locator('.cw-code pre').filter({ hasText: 'init --workspace' }).first().textContent()
+      worker = await startCodingWorker(work, /--workspace (\S+)/.exec(init)[1])
+      const port = page.getByLabel('Port', { exact: true })
+      await port.fill(String(WORKER_PORT))
+      await port.press('Enter')
+      await page.getByRole('switch', { name: 'Connect to a coding worker on this computer' }).click()
+      await page.getByTestId('coding-conn').filter({ hasText: 'Connected' }).waitFor({ timeout: 20_000 })
+      await page.keyboard.press('Escape')
+      await page.getByRole('dialog').waitFor({ state: 'detached' })
+      // the page the task refers to
+      const policy = await page.evaluate(() => {
+        const s = window.__one.workspace.getState()
+        const id = s.createPage({ title: 'Approval policy 2026', parentId: null })
+        s.setContent(id, { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Invoices above 5,000 EUR need the cost-centre owner\'s sign-off.' }] }] }, 'shot')
+        return id
+      })
+      await page.evaluate(() => (window.location.hash = '#/coding/spec'))
+      await page.getByTestId('coding-setup').click()
+      await page.getByText('Business analysis database created.').waitFor({ state: 'detached', timeout: 20_000 })
+      await page.getByTestId('coding-new').click()
+      await page.getByTestId('coding-new-title').fill('Invoice approval flow')
+      await page.getByTestId('coding-new-then-coding').click()
+      await page.getByRole('checkbox').uncheck()
+      await page.getByTestId('coding-create').click()
+      const panel = page.getByTestId('coding-panel')
+      await panel.waitFor()
+      const id = await page.evaluate(() => window.location.hash.replace('#/p/', ''))
+      await page.evaluate(({ id, policy }) => {
+        const s = window.__one.workspace.getState()
+        s.setContent(id, { type: 'doc', content: [
+          { type: 'paragraph', content: [{ type: 'text', text: 'Invoices above the limit wait for days in e-mail threads. Describe the approval flow along ' }, { type: 'mention', attrs: { id: policy, label: 'Approval policy 2026', kind: 'page' } }, { type: 'text', text: '. FAKE:DEMODOC' }] },
+        ] }, 'shot')
+      }, { id, policy })
+      await page.getByTestId('coding-run').click()
+      await page.locator('.ctk-code').filter({ hasText: /· Approve spec$/i }).waitFor({ timeout: 60_000 })
+      await scrollToTop(panel, 28)
+      await rest(page)
+      const top = await boxOf(panel, 20)
+      const refs = await page.getByTestId('coding-refs').boundingBox()
+      await save(page, 'pipelines', { ...top, y: Math.max(0, top.y - 4), height: refs.y + refs.height + 20 - top.y })
+    } finally {
+      worker?.kill('SIGTERM')
+      await ctx.close()
+      rmSync(work.root, { recursive: true, force: true })
+    }
   },
 
   /**

@@ -4,7 +4,7 @@ title: Coding-Pipeline (Claude Code auf deinem Rechner)
 section: ai
 order: 9
 keywords: coding, pipeline, claude code, worker, one-worker, download, einrichten, koppeln, repositories anhaken, git, branch, worktree, pull request, pr, diff, tests, repo, repository, code-review, programmieren, aufgaben
-related: mcp-bridge, custom-agents, agent
+related: pipelines, legacy-modernisation, mcp-bridge, custom-agents, agent
 summary: Gib Programmieraufgaben an Claude Code auf deinem Rechner — planen, freigeben, umsetzen, testen, ausliefern — und verfolge jeden Schritt in One.
 ---
 **#/coding** (⌘K *Coding-Pipeline*). One verwaltet die Aufgaben, die Freigaben, das Log und den Diff; ein kleiner Worker auf **deinem** Rechner führt Git und Claude Code aus. Dein Code verlässt deinen Rechner nie.
@@ -18,6 +18,8 @@ Du brauchst Node.js 20+, Git und die **Claude-Code**-CLI, einmal angemeldet (`cl
 node ~/Downloads/one-worker.mjs
 ```
 3. **Hak deine Repositories auf der Seite an, die sich öffnet.** Der Worker findet die Git-Repositories auf deinem Rechner und öffnet eine Seite in deinem Browser: Hak die an, in denen One arbeiten darf, prüf Basis-Branch und Testbefehl (z. B. `npm test`), dann **Speichern & starten**. Die Karte zeigt *Verbunden · laptop · 2 Repos*, und die **WORKER**-LED in der Statusleiste wird grün.
+
+Business-Analyse und QA haben eigene Pipelines – siehe [Business-Analyse- und QA-Pipelines](help:pipelines). Erwähne Seiten in einer Aufgabe mit **@**: Ihr Text geht mit an Claude Code.
 
 Neuer Code? Dieselbe Seite klont von **GitLab / GitHub** (eine Adresse oder ein Projekt aus deiner Liste mit `glab` / `gh`) oder importiert eine **ZIP** als neues Repository nach `~/one-repos` – siehe [Altsoftware modernisieren](help:legacy-modernisation). Pro Repository kann sie Claude Code auch deine eigenen MCP-Server geben (z. B. eine Wissensbasis).
 

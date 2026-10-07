@@ -184,9 +184,7 @@ export default function TaskPanel({ pageId }: { pageId: ID }) {
 
         {intake && trusted !== false && <ImportBox taskId={pageId} canAct={canAct} />}
         {setup && <TaskSetup taskId={pageId} repo={repo} branch={branch} described={taskHasText(task)} kind={kind} />}
-        {canAct && stage?.kind !== 'done' && <ApprovalsPick taskId={pageId} />}
-        {!coding && <FollowUps taskId={pageId} kind={kind} done={stage?.kind === 'done'} canAct={canAct} />}
-        {stage?.kind !== 'done' && <RefsLine taskId={pageId} />}
+        {canAct && stage?.kind !== 'done' && <ApprovalsPick taskId={pageId} kind={kind} />}
 
         {needsTrust && canAct && (
           <div className="ctk-box ctk-box--trust" role="alert">
@@ -313,6 +311,10 @@ export default function TaskPanel({ pageId }: { pageId: ID }) {
             <span className="ctk-hint">{stage?.auto ? t('features.coding.act.autoHint') : t('features.coding.act.manualHint')}</span>
           </div>
         )}
+
+        {/* context: where the task hands on to, the pages that go along */}
+        {!coding && <FollowUps taskId={pageId} kind={kind} done={stage?.kind === 'done'} canAct={canAct} />}
+        {stage?.kind !== 'done' && <RefsLine taskId={pageId} />}
       </div>
 
       <div className="ctk-tabs" role="tablist" aria-label={t('features.coding.panel.tabs')}>

@@ -1,7 +1,7 @@
 ---
 id: 2026-10-07-legacy-modernise
 date: 2026-10-07
-order: 1
+order: 2
 title: Modernise legacy code — from a ZIP or GitLab to a rebuild
 summary: The coding worker clones from GitLab or GitHub and imports a ZIP of old code as a new repository; the pipeline template "Modernise legacy code" analyses, designs and pins today's behaviour down with tests before the rebuild.
 image: assets/shots/changelog/legacy-modernise.webp

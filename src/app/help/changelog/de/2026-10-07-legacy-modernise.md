@@ -1,7 +1,7 @@
 ---
 id: 2026-10-07-legacy-modernise
 date: 2026-10-07
-order: 1
+order: 2
 title: Altsoftware modernisieren — von einer ZIP oder GitLab zum Neubau
 summary: Der Coding-Worker klont von GitLab oder GitHub und importiert eine ZIP mit altem Code als neues Repository; die Pipeline-Vorlage „Altsoftware modernisieren“ analysiert, entwirft und hält das heutige Verhalten mit Tests fest, bevor neu gebaut wird.
 image: assets/shots/changelog/legacy-modernise.webp
