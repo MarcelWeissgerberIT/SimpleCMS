@@ -61,6 +61,10 @@ export interface WorkerConfig {
   repos: RepoConfig[]
   /** where the setup page clones repositories to (absolute; default ~/one-repos, ONE_WORKER_CLONE_DIR wins) */
   cloneDir: string
+  /** the person's own Claude Code MCP servers for document stages of tasks without a repository */
+  mcpServers: string[]
+  /** may One hand this worker the code of a task (Import stage: a ZIP / clone address → a new repo)? default true */
+  intake: boolean
   /** the download's preset (workspace, origin, port and pairing secret come from it; null: worker.json only) */
   preset: WorkerPreset | null
 }
@@ -298,6 +302,8 @@ export function sanitizeConfig(raw: unknown, file: string, env: NodeJS.ProcessEn
       origins: strings(r.origins, 20),
       repos,
       cloneDir: cloneDirOf(env.ONE_WORKER_CLONE_DIR ?? r.cloneDir, configDir, problems),
+      mcpServers: mcpNames(r.mcpServers, 'worker', problems),
+      intake: r.intake !== false,
       preset: null,
     },
     problems,
@@ -312,6 +318,27 @@ function cloneDirOf(raw: unknown, configDir: string, problems: string[]): string
     return join(homedir(), 'one-repos')
   }
   return resolve(configDir, expandHome(raw.trim()))
+}
+
+/** A task without a repository (document stages only): the worker's own scratch folder per task, no git. */
+export function scratchRepo(config: WorkerConfig, taskId: string): RepoConfig {
+  const dir = join(dirname(config.file), 'scratch', taskId.replace(/[^A-Za-z0-9_-]/g, '').slice(0, 64) || 'task')
+  mkdirSync(dir, { recursive: true, mode: 0o700 })
+  return {
+    name: '(no repository)',
+    path: dir,
+    baseBranch: 'main',
+    remote: 'origin',
+    branchPrefix: 'one/',
+    worktreeDir: dir,
+    testCommand: null,
+    testTimeoutSec: 600,
+    push: false,
+    pr: 'none',
+    claude: { model: null, maxTurns: 40, permissionMode: {}, allowedTools: [], disallowedTools: [], strictMcp: true, mcpServers: config.mcpServers },
+    maxUsdPerTask: null,
+    maxUsdPerDay: null,
+  }
 }
 
 /* ------------------------------------------------------------------ init */
@@ -478,7 +505,7 @@ function homeRelative(path: string): string {
  * once before it is rewritten. Checked like a load first: nothing is written when a repo would be dropped.
  * Returns the problems (empty: written).
  */
-export function saveRepos(file: string, choices: RepoChoice[], workspace: string | null, env: NodeJS.ProcessEnv = process.env, extra: { cloneDir?: string } = {}): string[] {
+export function saveRepos(file: string, choices: RepoChoice[], workspace: string | null, env: NodeJS.ProcessEnv = process.env, extra: { cloneDir?: string; mcpServers?: string[] } = {}): string[] {
   const configDir = dirname(file)
   let text: string | null = null
   let raw: Record<string, unknown> = {}
@@ -515,6 +542,10 @@ export function saveRepos(file: string, choices: RepoChoice[], workspace: string
   const next: Record<string, unknown> = { ...raw }
   if (workspace) next.workspace = workspace
   if (extra.cloneDir) next.cloneDir = homeRelative(resolve(extra.cloneDir))
+  if (extra.mcpServers) {
+    if (extra.mcpServers.length) next.mcpServers = extra.mcpServers
+    else delete next.mcpServers
+  }
   next.repos = repos
   // the same checks as loading: a repo the worker would drop is not written
   const check = sanitizeConfig(next, file, env)

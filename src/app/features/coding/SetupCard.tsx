@@ -46,13 +46,14 @@ export async function changeRepositories(t: T): Promise<void> {
   }
 }
 
-export function ChangeReposButton({ className = 'btn btn--sm' }: { className?: string }) {
+/** Opens the worker's setup page (tick repos, clone, import a ZIP) — only while a worker with that page is connected. */
+export function ChangeReposButton({ className = 'btn btn--sm', label, testId = 'coding-change-repos' }: { className?: string; label?: string; testId?: string }) {
   const t = useT()
   const setup = useCoding((s) => s.conn === 'connected' && s.worker?.setup === true)
   if (!setup) return null
   return (
-    <button type="button" className={className} onClick={() => void changeRepositories(t)} data-testid="coding-change-repos">
-      <FolderGit2 size={14} strokeWidth={1.75} aria-hidden /> {t('features.coding.card.change')}
+    <button type="button" className={className} onClick={() => void changeRepositories(t)} data-testid={testId}>
+      <FolderGit2 size={14} strokeWidth={1.75} aria-hidden /> {label ?? t('features.coding.card.change')}
     </button>
   )
 }

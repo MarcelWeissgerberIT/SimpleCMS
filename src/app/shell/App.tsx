@@ -178,7 +178,7 @@ function RouteView({ route }: { route: Route }) {
     case 'scripts':
       return <ScriptsRoute scriptId={route.id} />
     case 'coding':
-      return <CodingRoute />
+      return <CodingRoute kind={route.kind} />
     case 'kit':
       return <KitRoute tab={route.tab} id={route.id} />
     case 'discover':

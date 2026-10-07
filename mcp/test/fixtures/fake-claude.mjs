@@ -14,11 +14,15 @@
  *   FAKE:EXPENSIVE       → costs $4.00
  *   FAKE:DEMO            → a realistic TypeScript change to src/login.ts (the changelog screenshot)
  *   FAKE:DEMOLIVE        → the same change at a working pace, ~20 s (the running panel's screenshot)
+ *   FAKE:PLANFILE        → plan mode without ExitPlanMode: the plan goes to ~/.claude/plans/fake-plan.md
+ *   FAKE:TOOLS           → lists the task tools' read-only hints (in the plan / document)
+ *   document stage       → "## Stage: … (doc)": a document from the task (the working folder's name in it);
+ *                          FAKE:CASES adds a json block of two test cases
  * The task tools are reached like Claude Code does: the MCP server from --mcp-config, over stdio.
  * FAKE_CLAUDE_LOG=<file> appends {args, cwd} per run.
  */
-import { appendFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { basename, join } from 'node:path'
 
 const args = process.argv.slice(2)
 if (args.includes('--version')) {
@@ -77,6 +81,23 @@ async function taskTool(name, input) {
   }
 }
 
+/** The task tools' read-only hints, as Claude Code sees them ("one_task_ask:ro, …"). */
+async function toolHints() {
+  const file = arg('--mcp-config')
+  if (!file) return ''
+  const cfg = JSON.parse(readFileSync(file, 'utf8')).mcpServers['one-task']
+  const { Client } = await import('@modelcontextprotocol/sdk/client/index.js')
+  const { StdioClientTransport } = await import('@modelcontextprotocol/sdk/client/stdio.js')
+  const client = new Client({ name: 'fake-claude', version: '9.9.9' })
+  await client.connect(new StdioClientTransport({ command: cfg.command, args: cfg.args, env: { PATH: process.env.PATH ?? '', ...cfg.env } }))
+  try {
+    const { tools } = await client.listTools()
+    return tools.map((t) => `${t.name}:${t.annotations?.readOnlyHint ? 'ro' : 'rw'}`).join(', ')
+  } finally {
+    await client.close()
+  }
+}
+
 const result = (text, cost, extra = {}) => out({ type: 'result', subtype: 'success', is_error: false, num_turns: 3, total_cost_usd: cost, result: text, ...extra })
 const title = /^# (.+)$/m.exec(prompt.split('<<<TASK')[1] ?? '')?.[1]?.trim() ?? 'task'
 const hasAnswers = prompt.includes('<<<ANSWERS')
@@ -86,6 +107,35 @@ if (prompt.includes('FAKE:AUTH')) {
   // what the real CLI says when its login expired: an error result that still reads "success"
   out({ type: 'result', subtype: 'success', is_error: true, num_turns: 1, total_cost_usd: 0, result: 'Failed to authenticate: OAuth session expired and could not be refreshed' })
   process.exit(1)
+}
+
+if (mode === 'plan' && prompt.includes('FAKE:PLANFILE')) {
+  // newer Claude Code: the plan goes to a plan file, ExitPlanMode is switched off in headless runs
+  const tools = prompt.includes('FAKE:TOOLS') ? `\n\nTools: ${await toolHints()}` : ''
+  const file = join(process.env.HOME ?? '.', '.claude', 'plans', 'fake-plan.md')
+  const plan = `## Plan from the file\n1. Add \`feature.txt\`.${tools}`
+  mkdirSync(join(process.env.HOME ?? '.', '.claude', 'plans'), { recursive: true })
+  writeFileSync(file, plan)
+  tool('Write', { file_path: file, content: plan })
+  result('I wrote the plan to ~/.claude/plans/fake-plan.md.', 0.05)
+  process.exit(0)
+}
+
+if (/^## Stage: .* \(doc\)$/m.test(prompt)) {
+  say('Reading what is known.')
+  tool('Read', { file_path: join(process.cwd(), 'README.md') })
+  const tools = prompt.includes('FAKE:TOOLS') ? `\n\nTools: ${await toolHints()}` : ''
+  const cases = prompt.includes('FAKE:CASES')
+    ? '\n\n```json\n' + JSON.stringify([
+        { id: 'TC-01', title: 'Sign in with a valid account', area: 'Login', type: 'functional', priority: 'high', preconditions: 'An account exists', steps: ['Open the login', 'Enter the address and password', 'Press Sign in'], expected: 'The dashboard opens' },
+        { id: 'TC-02', title: 'Wrong password', area: 'Login', type: 'negative', priority: 'medium', preconditions: '', steps: ['Enter a wrong password'], expected: 'An error shows; no sign-in' },
+      ], null, 2) + '\n```'
+    : ''
+  // the pages the task refers to (One sends their text along): how many, and their first finding
+  const refs = (prompt.match(/^### .+ \((?:page|Seite) [A-Za-z0-9_-]+\)$/gm) ?? []).length
+  const finding = /Finding 1: ([^\n]+)/.exec(prompt)?.[1]
+  result(`## Analysis\n\nThe document for “${title}”.\n\nWorking folder: ${basename(process.cwd())}\n\nReferences: ${refs}${finding ? `\n\nFirst finding: ${finding}` : ''}${tools}${cases}`, 0.07)
+  process.exit(0)
 }
 
 if (mode === 'plan') {

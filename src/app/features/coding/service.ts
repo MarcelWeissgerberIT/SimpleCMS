@@ -32,8 +32,8 @@ import {
 import { DEFAULT_CODING, CODING_STORAGE_KEY, loadCodingSettings, saveCodingSettings, useCoding, validPort, type CodingSettings } from './state'
 import { appendLog, patchTask, flushLogs, loadTask } from './local'
 import { cleanCode } from './lines'
-import { codingDbId, addRepoOptions, codingProps } from './schema'
-import { finishStage, heartbeat, pickNext, setNudge, taskContext, gitSummary } from './tasks'
+import { addRepoOptions, codingProps, pipelineDbIds } from './schema'
+import { finishStage, heartbeat, intakeDone, pickNext, setNudge, taskContext, gitSummary } from './tasks'
 import { startTrustWatch } from './trust'
 import { useCloud } from '../../cloud'
 
@@ -209,8 +209,7 @@ async function receive(msg: WorkerMessage) {
       failingSince = 0
       const { type: _type, ...info } = msg
       set({ conn: 'connected', refused: null, worker: info, busy: info.busy ?? [], spentToday: info.spentToday ?? 0 })
-      const dbId = codingDbId()
-      if (dbId) addRepoOptions(dbId, (info.repos ?? []).map((r) => r.name))
+      for (const dbId of pipelineDbIds()) addRepoOptions(dbId, (info.repos ?? []).map((r) => r.name))
       // tasks of this worker that were running when the link dropped: still running there
       for (const b of info.busy ?? []) void patchTask(b.taskId, { state: 'running', stageId: b.stageId })
       return
@@ -271,6 +270,26 @@ function onEvent(msg: Extract<WorkerMessage, { type: 'event' }>) {
     case 'question':
       void patchTask(taskId, { question: String(msg.text).slice(0, 4000) })
       return
+    case 'intake': {
+      const i = msg.intake
+      if (!i || typeof i !== 'object' || !['running', 'done', 'failed'].includes(i.state)) return
+      const s = (v: unknown, n: number) => (typeof v === 'string' ? v.slice(0, n) : '')
+      const repo = s(i.repo, 64)
+      const intake = {
+        state: i.state,
+        source: i.source === 'clone' ? ('clone' as const) : ('zip' as const),
+        label: s(i.label, 300),
+        line: s(i.line, 300),
+        percent: typeof i.percent === 'number' && Number.isFinite(i.percent) ? Math.max(0, Math.min(100, i.percent)) : null,
+        ...(repo && /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(repo) ? { repo } : {}),
+        ...(i.suggest ? { suggest: s(i.suggest, 100) } : {}),
+        ...(i.error ? { error: s(i.error, 600) } : {}),
+        at: Date.now(),
+      }
+      set((st) => ({ intake: { ...st.intake, [taskId]: intake } }))
+      if (intake.state === 'done' && intake.repo) void intakeDone(taskId, intake.repo, intake.label)
+      return
+    }
   }
 }
 
@@ -283,7 +302,7 @@ async function onRequest(msg: Extract<WorkerMessage, { type: 'req' }>) {
     switch (msg.op) {
       case 'next': {
         const name = get().worker?.name ?? String(msg.worker ?? '')
-        const task = await pickNext(Array.isArray(msg.repos) ? msg.repos.map(String) : [], name)
+        const task = await pickNext(Array.isArray(msg.repos) ? msg.repos.map(String) : [], name, msg.docs === true)
         return reply(id, { task })
       }
       case 'heartbeat':
@@ -331,6 +350,49 @@ export function nudgeWorker() {
   if (get().conn !== 'connected') return
   window.clearTimeout(nudgeTimer)
   nudgeTimer = window.setTimeout(() => send({ type: 'nudge' }), 150)
+}
+
+/** A slice of a file as base64 (the link carries JSON). */
+function base64Of(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader()
+    r.onload = () => resolve(String(r.result).replace(/^data:[^,]*,/, ''))
+    r.onerror = () => reject(r.error ?? new Error('read failed'))
+    r.readAsDataURL(blob)
+  })
+}
+
+/**
+ * Import stage: hand the worker a ZIP the person picked for this task — in pieces over the link. The worker
+ * unpacks it into a new repository; its `intake` events follow (the task takes the repo when it is done).
+ */
+export async function sendTaskZip(taskId: string, file: File): Promise<void> {
+  if (!/\.zip$/i.test(file.name)) throw new Error(t('features.coding.intake.notZip'))
+  set((st) => ({ intake: { ...st.intake, [taskId]: { state: 'running', source: 'zip', label: file.name, line: t('features.coding.intake.sending'), percent: 0, at: Date.now() } } }))
+  try {
+    const begin = (await request({ op: 'intake-begin', taskId, name: file.name, size: file.size } as never, 30_000)) as { uploadId?: string; chunk?: number } | null
+    const uploadId = String(begin?.uploadId ?? '')
+    if (!uploadId) throw new Error(t('features.coding.err.timeout'))
+    const step = Math.max(64 * 1024, Math.min(4 * 1024 * 1024, Number(begin?.chunk) || 4 * 1024 * 1024))
+    for (let off = 0; off < file.size; off += step) await request({ op: 'intake-chunk', uploadId, data: await base64Of(file.slice(off, off + step)) } as never, 120_000)
+    await request({ op: 'intake-end', uploadId } as never, 60_000)
+  } catch (e) {
+    const error = e instanceof Error ? e.message : String(e)
+    set((st) => ({ intake: { ...st.intake, [taskId]: { state: 'failed', source: 'zip', label: file.name, line: '', percent: null, error, at: Date.now() } } }))
+    throw e
+  }
+}
+
+/** Import stage: the worker clones an address into a new repository (followed by its `intake` events). */
+export async function cloneForTask(taskId: string, url: string): Promise<void> {
+  set((st) => ({ intake: { ...st.intake, [taskId]: { state: 'running', source: 'clone', label: url.trim(), line: '', percent: null, at: Date.now() } } }))
+  try {
+    await request({ op: 'intake-clone', taskId, url: url.trim() } as never, 30_000)
+  } catch (e) {
+    const error = e instanceof Error ? e.message : String(e)
+    set((st) => ({ intake: { ...st.intake, [taskId]: { state: 'failed', source: 'clone', label: url.trim(), line: '', percent: null, error, at: Date.now() } } }))
+    throw e
+  }
 }
 
 /** Stop the task's running stage (the worker ends Claude Code's whole process tree). */
@@ -388,13 +450,13 @@ export function startCoding() {
     if (s.epoch !== prev.epoch || s.ready !== prev.ready) onWorkspace()
     // tasks changed (a new task, a stage moved): the worker may have work
     if (get().conn !== 'connected' || s.pages === prev.pages) return
-    const dbId = codingDbId()
-    if (!dbId) return
-    const props = s.databases[dbId] ? codingProps(s.databases[dbId]) : null
+    const dbIds = new Set(pipelineDbIds())
+    if (!dbIds.size) return
     for (const id of pageChanges(s.pages, prev.pages).changed) {
       const now = s.pages[id]
       const before = prev.pages[id]
-      if (now?.databaseId !== dbId) continue
+      if (!now?.databaseId || !dbIds.has(now.databaseId)) continue
+      const props = s.databases[now.databaseId] ? codingProps(s.databases[now.databaseId]!) : null
       if (!before || (props?.stage && now.properties[props.stage] !== before.properties[props.stage]) || (props?.repo && now.properties[props.repo] !== before.properties[props.repo])) {
         nudgeWorker()
         break

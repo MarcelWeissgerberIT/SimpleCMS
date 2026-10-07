@@ -1,7 +1,8 @@
 /**
- * #/coding — the coding pipeline: the worker's state (LED, name, repos, today's cost, what runs), the tasks
- * that wait for the person (gates, questions, failures), the board of the Coding database (grouped by
- * Stage), New task and the pipeline editor. Loaded on first visit.
+ * #/coding — the pipelines: the worker's state (LED, name, repos, today's cost, what runs), the tasks that
+ * wait for the person (gates, questions, failures — of every pipeline), the switch Coding · Business analysis ·
+ * QA (#/coding, #/coding/spec, #/coding/qa) with that pipeline's board (grouped by Stage), New task and its
+ * pipeline editor. Each pipeline works on its own; QA's test cases have their own database. Loaded on first visit.
  */
 import { useEffect, useMemo, useState } from 'react'
 import { ArrowRight, Plus, Settings2, Workflow } from 'lucide-react'
@@ -14,7 +15,7 @@ import { Led } from '../../ui/controls'
 import { useLang, useT } from '../../i18n'
 import { HelpLink } from '../../help'
 import { navigate } from '../../lib/router'
-import { codingDbId, ensureCodingDb } from './schema'
+import { PIPELINE_KINDS, ensurePipelineDb, pipelineDbId, type PipelineKind, type PipelineTemplate } from './schema'
 import { useCoding } from './state'
 import { allTasks } from './tasks'
 import { loadTask, useCodingLocal, scope } from './local'
@@ -105,7 +106,7 @@ function NeedsYou() {
   const waiting = tasks
     .map((x) => {
       const st = local[`${sc}|${x.row.id}`]?.state
-      const why = st === 'question' ? 'question' : st === 'failed' ? 'failed' : x.stage?.kind === 'gate' ? 'gate' : null
+      const why = st === 'question' ? 'question' : st === 'failed' ? 'failed' : x.stage?.kind === 'gate' ? 'gate' : x.stage?.kind === 'import' ? 'intake' : null
       return why ? { ...x, why } : null
     })
     .filter((x): x is NonNullable<typeof x> => !!x)
@@ -125,6 +126,7 @@ function NeedsYou() {
               {x.row.title.trim() || t('common.untitled')}
             </a>
             <span className="cv-needs__meta label">
+              {x.kind !== 'coding' && `${t(`features.coding.pipe.${x.kind}.short`)} · `}
               {x.repo ?? '—'} · {x.stage?.name ?? '—'}
             </span>
             <ArrowRight size={14} strokeWidth={1.75} aria-hidden className="cv-needs__go" />
@@ -135,19 +137,36 @@ function NeedsYou() {
   )
 }
 
-export default function CodingView() {
+/** Coding · Business analysis · QA — each pipeline on its own board. */
+function KindSwitch({ kind }: { kind: PipelineKind }) {
   const t = useT()
-  const dbId = useWorkspace(() => codingDbId())
+  return (
+    <nav className="cv-kinds" aria-label={t('features.coding.pipe.label')}>
+      {PIPELINE_KINDS.map((k) => (
+        <a key={k} href={k === 'coding' ? '#/coding' : `#/coding/${k}`} className="cv-kind" aria-current={k === kind ? 'page' : undefined} data-testid={`coding-kind-${k}`}>
+          <span className="cv-kind__code label">{t(`features.coding.pipe.${k}.short`)}</span>
+          <span className="cv-kind__name">{t(`features.coding.pipe.${k}`)}</span>
+        </a>
+      ))}
+    </nav>
+  )
+}
+
+export default function CodingView({ kind = 'coding' }: { kind?: PipelineKind }) {
+  const t = useT()
+  const dbId = useWorkspace(() => pipelineDbId(kind))
+  const caseDb = useWorkspace(() => (kind === 'qa' ? pipelineDbId('testcases') : null))
   const readOnly = useCloud((s) => s.readOnly)
   const count = useRowCount(dbId)
   const [newTask, setNewTask] = useState(false)
   const [pipeline, setPipeline] = useState(false)
   const locked = useWorkspace((s) => (dbId ? !!s.databases[dbId]?.locked : false))
+  const sfx = kind === 'coding' ? '' : `.${kind}`
 
-  const setUp = () => {
+  const setUp = (template?: PipelineTemplate) => {
     try {
-      const id = ensureCodingDb()
-      useUI.getState().toast({ message: t('features.coding.setup.done'), kind: 'success' })
+      const id = ensurePipelineDb(kind, template)
+      useUI.getState().toast({ message: t(`features.coding.setup.done${sfx}`), kind: 'success' })
       return id
     } catch {
       useUI.getState().toast({ message: t('features.coding.setup.readOnly'), kind: 'error' })
@@ -160,7 +179,7 @@ export default function CodingView() {
       <header className="cv-head">
         <div className="cv-head__meta label">
           <span className="cv-head__sec">§ CD</span>
-          <span>{t('features.coding.kicker')}</span>
+          <span>{t(`features.coding.kicker${sfx}`)}</span>
           <span className="cv-head__rule" aria-hidden />
           <span className="mono" data-testid="coding-count">
             {t(count === 1 ? 'features.coding.count.one' : 'features.coding.count.other', { n: String(count).padStart(2, '0') })}
@@ -168,7 +187,7 @@ export default function CodingView() {
           <HelpLink id="coding-pipeline" />
         </div>
         <div className="cv-head__row">
-          <h1 className="cv-title">{t('features.coding.title')}</h1>
+          <h1 className="cv-title">{t(`features.coding.pipe.${kind}`)}</h1>
           {!readOnly && (
             <div className="cv-keys">
               {dbId && (
@@ -185,7 +204,8 @@ export default function CodingView() {
             </div>
           )}
         </div>
-        <p className="cv-lead">{t('features.coding.lead')}</p>
+        <p className="cv-lead">{t(`features.coding.lead${sfx}`)}</p>
+        <KindSwitch kind={kind} />
       </header>
 
       <WorkerPlate />
@@ -195,25 +215,40 @@ export default function CodingView() {
         <section className="cv-board" aria-label={t('features.coding.board')}>
           <div className="cv-board__head">
             <span className="label">{t('features.coding.board')}</span>
-            <a className="ctk-link" href={`#/p/${dbId}`}>
-              {t('features.coding.openDb')}
-            </a>
+            <span className="cv-board__links">
+              {caseDb && (
+                <a className="ctk-link" href={`#/p/${caseDb}`} data-testid="coding-cases-open">
+                  {t('features.coding.case.open')}
+                </a>
+              )}
+              <a className="ctk-link" href={`#/p/${dbId}`}>
+                {t('features.coding.openDb')}
+              </a>
+            </span>
           </div>
           <DatabaseView databaseId={dbId} inline />
         </section>
       ) : (
         <section className="cv-empty">
-          <p>{t('features.coding.empty')}</p>
+          <p>{t(`features.coding.empty${sfx}`)}</p>
           {!readOnly && (
-            <button type="button" className="btn" onClick={() => setUp()} data-testid="coding-setup">
-              {t('features.coding.setup.button')}
-            </button>
+            <div className="cv-empty__keys">
+              <button type="button" className="btn" onClick={() => setUp()} data-testid="coding-setup">
+                {t(`features.coding.setup.button${sfx}`)}
+              </button>
+              {kind === 'coding' && (
+                <button type="button" className="btn btn--ghost" onClick={() => setUp('modernise')} title={t('features.coding.template.moderniseHint')} data-testid="coding-setup-modernise">
+                  {t('features.coding.setup.modernise')}
+                </button>
+              )}
+            </div>
           )}
         </section>
       )}
 
       {newTask && (
         <NewTaskDialog
+          kind={kind}
           onClose={() => setNewTask(false)}
           onCreated={(id) => {
             setNewTask(false)

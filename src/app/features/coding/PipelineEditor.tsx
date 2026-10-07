@@ -14,7 +14,7 @@ import type { ColorName, PipelineStage, SelectOption } from '../../store/types'
 import { newId } from '../../lib/ids'
 import { useT } from '../../i18n'
 import { GIT_ACTIONS, PERMISSION_MODES, STAGE_KINDS, type StageKind } from './protocol'
-import { readPipeline, savePipeline, templatePipeline, type PipelineTemplate } from './schema'
+import { KIND_TEMPLATES, kindOfDb, readPipeline, savePipeline, templatePipeline, type PipelineTemplate } from './schema'
 import { keepTrust } from './trust'
 import { allTasks } from './tasks'
 
@@ -23,7 +23,7 @@ interface Draft {
   stage: PipelineStage
 }
 
-const COLOR: Record<StageKind, ColorName> = { queue: 'gray', plan: 'blue', gate: 'orange', implement: 'purple', test: 'yellow', git: 'brown', done: 'green' }
+const COLOR: Record<StageKind, ColorName> = { queue: 'gray', import: 'red', plan: 'blue', doc: 'pink', gate: 'orange', implement: 'purple', test: 'yellow', git: 'brown', done: 'green' }
 
 export function PipelineEditor({ dbId, locked, onClose }: { dbId: string; locked: boolean; onClose: () => void }) {
   const t = useT()
@@ -32,6 +32,7 @@ export function PipelineEditor({ dbId, locked, onClose }: { dbId: string; locked
   const [rows, setRows] = useState<Draft[]>(initial)
   const [open, setOpen] = useState<string | null>(null)
   const ro = locked
+  const kind = kindOfDb(dbId) ?? 'coding'
 
   const patch = (i: number, p: Partial<PipelineStage>, name?: string) =>
     setRows((rs) => rs.map((r, j) => (j === i ? { option: name === undefined ? r.option : { ...r.option, name }, stage: { ...r.stage, ...p } } : r)))
@@ -103,19 +104,20 @@ export function PipelineEditor({ dbId, locked, onClose }: { dbId: string; locked
       {!ro && (
         <div className="cpe-templates" role="group" aria-label={t('features.coding.template.label')}>
           <span className="label">{t('features.coding.template.label')}</span>
-          <button type="button" className="btn btn--sm" onClick={() => useTemplate('modernise')} data-testid="coding-template-modernise" title={t('features.coding.template.moderniseHint')}>
-            {t('features.coding.template.modernise')}
-          </button>
-          <button type="button" className="btn btn--sm btn--ghost" onClick={() => useTemplate('standard')} data-testid="coding-template-standard">
-            {t('features.coding.template.standard')}
-          </button>
+          {[...KIND_TEMPLATES[kind]]
+            .sort((a, b) => Number(a === 'standard') - Number(b === 'standard'))
+            .map((w) => (
+              <button key={w} type="button" className={w === 'standard' ? 'btn btn--sm btn--ghost' : 'btn btn--sm'} onClick={() => useTemplate(w)} data-testid={`coding-template-${w}`} title={t(`features.coding.template.${w}Hint`)}>
+                {t(`features.coding.template.${w}`)}
+              </button>
+            ))}
         </div>
       )}
       <ol className="cpe" data-testid="coding-pipeline">
         {rows.map((r, i) => {
           const s = r.stage
           const expanded = open === s.id
-          const claude = s.kind === 'plan' || s.kind === 'implement'
+          const claude = s.kind === 'plan' || s.kind === 'implement' || s.kind === 'doc'
           return (
             <li key={s.id} className="cpe-row" data-kind={s.kind}>
               <div className="cpe-main">
@@ -123,7 +125,7 @@ export function PipelineEditor({ dbId, locked, onClose }: { dbId: string; locked
                 <input className="input cpe-name" value={r.option.name} onChange={(e) => patch(i, {}, e.target.value)} disabled={ro} aria-label={t('features.coding.pipeline.name')} maxLength={60} />
                 <select className="input cpe-kind" value={s.kind} disabled={ro} aria-label={t('features.coding.pipeline.kind')} onChange={(e) => {
                   const kind = e.target.value as StageKind
-                  patch(i, { kind, auto: kind === 'gate' || kind === 'done' ? false : s.auto, ...(kind === 'git' && !s.gitAction ? { gitAction: 'pr' as const } : {}) })
+                  patch(i, { kind, auto: kind === 'gate' || kind === 'done' || kind === 'import' ? false : s.auto, ...(kind === 'git' && !s.gitAction ? { gitAction: 'pr' as const } : {}), ...(kind !== 'doc' ? { output: undefined } : {}) })
                 }}>
                   {STAGE_KINDS.map((k) => (
                     <option key={k} value={k}>
@@ -132,7 +134,7 @@ export function PipelineEditor({ dbId, locked, onClose }: { dbId: string; locked
                   ))}
                 </select>
                 <span className="cpe-auto">
-                  <Switch checked={s.auto} onChange={(v) => patch(i, { auto: v })} disabled={ro || s.kind === 'gate' || s.kind === 'done'} label={t('features.coding.pipeline.auto')} />
+                  <Switch checked={s.auto} onChange={(v) => patch(i, { auto: v })} disabled={ro || s.kind === 'gate' || s.kind === 'done' || s.kind === 'import'} label={t('features.coding.pipeline.auto')} />
                   <span className="label">{t('features.coding.pipeline.autoShort')}</span>
                 </span>
                 <span className="cpe-keys">
@@ -155,6 +157,15 @@ export function PipelineEditor({ dbId, locked, onClose }: { dbId: string; locked
                   <p className="cpe-kindhint">{t(`features.coding.kind.${s.kind}.hint`)}</p>
                   {claude && (
                     <div className="cpe-grid">
+                      {s.kind === 'doc' ? (
+                        <label>
+                          <span className="label">{t('features.coding.pipeline.output')}</span>
+                          <select className="input" value={s.output ?? ''} disabled={ro} onChange={(e) => patch(i, { output: e.target.value === 'testcases' ? 'testcases' : undefined })} data-testid="coding-pipeline-output">
+                            <option value="">{t('features.coding.pipeline.output.page')}</option>
+                            <option value="testcases">{t('features.coding.pipeline.output.testcases')}</option>
+                          </select>
+                        </label>
+                      ) : (
                       <label>
                         <span className="label">{t('features.coding.pipeline.mode')}</span>
                         <select className="input" value={s.kind === 'plan' ? 'plan' : (s.permissionMode ?? 'acceptEdits')} disabled={ro || s.kind === 'plan'} onChange={(e) => patch(i, { permissionMode: e.target.value as PipelineStage['permissionMode'] })}>
@@ -165,6 +176,7 @@ export function PipelineEditor({ dbId, locked, onClose }: { dbId: string; locked
                           ))}
                         </select>
                       </label>
+                      )}
                       <label>
                         <span className="label">{t('features.coding.pipeline.turns')}</span>
                         <input className="input" type="number" min={1} max={200} value={s.maxTurns ?? (s.kind === 'plan' ? 20 : 40)} disabled={ro} onChange={(e) => patch(i, { maxTurns: Math.max(1, Math.min(200, Number(e.target.value) || 1)) })} />

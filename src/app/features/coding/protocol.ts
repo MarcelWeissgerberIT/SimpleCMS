@@ -29,7 +29,15 @@ export const LOG_MAX = 2000
 /** Tasks one worker runs at once (across repos; one per repo). */
 export const PARALLEL_MAX = 2
 
-export const STAGE_KINDS = ['queue', 'plan', 'gate', 'implement', 'test', 'git', 'done'] as const
+/**
+ * 'doc' = a document stage (business analysis, test design …): Claude Code only reads — the repository (if the task
+ * has one), the task, the person's knowledge-base MCP servers — and its last message is the document One writes into
+ * the page. It needs no worktree, and a task without a repository runs it in the worker's own scratch folder.
+ * 'import' = the task's code arrives here (an "Import" stage, e.g. legacy code): in the task panel the person hands
+ * the worker a ZIP or a clone address, the worker makes it a new repository (intake.ts) and the task takes it as its
+ * Repo, then moves on. The worker never takes a task standing there.
+ */
+export const STAGE_KINDS = ['queue', 'import', 'plan', 'doc', 'gate', 'implement', 'test', 'git', 'done'] as const
 export type StageKind = (typeof STAGE_KINDS)[number]
 /** Claude Code permission modes a stage may ask for — never one that skips permissions. */
 export const PERMISSION_MODES = ['plan', 'acceptEdits', 'default'] as const
@@ -98,6 +106,7 @@ export interface TaskStage {
 export interface TaskPayload {
   id: string
   title: string
+  /** '' = no repository (document stages only: the worker's scratch folder) */
   repo: string
   stage: TaskStage
   /** the task page as Markdown (goal, acceptance criteria, the plan, notes) — what Claude may read of it */
@@ -250,6 +259,21 @@ export interface OpenSetupResult {
   reason?: 'off' | 'no-browser'
 }
 
+/** An import (task panel → worker): receiving / unpacking / cloning, then the new repository's name — or why not. */
+export interface IntakeState {
+  state: 'running' | 'done' | 'failed'
+  source: 'zip' | 'clone'
+  /** the ZIP's file name or the clone address */
+  label: string
+  line: string
+  percent: number | null
+  /** done: the repository's name in the worker's config */
+  repo?: string
+  /** a ZIP: the project name its code suggests */
+  suggest?: string
+  error?: string
+}
+
 /** tab → worker */
 export type TabMessage =
   /** `pair`: this device's pairing secret for the workspace (a downloaded worker requires it) */
@@ -263,6 +287,15 @@ export type TabMessage =
   | { type: 'req'; id: string; op: 'git'; taskId: string; verb: GitVerb; repo: string; branch: string | null; title: string; message?: string }
   /** "Change repositories": the worker opens its setup page locally (a fixed verb — One can never tick or add a repo) */
   | { type: 'req'; id: string; op: 'open-setup' }
+  /**
+   * Import stage: the code a task starts from — a ZIP the person picked in the task panel (begin → chunk … → end,
+   * base64 pieces of ≤ `chunk` bytes) or a clone address they typed. The worker makes it a NEW repository in its
+   * clone folder and adds it to its config; One never names a path.
+   */
+  | { type: 'req'; id: string; op: 'intake-begin'; taskId: string; name: string; size: number }
+  | { type: 'req'; id: string; op: 'intake-chunk'; uploadId: string; data: string }
+  | { type: 'req'; id: string; op: 'intake-end'; uploadId: string }
+  | { type: 'req'; id: string; op: 'intake-clone'; taskId: string; url: string }
 
 /** Why a worker refused a tab: another workspace · not bound to one · a paired worker got no / another pairing secret. */
 export type RefusedReason = 'workspace' | 'unbound' | 'pair'
@@ -273,13 +306,14 @@ export type WorkerMessage =
   /** `paired`: the worker came ready-paired from a download (its workspace and secret are fixed in the file) */
   | { type: 'refused'; reason: RefusedReason; paired?: boolean }
   | { type: 'status'; busy: BusyTask[]; spentToday: number }
-  | { type: 'req'; id: string; op: 'next'; repos: string[]; worker: string }
+  | { type: 'req'; id: string; op: 'next'; repos: string[]; worker: string; /** it runs document stages of tasks without a repository too */ docs?: boolean }
   | { type: 'req'; id: string; op: 'heartbeat'; taskIds: string[] }
   | { type: 'req'; id: string; op: 'finish'; taskId: string; stageId: string; outcome: StageOutcome }
   | { type: 'event'; taskId: string; kind: 'log'; lines: LogLine[] }
   | { type: 'event'; taskId: string; kind: 'git'; git: GitInfo }
   | { type: 'event'; taskId: string; kind: 'progress'; progress: TaskProgress }
   | { type: 'event'; taskId: string; kind: 'note' | 'question'; text: string }
+  | { type: 'event'; taskId: string; kind: 'intake'; intake: IntakeState }
   | { type: 'res'; id: string; ok: true; result: unknown }
   | { type: 'res'; id: string; ok: false; error: string }
 

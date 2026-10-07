@@ -5,7 +5,8 @@
  * unconfirmed team tasks and free commands — and no path or command of this machine ever reaching the tab.
  */
 import assert from 'node:assert/strict'
-import { chmodSync, readFileSync, writeFileSync, existsSync } from 'node:fs'
+import { chmodSync, readFileSync, readdirSync, realpathSync, writeFileSync, existsSync } from 'node:fs'
+import { strToU8, zipSync } from 'fflate'
 import { execFileSync } from 'node:child_process'
 import { git } from '../src/worker/git.ts'
 import { homedir } from 'node:os'
@@ -248,6 +249,118 @@ describe('a task through the pipeline', () => {
     assert.equal(answered.status, 'ok')
     const wt = join(r.worktrees, asked.branch!.replace(/\//g, '-'))
     assert.match(readFileSync(join(wt, 'feature.txt'), 'utf8'), /colour: Orange/)
+  })
+})
+
+describe('documents, tasks without a repository, imports', () => {
+  const lastArgs = (log: string) => JSON.parse(readFileSync(log, 'utf8').trim().split('\n').pop()!) as { args: string[]; cwd: string }
+  const listOf = (args: string[], flag: string) => (args.includes(flag) ? args[args.indexOf(flag) + 1]!.split(',') : [])
+
+  test('a document stage reads only: no worktree, no branch, Edit / Write / Bash denied — the last message is the document', async () => {
+    const r = makeRepo()
+    const log = join(r.dir, 'claude-args.jsonl')
+    await boot(r, {}, {}, { FAKE_CLAUDE_LOG: log })
+    const tab = await connect()
+    await tab.next('welcome')
+    const doc = await tab.run(task({ kind: 'doc', name: 'Analysis', permissionMode: 'default' }, { id: 'doc1abcd' }))
+    assert.equal(doc.status, 'ok', JSON.stringify(doc))
+    assert.match(doc.plan!, /^## Analysis/)
+    assert.equal(doc.branch, undefined)
+    const { args, cwd } = lastArgs(log)
+    assert.equal(args[args.indexOf('--permission-mode') + 1], 'default')
+    for (const t of ['Read', 'Grep', 'Glob']) assert.ok(listOf(args, '--allowedTools').includes(t), t)
+    for (const t of ['Edit', 'Write', 'Bash', 'MultiEdit']) assert.ok(listOf(args, '--disallowedTools').includes(t), t)
+    assert.equal(realpathSync(cwd), realpathSync(r.path), 'in the main checkout, read only')
+    assert.ok(!existsSync(r.worktrees) || readdirSync(r.worktrees).length === 0, 'no worktree')
+    assertNoPaths(tab, r)
+  })
+
+  test('a task without a repository: document stages run in the scratch folder with the worker\'s own MCP servers; other stages are refused', async () => {
+    const r = makeRepo()
+    const log = join(r.dir, 'claude-args.jsonl')
+    await boot(r, { mcpServers: ['atlas'] }, {}, { FAKE_CLAUDE_LOG: log })
+    const tab = await connect()
+    await tab.next('welcome')
+    const doc = await tab.run(task({ kind: 'doc', name: 'Analysis', permissionMode: 'default' }, { id: 'scr1abcd', repo: '' }))
+    assert.equal(doc.status, 'ok', JSON.stringify(doc))
+    assert.match(doc.plan!, /Working folder: scr1abcd/)
+    const { args, cwd } = lastArgs(log)
+    assert.match(cwd, /[\\/]scratch[\\/]scr1abcd$/)
+    assert.ok(listOf(args, '--allowedTools').includes('mcp__atlas'))
+    const code = await tab.run(task({ kind: 'implement' }, { id: 'scr2abcd', repo: '' }))
+    assert.equal(code.status, 'refused')
+    assert.match(code.error!, /needs a repository/)
+  })
+
+  test('plan mode: the task tools are read-only for Claude Code (it may ask there); without ExitPlanMode the plan file is the plan', async () => {
+    const r = makeRepo()
+    const home = tempDir('home')
+    await boot(r, {}, {}, { HOME: home })
+    const tab = await connect()
+    await tab.next('welcome')
+    const plan = await tab.run(task({ kind: 'plan' }, { id: 'pf1abcde', text: 'Goal. FAKE:PLANFILE FAKE:TOOLS' }))
+    assert.equal(plan.status, 'ok', JSON.stringify(plan))
+    assert.match(plan.plan!, /^## Plan from the file/)
+    assert.match(plan.plan!, /one_task_ask:ro/)
+    assert.match(plan.plan!, /one_task_note:ro/)
+    assert.match(plan.plan!, /one_task_read:ro/)
+  })
+
+  test('import: a ZIP from the task panel becomes a new repo in the clone folder, joins worker.json and is announced', async () => {
+    const r = makeRepo()
+    const clones = tempDir('clones')
+    const file = await boot(r, { cloneDir: clones })
+    const tab = await connect()
+    await tab.next('welcome')
+    const zip = Buffer.from(zipSync({ 'legacy/package.json': strToU8(JSON.stringify({ name: 'billing-core' })), 'legacy/src/app.js': strToU8('console.log(1)\n'), 'legacy/.git/config': strToU8('[core]\n') }))
+    // refused: not a zip, more bytes than announced
+    assert.equal((await tab.request({ op: 'intake-begin', taskId: 'imp1abcd', name: 'legacy.txt', size: 10 })).ok, false)
+    const bad = await tab.request({ op: 'intake-begin', taskId: 'imp1abcd', name: 'legacy.zip', size: 4 })
+    assert.equal(bad.ok, true)
+    const over = await tab.request({ op: 'intake-chunk', uploadId: (bad as { result: { uploadId: string } }).result.uploadId, data: zip.subarray(0, 64).toString('base64') })
+    assert.equal(over.ok, false)
+    await waitFor(() => tab.messages.some((m) => m.type === 'event' && m.kind === 'intake' && m.intake.state === 'failed'))
+
+    const begin = await tab.request({ op: 'intake-begin', taskId: 'imp1abcd', name: 'legacy.zip', size: zip.length })
+    assert.equal(begin.ok, true, JSON.stringify(begin))
+    const { uploadId, chunk } = (begin as { result: { uploadId: string; chunk: number } }).result
+    assert.ok(chunk > 0)
+    for (let off = 0; off < zip.length; off += 100) assert.equal((await tab.request({ op: 'intake-chunk', uploadId, data: zip.subarray(off, off + 100).toString('base64') })).ok, true)
+    assert.equal((await tab.request({ op: 'intake-end', uploadId })).ok, true)
+    await waitFor(() => tab.messages.some((m) => m.type === 'event' && m.kind === 'intake' && m.intake.state === 'done'), 15_000, () => worker!.stderr())
+    const done = tab.messages.filter((m): m is Extract<WorkerMessage, { type: 'event'; kind: 'intake' }> => m.type === 'event' && m.kind === 'intake').at(-1)!
+    assert.equal(done.taskId, 'imp1abcd')
+    assert.equal(done.intake.repo, 'legacy')
+    assert.equal(done.intake.suggest, 'billing-core')
+    assert.ok(existsSync(join(clones, 'legacy', 'src', 'app.js')))
+    assert.ok(!existsSync(join(clones, 'legacy', '.git', 'config')) || !readFileSync(join(clones, 'legacy', '.git', 'config'), 'utf8').startsWith('[core]\n\n'), 'the ZIP\'s own .git stays out')
+    assert.match(readFileSync(file, 'utf8'), /"name": "legacy"/)
+    await waitFor(() => tab.messages.some((m) => m.type === 'welcome' && m.repos.some((x) => x.name === 'legacy')), 10_000)
+    assertNoPaths(tab, r)
+    assert.ok(!tab.raw.join('\n').includes(clones), 'the clone folder never reaches the tab')
+  })
+
+  test('import: a clone address; "intake": false refuses imports from One', async () => {
+    const r = makeRepo()
+    const clones = tempDir('clones')
+    await boot(r, { cloneDir: clones }, {}, { ONE_WORKER_CLONE_LOCAL: '1' })
+    const tab = await connect()
+    await tab.next('welcome')
+    const res = await tab.request({ op: 'intake-clone', taskId: 'cln1abcd', url: r.remote })
+    assert.equal(res.ok, true, JSON.stringify(res))
+    await waitFor(() => tab.messages.some((m) => m.type === 'event' && m.kind === 'intake' && m.intake.state !== 'running'), 20_000, () => worker!.stderr())
+    const ev = tab.messages.filter((m): m is Extract<WorkerMessage, { type: 'event'; kind: 'intake' }> => m.type === 'event' && m.kind === 'intake').at(-1)!
+    assert.equal(ev.intake.state, 'done', JSON.stringify(ev))
+    assert.ok(ev.intake.repo)
+    await worker!.stop()
+    worker = null
+    const r2 = makeRepo()
+    await boot(r2, { cloneDir: clones, intake: false })
+    const tab2 = await connect()
+    await tab2.next('welcome')
+    const off = await tab2.request({ op: 'intake-clone', taskId: 'cln2abcd', url: r2.remote })
+    assert.equal(off.ok, false)
+    assert.match((off as { error: string }).error, /does not take imports/)
   })
 })
 

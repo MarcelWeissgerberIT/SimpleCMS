@@ -19,14 +19,15 @@
  * (`createdBy` / `updatedBy` = `agent:<id>`, stamped on this device), which waits for Confirm like a
  * team task until a version of it is trusted.
  */
-import { useWorkspace, pageChanges } from '../../store/store'
+import { useWorkspace, pageChanges, type WorkspaceState } from '../../store/store'
 import { isApplyingRemote } from '../../store/persistence'
 import type { Database, ID, Page } from '../../store/types'
 import { docToMarkdown } from '../../editor'
 import { useCloud } from '../../cloud'
 import { agentIdOf, isAgentWriting } from '../agents/attribution'
 import { addTrusted, trustedHashes } from './local'
-import { codingDbId, codingProps, optionName, readPipeline } from './schema'
+import { refsKey } from './refs'
+import { codingProps, optionName, pipelineDbIds, readPipeline } from './schema'
 
 const inTeam = () => useCloud.getState().active.kind === 'cloud'
 
@@ -53,7 +54,7 @@ async function sha256(text: string): Promise<string> {
 
 /** The pipeline's part of a task version: what each stage sends to the worker or decides next. */
 const pipelineKey = (db: Database | undefined) =>
-  JSON.stringify(readPipeline(db).map((s) => [s.id, s.name, s.kind, !!s.auto, s.permissionMode ?? null, s.maxTurns ?? null, s.gitAction ?? null, s.next ?? null, s.instructions ?? '']))
+  JSON.stringify(readPipeline(db).map((s) => [s.id, s.name, s.kind, !!s.auto, s.permissionMode ?? null, s.maxTurns ?? null, s.gitAction ?? null, s.next ?? null, s.instructions ?? '', ...(s.output ? [s.output] : [])]))
 
 /** The row's fields that decide where the worker works: the repo (by name), the branch, the stage. */
 function fieldsKey(page: Page, db: Database | undefined): string {
@@ -63,9 +64,13 @@ function fieldsKey(page: Page, db: Database | undefined): string {
   return JSON.stringify([optionName(db, props.repo, props.repo ? page.properties[props.repo] : null), typeof branch === 'string' ? branch.trim() : '', props.stage ? (page.properties[props.stage] ?? null) : null])
 }
 
-/** The version of a task (title + page + repo / branch / stage + pipeline). */
+/**
+ * The version of a task (title + page + repo / branch / stage + pipeline + the pages it refers to — they go to the
+ * worker too; a task without references keeps the version it had before references existed).
+ */
 export function versionOf(page: Page, db: Database | undefined): Promise<string> {
-  return sha256(`${page.title}\n\u0000${docToMarkdown(page.content)}\n\u0000${fieldsKey(page, db)}\n\u0000${pipelineKey(db)}`)
+  const refs = refsKey(page)
+  return sha256(`${page.title}\n\u0000${docToMarkdown(page.content)}\n\u0000${fieldsKey(page, db)}\n\u0000${pipelineKey(db)}${refs ? `\n\u0000${refs}` : ''}`)
 }
 
 /** Local workspaces: a custom agent created the task or changed it last (stamped on this device). */
@@ -119,34 +124,37 @@ let watching = false
 
 /**
  * Changes made in this tab keep a trusted task trusted: typed content (sync and file pick-ups never do),
- * its fields, the Coding database's schema and pipeline. Server / other-tab changes and agent writes don't.
+ * its fields, a pipeline database's schema and pipeline (Coding · Business analysis · QA). Server / other-tab changes and agent writes don't.
  */
 export function startTrustWatch(): void {
   if (watching) return
   watching = true
   useWorkspace.subscribe((next, prev) => {
     if (next.pages === prev.pages && next.databases === prev.databases) return
-    const dbId = codingDbId()
-    if (!dbId) return
-    const dbNow = next.databases[dbId]
-    const dbBefore = prev.databases[dbId]
-    if (next.pages === prev.pages && dbNow === dbBefore) return
     if (isApplyingRemote() || isAgentWriting()) return
-    // the schema / pipeline changed: every task's version did; else only the changed rows'
-    const ids = dbNow !== dbBefore ? Object.keys(next.pages).filter((id) => next.pages[id]?.databaseId === dbId) : pageChanges(next.pages, prev.pages).changed
-    const pairs: Array<[Page, Page]> = []
-    for (const id of ids) {
-      const now = next.pages[id]
-      const before = prev.pages[id]
-      if (!now || !before || now.databaseId !== dbId || before.databaseId !== dbId || now.trashed || !needsConfirm(now)) continue
-      if (now.contentRev !== before.contentRev && (now.contentOrigin === 'sync' || now.contentOrigin === 'file')) continue
-      pairs.push([before, now])
-    }
-    if (!pairs.length) return
-    // isTrusted waits for this: a panel or a worker asking right after a stage drag sees the carried trust
-    settling = settling.then(async () => {
-      const set = await trustedHashes()
-      for (const [before, now] of pairs) if (set.has(await versionOf(before, dbBefore))) await addTrusted(await versionOf(now, dbNow))
-    }).catch(() => {})
+    for (const dbId of pipelineDbIds()) watchDb(dbId, next, prev)
   })
+}
+
+/** One pipeline database's part of the watch. */
+function watchDb(dbId: ID, next: WorkspaceState, prev: WorkspaceState): void {
+  const dbNow = next.databases[dbId]
+  const dbBefore = prev.databases[dbId]
+  if (next.pages === prev.pages && dbNow === dbBefore) return
+  // the schema / pipeline changed: every task's version did; else only the changed rows'
+  const ids = dbNow !== dbBefore ? Object.keys(next.pages).filter((id) => next.pages[id]?.databaseId === dbId) : pageChanges(next.pages, prev.pages).changed
+  const pairs: Array<[Page, Page]> = []
+  for (const id of ids) {
+    const now = next.pages[id]
+    const before = prev.pages[id]
+    if (!now || !before || now.databaseId !== dbId || before.databaseId !== dbId || now.trashed || !needsConfirm(now)) continue
+    if (now.contentRev !== before.contentRev && (now.contentOrigin === 'sync' || now.contentOrigin === 'file')) continue
+    pairs.push([before, now])
+  }
+  if (!pairs.length) return
+  // isTrusted waits for this: a panel or a worker asking right after a stage drag sees the carried trust
+  settling = settling.then(async () => {
+    const set = await trustedHashes()
+    for (const [before, now] of pairs) if (set.has(await versionOf(before, dbBefore))) await addTrusted(await versionOf(now, dbNow))
+  }).catch(() => {})
 }

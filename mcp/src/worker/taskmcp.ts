@@ -28,7 +28,9 @@ export async function serveTaskMcp(version: string): Promise<void> {
         title: d.title,
         description: d.description,
         inputSchema: d.inputSchema as Tool['inputSchema'],
-        annotations: { title: d.title, readOnlyHint: !d.write, destructiveHint: false, idempotentHint: !d.write, openWorldHint: false },
+        // read-only for Claude Code (plan mode allows them): a note or a question only goes to the person in One —
+        // nothing on this computer or in the repository changes
+        annotations: { title: d.title, readOnlyHint: true, destructiveHint: false, idempotentHint: !d.write, openWorldHint: false },
       }),
     ),
   }))

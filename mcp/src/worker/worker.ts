@@ -31,6 +31,8 @@ import {
 import type { RepoConfig, WorkerConfig } from './config.ts'
 import { WorkerState } from './state.ts'
 import { detectClaude, type ClaudeCaps } from './claude.ts'
+import { scratchRepo } from './config.ts'
+import { Intake } from './intake.ts'
 import { checkRepo, cleanup, commitAll, discard, info, localBranches, openPr, prune, push, updateFromBase, worktreeOf, GitError } from './git.ts'
 import { WorkerLink } from './link.ts'
 import { workerOrigins } from './preset.ts'
@@ -53,6 +55,8 @@ export interface WorkerOptions {
   } | null
   /** the worker's last log lines (the setup page shows them) */
   recent?: () => string[]
+  /** worker.json and how to read it again — Import stages add the new repository there (null: no imports) */
+  intake?: { configFile: string; reload: () => Promise<void> } | null
 }
 
 interface Run {
@@ -272,11 +276,12 @@ export class Worker {
     }
     const busyRepos = new Set([...this.runs.values()].map((r) => r.repo.name))
     const free = this.config.repos.filter((r) => !busyRepos.has(r.name)).map((r) => r.name)
-    if (!free.length || this.runs.size >= this.config.parallel) return
+    // no free repo still leaves document stages of tasks without a repository
+    if (this.runs.size >= this.config.parallel) return
     this.polling = true
     this.again = false
     void this.link
-      .request({ op: 'next', repos: free, worker: this.config.name })
+      .request({ op: 'next', repos: free, worker: this.config.name, docs: true })
       .then((res) => {
         const task = sanitizeTask((res as NextResult | null)?.task)
         if (task) this.begin(task)
@@ -295,13 +300,15 @@ export class Worker {
   }
 
   private begin(task: TaskPayload) {
-    const repo = this.config.repos.find((r) => r.name === task.repo)
+    const scratch = !task.repo && task.stage.kind === 'doc'
+    const repo = scratch ? scratchRepo(this.config, task.id) : this.config.repos.find((r) => r.name === task.repo)
     const refuse = (error: string) => {
       this.opts.log(`refused task ${task.id}: ${error}`)
       void this.finish(task.id, task.stage.id, { status: 'refused', error })
     }
+    if (!task.repo && !scratch) return refuse(`a ${task.stage.kind} stage needs a repository — pick the task's Repo in One (only document stages run without one)`)
     if (!repo) return refuse(`the repo "${task.repo}" is not in this worker's config (not ticked) — One cannot add repos; tick it in the worker's setup page ("Change repositories") or add it to worker.json on the computer that should work on it`)
-    if ([...this.runs.values()].some((r) => r.repo.name === repo.name)) return refuse(`another task runs in "${repo.name}" right now`)
+    if (!scratch && [...this.runs.values()].some((r) => r.repo.name === repo.name)) return refuse(`another task runs in "${repo.name}" right now`)
     if (this.workspace?.kind === 'team' && !task.trusted) return refuse('the task is not confirmed on this device (team workspace)')
     const token = randomBytes(24).toString('hex')
     const run: Run = { task, repo, abort: new AbortController(), token, question: null, since: Date.now(), scrub: repoScrubber(repo) }
@@ -390,7 +397,29 @@ export class Worker {
     if (msg.op === 'git') return this.gitVerb(msg)
     // "Change repositories": the page opens HERE; One gets only whether it opened — never its address or key
     if (msg.op === 'open-setup') return this.opts.setup ? this.opts.setup.open() : ({ opened: false, reason: 'off' } satisfies OpenSetupResult)
-    throw new Error(`unknown request ${JSON.stringify((msg as { op?: unknown }).op)} — the worker only knows stop, open-setup and the git actions`)
+    // Import stage: a NEW repository from a ZIP / clone address (the folder is the worker's choice)
+    if (msg.op === 'intake-begin' || msg.op === 'intake-chunk' || msg.op === 'intake-end' || msg.op === 'intake-clone') {
+      const intake = this.intake()
+      if (msg.op === 'intake-begin') return intake.begin(msg.taskId, msg.name, msg.size)
+      if (msg.op === 'intake-chunk') return intake.chunk(msg.uploadId, msg.data)
+      if (msg.op === 'intake-end') return intake.end(msg.uploadId)
+      return intake.clone(msg.taskId, msg.url)
+    }
+    throw new Error(`unknown request ${JSON.stringify((msg as { op?: unknown }).op)} — the worker only knows stop, open-setup, the imports and the git actions`)
+  }
+
+  private intaker: Intake | null = null
+  private intake(): Intake {
+    const opts = this.opts.intake
+    if (!opts) throw new Error('This worker takes no imports from One — use its setup page.')
+    this.intaker ??= new Intake({
+      config: () => this.config,
+      configFile: opts.configFile,
+      reload: opts.reload,
+      log: this.opts.log,
+      event: (taskId, intake) => this.link.send({ type: 'event', taskId, kind: 'intake', intake }),
+    })
+    return this.intaker
   }
 
   private async gitVerb(msg: Extract<TabMessage, { op: 'git' }>): Promise<GitResult> {

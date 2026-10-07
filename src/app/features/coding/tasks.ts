@@ -21,15 +21,17 @@ import { navigate, parseHash } from '../../lib/router'
 import { aiWrite } from '../history/snapshots'
 import { t } from '../../i18n'
 import { CLAIM_STALE_MS, type GitInfo, type StageOutcome, type TaskPayload } from './protocol'
-import { codingDbId, codingProps, ensureCodingDb, addRepoOptions, nextStage, optionByName, optionName, priorityRank, readPipeline, stageNear, stageOfRow, type CodingProps, type ResolvedStage } from './schema'
+import { CASE_TYPES, FOLLOW_UPS, PIPELINE_KINDS, caseProps, codingProps, ensureCaseDb, ensurePipelineDb, addRepoOptions, kindOfDb, nextStage, optionByName, optionName, pipelineDbIds, priorityRank, readPipeline, stageNear, stageOfRow, type CodingProps, type PipelineKind, type ResolvedStage } from './schema'
 import { appendLog, loadTask, patchTask, taskLocal, type TaskLocal } from './local'
 import { isTrusted, keepTrust, trustTask } from './trust'
+import { taskText } from './refs'
 import { useCoding } from './state'
 import { notifyAway } from './notify'
 
 const ws = () => useWorkspace.getState()
 
 export interface TaskContext {
+  kind: PipelineKind
   db: Database
   props: CodingProps
   pipeline: ResolvedStage[]
@@ -41,13 +43,13 @@ export interface TaskContext {
 export function taskContext(taskId: ID): TaskContext | null {
   const s = ws()
   const row = s.pages[taskId]
-  const dbId = codingDbId()
-  if (!row || !dbId || row.databaseId !== dbId || row.trashed) return null
-  const db = s.databases[dbId]
+  const kind = kindOfDb(row?.databaseId)
+  if (!row || !kind || row.trashed) return null
+  const db = s.databases[row.databaseId!]
   if (!db) return null
   const props = codingProps(db)
   const pipeline = readPipeline(db)
-  return { db, props, pipeline, row, stage: stageOfRow(pipeline, props, row) }
+  return { kind, db, props, pipeline, row, stage: stageOfRow(pipeline, props, row) }
 }
 
 const nowValue = (): DateValue => ({ start: format(new Date(), "yyyy-MM-dd'T'HH:mm") })
@@ -85,7 +87,7 @@ const PLAN_NAMES = () => [t('features.coding.page.plan')].map((s) => s.toLowerCa
  * Replace the page's "Plan" section (its H2 up to the next H1 / H2 or note) — or add it at the end. With more
  * than one plan stage (e.g. Analysis · Design · Test design) each writes its own section, named like the stage.
  */
-function writePlan(pageId: ID, md: string, title?: string) {
+export function writePlan(pageId: ID, md: string, title?: string) {
   const p = ws().pages[pageId]
   if (!p) return
   const blocks = docOf(p)
@@ -117,13 +119,16 @@ const stamp = () => format(new Date(), 'HH:mm')
 
 /* ------------------------------------------------------------------ the worker's side */
 
-/** Rows of the Coding database, oldest first (cached per page map). */
-let rowsCache: { pages: Record<ID, Page>; dbId: ID; rows: Page[] } | null = null
+/** Rows of a pipeline database, oldest first (cached per page map). */
+let rowsCache: { pages: Record<ID, Page>; byDb: Map<ID, Page[]> } | null = null
 function codingRows(dbId: ID): Page[] {
   const pages = ws().pages
-  if (rowsCache?.pages === pages && rowsCache.dbId === dbId) return rowsCache.rows
-  const rows = selectRows(pages, dbId)
-  rowsCache = { pages, dbId, rows }
+  if (rowsCache?.pages !== pages) rowsCache = { pages, byDb: new Map() }
+  let rows = rowsCache.byDb.get(dbId)
+  if (!rows) {
+    rows = selectRows(pages, dbId)
+    rowsCache.byDb.set(dbId, rows)
+  }
   return rows
 }
 
@@ -138,21 +143,27 @@ function moveRow(taskId: ID, props: CodingProps, stageId: ID) {
  * confirmed on this device (team) — highest priority first, then the oldest. It is claimed (Worker +
  * Claimed at) before it is handed out. Queue stages the worker takes are passed on to the next stage.
  */
-export async function pickNext(repos: string[], workerName: string): Promise<TaskPayload | null> {
-  const dbId = codingDbId()
-  if (!dbId || useCoding.getState().refused) return null
+export async function pickNext(repos: string[], workerName: string, docs = false): Promise<TaskPayload | null> {
+  if (useCoding.getState().refused) return null
   const s = ws()
-  const db = s.databases[dbId]
-  if (!db) return null
-  const props = codingProps(db)
-  const pipeline = readPipeline(db)
-  if (!props.repo || !props.stage || !pipeline.length) return null
   const wanted = new Set(repos)
   const busy = new Set(useCoding.getState().busy.map((b) => b.taskId))
-  const candidates = codingRows(dbId)
-    .filter((r) => wanted.has(optionName(db, props.repo, r.properties[props.repo!]) ?? ''))
-    .sort((a, b) => priorityRank(db, props, a) - priorityRank(db, props, b) || a.createdAt - b.createdAt)
-  for (const row of candidates) {
+  // every pipeline database's tasks (Coding · Business analysis · QA), highest priority first, then the oldest
+  const pool: Array<{ dbId: ID; db: Database; props: CodingProps; pipeline: ResolvedStage[]; row: Page }> = []
+  for (const dbId of pipelineDbIds()) {
+    const db = s.databases[dbId]
+    if (!db) continue
+    const props = codingProps(db)
+    const pipeline = readPipeline(db)
+    if (!props.repo || !props.stage || !pipeline.length) continue
+    for (const row of codingRows(dbId)) {
+      const repoName = optionName(db, props.repo, row.properties[props.repo])
+      // a task without a repository: only its document stages run (the worker's scratch folder)
+      if (repoName ? wanted.has(repoName) : docs) pool.push({ dbId, db, props, pipeline, row })
+    }
+  }
+  pool.sort((a, b) => priorityRank(a.db, a.props, a.row) - priorityRank(b.db, b.props, b.row) || a.row.createdAt - b.row.createdAt)
+  for (const { dbId, db, props, pipeline, row } of pool) {
     if (busy.has(row.id)) continue
     const owner = text(row.properties[props.worker ?? ''])
     if (owner && owner !== workerName && Date.now() - claimedAt(row.properties[props.claimed ?? '']) < CLAIM_STALE_MS) continue
@@ -176,7 +187,8 @@ export async function pickNext(repos: string[], workerName: string): Promise<Tas
       await keepTrust([row.id], () => moveRow(row.id, props, to))
       stage = target
     }
-    if (stage.kind === 'queue' || stage.kind === 'gate' || stage.kind === 'done' || !go(stage)) continue
+    if (stage.kind === 'queue' || stage.kind === 'gate' || stage.kind === 'done' || stage.kind === 'import' || !go(stage)) continue
+    if (!optionName(db, props.repo, row.properties[props.repo!]) && stage.kind !== 'doc') continue
     // the worker gets exactly the version that was checked (row and pipeline): anything that changed
     // meanwhile waits a round
     const fresh = ws().pages[row.id]
@@ -185,14 +197,15 @@ export async function pickNext(repos: string[], workerName: string): Promise<Tas
     // bookkeeping, not content: no "AI" version for a claim
     set(row.id, props.worker, workerName)
     set(row.id, props.claimed, nowValue())
-    const repo = optionName(db, props.repo, fresh.properties[props.repo])!
+    const repo = optionName(db, props.repo, fresh.properties[props.repo!]) ?? ''
     await patchTask(row.id, { state: 'running', stageId: stage.id, error: null, runNow: false })
     return {
       id: row.id,
       title: fresh.title.trim() || t('common.untitled'),
       repo,
-      stage: { id: stage.id, name: stage.name, kind: stage.kind, instructions: stage.instructions ?? '', permissionMode: stage.kind === 'plan' ? 'plan' : (stage.permissionMode ?? 'acceptEdits'), maxTurns: stage.maxTurns ?? (stage.kind === 'plan' ? 20 : 40), gitAction: stage.gitAction ?? null },
-      text: readableContent(row.id).markdown,
+      stage: { id: stage.id, name: stage.name, kind: stage.kind, instructions: stage.instructions ?? '', permissionMode: stage.kind === 'plan' ? 'plan' : stage.kind === 'doc' ? 'default' : (stage.permissionMode ?? 'acceptEdits'), maxTurns: stage.maxTurns ?? (stage.kind === 'plan' ? 20 : 40), gitAction: stage.gitAction ?? null },
+      // the task, then the pages it refers to (@ mentions, links) as read-only text
+      text: taskText(row.id),
       rework: local.rework?.stageId === stage.id ? local.rework.text : null,
       answers: (local.answers ?? []).filter((a) => a.stageId === stage.id).map(({ q, a }) => ({ q, a })),
       branch: text(fresh.properties[props.branch ?? '']).trim() || null,
@@ -234,7 +247,15 @@ export async function finishStage(taskId: ID, stageId: ID, outcome: StageOutcome
   if (outcome.git) patch.git = outcome.git
   if (outcome.url) patch.url = outcome.url
   if (outcome.test) patch.test = outcome.test
-  if (outcome.plan) patch.plan = outcome.plan
+  // QA: the test cases of a document stage become rows of the Test cases database (the JSON leaves the page)
+  let doc = outcome.plan ?? null
+  let cases: TestCase[] = []
+  if (doc && stage?.kind === 'doc' && stage.output === 'testcases') {
+    const parsed = parseCases(doc)
+    cases = parsed.cases
+    doc = parsed.rest
+  }
+  if (outcome.plan) patch.plan = doc ?? outcome.plan
   if (outcome.summary && stage?.kind === 'implement') patch.summary = outcome.summary
 
   const passed: string[] = []
@@ -299,7 +320,12 @@ export async function finishStage(taskId: ID, stageId: ID, outcome: StageOutcome
       if (outcome.url) set(taskId, props.pr, outcome.url)
       set(taskId, props.worker, null)
       set(taskId, props.claimed, null)
-      if (outcome.plan) writePlan(taskId, outcome.plan, stage && pipeline.filter((x) => x.kind === 'plan').length > 1 ? stage.name : undefined)
+      if (cases.length) {
+        const caseDb = createCases(taskId, row.title.trim() || t('common.untitled'), cases)
+        doc = `${doc ?? ''}\n\n${t('features.coding.case.made', { n: cases.length, db: ws().pages[caseDb]?.title ?? t('features.coding.case.db') })}`
+      }
+      // a document stage writes its own section (headed like the stage); plan stages too when there are several
+      if (doc) writePlan(taskId, doc, stage && (stage.kind === 'doc' || pipeline.filter((x) => x.kind === 'plan').length > 1) ? stage.name : undefined)
       if (outcome.status === 'ok' && outcome.summary && stage && (stage.kind === 'implement' || stage.kind === 'git'))
         appendNote(taskId, KIND_ICON[stage.kind] ?? 'asset:code', 'gray', `${stage.name} · ${stamp()}`, outcome.summary)
       if (moveTo) moveRow(taskId, props, moveTo.id)
@@ -311,6 +337,7 @@ export async function finishStage(taskId: ID, stageId: ID, outcome: StageOutcome
     if (moveTo?.auto) nudge()
   }
   dropProgress(taskId)
+  if (moveTo?.kind === 'done') await spawnFollowUps(taskId)
   if (!toast) return
   const message = t(toast.key, { title: ws().pages[taskId]?.title.trim() || t('common.untitled'), stage: moveTo?.name ?? stage?.name ?? '' })
   // One in the background: the browser says it (when switched on here, notify.ts)
@@ -327,6 +354,144 @@ function dropProgress(taskId: ID) {
   const rest = { ...progress }
   delete rest[taskId]
   useCoding.setState({ progress: rest })
+}
+
+/* ------------------------------------------------------------------ QA: test cases */
+
+export interface TestCase {
+  id: string
+  title: string
+  area: string
+  type: (typeof CASE_TYPES)[number]
+  priority: 'high' | 'medium' | 'low'
+  preconditions: string
+  steps: string[]
+  expected: string
+}
+
+const clipStr = (v: unknown, n: number) => (typeof v === 'string' ? v.trim().slice(0, n) : typeof v === 'number' ? String(v) : '')
+
+/**
+ * The test cases a QA document hands in: its last fenced json block (an array, or { cases: [...] }), each case
+ * sanitized; `rest` = the document without that block. No block (or no cases in it): no cases, the text as is.
+ */
+export function parseCases(md: string): { cases: TestCase[]; rest: string } {
+  const fences = [...md.matchAll(/```json\s*\n([\s\S]*?)\n```/g)]
+  const last = fences[fences.length - 1]
+  if (!last) return { cases: [], rest: md }
+  let raw: unknown
+  try {
+    raw = JSON.parse(last[1]!)
+  } catch {
+    return { cases: [], rest: md }
+  }
+  const list = Array.isArray(raw) ? raw : raw && typeof raw === 'object' && Array.isArray((raw as { cases?: unknown }).cases) ? (raw as { cases: unknown[] }).cases : []
+  const cases: TestCase[] = []
+  for (const item of list.slice(0, 300)) {
+    if (!item || typeof item !== 'object') continue
+    const o = item as Record<string, unknown>
+    const title = clipStr(o.title ?? o.name, 200)
+    if (!title) continue
+    const type = String(o.type ?? '').toLowerCase().replace(/[^a-z]/g, '')
+    const prio = String(o.priority ?? '').toLowerCase()
+    const steps = Array.isArray(o.steps) ? o.steps.map((x) => clipStr(x, 500)).filter(Boolean).slice(0, 40) : clipStr(o.steps, 4000).split(/\n+/).map((x) => x.trim()).filter(Boolean)
+    cases.push({
+      id: clipStr(o.id, 40) || `TC-${String(cases.length + 1).padStart(2, '0')}`,
+      title,
+      area: clipStr(o.area, 120),
+      type: (CASE_TYPES as readonly string[]).includes(type) ? (type as TestCase['type']) : type.startsWith('non') ? 'nonfunctional' : type.startsWith('neg') ? 'negative' : type.startsWith('reg') ? 'regression' : type.startsWith('edge') || type.startsWith('bound') ? 'edge' : 'functional',
+      priority: prio.startsWith('h') || prio === 'p1' ? 'high' : prio.startsWith('l') || prio === 'p3' ? 'low' : 'medium',
+      preconditions: clipStr(o.preconditions, 2000),
+      steps,
+      expected: clipStr(o.expected ?? o.expectedResult, 2000),
+    })
+  }
+  const rest = cases.length ? (md.slice(0, last.index) + md.slice(last.index! + last[0].length)).trim() : md
+  return { cases, rest }
+}
+
+/** The cases as rows of the Test cases database (created on first use); each row mentions its QA task. */
+function createCases(taskId: ID, taskTitle: string, cases: TestCase[]): ID {
+  const dbId = ensureCaseDb()
+  const db = ws().databases[dbId]!
+  const r = caseProps(db)
+  for (const c of cases) {
+    const properties: Record<ID, PropertyValue> = {}
+    const put = (prop: ID | undefined, v: PropertyValue) => {
+      if (prop && v !== '' && v !== null) properties[prop] = v
+    }
+    put(r.caseId, c.id)
+    put(r.status, optionByName(db, r.status, t('features.coding.case.st.notRun')))
+    put(r.priority, optionByName(db, r.priority, t(`features.coding.priority.${c.priority}`)))
+    put(r.type, optionByName(db, r.type, t(`features.coding.case.ty.${c.type}`)))
+    put(r.area, c.area)
+    put(r.task, taskTitle)
+    put(r.preconditions, c.preconditions)
+    put(r.steps, c.steps.map((s, i) => `${i + 1}. ${s}`).join('\n'))
+    put(r.expected, c.expected)
+    const content: JSONContent[] = [
+      { type: 'paragraph', content: [{ type: 'text', text: `${t('features.coding.case.from')} ` }, { type: 'mention', attrs: { id: taskId, label: taskTitle, kind: 'page' } }] },
+    ]
+    if (c.steps.length) content.push({ type: 'orderedList', content: c.steps.map((s) => ({ type: 'listItem', content: [para(s)] })) })
+    if (c.expected) content.push({ type: 'paragraph', content: [{ type: 'text', text: `${t('features.coding.case.expected')}: `, marks: [{ type: 'bold' }] }, { type: 'text', text: c.expected }] })
+    ws().createRow(dbId, { title: c.title, properties, content: { type: 'doc', content } })
+  }
+  return dbId
+}
+
+/* ------------------------------------------------------------------ follow-ups (one chain hands on to another) */
+
+/** The kinds a task hands on to ("Then"). */
+export function followUpsOf(taskId: ID): PipelineKind[] {
+  const ctx = taskContext(taskId)
+  if (!ctx?.props.followUps) return []
+  const v = ctx.row.properties[ctx.props.followUps]
+  const names = (Array.isArray(v) ? v : []).map((id) => optionName(ctx.db, ctx.props.followUps, id)?.toLowerCase())
+  return FOLLOW_UPS[ctx.kind].filter((k) => names.includes(t(`features.coding.pipe.${k}`).toLowerCase()))
+}
+
+/** Set the "Then" field (the kinds this task hands on to when it is done). */
+export function setFollowUps(taskId: ID, kinds: PipelineKind[]): void {
+  const ctx = taskContext(taskId)
+  if (!ctx?.props.followUps) return
+  const ids = kinds.filter((k) => FOLLOW_UPS[ctx.kind].includes(k)).map((k) => optionByName(ctx.db, ctx.props.followUps, t(`features.coding.pipe.${k}`))).filter((x): x is ID => !!x)
+  set(taskId, ctx.props.followUps, ids)
+}
+
+/**
+ * A follow-up task of another kind from a done task: same repo and priority, the source's page as its text (with a
+ * mention of the source), straight into its first automatic stage. The source gets a note with a mention of it.
+ */
+export async function spawnFollowUp(taskId: ID, kind: PipelineKind): Promise<ID | null> {
+  const ctx = taskContext(taskId)
+  if (!ctx || !FOLLOW_UPS[ctx.kind].includes(kind)) return null
+  await loadTask(taskId)
+  const done = taskLocal(taskId).spawned?.[kind as 'coding' | 'qa']
+  if (done && ws().pages[done] && !ws().pages[done]!.trashed) return done
+  const title = ctx.row.title.trim() || t('common.untitled')
+  const prioName = optionName(ctx.db, ctx.props.priority, ctx.row.properties[ctx.props.priority ?? ''])
+  const priority = (['high', 'medium', 'low'] as const).find((p) => t(`features.coding.priority.${p}`) === prioName) ?? 'medium'
+  const source = docOf(ctx.row)
+  const extra: JSONContent[] = [
+    { type: 'paragraph', content: [{ type: 'text', text: `${t(`features.coding.follow.from.${ctx.kind}`)} ` }, { type: 'mention', attrs: { id: taskId, label: title, kind: 'page' } }] },
+    { type: 'heading', attrs: { level: 2 }, content: [{ type: 'text', text: title }] },
+    ...source.map((b) => (b.type === 'heading' && (b.attrs?.level ?? 1) < 3 ? { ...b, attrs: { ...b.attrs, level: 3 } } : b)),
+  ]
+  const id = await createTask({ kind, title: kind === 'qa' ? t('features.coding.follow.qaTitle', { title }) : title, repo: optionName(ctx.db, ctx.props.repo, ctx.row.properties[ctx.props.repo ?? '']), goal: t(`features.coding.follow.goal.${kind}`), criteria: [], priority, branch: '', start: true, extra })
+  await patchTask(taskId, { spawned: { ...(taskLocal(taskId).spawned ?? {}), [kind]: id } })
+  await keepTrust([taskId], () => aiWrite(() => {
+    const p = ws().pages[taskId]
+    if (!p) return
+    const blocks = docOf(p)
+    blocks.push({ type: 'callout', attrs: { icon: 'asset:publish', color: 'green' }, content: [{ type: 'paragraph', content: [{ type: 'text', text: `${t(`features.coding.follow.to.${kind}`)} `, marks: [{ type: 'bold' }] }, { type: 'mention', attrs: { id, label: ws().pages[id]?.title ?? title, kind: 'page' } }] }] })
+    ws().setContent(taskId, { type: 'doc', content: blocks }, 'coding')
+  }))
+  return id
+}
+
+/** When a task is done: the follow-ups its "Then" field names. */
+async function spawnFollowUps(taskId: ID): Promise<void> {
+  for (const kind of followUpsOf(taskId)) await spawnFollowUp(taskId, kind)
 }
 
 /* ------------------------------------------------------------------ the person's side */
@@ -346,6 +511,7 @@ export async function approveTask(taskId: ID): Promise<void> {
   await trustTask(taskId)
   await keepTrust([taskId], () => moveRow(taskId, ctx.props, n.id))
   await patchTask(taskId, { state: 'idle', error: null, runNow: false })
+  if (n.kind === 'done') await spawnFollowUps(taskId)
   nudge()
 }
 
@@ -354,7 +520,7 @@ export async function reworkTask(taskId: ID, note: string): Promise<void> {
   const ctx = taskContext(taskId)
   const text = note.trim()
   if (!ctx?.stage || !text) return
-  const back = stageNear(ctx.pipeline, ctx.stage, ['implement', 'plan'], -1)
+  const back = stageNear(ctx.pipeline, ctx.stage, ['implement', 'plan', 'doc'], -1)
   if (!back) return
   await trustTask(taskId)
   await keepTrust([taskId], () =>
@@ -409,17 +575,25 @@ export interface NewTask {
   branch: string
   /** straight into the first stage the worker takes (else: the first stage, the backlog) */
   start: boolean
+  /** which pipeline (default: Coding) */
+  kind?: PipelineKind
+  /** blocks after the goal (a follow-up: the source task's page) */
+  extra?: JSONContent[]
+  /** "Then": the kinds this task hands on to when it is done */
+  followUps?: PipelineKind[]
 }
 
 /** A new task (the Coding database is created on first use). Trusted on this device. */
 export async function createTask(input: NewTask): Promise<ID> {
-  const dbId = ensureCodingDb()
+  const dbId = ensurePipelineDb(input.kind ?? 'coding')
   if (input.repo) addRepoOptions(dbId, [input.repo])
   const db = ws().databases[dbId]!
   const props = codingProps(db)
   const pipeline = readPipeline(db)
   const first = pipeline[0]
-  const start = input.start ? (pipeline.find((s) => s.kind === 'queue' && s.auto) ?? first) : first
+  // a pipeline that starts with the code (an Import stage): a task without a repo waits there for it
+  const intake = !input.repo ? pipeline.find((s) => s.kind === 'import') : undefined
+  const start = input.start ? (intake ?? pipeline.find((s) => s.kind === 'queue' && s.auto) ?? first) : first
   const properties: Record<ID, PropertyValue> = {}
   const repoOpt = input.repo ? optionByName(db, props.repo, input.repo) : null
   if (props.repo && repoOpt) properties[props.repo] = repoOpt
@@ -427,6 +601,10 @@ export async function createTask(input: NewTask): Promise<ID> {
   const prio = optionByName(db, props.priority, t(`features.coding.priority.${input.priority}`))
   if (props.priority && prio) properties[props.priority] = prio
   if (props.branch && input.branch.trim()) properties[props.branch] = input.branch.trim()
+  if (props.followUps && input.followUps?.length) {
+    const ids = input.followUps.map((k) => optionByName(db, props.followUps, t(`features.coding.pipe.${k}`))).filter((x): x is ID => !!x)
+    if (ids.length) properties[props.followUps] = ids
+  }
   const content: JSONContent[] = []
   for (const line of input.goal.split(/\n{2,}/)) if (line.trim()) content.push(para(line.trim()))
   const criteria = input.criteria.map((c) => c.trim()).filter(Boolean)
@@ -434,20 +612,25 @@ export async function createTask(input: NewTask): Promise<ID> {
     content.push({ type: 'heading', attrs: { level: 2 }, content: [{ type: 'text', text: t('features.coding.page.criteria') }] })
     content.push({ type: 'taskList', content: criteria.map((c) => ({ type: 'taskItem', attrs: { checked: false }, content: [para(c)] })) })
   }
+  if (input.extra?.length) content.push(...input.extra)
   const id = ws().createRow(dbId, { title: input.title.trim(), properties, content: { type: 'doc', content: content.length ? content : [para('')] } })
   await trustTask(id)
   nudge()
   return id
 }
 
-/** Every task, newest first, with its stage — for #/coding. */
-export function allTasks(): Array<{ row: Page; stage: ResolvedStage | null; repo: string | null }> {
-  const dbId = codingDbId()
-  const db = dbId ? ws().databases[dbId] : undefined
-  if (!dbId || !db) return []
-  const props = codingProps(db)
-  const pipeline = readPipeline(db)
-  return codingRows(dbId).map((row) => ({ row, stage: stageOfRow(pipeline, props, row), repo: optionName(db, props.repo, row.properties[props.repo ?? '']) }))
+/** Every task of every pipeline database (or of one kind), with its stage — for #/coding. */
+export function allTasks(only?: PipelineKind): Array<{ row: Page; stage: ResolvedStage | null; repo: string | null; kind: PipelineKind }> {
+  const out: Array<{ row: Page; stage: ResolvedStage | null; repo: string | null; kind: PipelineKind }> = []
+  for (const dbId of pipelineDbIds()) {
+    const db = ws().databases[dbId]
+    const kind = kindOfDb(dbId)
+    if (!db || !kind || (only && kind !== only)) continue
+    const props = codingProps(db)
+    const pipeline = readPipeline(db)
+    for (const row of codingRows(dbId)) out.push({ row, stage: stageOfRow(pipeline, props, row), repo: optionName(db, props.repo, row.properties[props.repo ?? '']), kind })
+  }
+  return out
 }
 
 /* ------------------------------------------------------------------ setup in the task panel */
@@ -458,9 +641,10 @@ export const BRANCH_NAME = /^[A-Za-z0-9._/-]{1,200}$/
 /** Repo names to offer: the connected worker's and those already in the Repo select. */
 export function knownRepos(): string[] {
   const names = new Set((useCoding.getState().worker?.repos ?? []).map((r) => r.name))
-  const dbId = codingDbId()
-  const db = dbId ? ws().databases[dbId] : undefined
-  if (db) for (const o of db.properties.find((p) => p.id === codingProps(db).repo)?.options ?? []) names.add(o.name)
+  for (const dbId of pipelineDbIds()) {
+    const db = ws().databases[dbId]
+    if (db) for (const o of db.properties.find((p) => p.id === codingProps(db).repo)?.options ?? []) names.add(o.name)
+  }
   return [...names]
 }
 
@@ -480,6 +664,23 @@ export function setTaskRepo(taskId: ID, name: string | null): void {
   addRepoOptions(ctx.db.id, [name])
   const id = optionByName(ws().databases[ctx.db.id]!, ctx.props.repo, name)
   if (id) set(taskId, ctx.props.repo, id)
+}
+
+/**
+ * Import stage: the code is there (the worker's new repo, or one the person took) — the task takes it as its Repo
+ * and moves on to the next stage. Only while it stands in an Import stage (a late event changes nothing).
+ */
+export async function intakeDone(taskId: ID, repo: string, label?: string): Promise<void> {
+  const ctx = taskContext(taskId)
+  if (!ctx?.stage || ctx.stage.kind !== 'import' || !ctx.props.repo) return
+  const n = nextStage(ctx.pipeline, ctx.stage)
+  await keepTrust([taskId], () => {
+    setTaskRepo(taskId, repo)
+    if (n) moveRow(taskId, ctx.props, n.id)
+  })
+  appendLog(taskId, [{ t: Date.now(), k: 'info', s: label ? t('features.coding.intake.logged', { label, repo }) : t('features.coding.intake.taken', { repo }) }])
+  useUI.getState().toast({ message: t('features.coding.intake.done', { repo }), kind: 'success' })
+  nudge()
 }
 
 /** A task's branch: an existing one to reuse, or null — the worker makes its own (one/…). */

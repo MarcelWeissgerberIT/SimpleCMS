@@ -152,7 +152,7 @@ async function main() {
         reload: () => reload(worker!),
         live: () => worker!.live(),
       })
-  worker = new Worker({ config, version: VERSION, bin: claudeBin(), self, log, setup, recent: () => recent })
+  worker = new Worker({ config, version: VERSION, bin: claudeBin(), self, log, setup, recent: () => recent, intake: { configFile, reload: () => reload(worker!) } })
   const up = await worker.start()
   if (up !== 'listening') {
     if (command === 'setup') process.stderr.write(`Another one-worker seems to run on port ${config.port}. Use "Change repositories" in One (Settings → Coding worker) to open its setup page — or stop it first.\n`)

@@ -233,6 +233,8 @@ export class SetupServer {
       gh: await this.gh,
       glab: await this.glab,
       cloneDir: shortPath(this.cloneDir ?? config.cloneDir, this.home),
+      // the person's own Claude Code MCP servers for tasks without a repository (document stages)
+      mcpServers: config.mcpServers,
       clone: this.clone,
       scan: this.scanning ? { ...(this.scanned ?? {}), running: true, progress: { ...this.progress } } : this.scanned ? { ...this.scanned, running: false } : null,
       repos: this.repos(),
@@ -419,7 +421,14 @@ export class SetupServer {
       }
       choices.push({ path: repo.path, name, baseBranch, remote: repo.remote, testCommand: test?.length ? test : null, push: item.push === true, pr: item.pr === 'none' ? 'none' : 'gh', maxUsdPerTask: limit, mcpServers })
     }
-    const problems = saveRepos(this.host.configFile, choices, this.host.preset?.workspace ?? this.host.config().workspace, process.env, this.cloneDir ? { cloneDir: this.cloneDir } : {})
+    let workerMcp: string[] | undefined
+    if (isObj(body) && typeof body.mcpServers === 'string') {
+      workerMcp = [...new Set(body.mcpServers.split(/[\s,]+/).filter(Boolean))]
+      const bad = workerMcp.find((n) => !MCP_NAME.test(n) || n === 'one-task')
+      if (bad) return [`"${bad}": an MCP server name has letters, digits, "_" or "-" — as \`claude mcp list\` shows it.`]
+      if (workerMcp.length > 20) return ['At most 20 MCP servers.']
+    }
+    const problems = saveRepos(this.host.configFile, choices, this.host.preset?.workspace ?? this.host.config().workspace, process.env, { ...(this.cloneDir ? { cloneDir: this.cloneDir } : {}), ...(workerMcp ? { mcpServers: workerMcp } : {}) })
     if (problems.length) return problems
     this.cloneDir = null
     this.host.log(`setup page: saved ${choices.length} repo(s) — ${choices.map((c) => c.name).join(', ') || 'none'}`)

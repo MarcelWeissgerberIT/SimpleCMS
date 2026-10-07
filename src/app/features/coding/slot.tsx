@@ -9,20 +9,22 @@ import type { ID } from '../../store/types'
 const CodingView = lazy(() => import('./CodingView'))
 const TaskPanel = lazy(() => import('./TaskPanel'))
 
-/** #/coding */
-export function CodingRoute() {
+/** #/coding · #/coding/spec · #/coding/qa */
+export function CodingRoute({ kind }: { kind?: 'spec' | 'qa' }) {
   return (
     <Suspense fallback={null}>
-      <CodingView />
+      <CodingView kind={kind ?? 'coding'} />
     </Suspense>
   )
 }
 
-/** On every row page: the task panel when the row is a task of a Coding database. */
+const PIPELINE_SYSTEMS = new Set(['coding', 'spec', 'qa'])
+
+/** On every row page: the task panel when the row is a task of a pipeline database (Coding · Business analysis · QA). */
 export function CodingTaskSlot({ pageId }: { pageId: ID }) {
   const isTask = useWorkspace((s) => {
     const p = s.pages[pageId]
-    return !!p?.databaseId && !p.trashed && s.databases[p.databaseId]?.system === 'coding'
+    return !!p?.databaseId && !p.trashed && PIPELINE_SYSTEMS.has(s.databases[p.databaseId]?.system ?? '')
   })
   if (!isTask) return null
   return (

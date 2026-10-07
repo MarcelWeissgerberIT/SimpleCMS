@@ -609,7 +609,7 @@ export interface Database {
    * (features/mail/people.ts) — same rules.
    * 'coding' = the coding pipeline's tasks (features/coding: rows = tasks for one-worker) — same rules.
    */
-  system?: 'memory' | 'memory-log' | 'mail-contacts' | 'mail-companies' | 'mail-conversations' | 'coding'
+  system?: 'memory' | 'memory-log' | 'mail-contacts' | 'mail-companies' | 'mail-conversations' | 'coding' | 'spec' | 'qa' | 'testcases'
   /**
    * The coding pipeline (features/coding, only on the 'coding' database): one entry per option of its
    * Stage select, in the options' order. Absent = every stage is a plain queue. Write only with
@@ -635,11 +635,12 @@ export interface Database {
  * Stage select. queue: tasks wait (auto: the worker takes them on to the next stage) · plan: Claude Code in
  * plan mode writes the plan into the task page · gate: waits for the person (Approve / Rework) · implement:
  * Claude Code edits the worktree · test: the repo's test command (worker.json) · git: commit / push / pull
- * request / update from base · done.
+ * request / update from base · done · import: the task's code arrives (a ZIP or clone address in the task panel → a
+ * new repo, then the task moves on) · doc: Claude Code only reads and writes a document into the page.
  */
 export interface PipelineStage {
   id: ID
-  kind: 'queue' | 'plan' | 'gate' | 'implement' | 'test' | 'git' | 'done'
+  kind: 'queue' | 'import' | 'plan' | 'doc' | 'gate' | 'implement' | 'test' | 'git' | 'done'
   /** what Claude Code is told in this stage (absent / '' = the default of its kind) */
   instructions?: string
   /** the worker takes tasks in this stage by itself (otherwise: "Run now" in the task) */
@@ -652,6 +653,8 @@ export interface PipelineStage {
   maxTurns?: number
   /** git stages */
   gitAction?: 'commit' | 'push' | 'pr' | 'update-base'
+  /** document stages: 'testcases' = the document's test cases also become rows of the Test cases database */
+  output?: 'testcases'
 }
 
 /**

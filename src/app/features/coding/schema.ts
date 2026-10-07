@@ -20,7 +20,7 @@ import { ALL_MESSAGES, t } from '../../i18n'
 import { GIT_ACTIONS, PERMISSION_MODES, STAGE_KINDS, type StageKind } from './protocol'
 import { useCoding } from './state'
 
-export type CodingRole = 'repo' | 'stage' | 'priority' | 'branch' | 'git' | 'pr' | 'cost' | 'worker' | 'claimed'
+export type CodingRole = 'repo' | 'stage' | 'priority' | 'branch' | 'git' | 'pr' | 'cost' | 'worker' | 'claimed' | 'followUps'
 
 const ROLE_TYPE: Record<CodingRole, PropertyDef['type']> = {
   repo: 'select',
@@ -32,7 +32,19 @@ const ROLE_TYPE: Record<CodingRole, PropertyDef['type']> = {
   cost: 'number',
   worker: 'text',
   claimed: 'date',
+  followUps: 'multi_select',
 }
+
+/**
+ * The pipeline databases: Coding (code changes), Business analysis (spec-driven documents) and QA (test cases) —
+ * each found by its `Database.system`, each usable on its own; a task may hand on to another kind when it is done
+ * (its "Then" field). Test cases from QA land in the Test cases database (`system: 'testcases'`).
+ */
+export const PIPELINE_KINDS = ['coding', 'spec', 'qa'] as const
+export type PipelineKind = (typeof PIPELINE_KINDS)[number]
+export const isPipelineKind = (v: unknown): v is PipelineKind => (PIPELINE_KINDS as readonly unknown[]).includes(v)
+/** what a kind may hand on to when a task is done */
+export const FOLLOW_UPS: Record<PipelineKind, PipelineKind[]> = { coding: [], spec: ['coding', 'qa'], qa: ['coding'] }
 export const CODING_ROLES = Object.keys(ROLE_TYPE) as CodingRole[]
 
 export type CodingProps = Partial<Record<CodingRole, ID>> & { title?: ID }
@@ -45,19 +57,30 @@ const named = (p: PropertyDef, key: string) => both(key).includes(p.name.trim().
 
 /* ------------------------------------------------------------------ finding */
 
-/** The Coding database: the oldest live marked one (team: a private one only). */
-export function codingDbId(): ID | null {
+/** A pipeline database of a kind: the oldest live marked one (team: a private one only). */
+export function pipelineDbId(kind: PipelineKind | 'testcases'): ID | null {
   const { pages, databases } = ws()
   const team = inTeam()
   let best: { id: ID; at: number } | null = null
   for (const db of Object.values(databases)) {
-    if (db.system !== 'coding') continue
+    if (db.system !== kind) continue
     const p = pages[db.id]
     if (!p || p.kind !== 'database' || p.trashed || isEffectivelyTrashed(pages, db.id) || inTemplate(pages, db.id)) continue
     if (team && !p.private) continue
     if (!best || p.createdAt < best.at || (p.createdAt === best.at && db.id < best.id)) best = { id: db.id, at: p.createdAt }
   }
   return best?.id ?? null
+}
+
+/** The Coding database (the coding pipeline's). */
+export const codingDbId = (): ID | null => pipelineDbId('coding')
+/** Every pipeline database there is. */
+export const pipelineDbIds = (): ID[] => PIPELINE_KINDS.map((k) => pipelineDbId(k)).filter((x): x is ID => !!x)
+/** The kind of a pipeline database (null: not one, or not the one that counts). */
+export function kindOfDb(dbId: ID | null | undefined): PipelineKind | null {
+  if (!dbId) return null
+  const k = ws().databases[dbId]?.system
+  return isPipelineKind(k) && pipelineDbId(k) === dbId ? k : null
 }
 
 /** The property ids of the Coding database by role (by name in either language + type, then by type). */
@@ -92,7 +115,7 @@ export interface ResolvedStage extends PipelineStage {
   index: number
 }
 
-const STAGE_COLOR: Record<StageKind, ColorName> = { queue: 'gray', plan: 'blue', gate: 'orange', implement: 'purple', test: 'yellow', git: 'brown', done: 'green' }
+const STAGE_COLOR: Record<StageKind, ColorName> = { queue: 'gray', import: 'red', plan: 'blue', doc: 'pink', gate: 'orange', implement: 'purple', test: 'yellow', git: 'brown', done: 'green' }
 
 /** The default pipeline: [stage key, kind, auto, extra]. */
 const DEFAULTS: Array<[string, StageKind, boolean, Partial<PipelineStage>]> = [
@@ -124,6 +147,8 @@ export function defaultPipeline(): { options: SelectOption[]; pipeline: Pipeline
  */
 const MODERNISE: Array<[string, StageKind, boolean, Partial<PipelineStage>, string?]> = [
   ['backlog', 'queue', false, {}],
+  // the old code arrives here: a ZIP or a clone address in the task panel → a new repo for the task
+  ['import', 'import', false, {}],
   ['ready', 'queue', true, {}],
   ['analyse', 'plan', true, { permissionMode: 'plan', maxTurns: 40 }, 'analyse'],
   ['design', 'plan', true, { permissionMode: 'plan', maxTurns: 30 }, 'design'],
@@ -138,7 +163,30 @@ const MODERNISE: Array<[string, StageKind, boolean, Partial<PipelineStage>, stri
   ['done', 'done', false, {}],
 ]
 
-export const PIPELINE_TEMPLATES = ['standard', 'modernise'] as const
+/** Business analysis (spec-driven): analysis, specification, approval, the knowledge base — documents only. */
+const SPEC: Array<[string, StageKind, boolean, Partial<PipelineStage>, string?]> = [
+  ['backlog', 'queue', false, {}],
+  ['ready', 'queue', true, {}],
+  ['analyse', 'doc', true, { maxTurns: 40 }, 'specAnalyse'],
+  ['specWrite', 'doc', true, { maxTurns: 40 }, 'specWrite'],
+  ['approveSpec', 'gate', false, {}],
+  ['record', 'doc', true, { maxTurns: 20 }, 'record'],
+  ['done', 'done', false, {}],
+]
+
+/** QA: test cases from the task (and the code, if it has a repo) — rows of the Test cases database. */
+const QA: Array<[string, StageKind, boolean, Partial<PipelineStage>, string?]> = [
+  ['backlog', 'queue', false, {}],
+  ['ready', 'queue', true, {}],
+  ['testcases', 'doc', true, { maxTurns: 40, output: 'testcases' }, 'qaDesign'],
+  ['approveCases', 'gate', false, {}],
+  ['record', 'doc', true, { maxTurns: 20 }, 'record'],
+  ['done', 'done', false, {}],
+]
+
+export const PIPELINE_TEMPLATES = ['standard', 'modernise', 'spec', 'qa'] as const
+/** the templates a kind offers in the pipeline editor (the first is its default) */
+export const KIND_TEMPLATES: Record<PipelineKind, PipelineTemplate[]> = { coding: ['standard', 'modernise'], spec: ['spec'], qa: ['qa'] }
 export type PipelineTemplate = (typeof PIPELINE_TEMPLATES)[number]
 
 /**
@@ -146,7 +194,7 @@ export type PipelineTemplate = (typeof PIPELINE_TEMPLATES)[number]
  * tasks standing there stay in a stage.
  */
 export function templatePipeline(which: PipelineTemplate, keep: Array<{ id: ID; kind: StageKind }> = []): Array<{ option: SelectOption; stage: PipelineStage }> {
-  const rows = which === 'modernise' ? MODERNISE : DEFAULTS.map(([k, kind, auto, extra]) => [k, kind, auto, extra] as [string, StageKind, boolean, Partial<PipelineStage>, string?])
+  const rows = which === 'modernise' ? MODERNISE : which === 'spec' ? SPEC : which === 'qa' ? QA : DEFAULTS.map(([k, kind, auto, extra]) => [k, kind, auto, extra] as [string, StageKind, boolean, Partial<PipelineStage>, string?])
   const used = new Set<ID>()
   return rows.map(([key, kind, auto, extra, how]) => {
     const id = keep.find((s) => s.kind === kind && !used.has(s.id))?.id ?? newId()
@@ -169,6 +217,7 @@ export function sanitizeStage(raw: unknown, id: ID): PipelineStage {
   const turns = clampTurns(r.maxTurns)
   if (turns) out.maxTurns = turns
   if (kind === 'git') out.gitAction = (GIT_ACTIONS as readonly string[]).includes(String(r.gitAction)) ? (r.gitAction as PipelineStage['gitAction']) : 'pr'
+  if (kind === 'doc' && r.output === 'testcases') out.output = 'testcases'
   return out
 }
 
@@ -235,8 +284,10 @@ const PRIORITIES: Array<[string, ColorName]> = [
   ['low', 'gray'],
 ]
 
-function baseProps(): { properties: PropertyDef[]; pipeline: PipelineStage[] } {
-  const { options, pipeline } = defaultPipeline()
+function baseProps(kind: PipelineKind = 'coding', template?: PipelineTemplate): { properties: PropertyDef[]; pipeline: PipelineStage[] } {
+  const which = template && KIND_TEMPLATES[kind].includes(template) ? template : kind === 'coding' ? null : kind
+  const made = which && which !== 'standard' ? templatePipeline(which) : null
+  const { options, pipeline } = made ? { options: made.map((m) => m.option), pipeline: made.map((m) => m.stage) } : defaultPipeline()
   const p = (role: CodingRole, extra: Partial<PropertyDef> = {}): PropertyDef => ({ id: newId(), name: t(`features.coding.prop.${role}`), type: ROLE_TYPE[role], ...extra })
   const properties: PropertyDef[] = [
     { id: newId(), name: t('features.coding.prop.name'), type: 'title' },
@@ -250,36 +301,97 @@ function baseProps(): { properties: PropertyDef[]; pipeline: PipelineStage[] } {
     p('worker'),
     p('claimed'),
   ]
+  // "Then": what this task hands on to when it is done (Business analysis → Coding / QA, QA → Coding)
+  if (FOLLOW_UPS[kind].length) properties.push(p('followUps', { options: FOLLOW_UPS[kind].map((k, i) => ({ id: newId(), name: t(`features.coding.pipe.${k}`), color: (['purple', 'green'] as ColorName[])[i]! })) }))
   return { properties, pipeline }
 }
 
-function views(properties: PropertyDef[]): View[] {
+function views(properties: PropertyDef[], kind: PipelineKind = 'coding'): View[] {
   const db = { properties } as Database
   const r = codingProps(db)
+  const code = kind === 'coding'
   const board = defaultView('board', db, t('features.coding.view.board'))
   board.groupBy = r.stage ?? null
   // every task has a stage: no "No value" column
   board.hiddenGroups = [NONE_KEY]
-  board.visibleProperties = [r.repo, r.priority, r.branch, r.cost].filter((x): x is ID => !!x)
+  board.visibleProperties = (code ? [r.repo, r.priority, r.branch, r.cost] : [r.repo, r.priority, r.followUps, r.cost]).filter((x): x is ID => !!x)
   const table = defaultView('table', db, t('features.coding.view.table'))
-  table.visibleProperties = [r.repo, r.stage, r.priority, r.branch, r.git, r.pr, r.cost, r.worker, r.claimed].filter((x): x is ID => !!x)
+  table.visibleProperties = (code ? [r.repo, r.stage, r.priority, r.branch, r.git, r.pr, r.cost, r.worker, r.claimed] : [r.repo, r.stage, r.priority, r.followUps, r.cost, r.worker, r.claimed]).filter((x): x is ID => !!x)
   return [board, table]
 }
 
 /** Is this workspace read-only for the person (a viewer)? */
 export const codingReadOnly = () => useCloud.getState().readOnly
 
-/** The Coding database — created when there is none (top level; private in a team). Throws for a viewer. */
-export function ensureCodingDb(): ID {
-  const found = codingDbId()
+const KIND_ICON: Record<PipelineKind, string> = { coding: 'code', spec: 'notepad', qa: 'counter' }
+
+/**
+ * A pipeline database — created when there is none (top level; private in a team), its stages from `template` (one
+ * of the kind's, e.g. Coding: standard | modernise — the latter starts with an Import stage). Throws for a viewer.
+ */
+export function ensurePipelineDb(kind: PipelineKind, template?: PipelineTemplate): ID {
+  const found = pipelineDbId(kind)
   if (found) return found
   if (codingReadOnly()) throw new Error('read-only')
-  const { properties, pipeline } = baseProps()
-  const data = { id: newId(), parentId: null, title: t('features.coding.dbTitle'), icon: { type: 'asset' as const, value: 'code' }, properties, views: views(properties) }
+  const { properties, pipeline } = baseProps(kind, template)
+  const title = kind === 'coding' ? t('features.coding.dbTitle') : t(`features.coding.pipe.${kind}.db`)
+  const data = { id: newId(), parentId: null, title, icon: { type: 'asset' as const, value: KIND_ICON[kind] }, properties, views: views(properties, kind) }
   const id = inTeam() ? createPrivateDatabase(data) : ws().createDatabase(data)
-  ws().updateDatabase(id, { system: 'coding', pipeline })
+  ws().updateDatabase(id, { system: kind, pipeline })
   // a worker that connected before the database existed: its repos are the Repo options
   addRepoOptions(id, (useCoding.getState().worker?.repos ?? []).map((r) => r.name))
+  return id
+}
+
+/** The Coding database — created when there is none. */
+export const ensureCodingDb = (): ID => ensurePipelineDb('coding')
+
+/* ------------------------------------------------------------------ test cases (QA) */
+
+export type CaseRole = 'caseId' | 'task' | 'area' | 'type' | 'priority' | 'preconditions' | 'steps' | 'expected' | 'status'
+const CASE_TYPE: Record<CaseRole, PropertyDef['type']> = { caseId: 'text', task: 'text', area: 'text', type: 'select', priority: 'select', preconditions: 'text', steps: 'text', expected: 'text', status: 'select' }
+export const CASE_TYPES = ['functional', 'edge', 'negative', 'regression', 'nonfunctional'] as const
+export const CASE_STATUS = ['notRun', 'passed', 'failed', 'blocked'] as const
+
+/** The Test cases database's property ids by role (by name in either language + type). */
+export function caseProps(db: Database): Partial<Record<CaseRole, ID>> & { title?: ID } {
+  const out: Partial<Record<CaseRole, ID>> & { title?: ID } = { title: db.properties.find((p) => p.type === 'title')?.id }
+  for (const role of Object.keys(CASE_TYPE) as CaseRole[]) {
+    const prop = db.properties.find((p) => p.type === CASE_TYPE[role] && named(p, `features.coding.case.${role}`))
+    if (prop) out[role] = prop.id
+  }
+  return out
+}
+
+/** The Test cases database — created when QA first hands in test cases. */
+export function ensureCaseDb(): ID {
+  const found = pipelineDbId('testcases')
+  if (found) return found
+  if (codingReadOnly()) throw new Error('read-only')
+  const p = (role: CaseRole, extra: Partial<PropertyDef> = {}): PropertyDef => ({ id: newId(), name: t(`features.coding.case.${role}`), type: CASE_TYPE[role], ...extra })
+  const opts = (keys: readonly string[], prefix: string, colors: ColorName[]) => keys.map((k, i) => ({ id: newId(), name: t(`${prefix}.${k}`), color: colors[i % colors.length]! }))
+  const properties: PropertyDef[] = [
+    { id: newId(), name: t('features.coding.case.title'), type: 'title' },
+    p('caseId'),
+    p('status', { options: opts(CASE_STATUS, 'features.coding.case.st', ['gray', 'green', 'red', 'orange']) }),
+    p('priority', { options: PRIORITIES.map(([key, color]) => ({ id: newId(), name: t(`features.coding.priority.${key}`), color })) }),
+    p('type', { options: opts(CASE_TYPES, 'features.coding.case.ty', ['blue', 'purple', 'red', 'yellow', 'brown']) }),
+    p('area'),
+    p('task'),
+    p('preconditions'),
+    p('steps'),
+    p('expected'),
+  ]
+  const db = { properties } as Database
+  const r = caseProps(db)
+  const table = defaultView('table', db, t('features.coding.view.table'))
+  table.visibleProperties = [r.caseId, r.status, r.priority, r.type, r.area, r.task, r.steps, r.expected].filter((x): x is ID => !!x)
+  const board = defaultView('board', db, t('features.coding.case.byStatus'))
+  board.groupBy = r.status ?? null
+  board.visibleProperties = [r.caseId, r.priority, r.type, r.task].filter((x): x is ID => !!x)
+  const data = { id: newId(), parentId: null, title: t('features.coding.case.db'), icon: { type: 'asset' as const, value: 'counter' }, properties, views: [table, board] }
+  const id = inTeam() ? createPrivateDatabase(data) : ws().createDatabase(data)
+  ws().updateDatabase(id, { system: 'testcases' })
   return id
 }
 

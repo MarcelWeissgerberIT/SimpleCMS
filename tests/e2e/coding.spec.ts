@@ -524,7 +524,7 @@ test('template "Modernise legacy code": Analysis, Design and Test design each wr
   await page.getByTestId('coding-pipeline-open').click()
   await page.getByTestId('coding-template-modernise').click()
   const names = () => page.locator('.cpe-name').evaluateAll((els) => els.map((e) => (e as HTMLInputElement).value))
-  expect(await names()).toEqual(['Backlog', 'Ready', 'Analysis', 'Design', 'Test design', 'Approve concept', 'Write tests', 'Tests on the old code', 'Rebuild', 'Test', 'Review', 'Ship', 'Done'])
+  expect(await names()).toEqual(['Backlog', 'Import', 'Ready', 'Analysis', 'Design', 'Test design', 'Approve concept', 'Write tests', 'Tests on the old code', 'Rebuild', 'Test', 'Review', 'Ship', 'Done'])
   await page.getByTestId('coding-pipeline-save').click()
   await expect(page.getByTestId('coding-pipeline')).toHaveCount(0)
   // the stages keep their instructions

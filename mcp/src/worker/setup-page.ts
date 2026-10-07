@@ -117,6 +117,7 @@ input[type='text']:focus, input[type='number']:focus, select:focus { border-colo
 .detail { display: grid; grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.2fr) minmax(0, 1.6fr); gap: 12px 14px; margin: 0 14px 0 46px; padding: 2px 0 14px; }
 .field { display: grid; gap: 4px; align-content: start; min-width: 0; }
 .field--wide { grid-column: span 2; }
+.wmcp { margin: 14px 0 0; max-width: 640px; }
 .keys { display: flex; flex-wrap: wrap; gap: 4px; min-height: 20px; }
 .kbd { display: inline-block; padding: 1px 6px; border: 1px solid var(--rule-strong); border-bottom-width: 2px; border-radius: 2px; background: var(--surface); color: var(--ink); font: 11px/1.5 var(--mono); }
 .hint { color: var(--ink-3); font-size: 12px; }
@@ -252,7 +253,9 @@ export const SETUP_JS = String.raw`(function () {
     saving: 'Saving…',
     saved: 'Saved — One sees {n} repositories now.',
     savedOne: 'Saved — One sees 1 repository now.',
-    savedNone: 'Saved — no repositories: One hands this worker no tasks.',
+    savedNone: 'Saved — no repositories: this worker takes only document tasks without a repository (Business analysis, QA).',
+    wmcpLabel: 'Tasks without a repository — own MCP servers',
+    wmcpHint: 'Business analysis / QA tasks without a repo run here with these servers (names as “claude mcp list” shows them, e.g. atlas).',
     writes: 'writes {file}',
     status: '§ STATUS',
     one: 'One',
@@ -352,7 +355,9 @@ export const SETUP_JS = String.raw`(function () {
     saving: 'Speichere…',
     saved: 'Gespeichert – One sieht jetzt {n} Repositories.',
     savedOne: 'Gespeichert – One sieht jetzt 1 Repository.',
-    savedNone: 'Gespeichert – keine Repositories: One gibt diesem Worker keine Aufgaben.',
+    savedNone: 'Gespeichert – keine Repositories: Dieser Worker nimmt nur Dokument-Aufgaben ohne Repository (Business-Analyse, QA).',
+    wmcpLabel: 'Aufgaben ohne Repository – eigene MCP-Server',
+    wmcpHint: 'Business-Analyse- / QA-Aufgaben ohne Repo laufen hier mit diesen Servern (Namen wie in „claude mcp list“, z. B. atlas).',
     writes: 'schreibt {file}',
     status: '§ STATUS',
     one: 'One',
@@ -431,6 +436,7 @@ export const SETUP_JS = String.raw`(function () {
   var cloneOpen = false
   var cloneUrl = ''
   var cloneDirText = null
+  var wmcpText = null
   var cloneErr = ''
   var cloneProto = 'https'
   var projects = null
@@ -590,6 +596,11 @@ export const SETUP_JS = String.raw`(function () {
     if (!state.repos.length) list.appendChild(el('li', { className: 'empty', text: state.scan && state.scan.running ? t('loading') : t('none') }))
     state.repos.forEach(function (r, i) { list.appendChild(row(r, i)) })
     app.appendChild(list)
+    app.appendChild(el('div', { className: 'field field--wide wmcp' }, [
+      el('label', { className: 'label', for: 'wmcp', text: t('wmcpLabel') }),
+      el('input', { type: 'text', id: 'wmcp', value: wmcpText === null ? (state.mcpServers || []).join(', ') : wmcpText, placeholder: 'atlas', spellcheck: 'false', autocomplete: 'off', oninput: function (ev) { wmcpText = ev.target.value } }),
+      el('span', { className: 'hint', text: t('wmcpHint') })
+    ]))
     app.appendChild(statusPanel())
     var bar = $('bar')
     bar.hidden = false
@@ -829,9 +840,12 @@ export const SETUP_JS = String.raw`(function () {
     busy = 'save'
     note = null
     render()
-    api('POST', 'save', { repos: repos }).then(function (s) {
+    var body = { repos: repos }
+    if (wmcpText !== null) body.mcpServers = wmcpText
+    api('POST', 'save', body).then(function (s) {
       busy = ''
       edits = {}
+      wmcpText = null
       var n = s.repos.filter(function (r) { return r.ticked }).length
       note = { ok: true, text: n === 0 ? t('savedNone') : n === 1 ? t('savedOne') : t('saved', { n: n }) }
       adopt(s)

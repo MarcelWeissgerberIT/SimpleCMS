@@ -10,6 +10,9 @@
  */
 import { spawn, execFile, type ChildProcess } from 'node:child_process'
 import { createInterface } from 'node:readline'
+import { readFileSync, realpathSync, statSync } from 'node:fs'
+import { homedir } from 'node:os'
+import { join, sep } from 'node:path'
 import type { LogLine, PermissionMode, TaskProgress } from '../../../src/app/features/coding/protocol.ts'
 import { estimateCost, usageOf, type Usage } from './price.ts'
 
@@ -81,7 +84,10 @@ export interface ClaudeResult {
   stopped: boolean
   /** the closing text (result) */
   text: string
-  /** plan mode: the plan Claude handed in (ExitPlanMode), else null */
+  /**
+   * plan mode: the plan Claude handed in (ExitPlanMode) — else the plan file it wrote (newer Claude Code versions
+   * write ~/.claude/plans/<name>.md and may have ExitPlanMode switched off in headless runs) — else null
+   */
   plan: string | null
   cost: number
   turns: number
@@ -89,6 +95,23 @@ export interface ClaudeResult {
   /** the result's subtype (success, error_max_turns, error_max_budget_usd, error_during_execution …) */
   subtype: string | null
   error?: string
+}
+
+/** Claude Code's own plan files (plan mode writes the plan there). */
+const PLAN_FILE = /[\\/]\.claude[\\/]plans[\\/][^\\/]+\.md$/
+
+/** A plan file's text — only inside ~/.claude/plans (no link out of it), ≤ 200 KB; null when it cannot be read. */
+export function readPlanFile(path: string, home = homedir()): string | null {
+  try {
+    const dir = realpathSync(join(home, '.claude', 'plans'))
+    const real = realpathSync(path.startsWith('~/') ? join(home, path.slice(2)) : path)
+    if (!real.startsWith(dir + sep) || !real.endsWith('.md')) return null
+    if (statSync(real).size > 200 * 1024) return null
+    const text = readFileSync(real, 'utf8').trim()
+    return text || null
+  } catch {
+    return null
+  }
 }
 
 /** The argv for a run (exported for the tests: no bypassing flag ever). */
@@ -164,6 +187,8 @@ export function runClaude(r: ClaudeRun): Promise<ClaudeResult> {
     let model: string | null = null
     let turns = 0
     let unnamed = 0
+    // the plan file Claude Code wrote in plan mode (its last one)
+    let planFile: string | null = null
     const usages = new Map<string, Usage>()
     const progress = () => r.onProgress?.({ turns, maxTurns: r.maxTurns, cost: estimateCost(model, usages.values()), model })
     // a sign of life while Claude Code works quietly (reading, thinking): one line per quiet minute
@@ -226,8 +251,9 @@ export function runClaude(r: ClaudeRun): Promise<ClaudeResult> {
             if (block.type === 'text' && typeof block.text === 'string' && block.text.trim()) log('claude', clip(block.text.trim(), 4000))
             else if (block.type === 'tool_use' && typeof block.name === 'string') {
               log('tool', toolLine(block.name, block.input))
-              const input = block.input as { plan?: unknown } | undefined
+              const input = block.input as { plan?: unknown; file_path?: unknown } | undefined
               if (block.name === 'ExitPlanMode' && typeof input?.plan === 'string') result.plan = input.plan
+              else if ((block.name === 'Write' || block.name === 'Edit' || block.name === 'MultiEdit') && typeof input?.file_path === 'string' && PLAN_FILE.test(input.file_path)) planFile = input.file_path
             }
           }
           return
@@ -264,6 +290,8 @@ export function runClaude(r: ClaudeRun): Promise<ClaudeResult> {
     child.on('close', (code) => {
       clearInterval(beat)
       r.signal.removeEventListener('abort', onAbort)
+      // no ExitPlanMode, but a plan file: that file is the plan (read once the run is over)
+      if (r.mode === 'plan' && !result.plan && planFile) result.plan = readPlanFile(planFile)
       if (!gotResult && !result.stopped) {
         result.ok = false
         result.error = code === null ? 'Claude Code was ended' : `Claude Code exited with code ${code}${stderr.trim() ? `: ${clip(oneLine(stderr.trim().split('\n').slice(-3).join(' ')), 400)}` : ''}`

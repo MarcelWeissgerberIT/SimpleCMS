@@ -7,7 +7,7 @@
  * ignores it, a downloaded one refuses every tab without it.
  */
 import { create } from 'zustand'
-import { PAIR_SECRET, WORKER_DEFAULT_PORT, WORKSPACE_ID, type BusyTask, type RefusedReason, type TaskProgress, type WorkerInfo } from './protocol'
+import { PAIR_SECRET, WORKER_DEFAULT_PORT, WORKSPACE_ID, type BusyTask, type IntakeState, type RefusedReason, type TaskProgress, type WorkerInfo } from './protocol'
 
 export const CODING_STORAGE_KEY = 'one.coding'
 
@@ -81,6 +81,8 @@ export interface CodingState extends CodingSettings {
   spentToday: number
   /** Claude Code's progress per running task (memory only; gone when its stage ends) */
   progress: Record<string, TaskProgress & { at: number }>
+  /** Import stages: the code a task's panel handed the worker (memory only) */
+  intake: Record<string, IntakeState & { at: number }>
 }
 
 export const useCoding = create<CodingState>()(() => ({
@@ -92,4 +94,5 @@ export const useCoding = create<CodingState>()(() => ({
   busy: [],
   spentToday: 0,
   progress: {},
+  intake: {},
 }))

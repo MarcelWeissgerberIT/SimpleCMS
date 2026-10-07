@@ -1199,7 +1199,8 @@
 .cn-seg__opt:last-child {
   border-radius: 0 var(--radius-1) var(--radius-1) 0;
 }
-.cn-seg__opt[aria-checked='true'] {
+.cn-seg__opt[aria-checked='true'],
+.cn-seg__opt[aria-pressed='true'] {
   background: var(--ink);
   color: var(--ink-inverse);
 }
@@ -1823,4 +1824,248 @@ dd:has(> .cw-port) {
   align-items: center;
   gap: 6px 8px;
   margin: 0 0 12px;
+}
+
+/* ------------------------------------------------------------------ pipelines: Coding · Business analysis · QA */
+
+.cv-kinds {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0;
+  margin: 14px 0 0;
+  border-bottom: 1px solid var(--rule);
+}
+.cv-kind {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+  min-height: 36px;
+  padding: 8px 14px 9px;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  color: var(--ink-2);
+  font-size: var(--text-md);
+  text-decoration: none;
+  transition: color 120ms var(--ease-out), border-color 120ms var(--ease-out);
+}
+.cv-kind:hover {
+  color: var(--ink);
+}
+.cv-kind[aria-current='page'] {
+  border-bottom-color: var(--signal);
+  color: var(--ink);
+  font-weight: 600;
+}
+.cv-kind:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+.cv-kind__code {
+  color: var(--ink-3);
+}
+.cv-kind[aria-current='page'] .cv-kind__code {
+  color: var(--signal-ink);
+}
+.cv-board__links {
+  display: inline-flex;
+  gap: 14px;
+}
+.cv-why[data-why='intake'] {
+  border-color: var(--rule-strong);
+  color: var(--ink-2);
+}
+
+/* "Then": the pipelines a task hands on to */
+.ctk-then {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+}
+.ctk-then__keys {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.ctk-then__opt {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius-1);
+  background: var(--surface);
+  color: var(--ink-2);
+  font: inherit;
+  font-size: var(--text-sm);
+  cursor: pointer;
+}
+.ctk-then__opt:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+.ctk-then__opt:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+.ctk-then__box {
+  width: 10px;
+  height: 10px;
+  border: 1px solid var(--ink-3);
+  border-radius: 1px;
+}
+.ctk-then__opt[aria-pressed='true'] {
+  border-color: var(--ink);
+  color: var(--ink);
+}
+.ctk-then__opt[aria-pressed='true'] .ctk-then__box {
+  border-color: var(--signal);
+  background: var(--signal);
+}
+.ctk-setup__import {
+  justify-self: start;
+}
+
+/* Import stage: the code a task starts from */
+.cib {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--rule);
+  border-left: 2px solid var(--signal);
+  border-radius: var(--radius-1);
+  background: var(--surface-2);
+}
+.cib-head {
+  display: grid;
+  gap: 2px;
+}
+.cib-drop {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  padding: 14px;
+  border: 1px dashed var(--rule-strong);
+  border-radius: var(--radius-1);
+  background: var(--surface);
+  color: var(--ink-2);
+  font-size: var(--text-sm);
+}
+.cib-drop[data-over] {
+  border-color: var(--signal);
+  border-style: solid;
+  color: var(--ink);
+}
+.cib-drop[data-off] {
+  opacity: 0.7;
+}
+.cib-drop > span {
+  flex: 1 1 160px;
+}
+.cib-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 4px 8px;
+  align-items: center;
+}
+.cib-row > .label {
+  grid-column: 1 / -1;
+}
+.cib-state {
+  display: grid;
+  gap: 4px;
+  font-size: var(--text-sm);
+}
+.cib-label {
+  overflow: hidden;
+  color: var(--ink);
+  font-size: var(--text-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cib-line {
+  color: var(--ink-2);
+}
+.cib-bar {
+  display: block;
+  height: 3px;
+  overflow: hidden;
+  background: var(--rule);
+}
+.cib-fill {
+  display: block;
+  height: 100%;
+  background: var(--signal);
+  transition: width 200ms var(--ease-out);
+}
+.cib-fill[data-indeterminate] {
+  animation: cib-slide 1.2s var(--ease-out) infinite;
+}
+@keyframes cib-slide {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(340%);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .cib-fill[data-indeterminate] {
+    animation: none;
+  }
+}
+.cib-err {
+  margin: 0;
+  color: var(--c-red-text);
+}
+.cib-state[data-state='done'] .cib-line {
+  color: var(--ink);
+}
+
+.cv-empty__keys {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* the pages a task refers to (their text goes along) */
+.ctk-refs {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+}
+.ctk-refs__list {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
+}
+.ctk-refs__page {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 260px;
+  height: 24px;
+  padding: 0 8px;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-1);
+  background: var(--surface);
+  color: var(--ink);
+  font-size: var(--text-sm);
+  text-decoration: none;
+}
+.ctk-refs__page span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ctk-refs__page:hover {
+  border-color: var(--rule-strong);
+}
+.ctk-refs__page:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
 }

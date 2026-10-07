@@ -1,7 +1,8 @@
 /**
  * The task panel on a coding task's page (between its properties and its body): the stage timeline, what
  * the task waits for (Approve · Rework with instructions · Answer · Stop · Retry · Run now · Confirm on this
- * device), and the tabs Log · Plan · Diff · Tests · Git with what this device's worker reported.
+ * device), and the tabs Log · Plan · Diff · Tests · Git with what this device's worker reported. Business analysis /
+ * QA tasks (document stages): Log · Document, a repo is optional, and "Then" hands them on to another pipeline.
  */
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Check, CircleStop, Play, RotateCcw, ShieldCheck, Undo2 } from 'lucide-react'
@@ -24,6 +25,9 @@ import { DiffView } from './DiffView'
 import { GitBox } from './GitBox'
 import { ApprovalsPick, TaskSetup } from './TaskSetup'
 import { NowLine, RunCounters } from './NowLine'
+import { FollowUps } from './FollowUps'
+import { ImportBox } from './ImportBox'
+import { RefsLine } from './RefsLine'
 import './coding.css'
 
 type Tab = 'log' | 'plan' | 'diff' | 'tests' | 'git'
@@ -84,14 +88,15 @@ export default function TaskPanel({ pageId }: { pageId: ID }) {
   }, [pageId, team, row, dbs])
 
   if (!ctx) return null
-  const { pipeline, stage, row: task, props } = ctx
+  const { pipeline, stage, row: task, props, kind } = ctx
+  const coding = kind === 'coding'
   const running = !!busy
   const connected = conn === 'connected'
   const repo = props.repo ? (ctx.db.properties.find((p) => p.id === props.repo)?.options?.find((o) => o.id === task.properties[props.repo!])?.name ?? null) : null
   const branch = props.branch ? String(task.properties[props.branch] ?? '').trim() || null : null
   const cost = props.cost && typeof task.properties[props.cost] === 'number' ? (task.properties[props.cost] as number) : 0
   const files = local.git?.files ?? []
-  const state: 'running' | 'question' | 'failed' | 'stopped' | 'gate' | 'done' | 'idle' = running
+  const state: 'running' | 'question' | 'failed' | 'stopped' | 'gate' | 'intake' | 'done' | 'idle' = running
     ? 'running'
     : local.state === 'question'
       ? 'question'
@@ -101,37 +106,46 @@ export default function TaskPanel({ pageId }: { pageId: ID }) {
           ? 'stopped'
           : stage?.kind === 'gate'
             ? 'gate'
-            : stage?.kind === 'done'
+            : stage?.kind === 'import'
+              ? 'intake'
+              : stage?.kind === 'done'
               ? 'done'
               : 'idle'
   // the tab that fits the moment, until the person picks one
-  const auto: Tab = state === 'running' ? 'log' : stage?.kind === 'gate' && stage.index > 0 && pipeline[stage.index - 1]?.kind === 'plan' ? 'plan' : stage?.kind === 'gate' || stage?.kind === 'git' || stage?.kind === 'done' ? (files.length ? 'diff' : 'log') : local.test && stage?.kind === 'test' ? 'tests' : 'log'
+  const before = stage && stage.index > 0 ? pipeline[stage.index - 1]?.kind : undefined
+  const auto: Tab = state === 'running' ? 'log' : !coding && local.plan && stage?.kind !== 'queue' ? 'plan' : stage?.kind === 'gate' && (before === 'plan' || before === 'doc') ? 'plan' : stage?.kind === 'gate' || stage?.kind === 'git' || stage?.kind === 'done' ? (files.length ? 'diff' : 'log') : local.test && stage?.kind === 'test' ? 'tests' : 'log'
   const shown = tab ?? auto
   const money = (n: number) => n.toLocaleString(lang === 'de' ? 'de-DE' : 'en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2 })
-  const ledState = state === 'running' ? 'on' : state === 'failed' || state === 'stopped' ? 'off' : state === 'done' ? 'ok' : state === 'question' || state === 'gate' ? 'on' : 'ok'
+  const ledState = state === 'running' ? 'on' : state === 'failed' || state === 'stopped' ? 'off' : state === 'done' ? 'ok' : state === 'question' || state === 'gate' || state === 'intake' ? 'on' : 'ok'
   const canAct = !viewer
   const needsTrust = trusted === false
-  const runnable = !!stage && stage.kind !== 'gate' && stage.kind !== 'done'
+  const runnable = !!stage && stage.kind !== 'gate' && stage.kind !== 'done' && stage.kind !== 'import'
   // before the task runs: where it works (Repo, Branch) and where it is written (the page)
-  const setup = canAct && !running && (!stage || stage.kind === 'queue' || !repo)
+  const intake = stage?.kind === 'import'
+  const setup = canAct && !running && !intake && (!stage || stage.kind === 'queue' || (!repo && coding))
 
   const act = (fn: () => Promise<void>) => () => {
     void fn().catch((e: unknown) => useUI.getState().toast({ message: e instanceof Error ? e.message : String(e), kind: 'error' }))
   }
 
-  const TABS: Array<[Tab, string]> = [
-    ['log', t('features.coding.tab.log')],
-    ['plan', t('features.coding.tab.plan')],
-    ['diff', files.length ? `${t('features.coding.tab.diff')} ${files.length}` : t('features.coding.tab.diff')],
-    ['tests', t('features.coding.tab.tests')],
-    ['git', t('features.coding.tab.git')],
-  ]
+  const TABS: Array<[Tab, string]> = coding
+    ? [
+        ['log', t('features.coding.tab.log')],
+        ['plan', t('features.coding.tab.plan')],
+        ['diff', files.length ? `${t('features.coding.tab.diff')} ${files.length}` : t('features.coding.tab.diff')],
+        ['tests', t('features.coding.tab.tests')],
+        ['git', t('features.coding.tab.git')],
+      ]
+    : [
+        ['log', t('features.coding.tab.log')],
+        ['plan', t('features.coding.tab.doc')],
+      ]
 
   return (
     <section className="ctk" aria-label={t('features.coding.panel.label')} data-state={state} data-trust={trusted === null ? 'checking' : trusted ? 'yes' : 'no'} data-testid="coding-panel">
       <header className="ctk-head">
         <span className="label ctk-code">
-          § {t('features.coding.panel.code')} — {repo ?? t('features.coding.panel.noRepo')} · {stage?.name ?? '—'}
+          § {coding ? t('features.coding.panel.code') : t(`features.coding.pipe.${kind}.short`)} — {repo ?? t(coding ? 'features.coding.panel.noRepo' : 'features.coding.panel.docsOnly')} · {stage?.name ?? '—'}
         </span>
         <span className="ctk-state" role="status" data-testid="coding-state">
           <Led state={ledState} />
@@ -162,14 +176,17 @@ export default function TaskPanel({ pageId }: { pageId: ID }) {
         {!enabled || conn !== 'connected' ? (
           <p className="ctk-msg" data-testid="coding-offline">
             {t('features.coding.panel.offline')}{' '}
-            <button type="button" className="ctk-link" onClick={() => navigate({ name: 'coding' })}>
+            <button type="button" className="ctk-link" onClick={() => navigate(coding ? { name: 'coding' } : { name: 'coding', kind })}>
               {t('features.coding.panel.openCoding')}
             </button>
           </p>
         ) : null}
 
-        {setup && <TaskSetup taskId={pageId} repo={repo} branch={branch} described={taskHasText(task)} />}
+        {intake && trusted !== false && <ImportBox taskId={pageId} canAct={canAct} />}
+        {setup && <TaskSetup taskId={pageId} repo={repo} branch={branch} described={taskHasText(task)} kind={kind} />}
         {canAct && stage?.kind !== 'done' && <ApprovalsPick taskId={pageId} />}
+        {!coding && <FollowUps taskId={pageId} kind={kind} done={stage?.kind === 'done'} canAct={canAct} />}
+        {stage?.kind !== 'done' && <RefsLine taskId={pageId} />}
 
         {needsTrust && canAct && (
           <div className="ctk-box ctk-box--trust" role="alert">
@@ -307,7 +324,7 @@ export default function TaskPanel({ pageId }: { pageId: ID }) {
       </div>
       <div className="ctk-body" role="tabpanel">
         {shown === 'log' && <LogView lines={log} onClear={log.length ? () => void clearLog(pageId) : undefined} />}
-        {shown === 'plan' && (local.plan ? <PlanView markdown={local.plan} /> : <p className="ctk-empty">{t('features.coding.plan.none')}</p>)}
+        {shown === 'plan' && (local.plan ? <PlanView markdown={local.plan} /> : <p className="ctk-empty">{t(coding ? 'features.coding.plan.none' : 'features.coding.doc.none')}</p>)}
         {shown === 'diff' && <DiffView files={files} />}
         {shown === 'tests' &&
           (local.test ? (

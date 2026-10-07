@@ -35,6 +35,8 @@ export interface TaskLocal {
   testFailures?: number
   /** which gates this task stops at on this device (absent = this device's default, tasks.ts approvalsOf) */
   approvals?: 'all' | 'review' | 'none'
+  /** the follow-up tasks this device created from this one (Business analysis → Coding / QA, QA → Coding) */
+  spawned?: Partial<Record<'coding' | 'qa', ID>>
   at?: number
 }
 
