@@ -198,7 +198,21 @@ Always `execFile('git', […])` — never a shell line; hooks and your git confi
   iCloud) unless `worktreeDir` is set. A checkout (`git worktree add`) may take up to 10 min (`ONE_WORKER_CHECKOUT_MS`)
   with a line every 30 s; one that fails or runs out of time removes its folder, worktree entry and new branch.
 - **Progress**: every step goes to the task's log; while Claude Code is quiet the worker adds a *still working* line per
-  minute (`ONE_WORKER_QUIET_MS`).
+  minute (`ONE_WORKER_QUIET_MS`). The worker's own lines carry a message code + values (`LogLine.c` / `v`, e.g.
+  `stage`, `fetchFailed`, `testsPass`): One shows them in the person's language (`features.coding.log.c.<code>`,
+  coding/lines.ts — unknown codes and every line without one show `s` as written). After every Claude Code turn a
+  `progress` event carries { turns, maxTurns, cost, model }: turns are counted per assistant message id, the cost is an
+  estimate from each message's `usage` (mcp/src/worker/price.ts, $ per million tokens per model; cache writes 1.25 ×
+  input, cache reads at the model's rate; unknown model → none) until the result event's exact `total_cost_usd`. One
+  keeps it in memory only (`useCoding.progress`) and drops it when the stage ends.
+- **Live diff**: while a stage other than plan runs, the worker checks `git status --porcelain` every 30 s
+  (`ONE_WORKER_LIVE_GIT_MS`) and sends a `git` event (the same snapshot as at the end) whenever the worktree changed —
+  the panel's Files chip and the Diff tab follow along.
+- **In One while it runs**: the task panel's *Now* line (the last log line, its age ticking), the chips *Step x/y*,
+  *≈ +$* (this stage's estimate, on top of the task's cost) and *Files n +a −r* (opens the Diff tab); #/coding shows
+  the Now line under each running task. **Notifications** (Settings → Coding worker, per device, localStorage
+  `one.coding.notify`): the gate / question / failed / done toasts also become a browser notification while the tab
+  is hidden or another window has the focus (coding/notify.ts); a click focuses One and opens the task.
 - **Approvals** (One, per device): *all* (plan gate + review), *review* (the gate after a plan stage passes by itself),
   *none* (every gate passes; tests failing twice still stop at the review gate). Kept in the task's local state
   (`TaskLocal.approvals`); the last pick is this device's default (localStorage `one.coding.approvals`).
@@ -281,7 +295,7 @@ JSON text frames, subprotocol `one-worker.v1`, defined in
 | tab → worker | `{ type: "hello", app: "one", version, workspace: { id, name, kind, readOnly }, pair? }` (`pair`: this device's secret for a downloaded worker) · `status` (same workspace, or the tab is refused) · `nudge` |
 | worker → tab | `welcome` { worker, name, repos: [{ name, baseBranch }], parallel, busy, spentToday, dayLimit, claude: { found, version }, setup, paired } (sent again when the setup page saves) · `refused` { reason: workspace \| unbound \| pair, paired? } + close 4003 · `status` { busy, spentToday } |
 | worker → tab (req) | `next` { repos, worker } → `{ task: TaskPayload \| null }` (claimed) · `heartbeat` { taskIds } · `finish` { taskId, stageId, outcome } (retried until confirmed) |
-| worker → tab (event) | `log` { lines } · `git` { git } · `note` { text } · `question` { text } |
+| worker → tab (event) | `log` { lines } · `git` { git } · `note` { text } · `question` { text } · `progress` { progress: { turns, maxTurns, cost, model } } |
 | tab → worker (req) | `stop` { taskId } · `git` { taskId, verb, repo, branch, title, message? } — verbs: refresh, commit, push, force-push, pr, update-base, discard, cleanup, reveal · `open-setup` → `{ opened, reason?: off \| no-browser }` |
 
 `POST http://127.0.0.1:<port>/task` (`Authorization: Bearer <run token>`, no `Origin`): the task tools.

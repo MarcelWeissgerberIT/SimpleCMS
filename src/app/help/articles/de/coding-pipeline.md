@@ -39,7 +39,9 @@ Im Tab **Log** siehst du jeden Schritt: *Fetching origin…*, den neuen Branch, 
 Jede Aufgabe arbeitet auf einem eigenen Branch (`one/<titel>-<id>`) in einem eigenen Worktree — dein Haupt-Checkout bleibt, wie er ist. Bevor eine Aufgabe läuft, wählst du im Coding-Panel das **Repo** (die Repos, die dein Worker meldet) und den **Branch**: *Neuer Branch (automatisch)* oder einen vorhandenen Branch des Repos auf deinem Rechner, um darauf weiterzuarbeiten (der Basis-Branch wird nie angeboten). Eintippen geht auch im Feld **Branch**.
 
 ## Während sie läuft
-- **Log** zeigt live, was Claude Code tut. Braucht Claude eine Entscheidung, zeigt die Aufgabe **Claude fragt** — deine **Antwort** startet die Stufe neu.
+- **Jetzt** zeigt die letzte Zeile des Workers und wie lange sie her ist; darunter **Schritt 6/30** (der Schritt von Claude Code von der Grenze der Stufe), **≈ +0,07 $** (diese Stufe bisher, geschätzt — den genauen Betrag gibt es am Ende) und **Dateien** (was sich bisher geändert hat; ein Klick öffnet den Diff). #/coding zeigt dieselbe Zeile unter jeder laufenden Aufgabe.
+- **Log** zeigt live, was Claude Code tut; die eigenen Zeilen des Workers erscheinen in deiner Sprache. Braucht Claude eine Entscheidung, zeigt die Aufgabe **Claude fragt** — deine **Antwort** startet die Stufe neu.
+- **Benachrichtigungen**: in **Einstellungen → Coding-Worker** *Benachrichtigen, solange One im Hintergrund ist* einschalten — der Browser meldet sich, wenn eine Aufgabe wartet, fragt, fehlschlägt oder fertig ist, während der Tab im Hintergrund ist (auf diesem Gerät).
 - **Stopp** beendet Claude Code sofort; **Erneut versuchen** oder **Jetzt ausführen** starten die Stufe wieder.
 - **Git**: Aktualisieren, Committen, Pushen, PR öffnen, Von Basis aktualisieren, Ordner zeigen (der Pfad erscheint nur im Terminal des Workers). **Force-Push** und **Worktree verwerfen** fragen zweimal; **Aufräumen** wartet, bis der Branch gemergt ist.
 - **Pipeline** (auf #/coding) ändert die Stufen: Namen, welche von selbst laufen, Modus, Züge und Anweisungen für Claude Code.

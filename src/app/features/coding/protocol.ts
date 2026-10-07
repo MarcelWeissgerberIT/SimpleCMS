@@ -122,6 +122,18 @@ export interface LogLine {
   t: number
   k: LogKind
   s: string
+  /** the worker's own lines: a message code + its values — One shows them in the person's language (`s` = English) */
+  c?: string
+  v?: Record<string, string | number>
+}
+
+/** Claude Code's progress in a running stage (sent after every turn). */
+export interface TaskProgress {
+  turns: number
+  maxTurns: number
+  /** an estimate from the token counts ($; Claude Code reports the exact cost at the end) — null: unknown model */
+  cost: number | null
+  model: string | null
 }
 
 export interface GitCommit {
@@ -266,6 +278,7 @@ export type WorkerMessage =
   | { type: 'req'; id: string; op: 'finish'; taskId: string; stageId: string; outcome: StageOutcome }
   | { type: 'event'; taskId: string; kind: 'log'; lines: LogLine[] }
   | { type: 'event'; taskId: string; kind: 'git'; git: GitInfo }
+  | { type: 'event'; taskId: string; kind: 'progress'; progress: TaskProgress }
   | { type: 'event'; taskId: string; kind: 'note' | 'question'; text: string }
   | { type: 'res'; id: string; ok: true; result: unknown }
   | { type: 'res'; id: string; ok: false; error: string }

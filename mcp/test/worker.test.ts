@@ -26,9 +26,9 @@ afterEach(async () => {
 })
 after(cleanupAll)
 
-async function boot(r: TempRepo, cfg: Record<string, unknown> = {}, repo: Record<string, unknown> = {}) {
+async function boot(r: TempRepo, cfg: Record<string, unknown> = {}, repo: Record<string, unknown> = {}, env: Record<string, string> = {}) {
   const file = writeConfig(r, { workspace: WS_LOCAL.id, port: PORT, pollSec: 2, name: 'test-box', repos: [repoEntry(r, repo)], ...cfg })
-  worker = await startWorker(file)
+  worker = await startWorker(file, env)
   assert.match(worker.stderr(), /ready on ws:\/\/127\.0\.0\.1:47381/)
   return file
 }
@@ -157,6 +157,31 @@ describe('a task through the pipeline', () => {
     const discard = await tab.request({ op: 'git', taskId: 'flow1abc', verb: 'discard', repo: 'demo', branch, title: 'x' })
     assert.equal(discard.ok, true, JSON.stringify(discard))
     assert.equal(sh(r.path, 'branch', '--list', branch).trim(), '')
+  })
+
+  test('while Claude Code works: progress per turn (steps, limit, estimate) and the diff as files change; lines carry codes', async () => {
+    const r = makeRepo()
+    await boot(r, {}, {}, { ONE_WORKER_LIVE_GIT_MS: '150' })
+    const tab = await connect()
+    await tab.next('welcome')
+    const done = await tab.run(task({ kind: 'implement' }, { id: 'live1abc', text: 'FAKE:LIVE' }))
+    assert.equal(done.status, 'ok', JSON.stringify(done))
+    const events = tab.messages.filter((m): m is Extract<WorkerMessage, { type: 'event' }> => m.type === 'event' && m.taskId === 'live1abc')
+    const progress = events.flatMap((m) => (m.kind === 'progress' ? [m.progress] : []))
+    assert.ok(progress.length >= 10, JSON.stringify(progress.slice(0, 3)))
+    assert.equal(progress.at(-1)!.maxTurns, 10)
+    assert.equal(progress.at(-1)!.cost, 0.03)
+    assert.ok(progress.some((p) => p.turns > 5 && p.turns <= 21 && p.cost !== null && p.cost > 0))
+    // the live diff: live.txt reached One before Claude Code finished
+    const finished = events.findIndex((m) => m.kind === 'log' && m.lines.some((l) => l.c === 'claudeDone'))
+    const live = events.findIndex((m) => m.kind === 'git' && m.git.files.some((f) => f.path === 'live.txt'))
+    assert.ok(live >= 0 && live < finished, `live ${live} · finished ${finished}`)
+    // the worker's own lines carry a code + values (One shows them in the person's language); paths stay out
+    const lines = events.flatMap((m) => (m.kind === 'log' ? m.lines : []))
+    assert.deepEqual(lines.find((l) => l.c === 'stage')?.v, { stage: 'Implement', kind: 'implement', repo: 'demo' })
+    assert.ok(lines.some((l) => l.c === 'branch' && l.v?.branch === done.branch))
+    assert.ok(lines.some((l) => l.c === 'starting'))
+    assertNoPaths(tab, r)
   })
 
   test('a question waits for the person; the answer runs the stage again', async () => {

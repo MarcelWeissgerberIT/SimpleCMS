@@ -20,7 +20,30 @@ import { useCoding, validPort, type CodingState } from './state'
 import { CodeBlock } from './CodeBlock'
 import { SetupCard } from './SetupCard'
 import { workerStateText } from './stateText'
+import { notifyEnabled, notifyPermission, setNotify } from './notify'
 import './coding.css'
+
+/** Browser notifications when a task needs the person or is done while One is in the background (this device). */
+function NotifySwitch() {
+  const t = useT()
+  const [on, setOn] = useState(notifyEnabled)
+  const [denied, setDenied] = useState(() => notifyPermission() === 'denied')
+  if (notifyPermission() === 'unsupported') return null
+  const change = (v: boolean) =>
+    void setNotify(v).then((ok) => {
+      setOn(v && ok)
+      setDenied(v && !ok)
+    })
+  return (
+    <div className="cw-switch" data-testid="coding-notify">
+      <Switch checked={on} onChange={change} label={t('features.coding.notify.switch')} />
+      <div>
+        <div className="cw-switch__label">{t('features.coding.notify.switch')}</div>
+        <div className="cw-switch__hint">{t(denied ? 'features.coding.notify.denied' : 'features.coding.notify.hint')}</div>
+      </div>
+    </div>
+  )
+}
 
 /** Where the site serves the worker (respects the app's base). */
 export function workerUrl(): string {
@@ -105,6 +128,7 @@ export function WorkerTab() {
             <div className="cw-switch__hint">{t('features.coding.settings.allowHint')}</div>
           </div>
         </div>
+        <NotifySwitch />
         <dl className="cw-ro">
           <div className="cw-ro__cell">
             <dt className="label">{t('features.coding.ro.worker')}</dt>

@@ -31,6 +31,7 @@ import {
 } from './protocol'
 import { DEFAULT_CODING, CODING_STORAGE_KEY, loadCodingSettings, saveCodingSettings, useCoding, validPort, type CodingSettings } from './state'
 import { appendLog, patchTask, flushLogs, loadTask } from './local'
+import { cleanCode } from './lines'
 import { codingDbId, addRepoOptions, codingProps } from './schema'
 import { finishStage, heartbeat, pickNext, setNudge, taskContext, gitSummary } from './tasks'
 import { startTrustWatch } from './trust'
@@ -243,8 +244,22 @@ function onEvent(msg: Extract<WorkerMessage, { type: 'event' }>) {
   if (!ownTask(taskId)) return
   switch (msg.kind) {
     case 'log':
-      appendLog(taskId, (Array.isArray(msg.lines) ? msg.lines : []).filter((l) => l && typeof l.s === 'string').map((l) => ({ t: Number(l.t) || Date.now(), k: l.k, s: l.s.slice(0, 8000) })))
+      appendLog(taskId, (Array.isArray(msg.lines) ? msg.lines : []).filter((l) => l && typeof l.s === 'string').map((l) => ({ t: Number(l.t) || Date.now(), k: l.k, s: l.s.slice(0, 8000), ...cleanCode(l) })))
       return
+    case 'progress': {
+      const p = msg.progress
+      if (!p || typeof p !== 'object') return
+      const num = (x: unknown, max: number) => (typeof x === 'number' && Number.isFinite(x) && x >= 0 ? Math.min(x, max) : 0)
+      const progress = {
+        turns: Math.round(num(p.turns, 10_000)),
+        maxTurns: Math.round(num(p.maxTurns, 10_000)),
+        cost: typeof p.cost === 'number' && Number.isFinite(p.cost) ? num(p.cost, 100_000) : null,
+        model: typeof p.model === 'string' ? p.model.slice(0, 80) : null,
+        at: Date.now(),
+      }
+      set((st) => ({ progress: { ...st.progress, [taskId]: progress } }))
+      return
+    }
     case 'git': {
       void patchTask(taskId, { git: msg.git })
       const ctx = taskContext(taskId)

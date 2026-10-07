@@ -10,7 +10,8 @@
  */
 import { spawn, execFile, type ChildProcess } from 'node:child_process'
 import { createInterface } from 'node:readline'
-import type { LogLine, PermissionMode } from '../../../src/app/features/coding/protocol.ts'
+import type { LogLine, PermissionMode, TaskProgress } from '../../../src/app/features/coding/protocol.ts'
+import { estimateCost, usageOf, type Usage } from './price.ts'
 
 export interface ClaudeCaps {
   found: boolean
@@ -67,6 +68,8 @@ export interface ClaudeRun {
   env: NodeJS.ProcessEnv
   signal: AbortSignal
   onLog: (line: LogLine) => void
+  /** after every turn: turns so far, the limit, a cost estimate */
+  onProgress?: (p: TaskProgress) => void
 }
 
 export interface ClaudeResult {
@@ -85,7 +88,7 @@ export interface ClaudeResult {
 }
 
 /** The argv for a run (exported for the tests: no bypassing flag ever). */
-export function claudeArgs(r: Omit<ClaudeRun, 'bin' | 'cwd' | 'prompt' | 'env' | 'signal' | 'onLog'>): string[] {
+export function claudeArgs(r: Omit<ClaudeRun, 'bin' | 'cwd' | 'prompt' | 'env' | 'signal' | 'onLog' | 'onProgress'>): string[] {
   const args = ['-p', '--output-format', 'stream-json', '--verbose', '--permission-mode', cliMode(r.mode, r.caps), '--max-turns', String(r.maxTurns)]
   if (r.model) args.push('--model', r.model)
   if (r.allowedTools.length) args.push('--allowedTools', r.allowedTools.join(','))
@@ -152,19 +155,27 @@ export function runClaude(r: ClaudeRun): Promise<ClaudeResult> {
     }
     let stderr = ''
     let gotResult = false
-    const log = (k: LogLine['k'], s: string) => r.onLog({ t: Date.now(), k, s })
+    const log = (k: LogLine['k'], s: string, c?: string, v?: LogLine['v']) => r.onLog({ t: Date.now(), k, s, ...(c ? { c, v } : {}) })
+    // progress: one turn per assistant message (by id), the token counts of each for the estimate
+    let model: string | null = null
+    let turns = 0
+    let unnamed = 0
+    const usages = new Map<string, Usage>()
+    const progress = () => r.onProgress?.({ turns, maxTurns: r.maxTurns, cost: estimateCost(model, usages.values()), model })
     // a sign of life while Claude Code works quietly (reading, thinking): one line per quiet minute
     const started = Date.now()
     let heard = started
     const quietMs = Number(process.env.ONE_WORKER_QUIET_MS) || 60_000
     const beat = setInterval(() => {
       if (Date.now() - heard < quietMs) return
-      log('info', `Claude Code is still working · ${clock(Date.now() - started)} so far · last output ${clock(Date.now() - heard)} ago`)
+      const total = clock(Date.now() - started)
+      const quiet = clock(Date.now() - heard)
+      log('info', `Claude Code is still working · ${total} so far · last output ${quiet} ago`, 'stillWorking', { total, quiet })
     }, quietMs)
     beat.unref()
     const onAbort = () => {
       result.stopped = true
-      log('warn', 'Stopped — Claude Code was ended.')
+      log('warn', 'Stopped — Claude Code was ended.', 'stopped')
       killTree(child)
     }
     if (r.signal.aborted) onAbort()
@@ -192,9 +203,20 @@ export function runClaude(r: ClaudeRun): Promise<ClaudeResult> {
       if (typeof ev.session_id === 'string') result.sessionId = ev.session_id
       switch (ev.type) {
         case 'system':
-          if (ev.subtype === 'init') log('info', `Claude Code started · ${String(ev.permissionMode ?? r.mode)} mode${result.sessionId ? ` · session ${result.sessionId.slice(0, 8)}` : ''}`)
+          if (ev.subtype === 'init') {
+            if (typeof ev.model === 'string') model = ev.model
+            const m = String(ev.permissionMode ?? r.mode)
+            log('info', `Claude Code started · ${m} mode${result.sessionId ? ` · session ${result.sessionId.slice(0, 8)}` : ''}`, 'claudeStarted', { mode: m })
+            progress()
+          }
           return
         case 'assistant': {
+          const message = (ev.message ?? {}) as { id?: unknown; model?: unknown; usage?: unknown }
+          const id = typeof message.id === 'string' ? message.id : `n${++unnamed}`
+          if (!usages.has(id)) turns++
+          usages.set(id, usageOf(message.usage) ?? usages.get(id) ?? { input: 0, output: 0, cacheWrite: 0, cacheRead: 0 })
+          if (typeof message.model === 'string') model = message.model
+          progress()
           const content = ((ev.message as { content?: unknown })?.content ?? []) as Array<Record<string, unknown>>
           for (const block of Array.isArray(content) ? content : []) {
             if (block.type === 'text' && typeof block.text === 'string' && block.text.trim()) log('claude', clip(block.text.trim(), 4000))
@@ -223,7 +245,8 @@ export function runClaude(r: ClaudeRun): Promise<ClaudeResult> {
           result.text = typeof ev.result === 'string' ? ev.result : ''
           result.ok = ev.is_error !== true && result.subtype === 'success'
           if (!result.ok) result.error = result.subtype === 'error_max_turns' ? `Claude Code stopped after ${result.turns} turns (the stage's limit)` : /budget/i.test(result.subtype ?? '') ? 'Claude Code stopped at the cost limit' : result.text || `Claude Code ended with ${result.subtype ?? 'an error'}`
-          log(result.ok ? 'info' : 'warn', `Claude Code finished · ${result.turns} turns · $${result.cost.toFixed(2)}${result.ok ? '' : ` · ${result.subtype ?? 'error'}`}`)
+          r.onProgress?.({ turns: Math.max(turns, result.turns), maxTurns: r.maxTurns, cost: result.cost, model })
+          log(result.ok ? 'info' : 'warn', `Claude Code finished · ${result.turns} turns · $${result.cost.toFixed(2)}${result.ok ? '' : ` · ${result.subtype ?? 'error'}`}`, result.ok ? 'claudeDone' : 'claudeEnded', { turns: result.turns, cost: result.cost.toFixed(2), why: result.subtype ?? 'error' })
           return
         }
       }

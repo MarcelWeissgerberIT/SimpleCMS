@@ -169,17 +169,17 @@ export async function fetchRemote(repo: RepoConfig): Promise<boolean> {
 }
 
 /** What a task's preparation tells the log. */
-export type GitNote = (kind: 'git' | 'warn', text: string) => void
+export type GitNote = (kind: 'git' | 'warn', text: string, code?: string, vars?: Record<string, string | number>) => void
 
 /** Fetch for a new task: a failure is noted and the task goes on from what this computer has. */
 export async function tryFetch(repo: RepoConfig, note?: GitNote): Promise<boolean> {
   if (!(await hasRemote(repo))) return false
-  note?.('git', `Fetching ${repo.remote}…`)
+  note?.('git', `Fetching ${repo.remote}…`, 'fetching', { remote: repo.remote })
   try {
     return await fetchRemote(repo)
   } catch (e) {
     const why = (e instanceof Error ? e.message : String(e)).replace(/\s+/g, ' ').trim().slice(0, 300)
-    note?.('warn', `Could not fetch ${repo.remote} (${why}) — going on with what this computer has.`)
+    note?.('warn', `Could not fetch ${repo.remote} (${why}) — going on with what this computer has.`, 'fetchFailed', { remote: repo.remote, why })
     return false
   }
 }
@@ -238,7 +238,7 @@ export async function ensureWorktree(repo: RepoConfig, state: WorkerState, task:
   const dir = join(repo.worktreeDir, branch.replace(/[\\/]+/g, '-'))
   if (existsSync(dir)) throw new GitError(`the worktree folder for ${branch} already exists and is not a worktree of this repo — move it away first`)
   mkdirSync(dirname(dir), { recursive: true })
-  note?.('git', `New branch ${branch} from ${base} in its own worktree…`)
+  note?.('git', `New branch ${branch} from ${base} in its own worktree…`, 'newBranch', { branch, base })
   await addWorktree(repo, ['-b', branch, dir, base], dir, branch, note)
   state.remember(repo.name, branch, { task: task.id, worktree: dir, branchCreated: true, fork, at: Date.now() })
   state.setTask(task.id, { repo: repo.name, branch, worktree: dir })
@@ -256,7 +256,10 @@ const clock = (ms: number) => `${Math.floor(ms / 60_000)}:${String(Math.round(ms
  */
 async function addWorktree(repo: RepoConfig, args: string[], dir: string, newBranch: string | null, note?: GitNote): Promise<void> {
   const started = Date.now()
-  const beat = setInterval(() => note?.('git', `Still checking out the files · ${clock(Date.now() - started)}`), Number(process.env.ONE_WORKER_QUIET_MS) || 30_000)
+  const beat = setInterval(() => {
+    const time = clock(Date.now() - started)
+    note?.('git', `Still checking out the files · ${time}`, 'checkout', { time })
+  }, Number(process.env.ONE_WORKER_QUIET_MS) || 30_000)
   beat.unref()
   try {
     const r = await git(repo.path, ['worktree', 'add', ...args], checkoutMs())

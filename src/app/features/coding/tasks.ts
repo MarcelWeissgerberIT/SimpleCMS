@@ -25,6 +25,7 @@ import { codingDbId, codingProps, ensureCodingDb, addRepoOptions, nextStage, opt
 import { appendLog, loadTask, patchTask, taskLocal, type TaskLocal } from './local'
 import { isTrusted, keepTrust, trustTask } from './trust'
 import { useCoding } from './state'
+import { notifyAway } from './notify'
 
 const ws = () => useWorkspace.getState()
 
@@ -306,12 +307,23 @@ export async function finishStage(taskId: ID, stageId: ID, outcome: StageOutcome
     appendLog(taskId, passed.map((name) => ({ t: Date.now(), k: 'info' as const, s: t('features.coding.approvals.passed', { stage: name }) })))
     if (moveTo?.auto) nudge()
   }
+  dropProgress(taskId)
+  if (!toast) return
+  const message = t(toast.key, { title: ws().pages[taskId]?.title.trim() || t('common.untitled'), stage: moveTo?.name ?? stage?.name ?? '' })
+  // One in the background: the browser says it (when switched on here, notify.ts)
+  notifyAway(taskId, message)
   // no toast for the task the person is looking at: its panel shows it
   const here = parseHash(window.location.hash)
-  if (toast && !(here.name === 'page' && here.id === taskId)) {
-    const title = ws().pages[taskId]?.title.trim() || t('common.untitled')
-    useUI.getState().toast({ message: t(toast.key, { title, stage: moveTo?.name ?? stage?.name ?? '' }), kind: toast.kind, action: { label: t('features.coding.open'), run: () => navigate({ name: 'page', id: taskId }) } })
-  }
+  if (!(here.name === 'page' && here.id === taskId)) useUI.getState().toast({ message, kind: toast.kind, action: { label: t('features.coding.open'), run: () => navigate({ name: 'page', id: taskId }) } })
+}
+
+/** The stage ended: its running counters go. */
+function dropProgress(taskId: ID) {
+  const { progress } = useCoding.getState()
+  if (!progress[taskId]) return
+  const rest = { ...progress }
+  delete rest[taskId]
+  useCoding.setState({ progress: rest })
 }
 
 /* ------------------------------------------------------------------ the person's side */

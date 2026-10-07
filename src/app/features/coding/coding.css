@@ -193,6 +193,108 @@
   color: var(--ink-3);
   font-size: var(--text-sm);
 }
+/* while running: the last thing the worker did (ticking age) + the counters */
+.ctk-live {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+.ctk-now {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+  margin: 0;
+  padding: 6px 10px;
+  border: 1px solid var(--rule);
+  border-left: 2px solid var(--signal);
+  border-radius: var(--radius-1);
+  background: var(--surface);
+  font-size: var(--text-sm);
+}
+.ctk-now__label {
+  flex: none;
+  color: var(--signal-ink);
+}
+.ctk-now__s {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: calc(12px * var(--text-scale));
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ctk-now[data-k='warn'] .ctk-now__s,
+.ctk-now[data-k='error'] .ctk-now__s {
+  color: var(--c-red-text);
+}
+.ctk-now__ago {
+  flex: none;
+  color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+}
+/* two classes: .label (ui.css) loads after this file in production */
+.ctk-now .ctk-now__ago {
+  text-transform: none;
+  letter-spacing: 0.02em;
+}
+.ctk-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.ctk-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 22px;
+  padding: 1px 7px;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-1);
+  background: var(--surface);
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+}
+.ctk-chip--btn {
+  cursor: pointer;
+  transition: border-color var(--dur-1) var(--ease-out);
+}
+.ctk-chip--btn:hover {
+  border-color: var(--ink-3);
+}
+.ctk-chip--btn:active {
+  transform: translateY(1px);
+}
+.ctk-chip__add {
+  color: var(--c-green-text);
+}
+.ctk-chip__del {
+  color: var(--c-red-text);
+}
+.cv-busy {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+.cv-busy + .cv-busy {
+  margin-top: 6px;
+}
+.cv-busy .ctk-now {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 2px 8px;
+  padding: 4px 8px;
+}
+/* the overview's column is narrow: the line gets its own row under "Now · 12 s ago" */
+.cv-busy .ctk-now__s {
+  grid-column: 1 / -1;
+  grid-row: 2;
+}
+.cv-busy .ctk-now__ago {
+  justify-self: end;
+}
 .ctk-box {
   display: grid;
   gap: 8px;

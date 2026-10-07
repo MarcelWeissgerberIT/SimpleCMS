@@ -10,11 +10,11 @@ import { randomBytes } from 'node:crypto'
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { GitInfo, LogLine, StageOutcome, TaskPayload, TestResult } from '../../../src/app/features/coding/protocol.ts'
+import type { GitInfo, LogLine, StageOutcome, TaskPayload, TaskProgress, TestResult } from '../../../src/app/features/coding/protocol.ts'
 import { inICloud, type RepoConfig } from './config.ts'
 import type { WorkerState } from './state.ts'
 import { runClaude, type ClaudeCaps } from './claude.ts'
-import { GitError, commitAll, ensureWorktree, info, openPr, push, updateFromBase, type TaskWorktree } from './git.ts'
+import { GitError, commitAll, ensureWorktree, git, info, openPr, push, updateFromBase, type TaskWorktree } from './git.ts'
 import { repoScrubber, type Scrubber } from './scrub.ts'
 import { runTests } from './testrun.ts'
 
@@ -32,6 +32,8 @@ export interface StageContext {
   /** a line for One's log (scrubbed here) */
   log: (line: LogLine) => void
   git: (g: GitInfo) => void
+  /** Claude Code's progress (turns, the limit, a cost estimate) */
+  progress?: (p: TaskProgress) => void
   /** the question Claude asked during this run (one_task_ask), if any */
   question: () => string | null
   /** worktree known (for the task tools' scrubber) */
@@ -39,6 +41,11 @@ export interface StageContext {
 }
 
 const SUMMARY_MAX = 6000
+
+/** A line for One's log; `c` + `v` = the worker's own message code (One shows it in the person's language). */
+type Log = (k: LogLine['k'], s: string, c?: string, v?: Record<string, string | number>) => void
+const scrubVars = (scrub: Scrubber, v?: Record<string, string | number>) =>
+  v ? Object.fromEntries(Object.entries(v).map(([k, x]) => [k, typeof x === 'string' ? scrub.text(x) : x])) : undefined
 const clip = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1)}…` : s)
 
 const DEFAULTS: Record<'plan' | 'implement', string> = {
@@ -129,18 +136,18 @@ async function gitSnapshot(ctx: StageContext, wt: TaskWorktree, scrub: Scrubber)
 export async function runStage(ctx: StageContext): Promise<StageOutcome> {
   const { repo, task } = ctx
   let scrub = repoScrubber(repo)
-  const log = (k: LogLine['k'], s: string) => ctx.log({ t: Date.now(), k, s: scrub.text(s) })
+  const log: Log = (k, s, c, v) => ctx.log({ t: Date.now(), k, s: scrub.text(s), ...(c ? { c, v: scrubVars(scrub, v) } : {}) })
   if (ctx.team && !task.trusted) return { status: 'refused', error: 'This task was written or changed on another device and is not confirmed on this one. Confirm it in One (task panel) first.' }
   const kind = task.stage.kind
   if (kind === 'queue' || kind === 'gate' || kind === 'done') return { status: 'refused', error: `A ${kind} stage is not run by the worker.` }
   try {
-    log('info', `Stage "${task.stage.name}" (${kind}) on ${repo.name}`)
+    log('info', `Stage "${task.stage.name}" (${kind}) on ${repo.name}`, 'stage', { stage: task.stage.name, kind, repo: repo.name })
     if (inICloud(repo.path))
-      log('warn', `${repo.name} lies in iCloud Drive: git waits whenever a file is only in the cloud, so steps can take minutes. Faster: keep the folder downloaded (Finder → right-click → Keep Downloaded), or clone it to ~/Developer (not synced) and tick that one on the worker's setup page.`)
-    const wt = await ensureWorktree(repo, ctx.state, task, task.branch, (k, s) => log(k, s))
+      log('warn', `${repo.name} lies in iCloud Drive: git waits whenever a file is only in the cloud, so steps can take minutes. Faster: keep the folder downloaded (Finder → right-click → Keep Downloaded), or clone it to ~/Developer (not synced) and tick that one on the worker's setup page.`, 'icloud', { repo: repo.name })
+    const wt = await ensureWorktree(repo, ctx.state, task, task.branch, (k, s, c, v) => log(k, s, c, v))
     scrub = repoScrubber(repo, wt.dir)
     ctx.onWorktree?.(wt, scrub)
-    log('git', `${wt.created ? 'Branch' : 'Reusing branch'} ${wt.branch}`)
+    log('git', `${wt.created ? 'Branch' : 'Reusing branch'} ${wt.branch}`, wt.created ? 'branch' : 'reuse', { branch: wt.branch })
     if (kind === 'plan' || kind === 'implement') return await claudeStage(ctx, wt, scrub, log)
     if (kind === 'test') return await testStage(ctx, wt, scrub, log)
     return await gitStage(ctx, wt, scrub, log)
@@ -151,7 +158,7 @@ export async function runStage(ctx: StageContext): Promise<StageOutcome> {
   }
 }
 
-async function claudeStage(ctx: StageContext, wt: TaskWorktree, scrub: Scrubber, log: (k: LogLine['k'], s: string) => void): Promise<StageOutcome> {
+async function claudeStage(ctx: StageContext, wt: TaskWorktree, scrub: Scrubber, log: Log): Promise<StageOutcome> {
   const { repo, task, caps } = ctx
   if (!caps.found) return { status: 'failed', branch: wt.branch, error: `Claude Code was not found on this computer ("${ctx.bin}"). Install it and sign in, or set CLAUDE_BIN.` }
   const lim = limits(ctx)
@@ -163,7 +170,9 @@ async function claudeStage(ctx: StageContext, wt: TaskWorktree, scrub: Scrubber,
   const plan = task.stage.kind === 'plan'
   const mode = plan ? 'plan' : (repo.claude.permissionMode.implement ?? task.stage.permissionMode)
   const mcp = ctx.taskMcp ? writeMcpConfig(ctx.taskMcp) : null
-  log('info', `Starting Claude Code (${mode} mode)…`)
+  log('info', `Starting Claude Code (${mode} mode)…`, 'starting', { mode })
+  // while Claude Code changes files: the Diff tab follows along (a snapshot whenever the worktree changed)
+  const live = plan ? null : liveDiff(ctx, wt, scrub)
   try {
     const res = await runClaude({
       bin: ctx.bin,
@@ -180,7 +189,8 @@ async function claudeStage(ctx: StageContext, wt: TaskWorktree, scrub: Scrubber,
       caps,
       env: claudeEnv(),
       signal: ctx.signal,
-      onLog: (l) => ctx.log({ ...l, s: scrub.text(l.s) }),
+      onLog: (l) => ctx.log({ ...l, s: scrub.text(l.s), ...(l.v ? { v: scrubVars(scrub, l.v) } : {}) }),
+      onProgress: ctx.progress,
     })
     if (res.cost > 0) ctx.state.addCost(task.id, res.cost)
     const git = await gitSnapshot(ctx, wt, scrub)
@@ -196,8 +206,31 @@ async function claudeStage(ctx: StageContext, wt: TaskWorktree, scrub: Scrubber,
     }
     return { ...base, status: 'ok', summary: clip(scrub.text(res.text.trim()), SUMMARY_MAX) || 'Done.' }
   } finally {
+    live?.stop()
     mcp?.dispose()
   }
+}
+
+/** Every 30 s (ONE_WORKER_LIVE_GIT_MS): has the worktree changed? Then a git snapshot goes to One. */
+function liveDiff(ctx: StageContext, wt: TaskWorktree, scrub: Scrubber): { stop: () => void } {
+  let last = ''
+  let busy = false
+  const timer = setInterval(async () => {
+    if (busy) return
+    busy = true
+    try {
+      const st = await git(wt.dir, ['status', '--porcelain', '--untracked-files=all'], 20_000)
+      const now = st.code === 0 ? st.stdout : last
+      if (now !== last) {
+        last = now
+        await gitSnapshot(ctx, wt, scrub)
+      }
+    } finally {
+      busy = false
+    }
+  }, Number(process.env.ONE_WORKER_LIVE_GIT_MS) || 30_000)
+  timer.unref()
+  return { stop: () => clearInterval(timer) }
 }
 
 /** Claude Code's environment: this process's, without the worker's own variables. */
@@ -207,20 +240,20 @@ function claudeEnv(): NodeJS.ProcessEnv {
   return env
 }
 
-async function testStage(ctx: StageContext, wt: TaskWorktree, scrub: Scrubber, log: (k: LogLine['k'], s: string) => void): Promise<StageOutcome> {
+async function testStage(ctx: StageContext, wt: TaskWorktree, scrub: Scrubber, log: Log): Promise<StageOutcome> {
   if (!ctx.repo.testCommand) {
     log('test', 'No testCommand in worker.json for this repo — the Test stage passes.')
     const test: TestResult = { ok: true, output: '', ms: 0, code: null, skipped: true }
     return { status: 'ok', branch: wt.branch, test, summary: 'No tests configured.', git: await gitSnapshot(ctx, wt, scrub) }
   }
-  log('test', 'Running the tests…')
+  log('test', 'Running the tests…', 'testsRun')
   let lines = 0
   const res = await runTests(ctx.repo, wt.dir, ctx.signal, (line) => {
     // the first lines live; the whole tail comes with the result
     if (lines++ < 200) log('test', line)
   })
   const test: TestResult = { ...res, output: scrub.text(res.output) }
-  log(res.ok ? 'test' : 'warn', res.ok ? `Tests passed (${Math.round(res.ms / 100) / 10} s)` : `Tests failed (exit code ${res.code ?? '—'})`)
+  log(res.ok ? 'test' : 'warn', res.ok ? `Tests passed (${Math.round(res.ms / 100) / 10} s)` : `Tests failed (exit code ${res.code ?? '—'})`, res.ok ? 'testsPass' : 'testsFail', { s: Math.round(res.ms / 100) / 10, code: res.code ?? '—' })
   const git = await gitSnapshot(ctx, wt, scrub)
   if (ctx.signal.aborted) return { status: 'stopped', branch: wt.branch, test, git, error: 'Stopped in One.' }
   return res.ok ? { status: 'ok', branch: wt.branch, test, git, summary: `Tests passed in ${Math.round(res.ms / 1000)} s.` } : { status: 'failed', branch: wt.branch, test, git, error: `Tests failed (exit code ${res.code ?? '—'}).` }
@@ -232,7 +265,7 @@ export function commitMessage(task: TaskPayload): string {
   return `${task.title.trim().slice(0, 72) || 'One task'}${body ? `\n\n${body.slice(0, 3000)}` : ''}`
 }
 
-async function gitStage(ctx: StageContext, wt: TaskWorktree, scrub: Scrubber, log: (k: LogLine['k'], s: string) => void): Promise<StageOutcome> {
+async function gitStage(ctx: StageContext, wt: TaskWorktree, scrub: Scrubber, log: Log): Promise<StageOutcome> {
   const { repo, task } = ctx
   const action = task.stage.gitAction ?? 'pr'
   if (action === 'update-base') {
@@ -247,7 +280,7 @@ async function gitStage(ctx: StageContext, wt: TaskWorktree, scrub: Scrubber, lo
     return { status: 'ok', branch: wt.branch, git, summary }
   }
   const sha = await commitAll(wt.dir, commitMessage(task))
-  log('git', sha ? `Committed ${sha.slice(0, 8)}` : 'Nothing new to commit')
+  log('git', sha ? `Committed ${sha.slice(0, 8)}` : 'Nothing new to commit', sha ? 'committed' : 'nothingToCommit', { sha: (sha ?? '').slice(0, 8) })
   const done: string[] = [sha ? `Committed ${sha.slice(0, 8)}.` : 'Nothing new to commit.']
   let url: string | undefined
   if (action === 'push' || action === 'pr') {
@@ -256,7 +289,7 @@ async function gitStage(ctx: StageContext, wt: TaskWorktree, scrub: Scrubber, lo
       log('info', 'Pushing is off for this repo (worker.json "push": false).')
     } else {
       await push(repo, wt.dir, wt.branch)
-      log('git', `Pushed ${wt.branch} to ${repo.remote}`)
+      log('git', `Pushed ${wt.branch} to ${repo.remote}`, 'pushed', { branch: wt.branch, remote: repo.remote })
       done.push(`Pushed to ${repo.remote}/${wt.branch}.`)
       if (action === 'pr') {
         const pr = await openPr(repo, wt.dir, wt.branch, task.title, `${(task.summary ?? '').trim() || task.title}\n\n— From One (coding pipeline).`)

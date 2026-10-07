@@ -7,9 +7,10 @@ import { chmodSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { after, describe, test } from 'node:test'
-import type { LogLine } from '../../src/app/features/coding/protocol.ts'
+import type { LogLine, TaskProgress } from '../../src/app/features/coding/protocol.ts'
 import { claudeArgs, cliMode, detectClaude, runClaude, toolLine, type ClaudeCaps } from '../src/worker/claude.ts'
 import { buildPrompt, commitMessage } from '../src/worker/run.ts'
+import { estimateCost, usageOf } from '../src/worker/price.ts'
 import { sanitizeConfig } from '../src/worker/config.ts'
 import { sanitizeTask } from '../src/worker/worker.ts'
 import { FAKE_CLAUDE, cleanupAll, task, tempDir } from './worker-helpers.ts'
@@ -60,6 +61,35 @@ describe('Claude Code CLI', () => {
     assert.ok(lines.some((l) => l.k === 'info' && /finished · 3 turns · \$0\.05/.test(l.s)))
   })
 
+  test('progress: a turn per message id, the limit, a running estimate — the exact cost at the end; lines carry codes', async () => {
+    const dir = tempDir('claude')
+    writeFileSync(join(dir, 'README.md'), '# x\n')
+    const lines: LogLine[] = []
+    const seen: TaskProgress[] = []
+    const caps = await detectClaude(FAKE_CLAUDE)
+    await runClaude({ bin: FAKE_CLAUDE, cwd: dir, prompt: buildPrompt(task({ kind: 'plan' }), { name: 'demo', remote: 'origin', baseBranch: 'main' } as never, 'one/x'), mode: 'plan', maxTurns: 7, model: null, allowedTools: [], disallowedTools: [], mcpConfig: null, strictMcp: true, budgetUsd: null, caps, env: process.env, signal: new AbortController().signal, onLog: (l) => lines.push(l), onProgress: (p) => seen.push(p) })
+    // init (0 turns), 3 messages, then the result with Claude Code's own cost
+    assert.deepEqual(seen.map((p) => p.turns), [0, 1, 2, 3, 3])
+    assert.ok(seen.every((p) => p.maxTurns === 7 && p.model === 'claude-opus-5-5'))
+    const est = seen[3]!.cost!
+    assert.ok(est > 0 && est < 0.05, String(est))
+    assert.equal(seen.at(-1)!.cost, 0.05)
+    assert.deepEqual(lines.find((l) => l.c === 'claudeStarted')?.v, { mode: 'plan' })
+    assert.deepEqual(lines.find((l) => l.c === 'claudeDone')?.v, { turns: 3, cost: '0.05', why: 'success' })
+    // Claude's own text has no code (One shows it as written)
+    assert.ok(lines.filter((l) => l.k === 'claude').every((l) => !l.c))
+  })
+
+  test('cost estimate: per model, cache writes 1.25 × input, cache reads at the model\'s rate; unknown model = none', () => {
+    const u = usageOf({ input_tokens: 1_000_000, output_tokens: 100_000, cache_creation_input_tokens: 200_000, cache_read_input_tokens: 2_000_000 })!
+    assert.equal(estimateCost('claude-opus-5-5', [u])!.toFixed(4), (4 + 2 + 0.25 * 4 + 2 * 4 * 0.05).toFixed(4))
+    assert.equal(estimateCost('claude-sonnet-5-5', [u])!.toFixed(4), (2 + 1 + 0.25 * 2 + 2 * 2 * 0.1).toFixed(4))
+    assert.equal(estimateCost('some-other-model', [u]), null)
+    assert.equal(estimateCost(null, [u]), null)
+    assert.deepEqual(usageOf({ input_tokens: 'x' }), { input: 0, output: 0, cacheWrite: 0, cacheRead: 0 })
+    assert.equal(usageOf(null), null)
+  })
+
   test('Stop ends the process tree at once', async () => {
     const dir = tempDir('claude')
     const ac = new AbortController()
@@ -87,6 +117,7 @@ describe('sign of life', () => {
     }
     const alive = lines.filter((l) => /still working · \d+:\d\d so far · last output \d+:\d\d ago/.test(l.s))
     assert.ok(alive.length >= 2, JSON.stringify(lines))
+    assert.ok(alive.every((l) => l.c === 'stillWorking' && /^\d+:\d\d$/.test(String(l.v?.quiet))))
   })
 })
 

@@ -8,7 +8,7 @@
  *
  * (CHANGELOG_DRAFT=1 lets the build pass while a new entry's picture does not exist yet.)
  *
- * Shots: text-size, mcp-media, coding-setup, free-board, building-blocks, workspace-settings, diagram-viewer, coding-pipeline, pages-per-item, design-import, tour, quick-capture, script-templates, one-script-everywhere, file-ai, one-script, transform, ai-edit, db-commands, gmail-one-click, memory, grips-footer, block-select, split-to-page, image-ai, claude-reads, redo, ai-terminal, mcp-codewords, mcp-tidy-up, slash-menu, turn-into-database,
+ * Shots: coding-live, text-size, mcp-media, coding-setup, free-board, building-blocks, workspace-settings, diagram-viewer, coding-pipeline, pages-per-item, design-import, tour, quick-capture, script-templates, one-script-everywhere, file-ai, one-script, transform, ai-edit, db-commands, gmail-one-click, memory, grips-footer, block-select, split-to-page, image-ai, claude-reads, redo, ai-terminal, mcp-codewords, mcp-tidy-up, slash-menu, turn-into-database,
  * custom-agents, gmail, help-centre, mcp-servers, feed-blocks — each named like its image. Every shot starts from a fresh, seeded
  * workspace in English, light theme, 1440 × 900 at device scale 2; the crop of the relevant area is scaled
  * to 1440 px wide and saved as public/assets/shots/changelog/<shot>.webp (≤ 150 KB: the quality steps down
@@ -568,10 +568,10 @@ function codingRepo() {
   return { root, path, env }
 }
 
-async function startCodingWorker(work, workspace) {
+async function startCodingWorker(work, workspace, env = {}) {
   const file = join(work.root, 'worker.json')
   writeFileSync(file, JSON.stringify({ workspace, name: 'studio-mac', port: WORKER_PORT, pollSec: 2, repos: [{ name: 'website', path: work.path, baseBranch: 'main', testCommand: [process.execPath, 'check.mjs'], pr: 'none', maxUsdPerTask: 5, maxUsdPerDay: 25 }] }))
-  const child = spawn(process.execPath, [WORKER, '--config', file], { env: { ...work.env, CLAUDE_BIN: FAKE_CLAUDE }, stdio: ['ignore', 'ignore', 'pipe'] })
+  const child = spawn(process.execPath, [WORKER, '--config', file], { env: { ...work.env, CLAUDE_BIN: FAKE_CLAUDE, ...env }, stdio: ['ignore', 'ignore', 'pipe'] })
   let log = ''
   child.stderr.on('data', (d) => (log += d))
   for (let i = 0; i < 100 && !/ready on ws:/.test(log); i++) await sleep(50)
@@ -1423,6 +1423,53 @@ const shots = {
     const box = await boxOf(page.locator('.modal').first(), 20)
     await save(page, 'design-import', box)
     await ctx.close()
+  },
+
+  /**
+   * A coding task while Implement runs: the now-line (the worker's last line, how long ago), Step x/y, the cost
+   * estimate and the changed file. "Review only" approvals, so the plan gate passes by itself; the repository's own
+   * worker with the fake Claude Code CLI at a working pace — no API, no real host.
+   */
+  async 'coding-live'(browser) {
+    const work = codingRepo()
+    // taller: the panel down to its counters fits above the status bar
+    const { ctx, page } = await freshPage(browser, { viewport: { width: W, height: H + 300 } })
+    let worker = null
+    try {
+      await page.evaluate(() => localStorage.setItem('one.coding.approvals', 'review'))
+      await page.evaluate(() => window.__one.ui.getState().openModal({ type: 'settings' }))
+      await page.getByRole('tab', { name: 'Coding worker' }).click()
+      const init = await page.locator('.cw-code pre').filter({ hasText: 'init --workspace' }).first().textContent()
+      worker = await startCodingWorker(work, /--workspace (\S+)/.exec(init)[1], { ONE_WORKER_LIVE_GIT_MS: '500' })
+      const port = page.getByLabel('Port', { exact: true })
+      await port.fill(String(WORKER_PORT))
+      await port.press('Enter')
+      await page.getByRole('switch', { name: 'Connect to a coding worker on this computer' }).click()
+      await page.getByTestId('coding-conn').filter({ hasText: 'Connected' }).waitFor({ timeout: 20_000 })
+      await page.keyboard.press('Escape')
+      await page.getByRole('dialog').waitFor({ state: 'detached' })
+      await page.evaluate(() => (window.location.hash = '#/coding'))
+      await page.getByTestId('coding-new').click()
+      await page.getByTestId('coding-new-title').fill('Show the login error under the field')
+      await page.getByTestId('coding-new-repo').fill('website')
+      await page.getByTestId('coding-new-goal').fill('A wrong password fails silently. Name the field and say what is wrong. FAKE:DEMOLIVE')
+      await page.getByTestId('coding-new-criteria').fill('The message names the field\nShort passwords are explained')
+      await page.getByTestId('coding-create').click()
+      const panel = page.getByTestId('coding-panel')
+      await panel.waitFor()
+      await page.getByTestId('coding-files').waitFor({ timeout: 60_000 })
+      await page.getByTestId('coding-steps').filter({ hasText: /Step ([6-9]|\d\d)\// }).waitFor({ timeout: 30_000 })
+      await scrollToTop(panel, 28)
+      await rest(page)
+      // the panel down to the counters (its tabs and the log below stay out)
+      const top = await boxOf(panel, 20)
+      const chips = await page.locator('.ctk-chips').boundingBox()
+      await save(page, 'coding-live', { ...top, height: chips.y + chips.height + 20 - top.y })
+    } finally {
+      worker?.kill('SIGTERM')
+      await ctx.close()
+      rmSync(work.root, { recursive: true, force: true })
+    }
   },
 
   /**

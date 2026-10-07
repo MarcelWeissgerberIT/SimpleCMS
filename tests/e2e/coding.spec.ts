@@ -47,10 +47,10 @@ async function workspaceId(page: Page): Promise<string> {
 }
 
 /** Settings → Coding worker: the test port, switch on, wait for the worker. */
-async function connect(page: Page, bindTo?: string): Promise<string> {
+async function connect(page: Page, bindTo?: string, env: Record<string, string> = {}): Promise<string> {
   await openWorkerSettings(page)
   const id = await workspaceId(page)
-  worker = await startCodingWorker(repo, bindTo ?? id, PORT)
+  worker = await startCodingWorker(repo, bindTo ?? id, PORT, {}, env)
   const port = page.getByLabel('Port', { exact: true })
   await port.fill(String(PORT))
   await port.press('Enter')
@@ -164,7 +164,7 @@ test('rework with instructions, then a question from Claude and its answer', asy
   await expect(page.getByTestId('coding-approve')).toBeVisible({ timeout: 30_000 })
   expect(await wsEval(page, (s, id) => s.pages[id].plain as string, id)).toContain('Mention the colour in the plan.')
   await page.getByTestId('coding-tab-log').click()
-  await expect(page.getByTestId('coding-log')).toContainText('Stage "Plan" (plan)')
+  await expect(page.getByTestId('coding-log')).toContainText('Stage “Plan” (plan) on website')
 
   // implement: Claude asks (one_task_ask) → the task waits for the answer
   await page.getByTestId('coding-approve').click()
@@ -426,6 +426,76 @@ test('Approvals: "review only" runs past the plan gate on its own; switched to "
   await page.getByTestId('coding-tab-log').click()
   await expect(page.getByTestId('coding-log')).toContainText('No approval needed: on past “Review”.')
   expect(await page.evaluate(() => localStorage.getItem('one.coding.approvals'))).toBe('none')
+})
+
+test('while a stage runs: what the worker did last (ticking), Step x/y, the estimate, the changed files; a notification while One is in the background; the worker\'s lines in German', async ({ page }) => {
+  // the browser's notifications, stubbed: allowed, and recorded; "in the background" = window.__away
+  await page.addInitScript(() => {
+    const w = window as unknown as { __notes: Array<{ title: string; body: string; tag: string; onclick: (() => void) | null }>; __away: boolean }
+    w.__notes = []
+    w.__away = false
+    class FakeNotification {
+      static permission = 'granted'
+      static requestPermission = async () => 'granted'
+      onclick: (() => void) | null = null
+      constructor(
+        public title: string,
+        opts: { body: string; tag: string },
+      ) {
+        Object.assign(this, opts)
+        w.__notes.push(this as never)
+      }
+      close() {}
+    }
+    Object.defineProperty(window, 'Notification', { value: FakeNotification, configurable: true })
+    Document.prototype.hasFocus = () => !w.__away
+  })
+  await openApp(page)
+  await page.evaluate(() => localStorage.setItem('one.coding.approvals', 'review'))
+  await connect(page, undefined, { ONE_WORKER_LIVE_GIT_MS: '300' })
+  await expect(page.getByTestId('coding-conn')).toContainText('Connected')
+  await page.getByRole('switch', { name: 'Notify me while One is in the background' }).click()
+  await expect(page.getByRole('switch', { name: 'Notify me while One is in the background' })).toHaveAttribute('aria-checked', 'true')
+  expect(await page.evaluate(() => localStorage.getItem('one.coding.notify'))).toBe('1')
+  await page.keyboard.press('Escape')
+  const id = await newTask(page, 'Live one', 'Work in plain sight. FAKE:LIVE')
+
+  // implement runs: the now-line, the counters, the file Claude Code just wrote
+  const now = page.getByTestId('coding-now')
+  await expect(now).toContainText(/Working… step \d+/, { timeout: 60_000 })
+  await expect(now).toContainText(/\d+ s ago/)
+  await expect(page.getByTestId('coding-steps')).toContainText(/Step \d+\/30/i)
+  await expect(page.getByTestId('coding-estimate')).toContainText(/≈ \+\$0\.\d\d/)
+  await expect(page.getByTestId('coding-files')).toContainText(/Files 1/i)
+  await expect(page.getByTestId('coding-files')).toContainText('+1')
+  await page.getByTestId('coding-files').click()
+  await expect(page.getByTestId('coding-tab-diff')).toHaveAttribute('aria-selected', 'true')
+  await expect(page.locator('.ctk-body')).toContainText('live.txt')
+  // #/coding: the running task with its now-line
+  await page.evaluate(() => (window.location.hash = '#/coding'))
+  await expect(page.locator('.cv-busy').getByTestId('coding-now')).toContainText(/Working… step \d+/)
+
+  // One goes to the background: the review gate arrives as a notification; a click opens the task
+  await page.evaluate(() => ((window as unknown as { __away: boolean }).__away = true))
+  await expect.poll(() => page.evaluate(() => (window as unknown as { __notes: Array<{ body: string }> }).__notes.map((n) => n.body)), { timeout: 60_000 }).toContain('“Live one” waits for you: Review.')
+  const note = await page.evaluate(() => {
+    const n = (window as unknown as { __notes: Array<{ title: string; tag: string; onclick: () => void }> }).__notes[0]!
+    n.onclick()
+    return { title: n.title, tag: n.tag }
+  })
+  expect(note).toEqual({ title: 'One · Coding', tag: `one-coding-${id}` })
+  await expect(page).toHaveURL(new RegExp(`#/p/${id}$`))
+  // the counters are gone with the stage
+  await expect(page.getByTestId('coding-steps')).toHaveCount(0)
+
+  // the worker's own lines in the person's language
+  await page.evaluate(() => (window as unknown as { __one: { workspace: { getState: () => { updateSettings: (p: unknown) => void } } } }).__one.workspace.getState().updateSettings({ language: 'de' }))
+  await page.getByTestId('coding-tab-log').click()
+  const log = page.getByTestId('coding-log')
+  await expect(log).toContainText('Claude Code fertig · ')
+  await expect(log).toContainText('Claude Code startet (acceptEdits-Modus) …')
+  await expect(log).toContainText('Tests bestanden (')
+  await expect(log).toContainText('Working… step 3')
 })
 
 test('German at 390 px: #/coding, the new task dialog, the task panel and Settings fit the screen', async ({ page }) => {

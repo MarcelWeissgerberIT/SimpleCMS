@@ -39,7 +39,9 @@ The **Log** tab shows every step: *Fetching origin…*, the new branch, *Startin
 Each task works on its own branch (`one/<title>-<id>`) in its own worktree — your main checkout stays as it is. Before a task runs, the coding panel lets you pick the **Repo** (the repos your worker announces) and the **Branch**: *New branch (automatic)* or an existing branch of that repo on your computer to continue on (the base branch is never offered). You can also type one into the **Branch** field.
 
 ## While it runs
-- **Log** streams what Claude Code does. If Claude needs a decision, the task shows **Claude asks** — your **Answer** starts the stage again.
+- **Now** shows the worker's last line and how long ago it came; under it **Step 6/30** (Claude Code's turn of the stage's limit), **≈ +$0.07** (this stage so far, an estimate — the exact cost comes at the end) and **Files** (what changed so far; a click opens the diff). #/coding shows the same line under every running task.
+- **Log** streams what Claude Code does; the worker's own lines show in your language. If Claude needs a decision, the task shows **Claude asks** — your **Answer** starts the stage again.
+- **Notifications**: in **Settings → Coding worker**, switch on *Notify me while One is in the background* — the browser tells you when a task waits, asks, failed or is done while the tab is in the background (on this device).
 - **Stop** ends Claude Code at once; **Retry** or **Run now** start the stage again.
 - **Git**: Refresh, Commit, Push, Open PR, Update from base, Show folder (the path appears in the worker's terminal only). **Force push** and **Discard worktree** ask twice; **Clean up** waits until the branch is merged.
 - **Pipeline** (on #/coding) changes the stages: names, which ones run by themselves, Claude Code's mode, turns and instructions.

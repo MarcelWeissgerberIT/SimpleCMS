@@ -6,6 +6,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { format } from 'date-fns'
 import { useT } from '../../i18n'
 import type { LogLine } from './protocol'
+import { lineText } from './lines'
 
 const SHOW = 400
 
@@ -44,7 +45,7 @@ export function LogView({ lines, onClear }: { lines: LogLine[]; onClear?: () => 
           <div key={i} className="clog-line" data-k={l.k}>
             <span className="clog-t">{format(l.t, 'HH:mm:ss')}</span>
             <span className="clog-k">{t(`features.coding.log.k.${l.k}`)}</span>
-            <span className="clog-s">{l.s}</span>
+            <span className="clog-s">{lineText(t, l)}</span>
           </div>
         ))}
       </div>

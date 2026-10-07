@@ -23,6 +23,7 @@ import { PlanView } from './PlanView'
 import { DiffView } from './DiffView'
 import { GitBox } from './GitBox'
 import { ApprovalsPick, TaskSetup } from './TaskSetup'
+import { NowLine, RunCounters } from './NowLine'
 import './coding.css'
 
 type Tab = 'log' | 'plan' | 'diff' | 'tests' | 'git'
@@ -190,6 +191,12 @@ export default function TaskPanel({ pageId }: { pageId: ID }) {
               {t('features.coding.act.stop')}
             </button>
             <span className="ctk-hint">{t('features.coding.act.running', { stage: stage?.name ?? '' })}</span>
+          </div>
+        )}
+        {state === 'running' && (
+          <div className="ctk-live">
+            <NowLine taskId={pageId} />
+            <RunCounters taskId={pageId} files={files} onFiles={() => setTab('diff')} />
           </div>
         )}
 

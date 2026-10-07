@@ -317,6 +317,10 @@ the public APIs stable — other areas are built against them in parallel.
   git runs without a terminal (never waits for a password); a failed / slow (60 s) fetch is logged, not fatal.
   A repo in iCloud Drive (config.ts `inICloud`) is warned about in the log and its worktrees default to
   `~/.one-worktrees/<name>`; `git worktree add` (≤ 10 min, a line per 30 s) cleans up its folder + new branch on failure.
+  Feedback: worker log lines carry a code + values (`LogLine.c` / `v`, shown via `features.coding.log.c.<code>`,
+  coding/lines.ts `LOG_CODES`); a `progress` event per Claude Code turn (turns / maxTurns / estimate from usage,
+  mcp/src/worker/price.ts) lives only in `useCoding.progress`; a live `git` snapshot while a non-plan stage changes files
+  (`ONE_WORKER_LIVE_GIT_MS`); browser notifications only via coding/notify.ts (per device `one.coding.notify`).
 - Claude's Markdown goes into or is shown in a page only through `claudeDoc` / `claudeBlocks` (features/ai/claudeDoc.ts):
   web images become links, frames / media / web files never load. In shared pages Claude's change is its own undo step
   (`startUndoStep(view)` / `endUndoStep(view)`, editor/index.ts). History `SnapshotReason 'script'` ('Script · <name>').

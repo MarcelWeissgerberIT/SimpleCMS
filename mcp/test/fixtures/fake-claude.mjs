@@ -9,8 +9,10 @@
  *   FAKE:ASK             → asks a question (one_task_ask) until the prompt carries answers
  *   FAKE:SLOW            → keeps "working" until it is killed (Stop)
  *   FAKE:QUIET           → says nothing for 20 s (the worker's sign of life), then ends
+ *   FAKE:LIVE            → writes live.txt at once, then works 8 s (the live diff during a stage)
  *   FAKE:EXPENSIVE       → costs $4.00
  *   FAKE:DEMO            → a realistic TypeScript change to src/login.ts (the changelog screenshot)
+ *   FAKE:DEMOLIVE        → the same change at a working pace, ~20 s (the running panel's screenshot)
  * The task tools are reached like Claude Code does: the MCP server from --mcp-config, over stdio.
  * FAKE_CLAUDE_LOG=<file> appends {args, cwd} per run.
  */
@@ -43,14 +45,18 @@ const arg = (name) => {
 const mode = arg('--permission-mode')
 const session = '0f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0'
 const out = (ev) => process.stdout.write(`${JSON.stringify({ ...ev, session_id: session })}\n`)
-const say = (text) => out({ type: 'assistant', message: { content: [{ type: 'text', text }] } })
-const tool = (name, input) => out({ type: 'assistant', message: { content: [{ type: 'tool_use', id: `tu_${Math.random().toString(36).slice(2)}`, name, input } ] } })
+const MODEL = 'claude-opus-5-5'
+let turn = 0
+// every message is its own turn, with token counts like the real CLI's (the worker's cost estimate)
+const message = (content) => ({ id: `msg_${String(++turn).padStart(4, '0')}`, model: MODEL, content, usage: { input_tokens: 1200, output_tokens: 300, cache_creation_input_tokens: 0, cache_read_input_tokens: 4000 } })
+const say = (text) => out({ type: 'assistant', message: message([{ type: 'text', text }]) })
+const tool = (name, input) => out({ type: 'assistant', message: message([{ type: 'tool_use', id: `tu_${Math.random().toString(36).slice(2)}`, name, input }]) })
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 
 let prompt = ''
 for await (const chunk of process.stdin) prompt += chunk
 
-out({ type: 'system', subtype: 'init', permissionMode: mode, cwd: process.cwd(), tools: [] })
+out({ type: 'system', subtype: 'init', permissionMode: mode, cwd: process.cwd(), tools: [], model: MODEL })
 
 /** Call a task tool through the MCP server Claude Code was given (--mcp-config). */
 async function taskTool(name, input) {
@@ -98,6 +104,18 @@ if (prompt.includes('FAKE:QUIET')) {
   process.exit(0)
 }
 
+if (prompt.includes('FAKE:LIVE')) {
+  // changes a file early, then keeps working a while: the worker's live diff picks it up before the end
+  tool('Write', { file_path: join(process.cwd(), 'live.txt'), content: '…' })
+  writeFileSync(join(process.cwd(), 'live.txt'), 'first draft\n')
+  for (let i = 0; i < 20; i++) {
+    say(`Working… step ${i + 1}`)
+    await sleep(400)
+  }
+  result('live done', 0.03)
+  process.exit(0)
+}
+
 if (prompt.includes('FAKE:SLOW')) {
   for (let i = 0; i < 600; i++) {
     say(`Working… step ${i + 1}`)
@@ -109,14 +127,35 @@ if (prompt.includes('FAKE:SLOW')) {
 
 // a realistic change for screenshots: the login form shows the error under the field
 const login = join(process.cwd(), 'src', 'login.ts')
+const LOGIN_FIXED = `export interface LoginResult {\n  ok: boolean\n  /** shown under the field it belongs to */\n  error?: { field: 'user' | 'password'; message: string }\n}\n\nexport function login(user: string, password: string): LoginResult {\n  if (!user) return { ok: false, error: { field: 'user', message: 'Enter your email address.' } }\n  if (password.length < 8) return { ok: false, error: { field: 'password', message: 'The password is too short.' } }\n  return { ok: true }\n}\n`
+// the same change, at a working pace (the running panel's screenshot: now-line, steps, estimate, files)
+if (prompt.includes('FAKE:DEMOLIVE') && existsSync(login)) {
+  say('Reading src/login.ts — the form fails silently on a wrong password.')
+  tool('Read', { file_path: login })
+  await sleep(600)
+  tool('Edit', { file_path: login })
+  writeFileSync(login, LOGIN_FIXED)
+  const steps = [
+    () => say('login() now returns the field and a message.'),
+    () => tool('Grep', { pattern: 'login(', path: 'src' }),
+    () => say('Checking where the form calls login() …'),
+    () => tool('Read', { file_path: join(process.cwd(), 'README.md') }),
+    () => say('The form shows error.message under error.field — no change needed there.'),
+    () => tool('Bash', { command: 'node check.mjs' }),
+    () => say('Checks pass. Writing the summary.'),
+  ]
+  for (const step of steps) {
+    step()
+    await sleep(2500)
+  }
+  result('- `login()` returns `error: { field, message }`\n- Wrong or short passwords name the password field', 0.14)
+  process.exit(0)
+}
 if (prompt.includes('FAKE:DEMO') && existsSync(login)) {
   say('Reading src/login.ts — the form fails silently on a wrong password.')
   tool('Read', { file_path: login })
   tool('Edit', { file_path: login })
-  writeFileSync(
-    login,
-    `export interface LoginResult {\n  ok: boolean\n  /** shown under the field it belongs to */\n  error?: { field: 'user' | 'password'; message: string }\n}\n\nexport function login(user: string, password: string): LoginResult {\n  if (!user) return { ok: false, error: { field: 'user', message: 'Enter your email address.' } }\n  if (password.length < 8) return { ok: false, error: { field: 'password', message: 'The password is too short.' } }\n  return { ok: true }\n}\n`,
-  )
+  writeFileSync(login, LOGIN_FIXED)
   await taskTool('one_task_note', { text: 'login() now returns the field and a message; the form can show it.' })
   say('Done: login() names the field and the message.')
   result('- `login()` returns `error: { field, message }`\n- Wrong or short passwords name the password field', 0.14)

@@ -96,13 +96,13 @@ export interface RunningWorker {
 }
 
 /** Start the built worker bound to `workspace`, serving the repo as "website". */
-export async function startCodingWorker(repo: CodingRepo, workspace: string, port: number, extra: Record<string, unknown> = {}): Promise<RunningWorker> {
+export async function startCodingWorker(repo: CodingRepo, workspace: string, port: number, extra: Record<string, unknown> = {}, env: Record<string, string> = {}): Promise<RunningWorker> {
   chmodSync(FAKE_CLAUDE, 0o755)
   const dir = join(repo.root, `cfg-${Date.now()}`)
   mkdirSync(dir)
   const file = join(dir, 'worker.json')
   writeFileSync(file, JSON.stringify({ workspace, name: 'e2e-box', port, pollSec: 2, repos: [{ name: 'website', path: repo.path, baseBranch: 'main', testCommand: [process.execPath, 'check.mjs'], pr: 'none', maxUsdPerTask: 5 }], ...extra }))
-  const child = spawn(process.execPath, [WORKER, '--config', file], { env: { ...repo.env, CLAUDE_BIN: FAKE_CLAUDE }, stdio: ['ignore', 'ignore', 'pipe'] })
+  const child = spawn(process.execPath, [WORKER, '--config', file], { env: { ...repo.env, CLAUDE_BIN: FAKE_CLAUDE, ...env }, stdio: ['ignore', 'ignore', 'pipe'] })
   let log = ''
   child.stderr?.on('data', (d: Buffer) => {
     log += d.toString()

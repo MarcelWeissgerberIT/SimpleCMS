@@ -23,6 +23,7 @@ import { NewTaskDialog } from './NewTaskDialog'
 import { PipelineEditor } from './PipelineEditor'
 import { workerStateText } from './stateText'
 import { ChangeReposButton, SetupCard } from './SetupCard'
+import { NowLine } from './NowLine'
 import './coding.css'
 
 function WorkerPlate() {
@@ -75,9 +76,12 @@ function WorkerPlate() {
           <dd>
             {s.busy.length
               ? s.busy.map((b) => (
-                  <a key={b.taskId} href={`#/p/${b.taskId}`} className="cv-run">
-                    {pages[b.taskId]?.title.trim() || t('common.untitled')}
-                  </a>
+                  <div key={b.taskId} className="cv-busy">
+                    <a href={`#/p/${b.taskId}`} className="cv-run">
+                      {pages[b.taskId]?.title.trim() || t('common.untitled')}
+                    </a>
+                    <NowLine taskId={b.taskId} />
+                  </div>
                 ))
               : t('features.coding.ro.idle')}
           </dd>

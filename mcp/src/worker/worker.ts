@@ -311,6 +311,7 @@ export class Worker {
       signal: run.abort.signal,
       log: (line) => this.logLine(task.id, line),
       git: (g) => this.link.send({ type: 'event', taskId: task.id, kind: 'git', git: g }),
+      progress: (p) => this.link.send({ type: 'event', taskId: task.id, kind: 'progress', progress: p }),
       question: () => run.question,
       onWorktree: (_wt, scrub) => {
         run.scrub = scrub

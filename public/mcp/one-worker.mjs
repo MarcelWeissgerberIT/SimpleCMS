@@ -11285,6 +11285,33 @@ ${JSON.stringify(next, null, 2)}
 // src/worker/claude.ts
 import { spawn, execFile } from "node:child_process";
 import { createInterface } from "node:readline";
+
+// src/worker/price.ts
+var PRICES = [
+  [/fable-5-1|mythos-5-1/, 10, 50, 0.025],
+  [/fable-5|mythos-5/, 10, 50, 0.1],
+  [/opus-5-5/, 4, 20, 0.05],
+  [/opus-(5|4-[5-8])/, 5, 25, 0.1],
+  [/sonnet-5/, 2, 10, 0.1],
+  [/sonnet-4/, 3, 15, 0.1],
+  [/haiku-4-5/, 1, 5, 0.1]
+];
+function estimateCost(model, usages) {
+  const row = model ? PRICES.find(([re]) => re.test(model)) : void 0;
+  if (!row) return null;
+  const [, inp, out, read] = row;
+  let usd2 = 0;
+  for (const u of usages) usd2 += (u.input * inp + u.cacheWrite * inp * 1.25 + u.cacheRead * inp * read + u.output * out) / 1e6;
+  return usd2;
+}
+function usageOf(raw) {
+  if (!raw || typeof raw !== "object") return null;
+  const u = raw;
+  const n = (k) => typeof u[k] === "number" && Number.isFinite(u[k]) ? u[k] : 0;
+  return { input: n("input_tokens"), output: n("output_tokens"), cacheWrite: n("cache_creation_input_tokens"), cacheRead: n("cache_read_input_tokens") };
+}
+
+// src/worker/claude.ts
 var claudeBin = (env = process.env) => env.CLAUDE_BIN && env.CLAUDE_BIN.trim() || "claude";
 function capture(bin, args, timeoutMs = 15e3) {
   return new Promise((done) => {
@@ -11366,18 +11393,25 @@ function runClaude(r) {
     }
     let stderr = "";
     let gotResult = false;
-    const log2 = (k, s) => r.onLog({ t: Date.now(), k, s });
+    const log2 = (k, s, c, v) => r.onLog({ t: Date.now(), k, s, ...c ? { c, v } : {} });
+    let model = null;
+    let turns = 0;
+    let unnamed = 0;
+    const usages = /* @__PURE__ */ new Map();
+    const progress = () => r.onProgress?.({ turns, maxTurns: r.maxTurns, cost: estimateCost(model, usages.values()), model });
     const started = Date.now();
     let heard = started;
     const quietMs = Number(process.env.ONE_WORKER_QUIET_MS) || 6e4;
     const beat = setInterval(() => {
       if (Date.now() - heard < quietMs) return;
-      log2("info", `Claude Code is still working \xB7 ${clock(Date.now() - started)} so far \xB7 last output ${clock(Date.now() - heard)} ago`);
+      const total = clock(Date.now() - started);
+      const quiet2 = clock(Date.now() - heard);
+      log2("info", `Claude Code is still working \xB7 ${total} so far \xB7 last output ${quiet2} ago`, "stillWorking", { total, quiet: quiet2 });
     }, quietMs);
     beat.unref();
     const onAbort = () => {
       result.stopped = true;
-      log2("warn", "Stopped \u2014 Claude Code was ended.");
+      log2("warn", "Stopped \u2014 Claude Code was ended.", "stopped");
       killTree(child);
     };
     if (r.signal.aborted) onAbort();
@@ -11407,9 +11441,20 @@ ${e.message}`;
       if (typeof ev.session_id === "string") result.sessionId = ev.session_id;
       switch (ev.type) {
         case "system":
-          if (ev.subtype === "init") log2("info", `Claude Code started \xB7 ${String(ev.permissionMode ?? r.mode)} mode${result.sessionId ? ` \xB7 session ${result.sessionId.slice(0, 8)}` : ""}`);
+          if (ev.subtype === "init") {
+            if (typeof ev.model === "string") model = ev.model;
+            const m = String(ev.permissionMode ?? r.mode);
+            log2("info", `Claude Code started \xB7 ${m} mode${result.sessionId ? ` \xB7 session ${result.sessionId.slice(0, 8)}` : ""}`, "claudeStarted", { mode: m });
+            progress();
+          }
           return;
         case "assistant": {
+          const message = ev.message ?? {};
+          const id = typeof message.id === "string" ? message.id : `n${++unnamed}`;
+          if (!usages.has(id)) turns++;
+          usages.set(id, usageOf(message.usage) ?? usages.get(id) ?? { input: 0, output: 0, cacheWrite: 0, cacheRead: 0 });
+          if (typeof message.model === "string") model = message.model;
+          progress();
           const content = ev.message?.content ?? [];
           for (const block of Array.isArray(content) ? content : []) {
             if (block.type === "text" && typeof block.text === "string" && block.text.trim()) log2("claude", clip(block.text.trim(), 4e3));
@@ -11438,7 +11483,8 @@ ${e.message}`;
           result.text = typeof ev.result === "string" ? ev.result : "";
           result.ok = ev.is_error !== true && result.subtype === "success";
           if (!result.ok) result.error = result.subtype === "error_max_turns" ? `Claude Code stopped after ${result.turns} turns (the stage's limit)` : /budget/i.test(result.subtype ?? "") ? "Claude Code stopped at the cost limit" : result.text || `Claude Code ended with ${result.subtype ?? "an error"}`;
-          log2(result.ok ? "info" : "warn", `Claude Code finished \xB7 ${result.turns} turns \xB7 $${result.cost.toFixed(2)}${result.ok ? "" : ` \xB7 ${result.subtype ?? "error"}`}`);
+          r.onProgress?.({ turns: Math.max(turns, result.turns), maxTurns: r.maxTurns, cost: result.cost, model });
+          log2(result.ok ? "info" : "warn", `Claude Code finished \xB7 ${result.turns} turns \xB7 $${result.cost.toFixed(2)}${result.ok ? "" : ` \xB7 ${result.subtype ?? "error"}`}`, result.ok ? "claudeDone" : "claudeEnded", { turns: result.turns, cost: result.cost.toFixed(2), why: result.subtype ?? "error" });
           return;
         }
       }
@@ -11564,12 +11610,12 @@ async function fetchRemote(repo) {
 }
 async function tryFetch(repo, note) {
   if (!await hasRemote(repo)) return false;
-  note?.("git", `Fetching ${repo.remote}\u2026`);
+  note?.("git", `Fetching ${repo.remote}\u2026`, "fetching", { remote: repo.remote });
   try {
     return await fetchRemote(repo);
   } catch (e) {
     const why = (e instanceof Error ? e.message : String(e)).replace(/\s+/g, " ").trim().slice(0, 300);
-    note?.("warn", `Could not fetch ${repo.remote} (${why}) \u2014 going on with what this computer has.`);
+    note?.("warn", `Could not fetch ${repo.remote} (${why}) \u2014 going on with what this computer has.`, "fetchFailed", { remote: repo.remote, why });
     return false;
   }
 }
@@ -11601,7 +11647,7 @@ async function ensureWorktree(repo, state, task, wanted, note) {
   const dir = join2(repo.worktreeDir, branch.replace(/[\\/]+/g, "-"));
   if (existsSync2(dir)) throw new GitError(`the worktree folder for ${branch} already exists and is not a worktree of this repo \u2014 move it away first`);
   mkdirSync2(dirname2(dir), { recursive: true });
-  note?.("git", `New branch ${branch} from ${base} in its own worktree\u2026`);
+  note?.("git", `New branch ${branch} from ${base} in its own worktree\u2026`, "newBranch", { branch, base });
   await addWorktree(repo, ["-b", branch, dir, base], dir, branch, note);
   state.remember(repo.name, branch, { task: task.id, worktree: dir, branchCreated: true, fork, at: Date.now() });
   state.setTask(task.id, { repo: repo.name, branch, worktree: dir });
@@ -11611,7 +11657,10 @@ var checkoutMs = () => Number(process.env.ONE_WORKER_CHECKOUT_MS) || 6e5;
 var clock2 = (ms) => `${Math.floor(ms / 6e4)}:${String(Math.round(ms / 1e3) % 60).padStart(2, "0")}`;
 async function addWorktree(repo, args, dir, newBranch, note) {
   const started = Date.now();
-  const beat = setInterval(() => note?.("git", `Still checking out the files \xB7 ${clock2(Date.now() - started)}`), Number(process.env.ONE_WORKER_QUIET_MS) || 3e4);
+  const beat = setInterval(() => {
+    const time3 = clock2(Date.now() - started);
+    note?.("git", `Still checking out the files \xB7 ${time3}`, "checkout", { time: time3 });
+  }, Number(process.env.ONE_WORKER_QUIET_MS) || 3e4);
   beat.unref();
   try {
     const r = await git(repo.path, ["worktree", "add", ...args], checkoutMs());
@@ -12467,6 +12516,7 @@ ${output.slice(-TEST_OUTPUT_MAX)}`;
 
 // src/worker/run.ts
 var SUMMARY_MAX = 6e3;
+var scrubVars = (scrub, v) => v ? Object.fromEntries(Object.entries(v).map(([k, x]) => [k, typeof x === "string" ? scrub.text(x) : x])) : void 0;
 var clip2 = (s, n) => s.length > n ? `${s.slice(0, n - 1)}\u2026` : s;
 var DEFAULTS = {
   plan: [
@@ -12543,18 +12593,18 @@ async function gitSnapshot(ctx, wt, scrub) {
 async function runStage(ctx) {
   const { repo, task } = ctx;
   let scrub = repoScrubber(repo);
-  const log2 = (k, s) => ctx.log({ t: Date.now(), k, s: scrub.text(s) });
+  const log2 = (k, s, c, v) => ctx.log({ t: Date.now(), k, s: scrub.text(s), ...c ? { c, v: scrubVars(scrub, v) } : {} });
   if (ctx.team && !task.trusted) return { status: "refused", error: "This task was written or changed on another device and is not confirmed on this one. Confirm it in One (task panel) first." };
   const kind = task.stage.kind;
   if (kind === "queue" || kind === "gate" || kind === "done") return { status: "refused", error: `A ${kind} stage is not run by the worker.` };
   try {
-    log2("info", `Stage "${task.stage.name}" (${kind}) on ${repo.name}`);
+    log2("info", `Stage "${task.stage.name}" (${kind}) on ${repo.name}`, "stage", { stage: task.stage.name, kind, repo: repo.name });
     if (inICloud(repo.path))
-      log2("warn", `${repo.name} lies in iCloud Drive: git waits whenever a file is only in the cloud, so steps can take minutes. Faster: keep the folder downloaded (Finder \u2192 right-click \u2192 Keep Downloaded), or clone it to ~/Developer (not synced) and tick that one on the worker's setup page.`);
-    const wt = await ensureWorktree(repo, ctx.state, task, task.branch, (k, s) => log2(k, s));
+      log2("warn", `${repo.name} lies in iCloud Drive: git waits whenever a file is only in the cloud, so steps can take minutes. Faster: keep the folder downloaded (Finder \u2192 right-click \u2192 Keep Downloaded), or clone it to ~/Developer (not synced) and tick that one on the worker's setup page.`, "icloud", { repo: repo.name });
+    const wt = await ensureWorktree(repo, ctx.state, task, task.branch, (k, s, c, v) => log2(k, s, c, v));
     scrub = repoScrubber(repo, wt.dir);
     ctx.onWorktree?.(wt, scrub);
-    log2("git", `${wt.created ? "Branch" : "Reusing branch"} ${wt.branch}`);
+    log2("git", `${wt.created ? "Branch" : "Reusing branch"} ${wt.branch}`, wt.created ? "branch" : "reuse", { branch: wt.branch });
     if (kind === "plan" || kind === "implement") return await claudeStage(ctx, wt, scrub, log2);
     if (kind === "test") return await testStage(ctx, wt, scrub, log2);
     return await gitStage(ctx, wt, scrub, log2);
@@ -12576,7 +12626,8 @@ async function claudeStage(ctx, wt, scrub, log2) {
   const plan = task.stage.kind === "plan";
   const mode = plan ? "plan" : repo.claude.permissionMode.implement ?? task.stage.permissionMode;
   const mcp = ctx.taskMcp ? writeMcpConfig(ctx.taskMcp) : null;
-  log2("info", `Starting Claude Code (${mode} mode)\u2026`);
+  log2("info", `Starting Claude Code (${mode} mode)\u2026`, "starting", { mode });
+  const live = plan ? null : liveDiff(ctx, wt, scrub);
   try {
     const res = await runClaude({
       bin: ctx.bin,
@@ -12593,7 +12644,8 @@ async function claudeStage(ctx, wt, scrub, log2) {
       caps,
       env: claudeEnv(),
       signal: ctx.signal,
-      onLog: (l) => ctx.log({ ...l, s: scrub.text(l.s) })
+      onLog: (l) => ctx.log({ ...l, s: scrub.text(l.s), ...l.v ? { v: scrubVars(scrub, l.v) } : {} }),
+      onProgress: ctx.progress
     });
     if (res.cost > 0) ctx.state.addCost(task.id, res.cost);
     const git2 = await gitSnapshot(ctx, wt, scrub);
@@ -12609,8 +12661,29 @@ async function claudeStage(ctx, wt, scrub, log2) {
     }
     return { ...base, status: "ok", summary: clip2(scrub.text(res.text.trim()), SUMMARY_MAX) || "Done." };
   } finally {
+    live?.stop();
     mcp?.dispose();
   }
+}
+function liveDiff(ctx, wt, scrub) {
+  let last = "";
+  let busy = false;
+  const timer = setInterval(async () => {
+    if (busy) return;
+    busy = true;
+    try {
+      const st = await git(wt.dir, ["status", "--porcelain", "--untracked-files=all"], 2e4);
+      const now = st.code === 0 ? st.stdout : last;
+      if (now !== last) {
+        last = now;
+        await gitSnapshot(ctx, wt, scrub);
+      }
+    } finally {
+      busy = false;
+    }
+  }, Number(process.env.ONE_WORKER_LIVE_GIT_MS) || 3e4);
+  timer.unref();
+  return { stop: () => clearInterval(timer) };
 }
 function claudeEnv() {
   const env = {};
@@ -12623,13 +12696,13 @@ async function testStage(ctx, wt, scrub, log2) {
     const test2 = { ok: true, output: "", ms: 0, code: null, skipped: true };
     return { status: "ok", branch: wt.branch, test: test2, summary: "No tests configured.", git: await gitSnapshot(ctx, wt, scrub) };
   }
-  log2("test", "Running the tests\u2026");
+  log2("test", "Running the tests\u2026", "testsRun");
   let lines = 0;
   const res = await runTests(ctx.repo, wt.dir, ctx.signal, (line) => {
     if (lines++ < 200) log2("test", line);
   });
   const test = { ...res, output: scrub.text(res.output) };
-  log2(res.ok ? "test" : "warn", res.ok ? `Tests passed (${Math.round(res.ms / 100) / 10} s)` : `Tests failed (exit code ${res.code ?? "\u2014"})`);
+  log2(res.ok ? "test" : "warn", res.ok ? `Tests passed (${Math.round(res.ms / 100) / 10} s)` : `Tests failed (exit code ${res.code ?? "\u2014"})`, res.ok ? "testsPass" : "testsFail", { s: Math.round(res.ms / 100) / 10, code: res.code ?? "\u2014" });
   const git2 = await gitSnapshot(ctx, wt, scrub);
   if (ctx.signal.aborted) return { status: "stopped", branch: wt.branch, test, git: git2, error: "Stopped in One." };
   return res.ok ? { status: "ok", branch: wt.branch, test, git: git2, summary: `Tests passed in ${Math.round(res.ms / 1e3)} s.` } : { status: "failed", branch: wt.branch, test, git: git2, error: `Tests failed (exit code ${res.code ?? "\u2014"}).` };
@@ -12655,7 +12728,7 @@ async function gitStage(ctx, wt, scrub, log2) {
     return { status: "ok", branch: wt.branch, git: git3, summary };
   }
   const sha = await commitAll(wt.dir, commitMessage(task));
-  log2("git", sha ? `Committed ${sha.slice(0, 8)}` : "Nothing new to commit");
+  log2("git", sha ? `Committed ${sha.slice(0, 8)}` : "Nothing new to commit", sha ? "committed" : "nothingToCommit", { sha: (sha ?? "").slice(0, 8) });
   const done = [sha ? `Committed ${sha.slice(0, 8)}.` : "Nothing new to commit."];
   let url;
   if (action === "push" || action === "pr") {
@@ -12664,7 +12737,7 @@ async function gitStage(ctx, wt, scrub, log2) {
       log2("info", 'Pushing is off for this repo (worker.json "push": false).');
     } else {
       await push(repo, wt.dir, wt.branch);
-      log2("git", `Pushed ${wt.branch} to ${repo.remote}`);
+      log2("git", `Pushed ${wt.branch} to ${repo.remote}`, "pushed", { branch: wt.branch, remote: repo.remote });
       done.push(`Pushed to ${repo.remote}/${wt.branch}.`);
       if (action === "pr") {
         const pr = await openPr(repo, wt.dir, wt.branch, task.title, `${(task.summary ?? "").trim() || task.title}
@@ -12908,6 +12981,7 @@ var Worker = class {
       signal: run2.abort.signal,
       log: (line) => this.logLine(task.id, line),
       git: (g) => this.link.send({ type: "event", taskId: task.id, kind: "git", git: g }),
+      progress: (p) => this.link.send({ type: "event", taskId: task.id, kind: "progress", progress: p }),
       question: () => run2.question,
       onWorktree: (_wt, scrub) => {
         run2.scrub = scrub;
