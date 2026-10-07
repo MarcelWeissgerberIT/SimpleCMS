@@ -388,7 +388,8 @@ test.describe('Claude for images', () => {
       await option(page, /Upload a copy/).click()
       await (await chooser).setFiles({ name: 'plate.png', mimeType: 'image/png', buffer: png })
       await expect(ai.getByRole('textbox', { name: 'Alt text' })).toHaveValue(ALT)
-      expect(String((await imageAttrs(page, id))?.src)).toMatch(/^onefile:/)
+      // the editor saves to the store debounced: wait for the copy to arrive there
+      await expect.poll(async () => String((await imageAttrs(page, id))?.src)).toMatch(/^onefile:/)
       expect(claude.kinds).toEqual(['describe'])
       expectImageBlock(claude.bodies[0])
     } finally {
