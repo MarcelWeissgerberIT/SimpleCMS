@@ -13,7 +13,7 @@ import { createInterface } from 'node:readline'
 import { readFileSync, realpathSync, statSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join, sep } from 'node:path'
-import type { LogLine, PermissionMode, TaskProgress } from '../../../src/app/features/coding/protocol.ts'
+import { EDIT_CHARS, EDIT_HUNKS, type LogLine, type PermissionMode, type TaskProgress, type ToolEdit } from '../../../src/app/features/coding/protocol.ts'
 import { estimateCost, usageOf, type Usage } from './price.ts'
 
 export interface ClaudeCaps {
@@ -138,6 +138,31 @@ export function toolLine(name: string, input: unknown): string {
   return clip(`${name}${pick ? ` ${oneLine(pick)}` : ''}`, 300)
 }
 
+/** What an Edit / MultiEdit / Write tool call changes (null for other tools) — clipped for the log. */
+export function editOf(name: string, input: unknown): ToolEdit | null {
+  const i = (input && typeof input === 'object' ? input : {}) as Record<string, unknown>
+  const path = typeof i.file_path === 'string' ? i.file_path : ''
+  if (!path) return null
+  const str = (v: unknown) => (typeof v === 'string' ? v : '')
+  let raw: Array<{ old: string; new: string }>
+  if (name === 'Edit') raw = [{ old: str(i.old_string), new: str(i.new_string) }]
+  else if (name === 'MultiEdit') raw = (Array.isArray(i.edits) ? i.edits : []).map((e) => ({ old: str((e as Record<string, unknown>)?.old_string), new: str((e as Record<string, unknown>)?.new_string) }))
+  else if (name === 'Write') raw = [{ old: '', new: str(i.content) }]
+  else return null
+  raw = raw.filter((h) => h.old || h.new)
+  if (!raw.length) return null
+  let clipped = raw.length > EDIT_HUNKS
+  const cut = (s: string) => {
+    if (s.length <= EDIT_CHARS) return s
+    clipped = true
+    // whole lines only
+    const at = s.lastIndexOf('\n', EDIT_CHARS)
+    return s.slice(0, at > 0 ? at : EDIT_CHARS)
+  }
+  const hunks = raw.slice(0, EDIT_HUNKS).map((h) => ({ old: cut(h.old), new: cut(h.new) }))
+  return { path, hunks, ...(clipped ? { clipped: true } : {}) }
+}
+
 /** Kill the process and everything it started. */
 export function killTree(child: ChildProcess): void {
   if (child.exitCode !== null || child.pid === undefined) return
@@ -250,7 +275,9 @@ export function runClaude(r: ClaudeRun): Promise<ClaudeResult> {
           for (const block of Array.isArray(content) ? content : []) {
             if (block.type === 'text' && typeof block.text === 'string' && block.text.trim()) log('claude', clip(block.text.trim(), 4000))
             else if (block.type === 'tool_use' && typeof block.name === 'string') {
-              log('tool', toolLine(block.name, block.input))
+              // a change to a file carries what changed (the log shows it as a diff)
+              const e = editOf(block.name, block.input)
+              r.onLog({ t: Date.now(), k: 'tool', s: toolLine(block.name, block.input), ...(e ? { e } : {}) })
               const input = block.input as { plan?: unknown; file_path?: unknown } | undefined
               if (block.name === 'ExitPlanMode' && typeof input?.plan === 'string') result.plan = input.plan
               else if ((block.name === 'Write' || block.name === 'Edit' || block.name === 'MultiEdit') && typeof input?.file_path === 'string' && PLAN_FILE.test(input.file_path)) planFile = input.file_path

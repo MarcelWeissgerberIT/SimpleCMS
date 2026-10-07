@@ -44,7 +44,7 @@ Each task works on its own branch (`one/<title>-<id>`) in its own worktree — y
 
 ## While it runs
 - **Now** shows the worker's last line and how long ago it came; under it **Step 6/30** (Claude Code's turn of the stage's limit), **≈ +$0.07** (this stage so far, an estimate — the exact cost comes at the end) and **Files** (what changed so far; a click opens the diff). #/coding shows the same line under every running task.
-- **Log** streams what Claude Code does; the worker's own lines show in your language. If Claude needs a decision, the task shows **Claude asks** — your **Answer** starts the stage again.
+- **Log** streams what Claude Code does — a tool call shows its name; a click opens what it was called with, for Edit / Write the change as a code diff; the worker's own lines show in your language. If Claude needs a decision, the task shows **Claude asks** — your **Answer** starts the stage again.
 - **Notifications**: in **Settings → Coding worker**, switch on *Notify me while One is in the background* — the browser tells you when a task waits, asks, failed or is done while the tab is in the background (on this device).
 - **Stop** ends Claude Code at once; **Retry** or **Run now** start the stage again.
 - **Git**: Refresh, Commit, Push, Open PR, Update from base, Show folder (the path appears in the worker's terminal only). **Force push** and **Discard worktree** ask twice; **Clean up** waits until the branch is merged.

@@ -11,6 +11,16 @@ import { workspaceMessages } from './workspace/messages'
 /** Strings for the shell area. Keys MUST be prefixed with "shell." — always add both en and de. */
 export const messages: Messages = {
   en: {
+    'shell.ai.copy': 'Copy for AI context',
+    'shell.ai.copied': 'Copied for AI — {n} words. Paste it into Claude Code, the AI terminal or a chat.',
+    'shell.ai.copyFailed': 'Could not copy — the browser refused the clipboard.',
+    'shell.ai.path': 'Path',
+    'shell.ai.link': 'Link in One',
+    'shell.ai.id': 'Page id',
+    'shell.ai.fields': 'Fields',
+    'shell.ai.entries': 'Entries',
+    'shell.ai.subpages': 'Sub-pages',
+    'shell.ai.content': 'Content',
     ...agendaMessages.en,
     ...inboxMessages.en,
     ...cloudMessages.en,
@@ -472,6 +482,16 @@ export const messages: Messages = {
     'shell.clipper.android': 'Android: install One from the browser menu, then share any page to One.',
   },
   de: {
+    'shell.ai.copy': 'Für KI-Kontext kopieren',
+    'shell.ai.copied': 'Für die KI kopiert – {n} Wörter. In Claude Code, das KI-Terminal oder einen Chat einfügen.',
+    'shell.ai.copyFailed': 'Kopieren ging nicht – der Browser hat die Zwischenablage verweigert.',
+    'shell.ai.path': 'Pfad',
+    'shell.ai.link': 'Link in One',
+    'shell.ai.id': 'Seiten-ID',
+    'shell.ai.fields': 'Felder',
+    'shell.ai.entries': 'Einträge',
+    'shell.ai.subpages': 'Unterseiten',
+    'shell.ai.content': 'Inhalt',
     ...agendaMessages.de,
     ...inboxMessages.de,
     ...cloudMessages.de,

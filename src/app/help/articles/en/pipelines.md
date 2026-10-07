@@ -3,7 +3,7 @@ id: pipelines
 title: Business analysis and QA pipelines
 section: ai
 order: 11
-keywords: business analysis, ba, spec, specification, sdd, software design document, requirements, analysis, qa, quality assurance, test cases, test design, then, follow-up, chain, pipeline, document stage, import stage, zip, clone, reference, mention, knowledge base, atlas, mcp, Business-Analyse, Spezifikation, Anforderungen, Testfälle, Danach, Folgeaufgabe
+keywords: copy for ai, ai context, clipboard, Für KI-Kontext kopieren, business analysis, ba, spec, specification, sdd, software design document, requirements, analysis, qa, quality assurance, test cases, test design, then, follow-up, chain, pipeline, document stage, import stage, zip, clone, reference, mention, knowledge base, atlas, mcp, Business-Analyse, Spezifikation, Anforderungen, Testfälle, Danach, Folgeaufgabe
 related: coding-pipeline, legacy-modernisation, mcp-servers
 summary: Next to Coding: a Business analysis pipeline that writes analyses and specifications, a QA pipeline that designs test cases — each on its own, or chained.
 ---
@@ -28,7 +28,9 @@ For tasks without a repository the worker uses its own scratch folder. Your know
 **Then** (in New task and in the task panel) picks what happens when a task is done: Business analysis → **Coding** and/or **QA**, QA → **Coding**. One creates the follow-up task in that pipeline with the whole page (and a mention of where it came from); the done task links to it. Nothing ticked: nothing follows. A done task can also be handed on later (**Hand on to …**).
 
 ## Pages that go along
-Mention a page with **@** (or link it) in a task — its text goes to Claude Code with the task, read only: up to 8 pages, a database row with its fields, a database with its entries' titles. The task panel shows them under **Goes along**. In a team, a mentioned page that changed waits for **Confirm on this device** like a changed task.
+Mention a page with **@** in a task, or paste its One link (also into your **Answer** to a question) — its text goes to Claude Code with the task, read only: up to 8 pages, a database row with its fields, a database with its entries' titles. The task panel shows them under **Goes along**. In a team, a mentioned page that changed waits for **Confirm on this device** like a changed task.
+
+For any other AI: **Copy for AI context** (page menu ⋯, the sidebar's row menu, ⌘K) puts the page on the clipboard as Markdown — title, path, link, page id, a row's fields, the content.
 
 ## Import stage
 A pipeline can start with the code: **Import** (the template *Modernise legacy code* begins with it, as does *Create it for legacy code* on an empty #/coding). A task there shows a box in its panel: drop a **ZIP**, paste a **GitLab / GitHub address** or take a repo the worker has. The worker makes a new repository in `~/one-repos`, the task takes it as its **Repo** and moves on — see [Modernise legacy code](help:legacy-modernisation).

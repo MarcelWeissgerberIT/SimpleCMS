@@ -49,6 +49,11 @@ async function connect(page: Page, extra: Record<string, unknown> = {}) {
 }
 
 const stageOf = (page: Page) => page.locator('.ctk-code')
+/** The new task's id, once One opened its page (the dialog navigates after the task is written). */
+async function taskId(page: Page): Promise<string> {
+  await page.waitForFunction(() => window.location.hash.startsWith('#/p/'))
+  return page.evaluate(() => window.location.hash.replace('#/p/', ''))
+}
 const h2s = (page: Page, id: string) =>
   wsEval(page, (s, id) => ((s.pages[id].content?.content ?? []) as Array<{ type: string; attrs?: { level?: number }; content?: Array<{ text?: string }> }>).filter((b) => b.type === 'heading' && b.attrs?.level === 2).map((b) => (b.content ?? []).map((c) => c.text ?? '').join('')), id)
 
@@ -66,7 +71,7 @@ test('Business analysis on its own, without a repo: analysis + specification sec
   await page.getByTestId('coding-new-then-coding').click()
   await page.getByTestId('coding-create').click()
   await expect(page.getByTestId('coding-panel')).toBeVisible()
-  const id = await page.evaluate(() => window.location.hash.replace('#/p/', ''))
+  const id = await taskId(page)
   await expect(stageOf(page)).toContainText(/BA — documents only · /i)
   await expect(page.getByTestId('coding-then-coding')).toHaveAttribute('aria-pressed', 'true')
   // the worker runs both document stages in its scratch folder, then the gate waits
@@ -100,7 +105,7 @@ test('QA: the test cases of the document become rows of the Test cases database;
   await page.getByTestId('coding-new-repo').fill('website')
   await page.getByTestId('coding-new-goal').fill('Cover the login. FAKE:CASES')
   await page.getByTestId('coding-create').click()
-  const id = await page.evaluate(() => window.location.hash.replace('#/p/', ''))
+  const id = await taskId(page)
   await expect(stageOf(page)).toContainText(/QA — website · Approve test cases$/i, { timeout: 60_000 })
   const rows = await wsEval(page, () => {
     const s = (window as unknown as { __one: { workspace: { getState: () => { pages: Record<string, { databaseId?: string; title: string; properties: Record<string, unknown> }>; databases: Record<string, { id: string; system?: string; properties: Array<{ id: string; name: string; options?: Array<{ id: string; name: string }> }> }> } } } }).__one.workspace.getState()
@@ -132,7 +137,7 @@ test('Import stage: a ZIP dropped in the task panel becomes the task\'s repo, th
   await page.getByTestId('coding-new-title').fill('Rebuild the billing module')
   await page.getByTestId('coding-new-goal').fill('Understand the billing module and rebuild it.')
   await page.getByTestId('coding-create').click()
-  const id = await page.evaluate(() => window.location.hash.replace('#/p/', ''))
+  const id = await taskId(page)
   await expect(stageOf(page)).toContainText(/· Import$/i)
   await expect(page.getByTestId('coding-state')).toContainText('Waiting for the code')
   await expect(page.getByTestId('coding-import')).toBeVisible()
@@ -160,7 +165,7 @@ test('a page mentioned with @ goes along: the panel lists it, Claude Code gets i
   await page.getByTestId('coding-new-title').fill('Work on the review')
   await page.getByRole('checkbox').uncheck()
   await page.getByTestId('coding-create').click()
-  const id = await page.evaluate(() => window.location.hash.replace('#/p/', ''))
+  const id = await taskId(page)
   await expect(page.getByTestId('coding-refs')).toContainText('Mention pages with @')
   await wsEval(page, (s, a) => s.setContent(a.id, { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Analyse ' }, { type: 'mention', attrs: { id: a.review, label: 'Sample view review', kind: 'page' } }, { type: 'text', text: ' and take the first finding.' }] }] }, 'e2e'), { id, review })
   await expect(page.getByTestId('coding-refs')).toContainText('Sample view review')
@@ -193,4 +198,34 @@ test('German at 390 px: the pipeline switch, the import box and the "Then" strip
   await expect(page.getByTestId('coding-state')).toContainText('Wartet auf den Code')
   await expect(page.getByTestId('coding-import')).toContainText('ZIP hier ablegen')
   expect(await overflow()).toBeLessThanOrEqual(0)
+})
+
+test('a One address pasted as plain text goes along too; "Copy for AI context" puts the page on the clipboard as Markdown', async ({ page }) => {
+  await openApp(page)
+  const review = await createPage(page, { title: 'Sample view review', content: doc(para('Finding 1: the list has no paging.')) })
+  await page.evaluate(() => (window.location.hash = '#/coding/spec'))
+  await page.getByTestId('coding-setup').click()
+  await page.getByTestId('coding-new').click()
+  await page.getByTestId('coding-new-title').fill('Work on the review')
+  await page.getByRole('checkbox').uncheck()
+  await page.getByTestId('coding-create').click()
+  const id = await taskId(page)
+  await wsEval(page, (s, a) => s.setContent(a.id, { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: `Take the first finding of https://getonecms.com/app/#/p/${a.review} and fix it.` }] }] }, 'e2e'), { id, review })
+  await expect(page.getByTestId('coding-refs')).toContainText('Sample view review')
+  // Copy for AI context (⌘K on the review page)
+  await page.evaluate(() => {
+    ;(window as unknown as { __copied: string }).__copied = ''
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText: (t: string) => ((window as unknown as { __copied: string }).__copied = t, Promise.resolve()) }, configurable: true })
+  })
+  await page.evaluate((r) => (window.location.hash = `#/p/${r}`), review)
+  await page.keyboard.press('Control+k')
+  await page.locator('.pal-input input').fill('Copy for AI context')
+  await page.waitForTimeout(250)
+  await page.keyboard.press('Enter')
+  await expect.poll(() => page.evaluate(() => (window as unknown as { __copied: string }).__copied)).toContain('# Sample view review')
+  const copied = await page.evaluate(() => (window as unknown as { __copied: string }).__copied)
+  expect(copied).toContain(`- Page id: ${review}`)
+  expect(copied).toContain(`#/p/${review}`)
+  expect(copied).toContain('Finding 1: the list has no paging.')
+  await expect(page.getByText(/Copied for AI — \d+ words/)).toBeVisible()
 })

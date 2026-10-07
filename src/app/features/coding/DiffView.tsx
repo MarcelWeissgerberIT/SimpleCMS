@@ -18,7 +18,7 @@ const EXT: Record<string, string> = {
   r: 'r', pl: 'perl', dockerfile: 'dockerfile', makefile: 'makefile',
 }
 
-function langOf(path: string): string | null {
+export function langOf(path: string): string | null {
   const base = path.split('/').pop()!.toLowerCase()
   const ext = base.includes('.') ? base.split('.').pop()! : base
   const lang = EXT[ext]
@@ -41,7 +41,7 @@ function render(nodes: HastNode[] | undefined, key = 'n'): ReactNode[] {
   })
 }
 
-function code(line: string, lang: string | null): ReactNode {
+export function code(line: string, lang: string | null): ReactNode {
   if (!lang || !line || line.length > 1000) return line
   try {
     return render(lowlight.highlight(lang, line).children as HastNode[])

@@ -10914,6 +10914,8 @@ var REPO_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 var WORKSPACE_ID = /^(local|team):[A-Za-z0-9_-]{1,64}$/;
 var PRESET_GLOBAL = "ONE_WORKER_PRESET";
 var PAIR_SECRET = /^[A-Za-z0-9_-]{43}$/;
+var EDIT_HUNKS = 6;
+var EDIT_CHARS = 4e3;
 
 // src/worker/config.ts
 import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
@@ -11425,6 +11427,28 @@ function toolLine(name, input) {
   const pick2 = ["file_path", "path", "command", "pattern", "url", "query", "description"].map((k) => i2[k]).find((v) => typeof v === "string" && v.trim());
   return clip(`${name}${pick2 ? ` ${oneLine(pick2)}` : ""}`, 300);
 }
+function editOf(name, input) {
+  const i2 = input && typeof input === "object" ? input : {};
+  const path = typeof i2.file_path === "string" ? i2.file_path : "";
+  if (!path) return null;
+  const str4 = (v) => typeof v === "string" ? v : "";
+  let raw;
+  if (name === "Edit") raw = [{ old: str4(i2.old_string), new: str4(i2.new_string) }];
+  else if (name === "MultiEdit") raw = (Array.isArray(i2.edits) ? i2.edits : []).map((e) => ({ old: str4(e?.old_string), new: str4(e?.new_string) }));
+  else if (name === "Write") raw = [{ old: "", new: str4(i2.content) }];
+  else return null;
+  raw = raw.filter((h) => h.old || h.new);
+  if (!raw.length) return null;
+  let clipped = raw.length > EDIT_HUNKS;
+  const cut = (s) => {
+    if (s.length <= EDIT_CHARS) return s;
+    clipped = true;
+    const at = s.lastIndexOf("\n", EDIT_CHARS);
+    return s.slice(0, at > 0 ? at : EDIT_CHARS);
+  };
+  const hunks = raw.slice(0, EDIT_HUNKS).map((h) => ({ old: cut(h.old), new: cut(h.new) }));
+  return { path, hunks, ...clipped ? { clipped: true } : {} };
+}
 function killTree(child) {
   if (child.exitCode !== null || child.pid === void 0) return;
   try {
@@ -11530,7 +11554,8 @@ ${e.message}`;
           for (const block of Array.isArray(content) ? content : []) {
             if (block.type === "text" && typeof block.text === "string" && block.text.trim()) log2("claude", clip(block.text.trim(), 4e3));
             else if (block.type === "tool_use" && typeof block.name === "string") {
-              log2("tool", toolLine(block.name, block.input));
+              const e = editOf(block.name, block.input);
+              r.onLog({ t: Date.now(), k: "tool", s: toolLine(block.name, block.input), ...e ? { e } : {} });
               const input = block.input;
               if (block.name === "ExitPlanMode" && typeof input?.plan === "string") result.plan = input.plan;
               else if ((block.name === "Write" || block.name === "Edit" || block.name === "MultiEdit") && typeof input?.file_path === "string" && PLAN_FILE.test(input.file_path)) planFile = input.file_path;
@@ -14049,6 +14074,7 @@ ${output.slice(-TEST_OUTPUT_MAX)}`;
 // src/worker/run.ts
 var SUMMARY_MAX = 6e3;
 var scrubVars = (scrub, v) => v ? Object.fromEntries(Object.entries(v).map(([k, x2]) => [k, typeof x2 === "string" ? scrub.text(x2) : x2])) : void 0;
+var scrubEdit = (scrub, e) => ({ ...e, path: scrub.text(e.path), hunks: e.hunks.map((h) => ({ old: scrub.text(h.old), new: scrub.text(h.new) })) });
 var clip2 = (s, n) => s.length > n ? `${s.slice(0, n - 1)}\u2026` : s;
 var DEFAULTS = {
   doc: [
@@ -14195,7 +14221,7 @@ async function claudeStage(ctx, wt, scrub, log2) {
       caps,
       env: claudeEnv(),
       signal: ctx.signal,
-      onLog: (l) => ctx.log({ ...l, s: scrub.text(l.s), ...l.v ? { v: scrubVars(scrub, l.v) } : {} }),
+      onLog: (l) => ctx.log({ ...l, s: scrub.text(l.s), ...l.v ? { v: scrubVars(scrub, l.v) } : {}, ...l.e ? { e: scrubEdit(scrub, l.e) } : {} }),
       onProgress: ctx.progress
     });
     if (res.cost > 0) ctx.state.addCost(task.id, res.cost);
@@ -14245,7 +14271,7 @@ async function docStage(ctx, scrub, log2) {
       caps,
       env: claudeEnv(),
       signal: ctx.signal,
-      onLog: (l) => ctx.log({ ...l, s: scrub.text(l.s), ...l.v ? { v: scrubVars(scrub, l.v) } : {} }),
+      onLog: (l) => ctx.log({ ...l, s: scrub.text(l.s), ...l.v ? { v: scrubVars(scrub, l.v) } : {}, ...l.e ? { e: scrubEdit(scrub, l.e) } : {} }),
       onProgress: ctx.progress
     });
     if (res.cost > 0) ctx.state.addCost(task.id, res.cost);

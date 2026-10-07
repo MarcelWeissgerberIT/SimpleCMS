@@ -204,8 +204,8 @@ export async function pickNext(repos: string[], workerName: string, docs = false
       title: fresh.title.trim() || t('common.untitled'),
       repo,
       stage: { id: stage.id, name: stage.name, kind: stage.kind, instructions: stage.instructions ?? '', permissionMode: stage.kind === 'plan' ? 'plan' : stage.kind === 'doc' ? 'default' : (stage.permissionMode ?? 'acceptEdits'), maxTurns: stage.maxTurns ?? (stage.kind === 'plan' ? 20 : 40), gitAction: stage.gitAction ?? null },
-      // the task, then the pages it refers to (@ mentions, links) as read-only text
-      text: taskText(row.id),
+      // the task, then the pages it refers to (@ mentions, links — also in answers and rework notes) as read-only text
+      text: taskText(row.id, [...(local.answers ?? []).map((a) => a.a), local.rework?.text ?? '']),
       rework: local.rework?.stageId === stage.id ? local.rework.text : null,
       answers: (local.answers ?? []).filter((a) => a.stageId === stage.id).map(({ q, a }) => ({ q, a })),
       branch: text(fresh.properties[props.branch ?? '']).trim() || null,

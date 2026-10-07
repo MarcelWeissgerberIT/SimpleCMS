@@ -31,7 +31,7 @@ import {
 } from './protocol'
 import { DEFAULT_CODING, CODING_STORAGE_KEY, loadCodingSettings, saveCodingSettings, useCoding, validPort, type CodingSettings } from './state'
 import { appendLog, patchTask, flushLogs, loadTask } from './local'
-import { cleanCode } from './lines'
+import { cleanCode, cleanEdit } from './lines'
 import { addRepoOptions, codingProps, pipelineDbIds } from './schema'
 import { finishStage, heartbeat, intakeDone, pickNext, setNudge, taskContext, gitSummary } from './tasks'
 import { startTrustWatch } from './trust'
@@ -243,7 +243,7 @@ function onEvent(msg: Extract<WorkerMessage, { type: 'event' }>) {
   if (!ownTask(taskId)) return
   switch (msg.kind) {
     case 'log':
-      appendLog(taskId, (Array.isArray(msg.lines) ? msg.lines : []).filter((l) => l && typeof l.s === 'string').map((l) => ({ t: Number(l.t) || Date.now(), k: l.k, s: l.s.slice(0, 8000), ...cleanCode(l) })))
+      appendLog(taskId, (Array.isArray(msg.lines) ? msg.lines : []).filter((l) => l && typeof l.s === 'string').map((l) => ({ t: Number(l.t) || Date.now(), k: l.k, s: l.s.slice(0, 8000), ...cleanCode(l), ...cleanEdit(l.e) })))
       return
     case 'progress': {
       const p = msg.progress

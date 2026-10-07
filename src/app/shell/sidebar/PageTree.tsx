@@ -14,7 +14,7 @@ import {
   type DragStartEvent,
   type Modifier,
 } from '@dnd-kit/core'
-import { ChevronRight, Copy, FolderInput, Link2, Lock, MoreHorizontal, PanelRight, PencilLine, Plus, Star, StarOff, Trash2, PanelRightOpen, Users } from 'lucide-react'
+import { ChevronRight, ClipboardCopy, Copy, FolderInput, Link2, Lock, MoreHorizontal, PanelRight, PencilLine, Plus, Star, StarOff, Trash2, PanelRightOpen, Users } from 'lucide-react'
 import { useShallow } from 'zustand/react/shallow'
 import { useWorkspace } from '../../store/store'
 import { useUI } from '../../store/ui'
@@ -26,7 +26,7 @@ import { toggleMenu } from '../lib/menu'
 import { useLang, useT } from '../../i18n'
 import type { ID } from '../../store/types'
 import { ENTRY_LIMIT, childIds, treeKey, useChildIds, useEntryCount, useEntryIds, useTreeState } from '../lib/tree'
-import { closeMobileSidebar, copyPageLink, createPageAndOpen, duplicateAndOpen, goToPage, trashWithUndo } from '../lib/actions'
+import { closeMobileSidebar, copyPageForAI, copyPageLink, createPageAndOpen, duplicateAndOpen, goToPage, trashWithUndo } from '../lib/actions'
 import { canLeaveFor, createEntryAndOpen, dropOptions, nodeKind, requestLeaveDatabase, requestMakeEntry } from './entries'
 import { AIRunLed, DbCommandKey, DbCommandsMenu, type CommandHost } from '../../features'
 import { useIsTouch } from '../lib/hooks'
@@ -389,6 +389,7 @@ function TreeRow({ id, depth, section, draggable, expanded }: { id: ID; depth: n
       ? { label: t('shell.menu.unfavorite'), icon: <StarOff size={15} />, onSelect: () => useWorkspace.getState().toggleFavorite(id) }
       : { label: t('shell.menu.favorite'), icon: <Star size={15} />, onSelect: () => useWorkspace.getState().toggleFavorite(id) },
     { label: t('common.copyLink'), icon: <Link2 size={15} />, onSelect: () => void copyPageLink(id) },
+    { label: t('shell.ai.copy'), icon: <ClipboardCopy size={15} />, onSelect: () => void copyPageForAI(id) },
     // database rows belong to their database: no "Move to"
     ...(page.databaseId || !edit ? [] : ([{ label: t('shell.menu.moveTo'), icon: <FolderInput size={15} />, onSelect: () => useUI.getState().openModal({ type: 'move', pageId: id }) }] as MenuEntry[])),
     // team workspaces: straight into Private (only me) or out into the workspace (everyone)

@@ -13,6 +13,6 @@ try: coding
 
 **Chained when you want it.** **Then** hands a done task on: Business analysis → Coding and/or QA, QA → Coding. The follow-up task gets the whole page.
 
-**Pages go along.** Mention a page with **@** in a task — Claude Code gets its text, read only. The panel lists them under **Goes along**.
+**Pages go along.** Mention a page with **@** in a task or paste its One link (also into an answer) — Claude Code gets its text, read only. The panel lists them under **Goes along**. For any other AI, **Copy for AI context** (page menu, ⌘K) puts a page on the clipboard as Markdown.
 
-**The code arrives in the task.** *Modernise legacy code* now starts with an **Import** stage: drop a ZIP or paste a GitLab / GitHub address in the task panel, and the worker makes it the task's repository. Claude Code can also ask questions while it plans. The worker needs a new download for all of this. More: [Business analysis and QA pipelines](help:pipelines).
+**The code arrives in the task.** *Modernise legacy code* now starts with an **Import** stage: drop a ZIP or paste a GitLab / GitHub address in the task panel, and the worker makes it the task's repository. Claude Code can also ask questions while it plans, and every Edit / Write in the log opens as a code diff. The worker needs a new download for all of this. More: [Business analysis and QA pipelines](help:pipelines).

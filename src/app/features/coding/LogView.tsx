@@ -5,23 +5,35 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { format } from 'date-fns'
 import { useT } from '../../i18n'
-import type { LogLine } from './protocol'
+import type { LogLine, ToolEdit } from './protocol'
 import { lineText } from './lines'
+import { EditDiff, linesOf } from './EditDiff'
 
 const SHOW = 400
 
-/** A tool call: only its name ("Read", "Bash", "one-task · one_task_note"); what it was called with opens on a click. */
-function ToolCall({ s }: { s: string }) {
+/**
+ * A tool call: only its name ("Read", "Bash", "one-task · one_task_note"); what it was called with opens on a click —
+ * for a change to a file (Edit / MultiEdit / Write) the change itself, as a diff.
+ */
+function ToolCall({ s, edit }: { s: string; edit?: ToolEdit }) {
+  const t = useT()
   const cut = s.indexOf(' ')
   const name = (cut < 0 ? s : s.slice(0, cut)).replace(/^mcp__(.+?)__/, '$1 · ')
   const arg = cut < 0 ? '' : s.slice(cut + 1).trim()
-  if (!arg) return <span className="clog-s clog-tool__name">{name}</span>
+  if (!arg && !edit) return <span className="clog-s clog-tool__name">{name}</span>
+  const add = edit ? edit.hunks.reduce((n, h) => n + linesOf(h.new).length, 0) : 0
+  const del = edit ? edit.hunks.reduce((n, h) => n + linesOf(h.old).length, 0) : 0
   return (
-    <details className="clog-s clog-tool">
+    <details className="clog-s clog-tool" data-edit={edit ? '' : undefined}>
       <summary>
         <span className="clog-tool__name">{name}</span>
+        {edit && (
+          <span className="clog-tool__file" title={t('features.coding.log.editHint')}>
+            {edit.path.split('/').pop()} <span className="cd-add">+{add}</span> <span className="cd-del">−{del}</span>
+          </span>
+        )}
       </summary>
-      <span className="clog-tool__arg">{arg}</span>
+      {edit ? <EditDiff edit={edit} /> : <span className="clog-tool__arg">{arg}</span>}
     </details>
   )
 }
@@ -61,7 +73,7 @@ export function LogView({ lines, onClear }: { lines: LogLine[]; onClear?: () => 
           <div key={i} className="clog-line" data-k={l.k}>
             <span className="clog-t">{format(l.t, 'HH:mm:ss')}</span>
             <span className="clog-k">{t(`features.coding.log.k.${l.k}`)}</span>
-            {l.k === 'tool' ? <ToolCall s={l.s} /> : <span className="clog-s">{lineText(t, l)}</span>}
+            {l.k === 'tool' ? <ToolCall s={l.s} edit={l.e} /> : <span className="clog-s">{lineText(t, l)}</span>}
           </div>
         ))}
       </div>

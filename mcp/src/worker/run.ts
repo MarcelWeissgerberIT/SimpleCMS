@@ -10,7 +10,7 @@ import { randomBytes } from 'node:crypto'
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { GitInfo, LogLine, StageOutcome, TaskPayload, TaskProgress, TestResult } from '../../../src/app/features/coding/protocol.ts'
+import type { GitInfo, LogLine, StageOutcome, TaskPayload, TaskProgress, TestResult, ToolEdit } from '../../../src/app/features/coding/protocol.ts'
 import { inICloud, type RepoConfig } from './config.ts'
 import type { WorkerState } from './state.ts'
 import { runClaude, type ClaudeCaps } from './claude.ts'
@@ -46,6 +46,8 @@ const SUMMARY_MAX = 6000
 type Log = (k: LogLine['k'], s: string, c?: string, v?: Record<string, string | number>) => void
 const scrubVars = (scrub: Scrubber, v?: Record<string, string | number>) =>
   v ? Object.fromEntries(Object.entries(v).map(([k, x]) => [k, typeof x === 'string' ? scrub.text(x) : x])) : undefined
+/** An edit's path and text with this machine's paths replaced (like every log line). */
+const scrubEdit = (scrub: Scrubber, e: ToolEdit): ToolEdit => ({ ...e, path: scrub.text(e.path), hunks: e.hunks.map((h) => ({ old: scrub.text(h.old), new: scrub.text(h.new) })) })
 const clip = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1)}…` : s)
 
 const DEFAULTS: Record<'plan' | 'implement' | 'doc', string> = {
@@ -216,7 +218,7 @@ async function claudeStage(ctx: StageContext, wt: TaskWorktree, scrub: Scrubber,
       caps,
       env: claudeEnv(),
       signal: ctx.signal,
-      onLog: (l) => ctx.log({ ...l, s: scrub.text(l.s), ...(l.v ? { v: scrubVars(scrub, l.v) } : {}) }),
+      onLog: (l) => ctx.log({ ...l, s: scrub.text(l.s), ...(l.v ? { v: scrubVars(scrub, l.v) } : {}), ...(l.e ? { e: scrubEdit(scrub, l.e) } : {}) }),
       onProgress: ctx.progress,
     })
     if (res.cost > 0) ctx.state.addCost(task.id, res.cost)
@@ -270,7 +272,7 @@ async function docStage(ctx: StageContext, scrub: Scrubber, log: Log): Promise<S
       caps,
       env: claudeEnv(),
       signal: ctx.signal,
-      onLog: (l) => ctx.log({ ...l, s: scrub.text(l.s), ...(l.v ? { v: scrubVars(scrub, l.v) } : {}) }),
+      onLog: (l) => ctx.log({ ...l, s: scrub.text(l.s), ...(l.v ? { v: scrubVars(scrub, l.v) } : {}), ...(l.e ? { e: scrubEdit(scrub, l.e) } : {}) }),
       onProgress: ctx.progress,
     })
     if (res.cost > 0) ctx.state.addCost(task.id, res.cost)

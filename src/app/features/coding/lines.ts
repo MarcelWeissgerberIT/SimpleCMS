@@ -4,7 +4,7 @@
  * output, an older worker — as the worker wrote it (`s`).
  */
 import type { Translate } from '@/shared/i18n'
-import type { LogLine } from './protocol'
+import { EDIT_CHARS, EDIT_HUNKS, type LogLine, type ToolEdit } from './protocol'
 
 export const LOG_CODES = new Set([
   'stage',
@@ -47,4 +47,20 @@ export function cleanCode(l: { c?: unknown; v?: unknown }): Pick<LogLine, 'c' | 
 
 export function lineText(t: Translate, l: LogLine): string {
   return l.c && LOG_CODES.has(l.c) ? t(`features.coding.log.c.${l.c}`, l.v) : l.s
+}
+
+/** An edit as it arrives from the worker: strings only, within the limits; anything else is dropped. */
+export function cleanEdit(raw: unknown): Pick<LogLine, 'e'> {
+  if (!raw || typeof raw !== 'object') return {}
+  const e = raw as Record<string, unknown>
+  if (typeof e.path !== 'string' || !e.path.trim() || !Array.isArray(e.hunks)) return {}
+  const str = (v: unknown) => (typeof v === 'string' ? v.slice(0, EDIT_CHARS) : '')
+  const hunks = e.hunks
+    .slice(0, EDIT_HUNKS)
+    .filter((h): h is Record<string, unknown> => !!h && typeof h === 'object')
+    .map((h) => ({ old: str(h.old), new: str(h.new) }))
+    .filter((h) => h.old || h.new)
+  if (!hunks.length) return {}
+  const edit: ToolEdit = { path: e.path.slice(0, 400), hunks, ...(e.clipped === true ? { clipped: true } : {}) }
+  return { e: edit }
 }

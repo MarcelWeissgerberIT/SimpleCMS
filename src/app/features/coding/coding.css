@@ -612,6 +612,36 @@
   border-left: 1px solid var(--rule);
   color: var(--ink-3);
 }
+.clog-tool__file {
+  color: var(--ink-3);
+}
+/* an edit's change, under its tool call */
+.clog-edit {
+  display: grid;
+  gap: 4px;
+  margin: 4px 0 8px;
+  padding-left: 12px;
+  border-left: 1px solid var(--rule);
+  min-width: 0;
+}
+.clog-edit__path {
+  color: var(--ink-3);
+  font-size: var(--text-2xs);
+}
+.clog-edit__box {
+  max-height: 320px;
+  overflow: auto;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-1);
+  background: var(--surface);
+}
+.clog-edit__table {
+  width: max-content;
+  min-width: 100%;
+}
+.clog-edit__table .cd-row--ctx .cd-code {
+  color: var(--ink-3);
+}
 .clog-foot {
   display: flex;
   justify-content: flex-end;

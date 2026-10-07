@@ -134,7 +134,22 @@ export interface LogLine {
   /** the worker's own lines: a message code + its values — One shows them in the person's language (`s` = English) */
   c?: string
   v?: Record<string, string | number>
+  /** a tool call that changed a file (Edit / MultiEdit / Write): what changed — the log shows it as a diff */
+  e?: ToolEdit
 }
+
+/** What an Edit / MultiEdit / Write of Claude Code changed: the file (scrubbed) and old → new per change, clipped. */
+export interface ToolEdit {
+  path: string
+  /** '' old: new text (Write: the whole file) */
+  hunks: Array<{ old: string; new: string }>
+  /** changes or text were left out (too many / too long) */
+  clipped?: boolean
+}
+
+/** per edit: at most this many changes, this many characters per side */
+export const EDIT_HUNKS = 6
+export const EDIT_CHARS = 4000
 
 /** Claude Code's progress in a running stage (sent after every turn). */
 export interface TaskProgress {

@@ -275,6 +275,22 @@ describe('documents, tasks without a repository, imports', () => {
     assertNoPaths(tab, r)
   })
 
+  test('an edit\'s change goes with its tool call in the log (scrubbed: no path of this machine)', async () => {
+    const r = makeRepo()
+    await boot(r)
+    const tab = await connect()
+    await tab.next('welcome')
+    const done = await tab.run(task({ kind: 'implement' }, { id: 'edt1abcd' }))
+    assert.equal(done.status, 'ok', JSON.stringify(done))
+    const lines = tab.messages.flatMap((m) => (m.type === 'event' && m.kind === 'log' ? m.lines : []))
+    const write = lines.find((l) => l.k === 'tool' && l.e)
+    assert.ok(write, JSON.stringify(lines.filter((l) => l.k === 'tool')))
+    assert.equal(write!.e!.path, './feature.txt')
+    assert.equal(write!.e!.hunks[0]!.old, '')
+    assert.match(write!.e!.hunks[0]!.new, /^Add the feature file\nok\n/)
+    assertNoPaths(tab, r)
+  })
+
   test('a task without a repository: document stages run in the scratch folder with the worker\'s own MCP servers; other stages are refused', async () => {
     const r = makeRepo()
     const log = join(r.dir, 'claude-args.jsonl')

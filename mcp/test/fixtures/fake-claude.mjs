@@ -206,7 +206,7 @@ if (prompt.includes('FAKE:DEMOLIVE') && existsSync(login)) {
   say('Reading src/login.ts — the form fails silently on a wrong password.')
   tool('Read', { file_path: login })
   await sleep(600)
-  tool('Edit', { file_path: login })
+  tool('Edit', { file_path: login, old_string: readFileSync(login, 'utf8'), new_string: LOGIN_FIXED })
   writeFileSync(login, LOGIN_FIXED)
   const steps = [
     () => say('login() now returns the field and a message.'),
@@ -227,7 +227,7 @@ if (prompt.includes('FAKE:DEMOLIVE') && existsSync(login)) {
 if (prompt.includes('FAKE:DEMO') && existsSync(login)) {
   say('Reading src/login.ts — the form fails silently on a wrong password.')
   tool('Read', { file_path: login })
-  tool('Edit', { file_path: login })
+  tool('Edit', { file_path: login, old_string: readFileSync(login, 'utf8'), new_string: LOGIN_FIXED })
   writeFileSync(login, LOGIN_FIXED)
   await taskTool('one_task_note', { text: 'login() now returns the field and a message; the form can show it.' })
   say('Done: login() names the field and the message.')
@@ -238,8 +238,9 @@ if (prompt.includes('FAKE:DEMO') && existsSync(login)) {
 const broken = prompt.includes('FAKE:FAILTEST') && !hasRework
 const colour = /A: (.+)/.exec(prompt.split('<<<ANSWERS')[1] ?? '')?.[1]?.trim()
 const file = join(process.cwd(), 'feature.txt')
-tool('Write', { file_path: file, content: '…' })
-writeFileSync(file, `${title}\n${broken ? 'BROKEN' : 'ok'}${colour ? `\ncolour: ${colour}` : ''}\n`)
+const content = `${title}\n${broken ? 'BROKEN' : 'ok'}${colour ? `\ncolour: ${colour}` : ''}\n`
+tool('Write', { file_path: file, content })
+writeFileSync(file, content)
 await taskTool('one_task_note', { text: `Wrote ${file} for "${title}".` })
 say(`Added feature.txt for "${title}".`)
 result(`- Added \`feature.txt\` (${broken ? 'first try' : 'checks pass'})${colour ? `\n- Colour: ${colour}` : ''}`, prompt.includes('FAKE:EXPENSIVE') ? 4 : 0.12)

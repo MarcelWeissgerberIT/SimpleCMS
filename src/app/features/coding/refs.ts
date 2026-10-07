@@ -1,6 +1,7 @@
 /**
- * Pages a task refers to — page mentions (@), links to pages (`pageLink`, `#/p/<id>` links) in the part of the task
- * Claude may read — go along with the task to the worker as read-only text: ≤ 8 pages, ≤ 20,000 characters each,
+ * Pages a task refers to — page mentions (@), links to pages (`pageLink`, `#/p/<id>` links, also a pasted One
+ * address as plain text) in the part of the task Claude may read, and One addresses in the person's answers and
+ * rework notes — go along with the task to the worker as read-only text: ≤ 8 pages, ≤ 20,000 characters each,
  * each only what Claude may read of it (context marks). A database row brings its filled fields, a database its
  * entries' titles. Never trashed or template pages. Their text is part of the task's version (trust.ts), so in a
  * team a changed reference waits for Confirm like a changed task.
@@ -17,6 +18,10 @@ const MAX_REFS = 8
 const MAX_CHARS = 20_000
 const MAX_ROWS = 50
 const LINK = /#\/p\/([A-Za-z0-9_-]{4,64})/
+const LINKS = /#\/p\/([A-Za-z0-9_-]{4,64})/g
+
+/** The page ids of One addresses in a text ("https://…/app/#/p/<id>", "#/p/<id>"). */
+export const idsInText = (text: string): string[] => [...text.matchAll(LINKS)].map((m) => m[1]!)
 
 export interface TaskRef {
   id: ID
@@ -34,6 +39,8 @@ function refIds(taskId: ID, blocks: JSONContent[] = readableBlocks(taskId)): ID[
     if (n.type === 'mention' && n.attrs?.kind === 'page') add(n.attrs.id)
     else if (n.type === 'pageLink') add(n.attrs?.pageId)
     for (const m of n.marks ?? []) if (m.type === 'link' && typeof m.attrs?.href === 'string') add(LINK.exec(m.attrs.href)?.[1])
+    // a One address pasted as plain text
+    if (n.type === 'text' && typeof n.text === 'string' && n.text.includes('#/p/')) for (const id of idsInText(n.text)) add(id)
     for (const c of n.content ?? []) walk(c)
   }
   for (const b of blocks) walk(b)
@@ -69,11 +76,13 @@ function refText(page: Page): string {
   return clip(parts.join('\n\n'))
 }
 
-/** The pages a task refers to (what goes along to the worker). */
-export function taskRefs(taskId: ID): TaskRef[] {
+/** The pages a task refers to (what goes along to the worker); `extra`: more text to look for One addresses in. */
+export function taskRefs(taskId: ID, extra: string[] = []): TaskRef[] {
   const s = useWorkspace.getState()
   const out: TaskRef[] = []
-  for (const id of refIds(taskId)) {
+  const ids = refIds(taskId)
+  for (const text of extra) for (const id of idsInText(text)) if (id !== taskId && !ids.includes(id)) ids.push(id)
+  for (const id of ids) {
     if (out.length >= MAX_REFS) break
     if (!usable(id)) continue
     const page = s.pages[id]!
@@ -88,10 +97,10 @@ export function refsMarkdown(refs: TaskRef[]): string {
   return [`## ${t('features.coding.refs.heading')}`, ...refs.map((r) => `### ${r.title} (${t('features.coding.refs.page')} ${r.id})\n\n${r.markdown || t('features.coding.refs.empty')}`)].join('\n\n')
 }
 
-/** The task text the worker gets: the task's readable part, then the pages it refers to. */
-export function taskText(taskId: ID): string {
+/** The task text the worker gets: the task's readable part, then the pages it (and `extra`: answers, notes) refers to. */
+export function taskText(taskId: ID, extra: string[] = []): string {
   const own = readableContent(taskId).markdown
-  const refs = refsMarkdown(taskRefs(taskId))
+  const refs = refsMarkdown(taskRefs(taskId, extra))
   return refs ? `${own}\n\n${refs}` : own
 }
 

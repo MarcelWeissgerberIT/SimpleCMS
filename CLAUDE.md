@@ -318,7 +318,8 @@ the public APIs stable — other areas are built against them in parallel.
   A repo in iCloud Drive (config.ts `inICloud`) is warned about in the log and its worktrees default to
   `~/.one-worktrees/<name>`; `git worktree add` (≤ 10 min, a line per 30 s) cleans up its folder + new branch on failure.
   Feedback: worker log lines carry a code + values (`LogLine.c` / `v`, shown via `features.coding.log.c.<code>`,
-  coding/lines.ts `LOG_CODES`); a `progress` event per Claude Code turn (turns / maxTurns / estimate from usage,
+  coding/lines.ts `LOG_CODES`); a tool line of Edit / MultiEdit / Write carries its change (`LogLine.e` ToolEdit, ≤ EDIT_HUNKS ×
+  EDIT_CHARS, scrubbed; coding/EditDiff.tsx shows it as a line diff when the call is opened); a `progress` event per Claude Code turn (turns / maxTurns / estimate from usage,
   mcp/src/worker/price.ts) lives only in `useCoding.progress`; a live `git` snapshot while a non-plan stage changes files
   (`ONE_WORKER_LIVE_GIT_MS`); browser notifications only via coding/notify.ts (per device `one.coding.notify`).
   New repos only from the worker's local setup page: clone (mcp/src/worker/clone.ts — `parseCloneUrl` refuses tokens in
@@ -336,8 +337,9 @@ the public APIs stable — other areas are built against them in parallel.
   worker-level `mcpServers`), its last message = a page section; `output: 'testcases'` → rows of the Test cases
   database (`system: 'testcases'`). Stage kind 'import': the task panel hands the worker a ZIP (chunked `intake-*`) or a
   clone address → a new repo in `cloneDir` added to worker.json (intake.ts; `"intake": false` refuses), then the task
-  takes it as Repo (`intakeDone`). Pages a task mentions (@ / links, ≤ 8, coding/refs.ts) go to the worker as
-  read-only text and are part of the task version. The task tools are read-only for Claude Code (plan mode may ask);
+  takes it as Repo (`intakeDone`). Pages a task mentions (@ / links / a pasted One address, also in answers and rework
+  notes; ≤ 8, coding/refs.ts) go to the worker as read-only text and are part of the task version. "Copy for AI
+  context" (shell/lib/aiContext.ts `pageForAI`, page menu / sidebar row menu / ⌘K) = a page as Markdown on the clipboard. The task tools are read-only for Claude Code (plan mode may ask);
   without ExitPlanMode the plan file (`~/.claude/plans`) is the plan.
 - Claude's Markdown goes into or is shown in a page only through `claudeDoc` / `claudeBlocks` (features/ai/claudeDoc.ts):
   web images become links, frames / media / web files never load. In shared pages Claude's change is its own undo step

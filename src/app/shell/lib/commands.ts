@@ -45,6 +45,7 @@ import {
   Blocks,
   Compass,
   Route,
+  ClipboardCopy,
 } from 'lucide-react'
 import { useWorkspace } from '../../store/store'
 import { useUI } from '../../store/ui'
@@ -60,6 +61,7 @@ import { openCloudDialog } from '../cloud/state'
 import { openWorkspaceSettings } from '../workspace/open'
 import { startTour } from '../tour/state'
 import {
+  copyPageForAI,
   copyPageLink,
   createDatabaseAndOpen,
   createFreeBoardAndOpen,
@@ -142,6 +144,7 @@ export function buildCommands(t: Translate, pageId: ID | null): Command[] {
       { id: 'history', group: 'page', label: t('shell.cmd.history'), icon: History, keywords: 'versions restore verlauf', run: () => ui.openModal({ type: 'history', pageId: page.id }) },
       { id: 'favorite', group: 'page', label: page.favorite ? t('shell.cmd.unfavorite') : t('shell.cmd.favorite'), icon: Star, keywords: 'star pin favorit', run: () => ws.toggleFavorite(page.id) },
       { id: 'copy-link', group: 'page', label: t('common.copyLink'), icon: Link2, keywords: 'url', run: () => void copyPageLink(page.id) },
+      { id: 'copy-ai', group: 'page', label: t('shell.ai.copy'), icon: ClipboardCopy, keywords: 'ai claude context markdown prompt copy ki kontext kopieren', run: () => void copyPageForAI(page.id) },
       { id: 'duplicate', group: 'page', label: t('common.duplicate'), icon: Copy, keywords: 'copy kopie', run: () => duplicateAndOpen(page.id) },
       { id: 'full-width', group: 'page', label: t('shell.cmd.fullWidth'), icon: MoveHorizontal, keywords: 'wide breit', run: () => ws.updatePageSettings(page.id, { fullWidth: !page.settings.fullWidth }) },
       { id: 'lock', group: 'page', label: page.settings.locked ? t('shell.cmd.unlock') : t('shell.cmd.lock'), icon: Lock, keywords: 'readonly sperren', run: () => ws.updatePageSettings(page.id, { locked: !page.settings.locked }) },

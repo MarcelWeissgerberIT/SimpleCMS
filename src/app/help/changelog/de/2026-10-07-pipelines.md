@@ -13,6 +13,6 @@ try: coding
 
 **Verkettet, wenn du willst.** **Danach** übergibt eine fertige Aufgabe: Business-Analyse → Coding und/oder QA, QA → Coding. Die Folgeaufgabe bekommt die ganze Seite.
 
-**Seiten gehen mit.** Erwähne in einer Aufgabe eine Seite mit **@** – Claude Code bekommt ihren Text, nur zum Lesen. Das Panel zeigt sie unter **Geht mit**.
+**Seiten gehen mit.** Erwähne in einer Aufgabe eine Seite mit **@** oder füge ihren One-Link ein (auch in eine Antwort) – Claude Code bekommt ihren Text, nur zum Lesen. Das Panel zeigt sie unter **Geht mit**. Für jede andere KI legt **Für KI-Kontext kopieren** (Seitenmenü, ⌘K) eine Seite als Markdown in die Zwischenablage.
 
-**Der Code kommt in der Aufgabe an.** *Altsoftware modernisieren* beginnt jetzt mit einer **Import**-Stufe: ZIP im Aufgaben-Panel ablegen oder eine GitLab-/GitHub-Adresse einfügen, und der Worker macht daraus das Repository der Aufgabe. Claude Code kann jetzt auch beim Planen nachfragen. Für all das braucht der Worker einen neuen Download. Mehr: [Business-Analyse- und QA-Pipelines](help:pipelines).
+**Der Code kommt in der Aufgabe an.** *Altsoftware modernisieren* beginnt jetzt mit einer **Import**-Stufe: ZIP im Aufgaben-Panel ablegen oder eine GitLab-/GitHub-Adresse einfügen, und der Worker macht daraus das Repository der Aufgabe. Claude Code kann jetzt auch beim Planen nachfragen, und jedes Edit / Write im Log klappt als Code-Diff auf. Für all das braucht der Worker einen neuen Download. Mehr: [Business-Analyse- und QA-Pipelines](help:pipelines).

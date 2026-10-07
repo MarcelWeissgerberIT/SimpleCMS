@@ -9,6 +9,7 @@ import { t } from '../../i18n'
 import type { ID, Page } from '../../store/types'
 import { revealMain, useStageView } from './stage'
 import { freeBoardSpec } from '../../database'
+import { pageForAI } from './aiContext'
 
 const ws = () => useWorkspace.getState()
 const ui = () => useUI.getState()
@@ -85,6 +86,19 @@ export async function copyPageLink(id: ID) {
     ui().toast({ message: t('common.copied'), kind: 'success' })
   } catch {
     ui().toast({ message: pageLink(id) })
+  }
+}
+
+/** "Copy for AI context": the page as Markdown (title, path, link, id, fields, content) on the clipboard. */
+export async function copyPageForAI(id: ID) {
+  const text = pageForAI(id, pageLink(id))
+  if (!text) return
+  const words = text.split(/\s+/).filter(Boolean).length
+  try {
+    await navigator.clipboard.writeText(text)
+    ui().toast({ message: t('shell.ai.copied', { n: words.toLocaleString() }), kind: 'success' })
+  } catch {
+    ui().toast({ message: t('shell.ai.copyFailed'), kind: 'error' })
   }
 }
 

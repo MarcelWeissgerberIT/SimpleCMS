@@ -44,7 +44,7 @@ Jede Aufgabe arbeitet auf einem eigenen Branch (`one/<titel>-<id>`) in einem eig
 
 ## Während sie läuft
 - **Jetzt** zeigt die letzte Zeile des Workers und wie lange sie her ist; darunter **Schritt 6/30** (der Schritt von Claude Code von der Grenze der Stufe), **≈ +0,07 $** (diese Stufe bisher, geschätzt — den genauen Betrag gibt es am Ende) und **Dateien** (was sich bisher geändert hat; ein Klick öffnet den Diff). #/coding zeigt dieselbe Zeile unter jeder laufenden Aufgabe.
-- **Log** zeigt live, was Claude Code tut; die eigenen Zeilen des Workers erscheinen in deiner Sprache. Braucht Claude eine Entscheidung, zeigt die Aufgabe **Claude fragt** — deine **Antwort** startet die Stufe neu.
+- **Log** zeigt live, was Claude Code tut – ein Tool-Aufruf zeigt seinen Namen, ein Klick öffnet, womit er aufgerufen wurde, bei Edit / Write die Änderung als Code-Diff; die eigenen Zeilen des Workers erscheinen in deiner Sprache. Braucht Claude eine Entscheidung, zeigt die Aufgabe **Claude fragt** — deine **Antwort** startet die Stufe neu.
 - **Benachrichtigungen**: in **Einstellungen → Coding-Worker** *Benachrichtigen, solange One im Hintergrund ist* einschalten — der Browser meldet sich, wenn eine Aufgabe wartet, fragt, fehlschlägt oder fertig ist, während der Tab im Hintergrund ist (auf diesem Gerät).
 - **Stopp** beendet Claude Code sofort; **Erneut versuchen** oder **Jetzt ausführen** starten die Stufe wieder.
 - **Git**: Aktualisieren, Committen, Pushen, PR öffnen, Von Basis aktualisieren, Ordner zeigen (der Pfad erscheint nur im Terminal des Workers). **Force-Push** und **Worktree verwerfen** fragen zweimal; **Aufräumen** wartet, bis der Branch gemergt ist.

@@ -120,6 +120,12 @@ test('a task through the pipeline: plan → approve → implement → test → r
   await expect(page.getByTestId('coding-log')).toContainText('Wrote ./feature.txt')
   const logText = (await page.getByTestId('coding-log').textContent()) ?? ''
   expect(logText).not.toContain(repo.root)
+  // a change to a file opens as its diff under the tool call
+  const edit = page.getByTestId('coding-log').locator('details.clog-tool[data-edit]').last()
+  await expect(edit.locator('summary')).toContainText('feature.txt +')
+  await edit.locator('summary').click()
+  await expect(edit.getByTestId('coding-log-edit')).toContainText('./feature.txt')
+  await expect(edit.locator('.cd-row--add').first()).toContainText('Add the feature file')
   // the implement summary went into the page
   expect(await wsEval(page, (s, id) => s.pages[id].plain as string, id)).toContain('Added feature.txt')
 
