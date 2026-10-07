@@ -124,7 +124,7 @@
 .sb-head__sub {
   color: var(--ink-3);
   font-family: var(--font-mono);
-  font-size: 9px;
+  font-size: calc(9px * var(--text-scale));
   letter-spacing: var(--tracking-label);
   text-transform: uppercase;
   white-space: nowrap;
@@ -134,7 +134,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 14px;
+  font-size: calc(14px * var(--text-scale));
   font-weight: 700;
   font-stretch: 112%;
   letter-spacing: -0.01em;
@@ -173,7 +173,7 @@
   color: var(--ink);
   caret-color: var(--signal);
   font: inherit;
-  font-size: 14px;
+  font-size: calc(14px * var(--text-scale));
   font-weight: 700;
   font-stretch: 112%;
   letter-spacing: -0.01em;
@@ -215,7 +215,7 @@
   border-radius: var(--radius-1);
   background: transparent;
   color: var(--ink-2);
-  font-size: 13.5px;
+  font-size: calc(13.5px * var(--text-scale));
   font-weight: 520;
   text-align: left;
 }
@@ -391,7 +391,7 @@
   padding: 0 4px 0 var(--indent);
   border-radius: var(--radius-1);
   color: var(--ink-2);
-  font-size: 13.5px;
+  font-size: calc(13.5px * var(--text-scale));
   font-weight: 520;
   touch-action: pan-y;
 }
@@ -490,7 +490,7 @@
   border-radius: var(--radius-1);
   color: var(--ink-3);
   font-family: var(--font-mono);
-  font-size: 8.5px;
+  font-size: calc(8.5px * var(--text-scale));
   font-weight: 600;
   letter-spacing: 0.06em;
   line-height: 12px;
@@ -568,7 +568,7 @@
   border-radius: var(--radius-1);
   background: var(--surface);
   color: var(--ink);
-  font-size: 13.5px;
+  font-size: calc(13.5px * var(--text-scale));
   outline: none;
   box-shadow: 0 0 0 3px var(--signal-wash);
 }
@@ -680,7 +680,7 @@ body[data-dragging] .sb-children::before {
   border-radius: var(--radius-1);
   background: var(--surface);
   box-shadow: var(--shadow-pop);
-  font-size: 13px;
+  font-size: calc(13px * var(--text-scale));
   font-weight: 600;
   cursor: grabbing;
   width: max-content;
@@ -709,7 +709,7 @@ body[data-dragging] {
   border-radius: var(--radius-1);
   background: transparent;
   color: var(--ink-3);
-  font-size: 13.5px;
+  font-size: calc(13.5px * var(--text-scale));
   font-weight: 520;
   text-align: left;
 }
@@ -881,7 +881,7 @@ body[data-resizing] .sb {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 13px;
+  font-size: calc(13px * var(--text-scale));
   font-weight: 560;
 }
 .trash-item__meta {
@@ -890,7 +890,7 @@ body[data-resizing] .sb {
   white-space: nowrap;
   color: var(--ink-3);
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: calc(10px * var(--text-scale));
   letter-spacing: 0.02em;
 }
 .trash-item__confirm {
@@ -901,7 +901,7 @@ body[data-resizing] .sb {
   background: var(--c-red-text);
   color: var(--ink-inverse);
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: calc(10px * var(--text-scale));
   font-weight: 600;
   letter-spacing: 0.06em;
   text-transform: uppercase;

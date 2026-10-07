@@ -370,7 +370,7 @@
   border: 1px dashed var(--rule-strong);
   border-radius: var(--radius-1);
   color: var(--ink-2);
-  font-size: 12.5px;
+  font-size: calc(12.5px * var(--text-scale));
 }
 
 .dbc__typeplate[data-off] {

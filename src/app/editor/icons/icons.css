@@ -99,7 +99,7 @@
   margin-left: auto;
 }
 .ipk__tone {
-  font-size: 15px;
+  font-size: calc(15px * var(--text-scale));
   line-height: 1;
 }
 .ipk__search {
@@ -220,7 +220,7 @@
   object-fit: contain;
 }
 .ipk__preview--emoji {
-  font-size: 19px;
+  font-size: calc(19px * var(--text-scale));
   line-height: 1;
 }
 .ipk__name {
@@ -275,7 +275,7 @@
   border: 0;
   border-radius: var(--radius-1);
   background: transparent;
-  font-size: 22px;
+  font-size: calc(22px * var(--text-scale));
   line-height: 1;
 }
 .ipk-emoji__emoji[data-active],

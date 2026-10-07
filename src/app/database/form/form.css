@@ -111,7 +111,7 @@
 }
 
 .fb-title {
-  font-size: clamp(24px, 4vw, 32px);
+  font-size: calc(clamp(24px, 4vw, 32px) * var(--text-scale));
   font-stretch: var(--display-stretch);
   font-weight: 800;
   letter-spacing: var(--tracking-tight);
@@ -810,7 +810,7 @@
 .fm .fm-title {
   margin: 8px 0 0;
   padding: 0;
-  font-size: clamp(26px, 5cqi, 38px);
+  font-size: calc(clamp(26px, 5cqi, 38px) * var(--text-scale));
   font-stretch: var(--display-stretch);
   font-weight: 800;
   letter-spacing: var(--tracking-tight);
@@ -864,7 +864,7 @@
   width: 100%;
   margin: 0 0 10px;
   padding: 0;
-  font-size: 15px;
+  font-size: calc(15px * var(--text-scale));
   font-weight: 600;
   line-height: 1.35;
 }
@@ -1296,7 +1296,7 @@ textarea.fm-input--long {
 .fm .fm-done__title {
   margin: 8px 0 8px;
   padding: 0;
-  font-size: clamp(26px, 5cqi, 36px);
+  font-size: calc(clamp(26px, 5cqi, 36px) * var(--text-scale));
   font-stretch: var(--display-stretch);
   font-weight: 800;
   letter-spacing: var(--tracking-tight);
@@ -1334,7 +1334,7 @@ textarea.fm-input--long {
   .fm-input,
   .fm-input--date,
   .fm-input--time {
-    font-size: 16px; /* no zoom-on-focus on phones */
+    font-size: calc(16px * var(--text-scale)); /* no zoom-on-focus on phones */
   }
   .fm-submit {
     width: 100%;
@@ -1363,7 +1363,7 @@ textarea.fm-input--long {
   }
   .fm-q > select.fm-select {
     width: 100%;
-    font-size: 16px;
+    font-size: calc(16px * var(--text-scale));
   }
   .fm-key {
     height: 44px;
@@ -1516,7 +1516,7 @@ select.fm-select,
 .fm .fm-section__title {
   margin: 0;
   padding: 0;
-  font-size: 20px;
+  font-size: calc(20px * var(--text-scale));
   font-stretch: var(--display-stretch);
   font-weight: 750;
   letter-spacing: var(--tracking-tight);
@@ -1619,7 +1619,7 @@ select.fm-select,
 .fr .fr-readout__value {
   margin-top: 6px;
   font-family: var(--font-mono);
-  font-size: 30px;
+  font-size: calc(30px * var(--text-scale));
   font-weight: 500;
   letter-spacing: -0.02em;
   line-height: 1;
@@ -1933,7 +1933,7 @@ select.fm-select,
 
 .fshare__claim {
   margin: 0 0 8px;
-  font-size: 24px;
+  font-size: calc(24px * var(--text-scale));
   font-stretch: var(--display-stretch);
   font-weight: 800;
   letter-spacing: var(--tracking-tight);
@@ -2084,7 +2084,7 @@ select.fm-select,
   border-radius: var(--radius-1);
   background: var(--surface-2);
   color: var(--ink-2);
-  font-size: 11px;
+  font-size: calc(11px * var(--text-scale));
   line-height: 1.5;
 }
 
@@ -2236,7 +2236,7 @@ select.fm-select,
 
 .pf__err-title {
   margin: 10px 0 12px;
-  font-size: clamp(30px, 5vw, 40px);
+  font-size: calc(clamp(30px, 5vw, 40px) * var(--text-scale));
   font-stretch: var(--display-stretch);
   font-weight: 800;
   letter-spacing: var(--tracking-tight);

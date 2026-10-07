@@ -68,7 +68,7 @@
 
 .dbc-cover--text {
   padding: 10px 12px;
-  font-size: 11.5px;
+  font-size: calc(11.5px * var(--text-scale));
   line-height: 1.45;
   color: var(--ink-2);
   background: var(--surface-2);
@@ -94,7 +94,7 @@
   align-items: flex-start;
   gap: 6px;
   min-width: 0;
-  font-size: 13.5px;
+  font-size: calc(13.5px * var(--text-scale));
   font-weight: 620;
   line-height: 1.35;
   word-break: break-word;
@@ -125,7 +125,7 @@
   align-items: center;
   gap: 5px 6px;
   min-width: 0;
-  font-size: 12px;
+  font-size: calc(12px * var(--text-scale));
 }
 
 .dbc-prop {
@@ -162,7 +162,7 @@
 .dbc-prop[data-type='rollup'],
 .dbc-prop[data-type='unique_id'] {
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: calc(11px * var(--text-scale));
   color: var(--ink-2);
 }
 
@@ -172,7 +172,7 @@
 }
 
 .dbc-prop__label {
-  font-size: 11.5px;
+  font-size: calc(11.5px * var(--text-scale));
   color: var(--ink-2);
 }
 
@@ -293,7 +293,7 @@
 
 .dbb-col__idx {
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: calc(10px * var(--text-scale));
   font-weight: 600;
   color: var(--ink-3);
 }
@@ -307,7 +307,7 @@
   border: 1px solid var(--rule-strong);
   border-radius: 2px;
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: calc(10px * var(--text-scale));
   color: var(--ink-2);
   font-variant-numeric: tabular-nums;
 }
@@ -338,7 +338,7 @@
   border-radius: var(--radius-1);
   background: transparent;
   color: var(--ink-3);
-  font-size: 12.5px;
+  font-size: calc(12.5px * var(--text-scale));
 }
 
 .dbb-add:hover {
@@ -370,7 +370,7 @@
 .dbb-collapsed__label {
   writing-mode: vertical-rl;
   text-orientation: mixed;
-  font-size: 12.5px;
+  font-size: calc(12.5px * var(--text-scale));
   font-weight: 600;
   white-space: nowrap;
 }
@@ -460,7 +460,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 14px;
+  font-size: calc(14px * var(--text-scale));
   font-weight: 600;
 }
 
@@ -481,7 +481,7 @@
   min-width: 0;
   flex: 1 1 auto;
   overflow: hidden;
-  font-size: 12px;
+  font-size: calc(12px * var(--text-scale));
   mask-image: linear-gradient(90deg, transparent, var(--ink) 28px);
 }
 
@@ -511,7 +511,7 @@
 .dbl-row__prop[data-type='number'],
 .dbl-row__prop[data-type='unique_id'] {
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: calc(11px * var(--text-scale));
   color: var(--ink-2);
 }
 
@@ -528,7 +528,7 @@
   border: 0;
   background: transparent;
   color: var(--ink-3);
-  font-size: 13px;
+  font-size: calc(13px * var(--text-scale));
 }
 
 .dbl-add:hover {

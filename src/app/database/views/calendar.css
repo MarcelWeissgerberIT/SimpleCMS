@@ -20,7 +20,7 @@
 }
 
 .dbcal-head__m {
-  font-size: 24px;
+  font-size: calc(24px * var(--text-scale));
   font-weight: 800;
   font-stretch: 125%;
   letter-spacing: var(--tracking-tight);
@@ -30,7 +30,7 @@
 
 .dbcal-head__y {
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: calc(12px * var(--text-scale));
   letter-spacing: 0.06em;
   color: var(--ink-3);
 }
@@ -108,7 +108,7 @@
   padding: 0 4px;
   border-radius: 2px;
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: calc(11px * var(--text-scale));
   font-weight: 500;
   font-variant-numeric: tabular-nums;
   color: var(--ink-2);
@@ -160,7 +160,7 @@
   border-radius: 2px;
   background: transparent;
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: calc(10px * var(--text-scale));
   font-weight: 600;
   color: var(--ink-2);
 }
@@ -251,7 +251,7 @@
   align-items: center;
   gap: 5px;
   min-width: 0;
-  font-size: 12px;
+  font-size: calc(12px * var(--text-scale));
   font-weight: 560;
   color: var(--ink);
   white-space: nowrap;
@@ -270,7 +270,7 @@
 
 .dbcal-chip__time {
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: calc(10px * var(--text-scale));
   color: var(--ink-2);
 }
 
@@ -297,7 +297,7 @@
   border: 0;
   border-radius: var(--radius-1);
   background: transparent;
-  font-size: 13px;
+  font-size: calc(13px * var(--text-scale));
   text-align: left;
 }
 
@@ -319,7 +319,7 @@
 }
 
 .dbcal[data-narrow='true'] .dbcal-chip {
-  font-size: 10.5px;
+  font-size: calc(10.5px * var(--text-scale));
 }
 
 .dbcal[data-narrow='true'] .dbcal-ev {
@@ -335,5 +335,5 @@
 }
 
 .dbcal[data-narrow='true'] .dbcal-head__m {
-  font-size: 20px;
+  font-size: calc(20px * var(--text-scale));
 }

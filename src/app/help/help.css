@@ -41,7 +41,7 @@
   /* 16px: iOS zooms into smaller fields on focus */
   .help-search__input,
   .help-ask__field {
-    font-size: 16px;
+    font-size: calc(16px * var(--text-scale));
   }
 
   .help {
@@ -87,7 +87,7 @@
 
 .help-head__title {
   margin: 0;
-  font-size: 26px;
+  font-size: calc(26px * var(--text-scale));
   font-stretch: var(--display-stretch);
   font-weight: 800;
   letter-spacing: var(--tracking-tight);
@@ -393,7 +393,7 @@
 
 .help-art__title {
   margin: 0;
-  font-size: 24px;
+  font-size: calc(24px * var(--text-scale));
   font-stretch: 118%;
   font-weight: 800;
   letter-spacing: var(--tracking-tight);
@@ -507,7 +507,7 @@
   background: var(--signal);
   color: var(--on-signal);
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: calc(10px * var(--text-scale));
   font-weight: 700;
 }
 
@@ -547,7 +547,7 @@
 .help-doc__kbd {
   height: 19px;
   vertical-align: 1px;
-  font-size: 10.5px;
+  font-size: calc(10.5px * var(--text-scale));
 }
 
 .help-doc strong {
@@ -839,7 +839,7 @@
   background: var(--surface);
   color: var(--ink-2);
   font-family: var(--font-mono);
-  font-size: 10.5px;
+  font-size: calc(10.5px * var(--text-scale));
   font-weight: 600;
   line-height: 1;
   vertical-align: middle;

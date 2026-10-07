@@ -200,7 +200,7 @@
   align-items: center;
   gap: 8px;
   min-width: 0;
-  font-size: 12px;
+  font-size: calc(12px * var(--text-scale));
 }
 
 .media-preview__plate {

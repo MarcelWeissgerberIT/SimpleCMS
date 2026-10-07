@@ -13,7 +13,7 @@
 }
 .clipper__title {
   margin: 0;
-  font-size: 13.5px;
+  font-size: calc(13.5px * var(--text-scale));
   font-weight: 700;
 }
 .clipper__rule {
@@ -183,7 +183,7 @@
 }
 .clipq__title {
   margin: 18px 0 6px;
-  font-size: 22px;
+  font-size: calc(22px * var(--text-scale));
   font-stretch: var(--display-stretch);
   font-weight: 800;
   letter-spacing: var(--tracking-tight);
@@ -676,7 +676,7 @@
 }
 .installq__title {
   margin: 18px 0 6px;
-  font-size: 22px;
+  font-size: calc(22px * var(--text-scale));
   font-stretch: var(--display-stretch);
   font-weight: 800;
   letter-spacing: var(--tracking-tight);

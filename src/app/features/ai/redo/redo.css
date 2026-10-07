@@ -63,7 +63,7 @@
   background: transparent;
   color: var(--ink-2);
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: calc(10px * var(--text-scale));
   letter-spacing: var(--tracking-label);
   text-transform: uppercase;
   cursor: pointer;
@@ -247,7 +247,7 @@
   border-color: color-mix(in srgb, currentColor 35%, transparent);
   background: transparent;
   color: inherit;
-  font-size: 9.5px;
+  font-size: calc(9.5px * var(--text-scale));
 }
 
 /* ---------------- the review ---------------- */
@@ -404,7 +404,7 @@
   margin: 0 0 6px;
   color: var(--ink-2);
   font-family: var(--font-mono);
-  font-size: 10.5px;
+  font-size: calc(10.5px * var(--text-scale));
   letter-spacing: var(--tracking-label);
   text-transform: uppercase;
 }
@@ -430,7 +430,7 @@
 .redo-review__keys .kbd {
   height: 16px;
   min-width: 16px;
-  font-size: 9.5px;
+  font-size: calc(9.5px * var(--text-scale));
 }
 
 .redo-review__keys .btn--primary .kbd {

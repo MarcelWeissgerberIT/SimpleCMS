@@ -8,7 +8,7 @@
  *
  * (CHANGELOG_DRAFT=1 lets the build pass while a new entry's picture does not exist yet.)
  *
- * Shots: mcp-media, coding-setup, free-board, building-blocks, workspace-settings, diagram-viewer, coding-pipeline, pages-per-item, design-import, tour, quick-capture, script-templates, one-script-everywhere, file-ai, one-script, transform, ai-edit, db-commands, gmail-one-click, memory, grips-footer, block-select, split-to-page, image-ai, claude-reads, redo, ai-terminal, mcp-codewords, mcp-tidy-up, slash-menu, turn-into-database,
+ * Shots: text-size, mcp-media, coding-setup, free-board, building-blocks, workspace-settings, diagram-viewer, coding-pipeline, pages-per-item, design-import, tour, quick-capture, script-templates, one-script-everywhere, file-ai, one-script, transform, ai-edit, db-commands, gmail-one-click, memory, grips-footer, block-select, split-to-page, image-ai, claude-reads, redo, ai-terminal, mcp-codewords, mcp-tidy-up, slash-menu, turn-into-database,
  * custom-agents, gmail, help-centre, mcp-servers, feed-blocks — each named like its image. Every shot starts from a fresh, seeded
  * workspace in English, light theme, 1440 × 900 at device scale 2; the crop of the relevant area is scaled
  * to 1440 px wide and saved as public/assets/shots/changelog/<shot>.webp (≤ 150 KB: the quality steps down
@@ -1790,6 +1790,50 @@ const shots = {
     // down to the menu's foot, never into the status bar
     const floor = Math.round((await page.locator('footer.status').boundingBox())?.y ?? viewport.height) - 1
     await save(page, 'mcp-media', { x: left, y: top, width: W - left, height: Math.min(floor, Math.round(box.y + box.height + 28)) - top })
+    await ctx.close()
+  },
+
+  /**
+   * Text size + panels that fit, side by side at text size L: Settings → Appearance with the stepped fader,
+   * and the colour-rules panel of Projects made bigger with its corner grip (focused: the orange hatch).
+   */
+  async 'text-size'(browser) {
+    const { ctx, page } = await freshPage(browser, { setup: (ctx) => ctx.addInitScript(() => localStorage.setItem('one.textScale', '3')) })
+    // the fader: Settings → Appearance
+    await page.evaluate(() => window.__one.ui.getState().openModal({ type: 'settings', tab: 'appearance' }))
+    const fader = page.getByTestId('text-size')
+    await fader.waitFor()
+    await rest(page)
+    const pane = await boxOf(page.locator('.st__body'))
+    const f = await boxOf(fader)
+    const a = `${TMP}/text-size-fader.png`
+    await page.screenshot({ path: a, clip: { x: pane.x, y: pane.y, width: pane.width, height: Math.round(f.y + f.height + 24 - pane.y) } })
+    await page.keyboard.press('Escape')
+    // the colour rules: the seeded one plus a rule with two conditions; the panel made bigger by keys
+    await openPage(page, 'Projects')
+    const db = page.locator('#main section.db').first()
+    await db.getByRole('tab', { name: /All projects/ }).click()
+    await db.getByRole('toolbar', { name: 'Database toolbar' }).getByRole('button', { name: 'More' }).click()
+    await page.getByRole('menuitem', { name: /^Colour rules/ }).click()
+    const panel = page.locator('.db-rcpanel')
+    for (const props of [['Priority', 'Owner']]) {
+      await panel.getByRole('button', { name: 'Add colour rule' }).click()
+      const rule = panel.locator('.db-rcrule').last()
+      for (const p of props) {
+        await rule.getByRole('button', { name: 'Add condition' }).click()
+        await page.getByRole('menuitem', { name: p }).first().click()
+      }
+    }
+    await page.mouse.move(W + 40, H + 40)
+    const grip = page.getByRole('button', { name: 'Resize' })
+    await grip.focus()
+    for (let i = 0; i < 3; i++) await page.keyboard.press('Shift+ArrowRight')
+    await page.keyboard.press('Shift+ArrowDown')
+    await page.waitForTimeout(400)
+    const p = await boxOf(panel, 2)
+    const b = `${TMP}/text-size-panel.png`
+    await page.screenshot({ path: b, clip: p })
+    await saveSideBySide('text-size', [a, b])
     await ctx.close()
   },
 

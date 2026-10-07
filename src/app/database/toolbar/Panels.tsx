@@ -46,7 +46,7 @@ export function SortPanel({ m, anchor, onClose }: { m: DbModel; anchor: Element;
   }
   const available = m.allProps.filter((p) => !ids.includes(p.id))
   return (
-    <Popover open anchor={anchor} onClose={onClose} placement="bottom-end" className="db-panel">
+    <Popover open anchor={anchor} onClose={onClose} placement="bottom-end" resizable="db-sort" className="db-panel">
       <div className="db-panel__head">
         <span className="label">{t('database.sort.title')}</span>
       </div>
@@ -118,7 +118,7 @@ export function GroupPanel({ m, anchor, onClose }: { m: DbModel; anchor: Element
     upd({ hiddenGroups: [...next] })
   }
   return (
-    <Popover open anchor={anchor} onClose={onClose} placement="bottom-end" className="db-panel">
+    <Popover open anchor={anchor} onClose={onClose} placement="bottom-end" resizable="db-group" className="db-panel">
       <div className="db-panel__head">
         <span className="label">{t('database.group.title')}</span>
       </div>
@@ -170,7 +170,7 @@ export function PropertiesPanel({ m, anchor, onClose, onCreated }: { m: DbModel;
     save(arrayMove(visible, visible.indexOf(String(e.active.id)), visible.indexOf(String(e.over.id))))
   }
   return (
-    <Popover open anchor={anchor} onClose={onClose} placement="bottom-end" className="db-panel db-panel--props">
+    <Popover open anchor={anchor} onClose={onClose} placement="bottom-end" resizable="db-props" className="db-panel db-panel--props">
       <div className="db-panel__head">
         <span className="label">{t('database.props.title')}</span>
         <span style={{ flex: 1 }} />

@@ -29,7 +29,7 @@ export function RecordTypesPanel({ m, anchor, onClose }: { m: DbModel; anchor: E
   const rowsOf = (id: ID) => m.allRows.filter((r) => r.recordType === id).length
   if (dialog) return <NewTypeDialog dbId={m.db.id} fromProps={dialog === 'props'} onClose={() => (setDialog(null), onClose())} />
   return (
-    <Popover open anchor={anchor} onClose={onClose} placement="bottom-end" className="db-panel rtype-panel">
+    <Popover open anchor={anchor} onClose={onClose} placement="bottom-end" className="db-panel rtype-panel" resizable="db-rtypes">
       <div className="db-panel__head">
         <span className="label">{t('database.rtype.panel')}</span>
         <HelpLink id="free-board" />

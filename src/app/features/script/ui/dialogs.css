@@ -51,7 +51,7 @@
   border-radius: var(--radius-2);
   background: var(--surface-2);
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: calc(12px * var(--text-scale));
   line-height: 1.55;
   white-space: pre;
 }
@@ -87,7 +87,7 @@
   border: 1px solid var(--rule-strong);
   border-radius: var(--radius-1);
   color: var(--ink-2);
-  font-size: 9.5px;
+  font-size: calc(9.5px * var(--text-scale));
   text-align: center;
 }
 .sc-plan__kind--mail,
@@ -109,7 +109,7 @@
   margin-top: -6px;
   color: var(--signal-ink);
   font-family: var(--font-mono);
-  font-size: 10.5px;
+  font-size: calc(10.5px * var(--text-scale));
   letter-spacing: 0.02em;
   overflow-wrap: anywhere;
 }
@@ -150,5 +150,5 @@ p .sc-plan__via {
 }
 .sc-choose__n {
   color: var(--signal-ink);
-  font-size: 10.5px;
+  font-size: calc(10.5px * var(--text-scale));
 }

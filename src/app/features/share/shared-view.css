@@ -89,7 +89,7 @@
 
 .shv__title {
   margin: 0 0 16px;
-  font-size: clamp(34px, 6vw, 52px);
+  font-size: calc(clamp(34px, 6vw, 52px) * var(--text-scale));
   font-stretch: var(--display-stretch);
   font-weight: 800;
   letter-spacing: var(--tracking-tight);
@@ -166,7 +166,7 @@
 
 .shv__err-title {
   margin: 10px 0 12px;
-  font-size: clamp(30px, 5vw, 40px);
+  font-size: calc(clamp(30px, 5vw, 40px) * var(--text-scale));
   font-stretch: var(--display-stretch);
   font-weight: 800;
   letter-spacing: var(--tracking-tight);

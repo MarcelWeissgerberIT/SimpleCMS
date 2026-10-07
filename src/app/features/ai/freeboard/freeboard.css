@@ -21,7 +21,7 @@
   align-items: center;
   gap: 8px;
   min-height: 26px;
-  font-size: 12.5px;
+  font-size: calc(12.5px * var(--text-scale));
 }
 
 .fbp__led {
@@ -74,7 +74,7 @@
   gap: 6px;
   padding-bottom: 4px;
   border-bottom: 2px solid var(--ink);
-  font-size: 12.5px;
+  font-size: calc(12.5px * var(--text-scale));
   font-weight: 600;
 }
 
@@ -88,7 +88,7 @@
   background: var(--surface);
   box-shadow: 0 0 0 1px var(--rule-strong);
   overflow: hidden;
-  font-size: 12.5px;
+  font-size: calc(12.5px * var(--text-scale));
 }
 
 .fbp__card[data-typed] {
@@ -104,7 +104,7 @@
 }
 
 .fbp__cardtype {
-  font-size: 9.5px;
+  font-size: calc(9.5px * var(--text-scale));
 }
 
 .fbp__title {
@@ -120,5 +120,5 @@
 }
 
 .fbp__val .label {
-  font-size: 9px;
+  font-size: calc(9px * var(--text-scale));
 }

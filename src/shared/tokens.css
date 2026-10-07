@@ -19,14 +19,21 @@
   --display-stretch: 125%;
   --condensed-stretch: 75%;
 
-  --text-2xs: 10.5px; /* mono micro-labels */
-  --text-xs: 11.5px;
-  --text-sm: 12.5px;
-  --text-md: 14px;    /* app UI default */
-  --text-lg: 16px;    /* editor body */
-  --text-xl: 20px;
-  --text-2xl: 28px;
-  --text-3xl: 40px;   /* page titles */
+  /*
+   * Text size (the app's Settings → Appearance / Workspace → Overview → Display, per device): the app
+   * sets --text-scale on <html> (1 · 15/14 · 16/14 · 17/14 — the UI base stays on whole pixels); every
+   * type token multiplies it, and so does every font size in the app's CSS
+   * (`calc(13px * var(--text-scale))`). The landing page and exported pages never set it.
+   */
+  --text-scale: 1;
+  --text-2xs: calc(10.5px * var(--text-scale)); /* mono micro-labels */
+  --text-xs: calc(11.5px * var(--text-scale));
+  --text-sm: calc(12.5px * var(--text-scale));
+  --text-md: calc(14px * var(--text-scale));    /* app UI default */
+  --text-lg: calc(16px * var(--text-scale));    /* editor body */
+  --text-xl: calc(20px * var(--text-scale));
+  --text-2xl: calc(28px * var(--text-scale));
+  --text-3xl: calc(40px * var(--text-scale));   /* page titles */
 
   --tracking-label: 0.08em; /* for uppercase mono labels */
   --tracking-tight: -0.02em;

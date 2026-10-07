@@ -24,7 +24,7 @@
   background: var(--signal-wash);
   color: var(--signal-ink);
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: calc(10px * var(--text-scale));
   font-weight: 600;
   letter-spacing: var(--tracking-label);
   white-space: nowrap;

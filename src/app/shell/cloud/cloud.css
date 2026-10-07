@@ -40,7 +40,7 @@
   display: block;
 }
 .cl-brand__name {
-  font-size: 16px;
+  font-size: calc(16px * var(--text-scale));
   font-weight: 800;
   font-stretch: 112%;
   letter-spacing: -0.01em;
@@ -111,10 +111,10 @@
 }
 .cl-title {
   margin: 0 0 18px;
-  font-size: clamp(44px, 6.4vw, 76px);
+  font-size: calc(clamp(44px, 6.4vw, 76px) * var(--text-scale));
 }
 .cl-title--sm {
-  font-size: clamp(30px, 4.2vw, 46px);
+  font-size: calc(clamp(30px, 4.2vw, 46px) * var(--text-scale));
   line-height: 1.04;
 }
 .cl-title:focus {
@@ -159,7 +159,7 @@
   flex: 1;
   min-width: 0;
   height: 38px;
-  font-size: 15px;
+  font-size: calc(15px * var(--text-scale));
 }
 .cl-form__submit {
   flex: none;
@@ -171,7 +171,7 @@
   max-width: 52ch;
   margin: 10px 0 0;
   color: var(--c-red-text);
-  font-size: 13px;
+  font-size: calc(13px * var(--text-scale));
   line-height: 1.45;
 }
 .cl-err svg {
@@ -188,7 +188,7 @@
 .cl-note {
   margin: 12px 0 0;
   color: var(--c-green-text);
-  font-size: 13px;
+  font-size: calc(13px * var(--text-scale));
 }
 .cl-actions {
   display: flex;
@@ -256,7 +256,7 @@
 }
 .cl-escape__label {
   color: var(--ink);
-  font-size: 13.5px;
+  font-size: calc(13.5px * var(--text-scale));
   font-weight: 600;
 }
 .cl-escape__hint {
@@ -294,7 +294,7 @@
   min-height: 44px;
   border-bottom: 1px solid var(--rule);
   color: var(--ink-3);
-  font-size: 13.5px;
+  font-size: calc(13.5px * var(--text-scale));
 }
 .cl-step__n {
   font-family: var(--font-mono);
@@ -331,7 +331,7 @@
 .cl-spec dt {
   color: var(--ink-3);
   font-family: var(--font-mono);
-  font-size: 9.5px;
+  font-size: calc(9.5px * var(--text-scale));
   letter-spacing: var(--tracking-label);
   text-transform: uppercase;
   white-space: nowrap;
@@ -353,7 +353,7 @@
   background: var(--surface-2);
   color: var(--ink-3);
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: calc(10px * var(--text-scale));
   font-weight: 500;
   letter-spacing: var(--tracking-label);
   text-transform: uppercase;
@@ -407,7 +407,7 @@
   overflow-wrap: anywhere;
 }
 .cl-card__ws {
-  font-size: 17px !important;
+  font-size: calc(17px * var(--text-scale)) !important;
   font-weight: 760;
   font-stretch: 112%;
   letter-spacing: -0.01em;
@@ -417,7 +417,7 @@
 }
 .cl-places {
   font-family: var(--font-mono);
-  font-size: 13px;
+  font-size: calc(13px * var(--text-scale));
   font-weight: 600;
   font-variant-numeric: tabular-nums;
 }
@@ -443,7 +443,7 @@
   border-radius: var(--radius-1);
   color: var(--ink-2);
   font-family: var(--font-mono);
-  font-size: 9.5px;
+  font-size: calc(9.5px * var(--text-scale));
   font-weight: 600;
   letter-spacing: var(--tracking-label);
   text-transform: uppercase;
@@ -555,7 +555,7 @@
   box-shadow: 0 0 0 2px var(--surface);
   color: var(--ink-2);
   font-family: var(--font-mono);
-  font-size: 9.5px;
+  font-size: calc(9.5px * var(--text-scale));
   font-weight: 600;
 }
 .sb-row__peer {
@@ -579,7 +579,7 @@
   border-radius: var(--radius-1);
   color: var(--ink-2);
   font-family: var(--font-mono);
-  font-size: 9.5px;
+  font-size: calc(9.5px * var(--text-scale));
   font-weight: 600;
   letter-spacing: var(--tracking-label);
   text-transform: uppercase;
@@ -669,7 +669,7 @@
 }
 .cl-banner__title {
   margin: 2px 0 0;
-  font-size: 13.5px;
+  font-size: calc(13.5px * var(--text-scale));
   font-weight: 650;
 }
 .cl-banner__hint {
@@ -704,7 +704,7 @@
 }
 .cl-dlg__title {
   margin: 0 0 16px;
-  font-size: 24px;
+  font-size: calc(24px * var(--text-scale));
   font-weight: 800;
   font-stretch: var(--display-stretch);
   letter-spacing: -0.025em;
@@ -721,7 +721,7 @@
 }
 .cl-dlg__field .input {
   height: 36px;
-  font-size: 15px;
+  font-size: calc(15px * var(--text-scale));
 }
 .cl-dlg__hint {
   color: var(--ink-3);
@@ -791,7 +791,7 @@
 }
 .cl-choice__title {
   display: block;
-  font-size: 14px;
+  font-size: calc(14px * var(--text-scale));
   font-weight: 650;
 }
 .cl-choice__hint {
@@ -863,7 +863,7 @@
 }
 .cl-check__title {
   display: block;
-  font-size: 14px;
+  font-size: calc(14px * var(--text-scale));
   font-weight: 650;
   line-height: 1.35;
 }
@@ -888,7 +888,7 @@
 }
 .cl-meter__val {
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: calc(12px * var(--text-scale));
   font-weight: 600;
   font-variant-numeric: tabular-nums;
 }
@@ -945,7 +945,7 @@
   align-items: center;
   gap: 6px;
   min-width: 0;
-  font-size: 13.5px;
+  font-size: calc(13.5px * var(--text-scale));
   font-weight: 620;
 }
 .tm-row__name > span:first-child {
@@ -978,7 +978,7 @@
   background: var(--ink);
   color: var(--ink-inverse);
   font-family: var(--font-mono);
-  font-size: 9px;
+  font-size: calc(9px * var(--text-scale));
   font-weight: 600;
   letter-spacing: var(--tracking-label);
   line-height: 16px;
@@ -1075,13 +1075,13 @@
   min-height: 72px;
   padding: 7px 9px;
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: calc(12px * var(--text-scale));
   line-height: 1.55;
   resize: vertical;
 }
 .tm-mono {
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: calc(12px * var(--text-scale));
 }
 .tm-inviter__foot {
   display: flex;
@@ -1166,7 +1166,7 @@
 .tm-result__addr {
   overflow: hidden;
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: calc(12px * var(--text-scale));
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -1196,7 +1196,7 @@
   min-width: 0;
   height: 30px;
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: calc(12px * var(--text-scale));
 }
 .tm-link__hint {
   margin: 0;
@@ -1309,7 +1309,7 @@
   background: var(--surface);
 }
 .sv-mode__value {
-  font-size: 14px;
+  font-size: calc(14px * var(--text-scale));
   font-weight: 760;
   font-stretch: 112%;
   letter-spacing: -0.01em;
@@ -1352,13 +1352,13 @@
     margin-bottom: 28px;
   }
   .cl-title {
-    font-size: 46px;
+    font-size: calc(46px * var(--text-scale));
   }
   .cl-title--sm {
-    font-size: 30px;
+    font-size: calc(30px * var(--text-scale));
   }
   .cl-lede {
-    font-size: 15px;
+    font-size: calc(15px * var(--text-scale));
   }
   .cl-form__row {
     flex-direction: column;

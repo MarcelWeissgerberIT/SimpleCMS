@@ -37,7 +37,7 @@
 }
 .ibx-title {
   margin: 0;
-  font-size: clamp(28px, 4.4cqi, 46px);
+  font-size: calc(clamp(28px, 4.4cqi, 46px) * var(--text-scale));
   font-weight: 850;
   line-height: 0.95;
   letter-spacing: -0.03em;
@@ -97,7 +97,7 @@
 }
 .ibx-tab__n {
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: calc(10px * var(--text-scale));
   font-variant-numeric: tabular-nums;
   color: var(--signal-ink);
 }

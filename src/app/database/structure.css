@@ -91,7 +91,7 @@
   border: 1px solid var(--rule-strong);
   border-radius: var(--radius-1);
   font-family: var(--font-mono);
-  font-size: 9.5px;
+  font-size: calc(9.5px * var(--text-scale));
   font-weight: 600;
   color: var(--ink-3);
   font-variant-numeric: tabular-nums;
@@ -336,7 +336,7 @@
 
 /* ---------- settings panels ---------- */
 .db-struct {
-  width: min(380px, calc(100vw - 16px));
+  width: min(calc(380px * var(--text-scale)), calc(100vw - 16px));
 }
 
 .db-struct__state {
@@ -368,7 +368,7 @@
 
 .db-struct__link {
   color: var(--signal-ink);
-  font-size: 13px;
+  font-size: calc(13px * var(--text-scale));
 }
 
 .db-struct__row {
@@ -380,14 +380,14 @@
 
 .db-struct__note {
   margin: 4px 8px 6px;
-  font-size: 12px;
+  font-size: calc(12px * var(--text-scale));
   line-height: 1.45;
   color: var(--ink-3);
 }
 
 .db-struct-dialog__body {
   margin: 0;
-  font-size: 13.5px;
+  font-size: calc(13.5px * var(--text-scale));
   line-height: 1.55;
   color: var(--ink-2);
 }
@@ -450,7 +450,8 @@
 }
 
 .db-rcrule__color {
-  width: 128px;
+  width: calc(128px * var(--text-scale));
+  max-width: 100%;
 }
 
 .db-rcrule__swatch {
@@ -465,7 +466,7 @@
   height: 22px;
   border: 1px solid var(--rule-strong);
   border-radius: var(--radius-1);
-  font-size: 11.5px;
+  font-size: calc(11.5px * var(--text-scale));
   font-weight: 650;
   color: var(--ink);
 }

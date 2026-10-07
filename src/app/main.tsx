@@ -15,6 +15,7 @@ import { seedWorkspace } from './store/seed'
 import { refreshDemoIcons } from './store/demoIcons'
 import { offerTour } from './shell/tour/state'
 import { applyTheme } from './lib/theme'
+import { applyTextStep } from './lib/textScale'
 import { ALL_MESSAGES, t } from './i18n'
 import { startHistory, startAutomations, startRecurringTemplates, startInbox, startSync, startMcp, startCustomFunctions, startMail, startAgents, startCoding, startKit, seedDemoHistory, demoFunctions } from './features'
 import { consumeMcpOAuthReturn } from './features'
@@ -29,6 +30,8 @@ import { installForeignLinks } from './lib/foreignLinks'
 // Apply the remembered theme before first paint to avoid a flash.
 const storedTheme = safeLocalGet(STORAGE_KEYS.theme)
 applyTheme(storedTheme === 'dark' || storedTheme === 'light' ? storedTheme : 'system')
+// …and this device's text size (Settings → Appearance), so nothing re-flows after the first paint.
+applyTextStep()
 
 // Another tab erasing the workspace makes this one reload (see shell/lib/reset.ts).
 listenForReset()

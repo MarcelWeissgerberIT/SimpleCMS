@@ -75,18 +75,18 @@
 .ml-field__label {
   display: block;
   margin-bottom: 5px;
-  font-size: 12.5px;
+  font-size: calc(12.5px * var(--text-scale));
   font-weight: 620;
 }
 .ml-field__hint {
   margin-top: 5px;
   color: var(--ink-3);
-  font-size: 11.5px;
+  font-size: calc(11.5px * var(--text-scale));
   line-height: 1.45;
 }
 .ml-mono {
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: calc(12px * var(--text-scale));
 }
 
 /* setup steps */
@@ -133,7 +133,7 @@
 .ml-setup__time {
   color: var(--ink-3);
   font-family: var(--font-mono);
-  font-size: 10.5px;
+  font-size: calc(10.5px * var(--text-scale));
 }
 .ml-steps {
   margin: 0;
@@ -167,7 +167,7 @@
   background: var(--surface);
   color: var(--ink-2);
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: calc(10px * var(--text-scale));
 }
 .ml-steps .st-link {
   white-space: nowrap;
@@ -194,7 +194,7 @@
   min-width: 0;
   padding: 4px 0;
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: calc(12px * var(--text-scale));
   overflow-wrap: anywhere;
 }
 .ml-origin__tag {
@@ -236,7 +236,7 @@
 .ml-account__addr {
   overflow: hidden;
   font-family: var(--font-mono);
-  font-size: 12.5px;
+  font-size: calc(12.5px * var(--text-scale));
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -248,7 +248,7 @@
 .ml-one__lead {
   margin: 0;
   color: var(--ink);
-  font-size: 13.5px;
+  font-size: calc(13.5px * var(--text-scale));
   line-height: 1.5;
 }
 .ml-one__review {
@@ -404,7 +404,7 @@
   margin-top: 2px;
 }
 .ml-row__label {
-  font-size: 13px;
+  font-size: calc(13px * var(--text-scale));
   font-weight: 620;
 }
 .ml-checks {
@@ -472,14 +472,14 @@
   margin: 0;
   color: var(--ink);
   font-family: var(--font-mono);
-  font-size: 14px;
+  font-size: calc(14px * var(--text-scale));
   font-variant-numeric: tabular-nums;
   line-height: 1.3;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .ml-readout__cell:first-child .ml-readout__val {
-  font-size: 12.5px;
+  font-size: calc(12.5px * var(--text-scale));
   line-height: 1.5;
 }
 
@@ -508,7 +508,7 @@
   margin: 8px 0 12px;
   color: var(--c-red-text);
   font-family: var(--font-mono);
-  font-size: 11.5px;
+  font-size: calc(11.5px * var(--text-scale));
 }
 
 .ml-actions {
@@ -551,7 +551,7 @@
 .ml-dir__name {
   min-width: 0;
   overflow: hidden;
-  font-size: 13px;
+  font-size: calc(13px * var(--text-scale));
   font-weight: 620;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -578,7 +578,7 @@
   margin: 0 0 8px;
 }
 .ml-free .ml-tag {
-  font-size: 11.5px;
+  font-size: calc(11.5px * var(--text-scale));
 }
 .ml-merge {
   display: grid;
@@ -626,7 +626,7 @@
 }
 .ml-cost__usd {
   font-family: var(--font-mono);
-  font-size: 15px;
+  font-size: calc(15px * var(--text-scale));
   font-variant-numeric: tabular-nums;
 }
 .ml-cost .label {
@@ -656,7 +656,7 @@
   background: var(--surface);
   color: var(--ink-2);
   font-family: var(--font-mono);
-  font-size: 10.5px;
+  font-size: calc(10.5px * var(--text-scale));
   letter-spacing: var(--tracking-label);
   text-transform: uppercase;
   white-space: nowrap;

@@ -96,7 +96,7 @@
 }
 .tour-placard__title {
   margin: 0 0 5px;
-  font-size: 16px;
+  font-size: calc(16px * var(--text-scale));
   font-weight: 750;
   font-stretch: 112%;
   letter-spacing: -0.01em;
@@ -175,7 +175,7 @@
 .tour-placard__hint .kbd {
   min-width: 15px;
   height: 15px;
-  font-size: 9px;
+  font-size: calc(9px * var(--text-scale));
 }
 .tour-placard__finish {
   display: flex;
@@ -253,7 +253,7 @@
   background: var(--surface);
   color: var(--ink-2);
   font-family: var(--font-mono);
-  font-size: 9px;
+  font-size: calc(9px * var(--text-scale));
   font-weight: 500;
 }
 .tour-would__chart em {

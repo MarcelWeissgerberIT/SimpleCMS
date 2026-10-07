@@ -77,7 +77,7 @@
   background: var(--surface-2);
   color: var(--ink);
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: calc(12px * var(--text-scale));
   line-height: 1.5;
   white-space: pre-wrap;
   overflow-wrap: anywhere;

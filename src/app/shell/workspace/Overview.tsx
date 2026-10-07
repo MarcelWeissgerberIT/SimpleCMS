@@ -16,6 +16,7 @@ import { useInCloud } from '../cloud/state'
 import { WorkspaceNameField, type TeamData } from '../cloud/Team'
 import { Field } from '../settings/SettingsModal'
 import { StorageGauge, type StorageEstimate } from '../settings/data'
+import { TextSizeControl } from '../settings/TextSize'
 import { useTrashCount, useWorkspaceStats } from './stats'
 import { SectionHead, Spec, SubHead } from './parts'
 
@@ -48,6 +49,10 @@ export function Overview({ team, est }: { team: TeamData; est: StorageEstimate |
       <StorageGauge est={est} label={t('shell.ws.settings.deviceStorage')} />
       <DeviceFiles />
       <LastBackupLine />
+      <SubHead label={t('shell.ws.overview.display')} id="ws-display" />
+      <div className="wsp-display" data-testid="ws-display">
+        <TextSizeControl />
+      </div>
     </>
   )
 }

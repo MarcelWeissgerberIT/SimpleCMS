@@ -1800,7 +1800,7 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
   return (
     <>
       {target.mode === 'selection' && !target.lost && !picking && !redoIds && !isRedo && !img?.only && !file?.only && run?.req.kind !== 'image' && run?.req.kind !== 'file' && <SelectionShade editor={editor} from={target.from} to={target.to} />}
-      <Popover open={!picking} anchor={anchor} onClose={onPopoverClose} placement="bottom-start" offset={8} bare className="ai-panel" role="dialog" aria-label={t('features.ai.title')}>
+      <Popover open={!picking} anchor={anchor} onClose={onPopoverClose} placement="bottom-start" offset={8} bare className="ai-panel" resizable="ai-menu" role="dialog" aria-label={t('features.ai.title')}>
         {setup ? (
           <KeySetup
             reason={error?.code === 'invalid_key' ? 'invalid' : hasKey ? 'change' : 'missing'}
