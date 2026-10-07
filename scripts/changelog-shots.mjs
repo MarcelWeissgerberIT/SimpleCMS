@@ -8,7 +8,7 @@
  *
  * (CHANGELOG_DRAFT=1 lets the build pass while a new entry's picture does not exist yet.)
  *
- * Shots: pipelines, legacy-modernise, coding-live, text-size, mcp-media, coding-setup, free-board, building-blocks, workspace-settings, diagram-viewer, coding-pipeline, pages-per-item, design-import, tour, quick-capture, script-templates, one-script-everywhere, file-ai, one-script, transform, ai-edit, db-commands, gmail-one-click, memory, grips-footer, block-select, split-to-page, image-ai, claude-reads, redo, ai-terminal, mcp-codewords, mcp-tidy-up, slash-menu, turn-into-database,
+ * Shots: one-picker, pipelines, legacy-modernise, coding-live, text-size, mcp-media, coding-setup, free-board, building-blocks, workspace-settings, diagram-viewer, coding-pipeline, pages-per-item, design-import, tour, quick-capture, script-templates, one-script-everywhere, file-ai, one-script, transform, ai-edit, db-commands, gmail-one-click, memory, grips-footer, block-select, split-to-page, image-ai, claude-reads, redo, ai-terminal, mcp-codewords, mcp-tidy-up, slash-menu, turn-into-database,
  * custom-agents, gmail, help-centre, mcp-servers, feed-blocks — each named like its image. Every shot starts from a fresh, seeded
  * workspace in English, light theme, 1440 × 900 at device scale 2; the crop of the relevant area is scaled
  * to 1440 px wide and saved as public/assets/shots/changelog/<shot>.webp (≤ 150 KB: the quality steps down
@@ -1423,6 +1423,35 @@ const shots = {
     const box = await boxOf(page.locator('.modal').first(), 20)
     await save(page, 'design-import', box)
     await ctx.close()
+  },
+
+  /** "one:" in page text: the pages on the same level and inside the page, before any search. */
+  async 'one-picker'(browser) {
+    const { ctx, page } = await freshPage(browser)
+    try {
+      const here = await page.evaluate(() => {
+        const s = window.__one.workspace.getState()
+        const mk = (title, parentId) => s.createPage({ title, parentId })
+        const release = mk('Release 4.2', null)
+        mk('Sample view review', release)
+        mk('Rollout checklist', release)
+        mk('Customer feedback', release)
+        const draft = mk('Release notes draft', release)
+        mk('Screenshots', draft)
+        s.setContent(draft, { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'What changed for teams since 4.1.' }] }, { type: 'paragraph' }] }, 'shot')
+        return draft
+      })
+      await page.evaluate((id) => (window.location.hash = `#/p/${id}`), here)
+      const editor = page.locator('#main .ProseMirror').first()
+      await editor.locator('p').last().click()
+      await page.keyboard.type('Built on the findings in one:')
+      await page.getByTestId('ref-menu').waitFor()
+      await rest(page)
+      const box = union(await boxOf(page.locator('#main .pv-title')), await boxOf(page.getByTestId('ref-menu')))
+      await save(page, 'one-picker', { x: Math.max(0, box.x - 40), y: Math.max(0, box.y - 30), width: Math.min(W - box.x + 40, 980), height: box.height + 70 })
+    } finally {
+      await ctx.close()
+    }
   },
 
   /**

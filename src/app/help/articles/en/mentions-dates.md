@@ -3,7 +3,7 @@ id: mentions-dates
 title: Mentions, dates & reminders
 section: writing
 order: 5
-keywords: mention, @, link page, date, today, tomorrow, reminder, remind, notification, inbox, agenda, Erwähnung, Datum, Erinnerung
+keywords: one:, reference, same level, mention, @, link page, date, today, tomorrow, reminder, remind, notification, inbox, agenda, Erwähnung, Datum, Erinnerung
 related: blocks, properties, comments
 summary: Type @ to link a page, a date or a person — dates can remind you.
 ---
@@ -13,6 +13,8 @@ Type `@` and keep typing:
 - a person (in a team workspace) mentions them; they get it in their **Inbox**.
 
 `@morgen` or `@nächsten Freitag` work too.
+
+**`one:`** links a page or entry that is close by: the menu shows those on the **same level** as this page first, then those **inside** it — keep typing to search every page and entry by title.
 
 ## Reminders
 Click a date mention: change the day, **Include time**, and choose **Remind** — at the time of the event, minutes, hours, days or a week before. Database date properties have the same **Remind** option.

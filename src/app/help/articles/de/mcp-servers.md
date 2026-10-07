@@ -24,7 +24,7 @@ Unter **Erweitert** stehen außerdem Name, Codewort (unten), Token, Nutzungs-Pro
 Ein Server, der sein Token ablehnt (abgelaufen oder noch nicht angemeldet), hält deine Anfragen nicht mehr auf: Claude antwortet ohne ihn, und ein Hinweis sagt *„… hat sein Token abgelehnt — Claude antwortet ohne ihn“*. In diesem Tab bleibt er draußen, bis du dich neu anmeldest oder das Token ersetzt — oder du sprichst ihn mit seinem Codewort an, dann siehst du den Fehler.
 
 ## Codewort
-**Erweitert** → **Codewort**: ein kurzes Wort wie `kb` — One schlägt den Namen des Servers vor, **verwenden** übernimmt ihn. Beginne eine Anfrage damit — *„kb: Was wissen wir über den Launch?“* — im KI-Menü, bei `⌘K ?` oder im Agenten, und Claude antwortet zuerst mit den Werkzeugen dieses Servers (das `kb:` selbst wird nicht mitgeschickt). Mehrere gehen auch: `kb: wiki: …`.
+**Erweitert** → **Codewort**: ein kurzes Wort wie `kb` — One schlägt den Namen des Servers vor, **verwenden** übernimmt ihn. Beginne eine Anfrage damit — *„kb: Was wissen wir über den Launch?“* — im KI-Menü, bei `⌘K ?` oder im Agenten, und Claude antwortet zuerst mit den Werkzeugen dieses Servers (das `kb:` selbst wird nicht mitgeschickt). Mehrere gehen auch: `kb: wiki: …`. Im KI-Terminal zeigt `kb:` die Werkzeuge des Servers (aus **Verbindung testen**): eines mit <kbd>Tab</kbd> wählen, und Claude soll genau das nutzen.
 - Beim Tippen zeigt ein Chip den Server: `→ ATLAS`. Ein ausgeschalteter Server bleibt aus — die Antwort sagt das.
 - a–z, 0–9, `-` und `_`, bis 24 Zeichen, eines je Server. `one` ist reserviert: Das ist Ones eigenes Codewort in Claude Desktop ([Claude Desktop & lokales MCP](help:mcp-bridge)).
 

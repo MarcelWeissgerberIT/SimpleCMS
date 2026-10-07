@@ -1,7 +1,7 @@
 ---
 id: 2026-10-07-pipelines
 date: 2026-10-07
-order: 1
+order: 2
 title: Business-Analyse und QA neben Coding – und die Import-Stufe
 summary: Zwei weitere Pipelines auf dem Coding-Worker – Business-Analyse schreibt Analysen und Spezifikationen (ohne Repository), QA entwirft Testfälle in eine Datenbank – jede für sich oder verkettet; Altsoftware kommt direkt in der Aufgabe an.
 image: assets/shots/changelog/pipelines.webp

@@ -1,7 +1,7 @@
 ---
 id: 2026-10-07-coding-live
 date: 2026-10-07
-order: 3
+order: 4
 title: Coding-Aufgaben, denen man zusehen kann
 summary: Während eine Coding-Aufgabe läuft, zeigt ihr Panel, was der Worker zuletzt getan hat und wann, den Schritt von der Grenze der Stufe, eine Kostenschätzung und die bisher geänderten Dateien — und der Browser meldet sich, wenn eine Aufgabe dich braucht.
 image: assets/shots/changelog/coding-live.webp

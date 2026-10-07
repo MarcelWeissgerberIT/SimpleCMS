@@ -14,6 +14,8 @@ Tippe `@` und schreib weiter:
 
 `@tomorrow` oder `@next friday` gehen auch.
 
+**`one:`** verlinkt eine Seite oder einen Eintrag in der Nähe: Das Menü zeigt zuerst die auf der **gleichen Ebene** wie diese Seite, dann die **in** ihr — weitertippen durchsucht alle Seiten und Einträge nach Titel.
+
 ## Erinnerungen
 Klick auf ein Datum: Tag ändern, **Mit Uhrzeit**, und **Erinnern** wählen — zum Zeitpunkt, Minuten, Stunden, Tage oder eine Woche vorher. Datumseigenschaften in Datenbanken haben dieselbe Option **Erinnern**.
 

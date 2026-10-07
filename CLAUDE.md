@@ -148,6 +148,10 @@ the public APIs stable — other areas are built against them in parallel.
   staging is skipped. Custom agents' edits always wait for review; server-runner agents have no `edit_page`. Terminal
   commands: `/new` = `/clear` (`/neu`, `/leeren`); `/clear-history` (`/verlauf-leeren`) asks y / n, then removes
   `one.term.history:<kind>:<id>`.
+- "one:" picker: in page text a suggestion kind 'ref' (char `one:`, editor/menus/RefMenu.tsx — same level, inside, then a
+  title search → a page `mention`); in the AI terminal `completionAt(…, here)` (agent/commands.ts): `one:` → @mentions, a
+  codeword at the start → that server's `tools` (from its connection test); `pickedTool()` (codeword.ts) tells Claude the
+  tool picked (terminal `codewordTask`, free-form requests via `Codewords.picked` → attachMcp).
 - AI terminal `create_pages`: one page per item in ONE call (≤ 50, each its own staged `create_page`, ids back in order;
   a pending page with the same parent + title is updated). `TERMINAL_TOOLS` = `AGENT_TOOLS` + create_database / add_property /
   write_script / create_pages. `MAX_TOOL_CALLS` = 40 per task (MCP calls don't count; backstop +12); hitting it ends as
