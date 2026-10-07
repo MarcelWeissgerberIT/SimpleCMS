@@ -249,7 +249,7 @@
   background: transparent;
   color: var(--ink);
   font-family: var(--font-sans);
-  font-size: clamp(30px, 5.4cqi, 46px);
+  font-size: calc(clamp(30px, 5.4cqi, 46px) * var(--text-scale));
   font-weight: 800;
   font-stretch: var(--display-stretch);
   font-variation-settings: 'wdth' 125;
@@ -277,10 +277,10 @@
   font-variation-settings: normal;
   font-weight: 750;
   letter-spacing: -0.04em;
-  font-size: clamp(26px, 4.6cqi, 38px);
+  font-size: calc(clamp(26px, 4.6cqi, 38px) * var(--text-scale));
 }
 .pv[data-small] .pv-title {
-  font-size: clamp(26px, 4.6cqi, 38px);
+  font-size: calc(clamp(26px, 4.6cqi, 38px) * var(--text-scale));
 }
 .pv-props {
   margin-top: 14px;
@@ -537,7 +537,7 @@
   min-width: 0;
   color: var(--ink);
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: calc(11px * var(--text-scale));
   font-weight: 500;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
@@ -549,7 +549,7 @@
 .mrail-due__in {
   color: var(--ink-3);
   font-family: var(--font-mono);
-  font-size: 9.5px;
+  font-size: calc(9.5px * var(--text-scale));
   letter-spacing: var(--tracking-label);
   white-space: nowrap;
 }
@@ -845,7 +845,7 @@
   gap: 12px;
   padding: 8px 22px 7px;
   border-bottom: 1px solid var(--rule);
-  font-size: 10px;
+  font-size: calc(10px * var(--text-scale));
   font-weight: 600;
   letter-spacing: 0.12em;
   text-transform: uppercase;
@@ -874,7 +874,7 @@
 .spec__cell dt {
   margin-bottom: 3px;
   color: var(--ink-3);
-  font-size: 9.5px;
+  font-size: calc(9.5px * var(--text-scale));
   letter-spacing: var(--tracking-label);
   text-transform: uppercase;
 }
@@ -884,7 +884,7 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   color: var(--ink);
-  font-size: 11.5px;
+  font-size: calc(11.5px * var(--text-scale));
   font-weight: 500;
   font-variant-numeric: tabular-nums;
 }
@@ -895,7 +895,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   color: var(--ink-3);
-  font-size: 10.5px;
+  font-size: calc(10.5px * var(--text-scale));
   font-weight: 400;
 }
 @container (max-width: 720px) {

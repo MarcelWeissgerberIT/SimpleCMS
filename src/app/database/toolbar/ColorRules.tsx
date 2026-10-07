@@ -38,7 +38,7 @@ export function ColorRulesPanel({ m, anchor, onClose }: { m: DbModel; anchor: El
   const add = () => save([...rules, { id: newId(), filter: emptyGroup(), color: nextColor(rules), target: 'background' }])
 
   return (
-    <Popover open anchor={anchor} onClose={onClose} placement="bottom-end" className="db-filterpop db-rcpanel" aria-label={t('database.rc.title')}>
+    <Popover open anchor={anchor} onClose={onClose} placement="bottom-end" className="db-filterpop db-rcpanel" resizable="db-colors" aria-label={t('database.rc.title')}>
       <div className="db-filterpop__head">
         <span className="label">{t('database.rc.title')}</span>
         <span style={{ flex: 1 }} />

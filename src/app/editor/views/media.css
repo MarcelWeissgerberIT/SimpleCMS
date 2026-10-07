@@ -337,7 +337,7 @@
   margin-top: 6px;
   line-height: 1.45;
   color: var(--ink-2);
-  font-size: 13px;
+  font-size: calc(13px * var(--text-scale));
 }
 
 .doc-content .media-view[data-align='center'] figcaption {
@@ -354,7 +354,7 @@
   border: 0;
   background: transparent;
   color: var(--ink-2);
-  font-size: 13px;
+  font-size: calc(13px * var(--text-scale));
   text-align: inherit;
   outline: none;
 }

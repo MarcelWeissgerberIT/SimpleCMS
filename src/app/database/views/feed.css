@@ -6,7 +6,7 @@
 .dbf {
   --dbf-rail: 76px;
   --dbf-max: 860px;
-  --dbf-doc: 15px;
+  --dbf-doc: calc(15px * var(--text-scale));
   /* twelve lines of the page's text */
   --dbf-clamp: calc(var(--dbf-doc) * 1.65 * 12 + 14px);
   container: dbf / inline-size;
@@ -156,7 +156,7 @@ button.dbf-order:active,
 
 .dbf-date__day {
   font-stretch: var(--display-stretch);
-  font-size: 26px;
+  font-size: calc(26px * var(--text-scale));
   font-weight: 800;
   line-height: 0.95;
   letter-spacing: var(--tracking-tight);
@@ -167,7 +167,7 @@ button.dbf-order:active,
 .dbf-date__month,
 .dbf-date__time {
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: calc(10px * var(--text-scale));
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--ink-3);
@@ -183,7 +183,7 @@ button.dbf-order:active,
 }
 
 .dbf-date--none .label {
-  font-size: 9.5px;
+  font-size: calc(9.5px * var(--text-scale));
 }
 
 /* ---------- card ---------- */
@@ -245,7 +245,7 @@ button.dbf-order:active,
   margin: 6px 0 0;
   padding: 0;
   font-family: var(--font-sans);
-  font-size: 21px;
+  font-size: calc(21px * var(--text-scale));
   font-weight: 760;
   font-stretch: 112%;
   font-variation-settings: normal;
@@ -342,7 +342,7 @@ button.dbf-order:active,
 
 .dbf-spec:is([data-type='date'], [data-type='created_time'], [data-type='last_edited_time'], [data-type='number'], [data-type='unique_id'], [data-type='formula'], [data-type='rollup']) .dbf-spec__value {
   font-family: var(--font-mono);
-  font-size: 11.5px;
+  font-size: calc(11.5px * var(--text-scale));
   color: var(--ink-2);
 }
 
@@ -557,7 +557,7 @@ button.dbf-order:active,
   }
 
   .dbf .dbf-title {
-    font-size: 19px;
+    font-size: calc(19px * var(--text-scale));
   }
 
   .dbf-specs {

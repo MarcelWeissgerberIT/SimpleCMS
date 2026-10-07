@@ -64,7 +64,7 @@
   padding: 1px 4px;
   border: 1px solid var(--rule-strong);
   border-radius: 2px;
-  font-size: 9.5px;
+  font-size: calc(9.5px * var(--text-scale));
   color: var(--ink-3);
 }
 
@@ -160,7 +160,7 @@
 }
 
 .tpl-filter__n {
-  font-size: 9.5px;
+  font-size: calc(9.5px * var(--text-scale));
   opacity: 0.7;
 }
 
@@ -241,7 +241,7 @@
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  font-size: 9.5px;
+  font-size: calc(9.5px * var(--text-scale));
 }
 
 /* a customised built-in: signal LED + mono flag instead of the category */
@@ -250,7 +250,7 @@
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  font-size: 9.5px;
+  font-size: calc(9.5px * var(--text-scale));
   color: var(--signal-ink);
 }
 
@@ -345,7 +345,7 @@
 
 .tpl-preview__title {
   margin: 6px 0 8px;
-  font-size: 28px;
+  font-size: calc(28px * var(--text-scale));
 }
 
 .tpl-preview__desc {
@@ -403,7 +403,7 @@
 
 .tpl-outline__glyph {
   color: var(--ink-3);
-  font-size: 12px;
+  font-size: calc(12px * var(--text-scale));
 }
 
 .tpl-outline__line--db .tpl-outline__glyph,
@@ -412,7 +412,7 @@
 }
 
 .tpl-outline__kind {
-  font-size: 9.5px;
+  font-size: calc(9.5px * var(--text-scale));
 }
 
 .tpl-outline__line--db .tpl-outline__label,
@@ -506,7 +506,7 @@
 
 .tpl-empty__title {
   margin: 0;
-  font-size: 26px;
+  font-size: calc(26px * var(--text-scale));
 }
 
 .tpl-empty__body {
@@ -739,7 +739,7 @@
   margin: -6px 4px -6px 0;
   background: var(--signal);
   color: var(--on-signal);
-  font-size: 10px;
+  font-size: calc(10px * var(--text-scale));
   font-weight: 700;
   letter-spacing: 0.12em;
 }
@@ -854,7 +854,7 @@
   border-radius: 2px;
   background: var(--surface);
   font-family: var(--font-mono);
-  font-size: 10.5px;
+  font-size: calc(10.5px * var(--text-scale));
   color: var(--ink-2);
 }
 

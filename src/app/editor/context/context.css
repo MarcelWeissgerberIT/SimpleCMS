@@ -161,7 +161,7 @@
 .ctx-bar__key .kbd {
   height: 16px;
   min-width: 16px;
-  font-size: 9.5px;
+  font-size: calc(9.5px * var(--text-scale));
 }
 
 .ctx-bar__key.btn--primary .kbd {
@@ -211,6 +211,6 @@
 
 /* redo: the marked passages are numbered */
 .ctx-row__n {
-  font: 600 10px/1 var(--font-mono);
+  font: 600 calc(10px * var(--text-scale))/1 var(--font-mono);
   letter-spacing: 0;
 }

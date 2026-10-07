@@ -93,7 +93,7 @@
   height: 26px;
   padding: 6px 4px;
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: calc(10px * var(--text-scale));
   color: var(--ink-3);
   white-space: nowrap;
   border-left: 1px solid var(--rule);
@@ -108,7 +108,7 @@
 .dbtl[data-zoom='week'] .dbtl-day {
   text-align: center;
   text-transform: uppercase;
-  font-size: 9.5px;
+  font-size: calc(9.5px * var(--text-scale));
 }
 
 .dbtl-todayflag {
@@ -121,7 +121,7 @@
   background: var(--signal);
   color: var(--on-signal);
   font-family: var(--font-mono);
-  font-size: 9px;
+  font-size: calc(9px * var(--text-scale));
   font-weight: 700;
   letter-spacing: var(--tracking-label);
   text-transform: uppercase;
@@ -180,7 +180,7 @@
   border-right: 1px solid var(--rule-strong);
   background: var(--surface);
   color: var(--ink);
-  font-size: 13px;
+  font-size: calc(13px * var(--text-scale));
   font-weight: 600;
   text-align: left;
   overflow: hidden;
@@ -209,7 +209,7 @@
   background: var(--ink);
   color: var(--ink-inverse);
   box-shadow: inset 4px 0 0 var(--ev-accent);
-  font-size: 12px;
+  font-size: calc(12px * var(--text-scale));
   font-weight: 600;
   cursor: grab;
   user-select: none;

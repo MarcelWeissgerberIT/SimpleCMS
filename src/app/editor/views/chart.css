@@ -54,7 +54,7 @@
 
 .doc-content .chart-block__title {
   margin: 2px 0 8px;
-  font-size: 15.5px;
+  font-size: calc(15.5px * var(--text-scale));
   font-weight: 700;
   letter-spacing: var(--tracking-tight);
   line-height: 1.3;

@@ -22,6 +22,7 @@ import { ServerTab } from '../cloud/ServerTab'
 import { useInCloud, useWorkspaceTitle } from '../cloud/state'
 import { openWorkspaceSettings } from '../workspace/open'
 import { StorageGauge, useStorageEstimate } from './data'
+import { TextSizeControl } from './TextSize'
 import { cloudApi } from '../cloud/api'
 import { errorText } from '../cloud/errors'
 import { useCloud, useCloudSync } from '../../cloud'
@@ -344,6 +345,9 @@ function AppearanceTab() {
             </span>
           </button>
         ))}
+      </div>
+      <div className="st-textsize">
+        <TextSizeControl />
       </div>
     </>
   )

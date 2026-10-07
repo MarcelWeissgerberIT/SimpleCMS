@@ -23,7 +23,7 @@
 }
 .home__greet {
   margin: 22px 0 26px;
-  font-size: clamp(38px, 7.2cqi, 72px);
+  font-size: calc(clamp(38px, 7.2cqi, 72px) * var(--text-scale));
   font-weight: 850;
   line-height: 0.96;
   letter-spacing: -0.035em;
@@ -49,7 +49,7 @@
   border-left: 1px solid var(--rule);
 }
 .readout__n {
-  font-size: 34px;
+  font-size: calc(34px * var(--text-scale));
   font-weight: 750;
   font-stretch: 75%;
   font-variation-settings: 'wdth' 75;
@@ -138,7 +138,7 @@
 .key__code {
   color: var(--ink-3);
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: calc(10px * var(--text-scale));
   letter-spacing: var(--tracking-label);
 }
 .key__bottom {
@@ -148,7 +148,7 @@
   gap: 8px;
 }
 .key__label {
-  font-size: 14px;
+  font-size: calc(14px * var(--text-scale));
   font-weight: 650;
   line-height: 1.25;
 }
@@ -234,7 +234,7 @@
   top: 7px;
   color: var(--ink-3);
   font-family: var(--font-mono);
-  font-size: 9.5px;
+  font-size: calc(9.5px * var(--text-scale));
   letter-spacing: var(--tracking-label);
 }
 .card__icon {
@@ -254,7 +254,7 @@
   overflow: hidden;
   min-height: 2.5em;
   margin: 6px 14px 0;
-  font-size: 14px;
+  font-size: calc(14px * var(--text-scale));
   font-weight: 650;
   line-height: 1.25;
 }
@@ -265,7 +265,7 @@
   margin: 8px 14px 12px;
   color: var(--ink-3);
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: calc(10px * var(--text-scale));
   letter-spacing: 0.06em;
   text-transform: uppercase;
 }
@@ -371,7 +371,7 @@
 }
 .nf__title {
   margin: 14px 0 10px;
-  font-size: clamp(32px, 7cqi, 48px);
+  font-size: calc(clamp(32px, 7cqi, 48px) * var(--text-scale));
 }
 .nf__body {
   margin: 0 0 22px;

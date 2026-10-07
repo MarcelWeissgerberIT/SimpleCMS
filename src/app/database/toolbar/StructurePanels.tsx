@@ -59,7 +59,7 @@ export function SubItemsPanel({ m, anchor, onClose }: { m: DbModel; anchor: Elem
   const pair = subItemsOf(m.db)
   const nestable = m.view.type === 'table' || m.view.type === 'list'
   return (
-    <Popover open anchor={anchor} onClose={onClose} placement="bottom-end" className="db-panel db-struct" aria-label={t('database.sub.title')}>
+    <Popover open anchor={anchor} onClose={onClose} placement="bottom-end" className="db-panel db-struct" resizable="db-sub" aria-label={t('database.sub.title')}>
       <PanelHead title={t('database.sub.title')} on={!!pair} />
       <label className="db-cfg__row db-cfg__row--switch">
         <span>{t('database.sub.switch')}</span>
@@ -99,7 +99,7 @@ export function DependenciesPanel({ m, anchor, onClose }: { m: DbModel; anchor: 
   const t = useT()
   const pair = dependenciesOf(m.db)
   return (
-    <Popover open anchor={anchor} onClose={onClose} placement="bottom-end" className="db-panel db-struct" aria-label={t('database.dep.title')}>
+    <Popover open anchor={anchor} onClose={onClose} placement="bottom-end" className="db-panel db-struct" resizable="db-dep" aria-label={t('database.dep.title')}>
       <PanelHead title={t('database.dep.title')} on={!!pair} />
       <label className="db-cfg__row db-cfg__row--switch">
         <span>{t('database.dep.switch')}</span>

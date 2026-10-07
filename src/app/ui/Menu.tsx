@@ -4,6 +4,7 @@ import { Popover, type PopoverAnchor } from './Popover'
 import type { Placement } from '@floating-ui/react'
 import { useT } from '../i18n'
 import { usePointerIntent } from './pointer'
+import { titleIfClipped } from './clip'
 
 const NARROW = '(max-width: 640px)'
 
@@ -226,7 +227,10 @@ function MenuListInner({ entries, onClose, searchable, searchPlaceholder = 'Sear
               aria-haspopup={e.submenu ? 'menu' : undefined}
               aria-expanded={e.submenu ? sub?.index === i : undefined}
               className={`menu-item${e.danger ? ' menu-item--danger' : ''}`}
-              onMouseEnter={(ev) => pointer.check(ev) && hover(i, e, ev.currentTarget)}
+              onMouseEnter={(ev) => {
+                titleIfClipped(ev, '.menu-item__label')
+                if (pointer.check(ev)) hover(i, e, ev.currentTarget)
+              }}
               onMouseMove={(ev) => (i !== active || (!!e.submenu && sub?.index !== i)) && pointer.check(ev) && hover(i, e, ev.currentTarget)}
               onClick={(ev) => select(e, ev.currentTarget)}
             >

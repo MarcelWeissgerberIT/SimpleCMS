@@ -7,7 +7,7 @@
   container-type: inline-size;
   container-name: db;
   --db-paper: var(--surface);
-  --db-cell-fs: 13px;
+  --db-cell-fs: calc(13px * var(--text-scale));
   position: relative;
   display: flex;
   flex-direction: column;
@@ -38,7 +38,7 @@
   border: 0;
   background: transparent;
   padding: 2px 0;
-  font-size: 20px;
+  font-size: calc(20px * var(--text-scale));
   font-weight: 750;
   font-stretch: 112%;
   letter-spacing: var(--tracking-tight);
@@ -99,7 +99,7 @@
   border-radius: var(--radius-2) var(--radius-2) 0 0;
   background: transparent;
   color: var(--ink-2);
-  font-size: 13px;
+  font-size: calc(13px * var(--text-scale));
   font-weight: 560;
   white-space: nowrap;
   cursor: pointer;
@@ -159,7 +159,7 @@
 
 .db-tab__idx {
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: calc(10px * var(--text-scale));
   font-weight: 500;
   letter-spacing: 0.04em;
   color: var(--ink-3);
@@ -268,7 +268,7 @@
   border-bottom-width: 2px;
   border-radius: 3px;
   font-family: var(--font-mono);
-  font-size: 9.5px;
+  font-size: calc(9.5px * var(--text-scale));
   line-height: 1;
 }
 
@@ -290,7 +290,7 @@
   outline: none;
   background: transparent;
   padding: 0 4px 0 0;
-  font-size: 13px;
+  font-size: calc(13px * var(--text-scale));
   color: var(--ink);
   animation: db-grow var(--dur-2) var(--ease-out);
 }
@@ -318,13 +318,13 @@
 }
 
 .db-counter__label {
-  font-size: 9px;
+  font-size: calc(9px * var(--text-scale));
   letter-spacing: var(--tracking-label);
   color: var(--ink-3);
 }
 
 .db-counter__num {
-  font-size: 11px;
+  font-size: calc(11px * var(--text-scale));
   font-weight: 600;
   font-variant-numeric: tabular-nums;
   color: var(--ink);
@@ -375,7 +375,7 @@
   border: 1px solid var(--rule-strong);
   border-radius: var(--radius-1);
   background: var(--db-paper);
-  font-size: 12px;
+  font-size: calc(12px * var(--text-scale));
   overflow: hidden;
 }
 
@@ -410,7 +410,7 @@
   border: 0;
   background: transparent;
   color: var(--ink);
-  font-size: 12px;
+  font-size: calc(12px * var(--text-scale));
 }
 
 .db-fchip__main:hover {
@@ -423,7 +423,7 @@
 
 .db-fchip__op {
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: calc(10px * var(--text-scale));
   letter-spacing: 0.04em;
   text-transform: uppercase;
   color: var(--ink-3);
@@ -533,7 +533,7 @@
   max-width: 100%;
   height: 21px;
   padding: 0 7px;
-  font-size: 12px;
+  font-size: calc(12px * var(--text-scale));
   line-height: 21px;
 }
 
@@ -554,7 +554,7 @@
   background: transparent;
   color: inherit;
   opacity: 0.6;
-  font-size: 13px;
+  font-size: calc(13px * var(--text-scale));
   line-height: 1;
 }
 
@@ -613,7 +613,7 @@
   line-height: 20px;
   border-radius: var(--radius-1);
   background: var(--surface-2);
-  font-size: 12px;
+  font-size: calc(12px * var(--text-scale));
 }
 
 .db-avatar {
@@ -634,7 +634,7 @@
   gap: 5px;
   max-width: 100%;
   min-width: 0;
-  font-size: 12.5px;
+  font-size: calc(12.5px * var(--text-scale));
 }
 
 .db-person__name {
@@ -653,7 +653,7 @@
   padding: 0 6px 0 4px;
   border-radius: var(--radius-1);
   box-shadow: inset 0 0 0 1px var(--rule-strong);
-  font-size: 12px;
+  font-size: calc(12px * var(--text-scale));
   font-weight: 550;
   cursor: pointer;
 }
@@ -682,7 +682,7 @@
   border-radius: var(--radius-1);
   box-shadow: inset 0 0 0 1px var(--rule);
   color: var(--ink);
-  font-size: 12px;
+  font-size: calc(12px * var(--text-scale));
   text-decoration: none;
 }
 
@@ -815,7 +815,7 @@
   min-width: 36px;
   text-align: right;
   font-family: var(--font-mono);
-  font-size: 11.5px;
+  font-size: calc(11.5px * var(--text-scale));
   font-variant-numeric: tabular-nums;
 }
 
@@ -824,7 +824,7 @@
   align-items: center;
   gap: 6px;
   font-family: var(--font-mono);
-  font-size: 11.5px;
+  font-size: calc(11.5px * var(--text-scale));
   font-variant-numeric: tabular-nums;
 }
 
@@ -846,7 +846,7 @@
 
 .db-uid {
   font-family: var(--font-mono);
-  font-size: 11.5px;
+  font-size: calc(11.5px * var(--text-scale));
   letter-spacing: 0.02em;
   color: var(--ink-2);
 }
@@ -988,7 +988,7 @@
   align-items: center;
   gap: 4px;
   font-family: var(--font-mono);
-  font-size: 10.5px;
+  font-size: calc(10.5px * var(--text-scale));
   letter-spacing: 0.04em;
   color: var(--c-red-text);
 }
@@ -1037,7 +1037,7 @@
   background: var(--db-paper);
   color: var(--ink-2);
   font-family: var(--font-mono);
-  font-size: 9.5px;
+  font-size: calc(9.5px * var(--text-scale));
   font-weight: 600;
   letter-spacing: var(--tracking-label);
   opacity: 0;
@@ -1101,7 +1101,7 @@
   border: 0;
   outline: none;
   background: transparent;
-  font-size: 13px;
+  font-size: calc(13px * var(--text-scale));
   color: var(--ink);
 }
 
@@ -1179,7 +1179,7 @@
 
 .db-opt__create {
   color: var(--ink-2);
-  font-size: 12.5px;
+  font-size: calc(12.5px * var(--text-scale));
 }
 
 .db-optedit {
@@ -1226,7 +1226,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 12.5px;
+  font-size: calc(12.5px * var(--text-scale));
 }
 
 .db-files__upload {
@@ -1234,7 +1234,7 @@
 }
 
 .db-files__hint {
-  font-size: 9.5px;
+  font-size: calc(9.5px * var(--text-scale));
 }
 
 .db-files__link {
@@ -1272,7 +1272,7 @@
 }
 
 .db-datefield .label {
-  font-size: 9px;
+  font-size: calc(9px * var(--text-scale));
 }
 
 .db-datefield[data-active='true'] {
@@ -1293,7 +1293,7 @@
   outline: none;
   background: transparent;
   padding: 0;
-  font-size: 13px;
+  font-size: calc(13px * var(--text-scale));
   font-weight: 550;
   color: var(--ink);
 }
@@ -1302,7 +1302,7 @@
   flex: none;
   width: 72px;
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: calc(12px * var(--text-scale));
 }
 
 /* with a time, date and clock stack so neither gets clipped (range = two narrow fields) */
@@ -1326,7 +1326,7 @@
 .db-date-pop__month {
   flex: 1;
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: calc(11px * var(--text-scale));
   font-weight: 600;
   letter-spacing: var(--tracking-label);
   text-transform: uppercase;
@@ -1343,7 +1343,7 @@
   padding: 4px 0;
   text-align: center;
   font-family: var(--font-mono);
-  font-size: 9.5px;
+  font-size: calc(9.5px * var(--text-scale));
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--ink-3);
@@ -1356,7 +1356,7 @@
   border-radius: var(--radius-1);
   background: transparent;
   color: var(--ink);
-  font-size: 12.5px;
+  font-size: calc(12.5px * var(--text-scale));
   font-variant-numeric: tabular-nums;
 }
 
@@ -1412,7 +1412,7 @@
   align-items: center;
   justify-content: space-between;
   min-height: 28px;
-  font-size: 12.5px;
+  font-size: calc(12.5px * var(--text-scale));
   cursor: pointer;
 }
 
@@ -1500,7 +1500,7 @@
   border-radius: var(--radius-1);
   background: var(--surface);
   color: var(--ink);
-  font-size: 12.5px;
+  font-size: calc(12.5px * var(--text-scale));
   text-align: left;
 }
 
@@ -1545,7 +1545,7 @@
   background: transparent;
   color: var(--ink-2);
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: calc(10px * var(--text-scale));
   font-weight: 500;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -1595,7 +1595,7 @@
   border-radius: var(--radius-1);
   color: var(--ink-2);
   font-family: var(--font-mono);
-  font-size: 9.5px;
+  font-size: calc(9.5px * var(--text-scale));
   font-weight: 600;
   letter-spacing: var(--tracking-label);
   text-transform: uppercase;
@@ -1656,7 +1656,7 @@
 
 /* ---------- panels (sort/group/props/layout/filter) ---------- */
 .db-panel {
-  width: 340px;
+  width: min(calc(340px * var(--text-scale)), calc(100vw - 16px));
   padding: 4px 4px 6px;
 }
 
@@ -1678,7 +1678,7 @@
   border: 0;
   background: transparent;
   color: var(--signal-ink);
-  font-size: 11.5px;
+  font-size: calc(11.5px * var(--text-scale));
   font-weight: 550;
   padding: 0;
 }
@@ -1689,6 +1689,7 @@
 
 .db-panel__actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 4px;
   padding: 6px 4px 0;
   margin-top: 4px;
@@ -1733,7 +1734,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 13px;
+  font-size: calc(13px * var(--text-scale));
 }
 
 .db-propsrow.is-hidden .db-propsrow__name {
@@ -1774,7 +1775,7 @@
 }
 
 .db-cfg__row--switch {
-  font-size: 12.5px;
+  font-size: calc(12.5px * var(--text-scale));
   cursor: pointer;
 }
 
@@ -1785,7 +1786,7 @@
 }
 
 .db-cfg__note {
-  font-size: 12px;
+  font-size: calc(12px * var(--text-scale));
   color: var(--ink-3);
 }
 
@@ -1798,7 +1799,7 @@
   border-left-width: 3px;
   border-radius: var(--radius-1);
   background: var(--c-red-bg);
-  font-size: 12px;
+  font-size: calc(12px * var(--text-scale));
   line-height: 1.45;
   color: var(--ink);
 }
@@ -1827,7 +1828,7 @@
 .db-cfg__formula code {
   display: block;
   font-family: var(--font-mono);
-  font-size: 11.5px;
+  font-size: calc(11.5px * var(--text-scale));
   color: var(--ink);
   white-space: pre-wrap;
   word-break: break-word;
@@ -1883,7 +1884,7 @@
   border-radius: var(--radius-1);
   background: transparent;
   color: var(--ink-3);
-  font-size: 12px;
+  font-size: calc(12px * var(--text-scale));
 }
 
 .db-optcfg__addbtn:hover {
@@ -1949,7 +1950,7 @@
 }
 
 .db-layout {
-  width: 360px;
+  width: min(calc(360px * var(--text-scale)), calc(100vw - 16px));
 }
 
 .db-layout__types {
@@ -1972,7 +1973,7 @@
   background: var(--surface);
   color: var(--ink-2);
   font-family: var(--font-mono);
-  font-size: 9.5px;
+  font-size: calc(9.5px * var(--text-scale));
   letter-spacing: 0.06em;
   text-transform: uppercase;
 }
@@ -1998,8 +1999,8 @@
 
 /* filter builder */
 .db-filterpop {
-  width: min(640px, calc(100vw - 16px));
-  max-width: min(640px, calc(100vw - 16px));
+  width: min(calc(640px * var(--text-scale)), calc(100vw - 16px));
+  max-width: min(calc(640px * var(--text-scale)), calc(100vw - 16px));
   padding: 4px 8px 8px;
 }
 
@@ -2014,7 +2015,11 @@
   padding: 6px 2px 6px;
 }
 
+/* a rule breaks onto a second line (and a narrow group stacks its "Where / And" over the rule)
+   instead of running past the panel's edge — the panel can be narrow (phones, the screen's edge,
+   a big text size) or wide (resized) */
 .db-fgroup {
+  container: fgroup / inline-size;
   display: flex;
   flex-direction: column;
   gap: 4px;
@@ -2044,12 +2049,34 @@
   flex: none;
   display: flex;
   align-items: center;
-  width: 66px;
+  width: calc(66px * var(--text-scale));
   min-height: 28px;
 }
 
 .db-fgroup__opsel {
-  width: 64px;
+  width: 100%;
+}
+
+@container fgroup (max-width: 400px) {
+  .db-fgroup__item {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 2px;
+  }
+
+  .db-fgroup__conj {
+    width: auto;
+    min-height: 0;
+  }
+
+  .db-fgroup__conj .label {
+    padding: 4px 0 0;
+  }
+
+  .db-fgroup__opsel {
+    width: auto;
+    min-width: calc(72px * var(--text-scale));
+  }
 }
 
 .db-fgroup__actions {
@@ -2063,28 +2090,45 @@
   flex: 1;
   min-width: 0;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 4px;
 }
 
 .db-frule__prop {
-  flex: 0 0 150px;
+  flex: 1 1 calc(130px * var(--text-scale));
+  min-width: 0;
 }
 
 .db-frule__op {
-  flex: 0 0 130px;
+  flex: 1 1 calc(110px * var(--text-scale));
+  min-width: 0;
 }
 
 .db-frule .input,
 .db-frule__value {
-  flex: 1;
-  min-width: 90px;
+  flex: 2 1 calc(120px * var(--text-scale));
+  min-width: 0;
   height: 28px;
+}
+
+.db-frule > .icon-btn {
+  flex: none;
 }
 
 .db-frule__date {
   display: flex;
+  flex-wrap: wrap;
   gap: 4px;
+  height: auto;
+}
+
+.db-frule__date > * {
+  min-width: 0;
+}
+
+.db-frule__date > .db-select:first-child {
+  flex: 1 1 auto;
 }
 
 .db-frule__novalue {
@@ -2093,7 +2137,7 @@
 
 /* templates */
 .db-tplmenu {
-  width: 300px;
+  width: min(calc(300px * var(--text-scale)), calc(100vw - 16px));
 }
 
 .db-tplmenu__row {
@@ -2118,7 +2162,7 @@
 
 .db-tplmenu__empty {
   padding: 2px 8px 8px;
-  font-size: 12px;
+  font-size: calc(12px * var(--text-scale));
   color: var(--ink-3);
 }
 
@@ -2152,7 +2196,7 @@
   border: 0;
   outline: none;
   background: transparent;
-  font-size: 24px;
+  font-size: calc(24px * var(--text-scale));
   color: var(--ink);
 }
 
@@ -2164,7 +2208,7 @@
 
 .db-tpl__md {
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: calc(12px * var(--text-scale));
 }
 
 .db-tpl__md[readonly] {
@@ -2194,7 +2238,7 @@
   display: flex;
   flex-direction: column;
   gap: 1px;
-  font-size: 13.5px;
+  font-size: calc(13.5px * var(--text-scale));
 }
 
 .db-prow {
@@ -2216,7 +2260,7 @@
   border-radius: var(--radius-1);
   background: transparent;
   color: var(--ink-2);
-  font-size: 13px;
+  font-size: calc(13px * var(--text-scale));
   text-align: left;
 }
 
@@ -2283,7 +2327,7 @@
 
 .db-prow__empty {
   color: var(--ink-3);
-  font-size: 13px;
+  font-size: calc(13px * var(--text-scale));
 }
 
 .db-props__foot {
@@ -2303,7 +2347,7 @@
   border-radius: var(--radius-1);
   background: transparent;
   color: var(--ink-3);
-  font-size: 13px;
+  font-size: calc(13px * var(--text-scale));
 }
 
 .db-props__btn:hover {
@@ -2353,7 +2397,7 @@
   background: var(--surface-2);
   color: var(--ink);
   font-family: var(--font-mono);
-  font-size: 13px;
+  font-size: calc(13px * var(--text-scale));
   line-height: 1.6;
   resize: vertical;
   outline: none;
@@ -2372,7 +2416,7 @@
   padding: 12px 14px;
   border: 1px solid transparent;
   font-family: var(--font-mono);
-  font-size: 13px;
+  font-size: calc(13px * var(--text-scale));
   line-height: 1.6;
   white-space: pre-wrap;
   overflow-wrap: break-word;
@@ -2398,7 +2442,7 @@
 
 .db-fx__discard {
   margin-right: auto;
-  font-size: 12.5px;
+  font-size: calc(12.5px * var(--text-scale));
   color: var(--c-red-text);
 }
 
@@ -2433,7 +2477,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 12.5px;
+  font-size: calc(12.5px * var(--text-scale));
   font-weight: 600;
 }
 
@@ -2442,7 +2486,7 @@
   border: 1px solid var(--rule-strong);
   border-radius: 2px;
   font-family: var(--font-mono);
-  font-size: 9.5px;
+  font-size: calc(9.5px * var(--text-scale));
   letter-spacing: var(--tracking-label);
   color: var(--ink-2);
 }
@@ -2450,7 +2494,7 @@
 .db-fx__result {
   min-height: 56px;
   padding: 14px 12px;
-  font-size: 15px;
+  font-size: calc(15px * var(--text-scale));
 }
 
 .db-fx__value {
@@ -2460,12 +2504,12 @@
 
 .db-fx__error {
   color: var(--c-red-text);
-  font-size: 13px;
+  font-size: calc(13px * var(--text-scale));
 }
 
 .db-fx__help {
   font-family: var(--font-mono);
-  font-size: 11.5px;
+  font-size: calc(11.5px * var(--text-scale));
   line-height: 1.5;
 }
 
@@ -2501,7 +2545,7 @@
   border-radius: var(--radius-1);
   background: transparent;
   color: var(--ink);
-  font-size: 12.5px;
+  font-size: calc(12.5px * var(--text-scale));
   text-align: left;
 }
 
@@ -2515,7 +2559,7 @@
 }
 
 .db-fx__refitem--fn .mono {
-  font-size: 12px;
+  font-size: calc(12px * var(--text-scale));
 }
 
 .db-fx__foothint {
@@ -2605,18 +2649,6 @@ body.db-dragging * {
     border-top: 1px solid var(--rule);
   }
 
-  .db-frule {
-    flex-wrap: wrap;
-  }
-
-  .db-frule__prop,
-  .db-frule__op {
-    flex: 1 1 120px;
-  }
-
-  .db-fgroup__conj {
-    width: 48px;
-  }
 
   .db-prow {
     grid-template-columns: minmax(96px, 128px) minmax(0, 1fr);
@@ -2649,7 +2681,7 @@ body.db-dragging * {
   border: 1px solid var(--rule-strong);
   border-radius: var(--radius-1);
   font-family: var(--font-mono);
-  font-size: 9.5px;
+  font-size: calc(9.5px * var(--text-scale));
   letter-spacing: var(--tracking-label);
   text-transform: uppercase;
   color: var(--ink-3);
@@ -2670,7 +2702,7 @@ body.db-dragging * {
 .db-person[data-actor='api'] .db-person__name,
 .db-person[data-actor='hook'] .db-person__name {
   font-family: var(--font-mono);
-  font-size: 10.5px;
+  font-size: calc(10.5px * var(--text-scale));
   letter-spacing: var(--tracking-label);
   text-transform: uppercase;
   color: var(--ink-2);
@@ -2700,7 +2732,7 @@ body.db-dragging * {
   background: var(--surface);
   color: var(--ink);
   font-family: var(--font-mono);
-  font-size: 9.5px;
+  font-size: calc(9.5px * var(--text-scale));
   font-weight: 650;
   letter-spacing: var(--tracking-label);
   text-transform: uppercase;
@@ -2743,7 +2775,7 @@ body.db-dragging * {
   border: 1px dashed var(--rule-strong);
   border-radius: var(--radius-1);
   color: var(--ink-2);
-  font-size: 11.5px;
+  font-size: calc(11.5px * var(--text-scale));
   line-height: 1.35;
 }
 .db-sessionnote > svg {
@@ -2764,7 +2796,7 @@ body.db-dragging * {
   border-radius: var(--radius-1);
   color: var(--ink-2);
   font-family: var(--font-mono);
-  font-size: 9.5px;
+  font-size: calc(9.5px * var(--text-scale));
   font-weight: 600;
   letter-spacing: var(--tracking-label);
   text-transform: uppercase;

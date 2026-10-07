@@ -30,7 +30,8 @@
   height: 320px;
   isolation: isolate;
 }
-.emoji-picker__search {
+/* two classes: wins over the base `.input` (width: 100%) in any stylesheet order */
+.emoji-picker .emoji-picker__search {
   margin: 8px;
   width: calc(100% - 16px);
 }
@@ -60,7 +61,7 @@
   border: 0;
   border-radius: var(--radius-1);
   background: transparent;
-  font-size: 20px;
+  font-size: calc(20px * var(--text-scale));
 }
 .emoji-picker__emoji[data-active] {
   background: var(--hover);

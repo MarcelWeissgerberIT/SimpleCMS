@@ -48,7 +48,7 @@ export function LayoutPanel({ m, anchor, onClose }: { m: DbModel; anchor: Elemen
   ]
 
   return (
-    <Popover open anchor={anchor} onClose={onClose} placement="bottom-start" className="db-panel db-layout">
+    <Popover open anchor={anchor} onClose={onClose} placement="bottom-start" className="db-panel db-layout" resizable="db-layout">
       <div className="db-panel__head">
         <span className="label">{t('database.layout.title')}</span>
         <span style={{ flex: 1 }} />

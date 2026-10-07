@@ -79,7 +79,7 @@
 .todb__type {
   flex: none;
   color: var(--ink-3);
-  font-size: 10px;
+  font-size: calc(10px * var(--text-scale));
 }
 
 .todb__lock {
@@ -213,7 +213,7 @@
   background: var(--surface-2);
   color: var(--ink-3);
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: calc(10px * var(--text-scale));
   font-weight: 500;
   letter-spacing: var(--tracking-label);
   text-transform: uppercase;

@@ -51,7 +51,7 @@
   position: absolute;
   top: 5px;
   left: 10px;
-  font-size: 12px;
+  font-size: calc(12px * var(--text-scale));
   font-weight: 700;
   line-height: 1.4;
   text-decoration: none;
@@ -241,7 +241,7 @@
 
 /* ---------- plain: drawn without the editor (terminal, agent review) ---------- */
 .ddiff[data-variant='plain'] {
-  font-size: 12.5px;
+  font-size: calc(12.5px * var(--text-scale));
   line-height: 1.55;
   color: var(--ink-2);
 }
@@ -262,7 +262,7 @@
 .ddiff[data-variant='plain'] .ddiff__mark {
   top: 3px;
   left: 8px;
-  font-size: 11px;
+  font-size: calc(11px * var(--text-scale));
 }
 
 .ddiff__plain {

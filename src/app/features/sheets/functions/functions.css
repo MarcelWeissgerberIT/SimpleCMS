@@ -171,7 +171,7 @@
 .fx-ed__glyph {
   color: var(--signal-ink);
   font-family: var(--font-serif);
-  font-size: 30px;
+  font-size: calc(30px * var(--text-scale));
   font-style: italic;
   line-height: 1;
 }
@@ -185,7 +185,7 @@
   background: transparent;
   color: var(--ink);
   font-family: var(--font-mono);
-  font-size: 24px;
+  font-size: calc(24px * var(--text-scale));
   font-weight: 700;
   letter-spacing: 0.02em;
 }
@@ -207,7 +207,7 @@
 }
 .fx-ed__sig {
   color: var(--ink-3);
-  font-size: 15px;
+  font-size: calc(15px * var(--text-scale));
 }
 .fx-ed__dirty {
   display: inline-flex;
@@ -345,7 +345,7 @@
   background: var(--surface);
   color: var(--ink-2);
   font-family: var(--font-serif);
-  font-size: 15px;
+  font-size: calc(15px * var(--text-scale));
   font-style: italic;
 }
 .fx-strip__code {
@@ -354,7 +354,7 @@
   padding: 8px 12px;
   color: var(--ink);
   font-family: var(--font-mono);
-  font-size: 13px;
+  font-size: calc(13px * var(--text-scale));
   line-height: 1.6;
   white-space: pre-wrap;
   word-break: break-word;
@@ -459,7 +459,7 @@
   background: var(--surface);
   color: var(--ink);
   font-family: var(--font-mono);
-  font-size: 12.5px;
+  font-size: calc(12.5px * var(--text-scale));
   font-weight: 650;
   white-space: nowrap;
   cursor: pointer;
@@ -487,7 +487,7 @@
 .fx-chip__fx {
   color: var(--ink-3);
   font-family: var(--font-serif);
-  font-size: 13px;
+  font-size: calc(13px * var(--text-scale));
   font-style: italic;
   font-weight: 400;
 }
@@ -499,7 +499,7 @@
   min-width: 34px;
   padding: 0 8px;
   background: var(--surface-2);
-  font-size: 16px;
+  font-size: calc(16px * var(--text-scale));
   font-weight: 500;
 }
 .fx-chip--param {
@@ -635,12 +635,12 @@
 .fx-bench__eq {
   color: var(--ink-3);
   font-family: var(--font-mono);
-  font-size: 20px;
+  font-size: calc(20px * var(--text-scale));
 }
 .fx-bench__value {
   color: var(--ink);
   font-family: var(--font-mono);
-  font-size: 24px;
+  font-size: calc(24px * var(--text-scale));
   font-weight: 700;
   letter-spacing: -0.01em;
   word-break: break-all;
@@ -699,13 +699,13 @@
 .fx-intro__glyph {
   color: var(--signal-ink);
   font-family: var(--font-serif);
-  font-size: 56px;
+  font-size: calc(56px * var(--text-scale));
   font-style: italic;
   line-height: 1;
 }
 .fx-intro__title {
   margin: 0;
-  font-size: 22px;
+  font-size: calc(22px * var(--text-scale));
   font-stretch: var(--display-stretch);
   font-weight: 800;
   letter-spacing: var(--tracking-tight);
@@ -831,7 +831,7 @@
   border: 0;
   background: none;
   color: var(--ink);
-  font-size: 15px;
+  font-size: calc(15px * var(--text-scale));
 }
 .fx-pick__opt--fn {
   display: grid;
@@ -975,7 +975,7 @@
     margin: 0 0 12px -6px;
   }
   .fx-ed__name {
-    font-size: 20px;
+    font-size: calc(20px * var(--text-scale));
   }
   .fx-ed__note {
     margin-left: 0;

@@ -94,7 +94,7 @@
   border: 1px solid currentColor;
   border-radius: var(--radius-1);
   font-family: var(--font-mono);
-  font-size: 9px;
+  font-size: calc(9px * var(--text-scale));
   letter-spacing: var(--tracking-label);
   line-height: 13px;
   text-transform: uppercase;
@@ -257,7 +257,7 @@
 .trf__left-why {
   flex: none;
   color: var(--ink-3);
-  font-size: 9.5px;
+  font-size: calc(9.5px * var(--text-scale));
 }
 
 .trf__none {

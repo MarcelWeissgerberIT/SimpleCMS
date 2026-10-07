@@ -15,7 +15,7 @@
 
 .ai-img__glyph {
   color: var(--signal-ink);
-  font-size: 12px;
+  font-size: calc(12px * var(--text-scale));
   line-height: 1;
 }
 

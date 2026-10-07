@@ -3,7 +3,7 @@ id: workspace
 title: Workspace settings & people
 section: start
 order: 6
-keywords: workspace settings, workspace, people, persons, members, merge people, rename person, remove person, overview, storage, backup, trash, automation, building blocks, danger zone, settings, this device, Workspace-Einstellungen, Personen, Mitglieder, zusammenführen
+keywords: workspace settings, text size, font size, display, workspace, people, persons, members, merge people, rename person, remove person, overview, storage, backup, trash, automation, building blocks, danger zone, settings, this device, Workspace-Einstellungen, Personen, Mitglieder, zusammenführen
 related: members-roles, invites, export, sidebar
 summary: One page for everything that belongs to the workspace — its name, people, building blocks, automation and data. Settings is this device.
 ---
@@ -13,6 +13,8 @@ The plate at the top reads the workspace: its name, **LOCAL** or **TEAM · 7 MEM
 
 ## Overview
 The **name** everyone sees (in a team workspace owners and admins rename it), the numbers — pages, databases, entries, words, people, own templates, the trash, since when — the storage this device uses, the files it keeps, and when this device last saved a **full backup**.
+
+**Display · this device** holds the **text size** of the whole app: a fader with four stops — **Standard** (the sizes you know, and the smallest), **M**, **L** and **XL** (14 · 15 · 16 · 17 px for the interface text). Everything follows at once — menus, panels, the sidebar, pages, tables, the help. It is kept on this device only (screens differ) and is the same control as **Settings → Appearance**. The website and the pages you share or publish keep their own size.
 
 ## People
 Everyone you can pick in a person property or @mention. Each person shows **where they are used**: rows that hold them and pages that mention them — click the read-out for the list, each entry opens its page. *You* marks the local user (named like **Settings → General → Your name**).

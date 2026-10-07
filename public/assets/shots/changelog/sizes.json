@@ -11,6 +11,10 @@
     1440,
     608
   ],
+  "building-blocks.webp": [
+    1440,
+    1319
+  ],
   "claude-reads.webp": [
     1440,
     900
@@ -47,6 +51,10 @@
     1440,
     881
   ],
+  "free-board.webp": [
+    1440,
+    694
+  ],
   "gmail-one-click.webp": [
     1440,
     1072
@@ -70,6 +78,10 @@
   "mcp-codewords.webp": [
     1440,
     900
+  ],
+  "mcp-media.webp": [
+    1440,
+    901
   ],
   "mcp-servers.webp": [
     1440,
@@ -115,6 +127,10 @@
     1440,
     900
   ],
+  "text-size.webp": [
+    1440,
+    414
+  ],
   "tour.webp": [
     1440,
     482
@@ -130,17 +146,5 @@
   "workspace-settings.webp": [
     1440,
     985
-  ],
-  "building-blocks.webp": [
-    1440,
-    1319
-  ],
-  "free-board.webp": [
-    1440,
-    694
-  ],
-  "mcp-media.webp": [
-    1440,
-    901
   ]
 }

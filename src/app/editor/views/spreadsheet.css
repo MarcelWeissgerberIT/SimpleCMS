@@ -69,7 +69,7 @@
 .doc-content .sheet-static__table tbody th {
   width: 1%;
   padding: 3px 7px;
-  font-size: 10px;
+  font-size: calc(10px * var(--text-scale));
   color: var(--ink-3);
   text-align: center;
 }

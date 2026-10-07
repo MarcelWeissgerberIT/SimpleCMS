@@ -283,7 +283,7 @@ export function FilterPopover({ m, anchor, onClose }: { m: DbModel; anchor: Elem
   const group = view.filter ?? emptyGroup()
   const save = (g: FilterGroup) => setViewQuery(m.db.id, view.id, { filter: g.items.length ? g : null })
   return (
-    <Popover open anchor={anchor} onClose={onClose} placement="bottom-end" className="db-filterpop">
+    <Popover open anchor={anchor} onClose={onClose} placement="bottom-end" className="db-filterpop" resizable="db-filter">
       <div className="db-filterpop__head">
         <span className="label">{t('database.filter.title')}</span>
         <span style={{ flex: 1 }} />

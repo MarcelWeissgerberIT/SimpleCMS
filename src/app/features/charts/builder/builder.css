@@ -424,7 +424,7 @@
   background: var(--surface-2);
   color: var(--ink-3);
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: calc(10px * var(--text-scale));
   font-weight: 500;
   text-align: center;
 }
@@ -624,7 +624,7 @@
   border: 1px solid var(--signal);
   border-radius: var(--radius-1);
   color: var(--signal-ink);
-  font-size: 9.5px;
+  font-size: calc(9.5px * var(--text-scale));
 }
 
 .chb-type__sample {
@@ -636,7 +636,7 @@
   border-radius: var(--radius-1);
   color: var(--ink-3);
   font-family: var(--font-mono);
-  font-size: 9.5px;
+  font-size: calc(9.5px * var(--text-scale));
   line-height: 15px;
   letter-spacing: var(--tracking-label);
   text-transform: uppercase;
@@ -712,7 +712,7 @@
   content: 'A';
   color: var(--ink-3);
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: calc(10px * var(--text-scale));
 }
 
 .chb-swatch:hover {
@@ -838,7 +838,7 @@
   .chb .input,
   .chb-select__el,
   .chb-manual__cell {
-    font-size: 16px;
+    font-size: calc(16px * var(--text-scale));
   }
 
   .chb-manual__cell {
@@ -846,7 +846,7 @@
   }
 
   .chb-manual__cell.is-num {
-    font-size: 16px;
+    font-size: calc(16px * var(--text-scale));
   }
 
   .chb-seg__key {

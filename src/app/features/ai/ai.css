@@ -2,7 +2,7 @@
 
 .ai-panel {
   z-index: var(--z-popover);
-  width: min(560px, calc(100vw - 16px));
+  width: min(calc(560px * var(--text-scale)), calc(100vw - 16px));
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -99,7 +99,7 @@
   background: transparent;
   color: var(--ink-2);
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: calc(10px * var(--text-scale));
   font-weight: 500;
   letter-spacing: var(--tracking-label);
   white-space: nowrap;
@@ -144,7 +144,7 @@
 }
 
 .ai-demo .label {
-  font-size: 10px;
+  font-size: calc(10px * var(--text-scale));
 }
 
 .ai-demo__tag {
@@ -199,7 +199,7 @@
   background: var(--ink);
   color: var(--ink-inverse);
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: calc(10px * var(--text-scale));
   letter-spacing: var(--tracking-label);
   text-transform: uppercase;
   white-space: nowrap;
@@ -231,7 +231,7 @@
   border-radius: var(--radius-1);
   background: var(--ink);
   color: var(--ink-inverse);
-  font-size: 9.5px;
+  font-size: calc(9.5px * var(--text-scale));
 }
 
 .ai-out[data-phase='error'] .ai-out__code {
@@ -392,7 +392,7 @@
   background: var(--surface);
   color: var(--ink);
   font-family: var(--font-mono);
-  font-size: 10.5px;
+  font-size: calc(10.5px * var(--text-scale));
   letter-spacing: 0.02em;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -421,7 +421,7 @@
   overflow: hidden;
   color: var(--ink-3);
   font-family: var(--font-mono);
-  font-size: 9.5px;
+  font-size: calc(9.5px * var(--text-scale));
   letter-spacing: 0.06em;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -441,6 +441,17 @@
   margin: 4px 0 0;
   color: var(--ink);
   font-size: var(--text-sm);
+}
+
+/* made bigger by the person (the panel's resize grip): the answer and the lists take the extra room */
+.ai-panel[data-resized] .ai-out {
+  flex: 1 1 auto;
+}
+
+.ai-panel[data-resized] .ai-out__body,
+.ai-panel[data-resized] .ai-list {
+  flex: 1 1 auto;
+  max-height: none;
 }
 
 /* ---------- list (actions / languages / result keys) ---------- */
@@ -521,7 +532,7 @@
   border-radius: var(--radius-1);
   color: var(--ink-3);
   font-family: var(--font-mono);
-  font-size: 9.5px;
+  font-size: calc(9.5px * var(--text-scale));
   letter-spacing: 0.06em;
   text-align: center;
 }
@@ -592,7 +603,7 @@
   background: var(--surface-2);
   color: var(--ink-3);
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: calc(10px * var(--text-scale));
   letter-spacing: 0.04em;
   text-transform: uppercase;
   flex: none;
@@ -609,7 +620,7 @@
 .ai-foot .kbd {
   height: 16px;
   min-width: 16px;
-  font-size: 9.5px;
+  font-size: calc(9.5px * var(--text-scale));
   text-transform: none;
 }
 

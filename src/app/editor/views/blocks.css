@@ -86,7 +86,7 @@
   background: var(--ink);
   color: var(--ink-inverse);
   font-family: var(--font-mono);
-  font-size: 9.5px;
+  font-size: calc(9.5px * var(--text-scale));
   font-weight: 700;
   line-height: 1;
 }
@@ -173,7 +173,7 @@
 .doc-content .pdf-view__meta {
   flex: none;
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: calc(11px * var(--text-scale));
   color: var(--ink-3);
 }
 

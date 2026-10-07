@@ -83,7 +83,7 @@
 }
 
 .io-drop__title {
-  font-size: 22px;
+  font-size: calc(22px * var(--text-scale));
   font-weight: 800;
 }
 
@@ -299,12 +299,12 @@
 }
 
 .io-readout__num {
-  font-size: 40px;
+  font-size: calc(40px * var(--text-scale));
   font-variant-numeric: tabular-nums;
 }
 
 .io-readouts--sm .io-readout__num {
-  font-size: 28px;
+  font-size: calc(28px * var(--text-scale));
 }
 
 .io-readout__lead {
@@ -617,7 +617,7 @@
 
 .io-fmt__code {
   font-family: var(--font-mono);
-  font-size: 15px;
+  font-size: calc(15px * var(--text-scale));
   font-weight: 700;
   letter-spacing: 0.02em;
 }
@@ -708,7 +708,7 @@
     border-bottom: 1px solid var(--rule);
   }
   .io-readout__num {
-    font-size: 32px;
+    font-size: calc(32px * var(--text-scale));
   }
   .io-formats {
     grid-template-columns: repeat(2, 1fr);

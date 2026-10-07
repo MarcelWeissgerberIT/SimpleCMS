@@ -88,7 +88,7 @@
   background: transparent;
   color: var(--ink-2);
   font-family: var(--font-mono);
-  font-size: 10.5px;
+  font-size: calc(10.5px * var(--text-scale));
   font-weight: 500;
   letter-spacing: 0.07em;
   text-transform: uppercase;
@@ -199,7 +199,7 @@ body.db-resizing .dbt-resize:active::after {
 
 .dbt-gutter__num {
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: calc(10px * var(--text-scale));
   letter-spacing: 0.04em;
   color: var(--ink-3);
   font-variant-numeric: tabular-nums;
@@ -368,7 +368,7 @@ body.db-resizing .dbt-resize:active::after {
   border: 1px solid var(--rule-strong);
   border-radius: 2px;
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: calc(10px * var(--text-scale));
   color: var(--ink-2);
   font-variant-numeric: tabular-nums;
 }
@@ -384,7 +384,7 @@ body.db-resizing .dbt-resize:active::after {
 
 .db-grouplabel {
   font-weight: 650;
-  font-size: 13px;
+  font-size: calc(13px * var(--text-scale));
 }
 
 .db-grouplabel.is-empty {
@@ -409,7 +409,7 @@ body.db-resizing .dbt-resize:active::after {
   border: 0;
   background: transparent;
   color: var(--ink-3);
-  font-size: 13px;
+  font-size: calc(13px * var(--text-scale));
 }
 
 .dbt-addrowwrap:hover {
@@ -460,7 +460,7 @@ body.db-resizing .dbt-resize:active::after {
   align-items: center;
   gap: 3px;
   font-family: var(--font-mono);
-  font-size: 9.5px;
+  font-size: calc(9.5px * var(--text-scale));
   letter-spacing: var(--tracking-label);
   text-transform: uppercase;
   opacity: 0;
@@ -474,7 +474,7 @@ body.db-resizing .dbt-resize:active::after {
 
 .dbt-calc__fn {
   font-family: var(--font-mono);
-  font-size: 9.5px;
+  font-size: calc(9.5px * var(--text-scale));
   letter-spacing: var(--tracking-label);
   text-transform: uppercase;
   color: var(--ink-3);
@@ -482,7 +482,7 @@ body.db-resizing .dbt-resize:active::after {
 
 .dbt-calc__val {
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: calc(12px * var(--text-scale));
   font-weight: 600;
   color: var(--ink);
   font-variant-numeric: tabular-nums;
@@ -575,7 +575,7 @@ body.db-resizing .dbt-resize:active::after {
   background: var(--signal);
   color: var(--on-signal);
   font-weight: 700;
-  font-size: 11px;
+  font-size: calc(11px * var(--text-scale));
 }
 
 .dbt-bulk__btn {
@@ -588,7 +588,7 @@ body.db-resizing .dbt-resize:active::after {
   border-radius: var(--radius-1);
   background: transparent;
   color: inherit;
-  font-size: 12.5px;
+  font-size: calc(12.5px * var(--text-scale));
   font-weight: 550;
 }
 

@@ -80,14 +80,14 @@
   flex: none;
   color: var(--ink-3);
   font-family: var(--font-serif);
-  font-size: 12px;
+  font-size: calc(12px * var(--text-scale));
   font-style: italic;
   line-height: 1;
 }
 .kt-warn {
   flex: none;
   color: var(--c-yellow-text);
-  font-size: 12px;
+  font-size: calc(12px * var(--text-scale));
   line-height: 1;
   cursor: help;
 }
@@ -102,7 +102,7 @@
   border-radius: var(--radius-1);
   background: var(--signal-wash);
   color: var(--signal-ink);
-  font-size: 9.5px;
+  font-size: calc(9.5px * var(--text-scale));
   cursor: pointer;
 }
 .kt-review:hover {

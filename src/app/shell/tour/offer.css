@@ -35,7 +35,7 @@
 }
 .tour-offer__title {
   margin: 0;
-  font-size: 15px;
+  font-size: calc(15px * var(--text-scale));
   font-weight: 700;
   letter-spacing: -0.005em;
 }

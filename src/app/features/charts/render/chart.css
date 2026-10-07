@@ -85,7 +85,7 @@
 .ch-tip__label {
   overflow: hidden;
   font-family: var(--font-mono);
-  font-size: 9.5px;
+  font-size: calc(9.5px * var(--text-scale));
   letter-spacing: var(--tracking-label);
   text-overflow: ellipsis;
   text-transform: uppercase;
@@ -96,7 +96,7 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 12.5px;
+  font-size: calc(12.5px * var(--text-scale));
 }
 
 .ch-tip__key {

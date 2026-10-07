@@ -114,7 +114,7 @@
   overflow: hidden;
   margin: 0;
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: calc(12px * var(--text-scale));
   font-variant-numeric: tabular-nums;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -125,7 +125,7 @@
   border: 1px solid var(--rule-strong);
   border-radius: var(--radius-1);
   color: var(--ink-3);
-  font-size: 9.5px;
+  font-size: calc(9.5px * var(--text-scale));
   letter-spacing: var(--tracking-label);
   text-transform: uppercase;
 }
@@ -139,6 +139,10 @@
   background: transparent;
   color: var(--ink);
   font: inherit;
+}
+/* the port field sits 4px into the cell's padding: its frame must not be clipped there */
+.mcp-readout__cell dd:has(> .mcp-port) {
+  overflow: visible;
 }
 .mcp-port:hover {
   border-color: var(--rule-strong);
@@ -171,7 +175,7 @@
   border-radius: var(--radius-1);
   color: var(--ink-3);
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: calc(11px * var(--text-scale));
   overflow-wrap: anywhere;
 }
 
@@ -226,7 +230,7 @@
   padding-top: 1px;
   color: var(--signal-ink);
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: calc(11px * var(--text-scale));
   font-weight: 600;
 }
 .mcp-steps__title {
@@ -351,7 +355,7 @@
   padding: 9px 11px;
   color: var(--ink);
   font-family: var(--font-mono);
-  font-size: 11.5px;
+  font-size: calc(11.5px * var(--text-scale));
   line-height: 1.55;
   white-space: pre;
 }
@@ -378,7 +382,7 @@
   padding: 0;
   list-style: none;
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: calc(11px * var(--text-scale));
 }
 .mcp-log__row {
   display: grid;
@@ -395,7 +399,7 @@
   font-variant-numeric: tabular-nums;
 }
 .mcp-log__tag {
-  font-size: 10px;
+  font-size: calc(10px * var(--text-scale));
   letter-spacing: var(--tracking-label);
   text-transform: uppercase;
 }
@@ -419,7 +423,7 @@
 }
 .mcp-log__state {
   color: var(--ink-3);
-  font-size: 10px;
+  font-size: calc(10px * var(--text-scale));
   letter-spacing: var(--tracking-label);
   text-transform: uppercase;
   white-space: nowrap;
@@ -612,7 +616,7 @@
   border-radius: var(--radius-1);
   color: var(--ink-2);
   font-family: var(--font-mono);
-  font-size: 9.5px;
+  font-size: calc(9.5px * var(--text-scale));
   letter-spacing: var(--tracking-label);
   text-transform: uppercase;
   white-space: nowrap;
@@ -627,7 +631,7 @@
   background: var(--bg);
   color: var(--ink-2);
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: calc(11px * var(--text-scale));
   line-height: 1.5;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
@@ -648,7 +652,7 @@
 }
 .mcp-card__clock {
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: calc(11px * var(--text-scale));
   font-variant-numeric: tabular-nums;
 }
 .mcp-card__drain {
