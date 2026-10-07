@@ -112,6 +112,18 @@ the public APIs stable — other areas are built against them in parallel.
   unique, never `one`; sanitised in `readServers`): a free-form request starting with `<codeword>:` gets that server
   (`codewordsIn()` + `attachMcp(…, { forced })` in client.ts; the AI terminal via `codewordTask()`), the prefix is
   stripped and Claude told it was addressed; a switched-off server stays off and shows as a `skipped` McpCall.
+- MCP media (features/ai/media): cards for media in `mcp_tool_result` blocks and the links Claude wrote to the same
+  hosts — never loaded by themselves. Save to One / Preview fetch only on a click (credentials 'omit', ≤ 50 MB images /
+  200 MB video + audio, type and magic numbers must agree, SVG kept as a download), then `saveFile()` and a block with
+  origin 'ai'; the terminal stages ChangeKind 'media'. CORS refused → Open / Upload a copy; team: `POST
+  /api/workspaces/:id/files/fetch` (SSRF guard, docs/API.md). `/generate image|video` = a forced request to ONE server
+  (no memory, no page text unless ticked); the chosen server per device in localStorage `one.generate.server`.
+- MCP sign-in (mcp-servers/oauth.ts, `McpServerConfig.oauth`): protected-resource metadata → the first listed
+  authorization server that is CORS-readable with PKCE S256 (self-registration preferred; the host's own only when none
+  is listed) → DCR → PKCE in a window → return to `<app>/?oauth=mcp` (no `#`; main.tsx → `#/oauth/mcp`); state + verifier
+  per attempt in sessionStorage; sign in with a code (RFC 8628) when the return is refused or never comes. Access token =
+  the server's `token` (vault marker), refresh `mcp-refresh:<id>`, client `mcp-client:<id>`; `tokenFor()` refreshes before
+  expiry; never in backups / exports. No service is preset or named in the app.
 - AI-menu runs (features/ai/runs.ts) live outside the panel: closing it or leaving the page never aborts a run — only
   Stop / Discard; targets are mapped through doc changes (runsTarget.ts). Mount `AIRunsSlot` once per editable editor.
   Results are per device in IndexedDB `one-ai-runs` (key `<scope>|<runId>`, scope `local:local` / `cloud:<id>`), never
