@@ -126,7 +126,7 @@ describe('fetch and time limits', () => {
     assert.ok(Date.now() - started < 5000)
     assert.equal(run.timedOut, true)
     assert.notEqual(run.code, 0)
-    assert.match(run.stderr, /did not finish within 1 s — no network, or it waits for a password or an SSH key passphrase/)
+    assert.match(run.stderr, /did not finish within 1 s — no network, files still coming from iCloud Drive, or it waits for a password or an SSH key passphrase/)
   })
 })
 

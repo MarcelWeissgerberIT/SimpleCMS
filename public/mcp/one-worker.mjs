@@ -12638,7 +12638,7 @@ async function runStage(ctx) {
   try {
     log2("info", `Stage "${task.stage.name}" (${kind}) on ${repo.name}`, "stage", { stage: task.stage.name, kind, repo: repo.name });
     if (inICloud(repo.path))
-      log2("warn", `${repo.name} lies in iCloud Drive: git waits whenever a file is only in the cloud, so steps can take minutes. Faster: keep the folder downloaded (Finder \u2192 right-click \u2192 Keep Downloaded), or clone it to ~/Developer (not synced) and tick that one on the worker's setup page.`, "icloud", { repo: repo.name });
+      log2("warn", `${repo.name} lies in iCloud Drive: git waits whenever a file is only in the cloud, so steps can take minutes. Faster: keep the folder downloaded (Finder \u2192 right-click \u2192 Keep Downloaded), or clone it again with "Clone from GitLab / GitHub\u2026" on the worker's setup page (into ~/one-repos, not synced) and tick that one.`, "icloud", { repo: repo.name });
     const wt = await ensureWorktree(repo, ctx.state, task, task.branch, (k, s, c, v) => log2(k, s, c, v));
     scrub = repoScrubber(repo, wt.dir);
     ctx.onWorktree?.(wt, scrub);
