@@ -193,6 +193,10 @@ Always `execFile('git', […])` — never a shell line; hooks and your git confi
   `GCM_INTERACTIVE=never`), so a password, SSH passphrase or host-key question fails at once with git's message instead
   of waiting. Use an SSH agent / keychain or a credential helper. A fetch for a new task that fails or takes over 60 s
   (`ONE_WORKER_FETCH_MS`) is logged and the task goes on from the local refs.
+- **iCloud Drive (macOS)**: a repo under iCloud Drive (or ~/Documents / ~/Desktop when they sync) gets a warning in
+  the log — git waits whenever a file is only in the cloud. Its worktrees go to `~/.one-worktrees/<name>` (outside
+  iCloud) unless `worktreeDir` is set. A checkout (`git worktree add`) may take up to 10 min (`ONE_WORKER_CHECKOUT_MS`)
+  with a line every 30 s; one that fails or runs out of time removes its folder, worktree entry and new branch.
 - **Progress**: every step goes to the task's log; while Claude Code is quiet the worker adds a *still working* line per
   minute (`ONE_WORKER_QUIET_MS`).
 - **Approvals** (One, per device): *all* (plan gate + review), *review* (the gate after a plan stage passes by itself),

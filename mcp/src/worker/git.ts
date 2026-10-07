@@ -12,7 +12,7 @@
  *    else merge; conflicts reported per file, left for a stage to resolve) · discard · cleanup
  */
 import { execFile, spawn } from 'node:child_process'
-import { existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync } from 'node:fs'
+import { existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync, rmSync } from 'node:fs'
 import { dirname, join, resolve, sep } from 'node:path'
 import type { GitCommit, GitFile, GitInfo } from '../../../src/app/features/coding/protocol.ts'
 import type { RepoConfig } from './config.ts'
@@ -239,10 +239,38 @@ export async function ensureWorktree(repo: RepoConfig, state: WorkerState, task:
   if (existsSync(dir)) throw new GitError(`the worktree folder for ${branch} already exists and is not a worktree of this repo — move it away first`)
   mkdirSync(dirname(dir), { recursive: true })
   note?.('git', `New branch ${branch} from ${base} in its own worktree…`)
-  await gitOk(repo.path, ['worktree', 'add', '-b', branch, dir, base])
+  await addWorktree(repo, ['-b', branch, dir, base], dir, branch, note)
   state.remember(repo.name, branch, { task: task.id, worktree: dir, branchCreated: true, fork, at: Date.now() })
   state.setTask(task.id, { repo: repo.name, branch, worktree: dir })
   return { dir, branch, created: true }
+}
+
+/** How long a checkout may take (ONE_WORKER_CHECKOUT_MS for tests): a big repo, or one waiting for iCloud. */
+const checkoutMs = () => Number(process.env.ONE_WORKER_CHECKOUT_MS) || 600_000
+const clock = (ms: number) => `${Math.floor(ms / 60_000)}:${String(Math.round(ms / 1000) % 60).padStart(2, '0')}`
+
+/**
+ * `git worktree add …` with a sign of life every 30 s. When it fails or runs out of time nothing half-made stays:
+ * the folder (always inside the worker's worktree folder — it did not exist before), its worktree entry and the
+ * branch this call created.
+ */
+async function addWorktree(repo: RepoConfig, args: string[], dir: string, newBranch: string | null, note?: GitNote): Promise<void> {
+  const started = Date.now()
+  const beat = setInterval(() => note?.('git', `Still checking out the files · ${clock(Date.now() - started)}`), Number(process.env.ONE_WORKER_QUIET_MS) || 30_000)
+  beat.unref()
+  try {
+    const r = await git(repo.path, ['worktree', 'add', ...args], checkoutMs())
+    if (r.code === 0) return
+    if (insideWorktrees(repo, dir)) {
+      await git(repo.path, ['worktree', 'remove', '--force', dir])
+      rmSync(dir, { recursive: true, force: true })
+    }
+    await prune(repo)
+    if (newBranch && (await branchExists(repo, newBranch))) await git(repo.path, ['branch', '-D', newBranch])
+    throw new GitError((r.stderr || r.stdout).trim().split('\n').slice(-6).join('\n') || 'git worktree add failed')
+  } finally {
+    clearInterval(beat)
+  }
 }
 
 async function reuse(repo: RepoConfig, state: WorkerState, task: { id: string }, branch: string, top: string, trees: Worktree[], note?: GitNote): Promise<TaskWorktree> {
@@ -260,11 +288,11 @@ async function reuse(repo: RepoConfig, state: WorkerState, task: { id: string },
   if (existsSync(dir)) throw new GitError(`the worktree folder for ${branch} already exists and is not a worktree of this repo — move it away first`)
   mkdirSync(dirname(dir), { recursive: true })
   if (await branchExists(repo, branch)) {
-    await gitOk(repo.path, ['worktree', 'add', dir, branch])
+    await addWorktree(repo, [dir, branch], dir, null, note)
   } else {
     await tryFetch(repo, note)
     if (!(await remoteBranchExists(repo, branch))) throw new GitError(`the branch "${branch}" does not exist (locally or on ${repo.remote}) — check the task's Branch field`)
-    await gitOk(repo.path, ['worktree', 'add', '--track', '-b', branch, dir, `${repo.remote}/${branch}`])
+    await addWorktree(repo, ['--track', '-b', branch, dir, `${repo.remote}/${branch}`], dir, branch, note)
   }
   // the worktree is the worker's (it may remove it); the branch stays the person's
   state.remember(repo.name, branch, { task: task.id, worktree: dir, branchCreated: !!own?.branchCreated, fork: own?.fork ?? null, at: own?.at ?? Date.now() })

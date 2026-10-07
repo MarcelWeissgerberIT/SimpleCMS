@@ -44,6 +44,8 @@ Each task works on its own branch (`one/<title>-<id>`) in its own worktree — y
 - **Git**: Refresh, Commit, Push, Open PR, Update from base, Show folder (the path appears in the worker's terminal only). **Force push** and **Discard worktree** ask twice; **Clean up** waits until the branch is merged.
 - **Pipeline** (on #/coding) changes the stages: names, which ones run by themselves, Claude Code's mode, turns and instructions.
 
+**Repos in iCloud Drive** (e.g. in Documents with "Desktop & Documents Folders" on): git waits whenever a file is only in the cloud, so steps can take minutes — the log says so. Faster: keep the folder downloaded, or clone the repo to `~/Developer` (iCloud does not sync it) and tick that one on the worker's setup page. The worker's own working copies never go into iCloud.
+
 ## Safety
 The worker touches only the repos you ticked; One can send it task text and fixed git actions — never a command, and it can never tick a repo itself. A downloaded worker only accepts this browser and this workspace. Claude Code keeps its permission rules, and task text goes to it as data, not as instructions. A cost limit per task is set on the worker's page, one per day in `worker.json`. In a team workspace your worker only takes tasks you wrote or confirmed on this device (**Confirm on this device**) — a stage, repo or branch changed on another device asks again. A task one of your custom agents wrote waits for the same confirmation, also in your local workspace.
 

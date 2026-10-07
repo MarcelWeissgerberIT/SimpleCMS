@@ -10966,6 +10966,15 @@ var isObj = (v) => !!v && typeof v === "object" && !Array.isArray(v);
 var REF_PART = /^(?!-)(?!.*\.\.)(?!.*\/\/)(?!.*@\{)(?!.*\.lock(\/|$))[A-Za-z0-9._/-]{1,120}(?<![/.])$/;
 var REMOTE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 var PREFIX = /^(?!-)[A-Za-z0-9._/-]{0,40}$/;
+function inICloud(path, home = homedir(), platform = process.platform) {
+  if (platform !== "darwin") return false;
+  const p = resolve(path);
+  const under = (dir) => p === dir || p.startsWith(dir + sep);
+  const mobile = join(home, "Library", "Mobile Documents");
+  if (under(mobile)) return true;
+  const drive = join(mobile, "com~apple~CloudDocs");
+  return ["Documents", "Desktop"].some((f) => under(join(home, f)) && existsSync(join(drive, f)));
+}
 function expandHome(p) {
   if (p === "~") return homedir();
   if (p.startsWith("~/") || p.startsWith("~\\")) return join(homedir(), p.slice(2));
@@ -11030,7 +11039,7 @@ function repoConfig(raw, index, configDir, problems) {
     problems.push(`${at}: "branchPrefix" ${JSON.stringify(branchPrefix)} is not allowed`);
     return null;
   }
-  const worktreeDir = typeof raw.worktreeDir === "string" && raw.worktreeDir.trim() ? resolve(configDir, expandHome(raw.worktreeDir.trim())) : join(dirname(path), ".one-worktrees", name);
+  const worktreeDir = typeof raw.worktreeDir === "string" && raw.worktreeDir.trim() ? resolve(configDir, expandHome(raw.worktreeDir.trim())) : inICloud(path) ? join(homedir(), ".one-worktrees", name) : join(dirname(path), ".one-worktrees", name);
   let testCommand = null;
   if (raw.testCommand !== void 0 && raw.testCommand !== null) {
     if (typeof raw.testCommand === "string") problems.push(`${at}: "testCommand" must be a list (argv), e.g. ["npm", "test"] \u2014 a command line is never run through a shell`);
@@ -11449,7 +11458,7 @@ ${e.message}`;
 
 // src/worker/git.ts
 import { execFile as execFile2, spawn as spawn2 } from "node:child_process";
-import { existsSync as existsSync2, lstatSync, mkdirSync as mkdirSync2, readFileSync as readFileSync2, readlinkSync } from "node:fs";
+import { existsSync as existsSync2, lstatSync, mkdirSync as mkdirSync2, readFileSync as readFileSync2, readlinkSync, rmSync } from "node:fs";
 import { dirname as dirname2, join as join2, resolve as resolve2, sep as sep2 } from "node:path";
 var GitError = class extends Error {
 };
@@ -11593,10 +11602,30 @@ async function ensureWorktree(repo, state, task, wanted, note) {
   if (existsSync2(dir)) throw new GitError(`the worktree folder for ${branch} already exists and is not a worktree of this repo \u2014 move it away first`);
   mkdirSync2(dirname2(dir), { recursive: true });
   note?.("git", `New branch ${branch} from ${base} in its own worktree\u2026`);
-  await gitOk(repo.path, ["worktree", "add", "-b", branch, dir, base]);
+  await addWorktree(repo, ["-b", branch, dir, base], dir, branch, note);
   state.remember(repo.name, branch, { task: task.id, worktree: dir, branchCreated: true, fork, at: Date.now() });
   state.setTask(task.id, { repo: repo.name, branch, worktree: dir });
   return { dir, branch, created: true };
+}
+var checkoutMs = () => Number(process.env.ONE_WORKER_CHECKOUT_MS) || 6e5;
+var clock2 = (ms) => `${Math.floor(ms / 6e4)}:${String(Math.round(ms / 1e3) % 60).padStart(2, "0")}`;
+async function addWorktree(repo, args, dir, newBranch, note) {
+  const started = Date.now();
+  const beat = setInterval(() => note?.("git", `Still checking out the files \xB7 ${clock2(Date.now() - started)}`), Number(process.env.ONE_WORKER_QUIET_MS) || 3e4);
+  beat.unref();
+  try {
+    const r = await git(repo.path, ["worktree", "add", ...args], checkoutMs());
+    if (r.code === 0) return;
+    if (insideWorktrees(repo, dir)) {
+      await git(repo.path, ["worktree", "remove", "--force", dir]);
+      rmSync(dir, { recursive: true, force: true });
+    }
+    await prune(repo);
+    if (newBranch && await branchExists(repo, newBranch)) await git(repo.path, ["branch", "-D", newBranch]);
+    throw new GitError((r.stderr || r.stdout).trim().split("\n").slice(-6).join("\n") || "git worktree add failed");
+  } finally {
+    clearInterval(beat);
+  }
 }
 async function reuse(repo, state, task, branch, top, trees, note) {
   if (!await validBranch(repo, branch)) throw new GitError(`"${branch}" is not a valid branch name`);
@@ -11612,11 +11641,11 @@ async function reuse(repo, state, task, branch, top, trees, note) {
   if (existsSync2(dir)) throw new GitError(`the worktree folder for ${branch} already exists and is not a worktree of this repo \u2014 move it away first`);
   mkdirSync2(dirname2(dir), { recursive: true });
   if (await branchExists(repo, branch)) {
-    await gitOk(repo.path, ["worktree", "add", dir, branch]);
+    await addWorktree(repo, [dir, branch], dir, null, note);
   } else {
     await tryFetch(repo, note);
     if (!await remoteBranchExists(repo, branch)) throw new GitError(`the branch "${branch}" does not exist (locally or on ${repo.remote}) \u2014 check the task's Branch field`);
-    await gitOk(repo.path, ["worktree", "add", "--track", "-b", branch, dir, `${repo.remote}/${branch}`]);
+    await addWorktree(repo, ["--track", "-b", branch, dir, `${repo.remote}/${branch}`], dir, branch, note);
   }
   state.remember(repo.name, branch, { task: task.id, worktree: dir, branchCreated: !!own2?.branchCreated, fork: own2?.fork ?? null, at: own2?.at ?? Date.now() });
   state.setTask(task.id, { repo: repo.name, branch, worktree: dir });
@@ -11914,6 +11943,10 @@ async function cleanup(repo, state, branch) {
   }
   state.forget(repo.name, branch);
   return { worktree: !!dir, branch: removedBranch };
+}
+function insideWorktrees(repo, dir) {
+  const root = resolve2(repo.worktreeDir) + sep2;
+  return resolve2(dir).startsWith(root);
 }
 
 // src/worker/worker.ts
@@ -12344,7 +12377,7 @@ ${text2}`);
 
 // src/worker/run.ts
 import { randomBytes } from "node:crypto";
-import { mkdtempSync, rmSync, writeFileSync as writeFileSync3 } from "node:fs";
+import { mkdtempSync, rmSync as rmSync2, writeFileSync as writeFileSync3 } from "node:fs";
 import { tmpdir as tmpdir2 } from "node:os";
 import { join as join4 } from "node:path";
 
@@ -12483,7 +12516,7 @@ function writeMcpConfig(taskMcp) {
   const dir = mkdtempSync(join4(tmpdir2(), "one-worker-"));
   const file = join4(dir, "mcp.json");
   writeFileSync3(file, JSON.stringify({ mcpServers: { "one-task": { type: "stdio", command: taskMcp.command, args: taskMcp.args, env: taskMcp.env } } }, null, 2), { mode: 384 });
-  return { file, dispose: () => rmSync(dir, { recursive: true, force: true }) };
+  return { file, dispose: () => rmSync2(dir, { recursive: true, force: true }) };
 }
 var TASK_TOOL_PERMS = ["mcp__one-task__one_task_read", "mcp__one-task__one_task_note", "mcp__one-task__one_task_ask"];
 function limits(ctx) {
@@ -12516,6 +12549,8 @@ async function runStage(ctx) {
   if (kind === "queue" || kind === "gate" || kind === "done") return { status: "refused", error: `A ${kind} stage is not run by the worker.` };
   try {
     log2("info", `Stage "${task.stage.name}" (${kind}) on ${repo.name}`);
+    if (inICloud(repo.path))
+      log2("warn", `${repo.name} lies in iCloud Drive: git waits whenever a file is only in the cloud, so steps can take minutes. Faster: keep the folder downloaded (Finder \u2192 right-click \u2192 Keep Downloaded), or clone it to ~/Developer (not synced) and tick that one on the worker's setup page.`);
     const wt = await ensureWorktree(repo, ctx.state, task, task.branch, (k, s) => log2(k, s));
     scrub = repoScrubber(repo, wt.dir);
     ctx.onWorktree?.(wt, scrub);

@@ -120,6 +120,20 @@ const REF_PART = /^(?!-)(?!.*\.\.)(?!.*\/\/)(?!.*@\{)(?!.*\.lock(\/|$))[A-Za-z0-
 const REMOTE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/
 const PREFIX = /^(?!-)[A-Za-z0-9._/-]{0,40}$/
 
+/**
+ * macOS: a folder iCloud Drive syncs — its files can be "in the cloud only", and git then waits for each download.
+ * iCloud Drive itself, and ~/Documents · ~/Desktop when "Desktop & Documents Folders" is on (they then appear in it).
+ */
+export function inICloud(path: string, home: string = homedir(), platform: NodeJS.Platform = process.platform): boolean {
+  if (platform !== 'darwin') return false
+  const p = resolve(path)
+  const under = (dir: string) => p === dir || p.startsWith(dir + sep)
+  const mobile = join(home, 'Library', 'Mobile Documents')
+  if (under(mobile)) return true
+  const drive = join(mobile, 'com~apple~CloudDocs')
+  return ['Documents', 'Desktop'].some((f) => under(join(home, f)) && existsSync(join(drive, f)))
+}
+
 function expandHome(p: string): string {
   if (p === '~') return homedir()
   if (p.startsWith('~/') || p.startsWith('~\\')) return join(homedir(), p.slice(2))
@@ -187,7 +201,13 @@ function repoConfig(raw: unknown, index: number, configDir: string, problems: st
     problems.push(`${at}: "branchPrefix" ${JSON.stringify(branchPrefix)} is not allowed`)
     return null
   }
-  const worktreeDir = typeof raw.worktreeDir === 'string' && raw.worktreeDir.trim() ? resolve(configDir, expandHome(raw.worktreeDir.trim())) : join(dirname(path), '.one-worktrees', name)
+  // default: next to the repo — but never inside iCloud Drive (a checkout there waits for every file and syncs back up)
+  const worktreeDir =
+    typeof raw.worktreeDir === 'string' && raw.worktreeDir.trim()
+      ? resolve(configDir, expandHome(raw.worktreeDir.trim()))
+      : inICloud(path)
+        ? join(homedir(), '.one-worktrees', name)
+        : join(dirname(path), '.one-worktrees', name)
   let testCommand: string[] | null = null
   if (raw.testCommand !== undefined && raw.testCommand !== null) {
     if (typeof raw.testCommand === 'string') problems.push(`${at}: "testCommand" must be a list (argv), e.g. ["npm", "test"] — a command line is never run through a shell`)

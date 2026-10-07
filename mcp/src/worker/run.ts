@@ -11,7 +11,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { GitInfo, LogLine, StageOutcome, TaskPayload, TestResult } from '../../../src/app/features/coding/protocol.ts'
-import type { RepoConfig } from './config.ts'
+import { inICloud, type RepoConfig } from './config.ts'
 import type { WorkerState } from './state.ts'
 import { runClaude, type ClaudeCaps } from './claude.ts'
 import { GitError, commitAll, ensureWorktree, info, openPr, push, updateFromBase, type TaskWorktree } from './git.ts'
@@ -135,6 +135,8 @@ export async function runStage(ctx: StageContext): Promise<StageOutcome> {
   if (kind === 'queue' || kind === 'gate' || kind === 'done') return { status: 'refused', error: `A ${kind} stage is not run by the worker.` }
   try {
     log('info', `Stage "${task.stage.name}" (${kind}) on ${repo.name}`)
+    if (inICloud(repo.path))
+      log('warn', `${repo.name} lies in iCloud Drive: git waits whenever a file is only in the cloud, so steps can take minutes. Faster: keep the folder downloaded (Finder → right-click → Keep Downloaded), or clone it to ~/Developer (not synced) and tick that one on the worker's setup page.`)
     const wt = await ensureWorktree(repo, ctx.state, task, task.branch, (k, s) => log(k, s))
     scrub = repoScrubber(repo, wt.dir)
     ctx.onWorktree?.(wt, scrub)

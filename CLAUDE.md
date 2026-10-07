@@ -312,6 +312,8 @@ the public APIs stable — other areas are built against them in parallel.
   Approvals per task and device (`TaskLocal.approvals` 'all' | 'review' | 'none', default localStorage
   `one.coding.approvals`): finishStage passes skipped gates (logged), failing tests still stop at the review gate. Worker
   git runs without a terminal (never waits for a password); a failed / slow (60 s) fetch is logged, not fatal.
+  A repo in iCloud Drive (config.ts `inICloud`) is warned about in the log and its worktrees default to
+  `~/.one-worktrees/<name>`; `git worktree add` (≤ 10 min, a line per 30 s) cleans up its folder + new branch on failure.
 - Claude's Markdown goes into or is shown in a page only through `claudeDoc` / `claudeBlocks` (features/ai/claudeDoc.ts):
   web images become links, frames / media / web files never load. In shared pages Claude's change is its own undo step
   (`startUndoStep(view)` / `endUndoStep(view)`, editor/index.ts). History `SnapshotReason 'script'` ('Script · <name>').

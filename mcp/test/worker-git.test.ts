@@ -4,10 +4,10 @@
  * conflicts), cleanup and discard of the worker's own branches only, dirty checks.
  */
 import assert from 'node:assert/strict'
-import { existsSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { after, describe, test } from 'node:test'
-import { loadConfig, type RepoConfig } from '../src/worker/config.ts'
+import { inICloud, loadConfig, type RepoConfig } from '../src/worker/config.ts'
 import { WorkerState } from '../src/worker/state.ts'
 import { branchExists, cleanup, git, localBranches, commitAll, compareUrl, discard, ensureWorktree, info, push, remoteBranchExists, slug, updateFromBase, webBase } from '../src/worker/git.ts'
 import { Scrubber, repoScrubber } from '../src/worker/scrub.ts'
@@ -81,6 +81,42 @@ describe('fetch and time limits', () => {
     assert.ok(notes.some(([k, s]) => k === 'git' && s === 'Fetching origin…'), JSON.stringify(notes))
     assert.ok(notes.some(([k, s]) => k === 'warn' && /^Could not fetch origin \(.+\) — going on with what this computer has\.$/.test(s)), JSON.stringify(notes))
     assert.ok(notes.some(([k, s]) => k === 'git' && s.startsWith(`New branch ${wt.branch} from origin/main`)), JSON.stringify(notes))
+  })
+
+  test('a checkout that runs out of time leaves nothing half-made: no folder, no worktree entry, no new branch', async () => {
+    const { r, repo, state } = setup()
+    // a post-checkout hook that takes too long (like a repo whose files wait for iCloud)
+    const hook = join(r.path, '.git', 'hooks', 'post-checkout')
+    writeFileSync(hook, '#!/bin/sh\nsleep 10\n', { mode: 0o755 })
+    process.env.ONE_WORKER_CHECKOUT_MS = '1500'
+    process.env.ONE_WORKER_QUIET_MS = '400'
+    const notes: Array<[string, string]> = []
+    try {
+      await assert.rejects(ensureWorktree(repo, state, { id: 'slow1', title: 'Slow' }, null, (k, s) => notes.push([k, s])), /did not finish within 2 s/)
+    } finally {
+      delete process.env.ONE_WORKER_CHECKOUT_MS
+      delete process.env.ONE_WORKER_QUIET_MS
+      rmSync(hook)
+    }
+    assert.ok(notes.some(([k, s]) => k === 'git' && /^Still checking out the files · 0:0\d$/.test(s)), JSON.stringify(notes))
+    assert.equal(await branchExists(repo, 'one/slow-slow1'), false)
+    assert.equal(existsSync(join(repo.worktreeDir, 'one-slow-slow1')), false)
+    assert.ok(!sh(r.path, 'worktree', 'list').includes('one-slow-slow1'))
+    // the next try works and gets the same name
+    const wt = await ensureWorktree(repo, state, { id: 'slow1', title: 'Slow' }, null)
+    assert.equal(wt.branch, 'one/slow-slow1')
+  })
+
+  test('iCloud Drive on macOS: iCloud itself, and Documents / Desktop only when they are synced; worktrees then go to ~/.one-worktrees', () => {
+    const home = tempDir('icloud-home')
+    const docs = join(home, 'Documents', 'code', 'site')
+    assert.equal(inICloud(docs, home, 'darwin'), false)
+    mkdirSync(join(home, 'Library', 'Mobile Documents', 'com~apple~CloudDocs', 'Documents'), { recursive: true })
+    assert.equal(inICloud(docs, home, 'darwin'), true)
+    assert.equal(inICloud(join(home, 'Desktop', 'x'), home, 'darwin'), false)
+    assert.equal(inICloud(join(home, 'Library', 'Mobile Documents', 'com~apple~CloudDocs', 'repo'), home, 'darwin'), true)
+    assert.equal(inICloud(join(home, 'Developer', 'site'), home, 'darwin'), false)
+    assert.equal(inICloud(docs, home, 'linux'), false)
   })
 
   test('git gives up at its time limit and says why (never waits for a typed password)', async () => {
