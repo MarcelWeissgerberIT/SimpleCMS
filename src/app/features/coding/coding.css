@@ -130,7 +130,7 @@
 .ctk-stop__name {
   color: var(--ink-3);
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: calc(10px * var(--text-scale));
   letter-spacing: var(--tracking-label);
   text-transform: uppercase;
   white-space: nowrap;
@@ -182,7 +182,7 @@
   height: 16px;
   min-width: 16px;
   margin-left: 2px;
-  font-size: 9.5px;
+  font-size: calc(9.5px * var(--text-scale));
 }
 .ctk-keys .btn--primary .kbd {
   border-color: color-mix(in srgb, var(--on-signal) 45%, transparent);
@@ -375,7 +375,7 @@
   border-radius: var(--radius-1);
   background: var(--bg);
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: calc(12px * var(--text-scale));
 }
 
 /* tests */
@@ -401,7 +401,7 @@
   background: var(--bg);
   color: var(--ink-2);
   font-family: var(--font-mono);
-  font-size: 11.5px;
+  font-size: calc(11.5px * var(--text-scale));
   line-height: 1.5;
   white-space: pre-wrap;
   word-break: break-word;
@@ -419,7 +419,7 @@
   border-radius: var(--radius-1);
   background: var(--bg);
   font-family: var(--font-mono);
-  font-size: 11.5px;
+  font-size: calc(11.5px * var(--text-scale));
   line-height: 1.55;
 }
 .clog-lines:focus-visible {
@@ -438,7 +438,7 @@
 }
 .clog-k {
   color: var(--ink-3);
-  font-size: 9.5px;
+  font-size: calc(9.5px * var(--text-scale));
   letter-spacing: var(--tracking-label);
   line-height: 18px;
   text-transform: uppercase;
@@ -542,7 +542,7 @@
   border-radius: 2px;
   color: var(--ink-2);
   font-family: var(--font-mono);
-  font-size: 9.5px;
+  font-size: calc(9.5px * var(--text-scale));
   font-weight: 600;
 }
 .cd-file[data-status='A'] .cd-file__st,
@@ -558,7 +558,7 @@
 .cd-file__path {
   overflow: hidden;
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: calc(12px * var(--text-scale));
   text-overflow: ellipsis;
   white-space: nowrap;
   direction: rtl;
@@ -566,7 +566,7 @@
 }
 .cd-file__n {
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: calc(11px * var(--text-scale));
   white-space: nowrap;
 }
 .cd-file__body {
@@ -585,7 +585,7 @@
   width: 100%;
   border-collapse: collapse;
   font-family: var(--font-mono);
-  font-size: 11.5px;
+  font-size: calc(11.5px * var(--text-scale));
   line-height: 1.5;
 }
 .cd-ln {
@@ -696,7 +696,7 @@
   overflow: hidden;
   margin: 0;
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: calc(12px * var(--text-scale));
   font-variant-numeric: tabular-nums;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -747,7 +747,7 @@
 .cg-commits code {
   color: var(--signal-ink);
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: calc(11px * var(--text-scale));
 }
 .cg-subject {
   overflow: hidden;
@@ -757,7 +757,7 @@
 .cg-meta {
   color: var(--ink-3);
   font-family: var(--font-mono);
-  font-size: 10.5px;
+  font-size: calc(10.5px * var(--text-scale));
   white-space: nowrap;
 }
 .cg-at {
@@ -831,7 +831,7 @@
 }
 .cv-title {
   margin: 0;
-  font-size: clamp(28px, 4.4cqi, 46px);
+  font-size: calc(clamp(28px, 4.4cqi, 46px) * var(--text-scale));
   font-weight: 850;
   font-stretch: var(--display-stretch);
   font-variation-settings: 'wdth' 125;
@@ -895,7 +895,7 @@
   overflow: hidden;
   margin: 0;
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: calc(12px * var(--text-scale));
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -909,7 +909,7 @@
   border: 1px solid var(--rule-strong);
   border-radius: var(--radius-1);
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: calc(11px * var(--text-scale));
 }
 .cv-run {
   display: block;
@@ -1260,7 +1260,7 @@
   overflow: hidden;
   margin: 0;
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: calc(12px * var(--text-scale));
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -1274,6 +1274,10 @@
   background: transparent;
   color: var(--ink);
   font: inherit;
+}
+/* the port field sits 4px into the cell's padding: its frame must not be clipped there */
+dd:has(> .cw-port) {
+  overflow: visible;
 }
 .cw-port:hover {
   border-color: var(--rule-strong);
@@ -1314,7 +1318,7 @@
 .cw-as code {
   color: var(--ink-3);
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: calc(11px * var(--text-scale));
 }
 .cw-steps {
   display: grid;
@@ -1325,7 +1329,7 @@
 .cw-steps li::marker {
   color: var(--signal-ink);
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: calc(11px * var(--text-scale));
   font-weight: 600;
 }
 .cw-steps p {
@@ -1355,7 +1359,7 @@
   padding: 9px 11px;
   color: var(--ink);
   font-family: var(--font-mono);
-  font-size: 11.5px;
+  font-size: calc(11.5px * var(--text-scale));
   line-height: 1.55;
 }
 .cw-code__copy {
@@ -1442,7 +1446,7 @@
   border-radius: var(--radius-1);
   color: var(--ink-3);
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: calc(11px * var(--text-scale));
   font-weight: 600;
   letter-spacing: 0.02em;
 }
@@ -1513,7 +1517,7 @@
   overflow: hidden;
   color: var(--ink);
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: calc(12px * var(--text-scale));
   text-overflow: ellipsis;
   white-space: nowrap;
 }

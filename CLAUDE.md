@@ -317,6 +317,15 @@ the public APIs stable — other areas are built against them in parallel.
   (`startUndoStep(view)` / `endUndoStep(view)`, editor/index.ts). History `SnapshotReason 'script'` ('Script · <name>').
   UI: Popover is hidden until placed and focuses at once; Menu activates only on real pointer movement
   (ui/pointer.ts `usePointerIntent`); use ui/focus.ts `restoreFocus` / `useFocusWhenShown`.
+  Popover is clamped to the viewport (never partly off-screen); `resizable="<kind>"` = a corner grip for form popovers
+  (localStorage `one.popover.size:<kind>`, never below the natural size, `[data-resized]`). The base `.popover` chrome
+  is in `@layer one-popover-base`. In production ui.css loads AFTER the features chunk's CSS: an area rule that must
+  beat `.input` / `.btn` needs two classes. Long labels cut with "…" get a title (ui/clip.ts).
+- Text size (lib/textScale.ts): per device localStorage `one.textScale` (step 1–4: Standard · M · L · XL) →
+  `--text-scale` + `data-text-size` on `<html>` before first paint; controls in Settings → Appearance and Workspace →
+  Overview → Display (shell/settings/TextSize.tsx). App CSS font sizes are `--text-*` tokens or
+  `calc(<n>px * var(--text-scale))` — never raw px (ui-fit.spec checks; features/present exempt). The landing page, the
+  help site, exports and presentation slides are not scaled.
 - Database views: table | board | list | gallery | feed | calendar | timeline | chart | form. Feed settings live in
   `View.feed` (dateProperty — null = created time, order newest | oldest, content); without sorts of its own a feed
   orders newest first. Rows in view order come from `orderRows()` (database/model/feed.ts), used by `rowsOfView()` too.

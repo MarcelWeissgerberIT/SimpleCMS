@@ -421,7 +421,7 @@ test.describe('text size', () => {
   test('every font size in the app CSS follows the text size (tokens or calc(… * var(--text-scale)))', () => {
     // features/coding converts with its next change (owned elsewhere while this landed); a presentation's
     // slides are sized to the screen (container units), not to the text size
-    const PENDING = ['src/app/features/coding/coding.css', 'src/app/features/present/present.css']
+    const PENDING = ['src/app/features/present/present.css']
     const files: string[] = []
     const walk = (dir: string) => {
       for (const n of readdirSync(dir)) {
