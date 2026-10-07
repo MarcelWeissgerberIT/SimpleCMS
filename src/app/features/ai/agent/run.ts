@@ -20,6 +20,8 @@ import type { BetaRunnableTool } from '@anthropic-ai/sdk/lib/tools/BetaRunnableT
 import { AIError, claudeClient, resolveModel, toAIError } from '../client'
 import { MCP_BETA, type McpAttachment } from '../mcp-servers/config'
 import { foldMcpBlock, type McpCall } from '../mcp-servers/activity'
+import { createMediaCollector } from '../media/collect'
+import type { MediaItem } from '../media/types'
 import { TERMINAL_TOOLS, MAX_TOOL_CALLS, RESULT_CHARS, ToolInputError, argLabel, clipResult, withReadLimit, type AgentTool, type ReadLimit, type StageApi, type ToolOutcome } from './tools'
 import type { ID } from '../../../store/types'
 import type { ToolName } from './types'
@@ -71,6 +73,8 @@ export interface RunHooks {
   limit(): void
   /** an MCP tool call started or ended (Anthropic runs it inside the response) */
   mcp(call: McpCall): void
+  /** media the MCP results of this task returned (and Claude's links to them), whenever the list grows — cards, never loaded */
+  media?(items: MediaItem[]): void
 }
 
 /** The user turn for a task: context first, then the task. Closes tool calls a stopped run left open. */
@@ -197,6 +201,8 @@ export async function runAgent(opts: {
     let jsonRetries = 0
     /** how the last response ended: tool_use / pause_turn here means the runner stopped at max_iterations */
     let lastStop: string | null = null
+    // media in MCP results: cards for the person (features/ai/media), nothing is fetched
+    const media = mcp && hooks.media ? createMediaCollector() : null
     let runner = client.beta.messages.toolRunner({ ...params, messages }, { signal })
     try {
       outer: for (;;) {
@@ -206,6 +212,7 @@ export async function runAgent(opts: {
             stream.on('text', (delta) => hooks.text(delta))
             stream.on('contentBlock', (block: BetaContentBlock) => {
               if (block.type === 'thinking' && block.thinking.trim()) hooks.note(block.thinking.trim())
+              if (media?.block(block)) hooks.media?.(media.items)
               const next = foldMcpBlock(mcpCalls, block)
               if (next === mcpCalls) return
               const changed = next.find((c, i) => c !== mcpCalls[i])
@@ -218,6 +225,8 @@ export async function runAgent(opts: {
             hooks.usage(msg.usage)
             const toolUse = msg.content.some((b) => b.type === 'tool_use')
             hooks.textDone(toolUse ? 'note' : 'answer')
+            // links in the answer to a host an MCP result used count as media too
+            if (!toolUse && media?.answer(msg.content.map((b) => (b.type === 'text' ? b.text : '')).join('\n'))) hooks.media?.(media.items)
             if (msg.stop_reason === 'refusal') throw new AIError('refusal')
             // a tool input cut off at max_tokens may parse as a valid partial object: never run it
             if (msg.stop_reason === 'max_tokens') {

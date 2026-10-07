@@ -16,6 +16,8 @@ const PORT = Number(process.env.CLOUD_E2E_PORT) || 4500
 const OUT = `node_modules/.cache/cloud-dist-${PORT}`
 const DATA = `node_modules/.cache/cloud-data-${PORT}`
 const ORIGIN = `http://127.0.0.1:${PORT}`
+/** tests/e2e-cloud/mcp-media.spec.ts serves its made-up media host here (MEDIA_FETCH_HOSTS, DEV_MODE only) */
+const MEDIA_PORT = PORT + 1000
 /**
  * Encryption at rest needs a master key (docs/SELF_HOSTING.md § DATA_KEY). This one is FAKE and for
  * this throwaway test server only: 32 ASCII bytes that say what they are. Never use it anywhere else.
@@ -47,7 +49,7 @@ export default defineConfig({
     command:
       `${build}rm -rf ${DATA} && ` +
       // AUTH_IP_LIMIT (DEV_MODE only): every test signs people in from 127.0.0.1 — deployments keep 20 per 15 min
-      `PORT=${PORT} HOST=127.0.0.1 DATA_DIR=${DATA} APP_DIR=${OUT} PUBLIC_URL=${ORIGIN} DEV_MODE=1 AUTH_IP_LIMIT=1000 SIGNUP=open LOG_LEVEL=warn DATA_KEY=${DATA_KEY} ` +
+      `PORT=${PORT} HOST=127.0.0.1 DATA_DIR=${DATA} APP_DIR=${OUT} PUBLIC_URL=${ORIGIN} DEV_MODE=1 AUTH_IP_LIMIT=1000 SIGNUP=open LOG_LEVEL=warn DATA_KEY=${DATA_KEY} MEDIA_FETCH_HOSTS=media.e2e.test=127.0.0.1:${MEDIA_PORT} ` +
       `node --disable-warning=ExperimentalWarning server/dist/index.js`,
     url: `${ORIGIN}/api/health`,
     reuseExistingServer: false,

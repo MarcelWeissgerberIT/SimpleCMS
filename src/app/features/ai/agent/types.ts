@@ -87,7 +87,21 @@ export interface ColumnSpec {
   options?: string[]
 }
 
-export type ChangeKind = 'create_page' | 'append' | 'edit' | 'create_row' | 'update_row' | 'rename' | 'create_database' | 'add_property' | 'memory' | 'script'
+export type ChangeKind = 'create_page' | 'append' | 'edit' | 'create_row' | 'update_row' | 'rename' | 'create_database' | 'add_property' | 'memory' | 'script' | 'media'
+
+/**
+ * Media saved from an MCP result (features/ai/media: the person clicked "Save to One" on a card — the file is in
+ * One already): applying puts its block at the end of the page (kind 'media', staged by the terminal itself).
+ */
+export interface StagedMedia {
+  /** "onefile:<id>" */
+  src: string
+  kind: 'image' | 'video' | 'audio' | 'file'
+  name: string
+  size: number
+  caption: string
+  alt: string
+}
 
 /** A One Script Claude drafted (write_script): saved when applied, never run by applying. */
 export interface StagedScript {
@@ -139,6 +153,8 @@ export interface StagedChange {
   memory?: MemoryProposal & { updates?: ID | null }
   /** script: the script to save (pageId = its id) */
   script?: StagedScript
+  /** media: the saved files whose blocks go into the page (pageId) */
+  media?: StagedMedia[]
   error?: string
 }
 

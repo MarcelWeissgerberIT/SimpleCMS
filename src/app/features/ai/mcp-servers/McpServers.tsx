@@ -10,7 +10,7 @@
  */
 import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react'
 import { format } from 'date-fns'
-import { ChevronDown, ChevronRight, Info, Plus, Trash2 } from 'lucide-react'
+import { ChevronDown, ChevronRight, Copy, ExternalLink, Info, KeyRound, LogIn, LogOut, Plus, Trash2 } from 'lucide-react'
 import { useT } from '../../../i18n'
 import { useWorkspace } from '../../../store/store'
 import type { McpServerConfig } from '../../../store/types'
@@ -35,6 +35,7 @@ import {
 import { cancelCheck, checkServer, useMcpChecks, type CheckMode } from './checks'
 import { codewordProblem, normalizeCodeword, suggestCodeword } from './codeword'
 import { linkBaseOf } from '../../../lib/foreignLinks'
+import { cancelSignIn, offersCode, signIn, signInWithCode, signOut, signedIn, useMcpSignIn, type SignInState } from './oauth'
 import { HelpLink } from '../../../help'
 import './mcp-servers.css'
 
@@ -240,6 +241,7 @@ function ServerRow({ server, others, words, open, onOpen, hasKey }: { server: Mc
   const bodyId = useId()
   const state: RowState = running ? 'checking' : !server.enabled ? 'off' : token === 'missing' ? 'missing' : server.checkError ? 'error' : server.checkedAt ? 'ok' : 'unchecked'
   const meta = [t(`features.ai.mcp.status.${state}`)]
+  if (signedIn(server)) meta.push(t('features.ai.mcp.oauth.signedInShort'))
   if (server.tools && (state === 'ok' || state === 'off')) meta.push(tn(t, 'features.ai.mcp.meta.tools', server.tools.length))
   if (server.scope === 'all') meta.push(t('features.ai.mcp.scope.allShort'))
   const reason =
@@ -253,6 +255,8 @@ function ServerRow({ server, others, words, open, onOpen, hasKey }: { server: Mc
             ? t('features.ai.mcp.noTools')
             : ''
   const led = state === 'ok' ? 'led led--ok' : state === 'checking' ? 'led led--on mcps-led--live' : state === 'error' || state === 'missing' ? 'led mcps-led--warn' : 'led'
+  // the server turned the request down (401 / 403): a sign-in instead of a token, right under the address
+  const wantsSignIn = server.enabled && !!server.checkAuth && state === 'error'
   return (
     <li className="mcps-card" data-state={state} data-open={open || undefined} data-server={server.name}>
       <div className="mcps-card__head">
@@ -282,10 +286,12 @@ function ServerRow({ server, others, words, open, onOpen, hasKey }: { server: Mc
           {reason}
         </p>
       )}
+      {wantsSignIn && <SignInKey server={server} />}
       {open && (
         <div className="mcps-card__body" id={bodyId}>
           <Connection server={server} others={others} words={words} />
           <Scope server={server} />
+          <OAuthSignIn server={server} codeAbove={wantsSignIn} />
           <Token server={server} state={token} />
           <Prompt server={server} hasKey={hasKey} blocked={token === 'missing'} running={running} />
           <Remove server={server} />
@@ -474,6 +480,151 @@ function Scope({ server }: { server: McpServerConfig }) {
       </div>
       <div className="mcps-field__hint" id={`${id}-hint`}>
         {t('features.ai.mcp.scope.hint')}
+      </div>
+    </div>
+  )
+}
+
+/** "Sign in" under a server that wants one (it answered 401): starts the sign-in, says how it went. */
+function SignInKey({ server }: { server: McpServerConfig }) {
+  const t = useT()
+  const st = useMcpSignIn((s) => s.byServer[server.id])
+  return (
+    <div className="mcps-signin" data-testid="mcp-signin-row">
+      <span className="mcps-signin__text">{t('features.ai.mcp.oauth.wants')}</span>
+      <SignInKeys server={server} st={st} testId="mcp-signin" />
+      {st?.phase === 'code' && <DeviceCode server={server} st={st} />}
+      {st?.phase === 'error' && st.issue && (
+        <p className="mcps-signin__err" role="alert">
+          {t(`features.ai.mcp.oauth.err.${st.issue}`, { detail: st.detail ?? '' })}
+        </p>
+      )}
+    </div>
+  )
+}
+
+/**
+ * Sign in · while the window is open: Cancel and "Use a code instead" · once the server's sign-in is known to
+ * offer a code: "Sign in with a code" (the device flow, for when the way back to this page can't work).
+ */
+function SignInKeys({ server, st, testId, describedBy }: { server: McpServerConfig; st: SignInState | undefined; testId: string; describedBy?: string }) {
+  const t = useT()
+  const phase = st?.phase
+  const busy = phase === 'working' || phase === 'waiting' || phase === 'code'
+  const code = offersCode(server)
+  const label = phase === 'waiting' ? t('features.ai.mcp.oauth.waiting') : phase === 'code' ? t('features.ai.mcp.oauth.code.waiting') : busy ? t('features.ai.mcp.oauth.busy') : signedIn(server) ? t('features.ai.mcp.oauth.again') : t('features.ai.mcp.oauth.signIn')
+  return (
+    <>
+      <button type="button" className="btn btn--sm btn--ink" disabled={busy} onClick={() => void signIn(server.id).catch(() => {})} aria-describedby={describedBy} data-testid={testId}>
+        <LogIn size={13} strokeWidth={1.75} aria-hidden /> {label}
+      </button>
+      {phase === 'waiting' && (
+        <>
+          {code && (
+            <button type="button" className="btn btn--sm" onClick={() => void signInWithCode(server.id).catch(() => {})} data-testid="mcp-use-code">
+              <KeyRound size={13} strokeWidth={1.75} aria-hidden /> {t('features.ai.mcp.oauth.useCode')}
+            </button>
+          )}
+          <button type="button" className="btn btn--sm btn--ghost" onClick={() => cancelSignIn(server.id)}>
+            {t('common.cancel')}
+          </button>
+        </>
+      )}
+      {code && !busy && (
+        <button type="button" className="btn btn--sm btn--ghost" onClick={() => void signInWithCode(server.id).catch(() => {})} data-testid="mcp-signin-code">
+          <KeyRound size={13} strokeWidth={1.75} aria-hidden /> {t('features.ai.mcp.oauth.withCode')}
+        </button>
+      )}
+    </>
+  )
+}
+
+/** A sign-in with a code (device flow): the code to enter on the server's page while One waits for it. */
+function DeviceCode({ server, st }: { server: McpServerConfig; st: SignInState }) {
+  const t = useT()
+  const [copied, setCopied] = useState(false)
+  const timer = useRef(0)
+  useEffect(() => () => window.clearTimeout(timer.current), [])
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(st.userCode ?? '')
+      setCopied(true)
+      window.clearTimeout(timer.current)
+      timer.current = window.setTimeout(() => setCopied(false), 1600)
+    } catch {
+      /* no clipboard here: the code is on screen */
+    }
+  }
+  return (
+    <div className="mcps-code" role="group" aria-label={t('features.ai.mcp.oauth.code.label')} data-testid="mcp-device-code">
+      <span className="label mcps-code__label">
+        <span className="led led--on" aria-hidden /> {t('features.ai.mcp.oauth.code.label')}
+      </span>
+      <output className="mcps-code__value" data-testid="mcp-user-code">
+        {st.userCode}
+      </output>
+      <p className="mcps-code__text">{t('features.ai.mcp.oauth.code.text', { host: hostOf(st.verifyUrl ?? '') })}</p>
+      <div className="mcps-code__keys">
+        <a className="btn btn--sm btn--ink" href={st.verifyComplete ?? st.verifyUrl} target="_blank" rel="noopener noreferrer" data-testid="mcp-code-open">
+          <ExternalLink size={13} strokeWidth={1.75} aria-hidden /> {t('features.ai.mcp.oauth.code.open')}
+        </a>
+        <button type="button" className="btn btn--sm" onClick={() => void copy()}>
+          <Copy size={13} strokeWidth={1.75} aria-hidden /> {copied ? t('features.ai.mcp.oauth.code.copied') : t('features.ai.mcp.oauth.code.copy')}
+        </button>
+        <button type="button" className="btn btn--sm btn--ghost" onClick={() => cancelSignIn(server.id)} data-testid="mcp-code-cancel">
+          {t('common.cancel')}
+        </button>
+        {st.expiresAt && <span className="label mcps-code__until">{t('features.ai.mcp.oauth.code.until', { time: format(st.expiresAt, 'HH:mm') })}</span>}
+      </div>
+    </div>
+  )
+}
+
+const hostOf = (url: string) => {
+  try {
+    return new URL(url).host
+  } catch {
+    return url
+  }
+}
+
+/** Sign in with OAuth (the server's own sign-in page) instead of pasting a token — or the state of a sign-in and Sign out. */
+function OAuthSignIn({ server, codeAbove }: { server: McpServerConfig; codeAbove: boolean }) {
+  const t = useT()
+  const id = useId()
+  const st = useMcpSignIn((s) => s.byServer[server.id])
+  const on = signedIn(server)
+  const o = server.oauth
+  return (
+    <div className="mcps-field mcps-oauth" role="group" aria-labelledby={`${id}-label`} data-testid="mcp-oauth" data-signed-in={on || undefined}>
+      <div className="mcps-field__label" id={`${id}-label`}>
+        {t('features.ai.mcp.oauth.label')}
+      </div>
+      {on && o ? (
+        <div className="mcps-oauth__row">
+          <span className="led led--ok" aria-hidden />
+          <span className="mcps-oauth__state" data-testid="mcp-oauth-state">
+            {t('features.ai.mcp.oauth.signedIn', { host: hostOf(o.issuer) })}
+          </span>
+          {o.expiresAt && <span className="label mcps-oauth__when">{t(o.refresh ? 'features.ai.mcp.oauth.renews' : 'features.ai.mcp.oauth.expires', { time: format(o.expiresAt, 'yyyy-MM-dd HH:mm') })}</span>}
+          <span className="mcps-spacer" />
+          <button type="button" className="btn btn--sm btn--ghost" onClick={() => signOut(server.id)} data-testid="mcp-signout">
+            <LogOut size={13} strokeWidth={1.75} aria-hidden /> {t('features.ai.mcp.oauth.signOut')}
+          </button>
+        </div>
+      ) : (
+        <div className="mcps-oauth__row">
+          <SignInKeys server={server} st={st} testId="mcp-oauth-signin" describedBy={`${id}-hint`} />
+        </div>
+      )}
+      {st?.phase === 'code' && !codeAbove && <DeviceCode server={server} st={st} />}
+      {st?.phase === 'error' && st.issue && (
+        <p className="mcps-warn" role="alert" data-testid="mcp-oauth-error">
+          <span className="led mcps-led--warn" aria-hidden /> {t(`features.ai.mcp.oauth.err.${st.issue}`, { detail: st.detail ?? '' })}
+        </p>
+      )}
+      <div className="mcps-field__hint" id={`${id}-hint`}>
+        {t('features.ai.mcp.oauth.hint')}
       </div>
     </div>
   )

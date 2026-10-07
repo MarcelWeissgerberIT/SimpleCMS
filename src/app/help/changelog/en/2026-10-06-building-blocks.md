@@ -1,7 +1,7 @@
 ---
 id: 2026-10-06-building-blocks
 date: 2026-10-06
-order: 3
+order: 4
 title: Building blocks — shared lists, your own property types, record types
 summary: Make the parts your databases are built from: lists every select can share (paste them, or let Claude fill them), own property types with a look and small scripts that check, compute and format values, and record types.
 image: assets/shots/changelog/building-blocks.webp

@@ -43,7 +43,7 @@ export async function checkServer(id: string, mode: CheckMode = 'guide', opts: {
     if (ctrl.signal.aborted) return
     const now = readServers().find((s) => s.id === id)
     if (!now) return
-    const patch: Partial<McpServerConfig> = { tools: res.tools, checkedAt: Date.now(), checkError: undefined }
+    const patch: Partial<McpServerConfig> = { tools: res.tools, checkedAt: Date.now(), checkError: undefined, checkAuth: undefined }
     const keep = now.promptSource === 'edited' && !!now.prompt.trim() && !opts.replaceEdited
     if (mode === 'guide' && res.guide && !keep) Object.assign(patch, { prompt: res.guide.slice(0, PROMPT_MAX), promptSource: 'auto' })
     patchServer(id, patch)
@@ -58,7 +58,9 @@ export async function checkServer(id: string, mode: CheckMode = 'guide', opts: {
           : e instanceof Error
             ? e.message
             : String(e)
-    patchServer(id, { checkError: msg.length > 300 ? `${msg.slice(0, 299)}…` : msg })
+    // a refused token (401 / 403): Settings offers "Sign in" next to the address
+    const auth = e instanceof AIError && e.code === 'mcp_auth'
+    patchServer(id, { checkError: msg.length > 300 ? `${msg.slice(0, 299)}…` : msg, checkAuth: auth || undefined })
   } finally {
     if (controllers.get(id) === ctrl) {
       controllers.delete(id)

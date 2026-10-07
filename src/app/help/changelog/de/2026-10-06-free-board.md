@@ -1,7 +1,7 @@
 ---
 id: 2026-10-06-free-board
 date: 2026-10-06
-order: 2
+order: 3
 title: Freies Board — Karten jedes Datensatz-Typs, jede mit eigenen Feldern
 summary: Ein Board, dessen Eigenschaften aus dem kommen, was man hineinlegt: ein Lead, ein Fehler und eine Idee in einer Spalte, jede mit den Feldern ihres Datensatz-Typs.
 image: assets/shots/changelog/free-board.webp
