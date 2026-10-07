@@ -10,6 +10,22 @@ import { lineText } from './lines'
 
 const SHOW = 400
 
+/** A tool call: only its name ("Read", "Bash", "one-task · one_task_note"); what it was called with opens on a click. */
+function ToolCall({ s }: { s: string }) {
+  const cut = s.indexOf(' ')
+  const name = (cut < 0 ? s : s.slice(0, cut)).replace(/^mcp__(.+?)__/, '$1 · ')
+  const arg = cut < 0 ? '' : s.slice(cut + 1).trim()
+  if (!arg) return <span className="clog-s clog-tool__name">{name}</span>
+  return (
+    <details className="clog-s clog-tool">
+      <summary>
+        <span className="clog-tool__name">{name}</span>
+      </summary>
+      <span className="clog-tool__arg">{arg}</span>
+    </details>
+  )
+}
+
 export function LogView({ lines, onClear }: { lines: LogLine[]; onClear?: () => void }) {
   const t = useT()
   const box = useRef<HTMLDivElement>(null)
@@ -45,7 +61,7 @@ export function LogView({ lines, onClear }: { lines: LogLine[]; onClear?: () => 
           <div key={i} className="clog-line" data-k={l.k}>
             <span className="clog-t">{format(l.t, 'HH:mm:ss')}</span>
             <span className="clog-k">{t(`features.coding.log.k.${l.k}`)}</span>
-            <span className="clog-s">{lineText(t, l)}</span>
+            {l.k === 'tool' ? <ToolCall s={l.s} /> : <span className="clog-s">{lineText(t, l)}</span>}
           </div>
         ))}
       </div>

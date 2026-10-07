@@ -530,9 +530,10 @@
 }
 .clog-line {
   display: grid;
-  grid-template-columns: 62px 52px minmax(0, 1fr);
-  gap: 8px;
-  padding: 0 10px;
+  /* the clock is 8 mono characters: its column fits it exactly, the gap keeps the text off it */
+  grid-template-columns: 8ch 6.5ch minmax(0, 1fr);
+  gap: 14px;
+  padding: 0 12px;
 }
 .clog-t {
   color: var(--ink-3);
@@ -575,6 +576,41 @@
 }
 .clog-line[data-k='test'] .clog-k {
   color: var(--c-green-text);
+}
+/* tool calls: the name only, what it was called with on a click */
+.clog-tool summary {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  color: var(--ink-2);
+  cursor: pointer;
+  list-style: none;
+}
+.clog-tool summary::-webkit-details-marker {
+  display: none;
+}
+.clog-tool summary::before {
+  content: '▸';
+  color: var(--ink-3);
+  transition: transform var(--dur-1) var(--ease-out);
+}
+.clog-tool[open] summary::before {
+  transform: rotate(90deg);
+}
+.clog-tool summary:hover .clog-tool__name {
+  color: var(--ink);
+}
+.clog-tool summary:focus-visible {
+  border-radius: var(--radius-1);
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+.clog-tool__arg {
+  display: block;
+  margin: 2px 0 4px;
+  padding-left: 12px;
+  border-left: 1px solid var(--rule);
+  color: var(--ink-3);
 }
 .clog-foot {
   display: flex;
@@ -1659,7 +1695,8 @@ dd:has(> .cw-port) {
     grid-column: 2;
   }
   .clog-line {
-    grid-template-columns: 54px minmax(0, 1fr);
+    grid-template-columns: 8ch minmax(0, 1fr);
+    gap: 12px;
   }
   .clog-k {
     display: none;

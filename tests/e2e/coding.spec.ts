@@ -488,6 +488,21 @@ test('while a stage runs: what the worker did last (ticking), Step x/y, the esti
   // the counters are gone with the stage
   await expect(page.getByTestId('coding-steps')).toHaveCount(0)
 
+  // a tool call shows its name only; what it was called with opens on a click
+  await page.getByTestId('coding-tab-log').click()
+  const write = page.getByTestId('coding-log').locator('.clog-tool').filter({ hasText: 'Write' }).first()
+  await expect(write.locator('summary')).toHaveText('Write')
+  await expect(write.locator('.clog-tool__arg')).toBeHidden()
+  await write.locator('summary').click()
+  await expect(write.locator('.clog-tool__arg')).toHaveText('./live.txt')
+  // the clock never touches the text
+  const gap = await page.getByTestId('coding-log').locator('.clog-line').first().evaluate((el) => {
+    const t = el.querySelector('.clog-t')!.getBoundingClientRect()
+    const s = el.querySelector('.clog-s')!.getBoundingClientRect()
+    return s.left - t.right
+  })
+  expect(gap).toBeGreaterThanOrEqual(10)
+
   // the worker's own lines in the person's language
   await page.evaluate(() => (window as unknown as { __one: { workspace: { getState: () => { updateSettings: (p: unknown) => void } } } }).__one.workspace.getState().updateSettings({ language: 'de' }))
   await page.getByTestId('coding-tab-log').click()
