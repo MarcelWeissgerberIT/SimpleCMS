@@ -8,7 +8,7 @@
  *
  * (CHANGELOG_DRAFT=1 lets the build pass while a new entry's picture does not exist yet.)
  *
- * Shots: coding-setup, free-board, building-blocks, workspace-settings, diagram-viewer, coding-pipeline, pages-per-item, design-import, tour, quick-capture, script-templates, one-script-everywhere, file-ai, one-script, transform, ai-edit, db-commands, gmail-one-click, memory, grips-footer, block-select, split-to-page, image-ai, claude-reads, redo, ai-terminal, mcp-codewords, mcp-tidy-up, slash-menu, turn-into-database,
+ * Shots: mcp-media, coding-setup, free-board, building-blocks, workspace-settings, diagram-viewer, coding-pipeline, pages-per-item, design-import, tour, quick-capture, script-templates, one-script-everywhere, file-ai, one-script, transform, ai-edit, db-commands, gmail-one-click, memory, grips-footer, block-select, split-to-page, image-ai, claude-reads, redo, ai-terminal, mcp-codewords, mcp-tidy-up, slash-menu, turn-into-database,
  * custom-agents, gmail, help-centre, mcp-servers, feed-blocks — each named like its image. Every shot starts from a fresh, seeded
  * workspace in English, light theme, 1440 × 900 at device scale 2; the crop of the relevant area is scaled
  * to 1440 px wide and saved as public/assets/shots/changelog/<shot>.webp (≤ 150 KB: the quality steps down
@@ -1714,6 +1714,83 @@ const shots = {
       await ctx.close()
       rmSync(work.root, { recursive: true, force: true })
     }
+  },
+
+  /**
+   * /generate image on a page: an image service (a made-up MCP server, its job polled by Claude), four results
+   * as cards — previewed on a click, two picked for "Insert selected". The MCP blocks are streamed by a mock,
+   * the pictures come from a made-up host (the repository's own covers); nothing leaves the machine.
+   */
+  async 'mcp-media'(browser) {
+    const MEDIA = 'https://cdn.studio.test'
+    const covers = ['dunes', 'grain', 'paper-folds', 'concrete'].map((n) => readFileSync(`public/assets/covers/${n}.webp`))
+    const cors = { 'access-control-allow-origin': '*', 'access-control-allow-headers': '*', 'access-control-allow-methods': 'POST, GET' }
+    // taller than the other shots: the four results fit in the menu
+    const viewport = { width: W, height: 1180 }
+    const { ctx, page } = await freshPage(browser, {
+      viewport,
+      setup: async (ctx) => {
+        // the generation request streams the MCP calls (registered after mockClaude, so it answers first)
+        await ctx.route('https://api.anthropic.com/**', async (route) => {
+          const req = route.request()
+          if (req.method() !== 'POST' || !/"stream"\s*:\s*true/.test(req.postData() || '') || !/"mcp_servers"/.test(req.postData() || '')) return route.fallback()
+          await sleep(500)
+          const images = covers.map((_, i) => ({ url: `${MEDIA}/jobs/7f3/v${i + 1}.webp`, width: 1600, height: 900 }))
+          await route.fulfill({
+            status: 200,
+            headers: { ...cors, 'content-type': 'text/event-stream' },
+            body: sseTurn([
+              { type: 'mcp_tool_use', id: 'mcptoolu_cl1', server: 'studio', name: 'generate_image', input: { prompt: 'dunes at dusk, wide, quiet light', aspect_ratio: '16:9', num_images: 4 } },
+              { type: 'mcp_tool_result', id: 'mcptoolu_cl1', text: JSON.stringify({ job_id: 'job-7f3', status: 'queued' }) },
+              { type: 'mcp_tool_use', id: 'mcptoolu_cl2', server: 'studio', name: 'get_job', input: { job_id: 'job-7f3' } },
+              { type: 'mcp_tool_result', id: 'mcptoolu_cl2', text: JSON.stringify({ status: 'completed', output: { images } }) },
+              { type: 'text', text: '4 results.' },
+            ]),
+          })
+        })
+        await ctx.route(`${MEDIA}/**`, (route) => {
+          const n = Number(/v(\d)\.webp$/.exec(route.request().url())?.[1] ?? 0)
+          return n ? route.fulfill({ status: 200, headers: { ...cors, 'content-type': 'image/webp' }, body: covers[n - 1] }) : route.fulfill({ status: 404, headers: cors, body: '' })
+        })
+      },
+    })
+    await page.evaluate(() =>
+      window.__one.workspace.getState().updateSettings({
+        mcpServers: [{ id: 'srvstudio1', name: 'studio', url: 'https://mcp.studio.test/mcp', token: 'studio-demo-token', enabled: true, prompt: 'Makes images and short videos; jobs are polled with get_job.', promptSource: 'auto', tools: ['generate_image', 'generate_video', 'get_job'], checkedAt: Date.now() - 5 * 60_000, codeword: 'studio' }],
+      }),
+    )
+    const id = await createPage(
+      page,
+      'Launch moodboard',
+      doc(para('Pictures for the launch page — warm, quiet, lots of room for the headline.'), para(''), h(2, 'Headline options'), para('Notes that write themselves.'), para('One page for everything your team knows.'), para('Paper, ink, and nothing in between.')),
+      { icon: { type: 'asset', value: 'megaphone' } },
+    )
+    await openPage(page, id)
+    const ed = page.locator('#main .ProseMirror').first()
+    await ed.locator('p').nth(1).click()
+    await page.keyboard.type('/generate image')
+    await page.waitForTimeout(400)
+    await page.keyboard.press('Enter')
+    const setup = page.getByTestId('gen-setup')
+    await setup.waitFor()
+    await setup.getByTestId('gen-prompt').fill('dunes at dusk, wide, quiet light')
+    await setup.getByRole('radio', { name: '16:9' }).click()
+    await setup.getByRole('radio', { name: '4', exact: true }).click()
+    await setup.getByTestId('gen-run').click()
+    const panel = page.getByRole('dialog', { name: 'Ask Claude' })
+    await panel.getByTestId('media-card').nth(3).waitFor({ timeout: 20_000 })
+    await panel.getByTestId('media-preview-all').click()
+    await panel.locator('[data-testid="media-card"][data-preview] img').nth(3).waitFor()
+    for (const n of [1, 3]) await panel.locator(`[data-testid="media-card"][data-url$="v${n}.webp"]`).getByRole('checkbox').check()
+    await page.mouse.move(W - 5, viewport.height - 60)
+    await page.waitForTimeout(700)
+    const left = Math.round((await page.locator('.sb').first().boundingBox())?.width ?? 0) + 1
+    const box = union(await boxOf(page.locator('#main .pv-title').first()), await boxOf(panel))
+    const top = Math.max(0, Math.round(box.y - 40))
+    // down to the menu's foot, never into the status bar
+    const floor = Math.round((await page.locator('footer.status').boundingBox())?.y ?? viewport.height) - 1
+    await save(page, 'mcp-media', { x: left, y: top, width: W - left, height: Math.min(floor, Math.round(box.y + box.height + 28)) - top })
+    await ctx.close()
   },
 
   /** Several blocks selected (text, image, table): the wash on each, the pinned grip, the count chip. */

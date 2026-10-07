@@ -5,7 +5,8 @@
  * Covered: media cards appear and nothing is fetched before the click; Save stores "onefile:" and inserts the
  * block; SVG becomes a download, a wrong type / bytes that disagree are refused; CORS refusal → Upload a copy;
  * the AI terminal stages "Insert media"; /generate image → variants → pick two → two image blocks; ⌘K "?";
- * OAuth (metadata, dynamic registration, PKCE, token, refresh, sign out — no token in storage or the backup).
+ * OAuth (metadata, dynamic registration, PKCE, token, refresh, sign out — no token in storage or the backup); the
+ * first usable of several listed sign-in services (the host's own refused to browsers); a sign-in with a code.
  */
 import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
@@ -33,7 +34,7 @@ let seq = 0
 function sseMessage(blocks: Block[]): string {
   const ev = (type: string, data: object) => `event: ${type}\ndata: ${JSON.stringify({ type, ...data })}\n\n`
   let body = ev('message_start', {
-    message: { id: `msg_media_${++seq}`, type: 'message', role: 'assistant', model: 'claude-opus-5-5', content: [], stop_reason: null, stop_sequence: null, usage: { input_tokens: 900, output_tokens: 1 } },
+    message: { id: `msg_media_${++seq}`, type: 'message', role: 'assistant', model: 'e2e-mock', content: [], stop_reason: null, stop_sequence: null, usage: { input_tokens: 900, output_tokens: 1 } },
   })
   blocks.forEach((b, index) => {
     if (b.type === 'text') {
@@ -52,7 +53,7 @@ function sseMessage(blocks: Block[]): string {
   return body
 }
 
-const jsonMessage = (text: string) => ({ id: `msg_media_${++seq}`, type: 'message', role: 'assistant', model: 'claude-opus-5-5', content: [{ type: 'text', text }], stop_reason: 'end_turn', stop_sequence: null, usage: { input_tokens: 10, output_tokens: 10 } })
+const jsonMessage = (text: string) => ({ id: `msg_media_${++seq}`, type: 'message', role: 'assistant', model: 'e2e-mock', content: [{ type: 'text', text }], stop_reason: 'end_turn', stop_sequence: null, usage: { input_tokens: 10, output_tokens: 10 } })
 
 interface Sent {
   body: AnyState
@@ -491,6 +492,78 @@ function storageDump(page: Page): Promise<string> {
   })
 }
 
+const CODES_HOST = 'https://mcp.codes.test'
+const CODES_AUTH = 'https://auth.codes.test'
+
+interface CodeLog {
+  reg: AnyState[]
+  devices: URLSearchParams[]
+  polls: URLSearchParams[]
+  /** device-code polls answered "authorization_pending" before the tokens */
+  pending: number
+}
+
+/**
+ * An MCP server whose sign-in offers a code (RFC 8628). `wayBack` false: registering this page as the way back is
+ * refused (a client for the device grant alone is not); true: it is accepted, but the sign-in page never returns.
+ */
+async function mockCodeAuth(ctx: BrowserContext, { wayBack }: { wayBack: boolean }): Promise<CodeLog> {
+  const log: CodeLog = { reg: [], devices: [], polls: [], pending: 1 }
+  const cors = { 'access-control-allow-origin': '*', 'access-control-allow-headers': '*', 'access-control-allow-methods': 'GET, POST', 'access-control-expose-headers': 'WWW-Authenticate' }
+  const json = (route: Route, status: number, body: unknown) => route.fulfill({ status, headers: { ...cors, 'content-type': 'application/json' }, body: JSON.stringify(body) })
+  const html = (route: Route, title: string) => route.fulfill({ status: 200, headers: { 'content-type': 'text/html' }, body: `<!doctype html><title>${title}</title><p>${title}</p>` })
+  await ctx.route(`${CODES_HOST}/**`, (route) => {
+    const req = route.request()
+    if (req.method() === 'OPTIONS') return route.fulfill({ status: 204, headers: cors })
+    const path = new URL(req.url()).pathname
+    if (path === '/mcp') return route.fulfill({ status: 401, headers: { ...cors, 'www-authenticate': `Bearer resource_metadata="${CODES_HOST}/.well-known/oauth-protected-resource/mcp"` }, body: '' })
+    if (path === '/.well-known/oauth-protected-resource/mcp') return json(route, 200, { resource: `${CODES_HOST}/mcp`, authorization_servers: [CODES_AUTH] })
+    return json(route, 404, {})
+  })
+  let polled = 0
+  await ctx.route(`${CODES_AUTH}/**`, (route) => {
+    const req = route.request()
+    if (req.method() === 'OPTIONS') return route.fulfill({ status: 204, headers: cors })
+    const url = new URL(req.url())
+    if (url.pathname === '/.well-known/oauth-authorization-server')
+      return json(route, 200, { issuer: CODES_AUTH, authorization_endpoint: `${CODES_AUTH}/authorize`, token_endpoint: `${CODES_AUTH}/token`, registration_endpoint: `${CODES_AUTH}/register`, device_authorization_endpoint: `${CODES_AUTH}/device`, code_challenge_methods_supported: ['S256'] })
+    if (url.pathname === '/register') {
+      const body = JSON.parse(req.postData() ?? '{}')
+      log.reg.push(body)
+      if (body.redirect_uris && !wayBack) return json(route, 400, { error: 'invalid_redirect_uri', error_description: 'redirect not allowed' })
+      return json(route, 201, { client_id: 'codes-e2e-client', grant_types: body.grant_types })
+    }
+    if (url.pathname === '/authorize') return html(route, 'Sign in')
+    if (url.pathname === '/device') {
+      log.devices.push(new URLSearchParams(req.postData() ?? ''))
+      polled = 0
+      return json(route, 200, { device_code: 'DEVICE-e2e-1', user_code: 'WDJB-MJHT', verification_uri: `${CODES_AUTH}/activate`, verification_uri_complete: `${CODES_AUTH}/activate?user_code=WDJB-MJHT`, expires_in: 600, interval: 1 })
+    }
+    if (url.pathname === '/activate') return html(route, 'Enter the code')
+    if (url.pathname === '/token') {
+      const p = new URLSearchParams(req.postData() ?? '')
+      log.polls.push(p)
+      if (p.get('grant_type') !== 'urn:ietf:params:oauth:grant-type:device_code' || p.get('device_code') !== 'DEVICE-e2e-1' || p.get('client_id') !== 'codes-e2e-client') return json(route, 400, { error: 'invalid_grant' })
+      // the person has not allowed it yet
+      if (++polled <= log.pending) return json(route, 400, { error: 'authorization_pending' })
+      return json(route, 200, { access_token: 'codes-e2e-ACCESS-Rt55', refresh_token: 'codes-e2e-REFRESH-Yu66', token_type: 'Bearer', expires_in: 3600 })
+    }
+    return json(route, 404, {})
+  })
+  return log
+}
+
+/** Settings → Claude AI with the "codes" server turned down (401): its row. */
+async function openCodesRow(page: Page) {
+  await openApp(page)
+  await setKey(page)
+  await setServers(page, [{ id: 'srvcodes01', name: 'codes', url: `${CODES_HOST}/mcp`, token: '', enabled: true, prompt: 'Makes images.', promptSource: 'auto', checkError: 'The server rejected the token.', checkAuth: true }])
+  await uiEval(page, (s) => s.openModal({ type: 'settings', tab: 'ai' }))
+  const row = page.locator('.mcps-card[data-server="codes"]')
+  await row.scrollIntoViewIfNeeded()
+  return row
+}
+
 test.describe('MCP sign-in (OAuth, mocked authorization server)', () => {
   test('Sign in: metadata → registration → PKCE in a window → token; refreshed before expiry; Sign out; tokens never stored in the clear or backed up', async ({ page, context, errors }, testInfo) => {
     test.setTimeout(90_000)
@@ -583,6 +656,169 @@ test.describe('MCP sign-in (OAuth, mocked authorization server)', () => {
     expect(await storageDump(page)).not.toContain('mcp-token:srvoauth01')
     // nothing of a token in any console message
     for (const secret of [ACCESS1, ACCESS2, REFRESH1, REFRESH2]) expect(logs.join('\n')).not.toContain(secret)
+  })
+
+  test('two sign-in services listed: the MCP host’s own (no CORS) is never asked, the first a browser can read wins — registration, PKCE and token there', async ({ page, context, errors }) => {
+    test.setTimeout(60_000)
+    errors.allow(/401|CORS|Failed to load resource|ERR_FAILED/)
+    await mockApi(context, () => sseMessage([{ type: 'text', text: 'ok' }]), 'TOOLS: generate_image\n---\nMakes images.')
+    const host = 'https://mcp.images.test'
+    const first = 'https://sso.images.test'
+    const second = 'https://login.images.test'
+    const hits: string[] = []
+    const cors = { 'access-control-allow-origin': '*', 'access-control-allow-headers': '*', 'access-control-allow-methods': 'GET, POST' }
+    const json = (route: Route, status: number, body: unknown, headers: Record<string, string>) => route.fulfill({ status, headers: { 'content-type': 'application/json', ...headers }, body: JSON.stringify(body) })
+    // the MCP host: a 401, resource metadata readable, its own authorization server metadata refused to browsers
+    await context.route(`${host}/**`, (route) => {
+      const req = route.request()
+      const path = new URL(req.url()).pathname
+      hits.push(`${req.method()} ${host}${path}`)
+      if (req.method() === 'OPTIONS') return route.fulfill({ status: 204, headers: cors })
+      if (path === '/mcp') return json(route, 401, { error: 'unauthorized' }, { ...cors, 'www-authenticate': `Bearer resource_metadata="${host}/.well-known/oauth-protected-resource/mcp", scope="openid email offline_access"` })
+      if (path === '/.well-known/oauth-protected-resource/mcp') return json(route, 200, { resource: `${host}/mcp`, authorization_servers: [first, second], scopes_supported: ['openid', 'email', 'offline_access'] }, cors)
+      // (a routed answer skips the browser's CORS check, so a refusal is played as a failed request)
+      if (path === '/.well-known/oauth-authorization-server') return route.abort('failed')
+      return json(route, 404, {}, cors)
+    })
+    // the first listed sign-in service does not answer a browser (CORS)
+    await context.route(`${first}/**`, (route) => {
+      hits.push(`${route.request().method()} ${route.request().url()}`)
+      return route.abort('failed')
+    })
+    // the second: readable with CORS, dynamic registration, PKCE, a device endpoint too
+    const reg: AnyState[] = []
+    const tokens: URLSearchParams[] = []
+    const authorized: URLSearchParams[] = []
+    let challenge = ''
+    await context.route(`${second}/**`, (route) => {
+      const req = route.request()
+      const url = new URL(req.url())
+      hits.push(`${req.method()} ${second}${url.pathname}`)
+      if (req.method() === 'OPTIONS') return route.fulfill({ status: 204, headers: cors })
+      if (url.pathname === '/.well-known/oauth-authorization-server')
+        return json(route, 200, { issuer: second, authorization_endpoint: `${second}/oauth/authorize`, token_endpoint: `${second}/oauth/token`, registration_endpoint: `${second}/oauth/register`, device_authorization_endpoint: `${second}/oauth/device_authorization`, code_challenge_methods_supported: ['S256'], token_endpoint_auth_methods_supported: ['none'] }, cors)
+      if (url.pathname === '/oauth/register') {
+        reg.push(JSON.parse(req.postData() ?? '{}'))
+        return json(route, 201, { client_id: 'images-e2e-client', token_endpoint_auth_method: 'none', grant_types: reg.at(-1)!.grant_types }, cors)
+      }
+      if (url.pathname === '/oauth/authorize') {
+        challenge = url.searchParams.get('code_challenge') ?? ''
+        authorized.push(url.searchParams)
+        const back = new URL(url.searchParams.get('redirect_uri')!)
+        back.searchParams.set('code', 'CODE-images-1')
+        back.searchParams.set('state', url.searchParams.get('state')!)
+        return route.fulfill({ status: 302, headers: { location: back.href } })
+      }
+      if (url.pathname === '/oauth/token') {
+        const p = new URLSearchParams(req.postData() ?? '')
+        tokens.push(p)
+        const ok = p.get('code') === 'CODE-images-1' && createHash('sha256').update(p.get('code_verifier') ?? '').digest('base64url') === challenge
+        return ok ? json(route, 200, { access_token: 'images-e2e-ACCESS-Zq81', refresh_token: 'images-e2e-REFRESH-Wv02', token_type: 'bearer', expires_in: 3600 }, cors) : json(route, 400, { error: 'invalid_grant' }, cors)
+      }
+      return json(route, 404, {}, cors)
+    })
+    await openApp(page)
+    await setKey(page)
+    await setServers(page, [{ id: 'srvimages1', name: 'images', url: `${host}/mcp`, token: '', enabled: true, prompt: 'Makes images.', promptSource: 'auto', checkError: 'The server rejected the token.', checkAuth: true }])
+    await uiEval(page, (s) => s.openModal({ type: 'settings', tab: 'ai' }))
+    const row = page.locator('.mcps-card[data-server="images"]')
+    await row.scrollIntoViewIfNeeded()
+    const popupP = context.waitForEvent('page')
+    await row.getByTestId('mcp-signin').click()
+    const popup = await popupP
+    errors.watch(popup)
+    await popup.waitForEvent('close', { timeout: 20_000 })
+    await expect(row.getByTestId('mcp-status')).toContainText('Signed in', { timeout: 15_000 })
+
+    // the first listed service was tried and skipped; the host's own sign-in was never asked
+    expect(hits).toContain(`GET ${first}/.well-known/oauth-authorization-server`)
+    expect(hits.filter((h) => h.startsWith(`POST ${first}`))).toEqual([])
+    expect(hits.filter((h) => h.includes(`${host}/.well-known/oauth-authorization-server`) || h.includes(`${host}/authorize`) || h.includes(`${host}/token`))).toEqual([])
+    // registered there as a public client for this page (no fragment), with the device grant along
+    expect(reg).toHaveLength(1)
+    expect(reg[0].token_endpoint_auth_method).toBe('none')
+    expect(reg[0].redirect_uris[0]).toMatch(/\/app\/\?oauth=mcp$/)
+    expect(reg[0].grant_types).toContain('urn:ietf:params:oauth:grant-type:device_code')
+    expect(reg[0].scope).toBe('openid email offline_access')
+    expect(authorized).toHaveLength(1)
+    expect(authorized[0].get('scope')).toBe('openid email offline_access')
+    expect(authorized[0].get('code_challenge_method')).toBe('S256')
+    expect(authorized[0].get('redirect_uri')).not.toContain('#')
+    expect(tokens.map((p) => p.get('grant_type'))).toEqual(['authorization_code'])
+    const server = await wsEval(page, (s) => s.settings.mcpServers[0])
+    expect(server.oauth.issuer).toBe(second)
+    expect(server.oauth.deviceEndpoint).toBe(`${second}/oauth/device_authorization`)
+    expect(server.token).toMatch(/:Zq81$/)
+    await row.getByRole('button', { name: /IMAGES/ }).click()
+    await expect(row.getByTestId('mcp-oauth-state')).toContainText('Signed in at login.images.test')
+  })
+
+  test('the sign-in refuses this page as the way back: a sign-in with a code (device flow), polled until allowed', async ({ page, context, errors }) => {
+    test.setTimeout(60_000)
+    errors.allow(/401|Failed to load resource/)
+    await mockApi(context, () => sseMessage([{ type: 'text', text: 'ok' }]), 'TOOLS: generate_image\n---\nMakes images.')
+    const log = await mockCodeAuth(context, { wayBack: false })
+    const row = await openCodesRow(page)
+    const popupP = context.waitForEvent('page')
+    await row.getByTestId('mcp-signin').click()
+    const popup = await popupP
+    // the window goes to the server's page for the code; Settings shows the code and waits
+    await expect.poll(() => popup.url()).toContain('/activate?user_code=WDJB-MJHT')
+    await expect(row.getByTestId('mcp-user-code')).toHaveText('WDJB-MJHT')
+    await expect(row.getByTestId('mcp-code-open')).toHaveAttribute('href', `${CODES_AUTH}/activate?user_code=WDJB-MJHT`)
+    await popup.waitForEvent('close', { timeout: 20_000 })
+    await expect(row.getByTestId('mcp-status')).toContainText('Signed in', { timeout: 15_000 })
+    await expect(row.getByTestId('mcp-device-code')).toHaveCount(0)
+    // asked with this page first (with the device grant, then without), then for the device grant alone (no redirect URI)
+    expect(log.reg.map((r) => !!r.redirect_uris)).toEqual([true, true, false])
+    expect(log.reg[2].grant_types).toEqual(['urn:ietf:params:oauth:grant-type:device_code', 'refresh_token'])
+    expect(log.devices.map((p) => p.get('client_id'))).toEqual(['codes-e2e-client'])
+    expect(log.polls.length).toBe(2)
+    const server = await wsEval(page, (s) => s.settings.mcpServers[0])
+    expect(server.token).toMatch(/:Rt55$/)
+    expect(server.oauth.deviceOnly).toBe(true)
+    expect(server.oauth.refresh).toBe(true)
+    await flush(page)
+    const dump = await storageDump(page)
+    for (const secret of ['codes-e2e-ACCESS-Rt55', 'codes-e2e-REFRESH-Yu66', 'DEVICE-e2e-1']) expect(dump).not.toContain(secret)
+  })
+
+  test('the sign-in window never comes back: "Use a code instead" switches to a code on the same registration; Cancel ends a code', async ({ page, context, errors }) => {
+    test.setTimeout(60_000)
+    errors.allow(/401|Failed to load resource/)
+    await mockApi(context, () => sseMessage([{ type: 'text', text: 'ok' }]), 'TOOLS: generate_image\n---\nMakes images.')
+    const log = await mockCodeAuth(context, { wayBack: true })
+    const row = await openCodesRow(page)
+    const popupP = context.waitForEvent('page')
+    await row.getByTestId('mcp-signin').click()
+    const popup = await popupP
+    // the sign-in page never sends the window back
+    await expect.poll(() => popup.url()).toContain('/authorize')
+    await expect(row.getByTestId('mcp-signin')).toHaveText(/Waiting for the sign-in window/)
+    log.pending = 99
+    await row.getByTestId('mcp-use-code').click()
+    await expect(row.getByTestId('mcp-user-code')).toHaveText('WDJB-MJHT')
+    await expect.poll(() => popup.url()).toContain('/activate?user_code=WDJB-MJHT')
+    // Cancel: the code goes away, nothing is stored
+    await row.getByTestId('mcp-code-cancel').click()
+    await expect(row.getByTestId('mcp-device-code')).toHaveCount(0)
+    await expect(row.getByTestId('mcp-signin')).toHaveText(/Sign in/)
+    await expect.poll(() => popup.isClosed()).toBe(true)
+    expect(await wsEval(page, (s) => s.settings.mcpServers[0].token)).toBe('')
+    // "Sign in with a code" is offered now that the server is known to have it; this time it is allowed
+    log.pending = 1
+    const popup2P = context.waitForEvent('page')
+    await row.getByTestId('mcp-signin-code').click()
+    const popup2 = await popup2P
+    await expect(row.getByTestId('mcp-user-code')).toHaveText('WDJB-MJHT')
+    await expect(row.getByTestId('mcp-status')).toContainText('Signed in', { timeout: 15_000 })
+    await expect.poll(() => popup2.isClosed()).toBe(true)
+    // one registration for this page with the device grant along, reused for the codes
+    expect(log.reg).toHaveLength(1)
+    expect(log.reg[0].redirect_uris).toHaveLength(1)
+    expect(log.reg[0].grant_types).toContain('urn:ietf:params:oauth:grant-type:device_code')
+    expect(log.devices).toHaveLength(2)
+    expect(await wsEval(page, (s) => s.settings.mcpServers[0].token)).toMatch(/:Rt55$/)
   })
 
   test('a server without a sign-in says so; the redirect page finishes a sign-in this tab started', async ({ page, context, errors }) => {

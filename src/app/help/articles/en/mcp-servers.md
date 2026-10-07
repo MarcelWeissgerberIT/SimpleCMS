@@ -3,7 +3,7 @@ id: mcp-servers
 title: MCP servers (knowledge bases & co)
 section: ai
 order: 6
-keywords: mcp, mcp server, tools, connector, knowledge base, token, external tools, integration, codeword, kb:, oauth, sign in, image, video, generate, media, save to one, MCP-Server, Werkzeuge, Wissensdatenbank, Codewort, Anmelden, Bild generieren
+keywords: mcp, mcp server, tools, connector, knowledge base, token, external tools, integration, codeword, kb:, oauth, sign in, sign-in code, device code, image, video, generate, media, save to one, MCP-Server, Werkzeuge, Wissensdatenbank, Codewort, Anmelden, Bild generieren
 related: agent, ai-menu, mcp-token-rejected, mcp-bridge, claude-key
 summary: Let One's Claude use the tools of other systems — a knowledge base, a tracker, a CRM.
 ---
@@ -32,7 +32,12 @@ Some servers have their own sign-in page (OAuth) instead of a token to paste. Wh
 2. Sign in and allow access — the window closes, the row shows **Signed in** and the connection is tested again.
 3. **Sign out** removes the tokens from this browser.
 
-One refreshes the access token shortly before it expires. If the browser blocks the window, the tab goes to the sign-in page and comes back. A sign-in that a browser can't finish (the server's sign-in refuses it, CORS) says so — then paste a token as before.
+One refreshes the access token shortly before it expires. If the browser blocks the window, the tab goes to the sign-in page and comes back. A server may name several sign-in services: One uses the first one a browser can talk to and registers itself there.
+
+### Sign in with a code
+Some sign-ins don't send the window back to One — they show an error there, or refuse One's page as the way back. Then sign in with a code: while the window waits, **Use a code instead** (or **Sign in with a code**, once One knows the server offers it). Settings shows a short code like `WDJB-MJHT`; the window goes to the server's page for it — enter the code there and allow access. One waits and finishes by itself; **Cancel** ends it.
+
+A sign-in that a browser can't finish at all (the server's sign-in refuses browsers, CORS) says so — then paste a token as before.
 
 ## Save media to One
 Image and video services (and others) return pictures, clips or audio. One shows each as a **card** — file type, host, size when known — under the answer in the AI menu, in `⌘K ?`, in the [AI terminal](help:agent) and in [custom agents'](help:custom-agents) runs. Nothing is loaded until you click.

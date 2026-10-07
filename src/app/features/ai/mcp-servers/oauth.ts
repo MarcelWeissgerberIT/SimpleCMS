@@ -4,9 +4,10 @@
  *  1. discover(): the server's 401 (`WWW-Authenticate: Bearer resource_metadata="…"`, read when the server
  *     exposes the header) or its well-known protected-resource metadata (RFC 9728: `…/oauth-protected-resource
  *     <path>`, then the root) → the authorization servers it lists, IN ORDER: the first whose metadata (RFC 8414 /
- *     OpenID, the spec's order of addresses) can be read and used wins; one without metadata, unreadable (CORS) or
- *     without PKCE S256 is skipped. Only a server without resource metadata falls back to its own origin (the
- *     older spec) — a server that names its authorization servers is never asked for its own.
+ *     OpenID, the spec's order of addresses) can be read and used wins (one that offers dynamic registration
+ *     before one that doesn't); one without metadata, unreadable (CORS) or without PKCE S256 is skipped. Only a
+ *     server without resource metadata falls back to its own origin (the older spec) — a server that names its
+ *     authorization servers is never asked for its own.
  *  2. dynamic client registration when offered (a public client, `token_endpoint_auth_method: none`; a secret
  *     that comes anyway is sealed as "mcp-client:<id>"). The device code grant is asked for too when the server
  *     has a device endpoint (refused: registered again without it). A registration for this redirect URI is reused.
@@ -254,10 +255,13 @@ export async function discover(serverUrl: string): Promise<Discovery> {
     /* CORS on the server itself: its metadata may still be readable */
   }
   let prm: Record<string, unknown> | null = null
+  // the resource metadata could not be read from a browser at all (CORS): its sign-in is out of reach, not absent
+  let prmRefused = false
   try {
     prm = await firstJson([...new Set([...(hinted.resourceMetadata ? [hinted.resourceMetadata] : []), ...resourceMetadataUrls(serverUrl)])])
   } catch (e) {
     if (!(e instanceof OAuthError) || e.issue !== 'cors') throw e
+    prmRefused = true
   }
   const listed = Array.isArray(prm?.authorization_servers) ? prm!.authorization_servers.filter(endpointOk).slice(0, MAX_AUTH_SERVERS) : []
   // the resource's authorization servers in its order; only an older server that names none: its own origin
@@ -266,15 +270,22 @@ export async function discover(serverUrl: string): Promise<Discovery> {
   const supported = Array.isArray(prm?.scopes_supported) ? (prm!.scopes_supported as unknown[]).filter((x): x is string => typeof x === 'string') : []
   const scope = hinted.scope || supported.join(' ')
   let skipped: OAuthError | null = null
+  // usable but without dynamic registration: taken only when no later one offers it
+  let noRegistration: Discovery | null = null
   for (const issuer of issuers) {
     const got = await authServer(issuer, resource, scope)
-    if (!(got instanceof OAuthError)) return got
+    if (!(got instanceof OAuthError)) {
+      if (got.registrationEndpoint) return got
+      noRegistration ??= got
+      continue
+    }
     if (!skipped || (SKIP_RANK[got.issue] ?? 0) > (SKIP_RANK[skipped.issue] ?? 0)) skipped = got
   }
+  if (noRegistration) return noRegistration
   const named = !!(prm || hinted.resourceMetadata)
   // nothing usable: a server that offers no sign-in at all, or one whose sign-in can't be used from here
   if (!skipped || skipped.issue === 'none') throw new OAuthError(named ? 'metadata' : 'none', named ? 'no authorization server metadata' : open ? 'open' : '')
-  if (skipped.issue === 'cors' && !named) throw new OAuthError('none', open ? 'open' : '')
+  if (skipped.issue === 'cors' && !named) throw prmRefused ? new OAuthError('cors', hostOf(serverUrl)) : new OAuthError('none', open ? 'open' : '')
   throw skipped
 }
 
@@ -309,7 +320,7 @@ interface Registration {
  * Register One at the authorization server — or reuse the registration this server already has for this
  * redirect URI (and, for `flow` 'device', the device grant).
  */
-async function registration(server: McpServerConfig, disc: Discovery, redirect: string, flow: 'code' | 'device'): Promise<Registration> {
+async function registration(server: McpServerConfig, disc: Discovery, redirect: string, flow: 'code' | 'device', wayBackRefused = false): Promise<Registration> {
   const had = server.oauth
   if (had && had.issuer === disc.issuer && had.redirectUri === redirect && had.clientId && (flow === 'code' ? !had.deviceOnly : had.device))
     return { clientId: had.clientId, secret: !!had.secret, device: !!had.device, deviceOnly: !!had.deviceOnly }
@@ -318,9 +329,12 @@ async function registration(server: McpServerConfig, disc: Discovery, redirect: 
   const all = [...code, DEVICE_GRANT]
   // what is asked for, in order: the device grant along when the server has the device flow (refused: without
   // it); a code sign-in whose way back is refused: a client for the device flow alone, without a redirect URI
+  const deviceOnly = { grants: [DEVICE_GRANT, 'refresh_token'], redirect: false }
   const asks: Array<{ grants: string[]; redirect: boolean }> =
     flow === 'device'
-      ? [{ grants: all, redirect: true }, { grants: [DEVICE_GRANT, 'refresh_token'], redirect: false }]
+      ? wayBackRefused
+        ? [deviceOnly]
+        : [{ grants: all, redirect: true }, deviceOnly]
       : disc.deviceEndpoint
         ? [{ grants: all, redirect: true }, { grants: code, redirect: true }]
         : [{ grants: code, redirect: true }]
@@ -524,7 +538,7 @@ export async function signIn(serverId: string): Promise<void> {
       reg = await registration(server, disc, redirect, 'code')
     } catch (e) {
       // the server's sign-in won't take this page as the way back: a code instead, in the same window
-      if (e instanceof OAuthError && e.issue === 'register' && disc.deviceEndpoint) return await deviceFlow(serverId, attempt, popup, disc)
+      if (e instanceof OAuthError && e.issue === 'register' && disc.deviceEndpoint && disc.registrationEndpoint) return await deviceFlow(serverId, attempt, popup, disc, true)
       throw e
     }
     const cfg = configOf(disc, reg, redirect)
@@ -579,13 +593,13 @@ const MIN_INTERVAL = 1000
 const MAX_CODE_LIFE = 30 * 60 * 1000
 
 /** RFC 8628: a code from the device endpoint, shown in Settings (and opened in the window), then the token endpoint polled. */
-async function deviceFlow(serverId: string, attempt: number, popup: Window | null, known?: Discovery): Promise<void> {
+async function deviceFlow(serverId: string, attempt: number, popup: Window | null, known?: Discovery, wayBackRefused = false): Promise<void> {
   const server = readServers().find((s) => s.id === serverId)
   if (!server) throw new OAuthError('cancelled')
   const disc = known ?? (await discover(server.url))
   if (!disc.deviceEndpoint) throw new OAuthError('nocode', 'no device authorization endpoint')
   const redirect = redirectUri()
-  const reg = await registration(readServers().find((s) => s.id === serverId) ?? server, disc, redirect, 'device')
+  const reg = await registration(readServers().find((s) => s.id === serverId) ?? server, disc, redirect, 'device', wayBackRefused)
   const cfg = configOf(disc, reg, redirect)
   keepConfig(serverId, cfg)
   const got = await formPost(disc.deviceEndpoint, new URLSearchParams({ client_id: cfg.clientId, ...(cfg.scope ? { scope: cfg.scope } : {}), resource: cfg.resource }))

@@ -3,7 +3,7 @@ id: mcp-servers
 title: MCP-Server (Wissensdatenbanken & Co.)
 section: ai
 order: 6
-keywords: mcp, mcp-server, werkzeuge, connector, wissensdatenbank, token, externe werkzeuge, integration, codewort, kb:, oauth, anmelden, bild, video, generieren, medien, in one speichern, tools, knowledge base, codeword, sign in, generate image
+keywords: mcp, mcp-server, werkzeuge, connector, wissensdatenbank, token, externe werkzeuge, integration, codewort, kb:, oauth, anmelden, anmeldecode, code, bild, video, generieren, medien, in one speichern, tools, knowledge base, codeword, sign in, generate image
 related: agent, ai-menu, mcp-token-rejected, mcp-bridge, claude-key
 summary: Lass Ones Claude die Werkzeuge anderer Systeme nutzen — eine Wissensdatenbank, einen Tracker, ein CRM.
 ---
@@ -32,7 +32,12 @@ Manche Server haben eine eigene Anmeldeseite (OAuth) statt eines Tokens zum Einf
 2. Anmelden und Zugriff erlauben — das Fenster schließt sich, die Zeile zeigt **Angemeldet**, und die Verbindung wird erneut getestet.
 3. **Abmelden** entfernt die Tokens aus diesem Browser.
 
-One erneuert das Zugriffstoken kurz bevor es abläuft. Blockiert der Browser das Fenster, geht der Tab zur Anmeldeseite und kommt zurück. Lässt sich eine Anmeldung im Browser nicht abschließen (die Anmeldung des Servers verweigert es, CORS), steht das da — dann fügst du wie bisher ein Token ein.
+One erneuert das Zugriffstoken kurz bevor es abläuft. Blockiert der Browser das Fenster, geht der Tab zur Anmeldeseite und kommt zurück. Nennt ein Server mehrere Anmeldedienste, nimmt One den ersten, mit dem ein Browser sprechen kann, und registriert sich dort.
+
+### Mit Code anmelden
+Manche Anmeldungen schicken das Fenster nicht zu One zurück — sie zeigen dort einen Fehler oder lehnen One als Rückweg ab. Dann meldest du dich mit einem Code an: Während das Fenster wartet, **Stattdessen mit Code** (oder **Mit Code anmelden**, sobald One weiß, dass der Server das anbietet). Die Einstellungen zeigen einen kurzen Code wie `WDJB-MJHT`; das Fenster geht zur Seite des Servers dafür — dort den Code eingeben und den Zugriff erlauben. One wartet und macht von selbst weiter; **Abbrechen** beendet es.
+
+Lässt sich eine Anmeldung im Browser gar nicht abschließen (die Anmeldung des Servers lässt keine Browser zu, CORS), steht das da — dann fügst du wie bisher ein Token ein.
 
 ## Medien in One speichern
 Bild- und Videodienste (und andere) liefern Bilder, Clips oder Audio. One zeigt jedes als **Karte** — Dateityp, Host, Größe, wenn bekannt — unter der Antwort im KI-Menü, bei `⌘K ?`, im [KI-Terminal](help:agent) und in den Läufen [eigener Agenten](help:custom-agents). Geladen wird erst, wenn du klickst.
