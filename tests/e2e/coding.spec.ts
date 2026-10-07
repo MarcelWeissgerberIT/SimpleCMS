@@ -494,13 +494,13 @@ test('while a stage runs: what the worker did last (ticking), Step x/y, the esti
   // the counters are gone with the stage
   await expect(page.getByTestId('coding-steps')).toHaveCount(0)
 
-  // a tool call shows its name only; what it was called with opens on a click
+  // a tool call shows its name (a file change: the file and its counts); what it did opens on a click
   await page.getByTestId('coding-tab-log').click()
   const write = page.getByTestId('coding-log').locator('.clog-tool').filter({ hasText: 'Write' }).first()
-  await expect(write.locator('summary')).toHaveText('Write')
-  await expect(write.locator('.clog-tool__arg')).toBeHidden()
+  await expect(write.locator('summary')).toHaveText(/^Write\s*live\.txt \+1 −0$/)
+  await expect(write.getByTestId('coding-log-edit')).toBeHidden()
   await write.locator('summary').click()
-  await expect(write.locator('.clog-tool__arg')).toHaveText('./live.txt')
+  await expect(write.getByTestId('coding-log-edit')).toContainText('./live.txt')
   // the clock never touches the text
   const gap = await page.getByTestId('coding-log').locator('.clog-line').first().evaluate((el) => {
     const t = el.querySelector('.clog-t')!.getBoundingClientRect()
