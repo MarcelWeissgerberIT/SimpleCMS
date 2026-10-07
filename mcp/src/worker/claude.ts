@@ -72,6 +72,10 @@ export interface ClaudeRun {
   onProgress?: (p: TaskProgress) => void
 }
 
+/** Claude Code's own sign-in is gone (expired login, no API key): the person fixes it with `claude` → /login. */
+const SIGNED_OUT = /Failed to authenticate|OAuth (session|token)[^.]*(expired|invalid|revoked)|Invalid API key|authentication_error|Please run \/login|not logged in|Not authenticated/i
+export const AUTH_HINT = 'Claude Code is not signed in on this computer (its login expired). In a terminal: run `claude`, type /login and sign in, then press Retry in One — the worker uses the same login.'
+
 export interface ClaudeResult {
   ok: boolean
   stopped: boolean
@@ -246,7 +250,13 @@ export function runClaude(r: ClaudeRun): Promise<ClaudeResult> {
           result.ok = ev.is_error !== true && result.subtype === 'success'
           if (!result.ok) result.error = result.subtype === 'error_max_turns' ? `Claude Code stopped after ${result.turns} turns (the stage's limit)` : /budget/i.test(result.subtype ?? '') ? 'Claude Code stopped at the cost limit' : result.text || `Claude Code ended with ${result.subtype ?? 'an error'}`
           r.onProgress?.({ turns: Math.max(turns, result.turns), maxTurns: r.maxTurns, cost: result.cost, model })
-          log(result.ok ? 'info' : 'warn', `Claude Code finished · ${result.turns} turns · $${result.cost.toFixed(2)}${result.ok ? '' : ` · ${result.subtype ?? 'error'}`}`, result.ok ? 'claudeDone' : 'claudeEnded', { turns: result.turns, cost: result.cost.toFixed(2), why: result.subtype ?? 'error' })
+          // an error that still says "success" (is_error with subtype success) is shown as an error
+          const why = result.ok ? 'success' : result.subtype && result.subtype !== 'success' ? result.subtype : 'error'
+          log(result.ok ? 'info' : 'warn', `Claude Code finished · ${result.turns} turns · $${result.cost.toFixed(2)}${result.ok ? '' : ` · ${why}`}`, result.ok ? 'claudeDone' : 'claudeEnded', { turns: result.turns, cost: result.cost.toFixed(2), why })
+          if (!result.ok && SIGNED_OUT.test(result.text)) {
+            result.error = AUTH_HINT
+            log('error', AUTH_HINT, 'claudeAuth')
+          }
           return
         }
       }
@@ -258,6 +268,10 @@ export function runClaude(r: ClaudeRun): Promise<ClaudeResult> {
         result.ok = false
         result.error = code === null ? 'Claude Code was ended' : `Claude Code exited with code ${code}${stderr.trim() ? `: ${clip(oneLine(stderr.trim().split('\n').slice(-3).join(' ')), 400)}` : ''}`
         if (/ENOENT|not found/i.test(stderr)) result.error = `Claude Code was not found ("${r.bin}"). Install it (npm i -g @anthropic-ai/claude-code) or set CLAUDE_BIN.`
+        else if (SIGNED_OUT.test(stderr)) {
+          result.error = AUTH_HINT
+          log('error', AUTH_HINT, 'claudeAuth')
+        }
       }
       done(result)
     })

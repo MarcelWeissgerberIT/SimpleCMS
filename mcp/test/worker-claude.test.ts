@@ -8,7 +8,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { after, describe, test } from 'node:test'
 import type { LogLine, TaskProgress } from '../../src/app/features/coding/protocol.ts'
-import { claudeArgs, cliMode, detectClaude, runClaude, toolLine, type ClaudeCaps } from '../src/worker/claude.ts'
+import { AUTH_HINT, claudeArgs, cliMode, detectClaude, runClaude, toolLine, type ClaudeCaps } from '../src/worker/claude.ts'
 import { buildPrompt, commitMessage } from '../src/worker/run.ts'
 import { estimateCost, usageOf } from '../src/worker/price.ts'
 import { sanitizeConfig } from '../src/worker/config.ts'
@@ -88,6 +88,17 @@ describe('Claude Code CLI', () => {
     assert.equal(estimateCost(null, [u]), null)
     assert.deepEqual(usageOf({ input_tokens: 'x' }), { input: 0, output: 0, cacheWrite: 0, cacheRead: 0 })
     assert.equal(usageOf(null), null)
+  })
+
+  test('an expired Claude Code login says what to do: claude → /login → Retry', async () => {
+    const dir = tempDir('claude')
+    const lines: LogLine[] = []
+    const caps = await detectClaude(FAKE_CLAUDE)
+    const res = await runClaude({ bin: FAKE_CLAUDE, cwd: dir, prompt: 'FAKE:AUTH', mode: 'plan', maxTurns: 5, model: null, allowedTools: [], disallowedTools: [], mcpConfig: null, strictMcp: true, budgetUsd: null, caps, env: process.env, signal: new AbortController().signal, onLog: (l) => lines.push(l) })
+    assert.equal(res.ok, false)
+    assert.equal(res.error, AUTH_HINT)
+    assert.ok(lines.some((l) => l.c === 'claudeAuth' && l.k === 'error'))
+    assert.deepEqual(lines.find((l) => l.c === 'claudeEnded')?.v?.why, 'error')
   })
 
   test('Stop ends the process tree at once', async () => {

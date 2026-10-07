@@ -11363,6 +11363,8 @@ function cliMode(mode, caps) {
   if (mode === "default" && caps.modes.includes("manual")) return "manual";
   return mode;
 }
+var SIGNED_OUT = /Failed to authenticate|OAuth (session|token)[^.]*(expired|invalid|revoked)|Invalid API key|authentication_error|Please run \/login|not logged in|Not authenticated/i;
+var AUTH_HINT = "Claude Code is not signed in on this computer (its login expired). In a terminal: run `claude`, type /login and sign in, then press Retry in One \u2014 the worker uses the same login.";
 function claudeArgs(r) {
   const args = ["-p", "--output-format", "stream-json", "--verbose", "--permission-mode", cliMode(r.mode, r.caps), "--max-turns", String(r.maxTurns)];
   if (r.model) args.push("--model", r.model);
@@ -11511,7 +11513,12 @@ ${e.message}`;
           result.ok = ev.is_error !== true && result.subtype === "success";
           if (!result.ok) result.error = result.subtype === "error_max_turns" ? `Claude Code stopped after ${result.turns} turns (the stage's limit)` : /budget/i.test(result.subtype ?? "") ? "Claude Code stopped at the cost limit" : result.text || `Claude Code ended with ${result.subtype ?? "an error"}`;
           r.onProgress?.({ turns: Math.max(turns, result.turns), maxTurns: r.maxTurns, cost: result.cost, model });
-          log2(result.ok ? "info" : "warn", `Claude Code finished \xB7 ${result.turns} turns \xB7 $${result.cost.toFixed(2)}${result.ok ? "" : ` \xB7 ${result.subtype ?? "error"}`}`, result.ok ? "claudeDone" : "claudeEnded", { turns: result.turns, cost: result.cost.toFixed(2), why: result.subtype ?? "error" });
+          const why2 = result.ok ? "success" : result.subtype && result.subtype !== "success" ? result.subtype : "error";
+          log2(result.ok ? "info" : "warn", `Claude Code finished \xB7 ${result.turns} turns \xB7 $${result.cost.toFixed(2)}${result.ok ? "" : ` \xB7 ${why2}`}`, result.ok ? "claudeDone" : "claudeEnded", { turns: result.turns, cost: result.cost.toFixed(2), why: why2 });
+          if (!result.ok && SIGNED_OUT.test(result.text)) {
+            result.error = AUTH_HINT;
+            log2("error", AUTH_HINT, "claudeAuth");
+          }
           return;
         }
       }
@@ -11523,6 +11530,10 @@ ${e.message}`;
         result.ok = false;
         result.error = code === null ? "Claude Code was ended" : `Claude Code exited with code ${code}${stderr.trim() ? `: ${clip(oneLine(stderr.trim().split("\n").slice(-3).join(" ")), 400)}` : ""}`;
         if (/ENOENT|not found/i.test(stderr)) result.error = `Claude Code was not found ("${r.bin}"). Install it (npm i -g @anthropic-ai/claude-code) or set CLAUDE_BIN.`;
+        else if (SIGNED_OUT.test(stderr)) {
+          result.error = AUTH_HINT;
+          log2("error", AUTH_HINT, "claudeAuth");
+        }
       }
       done(result);
     });

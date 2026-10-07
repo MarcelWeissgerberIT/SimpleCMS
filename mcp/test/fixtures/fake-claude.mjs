@@ -9,6 +9,7 @@
  *   FAKE:ASK             → asks a question (one_task_ask) until the prompt carries answers
  *   FAKE:SLOW            → keeps "working" until it is killed (Stop)
  *   FAKE:QUIET           → says nothing for 20 s (the worker's sign of life), then ends
+ *   FAKE:AUTH            → the CLI's expired login (an error result that says "success")
  *   FAKE:LIVE            → writes live.txt at once, then works 8 s (the live diff during a stage)
  *   FAKE:EXPENSIVE       → costs $4.00
  *   FAKE:DEMO            → a realistic TypeScript change to src/login.ts (the changelog screenshot)
@@ -80,6 +81,12 @@ const result = (text, cost, extra = {}) => out({ type: 'result', subtype: 'succe
 const title = /^# (.+)$/m.exec(prompt.split('<<<TASK')[1] ?? '')?.[1]?.trim() ?? 'task'
 const hasAnswers = prompt.includes('<<<ANSWERS')
 const hasRework = prompt.includes('<<<REWORK')
+
+if (prompt.includes('FAKE:AUTH')) {
+  // what the real CLI says when its login expired: an error result that still reads "success"
+  out({ type: 'result', subtype: 'success', is_error: true, num_turns: 1, total_cost_usd: 0, result: 'Failed to authenticate: OAuth session expired and could not be refreshed' })
+  process.exit(1)
+}
 
 if (mode === 'plan') {
   say('Reading the repository.')

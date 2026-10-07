@@ -17,6 +17,7 @@ export const LOG_CODES = new Set([
   'claudeDone',
   'claudeEnded',
   'stopped',
+  'claudeAuth',
   'fetching',
   'fetchFailed',
   'newBranch',
