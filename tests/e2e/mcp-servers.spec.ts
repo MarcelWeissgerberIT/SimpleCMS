@@ -782,6 +782,8 @@ test.describe('MCP servers (mocked Claude API, made-up server)', () => {
     await expect(menu.getByTestId('mcp-skipped')).toHaveText('wiki is switched off — Claude answers without it. Switch it on in Settings → Claude AI.')
     last = sent[sent.length - 1]
     expect(last.body.mcp_servers.map((x: AnyState) => x.name)).toEqual(['atlas'])
+    // automatic prompt caching for the server-side tool loop and paused turns
+    expect(last.body.cache_control).toEqual({ type: 'ephemeral' })
     expect(userText(last)).toContain('Request: Anything new on the launch?')
     expect(userText(last)).not.toMatch(/kb:|wiki:/i)
     expect(String(last.body.system)).toContain('The person addressed atlas by its codeword')

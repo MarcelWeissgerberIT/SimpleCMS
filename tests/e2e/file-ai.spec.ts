@@ -174,7 +174,10 @@ test.describe('Claude for files', () => {
     const content = claude.bodies[0].messages[0].content as AnyState[]
     expect(content[0]).toMatchObject({ type: 'document', title: PDF.name, source: { type: 'base64', media_type: 'application/pdf' } })
     expect(content[0].source.data).toBe(b64(PDF.bytes))
+    // prompt caching: the file is the end of the part that stays the same for every question about it
+    expect(content[0].cache_control).toEqual({ type: 'ephemeral' })
     expect(content[1].type).toBe('text')
+    expect(content[1].cache_control).toBeUndefined()
     // the page goes along as "What Claude reads" allows
     expect(taskText(claude.bodies[0])).toContain('Mail from Acme')
     expect(claude.bodies[0].model).toBe('claude-opus-5-5')

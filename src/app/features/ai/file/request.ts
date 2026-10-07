@@ -124,11 +124,16 @@ export interface FileRequest extends Omit<FilePromptInput, 'name' | 'format' | '
 
 const FALLBACK_BETA = 'server-side-fallback-2026-07-01'
 
-/** The `document` block of the file (title = its name). */
+/**
+ * The `document` block of the file (title = its name), marked for prompt caching: system + file are the same for
+ * every question about it (the task and the question come after), so a follow-up within 5 minutes reads the file
+ * from the cache instead of paying for it again. Too short a file is simply not cached.
+ */
 function documentBlock(m: FileMaterial) {
+  const cache_control = { type: 'ephemeral' as const }
   return m.type === 'pdf'
-    ? { type: 'document' as const, title: m.name, source: { type: 'base64' as const, media_type: 'application/pdf' as const, data: m.data } }
-    : { type: 'document' as const, title: m.name, source: { type: 'text' as const, media_type: 'text/plain' as const, data: m.text } }
+    ? { type: 'document' as const, title: m.name, source: { type: 'base64' as const, media_type: 'application/pdf' as const, data: m.data }, cache_control }
+    : { type: 'document' as const, title: m.name, source: { type: 'text' as const, media_type: 'text/plain' as const, data: m.text }, cache_control }
 }
 
 /** One request: the file + the task, streamed. Resolves with the answer text (JSON for tables). */

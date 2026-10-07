@@ -116,6 +116,9 @@ the public APIs stable — other areas are built against them in parallel.
   marker changes or a connection test passes) is left out of requests that did not address it (skipped 'refused', a
   note); a request that fails with `mcp_auth` for an unaddressed server runs once more without it (client.ts
   `retryWithout`, the terminal's `attempt()`). Codeword-addressed servers, custom agents' servers and tests are forced.
+  Prompt caching: every request with MCP servers sets top-level `cache_control` (client.ts `mcpParams`: the server-side
+  tool loop and paused turns re-read the prefix); the AI terminal and agents use automatic caching too; Claude for files
+  marks the `document` block (system + file are the same for every question about it). One-shot requests stay uncached.
 - MCP media (features/ai/media): cards for media in `mcp_tool_result` blocks and the links Claude wrote to the same
   hosts — never loaded by themselves. Save to One / Preview fetch only on a click (credentials 'omit', ≤ 50 MB images /
   200 MB video + audio, type and magic numbers must agree, SVG kept as a download), then `saveFile()` and a block with

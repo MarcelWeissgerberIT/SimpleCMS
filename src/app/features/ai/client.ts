@@ -462,9 +462,13 @@ async function streamWithMcp(
 
 const FALLBACK_BETA = 'server-side-fallback-2026-07-01'
 
-/** The MCP half of a request: the servers and one `mcp_toolset` per server (the beta goes with `betas`). */
+/**
+ * The MCP half of a request: the servers and one `mcp_toolset` per server (the beta goes with `betas`), plus
+ * automatic prompt caching — the server-side tool loop re-reads system + tool listings + results on every step,
+ * and a paused turn sends them again.
+ */
 function mcpParams(mcp: McpAttachment) {
-  return { mcp_servers: mcp.servers, tools: mcp.toolsets }
+  return { mcp_servers: mcp.servers, tools: mcp.toolsets, cache_control: { type: 'ephemeral' as const } }
 }
 
 /** The answer of a response: the text after its last MCP tool call (all text when it made none). */
