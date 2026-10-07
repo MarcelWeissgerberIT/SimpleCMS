@@ -81,6 +81,19 @@ h1 { margin: 26px 0 0; font-size: clamp(24px, 4vw, 34px); font-weight: 800; font
 .add { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 8px; margin: 0 0 10px; padding: 10px; border: 1px solid var(--rule-strong); border-radius: 4px; background: var(--surface); }
 .add .label { grid-column: 1 / -1; }
 .add__err { grid-column: 1 / -1; margin: 0; color: var(--signal-ink); font-size: 12.5px; }
+.clone { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); gap: 10px 12px; margin: 0 0 10px; padding: 12px; border: 1px solid var(--rule-strong); border-left: 2px solid var(--signal); border-radius: 4px; background: var(--surface); }
+.clone__keys { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; grid-column: 1 / -1; }
+.clone .msg, .clone .add__err, .clone > .hint { grid-column: 1 / -1; margin: 0; }
+.clone__bar { height: 3px; background: var(--rule); grid-column: 1 / -1; }
+.clone__bar > span { display: block; height: 100%; background: var(--signal); transition: width 260ms var(--ease); }
+.projects { grid-column: 1 / -1; display: grid; gap: 6px; padding-top: 10px; border-top: 1px solid var(--rule); }
+.projects__head { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 8px; align-items: center; }
+.projects ul { max-height: 260px; margin: 0; padding: 0; overflow: auto; list-style: none; border: 1px solid var(--rule); border-radius: 2px; }
+.proj { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 10px; width: 100%; padding: 7px 10px; border: 0; border-top: 1px solid var(--rule); background: transparent; color: var(--ink); text-align: left; cursor: pointer; font: inherit; }
+.projects li:first-child .proj { border-top: 0; }
+.proj:hover, .proj[aria-pressed='true'] { background: var(--hover); }
+.proj[aria-pressed='true'] { box-shadow: inset 2px 0 0 var(--signal); }
+.proj__path { overflow: hidden; font: 12.5px var(--mono); text-overflow: ellipsis; white-space: nowrap; }
 input[type='text'], input[type='number'], select { width: 100%; height: 30px; padding: 0 8px; border: 1px solid var(--rule-strong); border-radius: 2px; background: var(--bg); color: var(--ink); font: 13px var(--mono); }
 input[type='text']:focus, input[type='number']:focus, select:focus { border-color: var(--signal); outline: none; }
 .list { margin: 0; padding: 0; list-style: none; border: 1px solid var(--rule-strong); border-radius: 4px; background: var(--surface); }
@@ -139,6 +152,9 @@ input[type='text']:focus, input[type='number']:focus, select:focus { border-colo
   .ro > div:first-child { border-top: 0; }
   .bar__in { padding: 10px 16px; }
   .add { grid-template-columns: minmax(0, 1fr) auto; }
+  .clone { grid-template-columns: minmax(0, 1fr); }
+  .projects__head { grid-template-columns: minmax(0, 1fr) auto; }
+  .projects__head .label { grid-column: 1 / -1; }
 }
 @media (max-width: 420px) {
   .detail { margin-left: 14px; }
@@ -190,8 +206,30 @@ export const SETUP_JS = String.raw`(function () {
     testHint: 'Runs without a shell — && | > are plain words. Empty: no test stage.',
     noTests: 'No test stage',
     push: 'Push branches',
-    pr: 'Pull requests (gh)',
+    pr: 'Pull / merge requests (gh · glab)',
     limit: 'Cost limit per task (USD)',
+    mcpLabel: 'Own MCP servers for Claude Code',
+    mcpHint: 'Names as “claude mcp list” shows them, e.g. atlas — this repo\'s stages may use their tools (a knowledge base, a design system). Empty: only One\'s task tools.',
+    clone: 'Clone from GitLab / GitHub…',
+    cloneUrl: 'Clone address — on the project page under Clone (HTTPS or SSH)',
+    cloneDir: 'Into the folder',
+    cloneDirHint: 'A folder that is not synced (not iCloud, not Dropbox) — git would wait for files from the cloud. Kept with Save & start.',
+    cloneGo: 'Clone',
+    cloning: 'Cloning {name}… {line}',
+    cloned: 'Cloned {name} — ticked below. Save & start to hand it tasks.',
+    cloneFailed: 'The clone failed: {e}',
+    cloneAuth: 'git signs in with your SSH key or credential helper (glab auth login · gh auth setup-git) — the worker cannot type a password.',
+    projects: 'Your projects',
+    projectsLoading: 'Asking glab / gh for your projects…',
+    projectsNone: 'Install glab (GitLab) or gh (GitHub) and sign in to pick from your projects here — or paste the address above.',
+    filter: 'Filter',
+    via: 'Clone via',
+    zip: 'Import a ZIP…',
+    zipLabel: 'A ZIP of source code',
+    uploading: 'Uploading {name}…',
+    importing: 'Unpacking {name}… {line}',
+    imported: 'Imported {name} as a new repository (one commit, no remote) — ticked below. Save & start to hand it tasks.',
+    importFailed: 'The import failed: {e}',
     noLimit: 'none',
     ticked: '{n} ticked',
     tickedOne: '1 ticked',
@@ -253,8 +291,30 @@ export const SETUP_JS = String.raw`(function () {
     testHint: 'Läuft ohne Shell – && | > sind normale Wörter. Leer: keine Test-Stufe.',
     noTests: 'Keine Test-Stufe',
     push: 'Branches pushen',
-    pr: 'Pull Requests (gh)',
+    pr: 'Pull / Merge Requests (gh · glab)',
     limit: 'Kostengrenze pro Aufgabe (USD)',
+    mcpLabel: 'Eigene MCP-Server für Claude Code',
+    mcpHint: 'Namen wie in „claude mcp list“, z. B. atlas – die Stufen dieses Repos dürfen ihre Tools nutzen (eine Wissensbasis, ein Designsystem). Leer: nur die Aufgaben-Tools von One.',
+    clone: 'Von GitLab / GitHub klonen …',
+    cloneUrl: 'Klon-Adresse – auf der Projektseite unter „Clone“ (HTTPS oder SSH)',
+    cloneDir: 'In den Ordner',
+    cloneDirHint: 'Ein Ordner, der nicht synchronisiert wird (kein iCloud, kein Dropbox) – sonst wartet git auf Dateien aus der Cloud. Wird mit „Speichern & starten“ gemerkt.',
+    cloneGo: 'Klonen',
+    cloning: 'Klone {name} … {line}',
+    cloned: '{name} geklont – unten angehakt. „Speichern & starten“, damit One ihm Aufgaben gibt.',
+    cloneFailed: 'Das Klonen hat nicht geklappt: {e}',
+    cloneAuth: 'git meldet sich mit deinem SSH-Schlüssel oder Credential-Helper an (glab auth login · gh auth setup-git) – der Worker kann kein Passwort eintippen.',
+    projects: 'Deine Projekte',
+    projectsLoading: 'Frage glab / gh nach deinen Projekten …',
+    projectsNone: 'Installiere glab (GitLab) oder gh (GitHub) und melde dich an, um hier aus deinen Projekten zu wählen – oder füge die Adresse oben ein.',
+    filter: 'Filter',
+    via: 'Klonen über',
+    zip: 'ZIP importieren …',
+    zipLabel: 'Eine ZIP mit Quellcode',
+    uploading: 'Lade {name} hoch …',
+    importing: 'Entpacke {name} … {line}',
+    imported: '{name} als neues Repository importiert (ein Commit, kein Remote) – unten angehakt. „Speichern & starten“, damit One ihm Aufgaben gibt.',
+    importFailed: 'Der Import hat nicht geklappt: {e}',
     noLimit: 'keine',
     ticked: '{n} angehakt',
     tickedOne: '1 angehakt',
@@ -338,6 +398,14 @@ export const SETUP_JS = String.raw`(function () {
   var addError = ''
   var busy = ''
   var note = null
+  var cloneOpen = false
+  var cloneUrl = ''
+  var cloneDirText = null
+  var cloneErr = ''
+  var cloneProto = 'https'
+  var projects = null
+  var projFilter = ''
+  var handledClone = 0
 
   function ago(ms) {
     if (!ms) return t('unknown')
@@ -351,13 +419,24 @@ export const SETUP_JS = String.raw`(function () {
   }
 
   function editOf(r) {
-    if (!edits[r.path]) edits[r.path] = { ticked: r.ticked, name: r.name, base: r.base, test: r.testLine, push: r.push, pr: r.pr, limit: r.maxUsdPerTask === null ? '' : String(r.maxUsdPerTask) }
+    if (!edits[r.path]) edits[r.path] = { ticked: r.ticked, name: r.name, base: r.base, test: r.testLine, push: r.push, pr: r.pr, limit: r.maxUsdPerTask === null ? '' : String(r.maxUsdPerTask), mcp: r.mcp || '' }
     return edits[r.path]
   }
 
   var again = 0
   function adopt(next) {
     state = next
+    // a clone finished: tick it like a folder added by hand
+    var job = state.clone
+    if (job && job.done && job.id !== handledClone) {
+      handledClone = job.id
+      delete edits[job.done]
+      var r = state.repos.filter(function (x) { return x.path === job.done })[0]
+      if (r) editOf(r).ticked = true
+      cloneOpen = false
+      cloneUrl = ''
+      note = { ok: true, text: t(job.kind === 'import' ? 'imported' : 'cloned', { name: job.name }) }
+    }
     // while the search runs, ask again every second (the list grows as repos are found)
     clearTimeout(again)
     if (state.scan && state.scan.running) again = setTimeout(function () { api('GET', 'state').then(adopt, function () {}) }, 1000)
@@ -410,13 +489,14 @@ export const SETUP_JS = String.raw`(function () {
     branches.forEach(function (b) { base.appendChild(el('option', { value: b, text: b })) })
     base.value = e.base
     var toggles = [el('label', { className: 'sw' }, [el('input', { type: 'checkbox', role: 'switch', checked: e.push, onchange: function (ev) { e.push = ev.target.checked } }), t('push')])]
-    if (state.gh) toggles.push(el('label', { className: 'sw' }, [el('input', { type: 'checkbox', role: 'switch', checked: e.pr === 'gh', onchange: function (ev) { e.pr = ev.target.checked ? 'gh' : 'none' } }), t('pr')]))
+    if (state.gh || state.glab) toggles.push(el('label', { className: 'sw' }, [el('input', { type: 'checkbox', role: 'switch', checked: e.pr === 'gh', onchange: function (ev) { e.pr = ev.target.checked ? 'gh' : 'none' } }), t('pr')]))
     return el('div', { className: 'detail' }, [
       el('div', { className: 'field' }, [el('label', { className: 'label', for: id + 'n', text: t('nameLabel') }), el('input', { type: 'text', id: id + 'n', value: e.name, maxlength: 64, spellcheck: 'false', oninput: function (ev) { e.name = ev.target.value } })]),
       el('div', { className: 'field' }, [el('label', { className: 'label', for: id + 'b', text: t('baseLabel') }), base]),
       el('div', { className: 'field' }, [el('label', { className: 'label', for: id + 't', text: t('testLabel') }), el('input', { type: 'text', id: id + 't', value: e.test, spellcheck: 'false', autocomplete: 'off', oninput: function (ev) { e.test = ev.target.value; drawKeys() } }), keys, el('span', { className: 'hint', text: t('testHint') })]),
       el('div', { className: 'field field--wide' }, [el('div', { className: 'toggles' }, toggles)]),
-      el('div', { className: 'field' }, [el('div', { className: 'limit' }, [el('label', { className: 'label', for: id + 'l', text: t('limit') }), el('input', { type: 'number', id: id + 'l', min: '0', step: '0.5', value: e.limit, placeholder: t('noLimit'), inputmode: 'decimal', oninput: function (ev) { e.limit = ev.target.value } })])])
+      el('div', { className: 'field' }, [el('div', { className: 'limit' }, [el('label', { className: 'label', for: id + 'l', text: t('limit') }), el('input', { type: 'number', id: id + 'l', min: '0', step: '0.5', value: e.limit, placeholder: t('noLimit'), inputmode: 'decimal', oninput: function (ev) { e.limit = ev.target.value } })])]),
+      el('div', { className: 'field field--wide' }, [el('label', { className: 'label', for: id + 'm', text: t('mcpLabel') }), el('input', { type: 'text', id: id + 'm', value: e.mcp, placeholder: 'atlas', spellcheck: 'false', autocomplete: 'off', oninput: function (ev) { e.mcp = ev.target.value } }), el('span', { className: 'hint', text: t('mcpHint') })])
     ])
   }
 
@@ -450,8 +530,12 @@ export const SETUP_JS = String.raw`(function () {
       el('span', { className: 'label tools__meta', text: meta }),
       el('button', { type: 'button', className: 'btn', id: 'rescan', disabled: !!busy, onclick: rescan, text: busy === 'scan' ? t('scanning') : t('rescan') }),
       el('button', { type: 'button', className: 'btn', id: 'pick', disabled: busy === 'pick', onclick: pickFolder, text: t('pick') }),
-      el('button', { type: 'button', className: 'btn', id: 'add', 'aria-expanded': adding ? 'true' : 'false', onclick: function () { adding = !adding; addError = ''; render(); var i = $('addpath'); if (i) i.focus() }, text: t('add') })
+      el('button', { type: 'button', className: 'btn', id: 'add', 'aria-expanded': adding ? 'true' : 'false', onclick: function () { adding = !adding; addError = ''; render(); var i = $('addpath'); if (i) i.focus() }, text: t('add') }),
+      el('button', { type: 'button', className: 'btn', id: 'clone', 'aria-expanded': cloneOpen ? 'true' : 'false', onclick: toggleClone, text: t('clone') }),
+      el('button', { type: 'button', className: 'btn', id: 'zip', disabled: busy === 'zip' || !!(state.clone && state.clone.running), onclick: function () { $('zipfile').click() }, text: busy === 'zip' ? t('uploading', { name: '' }).replace(/\s+…$/, '…') : t('zip') }),
+      el('input', { type: 'file', id: 'zipfile', accept: '.zip,application/zip', hidden: true, 'aria-label': t('zipLabel'), onchange: function (ev) { var f = ev.target.files && ev.target.files[0]; ev.target.value = ''; if (f) uploadZip(f) } })
     ]))
+    if (cloneOpen) app.appendChild(clonePanel())
     if (adding) {
       var input = el('input', { type: 'text', id: 'addpath', placeholder: '~/code/my-app', spellcheck: 'false', autocomplete: 'off', onkeydown: function (ev) { if (ev.key === 'Enter') addFolder(input.value); if (ev.key === 'Escape') { adding = false; render() } } })
       app.appendChild(el('div', { className: 'add' }, [
@@ -565,11 +649,106 @@ export const SETUP_JS = String.raw`(function () {
     api('POST', 'add', { path: path }).then(adopted, function (e) { addError = e.message; render(); var i = $('addpath'); if (i) { i.value = path; i.focus() } })
   }
 
+  function toggleClone() {
+    cloneOpen = !cloneOpen
+    cloneErr = ''
+    render()
+    if (!cloneOpen) return
+    var i = $('cloneurl')
+    if (i) i.focus()
+    if (!projects) {
+      projects = { loading: true }
+      api('GET', 'projects').then(function (p) { projects = p; render() }, function () { projects = { projects: [], tools: {} }; render() })
+    }
+  }
+
+  function uploadZip(file) {
+    busy = 'zip'
+    cloneOpen = true
+    cloneErr = ''
+    note = { ok: true, text: t('uploading', { name: file.name }) }
+    render()
+    var dir = cloneDirText === null ? state.cloneDir : cloneDirText
+    fetch('/setup/api/import?name=' + encodeURIComponent(file.name) + '&dir=' + encodeURIComponent(dir), { method: 'POST', headers: { 'x-one-setup': token, 'content-type': 'application/zip' }, body: file, cache: 'no-store', credentials: 'omit' })
+      .then(function (r) {
+        return r.json().catch(function () { return {} }).then(function (j) {
+          if (!r.ok) throw new Error(j.error || 'HTTP ' + r.status)
+          return j
+        })
+      })
+      .then(function (s) { busy = ''; note = null; adopt(s); followClone() }, function (e) { busy = ''; note = null; cloneErr = t('importFailed', { e: e.message }); render() })
+  }
+
+  function startClone() {
+    cloneErr = ''
+    var dir = cloneDirText === null ? state.cloneDir : cloneDirText
+    api('POST', 'clone', { url: cloneUrl, dir: dir }).then(function (s) { adopt(s); followClone() }, function (e) { cloneErr = e.message; render() })
+  }
+
+  function followClone() {
+    setTimeout(function () {
+      api('GET', 'state').then(function (s) {
+        adopt(s)
+        if (s.clone && s.clone.running) followClone()
+        else if (s.clone && s.clone.done) { var node = document.querySelector('[data-path="' + CSS.escape(s.clone.done) + '"]'); if (node) node.scrollIntoView({ block: 'nearest' }) }
+      }, function () { followClone() })
+    }, 600)
+  }
+
+  function clonePanel() {
+    var job = state.clone && state.clone.id >= handledClone ? state.clone : null
+    var running = !!(job && job.running)
+    var url = el('input', { type: 'text', id: 'cloneurl', value: cloneUrl, placeholder: 'git@gitlab.com:group/project.git', spellcheck: 'false', autocomplete: 'off', oninput: function (ev) { cloneUrl = ev.target.value }, onkeydown: function (ev) { if (ev.key === 'Enter' && !running) startClone(); if (ev.key === 'Escape') { cloneOpen = false; render() } } })
+    var dir = el('input', { type: 'text', id: 'clonedir', value: cloneDirText === null ? state.cloneDir : cloneDirText, spellcheck: 'false', autocomplete: 'off', oninput: function (ev) { cloneDirText = ev.target.value } })
+    var kids = [
+      el('div', { className: 'field' }, [el('label', { className: 'label', for: 'cloneurl', text: t('cloneUrl') }), url]),
+      el('div', { className: 'field' }, [el('label', { className: 'label', for: 'clonedir', text: t('cloneDir') }), dir, el('span', { className: 'hint', text: t('cloneDirHint') })]),
+      el('div', { className: 'clone__keys' }, [
+        el('button', { type: 'button', className: 'btn btn--primary', id: 'clonego', disabled: running || !cloneUrl.trim(), onclick: startClone, text: t('cloneGo') }),
+        el('button', { type: 'button', className: 'btn btn--ghost', onclick: function () { cloneOpen = false; render() }, text: t('cancel') })
+      ])
+    ]
+    if (running) {
+      // CSSOM, not a style attribute: the page's CSP allows no inline styles
+      var fill = el('span')
+      fill.style.width = (job.percent || 2) + '%'
+      kids.push(el('div', { className: 'clone__bar', 'aria-hidden': 'true' }, [fill]))
+      kids.push(el('p', { className: 'msg', role: 'status', id: 'clonestate', text: t(job.kind === 'import' ? 'importing' : 'cloning', { name: job.name, line: job.line }) }))
+    } else if (job && job.error) kids.push(el('p', { className: 'add__err', role: 'alert', id: 'clonestate', text: t(job.kind === 'import' ? 'importFailed' : 'cloneFailed', { e: job.error }) }))
+    if (cloneErr) kids.push(el('p', { className: 'add__err', role: 'alert', text: cloneErr }))
+    kids.push(el('p', { className: 'hint', text: t('cloneAuth') }))
+    kids.push(projectList())
+    return el('div', { className: 'clone', id: 'clonebox' }, kids)
+  }
+
+  function projectList() {
+    var box = el('div', { className: 'projects' })
+    if (!projects || projects.loading) { box.appendChild(el('span', { className: 'hint', text: t('projectsLoading') })); return box }
+    var all = projects.projects || []
+    if (!all.length) { box.appendChild(el('span', { className: 'hint', text: t('projectsNone') })); return box }
+    var proto = el('select', { 'aria-label': t('via'), onchange: function (ev) { cloneProto = ev.target.value; if (cloneUrl) { var hit = all.filter(function (p) { return p.https === cloneUrl || p.ssh === cloneUrl })[0]; if (hit) cloneUrl = hit[cloneProto] } render() } }, [el('option', { value: 'https', text: 'HTTPS' }), el('option', { value: 'ssh', text: 'SSH' })])
+    proto.value = cloneProto
+    var filter = el('input', { type: 'text', id: 'projfilter', value: projFilter, placeholder: t('filter'), 'aria-label': t('filter'), spellcheck: 'false', autocomplete: 'off', oninput: function (ev) { projFilter = ev.target.value; render(); var f = $('projfilter'); if (f) { f.focus(); f.setSelectionRange(f.value.length, f.value.length) } } })
+    box.appendChild(el('div', { className: 'projects__head' }, [el('span', { className: 'label', text: t('projects') + ' · ' + all.length }), filter, proto]))
+    var q = projFilter.trim().toLowerCase()
+    var list = el('ul', { id: 'projects' })
+    all.filter(function (p) { return !q || (p.path + ' ' + p.host).toLowerCase().indexOf(q) >= 0 }).slice(0, 60).forEach(function (p) {
+      var url = p[cloneProto]
+      list.appendChild(el('li', null, [el('button', { type: 'button', className: 'proj', 'aria-pressed': cloneUrl === url ? 'true' : 'false', onclick: function () { cloneUrl = url; render(); var g = $('clonego'); if (g) g.focus() } }, [
+        el('span', { className: 'proj__path', text: p.path }),
+        el('span', { className: 'label', text: ago(p.updated) }),
+        el('span', { className: 'label', text: p.host })
+      ])]))
+    })
+    box.appendChild(list)
+    return box
+  }
+
   function save() {
     var repos = state.repos.filter(function (r) { return editOf(r).ticked }).map(function (r) {
       var e = editOf(r)
       var limit = parseFloat(String(e.limit).replace(',', '.'))
-      return { path: r.path, name: e.name.trim(), baseBranch: e.base, test: e.test, push: e.push, pr: e.pr, maxUsdPerTask: isFinite(limit) && limit > 0 ? limit : null }
+      return { path: r.path, name: e.name.trim(), baseBranch: e.base, test: e.test, push: e.push, pr: e.pr, maxUsdPerTask: isFinite(limit) && limit > 0 ? limit : null, mcp: e.mcp }
     })
     busy = 'save'
     note = null

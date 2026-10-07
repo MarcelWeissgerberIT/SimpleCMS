@@ -21,6 +21,11 @@ export interface ClaudeConfig {
   disallowedTools: string[]
   /** only the task tools as MCP servers (--strict-mcp-config; default true) */
   strictMcp: boolean
+  /**
+   * the person's own Claude Code MCP servers this repo's stages may use (e.g. a knowledge base) — by the names
+   * Claude Code knows them under; their tools are allowed (mcp__<name>) and --strict-mcp-config is left out
+   */
+  mcpServers: string[]
 }
 
 export interface RepoConfig {
@@ -54,6 +59,8 @@ export interface WorkerConfig {
   /** extra allowed page origins (like ONE_ORIGINS) */
   origins: string[]
   repos: RepoConfig[]
+  /** where the setup page clones repositories to (absolute; default ~/one-repos, ONE_WORKER_CLONE_DIR wins) */
+  cloneDir: string
   /** the download's preset (workspace, origin, port and pairing secret come from it; null: worker.json only) */
   preset: WorkerPreset | null
 }
@@ -165,7 +172,19 @@ function claudeConfig(raw: unknown, where: string, problems: string[]): ClaudeCo
     allowedTools: strings(c.allowedTools),
     disallowedTools: strings(c.disallowedTools),
     strictMcp: c.strictMcp !== false,
+    mcpServers: mcpNames(c.mcpServers, where, problems),
   }
+}
+
+/** Claude Code MCP server names: letters, digits, "_" and "-" (never "one-task": the worker's own). */
+export const MCP_NAME = /^[A-Za-z0-9_-]{1,64}$/
+function mcpNames(raw: unknown, where: string, problems: string[]): string[] {
+  const out: string[] = []
+  for (const n of strings(raw, 20)) {
+    if (MCP_NAME.test(n) && n !== 'one-task') out.push(n)
+    else problems.push(`${where}: claude.mcpServers ${JSON.stringify(n)} is not an MCP server name — left out`)
+  }
+  return [...new Set(out)]
 }
 
 function repoConfig(raw: unknown, index: number, configDir: string, problems: string[]): RepoConfig | null {
@@ -278,10 +297,21 @@ export function sanitizeConfig(raw: unknown, file: string, env: NodeJS.ProcessEn
       pollSec: Math.floor(num(r.pollSec, 15, 2, 600)),
       origins: strings(r.origins, 20),
       repos,
+      cloneDir: cloneDirOf(env.ONE_WORKER_CLONE_DIR ?? r.cloneDir, configDir, problems),
       preset: null,
     },
     problems,
   }
+}
+
+/** The clone folder: ~/… or an absolute path (a relative one is read from the config's folder); default ~/one-repos. */
+function cloneDirOf(raw: unknown, configDir: string, problems: string[]): string {
+  if (raw === undefined || raw === null || raw === '') return join(homedir(), 'one-repos')
+  if (typeof raw !== 'string' || raw.length > 1000 || /[\u0000-\u001f]/.test(raw)) {
+    problems.push('"cloneDir" is not a folder — using ~/one-repos')
+    return join(homedir(), 'one-repos')
+  }
+  return resolve(configDir, expandHome(raw.trim()))
 }
 
 /* ------------------------------------------------------------------ init */
@@ -428,6 +458,8 @@ export interface RepoChoice {
   push: boolean
   pr: 'gh' | 'none'
   maxUsdPerTask: number | null
+  /** the person's own Claude Code MCP servers (names) this repo may use — undefined: leave as it is */
+  mcpServers?: string[]
 }
 
 const HEADER = '// one-worker — written by its setup page'
@@ -446,7 +478,7 @@ function homeRelative(path: string): string {
  * once before it is rewritten. Checked like a load first: nothing is written when a repo would be dropped.
  * Returns the problems (empty: written).
  */
-export function saveRepos(file: string, choices: RepoChoice[], workspace: string | null, env: NodeJS.ProcessEnv = process.env): string[] {
+export function saveRepos(file: string, choices: RepoChoice[], workspace: string | null, env: NodeJS.ProcessEnv = process.env, extra: { cloneDir?: string } = {}): string[] {
   const configDir = dirname(file)
   let text: string | null = null
   let raw: Record<string, unknown> = {}
@@ -471,10 +503,18 @@ export function saveRepos(file: string, choices: RepoChoice[], workspace: string
     entry.pr = c.pr
     if (c.maxUsdPerTask) entry.maxUsdPerTask = c.maxUsdPerTask
     else delete entry.maxUsdPerTask
+    if (c.mcpServers) {
+      const claude: Record<string, unknown> = isObj(entry.claude) ? { ...entry.claude } : {}
+      if (c.mcpServers.length) claude.mcpServers = c.mcpServers
+      else delete claude.mcpServers
+      if (Object.keys(claude).length) entry.claude = claude
+      else delete entry.claude
+    }
     return entry
   })
   const next: Record<string, unknown> = { ...raw }
   if (workspace) next.workspace = workspace
+  if (extra.cloneDir) next.cloneDir = homeRelative(resolve(extra.cloneDir))
   next.repos = repos
   // the same checks as loading: a repo the worker would drop is not written
   const check = sanitizeConfig(next, file, env)

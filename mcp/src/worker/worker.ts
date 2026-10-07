@@ -428,7 +428,7 @@ export class Worker {
           if (!repo.push) throw new GitError('pushing is off for this repo (worker.json "push": false)')
           await push(repo, need(), branch)
           const pr = await openPr(repo, need(), branch, msg.title || branch, `${msg.title}\n\n— From One (coding pipeline).`)
-          return await snap(pr.url ? (pr.via === 'gh' ? 'Pull request opened.' : 'Pushed — open the pull request from the link.') : 'Pushed. This remote has no pull request page One could link to.', pr.url ?? undefined)
+          return await snap(pr.url ? (pr.via === 'gh' ? 'Pull request opened.' : pr.via === 'glab' ? 'Merge request opened.' : 'Pushed — open the pull request from the link.') : 'Pushed. This remote has no pull request page One could link to.', pr.url ?? undefined)
         }
         case 'update-base': {
           const r = await updateFromBase(repo, need(), branch)

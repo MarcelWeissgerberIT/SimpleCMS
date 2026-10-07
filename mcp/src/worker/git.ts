@@ -555,9 +555,10 @@ function run(cmd: string, args: string[], cwd: string, timeoutMs = 120_000): Pro
 
 /**
  * Open a pull request: `gh pr create` when the repo wants it, gh is installed and the remote is a GitHub
- * host; otherwise the compare link (null when the remote has no web page One could link to).
+ * host; a merge request with `glab mr create` on a GitLab host (glab installed and signed in); otherwise the
+ * compare / new-merge-request link (null when the remote has no web page One could link to).
  */
-export async function openPr(repo: RepoConfig, dir: string, branch: string, title: string, body: string): Promise<{ url: string | null; via: 'gh' | 'link' | 'none' }> {
+export async function openPr(repo: RepoConfig, dir: string, branch: string, title: string, body: string): Promise<{ url: string | null; via: 'gh' | 'glab' | 'link' | 'none' }> {
   const remoteUrl = (await git(repo.path, ['remote', 'get-url', repo.remote])).stdout.trim()
   const web = webBase(remoteUrl)
   if (repo.pr === 'gh' && web?.kind === 'github') {
@@ -571,6 +572,15 @@ export async function openPr(repo: RepoConfig, dir: string, branch: string, titl
         if (view.code === 0 && view.stdout.trim()) return { url: view.stdout.trim(), via: 'gh' }
       }
       throw new GitError(`gh pr create failed: ${(made.stderr || made.stdout).trim().split('\n').slice(-3).join(' ')}`)
+    }
+  }
+  // GitLab: a merge request with glab when it is installed and signed in — else the link below
+  if (repo.pr === 'gh' && web?.kind === 'gitlab') {
+    const glab = await run('glab', ['--version'], dir, 10_000)
+    if (glab.code === 0) {
+      const made = await run('glab', ['mr', 'create', '--source-branch', branch, '--target-branch', repo.baseBranch, '--title', title.slice(0, 250), '--description', body.slice(0, 60_000), '--yes'], dir)
+      const url = /https?:\/\/\S+\/-\/merge_requests\/\d+/.exec(`${made.stdout}\n${made.stderr}`)?.[0]
+      if (url) return { url, via: 'glab' }
     }
   }
   const url = compareUrl(remoteUrl, repo.baseBranch, branch)

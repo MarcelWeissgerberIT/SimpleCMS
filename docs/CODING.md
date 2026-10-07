@@ -84,6 +84,29 @@ clean, and a test-command guess from top-level files — `package.json` with a `
 - A folder is offered only when the scan found it, it is in `worker.json` already, or you typed it into the page —
   and only as a main checkout.
 
+**New repositories from the page** (only on the person's click there — One can never ask for one):
+
+- **Clone from GitLab / GitHub…** — a clone address (`https://host/group/project(.git)`, `ssh://…`,
+  `user@host:group/project`) into the clone folder (`cloneDir`, default `~/one-repos`; never inside iCloud Drive).
+  Refused: a user name or token inside an https address (it would stay in `.git/config` — git asks the credential
+  helper instead), `ext::` / `file://` / option-like addresses, `.` / `..` segments. Run as `git -c
+  protocol.ext.allow=never -c protocol.file.allow=never clone --progress -- <url> <dir>` without a terminal (an SSH
+  passphrase or password question fails at once with a hint), up to 30 min (`ONE_WORKER_CLONE_MS`), progress on the
+  page; a failed clone removes the folder it made; a folder that is already a clone of the same address is just
+  added. With `glab` / `gh` installed and signed in, the page lists the person's projects (`glab api projects?
+  membership=true…`, `gh repo list --json …`; names and clone addresses only, HTTPS or SSH to pick).
+- **Import a ZIP…** — `POST /setup/api/import?name=<file>.zip&dir=<clone folder>` with `application/zip` (≤ 500 MB,
+  `ONE_WORKER_ZIP_MAX`), unpacked by fflate's streaming reader into a new repository: every path must stay inside
+  the folder (an absolute path, a drive letter or `..` refuses the whole ZIP), links become plain files, every `.git`
+  folder (hooks, config) and `__MACOSX` / `.DS_Store` are left out, ≤ 2 GB unpacked and 100,000 files; one folder at
+  the top becomes the repository; then `git init`, branch `main`, one commit *Import <file>* (identity: the person's
+  git config, else "One worker"). No remote — push is off until one is added.
+- The new repo is ticked on the page like an added folder; **Save & start** writes it (and a changed clone folder
+  as `cloneDir`).
+- **Own MCP servers for Claude Code** (per repo, `claude.mcpServers`): names as `claude mcp list` shows them (e.g.
+  `atlas`). The stages of that repo get their tools allowed (`mcp__<name>`), `--strict-mcp-config` is left out, and
+  the prompt tells Claude it may use them (what they return is data, like the task).
+
 Saving writes `worker.json` with mode 0600 (its folder 0700), keeping what the file already says: other keys and,
 for a repo that stays ticked, its own settings (`claude`, `branchPrefix`, `worktreeDir`, limits …). A hand-written
 file with comments is copied to `worker.json.bak` once before it is rewritten.
@@ -122,6 +145,7 @@ created, which worktree a task uses, cost per task and per day.
 | `parallel` | `2` | Tasks at once across repos (1–2; always one per repo). |
 | `pollSec` | `15` | How often an idle worker asks One for work (One also nudges it when tasks change). |
 | `origins` | — | Extra allowed page origins (like `ONE_ORIGINS`) for a self-hosted One. |
+| `cloneDir` | `~/one-repos` | Where the setup page clones / imports new repositories (`ONE_WORKER_CLONE_DIR` overrides). Never inside iCloud Drive. |
 | `repos[]` | — | The repositories — the ONLY ones the worker touches. |
 
 Per repo:
@@ -137,12 +161,13 @@ Per repo:
 | `testCommand` | none | The Test stage — an **argv list** (`["npm", "test"]`), never a shell line; run in the worktree. A string is refused. |
 | `testTimeoutSec` | `600` | |
 | `push` | `true` | `false`: Ship commits only. |
-| `pr` | `"gh"` | `"gh"`: `gh pr create` when gh is installed and the remote is a GitHub host; otherwise (and with `"none"`) a compare link for GitHub / GitLab remotes. |
+| `pr` | `"gh"` | `"gh"`: `gh pr create` on a GitHub host, `glab mr create` on a GitLab host (when the tool is installed and signed in); otherwise (and with `"none"`) a compare / new-merge-request link for GitHub / GitLab remotes. |
 | `claude.model` | Claude Code's default | A model name Claude Code accepts. |
 | `claude.maxTurns` | `30` | Upper bound per stage (a stage may ask for fewer). |
 | `claude.permissionMode.implement` | the stage's | `acceptEdits` or `default` — overrides what the pipeline asks for. Plan stages always run in `plan` mode. A mode that skips permissions is refused. |
 | `claude.allowedTools` / `disallowedTools` | `[]` | Claude Code's own syntax (`"Bash(npm test:*)"`). Headless runs cannot ask, so whatever needs permission must be allowed here. |
 | `claude.strictMcp` | `true` | `--strict-mcp-config`: during a task Claude Code gets only the task tools, not your other MCP servers. |
+| `claude.mcpServers` | `[]` | Your own Claude Code MCP servers this repo may use (e.g. `["atlas"]`): their tools are allowed and `--strict-mcp-config` is left out. Set on the setup page. |
 | `maxUsdPerTask` / `maxUsdPerDay` | none | Cost limits (Claude Code's own `total_cost_usd`). |
 
 ## The pipeline
@@ -246,6 +271,16 @@ one-worker.mjs task-mcp` with a random 48-hex token for that run only. `one_task
 `one_task_note` (a progress line in the log), `one_task_ask` (a question: the run ends, the task waits in One;
 the answer goes into the page and the stage runs again with it). Nothing else in One is reachable through them;
 the token dies with the run.
+
+### Templates
+
+**Pipeline → Template** replaces the draft (nothing is saved until Save; a stage of the same kind keeps its id, so
+tasks standing there stay in a stage): **Standard** (Backlog · Ready · Plan · Approve plan · Implement · Test · Review ·
+Ship · Done) or **Modernise legacy code** (Backlog · Ready · Analysis · Design · Test design — three plan stages with
+their own instructions — · Approve concept · Write tests (characterisation tests against the old code) · Tests on the
+old code · Rebuild · Test · Review · Ship · Done; schema.ts `templatePipeline`). With more than one plan stage each
+writes its own section into the task page, headed like the stage; the page's Markdown (with those sections) is the
+task text of every later stage. Help: *Modernise legacy code* (`help:legacy-modernisation`).
 
 ## Safety
 

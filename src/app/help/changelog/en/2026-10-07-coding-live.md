@@ -1,7 +1,7 @@
 ---
 id: 2026-10-07-coding-live
 date: 2026-10-07
-order: 1
+order: 2
 title: Coding tasks you can watch
 summary: While a coding task runs, its panel shows what the worker did last and how long ago, the step of the stage's limit, a cost estimate and the files changed so far — and the browser can tell you when a task needs you.
 image: assets/shots/changelog/coding-live.webp

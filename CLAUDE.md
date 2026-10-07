@@ -321,6 +321,12 @@ the public APIs stable — other areas are built against them in parallel.
   coding/lines.ts `LOG_CODES`); a `progress` event per Claude Code turn (turns / maxTurns / estimate from usage,
   mcp/src/worker/price.ts) lives only in `useCoding.progress`; a live `git` snapshot while a non-plan stage changes files
   (`ONE_WORKER_LIVE_GIT_MS`); browser notifications only via coding/notify.ts (per device `one.coding.notify`).
+  New repos only from the worker's local setup page: clone (mcp/src/worker/clone.ts — `parseCloneUrl` refuses tokens in
+  https addresses, ext::/file::, option-like and `..`; `git -c protocol.ext.allow=never … clone -- <url> <dir>`; projects
+  from glab / gh) and ZIP import (zipimport.ts — fflate streaming, every `.git` folder left out, a path outside refuses
+  the ZIP, `git init` + one commit) into `cloneDir` (default ~/one-repos, never iCloud). `claude.mcpServers` per repo =
+  the person's own Claude Code MCP servers (tools allowed, no --strict-mcp-config). GitLab: `glab mr create`. Pipeline
+  templates (schema.ts `templatePipeline`: standard | modernise); with several plan stages each writes its own section.
 - Claude's Markdown goes into or is shown in a page only through `claudeDoc` / `claudeBlocks` (features/ai/claudeDoc.ts):
   web images become links, frames / media / web files never load. In shared pages Claude's change is its own undo step
   (`startUndoStep(view)` / `endUndoStep(view)`, editor/index.ts). History `SnapshotReason 'script'` ('Script · <name>').

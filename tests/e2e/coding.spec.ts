@@ -498,6 +498,33 @@ test('while a stage runs: what the worker did last (ticking), Step x/y, the esti
   await expect(log).toContainText('Working… step 3')
 })
 
+test('template "Modernise legacy code": Analysis, Design and Test design each write their own section; the task waits at "Approve concept"', async ({ page }) => {
+  await openApp(page)
+  await connect(page)
+  await expect(page.getByTestId('coding-conn')).toContainText('Connected')
+  await page.keyboard.press('Escape')
+  await page.evaluate(() => (window.location.hash = '#/coding'))
+  // no task yet: "Set up" makes the Coding database
+  await page.getByTestId('coding-setup').click()
+  await page.getByTestId('coding-pipeline-open').click()
+  await page.getByTestId('coding-template-modernise').click()
+  const names = () => page.locator('.cpe-name').evaluateAll((els) => els.map((e) => (e as HTMLInputElement).value))
+  expect(await names()).toEqual(['Backlog', 'Ready', 'Analysis', 'Design', 'Test design', 'Approve concept', 'Write tests', 'Tests on the old code', 'Rebuild', 'Test', 'Review', 'Ship', 'Done'])
+  await page.getByTestId('coding-pipeline-save').click()
+  await expect(page.getByTestId('coding-pipeline')).toHaveCount(0)
+  // the stages keep their instructions
+  const pipeline = await wsEval(page, (s) => Object.values(s.databases as Record<string, { pipeline?: Array<{ kind: string; instructions?: string }> }>).find((d) => d.pipeline)!.pipeline!)
+  expect(pipeline.filter((x) => x.kind === 'plan').map((x) => (x.instructions ?? '').split(/[.:]/)[0])).toEqual(['Understand the existing code before anything changes', 'Design the new version from the analysis in the task', 'Design the tests that pin today\'s behaviour down before the rebuild (characterisation tests), from the analysis and design in the task'])
+
+  const id = await newTask(page, 'Rebuild the billing module', 'Understand the billing module and rebuild it. Keep the invoice rules.')
+  await expect(page.locator('.ctk-code')).toContainText(/· Approve concept$/i, { timeout: 90_000 })
+  // the page's H2 sections, from the stored content
+  const headings = await wsEval(page, (s, id) => ((s.pages[id].content?.content ?? []) as Array<{ type: string; attrs?: { level?: number }; content?: Array<{ text?: string }> }>).filter((b) => b.type === 'heading' && b.attrs?.level === 2).map((b) => (b.content ?? []).map((c) => c.text ?? '').join('')), id)
+  for (const h of ['Analysis', 'Design', 'Test design']) expect(headings).toContain(h)
+  expect(headings).not.toContain('Plan')
+  expect(await wsEval(page, (s, id) => s.pages[id].plain as string, id)).toContain('Add feature.txt with the task title.')
+})
+
 test('German at 390 px: #/coding, the new task dialog, the task panel and Settings fit the screen', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 })
   await openApp(page)

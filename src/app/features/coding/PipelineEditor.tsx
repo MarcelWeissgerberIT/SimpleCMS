@@ -14,7 +14,7 @@ import type { ColorName, PipelineStage, SelectOption } from '../../store/types'
 import { newId } from '../../lib/ids'
 import { useT } from '../../i18n'
 import { GIT_ACTIONS, PERMISSION_MODES, STAGE_KINDS, type StageKind } from './protocol'
-import { readPipeline, savePipeline } from './schema'
+import { readPipeline, savePipeline, templatePipeline, type PipelineTemplate } from './schema'
 import { keepTrust } from './trust'
 import { allTasks } from './tasks'
 
@@ -49,6 +49,11 @@ export function PipelineEditor({ dbId, locked, onClose }: { dbId: string; locked
     setOpen(id)
   }
   const remove = (i: number) => setRows((rs) => rs.filter((_, j) => j !== i))
+  // a template replaces the draft (nothing is saved until Save); stages of the same kind keep their ids
+  const useTemplate = (which: PipelineTemplate) => {
+    setRows((rs) => templatePipeline(which, rs.map((r) => ({ id: r.stage.id, kind: r.stage.kind }))))
+    setOpen(null)
+  }
   const ok = rows.length > 0 && rows.every((r) => r.option.name.trim())
 
   const save = async () => {
@@ -95,6 +100,17 @@ export function PipelineEditor({ dbId, locked, onClose }: { dbId: string; locked
     >
       {ro && <p className="cpe-note">{t('features.coding.pipeline.lockedNote')}</p>}
       <p className="cpe-lead">{t('features.coding.pipeline.lead')}</p>
+      {!ro && (
+        <div className="cpe-templates" role="group" aria-label={t('features.coding.template.label')}>
+          <span className="label">{t('features.coding.template.label')}</span>
+          <button type="button" className="btn btn--sm" onClick={() => useTemplate('modernise')} data-testid="coding-template-modernise" title={t('features.coding.template.moderniseHint')}>
+            {t('features.coding.template.modernise')}
+          </button>
+          <button type="button" className="btn btn--sm btn--ghost" onClick={() => useTemplate('standard')} data-testid="coding-template-standard">
+            {t('features.coding.template.standard')}
+          </button>
+        </div>
+      )}
       <ol className="cpe" data-testid="coding-pipeline">
         {rows.map((r, i) => {
           const s = r.stage

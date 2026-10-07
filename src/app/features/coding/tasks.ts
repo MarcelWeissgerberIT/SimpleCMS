@@ -81,16 +81,19 @@ const docOf = (p: Page): JSONContent[] => [...((p.content?.content as JSONConten
 const headingText = (b: JSONContent) => (b.content ?? []).map((c) => c.text ?? '').join('').trim().toLowerCase()
 const PLAN_NAMES = () => [t('features.coding.page.plan')].map((s) => s.toLowerCase())
 
-/** Replace the page's "Plan" section (its H2 up to the next H1 / H2 or note) — or add it at the end. */
-function writePlan(pageId: ID, md: string) {
+/**
+ * Replace the page's "Plan" section (its H2 up to the next H1 / H2 or note) — or add it at the end. With more
+ * than one plan stage (e.g. Analysis · Design · Test design) each writes its own section, named like the stage.
+ */
+function writePlan(pageId: ID, md: string, title?: string) {
   const p = ws().pages[pageId]
   if (!p) return
   const blocks = docOf(p)
-  const names = PLAN_NAMES()
+  const names = title ? [title.toLowerCase()] : PLAN_NAMES()
   const at = blocks.findIndex((b) => b.type === 'heading' && (b.attrs?.level ?? 1) <= 2 && names.includes(headingText(b)))
   // the plan's own headings sit below "Plan" (H3), so the section ends at the next H1 / H2 or note (callout)
   const body = blocksOf(md).map((b) => (b.type === 'heading' && (b.attrs?.level ?? 1) < 3 ? { ...b, attrs: { ...b.attrs, level: 3 } } : b))
-  const section: JSONContent[] = [{ type: 'heading', attrs: { level: 2 }, content: [{ type: 'text', text: t('features.coding.page.plan') }] }, ...body]
+  const section: JSONContent[] = [{ type: 'heading', attrs: { level: 2 }, content: [{ type: 'text', text: title ?? t('features.coding.page.plan') }] }, ...body]
   if (at < 0) blocks.push(...section)
   else {
     let end = at + 1
@@ -296,7 +299,7 @@ export async function finishStage(taskId: ID, stageId: ID, outcome: StageOutcome
       if (outcome.url) set(taskId, props.pr, outcome.url)
       set(taskId, props.worker, null)
       set(taskId, props.claimed, null)
-      if (outcome.plan) writePlan(taskId, outcome.plan)
+      if (outcome.plan) writePlan(taskId, outcome.plan, stage && pipeline.filter((x) => x.kind === 'plan').length > 1 ? stage.name : undefined)
       if (outcome.status === 'ok' && outcome.summary && stage && (stage.kind === 'implement' || stage.kind === 'git'))
         appendNote(taskId, KIND_ICON[stage.kind] ?? 'asset:code', 'gray', `${stage.name} · ${stamp()}`, outcome.summary)
       if (moveTo) moveRow(taskId, props, moveTo.id)

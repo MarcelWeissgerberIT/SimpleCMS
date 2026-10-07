@@ -184,6 +184,22 @@ describe('a task through the pipeline', () => {
     assertNoPaths(tab, r)
   })
 
+  test('own MCP servers of a repo: their tools allowed, the strict flag left out — other repos stay strict', async () => {
+    const r = makeRepo()
+    const log = join(r.dir, 'claude-args.jsonl')
+    await boot(r, {}, { claude: { maxTurns: 10, mcpServers: ['atlas'] } }, { FAKE_CLAUDE_LOG: log })
+    const tab = await connect()
+    await tab.next('welcome')
+    const plan = await tab.run(task({ kind: 'plan' }, { id: 'mcp1abcd' }))
+    assert.equal(plan.status, 'ok', JSON.stringify(plan))
+    const args = (JSON.parse(readFileSync(log, 'utf8').trim().split('\n').pop()!) as { args: string[] }).args
+    const allowed = args[args.indexOf('--allowedTools') + 1]!.split(',')
+    assert.ok(allowed.includes('mcp__atlas'), allowed.join(','))
+    assert.ok(allowed.some((a) => a.startsWith('mcp__one-task')), allowed.join(','))
+    assert.ok(!args.includes('--strict-mcp-config'))
+    assert.ok(args.includes('--mcp-config'))
+  })
+
   test('a question waits for the person; the answer runs the stage again', async () => {
     const r = makeRepo()
     await boot(r)

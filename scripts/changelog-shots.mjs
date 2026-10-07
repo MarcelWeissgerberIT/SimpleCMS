@@ -8,7 +8,7 @@
  *
  * (CHANGELOG_DRAFT=1 lets the build pass while a new entry's picture does not exist yet.)
  *
- * Shots: coding-live, text-size, mcp-media, coding-setup, free-board, building-blocks, workspace-settings, diagram-viewer, coding-pipeline, pages-per-item, design-import, tour, quick-capture, script-templates, one-script-everywhere, file-ai, one-script, transform, ai-edit, db-commands, gmail-one-click, memory, grips-footer, block-select, split-to-page, image-ai, claude-reads, redo, ai-terminal, mcp-codewords, mcp-tidy-up, slash-menu, turn-into-database,
+ * Shots: legacy-modernise, coding-live, text-size, mcp-media, coding-setup, free-board, building-blocks, workspace-settings, diagram-viewer, coding-pipeline, pages-per-item, design-import, tour, quick-capture, script-templates, one-script-everywhere, file-ai, one-script, transform, ai-edit, db-commands, gmail-one-click, memory, grips-footer, block-select, split-to-page, image-ai, claude-reads, redo, ai-terminal, mcp-codewords, mcp-tidy-up, slash-menu, turn-into-database,
  * custom-agents, gmail, help-centre, mcp-servers, feed-blocks — each named like its image. Every shot starts from a fresh, seeded
  * workspace in English, light theme, 1440 × 900 at device scale 2; the crop of the relevant area is scaled
  * to 1440 px wide and saved as public/assets/shots/changelog/<shot>.webp (≤ 150 KB: the quality steps down
@@ -1423,6 +1423,30 @@ const shots = {
     const box = await boxOf(page.locator('.modal').first(), 20)
     await save(page, 'design-import', box)
     await ctx.close()
+  },
+
+  /**
+   * The pipeline editor with the template "Modernise legacy code" picked: Analysis · Design · Test design (plan
+   * stages with their own instructions), Approve concept, Write tests, Tests on the old code, Rebuild … — no worker.
+   */
+  async 'legacy-modernise'(browser) {
+    const { ctx, page } = await freshPage(browser, { viewport: { width: W, height: H + 260 } })
+    try {
+      await page.evaluate(() => (window.location.hash = '#/coding'))
+      // a fresh workspace has no Coding database yet: "Set up" makes it
+      await page.getByTestId('coding-setup').click()
+      await page.getByText('Coding database created.').waitFor({ state: 'detached', timeout: 20_000 })
+      await page.getByTestId('coding-pipeline-open').click()
+      await page.getByTestId('coding-template-modernise').click()
+      const dialog = page.getByRole('dialog')
+      await dialog.locator('.cpe-name').nth(2).waitFor()
+      // open the Analysis stage: its instructions show what Claude Code is asked for
+      await dialog.locator('.cpe-row').nth(2).locator('button[aria-expanded]').first().click().catch(() => {})
+      await rest(page)
+      await save(page, 'legacy-modernise', await boxOf(dialog, 16))
+    } finally {
+      await ctx.close()
+    }
   },
 
   /**

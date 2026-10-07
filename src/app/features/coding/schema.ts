@@ -118,6 +118,44 @@ export function defaultPipeline(): { options: SelectOption[]; pipeline: Pipeline
   return { options, pipeline }
 }
 
+/**
+ * The template "Modernise legacy code": understand the old code, design the new one, pin today's behaviour
+ * down with tests, rebuild — every finding lands in the task page (plan stages write their own section).
+ */
+const MODERNISE: Array<[string, StageKind, boolean, Partial<PipelineStage>, string?]> = [
+  ['backlog', 'queue', false, {}],
+  ['ready', 'queue', true, {}],
+  ['analyse', 'plan', true, { permissionMode: 'plan', maxTurns: 40 }, 'analyse'],
+  ['design', 'plan', true, { permissionMode: 'plan', maxTurns: 30 }, 'design'],
+  ['testplan', 'plan', true, { permissionMode: 'plan', maxTurns: 30 }, 'testplan'],
+  ['approveConcept', 'gate', false, {}],
+  ['writeTests', 'implement', true, { permissionMode: 'acceptEdits', maxTurns: 60 }, 'writeTests'],
+  ['testOld', 'test', true, {}],
+  ['rebuild', 'implement', true, { permissionMode: 'acceptEdits', maxTurns: 120 }, 'rebuild'],
+  ['test', 'test', true, {}],
+  ['review', 'gate', false, {}],
+  ['ship', 'git', true, { gitAction: 'pr' }],
+  ['done', 'done', false, {}],
+]
+
+export const PIPELINE_TEMPLATES = ['standard', 'modernise'] as const
+export type PipelineTemplate = (typeof PIPELINE_TEMPLATES)[number]
+
+/**
+ * A template's stages; `keep` = the stages there are now — a stage of the same kind (in order) keeps its id, so
+ * tasks standing there stay in a stage.
+ */
+export function templatePipeline(which: PipelineTemplate, keep: Array<{ id: ID; kind: StageKind }> = []): Array<{ option: SelectOption; stage: PipelineStage }> {
+  const rows = which === 'modernise' ? MODERNISE : DEFAULTS.map(([k, kind, auto, extra]) => [k, kind, auto, extra] as [string, StageKind, boolean, Partial<PipelineStage>, string?])
+  const used = new Set<ID>()
+  return rows.map(([key, kind, auto, extra, how]) => {
+    const id = keep.find((s) => s.kind === kind && !used.has(s.id))?.id ?? newId()
+    used.add(id)
+    const instructions = how ? t(`features.coding.template.how.${how}`) : undefined
+    return { option: { id, name: t(`features.coding.stage.${key}`), color: STAGE_COLOR[kind] }, stage: { id, kind, auto, ...extra, ...(instructions ? { instructions } : {}) } }
+  })
+}
+
 const clampTurns = (n: unknown) => (typeof n === 'number' && Number.isFinite(n) ? Math.max(1, Math.min(200, Math.floor(n))) : undefined)
 
 /** One stored stage, sanitized (unknown kinds become a queue). */
