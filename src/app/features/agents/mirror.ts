@@ -189,7 +189,7 @@ export function createMirror(input: MirrorInput, opts: { onUndo?: () => void } =
   const draft = mirrorDraft({ recipe: input.recipe, server, name, dbId, reportId, reportTitle, tools: testedTools(server, readServers()) })
   const made: MirrorMade = { dbId, reportId, name, reportTitle, views: schema.views.length, placeholders: placeholdersIn(draft.instructions).length, draft }
   useUI.getState().toast({
-    message: t('features.agents.mirror.created', { name, views: made.views }),
+    message: t(made.views === 1 ? 'features.agents.mirror.createdOne' : 'features.agents.mirror.created', { name, views: made.views }),
     kind: 'success',
     action: {
       label: t('common.undo'),

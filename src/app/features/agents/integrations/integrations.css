@@ -9,7 +9,8 @@
   flex: 1;
 }
 
-.int-led--err {
+/* two classes: ui.css (with .led) loads after this chunk in production */
+.led.int-led--err {
   background: var(--c-red-text);
 }
 

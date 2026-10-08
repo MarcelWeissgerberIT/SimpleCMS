@@ -28,6 +28,8 @@ export interface Validation {
   problems: Problem[]
   errors: number
   warnings: number
+  /** where the profile's "id" value is (the editor's own problems about the id point there) */
+  idAt?: { line: number; col: number; endCol?: number }
 }
 
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v)
@@ -41,10 +43,11 @@ function messageOf(t: Translate, issue: IntegrationIssue): string {
 
 export function validateProfileText(text: string, t: Translate, lang: 'en' | 'de'): Validation {
   const problems: Problem[] = []
+  let idAt: Validation['idAt']
   const done = (profile: IntegrationProfile | null): Validation => {
     problems.sort((a, b) => a.line - b.line || a.col - b.col || (a.severity === b.severity ? 0 : a.severity === 'error' ? -1 : 1))
     const errors = problems.filter((p) => p.severity === 'error').length
-    return { profile: errors ? null : profile, problems, errors, warnings: problems.length - errors }
+    return { profile: errors ? null : profile, problems, errors, warnings: problems.length - errors, ...(idAt ? { idAt } : {}) }
   }
   if (text.length > MAX_PROFILE_CHARS) {
     problems.push({ severity: 'error', message: t('features.integrations.err.tooBig', { max: MAX_PROFILE_CHARS.toLocaleString(lang) }), path: '', line: 1, col: 1 })
@@ -58,6 +61,8 @@ export function validateProfileText(text: string, t: Translate, lang: 'en' | 'de
     problems.push({ severity: 'error', message: t(`features.integrations.json.${e.code}`, { near }), path: '', line: e.pos.line, col: e.pos.col, endCol: e.pos.col + Math.max(1, (e.near ?? '').length) })
     return done(null)
   }
+  const id = spanAt(parsed.spans, ['id'])
+  if (id?.exact) idAt = { line: id.span.start.line, col: id.span.start.col, ...(id.span.end.line === id.span.start.line ? { endCol: id.span.end.col } : {}) }
   const add = (issue: IntegrationIssue) => {
     const path = issue.path as JsonPath
     const found = spanAt(parsed.spans, path)

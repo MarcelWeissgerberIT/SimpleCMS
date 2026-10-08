@@ -45,9 +45,11 @@ export function IntegrationEditor({ mode, initial, originalId, onClose }: { mode
   const full = !!v.profile && !clash && !(mode === 'edit' && originalId && list.some((p) => p.id === originalId)) && list.length >= INTEGRATION_LIMITS.profiles
   // nothing typed yet (an import): no problems to show, just the hint
   const empty = !text.trim()
+  // the editor's own problems point at the id's value
+  const at = v.idAt ?? { line: 1, col: 1 }
   const own: Problem[] = [
-    ...(blocked ? [{ severity: 'error' as const, message: t('features.integrations.err.idTaken', { id: clash!.id, name: clash!.name }), path: '$.id', line: 1, col: 1 }] : []),
-    ...(full ? [{ severity: 'error' as const, message: t('features.integrations.err.profileLimit', { max: INTEGRATION_LIMITS.profiles }), path: '$.id', line: 1, col: 1 }] : []),
+    ...(blocked ? [{ severity: 'error' as const, message: t('features.integrations.err.idTaken', { id: clash!.id, name: clash!.name }), path: '$.id', ...at }] : []),
+    ...(full ? [{ severity: 'error' as const, message: t('features.integrations.err.profileLimit', { max: INTEGRATION_LIMITS.profiles }), path: '$.id', ...at }] : []),
   ]
   const problems: Problem[] = empty ? [] : [...own, ...v.problems]
   const errors = empty ? 0 : v.errors + own.length
