@@ -14,9 +14,10 @@ import type { Page } from '@playwright/test'
 import { test, expect, openApp, reloadApp, wsEval } from './fixtures'
 import { WORKER, fakeOpener, makeCodingHome, makeCodingRepo, startCodingWorker, startDownloadedWorker, type CodingRepo, type RunningWorker } from './helpers/coding'
 
-const PORT = 47383
+/** CODING_E2E_PORT: one port for both when suites run side by side (each test runs one worker at a time) */
+const PORT = Number(process.env.CODING_E2E_PORT) || 47383
 /** the downloaded worker's port (set in Settings before the download: the preset carries it) */
-const SETUP_PORT = 47384
+const SETUP_PORT = Number(process.env.CODING_E2E_PORT) || 47384
 
 test.describe.configure({ mode: 'serial' })
 
@@ -250,6 +251,35 @@ test('a task a custom agent wrote waits for "Confirm on this device": the worker
   await expect.poll(() => worker!.log(), { timeout: 30_000 }).toContain(`task ${agentTask} `)
   await expect(page.getByTestId('coding-approve')).toBeVisible({ timeout: 30_000 })
   expect(await stageOf(agentTask)).toBe('Approve plan')
+})
+
+test('Where the worker runs: a local workspace offers Local only — Cloud is off with its reason as text; the keys stay in the group', async ({ page }) => {
+  await openApp(page)
+  await openWorkerSettings(page)
+  const group = page.getByTestId('coding-via')
+  await expect(group).toHaveAttribute('role', 'radiogroup')
+  const local = page.getByTestId('coding-via-local')
+  const cloud = page.getByTestId('coding-via-cloud')
+  await expect(local).toHaveAttribute('aria-checked', 'true')
+  await expect(cloud).toHaveAttribute('aria-checked', 'false')
+  await expect(cloud).toHaveAttribute('aria-disabled', 'true')
+  await expect(page.getByTestId('coding-via-why')).toHaveText('Cloud needs a team workspace on a One server.')
+  // the reason is the disabled option's description (not a tooltip)
+  const why = await page.getByTestId('coding-via-why').getAttribute('id')
+  await expect(cloud).toHaveAttribute('aria-describedby', why!)
+  await expect(page.getByTestId('coding-via-hint')).toContainText('127.0.0.1')
+  // roving focus: arrows move within the group, Cloud cannot be chosen here
+  await local.focus()
+  await page.keyboard.press('ArrowRight')
+  await expect(cloud).toBeFocused()
+  await expect(local).toHaveAttribute('aria-checked', 'true')
+  await page.keyboard.press('Home')
+  await expect(local).toBeFocused()
+  await cloud.click({ force: true }) // aria-disabled: Playwright would wait for it to be enabled
+  await expect(local).toHaveAttribute('aria-checked', 'true')
+  // the local card and the manual setup stay
+  await expect(page.getByTestId('coding-setup-card')).toBeVisible()
+  await expect(page.getByTestId('coding-settings')).toHaveAttribute('data-via', 'local')
 })
 
 test('a worker bound to another workspace is refused and Settings say how to bind it', async ({ page }) => {
@@ -576,5 +606,11 @@ test('German at 390 px: #/coding, the new task dialog, the task panel and Settin
   await openWorkerSettings(page)
   await expect(page.getByTestId('coding-settings')).toContainText('Mit einem Coding-Worker auf diesem Rechner verbinden')
   await expect(page.getByTestId('coding-settings').getByTestId('coding-download')).toHaveText('one-worker.mjs herunterladen')
+  // Wo der Worker läuft: Lokal | Cloud fits, with its reason
+  await expect(page.getByTestId('coding-via-local')).toHaveText('Lokal')
+  await expect(page.getByTestId('coding-via-cloud')).toHaveText('Cloud')
+  await expect(page.getByTestId('coding-via-why')).toHaveText('Cloud braucht einen Team-Arbeitsbereich auf einem One-Server.')
+  const seg = await page.getByTestId('coding-via').boundingBox()
+  expect(seg!.x + seg!.width).toBeLessThanOrEqual(390)
   expect(await overflow()).toBeLessThanOrEqual(0)
 })
