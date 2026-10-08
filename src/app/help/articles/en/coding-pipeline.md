@@ -38,8 +38,9 @@ The card then reads *Connected · build-box · 1 repo · via cloud*. Everything 
 
 - **Keep One open.** Tasks run only while One is open in **this** browser (any page of the workspace) — this tab hands out the work and writes the results. Close it and the worker waits; nothing runs on the server.
 - **Sealed end to end.** The server passes messages between this browser and the worker but cannot read or change them — task text, code, diffs and logs stay between the two.
-- **One device.** The worker is paired with the browser that downloaded it. Another device shows *Paired with another device* and offers **Download for this device** (it replaces the other one — One asks first).
-- **Replace or stop.** A new download takes over as soon as it starts; **Revoke** stops the worker for good. Removing someone from the workspace stops theirs too.
+- **One device.** The worker is paired with the browser that downloaded it. Another device shows *Paired with another device* and offers **Download for this device** (it replaces the other one — One asks first; until the new file starts, the other device keeps working and this one waits, then connects by itself).
+- **Replace or stop.** A new download takes over as soon as it starts — on the same computer, stop the old worker first. **Revoke** stops the worker for good. Removing someone from the workspace stops theirs too.
+- **https only.** Cloud needs the One server on `https://`; on plain `http://` the option is greyed out with the reason.
 
 Cloud is greyed out with the reason in a local workspace, for viewers, and on a server without the worker relay.
 

@@ -38,8 +38,9 @@ Die Karte zeigt dann *Verbunden · build-box · 1 Repo · über Cloud*. Alles an
 
 - **One offen lassen.** Aufgaben laufen nur, solange One in **diesem** Browser offen ist (irgendeine Seite des Arbeitsbereichs) — dieser Tab verteilt die Arbeit und schreibt die Ergebnisse. Schließt du ihn, wartet der Worker; auf dem Server läuft nichts.
 - **Durchgehend versiegelt.** Der Server reicht Nachrichten zwischen diesem Browser und dem Worker weiter, kann sie aber weder lesen noch ändern — Aufgabentext, Code, Diffs und Logs bleiben zwischen den beiden.
-- **Ein Gerät.** Der Worker ist mit dem Browser gekoppelt, der ihn heruntergeladen hat. Ein anderes Gerät zeigt *Mit einem anderen Gerät gekoppelt* und bietet **Für dieses Gerät herunterladen** an (ersetzt den anderen — One fragt vorher).
-- **Ersetzen oder beenden.** Ein neuer Download übernimmt, sobald er startet; **Widerrufen** beendet den Worker endgültig. Wer aus dem Arbeitsbereich entfernt wird, dessen Worker endet ebenfalls.
+- **Ein Gerät.** Der Worker ist mit dem Browser gekoppelt, der ihn heruntergeladen hat. Ein anderes Gerät zeigt *Mit einem anderen Gerät gekoppelt* und bietet **Für dieses Gerät herunterladen** an (ersetzt den anderen — One fragt vorher; bis die neue Datei startet, arbeitet das andere Gerät weiter und dieses wartet, dann verbindet es sich von selbst).
+- **Ersetzen oder beenden.** Ein neuer Download übernimmt, sobald er startet — auf demselben Rechner stoppst du zuerst den alten Worker. **Widerrufen** beendet den Worker endgültig. Wer aus dem Arbeitsbereich entfernt wird, dessen Worker endet ebenfalls.
+- **Nur https.** Cloud braucht den One-Server unter `https://`; bei reinem `http://` ist die Option mit Begründung ausgegraut.
 
 In einem lokalen Arbeitsbereich, für Leser und auf einem Server ohne Worker-Relay ist Cloud ausgegraut – mit dem Grund daneben.
 

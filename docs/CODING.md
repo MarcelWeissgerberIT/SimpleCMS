@@ -161,19 +161,25 @@ why in text (*Cloud needs a team workspace on a One server*).
 1. **Download one-worker-cloud.mjs.** One asks the server for a **worker token** (`onew_…`, only for you, only in
    this workspace) and builds the file like the local download, with a cloud preset:
    ```js
-   globalThis.ONE_WORKER_PRESET = {"workspace":"team:<id>","origin":"https://one.example.com","port":47323,"pair":"<32 random bytes>","name":"Team","cloud":{"token":"onew_…"}}
+   globalThis.ONE_WORKER_PRESET = {"workspace":"team:<id>","origin":"https://one.example.com","port":47511,"pair":"<32 random bytes>","name":"Team","cloud":{"token":"onew_…"}}
    ```
-   The token lives **only in the file** (never in the browser's storage); the pairing key stays on **this device**
-   (localStorage `one.coding` → `cloudPairs`, per workspace; never synced, never in a backup). A cloud worker is
-   paired with the device that downloaded it: another device of yours shows *Paired with another device* and offers
-   **Download for this device** (asked first: it replaces the other one).
+   The token lives **only in the file** (never in the browser's storage). The pairing secret is in the file and on
+   **this device** — as a **non-extractable** WebCrypto key in IndexedDB `one-coding` (`cloud:<id>|cloudpair|<token
+   id>`; wiped with the workspace's copy on this device): script in One can use it only while it runs and can never
+   read it out. localStorage `one.coding` → `cloudPairs` holds only the token ids this device has keys for (per
+   workspace, newest first, at most 4; never synced, never in a backup). `port` is the workspace's own local port
+   (47323 + 0…499 from its id, `cloudWorkerPort`). A cloud worker is paired with the device that downloaded it:
+   another device of yours shows *Paired with another device* and offers **Download for this device** (asked first:
+   it replaces the other one once it starts — until then that device keeps working and this one waits, *Waiting for
+   your new download to start*, then connects by itself).
 2. **Start it on the computer that does the work** — copy the file there (`scp`, a shared folder) and run
    `node one-worker-cloud.mjs`. It dials the server (`https` origins only; plain `http` only to 127.0.0.1) and
    keeps the connection (reconnects after 1, 2, 5, 10, 20, 30 s ± 20 %). Keep it running (tmux, a service).
 3. **Tick the repositories on that computer** — its setup page opens there when it has a browser; on a server
    `node one-worker-cloud.mjs setup --no-browser` asks in the terminal, or forward the page from your own
-   computer: `ssh -L 47323:127.0.0.1:47323 <host>` and open the address the worker prints. The page and the
-   task tools stay on that computer's 127.0.0.1:47323 — the cloud worker accepts no tab there.
+   computer: `ssh -L <port>:127.0.0.1:<port> <host>` (the card shows it with the workspace's port) and open the
+   address the worker prints. The page and the task tools stay on that computer's 127.0.0.1:<port> — the cloud
+   worker accepts no tab there.
 
 **Tasks run only while one of your One tabs is open** on the device that holds the key (any workspace page; the
 tab hands out the work and writes the outcomes, exactly as with a local worker). The server keeps no queue and
@@ -183,13 +189,21 @@ another worker may take the task over.
 
 **A new download replaces the old one — once it connects.** The new token starts *pending*; the relay makes it
 the member's active token on its first connection and only then revokes the older one and closes its worker
-(`replaced`, exit 2). A pending token that never connects expires after 24 hours. While a worker is online, the
-card asks before downloading another. **Revoke** (asked first) ends the token at once; the worker exits with
-code 2 and never comes back.
+(`replaced`, exit 2). A pending token that never connects expires after 24 hours; a newer download replaces it at
+once. Until then the working worker keeps working — also when the person downloads again while connected (the
+link stays as it is: the server announces the online worker's pairing only once) and after several downloads in a
+row (this device keeps the keys of every download whose worker may still connect: the active one as the server
+listed it before the download, and the newest; a connect drops the keys of tokens the server no longer lists).
+While a worker is online, the card asks before downloading another. **On the same computer**, stop the old worker
+first: both use the workspace's port, and the new file says so (`port … is in use — … stop it first … or start
+this one with ONE_WORKER_PORT=<a free port>`). **Revoke** (asked first) ends the token at once; the worker exits
+with code 2 and never comes back.
 
-**Its own folder.** A cloud worker keeps `worker.json`, `worker-state.json`, its scratch folders and its default
-worktrees in `~/.config/one/cloud/<workspace>/` (`team:abc` → `team-abc`) — a local worker and cloud workers of
-several workspaces run side by side on one computer. `--config` / `ONE_WORKER_CONFIG` still win.
+**Its own folder and port.** A cloud worker keeps `worker.json`, `worker-state.json`, its scratch folders and its
+default worktrees in `~/.config/one/cloud/<workspace>/` (`team:abc` → `team-abc`), and its task tools and setup
+page listen on the workspace's own port (47323–47822, from the workspace id) — a local worker (47322) and cloud
+workers of several workspaces run side by side on one computer. `--config` / `ONE_WORKER_CONFIG` and
+`ONE_WORKER_PORT` still win.
 
 **As a service** (systemd, user unit):
 
@@ -207,10 +221,16 @@ RestartPreventExitStatus=2
 member, state, online. A private CA: `NODE_EXTRA_CA_CERTS=/path/ca.pem`. An outbound HTTPS proxy is not
 supported (the worker connects directly).
 
-**Logs in cloud mode** are batched (every 250 ms or 200 lines) to keep frames few. Under load the relay may drop
-the worker's *events* (log lines, progress, live git — marked droppable); the tab says *The server dropped n log
-events*. Requests, answers, finishes and questions are never dropped. A finish carries a `finishId`; the tab
-applies each one once even when the worker sends it again after a reconnect.
+**Logs in cloud mode** are batched (every 250 ms or 200 lines) to keep frames few. Only log lines, progress and
+the live git state are marked droppable (`k: "e"`); an honest relay drops them only when the worker sends more than
+its budget (2,000 frames / 128 MiB per 10 s), and the tab then says *The server passed on only part of the worker's
+updates (n left out)*. Questions, notes, an import's progress and result, requests, answers and finishes are never
+marked. An import's progress goes out at most every 250 ms per task (its result at once). What waited while no tab
+was connected is made small before it goes out (per task its newest 2,000 log lines in frames of ≤ 200, the newest
+git state and progress, every question, note and import result) and goes out in paced slices (≤ 100 frames /
+4 MiB, then 600 ms). A finish carries a `finishId`; the tab applies each one once even when the worker sends it
+again after a reconnect. An **Import** ZIP goes through in 4 MiB pieces, paced by the tab to ≤ 96 MiB per 10 s (a
+500 MB ZIP takes about a minute and a half); a half-sent upload is given up when its tab goes away.
 
 ## worker.json
 
@@ -489,8 +509,9 @@ Everything above holds for a cloud worker too — the same protocol, the same tr
 *written or confirmed on this device*), the same refusal of paths and commands. The relay adds a path through the
 server, so the protocol is sealed end to end:
 
-- **Pairing.** The download made a 32-byte pairing secret: the browser keeps it, the file carries it. The server
-  never sees it (One builds the file in the browser).
+- **Pairing.** The download made a 32-byte pairing secret: the file carries it, the browser keeps it as a
+  non-extractable HKDF key in IndexedDB (it can derive session keys, never be read out). The server never sees it
+  (One builds the file in the browser).
 - **Session key.** For every pairing (the relay numbers them, `s`) both sides send a fresh 32-byte nonce in a
   plain `key` frame; the key is HKDF-SHA256(pair secret, salt = tab nonce ‖ worker nonce, info
   `"one-worker-relay v1"`) → AES-256-GCM. A new pairing (a reconnect, another tab) = new nonces = a new key.
@@ -504,14 +525,14 @@ server, so the protocol is sealed end to end:
   worker of this download (*Refused: a worker this device did not pair with*) — nothing more is sent.
 
 **What the server still sees**: that a member's worker is online and since when, the pairing numbers, frame
-sizes, directions and timing, which frames are droppable events (`k: "e"`), the worker token's id, its user agent
+sizes, directions and timing, which frames are droppable events (`k: "e"`: log lines, progress, live git), the worker token's id, its user agent
 at download, first and last use. It never sees task text, page content, repo names, paths, diffs, logs or answers,
 and cannot inject, change, replay or reorder a frame. It can **delay or drop** frames or end the connection
 (denial of service) — the tab then shows the link as waiting.
 
 | Threat | What it can do | What stops it |
 |---|---|---|
-| **The server operator** (or someone who took the server) | See metadata (above); drop or delay frames; refuse to pair; serve a modified One app | Cannot read or forge frames: the key is derived from a secret it never had. A **modified app** is out of scope for any web app: whoever serves the code can change it — run your own server, or use Local |
+| **The server operator** (or someone who took the server) | See metadata (above); drop or delay frames; refuse to pair; serve a modified One app | Cannot read or forge frames: the key is derived from a secret it never had. A **modified app** is out of scope for any web app: whoever serves the code can change it — run your own server, or use Local. Even then it can use this device's pairing key only while that code runs in an open tab: the key is non-extractable, so it cannot be sent away and used later |
 | **Another member** of the workspace | Nothing on your worker: the relay pairs per (workspace, member) | Tokens are per member; another member's tab never reaches your worker, and their worker never reaches your tab (tenancy test). Their own cloud worker is theirs |
 | **A stolen session cookie** | Open a tab link as you — the relay would pair it with your worker | Without this device's pairing secret its boxes do not open: the worker refuses it (`pair`). Signing out closes that session's relay links at once; `revoke-sessions` on the server within a minute (the relay re-checks sessions) |
 | **A stolen worker token** (the file was copied) | Connect as your worker — the newest connection wins (the old one gets 4001 and stops) | With the file it also has the pairing secret: treat the file like a key (`chmod 600`). **Revoke** in Settings ends it at once (`node dist/cli.js revoke-workers <email>` on the server: within a minute); your tab shows which worker connected (name, repos) |
@@ -545,7 +566,7 @@ are plain (and the relay re-serialises them, so nothing extra rides along):
 | Direction | Frame |
 |---|---|
 | relay → worker | `{ type: "relay", op: "ready", workspace: { id, name } }` · `tab-open` { s } · `tab-gone` { s, reason: closed \| replaced \| ended \| idle } |
-| relay → tab | `{ type: "relay", op: "worker", online, registered, token, s }` (the member's worker came or went; `token` = its id) · `dropped` { n } |
+| relay → tab | `{ type: "relay", op: "worker", online, registered, token, s }` (the member's worker came or went, or this tab joined — a new `s`; while no worker is online also when a token is created or revoked; `token` = its id. The same `s` again is news about the current pairing, never a new key exchange) · `dropped` { n } |
 | tab → relay | `{ type: "relay", op: "alive" }` every 20 s (a tab silent for 150 s is let go, 4408) |
 | worker → relay | `{ type: "relay", op: "close-tab", s, code: 4001 \| 4003 \| 1008, reason }` (after a refusal) |
 | both ways | `{ type: "key", s, n }` (the fresh nonce, 43 base64url characters) · `{ type: "box", s, seq, iv, data, k? }` (`k: "e"` only from the worker: an event the relay may drop) |
@@ -553,7 +574,7 @@ are plain (and the relay re-serialises them, so nothing extra rides along):
 Close codes: **4001** a newer tab / connection of the same token took over · **4003** refused (`pair`, …) ·
 **4401** token revoked, replaced by a newer download (`replaced`) or session ended · **4403** not (or no longer)
 allowed (`forbidden`, `viewer`) · **4408** idle · **1003** binary frame · **1008** malformed or far over the limits
-· **1009** a frame over 8 MiB · **1013** the receiving side could not keep up. Refused upgrades answer with HTTP:
+(8,000 frames / 512 MiB per socket in 10 s; a tab is never closed for the soft budget) · **1009** a frame over 8 MiB · **1013** the receiving side could not keep up. Refused upgrades answer with HTTP:
 401 bad token (rate-limited per IP), 403 `Forbidden: origin | membership | viewer | workspace`, 404 relay off,
 429 too many connects. The worker exits with **code 2** on 401, 4401, 4403 forbidden / removed, a wrong
 workspace, no relay or a takeover by another copy of its file; a viewer waits and tries again every 5 minutes.
@@ -587,10 +608,14 @@ state: pending | active, online }` — what `node one-worker-cloud.mjs check` pr
 - **The branch is checked out in the main checkout** — switch the main checkout to another branch, or clear the
   task's Branch field to get a fresh branch.
 - **Port in use** — another worker runs (stop it first, or use *Change repositories* to reach its page); set the
-  port in One (and download again) or `"port"` in a hand-written worker.json.
+  port in One (and download again) or `"port"` in a hand-written worker.json. A **cloud** worker: an older cloud
+  worker of the same workspace runs on that computer — stop it first (the new file takes over once it connects),
+  or start the new one with `ONE_WORKER_PORT=<a free port>`.
 - **Cloud: Paired with another device** — the cloud worker was downloaded in another browser; only that one holds
   its key. Use One there, or **Download for this device** (it replaces the other one as soon as the new file
-  starts).
+  starts; until then this device shows *Waiting for your new download to start* and the other keeps working).
+- **Cloud is greyed out: needs https** — the One server runs on plain `http://` (other than this computer): the
+  browser has no WebCrypto there and the worker dials only https. Set `PUBLIC_URL` to an https address.
 - **Cloud: Waiting for your cloud worker** — is it running on that computer? Its log says *connected to … for
   "<workspace>"* once the server took it. `node one-worker-cloud.mjs check` shows whether the server knows the token.
 - **Cloud: the worker stopped with exit code 2** — the log says why: revoked, replaced by a newer download, removed

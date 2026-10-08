@@ -66,7 +66,7 @@ The GitHub Pages build stays local-only.
 | `AGENT_TICK_MS` / `AGENT_COALESCE_MS` | schedule check interval (30 s) and the row-trigger collecting window (60 s). **Only with `DEV_MODE=1`** (test servers); otherwise exit 78 *(server addition)* |
 | `MEDIA_FETCH_HOSTS` | `name=127.0.0.1:4601,…`: made-up names `POST …/files/fetch` reaches on this machine over plain HTTP (the e2e suite's media fixture). **Only with `DEV_MODE=1`**; otherwise exit 78 — deployments fetch through the SSRF guard only *(server addition)* |
 | `CODING_RELAY` | `off` (or `0` / `false` / `no`) switches the coding relay off: no `/coding/*` upgrades, `…/coding/workers` answers `404 coding_relay_off`, `GET /api/config` says `coding_relay: false`; default on — see *Coding relay* *(server addition)* |
-| `CODING_PING_MS` | the relay's WebSocket ping interval (default 25 000; a socket silent for six of them is let go). **Only with `DEV_MODE=1`**; otherwise exit 78 *(server addition)* |
+| `CODING_PING_MS` | the relay's WebSocket ping interval (default 25 000): a socket that answers no ping (and sends nothing) is closed at the next one (after 1–2 intervals); a tab that sends no `alive` for six intervals is let go (4408). **Only with `DEV_MODE=1`**; otherwise exit 78 *(server addition)* |
 
 In development (`NODE_ENV` ≠ `production`) `DATA_DIR` defaults to `server/.data`, `PUBLIC_URL` to
 `http://localhost:$PORT`, and a `SECRET` and a `DATA_KEY` are generated once into `DATA_DIR/dev-secret` and
@@ -897,15 +897,22 @@ the member's tabs (on the device that downloaded the worker) is connected.
   server never had) and two fresh nonces, and exchange AES-256-GCM boxes with a strictly rising sequence number in
   the authenticated data. The relay checks the frame shape (`key`, `box`, the small `relay` control frames —
   `server/src/coding/frames.ts`; re-serialised, nothing extra passes), sizes and rates, and forwards boxes
-  untouched. It cannot read, forge, replay or reorder one; it can delay, drop (only events marked `k: "e"`, and it
-  tells the tab how many) or close.
+  untouched. It cannot read, forge, replay or reorder one. This relay drops only events marked `k: "e"` (log lines,
+  progress, live git) when the worker sends more than its budget, and tells the tab how many. A compromised server
+  can delay or drop **any** frame (gaps in `seq` are allowed, so a dropped one goes unnoticed) or close the
+  connection — denial of service, never tampering.
 - **What the server sees**: who has a cloud worker in which workspace, when it was downloaded (user agent),
   activated, last used and whether it is online with a tab; pairing numbers; frame sizes, directions and timing.
   The log names workspace, member and token id — never frames.
 - **Limits**: frames ≤ 8 MiB (1009 above); per socket 2,000 frames / 128 MiB per 10 s, over it the worker's events
-  are dropped, far over it (8,000 / 512 MiB) the socket is closed (1008); a receiver whose send buffer passes
-  32 MiB is closed (1013) — never the healthy sender; all buffers together stay below 256 MiB. A tab must send
-  `alive` every 20 s (150 s silent → 4408); WebSocket pings every `CODING_PING_MS`.
+  are dropped (a tab's frames are never dropped and a tab is not closed for it: an Import ZIP goes through in 4 MiB
+  pieces the tab paces to ≤ 96 MiB per 10 s), far over it (8,000 / 512 MiB) the socket is closed (1008); a receiver
+  whose send buffer passes 32 MiB is closed (1013) — never the healthy sender; all buffers together stay below
+  256 MiB. A tab must send `alive` every 20 s (150 s silent → 4408); WebSocket pings every `CODING_PING_MS`.
+- **Announcements**: the tab hears `worker` (online, registered, token, `s`) when the member's worker comes or goes
+  or the tab joins — each a new pairing with a new `s`. Creating or revoking a token (REST) re-announces only while
+  no worker is online (whether one is registered); an online pairing is never announced twice, since the tab would
+  take it for a new one.
 - **Revocation**: *Revoke* (`DELETE …/coding/workers/:id`), a newer download's first connection, removal from the
   workspace (tokens revoked + links closed), a role change to viewer (links closed; the worker waits), sign-out
   (that session's tab links), deleting the workspace, and `cli.js revoke-workers <email> [workspaceId]` — the
@@ -916,7 +923,7 @@ the member's tabs (on the device that downloaded the worker) is connected.
 
 | Threat | Outcome |
 |---|---|
-| **Server operator / a compromised server** | Sees the metadata above, can deny service. Cannot read or forge the protocol. It *can* serve a modified app to the browser (true of every web app): run your own server, or use a local worker |
+| **Server operator / a compromised server** | Sees the metadata above, can deny service (delay or drop any frame). Cannot read or forge the protocol. It *can* serve a modified app to the browser (true of every web app): run your own server, or use a local worker. The browser keeps the pairing secret as a non-extractable key, so such code can use it only while it runs in an open tab — never send it away |
 | **Another member** | Never paired with your worker or tab; sees your worker in the admin list only if admin / owner (label, state, online — no content) |
 | **Stolen session cookie** | Can open a tab link as you, but holds no pairing secret: the worker refuses its boxes (`pair`). Sign-out ends that session's links at once |
 | **Stolen worker token** (a copied file) | The file also carries the pairing secret — it is a key: `chmod 600`, Revoke when lost. The newest connection wins, so a thief displaces your worker (visible in the tab) |
