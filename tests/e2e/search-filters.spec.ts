@@ -183,6 +183,60 @@ test.describe('⌘K filters', () => {
     await expect(pal.getByRole('option', { name: /Create page “@nobody plan”/ })).toBeVisible()
   })
 
+  test('a typed beginning of several property names offers the names; the picked one’s values make the chip', async ({ page }) => {
+    await openApp(page)
+    const pal = await openPalette(page)
+    await page.keyboard.type('pr:')
+    await expect(groupHeads(pal).first()).toHaveText('Filter · Properties')
+    const sug = pal.locator('.pal-item--sug')
+    await expect.poll(async () => (await sug.locator('.pal-item__title').allInnerTexts()).sort()).toEqual(['Priority', 'Progress', 'Project'])
+    // no value of one property offered under another one's key
+    await expect(sug.filter({ hasText: 'High' })).toHaveCount(0)
+    await sug.filter({ has: page.locator('.pal-item__title', { hasText: /^Priority$/ }) }).click()
+    await expect(field(pal)).toHaveValue('priority:')
+    await expect(field(pal)).toBeFocused()
+    await expect(groupHeads(pal).first()).toHaveText('Filter · Priority')
+    await sug.filter({ has: page.locator('.pal-item__title', { hasText: /^High$/ }) }).click()
+    await expect(chips(pal).first()).toHaveAccessibleName('Remove filter Priority: High')
+    const rows = pal.locator('.pal-item--page')
+    await expect.poll(() => rows.count()).toBeGreaterThan(0)
+    const n = await rows.count()
+    for (let i = 0; i < n; i++) await expect(rows.nth(i).locator('.pal-item__props')).toContainText('High')
+  })
+
+  test('by: in the local workspace offers Me (and agents), never a person; a person’s name says why', async ({ page }) => {
+    await openApp(page)
+    const pal = await openPalette(page)
+    await page.keyboard.type('by:')
+    const sug = pal.locator('.pal-item--sug .pal-item__title')
+    await expect(sug.first()).toHaveText('Me')
+    for (const name of await sug.allInnerTexts()) expect(['Alex', 'Sam', 'Mira', 'You']).not.toContain(name)
+    await page.keyboard.type('al')
+    await expect(pal.locator('.pal-item--sug')).toHaveCount(0)
+    await expect(pal.locator('.pal-hint__text')).toHaveText(/^Here every page is yours/)
+    // is: with a value that fits nothing: the hint and every value below it
+    await page.keyboard.press(`${MOD}+a`)
+    await page.keyboard.type('is:xyz')
+    await expect(pal.locator('.pal-hint__text')).toHaveText('No “xyz” for is: — pick one below')
+    await expect(sug).toHaveText(['Favorites', 'Pages', 'Databases', 'Database entries'])
+  })
+
+  test('Enter on the focused “How filters work” key opens the help — never the selected row', async ({ page }) => {
+    await openApp(page)
+    const before = await page.evaluate(() => location.hash)
+    const pal = await openPalette(page)
+    await page.keyboard.type('reading edited:xyz')
+    await expect(pal.locator('.pal-hint__text')).toContainText('2026-09')
+    // a result row is selected: Enter in the field would open it
+    await expect(pal.locator('[role="option"][aria-selected="true"]')).toHaveCount(1)
+    await page.keyboard.press('Tab')
+    await expect(pal.locator('.pal-hint__help')).toBeFocused()
+    await page.keyboard.press('Enter')
+    await expect(pal).toBeHidden()
+    await expect(page.getByRole('dialog', { name: /^(Help|Hilfe)$/ })).toBeVisible()
+    expect(await page.evaluate(() => location.hash)).toBe(before)
+  })
+
   test('keyboard only: filter, arrow to a result, Alt+Enter opens it in a pane', async ({ page }) => {
     await openApp(page)
     const pal = await openPalette(page)

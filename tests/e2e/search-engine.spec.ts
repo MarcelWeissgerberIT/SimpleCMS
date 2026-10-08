@@ -8,8 +8,8 @@
 import { test, expect } from '@playwright/test'
 import type { Database, Page, Person, PropertyDef, SelectOption } from '../../src/app/store/types'
 import type { Translate } from '../../src/shared/i18n'
-import { fold, parseQuery, type Filter } from '../../src/app/shell/palette/query'
-import { applyFilters, filterIndexOf, matchedValues, validate, chipLabel, type FilterEnv } from '../../src/app/shell/palette/filters'
+import { fold, MAX_CHIPS, parseQuery, type Filter } from '../../src/app/shell/palette/query'
+import { applyFilters, filterIndexOf, filterKey, groupKey, matchedValues, takeChips, validate, chipLabel, type FilterEnv } from '../../src/app/shell/palette/filters'
 import { suggest } from '../../src/app/shell/palette/suggest'
 
 const NOW = new Date(2026, 9, 8, 12, 0).getTime()
@@ -216,6 +216,48 @@ test.describe('⌘K filters', () => {
     expect(ids('is:private', envOf({ team: true }))).toEqual(['n3'])
   })
 
+  test('in: twice means either (any order), -in: twice excludes both — each in: keeps its own ancestry answers', () => {
+    const projectsAndBooks = ['b1', 'b2', 'b3', 'n2', 'w1', 'w2', 'w3', 'w4', 'w5']
+    expect(ids('in:projects in:reading')).toEqual(projectsAndBooks)
+    expect(ids('in:reading in:projects')).toEqual(projectsAndBooks)
+    expect(ids('-in:projects -in:reading')).toEqual(['db-l', 'db-p', 'db-r', 'db-s', 'l1', 'l2', 'n1', 'n3', 's1', 's2'])
+    expect(ids('-in:reading -in:projects')).toEqual(ids('-in:projects -in:reading'))
+  })
+
+  test('English and German keywords are one filter: is: = ist:, by: = von: (either-or, one chip)', () => {
+    expect(ids('is:favorite ist:zeile')).toEqual(ids('is:favorite is:row'))
+    expect(ids('is:favorite ist:zeile')).toHaveLength(14)
+    expect(groupKey(one('is:favorite'))).toBe(groupKey(one('ist:zeile')))
+    expect(filterKey(one('is:favorite'))).toBe(filterKey(one('ist:favorit')))
+    expect(filterKey(one('is:fav'))).toBe(filterKey(one('is:favorite')))
+    expect(filterKey(one('by:me'))).toBe(filterKey(one('von:ich')))
+    expect(filterKey(one('edited:7d'))).toBe(filterKey(one('geändert:7t')))
+    expect(filterKey(one('is:favorite'))).not.toBe(filterKey(one('is:row')))
+    // the same filter typed twice in both languages: one chip
+    expect(takeChips(fx, 'is:favorite ist:favorit ', [], envOf(), vocab).chips).toHaveLength(1)
+  })
+
+  test('chips: at most MAX_CHIPS — a filter past the cap stays in the input as typed; one that is a chip already only leaves', () => {
+    const env = envOf()
+    const twelve = 'status:done status:review status:backlog status:queued status:shipped status:reading type:book type:article tags:web tags:"key account" priority:high priority:low '
+    const full = takeChips(fx, twelve, [], env, vocab)
+    expect(full.chips).toHaveLength(MAX_CHIPS)
+    expect(full.q).toBe('')
+    // a 13th finished filter: no chip, and it is not swallowed either
+    const over = takeChips(fx, 'brand status:to-read ', full.chips, env, vocab)
+    expect(over.chips).toBe(full.chips)
+    expect(over.q).toBe('brand status:to-read ')
+    // typed all at once: the first twelve become chips, the rest stays
+    const once = takeChips(fx, `${twelve}status:to-read `, [], env, vocab)
+    expect(once.chips).toHaveLength(MAX_CHIPS)
+    expect(once.q).toBe('status:to-read ')
+    // a filter that already is a chip leaves the input without a second chip (the same list: nothing to re-select)
+    const eleven = full.chips.slice(0, 11)
+    const dup = takeChips(fx, 'status:done brand', eleven, env, vocab)
+    expect(dup.chips).toBe(eleven)
+    expect(dup.q).toBe('brand')
+  })
+
   test('record types: a property of another type is not that row’s', () => {
     expect(ids('company:acme')).toEqual(['l1'])
     expect(ids('-company:acme')).toEqual([])
@@ -232,6 +274,30 @@ test.describe('⌘K filters', () => {
     expect(run('by:"tidy bot"')).toEqual(['w3'])
     // @x is about person properties only: Alex edited w4, but @sam does not find it
     expect(run('@sam')).toEqual(['w3'])
+  })
+
+  test('by:me is never an agent whose name starts with "me" / "ich" (team and local)', () => {
+    const agents = [
+      { id: 'ag1', name: 'Tidy bot' },
+      { id: 'ag2', name: 'Meeting summariser' },
+      { id: 'ag3', name: 'Ich-Erzähler' },
+    ]
+    const stamped = { ...pages, w4: { ...pages.w4, createdBy: 'p-sam', updatedBy: 'p-alex' }, w5: { ...pages.w5, createdBy: 'agent:ag2', updatedBy: 'agent:ag2' }, w3: { ...pages.w3, createdBy: 'agent:ag3', updatedBy: 'agent:ag3' } }
+    const sfx = filterIndexOf(list.map((p) => stamped[p.id]), databases)
+    const run = (q: string, env: FilterEnv) => applyFilters(sfx, parseQuery(`${q} `).filters, env).map((p) => p.id)
+    const team = envOf({ team: true, meId: 'p-alex', pages: stamped, agents })
+    expect(run('by:me', team)).toEqual(['w4'])
+    expect(run('von:ich', team)).toEqual(['w4'])
+    // a team without a signed-in member: "me" is nobody (never an agent), so it tells why
+    expect(validate(sfx, one('by:me'), { ...team, meId: null })).not.toBe(true)
+    // locally "me" = every change no agent made
+    const local = envOf({ pages: stamped, agents })
+    const mine = run('by:me', local)
+    expect(mine).not.toContain('w5')
+    expect(mine).toContain('w4')
+    expect(run('von:ich', local)).not.toContain('w3')
+    // the agents themselves still answer by name
+    expect(run('by:meeting', local)).toEqual(['w5'])
   })
 
   test('validation tells why a value matches nothing', () => {
@@ -305,6 +371,72 @@ test.describe('⌘K suggestions', () => {
     expect(sug('budget:').hint).toBe('shell.palette.hint.number{"key":"Budget"}')
     expect(sug('notes:').hint).toBe('shell.palette.hint.text{"key":"Notes"}')
     expect(sug('edited:').items.map((i) => i.hint)).toEqual(['today', 'yesterday', '7d', '30d', '>30d', 'month'])
+  })
+
+  test('a typed beginning of several property names offers the names, never one name’s values under another’s key', () => {
+    const pr = sug('pr:')
+    expect(pr.place).toBe('top')
+    expect(pr.head).toBe('shell.palette.properties')
+    expect(pr.items.map((i) => [i.kind, i.insert, i.complete])).toEqual([
+      ['key', 'priority:', false],
+      ['key', 'progress:', false],
+      ['key', 'project:', false],
+    ])
+    expect(sug('ti:').items.map((i) => i.insert)).toEqual(['timeline:', 'title:'])
+    // a value typed already stays with the key that is picked
+    expect(sug('pr:hi').items.map((i) => i.insert)).toEqual(['priority:hi', 'progress:hi', 'project:hi'])
+    // one name fits: its values under the whole key, its own counts and hint
+    const sta = sug('sta:')
+    expect(sta.head).toBe('Status')
+    expect(sta.items[0]).toMatchObject({ kind: 'group', insert: 'status:done' })
+    expect(sug('stat:zzz').hint).toBe('shell.palette.hint.bad{"key":"Status","value":"zzz"}')
+    expect(sug('prio:').items.find((i) => i.label === 'High')).toMatchObject({ insert: 'priority:High', hint: 'shell.palette.row' })
+  })
+
+  test('by: in a local workspace offers Me and the agents — the people only in a team; nothing fitting says why', () => {
+    expect(sug('by:').items.map((i) => i.insert)).toEqual(['by:me', 'by:"Tidy bot"'])
+    const al = sug('by:al')
+    expect(al.items).toEqual([])
+    expect(al.hint).toMatch(/^shell\.palette\.hint\.byLocal/)
+    expect(sug('by:', envOf({ team: true })).items.map((i) => i.insert)).toEqual(['by:me', 'by:You', 'by:Alex', 'by:"Sam Lee"', 'by:"Tidy bot"'])
+    // Created by alone: the same rule; a key that is also a person property elsewhere keeps the people
+    const audit = db('db-a', [
+      { id: 'a-t', name: 'Name', type: 'title' },
+      { id: 'a-by', name: 'Created by', type: 'created_by' },
+      { id: 'a-ok', name: 'Approved', type: 'checkbox' },
+    ])
+    const crew = db('db-c', [
+      { id: 'c-t', name: 'Name', type: 'title' },
+      { id: 'c-who', name: 'Who', type: 'person' },
+    ])
+    const audit2 = db('db-a2', [
+      { id: 'a2-t', name: 'Name', type: 'title' },
+      { id: 'a2-who', name: 'Who', type: 'last_edited_by' },
+    ])
+    const afx = filterIndexOf([page({ id: 'db-a', title: 'Audit', kind: 'database' }), page({ id: 'db-c', title: 'Crew', kind: 'database' }), page({ id: 'db-a2', title: 'Audit 2', kind: 'database' })], { 'db-a': audit, 'db-c': crew, 'db-a2': audit2 })
+    const asug = (q: string, env = envOf()) => suggest(parseQuery(q).partial, afx, env, t)
+    expect(asug('created-by:').items.map((i) => i.insert)).toEqual(['created-by:me', 'created-by:"Tidy bot"'])
+    const bad = asug('created-by:al')
+    expect(bad.items).toEqual([])
+    expect(bad.hint).toBe('shell.palette.hint.actorLocal{"key":"Created by"}')
+    expect(asug('created-by:', envOf({ team: true })).items.map((i) => i.insert)).toContain('created-by:Alex')
+    expect(asug('who:').items.map((i) => i.insert)).toEqual(['who:me', 'who:You', 'who:Alex', 'who:"Sam Lee"', 'who:"Tidy bot"'])
+    // a checkbox value that fits nothing: both values below the hint ("pick one below")
+    const maybe = asug('approved:maybe')
+    expect(maybe.items.map((i) => i.label)).toEqual(['database.yes', 'database.no'])
+    expect(maybe.hint).toBe('shell.palette.hint.bad{"key":"Approved","value":"maybe"}')
+    expect(asug('approved:y').items.map((i) => i.label)).toEqual(['database.yes'])
+  })
+
+  test('is: a value that fits nothing lists every value under the hint', () => {
+    const bad = sug('is:xyz')
+    expect(bad.items.map((i) => i.id)).toEqual(['is:favorite', 'is:page', 'is:database', 'is:row'])
+    expect(bad.hint).toBe('shell.palette.hint.is{"key":"is","value":"xyz"}')
+    // is:private outside a team: the values there are (no private), and the hint
+    expect(sug('is:priv').items.map((i) => i.id)).not.toContain('is:private')
+    expect(sug('is:priv').hint).toBe('shell.palette.hint.is{"key":"is","value":"priv"}')
+    expect(sug('is:fav').hint).toBeUndefined()
+    expect(sug('is:fav').items.map((i) => i.id)).toEqual(['is:favorite'])
   })
 
   test('German: keywords and date presets', () => {

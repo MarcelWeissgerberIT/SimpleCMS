@@ -16,7 +16,7 @@
 import type { ColorName, Database, ID, Page, Person, PropertyDef, PropertyType } from '../../store/types'
 import { COLOR_NAMES } from '../../store/types'
 import type { Translate } from '@/shared/i18n'
-import { compare, dateRange, DAY, dayMs, fold, isMe, overlaps, parseBool, parseIs, parseNumber, splitCmp, statusGroupOf, type Filter } from './query'
+import { compare, dateRange, DAY, dayMs, fold, isMe, MAX_CHIPS, overlaps, parseBool, parseIs, parseNumber, splitCmp, statusGroupOf, takeFilters, type Filter, type QueryVocab } from './query'
 
 export interface FilterEnv {
   now: number
@@ -239,13 +239,11 @@ interface ActorQuery {
   localMe: boolean
 }
 function actorQuery(value: string, env: FilterEnv): ActorQuery {
+  // "me" is the signed-in member (team) or every change no agent made (local) — never an agent named "Meeting …"
+  if (isMe(value)) return { ids: new Set(env.team && env.meId ? [env.meId] : []), localMe: !env.team }
   const ids = new Set<string>(agentsFor(value, env.agents))
-  let localMe = false
-  if (isMe(value)) {
-    if (env.team && env.meId) ids.add(env.meId)
-    if (!env.team) localMe = true
-  } else if (env.team) for (const id of peopleFor(value, env.people)) ids.add(id)
-  return { ids, localMe }
+  if (env.team) for (const id of peopleFor(value, env.people)) ids.add(id)
+  return { ids, localMe: false }
 }
 const actorHits = (q: ActorQuery, stamp: unknown) =>
   (typeof stamp === 'string' && q.ids.has(stamp)) || (q.localMe && !(typeof stamp === 'string' && stamp.startsWith('agent:')))
@@ -462,6 +460,8 @@ export function validate(fx: FilterIndex, f: Filter, env: FilterEnv): true | Inv
       const key = first.name
       if (isNumberType(first.type)) return { hint: 'shell.palette.hint.number', vars: { key } }
       if (isDateType(first.type)) return { hint: 'shell.palette.hint.date', vars: { key } }
+      // Created by / Last edited by in a local workspace: one author — "me" or an agent, never a person of the list
+      if (!env.team && refs.every((r) => ACTOR_TYPES.has(r.prop.type)) && peopleFor(f.value, env.people).length) return { hint: 'shell.palette.hint.actorLocal', vars: { key } }
       if (first.type === 'person' || ACTOR_TYPES.has(first.type)) return { hint: 'shell.palette.hint.unknownPerson', vars: { value: f.value } }
       return { hint: 'shell.palette.hint.bad', vars: { key, value: f.value } }
     }
@@ -469,7 +469,7 @@ export function validate(fx: FilterIndex, f: Filter, env: FilterEnv): true | Inv
       return propsForKey(fx, f.key).length ? true : { hint: 'shell.palette.hint.unknownKey', vars: { key: f.key } }
     case 'is': {
       const v = parseIs(f.value)
-      if (!v || (v === 'private' && !env.team)) return { hint: 'shell.palette.hint.is', vars: { value: f.value } }
+      if (!v || (v === 'private' && !env.team)) return { hint: 'shell.palette.hint.is', vars: { key: f.key, value: f.value } }
       return true
     }
     case 'date':
@@ -496,7 +496,7 @@ export function validate(fx: FilterIndex, f: Filter, env: FilterEnv): true | Inv
 /** true: matches · false: could, but does not · null: not something the filter can ask (no such property). */
 type Test = (row: Page) => boolean | null
 
-function compile(fx: FilterIndex, f: Filter, env: FilterEnv, memo: Map<ID, boolean>): Test {
+function compile(fx: FilterIndex, f: Filter, env: FilterEnv): Test {
   switch (f.kind) {
     case 'prop':
     case 'has': {
@@ -526,6 +526,8 @@ function compile(fx: FilterIndex, f: Filter, env: FilterEnv, memo: Map<ID, boole
     }
     case 'in': {
       const roots = new Set(rootsFor(fx, f.value).map((p) => p.id))
+      // page → "below one of THESE roots" (own per filter: `in:a in:b` must never read a's answers)
+      const memo = new Map<ID, boolean>()
       const under = (p: Page): boolean => {
         const hit = memo.get(p.id)
         if (hit !== undefined) return hit
@@ -605,10 +607,52 @@ function compile(fx: FilterIndex, f: Filter, env: FilterEnv, memo: Map<ID, boole
 
 const ORDER: Filter['kind'][] = ['in', 'prop', 'has', 'person', 'is', 'date', 'by']
 
+/** What a filter's key stands for: a property name (folded), 'edited' / 'created' — keywords in either language are one (is: = ist:, by: = von:). */
+const groupOf = (f: Filter) => (f.kind === 'prop' || f.kind === 'has' || f.kind === 'date' ? fold(f.key) : '')
+/** A filter's value as it is meant: is:fav = ist:favorit, by:me = von:ich, 7d = 7t. */
+function canonValue(f: Filter): string {
+  if (f.kind === 'is') return parseIs(f.value) ?? fold(f.value)
+  if ((f.kind === 'person' || f.kind === 'by') && isMe(f.value)) return 'me'
+  if (f.kind === 'date') return DATE_WORDS[f.value.trim().toLowerCase()] ?? fold(f.value)
+  return fold(f.value)
+}
 /** A filter's group: the same filter twice means either; negated ones all apply. */
-export const groupKey = (f: Filter) => `${f.kind}|${f.neg ? '-' : '+'}|${fold(f.key)}`
+export const groupKey = (f: Filter) => `${f.kind}|${f.neg ? '-' : '+'}|${groupOf(f)}`
 /** Two filters that mean the same (chips dedupe). */
-export const filterKey = (f: Filter) => `${groupKey(f)}|${fold(f.value)}`
+export const filterKey = (f: Filter) => `${groupKey(f)}|${canonValue(f)}`
+
+/**
+ * The chips typed text adds: complete, valid filters followed by a space leave the input (takeFilters). One
+ * that already is a chip only leaves the input (no second chip); past MAX_CHIPS a filter stays in the input as
+ * typed (it still counts, as a filter being typed does). `chips` stays `cur` when none was added.
+ */
+export function takeChips(fx: FilterIndex, input: string, cur: Filter[], env: FilterEnv, vocab?: QueryVocab): { q: string; chips: Filter[] } {
+  const keys = new Set(cur.map(filterKey))
+  let room = MAX_CHIPS - cur.length
+  const { filters, rest } = takeFilters(
+    input,
+    (f) => {
+      if (validate(fx, f, env) !== true) return false
+      const k = filterKey(f)
+      if (keys.has(k)) return true
+      if (room <= 0) return false
+      keys.add(k)
+      room--
+      return true
+    },
+    vocab,
+  )
+  if (!filters.length) return { q: input, chips: cur }
+  const seen = new Set(cur.map(filterKey))
+  const next = [...cur]
+  for (const f of filters) {
+    const k = filterKey(f)
+    if (seen.has(k)) continue
+    seen.add(k)
+    next.push(f)
+  }
+  return { q: rest, chips: next.length === cur.length ? cur : next }
+}
 
 /** The live pages that match every filter group (index order). */
 export function applyFilters(fx: FilterIndex, filters: Filter[], env: FilterEnv): Page[] {
@@ -617,14 +661,13 @@ export function applyFilters(fx: FilterIndex, filters: Filter[], env: FilterEnv)
     const k = groupKey(f)
     const g = groups.get(k)
     if (g) {
-      if (!g.some((x) => fold(x.value) === fold(f.value))) g.push(f)
+      if (!g.some((x) => canonValue(x) === canonValue(f))) g.push(f)
     } else groups.set(k, [f])
   }
   const sorted = [...groups.values()].sort((a, b) => ORDER.indexOf(a[0].kind) - ORDER.indexOf(b[0].kind))
   let cur: readonly Page[] = fx.pages
   for (const group of sorted) {
-    const memo = new Map<ID, boolean>()
-    const tests = group.map((f) => compile(fx, f, env, memo))
+    const tests = group.map((f) => compile(fx, f, env))
     if (group[0].neg) cur = cur.filter((row) => tests.every((t) => t(row) === false))
     else cur = cur.filter((row) => tests.some((t) => t(row) === true))
     if (!cur.length) break

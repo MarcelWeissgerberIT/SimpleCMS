@@ -8,8 +8,8 @@ import { useWorkspace } from '../../store/store'
 import type { Page } from '../../store/types'
 import { useT } from '../../i18n'
 import { buildIndex, search, type SearchHit, type SearchIndex } from './search'
-import { MAX_CHIPS, parseQuery, takeFilters, type Filter, type ParsedQuery, type QueryVocab } from './query'
-import { applyFilters, filterIndexOf, filterKey, propsForKey, validate, type FilterEnv, type FilterIndex } from './filters'
+import { parseQuery, type Filter, type ParsedQuery, type QueryVocab } from './query'
+import { applyFilters, filterIndexOf, propsForKey, takeChips, validate, type FilterEnv, type FilterIndex } from './filters'
 import { suggest, type Suggestion, type Suggestions } from './suggest'
 import { filterEnv } from './env'
 import { visitScore } from '../lib/visits'
@@ -67,17 +67,7 @@ export function useFind(initial: string): Find {
   const take = (v: string, cur: Filter[]): { q: string; chips: Filter[] } => {
     // > / ?: the chips go (the same empty list when there were none: nothing to re-select)
     if (modeOf(v) !== 'find') return { q: v, chips: cur.length ? [] : cur }
-    const { filters, rest } = takeFilters(v, (f) => validate(fx, f, env) === true, vocab)
-    if (!filters.length) return { q: v, chips: cur }
-    const keys = new Set(cur.map(filterKey))
-    const next = [...cur]
-    for (const f of filters) {
-      if (next.length >= MAX_CHIPS) break
-      if (keys.has(filterKey(f))) continue
-      keys.add(filterKey(f))
-      next.push(f)
-    }
-    return { q: rest, chips: next }
+    return takeChips(fx, v, cur, env, vocab)
   }
 
   const [state, setState] = useState(() => ({ ...take(initial, []), rev: 0 }))

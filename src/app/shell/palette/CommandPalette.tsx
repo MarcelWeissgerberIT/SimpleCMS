@@ -249,7 +249,20 @@ function Palette() {
           }
         }}
       >
-        <Command shouldFilter={false} loop value={value} onValueChange={setValue} label={t('shell.palette.label')}>
+        <Command
+          shouldFilter={false}
+          loop
+          value={value}
+          onValueChange={setValue}
+          label={t('shell.palette.label')}
+          onKeyDown={(e) => {
+            // Enter on a focused key ("How filters work", > / ?) is that key's — cmdk would run the selected row
+            const b = e.target
+            if (e.key !== 'Enter' || e.defaultPrevented || e.nativeEvent.isComposing || !(b instanceof HTMLButtonElement) || b.disabled) return
+            e.preventDefault()
+            b.click()
+          }}
+        >
           <div className="pal-input" data-chips={chips.length ? true : undefined}>
             <span className="pal-mode" data-mode={mode}>
               {mode === 'find' ? t('shell.palette.find') : mode === 'run' ? t('shell.palette.run') : t('shell.palette.ask')}

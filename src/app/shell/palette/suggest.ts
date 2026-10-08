@@ -128,13 +128,19 @@ function optionCounts(fx: FilterIndex, key: string, refs: PropRef[]): Map<string
   return out
 }
 
-function peopleItems(keyPart: string, v: string, env: FilterEnv, t: Translate, agents = false): Suggestion[] {
+/**
+ * Me, the people and the agents a value may name. Who created or edited a page is known per person only in a
+ * team: locally `by:` and Created by / Last edited by keys list Me and the agents — never a person who can
+ * never become such a filter (filters.ts actorQuery).
+ */
+function peopleItems(keyPart: string, v: string, env: FilterEnv, t: Translate, { people = true, agents = false } = {}): Suggestion[] {
   const out: Suggestion[] = []
   const at = keyPart === '@'
   if (meFits(v, t)) out.push({ id: 'me', insert: at ? '@me' : `${keyPart}:me`, label: t('shell.palette.me'), kind: 'person', complete: true })
   // the name or a word of it starts with what is typed
-  const people = env.people.filter((p) => !v || fold(p.name).startsWith(v) || p.name.split(/\s+/).some((w) => fold(w).startsWith(v)))
-  for (const p of people) out.push({ id: `person:${p.id}`, insert: at ? tokenText('@', p.name) : tokenText(keyPart, p.name), label: p.name, color: safeColor(p.color), kind: 'person', complete: true })
+  if (people)
+    for (const p of env.people.filter((p) => !v || fold(p.name).startsWith(v) || p.name.split(/\s+/).some((w) => fold(w).startsWith(v))))
+      out.push({ id: `person:${p.id}`, insert: at ? tokenText('@', p.name) : tokenText(keyPart, p.name), label: p.name, color: safeColor(p.color), kind: 'person', complete: true })
   if (agents)
     for (const a of rank(env.agents, (x) => x.name, v))
       out.push({ id: `agent:${a.id}`, insert: tokenText(keyPart, a.name), label: a.name, hint: t('shell.palette.agent'), kind: 'person', complete: true })
@@ -201,6 +207,8 @@ export function suggest(partial: PartialToken | null, fx: FilterIndex, env: Filt
   const key = partial.key
   const keyPart = partial.quoted ? `"${key}"` : key
   const exactRefs = propsForKey(fx, key)
+  /** the property the value is for (a typed beginning of a name: the whole name, once it is the only one) */
+  let propKey = key
   let kw = partial.quoted ? null : keywordOf(key)
   if (kw === 'by' && exactRefs.length) kw = null
   // the value as a filter: why it matches nothing (once there is a value)
@@ -213,7 +221,7 @@ export function suggest(partial: PartialToken | null, fx: FilterIndex, env: Filt
           ? { kind: 'has', raw: partial.raw, neg: partial.neg, key: partial.value, value: '' }
           : kw
             ? { kind: kw, raw: partial.raw, neg: partial.neg, key, value: partial.value }
-            : { kind: 'prop', raw: partial.raw, neg: partial.neg, key, value: partial.value }
+            : { kind: 'prop', raw: partial.raw, neg: partial.neg, key: propKey, value: partial.value }
     const r = validate(fx, f, env)
     if (r === true) return undefined
     const vars = { ...r.vars }
@@ -248,11 +256,13 @@ export function suggest(partial: PartialToken | null, fx: FilterIndex, env: Filt
     return done({ items, hint: items.length ? undefined : invalidHint(), place: 'top', head: t('shell.palette.kw.in') })
   }
   if (kw === 'is') {
-    const items = IS_NAMES[env.lang]
+    const all = IS_NAMES[env.lang]
       .filter(([value]) => value !== 'private' || env.team)
-      .filter(([value, word]) => !v || fold(word).startsWith(v) || fold(t(`shell.palette.is.${value}`)).startsWith(v))
       .map(([value, word]) => ({ id: `is:${value}`, insert: tokenText(keyPart, word), label: t(`shell.palette.is.${value}`), hint: word, kind: 'is' as const, complete: true }))
-    return done({ items, hint: items.length ? undefined : invalidHint(), place: 'top', head: t('shell.palette.kw.is') })
+    const items = all.filter((it) => !v || fold(it.hint).startsWith(v) || fold(it.label).startsWith(v))
+    // nothing fits what is typed: every value, under the hint ("pick one below")
+    if (v && !items.length) return done({ items: all, hint: invalidHint(), place: 'top', head: t('shell.palette.kw.is') })
+    return done({ items, place: 'top', head: t('shell.palette.kw.is') })
   }
   if (kw === 'has') {
     const items = rank(fx.names, (n) => n.name, v).map((n) => ({
@@ -271,14 +281,37 @@ export function suggest(partial: PartialToken | null, fx: FilterIndex, env: Filt
     return done({ items, hint: items.length ? undefined : invalidHint() ?? t('shell.palette.hint.date', { key: t(`shell.palette.kw.${kw}`) }), place: 'top', head: t(`shell.palette.kw.${kw}`) })
   }
   if (kw === 'by') {
-    const items = peopleItems(keyPart, v, env, t, true)
+    const items = peopleItems(keyPart, v, env, t, { people: env.team, agents: true })
     return done({ items, hint: items.length ? undefined : invalidHint(), place: 'top', head: t('shell.palette.kw.by') })
   }
 
   /* ---------- a property */
-  const refs = exactRefs.length ? exactRefs : propsForKey(fx, key, true)
-  if (!refs.length) return EMPTY
-  // typed only the beginning of a name ("stat:"): insert the whole key
+  let refs = exactRefs
+  if (!refs.length) {
+    // typed only the beginning of a name ("stat:"): one name → its values under the whole key; several
+    // ("pr:" → Project, Priority, Progress) → the names first (a value always belongs to the key it goes in)
+    const prefixed = propsForKey(fx, key, true)
+    if (!prefixed.length) return EMPTY
+    const norm = fold(prefixed[0].prop.name)
+    if (prefixed.some((r) => fold(r.prop.name) !== norm)) {
+      const k = fold(key)
+      const items = fx.names
+        .filter((n) => n.norm.startsWith(k))
+        .map((n) => ({
+          id: `key:${n.norm}`,
+          // what was typed after the colon stays (`pr:hi` → `priority:hi`)
+          insert: partial.value ? tokenText(keyText(n.name), partial.value) : `${keyText(n.name)}:`,
+          label: n.name,
+          hint: n.dbs > 1 ? t('shell.palette.inDbs', { n: n.dbs }) : undefined,
+          kind: 'key' as const,
+          type: n.types[0],
+          complete: false,
+        }))
+      return done({ items, place: 'top', head: t('shell.palette.properties') })
+    }
+    refs = prefixed
+    propKey = refs[0].prop.name
+  }
   const kp = exactRefs.length ? keyPart : keyText(refs[0].prop.name)
   const name = refs[0].prop.name
   const types = refs.map((r) => r.prop.type)
@@ -302,22 +335,28 @@ export function suggest(partial: PartialToken | null, fx: FilterIndex, env: Filt
     // nothing fits what is typed: offer every option ("pick one below")
     const none = v && !options.length && !items.length
     if (none) options = all
-    const counts = optionCounts(fx, key, refs)
+    const counts = optionCounts(fx, propKey, refs)
     for (const o of options)
       items.push({ id: `opt:${fold(o.name)}`, insert: tokenText(kp, o.name), label: o.name, color: o.color, hint: rowsLabel(counts.get(fold(o.name)) ?? 0, t), kind: 'option', complete: true })
     return done({ items, hint: none ? invalidHint() : undefined, place: 'top', head: name })
   }
   if (types.some((x) => x === 'person' || x === 'created_by' || x === 'last_edited_by')) {
-    const items = peopleItems(kp, v, env, t, types.some((x) => x === 'created_by' || x === 'last_edited_by'))
+    // a person property anywhere under this name: its people are values (locally Created by / Last edited by alone: Me + agents)
+    const actor = types.some((x) => x === 'created_by' || x === 'last_edited_by')
+    const items = peopleItems(kp, v, env, t, { people: env.team || types.includes('person'), agents: actor })
     return done({ items, hint: items.length ? undefined : invalidHint(), place: 'top', head: name })
   }
   if (types.includes('checkbox')) {
     const [yes, no] = BOOL_WORDS[env.lang]
-    const items: Suggestion[] = [
+    const words: Record<string, string> = { 'bool:yes': yes, 'bool:no': no }
+    const all: Suggestion[] = [
       { id: 'bool:yes', insert: tokenText(kp, yes), label: t('database.yes'), kind: 'bool' as const, complete: true },
       { id: 'bool:no', insert: tokenText(kp, no), label: t('database.no'), kind: 'bool' as const, complete: true },
-    ].filter((s) => !v || fold(s.insert.slice(kp.length + 1)).startsWith(v) || fold(s.label).startsWith(v))
-    return done({ items, hint: items.length ? undefined : invalidHint(), place: 'top', head: name })
+    ]
+    const items = all.filter((s) => !v || fold(words[s.id]).startsWith(v) || fold(s.label).startsWith(v))
+    // nothing fits: both, under the hint ("pick one below")
+    if (v && !items.length) return done({ items: all, hint: invalidHint(), place: 'top', head: name })
+    return done({ items, place: 'top', head: name })
   }
   if (types.some(isDateType)) {
     const items = dateItems(kp, v, env, t)
