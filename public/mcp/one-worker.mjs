@@ -11377,15 +11377,20 @@ var PRICES = [
   [/opus-(5|4-[5-8])/, 5, 25, 0.1],
   [/sonnet-5/, 2, 10, 0.1],
   [/sonnet-4/, 3, 15, 0.1],
-  [/haiku-5-5/, 0.1, 0.5, 0.1],
+  [/haiku-5-5/, 0.1, 0.5, 0.1, { over: 1e5, input: 0.5, output: 2.5 }],
   [/haiku-4-5/, 1, 5, 0.1]
 ];
 function estimateCost(model, usages) {
   const row = model ? PRICES.find(([re]) => re.test(model)) : void 0;
   if (!row) return null;
-  const [, inp, out, read2] = row;
+  const [, baseIn, baseOut, read2, long] = row;
   let usd2 = 0;
-  for (const u of usages) usd2 += (u.input * inp + u.cacheWrite * inp * 1.25 + u.cacheRead * inp * read2 + u.output * out) / 1e6;
+  for (const u of usages) {
+    const tier = long && u.input + u.cacheWrite + u.cacheRead > long.over ? long : null;
+    const inp = tier ? tier.input : baseIn;
+    const out = tier ? tier.output : baseOut;
+    usd2 += (u.input * inp + u.cacheWrite * inp * 1.25 + u.cacheRead * inp * read2 + u.output * out) / 1e6;
+  }
   return usd2;
 }
 function usageOf(raw) {

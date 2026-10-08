@@ -80,11 +80,20 @@ describe('Claude Code CLI', () => {
     assert.ok(lines.filter((l) => l.k === 'claude').every((l) => !l.c))
   })
 
-  test('cost estimate: per model, cache writes 1.25 × input, cache reads at the model\'s rate; unknown model = none', () => {
+  test('cost estimate: per model, cache writes 1.25 × input, cache reads at the model\'s rate, long prompts at their tier; unknown model = none', () => {
     const u = usageOf({ input_tokens: 1_000_000, output_tokens: 100_000, cache_creation_input_tokens: 200_000, cache_read_input_tokens: 2_000_000 })!
     assert.equal(estimateCost('claude-opus-5-5', [u])!.toFixed(4), (4 + 2 + 0.25 * 4 + 2 * 4 * 0.05).toFixed(4))
     assert.equal(estimateCost('claude-sonnet-5-5', [u])!.toFixed(4), (2 + 1 + 0.25 * 2 + 2 * 2 * 0.1).toFixed(4))
     assert.equal(estimateCost('some-other-model', [u]), null)
+    // a model priced higher for long prompts: chosen per message by its whole prompt (input + cache writes + reads)
+    const short = { input: 2_000, cacheWrite: 0, cacheRead: 98_000, output: 1_000 }
+    const long = { input: 2_000, cacheWrite: 0, cacheRead: 150_000, output: 1_000 }
+    assert.equal(estimateCost('claude-haiku-5-5', [short])!.toFixed(6), ((2_000 * 0.1 + 98_000 * 0.1 * 0.1 + 1_000 * 0.5) / 1e6).toFixed(6))
+    assert.equal(estimateCost('claude-haiku-5-5', [long])!.toFixed(6), ((2_000 * 0.5 + 150_000 * 0.5 * 0.1 + 1_000 * 2.5) / 1e6).toFixed(6))
+    assert.equal(estimateCost('claude-haiku-5-5', [short, long])!.toFixed(6), (estimateCost('claude-haiku-5-5', [short])! + estimateCost('claude-haiku-5-5', [long])!).toFixed(6))
+    // exactly at the line is still the lower price
+    const edge = { input: 100_000, cacheWrite: 0, cacheRead: 0, output: 0 }
+    assert.equal(estimateCost('claude-haiku-5-5', [edge])!.toFixed(6), (0.01).toFixed(6))
     assert.equal(estimateCost(null, [u]), null)
     assert.deepEqual(usageOf({ input_tokens: 'x' }), { input: 0, output: 0, cacheWrite: 0, cacheRead: 0 })
     assert.equal(usageOf(null), null)

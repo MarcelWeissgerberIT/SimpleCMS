@@ -1,16 +1,23 @@
 /**
  * one-worker — a running cost estimate from Claude Code's token counts (stream-json usage per message). Claude Code
  * reports the exact cost only at the end; this is what One shows meanwhile, marked as an estimate. $ per million
- * tokens: input, output, and the cache-read multiplier (cache writes are 1.25 × input). Unknown models: no estimate.
+ * tokens: input, output, and the cache-read multiplier (cache writes are 1.25 × input). A model priced higher for long
+ * prompts carries a second price: a message whose prompt (input + cache writes + cache reads) is over `over` tokens is
+ * counted at `input` / `output` of that tier. Unknown models: no estimate.
  */
-const PRICES: Array<[RegExp, number, number, number]> = [
+interface LongPrompt {
+  over: number
+  input: number
+  output: number
+}
+const PRICES: Array<[RegExp, number, number, number, LongPrompt?]> = [
   [/fable-5-1|mythos-5-1/, 10, 50, 0.025],
   [/fable-5|mythos-5/, 10, 50, 0.1],
   [/opus-5-5/, 4, 20, 0.05],
   [/opus-(5|4-[5-8])/, 5, 25, 0.1],
   [/sonnet-5/, 2, 10, 0.1],
   [/sonnet-4/, 3, 15, 0.1],
-  [/haiku-5-5/, 0.1, 0.5, 0.1],
+  [/haiku-5-5/, 0.1, 0.5, 0.1, { over: 100_000, input: 0.5, output: 2.5 }],
   [/haiku-4-5/, 1, 5, 0.1],
 ]
 
@@ -24,9 +31,15 @@ export interface Usage {
 export function estimateCost(model: string | null, usages: Iterable<Usage>): number | null {
   const row = model ? PRICES.find(([re]) => re.test(model)) : undefined
   if (!row) return null
-  const [, inp, out, read] = row
+  const [, baseIn, baseOut, read, long] = row
   let usd = 0
-  for (const u of usages) usd += (u.input * inp + u.cacheWrite * inp * 1.25 + u.cacheRead * inp * read + u.output * out) / 1_000_000
+  for (const u of usages) {
+    // the tier is chosen per message, by the size of its whole prompt
+    const tier = long && u.input + u.cacheWrite + u.cacheRead > long.over ? long : null
+    const inp = tier ? tier.input : baseIn
+    const out = tier ? tier.output : baseOut
+    usd += (u.input * inp + u.cacheWrite * inp * 1.25 + u.cacheRead * inp * read + u.output * out) / 1_000_000
+  }
   return usd
 }
 
