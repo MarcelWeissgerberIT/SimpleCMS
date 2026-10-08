@@ -3,7 +3,8 @@
  * each page, for FREQUENT (sidebar, ⌘K) and as a tie-breaker in ⌘K search. localStorage
  * `one.shell.visits:<kind>:<id>` (local:local / cloud:<id>) — wiped by the local reset (prefix one.shell.)
  * and with a team workspace's copy (cloud/device.ts). Only noteVisit() writes; scoring in frecency.ts.
- * RECENT is the workspace's own list (`Workspace.recent`, touchRecent — per device already).
+ * RECENT is the workspace's own list (`Workspace.recent`, touchRecent — per device already, never in a backup:
+ * features/io/backup.ts).
  */
 import { useMemo } from 'react'
 import { create } from 'zustand'

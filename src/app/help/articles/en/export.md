@@ -20,4 +20,4 @@ summary: Markdown, a web page, a print document, a full backup — or a whole we
 - **Merge into this workspace** — keeps everything; adds missing pages; where both have a page, the newer version wins.
 - **Replace workspace** — deletes the current pages and databases and restores the backup exactly.
 
-> Your workspace lives in this browser. A regular **Full backup** is the safest copy. Your Claude key and tokens are never in a backup.
+> Your workspace lives in this browser. A regular **Full backup** is the safest copy. Your Claude key and tokens are never in a backup, nor which pages this device opened (Recent, Frequent).
