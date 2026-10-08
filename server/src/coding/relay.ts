@@ -10,8 +10,8 @@
  *  - A pending token (a fresh download) becomes the member's active one on its first connection; only then is
  *    the older token revoked and its worker closed ("replaced", 4401).
  *  - Load: per socket 2,000 frames / 128 MiB per 10 s. Over it, the worker's events (`k: 'e'`) are dropped and
- *    the tab is told how many; a tab or a worker far over it is closed (1008). A destination whose send buffer
- *    passes 32 MiB is closed (1013) — never the healthy source; all buffers together stay below 256 MiB.
+ *    the tab is told how many; a tab or a worker far over it (8,000 / 512 MiB) is closed (1008). A destination whose
+ *    send buffer passes 32 MiB is closed (1013) — never the healthy source; all buffers together stay below 256 MiB.
  *  - Liveness: WebSocket pings (crossws, CODING_PING_MS); a tab must send `alive` (a frozen background tab
  *    stops) or it is let go (4408); a sweep re-checks sessions, memberships and tokens every minute.
  *
@@ -270,7 +270,9 @@ export function createCodingRelay(deps: { config: Config; log: Logger; repo: Rep
         side.lastAlive = Date.now()
         return
       }
-      if (load !== 'ok') return close(side, 1008, 'rate')
+      // a tab sends no droppable frames: under the soft budget it is only forwarded (the tab paces big uploads itself,
+      // the destination's buffer check guards the worker) — far over it, it is closed
+      if (load === 'hard') return close(side, 1008, 'rate')
       if ((frame.kind === 'key' || frame.kind === 'box') && pair.worker && frame.s === pair.s) forward(pair.worker, frame.text)
       return
     }
@@ -454,8 +456,10 @@ export function createCodingRelay(deps: { config: Config; log: Logger; repo: Rep
       return n
     },
     refresh(workspaceId, userId) {
+      // only while no worker is connected does `registered` change what the tab shows; an online worker's pairing is
+      // never announced again (the tab would take it for a new one) — a worker that goes is announced by gone()
       const pair = pairs.get(`${workspaceId}\n${userId}`)
-      if (pair?.tab) tellTab(pair)
+      if (pair?.tab && !pair.worker) tellTab(pair)
     },
     online(workspaceId) {
       const out = new Map<string, { since: number; tab: boolean }>()

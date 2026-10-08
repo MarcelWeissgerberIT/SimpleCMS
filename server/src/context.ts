@@ -50,7 +50,7 @@ export interface CodingControl {
   closeSession(sessionId: string, reason: CloseReason): number
   /** a worker whose token was revoked or replaced by a newer download (4401) */
   closeWorker(workerId: string, reason: 'revoked' | 'replaced'): number
-  /** tell the member's tab again whether a worker is registered / online */
+  /** a token of the member came or went (REST): tell their tab whether one is registered — only while no worker is online (an online pairing is never announced twice) */
   refresh(workspaceId: string, userId: string): void
   /** the connected worker tokens of a workspace (token id → since when) and whether their member's tab is there */
   online(workspaceId: string): Map<string, { since: number; tab: boolean }>

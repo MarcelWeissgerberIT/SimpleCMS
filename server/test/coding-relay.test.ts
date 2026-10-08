@@ -103,8 +103,8 @@ const userId = async (c: Client) => (await c.get('/api/me')).body.user.id as str
 /** A worker and a tab that went through the key exchange: both sides hold the pairing's box. */
 async function handshake(w: Sock, t: Sock) {
   const online = await t.next((f) => relay(f, 'worker') && f.online, 'online')
-  const open = await w.next((f) => relay(f, 'tab-open'), 'tab-open')
-  assert.equal(open.s, online.s)
+  // the pairing the tab heard of (a socket of the test before may still have been closing: an earlier tab-open)
+  const open = await w.next((f) => relay(f, 'tab-open') && f.s === online.s, 'tab-open')
   const tn = tabNonce()
   const wn = workerNonce()
   t.send({ type: 'key', s: online.s, n: tn })
@@ -122,7 +122,9 @@ describe('coding relay', () => {
   const MARKER = 'relay-plaintext-marker-5d1e'
 
   before(async () => {
-    server = await startServer({ CODING_PING_MS: '400' })
+    // pings every 2 s: a busy test process (thousands of frames sealed at once) still answers in time — the idle rule
+    // has its own test below
+    server = await startServer({ CODING_PING_MS: '2000' })
     ada = await signIn(server, 'ada@relay.test')
     bob = await signIn(server, 'bob@relay.test')
     cleo = await signIn(server, 'cleo@relay.test')
@@ -319,6 +321,54 @@ describe('coding relay', () => {
     assert.equal(t.closed, null)
     w.close()
     t.close()
+  })
+
+  test('a download or a revoke while the link is live is no news to that pairing: no second announcement, no second key', async () => {
+    const w = worker(server, adaToken, wsId)
+    await w.next((f) => relay(f, 'ready'))
+    const t = tab(server, ada, wsId)
+    const { wBox, tBox } = await handshake(w, t)
+    const views = t.count((f) => relay(f, 'worker'))
+    const opens = w.count((f) => relay(f, 'tab-open'))
+    const keys = w.count((f) => f.type === 'key')
+    // "Download again" (a pending token), then revoking that pending token — the working pairing stays as it is
+    const fresh = (await ada.post(`/api/workspaces/${wsId}/coding/workers`, {})).body
+    assert.equal((await ada.del(`/api/workspaces/${wsId}/coding/workers/${fresh.id}`)).status, 204)
+    await new Promise((r) => setTimeout(r, 300))
+    assert.equal(t.count((f) => relay(f, 'worker')), views, 'the online pairing is not announced again (the tab would re-key it)')
+    assert.equal(w.count((f) => relay(f, 'tab-open')), opens)
+    assert.equal(w.count((f) => f.type === 'key'), keys, 'no second tab nonce')
+    assert.equal(t.closed, null)
+    assert.equal(w.closed, null)
+    // boxes of that pairing still pass both ways
+    t.send(await tBox.seal('{"type":"nudge"}'))
+    assert.equal(wBox.open(await w.next((f) => f.type === 'box')), '{"type":"nudge"}')
+    w.send(wBox.seal('{"type":"status","busy":[]}'))
+    assert.equal(await tBox.open(await t.next((f) => f.type === 'box')), '{"type":"status","busy":[]}')
+    // without a worker, a REST change is still news to the tab (whether a token is registered)
+    w.close()
+    await t.next((f) => relay(f, 'worker') && !f.online, 'offline')
+    const offline = t.count((f) => relay(f, 'worker'))
+    const again = (await ada.post(`/api/workspaces/${wsId}/coding/workers`, {})).body
+    await waitFor(() => t.count((f) => relay(f, 'worker')) > offline, 3000, 'the registered view')
+    assert.equal((await ada.del(`/api/workspaces/${wsId}/coding/workers/${again.id}`)).status, 204)
+    t.close()
+  })
+
+  test('a tab sending fast (an Import ZIP in 4 MiB chunks) passes the soft budget without being closed; far over it, it is', async () => {
+    // no worker: the frames are budgeted, not forwarded — 2,500 boxes in a window are over the soft budget
+    // (2,000 frames / 128 MiB: where only the worker's events may be dropped) and under the hard one
+    const t = tab(server, ada, wsId)
+    const view = await t.next((f) => relay(f, 'worker'))
+    const box = (seq: number) => ({ type: 'box', s: view.s || 1, seq, iv: 'AAAAAAAAAAAAAAAA', data: 'A'.repeat(32) })
+    for (let i = 1; i <= 2500; i++) t.send(box(i))
+    t.send({ type: 'relay', op: 'alive' })
+    await new Promise((r) => setTimeout(r, 800))
+    assert.equal(t.closed, null, 'the soft budget never closes a tab')
+    // 8,000 frames in a window: closed (1008 rate)
+    for (let i = 0; i < 6000; i++) t.send({ type: 'relay', op: 'alive' })
+    t.send(box(2501))
+    assert.deepEqual(await t.closedWith(8000), { code: 1008, reason: 'rate' })
   })
 
   test('a new download stays pending until it connects; then the older worker is replaced', async () => {
