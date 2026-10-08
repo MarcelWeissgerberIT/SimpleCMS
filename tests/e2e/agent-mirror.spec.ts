@@ -402,6 +402,12 @@ test.describe('Custom agents: the recipe "Mirror a list into a database"', () =>
     const saved = await wsEval(page, (s) => JSON.parse(JSON.stringify(Object.values(s.agents)[0])))
     expect(saved.enabled).toBe(false)
     expect(saved.instructions).toContain('[WER ICH IN DER QUELLE BIN]')
+    // such a draft is neither switched on nor run: it says what is missing
+    await page.locator('.agx-dhead').getByRole('switch').click()
+    await expect(page.locator('.toast').filter({ hasText: '„Spiegel · Tracker“ hat noch 4 Teile in [ECKIGEN KLAMMERN] zu ersetzen' })).toBeVisible()
+    expect(await wsEval(page, (s, id) => s.agents[id].enabled, saved.id)).toBe(false)
+    await page.locator('.agx-dhead .btn--primary').click()
+    await expect(page.locator('.agx-run')).toHaveCount(0)
   })
 
   test('no MCP server: the setup points to Settings and creates nothing', async ({ page }) => {

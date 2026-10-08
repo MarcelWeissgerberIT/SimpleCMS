@@ -7,9 +7,22 @@ import { t } from '../../i18n'
 import { executeRun } from './exec'
 import { dropRuns } from './runs'
 import { loadServerRuns, runOnServer, serverErrorText } from './server'
+import { placeholdersIn } from './mirror'
+
+/**
+ * A recipe's placeholders still in the job (mirror.ts): such an agent neither runs nor is switched on — it says so.
+ * (The editor refuses to save it switched on; this covers the card's switch and "Run now" of a saved draft.)
+ */
+function unfinished(agent: CustomAgent): boolean {
+  const left = placeholdersIn(agent.instructions).length
+  if (!left) return false
+  useUI.getState().toast({ message: t('features.agents.mirror.err.unfinished', { name: agent.name, count: left }), kind: 'error' })
+  return true
+}
 
 /** Start a run now: in this tab (browser runner) or on the team server. */
 export async function runNow(agent: CustomAgent): Promise<void> {
+  if (unfinished(agent)) return
   if (agent.runner === 'server') {
     try {
       await runOnServer(agent.id)
@@ -24,6 +37,7 @@ export async function runNow(agent: CustomAgent): Promise<void> {
 }
 
 export function setEnabled(agent: CustomAgent, enabled: boolean): void {
+  if (enabled && unfinished(agent)) return
   useWorkspace.getState().upsertAgent({ ...agent, enabled })
 }
 

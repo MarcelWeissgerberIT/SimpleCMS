@@ -47,6 +47,7 @@ export const messages: Messages = {
     'features.agents.mirror.toReplace': 'To replace',
     'features.agents.mirror.toReplaceHint': 'Click one to select it in the instructions, then type.',
     'features.agents.mirror.err.placeholders': 'Replace the parts in [SQUARE BRACKETS] first ({count} left) — or switch the agent off to save it as a draft.',
+    'features.agents.mirror.err.unfinished': '“{name}” still has {count} parts in [SQUARE BRACKETS] to replace — fill them in under Edit first.',
 
     'features.agents.mirror.ph.list': '[HOW TO LIST THE ITEMS]',
     'features.agents.mirror.ph.read': '[HOW TO READ ONE ITEM WITH ITS COMMENTS]',
@@ -156,6 +157,7 @@ THE FIXED PART:
     'features.agents.mirror.toReplace': 'Zu ersetzen',
     'features.agents.mirror.toReplaceHint': 'Klick auf einen Teil, um ihn in den Anweisungen auszuwählen, dann tippe.',
     'features.agents.mirror.err.placeholders': 'Ersetze zuerst die Teile in [ECKIGEN KLAMMERN] (noch {count}) — oder schalte den Agenten aus, um ihn als Entwurf zu speichern.',
+    'features.agents.mirror.err.unfinished': '„{name}“ hat noch {count} Teile in [ECKIGEN KLAMMERN] zu ersetzen — fülle sie zuerst unter Bearbeiten aus.',
 
     'features.agents.mirror.ph.list': '[WIE ICH DIE EINTRÄGE AUFLISTE]',
     'features.agents.mirror.ph.read': '[WIE ICH EINEN EINTRAG MIT SEINEN KOMMENTAREN LESE]',
