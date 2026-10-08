@@ -8,7 +8,7 @@ related: claude-key, gmail-sync, self-hosting, export
 summary: Was in deinem Browser bleibt, was zu Anthropic oder Google geht — und wann.
 ---
 ## Bleibt in deinem Browser
-Seiten, Datenbanken, Dateien, Verläufe, Kommentare und Einstellungen des lokalen Workspace liegen in der IndexedDB dieses Browsers. One hat kein Konto, keine Analyse und kein Tracking. getonecms.com liefert nur die Dateien der App aus.
+Seiten, Datenbanken, Dateien, Verläufe, Kommentare und Einstellungen des lokalen Workspace liegen in der IndexedDB dieses Browsers. One hat kein Konto, keine Analyse und kein Tracking. getonecms.com liefert nur die Dateien der App aus. Welche Seiten du wie oft geöffnet hast (Zuletzt, Häufig), bleibt pro Gerät und Workspace — nie synchronisiert, exportiert oder verschickt.
 
 ## Verlässt ihn nur, wenn du es nutzt
 - **Claude** (KI-Menü, Agent, ⌘K-Fragen, Autofill, Besprechungsnotizen, Frag die Hilfe): Der Text, den die Anfrage braucht, geht mit deinem Schlüssel an Anthropic (`api.anthropic.com`) — die Auswahl oder Seite, die Auszüge, die Claude liest, ein Transkript.

@@ -60,6 +60,7 @@ import { useCloud } from '../../cloud'
 import { openCloudDialog } from '../cloud/state'
 import { openWorkspaceSettings } from '../workspace/open'
 import { startTour } from '../tour/state'
+import { clearVisits } from './visits'
 import {
   copyPageForAI,
   copyPageLink,
@@ -126,6 +127,18 @@ export function buildCommands(t: Translate, pageId: ID | null): Command[] {
     },
     { id: 'settings', group: 'workspace', label: t('shell.cmd.settings'), icon: Settings, shortcut: 'Mod+,', keywords: 'preferences einstellungen api key', run: () => ui.openModal({ type: 'settings' }) },
     { id: 'functions', group: 'workspace', label: t('features.fn.cmd'), icon: SquareFunction, keywords: 'custom functions formula spreadsheet build own eigene funktionen formel tabelle bauen fx', run: () => { closeMobileSidebar(); openFunctionBuilder() } },
+    {
+      id: 'clear-visits',
+      group: 'workspace',
+      label: t('shell.cmd.clearVisits'),
+      icon: History,
+      keywords: 'recent frequent visited history clear forget zuletzt häufig besucht verlauf leeren vergessen',
+      run: () => {
+        ws.clearRecent()
+        clearVisits()
+        ui.toast({ message: t('shell.sidebar.visitedCleared'), kind: 'success' })
+      },
+    },
     { id: 'shortcuts', group: 'workspace', label: t('shell.cmd.shortcuts'), icon: Keyboard, shortcut: 'Mod+/', keywords: 'keyboard keys help hilfe tastatur', run: () => ui.openModal({ type: 'shortcuts' }) },
     { id: 'help', group: 'start', label: t('help.title'), icon: CircleHelp, shortcut: '?', keywords: 'help hilfe manual handbuch docs documentation dokumentation faq support anleitung', run: () => openHelp() },
     { id: 'whats-new', group: 'workspace', label: t('help.news.cmd'), icon: Newspaper, keywords: "what's new whats new changelog updates release notes neuigkeiten neu in one änderungen versionshinweise", run: () => { closeMobileSidebar(); openChangelog() } },

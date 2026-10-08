@@ -426,7 +426,9 @@ Not synced (per person, per device): `favorite`, `recent`, all `Settings` (theme
 **AI key**, sidebar), `contentRev`, `contentOrigin`. The client keeps them in a small local
 overlay per workspace. The inbox (reminders that fired, mentions, assignments, replies, read and
 archived marks — `src/app/features/inbox`) is also per device: it is derived from the synced data and
-kept in IndexedDB (`one-inbox`); removing a workspace's copy from a device removes it too.
+kept in IndexedDB (`one-inbox`); removing a workspace's copy from a device removes it too. So are the
+page visits behind the sidebar's and ⌘K's FREQUENT list (`src/app/shell/lib/visits.ts`: which pages this
+device opened, how often — localStorage `one.shell.visits:cloud:<id>`, never synced, exported or sent).
 
 ### Client rules
 
@@ -446,7 +448,8 @@ kept in IndexedDB (`one-inbox`); removing a workspace's copy from a device remov
 - **This device's data** per cloud workspace (settings incl. the AI key, favourites, recent, pages
   with unconfirmed edits, the last known content of every page for instant boots and search,
   queued uploads, page documents waiting to be dropped on the server) lives in IndexedDB
-  `one-cloud` / `kv`, never in a Y document. A new cloud
+  `one-cloud` / `kv`, never in a Y document; the page visits for FREQUENT in localStorage
+  `one.shell.visits:cloud:<id>` (`noteVisit()` only, nothing while the copy is going). A new cloud
   workspace starts with the local workspace's settings.
 - **Content refresh** (Y → `page.content`, debounced): typing in this tab goes through
   `setContent(…, 'cloud')` (history snapshots, `updatedAt`, `plain` for the others); changes from
@@ -480,7 +483,8 @@ kept in IndexedDB (`one-inbox`); removing a workspace's copy from a device remov
 - **This browser's copies** (`device.ts`): `removeDeviceCopy(wsId)` and `signOut({ forgetDevice })`
   remove team workspace copies from this browser — the y-indexeddb databases (`one:ws:<id>`,
   `one:ws:<id>:p:*`), the `one-cloud` keys (`overlay` incl. the AI key, `content`, `uploads`, `purge`),
-  the version history of their pages (`one-history`: `idx:<page>` + `snap:*`, except pages the local
+  this device's page visits (localStorage `one.shell.visits:cloud:<id>` — removed even when nothing else
+  of the copy is left), the version history of their pages (`one-history`: `idx:<page>` + `snap:*`, except pages the local
   workspace has with the same id) and cached files that nothing else in this browser uses (the local
   workspace, history of other pages, other workspaces' cached content and pending uploads keep theirs).
   The server is not touched. Because an open workspace holds its databases, a removal is a flag

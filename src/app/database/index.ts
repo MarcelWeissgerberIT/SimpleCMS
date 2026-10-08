@@ -6,7 +6,7 @@
  *  - propertyValueToText: plain-text rendering of a property value (search, export, AI context).
  *  - SharedFormView: the public page of a shared form (route #/f/<payload>; lazy-loaded inside).
  */
-import type { ID, Page } from '../store/types'
+import type { ID, Page, PropertyDef } from '../store/types'
 import { useWorkspace } from '../store/store'
 import { Resolver } from './model/resolve'
 import { workspaceCtx } from './model/ctx'
@@ -24,6 +24,13 @@ export { localPerson } from './model/actors'
 export { propertyFormulaValue } from './values'
 /** writePropertyValue(dbId, prop, rowId, value): write one value the way a cell does (two-way relations kept in step) — version history's restore. */
 export { writeValue as writePropertyValue } from './model/actions'
+/**
+ * Who "Me" is on a property right now (person: the member / the local user's own person; created_by /
+ * last_edited_by: the member / the local user) — null: nobody. ⌘K `@me` / `owner:me` (shell/palette).
+ */
+export function meFor(prop: PropertyDef): string | null {
+  return resolveMe(prop, workspaceCtx())
+}
 /** TypeIcon: the lucide glyph of a property type (features/ai/todb lists the columns it will create). */
 export { TypeIcon } from './parts'
 /** rowsOfView: rows of a view as it shows them (its filters + sorts) — for exports outside React. */

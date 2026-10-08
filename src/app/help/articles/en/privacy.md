@@ -8,7 +8,7 @@ related: claude-key, gmail-sync, self-hosting, export
 summary: What stays in your browser, what goes to Anthropic or Google — and when.
 ---
 ## Stays in your browser
-Pages, databases, files, history, comments and settings of the local workspace live in this browser's IndexedDB. One has no account, no analytics and no tracking. getonecms.com only serves the app's files.
+Pages, databases, files, history, comments and settings of the local workspace live in this browser's IndexedDB. One has no account, no analytics and no tracking. getonecms.com only serves the app's files. Which pages you opened, and how often (Recent, Frequent), stays per device and per workspace — never synced, exported or sent.
 
 ## Leaves only when you use it
 - **Claude** (AI menu, agent, ⌘K ask, autofill, meeting notes, Ask the help): the text the request needs goes to Anthropic (`api.anthropic.com`) with your key — the selection or page, the excerpts Claude reads, a transcript.

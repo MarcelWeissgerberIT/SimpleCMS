@@ -1,7 +1,7 @@
 import { useEffect } from 'react'
 import { useUI } from '../../store/ui'
 import { useWorkspace } from '../../store/store'
-import { isEffectivelyTrashed } from '../../store/selectors'
+import { inTemplate, isEffectivelyTrashed } from '../../store/selectors'
 import { openTodayJournal } from '../../features'
 import { navigate, parseHash, type Route } from '../../lib/router'
 import { isMac } from '../../ui/controls'
@@ -10,6 +10,7 @@ import { createPageAndOpen, currentPageId, pruneUndoToasts, toggleFocusMode, tog
 import { runClipRoute } from '../capture/inbox'
 import { isReadOnly, useWorkspaceTitle } from '../cloud/state'
 import { openHelp } from '../../help'
+import { noteVisit, VISIT_DWELL_MS } from './visits'
 
 const isEditable = (el: EventTarget | null) => {
   const e = el as HTMLElement | null
@@ -236,6 +237,16 @@ export function useRouteEffects(route: Route) {
 
   useEffect(() => {
     if (pageId && exists) useWorkspace.getState().touchRecent(pageId)
+  }, [pageId, exists])
+
+  // FREQUENT (shell/lib/visits.ts): a page counts once it stayed open a moment — hopping through doesn't
+  useEffect(() => {
+    if (!pageId || !exists) return
+    const h = window.setTimeout(() => {
+      const pages = useWorkspace.getState().pages
+      if (document.visibilityState === 'visible' && pages[pageId] && !isEffectivelyTrashed(pages, pageId) && !inTemplate(pages, pageId)) noteVisit(pageId)
+    }, VISIT_DWELL_MS)
+    return () => window.clearTimeout(h)
   }, [pageId, exists])
 
   useEffect(() => {

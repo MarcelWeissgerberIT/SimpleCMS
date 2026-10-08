@@ -8,6 +8,7 @@
  *   one-files / files                   cached files — only those nothing else in this browser uses
  *   one-history / snapshots             version history of the workspace's pages (idx:<page>, snap:<id>)
  *   one-vault / kv                      sealed secrets of scope cloud:<id> (the AI key, the GitHub token)
+ *   localStorage one.shell.visits:cloud:<id>   which pages this device opened, how often (FREQUENT)
  * The team workspace on the server is never touched, nor is the local workspace or anything it uses
  * (a local workspace copied into a team keeps its page and file ids, so those are checked).
  *
@@ -149,6 +150,16 @@ async function forget(flag: string[]): Promise<void> {
   }
   const targets = new Set(all ? held : flag.filter((id) => id !== ALL))
   const done = () => writeFlag(readFlag().filter((x) => (x === ALL ? !all : !targets.has(x))))
+  // recent / frequent visits of this device (shell/lib/visits.ts): localStorage "one.shell.visits:cloud:<ws>" — before
+  // the early return below (nothing else may be left of a copy, its visits still are)
+  try {
+    for (const k of Object.keys(localStorage)) {
+      const m = /^one\.shell\.visits:cloud:([A-Za-z0-9_-]{1,64})$/.exec(k)
+      if (m && (all || flag.includes(m[1]))) localStorage.removeItem(k)
+    }
+  } catch {
+    /* blocked storage */
+  }
   if (!targets.size) return done()
 
   /* ---------------- the targets' pages and files; what others here still use */

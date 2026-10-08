@@ -40,6 +40,7 @@ import { bootCloud as bootCloudImpl, refreshMe, switchWorkspaceImpl } from './bo
 import { isApplyingCloud, withWriteActor } from './binding'
 import { acquire, release } from './content'
 import { uploadLocalWorkspaceImpl } from './upload'
+import { isForgetting } from './device'
 import { setPresencePageImpl } from './workspace'
 import { createPrivateDatabaseImpl, createPrivatePageImpl, isPrivate, movePagePrivacyImpl, usePrivateModeImpl } from './private'
 import type { NewDatabaseInput, NewPageInput } from '../store/store'
@@ -140,6 +141,11 @@ export async function signOut(opts?: { forgetDevice?: boolean }): Promise<void> 
  */
 export async function removeDeviceCopy(wsId: string): Promise<void> {
   return removeDeviceCopyImpl(wsId)
+}
+
+/** This browser's copy of the team workspace is about to be removed: write nothing more for it (shell visits). */
+export function isDeviceCopyGoing(wsId: string): boolean {
+  return isForgetting(wsId)
 }
 
 export async function updateProfile(name: string): Promise<void> {

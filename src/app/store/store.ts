@@ -181,6 +181,8 @@ export interface WorkspaceState extends Workspace {
   emptyTrash: () => void
   toggleFavorite: (id: ID) => void
   touchRecent: (id: ID) => void
+  /** Forget the recently visited pages (this device's list: the local meta record / the cloud overlay). */
+  clearRecent: () => void
 
   // databases
   createDatabase: (input?: NewDatabaseInput) => ID
@@ -683,6 +685,11 @@ export const useWorkspace = create<WorkspaceState>()(
       set((s) => {
         s.recent = [id, ...s.recent.filter((r) => r !== id)].slice(0, 20)
         s.settings.lastPageId = id
+      }),
+
+    clearRecent: () =>
+      set((s) => {
+        if (s.recent.length) s.recent = []
       }),
 
     createDatabase: (input = {}) => {
