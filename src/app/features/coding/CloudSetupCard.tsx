@@ -18,7 +18,7 @@ import { Modal } from '../../ui/Modal'
 import { useLang, useT } from '../../i18n'
 import { workspaceInfo } from '../mcp/identity'
 import { WORKER_CLOUD_PORT } from './protocol'
-import { CLOUD_WORKER_FILE, downloadCloudWorker, startCommand } from './download'
+import { CLOUD_WORKER_FILE, downloadCloudWorker } from './download'
 import { cloudRevoked } from './service'
 import { useCoding } from './state'
 import { CodeBlock } from './CodeBlock'
@@ -144,7 +144,7 @@ export function CloudSetupCard({ code }: { code: string }) {
         </Step>
         <Step n={2} state={state(1)} title={t('features.coding.cloud.step2')}>
           <p className="cs-hint">{t('features.coding.cloud.step2Hint', { host })}</p>
-          <CodeBlock code={startCommand(CLOUD_WORKER_FILE)} label={t('features.coding.cloud.startLabel')} testId="coding-cloud-start-command" />
+          <CodeBlock code={`node ${CLOUD_WORKER_FILE}`} label={t('features.coding.cloud.startLabel')} testId="coding-cloud-start-command" />
           <NeedsLine />
         </Step>
         <Step n={3} state={state(2)} title={t('features.coding.cloud.step3')} action={<ChangeReposButton />}>
@@ -158,8 +158,8 @@ export function CloudSetupCard({ code }: { code: string }) {
         <span className="cs-live__row">
           <span className="label cs-live__k">{t('features.coding.card.live')}</span>
           <Led state={led} />
-          <span className="cs-live__v">{s.enabled ? workerStateText(t, { ...s, cloud: true }) : t('features.coding.card.idle')}</span>
-          {online && !connected && <span className="label cs-live__k">{t('features.coding.cloud.state.online')}</span>}
+          <span className="cs-live__v">{s.enabled ? workerStateText(t, { ...s, cloud: true }) : t(other ? 'features.coding.conn.otherDevice' : 'features.coding.card.idle')}</span>
+          {online && !connected && <span className="cs-live__v cs-live__aside">· {t('features.coding.cloud.liveOnline')}</span>}
         </span>
         <span className="cs-live__note">{t('features.coding.cloud.keepTab')}</span>
         <span className="cs-live__note">{t('features.coding.cloud.longStage')}</span>

@@ -2179,9 +2179,13 @@ dd:has(> .cw-port) {
 }
 .cs-live__row {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
+  gap: 4px 8px;
   min-width: 0;
+}
+.cs-live__v.cs-live__aside {
+  color: var(--ink-2);
 }
 .cs-live__note {
   color: var(--ink-2);
