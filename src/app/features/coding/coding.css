@@ -1087,19 +1087,17 @@
   color: var(--signal-ink);
   text-overflow: ellipsis;
 }
+/* LED · text · button in one row (narrow: the button under the text, the LED on the text's first line) */
 .cv-plate__old {
   grid-column: 1 / -1;
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
-  gap: 6px 10px;
+  gap: 8px 10px;
   margin: 0;
   padding-top: 8px;
   border-top: 1px solid var(--rule);
   font-size: var(--text-sm);
-}
-.cv-plate__old .btn {
-  margin-left: auto;
 }
 .cv-plate__hint {
   margin: 0;
@@ -1113,7 +1111,11 @@
   margin: 0 0 6px;
   color: var(--signal-ink);
 }
+/* one grid for every row (subgrid): the reason column is as wide as its longest label ("Fehlgeschlagen") */
 .cv-needs ul {
+  display: grid;
+  grid-template-columns: minmax(96px, max-content) minmax(0, 1fr) auto 16px;
+  column-gap: 12px;
   margin: 0;
   padding: 0;
   list-style: none;
@@ -1122,9 +1124,9 @@
 .cv-needs li {
   position: relative;
   display: grid;
-  grid-template-columns: 96px minmax(0, 1fr) auto 16px;
+  grid-column: 1 / -1;
+  grid-template-columns: subgrid;
   align-items: center;
-  gap: 12px;
   min-height: 40px;
   border-bottom: 1px solid var(--rule);
 }
@@ -1774,8 +1776,19 @@ dd:has(> .cw-port) {
   .cv-plate__ro > div:nth-child(2n + 1) {
     padding-left: 0;
   }
-  .cv-needs li {
-    grid-template-columns: 84px minmax(0, 1fr) 16px;
+  .cv-needs ul {
+    grid-template-columns: minmax(84px, max-content) minmax(0, 1fr) 16px;
+  }
+  .cv-plate__old {
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: start;
+  }
+  .cv-plate__old .led {
+    margin-top: calc((1lh - 6px) / 2);
+  }
+  .cv-plate__old .btn {
+    grid-column: 2;
+    justify-self: start;
   }
   .cv-needs__meta {
     display: none;
