@@ -22,3 +22,6 @@ summary: Gespeicherte KI-Helfer für wiederkehrende Arbeit — jeder mit Auftrag
 ## Browser oder Server
 - **Browser**-Agenten laufen in One, solange ein Tab offen ist — mit deinem Claude-Schlüssel und deinen MCP-Servern. Ein geplanter Lauf, der verpasst wurde, weil One geschlossen war, findet einmal beim nächsten Öffnen statt.
 - **Server**-Agenten (Team-Workspaces) laufen rund um die Uhr auf dem Team-Server, mit einem Claude-Schlüssel und MCP-Servern, die ein Admin unter **Einstellungen → Agenten · MCP** einrichtet.
+
+## Eine Datenbank abgleichen
+Ein Agent kann Einträge aus einem anderen System (über einen MCP-Server) in eine Datenbank spiegeln: Er findet jeden Eintrag über den **Schlüssel** der Datenbank und legt neue an oder ändert nur die Werte, die abweichen — bis zu 50 Einträge in einem Schritt, jeder als eigener Vorschlag. Eigenschaften mit **Nur von Hand** schreibt er nie, deine eigenen Notizen neben den gespiegelten Daten bleiben also deine.

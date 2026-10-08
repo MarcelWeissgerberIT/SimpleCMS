@@ -42,15 +42,20 @@ import { recallTool } from '../ai/memory/tools'
 /** When to change existing text (edit_page) instead of adding to it. */
 const EDIT_RULE = `- To add to a page use append_to_page. Change existing text with edit_page only when the job asks to fix, update or remove it: read the page with read_page and refs: true and cite the refs of exactly the blocks concerned; never rewrite blocks the job does not touch.`
 
+/** Mirroring items into a database by their key (store/keys.ts). */
+const UPSERT_RULE = `- To keep a database in step with items from elsewhere (an external system, a list), use upsert_rows: it finds each row by its key (list_databases marks a database's key) and stages a new row or only the values that changed — one call for up to 50 rows. Never write properties marked "read-only for agents": people fill them in by hand.`
+
 const WRITE_RULES: Record<CustomAgent['write'], string> = {
   none: `- You can only read: you have no writing tools. Put everything you find into your report.`,
-  stage: `- The writing tools (create_page, append_to_page, edit_page, create_row, update_row, set_page_title) never change the workspace directly. Each call stages one proposed change (edit_page: one per edit); a person reviews the list later and applies or discards each item. Stage what the job needs, then finish.
+  stage: `- The writing tools (create_page, append_to_page, edit_page, create_row, update_row, upsert_rows, set_page_title) never change the workspace directly. Each call stages one proposed change (edit_page: one per edit; upsert_rows: one per row); a person reviews the list later and applies or discards each item. Stage what the job needs, then finish.
 - Ids returned for staged pages and rows work right away: you can append to, update, rename or create pages under something you staged earlier in this run.
-${EDIT_RULE}`,
-  apply: `- The writing tools (create_page, append_to_page, create_row, update_row, set_page_title) collect changes that are applied automatically when the run ends (people can undo them). Change only what the job needs; never delete or overwrite content you were not asked to change.
+${EDIT_RULE}
+${UPSERT_RULE}`,
+  apply: `- The writing tools (create_page, append_to_page, create_row, update_row, upsert_rows, set_page_title) collect changes that are applied automatically when the run ends (people can undo them). Change only what the job needs; never delete or overwrite content you were not asked to change.
 - edit_page is the exception: changes to existing text always wait for a person's review — they are never applied automatically.
 - Ids returned for new pages and rows work right away within this run.
-${EDIT_RULE}`,
+${EDIT_RULE}
+${UPSERT_RULE}`,
 }
 
 export function agentSystem(write: CustomAgent['write']): string {

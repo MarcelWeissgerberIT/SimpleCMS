@@ -602,6 +602,20 @@
 .agx-review__head > .label {
   color: var(--signal-ink);
 }
+.agx-review__counts {
+  min-width: 0;
+  font-size: var(--text-xs);
+  color: var(--ink-3);
+}
+/* a long batch: counts and Apply all stay in view while the cards scroll by */
+.agx-review[data-long] .agx-review__head {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--rule);
+  background: var(--bg);
+}
 .agx-changes {
   margin: 0;
 }

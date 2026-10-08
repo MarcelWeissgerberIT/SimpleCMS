@@ -22,6 +22,8 @@ export type ToolName =
   | 'edit_page'
   | 'create_row'
   | 'update_row'
+  /** rows found by their key (store/keys.ts): one staged create_row / update_row (rename, append) per row, in one call */
+  | 'upsert_rows'
   | 'set_page_title'
   | 'create_database'
   | 'add_property'

@@ -14,7 +14,9 @@ import { parseHash } from '../../../lib/router'
 import { newId } from '../../../lib/ids'
 import { t } from '../../../i18n'
 import { retrieve, workspaceDocs } from '../workspace'
-import { coerceProperties, isSettable, mergeProps } from './props'
+import { coerceProperties, coerceProperty, findProp, isSettable, mergeProps } from './props'
+import { canBeKey, isHandOnly, keyPropOf, keyText } from '../../../store/keys'
+import { holderText, intentValue, keyConflict, keyHolders, type KeyHolder } from './keys'
 import { planEdits, readWithRefs, stripRefs, type RawEdit } from './edit'
 import type { ChangeKind, ColumnSpec, ColumnType, PropChange, StagedChange, ToolName } from './types'
 import { SCRIPT_REFERENCE } from '../../script/reference'
@@ -200,11 +202,14 @@ function databaseOf(id: ID): Database {
 }
 
 function schemaLine(db: Database): string {
+  const key = keyPropOf(db)
   return db.properties
     .map((p) => {
       const opts = p.options?.length ? `: ${p.options.map((o) => o.name).join(' | ')}` : ''
       const ro = isSettable(p) || p.type === 'title' ? '' : ', read-only'
-      return `${p.name} (${p.type}${ro}${opts})`
+      // the database's key (unique per row) · "Only by hand" (store/keys.ts)
+      const marks = `${key?.id === p.id ? ', key: unique per row' : ''}${isHandOnly(p) ? ', read-only for agents (only by hand)' : ''}`
+      return `${p.name} (${p.type}${ro}${marks}${opts})`
     })
     .join('; ')
 }
@@ -848,6 +853,8 @@ const createRow: AgentTool = {
     const markdown = stripRefs(str(input, 'markdown', { max: 200_000 }))
     const res = coerceProperties(schema.db, input.properties, null)
     if (!res.ok) throw new ToolInputError(res.error)
+    const clash = keyConflict(stage.list(), schema.db, res.changes, null, ws().pages)
+    if (clash) throw new ToolInputError(clash)
     const needs = needsOf(schema, res.changes)
     const change = stage.add({
       kind: 'create_row',
@@ -895,6 +902,8 @@ const updateRow: AgentTool = {
       const schema = schemaOf(stage, staged.databaseId!)
       const res = coerceProperties(schema.db, input.properties, null)
       if (!res.ok) throw new ToolInputError(res.error)
+      const clash = keyConflict(stage.list(), schema.db, res.changes, staged.pageId, ws().pages)
+      if (clash) throw new ToolInputError(clash)
       const needs = needsOf(schema, res.changes, staged.needs)
       const c = stage.update(staged.id, { props: mergeProps(staged.props, res.changes), ...(needs.length ? { needs } : {}) })
       return { content: `Updated staged row #${c.n} (${q(c.title ?? '')}).${newOptionsNote(res.changes)}`, summary: t('features.agent.res.staged', { n: c.n }), state: 'staged', changeId: c.id }
@@ -905,6 +914,8 @@ const updateRow: AgentTool = {
     const db = schema.db
     const res = coerceProperties(db, input.properties, row)
     if (!res.ok) throw new ToolInputError(res.error)
+    const clash = keyConflict(stage.list(), db, res.changes, row.id, ws().pages)
+    if (clash) throw new ToolInputError(clash)
     const changed = res.changes.filter((c) => c.before !== c.after || c.newOptions?.length)
     if (!changed.length) return { content: `No change: ${q(titleOf(row))} already has these values.`, summary: t('features.agent.res.same'), state: 'ok' }
     const pending = pendingFor(stage, 'update_row', row.id)
@@ -917,6 +928,214 @@ const updateRow: AgentTool = {
       summary: t('features.agent.res.staged', { n: c.n }),
       state: 'staged',
       changeId: c.id,
+    }
+  },
+}
+
+/* ---------- upsert_rows: items of another system mirrored into a database by their key ---------- */
+
+/** Rows one upsert_rows call may stage. */
+export const MAX_UPSERT_ROWS = 50
+
+export type UpsertAction = 'created' | 'updated' | 'unchanged' | 'refused'
+
+/** One row of an upsert_rows answer. */
+export interface UpsertResult {
+  key: string
+  id?: ID
+  action: UpsertAction
+  reason?: string
+  /** the staged change (#n) that creates or changes the row */
+  change?: number
+  /** a body for a row whose page has content already: left as it is */
+  body?: 'kept'
+}
+
+interface UpsertItem {
+  key: string | number
+  title: string | null
+  props: Record<string, unknown>
+  body: string
+}
+
+/** One upsert_rows entry, checked ("rows[3]: …" in front of what is wrong). */
+function upsertItem(item: unknown, where: string): UpsertItem {
+  if (!item || typeof item !== 'object' || Array.isArray(item)) throw new ToolInputError(`${where} must be an object with "key".`)
+  const o = item as Record<string, unknown>
+  try {
+    const key = o.key
+    if ((typeof key !== 'string' && typeof key !== 'number') || (typeof key === 'string' && !key.trim()) || (typeof key === 'number' && !Number.isFinite(key))) throw new ToolInputError('"key" must be a non-empty string or a number.')
+    const title = str(o, 'title', { max: 300 }).replace(/\s+/g, ' ').trim() || null
+    const props = o.properties
+    if (props !== undefined && props !== null && (typeof props !== 'object' || Array.isArray(props))) throw new ToolInputError('"properties" must be an object: property name → value.')
+    return { key, title, props: (props as Record<string, unknown> | null | undefined) ?? {}, body: stripRefs(str(o, 'body', { max: 100_000 })).trim() }
+  } catch (e) {
+    throw new ToolInputError(`${where}: ${e instanceof Error ? e.message : String(e)}`)
+  }
+}
+
+/** A coerceProperties / keyConflict error as one line (the reason of a refused row). */
+const reasonOf = (error: string) => error.replace(/^Nothing was staged\.[^\n]*\n- /, '').split('\n- ').join('; ').replace(/ Nothing was staged\./, '')
+
+const emptyDoc = (doc: JSONContent | null | undefined) => (doc?.content ?? []).every((b) => b.type === 'paragraph' && !(b.content ?? []).length)
+
+const upsertRows: AgentTool = {
+  name: 'upsert_rows',
+  write: true,
+  description: `Mirror items (of another system, a list, a feed …) into a database in ONE call — at most ${MAX_UPSERT_ROWS} rows — by their key: the value of key_property that identifies an item (its number, code or address). Per row: when a row with that key exists (also one staged earlier in this run), only the values that differ are staged as its update (title included); otherwise a new row is staged. key_property: the database's key (list_databases marks it "key: unique per row"), else another text, number or url property. Properties marked "read-only for agents" are filled in only by hand: leave them out (a row that sets one is refused). body: Markdown for the page of a new row (an existing row's page gets it only while empty). Answers per row: key, id, action (created, updated, unchanged or refused) and the reason of a refusal. Every row is its own proposed change.`,
+  input_schema: {
+    type: 'object',
+    properties: {
+      database_id: { type: 'string', description: 'Database id from list_databases.' },
+      key_property: { type: 'string', description: "Exact name of the property that identifies a row (text, number or url) — the database's key when it has one." },
+      rows: {
+        type: 'array',
+        description: `The items, in order (1–${MAX_UPSERT_ROWS}).`,
+        items: {
+          type: 'object',
+          properties: {
+            key: { type: ['string', 'number'], description: 'The value of key_property for this item, e.g. "8215".' },
+            title: { type: 'string', description: 'Row title.' },
+            properties: { type: 'object', description: 'Property name → value, as for create_row (not the key property: that is "key").', additionalProperties: true },
+            body: { type: 'string', description: "Markdown for a new row's page." },
+          },
+          required: ['key'],
+          additionalProperties: false,
+        },
+      },
+    },
+    required: ['database_id', 'key_property', 'rows'],
+    additionalProperties: false,
+  },
+  run(input, stage) {
+    const dbId = str(input, 'database_id', { required: true, max: 80 }).trim()
+    const schema = schemaOf(stage, dbId)
+    const db = schema.db
+    const keyName = str(input, 'key_property', { required: true, max: 120 }).trim()
+    const dbKey = keyPropOf(db)
+    const keyProp = findProp(db, keyName)
+    if (!keyProp) throw new ToolInputError(`Unknown property ${q(keyName)}. ${dbKey ? `This database's key is ${q(dbKey.name)}.` : `Text, number and url properties: ${db.properties.filter(canBeKey).map((p) => q(p.name)).join(', ') || '(none)'}.`}`)
+    if (!canBeKey(keyProp)) throw new ToolInputError(`${q(keyProp.name)} is a ${keyProp.type} property: a key is a text, number or url property.${dbKey ? ` This database's key is ${q(dbKey.name)}.` : ''}`)
+    const raw = input.rows
+    if (!Array.isArray(raw) || !raw.length) throw new ToolInputError('"rows" must list at least one row ({"key", "title", "properties"}).')
+    if (raw.length > MAX_UPSERT_ROWS) throw new ToolInputError(`Too many rows (${raw.length}, at most ${MAX_UPSERT_ROWS} per call). Send the first ${MAX_UPSERT_ROWS}, then the rest with a second upsert_rows call.`)
+    const items = raw.map((item, i) => upsertItem(item, `rows[${i}]`))
+    const holders = keyHolders(stage.list(), db.id, keyProp, ws().pages)
+    let first: StagedChange | null = null
+    const touched = (c: StagedChange) => {
+      first ??= c
+      return c
+    }
+
+    const one = (item: UpsertItem): UpsertResult => {
+      const coerced = coerceProperty(db, keyProp, item.key, null)
+      const kRaw = keyText(keyProp.type, item.key)
+      const k = (coerced.ok ? keyText(keyProp.type, intentValue(coerced.change)) : '') || kRaw
+      const refused = (reason: string, id?: ID): UpsertResult => ({ key: k, ...(id ? { id } : {}), action: 'refused', reason: reasonOf(reason) })
+      // the key goes in "key"; in "properties" only with the same value
+      const props: Record<string, unknown> = {}
+      for (const [name, v] of Object.entries(item.props)) {
+        if (findProp(db, name)?.id !== keyProp.id) props[name] = v
+        else if (keyText(keyProp.type, v) !== k && keyText(keyProp.type, v) !== kRaw) return refused(`"properties" sets ${q(keyProp.name)} to another value than "key": give the key once, as "key".`)
+      }
+      const found = holders.get(k) ?? (kRaw !== k ? holders.get(kRaw) : undefined) ?? []
+      if (found.length > 1) return refused(`${found.length} rows have this key (${found.map(holderText).join('; ')}): it does not identify one row. Make it unique first, or update the row you mean with update_row.`)
+      const h: KeyHolder | undefined = found[0]
+
+      // a new row
+      if (!h) {
+        if (!coerced.ok) return refused(coerced.error)
+        const res = coerceProperties(db, props, null)
+        if (!res.ok) return refused(res.error)
+        const changes = [coerced.change, ...res.changes]
+        const clash = keyConflict(stage.list(), db, changes, null, ws().pages)
+        if (clash) return refused(clash)
+        const title = item.title ?? k
+        const needs = needsOf(schema, changes)
+        const c = touched(
+          stage.add({
+            kind: 'create_row',
+            pageId: newId(),
+            databaseId: db.id,
+            title,
+            props: changes,
+            ...(item.body ? { markdown: item.body } : {}),
+            ...(schema.staged ? { dependsOn: schema.staged.id } : {}),
+            ...(needs.length ? { needs } : {}),
+          }),
+        )
+        holders.set(k, [{ id: c.pageId, title, change: c }])
+        return { key: k, id: c.pageId, action: 'created', change: c.n }
+      }
+
+      // a row staged in this run (not applied yet): its staged values are the ones to compare with
+      if (h.change?.kind === 'create_row') {
+        const prev = h.change
+        const res = coerceProperties(db, props, null)
+        if (!res.ok) return refused(res.error, prev.pageId)
+        const fresh = res.changes.filter((pc) => {
+          const old = prev.props?.find((x) => x.propId === pc.propId)
+          return !old || old.after !== pc.after || !!pc.newOptions?.length
+        })
+        const title = item.title && item.title !== (prev.title ?? '').trim() ? item.title : null
+        const body = item.body && item.body !== (prev.markdown ?? '').trim() ? item.body : null
+        if (!fresh.length && !title && !body) return { key: k, id: prev.pageId, action: 'unchanged', change: prev.n }
+        const clash = keyConflict(stage.list(), db, fresh, prev.pageId, ws().pages)
+        if (clash) return refused(clash, prev.pageId)
+        const needs = needsOf(schema, fresh, prev.needs)
+        const c = touched(stage.update(prev.id, { props: mergeProps(prev.props, fresh), ...(title ? { title } : {}), ...(body ? { markdown: body } : {}), ...(needs.length ? { needs } : {}), status: 'pending', error: undefined }))
+        h.change = c
+        return { key: k, id: c.pageId, action: 'updated', change: c.n }
+      }
+
+      // a live row: only what differs (from its staged update, when it has one)
+      const row = live(h.id)
+      if (!row) return refused('The row with this key is outside what you may change.', h.id)
+      const res = coerceProperties(db, props, row)
+      if (!res.ok) return refused(res.error, row.id)
+      const pending = pendingFor(stage, 'update_row', row.id)
+      const changed = res.changes.filter((pc) => {
+        const staged = pending?.props?.find((x) => x.propId === pc.propId)
+        return staged ? staged.after !== pc.after || !!pc.newOptions?.length : pc.before !== pc.after || !!pc.newOptions?.length
+      })
+      const clash = keyConflict(stage.list(), db, changed, row.id, ws().pages)
+      if (clash) return refused(clash, row.id)
+      let c: StagedChange | null = null
+      if (changed.length) {
+        const needs = needsOf(schema, changed, pending?.needs)
+        c = touched(
+          pending
+            ? stage.update(pending.id, { props: mergeProps(pending.props, changed), ...(needs.length ? { needs } : {}) })
+            : stage.add({ kind: 'update_row', pageId: row.id, databaseId: db.id, title: titleOf(row), props: changed, ...(needs.length ? { needs } : {}) }),
+        )
+      }
+      if (item.title && item.title !== row.title.trim()) {
+        const rename = pendingFor(stage, 'rename', row.id)
+        if (rename?.title !== item.title) {
+          const r = touched(rename ? stage.update(rename.id, { title: item.title }) : stage.add({ kind: 'rename', pageId: row.id, beforeTitle: row.title.trim() || untitled(), title: item.title }))
+          c ??= r
+        }
+      }
+      let kept = false
+      if (item.body) {
+        // the person's page is never written over: a body goes only into an empty page
+        if (emptyDoc(row.content) && !pendingFor(stage, 'append', row.id)) c ??= touched(stage.add({ kind: 'append', pageId: row.id, title: titleOf(row), markdown: item.body }))
+        else kept = true
+      }
+      if (!c) return { key: k, id: row.id, action: 'unchanged', ...(kept ? { body: 'kept' as const } : {}) }
+      return { key: k, id: row.id, action: 'updated', change: c.n, ...(kept ? { body: 'kept' as const } : {}) }
+    }
+
+    const results = items.map(one)
+    const count = (a: UpsertAction) => results.filter((r) => r.action === a).length
+    const n = { created: count('created'), updated: count('updated'), same: count('unchanged'), refused: count('refused') }
+    const staged = first as StagedChange | null
+    const head = `upsert_rows into ${q(dbTitle(schema))} by ${q(keyProp.name)}: ${n.created} created, ${n.updated} updated, ${n.same} unchanged, ${n.refused} refused.${staged ? ' Nothing is written until the user applies the staged changes (every row is its own proposed change).' : ''}${n.refused ? ' Fix the refused rows and send them again.' : ''}`
+    return {
+      content: clipResult(`${head}\n${results.map((r) => JSON.stringify(r)).join('\n')}`),
+      summary: [t('features.agent.res.upsert', { created: n.created, updated: n.updated, same: n.same }), n.refused ? t('features.agent.res.upsertRefused', { count: n.refused }) : ''].filter(Boolean).join(' · '),
+      state: staged ? 'staged' : 'ok',
+      ...(staged ? { changeId: staged.id } : {}),
     }
   },
 }
@@ -1197,7 +1416,7 @@ const writeScript: AgentTool = {
 }
 
 /** Stable order: the tool list is part of the cached prompt prefix. */
-export const AGENT_TOOLS: AgentTool[] = [searchPages, readPage, listDatabases, queryDatabase, currentPage, createPage, appendToPage, editPage, createRow, updateRow, setPageTitle, runQuery]
+export const AGENT_TOOLS: AgentTool[] = [searchPages, readPage, listDatabases, queryDatabase, currentPage, createPage, appendToPage, editPage, createRow, updateRow, upsertRows, setPageTitle, runQuery]
 
 /**
  * The workspace agent's (the AI terminal's) tools: AGENT_TOOLS plus the database tools, write_script
@@ -1243,6 +1462,10 @@ export function argLabel(name: ToolName, input: Record<string, unknown>, stage: 
     }
     case 'add_property':
       return `${title(s('database_id'))} · ${s('name')}`
+    case 'upsert_rows': {
+      const n = Array.isArray(input.rows) ? input.rows.length : 0
+      return `${title(s('database_id'))} · ${t('features.agent.rowsN', { count: n })}`
+    }
     case 'set_page_title':
       return `${title(s('id'))} → ${s('title')}`
     case 'recall':

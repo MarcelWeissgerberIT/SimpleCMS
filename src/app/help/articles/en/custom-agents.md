@@ -22,3 +22,6 @@ summary: Saved AI helpers for recurring work — each with a job, a trigger and 
 ## Browser or server
 - **Browser** agents run in One while a tab is open — with your Claude key and your MCP servers. A scheduled run missed while One was closed happens once, the next time it opens.
 - **Server** agents (team workspaces) run on the team server around the clock, with a Claude key and MCP servers an admin sets up under **Settings → Agents · MCP**.
+
+## Keeping a database in step
+An agent can mirror items from another system (through an MCP server) into a database: it finds each row by the database's **Key** and adds new rows or changes only the values that differ — up to 50 rows in one step, each its own proposal. Properties set to **Only by hand** are never written, so your own notes next to the mirrored data stay yours.

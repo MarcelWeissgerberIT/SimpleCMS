@@ -21,6 +21,7 @@ import { applyPageEdits } from './edit'
 import { livePage, withPageNodes, type LinkTarget } from './links'
 import { mediaNode } from '../media/blocks'
 import { applyNewTask, applyTaskAction, isPipelineTask, taskNeedsConfirm, taskSig, taskWriteEndsConfirm, textRefsGained } from '../../coding'
+import { isHandOnly, keyOwner, keyPropOf, keyText } from '../../../store/keys'
 
 const ws = () => useWorkspace.getState()
 const ORIGIN = 'ai'
@@ -95,9 +96,24 @@ function keepReminder(prev: PropertyValue | undefined, next: PropertyValue): Pro
 function resolveValue(dbId: ID, pc: PropChange, created: Map<ID, ID[]>): PropertyValue {
   const prop = ws().databases[dbId]?.properties.find((p) => p.id === pc.propId)
   if (!prop) throw new Error(`property "${pc.name}" no longer exists`)
+  // "Only by hand" since it was staged: agents never write it (store/keys.ts)
+  if (isHandOnly(prop)) throw new Error(t('features.agent.err.handOnly', { name: prop.name }))
   if (pc.intent.kind === 'value') return pc.intent.value
   const ids = resolveOptions(dbId, prop, pc.intent.names, created)
   return prop.type === 'multi_select' ? ids : (ids[0] ?? null)
+}
+
+/**
+ * The database's key stays unique (store/keys.ts): a value another row holds by now (a person or another run wrote
+ * it since the change was staged) refuses the write. `self`: the row written (null: a new row).
+ */
+function checkKey(dbId: ID, values: Record<ID, PropertyValue>, self: ID | null): void {
+  const key = keyPropOf(ws().databases[dbId])
+  if (!key || !(key.id in values)) return
+  const pages = ws().pages
+  if (self && keyText(key.type, pages[self]?.properties[key.id]) === keyText(key.type, values[key.id])) return
+  const owner = keyOwner(pages, dbId, key, values[key.id], self)
+  if (owner) throw new Error(t('features.agent.err.keyTaken', { name: key.name, value: keyText(key.type, values[key.id]), row: owner.title.trim() || t('common.untitled') }))
 }
 
 /** Remove options this batch created if no row uses them any more. */
@@ -320,6 +336,12 @@ async function applyOne(c: StagedChange, resolveRow: (id: ID) => ID, rowIds: Rec
       const created = new Map<ID, ID[]>()
       const properties: Record<ID, PropertyValue> = {}
       for (const pc of c.props ?? []) properties[pc.propId] = resolveValue(dbId, pc, created)
+      try {
+        checkKey(dbId, properties, null)
+      } catch (e) {
+        dropUnusedOptions(dbId, created)
+        throw e
+      }
       const id = ws().createRow(dbId, { title: c.title ?? '', properties })
       if (c.markdown?.trim()) ws().setContent(id, toDoc(c.markdown), ORIGIN)
       rowIds[c.pageId] = id
@@ -343,6 +365,12 @@ async function applyOne(c: StagedChange, resolveRow: (id: ID) => ID, rowIds: Rec
       for (const pc of c.props ?? []) {
         prev[pc.propId] = row.properties[pc.propId]
         next[pc.propId] = keepReminder(prev[pc.propId], resolveValue(dbId, pc, created))
+      }
+      try {
+        checkKey(dbId, next, id)
+      } catch (e) {
+        dropUnusedOptions(dbId, created)
+        throw e
       }
       // the row as it was is kept as an "AI" version first (features/history)
       aiWrite(() => {

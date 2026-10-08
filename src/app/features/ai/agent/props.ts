@@ -9,11 +9,18 @@ import { useWorkspace } from '../../../store/store'
 import { propertyValueToText } from '../../../database'
 import { t } from '../../../i18n'
 import type { PropChange, PropIntent } from './types'
+import { isHandOnly } from '../../../store/keys'
 
 /** Computed or file properties Claude cannot set. */
 const READ_ONLY = new Set<PropertyType>(['formula', 'rollup', 'created_time', 'last_edited_time', 'created_by', 'last_edited_by', 'unique_id', 'files'])
 
 export const isSettable = (p: PropertyDef) => p.type !== 'title' && !READ_ONLY.has(p.type)
+
+/** What an agent may write: settable and not "Only by hand" (store/keys.ts). */
+export const agentWritable = (p: PropertyDef) => isSettable(p) && !isHandOnly(p)
+
+/** The refusal of a property only people fill in (the field named, so Claude leaves it out). */
+export const handOnlyError = (p: Pick<PropertyDef, 'name'>) => `"${p.name}" is filled in only by hand ("Only by hand"): agents never write it. Leave it out.`
 
 type Result = { ok: true; change: PropChange } | { ok: false; error: string }
 
@@ -76,6 +83,8 @@ const value = (v: PropertyValue): PropIntent => ({ kind: 'value', value: v })
 export function coerceProperty(db: Database, prop: PropertyDef, raw: unknown, row: Page | null): Result {
   const fail = (msg: string): Result => ({ ok: false, error: `"${prop.name}" (${prop.type}): ${msg}` })
   if (READ_ONLY.has(prop.type)) return fail('this property is computed and cannot be set.')
+  // "Only by hand": agents never write it (store/keys.ts)
+  if (isHandOnly(prop)) return { ok: false, error: handOnlyError(prop) }
   switch (prop.type) {
     case 'title':
       return fail('use the title parameter (or set_page_title) for the title.')
@@ -222,7 +231,7 @@ export function coerceProperties(db: Database, raw: unknown, row: Page | null): 
   for (const [key, v] of Object.entries(raw as Record<string, unknown>)) {
     const prop = findProp(db, key)
     if (!prop) {
-      errors.push(`unknown property ${JSON.stringify(key)}. Properties: ${db.properties.filter(isSettable).map((p) => JSON.stringify(p.name)).join(', ')}.`)
+      errors.push(`unknown property ${JSON.stringify(key)}. Properties: ${db.properties.filter(agentWritable).map((p) => JSON.stringify(p.name)).join(', ')}.`)
       continue
     }
     const res = coerceProperty(db, prop, v, row)

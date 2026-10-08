@@ -8,6 +8,7 @@ import { isEffectivelyTrashed, selectBreadcrumbs } from '../../store/selectors'
 import type { Database, ID, Page, PageIcon, PropertyDef } from '../../store/types'
 import { propertyValueToText, typeOfRow } from '../../database'
 import { isSettable } from '../ai/agent/props'
+import { isHandOnly, keyPropOf } from '../../store/keys'
 
 export const ws = () => useWorkspace.getState()
 
@@ -146,7 +147,11 @@ export function rowJson(db: Database, row: Page) {
 
 /** A property definition in the shape of the API's schema (docs/API.md, server schemaOut) + what the app knows. */
 export function propertyJson(db: Database, prop: PropertyDef) {
-  const out: Record<string, unknown> = { id: prop.id, name: prop.name, type: prop.type, readOnly: prop.type !== 'title' && (READ_ONLY_TYPES.has(prop.type) || !isSettable(prop)) }
+  // "Only by hand" (store/keys.ts): read-only for every MCP client — they are agents too
+  const hand = isHandOnly(prop)
+  const out: Record<string, unknown> = { id: prop.id, name: prop.name, type: prop.type, readOnly: prop.type !== 'title' && (READ_ONLY_TYPES.has(prop.type) || !isSettable(prop) || hand) }
+  if (keyPropOf(db)?.id === prop.id) out.key = true
+  if (hand) out.onlyByHand = true
   if (prop.options) out.options = prop.options.map((o) => ({ id: o.id, name: o.name, color: o.color, ...(o.group ? { group: o.group } : {}) }))
   if (prop.type === 'relation' && prop.relationDatabaseId) {
     out.relationDatabaseId = prop.relationDatabaseId

@@ -230,6 +230,7 @@ export const messages: Messages = {
     'features.agents.runs.steps': 'Steps',
     'features.agents.runs.working': 'Working …',
 
+    'features.agents.review.count': '{count}× {kind}',
     'features.agents.review.badge.one': '1 proposal',
     'features.agents.review.badge.other': '{count} proposals',
     'features.agents.review.undo': 'Undo changes',
@@ -552,6 +553,7 @@ export const messages: Messages = {
     'features.agents.runs.steps': 'Schritte',
     'features.agents.runs.working': 'Arbeitet …',
 
+    'features.agents.review.count': '{count}× {kind}',
     'features.agents.review.badge.one': '1 Vorschlag',
     'features.agents.review.badge.other': '{count} Vorschläge',
     'features.agents.review.undo': 'Änderungen zurücknehmen',

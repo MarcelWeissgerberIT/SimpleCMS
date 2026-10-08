@@ -47,6 +47,7 @@ const AGENT_NAMES: Record<string, string> = {
 export function mcpMessage(msg: string): string {
   return msg
     .replace(/\b(search_pages|read_page|list_databases|query_database|get_current_page|create_page|append_to_page|create_row|update_row|set_page_title)\b/g, (m) => AGENT_NAMES[m] ?? m)
+    .replace(/, or upsert_rows by "[^"]*"/g, '')
     .replace(/Nothing was staged\./g, 'Nothing was changed.')
     .replace(/staged change #\d+ \(([^)]*)\)/g, '$1')
 }
