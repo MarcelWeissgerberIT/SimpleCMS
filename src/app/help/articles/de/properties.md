@@ -29,4 +29,4 @@ Zwei Schalter im Eigenschaftsmenü betreffen Agenten:
 - **Schlüssel** — eine Text-, Zahl- oder URL-Eigenschaft, die einen Eintrag kennzeichnet (Ticketnummer, Bestellcode, Adresse). Jeder Wert kommt nur einmal vor; leer ist erlaubt. Eine Datenbank hat einen Schlüssel; ein Wert, den schon ein anderer Eintrag hat, wird mit einem Hinweis an der Zelle abgelehnt. Agenten finden Einträge darüber, wenn sie eine Datenbank mit einem anderen System abgleichen.
 - **Nur von Hand** — Agenten (eigene Agenten, das KI-Terminal, MCP-Clients) schreiben diese Eigenschaft nie; du bearbeitest sie wie gewohnt. Gedacht für deine Notizen, Bewertungen oder Entscheidungen neben gespiegelten Daten.
 
-Der Spaltenkopf zeigt einen kleinen Schlüssel oder eine Hand. Eine gesperrte Datenbank behält beides, wie es ist.
+Der Spaltenkopf zeigt einen kleinen Schlüssel oder eine Hand. Eine gesperrte Datenbank behält beides, wie es ist. Die beiden Schalter erscheinen, solange eine aktive [Integration](help:integrations) sie freischaltet; ohne sie zeigt ein gesetzter Schlüssel oder *Nur von Hand* eine Markierung — und gilt weiter für jeden, der schreibt.

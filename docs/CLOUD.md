@@ -427,6 +427,13 @@ Y.Map 'recordTypes'  typeId → JSON RecordType   ({ …, color?, properties: Re
                      holding one list it in `recordTypes`, their linked properties carry `fromType`; a row's
                      type is the page field `recordType`)
                      — all three: last writer wins per entry; every reader sanitizes them (src/app/store/kit.ts)
+Y.Map 'integrations' profileId → JSON IntegrationProfile   (integration profiles, schema "one.integration/1" — { schema,
+                     id, name, description?, match: { tools?, name?, host? }, unlocks: Array<'keys' | 'onlyByHand' |
+                     'upsert' | 'toolAllowList' | 'agentState' | 'notify'>, recipes?: RecipeConfig[], updatedAt?,
+                     updatedBy? }; OWNERS / ADMINS write it (server/src/collab/admin-map.ts puts other members'
+                     changes back and stamps updatedBy); last writer wins per profile; every reader sanitizes it —
+                     the app src/app/store/integrations.ts, the server agents/integrations.ts (id / match.name /
+                     match.host / unlocks only); see Agents → Integration profiles)
 ```
 
 *(client C1 refinements, backwards compatible on read)*: comment **replies** are entries of their
@@ -451,6 +458,14 @@ look; a look removed by waiting deletes (a delete set for clocks not written yet
 counts as removed by every member whose update left deletes waiting — not allowed: the look is put back (an
 admin's new value stays theirs) and the waiting deletes are dropped. The value is cosmetic — every reader sanitizes it (hex colours,
 allow-listed fonts, no CSS) — and it is never part of a share link, a published site or an export.
+
+The **integration profiles** (`integrations`, app: Workspace → Integrations, `src/app/features/agents/integrations`) follow the same
+rules for every key of their map (`server/src/collab/admin-map.ts`, the guard the look uses too): a member's add, change or removal
+is put back in one server-origin transaction, an owner's or admin's change gets `updatedBy` = their account id, waiting structs and
+waiting deletes count for every member who left them. The app writes the map only while `canStyle()` (owners and admins) and puts
+a refused local change back from Y. Profiles are workspace data; whether one is ACTIVE is decided per device (the app, against that
+device's MCP servers) or per server runtime (server agents, below). Full backups carry them, page backups never; uploading a local
+workspace takes them along (the uploader is stamped).
 
 Not synced (per person, per device): `favorite`, `recent`, all `Settings` (theme, language,
 **AI key**, sidebar), `contentRev`, `contentOrigin`. The client keeps them in a small local
@@ -863,7 +878,7 @@ So the server, not the client, says who changed an entry of the shared meta docu
   up); `pause_turn` is resumed; the history is append-only (whole responses go back unchanged).
 - **Tools** — the app's agent tools over the server's workspace model: `search_pages`, `read_page`,
   `list_databases`, `query_database`; with `write` ≠ `none` also `create_page`, `append_to_page`,
-  `create_row`, `update_row`, `upsert_rows`, `set_page_title`. `upsert_rows` (≤ 50 rows per call) finds each
+  `create_row`, `update_row`, `upsert_rows` (only while unlocked — *Integration profiles* below), `set_page_title`. `upsert_rows` (≤ 50 rows per call) finds each
   row by the stored value of a key property (the database's key, `api/keys.ts`, or another text / number / url
   property; trimmed, numbers numerically; staged rows of the run too) and stages — or in `apply` writes — a new
   row or only the values that differ; it answers per row `{ key, id, action: created | updated | unchanged |
@@ -883,15 +898,23 @@ So the server, not the client, says who changed an entry of the shared meta docu
   only for the agent's servers — `agents/sanitize.ts`): a listed server's toolset is `default_config: { enabled:
   false }` + `configs: { <tool>: { enabled: true } }`, so every other tool of it is off, and its `<mcp_server>` part
   names the allowed tools; `[]` leaves the server out (a step says so); no entry = all its tools.
-- **The agent's own state**: `agent_state_get` / `agent_state_set` (every agent, after the workspace tools; JSON
-  ≤ 4 KB, the last call of a run wins). Bookkeeping, never staged: the service saves it (`agent_state`, sealed) only
+- **The agent's own state**: `agent_state_get` / `agent_state_set` (after the workspace tools, only while unlocked —
+  *Integration profiles* below; JSON ≤ 4 KB, the last call of a run wins). Bookkeeping, never staged: the service saves it (`agent_state`, sealed) only
   when the run ends `ok` / `staged` — after an error or a budget stop the old state stays (a step says so). The
   context names the **last successful run** (`Last successful run: <ISO> (<wall clock in the agent's time zone>)`,
   from `agent_runs`: the newest `ok` / `staged` run, the running one left out) or that this is the first run. There
   is **no `notify_me`** on the server: the inbox is per device (the app makes its items), so a server agent says
   what is new in its report.
-- **Mirroring** (the app's recipe *Mirror a list into a database*, `features/agents/mirror.ts`, sets up a **browser**
-  agent; the same setup works as a server agent): a database with a key, the person's fields marked `agentReadOnly`,
+- **Integration profiles** (`agents/integrations.ts`): before a run the service reads the shared meta document's
+  `integrations` map (its own sanitizer: `id`, `match.name`, `match.host`, `unlocks`) and matches each profile against
+  the runtime's MCP servers by **name / host only** (globs `*` / `?`, case-insensitive; the runtime has no tested tool
+  lists, so a profile with neither condition never matches here). A matching profile's `upsert` offers `upsert_rows`,
+  its `agentState` the state tools — to every server agent of the workspace; without one they are not offered and the
+  system prompt does not name them. Nothing is loosened by a profile's absence: keys and `agentReadOnly` are enforced
+  by every writer, and an agent's `mcpTools` allow-list always narrows its toolsets. `notify` has no server side.
+- **Mirroring** (the recipe an integration profile brings in the app — `RecipeConfig` kind `mirror`,
+  `features/agents/mirror.ts` + `integrations/recipe.ts` — sets up a **browser** agent; the same setup works as a
+  server agent once a profile unlocks `upsert` / `agentState` on the server): a database with a key, the person's fields marked `agentReadOnly`,
   an agent with the source server's reading tools in `mcpTools`, `upsert_rows` by the key in batches of ≤ 50, the
   comment counts per item and the last run in `agent_state`. On the server the news goes into the report — there is
   no `notify_me` — and the rows stay in the shared space (the server never reads a member's private pages).

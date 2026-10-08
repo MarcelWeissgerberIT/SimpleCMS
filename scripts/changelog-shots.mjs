@@ -824,9 +824,11 @@ const toolResult = (body, id) => (body.messages ?? []).flatMap((m) => (Array.isA
 
 const shots = {
   /**
-   * "Mirror a list into a database": the recipe's own path — setup (source "tracker", below Team wiki), the editor's
-   * placeholders replaced, a run (Claude mocked: upsert_rows by Key, a note, the state), Apply all — then the person
-   * sets My priority on three rows and the Board by Clarity shows the mirror (sidebar folded for the width).
+   * "Integrations unlock the mirror recipe": an integration profile (fictional "Tracker", matched by the server's
+   * tested tools and name) makes the recipe appear; its own path — setup (source "tracker", below Team wiki), the
+   * editor's placeholders replaced, a run (Claude mocked: upsert_rows by Key, a note, the state), Apply all — then the
+   * person sets My priority on rows. Above: Workspace → Integrations with the active profile; below: the Board by
+   * Clarity (sidebar folded for the width).
    */
   async mirror(browser) {
     const ids = { db: '' }
@@ -876,9 +878,21 @@ const shots = {
         ],
       }),
     )
+    // the integration profile the person added: it unlocks the agent features and brings the recipe
+    await page.evaluate(() =>
+      window.__one.workspace.getState().upsertIntegration({
+        schema: 'one.integration/1',
+        id: 'tracker',
+        name: 'Tracker',
+        description: 'Our team tracker: its open items, mirrored every weekday.',
+        match: { tools: ['list_items', 'get_item'], name: 'tracker' },
+        unlocks: ['keys', 'onlyByHand', 'upsert', 'toolAllowList', 'agentState', 'notify'],
+        recipes: [{ kind: 'mirror', name: { en: 'Mirror tracker items', de: 'Tracker-Einträge spiegeln' }, description: { en: 'The open items of the tracker → a database, every weekday. Your own fields stay yours.', de: 'Die offenen Einträge des Trackers → eine Datenbank, jeden Werktag. Deine eigenen Felder bleiben deine.' } }],
+      }),
+    )
     // the recipe: setup → the database and its report page → the editor with the draft
     await page.evaluate(() => (window.location.hash = '#/agents'))
-    await page.locator('.agx-start [data-recipe="mirror"]').click()
+    await page.locator('.agx-start [data-recipe="tracker:mirror"]').click()
     const setup = page.locator('.agx-mir')
     await setup.locator('.agx-pick').click()
     await page.getByRole('menuitem', { name: 'Team wiki' }).click()
@@ -917,7 +931,18 @@ const shots = {
     const y = Math.max(0, Math.round(top.y - 28))
     // down to the status bar (not into it)
     const foot = Math.round((await page.locator('footer.status').first().boundingBox())?.y ?? H)
-    await save(page, 'mirror', { x: 0, y, width: W, height: foot - y })
+    const board = `${TMP}/mirror-board.png`
+    await page.screenshot({ path: board, clip: { x: 0, y, width: W, height: Math.min(560, foot - y) } })
+    // Workspace → Integrations: the active profile, what it unlocks, its recipe
+    await page.evaluate(() => (window.location.hash = '#/workspace/integrations'))
+    await page.locator('[data-testid="int-row"]').first().waitFor()
+    await rest(page)
+    const head = await boxOf(page.locator('#wsp-section-title').first())
+    const row = await boxOf(page.locator('[data-testid="int-row"]').first())
+    const left = Math.round(head.x - 24)
+    const profile = `${TMP}/mirror-profile.png`
+    await page.screenshot({ path: profile, clip: { x: left, y: Math.round(head.y - 20), width: Math.round(row.x + row.width + 24 - left), height: Math.round(row.y + row.height + 20 - (head.y - 20)) } })
+    await saveSideBySide('mirror', [profile, board], { column: true })
     await ctx.close()
   },
 

@@ -29,4 +29,4 @@ Two switches in the property menu are about agents:
 - **Key** — a text, number or URL property that identifies a row (a ticket number, an order code, an address). Every row's value is unique; empty is allowed. A database has one key; a value another row holds is refused with a note at the cell. Agents find rows by it when they keep a database in step with another system.
 - **Only by hand** — agents (custom agents, the AI terminal, MCP clients) never write this property; you edit it as usual. Use it for your own notes, ratings or decisions next to mirrored data.
 
-The column header shows a small key or hand. A locked database keeps both as they are.
+The column header shows a small key or hand. A locked database keeps both as they are. The two switches appear while an active [integration](help:integrations) unlocks them; without one, a key or *Only by hand* that is set shows as a mark — and still holds for every writer.
