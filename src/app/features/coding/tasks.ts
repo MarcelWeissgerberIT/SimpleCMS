@@ -150,7 +150,7 @@ export async function pickNext(repos: string[], workerName: string, docs = false
   const s = ws()
   const wanted = new Set(repos)
   const busy = new Set(useCoding.getState().busy.map((b) => b.taskId))
-  const caps = workerCan(can)
+  const caps = workerCan(can, docs)
   // every pipeline database's tasks (Coding · Business analysis · QA), highest priority first, then the oldest
   const pool: Array<{ dbId: ID; db: Database; props: CodingProps; pipeline: ResolvedStage[]; row: Page }> = []
   for (const dbId of pipelineDbIds()) {

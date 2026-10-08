@@ -417,7 +417,7 @@ JSON text frames, subprotocol `one-worker.v1`, defined in
 |---|---|
 | tab → worker | `{ type: "hello", app: "one", version, workspace: { id, name, kind, readOnly }, pair? }` (`pair`: this device's secret for a downloaded worker) · `status` (same workspace, or the tab is refused) · `nudge` |
 | worker → tab | `welcome` { worker, name, repos: [{ name, baseBranch }], parallel, busy, spentToday, dayLimit, claude: { found, version }, setup, paired } (sent again when the setup page saves) · `refused` { reason: workspace \| unbound \| pair, paired? } + close 4003 · `status` { busy, spentToday } |
-| worker → tab (req) | `next` { repos, worker, docs?, can? } → `{ task: TaskPayload \| null }` (claimed; `can` = `WORKER_CAN` — 'analyze', 'git:comment', 'git:merge': a stage that needs one goes only to a worker that names it, else the task fails with "download the worker again" — an older worker ran unknown kinds as git stages) · `heartbeat` { taskIds } · `finish` { taskId, stageId, outcome } (retried until confirmed) |
+| worker → tab (req) | `next` { repos, worker, docs?, can? } → `{ task: TaskPayload \| null }` (claimed; `can` = `WORKER_CAN` — 'analyze', 'git:comment', 'git:merge', 'doc': a stage that needs one goes only to a worker that names it, else the task fails with "needs a newer coding worker" — an older worker ran unknown kinds as git stages or dropped the task as unreadable. Document stages came before `can`, together with `docs: true`: a worker that sends either knows them (`workerCan`), one with neither gets none; a worker that does not name all of `WORKER_CAN` shows "Download again" on #/coding) · `heartbeat` { taskIds } · `finish` { taskId, stageId, outcome } (retried until confirmed; a task the worker cannot read — a stage kind it does not know — comes back at once as `{ status: 'refused' }`, so One does not hand it out again) |
 | worker → tab (event) | `log` { lines } (a tool line of Edit / MultiEdit / Write carries `e`: { path, hunks: [{ old, new }], clipped? } — ≤ 6 changes × 4,000 characters, scrubbed) · `git` { git } · `note` { text } · `question` { text } · `progress` { progress: { turns, maxTurns, cost, model } } · `intake` { intake: { state, source, label, line, percent, repo?, suggest?, error? } } |
 | tab → worker (req) | `stop` { taskId } · `git` { taskId, verb, repo, branch, title, message? } — verbs: refresh, commit, push, force-push, pr, update-base, discard, cleanup, reveal, comment-pr (`message` = the review), merge-pr · `open-setup` → `{ opened, reason?: off \| no-browser }` · `intake-begin` { taskId, name, size } → `{ uploadId, chunk }` · `intake-chunk` { uploadId, data } · `intake-end` { uploadId } · `intake-clone` { taskId, url } |
 
@@ -444,6 +444,10 @@ JSON text frames, subprotocol `one-worker.v1`, defined in
   it was downloaded for: download it in this one. A hand-made one: run the init command *Settings → Coding worker
   → Manual setup* shows (it carries this workspace's id; `--force` replaces the file — or edit `"workspace"`),
   restart the worker.
+- **This stage needs a newer coding worker** (or *A newer worker is on the site* on #/coding) — the worker running
+  was downloaded before One could hand out this kind of stage (document stages of Business analysis / QA, Static
+  analysis, Post review, Merge). **Download again** (#/coding, or Settings → Coding worker), stop the old worker
+  (Ctrl+C), start the new file — the browser may have saved it as `one-worker (1).mjs` — then **Retry** on the task.
 - **Claude Code was not found** — install it, sign in once interactively, or set `CLAUDE_BIN`. `node one-worker.mjs
   check` shows what the worker sees.
 - **A stage fails right away with a permission problem** — headless runs cannot ask: allow the tools in

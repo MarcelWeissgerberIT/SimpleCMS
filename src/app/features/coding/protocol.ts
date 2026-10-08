@@ -59,12 +59,13 @@ export type GitAction = (typeof GIT_ACTIONS)[number]
  */
 export const WORKER_CAN = ['analyze', 'git:comment', 'git:merge', 'doc'] as const
 /**
- * What a worker runs, read from the `can` of its `next`. Document stages came before `can`: every worker that sends
- * one knows them, so a `can` without 'doc' (the first workers that sent one) counts as knowing them too.
+ * What a worker runs, read from its `next`. Document stages came before `can`, together with `docs: true`: a worker
+ * that sends either knows them, so a `can` without 'doc' (1.3.x) or `docs` without a `can` (1.3.1 before `can`)
+ * counts as knowing them too. Only a worker with neither (older than document stages) gets none.
  */
-export function workerCan(can: readonly string[]): Set<string> {
+export function workerCan(can: readonly string[], docs = false): Set<string> {
   const set = new Set(can)
-  if (set.size) set.add('doc')
+  if (set.size || docs) set.add('doc')
   return set
 }
 /** A worker that does not name everything this One hands out: older than the download on the site. */

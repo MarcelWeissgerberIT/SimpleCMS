@@ -1,9 +1,11 @@
 /**
- * An older coding worker — downloaded before document stages existed — asks for work without `can`: One never hands
- * it a document stage. The Business analysis task fails with "needs a newer coding worker" (instead of waiting in the
- * queue forever while the worker drops it as unreadable) and the #/coding plate offers "Download again". A 1.3.x
- * worker (it names `can`, so it knows document stages) gets the same stage after Retry. The worker is played by the
- * test: a WebSocket server on 127.0.0.1 speaking the protocol of features/coding/protocol.ts — nothing else runs.
+ * An older coding worker — downloaded before document stages existed — asks for work without `can` and without
+ * `docs`: One never hands it a document stage. The Business analysis task fails with "needs a newer coding worker"
+ * (instead of waiting in the queue forever while the worker drops it as unreadable) and the #/coding plate offers
+ * "Download again". A 1.3.x worker (it names `can`, so it knows document stages) gets the same stage after Retry; so
+ * does the worker the Business analysis / QA pipelines came with (`docs: true`, no `can` yet) — from the start. The
+ * worker is played by the test: a WebSocket server on 127.0.0.1 speaking the protocol of features/coding/protocol.ts —
+ * nothing else runs.
  */
 import type { Page } from '@playwright/test'
 import { test, expect, openApp, wsEval } from './fixtures'
@@ -24,8 +26,10 @@ interface Asked {
 }
 
 interface FakeWorker {
-  /** null: an older worker (no `can`, no `docs`); a list: what a newer one names */
+  /** null: an older worker (no `can`); a list: what a newer one names (with `docs: true`) */
   can: string[] | null
+  /** `docs: true` without a `can`: the worker the Business analysis / QA pipelines came with */
+  docs: boolean
   hellos: Json[]
   asked: Asked[]
   /** `next` requests the tab has not answered yet */
@@ -49,6 +53,7 @@ async function startFakeWorker(port: number, info: WorkerInfo): Promise<FakeWork
   const pending = new Map<string, Asked>()
   const fake: FakeWorker = {
     can: null,
+    docs: false,
     hellos: [],
     asked: [],
     open: () => pending.size,
@@ -73,7 +78,7 @@ async function startFakeWorker(port: number, info: WorkerInfo): Promise<FakeWork
     const entry: Asked = { can }
     pending.set(id, entry)
     fake.asked.push(entry)
-    tab.send(JSON.stringify({ type: 'req', id, op: 'next', repos: info.repos.map((r) => r.name), worker: info.name, ...(can ? { docs: true, can } : {}) }))
+    tab.send(JSON.stringify({ type: 'req', id, op: 'next', repos: info.repos.map((r) => r.name), worker: info.name, ...(can || fake.docs ? { docs: true } : {}), ...(can ? { can } : {}) }))
   }
   const poll = setInterval(ask, 2000)
   wss.on('connection', (ws) => {
@@ -102,14 +107,14 @@ async function startFakeWorker(port: number, info: WorkerInfo): Promise<FakeWork
 }
 
 /** Settings → Coding worker: the test port, switch on, connected. */
-async function connect(page: Page) {
+async function connect(page: Page, name = 'old-box') {
   await page.evaluate(() => (window as unknown as { __one: { ui: { getState: () => { openModal: (m: unknown) => void } } } }).__one.ui.getState().openModal({ type: 'settings' }))
   await page.getByRole('tab', { name: /Coding worker|Coding-Worker/ }).click()
   const port = page.getByLabel('Port', { exact: true })
   await port.fill(String(PORT))
   await port.press('Enter')
   await page.getByRole('switch', { name: 'Connect to a coding worker on this computer' }).click()
-  await expect(page.getByTestId('coding-conn')).toContainText('Connected · old-box · 1 repo')
+  await expect(page.getByTestId('coding-conn')).toContainText(`Connected · ${name} · 1 repo`)
   await page.keyboard.press('Escape')
 }
 
@@ -186,6 +191,47 @@ test('an older worker (no `can`) is never handed a document stage: the task fail
     await page.evaluate(() => (window.location.hash = '#/coding'))
     await expect(plate).toContainText('old-box')
     await expect(page.getByTestId('coding-worker-outdated')).toHaveCount(0)
+  } finally {
+    await fake.close()
+  }
+})
+
+/** A Business analysis task on the worker's repo (Ready → Analysis, a document stage, auto); its page id. */
+async function newAnalysisTask(page: Page, title: string): Promise<string> {
+  await page.evaluate(() => (window.location.hash = '#/coding/spec'))
+  await page.getByTestId('coding-setup').click()
+  await page.getByTestId('coding-new').click()
+  await page.getByTestId('coding-new-title').fill(title)
+  await page.getByTestId('coding-new-repo').fill('website')
+  await page.getByTestId('coding-new-goal').fill('Describe how invoices are approved, by whom and when.')
+  await page.getByTestId('coding-create').click()
+  await expect(page.getByTestId('coding-panel')).toBeVisible()
+  await page.waitForFunction(() => window.location.hash.startsWith('#/p/'))
+  return page.evaluate(() => window.location.hash.replace('#/p/', ''))
+}
+
+test('the worker the Business analysis / QA pipelines came with (`docs: true`, no `can` yet) runs document stages: handed out at once, never failed; #/coding still offers the newer download', async ({ page, errors }) => {
+  errors.allow(/WebSocket connection to 'ws:\/\/127\.0\.0\.1/)
+  const fake = await startFakeWorker(PORT, { worker: '1.3.1', name: 'ba-box', repos: [{ name: 'website', baseBranch: 'main' }], parallel: 1, busy: [], spentToday: 0, dayLimit: null, claude: { found: true, version: '2.0.0' } })
+  fake.docs = true
+  try {
+    await openApp(page)
+    await connect(page, 'ba-box')
+    const id = await newAnalysisTask(page, 'Invoice approval flow')
+
+    // handed out on the next round — no "needs a newer coding worker"
+    await expect.poll(() => fake.handed().length, { timeout: 15_000 }).toBe(1)
+    expect(fake.handed()[0]).toMatchObject({ id, repo: 'website', title: 'Invoice approval flow', stage: { kind: 'doc', name: 'Analysis' }, trusted: true })
+    expect(fake.asked.every((a) => a.can === undefined)).toBe(true)
+    await expect(page.getByTestId('coding-state')).toContainText('Running')
+    await expect(page.locator('.ctk-box--err')).toHaveCount(0)
+
+    // it still lacks what came later (Static analysis, Post review, Merge): the plate offers the newer file
+    await page.evaluate(() => (window.location.hash = '#/coding'))
+    const plate = page.getByTestId('coding-worker')
+    await expect(plate).toContainText('ba-box')
+    await expect(plate.getByTestId('coding-worker-outdated')).toContainText('A newer worker is on the site')
+    await expect(page.getByTestId('coding-needs')).toHaveCount(0)
   } finally {
     await fake.close()
   }
