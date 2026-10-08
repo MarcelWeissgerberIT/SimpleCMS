@@ -28,9 +28,36 @@ export interface RowProps {
   cur: boolean
   ln: boolean
   renderToken?: RenderToken
-  /** signatures: a row renders again only when one of these changes */
-  segSig: string
-  decoSig: string
+}
+
+/** What a drawn row was made from (the code area keeps the element of a line that did not change). */
+export interface RowEntry {
+  text: string
+  segs: LineSeg[]
+  decos: LineDeco[]
+  mark: MarkerSeverity | null
+  lens: string | null
+  cur: boolean
+  ln: boolean
+  rt: RenderToken | undefined
+  el: ReactNode
+}
+
+export const NONE: LineSeg[] = []
+export const NONE_DECO: LineDeco[] = []
+
+export function sameSegs(a: LineSeg[], b: LineSeg[]): boolean {
+  if (a === b) return true
+  if (a.length !== b.length) return false
+  for (let i = 0; i < a.length; i++) if (a[i].start !== b[i].start || a[i].end !== b[i].end || a[i].cls !== b[i].cls) return false
+  return true
+}
+
+export function sameDecos(a: LineDeco[], b: LineDeco[]): boolean {
+  if (a === b) return true
+  if (a.length !== b.length) return false
+  for (let i = 0; i < a.length; i++) if (a[i].start !== b[i].start || a[i].end !== b[i].end || a[i].kind !== b[i].kind) return false
+  return true
 }
 
 const decoClass = (k: LineDeco['kind']) => (k === 'match' ? 'ca-match' : k === 'bad' ? 'ca-bad' : `ca-sq ca-sq--${k}`)
@@ -97,8 +124,5 @@ export const Row = memo(
       </div>
     )
   },
-  (a, b) => a.n === b.n && a.text === b.text && a.segSig === b.segSig && a.decoSig === b.decoSig && a.mark === b.mark && a.lens === b.lens && a.cur === b.cur && a.ln === b.ln && a.renderToken === b.renderToken,
+  (a, b) => a.n === b.n && a.text === b.text && a.mark === b.mark && a.lens === b.lens && a.cur === b.cur && a.ln === b.ln && a.renderToken === b.renderToken && sameSegs(a.segs, b.segs) && sameDecos(a.decos, b.decos),
 )
-
-export const segSig = (segs: LineSeg[]) => (segs.length ? segs.map((s) => `${s.start}-${s.end}${s.cls}`).join(',') : '')
-export const decoSig = (decos: LineDeco[]) => (decos.length ? decos.map((d) => `${d.start}-${d.end}${d.kind}`).join(',') : '')

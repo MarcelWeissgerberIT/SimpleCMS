@@ -27,7 +27,7 @@ import type { CodeMarker, MarkerSeverity, Tokenizer } from './types'
 import { lineIndexAt, lineStarts, markerRange, offsetAt as offsetOf, tokensByLine, withRanges, type LineSeg } from './lines'
 import { findPlaceholders } from './placeholders'
 import { pairAt, scanBrackets } from './brackets'
-import { Row, decoSig, segSig, type LineDeco, type RenderToken } from './render'
+import { NONE, NONE_DECO, Row, sameDecos, sameSegs, type LineDeco, type RenderToken, type RowEntry } from './render'
 import './syntax.css'
 import './code.css'
 
@@ -268,30 +268,38 @@ export function CodeArea(props: CodeAreaProps) {
 
   /* ---------------------------------------------------------------- geometry */
 
-  const gutterW = () => ta.current?.offsetLeft ?? 0
-  const geometry = useCallback((): CodeGeometry => {
+  /** the last commit's layout (read after it, never while rendering: no forced layout per key) */
+  const box = useRef({ offX: 0, offY: 0, gutter: 0, width: 0, height: 0, left: 0, top: 0 })
+  useLayoutEffect(() => {
     const sc = scroller.current
-    const rootBox = root.current?.getBoundingClientRect()
-    const scBox = sc?.getBoundingClientRect()
-    const offX = rootBox && scBox ? scBox.left - rootBox.left : 0
-    const offY = rootBox && scBox ? scBox.top - rootBox.top : 0
-    const left = sc?.scrollLeft ?? 0
-    const top = sc?.scrollTop ?? 0
-    const g = gutterW()
+    const el = ta.current
+    if (!sc || !el) return
+    const b = box.current
+    b.offX = sc.offsetLeft
+    b.offY = sc.offsetTop
+    b.gutter = el.offsetLeft
+    b.width = sc.clientWidth
+    b.height = sc.clientHeight
+    b.left = sc.scrollLeft
+    b.top = sc.scrollTop
+  })
+  const gutterW = () => box.current.gutter
+  const geometry = useCallback((): CodeGeometry => {
+    const b = box.current
     const pointAt = (offset: number) => {
-      const st = lineStarts(ta.current?.value ?? value)
-      const li = lineIndexAt(st, offset)
-      const col = offset - st[li]
-      if (!wrap) return { x: offX + g + metrics.padX + col * metrics.charW - left, y: offY + metrics.padY + li * metrics.lineH - top }
-      // soft wrap: measure the drawn line
-      const row = sc?.querySelectorAll<HTMLElement>('.ca__row')[li]
+      const li = lineIndexAt(starts, offset)
+      const col = offset - starts[li]
+      if (!wrap) return { x: b.offX + b.gutter + metrics.padX + col * metrics.charW - b.left, y: b.offY + metrics.padY + li * metrics.lineH - b.top }
+      // soft wrap: measure the drawn line (only when something floats over it)
+      const rootBox = root.current?.getBoundingClientRect()
+      const row = scroller.current?.querySelectorAll<HTMLElement>('.ca__row')[li]
       const text = row?.querySelector<HTMLElement>('.ca__text')
       const rect = text ? caretRect(text, col) : null
       if (rect && rootBox) return { x: rect.left - rootBox.left, y: rect.top - rootBox.top }
-      return { x: offX + g + metrics.padX - left, y: offY + (row ? row.offsetTop : metrics.padY + li * metrics.lineH) - top }
+      return { x: b.offX + b.gutter + metrics.padX - b.left, y: b.offY + (row ? row.offsetTop : metrics.padY + li * metrics.lineH) - b.top }
     }
-    return { pointAt, lineH: metrics.lineH, charW: metrics.charW, box: { left: offX + g, top: offY, width: (sc?.clientWidth ?? 0) - g, height: sc?.clientHeight ?? 0 } }
-  }, [metrics, value, wrap])
+    return { pointAt, lineH: metrics.lineH, charW: metrics.charW, box: { left: b.offX + b.gutter, top: b.offY, width: b.width - b.gutter, height: b.height } }
+  }, [metrics, starts, wrap])
 
   const offsetAtPoint = (clientX: number, clientY: number): number | null => {
     const el = ta.current
@@ -326,7 +334,7 @@ export function CodeArea(props: CodeAreaProps) {
       if (!sc) return
       const st = lineStarts(ta.current?.value ?? value)
       const li = lineIndexAt(st, offset)
-      const row = sc.querySelectorAll<HTMLElement>('.ca__row')[li]
+      const row = sc.querySelector<HTMLElement>(`.ca__layer > .ca__row:nth-child(${li + 1})`)
       const top = row ? row.offsetTop : metrics.padY + li * metrics.lineH
       const h = row ? row.offsetHeight : metrics.lineH
       if (top < sc.scrollTop + metrics.padY) sc.scrollTop = Math.max(0, top - metrics.padY - metrics.lineH)
@@ -559,6 +567,33 @@ export function CodeArea(props: CodeAreaProps) {
       [...(markers ?? [])].sort((a, b) => a.line - b.line || a.col - b.col || SEV_RANK[b.severity] - SEV_RANK[a.severity]),
     [markers],
   )
+  const rowCache = useRef<RowEntry[]>([])
+  const rows: ReactNode[] = []
+  const nextCache: RowEntry[] = []
+  for (let i = 0; i < lines.length; i++) {
+    const text = lines[i]
+    const segs = srcLines[i] === text ? (segsByLine[i] ?? NONE) : NONE
+    const p = problems.get(i)
+    let decos = p?.decos ?? NONE_DECO
+    if (match) {
+      const extra: LineDeco[] = []
+      for (const off of match) if (lineIndexAt(starts, off) === i) extra.push({ start: off - starts[i], end: off - starts[i] + 1, kind: 'match' })
+      if (extra.length) decos = [...decos, ...extra]
+    }
+    const mark = p?.mark ?? null
+    const lens = wrap ? null : (p?.lens ?? null)
+    const cur = focused && i === caretLine
+    const prev = rowCache.current[i]
+    if (prev && prev.text === text && prev.mark === mark && prev.lens === lens && prev.cur === cur && prev.ln === lineNumbers && prev.rt === renderToken && sameSegs(prev.segs, segs) && sameDecos(prev.decos, decos)) {
+      nextCache.push(prev)
+      rows.push(prev.el)
+      continue
+    }
+    const el = <Row key={i} n={i + 1} text={text} segs={segs} decos={decos} mark={mark} lens={lens} cur={cur} ln={lineNumbers} renderToken={renderToken} />
+    nextCache.push({ text, segs, decos, mark, lens, cur, ln: lineNumbers, rt: renderToken, el })
+    rows.push(el)
+  }
+  rowCache.current = nextCache
   const describe = [hintId, problemList && shownMarkers.length ? listId : null, describedBy, inputProps?.['aria-describedby']].filter(Boolean).join(' ') || undefined
   const sizeStyle = height !== null ? { height } : fixedHeight ? undefined : { minHeight: autoMin, maxHeight: autoMax }
 
@@ -578,7 +613,9 @@ export function CodeArea(props: CodeAreaProps) {
         ref={scroller}
         className="ca__scroll"
         style={sizeStyle}
-        onScroll={() => {
+        onScroll={(e) => {
+          box.current.left = e.currentTarget.scrollLeft
+          box.current.top = e.currentTarget.scrollTop
           if (overlay) setScrollTick((n) => n + 1)
         }}
       >
@@ -587,36 +624,7 @@ export function CodeArea(props: CodeAreaProps) {
             0000000000
           </span>
           <div className="ca__layer" aria-hidden>
-            {lines.map((text, i) => {
-              const fresh = srcLines[i] === text
-              const segs: LineSeg[] = fresh ? (segsByLine[i] ?? []) : []
-              const p = problems.get(i)
-              let decos = p?.decos ?? []
-              if (match) {
-                const extra: LineDeco[] = []
-                for (const off of match) {
-                  const li = lineIndexAt(starts, off)
-                  if (li === i) extra.push({ start: off - starts[i], end: off - starts[i] + 1, kind: 'match' })
-                }
-                if (extra.length) decos = [...decos, ...extra]
-              }
-              return (
-                <Row
-                  key={i}
-                  n={i + 1}
-                  text={text}
-                  segs={segs}
-                  decos={decos}
-                  mark={p?.mark ?? null}
-                  lens={wrap ? null : (p?.lens ?? null)}
-                  cur={focused && i === caretLine}
-                  ln={lineNumbers}
-                  renderToken={renderToken}
-                  segSig={segSig(segs)}
-                  decoSig={decoSig(decos)}
-                />
-              )
-            })}
+            {rows}
           </div>
           <textarea
             {...inputProps}

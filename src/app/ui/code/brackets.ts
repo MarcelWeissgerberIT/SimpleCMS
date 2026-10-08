@@ -23,9 +23,10 @@ export function scanBrackets(code: string, tokens: CodeToken[] = []): Brackets {
   const unmatched: number[] = []
   const stack: number[] = []
   let ti = 0
-  for (let i = 0; i < code.length; i++) {
-    const c = code[i]
-    if (!(c in OPEN) && !(c in CLOSE)) continue
+  const re = /[()[\]{}]/g
+  for (let m = re.exec(code); m; m = re.exec(code)) {
+    const i = m.index
+    const c = m[0]
     while (ti < tokens.length && tokens[ti].end <= i) ti++
     const tk = tokens[ti]
     if (tk && tk.start <= i && OPAQUE.has(tk.cls)) continue
