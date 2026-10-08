@@ -26,6 +26,7 @@
 import { createStore, type UseStore } from 'idb-keyval'
 import { useWorkspace, getWorkspaceSnapshot, emptyWorkspace, pageChanges, WORKSPACE_VERSION, defaultSettings, defaultView, DEFAULT_PAGE_SETTINGS } from './store'
 import type { Database, ID, Page, PropertyDef, Settings, Workspace } from './types'
+import { sanitizePropFlags } from './keys'
 import { newId } from '../lib/ids'
 import { isSecretMarker } from '../lib/vault'
 import { mergePage, samePage } from './merge'
@@ -123,7 +124,8 @@ function normalizeDatabase(id: ID, v: unknown, lang: Settings['language']): { db
     props.unshift({ id: newId(), name: 'Name', type: 'title' })
     repaired = true
   }
-  db.properties = props
+  // row keys / "Only by hand" (keys.ts): only where they fit
+  db.properties = sanitizePropFlags(props)
   const views = Array.isArray(v.views) ? (v.views as unknown[]).filter((x): x is Database['views'][number] => isObj(x) && typeof x.id === 'string') : []
   if (!Array.isArray(v.views) || views.length !== (v.views as unknown[]).length) repaired = true
   if (!views.length) {

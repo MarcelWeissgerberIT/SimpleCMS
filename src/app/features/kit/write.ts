@@ -10,7 +10,7 @@ import { useWorkspace } from '../../store/store'
 import { toast } from '../../store/ui'
 import type { Database, ID, PropertyDef, PropertyValue } from '../../store/types'
 import { t } from '../../i18n'
-import { writePropertyValue } from '../../database'
+import { keyClash, writePropertyValue } from '../../database'
 import { ownTypeOf } from './model'
 import { refusalOf, runBinding, runError, untrustedOf } from './scripts'
 import { openReview } from './review'
@@ -51,11 +51,22 @@ export function isKitComputed(prop: PropertyDef): boolean {
 }
 
 /**
- * Write a value a person entered (cells, the row page's panel, bulk edits) into rows. Plain properties:
- * written at once (true). Own types: validated, written, onChange — resolves with whether it was written
+ * Write a value a person entered (cells, the row page's panel, bulk edits) into rows. A database key another row
+ * holds already is refused at the cell (false). Plain properties: written at once (true). Own types: validated, written, onChange — resolves with whether it was written
  * (to at least one row).
  */
 export async function writeUserValue(db: Database, prop: PropertyDef, rowIds: ID[], value: PropertyValue, anchor?: Element | null): Promise<boolean> {
+  // the database's key (store/keys.ts): unique per row — a value another row holds is refused at the cell
+  const clash = keyClash(db, prop, rowIds, value)
+  if (clash) {
+    showRefusal(
+      clash.row
+        ? t('database.key.taken', { value: clash.value, name: prop.name, row: clash.row.title.trim() || t('common.untitled') })
+        : t('database.key.takenMany', { value: clash.value, count: rowIds.length }),
+      anchor,
+    )
+    return false
+  }
   const type = ownTypeOf(prop)
   if (type?.scripts?.value) {
     showRefusal(t('features.kit.computed.readOnly', { name: prop.name }), anchor)

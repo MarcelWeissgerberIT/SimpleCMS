@@ -30,6 +30,7 @@ import { newId } from '../../lib/ids'
 import { PageIcon } from '../../ui/PageIcon'
 import { OptionsConfig } from './OptionsConfig'
 import { FormulaEditor } from './FormulaEditor'
+import { PropertyFlags } from './PropertyFlags'
 import { Segmented, Select, TypeIcon, typeEntries } from '../parts'
 import { changePropertyToOwn, changePropertyType, deletePropertyWithUndo, disableTwoWay, duplicateProperty, enableTwoWay, insertProperty, pairedRelation, rowsOf, twoWayBlocker } from '../model/actions'
 import { ROLLUP_FNS, isOptionType, operatorsFor, valueKind } from '../model/schema'
@@ -188,6 +189,8 @@ export function PropertyMenu({ db, view, prop, anchor, resolver, onClose, tableM
           )}
         </div>
         {!locked && <PropertyConfig db={db} prop={prop} onEditFormula={() => setFormulaOpen(true)} />}
+        {/* agents: Key (unique per row) · Only by hand (store/keys.ts) */}
+        {!locked && <PropertyFlags db={db} prop={prop} />}
         <MenuList entries={entries} onClose={onClose} />
       </Popover>
       {formulaOpen && (

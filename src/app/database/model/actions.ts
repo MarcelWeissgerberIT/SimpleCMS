@@ -17,6 +17,7 @@ import { isDbReadOnly } from '../readonly'
 import { isDbLocked } from './lock'
 import { TYPE_PROP_ID } from './typeId'
 import { withTypeColumn } from './recordTypes'
+import { canBeHandOnly, canBeKey, keyPropOf } from '../../store/keys'
 
 /** Properties of this database may change (not view only, not locked). */
 const schemaEditable = (dbId: ID | undefined) => !isDbReadOnly() && !isDbLocked(dbId)
@@ -309,6 +310,9 @@ function convertPropertyType(r: Resolver, db: Database, prop: PropertyDef, type:
   }
   // a plain type: no own type (features/kit) and no shared list any more
   const patch: Partial<PropertyDef> = { type, custom: undefined, listId: undefined }
+  // a key stays one only as text / number / url; "Only by hand" only where values are written (store/keys.ts)
+  if (prop.key && !canBeKey({ type })) patch.key = undefined
+  if (prop.agentReadOnly && !canBeHandOnly({ type })) patch.agentReadOnly = undefined
   let options: SelectOption[] = []
   if (type === 'select' || type === 'multi_select' || type === 'status') {
     if (prop.options && (prop.type === 'select' || prop.type === 'multi_select' || prop.type === 'status')) {
@@ -461,7 +465,8 @@ export function insertProperty(db: Database, view: View | null, def: Partial<Pro
 
 export function duplicateProperty(db: Database, view: View | null, prop: PropertyDef): ID {
   if (!schemaEditable(db.id)) return ''
-  const copy: Partial<PropertyDef> & Pick<PropertyDef, 'type'> = JSON.parse(JSON.stringify({ ...prop, id: undefined, name: `${prop.name} (${t('database.copySuffix')})` }))
+  // the copy is never the key (one per database, its values would repeat the key's)
+  const copy: Partial<PropertyDef> & Pick<PropertyDef, 'type'> = JSON.parse(JSON.stringify({ ...prop, id: undefined, key: undefined, name: `${prop.name} (${t('database.copySuffix')})` }))
   const id = insertProperty(db, view, copy, { anchorId: prop.id, side: 'right' })
   if (!isComputed(prop) && prop.type !== 'title') for (const row of rowsOf(db.id)) {
     const v = row.properties[prop.id]
@@ -496,6 +501,9 @@ export function duplicateRows(dbId: ID, ids: ID[]): ID[] {
       s.setRowProperty(nid, uid.id, cur.nextUniqueId)
       s.updateDatabase(dbId, { nextUniqueId: cur.nextUniqueId + 1 })
     }
+    // a key is unique per row: the copy starts without one (store/keys.ts)
+    const key = keyPropOf(ws().databases[dbId])
+    if (key && ws().pages[nid]?.properties[key.id] !== undefined) s.setRowProperty(nid, key.id, key.type === 'number' ? null : '')
     relinkCopy(dbId, nid)
   }
   return out

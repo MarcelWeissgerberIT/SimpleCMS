@@ -4,9 +4,10 @@
  * collapsible groups, footer calculations, row virtualization.
  */
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { ChevronRight, Copy, GripVertical, PencilLine, Plus, Shapes, Trash, X } from 'lucide-react'
+import { ChevronRight, Copy, GripVertical, Hand, KeyRound, PencilLine, Plus, Shapes, Trash, X } from 'lucide-react'
 import type { ColorRule, ID, Page, PropertyDef, PropertyValue } from '../../store/types'
 import { useWorkspace } from '../../store/store'
+import { toast } from '../../store/ui'
 import { Tooltip } from '../../ui/Tooltip'
 import { useT } from '../../i18n'
 import { useModel, type DbModel } from '../hooks'
@@ -17,6 +18,8 @@ import { parseNumberInput, type DoneReason } from '../cells/TextEditor'
 import { PropertyMenu } from '../properties/PropertyMenu'
 import { Menu, TypeIcon, typeEntries } from '../parts'
 import { deleteRows, duplicateRows, insertProperty, orderBetween, writeValue } from '../model/actions'
+import { keyClash } from '../model/keys'
+import { isHandOnly, keyPropOf } from '../../store/keys'
 import { valueForGroupMove, NONE_KEY, type RowGroup } from '../model/query'
 import { ADD_COL, FILL_MIN, ROW_H, buildItems, colWidth, minWidth, offsetsOf, scrollParent, type Item } from './table/layout'
 import { useWindow } from './virtual'
@@ -372,7 +375,11 @@ export function TableView({ onFilterProp }: { onFilterProp: (id: ID) => void }) 
       e.preventDefault()
       void navigator.clipboard.readText().then((text) => {
         const v = valueFromText(p, text)
-        if (v !== undefined) writeValue(db.id, p, ri.it.row.id, v)
+        if (v === undefined) return
+        // the database's key stays unique per row (store/keys.ts): a pasted value another row holds is refused
+        const clash = keyClash(db, p, [ri.it.row.id], v)
+        if (clash?.row) toast({ message: t('database.key.taken', { value: clash.value, name: p.name, row: clash.row.title.trim() || t('common.untitled') }), kind: 'error' })
+        else writeValue(db.id, p, ri.it.row.id, v)
       })
       return
     }
@@ -805,6 +812,17 @@ export function TableView({ onFilterProp }: { onFilterProp: (id: ID) => void }) 
                   >
                     {isTypeProp(p) ? <Shapes size={13} strokeWidth={1.7} aria-hidden /> : <TypeIcon type={p.type} size={13} />}
                     <span className="dbt-hcell__name">{p.name}</span>
+                    {/* row key · "Only by hand" (store/keys.ts) */}
+                    {keyPropOf(db)?.id === p.id && (
+                      <span className="dbt-hcell__flag" role="img" aria-label={t('database.key.mark')} title={t('database.key.mark')}>
+                        <KeyRound size={11} strokeWidth={2} aria-hidden />
+                      </span>
+                    )}
+                    {isHandOnly(p) && (
+                      <span className="dbt-hcell__flag" role="img" aria-label={t('database.hand.mark')} title={t('database.hand.mark')}>
+                        <Hand size={11} strokeWidth={2} aria-hidden />
+                      </span>
+                    )}
                     {autofillOf(p) && <AutofillTag dbId={db.id} prop={p} />}
                     {sort && <span className="dbt-hcell__sort">{sort.direction === 'asc' ? '↑' : '↓'}</span>}
                   </button>

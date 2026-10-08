@@ -268,6 +268,17 @@ export interface PropertyDef {
   listId?: ID
   /** Comes from a record type (Workspace.kit.recordTypes): kept in step by upsertRecordType (never deleted by it). */
   fromType?: { id: ID; prop: ID }
+  /**
+   * "Key" (store/keys.ts): this property identifies a row — text, number or url only, at most one per database; its
+   * values are unique per database (empty allowed). Agents' upsert_rows find rows by it; every writer refuses a value
+   * another row holds already (agent tools, MCP, the team server, a person's cell). Absent = no key.
+   */
+  key?: true
+  /**
+   * "Only by hand": agents never write this property (custom agents, the server runner, the AI terminal, MCP writes are
+   * refused naming it); people edit it as usual. Absent = agents may write it.
+   */
+  agentReadOnly?: true
 }
 
 /** What Claude fills a property with. */
