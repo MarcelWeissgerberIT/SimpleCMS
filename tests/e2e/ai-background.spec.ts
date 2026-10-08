@@ -377,7 +377,7 @@ test.describe('AI-menu runs in the background', () => {
     await page.locator('.sb section .sb-row', { hasText: 'Elsewhere' }).first().locator('.sb-row__title').click()
     claude.release()
     await expect(toast(page, 'KI-Ergebnis fertig · Launch notes').getByRole('button', { name: 'Öffnen' })).toBeVisible()
-    await expect(page.locator('.sb-row', { hasText: 'Launch notes' }).getByTestId('ai-run-led')).toHaveAttribute('aria-label', 'KI-Ergebnis fertig')
+    await expect(page.locator('.sb-row[data-section="pages"]', { hasText: 'Launch notes' }).getByTestId('ai-run-led')).toHaveAttribute('aria-label', 'KI-Ergebnis fertig')
     await page.locator('.sb section .sb-row', { hasText: 'Launch notes' }).first().locator('.sb-row__title').click()
     await expect(plate(page)).toHaveText(/KI-Ergebnis fertig.*Text verbessern.*Ansehen/i)
   })

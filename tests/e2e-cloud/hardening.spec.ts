@@ -267,6 +267,11 @@ test.describe('team cloud — hardening', () => {
         { op, ws },
       )
     await aiRuns('seed', wsId)
+    // this device's page visits (shell/lib/visits.ts): the team workspace's go with its copy, the local one's stay
+    await a.evaluate((ws) => {
+      localStorage.setItem(`one.shell.visits:cloud:${ws}`, JSON.stringify({ v: 1, e: { teamvisit: [3, Date.now(), 3] } }))
+      localStorage.setItem('one.shell.visits:local:local', JSON.stringify({ v: 1, e: { localvisit: [3, Date.now(), 3] } }))
+    }, wsId)
 
     await a.keyboard.press('Control+,')
     const settings = a.getByRole('dialog', { name: 'Settings' })
@@ -288,6 +293,8 @@ test.describe('team cloud — hardening', () => {
       })
       .toBe(0)
     expect(await aiRuns('list', wsId)).toEqual(['local:local|r-local'])
+    expect(await a.evaluate((ws) => localStorage.getItem(`one.shell.visits:cloud:${ws}`), wsId)).toBeNull()
+    expect(await a.evaluate(() => localStorage.getItem('one.shell.visits:local:local') ?? '')).toContain('localvisit')
     // the team workspace itself is untouched: opening it again downloads it
     await openApp(a, wsId)
     await waitOnline(a)

@@ -24,6 +24,8 @@ interface Entry {
 
 export interface SearchIndex {
   entries: Entry[]
+  /** the live pages, in the same order (⌘K filters walk this array — never the page map) */
+  pages: Page[]
   /** Fuse over every title (queries of more than 32 characters), built on first use */
   all?: Fuse<Entry>
 }
@@ -66,11 +68,15 @@ export function buildIndex(pages: Record<ID, Page>): SearchIndex {
   const hit = indexCache.get(pages)
   if (hit) return hit
   const entries: Entry[] = []
+  const live: Page[] = []
   for (const id of Object.keys(pages)) {
     const p = pages[id]
-    if (!p.trashed && !isEffectivelyTrashed(pages, id) && !inTemplate(pages, id)) entries.push(entryOf(p))
+    if (!p.trashed && !isEffectivelyTrashed(pages, id) && !inTemplate(pages, id)) {
+      entries.push(entryOf(p))
+      live.push(p)
+    }
   }
-  const index: SearchIndex = { entries }
+  const index: SearchIndex = { entries, pages: live }
   indexCache.set(pages, index)
   return index
 }
@@ -85,9 +91,12 @@ const FUZZY = { keys: ['page.title'], includeMatches: true, includeScore: true, 
  * index order (Fuse breaks ties by it), so the hits are exactly those of a search over every
  * title — for a fraction of the work on a big workspace.
  */
-function fuzzyTitles(index: SearchIndex, q: string, limit: number) {
+function fuzzyTitles(index: SearchIndex, q: string, limit: number, only?: ReadonlySet<ID>) {
   // Fuse splits a query of more than 32 characters into parts that match on their own: no shortcut
-  if (q.length > 32) return (index.all ??= new Fuse(index.entries, FUZZY)).search(q, { limit })
+  if (q.length > 32) {
+    const all = (index.all ??= new Fuse(index.entries, FUZZY))
+    return only ? all.search(q).filter((r) => only.has(r.item.page.id)).slice(0, limit) : all.search(q, { limit })
+  }
   let edits = 0
   while ((edits + 1) / q.length <= FUZZY.threshold) edits++
   const need = countsOf(q)
@@ -102,7 +111,7 @@ function fuzzyTitles(index: SearchIndex, q: string, limit: number) {
     }
     return true
   }
-  const candidates = index.entries.filter(possible)
+  const candidates = index.entries.filter((e) => (!only || only.has(e.page.id)) && possible(e))
   return candidates.length ? new Fuse(candidates, FUZZY).search(q, { limit }) : []
 }
 
@@ -148,25 +157,43 @@ interface Ranked {
   fuzzy?: Range[]
 }
 
-/** Lower first: rank, then the most recently edited. */
-const rankOrder = (a: Ranked, b: Ranked) => a.score - b.score || b.e.page.updatedAt - a.e.page.updatedAt
+type Order = (a: Ranked, b: Ranked) => number
+
+/** Lower first: rank, then the pages this device opens most (frecency, 2 decimals), then the most recently edited. */
+function rankOrder(boost?: (id: ID) => number): Order {
+  if (!boost) return (a, b) => a.score - b.score || b.e.page.updatedAt - a.e.page.updatedAt
+  const memo = new Map<ID, number>()
+  const of = (id: ID) => {
+    let v = memo.get(id)
+    if (v === undefined) memo.set(id, (v = Math.round(boost(id) * 100) / 100))
+    return v
+  }
+  return (a, b) => a.score - b.score || of(b.e.page.id) - of(a.e.page.id) || b.e.page.updatedAt - a.e.page.updatedAt
+}
 
 /**
  * Keep the best `limit` in order while offering every hit: the same list as sorting all hits
  * (stably) and taking the first `limit`, without sorting thousands of body-text hits per keystroke.
  */
-function offer(top: Ranked[], limit: number, r: Ranked) {
-  if (top.length >= limit && rankOrder(r, top[top.length - 1]) >= 0) return
+function offer(top: Ranked[], limit: number, r: Ranked, order: Order) {
+  if (top.length >= limit && order(r, top[top.length - 1]) >= 0) return
   // after every entry that ranks the same (a stable sort keeps the earlier one first)
   let lo = 0
   let hi = top.length
   while (lo < hi) {
     const mid = (lo + hi) >> 1
-    if (rankOrder(r, top[mid]) < 0) hi = mid
+    if (order(r, top[mid]) < 0) hi = mid
     else lo = mid + 1
   }
   top.splice(lo, 0, r)
   if (top.length > limit) top.pop()
+}
+
+export interface SearchOptions {
+  /** only these pages (⌘K filters) */
+  only?: ReadonlySet<ID> | null
+  /** a tie-breaker within one rank: higher first (how often this device opens a page) */
+  boost?: (id: ID) => number
 }
 
 /**
@@ -174,9 +201,11 @@ function offer(top: Ranked[], limit: number, r: Ranked) {
  * title hits (typos, 4+ characters), then pages whose body contains every term.
  * Body text is matched literally — no fuzzy noise from long documents.
  */
-export function search(index: SearchIndex, query: string, limit = 30): SearchHit[] {
+export function search(index: SearchIndex, query: string, limit = 30, opts: SearchOptions = {}): SearchHit[] {
   const q = query.trim().toLowerCase()
   if (!q || limit <= 0) return []
+  const only = opts.only ?? undefined
+  const order = rankOrder(opts.boost)
   const terms = q.split(/\s+/).filter(Boolean)
   /** -1: no literal hit */
   const scoreOf = (e: Entry): number => {
@@ -196,17 +225,18 @@ export function search(index: SearchIndex, query: string, limit = 30): SearchHit
   let titleHits = 0
 
   for (const e of index.entries) {
+    if (only && !only.has(e.page.id)) continue
     const score = scoreOf(e)
     if (score < 0) continue
     if (score < FUZZY_RANK) titleHits++
-    offer(ranked, limit, { e, score })
+    offer(ranked, limit, { e, score }, order)
   }
 
   // fuzzy title hits rank below every other title hit: with `limit` of those, none would show
-  if (q.length >= 4 && titleHits < limit) {
-    for (const r of fuzzyTitles(index, q, 20)) {
+  if (q.length >= 4 && titleHits < limit && (!only || only.size)) {
+    for (const r of fuzzyTitles(index, q, 20, only)) {
       if (scoreOf(r.item) >= 0 || (r.score ?? 1) > 0.3) continue
-      offer(ranked, limit, { e: r.item, score: FUZZY_RANK + (r.score ?? 0), fuzzy: fuseRanges(r.matches?.[0]) })
+      offer(ranked, limit, { e: r.item, score: FUZZY_RANK + (r.score ?? 0), fuzzy: fuseRanges(r.matches?.[0]) }, order)
     }
   }
 

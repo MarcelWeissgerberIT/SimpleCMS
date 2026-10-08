@@ -290,7 +290,7 @@ test.describe('free board', () => {
       return { other, pageId }
     })
     const tree = page.locator('aside.sb')
-    const row = (title: string) => tree.locator('.sb-row', { has: page.locator('.sb-row__title', { hasText: new RegExp(`^${title}$`) }) })
+    const row = (title: string) => tree.locator('.sb-row:not([data-section="recent"]):not([data-section="frequent"])', { has: page.locator('.sb-row__title', { hasText: new RegExp(`^${title}$`) }) })
     const src = row('Loose idea')
     const dst = row('Ideas box')
     await src.scrollIntoViewIfNeeded()

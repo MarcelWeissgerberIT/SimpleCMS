@@ -336,6 +336,79 @@
   font-size: var(--text-sm);
 }
 
+/* ---------- RECENT | FREQUENT (this device's visits) ---------- */
+.sb-switch {
+  display: inline-flex;
+  flex: none;
+  height: 18px;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius-1);
+  overflow: hidden;
+}
+.sb-switch__tab {
+  display: inline-flex;
+  align-items: center;
+  padding: 0 6px;
+  border: 0;
+  background: transparent;
+  color: var(--ink-3);
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background var(--dur-1) var(--ease-out), color var(--dur-1) var(--ease-out);
+}
+.sb-switch__tab + .sb-switch__tab {
+  border-left: 1px solid var(--rule-strong);
+}
+.sb-switch__tab:hover {
+  color: var(--ink);
+}
+.sb-switch__tab[aria-selected='true'] {
+  background: var(--ink);
+  color: var(--bg);
+}
+.sb-switch__tab:focus-visible {
+  outline: 2px solid var(--signal);
+  outline-offset: -2px;
+  box-shadow: none;
+}
+.sb-sect__fold svg {
+  transition: transform var(--dur-1) var(--ease-out);
+}
+.sb-sect__fold[aria-expanded='false'] svg {
+  transform: rotate(-90deg);
+}
+.sb-sect__add + .sb-sect__add {
+  margin-left: 0;
+}
+.sb-visited .sb-hint {
+  font-size: var(--text-xs);
+}
+/* a narrow sidebar (220 px) or big text: the leader and the count give way first, then the keys wrap */
+.sb-visited {
+  container: visited / inline-size;
+}
+.sb-visited__head {
+  flex-wrap: wrap;
+  gap: 2px 5px;
+  height: auto;
+  min-height: 28px;
+}
+.sb-visited__head .sb-sect__leader {
+  min-width: 0;
+}
+@container visited (max-width: 250px) {
+  .sb-visited__head .sb-sect__leader,
+  .sb-visited__head .sb-sect__count {
+    display: none;
+  }
+  .sb-visited__more {
+    margin-left: auto;
+  }
+}
+
 /* ---------- private section (team workspaces) ---------- */
 .sb-sect__icon {
   display: inline-grid;
@@ -954,5 +1027,22 @@ body[data-dragging] .sb-row__toggle {
   .trash-item .icon-btn--sm {
     width: 32px;
     height: 32px;
+  }
+  /* each tab a 28 px target: the head grows to hold the switch */
+  .sb-visited__head {
+    min-height: 36px;
+  }
+  .sb-switch {
+    height: 30px;
+  }
+  .sb-switch__tab {
+    padding: 0 10px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sb-switch__tab,
+  .sb-sect__fold svg {
+    transition: none;
   }
 }

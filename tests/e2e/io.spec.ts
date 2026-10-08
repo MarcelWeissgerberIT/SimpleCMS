@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs'
+import { readFileSync, writeFileSync } from 'node:fs'
 import type { Page } from '@playwright/test'
 import { test, expect, openApp, waitForApp, createPage, doc, para, heading, wsEval, gotoPage, editorOf, MOD } from './fixtures'
 
@@ -22,6 +22,14 @@ test.describe('import / export', () => {
   test('export a JSON backup → reset the workspace → import the backup → data is back', async ({ page }, testInfo) => {
     await openApp(page)
     const canary = await createPage(page, { title: 'Backup canary', content: doc(heading(2, 'Canary heading'), para('canary content 4711')) })
+    // RECENT (Workspace.recent) holds the canary: which pages this device opened is never in a backup
+    await gotoPage(page, canary)
+    expect(await wsEval(page, (s, id) => s.recent.includes(id), canary)).toBe(true)
+    // this device's visits and sidebar section state (shell/lib/visits.ts): never in a backup, gone with a reset
+    await page.evaluate(() => {
+      localStorage.setItem('one.shell.visits:local:local', JSON.stringify({ v: 1, e: { 'reset-canary': [3, Date.now(), 3] } }))
+      localStorage.setItem('one.shell.visited', JSON.stringify({ tab: 'frequent', open: false }))
+    })
 
     // export (Workspace settings → Data → Export workspace → Full backup)
     let section = await openWorkspaceSection(page, 'data')
@@ -35,6 +43,11 @@ test.describe('import / export', () => {
     await (await download).saveAs(file)
     const backup = JSON.parse(readFileSync(file, 'utf8'))
     expect(JSON.stringify(backup)).toContain('canary content 4711')
+    expect(JSON.stringify(backup)).not.toContain('reset-canary')
+    expect(backup.workspace.recent).toEqual([])
+    // an older backup still carried the list: a restore never takes it over
+    backup.workspace.recent = [canary]
+    writeFileSync(file, JSON.stringify(backup))
     await page.keyboard.press('Escape')
 
     // reset (Workspace settings → Danger zone → Reset workspace → confirm)
@@ -44,6 +57,8 @@ test.describe('import / export', () => {
     await expect(confirm).toBeVisible()
     await Promise.all([page.waitForEvent('load'), confirm.getByRole('button', { name: 'Erase & restart' }).click()])
     await waitForApp(page)
+    expect(await page.evaluate(() => localStorage.getItem('one.shell.visits:local:local') ?? '')).not.toContain('reset-canary')
+    expect(await page.evaluate(() => localStorage.getItem('one.shell.visited'))).toBeNull()
     // a fresh demo workspace: the canary is gone
     await expect(page.locator('#main .pv-title')).toHaveValue('Welcome to One')
     expect(await wsEval(page, (s, id) => !!s.pages[id], canary)).toBe(false)
@@ -60,6 +75,7 @@ test.describe('import / export', () => {
     await page.keyboard.press('Escape')
 
     expect(await wsEval(page, (s, id) => s.pages[id]?.title ?? null, canary)).toBe('Backup canary')
+    expect(await wsEval(page, (s, id) => s.recent.includes(id), canary)).toBe(false)
     await gotoPage(page, canary)
     await expect(editorOf(page, canary)).toContainText('canary content 4711')
     await expect(editorOf(page, canary).locator('h3')).toHaveText('Canary heading')

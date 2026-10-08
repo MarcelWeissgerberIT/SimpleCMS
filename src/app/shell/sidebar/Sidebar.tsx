@@ -14,6 +14,7 @@ import { logoMarkSvg } from '@/shared/logo'
 import { BRAND } from '@/shared/brand'
 import { DraggableTree, PageList, PageTree, SECTION_DROP, useRootIds, useSectionDrop } from './PageTree'
 import { TrashPopover } from './TrashPopover'
+import { useVisited, VisitedSection } from './Visited'
 import { createPrivateDatabaseAndOpen, createPrivatePageAndOpen } from './private'
 import { treeAncestors, treeKey, useTreeState } from '../lib/tree'
 import { usePrivateMode } from '../../cloud'
@@ -56,6 +57,9 @@ export function Sidebar() {
     const chain = treeAncestors(useWorkspace.getState(), activeId)
     if (chain.length) useTreeState.getState().expand(chain.map((p) => treeKey(p.private ? 'private' : 'pages', p.id)))
   }, [activeId])
+
+  const visited = useVisited()
+  const no = useSectionNumbers(visited.shown)
 
   const w = Math.min(MAX_W, Math.max(MIN_W, dragW ?? width))
   const state = mobile ? (mobileOpen ? 'drawer-open' : 'drawer') : focus ? 'hidden' : collapsed ? (hoverReveal ? 'reveal' : 'collapsed') : 'docked'
@@ -111,14 +115,15 @@ export function Sidebar() {
           )}
         </nav>
         <div className="sb-scroll" onKeyDown={onTreeKeyDown}>
-          <FavoritesSection />
+          <FavoritesSection n={no.fav} />
+          {visited.shown && <VisitedSection n={no.visited} recent={visited.recent} frequent={visited.frequent} />}
           {/* one drag & drop context: pages move between the workspace's and my private ones too */}
           <DraggableTree>
-            <PagesSection />
-            <PrivateSection />
+            <PagesSection n={no.pages} />
+            <PrivateSection n={no.priv} />
           </DraggableTree>
         </div>
-        <SidebarFooter />
+        <SidebarFooter n={no.trash} />
         {!mobile && (
           <ResizeHandle
             width={w}
@@ -322,13 +327,28 @@ function SectionHead({ n, label, count, icon, drop, children }: { n: string; lab
   )
 }
 
-function FavoritesSection() {
+/**
+ * The sections' numbers, counting only those shown: FAVORITES? · RECENT | FREQUENT? · PAGES · PRIVATE? · TRASH.
+ */
+function useSectionNumbers(visitedShown: boolean): { fav: number; visited: number; pages: number; priv: number; trash: number } {
+  const hasFavs = useHasFavorites()
+  const mode = usePrivateMode()
+  const privateShown = useTreeCount(true) > 0
+  let n = 0
+  const fav = hasFavs ? ++n : 0
+  const visited = visitedShown ? ++n : 0
+  const pages = ++n
+  const priv = mode === 'write' || (mode === 'read' && privateShown) ? ++n : 0
+  return { fav, visited, pages, priv, trash: ++n }
+}
+
+function FavoritesSection({ n }: { n: number }) {
   const t = useT()
   const favs = useFavorites()
   if (favs.length === 0) return null
   return (
     <section className="sb-section" aria-label={t('shell.sidebar.favorites')}>
-      <SectionHead n="01" label={t('shell.sidebar.favorites')} count={favs.length} />
+      <SectionHead n={sectionNo(n)} label={t('shell.sidebar.favorites')} count={favs.length} />
       <div role="tree">
         <PageList ids={favs.map((p) => p.id)} section="fav" />
       </div>
@@ -336,23 +356,21 @@ function FavoritesSection() {
   )
 }
 
-const useHasFavs = useHasFavorites
 const sectionNo = (n: number) => String(n).padStart(2, '0')
 
-function PagesSection() {
+function PagesSection({ n }: { n: number }) {
   const t = useT()
   // a team workspace splits the top level: the workspace's pages here, mine under PRIVATE
   const split = usePrivateMode() !== 'none'
   const roots = useRootIds(split ? false : null)
   const total = useTreeCount(split ? false : null)
-  const hasFavs = useHasFavs()
   const menu = useMenu()
   const kbd = useKbdHint()
   const readOnly = useReadOnly()
   const drop = useSectionDrop(SECTION_DROP.pages, split && !readOnly)
   return (
     <section className="sb-section" aria-label={t('shell.sidebar.pages')}>
-      <SectionHead n={sectionNo(hasFavs ? 2 : 1)} label={t('shell.sidebar.pages')} count={total} drop={drop}>
+      <SectionHead n={sectionNo(n)} label={t('shell.sidebar.pages')} count={total} drop={drop}>
         {!readOnly && (
           <button type="button" className="sb-sect__add" aria-label={t('common.newPage')} onClick={toggleMenu(menu)}>
             <Plus size={14} />
@@ -387,19 +405,18 @@ function PagesSection() {
  * PRIVATE (team workspaces): pages only I can see — the server keeps them in my own documents.
  * Viewers see the section only when they have private pages from before (read-only).
  */
-function PrivateSection() {
+function PrivateSection({ n }: { n: number }) {
   const t = useT()
   const mode = usePrivateMode()
   const roots = useRootIds(true)
   const total = useTreeCount(true)
-  const hasFavs = useHasFavs()
   const menu = useMenu()
   const write = mode === 'write'
   const drop = useSectionDrop(SECTION_DROP.private, write)
   if (mode === 'none' || (!write && roots.length === 0)) return null
   return (
     <section className="sb-section sb-section--private" aria-label={t('shell.private.title')} data-testid="private-section">
-      <SectionHead n={sectionNo(hasFavs ? 3 : 2)} label={t('shell.private.title')} count={total} icon={<Lock size={11} strokeWidth={2} aria-label={t('shell.private.lock')} />} drop={drop}>
+      <SectionHead n={sectionNo(n)} label={t('shell.private.title')} count={total} icon={<Lock size={11} strokeWidth={2} aria-label={t('shell.private.lock')} />} drop={drop}>
         {write && (
           <button type="button" className="sb-sect__add" aria-label={t('shell.private.add')} onClick={toggleMenu(menu)}>
             <Plus size={14} />
@@ -428,14 +445,9 @@ function PrivateSection() {
   )
 }
 
-function SidebarFooter() {
+function SidebarFooter({ n }: { n: number }) {
   const t = useT()
   const trash = useTrash()
-  const hasFavs = useHasFavs()
-  const privateShown = useTreeCount(true) > 0
-  const mode = usePrivateMode()
-  // FAVORITES? · PAGES · PRIVATE? · TRASH
-  const n = 2 + (hasFavs ? 1 : 0) + (mode === 'write' || (mode === 'read' && privateShown) ? 1 : 0)
   const [anchor, setAnchor] = useState<HTMLElement | null>(null)
   const mobile = useIsMobile()
   const btn = useRef<HTMLButtonElement>(null)

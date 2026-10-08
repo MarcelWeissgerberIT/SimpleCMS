@@ -20,4 +20,4 @@ summary: Markdown, eine Webseite, ein Druckdokument, ein Komplett-Backup — ode
 - **In diesen Workspace übernehmen** — behält alles; fehlende Seiten kommen dazu; gibt es eine Seite doppelt, gewinnt die neuere Version.
 - **Workspace ersetzen** — löscht die aktuellen Seiten und Datenbanken und stellt das Backup exakt wieder her.
 
-> Dein Workspace liegt in diesem Browser. Ein regelmäßiges **Komplett-Backup** ist die sicherste Kopie. Dein Claude-Schlüssel und Tokens sind nie in einem Backup.
+> Dein Workspace liegt in diesem Browser. Ein regelmäßiges **Komplett-Backup** ist die sicherste Kopie. Dein Claude-Schlüssel, Tokens und welche Seiten dieses Gerät geöffnet hat (Zuletzt, Häufig) sind nie in einem Backup.

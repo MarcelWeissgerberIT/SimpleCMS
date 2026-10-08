@@ -72,7 +72,7 @@ test.describe('team cloud — templates', () => {
     await expect.poll(() => wsEval(b, (s, id) => s.pages[id]?.template?.name ?? null, shared), { timeout: 20_000 }).toBe('Team sprint')
     expect(await wsEval(b, (s, id) => !!s.pages[id], mine)).toBe(false)
     expect(await wsEval(b, (s, id) => !!s.pages[id].hidden, shared)).toBe(true)
-    await expect(b.locator('.sb .sb-row__title', { hasText: 'Sprint kit' })).toHaveCount(1)
+    await expect(b.locator('.sb .sb-row:not([data-section="recent"]):not([data-section="frequent"]) .sb-row__title', { hasText: 'Sprint kit' })).toHaveCount(1)
 
     // Bob uses it from his gallery
     await b.locator('.sb').getByRole('button', { name: 'Templates', exact: true }).click()

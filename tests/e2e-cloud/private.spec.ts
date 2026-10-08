@@ -118,7 +118,7 @@ test.describe('team cloud — private pages', () => {
     const priv = a.getByTestId('private-section')
     await expect(priv).toBeVisible()
     await expect(priv.locator('.sb-row__title', { hasText: 'Secret plan' })).toBeVisible()
-    await expect(a.locator('.sb-section').first().locator('.sb-row__title', { hasText: 'Secret plan' })).toHaveCount(0)
+    await expect(a.locator('.sb section[aria-label="Pages"]').locator('.sb-row__title', { hasText: 'Secret plan' })).toHaveCount(0)
 
     // a workspace page that mentions it — the mention arrives with a title (the editor's menu leaves
     // it out; a pasted / imported one carries it), the title must not travel
@@ -191,7 +191,7 @@ test.describe('team cloud — private pages', () => {
     // Bob sees page, database and row live, with the content
     await expect.poll(() => wsEval(b, (s, ids) => ids.map((id: string) => s.pages[id]?.title ?? null), [pageId, dbId, rowId]), { timeout: 15_000 }).toEqual(['Secret plan', 'Secret DB', 'Secret row'])
     expect(await wsEval(b, (s, id) => !!s.pages[id].private, pageId)).toBe(false)
-    await expect(b.locator('.sb-row__title', { hasText: 'Secret plan' })).toBeVisible()
+    await expect(b.locator('.sb-row[data-section="pages"] .sb-row__title', { hasText: 'Secret plan' })).toBeVisible()
     await gotoPage(b, pageId)
     await expect(editorOf(b, pageId)).toContainText('TOP SECRET TEXT')
     // Ada's side: it left her private section, the private content document is purged on the server

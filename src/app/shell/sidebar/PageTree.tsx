@@ -433,6 +433,7 @@ function TreeRow({ id, depth, section, draggable, expanded }: { id: ID; depth: n
       }}
       className="sb-row"
       data-kind={kind}
+      data-section={section}
       data-active={active || undefined}
       data-active-within={activeWithin || undefined}
       data-drop={dropPos}

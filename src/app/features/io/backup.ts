@@ -102,7 +102,8 @@ export async function buildBackup(rootId: ID | null, onProgress?: (done: number,
     databases,
     // never export the API key, nor the MCP servers' token markers
     settings: { ...snap.settings, aiApiKey: '', ...(snap.settings.mcpServers ? { mcpServers: snap.settings.mcpServers.map((s) => ({ ...s, token: '' })) } : {}) },
-    recent: rootId ? [] : snap.recent,
+    // which pages this device opened last is this device's (help: sidebar, privacy) — never in a backup
+    recent: [],
   }
   // only files that are referenced (no orphans from deleted pages or earlier merges)
   const refs = [...new Set(JSON.stringify({ pages: workspace.pages, databases }).match(REF_RE) ?? [])]
@@ -358,6 +359,8 @@ export async function applyBackup(b: Backup, mode: 'merge' | 'replace', onProgre
       pages,
       databases,
       settings: { ...source.settings, aiApiKey: snap.settings.aiApiKey || source.settings.aiApiKey },
+      // this device's recent pages stay (where they still exist) — an older backup's list is never taken over
+      recent: snap.recent.filter((id) => !!pages[id]),
     })
     return { target: rootId ?? source.settings.startPageId ?? firstRoot(pages), mode, added, updated, unchanged, files }
   }

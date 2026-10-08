@@ -8,6 +8,8 @@ import { tourMessages } from './tour/messages'
 import { discoverMessages } from './discover/messages'
 import { workspaceMessages } from './workspace/messages'
 import { lookMessages } from './workspace/look-messages'
+import { paletteMessages } from './palette/messages'
+import { visitedMessages } from './sidebar/visited-messages'
 
 /** Strings for the shell area. Keys MUST be prefixed with "shell." — always add both en and de. */
 export const messages: Messages = {
@@ -31,6 +33,8 @@ export const messages: Messages = {
     ...discoverMessages.en,
     ...workspaceMessages.en,
     ...lookMessages.en,
+    ...paletteMessages.en,
+    ...visitedMessages.en,
     'shell.a11y.skip': 'Skip to content',
 
     // navigation
@@ -287,7 +291,7 @@ export const messages: Messages = {
     'shell.palette.find': 'FIND',
     'shell.palette.run': 'RUN',
     'shell.palette.ask': 'ASK',
-    'shell.palette.placeholder': 'Search pages, content and commands…',
+    'shell.palette.placeholder': 'Search pages and commands · filter: status:done @name in:…',
     'shell.palette.placeholderShort': 'Search…',
     'shell.palette.placeholderRun': 'Run a command…',
     'shell.palette.placeholderAsk': 'Ask Claude about this page…',
@@ -503,6 +507,8 @@ export const messages: Messages = {
     ...discoverMessages.de,
     ...workspaceMessages.de,
     ...lookMessages.de,
+    ...paletteMessages.de,
+    ...visitedMessages.de,
     'shell.a11y.skip': 'Zum Inhalt springen',
 
     'shell.nav.search': 'Suchen',
@@ -742,7 +748,7 @@ export const messages: Messages = {
     'shell.palette.find': 'FINDEN',
     'shell.palette.run': 'BEFEHL',
     'shell.palette.ask': 'FRAGEN',
-    'shell.palette.placeholder': 'Seiten, Inhalte und Befehle durchsuchen…',
+    'shell.palette.placeholder': 'Seiten und Befehle suchen · filtern: status:erledigt @Name in:…',
     'shell.palette.placeholderShort': 'Suchen…',
     'shell.palette.placeholderRun': 'Befehl ausführen…',
     'shell.palette.placeholderAsk': 'Claude zu dieser Seite fragen…',
