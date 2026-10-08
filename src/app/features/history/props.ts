@@ -159,6 +159,35 @@ export function diffProps(props: SnapshotProps | undefined, page: Page | undefin
   return out
 }
 
+/**
+ * The properties that differ between two versions of a row (History → Changes, "to the previous
+ * version"). The live schema names and types them as in diffProps; a property deleted since reads
+ * with the definition the versions kept. No restore notes: those describe restoring the older side.
+ */
+export function diffPropsBetween(before: SnapshotProps | undefined, after: SnapshotProps | undefined): PropChangeRow[] {
+  if (!before || !after || before.databaseId !== after.databaseId) return []
+  const db = useWorkspace.getState().databases[after.databaseId]
+  const live = new Map((db?.properties ?? []).map((p) => [p.id, p]))
+  const was = new Map(before.defs.map((d) => [d.id, d]))
+  const is = new Map(after.defs.map((d) => [d.id, d]))
+  const ids = [...after.defs.map((d) => d.id), ...before.defs.map((d) => d.id).filter((id) => !is.has(id))]
+  const out: PropChangeRow[] = []
+  for (const id of ids) {
+    const then = (was.get(id) ?? is.get(id))!
+    const newer = is.get(id) ?? then
+    if (!isKept(then) || !isKept(newer)) continue
+    const now = live.get(id)
+    const old = before.values[id] ?? null
+    const val = after.values[id] ?? null
+    const type = now && compatible(newer.type, now.type) ? now.type : newer.type
+    if (valueKey(old, type) === valueKey(val, type)) continue
+    const options = mergeOptions(newer.options, then.options)
+    const def = now && compatible(newer.type, now.type) ? { ...defOf(now), options: mergeOptions(now.options, options) } : { ...newer, options }
+    out.push({ id, name: now?.name ?? newer.name, def, then, before: old, after: val })
+  }
+  return out
+}
+
 /** Live options first, then the ones the snapshot knew (an option deleted since still has a name). */
 function mergeOptions(live: SelectOption[] | undefined, then: SelectOption[] | undefined): SelectOption[] | undefined {
   if (!then?.length) return live

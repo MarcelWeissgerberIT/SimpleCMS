@@ -392,10 +392,77 @@
   color: var(--ink);
 }
 
-.hist__seg-btn[aria-selected='true'] {
+/* touch: taller keys for the tabs and the compare choice */
+@media (pointer: coarse) {
+  .hist__seg-btn {
+    height: 32px;
+  }
+}
+
+.hist__seg-btn[aria-selected='true'],
+.hist__seg-btn[aria-checked='true'] {
   background: var(--surface);
   color: var(--ink);
   box-shadow: var(--shadow-1), 0 0 0 1px var(--rule);
+}
+
+/* the chosen key keeps its focus ring visible */
+.hist__seg-btn:focus-visible,
+.hist__seg-btn[aria-selected='true']:focus-visible,
+.hist__seg-btn[aria-checked='true']:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+/* ---------- the preview's control bar: what Changes compares with · Version marks what is new ---------- */
+.hist__bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  min-width: 0;
+  margin-bottom: 10px;
+}
+
+/* Version: the switch line stands where Changes has its banner */
+.hist__bar--version {
+  margin-bottom: 18px;
+  padding-bottom: 10px;
+  border-bottom: 1px dashed var(--rule-strong);
+}
+
+.hist__bar-label {
+  flex: none;
+}
+
+.hist__cmp {
+  max-width: 100%;
+}
+
+.hist__cmp .hist__seg-btn {
+  white-space: nowrap;
+}
+
+.hist__mark {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+  color: var(--ink-2);
+  cursor: pointer;
+}
+
+.hist__note {
+  min-width: 0;
+}
+
+/* Version: only what is new is marked — nothing struck (a re-ticked to-do keeps just its new box) */
+.hist__new .ddiff-del {
+  display: none;
+}
+
+.hist__new .ddiff-del + .ddiff-ins {
+  margin-left: 0;
 }
 
 /* ---------- body ---------- */
@@ -613,6 +680,7 @@
 }
 
 .hist__title-diff,
+.hist__doc-title,
 .hprops {
   --dd-del: var(--c-red-text);
   --dd-del-bg: color-mix(in srgb, var(--c-red-text) 11%, transparent);

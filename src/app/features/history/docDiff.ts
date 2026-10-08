@@ -363,6 +363,78 @@ export function wordCounts(node: DiffNode | DiffNode[]): { del: number; add: num
 }
 
 /* ------------------------------------------------------------------ */
+/* What is new (History → Version)                                     */
+/* ------------------------------------------------------------------ */
+
+/** A part of a merged node that is new: added words / children, or changed attrs (a task ticked). */
+function hasNew(n: DiffNode): boolean {
+  return n.diff === 'add' || !!n.was || !!n.content?.some(hasNew)
+}
+
+/**
+ * A merged node with its removed parts left out (null: the node itself was removed). A removed word
+ * hands the space after it to the text that follows (tidy): that text starts without it again, so
+ * the result reads exactly like the newer text.
+ */
+function pruneRemoved(n: DiffNode): DiffNode | null {
+  if (n.diff === 'del') return null
+  if (!n.content) return n
+  const content: DiffNode[] = []
+  let cut = false
+  for (const k of n.content) {
+    const p = pruneRemoved(k)
+    if (!p) {
+      cut = true
+      continue
+    }
+    if (cut && p.type === 'text' && !p.diff && /^\s/.test(p.text ?? '')) {
+      const last = content[content.length - 1]
+      if (!last || (last.type === 'text' && /\s$/.test(last.text ?? ''))) {
+        const text = (p.text ?? '').replace(/^\s+/, '')
+        cut = false
+        if (text) content.push({ ...p, text })
+        continue
+      }
+    }
+    cut = false
+    content.push(p)
+  }
+  return { ...n, content }
+}
+
+/** What is new in a string against an older one (a title): unchanged and added runs, removed words left out. */
+export function newWordRuns(before: string, after: string): WordRun[] {
+  const merged = pruneRemoved({ type: 'paragraph', content: mergeInline([{ type: 'text', text: before }], [{ type: 'text', text: after }]) })
+  const out: WordRun[] = []
+  for (const n of merged?.content ?? []) {
+    const op: WordOp = n.diff ?? 'same'
+    const last = out[out.length - 1]
+    if (last && last.op === op) last.text += n.text ?? ''
+    else out.push({ op, text: n.text ?? '' })
+  }
+  return out
+}
+
+/**
+ * The newer document with only what is NEW marked (History → Version): removed blocks left out,
+ * removed words and children pruned from changed blocks. A changed block that only lost something
+ * reads as unchanged; one whose attrs changed (a task ticked, a heading level) stays changed. Pure.
+ */
+export function withoutRemovals(items: DocItem[]): DocItem[] {
+  const out: DocItem[] = []
+  for (const it of items) {
+    if (it.kind === 'removed') continue
+    if (it.kind !== 'changed') {
+      out.push(it)
+      continue
+    }
+    const merged = pruneRemoved(it.merged)
+    out.push(merged && hasNew(merged) ? { ...it, merged } : { kind: 'same', block: it.after })
+  }
+  return out
+}
+
+/* ------------------------------------------------------------------ */
 /* Folding unchanged blocks                                            */
 /* ------------------------------------------------------------------ */
 
@@ -371,8 +443,10 @@ export type DiffRow = { kind: 'item'; item: DocItem; index: number } | { kind: '
 /**
  * The rows to show: every change plus `context` unchanged blocks around it; longer unchanged runs
  * fold into one row ("12 unchanged blocks"). `open`: folds the reader opened (by their first index).
+ * `context = Infinity` folds nothing (the whole document).
  */
 export function foldRows(items: DocItem[], context: number, open: ReadonlySet<number> = new Set()): DiffRow[] {
+  if (context === Infinity) return items.map((item, index) => ({ kind: 'item', item, index }))
   const rows: DiffRow[] = []
   let i = 0
   while (i < items.length) {

@@ -67,6 +67,9 @@ test.describe('version history', () => {
     const manual = dialog.locator('.hist__row', { has: page.locator('.hist__tag--manual') }).first()
     await expect(manual).toBeVisible()
     await manual.click()
+    // the only version: compared with the version before it, all of it counts as added; "To now" = what changed since
+    await expect(dialog.getByTestId('hist-banner')).toContainText('The first version kept')
+    await dialog.getByRole('radio', { name: 'To now' }).click()
     // Changes is word level: the old word struck, the new one marked, inside the changed paragraph
     await expect(dialog.locator('.hist__preview .ddiff__seg[data-state="changed"]')).toContainText('Version')
     await expect(dialog.locator('.hist__preview .ddiff-del')).toHaveText(['one'])

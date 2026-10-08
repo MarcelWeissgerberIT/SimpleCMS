@@ -3,18 +3,27 @@ id: history
 title: Version history
 section: writing
 order: 11
-keywords: history, versions, restore, undo, snapshot, backup, previous version, diff, changes, properties, database entry, Verlauf, Versionen, wiederherstellen, Eigenschaften
+keywords: history, versions, restore, undo, snapshot, backup, previous version, compare, what's new, new since, diff, changes, properties, database entry, Verlauf, Versionen, Vorversion, vergleichen, wiederherstellen, Eigenschaften
 related: lock, export, ai-menu
-summary: One keeps earlier versions of every page. Scrub back in time and restore.
+summary: One keeps earlier versions of every page. Scrub back in time, see what each version added, and restore.
 ---
 Open a page and click **Version history** (the clock in the top bar), or ⌘K → *Version history*.
 
 1. Drag the tape — or press <kbd>←</kbd> / <kbd>→</kbd> — to travel through the versions.
-2. **Changes** shows what changed since that version: a changed paragraph word by word — removed words struck through on red, new words on orange — added and removed blocks whole, unchanged blocks folded (*12 unchanged blocks — show*). **Version** shows the page as it was.
-3. **Restore this version** brings it back. The state before the restore is kept as a version too, so you can go back again.
+2. **Changes** shows what a version changed: a changed paragraph word by word — removed words struck through on red, new words on orange — added and removed blocks whole, unchanged blocks folded (*12 unchanged blocks — show*).
+3. **Version** shows the page as it was, in full — with what was **new** in that version marked in orange; nothing is struck through there. Turn **Mark what's new** off for the plain page.
+4. **Restore this version** brings it back. The state before the restore is kept as a version too, so you can go back again.
+
+## Compared with the previous version — or with now
+**Compare**, above the changes, chooses what a version is compared with:
+
+- **To the previous version** (the standard): what this version added, changed and removed compared with the version before it — *Compared with the previous version (Tue 10:42)*. The oldest version has nothing before it, so all of it counts as added. **Now** on the tape shows what changed since the newest version.
+- **To now**: everything that changed from this version until the page as it is now.
+
+One remembers **Compare** and **Mark what's new** on this device.
 
 ## Database entries
-A version of a database entry also keeps its **title, icon and property values** — Status, dates, people, options, numbers, checkboxes, relations. **Changes** lists the ones that differ above the text, in a **Properties** block: *Status: In progress → Done* with the old value struck through and the new one marked, a multi-select as removed and added chips. Restoring brings the values back with the content.
+A version of a database entry also keeps its **title, icon and property values** — Status, dates, people, options, numbers, checkboxes, relations. **Changes** lists the ones that differ between the two states compared above the text, in a **Properties** block: *Status: In progress → Done* with the old value struck through and the new one marked, a multi-select as removed and added chips. Restoring brings the values back with the content.
 
 - A property deleted since, or turned into another type, can't take its old value: it is listed as *not restored*, the others go back.
 - Computed properties (formulas, rollups, created / edited time and by) are never part of a version; an ID stays as it is.
