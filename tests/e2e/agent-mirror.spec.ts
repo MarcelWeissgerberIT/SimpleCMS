@@ -179,6 +179,8 @@ test.describe('Custom agents: the recipe "Mirror a list into a database"', () =>
     ])
     const [board, comments, ready, week, source] = views
     expect(board.groupBy).toBe(propId(db, 'Clarity'))
+    // every mirrored row gets a Clarity: no empty "No value" column in front
+    expect(board.hiddenGroups).toEqual(['__none__'])
     expect(board.colorRules.map((r: AnyState) => [r.filter.items[0].propertyId, r.filter.items[0].operator, r.color])).toEqual([
       [propId(db, 'Waiting on me'), 'is_checked', 'red'],
       [propId(db, 'New comment'), 'is_checked', 'orange'],

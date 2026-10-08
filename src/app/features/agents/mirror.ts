@@ -17,6 +17,7 @@ import { defaultView, useWorkspace } from '../../store/store'
 import { useUI } from '../../store/ui'
 import { inTemplate, isEffectivelyTrashed } from '../../store/selectors'
 import { localTimeZone } from '../../store/agents'
+import { NONE_KEY } from '../../database'
 import type { ColorName, ColorRule, CustomAgent, Database, Filter, FilterGroup, ID, Page, PageIcon, PropertyDef, PropertyType, SelectOption, View } from '../../store/types'
 import { newId } from '../../lib/ids'
 import { createPrivateDatabase, createPrivatePage, useCloud } from '../../cloud'
@@ -157,7 +158,8 @@ export function mirrorSchema(): MirrorSchema {
   const notDone = f('myStatus', 'is_not', status.done)
 
   const views: View[] = [
-    view('board', 'board', ['key', 'srcStatus', 'myPriority', 'owner', 'why'], { groupBy: ids.clarity, sorts: [{ propertyId: ids.changedAt, direction: 'desc' }], colorRules: rules() }),
+    // every mirrored row gets a Clarity: the board starts with "Clear" (rows without one are counted under Hidden)
+    view('board', 'board', ['key', 'srcStatus', 'myPriority', 'owner', 'why'], { groupBy: ids.clarity, hiddenGroups: [NONE_KEY], sorts: [{ propertyId: ids.changedAt, direction: 'desc' }], colorRules: rules() }),
     view('table', 'newComments', ['key', 'lastComment', 'lastCommentAt', 'comments', 'waiting', 'newComment', 'srcStatus', 'link'], {
       filter: group('or', f('newComment', 'is_checked'), f('waiting', 'is_checked')),
       sorts: [{ propertyId: ids.lastCommentAt, direction: 'desc' }],

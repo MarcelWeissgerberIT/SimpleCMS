@@ -86,6 +86,10 @@
 .agx-mir__grid .agx-pick {
   width: 100%;
 }
+/* the picker as tall as the name field next to it */
+.agx-mir__grid .agx-pick {
+  height: 30px;
+}
 .agx-mir__spec {
   border: 1px solid var(--rule-strong);
   border-radius: var(--radius-2);
