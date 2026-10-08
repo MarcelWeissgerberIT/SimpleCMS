@@ -27,7 +27,7 @@ One keeps text at **4.5 : 1** or more and keys, focus rings and the switch lamps
 ## Type and corners
 - **Interface** — Archivo (One's own), *Swiss* (Helvetica and its relatives) or *System* (your computer's font). Swiss and System come from the device, nothing is downloaded, so they look a little different on each computer.
 - **Page text** — what *Default* means in a page's font menu: the interface font, Newsreader (serif) or JetBrains Mono. Pages set to Serif or Mono keep their own font.
-- **Headings** — page titles, H1–H3 and toggle headings: Archivo expanded (standard), normal or condensed, the interface font, serif or mono.
+- **Headings** — page and view titles, H1–H3 and toggle headings: Archivo expanded (standard), normal or condensed, the interface font, serif or mono.
 - **Corners** — standard (2 · 4 · 8 px) or square. LED dots stay round.
 
 ## Team workspaces
@@ -37,4 +37,4 @@ The look belongs to the workspace and reaches everyone at once. **Owners and adm
 **Use the standard look on this device** (in the Look section and in **Settings → Appearance**) shows One's standard look here only — everyone else keeps the workspace's look. Light / dark (Paper / Carbon) and the text size stay settings of this device, too.
 
 ## What keeps One's standard look
-Shared links and forms (#/s/…, #/f/…), the HTML and Markdown exports, the published website, the public help pages and chart downloads always use One's standard look. Full backups carry the workspace look; a page backup does not. The diagram viewer's *Download SVG* keeps what is on screen.
+Shared links and forms (#/s/…, #/f/…), the HTML and Markdown exports, the published website, the public help pages and chart downloads always use One's standard look. Full backups carry the workspace look; a page backup does not. In **Open large**, *Download SVG* of a Mermaid diagram keeps what is on screen; a chart's file keeps One's standard look.

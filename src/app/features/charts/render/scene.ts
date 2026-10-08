@@ -766,7 +766,7 @@ function kpi(ctx: Ctx): Body {
     const arrow = diff > 0 ? '▲' : diff < 0 ? '▼' : '■'
     const sign = diff > 0 ? '+' : diff < 0 ? '−' : '±'
     const delta = pct !== null ? `${sign}${formatValue(Math.abs(pct), { lang: fmt.lang, decimals: 1 })}%` : `${sign}${formatValue(Math.abs(diff), fmt)}`
-    nodes.push(h('text', { x: 0, y, 'font-family': FONT_MONO, 'font-size': 11, 'letter-spacing': 0.4, fill: 'var(--ink-2)', class: 'ch-kpi-delta' }, h('tspan', { fill: diff > 0 ? 'var(--signal)' : 'var(--ink)' }, arrow), ` ${delta}  ${opts.text.versus(data.labels[prevIdx] ?? '')}`.toLocaleUpperCase()))
+    nodes.push(h('text', { x: 0, y, 'font-family': FONT_MONO, 'font-size': 11, 'letter-spacing': 0.4, fill: 'var(--ink-2)', class: 'ch-kpi-delta' }, h('tspan', { fill: diff > 0 ? 'var(--signal-ink)' : 'var(--ink)' }, arrow), ` ${delta}  ${opts.text.versus(data.labels[prevIdx] ?? '')}`.toLocaleUpperCase()))
     y += 10
   }
   const targets: SceneTarget[] = []

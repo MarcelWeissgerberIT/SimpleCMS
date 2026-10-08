@@ -426,6 +426,7 @@
   font-variation-settings: 'wdth' var(--head-wdth);
   font-weight: var(--head-weight, 800);
   letter-spacing: var(--head-tracking);
+  word-spacing: var(--head-word-spacing);
   line-height: 1.1;
 }
 .look-plate__text {

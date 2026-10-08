@@ -112,9 +112,12 @@
 
 .fb-title {
   font-size: calc(clamp(24px, 4vw, 32px) * var(--text-scale));
-  font-stretch: var(--display-stretch);
+  font-family: var(--font-head);
+  font-stretch: var(--head-stretch);
+  font-variation-settings: 'wdth' var(--head-wdth);
+  word-spacing: var(--head-word-spacing);
   font-weight: 800;
-  letter-spacing: var(--tracking-tight);
+  letter-spacing: var(--head-tracking);
   line-height: 1.12;
 }
 
@@ -687,9 +690,12 @@
 .fb-break__title {
   margin-top: 6px;
   font-size: var(--text-lg);
-  font-stretch: var(--display-stretch);
+  font-family: var(--font-head);
+  font-stretch: var(--head-stretch);
+  font-variation-settings: 'wdth' var(--head-wdth);
+  word-spacing: var(--head-word-spacing);
   font-weight: 750;
-  letter-spacing: var(--tracking-tight);
+  letter-spacing: var(--head-tracking);
 }
 
 .fb-break__desc {
@@ -811,9 +817,12 @@
   margin: 8px 0 0;
   padding: 0;
   font-size: calc(clamp(26px, 5cqi, 38px) * var(--text-scale));
-  font-stretch: var(--display-stretch);
+  font-family: var(--font-head);
+  font-stretch: var(--head-stretch);
+  font-variation-settings: 'wdth' var(--head-wdth);
+  word-spacing: var(--head-word-spacing);
   font-weight: 800;
-  letter-spacing: var(--tracking-tight);
+  letter-spacing: var(--head-tracking);
   line-height: 1.05;
   overflow-wrap: anywhere;
 }
@@ -1297,9 +1306,12 @@ textarea.fm-input--long {
   margin: 8px 0 8px;
   padding: 0;
   font-size: calc(clamp(26px, 5cqi, 36px) * var(--text-scale));
-  font-stretch: var(--display-stretch);
+  font-family: var(--font-head);
+  font-stretch: var(--head-stretch);
+  font-variation-settings: 'wdth' var(--head-wdth);
+  word-spacing: var(--head-word-spacing);
   font-weight: 800;
-  letter-spacing: var(--tracking-tight);
+  letter-spacing: var(--head-tracking);
   line-height: 1.05;
 }
 
@@ -1517,9 +1529,12 @@ select.fm-select,
   margin: 0;
   padding: 0;
   font-size: calc(20px * var(--text-scale));
-  font-stretch: var(--display-stretch);
+  font-family: var(--font-head);
+  font-stretch: var(--head-stretch);
+  font-variation-settings: 'wdth' var(--head-wdth);
+  word-spacing: var(--head-word-spacing);
   font-weight: 750;
-  letter-spacing: var(--tracking-tight);
+  letter-spacing: var(--head-tracking);
   line-height: 1.15;
   overflow-wrap: anywhere;
 }
@@ -1934,9 +1949,12 @@ select.fm-select,
 .fshare__claim {
   margin: 0 0 8px;
   font-size: calc(24px * var(--text-scale));
-  font-stretch: var(--display-stretch);
+  font-family: var(--font-head);
+  font-stretch: var(--head-stretch);
+  font-variation-settings: 'wdth' var(--head-wdth);
+  word-spacing: var(--head-word-spacing);
   font-weight: 800;
-  letter-spacing: var(--tracking-tight);
+  letter-spacing: var(--head-tracking);
   line-height: 1.08;
 }
 
@@ -2237,9 +2255,12 @@ select.fm-select,
 .pf__err-title {
   margin: 10px 0 12px;
   font-size: calc(clamp(30px, 5vw, 40px) * var(--text-scale));
-  font-stretch: var(--display-stretch);
+  font-family: var(--font-head);
+  font-stretch: var(--head-stretch);
+  font-variation-settings: 'wdth' var(--head-wdth);
+  word-spacing: var(--head-word-spacing);
   font-weight: 800;
-  letter-spacing: var(--tracking-tight);
+  letter-spacing: var(--head-tracking);
   line-height: 1.05;
 }
 

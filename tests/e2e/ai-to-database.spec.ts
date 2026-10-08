@@ -258,6 +258,16 @@ test.describe('Turn into database (AI menu)', () => {
     await expect(pv.getByLabel('Title')).toHaveValue(TITLE)
     await expect(pv.getByTestId('todb-col').locator('.todb__name')).toHaveText(['Topic', 'Type', 'Ref', 'Status', 'Assignee', 'Tags'])
     await expect(pv.getByTestId('todb-col').first()).toContainText('Select · 6')
+    // one column: the title row's type label and lock line up with the rows' labels and switches
+    const cols = await pv.locator('.todb__col').evaluateAll((rows) =>
+      rows.map((r) => {
+        const type = r.querySelector('.todb__type')!.getBoundingClientRect()
+        const last = r.lastElementChild!.getBoundingClientRect()
+        return [Math.round(type.right), Math.round(last.left + last.width / 2)]
+      }),
+    )
+    expect(new Set(cols.map((c) => c[0])).size, JSON.stringify(cols)).toBe(1)
+    expect(new Set(cols.map((c) => c[1])).size, JSON.stringify(cols)).toBe(1)
     await expect(pv.getByLabel('Group by')).toHaveValue('Topic')
     await expect(pv.getByRole('button', { name: 'Board' })).toHaveAttribute('aria-pressed', 'true')
     await expect(pv.locator('tbody tr')).toHaveCount(5)

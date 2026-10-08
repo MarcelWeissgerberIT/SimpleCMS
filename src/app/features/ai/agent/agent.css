@@ -12,10 +12,10 @@
 
 /* ---------- frame ---------- */
 .term {
-  /* Paper: an ink panel with paper text */
+  /* Paper: an ink panel with paper text; the signal as text = the one kept ≥ 4.5 : 1 on ink (any workspace look) */
   --t-bg: var(--ink);
   --t-fg: var(--ink-inverse);
-  --t-signal: var(--signal);
+  --t-signal: var(--signal-on-ink);
   --t-red: color-mix(in srgb, var(--c-red-text) 45%, var(--ink-inverse));
   position: relative;
   display: flex;
@@ -27,7 +27,7 @@
   animation: term-in var(--dur-2) var(--ease-out);
 }
 
-/* Carbon: a deeper well than the page */
+/* Carbon: a deeper well than the page (signal-ink is kept ≥ 4.5 : 1 on this well too, lib/look/derive.ts) */
 :root[data-theme='dark'] .term {
   --t-bg: var(--ink-inverse);
   --t-fg: var(--ink);
@@ -73,7 +73,7 @@
   --c-red-text: var(--t-red);
   --c-red-bg: color-mix(in srgb, var(--t-red) 14%, var(--t-bg));
   --shadow-1: none;
-  --focus-ring: 0 0 0 2px var(--t-bg), 0 0 0 4px var(--signal);
+  --focus-ring: 0 0 0 2px var(--t-bg), 0 0 0 4px var(--t-signal);
   --selection: color-mix(in srgb, var(--signal) 38%, transparent);
   container-type: inline-size;
   display: flex;
@@ -523,7 +523,7 @@
 }
 
 .term-limit__go svg {
-  color: var(--signal);
+  color: var(--signal-ink);
 }
 
 .term-limit__hint {
@@ -1202,7 +1202,7 @@
   font: inherit;
   font-size: calc(13px * var(--text-scale));
   line-height: 1.5;
-  caret-color: var(--signal);
+  caret-color: var(--signal-ink);
   resize: none;
   overflow-y: auto;
 }

@@ -30,7 +30,7 @@
   text-wrap: balance;
 }
 .home__dot {
-  color: var(--signal);
+  color: var(--signal-ink);
 }
 .home__readout {
   display: grid;

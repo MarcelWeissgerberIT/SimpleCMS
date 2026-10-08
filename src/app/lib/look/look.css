@@ -1,9 +1,16 @@
 /*
  * Workspace look — type and corners (lib/look/apply.ts sets the html attributes; colours come from the
  * generated <style id="one-look">). Only tokens are set here: the interface font (--font-sans), the page text's
- * "Default" font (--font-doc), the heading face / width / tracking (--font-head, --head-*) and the radii, so
- * every per-element rule (H1–H3 weights, the page title's tracking, a page set to Serif or Mono) keeps working.
- * Chrome panel titles follow the interface font. Never a bare `:root` rule here (exports copy those).
+ * "Default" font (--font-doc), the heading face / width / tracking / word space (--font-head, --head-*) and the
+ * radii, so every per-element rule (H1–H3 weights, the page title's tracking, a page set to Serif or Mono) keeps
+ * working. Headings = page titles, H1–H3, toggle headings, .display and every view / panel title (one system per
+ * screen). Never a bare `:root` rule here (exports copy those).
+ *
+ * Word space: Archivo's space is 0.30em at its expanded width, 0.19em at 100 and 0.14em at 75, Newsreader's about
+ * 0.2em at display sizes — heavy titles with their own tight tracking (down to -0.035em, which also comes off every
+ * space) would run their words together. --head-word-spacing adds back what a narrower face loses, so the gap
+ * between two words of any heading stays about 0.21–0.28em as with the standard look (presets.ts headWordSpacing()
+ * draws the Look section's specimens with the same values; workspace-look.spec measures it).
  */
 :root[data-look-ui='swiss'] {
   --font-sans: var(--font-swiss);
@@ -33,24 +40,34 @@
   --font-head: var(--font-archivo);
   --head-stretch: 100%;
   --head-wdth: 100;
+  --head-word-spacing: 0.09em;
 }
 :root[data-look-headings='condensed'] {
   --font-head: var(--font-archivo);
   --head-stretch: var(--condensed-stretch);
   --head-wdth: 75;
   --head-tracking: -0.01em;
+  --head-word-spacing: 0.14em;
 }
 :root[data-look-headings='ui'] {
   --font-head: var(--font-sans);
   --head-stretch: normal;
   --head-wdth: 100;
   --head-tracking: -0.015em;
+  /* Archivo at its normal width */
+  --head-word-spacing: 0.09em;
+}
+/* Swiss / System: their own spaces are wide enough */
+:root[data-look-headings='ui'][data-look-ui] {
+  --head-word-spacing: 0.02em;
 }
 :root[data-look-headings='serif'] {
   --font-head: var(--font-serif);
   --head-stretch: normal;
   --head-wdth: 100;
   --head-tracking: -0.015em;
+  /* Newsreader's display sizes (its optical-size axis) set a narrow space of their own */
+  --head-word-spacing: 0.08em;
 }
 :root[data-look-headings='mono'] {
   --font-head: var(--font-mono);

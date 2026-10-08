@@ -116,6 +116,120 @@ test.describe('workspace look', () => {
     await expect(page.getByTestId('ws-look-line')).toContainText('OCHRE')
   })
 
+  test('Discard after the saved look changed elsewhere goes back to the saved look as it is now', async ({ page }) => {
+    await openLook(page)
+    await page.getByTestId('look-preset-ochre').click()
+    await page.getByTestId('look-save').click()
+    await page.getByTestId('look-preset-proof').click()
+    await expect(page.getByTestId('look-bar')).toBeVisible()
+    // another admin saves Blueprint meanwhile (the store changes under the open draft)
+    await wsEval(page, (s) => s.setLook({ preset: 'blueprint', colors: { paper: '#edf0f2', ink: '#0e1a2b', signal: '#2759db' }, fonts: { ui: 'archivo', text: 'ui', headings: 'condensed' }, corners: 'standard', updatedAt: 0, updatedBy: null }))
+    await expect(page.getByTestId('look-remote')).toBeVisible()
+    await page.getByTestId('look-discard').click()
+    await expect(page.getByTestId('look-bar')).toBeHidden()
+    await expect(page.getByTestId('look-remote')).toBeHidden()
+    await expect(page.getByTestId('look-preset-blueprint')).toHaveAttribute('aria-checked', 'true')
+    await expect(page.getByTestId('look-head-condensed')).toHaveAttribute('aria-checked', 'true')
+    await expect.poll(() => token(page, '--signal')).toBe('#2759db')
+  })
+
+  test('an import or merged backup that carries the same look keeps it as it is (no new value, no re-send)', async ({ page }) => {
+    await openApp(page)
+    const same = await page.evaluate(() => {
+      const ws = (window as unknown as { __one: { workspace: { getState: () => Record<string, any> } } }).__one.workspace // eslint-disable-line @typescript-eslint/no-explicit-any
+      ws.getState().setLook({ preset: 'ochre', colors: { paper: '#f3eee2', ink: '#1c1912', signal: '#e0a000' }, fonts: { ui: 'archivo', text: 'ui', headings: 'expanded' }, corners: 'standard', updatedAt: 0, updatedBy: null })
+      const snap = () => {
+        const s = ws.getState()
+        return { version: s.version, pages: s.pages, databases: s.databases, people: s.people, settings: s.settings, recent: s.recent, functions: s.functions, agents: s.agents, scripts: s.scripts, kit: s.kit, look: JSON.parse(JSON.stringify(s.look)) }
+      }
+      const before = ws.getState().look
+      ws.getState().replaceAll(snap())
+      const kept = ws.getState().look === before
+      ws.getState().replaceAll({ ...snap(), look: { ...before, corners: 'square' } })
+      return { kept, changed: ws.getState().look !== before && ws.getState().look.corners === 'square' }
+    })
+    expect(same).toEqual({ kept: true, changed: true })
+  })
+
+  test('headings: every choice keeps a word space; page, view and panel titles follow the same choice', async ({ page }) => {
+    await openApp(page)
+    const id = await pageIdByTitle(page, 'Welcome to One')
+    const gap = (sel: string) =>
+      page.locator(sel).first().evaluate(async (el) => {
+        const cs = getComputedStyle(el)
+        // the face may still be on its way (a heading choice loads it on first use)
+        await document.fonts.load(`${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`, 'Quick tour')
+        await document.fonts.ready
+        const probe = document.createElement('span')
+        for (const p of ['fontFamily', 'fontSize', 'fontWeight', 'fontStretch', 'fontVariationSettings', 'letterSpacing', 'wordSpacing'] as const) probe.style[p] = cs[p]
+        probe.style.position = 'absolute'
+        probe.style.whiteSpace = 'pre'
+        probe.textContent = 'Quick tour'
+        document.body.append(probe)
+        const r = document.createRange()
+        r.setStart(probe.firstChild!, 5)
+        r.setEnd(probe.firstChild!, 6)
+        const em = (r.getBoundingClientRect().width + (parseFloat(cs.letterSpacing) || 0)) / parseFloat(cs.fontSize)
+        probe.remove()
+        return em
+      })
+    const choices = [...['expanded', 'normal', 'condensed', 'ui', 'serif', 'mono'].map((h) => [h, 'archivo']), ['ui', 'swiss'], ['ui', 'system']]
+    for (const [headings, ui] of choices) {
+      await wsEval(page, (s, [h, ui]) => s.setLook({ preset: 'blueprint', colors: { paper: '#edf0f2', ink: '#0e1a2b', signal: '#2759db' }, fonts: { ui, text: 'ui', headings: h }, corners: 'standard', updatedAt: 0, updatedBy: null }), [headings, ui])
+      await gotoPage(page, id)
+      for (const sel of ['#main .pv-title', '#main .doc-content [data-level="2"]']) expect(await gap(sel), `${headings} / ${ui} ${sel}`).toBeGreaterThanOrEqual(0.2)
+      const face = await page.locator('#main .pv-title').evaluate((el) => [getComputedStyle(el).fontFamily, getComputedStyle(el).fontStretch])
+      await page.evaluate(() => (window.location.hash = '#/agents'))
+      await expect(page.locator('.agx-title')).toBeVisible()
+      // the tightest title (-0.03em tracking) keeps its words apart too, in the same face and width as the page title
+      expect(await gap('.agx-title'), `${headings} / ${ui} agents`).toBeGreaterThanOrEqual(0.2)
+      expect(await page.locator('.agx-title').evaluate((el) => [getComputedStyle(el).fontFamily, getComputedStyle(el).fontStretch]), headings).toEqual(face)
+    }
+  })
+
+  test('the AI terminal and toasts keep signal-coloured text readable under a look (Paper and Carbon)', async ({ page }) => {
+    await openApp(page)
+    const id = await pageIdByTitle(page, 'Welcome to One')
+    await wsEval(page, (s) => s.setLook({ preset: 'blueprint', colors: { paper: '#edf0f2', ink: '#0e1a2b', signal: '#2759db' }, fonts: { ui: 'archivo', text: 'ui', headings: 'condensed' }, corners: 'standard', updatedAt: 0, updatedBy: null }))
+    await gotoPage(page, id)
+    await page.keyboard.press(`${MOD}+j`)
+    const model = page.locator('.term .term-head__model')
+    await expect(model).toBeVisible()
+    await page.evaluate(() => (window as unknown as { __one: { ui: { getState: () => { toast: (t: unknown) => void } } } }).__one.ui.getState().toast({ message: 'Look saved', action: { label: 'Undo', run: () => {} } }))
+    const action = page.locator('.toast__action').first()
+    await expect(action).toBeVisible()
+    const pairRatio = (el: import('@playwright/test').Locator) =>
+      el.evaluate((node) => {
+        const canvas = document.createElement('canvas')
+        canvas.width = canvas.height = 1
+        const ctx = canvas.getContext('2d', { willReadFrequently: true })!
+        const rgb = (css: string) => {
+          ctx.clearRect(0, 0, 1, 1)
+          ctx.fillStyle = css
+          ctx.fillRect(0, 0, 1, 1)
+          return Array.from(ctx.getImageData(0, 0, 1, 1).data.slice(0, 3))
+        }
+        let bg = 'rgb(255, 255, 255)'
+        for (let e: Element | null = node; e; e = e.parentElement) {
+          const c = getComputedStyle(e).backgroundColor
+          if (c && !/^rgba\(.*, 0\)$/.test(c) && c !== 'transparent') {
+            bg = c
+            break
+          }
+        }
+        const lin = (c: number) => (c / 255 <= 0.03928 ? c / 255 / 12.92 : ((c / 255 + 0.055) / 1.055) ** 2.4)
+        const lum = ([r, g, b]: number[]) => 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b)
+        const [x, y] = [lum(rgb(getComputedStyle(node).color)), lum(rgb(bg))].sort((p, q) => q - p)
+        return (x + 0.05) / (y + 0.05)
+      })
+    for (const theme of ['light', 'dark'] as const) {
+      await wsEval(page, (s, theme) => s.updateSettings({ theme }), theme)
+      await expect(page.locator('html')).toHaveAttribute('data-theme', theme)
+      expect(await pairRatio(model), `${theme} terminal model key`).toBeGreaterThanOrEqual(4.5)
+      expect(await pairRatio(action), `${theme} toast action`).toBeGreaterThanOrEqual(4.5)
+    }
+  })
+
   test('contrast is enforced and reported, in Paper and Carbon; a bad hex value is refused', async ({ page }) => {
     await openLook(page)
     const signal = page.getByTestId('look-signal').getByRole('textbox', { name: 'Signal: hex value' })
@@ -135,6 +249,7 @@ test.describe('workspace look', () => {
       expect(await contrastOf(page, '--ink', '--bg'), `${theme} ink`).toBeGreaterThanOrEqual(7)
       expect(await contrastOf(page, '--ink-3', '--surface-2'), `${theme} quiet`).toBeGreaterThanOrEqual(4.5)
       expect(await contrastOf(page, '--signal-ink', '--surface-2'), `${theme} signal text`).toBeGreaterThanOrEqual(4.5)
+      expect(await contrastOf(page, '--signal-on-ink', '--ink'), `${theme} signal text on ink (toasts, bubble menu)`).toBeGreaterThanOrEqual(4.5)
       expect(await contrastOf(page, '--c-red-text', '--surface-2'), `${theme} content colour`).toBeGreaterThanOrEqual(4.5)
       expect(await contrastOf(page, '--plate-edge', '--surface-3'), `${theme} switch plate edge`).toBeGreaterThanOrEqual(3)
     }
@@ -321,13 +436,13 @@ test.describe('phone 390 × 844, German, Carbon', () => {
       return document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2)?.closest('[data-testid="look-save"]') === el
     })
     expect(hit).toBe(true)
-    await expect(save).toHaveText('Sichern')
+    await expect(save).toHaveText('Speichern')
     for (const el of await section.locator('.look-chip').all()) {
       const h = await el.evaluate((n) => n.getBoundingClientRect().height)
       expect(h).toBeGreaterThanOrEqual(24)
     }
     await save.click()
-    await expect(page.locator('.toast', { hasText: 'Aussehen gesichert' })).toBeVisible()
+    await expect(page.locator('.toast', { hasText: 'Aussehen gespeichert' })).toBeVisible()
     // Carbon stays dark with a look
     expect(lum(await rgbOf(page, '--bg'))).toBeLessThan(0.05)
   })

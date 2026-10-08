@@ -62,6 +62,7 @@ a {
   font-size: var(--text-2xs);
   font-weight: 500;
   letter-spacing: var(--tracking-label);
+  word-spacing: normal;
   text-transform: uppercase;
   color: var(--ink-3);
 }
@@ -72,6 +73,7 @@ a {
   font-variation-settings: 'wdth' var(--head-wdth);
   font-weight: 800;
   letter-spacing: var(--head-tracking);
+  word-spacing: var(--head-word-spacing);
   line-height: 1;
 }
 
@@ -347,8 +349,8 @@ textarea.input {
   display: inline-block;
   flex: none;
   box-sizing: border-box;
-  width: 52px;
-  height: 26px;
+  width: var(--switch-w);
+  height: var(--switch-h);
   padding: 0;
   border: 1px solid var(--plate-edge);
   border-radius: var(--radius-1);
@@ -364,8 +366,8 @@ textarea.input {
   transition: border-color var(--dur-1) var(--ease-out);
 }
 .switch--sm {
-  width: 40px;
-  height: 20px;
+  width: var(--switch-sm-w);
+  height: var(--switch-sm-h);
 }
 .switch:is([aria-checked='true'], [data-checked='true']) {
   --sw-dir: 1;

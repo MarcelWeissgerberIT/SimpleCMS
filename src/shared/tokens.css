@@ -24,11 +24,13 @@
   /* Display = Archivo at expanded width. Use with font-stretch: var(--display-stretch). */
   --display-stretch: 125%;
   --condensed-stretch: 75%;
-  /* content headings (page title, H1–H3, toggle headings) and .display: face, width, tracking */
+  /* headings — page titles, H1–H3, toggle headings, .display and every view / panel title: face, width,
+     tracking and the word space a narrower face adds back (Workspace → Look → Headings, lib/look/look.css) */
   --font-head: var(--font-archivo);
   --head-stretch: var(--display-stretch);
   --head-wdth: 125;
   --head-tracking: var(--tracking-tight);
+  --head-word-spacing: normal;
 
   /*
    * Text size (the app's Settings → Appearance / Workspace → Overview → Display, per device): the app
@@ -100,6 +102,7 @@
   --rule: rgba(18, 18, 16, 0.1);        /* hairlines */
   --rule-strong: rgba(18, 18, 16, 0.2);
   --signal-ink: #b83800;    /* orange used as TEXT on paper (AA contrast, sidebar included) */
+  --signal-on-ink: #ff4f00; /* the signal as TEXT on an ink surface (toasts, bubble menu, AI terminal): 4.7 : 1 */
   --signal-wash: rgba(255, 79, 0, 0.1);
   --signal-wash-strong: rgba(255, 79, 0, 0.18);
   --selection: rgba(255, 79, 0, 0.2);
@@ -135,6 +138,11 @@
   --toggle-window: color-mix(in srgb, var(--ink) 94%, black);            /* the lamp's dark glass */
   --toggle-window-edge: var(--plate-edge);
   --toggle-lamp-off: color-mix(in srgb, var(--surface) 34%, var(--toggle-window));
+  /* switch sizes (ui.css .switch / .switch--sm); a column that lines up with switches takes the same width */
+  --switch-w: 52px;
+  --switch-h: 26px;
+  --switch-sm-w: 40px;
+  --switch-sm-h: 20px;
 
   /* Content colours (Notion-style text/background colours, tuned for paper) */
   --c-default-text: var(--ink);      --c-default-bg: transparent;
@@ -169,6 +177,7 @@
   --signal-hover: #ff7036;
   --signal-press: #e64d0e;
   --signal-ink: #ff7a3d;
+  --signal-on-ink: #aa3600; /* on Carbon's light ink (toasts, bubble menu): 4.6 : 1 — raw signal is 2.2 : 1 there */
   --signal-wash: rgba(255, 92, 26, 0.12);
   --signal-wash-strong: rgba(255, 92, 26, 0.22);
   --selection: rgba(255, 92, 26, 0.3);

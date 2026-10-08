@@ -73,6 +73,15 @@ export const TEXT_FONT_STACKS: Record<LookTextFont, string | null> = {
   mono: 'var(--font-mono)',
 }
 
+/** The word space a heading choice adds back (look.css --head-word-spacing; 'ui' depends on the interface font). */
+export function headWordSpacing(headings: LookHeadings, ui: LookUiFont): string {
+  if (headings === 'normal') return '0.09em'
+  if (headings === 'condensed') return '0.14em'
+  if (headings === 'ui') return ui === 'archivo' ? '0.09em' : '0.02em'
+  if (headings === 'serif') return '0.08em'
+  return 'normal'
+}
+
 /** Heading specimens: the face, width and weight each choice draws (look.css sets the same tokens app-wide). */
 export const HEADING_SPECIMENS: Record<LookHeadings, { family: string | null; stretch: string; wdth: number; weight: number; tracking: string }> = {
   expanded: { family: 'var(--font-archivo)', stretch: '125%', wdth: 125, weight: 800, tracking: '-0.02em' },

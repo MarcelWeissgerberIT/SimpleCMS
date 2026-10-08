@@ -353,8 +353,10 @@
   margin: 0;
   font-size: calc(19px * var(--text-scale));
   font-weight: 800;
-  font-stretch: var(--display-stretch);
-  font-variation-settings: 'wdth' 125;
+  font-family: var(--font-head);
+  font-stretch: var(--head-stretch);
+  font-variation-settings: 'wdth' var(--head-wdth);
+  word-spacing: var(--head-word-spacing);
   letter-spacing: -0.02em;
   line-height: 1.1;
 }

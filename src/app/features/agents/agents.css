@@ -69,8 +69,10 @@
   margin: 0;
   font-size: calc(clamp(28px, 4.4cqi, 46px) * var(--text-scale));
   font-weight: 850;
-  font-stretch: var(--display-stretch);
-  font-variation-settings: 'wdth' 125;
+  font-family: var(--font-head);
+  font-stretch: var(--head-stretch);
+  font-variation-settings: 'wdth' var(--head-wdth);
+  word-spacing: var(--head-word-spacing);
   line-height: 0.95;
   letter-spacing: -0.03em;
 }

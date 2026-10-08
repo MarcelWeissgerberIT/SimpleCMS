@@ -184,9 +184,12 @@
 .clipq__title {
   margin: 18px 0 6px;
   font-size: calc(22px * var(--text-scale));
-  font-stretch: var(--display-stretch);
+  font-family: var(--font-head);
+  font-stretch: var(--head-stretch);
+  font-variation-settings: 'wdth' var(--head-wdth);
+  word-spacing: var(--head-word-spacing);
   font-weight: 800;
-  letter-spacing: var(--tracking-tight);
+  letter-spacing: var(--head-tracking);
   line-height: 1.15;
 }
 .clipq__why {
@@ -677,9 +680,12 @@
 .installq__title {
   margin: 18px 0 6px;
   font-size: calc(22px * var(--text-scale));
-  font-stretch: var(--display-stretch);
+  font-family: var(--font-head);
+  font-stretch: var(--head-stretch);
+  font-variation-settings: 'wdth' var(--head-wdth);
+  word-spacing: var(--head-word-spacing);
   font-weight: 800;
-  letter-spacing: var(--tracking-tight);
+  letter-spacing: var(--head-tracking);
   line-height: 1.15;
 }
 .installq__why {

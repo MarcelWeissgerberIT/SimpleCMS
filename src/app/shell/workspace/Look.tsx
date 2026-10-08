@@ -19,6 +19,7 @@ import {
   defaultLook,
   deriveLook,
   HEADING_SPECIMENS,
+  headWordSpacing,
   isDefaultLook,
   LOOK_PRESETS,
   normalizeHex,
@@ -104,12 +105,13 @@ export function LookSection({ team }: { team: TeamData }) {
   }
   const save = () => commit(isDefaultLook(draft) ? null : draft, t(inCloud ? 'shell.ws.look.savedTeam' : 'shell.ws.look.saved'))
   const reset = () => commit(null, t('shell.ws.look.resetDone'))
-  const discard = () => setDraft(asDraft(base))
+  /** Back to the saved look as it is now (also after it changed elsewhere while this draft was open). */
   const loadRemote = () => {
     setBase(stored)
     setDraft(asDraft(stored))
     setRemote(false)
   }
+  const discard = loadRemote
 
   const set = (patch: Partial<WorkspaceLook>) => setDraft((d) => ({ ...d, ...patch }))
   const setColor = (key: keyof LookColors, hex: string) => setDraft((d) => ({ ...d, colors: { ...d.colors, [key]: hex } }))
@@ -510,6 +512,7 @@ function fontVars(draft: WorkspaceLook): CSSProperties {
     ['--head-stretch' as string]: sp.stretch,
     ['--head-wdth' as string]: String(sp.wdth),
     ['--head-tracking' as string]: sp.tracking,
+    ['--head-word-spacing' as string]: headWordSpacing(draft.fonts.headings, draft.fonts.ui),
     ['--head-weight' as string]: String(sp.weight),
     ...(draft.corners === 'square' ? { ['--radius-1' as string]: '0px', ['--radius-2' as string]: '0px', ['--radius-3' as string]: '2px' } : {}),
   }

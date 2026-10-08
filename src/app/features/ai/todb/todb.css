@@ -82,10 +82,11 @@
   font-size: calc(10px * var(--text-scale));
 }
 
+/* the title row's last cell: as wide as the sm switches below it, so the type labels line up */
 .todb__lock {
   display: grid;
   place-items: center;
-  width: 30px;
+  width: var(--switch-sm-w);
   flex: none;
   color: var(--ink-3);
 }

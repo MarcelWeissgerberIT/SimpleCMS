@@ -7,6 +7,7 @@
   font-variation-settings: 'wdth' var(--head-wdth);
   font-weight: 800;
   letter-spacing: var(--head-tracking);
+  word-spacing: var(--head-word-spacing);
   line-height: 1.22;
   padding: 3px 0;
   color: var(--ink);

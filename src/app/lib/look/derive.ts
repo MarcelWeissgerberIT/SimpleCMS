@@ -4,6 +4,9 @@
  *  - ink ≥ 7 : 1 on bg / surface / surface-2; quiet text (ink-2, ink-3) ≥ 4.5 : 1 there; ink-faint ≥ 3 : 1 on surface
  *  - signal ≥ 3 : 1 on surface (the focus ring's halo) and, where possible, on the toggle's lamp glass
  *  - the key label (on-signal) ≥ 4.5 : 1 on signal, signal used as text (signal-ink) ≥ 4.5 : 1 on bg / surface / surface-2
+ *    (Carbon: also on the AI terminal's well — ink-inverse and its 5 / 8 % ink mixes)
+ *  - signal used as text on an ink surface (signal-on-ink: toasts, the bubble menu, the Paper AI terminal) ≥ 4.5 : 1 on
+ *    ink and its 5 / 8 % inverse-ink mixes — lightened on Paper's dark ink, darkened on Carbon's light ink
  *  - the paper stays light and calm (Paper L 0.948 – 0.985, Carbon L 0.13 – 0.26, chroma ≤ 0.025), so the fixed
  *    content colours (--c-*-text) keep ≥ 4.5 : 1 on every surface.
  * Only the groups whose inputs differ from tokens.css are emitted: a look that changes only the signal keeps
@@ -39,6 +42,7 @@ export const LOOK_TOKENS = [
   'signal-press',
   'on-signal',
   'signal-ink',
+  'signal-on-ink',
   'signal-wash',
   'signal-wash-strong',
   'selection',
@@ -48,9 +52,19 @@ export const LOOK_TOKENS = [
 export type LookToken = (typeof LOOK_TOKENS)[number]
 export type Mode = 'light' | 'dark'
 
-export const STOCK_TOKENS: Record<Mode, Record<'bg' | 'surface' | 'surface-2' | 'surface-3' | 'ink' | 'ink-2' | 'ink-3' | 'ink-faint' | 'signal' | 'signal-ink' | 'on-signal', string>> = {
-  light: { bg: '#f2f0ea', surface: '#faf9f5', 'surface-2': '#eae7df', 'surface-3': '#dfdbd1', ink: '#121210', 'ink-2': '#55524b', 'ink-3': '#67635b', 'ink-faint': '#8d897f', signal: '#ff4f00', 'signal-ink': '#b83800', 'on-signal': '#121210' },
-  dark: { bg: '#111110', surface: '#181816', 'surface-2': '#151513', 'surface-3': '#22211e', ink: '#ece9e2', 'ink-2': '#a9a59c', 'ink-3': '#8f8b83', 'ink-faint': '#6f6b63', signal: '#ff5c1a', 'signal-ink': '#ff7a3d', 'on-signal': '#121210' },
+type StockToken = 'bg' | 'surface' | 'surface-2' | 'surface-3' | 'ink' | 'ink-2' | 'ink-3' | 'ink-faint' | 'ink-inverse' | 'signal' | 'signal-ink' | 'signal-on-ink' | 'on-signal'
+export const STOCK_TOKENS: Record<Mode, Record<StockToken, string>> = {
+  light: { bg: '#f2f0ea', surface: '#faf9f5', 'surface-2': '#eae7df', 'surface-3': '#dfdbd1', ink: '#121210', 'ink-2': '#55524b', 'ink-3': '#67635b', 'ink-faint': '#8d897f', 'ink-inverse': '#faf9f5', signal: '#ff4f00', 'signal-ink': '#b83800', 'signal-on-ink': '#ff4f00', 'on-signal': '#121210' },
+  dark: { bg: '#111110', surface: '#181816', 'surface-2': '#151513', 'surface-3': '#22211e', ink: '#ece9e2', 'ink-2': '#a9a59c', 'ink-3': '#8f8b83', 'ink-faint': '#6f6b63', 'ink-inverse': '#121210', signal: '#ff5c1a', 'signal-ink': '#ff7a3d', 'signal-on-ink': '#aa3600', 'on-signal': '#121210' },
+}
+
+/** The surfaces of an ink panel (toast, bubble menu; the Paper AI terminal): ink and its 5 / 8 % inverse-ink mixes. */
+export function inkPanel(ink: string, inkInverse: string): string[] {
+  return [ink, mixSrgb(inkInverse, ink, 0.05), mixSrgb(inkInverse, ink, 0.08)]
+}
+/** The Carbon AI terminal's well (agent.css: --t-bg = ink-inverse, its panels mix 5 / 8 % ink in). */
+export function inkWell(ink: string, inkInverse: string): string[] {
+  return [inkInverse, mixSrgb(ink, inkInverse, 0.05), mixSrgb(ink, inkInverse, 0.08)]
 }
 
 /** Paper lightness / chroma limits (OKLCH) per theme. */
@@ -66,7 +80,7 @@ export function lampGlass(mode: Mode, ink: string, bg: string): string {
 
 export interface LookReport {
   /** contrast ratios the read-out shows */
-  ratios: { text: number; quiet: number; signal: number; onSignal: number; signalText: number }
+  ratios: { text: number; quiet: number; signal: number; onSignal: number; signalText: number; signalOnInk: number }
   /** an input was changed to keep the contrast (or the paper calm) */
   adjusted: { paper: boolean; ink: boolean; signal: boolean }
   /** the colours in use (paper = bg) */
@@ -174,13 +188,15 @@ export function deriveMode(inputs: LookColors, mode: Mode, labels?: Labels): Der
     const hover = shiftL(s, away > 0 ? 0.035 : -0.045)
     const press = shiftL(s, away > 0 ? 0.07 : -0.09)
     const text = [full.bg, surface, full['surface-2']]
-    const signalInk = light ? ensureContrast(shiftL(s, -0.1), text, 4.5, -1) : ensureContrast(shiftL(s, 0.04), text, 4.5, 1)
+    const signalInk = light ? ensureContrast(shiftL(s, -0.1), text, 4.5, -1) : ensureContrast(shiftL(s, 0.04), [...text, ...inkWell(full.ink, full['ink-inverse'])], 4.5, 1)
+    const signalOnInk = ensureContrast(s, inkPanel(full.ink, full['ink-inverse']), 4.5, light ? 1 : -1)
     const sig: Partial<Record<LookToken, string>> = {
       signal: s,
       'signal-hover': hover,
       'signal-press': press,
       'on-signal': on,
       'signal-ink': signalInk,
+      'signal-on-ink': signalOnInk,
       'signal-wash': rgba(s, light ? 0.1 : 0.12),
       'signal-wash-strong': rgba(s, light ? 0.18 : 0.22),
       selection: rgba(s, light ? 0.2 : 0.3),
@@ -199,6 +215,7 @@ export function deriveMode(inputs: LookColors, mode: Mode, labels?: Labels): Der
       signal: contrast(full.signal, surface),
       onSignal: contrast(full['on-signal'], full.signal),
       signalText: Math.min(contrast(full['signal-ink'], full.bg), contrast(full['signal-ink'], surface), contrast(full['signal-ink'], full['surface-2'])),
+      signalOnInk: Math.min(...inkPanel(full.ink, full['ink-inverse']).map((x) => contrast(full['signal-on-ink'], x))),
     },
     adjusted: { paper: adjustedPaper, ink: adjustedInk, signal: signalGroup && s !== inputs.signal },
     used: { paper: full.bg, ink: full.ink, signal: full.signal },

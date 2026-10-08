@@ -231,7 +231,7 @@ export const workspaceMessages: Messages = {
     'shell.ws.code': 'WORKSPACE-EINSTELLUNGEN',
     'shell.ws.nav': 'Bereiche der Workspace-Einstellungen',
     'shell.ws.deviceSettings': 'Dieses Gerät',
-    'shell.ws.foot': 'Workspace-Einstellungen (auch das Aussehen) gehören zum Workspace · Geräte-Einstellungen (Papier / Carbon, Textgröße, Claude-Schlüssel, Sync, Mail) stehen in den Einstellungen',
+    'shell.ws.foot': 'Workspace-Einstellungen (auch das Aussehen) gehören zum Workspace · Geräte-Einstellungen (Paper / Carbon, Schriftgröße, Claude-Schlüssel, Sync, Mail) stehen in den Einstellungen',
     'shell.ws.sec.overview': 'Überblick',
     'shell.ws.sec.people': 'Personen',
     'shell.ws.sec.blocks': 'Bausteine',

@@ -9,7 +9,7 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { test, expect } from '@playwright/test'
 import { contrast, mixSrgb, toOklch } from '../../src/app/lib/look/color'
-import { darkInputsFrom, deriveLook, deriveMode, lampGlass, LOOK_TOKENS, PAPER_LIMITS, signalFamily, STOCK_TOKENS } from '../../src/app/lib/look/derive'
+import { darkInputsFrom, deriveLook, deriveMode, inkPanel, inkWell, lampGlass, LOOK_TOKENS, PAPER_LIMITS, signalFamily, STOCK_TOKENS } from '../../src/app/lib/look/derive'
 import { lookCss } from '../../src/app/lib/look/css'
 import { LOOK_PRESETS, SWATCHES } from '../../src/app/lib/look/presets'
 import { lookMessages } from '../../src/app/shell/workspace/look-messages'
@@ -91,6 +91,9 @@ test('contrast guarantees hold for 640 random looks and the edge cases, Paper an
         atLeast(contrast(f['signal-ink'], s), 4.5, `signal-ink ${at}`)
         for (const c of content[mode]) atLeast(contrast(c, s), 4.5, `content ${c} ${at}`)
       }
+      // the signal as text on ink (toasts, the bubble menu, the Paper AI terminal) and on Carbon's terminal well
+      for (const x of inkPanel(f.ink, f['ink-inverse'])) atLeast(contrast(f['signal-on-ink'], x), 4.5, `signal-on-ink ${at}`)
+      if (mode === 'dark') for (const x of inkWell(f.ink, f['ink-inverse'])) atLeast(contrast(f['signal-ink'], x), 4.5, `signal-ink on the terminal ${at}`)
       atLeast(contrast(f['ink-faint'], f.surface), 3, `ink-faint ${at}`)
       atLeast(contrast(f.signal, f.surface), 3, `signal ${at}`)
       for (const k of ['signal', 'signal-hover', 'signal-press']) atLeast(contrast(f['on-signal'], f[k]), 4.5, `on ${k} ${at}`)
@@ -127,6 +130,32 @@ test('presets: every promise, the lamp visible behind its glass, the series fami
   expect(signalFamily('#2759db')).toBe('blue')
   expect(signalFamily('#d4006e')).toBe('pink')
   expect(signalFamily('#777777')).toBeNull()
+})
+
+test('signal text on the AI terminal, toasts and the bubble menu: ≥ 4.5 : 1 for the standard look, every preset and every signal swatch', () => {
+  const failures: string[] = []
+  const check = (name: string, f: Record<string, string>, mode: 'light' | 'dark') => {
+    // agent.css: Paper --t-signal = signal-on-ink on the ink panel; Carbon --t-signal = signal-ink in the well
+    const term = mode === 'light' ? inkPanel(f.ink, f['ink-inverse']).map((x) => contrast(f['signal-on-ink'], x)) : inkWell(f.ink, f['ink-inverse']).map((x) => contrast(f['signal-ink'], x))
+    const toast = inkPanel(f.ink, f['ink-inverse']).map((x) => contrast(f['signal-on-ink'], x))
+    for (const r of [...term, ...toast]) if (r < 4.5) failures.push(`${name} ${mode}: ${r.toFixed(2)}`)
+  }
+  for (const mode of ['light', 'dark'] as const) check('standard', STOCK_TOKENS[mode], mode)
+  const looks: Array<[string, Pick<WorkspaceLook, 'colors'>]> = [
+    ...Object.entries(LOOK_PRESETS).map(([id, p]) => [id, p] as [string, Pick<WorkspaceLook, 'colors'>]),
+    ...SWATCHES.signal.map((s) => [`swatch ${s.id}`, { colors: { ...STOCK_COLORS.light, signal: s.hex } }] as [string, Pick<WorkspaceLook, 'colors'>]),
+  ]
+  for (const [name, l] of looks) {
+    const d = deriveLook(l)
+    for (const mode of ['light', 'dark'] as const) {
+      check(name, d[mode].full, mode)
+      expect(d[mode].report.ratios.signalOnInk, `${name} ${mode}`).toBeGreaterThanOrEqual(4.5)
+    }
+  }
+  expect(failures).toEqual([])
+  // the standard look's own value is tokens.css (no look emits nothing)
+  expect(STOCK_TOKENS.light['signal-on-ink']).toBe(LIGHT['--signal-on-ink'])
+  expect(STOCK_TOKENS.dark['signal-on-ink']).toBe(DARK['--signal-on-ink'])
 })
 
 test('a green signal keeps the "fine" LED apart from the "working" one', () => {
