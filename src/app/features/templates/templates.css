@@ -376,7 +376,7 @@
 .tpl-outline__line {
   position: relative;
   display: grid;
-  grid-template-columns: 16px 58px minmax(0, 1fr);
+  grid-template-columns: 16px max-content minmax(0, 1fr);
   align-items: baseline;
   gap: 6px;
   padding: 6px 0 6px calc(var(--d) * 16px);
@@ -412,6 +412,9 @@
 }
 
 .tpl-outline__kind {
+  /* wide enough for the longest kind ("Datenbank" / "Ansichten") so the column lines up; never clipped */
+  min-width: 6.4em;
+  white-space: nowrap;
   font-size: calc(9.5px * var(--text-scale));
 }
 
