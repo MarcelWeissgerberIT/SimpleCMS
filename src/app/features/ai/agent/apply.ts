@@ -20,7 +20,7 @@ import { saveMemory, updateMemory } from '../memory/save'
 import { applyPageEdits } from './edit'
 import { livePage, withPageNodes, type LinkTarget } from './links'
 import { mediaNode } from '../media/blocks'
-import { applyNewTask, applyTaskAction, taskNeedsConfirm } from '../../coding'
+import { applyNewTask, applyTaskAction, isPipelineTask, taskNeedsConfirm, taskSig, taskWriteEndsConfirm } from '../../coding'
 
 const ws = () => useWorkspace.getState()
 const ORIGIN = 'ai'
@@ -140,14 +140,37 @@ const FINAL = () => true
 export interface ApplyOpts {
   /**
    * The AI terminal (session.ts) — the only caller that may apply pipeline tasks ('coding'); its row, page and title
-   * changes of a pipeline task are refused while the task waits for "Confirm on this device". Custom agents never.
+   * changes of a pipeline task are refused while the task waits for "Confirm on this device", and their Undo leaves a
+   * task alone that an agent changed since (local: the write would end its wait). Custom agents never.
    */
   terminal?: boolean
+  /**
+   * The terminal's own writes of pipeline tasks, recorded here (task id → fingerprint before → after, in order): a task
+   * action staged before them still applies (coding/terminal.ts SigSteps) — an edit made elsewhere breaks the chain.
+   */
+  sigSteps?: Map<ID, Array<[string, string]>>
 }
 
 /** The terminal's writes on a pipeline task wait for the person's Confirm on its page (a version this device trusts). */
 async function guardTask(id: ID, opts: ApplyOpts): Promise<void> {
   if (opts.terminal && (await taskNeedsConfirm(id))) throw new Error(t('features.coding.term.err.confirm'))
+}
+
+/** The kinds that write an existing page or row (their target: the task a fingerprint step / an Undo guard is about). */
+const WRITES_PAGE = new Set<StagedChange['kind']>(['update_row', 'append', 'rename', 'media'])
+
+/**
+ * Run a terminal write of a page; when it is a pipeline task, record how its fingerprint moved (opts.sigSteps), and
+ * guard its Undo: a task an agent changed since is left as it is (the Undo's write would end its wait for Confirm).
+ */
+async function onTask<T extends () => boolean>(id: ID, opts: ApplyOpts, write: () => Promise<T>): Promise<T> {
+  const task = opts.terminal && isPipelineTask(id)
+  const before = task ? taskSig(id) : null
+  const undo = await write()
+  if (!task) return undo
+  const after = taskSig(id)
+  if (opts.sigSteps && before && after && before !== after) opts.sigSteps.set(id, [...(opts.sigSteps.get(id) ?? []), [before, after]])
+  return ((() => (taskWriteEndsConfirm(id) ? false : undo())) as T)
 }
 
 /**
@@ -180,8 +203,12 @@ export async function applyChanges(changes: StagedChange[], all: StagedChange[],
         failed.push(...group.map((x) => ({ id: x.id, error: e instanceof Error ? e.message : String(e) })))
         continue
       }
-      const res = await applyPageEdits(pageId, group)
-      if (res.applied.length) undos.push({ ids: res.applied, fn: res.undo })
+      let res!: Awaited<ReturnType<typeof applyPageEdits>>
+      const undoEdits = await onTask(pageId, opts, async () => {
+        res = await applyPageEdits(pageId, group)
+        return res.undo
+      })
+      if (res.applied.length) undos.push({ ids: res.applied, fn: undoEdits })
       applied.push(...res.applied)
       res.applied.forEach((id) => done.add(id))
       failed.push(...res.failed)
@@ -193,7 +220,7 @@ export async function applyChanges(changes: StagedChange[], all: StagedChange[],
         const parent = all.find((x) => x.id === missing)
         throw new Error(`needs change #${parent?.n ?? '?'} first`)
       }
-      const undo = await applyOne(c, resolveRow, rowIds, toDoc, opts)
+      const undo = WRITES_PAGE.has(c.kind) ? await onTask(resolveRow(c.pageId), opts, () => applyOne(c, resolveRow, rowIds, toDoc, opts)) : await applyOne(c, resolveRow, rowIds, toDoc, opts)
       if (undo === FINAL) final.push(c.id)
       else undos.push({ ids: [c.id], fn: undo })
       applied.push(c.id)
@@ -266,7 +293,8 @@ async function applyOne(c: StagedChange, resolveRow: (id: ID) => ID, rowIds: Rec
         return made.undo
       }
       if (!cd.action) throw new Error('nothing to do')
-      const res = await applyTaskAction({ ...cd.action, taskId: resolveRow(cd.action.taskId) })
+      const taskId = resolveRow(cd.action.taskId)
+      const res = await applyTaskAction({ ...cd.action, taskId }, { steps: opts.sigSteps?.get(taskId) })
       return res.undo ?? FINAL
     }
     case 'create_page': {
@@ -354,6 +382,7 @@ async function applyOne(c: StagedChange, resolveRow: (id: ID) => ID, rowIds: Rec
       if (!alive(id)) throw new Error('the page is gone')
       const add = (c.media ?? []).map(mediaNode)
       if (!add.length) throw new Error('nothing to insert')
+      await guardTask(id, opts)
       await snapshotNow(id, 'ai')
       const page = ws().pages[id]
       if (!page) throw new Error('the page is gone')

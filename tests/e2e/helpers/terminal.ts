@@ -8,7 +8,12 @@ import { expect, wsEval, MOD } from '../fixtures'
 
 export type AnyState = Record<string, any> // eslint-disable-line @typescript-eslint/no-explicit-any
 
-export type Block = { type: 'text'; text: string } | { type: 'tool_use'; id: string; name: string; input: Record<string, unknown> }
+export type Block =
+  | { type: 'text'; text: string }
+  | { type: 'tool_use'; id: string; name: string; input: Record<string, unknown> }
+  /** an MCP server's call and its result (the Messages API MCP connector: Anthropic called the server) */
+  | { type: 'mcp_tool_use'; id: string; server: string; name: string; input: Record<string, unknown> }
+  | { type: 'mcp_tool_result'; id: string; text: string }
 
 let msgSeq = 0
 
@@ -23,6 +28,11 @@ export function sseMessage(blocks: Block[]): string {
     if (b.type === 'text') {
       body += ev('content_block_start', { index, content_block: { type: 'text', text: '' } })
       for (const chunk of b.text.match(/.{1,18}/gs) ?? []) body += ev('content_block_delta', { index, delta: { type: 'text_delta', text: chunk } })
+    } else if (b.type === 'mcp_tool_use') {
+      body += ev('content_block_start', { index, content_block: { type: 'mcp_tool_use', id: b.id, name: b.name, server_name: b.server, input: {} } })
+      body += ev('content_block_delta', { index, delta: { type: 'input_json_delta', partial_json: JSON.stringify(b.input) } })
+    } else if (b.type === 'mcp_tool_result') {
+      body += ev('content_block_start', { index, content_block: { type: 'mcp_tool_result', tool_use_id: b.id, is_error: false, content: [{ type: 'text', text: b.text }] } })
     } else {
       body += ev('content_block_start', { index, content_block: { type: 'tool_use', id: b.id, name: b.name, input: {} } })
       for (const chunk of JSON.stringify(b.input).match(/.{1,24}/gs) ?? []) body += ev('content_block_delta', { index, delta: { type: 'input_json_delta', partial_json: chunk } })

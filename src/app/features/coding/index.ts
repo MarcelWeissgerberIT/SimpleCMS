@@ -9,6 +9,7 @@
  *  - codingDbId(): the Coding database (Database.system 'coding') · useCoding: the worker link's state
  */
 import { pipelineDbIds } from './schema'
+import { useCodingLocal } from './local'
 
 export { startCoding } from './service'
 export { CodingRoute, CodingTaskSlot } from './slot'
@@ -35,6 +36,10 @@ export {
   startsNow,
   taskNeedsConfirm,
   mayNeedConfirm,
+  isPipelineTask,
+  taskWriteEndsConfirm,
+  taskSig,
+  newProjectNow,
   codingRoleOf,
   CodingPlanError,
   TASK_OPS,
@@ -52,7 +57,10 @@ export {
   type TaskOp,
   type TaskActionPlan,
   type ReadLimitFn,
+  type SigSteps,
+  type StagedPages,
 } from './terminal'
+export type { RefPage } from './refs'
 export { stopTask as stopCodingTask, isRunning as isCodingTaskRunning } from './service'
 export { PIPELINE_KINDS, FOLLOW_UPS, isPipelineKind, kindOfDb, type PipelineKind } from './schema'
 /** is there any pipeline (a project of any kind)? */
@@ -60,3 +68,5 @@ export const hasPipelines = (): boolean => pipelineDbIds().length > 0
 export { lineText as codingLogText } from './lines'
 export { gitSummary as codingGitSummary } from './tasks'
 export { useTaskLocal as useCodingTaskLocal } from './local'
+/** bumped whenever this device trusts another task version (Confirm …): a trust readout re-checks with it */
+export const useCodingTrustRev = (): number => useCodingLocal((s) => s.trustRev)

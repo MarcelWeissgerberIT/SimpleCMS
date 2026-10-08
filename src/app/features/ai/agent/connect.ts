@@ -14,6 +14,8 @@ import { MAX_SERVERS, addServer, findServer, needsSignIn, patchServer, readServe
 import { OAuthError, signIn, signInWithCode } from '../mcp-servers/oauth'
 import { checkServer, whenChecked } from '../mcp-servers/checks'
 import { patchConnect, pushEcho, type ConnectState } from './state'
+import { COMMANDS, namesOf } from './commands'
+import { useWorkspace } from '../../../store/store'
 
 export type { ConnectState }
 
@@ -87,9 +89,16 @@ export function codeFromTerminal(entry: string, id: string): void {
   track(entry, id, signInWithCode(id))
 }
 
+/** The /connect line a key logs, named in the UI's language ("/verbinden kb" in German). */
+export function connectEcho(server: string): string {
+  const cmd = COMMANDS.find((c) => c.id === 'connect')
+  const name = cmd ? namesOf(cmd, useWorkspace.getState().settings.language)[0] : 'connect'
+  return `/${name} ${server}`
+}
+
 /** "Sign in to <server>" under a task (a key, or ↵ on the empty prompt): /connect <server> logged and started. */
 export function signInFromTerminal(server: string, opts: { retry?: ConnectState['retry'] } = {}): void {
-  connectCommand(`/connect ${server}`, server, opts.retry)
+  connectCommand(connectEcho(server), server, opts.retry)
 }
 
 /** Signed in: the connection test the sign-in started (oauth.ts keepTokens), then how it went. */

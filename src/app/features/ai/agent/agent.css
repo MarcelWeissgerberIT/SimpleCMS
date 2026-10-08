@@ -1399,9 +1399,21 @@
 }
 
 @container (max-width: 760px) {
-  .term-bar__hint,
+  .term-bar__hint:not(.term-bar__hint--held),
   .term-head__read {
     display: none;
+  }
+
+  /* why Apply all waits: on its own line under the keys (never cut away) */
+  .term-bar {
+    flex-wrap: wrap;
+    row-gap: 2px;
+  }
+
+  .term-bar__hint--held {
+    flex-basis: 100%;
+    order: 1;
+    white-space: normal;
   }
 
   .term-standby {
@@ -1851,6 +1863,7 @@
 }
 
 .term-tag[data-tag='starts'],
+.term-tag[data-tag='toworker'],
 .term-tag[data-tag='nostops'] {
   border-color: var(--signal);
   color: var(--signal-ink);
@@ -1955,6 +1968,11 @@
 
 .term-keys__go svg {
   color: var(--signal);
+}
+
+/* a link that is a key (Open sign-in page): no underline, like the buttons beside it */
+.term-keys a.btn {
+  text-decoration: none;
 }
 
 .term-keys__hint {

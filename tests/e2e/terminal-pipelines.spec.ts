@@ -6,24 +6,27 @@
  * at the end for the real one).
  */
 import type { Page } from '@playwright/test'
-import { test, expect, openApp, reloadApp, wsEval, flush, pageIdByTitle, MOD } from './fixtures'
-import { call, mockAgent, openTerminal, prompt, resultText, run, say, setKey, terminal, toolResult, type AnyState } from './helpers/terminal'
+import { test, expect, openApp, reloadApp, wsEval, flush, pageIdByTitle, gotoPage, MOD } from './fixtures'
+import { call, mockAgent, openTerminal, prompt, resultText, run, say, setKey, sseMessage, terminal, toolResult, type AnyState } from './helpers/terminal'
 import { makeCodingRepo, startCodingWorker, type CodingRepo, type RunningWorker } from './helpers/coding'
 
-/** #/coding → "Set up" (the Coding project): the terminal then offers the pipeline tools. */
-async function setupCoding(page: Page): Promise<string> {
-  await page.evaluate(() => (window.location.hash = '#/coding'))
+/** #/coding → "Set up" (the Coding project, or `kind`'s): the terminal then offers the pipeline tools. */
+async function setupCoding(page: Page, kind: 'coding' | 'spec' | 'qa' = 'coding'): Promise<string> {
+  await page.evaluate((kind) => (window.location.hash = kind === 'coding' ? '#/coding' : `#/coding/${kind}`), kind)
   await page.getByTestId('coding-setup').click()
-  await expect.poll(() => wsEval(page, (s) => Object.values(s.databases as Record<string, AnyState>).filter((d) => d.system === 'coding').length)).toBe(1)
-  return wsEval(page, (s) => (Object.values(s.databases as Record<string, AnyState>).find((d) => d.system === 'coding') as AnyState).id as string)
+  await expect.poll(() => wsEval(page, (s, kind) => Object.values(s.databases as Record<string, AnyState>).filter((d) => d.system === kind).length, kind)).toBe(1)
+  return wsEval(page, (s, kind) => (Object.values(s.databases as Record<string, AnyState>).find((d) => d.system === kind) as AnyState).id as string, kind)
 }
 
-/** A task of the Coding project, standing in `stage` (by name); `by`: written by an agent (local: waits for Confirm). */
-function makeTask(page: Page, t: { title: string; stage: string; repo?: string; by?: string; goal?: string }): Promise<string> {
+/**
+ * A task of the Coding project (or `kind`'s), standing in `stage` (by name); `by`: written by an agent (local: waits
+ * for Confirm); `changedBy`: only changed last by one (a person's task an agent rewrote); `content`: the page's blocks.
+ */
+function makeTask(page: Page, t: { title: string; stage: string; repo?: string; by?: string; changedBy?: string; goal?: string; kind?: string; content?: AnyState[] }): Promise<string> {
   return wsEval(
     page,
     (s, t) => {
-      const db = Object.values(s.databases as Record<string, AnyState>).find((d) => d.system === 'coding') as AnyState
+      const db = Object.values(s.databases as Record<string, AnyState>).find((d) => d.system === (t.kind ?? 'coding')) as AnyState
       const stage = db.properties.find((p: AnyState) => p.name === 'Stage')
       const repo = db.properties.find((p: AnyState) => p.name === 'Repo')
       let opts = repo.options ?? []
@@ -33,8 +36,9 @@ function makeTask(page: Page, t: { title: string; stage: string; repo?: string; 
       }
       const props: Record<string, unknown> = { [stage.id]: stage.options.find((o: AnyState) => o.name === t.stage).id }
       if (t.repo) props[repo.id] = opts.find((o: AnyState) => o.name === t.repo).id
-      const id = s.createRow(db.id, { title: t.title, properties: props, content: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: t.goal ?? 'Make the login form remember the email.' }] }] } })
+      const id = s.createRow(db.id, { title: t.title, properties: props, content: { type: 'doc', content: t.content ?? [{ type: 'paragraph', content: [{ type: 'text', text: t.goal ?? 'Make the login form remember the email.' }] }] } })
       if (t.by) s.updatePage(id, { createdBy: t.by, updatedBy: t.by })
+      if (t.changedBy) s.updatePage(id, { updatedBy: t.changedBy })
       return id as string
     },
     t,
@@ -104,6 +108,33 @@ async function getLocal(page: Page, key: string): Promise<AnyState | undefined> 
     return v as AnyState | undefined
   }, key)
 }
+
+/** The worker-written plan's fingerprint (coding/tasks.ts textHash) — kept by the worker with the plan it wrote. */
+function planHash(text: string): string {
+  let a = 0x811c9dc5
+  let b = 0x01234567
+  for (let i = 0; i < text.length; i++) {
+    a = Math.imul(a ^ text.charCodeAt(i), 0x01000193)
+    b = Math.imul(b ^ text.charCodeAt(i), 0x5bd1e995)
+  }
+  return `${(a >>> 0).toString(16)}${(b >>> 0).toString(16)}${text.length.toString(16)}`
+}
+
+const para = (text: string) => ({ type: 'paragraph', content: [{ type: 'text', text }] })
+const h2 = (text: string) => ({ type: 'heading', attrs: { level: 2 }, content: [{ type: 'text', text }] })
+
+/** Then of a task (option names). */
+const thenOf = (page: Page, id: string) =>
+  wsEval(
+    page,
+    (s, id) => {
+      const row = s.pages[id]
+      const db = s.databases[row.databaseId]
+      const prop = db.properties.find((p: AnyState) => p.name === 'Then')
+      return ((row.properties[prop.id] ?? []) as string[]).map((x) => prop.options.find((o: AnyState) => o.id === x)?.name)
+    },
+    id,
+  )
 
 const review = (page: Page) => terminal(page).locator('.term-changes')
 const item = (page: Page, n: number) => review(page).locator(`li[data-i="${n - 1}"]`)
@@ -187,18 +218,24 @@ test.describe('AI terminal → coding pipelines (mocked Claude API)', () => {
     await expect(task.getByTestId('term-tag-starts')).toHaveText('STARTS WORKER')
     await expect(task).toHaveAttribute('aria-label', /#1 New pipeline task, STARTS WORKER/)
     await expect(task.getByTestId('term-coding-start')).toHaveText('Starts right away: the worker takes it in “Ready”')
-    await expect(terminal(page).getByTestId('term-held')).toHaveText('1 starts the worker — ↵ on it')
+    await expect(terminal(page).getByTestId('term-held')).toHaveText('1 goes to the coding worker — apply it on its own')
+    await expect(terminal(page).getByRole('button', { name: 'Apply all' })).toHaveAttribute('aria-describedby', 'term-held')
+    // on a phone the reason stays visible (its own line under the keys)
+    await page.setViewportSize({ width: 390, height: 844 })
+    await expect(terminal(page).getByTestId('term-held')).toBeVisible()
+    expect(await terminal(page).locator('.term-bar').evaluate((el) => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(0)
+    await page.setViewportSize({ width: 1440, height: 900 })
 
     // a: the page only — the task waits, a toast says why
     await item(page, 2).focus()
     await page.keyboard.press('a')
     await expect(item(page, 2)).toHaveAttribute('data-status', 'applied')
-    await expect(page.locator('.toast', { hasText: '1 proposal starts the coding worker — apply it on its own' }).first()).toBeVisible()
+    await expect(page.locator('.toast', { hasText: '1 proposal goes to the coding worker — apply it on its own' }).first()).toBeVisible()
     await expect(task).toHaveAttribute('data-status', 'pending')
     // /apply: only starters wait
     await prompt(page).fill('/apply')
     await prompt(page).press('Enter')
-    await expect(terminal(page).locator('.term-echo').last()).toContainText('Every waiting proposal starts the coding worker')
+    await expect(terminal(page).locator('.term-echo').last()).toContainText('Every waiting proposal goes to the coding worker')
     // ⌘↵: nothing either
     await prompt(page).press(`${MOD}+Enter`)
     await expect(task).toHaveAttribute('data-status', 'pending')
@@ -255,6 +292,11 @@ test.describe('AI terminal → coding pipelines (mocked Claude API)', () => {
     await expect(card).toHaveAttribute('data-status', 'failed')
     await expect(card.locator('.term-change__error')).toContainText('The task changed since — now “Review”')
     expect(await stageOf(page, id)).toBe('Review')
+    // /apply with only a failed proposal left: says so (nothing about the worker)
+    await prompt(page).fill('/apply')
+    await prompt(page).press('Enter')
+    await expect(terminal(page).locator('.term-echo').last()).toContainText('Only proposals that failed are left')
+    await expect(terminal(page).locator('.term-echo').last()).not.toContainText('coding worker')
 
     // back at the gate, staged again — but its page changed before the apply (a new plan): refused too
     await setStage(page, id, 'Approve plan')
@@ -363,15 +405,20 @@ test.describe('AI terminal → coding pipelines (mocked Claude API)', () => {
     await expect(card.locator('.term-change__error')).toContainText('Confirm the task on its page first')
     expect(await stageOf(page, id)).toBe('Approve plan')
 
-    // Confirm on this device — on the task page, by the person
+    // /pipelines says the same
+    await prompt(page).fill('/pipelines')
+    await prompt(page).press('Enter')
+    const row = terminal(page).getByTestId('term-pipelines').last().locator(`[data-task="${id}"]`)
+    await expect(row).toContainText('Confirm on its page')
+
+    // Confirm on this device — on the task page, by the person; the dock stays open below the page and follows it
     await card.getByRole('button', { name: 'Open task' }).click()
     await expect.poll(() => page.evaluate(() => window.location.hash)).toBe(`#/p/${id}`)
-    // the dock steps aside for the click on the page, then comes back with the review as it was
-    await page.keyboard.press(`${MOD}+j`)
-    await expect(terminal(page)).toBeHidden()
+    await expect(terminal(page)).toBeVisible()
     await page.getByRole('button', { name: 'Confirm on this device' }).click()
-    await page.keyboard.press(`${MOD}+j`)
     await expect(card.getByTestId('term-tag-confirm')).toHaveCount(0)
+    await expect(card.getByTestId('term-coding-confirm')).toHaveCount(0)
+    await expect(row).not.toContainText('Confirm on its page')
     await applyKey(page, 1).click()
     await expect(card).toHaveAttribute('data-status', 'applied')
     expect(await stageOf(page, id)).toBe('Implement')
@@ -486,6 +533,221 @@ test.describe('AI terminal → coding pipelines (mocked Claude API)', () => {
     await expect(de).toContainText('Auf ihrer Seite bestätigen')
     const overflow = await term.locator('.term-scroll').evaluate((el) => el.scrollWidth - el.clientWidth)
     expect(overflow).toBeLessThanOrEqual(0)
+  })
+
+  test('several creates for a kind without a project: "a" applies them all into ONE new project; after Undo they apply again (into it)', async ({ page, context }) => {
+    await openApp(page)
+    await setKey(page)
+    await setupCoding(page)
+    await mockAgent(context, [
+      call('toolu_c1', 'create_task', { kind: 'spec', title: 'Invoice approval flow', goal: 'Who approves invoices.' }),
+      call('toolu_c2', 'create_task', { kind: 'spec', title: 'Refund flow', goal: 'Who approves refunds.' }),
+      call('toolu_c3', 'create_task', { kind: 'spec', title: 'Expense flow', goal: 'Who approves expenses.' }),
+      say('Staged three analyses.'),
+    ])
+    await openTerminal(page)
+    await run(page, 'Plan three analyses: invoices, refunds, expenses')
+    await expect(terminal(page).locator('.term-answer')).toContainText('Staged three analyses.')
+    for (const n of [1, 2, 3]) await expect(item(page, n)).toContainText('Business analysis — a new project is created')
+    const specRows = () =>
+      wsEval(page, (s) => {
+        const dbs = Object.values(s.databases as Record<string, AnyState>).filter((d) => d.system === 'spec')
+        const rows = Object.values(s.pages as Record<string, AnyState>).filter((p) => dbs.some((d) => d.id === p.databaseId) && !p.trashed)
+        return { dbs: dbs.length, titles: rows.map((r) => r.title as string).sort() }
+      })
+    await item(page, 1).focus()
+    await page.keyboard.press('a')
+    for (const n of [1, 2, 3]) await expect(item(page, n)).toHaveAttribute('data-status', 'applied')
+    expect(await specRows()).toEqual({ dbs: 1, titles: ['Expense flow', 'Invoice approval flow', 'Refund flow'] })
+    // Undo: the tasks go to the trash, the project stays — applied again, they land in it (never "the pipeline changed")
+    await item(page, 1).focus()
+    await page.keyboard.press('u')
+    for (const n of [1, 2, 3]) await expect(item(page, n)).toHaveAttribute('data-status', 'pending')
+    expect((await specRows()).titles).toEqual([])
+    await item(page, 1).focus()
+    await page.keyboard.press('a')
+    for (const n of [1, 2, 3]) await expect(item(page, n)).toHaveAttribute('data-status', 'applied')
+    expect(await specRows()).toEqual({ dbs: 1, titles: ['Expense flow', 'Invoice approval flow', 'Refund flow'] })
+  })
+
+  test('Then: refused for a task an agent changed (staging and apply — its stamp stays); a done task is pointed to hand_on; update_row Then is refused; adding Coding starts nothing now and waits for its own apply', async ({ page, context }) => {
+    await openApp(page)
+    await setKey(page)
+    await setupCoding(page, 'spec')
+    const id = await makeTask(page, { kind: 'spec', title: 'Invoice flow', stage: 'Backlog' })
+    const done = await makeTask(page, { kind: 'spec', title: 'Old analysis', stage: 'Done' })
+    const m = await mockAgent(context, [
+      call('toolu_t1', 'task_action', { id, action: 'then', then: ['coding'] }),
+      call('toolu_t2', 'task_action', { id: done, action: 'then', then: ['qa'] }),
+      call('toolu_u', 'update_row', { id, properties: { Then: ['QA'] } }),
+      say('Staged.'),
+      call('toolu_t3', 'task_action', { id, action: 'then', then: [] }),
+      say('Tried again.'),
+    ])
+    await openTerminal(page)
+    await run(page, 'Hand the invoice flow on to coding')
+    await expect(terminal(page).locator('.term-answer').last()).toContainText('Staged.')
+    const res = (tool: string) => resultText(m.bodies.find((b) => toolResult(b, tool)), tool)
+    expect(res('toolu_t1')).toContain('nothing starts now')
+    expect(res('toolu_t2')).toContain('is done already')
+    expect(res('toolu_t2')).toContain('hand_on')
+    expect(res('toolu_u')).toContain('Set "Then" with task_action')
+    await expect(review(page).locator('li')).toHaveCount(1)
+    const card = item(page, 1)
+    await expect(card).toContainText('hands on to Coding and starts it when done')
+    await expect(card.getByTestId('term-tag-starts')).toHaveText('STARTS WHEN DONE')
+    await expect(card.getByTestId('term-coding-starts')).toContainText('Nothing starts now — when this task is done, a new Coding task starts on your computer')
+    await expect(card).not.toContainText('The worker is not connected')
+    // it hands on to a pipeline: never part of "apply all"
+    await card.focus()
+    await page.keyboard.press('a')
+    await expect(card).toHaveAttribute('data-status', 'pending')
+    expect(await thenOf(page, id)).toEqual([])
+
+    // an agent rewrites the task meanwhile: CONFIRM FIRST, applying is refused — the agent's stamp stays
+    await wsEval(page, (s, id) => s.updatePage(id, { updatedBy: 'agent:a1' }), id)
+    await expect(card.getByTestId('term-tag-confirm')).toHaveText('CONFIRM FIRST')
+    await applyKey(page, 1).click()
+    await expect(card).toHaveAttribute('data-status', 'failed')
+    await expect(card.locator('.term-change__error')).toContainText('Confirm the task on its page first')
+    await page.waitForTimeout(300)
+    expect(await wsEval(page, (s, id) => s.pages[id].updatedBy, id)).toBe('agent:a1')
+    expect(await thenOf(page, id)).toEqual([])
+    // and a new Then for it is refused right away
+    await run(page, 'Clear its Then')
+    await expect(terminal(page).locator('.term-answer').last()).toContainText('Tried again.')
+    expect(toolResult(m.bodies.at(-1)!, 'toolu_t3')?.is_error).toBe(true)
+    expect(res('toolu_t3')).toContain('waits for Confirm on this device')
+    await expect(review(page).locator('li')).toHaveCount(1)
+    expect(await wsEval(page, (s, id) => s.pages[id].updatedBy, id)).toBe('agent:a1')
+  })
+
+  test('text appended to a task goes to Claude Code: shown in full, GOES TO CLAUDE CODE, never in "apply all"; an edit of the task and a run staged before it both apply (the terminal’s own writes)', async ({ page, context }) => {
+    await openApp(page)
+    await setKey(page)
+    await setupCoding(page)
+    const id = await makeTask(page, { title: 'Fix login', stage: 'Backlog', repo: 'website' })
+    const extra = [...Array.from({ length: 14 }, (_, i) => `- detail ${i + 1}`), '', 'LAST LINE FOR CLAUDE CODE'].join('\n')
+    await mockAgent(context, [
+      call('toolu_ap', 'append_to_page', { id, markdown: extra }),
+      call('toolu_ed', 'edit_page', { id, edits: [{ op: 'replace_all', markdown: 'Make the login form remember the email address.' }] }),
+      call('toolu_rn', 'task_action', { id, action: 'run' }),
+      say('Staged.'),
+    ])
+    await openTerminal(page)
+    await run(page, 'Tighten the login task, add the details and run it')
+    await expect(terminal(page).locator('.term-answer')).toContainText('Staged.')
+    const append = item(page, 1)
+    await expect(append.getByTestId('term-tag-toworker')).toHaveText('GOES TO CLAUDE CODE')
+    await expect(append.getByTestId('term-full-text')).toContainText('LAST LINE FOR CLAUDE CODE')
+    await expect(append.locator('.agent-preview')).toHaveCount(0)
+    await expect(terminal(page).getByTestId('term-held')).toHaveText('2 go to the coding worker — apply each on its own')
+    // "a": only the edit (its diff shows every changed block)
+    await item(page, 2).focus()
+    await page.keyboard.press('a')
+    await expect(item(page, 2)).toHaveAttribute('data-status', 'applied')
+    await expect(append).toHaveAttribute('data-status', 'pending')
+    await expect(item(page, 3)).toHaveAttribute('data-status', 'pending')
+    // the append on its own, then the run: the task changed only through these reviewed writes — it applies
+    await applyKey(page, 1).click()
+    await expect(append).toHaveAttribute('data-status', 'applied')
+    await applyKey(page, 3).click()
+    await expect(item(page, 3)).toHaveAttribute('data-status', 'applied')
+    await expect.poll(async () => (await getLocal(page, `local:local|task|${id}`))?.runNow).toBe(true)
+    const plain = await wsEval(page, (s, id) => s.pages[id].plain as string, id)
+    expect(plain).toContain('remember the email address')
+    expect(plain).toContain('LAST LINE FOR CLAUDE CODE')
+  })
+
+  test('pages that go along: a staged page the task links is listed (marked) and shown in full; a page that appeared since and the card did not list refuses the task', async ({ page, context }) => {
+    await openApp(page)
+    await setKey(page)
+    await setupCoding(page)
+    const notes = ['Login notes', '', ...Array.from({ length: 12 }, (_, i) => `- note ${i + 1}`), '', 'NOTES LAST LINE'].join('\n')
+    const pageId = (body: AnyState) => /New page id: ([A-Za-z0-9_-]+)/.exec(resultText(body, 'toolu_cp'))?.[1] ?? 'missing'
+    await mockAgent(context, [
+      call('toolu_cp', 'create_page', { title: 'Login notes', markdown: notes }),
+      (body) => call('toolu_ct', 'create_task', { title: 'Fix login', repo: 'website', goal: `Remember the email. See [the notes](#/p/${pageId(body)}) and [the old ticket](#/p/ghostticket01).` })(),
+      say('Staged.'),
+    ])
+    await openTerminal(page)
+    await run(page, 'Write login notes and a task that uses them')
+    await expect(terminal(page).locator('.term-answer')).toContainText('Staged.')
+    const task = item(page, 2)
+    await expect(task.getByTestId('term-coding-refs')).toContainText('“Login notes” (staged — goes along once applied)')
+    await expect(task.getByTestId('term-coding-refs')).not.toContainText('ghost')
+    const pageCard = item(page, 1)
+    await expect(pageCard.getByTestId('term-tag-toworker')).toBeVisible()
+    await expect(pageCard.getByTestId('term-full-text')).toContainText('NOTES LAST LINE')
+    // a page with the other linked id appears before the apply: its text would go along unseen — refused
+    await wsEval(page, (s) => s.createPage({ id: 'ghostticket01', parentId: null, title: 'Old ticket' }))
+    await item(page, 1).focus()
+    await page.keyboard.press('a')
+    await expect(pageCard).toHaveAttribute('data-status', 'applied')
+    await expect(task).toHaveAttribute('data-status', 'failed')
+    await expect(task.locator('.term-change__error')).toContainText('The pages that go to the worker with it changed since')
+    // gone again: the task applies, the staged page (now created) goes along as listed
+    await wsEval(page, (s) => s.trashPage('ghostticket01'))
+    await applyKey(page, 2).click()
+    await expect(task).toHaveAttribute('data-status', 'applied')
+  })
+
+  test('approve shows the plan as Claude Code wrote it while the page says the same, else the section as it stands on the page; without a plan the hint is neutral', async ({ page, context }) => {
+    await openApp(page)
+    await setKey(page)
+    await setupCoding(page)
+    const id = await makeTask(page, { title: 'Fix login', stage: 'Approve plan', repo: 'website', content: [para('Remember the email.'), h2('Plan'), para('PLAN BY CLAUDE')] })
+    const bare = await makeTask(page, { title: 'Moved by hand', stage: 'Approve plan', repo: 'website' })
+    await flush(page)
+    await putLocal(page, `local:local|task|${id}`, { state: 'idle', plan: 'PLAN BY CLAUDE', planSig: planHash('PLAN BY CLAUDE'), at: 1 })
+    await reloadApp(page)
+    await mockAgent(context, [call('toolu_a1', 'task_action', { id, action: 'approve' }), call('toolu_a2', 'task_action', { id: bare, action: 'approve' }), say('Staged.'), call('toolu_a3', 'task_action', { id, action: 'approve' }), say('Again.')])
+    await openTerminal(page)
+    await run(page, 'Approve both plans')
+    await expect(terminal(page).locator('.term-answer').last()).toContainText('Staged.')
+    await expect(item(page, 1)).toContainText('What you approve — written by Claude Code')
+    await expect(item(page, 1).getByTestId('term-coding-output')).toHaveText('PLAN BY CLAUDE')
+    await expect(item(page, 2)).toContainText('No plan from this device’s worker for this stage. Read the task page before approving.')
+    await expect(item(page, 2)).not.toContainText('another device')
+    // the plan is edited on the page: the card shows what the next stage reads
+    await wsEval(page, (s, id) => s.setContent(id, { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Remember the email.' }] }, { type: 'heading', attrs: { level: 2 }, content: [{ type: 'text', text: 'Plan' }] }, { type: 'paragraph', content: [{ type: 'text', text: 'EDITED PLAN — step 3 dropped' }] }] }, 'e2e-editor'), id)
+    await run(page, 'Approve it now')
+    await expect(terminal(page).locator('.term-answer').last()).toContainText('Again.')
+    await expect(item(page, 1)).toContainText('What you approve — the section as it stands on the task page')
+    await expect(item(page, 1).getByTestId('term-coding-output')).toHaveText('EDITED PLAN — step 3 dropped')
+    await expect(item(page, 1)).toContainText('Changed on the page since Claude Code wrote it')
+  })
+
+  test('media saved from an MCP result onto a task an agent changed: applying is refused (Confirm first) and the agent’s stamp stays', async ({ page, context }) => {
+    const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64')
+    await context.route('https://media.e2e.test/**', (route) => route.fulfill({ status: 200, headers: { 'access-control-allow-origin': '*', 'content-type': 'image/png' }, body: PNG }))
+    await mockAgent(context, [
+      () =>
+        sseMessage([
+          { type: 'mcp_tool_use', id: 'mcptoolu_1', server: 'studio', name: 'generate_image', input: { prompt: 'a login form sketch' } },
+          { type: 'mcp_tool_result', id: 'mcptoolu_1', text: JSON.stringify({ status: 'completed', images: [{ url: 'https://media.e2e.test/out/sketch.png', width: 64, height: 64 }] }) },
+          { type: 'text', text: 'Here is the sketch.' },
+        ]),
+    ])
+    await openApp(page)
+    await setKey(page)
+    await wsEval(page, (s) => s.updateSettings({ mcpServers: [{ id: 'srvstudio1', name: 'studio', url: 'https://mcp.studio.test/mcp', token: 'studio-e2e-token-0001', enabled: true, prompt: 'Makes images.', promptSource: 'auto', tools: ['generate_image'], checkedAt: 1 }] }))
+    await setupCoding(page)
+    const id = await makeTask(page, { title: 'Fix login', stage: 'Backlog', repo: 'website', changedBy: 'agent:a1' })
+    await gotoPage(page, id)
+    await openTerminal(page)
+    await run(page, 'studio: a sketch for this task')
+    await expect(terminal(page).locator('.term-answer')).toContainText('Here is the sketch.')
+    const mediaCard = terminal(page).locator('[data-testid="media-card"][data-url$="sketch.png"]')
+    await mediaCard.getByTestId('media-save').click()
+    const change = terminal(page).locator('.term-change[data-kind="media"]')
+    await expect(change).toContainText('Fix login')
+    await change.getByRole('button', { name: /^Apply #/ }).click()
+    await expect(change).toHaveAttribute('data-status', 'failed')
+    await expect(change.locator('.term-change__error')).toContainText('Confirm the task on its page first')
+    await page.waitForTimeout(300)
+    expect(await wsEval(page, (s, id) => (s.pages[id].content.content as AnyState[]).filter((b) => b.type === 'image').length, id)).toBe(0)
+    expect(await wsEval(page, (s, id) => s.pages[id].updatedBy, id)).toBe('agent:a1')
   })
 })
 

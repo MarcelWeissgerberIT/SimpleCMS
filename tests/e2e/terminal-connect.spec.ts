@@ -6,7 +6,7 @@
  */
 import type { Page } from '@playwright/test'
 import { test, expect, openApp, wsEval, flush } from './fixtures'
-import { mcpError, mockAgent, openTerminal, prompt, run, say, setKey, terminal, userText, type AnyState } from './helpers/terminal'
+import { mcpError, mockAgent, openTerminal, prompt, run, say, setKey, sseMessage, terminal, userText, type AnyState, type Block } from './helpers/terminal'
 import { ACCESS1, CODES_HOST, MCP_URL, REFRESH1, mockCodeAuth, mockOAuth, mockPlainMcp, storageDump } from './helpers/oauth'
 
 const setServers = (page: Page, list: AnyState[]) => wsEval(page, (s, list) => s.updateSettings({ mcpServers: list }), list)
@@ -242,9 +242,81 @@ test.describe('AI terminal → /connect (mocked sign-in and API)', () => {
     await line.getByTestId('term-connect-usecode').click()
     await expect(line.getByTestId('term-connect-code')).toHaveText('WDJB-MJHT')
     await expect(line.getByTestId('term-connect-open')).toHaveAttribute('href', 'https://auth.codes.test/activate?user_code=WDJB-MJHT')
+    // a link that is a key: no underline, like the buttons beside it
+    expect(await line.getByTestId('term-connect-open').evaluate((el) => getComputedStyle(el).textDecorationLine)).toBe('none')
     const overflow = await terminal(page).locator('.term-scroll').evaluate((el) => el.scrollWidth - el.clientWidth)
     expect(overflow).toBeLessThanOrEqual(0)
     await expect(line).toHaveAttribute('data-phase', 'ok', { timeout: 20_000 })
     await expect(line).toContainText('Connected · 1 tool')
+  })
+
+  test('a Continue that fails because the addressed server rejected its token: after the sign-in "Run the task again" goes on with the Continue (a fresh budget, what is staged)', async ({ page, context, errors }) => {
+    errors.allow(/401|status of 400|Failed to load resource/)
+    await mockOAuth(context)
+    const many = Array.from({ length: 42 }, (_, i): Block => ({ type: 'tool_use', id: `toolu_p${i}`, name: 'create_page', input: { title: `Record ${i + 1}`, markdown: `Notes on record ${i + 1}.` } }))
+    const m = await mockAgent(
+      context,
+      [
+        () => sseMessage(many),
+        say('Reached the limit: 40 of 42 staged.'),
+        () => mcpError(`MCP server 'oauthy' returned 401 Unauthorized: invalid token`),
+        (body) => (sent(body, 'oauthy')?.authorization_token === ACCESS1 ? say('Staged the last two.')() : mcpError(`MCP server 'oauthy' returned 401 Unauthorized: invalid token`)),
+      ],
+      { inspect: () => 'TOOLS: search_records\n---\nLooks things up.' },
+    )
+    await openApp(page)
+    await setKey(page)
+    await setServers(page, [oauthy({ token: 'stale-token-0001', checkError: undefined, checkAuth: undefined, checkedAt: 1, tools: ['search_records'], codeword: 'ou' })])
+    await openTerminal(page)
+    await run(page, 'ou: make a page for every record')
+    await expect(terminal(page).getByTestId('term-continue')).toBeVisible({ timeout: 30_000 })
+    await terminal(page).getByTestId('term-continue').click()
+    const err = terminal(page).locator('.term-error').last()
+    await expect(err).toContainText('ERR · MCP_AUTH')
+    const popupP = context.waitForEvent('page')
+    await err.getByTestId('term-signin').click()
+    const popup = await popupP
+    errors.watch(popup)
+    await popup.waitForEvent('close', { timeout: 20_000 })
+    const line = connectLine(page)
+    await expect(line).toHaveAttribute('data-phase', 'ok', { timeout: 15_000 })
+    await expect(line.getByTestId('term-connect-rerun')).toBeVisible()
+    await line.getByTestId('term-connect-rerun').click()
+    await expect(terminal(page).locator('.term-answer').last()).toContainText('Staged the last two.')
+    await expect(line).toContainText('Running it again.')
+    await expect(line.getByTestId('term-connect-rerun')).toHaveCount(0)
+    const last = m.bodies.at(-1)!
+    expect(sent(last, 'oauthy')?.authorization_token).toBe(ACCESS1)
+    // the Continue again — not the first task from the start
+    expect(userText(last, (last.messages as AnyState[]).filter((x) => x.role === 'user').length - 1)).toContain('Continue the task where you stopped at the tool-call limit')
+    expect(m.bodies).toHaveLength(4)
+  })
+
+  test('without a Claude key: a server whose token works says "Not tested yet" (never "Signed in"); German keys log /verbinden', async ({ page, context, errors }) => {
+    errors.allow(/401|Failed to load resource/)
+    await mockOAuth(context)
+    await mockAgent(context, [])
+    await openApp(page)
+    await setServers(page, [atlas, oauthy()])
+    await openTerminal(page)
+    await run(page, '/connect atlas')
+    const line = connectLine(page)
+    await expect(line).toHaveAttribute('data-phase', 'ok')
+    await expect(line).toContainText('Not tested yet — the connection is tested once Claude is connected')
+    await expect(line).not.toContainText('Signed in')
+    // German: the list's sign-in key logs the German command
+    await wsEval(page, (s) => s.updateSettings({ language: 'de' }))
+    const term = terminal(page, 'KI-Terminal')
+    await term.getByRole('textbox').fill('/verbinden')
+    await term.getByRole('textbox').press('Enter')
+    const popupP = context.waitForEvent('page')
+    await term.getByTestId('term-servers').last().locator('[data-server="oauthy"]').getByRole('button').click()
+    const popup = await popupP
+    errors.watch(popup)
+    await expect(term.locator('.term-echo').last().locator('.term-echo__in')).toContainText('/verbinden oauthy')
+    await popup.waitForEvent('close', { timeout: 20_000 })
+    await expect(term.getByTestId('term-connect').last()).toHaveAttribute('data-phase', 'ok', { timeout: 15_000 })
+    // signed in for real (no key yet): "Angemeldet"
+    await expect(term.getByTestId('term-connect').last()).toContainText('Angemeldet.')
   })
 })

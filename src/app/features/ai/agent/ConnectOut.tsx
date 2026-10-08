@@ -13,7 +13,7 @@ import { HelpLink } from '../../../help'
 import { needsSignIn, readServers, refusedHere } from '../mcp-servers/config'
 import { cancelSignIn, offersCode, signedIn, useMcpSignIn } from '../mcp-servers/oauth'
 import { useMcpChecks } from '../mcp-servers/checks'
-import { codeFromTerminal, connectCommand, signInFromTerminal } from './connect'
+import { codeFromTerminal, connectCommand, connectEcho, signInFromTerminal } from './connect'
 import { currentEpoch, rerunAfterSignIn, rerunnable } from './session'
 import { useAgent, type EchoEntry } from './state'
 import type { AgentTurn } from './types'
@@ -85,7 +85,8 @@ export function ConnectLine({ entry }: { entry: EchoEntry }) {
       {phase === 'ok' && (
         <>
           <p className="term-connect__text term-connect__text--ok" role="status">
-            {c.untested ? t('features.agent.connect.untested') : t(`features.agent.connect.ok.${c.tools === 1 ? 'one' : 'other'}`, { count: c.tools ?? 0 })}
+            {/* "Signed in" only after a sign-in: a token that works, or an open server, was not signed in to */}
+            {c.untested ? t(c.how === 'signin' && !c.open ? 'features.agent.connect.untested' : 'features.agent.connect.notTested') : t(`features.agent.connect.ok.${c.tools === 1 ? 'one' : 'other'}`, { count: c.tools ?? 0 })}
           </p>
           {c.open && <p className="term-connect__text">{t('features.agent.connect.open')}</p>}
           {pinned && !pinned.names.includes(c.name) && <p className="term-connect__text">{t('features.agent.connect.newConversation', { name: c.name })}</p>}
@@ -193,7 +194,7 @@ export function ServersOut() {
               </span>
               <span className="term-server__state">{t(`features.agent.connect.state.${state}`)}</span>
               <span className="term-server__tools">{s.tools ? t(`features.agent.connect.tools.${s.tools.length === 1 ? 'one' : 'other'}`, { count: s.tools.length }) : ''}</span>
-              <button type="button" className="btn btn--sm" disabled={busy} onClick={() => connectCommand(`/connect ${s.name}`, s.name)} aria-label={`${signInKey ? t('features.ai.mcp.oauth.signIn') : t('features.agent.connect.test')} ${s.name}`}>
+              <button type="button" className="btn btn--sm" disabled={busy} onClick={() => connectCommand(connectEcho(s.name), s.name)} aria-label={`${signInKey ? t('features.ai.mcp.oauth.signIn') : t('features.agent.connect.test')} ${s.name}`}>
                 {signInKey ? <LogIn size={12} strokeWidth={1.75} aria-hidden /> : <RotateCw size={12} strokeWidth={1.75} aria-hidden />} {signInKey ? t('features.ai.mcp.oauth.signIn') : t('features.agent.connect.test')}
               </button>
             </li>

@@ -17,7 +17,7 @@ import { shortcutLabel } from '../../../ui/controls'
 import { AI_MODELS, resolveModel } from '../client'
 import { MarkdownLite } from '../MarkdownLite'
 import { closeAgent, clampHeight, removeRef, setTermHeight, stopAgent, useAgent, HEIGHT_DEFAULT, type EchoEntry } from './state'
-import { answerAsk, applyStaged, changeTarget, continueTask, contextPageId, discardAllStaged, discardStaged, emptyEnter, newTask, pickContext, rerunAfterSignIn, restoreStaged, runTask, stageMedia, startsWorker, submitPrompt, tn, undoLastBatch } from './session'
+import { answerAsk, applyStaged, appliesAlone, changeTarget, continueTask, contextPageId, discardAllStaged, discardStaged, emptyEnter, goesToWorker, newTask, pickContext, rerunAfterSignIn, restoreStaged, runTask, stage as stageApi, stageMedia, submitPrompt, tn, undoLastBatch } from './session'
 import { Menu, useMenu, type MenuEntry } from '../../../ui/Menu'
 import { setContextMode, useContextMarks, type ContextMode } from '../../../editor'
 import { effectiveMode } from '../reads'
@@ -30,7 +30,7 @@ import { loadHistory } from './history'
 import { PropDiff, Preview, SchemaDiff } from './ReviewParts'
 import { EditDiff } from './EditDiff'
 import { ScriptDiff } from './ScriptDiff'
-import { CodingDiff, useCodingFlags } from './CodingDiff'
+import { CodingDiff, FullText, useCodingFlags } from './CodingDiff'
 import { PipelinesOut } from './PipelinesOut'
 import { ConnectLine, ServersOut, SignInKey, SignInOffer, retryOf } from './ConnectOut'
 import { signInFromTerminal } from './connect'
@@ -88,8 +88,8 @@ export default function AgentSheet() {
   const focusTick = useAgent((s) => s.focusTick)
   const running = status === 'running'
   const pending = changes.filter((c) => c.status === 'pending').length
-  // proposals that start the coding worker: "Apply all" leaves them for their own ↵
-  const held = changes.filter((c) => c.status === 'pending' && startsWorker(c)).length
+  // proposals that start the coding worker or whose text goes to Claude Code: "Apply all" leaves them for their own ↵
+  const held = changes.filter((c) => c.status === 'pending' && appliesAlone(c)).length
   const applying = useAgent((s) => s.applying)
   const readOnly = useCloud((s) => s.readOnly)
   // the dock lives in the content column (below the page); without it (signed out …) it floats
@@ -217,7 +217,7 @@ export default function AgentSheet() {
             <span className="led led--on" aria-hidden />
             <span className="term-bar__count">{tn('features.agent.review.title', pending)}</span>
             {held > 0 ? (
-              <span className="term-bar__hint term-bar__hint--held" data-testid="term-held">
+              <span className="term-bar__hint term-bar__hint--held" id="term-held" data-testid="term-held">
                 {tn('features.agent.review.held', held)}
               </span>
             ) : (
@@ -227,7 +227,14 @@ export default function AgentSheet() {
             <button type="button" className="btn btn--ghost btn--sm" onClick={focusReview}>
               {t('features.agent.review.jump')}
             </button>
-            <button type="button" className="btn btn--primary btn--sm" disabled={running || readOnly || applying || held === pending} onClick={() => void applyStaged()} title={shortcutLabel('Mod+Enter')}>
+            <button
+              type="button"
+              className="btn btn--primary btn--sm"
+              disabled={running || readOnly || applying || held === pending}
+              onClick={() => void applyStaged()}
+              title={shortcutLabel('Mod+Enter')}
+              aria-describedby={held > 0 ? 'term-held' : undefined}
+            >
               {t('features.agent.review.applyAll')}
             </button>
           </div>
@@ -1095,6 +1102,20 @@ function useTitleOf() {
   )
 }
 
+/**
+ * Does a proposal's text go to Claude Code? 'task': an append to a pipeline task's page (read at its next stage) ·
+ * 'ref': a page proposed here that a proposed task (or a note / answer of a task action) links — it goes along to the
+ * worker once both are applied. Such text is shown in full, never as the shortened preview.
+ */
+function useToWorker(c: StagedChange, all: StagedChange[]): 'task' | 'ref' | null {
+  // re-read when the target page changes (it may become, or stop being, a pipeline task)
+  useWorkspace((s) => (c.kind === 'append' ? s.pages[stageApi.resolve(c.pageId)]?.databaseId : null))
+  if (c.kind === 'append' && goesToWorker(c)) return 'task'
+  if (c.kind !== 'create_page') return null
+  const linked = all.some((x) => x.kind === 'coding' && x.status !== 'discarded' && [...(x.coding?.task?.refs ?? []), ...(x.coding?.action?.refs ?? [])].some((r) => r.id === c.pageId))
+  return linked ? 'ref' : null
+}
+
 function ChangeItem({
   change: c,
   all,
@@ -1133,8 +1154,12 @@ function ChangeItem({
   const label = `#${c.n}`
   // a pipeline task: "STARTS WORKER" / "CONFIRM FIRST" (both live) — in the head, and in the name a screen reader reads
   const flags = useCodingFlags(c)
+  // text that goes to Claude Code: shown in full, tagged (an append to a task is applied on its own)
+  const toWorker = useToWorker(c, all)
   const kindLabel = c.kind === 'coding' && c.coding ? t(`features.agent.kind.coding.${c.coding.op === 'run' && c.coding.action?.retry ? 'retry' : c.coding.op}`) : t(`features.agent.kind.${c.kind}`)
-  const tags = [flags.starts && isOpen(c) ? t('features.agent.coding.starts') : '', flags.confirm ? t('features.agent.coding.confirm') : ''].filter(Boolean)
+  // Then starts nothing now: its task starts when this one is done
+  const startsTag = t(c.kind === 'coding' && c.coding?.op === 'then' ? 'features.agent.coding.startsLater' : 'features.agent.coding.starts')
+  const tags = [flags.starts && isOpen(c) ? startsTag : '', flags.confirm ? t('features.agent.coding.confirm') : '', toWorker && isOpen(c) ? t('features.agent.coding.toWorker') : ''].filter(Boolean)
   const target = c.status === 'applied' ? (c.kind === 'script' ? savedScript(c) : changeTarget(c)) : null
 
   let title: ReactNode = c.title
@@ -1174,12 +1199,17 @@ function ChangeItem({
           <span className="term-change__tags">
             {flags.starts && isOpen(c) && (
               <span className="term-tag" data-tag="starts" data-testid="term-tag-starts">
-                {t('features.agent.coding.starts')}
+                {startsTag}
               </span>
             )}
             {flags.confirm && (
               <span className="term-tag" data-tag="confirm" data-testid="term-tag-confirm">
                 {t('features.agent.coding.confirm')}
+              </span>
+            )}
+            {toWorker && isOpen(c) && (
+              <span className="term-tag" data-tag="toworker" data-testid="term-tag-toworker">
+                {t('features.agent.coding.toWorker')}
               </span>
             )}
           </span>
@@ -1233,7 +1263,10 @@ function ChangeItem({
       {!compact && c.kind === 'script' && <ScriptDiff change={c} />}
       {!compact && c.kind === 'media' && c.media && <MediaPreview media={c.media} />}
       {!compact && c.kind === 'coding' && <CodingDiff change={c} />}
-      {!compact && c.markdown?.trim() && c.kind !== 'rename' && c.kind !== 'edit' && c.kind !== 'coding' && <Preview markdown={c.markdown} append={c.kind === 'append'} />}
+      {!compact && c.markdown?.trim() && toWorker && (
+        <FullText label={t(toWorker === 'task' ? 'features.agent.coding.appendFull' : 'features.agent.coding.pageFull')} hint={toWorker === 'task' ? t('features.agent.coding.appendHint') : undefined} text={c.markdown.trim()} testId="term-full-text" />
+      )}
+      {!compact && c.markdown?.trim() && !toWorker && c.kind !== 'rename' && c.kind !== 'edit' && c.kind !== 'coding' && <Preview markdown={c.markdown} append={c.kind === 'append'} />}
       {c.status === 'failed' && c.error && <p className="term-change__error">{t(c.kind === 'edit' ? 'features.agent.review.skipped' : 'features.agent.review.failed', { error: c.error })}</p>}
       {blocked && missing && c.status === 'pending' && <p className="term-change__hint">{t('features.agent.review.needs', { n: missing.n })}</p>}
     </li>

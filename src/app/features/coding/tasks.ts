@@ -15,7 +15,7 @@ import { useWorkspace } from '../../store/store'
 import { selectRows } from '../../store/selectors'
 import { useUI } from '../../store/ui'
 import type { Database, DateValue, ID, Page, PropertyValue } from '../../store/types'
-import { readableContent } from '../../editor'
+import { docToMarkdown, readableContent } from '../../editor'
 import { claudeDoc } from '../ai/claudeDoc'
 import { navigate, parseHash } from '../../lib/router'
 import { aiWrite } from '../history/snapshots'
@@ -86,6 +86,27 @@ const headingText = (b: JSONContent) => (b.content ?? []).map((c) => c.text ?? '
 const PLAN_NAMES = () => [t('features.coding.page.plan')].map((s) => s.toLowerCase())
 
 /**
+ * The heading of a stage's output section on the task page (writePlan's `title`): the stage's name for a document /
+ * analysis stage and when the pipeline has several plan stages — else undefined ("Plan").
+ */
+export function sectionTitleOf(pipeline: ResolvedStage[], stage: ResolvedStage | null | undefined): string | undefined {
+  return stage && (stage.kind === 'doc' || stage.kind === 'analyze' || pipeline.filter((x) => x.kind === 'plan').length > 1) ? stage.name : undefined
+}
+
+/**
+ * Where a section sits among a page's blocks: its H1 / H2 named `title` (default "Plan") up to the next H1 / H2 or note
+ * (callout) — the plan's own headings sit below it (H3). null: the page has none.
+ */
+function sectionRange(blocks: JSONContent[], title?: string): { at: number; end: number } | null {
+  const names = title ? [title.toLowerCase()] : PLAN_NAMES()
+  const at = blocks.findIndex((b) => b.type === 'heading' && (b.attrs?.level ?? 1) <= 2 && names.includes(headingText(b)))
+  if (at < 0) return null
+  let end = at + 1
+  while (end < blocks.length && blocks[end]!.type !== 'callout' && !(blocks[end]!.type === 'heading' && (blocks[end]!.attrs?.level ?? 1) <= 2)) end++
+  return { at, end }
+}
+
+/**
  * Replace the page's "Plan" section (its H2 up to the next H1 / H2 or note) — or add it at the end. With more
  * than one plan stage (e.g. Analysis · Design · Test design) each writes its own section, named like the stage.
  */
@@ -93,18 +114,33 @@ export function writePlan(pageId: ID, md: string, title?: string, extra: JSONCon
   const p = ws().pages[pageId]
   if (!p) return
   const blocks = docOf(p)
-  const names = title ? [title.toLowerCase()] : PLAN_NAMES()
-  const at = blocks.findIndex((b) => b.type === 'heading' && (b.attrs?.level ?? 1) <= 2 && names.includes(headingText(b)))
+  const range = sectionRange(blocks, title)
   // the plan's own headings sit below "Plan" (H3), so the section ends at the next H1 / H2 or note (callout)
   const body = [...blocksOf(md).map((b) => (b.type === 'heading' && (b.attrs?.level ?? 1) < 3 ? { ...b, attrs: { ...b.attrs, level: 3 } } : b)), ...extra]
   const section: JSONContent[] = [{ type: 'heading', attrs: { level: 2 }, content: [{ type: 'text', text: title ?? t('features.coding.page.plan') }] }, ...body]
-  if (at < 0) blocks.push(...section)
-  else {
-    let end = at + 1
-    while (end < blocks.length && blocks[end]!.type !== 'callout' && !(blocks[end]!.type === 'heading' && (blocks[end]!.attrs?.level ?? 1) <= 2)) end++
-    blocks.splice(at, end - at, ...section)
-  }
+  if (!range) blocks.push(...section)
+  else blocks.splice(range.at, range.end - range.at, ...section)
   ws().setContent(pageId, { type: 'doc', content: blocks }, 'coding')
+}
+
+/** A stage's output section as it stands on the task page (Markdown, without its heading) — null: the page has none. */
+export function planSection(pageId: ID, title?: string): string | null {
+  const p = ws().pages[pageId]
+  if (!p) return null
+  const blocks = docOf(p)
+  const range = sectionRange(blocks, title)
+  return range ? docToMarkdown({ type: 'doc', content: blocks.slice(range.at + 1, range.end) }).trim() : null
+}
+
+/** A short hash of a text (fingerprints keep no text). */
+export function textHash(text: string): string {
+  let a = 0x811c9dc5
+  let b = 0x01234567
+  for (let i = 0; i < text.length; i++) {
+    a = Math.imul(a ^ text.charCodeAt(i), 0x01000193)
+    b = Math.imul(b ^ text.charCodeAt(i), 0x5bd1e995)
+  }
+  return `${(a >>> 0).toString(16)}${(b >>> 0).toString(16)}${text.length.toString(16)}`
 }
 
 /** Add a note at the end of the page: a callout with a label line and Markdown. */
@@ -333,6 +369,7 @@ export async function finishStage(taskId: ID, stageId: ID, outcome: StageOutcome
       break
   }
 
+  let wrote = false
   await keepTrust([taskId], () =>
     aiWrite(() => {
       if (outcome.cost && outcome.cost > 0) {
@@ -356,12 +393,17 @@ export async function finishStage(taskId: ID, stageId: ID, outcome: StageOutcome
         extra.push(...pagesNote(pages.rootId, pages.children))
       }
       // a document / analysis stage writes its own section (headed like the stage); plan stages too when there are several
-      if (doc !== null && (doc || extra.length)) writePlan(taskId, doc, stage && (stage.kind === 'doc' || stage.kind === 'analyze' || pipeline.filter((x) => x.kind === 'plan').length > 1) ? stage.name : undefined, extra)
+      if (doc !== null && (doc || extra.length)) {
+        writePlan(taskId, doc, sectionTitleOf(pipeline, stage), extra)
+        wrote = true
+      }
       if (outcome.status === 'ok' && outcome.summary && stage && (stage.kind === 'implement' || stage.kind === 'git'))
         appendNote(taskId, KIND_ICON[stage.kind] ?? 'asset:code', 'gray', `${stage.name} · ${stamp()}`, outcome.summary)
       if (moveTo) moveRow(taskId, props, moveTo.id)
     }),
   )
+  // the section as the worker wrote it (an approval shows Claude Code's text only while the page still says the same)
+  if (wrote) patch.planSig = textHash(planSection(taskId, sectionTitleOf(pipeline, stage)) ?? '')
   await patchTask(taskId, patch)
   if (passed.length) {
     appendLog(taskId, passed.map((name) => ({ t: Date.now(), k: 'info' as const, s: t('features.coding.approvals.passed', { stage: name }) })))

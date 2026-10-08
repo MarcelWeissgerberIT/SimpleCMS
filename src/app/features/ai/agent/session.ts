@@ -21,7 +21,7 @@ import { parseCommand, parseCommandText } from './commands'
 import { MAX_TOOL_CALLS, TERMINAL_TOOLS, type AgentTool, type ReadLimit, type StageApi } from './tools'
 import { CODING_RULES, CODING_TOOLS, guardPipelineRows } from './coding'
 import { connectCommand } from './connect'
-import { hasPipelines, isPipelineKind, startsNow, useCoding, type PipelineKind } from '../../coding'
+import { hasPipelines, isPipelineKind, isPipelineTask, startsNow, useCoding, type PipelineKind } from '../../coding'
 import { memoryFor, noteUse } from '../memory/use'
 import { memoryInUse, proposalsOn } from '../memory/settings'
 import { localProposal, proposeAfterTask, terminalSource, trivialTask } from '../memory/propose'
@@ -64,6 +64,8 @@ let codingTools: boolean | null = null
 let epoch = 0
 /** what a task went with (the conversation before it, its references and mentions) — "Run the task again" */
 const turnSnap = new Map<number, { before: BetaMessageParam[]; refs: TermRef[]; mentions: TermMention[] }>()
+/** this conversation's applied writes of pipeline tasks (fingerprint before → after): a task action staged before them still applies */
+const sigSteps = new Map<ID, Array<[string, string]>>()
 /** the running proposal request (after a task) */
 let proposing: AbortController | null = null
 /** undo of a saved / updated proposal, by item id */
@@ -405,7 +407,8 @@ export async function runTask(raw?: string, opts: { noMemory?: boolean; history?
   // servers addressed by a codeword always join; the others are left out while they reject their token here
   const forced = codewordsIn(task, setup.servers)?.forced ?? []
   const before = history
-  if (!prevTurn) turnSnap.set(n, { before, refs, mentions })
+  // every task, a Continue too: "Run the task again" after a sign-in sends it once more from here
+  turnSnap.set(n, { before, refs, mentions })
   const tooling = terminalSetup(withCoding, withMemTools)
   const attempt = async () => {
     const mcp = setup.servers.length ? await attachMcp(setup, 'free', { forced }) : null
@@ -567,8 +570,11 @@ export async function submitPrompt(raw?: string): Promise<void> {
       if (running) return info(input, 'features.agent.echo.wait')
       if (!pending) return info(input, 'features.agent.echo.nothingPending')
       if (useCloud.getState().readOnly) return info(input, 'features.agent.review.readOnly')
-      // every waiting proposal starts the worker: those are applied one by one
-      if (!get().changes.some((c) => c.status === 'pending' && !startsWorker(c))) return info(input, 'features.agent.echo.startsOnly')
+      const waiting = get().changes.filter((c) => c.status === 'pending')
+      // only failed proposals are left: "apply all" never retries them — each on its own
+      if (!waiting.length) return info(input, 'features.agent.echo.failedOnly')
+      // every waiting proposal goes to the coding worker: those are applied one by one
+      if (waiting.every(appliesAlone)) return info(input, 'features.agent.echo.startsOnly')
       await applyStaged()
       return
     }
@@ -695,6 +701,7 @@ export function newTask() {
   codingTools = null
   epoch += 1
   turnSnap.clear()
+  sigSteps.clear()
   proposing?.abort()
   proposing = null
   memUndo.clear()
@@ -832,16 +839,26 @@ export function undoProposal(cardId: string, itemId: string) {
 export const startsWorker = (c: StagedChange): boolean => c.kind === 'coding' && (!c.coding || startsNow(c.coding))
 
 /**
- * Apply the given changes (`ids`: Enter on an item, marked items) — or every pending one that does not start the coding
- * worker ("apply all": a, /apply, ⌘↵): those wait for their own ↵. One Undo toast reverts the batch. One apply at a
- * time: the changes are marked 'applying' before the first await, so a second key press finds nothing to apply.
+ * Text added to a pipeline task's page (append_to_page): Claude Code reads it at the task's next stage — shown in full,
+ * never part of a bulk apply. (An edit_page shows every changed block in full: it stays in the bulk apply.)
+ */
+export const goesToWorker = (c: StagedChange): boolean => c.kind === 'append' && isPipelineTask(stage.resolve(c.pageId))
+
+/** A proposal "apply all" leaves for its own ↵: it starts the coding worker, or its text goes to Claude Code. */
+export const appliesAlone = (c: StagedChange): boolean => startsWorker(c) || goesToWorker(c)
+
+/**
+ * Apply the given changes (`ids`: Enter on an item, marked items) — or every pending one that is not applied alone
+ * ("apply all": a, /apply, ⌘↵; appliesAlone: it starts the coding worker or its text goes to Claude Code — those wait
+ * for their own ↵). One Undo toast reverts the batch. One apply at a time: the changes are marked 'applying' before the
+ * first await, so a second key press finds nothing to apply.
  */
 export async function applyStaged(ids?: string[]): Promise<void> {
   if (get().applying) return
   const all = get().changes
   const open = (c: StagedChange) => c.status === 'pending' || c.status === 'failed'
-  const targets = ids ? all.filter((c) => ids.includes(c.id) && open(c)) : all.filter((c) => c.status === 'pending' && !startsWorker(c))
-  const held = ids ? 0 : all.filter((c) => c.status === 'pending' && startsWorker(c)).length
+  const targets = ids ? all.filter((c) => ids.includes(c.id) && open(c)) : all.filter((c) => c.status === 'pending' && !appliesAlone(c))
+  const held = ids ? 0 : all.filter((c) => c.status === 'pending' && appliesAlone(c)).length
   const ui = useUI.getState()
   if (!targets.length) {
     if (held) ui.toast({ message: tn('features.agent.toast.startsHeld', held), kind: 'info' })
@@ -851,7 +868,7 @@ export async function applyStaged(ids?: string[]): Promise<void> {
   set((s) => ({ applying: true, changes: s.changes.map((c) => (writing.has(c.id) ? { ...c, status: 'applying' } : c)) }))
   let res: ApplyResult
   try {
-    res = await applyChanges(targets, all, stage.resolve, { terminal: true })
+    res = await applyChanges(targets, all, stage.resolve, { terminal: true, sigSteps })
   } catch (e) {
     const error = e instanceof Error ? e.message : String(e)
     set((s) => ({ applying: false, changes: s.changes.map((c) => (writing.has(c.id) && c.status === 'applying' ? { ...c, status: 'failed', error } : c)) }))
@@ -980,7 +997,7 @@ export function emptyEnter(): EmptyEnter {
 export function rerunnable(c: NonNullable<NonNullable<EchoEntry['data']>['connect']>): boolean {
   const s = get()
   const last = s.turns[s.turns.length - 1]
-  return c.phase === 'ok' && !!c.retry && !c.retried && c.retry.epoch === epoch && !!last && last.n === c.retry.n && last.status !== 'running' && s.status !== 'running'
+  return c.phase === 'ok' && !!c.retry && !c.retried && c.retry.epoch === epoch && turnSnap.has(c.retry.n) && !!last && last.n === c.retry.n && last.status !== 'running' && s.status !== 'running'
 }
 
 /** The conversation's number now ("Sign in" keys under a task name it with their retry). */
@@ -999,5 +1016,6 @@ export function rerunAfterSignIn(entryId: string): void {
   if (!turn || !snap) return
   patchConnect(entryId, { retried: true })
   history = snap.before
-  void runTask(turn.task, { history: false, again: { refs: snap.refs, mentions: snap.mentions } })
+  // a Continue goes on again (the same task, a fresh budget, what is staged); a task runs with the chips it had
+  void runTask(turn.task, turn.continues ? { history: false, continues: turn.continues } : { history: false, again: { refs: snap.refs, mentions: snap.mentions } })
 }

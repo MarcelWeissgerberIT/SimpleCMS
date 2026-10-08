@@ -10,19 +10,23 @@ import { ExternalLink } from 'lucide-react'
 import { useT } from '../../../i18n'
 import { useWorkspace } from '../../../store/store'
 import { openPage } from '../../../lib/router'
-import { startsNow, taskNeedsConfirm, useCoding, useCodingTaskLocal } from '../../coding'
+import { newProjectNow, startsNow, taskNeedsConfirm, useCoding, useCodingTaskLocal, useCodingTrustRev, type RefPage } from '../../coding'
 import { closeAgent } from './state'
 import type { StagedChange } from './types'
 
 const isPhone = () => window.matchMedia?.('(max-width: 640px)').matches ?? false
 
-/** the actions a task must be trusted for (the rest never needs Confirm) */
-const NEEDS_TRUST = new Set(['approve', 'rework', 'answer', 'run', 'hand_on'])
+/** the actions a task must be trusted for (stop never needs Confirm) */
+const NEEDS_TRUST = new Set(['approve', 'rework', 'answer', 'run', 'then', 'hand_on'])
 
-/** Does the task of a staged action wait for "Confirm on this device" — now (re-checked when the task changes)? */
+/**
+ * Does the task of a staged action wait for "Confirm on this device" — now (re-checked when the task changes, and when
+ * this device trusts another version: Confirm on the task page while the terminal stays open)?
+ */
 function useNeedsConfirm(taskId: string | null): boolean {
   const row = useWorkspace((s) => (taskId ? s.pages[taskId] : undefined))
   const db = useWorkspace((s) => (row?.databaseId ? s.databases[row.databaseId] : undefined))
+  const rev = useCodingTrustRev()
   const [waits, setWaits] = useState(false)
   useEffect(() => {
     if (!taskId) return setWaits(false)
@@ -31,7 +35,7 @@ function useNeedsConfirm(taskId: string | null): boolean {
     return () => {
       alive = false
     }
-  }, [taskId, row, db])
+  }, [taskId, row, db, rev])
   return waits
 }
 
@@ -63,7 +67,7 @@ const Tag = ({ kind, children }: { kind: 'starts' | 'confirm' | 'branch' | 'nost
 )
 
 /** A box of text that goes to (or came from) Claude Code: all of it, plain, scrollable, focusable. */
-function FullText({ label, hint, text, testId }: { label: string; hint?: string; text: string; testId: string }) {
+export function FullText({ label, hint, text, testId }: { label: string; hint?: string; text: string; testId: string }) {
   return (
     <div className="term-full">
       <span className="term-full__label">{label}</span>
@@ -81,21 +85,30 @@ export function CodingDiff({ change: c }: { change: StagedChange }) {
   const conn = useCoding((s) => s.conn)
   const { starts, confirm } = useCodingFlags(c)
   const cd = c.coding
+  // the project an earlier create of this tab made (a "new project" create lands in it): its live title
+  const projectTitle = useWorkspace((s) => (cd?.task?.newProject ? s.pages[newProjectNow(cd.task.kind) ?? '']?.title : undefined))
   if (!cd) return null
   const pending = c.status === 'pending' || c.status === 'failed'
   const kinds = (list: string[]) => list.map((k) => t(`features.coding.pipe.${k}`)).join(', ') || '—'
-  const refsLine = (refs: Array<{ title: string }> | undefined) =>
-    refs?.length ? <p className="term-change__hint" data-testid="term-coding-refs">{t('features.agent.coding.refs', { titles: refs.map((r) => `“${r.title}”`).join(', ') })}</p> : null
+  // the pages that go along; a staged one (proposed here, created on apply) is marked
+  const refsLine = (refs: RefPage[] | undefined) =>
+    refs?.length ? (
+      <p className="term-change__hint" data-testid="term-coding-refs">
+        {t('features.agent.coding.refs', { titles: refs.map((r) => (r.staged ? t('features.agent.coding.refStaged', { title: r.title }) : `“${r.title}”`)).join(', ') })}
+      </p>
+    ) : null
   let body: React.ReactNode = null
 
   if (cd.op === 'create' && cd.task) {
     const p = cd.task
     const noStops = p.approvals === 'none' && p.git.length > 0
+    // "a new project": made by a create applied here (this one, or an earlier one — this one lands in it too)
+    const madeNow = p.newProject ? newProjectNow(p.kind) : null
     body = (
       <>
         <dl className="agent-diff" data-kind="coding">
           <Row name={t('features.agent.coding.project')}>
-            <span className="agent-diff__after">{p.newProject ? t('features.agent.coding.newProject', { kind: t(`features.coding.pipe.${p.kind}`) }) : p.project}</span>
+            <span className="agent-diff__after">{madeNow ? (projectTitle ?? p.project) : p.newProject ? t('features.agent.coding.newProject', { kind: t(`features.coding.pipe.${p.kind}`) }) : p.project}</span>
           </Row>
           <Row name={t('features.agent.coding.repo')}>
             <span className="agent-diff__after">{p.repo ?? t('features.agent.coding.noRepo')}</span>
@@ -174,7 +187,13 @@ export function CodingDiff({ change: c }: { change: StagedChange }) {
                 </Row>
               )}
             </dl>
-            {a.op === 'approve' && a.approves === 'plan' && (a.output ? <FullText label={t('features.agent.coding.approveShows')} text={a.output} testId="term-coding-output" /> : <p className="term-change__hint">{t('features.agent.coding.noOutput')}</p>)}
+            {a.op === 'approve' &&
+              a.approves === 'plan' &&
+              (a.output ? (
+                <FullText label={t(a.outputFrom === 'page' ? 'features.agent.coding.approvePage' : 'features.agent.coding.approveShows')} hint={a.edited ? t('features.agent.coding.approveEdited') : undefined} text={a.output} testId="term-coding-output" />
+              ) : (
+                <p className="term-change__hint">{t('features.agent.coding.noOutput')}</p>
+              ))}
             {a.op === 'rework' && a.note && <FullText label={t('features.agent.coding.note')} text={a.note} testId="term-coding-note" />}
             {refsLine(a.refs)}
           </>
@@ -195,7 +214,9 @@ export function CodingDiff({ change: c }: { change: StagedChange }) {
       case 'stop':
         body = <p className="term-change__line">{t('features.agent.coding.stop', { stage })}</p>
         break
-      case 'then':
+      case 'then': {
+        const after = a.then?.after ?? []
+        const adds = after.some((k) => !(a.then?.before ?? []).includes(k))
         body = (
           <dl className="agent-diff" data-kind="coding">
             <Row name={t('features.agent.coding.then')}>
@@ -203,11 +224,12 @@ export function CodingDiff({ change: c }: { change: StagedChange }) {
               <span className="agent-diff__arrow" aria-hidden>
                 →
               </span>
-              <span className="agent-diff__after">{kinds(a.then?.after ?? [])}</span>
+              <span className="agent-diff__after">{adds ? t('features.agent.coding.thenStarts', { kinds: kinds(after) }) : kinds(after)}</span>
             </Row>
           </dl>
         )
         break
+      }
       case 'hand_on':
         body = <p className="term-change__line">{t('features.agent.coding.handOn', { kind: t(`features.coding.pipe.${a.handOn ?? 'coding'}`) })}</p>
         break
@@ -215,11 +237,17 @@ export function CodingDiff({ change: c }: { change: StagedChange }) {
   }
 
   const taskId = cd.action?.taskId ?? null
+  // Then starts nothing now: a task of each added pipeline starts when this one reaches done
+  const later = cd.op === 'then'
   return (
     <>
       {body}
-      {pending && starts && <p className="term-change__hint" data-tone="signal">{t('features.agent.coding.startsHint')}</p>}
-      {pending && starts && conn !== 'connected' && <p className="term-change__hint">{t('features.agent.coding.offline')}</p>}
+      {pending && starts && (
+        <p className="term-change__hint" data-tone="signal" data-testid="term-coding-starts">
+          {later ? t('features.agent.coding.thenHint', { kinds: kinds((cd.action?.then?.after ?? []).filter((k) => !(cd.action?.then?.before ?? []).includes(k))) }) : t('features.agent.coding.startsHint')}
+        </p>
+      )}
+      {pending && starts && !later && conn !== 'connected' && <p className="term-change__hint">{t('features.agent.coding.offline')}</p>}
       {pending && confirm && taskId && (
         <p className="term-change__hint term-change__hint--keys" data-testid="term-coding-confirm">
           <span>{t('features.agent.coding.confirmHint')}</span>

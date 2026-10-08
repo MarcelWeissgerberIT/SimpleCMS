@@ -4,13 +4,20 @@
  * and calls applyNewTask / applyTaskAction only when the person applies it in the review.
  *
  *  - plan* (staging): checks a request against the live task and pins what the task looked like (stage, phase,
- *    content revision, local state, the open question) — applying refuses when anything of that changed since.
- *  - apply*: never confirms a version (the task actions run with `confirm: false`): approve / rework / answer / run /
- *    hand on are refused for a task this device has not trusted ("Confirm on this device" stays on the task page).
+ *    title + page + repo / branch / stage, local state, the open question) — applying refuses when anything of that
+ *    changed since, except through the terminal's own reviewed writes of the task applied meanwhile (a chain of
+ *    fingerprints, `SigSteps`: an edit made elsewhere breaks it).
+ *  - apply*: never confirms a version (the task actions run with `confirm: false`): every action but stop — Then too —
+ *    is refused for a task this device has not trusted ("Confirm on this device" stays on the task page). In a local
+ *    workspace a write from this tab would clear an agent's stamp (writeEndsConfirm): the terminal never writes such
+ *    a task, nor undoes into it.
  *    A task created from the terminal is trusted (createTask) — its review showed all of it: title, project, repo,
  *    branch, the whole page as the worker reads it, the pages that go along.
  *  - "starts the worker": computed from where the task lands (mirrors pickNext: automatic queues are hopped), approving
- *    into a done stage with "Then" set, and a "Then" that adds a pipeline — such changes are never part of a bulk apply.
+ *    into a done stage with "Then" set, and a "Then" that adds a pipeline to a task not done yet — such changes are never
+ *    part of a bulk apply. A done task's Then is refused (hand_on hands it on now).
+ *  - pages that go along: listed on the review, staged pages too (marked); applying refuses when the live list has a
+ *    page the review did not list.
  *  - Never offered: moving a task to any stage, Confirm, approvals, git verbs, an Import's code, pipeline edits, projects.
  *
  * Model-facing texts (CodingPlanError) are English; errors of apply* are in the person's language.
@@ -26,12 +33,12 @@ import { isAgentWriting } from '../agents/attribution'
 import { ALL_MESSAGES, t } from '../../i18n'
 import { REPO_NAME, type GitAction, type LogLine, type StageKind } from './protocol'
 import { FOLLOW_UPS, KIND_TEMPLATES, codingProps, codingReadOnly, currentProjectId, isPipelineKind, kindOfDb, nextStage, optionByName, optionName, pipelineDbIds, pipelineDbIdsOf, priorityRank, readPipeline, stageNear, templatePipeline, type CodingRole, type PipelineKind, type ResolvedStage } from './schema'
-import { BRANCH_NAME, allTasks, answerTask, approvalsOf, approveTask, createTask, defaultApprovals, followUpsOf, knownRepos, reworkTask, runTaskNow, setFollowUps, skipsGate, spawnFollowUp, startStageOf, taskBody, taskContext, workerBranches, type Approvals } from './tasks'
+import { BRANCH_NAME, allTasks, answerTask, approvalsOf, approveTask, createTask, defaultApprovals, followUpsOf, knownRepos, planSection, reworkTask, runTaskNow, sectionTitleOf, setFollowUps, skipsGate, spawnFollowUp, startStageOf, taskBody, taskContext, textHash, workerBranches, type Approvals } from './tasks'
 import { loadTask, scope, taskLocal, useCodingLocal, type TaskLocal } from './local'
-import { isTrusted, needsConfirm } from './trust'
+import { isTrusted, needsConfirm, writeEndsConfirm } from './trust'
 import { isRunning, stopTask } from './service'
 import { useCoding, type CodingConn } from './state'
-import { refPagesOf } from './refs'
+import { refPagesOf, type RefPage } from './refs'
 
 export { REPO_NAME }
 
@@ -113,6 +120,8 @@ export interface TaskBrief {
   branch: string | null
   priority: 'high' | 'medium' | 'low' | null
   then: PipelineKind[]
+  /** the follow-up tasks this device made from it (live ones: a done task "handed on") */
+  handedOn: PipelineKind[]
   cost: number
   pr: string | null
   /** Claude Code's open question (this device) — null when there is none or the page's reading is limited */
@@ -156,6 +165,8 @@ function briefOf(row: Page, stage: ResolvedStage | null, kind: PipelineKind, lim
   const pr = props.pr && typeof row.properties[props.pr] === 'string' ? (row.properties[props.pr] as string) || null : null
   const limited = !!limit?.(row.id)
   const then = FOLLOW_UPS[kind].length ? followUpsOf(row.id) : []
+  const pages = ws().pages
+  const handedOn = (Object.entries(local.spawned ?? {}) as Array<[PipelineKind, ID | undefined]>).filter(([, id]) => !!id && !!pages[id] && !pages[id]!.trashed).map(([k]) => k)
   return {
     id: row.id,
     title: row.title.trim() || t('common.untitled'),
@@ -172,6 +183,7 @@ function briefOf(row: Page, stage: ResolvedStage | null, kind: PipelineKind, lim
     branch,
     priority: priorityOf(db, row),
     then,
+    handedOn,
     cost,
     pr,
     question: phase === 'question' && !limited ? (local.question ?? null) : null,
@@ -261,11 +273,13 @@ export const SHOWN_MAX = 30
 
 /**
  * The open tasks for a live list (the terminal's /pipelines): re-reads when a pipeline row, a task's local state or the
- * worker's busy list changes; trust is checked only for the rows shown that can need it, a moment after the last change.
+ * worker's busy list changes; trust is checked only for the rows shown that can need it, a moment after the last change
+ * — again whenever a row changes or this device trusts another version (Confirm on a task page: `trustRev`).
  */
 export function useTaskBriefs(filter: TaskFilter = {}, live = true): { total: number; list: TaskBrief[] } | null {
   const rows = useWorkspace(useShallow(pipelineRows))
   const locals = useCodingLocal((s) => s.tasks)
+  const rev = useCodingLocal((s) => s.trustRev)
   const busy = useCoding((s) => s.busy)
   const [loaded, setLoaded] = useState(0)
   const [trust, setTrust] = useState<Record<ID, boolean>>({})
@@ -283,27 +297,31 @@ export function useTaskBriefs(filter: TaskFilter = {}, live = true): { total: nu
     if (!loaded) return null
     const status = filter.status ?? 'open'
     const all = candidates(filter).map((r) => briefOf(r.row, r.stage, r.kind, null))
+    // the rows that can need Confirm (checked below); the last check's answer is shown meanwhile (no flicker)
+    const needs = new Set(all.filter((b) => b.confirm === null).map((b) => b.id))
     for (const b of all) if (b.confirm === null && b.id in trust) b.confirm = !trust[b.id]
     const hit = sortBriefs(all.filter((b) => matches(b, status)))
-    return { total: hit.length, list: hit.slice(0, SHOWN_MAX) }
+    const list = hit.slice(0, SHOWN_MAX)
+    return { total: hit.length, list, check: list.filter((b) => needs.has(b.id)).map((b) => b.id).join(',') }
   }, [rows, locals, busy, loaded, trust, key]) // eslint-disable-line react-hooks/exhaustive-deps
-  // trust: only the rows shown that can need it, debounced
-  const unknown = (out?.list ?? []).filter((b) => b.confirm === null).map((b) => b.id).join(',')
+  // trust: every row shown that can need it, debounced — re-checked when a row changes (a version changed on another
+  // device) or this device trusted a version (rev)
+  const check = out?.check ?? ''
   useEffect(() => {
-    if (!live || !unknown) return
+    if (!live || !check) return
     let alive = true
     const timer = window.setTimeout(() => {
       void (async () => {
         const next: Record<ID, boolean> = {}
-        for (const id of unknown.split(',')) next[id] = await isTrusted(id)
-        if (alive) setTrust((t0) => ({ ...t0, ...next }))
+        for (const id of check.split(',')) next[id] = await isTrusted(id)
+        if (alive) setTrust((t0) => (Object.keys(next).every((id) => t0[id] === next[id]) ? t0 : { ...t0, ...next }))
       })()
     }, 250)
     return () => {
       alive = false
       window.clearTimeout(timer)
     }
-  }, [unknown, rows, live])
+  }, [check, rows, rev, live])
   return out
 }
 
@@ -367,6 +385,8 @@ export interface TaskDetail extends TaskBrief {
   /** any read limit on the task's page: Claude Code's output is withheld */
   limited: 'marked' | 'none' | null
   approvals: Approvals
+  /** the plan / document section on the task page was changed since this device's worker wrote it (the next stage reads the page's) */
+  planEdited: boolean
 }
 
 /** A task in full, for read_task. `limit` taken along by the caller before its first await. */
@@ -391,6 +411,7 @@ export async function taskDetail(id: ID, logLines = 25, limit: ReadLimitFn = nul
     log,
     limited: lim,
     approvals: approvalsOf(local),
+    planEdited: !lim && !!local.plan?.trim() && !!local.planSig && !live.pipeline.some((st) => (st.kind === 'plan' || st.kind === 'doc' || st.kind === 'analyze') && textHash(planSection(id, sectionTitleOf(live.pipeline, st)) ?? '') === local.planSig),
   }
 }
 
@@ -435,8 +456,8 @@ export interface NewTaskPlan {
   criteria: string[]
   /** the whole page as the worker reads it (the review shows all of it) */
   text: string
-  /** the pages that go along to the worker (mentioned / linked in the page) */
-  refs: Array<{ id: ID; title: string }>
+  /** the pages that go along to the worker (mentioned / linked in the page; `staged`: proposed, created on apply) */
+  refs: RefPage[]
   repo: string | null
   /** the connected worker announced the repo (false: no worker connected, or a new name in a pipeline that has no worker yet) */
   repoKnown: boolean
@@ -477,8 +498,11 @@ const kindsOf = (raw: unknown, allowed: PipelineKind[], what: string): PipelineK
   return out
 }
 
-/** Check a new task (when it is staged). Throws CodingPlanError. */
-export function planNewTask(input: NewTaskInput): NewTaskPlan {
+/** Pages the terminal proposed and did not create yet (id → title): links to them go along once they exist. */
+export type StagedPages = ReadonlyMap<ID, string>
+
+/** Check a new task (when it is staged). Throws CodingPlanError. `staged`: pages proposed in the same conversation. */
+export function planNewTask(input: NewTaskInput, opts: { staged?: StagedPages } = {}): NewTaskPlan {
   if (codingReadOnly()) throw new CodingPlanError(readOnlyText)
   const kind = input.kind ?? 'coding'
   if (!isPipelineKind(kind)) throw new CodingPlanError('"kind" must be coding, spec or qa.')
@@ -534,7 +558,7 @@ export function planNewTask(input: NewTaskInput): NewTaskPlan {
     goalDoc,
     criteria,
     text: docToMarkdown({ type: 'doc', content: body }).trim(),
-    refs: refPagesOf(body),
+    refs: refPagesOf(body, [], '', opts.staged),
     repo,
     repoKnown: !!repo && announced.includes(repo),
     branch,
@@ -556,20 +580,55 @@ function notFromAgent() {
   if (isAgentWriting()) throw new Error('not allowed here')
 }
 
+/**
+ * The project an applied create made for a kind that had none (per workspace, this tab): the other creates staged for
+ * "a new project" — in the same batch, or applied again after an Undo — land in it (its pipeline is the template their
+ * review showed; the live check below still compares it). A project made any other way (elsewhere, by hand) refuses them.
+ */
+const madeHere = new Map<string, ID>()
+const madeKey = (kind: PipelineKind) => `${scope()}|${kind}`
+
+/** The project a staged "new project" create lands in now (made by an earlier create of this tab), if any. */
+export function newProjectNow(kind: PipelineKind): ID | null {
+  const id = madeHere.get(madeKey(kind))
+  return id && currentProjectId(kind) === id ? id : null
+}
+
+/** What a task's review says about its pipeline (where it starts, whether that starts the worker, where it stops, git). */
+function pipelineLine(pipeline: ResolvedStage[], repo: boolean, start: boolean, approvals: Approvals) {
+  const first = startStageOf(pipeline, repo, start)
+  return JSON.stringify([
+    first?.name ?? null,
+    first?.kind ?? null,
+    landsOn(pipeline, first) === 'worker',
+    runsFrom(pipeline, first ?? null, approvals).stop?.name ?? null,
+    pipeline.filter((s) => s.kind === 'git').map((s) => [s.name, s.gitAction ?? 'pr']),
+  ])
+}
+
+/** Did the live list of pages that go along gain one the review did not list? */
+const newRefs = (live: RefPage[], shown: RefPage[] | undefined) => live.some((r) => !(shown ?? []).some((x) => x.id === r.id))
+
 /** Create a planned task (the person applied it). Throws an Error in the person's language. */
 export async function applyNewTask(plan: NewTaskPlan): Promise<{ id: ID; undo: () => boolean }> {
   notFromAgent()
   if (codingReadOnly()) throw new Error(t('features.coding.setup.readOnly'))
   let dbId: ID | null = plan.projectId
   if (dbId && kindOfDb(dbId) !== plan.kind) throw new Error(t('features.coding.term.err.project'))
-  // a project made meanwhile: its pipeline was not what the review showed
-  if (!dbId && currentProjectId(plan.kind)) throw new Error(t('features.coding.term.err.pipelineChanged'))
+  // a project made meanwhile: only the one an earlier create of this tab made from the same template is taken
+  if (!dbId && currentProjectId(plan.kind)) {
+    const made = newProjectNow(plan.kind)
+    if (!made) throw new Error(t('features.coding.term.err.pipelineChanged'))
+    dbId = made
+  }
   const db = dbId ? ws().databases[dbId] : undefined
   if (db?.locked && plan.repo && !optionByName(db, codingProps(db).repo, plan.repo)) throw new Error(t('features.coding.term.err.locked', { repo: plan.repo }))
-  // where it lands, again on the live pipeline: the review's start line must still be true
+  // where it lands, again on the live pipeline: the review's start, stop and git lines must still be true
   const pipeline = planPipeline(plan.kind, dbId)
-  const first = startStageOf(pipeline, !!plan.repo, plan.start)
-  if ((first?.name ?? null) !== plan.startStage || (first?.kind ?? null) !== plan.startKind || (landsOn(pipeline, first) === 'worker') !== plan.starts) throw new Error(t('features.coding.term.err.pipelineChanged'))
+  const shown = JSON.stringify([plan.startStage, plan.startKind, plan.starts, plan.stopsAt, plan.git.map((g) => [g.name, g.action])])
+  if (pipelineLine(pipeline, !!plan.repo, plan.start, defaultApprovals()) !== shown) throw new Error(t('features.coding.term.err.pipelineChanged'))
+  // the pages that go along: none the review did not list (a staged page it listed may exist by now)
+  if (newRefs(refPagesOf(taskBody({ goal: '', goalDoc: plan.goalDoc, criteria: plan.criteria, extra: [] })), plan.refs)) throw new Error(t('features.coding.term.err.refs'))
   const id = await createTask({
     kind: plan.kind,
     ...(dbId ? { dbId } : {}),
@@ -583,7 +642,10 @@ export async function applyNewTask(plan: NewTaskPlan): Promise<{ id: ID; undo: (
     start: plan.start,
     followUps: plan.then,
   })
-  dbId ??= ws().pages[id]?.databaseId ?? null
+  if (!dbId) {
+    dbId = ws().pages[id]?.databaseId ?? null
+    if (dbId) madeHere.set(madeKey(plan.kind), dbId)
+  }
   const made = ws().pages[id]
   const rev = made?.contentRev
   const title = made?.title
@@ -604,8 +666,6 @@ export async function applyNewTask(plan: NewTaskPlan): Promise<{ id: ID; undo: (
 
 export const TASK_OPS = ['approve', 'rework', 'answer', 'run', 'stop', 'then', 'hand_on'] as const
 export type TaskOp = (typeof TASK_OPS)[number]
-/** the actions that may start the worker on a task (and need a trusted version of it) */
-const TRUSTED_OPS: TaskOp[] = ['approve', 'rework', 'answer', 'run', 'hand_on']
 
 export interface TaskActionPlan {
   op: TaskOp
@@ -634,8 +694,15 @@ export interface TaskActionPlan {
   handOn?: PipelineKind
   /** approve: a gate after a plan / document stage ('plan': its text is approved) or a review gate */
   approves?: 'plan' | 'review'
-  /** what Claude Code wrote that the action approves (a plan / document) — shown in full in the review */
+  /** what the action approves (a plan / document) — shown in full in the review */
   output?: string | null
+  /**
+   * where `output` comes from: 'claude' — as Claude Code wrote it (the page's section still says the same) · 'page' —
+   * the section as it stands on the task page (changed since, or written by another device's worker): what the next
+   * stage reads. `edited`: this device has Claude Code's version, and the page's section differs from it.
+   */
+  outputFrom?: 'claude' | 'page'
+  edited?: boolean
   /** a review gate: the test result and the changed files */
   test?: { ok: boolean; code: number | null; skipped?: boolean } | null
   files?: number
@@ -644,23 +711,12 @@ export interface TaskActionPlan {
   stopsAt?: string | null
   /** approving into done hands on to these pipelines (they start) */
   spawns?: PipelineKind[]
-  /** pages that go along to the worker with the note / the answer */
-  refs?: Array<{ id: ID; title: string }>
+  /** pages that go along to the worker with the note / the answer (`staged`: proposed, created on apply) */
+  refs?: RefPage[]
   /** applying it starts the worker (as staged; re-checked live) */
   starts: boolean
   /** needed Confirm on this device when staged (the review checks it live again) */
   confirm: boolean
-}
-
-/** A short hash of a text (the fingerprint keeps no page text). */
-function hashOf(text: string): string {
-  let a = 0x811c9dc5
-  let b = 0x01234567
-  for (let i = 0; i < text.length; i++) {
-    a = Math.imul(a ^ text.charCodeAt(i), 0x01000193)
-    b = Math.imul(b ^ text.charCodeAt(i), 0x5bd1e995)
-  }
-  return `${(a >>> 0).toString(16)}${(b >>> 0).toString(16)}${text.length.toString(16)}`
 }
 
 /**
@@ -669,13 +725,47 @@ function hashOf(text: string): string {
  */
 function sigOf(ctx: NonNullable<ReturnType<typeof taskContext>>): string {
   const { row, db, props } = ctx
-  return JSON.stringify([row.title, hashOf(docToMarkdown(row.content)), optionName(db, props.repo, row.properties[props.repo ?? '']), String(row.properties[props.branch ?? ''] ?? '').trim(), ctx.stage?.id ?? null])
+  return JSON.stringify([row.title, textHash(docToMarkdown(row.content)), optionName(db, props.repo, row.properties[props.repo ?? '']), String(row.properties[props.branch ?? ''] ?? '').trim(), ctx.stage?.id ?? null])
 }
+
+/** A task's fingerprint now (null: not a pipeline task) — the terminal chains it across its own writes (SigSteps). */
+export function taskSig(id: ID): string | null {
+  const ctx = taskContext(id)
+  return ctx ? sigOf(ctx) : null
+}
+
+/**
+ * The terminal's own reviewed writes of tasks since their actions were staged, per task: fingerprint before → after.
+ * A staged action still applies when the live fingerprint is reached from its pinned one through these steps only.
+ */
+export type SigSteps = ReadonlyArray<readonly [string, string]>
+
+/** Is `now` the pinned fingerprint, or reached from it through the terminal's own writes (in their order)? */
+function sigReached(pinned: string, now: string, steps: SigSteps = []): boolean {
+  let cur = pinned
+  for (const [from, to] of steps) if (from === cur) cur = to
+  return cur === now
+}
+
+/**
+ * What an approval approves: the stage's section as Claude Code wrote it while the page still says the same, else the
+ * section as it stands on the page (what the next stage reads). null: the page has no section.
+ */
+function approvedOutput(taskId: ID, pipeline: ResolvedStage[], made: ResolvedStage, local: TaskLocal): Pick<TaskActionPlan, 'output' | 'outputFrom' | 'edited'> {
+  const onPage = planSection(taskId, sectionTitleOf(pipeline, made))
+  if (onPage === null || !onPage.trim()) return { output: null }
+  if (local.plan?.trim() && local.planSig && local.planSig === textHash(onPage)) return { output: local.plan, outputFrom: 'claude' }
+  // edited: this device's worker wrote the section and the page says something else now
+  return { output: onPage, outputFrom: 'page', ...(local.plan?.trim() && local.planSig ? { edited: true } : {}) }
+}
+
+/** The CodingPlanError for a task that waits for Confirm (no change of it is staged). */
+const confirmText = (name: string) => `${name} waits for Confirm on this device: the person must confirm it on its page first — tell them. Nothing was staged.`
 
 const TEXT_MAX = 4000
 
-/** Check a task action (when it is staged). Throws CodingPlanError. */
-export async function planTaskAction(taskId: ID, op: TaskOp, input: { note?: string; answer?: string; then?: unknown; to?: unknown } = {}): Promise<TaskActionPlan> {
+/** Check a task action (when it is staged). Throws CodingPlanError. `staged`: pages proposed in the same conversation. */
+export async function planTaskAction(taskId: ID, op: TaskOp, input: { note?: string; answer?: string; then?: unknown; to?: unknown } = {}, opts: { staged?: StagedPages } = {}): Promise<TaskActionPlan> {
   if (codingReadOnly()) throw new CodingPlanError(readOnlyText)
   if (!TASK_OPS.includes(op)) throw new CodingPlanError(`"action" must be one of ${TASK_OPS.join(', ')}.`)
   if (!taskContext(taskId)) throw new CodingPlanError(`No pipeline task with id ${q(taskId)}. Use list_tasks to get task ids.`)
@@ -717,14 +807,14 @@ export async function planTaskAction(taskId: ID, op: TaskOp, input: { note?: str
       if (!next) throw new CodingPlanError(`${q(stage.name)} is the last stage: there is nothing to approve it into.`)
       const after = runsFrom(pipeline, next, approvals)
       const spawns = next.kind === 'done' || after.stop?.kind === 'done' ? followUpsOf(taskId) : []
-      const before = stage.index > 0 ? pipeline[stage.index - 1]?.kind : undefined
-      const plan = before === 'plan' || before === 'doc' || before === 'analyze'
+      const made = stage.index > 0 ? pipeline[stage.index - 1] : undefined
+      const plan = made?.kind === 'plan' || made?.kind === 'doc' || made?.kind === 'analyze'
       return {
         ...base,
         to: next.name,
         toId: next.id,
         approves: plan ? 'plan' : 'review',
-        output: plan ? (local.plan ?? null) : null,
+        ...(plan && made ? approvedOutput(taskId, pipeline, made, local) : { output: null }),
         test: !plan && local.test ? { ok: local.test.ok, code: local.test.code, ...(local.test.skipped ? { skipped: true } : {}) } : null,
         files: !plan ? (local.git?.files.length ?? 0) : 0,
         runs: after.runs.map((s) => ({ name: s.name, kind: s.kind, ...(s.gitAction ? { gitAction: s.gitAction } : {}) })),
@@ -739,12 +829,12 @@ export async function planTaskAction(taskId: ID, op: TaskOp, input: { note?: str
       const note = text(input.note, 'note')
       const back = stageNear(pipeline, stage, ['implement', 'plan', 'doc'], -1)
       if (!back) throw new CodingPlanError(`${where}: there is no plan, implement or document stage before it to send it back to.`)
-      return { ...base, to: back.name, toId: back.id, note, refs: refPagesOf([], [note], taskId), starts: true }
+      return { ...base, to: back.name, toId: back.id, note, refs: refPagesOf([], [note], taskId, opts.staged), starts: true }
     }
     case 'answer': {
       if (phase !== 'question' || !local.question) throw new CodingPlanError(`${where}: it has no open question on this device (questions live on the device whose worker asked).`)
       const answer = text(input.answer, 'answer')
-      return { ...base, to: stage?.name ?? null, question: local.question, answer, refs: refPagesOf([], [answer], taskId), starts: true }
+      return { ...base, to: stage?.name ?? null, question: local.question, answer, refs: refPagesOf([], [answer], taskId, opts.staged), starts: true }
     }
     case 'run': {
       if (running) throw new CodingPlanError(`${where}: it is running already.`)
@@ -758,6 +848,10 @@ export async function planTaskAction(taskId: ID, op: TaskOp, input: { note?: str
     }
     case 'then': {
       if (!FOLLOW_UPS[kind].length) throw new CodingPlanError(`${kind} tasks hand on to no other pipeline.`)
+      // a field of the task like any other: never written while the task waits for Confirm
+      if (confirm) throw new CodingPlanError(confirmText(name))
+      // Then acts when a task reaches done: a done task is handed on with hand_on
+      if (stage?.kind === 'done') throw new CodingPlanError(`${name} is done already — Then only acts when a task reaches done. Use hand_on to hand it on now${FOLLOW_UPS[kind].length ? ` (to: ${FOLLOW_UPS[kind].join(' or ')})` : ''}.`)
       const after = kindsOf(input.then ?? [], FOLLOW_UPS[kind], 'then')
       const before = followUpsOf(taskId)
       return { ...base, to: null, then: { before, after }, starts: after.some((k) => !before.includes(k)) }
@@ -783,7 +877,8 @@ export function startsNow(c: { op: 'create' | TaskOp; starts: boolean; task?: Ne
   const a = c.action
   if (!a) return true
   if (a.op === 'stop') return false
-  if (a.op === 'then') return (a.then?.after ?? []).some((k) => !followUpsOf(a.taskId).includes(k))
+  // Then hands on when the task reaches done (it starts nothing on a task that is done already)
+  if (a.op === 'then') return taskContext(a.taskId)?.stage?.kind !== 'done' && (a.then?.after ?? []).some((k) => !followUpsOf(a.taskId).includes(k))
   if (a.op !== 'approve') return true
   const ctx = taskContext(a.taskId)
   const next = ctx?.stage ? nextStage(ctx.pipeline, ctx.stage) : null
@@ -791,8 +886,11 @@ export function startsNow(c: { op: 'create' | TaskOp; starts: boolean; task?: Ne
   return landsOn(ctx.pipeline, next) === 'worker' || ((next.kind === 'done' || runsFrom(ctx.pipeline, next, approvalsOf(taskLocal(a.taskId))).stop?.kind === 'done') && followUpsOf(a.taskId).length > 0)
 }
 
-/** Apply a planned action (the person applied it). Throws an Error in the person's language. `undo` null: it stays. */
-export async function applyTaskAction(plan: TaskActionPlan): Promise<{ undo: (() => boolean) | null }> {
+/**
+ * Apply a planned action (the person applied it). Throws an Error in the person's language. `undo` null: it stays.
+ * `steps`: the terminal's own reviewed writes of this task since the action was staged (SigSteps).
+ */
+export async function applyTaskAction(plan: TaskActionPlan, opts: { steps?: SigSteps } = {}): Promise<{ undo: (() => boolean) | null }> {
   notFromAgent()
   if (codingReadOnly()) throw new Error(t('features.coding.setup.readOnly'))
   const id = plan.taskId
@@ -809,25 +907,34 @@ export async function applyTaskAction(plan: TaskActionPlan): Promise<{ undo: (()
     await stopTask(id)
     return { undo: null }
   }
+  // a version this device has not trusted: only the person confirms it, on the task page — for every action that writes
+  // the task or lets the worker run it (Then too: in a local workspace the write would clear an agent's stamp)
+  if (!(await isTrusted(id))) throw new Error(t('features.coding.term.err.confirm'))
   if (plan.op === 'then') {
     const now = followUpsOf(id)
     if (JSON.stringify(now) !== JSON.stringify(plan.then?.before ?? [])) throw moved()
+    // done meanwhile: Then would start nothing (hand_on does)
+    if (ctx.stage?.kind === 'done') throw moved()
     const after = plan.then?.after ?? []
     setFollowUps(id, after)
     return {
       undo: () => {
         if (JSON.stringify(followUpsOf(id)) !== JSON.stringify(after)) return false
+        // an agent changed the task since: left alone (the write would end its wait for Confirm)
+        if (taskWriteEndsConfirm(id)) return false
         setFollowUps(id, plan.then?.before ?? [])
         return true
       },
     }
   }
-  // what the review showed must still be so: the same stage, state, content and local state
-  if ((ctx.stage?.id ?? null) !== plan.stageId || phase !== plan.phase || sigOf(ctx) !== plan.sig || (local.at ?? 0) !== plan.at) throw moved()
+  // what the review showed must still be so: the same stage, state, content (or only the terminal's own reviewed
+  // writes of it since) and local state
+  if ((ctx.stage?.id ?? null) !== plan.stageId || phase !== plan.phase || !sigReached(plan.sig, sigOf(ctx), opts.steps) || (local.at ?? 0) !== plan.at) throw moved()
   if (plan.op === 'answer' && local.question !== plan.question) throw moved()
   if (plan.op === 'approve' && (ctx.stage ? nextStage(ctx.pipeline, ctx.stage)?.id : null) !== plan.toId) throw moved()
-  // a version this device has not trusted: only the person confirms it, on the task page
-  if (TRUSTED_OPS.includes(plan.op) && !(await isTrusted(id))) throw new Error(t('features.coding.term.err.confirm'))
+  // the pages that go along with a note / an answer: none the review did not list
+  if (plan.op === 'rework' && newRefs(refPagesOf([], [plan.note ?? ''], id), plan.refs)) throw new Error(t('features.coding.term.err.refs'))
+  if (plan.op === 'answer' && newRefs(refPagesOf([], [plan.answer ?? ''], id), plan.refs)) throw new Error(t('features.coding.term.err.refs'))
   switch (plan.op) {
     case 'approve':
       await approveTask(id, { confirm: false })
@@ -862,6 +969,21 @@ export async function taskNeedsConfirm(taskId: ID): Promise<boolean> {
 export function mayNeedConfirm(taskId: ID): boolean {
   const p = ws().pages[taskId]
   return !!p && !!kindOfDb(p.databaseId) && needsConfirm(p)
+}
+
+/** A task of a pipeline (a live row of a pipeline database)? */
+export function isPipelineTask(id: ID): boolean {
+  const p = ws().pages[id]
+  return !!p && !p.trashed && !!kindOfDb(p.databaseId)
+}
+
+/**
+ * Would a write from this tab end the task's wait for Confirm (trust.ts writeEndsConfirm: a local task an agent changed
+ * last)? The terminal's Undo leaves such a task alone (sync — Undo cannot wait for a trust lookup).
+ */
+export function taskWriteEndsConfirm(taskId: ID): boolean {
+  const p = ws().pages[taskId]
+  return !!p && !!kindOfDb(p.databaseId) && writeEndsConfirm(p)
 }
 
 /** The coding role of a property of a pipeline database ('title' for its title; null: not a pipeline database / no role). */
