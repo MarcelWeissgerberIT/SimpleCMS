@@ -184,6 +184,8 @@ async function forget(flag: string[]): Promise<void> {
     } else if (kind === 'content') collectRefs(v, keep)
   }
   const docDbs = new Set<string>()
+  // the targets' custom agents (meta map `agents`): their runs, slots and saved state on this device go too
+  const agentIds = new Set<string>()
   // without a list of databases: the signed-in member's private documents are the ones there can be
   const uid = readSession()?.user.id
   const metaNames = (ws: string) =>
@@ -196,6 +198,7 @@ async function forget(flag: string[]): Promise<void> {
     try {
       await Promise.race([idb.whenSynced, sleep(4000)])
       for (const id of doc.getMap('pages').keys()) pages.add(id)
+      for (const id of doc.getMap('agents').keys()) agentIds.add(id)
       collectRefs(doc.toJSON(), refs)
     } catch {
       /* unreadable: its databases go anyway */
@@ -262,6 +265,19 @@ async function forget(flag: string[]): Promise<void> {
       return !!m && targets.has(m[1])
     })
     if (runKeys.length) await delMany(runKeys, runs).catch(() => {})
+  }
+  // custom agents of this device (features/agents/runs.ts): runs and schedule slots of the targets' agents ("runs:<agent>",
+  // "slot:<agent>") and their saved state ("state:cloud:<ws>:<agent>")
+  if (!dbNames || dbNames.includes('one-agents')) {
+    const store = createStore('one-agents', 'runs')
+    const agentKeys = (await keys(store).catch(() => [] as IDBValidKey[])).filter((k) => {
+      const key = String(k)
+      const st = /^state:cloud:([^:]+):/.exec(key)
+      if (st) return targets.has(st[1])
+      const run = /^(?:runs|slot):(.+)$/.exec(key)
+      return !!run && agentIds.has(run[1])
+    })
+    if (agentKeys.length) await delMany(agentKeys, store).catch(() => {})
   }
   // script runs and trusted script versions of this device (features/script/runtime/runs.ts): keys "cloud:<ws>|…"
   if (!dbNames || dbNames.includes('one-scripts')) {

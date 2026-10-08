@@ -10,6 +10,8 @@
  *   Rows written by agents never trigger agents (no loops).
  * - Queue: global (AGENT_CONCURRENCY at a time), at most 2 runs per workspace and 1 per agent at once.
  * - A run reads its agent and the runtime again when it starts: switched off or gone → 'skipped'.
+ * - Its context names the last successful run; the state it set (agent_state_set) is saved when it ends
+ *   ok / staged — a failed or budget run keeps the old state.
  * - Audit: one log line per run (agent, trigger, status, usage) — never content, never secrets.
  */
 import * as Y from 'yjs'
@@ -25,7 +27,7 @@ import { readAgents, serverAgents } from './sanitize.ts'
 import { decideSlot, describeSchedule, scheduleSig, slotAt, wallClock } from './schedule.ts'
 import { inScope } from './scope.ts'
 import { AgentStore } from './store.ts'
-import { type AgentRun, type CustomAgent, type TriggerType, AGENT_ACTOR, agentActor } from './types.ts'
+import { type AgentRun, type AgentStateRow, type CustomAgent, type TriggerType, AGENT_ACTOR, agentActor } from './types.ts'
 
 /** Runs of one workspace at the same time. */
 export const PER_WORKSPACE = 2
@@ -363,7 +365,13 @@ export class AgentService {
     const agent = await this.agent(job.wsId, job.agentId)
     if (!agent || agent.runner !== 'server') return skip('The agent no longer exists or does not run on the server.')
     if (!agent.enabled && job.trigger.type !== 'manual') return skip('The agent is switched off.')
-    const task = await this.taskMessage(job, agent)
+    const task = await this.taskMessage(job, agent, run.id)
+    let state: AgentStateRow | null = null
+    try {
+      state = this.store.state(job.wsId, agent.id)
+    } catch (err) {
+      this.s.log.warn('agent state unreadable', { workspace: job.wsId, agent: agent.id, error: (err as Error).message })
+    }
     let last = 0
     const outcome = await runAgent({
       s: this.s,
@@ -374,6 +382,7 @@ export class AgentService {
       agent,
       runtime: rt.runtime,
       task,
+      state,
       signal,
       progress: (snap) => {
         // progress for GET agent-runs, at most every 2 s
@@ -383,6 +392,17 @@ export class AgentService {
       },
     })
     if ((outcome.status === 'ok' || outcome.status === 'staged') && agent.output && outcome.summary) await this.report(job.wsId, agent, outcome)
+    if (outcome.state !== undefined) {
+      if (outcome.status === 'ok' || outcome.status === 'staged') {
+        try {
+          this.store.saveState(job.wsId, agent.id, outcome.state, run.id)
+          outcome.steps.push({ kind: 'note', label: `State saved for the next run (${Buffer.byteLength(outcome.state, 'utf8')} bytes).`, state: 'ok' })
+        } catch (err) {
+          this.s.log.error('agent state not saved', { workspace: job.wsId, agent: agent.id, error: (err as Error).message })
+          outcome.steps.push({ kind: 'note', label: 'The state could not be saved.', state: 'err' })
+        }
+      } else outcome.steps.push({ kind: 'note', label: 'The run did not finish: the previous state stays.', state: 'ok' })
+    }
     this.finish(job, { ...this.merge(run, outcome, outcome.status), endedAt: Date.now() })
   }
 
@@ -437,7 +457,7 @@ export class AgentService {
   }
 
   /** The user turn of a run: context, the trigger's data (as data), the task. */
-  private async taskMessage(job: AgentJob, agent: CustomAgent): Promise<string> {
+  private async taskMessage(job: AgentJob, agent: CustomAgent, runId: string): Promise<string> {
     const ws = this.s.repo.workspaceById(job.wsId)
     const now = Date.now()
     const tz = agent.trigger.type === 'schedule' ? agent.trigger.tz : 'UTC'
@@ -454,10 +474,12 @@ export class AgentService {
           : job.trigger.type === 'webhook'
             ? 'a webhook delivery (its body is below)'
             : `${job.trigger.type === 'row_created' ? 'new rows' : 'changed rows'} in the database ${quote(dbTitle ?? 'Untitled')} (listed below)`
+    const lastAt = this.store.lastSuccess(job.wsId, agent.id, runId)
     const lines = [
       `Workspace: ${quote(ws?.name ?? '')}`,
       `Now: ${local} (${tz}, ${weekday}) · ${new Date(now).toISOString().slice(0, 16)}Z`,
       `Trigger: ${trigger}`,
+      lastRunLine(lastAt, tz),
       `Scope: ${scope}`,
       `Write mode: ${agent.write === 'stage' ? 'stage changes for review' : agent.write === 'apply' ? 'apply changes directly' : 'read only'}`,
       `Model: ${agent.model ?? DEFAULT_MODEL}`,
@@ -477,6 +499,14 @@ export class AgentService {
     parts.push(`<task>\nDo your job now, as <agent_instructions> describe${what}. End with your short report.\n</task>`)
     return parts.join('\n\n')
   }
+}
+
+/** "Last successful run: <ISO> (<wall clock in the agent's time zone>)" — or the first run. */
+export function lastRunLine(at: number | null, tz: string): string {
+  if (at === null) return 'Last successful run: none — this is the first run.'
+  const w = wallClock(at, tz)
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `Last successful run: ${new Date(at).toISOString()} (${w.y}-${pad(w.m)}-${pad(w.d)} ${pad(w.h)}:${pad(w.min)} ${tz}). Look at what changed since then.`
 }
 
 /** The title property of a database (row_changed on the title compares page titles). */

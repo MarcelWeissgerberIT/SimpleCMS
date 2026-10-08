@@ -1,11 +1,12 @@
-/** One inbox item: LED · kind · page · context line · time · read / archive. */
+/** One inbox item: LED · kind · page (an agent's note without a page: the agent) · context line · time · read / archive. */
 import type { KeyboardEvent } from 'react'
 import { Archive, ArchiveRestore, Circle, CircleCheck } from 'lucide-react'
 import { useWorkspace } from '../../store/store'
+import { isEffectivelyTrashed } from '../../store/selectors'
 import { useLang, useT } from '../../i18n'
 import { PageIcon } from '../../ui/PageIcon'
 import { Tooltip } from '../../ui/Tooltip'
-import { archiveItems, eventLabel, hasTime, markRead, openInboxItem, reminderLabel, type InboxItem } from '../../features'
+import { agentLabel, archiveItems, eventLabel, hasTime, markRead, openInboxItem, reminderLabel, type InboxItem } from '../../features'
 import { fmtRelative } from '../lib/format'
 import { isUnread } from './model'
 
@@ -29,6 +30,8 @@ function useDetail(item: InboxItem): { line: string; meta: string } {
       return { line: item.excerpt ?? '', meta: t('shell.inbox.replied', { name: item.actor || t('shell.inbox.someone') }) }
     case 'assigned':
       return { line: t('shell.inbox.addedTo', { prop: propName }), meta: '' }
+    case 'agent':
+      return { line: item.excerpt ?? '', meta: item.agentId ? (agentLabel(`agent:${item.agentId}`) ?? '') : '' }
   }
 }
 
@@ -49,11 +52,19 @@ function onRowKey(e: KeyboardEvent<HTMLLIElement>, item: InboxItem) {
 export function InboxRow({ item, now }: { item: InboxItem; now: number }) {
   const t = useT()
   const lang = useLang()
-  const page = useWorkspace((s) => s.pages[item.pageId])
-  const { line, meta } = useDetail(item)
+  // an agent's note shows its page while that is alive, else the agent
+  const page = useWorkspace((s) => {
+    const p = item.pageId ? s.pages[item.pageId] : undefined
+    return p && (item.kind !== 'agent' || (!p.trashed && !isEffectivelyTrashed(s.pages, p.id))) ? p : undefined
+  })
+  const agentIcon = useWorkspace((s) => (item.agentId ? s.agents?.[item.agentId]?.icon : undefined))
+  const detail = useDetail(item)
   const unread = isUnread(item)
-  if (!page) return null
-  const title = page.title.trim() || t('common.untitled')
+  if (!page && item.kind !== 'agent') return null
+  const title = page ? page.title.trim() || t('common.untitled') : detail.meta || t('inbox.kind.agent')
+  // without a page the agent is the title already
+  const { line } = detail
+  const meta = page ? detail.meta : ''
   const time = fmtRelative(Math.min(item.at, now), lang, t('shell.inbox.justNow'))
   return (
     <li className="ibx-item" data-unread={unread || undefined} data-kind={item.kind} onKeyDown={(e) => onRowKey(e, item)}>
@@ -62,7 +73,7 @@ export function InboxRow({ item, now }: { item: InboxItem; now: number }) {
         <span className="ibx-item__kind label">{t(`inbox.kind.${item.kind}`)}</span>
         <span className="ibx-item__body">
           <span className="ibx-item__title">
-            <PageIcon icon={page.icon} kind={page.kind} size={16} />
+            {page ? <PageIcon icon={page.icon} kind={page.kind} size={16} /> : <PageIcon icon={agentIcon ?? { type: 'lucide', value: 'Cpu' }} size={16} />}
             <span className="ibx-item__name">{title}</span>
           </span>
           {line && <span className="ibx-item__line">{line}</span>}

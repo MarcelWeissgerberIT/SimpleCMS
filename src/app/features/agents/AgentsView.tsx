@@ -21,7 +21,7 @@ import { AgentEditor } from './AgentEditor'
 import { RunHistory } from './RunHistory'
 import { RECIPES, blankAgent, recipeDraft, type RecipeId } from './recipes'
 import { deleteAgent, runNow, setEnabled } from './actions'
-import { awaitsReview, loadRuns, useAgentRuns } from './runs'
+import { awaitsReview, getAgentState, loadRuns, onRunsChanged, putAgentState, useAgentRuns, type AgentState } from './runs'
 import { loadRuntime, loadServerRuns, teamId, useServerAgents } from './server'
 import { fmtUsd, fmtWhen, nextRunText, recentCost, statusLed, triggerText } from './format'
 import { runsHere } from './runner'
@@ -31,6 +31,49 @@ import './agents.css'
 
 const pad = (n: number) => String(n).padStart(2, '0')
 const EMPTY: AgentRun[] = []
+
+/**
+ * The agent's own state on this device (agent_state_set, runs.ts): its size and when a run saved it, and "Clear"
+ * (asks first) — the next run then starts as if it were the first. Nothing while no state is saved.
+ */
+function SavedState({ agent, runs }: { agent: CustomAgent; runs: AgentRun[] }) {
+  const t = useT()
+  const lang = useLang()
+  const [st, setSt] = useState<AgentState | null>(null)
+  const [tick, setTick] = useState(0)
+  useEffect(() => onRunsChanged((id) => id === agent.id && setTick((n) => n + 1)), [agent.id])
+  useEffect(() => {
+    let live = true
+    void getAgentState(agent.id).then((v) => live && setSt(v))
+    return () => {
+      live = false
+    }
+  }, [agent.id, runs, tick])
+  if (!st) return null
+  const bytes = new TextEncoder().encode(st.json).length
+  const clear = () =>
+    useUI.getState().openModal({
+      type: 'confirm',
+      title: t('features.agents.state.clearTitle', { name: agent.name }),
+      body: t('features.agents.state.clearBody'),
+      confirmLabel: t('features.agents.state.clear'),
+      onConfirm: () => {
+        void putAgentState(agent.id, null).then(() => setSt(null))
+      },
+    })
+  return (
+    <p className="agx-state" data-testid="agx-saved-state">
+      <span className="led led--ok" aria-hidden />
+      <span className="label">{t('features.agents.spec.state')}</span>
+      <span className="mono agx-state__val" title={st.json}>
+        {t('features.agents.state.res.bytes', { n: bytes })} · {fmtWhen(t, st.at, lang, Date.now())}
+      </span>
+      <button type="button" className="agx-link" onClick={clear}>
+        {t('features.agents.state.clear')}
+      </button>
+    </p>
+  )
+}
 
 /** Ticks once a minute (next-run read-outs). */
 function useMinute(): number {
@@ -410,7 +453,16 @@ function AgentDetail({ id }: { id: ID }) {
         </div>
         <div>
           <dt>MCP</dt>
-          <dd className="mono">{agent.mcpServers.length ? agent.mcpServers.map((x) => x.toUpperCase()).join(' · ') : '—'}</dd>
+          <dd className="mono">
+            {agent.mcpServers.length
+              ? agent.mcpServers
+                  .map((x) => {
+                    const only = agent.mcpTools && Object.prototype.hasOwnProperty.call(agent.mcpTools, x) ? agent.mcpTools[x] : null
+                    return only ? `${x.toUpperCase()} (${t('features.agents.spec.toolsN', { n: only.length })})` : x.toUpperCase()
+                  })
+                  .join(' · ')
+              : '—'}
+          </dd>
         </div>
         <div>
           <dt>{t('features.agents.spec.engine')}</dt>
@@ -485,6 +537,7 @@ function AgentDetail({ id }: { id: ID }) {
           {t('features.agents.runs.title')} <span className="mono faint">· {pad(runs.length)}</span>
           {agent.runner === 'browser' && <span className="agx-runsec__where faint">{t('features.agents.runs.device')}</span>}
         </h2>
+        {agent.runner === 'browser' && <SavedState agent={agent} runs={runs} />}
         <RunHistory runs={runs} empty={state === 'loading' ? t('features.agents.runs.loading') : t('features.agents.runs.none')} />
       </section>
 

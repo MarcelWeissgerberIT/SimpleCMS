@@ -2,6 +2,8 @@
  * Custom agents — run records of this device (IndexedDB "one-agents" / "runs"; never synced):
  *   runs:<agentId>   AgentRun[] newest first, the last MAX_RUNS of the agent
  *   slot:<agentId>   the newest schedule slot this device has handled (ms)
+ *   state:<ws>:<agentId>   the agent's own small memory (agent_state_set: cursors, last seen ids …) —
+ *                    `<ws>` = local:<id> | cloud:<id>; written only when a run ends ok (state.ts)
  * Every write is an atomic read-modify-write (idb-keyval update), then the other tabs are told to
  * reload that agent's runs. Without IndexedDB (private modes) everything still works in memory.
  */
@@ -9,6 +11,7 @@ import { create } from 'zustand'
 import { createStore, del, get, set, update, type UseStore } from 'idb-keyval'
 import type { ID } from '../../store/types'
 import type { AgentRun } from './types'
+import { wsKey } from './locks'
 
 export const MAX_RUNS = 100
 
@@ -130,18 +133,20 @@ export function putRun(run: AgentRun): Promise<void> {
   return job
 }
 
-/** Forget every run of an agent (it was deleted). */
+/** Forget every run of an agent (it was deleted) — and its saved state. */
 export async function dropRuns(agentId: ID): Promise<void> {
   useAgentRuns.setState((s) => {
     const byAgent = { ...s.byAgent }
     delete byAgent[agentId]
     return { byAgent }
   })
+  memState.delete(stateKey(agentId))
   const store = kv()
   if (!store) return
   try {
     await set(`runs:${agentId}`, [], store)
     await del(`slot:${agentId}`, store)
+    await del(stateKey(agentId), store)
     slots.delete(agentId)
     post(agentId)
   } catch {
@@ -186,3 +191,55 @@ export function forgetSlots(): void {
 
 /** A run with staged changes nobody has reviewed yet. */
 export const awaitsReview = (r: AgentRun) => r.status === 'staged' && (r.staged ?? []).some((c) => c.status === 'pending' || c.status === 'failed')
+
+/** A run that did its job (its writes applied or proposed): the "last successful run" of the next one. */
+export const succeeded = (r: AgentRun) => r.status === 'ok' || r.status === 'staged'
+
+/** The newest successful run of a list (newest first), leaving out `exceptId` (the run going on). */
+export const lastSuccess = (runs: AgentRun[], exceptId?: string): AgentRun | null => runs.find((r) => r.id !== exceptId && succeeded(r)) ?? null
+
+/* ------------------------------------------------------------------ the agent's own state */
+
+/** What agent_state_set saved (JSON text ≤ STATE_BYTES), when, by which run. */
+export interface AgentState {
+  json: string
+  at: number
+  runId: string
+}
+
+const stateKey = (agentId: ID) => `state:${wsKey()}:${agentId}`
+/** without IndexedDB: this tab only */
+const memState = new Map<string, AgentState>()
+
+const isState = (v: unknown): v is AgentState => !!v && typeof v === 'object' && typeof (v as AgentState).json === 'string' && typeof (v as AgentState).at === 'number'
+
+/** The agent's saved state on this device (null: nothing saved yet). */
+export async function getAgentState(agentId: ID): Promise<AgentState | null> {
+  const key = stateKey(agentId)
+  const store = kv()
+  if (store) {
+    try {
+      const v = await get<unknown>(key, store)
+      return isState(v) ? { json: v.json, at: v.at, runId: typeof v.runId === 'string' ? v.runId : '' } : null
+    } catch {
+      /* in memory only */
+    }
+  }
+  return memState.get(key) ?? null
+}
+
+/** Save the agent's state (only at the end of a successful run, state.ts) — `null` clears it. */
+export async function putAgentState(agentId: ID, state: AgentState | null): Promise<void> {
+  const key = stateKey(agentId)
+  if (state) memState.set(key, state)
+  else memState.delete(key)
+  const store = kv()
+  if (!store) return
+  try {
+    if (state) await set(key, state, store)
+    else await del(key, store)
+    post(agentId)
+  } catch {
+    /* in memory only */
+  }
+}

@@ -8,6 +8,9 @@
  * - write mode "apply" writes through the public API's own paths, attributed `agent:<agentId>`, so
  *   everyone who has the workspace open sees the change at once (and can undo it from history);
  * - write mode "none" offers no write tools at all.
+ * - every agent has agent_state_get / agent_state_set: a small JSON state of its own between runs (≤ 4 KB), saved
+ *   by the service only when the run ends ok / staged. There is no notify_me here: the inbox is per device (the app
+ *   makes its items), so a server agent has no inbox to write to — it says what is new in its report.
  *
  * Results are model-facing English text, clipped. A call that cannot be done throws ToolInputError
  * with a message Claude can act on.
@@ -24,14 +27,29 @@ import type { McpWrites } from '../mcp/writes.ts'
 import { newId } from '../tokens.ts'
 import { inScope, redact, valueText } from './scope.ts'
 import { ToolInputError, explain, holderText, intentValue, keyConflict, keyHolders, mergeProps, propsInput, settable, stageProps, type KeyHolder } from './stage.ts'
-import type { ChangeKind, CustomAgent, PropChange, StagedChange } from './types.ts'
+import type { AgentStateRow, ChangeKind, CustomAgent, PropChange, StagedChange } from './types.ts'
 import { canBeKey, isHandOnly, keyPropOf, keyText } from '../api/keys.ts'
 
 /** Characters of one page part (read_page) and of any other tool result. */
 export const PAGE_PART_CHARS = 12_000
 export const RESULT_CHARS = 16_000
 
-export type ToolName = 'search_pages' | 'read_page' | 'list_databases' | 'query_database' | 'create_page' | 'append_to_page' | 'create_row' | 'update_row' | 'upsert_rows' | 'set_page_title'
+export type ToolName =
+  | 'search_pages'
+  | 'read_page'
+  | 'list_databases'
+  | 'query_database'
+  | 'create_page'
+  | 'append_to_page'
+  | 'create_row'
+  | 'update_row'
+  | 'upsert_rows'
+  | 'set_page_title'
+  | 'agent_state_get'
+  | 'agent_state_set'
+
+/** agent_state_set: the JSON text at most (UTF-8 bytes). */
+export const STATE_BYTES = 4096
 
 export interface ToolCtx {
   s: Services
@@ -46,6 +64,8 @@ export interface ToolCtx {
   staged: StagedChange[]
   /** write mode "apply": changes written */
   applied: number
+  /** the agent's own state: as saved before the run, and what this run set (saved when it ends ok) */
+  state?: { saved: AgentStateRow | null; pending?: string }
 }
 
 export interface AgentTool {
@@ -817,8 +837,65 @@ const setPageTitle: AgentTool = {
   },
 }
 
+/* ------------------------------------------------------------------ the agent's own state */
+
+const stateGet: AgentTool = {
+  name: 'agent_state_get',
+  write: false,
+  description: () =>
+    'Read your own saved state: the small JSON value an earlier run of yours saved with agent_state_set (cursors, the last ids or times you saw, counts). Use it at the start of a recurring job to find what is new since then. "Nothing saved" means a first run, or that no run saved anything yet.',
+  input_schema: { type: 'object', properties: {}, additionalProperties: false },
+  label: () => 'agent_state_get',
+  async run(_input, ctx) {
+    const st = ctx.state
+    if (st?.pending !== undefined) return `State set in this run (saved when the run ends without an error):\n${st.pending}`
+    if (!st?.saved) return 'Nothing saved yet: this is the first run that keeps a state.'
+    return `Saved state (from the run of ${new Date(st.saved.at).toISOString()}):\n${st.saved.json}`
+  },
+}
+
+/** The JSON text agent_state_set was given (a JSON string, or a JSON value as is), compact. */
+export function stateJson(raw: unknown): string {
+  let value: unknown = raw
+  if (typeof raw === 'string') {
+    try {
+      value = JSON.parse(raw)
+    } catch {
+      throw new ToolInputError('"json" must be valid JSON (an object, an array, a string, a number …).')
+    }
+  }
+  if (value === undefined) throw new ToolInputError('Missing required parameter "json".')
+  const text = JSON.stringify(value)
+  if (typeof text !== 'string') throw new ToolInputError('"json" must be a JSON value.')
+  const n = Buffer.byteLength(text, 'utf8')
+  if (n > STATE_BYTES) throw new ToolInputError(`The state is too large (${n} bytes, at most ${STATE_BYTES}): keep only cursors and ids, not content.`)
+  return text
+}
+
+const stateSet: AgentTool = {
+  name: 'agent_state_set',
+  write: false,
+  description: () =>
+    `Save your state for the next run: one JSON value (at most ${STATE_BYTES} bytes) that replaces the saved one — e.g. {"cursor": "2026-10-08T06:00:00Z", "seen": ["#8215"]}. It is kept only if this run ends without an error or a budget stop (then the old state stays), so save it once the work it stands for is done; the last call of a run wins. Cursors and ids only — never secrets or page content.`,
+  input_schema: {
+    type: 'object',
+    properties: { json: { type: 'string', description: 'The state as JSON text, e.g. {"cursor":"2026-10-08T06:00:00Z"}.' } },
+    required: ['json'],
+    additionalProperties: false,
+  },
+  label: () => 'agent_state_set',
+  async run(input, ctx) {
+    const text = stateJson(input.json)
+    ctx.state = { saved: ctx.state?.saved ?? null, pending: text }
+    return `State set (${Buffer.byteLength(text, 'utf8')} bytes). It is saved when this run ends without an error; the next run reads it with agent_state_get.`
+  },
+}
+
 /** Stable order: the tool list is part of the cached prompt prefix. */
 export const AGENT_TOOLS: AgentTool[] = [searchPages, readPage, listDatabases, queryDatabase, createPage, appendToPage, createRow, updateRow, upsertRows, setPageTitle]
 
-/** The tools of an agent's write mode ("none": reads only). */
-export const toolsFor = (write: CustomAgent['write']) => AGENT_TOOLS.filter((t) => write !== 'none' || !t.write)
+/** Every agent's own tools (after the workspace tools; no notify_me on the server — see above). */
+export const STATE_TOOLS: AgentTool[] = [stateGet, stateSet]
+
+/** The tools of an agent's write mode ("none": reads only) — and the state tools. */
+export const toolsFor = (write: CustomAgent['write']) => [...AGENT_TOOLS.filter((t) => write !== 'none' || !t.write), ...STATE_TOOLS]

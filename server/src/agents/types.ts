@@ -33,6 +33,8 @@ export interface CustomAgent {
   write: WriteMode
   output: { pageId: string; mode: 'append' | 'replace' } | null
   mcpServers: string[]
+  /** per attached MCP server: the only tools the agent may use (absent / no entry = all, [] = none: left out) */
+  mcpTools?: Record<string, string[]>
   runner: 'browser' | 'server'
   model: string | null
   effort: Effort | null
@@ -112,6 +114,13 @@ export interface AgentRun {
   applied?: number
   usage?: RunUsage
   error?: string | null
+}
+
+/** An agent's own small state between runs (agent_state_set; sealed at rest, saved only when a run ends ok). */
+export interface AgentStateRow {
+  json: string
+  at: number
+  runId: string
 }
 
 /** What a workspace's server runtime holds (sealed at rest; secrets never leave the server). */

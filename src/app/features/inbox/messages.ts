@@ -8,6 +8,7 @@ export const messages: Messages = {
     'inbox.kind.mention': 'Mention',
     'inbox.kind.comment': 'Reply',
     'inbox.kind.assigned': 'Assigned',
+    'inbox.kind.agent': 'Agent',
 
     'inbox.remind.label': 'Remind',
     'inbox.remind.none': 'No reminder',
@@ -48,6 +49,7 @@ export const messages: Messages = {
     'inbox.kind.mention': 'Erwähnung',
     'inbox.kind.comment': 'Antwort',
     'inbox.kind.assigned': 'Zugewiesen',
+    'inbox.kind.agent': 'Agent',
 
     'inbox.remind.label': 'Erinnern',
     'inbox.remind.none': 'Keine Erinnerung',

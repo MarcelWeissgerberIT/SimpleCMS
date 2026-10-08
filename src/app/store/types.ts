@@ -1196,6 +1196,12 @@ export interface CustomAgent {
   output?: { pageId: ID | null; mode: 'append' | 'replace' } | null
   /** MCP server NAMES (browser: settings.mcpServers · server: the server runtime's list) */
   mcpServers: string[]
+  /**
+   * Per attached MCP server (by name): the only tools the agent may use (the MCP connector's toolset with
+   * every other tool switched off). Absent — or no entry for a server — = all its tools; [] = none (the
+   * server is left out). Tool names `[A-Za-z0-9_.-]`, ≤ 200 per server; entries only for `mcpServers`.
+   */
+  mcpTools?: Record<string, string[]>
   runner: 'browser' | 'server'
   /** null = the workspace default */
   model?: string | null
