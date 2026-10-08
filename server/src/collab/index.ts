@@ -9,7 +9,7 @@ import { isSameOrigin } from '../http/security.ts'
 import type { Logger } from '../log.ts'
 import type { Repo, Role } from '../repo.ts'
 import { guardAgentAuthors } from './agent-authors.ts'
-import { guardWorkspaceLook } from './workspace-look.ts'
+import { guardIntegrations, guardWorkspaceLook } from './workspace-look.ts'
 import { metaName, parseDocName } from './names.ts'
 
 export const COLLAB_PATH = '/collab'
@@ -105,6 +105,8 @@ export function createCollab(deps: { config: Config; log: Logger; repo: Repo; se
         // the workspace look: owners and admins only (docs/CLOUD.md § Meta document schema)
         // (the member's role now — not the one their socket opened with)
         document.on('destroy', guardWorkspaceLook(document, { workspaceId: doc.workspaceId, log, roleOf: (userId) => repo.memberRole(doc.workspaceId, userId) }))
+        // integration profiles: the same (docs/CLOUD.md § Meta document schema → integrations)
+        document.on('destroy', guardIntegrations(document, { workspaceId: doc.workspaceId, log, roleOf: (userId) => repo.memberRole(doc.workspaceId, userId) }))
       }
     },
 

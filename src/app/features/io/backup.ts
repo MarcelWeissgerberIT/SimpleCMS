@@ -8,6 +8,7 @@ import { useWorkspace, getWorkspaceSnapshot, descendantIds, defaultSettings } fr
 import { migrate } from '../../store/persistence'
 import { COLOR_NAMES, type Database, type ID, type Kit, type KitEntry, type Page, type Settings, type Workspace } from '../../store/types'
 import { emptyKit } from '../../store/kit'
+import { integrationsAllowed } from '../../store/integrations'
 import { FILE_PREFIX, getFile, readAsDataUrl, saveFile } from '../../lib/files'
 import { newId } from '../../lib/ids'
 import { useCloud } from '../../cloud'
@@ -93,11 +94,13 @@ export async function buildBackup(rootId: ID | null, onProgress?: (done: number,
   const { pages, topId } = scoped
   // (database commands' webhooks too: features/commands)
   const databases = rootId ? Object.fromEntries(Object.entries(scoped.databases).map(([id, db]) => [id, withoutCommandSecrets(withoutWebhookSecrets(db))])) : scoped.databases
-  // the workspace look belongs to the whole workspace: full backups carry it, a page backup never does
-  const { look, ...rest } = snap
+  // the workspace look and the integration profiles belong to the whole workspace: full backups carry them, a page
+  // backup never does
+  const { look, integrations, ...rest } = snap
   const workspace: Workspace = {
     ...rest,
     ...(look && !rootId ? { look } : {}),
+    ...(integrations?.length && !rootId ? { integrations } : {}),
     pages: topId && pages[topId] ? { ...pages, [topId]: { ...pages[topId], parentId: null } } : pages,
     databases,
     // never export the API key, nor the MCP servers' token markers
@@ -361,13 +364,24 @@ export async function applyBackup(b: Backup, mode: 'merge' | 'replace', onProgre
       settings: { ...source.settings, aiApiKey: snap.settings.aiApiKey || source.settings.aiApiKey },
       // this device's recent pages stay (where they still exist) — an older backup's list is never taken over
       recent: snap.recent.filter((id) => !!pages[id]),
+      // a page backup carries no integration profiles: this workspace's stay
+      integrations: b.scope === 'page' ? snap.integrations : source.integrations,
     })
     return { target: rootId ?? source.settings.startPageId ?? firstRoot(pages), mode, added, updated, unchanged, files }
   }
 
   const people = [...snap.people]
   for (const person of source.people) if (!people.some((x) => x.id === person.id)) people.push(person)
-  store.replaceAll({ ...snap, pages, databases, people, functions: mergeFunctions(snap.functions, source.functions), kit: mergeKit(snap.kit, source.kit) })
+  store.replaceAll({
+    ...snap,
+    pages,
+    databases,
+    people,
+    functions: mergeFunctions(snap.functions, source.functions),
+    kit: mergeKit(snap.kit, source.kit),
+    // integration profiles: only someone who may edit them takes a backup's along (team: owners and admins)
+    integrations: integrationsAllowed() ? mergeIntegrations(snap.integrations, source.integrations) : snap.integrations,
+  })
   const target = rootId && pages[rootId] ? rootId : firstRoot(incoming.pages) ?? firstRoot(source.pages)
   return { target, mode, added, updated, unchanged, files }
 }
@@ -383,6 +397,17 @@ function mergeFunctions(local: Workspace['functions'], incoming: Workspace['func
     if (cur && cur.updatedAt >= fn.updatedAt) continue
     if (Object.values(out).some((f) => f.id !== fn.id && f.name === fn.name)) continue
     out[fn.id] = fn
+  }
+  return out
+}
+
+/** Integration profiles of a merge (already checked by migrate): new ones are added, a newer copy of one we have replaces it. */
+function mergeIntegrations(local: Workspace['integrations'], incoming: Workspace['integrations']): NonNullable<Workspace['integrations']> {
+  const out = [...(local ?? [])]
+  for (const p of incoming ?? []) {
+    const at = out.findIndex((x) => x.id === p.id)
+    if (at < 0) out.push(p)
+    else if ((out[at].updatedAt ?? 0) < (p.updatedAt ?? 0)) out[at] = p
   }
   return out
 }

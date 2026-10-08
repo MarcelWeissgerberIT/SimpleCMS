@@ -18,8 +18,10 @@ import { agentEditor, sanitizeAgent } from './agents'
 import { sanitizeScript } from './scripts'
 import { emptyKit, optionsOfList, sanitizeList, sanitizePropType, sanitizeRecordType, storedTypeOf, syncRecordTypeInto } from './kit'
 import { lookAllowed, sameLook, sanitizeLook } from './look'
+import { integrationsAllowed, sameIntegration, sanitizeIntegration, sanitizeIntegrations } from './integrations'
 import type {
   CustomAgent,
+  IntegrationProfile,
   CustomFunction,
   CustomPropType,
   Kit,
@@ -228,6 +230,14 @@ export interface WorkspaceState extends Workspace {
    */
   setLook: (look: WorkspaceLook | null) => boolean
 
+  /**
+   * Integration profiles (features/agents/integrations): insert or replace by id (sanitized; updatedAt / updatedBy are
+   * set here) · remove. False when refused: not a profile, or a team member who is not an owner or admin (the server
+   * puts such a change back too).
+   */
+  upsertIntegration: (profile: IntegrationProfile) => boolean
+  deleteIntegration: (id: string) => boolean
+
   // building blocks (features/kit): insert or replace by id (sanitized; updatedAt / updatedBy are set here) · remove.
   // upsertList copies the items into every property bound to the list (PropertyDef.listId); upsertPropType binds
   // the properties of that type to its list; upsertRecordType brings every database holding the type in step
@@ -278,6 +288,8 @@ export interface CloudPatch {
   kit?: { lists?: Record<ID, OptionList | null>; propTypes?: Record<ID, CustomPropType | null>; recordTypes?: Record<ID, RecordType | null> }
   /** the workspace look (`null` = the standard look; already sanitized) */
   look?: WorkspaceLook | null
+  /** every integration profile (the whole list; already sanitized) */
+  integrations?: IntegrationProfile[]
 }
 
 const now = () => Date.now()
@@ -500,7 +512,7 @@ export const useWorkspace = create<WorkspaceState>()(
       set((s) => {
         const look = sanitizeLook(ws.look)
         const before = get().look
-        Object.assign(s, ws, { pages: freezePages(ws.pages), settings, functions: ws.functions ?? {}, agents: ws.agents ?? {}, scripts: ws.scripts ?? {}, kit: ws.kit ?? emptyKit() })
+        Object.assign(s, ws, { pages: freezePages(ws.pages), settings, functions: ws.functions ?? {}, agents: ws.agents ?? {}, scripts: ws.scripts ?? {}, kit: ws.kit ?? emptyKit(), integrations: sanitizeIntegrations(ws.integrations).integrations })
         // the same look keeps its reference (subscribers compare by reference)
         s.look = sameLook(look, before ?? null, { meta: true }) ? before : (look ?? undefined)
         s.ready = true
@@ -521,6 +533,10 @@ export const useWorkspace = create<WorkspaceState>()(
         s.agents = ws.agents ?? {}
         s.scripts = ws.scripts ?? {}
         s.kit = ws.kit ?? emptyKit()
+        // integration profiles: the same list keeps its reference (the team binding would re-send a copy)
+        const integrations = sanitizeIntegrations(ws.integrations).integrations
+        const cur = s.integrations ?? []
+        if (integrations.length !== cur.length || integrations.some((p, i) => !sameIntegration(p, cur[i]))) s.integrations = integrations
         // an import / merged backup carries the current look along: keep the reference when it is the same one
         // (a new object would read as a change — the team binding would re-send it)
         const look = sanitizeLook(ws.look)
@@ -533,6 +549,29 @@ export const useWorkspace = create<WorkspaceState>()(
       set((s) => {
         // never `delete s.look`: zustand merges the next state into the previous one, a missing key stays
         s.look = clean ?? undefined
+      })
+      return true
+    },
+
+    upsertIntegration: (profile) => {
+      if (!integrationsAllowed()) return false
+      const clean = sanitizeIntegration({ ...JSON.parse(JSON.stringify(profile)), updatedAt: now(), updatedBy: agentEditor() })
+      if (!clean) return false
+      set((s) => {
+        const list = [...(s.integrations ?? [])]
+        const at = list.findIndex((p) => p.id === clean.id)
+        if (at >= 0) list[at] = clean
+        else list.push(clean)
+        s.integrations = list
+      })
+      return true
+    },
+
+    deleteIntegration: (id) => {
+      if (!integrationsAllowed()) return false
+      if (!(get().integrations ?? []).some((p) => p.id === id)) return false
+      set((s) => {
+        s.integrations = (s.integrations ?? []).filter((p) => p.id !== id)
       })
       return true
     },
@@ -1199,6 +1238,7 @@ export const useWorkspace = create<WorkspaceState>()(
         if (patch.look !== undefined) {
           s.look = patch.look ?? undefined
         }
+        if (patch.integrations) s.integrations = patch.integrations
         if (patch.settings) Object.assign(s.settings, withSealedKey({ ...s.settings, ...patch.settings }, s.settings.aiApiKey, s.epoch))
         if (removed && s.recent.some((r) => !s.pages[r])) s.recent = s.recent.filter((r) => !!s.pages[r])
       }),
@@ -1272,5 +1312,6 @@ export function getWorkspaceSnapshot(): Workspace {
     scripts: s.scripts ?? {},
     kit: s.kit ?? emptyKit(),
     ...(s.look ? { look: s.look } : {}),
+    integrations: s.integrations ?? [],
   }
 }
