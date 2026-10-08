@@ -250,6 +250,30 @@ test.describe('the biggest text size still fits', () => {
     await page.getByRole('switch', { name: 'Set Carbon colours separately' }).click()
     await fits(page, 'workspace/look (XL, phone)', '.wsp__main')
   })
+
+  test('code areas at XL: the agent job, a code block bar, the One Script editor (1280 × 720 and 390 × 844)', async ({ page }) => {
+    await page.addInitScript(() => localStorage.setItem('one.textScale', '4'))
+    await openApp(page)
+    const id = await createPage(page, { title: 'Code at XL', content: doc({ type: 'codeBlock', attrs: { language: 'json' }, content: [{ type: 'text', text: '{\n  "a": [1, 2],\n  "b": true,\n}' }] }) })
+    await wsEval(page, (s) => {
+      const now = Date.now()
+      s.upsertScript({ id: 'scXl', name: 'XL', code: 'let n = 1\nfor t in [1, 2] {\n  t.set(Priority: "High"\n  notify("x")\n}\n', kind: 'script', createdAt: now, updatedAt: now })
+    })
+    for (const size of [{ width: 1280, height: 720 }, { width: 390, height: 844 }]) {
+      await page.setViewportSize(size)
+      const at = `${size.width}`
+      await page.evaluate(() => (window.location.hash = '#/agents'))
+      await page.getByRole('button', { name: /Blank/ }).first().click()
+      await page.getByTestId('agx-job').locator('textarea').fill('## Job\n1. Use create_row for [EVERY ITEM] and keep [THE LIST] short.')
+      await fits(page, `agent job (XL, ${at})`)
+      await gotoPage(page, id)
+      await page.locator('#main .code-block code').click()
+      await fits(page, `code block (XL, ${at})`, '#main .code-block')
+      await page.evaluate(() => (window.location.hash = '#/scripts/scXl'))
+      await expect(page.locator('.sc-code__input')).toBeVisible()
+      await fits(page, `One Script editor (XL, ${at})`, '.sc-code')
+    }
+  })
 })
 
 /* ------------------------------------------------------------------ resize grip */
