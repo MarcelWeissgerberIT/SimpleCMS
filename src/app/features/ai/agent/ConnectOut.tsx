@@ -11,9 +11,9 @@ import { useWorkspace } from '../../../store/store'
 import { useUI } from '../../../store/ui'
 import { HelpLink } from '../../../help'
 import { needsSignIn, readServers, refusedHere } from '../mcp-servers/config'
-import { cancelSignIn, offersCode, signInWithCode, signedIn, useMcpSignIn } from '../mcp-servers/oauth'
+import { cancelSignIn, offersCode, signedIn, useMcpSignIn } from '../mcp-servers/oauth'
 import { useMcpChecks } from '../mcp-servers/checks'
-import { connectCommand, signInFromTerminal } from './connect'
+import { codeFromTerminal, connectCommand, signInFromTerminal } from './connect'
 import { currentEpoch, rerunAfterSignIn, rerunnable } from './session'
 import { useAgent, type EchoEntry } from './state'
 import type { AgentTurn } from './types'
@@ -66,7 +66,7 @@ export function ConnectLine({ entry }: { entry: EchoEntry }) {
           </p>
           <div className="term-keys">
             {server && offersCode(server) && (
-              <button type="button" className="btn btn--sm" onClick={() => void signInWithCode(c.serverId).catch(() => {})} data-testid="term-connect-usecode">
+              <button type="button" className="btn btn--sm" onClick={() => codeFromTerminal(entry.id, c.serverId)} data-testid="term-connect-usecode">
                 <KeyRound size={12} strokeWidth={1.75} aria-hidden /> {t('features.ai.mcp.oauth.useCode')}
               </button>
             )}
@@ -182,7 +182,7 @@ export function ServersOut() {
           const busy = !!running[s.id] || ['working', 'waiting', 'code'].includes(signing[s.id]?.phase ?? '')
           const state = !s.enabled ? 'off' : busy ? 'checking' : needsSignIn(s) ? 'signIn' : s.checkError ? 'error' : signedIn(s) ? 'signedIn' : s.token ? 'token' : 'open'
           const led = state === 'off' ? 'led' : state === 'checking' ? 'led led--on ai-led--live' : state === 'signIn' || state === 'error' || refusedHere(s) ? 'led ai-led--err' : 'led led--ok'
-          const signInKey = needsSignIn(s) || !!s.oauth
+          const signInKey = needsSignIn(s)
           return (
             <li key={s.id} className="term-server" data-server={s.name} data-state={state}>
               <span className={led} aria-hidden />

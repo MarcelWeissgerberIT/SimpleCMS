@@ -618,7 +618,7 @@ export interface TaskActionPlan {
   stageId: ID | null
   stage: string | null
   phase: TaskPhase
-  /** title + content revision + repo / branch / stage, and this device's local state (its last change) */
+  /** title + the page (a hash of its Markdown) + repo / branch / stage, and this device's local state (its last change) */
   sig: string
   at: number
   /** approve / rework: where it goes */
@@ -652,10 +652,24 @@ export interface TaskActionPlan {
   confirm: boolean
 }
 
-/** The task's fingerprint: title, content revision, repo / branch / stage. */
+/** A short hash of a text (the fingerprint keeps no page text). */
+function hashOf(text: string): string {
+  let a = 0x811c9dc5
+  let b = 0x01234567
+  for (let i = 0; i < text.length; i++) {
+    a = Math.imul(a ^ text.charCodeAt(i), 0x01000193)
+    b = Math.imul(b ^ text.charCodeAt(i), 0x5bd1e995)
+  }
+  return `${(a >>> 0).toString(16)}${(b >>> 0).toString(16)}${text.length.toString(16)}`
+}
+
+/**
+ * The task's fingerprint: title, its page as the worker reads it (Markdown — an editor normalising the page when it
+ * opens changes nothing), repo / branch / stage.
+ */
 function sigOf(ctx: NonNullable<ReturnType<typeof taskContext>>): string {
   const { row, db, props } = ctx
-  return JSON.stringify([row.title, row.contentRev ?? 0, optionName(db, props.repo, row.properties[props.repo ?? '']), String(row.properties[props.branch ?? ''] ?? '').trim(), ctx.stage?.id ?? null])
+  return JSON.stringify([row.title, hashOf(docToMarkdown(row.content)), optionName(db, props.repo, row.properties[props.repo ?? '']), String(row.properties[props.branch ?? ''] ?? '').trim(), ctx.stage?.id ?? null])
 }
 
 const TEXT_MAX = 4000

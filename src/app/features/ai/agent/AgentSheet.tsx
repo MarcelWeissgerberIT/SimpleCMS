@@ -1452,7 +1452,8 @@ function Prompt({ disabled, onReview }: { disabled: boolean; onReview: () => boo
       // Enter takes the highlighted entry, unless the command (or /connect's server) is typed out already
       if (e.key === 'Enter' && !e.shiftKey) {
         const typed = draft.slice(comp.from, comp.to)
-        if (!((comp.kind === 'command' || comp.kind === 'server') && comp.items.some((x) => x.insert.trim() === typed.trim()))) {
+        const exact = comp.items.some((x) => x.insert.trim() === typed.trim() || (!!x.server && (x.server.name === comp.query || x.server.codeword === comp.query)))
+        if (!((comp.kind === 'command' || comp.kind === 'server') && exact)) {
           e.preventDefault()
           accept(comp, active)
           return

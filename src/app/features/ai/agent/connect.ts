@@ -11,7 +11,7 @@
  */
 import { isAIConfigured } from '../client'
 import { MAX_SERVERS, addServer, findServer, needsSignIn, patchServer, readServers } from '../mcp-servers/config'
-import { OAuthError, signIn } from '../mcp-servers/oauth'
+import { OAuthError, signIn, signInWithCode } from '../mcp-servers/oauth'
 import { checkServer, whenChecked } from '../mcp-servers/checks'
 import { patchConnect, pushEcho, type ConnectState } from './state'
 
@@ -64,13 +64,27 @@ export function connectCommand(input: string, arg: string, retry?: ConnectState[
   const how: ConnectState['how'] = added || needsSignIn(server) ? 'signin' : 'test'
   const id = server.id
   const entry = pushEcho(input, 'connect', { connect: { serverId: id, name: server.name, host: hostOf(server.url), how, phase: 'working', ...(added ? { added } : {}), ...(switchedOn ? { switchedOn } : {}), ...(retry ? { retry } : {}) } })
-  if (how === 'signin')
-    // the window opens right here, inside the key press
-    signIn(id, { sameTab: false }).then(
-      () => void afterSignIn(entry, id),
-      (e: unknown) => void onSignInError(entry, id, e),
-    )
+  // the window opens right here, inside the key press
+  if (how === 'signin') track(entry, id, signIn(id, { sameTab: false }))
   else void runTest(entry, id)
+}
+
+/** the sign-in attempt a line follows (a code started from it replaces the window's: only the newest reports) */
+const attempts = new Map<string, number>()
+
+function track(entry: string, id: string, p: Promise<void>): void {
+  const n = (attempts.get(entry) ?? 0) + 1
+  attempts.set(entry, n)
+  p.then(
+    () => attempts.get(entry) === n && void afterSignIn(entry, id),
+    (e: unknown) => attempts.get(entry) === n && void onSignInError(entry, id, e),
+  )
+}
+
+/** "Use a code instead" on a line waiting for its window (a click: the window opens for the code page). */
+export function codeFromTerminal(entry: string, id: string): void {
+  patchConnect(entry, { phase: 'working', issue: undefined, detail: undefined })
+  track(entry, id, signInWithCode(id))
 }
 
 /** "Sign in to <server>" under a task (a key, or ↵ on the empty prompt): /connect <server> logged and started. */
