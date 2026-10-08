@@ -65,7 +65,7 @@ describe('handshake', () => {
     const tab = await connect()
     const welcome = await tab.next('welcome')
     assert.equal(welcome.name, 'test-box')
-    assert.deepEqual(welcome.repos, [{ name: 'demo', baseBranch: 'main', branches: ['main'] }])
+    assert.deepEqual(welcome.repos, [{ name: 'demo', baseBranch: 'main', branches: ['main'], mcp: [] }])
     assert.equal(welcome.claude.found, true)
     assertNoPaths(tab, r)
 
