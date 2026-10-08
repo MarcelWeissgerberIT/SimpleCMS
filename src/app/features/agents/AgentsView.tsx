@@ -1,7 +1,7 @@
 /**
  * #/agents — custom agents as instrument cards (LED status, trigger, next run, last run, cost of the
- * last runs, what waits for review), "New agent" from a starter recipe (the mirror recipe sets up its database
- * first, MirrorSetup.tsx); #/agents/<id> — one agent:
+ * last runs, what waits for review), "New agent" from a starter recipe — or from a recipe an active integration
+ * profile brings (named by the profile; a mirror sets up its database first, MirrorSetup.tsx); #/agents/<id> — one agent:
  * its spec plate, run now, edit, and its run history with the review of staged changes. A team browser
  * agent changed by another member waits for its creator, who confirms it on its page (confirm.ts).
  */
@@ -17,11 +17,13 @@ import { Menu, useMenu } from '../../ui/Menu'
 import { PageIcon } from '../../ui/PageIcon'
 import { Switch } from '../../ui/controls'
 import { useLang, useT } from '../../i18n'
+import { localized } from '../../store/integrations'
 import { resolveModel } from '../ai/client'
 import { AgentEditor } from './AgentEditor'
 import { RunHistory } from './RunHistory'
 import { RECIPES, blankAgent, recipeDraft, type RecipeId } from './recipes'
-import { MirrorSetup } from './MirrorSetup'
+import { MirrorSetup, type RecipeSource } from './MirrorSetup'
+import { useRecipeSources } from './integrations/status'
 import type { MirrorMade } from './mirror'
 import { deleteAgent, runNow, setEnabled } from './actions'
 import { awaitsReview, getAgentState, loadRuns, onRunsChanged, putAgentState, useAgentRuns, type AgentState } from './runs'
@@ -131,15 +133,18 @@ export default function AgentsView({ agentId }: { agentId?: string }) {
 /* New agent                                                           */
 /* ------------------------------------------------------------------ */
 
+/** A recipe picked in the gallery: a built-in one, or one an active integration profile brings. */
+type RecipePick = RecipeId | RecipeSource
+
 function useNewAgent() {
   const t = useT()
   const [picking, setPicking] = useState(false)
-  const [mirror, setMirror] = useState(false)
+  const [mirror, setMirror] = useState<RecipeSource | null>(null)
   const [draft, setDraft] = useState<{ agent: CustomAgent; mirror?: MirrorMade } | null>(null)
-  const pick = (id: RecipeId) => {
+  const pick = (id: RecipePick) => {
     setPicking(false)
-    // the mirror asks for its source, name and place first and creates its database (MirrorSetup)
-    if (id === 'mirror') return setMirror(true)
+    // a profile's mirror asks for its source, name and place first and creates its database (MirrorSetup)
+    if (typeof id !== 'string') return setMirror(id)
     setDraft({ agent: id === 'blank' ? blankAgent() : recipeDraft(id) })
   }
   const made = draft?.mirror
@@ -148,9 +153,10 @@ function useNewAgent() {
       {picking && <RecipeModal onPick={pick} onClose={() => setPicking(false)} />}
       {mirror && (
         <MirrorSetup
-          onClose={() => setMirror(false)}
+          source={mirror}
+          onClose={() => setMirror(null)}
           onCreated={(m) => {
-            setMirror(false)
+            setMirror(null)
             setDraft({ agent: m.draft, mirror: m })
           }}
           // the toast's Undo took the database away: the draft that points at it goes too
@@ -161,7 +167,7 @@ function useNewAgent() {
         <AgentEditor
           initial={draft.agent}
           isNew
-          intro={made ? t('features.agents.mirror.intro', { name: made.name, report: made.reportTitle }) : undefined}
+          intro={made ? t(made.placeholders > 1 ? 'features.agents.mirror.intro' : made.placeholders === 1 ? 'features.agents.mirror.introOne' : 'features.agents.mirror.introNone', { name: made.name, report: made.reportTitle, count: made.placeholders }) : undefined}
           writeHint={made ? t('features.agents.mirror.writeHint') : undefined}
           onClose={() => setDraft(null)}
           onSaved={(id) => {
@@ -175,10 +181,34 @@ function useNewAgent() {
   return { open: () => setPicking(true), pick, ui }
 }
 
-function RecipeList({ onPick }: { onPick: (id: RecipeId) => void }) {
+function RecipeList({ onPick }: { onPick: (id: RecipePick) => void }) {
   const t = useT()
+  const lang = useLang()
+  // the recipes of the active integration profiles (configured, never built in), named by their profile
+  const sources = useRecipeSources()
   return (
     <ul className="agx-recipes">
+      {sources.flatMap(({ profile, servers }) =>
+        (profile.recipes ?? []).map((recipe) => {
+          const icon = { type: 'lucide' as const, value: recipe.icon ?? 'Layers', ...(recipe.color || !recipe.icon ? { color: recipe.color ?? ('brown' as const) } : {}) }
+          return (
+            <li key={`${profile.id}:${recipe.id}`}>
+              <button type="button" className="agx-recipe agx-recipe--int" onClick={() => onPick({ profile, recipe, servers })} data-recipe={`${profile.id}:${recipe.id}`}>
+                <span className="agx-recipe__icon">
+                  <PageIcon icon={icon} size={22} />
+                </span>
+                <span className="agx-recipe__text">
+                  <span className="agx-recipe__name">{localized(recipe.name, lang) || t('features.agents.recipe.mirror.name')}</span>
+                  <span className="agx-recipe__desc">{localized(recipe.description, lang) || t('features.agents.recipe.mirror.desc')}</span>
+                </span>
+                <span className="agx-recipe__code label" title={t('features.integrations.recipeFrom', { name: profile.name })}>
+                  <span className="led led--ok" aria-hidden /> {profile.name}
+                </span>
+              </button>
+            </li>
+          )
+        }),
+      )}
       {RECIPES.map((r) => (
         <li key={r.id}>
           <button type="button" className="agx-recipe" onClick={() => onPick(r.id)} data-recipe={r.id}>
@@ -197,7 +227,7 @@ function RecipeList({ onPick }: { onPick: (id: RecipeId) => void }) {
   )
 }
 
-function RecipeModal({ onPick, onClose }: { onPick: (id: RecipeId) => void; onClose: () => void }) {
+function RecipeModal({ onPick, onClose }: { onPick: (id: RecipePick) => void; onClose: () => void }) {
   const t = useT()
   return (
     <Modal open onClose={onClose} label="§ AG" title={t('features.agents.newTitle')} width={620} className="agx-recipe-modal">

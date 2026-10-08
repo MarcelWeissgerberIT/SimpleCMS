@@ -5,6 +5,7 @@
  */
 import { keyPropOf, keyText } from '../../../store/keys'
 import type { Database, ID, Page, PropertyDef } from '../../../store/types'
+import { unlocked } from '../../agents/integrations/status'
 import type { PropChange, StagedChange } from './types'
 
 export interface KeyHolder {
@@ -67,5 +68,5 @@ export function keyConflict(all: StagedChange[], db: Database, changes: PropChan
   if (self && pages[self]?.databaseId === db.id && keyText(key.type, pages[self].properties[key.id]) === k) return null
   const other = (keyHolders(all, db.id, key, pages).get(k) ?? []).find((h) => h.id !== self)
   if (!other) return null
-  return `"${key.name}" is this database's key — unique per row — and ${holderText(other)} has ${q(k)} already. Nothing was staged. Change that row instead (update_row, or upsert_rows by "${key.name}").`
+  return `"${key.name}" is this database's key — unique per row — and ${holderText(other)} has ${q(k)} already. Nothing was staged. Change that row instead (update_row${unlocked('upsert') ? `, or upsert_rows by "${key.name}"` : ''}).`
 }

@@ -137,7 +137,7 @@ export function holderText(h: KeyHolder): string {
 }
 
 /** The refusal of staged values that give the database's key a value another row holds (null: fine). */
-export function keyConflict(r: Roots, staged: StagedChange[], dbId: string, props: PropertyDef[], changes: PropChange[], self: string | null): string | null {
+export function keyConflict(r: Roots, staged: StagedChange[], dbId: string, props: PropertyDef[], changes: PropChange[], self: string | null, upsert = true): string | null {
   const key = keyPropOf(props)
   if (!key) return null
   const k = keyText(key.type, intentValue(changes.find((c) => c.propId === key.id)))
@@ -146,7 +146,7 @@ export function keyConflict(r: Roots, staged: StagedChange[], dbId: string, prop
   if (row && row.get('databaseId') === dbId && keyText(key.type, readPage(self!, row).properties[key.id]) === k) return null
   const other = (keyHolders(r, staged, dbId, key).get(k) ?? []).find((h) => h.id !== self)
   if (!other) return null
-  return `"${key.name}" is this database's key — unique per row — and ${holderText(other)} has ${q(k)} already. Nothing was staged. Change that row instead (update_row, or upsert_rows by "${key.name}").`
+  return `"${key.name}" is this database's key — unique per row — and ${holderText(other)} has ${q(k)} already. Nothing was staged. Change that row instead (update_row${upsert ? `, or upsert_rows by "${key.name}"` : ''}).`
 }
 
 /** Later values for the same property replace earlier ones (a staged row updated again). */

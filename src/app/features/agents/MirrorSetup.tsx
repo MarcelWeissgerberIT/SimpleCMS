@@ -1,28 +1,36 @@
 /**
- * Custom agents — the first step of the recipe "Mirror a list into a database": the source (one of the person's MCP
- * servers, its tool count from the last connection test), a name and the page it goes below (team workspace: a
- * private page, or the Private section's top). "Create" makes the database and its report page (mirror.ts — one
- * toast, one Undo) and hands the agent draft to the editor.
+ * Custom agents — the first step of a mirror recipe (an active integration profile's RecipeConfig): the source (the
+ * MCP servers of this device that match the profile — the first one preselected —, their tool count from the last
+ * connection test), a name and the page it goes below (team workspace: a private page, or the Private section's
+ * top). "Create" makes the database and its report page (mirror.ts — one toast, one Undo) and hands the agent draft
+ * to the editor. The spec plate reads the recipe: properties, views, key, own fields, schedule, budget, report.
  */
 import { useId, useMemo, useState } from 'react'
-import { ChevronDown, KeyRound } from 'lucide-react'
+import { ChevronDown } from 'lucide-react'
 import { useWorkspace } from '../../store/store'
-import { useUI } from '../../store/ui'
-import type { ID } from '../../store/types'
+import type { ID, IntegrationProfile, RecipeConfig } from '../../store/types'
+import { localTimeZone } from '../../store/agents'
 import { useCloud } from '../../cloud'
 import { Modal } from '../../ui/Modal'
 import { Menu, useMenu, type MenuEntry } from '../../ui/Menu'
 import { PageIcon } from '../../ui/PageIcon'
-import { useT } from '../../i18n'
+import { useLang, useT } from '../../i18n'
 import { readServers } from '../ai/mcp-servers/config'
 import { isReadTool } from './mcpTools'
-import { HAND_ROLES, MIRROR_AT, MIRROR_BUDGET_USD, MIRROR_PROPS, canHoldMirror, createMirror, nameFromServer, propName, type MirrorMade } from './mirror'
-import { fmtUsd } from './format'
+import { canHoldMirror, createMirror, nameFromServer, type MirrorMade } from './mirror'
+import { buildMirror, fillTokens, resolveRecipe } from './integrations/recipe'
+import { openIntegrations } from './integrations/open'
+import { fmtUsd, triggerText } from './format'
 import './agents.css'
 import './mirror.css'
 
-/** The number of views a mirror database gets (mirror.ts mirrorSchema). */
-const VIEW_COUNT = 6
+/** What the gallery hands the setup: the profile, its recipe, and this device's servers that match it. */
+export interface RecipeSource {
+  profile: IntegrationProfile
+  recipe: RecipeConfig
+  /** matching servers (enabled, in list order) — the first one is preselected */
+  servers: string[]
+}
 
 function WherePicker({ value, onPick, id }: { value: ID | null; onPick: (id: ID | null) => void; id: string }) {
   const t = useT()
@@ -54,16 +62,28 @@ function WherePicker({ value, onPick, id }: { value: ID | null; onPick: (id: ID 
   )
 }
 
-export function MirrorSetup({ onClose, onCreated, onUndo }: { onClose: () => void; onCreated: (made: MirrorMade) => void; onUndo: () => void }) {
+export function MirrorSetup({ source, onClose, onCreated, onUndo }: { source: RecipeSource; onClose: () => void; onCreated: (made: MirrorMade) => void; onUndo: () => void }) {
   const t = useT()
+  const lang = useLang()
   const uid = useId()
   const settings = useWorkspace((s) => s.settings)
+  const pages = useWorkspace((s) => s.pages)
+  const databases = useWorkspace((s) => s.databases)
   const team = useCloud((s) => s.active.kind === 'cloud')
-  const servers = useMemo(() => readServers(settings), [settings])
-  const first = servers.find((s) => s.enabled) ?? servers[0]
+  const recipe = useMemo(() => resolveRecipe(source.profile, source.recipe, lang), [source, lang])
+  // the recipe as it builds: its problems block Create (they are listed under Workspace → Integrations)
+  const built = useMemo(() => {
+    let errors = 0
+    const schema = buildMirror(recipe, (i) => {
+      if ((i.severity ?? 'error') === 'error') errors++
+    })
+    return { schema, errors }
+  }, [recipe])
+  const servers = useMemo(() => readServers(settings).filter((s) => source.servers.includes(s.name)), [settings, source.servers])
+  const first = servers[0]
   const [server, setServer] = useState<string>(first?.name ?? '')
-  const [name, setName] = useState(() => (first ? nameFromServer(first.name) : ''))
-  const [named, setNamed] = useState(false)
+  const [name, setName] = useState(() => recipe.dbName || (first ? nameFromServer(first.name) : ''))
+  const [named, setNamed] = useState(!!recipe.dbName)
   const [parentId, setParentId] = useState<ID | null>(null)
   const [tried, setTried] = useState(false)
   const [failed, setFailed] = useState('')
@@ -74,31 +94,39 @@ export function MirrorSetup({ onClose, onCreated, onUndo }: { onClose: () => voi
 
   const pickServer = (n: string) => {
     setServer(n)
-    // the name follows the source until the person typed one
+    // the name follows the source until the person typed one (or the recipe names the database)
     if (!named) setName(nameFromServer(n))
   }
 
   const create = () => {
     setTried(true)
     setFailed('')
-    if (!name.trim() || !servers.some((s) => s.name === server)) return
+    if (!name.trim() || !servers.some((s) => s.name === server) || built.errors) return
     try {
-      onCreated(createMirror({ server, name, parentId }, { onUndo }))
+      onCreated(createMirror({ recipe, server, name, parentId }, { onUndo }))
     } catch (e) {
       setFailed(t('features.agents.mirror.err.failed', { msg: e instanceof Error ? e.message : String(e) }))
     }
   }
 
-  const keyName = propName('key')
-  const yours = HAND_ROLES.map(propName).join(' · ')
-  const openSettings = () => useUI.getState().openModal({ type: 'settings', tab: 'ai' })
+  const keyProp = built.schema.properties.find((p) => p.key)
+  const yours = built.schema.properties
+    .filter((p) => p.agentReadOnly)
+    .map((p) => p.name)
+    .join(' · ')
+  const sched = recipe.agent.schedule
+  const when = triggerText(
+    t,
+    { type: 'schedule', every: sched.every, at: sched.at, tz: localTimeZone(), ...(sched.weekday !== undefined ? { weekday: sched.weekday } : {}), ...(sched.day !== undefined ? { day: sched.day } : {}) },
+    { pages, databases, lang },
+  )
 
   return (
     <Modal
       open
       onClose={onClose}
-      label="§ AG-S"
-      title={t('features.agents.mirror.title')}
+      label={`§ AG-S · ${source.profile.name.toUpperCase()}`}
+      title={recipe.name}
       width={640}
       className="agx-mir"
       footer={
@@ -112,7 +140,7 @@ export function MirrorSetup({ onClose, onCreated, onUndo }: { onClose: () => voi
           <button type="button" className="btn btn--ghost" onClick={onClose}>
             {t('common.cancel')}
           </button>
-          <button type="button" className="btn btn--primary" onClick={create} disabled={!servers.length}>
+          <button type="button" className="btn btn--primary" onClick={create} disabled={!servers.length || built.errors > 0}>
             {t('features.agents.mirror.create')}
           </button>
         </div>
@@ -126,45 +154,35 @@ export function MirrorSetup({ onClose, onCreated, onUndo }: { onClose: () => voi
           create()
         }}
       >
-        <p className="agx-lead agx-lead--modal">{t('features.agents.mirror.lead', { yours })}</p>
+        <p className="agx-lead agx-lead--modal">{recipe.description || t('features.agents.mirror.lead', { yours: yours || '—' })}</p>
+        {built.errors > 0 && (
+          <p className="agx-notice agx-mir__none" role="alert" data-testid="agx-mir-broken">
+            <span className="led agx-led--err" aria-hidden />
+            <span>{t(built.errors === 1 ? 'features.agents.mirror.err.recipeOne' : 'features.agents.mirror.err.recipe', { count: built.errors })}</span>
+            <button type="button" className="btn btn--sm btn--ink" onClick={openIntegrations}>
+              {t('features.integrations.open')}
+            </button>
+          </p>
+        )}
 
         <div className="agx-field" data-invalid={errServer ? '' : undefined}>
           <span className="agx-field__label" id={ids.src}>
             <span className="agx-mir__n label">01</span> {t('features.agents.mirror.source')}
           </span>
-          {servers.length === 0 ? (
-            <p className="agx-notice agx-mir__none" role="note">
-              <span className="led" aria-hidden />
-              <span>{t('features.agents.mirror.noServers')}</span>
-              <button type="button" className="btn btn--sm btn--ink" onClick={openSettings}>
-                <KeyRound size={13} strokeWidth={1.75} aria-hidden /> {t('features.agents.mirror.addServer')}
-              </button>
-            </p>
-          ) : (
-            <div className="agx-mir__servers" role="radiogroup" aria-labelledby={ids.src}>
-              {servers.map((s) => {
-                const tools = s.tools ?? []
-                const state = !s.enabled ? t('features.agents.mirror.off') : tools.length ? t('features.agents.mirror.tools', { n: tools.length, read: tools.filter(isReadTool).length }) : t('features.agents.mirror.untested')
-                return (
-                  <label key={s.id} className="agx-mir__server" data-untested={(s.enabled && !tools.length) || undefined} data-off={!s.enabled || undefined}>
-                    <input type="radio" name={`${uid}-server`} value={s.name} checked={server === s.name} onChange={() => pickServer(s.name)} />
-                    <span className="agx-mir__srvname mono">{s.name.toUpperCase()}</span>
-                    <span className="agx-mir__srvstate">{state}</span>
-                  </label>
-                )
-              })}
-            </div>
-          )}
-          {servers.length > 0 && (
-            <p className="agx-field__hint">
-              {t('features.agents.mirror.sourceHint')}{' '}
-              {servers.some((s) => s.name === server && !s.tools?.length) && (
-                <button type="button" className="agx-link" onClick={openSettings}>
-                  {t('features.agents.ed.toolsTest')}
-                </button>
-              )}
-            </p>
-          )}
+          <div className="agx-mir__servers" role="radiogroup" aria-labelledby={ids.src}>
+            {servers.map((s) => {
+              const tools = s.tools ?? []
+              const state = tools.length ? t('features.agents.mirror.tools', { n: tools.length, read: tools.filter(isReadTool).length }) : t('features.agents.mirror.untested')
+              return (
+                <label key={s.id} className="agx-mir__server" data-untested={!tools.length || undefined}>
+                  <input type="radio" name={`${uid}-server`} value={s.name} checked={server === s.name} onChange={() => pickServer(s.name)} />
+                  <span className="agx-mir__srvname mono">{s.name.toUpperCase()}</span>
+                  <span className="agx-mir__srvstate">{state}</span>
+                </label>
+              )
+            })}
+          </div>
+          <p className="agx-field__hint">{t('features.agents.mirror.sourceHintProfile', { profile: source.profile.name })}</p>
           {errServer && (
             <p className="agx-field__error" role="alert">
               {errServer}
@@ -213,19 +231,19 @@ export function MirrorSetup({ onClose, onCreated, onUndo }: { onClose: () => voi
         <dl className="agx-spec agx-mir__spec" data-testid="agx-mir-spec">
           <div>
             <dt>{t('features.agents.mirror.spec.db')}</dt>
-            <dd>{t('features.agents.mirror.spec.dbValue', { props: MIRROR_PROPS.length, views: VIEW_COUNT, key: keyName })}</dd>
+            <dd>{t('features.agents.mirror.spec.dbValue', { props: built.schema.properties.length, views: built.schema.views.length, key: keyProp?.name ?? '—' })}</dd>
           </div>
           <div>
             <dt>{t('features.agents.mirror.spec.yours')}</dt>
-            <dd>{yours}</dd>
+            <dd>{yours || '—'}</dd>
           </div>
           <div>
             <dt>{t('features.agents.mirror.spec.agent')}</dt>
-            <dd>{t('features.agents.mirror.spec.agentValue', { at: MIRROR_AT, usd: fmtUsd(MIRROR_BUDGET_USD) })}</dd>
+            <dd>{t('features.agents.mirror.spec.agentValue', { when, mode: t(recipe.agent.write === 'apply' ? 'features.agents.mirror.spec.apply' : 'features.agents.mirror.spec.stage'), usd: fmtUsd(recipe.agent.budget) })}</dd>
           </div>
           <div>
             <dt>{t('features.agents.mirror.spec.report')}</dt>
-            <dd>{t('features.agents.mirror.reportTitle', { name: name.trim() || t('features.agents.mirror.namePh') })}</dd>
+            <dd>{fillTokens(recipe.reportName, { db: name.trim() || t('features.agents.mirror.namePh'), server })}</dd>
           </div>
         </dl>
         <button type="submit" hidden tabIndex={-1} aria-hidden />

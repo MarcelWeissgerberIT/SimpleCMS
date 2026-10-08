@@ -17,6 +17,8 @@
  *   (`default_config: { enabled: false }` + `configs`); a server whose list is empty is left out.
  * - agent_state_set only collects the new state (`RunOutcome.state`): the service saves it when the run ends
  *   ok / staged, never after an error or a budget stop.
+ * - upsert_rows and the state tools exist only while the workspace's integration profiles unlock them for the
+ *   runtime's MCP servers (`RunInput.unlocks`, integrations.ts); the system prompt names only what is offered.
  */
 import Anthropic from '@anthropic-ai/sdk'
 import type {
@@ -35,7 +37,7 @@ import type { McpReads } from '../mcp/reads.ts'
 import type { McpWrites } from '../mcp/writes.ts'
 import { NO_USAGE, addUsage, affordableOutput, costOf } from './pricing.ts'
 import { ToolInputError, explain } from './stage.ts'
-import { type ToolCtx, RESULT_CHARS, clipResult, toolsFor } from './tools.ts'
+import { type ToolCtx, type ToolUnlocks, RESULT_CHARS, clipResult, toolsFor } from './tools.ts'
 import { type AgentStateRow, type CustomAgent, type RunStep, type RunUsage, type Runtime, type StagedChange, agentActor } from './types.ts'
 
 export const DEFAULT_MODEL = 'claude-opus-5-5'
@@ -70,12 +72,20 @@ const HOW_CHANGES_WORK: Record<CustomAgent['write'], string> = {
   none: 'How changes work\n- You can only read: you have no writing tools. Put everything you found into your final report.',
 }
 
+const NO_UNLOCKS: ToolUnlocks = { upsert: false, state: false }
+
+/** How changes work, naming upsert_rows only when it is offered. */
+function howChangesWork(write: CustomAgent['write'], upsert: boolean): string {
+  const text = HOW_CHANGES_WORK[write]
+  return upsert ? text : text.replace(', upsert_rows', '').replace(' (upsert_rows: one per row)', '')
+}
+
 /** The system prompt: One's agent prompt, the write mode, the agent's own instructions, the MCP template. */
-export function systemPrompt(agent: CustomAgent, mcp: string[]): string {
+export function systemPrompt(agent: CustomAgent, mcp: string[], unlocks: ToolUnlocks = NO_UNLOCKS): string {
   const allow = agent.mcpTools ?? {}
   const parts = [
     `You are a custom agent in One, a workspace of pages and databases (like Notion). You run on the team's server, started by a schedule, a trigger or a person — nobody watches while you work and nobody can answer questions, so decide sensibly on your own. Your job is described in <agent_instructions>; you carry it out by reading the workspace with tools${agent.write === 'none' ? '' : ' and changing it'}.`,
-    HOW_CHANGES_WORK[agent.write],
+    howChangesWork(agent.write, unlocks.upsert),
     [
       'How to work',
       '- You see only the part of the workspace your scope allows (never the trash, templates or anyone\'s private pages). Tools refuse what lies outside it: do not retry those calls.',
@@ -83,7 +93,9 @@ export function systemPrompt(agent: CustomAgent, mcp: string[]): string {
       `- Prefer one query_database call over reading rows one by one. You have at most ${MAX_ROUNDS} rounds of tool calls; independent calls can go in parallel.`,
       ...(agent.write === 'none'
         ? []
-        : ['- To keep a database in step with items from elsewhere (an external system, a list), use upsert_rows: it finds each row by its key (list_databases marks a database\'s key) and only writes what changed — one call for up to 50 rows. Never write properties marked "read-only for agents": people fill them in by hand.']),
+        : unlocks.upsert
+          ? ['- To keep a database in step with items from elsewhere (an external system, a list), use upsert_rows: it finds each row by its key (list_databases marks a database\'s key) and only writes what changed — one call for up to 50 rows. Never write properties marked "read-only for agents": people fill them in by hand.']
+          : ['- Never write properties marked "read-only for agents": people fill them in by hand. A database\'s key (list_databases marks it) is unique per row: never write a value another row holds.']),
       '- Set database properties by their exact names with plain JSON values: text, numbers, true/false, option names for select and status (a list of names for multi-select), dates as "YYYY-MM-DD" or {"start": …, "end": …}, people by name, relations by row title or id. Computed properties cannot be set. If a value does not fit, the tool says why: fix it and call again.',
       '- Write page content in Markdown: headings, lists, task lists ("- [ ] …"), quotes, code. Link to a page with [Title](#/p/<page id>).',
       '- Write in the language of your instructions, or of the workspace content if they do not make it clear.',
@@ -93,7 +105,7 @@ export function systemPrompt(agent: CustomAgent, mcp: string[]): string {
     [
       'Between runs',
       '- The context says when your last successful run was. For a recurring job, work from what changed since then.',
-      '- agent_state_get / agent_state_set keep a small JSON state of your own between runs (cursors, the last ids you saw). It is saved only when the run ends without an error.',
+      ...(unlocks.state ? ['- agent_state_get / agent_state_set keep a small JSON state of your own between runs (cursors, the last ids you saw). It is saved only when the run ends without an error.'] : []),
       '- Say in your report what is new: a server agent leaves no inbox notes.',
     ].join('\n'),
     'When you are done\n- Reply with a short report in Markdown (two to eight lines): what you found or did, what you staged or changed, and anything you could not do, and why. No preamble, no questions.',
@@ -122,6 +134,8 @@ export interface RunInput {
   task: string
   /** the agent's saved state (agent_state_get), null: none */
   state?: AgentStateRow | null
+  /** what the workspace's integration profiles unlock (absent: nothing) */
+  unlocks?: ToolUnlocks
   signal: AbortSignal
   /** after every response: the run so far (persisted, so GET agent-runs shows progress) */
   progress?(snapshot: RunOutcome): void
@@ -190,7 +204,7 @@ export async function runAgent(input: RunInput): Promise<RunOutcome> {
   const step = (st: RunStep) => {
     if (steps.length < MAX_STEPS) steps.push({ ...st, label: clip(st.label.replace(/\s+/g, ' ').trim(), 300) })
   }
-  const ctx: ToolCtx = { s, model: input.model, reads: input.reads, writes: input.writes, wsId: input.wsId, agent, actor: agentActor(agent.id), staged: [], applied: 0, state: { saved: input.state ?? null } }
+  const ctx: ToolCtx = { s, model: input.model, reads: input.reads, writes: input.writes, wsId: input.wsId, agent, actor: agentActor(agent.id), staged: [], applied: 0, state: { saved: input.state ?? null }, upsert: input.unlocks?.upsert === true }
   let usage: RunUsage = NO_USAGE
   let summary = ''
   const outcome = (status: RunOutcome['status'], error: string | null = null): RunOutcome => ({
@@ -223,7 +237,8 @@ export async function runAgent(input: RunInput): Promise<RunOutcome> {
     servers.push({ type: 'url', url: m.url, name: m.name, ...(m.token ? { authorization_token: m.token } : {}) })
   }
 
-  const tools = toolsFor(agent.write)
+  const unlocks = input.unlocks ?? NO_UNLOCKS
+  const tools = toolsFor(agent.write, unlocks)
   const toolDefs: BetaToolUnion[] = [
     ...tools.map((t) => ({ name: t.name, description: t.description(agent.write), input_schema: t.input_schema, eager_input_streaming: true })),
     ...servers.map((m) => toolsetOf(m.name, onlyOf(m.name))),
@@ -233,6 +248,7 @@ export async function runAgent(input: RunInput): Promise<RunOutcome> {
   const system = systemPrompt(
     agent,
     servers.map((m) => m.name),
+    unlocks,
   )
   const client = new Anthropic({ apiKey: runtime.claudeKey, authToken: null, baseURL: s.config.agents.apiUrl, maxRetries: 2, timeout: 10 * 60_000 })
   const messages: BetaMessageParam[] = [{ role: 'user', content: input.task }]

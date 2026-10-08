@@ -3,51 +3,7 @@
  * and the global keyboard handler.
  */
 import type { LucideIcon } from 'lucide-react'
-import {
-  Bell,
-  CalendarDays,
-  CalendarRange,
-  Copy,
-  Download,
-  FilePlus2,
-  FolderInput,
-  Focus,
-  Keyboard,
-  Languages,
-  LayoutTemplate,
-  Link2,
-  Lock,
-  MessageSquareText,
-  MoveHorizontal,
-  PanelLeft,
-  Presentation,
-  Settings,
-  Share2,
-  SunMoon,
-  Table2,
-  SquareKanban,
-  Trash2,
-  Upload,
-  Waypoints,
-  History,
-  Star,
-  Home,
-  Inbox,
-  Users,
-  Building2,
-  Palette,
-  CloudUpload,
-  Workflow,
-  SquareFunction,
-  CircleHelp,
-  Newspaper,
-  SquareCode,
-  GitBranch,
-  Blocks,
-  Compass,
-  Route,
-  ClipboardCopy,
-} from 'lucide-react'
+import { Bell, CalendarDays, CalendarRange, Copy, Download, FilePlus2, FolderInput, Focus, Keyboard, Languages, LayoutTemplate, Link2, Lock, MessageSquareText, MoveHorizontal, PanelLeft, Presentation, Settings, Share2, SunMoon, Table2, SquareKanban, Trash2, Upload, Waypoints, History, Star, Home, Inbox, Users, Building2, Palette, CloudUpload, Workflow, SquareFunction, CircleHelp, Newspaper, SquareCode, GitBranch, Blocks, Compass, Route, ClipboardCopy, Plug } from 'lucide-react'
 import { useWorkspace } from '../../store/store'
 import { useUI } from '../../store/ui'
 import { navigate } from '../../lib/router'
@@ -189,6 +145,14 @@ export function buildCommands(t: Translate, pageId: ID | null): Command[] {
       icon: Palette,
       keywords: 'look theme colours colors fonts typeface text colour accent signal paper ink corners brand aussehen farben schrift schriftart schriftfarbe design akzent ecken',
       run: () => openWorkspaceSettings('look'),
+    },
+    {
+      id: 'workspace-integrations',
+      group: 'workspace',
+      label: t('shell.ws.cmd.integrations'),
+      icon: Plug,
+      keywords: 'integrations integration profile mcp server unlock recipe mirror key only by hand upsert json import export integrationen profil freischalten rezept spiegeln schlüssel',
+      run: () => openWorkspaceSettings('integrations'),
     },
   )
   // database commands (features/commands): "Mails: Sync now", "Projects: New entry" … (viewers get only those that don't write)

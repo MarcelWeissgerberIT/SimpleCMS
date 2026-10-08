@@ -23,6 +23,7 @@ const SHELL_TRIES: Partial<Record<ChangelogTry, () => void>> = {
   sheet: lazy((m) => m.trySheet()),
   automations: lazy((m) => m.tryAutomations()),
   look: () => openWorkspaceSettings('look'),
+  integrations: () => openWorkspaceSettings('integrations'),
 }
 
 for (const [action, run] of Object.entries(SHELL_TRIES)) registerTry(action as ChangelogTry, run)

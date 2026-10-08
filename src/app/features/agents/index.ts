@@ -19,3 +19,9 @@ export { runNow as runAgentNow } from './actions'
 /** Read-outs for overviews (the workspace page's Automation section): a trigger in words · this device's runs of an agent */
 export { triggerText as agentTriggerText } from './format'
 export { loadRuns as loadAgentRuns, useAgentRuns } from './runs'
+/**
+ * Integration profiles (integrations/): useUnlocked(feature) / unlocked(feature) — is it unlocked on this device (an
+ * active profile names it) · IntegrationsPanel — the body of Workspace → Integrations
+ */
+export { useUnlocked, unlocked } from './integrations/status'
+export { IntegrationsPanel } from './integrations/IntegrationsPanel'

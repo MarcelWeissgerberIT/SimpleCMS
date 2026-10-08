@@ -1214,3 +1214,31 @@
 .agx-hook__confirm {
   font-size: var(--text-sm);
 }
+
+/* ---------- integration profiles (integrations/): their recipes in the gallery, an allow-list kept read-only ---------- */
+.agx-recipe--int {
+  border-left: 3px solid var(--led-ok);
+}
+.agx-recipe--int .agx-recipe__code {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 14ch;
+  overflow: hidden;
+  color: var(--ink-2);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.agx-tools-kept {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+  margin: 8px 0 0;
+  padding: 8px 10px;
+  border: 1px solid var(--rule);
+  border-left: 2px solid var(--ink-3);
+  border-radius: var(--radius-1);
+  font-size: calc(12px * var(--text-scale));
+  color: var(--ink-2);
+}

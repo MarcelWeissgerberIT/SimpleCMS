@@ -25,6 +25,7 @@ import { readServers } from '../ai/mcp-servers/config'
 import { weekdayName } from './format'
 import { isReadTool, testedTools } from './mcpTools'
 import { placeholdersIn } from './mirror'
+import { useServerUnlocked, useUnlocked } from './integrations/status'
 import './mirror.css'
 import { createHook, deleteHook, getHook, serverErrorText, useServerAgents, type HookState } from './server'
 import './agents.css'
@@ -496,7 +497,7 @@ function Instructions({ value, onChange, error, id }: { value: string; onChange:
                 <button type="button" className="agx-ph__btn" onClick={() => selectHole(h.text)}>
                   {h.text}
                 </button>
-                <span className="agx-ph__hint">{t(`features.agents.mirror.phHint.${h.key}`)}</span>
+                <span className="agx-ph__hint">{h.key ? t(`features.agents.mirror.phHint.${h.key}`) : t('features.agents.mirror.phHint.generic')}</span>
               </li>
             ))}
           </ul>
@@ -716,11 +717,18 @@ function ScopeFields({ d, set, error }: { d: CustomAgent; set: (p: Partial<Custo
   )
 }
 
-/** MCP servers by name: browser agents use Settings → Claude AI, server agents the server's list. */
+/**
+ * MCP servers by name: browser agents use Settings → Claude AI, server agents the server's list. The tool allow-list
+ * per server only while an active integration profile unlocks it (this device's servers; for a server agent also the
+ * runtime's, by name / host) — without one, a list the agent already has stays applied and is shown read-only.
+ */
 function McpFields({ d, set }: { d: CustomAgent; set: (p: Partial<CustomAgent>) => void }) {
   const t = useT()
   const settings = useWorkspace((s) => s.settings)
   const runtime = useServerAgents((s) => s.runtime)
+  const here = useUnlocked('toolAllowList')
+  const onServer = useServerUnlocked('toolAllowList')
+  const allowList = here || (d.runner === 'server' && onServer)
   const names = d.runner === 'server' ? (runtime?.mcpServers ?? []).map((s) => s.name) : readServers(settings).map((s) => s.name)
   const all = [...new Set([...names, ...d.mcpServers])]
   const toggle = (name: string, on: boolean) => set({ mcpServers: on ? [...d.mcpServers, name] : d.mcpServers.filter((x) => x !== name) })
@@ -748,7 +756,16 @@ function McpFields({ d, set }: { d: CustomAgent; set: (p: Partial<CustomAgent>) 
         </div>
       )}
       <p className="agx-field__hint">{t('features.agents.ed.mcpHint')}</p>
-      {d.mcpServers.map((name) => (
+      {!allowList &&
+        d.mcpServers
+          .filter((name) => d.mcpTools && Object.prototype.hasOwnProperty.call(d.mcpTools, name))
+          .map((name) => (
+            <p key={name} className="agx-tools-kept" data-testid="agx-tools-kept">
+              <span className="label">{name.toUpperCase()}</span>
+              <span>{t('features.agents.ed.toolsKept', { n: d.mcpTools![name].length })}</span>
+            </p>
+          ))}
+      {allowList && d.mcpServers.map((name) => (
         <McpToolList
           key={name}
           server={name}

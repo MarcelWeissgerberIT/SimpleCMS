@@ -75,8 +75,11 @@ export function lastRunLine(last: Pick<AgentRun, 'startedAt'> | null): string {
   return `Last successful run: ${new Date(last.startedAt).toISOString()} (${format(last.startedAt, 'EEEE, yyyy-MM-dd HH:mm')} local time). Look at what changed since then.`
 }
 
-/** The tools of one run (`notes`: notify_me too — browser agents). */
-export function runTools(agent: Pick<CustomAgent, 'scope'>, extras: RunExtras, opts: { notes?: boolean } = {}): AgentTool[] {
+/**
+ * The tools of one run: agent_state_get / _set when `state`, notify_me when `notes` (browser agents) — each only while
+ * an active integration profile unlocks it (exec.ts decides).
+ */
+export function runTools(agent: Pick<CustomAgent, 'scope'>, extras: RunExtras, opts: { notes?: boolean; state?: boolean } = {}): AgentTool[] {
   const stateGet: AgentTool = {
     name: 'agent_state_get',
     write: false,
@@ -110,7 +113,8 @@ export function runTools(agent: Pick<CustomAgent, 'scope'>, extras: RunExtras, o
       return { content: `State set (${bytes(text)} bytes). It is saved when this run ends without an error; the next run reads it with agent_state_get.`, summary: t('features.agents.state.res.bytes', { n: bytes(text) }), state: 'ok' }
     },
   }
-  if (!opts.notes) return [stateGet, stateSet]
+  const state = opts.state === false ? [] : [stateGet, stateSet]
+  if (!opts.notes) return state
   const notify: AgentTool = {
     name: 'notify_me',
     write: false,
@@ -146,7 +150,7 @@ export function runTools(agent: Pick<CustomAgent, 'scope'>, extras: RunExtras, o
       return { content: `Noted (#${extras.notes.length}). It reaches the inbox when this run ends without an error.`, summary: t('features.agents.notes.res.noted'), state: 'ok' }
     },
   }
-  return [stateGet, stateSet, notify]
+  return [...state, notify]
 }
 
 /**

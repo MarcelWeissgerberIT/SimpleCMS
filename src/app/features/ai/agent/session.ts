@@ -14,7 +14,8 @@ import { AIError, resolveModel } from '../client'
 import { useCloud } from '../../../cloud'
 import { attachMcp, codewordTask, codewordsIn, currentSetup, readServers, refusedNames, setupKey, type McpSetup } from '../mcp-servers/config'
 import { applyChanges, type ApplyResult } from './apply'
-import { AGENT_SYSTEM, runAgent, taskMessage, type RunHooks } from './run'
+import { agentSystemText, runAgent, taskMessage, type RunHooks } from './run'
+import { unlocked } from '../../agents/integrations/status'
 import { initialAgentState, openAgent, patchConnect, pushEcho, setStopHandler, useAgent, type EchoAsk, type EchoEntry, type MemCard, type MemItem } from './state'
 import { clearHistory, loadHistory, pushHistory } from './history'
 import { parseCommand, parseCommandText } from './commands'
@@ -57,6 +58,8 @@ let mcpSetup: McpSetup | null = null
 let memTools: boolean | null = null
 /** the coding pipelines' tools and rules join a conversation started while there is a pipeline or the worker link is on (pinned) */
 let codingTools: boolean | null = null
+/** upsert_rows joins a conversation started while an active integration profile unlocks it (pinned) */
+let upsertTool: boolean | null = null
 /**
  * This conversation's number (bumped by /new): "Run the task again" after a sign-in names a task by epoch + number,
  * so a sign-in that ends after /new never runs another conversation's task.
@@ -205,24 +208,26 @@ function patchTurn(n: number, patch: Partial<AgentTurn>) {
  * setup is pinned per conversation (system prompt and tool list stay the same for every later
  * request: prompt cache, thinking) and the text goes as typed.
  */
-function prepareTask(task: string): { setup: McpSetup; prompt: string; memTools: boolean; codingTools: boolean } {
+function prepareTask(task: string): { setup: McpSetup; prompt: string; memTools: boolean; codingTools: boolean; upsert: boolean } {
   if (!history.length || !mcpSetup) {
     mcpSetup = currentSetup()
     set({ mcp: { key: setupKey(mcpSetup), names: mcpSetup.servers.map((x) => x.name) } })
   }
   if (!history.length || memTools === null) memTools = memoryInUse()
   if (!history.length || codingTools === null) codingTools = hasPipelines() || useCoding.getState().enabled
-  return { setup: mcpSetup, prompt: codewordTask(task), memTools, codingTools }
+  if (!history.length || upsertTool === null) upsertTool = unlocked('upsert')
+  return { setup: mcpSetup, prompt: codewordTask(task), memTools, codingTools, upsert: upsertTool }
 }
 
 /**
  * The terminal's tools and system prompt (a stable order: the cached prompt prefix): its own tools — the row tools
  * guarded for pipeline databases —, the coding pipelines' and the One memory's when they are pinned to this conversation.
  */
-function terminalSetup(coding: boolean, mem: boolean): { tools: AgentTool[]; system: string } {
+function terminalSetup(coding: boolean, mem: boolean, upsert: boolean): { tools: AgentTool[]; system: string } {
+  const own = upsert ? TERMINAL_TOOLS : TERMINAL_TOOLS.filter((x) => x.name !== 'upsert_rows')
   return {
-    tools: [...TERMINAL_TOOLS.map(guardPipelineRows), ...(coding ? CODING_TOOLS : []), ...(mem ? [recallTool, rememberTool] : [])],
-    system: [AGENT_SYSTEM, ...(coding ? [CODING_RULES] : []), ...(mem ? [MEMORY_RULES] : [])].join('\n\n'),
+    tools: [...own.map(guardPipelineRows), ...(coding ? CODING_TOOLS : []), ...(mem ? [recallTool, rememberTool] : [])],
+    system: [agentSystemText(upsert), ...(coding ? [CODING_RULES] : []), ...(mem ? [MEMORY_RULES] : [])].join('\n\n'),
   }
 }
 
@@ -291,7 +296,7 @@ export async function runTask(raw?: string, opts: { noMemory?: boolean; history?
   const memShown = prevTurn ? prevTurn.memory : (mem.use ?? undefined)
   const text = mem.block ? `${context(refs, mentions)}\n\n${mem.block}` : context(refs, mentions)
   const prepared = prepareTask(task)
-  const { setup, memTools: withMemTools, codingTools: withCoding } = prepared
+  const { setup, memTools: withMemTools, codingTools: withCoding, upsert: withUpsert } = prepared
   const prompt = prevTurn ? continuation(prevTurn) : prepared.prompt
   set((s) => ({
     status: 'running',
@@ -409,7 +414,7 @@ export async function runTask(raw?: string, opts: { noMemory?: boolean; history?
   const before = history
   // every task, a Continue too: "Run the task again" after a sign-in sends it once more from here
   turnSnap.set(n, { before, refs, mentions })
-  const tooling = terminalSetup(withCoding, withMemTools)
+  const tooling = terminalSetup(withCoding, withMemTools, withUpsert)
   const attempt = async () => {
     const mcp = setup.servers.length ? await attachMcp(setup, 'free', { forced }) : null
     const left = refusedNames(setup, 'free', forced)
@@ -699,6 +704,7 @@ export function newTask() {
   mcpSetup = null
   memTools = null
   codingTools = null
+  upsertTool = null
   epoch += 1
   turnSnap.clear()
   sigSteps.clear()

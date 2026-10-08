@@ -1811,6 +1811,24 @@
   color: var(--ink);
 }
 
+/* a flag that is set while no integration unlocks its switch: a read-only mark */
+.db-flags__row--mark {
+  font-size: calc(12.5px * var(--text-scale));
+  cursor: default;
+}
+
+.db-flags__on {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  color: var(--ink-2);
+}
+
+.db-flags__note--mark {
+  color: var(--ink-3);
+}
+
 .db-cfg__input {
   width: 120px;
   font-family: var(--font-mono);

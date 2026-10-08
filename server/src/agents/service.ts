@@ -24,6 +24,7 @@ import { McpWrites } from '../mcp/writes.ts'
 import { newId } from '../tokens.ts'
 import { DEFAULT_MODEL, type RunOutcome, runAgent } from './runner.ts'
 import { readAgents, serverAgents } from './sanitize.ts'
+import { readProfiles, serverUnlocks } from './integrations.ts'
 import { decideSlot, describeSchedule, scheduleSig, slotAt, wallClock } from './schedule.ts'
 import { inScope } from './scope.ts'
 import { AgentStore } from './store.ts'
@@ -366,6 +367,15 @@ export class AgentService {
     if (!agent || agent.runner !== 'server') return skip('The agent no longer exists or does not run on the server.')
     if (!agent.enabled && job.trigger.type !== 'manual') return skip('The agent is switched off.')
     const task = await this.taskMessage(job, agent, run.id)
+    // what the workspace's integration profiles unlock for the runtime's MCP servers (by name / host)
+    let unlocks = { upsert: false, state: false }
+    try {
+      const profiles = await this.s.collab.read(metaName(job.wsId), (doc) => readProfiles(doc))
+      const set = serverUnlocks(profiles, rt.runtime.mcpServers)
+      unlocks = { upsert: set.has('upsert'), state: set.has('agentState') }
+    } catch (err) {
+      this.s.log.warn('integration profiles unreadable', { workspace: job.wsId, error: (err as Error).message })
+    }
     let state: AgentStateRow | null = null
     try {
       state = this.store.state(job.wsId, agent.id)
@@ -383,6 +393,7 @@ export class AgentService {
       runtime: rt.runtime,
       task,
       state,
+      unlocks,
       signal,
       progress: (snap) => {
         // progress for GET agent-runs, at most every 2 s

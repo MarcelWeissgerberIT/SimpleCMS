@@ -8,9 +8,12 @@
  * - write mode "apply" writes through the public API's own paths, attributed `agent:<agentId>`, so
  *   everyone who has the workspace open sees the change at once (and can undo it from history);
  * - write mode "none" offers no write tools at all.
- * - every agent has agent_state_get / agent_state_set: a small JSON state of its own between runs (≤ 4 KB), saved
- *   by the service only when the run ends ok / staged. There is no notify_me here: the inbox is per device (the app
- *   makes its items), so a server agent has no inbox to write to — it says what is new in its report.
+ * - agent_state_get / agent_state_set: a small JSON state of its own between runs (≤ 4 KB), saved by the service only
+ *   when the run ends ok / staged. There is no notify_me here: the inbox is per device (the app makes its items), so a
+ *   server agent has no inbox to write to — it says what is new in its report.
+ * - upsert_rows and the state tools are offered only while an integration profile of the workspace that matches one
+ *   of the runtime's MCP servers unlocks them (integrations.ts: 'upsert', 'agentState'). Keys and "Only by hand" are
+ *   enforced by every writer whatever is unlocked.
  *
  * Results are model-facing English text, clipped. A call that cannot be done throws ToolInputError
  * with a message Claude can act on.
@@ -66,6 +69,8 @@ export interface ToolCtx {
   applied: number
   /** the agent's own state: as saved before the run, and what this run set (saved when it ends ok) */
   state?: { saved: AgentStateRow | null; pending?: string }
+  /** upsert_rows is offered in this run (an integration profile unlocks it): refusals may point to it */
+  upsert?: boolean
 }
 
 export interface AgentTool {
@@ -502,7 +507,7 @@ const createRow: AgentTool = {
     const { changes, dbTitle } = await read(ctx, (r) => {
       const db = scopedDatabase(r, ctx, dbId)
       const changes = stageProps(r, { properties: db.properties, locked: db.ydb.get('locked') === true }, null, props, ctx.model.context(ctx.wsId, r))
-      const clash = keyConflict(r, ctx.staged, dbId, db.properties, changes, null)
+      const clash = keyConflict(r, ctx.staged, dbId, db.properties, changes, null, ctx.upsert === true)
       if (clash) throw new ToolInputError(clash)
       return { dbTitle: titleOf(db.page), changes }
     })
@@ -544,7 +549,7 @@ const updateRow: AgentTool = {
       const changes = await read(ctx, (r) => {
         const db = scopedDatabase(r, ctx, staged.databaseId!)
         const changes = stageProps(r, { properties: db.properties, locked: db.ydb.get('locked') === true }, null, props, ctx.model.context(ctx.wsId, r))
-        const clash = keyConflict(r, ctx.staged, staged.databaseId!, db.properties, changes, staged.pageId)
+        const clash = keyConflict(r, ctx.staged, staged.databaseId!, db.properties, changes, staged.pageId, ctx.upsert === true)
         if (clash) throw new ToolInputError(clash)
         return changes
       })
@@ -567,7 +572,7 @@ const updateRow: AgentTool = {
       if (!row.databaseId) throw new ToolInputError(`${q(titleOf(row))} is not a database row. Only rows have properties; use set_page_title or append_to_page for pages.`)
       const db = scopedDatabase(r, ctx, row.databaseId)
       const changes = stageProps(r, { properties: db.properties, locked: db.ydb.get('locked') === true }, row, props, ctx.model.context(ctx.wsId, r))
-      const clash = keyConflict(r, ctx.staged, db.page.id, db.properties, changes, row.id)
+      const clash = keyConflict(r, ctx.staged, db.page.id, db.properties, changes, row.id, ctx.upsert === true)
       if (clash) throw new ToolInputError(clash)
       return { row, dbId: db.page.id, changed: changes.filter((c) => c.before !== c.after || c.newOptions?.length) }
     })
@@ -897,5 +902,17 @@ export const AGENT_TOOLS: AgentTool[] = [searchPages, readPage, listDatabases, q
 /** Every agent's own tools (after the workspace tools; no notify_me on the server — see above). */
 export const STATE_TOOLS: AgentTool[] = [stateGet, stateSet]
 
-/** The tools of an agent's write mode ("none": reads only) — and the state tools. */
-export const toolsFor = (write: CustomAgent['write']) => [...AGENT_TOOLS.filter((t) => write !== 'none' || !t.write), ...STATE_TOOLS]
+/** What the workspace's integration profiles unlock for its server agents (integrations.ts). */
+export interface ToolUnlocks {
+  upsert: boolean
+  state: boolean
+}
+
+/**
+ * The tools of an agent's write mode ("none": reads only) — upsert_rows and the state tools only while unlocked
+ * (absent `unlocks` = nothing unlocked).
+ */
+export const toolsFor = (write: CustomAgent['write'], unlocks: ToolUnlocks = { upsert: false, state: false }) => [
+  ...AGENT_TOOLS.filter((t) => (write !== 'none' || !t.write) && (unlocks.upsert || t.name !== 'upsert_rows')),
+  ...(unlocks.state ? STATE_TOOLS : []),
+]

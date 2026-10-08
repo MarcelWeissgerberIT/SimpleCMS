@@ -18,6 +18,8 @@ export const keyMessages: Messages = {
     'database.hand.on': 'Agents no longer write “{name}”. You still can.',
     'database.hand.off': 'Agents may write “{name}” again.',
     'database.hand.mark': 'Only by hand: agents never write it',
+    'database.flag.set': 'Set',
+    'database.flag.gated': 'Set earlier and still in force. An active integration unlocks the switch.',
   },
   de: {
     'database.key.menu': 'Schlüssel',
@@ -35,5 +37,7 @@ export const keyMessages: Messages = {
     'database.hand.on': 'Agenten schreiben „{name}“ nicht mehr. Du weiterhin.',
     'database.hand.off': 'Agenten dürfen „{name}“ wieder schreiben.',
     'database.hand.mark': 'Nur von Hand: Agenten schreiben hier nie',
+    'database.flag.set': 'Gesetzt',
+    'database.flag.gated': 'Früher gesetzt und weiter gültig. Eine aktive Integration schaltet den Schalter frei.',
   },
 }

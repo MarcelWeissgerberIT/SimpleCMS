@@ -2,7 +2,7 @@
  * Custom agents — starter recipes (DE / EN): a filled-in draft for a common job. The draft picks
  * matching parts of the workspace when it finds them (a Mails database, a Projects database, a
  * database with a form, an MCP server that looks like a knowledge base); the editor shows what is still missing.
- * "Mirror a list into a database" asks for its source first and creates its database (mirror.ts, MirrorSetup.tsx).
+ * Mirror recipes are not built in: an active integration profile brings them (integrations/, MirrorSetup.tsx).
  */
 import type { CustomAgent, Database, ID, PageIcon } from '../../store/types'
 import { useWorkspace } from '../../store/store'
@@ -12,13 +12,11 @@ import { newId } from '../../lib/ids'
 import { t } from '../../i18n'
 import { readServers } from '../ai/mcp-servers/config'
 
-export type RecipeId = 'mail' | 'weekly' | 'forms' | 'mirror' | 'atlas' | 'blank'
+export type RecipeId = 'mail' | 'weekly' | 'forms' | 'atlas' | 'blank'
 export const RECIPES: Array<{ id: RecipeId; icon: PageIcon; code: string }> = [
   { id: 'mail', icon: { type: 'lucide', value: 'Mail', color: 'orange' }, code: 'AG-M' },
   { id: 'weekly', icon: { type: 'lucide', value: 'ClipboardList', color: 'blue' }, code: 'AG-W' },
   { id: 'forms', icon: { type: 'lucide', value: 'ListChecks', color: 'green' }, code: 'AG-F' },
-  // asks for its source, name and place first (MirrorSetup.tsx), creates the database, then opens the editor (mirror.ts)
-  { id: 'mirror', icon: { type: 'lucide', value: 'Layers', color: 'brown' }, code: 'AG-S' },
   { id: 'atlas', icon: { type: 'lucide', value: 'Library', color: 'purple' }, code: 'AG-K' },
   { id: 'blank', icon: { type: 'lucide', value: 'Cpu', color: 'gray' }, code: 'AG-0' },
 ]
@@ -68,8 +66,7 @@ export function blankAgent(): CustomAgent {
 export function recipeDraft(id: RecipeId): CustomAgent {
   const base = blankAgent()
   const recipe = RECIPES.find((r) => r.id === id)!
-  // the mirror's draft needs its database: MirrorSetup creates it and mirror.ts makes the draft
-  if (id === 'blank' || id === 'mirror') return base
+  if (id === 'blank') return base
   const draft: CustomAgent = { ...base, icon: recipe.icon, name: t(`features.agents.recipe.${id}.name`), instructions: t(`features.agents.recipe.${id}.instructions`) }
   const tz = localTimeZone()
   switch (id) {

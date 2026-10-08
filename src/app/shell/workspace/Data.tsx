@@ -1,5 +1,5 @@
 /**
- * Workspace page § 05 — Data: backup / export / import (the same keys Settings had: BackupKeys), when this
+ * Workspace page § 07 — Data: backup / export / import (the same keys Settings had: BackupKeys), when this
  * device last saved a full backup, the trash (count + open it), and where the workspace is copied to — the
  * team server (team workspaces) and the folder / GitHub sync of this device (settings: Settings → Sync).
  */
@@ -27,7 +27,7 @@ export function DataSection() {
   const inCloud = useInCloud()
   return (
     <>
-      <SectionHead n="06" title={t('shell.ws.sec.data')} lead={inCloud ? t('shell.ws.data.leadTeam') : t('shell.ws.data.lead')} help="export" />
+      <SectionHead n="07" title={t('shell.ws.sec.data')} lead={inCloud ? t('shell.ws.data.leadTeam') : t('shell.ws.data.lead')} help="export" />
       <SubHead label={t('shell.ws.data.backup')} />
       <BackupKeys />
       <LastBackupLine />
